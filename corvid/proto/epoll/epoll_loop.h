@@ -46,26 +46,26 @@ namespace corvid { inline namespace proto {
 
 using namespace std::chrono_literals;
 
-#pragma region io_conn
+#pragma region epoll_io_conn
 
 // Abstract base for objects registered with `epoll_loop`. Higher-level types
-// (e.g., `stream_conn`) inherit from this and override the three event
+// (e.g., `epoll_stream_conn`) inherit from this and override the three event
 // methods. The default `on_error` falls through to `on_readable` so that
 // read-path code can observe EOF and errors naturally; override to change that
 // behavior.
 //
-// The `epoll_loop` stores a `shared_ptr<io_conn>` per registration, so the
-// object stays alive for the duration of any in-progress dispatch even if the
-// caller unregisters it during a callback.
-struct io_conn: std::enable_shared_from_this<io_conn> {
-  explicit io_conn(net_socket&& sock) : sock_(std::move(sock)) {}
+// The `epoll_loop` stores a `shared_ptr<epoll_io_conn>` per registration, so
+// the object stays alive for the duration of any in-progress dispatch even if
+// the caller unregisters it during a callback.
+struct epoll_io_conn: std::enable_shared_from_this<epoll_io_conn> {
+  explicit epoll_io_conn(net_socket&& sock) : sock_(std::move(sock)) {}
   net_socket& sock() noexcept { return sock_; }
   const net_socket& sock() const noexcept { return sock_; }
 
   virtual bool on_readable() { return false; }
   virtual bool on_writable() { return false; }
   virtual bool on_error() { return on_readable(); }
-  virtual ~io_conn() = default;
+  virtual ~epoll_io_conn() = default;
 
   // Current epoll interest mask. Written only by `epoll_loop` while on the
   // loop thread.
@@ -82,14 +82,15 @@ private:
 // implements a Reactor pattern where we wait for readiness and then act.
 //
 // This is an internal building block for higher-level socket types
-// (e.g., `stream_conn`). User code drives the loop via `run` / `run_once`
-// / `stop`, but never calls `epoll_ctl` directly.
+// (e.g., `epoll_stream_conn`). User code drives the loop via `run` /
+// `run_once` / `stop`, but never calls `epoll_ctl` directly.
 //
-// Call `register_socket` to register an `io_conn`. Read and write readiness
-// interest can be chosen at registration time and later toggled with
+// Call `register_socket` to register an `epoll_io_conn`. Read and write
+// readiness interest can be chosen at registration time and later toggled with
 // `enable_reads` / `enable_writes` without disturbing the registered
-// `io_conn`. `EPOLLERR | EPOLLHUP` stay armed regardless, so sockets still
-// observe closure and error transitions even when regular reads are disarmed.
+// `epoll_io_conn`. `EPOLLERR | EPOLLHUP` stay armed regardless, so sockets
+// still observe closure and error transitions even when regular reads are
+// disarmed.
 //
 // Cross-thread dispatch is provided by `owner_thread_dispatcher`: `post`,
 // `execute_or_post`, `post_and_wait`, and `is_loop_thread` come from the base
@@ -253,7 +254,7 @@ public:
   // write readiness are controlled by `readable` and `writable`. Returns
   // false if `epoll_ctl` fails. If executed outside of loop thread, turns into
   // a `post` and returns true.
-  [[nodiscard]] bool register_socket(std::shared_ptr<io_conn> conn,
+  [[nodiscard]] bool register_socket(std::shared_ptr<epoll_io_conn> conn,
       bool readable = true, bool writable = false) {
     return execute_or_post(
         [this, conn = std::move(conn), readable, writable]() mutable {
@@ -262,9 +263,9 @@ public:
   }
 
   // Add or remove `EPOLLIN` from the event mask for `conn` without changing
-  // the registered `io_conn`. Returns false if `epoll_ctl` fails. If executed
-  // outside of loop thread, turns into a `post` and returns true.
-  [[nodiscard]] bool enable_reads(io_conn& conn, bool on = true) {
+  // the registered `epoll_io_conn`. Returns false if `epoll_ctl` fails. If
+  // executed outside of loop thread, turns into a `post` and returns true.
+  [[nodiscard]] bool enable_reads(epoll_io_conn& conn, bool on = true) {
     auto sp = conn.shared_from_this();
     return execute_or_post([this, sp = std::move(sp), on] {
       return do_enable_reads(*sp, on);
@@ -272,11 +273,11 @@ public:
   }
 
   // Add or remove `EPOLLRDHUP` from the event mask for `conn` without
-  // changing the registered `io_conn`. Disarming is useful after EOF is
+  // changing the registered `epoll_io_conn`. Disarming is useful after EOF is
   // observed on the read side to prevent repeated level-triggered wakeups.
   // Returns false if `epoll_ctl` fails. If executed outside of loop thread,
   // turns into a `post` and returns true.
-  [[nodiscard]] bool enable_rdhup(io_conn& conn, bool on = true) {
+  [[nodiscard]] bool enable_rdhup(epoll_io_conn& conn, bool on = true) {
     auto sp = conn.shared_from_this();
     return execute_or_post([this, sp = std::move(sp), on] {
       return do_enable_rdhup(*sp, on);
@@ -284,9 +285,9 @@ public:
   }
 
   // Add or remove `EPOLLOUT` from the event mask for `conn` without changing
-  // the registered `io_conn`. Returns false if `epoll_ctl` fails. If executed
-  // outside of loop thread, turns into a `post` and returns true.
-  [[nodiscard]] bool enable_writes(io_conn& conn, bool on = true) {
+  // the registered `epoll_io_conn`. Returns false if `epoll_ctl` fails. If
+  // executed outside of loop thread, turns into a `post` and returns true.
+  [[nodiscard]] bool enable_writes(epoll_io_conn& conn, bool on = true) {
     auto sp = conn.shared_from_this();
     return execute_or_post([this, sp = std::move(sp), on] {
       return do_enable_writes(*sp, on);
@@ -296,7 +297,7 @@ public:
   // Unregister `conn`. Returns false if `conn` is not registered or
   // `epoll_ctl` fails. If executed outside of loop thread, turns into a
   // `post` and returns true.
-  [[nodiscard]] bool unregister_socket(io_conn& conn) {
+  [[nodiscard]] bool unregister_socket(epoll_io_conn& conn) {
     auto sp = conn.shared_from_this();
     return execute_or_post([this, sp = std::move(sp)] {
       return do_unregister_socket(*sp);
@@ -316,9 +317,9 @@ public:
   }
 
   // Look up `fd` in the registration table and return the owning
-  // `shared_ptr<io_conn>`, or null if not found. Must be called on the loop
-  // thread.
-  [[nodiscard]] std::shared_ptr<io_conn> find_fd(
+  // `shared_ptr<epoll_io_conn>`, or null if not found. Must be called on the
+  // loop thread.
+  [[nodiscard]] std::shared_ptr<epoll_io_conn> find_fd(
       os_file::file_handle_t fd) const {
     assert(is_loop_thread());
     auto found = find_opt(registrations_, fd);
@@ -330,7 +331,7 @@ public:
 private:
   // Register socket and initial interest in reading and writing. Returns
   // false if already registered or `epoll_ctl` fails.
-  [[nodiscard]] bool do_register_socket(std::shared_ptr<io_conn>&& conn,
+  [[nodiscard]] bool do_register_socket(std::shared_ptr<epoll_io_conn>&& conn,
       bool readable, bool writable) {
     assert(is_loop_thread());
     const int fd = conn->sock().handle();
@@ -347,7 +348,7 @@ private:
 
   // Unregister `conn`. Returns false if `conn` is not registered or
   // `epoll_ctl` fails.
-  [[nodiscard]] bool do_unregister_socket(io_conn& conn) {
+  [[nodiscard]] bool do_unregister_socket(epoll_io_conn& conn) {
     assert(is_loop_thread());
     const int fd = conn.sock().handle();
     if (!registrations_.erase(fd)) return false;
@@ -355,27 +356,31 @@ private:
   }
 
   // Add or remove `EPOLLIN` from the event mask for `conn` without changing
-  // the registered `io_conn`. Returns false if `epoll_ctl` fails.
-  [[nodiscard]] bool do_enable_reads(io_conn& conn, bool on = true) noexcept {
+  // the registered `epoll_io_conn`. Returns false if `epoll_ctl` fails.
+  [[nodiscard]] bool
+  do_enable_reads(epoll_io_conn& conn, bool on = true) noexcept {
     return do_enable_interest(conn, EPOLLIN, on);
   }
 
   // Add or remove `EPOLLOUT` from the event mask for `conn` without changing
-  // the registered `io_conn`. Returns false if `epoll_ctl` fails.
-  [[nodiscard]] bool do_enable_writes(io_conn& conn, bool on = true) noexcept {
+  // the registered `epoll_io_conn`. Returns false if `epoll_ctl` fails.
+  [[nodiscard]] bool
+  do_enable_writes(epoll_io_conn& conn, bool on = true) noexcept {
     return do_enable_interest(conn, EPOLLOUT, on);
   }
 
   // Add or remove `EPOLLRDHUP` from the event mask for `conn` without
-  // changing the registered `io_conn`. Returns false if `epoll_ctl` fails.
-  [[nodiscard]] bool do_enable_rdhup(io_conn& conn, bool on = true) noexcept {
+  // changing the registered `epoll_io_conn`. Returns false if `epoll_ctl`
+  // fails.
+  [[nodiscard]] bool
+  do_enable_rdhup(epoll_io_conn& conn, bool on = true) noexcept {
     return do_enable_interest(conn, EPOLLRDHUP, on);
   }
 
   // Add or remove `flag` from the event mask for `conn` without changing the
-  // registered `io_conn`. Returns false if `epoll_ctl` fails.
-  [[nodiscard]] bool
-  do_enable_interest(io_conn& conn, uint32_t flag, bool on = true) noexcept {
+  // registered `epoll_io_conn`. Returns false if `epoll_ctl` fails.
+  [[nodiscard]] bool do_enable_interest(epoll_io_conn& conn, uint32_t flag,
+      bool on = true) noexcept {
     assert(is_loop_thread());
     const auto fd = conn.sock().handle();
     assert(registrations_.contains(fd));
@@ -397,9 +402,9 @@ private:
     // `EPOLLRDHUP` is armed by default so that peer half-closes (`SHUT_WR`)
     // are detected even when `EPOLLIN` is not subscribed. It can be disarmed
     // after EOF is observed via `enable_rdhup(sock, false)`.
-    // This loop intentionally stays level-triggered. `stream_conn` only arms
-    // `EPOLLOUT` while a send queue is backpressured, so LT does not create
-    // steady writable wakeups, and switching to `EPOLLET` would require
+    // This loop intentionally stays level-triggered. `epoll_stream_conn` only
+    // arms `EPOLLOUT` while a send queue is backpressured, so LT does not
+    // create steady writable wakeups, and switching to `EPOLLET` would require
     // every read/write handler to drain to `EAGAIN` to avoid missed
     // readiness.
     constexpr uint32_t always_on_events = EPOLLERR | EPOLLHUP | EPOLLRDHUP;
@@ -408,8 +413,8 @@ private:
   }
 
   // Dispatch a single epoll event for `fd` with event mask `ev`. The
-  // `shared_ptr<io_conn>` is copied before any virtual call so the object
-  // stays alive even if a callback calls `unregister_socket`. Returns
+  // `shared_ptr<epoll_io_conn>` is copied before any virtual call so the
+  // object stays alive even if a callback calls `unregister_socket`. Returns
   // whether the event was dispatched.
   [[nodiscard]] bool dispatch_event(int fd, uint32_t ev) {
     assert(is_loop_thread());
@@ -448,7 +453,7 @@ private:
 private:
   const epoll epoll_;
 
-  std::unordered_map<int, std::shared_ptr<io_conn>> registrations_;
+  std::unordered_map<int, std::shared_ptr<epoll_io_conn>> registrations_;
 
   tombstone has_run_;
   notifiable<std::atomic_bool> running_;
@@ -513,11 +518,11 @@ public:
   ~epoll_loop_runner() {
     thread_.request_stop();
     if (!thread_.joinable()) return;
-    // `http_server` can be destroyed from the loop thread when a callback's
-    // temporary `shared_ptr` is the final owner. libc++ throws on self-join,
-    // so detach in that narrow case after requesting stop. The worker keeps
-    // its own ref to `runner_state`, so it remains safe to access after we
-    // release `state_` here.
+    // `epoll_http_server` can be destroyed from the loop thread when a
+    // callback's temporary `shared_ptr` is the final owner. libc++ throws on
+    // self-join, so detach in that narrow case after requesting stop. The
+    // worker keeps its own ref to `runner_state`, so it remains safe to access
+    // after we release `state_` here.
     if (thread_.get_id() == std::this_thread::get_id())
       thread_.detach();
     else

@@ -45,23 +45,23 @@ bool is_codex() {
 // Verify that a well-formed HTTP/1.1 GET request is parsed correctly.
 // Load `data` into `buf` and return a live view with a no-op resume callback.
 // `buf` must outlive the returned view.
-[[nodiscard]] recv_buffer_view
-wstx_make_view(recv_buffer& buf, std::string_view data = {}) {
+[[nodiscard]] epoll_recv_buffer_view
+wstx_make_view(epoll_recv_buffer& buf, std::string_view data = {}) {
   buf.reads_enabled = false;
   buf.resize(std::max(data.size() + 1, size_t{256}));
   if (!data.empty()) std::memcpy(buf.buffer.data(), data.data(), data.size());
   buf.end.store(data.size(), std::memory_order::relaxed);
   buf.begin.store(0, std::memory_order::relaxed);
-  return recv_buffer_view{buf, [](size_t, size_t) {}};
+  return epoll_recv_buffer_view{buf, [](size_t, size_t) {}};
 }
 
 // Build a well-formed WebSocket upgrade `request_head` without parsing.
 [[nodiscard]] request_head wstx_make_upgrade_req(
     std::string* accept_key_ptr = nullptr) {
-  http_websocket hws{[](any_strings&&) { return true; }};
+  epoll_http_websocket hws{[](any_strings&&) { return true; }};
   std::string accept_key;
   request_head req =
-      http_websocket::generate_upgrade_request("/ws", accept_key);
+      epoll_http_websocket::generate_upgrade_request("/ws", accept_key);
   if (accept_key_ptr) *accept_key_ptr = std::move(accept_key);
   return req;
 }
@@ -73,7 +73,7 @@ void wstx_reextract_options(request_head& req) {
 
 #pragma region AcceptKey
 
-// `ws_frame_wrapper` and `http_websocket` unit tests.
+// `ws_frame_wrapper` and `epoll_http_websocket` unit tests.
 
 // RFC 6455 section 1.3: known input -> known accept key.
 TEST_CASE("AcceptKey", "[WebSocket]") {
@@ -113,13 +113,14 @@ TEST_CASE("FrameCodec_RoundTrip", "[WebSocket]") {
 TEST_CASE("Feed_SingleText", "[WebSocket]") {
   std::string got_msg;
   ws_frame_control got_op{};
-  http_websocket ws{[](any_strings&&) { return true; },
+  epoll_http_websocket ws{[](any_strings&&) { return true; },
       connection_role::client};
-  ws.on_message = [&](http_websocket&, std::string&& p, ws_frame_control op) {
-    got_msg = std::move(p);
-    got_op = op;
-    return true;
-  };
+  ws.on_message =
+      [&](epoll_http_websocket&, std::string&& p, ws_frame_control op) {
+        got_msg = std::move(p);
+        got_op = op;
+        return true;
+      };
   const auto frame = ws_frame_lens::serialize_frame(
       ws_frame_control::fin | ws_frame_control::text, "hello");
   std::string_view wire{frame};
@@ -135,12 +136,12 @@ TEST_CASE("Feed_SingleText", "[WebSocket]") {
 // Invalid UTF-8 in a text frame fails the connection with close code 1007.
 TEST_CASE("Feed_SingleTextInvalidUtf8", "[WebSocket]") {
   std::string sent_frame;
-  http_websocket ws{[&](any_strings&& f) {
+  epoll_http_websocket ws{[&](any_strings&& f) {
     sent_frame = std::get<std::string>(std::move(f));
     return true;
   }};
   bool msg_fired{};
-  ws.on_message = [&](http_websocket&, std::string&&, ws_frame_control) {
+  ws.on_message = [&](epoll_http_websocket&, std::string&&, ws_frame_control) {
     msg_fired = true;
     return true;
   };
@@ -148,7 +149,7 @@ TEST_CASE("Feed_SingleTextInvalidUtf8", "[WebSocket]") {
   std::string wire_frame = ws_frame_lens::serialize_frame(
       ws_frame_control::fin | ws_frame_control::text, "\x80", 0x12345678U);
   std::string_view wire{wire_frame};
-  CHECK(ws.feed(wire) == http_websocket::insatiable);
+  CHECK(ws.feed(wire) == epoll_http_websocket::insatiable);
   CHECK_FALSE(msg_fired);
 
   ws_frame_view hdr{sent_frame};
@@ -172,14 +173,15 @@ TEST_CASE("Feed_SingleTextInvalidUtf8Disabled", "[WebSocket]") {
   std::string got_msg;
   ws_frame_control got_op{};
   bool msg_fired{};
-  http_websocket ws{[](any_strings&&) { return true; }};
+  epoll_http_websocket ws{[](any_strings&&) { return true; }};
   ws.validate_utf8 = false;
-  ws.on_message = [&](http_websocket&, std::string&& p, ws_frame_control op) {
-    got_msg = std::move(p);
-    got_op = op;
-    msg_fired = true;
-    return true;
-  };
+  ws.on_message =
+      [&](epoll_http_websocket&, std::string&& p, ws_frame_control op) {
+        got_msg = std::move(p);
+        got_op = op;
+        msg_fired = true;
+        return true;
+      };
 
   std::string wire_frame = ws_frame_lens::serialize_frame(
       ws_frame_control::fin | ws_frame_control::text, "\x80", 0x12345678U);
@@ -197,12 +199,13 @@ TEST_CASE("Feed_SingleTextInvalidUtf8Disabled", "[WebSocket]") {
 TEST_CASE("Feed_MaskedBinary", "[WebSocket]") {
   std::string got_msg;
   ws_frame_control got_op{};
-  http_websocket ws{[](any_strings&&) { return true; }};
-  ws.on_message = [&](http_websocket&, std::string&& p, ws_frame_control op) {
-    got_msg = std::move(p);
-    got_op = op;
-    return true;
-  };
+  epoll_http_websocket ws{[](any_strings&&) { return true; }};
+  ws.on_message =
+      [&](epoll_http_websocket&, std::string&& p, ws_frame_control op) {
+        got_msg = std::move(p);
+        got_op = op;
+        return true;
+      };
   const auto frame = ws_frame_lens::serialize_frame(
       ws_frame_control::fin | ws_frame_control::binary, "world",
       uint32_t{0xDEADBEEF});
@@ -220,17 +223,17 @@ TEST_CASE("Feed_MaskedBinary", "[WebSocket]") {
 TEST_CASE("Feed_Ping", "[WebSocket]") {
   std::string sent_frame;
   bool msg_fired{};
-  http_websocket ws_server{[&](any_strings&& f) {
+  epoll_http_websocket ws_server{[&](any_strings&& f) {
     sent_frame = std::get<std::string>(std::move(f));
     return true;
   }};
   ws_server.on_message =
-      [&](http_websocket&, std::string&&, ws_frame_control) {
+      [&](epoll_http_websocket&, std::string&&, ws_frame_control) {
         msg_fired = true;
         return true;
       };
   std::string received_frame;
-  http_websocket ws_client{
+  epoll_http_websocket ws_client{
       [&](any_strings&& frame) {
         received_frame = std::get<std::string>(std::move(frame));
         return true;
@@ -261,14 +264,14 @@ TEST_CASE("Feed_Ping", "[WebSocket]") {
 TEST_CASE("Feed_Close", "[WebSocket]") {
   uint16_t got_code{};
   std::string got_reason;
-  http_websocket ws_server{[](any_strings&&) { return true; }};
+  epoll_http_websocket ws_server{[](any_strings&&) { return true; }};
   ws_server.on_close =
-      [&](http_websocket&, uint16_t code, std::string_view reason) {
+      [&](epoll_http_websocket&, uint16_t code, std::string_view reason) {
         got_code = code;
         got_reason = reason;
       };
   std::string received_frame;
-  http_websocket ws_client{
+  epoll_http_websocket ws_client{
       [&](any_strings&& frame) {
         received_frame = std::get<std::string>(std::move(frame));
         return true;
@@ -290,11 +293,11 @@ TEST_CASE("Feed_Close", "[WebSocket]") {
 TEST_CASE("Feed_CloseInvalidUtf8Reason", "[WebSocket]") {
   std::string sent_frame;
   bool close_fired{};
-  http_websocket ws_server{[&](any_strings&& f) {
+  epoll_http_websocket ws_server{[&](any_strings&& f) {
     sent_frame = std::get<std::string>(std::move(f));
     return true;
   }};
-  ws_server.on_close = [&](http_websocket&, uint16_t, std::string_view) {
+  ws_server.on_close = [&](epoll_http_websocket&, uint16_t, std::string_view) {
     close_fired = true;
   };
   std::string payload;
@@ -330,15 +333,16 @@ TEST_CASE("Feed_Fragmented", "[WebSocket]") {
   std::string got_msg;
   ws_frame_control got_op{};
   int msg_count{};
-  http_websocket ws{[](any_strings&&) { return true; }};
-  ws.on_message = [&](http_websocket&, std::string&& p, ws_frame_control op) {
-    got_msg = std::move(p);
-    got_op = op;
-    ++msg_count;
-    return true;
-  };
+  epoll_http_websocket ws{[](any_strings&&) { return true; }};
+  ws.on_message =
+      [&](epoll_http_websocket&, std::string&& p, ws_frame_control op) {
+        got_msg = std::move(p);
+        got_op = op;
+        ++msg_count;
+        return true;
+      };
   std::string received_frame;
-  http_websocket ws_client{
+  epoll_http_websocket ws_client{
       [&](any_strings&& frame) {
         received_frame = std::get<std::string>(std::move(frame));
         return true;
@@ -383,14 +387,15 @@ TEST_CASE("Feed_FragmentedDelivery", "[WebSocket]") {
     ws_frame_control op{};
   };
   std::vector<Call> calls;
-  http_websocket ws{[](any_strings&&) { return true; }};
+  epoll_http_websocket ws{[](any_strings&&) { return true; }};
   ws.deliver_fragments = true;
-  ws.on_message = [&](http_websocket&, std::string&& p, ws_frame_control op) {
-    calls.push_back({std::move(p), op});
-    return true;
-  };
+  ws.on_message =
+      [&](epoll_http_websocket&, std::string&& p, ws_frame_control op) {
+        calls.push_back({std::move(p), op});
+        return true;
+      };
   std::string received_frame;
-  http_websocket ws_client{
+  epoll_http_websocket ws_client{
       [&](any_strings&& frame) {
         received_frame = std::get<std::string>(std::move(frame));
         return true;
@@ -437,14 +442,15 @@ TEST_CASE("Feed_FragmentedDeliverySplitUtf8", "[WebSocket]") {
     ws_frame_control op{};
   };
   std::vector<Call> calls;
-  http_websocket ws{[](any_strings&&) { return true; }};
+  epoll_http_websocket ws{[](any_strings&&) { return true; }};
   ws.deliver_fragments = true;
-  ws.on_message = [&](http_websocket&, std::string&& p, ws_frame_control op) {
-    calls.push_back({std::move(p), op});
-    return true;
-  };
+  ws.on_message =
+      [&](epoll_http_websocket&, std::string&& p, ws_frame_control op) {
+        calls.push_back({std::move(p), op});
+        return true;
+      };
   std::string received_frame;
-  http_websocket ws_client{
+  epoll_http_websocket ws_client{
       [&](any_strings&& frame) {
         received_frame = std::get<std::string>(std::move(frame));
         return true;
@@ -474,13 +480,13 @@ TEST_CASE("Feed_FragmentedDeliverySplitUtf8", "[WebSocket]") {
 // In fragment-delivery mode, invalid UTF-8 across frames fails with 1007.
 TEST_CASE("Feed_FragmentedDeliveryInvalidUtf8", "[WebSocket]") {
   std::string sent_frame;
-  http_websocket ws{[&](any_strings&& f) {
+  epoll_http_websocket ws{[&](any_strings&& f) {
     sent_frame = std::get<std::string>(std::move(f));
     return true;
   }};
   ws.deliver_fragments = true;
   std::string received_frame;
-  http_websocket ws_client{
+  epoll_http_websocket ws_client{
       [&](any_strings&& frame) {
         received_frame = std::get<std::string>(std::move(frame));
         return true;
@@ -495,7 +501,7 @@ TEST_CASE("Feed_FragmentedDeliveryInvalidUtf8", "[WebSocket]") {
   CHECK(ws_client.send_frame(
       ws_frame_control::fin | ws_frame_control::continuation, "A"));
   wire = received_frame;
-  CHECK(ws.feed(wire) == http_websocket::insatiable);
+  CHECK(ws.feed(wire) == epoll_http_websocket::insatiable);
 
   ws_frame_view hdr{sent_frame};
   REQUIRE(hdr.is_complete());
@@ -517,13 +523,13 @@ TEST_CASE("Feed_FragmentedDeliveryInvalidUtf8", "[WebSocket]") {
 // mid-code-point.
 TEST_CASE("Feed_FragmentedDeliveryInvalidUtf8EmptyFinal", "[WebSocket]") {
   std::string sent_frame;
-  http_websocket ws{[&](any_strings&& f) {
+  epoll_http_websocket ws{[&](any_strings&& f) {
     sent_frame = std::get<std::string>(std::move(f));
     return true;
   }};
   ws.deliver_fragments = true;
   std::string received_frame;
-  http_websocket ws_client{
+  epoll_http_websocket ws_client{
       [&](any_strings&& frame) {
         received_frame = std::get<std::string>(std::move(frame));
         return true;
@@ -538,7 +544,7 @@ TEST_CASE("Feed_FragmentedDeliveryInvalidUtf8EmptyFinal", "[WebSocket]") {
   CHECK(ws_client.send_frame(
       ws_frame_control::fin | ws_frame_control::continuation, ""));
   wire = received_frame;
-  CHECK(ws.feed(wire) == http_websocket::insatiable);
+  CHECK(ws.feed(wire) == epoll_http_websocket::insatiable);
 
   ws_frame_view hdr{sent_frame};
   REQUIRE(hdr.is_complete());
@@ -563,15 +569,16 @@ TEST_CASE("Feed_FragmentedDeliveryInvalidUtf8Disabled", "[WebSocket]") {
     ws_frame_control op{};
   };
   std::vector<Call> calls;
-  http_websocket ws{[](any_strings&&) { return true; }};
+  epoll_http_websocket ws{[](any_strings&&) { return true; }};
   ws.deliver_fragments = true;
   ws.validate_utf8 = false;
-  ws.on_message = [&](http_websocket&, std::string&& p, ws_frame_control op) {
-    calls.push_back({std::move(p), op});
-    return true;
-  };
+  ws.on_message =
+      [&](epoll_http_websocket&, std::string&& p, ws_frame_control op) {
+        calls.push_back({std::move(p), op});
+        return true;
+      };
   std::string received_frame;
-  http_websocket ws_client{
+  epoll_http_websocket ws_client{
       [&](any_strings&& frame) {
         received_frame = std::get<std::string>(std::move(frame));
         return true;
@@ -601,8 +608,8 @@ TEST_CASE("Feed_FragmentedDeliveryInvalidUtf8Disabled", "[WebSocket]") {
 // Feeding only the header bytes of a frame returns true (awaiting payload).
 TEST_CASE("Feed_PartialFrame", "[WebSocket]") {
   bool msg_fired{};
-  http_websocket ws{[](any_strings&&) { return true; }};
-  ws.on_message = [&](http_websocket&, std::string&&, ws_frame_control) {
+  epoll_http_websocket ws{[](any_strings&&) { return true; }};
+  ws.on_message = [&](epoll_http_websocket&, std::string&&, ws_frame_control) {
     msg_fired = true;
     return true;
   };
@@ -651,11 +658,11 @@ TEST_CASE("Feed_PartialFrame", "[WebSocket]") {
 #pragma endregion
 #pragma region Feed_RecvBufferViewRequestsFrameSizedGrowth
 
-// `feed(recv_buffer_view&)` requests growth to the full frame size when a
-// frame prefix fills the buffer but the completed frame would not fit after
+// `feed(epoll_recv_buffer_view&)` requests growth to the full frame size when
+// a frame prefix fills the buffer but the completed frame would not fit after
 // compaction.
 TEST_CASE("Feed_RecvBufferViewRequestsFrameSizedGrowth", "[WebSocket]") {
-  recv_buffer rb;
+  epoll_recv_buffer rb;
   rb.buffer.resize(256);
   const size_t capacity = rb.buffer.capacity();
   rb.min_capacity = capacity;
@@ -671,12 +678,12 @@ TEST_CASE("Feed_RecvBufferViewRequestsFrameSizedGrowth", "[WebSocket]") {
   size_t resume_new_size{};
   size_t resume_last_seen_end{};
   {
-    recv_buffer_view view{rb,
+    epoll_recv_buffer_view view{rb,
         [&](size_t n, size_t lse) {
           resume_new_size = n;
           resume_last_seen_end = lse;
         }};
-    http_websocket ws{[](any_strings&&) { return true; }};
+    epoll_http_websocket ws{[](any_strings&&) { return true; }};
     CHECK(ws.feed(view));
   }
 
@@ -690,11 +697,12 @@ TEST_CASE("Feed_RecvBufferViewRequestsFrameSizedGrowth", "[WebSocket]") {
 // Two complete frames in one buffer each fire on_message.
 TEST_CASE("Feed_MultipleFrames", "[WebSocket]") {
   std::vector<std::string> msgs;
-  http_websocket ws{[](any_strings&&) { return true; }};
-  ws.on_message = [&](http_websocket&, std::string&& p, ws_frame_control) {
-    msgs.emplace_back(std::move(p));
-    return true;
-  };
+  epoll_http_websocket ws{[](any_strings&&) { return true; }};
+  ws.on_message =
+      [&](epoll_http_websocket&, std::string&& p, ws_frame_control) {
+        msgs.emplace_back(std::move(p));
+        return true;
+      };
   const std::string both =
       ws_frame_lens::serialize_frame(
           ws_frame_control::fin | ws_frame_control::text, "foo", 0) +
@@ -710,27 +718,28 @@ TEST_CASE("Feed_MultipleFrames", "[WebSocket]") {
 #pragma endregion
 #pragma region Feed_MultipleFramesViaView
 
-// Two complete frames in one `recv_buffer_view` call: both must be delivered.
-// This exercises `feed(recv_buffer_view&)` specifically, not the
-// `feed(std::string_view&)` overload.
+// Two complete frames in one `epoll_recv_buffer_view` call: both must be
+// delivered. This exercises `feed(epoll_recv_buffer_view&)` specifically, not
+// the `feed(std::string_view&)` overload.
 TEST_CASE("Feed_MultipleFramesViaView", "[WebSocket]") {
   std::vector<std::string> msgs;
-  http_websocket ws{[](any_strings&&) { return true; }};
-  ws.on_message = [&](http_websocket&, std::string&& p, ws_frame_control) {
-    msgs.emplace_back(std::move(p));
-    return true;
-  };
+  epoll_http_websocket ws{[](any_strings&&) { return true; }};
+  ws.on_message =
+      [&](epoll_http_websocket&, std::string&& p, ws_frame_control) {
+        msgs.emplace_back(std::move(p));
+        return true;
+      };
   const std::string both =
       ws_frame_lens::serialize_frame(
           ws_frame_control::fin | ws_frame_control::text, "foo", 0) +
       ws_frame_lens::serialize_frame(
           ws_frame_control::fin | ws_frame_control::text, "bar", 0);
-  recv_buffer buf;
+  epoll_recv_buffer buf;
   buf.reads_enabled = false;
   buf.resize(both.size() + 1);
   std::memcpy(buf.buffer.data(), both.data(), both.size());
   buf.end.store(both.size(), std::memory_order::relaxed);
-  recv_buffer_view view{buf, [](size_t, size_t) {}};
+  epoll_recv_buffer_view view{buf, [](size_t, size_t) {}};
   CHECK(ws.feed(view));
   REQUIRE(msgs.size() == 2ULL);
   CHECK(msgs[0] == "foo");
@@ -742,7 +751,7 @@ TEST_CASE("Feed_MultipleFramesViaView", "[WebSocket]") {
 
 // A continuation frame without a prior start fragment is a protocol error.
 TEST_CASE("Feed_BadContinuation", "[WebSocket]") {
-  http_websocket ws{[](any_strings&&) { return true; }};
+  epoll_http_websocket ws{[](any_strings&&) { return true; }};
   std::string buf = ws_frame_lens::serialize_frame(
       ws_frame_control::fin | ws_frame_control::continuation, "data");
   std::string_view wire{buf};
@@ -754,7 +763,7 @@ TEST_CASE("Feed_BadContinuation", "[WebSocket]") {
 
 // A non-continuation data frame arriving mid-fragment is a protocol error.
 TEST_CASE("Feed_InterleavedData", "[WebSocket]") {
-  http_websocket ws{[](any_strings&&) { return true; }};
+  epoll_http_websocket ws{[](any_strings&&) { return true; }};
   std::string buf =
       ws_frame_lens::serialize_frame(ws_frame_control::text, "start", 0);
   std::string_view wire{buf};
@@ -775,8 +784,8 @@ TEST_CASE("Feed_InterleavedData", "[WebSocket]") {
 // `insatiable`).
 TEST_CASE("Feed_DataAfterSentClose", "[WebSocket]") {
   bool msg_fired{};
-  http_websocket ws{[](any_strings&&) { return true; }};
-  ws.on_message = [&](http_websocket&, std::string&&, ws_frame_control) {
+  epoll_http_websocket ws{[](any_strings&&) { return true; }};
+  ws.on_message = [&](epoll_http_websocket&, std::string&&, ws_frame_control) {
     msg_fired = true;
     return true;
   };
@@ -801,11 +810,11 @@ TEST_CASE("Feed_DataAfterSentClose", "[WebSocket]") {
 TEST_CASE("Feed_DataAfterReceivedClose", "[WebSocket]") {
   bool msg_fired{};
   std::string sent_frame;
-  http_websocket ws{[&](any_strings&& f) {
+  epoll_http_websocket ws{[&](any_strings&& f) {
     sent_frame = std::get<std::string>(std::move(f));
     return true;
   }};
-  ws.on_message = [&](http_websocket&, std::string&&, ws_frame_control) {
+  ws.on_message = [&](epoll_http_websocket&, std::string&&, ws_frame_control) {
     msg_fired = true;
     return true;
   };
@@ -832,7 +841,7 @@ TEST_CASE("Feed_DataAfterReceivedClose", "[WebSocket]") {
 // Server pump sends unmasked frames.
 TEST_CASE("Send_Server", "[WebSocket]") {
   std::string sent;
-  http_websocket ws{[&](any_strings&& f) {
+  epoll_http_websocket ws{[&](any_strings&& f) {
     sent = std::get<std::string>(std::move(f));
     return true;
   }};
@@ -854,7 +863,7 @@ TEST_CASE("Send_Server", "[WebSocket]") {
 // Client pump sends masked frames; payload round-trips via unmask.
 TEST_CASE("Send_Client", "[WebSocket]") {
   std::string sent;
-  http_websocket ws{
+  epoll_http_websocket ws{
       [&](any_strings&& f) {
         sent = std::get<std::string>(std::move(f));
         return true;
@@ -1008,7 +1017,7 @@ TEST_CASE("FrameWrapper_MaskPayloadCopyByteOrder", "[WebSocket]") {
 // `send_binary` sends a FIN+binary frame with the correct opcode.
 TEST_CASE("Send_Binary", "[WebSocket]") {
   std::string sent;
-  http_websocket ws{[&](any_strings&& f) {
+  epoll_http_websocket ws{[&](any_strings&& f) {
     sent = std::get<std::string>(std::move(f));
     return true;
   }};
@@ -1030,7 +1039,7 @@ TEST_CASE("Send_Binary", "[WebSocket]") {
 // block outbound data.
 TEST_CASE("Send_Pong_Direct", "[WebSocket]") {
   std::string sent;
-  http_websocket ws{[&](any_strings&& f) {
+  epoll_http_websocket ws{[&](any_strings&& f) {
     sent = std::get<std::string>(std::move(f));
     return true;
   }};
@@ -1051,7 +1060,7 @@ TEST_CASE("Send_Pong_Direct", "[WebSocket]") {
 // send callback.
 TEST_CASE("Send_Frame_Prebuilt", "[WebSocket]") {
   std::string sent;
-  http_websocket ws{[&](any_strings&& f) {
+  epoll_http_websocket ws{[&](any_strings&& f) {
     sent = std::get<std::string>(std::move(f));
     return true;
   }};
@@ -1073,7 +1082,7 @@ TEST_CASE("Send_Frame_Prebuilt", "[WebSocket]") {
 TEST_CASE("Hangup", "[WebSocket]") {
   bool called{};
   bool got_monostate{};
-  http_websocket ws{[&](any_strings&& f) {
+  epoll_http_websocket ws{[&](any_strings&& f) {
     called = true;
     got_monostate = std::holds_alternative<std::monostate>(f);
     return true;
@@ -1093,7 +1102,7 @@ TEST_CASE("Fail", "[WebSocket]") {
   // `fail` with no prior close sends a close frame.
   {
     std::string sent;
-    http_websocket ws{[&](any_strings&& f) {
+    epoll_http_websocket ws{[&](any_strings&& f) {
       sent = std::get<std::string>(std::move(f));
       return true;
     }};
@@ -1107,7 +1116,7 @@ TEST_CASE("Fail", "[WebSocket]") {
   // `fail_proto` sends close code 1002 with a prefixed reason string.
   {
     std::string sent;
-    http_websocket ws{[&](any_strings&& f) {
+    epoll_http_websocket ws{[&](any_strings&& f) {
       sent = std::get<std::string>(std::move(f));
       return true;
     }};
@@ -1127,33 +1136,35 @@ TEST_CASE("Fail", "[WebSocket]") {
 
   // `fail_insatiable` returns `insatiable`.
   {
-    http_websocket ws{[](any_strings&&) { return true; }};
-    CHECK(ws.fail_insatiable(1000, "error") == http_websocket::insatiable);
+    epoll_http_websocket ws{[](any_strings&&) { return true; }};
+    CHECK(
+        ws.fail_insatiable(1000, "error") == epoll_http_websocket::insatiable);
   }
 }
 
 #pragma endregion
 #pragma region OnDrain
 
-// `on_drain` callback on `http_websocket_transaction` is invoked from
+// `on_drain` callback on `epoll_http_websocket_transaction` is invoked from
 // `handle_drain` after the upgrade response is flushed.
 TEST_CASE("OnDrain", "[WebSocketTransaction]") {
-  auto tx =
-      std::make_shared<http_websocket_transaction>(wstx_make_upgrade_req());
+  auto tx = std::make_shared<epoll_http_websocket_transaction>(
+      wstx_make_upgrade_req());
 
   int drain_count{};
-  tx->on_drain = [&](http_transaction&, const http_transaction::send_fn&) {
-    ++drain_count;
-    return stream_claim::claim;
-  };
+  tx->on_drain =
+      [&](epoll_http_transaction&, const epoll_http_transaction::send_fn&) {
+        ++drain_count;
+        return stream_claim::claim;
+      };
 
-  recv_buffer buf;
+  epoll_recv_buffer buf;
   {
     auto view = wstx_make_view(buf);
     REQUIRE(tx->handle_data(view) == stream_claim::claim);
   }
 
-  http_transaction::send_fn send_fn{[](any_strings&&) { return true; }};
+  epoll_http_transaction::send_fn send_fn{[](any_strings&&) { return true; }};
   // First drain flushes the 101 response, then falls through to `on_drain`.
   CHECK(tx->handle_drain(send_fn) == stream_claim::claim);
   CHECK(drain_count == 1);
@@ -1168,9 +1179,9 @@ TEST_CASE("OnDrain", "[WebSocketTransaction]") {
 
 // Valid upgrade handshake: `handle_data` returns `claim`.
 TEST_CASE("UpgradeSuccess", "[WebSocketTransaction]") {
-  auto tx =
-      std::make_shared<http_websocket_transaction>(wstx_make_upgrade_req());
-  recv_buffer buf;
+  auto tx = std::make_shared<epoll_http_websocket_transaction>(
+      wstx_make_upgrade_req());
+  epoll_recv_buffer buf;
   auto view = wstx_make_view(buf);
   CHECK(tx->handle_data(view) == stream_claim::claim);
 }
@@ -1181,16 +1192,16 @@ TEST_CASE("UpgradeSuccess", "[WebSocketTransaction]") {
 // After upgrade, `handle_drain` sends the 101 response and returns `claim`.
 TEST_CASE("DrainSendsResponse", "[WebSocketTransaction]") {
   std::string expected_accept_key;
-  auto tx = std::make_shared<http_websocket_transaction>(
+  auto tx = std::make_shared<epoll_http_websocket_transaction>(
       wstx_make_upgrade_req(&expected_accept_key));
-  recv_buffer buf;
+  epoll_recv_buffer buf;
   {
     auto view = wstx_make_view(buf);
     REQUIRE(tx->handle_data(view) == stream_claim::claim);
   }
 
   std::string sent;
-  http_transaction::send_fn send_fn{[&](any_strings&& data) {
+  epoll_http_transaction::send_fn send_fn{[&](any_strings&& data) {
     sent = std::get<std::string>(std::move(data));
     return true;
   }};
@@ -1212,9 +1223,9 @@ TEST_CASE("DrainSendsResponse", "[WebSocketTransaction]") {
 
 // `handle_drain` before `handle_data` has been called returns `release`.
 TEST_CASE("DrainBeforeUpgrade", "[WebSocketTransaction]") {
-  auto tx =
-      std::make_shared<http_websocket_transaction>(wstx_make_upgrade_req());
-  http_transaction::send_fn send_fn{[](any_strings&&) { return true; }};
+  auto tx = std::make_shared<epoll_http_websocket_transaction>(
+      wstx_make_upgrade_req());
+  epoll_http_transaction::send_fn send_fn{[](any_strings&&) { return true; }};
   CHECK(tx->handle_drain(send_fn) == stream_claim::release);
 }
 
@@ -1225,8 +1236,8 @@ TEST_CASE("DrainBeforeUpgrade", "[WebSocketTransaction]") {
 TEST_CASE("BadMethod", "[WebSocketTransaction]") {
   auto req = wstx_make_upgrade_req();
   req.method = http_method::POST;
-  auto tx = std::make_shared<http_websocket_transaction>(std::move(req));
-  recv_buffer buf;
+  auto tx = std::make_shared<epoll_http_websocket_transaction>(std::move(req));
+  epoll_recv_buffer buf;
   auto view = wstx_make_view(buf);
   CHECK(tx->handle_data(view) == stream_claim::release);
 }
@@ -1238,8 +1249,8 @@ TEST_CASE("BadMethod", "[WebSocketTransaction]") {
 TEST_CASE("MissingUpgrade", "[WebSocketTransaction]") {
   auto req = wstx_make_upgrade_req();
   req.options.upgrade = std::nullopt;
-  auto tx = std::make_shared<http_websocket_transaction>(std::move(req));
-  recv_buffer buf;
+  auto tx = std::make_shared<epoll_http_websocket_transaction>(std::move(req));
+  epoll_recv_buffer buf;
   auto view = wstx_make_view(buf);
   CHECK(tx->handle_data(view) == stream_claim::release);
 }
@@ -1252,8 +1263,8 @@ TEST_CASE("MissingConnection", "[WebSocketTransaction]") {
   auto req = wstx_make_upgrade_req();
   req.headers.remove_key("Connection");
   wstx_reextract_options(req);
-  auto tx = std::make_shared<http_websocket_transaction>(std::move(req));
-  recv_buffer buf;
+  auto tx = std::make_shared<epoll_http_websocket_transaction>(std::move(req));
+  epoll_recv_buffer buf;
   auto view = wstx_make_view(buf);
   CHECK(tx->handle_data(view) == stream_claim::release);
 }
@@ -1266,8 +1277,8 @@ TEST_CASE("WrongVersion", "[WebSocketTransaction]") {
   auto req = wstx_make_upgrade_req();
   req.headers.remove_key("Sec-Websocket-Version");
   (void)req.headers.add_raw("Sec-Websocket-Version", "8");
-  auto tx = std::make_shared<http_websocket_transaction>(std::move(req));
-  recv_buffer buf;
+  auto tx = std::make_shared<epoll_http_websocket_transaction>(std::move(req));
+  epoll_recv_buffer buf;
   auto view = wstx_make_view(buf);
   CHECK(tx->handle_data(view) == stream_claim::release);
 }
@@ -1279,8 +1290,8 @@ TEST_CASE("WrongVersion", "[WebSocketTransaction]") {
 TEST_CASE("MissingKey", "[WebSocketTransaction]") {
   auto req = wstx_make_upgrade_req();
   req.headers.remove_key("Sec-Websocket-Key");
-  auto tx = std::make_shared<http_websocket_transaction>(std::move(req));
-  recv_buffer buf;
+  auto tx = std::make_shared<epoll_http_websocket_transaction>(std::move(req));
+  epoll_recv_buffer buf;
   auto view = wstx_make_view(buf);
   CHECK(tx->handle_data(view) == stream_claim::release);
 }
@@ -1298,15 +1309,15 @@ TEST_CASE("UpgradeRequiredDrain", "[WebSocketTransaction]") {
   // directly from headers (not stored in options), so no re-extraction is
   // needed, and re-extracting would clobber `options.upgrade` since
   // `generate_upgrade_request` sets it directly without a header.
-  auto tx = std::make_shared<http_websocket_transaction>(std::move(req));
-  recv_buffer buf;
+  auto tx = std::make_shared<epoll_http_websocket_transaction>(std::move(req));
+  epoll_recv_buffer buf;
   {
     auto view = wstx_make_view(buf);
     REQUIRE(tx->handle_data(view) == stream_claim::release);
   }
 
   std::string sent;
-  http_transaction::send_fn send_fn{[&](any_strings&& data) {
+  epoll_http_transaction::send_fn send_fn{[&](any_strings&& data) {
     sent = std::get<std::string>(std::move(data));
     return true;
   }};
@@ -1340,15 +1351,15 @@ TEST_CASE("UpgradeRequiredDrain", "[WebSocketTransaction]") {
 TEST_CASE("BadRequestDrain", "[WebSocketTransaction]") {
   auto req = wstx_make_upgrade_req();
   req.method = http_method::POST;
-  auto tx = std::make_shared<http_websocket_transaction>(std::move(req));
-  recv_buffer buf;
+  auto tx = std::make_shared<epoll_http_websocket_transaction>(std::move(req));
+  epoll_recv_buffer buf;
   {
     auto view = wstx_make_view(buf);
     REQUIRE(tx->handle_data(view) == stream_claim::release);
   }
 
   std::string sent;
-  http_transaction::send_fn send_fn{[&](any_strings&& data) {
+  epoll_http_transaction::send_fn send_fn{[&](any_strings&& data) {
     sent = std::get<std::string>(std::move(data));
     return true;
   }};
@@ -1366,23 +1377,23 @@ TEST_CASE("BadRequestDrain", "[WebSocketTransaction]") {
 // After upgrade, a text frame fires `on_message` and `handle_data` returns
 // `claim`.
 TEST_CASE("FeedAfterUpgrade", "[WebSocketTransaction]") {
-  auto tx =
-      std::make_shared<http_websocket_transaction>(wstx_make_upgrade_req());
+  auto tx = std::make_shared<epoll_http_websocket_transaction>(
+      wstx_make_upgrade_req());
 
   std::string got_msg;
   ws_frame_control got_op{};
   tx->websocket().on_message =
-      [&](http_websocket&, std::string&& p, ws_frame_control op) {
+      [&](epoll_http_websocket&, std::string&& p, ws_frame_control op) {
         got_msg = std::move(p);
         got_op = op;
         return true;
       };
-  recv_buffer buf;
+  epoll_recv_buffer buf;
   {
     auto view = wstx_make_view(buf);
     REQUIRE(tx->handle_data(view) == stream_claim::claim);
   }
-  http_transaction::send_fn send_fn{[](any_strings&&) { return true; }};
+  epoll_http_transaction::send_fn send_fn{[](any_strings&&) { return true; }};
   REQUIRE(tx->handle_drain(send_fn) == stream_claim::claim);
 
   const auto frame = ws_frame_lens::serialize_frame(
@@ -1400,14 +1411,14 @@ TEST_CASE("FeedAfterUpgrade", "[WebSocketTransaction]") {
 // stream claimed, latch close-pending, and let `handle_drain` begin graceful
 // shutdown.
 TEST_CASE("FeedProtocolError", "[WebSocketTransaction]") {
-  auto tx =
-      std::make_shared<http_websocket_transaction>(wstx_make_upgrade_req());
-  recv_buffer buf;
+  auto tx = std::make_shared<epoll_http_websocket_transaction>(
+      wstx_make_upgrade_req());
+  epoll_recv_buffer buf;
   {
     auto view = wstx_make_view(buf);
     REQUIRE(tx->handle_data(view) == stream_claim::claim);
   }
-  http_transaction::send_fn send_fn{[](any_strings&&) { return true; }};
+  epoll_http_transaction::send_fn send_fn{[](any_strings&&) { return true; }};
   REQUIRE(tx->handle_drain(send_fn) == stream_claim::claim);
 
   // A continuation frame with no prior start fragment is a protocol error.
@@ -1430,7 +1441,8 @@ TEST_CASE("SubprotocolNegotiation", "[WebSocketTransaction]") {
   {
     auto req = wstx_make_upgrade_req();
     (void)req.headers.add_raw("Sec-Websocket-Protocol", "chat, superchat");
-    auto tx = std::make_shared<http_websocket_transaction>(std::move(req));
+    auto tx =
+        std::make_shared<epoll_http_websocket_transaction>(std::move(req));
 
     bool called{};
     tx->on_protocol = [&](std::string_view offered) -> std::string {
@@ -1439,14 +1451,14 @@ TEST_CASE("SubprotocolNegotiation", "[WebSocketTransaction]") {
       return "chat";
     };
 
-    recv_buffer buf;
+    epoll_recv_buffer buf;
     {
       auto view = wstx_make_view(buf);
       REQUIRE(tx->handle_data(view) == stream_claim::claim);
     }
 
     std::string sent;
-    http_transaction::send_fn send_fn{[&](any_strings&& data) {
+    epoll_http_transaction::send_fn send_fn{[&](any_strings&& data) {
       sent = std::get<std::string>(std::move(data));
       return true;
     }};
@@ -1464,8 +1476,8 @@ TEST_CASE("SubprotocolNegotiation", "[WebSocketTransaction]") {
   // Case 2: client sends no protocol header; callback is not invoked and the
   // response has no `Sec-Websocket-Protocol` header.
   {
-    auto tx =
-        std::make_shared<http_websocket_transaction>(wstx_make_upgrade_req());
+    auto tx = std::make_shared<epoll_http_websocket_transaction>(
+        wstx_make_upgrade_req());
 
     bool called{};
     tx->on_protocol = [&](std::string_view) -> std::string {
@@ -1473,14 +1485,14 @@ TEST_CASE("SubprotocolNegotiation", "[WebSocketTransaction]") {
       return "chat";
     };
 
-    recv_buffer buf;
+    epoll_recv_buffer buf;
     {
       auto view = wstx_make_view(buf);
       REQUIRE(tx->handle_data(view) == stream_claim::claim);
     }
 
     std::string sent;
-    http_transaction::send_fn send_fn{[&](any_strings&& data) {
+    epoll_http_transaction::send_fn send_fn{[&](any_strings&& data) {
       sent = std::get<std::string>(std::move(data));
       return true;
     }};
@@ -1497,14 +1509,14 @@ TEST_CASE("SubprotocolNegotiation", "[WebSocketTransaction]") {
 #pragma endregion
 #pragma region MakeFactory
 
-// `make_factory` creates an `http_websocket_transaction` and invokes the
+// `make_factory` creates an `epoll_http_websocket_transaction` and invokes the
 // configure callback.
 TEST_CASE("MakeFactory", "[WebSocketTransaction]") {
   bool configured{};
-  auto factory = http_websocket_transaction::make_factory(
-      [&](http_websocket_transaction& wstx) {
+  auto factory = epoll_http_websocket_transaction::make_factory(
+      [&](epoll_http_websocket_transaction& wstx) {
         wstx.websocket().on_message =
-            [](http_websocket&, std::string&&, ws_frame_control) {
+            [](epoll_http_websocket&, std::string&&, ws_frame_control) {
               return true;
             };
         configured = true;
@@ -1515,7 +1527,7 @@ TEST_CASE("MakeFactory", "[WebSocketTransaction]") {
   REQUIRE(tx);
   CHECK(configured);
 
-  recv_buffer buf;
+  epoll_recv_buffer buf;
   auto view = wstx_make_view(buf);
   CHECK(tx->handle_data(view) == stream_claim::claim);
 }
@@ -1529,7 +1541,7 @@ TEST_CASE("PingCounter", "[WebSocket]") {
   using namespace std::chrono_literals;
 
   std::string sent_frame;
-  http_websocket ws{
+  epoll_http_websocket ws{
       [&](any_strings&& f) {
         sent_frame = std::get<std::string>(std::move(f));
         return true;
@@ -1537,7 +1549,7 @@ TEST_CASE("PingCounter", "[WebSocket]") {
       connection_role::server};
 
   bool pong_fired{};
-  ws.on_pong = [&](http_websocket&) {
+  ws.on_pong = [&](epoll_http_websocket&) {
     pong_fired = true;
     return true;
   };
@@ -1563,7 +1575,7 @@ TEST_CASE("PingCounter", "[WebSocket]") {
   std::string bad_pong = ws_frame_lens::serialize_frame(
       ws_frame_control::fin | ws_frame_control::pong, "xxxx", 0x12345678U);
   std::string_view bad_sv{bad_pong};
-  CHECK(ws.feed(bad_sv) != http_websocket::insatiable);
+  CHECK(ws.feed(bad_sv) != epoll_http_websocket::insatiable);
   CHECK_FALSE(pong_fired);
   CHECK(ws.pong_pending()); // still pending
 
@@ -1572,7 +1584,7 @@ TEST_CASE("PingCounter", "[WebSocket]") {
       ws_frame_control::fin | ws_frame_control::pong, p1.substr(0, 4),
       0x12345678U);
   std::string_view good_sv{good_pong};
-  CHECK(ws.feed(good_sv) != http_websocket::insatiable);
+  CHECK(ws.feed(good_sv) != epoll_http_websocket::insatiable);
   CHECK(pong_fired);
   CHECK_FALSE(ws.pong_pending());
 
@@ -1601,13 +1613,13 @@ TEST_CASE("WebSocket_Keepalive", "[HttpServer]") {
   epoll_loop_runner loop_runner;
   timing_wheel_runner wheel_runner;
 
-  auto server = http_server::create(
+  auto server = epoll_http_server::create(
       net_endpoint{ipv4_addr::loopback, 0},
-      [](http_server& s) {
+      [](epoll_http_server& s) {
         return s.add_route({"", "/ws"},
-            http_websocket_transaction::make_factory(
+            epoll_http_websocket_transaction::make_factory(
                 [loop = s.loop(), wheel = s.wheel()](
-                    http_websocket_transaction& tx) {
+                    epoll_http_websocket_transaction& tx) {
                   return tx.enable_keepalive(loop, wheel, 100ms, 100ms);
                 }));
       },
@@ -1615,20 +1627,21 @@ TEST_CASE("WebSocket_Keepalive", "[HttpServer]") {
       /*request_timeout=*/0s, /*write_timeout=*/0s);
   REQUIRE(server);
 
-  auto client = stream_sync::connect(server->local_endpoint(), 1s);
-  REQUIRE(client);
+  auto client = net_socket::create_sync_connected(server->local_endpoint());
+  std::string buf;
+  REQUIRE(client.is_open());
 
   // Perform WebSocket upgrade.
   std::string accept_key;
-  http_transaction::send_fn send_fn{[&](any_strings&& f) {
-    return client.send(std::get<std::string>(f));
+  epoll_http_transaction::send_fn send_fn{[&](any_strings&& f) {
+    return client.send_sync_all(std::get<std::string>(f));
   }};
-  http_websocket ws_client{std::move(send_fn), connection_role::client};
-  auto req = http_websocket::generate_upgrade_request("/ws", accept_key);
+  epoll_http_websocket ws_client{std::move(send_fn), connection_role::client};
+  auto req = epoll_http_websocket::generate_upgrade_request("/ws", accept_key);
   (void)req.headers.add_raw("Host", "localhost");
-  REQUIRE(client.send(req.serialize()));
+  REQUIRE(client.send_sync_all(req.serialize()));
 
-  const auto resp_wire = client.recv_until("\r\n\r\n");
+  const auto resp_wire = client.recv_sync_until(buf, "\r\n\r\n");
   REQUIRE_FALSE(resp_wire.empty());
   auto resp_sv = std::string_view{resp_wire};
   resp_sv.remove_suffix(2);
@@ -1639,7 +1652,7 @@ TEST_CASE("WebSocket_Keepalive", "[HttpServer]") {
   // Respond to several pings from the server; verify connection stays open.
   int pings_answered{};
   bool got_close{};
-  ws_client.on_close = [&](http_websocket&, uint16_t, std::string_view) {
+  ws_client.on_close = [&](epoll_http_websocket&, uint16_t, std::string_view) {
     got_close = true;
   };
 
@@ -1647,9 +1660,8 @@ TEST_CASE("WebSocket_Keepalive", "[HttpServer]") {
   // Each recv() blocks for up to the connect timeout (1 s); pings arrive
   // every 100 ms so each iteration completes quickly.
   while (pings_answered < 3 && !got_close) {
-    auto chunk = client.recv();
-    if (chunk.empty()) break;
-    std::string_view sv{chunk};
+    if (!client.recv_sync_chunk(buf)) break;
+    std::string_view sv{buf};
     while (!sv.empty()) {
       ws_frame_view hdr{sv.data(), sv.size()};
       if (!hdr.is_complete() || !hdr.parse()) break;
@@ -1662,6 +1674,7 @@ TEST_CASE("WebSocket_Keepalive", "[HttpServer]") {
       }
       sv.remove_prefix(hdr.total_length());
     }
+    buf.clear();
   }
 
   CHECK(pings_answered >= 3);
@@ -1673,10 +1686,10 @@ TEST_CASE("WebSocket_Keepalive", "[HttpServer]") {
   // raw in the send_fn lambda) has already been destroyed, causing UB.
   CHECK(ws_client.send_close(1000, ""));
   while (!ws_client.is_close_pending()) {
-    auto chunk = client.recv();
-    if (chunk.empty()) break;
-    std::string_view sv{chunk};
+    if (!client.recv_sync_chunk(buf)) break;
+    std::string_view sv{buf};
     (void)ws_client.feed(sv);
+    buf.clear();
   }
 }
 
@@ -1693,13 +1706,13 @@ TEST_CASE("WebSocket_KeepaliveTimeout", "[HttpServer]") {
   epoll_loop_runner loop_runner;
   timing_wheel_runner wheel_runner;
 
-  auto server = http_server::create(
+  auto server = epoll_http_server::create(
       net_endpoint{ipv4_addr::loopback, 0},
-      [](http_server& s) {
+      [](epoll_http_server& s) {
         return s.add_route({"", "/ws"},
-            http_websocket_transaction::make_factory(
+            epoll_http_websocket_transaction::make_factory(
                 [loop = s.loop(), wheel = s.wheel()](
-                    http_websocket_transaction& tx) {
+                    epoll_http_websocket_transaction& tx) {
                   return tx.enable_keepalive(loop, wheel, 100ms, 100ms);
                 }));
       },
@@ -1707,20 +1720,21 @@ TEST_CASE("WebSocket_KeepaliveTimeout", "[HttpServer]") {
       /*request_timeout=*/0s, /*write_timeout=*/0s);
   REQUIRE(server);
 
-  auto client = stream_sync::connect(server->local_endpoint(), 1s);
-  REQUIRE(client);
+  auto client = net_socket::create_sync_connected(server->local_endpoint());
+  std::string buf;
+  REQUIRE(client.is_open());
 
   // Perform WebSocket upgrade.
   std::string accept_key;
-  http_transaction::send_fn send_fn{[&](any_strings&& f) {
-    return client.send(std::get<std::string>(f));
+  epoll_http_transaction::send_fn send_fn{[&](any_strings&& f) {
+    return client.send_sync_all(std::get<std::string>(f));
   }};
-  http_websocket ws_client{std::move(send_fn), connection_role::client};
-  auto req = http_websocket::generate_upgrade_request("/ws", accept_key);
+  epoll_http_websocket ws_client{std::move(send_fn), connection_role::client};
+  auto req = epoll_http_websocket::generate_upgrade_request("/ws", accept_key);
   (void)req.headers.add_raw("Host", "localhost");
-  REQUIRE(client.send(req.serialize()));
+  REQUIRE(client.send_sync_all(req.serialize()));
 
-  const auto resp_wire = client.recv_until("\r\n\r\n");
+  const auto resp_wire = client.recv_sync_until(buf, "\r\n\r\n");
   REQUIRE_FALSE(resp_wire.empty());
   auto resp_sv = std::string_view{resp_wire};
   resp_sv.remove_suffix(2);
@@ -1737,9 +1751,8 @@ TEST_CASE("WebSocket_KeepaliveTimeout", "[HttpServer]") {
   // discard pings without replying.
   uint16_t got_close_code{};
   while (got_close_code == 0) {
-    auto chunk = client.recv();
-    if (chunk.empty()) break; // recv() timed out or EOF
-    std::string_view sv{chunk};
+    if (!client.recv_sync_chunk(buf)) break;
+    std::string_view sv{buf};
     while (!sv.empty()) {
       ws_frame_view hdr{sv.data(), sv.size()};
       if (!hdr.is_complete() || !hdr.parse()) break;
@@ -1756,6 +1769,7 @@ TEST_CASE("WebSocket_KeepaliveTimeout", "[HttpServer]") {
       // Pings are intentionally ignored (no pong sent).
       sv.remove_prefix(hdr.total_length());
     }
+    buf.clear();
   }
 
   CHECK(got_close_code == 1001U);
@@ -1764,9 +1778,9 @@ TEST_CASE("WebSocket_KeepaliveTimeout", "[HttpServer]") {
 #pragma endregion
 #pragma region WebSocket
 
-// Semi-integration test: `http_server` with `http_websocket_transaction` as
-// the route handler; client uses `stream_sync` for I/O and `http_websocket`
-// for WebSocket framing.
+// Semi-integration test: `epoll_http_server` with
+// `epoll_http_websocket_transaction` as the route handler; client uses
+// raw `net_socket` for I/O and `epoll_http_websocket` for WebSocket framing.
 //
 // Flow:
 //   1. Server registers an echo handler under `"/ws"`.
@@ -1776,25 +1790,26 @@ TEST_CASE("WebSocket_KeepaliveTimeout", "[HttpServer]") {
 TEST_CASE("WebSocket", "[HttpServer]") {
   if (is_codex()) return;
 
-  auto server = http_server::create(net_endpoint{ipv4_addr::loopback, 0},
-      [](http_server& s) {
+  auto server = epoll_http_server::create(net_endpoint{ipv4_addr::loopback, 0},
+      [](epoll_http_server& s) {
         return s.add_route({"", "/ws"},
-            http_websocket_transaction::make_factory(
-                [](http_websocket_transaction& tx) {
+            epoll_http_websocket_transaction::make_factory(
+                [](epoll_http_websocket_transaction& tx) {
                   tx.websocket().on_message =
-                      [](http_websocket& ws, std::string&& p,
+                      [](epoll_http_websocket& ws, std::string&& p,
                           ws_frame_control) { return ws.send_text(p); };
                   return true;
                 }));
       });
   REQUIRE(server);
 
-  auto client = stream_sync::connect(server->local_endpoint(), 1s);
-  REQUIRE(client);
+  auto client = net_socket::create_sync_connected(server->local_endpoint());
+  std::string buf;
+  REQUIRE(client.is_open());
 
   // Send a valid HTTP/1.1 WebSocket upgrade request. The RFC 6455 test-vector
   // key produces accept value `s3pPLMBiTxaQ9kYGzzhZRbK+xOo=`.
-  REQUIRE(client.send(
+  REQUIRE(client.send_sync_all(
       "GET /ws/ HTTP/1.1\r\n"
       "Host: localhost\r\n"
       "Upgrade: websocket\r\n"
@@ -1804,7 +1819,7 @@ TEST_CASE("WebSocket", "[HttpServer]") {
       "\r\n"));
 
   // Receive and verify the 101 Switching Protocols response.
-  const auto resp_wire = client.recv_until("\r\n\r\n");
+  const auto resp_wire = client.recv_sync_until(buf, "\r\n\r\n");
   REQUIRE_FALSE(resp_wire.empty());
   auto resp_head_wire = std::string_view{resp_wire};
   REQUIRE(resp_head_wire.size() >= 2U);
@@ -1819,12 +1834,13 @@ TEST_CASE("WebSocket", "[HttpServer]") {
   // Build a client-side WebSocket pump that writes through `client`.
   std::string got_msg;
   ws_frame_control got_op{};
-  http_transaction::send_fn client_send{[&](any_strings&& frame) {
-    return client.send(std::get<std::string>(frame));
+  epoll_http_transaction::send_fn client_send{[&](any_strings&& frame) {
+    return client.send_sync_all(std::get<std::string>(frame));
   }};
-  http_websocket ws_client{std::move(client_send), connection_role::client};
+  epoll_http_websocket ws_client{std::move(client_send),
+      connection_role::client};
   ws_client.on_message =
-      [&](http_websocket&, std::string&& p, ws_frame_control op) {
+      [&](epoll_http_websocket&, std::string&& p, ws_frame_control op) {
         got_msg = std::move(p);
         got_op = op;
         return true;
@@ -1833,10 +1849,10 @@ TEST_CASE("WebSocket", "[HttpServer]") {
   // Send a masked text frame; server echoes it back unmasked.
   REQUIRE(ws_client.send_text("hello"));
 
-  // On loopback, the echo arrives in a single recv.
-  const auto echo = client.recv();
-  REQUIRE_FALSE(echo.empty());
-  std::string_view echo_sv{echo};
+  // On loopback, the echo arrives in a single recv (or is already buffered
+  // from the post-handshake leftover).
+  REQUIRE(client.recv_sync_chunk(buf));
+  std::string_view echo_sv{buf};
   CHECK(ws_client.feed(echo_sv) == 0ULL);
   CHECK(got_msg == "hello");
   CHECK(got_op == ws_frame_control::text);
@@ -1850,23 +1866,24 @@ TEST_CASE("WebSocket", "[HttpServer]") {
 TEST_CASE("WebSocket_QueryAndFragmentRoute", "[HttpServer]") {
   if (is_codex()) return;
 
-  auto server = http_server::create(net_endpoint{ipv4_addr::loopback, 0},
-      [](http_server& s) {
+  auto server = epoll_http_server::create(net_endpoint{ipv4_addr::loopback, 0},
+      [](epoll_http_server& s) {
         return s.add_route({"", "/ws"},
-            http_websocket_transaction::make_factory(
-                [](http_websocket_transaction& tx) {
+            epoll_http_websocket_transaction::make_factory(
+                [](epoll_http_websocket_transaction& tx) {
                   tx.websocket().on_message =
-                      [](http_websocket& ws, std::string&& p,
+                      [](epoll_http_websocket& ws, std::string&& p,
                           ws_frame_control) { return ws.send_text(p); };
                   return true;
                 }));
       });
   REQUIRE(server);
 
-  auto client = stream_sync::connect(server->local_endpoint(), 1s);
-  REQUIRE(client);
+  auto client = net_socket::create_sync_connected(server->local_endpoint());
+  std::string buf;
+  REQUIRE(client.is_open());
 
-  REQUIRE(client.send(
+  REQUIRE(client.send_sync_all(
       "GET /ws?token=abc#frag HTTP/1.1\r\n"
       "Host: localhost\r\n"
       "Upgrade: websocket\r\n"
@@ -1875,7 +1892,7 @@ TEST_CASE("WebSocket_QueryAndFragmentRoute", "[HttpServer]") {
       "Sec-Websocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n"
       "\r\n"));
 
-  const auto resp_wire = client.recv_until("\r\n\r\n");
+  const auto resp_wire = client.recv_sync_until(buf, "\r\n\r\n");
   REQUIRE_FALSE(resp_wire.empty());
   auto resp_head_wire = std::string_view{resp_wire};
   REQUIRE(resp_head_wire.size() >= 2U);
@@ -1892,7 +1909,8 @@ TEST_CASE("WebSocket_QueryAndFragmentRoute", "[HttpServer]") {
 #pragma region WebSocket_Frames
 
 // Semi-integration test exercising four frame-sequence scenarios against a
-// live `http_server` with an `http_websocket_transaction` echo route.
+// live `epoll_http_server` with an `epoll_http_websocket_transaction` echo
+// route.
 //
 // The upgrade request is built with `generate_upgrade_request` so the
 // random client key and its derived accept value are both verified.
@@ -1908,49 +1926,53 @@ TEST_CASE("WebSocket_Frames", "[HttpServer]") {
   if (is_codex()) return;
 
   // Server echoes text messages and mirrors close frames.
-  auto web_server = http_server::create(net_endpoint{ipv4_addr::loopback, 0},
-      [](http_server& s) {
+  auto web_server = epoll_http_server::create(
+      net_endpoint{ipv4_addr::loopback, 0}, [](epoll_http_server& s) {
         return s.add_route({"", "/ws"},
-            http_websocket_transaction::make_factory(
-                [](http_websocket_transaction& tx) {
+            epoll_http_websocket_transaction::make_factory(
+                [](epoll_http_websocket_transaction& tx) {
                   tx.websocket().on_message =
-                      [](http_websocket& ws, std::string&& p,
+                      [](epoll_http_websocket& ws, std::string&& p,
                           ws_frame_control) { return ws.send_text(p); };
                   return true;
                 }));
       });
   REQUIRE(web_server);
 
-  auto client = stream_sync::connect(web_server->local_endpoint(), 1s);
-  REQUIRE(client);
+  auto client =
+      net_socket::create_sync_connected(web_server->local_endpoint());
+  std::string buf;
+  REQUIRE(client.is_open());
 
-  http_transaction::send_fn client_send{[&](any_strings&& frame) {
-    return client.send(std::get<std::string>(frame));
+  epoll_http_transaction::send_fn client_send{[&](any_strings&& frame) {
+    return client.send_sync_all(std::get<std::string>(frame));
   }};
-  http_websocket ws_client{std::move(client_send), connection_role::client};
+  epoll_http_websocket ws_client{std::move(client_send),
+      connection_role::client};
 
   std::string got_msg;
   ws_frame_control got_op{};
   uint16_t got_close_code{};
   ws_client.on_message =
-      [&](http_websocket&, std::string&& p, ws_frame_control op) {
+      [&](epoll_http_websocket&, std::string&& p, ws_frame_control op) {
         got_msg = std::move(p);
         got_op = op;
         return true;
       };
-  ws_client.on_close = [&](http_websocket&, uint16_t code, std::string_view) {
-    got_close_code = code;
-  };
+  ws_client.on_close =
+      [&](epoll_http_websocket&, uint16_t code, std::string_view) {
+        got_close_code = code;
+      };
 
   // Build the upgrade request via `generate_upgrade_request`; the method
   // returns the `request_head` and stores the expected accept key.
   std::string accept_key;
-  auto req = http_websocket::generate_upgrade_request("/ws", accept_key);
+  auto req = epoll_http_websocket::generate_upgrade_request("/ws", accept_key);
   (void)req.headers.add_raw("Host", "localhost");
-  REQUIRE(client.send(req.serialize()));
+  REQUIRE(client.send_sync_all(req.serialize()));
 
   // Verify the response.
-  const auto resp_wire = client.recv_until("\r\n\r\n");
+  const auto resp_wire = client.recv_sync_until(buf, "\r\n\r\n");
   REQUIRE_FALSE(resp_wire.empty());
   auto resp_head_wire = std::string_view{resp_wire};
   REQUIRE(resp_head_wire.size() >= 2U);
@@ -1967,10 +1989,10 @@ TEST_CASE("WebSocket_Frames", "[HttpServer]") {
   const auto recv_msg = [&]() {
     got_msg.clear();
     while (got_msg.empty()) {
-      auto chunk = client.recv();
-      if (chunk.empty()) break;
-      std::string_view sv{chunk};
+      if (!client.recv_sync_chunk(buf)) break;
+      std::string_view sv{buf};
       (void)ws_client.feed(sv);
+      buf.clear();
     }
   };
 
@@ -2014,10 +2036,10 @@ TEST_CASE("WebSocket_Frames", "[HttpServer]") {
   //   Client feeds received data until its `on_close` fires.
   REQUIRE(ws_client.send_close(1001, "done"));
   while (got_close_code == 0) {
-    auto chunk = client.recv();
-    if (chunk.empty()) break;
-    std::string_view sv{chunk};
+    if (!client.recv_sync_chunk(buf)) break;
+    std::string_view sv{buf};
     (void)ws_client.feed(sv);
+    buf.clear();
   }
   CHECK(got_close_code == uint16_t{1001});
 }

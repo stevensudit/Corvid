@@ -22,7 +22,7 @@
 #include <iostream>
 #include <memory>
 
-#include "../proto/epoll/http_websocket_transaction.h"
+#include "../proto/epoll/epoll_http_websocket_transaction.h"
 #include "../strings/any_strings.h"
 #include "sim_game.h"
 #include "sim_json_parse.h"
@@ -34,8 +34,9 @@ using namespace std::chrono_literals;
 
 // WebSocket transaction for the CorvidSim `/ws` route.
 //
-// Inherits from `http_websocket_transaction` and wires up all callbacks in the
-// constructor so behavior lives in named private methods rather than lambdas.
+// Inherits from `epoll_http_websocket_transaction` and wires up all callbacks
+// in the constructor so behavior lives in named private methods rather than
+// lambdas.
 //
 // Protocol:
 //   Client sends: {"type":"hello","client":"browser"}
@@ -55,38 +56,38 @@ using namespace std::chrono_literals;
 // the base) because `timer_fuse::get_if_armed` locks the `weak_ptr` before
 // dereferencing the sequencer, so the sequencer is never accessed after the
 // transaction is destroyed.
-class SimWsHandler final: public http_websocket_transaction {
+class SimWsHandler final: public epoll_http_websocket_transaction {
 public:
   // Construct and initialize a new transaction, with its own `SimGame` and
   // tick timer.
   SimWsHandler(request_head&& req, const std::shared_ptr<epoll_loop>& loop,
       const std::shared_ptr<timing_wheel>& wheel)
-      : http_websocket_transaction{std::move(req)} {
+      : epoll_http_websocket_transaction{std::move(req)} {
     // Register methods as callbacks.
     websocket().on_message =
-        [this](http_websocket& ws, std::string&& msg, ws_frame_control) {
+        [this](epoll_http_websocket& ws, std::string&& msg, ws_frame_control) {
           return do_message(ws, std::move(msg));
         };
-    websocket().on_close = [](http_websocket&, uint16_t, std::string_view) {
-      do_close();
-    };
+    websocket().on_close =
+        [](epoll_http_websocket&, uint16_t, std::string_view) { do_close(); };
     (void)enable_keepalive(loop, wheel, 20s, 5s);
     if (!game_.loadMap()) throw std::runtime_error("Failed to load map");
     std::cout << "WebSocket client connected\n";
   }
 
-  // Returns a `transaction_factory` for use with `http_server::add_route`.
-  [[nodiscard]] static transaction_factory make_factory(
+  // Returns an `epoll_http_transaction_factory` for use with
+  // `epoll_http_server::add_route`.
+  [[nodiscard]] static epoll_http_transaction_factory make_factory(
       std::shared_ptr<epoll_loop> loop, std::shared_ptr<timing_wheel> wheel) {
     // Factory factory.
     return [loop = std::move(loop), wheel = std::move(wheel)](
-               request_head&& req) -> transaction_ptr {
+               request_head&& req) -> epoll_http_transaction_ptr {
       return std::make_shared<SimWsHandler>(std::move(req), loop, wheel);
     };
   }
 
 private:
-  using Fuse = timer_fuse<http_transaction>;
+  using Fuse = timer_fuse<epoll_http_transaction>;
   using clock_t = std::chrono::steady_clock;
 
   std::atomic<uint64_t> tick_seq_; // Uses for sequencing tick timers
@@ -104,7 +105,7 @@ private:
   size_t last_payload_bytes_{};
 
   // Handle an incoming text frame by classifying and forwarding the message.
-  [[nodiscard]] bool do_message(http_websocket& ws, std::string&& msg) {
+  [[nodiscard]] bool do_message(epoll_http_websocket& ws, std::string&& msg) {
     const auto root = parseSimClientMessageRoot(msg);
     if (!root) return true; // malformed, ignore
 
@@ -142,7 +143,7 @@ private:
     auto wheel = keepalive_wheel_.lock();
     if (!wheel) return true;
     return Fuse::set_timeout(*wheel, tick_seq_,
-        std::weak_ptr<http_transaction>{shared_from_this()}, 50ms,
+        std::weak_ptr<epoll_http_transaction>{shared_from_this()}, 50ms,
         [loop_w = keepalive_loop_](const Fuse& fuse) -> bool {
           auto tx = fuse.get_if_armed();
           auto loop = loop_w.lock();

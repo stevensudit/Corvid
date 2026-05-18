@@ -21,14 +21,15 @@
 #include <vector>
 
 #include "../misc/http_head_codec.h"
-#include "recv_buffer.h"
-#include "stream_conn.h"
+#include "epoll_recv_buffer.h"
+#include "epoll_stream_conn.h"
 #include "../../strings/any_strings.h"
 
 namespace corvid { inline namespace proto {
 
 using namespace corvid::strings::any_strings_types;
 
+#pragma region stream_claim
 // Whether a transaction retains its claim on a pipeline stream.
 //
 // Returned by `handle_data` (input side) and `handle_drain` (output side).
@@ -37,41 +38,46 @@ using namespace corvid::strings::any_strings_types;
 // `claim`:   transaction retains its claim and will be called again until it
 //            relinquishes it.
 enum class stream_claim : bool { release = false, claim = true };
+#pragma endregion
 
-struct http_transaction; // forward declaration for transaction_queue
-using transaction_ptr = std::shared_ptr<http_transaction>;
+#pragma region epoll_http_transaction
+struct epoll_http_transaction; // forward declaration for
+                               // epoll_http_transaction_queue
+using epoll_http_transaction_ptr = std::shared_ptr<epoll_http_transaction>;
 
 // HTTP/1.x request-response transaction.
 //
-// Constructed (always via `std::make_shared`) by a `transaction_factory`
-// when a matching route is found in `http_server`. Holds the parsed
-// `request_head` and a mutable `response_head` to populate, as well as
-// `close_after`. Writes are accomplished through the `send_fn` callback passed
-// in `handle_drain`.
+// Constructed (always via `std::make_shared`) by a
+// `epoll_http_transaction_factory` when a matching route is found in
+// `epoll_http_server`. Holds the parsed `request_head` and a mutable
+// `response_head` to populate, as well as `close_after`. Writes are
+// accomplished through the `send_fn` callback passed in `handle_drain`.
 //
 // Pipelining: transactions form an intrusive linked list via `next`, which is
-// managed by `transaction_queue`.
+// managed by `epoll_http_transaction_queue`.
 //
 // Two virtual methods drive the transaction lifecycle:
 //
-//   `handle_data(recv_buffer_view)` is called by `http_server` to offer data
-//       for the transaction to read. The first call happens immediately after
-//       the transaction is initialized with `request_headers`. This is the
-//       transaction's chance to examine the headers and decide whether it
-//       needs to consume a body from the receive buffer. Returns `claim` to
-//       keep receiving data, `release` when done.
+//   `handle_data(epoll_recv_buffer_view)` is called by `epoll_http_server`
+//       to offer data for the transaction to read. The first call happens
+//       immediately after the transaction is initialized with
+//       `request_headers`. This is the transaction's chance to examine the
+//       headers and decide whether it needs to consume a body from the
+//       receive buffer. Returns `claim` to keep receiving data, `release`
+//       when done.
 //
-//   `handle_drain(send)` is called by `http_server` when this transaction is
-//       the active writer and the send queue drains. The callback fills
-//       `response_headers`, serializes and sends these headers, and sends the
-//       body (fully or partially) via `send`. Returns `release` when done,
-//       `claim` if more remains.
+//   `handle_drain(send)` is called by `epoll_http_server` when this
+//       transaction is the active writer and the send queue drains. The
+//       callback fills `response_headers`, serializes and sends these
+//       headers, and sends the body (fully or partially) via `send`. Returns
+//       `release` when done, `claim` if more remains.
 //
 // Both methods default to invoking the corresponding `on_data` / `on_drain`
 // callback when set, otherwise returning `release`. Override in a derived
 // class for stateful behavior, or install callbacks for simple handlers.
-struct http_transaction
-    : public std::enable_shared_from_this<http_transaction> {
+struct epoll_http_transaction
+    : public std::enable_shared_from_this<epoll_http_transaction> {
+#pragma region Types
   // Callback to allow sends, resetting the write timer. Calling it with
   // `std::monostate` signals failure and hangs up the connection.
   using send_fn = std::function<bool(any_strings&&)>;
@@ -81,31 +87,35 @@ struct http_transaction
   // `data_fn` receives a reference to the connection's receive buffer view.
   // The callback may call `view.active_view()`, `view.consume()`, and
   // `view.update_active_view()` to consume bytes.
-  using data_fn =
-      std::function<stream_claim(http_transaction&, recv_buffer_view&)>;
+  using data_fn = std::function<stream_claim(epoll_http_transaction&,
+      epoll_recv_buffer_view&)>;
   using drain_fn =
-      std::function<stream_claim(http_transaction&, const send_fn&)>;
+      std::function<stream_claim(epoll_http_transaction&, const send_fn&)>;
+#pragma endregion
+#pragma region Construction
 
-  explicit http_transaction(request_head&& req)
+  explicit epoll_http_transaction(request_head&& req)
       : request_headers{std::move(req)} {}
 
-  virtual ~http_transaction() = default;
+  virtual ~epoll_http_transaction() = default;
 
-  http_transaction(const http_transaction&) = delete;
-  http_transaction& operator=(const http_transaction&) = delete;
-  http_transaction(http_transaction&&) = delete;
-  http_transaction& operator=(http_transaction&&) = delete;
+  epoll_http_transaction(const epoll_http_transaction&) = delete;
+  epoll_http_transaction& operator=(const epoll_http_transaction&) = delete;
+  epoll_http_transaction(epoll_http_transaction&&) = delete;
+  epoll_http_transaction& operator=(epoll_http_transaction&&) = delete;
+#pragma endregion
+#pragma region Data members
 
   // Headers.
   request_head request_headers;
   response_head response_headers;
 
   // Intrusive forward link for the pipeline queue. Managed directly by
-  // `http_server`; do not modify from transaction code.
-  transaction_ptr next;
+  // `epoll_http_server`; do not modify from transaction code.
+  epoll_http_transaction_ptr next;
 
   // Controls whether the connection closes after this response is sent.
-  // Initialized by `http_server` from the `Connection` request header;
+  // Initialized by `epoll_http_server` from the `Connection` request header;
   // override before `handle_drain` returns `release` to force a close or
   // keep-open regardless of what the client requested.
   after_response close_after{after_response::keep_alive};
@@ -113,9 +123,11 @@ struct http_transaction
   // Optional callbacks. Set by route factories or direct users.
   data_fn on_data;
   drain_fn on_drain;
+#pragma endregion
+#pragma region Overrides
 
-  // Called by `http_server` once the transaction is created, and repeatedly
-  // until this function returns `release`. On the initial call, the
+  // Called by `epoll_http_server` once the transaction is created, and
+  // repeatedly until this function returns `release`. On the initial call, the
   // transaction sees the fully parsed `request_head` in `request_headers` and
   // the post-header receive buffer via `view`. The transaction may consume
   // body bytes from the view, returning `claim` to keep receiving data until
@@ -124,19 +136,20 @@ struct http_transaction
   // immediately.
   //
   // Default: invoke `on_data` if set, else return `release`.
-  [[nodiscard]] virtual stream_claim handle_data(recv_buffer_view& view) {
+  [[nodiscard]] virtual stream_claim handle_data(
+      epoll_recv_buffer_view& view) {
     if (on_data) return on_data(*this, view);
     return stream_claim::release;
   }
 
-  // Called by `http_server` when this becomes the active write transaction,
-  // and then again after the send queue drains, until this function returns
-  // `release`. On the initial call, the transaction should populate
-  // `response_headers` with the response head, serialize and send the
-  // headers, and optionally
-  // send some body data. If that's all it needs to do, it returns `release`.
-  // On subsequent calls, if any, the transaction should send more body data
-  // until the entire response is sent, at which point it returns `release`.
+  // Called by `epoll_http_server` when this becomes the active write
+  // transaction, and then again after the send queue drains, until this
+  // function returns `release`. On the initial call, the transaction should
+  // populate `response_headers` with the response head, serialize and send
+  // the headers, and optionally send some body data. If that's all it needs
+  // to do, it returns `release`. On subsequent calls, if any, the transaction
+  // should send more body data until the entire response is sent, at which
+  // point it returns `release`.
   //
   // Default: invoke `on_drain` if set, else return `release`.
   [[nodiscard]] virtual stream_claim handle_drain(const send_fn& send_cb) {
@@ -144,15 +157,19 @@ struct http_transaction
     close_after = after_response::close;
     return stream_claim::release;
   }
+#pragma endregion
 };
 
 // Factory function type for constructing transactions. Called by
-// `http_server::create_transaction` when a matching route is found.
-using transaction_factory =
-    std::function<std::shared_ptr<http_transaction>(request_head&&)>;
+// `epoll_http_server::create_transaction` when a matching route is found.
+using epoll_http_transaction_factory =
+    std::function<std::shared_ptr<epoll_http_transaction>(request_head&&)>;
+#pragma endregion
 
-// Pipeline queue of `http_transaction` objects for a single HTTP connection.
-// All mutations occur on the epoll loop thread; no locking is needed.
+#pragma region epoll_http_transaction_queue
+// Pipeline queue of `epoll_http_transaction` objects for a single HTTP
+// connection. All mutations occur on the epoll loop thread; no locking is
+// needed.
 //
 // `head_`   = front of queue = active output writer.
 // `reader_` = active input reader; may lead `head_` during pipelining
@@ -160,12 +177,13 @@ using transaction_factory =
 // `tail_`   = back of queue, for O(1) append.
 //
 // Invariant: all three are null iff the queue is empty.
-class transaction_queue {
+class epoll_http_transaction_queue {
+#pragma region Queue ops
 public:
   // Push `tx` onto the tail of the queue. Sets `reader_` to `tx` if
   // it was null (the previous reader, if any, finished reading its body before
   // `tx` arrived).
-  void add_transaction(transaction_ptr tx) {
+  void add_transaction(epoll_http_transaction_ptr tx) {
     if (tail_) {
       tail_->next = tx;
       tail_ = tx;
@@ -185,12 +203,12 @@ public:
   }
 
   // Return the active input reader, or null if none is pending.
-  [[nodiscard]] const transaction_ptr& get_reader() const noexcept {
+  [[nodiscard]] const epoll_http_transaction_ptr& get_reader() const noexcept {
     return reader_;
   }
 
   // Return the active output writer (head of queue), or null if empty.
-  [[nodiscard]] const transaction_ptr& get_writer() const noexcept {
+  [[nodiscard]] const epoll_http_transaction_ptr& get_writer() const noexcept {
     return head_;
   }
 
@@ -198,11 +216,14 @@ public:
   void next_reader() {
     if (reader_) reader_ = reader_->next;
   }
-
+#pragma endregion
+#pragma region Data members
 private:
-  transaction_ptr head_;
-  transaction_ptr reader_;
-  transaction_ptr tail_;
+  epoll_http_transaction_ptr head_;
+  epoll_http_transaction_ptr reader_;
+  epoll_http_transaction_ptr tail_;
+#pragma endregion
 };
+#pragma endregion
 
 }} // namespace corvid::proto

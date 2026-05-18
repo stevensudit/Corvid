@@ -31,6 +31,7 @@ namespace corvid { inline namespace proto {
 
 using namespace corvid::strings::no_zero_funcs;
 
+#pragma region epoll_recv_buffer
 // Persistent flat receive buffer owned by a connection. The framework
 // (polling thread) appends bytes after `end`; the parser (any thread)
 // consumes bytes from `begin`. Both indexes are `std::atomic<size_t>`, so if
@@ -41,11 +42,12 @@ using namespace corvid::strings::no_zero_funcs;
 //
 // Memory ordering:
 //   `end`:   release-store after bytes land in `buffer`; acquire-load in
-//            `active` and `recv_buffer_view::active_view`.
-//   `begin`: release-store in `recv_buffer_view::consume`; acquire-load
+//            `active` and `epoll_recv_buffer_view::active_view`.
+//   `begin`: release-store in `epoll_recv_buffer_view::consume`; acquire-load
 //            in `active` and `active_view`.
 //   `reads_enabled`: loop-thread-only, no atomics.
-struct recv_buffer {
+struct epoll_recv_buffer {
+#pragma region Data members
   // Backing storage. `buffer.size() == buffer.capacity`. `end` tracks the
   // written extent; `begin` tracks the consumed extent.
   std::string buffer;
@@ -59,13 +61,13 @@ struct recv_buffer {
   std::atomic_size_t end{0};
 
   // System of record for `EPOLLIN` desire. Loop-thread-only (not atomic).
-  // Consulted by `stream_conn::wants_read_events`. May start `false` on
+  // Consulted by `epoll_stream_conn::wants_read_events`. May start `false` on
   // connections that should not begin reading until explicitly armed (e.g.,
   // accepted sockets that inherit a disabled-reads listener).
   bool reads_enabled{true};
 
-  // True while a `recv_buffer_view` is live. Loop-thread-only. When set,
-  // `handle_readable` still recvs into the buffer (extending `end`
+  // True while an `epoll_recv_buffer_view` is live. Loop-thread-only. When
+  // set, `handle_readable` still recvs into the buffer (extending `end`
   // atomically) but suppresses the `on_data` dispatch. The in-flight parser
   // holds the view and will observe new bytes on its next `active_view`
   // call.
@@ -79,10 +81,12 @@ struct recv_buffer {
   // However, it will be shrunk down to `min_capacity` once it's no longer
   // needed.
   relaxed_atomic_size_t min_capacity;
+#pragma endregion
+#pragma region Buffer management
 
   // Initialize (or reinitialize) backing storage to `capacity` bytes without
   // zero-init. Resets `begin` and `end` to zero. Only safe when `EPOLLIN` is
-  // disabled and no `recv_buffer_view` is live.
+  // disabled and no `epoll_recv_buffer_view` is live.
   void resize(size_t capacity) {
     assert(!reads_enabled);
     assert(!view_active);
@@ -131,7 +135,7 @@ struct recv_buffer {
   // If neither condition holds, `begin` and `end` are left unchanged.
   //
   // Only safe to call within the polling thread (which can't be asserted on
-  // here) and when no `recv_buffer_view` is live.
+  // here) and when no `epoll_recv_buffer_view` is live.
   void compact(size_t target = 0) {
     assert(!view_active);
     const size_t b = begin.load(std::memory_order::relaxed);
@@ -189,10 +193,14 @@ struct recv_buffer {
     begin.store(0, std::memory_order::release);
     end.store(active_len, std::memory_order::release);
   }
+#pragma endregion
 };
+#pragma endregion
 
+#pragma region epoll_recv_buffer_view
 // Limited-interface token handed to the parser via the `on_data` callback.
-// At most one `recv_buffer_view` is live at a time for a given connection.
+// At most one `epoll_recv_buffer_view` is live at a time for a given
+// connection.
 //
 // `active_view` acquire-loads `begin` and `end`, records the observed `end`
 // in `last_seen_end_` (so the framework can detect bytes that arrive
@@ -210,23 +218,24 @@ struct recv_buffer {
 // Non-copyable (one active parser at a time), movable.
 //
 // Tutorial:
-//  1. The `on_data` handler receives a `recv_buffer_view` whose `active_view`
-//  method returns a `std::string_view` pointing into the buffer. This
-//  `std::string_view` is passed to the parser, along with the
+//  1. The `on_data` handler receives an `epoll_recv_buffer_view` whose
+//  `active_view` method returns a `std::string_view` pointing into the buffer.
+//  This `std::string_view` is passed to the parser, along with the
 //  connection-specific state, to extract a frame.
 //
 //  2. The parser looks for a full frame in the `std::string_view`. If it finds
 //  one, it can process it and then call `consume` (or `update_active_view`)
 //  to advance the view past the parsed frame before returning and letting the
-//  `recv_buffer_view` destruct.
+//  `epoll_recv_buffer_view` destruct.
 //
 //  3. If processing will take a while, the parser can move the
-//  `recv_buffer_view` into a worker thread and return. So long as it retains
-//  the `recv_buffer_view`, the `std::string_view` into the buffer is valid, so
-//  there's no need to greedily copy. Alternatively, if the frame is small, it
-//  could be simpler for the parser to just copy it out before returning and
-//  letting the `recv_buffer_view` destruct. Similarly, it could generate a
-//  data structure summarizing the frame and keep that.
+//  `epoll_recv_buffer_view` into a worker thread and return. So long as it
+//  retains the `epoll_recv_buffer_view`, the `std::string_view` into the
+//  buffer is valid, so there's no need to greedily copy. Alternatively, if the
+//  frame is small, it could be simpler for the parser to just copy it out
+//  before returning and letting the `epoll_recv_buffer_view` destruct.
+//  Similarly, it could generate a data structure summarizing the frame and
+//  keep that.
 //
 //  As an optimization for bulk transfers, where there's not really a frame and
 //  it's not intended to all fit into memory, `try_take_full` can be used to
@@ -246,7 +255,7 @@ struct recv_buffer {
 //  However, it should not retain pointers into the buffer, whether
 //  directly or in the form of a `std::string_view`, as these may be
 //  invalidated if the buffer is compacted or resized when the
-//  `recv_buffer_view` destructs.
+//  `epoll_recv_buffer_view` destructs.
 //
 //  At a bare minimum, the parser must be idempotent, as it will see the same
 //  unconsumed bytes on each callback.
@@ -264,38 +273,41 @@ struct recv_buffer {
 //  If the maximum you're willing to accept is larger than the default
 //  buffer, then you can call `expand_to` to temporarily enlarge the
 //  buffer.
-class recv_buffer_view {
+class epoll_recv_buffer_view {
+#pragma region Construction
 public:
   // Construct a view over `buf`. `resume_cb` is called from the destructor
   // with the requested new buffer size (0 = no change) and the `end` value
   // last observed by the parser via `active_view`. It should capture a
   // `std::shared_ptr` to the owning connection to keep the connection alive
   // while this view is live.
-  recv_buffer_view(recv_buffer& buf,
+  epoll_recv_buffer_view(epoll_recv_buffer& buf,
       std::function<void(size_t, size_t)> resume_cb)
       : buf_{&buf}, resume_cb_{std::move(resume_cb)},
         last_seen_end_{buf.end.load(std::memory_order::acquire)} {
     assert(resume_cb_);
   }
 
-  recv_buffer_view(const recv_buffer_view&) = delete;
-  recv_buffer_view& operator=(const recv_buffer_view&) = delete;
+  epoll_recv_buffer_view(const epoll_recv_buffer_view&) = delete;
+  epoll_recv_buffer_view& operator=(const epoll_recv_buffer_view&) = delete;
 
-  recv_buffer_view(recv_buffer_view&& o) noexcept
+  epoll_recv_buffer_view(epoll_recv_buffer_view&& o) noexcept
       : buf_{std::exchange(o.buf_, nullptr)},
         resume_cb_{std::exchange(o.resume_cb_, {})},
         new_buffer_size_{o.new_buffer_size_},
         last_seen_end_{o.last_seen_end_} {}
 
-  recv_buffer_view& operator=(recv_buffer_view&&) = delete;
+  epoll_recv_buffer_view& operator=(epoll_recv_buffer_view&&) = delete;
 
   // Destructor: calls `resume_cb_(new_buffer_size_, last_seen_end_)` to post
   // compact / re-enable-reads / optional re-dispatch back to the loop.
   // NOLINTBEGIN(bugprone-exception-escape)
-  ~recv_buffer_view() {
+  ~epoll_recv_buffer_view() {
     if (buf_) resume_cb_(new_buffer_size_, last_seen_end_);
   }
   // NOLINTEND(bugprone-exception-escape)
+#pragma endregion
+#pragma region Accessors
 
   // Acquire-load `begin` and `end`; return a snapshot of at least the
   // currently active bytes. Records the observed `end` in `last_seen_end_`
@@ -321,6 +333,8 @@ public:
     assert(buf_);
     return buf_->buffer.capacity();
   }
+#pragma endregion
+#pragma region Buffer management
 
   // Request that the buffer grow to at least `n` bytes on the next compact.
   // Takes effect when the destructor invokes the callback.
@@ -377,12 +391,15 @@ public:
     new_buffer_size_ = std::max(new_buffer_size_, new_cap);
     return true;
   }
-
+#pragma endregion
+#pragma region Data members
 private:
-  recv_buffer* buf_;                              // non-owning; nulled on move
+  epoll_recv_buffer* buf_;                        // non-owning; nulled on move
   std::function<void(size_t, size_t)> resume_cb_; // keeps connection alive
   size_t new_buffer_size_{};       // 0 = no growth; set via `expand_to`
   mutable size_t last_seen_end_{}; // updated by `active_view`
+#pragma endregion
 };
+#pragma endregion
 
 }} // namespace corvid::proto

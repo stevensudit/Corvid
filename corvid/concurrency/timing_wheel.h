@@ -67,7 +67,7 @@ using namespace std::chrono_literals;
 //   conn.write_id_.store(id);
 //
 //   runner.wheel().schedule(
-//       [id, &loop, conn_weak = weak_ptr<stream_conn>{conn}] {
+//       [id, &loop, conn_weak = weak_ptr<epoll_stream_conn>{conn}] {
 //           // Deliver result on the loop thread.
 //           loop.post([id, conn_weak] {
 //               auto c = conn_weak.lock();
@@ -250,8 +250,9 @@ public:
   ~timing_wheel_runner() {
     thread_.request_stop();
     if (!thread_.joinable()) return;
-    // `http_server` may drop its last reference from within the wheel thread
-    // while a timeout callback holds the final owner. Avoid libc++ self-join.
+    // `epoll_http_server` may drop its last reference from within the wheel
+    // thread while a timeout callback holds the final owner. Avoid libc++
+    // self-join.
     if (thread_.get_id() == std::this_thread::get_id())
       thread_.detach();
     else

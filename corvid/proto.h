@@ -26,11 +26,8 @@
 //  dns_resolver - thin wrapper around `getaddrinfo` returning a list of
 //                `net_endpoint` values
 //  epoll_loop  - single-threaded epoll-based I/O event loop
-//  stream_conn - non-blocking stream connection with persistent-callback
+//  epoll_stream_conn - non-blocking stream connection with persistent-callback
 //                async I/O
-//  stream_async - per-call async wrappers: `stream_async_cb` (callback-based)
-//                and `stream_async_coro` (coroutine-based)
-//  loop_task   - fire-and-forget coroutine return type for `epoll_loop`
 //  json_parser - strict header-only JSON parser and writer with non-owning
 //                views
 //  terminated_text_parser - sentinel-terminated text frame parser for
@@ -38,7 +35,7 @@
 //  http_header_block - HTTP/1.1 types: `http_version`/`http_method` enums,
 //                `http_headers` ordered multimap, `request_head` and
 //                `response_head` with extraction and serialization
-//  http_server - HTTP/1.1 server with keep-alive and pipelining
+//  epoll_http_server - HTTP/1.1 server with keep-alive and pipelining
 //  iouring_loop - io_uring-based event loop, API-compatible with `epoll_loop`
 //  iou_stream_conn - io_uring-backed stream connection
 #include "proto/ipv4_addr.h"
@@ -47,18 +44,15 @@
 #include "proto/iov_msghdr.h"
 #include "proto/dns_resolver.h"
 #include "proto/epoll/epoll_loop.h"
-#include "proto/epoll/stream_conn.h"
-#include "proto/epoll/stream_async.h"
-#include "proto/loop_task.h"
+#include "proto/epoll/epoll_stream_conn.h"
 #include "proto/misc/json_parser.h"
 #include "proto/misc/terminated_text_parser.h"
-#include "proto/epoll/stream_sync.h"
 #include "proto/misc/base-64.h"
 #include "proto/misc/utf8-checker.h"
 #include "proto/misc/http_head_codec.h"
 #include "proto/misc/sha-1.h"
-#include "proto/epoll/http_transaction.h"
-#include "proto/epoll/http_websocket.h"
-#include "proto/epoll/http_websocket_transaction.h"
-#include "proto/epoll/http_server.h"
-#include "proto/epoll/http_file_transaction.h"
+#include "proto/epoll/epoll_http_transaction.h"
+#include "proto/epoll/epoll_http_websocket.h"
+#include "proto/epoll/epoll_http_websocket_transaction.h"
+#include "proto/epoll/epoll_http_server.h"
+#include "proto/epoll/epoll_http_file_transaction.h"

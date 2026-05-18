@@ -36,7 +36,7 @@
 #include "epoll_loop.h"
 #include "../iov_msghdr.h"
 #include "../net_endpoint.h"
-#include "recv_buffer.h"
+#include "epoll_recv_buffer.h"
 #include "../../concurrency/relaxed_atomic.h"
 #include "../../enums/bool_enums.h"
 #include "../../strings/any_strings.h"
@@ -47,18 +47,19 @@ namespace corvid { inline namespace proto {
 using namespace corvid::strings::no_zero_funcs;
 using namespace corvid::strings::any_strings_types;
 
-// Forward declaration for `stream_conn_handlers`.
-class stream_conn;
+// Forward declaration for `epoll_stream_conn_handlers`.
+class epoll_stream_conn;
 
-// User-supplied persistent callbacks for a `stream_conn`. All fields are
-// optional; a null handler is silently skipped when its event fires.
+#pragma region epoll_stream_conn_handlers
+// User-supplied persistent callbacks for an `epoll_stream_conn`. All fields
+// are optional; a null handler is silently skipped when its event fires.
 //
 //  `on_data(conn, view)` -- fired when data arrives. `conn` is a reference to
 //                           the connection; the user may call `conn.send` or
 //                           other methods on it. `view` is a
-//                           `recv_buffer_view` token: call `active_view` (or
-//                           implicit `std::string_view` conversion) to read
-//                           the data, and `consume(n)` or
+//                           `epoll_recv_buffer_view` token: call `active_view`
+//                           (or implicit `std::string_view` conversion) to
+//                           read the data, and `consume(n)` or
 //                           `update_active_view(tail)` to advance the consume
 //                           pointer. `EPOLLIN` is re-enabled and any remaining
 //                           data is compacted when `view` destructs.
@@ -79,34 +80,37 @@ class stream_conn;
 //                           write side open after peer EOF, install an
 //                           `on_close` handler and call `close` or `hangup`
 //                           only when done.
-struct stream_conn_handlers {
-  std::function<bool(stream_conn&, recv_buffer_view)> on_data = nullptr;
-  std::function<bool(stream_conn&)> on_drain = nullptr;
-  std::function<bool(stream_conn&)> on_close = nullptr;
+struct epoll_stream_conn_handlers {
+  std::function<bool(epoll_stream_conn&, epoll_recv_buffer_view)> on_data =
+      nullptr;
+  std::function<bool(epoll_stream_conn&)> on_drain = nullptr;
+  std::function<bool(epoll_stream_conn&)> on_close = nullptr;
 };
+#pragma endregion
 
-// A `stream_conn` is a non-blocking stream socket driven by an `epoll_loop`.
-// Instances are created, directly or indirectly, by `stream_conn_ptr_with`
-// factories, and registered with the loop.
+#pragma region epoll_stream_conn
+// A `epoll_stream_conn` is a non-blocking stream socket driven by an
+// `epoll_loop`. Instances are created, directly or indirectly, by
+// `epoll_stream_conn_ptr_with` factories, and registered with the loop.
 //
 // Supports three creation paths:
 //
 // 1. Already-connected socket (whether from `connect` or `accept`): use the
-//    `stream_conn_ptr_with` constructor directly. The socket must be
+//    `epoll_stream_conn_ptr_with` constructor directly. The socket must be
 //    non-blocking and connected.
 //
-// 2. Async connect: use the static `stream_conn_ptr_with::connect` factory. It
-//    creates the socket, optionally binds the local end, calls `connect(2)`,
-//    and registers with the loop. When the kernel reports the outcome,
-//    `on_writable` or `on_error` transitions either to connected state
-//    (notifying any write waiter) or closes the connection.
+// 2. Async connect: use the static `epoll_stream_conn_ptr_with::connect`
+//    factory. It creates the socket, optionally binds the local end, calls
+//    `connect(2)`, and registers with the loop. When the kernel reports the
+//    outcome, `on_writable` or `on_error` transitions either to connected
+//    state (notifying any write waiter) or closes the connection.
 //
-// 3. Listening: use the static `stream_conn_ptr_with::listen` factory. It
-//    creates the socket, sets `SO_REUSEADDR`, binds, and calls `listen(2)`.
+// 3. Listening: use the static `epoll_stream_conn_ptr_with::listen` factory.
+//    It creates the socket, sets `SO_REUSEADDR`, binds, and calls `listen(2)`.
 //    `EPOLLIN` events call `accept4` in a drain loop; each accepted connection
-//    is created as a self-owning `stream_conn` in the loop, with a copy of the
-//    listener's handlers. `send` and other data-path operations are disabled
-//    on a listening `stream_conn`.
+//    is created as a self-owning `epoll_stream_conn` in the loop, with a copy
+//    of the listener's handlers. `send` and other data-path operations are
+//    disabled on a listening `epoll_stream_conn`.
 //
 // Thread safety: `send`, `close`, `hangup`, and the destructor are safe
 // to call from any thread. They route work to the command queue via
@@ -123,8 +127,8 @@ struct stream_conn_handlers {
 //
 // Receive path: `EPOLLIN` is armed while `recv_buf_.reads_enabled` is true.
 // When `EPOLLIN` fires, `on_readable` appends bytes to the persistent
-// `recv_buffer` and delivers a `recv_buffer_view` token to the active
-// `on_data` handler. The view holds `begin`/`end` semantics: the parser
+// `epoll_recv_buffer` and delivers an `epoll_recv_buffer_view` token to the
+// active `on_data` handler. The view holds `begin`/`end` semantics: the parser
 // advances `begin` via `consume` and `EPOLLIN` is re-enabled when the view
 // destructs. If the buffer fills up while a view is live, `EPOLLIN` is
 // disabled until the view destructs and `resume_receive` compacts it.
@@ -133,25 +137,21 @@ struct stream_conn_handlers {
 // `unilateral` (the default), the socket closes as soon as the queue empties.
 // When `bilateral`, the write side is instead shut down and incoming data is
 // discarded until the peer sends EOF. `hangup` discards pending outbound data
-// and closes immediately. The destructor of `stream_conn_ptr_with` uses
+// and closes immediately. The destructor of `epoll_stream_conn_ptr_with` uses
 // `hangup`, so you should call `close` in the non-error path to pre-empt this.
 //
-// Supports persistent callbacks via `stream_conn_handlers`, and `send`.
+// Supports persistent callbacks via `epoll_stream_conn_handlers`, and `send`.
 //
-// Two additional per-call models are provided by `stream_async.h`:
-// `stream_async_cb` (one-shot callbacks) and `stream_async_coro` (coroutines).
-// Both temporarily redirect `active_handlers_` so `stream_conn` is unaware
-// of them.
-//
-// Forward declaration so `stream_conn` can friend it.
+// Forward declaration so `epoll_stream_conn` can friend it.
 template<typename STATE>
-class stream_conn_with_state;
+class epoll_stream_conn_with_state;
 
-// `stream_conn` is designed to be subclassed only via
-// `stream_conn_with_state`. The `allow` token is private and only
-// `stream_conn_with_state` (and the existing infrastructure friends) can
+// `epoll_stream_conn` is designed to be subclassed only via
+// `epoll_stream_conn_with_state`. The `allow` token is private and only
+// `epoll_stream_conn_with_state` (and the existing infrastructure friends) can
 // access it, preventing unintended derivation.
-class stream_conn: public io_conn {
+class epoll_stream_conn: public epoll_io_conn {
+#pragma region Accessors
 public:
   // Default receive-buffer capacity per connection, in bytes.
   static constexpr size_t default_recv_buf_size = 16384;
@@ -232,6 +232,9 @@ public:
     return weak_loop_;
   }
 
+#pragma endregion
+#pragma region Send
+
   // Take ownership of one or more `std::string` rvalues and start sending
   // them. There must be at least one non-empty buffer. Returns false if either
   // of these conditions is not met, or if we are unable to write to this
@@ -300,13 +303,15 @@ public:
       return p->enqueue_send_any(std::move(s));
     });
   }
+#pragma endregion
+#pragma region Close
 
   // Start a close. If `coordination` is `unilateral` (the default), flushes
   // pending sends and then closes the socket. If `bilateral`, instead shuts
   // down the write side after flushing pending sends and discards incoming
   // data until the peer closes. Set the policy via `set_shutdown` before
   // calling this. Safe from any thread. Once called, destructing the
-  // owning `stream_conn_ptr_with` does not cause a forceful close.
+  // owning `epoll_stream_conn_ptr_with` does not cause a forceful close.
   [[nodiscard]] bool close() {
     no_hangup_on_destruct_ = true;
     return loop_.post([p = self()] { return p->do_close(); });
@@ -331,26 +336,28 @@ public:
     if (!open_) return false;
     return exec_lambda(exec, [p = self()] { return p->do_shutdown_write(); });
   }
-
+#pragma endregion
+#pragma region Friends
 private:
   enum class allow : bool { ctor };
 
-  friend class stream_async_base;
   template<typename>
-  friend class stream_conn_ptr_with;
+  friend class epoll_stream_conn_ptr_with;
   template<typename>
-  friend class stream_conn_with_state;
-
+  friend class epoll_stream_conn_with_state;
+#pragma endregion
+#pragma region Construction
 public:
-  // Constructor. Technically public to allow `std::make_shared<stream_conn>`
-  // from `stream_conn_ptr_with` factories and `handle_listen`, but gated
-  // behind a private type. Use `stream_conn_ptr_with` to construct an
-  // instance.
-  explicit stream_conn(allow, std::weak_ptr<epoll_loop> loop,
-      net_socket&& sock, const net_endpoint& remote, stream_conn_handlers&& h,
-      size_t rbs, std::optional<connection_role> connection = {},
+  // Constructor. Technically public to allow
+  // `std::make_shared<epoll_stream_conn>` from `epoll_stream_conn_ptr_with`
+  // factories and `handle_listen`, but gated behind a private type. Use
+  // `epoll_stream_conn_ptr_with` to construct an instance.
+  explicit epoll_stream_conn(allow, std::weak_ptr<epoll_loop> loop,
+      net_socket&& sock, const net_endpoint& remote,
+      epoll_stream_conn_handlers&& h, size_t rbs,
+      std::optional<connection_role> connection = {},
       coordination_policy shutdown = coordination_policy::unilateral)
-      : io_conn{std::move(sock)}, loop_{*loop.lock()},
+      : epoll_io_conn{std::move(sock)}, loop_{*loop.lock()},
         weak_loop_{std::move(loop)}, remote_{remote},
         own_handlers_{std::move(h)}, active_handlers_{&own_handlers_},
         open_{true}, connecting_{connection == connection_role::client},
@@ -362,11 +369,12 @@ public:
     if (listening_) write_shut_ = true;
   }
 
-  // Return a `shared_ptr<stream_conn>` to `*this`.
-  [[nodiscard]] std::shared_ptr<stream_conn> self() {
-    return std::static_pointer_cast<stream_conn>(shared_from_this());
+  // Return a `shared_ptr<epoll_stream_conn>` to `*this`.
+  [[nodiscard]] std::shared_ptr<epoll_stream_conn> self() {
+    return std::static_pointer_cast<epoll_stream_conn>(shared_from_this());
   }
-
+#pragma endregion
+#pragma region Subclass hooks
 protected:
   // Event loop that drives this connection. Protected so derived classes can
   // reference it in `accept_clone` overrides.
@@ -378,32 +386,32 @@ protected:
   // alive.
   std::weak_ptr<epoll_loop> weak_loop_;
 
-  // Produce a new connected `stream_conn` for an accepted socket. Called by
-  // `handle_listen` instead of constructing `stream_conn` directly, so derived
-  // classes can override this to supply a richer concrete type. Returning
-  // `nullptr` causes `handle_listen` to skip registration for that socket
-  // (connection-limiting hook). The `handlers` argument is a copy of the
-  // listener's `own_handlers_`.
-  [[nodiscard]] virtual std::shared_ptr<stream_conn>
+  // Produce a new connected `epoll_stream_conn` for an accepted socket. Called
+  // by `handle_listen` instead of constructing `epoll_stream_conn` directly,
+  // so derived classes can override this to supply a richer concrete type.
+  // Returning `nullptr` causes `handle_listen` to skip registration for that
+  // socket (connection-limiting hook). The `handlers` argument is a copy of
+  // the listener's `own_handlers_`.
+  [[nodiscard]] virtual std::shared_ptr<epoll_stream_conn>
   accept_clone(net_socket&& sock, const net_endpoint& remote,
-      stream_conn_handlers handlers) const {
-    return std::make_shared<stream_conn>(allow::ctor, weak_loop_,
+      epoll_stream_conn_handlers handlers) const {
+    return std::make_shared<epoll_stream_conn>(allow::ctor, weak_loop_,
         std::move(sock), remote, std::move(handlers), recv_buf_size(),
         std::nullopt, shutdown_);
   }
-
+#pragma endregion
+#pragma region Data members
 private:
   net_endpoint remote_;
 
   // The connection's own persistent handlers. Never moved or destroyed while
-  // the connection is alive. `active_handlers_` always points here unless an
-  // `stream_async_base` has temporarily redirected it to its own handlers.
-  stream_conn_handlers own_handlers_;
+  // the connection is alive.
+  epoll_stream_conn_handlers own_handlers_;
 
-  // Atomic pointer to the currently active handlers. Normally points to
-  // `own_handlers_`. `stream_async_base::install_handlers` atomically swaps
-  // this to its own `handlers_` member; its destructor swaps it back.
-  std::atomic<stream_conn_handlers*> active_handlers_;
+  // Atomic pointer to the currently active handlers. Always points to
+  // `own_handlers_`; the redirection mechanism is vestigial from a removed
+  // per-call async layer and is preserved here pending a follow-up cleanup.
+  std::atomic<epoll_stream_conn_handlers*> active_handlers_;
 
   // Send queue.
   // TODO: Consider using an object pool owned by the loop to reduce the
@@ -417,14 +425,14 @@ private:
 
   // Persistent receive buffer. The framework appends bytes after `end`;
   // the parser consumes bytes from `begin`.
-  recv_buffer recv_buf_;
+  epoll_recv_buffer recv_buf_;
 
   // Cleared atomically by `do_close_now`. Read from any thread via
   // `is_open`.
   relaxed_atomic_bool open_;
 
-  // Set by `close` to prevent the destructor of `stream_conn_ptr_with` from
-  // closing forcefully after a graceful close has been initiated.
+  // Set by `close` to prevent the destructor of `epoll_stream_conn_ptr_with`
+  // from closing forcefully after a graceful close has been initiated.
   relaxed_atomic_bool no_hangup_on_destruct_{false};
 
   // Per-direction state, assuming `open_` is true. `read_open_` is cleared by
@@ -445,10 +453,10 @@ private:
   // `handle_connect` instead of the normal data paths.
   bool connecting_ = false;
 
-  // True for listening sockets created by `stream_conn_ptr_with::listen`. In
-  // this phase, `on_readable` routes to `handle_listen` to drain accepted
-  // connections, `on_writable` is a no-op, and the write data path is
-  // disabled.
+  // True for listening sockets created by
+  // `epoll_stream_conn_ptr_with::listen`. In this phase, `on_readable` routes
+  // to `handle_listen` to drain accepted connections, `on_writable` is a
+  // no-op, and the write data path is disabled.
   bool listening_ = false;
 
   // Set by `do_close` to request a full or mutual close after pending writes
@@ -470,11 +478,13 @@ private:
   // the queue empties.
   relaxed_atomic<coordination_policy> shutdown_{
       coordination_policy::unilateral};
+#pragma endregion
+#pragma region Internals
 
   // Register `net_socket` with the loop. Stores a shared owner in the loop's
   // registration map, keeping the state alive as long as the fd is
-  // registered, even if its `stream_conn_ptr_with` is destructed. (However,
-  // its destruction will start a forceful close.)
+  // registered, even if its `epoll_stream_conn_ptr_with` is destructed.
+  // (However, its destruction will start a forceful close.)
   //
   // Arms `EPOLLOUT` for all data-path (non-listening) sockets and `EPOLLIN`
   // for non-connecting sockets with read interest. Suppresses `EPOLLIN` while
@@ -497,7 +507,7 @@ private:
     return do_close_now(close_mode::forceful) && false;
   }
 
-  // `io_conn` overrides: called on the loop thread by `dispatch_event`.
+  // `epoll_io_conn` overrides: called on the loop thread by `dispatch_event`.
   [[nodiscard]] bool on_readable() override {
     assert(loop_.is_loop_thread());
     if (listening_) return handle_listen();
@@ -576,10 +586,11 @@ private:
     return loop_.post_and_wait(std::forward<FN>(fn));
   }
 
-  // Acquire-load `active_handlers_`, synchronizing with the release store in
-  // `stream_async_base::install_handlers` and its destructor. Required
-  // whenever the returned pointer is dereferenced to invoke a handler.
-  [[nodiscard]] stream_conn_handlers*
+  // Acquire-load `active_handlers_`. The acquire pairs with a release store
+  // on the writer side; no writer remains today (see the `active_handlers_`
+  // data-member comment), but the load is kept consistent with the type's
+  // atomic declaration.
+  [[nodiscard]] epoll_stream_conn_handlers*
   acquire_active_handlers() const noexcept {
     return active_handlers_.load(std::memory_order::acquire);
   }
@@ -587,8 +598,8 @@ private:
   // Read interest is needed while in listening mode (always) or while the
   // active `on_data` handler is installed AND `reads_enabled` is true.
   // `reads_enabled` allows reads to be suppressed even when a handler exists
-  // (e.g., before the first `read` call in `stream_async`, or for
-  // connections that should not start reading until explicitly armed).
+  // (e.g., for connections that should not start reading until explicitly
+  // armed).
   [[nodiscard]] bool wants_read_events() const noexcept {
     assert(loop_.is_loop_thread());
     if (!open_) return false;
@@ -607,7 +618,8 @@ private:
   }
 
   // Returns true if `active_handlers_` has been redirected away from
-  // `own_handlers_` by an `stream_async_base`.
+  // `own_handlers_`. Currently always false (see the `active_handlers_`
+  // data-member comment).
   [[nodiscard]] bool are_handlers_external() const noexcept {
     return acquire_active_handlers() != &own_handlers_;
   }
@@ -630,19 +642,19 @@ private:
     return true;
   }
 
-  // Deliver newly read data to the active `on_data` handler (which may be
-  // `own_handlers_.on_data` or one installed by a `stream_async_base` child).
-  // Sets `view_active` before dispatching; it is cleared by `resume_receive`
-  // once the view destructs.
+  // Deliver newly read data to the active `on_data` handler. Sets
+  // `view_active` before dispatching; it is cleared by `resume_receive` once
+  // the view destructs.
   [[nodiscard]] bool notify_read_ready() {
     assert(loop_.is_loop_thread());
     auto* h = acquire_active_handlers();
     if (h->on_data) {
       recv_buf_.view_active = true;
       return h->on_data(*this,
-          recv_buffer_view{recv_buf_, [sp = self()](size_t n, size_t lse) {
-                             sp->resume_receive(n, lse);
-                           }});
+          epoll_recv_buffer_view{recv_buf_,
+              [sp = self()](size_t n, size_t lse) {
+                sp->resume_receive(n, lse);
+              }});
     }
     return refresh_read_interest();
   }
@@ -650,7 +662,7 @@ private:
   // Report read-side closure to any active `on_data` handler. Zeroes
   // `begin`/`end` before dispatching so that `active_view` returns an empty
   // view, signaling EOF to the parser. Must only be called when no
-  // `recv_buffer_view` is live (`view_active` must be false).
+  // `epoll_recv_buffer_view` is live (`view_active` must be false).
   [[nodiscard]] bool notify_read_closed() {
     assert(loop_.is_loop_thread());
     assert(!recv_buf_.view_active); // must not be called while a view is live
@@ -660,9 +672,10 @@ private:
       recv_buf_.end.store(0, std::memory_order::relaxed);
       recv_buf_.view_active = true;
       return h->on_data(*this,
-          recv_buffer_view{recv_buf_, [sp = self()](size_t n, size_t lse) {
-                             sp->resume_receive(n, lse);
-                           }});
+          epoll_recv_buffer_view{recv_buf_,
+              [sp = self()](size_t n, size_t lse) {
+                sp->resume_receive(n, lse);
+              }});
     }
     return refresh_read_interest();
   }
@@ -682,11 +695,10 @@ private:
       return do_close_now(close_mode::forceful) && false;
     read_open_ = false;
     if (!loop_.enable_reads(*this, false)) return false;
-    // Notify any `stream_async_base` that may have a pending read waiter.
-    // `notify_read_closed` calls `active_handlers_->on_data` with an empty
-    // buffer; persistent own handlers use `on_close` instead. Skip if a view
-    // is live (`recv_buf_.view_active` is true), since `notify_read_closed`
-    // must not be called while a view exists.
+    // External-handler path (currently unreachable): would notify a pending
+    // read waiter via `notify_read_closed`, which calls `on_data` with an
+    // empty buffer. Persistent own handlers use `on_close` instead. The view
+    // guard prevents calling `notify_read_closed` while a view exists.
     if (are_handlers_external() && !recv_buf_.view_active)
       (void)notify_read_closed();
     return maybe_finish_after_side_close() || true;
@@ -714,9 +726,9 @@ private:
   }
 
   // Dispatch the deferred EOF notifications: deliver `notify_read_closed` to
-  // any external async handler, then fire `on_close`. Called by
-  // `handle_read_eof` when no view is live, or by `resume_receive` after
-  // a deferred EOF (when `eof_pending_` was set).
+  // any external handler (currently unreachable), then fire `on_close`.
+  // Called by `handle_read_eof` when no view is live, or by `resume_receive`
+  // after a deferred EOF (when `eof_pending_` was set).
   [[nodiscard]] bool do_eof_notifications() {
     assert(loop_.is_loop_thread());
     // `read_open_`, `enable_reads`, and `enable_rdhup` were already handled in
@@ -740,10 +752,11 @@ private:
   // level-triggered and repeatedly wake the loop while the write side is
   // still open.
   //
-  // Sets `eof_pending_` and defers notifications if a `recv_buffer_view` is
-  // live when EOF arrives, or becomes live as a result of dispatching buffered
-  // data. In both cases `resume_receive` handles the EOF once the view
-  // destructs, ensuring at most one live view at a time.
+  // Sets `eof_pending_` and defers notifications if an
+  // `epoll_recv_buffer_view` is live when EOF arrives, or becomes live as a
+  // result of dispatching buffered data. In both cases `resume_receive`
+  // handles the EOF once the view destructs, ensuring at most one live view at
+  // a time.
   [[nodiscard]] bool handle_read_eof() {
     assert(loop_.is_loop_thread());
     read_open_ = false;
@@ -772,9 +785,9 @@ private:
     return do_eof_notifications() && false;
   }
 
-  // Handle a deferred EOF that arrived while a `recv_buffer_view` was live.
-  // Called from `resume_receive` after the view destructs and compaction is
-  // done. If buffered data remains, re-dispatches it first (keeping
+  // Handle a deferred EOF that arrived while an `epoll_recv_buffer_view` was
+  // live. Called from `resume_receive` after the view destructs and compaction
+  // is done. If buffered data remains, re-dispatches it first (keeping
   // `eof_pending_` set so the next `resume_receive` call finishes the job);
   // otherwise clears `eof_pending_` and fires `do_eof_notifications`.
   [[nodiscard]] bool handle_deferred_eof() {
@@ -845,7 +858,8 @@ private:
       auto accepted = sock().accept();
       if (!accepted) break;
       auto peer = accept_clone(std::move(accepted->first),
-          net_endpoint{accepted->second}, stream_conn_handlers{own_handlers_});
+          net_endpoint{accepted->second},
+          epoll_stream_conn_handlers{own_handlers_});
       if (!peer) continue; // accept_clone declined this connection
       if (!peer->register_with_loop()) return false;
     }
@@ -868,7 +882,7 @@ private:
   }
 
   // Append incoming bytes to `recv_buf_` and dispatch to the active `on_data`
-  // handler via a `recv_buffer_view`. If a view is already live
+  // handler via an `epoll_recv_buffer_view`. If a view is already live
   // (`view_active` is true), just extend `end` atomically; the in-flight
   // parser will observe the new bytes on its next `active_view` call. If the
   // buffer is full, disable reads until `resume_receive` compacts it.
@@ -912,7 +926,7 @@ private:
   }
 
   // Post all receive-buffer recovery work (compact, re-enable reads, optional
-  // re-dispatch) back to the loop thread. Called by `recv_buffer_view`
+  // re-dispatch) back to the loop thread. Called by `epoll_recv_buffer_view`
   // destructor with the parser's requested buffer size (0 = no expansion) and
   // the `end` value last observed by the parser via `active_view`.
   //
@@ -955,8 +969,6 @@ private:
 
       // Space is available and no unseen bytes remain. Re-evaluate `EPOLLIN`
       // based on current state (`reads_enabled` and active handler presence).
-      // This re-arms `EPOLLIN` for persistent handlers and leaves it off for
-      // `stream_async` when no read is pending.
       return p->refresh_read_interest();
     });
   }
@@ -1069,9 +1081,9 @@ private:
     if (!loop_.enable_writes(*this, false))
       return do_close_now(close_mode::forceful) && false;
 
-    // If we were waiting to close, do so now. Notify any `stream_async_base`
-    // write waiter of the successful flush before closing; bare persistent
-    // handlers receive only `on_close`.
+    // If we were waiting to close, do so now. External-handler path (currently
+    // unreachable) would notify a write waiter of the successful flush before
+    // closing; persistent handlers receive only `on_close`.
     if (close_requested_) {
       if (are_handlers_external()) (void)notify_drained();
       return do_finish_close();
@@ -1167,86 +1179,95 @@ private:
     iov_sender_.clear();
     close_requested_ = false;
 
-    // `on_close` notifies any pending `stream_async_base` waiters (coro or
-    // cb). The handler is always posted-resume, never inline, so any
-    // in-progress `await_suspend` on the call stack has returned before the
-    // coroutine continues -- preventing use-after-free when `do_close_now`
-    // fires from within `enqueue_send` -> `await_suspend`.
+    // Fire `on_close` exactly once.
     return notify_close_once();
   }
+#pragma endregion
 };
+#pragma endregion
 
-// A move-only smart pointer that owns a `stream_conn` (or a class derived from
-// it). Despite being implemented with a `shared_ptr`, a `stream_conn_ptr_with`
-// fully owns the connection and removes it from the `epoll_loop` on
-// destruction.
+#pragma region epoll_stream_conn_ptr_with
+// A move-only smart pointer that owns a `epoll_stream_conn` (or a class
+// derived from it). Despite being implemented with a `shared_ptr`, a
+// `epoll_stream_conn_ptr_with` fully owns the connection and removes it from
+// the `epoll_loop` on destruction.
 //
-// `T` defaults to `stream_conn`. Use `stream_conn_ptr_with<MyConn>` (where
-// `MyConn` derives from `stream_conn`) to get a typed handle whose
-// `operator->` returns `MyConn*`. A `stream_conn_ptr_with<Derived>` is
-// implicitly convertible to `stream_conn_ptr_with<Base>`, mirroring
-// `shared_ptr` covariance.
+// `T` defaults to `epoll_stream_conn`. Use
+// `epoll_stream_conn_ptr_with<MyConn>` (where `MyConn` derives from
+// `epoll_stream_conn`) to get a typed handle whose `operator->` returns
+// `MyConn*`. A `epoll_stream_conn_ptr_with<Derived>` is implicitly convertible
+// to `epoll_stream_conn_ptr_with<Base>`, mirroring `shared_ptr` covariance.
 //
 // The public methods are factory creators (`adopt`, `connect`, `listen`),
 // `close`, `release`, `pointer`, and `operator->`.
-template<typename T = stream_conn>
-class stream_conn_ptr_with {
-  static_assert(std::derived_from<T, stream_conn>,
-      "stream_conn_ptr_with<T>: T must derive from stream_conn");
+template<typename T = epoll_stream_conn>
+class epoll_stream_conn_ptr_with {
+  static_assert(std::derived_from<T, epoll_stream_conn>,
+      "epoll_stream_conn_ptr_with<T>: T must derive from epoll_stream_conn");
 
+#pragma region Types
 public:
   using conn_t = T;
   using shared_ptr_t = std::shared_ptr<conn_t>;
+#pragma endregion
+#pragma region Construction
 
   // Default constructor -- creates an empty (invalid) handle. `operator bool`
   // returns false.
-  stream_conn_ptr_with() noexcept = default;
+  epoll_stream_conn_ptr_with() noexcept = default;
 
-  stream_conn_ptr_with(stream_conn_ptr_with&&) noexcept = default;
-  stream_conn_ptr_with(const stream_conn_ptr_with&) = delete;
+  epoll_stream_conn_ptr_with(epoll_stream_conn_ptr_with&&) noexcept = default;
+  epoll_stream_conn_ptr_with(const epoll_stream_conn_ptr_with&) = delete;
 
-  stream_conn_ptr_with& operator=(stream_conn_ptr_with&&) = default;
-  stream_conn_ptr_with& operator=(const stream_conn_ptr_with&) = delete;
+  epoll_stream_conn_ptr_with& operator=(
+      epoll_stream_conn_ptr_with&&) = default;
+  epoll_stream_conn_ptr_with& operator=(
+      const epoll_stream_conn_ptr_with&) = delete;
 
-  // Implicit upcast: `stream_conn_ptr_with<Derived>` ->
-  // `stream_conn_ptr_with<Base>`. Mirrors the covariance of `shared_ptr`.
+  // Implicit upcast: `epoll_stream_conn_ptr_with<Derived>` ->
+  // `epoll_stream_conn_ptr_with<Base>`. Mirrors the covariance of
+  // `shared_ptr`.
   template<typename U>
   requires std::derived_from<U, conn_t>
-  stream_conn_ptr_with(stream_conn_ptr_with<U>&& other) noexcept
+  epoll_stream_conn_ptr_with(epoll_stream_conn_ptr_with<U>&& other) noexcept
       : conn_(std::move(other.conn_)) {}
 
   // Performs `hangup` on destruction. If you want to close cleanly, you must
   // call `close` before the instance is destructed.
   // NOLINTBEGIN(bugprone-exception-escape)
-  ~stream_conn_ptr_with() {
+  ~epoll_stream_conn_ptr_with() {
     if (!conn_ || conn_->no_hangup_on_destruct_) return;
     (void)conn_->loop_.execute_or_post([p = std::move(conn_)] {
       return p->do_hangup();
     });
   }
   // NOLINTEND(bugprone-exception-escape)
+#pragma endregion
+#pragma region Accessors
 
   // Return a const reference to the underlying `shared_ptr` without releasing
   // ownership. The caller may copy it to extend the connection's lifetime
-  // beyond that of this `stream_conn_ptr_with`.
+  // beyond that of this `epoll_stream_conn_ptr_with`.
   [[nodiscard]] const shared_ptr_t& pointer() const { return conn_; }
 
   // Release ownership of the connection. The connection remains registered
   // with the loop and is responsible for itself.
   [[nodiscard]] shared_ptr_t release() { return std::move(conn_); }
+#pragma endregion
+#pragma region Factories
 
   // Adopt an already-connected, non-blocking `sock` and register it with
   // `loop`. `remote` records the peer address for diagnostics. `shutdown` sets
   // the shutdown `coordination_policy`. May be called from any thread. Socket
   // must be nonblocking.
-  [[nodiscard]] static stream_conn_ptr_with<conn_t>
+  [[nodiscard]] static epoll_stream_conn_ptr_with<conn_t>
   adopt(const std::shared_ptr<epoll_loop>& loop, net_socket&& sock,
-      const net_endpoint& remote, stream_conn_handlers&& h = {},
-      size_t recv_buf_size = stream_conn::default_recv_buf_size,
+      const net_endpoint& remote, epoll_stream_conn_handlers&& h = {},
+      size_t recv_buf_size = epoll_stream_conn::default_recv_buf_size,
       coordination_policy shutdown = coordination_policy::unilateral) {
     assert(sock.get_flags().value_or(o_flags{}) & o_flags::nonblock);
-    return stream_conn_ptr_with{loop, std::move(sock), remote, std::move(h),
-        recv_buf_size, {}, shutdown};
+    return epoll_stream_conn_ptr_with{loop, std::move(sock), remote,
+        std::move(h), recv_buf_size, {}, shutdown};
   }
 
   // Initiate an async connection to `remote`. Creates a non-blocking socket
@@ -1264,11 +1285,11 @@ public:
   // cannot be bound, or `connect(2)` fails synchronously; `errno` is set by
   // the failing syscall. Async failure (e.g., `ECONNREFUSED` delivered later)
   // goes through the normal close path.
-  [[nodiscard]] static stream_conn_ptr_with
+  [[nodiscard]] static epoll_stream_conn_ptr_with
   connect(const std::shared_ptr<epoll_loop>& loop, const net_endpoint& remote,
-      stream_conn_handlers&& h = {},
+      epoll_stream_conn_handlers&& h = {},
       const net_endpoint& local = net_endpoint::invalid,
-      size_t recv_buf_size = stream_conn::default_recv_buf_size,
+      size_t recv_buf_size = epoll_stream_conn::default_recv_buf_size,
       coordination_policy shutdown = coordination_policy::unilateral) {
     auto sock = net_socket::create_for(remote);
     if (!sock.is_open()) return {};
@@ -1283,7 +1304,7 @@ public:
             ? std::optional{connection_role::client}
             : std::optional<connection_role>{};
 
-    auto ptr = stream_conn_ptr_with{loop, std::move(sock), remote,
+    auto ptr = epoll_stream_conn_ptr_with{loop, std::move(sock), remote,
         std::move(h), recv_buf_size, connection, shutdown};
 
     // When `connect(2)` succeeds immediately, `handle_connect` never fires
@@ -1311,9 +1332,9 @@ public:
   // the failing syscall. `shutdown` sets the shutdown `coordination_policy` on
   // the listener and therefore every accepted connection. `reuse_port` enables
   // `SO_REUSEPORT` for multi-process load balancing.
-  [[nodiscard]] static stream_conn_ptr_with
+  [[nodiscard]] static epoll_stream_conn_ptr_with
   listen(const std::shared_ptr<epoll_loop>& loop, const net_endpoint& local,
-      stream_conn_handlers&& h = {},
+      epoll_stream_conn_handlers&& h = {},
       coordination_policy shutdown = coordination_policy::unilateral,
       bool reuse_port = false) {
     auto sock = net_socket::create_for(local);
@@ -1324,10 +1345,13 @@ public:
     if (!sock.bind(local)) return {};
     if (!sock.listen()) return {};
 
-    return stream_conn_ptr_with{std::move(loop), std::move(sock),
+    return epoll_stream_conn_ptr_with{std::move(loop), std::move(sock),
         net_endpoint::invalid, std::move(h),
-        stream_conn::default_recv_buf_size, connection_role::server, shutdown};
+        epoll_stream_conn::default_recv_buf_size, connection_role::server,
+        shutdown};
   }
+#pragma endregion
+#pragma region Close
 
   // Start a graceful close. Drains pending sends first, then shuts down the
   // socket. Safe from any thread. Once this is called, destructing
@@ -1347,85 +1371,108 @@ public:
   [[nodiscard]] explicit operator bool() const noexcept {
     return conn_ != nullptr;
   }
-
+#pragma endregion
+#pragma region Internals
 private:
   template<typename>
-  friend class stream_conn_ptr_with;
+  friend class epoll_stream_conn_ptr_with;
 
   // Private constructor used by `connect`, `listen`, and `adopt`.
-  explicit stream_conn_ptr_with(const std::shared_ptr<epoll_loop>& loop,
-      net_socket&& sock, const net_endpoint& remote, stream_conn_handlers&& h,
-      size_t recv_buf_size, std::optional<connection_role> connection = {},
+  explicit epoll_stream_conn_ptr_with(const std::shared_ptr<epoll_loop>& loop,
+      net_socket&& sock, const net_endpoint& remote,
+      epoll_stream_conn_handlers&& h, size_t recv_buf_size,
+      std::optional<connection_role> connection = {},
       coordination_policy shutdown = coordination_policy::unilateral) {
     assert(sock.get_flags().value_or(o_flags{}) & o_flags::nonblock);
     assert(loop.get());
-    if (recv_buf_size == 0) recv_buf_size = stream_conn::default_recv_buf_size;
-    conn_ = std::make_shared<conn_t>(stream_conn::allow::ctor, loop,
+    if (recv_buf_size == 0)
+      recv_buf_size = epoll_stream_conn::default_recv_buf_size;
+    conn_ = std::make_shared<conn_t>(epoll_stream_conn::allow::ctor, loop,
         std::move(sock), remote, std::move(h), recv_buf_size, connection,
         shutdown);
     if (!loop->post([p = conn_] { return p->register_with_loop(); }))
       conn_.reset();
   }
+#pragma endregion
+#pragma region Data members
 
   shared_ptr_t conn_;
+#pragma endregion
 };
 
 // Untyped alias: the common case where no per-connection state is needed.
-// Use `stream_conn_ptr_with<MyConn>` for a typed handle to a derived class.
-using stream_conn_ptr = stream_conn_ptr_with<>;
+// Use `epoll_stream_conn_ptr_with<MyConn>` for a typed handle to a derived
+// class.
+using epoll_stream_conn_ptr = epoll_stream_conn_ptr_with<>;
+#pragma endregion
 
-// Extends `stream_conn` with a typed per-connection state value. `STATE` must
-// be default-constructible; it is value-initialized when the connection is
-// created.
+#pragma region epoll_stream_conn_with_state
+// Extends `epoll_stream_conn` with a typed per-connection state value. `STATE`
+// must be default-constructible; it is value-initialized when the connection
+// is created.
 //
-// Use `stream_conn_ptr_with<stream_conn_with_state<STATE>>` to hold an
-// instance. In callbacks (which receive `stream_conn&`), recover the concrete
-// type and state via `stream_conn_with_state<STATE>::from(conn)`.
+// Use `epoll_stream_conn_ptr_with<epoll_stream_conn_with_state<STATE>>` to
+// hold an instance. In callbacks (which receive `epoll_stream_conn&`), recover
+// the concrete type and state via
+// `epoll_stream_conn_with_state<STATE>::from(conn)`.
 //
 // The `accept_clone` override ensures that connections accepted by a listening
-// `stream_conn_ptr_with<stream_conn_with_state<STATE>>` also have type
-// `stream_conn_with_state<STATE>` with a fresh default-constructed `STATE`.
+// `epoll_stream_conn_ptr_with<epoll_stream_conn_with_state<STATE>>` also have
+// type `epoll_stream_conn_with_state<STATE>` with a fresh default-constructed
+// `STATE`.
 template<typename STATE>
-class stream_conn_with_state: public stream_conn {
+class epoll_stream_conn_with_state: public epoll_stream_conn {
+#pragma region Types
 public:
   using state_t = STATE;
+#pragma endregion
+#pragma region Construction
 
-  // Construct via `stream_conn_ptr_with` factories only. Technically public
-  // because `make_shared` requires it, but gated by the private `allow`
+  // Construct via `epoll_stream_conn_ptr_with` factories only. Technically
+  // public because `make_shared` requires it, but gated by the private `allow`
   // token.
-  explicit stream_conn_with_state(allow a, std::weak_ptr<epoll_loop> loop,
-      net_socket&& sock, const net_endpoint& remote, stream_conn_handlers&& h,
-      size_t rbs, std::optional<connection_role> connection = {},
+  explicit epoll_stream_conn_with_state(allow a,
+      std::weak_ptr<epoll_loop> loop, net_socket&& sock,
+      const net_endpoint& remote, epoll_stream_conn_handlers&& h, size_t rbs,
+      std::optional<connection_role> connection = {},
       coordination_policy shutdown = coordination_policy::unilateral)
-      : stream_conn(a, std::move(loop), std::move(sock), remote, std::move(h),
-            rbs, connection, shutdown) {}
+      : epoll_stream_conn(a, std::move(loop), std::move(sock), remote,
+            std::move(h), rbs, connection, shutdown) {}
+#pragma endregion
+#pragma region Accessors
 
   // Access per-connection state.
   [[nodiscard]] state_t& state() noexcept { return state_; }
   [[nodiscard]] const state_t& state() const noexcept { return state_; }
 
-  // Debug-safe downcast from `stream_conn&` to `stream_conn_with_state&`.
-  // In debug builds, asserts that `c` is actually a
-  // `stream_conn_with_state<STATE>`; uses `static_cast` in release builds.
-  [[nodiscard]] static stream_conn_with_state& from(stream_conn& c) noexcept {
-    assert(dynamic_cast<stream_conn_with_state*>(&c) != nullptr);
-    return static_cast<stream_conn_with_state&>(c);
+  // Debug-safe downcast from `epoll_stream_conn&` to
+  // `epoll_stream_conn_with_state&`. In debug builds, asserts that `c` is
+  // actually an `epoll_stream_conn_with_state<STATE>`; uses `static_cast` in
+  // release builds.
+  [[nodiscard]] static epoll_stream_conn_with_state& from(
+      epoll_stream_conn& c) noexcept {
+    assert(dynamic_cast<epoll_stream_conn_with_state*>(&c) != nullptr);
+    return static_cast<epoll_stream_conn_with_state&>(c);
   }
-
+#pragma endregion
+#pragma region Subclass hooks
 protected:
-  // Produce a `stream_conn_with_state<STATE>` for each accepted connection,
-  // with a fresh default-constructed `STATE`. Returning `nullptr` skips
-  // registration (connection-limiting hook).
-  [[nodiscard]] std::shared_ptr<stream_conn> accept_clone(net_socket&& sock,
-      const net_endpoint& remote,
-      stream_conn_handlers handlers) const override {
-    return std::make_shared<stream_conn_with_state<state_t>>(allow::ctor,
+  // Produce an `epoll_stream_conn_with_state<STATE>` for each accepted
+  // connection, with a fresh default-constructed `STATE`. Returning `nullptr`
+  // skips registration (connection-limiting hook).
+  [[nodiscard]] std::shared_ptr<epoll_stream_conn>
+  accept_clone(net_socket&& sock, const net_endpoint& remote,
+      epoll_stream_conn_handlers handlers) const override {
+    return std::make_shared<epoll_stream_conn_with_state<state_t>>(allow::ctor,
         weak_loop_, std::move(sock), remote, std::move(handlers),
         recv_buf_size(), std::nullopt, shutdown_);
   }
-
+#pragma endregion
+#pragma region Data members
 private:
   state_t state_{};
+#pragma endregion
 };
+#pragma endregion
 
 }} // namespace corvid::proto

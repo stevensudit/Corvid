@@ -1,13 +1,6 @@
 # Needed enhancements
 
-## iou_dgram_router / iou_dgram_session
-
-Replaces the old `iou_dgram_conn`. The router owns the UDP socket and demuxes
-incoming datagrams onto per-key sessions via a user-supplied extractor (default:
-peer endpoint; QUIC: connection ID). Multishot recvmsg with provided buffers,
-singleshot fallback on `EC::nobufs`. Sends are independent and atomic; each
-completion returns the buffer to the originating session's `on_sent` so the
-caller decides whether to retry.
+- None for now.
 
 # Possible enhancements
 
@@ -19,9 +12,6 @@ Instead of a shared_ptr to keep each iou_stream_conn alive, we could allocate a 
 
 ## Typed flags for prep_cancel_fd.
 `prep_cancel_fd` accepts a raw `unsigned flags` parameter. The `IORING_ASYNC_CANCEL_*` constants should be wrapped into a typed enum (analogous to `iou_sqe_flags`) so callers do not pass bare integers.
-
-## epoll cleanup.
-Perhaps prefix some of the classes with epoll. For example, epoll_stream_conn.
 
 # io_uring Preparation Operations Matrix
 

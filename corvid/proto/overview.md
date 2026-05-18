@@ -61,9 +61,9 @@ returns the first result as a `net_endpoint`, or a default-constructed
 
 ## Layer 2: Stream I/O Loop
 
-### `recv_buffer` and `recv_buffer_view`
+### `epoll_recv_buffer` and `epoll_recv_buffer_view`
 
-`recv_buffer` is the persistent flat receive buffer owned by each connection.
+`epoll_recv_buffer` is the persistent flat receive buffer owned by each connection.
 It backs a `std::string buffer` whose `size` equals its `capacity`. Two atomic
 indexes, `begin` (release-stored by the parser via `consume`) and `end`
 (release-stored by the polling thread after each `recv`), delimit the live
@@ -80,7 +80,7 @@ hysteresis rules: it grows when the active capacity falls below
 active data fits, and skips the memmove entirely when write space is still
 ample.
 
-`recv_buffer_view` is the limited-interface token handed to the parser via the
+`epoll_recv_buffer_view` is the limited-interface view handed to the parser via the
 `on_data` callback. At most one view is live at a time per connection.
 `active_view()` (or the implicit `std::string_view` conversion) returns the
 currently unconsumed region and records the observed `end` in
@@ -104,10 +104,10 @@ loop thread.
 called at most once on a given instance. `epoll_loop_runner` wraps one in a
 dedicated background thread for the common case.
 
-`register_socket(shared_ptr<io_conn>, readable, writable)` registers a
-connection (the `io_conn` owns its `net_socket`) with the initial read/write
+`register_socket(shared_ptr<epoll_io_conn>, readable, writable)` registers a
+connection (the `epoll_io_conn` owns its `net_socket`) with the initial read/write
 interest. `set_readable(sock, bool)` and `set_writable(sock, bool)` toggle
-`EPOLLIN` and `EPOLLOUT` without disturbing the registered `io_conn`.
+`EPOLLIN` and `EPOLLOUT` without disturbing the registered `epoll_io_conn`.
 `EPOLLERR`, `EPOLLHUP`, and `EPOLLRDHUP` are always armed; the loop operates
 level-triggered. `unregister_socket(sock)` removes a registration.
 
@@ -127,10 +127,10 @@ true when the current thread is the active polling thread. `poll_thread_scope()`
 marks the current thread as the loop thread without entering the dispatch loop
 (primarily for testing).
 
-`io_conn` is an abstract base holding a `net_socket sock_` (passed at
+`epoll_io_conn` is an abstract base holding a `net_socket sock_` (passed at
 construction) with virtual `on_readable`, `on_writable`, and `on_error`; the
 default `on_error` delegates to `on_readable`. Higher-level types inherit from
-`io_conn` directly to avoid a separate handler-lambda allocation per connection.
+`epoll_io_conn` directly to avoid a separate handler-lambda allocation per connection.
 
 ### `iov_msghdr`
 
@@ -140,18 +140,18 @@ Scatter/gather socket I/O built on POSIX `sendmsg` / `recvmsg`. The template
 `append(iovec)` / `set(span<iovec>)` / `clear()` manage the segment list.
 `send(net_socket)` / `recv(net_socket)` perform the syscall and return an
 `op_results` with total byte count plus segment-level index and offset for
-partial progress tracking. Used by `stream_conn` to send multiple queued
+partial progress tracking. Used by `epoll_stream_conn` to send multiple queued
 buffers in a single syscall.
 
-### `stream_conn` and `stream_conn_ptr`
+### `epoll_stream_conn` and `epoll_stream_conn_ptr`
 
-Non-blocking connected stream socket driven by an `epoll_loop`. `stream_conn`
-is the state object (inheriting from `io_conn`) that holds the socket, send
-queue, and persistent `recv_buffer`. `stream_conn_ptr` is the move-only owning
-handle wrapping a `shared_ptr<stream_conn>`; its destructor calls `hangup()`
+Non-blocking connected stream socket driven by an `epoll_loop`. `epoll_stream_conn`
+is the state object (inheriting from `epoll_io_conn`) that holds the socket, send
+queue, and persistent `epoll_recv_buffer`. `epoll_stream_conn_ptr` is the move-only owning
+handle wrapping a `shared_ptr<epoll_stream_conn>`; its destructor calls `hangup()`
 unless `close()` was already called.
 
-`stream_conn_ptr` provides three static factory methods:
+`epoll_stream_conn_ptr` provides three static factory methods:
 
 - `adopt(loop, sock, remote, handlers, recv_buf_size)` -- adopts an
   already-connected non-blocking socket and registers it with the loop.
@@ -163,11 +163,11 @@ unless `close()` was already called.
 - `listen(loop, local, handlers, reuse_port)` -- creates a non-blocking
   listening socket, sets `SO_REUSEADDR`, binds, calls `listen(2)`, and
   registers with the loop. `EPOLLIN` events drain all pending connections via
-  `accept4`; each accepted connection becomes a self-owning `stream_conn` with
+  `accept4`; each accepted connection becomes a self-owning `epoll_stream_conn` with
   a copy of the listener's handlers.
 
 Thread safety: `send()`, `close()`, `hangup()`, `shutdown_read()`,
-`shutdown_write()`, and the destructor of `stream_conn_ptr` are safe to call
+`shutdown_write()`, and the destructor of `epoll_stream_conn_ptr` are safe to call
 from any thread via `epoll_loop::execute_or_post()` or `post()`.
 
 Send path: `send(Bufs&&...)` is a variadic template (one or more `string`
@@ -180,19 +180,19 @@ any unsent tail stays in the queue and `EPOLLOUT` is armed. Subsequent
 `on_drain` fires.
 
 Receive path: `EPOLLIN` is armed while `recv_buf_.reads_enabled` is true.
-When it fires, bytes are appended to the persistent `recv_buffer` and the
-active `on_data` handler is invoked with a `recv_buffer_view` token. The
-parser advances `begin` via `consume`; when the view destructs, compaction
-and `EPOLLIN` re-arming are posted back to the loop. `set_recv_buf_size(n)`
-adjusts the per-connection buffer target; `recv_buf_size()` reports it.
+When it fires, bytes are appended to the persistent `epoll_recv_buffer` and the
+active `on_data` handler is invoked with an `epoll_recv_buffer_view`. The parser
+advances `begin` via `consume`; when the view destructs, compaction and
+`EPOLLIN` re-arming are posted back to the loop. `set_recv_buf_size(n)` adjusts
+the per-connection buffer target; `recv_buf_size()` reports it.
 
-Handler dispatch: `stream_conn` holds `own_handlers_` (a
-`stream_conn_handlers` value) and an atomic pointer `active_handlers_` that
-normally points to `own_handlers_`. `stream_async_base` subclasses (see
-below) temporarily redirect `active_handlers_` to their own handler struct
-via an atomic CAS; the destructor restores the pointer. `stream_conn`
-dispatches every event through `active_handlers_` and is unaware of the
-facade hierarchy.
+Handler dispatch: `epoll_stream_conn` holds `own_handlers_` (an
+`epoll_stream_conn_handlers` value) and an atomic pointer `active_handlers_` that
+normally points to `own_handlers_`. The split exists so an extension can
+temporarily redirect `active_handlers_` to its own handler struct via an
+atomic CAS and later restore the pointer. `epoll_stream_conn` dispatches every
+event through `active_handlers_` and is unaware of which handler struct is
+installed.
 
 Half-close: `shutdown_read()` shuts down the local read side. `shutdown_write()`
 shuts down the local write side and discards unsent data. `can_read()` and
@@ -201,78 +201,16 @@ return the socket addresses.
 
 Close: `close()` is graceful -- defers the socket close until the send queue
 drains. `hangup()` discards pending outbound data and closes immediately.
-The destructor of `stream_conn_ptr` calls `hangup()` unless `close()` was
+The destructor of `epoll_stream_conn_ptr` calls `hangup()` unless `close()` was
 already called.
 
-**Callback mode** (`stream_conn_handlers` installed at construction):
+**Callback mode** (`epoll_stream_conn_handlers` installed at construction):
 `on_data(conn, view)` fires on each `EPOLLIN` event, delivering a
-`recv_buffer_view`; `on_drain(conn)` fires when the send queue empties (or an
+`epoll_recv_buffer_view`; `on_drain(conn)` fires when the send queue empties (or an
 async connect succeeds); `on_close(conn)` fires once on peer EOF, I/O error,
 or failed async connect. If no `on_close` handler is installed, a graceful
 close is initiated automatically so that connections without an external owner
 are fully torn down rather than left half-open.
-
-Two additional per-call async models are in `stream_async.h` and operate by
-temporarily redirecting `active_handlers_`.
-
-### `stream_async_base`, `stream_async_cb`, and `stream_async_coro`
-
-These classes live in `stream_async.h` and provide alternative async interfaces
-on top of a `stream_conn` without modifying it. Each is a facade that
-temporarily installs its own `stream_conn_handlers` by atomically swapping the
-connection's `active_handlers_` pointer.
-
-`stream_async_base` is the non-copyable, non-movable base. On construction
-(via `install_handlers`) it performs a CAS on `active_handlers_`; if another
-facade already owns the slot, `conn_` is cleared and `is_valid()` returns
-false. The destructor restores `active_handlers_` and posts
-`restore_reads` to the loop. Static trampolines (`enable_reads`,
-`restore_reads`, `make_cleared_view_for`, etc.) give derived classes
-friend-level access to `stream_conn` private members without relying on
-lambda-inherited friendship.
-
-`stream_async_cb` provides one-shot callback I/O:
-
-- `read(cb)` -- registers a single callback invoked with a `recv_buffer_view`
-  on the next data arrival (or an empty view on connection close). Posts
-  `enable_reads` asynchronously to guarantee ordering after the
-  `enable_reads(false)` posted by `install_handlers`.
-- `write(buf, cb)` -- takes ownership of `buf`, enqueues it, and invokes
-  `cb(bool completed)` when the send queue drains (`true`) or the connection
-  closes before all bytes are sent (`false`).
-
-`stream_async_coro` provides coroutine I/O:
-
-- `read()` -- returns an awaitable that suspends until one batch of bytes
-  arrives; resumes with the received bytes as a `std::string` (empty on close).
-- `write(buf)` -- returns an awaitable that enqueues `buf` and suspends until
-  the send queue drains or the connection closes.
-
-Coroutine resumption is always deferred through `post()`, never inline, to
-avoid use-after-free when `do_close_now` fires from within `await_suspend`.
-The `write_awaitable` sets `write_coro_` before calling `do_enqueue_send` so
-that a synchronous write failure triggering `on_close` still resumes the
-coroutine correctly.
-
-```cpp
-// Coroutine usage example:
-loop_task handle_conn(stream_conn_ptr conn) {
-  stream_async_coro coro{conn.pointer()};
-  while (coro.is_open()) {
-    std::string data = co_await coro.read();
-    if (data.empty()) break;
-    co_await coro.write(make_reply(data));
-  }
-}
-```
-
-### `loop_task`
-
-Fire-and-forget coroutine return type for `epoll_loop`-driven handlers. The
-coroutine body starts eagerly on the call site (`initial_suspend` returns
-`suspend_never`) and the frame self-destroys on completion (`final_suspend`
-returns `suspend_never`). Unhandled exceptions call `std::terminate`. See
-the `stream_async_coro` example above for typical usage.
 
 ### `terminated_text_parser`
 
@@ -286,18 +224,6 @@ empty when more data is needed, `true` when a complete frame is found in
 `frame`, and `false` when `max_length` bytes are scanned without finding the
 sentinel. `reset()` clears `bytes_scanned` for the next frame. The parser never
 copies data; `frame` is a `string_view` into the caller's buffer.
-
-### `stream_sync`
-
-Blocking synchronous stream-socket client. Intended for tests and small tools
-that need to talk to a server without the overhead of an `epoll_loop`. Wraps a
-blocking-mode `net_socket`. An optional per-syscall timeout is set at
-construction via `SO_RCVTIMEO` / `SO_SNDTIMEO`; any error (EOF, hard error, or
-timeout) marks the connection closed and subsequent calls fail immediately.
-`send(data)` loops on partial writes. `recv()` returns whatever arrives first.
-`recv_exact(n)` loops until exactly `n` bytes are accumulated. `recv_until(delim)`
-accumulates data until the delimiter appears, leaving any trailing bytes in an
-internal buffer for the next call.
 
 ### `json_parser`
 
@@ -351,15 +277,15 @@ the full status line + header fields as a `string` ready to write to the wire.
 `make_error_response(keep_alive, version, code, phrase)` is a static factory
 that returns a complete serialized error response.
 
-### `http_server`
+### `epoll_http_server`
 
-HTTP/1.1 server (with HTTP/0.9 and HTTP/1.0 fallback) built on `stream_conn`.
+HTTP/1.1 server (with HTTP/0.9 and HTTP/1.0 fallback) built on `epoll_stream_conn`.
 Constructed via `create(endpoint, loop, wheel, request_timeout, write_timeout)`.
 If `loop` is null the server starts its own `epoll_loop_runner`; if `wheel` is
 null it starts its own `timing_wheel_runner` (from `corvid::concurrency`).
 Returns null if the listen socket cannot be bound.
 
-Connection state is held in `stream_conn_with_state<http_conn_state>`, which
+Connection state is held in `epoll_stream_conn_with_state<http_conn_state>`, which
 bundles a `terminated_text_parser::state`, sequencing counters for
 `timer_fuse`, the current `http_phase`, a reusable `request_head`, and a
 leading-CRLF count.
@@ -374,7 +300,7 @@ Request parsing uses two phases of `terminated_text_parser`:
   accepted.
 
 `on_data` loops over all complete header blocks already in the receive buffer,
-queuing a response for each. Because `stream_conn::send` is FIFO, responses
+queuing a response for each. Because `epoll_stream_conn::send` is FIFO, responses
 are delivered in request order (pipelining).
 
 Persistent connections: keep-alive by default for HTTP/1.1; close by default
@@ -392,7 +318,7 @@ response is queued and disarmed in `on_drain` when the send queue empties.
 
 ## Layer 4: WebSockets
 
-### `http_websocket`
+### `epoll_http_websocket`
 
 Full RFC 6455 WebSocket implementation.
 
@@ -406,7 +332,7 @@ frame_control, payload, mask)` builds a complete frame string.
 `ws_frame_view::compute_accept_key(client_key)` produces the
 `Sec-WebSocket-Accept` value using SHA-1 + Base64.
 
-`http_websocket` is the callback-driven message pump. Construct with a `send_fn`
+`epoll_http_websocket` is the callback-driven message pump. Construct with a `send_fn`
 and a `connection_role` (`server` or `client`). Install callbacks before handing
 the pump to the server:
 
@@ -416,15 +342,15 @@ the pump to the server:
   matching close frame is sent automatically.
 - `on_pong(pump)` -- fires when a pong matching the most recent ping arrives.
 
-`feed(recv_buffer_view&)` drives the receive side. Returns `false` on a
+`feed(epoll_recv_buffer_view&)` drives the receive side. Returns `false` on a
 protocol error (oversized frame, bad opcode, etc.). Send methods: `send_text`,
 `send_binary`, `send_close`, `send_ping`, `send_pong`. Client-side frames are
 masked using `std::random_device` as required by RFC 6455 section 5.3.
 
-### `http_websocket_transaction`
+### `epoll_http_websocket_transaction`
 
-`http_transaction` subclass that performs the RFC 6455 upgrade handshake and
-then delegates all subsequent I/O to an `http_websocket` instance.
+`epoll_http_transaction` subclass that performs the RFC 6455 upgrade handshake and
+then delegates all subsequent I/O to an `epoll_http_websocket` instance.
 
 On the first `handle_data` call it validates the upgrade request (`Upgrade:
 websocket`, `Connection: Upgrade`, `Sec-WebSocket-Version: 13`,
@@ -437,13 +363,13 @@ completes.
 pings after the upgrade response is sent. A missing pong within `pong_timeout`
 triggers a graceful `close` frame.
 
-`make_factory(configure_fn)` returns a `transaction_factory` ready for
-`http_server::add_route`. The `configure` callback receives the newly created
+`make_factory(configure_fn)` returns an `epoll_http_transaction_factory` ready for
+`epoll_http_server::add_route`. The `configure` callback receives the newly created
 transaction and installs `on_message` / `on_close` handlers:
 
 ```cpp
 server->add_route({"", "/ws"},
-    http_websocket_transaction::make_factory([&](auto& tx) {
+    epoll_http_websocket_transaction::make_factory([&](auto& tx) {
       tx.websocket().on_message = [](auto& ws, std::string&& msg, auto op) {
         return ws.send_text(msg); // echo
       };

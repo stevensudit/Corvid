@@ -21,20 +21,21 @@
 #include <string>
 
 #include "epoll_loop.h"
-#include "http_transaction.h"
-#include "http_websocket.h"
+#include "epoll_http_transaction.h"
+#include "epoll_http_websocket.h"
 #include "../../concurrency/timer_fuse.h"
 
 namespace corvid { inline namespace proto {
 
 using namespace std::chrono_literals;
 
+#pragma region epoll_http_websocket_transaction
 // HTTP transaction that turns an HTTP request into a long-lived WebSocket
 // session.
 //
 // Its job is to validate and acknowledge the upgrade, then keep ownership of
-// the connection while `http_websocket` takes over frame parsing and emission.
-// From the HTTP server's perspective, this transaction stops being a
+// the connection while `epoll_http_websocket` takes over frame parsing and
+// emission. From the HTTP server's perspective, this transaction stops being a
 // request/response exchange and becomes the connection's steady-state owner.
 //
 // The read side remains claimed across the lifetime of the WebSocket so the
@@ -47,20 +48,22 @@ using namespace std::chrono_literals;
 // than by dropping back into HTTP semantics.
 //
 // Typical use is to install WebSocket callbacks directly onto the
-// `http_websocket` in the `configure` function passed to `make_factory()`:
+// `epoll_http_websocket` in the `configure` function passed to
+// `make_factory()`:
 //
-//   auto factory = http_websocket_transaction::make_factory(
-//       [](http_websocket_transaction& tx) {
+//   auto factory = epoll_http_websocket_transaction::make_factory(
+//       [](epoll_http_websocket_transaction& tx) {
 //         tx.websocket().on_message =
-//             [](http_websocket&, std::string&& msg, ws_frame_control) {
+//             [](epoll_http_websocket&, std::string&& msg, ws_frame_control) {
 //               return true;
 //             };
 //         return true;
 //       });
-class http_websocket_transaction: public http_transaction {
+class epoll_http_websocket_transaction: public epoll_http_transaction {
+#pragma region Types
 public:
   using duration_t = timing_wheel::duration_t;
-  using configure_fn = std::function<bool(http_websocket_transaction&)>;
+  using configure_fn = std::function<bool(epoll_http_websocket_transaction&)>;
 
   // Called during the upgrade handshake when the client offers subprotocols
   // via `Sec-WebSocket-Protocol`. Receives the raw header value (a
@@ -72,16 +75,24 @@ public:
 
   // Called when the client offers subprotocols.
   protocol_fn on_protocol;
-
+#pragma endregion
+#pragma region Construction
 public:
-  explicit http_websocket_transaction(request_head&& req)
-      : http_transaction{std::move(req)} {}
+  explicit epoll_http_websocket_transaction(request_head&& req)
+      : epoll_http_transaction{std::move(req)} {}
+#pragma endregion
+#pragma region Accessors
 
   // Access the WebSocket pump to install `on_message` / `on_close`
   // callbacks before the connection is upgraded.
-  [[nodiscard]] http_websocket& websocket() noexcept { return websocket_; }
+  [[nodiscard]] epoll_http_websocket& websocket() noexcept {
+    return websocket_;
+  }
+#pragma endregion
+#pragma region Overrides
 
-  [[nodiscard]] stream_claim handle_data(recv_buffer_view& view) override {
+  [[nodiscard]] stream_claim handle_data(
+      epoll_recv_buffer_view& view) override {
     if (!upgraded_) return do_upgrade(view);
 
     // If we're shutting down, stop listening. The HTTP server will eventually
@@ -113,6 +124,8 @@ public:
     if (on_drain) return on_drain(*this, send_cb);
     return upgraded_ ? stream_claim::claim : stream_claim::release;
   }
+#pragma endregion
+#pragma region Keepalive
 
   // Enable WebSocket-level ping/pong keepalive.
   //
@@ -133,38 +146,43 @@ public:
     keepalive_wheel_ = std::weak_ptr{wheel};
     ping_interval_ = ping_interval;
     pong_timeout_ = pong_timeout;
-    websocket_.on_pong = [this](http_websocket&) {
+    websocket_.on_pong = [this](epoll_http_websocket&) {
       ws_fuse_t::disarm(pong_wait_seq_);
       return do_arm_ping_interval();
     };
     return true;
   }
+#pragma endregion
+#pragma region Factories
 
-  // Build a `transaction_factory` that constructs an
-  // `http_websocket_transaction` for each matching request and then calls
-  // `configure` on it so the caller can install `on_message` / `on_close`, and
-  // perhaps `on_drain`. You can also set `on_protocol` directly on the
-  // transaction in `configure` to handle subprotocol negotiation.
-  [[nodiscard]] static transaction_factory make_factory(
+  // Build an `epoll_http_transaction_factory` that constructs an
+  // `epoll_http_websocket_transaction` for each matching request and then
+  // calls `configure` on it so the caller can install `on_message` /
+  // `on_close`, and perhaps `on_drain`. You can also set `on_protocol`
+  // directly on the transaction in `configure` to handle subprotocol
+  // negotiation.
+  [[nodiscard]] static epoll_http_transaction_factory make_factory(
       configure_fn configure = {}) {
     // False positive: the analyzer sees libc++ allocate storage for the
     // captured `std::function`, but misses that the route map later destroys
     // the returned factory and frees that storage with the server.
     // NOLINTNEXTLINE(clang-analyzer-cplusplus.NewDeleteLeaks)
     return [configure = std::move(configure)](
-               request_head&& req) -> std::shared_ptr<http_transaction> {
-      auto tx = std::make_shared<http_websocket_transaction>(std::move(req));
+               request_head&& req) -> std::shared_ptr<epoll_http_transaction> {
+      auto tx =
+          std::make_shared<epoll_http_websocket_transaction>(std::move(req));
       if (configure && !configure(*tx)) return nullptr;
       return tx;
     };
   }
-
+#pragma endregion
+#pragma region Internals
 private:
-  using ws_fuse_t = timer_fuse<http_transaction>;
+  using ws_fuse_t = timer_fuse<epoll_http_transaction>;
 
   // Perform the RFC 6455 upgrade handshake. Called on the first
   // `handle_data` invocation.
-  [[nodiscard]] stream_claim do_upgrade(recv_buffer_view& view) {
+  [[nodiscard]] stream_claim do_upgrade(epoll_recv_buffer_view& view) {
     // Validate upgrade request.
     if (request_headers.version != http_version::http_1_1)
       return send_bad_request(view);
@@ -226,7 +244,7 @@ private:
     return stream_claim::release;
   }
 
-  [[nodiscard]] stream_claim send_bad_request(recv_buffer_view& view) {
+  [[nodiscard]] stream_claim send_bad_request(epoll_recv_buffer_view& view) {
     view.consume(view.active_view().size());
     close_after = after_response::close;
     pending_response_ = response_head::make_error_response(
@@ -254,7 +272,8 @@ private:
     auto wheel = keepalive_wheel_.lock();
     if (!wheel) return true;
     return ws_fuse_t::set_timeout(*wheel, ping_interval_seq_,
-        std::weak_ptr<http_transaction>{shared_from_this()}, ping_interval_,
+        std::weak_ptr<epoll_http_transaction>{shared_from_this()},
+        ping_interval_,
         [loop = keepalive_loop_](const ws_fuse_t& fuse) -> bool {
           auto tx = fuse.get_if_armed();
           auto l = loop.lock();
@@ -262,7 +281,8 @@ private:
           return l->post([fuse]() -> bool {
             auto tx = fuse.get_if_armed();
             if (!tx) return true;
-            return std::static_pointer_cast<http_websocket_transaction>(tx)
+            return std::static_pointer_cast<epoll_http_websocket_transaction>(
+                tx)
                 ->do_ping_interval_fire();
           });
         });
@@ -274,7 +294,8 @@ private:
     auto wheel = keepalive_wheel_.lock();
     if (!wheel) return true;
     return ws_fuse_t::set_timeout(*wheel, pong_wait_seq_,
-        std::weak_ptr<http_transaction>{shared_from_this()}, pong_timeout_,
+        std::weak_ptr<epoll_http_transaction>{shared_from_this()},
+        pong_timeout_,
         [loop = keepalive_loop_](const ws_fuse_t& fuse) -> bool {
           auto tx = fuse.get_if_armed();
           auto l = loop.lock();
@@ -282,7 +303,8 @@ private:
           return l->post([fuse]() -> bool {
             auto tx = fuse.get_if_armed();
             if (!tx) return true;
-            return std::static_pointer_cast<http_websocket_transaction>(tx)
+            return std::static_pointer_cast<epoll_http_websocket_transaction>(
+                tx)
                 ->do_pong_timeout_fire();
           });
         });
@@ -302,9 +324,11 @@ private:
     if (websocket_.is_close_started()) return false;
     return websocket_.send_close(1001, "Keepalive pong not received.");
   }
+#pragma endregion
+#pragma region Data members
 
-  http_transaction::send_fn websocket_send_cb_;
-  http_websocket websocket_{[this](any_strings&& frame) {
+  epoll_http_transaction::send_fn websocket_send_cb_;
+  epoll_http_websocket websocket_{[this](any_strings&& frame) {
     if (!websocket_send_cb_) return false;
     return websocket_send_cb_(std::move(frame));
   }};
@@ -321,5 +345,7 @@ protected:
   // callbacks on the same loop and wheel without storing redundant copies.
   std::weak_ptr<epoll_loop> keepalive_loop_;
   std::weak_ptr<timing_wheel> keepalive_wheel_;
+#pragma endregion
 };
+#pragma endregion
 }} // namespace corvid::proto

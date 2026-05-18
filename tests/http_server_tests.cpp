@@ -48,11 +48,11 @@ bool is_codex() {
 // characters, where N is the leading decimal number in the path (e.g.,
 // `"/42"` -> 42 spaces). Returns 400 when the count exceeds 10 MB, and 405
 // for non-GET methods.
-struct padded_page_transaction: public http_transaction {
+struct padded_page_transaction: public epoll_http_transaction {
   static constexpr size_t max_pad{10ULL * 1024 * 1024};
 
   explicit padded_page_transaction(request_head&& req)
-      : http_transaction{std::move(req)} {}
+      : epoll_http_transaction{std::move(req)} {}
 
   [[nodiscard]] stream_claim handle_drain(const send_fn& send_cb) override {
     const auto& req = request_headers;
@@ -108,18 +108,20 @@ private:
   }
 };
 
-// Creates an `http_server` with `padded_page_transaction` registered as the
-// `"/"` catch-all route. Forwards all arguments to `http_server::create`.
-[[nodiscard]] static http_server::http_server_ptr make_test_server(
-    const net_endpoint& endpoint, http_server::epoll_loop_ptr loop = nullptr,
-    http_server::timing_wheel_ptr wheel = nullptr,
-    http_server::duration_t request_timeout = 30s,
-    http_server::duration_t write_timeout = 5s) {
-  return http_server::create(
+// Creates an `epoll_http_server` with `padded_page_transaction` registered as
+// the `"/"` catch-all route. Forwards all arguments to
+// `epoll_http_server::create`.
+[[nodiscard]] static epoll_http_server::http_server_ptr
+make_test_server(const net_endpoint& endpoint,
+    epoll_http_server::epoll_loop_ptr loop = nullptr,
+    epoll_http_server::timing_wheel_ptr wheel = nullptr,
+    epoll_http_server::duration_t request_timeout = 30s,
+    epoll_http_server::duration_t write_timeout = 5s) {
+  return epoll_http_server::create(
       endpoint,
-      [](http_server& s) {
+      [](epoll_http_server& s) {
         return s.add_route({"", "/"},
-            [](request_head&& req) -> transaction_ptr {
+            [](request_head&& req) -> epoll_http_transaction_ptr {
               return std::make_shared<padded_page_transaction>(std::move(req));
             });
       },
@@ -128,7 +130,7 @@ private:
 
 #pragma region Http09
 
-// `http_server` tests.
+// `epoll_http_server` tests.
 
 // Verify that an HTTP/0.9-style request (no version token, no headers)
 // receives a response and the server then closes the connection.
@@ -138,13 +140,14 @@ TEST_CASE("Http09", "[HttpServer]") {
   auto server = make_test_server(net_endpoint{ipv4_addr::loopback, 0});
   REQUIRE(server);
 
-  auto client = stream_sync::connect(server->local_endpoint(), 1s);
-  REQUIRE(client);
-  CHECK(client.send("GET /\r\n"));
-  const auto response = client.recv_until("</html>");
+  auto client = net_socket::create_sync_connected(server->local_endpoint());
+  std::string buf;
+  REQUIRE(client.is_open());
+  CHECK(client.send_sync_all("GET /\r\n"));
+  const auto response = client.recv_sync_until(buf, "</html>");
   CHECK_FALSE(response.contains("200"));
   // HTTP/0.9 never keep-alive; server should close after the response.
-  CHECK(client.recv().empty());
+  CHECK(client.recv_sync_drain_to_eof());
 }
 #pragma endregion
 #pragma region LeadingCrlf
@@ -157,10 +160,12 @@ TEST_CASE("LeadingCrlf", "[HttpServer]") {
   auto server = make_test_server(net_endpoint{ipv4_addr::loopback, 0});
   REQUIRE(server);
 
-  auto client = stream_sync::connect(server->local_endpoint(), 1s);
-  REQUIRE(client);
-  CHECK(client.send("\r\n\r\nGET / HTTP/1.1\r\nHost: localhost\r\n\r\n"));
-  const auto response = client.recv_until("\r\n\r\n");
+  auto client = net_socket::create_sync_connected(server->local_endpoint());
+  std::string buf;
+  REQUIRE(client.is_open());
+  CHECK(client.send_sync_all(
+      "\r\n\r\nGET / HTTP/1.1\r\nHost: localhost\r\n\r\n"));
+  const auto response = client.recv_sync_until(buf, "\r\n\r\n");
   CHECK(response.contains("200"));
 }
 #pragma endregion
@@ -174,12 +179,13 @@ TEST_CASE("TooManyLeadingCrls", "[HttpServer]") {
   auto server = make_test_server(net_endpoint{ipv4_addr::loopback, 0});
   REQUIRE(server);
 
-  auto client = stream_sync::connect(server->local_endpoint(), 1s);
-  REQUIRE(client);
+  auto client = net_socket::create_sync_connected(server->local_endpoint());
+  std::string buf;
+  REQUIRE(client.is_open());
   // Send 9 bare CRLFs (one more than the limit of 8) with no request line.
-  CHECK(client.send("\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n"));
+  CHECK(client.send_sync_all("\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n"));
   // The server should close the connection without responding.
-  const auto response = client.recv_until("\r\n\r\n");
+  const auto response = client.recv_sync_until(buf, "\r\n\r\n");
   CHECK(response.empty());
 }
 #pragma endregion
@@ -226,10 +232,11 @@ TEST_CASE("GetRoot", "[HttpServer]") {
       nullptr, 0s, 0s);
   REQUIRE(server);
 
-  auto client = stream_sync::connect(server->local_endpoint(), 1s);
-  REQUIRE(client);
-  CHECK(client.send("GET / HTTP/1.1\r\nHost: localhost\r\n\r\n"));
-  const auto response = client.recv_until("\r\n\r\n");
+  auto client = net_socket::create_sync_connected(server->local_endpoint());
+  std::string buf;
+  REQUIRE(client.is_open());
+  CHECK(client.send_sync_all("GET / HTTP/1.1\r\nHost: localhost\r\n\r\n"));
+  const auto response = client.recv_sync_until(buf, "\r\n\r\n");
   CHECK(response.contains("200"));
 }
 #pragma endregion
@@ -243,12 +250,13 @@ TEST_CASE("GetPath", "[HttpServer]") {
   auto server = make_test_server(net_endpoint{ipv4_addr::loopback, 0});
   REQUIRE(server);
 
-  auto client = stream_sync::connect(server->local_endpoint(), 1s);
-  REQUIRE(client);
-  CHECK(client.send("GET /123 HTTP/1.1\r\nHost: localhost\r\n\r\n"));
-  const auto response = client.recv_until("\r\n\r\n");
+  auto client = net_socket::create_sync_connected(server->local_endpoint());
+  std::string buf;
+  REQUIRE(client.is_open());
+  CHECK(client.send_sync_all("GET /123 HTTP/1.1\r\nHost: localhost\r\n\r\n"));
+  const auto response = client.recv_sync_until(buf, "\r\n\r\n");
   CHECK(response.contains("200"));
-  const auto body = client.recv_until("</html>");
+  const auto body = client.recv_sync_until(buf, "</html>");
   CHECK(body.contains("123"));
 }
 #pragma endregion
@@ -268,7 +276,7 @@ TEST_CASE("RouteBasePath", "[HttpServer]") {
       {"/#frag", "/"}, {"?token=abc", ""}, {"#frag", ""}, {"", ""}};
 
   for (const auto& tc : cases)
-    CHECK(http_server::route_base_path(tc.target) == tc.base_path);
+    CHECK(epoll_http_server::route_base_path(tc.target) == tc.base_path);
 }
 #pragma endregion
 #pragma region InvalidRequest
@@ -280,10 +288,11 @@ TEST_CASE("InvalidRequest", "[HttpServer]") {
   auto server = make_test_server(net_endpoint{ipv4_addr::loopback, 0});
   REQUIRE(server);
 
-  auto client = stream_sync::connect(server->local_endpoint(), 1s);
-  REQUIRE(client);
-  CHECK(client.send("POST /foo HTTP/1.1\r\nHost: localhost\r\n\r\n"));
-  const auto response = client.recv_until("\r\n\r\n");
+  auto client = net_socket::create_sync_connected(server->local_endpoint());
+  std::string buf;
+  REQUIRE(client.is_open());
+  CHECK(client.send_sync_all("POST /foo HTTP/1.1\r\nHost: localhost\r\n\r\n"));
+  const auto response = client.recv_sync_until(buf, "\r\n\r\n");
   CHECK(response.contains("405"));
 }
 #pragma endregion
@@ -297,12 +306,13 @@ TEST_CASE("TooLongRequest", "[HttpServer]") {
   auto server = make_test_server(net_endpoint{ipv4_addr::loopback, 0});
   REQUIRE(server);
 
-  auto client = stream_sync::connect(server->local_endpoint(), 1s);
-  REQUIRE(client);
+  auto client = net_socket::create_sync_connected(server->local_endpoint());
+  std::string buf;
+  REQUIRE(client.is_open());
   // Send may fail mid-way if the server closes before all bytes are written;
   // ignore the result and rely on connection close.
-  (void)client.send(std::string(8200, 'x'));
-  const auto response = client.recv_until("\r\n\r\n");
+  (void)client.send_sync_all(std::string(8200, 'x'));
+  const auto response = client.recv_sync_until(buf, "\r\n\r\n");
   CHECK(response.size() == 0ULL);
 }
 #pragma endregion
@@ -317,20 +327,21 @@ TEST_CASE("PartialRequest", "[HttpServer]") {
   auto server = make_test_server(net_endpoint{ipv4_addr::loopback, 0});
   REQUIRE(server);
 
-  auto client = stream_sync::connect(server->local_endpoint(), 1s);
-  REQUIRE(client);
-  CHECK(client.send("GET /42 HTTP/1.1\r\nHost: localhost"));
-  CHECK(client.send("\r\n\r\n"));
-  const auto response = client.recv_until("\r\n\r\n");
+  auto client = net_socket::create_sync_connected(server->local_endpoint());
+  std::string buf;
+  REQUIRE(client.is_open());
+  CHECK(client.send_sync_all("GET /42 HTTP/1.1\r\nHost: localhost"));
+  CHECK(client.send_sync_all("\r\n\r\n"));
+  const auto response = client.recv_sync_until(buf, "\r\n\r\n");
   CHECK(response.contains("200"));
-  const auto body = client.recv_until("</html>");
+  const auto body = client.recv_sync_until(buf, "</html>");
   CHECK(body.contains("42"));
 }
 #pragma endregion
 #pragma region ANS
 
 // Verify that the server can listen on an ANS (Abstract Name Socket) and
-// respond correctly to a `GET` request from a `stream_sync` client.
+// respond correctly to a `GET` request from a blocking client.
 TEST_CASE("ANS", "[HttpServer]") {
   if (is_codex()) return;
 
@@ -342,12 +353,13 @@ TEST_CASE("ANS", "[HttpServer]") {
   auto server = make_test_server(ep);
   REQUIRE(server);
 
-  auto client = stream_sync::connect(ep, 1s);
-  REQUIRE(client);
-  CHECK(client.send("GET /42 HTTP/1.1\r\nHost: localhost\r\n\r\n"));
-  const auto response = client.recv_until("\r\n\r\n");
+  auto client = net_socket::create_sync_connected(ep);
+  std::string buf;
+  REQUIRE(client.is_open());
+  CHECK(client.send_sync_all("GET /42 HTTP/1.1\r\nHost: localhost\r\n\r\n"));
+  const auto response = client.recv_sync_until(buf, "\r\n\r\n");
   CHECK(response.contains("200"));
-  const auto body = client.recv_until("</html>");
+  const auto body = client.recv_sync_until(buf, "</html>");
   CHECK(body.contains("42"));
 }
 #pragma endregion
@@ -374,10 +386,11 @@ TEST_CASE("RequestWithinTimeout", "[HttpServer]") {
       nullptr, 5s);
   REQUIRE(server);
 
-  auto client = stream_sync::connect(server->local_endpoint(), 1s);
-  REQUIRE(client);
-  CHECK(client.send("GET / HTTP/1.1\r\nHost: localhost\r\n\r\n"));
-  const auto response = client.recv_until("\r\n\r\n");
+  auto client = net_socket::create_sync_connected(server->local_endpoint());
+  std::string buf;
+  REQUIRE(client.is_open());
+  CHECK(client.send_sync_all("GET / HTTP/1.1\r\nHost: localhost\r\n\r\n"));
+  const auto response = client.recv_sync_until(buf, "\r\n\r\n");
   CHECK(response.contains("200"));
 }
 #pragma endregion
@@ -392,11 +405,13 @@ TEST_CASE("IdleTimeout", "[HttpServer]") {
       nullptr, 100ms);
   REQUIRE(server);
 
-  auto client = stream_sync::connect(server->local_endpoint());
-  REQUIRE(client);
+  // No recv timeout: the server's idle timeout should fire first. A watchdog
+  // aborts the process if `recv()` blocks for more than 5 seconds.
+  auto client =
+      net_socket::create_sync_connected(server->local_endpoint(), 0ms);
+  REQUIRE(client.is_open());
 
-  // Send nothing. The server should hang up after the 100ms timeout. A
-  // watchdog aborts the process if `recv()` blocks for more than 5 seconds.
+  // Send nothing. The server should hang up after the 100ms timeout.
   jthread_stoppable_sleep sleep;
   std::jthread watchdog([&sleep](std::stop_token st) {
     if (!sleep.until(std::move(st), std::chrono::steady_clock::now() + 5s)) {
@@ -404,8 +419,11 @@ TEST_CASE("IdleTimeout", "[HttpServer]") {
       std::abort();
     }
   });
-  CHECK(client.recv().empty());
-  CHECK(client.errno_on_close() != EAGAIN);
+  // The server's idle-timeout path force-closes the connection (RST, not
+  // FIN), so any `recv` failure within the watchdog window counts as a pass.
+  std::string buf;
+  no_zero::enlarge_to(buf, 4096);
+  CHECK_FALSE(client.recv(buf));
 }
 #pragma endregion
 #pragma region WriteTimeout
@@ -440,15 +458,15 @@ TEST_CASE("WriteTimeout", "[HttpServer]") {
   // Once that buffer fills, TCP flow control prevents the server from
   // writing, stalling the drain and triggering the write timeout.
   notifiable<bool> closed{false};
-  auto client = stream_conn_ptr::connect(loop.loop()->self(), ep,
+  auto client = epoll_stream_conn_ptr::connect(loop.loop()->self(), ep,
       {.on_drain =
-              [sent = false](stream_conn& conn) mutable {
+              [sent = false](epoll_stream_conn& conn) mutable {
                 if (std::exchange(sent, true)) return true;
                 return conn.send(
                     "GET /10000000 HTTP/1.1\r\nHost: localhost\r\n\r\n"s);
               },
           .on_close =
-              [&closed](stream_conn&) {
+              [&closed](epoll_stream_conn&) {
                 closed.notify_one(true);
                 return true;
               }});
@@ -482,13 +500,14 @@ TEST_CASE("MissingHost", "[HttpServer]") {
   auto server = make_test_server(net_endpoint{ipv4_addr::loopback, 0});
   REQUIRE(server);
 
-  auto client = stream_sync::connect(server->local_endpoint(), 1s);
-  REQUIRE(client);
-  CHECK(client.send("GET / HTTP/1.1\r\n\r\n"));
-  const auto response = client.recv_until("\r\n\r\n");
+  auto client = net_socket::create_sync_connected(server->local_endpoint());
+  std::string buf;
+  REQUIRE(client.is_open());
+  CHECK(client.send_sync_all("GET / HTTP/1.1\r\n\r\n"));
+  const auto response = client.recv_sync_until(buf, "\r\n\r\n");
   CHECK(response.contains("400"));
   // Server closes after the error response.
-  CHECK(client.recv().empty());
+  CHECK(client.recv_sync_drain_to_eof());
 }
 #pragma endregion
 #pragma region KeepAlive
@@ -501,18 +520,19 @@ TEST_CASE("KeepAlive", "[HttpServer]") {
   auto server = make_test_server(net_endpoint{ipv4_addr::loopback, 0});
   REQUIRE(server);
 
-  auto client = stream_sync::connect(server->local_endpoint(), 1s);
-  REQUIRE(client);
+  auto client = net_socket::create_sync_connected(server->local_endpoint());
+  std::string buf;
+  REQUIRE(client.is_open());
 
-  CHECK(client.send("GET /10 HTTP/1.1\r\nHost: localhost\r\n\r\n"));
-  const auto r1 = client.recv_until("\r\n\r\n");
+  CHECK(client.send_sync_all("GET /10 HTTP/1.1\r\nHost: localhost\r\n\r\n"));
+  const auto r1 = client.recv_sync_until(buf, "\r\n\r\n");
   CHECK(r1.contains("200"));
-  (void)client.recv_until("</html>");
+  (void)client.recv_sync_until(buf, "</html>");
 
-  CHECK(client.send("GET /20 HTTP/1.1\r\nHost: localhost\r\n\r\n"));
-  const auto r2 = client.recv_until("\r\n\r\n");
+  CHECK(client.send_sync_all("GET /20 HTTP/1.1\r\nHost: localhost\r\n\r\n"));
+  const auto r2 = client.recv_sync_until(buf, "\r\n\r\n");
   CHECK(r2.contains("200"));
-  (void)client.recv_until("</html>");
+  (void)client.recv_sync_until(buf, "</html>");
 }
 #pragma endregion
 #pragma region Pipeline
@@ -525,21 +545,22 @@ TEST_CASE("Pipeline", "[HttpServer]") {
   auto server = make_test_server(net_endpoint{ipv4_addr::loopback, 0});
   REQUIRE(server);
 
-  auto client = stream_sync::connect(server->local_endpoint(), 1s);
-  REQUIRE(client);
+  auto client = net_socket::create_sync_connected(server->local_endpoint());
+  std::string buf;
+  REQUIRE(client.is_open());
 
   // Send both requests before reading any response.
-  CHECK(client.send(
+  CHECK(client.send_sync_all(
       "GET /10 HTTP/1.1\r\nHost: localhost\r\n\r\nGET /20 "
       "HTTP/1.1\r\nHost: localhost\r\n\r\n"));
 
-  const auto r1 = client.recv_until("\r\n\r\n");
+  const auto r1 = client.recv_sync_until(buf, "\r\n\r\n");
   CHECK(r1.contains("200"));
-  (void)client.recv_until("</html>");
+  (void)client.recv_sync_until(buf, "</html>");
 
-  const auto r2 = client.recv_until("\r\n\r\n");
+  const auto r2 = client.recv_sync_until(buf, "\r\n\r\n");
   CHECK(r2.contains("200"));
-  (void)client.recv_until("</html>");
+  (void)client.recv_sync_until(buf, "</html>");
 }
 #pragma endregion
 #pragma region ConnectionClose
@@ -552,16 +573,17 @@ TEST_CASE("ConnectionClose", "[HttpServer]") {
   auto server = make_test_server(net_endpoint{ipv4_addr::loopback, 0});
   REQUIRE(server);
 
-  auto client = stream_sync::connect(server->local_endpoint(), 1s);
-  REQUIRE(client);
-  CHECK(client.send(
+  auto client = net_socket::create_sync_connected(server->local_endpoint());
+  std::string buf;
+  REQUIRE(client.is_open());
+  CHECK(client.send_sync_all(
       "GET /5 HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n"));
-  const auto response = client.recv_until("\r\n\r\n");
+  const auto response = client.recv_sync_until(buf, "\r\n\r\n");
   CHECK(response.contains("200"));
   CHECK(response.contains("Connection: close"));
-  (void)client.recv_until("</html>");
+  (void)client.recv_sync_until(buf, "</html>");
   // Server should close after the response.
-  CHECK(client.recv().empty());
+  CHECK(client.recv_sync_drain_to_eof());
 }
 #pragma endregion
 #pragma region Http10NoKeepAlive
@@ -574,14 +596,15 @@ TEST_CASE("Http10NoKeepAlive", "[HttpServer]") {
   auto server = make_test_server(net_endpoint{ipv4_addr::loopback, 0});
   REQUIRE(server);
 
-  auto client = stream_sync::connect(server->local_endpoint(), 1s);
-  REQUIRE(client);
-  CHECK(client.send("GET /5 HTTP/1.0\r\n\r\n"));
-  const auto response = client.recv_until("\r\n\r\n");
+  auto client = net_socket::create_sync_connected(server->local_endpoint());
+  std::string buf;
+  REQUIRE(client.is_open());
+  CHECK(client.send_sync_all("GET /5 HTTP/1.0\r\n\r\n"));
+  const auto response = client.recv_sync_until(buf, "\r\n\r\n");
   CHECK(response.contains("200"));
-  (void)client.recv_until("</html>");
+  (void)client.recv_sync_until(buf, "</html>");
   // HTTP/1.0 default is close; server should close after the response.
-  CHECK(client.recv().empty());
+  CHECK(client.recv_sync_drain_to_eof());
 }
 #pragma endregion
 #pragma region BodyTooLarge
@@ -594,11 +617,13 @@ TEST_CASE("BodyTooLarge", "[HttpServer]") {
       nullptr, 0s, 0s);
   REQUIRE(server);
 
-  auto client = stream_sync::connect(server->local_endpoint(), 1s);
-  REQUIRE(client);
+  auto client = net_socket::create_sync_connected(server->local_endpoint());
+  std::string buf;
+  REQUIRE(client.is_open());
   // 10 * 1024 * 1024 + 1 = 10485761, just over the 10 MB limit.
-  CHECK(client.send("GET /10485761 HTTP/1.1\r\nHost: localhost\r\n\r\n"));
-  const auto response = client.recv_until("\r\n\r\n");
+  CHECK(client.send_sync_all(
+      "GET /10485761 HTTP/1.1\r\nHost: localhost\r\n\r\n"));
+  const auto response = client.recv_sync_until(buf, "\r\n\r\n");
   CHECK(response.contains("400"));
 }
 #pragma endregion
@@ -613,15 +638,16 @@ TEST_CASE("TooLongHeaders", "[HttpServer]") {
       nullptr, 0s, 0s);
   REQUIRE(server);
 
-  auto client = stream_sync::connect(server->local_endpoint(), 1s);
-  REQUIRE(client);
+  auto client = net_socket::create_sync_connected(server->local_endpoint());
+  std::string buf;
+  REQUIRE(client.is_open());
   // The header block (everything between the request line and \r\n\r\n)
   // must exceed 8192 bytes. "X-Pad: " (7) + 8192 'a' + "\r\n" (2) = 8201.
   const std::string long_header = "X-Pad: " + std::string(8192, 'a') + "\r\n";
-  CHECK(client.send("GET / HTTP/1.1\r\n" + long_header + "\r\n"));
-  const auto response = client.recv_until("\r\n\r\n");
+  CHECK(client.send_sync_all("GET / HTTP/1.1\r\n" + long_header + "\r\n"));
+  const auto response = client.recv_sync_until(buf, "\r\n\r\n");
   CHECK(response.contains("400"));
-  CHECK(client.recv().empty()); // server closes after error
+  CHECK(client.recv_sync_drain_to_eof()); // server closes after error
 }
 #pragma endregion
 #pragma region MalformedRequestLine
@@ -635,12 +661,13 @@ TEST_CASE("MalformedRequestLine", "[HttpServer]") {
       nullptr, 0s, 0s);
   REQUIRE(server);
 
-  auto client = stream_sync::connect(server->local_endpoint(), 1s);
-  REQUIRE(client);
-  CHECK(client.send("BREW /coffee HTTP/1.1\r\n\r\n"));
-  const auto response = client.recv_until("\r\n\r\n");
+  auto client = net_socket::create_sync_connected(server->local_endpoint());
+  std::string buf;
+  REQUIRE(client.is_open());
+  CHECK(client.send_sync_all("BREW /coffee HTTP/1.1\r\n\r\n"));
+  const auto response = client.recv_sync_until(buf, "\r\n\r\n");
   CHECK(response.contains("400"));
-  CHECK(client.recv().empty()); // server closes after error
+  CHECK(client.recv_sync_drain_to_eof()); // server closes after error
 }
 #pragma endregion
 #pragma region Http10KeepAlive
@@ -654,20 +681,23 @@ TEST_CASE("Http10KeepAlive", "[HttpServer]") {
       nullptr, 0s, 0s);
   REQUIRE(server);
 
-  auto client = stream_sync::connect(server->local_endpoint(), 1s);
-  REQUIRE(client);
+  auto client = net_socket::create_sync_connected(server->local_endpoint());
+  std::string buf;
+  REQUIRE(client.is_open());
 
-  CHECK(client.send("GET /5 HTTP/1.0\r\nConnection: keep-alive\r\n\r\n"));
-  const auto r1 = client.recv_until("\r\n\r\n");
+  CHECK(client.send_sync_all(
+      "GET /5 HTTP/1.0\r\nConnection: keep-alive\r\n\r\n"));
+  const auto r1 = client.recv_sync_until(buf, "\r\n\r\n");
   CHECK(r1.contains("200"));
   CHECK(r1.contains("Connection: keep-alive"));
-  (void)client.recv_until("</html>");
+  (void)client.recv_sync_until(buf, "</html>");
 
   // Connection is still open; second request succeeds.
-  CHECK(client.send("GET /10 HTTP/1.0\r\nConnection: keep-alive\r\n\r\n"));
-  const auto r2 = client.recv_until("\r\n\r\n");
+  CHECK(client.send_sync_all(
+      "GET /10 HTTP/1.0\r\nConnection: keep-alive\r\n\r\n"));
+  const auto r2 = client.recv_sync_until(buf, "\r\n\r\n");
   CHECK(r2.contains("200"));
-  (void)client.recv_until("</html>");
+  (void)client.recv_sync_until(buf, "</html>");
 }
 #pragma endregion
 

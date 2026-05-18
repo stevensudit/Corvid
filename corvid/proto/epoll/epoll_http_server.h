@@ -26,8 +26,8 @@
 
 #include "epoll_loop.h"
 #include "../misc/http_head_codec.h"
-#include "http_transaction.h"
-#include "stream_conn.h"
+#include "epoll_http_transaction.h"
+#include "epoll_stream_conn.h"
 #include "../misc/terminated_text_parser.h"
 #include "../../containers/opt_find.h"
 #include "../../concurrency/timer_fuse.h"
@@ -38,6 +38,7 @@ namespace corvid { inline namespace proto {
 
 using namespace std::chrono_literals;
 
+#pragma region http_phase
 // Connection lifecycle phase for an accepted HTTP connection.
 //
 // `request_line` -- seeking `"\r\n"` for the request line. Empty blocks
@@ -65,17 +66,19 @@ enum class http_phase : uint8_t {
   response,
   done
 };
+#pragma endregion
 
+#pragma region Routing helpers
 struct host_path {
   std::string_view hostname;
   std::string_view base_path;
   auto operator<=>(const host_path&) const = default;
 };
 
-// Key for `http_server` route registration. `hostname` is matched against the
-// `Host` request header; an empty `hostname` matches any host. `base_path` is
-// the leading path component extracted from the request target (e.g., `"/api"`
-// from `"/api/v2"`) and must be at least `"/"`.
+// Key for `epoll_http_server` route registration. `hostname` is matched
+// against the `Host` request header; an empty `hostname` matches any host.
+// `base_path` is the leading path component extracted from the request target
+// (e.g., `"/api"` from `"/api/v2"`) and must be at least `"/"`.
 struct host_path_key {
   std::string hostname;
   std::string base_path;
@@ -105,10 +108,13 @@ struct transparent_hash_equal_host_path {
 
 // Ideally, this should be a trie to allow longest-prefix matching, but a
 // single-level solution works for now.
-using route_map_t = std::unordered_map<host_path_key, transaction_factory,
-    transparent_hash_equal_host_path, transparent_hash_equal_host_path>;
+using route_map_t =
+    std::unordered_map<host_path_key, epoll_http_transaction_factory,
+        transparent_hash_equal_host_path, transparent_hash_equal_host_path>;
+#pragma endregion
 
-// HTTP/1.x server (including HTTP/0.9) built on `stream_conn` and
+#pragma region epoll_http_server
+// HTTP/1.x server (including HTTP/0.9) built on `epoll_stream_conn` and
 // `epoll_loop`, with `timing_wheel`-driven timeouts.
 //
 // Listens for TCP (or UDS/ANS) connections. Parses each request in two
@@ -119,11 +125,11 @@ using route_map_t = std::unordered_map<host_path_key, transaction_factory,
 //
 // Persistent connections (keep-alive) and pipelining are supported:
 // `on_data` loops over all complete header blocks present in the receive
-// buffer, queuing a response for each one. Because `stream_conn::send` is
-// FIFO, responses are always delivered in request order.
+// buffer, queuing a response for each one. Because `epoll_stream_conn::send`
+// is FIFO, responses are always delivered in request order.
 //
 // Construct via the `create` factory, which returns a
-// `std::shared_ptr<http_server>`. If the `loop` argument is null, the
+// `std::shared_ptr<epoll_http_server>`. If the `loop` argument is null, the
 // server starts its own `epoll_loop_runner`; otherwise it shares the
 // supplied loop. If the `wheel` argument is null, the server starts its
 // own `timing_wheel_runner`; otherwise it shares the supplied wheel. The
@@ -138,15 +144,17 @@ using route_map_t = std::unordered_map<host_path_key, transaction_factory,
 // `write_timeout` controls how long the server waits for the send queue to
 // drain after queueing a response. Disarmed in `on_drain` when the queue
 // empties normally. Defaults to 5 s.
-class http_server: public std::enable_shared_from_this<http_server> {
+class epoll_http_server
+    : public std::enable_shared_from_this<epoll_http_server> {
+#pragma region Types
   // State associated with each accepted connection, stored in the
-  // `stream_conn` via `stream_conn_with_state`. All fields are mutated on the
-  // epoll loop thread; no locking is needed.
+  // `epoll_stream_conn` via `epoll_stream_conn_with_state`. All fields are
+  // mutated on the epoll loop thread; no locking is needed.
   struct http_conn_state {
     // Note: Ordering was chosen to improve packing, not based on logic.
 
     // Send callback bound for use with transaction `handle_drain`.
-    http_transaction::send_fn send_cb;
+    epoll_http_transaction::send_fn send_cb;
 
     std::atomic_uint64_t read_seq;  // Identifies read timeout fuse.
     std::atomic_uint64_t write_seq; // Identifies write timeout fuse.
@@ -154,7 +162,7 @@ class http_server: public std::enable_shared_from_this<http_server> {
     terminated_text_parser::state parser_state; // falsy until initialized
 
     // Pipeline of transactions for this connection.
-    transaction_queue pipeline;
+    epoll_http_transaction_queue pipeline;
 
     request_head req; // populated across request_line / header_lines
 
@@ -169,17 +177,19 @@ class http_server: public std::enable_shared_from_this<http_server> {
     bool draining_{};
   };
 
-  using conn_t = stream_conn_with_state<http_conn_state>;
-  using conn_ptr_t = stream_conn_ptr_with<conn_t>;
-  using timer_fuse_t = timer_fuse<stream_conn>;
+  using conn_t = epoll_stream_conn_with_state<http_conn_state>;
+  using conn_ptr_t = epoll_stream_conn_ptr_with<conn_t>;
+  using timer_fuse_t = timer_fuse<epoll_stream_conn>;
   enum class allow : bool { ctor };
 
 public:
   using duration_t = timing_wheel::duration_t;
-  using http_server_ptr = std::shared_ptr<http_server>;
+  using http_server_ptr = std::shared_ptr<epoll_http_server>;
   using epoll_loop_ptr = std::shared_ptr<epoll_loop>;
   using timing_wheel_ptr = std::shared_ptr<timing_wheel>;
-  using configure_fn = std::function<bool(http_server&)>;
+  using configure_fn = std::function<bool(epoll_http_server&)>;
+#pragma endregion
+#pragma region Factories
 
   // Create an HTTP/1.1 server listening on `endpoint`.
   //
@@ -199,7 +209,7 @@ public:
       const configure_fn& configure, epoll_loop_ptr loop = nullptr,
       timing_wheel_ptr wheel = nullptr, duration_t request_timeout = 30s,
       duration_t write_timeout = 5s) {
-    auto self = std::make_shared<http_server>(allow::ctor);
+    auto self = std::make_shared<epoll_http_server>(allow::ctor);
 
     // Get an epoll loop.
     if (!loop) {
@@ -218,13 +228,13 @@ public:
     const auto max_delay = self->wheel_->max_delay();
     if (request_timeout > 0s && request_timeout > max_delay) {
       throw std::invalid_argument{std::format(
-          "http_server: request_timeout {}ms exceeds timing "
+          "epoll_http_server: request_timeout {}ms exceeds timing "
           "wheel max delay {}ms",
           request_timeout.count(), max_delay.count())};
     }
     if (write_timeout > 0s && write_timeout > max_delay) {
       throw std::invalid_argument{std::format(
-          "http_server: write_timeout {}ms exceeds timing "
+          "epoll_http_server: write_timeout {}ms exceeds timing "
           "wheel max delay {}ms",
           write_timeout.count(), max_delay.count())};
     }
@@ -239,21 +249,22 @@ public:
     self->configured_ = true;
 
     // Start listening. Use `weak_ptr` to avoid a reference cycle:
-    // `http_server` owns the loop, which owns the listener registration, which
-    // holds a copy of these handlers; and accepted connections get copies,
-    // too. A `shared_ptr` capture would prevent the `http_server` destructor
-    // from ever firing, so the background threads would never stop. Ask me how
-    // I know.
-    std::weak_ptr<http_server> weak_self{self};
+    // `epoll_http_server` owns the loop, which owns the listener registration,
+    // which holds a copy of these handlers; and accepted connections get
+    // copies, too. A `shared_ptr` capture would prevent the
+    // `epoll_http_server` destructor from ever firing, so the background
+    // threads would never stop. Ask me how I know.
+    std::weak_ptr<epoll_http_server> weak_self{self};
     self->listener_ = conn_ptr_t::listen(self->loop_, endpoint,
         {.on_data =
-                [weak_self](stream_conn& conn, recv_buffer_view view) {
+                [weak_self](epoll_stream_conn& conn,
+                    epoll_recv_buffer_view view) {
                   auto s = weak_self.lock();
                   if (!s) return false;
                   return s->handle_data(conn, std::move(view));
                 },
             .on_drain =
-                [weak_self](stream_conn& conn) {
+                [weak_self](epoll_stream_conn& conn) {
                   auto s = weak_self.lock();
                   if (!s) return false;
                   return s->handle_drain(conn);
@@ -263,6 +274,8 @@ public:
 
     return self;
   }
+#pragma endregion
+#pragma region Accessors
 
   // Return the actual bound address (useful when `endpoint` used port 0).
   [[nodiscard]] net_endpoint local_endpoint() const {
@@ -277,8 +290,10 @@ public:
 
   // Return a `std::shared_ptr` to `*this`.
   [[nodiscard]] http_server_ptr self() {
-    return std::static_pointer_cast<http_server>(shared_from_this());
+    return std::static_pointer_cast<epoll_http_server>(shared_from_this());
   }
+#pragma endregion
+#pragma region Routing
 
   // Register `factory` for the route identified by `key`. The `hostname`
   // field is matched against the `Host` request header (empty matches any
@@ -290,7 +305,7 @@ public:
   // `create`; returns `false` if the server has already started accepting
   // connections.
   [[nodiscard]] bool
-  add_route(host_path_key key, transaction_factory factory) {
+  add_route(host_path_key key, epoll_http_transaction_factory factory) {
     if (configured_) return false;
     assert(key.base_path.starts_with("/"));
     assert(key.base_path.size() == 1 || !key.base_path.ends_with("/"));
@@ -305,17 +320,19 @@ public:
     target = target.substr(0, target.find_first_of("?#"));
     return target.substr(0, target.find('/', 1));
   }
+#pragma endregion
+#pragma region Construction
 
-  http_server(allow) {};
+  epoll_http_server(allow) {};
 
   // Drop our listener and route handlers before the implicit member
-  // destruction proceeds. Both capture `weak_ptr<http_server>`; if their
+  // destruction proceeds. Both capture `weak_ptr<epoll_http_server>`; if their
   // destruction is left to run asynchronously on the loop thread, the
-  // worker's `~weak_ptr<http_server>` (which decs our control-block weak
+  // worker's `~weak_ptr<epoll_http_server>` (which decs our control-block weak
   // count) races with our own `~enable_shared_from_this` doing the same
   // at the end of this destructor. Similarly, the timing wheel's buckets
-  // capture `weak_ptr<stream_conn>` callbacks; destroying the wheel
-  // while the epoll worker is still dropping `shared_ptr<stream_conn>`
+  // capture `weak_ptr<epoll_stream_conn>` callbacks; destroying the wheel
+  // while the epoll worker is still dropping `shared_ptr<epoll_stream_conn>`
   // refs in `dispatch_event` would race on the connection's control
   // block.
   //
@@ -333,11 +350,11 @@ public:
   // queue. The post queue is FIFO, so the no-op runs after the hangup;
   // the hangup itself destroys the conn in-lambda once `do_hangup`
   // unregisters from the loop. By the time `post_and_wait` returns, the
-  // conn's handlers (and their `weak_ptr<http_server>` captures) have
+  // conn's handlers (and their `weak_ptr<epoll_http_server>` captures) have
   // been destroyed on the worker thread, sequenced before our own dec.
   //
   // NOLINTNEXTLINE(bugprone-exception-escape)
-  ~http_server() {
+  ~epoll_http_server() {
     if (runner_) {
       listener_ = {};
       routes_.clear();
@@ -351,7 +368,8 @@ public:
       (void)loop_->post_and_wait([] { return true; });
     }
   }
-
+#pragma endregion
+#pragma region Internals
 private:
   // Actual payload for timeouts.
   [[nodiscard]] static bool timeout_hangup(const timer_fuse_t& fuse) {
@@ -375,7 +393,7 @@ private:
   // parsed request, and each read of the body, so that keep-alive connections
   // restart the clock. For the purpose of testing, a zero duration means "no
   // timeout" (i.e., don't arm a fuse at all).
-  [[nodiscard]] bool arm_read_timeout(stream_conn& conn) const {
+  [[nodiscard]] bool arm_read_timeout(epoll_stream_conn& conn) const {
     if (read_timeout_ == 0s) return true;
     return timer_fuse_t::set_timeout(*wheel_,
         conn_t::from(conn).state().read_seq, std::weak_ptr{conn.self()},
@@ -388,7 +406,7 @@ private:
   // `handle_drain` when the send queue empties before the deadline.
   // For the purpose of testing, a zero duration means "no timeout" (i.e.,
   // don't arm a fuse at all).
-  [[nodiscard]] bool arm_write_timeout(stream_conn& conn) const {
+  [[nodiscard]] bool arm_write_timeout(epoll_stream_conn& conn) const {
     if (write_timeout_ == 0s) return true;
     return timer_fuse_t::set_timeout(*wheel_,
         conn_t::from(conn).state().write_seq, std::weak_ptr{conn.self()},
@@ -402,7 +420,7 @@ private:
   // Called from `handle_drain` (first writable event, before any data) and
   // from `handle_data` as a fallback, because `EPOLLIN` is dispatched before
   // `EPOLLOUT` in the same wakeup.
-  [[nodiscard]] bool ensure_initialized(stream_conn& conn) const {
+  [[nodiscard]] bool ensure_initialized(epoll_stream_conn& conn) const {
     auto& state = conn_t::from(conn).state();
     if (state.parser_state) return true;
     state.parser_state = terminated_text_parser::state{"\r\n", 8192};
@@ -423,7 +441,7 @@ private:
   // the active write transaction. Transitions to `done` when in `response`
   // phase and the transaction queue empties. Also handles initial parser
   // setup on the first drain event before any request has arrived.
-  [[nodiscard]] bool handle_drain(stream_conn& conn) const {
+  [[nodiscard]] bool handle_drain(epoll_stream_conn& conn) const {
     auto& state = conn_t::from(conn).state();
     timer_fuse_t::disarm(state.write_seq);
     if (!ensure_initialized(conn)) {
@@ -434,13 +452,13 @@ private:
   }
 
   // Hang up immediately.
-  [[nodiscard]] static after_response hangup(stream_conn& conn) {
+  [[nodiscard]] static after_response hangup(epoll_stream_conn& conn) {
     (void)conn.hangup();
     return after_response::close;
   }
 
   // Send error response, hanging up if anything goes wrong.
-  [[nodiscard]] after_response send_error_response(stream_conn& conn,
+  [[nodiscard]] after_response send_error_response(epoll_stream_conn& conn,
       after_response keep_alive = after_response::close,
       http_version version = http_version::http_1_1,
       http_status_code code = http_status_code::BAD_REQUEST,
@@ -461,7 +479,7 @@ private:
   //   3. `{"", base_path}` -- any-host folder match
   //   4. `{"", "/"}` -- any-host catch-all
   // Returns a pointer to the factory, or nullptr.
-  [[nodiscard]] const transaction_factory* find_route(
+  [[nodiscard]] const epoll_http_transaction_factory* find_route(
       const host_path& key) const {
     // Try for exact host and folder match first.
     if (auto f = find_opt(routes_, key)) return f;
@@ -482,8 +500,8 @@ private:
   }
 
   // Dispatch the current request header to a new transaction, enqueuing it.
-  [[nodiscard]] after_response
-  dispatch_transaction(stream_conn& conn, recv_buffer_view& view) const {
+  [[nodiscard]] after_response dispatch_transaction(epoll_stream_conn& conn,
+      epoll_recv_buffer_view& view) const {
     auto& state = conn_t::from(conn).state();
     const after_response keep_alive =
         state.req.options.keep_alive(state.req.version);
@@ -502,7 +520,8 @@ private:
     std::string_view hostname = host_opt ? *host_opt : std::string_view{};
     std::string_view base_path = route_base_path(state.req.target);
 
-    const transaction_factory* factory = find_route({hostname, base_path});
+    const epoll_http_transaction_factory* factory =
+        find_route({hostname, base_path});
     if (!factory)
       return send_error_response(conn, keep_alive, state.req.version,
           http_status_code::NOT_FOUND, "Not Found");
@@ -555,7 +574,7 @@ private:
 
   // Call active write transaction to let it send the next part of the
   // response. Once it's done, it's removed.
-  [[nodiscard]] static bool drain_transaction(stream_conn& conn) {
+  [[nodiscard]] static bool drain_transaction(epoll_stream_conn& conn) {
     // Avoid reentrancy when `conn.send` drains synchronously.
     auto& state = conn_t::from(conn).state();
     if (state.draining_) return true;
@@ -594,8 +613,9 @@ private:
   // us check for HTTP/0.9 instead of blocking forever on headers that might
   // never come. Note that, while headers are technically optional for
   // HTTP/1.0, we can at least count on the crlfcrlf sentinel.
-  [[nodiscard]] std::optional<bool> handle_request_line(stream_conn& conn,
-      std::string_view& input, recv_buffer_view& view) const {
+  [[nodiscard]] std::optional<bool>
+  handle_request_line(epoll_stream_conn& conn, std::string_view& input,
+      epoll_recv_buffer_view& view) const {
     auto& state = conn_t::from(conn).state();
     terminated_text_parser parser{state.parser_state};
     std::string_view block_view;
@@ -650,7 +670,7 @@ private:
   // or skip directly to `done` (disarming the read timeout) when the queue
   // is already empty (e.g., after an error response sent via `conn.send`
   // directly with no transaction in the queue).
-  [[nodiscard]] static bool enter_close_phase(stream_conn& conn) {
+  [[nodiscard]] static bool enter_close_phase(epoll_stream_conn& conn) {
     auto& state = conn_t::from(conn).state();
     if (state.phase == http_phase::done) return true;
 
@@ -666,7 +686,7 @@ private:
   // Send a 400 error response and close the connection after a header-block
   // parse failure (oversized block or malformed field lines).
   [[nodiscard]] std::optional<bool> reject_header_block(
-      stream_conn& conn) const {
+      epoll_stream_conn& conn) const {
     auto& state = conn_t::from(conn).state();
     if (!arm_write_timeout(conn)) return conn.hangup() && false;
     if (!conn.send(response_head::make_error_response(after_response::close,
@@ -683,8 +703,8 @@ private:
   //
   // Returns `nullopt` when the block is complete and ready for dispatch,
   // `true` to wait for more data, or `false` after an error is sent.
-  [[nodiscard]] std::optional<bool> parse_header_block(stream_conn& conn,
-      std::string_view& input, recv_buffer_view& view) const {
+  [[nodiscard]] std::optional<bool> parse_header_block(epoll_stream_conn& conn,
+      std::string_view& input, epoll_recv_buffer_view& view) const {
     auto& state = conn_t::from(conn).state();
     if (!input.starts_with("\r\n")) {
       terminated_text_parser parser{state.parser_state};
@@ -715,8 +735,9 @@ private:
   // `request_line` phase if it releases immediately (no body or fully
   // consumed). Returns `nullopt` to continue the loop, or a `bool` to return
   // immediately from `handle_data`.
-  [[nodiscard]] std::optional<bool> handle_header_lines(stream_conn& conn,
-      std::string_view& input, recv_buffer_view& view) const {
+  [[nodiscard]] std::optional<bool>
+  handle_header_lines(epoll_stream_conn& conn, std::string_view& input,
+      epoll_recv_buffer_view& view) const {
     auto& state = conn_t::from(conn).state();
     const auto r = parse_header_block(conn, input, view);
     if (r) return r;
@@ -749,14 +770,14 @@ private:
   // Deliver incoming body bytes to the active read transaction. Transitions
   // back to `request_line` phase when the transaction releases the input
   // stream.
-  [[nodiscard]] bool handle_body(stream_conn& conn, std::string_view& input,
-      recv_buffer_view& view) const {
+  [[nodiscard]] bool handle_body(epoll_stream_conn& conn,
+      std::string_view& input, epoll_recv_buffer_view& view) const {
     auto& state = conn_t::from(conn).state();
     auto* reader = state.pipeline.get_reader().get();
     assert(reader);
 
     // Deliver the full available buffer to the transaction; it controls
-    // how much it consumes via `recv_buffer_view`.
+    // how much it consumes via `epoll_recv_buffer_view`.
     const stream_claim sc = reader->handle_data(view);
 
     // If the transaction has released the input stream, we transition back to
@@ -785,10 +806,10 @@ private:
   // starts with `"\r\n"` (no headers) the terminator is consumed directly.
   // The loop continues to process all complete blocks present in the receive
   // buffer, providing pipelining: multiple queued requests are handled in a
-  // single `on_data` call, and `stream_conn::send` FIFO ordering guarantees
-  // response order.
+  // single `on_data` call, and `epoll_stream_conn::send` FIFO ordering
+  // guarantees response order.
   [[nodiscard]] bool
-  handle_data(stream_conn& conn, recv_buffer_view view) const {
+  handle_data(epoll_stream_conn& conn, epoll_recv_buffer_view view) const {
     auto& state = conn_t::from(conn).state();
     if (!ensure_initialized(conn)) return false;
 
@@ -818,6 +839,8 @@ private:
       }
     }
   }
+#pragma endregion
+#pragma region Data members
 
   // Maximum bare CRLFs to skip before the request line (RFC 9112 §2.2).
   static constexpr uint8_t max_leading_crls{8};
@@ -831,5 +854,7 @@ private:
   duration_t write_timeout_{5s};
   conn_ptr_t listener_;
   route_map_t routes_;
+#pragma endregion
 };
+#pragma endregion
 }} // namespace corvid::proto

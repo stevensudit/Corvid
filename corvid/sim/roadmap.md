@@ -8,14 +8,14 @@ eponymous browser-based tower defense game.
 
 ## Static HTTP server
 - `corvid_sim_main.h` -- Entry point: walks up from the executable to find
-  `corvid/sim/web/dist`, loads it into a `static_file_cache`, and serves it on
+  `corvid/sim/web/dist`, loads it into an `epoll_static_file_cache`, and serves it on
   `localhost:8080`. Accepts `-testonly` to exit cleanly in CI.
 - `web/index.html` -- Game page with status, tick, lives/resources/phase HUD,
   "Start Wave" button, dual-canvas viewport, and a scrollable log pane.
 ---
 
 ## WebSocket transport and JSON protocol
-- `sim_ws_handler.h` -- `SimWsHandler` (inherits `http_websocket_transaction`).
+- `sim_ws_handler.h` -- `SimWsHandler` (inherits `epoll_http_websocket_transaction`).
   Registers `on_message`/`on_close` callbacks. Enables 20s-ping / 5s-pong
   keepalive. Owns the 20 Hz tick timer via the `timer_fuse` double-check
   pattern. Drives one `SimGame::next()` call per 50 ms frame, then sends the
