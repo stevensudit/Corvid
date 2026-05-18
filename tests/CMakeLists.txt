@@ -189,6 +189,86 @@ if(NOT _have_catch2)
     FetchContent_MakeAvailable(Catch2)
 endif()
 
+# QUIC dependency: ngtcp2 (ExternalProject) linked against a preflight-built
+# OpenSSL 3.5+ (the LTS line; needed for the native QUIC API, which Ubuntu
+# Noble's 3.0.13 lacks). Linked into every test target -- the static linker
+# drops unreferenced object files, so tests that do not include any QUIC
+# headers pay essentially nothing.
+#
+# ExternalProject_Add rather than FetchContent because ngtcp2's CMakeLists
+# runs an autoconf-style probe sweep (`check_function_exists`,
+# `check_include_files`, ...) and the answers live in our parent
+# `CMakeCache.txt`, which `cleanbuild.sh` wipes every run. ExternalProject
+# runs the sub-build as a separate CMake invocation with its own persistent
+# cache under `tests/.local/ngtcp2-external/`, so the probes execute exactly
+# once across cleanbuilds. It also isolates target names (the nghttp3
+# `check`-target collision goes away when we add it later) and prevents
+# `CMAKE_BUILD_TYPE` from leaking back into our compile lines.
+set(OPENSSL_ROOT_DIR "${CMAKE_CURRENT_SOURCE_DIR}/.local/openssl")
+if(NOT EXISTS "${OPENSSL_ROOT_DIR}/lib64/libssl.a")
+    message(FATAL_ERROR
+        "OpenSSL 3.5+ not found at ${OPENSSL_ROOT_DIR}. "
+        "Run scripts/build_openssl_quic.sh first (one-time, ~5 min).")
+endif()
+set(OPENSSL_USE_STATIC_LIBS ON)
+find_package(OpenSSL 3.5 REQUIRED COMPONENTS SSL Crypto)
+message(STATUS "Using OpenSSL ${OPENSSL_VERSION} at ${OPENSSL_ROOT_DIR}")
+
+include(ExternalProject)
+
+set(NGTCP2_PREFIX_DIR  "${CMAKE_CURRENT_SOURCE_DIR}/.local/ngtcp2-external")
+set(NGTCP2_INSTALL_DIR "${CMAKE_CURRENT_SOURCE_DIR}/.local/ngtcp2")
+set(NGTCP2_LIB_DIR     "${NGTCP2_INSTALL_DIR}/lib")
+set(NGTCP2_INCLUDE_DIR "${NGTCP2_INSTALL_DIR}/include")
+
+# `BUILD_BYPRODUCTS` lists the artifacts the sub-build produces. Ninja
+# requires this to track downstream dependencies on imported targets that
+# reference these files. `CMAKE_INSTALL_LIBDIR=lib` forces a flat `lib/`
+# rather than the `lib64/` that GNUInstallDirs picks on some distros, so
+# the IMPORTED_LOCATION paths below are stable.
+ExternalProject_Add(ngtcp2_external
+    PREFIX            "${NGTCP2_PREFIX_DIR}"
+    GIT_REPOSITORY    https://github.com/ngtcp2/ngtcp2.git
+    GIT_TAG           v1.22.1
+    GIT_SHALLOW       TRUE
+    UPDATE_DISCONNECTED TRUE
+    INSTALL_DIR       "${NGTCP2_INSTALL_DIR}"
+    CMAKE_GENERATOR   "Ninja"
+    CMAKE_ARGS
+        -DCMAKE_INSTALL_PREFIX=${NGTCP2_INSTALL_DIR}
+        -DCMAKE_INSTALL_LIBDIR=lib
+        -DCMAKE_BUILD_TYPE=Release
+        -DOPENSSL_ROOT_DIR=${OPENSSL_ROOT_DIR}
+        -DENABLE_OPENSSL=ON
+        -DENABLE_STATIC_LIB=ON
+        -DENABLE_SHARED_LIB=OFF
+        -DENABLE_LIB_ONLY=ON
+        -DENABLE_WERROR=OFF
+        -DBUILD_TESTING=OFF
+    BUILD_BYPRODUCTS
+        "${NGTCP2_LIB_DIR}/libngtcp2.a"
+        "${NGTCP2_LIB_DIR}/libngtcp2_crypto_ossl.a"
+)
+
+# The install dir's include subdir must exist at configure time, otherwise
+# CMake errors on the IMPORTED_LOCATION / INTERFACE_INCLUDE_DIRECTORIES
+# property below. Create it eagerly; ngtcp2_external will populate it on
+# first build.
+file(MAKE_DIRECTORY "${NGTCP2_INCLUDE_DIR}")
+
+add_library(ngtcp2_static STATIC IMPORTED GLOBAL)
+set_target_properties(ngtcp2_static PROPERTIES
+    IMPORTED_LOCATION             "${NGTCP2_LIB_DIR}/libngtcp2.a"
+    INTERFACE_INCLUDE_DIRECTORIES "${NGTCP2_INCLUDE_DIR}")
+add_dependencies(ngtcp2_static ngtcp2_external)
+
+add_library(ngtcp2_crypto_ossl_static STATIC IMPORTED GLOBAL)
+set_target_properties(ngtcp2_crypto_ossl_static PROPERTIES
+    IMPORTED_LOCATION             "${NGTCP2_LIB_DIR}/libngtcp2_crypto_ossl.a"
+    INTERFACE_INCLUDE_DIRECTORIES "${NGTCP2_INCLUDE_DIR}"
+    INTERFACE_LINK_LIBRARIES      "ngtcp2_static;OpenSSL::SSL;OpenSSL::Crypto")
+add_dependencies(ngtcp2_crypto_ossl_static ngtcp2_external)
+
 if(USE_CLANG_TIDY)
     find_program(CLANG_TIDY_EXE NAMES clang-tidy clang-tidy-22)
     if(CLANG_TIDY_EXE)
@@ -246,6 +326,13 @@ foreach(SOURCE_FILE ${SOURCES})
         target_include_directories(${EXECUTABLE_NAME} PRIVATE ${LIBURING_INCLUDE_DIRS})
         target_link_libraries(${EXECUTABLE_NAME} PRIVATE ${LIBURING_LIBRARIES})
     endif()
+
+    # QUIC stack. Linked into every target; the static linker drops archive
+    # members that no symbol references, so tests that do not include any of
+    # the headers pay no measurable size or link-time cost. The crypto
+    # target's INTERFACE_LINK_LIBRARIES carries ngtcp2_static + OpenSSL
+    # transitively.
+    target_link_libraries(${EXECUTABLE_NAME} PRIVATE ngtcp2_crypto_ossl_static)
 
     if(NOT USE_LIBSTDCPP)
         # Link libc++ and libc++abi explicitly

@@ -208,14 +208,12 @@ public:
 
     // Dispatch each event to handler.
     int dispatched = 0;
-    int woken = 0;
     for (int ndx = 0; ndx < *available; ++ndx) {
       const int fd = events[ndx].data.fd;
 
       // Drain the internal wakeup handle and skip: it carries no user event.
       if (fd == wake_fd().handle()) {
         if (!wake_fd().read()) return -1;
-        ++woken;
         continue;
       }
 
@@ -226,7 +224,6 @@ public:
       if (!dispatch_event(fd, events[ndx].events)) return -1;
     }
 
-    assert(dispatched + woken == available);
     return dispatched;
   }
 
