@@ -592,10 +592,16 @@ public:
     // path intentionally permits a closed socket: the kernel returns -1
     // with `EBADF` and the hard-failure branch below trims `data` and reports
     // false. Analyzer flags handle() = -1 as invalid; that's by design here.
-    // NOLINTBEGIN(clang-analyzer-unix.StdCLibraryFunctions)
+    //
+    // `BlockInCriticalSection` is suppressed because the analyzer can't tell
+    // `weak_ptr::lock()` (atomic CAS on the control block, no critical
+    // section) from `mutex::lock()`; once it sees a `shared_from_this()`
+    // anywhere upstream it tags this `recv` as blocking-in-a-lock. We don't
+    // call `recv` while holding any actual lock.
+    // NOLINTBEGIN(clang-analyzer-unix.StdCLibraryFunctions,clang-analyzer-unix.BlockInCriticalSection)
     const ssize_t n =
         ::recv(handle(), data.data() + offset, data.size() - offset, *flags);
-    // NOLINTEND(clang-analyzer-unix.StdCLibraryFunctions)
+    // NOLINTEND(clang-analyzer-unix.StdCLibraryFunctions,clang-analyzer-unix.BlockInCriticalSection)
     if (n == 0) return false;
 
     no_zero::trim_to(data, offset + (n > 0 ? static_cast<size_t>(n) : 0));
