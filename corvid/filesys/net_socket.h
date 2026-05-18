@@ -30,6 +30,7 @@
 #include "os_file.h"
 
 namespace corvid { inline namespace filesys {
+using namespace std::chrono_literals;
 using namespace bool_enums;
 
 #pragma region Enums
@@ -437,10 +438,33 @@ public:
   // from `addr.ss_family`; if it is unrecognized, the underlying `socket(2)`
   // call will fail and the returned socket will not be open. Defaults to
   // non-blocking stream (`SOCK_STREAM | SOCK_NONBLOCK | SOCK_CLOEXEC`).
+  // Does not bind on `addr`.
   [[nodiscard]] static net_socket create_for(const sockaddr_storage& addr,
       execution exec = execution::nonblocking,
       message_style style = message_style::stream) noexcept {
     return do_create(address_family{addr.ss_family}, exec, style);
+  }
+
+  // Create a blocking socket and connect it to `addr`.
+  //
+  // As synchronous I/O is not scalable, this is a convenience factory for
+  // simple use cases, mean to work with other utility methods with "sync" in
+  // their name.
+  [[nodiscard]] static net_socket create_sync_connected(
+      const sockaddr_storage& addr, std::chrono::milliseconds timeout = 1s) {
+    auto sock = net_socket::create_for(addr, execution::blocking);
+    if (!sock.is_open()) return {};
+    if (timeout.count() > 0) {
+      const timeval tv{timeout.count() / 1000,
+          (timeout.count() % 1000) * 1000};
+      if (!sock.set_option(socket_option::rcvtimeo, tv) ||
+          !sock.set_option(socket_option::sndtimeo, tv))
+        return {};
+    }
+    if (::connect(sock.handle(), reinterpret_cast<const sockaddr*>(&addr),
+            sockaddr_size(addr)) != 0)
+      return {};
+    return sock;
   }
 
   // Create a connected pair of sockets.
@@ -625,6 +649,62 @@ public:
     return std::nullopt;
   }
 
+  // Read synchronous socket until `delim` appears in the accumulated buffer.
+  // Returns everything up to and including `delim`; trailing bytes stay in
+  // `buf` for a subsequent call. Returns empty on EOF, hard error, or timeout.
+  //
+  // This is a utility method, not optimized for performance.
+  [[nodiscard]] std::string
+  recv_sync_until(std::string& buf, std::string_view delim) const {
+    while (true) {
+      const auto pos = buf.find(delim);
+      if (pos != std::string::npos) {
+        const auto end = pos + delim.size();
+        std::string out = buf.substr(0, end);
+        buf.erase(0, end);
+        return out;
+      }
+      const size_t old_size = buf.size();
+      no_zero::resize_to(buf, old_size + 4096);
+      if (!recv(buf)) {
+        buf.clear();
+        return {};
+      }
+    }
+  }
+
+  // Ensure `buf` contains pending bytes to process. If `buf` is non-empty,
+  // returns true immediately (the caller still has unprocessed bytes from a
+  // previous read). Otherwise reads the next chunk from `sock` into `buf`.
+  // Returns false on EOF, hard error, or timeout, with `buf` cleared.
+  [[nodiscard]] bool recv_sync_chunk(std::string& buf) const {
+    if (!buf.empty()) return true;
+    no_zero::enlarge_to(buf, 4096);
+    if (!recv(buf)) {
+      buf.clear();
+      return false;
+    }
+    return !buf.empty();
+  }
+
+  // Drain any trailing bytes from synchronous socket, up to `max_bytes`, and
+  // return true iff the peer reached clean EOF (FIN). Returns false on hard
+  // error (e.g., RST) or on timeout without EOF. Useful for asserting that a
+  // server closed the connection cleanly after sending its response.
+  //
+  // This is a utility method, not optimized for performance.
+  [[nodiscard]] bool recv_sync_drain_to_eof(
+      size_t max_bytes = 4096 * 4ULL) const {
+    std::string buf;
+    size_t loops = (max_bytes + 4095) / 4096;
+    for (size_t loop = 0; loop < loops; ++loop) {
+      no_zero::enlarge_to(buf, 4096);
+      if (!recv(buf)) return !buf.empty();
+      if (buf.empty()) return false;
+    }
+    return false;
+  }
+
 #pragma endregion
 #pragma region Send
 
@@ -657,6 +737,15 @@ public:
     return ::sendmsg(handle(), &msgh, *flags);
   }
 
+  // Send all of `data` on a synchronous socket, looping as needed. On success,
+  // clears `data` and returns true.
+  [[nodiscard]] bool send_sync_all(std::string_view data) const noexcept {
+    while (!data.empty()) {
+      const auto prev = data.size();
+      if (!send(data) || data.size() == prev) return false;
+    }
+    return true;
+  }
 #pragma endregion
 #pragma region Connecting
 

@@ -85,24 +85,10 @@ without changing higher layers.
   `remote_endpoint()` return socket addresses; supports persistent callback
   mode via `epoll_stream_conn_handlers` (`on_data(conn, epoll_recv_buffer_view)`,
   `on_drain`, `on_close`); holds `own_handlers_` and an atomic
-  `active_handlers_` pointer that facade classes temporarily redirect
-- **[done]** `epoll_stream_async_base` / `epoll_stream_async_cb` / `epoll_stream_async_coro` -- in
-  `epoll_stream_async.h`; facade classes that provide per-call async I/O on top of a
-  `epoll_stream_conn` by atomically swapping `active_handlers_` for the duration of
-  their lifetime; `epoll_stream_async_base` is the non-copyable, non-movable base
-  (CAS-based handler install, static trampolines for friend access);
-  `epoll_stream_async_cb` provides one-shot callback I/O: `read(cb)` delivers a
-  `epoll_recv_buffer_view` on the next arrival, `write(buf, cb)` invokes
-  `cb(bool completed)` when the queue drains or the connection closes;
-  `epoll_stream_async_coro` provides C++20 coroutine I/O: `read()` / `write(buf)`
-  return awaitables; `EPOLLIN` is gated by `reads_enabled` and armed only when
-  a waiter is registered; all coroutine resumptions are deferred through
-  `post()` to avoid use-after-free
+  `active_handlers_` pointer that an extension may temporarily redirect
 - **[done]** `loop_task` -- fire-and-forget coroutine return type for `epoll_loop`
   handlers; `initial_suspend` is `suspend_never` (eager start);
-  `final_suspend` is `suspend_never` (self-destroying frame); enables
-  `co_await coro.read()` / `co_await coro.write(buf)` patterns via
-  `epoll_stream_async_coro`
+  `final_suspend` is `suspend_never` (self-destroying frame)
 - **[done]** `tcp_listener` -- now integrated as `epoll_stream_conn_ptr::listen()`;
   creates a non-blocking listening socket, binds, and calls `listen(2)`; drains
   accepted connections via `accept4` on `EPOLLIN`, creating self-owning
@@ -117,13 +103,6 @@ without changing higher layers.
   more, `true` = complete frame, `false` = max-length exceeded without finding
   the sentinel); `reset()` clears scan state for the next frame; no copies --
   `frame` is a `string_view` into the caller's buffer
-- **[done]** `epoll_stream_sync` -- blocking synchronous stream-socket client for
-  tests and small tools; wraps a blocking-mode `net_socket`; optional
-  per-syscall timeout via `SO_RCVTIMEO` / `SO_SNDTIMEO`; any error closes the
-  connection and subsequent calls fail immediately; `send(data)` loops on
-  partial writes; `recv()` returns the first available chunk; `recv_exact(n)`
-  loops to accumulate exactly `n` bytes; `recv_until(delim)` accumulates until
-  the delimiter is found, leaving trailing bytes in an internal buffer
 - **[removed]** `iouring_loop` / `iou_stream_conn` -- an `io_uring`-based event
   loop and stream connection were prototyped (using `IORING_OP_POLL_ADD` with
   `IORING_POLL_ADD_MULTI` for persistent multi-shot fd readiness polling) but
@@ -239,10 +218,8 @@ WebSocket protocol built on top of the HTTP/1.1 upgrade mechanism.
 - No external dependencies beyond libc++ and standard POSIX/Linux headers.
 - Headers are self-contained; no source files (library remains header-only).
 - RAII throughout: no manual resource management in user code.
-- Async model: callbacks for simple cases, C++20 coroutines for sequential
-  logic; `epoll_stream_conn` handles persistent callbacks natively; per-call
-  callback and coroutine modes are provided by `epoll_stream_async_cb` and
-  `epoll_stream_async_coro` facades that temporarily redirect the handler pointer.
+- Async model: callbacks for simple cases via `epoll_stream_conn_handlers`
+  (persistent `on_data` / `on_drain` / `on_close`).
 - Linux is the target OS.
 
 ## Notes on the post queue

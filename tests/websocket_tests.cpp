@@ -1627,20 +1627,21 @@ TEST_CASE("WebSocket_Keepalive", "[HttpServer]") {
       /*request_timeout=*/0s, /*write_timeout=*/0s);
   REQUIRE(server);
 
-  auto client = epoll_stream_sync::connect(server->local_endpoint(), 1s);
-  REQUIRE(client);
+  auto client = net_socket::create_sync_connected(server->local_endpoint());
+  std::string buf;
+  REQUIRE(client.is_open());
 
   // Perform WebSocket upgrade.
   std::string accept_key;
   epoll_http_transaction::send_fn send_fn{[&](any_strings&& f) {
-    return client.send(std::get<std::string>(f));
+    return client.send_sync_all(std::get<std::string>(f));
   }};
   epoll_http_websocket ws_client{std::move(send_fn), connection_role::client};
   auto req = epoll_http_websocket::generate_upgrade_request("/ws", accept_key);
   (void)req.headers.add_raw("Host", "localhost");
-  REQUIRE(client.send(req.serialize()));
+  REQUIRE(client.send_sync_all(req.serialize()));
 
-  const auto resp_wire = client.recv_until("\r\n\r\n");
+  const auto resp_wire = client.recv_sync_until(buf, "\r\n\r\n");
   REQUIRE_FALSE(resp_wire.empty());
   auto resp_sv = std::string_view{resp_wire};
   resp_sv.remove_suffix(2);
@@ -1659,9 +1660,8 @@ TEST_CASE("WebSocket_Keepalive", "[HttpServer]") {
   // Each recv() blocks for up to the connect timeout (1 s); pings arrive
   // every 100 ms so each iteration completes quickly.
   while (pings_answered < 3 && !got_close) {
-    auto chunk = client.recv();
-    if (chunk.empty()) break;
-    std::string_view sv{chunk};
+    if (!client.recv_sync_chunk(buf)) break;
+    std::string_view sv{buf};
     while (!sv.empty()) {
       ws_frame_view hdr{sv.data(), sv.size()};
       if (!hdr.is_complete() || !hdr.parse()) break;
@@ -1674,6 +1674,7 @@ TEST_CASE("WebSocket_Keepalive", "[HttpServer]") {
       }
       sv.remove_prefix(hdr.total_length());
     }
+    buf.clear();
   }
 
   CHECK(pings_answered >= 3);
@@ -1685,10 +1686,10 @@ TEST_CASE("WebSocket_Keepalive", "[HttpServer]") {
   // raw in the send_fn lambda) has already been destroyed, causing UB.
   CHECK(ws_client.send_close(1000, ""));
   while (!ws_client.is_close_pending()) {
-    auto chunk = client.recv();
-    if (chunk.empty()) break;
-    std::string_view sv{chunk};
+    if (!client.recv_sync_chunk(buf)) break;
+    std::string_view sv{buf};
     (void)ws_client.feed(sv);
+    buf.clear();
   }
 }
 
@@ -1719,20 +1720,21 @@ TEST_CASE("WebSocket_KeepaliveTimeout", "[HttpServer]") {
       /*request_timeout=*/0s, /*write_timeout=*/0s);
   REQUIRE(server);
 
-  auto client = epoll_stream_sync::connect(server->local_endpoint(), 1s);
-  REQUIRE(client);
+  auto client = net_socket::create_sync_connected(server->local_endpoint());
+  std::string buf;
+  REQUIRE(client.is_open());
 
   // Perform WebSocket upgrade.
   std::string accept_key;
   epoll_http_transaction::send_fn send_fn{[&](any_strings&& f) {
-    return client.send(std::get<std::string>(f));
+    return client.send_sync_all(std::get<std::string>(f));
   }};
   epoll_http_websocket ws_client{std::move(send_fn), connection_role::client};
   auto req = epoll_http_websocket::generate_upgrade_request("/ws", accept_key);
   (void)req.headers.add_raw("Host", "localhost");
-  REQUIRE(client.send(req.serialize()));
+  REQUIRE(client.send_sync_all(req.serialize()));
 
-  const auto resp_wire = client.recv_until("\r\n\r\n");
+  const auto resp_wire = client.recv_sync_until(buf, "\r\n\r\n");
   REQUIRE_FALSE(resp_wire.empty());
   auto resp_sv = std::string_view{resp_wire};
   resp_sv.remove_suffix(2);
@@ -1749,9 +1751,8 @@ TEST_CASE("WebSocket_KeepaliveTimeout", "[HttpServer]") {
   // discard pings without replying.
   uint16_t got_close_code{};
   while (got_close_code == 0) {
-    auto chunk = client.recv();
-    if (chunk.empty()) break; // recv() timed out or EOF
-    std::string_view sv{chunk};
+    if (!client.recv_sync_chunk(buf)) break;
+    std::string_view sv{buf};
     while (!sv.empty()) {
       ws_frame_view hdr{sv.data(), sv.size()};
       if (!hdr.is_complete() || !hdr.parse()) break;
@@ -1768,6 +1769,7 @@ TEST_CASE("WebSocket_KeepaliveTimeout", "[HttpServer]") {
       // Pings are intentionally ignored (no pong sent).
       sv.remove_prefix(hdr.total_length());
     }
+    buf.clear();
   }
 
   CHECK(got_close_code == 1001U);
@@ -1778,8 +1780,7 @@ TEST_CASE("WebSocket_KeepaliveTimeout", "[HttpServer]") {
 
 // Semi-integration test: `epoll_http_server` with
 // `epoll_http_websocket_transaction` as the route handler; client uses
-// `epoll_stream_sync` for I/O and `epoll_http_websocket` for WebSocket
-// framing.
+// raw `net_socket` for I/O and `epoll_http_websocket` for WebSocket framing.
 //
 // Flow:
 //   1. Server registers an echo handler under `"/ws"`.
@@ -1802,12 +1803,13 @@ TEST_CASE("WebSocket", "[HttpServer]") {
       });
   REQUIRE(server);
 
-  auto client = epoll_stream_sync::connect(server->local_endpoint(), 1s);
-  REQUIRE(client);
+  auto client = net_socket::create_sync_connected(server->local_endpoint());
+  std::string buf;
+  REQUIRE(client.is_open());
 
   // Send a valid HTTP/1.1 WebSocket upgrade request. The RFC 6455 test-vector
   // key produces accept value `s3pPLMBiTxaQ9kYGzzhZRbK+xOo=`.
-  REQUIRE(client.send(
+  REQUIRE(client.send_sync_all(
       "GET /ws/ HTTP/1.1\r\n"
       "Host: localhost\r\n"
       "Upgrade: websocket\r\n"
@@ -1817,7 +1819,7 @@ TEST_CASE("WebSocket", "[HttpServer]") {
       "\r\n"));
 
   // Receive and verify the 101 Switching Protocols response.
-  const auto resp_wire = client.recv_until("\r\n\r\n");
+  const auto resp_wire = client.recv_sync_until(buf, "\r\n\r\n");
   REQUIRE_FALSE(resp_wire.empty());
   auto resp_head_wire = std::string_view{resp_wire};
   REQUIRE(resp_head_wire.size() >= 2U);
@@ -1833,7 +1835,7 @@ TEST_CASE("WebSocket", "[HttpServer]") {
   std::string got_msg;
   ws_frame_control got_op{};
   epoll_http_transaction::send_fn client_send{[&](any_strings&& frame) {
-    return client.send(std::get<std::string>(frame));
+    return client.send_sync_all(std::get<std::string>(frame));
   }};
   epoll_http_websocket ws_client{std::move(client_send),
       connection_role::client};
@@ -1847,10 +1849,10 @@ TEST_CASE("WebSocket", "[HttpServer]") {
   // Send a masked text frame; server echoes it back unmasked.
   REQUIRE(ws_client.send_text("hello"));
 
-  // On loopback, the echo arrives in a single recv.
-  const auto echo = client.recv();
-  REQUIRE_FALSE(echo.empty());
-  std::string_view echo_sv{echo};
+  // On loopback, the echo arrives in a single recv (or is already buffered
+  // from the post-handshake leftover).
+  REQUIRE(client.recv_sync_chunk(buf));
+  std::string_view echo_sv{buf};
   CHECK(ws_client.feed(echo_sv) == 0ULL);
   CHECK(got_msg == "hello");
   CHECK(got_op == ws_frame_control::text);
@@ -1877,10 +1879,11 @@ TEST_CASE("WebSocket_QueryAndFragmentRoute", "[HttpServer]") {
       });
   REQUIRE(server);
 
-  auto client = epoll_stream_sync::connect(server->local_endpoint(), 1s);
-  REQUIRE(client);
+  auto client = net_socket::create_sync_connected(server->local_endpoint());
+  std::string buf;
+  REQUIRE(client.is_open());
 
-  REQUIRE(client.send(
+  REQUIRE(client.send_sync_all(
       "GET /ws?token=abc#frag HTTP/1.1\r\n"
       "Host: localhost\r\n"
       "Upgrade: websocket\r\n"
@@ -1889,7 +1892,7 @@ TEST_CASE("WebSocket_QueryAndFragmentRoute", "[HttpServer]") {
       "Sec-Websocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n"
       "\r\n"));
 
-  const auto resp_wire = client.recv_until("\r\n\r\n");
+  const auto resp_wire = client.recv_sync_until(buf, "\r\n\r\n");
   REQUIRE_FALSE(resp_wire.empty());
   auto resp_head_wire = std::string_view{resp_wire};
   REQUIRE(resp_head_wire.size() >= 2U);
@@ -1936,11 +1939,13 @@ TEST_CASE("WebSocket_Frames", "[HttpServer]") {
       });
   REQUIRE(web_server);
 
-  auto client = epoll_stream_sync::connect(web_server->local_endpoint(), 1s);
-  REQUIRE(client);
+  auto client =
+      net_socket::create_sync_connected(web_server->local_endpoint());
+  std::string buf;
+  REQUIRE(client.is_open());
 
   epoll_http_transaction::send_fn client_send{[&](any_strings&& frame) {
-    return client.send(std::get<std::string>(frame));
+    return client.send_sync_all(std::get<std::string>(frame));
   }};
   epoll_http_websocket ws_client{std::move(client_send),
       connection_role::client};
@@ -1964,10 +1969,10 @@ TEST_CASE("WebSocket_Frames", "[HttpServer]") {
   std::string accept_key;
   auto req = epoll_http_websocket::generate_upgrade_request("/ws", accept_key);
   (void)req.headers.add_raw("Host", "localhost");
-  REQUIRE(client.send(req.serialize()));
+  REQUIRE(client.send_sync_all(req.serialize()));
 
   // Verify the response.
-  const auto resp_wire = client.recv_until("\r\n\r\n");
+  const auto resp_wire = client.recv_sync_until(buf, "\r\n\r\n");
   REQUIRE_FALSE(resp_wire.empty());
   auto resp_head_wire = std::string_view{resp_wire};
   REQUIRE(resp_head_wire.size() >= 2U);
@@ -1984,10 +1989,10 @@ TEST_CASE("WebSocket_Frames", "[HttpServer]") {
   const auto recv_msg = [&]() {
     got_msg.clear();
     while (got_msg.empty()) {
-      auto chunk = client.recv();
-      if (chunk.empty()) break;
-      std::string_view sv{chunk};
+      if (!client.recv_sync_chunk(buf)) break;
+      std::string_view sv{buf};
       (void)ws_client.feed(sv);
+      buf.clear();
     }
   };
 
@@ -2031,10 +2036,10 @@ TEST_CASE("WebSocket_Frames", "[HttpServer]") {
   //   Client feeds received data until its `on_close` fires.
   REQUIRE(ws_client.send_close(1001, "done"));
   while (got_close_code == 0) {
-    auto chunk = client.recv();
-    if (chunk.empty()) break;
-    std::string_view sv{chunk};
+    if (!client.recv_sync_chunk(buf)) break;
+    std::string_view sv{buf};
     (void)ws_client.feed(sv);
+    buf.clear();
   }
   CHECK(got_close_code == uint16_t{1001});
 }

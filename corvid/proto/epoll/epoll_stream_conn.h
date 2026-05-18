@@ -346,7 +346,6 @@ public:
 private:
   enum class allow : bool { ctor };
 
-  friend class epoll_stream_async_base;
   template<typename>
   friend class epoll_stream_conn_ptr_with;
   template<typename>

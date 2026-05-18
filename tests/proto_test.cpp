@@ -1815,196 +1815,6 @@ TEST_CASE("SendMultipleBuffers", "[StreamConn]") {
 }
 
 #pragma endregion
-#pragma region AsyncCbRead
-
-TEST_CASE("AsyncCbRead", "[StreamConn]") {
-  auto loop = epoll_loop::make();
-  auto [a, b] = net_socket::create_pair();
-
-  std::string received;
-  auto conn = epoll_stream_conn_ptr::adopt(loop, std::move(a), {}, {});
-  CHECK(loop->run_once(0) >= 0); // process posted register_with_loop
-
-  epoll_stream_async_cb cb{conn.pointer()};
-  REQUIRE(cb.read([&](epoll_recv_buffer_view v) {
-    std::string_view av = v;
-    received.assign(av);
-    v.consume(av.size());
-    return true;
-  }));
-
-  const std::string msg{"callback-read"};
-  auto msg_view = std::string_view{msg};
-  REQUIRE((b.send(msg_view) && msg_view.empty()));
-
-  CHECK(loop->run_once(0) >= 0); // dispatch EPOLLIN -> inline callback
-
-  CHECK(received == msg);
-}
-
-#pragma endregion
-#pragma region AsyncCbRead_PreservesEarlyData
-
-TEST_CASE("AsyncCbRead_PreservesEarlyData", "[StreamConn]") {
-  auto loop = epoll_loop::make();
-  auto [a, b] = net_socket::create_pair();
-
-  std::string received;
-  auto conn = epoll_stream_conn_ptr::adopt(loop, std::move(a), {}, {});
-  CHECK(loop->run_once(0) >= 0); // process posted register_with_loop
-
-  const std::string msg{"early-callback-read"};
-  auto msg_view = std::string_view{msg};
-  REQUIRE((b.send(msg_view) && msg_view.empty()));
-
-  CHECK((loop->run_once(0)) ==
-        (0)); // read interest is disabled; data stays queued
-
-  epoll_stream_async_cb cb{conn.pointer()};
-  REQUIRE(cb.read([&](epoll_recv_buffer_view v) {
-    std::string_view av = v;
-    received.assign(av);
-    v.consume(av.size());
-    return true;
-  }));
-
-  CHECK(loop->run_once(0) >= 0); // enabling EPOLLIN surfaces buffered data
-  CHECK(received == msg);
-}
-
-#pragma endregion
-#pragma region AsyncCbRead_DuplicateRejected
-
-TEST_CASE("AsyncCbRead_DuplicateRejected", "[StreamConn]") {
-  auto loop = epoll_loop::make();
-  auto [a, b] = net_socket::create_pair();
-
-  int callback_count = 0;
-  auto conn = epoll_stream_conn_ptr::adopt(loop, std::move(a), {}, {});
-  CHECK(loop->run_once(0) >= 0); // process posted register_with_loop
-
-  epoll_stream_async_cb cb{conn.pointer()};
-  REQUIRE(cb.read([&](epoll_recv_buffer_view v) {
-    v.consume(std::string_view{v}.size());
-    ++callback_count;
-    return true;
-  }));
-  CHECK_FALSE(cb.read([&](epoll_recv_buffer_view v) {
-    v.consume(std::string_view{v}.size());
-    ++callback_count;
-    return true;
-  }));
-
-  const std::string msg{"one"};
-  auto msg_view = std::string_view{msg};
-  REQUIRE((b.send(msg_view) && msg_view.empty()));
-
-  CHECK(loop->run_once(0) >= 0); // dispatch EPOLLIN -> one callback
-
-  CHECK(callback_count == 1);
-}
-
-#pragma endregion
-#pragma region AsyncCbRead_PeerClose
-
-TEST_CASE("AsyncCbRead_PeerClose", "[StreamConn]") {
-  auto loop = epoll_loop::make();
-  auto [a, b] = net_socket::create_pair();
-
-  // `epoll_stream_async_cb` fully takes over the handlers, so the persistent
-  // `on_close` on `own_handlers_` does not fire while the
-  // `epoll_stream_async_cb` is active. Close notification arrives via
-  // `epoll_stream_async_cb::on_close`, which fires the pending read callback
-  // with an empty `epoll_recv_buffer_view` (signaling EOF).
-  std::string received{"sentinel"};
-  int callback_count = 0;
-  auto conn = epoll_stream_conn_ptr::adopt(loop, std::move(a), {}, {});
-  CHECK(loop->run_once(0) >= 0); // process posted register_with_loop
-
-  epoll_stream_async_cb cb{conn.pointer()};
-  REQUIRE(cb.read([&](epoll_recv_buffer_view v) {
-    std::string_view av = v;
-    received.assign(av);
-    v.consume(av.size());
-    ++callback_count;
-    return true;
-  }));
-
-  (void)b.close();
-  // dispatch peer close -> on_close -> cb fires with ""
-  CHECK(loop->run_once(0) >= 0);
-
-  CHECK(callback_count == 1);
-  CHECK(received.empty());
-  CHECK(cb.is_open());
-  CHECK_FALSE(cb.can_read());
-  CHECK(cb.can_write());
-
-  CHECK(conn.close());
-  CHECK(loop->run_once(0) >= 0);
-  CHECK_FALSE(cb.is_open());
-}
-
-#pragma endregion
-#pragma region AsyncCbWrite
-
-TEST_CASE("AsyncCbWrite", "[StreamConn]") {
-  auto loop = epoll_loop::make();
-  auto [a, b] = net_socket::create_pair();
-
-  bool completed{false};
-  int callback_count = 0;
-  auto conn = epoll_stream_conn_ptr::adopt(loop, std::move(a), {}, {});
-  CHECK(loop->run_once(0) >= 0); // process posted register_with_loop
-
-  epoll_stream_async_cb cb{conn.pointer()};
-  REQUIRE(cb.write(std::string{"callback-write"}, [&](bool write_completed) {
-    completed = write_completed;
-    ++callback_count;
-    return true;
-  }));
-
-  std::string received;
-  no_zero::enlarge_to(received, 32);
-  REQUIRE(b.read(received));
-  CHECK(received == "callback-write");
-  CHECK(completed);
-  CHECK(callback_count == 1);
-}
-
-#pragma endregion
-#pragma region AsyncCbWrite_Failure
-
-TEST_CASE("AsyncCbWrite_Failure", "[StreamConn]") {
-  auto loop = epoll_loop::make();
-  auto [a, b] = net_socket::create_pair();
-
-  // `epoll_stream_async_cb` fully takes over the handlers; the persistent
-  // `on_close` on `own_handlers_` is silenced while it is active. The
-  // write-failure callback fires synchronously when `enqueue_send` fails.
-  bool completed = true;
-  auto conn = epoll_stream_conn_ptr::adopt(loop, std::move(a), {}, {});
-  CHECK(loop->run_once(0) >= 0); // process posted register_with_loop
-
-  (void)b.close();
-
-  epoll_stream_async_cb cb{conn.pointer()};
-  REQUIRE_FALSE(cb.write(std::string{"boom"}, [&](bool write_completed) {
-    completed = write_completed;
-    return completed;
-  }));
-
-  CHECK_FALSE(completed);
-  CHECK(cb.is_open());
-  CHECK(cb.can_read());
-  CHECK_FALSE(cb.can_write());
-
-  // process peer-close notification -> full close
-  CHECK(loop->run_once(0) >= 0);
-  CHECK_FALSE(cb.is_open());
-}
-
-#pragma endregion
 #pragma region ShutdownWrite
 
 TEST_CASE("ShutdownWrite", "[StreamConn]") {
@@ -2027,10 +1837,7 @@ TEST_CASE("ShutdownWrite", "[StreamConn]") {
   CHECK(conn->is_open());
   CHECK(conn->can_read());
   CHECK_FALSE(conn->can_write());
-  {
-    epoll_stream_async_cb cb{conn.pointer()};
-    CHECK_FALSE(cb.write(std::string{"nope"}, [&](bool) { return true; }));
-  }
+  CHECK_FALSE(conn->send(std::string{"nope"}));
 
   const std::string msg{"inbound"};
   auto msg_view = std::string_view{msg};
@@ -2061,13 +1868,6 @@ TEST_CASE("ShutdownRead", "[StreamConn]") {
   CHECK(conn->is_open());
   CHECK_FALSE(conn->can_read());
   CHECK(conn->can_write());
-  {
-    epoll_stream_async_cb cb{conn.pointer()};
-    CHECK_FALSE(cb.read([&](epoll_recv_buffer_view) {
-      ++data_count;
-      return true;
-    }));
-  }
 
   CHECK(conn->send(std::string{"outbound"}));
   CHECK(loop->run_once(0) >= 0);
@@ -2098,57 +1898,6 @@ TEST_CASE("ShutdownBothCloses", "[StreamConn]") {
   CHECK_FALSE(conn->is_open());
   CHECK_FALSE(conn->can_read());
   CHECK_FALSE(conn->can_write());
-}
-
-#pragma endregion
-#pragma region AsyncCbWrite_DuplicateRejected
-
-TEST_CASE("AsyncCbWrite_DuplicateRejected", "[StreamConn]") {
-  // `completion` outlives the inner scope's `loop`, so its `~notifiable`
-  // runs after the loop's destructor has joined the worker. Otherwise the
-  // worker could still be inside `cv_.notify_one` (released the mutex,
-  // hasn't returned from the kernel) when `completion` is destroyed.
-  notifiable<bool> completion{false};
-  std::atomic<int> accepted{0};
-  std::atomic<int> rejected{0};
-  std::atomic<int> completions{0};
-  {
-    epoll_loop_runner loop;
-    auto [a, b] = net_socket::create_pair();
-
-    constexpr int small_buf = 4096;
-    CHECK(a.set_send_buffer_size(small_buf));
-
-    auto conn = epoll_stream_conn_ptr::adopt(loop.loop()->self(), std::move(a),
-        {}, {});
-    epoll_stream_async_cb cb{conn.pointer()};
-
-    const std::string payload(256ULL * 1024ULL, 'w');
-
-    auto try_register = [&] {
-      if (cb.write(std::string{payload}, [&](bool) {
-            ++completions;
-            completion.notify_one(true);
-            return true;
-          }))
-        ++accepted;
-      else
-        ++rejected;
-    };
-
-    std::thread t1{try_register};
-    std::thread t2{try_register};
-    t1.join();
-    t2.join();
-
-    CHECK(accepted == 1);
-    CHECK(rejected == 1);
-
-    (void)b.close();
-    REQUIRE(completion.wait_for_value(std::chrono::seconds{1}, true));
-  }
-
-  CHECK(completions == 1);
 }
 
 #pragma endregion
@@ -2417,197 +2166,12 @@ TEST_CASE("FireAndForget", "[LoopTask]") {
 #pragma endregion
 
 // Verify that `async_read` delivers data to a coroutine.
-#pragma region AsyncRead
-
-TEST_CASE("AsyncRead", "[StreamConn]") {
-  auto loop = epoll_loop::make();
-  auto [a, b] = net_socket::create_pair();
-
-  std::string received;
-  bool done = false;
-
-  auto conn = epoll_stream_conn_ptr::adopt(loop, std::move(a), {}, {});
-  CHECK(loop->run_once(0) >= 0); // process posted register_with_loop
-
-  epoll_stream_async_coro coro_conn{conn.pointer()};
-  auto coro = [&]() -> loop_task {
-    received = co_await coro_conn.read();
-    done = true;
-  };
-  coro(); // starts eagerly; suspends at async_read (no data yet)
-
-  const std::string msg{"hello"};
-  auto msg_view = std::string_view{msg};
-  REQUIRE((b.send(msg_view) && msg_view.empty()));
-
-  CHECK(loop->run_once(0) >= 0); // dispatch EPOLLIN -> posts resume
-  CHECK(loop->run_once(0) >= 0); // drain post queue -> coroutine resumes
-
-  CHECK(done);
-  CHECK(received == msg);
-}
-
-#pragma endregion
-#pragma region AsyncRead_PreservesEarlyData
-
-TEST_CASE("AsyncRead_PreservesEarlyData", "[StreamConn]") {
-  auto loop = epoll_loop::make();
-  auto [a, b] = net_socket::create_pair();
-
-  std::string received;
-  bool done = false;
-
-  auto conn = epoll_stream_conn_ptr::adopt(loop, std::move(a), {}, {});
-  CHECK(loop->run_once(0) >= 0); // process posted register_with_loop
-
-  const std::string msg{"early-coroutine-read"};
-  auto msg_view = std::string_view{msg};
-  REQUIRE((b.send(msg_view) && msg_view.empty()));
-
-  CHECK((loop->run_once(0)) ==
-        (0)); // data remains in kernel until a read is armed
-
-  epoll_stream_async_coro coro_conn{conn.pointer()};
-  auto coro = [&]() -> loop_task {
-    received = co_await coro_conn.read();
-    done = true;
-  };
-  coro();
-
-  CHECK(loop->run_once(0) >= 0); // dispatch buffered EPOLLIN
-  CHECK(loop->run_once(0) >= 0); // drain posted resume
-
-  CHECK(done);
-  CHECK(received == msg);
-}
-
-#pragma endregion
-#pragma region AsyncRead_StopsBetweenCalls
-
-TEST_CASE("AsyncRead_StopsBetweenCalls", "[StreamConn]") {
-  auto loop = epoll_loop::make();
-  auto [a, b] = net_socket::create_pair();
-
-  std::string first;
-  std::string second;
-  bool first_done = false;
-  bool second_done = false;
-
-  auto conn = epoll_stream_conn_ptr::adopt(loop, std::move(a), {}, {});
-  CHECK(loop->run_once(0) >= 0); // process posted register_with_loop
-
-  epoll_stream_async_coro coro_conn{conn.pointer()};
-
-  auto first_coro = [&]() -> loop_task {
-    first = co_await coro_conn.read();
-    first_done = true;
-  };
-  first_coro();
-
-  auto first_msg = std::string_view{"first"};
-  REQUIRE((b.send(first_msg) && first_msg.empty()));
-
-  CHECK(loop->run_once(0) >= 0); // deliver first read
-  CHECK(loop->run_once(0) >= 0); // resume first coroutine
-
-  CHECK(first_done);
-  CHECK(first == "first");
-
-  auto second_msg = std::string_view{"second"};
-  REQUIRE((b.send(second_msg) && second_msg.empty()));
-
-  CHECK((loop->run_once(0)) ==
-        (0)); // no waiter, so second chunk stays in kernel
-  CHECK_FALSE(second_done);
-
-  auto second_coro = [&]() -> loop_task {
-    second = co_await coro_conn.read();
-    second_done = true;
-  };
-  second_coro();
-
-  CHECK(loop->run_once(0) >= 0); // buffered kernel data is now delivered
-  CHECK(loop->run_once(0) >= 0); // resume second coroutine
-
-  CHECK(second_done);
-  CHECK(second == "second");
-}
-
-#pragma endregion
 
 // Verify that `async_read` returns an empty string when the peer closes
 // the connection before data arrives.
-#pragma region AsyncRead_PeerClose
-
-TEST_CASE("AsyncRead_PeerClose", "[StreamConn]") {
-  auto loop = epoll_loop::make();
-  auto [a, b] = net_socket::create_pair();
-
-  std::string received{"sentinel"};
-  bool done = false;
-
-  // `epoll_stream_async_coro` installs an `on_close` handler that replicates
-  // the auto-graceful-close that `handle_read_eof` would otherwise initiate.
-  auto conn = epoll_stream_conn_ptr::adopt(loop, std::move(a), {}, {});
-  CHECK(loop->run_once(0) >= 0); // process posted register_with_loop
-
-  epoll_stream_async_coro coro_conn{conn.pointer()};
-  auto coro = [&]() -> loop_task {
-    received = co_await coro_conn.read();
-    done = true;
-  };
-  coro(); // starts eagerly; suspends at async_read
-
-  (void)b.close(); // trigger EPOLLHUP/EOF on `a`
-
-  // dispatch EPOLLHUP -> notify_read_closed/on_close -> posts resume +
-  // do_close
-  CHECK(loop->run_once(0) >= 0);
-  // drain post queue -> coroutine resumes, do_close runs
-  CHECK(loop->run_once(0) >= 0);
-
-  CHECK(done);
-  CHECK(received.empty());      // close delivers empty data
-  CHECK_FALSE(conn->is_open()); // on_close initiated a graceful close
-}
-
-#pragma endregion
 
 // Verify that `async_send` delivers bytes to the peer and suspends until
 // the queue drains.
-#pragma region AsyncSend
-
-TEST_CASE("AsyncSend", "[StreamConn]") {
-  auto loop = epoll_loop::make();
-  auto [a, b] = net_socket::create_pair();
-
-  bool sent = false;
-
-  auto conn = epoll_stream_conn_ptr::adopt(loop, std::move(a), {});
-  CHECK(loop->run_once(0) >= 0); // process posted register_with_loop
-
-  const std::string msg{"world"};
-
-  epoll_stream_async_coro coro_conn{conn.pointer()};
-  auto coro = [&]() -> loop_task {
-    co_await coro_conn.write(std::string{msg});
-    sent = true;
-  };
-  coro(); // starts eagerly; write completes via posted drain
-
-  // If the write was synchronous, `sent` is already true after one
-  // run_once (for the register post). Otherwise pump the loop to drain.
-  for (int i = 0; i < 4 && !sent; ++i) CHECK(loop->run_once(0) >= 0);
-
-  REQUIRE(sent);
-
-  std::string buf;
-  no_zero::enlarge_to(buf, 16);
-  REQUIRE(b.read(buf));
-  CHECK(buf == msg);
-}
-
-#pragma endregion
 
 // Verify that a client can connect to a local loopback listener and that the
 // server echoes back whatever it receives, using only persistent callbacks.
@@ -2821,9 +2385,14 @@ TEST_CASE("AcceptClone_Nullptr", "[StreamConnWithState]") {
   // Connect; the server drops the accepted socket immediately. Blocking on
   // `recv` provides reliable synchronization: once it returns empty (EOF),
   // the server has already processed and discarded the connection.
-  auto client = epoll_stream_sync::connect(server_ep, std::chrono::seconds{5});
-  REQUIRE(client);
-  CHECK(client.recv().empty());
+  auto client = net_socket::create_for(server_ep, execution::blocking);
+  REQUIRE(client.is_open());
+  REQUIRE(client.connect(server_ep).value_or(false));
+  std::string buf;
+  no_zero::enlarge_to(buf, 64);
+  // recv returns false on EOF; buf is left unchanged (non-empty after the
+  // pre-grow above).
+  CHECK_FALSE(client.recv(buf));
 
   CHECK(data_calls == 0);
 }
@@ -3017,105 +2586,6 @@ TEST_CASE("Reset", "[TerminatedTextParser]") {
   std::string_view sv2{"second"};
   CHECK(p.parse(sv2, text) == std::nullopt);
   CHECK(p.bytes_scanned() == 6U);
-}
-
-#pragma endregion
-
-// `epoll_stream_sync` tests.
-
-// Verify that connecting to an invalid endpoint returns a falsy
-// `epoll_stream_sync`.
-#pragma region ConnectFail
-
-TEST_CASE("ConnectFail", "[StreamSync]") {
-  // An empty endpoint has ss_family == AF_UNSPEC; `socket(2)` will fail and
-  // the returned connection will be closed.
-  auto conn = epoll_stream_sync::connect(net_endpoint{});
-  CHECK_FALSE(conn);
-  CHECK_FALSE(conn.is_open());
-}
-
-#pragma endregion
-
-// Helper: start a loopback echo server on an OS-assigned port and return its
-// endpoint. The caller must keep `listener` alive for the test duration.
-static net_endpoint
-start_echo_server(epoll_loop_runner& loop, epoll_stream_conn_ptr& listener) {
-  listener = epoll_stream_conn_ptr::listen(loop.loop()->self(),
-      net_endpoint{ipv4_addr::loopback, 0},
-      {.on_data = [](epoll_stream_conn& conn, epoll_recv_buffer_view v) {
-        std::string_view av = v;
-        bool ok = conn.send(std::string{av});
-        v.consume(av.size());
-        return ok;
-      }});
-  if (!listener) return {};
-  return listener->local_endpoint();
-}
-
-// Verify basic send and recv_exact against an echo server.
-#pragma region SendRecv
-
-TEST_CASE("SendRecv", "[StreamSync]") {
-  epoll_loop_runner loop;
-  epoll_stream_conn_ptr listener;
-  const auto ep = start_echo_server(loop, listener);
-  REQUIRE(ep);
-
-  auto conn = epoll_stream_sync::connect(ep, std::chrono::seconds{5});
-  REQUIRE(conn);
-  CHECK(conn.send("hello"));
-  auto got = conn.recv_exact(5);
-  CHECK(got == "hello");
-}
-
-#pragma endregion
-
-// Verify that recv_until returns through the delimiter and leaves trailing
-// bytes in the internal buffer for the next recv call.
-#pragma region RecvUntil
-
-TEST_CASE("RecvUntil", "[StreamSync]") {
-  epoll_loop_runner loop;
-  epoll_stream_conn_ptr listener;
-  const auto ep = start_echo_server(loop, listener);
-  REQUIRE(ep);
-
-  auto conn = epoll_stream_sync::connect(ep, std::chrono::seconds{5});
-  REQUIRE(conn);
-  CHECK(conn.send("line1\r\nextra"));
-
-  auto line = conn.recv_until("\r\n");
-  CHECK(line == "line1\r\n");
-
-  // "extra" was already buffered; recv_exact should not block.
-  auto tail = conn.recv_exact(5);
-  CHECK(tail == "extra");
-}
-
-#pragma endregion
-
-// Verify that recv returns nullopt when the peer closes the connection.
-#pragma region PeerClose
-
-TEST_CASE("PeerClose", "[StreamSync]") {
-  epoll_loop_runner loop;
-  epoll_stream_conn_ptr listener;
-  // Server echoes nothing; it closes as soon as data arrives.
-  listener = epoll_stream_conn_ptr::listen(loop.loop()->self(),
-      net_endpoint{ipv4_addr::loopback, 0},
-      {.on_data = [](epoll_stream_conn& conn, epoll_recv_buffer_view v) {
-        v.consume(std::string_view{v}.size());
-        return conn.close();
-      }});
-  REQUIRE(listener);
-  const auto ep = listener->local_endpoint();
-
-  auto conn = epoll_stream_sync::connect(ep, std::chrono::seconds{5});
-  REQUIRE(conn);
-  CHECK(conn.send("bye"));
-  // Server closes; recv should return empty once EOF is detected.
-  CHECK(conn.recv().empty());
 }
 
 #pragma endregion

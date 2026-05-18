@@ -186,13 +186,13 @@ advances `begin` via `consume`; when the view destructs, compaction and
 `EPOLLIN` re-arming are posted back to the loop. `set_recv_buf_size(n)` adjusts
 the per-connection buffer target; `recv_buf_size()` reports it.
 
-Handler dispatch: `epoll_stream_conn` holds `own_handlers_` (a
+Handler dispatch: `epoll_stream_conn` holds `own_handlers_` (an
 `epoll_stream_conn_handlers` value) and an atomic pointer `active_handlers_` that
-normally points to `own_handlers_`. `epoll_stream_async_base` subclasses (see
-below) temporarily redirect `active_handlers_` to their own handler struct
-via an atomic CAS; the destructor restores the pointer. `epoll_stream_conn`
-dispatches every event through `active_handlers_` and is unaware of the
-facade hierarchy.
+normally points to `own_handlers_`. The split exists so an extension can
+temporarily redirect `active_handlers_` to its own handler struct via an
+atomic CAS and later restore the pointer. `epoll_stream_conn` dispatches every
+event through `active_handlers_` and is unaware of which handler struct is
+installed.
 
 Half-close: `shutdown_read()` shuts down the local read side. `shutdown_write()`
 shuts down the local write side and discards unsent data. `can_read()` and
@@ -212,67 +212,12 @@ or failed async connect. If no `on_close` handler is installed, a graceful
 close is initiated automatically so that connections without an external owner
 are fully torn down rather than left half-open.
 
-Two additional per-call async models are in `epoll_stream_async.h` and operate by
-temporarily redirecting `active_handlers_`.
-
-### `epoll_stream_async_base`, `epoll_stream_async_cb`, and `epoll_stream_async_coro`
-
-These classes live in `epoll_stream_async.h` and provide alternative async interfaces
-on top of an `epoll_stream_conn` without modifying it. Each is a facade that
-temporarily installs its own `epoll_stream_conn_handlers` by atomically swapping the
-connection's `active_handlers_` pointer.
-
-`epoll_stream_async_base` is the non-copyable, non-movable base. On construction
-(via `install_handlers`) it performs a CAS on `active_handlers_`; if another
-facade already owns the slot, `conn_` is cleared and `is_valid()` returns
-false. The destructor restores `active_handlers_` and posts
-`restore_reads` to the loop. Static trampolines (`enable_reads`,
-`restore_reads`, `make_cleared_view_for`, etc.) give derived classes
-friend-level access to `epoll_stream_conn` private members without relying on
-lambda-inherited friendship.
-
-`epoll_stream_async_cb` provides one-shot callback I/O:
-
-- `read(cb)` -- registers a single callback invoked with an `epoll_recv_buffer_view`
-  on the next data arrival (or an empty view on connection close). Posts
-  `enable_reads` asynchronously to guarantee ordering after the
-  `enable_reads(false)` posted by `install_handlers`.
-- `write(buf, cb)` -- takes ownership of `buf`, enqueues it, and invokes
-  `cb(bool completed)` when the send queue drains (`true`) or the connection
-  closes before all bytes are sent (`false`).
-
-`epoll_stream_async_coro` provides coroutine I/O:
-
-- `read()` -- returns an awaitable that suspends until one batch of bytes
-  arrives; resumes with the received bytes as a `std::string` (empty on close).
-- `write(buf)` -- returns an awaitable that enqueues `buf` and suspends until
-  the send queue drains or the connection closes.
-
-Coroutine resumption is always deferred through `post()`, never inline, to
-avoid use-after-free when `do_close_now` fires from within `await_suspend`.
-The `write_awaitable` sets `write_coro_` before calling `do_enqueue_send` so
-that a synchronous write failure triggering `on_close` still resumes the
-coroutine correctly.
-
-```cpp
-// Coroutine usage example:
-loop_task handle_conn(epoll_stream_conn_ptr conn) {
-  epoll_stream_async_coro coro{conn.pointer()};
-  while (coro.is_open()) {
-    std::string data = co_await coro.read();
-    if (data.empty()) break;
-    co_await coro.write(make_reply(data));
-  }
-}
-```
-
 ### `loop_task`
 
 Fire-and-forget coroutine return type for `epoll_loop`-driven handlers. The
 coroutine body starts eagerly on the call site (`initial_suspend` returns
 `suspend_never`) and the frame self-destroys on completion (`final_suspend`
-returns `suspend_never`). Unhandled exceptions call `std::terminate`. See
-the `epoll_stream_async_coro` example above for typical usage.
+returns `suspend_never`). Unhandled exceptions call `std::terminate`.
 
 ### `terminated_text_parser`
 
@@ -286,18 +231,6 @@ empty when more data is needed, `true` when a complete frame is found in
 `frame`, and `false` when `max_length` bytes are scanned without finding the
 sentinel. `reset()` clears `bytes_scanned` for the next frame. The parser never
 copies data; `frame` is a `string_view` into the caller's buffer.
-
-### `epoll_stream_sync`
-
-Blocking synchronous stream-socket client. Intended for tests and small tools
-that need to talk to a server without the overhead of an `epoll_loop`. Wraps a
-blocking-mode `net_socket`. An optional per-syscall timeout is set at
-construction via `SO_RCVTIMEO` / `SO_SNDTIMEO`; any error (EOF, hard error, or
-timeout) marks the connection closed and subsequent calls fail immediately.
-`send(data)` loops on partial writes. `recv()` returns whatever arrives first.
-`recv_exact(n)` loops until exactly `n` bytes are accumulated. `recv_until(delim)`
-accumulates data until the delimiter appears, leaving any trailing bytes in an
-internal buffer for the next call.
 
 ### `json_parser`
 

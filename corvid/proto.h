@@ -28,9 +28,6 @@
 //  epoll_loop  - single-threaded epoll-based I/O event loop
 //  epoll_stream_conn - non-blocking stream connection with persistent-callback
 //                async I/O
-//  epoll_stream_async - per-call async wrappers: `epoll_stream_async_cb`
-//                (callback-based) and `epoll_stream_async_coro`
-//                (coroutine-based)
 //  loop_task   - fire-and-forget coroutine return type for `epoll_loop`
 //  json_parser - strict header-only JSON parser and writer with non-owning
 //                views
@@ -49,11 +46,9 @@
 #include "proto/dns_resolver.h"
 #include "proto/epoll/epoll_loop.h"
 #include "proto/epoll/epoll_stream_conn.h"
-#include "proto/epoll/epoll_stream_async.h"
 #include "proto/loop_task.h"
 #include "proto/misc/json_parser.h"
 #include "proto/misc/terminated_text_parser.h"
-#include "proto/epoll/epoll_stream_sync.h"
 #include "proto/misc/base-64.h"
 #include "proto/misc/utf8-checker.h"
 #include "proto/misc/http_head_codec.h"
