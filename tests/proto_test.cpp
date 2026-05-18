@@ -867,9 +867,9 @@ TEST_CASE("Failure", "[DnsResolveOne]") {
 
 #pragma endregion
 
-// Minimal `io_conn` that counts how many times each virtual is called.
-struct counting_conn: io_conn {
-  using io_conn::io_conn;
+// Minimal `epoll_io_conn` that counts how many times each virtual is called.
+struct counting_conn: epoll_io_conn {
+  using epoll_io_conn::epoll_io_conn;
 
   int readable = 0;
   int writable = 0;
@@ -970,8 +970,8 @@ TEST_CASE("SelfDestroyOnLoopThread", "[IoLoop]") {
 
 #pragma endregion
 
-// `register_socket` dispatches `on_readable` via virtual `io_conn` override;
-// `unregister_socket` stops further dispatch. Double-register and
+// `register_socket` dispatches `on_readable` via virtual `epoll_io_conn`
+// override; `unregister_socket` stops further dispatch. Double-register and
 // double-unregister both return false.
 #pragma region RegisterUnregister
 
@@ -1086,14 +1086,14 @@ TEST_CASE("ErrorSkipsWritable", "[IoLoop]") {
 
 #pragma endregion
 
-// The default `io_conn::on_error` implementation falls through to
+// The default `epoll_io_conn::on_error` implementation falls through to
 // `on_readable`. Verify this by registering a subclass that overrides only
 // `on_readable` and confirming it is called when the peer closes.
 #pragma region DefaultOnError
 
 TEST_CASE("DefaultOnError", "[IoLoop]") {
-  struct readable_only_conn: io_conn {
-    using io_conn::io_conn;
+  struct readable_only_conn: epoll_io_conn {
+    using epoll_io_conn::epoll_io_conn;
     int readable = 0;
     bool on_readable() override {
       ++readable;
@@ -1120,8 +1120,8 @@ TEST_CASE("DefaultOnError", "[IoLoop]") {
 // default `min_capacity` to the actual post-allocation capacity so that
 // resize logic does not fire unexpectedly in tests that do not set it.
 // Fills active region [b..e) with `ch` so moves can be verified.
-static void
-setup_rb(recv_buffer& rb, size_t cap, size_t b, size_t e, char ch = 'X') {
+static void setup_rb(epoll_recv_buffer& rb, size_t cap, size_t b, size_t e,
+    char ch = 'X') {
   no_zero::enlarge_to(rb.buffer, cap);
   rb.min_capacity = rb.buffer.capacity();
   if (b < e) std::fill(rb.buffer.data() + b, rb.buffer.data() + e, ch);
@@ -1135,7 +1135,7 @@ setup_rb(recv_buffer& rb, size_t cap, size_t b, size_t e, char ch = 'X') {
 TEST_CASE("Compact_NoActiveBytes", "[RecvBuffer]") {
   if (true) {
     // begin == end == 0: already at front, cheap reset is a no-op.
-    recv_buffer rb;
+    epoll_recv_buffer rb;
     setup_rb(rb, 64, 0, 0);
     rb.compact();
     CHECK(rb.begin.load(std::memory_order::relaxed) == 0U);
@@ -1144,7 +1144,7 @@ TEST_CASE("Compact_NoActiveBytes", "[RecvBuffer]") {
   }
   if (true) {
     // begin == end > 0: cheap reset reclaims all space.
-    recv_buffer rb;
+    epoll_recv_buffer rb;
     setup_rb(rb, 64, 40, 40);
     rb.compact();
     CHECK(rb.begin.load(std::memory_order::relaxed) == 0U);
@@ -1160,7 +1160,7 @@ TEST_CASE("Compact_NoActiveBytes", "[RecvBuffer]") {
 #pragma region Compact_MustCompact
 
 TEST_CASE("Compact_MustCompact", "[RecvBuffer]") {
-  recv_buffer rb;
+  epoll_recv_buffer rb;
   setup_rb(rb, 64, 0, 0);
   const size_t cap = rb.buffer.capacity();
   const size_t b = cap / 4; // begin at 1/4 mark (not past it: worth_it false)
@@ -1179,7 +1179,7 @@ TEST_CASE("Compact_MustCompact", "[RecvBuffer]") {
 #pragma region Compact_WorthIt
 
 TEST_CASE("Compact_WorthIt", "[RecvBuffer]") {
-  recv_buffer rb;
+  epoll_recv_buffer rb;
   setup_rb(rb, 64, 0, 0);
   const size_t cap = rb.buffer.capacity();
   const size_t b = (cap / 4) + 1;     // just past 1/4 mark
@@ -1198,7 +1198,7 @@ TEST_CASE("Compact_WorthIt", "[RecvBuffer]") {
 #pragma region Compact_SkipsUnnecessaryMove
 
 TEST_CASE("Compact_SkipsUnnecessaryMove", "[RecvBuffer]") {
-  recv_buffer rb;
+  epoll_recv_buffer rb;
   setup_rb(rb, 64, 0, 0);
   const size_t cap = rb.buffer.capacity();
   const size_t b = cap / 4; // at the 1/4 mark, not past it: worth_it false
@@ -1216,7 +1216,7 @@ TEST_CASE("Compact_SkipsUnnecessaryMove", "[RecvBuffer]") {
 #pragma region Compact_GrowOnRequest
 
 TEST_CASE("Compact_GrowOnRequest", "[RecvBuffer]") {
-  recv_buffer rb;
+  epoll_recv_buffer rb;
   setup_rb(rb, 64, 0, 0);
   const size_t cap = rb.buffer.capacity();
   setup_rb(rb, cap, 10, 30, 'C');
@@ -1234,7 +1234,7 @@ TEST_CASE("Compact_GrowOnRequest", "[RecvBuffer]") {
 #pragma region Compact_GrowToMinCapacity
 
 TEST_CASE("Compact_GrowToMinCapacity", "[RecvBuffer]") {
-  recv_buffer rb;
+  epoll_recv_buffer rb;
   setup_rb(rb, 32, 0, 10, 'D');
   const size_t configured = rb.buffer.capacity() * 2;
   rb.min_capacity = configured;
@@ -1254,7 +1254,7 @@ TEST_CASE("Compact_GrowToMinCapacity", "[RecvBuffer]") {
 #pragma region Compact_Shrink
 
 TEST_CASE("Compact_Shrink", "[RecvBuffer]") {
-  recv_buffer rb;
+  epoll_recv_buffer rb;
   setup_rb(rb, 64, 0, 0);
   const size_t bloated_cap = rb.buffer.capacity();
   // configured = cap/4; current = cap = 4*configured > 2*configured: bloated.
@@ -1278,7 +1278,7 @@ TEST_CASE("Compact_Shrink", "[RecvBuffer]") {
 #pragma region Compact_ShrinkSkippedIfActiveWontFit
 
 TEST_CASE("Compact_ShrinkSkippedIfActiveWontFit", "[RecvBuffer]") {
-  recv_buffer rb;
+  epoll_recv_buffer rb;
   setup_rb(rb, 64, 0, 0);
   const size_t cap = rb.buffer.capacity();
   // active_len = cap/2 > configured = cap/4: shrink condition fails.
@@ -1297,7 +1297,7 @@ TEST_CASE("Compact_ShrinkSkippedIfActiveWontFit", "[RecvBuffer]") {
 #pragma region Compact_NoResizeWhenTargetFits
 
 TEST_CASE("Compact_NoResizeWhenTargetFits", "[RecvBuffer]") {
-  recv_buffer rb;
+  epoll_recv_buffer rb;
   setup_rb(rb, 64, 0, 0);
   const size_t cap = rb.buffer.capacity();
   rb.compact(cap / 2); // target <= current: no resize
@@ -1312,10 +1312,10 @@ TEST_CASE("Compact_NoResizeWhenTargetFits", "[RecvBuffer]") {
 #pragma region UpdateActiveView
 
 TEST_CASE("UpdateActiveView", "[RecvBufferView]") {
-  recv_buffer rb;
+  epoll_recv_buffer rb;
   setup_rb(rb, 64, 0, 5, 'X');
 
-  recv_buffer_view v{rb, [](size_t, size_t) {}};
+  epoll_recv_buffer_view v{rb, [](size_t, size_t) {}};
 
   // First look: 5 bytes available.
   std::string_view sv = v;
@@ -1345,7 +1345,7 @@ TEST_CASE("UpdateActiveView", "[RecvBufferView]") {
 #pragma region MoveSemantics
 
 TEST_CASE("MoveSemantics", "[RecvBufferView]") {
-  recv_buffer rb;
+  epoll_recv_buffer rb;
   setup_rb(rb, 64, 0, 10, 'X');
 
   if (true) {
@@ -1353,12 +1353,12 @@ TEST_CASE("MoveSemantics", "[RecvBufferView]") {
     size_t fired_new_size{};
     size_t fired_lse{};
     {
-      recv_buffer_view v1{rb,
+      epoll_recv_buffer_view v1{rb,
           [&](size_t n, size_t lse) {
             fired_new_size = n;
             fired_lse = lse;
           }};
-      recv_buffer_view v2{std::move(v1)}; // v1 now null
+      epoll_recv_buffer_view v2{std::move(v1)}; // v1 now null
 
       // v2 retains full buffer access.
       CHECK(v2.active_view().size() == 10U); // also sets last_seen_end_ = 10
@@ -1377,11 +1377,11 @@ TEST_CASE("MoveSemantics", "[RecvBufferView]") {
 #pragma region TryTakeFull_Fail
 
 TEST_CASE("TryTakeFull_Fail", "[RecvBufferView]") {
-  recv_buffer rb;
+  epoll_recv_buffer rb;
   setup_rb(rb, 64, 0, 5, 'X');
   const size_t cap = rb.buffer.capacity();
 
-  recv_buffer_view v{rb, [](size_t, size_t) {}};
+  epoll_recv_buffer_view v{rb, [](size_t, size_t) {}};
   std::string out;
   std::string_view sv;
   CHECK_FALSE(v.try_take_full(out, sv));
@@ -1400,7 +1400,7 @@ TEST_CASE("TryTakeFull_Fail", "[RecvBufferView]") {
 #pragma region TryTakeFull_Success
 
 TEST_CASE("TryTakeFull_Success", "[RecvBufferView]") {
-  recv_buffer rb;
+  epoll_recv_buffer rb;
   setup_rb(rb, 64, 0, 0);
   const size_t cap = rb.buffer.capacity();
   // Active region starts mid-buffer so the view offset is verified.
@@ -1408,7 +1408,7 @@ TEST_CASE("TryTakeFull_Success", "[RecvBufferView]") {
 
   size_t cb_lse{1}; // non-zero sentinel; confirmed reset to 0 by destructor
   {
-    recv_buffer_view v{rb, [&](size_t, size_t lse) { cb_lse = lse; }};
+    epoll_recv_buffer_view v{rb, [&](size_t, size_t lse) { cb_lse = lse; }};
     std::string out;
     std::string_view sv;
     CHECK(v.try_take_full(out, sv));
@@ -1434,7 +1434,7 @@ TEST_CASE("TryTakeFull_Success", "[RecvBufferView]") {
 #pragma region TryTakeFull_StealAllocation
 
 TEST_CASE("TryTakeFull_StealAllocation", "[RecvBufferView]") {
-  recv_buffer rb;
+  epoll_recv_buffer rb;
   setup_rb(rb, 64, 0, 0);
   const size_t cap = rb.buffer.capacity();
   setup_rb(rb, cap, 0, cap, 'B');
@@ -1445,7 +1445,7 @@ TEST_CASE("TryTakeFull_StealAllocation", "[RecvBufferView]") {
   const size_t big_cap = out.capacity();
   CHECK(big_cap >= 512U);
 
-  recv_buffer_view v{rb, [](size_t, size_t) {}};
+  epoll_recv_buffer_view v{rb, [](size_t, size_t) {}};
   std::string_view sv;
   CHECK(v.try_take_full(out, sv));
 
@@ -1465,7 +1465,7 @@ TEST_CASE("Lifecycle", "[StreamConn]") {
 
   const net_endpoint remote{ipv4_addr::loopback, 9999};
   {
-    auto conn = stream_conn_ptr::adopt(loop, std::move(a), remote, {});
+    auto conn = epoll_stream_conn_ptr::adopt(loop, std::move(a), remote, {});
     // open_ is set in the state constructor before the post fires.
     CHECK(conn->is_open());
     CHECK(conn->remote_endpoint() == remote);
@@ -1484,8 +1484,8 @@ TEST_CASE("Receive", "[StreamConn]") {
   auto [a, b] = net_socket::create_pair();
 
   std::string received;
-  auto conn = stream_conn_ptr::adopt(loop, std::move(a), {},
-      {.on_data = [&](stream_conn&, recv_buffer_view v) {
+  auto conn = epoll_stream_conn_ptr::adopt(loop, std::move(a), {},
+      {.on_data = [&](epoll_stream_conn&, epoll_recv_buffer_view v) {
         std::string_view av = v;
         received.assign(av);
         v.consume(av.size());
@@ -1512,9 +1512,9 @@ TEST_CASE("SetRecvBufSize", "[StreamConn]") {
   // limit may be larger when the allocator (or SSO) provides extra capacity.
   // Test that the getter/setter works and that all data arrives correctly.
   std::string received;
-  auto conn = stream_conn_ptr::adopt(loop, std::move(a), {},
+  auto conn = epoll_stream_conn_ptr::adopt(loop, std::move(a), {},
       {.on_data =
-              [&](stream_conn&, recv_buffer_view v) {
+              [&](epoll_stream_conn&, epoll_recv_buffer_view v) {
                 std::string_view av = v;
                 received.append(av);
                 v.consume(av.size());
@@ -1549,8 +1549,8 @@ TEST_CASE("PeerClose", "[StreamConn]") {
   auto [a, b] = net_socket::create_pair();
 
   bool closed = false;
-  auto conn = stream_conn_ptr::adopt(loop, std::move(a), {},
-      {.on_close = [&](stream_conn&) {
+  auto conn = epoll_stream_conn_ptr::adopt(loop, std::move(a), {},
+      {.on_close = [&](epoll_stream_conn&) {
         closed = true;
         return true;
       }});
@@ -1596,9 +1596,9 @@ TEST_CASE("PeerClose_WithBufferedData", "[StreamConn]") {
   std::string received;
   bool closed = false;
 
-  auto conn = stream_conn_ptr::adopt(loop, std::move(a), {},
+  auto conn = epoll_stream_conn_ptr::adopt(loop, std::move(a), {},
       {.on_data =
-              [&](stream_conn& c, recv_buffer_view v) {
+              [&](epoll_stream_conn& c, epoll_recv_buffer_view v) {
                 std::string_view av = v;
                 // First call: consume only 2 bytes, leaving "llo" in the
                 // buffer so that `handle_read_eof` sees a non-empty buffer.
@@ -1610,7 +1610,7 @@ TEST_CASE("PeerClose_WithBufferedData", "[StreamConn]") {
                 return true;
               },
           .on_close =
-              [&](stream_conn&) {
+              [&](epoll_stream_conn&) {
                 closed = true;
                 return true;
               }});
@@ -1643,7 +1643,7 @@ TEST_CASE("Send", "[StreamConn]") {
   auto loop = epoll_loop::make();
   auto [a, b] = net_socket::create_pair();
 
-  auto conn = stream_conn_ptr::adopt(loop, std::move(a), {}, {});
+  auto conn = epoll_stream_conn_ptr::adopt(loop, std::move(a), {}, {});
   CHECK(loop->run_once(0) >= 0); // process posted do_open()
 
   CHECK(conn->send(std::string{"world"}));
@@ -1666,8 +1666,8 @@ TEST_CASE("ManualClose", "[StreamConn]") {
   auto [a, b] = net_socket::create_pair();
 
   bool closed = false;
-  auto conn = stream_conn_ptr::adopt(loop, std::move(a), {},
-      {.on_close = [&](stream_conn&) {
+  auto conn = epoll_stream_conn_ptr::adopt(loop, std::move(a), {},
+      {.on_close = [&](epoll_stream_conn&) {
         closed = true;
         return true;
       }});
@@ -1702,8 +1702,8 @@ TEST_CASE("DrainAfterBufferedSend", "[StreamConn]") {
   const std::string payload(256ULL * 1024ULL, 'x');
 
   int drain_count = 0;
-  auto conn = stream_conn_ptr::adopt(loop, std::move(a), {},
-      {.on_drain = [&](stream_conn&) {
+  auto conn = epoll_stream_conn_ptr::adopt(loop, std::move(a), {},
+      {.on_drain = [&](epoll_stream_conn&) {
         ++drain_count;
         return true;
       }});
@@ -1739,8 +1739,8 @@ TEST_CASE("DrainAfterImmediateSend", "[StreamConn]") {
   auto [a, b] = net_socket::create_pair();
 
   int drain_count = 0;
-  auto conn = stream_conn_ptr::adopt(loop, std::move(a), {},
-      {.on_drain = [&](stream_conn&) {
+  auto conn = epoll_stream_conn_ptr::adopt(loop, std::move(a), {},
+      {.on_drain = [&](epoll_stream_conn&) {
         ++drain_count;
         return true;
       }});
@@ -1767,8 +1767,8 @@ TEST_CASE("SendRejectsOnlyEmptyBuffers", "[StreamConn]") {
   auto [a, b] = net_socket::create_pair();
 
   int drain_count = 0;
-  auto conn = stream_conn_ptr::adopt(loop, std::move(a), {},
-      {.on_drain = [&](stream_conn&) {
+  auto conn = epoll_stream_conn_ptr::adopt(loop, std::move(a), {},
+      {.on_drain = [&](epoll_stream_conn&) {
         ++drain_count;
         return true;
       }});
@@ -1801,7 +1801,7 @@ TEST_CASE("SendMultipleBuffers", "[StreamConn]") {
   auto loop = epoll_loop::make();
   auto [a, b] = net_socket::create_pair();
 
-  auto conn = stream_conn_ptr::adopt(loop, std::move(a), {}, {});
+  auto conn = epoll_stream_conn_ptr::adopt(loop, std::move(a), {}, {});
   CHECK(loop->run_once(0) >= 0); // process posted do_open()
 
   CHECK(conn->send(std::string{"hello"}, std::string{" "},
@@ -1822,11 +1822,11 @@ TEST_CASE("AsyncCbRead", "[StreamConn]") {
   auto [a, b] = net_socket::create_pair();
 
   std::string received;
-  auto conn = stream_conn_ptr::adopt(loop, std::move(a), {}, {});
+  auto conn = epoll_stream_conn_ptr::adopt(loop, std::move(a), {}, {});
   CHECK(loop->run_once(0) >= 0); // process posted register_with_loop
 
-  stream_async_cb cb{conn.pointer()};
-  REQUIRE(cb.read([&](recv_buffer_view v) {
+  epoll_stream_async_cb cb{conn.pointer()};
+  REQUIRE(cb.read([&](epoll_recv_buffer_view v) {
     std::string_view av = v;
     received.assign(av);
     v.consume(av.size());
@@ -1850,7 +1850,7 @@ TEST_CASE("AsyncCbRead_PreservesEarlyData", "[StreamConn]") {
   auto [a, b] = net_socket::create_pair();
 
   std::string received;
-  auto conn = stream_conn_ptr::adopt(loop, std::move(a), {}, {});
+  auto conn = epoll_stream_conn_ptr::adopt(loop, std::move(a), {}, {});
   CHECK(loop->run_once(0) >= 0); // process posted register_with_loop
 
   const std::string msg{"early-callback-read"};
@@ -1860,8 +1860,8 @@ TEST_CASE("AsyncCbRead_PreservesEarlyData", "[StreamConn]") {
   CHECK((loop->run_once(0)) ==
         (0)); // read interest is disabled; data stays queued
 
-  stream_async_cb cb{conn.pointer()};
-  REQUIRE(cb.read([&](recv_buffer_view v) {
+  epoll_stream_async_cb cb{conn.pointer()};
+  REQUIRE(cb.read([&](epoll_recv_buffer_view v) {
     std::string_view av = v;
     received.assign(av);
     v.consume(av.size());
@@ -1880,16 +1880,16 @@ TEST_CASE("AsyncCbRead_DuplicateRejected", "[StreamConn]") {
   auto [a, b] = net_socket::create_pair();
 
   int callback_count = 0;
-  auto conn = stream_conn_ptr::adopt(loop, std::move(a), {}, {});
+  auto conn = epoll_stream_conn_ptr::adopt(loop, std::move(a), {}, {});
   CHECK(loop->run_once(0) >= 0); // process posted register_with_loop
 
-  stream_async_cb cb{conn.pointer()};
-  REQUIRE(cb.read([&](recv_buffer_view v) {
+  epoll_stream_async_cb cb{conn.pointer()};
+  REQUIRE(cb.read([&](epoll_recv_buffer_view v) {
     v.consume(std::string_view{v}.size());
     ++callback_count;
     return true;
   }));
-  CHECK_FALSE(cb.read([&](recv_buffer_view v) {
+  CHECK_FALSE(cb.read([&](epoll_recv_buffer_view v) {
     v.consume(std::string_view{v}.size());
     ++callback_count;
     return true;
@@ -1911,18 +1911,18 @@ TEST_CASE("AsyncCbRead_PeerClose", "[StreamConn]") {
   auto loop = epoll_loop::make();
   auto [a, b] = net_socket::create_pair();
 
-  // `stream_async_cb` fully takes over the handlers, so the persistent
-  // `on_close` on `own_handlers_` does not fire while the `stream_async_cb`
-  // is active. Close notification arrives via `stream_async_cb::on_close`,
-  // which fires the pending read callback with an empty `recv_buffer_view`
-  // (signaling EOF).
+  // `epoll_stream_async_cb` fully takes over the handlers, so the persistent
+  // `on_close` on `own_handlers_` does not fire while the
+  // `epoll_stream_async_cb` is active. Close notification arrives via
+  // `epoll_stream_async_cb::on_close`, which fires the pending read callback
+  // with an empty `epoll_recv_buffer_view` (signaling EOF).
   std::string received{"sentinel"};
   int callback_count = 0;
-  auto conn = stream_conn_ptr::adopt(loop, std::move(a), {}, {});
+  auto conn = epoll_stream_conn_ptr::adopt(loop, std::move(a), {}, {});
   CHECK(loop->run_once(0) >= 0); // process posted register_with_loop
 
-  stream_async_cb cb{conn.pointer()};
-  REQUIRE(cb.read([&](recv_buffer_view v) {
+  epoll_stream_async_cb cb{conn.pointer()};
+  REQUIRE(cb.read([&](epoll_recv_buffer_view v) {
     std::string_view av = v;
     received.assign(av);
     v.consume(av.size());
@@ -1954,10 +1954,10 @@ TEST_CASE("AsyncCbWrite", "[StreamConn]") {
 
   bool completed{false};
   int callback_count = 0;
-  auto conn = stream_conn_ptr::adopt(loop, std::move(a), {}, {});
+  auto conn = epoll_stream_conn_ptr::adopt(loop, std::move(a), {}, {});
   CHECK(loop->run_once(0) >= 0); // process posted register_with_loop
 
-  stream_async_cb cb{conn.pointer()};
+  epoll_stream_async_cb cb{conn.pointer()};
   REQUIRE(cb.write(std::string{"callback-write"}, [&](bool write_completed) {
     completed = write_completed;
     ++callback_count;
@@ -1979,16 +1979,16 @@ TEST_CASE("AsyncCbWrite_Failure", "[StreamConn]") {
   auto loop = epoll_loop::make();
   auto [a, b] = net_socket::create_pair();
 
-  // `stream_async_cb` fully takes over the handlers; the persistent `on_close`
-  // on `own_handlers_` is silenced while it is active. The write-failure
-  // callback fires synchronously when `enqueue_send` fails.
+  // `epoll_stream_async_cb` fully takes over the handlers; the persistent
+  // `on_close` on `own_handlers_` is silenced while it is active. The
+  // write-failure callback fires synchronously when `enqueue_send` fails.
   bool completed = true;
-  auto conn = stream_conn_ptr::adopt(loop, std::move(a), {}, {});
+  auto conn = epoll_stream_conn_ptr::adopt(loop, std::move(a), {}, {});
   CHECK(loop->run_once(0) >= 0); // process posted register_with_loop
 
   (void)b.close();
 
-  stream_async_cb cb{conn.pointer()};
+  epoll_stream_async_cb cb{conn.pointer()};
   REQUIRE_FALSE(cb.write(std::string{"boom"}, [&](bool write_completed) {
     completed = write_completed;
     return completed;
@@ -2012,8 +2012,8 @@ TEST_CASE("ShutdownWrite", "[StreamConn]") {
   auto [a, b] = net_socket::create_pair();
 
   std::string received;
-  auto conn = stream_conn_ptr::adopt(loop, std::move(a), {},
-      {.on_data = [&](stream_conn&, recv_buffer_view v) {
+  auto conn = epoll_stream_conn_ptr::adopt(loop, std::move(a), {},
+      {.on_data = [&](epoll_stream_conn&, epoll_recv_buffer_view v) {
         std::string_view av = v;
         received.assign(av);
         v.consume(av.size());
@@ -2028,7 +2028,7 @@ TEST_CASE("ShutdownWrite", "[StreamConn]") {
   CHECK(conn->can_read());
   CHECK_FALSE(conn->can_write());
   {
-    stream_async_cb cb{conn.pointer()};
+    epoll_stream_async_cb cb{conn.pointer()};
     CHECK_FALSE(cb.write(std::string{"nope"}, [&](bool) { return true; }));
   }
 
@@ -2047,8 +2047,8 @@ TEST_CASE("ShutdownRead", "[StreamConn]") {
   auto [a, b] = net_socket::create_pair();
 
   int data_count = 0;
-  auto conn = stream_conn_ptr::adopt(loop, std::move(a), {},
-      {.on_data = [&](stream_conn&, recv_buffer_view v) {
+  auto conn = epoll_stream_conn_ptr::adopt(loop, std::move(a), {},
+      {.on_data = [&](epoll_stream_conn&, epoll_recv_buffer_view v) {
         v.consume(std::string_view{v}.size());
         ++data_count;
         return true;
@@ -2062,8 +2062,8 @@ TEST_CASE("ShutdownRead", "[StreamConn]") {
   CHECK_FALSE(conn->can_read());
   CHECK(conn->can_write());
   {
-    stream_async_cb cb{conn.pointer()};
-    CHECK_FALSE(cb.read([&](recv_buffer_view) {
+    epoll_stream_async_cb cb{conn.pointer()};
+    CHECK_FALSE(cb.read([&](epoll_recv_buffer_view) {
       ++data_count;
       return true;
     }));
@@ -2086,7 +2086,7 @@ TEST_CASE("ShutdownBothCloses", "[StreamConn]") {
   auto loop = epoll_loop::make();
   auto [a, b] = net_socket::create_pair();
 
-  auto conn = stream_conn_ptr::adopt(loop, std::move(a), {}, {});
+  auto conn = epoll_stream_conn_ptr::adopt(loop, std::move(a), {}, {});
   CHECK(loop->run_once(0) >= 0); // process posted register_with_loop
 
   REQUIRE(conn->shutdown_write());
@@ -2119,9 +2119,9 @@ TEST_CASE("AsyncCbWrite_DuplicateRejected", "[StreamConn]") {
     constexpr int small_buf = 4096;
     CHECK(a.set_send_buffer_size(small_buf));
 
-    auto conn =
-        stream_conn_ptr::adopt(loop.loop()->self(), std::move(a), {}, {});
-    stream_async_cb cb{conn.pointer()};
+    auto conn = epoll_stream_conn_ptr::adopt(loop.loop()->self(), std::move(a),
+        {}, {});
+    epoll_stream_async_cb cb{conn.pointer()};
 
     const std::string payload(256ULL * 1024ULL, 'w');
 
@@ -2164,8 +2164,8 @@ TEST_CASE("GracefulClose", "[StreamConn]") {
   const std::string payload(64ULL * 1024ULL, 'z');
 
   bool closed = false;
-  auto conn = stream_conn_ptr::adopt(loop, std::move(a), {},
-      {.on_close = [&](stream_conn&) {
+  auto conn = epoll_stream_conn_ptr::adopt(loop, std::move(a), {},
+      {.on_close = [&](epoll_stream_conn&) {
         closed = true;
         return true;
       }});
@@ -2209,8 +2209,8 @@ TEST_CASE("CloseThenDestructStaysGraceful", "[StreamConn]") {
 
   bool closed = false;
   {
-    auto conn = stream_conn_ptr::adopt(loop, std::move(a), {},
-        {.on_close = [&](stream_conn&) {
+    auto conn = epoll_stream_conn_ptr::adopt(loop, std::move(a), {},
+        {.on_close = [&](epoll_stream_conn&) {
           closed = true;
           return true;
         }});
@@ -2251,8 +2251,8 @@ TEST_CASE("MutualClose", "[StreamConn]") {
   auto [a, b] = net_socket::create_pair();
 
   bool closed = false;
-  auto conn = stream_conn_ptr::adopt(loop, std::move(a), {},
-      {.on_close = [&](stream_conn&) {
+  auto conn = epoll_stream_conn_ptr::adopt(loop, std::move(a), {},
+      {.on_close = [&](epoll_stream_conn&) {
         closed = true;
         return true;
       }});
@@ -2310,10 +2310,10 @@ TEST_CASE("Listen_MutualClose", "[StreamConn]") {
   notifiable<coordination_policy> accepted_policy{
       coordination_policy::unilateral};
 
-  auto listener = stream_conn_ptr::listen(loop.loop()->self(),
+  auto listener = epoll_stream_conn_ptr::listen(loop.loop()->self(),
       net_endpoint{ipv4_addr::loopback, 0},
       {.on_data =
-              [&](stream_conn& conn, recv_buffer_view v) {
+              [&](epoll_stream_conn& conn, epoll_recv_buffer_view v) {
                 accepted_policy.notify_one(conn.shutdown());
                 std::string_view av = v;
                 v.consume(av.size());
@@ -2322,7 +2322,7 @@ TEST_CASE("Listen_MutualClose", "[StreamConn]") {
                 return ok;
               },
           .on_close =
-              [&](stream_conn&) {
+              [&](epoll_stream_conn&) {
                 server_closed.notify_one(true);
                 return true;
               }},
@@ -2337,7 +2337,8 @@ TEST_CASE("Listen_MutualClose", "[StreamConn]") {
 
   // Connect and send a message to trigger `on_data` on the accepted
   // connection.
-  auto client = stream_conn_ptr::connect(loop.loop()->self(), server_ep, {});
+  auto client =
+      epoll_stream_conn_ptr::connect(loop.loop()->self(), server_ep, {});
   REQUIRE(client);
   REQUIRE(client->send(std::string{"ping"}));
 
@@ -2371,8 +2372,8 @@ TEST_CASE("DestructorHangsUp", "[StreamConn]") {
 
   bool closed = false;
   {
-    auto conn = stream_conn_ptr::adopt(loop, std::move(a), {},
-        {.on_close = [&](stream_conn&) {
+    auto conn = epoll_stream_conn_ptr::adopt(loop, std::move(a), {},
+        {.on_close = [&](epoll_stream_conn&) {
           closed = true;
           return true;
         }});
@@ -2425,10 +2426,10 @@ TEST_CASE("AsyncRead", "[StreamConn]") {
   std::string received;
   bool done = false;
 
-  auto conn = stream_conn_ptr::adopt(loop, std::move(a), {}, {});
+  auto conn = epoll_stream_conn_ptr::adopt(loop, std::move(a), {}, {});
   CHECK(loop->run_once(0) >= 0); // process posted register_with_loop
 
-  stream_async_coro coro_conn{conn.pointer()};
+  epoll_stream_async_coro coro_conn{conn.pointer()};
   auto coro = [&]() -> loop_task {
     received = co_await coro_conn.read();
     done = true;
@@ -2456,7 +2457,7 @@ TEST_CASE("AsyncRead_PreservesEarlyData", "[StreamConn]") {
   std::string received;
   bool done = false;
 
-  auto conn = stream_conn_ptr::adopt(loop, std::move(a), {}, {});
+  auto conn = epoll_stream_conn_ptr::adopt(loop, std::move(a), {}, {});
   CHECK(loop->run_once(0) >= 0); // process posted register_with_loop
 
   const std::string msg{"early-coroutine-read"};
@@ -2466,7 +2467,7 @@ TEST_CASE("AsyncRead_PreservesEarlyData", "[StreamConn]") {
   CHECK((loop->run_once(0)) ==
         (0)); // data remains in kernel until a read is armed
 
-  stream_async_coro coro_conn{conn.pointer()};
+  epoll_stream_async_coro coro_conn{conn.pointer()};
   auto coro = [&]() -> loop_task {
     received = co_await coro_conn.read();
     done = true;
@@ -2492,10 +2493,10 @@ TEST_CASE("AsyncRead_StopsBetweenCalls", "[StreamConn]") {
   bool first_done = false;
   bool second_done = false;
 
-  auto conn = stream_conn_ptr::adopt(loop, std::move(a), {}, {});
+  auto conn = epoll_stream_conn_ptr::adopt(loop, std::move(a), {}, {});
   CHECK(loop->run_once(0) >= 0); // process posted register_with_loop
 
-  stream_async_coro coro_conn{conn.pointer()};
+  epoll_stream_async_coro coro_conn{conn.pointer()};
 
   auto first_coro = [&]() -> loop_task {
     first = co_await coro_conn.read();
@@ -2545,12 +2546,12 @@ TEST_CASE("AsyncRead_PeerClose", "[StreamConn]") {
   std::string received{"sentinel"};
   bool done = false;
 
-  // `stream_async_coro` installs an `on_close` handler that replicates the
-  // auto-graceful-close that `handle_read_eof` would otherwise initiate.
-  auto conn = stream_conn_ptr::adopt(loop, std::move(a), {}, {});
+  // `epoll_stream_async_coro` installs an `on_close` handler that replicates
+  // the auto-graceful-close that `handle_read_eof` would otherwise initiate.
+  auto conn = epoll_stream_conn_ptr::adopt(loop, std::move(a), {}, {});
   CHECK(loop->run_once(0) >= 0); // process posted register_with_loop
 
-  stream_async_coro coro_conn{conn.pointer()};
+  epoll_stream_async_coro coro_conn{conn.pointer()};
   auto coro = [&]() -> loop_task {
     received = co_await coro_conn.read();
     done = true;
@@ -2582,12 +2583,12 @@ TEST_CASE("AsyncSend", "[StreamConn]") {
 
   bool sent = false;
 
-  auto conn = stream_conn_ptr::adopt(loop, std::move(a), {});
+  auto conn = epoll_stream_conn_ptr::adopt(loop, std::move(a), {});
   CHECK(loop->run_once(0) >= 0); // process posted register_with_loop
 
   const std::string msg{"world"};
 
-  stream_async_coro coro_conn{conn.pointer()};
+  epoll_stream_async_coro coro_conn{conn.pointer()};
   auto coro = [&]() -> loop_task {
     co_await coro_conn.write(std::string{msg});
     sent = true;
@@ -2618,9 +2619,9 @@ TEST_CASE("EchoServer", "[StreamConn]") {
   // Bind a non-blocking listener to an OS-assigned loopback port.
   // Each accepted connection is self-owning and gets a copy of the listener's
   // handlers, so no external handle is needed.
-  auto listener = stream_conn_ptr::listen(loop.loop()->self(),
+  auto listener = epoll_stream_conn_ptr::listen(loop.loop()->self(),
       net_endpoint{ipv4_addr::loopback, 0},
-      {.on_data = [](stream_conn& conn, recv_buffer_view v) {
+      {.on_data = [](epoll_stream_conn& conn, epoll_recv_buffer_view v) {
         std::string_view av = v;
         bool ok = conn.send(std::string{av});
         v.consume(av.size());
@@ -2637,11 +2638,11 @@ TEST_CASE("EchoServer", "[StreamConn]") {
   constexpr std::string_view msg{"hello echo"};
   std::string received;
   notifiable<bool> done{false};
-  stream_conn_ptr client_conn;
+  epoll_stream_conn_ptr client_conn;
 
-  client_conn = stream_conn_ptr::connect(loop.loop()->self(), server_ep,
+  client_conn = epoll_stream_conn_ptr::connect(loop.loop()->self(), server_ep,
       {.on_data =
-              [&](stream_conn&, recv_buffer_view v) {
+              [&](epoll_stream_conn&, epoll_recv_buffer_view v) {
                 std::string_view av = v;
                 received.append(av);
                 v.consume(av.size());
@@ -2649,7 +2650,7 @@ TEST_CASE("EchoServer", "[StreamConn]") {
                 return true;
               },
           .on_drain =
-              [&, sent = false](stream_conn& conn) mutable {
+              [&, sent = false](epoll_stream_conn& conn) mutable {
                 if (std::exchange(sent, true)) return false;
                 return conn.send(std::string{msg});
               }});
@@ -2661,7 +2662,7 @@ TEST_CASE("EchoServer", "[StreamConn]") {
 
 #pragma endregion
 
-// `stream_conn_with_state` tests.
+// `epoll_stream_conn_with_state` tests.
 
 // Verify that `adopt()` creates a typed handle, that state is
 // zero-initialized, and that it is mutable via the typed pointer.
@@ -2671,8 +2672,9 @@ TEST_CASE("Adopt", "[StreamConnWithState]") {
   auto loop = epoll_loop::make();
   auto [a, b] = net_socket::create_pair();
 
-  using conn_t = stream_conn_with_state<int>;
-  auto conn = stream_conn_ptr_with<conn_t>::adopt(loop, std::move(a), {});
+  using conn_t = epoll_stream_conn_with_state<int>;
+  auto conn =
+      epoll_stream_conn_ptr_with<conn_t>::adopt(loop, std::move(a), {});
   REQUIRE(conn);
   CHECK(conn->state() == 0);
   conn->state() = 42;
@@ -2681,17 +2683,18 @@ TEST_CASE("Adopt", "[StreamConnWithState]") {
 
 #pragma endregion
 
-// Verify that `from` correctly downcasts a `stream_conn&` inside a callback.
+// Verify that `from` correctly downcasts a `epoll_stream_conn&` inside a
+// callback.
 #pragma region From
 
 TEST_CASE("From", "[StreamConnWithState]") {
   auto loop = epoll_loop::make();
   auto [a, b] = net_socket::create_pair();
 
-  using conn_t = stream_conn_with_state<int>;
+  using conn_t = epoll_stream_conn_with_state<int>;
   int seen = -1;
-  auto conn = stream_conn_ptr_with<conn_t>::adopt(loop, std::move(a), {},
-      {.on_data = [&](stream_conn& c, recv_buffer_view v) {
+  auto conn = epoll_stream_conn_ptr_with<conn_t>::adopt(loop, std::move(a), {},
+      {.on_data = [&](epoll_stream_conn& c, epoll_recv_buffer_view v) {
         auto& typed = conn_t::from(c);
         typed.state() += 1;
         seen = typed.state();
@@ -2720,12 +2723,12 @@ TEST_CASE("From", "[StreamConnWithState]") {
 TEST_CASE("Listen", "[StreamConnWithState]") {
   epoll_loop_runner loop;
 
-  using conn_t = stream_conn_with_state<int>;
+  using conn_t = epoll_stream_conn_with_state<int>;
   notifiable<int> received_state{-1};
 
-  auto listener = stream_conn_ptr_with<conn_t>::listen(loop.loop()->self(),
-      net_endpoint{ipv4_addr::loopback, 0},
-      {.on_data = [&](stream_conn& c, recv_buffer_view v) {
+  auto listener = epoll_stream_conn_ptr_with<conn_t>::listen(
+      loop.loop()->self(), net_endpoint{ipv4_addr::loopback, 0},
+      {.on_data = [&](epoll_stream_conn& c, epoll_recv_buffer_view v) {
         auto& typed = conn_t::from(c);
         typed.state() += 1;
         std::string_view av = v;
@@ -2738,7 +2741,8 @@ TEST_CASE("Listen", "[StreamConnWithState]") {
   const net_endpoint server_ep = listener->local_endpoint();
   REQUIRE(server_ep);
 
-  auto client = stream_conn_ptr::connect(loop.loop()->self(), server_ep, {});
+  auto client =
+      epoll_stream_conn_ptr::connect(loop.loop()->self(), server_ep, {});
   REQUIRE(client);
 
   const std::string msg{"ping"};
@@ -2750,25 +2754,26 @@ TEST_CASE("Listen", "[StreamConnWithState]") {
 
 #pragma endregion
 
-// Verify that a stream_conn_ptr_with<Derived> is implicitly convertible to
-// the untyped stream_conn_ptr and the resulting handle is usable.
+// Verify that a epoll_stream_conn_ptr_with<Derived> is implicitly convertible
+// to the untyped epoll_stream_conn_ptr and the resulting handle is usable.
 #pragma region Covariance
 
 TEST_CASE("Covariance", "[StreamConnPtr]") {
   auto loop = epoll_loop::make();
   auto [a, b] = net_socket::create_pair();
 
-  using conn_t = stream_conn_with_state<int>;
+  using conn_t = epoll_stream_conn_with_state<int>;
   bool closed = false;
-  stream_conn_ptr_with<conn_t> typed = stream_conn_ptr_with<conn_t>::adopt(
-      loop, std::move(a), {}, {.on_close = [&](stream_conn&) {
-        closed = true;
-        return true;
-      }});
+  epoll_stream_conn_ptr_with<conn_t> typed =
+      epoll_stream_conn_ptr_with<conn_t>::adopt(loop, std::move(a), {},
+          {.on_close = [&](epoll_stream_conn&) {
+            closed = true;
+            return true;
+          }});
   REQUIRE(typed);
 
   // Implicit upcast.
-  stream_conn_ptr base = std::move(typed);
+  epoll_stream_conn_ptr base = std::move(typed);
   REQUIRE(base);
   // NOLINTNEXTLINE(bugprone-use-after-move,clang-analyzer-cplusplus.Move)
   CHECK_FALSE(typed); // ownership transferred
@@ -2787,12 +2792,12 @@ TEST_CASE("Covariance", "[StreamConnPtr]") {
 #pragma region AcceptClone_Nullptr
 
 TEST_CASE("AcceptClone_Nullptr", "[StreamConnWithState]") {
-  struct rejecting_conn: stream_conn_with_state<int> {
-    using stream_conn_with_state<int>::stream_conn_with_state;
+  struct rejecting_conn: epoll_stream_conn_with_state<int> {
+    using epoll_stream_conn_with_state<int>::epoll_stream_conn_with_state;
 
   protected:
-    [[nodiscard]] std::shared_ptr<stream_conn> accept_clone(net_socket&&,
-        const net_endpoint&, stream_conn_handlers) const override {
+    [[nodiscard]] std::shared_ptr<epoll_stream_conn> accept_clone(net_socket&&,
+        const net_endpoint&, epoll_stream_conn_handlers) const override {
       return nullptr;
     }
   };
@@ -2800,9 +2805,9 @@ TEST_CASE("AcceptClone_Nullptr", "[StreamConnWithState]") {
   epoll_loop_runner loop;
 
   int data_calls = 0;
-  auto listener = stream_conn_ptr_with<rejecting_conn>::listen(
+  auto listener = epoll_stream_conn_ptr_with<rejecting_conn>::listen(
       loop.loop()->self(), net_endpoint{ipv4_addr::loopback, 0},
-      {.on_data = [&](stream_conn&, recv_buffer_view v) {
+      {.on_data = [&](epoll_stream_conn&, epoll_recv_buffer_view v) {
         ++data_calls;
         std::string_view av = v;
         v.consume(av.size());
@@ -2816,7 +2821,7 @@ TEST_CASE("AcceptClone_Nullptr", "[StreamConnWithState]") {
   // Connect; the server drops the accepted socket immediately. Blocking on
   // `recv` provides reliable synchronization: once it returns empty (EOF),
   // the server has already processed and discarded the connection.
-  auto client = stream_sync::connect(server_ep, std::chrono::seconds{5});
+  auto client = epoll_stream_sync::connect(server_ep, std::chrono::seconds{5});
   REQUIRE(client);
   CHECK(client.recv().empty());
 
@@ -3016,15 +3021,16 @@ TEST_CASE("Reset", "[TerminatedTextParser]") {
 
 #pragma endregion
 
-// `stream_sync` tests.
+// `epoll_stream_sync` tests.
 
-// Verify that connecting to an invalid endpoint returns a falsy `stream_sync`.
+// Verify that connecting to an invalid endpoint returns a falsy
+// `epoll_stream_sync`.
 #pragma region ConnectFail
 
 TEST_CASE("ConnectFail", "[StreamSync]") {
   // An empty endpoint has ss_family == AF_UNSPEC; `socket(2)` will fail and
   // the returned connection will be closed.
-  auto conn = stream_sync::connect(net_endpoint{});
+  auto conn = epoll_stream_sync::connect(net_endpoint{});
   CHECK_FALSE(conn);
   CHECK_FALSE(conn.is_open());
 }
@@ -3034,10 +3040,10 @@ TEST_CASE("ConnectFail", "[StreamSync]") {
 // Helper: start a loopback echo server on an OS-assigned port and return its
 // endpoint. The caller must keep `listener` alive for the test duration.
 static net_endpoint
-start_echo_server(epoll_loop_runner& loop, stream_conn_ptr& listener) {
-  listener = stream_conn_ptr::listen(loop.loop()->self(),
+start_echo_server(epoll_loop_runner& loop, epoll_stream_conn_ptr& listener) {
+  listener = epoll_stream_conn_ptr::listen(loop.loop()->self(),
       net_endpoint{ipv4_addr::loopback, 0},
-      {.on_data = [](stream_conn& conn, recv_buffer_view v) {
+      {.on_data = [](epoll_stream_conn& conn, epoll_recv_buffer_view v) {
         std::string_view av = v;
         bool ok = conn.send(std::string{av});
         v.consume(av.size());
@@ -3052,11 +3058,11 @@ start_echo_server(epoll_loop_runner& loop, stream_conn_ptr& listener) {
 
 TEST_CASE("SendRecv", "[StreamSync]") {
   epoll_loop_runner loop;
-  stream_conn_ptr listener;
+  epoll_stream_conn_ptr listener;
   const auto ep = start_echo_server(loop, listener);
   REQUIRE(ep);
 
-  auto conn = stream_sync::connect(ep, std::chrono::seconds{5});
+  auto conn = epoll_stream_sync::connect(ep, std::chrono::seconds{5});
   REQUIRE(conn);
   CHECK(conn.send("hello"));
   auto got = conn.recv_exact(5);
@@ -3071,11 +3077,11 @@ TEST_CASE("SendRecv", "[StreamSync]") {
 
 TEST_CASE("RecvUntil", "[StreamSync]") {
   epoll_loop_runner loop;
-  stream_conn_ptr listener;
+  epoll_stream_conn_ptr listener;
   const auto ep = start_echo_server(loop, listener);
   REQUIRE(ep);
 
-  auto conn = stream_sync::connect(ep, std::chrono::seconds{5});
+  auto conn = epoll_stream_sync::connect(ep, std::chrono::seconds{5});
   REQUIRE(conn);
   CHECK(conn.send("line1\r\nextra"));
 
@@ -3094,18 +3100,18 @@ TEST_CASE("RecvUntil", "[StreamSync]") {
 
 TEST_CASE("PeerClose", "[StreamSync]") {
   epoll_loop_runner loop;
-  stream_conn_ptr listener;
+  epoll_stream_conn_ptr listener;
   // Server echoes nothing; it closes as soon as data arrives.
-  listener = stream_conn_ptr::listen(loop.loop()->self(),
+  listener = epoll_stream_conn_ptr::listen(loop.loop()->self(),
       net_endpoint{ipv4_addr::loopback, 0},
-      {.on_data = [](stream_conn& conn, recv_buffer_view v) {
+      {.on_data = [](epoll_stream_conn& conn, epoll_recv_buffer_view v) {
         v.consume(std::string_view{v}.size());
         return conn.close();
       }});
   REQUIRE(listener);
   const auto ep = listener->local_endpoint();
 
-  auto conn = stream_sync::connect(ep, std::chrono::seconds{5});
+  auto conn = epoll_stream_sync::connect(ep, std::chrono::seconds{5});
   REQUIRE(conn);
   CHECK(conn.send("bye"));
   // Server closes; recv should return empty once EOF is detected.
@@ -3239,7 +3245,7 @@ TEST_CASE("OversizeTransferIsHardFailure", "[IovMsghdr]") {
 #pragma endregion
 
 // ---------------------------------------------------------------------------
-// http_server tests
+// epoll_http_server tests
 // ---------------------------------------------------------------------------
 
 // NOLINTEND(bugprone-unchecked-optional-access)

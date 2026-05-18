@@ -36,8 +36,8 @@ without changing higher layers.
 
 - **[done]** `epoll_loop` -- `epoll`-based event loop; non-copyable, non-movable;
   `run()` may be called at most once; `epoll_loop_runner` wraps it in a
-  background thread for the common case; `register_socket(shared_ptr<io_conn>,
-  readable, writable)` / `unregister_socket` manage fd registrations; `io_conn`
+  background thread for the common case; `register_socket(shared_ptr<epoll_io_conn>,
+  readable, writable)` / `unregister_socket` manage fd registrations; `epoll_io_conn`
   owns its `net_socket`; `set_readable` / `set_writable` toggle `EPOLLIN` /
   `EPOLLOUT` without changing stored handlers; `EPOLLERR`, `EPOLLHUP`, and
   `EPOLLRDHUP` are always armed; level-triggered operation throughout;
@@ -48,15 +48,15 @@ without changing higher layers.
   returns its result; `execute_or_post(fn)` runs inline on the loop thread,
   otherwise posts; `run()` / `run_once(timeout_ms)` / `stop()` drive dispatch;
   `wait_until_running(ms)` blocks until the loop is running; `is_loop_thread()`
-  and `poll_thread_scope()` support thread identity checks and testing; `io_conn`
+  and `poll_thread_scope()` support thread identity checks and testing; `epoll_io_conn`
   is an abstract base with a `net_socket` member and virtual `on_readable` /
   `on_writable` / `on_error` so higher-level types inherit from it directly to
   avoid a separate handler-lambda allocation
-- **[done]** `recv_buffer` / `recv_buffer_view` -- persistent flat receive buffer
-  owned by each `stream_conn`; `recv_buffer` holds a `std::string buffer`
+- **[done]** `epoll_recv_buffer` / `epoll_recv_buffer_view` -- persistent flat receive buffer
+  owned by each `epoll_stream_conn`; `epoll_recv_buffer` holds a `std::string buffer`
   (size == capacity) with atomic `begin` / `end` indexes and loop-thread-only
   `reads_enabled` / `view_active` flags; `compact(target)` resizes and/or
-  memmoves active bytes subject to hysteresis; `recv_buffer_view` is the
+  memmoves active bytes subject to hysteresis; `epoll_recv_buffer_view` is the
   limited-interface token delivered to `on_data`: `active_view()` /
   implicit-`string_view` conversion reads the unconsumed region, `consume(n)`
   / `update_active_view(tail)` advance `begin`, `expand_to(n)` requests growth,
@@ -68,13 +68,13 @@ without changing higher layers.
   the `msghdr` kept in sync; `append(iovec)` / `set(span<iovec>)` / `clear()`
   to manage segments; `send(net_socket)` / `recv(net_socket)` perform the
   syscall and return an `op_results` with total byte count and segment-level
-  position; used internally by `stream_conn` for zero-copy multi-buffer sends
-- **[done]** `stream_conn` / `stream_conn_ptr` -- non-blocking connected
-  stream-socket wrapper driven by an `epoll_loop`; `stream_conn` is the state
-  object inheriting from `io_conn`, holding the send queue and a persistent
-  `recv_buffer`; `stream_conn_ptr` is the move-only owning handle
-  (`shared_ptr<stream_conn>` internally; destructor calls `hangup()`); three
-  factory methods on `stream_conn_ptr`: `adopt()` for already-connected
+  position; used internally by `epoll_stream_conn` for zero-copy multi-buffer sends
+- **[done]** `epoll_stream_conn` / `epoll_stream_conn_ptr` -- non-blocking connected
+  stream-socket wrapper driven by an `epoll_loop`; `epoll_stream_conn` is the state
+  object inheriting from `epoll_io_conn`, holding the send queue and a persistent
+  `epoll_recv_buffer`; `epoll_stream_conn_ptr` is the move-only owning handle
+  (`shared_ptr<epoll_stream_conn>` internally; destructor calls `hangup()`); three
+  factory methods on `epoll_stream_conn_ptr`: `adopt()` for already-connected
   sockets, `connect()` for outbound async connect, `listen()` for accept loops;
   `send(Bufs&&...)` variadic template accepts one or more `string` buffers,
   skips any empty ones, and returns false if all are empty; non-empty buffers
@@ -83,18 +83,18 @@ without changing higher layers.
   `shutdown_write()` are thread-safe via `execute_or_post()` / `post()`;
   `can_read()` / `can_write()` query half-close state; `local_endpoint()` /
   `remote_endpoint()` return socket addresses; supports persistent callback
-  mode via `stream_conn_handlers` (`on_data(conn, recv_buffer_view)`,
+  mode via `epoll_stream_conn_handlers` (`on_data(conn, epoll_recv_buffer_view)`,
   `on_drain`, `on_close`); holds `own_handlers_` and an atomic
   `active_handlers_` pointer that facade classes temporarily redirect
-- **[done]** `stream_async_base` / `stream_async_cb` / `stream_async_coro` -- in
-  `stream_async.h`; facade classes that provide per-call async I/O on top of a
-  `stream_conn` by atomically swapping `active_handlers_` for the duration of
-  their lifetime; `stream_async_base` is the non-copyable, non-movable base
+- **[done]** `epoll_stream_async_base` / `epoll_stream_async_cb` / `epoll_stream_async_coro` -- in
+  `epoll_stream_async.h`; facade classes that provide per-call async I/O on top of a
+  `epoll_stream_conn` by atomically swapping `active_handlers_` for the duration of
+  their lifetime; `epoll_stream_async_base` is the non-copyable, non-movable base
   (CAS-based handler install, static trampolines for friend access);
-  `stream_async_cb` provides one-shot callback I/O: `read(cb)` delivers a
-  `recv_buffer_view` on the next arrival, `write(buf, cb)` invokes
+  `epoll_stream_async_cb` provides one-shot callback I/O: `read(cb)` delivers a
+  `epoll_recv_buffer_view` on the next arrival, `write(buf, cb)` invokes
   `cb(bool completed)` when the queue drains or the connection closes;
-  `stream_async_coro` provides C++20 coroutine I/O: `read()` / `write(buf)`
+  `epoll_stream_async_coro` provides C++20 coroutine I/O: `read()` / `write(buf)`
   return awaitables; `EPOLLIN` is gated by `reads_enabled` and armed only when
   a waiter is registered; all coroutine resumptions are deferred through
   `post()` to avoid use-after-free
@@ -102,12 +102,12 @@ without changing higher layers.
   handlers; `initial_suspend` is `suspend_never` (eager start);
   `final_suspend` is `suspend_never` (self-destroying frame); enables
   `co_await coro.read()` / `co_await coro.write(buf)` patterns via
-  `stream_async_coro`
-- **[done]** `tcp_listener` -- now integrated as `stream_conn_ptr::listen()`;
+  `epoll_stream_async_coro`
+- **[done]** `tcp_listener` -- now integrated as `epoll_stream_conn_ptr::listen()`;
   creates a non-blocking listening socket, binds, and calls `listen(2)`; drains
   accepted connections via `accept4` on `EPOLLIN`, creating self-owning
-  `stream_conn` instances with a copy of the listener's handlers
-- **[done]** `tcp_client` -- now integrated as `stream_conn_ptr::connect()`;
+  `epoll_stream_conn` instances with a copy of the listener's handlers
+- **[done]** `tcp_client` -- now integrated as `epoll_stream_conn_ptr::connect()`;
   creates a non-blocking socket, optionally binds the local end, calls
   `connect(2)`, and notifies the caller via `on_drain` on success or `on_close`
   on failure
@@ -117,7 +117,7 @@ without changing higher layers.
   more, `true` = complete frame, `false` = max-length exceeded without finding
   the sentinel); `reset()` clears scan state for the next frame; no copies --
   `frame` is a `string_view` into the caller's buffer
-- **[done]** `stream_sync` -- blocking synchronous stream-socket client for
+- **[done]** `epoll_stream_sync` -- blocking synchronous stream-socket client for
   tests and small tools; wraps a blocking-mode `net_socket`; optional
   per-syscall timeout via `SO_RCVTIMEO` / `SO_SNDTIMEO`; any error closes the
   connection and subsequent calls fail immediately; `send(data)` loops on
@@ -130,14 +130,14 @@ without changing higher layers.
   removed after the experiment revealed that zero-copy requires a different
   buffer-management model and that avoiding `liburing` meant reinventing too
   much plumbing. See the io_uring notes below.
-- **[done]** bilateral close -- `stream_conn` supports
+- **[done]** bilateral close -- `epoll_stream_conn` supports
   `set_shutdown(coordination_policy::bilateral)`; `close()` drains writes,
   issues `SHUT_WR`, then discards incoming data until peer EOF before closing.
   Timeouts against a non-cooperative peer are handled at the application layer
-  via `timer_fuse` (see `http_server`).
+  via `timer_fuse` (see `epoll_http_server`).
 
 If datagram support is needed later, add a separate `dgram_conn` abstraction
-on top of `epoll_loop` rather than broadening `stream_conn`.
+on top of `epoll_loop` rather than broadening `epoll_stream_conn`.
 
 ## Layer 3: HTTP
 
@@ -159,15 +159,15 @@ followed by client and proxy support.
   version, headers, and options); `response_head` with `serialize()` producing
   the full HTTP wire format and `make_error_response()` static factory; stream
   operators on enums for diagnostics
-- **[done]** `http_transaction` -- base class for HTTP/1.x request-response
-  transactions (in `http_transaction.h`); `handle_data(recv_buffer_view&)` and
+- **[done]** `epoll_http_transaction` -- base class for HTTP/1.x request-response
+  transactions (in `epoll_http_transaction.h`); `handle_data(epoll_recv_buffer_view&)` and
   `handle_drain(send_fn&)` virtual methods return `stream_claim` to retain or
   release the read/write stream; intrusive `next` pointer for pipeline queuing
-  managed by `transaction_queue`; `close_after` flag controls keep-alive
+  managed by `epoll_http_transaction_queue`; `close_after` flag controls keep-alive
   disposition; optional `on_data` / `on_drain` callbacks used as defaults;
-  `transaction_factory` type alias (`function<shared_ptr<http_transaction>
+  `epoll_http_transaction_factory` type alias (`function<shared_ptr<epoll_http_transaction>
   (request_head&&)>`) for route handler factories
-- **[done]** `http_server` (HTTP/1.1) -- two-phase request parsing via
+- **[done]** `epoll_http_server` (HTTP/1.1) -- two-phase request parsing via
   `terminated_text_parser`: Phase 1 seeks `"\r\n"` for the request line (max
   8192 bytes), Phase 2 seeks `"\r\n\r\n"` for header fields; HTTP/0.9 requests
   (no version token) dispatch after Phase 1 only; leading bare CRLFs silently
@@ -175,19 +175,19 @@ followed by client and proxy support.
   (`request_line`, `header_lines`, `body`, `response`, `done`); persistent
   connections (keep-alive by default for HTTP/1.1, close for HTTP/1.0);
   pipelining via an `on_data` parse loop that processes all complete header
-  blocks in the receive buffer, relying on `stream_conn::send` FIFO ordering
+  blocks in the receive buffer, relying on `epoll_stream_conn::send` FIFO ordering
   for response sequencing; `Host` header validation for HTTP/1.1 (returns 400
   if absent); `Connection` header honored; `request_timeout` (default 30 s) and
   `write_timeout` (default 5 s) enforced via `timer_fuse` / `timing_wheel`
   (from `corvid::concurrency`); connection state carried in
-  `stream_conn_with_state<http_conn_state>` to avoid separate allocations;
-  routing via `add_route(host_path_key, transaction_factory)` registered in an
+  `epoll_stream_conn_with_state<http_conn_state>` to avoid separate allocations;
+  routing via `add_route(host_path_key, epoll_http_transaction_factory)` registered in an
   `unordered_map` with transparent `host_path` lookup (exact match, then
   hostname-wildcard, then path-wildcard, then catch-all `"/"`)
 - Deferred: request body reading (`Content-Length` / chunked transfer),
   `POST` / `PUT` methods, chunked response encoding, content negotiation,
   encoding decode (percent-hex `%20`, RFC 2047 MIME word, RFC 5987)
-- `http_client` -- HTTP/1.1 client built on `stream_conn`
+- `http_client` -- HTTP/1.1 client built on `epoll_stream_conn`
 - `http_proxy` -- HTTP proxy support
 - **Future:** HTTP/2
 
@@ -207,31 +207,31 @@ WebSocket protocol built on top of the HTTP/1.1 upgrade mechanism.
   (`array<uint32_t,5>`), and `sha_1::bytes(digest_t)` converts it to the raw
   20-byte `array<uint8_t,20>`; suitable only for non-security-critical
   protocol work (RFC 6455 handshake)
-- **[done]** `http_websocket` -- callback-driven WebSocket message pump (in
-  `http_websocket.h`); `ws_frame_control` bitmask enum (opcodes + `fin` bit);
+- **[done]** `epoll_http_websocket` -- callback-driven WebSocket message pump (in
+  `epoll_http_websocket.h`); `ws_frame_control` bitmask enum (opcodes + `fin` bit);
   `ws_frame_header_storage` fixed-size wire-format header storage;
   `ws_frame_wrapper<ACCESS>` typed view over header storage with
   `header_length` / `payload_length` / `total_length` / `is_masked` accessors
   and `mask_payload_copy`; static frame helpers on `ws_frame_wrapper` with
   `serialize_frame` and `compute_accept_key`, plus direct parsing through
-  `ws_frame_view::is_complete()` and `parse()`; `http_websocket` session class
-  runs client or server side; `feed(recv_buffer_view&)` reassembles
+  `ws_frame_view::is_complete()` and `parse()`; `epoll_http_websocket` session class
+  runs client or server side; `feed(epoll_recv_buffer_view&)` reassembles
   fragmented messages and fires `on_message(pump, payload, opcode)` and
   `on_close(pump, code, reason)`; `send_text` / `send_binary` / `send_close` /
   `send_ping` / `send_pong`; optional `deliver_fragments` mode fires per-frame;
   client-side masking uses `std::random_device` (RFC 6455 section 5.3);
   16 MiB per-frame size limit; `close_pending()` signals completed close
   handshake
-- **[done]** `http_websocket_transaction` -- `http_transaction` subclass (in
-  `http_websocket_transaction.h`) that performs the RFC 6455 upgrade handshake
-  and delegates subsequent I/O to `http_websocket`; validates `Upgrade:
+- **[done]** `epoll_http_websocket_transaction` -- `epoll_http_transaction` subclass (in
+  `epoll_http_websocket_transaction.h`) that performs the RFC 6455 upgrade handshake
+  and delegates subsequent I/O to `epoll_http_websocket`; validates `Upgrade:
   websocket`, `Connection: Upgrade`, `Sec-WebSocket-Version: 13`, and
   `Sec-WebSocket-Key`; sends `101 Switching Protocols` with computed
   `Sec-WebSocket-Accept`; returns `stream_claim::claim` permanently from both
   `handle_data` and `handle_drain` until the close handshake completes;
   optional ping/pong keepalive via `enable_keepalive(loop, wheel,
   ping_interval, pong_timeout)` using `timer_fuse`; `make_factory(configure_fn)`
-  builds a `transaction_factory` suitable for `http_server::add_route`
+  builds a `epoll_http_transaction_factory` suitable for `epoll_http_server::add_route`
 
 ## Design Principles
 
@@ -240,9 +240,9 @@ WebSocket protocol built on top of the HTTP/1.1 upgrade mechanism.
 - Headers are self-contained; no source files (library remains header-only).
 - RAII throughout: no manual resource management in user code.
 - Async model: callbacks for simple cases, C++20 coroutines for sequential
-  logic; `stream_conn` handles persistent callbacks natively; per-call
-  callback and coroutine modes are provided by `stream_async_cb` and
-  `stream_async_coro` facades that temporarily redirect the handler pointer.
+  logic; `epoll_stream_conn` handles persistent callbacks natively; per-call
+  callback and coroutine modes are provided by `epoll_stream_async_cb` and
+  `epoll_stream_async_coro` facades that temporarily redirect the handler pointer.
 - Linux is the target OS.
 
 ## Notes on the post queue

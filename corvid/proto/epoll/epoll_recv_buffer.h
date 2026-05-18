@@ -31,6 +31,7 @@ namespace corvid { inline namespace proto {
 
 using namespace corvid::strings::no_zero_funcs;
 
+#pragma region epoll_recv_buffer
 // Persistent flat receive buffer owned by a connection. The framework
 // (polling thread) appends bytes after `end`; the parser (any thread)
 // consumes bytes from `begin`. Both indexes are `std::atomic<size_t>`, so if
@@ -46,6 +47,7 @@ using namespace corvid::strings::no_zero_funcs;
 //            in `active` and `active_view`.
 //   `reads_enabled`: loop-thread-only, no atomics.
 struct epoll_recv_buffer {
+#pragma region Data members
   // Backing storage. `buffer.size() == buffer.capacity`. `end` tracks the
   // written extent; `begin` tracks the consumed extent.
   std::string buffer;
@@ -79,6 +81,8 @@ struct epoll_recv_buffer {
   // However, it will be shrunk down to `min_capacity` once it's no longer
   // needed.
   relaxed_atomic_size_t min_capacity;
+#pragma endregion
+#pragma region Buffer management
 
   // Initialize (or reinitialize) backing storage to `capacity` bytes without
   // zero-init. Resets `begin` and `end` to zero. Only safe when `EPOLLIN` is
@@ -189,8 +193,11 @@ struct epoll_recv_buffer {
     begin.store(0, std::memory_order::release);
     end.store(active_len, std::memory_order::release);
   }
+#pragma endregion
 };
+#pragma endregion
 
+#pragma region epoll_recv_buffer_view
 // Limited-interface token handed to the parser via the `on_data` callback.
 // At most one `epoll_recv_buffer_view` is live at a time for a given
 // connection.
@@ -267,6 +274,7 @@ struct epoll_recv_buffer {
 //  buffer, then you can call `expand_to` to temporarily enlarge the
 //  buffer.
 class epoll_recv_buffer_view {
+#pragma region Construction
 public:
   // Construct a view over `buf`. `resume_cb` is called from the destructor
   // with the requested new buffer size (0 = no change) and the `end` value
@@ -298,6 +306,8 @@ public:
     if (buf_) resume_cb_(new_buffer_size_, last_seen_end_);
   }
   // NOLINTEND(bugprone-exception-escape)
+#pragma endregion
+#pragma region Accessors
 
   // Acquire-load `begin` and `end`; return a snapshot of at least the
   // currently active bytes. Records the observed `end` in `last_seen_end_`
@@ -323,6 +333,8 @@ public:
     assert(buf_);
     return buf_->buffer.capacity();
   }
+#pragma endregion
+#pragma region Buffer management
 
   // Request that the buffer grow to at least `n` bytes on the next compact.
   // Takes effect when the destructor invokes the callback.
@@ -379,12 +391,15 @@ public:
     new_buffer_size_ = std::max(new_buffer_size_, new_cap);
     return true;
   }
-
+#pragma endregion
+#pragma region Data members
 private:
   epoll_recv_buffer* buf_;                        // non-owning; nulled on move
   std::function<void(size_t, size_t)> resume_cb_; // keeps connection alive
   size_t new_buffer_size_{};       // 0 = no growth; set via `expand_to`
   mutable size_t last_seen_end_{}; // updated by `active_view`
+#pragma endregion
 };
+#pragma endregion
 
 }} // namespace corvid::proto

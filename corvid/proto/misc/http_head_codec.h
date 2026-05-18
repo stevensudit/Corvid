@@ -746,7 +746,7 @@ struct request_head: head_base {
     }
 
     // HTTP/1.x: headers required, but that requirement is enforced by
-    // `http_server`.
+    // `epoll_http_server`.
     if (header_lines.empty()) return true;
 
     if (!headers.add_lines(header_lines))
@@ -787,7 +787,7 @@ private:
 // The body is not included.
 //
 // Populate the fields and call `serialize()` to produce the wire-format
-// response string to pass to `stream_conn::send()`.
+// response string to pass to `epoll_stream_conn::send()`.
 struct response_head: head_base {
   http_status_code status_code{};
   std::string reason;

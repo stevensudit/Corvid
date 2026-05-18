@@ -88,7 +88,7 @@ int do_main(int argc, char** argv) {
     return 1;
   }
 
-  auto cache = std::make_shared<const static_file_cache>(web_root);
+  auto cache = std::make_shared<const epoll_static_file_cache>(web_root);
   std::cout << "Loaded " << cache->size() << " file(s) from " << web_root
             << "\n";
 
@@ -101,19 +101,19 @@ int do_main(int argc, char** argv) {
   // within range.
   timing_wheel_runner wheel{1200, 50ms};
 
-  http_server::duration_t request_timeout = 30s;
-  http_server::duration_t write_timeout = 5s;
+  epoll_http_server::duration_t request_timeout = 30s;
+  epoll_http_server::duration_t write_timeout = 5s;
 
   // Create server using the same explicit loop and 50ms timing wheel that the
   // sim WebSocket route will use. The cache shared_ptr is captured by the
   // factory lambda and passed into each transaction, which holds its own
   // reference to keep the cache alive.
-  auto server = http_server::create(
+  auto server = epoll_http_server::create(
       net_endpoint{ipv4_addr::loopback, 8080},
-      [cache](http_server& s) {
+      [cache](epoll_http_server& s) {
         if (!s.add_route({"", "/"},
-                [cache](request_head&& req) -> transaction_ptr {
-                  return std::make_shared<static_file_transaction>(
+                [cache](request_head&& req) -> epoll_http_transaction_ptr {
+                  return std::make_shared<epoll_static_file_transaction>(
                       std::move(req), cache);
                 }))
           return false;

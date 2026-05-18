@@ -38,6 +38,7 @@ namespace corvid { inline namespace proto {
 
 using namespace std::chrono_literals;
 
+#pragma region http_phase
 // Connection lifecycle phase for an accepted HTTP connection.
 //
 // `request_line` -- seeking `"\r\n"` for the request line. Empty blocks
@@ -65,7 +66,9 @@ enum class http_phase : uint8_t {
   response,
   done
 };
+#pragma endregion
 
+#pragma region Routing helpers
 struct host_path {
   std::string_view hostname;
   std::string_view base_path;
@@ -108,7 +111,9 @@ struct transparent_hash_equal_host_path {
 using route_map_t =
     std::unordered_map<host_path_key, epoll_http_transaction_factory,
         transparent_hash_equal_host_path, transparent_hash_equal_host_path>;
+#pragma endregion
 
+#pragma region epoll_http_server
 // HTTP/1.x server (including HTTP/0.9) built on `epoll_stream_conn` and
 // `epoll_loop`, with `timing_wheel`-driven timeouts.
 //
@@ -141,6 +146,7 @@ using route_map_t =
 // empties normally. Defaults to 5 s.
 class epoll_http_server
     : public std::enable_shared_from_this<epoll_http_server> {
+#pragma region Types
   // State associated with each accepted connection, stored in the
   // `epoll_stream_conn` via `epoll_stream_conn_with_state`. All fields are
   // mutated on the epoll loop thread; no locking is needed.
@@ -182,6 +188,8 @@ public:
   using epoll_loop_ptr = std::shared_ptr<epoll_loop>;
   using timing_wheel_ptr = std::shared_ptr<timing_wheel>;
   using configure_fn = std::function<bool(epoll_http_server&)>;
+#pragma endregion
+#pragma region Factories
 
   // Create an HTTP/1.1 server listening on `endpoint`.
   //
@@ -266,6 +274,8 @@ public:
 
     return self;
   }
+#pragma endregion
+#pragma region Accessors
 
   // Return the actual bound address (useful when `endpoint` used port 0).
   [[nodiscard]] net_endpoint local_endpoint() const {
@@ -282,6 +292,8 @@ public:
   [[nodiscard]] http_server_ptr self() {
     return std::static_pointer_cast<epoll_http_server>(shared_from_this());
   }
+#pragma endregion
+#pragma region Routing
 
   // Register `factory` for the route identified by `key`. The `hostname`
   // field is matched against the `Host` request header (empty matches any
@@ -308,6 +320,8 @@ public:
     target = target.substr(0, target.find_first_of("?#"));
     return target.substr(0, target.find('/', 1));
   }
+#pragma endregion
+#pragma region Construction
 
   epoll_http_server(allow) {};
 
@@ -354,7 +368,8 @@ public:
       (void)loop_->post_and_wait([] { return true; });
     }
   }
-
+#pragma endregion
+#pragma region Internals
 private:
   // Actual payload for timeouts.
   [[nodiscard]] static bool timeout_hangup(const timer_fuse_t& fuse) {
@@ -824,6 +839,8 @@ private:
       }
     }
   }
+#pragma endregion
+#pragma region Data members
 
   // Maximum bare CRLFs to skip before the request line (RFC 9112 §2.2).
   static constexpr uint8_t max_leading_crls{8};
@@ -837,5 +854,7 @@ private:
   duration_t write_timeout_{5s};
   conn_ptr_t listener_;
   route_map_t routes_;
+#pragma endregion
 };
+#pragma endregion
 }} // namespace corvid::proto

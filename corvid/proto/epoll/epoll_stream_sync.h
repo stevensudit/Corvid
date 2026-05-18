@@ -29,6 +29,7 @@
 
 namespace corvid { inline namespace proto {
 
+#pragma region epoll_stream_sync
 // Blocking synchronous stream-socket client.
 //
 // Wraps a `net_socket` created in blocking mode. Intended for tests and small
@@ -53,6 +54,7 @@ namespace corvid { inline namespace proto {
 // `recv_until` and `recv_exact` use an internal buffer so unconsumed bytes
 // from one call are available to the next.
 class epoll_stream_sync {
+#pragma region Construction
 public:
   static constexpr size_t default_max_bytes = 1024ULL * 1024ULL; // 1 MiB
 
@@ -63,6 +65,8 @@ public:
 
   epoll_stream_sync(const epoll_stream_sync&) = delete;
   epoll_stream_sync& operator=(const epoll_stream_sync&) = delete;
+#pragma endregion
+#pragma region Factories
 
   // Connect to `ep`. If `timeout` is nonzero, it is applied as a per-syscall
   // limit to each `send` / `recv` call (not the total operation). Returns a
@@ -85,6 +89,8 @@ public:
     if (!result.value_or(false)) return {};
     return s;
   }
+#pragma endregion
+#pragma region Accessors
 
   [[nodiscard]] bool is_open() const noexcept { return sock_.is_open(); }
   [[nodiscard]] explicit operator bool() const noexcept { return is_open(); }
@@ -93,6 +99,8 @@ public:
     errno_on_close_ = errno;
     return sock_.close();
   }
+#pragma endregion
+#pragma region Send
 
   // Send all of `data`, looping on partial writes. Closes and returns false on
   // any error or timeout.
@@ -103,6 +111,8 @@ public:
     }
     return true;
   }
+#pragma endregion
+#pragma region Recv
 
   // Receive up to `max_bytes`, returning whatever arrives first (draining the
   // internal buffer before reading the socket). Returns an empty string on
@@ -151,12 +161,9 @@ public:
   // The `errno` value from the first error that caused the connection to
   // close. Used only in testing.
   [[nodiscard]] int errno_on_close() const noexcept { return errno_on_close_; }
-
+#pragma endregion
+#pragma region Internals
 private:
-  net_socket sock_;
-  std::string buf_;
-  int errno_on_close_{};
-
   // Append one chunk of data from the socket to `buf_`. Closes and returns
   // false on EOF, hard error, or timeout.
   [[nodiscard]] bool do_recv() {
@@ -169,6 +176,14 @@ private:
     no_zero::trim_to(buf_, old_size + n);
     return true;
   }
+#pragma endregion
+#pragma region Data members
+private:
+  net_socket sock_;
+  std::string buf_;
+  int errno_on_close_{};
+#pragma endregion
 };
+#pragma endregion
 
 }} // namespace corvid::proto

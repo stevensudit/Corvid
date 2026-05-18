@@ -32,7 +32,7 @@ namespace corvid { inline namespace proto {
 // `parse` returns `std::optional<bool>`: `true` = complete,
 // `false` = too long, `std::nullopt` = incomplete.
 //
-// Typical integration pattern with `recv_buffer_view` in `on_data`:
+// Typical integration pattern with `epoll_recv_buffer_view` in `on_data`:
 //
 //   // In the connection (constructed once):
 //   terminated_text_parser::state parser_state{"\r\n", 8192};
@@ -107,10 +107,11 @@ public:
   //      the original `input`, without the sentinel), while advancing `input`
   //      past the full frame and its sentinel. Note that `text_out` could be
   //      empty if there's nothing before the sentinel.
-  //    - The `text_out` view will remain valid until the `recv_buffer_view`
+  //    - The `text_out` view will remain valid until the
+  //    `epoll_recv_buffer_view`
   //      destructs, so the caller should act on it in place and return, or
-  //      move the `recv_buffer_view` into a worker thread, or possibly copy
-  //      it.
+  //      move the `epoll_recv_buffer_view` into a worker thread, or possibly
+  //      copy it.
   //    - The caller should pass `input` to `view.update_active_view(input)` so
   //      that it can be consumed, then call `reset()` before the next frame.
   //

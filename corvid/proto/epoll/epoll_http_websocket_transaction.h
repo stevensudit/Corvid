@@ -29,6 +29,7 @@ namespace corvid { inline namespace proto {
 
 using namespace std::chrono_literals;
 
+#pragma region epoll_http_websocket_transaction
 // HTTP transaction that turns an HTTP request into a long-lived WebSocket
 // session.
 //
@@ -59,6 +60,7 @@ using namespace std::chrono_literals;
 //         return true;
 //       });
 class epoll_http_websocket_transaction: public epoll_http_transaction {
+#pragma region Types
 public:
   using duration_t = timing_wheel::duration_t;
   using configure_fn = std::function<bool(epoll_http_websocket_transaction&)>;
@@ -73,16 +75,21 @@ public:
 
   // Called when the client offers subprotocols.
   protocol_fn on_protocol;
-
+#pragma endregion
+#pragma region Construction
 public:
   explicit epoll_http_websocket_transaction(request_head&& req)
       : epoll_http_transaction{std::move(req)} {}
+#pragma endregion
+#pragma region Accessors
 
   // Access the WebSocket pump to install `on_message` / `on_close`
   // callbacks before the connection is upgraded.
   [[nodiscard]] epoll_http_websocket& websocket() noexcept {
     return websocket_;
   }
+#pragma endregion
+#pragma region Overrides
 
   [[nodiscard]] stream_claim handle_data(
       epoll_recv_buffer_view& view) override {
@@ -117,6 +124,8 @@ public:
     if (on_drain) return on_drain(*this, send_cb);
     return upgraded_ ? stream_claim::claim : stream_claim::release;
   }
+#pragma endregion
+#pragma region Keepalive
 
   // Enable WebSocket-level ping/pong keepalive.
   //
@@ -143,6 +152,8 @@ public:
     };
     return true;
   }
+#pragma endregion
+#pragma region Factories
 
   // Build a `epoll_http_transaction_factory` that constructs an
   // `epoll_http_websocket_transaction` for each matching request and then
@@ -164,7 +175,8 @@ public:
       return tx;
     };
   }
-
+#pragma endregion
+#pragma region Internals
 private:
   using ws_fuse_t = timer_fuse<epoll_http_transaction>;
 
@@ -312,6 +324,8 @@ private:
     if (websocket_.is_close_started()) return false;
     return websocket_.send_close(1001, "Keepalive pong not received.");
   }
+#pragma endregion
+#pragma region Data members
 
   epoll_http_transaction::send_fn websocket_send_cb_;
   epoll_http_websocket websocket_{[this](any_strings&& frame) {
@@ -331,5 +345,7 @@ protected:
   // callbacks on the same loop and wheel without storing redundant copies.
   std::weak_ptr<epoll_loop> keepalive_loop_;
   std::weak_ptr<timing_wheel> keepalive_wheel_;
+#pragma endregion
 };
+#pragma endregion
 }} // namespace corvid::proto

@@ -50,6 +50,7 @@ using namespace corvid::strings::any_strings_types;
 // Forward declaration for `epoll_stream_conn_handlers`.
 class epoll_stream_conn;
 
+#pragma region epoll_stream_conn_handlers
 // User-supplied persistent callbacks for a `epoll_stream_conn`. All fields are
 // optional; a null handler is silently skipped when its event fires.
 //
@@ -85,7 +86,9 @@ struct epoll_stream_conn_handlers {
   std::function<bool(epoll_stream_conn&)> on_drain = nullptr;
   std::function<bool(epoll_stream_conn&)> on_close = nullptr;
 };
+#pragma endregion
 
+#pragma region epoll_stream_conn
 // A `epoll_stream_conn` is a non-blocking stream socket driven by an
 // `epoll_loop`. Instances are created, directly or indirectly, by
 // `epoll_stream_conn_ptr_with` factories, and registered with the loop.
@@ -97,15 +100,13 @@ struct epoll_stream_conn_handlers {
 //    non-blocking and connected.
 //
 // 2. Async connect: use the static `epoll_stream_conn_ptr_with::connect`
-// factory. It
-//    creates the socket, optionally binds the local end, calls `connect(2)`,
-//    and registers with the loop. When the kernel reports the outcome,
-//    `on_writable` or `on_error` transitions either to connected state
-//    (notifying any write waiter) or closes the connection.
+//    factory. It creates the socket, optionally binds the local end, calls
+//    `connect(2)`, and registers with the loop. When the kernel reports the
+//    outcome, `on_writable` or `on_error` transitions either to connected
+//    state (notifying any write waiter) or closes the connection.
 //
 // 3. Listening: use the static `epoll_stream_conn_ptr_with::listen` factory.
-// It
-//    creates the socket, sets `SO_REUSEADDR`, binds, and calls `listen(2)`.
+//    It creates the socket, sets `SO_REUSEADDR`, binds, and calls `listen(2)`.
 //    `EPOLLIN` events call `accept4` in a drain loop; each accepted connection
 //    is created as a self-owning `epoll_stream_conn` in the loop, with a copy
 //    of the listener's handlers. `send` and other data-path operations are
@@ -141,7 +142,7 @@ struct epoll_stream_conn_handlers {
 //
 // Supports persistent callbacks via `epoll_stream_conn_handlers`, and `send`.
 //
-// Two additional per-call models are provided by `stream_async.h`:
+// Two additional per-call models are provided by `epoll_stream_async.h`:
 // `epoll_stream_async_cb` (one-shot callbacks) and `epoll_stream_async_coro`
 // (coroutines). Both temporarily redirect `active_handlers_` so
 // `epoll_stream_conn` is unaware of them.
@@ -155,6 +156,7 @@ class epoll_stream_conn_with_state;
 // `epoll_stream_conn_with_state` (and the existing infrastructure friends) can
 // access it, preventing unintended derivation.
 class epoll_stream_conn: public epoll_io_conn {
+#pragma region Accessors
 public:
   // Default receive-buffer capacity per connection, in bytes.
   static constexpr size_t default_recv_buf_size = 16384;
@@ -235,6 +237,9 @@ public:
     return weak_loop_;
   }
 
+#pragma endregion
+#pragma region Send
+
   // Take ownership of one or more `std::string` rvalues and start sending
   // them. There must be at least one non-empty buffer. Returns false if either
   // of these conditions is not met, or if we are unable to write to this
@@ -303,6 +308,8 @@ public:
       return p->enqueue_send_any(std::move(s));
     });
   }
+#pragma endregion
+#pragma region Close
 
   // Start a close. If `coordination` is `unilateral` (the default), flushes
   // pending sends and then closes the socket. If `bilateral`, instead shuts
@@ -334,7 +341,8 @@ public:
     if (!open_) return false;
     return exec_lambda(exec, [p = self()] { return p->do_shutdown_write(); });
   }
-
+#pragma endregion
+#pragma region Friends
 private:
   enum class allow : bool { ctor };
 
@@ -343,7 +351,8 @@ private:
   friend class epoll_stream_conn_ptr_with;
   template<typename>
   friend class epoll_stream_conn_with_state;
-
+#pragma endregion
+#pragma region Construction
 public:
   // Constructor. Technically public to allow
   // `std::make_shared<epoll_stream_conn>` from `epoll_stream_conn_ptr_with`
@@ -370,7 +379,8 @@ public:
   [[nodiscard]] std::shared_ptr<epoll_stream_conn> self() {
     return std::static_pointer_cast<epoll_stream_conn>(shared_from_this());
   }
-
+#pragma endregion
+#pragma region Subclass hooks
 protected:
   // Event loop that drives this connection. Protected so derived classes can
   // reference it in `accept_clone` overrides.
@@ -395,7 +405,8 @@ protected:
         std::move(sock), remote, std::move(handlers), recv_buf_size(),
         std::nullopt, shutdown_);
   }
-
+#pragma endregion
+#pragma region Data members
 private:
   net_endpoint remote_;
 
@@ -475,6 +486,8 @@ private:
   // the queue empties.
   relaxed_atomic<coordination_policy> shutdown_{
       coordination_policy::unilateral};
+#pragma endregion
+#pragma region Internals
 
   // Register `net_socket` with the loop. Stores a shared owner in the loop's
   // registration map, keeping the state alive as long as the fd is
@@ -1182,8 +1195,11 @@ private:
     // fires from within `enqueue_send` -> `await_suspend`.
     return notify_close_once();
   }
+#pragma endregion
 };
+#pragma endregion
 
+#pragma region epoll_stream_conn_ptr_with
 // A move-only smart pointer that owns a `epoll_stream_conn` (or a class
 // derived from it). Despite being implemented with a `shared_ptr`, a
 // `epoll_stream_conn_ptr_with` fully owns the connection and removes it from
@@ -1202,9 +1218,12 @@ class epoll_stream_conn_ptr_with {
   static_assert(std::derived_from<T, epoll_stream_conn>,
       "epoll_stream_conn_ptr_with<T>: T must derive from epoll_stream_conn");
 
+#pragma region Types
 public:
   using conn_t = T;
   using shared_ptr_t = std::shared_ptr<conn_t>;
+#pragma endregion
+#pragma region Construction
 
   // Default constructor -- creates an empty (invalid) handle. `operator bool`
   // returns false.
@@ -1236,6 +1255,8 @@ public:
     });
   }
   // NOLINTEND(bugprone-exception-escape)
+#pragma endregion
+#pragma region Accessors
 
   // Return a const reference to the underlying `shared_ptr` without releasing
   // ownership. The caller may copy it to extend the connection's lifetime
@@ -1245,6 +1266,8 @@ public:
   // Release ownership of the connection. The connection remains registered
   // with the loop and is responsible for itself.
   [[nodiscard]] shared_ptr_t release() { return std::move(conn_); }
+#pragma endregion
+#pragma region Factories
 
   // Adopt an already-connected, non-blocking `sock` and register it with
   // `loop`. `remote` records the peer address for diagnostics. `shutdown` sets
@@ -1340,6 +1363,8 @@ public:
         epoll_stream_conn::default_recv_buf_size, connection_role::server,
         shutdown};
   }
+#pragma endregion
+#pragma region Close
 
   // Start a graceful close. Drains pending sends first, then shuts down the
   // socket. Safe from any thread. Once this is called, destructing
@@ -1359,7 +1384,8 @@ public:
   [[nodiscard]] explicit operator bool() const noexcept {
     return conn_ != nullptr;
   }
-
+#pragma endregion
+#pragma region Internals
 private:
   template<typename>
   friend class epoll_stream_conn_ptr_with;
@@ -1380,15 +1406,20 @@ private:
     if (!loop->post([p = conn_] { return p->register_with_loop(); }))
       conn_.reset();
   }
+#pragma endregion
+#pragma region Data members
 
   shared_ptr_t conn_;
+#pragma endregion
 };
 
 // Untyped alias: the common case where no per-connection state is needed.
 // Use `epoll_stream_conn_ptr_with<MyConn>` for a typed handle to a derived
 // class.
 using epoll_stream_conn_ptr = epoll_stream_conn_ptr_with<>;
+#pragma endregion
 
+#pragma region epoll_stream_conn_with_state
 // Extends `epoll_stream_conn` with a typed per-connection state value. `STATE`
 // must be default-constructible; it is value-initialized when the connection
 // is created.
@@ -1404,8 +1435,11 @@ using epoll_stream_conn_ptr = epoll_stream_conn_ptr_with<>;
 // `STATE`.
 template<typename STATE>
 class epoll_stream_conn_with_state: public epoll_stream_conn {
+#pragma region Types
 public:
   using state_t = STATE;
+#pragma endregion
+#pragma region Construction
 
   // Construct via `epoll_stream_conn_ptr_with` factories only. Technically
   // public because `make_shared` requires it, but gated by the private `allow`
@@ -1417,6 +1451,8 @@ public:
       coordination_policy shutdown = coordination_policy::unilateral)
       : epoll_stream_conn(a, std::move(loop), std::move(sock), remote,
             std::move(h), rbs, connection, shutdown) {}
+#pragma endregion
+#pragma region Accessors
 
   // Access per-connection state.
   [[nodiscard]] state_t& state() noexcept { return state_; }
@@ -1431,7 +1467,8 @@ public:
     assert(dynamic_cast<epoll_stream_conn_with_state*>(&c) != nullptr);
     return static_cast<epoll_stream_conn_with_state&>(c);
   }
-
+#pragma endregion
+#pragma region Subclass hooks
 protected:
   // Produce a `epoll_stream_conn_with_state<STATE>` for each accepted
   // connection, with a fresh default-constructed `STATE`. Returning `nullptr`
@@ -1443,9 +1480,12 @@ protected:
         weak_loop_, std::move(sock), remote, std::move(handlers),
         recv_buf_size(), std::nullopt, shutdown_);
   }
-
+#pragma endregion
+#pragma region Data members
 private:
   state_t state_{};
+#pragma endregion
 };
+#pragma endregion
 
 }} // namespace corvid::proto

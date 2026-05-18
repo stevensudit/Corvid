@@ -52,6 +52,7 @@ using namespace bool_enums;
 
 // WebSocket frame header byte encoding (RFC 6455 section 5.2).
 //
+#pragma region ws_frame_control
 // This isn't given a proper name in the spec, but the low half is referred to
 // as the opcode, while the only allowed bit in the high half is FIN. The MASK
 // flag isn't here: it's the high bit of the length byte that follows.
@@ -89,7 +90,9 @@ constexpr inline auto
             "fin, rsv1, rsv2, rsv3, close, rsv4, binary, text">();
 
 namespace corvid { inline namespace proto {
+#pragma endregion
 
+#pragma region ws_frame_header
 // Wire-format WebSocket frame header. This is similar to `sockaddr_storage`,
 // in that it is a fixed-size structure capable of holding the largest
 // variable-length value.
@@ -104,17 +107,22 @@ struct ws_frame_header {
   uint8_t payload_size_flags{};     // byte 1 on the wire: MASK(1)|len7(7)
   uint8_t variable_section[12]{};   // bytes 2-13
 };
+#pragma endregion
 
+#pragma region ws_frame_wrapper
 // Lightweight, non-owning wrapper around `ws_frame_header` for parsing and
 // updating fields, along with related utilities. Used as `ws_frame_lens` or
 // `ws_frame_view`, depending on mutability.
 template<access ACCESS = access::as_mutable>
 class ws_frame_wrapper {
+#pragma region Types
 public:
   static constexpr bool mutable_v = (ACCESS == access::as_mutable);
   using header_t =
       std::conditional_t<mutable_v, ws_frame_header, const ws_frame_header>;
   using char_ptr_t = std::conditional_t<mutable_v, char*, const char*>;
+#pragma endregion
+#pragma region Construction
 
   ws_frame_wrapper() = default;
 
@@ -157,6 +165,8 @@ public:
     mask_ = 0;
     return false;
   }
+#pragma endregion
+#pragma region Accessors
 
   // Calculate the total number of bytes required for a header that encodes
   // `payload_length`. Suitable for sizing a buffer before `build`ing a header
@@ -325,6 +335,8 @@ public:
     std::memcpy(header, header_, header_length_);
     return true;
   }
+#pragma endregion
+#pragma region Masking
 
   // Copy `src` to `dst`, applying the mask key from the header. Uses `memcpy`
   // when it's effectively zero. Works correctly even if `dst` is `src.data()`
@@ -389,6 +401,8 @@ public:
     if (frame.size() < total_length()) return false;
     return mask_payload_copy(frame, payload_view());
   }
+#pragma endregion
+#pragma region Build
 
   // Build header into `header` and return wrapper for it. Does not write past
   // the end of the actual header size.
@@ -476,6 +490,8 @@ public:
     if (!hdr.mask_payload_copy(frame, payload)) frame.clear();
     return frame;
   }
+#pragma endregion
+#pragma region Helpers
 
   // Compute the `Sec-WebSocket-Accept` value. Returns an empty string if
   // `client_key` is empty or malformed.
@@ -496,12 +512,14 @@ public:
     const auto raw = sha_1::bytes(h);
     return base_64::encode(std::span<const uint8_t>{raw});
   }
-
+#pragma endregion
+#pragma region Data members
 private:
   header_t* header_{};
   size_t header_length_{};
   size_t payload_length_{};
   uint32_t mask_{};
+#pragma endregion
 };
 
 // Read-only view.
@@ -509,7 +527,9 @@ using ws_frame_view = ws_frame_wrapper<access::as_const>;
 
 // Mutable lens.
 using ws_frame_lens = ws_frame_wrapper<access::as_mutable>;
+#pragma endregion
 
+#pragma region epoll_http_websocket
 // Callback-driven WebSocket message pump.
 //
 // This is a state machine capable of running either the client or server
@@ -525,6 +545,7 @@ using ws_frame_lens = ws_frame_wrapper<access::as_mutable>;
 // Send outbound messages via `send_text`, `send_binary`, `send_close`,
 // `send_pong`, and `send_frame`.
 class epoll_http_websocket {
+#pragma region Types
 public:
   // Notification with the payload of the message, and its opcode.
   //
@@ -555,6 +576,8 @@ public:
 
   // Error value for feed(std::string_view&).
   static constexpr size_t insatiable = std::numeric_limits<size_t>::max();
+#pragma endregion
+#pragma region Callbacks
 
   // Called when a text or binary message arrives.
   message_fn on_message;
@@ -578,6 +601,8 @@ public:
   //
   // Note: This is a configuration option, so set it at the start.
   bool validate_utf8{true};
+#pragma endregion
+#pragma region Construction
 
   // Construct with a `send_fn`, in either client or server mode. Then
   // configure using public fields.
@@ -585,6 +610,8 @@ public:
       connection_role role = connection_role::server)
       : send_cb_{std::move(send_cb)},
         is_server_{role == connection_role::server} {}
+#pragma endregion
+#pragma region Feed
 
   // Feed raw received bytes from `handle_data`. Accumulates fragmented
   // messages across frames into `message_` and fires callbacks, while handling
@@ -641,6 +668,8 @@ public:
     }
     return 0;
   }
+#pragma endregion
+#pragma region Send
 
   // Send a text message frame (FIN set, text opcode).
   [[nodiscard]] bool send_text(std::string_view payload) {
@@ -683,6 +712,8 @@ public:
     // making `close_pending` true, which signals the transaction to close.
     return true;
   }
+#pragma endregion
+#pragma region State
 
   // True once either side has initiated the close handshake.
   [[nodiscard]] bool is_close_started() const noexcept {
@@ -709,6 +740,8 @@ public:
   [[nodiscard]] bool pong_pending() const noexcept {
     return pending_pong_.has_value();
   }
+#pragma endregion
+#pragma region Ping/Pong
 
   // Send a ping frame (FIN set, ping opcode). The payload is a 4-byte
   // big-endian representation of an auto-incrementing counter. The counter
@@ -741,6 +774,8 @@ public:
   [[nodiscard]] bool is_send_in_fragment() const noexcept {
     return send_in_fragment_;
   }
+#pragma endregion
+#pragma region Frame send
 
   // Send a frame. `frame_control` encodes both the FIN flag and the opcode
   // nibble. Masking is applied automatically for client-side connections. To
@@ -773,6 +808,8 @@ public:
     if (sent_close_ || !send_cb_) return false;
     return send_cb_(std::move(frame));
   }
+#pragma endregion
+#pragma region Upgrade
 
   // Generate a WebSocket upgrade request for the given `path`, returning the
   // request head and the `Sec-WebSocket-Accept` value that the server should
@@ -793,6 +830,8 @@ public:
 
     return req;
   }
+#pragma endregion
+#pragma region Failure
 
   // Signal an immediate RST by invoking the send function with `monostate`,
   // then return false so callers can propagate the error.
@@ -827,7 +866,8 @@ public:
     (void)hangup();
     return insatiable;
   }
-
+#pragma endregion
+#pragma region Internals
 private:
   [[nodiscard]] static std::string generate_client_key() {
     std::array<uint8_t, 16> raw_bytes;
@@ -1048,6 +1088,8 @@ private:
     std::scoped_lock lock(mtx);
     return rd();
   }
+#pragma endregion
+#pragma region Data members
 
   // Callback for sending frames through provided mechanism.
   epoll_http_transaction::send_fn send_cb_;
@@ -1087,5 +1129,7 @@ private:
   // The counter value of the most recently sent ping, if a pong is still
   // expected. Reset to `nullopt` when a matching pong arrives.
   std::optional<uint32_t> pending_pong_;
+#pragma endregion
 };
+#pragma endregion
 }} // namespace corvid::proto

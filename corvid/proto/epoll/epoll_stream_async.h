@@ -29,6 +29,7 @@ namespace corvid { inline namespace proto {
 // TODO: Consider switching socket over to `EPOLLONESHOT` when this class is
 // in control.
 
+#pragma region epoll_stream_async_base
 // Base class for per-call async wrappers around a `epoll_stream_conn`. These
 // are facades that provide alternative async interfaces (e.g., callback-based
 // or coroutine-based) by temporarily installing their own handlers into the
@@ -56,11 +57,14 @@ namespace corvid { inline namespace proto {
 //  thread. `enable_reads` / `restore_reads` are posted to the loop
 //  asynchronously after each pointer swap.
 class epoll_stream_async_base {
+#pragma region Construction
 public:
   epoll_stream_async_base(const epoll_stream_async_base&) = delete;
   epoll_stream_async_base(epoll_stream_async_base&&) = delete;
   epoll_stream_async_base& operator=(const epoll_stream_async_base&) = delete;
   epoll_stream_async_base& operator=(epoll_stream_async_base&&) = delete;
+#pragma endregion
+#pragma region Accessors
 
   // True if `install_handlers` succeeded and this facade owns the
   // connection's handler slot. Call after construction and before any other
@@ -76,7 +80,8 @@ public:
 
   // True if the write side is still open.
   [[nodiscard]] bool can_write() const noexcept { return conn_->can_write(); }
-
+#pragma endregion
+#pragma region Internals
 protected:
   std::shared_ptr<epoll_stream_conn> conn_;
 
@@ -172,8 +177,11 @@ protected:
   bool post(FN&& fn) {
     return conn_->loop_.post(std::forward<FN>(fn));
   }
+#pragma endregion
 };
+#pragma endregion
 
+#pragma region epoll_stream_async_cb
 // Facade for callback-driven asynchronous I/O on a `epoll_stream_conn`.
 // Provides `read` and `write` for one-shot async I/O.
 //
@@ -207,9 +215,12 @@ protected:
 // is invoked with an empty `epoll_recv_buffer_view` (signals EOF), and the
 // write callback is invoked with `false`.
 class epoll_stream_async_cb: public epoll_stream_async_base {
+#pragma region Types
 public:
   using async_read_cb = std::function<bool(epoll_recv_buffer_view)>;
   using async_write_cb = std::function<bool(bool completed)>;
+#pragma endregion
+#pragma region Construction
 
   explicit epoll_stream_async_cb(std::shared_ptr<epoll_stream_conn> conn)
       : epoll_stream_async_base(std::move(conn)) {
@@ -238,6 +249,8 @@ public:
     };
     install_handlers();
   }
+#pragma endregion
+#pragma region Read
 
   // Receive data once it becomes available. The callback is invoked on the
   // loop thread with a `epoll_recv_buffer_view`; call `active_view` (or use
@@ -275,6 +288,8 @@ public:
     if (!posted) read_pending_.store(false, std::memory_order::release);
     return posted;
   }
+#pragma endregion
+#pragma region Write
 
   // Start sending the data in `buf`, invoking `cb` upon completion or failure.
   // `cb(true)` means the queue drained successfully; `cb(false)` means the
@@ -306,18 +321,9 @@ public:
     if (!posted) write_pending_.store(false, std::memory_order::release);
     return posted;
   }
-
+#pragma endregion
+#pragma region Internals
 private:
-  // `read_cb_` and `write_cb_` are only touched on the loop thread: the
-  // persistent handlers run there, and `read`/`write` post the cb
-  // assignment via `post` / `exec_on_loop`. The atomic `*_pending_` flag
-  // serializes entries from any thread, so at most one caller is in flight
-  // per direction.
-  async_read_cb read_cb_;
-  async_write_cb write_cb_;
-  std::atomic_bool read_pending_{false};
-  std::atomic_bool write_pending_{false};
-
   // Enable reads to arm `EPOLLIN` for the pending callback. Called on the loop
   // thread from the posted lambda in `read`.
   bool arm_read_cb() { return enable_reads(*conn_); }
@@ -337,8 +343,22 @@ private:
     write_pending_.store(false, std::memory_order::release);
     return cb(ok);
   }
+#pragma endregion
+#pragma region Data members
+  // `read_cb_` and `write_cb_` are only touched on the loop thread: the
+  // persistent handlers run there, and `read`/`write` post the cb
+  // assignment via `post` / `exec_on_loop`. The atomic `*_pending_` flag
+  // serializes entries from any thread, so at most one caller is in flight
+  // per direction.
+  async_read_cb read_cb_;
+  async_write_cb write_cb_;
+  std::atomic_bool read_pending_{false};
+  std::atomic_bool write_pending_{false};
+#pragma endregion
 };
+#pragma endregion
 
+#pragma region epoll_stream_async_coro
 // Facade for coroutine-based asynchronous I/O on a `epoll_stream_conn`.
 // Provides `read` and `write` await-based data transfer.
 //
@@ -361,6 +381,7 @@ private:
 //
 // Non-copyable and non-movable.
 class epoll_stream_async_coro: public epoll_stream_async_base {
+#pragma region Construction
 public:
   explicit epoll_stream_async_coro(std::shared_ptr<epoll_stream_conn> conn)
       : epoll_stream_async_base(std::move(conn)) {
@@ -406,6 +427,8 @@ public:
     };
     install_handlers();
   }
+#pragma endregion
+#pragma region Read/Write
 
   // Return an awaitable that suspends the calling coroutine until one batch
   // of data arrives or the connection closes. Returns the received bytes as a
@@ -419,7 +442,8 @@ public:
   [[nodiscard]] auto write(std::string&& buf) noexcept {
     return write_awaitable{this, std::move(buf)};
   }
-
+#pragma endregion
+#pragma region Internals
 private:
   std::coroutine_handle<> read_coro_;
   std::coroutine_handle<> write_coro_;
@@ -430,6 +454,8 @@ private:
   // relative to the `enable_reads(false)` task posted by
   // `install_handlers`.
   bool arm_read() { return enable_reads(*conn_); }
+#pragma endregion
+#pragma region Awaitables
 
   // NOLINTBEGIN(readability-convert-member-functions-to-static)
   struct read_awaitable {
@@ -489,6 +515,8 @@ private:
     void await_resume() noexcept {}
   };
   // NOLINTEND(readability-convert-member-functions-to-static)
+#pragma endregion
 };
+#pragma endregion
 
 }} // namespace corvid::proto

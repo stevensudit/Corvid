@@ -17,10 +17,9 @@
 #pragma once
 // HTTP transaction for serving pre-cached static files.
 //
-// `epoll_static_file_cache`       -- loads and owns the in-memory file cache
-// `epoll_static_file_transaction` -- `epoll_http_transaction` subclass that
-// serves
-//                              entries from a `epoll_static_file_cache`
+// `epoll_static_file_cache` loads and owns the in-memory file cache.
+// `epoll_static_file_transaction` is an `epoll_http_transaction` subclass that
+// serves entries from an `epoll_static_file_cache`.
 #include <filesystem>
 #include <fstream>
 #include <map>
@@ -37,6 +36,7 @@
 
 namespace corvid { inline namespace proto {
 
+#pragma region epoll_static_file_cache
 // `epoll_static_file_cache` is an in-memory cache of static files, keyed by
 // URL path.
 //
@@ -48,12 +48,15 @@ namespace corvid { inline namespace proto {
 // directory-style URLs (e.g., "/") inherit the correct type from the file they
 // alias rather than from the URL itself.
 class epoll_static_file_cache {
+#pragma region Types
 public:
   // A single cached file: its pre-read body and `Content-Type` string.
   struct entry {
     std::string body;
     std::string content_type;
   };
+#pragma endregion
+#pragma region Construction
 
   // Load all regular files under `web_root`. Filesystem errors per entry are
   // silently ignored; an unreadable `web_root` produces an empty cache.
@@ -77,6 +80,8 @@ public:
   epoll_static_file_cache& operator=(const epoll_static_file_cache&) = delete;
   epoll_static_file_cache& operator=(
       epoll_static_file_cache&&) noexcept = default;
+#pragma endregion
+#pragma region Accessors
 
   // Number of cached entries (including aliases such as "/").
   [[nodiscard]] std::size_t size() const noexcept { return map_.size(); }
@@ -86,7 +91,8 @@ public:
   [[nodiscard]] const entry* find(std::string_view url) const {
     return find_opt(map_, url);
   }
-
+#pragma endregion
+#pragma region Helpers
 private:
   // Return the `Content-Type` string for a URL or filename by extension.
   // TODO: This should be a lookup table.
@@ -105,10 +111,14 @@ private:
     if (!f) return std::nullopt;
     return std::string{std::istreambuf_iterator<char>{f}, {}};
   }
-
+#pragma endregion
+#pragma region Data members
   string_map<entry> map_;
+#pragma endregion
 };
+#pragma endregion
 
+#pragma region epoll_static_file_transaction
 // `epoll_static_file_transaction` serves pre-cached static files from a
 // `epoll_static_file_cache`.
 //
@@ -116,9 +126,12 @@ private:
 // independently of the factory closure. Only "GET" is supported; other methods
 // return 405. Request targets not found in the cache return 404.
 struct epoll_static_file_transaction: public epoll_http_transaction {
+#pragma region Construction
   epoll_static_file_transaction(request_head&& req,
       std::shared_ptr<const epoll_static_file_cache> cache)
       : epoll_http_transaction{std::move(req)}, cache_{std::move(cache)} {}
+#pragma endregion
+#pragma region Overrides
 
   [[nodiscard]] stream_claim handle_drain(const send_fn& send_cb) override {
     const auto& req = request_headers;
@@ -153,9 +166,12 @@ struct epoll_static_file_transaction: public epoll_http_transaction {
     (void)send_cb(std::string{e->body});
     return stream_claim::release;
   }
-
+#pragma endregion
+#pragma region Data members
 private:
   std::shared_ptr<const epoll_static_file_cache> cache_;
+#pragma endregion
 };
+#pragma endregion
 
 }} // namespace corvid::proto
