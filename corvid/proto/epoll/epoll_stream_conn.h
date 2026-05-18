@@ -142,11 +142,6 @@ struct epoll_stream_conn_handlers {
 //
 // Supports persistent callbacks via `epoll_stream_conn_handlers`, and `send`.
 //
-// Two additional per-call models are provided by `epoll_stream_async.h`:
-// `epoll_stream_async_cb` (one-shot callbacks) and `epoll_stream_async_coro`
-// (coroutines). Both temporarily redirect `active_handlers_` so
-// `epoll_stream_conn` is unaware of them.
-//
 // Forward declaration so `epoll_stream_conn` can friend it.
 template<typename STATE>
 class epoll_stream_conn_with_state;
@@ -410,14 +405,12 @@ private:
   net_endpoint remote_;
 
   // The connection's own persistent handlers. Never moved or destroyed while
-  // the connection is alive. `active_handlers_` always points here unless an
-  // `epoll_stream_async_base` has temporarily redirected it to its own
-  // handlers.
+  // the connection is alive.
   epoll_stream_conn_handlers own_handlers_;
 
-  // Atomic pointer to the currently active handlers. Normally points to
-  // `own_handlers_`. `epoll_stream_async_base::install_handlers` atomically
-  // swaps this to its own `handlers_` member; its destructor swaps it back.
+  // Atomic pointer to the currently active handlers. Always points to
+  // `own_handlers_`; the redirection mechanism is vestigial from a removed
+  // per-call async layer and is preserved here pending a follow-up cleanup.
   std::atomic<epoll_stream_conn_handlers*> active_handlers_;
 
   // Send queue.
@@ -593,9 +586,10 @@ private:
     return loop_.post_and_wait(std::forward<FN>(fn));
   }
 
-  // Acquire-load `active_handlers_`, synchronizing with the release store in
-  // `epoll_stream_async_base::install_handlers` and its destructor. Required
-  // whenever the returned pointer is dereferenced to invoke a handler.
+  // Acquire-load `active_handlers_`. The acquire pairs with a release store
+  // on the writer side; no writer remains today (see the `active_handlers_`
+  // data-member comment), but the load is kept consistent with the type's
+  // atomic declaration.
   [[nodiscard]] epoll_stream_conn_handlers*
   acquire_active_handlers() const noexcept {
     return active_handlers_.load(std::memory_order::acquire);
@@ -604,8 +598,8 @@ private:
   // Read interest is needed while in listening mode (always) or while the
   // active `on_data` handler is installed AND `reads_enabled` is true.
   // `reads_enabled` allows reads to be suppressed even when a handler exists
-  // (e.g., before the first `read` call in `stream_async`, or for
-  // connections that should not start reading until explicitly armed).
+  // (e.g., for connections that should not start reading until explicitly
+  // armed).
   [[nodiscard]] bool wants_read_events() const noexcept {
     assert(loop_.is_loop_thread());
     if (!open_) return false;
@@ -624,7 +618,8 @@ private:
   }
 
   // Returns true if `active_handlers_` has been redirected away from
-  // `own_handlers_` by an `epoll_stream_async_base`.
+  // `own_handlers_`. Currently always false (see the `active_handlers_`
+  // data-member comment).
   [[nodiscard]] bool are_handlers_external() const noexcept {
     return acquire_active_handlers() != &own_handlers_;
   }
@@ -647,10 +642,9 @@ private:
     return true;
   }
 
-  // Deliver newly read data to the active `on_data` handler (which may be
-  // `own_handlers_.on_data` or one installed by an `epoll_stream_async_base`
-  // child). Sets `view_active` before dispatching; it is cleared by
-  // `resume_receive` once the view destructs.
+  // Deliver newly read data to the active `on_data` handler. Sets
+  // `view_active` before dispatching; it is cleared by `resume_receive` once
+  // the view destructs.
   [[nodiscard]] bool notify_read_ready() {
     assert(loop_.is_loop_thread());
     auto* h = acquire_active_handlers();
@@ -701,11 +695,10 @@ private:
       return do_close_now(close_mode::forceful) && false;
     read_open_ = false;
     if (!loop_.enable_reads(*this, false)) return false;
-    // Notify any `epoll_stream_async_base` that may have a pending read
-    // waiter. `notify_read_closed` calls `active_handlers_->on_data` with an
-    // empty buffer; persistent own handlers use `on_close` instead. Skip if a
-    // view is live (`recv_buf_.view_active` is true), since
-    // `notify_read_closed` must not be called while a view exists.
+    // External-handler path (currently unreachable): would notify a pending
+    // read waiter via `notify_read_closed`, which calls `on_data` with an
+    // empty buffer. Persistent own handlers use `on_close` instead. The view
+    // guard prevents calling `notify_read_closed` while a view exists.
     if (are_handlers_external() && !recv_buf_.view_active)
       (void)notify_read_closed();
     return maybe_finish_after_side_close() || true;
@@ -733,9 +726,9 @@ private:
   }
 
   // Dispatch the deferred EOF notifications: deliver `notify_read_closed` to
-  // any external async handler, then fire `on_close`. Called by
-  // `handle_read_eof` when no view is live, or by `resume_receive` after
-  // a deferred EOF (when `eof_pending_` was set).
+  // any external handler (currently unreachable), then fire `on_close`.
+  // Called by `handle_read_eof` when no view is live, or by `resume_receive`
+  // after a deferred EOF (when `eof_pending_` was set).
   [[nodiscard]] bool do_eof_notifications() {
     assert(loop_.is_loop_thread());
     // `read_open_`, `enable_reads`, and `enable_rdhup` were already handled in
@@ -976,8 +969,6 @@ private:
 
       // Space is available and no unseen bytes remain. Re-evaluate `EPOLLIN`
       // based on current state (`reads_enabled` and active handler presence).
-      // This re-arms `EPOLLIN` for persistent handlers and leaves it off for
-      // `stream_async` when no read is pending.
       return p->refresh_read_interest();
     });
   }
@@ -1090,9 +1081,9 @@ private:
     if (!loop_.enable_writes(*this, false))
       return do_close_now(close_mode::forceful) && false;
 
-    // If we were waiting to close, do so now. Notify any
-    // `epoll_stream_async_base` write waiter of the successful flush before
-    // closing; bare persistent handlers receive only `on_close`.
+    // If we were waiting to close, do so now. External-handler path (currently
+    // unreachable) would notify a write waiter of the successful flush before
+    // closing; persistent handlers receive only `on_close`.
     if (close_requested_) {
       if (are_handlers_external()) (void)notify_drained();
       return do_finish_close();
@@ -1188,11 +1179,7 @@ private:
     iov_sender_.clear();
     close_requested_ = false;
 
-    // `on_close` notifies any pending `epoll_stream_async_base` waiters (coro
-    // or cb). The handler is always posted-resume, never inline, so any
-    // in-progress `await_suspend` on the call stack has returned before the
-    // coroutine continues -- preventing use-after-free when `do_close_now`
-    // fires from within `enqueue_send` -> `await_suspend`.
+    // Fire `on_close` exactly once.
     return notify_close_once();
   }
 #pragma endregion
