@@ -18,6 +18,7 @@
 #pragma once
 
 #include <chrono>
+#include <csignal>
 #include <print>
 #include <string_view>
 #include <vector>
@@ -39,6 +40,12 @@
 // Define `CATCH2_SHOW_TIMERS == 1` (mirroring `MINITEST_SHOW_TIMERS`) to get
 // per-test timing for every test case, not just the slow ones.
 int main(int argc, char* argv[]) {
+  // Ignore SIGPIPE so socket-using tests don't die when a peer closes
+  // mid-write. The library's `submit_write_buffer` path can't pass
+  // MSG_NOSIGNAL; the close-then-write race surfaces intermittently
+  // (especially under MSAN). Server programs do the same at startup.
+  std::signal(SIGPIPE, SIG_IGN);
+
   std::vector<char*> args(argv, argv + argc);
   bool have_durations{false};
   bool have_min_duration{false};
