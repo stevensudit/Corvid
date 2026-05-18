@@ -272,21 +272,17 @@ TEST_CASE("BufferMoveOut", "[IouStreamConn]") {
 #pragma region GracefulClose
 
 TEST_CASE("GracefulClose", "[IouStreamConn]") {
-  // `close()` -> on_close fires on both sides.
+  // `close()` -> on_close fires on the closing side. The peer sees EOF via
+  // an empty on_data view and only fires its own on_close once it closes
+  // itself; that is covered by `PeerEofDeliversEmptyView`.
   if (true) {
     auto [sock0, sock1] = net_socket::create_pair();
 
     std::atomic_bool closed0{false};
-    std::atomic_bool closed1{false};
 
     capture_protocol::state state0;
     state0.on_close = [&] {
       closed0.store(true, std::memory_order::release);
-      return true;
-    };
-    capture_protocol::state state1;
-    state1.on_close = [&] {
-      closed1.store(true, std::memory_order::release);
       return true;
     };
 
@@ -296,7 +292,7 @@ TEST_CASE("GracefulClose", "[IouStreamConn]") {
         net_endpoint::invalid, shot_type::single, {}, {}, &state0)
                      .lock();
     auto conn1 = capture_conn::adopt(*runner.loop(), std::move(sock1),
-        net_endpoint::invalid, shot_type::single, {}, {}, &state1)
+        net_endpoint::invalid)
                      .lock();
     CHECK(conn0);
     CHECK(conn1);
@@ -304,11 +300,8 @@ TEST_CASE("GracefulClose", "[IouStreamConn]") {
     // Give both connections time to arm their recv SQEs.
     std::this_thread::sleep_for(20ms);
 
-    // TODO: This doesn't do the graceful close that's promised.
-
     CHECK(conn0->close());
     CHECK(WaitFor([&] { return closed0.load(std::memory_order::acquire); }));
-    CHECK(closed0.load());
   }
 }
 

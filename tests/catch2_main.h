@@ -55,11 +55,15 @@ int main(int argc, char* argv[]) {
   }
   if (!have_durations && !have_min_duration) {
 #if defined(CATCH2_SHOW_TIMERS) && CATCH2_SHOW_TIMERS == 1
-    args.push_back(const_cast<char*>("--durations"));
-    args.push_back(const_cast<char*>("yes"));
+    static char durations_flag[] = "--durations";
+    static char durations_value[] = "yes";
+    args.push_back(durations_flag);
+    args.push_back(durations_value);
 #else
-    args.push_back(const_cast<char*>("--min-duration"));
-    args.push_back(const_cast<char*>("0.1"));
+    static char min_duration_flag[] = "--min-duration";
+    static char min_duration_value[] = "0.1";
+    args.push_back(min_duration_flag);
+    args.push_back(min_duration_value);
 #endif
   }
   const auto start = std::chrono::steady_clock::now();
