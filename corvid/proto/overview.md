@@ -212,13 +212,6 @@ or failed async connect. If no `on_close` handler is installed, a graceful
 close is initiated automatically so that connections without an external owner
 are fully torn down rather than left half-open.
 
-### `loop_task`
-
-Fire-and-forget coroutine return type for `epoll_loop`-driven handlers. The
-coroutine body starts eagerly on the call site (`initial_suspend` returns
-`suspend_never`) and the frame self-destroys on completion (`final_suspend`
-returns `suspend_never`). Unhandled exceptions call `std::terminate`.
-
 ### `terminated_text_parser`
 
 Incremental sentinel-terminated text frame parser for line-oriented protocols

@@ -2146,24 +2146,6 @@ TEST_CASE("DestructorHangsUp", "[StreamConn]") {
 }
 
 #pragma endregion
-
-// Coroutine tests.
-
-// Verify that a `loop_task` coroutine body executes eagerly and that the
-// frame is self-destroyed (i.e., no handle is needed to drive it).
-#pragma region FireAndForget
-
-TEST_CASE("FireAndForget", "[LoopTask]") {
-  int counter = 0;
-  auto coro = [&]() -> loop_task {
-    ++counter;
-    co_return;
-  };
-  coro(); // starts and finishes synchronously; frame self-destructs
-  CHECK(counter == 1);
-}
-
-#pragma endregion
 #pragma region EchoServer
 
 TEST_CASE("EchoServer", "[StreamConn]") {

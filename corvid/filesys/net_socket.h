@@ -676,7 +676,7 @@ public:
       const size_t old_size = buf.size();
       if (old_size >= max_size) break;
       no_zero::resize_to(buf, std::min(old_size + 4096, max_size));
-      if (!recv_at(buf, old_size)) break;
+      if (!recv_at(buf, old_size) || buf.size() == old_size) break;
     }
     buf.clear();
     return {};
@@ -686,10 +686,10 @@ public:
   // returns true immediately (the caller still has unprocessed bytes from a
   // previous read). Otherwise reads the next chunk from `sock` into `buf`.
   // Returns false on EOF, hard error, or timeout, with `buf` cleared.
-  [[nodiscard]] bool recv_sync_chunk(std::string& buf) const {
+  [[nodiscard]] bool
+  recv_sync_chunk(std::string& buf, size_t max_bytes = 4096) const {
     if (!buf.empty()) return true;
-    no_zero::enlarge_to(buf, 4096);
-    if (!recv(buf)) {
+    if (!recv(no_zero::enlarge_to(buf, max_bytes))) {
       buf.clear();
       return false;
     }
@@ -705,10 +705,11 @@ public:
   [[nodiscard]] bool recv_sync_drain_to_eof(
       size_t max_bytes = 4096 * 4ULL) const {
     std::string buf;
-    size_t loops = (max_bytes + 4095) / 4096;
-    for (size_t loop = 0; loop < loops; ++loop) {
-      no_zero::enlarge_to(buf, 4096);
-      if (!recv(buf)) return !buf.empty();
+    for (size_t bytes_read = 0; bytes_read < max_bytes;
+        bytes_read += buf.size())
+    {
+      const size_t chunk = std::min<size_t>(4096, max_bytes - bytes_read);
+      if (!recv(no_zero::resize_to(buf, chunk))) return !buf.empty();
       if (buf.empty()) return false;
     }
     return false;
@@ -746,8 +747,7 @@ public:
     return ::sendmsg(handle(), &msgh, *flags);
   }
 
-  // Send all of `data` on a synchronous socket, looping as needed. On success,
-  // clears `data` and returns true.
+  // Send all of `data` on a synchronous socket, looping as needed.
   [[nodiscard]] bool send_sync_all(std::string_view data) const noexcept {
     while (!data.empty()) {
       const auto prev = data.size();

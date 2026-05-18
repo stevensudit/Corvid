@@ -86,9 +86,6 @@ without changing higher layers.
   mode via `epoll_stream_conn_handlers` (`on_data(conn, epoll_recv_buffer_view)`,
   `on_drain`, `on_close`); holds `own_handlers_` and an atomic
   `active_handlers_` pointer that an extension may temporarily redirect
-- **[done]** `loop_task` -- fire-and-forget coroutine return type for `epoll_loop`
-  handlers; `initial_suspend` is `suspend_never` (eager start);
-  `final_suspend` is `suspend_never` (self-destroying frame)
 - **[done]** `tcp_listener` -- now integrated as `epoll_stream_conn_ptr::listen()`;
   creates a non-blocking listening socket, binds, and calls `listen(2)`; drains
   accepted connections via `accept4` on `EPOLLIN`, creating self-owning
