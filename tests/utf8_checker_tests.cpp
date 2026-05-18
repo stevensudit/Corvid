@@ -25,8 +25,8 @@
 #include <iostream>
 #include <unistd.h>
 
-#define MINITEST_SHOW_TIMERS 0
-#include "minitest.h"
+#define CATCH2_SHOW_TIMERS 0
+#include "catch2_main.h"
 
 using namespace corvid;
 using namespace std::string_literals;
@@ -46,57 +46,54 @@ bool is_codex() {
 #pragma region Complete
 
 // ASCII and fully contained multibyte sequences leave the validator complete.
-void Utf8Checker_Complete() {
+TEST_CASE("Complete", "[Utf8Checker]") {
   utf8_checker v;
-  EXPECT_EQ(v.state(), utf8_checker::validation::complete);
-  EXPECT_EQ(v.validate("hello"), utf8_checker::validation::complete);
-  EXPECT_EQ(v.validate("\xE2\x82\xAC"), utf8_checker::validation::complete);
-  EXPECT_TRUE(v.is_complete());
+  CHECK(v.state() == utf8_checker::validation::complete);
+  CHECK(v.validate("hello") == utf8_checker::validation::complete);
+  CHECK(v.validate("\xE2\x82\xAC") == utf8_checker::validation::complete);
+  CHECK(v.is_complete());
 }
 
 #pragma endregion
 #pragma region IncompleteThenComplete
 
 // A split multibyte sequence transitions to incomplete, then back to complete.
-void Utf8Checker_IncompleteThenComplete() {
+TEST_CASE("IncompleteThenComplete", "[Utf8Checker]") {
   utf8_checker v;
-  EXPECT_EQ(v.validate("\xF0\x9F"), utf8_checker::validation::incomplete);
-  EXPECT_TRUE(v.is_incomplete());
-  EXPECT_EQ(v.validate("\x98\x80"), utf8_checker::validation::complete);
-  EXPECT_TRUE(v.is_complete());
+  CHECK(v.validate("\xF0\x9F") == utf8_checker::validation::incomplete);
+  CHECK(v.is_incomplete());
+  CHECK(v.validate("\x98\x80") == utf8_checker::validation::complete);
+  CHECK(v.is_complete());
 }
 
 #pragma endregion
 #pragma region InvalidSticky
 
 // Invalid leading and continuation bytes move the validator to sticky invalid.
-void Utf8Checker_InvalidSticky() {
+TEST_CASE("InvalidSticky", "[Utf8Checker]") {
   utf8_checker v;
-  EXPECT_EQ(v.validate("\x80"), utf8_checker::validation::failed);
-  EXPECT_TRUE(v.is_failed());
-  EXPECT_EQ(v.validate("abc"), utf8_checker::validation::failed);
-  EXPECT_TRUE(v.is_failed());
+  CHECK(v.validate("\x80") == utf8_checker::validation::failed);
+  CHECK(v.is_failed());
+  CHECK(v.validate("abc") == utf8_checker::validation::failed);
+  CHECK(v.is_failed());
 }
 
 #pragma endregion
 #pragma region RejectsInvalidSequences
 
 // Reject overlongs, surrogate code points, and code points past U+10FFFF.
-void Utf8Checker_RejectsInvalidSequences() {
+TEST_CASE("RejectsInvalidSequences", "[Utf8Checker]") {
   utf8_checker v;
-  EXPECT_EQ(v.validate("\xE0\x80\x80"), utf8_checker::validation::failed);
+  CHECK(v.validate("\xE0\x80\x80") == utf8_checker::validation::failed);
 
   v.reset();
-  EXPECT_EQ(v.validate("\xED\xA0\x80"), utf8_checker::validation::failed);
+  CHECK(v.validate("\xED\xA0\x80") == utf8_checker::validation::failed);
 
   v.reset();
-  EXPECT_EQ(v.validate("\xF4\x90\x80\x80"), utf8_checker::validation::failed);
+  CHECK(v.validate("\xF4\x90\x80\x80") == utf8_checker::validation::failed);
 }
 
 #pragma endregion
-
-MAKE_TEST_LIST(Utf8Checker_Complete, Utf8Checker_IncompleteThenComplete,
-    Utf8Checker_InvalidSticky, Utf8Checker_RejectsInvalidSequences);
 
 // NOLINTEND(bugprone-unchecked-optional-access)
 // NOLINTEND(readability-function-cognitive-complexity)

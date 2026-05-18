@@ -18,19 +18,12 @@ fi
 echo "Using $CLANG_FORMAT"
 echo "Formatting all .cpp and .h files..."
 
-# Find and format all .cpp files, excluding build directories and CMake files
-find . -type f -name "*.cpp" \
+# Find and format all .cpp and .h files, excluding build directories, CMake
+# files, and the .local sandbox (used for MSAN-instrumented LLVM source).
+find . -type f \( -name "*.cpp" -o -name "*.h" \) \
   -not -path "*/build/*" \
   -not -path "*/CMakeFiles/*" \
-  -print0 | while IFS= read -r -d '' file; do
-  echo "Formatting: $file"
-  "$CLANG_FORMAT" -i "$file"
-done
-
-# Find and format all .h files, excluding build directories and CMake files
-find . -type f -name "*.h" \
-  -not -path "*/build/*" \
-  -not -path "*/CMakeFiles/*" \
+  -not -path "*/.local/*" \
   -print0 | while IFS= read -r -d '' file; do
   echo "Formatting: $file"
   "$CLANG_FORMAT" -i "$file"

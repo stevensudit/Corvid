@@ -30,7 +30,22 @@
 #include "../../meta/forwarding_address.h"
 #include "../../containers/object_pool.h"
 
+#if defined(__has_feature) && __has_feature(memory_sanitizer)
+#include <sanitizer/msan_interface.h>
+#endif
+
 namespace corvid { inline namespace proto { namespace iouring {
+
+// MSAN cannot observe kernel writes performed by `io_uring` completions
+// (`recv`/`recvmsg` fill user buffers via `syscall` completion, not through
+// any instrumented store). Call this on bytes the kernel just wrote so MSAN
+// stops treating them as poisoned. No-op under non-MSAN builds.
+inline void msan_unpoison_kernel_write([[maybe_unused]] const void* p,
+    [[maybe_unused]] size_t n) noexcept {
+#if defined(__has_feature) && __has_feature(memory_sanitizer)
+  if (n) __msan_unpoison(p, n);
+#endif
+}
 
 #pragma region iou_buffer
 
@@ -432,6 +447,8 @@ public:
           full_span_.size() -
               static_cast<size_t>(payload_span_.data() - full_span_.data()) -
               payload_span_.size());
+      auto* tail_start = payload_span_.data() + payload_span_.size();
+      msan_unpoison_kernel_write(tail_start, extend);
       payload_span_ = {payload_span_.data(), payload_span_.size() + extend};
       auto* end = payload_span_.data() + payload_span_.size();
       active_span_ = {end,
@@ -465,6 +482,11 @@ public:
     res_ = res;
     cqe_flags_ = cqe_flags;
     if (!bitmask::has(cqe_flags_, iou_cqe_flags::more)) --pending_releases_;
+
+    // The kernel wrote a `recvmsg` header + peer address + payload at the
+    // start of `full_span_`. Unpoison the touched prefix so `iou_recvmsg_out`
+    // can parse it without tripping MSAN. `res.bytes()` is the total written.
+    if (res) msan_unpoison_kernel_write(full_span_.data(), res.bytes());
 
     iou_recvmsg_out out{full_span_.data(), msgh, res};
     if (out) {

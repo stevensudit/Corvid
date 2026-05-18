@@ -18,7 +18,7 @@
 #include "../corvid/concurrency/timeout_sweeper.h"
 #include "../corvid/meta/fixed_function.h"
 
-#include "minitest.h"
+#include "catch2_main.h"
 
 #include <memory>
 #include <vector>
@@ -38,40 +38,42 @@ static tp T(int ms) { return tp{} + std::chrono::milliseconds{ms}; }
 
 #pragma region BasicFire
 
-void TimeoutSweeper_BasicFire() {
+TEST_CASE("BasicFire", "[TimeoutSweeper]") {
   sweeper s;
   int fired{0};
-  EXPECT_TRUE(s.schedule(T(100), [&](tp) -> tp {
+  CHECK(s.schedule(T(100), [&](tp) -> tp {
     ++fired;
     return {};
   }));
-  EXPECT_EQ(s.size(), 1U);
+  CHECK(s.size() == 1U);
   s.tick(T(100));
-  EXPECT_EQ(fired, 1);
-  EXPECT_TRUE(s.empty());
+  CHECK(fired == 1);
+  CHECK(s.empty());
 }
 
 #pragma endregion
 #pragma region NotFiredEarly
 
-void TimeoutSweeper_NotFiredEarly() {
-  sweeper s;
+TEST_CASE("NotFiredEarly", "[TimeoutSweeper]") {
+  // `fired` must outlive `s`: the sweeper's destructor drains the still-queued
+  // T(100) callback (neither tick reaches it), which captures `&fired`.
   int fired{0};
+  sweeper s;
   s.schedule(T(100), [&](tp) -> tp {
     ++fired;
     return {};
   });
   s.tick(T(50));
-  EXPECT_EQ(fired, 0);
-  EXPECT_EQ(s.size(), 1U);
+  CHECK(fired == 0);
+  CHECK(s.size() == 1U);
   s.tick(T(99));
-  EXPECT_EQ(fired, 0);
+  CHECK(fired == 0);
 }
 
 #pragma endregion
 #pragma region MinHeapOrder
 
-void TimeoutSweeper_MinHeapOrder() {
+TEST_CASE("MinHeapOrder", "[TimeoutSweeper]") {
   // Insert out of expiration order; the heap should pop in time order
   // regardless of insertion order.
   sweeper s;
@@ -89,16 +91,16 @@ void TimeoutSweeper_MinHeapOrder() {
     return {};
   });
   s.tick(T(500));
-  ASSERT_EQ(order.size(), 3U);
-  EXPECT_EQ(order[0], 1);
-  EXPECT_EQ(order[1], 2);
-  EXPECT_EQ(order[2], 3);
+  REQUIRE(order.size() == 3U);
+  CHECK(order[0] == 1);
+  CHECK(order[1] == 2);
+  CHECK(order[2] == 3);
 }
 
 #pragma endregion
 #pragma region ExpireParameterIsRegisteredTime
 
-void TimeoutSweeper_ExpireParameterIsRegisteredTime() {
+TEST_CASE("ExpireParameterIsRegisteredTime", "[TimeoutSweeper]") {
   // The callback receives the registered expiration, not the tick time.
   sweeper s;
   tp captured{};
@@ -107,14 +109,14 @@ void TimeoutSweeper_ExpireParameterIsRegisteredTime() {
     return {};
   });
   s.tick(T(500));
-  EXPECT_EQ(captured.time_since_epoch().count(),
-      T(100).time_since_epoch().count());
+  CHECK((captured.time_since_epoch().count()) ==
+        (T(100).time_since_epoch().count()));
 }
 
 #pragma endregion
 #pragma region RearmReturnsNewTime
 
-void TimeoutSweeper_RearmReturnsNewTime() {
+TEST_CASE("RearmReturnsNewTime", "[TimeoutSweeper]") {
   sweeper s;
   int fired{0};
   s.schedule(T(100), [&](tp) -> tp {
@@ -122,22 +124,22 @@ void TimeoutSweeper_RearmReturnsNewTime() {
     return fired < 3 ? T(100 + (fired * 100)) : tp{};
   });
   s.tick(T(50));
-  EXPECT_EQ(fired, 0);
+  CHECK(fired == 0);
   s.tick(T(150)); // fire 1, rearm to T(200)
-  EXPECT_EQ(fired, 1);
-  EXPECT_EQ(s.size(), 1U);
+  CHECK(fired == 1);
+  CHECK(s.size() == 1U);
   s.tick(T(250)); // fire 2, rearm to T(300)
-  EXPECT_EQ(fired, 2);
-  EXPECT_EQ(s.size(), 1U);
+  CHECK(fired == 2);
+  CHECK(s.size() == 1U);
   s.tick(T(350)); // fire 3, returns zero -> drop
-  EXPECT_EQ(fired, 3);
-  EXPECT_TRUE(s.empty());
+  CHECK(fired == 3);
+  CHECK(s.empty());
 }
 
 #pragma endregion
 #pragma region MultipleExpiredInOneTick
 
-void TimeoutSweeper_MultipleExpiredInOneTick() {
+TEST_CASE("MultipleExpiredInOneTick", "[TimeoutSweeper]") {
   // A single tick should drain everything whose expiration is at or before
   // the tick time, in order.
   sweeper s;
@@ -148,14 +150,14 @@ void TimeoutSweeper_MultipleExpiredInOneTick() {
       return {};
     });
   s.tick(T(50));
-  EXPECT_EQ(count, 5);
-  EXPECT_TRUE(s.empty());
+  CHECK(count == 5);
+  CHECK(s.empty());
 }
 
 #pragma endregion
 #pragma region Clear
 
-void TimeoutSweeper_Clear() {
+TEST_CASE("Clear", "[TimeoutSweeper]") {
   sweeper s;
   int fired{0};
   s.schedule(T(100), [&](tp) -> tp {
@@ -166,32 +168,32 @@ void TimeoutSweeper_Clear() {
     ++fired;
     return {};
   });
-  EXPECT_EQ(s.size(), 2U);
+  CHECK(s.size() == 2U);
   s.clear();
-  EXPECT_TRUE(s.empty());
+  CHECK(s.empty());
   s.tick(T(500));
-  EXPECT_EQ(fired, 0);
+  CHECK(fired == 0);
 }
 
 #pragma endregion
 #pragma region SizeAndEmpty
 
-void TimeoutSweeper_SizeAndEmpty() {
+TEST_CASE("SizeAndEmpty", "[TimeoutSweeper]") {
   sweeper s;
-  EXPECT_TRUE(s.empty());
-  EXPECT_EQ(s.size(), 0U);
+  CHECK(s.empty());
+  CHECK(s.size() == 0U);
   s.schedule(T(100), [](tp) -> tp { return {}; });
-  EXPECT_FALSE(s.empty());
-  EXPECT_EQ(s.size(), 1U);
+  CHECK_FALSE(s.empty());
+  CHECK(s.size() == 1U);
   s.tick(T(150));
-  EXPECT_TRUE(s.empty());
-  EXPECT_EQ(s.size(), 0U);
+  CHECK(s.empty());
+  CHECK(s.size() == 0U);
 }
 
 #pragma endregion
 #pragma region DestructorDrains
 
-void TimeoutSweeper_DestructorDrains() {
+TEST_CASE("DestructorDrains", "[TimeoutSweeper]") {
   // Pending callbacks should each fire exactly once when the sweeper is
   // destroyed without an explicit drain tick.
   int fired{0};
@@ -206,13 +208,13 @@ void TimeoutSweeper_DestructorDrains() {
       return {};
     });
   }
-  EXPECT_EQ(fired, 2);
+  CHECK(fired == 2);
 }
 
 #pragma endregion
 #pragma region DestructorShortCircuitsRearm
 
-void TimeoutSweeper_DestructorShortCircuitsRearm() {
+TEST_CASE("DestructorShortCircuitsRearm", "[TimeoutSweeper]") {
   // A callback that always asks to rearm must still fire only once during
   // the destructor's drain; otherwise the drain would not terminate.
   int fired{0};
@@ -223,13 +225,13 @@ void TimeoutSweeper_DestructorShortCircuitsRearm() {
       return T(200);
     });
   }
-  EXPECT_EQ(fired, 1);
+  CHECK(fired == 1);
 }
 
 #pragma endregion
 #pragma region DestructorBlocksFurtherSchedule
 
-void TimeoutSweeper_DestructorBlocksFurtherSchedule() {
+TEST_CASE("DestructorBlocksFurtherSchedule", "[TimeoutSweeper]") {
   // While the destructor is draining, `closing_` is set; any `schedule`
   // attempt from inside a fired callback must be rejected.
   bool inner_accepted{true};
@@ -240,13 +242,13 @@ void TimeoutSweeper_DestructorBlocksFurtherSchedule() {
       return {};
     });
   }
-  EXPECT_FALSE(inner_accepted);
+  CHECK_FALSE(inner_accepted);
 }
 
 #pragma endregion
 #pragma region ScheduleAcceptsDuringNormalTick
 
-void TimeoutSweeper_ScheduleAcceptsDuringNormalTick() {
+TEST_CASE("ScheduleAcceptsDuringNormalTick", "[TimeoutSweeper]") {
   // Outside of destructor drain, a callback fired during a normal `tick`
   // must be able to schedule new entries.
   sweeper s;
@@ -256,8 +258,8 @@ void TimeoutSweeper_ScheduleAcceptsDuringNormalTick() {
     return {};
   });
   s.tick(T(150));
-  EXPECT_TRUE(inner_accepted);
-  EXPECT_EQ(s.size(), 1U);
+  CHECK(inner_accepted);
+  CHECK(s.size() == 1U);
 }
 
 #pragma endregion
@@ -271,7 +273,7 @@ struct test_conn {
 };
 } // namespace
 
-void TimeoutSweeper_ConnPattern_CloseOnIdle() {
+TEST_CASE("ConnPattern_CloseOnIdle", "[TimeoutSweeper]") {
   // Canonical idle-timeout pattern. When `read_expiration_` matches the
   // registered time, the callback closes the conn.
   sweeper s;
@@ -290,14 +292,14 @@ void TimeoutSweeper_ConnPattern_CloseOnIdle() {
   });
 
   s.tick(T(150));
-  EXPECT_EQ(conn->close_count, 1);
-  EXPECT_TRUE(s.empty());
+  CHECK(conn->close_count == 1);
+  CHECK(s.empty());
 }
 
 #pragma endregion
 #pragma region ConnPattern_RearmOnExtended
 
-void TimeoutSweeper_ConnPattern_RearmOnExtended() {
+TEST_CASE("ConnPattern_RearmOnExtended", "[TimeoutSweeper]") {
   // When the conn extends its deadline before the callback fires, the
   // callback rearms to the new deadline rather than closing.
   sweeper s;
@@ -318,19 +320,19 @@ void TimeoutSweeper_ConnPattern_RearmOnExtended() {
   // Activity: push the deadline forward.
   conn->read_expiration_ = T(300);
   s.tick(T(150));
-  EXPECT_EQ(conn->close_count, 0);
-  EXPECT_EQ(s.size(), 1U);
+  CHECK(conn->close_count == 0);
+  CHECK(s.size() == 1U);
 
   // No further activity. The rearmed entry now matches and should close.
   s.tick(T(350));
-  EXPECT_EQ(conn->close_count, 1);
-  EXPECT_TRUE(s.empty());
+  CHECK(conn->close_count == 1);
+  CHECK(s.empty());
 }
 
 #pragma endregion
 #pragma region ConnPattern_WeakPtrExpiry
 
-void TimeoutSweeper_ConnPattern_WeakPtrExpiry() {
+TEST_CASE("ConnPattern_WeakPtrExpiry", "[TimeoutSweeper]") {
   // If the conn dies before the callback fires, the callback returns zero
   // and the entry is dropped silently.
   sweeper s;
@@ -350,13 +352,13 @@ void TimeoutSweeper_ConnPattern_WeakPtrExpiry() {
 
   conn.reset(); // Conn dies.
   s.tick(T(150));
-  EXPECT_TRUE(s.empty());
+  CHECK(s.empty());
 }
 
 #pragma endregion
 #pragma region PausedExpirationClip
 
-void TimeoutSweeper_PausedExpirationClip() {
+TEST_CASE("PausedExpirationClip", "[TimeoutSweeper]") {
   // While the conn is paused (`read_expiration_ == paused_expiration`), the
   // callback rearms to a near-future deadline rather than firing.
   sweeper s;
@@ -379,24 +381,24 @@ void TimeoutSweeper_PausedExpirationClip() {
   // Pause.
   conn->read_expiration_ = sweeper::paused_expiration;
   s.tick(T(150));
-  EXPECT_EQ(conn->close_count, 0);
-  EXPECT_EQ(s.size(), 1U);
+  CHECK(conn->close_count == 0);
+  CHECK(s.size() == 1U);
 
   // Resume by writing a real deadline. Next fire picks it up.
   conn->read_expiration_ = T(1200);
   s.tick(
       T(1100)); // pops the entry rearmed to T(1000), sees mismatch -> T(1200)
-  EXPECT_EQ(conn->close_count, 0);
-  EXPECT_EQ(s.size(), 1U);
+  CHECK(conn->close_count == 0);
+  CHECK(s.size() == 1U);
 
   s.tick(T(1250));
-  EXPECT_EQ(conn->close_count, 1);
+  CHECK(conn->close_count == 1);
 }
 
 #pragma endregion
 #pragma region FixedFunctionSpecialization
 
-void TimeoutSweeper_FixedFunctionSpecialization() {
+TEST_CASE("FixedFunctionSpecialization", "[TimeoutSweeper]") {
   // The class template must accept a `fixed_function` specialization with
   // a small capacity sized to a `weak_ptr` capture.
   using small_cb = corvid::meta::fixed_function<32, tp(tp)>;
@@ -406,29 +408,14 @@ void TimeoutSweeper_FixedFunctionSpecialization() {
 
   small_sw s;
   int fired{0};
-  EXPECT_TRUE(s.schedule(T(100), [&fired](tp) -> tp {
+  CHECK(s.schedule(T(100), [&fired](tp) -> tp {
     ++fired;
     return {};
   }));
   s.tick(T(150));
-  EXPECT_EQ(fired, 1);
+  CHECK(fired == 1);
 }
 
 #pragma endregion
-
-MAKE_TEST_LIST(TimeoutSweeper_BasicFire, TimeoutSweeper_NotFiredEarly,
-    TimeoutSweeper_MinHeapOrder,
-    TimeoutSweeper_ExpireParameterIsRegisteredTime,
-    TimeoutSweeper_RearmReturnsNewTime,
-    TimeoutSweeper_MultipleExpiredInOneTick, TimeoutSweeper_Clear,
-    TimeoutSweeper_SizeAndEmpty, TimeoutSweeper_DestructorDrains,
-    TimeoutSweeper_DestructorShortCircuitsRearm,
-    TimeoutSweeper_DestructorBlocksFurtherSchedule,
-    TimeoutSweeper_ScheduleAcceptsDuringNormalTick,
-    TimeoutSweeper_ConnPattern_CloseOnIdle,
-    TimeoutSweeper_ConnPattern_RearmOnExtended,
-    TimeoutSweeper_ConnPattern_WeakPtrExpiry,
-    TimeoutSweeper_PausedExpirationClip,
-    TimeoutSweeper_FixedFunctionSpecialization);
 
 // NOLINTEND(readability-function-cognitive-complexity)

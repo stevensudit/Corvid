@@ -22,7 +22,7 @@
 #include "../corvid/filesys.h"
 #include "../corvid/proto/net_endpoint.h"
 #include "../corvid/strings/enum_conversion.h"
-#include "minitest.h"
+#include "catch2_main.h"
 
 #include <cstdlib>
 #include <fcntl.h>
@@ -59,25 +59,25 @@ std::pair<os_file, os_file> make_blocking_pipe() {
 
 #pragma region Lifecycle
 
-void Epoll_Lifecycle() {
+TEST_CASE("Lifecycle", "[Epoll]") {
   // Default-constructed epoll handle is invalid.
   if (true) {
     epoll p;
-    EXPECT_FALSE(p.is_open());
-    EXPECT_FALSE(static_cast<bool>(p));
-    EXPECT_EQ(p.handle(), epoll::invalid_handle);
-    EXPECT_FALSE(p.close());
+    CHECK_FALSE(p.is_open());
+    CHECK_FALSE(static_cast<bool>(p));
+    CHECK(p.handle() == epoll::invalid_handle);
+    CHECK_FALSE(p.close());
   }
 
   // A real epoll instance is open; closing it twice is idempotent.
   if (true) {
     epoll p{epoll::default_flags};
-    EXPECT_TRUE(p.is_open());
-    EXPECT_TRUE(static_cast<bool>(p));
-    EXPECT_NE(p.handle(), epoll::invalid_handle);
-    EXPECT_TRUE(p.close());
-    EXPECT_FALSE(p.is_open());
-    EXPECT_FALSE(p.close());
+    CHECK(p.is_open());
+    CHECK(static_cast<bool>(p));
+    CHECK(p.handle() != epoll::invalid_handle);
+    CHECK(p.close());
+    CHECK_FALSE(p.is_open());
+    CHECK_FALSE(p.close());
   }
 
   // Destructor closes an open epoll fd (no crash or leak).
@@ -88,18 +88,18 @@ void Epoll_Lifecycle() {
 
 #pragma region Create
 
-void Epoll_Create() {
+TEST_CASE("Create", "[Epoll]") {
   // Default create() produces an open, functional epoll instance.
   if (true) {
     auto p = epoll::create();
-    EXPECT_TRUE(p.is_open());
-    EXPECT_NE(p.handle(), epoll::invalid_handle);
+    CHECK(p.is_open());
+    CHECK(p.handle() != epoll::invalid_handle);
   }
 
   // Explicit flags are forwarded correctly (flags=0 is also valid).
   if (true) {
     auto p = epoll::create(0);
-    EXPECT_TRUE(p.is_open());
+    CHECK(p.is_open());
   }
 
   // A created instance is functional: it can register an eventfd and see
@@ -109,13 +109,13 @@ void Epoll_Create() {
     event_fd e{0};
 
     epoll_event ev{.events = EPOLLIN, .data = {.fd = e.handle()}};
-    EXPECT_TRUE(p.add(e.handle(), ev));
-    EXPECT_TRUE(e.notify(1));
+    CHECK(p.add(e.handle(), ev));
+    CHECK(e.notify(1));
 
     epoll_event ready[1]{};
-    ASSERT_EQ(p.wait(ready, 0).value_or(-1), 1);
-    EXPECT_EQ(ready[0].data.fd, e.handle());
-    EXPECT_TRUE(ready[0].events & EPOLLIN);
+    REQUIRE(p.wait(ready, 0).value_or(-1) == 1);
+    CHECK(ready[0].data.fd == e.handle());
+    CHECK((ready[0].events & EPOLLIN));
   }
 }
 
@@ -123,15 +123,16 @@ void Epoll_Create() {
 
 #pragma region Move
 
-void Epoll_Move() {
+TEST_CASE("Move", "[Epoll]") {
   // Move constructor transfers ownership; source becomes invalid.
   if (true) {
     epoll a{epoll::default_flags};
     const auto h = a.handle();
     epoll b{std::move(a)};
-    EXPECT_FALSE(a.is_open());
-    EXPECT_TRUE(b.is_open());
-    EXPECT_EQ(b.handle(), h);
+    // NOLINTNEXTLINE(bugprone-use-after-move,clang-analyzer-cplusplus.Move)
+    CHECK_FALSE(a.is_open());
+    CHECK(b.is_open());
+    CHECK(b.handle() == h);
   }
 
   // Move assignment closes the destination and transfers the source.
@@ -140,9 +141,10 @@ void Epoll_Move() {
     epoll b{epoll::default_flags};
     const auto h = a.handle();
     b = std::move(a);
-    EXPECT_FALSE(a.is_open());
-    EXPECT_TRUE(b.is_open());
-    EXPECT_EQ(b.handle(), h);
+    // NOLINTNEXTLINE(bugprone-use-after-move,clang-analyzer-cplusplus.Move)
+    CHECK_FALSE(a.is_open());
+    CHECK(b.is_open());
+    CHECK(b.handle() == h);
   }
 
   // Self-assignment is a no-op.
@@ -151,8 +153,8 @@ void Epoll_Move() {
     const auto h = a.handle();
     auto* p = &a;
     a = std::move(*p);
-    EXPECT_TRUE(a.is_open());
-    EXPECT_EQ(a.handle(), h);
+    CHECK(a.is_open());
+    CHECK(a.handle() == h);
   }
 }
 
@@ -160,13 +162,13 @@ void Epoll_Move() {
 
 #pragma region Release
 
-void Epoll_Release() {
+TEST_CASE("Release", "[Epoll]") {
   // `release()` yields the handle without closing it; epoll becomes invalid.
   if (true) {
     epoll p{epoll::default_flags};
     const auto h = p.release();
-    EXPECT_NE(h, epoll::invalid_handle);
-    EXPECT_FALSE(p.is_open());
+    CHECK(h != epoll::invalid_handle);
+    CHECK_FALSE(p.is_open());
     ::close(h);
   }
 }
@@ -175,58 +177,58 @@ void Epoll_Release() {
 
 #pragma region ControlWait
 
-void Epoll_ControlWait() {
+TEST_CASE("ControlWait", "[Epoll]") {
   event_fd e{0};
   epoll p{epoll::default_flags};
 
   epoll_event add_ev{.events = EPOLLIN,
       .data = epoll_data_t{.fd = e.handle()}};
-  EXPECT_TRUE(p.add(e.handle(), add_ev));
+  CHECK(p.add(e.handle(), add_ev));
 
-  EXPECT_TRUE(e.notify(3));
+  CHECK(e.notify(3));
 
   epoll_event events[1]{};
-  ASSERT_EQ(p.wait(events, 1, 0).value_or(-1), 1);
-  EXPECT_EQ(events[0].data.fd, e.handle());
-  EXPECT_TRUE(events[0].events & EPOLLIN);
+  REQUIRE(p.wait(events, 1, 0).value_or(-1) == 1);
+  CHECK(events[0].data.fd == e.handle());
+  CHECK((events[0].events & EPOLLIN));
 
   auto value = e.read();
-  EXPECT_TRUE(value.has_value());
-  EXPECT_EQ(*value, 3U);
+  CHECK(value.has_value());
+  CHECK(*value == 3U);
 
   epoll_event mod_ev{.events = EPOLLOUT,
       .data = epoll_data_t{.fd = e.handle()}};
-  EXPECT_TRUE(p.modify(e.handle(), mod_ev));
-  EXPECT_TRUE(p.remove(e.handle()));
-  EXPECT_EQ(p.wait(events, 1, 0).value_or(-1), 0);
+  CHECK(p.modify(e.handle(), mod_ev));
+  CHECK(p.remove(e.handle()));
+  CHECK(p.wait(events, 1, 0).value_or(-1) == 0);
 }
 
 #pragma endregion
 
 #pragma region WaitArray
 
-void Epoll_WaitArray() {
+TEST_CASE("WaitArray", "[Epoll]") {
   event_fd e{0};
   epoll p{epoll::default_flags};
 
   epoll_event add_ev{.events = EPOLLIN,
       .data = epoll_data_t{.fd = e.handle()}};
-  EXPECT_TRUE(p.add(e.handle(), add_ev));
-  EXPECT_TRUE(e.notify(1));
+  CHECK(p.add(e.handle(), add_ev));
+  CHECK(e.notify(1));
 
   // Array overload: no `maxevents` arg; the single-argument call unambiguously
   // selects the template, which deduces `maxevents=4` from the array. The
   // event is already ready so this returns without blocking.
   epoll_event events[4]{};
-  ASSERT_EQ(p.wait(events, 1000).value_or(-1), 1);
-  EXPECT_EQ(events[0].data.fd, e.handle());
-  EXPECT_TRUE(events[0].events & EPOLLIN);
+  REQUIRE(p.wait(events, 1000).value_or(-1) == 1);
+  CHECK(events[0].data.fd == e.handle());
+  CHECK((events[0].events & EPOLLIN));
   (void)e.read();
 
   // A second pending event also comes through the array overload correctly.
-  EXPECT_TRUE(e.notify(7));
-  ASSERT_EQ(p.wait(events, 1000).value_or(-1), 1);
-  EXPECT_TRUE(events[0].events & EPOLLIN);
+  CHECK(e.notify(7));
+  REQUIRE(p.wait(events, 1000).value_or(-1) == 1);
+  CHECK((events[0].events & EPOLLIN));
   (void)e.read();
 }
 
@@ -234,25 +236,25 @@ void Epoll_WaitArray() {
 
 #pragma region EventFd_Lifecycle
 
-void EventFd_Lifecycle() {
+TEST_CASE("Lifecycle", "[EventFd]") {
   // Default-constructed eventfd is invalid.
   if (true) {
     event_fd e;
-    EXPECT_FALSE(e.is_open());
-    EXPECT_FALSE(static_cast<bool>(e));
-    EXPECT_EQ(e.handle(), event_fd::invalid_handle);
-    EXPECT_FALSE(e.close());
+    CHECK_FALSE(e.is_open());
+    CHECK_FALSE(static_cast<bool>(e));
+    CHECK(e.handle() == event_fd::invalid_handle);
+    CHECK_FALSE(e.close());
   }
 
   // A real eventfd is open; closing it twice is idempotent.
   if (true) {
     event_fd e{0};
-    EXPECT_TRUE(e.is_open());
-    EXPECT_TRUE(static_cast<bool>(e));
-    EXPECT_NE(e.handle(), event_fd::invalid_handle);
-    EXPECT_TRUE(e.close());
-    EXPECT_FALSE(e.is_open());
-    EXPECT_FALSE(e.close());
+    CHECK(e.is_open());
+    CHECK(static_cast<bool>(e));
+    CHECK(e.handle() != event_fd::invalid_handle);
+    CHECK(e.close());
+    CHECK_FALSE(e.is_open());
+    CHECK_FALSE(e.close());
   }
 
   // Destructor closes an open eventfd (no crash or leak).
@@ -263,15 +265,16 @@ void EventFd_Lifecycle() {
 
 #pragma region EventFd_Move
 
-void EventFd_Move() {
+TEST_CASE("Move", "[EventFd]") {
   // Move constructor transfers ownership; source becomes invalid.
   if (true) {
     event_fd a{0};
     const auto h = a.handle();
     event_fd b{std::move(a)};
-    EXPECT_FALSE(a.is_open());
-    EXPECT_TRUE(b.is_open());
-    EXPECT_EQ(b.handle(), h);
+    // NOLINTNEXTLINE(bugprone-use-after-move,clang-analyzer-cplusplus.Move)
+    CHECK_FALSE(a.is_open());
+    CHECK(b.is_open());
+    CHECK(b.handle() == h);
   }
 
   // Move assignment closes the destination and transfers the source.
@@ -280,9 +283,10 @@ void EventFd_Move() {
     event_fd b{0};
     const auto h = a.handle();
     b = std::move(a);
-    EXPECT_FALSE(a.is_open());
-    EXPECT_TRUE(b.is_open());
-    EXPECT_EQ(b.handle(), h);
+    // NOLINTNEXTLINE(bugprone-use-after-move,clang-analyzer-cplusplus.Move)
+    CHECK_FALSE(a.is_open());
+    CHECK(b.is_open());
+    CHECK(b.handle() == h);
   }
 
   // Self-assignment is a no-op.
@@ -291,8 +295,8 @@ void EventFd_Move() {
     const auto h = a.handle();
     auto* p = &a;
     a = std::move(*p);
-    EXPECT_TRUE(a.is_open());
-    EXPECT_EQ(a.handle(), h);
+    CHECK(a.is_open());
+    CHECK(a.handle() == h);
   }
 }
 
@@ -300,13 +304,13 @@ void EventFd_Move() {
 
 #pragma region EventFd_Release
 
-void EventFd_Release() {
+TEST_CASE("Release", "[EventFd]") {
   // `release()` yields the handle without closing it; eventfd becomes invalid.
   if (true) {
     event_fd e{0};
     const auto h = e.release();
-    EXPECT_NE(h, event_fd::invalid_handle);
-    EXPECT_FALSE(e.is_open());
+    CHECK(h != event_fd::invalid_handle);
+    CHECK_FALSE(e.is_open());
     ::close(h);
   }
 }
@@ -315,24 +319,24 @@ void EventFd_Release() {
 
 #pragma region EventFd_NotifyRead
 
-void EventFd_NotifyRead() {
+TEST_CASE("NotifyRead", "[EventFd]") {
   // Writes accumulate and a read returns the total while resetting to zero.
   if (true) {
     event_fd e{0};
-    EXPECT_TRUE(e.notify());
-    EXPECT_TRUE(e.notify(4));
+    CHECK(e.notify());
+    CHECK(e.notify(4));
 
     auto value = e.read();
-    EXPECT_TRUE(value.has_value());
-    EXPECT_EQ(*value, 5U);
+    CHECK(value.has_value());
+    CHECK(*value == 5U);
   }
 
   // The out-parameter overload returns the current counter value.
   if (true) {
     event_fd e{7};
     event_fd::counter_t value = 0;
-    EXPECT_TRUE(e.read(value));
-    EXPECT_EQ(value, 7U);
+    CHECK(e.read(value));
+    CHECK(value == 7U);
   }
 }
 
@@ -340,34 +344,33 @@ void EventFd_NotifyRead() {
 
 #pragma region EventFd_Create
 
-void EventFd_Create() {
+TEST_CASE("Create", "[EventFd]") {
   using namespace bool_enums;
 
   // Default: non-blocking counter mode, initial value 0.
   if (true) {
     auto e = event_fd::create();
-    EXPECT_TRUE(e.is_open());
-    EXPECT_TRUE(
-        bitmask::has(e.get_flags().value_or(o_flags{}), o_flags::nonblock));
+    CHECK(e.is_open());
+    CHECK(bitmask::has(e.get_flags().value_or(o_flags{}), o_flags::nonblock));
     // Counter starts at 0, so an immediate read returns nullopt (EAGAIN).
-    EXPECT_FALSE(e.read().has_value());
-    EXPECT_EQ(errno, EAGAIN);
+    CHECK_FALSE(e.read().has_value());
+    CHECK(errno == EAGAIN);
   }
 
   // Non-zero initial value is readable immediately.
   if (true) {
     auto e = event_fd::create(5);
-    EXPECT_TRUE(e.is_open());
+    CHECK(e.is_open());
     auto v = e.read();
-    EXPECT_TRUE(v.has_value());
-    EXPECT_EQ(*v, 5U);
+    CHECK(v.has_value());
+    CHECK(*v == 5U);
   }
 
   // Blocking mode: O_NONBLOCK is absent.
   if (true) {
     auto e = event_fd::create(0, event_mode::counter, execution::blocking);
-    EXPECT_TRUE(e.is_open());
-    EXPECT_FALSE(
+    CHECK(e.is_open());
+    CHECK_FALSE(
         bitmask::has(e.get_flags().value_or(o_flags{}), o_flags::nonblock));
   }
 }
@@ -376,45 +379,45 @@ void EventFd_Create() {
 
 #pragma region EventFd_SemaphoreMode
 
-void EventFd_SemaphoreMode() {
+TEST_CASE("SemaphoreMode", "[EventFd]") {
   using namespace bool_enums;
 
   // With initial value 3, each read consumes exactly 1 token and returns 1.
   if (true) {
     auto e = event_fd::create(3, event_mode::semaphore);
-    EXPECT_TRUE(e.is_open());
+    CHECK(e.is_open());
 
     auto v = e.read();
-    EXPECT_TRUE(v.has_value());
-    EXPECT_EQ(*v, 1U);
+    CHECK(v.has_value());
+    CHECK(*v == 1U);
 
     v = e.read();
-    EXPECT_TRUE(v.has_value());
-    EXPECT_EQ(*v, 1U);
+    CHECK(v.has_value());
+    CHECK(*v == 1U);
 
     v = e.read();
-    EXPECT_TRUE(v.has_value());
-    EXPECT_EQ(*v, 1U);
+    CHECK(v.has_value());
+    CHECK(*v == 1U);
 
     // Counter exhausted: next read would block (EAGAIN).
-    EXPECT_FALSE(e.read().has_value());
-    EXPECT_EQ(errno, EAGAIN);
+    CHECK_FALSE(e.read().has_value());
+    CHECK(errno == EAGAIN);
   }
 
   // notify(n) posts n tokens; each read still consumes exactly 1.
   if (true) {
     auto e = event_fd::create(0, event_mode::semaphore);
-    EXPECT_TRUE(e.notify(2));
+    CHECK(e.notify(2));
 
     event_fd::counter_t val = 0;
-    EXPECT_TRUE(e.read(val));
-    EXPECT_EQ(val, 1U);
+    CHECK(e.read(val));
+    CHECK(val == 1U);
 
-    EXPECT_TRUE(e.read(val));
-    EXPECT_EQ(val, 1U);
+    CHECK(e.read(val));
+    CHECK(val == 1U);
 
-    EXPECT_FALSE(e.read(val));
-    EXPECT_EQ(errno, EAGAIN);
+    CHECK_FALSE(e.read(val));
+    CHECK(errno == EAGAIN);
   }
 }
 
@@ -422,20 +425,16 @@ void EventFd_SemaphoreMode() {
 
 #pragma region EventFd_NonblockingEmptyRead
 
-void EventFd_NonblockingEmptyRead() {
+TEST_CASE("NonblockingEmptyRead", "[EventFd]") {
   // Default-created eventfds are non-blocking, so an empty read returns
   // nullopt.
   event_fd e{0};
   auto value = e.read();
-  EXPECT_FALSE(value.has_value());
-  EXPECT_EQ(errno, EAGAIN);
+  CHECK_FALSE(value.has_value());
+  CHECK(errno == EAGAIN);
 }
 
 #pragma endregion
 
-MAKE_TEST_LIST(Epoll_Lifecycle, Epoll_Create, Epoll_Move, Epoll_Release,
-    Epoll_ControlWait, Epoll_WaitArray, EventFd_Lifecycle, EventFd_Move,
-    EventFd_Release, EventFd_NotifyRead, EventFd_Create, EventFd_SemaphoreMode,
-    EventFd_NonblockingEmptyRead);
 // NOLINTEND(bugprone-unchecked-optional-access)
 // NOLINTEND(readability-function-cognitive-complexity)

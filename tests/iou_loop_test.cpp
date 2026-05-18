@@ -26,8 +26,8 @@
 #include <sys/socket.h>
 #include <sys/uio.h>
 
-#define MINITEST_SHOW_TIMERS 0
-#include "minitest.h"
+#define CATCH2_SHOW_TIMERS 0
+#include "catch2_main.h"
 
 using namespace corvid;
 using namespace corvid::filesys;
@@ -50,7 +50,7 @@ bool WaitFor(const auto& pred, std::chrono::milliseconds timeout = 500ms) {
 
 // NOLINTBEGIN(readability-function-cognitive-complexity)
 #pragma region NopCompletion
-void IouLoop_NopCompletion() {
+TEST_CASE("NopCompletion", "[IouLoop]") {
   // Verify that a submitted NOP fires its completion callback on the runner.
   if (true) {
     constexpr uint32_t max_32 = std::numeric_limits<uint32_t>::max();
@@ -67,16 +67,15 @@ void IouLoop_NopCompletion() {
           fired.store(true, std::memory_order::release);
           return slot_retention{};
         });
-    EXPECT_TRUE(token.is_valid());
-    EXPECT_TRUE(
-        WaitFor([&] { return fired.load(std::memory_order::acquire); }));
-    EXPECT_EQ(result.load(), 0);
+    CHECK(token.is_valid());
+    CHECK(WaitFor([&] { return fired.load(std::memory_order::acquire); }));
+    CHECK(result.load() == 0);
   }
 }
 #pragma endregion
 
 #pragma region MultipleNops
-void IouLoop_MultipleNops() {
+TEST_CASE("MultipleNops", "[IouLoop]") {
   // Submit several NOPs and confirm all complete on the runner thread.
   if (true) {
     iou_loop_runner loop;
@@ -91,16 +90,16 @@ void IouLoop_MultipleNops() {
             return slot_retention{};
           });
     }
-    EXPECT_TRUE(submitted);
-    EXPECT_TRUE(
+    CHECK(submitted);
+    CHECK(
         WaitFor([&] { return count.load(std::memory_order::acquire) == 4; }));
-    EXPECT_EQ(count.load(), 4);
+    CHECK(count.load() == 4);
   }
 }
 #pragma endregion
 
 #pragma region StopFromThread
-void IouLoop_StopFromThread() {
+TEST_CASE("StopFromThread", "[IouLoop]") {
   // Stop the runner from another thread and let destruction join cleanly.
   if (true) {
     iou_loop_runner loop;
@@ -112,7 +111,7 @@ void IouLoop_StopFromThread() {
     }};
     std::this_thread::sleep_for(20ms);
     t.join();
-    EXPECT_TRUE(stopped.load(std::memory_order::acquire));
+    CHECK(stopped.load(std::memory_order::acquire));
   }
 }
 #pragma endregion
@@ -123,32 +122,31 @@ void IouLoop_StopFromThread() {
 // the jthread and returns; the worker then unwinds out of `loop_t::run`
 // and finishes its cleanup. The worker keeps its own ref to `runner_state`,
 // so the post-`run` cleanup must not touch any state belonging to the
-// already-freed handle. Sanitizer-enabled builds catch a regression
-// deterministically; in plain builds the test mainly proves the dtor
-// returns cleanly.
-void IouLoop_SelfDestroyOnLoopThread() {
+// already-freed handle.
+//
+// Synchronize with the detached worker via `finished_signal`, which the
+// worker notifies after `~loop_t` has run. This gives TSAN a real
+// happens-before edge with the worker's exit (no sleep), and also covers
+// the io_uring memory being unmapped before the next test re-mmaps it.
+TEST_CASE("SelfDestroyOnLoopThread", "[IouLoop]") {
   auto runner = std::make_unique<iou_loop_runner>();
   // Use a reference (no `shared_ptr` copy) so the worker's `use_count`
   // check sees `state->loop` as the sole owner during cleanup.
   iou_loop& loop = *runner;
+  auto finished = runner->finished_signal();
 
-  notifiable<std::atomic_bool> done{false};
-  ASSERT_TRUE(loop.post([r = std::move(runner), &done]() mutable {
+  // NOLINTNEXTLINE(bugprone-use-after-move,clang-analyzer-cplusplus.Move)
+  REQUIRE(loop.post([r = std::move(runner)]() mutable {
     r.reset();
-    done.notify(true);
     return true;
   }));
 
-  ASSERT_TRUE(done.wait_for_value(1s, true));
-  // Detached worker still needs to finish its cleanup; give it a brief
-  // settle so any access to the freed handle would be observed before
-  // the test scope exits.
-  std::this_thread::sleep_for(200ms);
+  REQUIRE(finished->wait_for_value(1s, true));
 }
 #pragma endregion
 
 #pragma region PostFromThread
-void IouLoop_PostFromThread() {
+TEST_CASE("PostFromThread", "[IouLoop]") {
   // Post a callback from an external thread; verify the loop executes it.
   if (true) {
     std::atomic_bool fired{false};
@@ -159,16 +157,15 @@ void IouLoop_PostFromThread() {
       fired.store(true, std::memory_order::release);
       return true;
     });
-    EXPECT_TRUE(ok);
+    CHECK(ok);
 
-    EXPECT_TRUE(
-        WaitFor([&] { return fired.load(std::memory_order::acquire); }));
+    CHECK(WaitFor([&] { return fired.load(std::memory_order::acquire); }));
   }
 }
 #pragma endregion
 
 #pragma region PostAndWait
-void IouLoop_PostAndWait() {
+TEST_CASE("PostAndWait", "[IouLoop]") {
   // `post_and_wait` blocks until the callback runs, then returns.
   if (true) {
     std::atomic_bool ran{false};
@@ -179,14 +176,14 @@ void IouLoop_PostAndWait() {
       ran.store(true, std::memory_order::relaxed);
       return true;
     });
-    EXPECT_TRUE(ok);
-    EXPECT_TRUE(ran.load());
+    CHECK(ok);
+    CHECK(ran.load());
   }
 }
 #pragma endregion
 
 #pragma region RecvSend
-void IouLoop_RecvSend() {
+TEST_CASE("RecvSend", "[IouLoop]") {
   // Submit a recv and a send over a Unix socket pair; confirm the payload
   // arrives and the byte counts are correct.
   if (true) {
@@ -218,21 +215,19 @@ void IouLoop_RecvSend() {
       if (!send_token.is_valid()) return false;
       return true;
     });
-    EXPECT_TRUE(ok);
-    EXPECT_TRUE(
-        WaitFor([&] { return received.load(std::memory_order::acquire); }));
+    CHECK(ok);
+    CHECK(WaitFor([&] { return received.load(std::memory_order::acquire); }));
 
-    EXPECT_EQ(recv_result.load(), static_cast<int32_t>(msg.size()));
-    EXPECT_EQ(send_result.load(), static_cast<int32_t>(msg.size()));
-    EXPECT_EQ(std::string_view(reinterpret_cast<const char*>(buf.data()),
-                  msg.size()),
-        msg);
+    CHECK(recv_result.load() == static_cast<int32_t>(msg.size()));
+    CHECK(send_result.load() == static_cast<int32_t>(msg.size()));
+    CHECK(std::string_view(reinterpret_cast<const char*>(buf.data()),
+              msg.size()) == msg);
   }
 }
 #pragma endregion
 
 #pragma region RecvWriteFixed
-void IouLoop_RecvWriteFixed() {
+TEST_CASE("RecvWriteFixed", "[IouLoop]") {
   // Submit a recv_fixed and a send_fixed over a Unix socket pair using
   // registered buffers; confirm the payload arrives and byte counts match.
   if (true) {
@@ -255,10 +250,10 @@ void IouLoop_RecvWriteFixed() {
           received.store(true, std::memory_order::release);
           return slot_retention{};
         });
-    EXPECT_TRUE(recv_token.is_valid());
+    CHECK(recv_token.is_valid());
 
     auto send_buf = loop->borrow_write_buffer();
-    EXPECT_TRUE(send_buf);
+    CHECK(send_buf);
     if (!send_buf) return;
     auto span = send_buf.tail_span();
     std::memcpy(span.data(), msg.data(), msg.size());
@@ -270,19 +265,18 @@ void IouLoop_RecvWriteFixed() {
           send_n.store(buf.result().value(), std::memory_order::relaxed);
           return slot_retention{};
         });
-    EXPECT_TRUE(send_token.is_valid());
-    EXPECT_TRUE(
-        WaitFor([&] { return received.load(std::memory_order::acquire); }));
+    CHECK(send_token.is_valid());
+    CHECK(WaitFor([&] { return received.load(std::memory_order::acquire); }));
 
-    EXPECT_EQ(recv_n.load(), static_cast<int32_t>(msg.size()));
-    EXPECT_EQ(send_n.load(), static_cast<int32_t>(msg.size()));
-    EXPECT_EQ(payload, msg);
+    CHECK(recv_n.load() == static_cast<int32_t>(msg.size()));
+    CHECK(send_n.load() == static_cast<int32_t>(msg.size()));
+    CHECK(payload == msg);
   }
 }
 #pragma endregion
 
 #pragma region SendBuffer
-void IouLoop_SendBuffer() {
+TEST_CASE("SendBuffer", "[IouLoop]") {
   // `submit_send_buffer` uses `IORING_OP_SEND_ZC` over connected UDP sockets
   // on loopback. ZC send requires IP sockets; Unix domain sockets return
   // `EOPNOTSUPP`. A sync `connect()` on the send socket sets the peer so the
@@ -299,11 +293,11 @@ void IouLoop_SendBuffer() {
         message_style::datagram);
     auto send_sock = net_socket::create_for(send_ep, execution::nonblocking,
         message_style::datagram);
-    EXPECT_TRUE(recv_sock.bind(recv_ep));
-    EXPECT_TRUE(send_sock.bind(send_ep));
+    CHECK(recv_sock.bind(recv_ep));
+    CHECK(send_sock.bind(send_ep));
     net_endpoint recv_addr{recv_sock};
     const auto connect_ok = send_sock.connect(recv_addr);
-    EXPECT_TRUE(connect_ok && *connect_ok);
+    CHECK((connect_ok && *connect_ok));
 
     std::atomic_bool received{false};
     std::atomic_int32_t recv_n{-1};
@@ -321,10 +315,10 @@ void IouLoop_SendBuffer() {
           received.store(true, std::memory_order::release);
           return slot_retention{};
         });
-    EXPECT_TRUE(recv_token.is_valid());
+    CHECK(recv_token.is_valid());
 
     auto send_buf = loop->borrow_write_buffer();
-    EXPECT_TRUE(send_buf);
+    CHECK(send_buf);
     if (!send_buf) return;
     (void)send_buf.append(msg);
 
@@ -337,38 +331,37 @@ void IouLoop_SendBuffer() {
           send_n.store(buf.result().value(), std::memory_order::relaxed);
           return slot_retention::automatic;
         });
-    EXPECT_TRUE(send_token.is_valid());
-    EXPECT_TRUE(
-        WaitFor([&] { return received.load(std::memory_order::acquire); }));
+    CHECK(send_token.is_valid());
+    CHECK(WaitFor([&] { return received.load(std::memory_order::acquire); }));
 
-    EXPECT_EQ(recv_n.load(), static_cast<int32_t>(msg.size()));
-    EXPECT_EQ(send_n.load(), static_cast<int32_t>(msg.size()));
-    EXPECT_EQ(payload, std::string{msg});
+    CHECK(recv_n.load() == static_cast<int32_t>(msg.size()));
+    CHECK(send_n.load() == static_cast<int32_t>(msg.size()));
+    CHECK(payload == std::string{msg});
   }
 }
 #pragma endregion
 
 #pragma region IsLoopThread
-void IouLoop_IsLoopThread() {
+TEST_CASE("IsLoopThread", "[IouLoop]") {
   // `is_loop_thread()` returns false on the test thread and true inside a
   // callback executing on the loop thread.
   if (true) {
     iou_loop_runner loop;
-    EXPECT_FALSE(loop->is_loop_thread());
+    CHECK_FALSE(loop->is_loop_thread());
 
     std::atomic_bool confirmed{false};
     const bool ok = loop->post_and_wait([&] {
       confirmed.store(loop->is_loop_thread(), std::memory_order::release);
       return true;
     });
-    EXPECT_TRUE(ok);
-    EXPECT_TRUE(confirmed.load(std::memory_order::acquire));
+    CHECK(ok);
+    CHECK(confirmed.load(std::memory_order::acquire));
   }
 }
 #pragma endregion
 
 #pragma region ExecuteOrPost
-void IouLoop_ExecuteOrPost() {
+TEST_CASE("ExecuteOrPost", "[IouLoop]") {
   // `execute_or_post` from an off-thread posts; the callback still runs.
   if (true) {
     std::atomic_bool executed{false};
@@ -379,15 +372,14 @@ void IouLoop_ExecuteOrPost() {
       executed.store(true, std::memory_order::release);
       return true;
     });
-    EXPECT_TRUE(ok);
-    EXPECT_TRUE(
-        WaitFor([&] { return executed.load(std::memory_order::acquire); }));
+    CHECK(ok);
+    CHECK(WaitFor([&] { return executed.load(std::memory_order::acquire); }));
   }
 }
 #pragma endregion
 
 #pragma region NopTokenVariant
-void IouLoop_NopTokenVariant() {
+TEST_CASE("NopTokenVariant", "[IouLoop]") {
   // `tokenize` + `submit_nop(token)` exercises the token-based submission
   // path.
   if (true) {
@@ -402,19 +394,18 @@ void IouLoop_NopTokenVariant() {
           fired.store(true, std::memory_order::release);
           return slot_retention{};
         });
-    EXPECT_TRUE(token.is_valid());
+    CHECK(token.is_valid());
 
     const bool submitted = loop->submit_nop(token, slot_retention::automatic);
-    EXPECT_TRUE(submitted);
-    EXPECT_TRUE(
-        WaitFor([&] { return fired.load(std::memory_order::acquire); }));
-    EXPECT_EQ(result.load(), 0);
+    CHECK(submitted);
+    CHECK(WaitFor([&] { return fired.load(std::memory_order::acquire); }));
+    CHECK(result.load() == 0);
   }
 }
 #pragma endregion
 
 #pragma region TokenIsReleased
-void IouLoop_TokenIsReleased() {
+TEST_CASE("TokenIsReleased", "[IouLoop]") {
   // `tokenize` produces a valid token; `is_released` returns false while the
   // slot is live, true after explicit release.
   if (true) {
@@ -423,21 +414,21 @@ void IouLoop_TokenIsReleased() {
         [](completion_id, iou_res, iou_cqe_flags) -> slot_retention {
           return slot_retention{};
         });
-    EXPECT_TRUE(token.is_valid());
-    EXPECT_FALSE(loop->is_released(token));
+    CHECK(token.is_valid());
+    CHECK_FALSE(loop->is_released(token));
 
     const bool released = loop->release(std::move(token));
-    EXPECT_TRUE(released);
+    CHECK(released);
     // The slot's generation was bumped; `is_released` detects the mismatch and
     // nullifies the token.
-    EXPECT_TRUE(loop->is_released(token));
-    EXPECT_FALSE(token.is_valid());
+    CHECK(loop->is_released(token));
+    CHECK_FALSE(token.is_valid());
   }
 }
 #pragma endregion
 
 #pragma region SubmitClose
-void IouLoop_SubmitClose() {
+TEST_CASE("SubmitClose", "[IouLoop]") {
   // `submit_close` fires its callback with `res == 0` after the fd is closed.
   if (true) {
     auto [keep, to_close] = net_socket::create_pair();
@@ -453,16 +444,15 @@ void IouLoop_SubmitClose() {
           fired.store(true, std::memory_order::release);
           return slot_retention{};
         });
-    EXPECT_TRUE(token.is_valid());
-    EXPECT_TRUE(
-        WaitFor([&] { return fired.load(std::memory_order::acquire); }));
-    EXPECT_EQ(result.load(), 0);
+    CHECK(token.is_valid());
+    CHECK(WaitFor([&] { return fired.load(std::memory_order::acquire); }));
+    CHECK(result.load() == 0);
   }
 }
 #pragma endregion
 
 #pragma region SubmitTimeout
-void IouLoop_SubmitTimeout() {
+TEST_CASE("SubmitTimeout", "[IouLoop]") {
   // A single-shot timeout fires with `-ETIME` after the specified duration.
   if (true) {
     bound_timeout timeout{
@@ -478,16 +468,16 @@ void IouLoop_SubmitTimeout() {
           fired.store(true, std::memory_order::release);
           return slot_retention{};
         });
-    EXPECT_TRUE(token.is_valid());
-    EXPECT_TRUE(WaitFor([&] { return fired.load(std::memory_order::acquire); },
+    CHECK(token.is_valid());
+    CHECK(WaitFor([&] { return fired.load(std::memory_order::acquire); },
         500ms));
-    EXPECT_EQ(result.load(), -ETIME);
+    CHECK(result.load() == -ETIME);
   }
 }
 #pragma endregion
 
 #pragma region SubmitTimeoutMultishot
-void IouLoop_SubmitTimeoutMultishot() {
+TEST_CASE("SubmitTimeoutMultishot", "[IouLoop]") {
   // A multishot timeout with `cqe_count`=3 fires exactly 3 times then stops.
   if (true) {
     bound_timeout timeout{
@@ -504,16 +494,16 @@ void IouLoop_SubmitTimeoutMultishot() {
           return slot_retention::automatic;
         },
         3);
-    EXPECT_TRUE(token.is_valid());
-    EXPECT_TRUE(WaitFor(
-        [&] { return count.load(std::memory_order::acquire) == 3; }, 500ms));
-    EXPECT_EQ(count.load(), 3);
+    CHECK(token.is_valid());
+    CHECK(WaitFor([&] { return count.load(std::memory_order::acquire) == 3; },
+        500ms));
+    CHECK(count.load() == 3);
   }
 }
 #pragma endregion
 
 #pragma region SubmitCancelFile
-void IouLoop_SubmitCancelFile() {
+TEST_CASE("SubmitCancelFile", "[IouLoop]") {
   // Canceling a file's pending ops delivers a negative result to the recv
   // callback (typically `ECANCELED`).
   if (true) {
@@ -525,7 +515,7 @@ void IouLoop_SubmitCancelFile() {
 
     iou_loop_runner loop;
 
-    EXPECT_TRUE(loop->post_and_wait([&] {
+    CHECK(loop->post_and_wait([&] {
       (void)loop->submit_recv_bytes(recv_sock, buf,
           [&](completion_id, iou_res res, iou_cqe_flags) -> slot_retention {
             recv_res.store(res.value(), std::memory_order::relaxed);
@@ -535,7 +525,7 @@ void IouLoop_SubmitCancelFile() {
       return true;
     }));
 
-    EXPECT_TRUE(loop->post_and_wait([&] {
+    CHECK(loop->post_and_wait([&] {
       (void)loop->submit_cancel(recv_sock,
           [](completion_id, iou_res, iou_cqe_flags) -> slot_retention {
             return slot_retention{};
@@ -543,15 +533,14 @@ void IouLoop_SubmitCancelFile() {
       return true;
     }));
 
-    EXPECT_TRUE(
-        WaitFor([&] { return recv_done.load(std::memory_order::acquire); }));
-    EXPECT_LT(recv_res.load(), 0);
+    CHECK(WaitFor([&] { return recv_done.load(std::memory_order::acquire); }));
+    CHECK((recv_res.load()) < (0));
   }
 }
 #pragma endregion
 
 #pragma region SubmitCancelToken
-void IouLoop_SubmitCancelToken() {
+TEST_CASE("SubmitCancelToken", "[IouLoop]") {
   // Canceling via `completion_token` delivers a negative result to the
   // matching recv callback (typically `ECANCELED`).
   if (true) {
@@ -564,7 +553,7 @@ void IouLoop_SubmitCancelToken() {
 
     iou_loop_runner loop;
 
-    EXPECT_TRUE(loop->post_and_wait([&] {
+    CHECK(loop->post_and_wait([&] {
       recv_token = loop->submit_recv_bytes(recv_sock, buf,
           [&](completion_id, iou_res res, iou_cqe_flags) -> slot_retention {
             recv_res.store(res.value(), std::memory_order::relaxed);
@@ -574,7 +563,7 @@ void IouLoop_SubmitCancelToken() {
       return true;
     }));
 
-    EXPECT_TRUE(loop->post_and_wait([&] {
+    CHECK(loop->post_and_wait([&] {
       (void)loop->submit_cancel(std::move(recv_token),
           [](completion_id, iou_res, iou_cqe_flags) -> slot_retention {
             return slot_retention{};
@@ -582,24 +571,23 @@ void IouLoop_SubmitCancelToken() {
       return true;
     }));
 
-    EXPECT_TRUE(
-        WaitFor([&] { return recv_done.load(std::memory_order::acquire); }));
-    EXPECT_LT(recv_res.load(), 0);
+    CHECK(WaitFor([&] { return recv_done.load(std::memory_order::acquire); }));
+    CHECK((recv_res.load()) < (0));
   }
 }
 #pragma endregion
 
 #pragma region AcceptConnect
-void IouLoop_AcceptConnect() {
+TEST_CASE("AcceptConnect", "[IouLoop]") {
   // `submit_accept` and `submit_connect` complete successfully over a Unix ANS
   // socket. The accepted socket fd (>= 0) is immediately closed to avoid
   // leaks.
   if (true) {
     auto listen_sock = net_socket::create_uds();
-    EXPECT_TRUE(listen_sock);
+    CHECK(listen_sock);
     net_endpoint ep{"@corvid_iouloop_acceptconnect"};
-    EXPECT_TRUE(listen_sock.bind(ep));
-    EXPECT_TRUE(listen_sock.listen());
+    CHECK(listen_sock.bind(ep));
+    CHECK(listen_sock.listen());
 
     std::atomic_bool accepted{false};
     std::atomic_int32_t accept_res{-1};
@@ -615,10 +603,10 @@ void IouLoop_AcceptConnect() {
           accepted.store(true, std::memory_order::release);
           return slot_retention{};
         });
-    EXPECT_TRUE(accept_tok.is_valid());
+    CHECK(accept_tok.is_valid());
 
     auto client_sock = net_socket::create_uds();
-    EXPECT_TRUE(client_sock);
+    CHECK(client_sock);
     bound_endpoint_with_timeout connect_ep{};
     connect_ep.sockaddr.sockaddr = ep;
     connect_ep.sockaddr.len = ep.sockaddr_size();
@@ -629,22 +617,20 @@ void IouLoop_AcceptConnect() {
           connected.store(true, std::memory_order::release);
           return slot_retention{};
         });
-    EXPECT_TRUE(connect_tok.is_valid());
+    CHECK(connect_tok.is_valid());
 
-    EXPECT_TRUE(
-        WaitFor([&] { return accepted.load(std::memory_order::acquire); }));
-    EXPECT_TRUE(
-        WaitFor([&] { return connected.load(std::memory_order::acquire); }));
+    CHECK(WaitFor([&] { return accepted.load(std::memory_order::acquire); }));
+    CHECK(WaitFor([&] { return connected.load(std::memory_order::acquire); }));
     // `accept_res` is the new socket fd (>= 0).
-    EXPECT_GE(accept_res.load(), 0);
-    EXPECT_EQ(connect_res.load(), 0);
+    CHECK(accept_res.load() >= 0);
+    CHECK(connect_res.load() == 0);
     if (accept_res.load() >= 0) ::close(accept_res.load());
   }
 }
 #pragma endregion
 
 #pragma region RecvSendMsg
-void IouLoop_RecvSendMsg() {
+TEST_CASE("RecvSendMsg", "[IouLoop]") {
   // `submit_recvmsg_buffer` and `submit_sendmsg_buffer` exchange a datagram
   // between two UDP sockets. On completion, the received payload and sender
   // address are available via the buffer.
@@ -655,8 +641,8 @@ void IouLoop_RecvSendMsg() {
         message_style::datagram);
     auto send_sock = net_socket::create_for(send_ep, execution::nonblocking,
         message_style::datagram);
-    EXPECT_TRUE(recv_sock.bind(recv_ep));
-    EXPECT_TRUE(send_sock.bind(send_ep));
+    CHECK(recv_sock.bind(recv_ep));
+    CHECK(send_sock.bind(send_ep));
     net_endpoint recv_addr{recv_sock};
 
     std::atomic_bool received{false};
@@ -694,18 +680,17 @@ void IouLoop_RecvSendMsg() {
       if (!stok.is_valid()) return false;
       return loop->immediate_submit();
     });
-    EXPECT_TRUE(ok);
-    EXPECT_TRUE(
-        WaitFor([&] { return received.load(std::memory_order::acquire); }));
-    EXPECT_EQ(recv_n.load(), static_cast<int32_t>(payload.size()));
-    EXPECT_EQ(send_n.load(), static_cast<int32_t>(payload.size()));
-    EXPECT_EQ(recv_result, std::string{payload});
+    CHECK(ok);
+    CHECK(WaitFor([&] { return received.load(std::memory_order::acquire); }));
+    CHECK(recv_n.load() == static_cast<int32_t>(payload.size()));
+    CHECK(send_n.load() == static_cast<int32_t>(payload.size()));
+    CHECK(recv_result == std::string{payload});
   }
 }
 #pragma endregion
 
 #pragma region BorrowBufferSizes
-void IouLoop_BorrowBufferSizes() {
+TEST_CASE("BorrowBufferSizes", "[IouLoop]") {
   // `borrow_read_buffer` and `borrow_write_buffer` succeed for all three block
   // sizes, and the buffers are returned to the pool on destruction.
   if (true) {
@@ -715,24 +700,24 @@ void IouLoop_BorrowBufferSizes() {
       auto s = loop->borrow_read_buffer(block_size::kb004);
       auto m = loop->borrow_read_buffer(block_size::kb016);
       auto l = loop->borrow_read_buffer(block_size::kb032);
-      EXPECT_TRUE(s);
-      EXPECT_TRUE(m);
-      EXPECT_TRUE(l);
+      CHECK(s);
+      CHECK(m);
+      CHECK(l);
     }
     {
       auto s = loop->borrow_write_buffer(block_size::kb004);
       auto m = loop->borrow_write_buffer(block_size::kb016);
       auto l = loop->borrow_write_buffer(block_size::kb032);
-      EXPECT_TRUE(s);
-      EXPECT_TRUE(m);
-      EXPECT_TRUE(l);
+      CHECK(s);
+      CHECK(m);
+      CHECK(l);
     }
   }
 }
 #pragma endregion
 
 #pragma region SlotRetentionRetain
-void IouLoop_SlotRetentionRetain() {
+TEST_CASE("SlotRetentionRetain", "[IouLoop]") {
   // A callback returning `slot_retention::retain` keeps the pool slot live.
   // Re-submitting a NOP with the same token fires the callback a second time,
   // after which it releases normally.
@@ -752,42 +737,42 @@ void IouLoop_SlotRetentionRetain() {
           }
           return slot_retention::automatic;
         });
-    EXPECT_TRUE(token.is_valid());
+    CHECK(token.is_valid());
     const bool submitted = loop->submit_nop(token, slot_retention::automatic);
-    EXPECT_TRUE(submitted);
-    EXPECT_TRUE(
+    CHECK(submitted);
+    CHECK(
         WaitFor([&] { return count.load(std::memory_order::acquire) == 2; }));
-    EXPECT_EQ(count.load(), 2);
+    CHECK(count.load() == 2);
   }
 }
 #pragma endregion
 
 #pragma region TimespecDurationRoundTrip
-void IouWrap_TimespecDurationRoundTrip() {
+TEST_CASE("TimespecDurationRoundTrip", "[IouWrap]") {
   // Construct from durations and verify `as_duration()` recovers the original.
   if (true) {
     iou_timespec invalid;
-    EXPECT_TRUE(invalid.as_duration<std::chrono::nanoseconds>().count() < 0);
+    CHECK(invalid.as_duration<std::chrono::nanoseconds>().count() < 0);
   }
   if (true) {
     iou_timespec ts{50ms};
-    EXPECT_TRUE(ts.as_duration<std::chrono::milliseconds>() == 50ms);
+    CHECK(ts.as_duration<std::chrono::milliseconds>() == 50ms);
   }
   if (true) {
     // 1.5 s: verifies the seconds/nanoseconds split is lossless.
     iou_timespec ts{1s + 500ms};
-    EXPECT_TRUE(ts.as_duration<std::chrono::milliseconds>() == 1500ms);
+    CHECK(ts.as_duration<std::chrono::milliseconds>() == 1500ms);
   }
   if (true) {
     // Negative durations are clamped to zero by `from_duration`.
     iou_timespec ts{-10ms};
-    EXPECT_TRUE(ts.as_duration<std::chrono::nanoseconds>().count() == 0);
+    CHECK(ts.as_duration<std::chrono::nanoseconds>().count() == 0);
   }
 }
 #pragma endregion
 
 #pragma region TimespecTimePointRoundTrip
-void IouWrap_TimespecTimePointRoundTrip() {
+TEST_CASE("TimespecTimePointRoundTrip", "[IouWrap]") {
   // Construct from a `steady_clock` time_point and verify `as_time_point()`
   // recovers the exact same value.
   using clk = std::chrono::steady_clock;
@@ -796,29 +781,28 @@ void IouWrap_TimespecTimePointRoundTrip() {
     auto now = clk::now();
     iou_timespec ts{now};
     auto recovered = ts.as_time_point<clk, dur>();
-    EXPECT_TRUE(recovered == now);
+    CHECK(recovered == now);
   }
 }
 #pragma endregion
 
 #pragma region TimespecStaticHelpers
-void IouWrap_TimespecStaticHelpers() {
+TEST_CASE("TimespecStaticHelpers", "[IouWrap]") {
   // `from_duration` splits seconds and nanosecond remainder correctly.
   if (true) {
     auto raw = iou_timespec::from_duration(750ms);
-    EXPECT_TRUE(raw.tv_sec == 0LL);
-    EXPECT_TRUE(raw.tv_nsec == 750'000'000LL);
+    CHECK(raw.tv_sec == 0LL);
+    CHECK(raw.tv_nsec == 750'000'000LL);
   }
   if (true) {
     auto raw = iou_timespec::from_duration(2s + 300ms);
-    EXPECT_TRUE(raw.tv_sec == 2LL);
-    EXPECT_TRUE(raw.tv_nsec == 300'000'000LL);
+    CHECK(raw.tv_sec == 2LL);
+    CHECK(raw.tv_nsec == 300'000'000LL);
   }
   // `to_duration` is the inverse of `from_duration`.
   if (true) {
     auto raw = iou_timespec::from_duration(750ms);
-    EXPECT_TRUE(
-        iou_timespec::to_duration<std::chrono::milliseconds>(raw) == 750ms);
+    CHECK(iou_timespec::to_duration<std::chrono::milliseconds>(raw) == 750ms);
   }
   // `from_time_point` / `to_time_point` round-trip.
   if (true) {
@@ -827,211 +811,209 @@ void IouWrap_TimespecStaticHelpers() {
     auto now = clk::now();
     auto raw = iou_timespec::from_time_point(now);
     auto recovered = iou_timespec::to_time_point<clk, dur>(raw);
-    EXPECT_TRUE(recovered == now);
+    CHECK(recovered == now);
   }
 }
 #pragma endregion
 
 #pragma region TimespecAsPointer
-void IouWrap_TimespecAsPointer() {
+TEST_CASE("TimespecAsPointer", "[IouWrap]") {
   // `as_pointer(nullptr)` is null; `as_pointer(&ts)` is non-null.
   if (true) {
-    EXPECT_TRUE(
-        iou_timespec::to_pointer(static_cast<iou_timespec*>(nullptr)) ==
-        nullptr);
-    EXPECT_TRUE(
-        iou_timespec::to_pointer(static_cast<const iou_timespec*>(nullptr)) ==
-        nullptr);
+    CHECK(iou_timespec::to_pointer(static_cast<iou_timespec*>(nullptr)) ==
+          nullptr);
+    CHECK(iou_timespec::to_pointer(
+              static_cast<const iou_timespec*>(nullptr)) == nullptr);
   }
   if (true) {
     iou_timespec ts{50ms};
-    EXPECT_TRUE(iou_timespec::to_pointer(&ts) != nullptr);
+    CHECK(iou_timespec::to_pointer(&ts) != nullptr);
     const iou_timespec cts{50ms};
-    EXPECT_TRUE(iou_timespec::to_pointer(&cts) != nullptr);
+    CHECK(iou_timespec::to_pointer(&cts) != nullptr);
   }
 }
 #pragma endregion
 
 #pragma region ItimerspecConstruct
-void IouWrap_ItimerspecConstruct() {
+TEST_CASE("ItimerspecConstruct", "[IouWrap]") {
   // Default construction zeros both fields; explicit construction stores the
   // correct interval and value.
   if (true) {
     iou_itimerspec its;
-    EXPECT_TRUE(its.it_interval().tv_sec == 0LL);
-    EXPECT_TRUE(its.it_interval().tv_nsec == 0LL);
-    EXPECT_TRUE(its.it_value().tv_sec == 0LL);
-    EXPECT_TRUE(its.it_value().tv_nsec == 0LL);
+    CHECK(its.it_interval().tv_sec == 0LL);
+    CHECK(its.it_interval().tv_nsec == 0LL);
+    CHECK(its.it_value().tv_sec == 0LL);
+    CHECK(its.it_value().tv_nsec == 0LL);
   }
   if (true) {
     iou_timespec interval{100ms};
     iou_timespec value{500ms};
     iou_itimerspec its{interval, value};
-    EXPECT_TRUE(its.it_interval().tv_nsec == 100'000'000LL);
-    EXPECT_TRUE(its.it_value().tv_nsec == 500'000'000LL);
+    CHECK(its.it_interval().tv_nsec == 100'000'000LL);
+    CHECK(its.it_value().tv_nsec == 500'000'000LL);
   }
 }
 #pragma endregion
 
 #pragma region ResStatus
-void IouWrap_ResStatus() {
+TEST_CASE("ResStatus", "[IouWrap]") {
   // `ok()`, `bool`, and `!` reflect the sign of the raw result.
   if (true) {
     iou_res r{0};
-    EXPECT_TRUE(r.ok());
-    EXPECT_TRUE(r);
-    EXPECT_TRUE(r.value() == 0);
+    CHECK(r.ok());
+    CHECK(r);
+    CHECK(r.value() == 0);
   }
   if (true) {
     iou_res r{42};
-    EXPECT_TRUE(r.ok());
-    EXPECT_TRUE(r.value() == 42);
-    EXPECT_TRUE(r.bytes() == size_t{42});
+    CHECK(r.ok());
+    CHECK(r.value() == 42);
+    CHECK(r.bytes() == size_t{42});
   }
   if (true) {
     iou_res r{-EINVAL};
-    EXPECT_FALSE(r.ok());
-    EXPECT_FALSE(r);
-    EXPECT_TRUE(r.value() == -EINVAL);
+    CHECK_FALSE(r.ok());
+    CHECK_FALSE(r);
+    CHECK(r.value() == -EINVAL);
   }
   // `ok(n)` requires `res` >= n.
   if (true) {
     iou_res r{3};
-    EXPECT_TRUE(r.ok(3));
-    EXPECT_FALSE(r.ok(4));
+    CHECK(r.ok(3));
+    CHECK_FALSE(r.ok(4));
   }
   // `ETIME` is a soft error; `EINVAL` is not.
   if (true) {
-    EXPECT_TRUE(iou_res{-ETIME}.is_soft_error());
-    EXPECT_FALSE(iou_res{-EINVAL}.is_soft_error());
+    CHECK(iou_res{-ETIME}.is_soft_error());
+    CHECK_FALSE(iou_res{-EINVAL}.is_soft_error());
   }
 }
 #pragma endregion
 
 #pragma region CqeFlagsString
-void IouWrap_CqeFlagsString() {
+TEST_CASE("CqeFlagsString", "[IouWrap]") {
   // Each named bit round-trips through `enum_as_string` / `parse_enum`.
   using namespace corvid::strings;
   using F = iou_cqe_flags;
   if (true) {
-    EXPECT_EQ(enum_as_string(F::buffer), "buffer");
-    EXPECT_EQ(enum_as_string(F::more), "more");
-    EXPECT_EQ(enum_as_string(F::sock_nonempty), "sock_nonempty");
-    EXPECT_EQ(enum_as_string(F::notif), "notif");
+    CHECK(enum_as_string(F::buffer) == "buffer");
+    CHECK(enum_as_string(F::more) == "more");
+    CHECK(enum_as_string(F::sock_nonempty) == "sock_nonempty");
+    CHECK(enum_as_string(F::notif) == "notif");
   }
   if (true) {
     // Higher bits print first.
-    EXPECT_EQ(enum_as_string(F::more | F::buffer), "more + buffer");
+    CHECK(enum_as_string(F::more | F::buffer) == "more + buffer");
   }
   if (true) {
     constexpr F bad{0xff};
-    EXPECT_EQ(parse_enum("buffer", bad), F::buffer);
-    EXPECT_EQ(parse_enum("more", bad), F::more);
-    EXPECT_EQ(parse_enum("sock_nonempty", bad), F::sock_nonempty);
-    EXPECT_EQ(parse_enum("notif", bad), F::notif);
-    EXPECT_EQ(parse_enum("more + buffer", bad), F::more | F::buffer);
+    CHECK(parse_enum("buffer", bad) == F::buffer);
+    CHECK(parse_enum("more", bad) == F::more);
+    CHECK(parse_enum("sock_nonempty", bad) == F::sock_nonempty);
+    CHECK(parse_enum("notif", bad) == F::notif);
+    CHECK(parse_enum("more + buffer", bad) == (F::more | F::buffer));
   }
 }
 #pragma endregion
 
 #pragma region SqeFlagsString
-void IouWrap_SqeFlagsString() {
+TEST_CASE("SqeFlagsString", "[IouWrap]") {
   // Each named bit round-trips through `enum_as_string` / `parse_enum`.
   using namespace corvid::strings;
   using F = iou_sqe_flags;
   if (true) {
-    EXPECT_EQ(enum_as_string(F::fixed_file), "fixed_file");
-    EXPECT_EQ(enum_as_string(F::io_drain), "io_drain");
-    EXPECT_EQ(enum_as_string(F::io_link), "io_link");
-    EXPECT_EQ(enum_as_string(F::io_hardlink), "io_hardlink");
-    EXPECT_EQ(enum_as_string(F::async), "async");
-    EXPECT_EQ(enum_as_string(F::buffer_select), "buffer_select");
-    EXPECT_EQ(enum_as_string(F::cqe_skip_success), "cqe_skip_success");
+    CHECK(enum_as_string(F::fixed_file) == "fixed_file");
+    CHECK(enum_as_string(F::io_drain) == "io_drain");
+    CHECK(enum_as_string(F::io_link) == "io_link");
+    CHECK(enum_as_string(F::io_hardlink) == "io_hardlink");
+    CHECK(enum_as_string(F::async) == "async");
+    CHECK(enum_as_string(F::buffer_select) == "buffer_select");
+    CHECK(enum_as_string(F::cqe_skip_success) == "cqe_skip_success");
   }
   if (true) {
     // Higher bits print first.
-    EXPECT_EQ(enum_as_string(F::async | F::io_link), "async + io_link");
+    CHECK(enum_as_string(F::async | F::io_link) == "async + io_link");
   }
   if (true) {
     constexpr F bad{0xff};
-    EXPECT_EQ(parse_enum("fixed_file", bad), F::fixed_file);
-    EXPECT_EQ(parse_enum("cqe_skip_success", bad), F::cqe_skip_success);
-    EXPECT_EQ(parse_enum("async + io_link", bad), F::async | F::io_link);
+    CHECK(parse_enum("fixed_file", bad) == F::fixed_file);
+    CHECK(parse_enum("cqe_skip_success", bad) == F::cqe_skip_success);
+    CHECK(parse_enum("async + io_link", bad) == (F::async | F::io_link));
   }
 }
 #pragma endregion
 
 #pragma region SetupFlagsString
-void IouWrap_SetupFlagsString() {
+TEST_CASE("SetupFlagsString", "[IouWrap]") {
   // Each named bit round-trips through `enum_as_string` / `parse_enum`.
   using namespace corvid::strings;
   using F = iou_setup_flags;
   if (true) {
-    EXPECT_EQ(enum_as_string(F::setup_iopoll), "setup_iopoll");
-    EXPECT_EQ(enum_as_string(F::setup_sqpoll), "setup_sqpoll");
-    EXPECT_EQ(enum_as_string(F::setup_sq_aff), "setup_sq_aff");
-    EXPECT_EQ(enum_as_string(F::setup_cqsize), "setup_cqsize");
-    EXPECT_EQ(enum_as_string(F::setup_clamp), "setup_clamp");
-    EXPECT_EQ(enum_as_string(F::setup_attach_wq), "setup_attach_wq");
-    EXPECT_EQ(enum_as_string(F::setup_r_disabled), "setup_r_disabled");
-    EXPECT_EQ(enum_as_string(F::setup_submit_all), "setup_submit_all");
-    EXPECT_EQ(enum_as_string(F::setup_coop_taskrun), "setup_coop_taskrun");
-    EXPECT_EQ(enum_as_string(F::setup_taskrun_flag), "setup_taskrun_flag");
-    EXPECT_EQ(enum_as_string(F::setup_sqe128), "setup_sqe128");
-    EXPECT_EQ(enum_as_string(F::setup_cqe32), "setup_cqe32");
-    EXPECT_EQ(enum_as_string(F::setup_single_issuer), "setup_single_issuer");
-    EXPECT_EQ(enum_as_string(F::setup_defer_taskrun), "setup_defer_taskrun");
-    EXPECT_EQ(enum_as_string(F::setup_no_mmap), "setup_no_mmap");
-    EXPECT_EQ(enum_as_string(F::setup_registered_fd_only),
-        "setup_registered_fd_only");
+    CHECK(enum_as_string(F::setup_iopoll) == "setup_iopoll");
+    CHECK(enum_as_string(F::setup_sqpoll) == "setup_sqpoll");
+    CHECK(enum_as_string(F::setup_sq_aff) == "setup_sq_aff");
+    CHECK(enum_as_string(F::setup_cqsize) == "setup_cqsize");
+    CHECK(enum_as_string(F::setup_clamp) == "setup_clamp");
+    CHECK(enum_as_string(F::setup_attach_wq) == "setup_attach_wq");
+    CHECK(enum_as_string(F::setup_r_disabled) == "setup_r_disabled");
+    CHECK(enum_as_string(F::setup_submit_all) == "setup_submit_all");
+    CHECK(enum_as_string(F::setup_coop_taskrun) == "setup_coop_taskrun");
+    CHECK(enum_as_string(F::setup_taskrun_flag) == "setup_taskrun_flag");
+    CHECK(enum_as_string(F::setup_sqe128) == "setup_sqe128");
+    CHECK(enum_as_string(F::setup_cqe32) == "setup_cqe32");
+    CHECK(enum_as_string(F::setup_single_issuer) == "setup_single_issuer");
+    CHECK(enum_as_string(F::setup_defer_taskrun) == "setup_defer_taskrun");
+    CHECK(enum_as_string(F::setup_no_mmap) == "setup_no_mmap");
+    CHECK((enum_as_string(F::setup_registered_fd_only)) ==
+          ("setup_registered_fd_only"));
   }
   if (true) {
     // Higher bits print first.
-    EXPECT_EQ(enum_as_string(F::setup_sqpoll | F::setup_iopoll),
-        "setup_sqpoll + setup_iopoll");
+    CHECK((enum_as_string(F::setup_sqpoll | F::setup_iopoll)) ==
+          ("setup_sqpoll + setup_iopoll"));
   }
   if (true) {
     constexpr F bad{0x80000000};
-    EXPECT_EQ(parse_enum("setup_iopoll", bad), F::setup_iopoll);
-    EXPECT_EQ(parse_enum("setup_registered_fd_only", bad),
-        F::setup_registered_fd_only);
-    EXPECT_EQ(parse_enum("setup_sqpoll + setup_iopoll", bad),
-        F::setup_sqpoll | F::setup_iopoll);
+    CHECK(parse_enum("setup_iopoll", bad) == F::setup_iopoll);
+    CHECK((parse_enum("setup_registered_fd_only", bad)) ==
+          (F::setup_registered_fd_only));
+    CHECK((parse_enum("setup_sqpoll + setup_iopoll", bad)) ==
+          (F::setup_sqpoll | F::setup_iopoll));
   }
 }
 #pragma endregion
 
 #pragma region TimeoutFlagsString
-void IouWrap_TimeoutFlagsString() {
+TEST_CASE("TimeoutFlagsString", "[IouWrap]") {
   // Each named bit round-trips through `enum_as_string` / `parse_enum`.
   // `rel` (value 0) has no bit name and prints as "0x00".
   using namespace corvid::strings;
   using F = iou_timeout_flags;
   if (true) {
-    EXPECT_EQ(enum_as_string(F::rel), "0x00000000");
-    EXPECT_EQ(enum_as_string(F::abs), "abs");
-    EXPECT_EQ(enum_as_string(F::update), "update");
-    EXPECT_EQ(enum_as_string(F::boot_time), "boot_time");
-    EXPECT_EQ(enum_as_string(F::real_time), "real_time");
-    EXPECT_EQ(enum_as_string(F::link_timeout_update), "link_timeout_update");
-    EXPECT_EQ(enum_as_string(F::etime_success), "etime_success");
-    EXPECT_EQ(enum_as_string(F::multishot), "multishot");
+    CHECK(enum_as_string(F::rel) == "0x00000000");
+    CHECK(enum_as_string(F::abs) == "abs");
+    CHECK(enum_as_string(F::update) == "update");
+    CHECK(enum_as_string(F::boot_time) == "boot_time");
+    CHECK(enum_as_string(F::real_time) == "real_time");
+    CHECK(enum_as_string(F::link_timeout_update) == "link_timeout_update");
+    CHECK(enum_as_string(F::etime_success) == "etime_success");
+    CHECK(enum_as_string(F::multishot) == "multishot");
   }
   if (true) {
     // Higher bits print first.
-    EXPECT_EQ(enum_as_string(F::multishot | F::abs), "multishot + abs");
+    CHECK(enum_as_string(F::multishot | F::abs) == "multishot + abs");
   }
   if (true) {
     constexpr F bad{0x80000000};
-    EXPECT_EQ(parse_enum("abs", bad), F::abs);
-    EXPECT_EQ(parse_enum("multishot", bad), F::multishot);
-    EXPECT_EQ(parse_enum("multishot + abs", bad), F::multishot | F::abs);
+    CHECK(parse_enum("abs", bad) == F::abs);
+    CHECK(parse_enum("multishot", bad) == F::multishot);
+    CHECK(parse_enum("multishot + abs", bad) == (F::multishot | F::abs));
   }
 }
 #pragma endregion
 
 #pragma region RecvBufferMulti
-void IouLoop_RecvBufferMulti() {
+TEST_CASE("RecvBufferMulti", "[IouLoop]") {
   // `submit_recv_buffer_multi` fires the callback for each message received.
   // Send three messages over a SEQPACKET socket pair (which preserves message
   // boundaries); confirm all three arrive with the correct payloads.
@@ -1054,11 +1036,11 @@ void IouLoop_RecvBufferMulti() {
           count.fetch_add(1, std::memory_order::release);
           return slot_retention::automatic;
         });
-    EXPECT_TRUE(recv_token.is_valid());
+    CHECK(recv_token.is_valid());
 
     constexpr std::array<std::string_view, 3> msgs{"alpha", "beta", "gamma"};
     for (auto msg : msgs) {
-      EXPECT_TRUE(loop->post_and_wait([&] {
+      CHECK(loop->post_and_wait([&] {
         return loop
             ->submit_send_bytes(send_sock, std::as_bytes(std::span{msg}),
                 [](completion_id, iou_res, iou_cqe_flags) -> slot_retention {
@@ -1068,16 +1050,16 @@ void IouLoop_RecvBufferMulti() {
       }));
     }
 
-    EXPECT_TRUE(
+    CHECK(
         WaitFor([&] { return count.load(std::memory_order::acquire) >= 3; }));
-    EXPECT_EQ(count.load(), 3);
-    for (int i = 0; i < 3; ++i) EXPECT_EQ(payloads[i], std::string{msgs[i]});
+    CHECK(count.load() == 3);
+    for (int i = 0; i < 3; ++i) CHECK(payloads[i] == std::string{msgs[i]});
   }
 }
 #pragma endregion
 
 #pragma region RecvMsgBufferMulti
-void IouLoop_RecvMsgBufferMulti() {
+TEST_CASE("RecvMsgBufferMulti", "[IouLoop]") {
   // `submit_recvmsg_buffer_multi` fires the callback for each datagram.
   // Send three UDP datagrams; confirm all three arrive with correct payloads.
   if (true) {
@@ -1087,8 +1069,8 @@ void IouLoop_RecvMsgBufferMulti() {
         message_style::datagram);
     auto send_sock = net_socket::create_for(send_ep, execution::nonblocking,
         message_style::datagram);
-    EXPECT_TRUE(recv_sock.bind(recv_ep));
-    EXPECT_TRUE(send_sock.bind(send_ep));
+    CHECK(recv_sock.bind(recv_ep));
+    CHECK(send_sock.bind(send_ep));
     net_endpoint recv_addr{recv_sock};
 
     std::atomic<int> count{0};
@@ -1106,11 +1088,11 @@ void IouLoop_RecvMsgBufferMulti() {
           count.fetch_add(1, std::memory_order::release);
           return slot_retention::automatic;
         });
-    EXPECT_TRUE(recv_token.is_valid());
+    CHECK(recv_token.is_valid());
 
     constexpr std::array<std::string_view, 3> msgs{"one", "two", "three"};
     for (auto msg : msgs) {
-      EXPECT_TRUE(loop->post_and_wait([&] {
+      CHECK(loop->post_and_wait([&] {
         auto send_buf = loop->borrow_write_buffer();
         if (!send_buf) return false;
         (void)send_buf.append(msg);
@@ -1124,16 +1106,16 @@ void IouLoop_RecvMsgBufferMulti() {
       }));
     }
 
-    EXPECT_TRUE(
+    CHECK(
         WaitFor([&] { return count.load(std::memory_order::acquire) >= 3; }));
-    EXPECT_EQ(count.load(), 3);
-    for (int i = 0; i < 3; ++i) EXPECT_EQ(payloads[i], std::string{msgs[i]});
+    CHECK(count.load() == 3);
+    for (int i = 0; i < 3; ++i) CHECK(payloads[i] == std::string{msgs[i]});
   }
 }
 #pragma endregion
 
 #pragma region RecvMsgBufferMultiTruncated
-void IouLoop_RecvMsgBufferMultiTruncated() {
+TEST_CASE("RecvMsgBufferMultiTruncated", "[IouLoop]") {
   // An 8 KiB datagram exceeds the 2 KiB UDP provided-buffer size. The
   // multishot recvmsg callback should fire once with:
   //   - `result()` == `EC::msgsize` (truncation error)
@@ -1146,8 +1128,8 @@ void IouLoop_RecvMsgBufferMultiTruncated() {
         message_style::datagram);
     auto send_sock = net_socket::create_for(send_ep, execution::nonblocking,
         message_style::datagram);
-    EXPECT_TRUE(recv_sock.bind(recv_ep));
-    EXPECT_TRUE(send_sock.bind(send_ep));
+    CHECK(recv_sock.bind(recv_ep));
+    CHECK(send_sock.bind(send_ep));
     net_endpoint recv_addr{recv_sock};
 
     std::atomic_bool fired{false};
@@ -1165,11 +1147,11 @@ void IouLoop_RecvMsgBufferMultiTruncated() {
           fired.store(true, std::memory_order::release);
           return slot_retention::automatic;
         });
-    EXPECT_TRUE(recv_token.is_valid());
+    CHECK(recv_token.is_valid());
 
     constexpr size_t datagram_size = 8192;
     const std::vector<std::byte> big(datagram_size, std::byte{'X'});
-    EXPECT_TRUE(loop->post_and_wait([&] {
+    CHECK(loop->post_and_wait([&] {
       auto send_buf = loop->borrow_write_buffer(block_size::kb008);
       if (!send_buf) return false;
       if (!send_buf.append(std::as_bytes(std::span{big}))) return false;
@@ -1182,17 +1164,16 @@ void IouLoop_RecvMsgBufferMultiTruncated() {
           .is_valid();
     }));
 
-    EXPECT_TRUE(
-        WaitFor([&] { return fired.load(std::memory_order::acquire); }));
-    EXPECT_EQ(result, -EMSGSIZE);
-    EXPECT_TRUE(truncated);
-    EXPECT_EQ(len, datagram_size);
+    CHECK(WaitFor([&] { return fired.load(std::memory_order::acquire); }));
+    CHECK(result == -EMSGSIZE);
+    CHECK(truncated);
+    CHECK(len == datagram_size);
   }
 }
 #pragma endregion
 
 #pragma region RecvMsgBufferMultiStress
-void IouLoop_RecvMsgBufferMultiStress() {
+TEST_CASE("RecvMsgBufferMultiStress", "[IouLoop]") {
   // Stress test for multishot recvmsg with provided buffers.
   //
   // The UDP provided-buffer pool has 1024 slots (2 MiB slab / 2 KiB each).
@@ -1216,11 +1197,11 @@ void IouLoop_RecvMsgBufferMultiStress() {
         message_style::datagram);
     auto send_sock = net_socket::create_for(send_ep, execution::blocking,
         message_style::datagram);
-    EXPECT_TRUE(recv_sock.bind(recv_ep));
-    EXPECT_TRUE(send_sock.bind(send_ep));
+    CHECK(recv_sock.bind(recv_ep));
+    CHECK(send_sock.bind(send_ep));
     net_endpoint recv_addr{recv_sock};
     const auto connect_ok = send_sock.connect(recv_addr);
-    EXPECT_TRUE(connect_ok && *connect_ok);
+    CHECK((connect_ok && *connect_ok));
 
     // `loop` is declared after the captured locals so that `~loop_runner`
     // joins the loop thread before any of them die. `held_bufs` may outlive
@@ -1264,31 +1245,31 @@ void IouLoop_RecvMsgBufferMultiStress() {
           ++overall;
           return slot_retention::automatic;
         });
-    EXPECT_TRUE(recv_token.is_valid());
+    CHECK(recv_token.is_valid());
 
     // Wait for the multishot SQE to be submitted to the kernel before sending.
-    EXPECT_TRUE(loop->post_and_wait([] { return true; }));
+    CHECK(loop->post_and_wait([] { return true; }));
 
     constexpr int send_count = 4096;
     const char payload{'x'};
     for (int i = 0; i < send_count; ++i)
       (void)send_sock.send(&payload, sizeof(payload));
 
-    EXPECT_TRUE(WaitFor(
+    CHECK(WaitFor(
         [&] { return multishot_done.load(std::memory_order::acquire); },
         5000ms));
 
-    EXPECT_TRUE(enobufs_fired);
-    EXPECT_EQ(overall, 3072);
-    EXPECT_EQ(a_count, 1536);
-    EXPECT_EQ(b_count, 512);
-    EXPECT_EQ(c_count, 1024);
+    CHECK(enobufs_fired);
+    CHECK(overall == 3072);
+    CHECK(a_count == 1536);
+    CHECK(b_count == 512);
+    CHECK(c_count == 1024);
   }
 }
 #pragma endregion
 
 #pragma region FnSizeProbe
-void IouLoop_CompletionFnSizeProbe() {
+TEST_CASE("CompletionFnSizeProbe", "[IouLoop]") {
   // Probe the storage each (cb, ep) combination would need if `completion_fn`
   // were replaced with `fixed_function<SZ, slot_retention(completion_id,
   // iou_res, iou_cqe_flags)>`.  The wrapping lambda in `wrap_completion_fn`
@@ -1373,7 +1354,7 @@ void IouLoop_CompletionFnSizeProbe() {
 
   const size_t all[] = {sz_direct_fn, sz_raw_bt, sz_raw_bewt, sz_raw_buf};
   const size_t max_sz = *std::ranges::max_element(all);
-  EXPECT_EQ(max_sz, 400U);
+  CHECK(max_sz == 400U);
 // Sounds like SZ = 384 works.
 #if 0
   TEST_MSG("direct_fn=%zu raw+bt=%zu raw+bewt=%zu raw+buf=%zu  max=%zu",
@@ -1383,7 +1364,7 @@ void IouLoop_CompletionFnSizeProbe() {
 #pragma endregion
 
 #pragma region SubmitPoll
-void IouLoop_SubmitPoll() {
+TEST_CASE("SubmitPoll", "[IouLoop]") {
   // Single-shot `submit_poll` fires once when the polled file becomes
   // readable; `res` contains the triggered events mask (POLLIN bit set).
   if (true) {
@@ -1399,11 +1380,11 @@ void IouLoop_SubmitPoll() {
           fired.store(true, std::memory_order::release);
           return slot_retention{};
         });
-    EXPECT_TRUE(poll_tok.is_valid());
+    CHECK(poll_tok.is_valid());
 
     // Make the socket readable by sending data.
     constexpr std::string_view msg{"ping"};
-    EXPECT_TRUE(loop->post_and_wait([&] {
+    CHECK(loop->post_and_wait([&] {
       return loop
           ->submit_send_bytes(send_sock, std::as_bytes(std::span{msg}),
               [](completion_id, iou_res, iou_cqe_flags) -> slot_retention {
@@ -1412,15 +1393,14 @@ void IouLoop_SubmitPoll() {
           .is_valid();
     }));
 
-    EXPECT_TRUE(
-        WaitFor([&] { return fired.load(std::memory_order::acquire); }));
-    EXPECT_GE(poll_res.load(), 0);
+    CHECK(WaitFor([&] { return fired.load(std::memory_order::acquire); }));
+    CHECK(poll_res.load() >= 0);
   }
 }
 #pragma endregion
 
 #pragma region SubmitShutdown
-void IouLoop_SubmitShutdown() {
+TEST_CASE("SubmitShutdown", "[IouLoop]") {
   // `submit_shutdown(SHUT_WR)` causes the peer recv to see EOF (0 bytes).
   if (true) {
     auto [send_sock, recv_sock] = net_socket::create_pair();
@@ -1432,7 +1412,7 @@ void IouLoop_SubmitShutdown() {
 
     iou_loop_runner loop;
 
-    EXPECT_TRUE(loop->post_and_wait([&] {
+    CHECK(loop->post_and_wait([&] {
       if (!loop
               ->submit_recv_bytes(recv_sock, buf,
                   [&](completion_id, iou_res res,
@@ -1454,19 +1434,18 @@ void IouLoop_SubmitShutdown() {
           .is_valid();
     }));
 
-    EXPECT_TRUE(
-        WaitFor([&] { return recv_done.load(std::memory_order::acquire); }));
-    EXPECT_TRUE(WaitFor([&] {
+    CHECK(WaitFor([&] { return recv_done.load(std::memory_order::acquire); }));
+    CHECK(WaitFor([&] {
       return shutdown_done.load(std::memory_order::acquire);
     }));
-    EXPECT_EQ(recv_res.load(), 0);     // EOF
-    EXPECT_EQ(shutdown_res.load(), 0); // success
+    CHECK(recv_res.load() == 0);     // EOF
+    CHECK(shutdown_res.load() == 0); // success
   }
 }
 #pragma endregion
 
 #pragma region SubmitTimeoutRemove
-void IouLoop_SubmitTimeoutRemove() {
+TEST_CASE("SubmitTimeoutRemove", "[IouLoop]") {
   // `submit_timeout_remove(completion_token&&)` (auto-release variant)
   // cancels a pending timeout. The returned remove token is valid; its slot
   // is released once the cancel CQE is processed.
@@ -1478,7 +1457,7 @@ void IouLoop_SubmitTimeoutRemove() {
     iou_loop::completion_token timeout_token;
     iou_loop_runner loop;
 
-    EXPECT_TRUE(loop->post_and_wait([&] {
+    CHECK(loop->post_and_wait([&] {
       timeout_token = loop->submit_timeout(std::move(timeout),
           [&](completion_id, iou_res res, iou_cqe_flags) -> slot_retention {
             timeout_result.store(res.value(), std::memory_order::release);
@@ -1488,13 +1467,13 @@ void IouLoop_SubmitTimeoutRemove() {
     }));
 
     const auto ok = loop->submit_timeout_remove(std::move(timeout_token));
-    EXPECT_TRUE(ok);
+    CHECK(ok);
   }
 }
 #pragma endregion
 
 #pragma region SubmitTimeoutRemoveExplicit
-void IouLoop_SubmitTimeoutRemoveExplicit() {
+TEST_CASE("SubmitTimeoutRemoveExplicit", "[IouLoop]") {
   // Two-arg `submit_timeout_remove` allows an explicit callback for the
   // remove operation itself; verify it fires with `res == 0`.
   if (true) {
@@ -1506,7 +1485,7 @@ void IouLoop_SubmitTimeoutRemoveExplicit() {
     iou_loop::completion_token timeout_token;
     iou_loop_runner loop;
 
-    EXPECT_TRUE(loop->post_and_wait([&] {
+    CHECK(loop->post_and_wait([&] {
       timeout_token = loop->submit_timeout(std::move(timeout),
           [](completion_id, iou_res, iou_cqe_flags) -> slot_retention {
             return slot_retention{};
@@ -1520,21 +1499,21 @@ void IouLoop_SubmitTimeoutRemoveExplicit() {
           remove_done.store(true, std::memory_order::release);
           return slot_retention{};
         });
-    EXPECT_TRUE(remove_cbtoken.is_valid());
+    CHECK(remove_cbtoken.is_valid());
 
     const bool ok = loop->submit_timeout_remove(std::move(timeout_token),
         remove_cbtoken, slot_retention::automatic);
-    EXPECT_TRUE(ok);
+    CHECK(ok);
 
-    EXPECT_TRUE(
+    CHECK(
         WaitFor([&] { return remove_done.load(std::memory_order::acquire); }));
-    EXPECT_EQ(remove_res.load(), 0);
+    CHECK(remove_res.load() == 0);
   }
 }
 #pragma endregion
 
 #pragma region SubmitCancelTokenAutoRelease
-void IouLoop_SubmitCancelTokenAutoRelease() {
+TEST_CASE("SubmitCancelTokenAutoRelease", "[IouLoop]") {
   if (true) {
     auto [send_sock, recv_sock] = net_socket::create_pair();
     std::atomic_bool recv_done{false};
@@ -1544,7 +1523,7 @@ void IouLoop_SubmitCancelTokenAutoRelease() {
 
     iou_loop_runner loop;
 
-    EXPECT_TRUE(loop->post_and_wait([&] {
+    CHECK(loop->post_and_wait([&] {
       recv_token = loop->submit_recv_bytes(recv_sock, buf,
           [&](completion_id, iou_res res, iou_cqe_flags) -> slot_retention {
             recv_res.store(res.value(), std::memory_order::relaxed);
@@ -1555,17 +1534,16 @@ void IouLoop_SubmitCancelTokenAutoRelease() {
     }));
 
     const bool cancel_ok = loop->submit_cancel(std::move(recv_token));
-    EXPECT_TRUE(cancel_ok);
+    CHECK(cancel_ok);
 
-    EXPECT_TRUE(
-        WaitFor([&] { return recv_done.load(std::memory_order::acquire); }));
-    EXPECT_LT(recv_res.load(), 0);
+    CHECK(WaitFor([&] { return recv_done.load(std::memory_order::acquire); }));
+    CHECK((recv_res.load()) < (0));
   }
 }
 #pragma endregion
 
 #pragma region SubmitTimeoutUpdate
-void IouLoop_SubmitTimeoutUpdate() {
+TEST_CASE("SubmitTimeoutUpdate", "[IouLoop]") {
   // `submit_timeout_update` changes the expiry of a pending timeout. Submit a
   // 2s timeout, update it to 50ms, then wait for two CQEs on the same token:
   // the update completion (res=0) and the expiry (res=-ETIME). The callback
@@ -1579,7 +1557,7 @@ void IouLoop_SubmitTimeoutUpdate() {
     iou_loop::completion_token timeout_token;
     iou_loop_runner loop;
 
-    EXPECT_TRUE(loop->post_and_wait([&] {
+    CHECK(loop->post_and_wait([&] {
       timeout_token = loop->submit_timeout(std::move(timeout),
           [&](completion_id, iou_res res, iou_cqe_flags) -> slot_retention {
             count.fetch_add(1, std::memory_order::relaxed);
@@ -1597,32 +1575,14 @@ void IouLoop_SubmitTimeoutUpdate() {
     const bool updated = loop->post_and_wait([&] {
       return loop->submit_timeout_update(timeout_token, new_timeout);
     });
-    EXPECT_TRUE(updated);
+    CHECK(updated);
 
     // Wait for both CQEs: the update completion then the expiry.
-    EXPECT_TRUE(WaitFor(
-        [&] { return count.load(std::memory_order::acquire) >= 2; }, 500ms));
-    EXPECT_EQ(last_res.load(std::memory_order::acquire), -ETIME);
+    CHECK(WaitFor([&] { return count.load(std::memory_order::acquire) >= 2; },
+        500ms));
+    CHECK(last_res.load(std::memory_order::acquire) == -ETIME);
   }
 }
 #pragma endregion
 
 // NOLINTEND(readability-function-cognitive-complexity)
-MAKE_TEST_LIST(IouLoop_NopCompletion, IouLoop_MultipleNops,
-    IouLoop_StopFromThread, IouLoop_SelfDestroyOnLoopThread,
-    IouLoop_PostFromThread, IouLoop_PostAndWait, IouLoop_RecvSend,
-    IouLoop_RecvWriteFixed, IouLoop_SendBuffer, IouLoop_IsLoopThread,
-    IouLoop_ExecuteOrPost, IouLoop_NopTokenVariant, IouLoop_TokenIsReleased,
-    IouLoop_SubmitClose, IouLoop_SubmitTimeout, IouLoop_SubmitTimeoutMultishot,
-    IouLoop_SubmitCancelFile, IouLoop_SubmitCancelToken, IouLoop_AcceptConnect,
-    IouLoop_RecvSendMsg, IouLoop_BorrowBufferSizes,
-    IouLoop_SlotRetentionRetain, IouLoop_SubmitPoll, IouLoop_SubmitShutdown,
-    IouLoop_SubmitTimeoutRemove, IouLoop_SubmitTimeoutRemoveExplicit,
-    IouLoop_SubmitCancelTokenAutoRelease, IouLoop_SubmitTimeoutUpdate,
-    IouLoop_RecvBufferMulti, IouLoop_RecvMsgBufferMulti,
-    IouLoop_RecvMsgBufferMultiTruncated, IouLoop_RecvMsgBufferMultiStress,
-    IouWrap_TimespecDurationRoundTrip, IouWrap_TimespecTimePointRoundTrip,
-    IouWrap_TimespecStaticHelpers, IouWrap_TimespecAsPointer,
-    IouWrap_ItimerspecConstruct, IouWrap_ResStatus, IouWrap_CqeFlagsString,
-    IouWrap_SqeFlagsString, IouWrap_SetupFlagsString,
-    IouWrap_TimeoutFlagsString, IouLoop_CompletionFnSizeProbe)

@@ -57,13 +57,6 @@ using namespace corvid::proto;
 using namespace corvid::concurrency;
 
 int do_main(int argc, char** argv) {
-  // If invoked with "-testonly" (e.g., by the CI build script), skip the
-  // server entirely and exit cleanly. This lets the test runner include
-  // `corvid_sim` in its sweep without blocking on a live server.
-  for (int i = 1; i < argc; ++i) {
-    if (std::string_view{argv[i]} == "-testonly") return 0;
-  }
-
   // Default web root: walk up from the executable until a
   // `corvid/sim/web/dist` subdirectory is found. This works regardless of
   // build output location.

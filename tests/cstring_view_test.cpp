@@ -22,7 +22,7 @@
 
 #include "../corvid/strings/cstring_view.h"
 #include "../corvid/meta.h"
-#include "minitest.h"
+#include "catch2_main.h"
 
 using namespace std::literals;
 using namespace corvid;
@@ -33,22 +33,22 @@ using namespace corvid::literals;
 
 #pragma region Construction
 
-void CStringViewTest_Construction() {
+TEST_CASE("Construction", "[CStringViewTest]") {
   // Default-constructed string_view.
   if (true) {
     std::string_view v;
-    EXPECT_TRUE(v.empty());
-    EXPECT_EQ(v.data(), nullptr);
-    EXPECT_EQ(&*v.begin(), &*v.end());
+    CHECK(v.empty());
+    CHECK(v.data() == nullptr);
+    CHECK(v.data() == v.data() + v.size());
   }
   // Default-constructed cstring_view.
   if (true) {
     cstring_view v;
-    EXPECT_TRUE(v.empty());
-    EXPECT_TRUE(v.null());
-    EXPECT_EQ(v.data(), nullptr);
-    EXPECT_NE(v.c_str(), nullptr);
-    EXPECT_EQ(&*v.begin(), &*v.end());
+    CHECK(v.empty());
+    CHECK(v.null());
+    CHECK(v.data() == nullptr);
+    CHECK(v.c_str() != nullptr);
+    CHECK(v.data() == v.data() + v.size());
   }
   // Construct string_view on null pointer.
   if (true) {
@@ -57,38 +57,38 @@ void CStringViewTest_Construction() {
     // This doesn't even throw, as such. It's undefined, so you (probably) get
     // an access violation. We could try to test for this with a try/catch
     // block and ellipses, but it's not guaranteed to behave on all platforms.
-    // * EXPECT_THROW((std::string_view(p)), std::runtime_error);
+    // * CHECK_THROWS_AS((std::string_view(p)), std::runtime_error);
   }
   // Construct cstring_view on null pointer.
   if (true) {
     // Works same as default construction.
     const char* p{};
     cstring_view v{p};
-    EXPECT_TRUE(v.empty());
-    EXPECT_TRUE(v.null());
-    EXPECT_EQ(v.data(), nullptr);
-    EXPECT_NE(v.c_str(), nullptr);
-    EXPECT_EQ(&*v.begin(), &*v.end());
+    CHECK(v.empty());
+    CHECK(v.null());
+    CHECK(v.data() == nullptr);
+    CHECK(v.c_str() != nullptr);
+    CHECK(v.data() == v.data() + v.size());
   }
   // Construct cstring_view on nullptr.
   if (true) {
     // Works same as default construction.
     cstring_view v{nullptr};
-    EXPECT_TRUE(v.empty());
-    EXPECT_TRUE(v.null());
-    EXPECT_EQ(v.data(), nullptr);
-    EXPECT_NE(v.c_str(), nullptr);
-    EXPECT_EQ(&*v.begin(), &*v.end());
+    CHECK(v.empty());
+    CHECK(v.null());
+    CHECK(v.data() == nullptr);
+    CHECK(v.c_str() != nullptr);
+    CHECK(v.data() == v.data() + v.size());
   }
   // Construct cstring_view on nullopt.
   if (true) {
     // Works same as default construction.
     cstring_view v{std::nullopt};
-    EXPECT_TRUE(v.empty());
-    EXPECT_TRUE(v.null());
-    EXPECT_EQ(v.data(), nullptr);
-    EXPECT_NE(v.c_str(), nullptr);
-    EXPECT_EQ(&*v.begin(), &*v.end());
+    CHECK(v.empty());
+    CHECK(v.null());
+    CHECK(v.data() == nullptr);
+    CHECK(v.c_str() != nullptr);
+    CHECK(v.data() == v.data() + v.size());
   }
   // Construct string_view on null and 0.
   if (true) {
@@ -96,192 +96,192 @@ void CStringViewTest_Construction() {
     const char* p{};
     // NOLINTNEXTLINE(bugprone-string-constructor)
     std::string_view v{p, 0};
-    EXPECT_TRUE(v.empty());
-    EXPECT_EQ(v.data(), nullptr);
-    EXPECT_EQ(&*v.begin(), &*v.end());
+    CHECK(v.empty());
+    CHECK(v.data() == nullptr);
+    CHECK(v.data() == v.data() + v.size());
   }
   // Construct cstring_view on null and 0.
   if (true) {
     // Same as default.
     const char* p{};
     cstring_view v{p, 0};
-    EXPECT_TRUE(v.empty());
-    EXPECT_TRUE(v.null());
-    EXPECT_EQ(v.data(), nullptr);
-    EXPECT_NE(v.c_str(), nullptr);
-    EXPECT_EQ(&*v.begin(), &*v.end());
+    CHECK(v.empty());
+    CHECK(v.null());
+    CHECK(v.data() == nullptr);
+    CHECK(v.c_str() != nullptr);
+    CHECK(v.data() == v.data() + v.size());
   }
   // Construct string_view on empty.
   if (true) {
     const char* p = "";
     std::string_view v{p};
-    EXPECT_TRUE(v.empty());
-    EXPECT_NE(v.data(), nullptr);
-    EXPECT_EQ(&*v.begin(), &*v.end());
+    CHECK(v.empty());
+    CHECK(v.data() != nullptr);
+    CHECK(v.data() == v.data() + v.size());
   }
   // Construct cstring_view on empty.
   if (true) {
     const char* p = "";
     cstring_view v{p};
-    EXPECT_TRUE(v.empty());
-    EXPECT_FALSE(v.null());
-    EXPECT_NE(v.data(), nullptr);
-    EXPECT_NE(v.c_str(), nullptr);
-    EXPECT_EQ(&*v.begin(), &*v.end());
+    CHECK(v.empty());
+    CHECK_FALSE(v.null());
+    CHECK(v.data() != nullptr);
+    CHECK(v.c_str() != nullptr);
+    CHECK(v.data() == v.data() + v.size());
   }
   // Construct string_view on empty and 0.
   if (true) {
     const char* p = "";
     // NOLINTNEXTLINE(bugprone-string-constructor)
     std::string_view v{p, 0};
-    EXPECT_TRUE(v.empty());
-    EXPECT_NE(v.data(), nullptr);
-    EXPECT_EQ(&*v.begin(), &*v.end());
+    CHECK(v.empty());
+    CHECK(v.data() != nullptr);
+    CHECK(v.data() == v.data() + v.size());
   }
   // Construct cstring_view on empty and 0.
   if (true) {
     const char* p = "";
-    EXPECT_THROW((cstring_view(p, 0)), std::length_error);
+    CHECK_THROWS_AS((cstring_view(p, 0)), std::length_error);
     cstring_view v{p, 1};
-    EXPECT_TRUE(v.empty());
-    EXPECT_FALSE(v.null());
-    EXPECT_NE(v.data(), nullptr);
-    EXPECT_NE(v.c_str(), nullptr);
-    EXPECT_EQ(&*v.begin(), &*v.end());
+    CHECK(v.empty());
+    CHECK_FALSE(v.null());
+    CHECK(v.data() != nullptr);
+    CHECK(v.c_str() != nullptr);
+    CHECK(v.data() == v.data() + v.size());
   }
   // Construct string_view on empty string.
   if (true) {
     std::string s;
     std::string_view v{s};
-    EXPECT_TRUE(v.empty());
-    EXPECT_NE(v.data(), nullptr);
-    EXPECT_EQ(&*v.begin(), &*v.end());
+    CHECK(v.empty());
+    CHECK(v.data() != nullptr);
+    CHECK(v.data() == v.data() + v.size());
   }
   // Construct cstring_view on empty string.
   if (true) {
     std::string s;
     cstring_view v{s};
-    EXPECT_TRUE(v.empty());
-    EXPECT_FALSE(v.null());
-    EXPECT_NE(v.data(), nullptr);
-    EXPECT_NE(v.c_str(), nullptr);
-    EXPECT_EQ(&*v.begin(), &*v.end());
+    CHECK(v.empty());
+    CHECK_FALSE(v.null());
+    CHECK(v.data() != nullptr);
+    CHECK(v.c_str() != nullptr);
+    CHECK(v.data() == v.data() + v.size());
   }
   // Construct string_view on null string_view.
   if (true) {
     std::string_view sv;
-    EXPECT_EQ(sv.data(), nullptr);
+    CHECK(sv.data() == nullptr);
     std::string_view v{sv};
-    EXPECT_TRUE(v.empty());
-    EXPECT_EQ(v.data(), nullptr);
-    EXPECT_EQ(&*v.begin(), &*v.end());
+    CHECK(v.empty());
+    CHECK(v.data() == nullptr);
+    CHECK(v.data() == v.data() + v.size());
   }
   // Construct cstring_view on null string_view.
   if (true) {
     std::string_view sv;
-    EXPECT_EQ(sv.data(), nullptr);
+    CHECK(sv.data() == nullptr);
     cstring_view v(sv);
-    EXPECT_TRUE(v.empty());
-    EXPECT_TRUE(v.null());
-    EXPECT_EQ(v.data(), nullptr);
-    EXPECT_NE(v.c_str(), nullptr);
-    EXPECT_EQ(&*v.begin(), &*v.end());
+    CHECK(v.empty());
+    CHECK(v.null());
+    CHECK(v.data() == nullptr);
+    CHECK(v.c_str() != nullptr);
+    CHECK(v.data() == v.data() + v.size());
   }
   // Construct string_view on empty string_view.
   if (true) {
     std::string_view sv("");
-    EXPECT_NE(sv.data(), nullptr);
+    CHECK(sv.data() != nullptr);
     std::string_view v{sv};
-    EXPECT_TRUE(v.empty());
-    EXPECT_NE(v.data(), nullptr);
-    EXPECT_EQ(&*v.begin(), &*v.end());
+    CHECK(v.empty());
+    CHECK(v.data() != nullptr);
+    CHECK(v.data() == v.data() + v.size());
   }
   // Construct cstring_view on empty string_view.
   if (true) {
     std::string_view svbad("");
-    EXPECT_NE(svbad.data(), nullptr);
-    EXPECT_THROW((cstring_view(svbad)), std::length_error);
+    CHECK(svbad.data() != nullptr);
+    CHECK_THROWS_AS((cstring_view(svbad)), std::length_error);
     // NOLINTNEXTLINE(bugprone-string-constructor)
     std::string_view sv{"", 1};
     cstring_view v(sv);
-    EXPECT_TRUE(v.empty());
-    EXPECT_FALSE(v.null());
-    EXPECT_NE(v.data(), nullptr);
-    EXPECT_NE(v.c_str(), nullptr);
-    EXPECT_EQ(&*v.begin(), &*v.end());
+    CHECK(v.empty());
+    CHECK_FALSE(v.null());
+    CHECK(v.data() != nullptr);
+    CHECK(v.c_str() != nullptr);
+    CHECK(v.data() == v.data() + v.size());
   }
   // Construct string_view on arbitrary string_view.
   if (true) {
     std::string_view sv("abc");
     std::string_view v{sv};
-    EXPECT_FALSE(v.empty());
-    EXPECT_NE(v.data(), nullptr);
-    EXPECT_NE(&*v.begin(), &*v.end());
+    CHECK_FALSE(v.empty());
+    CHECK(v.data() != nullptr);
+    CHECK(v.data() != v.data() + v.size());
   }
   // Construct cstring_view on arbitrary string_view.
   if (true) {
     std::string_view svbad("abc");
-    EXPECT_THROW((cstring_view(svbad)), std::invalid_argument);
+    CHECK_THROWS_AS((cstring_view(svbad)), std::invalid_argument);
     // NOLINTNEXTLINE(bugprone-string-constructor)
     std::string_view sv("abc", 4);
     cstring_view v(sv);
-    EXPECT_FALSE(v.empty());
-    EXPECT_FALSE(v.null());
-    EXPECT_NE(v.data(), nullptr);
-    EXPECT_NE(v.c_str(), nullptr);
-    EXPECT_NE(&*v.begin(), &*v.end());
+    CHECK_FALSE(v.empty());
+    CHECK_FALSE(v.null());
+    CHECK(v.data() != nullptr);
+    CHECK(v.c_str() != nullptr);
+    CHECK(v.data() != v.data() + v.size());
   }
   // Construct string_view on it/end.
   if (true) {
     std::span<const char> r{"abc"};
     std::string_view v{r.begin(), r.end()};
-    EXPECT_FALSE(v.empty());
-    EXPECT_NE(v.data(), nullptr);
-    EXPECT_NE(&*v.begin(), &*v.end());
-    EXPECT_EQ(r.size(), 4U);
-    EXPECT_EQ(v.size(), 4U);
+    CHECK_FALSE(v.empty());
+    CHECK(v.data() != nullptr);
+    CHECK(v.data() != v.data() + v.size());
+    CHECK(r.size() == 4U);
+    CHECK(v.size() == 4U);
   }
   // Construct cstring_view on it/end
   if (true) {
     std::span<const char> r{"abc"};
     cstring_view v(r.begin(), r.end());
-    EXPECT_FALSE(v.empty());
-    EXPECT_FALSE(v.null());
-    EXPECT_NE(v.data(), nullptr);
-    EXPECT_NE(v.c_str(), nullptr);
-    EXPECT_NE(&*v.begin(), &*v.end());
-    EXPECT_EQ(r.size(), 4U);
-    EXPECT_EQ(v.size(), 3U);
+    CHECK_FALSE(v.empty());
+    CHECK_FALSE(v.null());
+    CHECK(v.data() != nullptr);
+    CHECK(v.c_str() != nullptr);
+    CHECK(v.data() != v.data() + v.size());
+    CHECK(r.size() == 4U);
+    CHECK(v.size() == 3U);
   }
   // Construct using UDL.
   if (true) {
     auto a = ""_csv;
-    EXPECT_TRUE(a.empty());
-    EXPECT_FALSE(a.null());
+    CHECK(a.empty());
+    CHECK_FALSE(a.null());
     auto b = "abc"_csv;
-    EXPECT_EQ(b.size(), 3U);
+    CHECK(b.size() == 3U);
     // Embedded zeros are permitted.
     auto c = "abc\0def"_csv;
-    EXPECT_EQ(c.size(), 7U);
+    CHECK(c.size() == 7U);
     auto d = cstring_view(c.c_str());
-    EXPECT_EQ(d.size(), 3U);
+    CHECK(d.size() == 3U);
     auto e = 0_csv;
-    EXPECT_TRUE(e.null());
-    EXPECT_THROW((1_csv), std::out_of_range);
+    CHECK(e.null());
+    CHECK_THROWS_AS((1_csv), std::out_of_range);
   }
 }
 
 #pragma endregion
 #pragma region Optional
 
-void CStringViewTest_Optional() {
+TEST_CASE("Optional", "[CStringViewTest]") {
   if (true) {
     std::optional<std::string> opt;
     cstring_view csv{opt};
-    EXPECT_TRUE(csv.null());
+    CHECK(csv.null());
     opt = "test";
     csv = opt;
-    EXPECT_EQ(csv, "test");
+    CHECK(csv == "test");
     // * cstring_view bad{std::optional<int>{}};
   }
 }
@@ -299,31 +299,31 @@ std::string_view accept_overloaded(cstring_view) { return "csv"; }
 
 #pragma region Cast
 
-void CStringViewTest_Cast() {
+TEST_CASE("Cast", "[CStringViewTest]") {
   // Casts "up" implicitly.
-  EXPECT_EQ("abc"_csv, "abc"_csv);
-  EXPECT_EQ(accept_string_view("abc"sv), "abc");
+  CHECK("abc"_csv == "abc"_csv);
+  CHECK(accept_string_view("abc"sv) == "abc");
   auto abc_str = "abc"s;
-  EXPECT_EQ(accept_string_view(abc_str), "abc");
-  EXPECT_EQ(accept_string_view("abc"_csv), "abc");
+  CHECK(accept_string_view(abc_str) == "abc");
+  CHECK(accept_string_view("abc"_csv) == "abc");
 
-  EXPECT_EQ(accept_cstring_view("abc"_csv), "abc");
-  EXPECT_EQ(accept_cstring_view(abc_str), "abc");
+  CHECK(accept_cstring_view("abc"_csv) == "abc");
+  CHECK(accept_cstring_view(abc_str) == "abc");
 
   // But not down.
-  // * EXPECT_EQ(accept_cstring_view("abc"sv), "abc");
+  // * CHECK(accept_cstring_view("abc"sv) == "abc");
 
   // Handles overloading just fine.
-  EXPECT_EQ(accept_overloaded("abc"sv), "sv");
-  EXPECT_EQ(accept_overloaded("abc"_csv), "csv");
+  CHECK(accept_overloaded("abc"sv) == "sv");
+  CHECK(accept_overloaded("abc"_csv) == "csv");
 
   // But not this ambiguity.
   // Need to either cast here or add a specific overload.
-  // * EXPECT_EQ(accept_overloaded("abc"s), "sv");
+  // * CHECK(accept_overloaded("abc"s) == "sv");
 
   // It's not a std::string_view but can be converted to one.
-  EXPECT_FALSE((std::is_same_v<cstring_view, std::string_view>));
-  EXPECT_TRUE((StringViewConvertible<cstring_view>));
+  CHECK_FALSE((std::is_same_v<cstring_view, std::string_view>));
+  CHECK(StringViewConvertible<cstring_view>);
 
   auto csv = "abc"_csv;
   std::string_view sv = csv;
@@ -332,124 +332,121 @@ void CStringViewTest_Cast() {
   // * accept_string_view_ref(csv);
   // NOLINTNEXTLINE(performance-move-const-arg)
   accept_string_view_rref(std::move(sv));
-  // NOLINTNEXTLINE(bugprone-use-after-move)
-  EXPECT_EQ(sv, "changed");
+  // NOLINTNEXTLINE(bugprone-use-after-move,clang-analyzer-cplusplus.Move)
+  CHECK(sv == "changed");
   // Weird but correct, and invariant is maintained.
   accept_string_view_rref(csv);
-  EXPECT_EQ(csv, "abc");
+  CHECK(csv == "abc");
   // Same thing happens with `std::string`. If you want this not to happen, you
   // need to prevent conversion (by hiding behind `enable_if` or forcing a
   // conversion to a transitional type).
   auto s = ""s;
   accept_string_view_rref(s);
-  EXPECT_EQ(s, "");
+  CHECK(s == "");
 
   s = csv;
-  EXPECT_EQ(s, "abc");
-  EXPECT_EQ(std::string(csv), "abc");
+  CHECK(s == "abc");
+  CHECK(std::string(csv) == "abc");
 }
 
 #pragma endregion
 #pragma region Equal
 
-void CStringViewTestEqual() {
+TEST_CASE("CStringViewTestEqual", "[CStringViewTestEqual]") {
   // sv
-  EXPECT_EQ("abc"sv, "abc");
-  EXPECT_EQ("abc"sv, "abc"sv);
-  EXPECT_EQ("abc"sv, "abc"s);
+  CHECK("abc"sv == "abc");
+  CHECK("abc"sv == "abc"sv);
+  CHECK("abc"sv == "abc"s);
 
   // csv
-  EXPECT_EQ("abc"_csv, "abc");
-  EXPECT_EQ("abc"_csv, "abc"sv);
-  EXPECT_EQ("abc"_csv, "abc"s);
-  EXPECT_EQ("abc"_csv, "abc"_csv);
+  CHECK("abc"_csv == "abc");
+  CHECK("abc"_csv == "abc"sv);
+  CHECK("abc"_csv == "abc"s);
+  CHECK("abc"_csv == "abc"_csv);
 
   // commutative
-  EXPECT_EQ("abc", "abc"_csv);
-  EXPECT_EQ("abc"_csv, "abc");
+  CHECK("abc" == "abc"_csv);
+  CHECK("abc"_csv == "abc");
 
-  EXPECT_EQ("abc"sv, "abc"_csv);
-  EXPECT_EQ("abc"_csv, "abc"sv);
+  CHECK("abc"sv == "abc"_csv);
+  CHECK("abc"_csv == "abc"sv);
 
-  EXPECT_EQ("abc"s, "abc"_csv);
-  EXPECT_EQ("abc"_csv, "abc"s);
+  CHECK("abc"s == "abc"_csv);
+  CHECK("abc"_csv == "abc"s);
 
   // null and empty.
   constexpr auto e = ""_csv;
   constexpr auto n = 0_csv;
 
-  EXPECT_THROW(1_csv, std::out_of_range);
+  CHECK_THROWS_AS(1_csv, std::out_of_range);
 
   // It's really constexpr, despite throwing on non-0, because it knows at
   // compile-time that it's 0.
-  if constexpr (n.empty()) { EXPECT_TRUE(true); }
+  if constexpr (n.empty()) { CHECK(true); }
 
   auto csv = cstring_view{"abc"};
   // In contrast, the next line won't compile.
-  // * if constexpr (csv.empty()) { EXPECT_TRUE(true); }
+  // * if constexpr (csv.empty()) { CHECK(true); }
 
-  EXPECT_TRUE(e.empty());
-  EXPECT_FALSE(e.null());
+  CHECK(e.empty());
+  CHECK_FALSE(e.null());
 
-  EXPECT_TRUE(n.empty());
-  EXPECT_TRUE(n.null());
+  CHECK(n.empty());
+  CHECK(n.null());
 
-  EXPECT_TRUE((e == n));
-  EXPECT_FALSE(e.same(n));
+  CHECK(e == n);
+  CHECK_FALSE(e.same(n));
 
-  EXPECT_NE(e.data(), nullptr);
-  EXPECT_EQ(n.data(), nullptr);
+  CHECK(e.data() != nullptr);
+  CHECK(n.data() == nullptr);
 
-  EXPECT_EQ(std::string_view{e.c_str()}, std::string_view{n.c_str()});
-  EXPECT_NE(e.data(), n.data());
+  CHECK(std::string_view{e.c_str()} == std::string_view{n.c_str()});
+  CHECK(e.data() != n.data());
 
   if (n) {
-    EXPECT_TRUE(false);
+    CHECK(false);
   } else {
-    EXPECT_TRUE(true);
+    CHECK(true);
   }
 
   if (!n) {
-    EXPECT_TRUE(true);
+    CHECK(true);
   } else {
-    EXPECT_TRUE(false);
+    CHECK(false);
   }
 
   if (csv) {
-    EXPECT_TRUE(true);
+    CHECK(true);
   } else {
-    EXPECT_TRUE(false);
+    CHECK(false);
   }
 
   int i{};
   i = n ? 42 : 24;
-  EXPECT_EQ(i, 24);
+  CHECK(i == 24);
   i = !n ? 24 : 42;
-  EXPECT_EQ(i, 24);
+  CHECK(i == 24);
 
-  EXPECT_EQ("abc"_csv, "abc"_csv);
-  EXPECT_LT("abc"_csv, "def"_csv);
+  CHECK("abc"_csv == "abc"_csv);
+  CHECK(("abc"_csv) < ("def"_csv));
 
   // Hash test.
   std::set<cstring_view> ss;
   ss.insert("abc"_csv);
-  EXPECT_TRUE(ss.contains("abc"_csv));
+  CHECK(ss.contains("abc"_csv));
 }
 
 #pragma endregion
 #pragma region Env
 
-void CStringViewTest_Env() {
+TEST_CASE("Env", "[CStringViewTest]") {
   auto path = "PATH"_env;
-  EXPECT_NE(path, "");
+  CHECK(path != "");
   auto missing = "sdfk4r345dLKLJldksfdlkl"_env;
-  EXPECT_TRUE(missing.null());
+  CHECK(missing.null());
 }
 
 #pragma endregion
-
-MAKE_TEST_LIST(CStringViewTest_Construction, CStringViewTest_Optional,
-    CStringViewTest_Cast, CStringViewTestEqual, CStringViewTest_Env);
 
 // NOLINTEND(readability-function-cognitive-complexity,
 // readability-function-size)

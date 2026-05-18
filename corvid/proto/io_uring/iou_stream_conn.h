@@ -388,6 +388,11 @@ public:
 
   // Queue a registered `buffer` for zero-copy sending.
   [[nodiscard]] bool send(buffer&& buf) {
+    // `buf` is an rvalue ref; the actual move into the lambda capture below
+    // is the only consumption. Analyzer flags the precondition checks as
+    // use-after-move because callers write `std::move(tok)`, but no move
+    // has happened yet.
+    // NOLINTNEXTLINE(clang-analyzer-cplusplus.Move)
     if (!writes_allowed() || !buf || buf.active_span().empty()) return false;
     return loop_.execute_or_post(
         [this, _ = self(), buf = std::move(buf)]() mutable -> bool {
@@ -931,9 +936,11 @@ private:
           (void)on_accept_complete(res);
           if (bitmask::has(flags, iou_cqe_flags::more))
             return slot_retention::automatic;
-          if (!listening_) return slot_retention::release;
-          if (!loop_.submit_accept_multishot(sock_, completion_token{cbid}))
-            throw std::runtime_error("Failed to re-arm multishot accept");
+          if (closed_) return slot_retention::release;
+          if (!loop_.submit_accept_multishot(sock_, completion_token{cbid})) {
+            (void)do_close_now();
+            return slot_retention::release;
+          }
           return slot_retention::retain;
         });
 

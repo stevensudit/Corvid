@@ -202,6 +202,16 @@ private:
 // - `lookup_by_value_t` is the container that indexes the interned values. In
 // principle, the key could be a value_t, but we use a key_t to avoid
 // duplicating the value in the lookup_by_id_ container.
+// Experimental: this generic specialization works for the type system but
+// leaks under sanitizers when `value_t` uses `std::allocator`. `intern_table`
+// deliberately skips the destructors of its lookup containers (per the arena
+// "construct and leak" pattern in `arena_allocator.h`), which is sound only
+// when the containers' internal storage is itself arena-backed. The
+// `std::string` specialization below satisfies that via `arena_deque` /
+// `arena_map`; the `std::deque` / `std::unordered_map` defaults here do not,
+// so their bucket/node arrays from `std::allocator` are never freed. Use the
+// string specialization, or provide your own traits with arena-allocator
+// containers.
 template<typename T, SequentialEnum ID>
 struct intern_traits<T, ID> {
   using value_t = T;

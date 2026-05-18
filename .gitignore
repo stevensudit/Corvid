@@ -49,6 +49,8 @@ cmake_install.cmake
 debug_bin
 release_bin
 tidy.log
+tests/.fetchcontent/
+tests/.local/
 
 # Claude Code
 .claude/

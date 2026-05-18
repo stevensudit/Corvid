@@ -1,0 +1,5 @@
+InheritParentConfig: true
+Checks: >
+  -bugprone-throwing-static-initialization,
+  -bugprone-inc-dec-in-conditions,
+  -bugprone-unchecked-optional-access

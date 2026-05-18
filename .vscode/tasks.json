@@ -17,7 +17,12 @@
                 "-Wextra",
                 "-Werror",
                 "-Wno-unused-variable",
+                "-isystem",
+                "${workspaceFolder}/tests/.fetchcontent/catch2-src/src",
+                "-isystem",
+                "${workspaceFolder}/tests/.fetchcontent/catch2-build/generated-includes",
                 "${file}",
+                "${workspaceFolder}/tests/.fetchcontent/catch2-build/src/libCatch2.a",
                 "-luring",
                 "-o",
                 "${fileDirname}/debug_bin/${fileBasenameNoExtension}"

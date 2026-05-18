@@ -564,8 +564,14 @@ public:
   recv_at(std::string& data, size_t offset, msg_flags flags = {}) const {
     if (offset >= data.size()) return true;
 
+    // Unlike the raw `recv(void*, len)` / `recv(msghdr&)` overloads, this
+    // path intentionally permits a closed socket: the kernel returns -1
+    // with `EBADF` and the hard-failure branch below trims `data` and reports
+    // false. Analyzer flags handle() = -1 as invalid; that's by design here.
+    // NOLINTBEGIN(clang-analyzer-unix.StdCLibraryFunctions)
     const ssize_t n =
         ::recv(handle(), data.data() + offset, data.size() - offset, *flags);
+    // NOLINTEND(clang-analyzer-unix.StdCLibraryFunctions)
     if (n == 0) return false;
 
     no_zero::trim_to(data, offset + (n > 0 ? static_cast<size_t>(n) : 0));

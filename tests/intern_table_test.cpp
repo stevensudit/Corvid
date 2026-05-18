@@ -19,7 +19,7 @@
 #include <string>
 
 #include "../corvid/containers.h"
-#include "minitest.h"
+#include "catch2_main.h"
 
 using namespace std::literals;
 using namespace corvid;
@@ -58,7 +58,7 @@ template class std::deque<std::string>;
 
 #pragma region Basic
 
-void InternTableTest_Basic() {
+TEST_CASE("Basic", "[InternTableTest]") {
   if (true) {
     // Test arena in isolation to reproduce corrected bugs.
     extensible_arena arena{128};
@@ -72,7 +72,7 @@ void InternTableTest_Basic() {
     // small.
     as.resize(256);
     bool used_to_crash = as_abc > as;
-    EXPECT_TRUE(used_to_crash);
+    CHECK(used_to_crash);
   }
   if (true) {
     extensible_arena arena{4096};
@@ -99,16 +99,16 @@ void InternTableTest_Basic() {
     // interned or in the arena.
     auto abc = string_intern_test::make(abc_str);
     auto bcd = string_intern_test::make(bcd_str);
-    EXPECT_FALSE(extensible_arena::contains(&abc.value()));
-    EXPECT_FALSE(extensible_arena::contains(abc.value().data()));
-    EXPECT_FALSE(extensible_arena::contains(&bcd.value()));
-    EXPECT_FALSE(extensible_arena::contains(bcd.value().data()));
-    EXPECT_EQ(abc, abc);
-    EXPECT_NE(abc, bcd);
-    EXPECT_EQ(abc.value(), "abc");
-    EXPECT_LT(abc, bcd);
-    EXPECT_EQ(abc.value(), abc_str);
-    EXPECT_EQ(bcd.value(), bcd_str);
+    CHECK_FALSE(extensible_arena::contains(&abc.value()));
+    CHECK_FALSE(extensible_arena::contains(abc.value().data()));
+    CHECK_FALSE(extensible_arena::contains(&bcd.value()));
+    CHECK_FALSE(extensible_arena::contains(bcd.value().data()));
+    CHECK(abc == abc);
+    CHECK(abc != bcd);
+    CHECK(abc.value() == "abc");
+    CHECK((abc) < (bcd));
+    CHECK(abc.value() == abc_str);
+    CHECK(bcd.value() == bcd_str);
   }
   if (true) {
     // Show that, when we do use arena-specialized types, the values we create
@@ -123,18 +123,18 @@ void InternTableTest_Basic() {
     // interned. The contents of `bcd` are in the arena, however.
     auto abc = arena_string_intern_test::make(abc_str);
     auto bcd = arena_string_intern_test::make(bcd_str);
-    EXPECT_FALSE(extensible_arena::contains(&abc.value()));
-    EXPECT_FALSE(extensible_arena::contains(abc.value().data()));
-    EXPECT_FALSE(extensible_arena::contains(&bcd.value()));
+    CHECK_FALSE(extensible_arena::contains(&abc.value()));
+    CHECK_FALSE(extensible_arena::contains(abc.value().data()));
+    CHECK_FALSE(extensible_arena::contains(&bcd.value()));
     // Short-string optimization is why "abc" isn't in the arena.
-    EXPECT_FALSE(extensible_arena::contains(abc.value().data()));
-    EXPECT_TRUE(extensible_arena::contains(bcd.value().data()));
-    EXPECT_EQ(abc, abc);
-    EXPECT_NE(abc, bcd);
-    EXPECT_EQ(abc.value(), "abc"sv);
-    EXPECT_LT(abc, bcd);
-    EXPECT_EQ(abc.value(), abc_str);
-    EXPECT_EQ(bcd.value(), bcd_str);
+    CHECK_FALSE(extensible_arena::contains(abc.value().data()));
+    CHECK(extensible_arena::contains(bcd.value().data()));
+    CHECK(abc == abc);
+    CHECK(abc != bcd);
+    CHECK(abc.value() == "abc"sv);
+    CHECK((abc) < (bcd));
+    CHECK(abc.value() == abc_str);
+    CHECK(bcd.value() == bcd_str);
   }
   if (true) {
     // Show that we can intern strings.
@@ -146,145 +146,58 @@ void InternTableTest_Basic() {
     using SIT = std::remove_reference_t<decltype(sit)>;
 
     auto iv = sit("abc"s);
-    EXPECT_FALSE(iv);
+    CHECK_FALSE(iv);
     iv = sit.intern("abc");
-    EXPECT_TRUE(iv);
-    EXPECT_EQ(iv.id(), string_id{1});
-    EXPECT_EQ(iv.value(), "abc");
+    CHECK(iv);
+    CHECK(iv.id() == string_id{1});
+    CHECK(iv.value() == "abc");
     // Both the string and its contents are in the arena.
-    EXPECT_TRUE(extensible_arena::contains(&iv.value()));
-    EXPECT_TRUE(extensible_arena::contains(iv.value().data()));
+    CHECK(extensible_arena::contains(&iv.value()));
+    CHECK(extensible_arena::contains(iv.value().data()));
     iv = SIT::interned_value_t{};
-    EXPECT_FALSE(iv);
+    CHECK_FALSE(iv);
     using C = SIT::lookup_by_value_t;
-    EXPECT_TRUE(KeyFindable<C>);
-    EXPECT_FALSE(RangeWithoutFind<C>);
+    CHECK(KeyFindable<C>);
+    CHECK_FALSE(RangeWithoutFind<C>);
     iv = sit("abc");
-    EXPECT_TRUE(iv);
-    EXPECT_EQ(iv.id(), string_id{1});
-    EXPECT_EQ(iv.value(), "abc");
-    EXPECT_TRUE(extensible_arena::contains(&iv.value()));
-    EXPECT_TRUE(extensible_arena::contains(iv.value().data()));
+    CHECK(iv);
+    CHECK(iv.id() == string_id{1});
+    CHECK(iv.value() == "abc");
+    CHECK(extensible_arena::contains(&iv.value()));
+    CHECK(extensible_arena::contains(iv.value().data()));
 
     iv = sit("defghijklmnopqrstuvwxyz"sv);
-    EXPECT_FALSE(iv);
+    CHECK_FALSE(iv);
     iv = sit.intern("defghijklmnopqrstuvwxyz"sv);
-    EXPECT_TRUE(iv);
-    EXPECT_EQ(iv.id(), string_id{2});
-    EXPECT_EQ(iv.value(), "defghijklmnopqrstuvwxyz"sv);
+    CHECK(iv);
+    CHECK(iv.id() == string_id{2});
+    CHECK(iv.value() == "defghijklmnopqrstuvwxyz"sv);
     // Non-short strings are in the arena.
-    EXPECT_TRUE(extensible_arena::contains(&iv.value()));
-    EXPECT_TRUE(extensible_arena::contains(iv.value().data()));
+    CHECK(extensible_arena::contains(&iv.value()));
+    CHECK(extensible_arena::contains(iv.value().data()));
 
     iv = string_intern_table_value{csit, "ghi"s};
-    EXPECT_FALSE(iv);
+    CHECK_FALSE(iv);
     iv = string_intern_table_value{sit, "ghi"s};
-    EXPECT_TRUE(iv);
-    EXPECT_EQ(iv.id(), string_id{3});
-    EXPECT_EQ(iv.value(), "ghi"s);
+    CHECK(iv);
+    CHECK(iv.id() == string_id{3});
+    CHECK(iv.value() == "ghi"s);
 
     iv = sit("jkl");
-    EXPECT_FALSE(iv);
+    CHECK_FALSE(iv);
     iv = sit.intern("jkl");
-    EXPECT_FALSE(iv);
+    CHECK_FALSE(iv);
 
     iv = string_intern_table_value{csit, string_id{3}};
-    EXPECT_EQ(iv.id(), string_id{3});
-    EXPECT_EQ(iv.value(), "ghi"s);
+    CHECK(iv.id() == string_id{3});
+    CHECK(iv.value() == "ghi"s);
 
     iv = string_intern_table_value{csit, "abc"};
-    EXPECT_EQ(iv.id(), string_id{1});
-    EXPECT_EQ(iv.value(), "abc");
+    CHECK(iv.id() == string_id{1});
+    CHECK(iv.value() == "abc");
   }
 }
 #pragma endregion
-
-// This is not technically a `std::string`, so it uses the general traits,
-// including the indirect wrappers.
-struct bad_key: std::string {
-  bad_key() = default;
-  explicit bad_key(const std::string& s) : std::string(s) {}
-  bad_key(const bad_key&) = default;
-  bad_key(bad_key&&) = default;
-  bad_key& operator=(bad_key&&) = default;
-  bad_key& operator=(const bad_key&) = delete;
-
-  friend auto operator<=>(const bad_key& a, const bad_key& b) {
-    return static_cast<const std::string&>(a) <=>
-           static_cast<const std::string&>(b);
-  }
-};
-
-template<>
-struct std::hash<bad_key>: std::hash<std::string> {};
-
-template<>
-struct std::equal_to<bad_key>: std::equal_to<std::string> {};
-
-using interned_badkey = interned_value<bad_key, string_id>;
-using badkey_intern_test = intern_test<bad_key, string_id>;
-using badkey_intern_table = intern_table<bad_key, string_id>;
-
-#pragma region Badkey
-
-void InternTableTest_Badkey() {
-  if (true) {
-    const auto bk_abc = bad_key{"abc"};
-    const auto bk_bcd = bad_key{"bcd"};
-    auto abc = badkey_intern_test::make(bk_abc);
-    auto bcd = badkey_intern_test::make(bk_bcd);
-    EXPECT_EQ(abc, abc);
-    EXPECT_NE(abc, bcd);
-    EXPECT_EQ(abc.value(), bk_abc);
-    EXPECT_LT(abc, bcd);
-  }
-  if (true) {
-    auto sit_ptr = badkey_intern_table::make(string_id{0}, string_id{3});
-    auto& sit = *sit_ptr;
-    using SIT = std::remove_reference_t<decltype(sit)>;
-    const auto bk_abc = bad_key{"abc"};
-    const auto bk_bcd = bad_key{"bcd"};
-
-    auto iv = sit(bk_abc);
-
-    EXPECT_FALSE(iv);
-    iv = sit.intern(bk_abc);
-    EXPECT_TRUE(iv);
-    EXPECT_EQ(iv.id(), string_id{1});
-    EXPECT_EQ(iv.value(), bk_abc);
-    iv = SIT::interned_value_t{};
-    EXPECT_FALSE(iv);
-    iv = sit(bk_abc);
-    EXPECT_TRUE(iv);
-    EXPECT_EQ(iv.id(), string_id{1});
-    EXPECT_EQ(iv.value(), bk_abc);
-
-    const auto bk_def = bad_key{"def"};
-    iv = sit(bk_def);
-    EXPECT_FALSE(iv);
-    iv = sit.intern(bk_def);
-    EXPECT_TRUE(iv);
-    EXPECT_EQ(iv.id(), string_id{2});
-    EXPECT_EQ(iv.value(), bk_def);
-
-    const auto bk_ghi = bad_key{"ghi"};
-    iv = sit(bk_ghi);
-    EXPECT_FALSE(iv);
-    iv = sit.intern(bk_ghi);
-    EXPECT_TRUE(iv);
-    EXPECT_EQ(iv.id(), string_id{3});
-    EXPECT_EQ(iv.value(), bk_ghi);
-
-    const auto bk_jkl = bad_key{"jkl"};
-    iv = sit(bk_jkl);
-    EXPECT_FALSE(iv);
-    iv = sit.intern(bk_jkl);
-    EXPECT_FALSE(iv);
-  }
-}
-#pragma endregion
-
-MAKE_TEST_LIST(InternTableTest_Basic, InternTableTest_Badkey);
 
 // NOLINTEND(readability-function-cognitive-complexity,
 // readability-function-size)

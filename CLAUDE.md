@@ -26,9 +26,20 @@ CMakeLists.txt lives in `tests/` only; there is none at the project root. Build 
 ./cleanbuild.sh                  # clean build + run all tests (libc++)
 ./cleanbuild.sh libstdcpp        # use libstdc++
 ./cleanbuild.sh tidy             # also run clang-tidy
+./cleanbuild.sh asan             # build + run with ASAN + UBSAN
+./cleanbuild.sh tsan             # build + run with TSAN
+./cleanbuild.sh ubsan            # build + run with UBSAN only
+./cleanbuild.sh msan             # build + run with MSAN (needs one-time setup)
 ./cleanbuild.sh strings_test.cpp # build + run only that target
 ./format_all.sh                  # format all sources (run before commit)
 ```
+
+Sanitizer modes accept the same `[testname.cpp]` and `libstdcpp|libcxx` arguments as the plain build. `asan`/`tsan`/`msan` are mutually exclusive (each instruments a conflicting runtime); run them separately. Sanitizer sweeps continue past test failures so all issues surface in one run; plain runs still bail on the first failure.
+
+MSAN extras:
+- One-time setup: run `scripts/build_msan_libcxx.sh` to build an MSAN-instrumented libc++/libc++abi/libunwind into `tests/.local/llvm-msan/` (~10 minutes, since `libc++` writes through pointers MSAN observes and an uninstrumented stdlib would flood with false positives). libunwind is intentionally built *without* MSAN (`-fno-sanitize=memory`), otherwise MSAN's report path recurses through its own instrumented unwinder and silently overflows the stack. The build script patches libunwind's `CMakeLists.txt` to apply that flag PRIVATE rather than PUBLIC; without the patch the flag transitively leaks into libcxx via target_compile_options and silently disables MSAN there, surfacing as apparent "libc++ I/O false positives" in essentially every test.
+- `scripts/msan-libcxx-ignorelist.txt` is passed to both the libc++ rebuild and the project build via `-fsanitize-ignorelist`. It is currently empty; the plumbing is kept as scaffolding so future libc++ versions that introduce real shadow gaps can be suppressed surgically. The ignorelist disables both checks AND shadow tracking in matched functions, so any entries must be as narrow as possible.
+- `iou_*` tests are excluded from the MSAN build (kernel writes to user buffers via io_uring aren't visible to MSAN). Adding `__msan_unpoison_*` to the io_uring buffer plumbing is pending phase-2 work.
 
 ## Code Style
 
@@ -53,7 +64,7 @@ CMakeLists.txt lives in `tests/` only; there is none at the project root. Build 
 
 ## Testing
 
-Framework: custom minitest (`tests/minitest.h`). Tests may be per-class, per-group, or per-subfolder; check `tests/` before asking about coverage.
+Framework: Catch2 v3. Each test source includes `tests/catch2_main.h` (provides Catch2 macros + `main`), uses `TEST_CASE("Name", "[tag]")` for test cases and `SECTION("desc")` for sub-blocks. Assertions are `CHECK` / `REQUIRE` (or `_FALSE` / `_THROWS_AS` variants). Tests may be per-class, per-group, or per-subfolder; check `tests/` before asking about coverage. Sources prefixed `notest_` are built but not run as part of the sweep.
 
 ## TODO File
 
@@ -67,6 +78,10 @@ Corvid provides utilities that replace direct calls on std types. Search the lib
 - String searching/splitting: prefer parsers/locators in `corvid/strings/` over `std::string::find`, `substr`, etc.
 
 Scan relevant headers first when writing new code to avoid reimplementing.
+
+## Refactoring
+
+`clang-query-22` is installed. Reach for it instead of grep when AST-level matching matters: telling overloaded methods apart, finding callers of a specific overload (not every method that shares the name), template-instantiation patterns, or `[[nodiscard]]` discard sites. For unique symbol search and plain renames, grep is still faster and worth trying first.
 
 ## Non-Obvious Locations
 
