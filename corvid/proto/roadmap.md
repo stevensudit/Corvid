@@ -231,7 +231,7 @@ WebSocket protocol built on top of the HTTP/1.1 upgrade mechanism.
   `handle_data` and `handle_drain` until the close handshake completes;
   optional ping/pong keepalive via `enable_keepalive(loop, wheel,
   ping_interval, pong_timeout)` using `timer_fuse`; `make_factory(configure_fn)`
-  builds a `epoll_http_transaction_factory` suitable for `epoll_http_server::add_route`
+  builds an `epoll_http_transaction_factory` suitable for `epoll_http_server::add_route`
 
 ## Design Principles
 

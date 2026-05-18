@@ -51,8 +51,8 @@ using namespace corvid::strings::any_strings_types;
 class epoll_stream_conn;
 
 #pragma region epoll_stream_conn_handlers
-// User-supplied persistent callbacks for a `epoll_stream_conn`. All fields are
-// optional; a null handler is silently skipped when its event fires.
+// User-supplied persistent callbacks for an `epoll_stream_conn`. All fields
+// are optional; a null handler is silently skipped when its event fires.
 //
 //  `on_data(conn, view)` -- fired when data arrives. `conn` is a reference to
 //                           the connection; the user may call `conn.send` or
@@ -127,7 +127,7 @@ struct epoll_stream_conn_handlers {
 //
 // Receive path: `EPOLLIN` is armed while `recv_buf_.reads_enabled` is true.
 // When `EPOLLIN` fires, `on_readable` appends bytes to the persistent
-// `epoll_recv_buffer` and delivers a `epoll_recv_buffer_view` token to the
+// `epoll_recv_buffer` and delivers an `epoll_recv_buffer_view` token to the
 // active `on_data` handler. The view holds `begin`/`end` semantics: the parser
 // advances `begin` via `consume` and `EPOLLIN` is re-enabled when the view
 // destructs. If the buffer fills up while a view is live, `EPOLLIN` is
@@ -649,7 +649,7 @@ private:
   }
 
   // Deliver newly read data to the active `on_data` handler (which may be
-  // `own_handlers_.on_data` or one installed by a `epoll_stream_async_base`
+  // `own_handlers_.on_data` or one installed by an `epoll_stream_async_base`
   // child). Sets `view_active` before dispatching; it is cleared by
   // `resume_receive` once the view destructs.
   [[nodiscard]] bool notify_read_ready() {
@@ -760,10 +760,11 @@ private:
   // level-triggered and repeatedly wake the loop while the write side is
   // still open.
   //
-  // Sets `eof_pending_` and defers notifications if a `epoll_recv_buffer_view`
-  // is live when EOF arrives, or becomes live as a result of dispatching
-  // buffered data. In both cases `resume_receive` handles the EOF once the
-  // view destructs, ensuring at most one live view at a time.
+  // Sets `eof_pending_` and defers notifications if an
+  // `epoll_recv_buffer_view` is live when EOF arrives, or becomes live as a
+  // result of dispatching buffered data. In both cases `resume_receive`
+  // handles the EOF once the view destructs, ensuring at most one live view at
+  // a time.
   [[nodiscard]] bool handle_read_eof() {
     assert(loop_.is_loop_thread());
     read_open_ = false;
@@ -792,7 +793,7 @@ private:
     return do_eof_notifications() && false;
   }
 
-  // Handle a deferred EOF that arrived while a `epoll_recv_buffer_view` was
+  // Handle a deferred EOF that arrived while an `epoll_recv_buffer_view` was
   // live. Called from `resume_receive` after the view destructs and compaction
   // is done. If buffered data remains, re-dispatches it first (keeping
   // `eof_pending_` set so the next `resume_receive` call finishes the job);
@@ -889,7 +890,7 @@ private:
   }
 
   // Append incoming bytes to `recv_buf_` and dispatch to the active `on_data`
-  // handler via a `epoll_recv_buffer_view`. If a view is already live
+  // handler via an `epoll_recv_buffer_view`. If a view is already live
   // (`view_active` is true), just extend `end` atomically; the in-flight
   // parser will observe the new bytes on its next `active_view` call. If the
   // buffer is full, disable reads until `resume_receive` compacts it.
@@ -1460,7 +1461,7 @@ public:
 
   // Debug-safe downcast from `epoll_stream_conn&` to
   // `epoll_stream_conn_with_state&`. In debug builds, asserts that `c` is
-  // actually a `epoll_stream_conn_with_state<STATE>`; uses `static_cast` in
+  // actually an `epoll_stream_conn_with_state<STATE>`; uses `static_cast` in
   // release builds.
   [[nodiscard]] static epoll_stream_conn_with_state& from(
       epoll_stream_conn& c) noexcept {
@@ -1470,7 +1471,7 @@ public:
 #pragma endregion
 #pragma region Subclass hooks
 protected:
-  // Produce a `epoll_stream_conn_with_state<STATE>` for each accepted
+  // Produce an `epoll_stream_conn_with_state<STATE>` for each accepted
   // connection, with a fresh default-constructed `STATE`. Returning `nullptr`
   // skips registration (connection-limiting hook).
   [[nodiscard]] std::shared_ptr<epoll_stream_conn>

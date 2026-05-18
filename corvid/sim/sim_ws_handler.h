@@ -75,7 +75,7 @@ public:
     std::cout << "WebSocket client connected\n";
   }
 
-  // Returns a `epoll_http_transaction_factory` for use with
+  // Returns an `epoll_http_transaction_factory` for use with
   // `epoll_http_server::add_route`.
   [[nodiscard]] static epoll_http_transaction_factory make_factory(
       std::shared_ptr<epoll_loop> loop, std::shared_ptr<timing_wheel> wheel) {

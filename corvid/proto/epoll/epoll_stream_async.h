@@ -30,14 +30,15 @@ namespace corvid { inline namespace proto {
 // in control.
 
 #pragma region epoll_stream_async_base
-// Base class for per-call async wrappers around a `epoll_stream_conn`. These
+// Base class for per-call async wrappers around an `epoll_stream_conn`. These
 // are facades that provide alternative async interfaces (e.g., callback-based
 // or coroutine-based) by temporarily installing their own handlers into the
 // connection for the duration of their lifetime. The connection's original
 // handlers are restored when the wrapper object is destroyed.
 //
-//  Holds a `shared_ptr<epoll_stream_conn>` and a `epoll_stream_conn_handlers`.
-//  On construction of a derived class, `install_handlers` atomically swaps the
+//  Holds a `shared_ptr<epoll_stream_conn>` and an
+//  `epoll_stream_conn_handlers`. On construction of a derived class,
+//  `install_handlers` atomically swaps the
 //  `epoll_stream_conn::active_handlers_` pointer from
 //  `&epoll_stream_conn::own_handlers_` to
 //  `&epoll_stream_async_base::handlers_`. On destruction, it is restored. The
@@ -182,7 +183,7 @@ protected:
 #pragma endregion
 
 #pragma region epoll_stream_async_cb
-// Facade for callback-driven asynchronous I/O on a `epoll_stream_conn`.
+// Facade for callback-driven asynchronous I/O on an `epoll_stream_conn`.
 // Provides `read` and `write` for one-shot async I/O.
 //
 // Usage:
@@ -253,7 +254,7 @@ public:
 #pragma region Read
 
   // Receive data once it becomes available. The callback is invoked on the
-  // loop thread with a `epoll_recv_buffer_view`; call `active_view` (or use
+  // loop thread with an `epoll_recv_buffer_view`; call `active_view` (or use
   // the implicit `std::string_view` conversion) to read data, and `consume(n)`
   // to advance the consume pointer. If the connection closes before data
   // arrives, the callback is invoked with an empty view.
@@ -359,7 +360,7 @@ private:
 #pragma endregion
 
 #pragma region epoll_stream_async_coro
-// Facade for coroutine-based asynchronous I/O on a `epoll_stream_conn`.
+// Facade for coroutine-based asynchronous I/O on an `epoll_stream_conn`.
 // Provides `read` and `write` await-based data transfer.
 //
 // Usage (inside any coroutine):

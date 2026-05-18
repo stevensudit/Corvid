@@ -155,7 +155,7 @@ public:
 #pragma endregion
 #pragma region Factories
 
-  // Build a `epoll_http_transaction_factory` that constructs an
+  // Build an `epoll_http_transaction_factory` that constructs an
   // `epoll_http_websocket_transaction` for each matching request and then
   // calls `configure` on it so the caller can install `on_message` /
   // `on_close`, and perhaps `on_drain`. You can also set `on_protocol`

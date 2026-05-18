@@ -80,7 +80,7 @@ hysteresis rules: it grows when the active capacity falls below
 active data fits, and skips the memmove entirely when write space is still
 ample.
 
-`epoll_recv_buffer_view` is the limited-interface token handed to the parser via the
+`epoll_recv_buffer_view` is the limited-interface view handed to the parser via the
 `on_data` callback. At most one view is live at a time per connection.
 `active_view()` (or the implicit `std::string_view` conversion) returns the
 currently unconsumed region and records the observed `end` in
@@ -181,10 +181,10 @@ any unsent tail stays in the queue and `EPOLLOUT` is armed. Subsequent
 
 Receive path: `EPOLLIN` is armed while `recv_buf_.reads_enabled` is true.
 When it fires, bytes are appended to the persistent `epoll_recv_buffer` and the
-active `on_data` handler is invoked with a `epoll_recv_buffer_view` token. The
-parser advances `begin` via `consume`; when the view destructs, compaction
-and `EPOLLIN` re-arming are posted back to the loop. `set_recv_buf_size(n)`
-adjusts the per-connection buffer target; `recv_buf_size()` reports it.
+active `on_data` handler is invoked with an `epoll_recv_buffer_view`. The parser
+advances `begin` via `consume`; when the view destructs, compaction and
+`EPOLLIN` re-arming are posted back to the loop. `set_recv_buf_size(n)` adjusts
+the per-connection buffer target; `recv_buf_size()` reports it.
 
 Handler dispatch: `epoll_stream_conn` holds `own_handlers_` (a
 `epoll_stream_conn_handlers` value) and an atomic pointer `active_handlers_` that
@@ -218,7 +218,7 @@ temporarily redirecting `active_handlers_`.
 ### `epoll_stream_async_base`, `epoll_stream_async_cb`, and `epoll_stream_async_coro`
 
 These classes live in `epoll_stream_async.h` and provide alternative async interfaces
-on top of a `epoll_stream_conn` without modifying it. Each is a facade that
+on top of an `epoll_stream_conn` without modifying it. Each is a facade that
 temporarily installs its own `epoll_stream_conn_handlers` by atomically swapping the
 connection's `active_handlers_` pointer.
 
@@ -233,7 +233,7 @@ lambda-inherited friendship.
 
 `epoll_stream_async_cb` provides one-shot callback I/O:
 
-- `read(cb)` -- registers a single callback invoked with a `epoll_recv_buffer_view`
+- `read(cb)` -- registers a single callback invoked with an `epoll_recv_buffer_view`
   on the next data arrival (or an empty view on connection close). Posts
   `enable_reads` asynchronously to guarantee ordering after the
   `enable_reads(false)` posted by `install_handlers`.
@@ -437,7 +437,7 @@ completes.
 pings after the upgrade response is sent. A missing pong within `pong_timeout`
 triggers a graceful `close` frame.
 
-`make_factory(configure_fn)` returns a `epoll_http_transaction_factory` ready for
+`make_factory(configure_fn)` returns an `epoll_http_transaction_factory` ready for
 `epoll_http_server::add_route`. The `configure` callback receives the newly created
 transaction and installs `on_message` / `on_close` handlers:
 

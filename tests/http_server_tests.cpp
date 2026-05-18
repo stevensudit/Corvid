@@ -109,8 +109,7 @@ private:
 };
 
 // Creates an `epoll_http_server` with `padded_page_transaction` registered as
-// the
-// `"/"` catch-all route. Forwards all arguments to
+// the `"/"` catch-all route. Forwards all arguments to
 // `epoll_http_server::create`.
 [[nodiscard]] static epoll_http_server::http_server_ptr
 make_test_server(const net_endpoint& endpoint,
@@ -333,7 +332,7 @@ TEST_CASE("PartialRequest", "[HttpServer]") {
 #pragma region ANS
 
 // Verify that the server can listen on an ANS (Abstract Name Socket) and
-// respond correctly to a `GET` request from a `epoll_stream_sync` client.
+// respond correctly to a `GET` request from an `epoll_stream_sync` client.
 TEST_CASE("ANS", "[HttpServer]") {
   if (is_codex()) return;
 

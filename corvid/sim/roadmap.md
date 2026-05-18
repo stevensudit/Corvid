@@ -8,7 +8,7 @@ eponymous browser-based tower defense game.
 
 ## Static HTTP server
 - `corvid_sim_main.h` -- Entry point: walks up from the executable to find
-  `corvid/sim/web/dist`, loads it into a `epoll_static_file_cache`, and serves it on
+  `corvid/sim/web/dist`, loads it into an `epoll_static_file_cache`, and serves it on
   `localhost:8080`. Accepts `-testonly` to exit cleanly in CI.
 - `web/index.html` -- Game page with status, tick, lives/resources/phase HUD,
   "Start Wave" button, dual-canvas viewport, and a scrollable log pane.

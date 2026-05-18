@@ -2683,7 +2683,7 @@ TEST_CASE("Adopt", "[StreamConnWithState]") {
 
 #pragma endregion
 
-// Verify that `from` correctly downcasts a `epoll_stream_conn&` inside a
+// Verify that `from` correctly downcasts an `epoll_stream_conn&` inside a
 // callback.
 #pragma region From
 

@@ -786,8 +786,8 @@ private:
 // HTTP response head, consisting of the status line and the header fields.
 // The body is not included.
 //
-// Populate the fields and call `serialize()` to produce the wire-format
-// response string to pass to `epoll_stream_conn::send()`.
+// Populate the fields and call `serialize` to produce the wire-format response
+// string to pass to `epoll_stream_conn::send`.
 struct response_head: head_base {
   http_status_code status_code{};
   std::string reason;

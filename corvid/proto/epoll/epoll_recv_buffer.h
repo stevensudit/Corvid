@@ -66,8 +66,8 @@ struct epoll_recv_buffer {
   // accepted sockets that inherit a disabled-reads listener).
   bool reads_enabled{true};
 
-  // True while a `epoll_recv_buffer_view` is live. Loop-thread-only. When set,
-  // `handle_readable` still recvs into the buffer (extending `end`
+  // True while an `epoll_recv_buffer_view` is live. Loop-thread-only. When
+  // set, `handle_readable` still recvs into the buffer (extending `end`
   // atomically) but suppresses the `on_data` dispatch. The in-flight parser
   // holds the view and will observe new bytes on its next `active_view`
   // call.
@@ -218,7 +218,7 @@ struct epoll_recv_buffer {
 // Non-copyable (one active parser at a time), movable.
 //
 // Tutorial:
-//  1. The `on_data` handler receives a `epoll_recv_buffer_view` whose
+//  1. The `on_data` handler receives an `epoll_recv_buffer_view` whose
 //  `active_view` method returns a `std::string_view` pointing into the buffer.
 //  This `std::string_view` is passed to the parser, along with the
 //  connection-specific state, to extract a frame.
