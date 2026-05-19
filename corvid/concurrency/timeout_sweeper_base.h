@@ -20,6 +20,9 @@
 
 namespace corvid { inline namespace concurrency {
 
+// TODO: Once we kill timer_fuse.h and timing_wheel.h, this
+// becomes timeout_base.
+
 // Common types and constants for `timeout_sweeper` and the timing-wheel
 // variant that will eventually share its callback contract.
 class timeout_sweeper_base {
@@ -50,6 +53,16 @@ public:
 
   // Replace the clock function.
   void set_now_fn(now_fn_t fn) noexcept { now_fn_ = fn; }
+
+  [[nodiscard]] static uint64_t as_nanoseconds(time_point_t tp) noexcept {
+    return std::chrono::duration_cast<std::chrono::nanoseconds>(
+        tp.time_since_epoch())
+        .count();
+  }
+
+  [[nodiscard]] static time_point_t from_nanoseconds(uint64_t ns) noexcept {
+    return time_point_t(std::chrono::nanoseconds(ns));
+  }
 
 private:
   now_fn_t now_fn_;

@@ -101,10 +101,21 @@ needs it, or if we want a watchdog beneath ngtcp2's own timers.
   `quic_version_cid::default_scid_length` (16 bytes). Tested with synthetic
   packets in `tests/quic_dgram_router_test.cpp`; ngtcp2-generated-packet
   coverage will arrive with the `quic_conn` milestone.
-- **[planned] `quic_conn` wrapper.** RAII around `ngtcp2_conn`, callback
-  trampoline table, error-code -> `[[nodiscard]] bool` translation, expiry
-  timer driven through `iou_loop::timeouts()`. Stateless: no streams, no
-  application data yet. Verifies handshake completion.
+- **[in progress] `quic_conn` wrapper.** `corvid/proto/quic/quic_conn.h`:
+  RAII `unique_ptr` around `ngtcp2_conn`, static-trampoline callback
+  table dispatched by `quic_conn_role` (server vs client), error codes
+  translated to `quic_decode_status`, `read_pkt` / `write_pkt` / `expiry`
+  / `handle_expiry` exposed in our `[[nodiscard]] bool`-style API. The
+  wrapper is non-movable because ngtcp2 captures `this` as `user_data`
+  at construction with no setter. Crypto callbacks are presently stubs
+  that satisfy ngtcp2's non-null assertions but do nothing real, so the
+  conn cannot actually complete a handshake yet. Settings and transport
+  parameters are zeroed defaults plus `initial_ts` and (server-side)
+  `original_dcid`. Tested in `tests/quic_conn_test.cpp` for construction
+  / destruction of both roles. Next slices: wire in `ngtcp2_crypto_ossl`
+  + an `SSL_CTX` with a self-signed test cert, then route the wrapper
+  into `quic_dgram_protocol::session_plugin` and integrate with
+  `iou_loop::timeouts()`.
 - **[planned] QUIC echo server.** First end-to-end milestone. A session
   plugin that opens a bidirectional stream on handshake completion and echoes
   application bytes. Validates handshake, packet send/recv pacing, ACK
