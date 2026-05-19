@@ -92,10 +92,15 @@ needs it, or if we want a watchdog beneath ngtcp2's own timers.
   that collides with ngtcp2's same-named target when both are loaded in one
   CMake configure; patching around it is doable but unnecessary until we
   actually need HTTP/3.
-- **[planned] CID-keyed router plugin.** DCID extraction via
-  `ngtcp2_pkt_decode_version_cid` (long header) and the short-header
-  decoder, fixed CID length constant threaded through to both ngtcp2 and the
-  router config, unit tests with synthetic and ngtcp2-generated packets.
+- **[done, stub session] CID-keyed router plugin.**
+  `corvid/proto/quic/quic_dgram_router.h` defines `quic_dgram_protocol`
+  with a `router_plugin` (DCID extraction via `quic_version_cid` for both
+  long and short headers; only long-header packets create sessions) and a
+  stub `session_plugin` (single-DCID registration, no-op recv/sent pending
+  the `quic_conn` wrapper). CID length defaults to
+  `quic_version_cid::default_scid_length` (16 bytes). Tested with synthetic
+  packets in `tests/quic_dgram_router_test.cpp`; ngtcp2-generated-packet
+  coverage will arrive with the `quic_conn` milestone.
 - **[planned] `quic_conn` wrapper.** RAII around `ngtcp2_conn`, callback
   trampoline table, error-code -> `[[nodiscard]] bool` translation, expiry
   timer driven through `iou_loop::timeouts()`. Stateless: no streams, no

@@ -302,6 +302,12 @@ public:
         payload_span_.size()};
   }
 
+  // Byte span over `payload_span`.
+  [[nodiscard]] std::span<const uint8_t> payload_bytes() const noexcept {
+    return {reinterpret_cast<const uint8_t*>(payload_span_.data()),
+        payload_span_.size()};
+  }
+
   // Consume up to `n` bytes from the front of the payload. Returns the
   // taken slice. Fully draining the payload resets the buffer to its
   // initial read state (empty payload, active = full block).

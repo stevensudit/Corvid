@@ -315,14 +315,16 @@ foreach(SOURCE_FILE ${SOURCES})
         # the limit and registrations fail with ENOMEM. Serialize them
         # against each other with RESOURCE_LOCK (they can still run in
         # parallel with non-iou tests). The label is for `ctest -L iou`.
-        if(${EXECUTABLE_NAME} MATCHES "^iou_")
+        # `quic_dgram_*` tests sit on top of `iou_dgram_router`, so they
+        # share the same constraints.
+        if(${EXECUTABLE_NAME} MATCHES "^iou_|^quic_dgram_")
             set_tests_properties(${EXECUTABLE_NAME} PROPERTIES
                 LABELS "iou"
                 RESOURCE_LOCK "iou_memlock")
         endif()
     endif()
 
-    if(${EXECUTABLE_NAME} MATCHES "^iou_")
+    if(${EXECUTABLE_NAME} MATCHES "^iou_|^quic_dgram_")
         target_include_directories(${EXECUTABLE_NAME} PRIVATE ${LIBURING_INCLUDE_DIRS})
         target_link_libraries(${EXECUTABLE_NAME} PRIVATE ${LIBURING_LIBRARIES})
     endif()
