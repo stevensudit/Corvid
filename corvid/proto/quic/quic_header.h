@@ -98,7 +98,7 @@ constexpr inline auto corvid::enums::registry::enum_spec_v<
 
 namespace corvid { inline namespace proto { namespace quic {
 
-#pragma region quic_connection_id
+#pragma region quic_cid
 
 // Variable-length QUIC Connection ID, wrapping `ngtcp2_cid`. Up to
 // `NGTCP2_MAX_CIDLEN` (20) bytes of payload plus a length field. Used as
@@ -112,15 +112,15 @@ namespace corvid { inline namespace proto { namespace quic {
 // Comparison is byte-wise (length first, then `memcmp` -- consistent total
 // ordering). The hash specialization at file scope hashes the same byte
 // view, so two CIDs are equal iff they hash equally.
-class quic_connection_id {
+class quic_cid {
 public:
   static constexpr size_t max_length = NGTCP2_MAX_CIDLEN;
 
-  constexpr quic_connection_id() noexcept = default;
+  constexpr quic_cid() noexcept = default;
 
-  explicit quic_connection_id(const ngtcp2_cid& cid) noexcept : cid_{cid} {}
+  explicit quic_cid(const ngtcp2_cid& cid) noexcept : cid_{cid} {}
 
-  explicit quic_connection_id(std::span<const uint8_t> bytes) noexcept {
+  explicit quic_cid(std::span<const uint8_t> bytes) noexcept {
     assert(bytes.size() <= max_length);
     cid_.datalen = bytes.size();
     std::memcpy(cid_.data, bytes.data(), bytes.size());
@@ -139,14 +139,13 @@ public:
   [[nodiscard]] ngtcp2_cid* pointer() noexcept { return &cid_; }
   [[nodiscard]] const ngtcp2_cid& value() const noexcept { return cid_; }
 
-  [[nodiscard]] bool operator==(
-      const quic_connection_id& other) const noexcept {
+  [[nodiscard]] bool operator==(const quic_cid& other) const noexcept {
     return cid_.datalen == other.cid_.datalen &&
            std::memcmp(cid_.data, other.cid_.data, cid_.datalen) == 0;
   }
 
   [[nodiscard]] std::strong_ordering operator<=>(
-      const quic_connection_id& other) const noexcept {
+      const quic_cid& other) const noexcept {
     if (auto c = cid_.datalen <=> other.cid_.datalen; c != 0) return c;
     const int r = std::memcmp(cid_.data, other.cid_.data, cid_.datalen);
     return r < 0   ? std::strong_ordering::less
@@ -171,7 +170,7 @@ private:
 // source buffer (matching ngtcp2's contract: the struct stores `const
 // uint8_t*` pointers into the original input). They are invalidated if the
 // source buffer is freed, moved, or modified. For a stable copy of a CID,
-// pass the span to `quic_connection_id`'s span constructor.
+// pass the span to `quic_cid`'s span constructor.
 class quic_version_cid {
 public:
   // Default length, in bytes, of the SCIDs we issue locally.
@@ -180,29 +179,23 @@ public:
   constexpr quic_version_cid() noexcept = default;
 
   // Decode the QUIC header at the start of `packet`, populating version,
-  // DCID, and (for long-header packets) SCID. `short_dcidlen` defaults to
-  // `default_scid_length`; pass the length you actually issue if it
-  // differs. After construction, check `operator bool` (or inspect
-  // `status()`) for whether decoding succeeded.
+  // DCID, and (for long-header packets) SCID.
   //
   // `status() == ok` for any well-formed packet (long or short header).
   // `version_negotiation` when a long-header packet's version is
-  // unsupported by ngtcp2 -- the CID fields are still populated so the
+  // unsupported by ngtcp2 ; the CID fields are still populated so the
   // caller can construct a Version Negotiation response.
   // `invalid_argument` for malformed framing.
   explicit quic_version_cid(std::span<const uint8_t> packet,
       size_t short_dcidlen = default_scid_length) noexcept {
-    const int rv = ngtcp2_pkt_decode_version_cid(&vc_, packet.data(),
-        packet.size(), short_dcidlen);
-    status_ = static_cast<quic_decode_status>(rv);
+    status_ = static_cast<quic_decode_status>(ngtcp2_pkt_decode_version_cid(
+        &vc_, packet.data(), packet.size(), short_dcidlen));
   }
 
   // Result of the decode performed by the constructor.
   // `quic_decode_status::ok` on a default-constructed object that hasn't
   // been decoded, matching `iou_res`'s "zero is success" convention.
-  [[nodiscard]] quic_decode_status status() const noexcept {
-    return status_;
-  }
+  [[nodiscard]] quic_decode_status status() const noexcept { return status_; }
 
   // True iff `status() == ok`. `operator!` is the inverse, for the
   // `if (!vc) { /* decode failed */ }` idiom.
@@ -251,9 +244,8 @@ private:
 }}} // namespace corvid::proto::quic
 
 template<>
-struct std::hash<corvid::proto::quic::quic_connection_id> {
-  size_t operator()(
-      const corvid::proto::quic::quic_connection_id& cid) const noexcept {
+struct std::hash<corvid::proto::quic::quic_cid> {
+  size_t operator()(const corvid::proto::quic::quic_cid& cid) const noexcept {
     const auto bytes = cid.bytes();
     return std::hash<std::string_view>{}(
         {reinterpret_cast<const char*>(bytes.data()), bytes.size()});
