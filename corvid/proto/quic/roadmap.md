@@ -101,21 +101,30 @@ needs it, or if we want a watchdog beneath ngtcp2's own timers.
   `quic_version_cid::default_scid_length` (16 bytes). Tested with synthetic
   packets in `tests/quic_dgram_router_test.cpp`; ngtcp2-generated-packet
   coverage will arrive with the `quic_conn` milestone.
-- **[in progress] `quic_conn` wrapper.** `corvid/proto/quic/quic_conn.h`:
-  RAII `unique_ptr` around `ngtcp2_conn`, static-trampoline callback
-  table dispatched by `quic_conn_role` (server vs client), error codes
-  translated to `quic_decode_status`, `read_pkt` / `write_pkt` / `expiry`
-  / `handle_expiry` exposed in our `[[nodiscard]] bool`-style API. The
-  wrapper is non-movable because ngtcp2 captures `this` as `user_data`
-  at construction with no setter. Crypto callbacks are presently stubs
-  that satisfy ngtcp2's non-null assertions but do nothing real, so the
-  conn cannot actually complete a handshake yet. Settings and transport
-  parameters are zeroed defaults plus `initial_ts` and (server-side)
-  `original_dcid`. Tested in `tests/quic_conn_test.cpp` for construction
-  / destruction of both roles. Next slices: wire in `ngtcp2_crypto_ossl`
-  + an `SSL_CTX` with a self-signed test cert, then route the wrapper
-  into `quic_dgram_protocol::session_plugin` and integrate with
-  `iou_loop::timeouts()`.
+- **[done] `quic_conn` wrapper + TLS handshake.**
+  `corvid/proto/quic/quic_conn.h` is a non-movable RAII wrapper that
+  owns an `ngtcp2_conn`, a per-conn `SSL*`, and an
+  `ngtcp2_crypto_ossl_ctx*`; `quic_ssl_ctx` (sibling header) wraps an
+  `SSL_CTX` configured for TLS 1.3 with a single ALPN protocol, separate
+  ctors for server (cert + key) and client (verify disabled). The
+  crypto-shim callback set (`ngtcp2_crypto_*_cb`) is installed verbatim;
+  the only app-supplied trampolines are `rand` (OpenSSL RAND_bytes),
+  `get_new_connection_id2` (OpenSSL RAND_bytes for both CID and
+  stateless-reset token), a v2-shape adapter over the shim's v1
+  `get_path_challenge_data_cb`, and no-op `handshake_completed` /
+  `remove_connection_id` / `recv_*_key` hooks reserved for the session
+  layer to override. The `SSL` is put into accept/connect state after
+  `ngtcp2_crypto_ossl_configure_*_session` (the shim wires callbacks but
+  does not pick a direction). `tests/quic_test_cert.h` generates a
+  fresh RSA-2048 self-signed cert in memory each run. `quic_conn_test`
+  drives a full in-process handshake by ferrying datagrams between a
+  client and server conn until both report `is_handshake_completed()`;
+  convergence is two round-trips on the happy path.
+- **[planned] Wire `quic_conn` into `quic_dgram_protocol::session_plugin`.**
+  Replace the stub session plugin's no-op recv/sent handlers with calls
+  into `quic_conn::read_pkt` / `write_pkt`, arm the expiry timer through
+  `iou_loop::timeouts()`, and register additional SCIDs from
+  `get_new_connection_id2` / retire on `remove_connection_id`.
 - **[planned] QUIC echo server.** First end-to-end milestone. A session
   plugin that opens a bidirectional stream on handshake completion and echoes
   application bytes. Validates handshake, packet send/recv pacing, ACK
