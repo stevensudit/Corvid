@@ -16,10 +16,13 @@
 // limitations under the License.
 #pragma once
 #include <cassert>
+#include <compare>
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
+#include <functional>
 #include <span>
+#include <string_view>
 
 #include <ngtcp2/ngtcp2.h>
 
@@ -28,11 +31,6 @@
 // C++ wrappers over the slice of ngtcp2's C API used to recover the
 // Destination Connection ID (DCID) from a received QUIC datagram, which is
 // what `iou_dgram_router`'s plugin needs to demux packets onto sessions.
-//
-// Follows the same shape as `iou_wrap.h`: enums (and their registry
-// specializations) come first at namespace scope so the sequence-enum
-// operators are in effect before any class declares a method that returns or
-// consumes them. The wrapper classes follow in a second namespace block.
 
 namespace corvid { inline namespace proto { namespace quic {
 
@@ -102,18 +100,63 @@ namespace corvid { inline namespace proto { namespace quic {
 
 #pragma region quic_connection_id
 
-// Routing-table key for a locally-issued QUIC Connection ID. Strongly-typed
-// alias for `uint64_t`: we issue CIDs of exactly that width (see
-// `quic_version_cid::cid_length`), so the type identity keeps them from
-// being confused with arbitrary integers in routing tables or session APIs.
-// `std::hash` and the comparison operators are provided by the language for
-// scoped enums with an explicit underlying type, so no further machinery is
-// needed.
+// Variable-length QUIC Connection ID, wrapping `ngtcp2_cid`. Up to
+// `NGTCP2_MAX_CIDLEN` (20) bytes of payload plus a length field. Used as
+// the routing-table key for the dgram router's session map: a single
+// session can be registered under multiple CIDs (the client's original
+// initial DCID, every SCID ngtcp2 issues for it, every CID added via
+// `NEW_CONNECTION_ID` later in the connection), and ngtcp2's helpers
+// (`ngtcp2_conn_get_scid`, `ngtcp2_conn_get_client_initial_dcid`)
+// enumerate them for us at registration / teardown time.
 //
-// NOT used for peer-issued Source CIDs in long-header Initial packets, which
-// can be 1..20 bytes per spec. Those live with the connection handshake
-// path; the router only ever keys on CIDs it issued itself.
-enum class quic_connection_id : uint64_t {};
+// Comparison is byte-wise (length first, then `memcmp` -- consistent total
+// ordering). The hash specialization at file scope hashes the same byte
+// view, so two CIDs are equal iff they hash equally.
+class quic_connection_id {
+public:
+  static constexpr size_t max_length = NGTCP2_MAX_CIDLEN;
+
+  constexpr quic_connection_id() noexcept = default;
+
+  explicit quic_connection_id(const ngtcp2_cid& cid) noexcept : cid_{cid} {}
+
+  explicit quic_connection_id(std::span<const uint8_t> bytes) noexcept {
+    assert(bytes.size() <= max_length);
+    cid_.datalen = bytes.size();
+    std::memcpy(cid_.data, bytes.data(), bytes.size());
+  }
+
+  [[nodiscard]] size_t length() const noexcept { return cid_.datalen; }
+  [[nodiscard]] bool empty() const noexcept { return cid_.datalen == 0; }
+
+  // Bytes view, valid for the lifetime of this object.
+  [[nodiscard]] std::span<const uint8_t> bytes() const noexcept {
+    return {cid_.data, cid_.datalen};
+  }
+
+  // Underlying ngtcp2 struct, for handing to ngtcp2 C calls unchanged.
+  [[nodiscard]] const ngtcp2_cid* pointer() const noexcept { return &cid_; }
+  [[nodiscard]] ngtcp2_cid* pointer() noexcept { return &cid_; }
+  [[nodiscard]] const ngtcp2_cid& value() const noexcept { return cid_; }
+
+  [[nodiscard]] bool operator==(
+      const quic_connection_id& other) const noexcept {
+    return cid_.datalen == other.cid_.datalen &&
+           std::memcmp(cid_.data, other.cid_.data, cid_.datalen) == 0;
+  }
+
+  [[nodiscard]] std::strong_ordering operator<=>(
+      const quic_connection_id& other) const noexcept {
+    if (auto c = cid_.datalen <=> other.cid_.datalen; c != 0) return c;
+    const int r = std::memcmp(cid_.data, other.cid_.data, cid_.datalen);
+    return r < 0   ? std::strong_ordering::less
+           : r > 0 ? std::strong_ordering::greater
+                   : std::strong_ordering::equal;
+  }
+
+private:
+  ngtcp2_cid cid_{};
+};
 
 #pragma endregion
 #pragma region quic_version_cid
@@ -127,34 +170,47 @@ enum class quic_connection_id : uint64_t {};
 // returned `dcid_bytes()` / `scid_bytes()` spans view directly into the
 // source buffer (matching ngtcp2's contract: the struct stores `const
 // uint8_t*` pointers into the original input). They are invalidated if the
-// source buffer is freed, moved, or modified. For a stable copy of a
-// locally-issued DCID, hand the span through `from_ngtcp2_cid` after
-// populating an `ngtcp2_cid`, or `memcpy` into a `quic_connection_id`
-// directly.
+// source buffer is freed, moved, or modified. For a stable copy of a CID,
+// pass the span to `quic_connection_id`'s span constructor.
 class quic_version_cid {
 public:
-  // Length, in bytes, of the Connection IDs we issue locally. The QUIC spec
-  // permits 1..20 (`NGTCP2_MAX_CIDLEN`).
-  static constexpr size_t cid_length = sizeof(uint64_t);
+  // Default length, in bytes, of the SCIDs we issue locally.
+  static constexpr size_t default_scid_length = 16;
 
   constexpr quic_version_cid() noexcept = default;
 
   // Decode the QUIC header at the start of `packet`, populating version,
-  // DCID, and (for long-header packets) SCID. `short_dcidlen` is the length
-  // of the DCID for short-header packets, which carry no on-wire length
-  // field; defaults to the local CID length we issue. Long-header packets
-  // carry the lengths on the wire and ignore this parameter.
+  // DCID, and (for long-header packets) SCID. `short_dcidlen` defaults to
+  // `default_scid_length`; pass the length you actually issue if it
+  // differs. After construction, check `operator bool` (or inspect
+  // `status()`) for whether decoding succeeded.
   //
-  // Returns `ok` for any well-formed packet (long or short header).
-  // Returns `version_negotiation` when a long-header packet's version is
-  // unsupported by ngtcp2; the CID fields are still populated so the
-  // caller can construct a Version Negotiation response. Returns
+  // `status() == ok` for any well-formed packet (long or short header).
+  // `version_negotiation` when a long-header packet's version is
+  // unsupported by ngtcp2 -- the CID fields are still populated so the
+  // caller can construct a Version Negotiation response.
   // `invalid_argument` for malformed framing.
-  [[nodiscard]] quic_decode_status decode(std::span<const uint8_t> packet,
-      size_t short_dcidlen = cid_length) noexcept {
+  explicit quic_version_cid(std::span<const uint8_t> packet,
+      size_t short_dcidlen = default_scid_length) noexcept {
     const int rv = ngtcp2_pkt_decode_version_cid(&vc_, packet.data(),
         packet.size(), short_dcidlen);
-    return static_cast<quic_decode_status>(rv);
+    status_ = static_cast<quic_decode_status>(rv);
+  }
+
+  // Result of the decode performed by the constructor.
+  // `quic_decode_status::ok` on a default-constructed object that hasn't
+  // been decoded, matching `iou_res`'s "zero is success" convention.
+  [[nodiscard]] quic_decode_status status() const noexcept {
+    return status_;
+  }
+
+  // True iff `status() == ok`. `operator!` is the inverse, for the
+  // `if (!vc) { /* decode failed */ }` idiom.
+  [[nodiscard]] explicit operator bool() const noexcept {
+    return status_ == quic_decode_status::ok;
+  }
+  [[nodiscard]] bool operator!() const noexcept {
+    return status_ != quic_decode_status::ok;
   }
 
   // QUIC version field. Zero for short-header packets, since they do not
@@ -185,28 +241,21 @@ public:
     return vc_;
   }
 
-  // Fill an `ngtcp2_cid` from a locally-issued `quic_connection_id`. The
-  // result is exactly `cid_length` bytes wide.
-  static void to_ngtcp2_cid(quic_connection_id cid, ngtcp2_cid& out) noexcept {
-    out.datalen = cid_length;
-    const auto v = static_cast<uint64_t>(cid);
-    std::memcpy(out.data, &v, cid_length);
-  }
-
-  // Reconstitute a `quic_connection_id` from an `ngtcp2_cid` holding one of
-  // our locally-issued CIDs. The first `cid_length` bytes are interpreted
-  // as the underlying integer; the source must hold at least that many.
-  static quic_connection_id from_ngtcp2_cid(const ngtcp2_cid& in) noexcept {
-    assert(in.datalen >= cid_length);
-    uint64_t v{};
-    std::memcpy(&v, in.data, cid_length);
-    return static_cast<quic_connection_id>(v);
-  }
-
 private:
   ngtcp2_version_cid vc_{};
+  quic_decode_status status_{};
 };
 
 #pragma endregion
 
 }}} // namespace corvid::proto::quic
+
+template<>
+struct std::hash<corvid::proto::quic::quic_connection_id> {
+  size_t operator()(
+      const corvid::proto::quic::quic_connection_id& cid) const noexcept {
+    const auto bytes = cid.bytes();
+    return std::hash<std::string_view>{}(
+        {reinterpret_cast<const char*>(bytes.data()), bytes.size()});
+  }
+};
