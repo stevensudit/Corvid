@@ -103,9 +103,7 @@ public:
     auto path = make_ngtcp2_path(local, peer);
     ngtcp2_conn* raw = nullptr;
     const auto& cbs =
-        (r == connection_role::server)
-            ? server_callbacks()
-            : client_callbacks();
+        (r == connection_role::server) ? server_callbacks : client_callbacks;
     const int rv =
         (r == connection_role::server)
             ? ngtcp2_conn_server_new(&raw, dcid.pointer(), scid.pointer(),
@@ -273,57 +271,50 @@ private:
 #pragma endregion
 #pragma region Helpers
 
-  // Populate a callbacks table once per role. The struct is value-zeroed
-  // before assignment so any future optional callback we leave out stays
-  // null (which is what ngtcp2 expects for optional slots).
-  [[nodiscard]] static const ngtcp2_callbacks& server_callbacks() noexcept {
-    static const ngtcp2_callbacks cbs = [] {
-      ngtcp2_callbacks c{};
-      c.recv_client_initial = &on_recv_client_initial;
-      c.recv_crypto_data = &on_recv_crypto_data;
-      c.handshake_completed = &on_handshake_completed;
-      c.encrypt = &on_encrypt;
-      c.decrypt = &on_decrypt;
-      c.hp_mask = &on_hp_mask;
-      c.rand = &on_rand;
-      c.get_new_connection_id2 = &on_get_new_connection_id2;
-      c.remove_connection_id = &on_remove_connection_id;
-      c.update_key = &on_update_key;
-      c.delete_crypto_aead_ctx = &on_delete_crypto_aead_ctx;
-      c.delete_crypto_cipher_ctx = &on_delete_crypto_cipher_ctx;
-      c.get_path_challenge_data2 = &on_get_path_challenge_data2;
-      c.version_negotiation = &on_version_negotiation;
-      c.recv_rx_key = &on_recv_key;
-      c.recv_tx_key = &on_recv_key;
-      return c;
-    }();
-    return cbs;
-  }
+  // Callback tables, one per role. Unmentioned slots are
+  // value-initialized to null, which is what ngtcp2 expects for optional
+  // callbacks.
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wmissing-designated-field-initializers"
+  static constexpr ngtcp2_callbacks server_callbacks{
+      .recv_client_initial = &on_recv_client_initial,
+      .recv_crypto_data = &on_recv_crypto_data,
+      .handshake_completed = &on_handshake_completed,
+      .encrypt = &on_encrypt,
+      .decrypt = &on_decrypt,
+      .hp_mask = &on_hp_mask,
+      .rand = &on_rand,
+      .remove_connection_id = &on_remove_connection_id,
+      .update_key = &on_update_key,
+      .delete_crypto_aead_ctx = &on_delete_crypto_aead_ctx,
+      .delete_crypto_cipher_ctx = &on_delete_crypto_cipher_ctx,
+      .version_negotiation = &on_version_negotiation,
+      .recv_rx_key = &on_recv_key,
+      .recv_tx_key = &on_recv_key,
+      .get_new_connection_id2 = &on_get_new_connection_id2,
+      .get_path_challenge_data2 = &on_get_path_challenge_data2,
+  };
 
-  [[nodiscard]] static const ngtcp2_callbacks& client_callbacks() noexcept {
-    static const ngtcp2_callbacks cbs = [] {
-      ngtcp2_callbacks c{};
-      c.client_initial = &on_client_initial;
-      c.recv_crypto_data = &on_recv_crypto_data;
-      c.handshake_completed = &on_handshake_completed;
-      c.recv_retry = &on_recv_retry;
-      c.encrypt = &on_encrypt;
-      c.decrypt = &on_decrypt;
-      c.hp_mask = &on_hp_mask;
-      c.rand = &on_rand;
-      c.get_new_connection_id2 = &on_get_new_connection_id2;
-      c.remove_connection_id = &on_remove_connection_id;
-      c.update_key = &on_update_key;
-      c.delete_crypto_aead_ctx = &on_delete_crypto_aead_ctx;
-      c.delete_crypto_cipher_ctx = &on_delete_crypto_cipher_ctx;
-      c.get_path_challenge_data2 = &on_get_path_challenge_data2;
-      c.version_negotiation = &on_version_negotiation;
-      c.recv_rx_key = &on_recv_key;
-      c.recv_tx_key = &on_recv_key;
-      return c;
-    }();
-    return cbs;
-  }
+  static constexpr ngtcp2_callbacks client_callbacks{
+      .client_initial = &on_client_initial,
+      .recv_crypto_data = &on_recv_crypto_data,
+      .handshake_completed = &on_handshake_completed,
+      .encrypt = &on_encrypt,
+      .decrypt = &on_decrypt,
+      .hp_mask = &on_hp_mask,
+      .recv_retry = &on_recv_retry,
+      .rand = &on_rand,
+      .remove_connection_id = &on_remove_connection_id,
+      .update_key = &on_update_key,
+      .delete_crypto_aead_ctx = &on_delete_crypto_aead_ctx,
+      .delete_crypto_cipher_ctx = &on_delete_crypto_cipher_ctx,
+      .version_negotiation = &on_version_negotiation,
+      .recv_rx_key = &on_recv_key,
+      .recv_tx_key = &on_recv_key,
+      .get_new_connection_id2 = &on_get_new_connection_id2,
+      .get_path_challenge_data2 = &on_get_path_challenge_data2,
+  };
+#pragma clang diagnostic pop
 
   // Build an `ngtcp2_path` whose `addr` fields point inside the given
   // `net_endpoint`s. The endpoints must outlive any ngtcp2 call that uses
