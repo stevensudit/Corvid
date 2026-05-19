@@ -45,10 +45,17 @@ class iou_dgram_router;
 //
 // Required type aliases:
 //  `session_t` - typically `iou_dgram_session<MatchingSessionPlugin>`.
-//  `key_t`     - the routing key type.
+//  `key_t`     - the routing key type. Must support `!key` and
+//      `bool(key)` (typically via `explicit operator bool`) so the router
+//      can check validity uniformly. Built-in integral types and
+//      `net_endpoint` already satisfy this.
 //
 // Required methods (regular, non-static):
-//  `key_t extract(const buffer&)` - deterministic key extraction.
+//  `key_t extract(const buffer&)` - deterministic key extraction. May
+//      return an invalid key (i.e., one for which `!key` is true) to
+//      signal parse failure or rejection; the router then drops the
+//      originating packet without consulting the session registry or
+//      invoking `create_session`.
 //  `bool create_session(const buffer&, iou_dgram_router&)` - invoked on
 //      key not found in the session registry. Constructs a session via
 //      `session_t::make` (whose factory calls the session plugin's
@@ -71,11 +78,13 @@ class iou_dgram_router;
 // the unsatisfied requirement.
 template<typename P>
 concept iou_dgram_router_plugin = requires(P p, const iou_loop::buffer& cbuf,
-    iou_dgram_router<P>& router) {
+    iou_dgram_router<P>& router, const typename P::key_t& key) {
   typename P::session_t;
   typename P::key_t;
   { p.extract(cbuf) } -> std::convertible_to<typename P::key_t>;
   { p.create_session(cbuf, router) } -> std::same_as<bool>;
+  { !key } -> std::convertible_to<bool>;
+  { static_cast<bool>(key) } -> std::same_as<bool>;
 };
 
 // Plugin contract for `iou_dgram_session`. The plugin owns per-session state
@@ -290,6 +299,7 @@ private:
     return loop_.execute_or_post(
         [this, buf = std::move(buf)]() mutable -> bool {
           const key_t& key = plugin_.extract(buf);
+          if (!key) return false;
 
           if (auto found = find_opt(sessions_, key)) {
             (void)(*found)->on_receive(std::move(buf));
@@ -475,8 +485,8 @@ public:
 
   // Wrap an existing router in the RAII handle. Mainly used by `bind` and by
   // CTAD; users normally go through `bind`.
-  explicit iou_dgram_router_handle(shared_ptr_t router) noexcept
-      : router_{std::move(router)} {}
+  explicit iou_dgram_router_handle(const shared_ptr_t& router) noexcept
+      : router_{router} {}
 
   // NOLINTBEGIN(bugprone-exception-escape)
   ~iou_dgram_router_handle() {
@@ -521,6 +531,9 @@ public:
 
   [[nodiscard]] auto operator->(this auto&& self) noexcept {
     return self.router_.get();
+  }
+  [[nodiscard]] auto& operator*(this auto&& self) noexcept {
+    return *self.router_;
   }
   [[nodiscard]] explicit operator bool() const noexcept {
     return router_.get();

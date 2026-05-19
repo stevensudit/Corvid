@@ -55,9 +55,7 @@ public:
     using router_t = iouring::iou_dgram_router<router_plugin>;
     using key_t = quic_cid;
 
-    // Recover the DCID from the packet header. Empty `quic_cid` on parse
-    // failure (so the session map misses and `create_session` is consulted,
-    // which will also fail and drop the packet).
+    // Recover the DCID from the packet header.
     [[nodiscard]] key_t extract(const buffer& buf) const noexcept {
       (void)this;
       const quic_version_cid vc{buf.payload_bytes(), cid_length};

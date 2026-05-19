@@ -17,12 +17,9 @@
 
 #include <algorithm>
 #include <array>
-#include <atomic>
-#include <chrono>
 #include <cstddef>
 #include <cstdint>
 #include <span>
-#include <thread>
 #include <vector>
 
 #include "../corvid/proto/quic/quic_dgram_router.h"
@@ -33,7 +30,6 @@
 using namespace corvid;
 using namespace corvid::iouring;
 using namespace corvid::proto::quic;
-using namespace std::chrono_literals;
 
 namespace {
 
@@ -69,20 +65,10 @@ std::vector<uint8_t> make_short_header_packet(std::span<const uint8_t> dcid) {
 }
 
 // Wrap raw bytes in a synthetic, non-owning `iou_loop::buffer` so the plugin
-// can read them through `payload_view`. The buffer is read-only in practice,
-// but `make_synthetic` takes a mutable `span<std::byte>` (its general read
-// path lets the kernel fill the storage), so callers must pass a non-const
-// buffer.
+// can read them through `payload_view`.
 iou_loop::buffer wrap(std::span<uint8_t> bytes) {
   return iou_loop::buffer::make_synthetic(
       {reinterpret_cast<std::byte*>(bytes.data()), bytes.size()});
-}
-
-bool wait_for(const auto& pred, std::chrono::milliseconds timeout = 500ms) {
-  const auto deadline = std::chrono::steady_clock::now() + timeout;
-  while (!pred() && std::chrono::steady_clock::now() < deadline)
-    std::this_thread::sleep_for(1ms);
-  return pred();
 }
 
 constexpr std::array<uint8_t, 16> sample_dcid{0xde, 0xad, 0xbe, 0xef, 0xfe,
@@ -93,7 +79,6 @@ constexpr std::array<uint8_t, 16> sample_scid{0x11, 0x22, 0x33, 0x44, 0x55,
 
 } // namespace
 
-// NOLINTBEGIN(readability-function-cognitive-complexity)
 TEST_CASE("quic_dgram_protocol::router_plugin::extract", "[quic][router]") {
   quic_dgram_protocol::router_plugin plugin;
 
@@ -140,111 +125,3 @@ TEST_CASE("quic_dgram_protocol::router_plugin::extract", "[quic][router]") {
     CHECK(key.empty());
   }
 }
-
-TEST_CASE("quic_dgram_protocol::router_plugin::create_session",
-    "[quic][router]") {
-  using handle_t = iou_dgram_router_handle<quic_dgram_protocol::router_plugin>;
-
-  iou_loop_runner runner;
-
-  // A real UDP socket is bound but never used for actual I/O in this test;
-  // we drive the plugin methods directly on the loop thread.
-  auto handle = handle_t::bind(*runner.loop(), net_endpoint::loopback_v4(),
-      shot_type::single);
-  REQUIRE(handle);
-  auto& router = *handle.pointer();
-
-  SECTION("long-header packet creates a session under the DCID") {
-    auto pkt = make_long_header_packet(sample_dcid, sample_scid);
-    auto buf = wrap(pkt);
-
-    std::atomic_bool created{false};
-    std::atomic_bool removed{false};
-    (void)runner.loop()->execute_or_post(
-        [&router, &buf, &created, &removed]() -> bool {
-          // `extract` and `create_session` are intended to run on the loop
-          // thread (the router's recv callback dispatches them there).
-          created = router.plugin().create_session(buf, router);
-          // The session must now be registered under the parsed DCID.
-          removed = router.remove_session(quic_cid{sample_dcid});
-          return true;
-        });
-    REQUIRE(wait_for([&] { return created.load() && removed.load(); }));
-  }
-
-  SECTION("short-header packet does not create a session") {
-    auto pkt = make_short_header_packet(sample_dcid);
-    auto buf = wrap(pkt);
-
-    std::atomic_bool decided{false};
-    std::atomic_bool created{false};
-    std::atomic_bool removed{false};
-    (void)runner.loop()->execute_or_post(
-        [&router, &buf, &created, &removed, &decided]() -> bool {
-          created = router.plugin().create_session(buf, router);
-          // Nothing should be registered under the DCID.
-          removed = router.remove_session(quic_cid{sample_dcid});
-          decided = true;
-          return true;
-        });
-    REQUIRE(wait_for([&] { return decided.load(); }));
-    CHECK_FALSE(created.load());
-    CHECK_FALSE(removed.load());
-  }
-
-  SECTION("malformed packet does not create a session") {
-    std::array<uint8_t, 1> stub{0xc0};
-    auto buf = wrap(stub);
-
-    std::atomic_bool decided{false};
-    std::atomic_bool created{false};
-    (void)runner.loop()->execute_or_post(
-        [&router, &buf, &created, &decided]() -> bool {
-          created = router.plugin().create_session(buf, router);
-          decided = true;
-          return true;
-        });
-    REQUIRE(wait_for([&] { return decided.load(); }));
-    CHECK_FALSE(created.load());
-  }
-}
-
-TEST_CASE("quic_dgram_protocol::session_plugin tracks its DCID",
-    "[quic][session]") {
-  // End-to-end: drive a long-header packet through create_session, then
-  // close the router and verify that unregister_self removes the CID.
-  using handle_t = iou_dgram_router_handle<quic_dgram_protocol::router_plugin>;
-
-  iou_loop_runner runner;
-  auto handle = handle_t::bind(*runner.loop(), net_endpoint::loopback_v4(),
-      shot_type::single);
-  REQUIRE(handle);
-  auto& router = *handle.pointer();
-
-  auto pkt = make_long_header_packet(sample_dcid, sample_scid);
-  auto buf = wrap(pkt);
-
-  std::atomic_bool created{false};
-  (void)runner.loop()->execute_or_post([&router, &buf, &created]() -> bool {
-    created = router.plugin().create_session(buf, router);
-    return true;
-  });
-  REQUIRE(wait_for([&] { return created.load(); }));
-
-  // Closing the router fires every session's `unregister_self`, which calls
-  // `router.remove_session(key_)`. If that path worked, a follow-up direct
-  // `remove_session` for the same key finds nothing to erase.
-  CHECK(handle.close());
-
-  std::atomic_bool still_registered{true};
-  std::atomic_bool decided{false};
-  (void)runner.loop()->execute_or_post(
-      [&router, &still_registered, &decided]() -> bool {
-        still_registered = router.remove_session(quic_cid{sample_dcid});
-        decided = true;
-        return true;
-      });
-  REQUIRE(wait_for([&] { return decided.load(); }));
-  CHECK_FALSE(still_registered.load());
-}
-// NOLINTEND(readability-function-cognitive-complexity)

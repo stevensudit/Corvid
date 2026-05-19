@@ -129,6 +129,9 @@ public:
   [[nodiscard]] size_t length() const noexcept { return cid_.datalen; }
   [[nodiscard]] bool empty() const noexcept { return cid_.datalen == 0; }
 
+  [[nodiscard]] explicit operator bool() const noexcept { return !empty(); }
+  [[nodiscard]] bool operator!() const noexcept { return empty(); }
+
   // Bytes view, valid for the lifetime of this object.
   [[nodiscard]] std::span<const uint8_t> bytes() const noexcept {
     return {cid_.data, cid_.datalen};

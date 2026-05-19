@@ -46,9 +46,7 @@ struct ssl_identity {
   x509_ptr cert;
   evp_pkey_ptr key;
 
-  [[nodiscard]] explicit operator bool() const noexcept {
-    return cert && key;
-  }
+  [[nodiscard]] explicit operator bool() const noexcept { return cert && key; }
 };
 
 #pragma endregion
