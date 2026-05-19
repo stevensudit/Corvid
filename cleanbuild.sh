@@ -290,6 +290,37 @@ fi
 
 ctest "${ctest_args[@]}"
 
+# In tidy mode, clang-tidy warnings stream through the build phase but get
+# buried under the ctest run that follows. Summarize them at the very end so
+# the bottom-line state is visible. Filter out diagnostics in
+# .fetchcontent/ or .local/ (FetchContent'd Catch2, prebuilt OpenSSL, ngtcp2
+# ExternalProject sources) so only Corvid-owned issues appear.
+if $use_tidy; then
+  echo
+  echo "==================== clang-tidy summary ===================="
+  warn_lines=$(grep -E ': warning: .*\[[A-Za-z][A-Za-z0-9._-]*\]' "$tidyLogFile" \
+               | grep -v -F '.fetchcontent/' \
+               | grep -v -F '.local/' \
+               || true)
+  if [[ -n "$warn_lines" ]]; then
+    warn_count=$(printf '%s\n' "$warn_lines" | wc -l)
+    echo "$warn_count warning(s):"
+    echo
+    printf '%s\n' "$warn_lines"
+    echo
+    echo "By check:"
+    printf '%s\n' "$warn_lines" \
+        | grep -oE '\[[A-Za-z][A-Za-z0-9._-]*\]$' \
+        | sort | uniq -c | sort -rn \
+        | sed 's/^/  /'
+    echo
+    echo "Full log: $tidyLogFile"
+  else
+    echo "clean: no warnings"
+  fi
+  echo "============================================================"
+fi
+
 if $use_coverage; then
   echo
   echo "Merging coverage profiles ..."
