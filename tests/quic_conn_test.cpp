@@ -212,6 +212,13 @@ TEST_CASE("quic_conn handshake completes in-process", "[quic][conn]") {
       server_addr, client_addr, now_tp()};
   REQUIRE(server);
 
+  // Trampolines deref `handlers_` unconditionally; tests that drive I/O
+  // must attach handlers before the first read/write. The base
+  // `quic_conn_handlers` defaults to no-op `true` for every upcall.
+  quic_conn_handlers noop_handlers;
+  client.set_handlers(&noop_handlers);
+  server.set_handlers(&noop_handlers);
+
   // Paths recorded from each side's viewpoint: `(local, peer)`.
   auto client_path = quic_conn::make_ngtcp2_path(client_addr, server_addr);
   auto server_path = quic_conn::make_ngtcp2_path(server_addr, client_addr);
@@ -370,6 +377,10 @@ TEST_CASE("quic_conn handler returning false aborts read_pkt",
 
   abort_on_tx_ready server_trace;
   server.set_handlers(&server_trace);
+  // Client doesn't care which upcalls fire; attach a no-op so its
+  // trampolines have something to deref.
+  quic_conn_handlers noop_handlers;
+  client.set_handlers(&noop_handlers);
 
   auto client_path = quic_conn::make_ngtcp2_path(client_addr, server_addr);
   auto server_path = quic_conn::make_ngtcp2_path(server_addr, client_addr);

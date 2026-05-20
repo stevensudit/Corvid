@@ -595,13 +595,11 @@ private:
 
   static int on_handshake_completed(ngtcp2_conn*, void* user_data) noexcept {
     auto* self = static_cast<quic_conn*>(user_data);
-    if (!self->handlers_) return 0;
     return success(self->handlers_->on_handshake_completed());
   }
 
   static int on_handshake_confirmed(ngtcp2_conn*, void* user_data) noexcept {
     auto* self = static_cast<quic_conn*>(user_data);
-    if (!self->handlers_) return 0;
     return success(self->handlers_->on_handshake_confirmed());
   }
 
@@ -613,22 +611,13 @@ private:
   static int on_recv_tx_key(ngtcp2_conn*, ngtcp2_encryption_level level,
       void* user_data) noexcept {
     if (level != NGTCP2_ENCRYPTION_LEVEL_1RTT) return 0;
-    //!!! The next two lines are likewise copypasta, but it's unclear if they
-    // can be cleanly factored out. Possibly not.
-    //!!! Should we be checking for handlers in release or just using an
-    //! assert?
-    // After all, calling without handlers sounds more like a user error than
-    // something we should expect to gracefully accept. And that would remove
-    // half of the copypasta
     auto* self = static_cast<quic_conn*>(user_data);
-    if (!self->handlers_) return 0;
     return success(self->handlers_->on_app_tx_ready());
   }
 
   static int
   on_stream_open(ngtcp2_conn*, int64_t stream_id, void* user_data) noexcept {
     auto* self = static_cast<quic_conn*>(user_data);
-    if (!self->handlers_) return 0;
     return success(self->handlers_->on_stream_open(
         static_cast<quic_stream_id>(stream_id)));
   }
@@ -637,7 +626,6 @@ private:
       int64_t stream_id, uint64_t offset, const uint8_t* data, size_t datalen,
       void* user_data, void* /*stream_user_data*/) noexcept {
     auto* self = static_cast<quic_conn*>(user_data);
-    if (!self->handlers_) return 0;
     return success(self->handlers_->on_recv_stream_data(
         static_cast<quic_stream_id>(stream_id), offset,
         std::span<const uint8_t>{data, datalen},
@@ -648,7 +636,6 @@ private:
       uint64_t offset, uint64_t datalen, void* user_data,
       void* /*stream_user_data*/) noexcept {
     auto* self = static_cast<quic_conn*>(user_data);
-    if (!self->handlers_) return 0;
     return success(self->handlers_->on_acked_stream_data_offset(
         static_cast<quic_stream_id>(stream_id), offset, datalen));
   }
@@ -657,7 +644,6 @@ private:
       uint64_t final_size, uint64_t app_error_code, void* user_data,
       void* /*stream_user_data*/) noexcept {
     auto* self = static_cast<quic_conn*>(user_data);
-    if (!self->handlers_) return 0;
     return success(self->handlers_->on_stream_reset(
         static_cast<quic_stream_id>(stream_id), final_size, app_error_code));
   }
@@ -666,7 +652,6 @@ private:
       uint64_t app_error_code, void* user_data,
       void* /*stream_user_data*/) noexcept {
     auto* self = static_cast<quic_conn*>(user_data);
-    if (!self->handlers_) return 0;
     return success(self->handlers_->on_stream_stop_sending(
         static_cast<quic_stream_id>(stream_id), app_error_code));
   }
@@ -675,7 +660,6 @@ private:
       uint64_t app_error_code, void* user_data,
       void* /*stream_user_data*/) noexcept {
     auto* self = static_cast<quic_conn*>(user_data);
-    if (!self->handlers_) return 0;
     std::optional<uint64_t> ec;
     if (flags & NGTCP2_STREAM_CLOSE_FLAG_APP_ERROR_CODE_SET)
       ec = app_error_code;
@@ -687,7 +671,6 @@ private:
       uint64_t max_data, void* user_data,
       void* /*stream_user_data*/) noexcept {
     auto* self = static_cast<quic_conn*>(user_data);
-    if (!self->handlers_) return 0;
     return success(self->handlers_->on_extend_max_stream_data(
         static_cast<quic_stream_id>(stream_id), max_data));
   }
@@ -698,7 +681,6 @@ private:
   static int on_extend_max_local_streams_bidi(ngtcp2_conn*,
       uint64_t max_streams, void* user_data) noexcept {
     auto* self = static_cast<quic_conn*>(user_data);
-    if (!self->handlers_) return 0;
     return success(
         self->handlers_->on_extend_max_local_streams_bidi(max_streams));
   }
@@ -706,7 +688,6 @@ private:
   static int on_extend_max_local_streams_uni(ngtcp2_conn*,
       uint64_t max_streams, void* user_data) noexcept {
     auto* self = static_cast<quic_conn*>(user_data);
-    if (!self->handlers_) return 0;
     return success(
         self->handlers_->on_extend_max_local_streams_uni(max_streams));
   }
@@ -714,7 +695,6 @@ private:
   static int on_recv_datagram(ngtcp2_conn*, uint32_t flags,
       const uint8_t* data, size_t datalen, void* user_data) noexcept {
     auto* self = static_cast<quic_conn*>(user_data);
-    if (!self->handlers_) return 0;
     //!!! on_recv_datagram should move flags to the last parameter.
     return success(self->handlers_->on_recv_datagram(
         static_cast<quic_datagram_flags>(flags),
@@ -724,14 +704,12 @@ private:
   static int
   on_ack_datagram(ngtcp2_conn*, uint64_t dgram_id, void* user_data) noexcept {
     auto* self = static_cast<quic_conn*>(user_data);
-    if (!self->handlers_) return 0;
     return success(self->handlers_->on_ack_datagram(dgram_id));
   }
 
   static int
   on_lost_datagram(ngtcp2_conn*, uint64_t dgram_id, void* user_data) noexcept {
     auto* self = static_cast<quic_conn*>(user_data);
-    if (!self->handlers_) return 0;
     return success(self->handlers_->on_lost_datagram(dgram_id));
   }
 
