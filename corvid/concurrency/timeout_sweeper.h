@@ -24,7 +24,7 @@
 #include <vector>
 
 #include "relaxed_atomic.h"
-#include "timeout_sweeper_base.h"
+#include "timeouts.h"
 
 namespace corvid { inline namespace concurrency {
 #pragma region timeout_sweeper
@@ -88,9 +88,9 @@ namespace corvid { inline namespace concurrency {
 //   using my_sweeper = timeout_sweeper<fixed_function<32,
 //       std::chrono::steady_clock::time_point(
 //           std::chrono::steady_clock::time_point)>>;
-template<typename CB = std::function<timeout_sweeper_base::time_point_t(
-             timeout_sweeper_base::time_point_t)>>
-class timeout_sweeper: public timeout_sweeper_base {
+template<typename CB =
+             std::function<timeouts::time_point_t(timeouts::time_point_t)>>
+class timeout_sweeper: public timeouts {
 #pragma region Types
 public:
   using callback_t = CB;

@@ -168,8 +168,8 @@ using posted_fn = fixed_function<default_fixed_function::capacity, bool()>;
 // Callback for entries registered with the loop's `timeouts()` sweeper.
 // Sized for the typical idle-timeout capture: one `std::weak_ptr` on top of
 // the `fixed_function` invoke/manage overhead.
-using expiration_fn = fixed_function<32,
-    timeout_sweeper_base::time_point_t(timeout_sweeper_base::time_point_t)>;
+using expiration_fn =
+    fixed_function<32, timeouts::time_point_t(timeouts::time_point_t)>;
 
 #pragma endregion
 #pragma region iou_loop
@@ -377,7 +377,7 @@ public:
     // outlives this loop (held by a conn the user kept past
     // `~iou_basic_loop`), its destructor must not touch our `iou_ring` or our
     // dispatcher base, both of which are about to vanish.
-    timeouts_.clear();
+    timeout_sweeper_.clear();
     (void)completion_cb_pool_.shutdown();
     udp_buf_pool_->skip_unregister();
     tcp_provided_buf_pool_->skip_unregister();
@@ -441,6 +441,9 @@ public:
       return true;
     });
 
+    // Sweep expired timeouts.
+    timeout_sweeper_.tick(timeouts::now());
+
     (void)total;
     return dispatched;
   }
@@ -503,7 +506,7 @@ public:
 
   // Shared timeout sweeper. Conn classes (or any other client of the loop)
   // may register expirations with it.
-  [[nodiscard]] auto& timeouts() noexcept { return timeouts_; }
+  [[nodiscard]] auto& timeouts() noexcept { return timeout_sweeper_; }
 
 #pragma endregion
 #pragma region Completion tokens
@@ -1736,7 +1739,7 @@ private:
   completion_cb_pool_t completion_cb_pool_;
 
   // Shared timeout sweeper.
-  sweeper_t timeouts_;
+  sweeper_t timeout_sweeper_;
 
   // Stop system.
   std::atomic_bool stop_;

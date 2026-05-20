@@ -22,22 +22,24 @@
 #include "../meta/fixed_function.h"
 #include "relaxed_atomic.h"
 #include "timeout_sweeper.h"
-#include "timeout_sweeper_base.h"
+#include "timeouts.h"
 
 namespace corvid { inline namespace concurrency {
 
 #pragma region idle_timeout
 
-// Idle-timeout helper bound to the class that contains it and to a
-// `timeout_sweeper`. Packages the idle timeout for a particular type of
-// operation, such as reads or writes. Manages the configured/active duration,
-// current deadline, sweeper integration, and the three-state machine that
-// owners drive via `set_mode`.
+// Mechanism for implementing a idle timeout for a given operation, providing a
+// full state machine over the duration and callbacks. The use case is to set
+// an idle timeout and keep postponing it as more work is accomplished.
+//
+// Works with a sweeper implementation (such as `timeout_sweeper`). Manages the
+// configured/active duration, current deadline, sweeper integration, and the
+// three-state machine that owners drive via `set_mode`.
 //
 // Owner must inherit from `std::enable_shared_from_this`. The aliased
 // keepalive is built lazily on the first `set_mode` transition that requires
 // scheduling (`mode::stopped` -> `mode::running` or `mode::stopped` ->
-// `mode::paused`) -- by then the owner's `shared_ptr` is established and
+// `mode::paused`). By then the owner's `shared_ptr` is established and
 // `shared_from_this()` works. `idle_timeout` can therefore be a value member
 // of the owner and constructed in the owner's member-init list.
 //
@@ -46,7 +48,7 @@ namespace corvid { inline namespace concurrency {
 // put it another way, it is best to call these other methods from a single
 // thread.
 template<typename Owner, typename Sweeper = timeout_sweeper<>>
-class idle_timeout: public timeout_sweeper_base {
+class idle_timeout: public timeouts {
 #pragma region Types
 public:
   using owner_t = Owner;

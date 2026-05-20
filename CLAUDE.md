@@ -2,9 +2,11 @@
 
 Guidance for Claude Code working in this repository.
 
-Corvid is a header-only C++23 library (no deps beyond libc++). All headers live under `corvid/`.
+Corvid is a header-only C++23 library with minimal external dependencies, although it does bring some in for its network code (liburing, ngtcp2, nghttp3). All headers live under `corvid/`.
 
 ## General
+
+For comments and symbol names, prefer American English over British.
 
 If user intent is unclear, ask before proceeding.
 
@@ -52,7 +54,7 @@ MSAN extras:
 - Prefer uniform initialization: `int i{4};`, `: option_{option}`. Don't use `{}` for variables with a default constructor (clang-tidy flags it); do use it for `int`/`bool`/etc.
 - Use `std::chrono` literal suffixes (`1s`, `500ms`, `100us`) over explicit constructors. Library headers already pull in `using namespace std::chrono_literals;`; add it in test files as needed.
 - "Token" is reserved for things that are literally named tokens (e.g., `completion_token`). Don't use the word loosely in comments or docs to mean "handle," "callback," "view," "ticket," "marker," etc. For example, an `iou_recv_view` is not a token; a `posted_fn` returned by `stop_receiving` is a callback, not a token. Pick the precise word, or just describe what the thing is.
-- Lambda init-captures: keep the name the same as the bound variable. Prefer `[data = std::move(data)]` over `[d = std::move(data)]`, `[buf = std::move(buf)]` over `[b = std::move(buf)]`. The lambda body reads as if the variable kept its identity, which it morally did.
+- Lambda init-captures: keep the name the same as the bound variable. Prefer `[data = std::move(data)]` over `[d = std::move(data)]`. The lambda body reads as if the variable kept its identity, which it morally did.
 
 ## Git Workflow
 
@@ -68,7 +70,7 @@ Framework: Catch2 v3. Each test source includes `tests/catch2_main.h` (provides 
 
 ## TODO File
 
-Root `TODO` tracks enhancement requests and design decisions. Move enhancement-style TODO comments from code to here, rewriting positional references ("below", "above") to name the function or class.
+Root `TODO` tracks long-term enhancement requests and design decisions. Move enhancement-style TODO comments from code to here, rewriting positional references ("below", "above") to name the function or class.
 
 ## Reuse Library Utilities
 

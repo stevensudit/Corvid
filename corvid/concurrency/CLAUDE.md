@@ -43,8 +43,7 @@ The `concurrency` module provides thread-safety primitives.
   invocation. `schedule` is thread-safe and re-entrant from inside a
   callback; `tick` is intended to be called from a single driver thread.
   Callbacks fire outside the heap lock so other threads may `schedule`
-  concurrently. Common types and the `paused_expiration` sentinel live in
-  `timeout_sweeper_base`. Compared to `timing_wheel`, it trades O(1)
+  concurrently. Common types and the `paused_expiration` sentinel live in `timeouts`. Compared to `timing_wheel`, it trades O(1)
   schedule for unbounded delay range and per-entry rearm logic chosen by
   the callback; compared to `timers`, a much smaller API surface (just
   register, tick, return-value contract).

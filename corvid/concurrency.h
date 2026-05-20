@@ -30,7 +30,7 @@
 //                            attestation idiom
 //  timeout_sweeper         - heap of (`expiration`, `callback`) pairs swept
 //                            by an external driver
-//  timeout_sweeper_base    - common types/constants shared by
+//  timeouts                - common types/constants shared by
 //                            `timeout_sweeper` and its variants
 //  timer_fuse              - copyable liveness token for per-operation
 //                            timeouts on a `shared_ptr`-managed resource
@@ -45,7 +45,7 @@
 #include "concurrency/relaxed_atomic.h"
 #include "concurrency/sync_lock.h"
 #include "concurrency/timeout_sweeper.h"
-#include "concurrency/timeout_sweeper_base.h"
+#include "concurrency/timeouts.h"
 #include "concurrency/timer_fuse.h"
 #include "concurrency/timers.h"
 #include "concurrency/timing_wheel.h"

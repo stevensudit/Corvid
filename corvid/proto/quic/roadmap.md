@@ -25,6 +25,107 @@ existing `iou_dgram_router` / `iou_dgram_session` substrate in
   `iou_stream_conn`'s idle timeouts). Porting `iou_stream_conn`'s read/write
   idle timeouts to `iou_dgram_session` is a *possible* extra layer for
   non-QUIC datagram protocols, not assumed to be needed for QUIC itself.
+- **HTTP/3 layering: upper plugin owns nghttp3; `quic_conn` exposes a
+  virtual `quic_conn_handlers` base.** The `QuicPlugin` template parameter
+  on `quic_dgram_protocol` IS the adapter. It owns the `nghttp3_conn`
+  directly and inherits `quic_conn_handlers` to receive `quic_conn`'s typed
+  protocol-neutral upcalls. No extra adapter or handler class lives between
+  the upper plugin and nghttp3. `quic_conn` itself stays non-templated and
+  HTTP/3-unaware. Detailed below under [HTTP/3 layering](#http3-layering).
+
+## HTTP/3 layering
+
+The QUIC + HTTP/3 stack splits into three roles, with no extra adapter
+class between them:
+
+- **`quic_conn`** owns `ngtcp2_conn` / `SSL` / `ngtcp2_crypto_conn_ref`.
+  Knows ngtcp2 streams structurally (IDs, opening, flow control) but knows
+  nothing about HTTP/3 or nghttp3. Static ngtcp2 callback slots forward into
+  typed, protocol-neutral upcalls declared on an abstract base
+  `quic_conn_handlers`: `on_recv_stream_data`, `on_acked_stream_data_offset`,
+  `on_stream_close`, `on_recv_datagram`, and flow-control feedback.
+  `quic_conn` holds a `quic_conn_handlers*` set by the owning session after
+  the upper plugin is constructed. Primitives exposed to the plugin:
+  `read_pkt`, a stream-aware `writev_stream` over
+  `ngtcp2_conn_writev_stream`, and stream-open.
+- **`quic_dgram_protocol::session_plugin`** is the protocol-agnostic
+  carrier. Owns `quic_conn`, runs the per-turn cycle
+  (`read_pkt` -> upcalls fire into the plugin -> plugin's drain -> arm
+  expiry), handles CID registration, expiry, and lifetime. Delegates all
+  protocol-specific behavior to the upper plugin.
+- **Upper plugin (the `QuicPlugin` template parameter)** IS the adapter.
+  For HTTP/3 it owns the `nghttp3_conn` and inherits `quic_conn_handlers`.
+  Sees only `quic_conn`, not ngtcp2. Bridges `quic_conn`'s typed upcalls
+  into nghttp3's read/ack/block/unblock APIs. Owns ngtcp2 stream opening
+  through `quic_conn::open_bidi_stream` and pairs each new stream with
+  `nghttp3_conn_submit_request` on the client side. Drives the outbound
+  drain.
+- **Application handler** (above the upper plugin) is the HTTP/3 user.
+  Operates at the HTTP level: start request, submit response, "body is
+  available." Supplies body bytes through `nghttp3_data_reader::read_data`
+  (must retain bytes until ngtcp2 reports them acked; may return
+  `NGHTTP3_ERR_WOULDBLOCK` and later call `nghttp3_conn_resume_stream`).
+  Touches neither ngtcp2 nor `quic_conn`. nghttp3 -- not the handler --
+  chooses stream write order (control streams first, then HTTP priority).
+
+### Hard invariants
+
+- **No recursive writes from ngtcp2 callbacks.** ngtcp2 explicitly forbids
+  calling `ngtcp2_conn_writev_stream` from inside an ngtcp2 callback.
+  Inbound upcalls may only mark state and call nghttp3's non-write APIs
+  (`read_stream`, `add_ack_offset`, `block_stream`, `unblock_stream`,
+  `close_stream`). All packet emission happens in the loop-level drain that
+  runs after `read_pkt` returns.
+- **The wrapper is the channel.** Stream data and other higher-layer events
+  reach the upper plugin through `quic_conn`'s typed upcalls, not through
+  any side channel that bypasses it. `quic_conn` is the encapsulation seam;
+  routing data around it would defeat the wrapper's purpose.
+- **Buffer lifetime.** Bytes accepted by `ngtcp2_conn_writev_stream` must
+  remain valid until ngtcp2 reports them acknowledged via
+  `acked_stream_data_offset`. nghttp3 enforces the same contract on body
+  bytes supplied through `nghttp3_data_reader::read_data`.
+
+### Outbound drain loop
+
+`session_plugin` calls the upper plugin's drain each turn after `read_pkt`.
+The plugin's drain orchestrates the nghttp3 -> ngtcp2 hand-off:
+
+1. `nghttp3_conn_writev_stream` produces `(stream_id, vec, fin, count)`.
+   If nothing to send, returns 0 with `stream_id == -1`.
+2. `quic_conn::writev_stream(stream_id, vec, fin)` packs the bytes into a
+   QUIC packet via `ngtcp2_conn_writev_stream`. Passing `stream_id == -1`
+   still gives ngtcp2 a chance to emit ACKs, `MAX_DATA`, and other
+   non-stream frames.
+3. `nghttp3_conn_add_write_offset(stream_id, accepted)` reports back how
+   much ngtcp2 consumed (which may be less than offered, due to flow
+   control or packet sizing).
+4. Loop until both nghttp3 and ngtcp2 report nothing more to send.
+
+### Dispatch choice: virtual base, not template, not `std::function`
+
+`quic_conn` stays non-templated. The template-everywhere pattern elsewhere
+(`iou_dgram_router<RouterPlugin>`, `iou_dgram_session<SessionPlugin>`,
+`quic_dgram_protocol<QuicPlugin>::session_plugin`) saves an indirection
+because those classes own their plugin BY VALUE. `quic_conn` cannot: the
+upper plugin's constructor captures a ref to the session that *contains*
+`quic_conn`, so the plugin must live next to (not inside) `quic_conn` and
+be reached through a pointer. With one pointer chase mandatory either way,
+the template's directness advantage is forfeited. A virtual
+`quic_conn_handlers` base then wins on:
+
+- **Interface shape.** All upcalls declared together as a single role
+  contract.
+- **Implementation swappability.** `quic_no_op_plugin`, `quic_echo_plugin`,
+  and the future HTTP/3 plugin compose naturally as concrete subclasses.
+- **Single concrete `quic_conn`.** No per-plugin instantiation in a header
+  already heavy with ngtcp2 and OpenSSL transitively.
+
+`std::function` was considered and rejected. Per-call dispatch cost is
+roughly comparable to virtual (both terminate in an indirect call after a
+couple of memory hops), but `std::function` loses the role grouping
+(each callback assigned independently), introduces implicit allocation
+considerations, and complicates the "this object holds the nghttp3 state
+adjacent to its callbacks" property.
 
 ## Prerequisites
 
@@ -120,25 +221,43 @@ needs it, or if we want a watchdog beneath ngtcp2's own timers.
   drives a full in-process handshake by ferrying datagrams between a
   client and server conn until both report `is_handshake_completed()`;
   convergence is two round-trips on the happy path.
-- **[planned] Wire `quic_conn` into `quic_dgram_protocol::session_plugin`.**
-  Replace the stub session plugin's no-op recv/sent handlers with calls
-  into `quic_conn::read_pkt` / `write_pkt`, arm the expiry timer through
-  `iou_loop::timeouts()`, and register additional SCIDs from
-  `get_new_connection_id2` / retire on `remove_connection_id`.
-- **[planned] QUIC echo server.** First end-to-end milestone. A session
-  plugin that opens a bidirectional stream on handshake completion and echoes
-  application bytes. Validates handshake, packet send/recv pacing, ACK
-  handling, key updates, and graceful close. Likely tested against the
-  `ngtcp2` reference client.
+- **[done, server-side I/O + expiry] Wire `quic_conn` into
+  `quic_dgram_protocol::session_plugin`.** `quic_dgram_protocol` is now a
+  template parameterized on a `quic_plugin` upper layer (default
+  `quic_no_op_plugin`; `quic_echo_plugin` follows in the next milestone,
+  `http3_plugin` later). The `session_plugin` owns a server-role
+  `quic_conn`, drives `read_pkt` / `write_pkt` per datagram, and arms a
+  single rearmable expiry-sweeper entry against `iou_loop::timeouts()`.
+  `iou_basic_loop::run_once` now ticks `timeouts_` at the end of each
+  batch, which was a pre-existing gap that blocked the expiry plumbing.
+  Sessions register under both the client's original DCID and the
+  server's freshly-generated primary SCID; additional SCIDs issued
+  through `get_new_connection_id2` are deferred to the CID-rotation
+  milestone, along with client-mode router/session support. Tested by
+  `quic_dgram_router_test`'s "drives a server-side TLS 1.3 handshake
+  through the live iou_dgram_router" case, which handshakes a manually
+  driven client through the live router.
+- **[planned] QUIC echo server.** First end-to-end milestone. Lands the
+  `quic_conn_handlers` abstract base and grows the `quic_plugin` concept
+  from a single `on_packet_receive` tick into the full upcall contract
+  (`on_recv_stream_data`, `on_acked_stream_data_offset`, `on_stream_close`,
+  `on_recv_datagram`, flow-control feedback, plus a per-turn `drain`).
+  `quic_echo_plugin` is the first concrete handler: opens a bidirectional
+  stream on handshake completion and echoes application bytes back.
+  Validates handshake, packet send/recv pacing, ACK handling, key updates,
+  and graceful close. Likely tested against the `ngtcp2` reference client.
 - **[planned] Connection ID rotation, path validation, migration.** Extends
   the session plugin to handle NEW_CONNECTION_ID / RETIRE_CONNECTION_ID
   exchanges, address validation tokens, and 4-tuple migration. Exercises the
   router's add/remove_session under load.
 - **[planned] nghttp3 build integration + wrapping.** Bring in nghttp3 via
   FetchContent (with the `check`-target collision patched, likely via a
-  `PATCH_COMMAND` that renames it to `nghttp3_check`). `http3_conn`
-  analogous to `quic_conn`: static trampolines, RAII handle, error
-  translation. QPACK encoder/decoder context owned alongside.
+  `PATCH_COMMAND` that renames it to `nghttp3_check`). RAII wrap of
+  `nghttp3_conn` (custom-deleter `unique_ptr`, `[[nodiscard]] bool` error
+  translation, QPACK encoder/decoder context owned alongside) shaped like
+  `quic_conn`, but owned BY the HTTP/3 upper plugin -- not a separate
+  adapter class between the plugin and nghttp3 (the upper plugin IS the
+  adapter; see [HTTP/3 layering](#http3-layering)).
 - **[planned] HTTP/3 server echo.** First HTTP/3 milestone. Decodes request
   HEADERS, emits response HEADERS + DATA. Verifies stream multiplexing,
   flow control, and HEADERS encoding round-trip. Tested against `curl

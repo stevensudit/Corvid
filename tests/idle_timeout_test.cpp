@@ -26,12 +26,12 @@ using namespace std::chrono_literals;
 using namespace corvid::concurrency;
 
 using sweeper = timeout_sweeper<>;
-using tp = timeout_sweeper_base::time_point_t;
-using dur = timeout_sweeper_base::duration_t;
-using mode = timeout_sweeper_base::mode;
+using tp = timeouts::time_point_t;
+using dur = timeouts::duration_t;
+using mode = timeouts::mode;
 
 // Construct a deterministic `time_point` at `ms` milliseconds past the
-// steady-clock epoch. Tests drive the clock by writing to `test_owner::now`
+// steady-clock epoch. Tests drive the clock by writing to `timeouts::fake_now`
 // and by passing the desired `now` to `sweeper::tick` directly.
 static tp T(int ms) { return tp{} + std::chrono::milliseconds{ms}; }
 
@@ -39,16 +39,11 @@ static tp T(int ms) { return tp{} + std::chrono::milliseconds{ms}; }
 
 namespace {
 
-// Minimal owner: holds one `idle_timeout`, exposes a fake clock that tests
-// advance manually, and records every invocation of the cancel action.
-//
-// `now` is a `static inline` so the test fake-clock function can be a
-// non-capturing lambda (convertible to the raw function pointer that
-// `set_now_fn` takes). The tests stay single-owner; if we ever wanted
-// concurrent fixtures we'd need a different strategy.
+// Minimal owner: holds one `idle_timeout` and records every invocation of the
+// cancel action. Tests drive the clock through the inherited `timeouts`
+// machinery: `set_now_fn()` (with no argument) installs `fake_now_cb`, so
+// `now()` reads `timeouts::fake_now`.
 struct test_owner: std::enable_shared_from_this<test_owner> {
-  // NOLINTNEXTLINE(bugprone-throwing-static-initialization)
-  static inline tp now{};
   int idle_count{0};
   idle_timeout<test_owner> idle;
 
@@ -57,11 +52,10 @@ struct test_owner: std::enable_shared_from_this<test_owner> {
                ++idle_count;
              }},
             configured} {
-    // Reset between tests so each fixture starts with `now == T(0)`.
-    now = tp{};
-    // Replace the default clock function with one that reads our fake.
-    // Non-capturing + noexcept -> convertible to the raw function pointer.
-    idle.set_now_fn([]() noexcept { return now; });
+    // Reset between tests so each fixture starts with `fake_now == T(0)`,
+    // and install the fake clock for this process.
+    timeouts::fake_now = tp{};
+    timeouts::set_now_fn();
   }
 };
 
@@ -112,7 +106,7 @@ TEST_CASE("StoppedToActive", "[IdleTimeout]") {
   // and schedules a fresh sweeper entry.
   sweeper sw;
   auto o = make_owner(sw, 100ms);
-  o->now = T(50);
+  timeouts::fake_now = T(50);
   CHECK(o->idle.set_mode(mode::running));
   CHECK((static_cast<int>(o->idle.get_mode())) ==
         (static_cast<int>(mode::running)));
@@ -130,17 +124,17 @@ TEST_CASE("ActiveFiresOnIdle", "[IdleTimeout]") {
   // callback invokes the cancel action exactly once, sweeper entry drops.
   sweeper sw;
   auto o = make_owner(sw, 100ms);
-  o->now = T(0);
+  timeouts::fake_now = T(0);
   CHECK(o->idle.set_mode(mode::running));
 
   // Not yet expired.
-  o->now = T(99);
+  timeouts::fake_now = T(99);
   sw.tick(T(99));
   CHECK(o->idle_count == 0);
   CHECK(sw.size() == 1U);
 
   // Expired.
-  o->now = T(100);
+  timeouts::fake_now = T(100);
   sw.tick(T(100));
   CHECK(o->idle_count == 1);
   CHECK(sw.empty());
@@ -157,25 +151,25 @@ TEST_CASE("RestartPushesDeadline", "[IdleTimeout]") {
   // the idle action.
   sweeper sw;
   auto o = make_owner(sw, 100ms);
-  o->now = T(0);
+  timeouts::fake_now = T(0);
   CHECK(o->idle.set_mode(mode::running));
   // Initially registered at T(100).
 
   // Activity at T(50): push deadline to T(150).
-  o->now = T(50);
+  timeouts::fake_now = T(50);
   o->idle.postpone();
   CHECK((o->idle.deadline().time_since_epoch().count()) ==
         (T(150).time_since_epoch().count()));
 
   // Tick at T(100): the registered entry fires, but current != registered,
   // so it rearms to T(150) without firing the idle action.
-  o->now = T(100);
+  timeouts::fake_now = T(100);
   sw.tick(T(100));
   CHECK(o->idle_count == 0);
   CHECK(sw.size() == 1U);
 
   // Tick at T(150): registered entry now matches; idle action fires once.
-  o->now = T(150);
+  timeouts::fake_now = T(150);
   sw.tick(T(150));
   CHECK(o->idle_count == 1);
   CHECK(sw.empty());
@@ -191,7 +185,7 @@ TEST_CASE("RestartFromStoppedIsRecoverable", "[IdleTimeout]") {
   // satisfied because `deadline_ == T0 <= now`.
   sweeper sw;
   auto o = make_owner(sw, 100ms);
-  o->now = T(42);
+  timeouts::fake_now = T(42);
   o->idle.postpone();
   CHECK((o->idle.deadline().time_since_epoch().count()) ==
         (tp{}.time_since_epoch().count()));
@@ -214,17 +208,17 @@ TEST_CASE("PostponeIsNoOpOutsideRunning", "[IdleTimeout]") {
 
   // Paused: postpone must not disturb the sentinel, must not break the
   // clip cycle, and must leave the mode as Paused.
-  o->now = T(0);
+  timeouts::fake_now = T(0);
   CHECK(o->idle.set_mode(mode::paused));
-  o->now = T(50);
+  timeouts::fake_now = T(50);
   o->idle.postpone();
   CHECK((o->idle.deadline().time_since_epoch().count()) ==
-        (timeout_sweeper_base::paused_expiration.time_since_epoch().count()));
+        (timeouts::paused_expiration.time_since_epoch().count()));
   CHECK((static_cast<int>(o->idle.get_mode())) ==
         (static_cast<int>(mode::paused)));
 
   // Bootstrap entry at T(100) still clips back to now + configured.
-  o->now = T(100);
+  timeouts::fake_now = T(100);
   sw.tick(T(100));
   CHECK(o->idle_count == 0);
   CHECK(sw.size() == 1U);
@@ -248,12 +242,12 @@ TEST_CASE("StoppedToPausedBootstrap", "[IdleTimeout]") {
   // deadline at the sentinel.
   sweeper sw;
   auto o = make_owner(sw, 100ms);
-  o->now = T(0);
+  timeouts::fake_now = T(0);
   CHECK(o->idle.set_mode(mode::paused));
   CHECK((static_cast<int>(o->idle.get_mode())) ==
         (static_cast<int>(mode::paused)));
   CHECK((o->idle.deadline().time_since_epoch().count()) ==
-        (timeout_sweeper_base::paused_expiration.time_since_epoch().count()));
+        (timeouts::paused_expiration.time_since_epoch().count()));
   CHECK(sw.size() == 1U);
 }
 
@@ -265,12 +259,12 @@ TEST_CASE("PausedClipsAndStays", "[IdleTimeout]") {
   // clips back to now + configured, staying in Paused.
   sweeper sw;
   auto o = make_owner(sw, 100ms);
-  o->now = T(0);
+  timeouts::fake_now = T(0);
   CHECK(o->idle.set_mode(mode::paused));
 
   // First sweep at T(100) hits the bootstrap entry. Callback sees the
   // sentinel and reschedules at now+100 = T(200). No idle fire.
-  o->now = T(100);
+  timeouts::fake_now = T(100);
   sw.tick(T(100));
   CHECK(o->idle_count == 0);
   CHECK(sw.size() == 1U);
@@ -278,7 +272,7 @@ TEST_CASE("PausedClipsAndStays", "[IdleTimeout]") {
         (static_cast<int>(mode::paused)));
 
   // Second sweep at T(200). Same thing.
-  o->now = T(200);
+  timeouts::fake_now = T(200);
   sw.tick(T(200));
   CHECK(o->idle_count == 0);
   CHECK(sw.size() == 1U);
@@ -292,11 +286,11 @@ TEST_CASE("PausedToActive", "[IdleTimeout]") {
   // new schedule is needed (the existing entry adapts on its next fire).
   sweeper sw;
   auto o = make_owner(sw, 100ms);
-  o->now = T(0);
+  timeouts::fake_now = T(0);
   CHECK(o->idle.set_mode(mode::paused));
   CHECK(sw.size() == 1U);
 
-  o->now = T(50);
+  timeouts::fake_now = T(50);
   CHECK(o->idle.set_mode(mode::running));
   CHECK((o->idle.deadline().time_since_epoch().count()) ==
         (T(150).time_since_epoch().count()));
@@ -305,13 +299,13 @@ TEST_CASE("PausedToActive", "[IdleTimeout]") {
 
   // The original bootstrap entry was at T(100). It fires there, sees
   // current=T(150) != registered, rearms to T(150).
-  o->now = T(100);
+  timeouts::fake_now = T(100);
   sw.tick(T(100));
   CHECK(o->idle_count == 0);
   CHECK(sw.size() == 1U);
 
   // Tick at T(150): idle action fires.
-  o->now = T(150);
+  timeouts::fake_now = T(150);
   sw.tick(T(150));
   CHECK(o->idle_count == 1);
 }
@@ -324,11 +318,11 @@ TEST_CASE("ActiveToStoppedDropsEntry", "[IdleTimeout]") {
   // entry fires at the originally-registered time, sees T0, drops.
   sweeper sw;
   auto o = make_owner(sw, 100ms);
-  o->now = T(0);
+  timeouts::fake_now = T(0);
   CHECK(o->idle.set_mode(mode::running));
   CHECK(sw.size() == 1U);
 
-  o->now = T(50);
+  timeouts::fake_now = T(50);
   CHECK(o->idle.set_mode(mode::stopped));
   CHECK((static_cast<int>(o->idle.get_mode())) ==
         (static_cast<int>(mode::stopped)));
@@ -336,7 +330,7 @@ TEST_CASE("ActiveToStoppedDropsEntry", "[IdleTimeout]") {
   // Sweeper still has the original entry; it'll drop on next fire.
   CHECK(sw.size() == 1U);
 
-  o->now = T(100);
+  timeouts::fake_now = T(100);
   sw.tick(T(100));
   CHECK(o->idle_count == 0);
   CHECK(sw.empty());
@@ -355,7 +349,7 @@ TEST_CASE("ConfigureSyncsActiveOnlyWhenActive", "[IdleTimeout]") {
   CHECK(o->idle.active_timeout() == dur{});
 
   // Activate: active picks up the configured value (200ms).
-  o->now = T(0);
+  timeouts::fake_now = T(0);
   CHECK(o->idle.set_mode(mode::running));
   CHECK(o->idle.active_timeout() == dur{200ms});
 
@@ -393,7 +387,7 @@ TEST_CASE("OwnerDeathDropsCallback", "[IdleTimeout]") {
   int fired_before_dtor = 0;
   {
     auto o = make_owner(sw, 100ms);
-    o->now = T(0);
+    timeouts::fake_now = T(0);
     CHECK(o->idle.set_mode(mode::running));
     fired_before_dtor = o->idle_count;
     CHECK(sw.size() == 1U);
@@ -413,7 +407,7 @@ TEST_CASE("NowFnInjection", "[IdleTimeout]") {
   // calls -- different `set_now_fn` should produce a different deadline.
   sweeper sw;
   auto o = make_owner(sw, 100ms);
-  o->now = T(12345);
+  timeouts::fake_now = T(12345);
   CHECK(o->idle.set_mode(mode::running));
   CHECK((o->idle.deadline().time_since_epoch().count()) ==
         (T(12445).time_since_epoch().count()));
@@ -427,7 +421,7 @@ TEST_CASE("ExpireIsIdempotent", "[IdleTimeout]") {
   // it to fire again. Both calls are also no-ops if no rearm is pending.
   sweeper sw;
   auto o = make_owner(sw, 100ms);
-  o->now = T(0);
+  timeouts::fake_now = T(0);
   CHECK(o->idle.set_mode(mode::running));
 
   o->idle.expire();
@@ -462,10 +456,10 @@ TEST_CASE("SweepAndExpireFireOnce", "[IdleTimeout]") {
   // slot, so a manual call after the sweep is a no-op.
   sweeper sw;
   auto o = make_owner(sw, 100ms);
-  o->now = T(0);
+  timeouts::fake_now = T(0);
   CHECK(o->idle.set_mode(mode::running));
 
-  o->now = T(100);
+  timeouts::fake_now = T(100);
   sw.tick(T(100));
   CHECK(o->idle_count == 1);
 
@@ -477,13 +471,13 @@ TEST_CASE("SweepAndExpireFireOnce", "[IdleTimeout]") {
   CHECK(o->idle.set_mode(mode::stopped));
   o->idle.reset_expiration();
   CHECK(o->idle.set_mode(mode::running));
-  o->now = T(200);
+  timeouts::fake_now = T(200);
   o->idle.expire();
   CHECK(o->idle_count == 2);
 
   // The lingering sweeper entry from set_mode(mode::running) drops cleanly
   // on its next fire without invoking the cancel action again.
-  o->now = T(300);
+  timeouts::fake_now = T(300);
   sw.tick(T(300));
   CHECK(o->idle_count == 2);
   CHECK(sw.empty());

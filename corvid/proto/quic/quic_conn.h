@@ -30,7 +30,7 @@
 
 #include "../net_endpoint.h"
 #include "../../enums/bool_enums.h"
-#include "../../concurrency/timeout_sweeper_base.h"
+#include "../../concurrency/timeouts.h"
 
 #include "quic_header.h"
 #include "quic_ssl_ctx.h"
@@ -76,7 +76,7 @@ struct quic_write_result {
 class quic_conn {
 public:
   using key_t = quic_cid;
-  using time_point_t = timeout_sweeper_base::time_point_t;
+  using time_point_t = timeouts::time_point_t;
 
 #pragma region Construction
 
@@ -164,7 +164,7 @@ private:
     // 4. Build ngtcp2 settings + transport params + path.
     ngtcp2_settings settings;
     ngtcp2_settings_default(&settings);
-    settings.initial_ts = timeout_sweeper_base::as_nanoseconds(now);
+    settings.initial_ts = timeouts::as_nanoseconds(now);
 
     ngtcp2_transport_params params;
     ngtcp2_transport_params_default(&params);
@@ -235,7 +235,7 @@ public:
       std::span<const uint8_t> pkt, time_point_t now) noexcept {
     if (!conn_) return quic_decode_status::invalid_state;
     const int rv = ngtcp2_conn_read_pkt(conn_.get(), &path, nullptr,
-        pkt.data(), pkt.size(), timeout_sweeper_base::as_nanoseconds(now));
+        pkt.data(), pkt.size(), timeouts::as_nanoseconds(now));
     return static_cast<quic_decode_status>(rv);
   }
 
@@ -247,8 +247,7 @@ public:
       std::span<uint8_t> dest, time_point_t now) noexcept {
     if (!conn_) return {0, quic_decode_status::invalid_state};
     const ngtcp2_ssize rv = ngtcp2_conn_write_pkt(conn_.get(), &path_out,
-        nullptr, dest.data(), dest.size(),
-        timeout_sweeper_base::as_nanoseconds(now));
+        nullptr, dest.data(), dest.size(), timeouts::as_nanoseconds(now));
     if (rv < 0) return {0, static_cast<quic_decode_status>(rv)};
     return {static_cast<size_t>(rv), quic_decode_status::ok};
   }
@@ -262,14 +261,14 @@ public:
   // it fires.
   [[nodiscard]] time_point_t expiry() const noexcept {
     if (!conn_) return time_point_t::max();
-    return timeout_sweeper_base::from_nanoseconds(
-        ngtcp2_conn_get_expiry(conn_.get()));
+
+    return timeouts::from_nanoseconds(ngtcp2_conn_get_expiry(conn_.get()));
   }
 
   [[nodiscard]] quic_decode_status handle_expiry(time_point_t now) noexcept {
     if (!conn_) return quic_decode_status::invalid_state;
-    return static_cast<quic_decode_status>(ngtcp2_conn_handle_expiry(
-        conn_.get(), timeout_sweeper_base::as_nanoseconds(now)));
+    return static_cast<quic_decode_status>(
+        ngtcp2_conn_handle_expiry(conn_.get(), timeouts::as_nanoseconds(now)));
   }
 
 #pragma endregion
