@@ -24,6 +24,7 @@
 #include "../corvid/proto/quic/quic_conn.h"
 #include "../corvid/proto/quic/quic_self_signed_cert.h"
 #include "../corvid/proto/quic/quic_ssl_ctx.h"
+#include "../corvid/strings/enum_conversion.h"
 #include "catch2_main.h"
 
 using namespace corvid;
@@ -213,4 +214,40 @@ TEST_CASE("quic_conn handshake completes in-process", "[quic][conn]") {
   CHECK(client.is_handshake_completed());
   CHECK(server.is_handshake_completed());
 }
+#pragma region CloseKindString
+TEST_CASE("CloseKindString", "[quic]") {
+  // Each named value round-trips through `enum_as_string` / `parse_enum`.
+  // Values are the on-wire CONNECTION_CLOSE frame type codes (0x1c, 0x1d).
+  using namespace corvid::strings;
+  using F = quic_close_kind;
+  if (true) {
+    CHECK(enum_as_string(F::transport) == "transport");
+    CHECK(enum_as_string(F::application) == "application");
+  }
+  if (true) {
+    constexpr F bad{0xff};
+    CHECK(parse_enum("transport", bad) == F::transport);
+    CHECK(parse_enum("application", bad) == F::application);
+  }
+}
+#pragma endregion
+
+#pragma region CbResultKindString
+TEST_CASE("CbResultKindString", "[quic]") {
+  // Each named value round-trips through `enum_as_string` / `parse_enum`.
+  using namespace corvid::strings;
+  using F = quic_cb_result::kind;
+  if (true) {
+    CHECK(enum_as_string(F::ok) == "ok");
+    CHECK(enum_as_string(F::callback_failure) == "callback_failure");
+    CHECK(enum_as_string(F::close_connection) == "close_connection");
+  }
+  if (true) {
+    constexpr F bad{0xff};
+    CHECK(parse_enum("ok", bad) == F::ok);
+    CHECK(parse_enum("callback_failure", bad) == F::callback_failure);
+    CHECK(parse_enum("close_connection", bad) == F::close_connection);
+  }
+}
+#pragma endregion
 // NOLINTEND(readability-function-cognitive-complexity)

@@ -21,6 +21,7 @@
 #include <functional>
 
 #include "../corvid/proto/quic/quic_header.h"
+#include "../corvid/strings/enum_conversion.h"
 #include "catch2_main.h"
 
 namespace quic = corvid::proto::quic;
@@ -79,4 +80,90 @@ TEST_CASE("quic_connection_id basics", "[quic]") {
         bytes));
   }
 }
+
+#pragma region StreamIdString
+TEST_CASE("StreamIdString", "[quic]") {
+  // Each named bit round-trips through `enum_as_string` / `parse_enum`.
+  using namespace corvid;
+  using namespace corvid::strings;
+  using F = quic::quic_stream_id;
+  if (true) {
+    CHECK(enum_as_string(F::server_initiated) == "server_initiated");
+    CHECK(enum_as_string(F::unidirectional) == "unidirectional");
+  }
+  if (true) {
+    // Higher bits print first.
+    CHECK(enum_as_string(F::unidirectional | F::server_initiated) ==
+          "unidirectional + server_initiated");
+  }
+  if (true) {
+    constexpr F bad{0xff};
+    CHECK(parse_enum("server_initiated", bad) == F::server_initiated);
+    CHECK(parse_enum("unidirectional", bad) == F::unidirectional);
+    CHECK(parse_enum("unidirectional + server_initiated", bad) ==
+          (F::unidirectional | F::server_initiated));
+  }
+}
+#pragma endregion
+
+#pragma region StreamSideString
+TEST_CASE("StreamSideString", "[quic]") {
+  // Each named bit round-trips through `enum_as_string` / `parse_enum`.
+  using namespace corvid;
+  using namespace corvid::strings;
+  using F = quic::quic_stream_side;
+  if (true) {
+    CHECK(enum_as_string(F::read) == "read");
+    CHECK(enum_as_string(F::write) == "write");
+  }
+  if (true) {
+    // Higher bits print first.
+    CHECK(enum_as_string(F::both) == "write + read");
+  }
+  if (true) {
+    constexpr F bad{0xff};
+    CHECK(parse_enum("read", bad) == F::read);
+    CHECK(parse_enum("write", bad) == F::write);
+    CHECK(parse_enum("write + read", bad) == F::both);
+  }
+}
+#pragma endregion
+
+#pragma region StreamDataFlagsString
+TEST_CASE("StreamDataFlagsString", "[quic]") {
+  // Each named bit round-trips through `enum_as_string` / `parse_enum`.
+  using namespace corvid;
+  using namespace corvid::strings;
+  using F = quic::quic_stream_data_flags;
+  if (true) {
+    CHECK(enum_as_string(F::fin) == "fin");
+    CHECK(enum_as_string(F::zero_rtt) == "zero_rtt");
+  }
+  if (true) {
+    // Higher bits print first.
+    CHECK(enum_as_string(F::zero_rtt | F::fin) == "zero_rtt + fin");
+  }
+  if (true) {
+    constexpr F bad{0xff};
+    CHECK(parse_enum("fin", bad) == F::fin);
+    CHECK(parse_enum("zero_rtt", bad) == F::zero_rtt);
+    CHECK(parse_enum("zero_rtt + fin", bad) == (F::zero_rtt | F::fin));
+  }
+}
+#pragma endregion
+
+#pragma region DatagramFlagsString
+TEST_CASE("DatagramFlagsString", "[quic]") {
+  // Single named bit round-trips through `enum_as_string` / `parse_enum`.
+  using namespace corvid;
+  using namespace corvid::strings;
+  using F = quic::quic_datagram_flags;
+  if (true) { CHECK(enum_as_string(F::zero_rtt) == "zero_rtt"); }
+  if (true) {
+    constexpr F bad{0xff};
+    CHECK(parse_enum("zero_rtt", bad) == F::zero_rtt);
+  }
+}
+#pragma endregion
+
 // NOLINTEND(readability-function-cognitive-complexity)

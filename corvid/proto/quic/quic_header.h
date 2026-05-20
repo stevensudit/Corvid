@@ -26,6 +26,7 @@
 
 #include <ngtcp2/ngtcp2.h>
 
+#include "../../enums/bitmask_enum.h"
 #include "../../enums/sequence_enum.h"
 
 // C++ wrappers over the slice of ngtcp2's C API used to recover the
@@ -254,3 +255,92 @@ struct std::hash<corvid::proto::quic::quic_cid> {
         {reinterpret_cast<const char*>(bytes.data()), bytes.size()});
   }
 };
+
+namespace corvid { inline namespace proto { namespace quic {
+
+#pragma region quic_stream_id
+
+// QUIC stream identifier. Bit 0 encodes initiator (0 = client,
+// 1 = server) and bit 1 encodes direction (0 = bidirectional, 1 =
+// unidirectional) per RFC 9000 sec. 2.1; bits above 1 are the stream
+// sequence number, which the bitmask machinery carries as a residual
+// (printed in hex if the value is stringified). `none` (`-1`) is the
+// ngtcp2 sentinel used by `writev_stream` when only ACKs or other
+// non-stream frames should be emitted.
+enum class quic_stream_id : uint64_t {
+  none = static_cast<uint64_t>(-1),
+  server_initiated = 0x1,
+  unidirectional = 0x2,
+  sequence_mask = ~static_cast<uint64_t>(0x3)
+};
+
+#pragma endregion
+#pragma region quic_stream_side
+
+// Half of a QUIC stream to act on. The two halves are read and write
+// (the local-vs-remote send directions of the same stream), distinct
+// from the bidirectional / unidirectional distinction encoded in a
+// `quic_stream_id`'s low bits. `both` is the union, used when an
+// abort should tear down both halves at once.
+enum class quic_stream_side : uint8_t {
+  none = 0x0,
+  read = 0x1,
+  write = 0x2,
+  both = read | write,
+};
+
+#pragma endregion
+#pragma region quic_stream_data_flags
+
+// Flags accompanying a `recv_stream_data` upcall, mirroring
+// `NGTCP2_STREAM_DATA_FLAG_*`. `fin` marks the last bytes the peer
+// will ever send on this stream; `zero_rtt` indicates the data
+// arrived in a 0-RTT packet (and is therefore replayable; treat
+// with the usual 0-RTT caution).
+// NOLINTNEXTLINE(performance-enum-size)
+enum class quic_stream_data_flags : uint32_t {
+  none = 0x0,
+  fin = NGTCP2_STREAM_DATA_FLAG_FIN,      // 0x1
+  zero_rtt = NGTCP2_STREAM_DATA_FLAG_0RTT // 0x2
+};
+
+#pragma endregion
+#pragma region quic_datagram_flags
+
+// Flags accompanying a `recv_datagram` upcall, mirroring
+// `NGTCP2_DATAGRAM_FLAG_*`. `zero_rtt` indicates the DATAGRAM rode
+// in a 0-RTT packet.
+// NOLINTNEXTLINE(performance-enum-size)
+enum class quic_datagram_flags : uint32_t {
+  none = 0x0,
+  zero_rtt = NGTCP2_DATAGRAM_FLAG_0RTT // 0x1
+};
+
+#pragma endregion
+
+}}} // namespace corvid::proto::quic
+
+template<>
+constexpr inline auto
+    corvid::enums::registry::enum_spec_v<corvid::proto::quic::quic_stream_id> =
+        corvid::enums::bitmask::make_bitmask_enum_spec<
+            corvid::proto::quic::quic_stream_id,
+            "unidirectional, server_initiated">();
+
+template<>
+constexpr inline auto corvid::enums::registry::enum_spec_v<
+    corvid::proto::quic::quic_stream_side> =
+    corvid::enums::bitmask::make_bitmask_enum_spec<
+        corvid::proto::quic::quic_stream_side, "write, read">();
+
+template<>
+constexpr inline auto corvid::enums::registry::enum_spec_v<
+    corvid::proto::quic::quic_stream_data_flags> =
+    corvid::enums::bitmask::make_bitmask_enum_spec<
+        corvid::proto::quic::quic_stream_data_flags, "zero_rtt, fin">();
+
+template<>
+constexpr inline auto corvid::enums::registry::enum_spec_v<
+    corvid::proto::quic::quic_datagram_flags> =
+    corvid::enums::bitmask::make_bitmask_enum_spec<
+        corvid::proto::quic::quic_datagram_flags, "zero_rtt">();

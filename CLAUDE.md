@@ -38,10 +38,7 @@ CMakeLists.txt lives in `tests/` only; there is none at the project root. Build 
 
 Sanitizer modes accept the same `[testname.cpp]` and `libstdcpp|libcxx` arguments as the plain build. `asan`/`tsan`/`msan` are mutually exclusive (each instruments a conflicting runtime); run them separately. Sanitizer sweeps continue past test failures so all issues surface in one run; plain runs still bail on the first failure.
 
-MSAN extras:
-- One-time setup: run `scripts/build_msan_libcxx.sh` to build an MSAN-instrumented libc++/libc++abi/libunwind into `tests/.local/llvm-msan/` (~10 minutes, since `libc++` writes through pointers MSAN observes and an uninstrumented stdlib would flood with false positives). libunwind is intentionally built *without* MSAN (`-fno-sanitize=memory`), otherwise MSAN's report path recurses through its own instrumented unwinder and silently overflows the stack. The build script patches libunwind's `CMakeLists.txt` to apply that flag PRIVATE rather than PUBLIC; without the patch the flag transitively leaks into libcxx via target_compile_options and silently disables MSAN there, surfacing as apparent "libc++ I/O false positives" in essentially every test.
-- `scripts/msan-libcxx-ignorelist.txt` is passed to both the libc++ rebuild and the project build via `-fsanitize-ignorelist`. It is currently empty; the plumbing is kept as scaffolding so future libc++ versions that introduce real shadow gaps can be suppressed surgically. The ignorelist disables both checks AND shadow tracking in matched functions, so any entries must be as narrow as possible.
-- `iou_*` tests are excluded from the MSAN build (kernel writes to user buffers via io_uring aren't visible to MSAN). Adding `__msan_unpoison_*` to the io_uring buffer plumbing is pending phase-2 work.
+MSAN requires a one-time setup: run `scripts/build_msan_libcxx.sh` before `./cleanbuild.sh msan`.
 
 ## Code Style
 
@@ -55,11 +52,14 @@ MSAN extras:
 - Use `std::chrono` literal suffixes (`1s`, `500ms`, `100us`) over explicit constructors. Library headers already pull in `using namespace std::chrono_literals;`; add it in test files as needed.
 - "Token" is reserved for things that are literally named tokens (e.g., `completion_token`). Don't use the word loosely in comments or docs to mean "handle," "callback," "view," "ticket," "marker," etc. For example, an `iou_recv_view` is not a token; a `posted_fn` returned by `stop_receiving` is a callback, not a token. Pick the precise word, or just describe what the thing is.
 - Lambda init-captures: keep the name the same as the bound variable. Prefer `[data = std::move(data)]` over `[d = std::move(data)]`. The lambda body reads as if the variable kept its identity, which it morally did.
+- Wrap declarations in `#pragma region <name>` / `#pragma endregion` blocks. Two levels:
+  - **File scope** (inside the namespace): each top-level declaration (class, struct, enum, related free-function group) gets its own region named after the symbol, e.g. `#pragma region quic_conn`.
+  - **Class scope**: group logically related members under nested regions, e.g. `Construction`, `Accessors`, `IO`, `Expiry`, `Handlers`, `Helpers`, `Data members`, or domain-specific names (`Stream lifecycle`, `Flow control feedback`). Don't use plain `// section` header comments for this; promote them to regions.
+  - Pragmas live at column 0 regardless of nesting (clang-format will not indent them). The closing `#pragma endregion` is followed immediately by the next `#pragma region <name>` on the next line (no blank line between the two pragmas, blank line after the opener).
 
 ## Git Workflow
 
 - Use `git add .` when committing (to include user-made changes).
-- Use `git switch`, not `git checkout`.
 - PRs are squash-merged; respond to review with new commits, not amends.
 - PR descriptions: verify every claim against the code. Don't rely on general knowledge about patterns or algorithms (e.g., the "timing wheel" here is single-level, not hierarchical).
 - When pushing a branch as a new PR, review all changes first and flag bugs, doc errors, or style violations before writing the description.

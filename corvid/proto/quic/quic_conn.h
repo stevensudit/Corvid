@@ -19,6 +19,7 @@
 #include <cstdint>
 #include <cstring>
 #include <memory>
+#include <optional>
 #include <span>
 #include <utility>
 
@@ -68,6 +69,293 @@ struct quic_write_result {
     return status == quic_decode_status::ok;
   }
   [[nodiscard]] explicit operator bool() const noexcept { return ok(); }
+};
+
+#pragma endregion
+#pragma region quic_close_request
+
+// Which CONNECTION_CLOSE frame variant ngtcp2 should emit.
+//   transport   -- CONNECTION_CLOSE of type 0x1c (RFC 9000 sec. 19.19).
+//                  `error_code` is from the QUIC transport error space
+//                  (`NGTCP2_*` constants, e.g., `NGTCP2_NO_ERROR`).
+//   application -- CONNECTION_CLOSE of type 0x1d. `error_code` is defined by
+//                  the application protocol (e.g., the `H3_*` constants from
+//                  RFC 9114 sec. 8.1).
+enum class quic_close_kind : uint8_t {
+  transport = 0x1c,
+  application = 0x1d,
+};
+
+// A pending request to close the connection, carrying the variant, error code,
+// and optional UTF-8 reason phrase. Built by `quic_cb_result::close_transport`
+// / `quic_cb_result::close_application`; consumed by the session's drain on
+// the next turn, which feeds it into `ngtcp2_ccerr_set_*_error` and
+// `ngtcp2_conn_write_connection_close`.
+//
+// IMPORTANT: the storage backing `reason` must outlive the read_pkt + drain
+// cycle .
+struct quic_close_request {
+  quic_close_kind kind{};
+  uint64_t error_code{};
+  std::string_view reason;
+};
+
+#pragma endregion
+#pragma region quic_cb_result
+
+// The return value from every `quic_conn_handlers` upcall. Carries what the
+// plugin wants the trampoline to do next:
+//   ok               -- continue normally; trampoline returns 0 to ngtcp2.
+//   callback_failure -- internal error; trampoline returns
+//                       NGTCP2_ERR_CALLBACK_FAILURE. ngtcp2 will terminate the
+//                       conn with INTERNAL_ERROR CONNECTION_CLOSE on the wire
+//                       and bail from `read_pkt`; no further callbacks fire in
+//                       this turn.
+//   close_connection -- graceful app-driven close; trampoline returns 0 and
+//                       stashes the carried `quic_close_request` on
+//                       `quic_conn`. The session's drain reads the stash and
+//                       emits CONNECTION_CLOSE with the requested kind, error
+//                       code, and reason.
+//
+// First request wins: if more than one callback in a single read_pkt turn
+// returns `close_connection`, only the first request is honored; later ones
+// are dropped. Rationale: once a close has been decided, downstream callbacks
+// shouldn't be able to override the chosen error code.
+//
+// For per-stream abort, do not use this result type: call
+// `quic_conn::shutdown_stream` directly from within the callback (it is safe
+// to call from inside an ngtcp2 callback) and then return `ok`.
+class quic_cb_result {
+public:
+  enum class kind : uint8_t {
+    ok,
+    callback_failure,
+    close_connection,
+  };
+
+  [[nodiscard]] static constexpr quic_cb_result ok() noexcept {
+    return {kind::ok, {}};
+  }
+
+  [[nodiscard]] static constexpr quic_cb_result callback_failure() noexcept {
+    return {kind::callback_failure, {}};
+  }
+
+  [[nodiscard]] static constexpr quic_cb_result
+  close_transport(uint64_t error_code, std::string_view reason = {}) noexcept {
+    return {kind::close_connection,
+        quic_close_request{quic_close_kind::transport, error_code, reason}};
+  }
+
+  [[nodiscard]] static constexpr quic_cb_result close_application(
+      uint64_t error_code, std::string_view reason = {}) noexcept {
+    return {kind::close_connection,
+        quic_close_request{quic_close_kind::application, error_code, reason}};
+  }
+
+  [[nodiscard]] constexpr kind type() const noexcept { return kind_; }
+
+  [[nodiscard]] constexpr const quic_close_request& close() const noexcept {
+    return close_;
+  }
+
+private:
+  constexpr quic_cb_result(kind k, quic_close_request c) noexcept
+      : kind_{k}, close_{c} {}
+
+  kind kind_;
+  quic_close_request close_{quic_close_kind::application, 0, {}};
+};
+
+#pragma endregion
+#pragma region quic_conn_handlers
+
+// Protocol-neutral upcall contract that `quic_conn`'s static ngtcp2 callback
+// trampolines forward into. The upper-layer plugin (echo, DNS, HTTP/3, etc.)
+// inherits this; the owning session installs the plugin via
+// `quic_conn::set_handlers` after the plugin is constructed.
+//
+// All upcalls run on the loop thread inside an ngtcp2 callback frame.
+// CRITICAL: ngtcp2 forbids `ngtcp2_conn_writev_stream` / `write_pkt` from
+// inside any callback. These hooks may only update state and call non-write
+// upper-layer APIs (e.g., `nghttp3_conn_read_stream`,
+// `nghttp3_conn_add_ack_offset`). Outbound packet emission happens
+// in the session's per-turn drain, after `read_pkt` returns.
+//
+// Per-stream abort *is* allowed from inside a callback via
+// `quic_conn::shutdown_stream`: that path calls
+// `ngtcp2_conn_shutdown_stream_read` / `_write` immediately (which have
+// local-only effects: stopping further read delivery and marking the write
+// side closed) and only the eventual RESET_STREAM / STOP_SENDING packet
+// emission is deferred to drain. The local effects matter: deferring the
+// ngtcp2 call would let already- processed stream data continue to be
+// delivered during the current `read_pkt` path.
+//
+// Defaults are no-op `ok` so concrete plugins override only what they need.
+// Returning `quic_cb_result::callback_failure()` aborts the connection;
+// returning `close_transport` / `close_application` queues a graceful close
+// (first request in a turn wins).
+class quic_conn_handlers {
+public:
+  quic_conn_handlers() = default;
+  quic_conn_handlers(const quic_conn_handlers&) = delete;
+  quic_conn_handlers& operator=(const quic_conn_handlers&) = delete;
+  virtual ~quic_conn_handlers() = default;
+
+#pragma region Handshake progression
+
+  // TLS handshake finished (both endpoints have completed). On the server this
+  // fires once the server has received and processed the client's Finished; on
+  // the client, when the client itself has sent Finished. Fires once per conn.
+  [[nodiscard]] virtual quic_cb_result on_handshake_completed() noexcept {
+    return quic_cb_result::ok();
+  }
+
+  // 1-RTT TX key is installed; the endpoint can now send application data.
+  // This is the moment HTTP/3 / nghttp3 cares about for submitting requests
+  // and responses. Fires before `on_handshake_completed` on the server, after
+  // it on the client.
+  [[nodiscard]] virtual quic_cb_result on_app_tx_ready() noexcept {
+    return quic_cb_result::ok();
+  }
+
+  // Handshake confirmed (RFC 9001 sec. 4.1.2). On the client this fires upon
+  // receipt of HANDSHAKE_DONE; on the server, when the client's
+  // Handshake-level ACK arrives. After this, both sides are guaranteed to use
+  // 1-RTT keys exclusively.
+  [[nodiscard]] virtual quic_cb_result on_handshake_confirmed() noexcept {
+    return quic_cb_result::ok();
+  }
+
+#pragma endregion
+#pragma region Stream lifecycle
+
+  // Peer opened a new stream.
+  [[nodiscard]] virtual quic_cb_result on_stream_open(
+      quic_stream_id stream_id) noexcept {
+    (void)stream_id;
+    return quic_cb_result::ok();
+  }
+
+  // Inbound stream payload. `flags` carries `fin` and/or `zero_rtt`. May fire
+  // with empty `data` on a pure FIN. Bytes are valid only for the call
+  // duration; copy or hand to the upper layer (e.g.,
+  // `nghttp3_conn_read_stream`) before returning.
+  [[nodiscard]] virtual quic_cb_result
+  on_recv_stream_data(quic_stream_id stream_id, uint64_t offset,
+      std::span<const uint8_t> data, quic_stream_data_flags flags) noexcept {
+    (void)stream_id;
+    (void)offset;
+    (void)data;
+    (void)flags;
+    return quic_cb_result::ok();
+  }
+
+  // Peer acknowledged that bytes `[offset, offset+datalen)` on `stream_id`
+  // were received. The plugin can release send-side buffers it was retaining
+  // for retransmit; HTTP/3 forwards to `nghttp3_conn_add_ack_offset`.
+  [[nodiscard]] virtual quic_cb_result on_acked_stream_data_offset(
+      quic_stream_id stream_id, uint64_t offset, uint64_t datalen) noexcept {
+    (void)stream_id;
+    (void)offset;
+    (void)datalen;
+    return quic_cb_result::ok();
+  }
+
+  // Peer sent RESET_STREAM on its sending side. `final_size` is the
+  // total it claims to have sent; ngtcp2 will not deliver any further
+  // `on_recv_stream_data` for this stream. `app_error_code` is
+  // peer-supplied.
+  [[nodiscard]] virtual quic_cb_result
+  on_stream_reset(quic_stream_id stream_id, uint64_t final_size,
+      uint64_t app_error_code) noexcept {
+    (void)stream_id;
+    (void)final_size;
+    (void)app_error_code;
+    return quic_cb_result::ok();
+  }
+
+  // Peer sent STOP_SENDING: it no longer wants our data on `stream_id`. The
+  // plugin should stop submitting bytes for this stream; ngtcp2 will emit
+  // RESET_STREAM on the next outbound turn.
+  [[nodiscard]] virtual quic_cb_result on_stream_stop_sending(
+      quic_stream_id stream_id, uint64_t app_error_code) noexcept {
+    (void)stream_id;
+    (void)app_error_code;
+    return quic_cb_result::ok();
+  }
+
+  // Stream fully terminated. ngtcp2 will not touch retained send data for
+  // this stream again, so the plugin may release any unacknowledged stream
+  // buffers. `app_error_code` is populated only when the peer supplied one
+  // (ngtcp2's `NGTCP2_STREAM_CLOSE_FLAG_APP_ERROR_CODE_SET`); empty for
+  // clean closes that carried no error code.
+  [[nodiscard]] virtual quic_cb_result on_stream_close(
+      quic_stream_id stream_id,
+      std::optional<uint64_t> app_error_code) noexcept {
+    (void)stream_id;
+    (void)app_error_code;
+    return quic_cb_result::ok();
+  }
+
+#pragma endregion
+#pragma region Flow control feedback
+
+  // Peer raised our send window on `stream_id` to `max_data` bytes total. A
+  // plugin previously stalled on this stream may resume; HTTP/3 forwards to
+  // `nghttp3_conn_unblock_stream`.
+  [[nodiscard]] virtual quic_cb_result on_extend_max_stream_data(
+      quic_stream_id stream_id, uint64_t max_data) noexcept {
+    (void)stream_id;
+    (void)max_data;
+    return quic_cb_result::ok();
+  }
+
+  // Peer raised our limit on locally-initiated bidirectional / unidirectional
+  // streams to `max_streams` total. The plugin may now open additional streams
+  // up to that count.
+  [[nodiscard]] virtual quic_cb_result on_extend_max_local_streams_bidi(
+      uint64_t max_streams) noexcept {
+    (void)max_streams;
+    return quic_cb_result::ok();
+  }
+  [[nodiscard]] virtual quic_cb_result on_extend_max_local_streams_uni(
+      uint64_t max_streams) noexcept {
+    (void)max_streams;
+    return quic_cb_result::ok();
+  }
+
+#pragma endregion
+#pragma region Datagrams (RFC 9221)
+
+  // Inbound DATAGRAM frame.
+  [[nodiscard]] virtual quic_cb_result on_recv_datagram(
+      quic_datagram_flags flags, std::span<const uint8_t> data) noexcept {
+    (void)flags;
+    (void)data;
+    return quic_cb_result::ok();
+  }
+
+  // Peer acknowledged the packet carrying the DATAGRAM whose `dgram_id` (the
+  // value we passed to `writev_datagram`) is given. Datagrams are unreliable;
+  // this is a telemetry signal, not a contract: it fires at most once per
+  // `dgram_id`.
+  [[nodiscard]] virtual quic_cb_result on_ack_datagram(
+      uint64_t dgram_id) noexcept {
+    (void)dgram_id;
+    return quic_cb_result::ok();
+  }
+
+  // ngtcp2 declared the packet carrying the DATAGRAM with `dgram_id` lost.
+  // Datagrams are not retransmitted; this is a telemetry signal for the
+  // application to decide whether to resend.
+  [[nodiscard]] virtual quic_cb_result on_lost_datagram(
+      uint64_t dgram_id) noexcept {
+    (void)dgram_id;
+    return quic_cb_result::ok();
+  }
+
+#pragma endregion
 };
 
 #pragma endregion
@@ -426,3 +714,18 @@ private:
 #pragma endregion
 
 }}} // namespace corvid::proto::quic
+
+template<>
+constexpr inline auto corvid::enums::registry::enum_spec_v<
+    corvid::proto::quic::quic_close_kind> =
+    corvid::enums::sequence::make_sequence_enum_spec<
+        corvid::proto::quic::quic_close_kind, "transport, application",
+        corvid::enums::wrapclip{},
+        corvid::proto::quic::quic_close_kind::transport>();
+
+template<>
+constexpr inline auto corvid::enums::registry::enum_spec_v<
+    corvid::proto::quic::quic_cb_result::kind> =
+    corvid::enums::sequence::make_sequence_enum_spec<
+        corvid::proto::quic::quic_cb_result::kind,
+        "ok, callback_failure, close_connection">();

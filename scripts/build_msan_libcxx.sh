@@ -6,6 +6,27 @@
 # Installs to tests/.local/llvm-msan/ (gitignored). Idempotent: skips the
 # clone and build if the install already exists. Delete that directory to
 # force a fresh build.
+#
+# Why this exists: libc++ writes through pointers MSAN observes, so an
+# uninstrumented stdlib would flood the run with false positives. libunwind
+# is intentionally built *without* MSAN (`-fno-sanitize=memory`); otherwise
+# MSAN's report path recurses through its own instrumented unwinder and
+# silently overflows the stack. See the libunwind CMakeLists.txt patch
+# below for why that flag must be applied PRIVATE rather than PUBLIC.
+# Without the patch, the flag transitively leaks into libcxx via
+# target_compile_options and silently disables MSAN there, surfacing as
+# apparent "libc++ I/O false positives" in essentially every test.
+#
+# `scripts/msan-libcxx-ignorelist.txt` is passed to both the libc++ rebuild
+# and the project build via `-fsanitize-ignorelist`. It is currently empty;
+# the plumbing is kept as scaffolding so future libc++ versions that
+# introduce real shadow gaps can be suppressed surgically. The ignorelist
+# disables both checks AND shadow tracking in matched functions, so any
+# entries must be as narrow as possible.
+#
+# `iou_*` tests are excluded from the MSAN build (kernel writes to user
+# buffers via io_uring aren't visible to MSAN). Adding `__msan_unpoison_*`
+# to the io_uring buffer plumbing is pending phase-2 work.
 
 set -e
 
