@@ -19,7 +19,6 @@
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
-#include <optional>
 #include <span>
 #include <string>
 #include <vector>
@@ -327,10 +326,6 @@ TEST_CASE("quic_conn handler upcalls fire during handshake", "[quic][conn]") {
   CHECK(server_trace.saw("handshake_completed"));
   CHECK(server_trace.saw("app_tx_ready"));
   CHECK_FALSE(server_trace.saw("handshake_confirmed"));
-
-  // Neither side asked for a graceful close, so the stash stays empty.
-  CHECK_FALSE(client.pending_close().has_value());
-  CHECK_FALSE(server.pending_close().has_value());
 }
 
 TEST_CASE("quic_conn handler returning false aborts read_pkt",
@@ -419,45 +414,6 @@ TEST_CASE("quic_conn handler returning false aborts read_pkt",
   CHECK(server_trace.saw("app_tx_ready"));
   CHECK(saw_error);
   CHECK_FALSE(server.is_handshake_completed());
-}
-
-TEST_CASE("quic_conn close-request stash round-trips", "[quic][conn]") {
-  // `request_close` populates the pending-close stash;  Requesting close is
-  // terminal, so we don't exercise repeated requests as a feature.
-  quic_ssl_ctx tls{alpn};
-  REQUIRE(tls);
-  const auto local = bound_loopback::make_v4();
-  const auto peer = bound_loopback::make_v4();
-  REQUIRE(local);
-  REQUIRE(peer);
-  const quic_cid dcid{dcid_bytes};
-  const quic_cid scid{scid_bytes};
-
-  SECTION("empty by default") {
-    quic_conn conn{tls, dcid, scid, local.addr, peer.addr, now_tp()};
-    REQUIRE(conn);
-    CHECK_FALSE(conn.pending_close().has_value());
-  }
-
-  SECTION("no-fault default: clean transport NO_ERROR close") {
-    quic_conn conn{tls, dcid, scid, local.addr, peer.addr, now_tp()};
-    REQUIRE(conn);
-    conn.request_close();
-    REQUIRE(conn.pending_close().has_value());
-    CHECK(conn.pending_close()->kind == quic_close_kind::transport);
-    CHECK(conn.pending_close()->error_code == 0);
-    CHECK(conn.pending_close()->reason.empty());
-  }
-
-  SECTION("explicit application close round-trips") {
-    quic_conn conn{tls, dcid, scid, local.addr, peer.addr, now_tp()};
-    REQUIRE(conn);
-    conn.request_close(quic_close_kind::application, 0x42, "bye");
-    REQUIRE(conn.pending_close().has_value());
-    CHECK(conn.pending_close()->kind == quic_close_kind::application);
-    CHECK(conn.pending_close()->error_code == 0x42);
-    CHECK(conn.pending_close()->reason == "bye");
-  }
 }
 
 #pragma region CloseKindString

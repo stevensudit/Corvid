@@ -92,10 +92,11 @@ enum class quic_close_kind : uint8_t {
 // by the session's drain on the same turn, which feeds it into
 // `ngtcp2_ccerr_set_*_error` and `ngtcp2_conn_write_connection_close`.
 //
+// `kind == {}` is the "no close requested" sentinel; non-default `kind` means
+// the caller asked to close.
+//
 // IMPORTANT: the storage backing `reason` must outlive the read_pkt + drain
 // cycle.
-///!!! instead of wrapping it in an `optional`, just check for whether kind is
-///{}. That's the uninitialized value.
 struct quic_close_request {
   quic_close_kind kind{};
   uint64_t error_code{};
@@ -476,22 +477,7 @@ public:
   // backing `reason` must outlive the read_pkt + drain cycle.
   void request_close(quic_close_kind kind = quic_close_kind::transport,
       uint64_t error_code = 0, std::string_view reason = {}) noexcept {
-    pending_close_ = quic_close_request{kind, error_code, reason};
-  }
-
-  // Peek at any close request queued via `request_close` during the
-  // most recent `read_pkt`. The session's per-turn drain calls this
-  // after `read_pkt` returns: if non-empty, emit the requested
-  // CONNECTION_CLOSE and tear the conn down. The stash is not cleared:
-  // once a close is queued, the conn is on its way out and no further
-  // turn will consume it.
-  //!!! Why do we want to even expose this? From the POV of the upper layers,
-  //! setting a close request isn't something they ever look at. Instead, they
-  //! do it, likely return false, and fully expect the connection to be shut
-  //! down.
-  [[nodiscard]] const std::optional<quic_close_request>&
-  pending_close() const noexcept {
-    return pending_close_;
+    pending_close_ = {kind, error_code, reason};
   }
 
 #pragma endregion
@@ -552,9 +538,6 @@ private:
   // a graceful CONNECTION_CLOSE instead of a callback failure calls
   // `request_close` first to request the close, then returns whichever bool
   // fits its needs.
-
-  //!!! This should return a bool anyhow, and make it nodiscard. We could
-  // plausibly fail on misconfiguration or refusal.
   static void on_rand(uint8_t* dest, size_t destlen,
       const ngtcp2_rand_ctx* /*ctx*/) noexcept {
     // `RAND_bytes` cannot reasonably fail in normal operation; on error,
@@ -563,7 +546,6 @@ private:
     RAND_bytes(dest, static_cast<int>(destlen));
   }
 
-  //!!!! All of these on_* callbacks should be nodiscard.
   // CIDs must be unpredictable per RFC 9000 sec. 5.1, so fill with
   // cryptographic randomness. The stateless-reset token is reused as the
   // "secret known to the issuer" in the reset path; same constraint
@@ -572,11 +554,9 @@ private:
       ngtcp2_stateless_reset_token* token, size_t cidlen,
       void* /*user_data*/) noexcept {
     cid->datalen = cidlen;
-    if (RAND_bytes(cid->data, static_cast<int>(cidlen)) != 1)
-      return NGTCP2_ERR_CALLBACK_FAILURE;
-    if (RAND_bytes(token->data, sizeof(token->data)) != 1)
-      return NGTCP2_ERR_CALLBACK_FAILURE;
-    return 0;
+    return success(
+        RAND_bytes(cid->data, static_cast<int>(cidlen)) == 1 &&
+        RAND_bytes(token->data, sizeof(token->data)) == 1);
   }
 
   // CID retirement is not yet plumbed back to the router; the
@@ -584,7 +564,7 @@ private:
   // `router.remove_session` call.
   static int
   on_remove_connection_id(ngtcp2_conn*, const ngtcp2_cid*, void*) noexcept {
-    return 0;
+    return success(true);
   }
 
   // `recv_rx_key` is unused: nothing in the handler contract reacts to RX
@@ -592,7 +572,7 @@ private:
   // `on_recv_tx_key` (it filters on 1-RTT and surfaces `on_app_tx_ready`).
   static int
   on_recv_rx_key(ngtcp2_conn*, ngtcp2_encryption_level, void*) noexcept {
-    return 0;
+    return success(true);
   }
 
   // v2 trampoline around the shim's v1 `get_path_challenge_data` (which
@@ -607,22 +587,22 @@ private:
 
   // -- Trampolines that forward `quic_conn_handlers` upcalls.
 
+  // Translate a handler's `bool` return into the int ngtcp2 callbacks
+  // expect: `0` on success, `NGTCP2_ERR_CALLBACK_FAILURE` on failure.
+  [[nodiscard]] static constexpr int success(bool ok) noexcept {
+    return ok ? 0 : NGTCP2_ERR_CALLBACK_FAILURE;
+  }
+
   static int on_handshake_completed(ngtcp2_conn*, void* user_data) noexcept {
     auto* self = static_cast<quic_conn*>(user_data);
     if (!self->handlers_) return 0;
-    //!!! We keep doing this, so wrap it in a helper that takes bool and
-    // returns the int value. Call it convert_result or something.
-    return self->handlers_->on_handshake_completed()
-               ? 0
-               : NGTCP2_ERR_CALLBACK_FAILURE;
+    return success(self->handlers_->on_handshake_completed());
   }
 
   static int on_handshake_confirmed(ngtcp2_conn*, void* user_data) noexcept {
     auto* self = static_cast<quic_conn*>(user_data);
     if (!self->handlers_) return 0;
-    return self->handlers_->on_handshake_confirmed()
-               ? 0
-               : NGTCP2_ERR_CALLBACK_FAILURE;
+    return success(self->handlers_->on_handshake_confirmed());
   }
 
   // `recv_tx_key` fires once per TX-key install during the handshake;
@@ -642,19 +622,15 @@ private:
     // half of the copypasta
     auto* self = static_cast<quic_conn*>(user_data);
     if (!self->handlers_) return 0;
-    return self->handlers_->on_app_tx_ready()
-               ? 0
-               : NGTCP2_ERR_CALLBACK_FAILURE;
+    return success(self->handlers_->on_app_tx_ready());
   }
 
   static int
   on_stream_open(ngtcp2_conn*, int64_t stream_id, void* user_data) noexcept {
     auto* self = static_cast<quic_conn*>(user_data);
     if (!self->handlers_) return 0;
-    return self->handlers_->on_stream_open(
-               static_cast<quic_stream_id>(stream_id))
-               ? 0
-               : NGTCP2_ERR_CALLBACK_FAILURE;
+    return success(self->handlers_->on_stream_open(
+        static_cast<quic_stream_id>(stream_id)));
   }
 
   static int on_recv_stream_data(ngtcp2_conn*, uint32_t flags,
@@ -662,12 +638,10 @@ private:
       void* user_data, void* /*stream_user_data*/) noexcept {
     auto* self = static_cast<quic_conn*>(user_data);
     if (!self->handlers_) return 0;
-    return self->handlers_->on_recv_stream_data(
-               static_cast<quic_stream_id>(stream_id), offset,
-               std::span<const uint8_t>{data, datalen},
-               static_cast<quic_stream_data_flags>(flags))
-               ? 0
-               : NGTCP2_ERR_CALLBACK_FAILURE;
+    return success(self->handlers_->on_recv_stream_data(
+        static_cast<quic_stream_id>(stream_id), offset,
+        std::span<const uint8_t>{data, datalen},
+        static_cast<quic_stream_data_flags>(flags)));
   }
 
   static int on_acked_stream_data_offset(ngtcp2_conn*, int64_t stream_id,
@@ -675,10 +649,8 @@ private:
       void* /*stream_user_data*/) noexcept {
     auto* self = static_cast<quic_conn*>(user_data);
     if (!self->handlers_) return 0;
-    return self->handlers_->on_acked_stream_data_offset(
-               static_cast<quic_stream_id>(stream_id), offset, datalen)
-               ? 0
-               : NGTCP2_ERR_CALLBACK_FAILURE;
+    return success(self->handlers_->on_acked_stream_data_offset(
+        static_cast<quic_stream_id>(stream_id), offset, datalen));
   }
 
   static int on_stream_reset(ngtcp2_conn*, int64_t stream_id,
@@ -686,11 +658,8 @@ private:
       void* /*stream_user_data*/) noexcept {
     auto* self = static_cast<quic_conn*>(user_data);
     if (!self->handlers_) return 0;
-    return self->handlers_->on_stream_reset(
-               static_cast<quic_stream_id>(stream_id), final_size,
-               app_error_code)
-               ? 0
-               : NGTCP2_ERR_CALLBACK_FAILURE;
+    return success(self->handlers_->on_stream_reset(
+        static_cast<quic_stream_id>(stream_id), final_size, app_error_code));
   }
 
   static int on_stream_stop_sending(ngtcp2_conn*, int64_t stream_id,
@@ -698,10 +667,8 @@ private:
       void* /*stream_user_data*/) noexcept {
     auto* self = static_cast<quic_conn*>(user_data);
     if (!self->handlers_) return 0;
-    return self->handlers_->on_stream_stop_sending(
-               static_cast<quic_stream_id>(stream_id), app_error_code)
-               ? 0
-               : NGTCP2_ERR_CALLBACK_FAILURE;
+    return success(self->handlers_->on_stream_stop_sending(
+        static_cast<quic_stream_id>(stream_id), app_error_code));
   }
 
   static int on_stream_close(ngtcp2_conn*, uint32_t flags, int64_t stream_id,
@@ -712,10 +679,8 @@ private:
     std::optional<uint64_t> ec;
     if (flags & NGTCP2_STREAM_CLOSE_FLAG_APP_ERROR_CODE_SET)
       ec = app_error_code;
-    return self->handlers_->on_stream_close(
-               static_cast<quic_stream_id>(stream_id), ec)
-               ? 0
-               : NGTCP2_ERR_CALLBACK_FAILURE;
+    return success(self->handlers_->on_stream_close(
+        static_cast<quic_stream_id>(stream_id), ec));
   }
 
   static int on_extend_max_stream_data(ngtcp2_conn*, int64_t stream_id,
@@ -723,10 +688,8 @@ private:
       void* /*stream_user_data*/) noexcept {
     auto* self = static_cast<quic_conn*>(user_data);
     if (!self->handlers_) return 0;
-    return self->handlers_->on_extend_max_stream_data(
-               static_cast<quic_stream_id>(stream_id), max_data)
-               ? 0
-               : NGTCP2_ERR_CALLBACK_FAILURE;
+    return success(self->handlers_->on_extend_max_stream_data(
+        static_cast<quic_stream_id>(stream_id), max_data));
   }
 
   //!!! If we had an enum for uni/bidi then we could combine these
@@ -736,18 +699,16 @@ private:
       uint64_t max_streams, void* user_data) noexcept {
     auto* self = static_cast<quic_conn*>(user_data);
     if (!self->handlers_) return 0;
-    return self->handlers_->on_extend_max_local_streams_bidi(max_streams)
-               ? 0
-               : NGTCP2_ERR_CALLBACK_FAILURE;
+    return success(
+        self->handlers_->on_extend_max_local_streams_bidi(max_streams));
   }
 
   static int on_extend_max_local_streams_uni(ngtcp2_conn*,
       uint64_t max_streams, void* user_data) noexcept {
     auto* self = static_cast<quic_conn*>(user_data);
     if (!self->handlers_) return 0;
-    return self->handlers_->on_extend_max_local_streams_uni(max_streams)
-               ? 0
-               : NGTCP2_ERR_CALLBACK_FAILURE;
+    return success(
+        self->handlers_->on_extend_max_local_streams_uni(max_streams));
   }
 
   static int on_recv_datagram(ngtcp2_conn*, uint32_t flags,
@@ -755,29 +716,23 @@ private:
     auto* self = static_cast<quic_conn*>(user_data);
     if (!self->handlers_) return 0;
     //!!! on_recv_datagram should move flags to the last parameter.
-    return self->handlers_->on_recv_datagram(
-               static_cast<quic_datagram_flags>(flags),
-               std::span<const uint8_t>{data, datalen})
-               ? 0
-               : NGTCP2_ERR_CALLBACK_FAILURE;
+    return success(self->handlers_->on_recv_datagram(
+        static_cast<quic_datagram_flags>(flags),
+        std::span<const uint8_t>{data, datalen}));
   }
 
   static int
   on_ack_datagram(ngtcp2_conn*, uint64_t dgram_id, void* user_data) noexcept {
     auto* self = static_cast<quic_conn*>(user_data);
     if (!self->handlers_) return 0;
-    return self->handlers_->on_ack_datagram(dgram_id)
-               ? 0
-               : NGTCP2_ERR_CALLBACK_FAILURE;
+    return success(self->handlers_->on_ack_datagram(dgram_id));
   }
 
   static int
   on_lost_datagram(ngtcp2_conn*, uint64_t dgram_id, void* user_data) noexcept {
     auto* self = static_cast<quic_conn*>(user_data);
     if (!self->handlers_) return 0;
-    return self->handlers_->on_lost_datagram(dgram_id)
-               ? 0
-               : NGTCP2_ERR_CALLBACK_FAILURE;
+    return success(self->handlers_->on_lost_datagram(dgram_id));
   }
 
 #pragma endregion
@@ -906,9 +861,9 @@ private:
   quic_conn_handlers* handlers_{};
 
   // Close request stashed by `request_close` (typically called from
-  // inside a handler upcall); consumed by the session's drain via
-  // `take_pending_close`. Last write in a turn wins.
-  std::optional<quic_close_request> pending_close_;
+  // inside a handler upcall); not externally observable. `kind ==
+  // quic_close_kind{}` means "not set". Last write in a turn wins.
+  quic_close_request pending_close_;
 
 #pragma endregion
 };
