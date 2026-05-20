@@ -329,8 +329,8 @@ TEST_CASE("quic_conn handler upcalls fire during handshake", "[quic][conn]") {
   CHECK_FALSE(server_trace.saw("handshake_confirmed"));
 
   // Neither side asked for a graceful close, so the stash stays empty.
-  CHECK_FALSE(client.take_pending_close().has_value());
-  CHECK_FALSE(server.take_pending_close().has_value());
+  CHECK_FALSE(client.pending_close().has_value());
+  CHECK_FALSE(server.pending_close().has_value());
 }
 
 TEST_CASE("quic_conn handler returning false aborts read_pkt",
@@ -422,8 +422,8 @@ TEST_CASE("quic_conn handler returning false aborts read_pkt",
 }
 
 TEST_CASE("quic_conn close-request stash round-trips", "[quic][conn]") {
-  // `request_close_*` populates the pending-close stash; `take` consumes
-  // and clears it. Later calls overwrite earlier ones (last-wins).
+  // `request_close` populates the pending-close stash;  Requesting close is
+  // terminal, so we don't exercise repeated requests as a feature.
   quic_ssl_ctx tls{alpn};
   REQUIRE(tls);
   const auto local = bound_loopback::make_v4();
@@ -432,30 +432,32 @@ TEST_CASE("quic_conn close-request stash round-trips", "[quic][conn]") {
   REQUIRE(peer);
   const quic_cid dcid{dcid_bytes};
   const quic_cid scid{scid_bytes};
-  quic_conn conn{tls, dcid, scid, local.addr, peer.addr, now_tp()};
-  REQUIRE(conn);
 
-  // Empty by default.
-  CHECK_FALSE(conn.take_pending_close().has_value());
+  SECTION("empty by default") {
+    quic_conn conn{tls, dcid, scid, local.addr, peer.addr, now_tp()};
+    REQUIRE(conn);
+    CHECK_FALSE(conn.pending_close().has_value());
+  }
 
-  // Application close stashes and round-trips.
-  conn.request_close_application(0x42, "bye");
-  auto first = conn.take_pending_close();
-  REQUIRE(first.has_value());
-  CHECK(first->kind == quic_close_kind::application);
-  CHECK(first->error_code == 0x42);
-  CHECK(first->reason == "bye");
-  // `take` consumed the stash.
-  CHECK_FALSE(conn.take_pending_close().has_value());
+  SECTION("no-fault default: clean transport NO_ERROR close") {
+    quic_conn conn{tls, dcid, scid, local.addr, peer.addr, now_tp()};
+    REQUIRE(conn);
+    conn.request_close();
+    REQUIRE(conn.pending_close().has_value());
+    CHECK(conn.pending_close()->kind == quic_close_kind::transport);
+    CHECK(conn.pending_close()->error_code == 0);
+    CHECK(conn.pending_close()->reason.empty());
+  }
 
-  // Last-wins: a second request overwrites the first within a turn.
-  conn.request_close_transport(0x01, "first");
-  conn.request_close_application(0x99, "second");
-  auto second = conn.take_pending_close();
-  REQUIRE(second.has_value());
-  CHECK(second->kind == quic_close_kind::application);
-  CHECK(second->error_code == 0x99);
-  CHECK(second->reason == "second");
+  SECTION("explicit application close round-trips") {
+    quic_conn conn{tls, dcid, scid, local.addr, peer.addr, now_tp()};
+    REQUIRE(conn);
+    conn.request_close(quic_close_kind::application, 0x42, "bye");
+    REQUIRE(conn.pending_close().has_value());
+    CHECK(conn.pending_close()->kind == quic_close_kind::application);
+    CHECK(conn.pending_close()->error_code == 0x42);
+    CHECK(conn.pending_close()->reason == "bye");
+  }
 }
 
 #pragma region CloseKindString

@@ -87,14 +87,15 @@ enum class quic_close_kind : uint8_t {
 };
 
 // A pending request to close the connection, carrying the variant, error code,
-// and optional UTF-8 reason phrase. Stashed on `quic_conn` by
-// `request_close_transport` / `request_close_application` (typically called
-// from inside a `quic_conn_handlers` upcall) and consumed by the session's
-// drain on the same turn, which feeds it into `ngtcp2_ccerr_set_*_error` and
-// `ngtcp2_conn_write_connection_close`.
+// and optional UTF-8 reason phrase. Stashed on `quic_conn` by `request_close`
+// (typically called from inside a `quic_conn_handlers` upcall) and consumed
+// by the session's drain on the same turn, which feeds it into
+// `ngtcp2_ccerr_set_*_error` and `ngtcp2_conn_write_connection_close`.
 //
 // IMPORTANT: the storage backing `reason` must outlive the read_pkt + drain
 // cycle.
+///!!! instead of wrapping it in an `optional`, just check for whether kind is
+///{}. That's the uninitialized value.
 struct quic_close_request {
   quic_close_kind kind{};
   uint64_t error_code{};
@@ -129,12 +130,12 @@ struct quic_close_request {
 // returns 0 to ngtcp2), `false` to signal callback failure (trampoline
 // returns `NGTCP2_ERR_CALLBACK_FAILURE`; ngtcp2 bails from `read_pkt` and
 // no further callbacks fire in this turn). To request a graceful
-// CONNECTION_CLOSE, call `quic_conn::request_close_transport` /
-// `request_close_application` from within the callback to stash the
-// close request, then return `false` (or `true`, depending on whether
-// you want ngtcp2 to keep dispatching the rest of the packet); the
-// session's drain will see the stash and emit the requested
-// CONNECTION_CLOSE after `read_pkt` returns.
+// CONNECTION_CLOSE, call `quic_conn::request_close(kind, error_code,
+// reason)` from within the callback to stash the close request, then
+// return `false` (or `true`, depending on whether you want ngtcp2 to
+// keep dispatching the rest of the packet); the session's drain will
+// see the stash and emit the requested CONNECTION_CLOSE after
+// `read_pkt` returns.
 //
 // Defaults are no-op `true` so concrete plugins override only what they
 // need.
@@ -465,34 +466,32 @@ public:
   // Queue a graceful CONNECTION_CLOSE for the session's per-turn drain to
   // emit after `read_pkt` returns. Typically called from inside a
   // `quic_conn_handlers` upcall (which then returns the bool of its
-  // choosing to ngtcp2). Each call overwrites any prior stashed close in
-  // the same turn, so a later callback can refine an earlier decision;
-  // `transport` and `application` differ only in which CONNECTION_CLOSE
-  // frame variant the drain emits (RFC 9000 sec. 19.19). The storage
+  // choosing to ngtcp2). Requesting close is terminal: this is a
+  // one-shot decision, not something the conn keeps polling.
+  //
+  // The defaults give a no-fault clean close (transport NO_ERROR, no
+  // reason phrase). `kind` selects the CONNECTION_CLOSE frame variant
+  // the drain emits (RFC 9000 sec. 19.19); `error_code` is interpreted
+  // in the matching namespace (transport vs application). The storage
   // backing `reason` must outlive the read_pkt + drain cycle.
-  //!!! Instead of having two request_close_* methods, just have one that takes
-  // the enum.
-  void request_close_transport(uint64_t error_code,
-      std::string_view reason = {}) noexcept {
-    pending_close_ =
-        quic_close_request{quic_close_kind::transport, error_code, reason};
-  }
-  void request_close_application(uint64_t error_code,
-      std::string_view reason = {}) noexcept {
-    pending_close_ =
-        quic_close_request{quic_close_kind::application, error_code, reason};
+  void request_close(quic_close_kind kind = quic_close_kind::transport,
+      uint64_t error_code = 0, std::string_view reason = {}) noexcept {
+    pending_close_ = quic_close_request{kind, error_code, reason};
   }
 
-  // Consume any close request queued via `request_close_*` during the
-  // most recent `read_pkt`. The session's per-turn drain calls this after
-  // `read_pkt` returns: if non-empty, emit the requested CONNECTION_CLOSE
-  // and stop further packet emission for this conn. `take` resets the
-  // stash to empty so the next turn starts clean.
-  //!!! Why are we doing this exchange dance when we're just going to close
-  // down the whole connection?
-  [[nodiscard]] std::optional<quic_close_request>
-  take_pending_close() noexcept {
-    return std::exchange(pending_close_, std::nullopt);
+  // Peek at any close request queued via `request_close` during the
+  // most recent `read_pkt`. The session's per-turn drain calls this
+  // after `read_pkt` returns: if non-empty, emit the requested
+  // CONNECTION_CLOSE and tear the conn down. The stash is not cleared:
+  // once a close is queued, the conn is on its way out and no further
+  // turn will consume it.
+  //!!! Why do we want to even expose this? From the POV of the upper layers,
+  //! setting a close request isn't something they ever look at. Instead, they
+  //! do it, likely return false, and fully expect the connection to be shut
+  //! down.
+  [[nodiscard]] const std::optional<quic_close_request>&
+  pending_close() const noexcept {
+    return pending_close_;
   }
 
 #pragma endregion
@@ -550,9 +549,9 @@ private:
   // recover the typed `quic_conn*` from `user_data`, no-op when no
   // handlers are attached, and otherwise translate the handler's bool
   // return into `0` / `NGTCP2_ERR_CALLBACK_FAILURE`. A handler that wants
-  // a graceful CONNECTION_CLOSE instead of a raw callback failure calls
-  // `request_close_*` first to stash the close request, then returns
-  // whichever bool fits its needs.
+  // a graceful CONNECTION_CLOSE instead of a callback failure calls
+  // `request_close` first to request the close, then returns whichever bool
+  // fits its needs.
 
   //!!! This should return a bool anyhow, and make it nodiscard. We could
   // plausibly fail on misconfiguration or refusal.
@@ -906,7 +905,7 @@ private:
   // Null until then; trampolines no-op on null.
   quic_conn_handlers* handlers_{};
 
-  // Close request stashed by `request_close_*` (typically called from
+  // Close request stashed by `request_close` (typically called from
   // inside a handler upcall); consumed by the session's drain via
   // `take_pending_close`. Last write in a turn wins.
   std::optional<quic_close_request> pending_close_;
