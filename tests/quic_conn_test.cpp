@@ -19,7 +19,10 @@
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
+#include <optional>
 #include <span>
+#include <string>
+#include <vector>
 
 #include "../corvid/proto/quic/quic_conn.h"
 #include "../corvid/proto/quic/quic_self_signed_cert.h"
@@ -43,6 +46,34 @@ constexpr std::string_view alpn = "corvid-test";
 [[nodiscard]] quic_conn::time_point_t now_tp() noexcept {
   return std::chrono::steady_clock::now();
 }
+
+// `quic_conn_handlers` subclass that appends a string for every upcall it
+// receives. Used by the handshake / dispatch tests to verify the
+// trampolines wire through to the right virtual methods. Override only the
+// upcalls the tests actually inspect; the base-class no-op defaults cover
+// the rest.
+struct trace_handlers: quic_conn_handlers {
+  std::vector<std::string> events;
+
+  bool on_handshake_completed() noexcept override {
+    events.emplace_back("handshake_completed");
+    return true;
+  }
+  bool on_app_tx_ready() noexcept override {
+    events.emplace_back("app_tx_ready");
+    return true;
+  }
+  bool on_handshake_confirmed() noexcept override {
+    events.emplace_back("handshake_confirmed");
+    return true;
+  }
+
+  [[nodiscard]] bool saw(std::string_view name) const noexcept {
+    for (const auto& e : events)
+      if (e == name) return true;
+    return false;
+  }
+};
 
 // A UDP socket bound to loopback on an OS-assigned port. The socket is
 // held open by this object so the assigned port stays reserved to us;
@@ -214,6 +245,219 @@ TEST_CASE("quic_conn handshake completes in-process", "[quic][conn]") {
   CHECK(client.is_handshake_completed());
   CHECK(server.is_handshake_completed());
 }
+TEST_CASE("quic_conn handler upcalls fire during handshake", "[quic][conn]") {
+  // Same setup as the handshake test, but with a `trace_handlers` attached
+  // to each side. After the handshake completes we expect at least the
+  // handshake-progression upcalls (`on_handshake_completed`,
+  // `on_app_tx_ready`, `on_handshake_confirmed`) to have fired on both
+  // ends. We do not pin to an exact order: ordering between the events
+  // differs between client and server per RFC 9001 sec. 4.1, and the
+  // `is_handshake_completed` loop already covers the full handshake; this
+  // test's job is purely to prove the trampolines reach the handlers.
+  self_signed_cert ck;
+  REQUIRE(ck);
+  quic_ssl_ctx server_tls{ck, alpn};
+  quic_ssl_ctx client_tls{alpn};
+  REQUIRE(server_tls);
+  REQUIRE(client_tls);
+
+  const auto server_loop = bound_loopback::make_v4();
+  const auto client_loop = bound_loopback::make_v4();
+  REQUIRE(server_loop);
+  REQUIRE(client_loop);
+  const auto& server_addr = server_loop.addr;
+  const auto& client_addr = client_loop.addr;
+
+  const quic_cid client_chosen_dcid{dcid_bytes};
+  const quic_cid client_scid{scid_bytes};
+  quic_conn client{client_tls, client_chosen_dcid, client_scid, client_addr,
+      server_addr, now_tp()};
+  REQUIRE(client);
+
+  constexpr std::array<uint8_t, 16> server_scid_bytes{0xaa, 0xbb, 0xcc, 0xdd,
+      0xee, 0xff, 0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88, 0x99};
+  const quic_cid server_scid{server_scid_bytes};
+  quic_conn server{server_tls, client_scid, server_scid, client_chosen_dcid,
+      server_addr, client_addr, now_tp()};
+  REQUIRE(server);
+
+  trace_handlers client_trace;
+  trace_handlers server_trace;
+  client.set_handlers(&client_trace);
+  server.set_handlers(&server_trace);
+
+  auto client_path = quic_conn::make_ngtcp2_path(client_addr, server_addr);
+  auto server_path = quic_conn::make_ngtcp2_path(server_addr, client_addr);
+  std::array<uint8_t, 1500> buf{};
+  auto pump = [&buf](quic_conn& from, ngtcp2_path& from_path, quic_conn& to,
+                  const ngtcp2_path& to_path) -> bool {
+    for (int safety = 0; safety < 32; ++safety) {
+      auto res = from.write_pkt(from_path, buf, now_tp());
+      if (!res.ok()) return false;
+      if (res.bytes_written == 0) return true;
+      const auto rv = to.read_pkt(to_path,
+          std::span<const uint8_t>{buf.data(), res.bytes_written}, now_tp());
+      if (rv != quic_decode_status::ok) return false;
+    }
+    return false;
+  };
+
+  // Pump until both sides report `is_handshake_completed`, then drive one
+  // extra exchange round so HANDSHAKE_DONE has time to land on the
+  // client (which is what triggers the client-side
+  // `on_handshake_confirmed` per RFC 9001 sec. 4.1.2). ngtcp2 does not
+  // emit the confirmed callback on the server -- see the
+  // `on_handshake_confirmed` doc on `quic_conn_handlers` -- so we only
+  // assert that one on the client.
+  int extra_rounds = 0;
+  for (int iter = 0; iter < 16; ++iter) {
+    REQUIRE(pump(client, client_path, server, server_path));
+    REQUIRE(pump(server, server_path, client, client_path));
+    if (client.is_handshake_completed() && server.is_handshake_completed()) {
+      if (extra_rounds >= 1) break;
+      ++extra_rounds;
+    }
+  }
+  REQUIRE(client.is_handshake_completed());
+  REQUIRE(server.is_handshake_completed());
+
+  CHECK(client_trace.saw("handshake_completed"));
+  CHECK(client_trace.saw("app_tx_ready"));
+  CHECK(client_trace.saw("handshake_confirmed"));
+  CHECK(server_trace.saw("handshake_completed"));
+  CHECK(server_trace.saw("app_tx_ready"));
+  CHECK_FALSE(server_trace.saw("handshake_confirmed"));
+
+  // Neither side asked for a graceful close, so the stash stays empty.
+  CHECK_FALSE(client.take_pending_close().has_value());
+  CHECK_FALSE(server.take_pending_close().has_value());
+}
+
+TEST_CASE("quic_conn handler returning false aborts read_pkt",
+    "[quic][conn]") {
+  // A handler that returns `false` from an upcall must surface as
+  // `NGTCP2_ERR_CALLBACK_FAILURE` from `read_pkt`. We trip the first
+  // server-side upcall (`on_app_tx_ready`, which fires once the 1-RTT TX
+  // key installs) by overriding it to return false; pumping should then
+  // fail before the handshake completes.
+  struct abort_on_tx_ready: trace_handlers {
+    bool on_app_tx_ready() noexcept override {
+      (void)trace_handlers::on_app_tx_ready();
+      return false;
+    }
+  };
+
+  self_signed_cert ck;
+  REQUIRE(ck);
+  quic_ssl_ctx server_tls{ck, alpn};
+  quic_ssl_ctx client_tls{alpn};
+  REQUIRE(server_tls);
+  REQUIRE(client_tls);
+
+  const auto server_loop = bound_loopback::make_v4();
+  const auto client_loop = bound_loopback::make_v4();
+  REQUIRE(server_loop);
+  REQUIRE(client_loop);
+  const auto& server_addr = server_loop.addr;
+  const auto& client_addr = client_loop.addr;
+
+  const quic_cid client_chosen_dcid{dcid_bytes};
+  const quic_cid client_scid{scid_bytes};
+  quic_conn client{client_tls, client_chosen_dcid, client_scid, client_addr,
+      server_addr, now_tp()};
+  REQUIRE(client);
+  constexpr std::array<uint8_t, 16> server_scid_bytes{0xaa, 0xbb, 0xcc, 0xdd,
+      0xee, 0xff, 0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88, 0x99};
+  const quic_cid server_scid{server_scid_bytes};
+  quic_conn server{server_tls, client_scid, server_scid, client_chosen_dcid,
+      server_addr, client_addr, now_tp()};
+  REQUIRE(server);
+
+  abort_on_tx_ready server_trace;
+  server.set_handlers(&server_trace);
+
+  auto client_path = quic_conn::make_ngtcp2_path(client_addr, server_addr);
+  auto server_path = quic_conn::make_ngtcp2_path(server_addr, client_addr);
+  std::array<uint8_t, 1500> buf{};
+
+  // Pump until either the handshake completes or some side errors. The
+  // server is expected to error once `on_app_tx_ready` returns false.
+  bool saw_error = false;
+  for (int iter = 0; iter < 16 && !saw_error; ++iter) {
+    for (int safety = 0; safety < 32; ++safety) {
+      auto res = client.write_pkt(client_path, buf, now_tp());
+      if (!res.ok()) {
+        saw_error = true;
+        break;
+      }
+      if (res.bytes_written == 0) break;
+      const auto rv = server.read_pkt(server_path,
+          std::span<const uint8_t>{buf.data(), res.bytes_written}, now_tp());
+      if (rv != quic_decode_status::ok) {
+        saw_error = true;
+        break;
+      }
+    }
+    if (saw_error) break;
+    for (int safety = 0; safety < 32; ++safety) {
+      auto res = server.write_pkt(server_path, buf, now_tp());
+      if (!res.ok()) {
+        saw_error = true;
+        break;
+      }
+      if (res.bytes_written == 0) break;
+      const auto rv = client.read_pkt(client_path,
+          std::span<const uint8_t>{buf.data(), res.bytes_written}, now_tp());
+      if (rv != quic_decode_status::ok) {
+        saw_error = true;
+        break;
+      }
+    }
+    if (server.is_handshake_completed()) break;
+  }
+
+  CHECK(server_trace.saw("app_tx_ready"));
+  CHECK(saw_error);
+  CHECK_FALSE(server.is_handshake_completed());
+}
+
+TEST_CASE("quic_conn close-request stash round-trips", "[quic][conn]") {
+  // `request_close_*` populates the pending-close stash; `take` consumes
+  // and clears it. Later calls overwrite earlier ones (last-wins).
+  quic_ssl_ctx tls{alpn};
+  REQUIRE(tls);
+  const auto local = bound_loopback::make_v4();
+  const auto peer = bound_loopback::make_v4();
+  REQUIRE(local);
+  REQUIRE(peer);
+  const quic_cid dcid{dcid_bytes};
+  const quic_cid scid{scid_bytes};
+  quic_conn conn{tls, dcid, scid, local.addr, peer.addr, now_tp()};
+  REQUIRE(conn);
+
+  // Empty by default.
+  CHECK_FALSE(conn.take_pending_close().has_value());
+
+  // Application close stashes and round-trips.
+  conn.request_close_application(0x42, "bye");
+  auto first = conn.take_pending_close();
+  REQUIRE(first.has_value());
+  CHECK(first->kind == quic_close_kind::application);
+  CHECK(first->error_code == 0x42);
+  CHECK(first->reason == "bye");
+  // `take` consumed the stash.
+  CHECK_FALSE(conn.take_pending_close().has_value());
+
+  // Last-wins: a second request overwrites the first within a turn.
+  conn.request_close_transport(0x01, "first");
+  conn.request_close_application(0x99, "second");
+  auto second = conn.take_pending_close();
+  REQUIRE(second.has_value());
+  CHECK(second->kind == quic_close_kind::application);
+  CHECK(second->error_code == 0x99);
+  CHECK(second->reason == "second");
+}
+
 #pragma region CloseKindString
 TEST_CASE("CloseKindString", "[quic]") {
   // Each named value round-trips through `enum_as_string` / `parse_enum`.
@@ -232,22 +476,4 @@ TEST_CASE("CloseKindString", "[quic]") {
 }
 #pragma endregion
 
-#pragma region CbResultKindString
-TEST_CASE("CbResultKindString", "[quic]") {
-  // Each named value round-trips through `enum_as_string` / `parse_enum`.
-  using namespace corvid::strings;
-  using F = quic_cb_result::kind;
-  if (true) {
-    CHECK(enum_as_string(F::ok) == "ok");
-    CHECK(enum_as_string(F::callback_failure) == "callback_failure");
-    CHECK(enum_as_string(F::close_connection) == "close_connection");
-  }
-  if (true) {
-    constexpr F bad{0xff};
-    CHECK(parse_enum("ok", bad) == F::ok);
-    CHECK(parse_enum("callback_failure", bad) == F::callback_failure);
-    CHECK(parse_enum("close_connection", bad) == F::close_connection);
-  }
-}
-#pragma endregion
 // NOLINTEND(readability-function-cognitive-complexity)
