@@ -73,8 +73,10 @@ concept quic_plugin = requires(P p) {
   { p.on_packet_receive() } -> std::same_as<bool>;
 };
 
-// Default no-op upper-layer plugin.
-class quic_no_op_plugin {
+// Default no-op upper-layer plugin. Inherits `quic_conn_handlers` so the
+// session can install it as the `quic_conn`'s upcall target; every
+// virtual defaults to `true` so packets flow without reaction.
+class quic_no_op_plugin: public quic_conn_handlers {
 public:
   template<typename Session>
   explicit quic_no_op_plugin(Session&) noexcept {}
@@ -196,7 +198,9 @@ public:
           scid_{make_random_cid(quic_dgram_protocol::cid_length)},
           conn_{server_tls, peer_scid, scid_, original_dcid, local, peer,
               timeouts::now()},
-          plugin_{*this} {}
+          plugin_{*this} {
+      conn_.set_handlers(&plugin_);
+    }
 
     // Client-side construction. Builds a `quic_conn` in the client role
     // bound to `client_tls`, generating a fresh initial DCID (which we
@@ -210,7 +214,9 @@ public:
           scid_{make_random_cid(quic_dgram_protocol::cid_length)},
           conn_{client_tls, make_random_cid(quic_dgram_protocol::cid_length),
               scid_, local, peer, timeouts::now()},
-          plugin_{*this} {}
+          plugin_{*this} {
+      conn_.set_handlers(&plugin_);
+    }
 
     // Static factory for client-side construction. Builds an
     // unregistered session, then posts `register_self` to the loop

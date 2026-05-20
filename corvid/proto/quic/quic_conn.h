@@ -268,10 +268,10 @@ public:
 #pragma region Datagrams (RFC 9221)
 
   // Inbound DATAGRAM frame.
-  [[nodiscard]] virtual bool on_recv_datagram(quic_datagram_flags flags,
-      std::span<const uint8_t> data) noexcept {
-    (void)flags;
+  [[nodiscard]] virtual bool on_recv_datagram(std::span<const uint8_t> data,
+      quic_datagram_flags flags) noexcept {
     (void)data;
+    (void)flags;
     return true;
   }
 
@@ -675,9 +675,6 @@ private:
         static_cast<quic_stream_id>(stream_id), max_data));
   }
 
-  //!!! If we had an enum for uni/bidi then we could combine these
-  // into a single callback. Having said that, I don't think we have any
-  // such enum and I'm not sure if it's worth the trouble.
   static int on_extend_max_local_streams_bidi(ngtcp2_conn*,
       uint64_t max_streams, void* user_data) noexcept {
     auto* self = static_cast<quic_conn*>(user_data);
@@ -695,10 +692,9 @@ private:
   static int on_recv_datagram(ngtcp2_conn*, uint32_t flags,
       const uint8_t* data, size_t datalen, void* user_data) noexcept {
     auto* self = static_cast<quic_conn*>(user_data);
-    //!!! on_recv_datagram should move flags to the last parameter.
     return success(self->handlers_->on_recv_datagram(
-        static_cast<quic_datagram_flags>(flags),
-        std::span<const uint8_t>{data, datalen}));
+        std::span<const uint8_t>{data, datalen},
+        static_cast<quic_datagram_flags>(flags)));
   }
 
   static int

@@ -214,6 +214,11 @@ TEST_CASE(
       server_addr, now_tp()};
   REQUIRE(client);
 
+  // Trampolines deref `handlers_` unconditionally; the test only drives
+  // the conn by hand, so attach the base no-op handlers.
+  quic_conn_handlers noop_handlers;
+  client.set_handlers(&noop_handlers);
+
   auto client_path = quic_conn::make_ngtcp2_path(client_addr, server_addr);
 
   std::array<uint8_t, 1500> pkt_buf{};
