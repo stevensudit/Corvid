@@ -219,31 +219,31 @@ TEST_CASE("quic_conn handshake completes in-process", "[quic][conn]") {
   client.set_handlers(&noop_handlers);
   server.set_handlers(&noop_handlers);
 
-  // Paths recorded from each side's viewpoint: `(local, peer)`.
-  auto client_path = quic_conn::make_ngtcp2_path(client_addr, server_addr);
-  auto server_path = quic_conn::make_ngtcp2_path(server_addr, client_addr);
-
-  std::array<uint8_t, 1500> buf{};
+  std::array<std::byte, 1500> backing{};
 
   // Drive each side's `write_pkt` until it has nothing more to emit,
   // delivering each emitted packet straight to the peer's `read_pkt`.
-  // Returns false if either call reports a status other than `ok`.
-  auto pump = [&buf](quic_conn& from, ngtcp2_path& from_path, quic_conn& to,
-                  const ngtcp2_path& to_path) -> bool {
+  // Returns false if either call reports a status other than `ok`. The
+  // synthetic buffer is re-created each iteration so its payload starts
+  // empty and the post-call `payload_bytes()` is exactly the produced
+  // packet.
+  auto pump = [&backing](quic_conn& from, quic_conn& to) -> bool {
     for (int safety = 0; safety < 32; ++safety) {
-      auto res = from.write_pkt(from_path, buf, now_tp());
-      if (!res.ok()) return false;
-      if (res.bytes_written == 0) return true;
-      const auto rv = to.read_pkt(to_path,
-          std::span<const uint8_t>{buf.data(), res.bytes_written}, now_tp());
+      auto buf = iouring::iou_buffer::make_synthetic_write(
+          {backing.data(), backing.size()});
+      const auto status = from.write_pkt(buf, now_tp());
+      if (status != quic_decode_status::ok) return false;
+      const auto payload = buf.payload_bytes();
+      if (payload.empty()) return true;
+      const auto rv = to.read_pkt(payload, now_tp());
       if (rv != quic_decode_status::ok) return false;
     }
     return false;
   };
 
   for (int iter = 0; iter < 16; ++iter) {
-    REQUIRE(pump(client, client_path, server, server_path));
-    REQUIRE(pump(server, server_path, client, client_path));
+    REQUIRE(pump(client, server));
+    REQUIRE(pump(server, client));
     if (client.is_handshake_completed() && server.is_handshake_completed())
       break;
   }
@@ -292,17 +292,16 @@ TEST_CASE("quic_conn handler upcalls fire during handshake", "[quic][conn]") {
   client.set_handlers(&client_trace);
   server.set_handlers(&server_trace);
 
-  auto client_path = quic_conn::make_ngtcp2_path(client_addr, server_addr);
-  auto server_path = quic_conn::make_ngtcp2_path(server_addr, client_addr);
-  std::array<uint8_t, 1500> buf{};
-  auto pump = [&buf](quic_conn& from, ngtcp2_path& from_path, quic_conn& to,
-                  const ngtcp2_path& to_path) -> bool {
+  std::array<std::byte, 1500> backing{};
+  auto pump = [&backing](quic_conn& from, quic_conn& to) -> bool {
     for (int safety = 0; safety < 32; ++safety) {
-      auto res = from.write_pkt(from_path, buf, now_tp());
-      if (!res.ok()) return false;
-      if (res.bytes_written == 0) return true;
-      const auto rv = to.read_pkt(to_path,
-          std::span<const uint8_t>{buf.data(), res.bytes_written}, now_tp());
+      auto buf = iouring::iou_buffer::make_synthetic_write(
+          {backing.data(), backing.size()});
+      const auto status = from.write_pkt(buf, now_tp());
+      if (status != quic_decode_status::ok) return false;
+      const auto payload = buf.payload_bytes();
+      if (payload.empty()) return true;
+      const auto rv = to.read_pkt(payload, now_tp());
       if (rv != quic_decode_status::ok) return false;
     }
     return false;
@@ -317,8 +316,8 @@ TEST_CASE("quic_conn handler upcalls fire during handshake", "[quic][conn]") {
   // assert that one on the client.
   int extra_rounds = 0;
   for (int iter = 0; iter < 16; ++iter) {
-    REQUIRE(pump(client, client_path, server, server_path));
-    REQUIRE(pump(server, server_path, client, client_path));
+    REQUIRE(pump(client, server));
+    REQUIRE(pump(server, client));
     if (client.is_handshake_completed() && server.is_handshake_completed()) {
       if (extra_rounds >= 1) break;
       ++extra_rounds;
@@ -382,23 +381,26 @@ TEST_CASE("quic_conn handler returning false aborts read_pkt",
   quic_conn_handlers noop_handlers;
   client.set_handlers(&noop_handlers);
 
-  auto client_path = quic_conn::make_ngtcp2_path(client_addr, server_addr);
-  auto server_path = quic_conn::make_ngtcp2_path(server_addr, client_addr);
-  std::array<uint8_t, 1500> buf{};
+  std::array<std::byte, 1500> backing{};
+  auto make_buf = [&backing] {
+    return iouring::iou_buffer::make_synthetic_write(
+        {backing.data(), backing.size()});
+  };
 
   // Pump until either the handshake completes or some side errors. The
   // server is expected to error once `on_app_tx_ready` returns false.
   bool saw_error = false;
   for (int iter = 0; iter < 16 && !saw_error; ++iter) {
     for (int safety = 0; safety < 32; ++safety) {
-      auto res = client.write_pkt(client_path, buf, now_tp());
-      if (!res.ok()) {
+      auto buf = make_buf();
+      const auto status = client.write_pkt(buf, now_tp());
+      if (status != quic_decode_status::ok) {
         saw_error = true;
         break;
       }
-      if (res.bytes_written == 0) break;
-      const auto rv = server.read_pkt(server_path,
-          std::span<const uint8_t>{buf.data(), res.bytes_written}, now_tp());
+      const auto payload = buf.payload_bytes();
+      if (payload.empty()) break;
+      const auto rv = server.read_pkt(payload, now_tp());
       if (rv != quic_decode_status::ok) {
         saw_error = true;
         break;
@@ -406,14 +408,15 @@ TEST_CASE("quic_conn handler returning false aborts read_pkt",
     }
     if (saw_error) break;
     for (int safety = 0; safety < 32; ++safety) {
-      auto res = server.write_pkt(server_path, buf, now_tp());
-      if (!res.ok()) {
+      auto buf = make_buf();
+      const auto status = server.write_pkt(buf, now_tp());
+      if (status != quic_decode_status::ok) {
         saw_error = true;
         break;
       }
-      if (res.bytes_written == 0) break;
-      const auto rv = client.read_pkt(client_path,
-          std::span<const uint8_t>{buf.data(), res.bytes_written}, now_tp());
+      const auto payload = buf.payload_bytes();
+      if (payload.empty()) break;
+      const auto rv = client.read_pkt(payload, now_tp());
       if (rv != quic_decode_status::ok) {
         saw_error = true;
         break;
@@ -441,6 +444,32 @@ TEST_CASE("CloseKindString", "[quic]") {
     constexpr F bad{0xff};
     CHECK(parse_enum("transport", bad) == F::transport);
     CHECK(parse_enum("application", bad) == F::application);
+  }
+}
+#pragma endregion
+
+#pragma region WriteStreamFlagsString
+TEST_CASE("WriteStreamFlagsString", "[quic]") {
+  // Each named bit round-trips through `enum_as_string` / `parse_enum`.
+  using namespace corvid::strings;
+  using F = write_stream_flags;
+  if (true) {
+    CHECK(enum_as_string(F::more) == "more");
+    CHECK(enum_as_string(F::fin) == "fin");
+    CHECK(enum_as_string(F::padding) == "padding");
+  }
+  if (true) {
+    // Higher bits print first.
+    CHECK(enum_as_string(F::padding | F::fin | F::more) ==
+          "padding + fin + more");
+  }
+  if (true) {
+    constexpr F bad{0xff};
+    CHECK(parse_enum("more", bad) == F::more);
+    CHECK(parse_enum("fin", bad) == F::fin);
+    CHECK(parse_enum("padding", bad) == F::padding);
+    CHECK(parse_enum("padding + fin + more", bad) ==
+          (F::padding | F::fin | F::more));
   }
 }
 #pragma endregion

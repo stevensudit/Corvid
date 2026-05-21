@@ -32,55 +32,49 @@
 #include "../net_endpoint.h"
 #include "../../enums/bool_enums.h"
 #include "../../concurrency/timeouts.h"
+#include "../io_uring/iou_buffer.h"
 
 #include "quic_header.h"
 #include "quic_ssl_ctx.h"
 
-// C++ wrapper over ngtcp2's per-connection API. Owns:
-//   - an `ngtcp2_conn` (the QUIC state machine),
-//   - an `SSL*` (the TLS state machine on top of which QUIC carries its
-//     cryptographic handshake), and
-//   - an `ngtcp2_crypto_ossl_ctx*` (the shim that lets ngtcp2 drive the
-//     OpenSSL state machine).
-// The shim's standard callback set is installed on the ngtcp2 conn, so a
-// real TLS 1.3 handshake actually runs to completion against a properly
-// configured peer.
-//
-// `quic_conn` is intentionally neither copyable nor movable: ngtcp2 stores
-// our `this` pointer as `user_data` at construction time and the shim
-// stores `&conn_ref_` (also pointing into `this`) on the SSL via
-// `SSL_set_app_data`. Neither has a setter, so the wrapper's address must
-// stay fixed for the lifetime of the underlying objects. Hold one by
-// value at a stable address (a member of a session whose own address is
-// pinned via `shared_ptr`) or via `std::unique_ptr<quic_conn>`.
-
 namespace corvid { inline namespace proto { namespace quic {
 
-#pragma region quic_write_result
+#pragma region write_stream_flags
 
-// Result of `quic_conn::write_pkt`: either the number of bytes written
-// (which may be 0 when the connection has nothing to send right now), or
-// a `quic_decode_status` indicating why ngtcp2 refused to emit a packet.
-struct quic_write_result {
-  size_t bytes_written{};
-  quic_decode_status status{quic_decode_status::ok};
-
-  [[nodiscard]] bool ok() const noexcept {
-    return status == quic_decode_status::ok;
-  }
-  [[nodiscard]] explicit operator bool() const noexcept { return ok(); }
+// Flags passed to `quic_conn::writev_stream`, mirroring
+// `NGTCP2_WRITE_STREAM_FLAG_*`. `more` tells ngtcp2 the caller has more stream
+// data coming this turn and to defer finalizing the packet (used to coalesce
+// small writes; the caller must follow up with another `writev_stream` or a
+// flush). `fin` marks the supplied bytes as the last on the stream. `padding`
+// pads the packet to the path MTU (typically only useful for probes).
+enum class write_stream_flags : uint8_t {
+  none = 0,
+  more = NGTCP2_WRITE_STREAM_FLAG_MORE,      // 0x01
+  fin = NGTCP2_WRITE_STREAM_FLAG_FIN,        // 0x02
+  padding = NGTCP2_WRITE_STREAM_FLAG_PADDING // 0x04
 };
 
 #pragma endregion
+
+}}} // namespace corvid::proto::quic
+
+template<>
+constexpr inline auto corvid::enums::registry::enum_spec_v<
+    corvid::proto::quic::write_stream_flags> =
+    corvid::enums::bitmask::make_bitmask_enum_spec<
+        corvid::proto::quic::write_stream_flags, "padding, fin, more">();
+
+namespace corvid { inline namespace proto { namespace quic {
+
 #pragma region quic_close_request
 
 // Which CONNECTION_CLOSE frame variant ngtcp2 should emit.
-//   transport   -- CONNECTION_CLOSE of type 0x1c (RFC 9000 sec. 19.19).
-//                  `error_code` is from the QUIC transport error space
-//                  (`NGTCP2_*` constants, e.g., `NGTCP2_NO_ERROR`).
-//   application -- CONNECTION_CLOSE of type 0x1d. `error_code` is defined by
-//                  the application protocol (e.g., the `H3_*` constants from
-//                  RFC 9114 sec. 8.1).
+//   transport:   CONNECTION_CLOSE of type 0x1c (RFC 9000 sec. 19.19).
+//                `error_code` is from the QUIC transport error space
+//                (`NGTCP2_*` constants, e.g., `NGTCP2_NO_ERROR`).
+//   application: CONNECTION_CLOSE of type 0x1d. `error_code` is defined by
+//                the application protocol (e.g., the `H3_*` constants from
+//                RFC 9114 sec. 8.1).
 enum class quic_close_kind : uint8_t {
   transport = 0x1c,
   application = 0x1d,
@@ -161,7 +155,7 @@ public:
   [[nodiscard]] virtual bool on_app_tx_ready() noexcept { return true; }
 
   // Handshake confirmed (RFC 9001 sec. 4.1.2). Client-only: fires when
-  // HANDSHAKE_DONE arrives, signalling that the server has fully
+  // HANDSHAKE_DONE arrives, signaling that the server has fully
   // installed 1-RTT and the client may discard Handshake-level state.
   // ngtcp2 silently transitions the server into the confirmed state
   // without a callback, so concrete plugins do not see this on the
@@ -298,6 +292,23 @@ public:
 #pragma endregion
 #pragma region quic_conn
 
+// C++ wrapper over ngtcp2's per-connection API. Owns:
+//   - an `ngtcp2_conn` (the QUIC state machine),
+//   - an `SSL*` (the TLS state machine on top of which QUIC carries its
+//     cryptographic handshake), and
+//   - an `ngtcp2_crypto_ossl_ctx*` (the shim that lets ngtcp2 drive the
+//     OpenSSL state machine).
+// The shim's standard callback set is installed on the ngtcp2 conn, so a
+// real TLS 1.3 handshake actually runs to completion against a properly
+// configured peer.
+//
+// `quic_conn` is intentionally neither copyable nor movable: ngtcp2 stores
+// our `this` pointer as `user_data` at construction time and the shim
+// stores `&conn_ref_` (also pointing into `this`) on the SSL via
+// `SSL_set_app_data`. Neither has a setter, so the wrapper's address must
+// stay fixed for the lifetime of the underlying objects. Hold one by
+// value at a stable address (a member of a session whose own address is
+// pinned via `shared_ptr`) or via `std::unique_ptr<quic_conn>`.
 class quic_conn {
 public:
   using key_t = quic_cid;
@@ -307,8 +318,10 @@ public:
 
   // Construct a CLIENT-side connection.
   //
-  // On failure, every method becomes a no-op that returns
-  // `quic_decode_status::invalid_state`.
+  // On failure the resulting conn evaluates to `false` via `operator
+  // bool`. Methods do NOT check this; calling them on a failed-ctor
+  // conn will deref a null `ngtcp2_conn*` and crash. Callers must gate
+  // on `bool(conn)` after construction.
   //
   // `initial_dcid` is the random CID the client picks for the Initial
   // DCID (which the server echoes back via the
@@ -323,8 +336,10 @@ public:
 
   // Construct a SERVER-side connection.
   //
-  // On failure, every method becomes a no-op that returns
-  // `quic_decode_status::invalid_state`.
+  // On failure the resulting conn evaluates to `false` via `operator
+  // bool`. Methods do NOT check this; calling them on a failed-ctor
+  // conn will deref a null `ngtcp2_conn*` and crash. Callers must gate
+  // on `bool(conn)` after construction.
   //
   // `peer_scid` is the SCID the client put on the wire (the server uses
   // it as its destination when sending). `scid` is the server's own
@@ -356,6 +371,10 @@ private:
       const net_endpoint& peer, time_point_t now,
       const key_t& original_dcid) noexcept
       : role_{expected_role} {
+    ngtcp2_path_storage_init(&path_storage_, local.as_sockaddr_ptr(),
+        local.sockaddr_size(), peer.as_sockaddr_ptr(), peer.sockaddr_size(),
+        nullptr);
+
     ensure_crypto_init();
     if (tls.role() != expected_role) return;
     if (!tls) return;
@@ -398,7 +417,6 @@ private:
       params.original_dcid_present = 1;
     }
 
-    auto path = make_ngtcp2_path(local, peer);
     ngtcp2_conn* raw_conn = nullptr;
     const auto& cbs =
         (role_ == connection_role::server)
@@ -407,11 +425,11 @@ private:
     const int rv =
         (role_ == connection_role::server)
             ? ngtcp2_conn_server_new(&raw_conn, dcid.pointer(), scid.pointer(),
-                  &path, NGTCP2_PROTO_VER_V1, &cbs, &settings, &params,
-                  nullptr, this)
+                  &path_storage_.path, NGTCP2_PROTO_VER_V1, &cbs, &settings,
+                  &params, nullptr, this)
             : ngtcp2_conn_client_new(&raw_conn, dcid.pointer(), scid.pointer(),
-                  &path, NGTCP2_PROTO_VER_V1, &cbs, &settings, &params,
-                  nullptr, this);
+                  &path_storage_.path, NGTCP2_PROTO_VER_V1, &cbs, &settings,
+                  &params, nullptr, this);
     if (rv != 0) return;
     conn_ptr conn{raw_conn};
 
@@ -434,32 +452,27 @@ public:
   [[nodiscard]] auto native(this auto& self) { return self.conn_.get(); }
 
   [[nodiscard]] bool is_handshake_completed() const noexcept {
-    if (!conn_) return false;
     return ngtcp2_conn_get_handshake_completed(conn_.get()) != 0;
   }
 
-  // Build an `ngtcp2_path` whose `addr` fields point inside the given
-  // `net_endpoint`s. The endpoints must outlive any ngtcp2 call that uses
-  // the returned path. ngtcp2 takes `sockaddr*` (non-const) even though it
-  // only reads through these pointers; the `const_cast` is safe.
-  [[nodiscard]] static ngtcp2_path make_ngtcp2_path(const net_endpoint& local,
-      const net_endpoint& peer) noexcept {
-    ngtcp2_path path{};
-    path.local.addr = const_cast<sockaddr*>(local.as_sockaddr_ptr());
-    path.local.addrlen = local.sockaddr_size();
-    path.remote.addr = const_cast<sockaddr*>(peer.as_sockaddr_ptr());
-    path.remote.addrlen = peer.sockaddr_size();
-    return path;
+  [[nodiscard]] const net_endpoint& local() const noexcept {
+    return *reinterpret_cast<net_endpoint*>(path_storage_.path.local.addr);
+  }
+  [[nodiscard]] const net_endpoint& peer() const noexcept {
+    return *reinterpret_cast<net_endpoint*>(path_storage_.path.remote.addr);
   }
 
 #pragma endregion
 #pragma region Plugin wiring
 
   // Install the upcall handlers that `quic_conn`'s ngtcp2 trampolines
-  // dispatch into. Pass `nullptr` to detach. The session calls this once,
-  // after the upper plugin is constructed. The pointee must outlive
-  // `quic_conn` (or be detached first); typically it is a base subobject
-  // of the upper plugin owned next to `quic_conn` in the session.
+  // dispatch into. The session must call this once, after the upper
+  // plugin is constructed and before any I/O entry point (`read_pkt`,
+  // `write_pkt`, `writev_stream`) fires; the trampolines deref
+  // `handlers_` unconditionally, so a null pointer here at I/O time
+  // crashes. The pointee must outlive `quic_conn`; typically it is a
+  // base subobject of the upper plugin owned next to `quic_conn` in
+  // the session.
   void set_handlers(quic_conn_handlers* handlers) noexcept {
     handlers_ = handlers;
   }
@@ -483,45 +496,130 @@ public:
 #pragma endregion
 #pragma region IO
 
-  // Feed a received datagram into the conn for decryption + decoding.
-  [[nodiscard]] quic_decode_status read_pkt(const ngtcp2_path& path,
-      std::span<const uint8_t> pkt,
+  // Feed a received datagram into the conn for decryption + decoding. Invokes
+  // various callbacks, as needed.
+  [[nodiscard]] quic_decode_status read_pkt(std::span<const uint8_t> pkt,
       time_point_t now = timeouts::now()) noexcept {
-    if (!conn_) return quic_decode_status::invalid_state;
-    const int rv = ngtcp2_conn_read_pkt(conn_.get(), &path, nullptr,
-        pkt.data(), pkt.size(), timeouts::as_nanoseconds(now));
+    const int rv = ngtcp2_conn_read_pkt(conn_.get(), &path_storage_.path,
+        nullptr, pkt.data(), pkt.size(), timeouts::as_nanoseconds(now));
     return static_cast<quic_decode_status>(rv);
   }
 
-  // Drive a single outgoing packet. `dest` is the buffer ngtcp2 will write
-  // the encrypted bytes into; on success `bytes_written` is the number of
-  // bytes written (zero means "nothing to send right now"). `path_out`
-  // is filled with the path the packet should be sent on.
-  [[nodiscard]] quic_write_result write_pkt(ngtcp2_path& path_out,
-      std::span<uint8_t> dest, time_point_t now = timeouts::now()) noexcept {
-    if (!conn_) return {0, quic_decode_status::invalid_state};
-    const ngtcp2_ssize rv = ngtcp2_conn_write_pkt(conn_.get(), &path_out,
-        nullptr, dest.data(), dest.size(), timeouts::as_nanoseconds(now));
-    if (rv < 0) return {0, static_cast<quic_decode_status>(rv)};
-    return {static_cast<size_t>(rv), quic_decode_status::ok};
+  // Drive a single outgoing packet carrying only non-stream frames (ACKs,
+  // MAX_DATA, etc.). ngtcp2 writes the produced packet into `buf`'s tail,
+  // extending `buf`'s payload by the packet length; the caller calls again on
+  // the same `buf` to keep appending packets, or borrows a fresh `buf` per
+  // packet for one-packet-per-datagram shipping. ngtcp2 may update the
+  // destination path in `path_storage_`.
+  //
+  // ngtcp2 packets are atomic, so this gives up (returns `ok` without
+  // extending `buf`) whenever the remaining tail can't hold the next packet
+  // ngtcp2 wants to emit, not just when the tail is fully empty. The same
+  // status (`ok`, payload unchanged) covers three cases the caller can't
+  // distinguish directly: tail too small, congestion control limit, or
+  // ngtcp2 idle. The cheap disambiguator is "retry once with a fresh
+  // buffer": if the new buffer also doesn't grow, it was congestion or
+  // idle and the drain can stop; if it grows, the prior failure was
+  // capacity. Production one-packet-per-buffer drains (the session's
+  // `drain_writes`) get this for free since every iteration starts from a
+  // fresh path-MTU buffer. On error, `buf` is left unchanged.
+  [[nodiscard]] quic_decode_status write_pkt(iouring::iou_buffer& buf,
+      time_point_t now = timeouts::now()) noexcept {
+    auto tail = buf.tail_span();
+    if (tail.empty()) return quic_decode_status::ok;
+    const ngtcp2_ssize rv = ngtcp2_conn_write_pkt(conn_.get(),
+        &path_storage_.path, nullptr, reinterpret_cast<uint8_t*>(tail.data()),
+        tail.size(), timeouts::as_nanoseconds(now));
+    if (rv < 0) return static_cast<quic_decode_status>(rv);
+    if (rv > 0)
+      (void)buf.update_payload({tail.data(), static_cast<size_t>(rv)});
+    return quic_decode_status::ok;
+  }
+
+  // Drive a single outgoing packet, optionally carrying stream bytes. ngtcp2
+  // writes the produced packet into `buf`'s tail (extending `buf`'s payload by
+  // the packet length), and `vec` is advanced past the stream bytes ngtcp2
+  // accepted into its send queue: whole entries fully covered are dropped from
+  // the front, and a partially-consumed leading entry is updated in place. To
+  // keep appending packets, call again on the same `buf`: its tail
+  // moves forward automatically across calls. To ship each packet as
+  // its own UDP datagram, borrow a fresh `buf` per packet.
+  //
+  // ngtcp2 packets are atomic, so this gives up (returns `ok` without
+  // extending `buf` or advancing `vec`) whenever the remaining tail
+  // can't hold the next packet ngtcp2 wants to emit, not just when the
+  // tail is fully empty. The same status (`ok`, payload unchanged)
+  // covers three cases the caller can't distinguish directly: tail too
+  // small, congestion control limit, or ngtcp2 idle. The cheap
+  // disambiguator is "retry once with a fresh buffer": if the new
+  // buffer also doesn't grow, it was congestion or idle and the drain
+  // can stop; if it grows, the prior failure was capacity (ship the
+  // partial buffer, keep the new one going). The drain terminates when
+  // `vec` is empty and a fresh-buffer call also stops growing.
+  //
+  // Bytes accepted into the stream queue must remain valid until the
+  // peer ACKs them via `on_acked_stream_data_offset`. `stream_id ==
+  // quic_stream_id::none` (the ngtcp2 -1 sentinel) emits a packet
+  // carrying only non-stream frames (ACKs, MAX_DATA, etc.), the same as
+  // `write_pkt`; `vec` is left untouched in that case. `flags` selects
+  // ngtcp2 write modifiers; see `write_stream_flags` for the per-bit
+  // semantics (`fin` to terminate the stream, `more` to coalesce
+  // subsequent calls into the same packet, `padding` to pad to path
+  // MTU). On error, `buf` and `vec` are left unchanged.
+  [[nodiscard]] quic_decode_status writev_stream(quic_stream_id stream_id,
+      std::span<ngtcp2_vec>& vec, iouring::iou_buffer& buf,
+      write_stream_flags flags = write_stream_flags::none,
+      time_point_t now = timeouts::now()) noexcept {
+    auto tail = buf.tail_span();
+    if (tail.empty()) return quic_decode_status::ok;
+    ngtcp2_ssize pdatalen{-1};
+    const ngtcp2_ssize rv = ngtcp2_conn_writev_stream(conn_.get(),
+        &path_storage_.path, nullptr, reinterpret_cast<uint8_t*>(tail.data()),
+        tail.size(), &pdatalen, *flags, *stream_id, vec.data(), vec.size(),
+        timeouts::as_nanoseconds(now));
+    if (rv < 0) return static_cast<quic_decode_status>(rv);
+
+    // Extend `buf`'s payload to cover what ngtcp2 wrote, and advance
+    // `vec` past whatever ngtcp2 consumed. `update_payload` can only
+    // fail on a tail-start/overrun invariant violation, neither of which
+    // can happen here. `pdatalen < 0` means no stream data was attached
+    // (e.g., `stream_id == none`); leave `vec` alone in that case.
+    if (rv > 0)
+      (void)buf.update_payload({tail.data(), static_cast<size_t>(rv)});
+    if (pdatalen > 0) advance_vec(vec, static_cast<size_t>(pdatalen));
+    return quic_decode_status::ok;
+  }
+
+  // Open a locally-initiated bidirectional stream. On success `stream_id`
+  // is set to the ngtcp2-picked id from the next free slot in the local
+  // bidirectional space, which the caller uses on subsequent
+  // `writev_stream` calls. Fails with `NGTCP2_ERR_STREAM_ID_BLOCKED` when
+  // the peer's `initial_max_streams_bidi` has been exhausted; the caller
+  // may retry after `on_extend_max_local_streams_bidi` fires. On input,
+  // `stream_id` must be `quic_stream_id::none`. On failure `stream_id` is left
+  // untouched.
+  [[nodiscard]] quic_decode_status open_bidi_stream(
+      quic_stream_id& stream_id) noexcept {
+    assert(stream_id == quic_stream_id::none);
+    int64_t raw{};
+    const int rv = ngtcp2_conn_open_bidi_stream(conn_.get(), &raw, nullptr);
+    if (rv != 0) return static_cast<quic_decode_status>(rv);
+    stream_id = static_cast<quic_stream_id>(raw);
+    return quic_decode_status::ok;
   }
 
 #pragma endregion
 #pragma region Expiry
 
   // The next deadline at which `handle_expiry` should be called. If ngtcp2
-  // currently has no pending timer, returns `time_point_t::max()`. Caller
-  // arms an external timer at this point and invokes `handle_expiry` when
-  // it fires.
+  // currently has no pending timer, returns `time_point_t::max()`. Caller arms
+  // an external timer at this point and invokes `handle_expiry` when it fires.
   [[nodiscard]] time_point_t expiry() const noexcept {
-    if (!conn_) return time_point_t::max();
-
     return timeouts::from_nanoseconds(ngtcp2_conn_get_expiry(conn_.get()));
   }
 
   [[nodiscard]] quic_decode_status handle_expiry(
       time_point_t now = timeouts::now()) noexcept {
-    if (!conn_) return quic_decode_status::invalid_state;
     return static_cast<quic_decode_status>(
         ngtcp2_conn_handle_expiry(conn_.get(), timeouts::as_nanoseconds(now)));
   }
@@ -529,21 +627,26 @@ public:
 #pragma endregion
 #pragma region Handlers
 private:
-  // -- App-supplied callbacks. The crypto-shim functions handle the AEAD /
+  // App-supplied callbacks. The crypto-shim functions handle the AEAD /
   // HP / key / crypto-data callbacks; we only own the ones the shim does
   // not provide. Trampolines that surface a `quic_conn_handlers` upcall
-  // recover the typed `quic_conn*` from `user_data`, no-op when no
-  // handlers are attached, and otherwise translate the handler's bool
-  // return into `0` / `NGTCP2_ERR_CALLBACK_FAILURE`. A handler that wants
-  // a graceful CONNECTION_CLOSE instead of a callback failure calls
-  // `request_close` first to request the close, then returns whichever bool
-  // fits its needs.
+  // recover the typed `quic_conn*` from `user_data` and translate the
+  // handler's bool return into `0` / `NGTCP2_ERR_CALLBACK_FAILURE`. The
+  // owning session must call `set_handlers` before any I/O fires
+  // (`read_pkt`, `write_pkt`, `writev_stream`), since the trampolines
+  // deref `handlers_` unconditionally; a null pointer here will crash.
+  // A handler that wants a graceful CONNECTION_CLOSE instead of a
+  // callback failure calls `request_close` first to request the close,
+  // then returns whichever bool fits its needs.
+
+  // Generate random bytes. No way to signal error and can't throw through C,
+  // so just terminate in the unlikely event that it fails
   static void on_rand(uint8_t* dest, size_t destlen,
       const ngtcp2_rand_ctx* /*ctx*/) noexcept {
-    // `RAND_bytes` cannot reasonably fail in normal operation; on error,
-    // the worst case is that the connection rejects packets. Returning
-    // zeroed buffers would be worse (deterministic, predictable).
-    RAND_bytes(dest, static_cast<int>(destlen));
+    if (destlen > static_cast<size_t>(std::numeric_limits<int>::max()))
+      std::terminate();
+
+    if (RAND_bytes(dest, static_cast<int>(destlen)) != 1) std::terminate();
   }
 
   // CIDs must be unpredictable per RFC 9000 sec. 5.1, so fill with
@@ -585,13 +688,7 @@ private:
         user_data);
   }
 
-  // -- Trampolines that forward `quic_conn_handlers` upcalls.
-
-  // Translate a handler's `bool` return into the int ngtcp2 callbacks
-  // expect: `0` on success, `NGTCP2_ERR_CALLBACK_FAILURE` on failure.
-  [[nodiscard]] static constexpr int success(bool ok) noexcept {
-    return ok ? 0 : NGTCP2_ERR_CALLBACK_FAILURE;
-  }
+  // Trampolines that forward `quic_conn_handlers` upcalls.
 
   static int on_handshake_completed(ngtcp2_conn*, void* user_data) noexcept {
     auto* self = static_cast<quic_conn*>(user_data);
@@ -610,7 +707,7 @@ private:
   // intermediate HANDSHAKE call is silently ignored.
   static int on_recv_tx_key(ngtcp2_conn*, ngtcp2_encryption_level level,
       void* user_data) noexcept {
-    if (level != NGTCP2_ENCRYPTION_LEVEL_1RTT) return 0;
+    if (level != NGTCP2_ENCRYPTION_LEVEL_1RTT) return success(true);
     auto* self = static_cast<quic_conn*>(user_data);
     return success(self->handlers_->on_app_tx_ready());
   }
@@ -712,9 +809,35 @@ private:
 #pragma endregion
 #pragma region Helpers
 
-  // Callback tables, one per role. Unmentioned slots are
-  // value-initialized to null, which is what ngtcp2 expects for optional
-  // callbacks.
+  // Translate a handler's `bool` return into the int ngtcp2 callbacks expect:
+  // `0` on success, `NGTCP2_ERR_CALLBACK_FAILURE` on failure.
+  [[nodiscard]] static constexpr int success(bool ok) noexcept {
+    return ok ? 0 : NGTCP2_ERR_CALLBACK_FAILURE;
+  }
+
+  // Advance `vec` past `consumed` bytes' worth of its content. Whole entries
+  // fully covered by `consumed` are dropped from the front of the span; the
+  // first remaining entry (if any) has its `base` and `len` trimmed in place.
+  // `consumed` must not exceed the total bytes currently spanned by `vec`.
+  static void
+  advance_vec(std::span<ngtcp2_vec>& vec, size_t consumed) noexcept {
+    size_t whole_entries = 0;
+    for (auto& entry : vec) {
+      if (entry.len <= consumed) {
+        consumed -= entry.len;
+        ++whole_entries;
+        if (consumed == 0) break;
+      } else {
+        entry.base += consumed;
+        entry.len -= consumed;
+        break;
+      }
+    }
+    vec = vec.subspan(whole_entries);
+  }
+
+  // Callback tables, one per role. Unmentioned slots are value-initialized to
+  // null, which is what ngtcp2 expects for optional callbacks.
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wmissing-designated-field-initializers"
   static constexpr ngtcp2_callbacks server_callbacks{
@@ -825,13 +948,15 @@ private:
   // while it is being used. `conn_ref_` is declared first so it outlives
   // the SSL that points at it.
   ngtcp2_crypto_conn_ref conn_ref_{};
-  connection_role role_;
+  connection_role role_{};
+  ngtcp2_path_storage path_storage_{};
   ssl_ptr ssl_;
   ossl_ctx_ptr ossl_ctx_;
   conn_ptr conn_;
 
   // Upper-plugin upcalls, installed via `set_handlers` after construction.
-  // Null until then; trampolines no-op on null.
+  // Null until then; trampolines deref unconditionally, so the session
+  // must install handlers before any I/O fires.
   quic_conn_handlers* handlers_{};
 
   // Close request stashed by `request_close` (typically called from

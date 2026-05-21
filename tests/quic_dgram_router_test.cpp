@@ -27,7 +27,7 @@
 
 #include "../corvid/proto/io_uring/iou_loop.h"
 #include "../corvid/proto/quic/quic_conn.h"
-#include "../corvid/proto/quic/quic_dgram_router.h"
+#include "../corvid/proto/quic/quic_dgram_plugins.h"
 #include "../corvid/proto/quic/quic_self_signed_cert.h"
 #include "../corvid/proto/quic/quic_ssl_ctx.h"
 
@@ -219,9 +219,8 @@ TEST_CASE(
   quic_conn_handlers noop_handlers;
   client.set_handlers(&noop_handlers);
 
-  auto client_path = quic_conn::make_ngtcp2_path(client_addr, server_addr);
-
-  std::array<uint8_t, 1500> pkt_buf{};
+  std::array<std::byte, 1500> backing{};
+  std::array<uint8_t, 1500> recv_buf{};
   const auto server_sockaddr = server_addr.as_sockaddr();
 
   // Each iteration: drain the client's outbound, ship every emitted
@@ -233,19 +232,23 @@ TEST_CASE(
   bool finished = false;
   for (int iter = 0; iter < 32 && !finished; ++iter) {
     for (int safety = 0; safety < 32; ++safety) {
-      const auto res = client.write_pkt(client_path, pkt_buf, now_tp());
-      if (!res.ok() || res.bytes_written == 0) break;
-      const auto sent = ::sendto(client_sock.handle(), pkt_buf.data(),
-          res.bytes_written, 0, server_sockaddr.first, server_sockaddr.second);
-      REQUIRE(sent == static_cast<ssize_t>(res.bytes_written));
+      auto buf = iouring::iou_buffer::make_synthetic_write(
+          {backing.data(), backing.size()});
+      const auto status = client.write_pkt(buf, now_tp());
+      if (status != quic_decode_status::ok) break;
+      const auto payload = buf.payload_bytes();
+      if (payload.empty()) break;
+      const auto sent = ::sendto(client_sock.handle(), payload.data(),
+          payload.size(), 0, server_sockaddr.first, server_sockaddr.second);
+      REQUIRE(sent == static_cast<ssize_t>(payload.size()));
     }
 
     for (int safety = 0; safety < 32; ++safety) {
-      const auto got = ::recvfrom(client_sock.handle(), pkt_buf.data(),
-          pkt_buf.size(), 0, nullptr, nullptr);
+      const auto got = ::recvfrom(client_sock.handle(), recv_buf.data(),
+          recv_buf.size(), 0, nullptr, nullptr);
       if (got <= 0) break;
-      const auto rv = client.read_pkt(client_path,
-          std::span<const uint8_t>{pkt_buf.data(), static_cast<size_t>(got)},
+      const auto rv = client.read_pkt(
+          std::span<const uint8_t>{recv_buf.data(), static_cast<size_t>(got)},
           now_tp());
       REQUIRE(rv == quic_decode_status::ok);
     }

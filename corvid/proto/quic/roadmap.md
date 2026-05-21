@@ -193,15 +193,16 @@ needs it, or if we want a watchdog beneath ngtcp2's own timers.
   that collides with ngtcp2's same-named target when both are loaded in one
   CMake configure; patching around it is doable but unnecessary until we
   actually need HTTP/3.
-- **[done, stub session] CID-keyed router plugin.**
-  `corvid/proto/quic/quic_dgram_router.h` defines `quic_dgram_protocol`
+- **[done] CID-keyed router plugin.**
+  `corvid/proto/quic/quic_dgram_plugins.h` defines `quic_dgram_protocol`
   with a `router_plugin` (DCID extraction via `quic_version_cid` for both
-  long and short headers; only long-header packets create sessions) and a
-  stub `session_plugin` (single-DCID registration, no-op recv/sent pending
-  the `quic_conn` wrapper). CID length defaults to
-  `quic_version_cid::default_scid_length` (16 bytes). Tested with synthetic
-  packets in `tests/quic_dgram_router_test.cpp`; ngtcp2-generated-packet
-  coverage will arrive with the `quic_conn` milestone.
+  long and short headers; only long-header packets create sessions on
+  server-role routers; client-role routers drop unsolicited inbound) and
+  a `session_plugin` skeleton. CID length defaults to
+  `quic_version_cid::default_scid_length` (16 bytes). Tested with
+  synthetic packets in `tests/quic_dgram_router_test.cpp`; the session
+  body grew with the next milestone and full live-router coverage
+  arrived with the one after that.
 - **[done] `quic_conn` wrapper + TLS handshake.**
   `corvid/proto/quic/quic_conn.h` is a non-movable RAII wrapper that
   owns an `ngtcp2_conn`, a per-conn `SSL*`, and an
@@ -221,31 +222,56 @@ needs it, or if we want a watchdog beneath ngtcp2's own timers.
   drives a full in-process handshake by ferrying datagrams between a
   client and server conn until both report `is_handshake_completed()`;
   convergence is two round-trips on the happy path.
-- **[done, server-side I/O + expiry] Wire `quic_conn` into
-  `quic_dgram_protocol::session_plugin`.** `quic_dgram_protocol` is now a
-  template parameterized on a `quic_plugin` upper layer (default
-  `quic_no_op_plugin`; `quic_echo_plugin` follows in the next milestone,
-  `http3_plugin` later). The `session_plugin` owns a server-role
-  `quic_conn`, drives `read_pkt` / `write_pkt` per datagram, and arms a
-  single rearmable expiry-sweeper entry against `iou_loop::timeouts()`.
-  `iou_basic_loop::run_once` now ticks `timeouts_` at the end of each
-  batch, which was a pre-existing gap that blocked the expiry plumbing.
-  Sessions register under both the client's original DCID and the
-  server's freshly-generated primary SCID; additional SCIDs issued
-  through `get_new_connection_id2` are deferred to the CID-rotation
-  milestone, along with client-mode router/session support. Tested by
-  `quic_dgram_router_test`'s "drives a server-side TLS 1.3 handshake
-  through the live iou_dgram_router" case, which handshakes a manually
-  driven client through the live router.
-- **[planned] QUIC echo server.** First end-to-end milestone. Lands the
-  `quic_conn_handlers` abstract base and grows the `quic_plugin` concept
-  from a single `on_packet_receive` tick into the full upcall contract
-  (`on_recv_stream_data`, `on_acked_stream_data_offset`, `on_stream_close`,
-  `on_recv_datagram`, flow-control feedback, plus a per-turn `drain`).
-  `quic_echo_plugin` is the first concrete handler: opens a bidirectional
-  stream on handshake completion and echoes application bytes back.
-  Validates handshake, packet send/recv pacing, ACK handling, key updates,
-  and graceful close. Likely tested against the `ngtcp2` reference client.
+- **[done] Wire `quic_conn` into `quic_dgram_protocol::session_plugin`.**
+  `quic_dgram_protocol` is now a template parameterized on a `quic_plugin`
+  upper layer (default `quic_no_op_plugin`; `quic_echo_plugin` follows in
+  the next milestone, `http3_plugin` later). The `session_plugin` owns a
+  `quic_conn` in either role, drives `read_pkt` / `write_pkt` per
+  datagram, and arms a single rearmable expiry-sweeper entry against
+  `iou_loop::timeouts()`. `iou_basic_loop::run_once` now ticks `timeouts_`
+  at the end of each batch, which was a pre-existing gap that blocked the
+  expiry plumbing. Server-role sessions register under both the client's
+  original DCID and the server's freshly-generated primary SCID; client-
+  role sessions register under their own SCID only and are constructed
+  via the `session_plugin::make_client` factory, which posts
+  `register_self` to the loop thread to push the Initial out and arm
+  handshake expiry. Additional SCIDs issued through
+  `get_new_connection_id2` are still deferred to the CID-rotation
+  milestone. Tested by `quic_dgram_router_test`'s server-only
+  ("drives a server-side TLS 1.3 handshake through the live
+  iou_dgram_router") and bilateral ("drives a TLS 1.3 handshake through
+  the live iou_dgram_router on both sides") cases.
+- **[done] `quic_conn_handlers` abstract base + full upcall contract.**
+  `quic_conn.h` declares the protocol-neutral `quic_conn_handlers` base
+  that the upper plugin inherits and the session installs via
+  `quic_conn::set_handlers`. Ngtcp2's per-conn callback table is wired
+  end-to-end through static trampolines that recover the typed
+  `quic_conn*` from `user_data` and forward into the handler: handshake
+  progression (`on_handshake_completed`, `on_app_tx_ready`,
+  `on_handshake_confirmed`), stream lifecycle (`on_stream_open`,
+  `on_recv_stream_data`, `on_stream_reset`, `on_stream_stop_sending`,
+  `on_stream_close`), ack feedback (`on_acked_stream_data_offset`), flow
+  control (`on_extend_max_stream_data`,
+  `on_extend_max_local_streams_bidi/uni`), and RFC 9221 datagrams
+  (`on_recv_datagram`, `on_ack_datagram`, `on_lost_datagram`). Handler
+  bools translate to `0` / `NGTCP2_ERR_CALLBACK_FAILURE` at the
+  trampoline boundary. `quic_conn::request_close` stashes a graceful
+  CONNECTION_CLOSE (transport or application variant) for the drain to
+  emit after `read_pkt` returns, since ngtcp2 forbids writes from inside
+  callbacks. `quic_no_op_plugin` inherits the base with all defaults so
+  the no-op session compiles unchanged. Covered by `quic_conn_test`'s
+  "handler upcalls fire during handshake" and "handler returning false
+  aborts read_pkt" cases.
+- **[planned] QUIC echo server.** First end-to-end milestone. Grows the
+  upper-plugin contract beyond `quic_conn_handlers` into the per-turn
+  outbound shape (drain hook, stream-open and `writev_stream` primitives
+  on `quic_conn`, retained send buffers released on
+  `on_acked_stream_data_offset`). Replaces the obsolete
+  `on_packet_receive`-only `quic_plugin` concept. `quic_echo_plugin` is
+  the first concrete handler: opens a bidirectional stream on handshake
+  completion and echoes application bytes back. Validates packet
+  send/recv pacing, ACK handling, key updates, and graceful close.
+  Likely tested against the `ngtcp2` reference client.
 - **[planned] Connection ID rotation, path validation, migration.** Extends
   the session plugin to handle NEW_CONNECTION_ID / RETIRE_CONNECTION_ID
   exchanges, address validation tokens, and 4-tuple migration. Exercises the
@@ -255,13 +281,15 @@ needs it, or if we want a watchdog beneath ngtcp2's own timers.
   `PATCH_COMMAND` that renames it to `nghttp3_check`). RAII wrap of
   `nghttp3_conn` (custom-deleter `unique_ptr`, `[[nodiscard]] bool` error
   translation, QPACK encoder/decoder context owned alongside) shaped like
-  `quic_conn`, but owned BY the HTTP/3 upper plugin -- not a separate
+  `quic_conn`, but owned BY the HTTP/3 upper plugin, not a separate
   adapter class between the plugin and nghttp3 (the upper plugin IS the
   adapter; see [HTTP/3 layering](#http3-layering)).
-- **[planned] HTTP/3 server echo.** First HTTP/3 milestone. Decodes request
-  HEADERS, emits response HEADERS + DATA. Verifies stream multiplexing,
-  flow control, and HEADERS encoding round-trip. Tested against `curl
-  --http3` and `nghttp3`'s reference client.
+- **[planned] HTTP/3 fake GET.** First HTTP/3 milestone. Decodes a
+  request HEADERS frame and emits a canned response HEADERS + DATA (not
+  a stream echo: the request body, if any, is ignored). Verifies
+  stream multiplexing, flow control, and HEADERS / QPACK encoding
+  round-trip end-to-end. Tested against `curl --http3` and `nghttp3`'s
+  reference client.
 - **[planned] HTTP/3 streaming bodies, trailers, server push (maybe).**
   Wire up request/response body streaming through nghttp3's data callbacks.
   Server push is RFC-permitted but deprecated in practice; treat as optional.

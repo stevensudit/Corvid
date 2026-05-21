@@ -33,9 +33,9 @@ using connection_role = enums::bool_enums::connection_role;
 
 #pragma region ssl_identity
 
-// Server identity: an X509 cert plus its matching private key, both
-// RAII-owned. Used as the parameter bundle for any `SSL_CTX` that needs
-// to present a server cert, and as the base for cert generators (e.g.,
+// Server identity: an X509 cert, plus its matching private key, both
+// RAII-owned. Used as the parameter bundle for any `SSL_CTX` that needs to
+// present a server cert, and as the base for cert generators (e.g.,
 // `self_signed_cert`).
 struct ssl_identity {
   using evp_pkey_ptr = std::unique_ptr<EVP_PKEY,
@@ -52,23 +52,23 @@ struct ssl_identity {
 #pragma endregion
 #pragma region quic_ssl_ctx
 
-// RAII wrapper around `SSL_CTX` parameterized by QUIC role and a single
-// ALPN protocol. Servers also install the supplied cert and private key.
-// QUIC requires TLS 1.3 (RFC 9001 sec. 4); both factories pin min/max
-// proto version to TLS 1.3.
+// RAII wrapper around `SSL_CTX` parameterized by QUIC role and a single ALPN
+// protocol. Servers also install the supplied cert and private key. QUIC
+// requires TLS 1.3 (RFC 9001 sec. 4); both factories pin min/max proto version
+// to TLS 1.3.
 //
 // Non-movable: the server-side ALPN selector callback registered on the
-// SSL_CTX holds a pointer back into this object's `alpn_wire_` storage,
-// so moving the wrapper would invalidate that callback's `user_data`.
-// Hold one by value at a stable address or via `std::unique_ptr`.
+// SSL_CTX holds a pointer back into this object's `alpn_wire_` storage, so
+// moving the wrapper would invalidate that callback's `user_data`. Hold one by
+// value at a stable address or via `std::unique_ptr`.
 class quic_ssl_ctx {
 public:
 #pragma region Construction
 
-  // Server SSL_CTX. `identity` carries the cert and private key the
-  // server presents; both are referenced (refcounted) by the context, so
-  // the caller's `ssl_identity` keeps its owning unique_ptrs. `alpn` is
-  // the single QUIC application protocol the server accepts.
+  // Server SSL_CTX. `identity` carries the cert and private key the server
+  // presents; both are referenced (refcounted) by the context, so the caller's
+  // `ssl_identity` keeps its owning unique_ptrs. `alpn` is the single QUIC
+  // application protocol the server accepts.
   quic_ssl_ctx(const ssl_identity& identity, std::string_view alpn) noexcept
       : alpn_wire_{to_alpn_wire(alpn)}, role_{connection_role::server} {
     if (!identity) return;
@@ -84,9 +84,9 @@ public:
   }
 
   // Client SSL_CTX. `alpn` is the application protocol the client offers.
-  // Peer-certificate verification is disabled (tests use self-signed
-  // certs); callers needing verification should configure the returned
-  // `native()` directly.
+  // Peer-certificate verification is disabled (tests use self-signed certs);
+  // callers needing verification should configure the returned `native()`
+  // directly.
   explicit quic_ssl_ctx(std::string_view alpn) noexcept
       : alpn_wire_{to_alpn_wire(alpn)}, role_{connection_role::client} {
     ssl_ctx_ptr ctx{SSL_CTX_new(TLS_client_method())};

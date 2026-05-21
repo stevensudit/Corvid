@@ -168,18 +168,7 @@ public:
   // local static, so no allocation ever occurs.
   [[nodiscard]] static iou_buffer make_synthetic(span_t data,
       pool_ptr_t pool = {}, iou_res res = {}) noexcept {
-    struct null_buffer_pool: public buffer_pool_base {
-      [[nodiscard]] std::byte* base() const noexcept override {
-        return nullptr;
-      }
-      [[nodiscard]] bool return_buffer(span_t, block_type) override {
-        return true;
-      }
-    };
-    static null_buffer_pool inst;
-    static const pool_ptr_t instance{std::shared_ptr<buffer_pool_base>{},
-        &inst};
-    if (!pool) pool = instance;
+    if (!pool) pool = synthetic_null_pool();
     if (!data.data()) data = {};
     iou_buffer buf;
     buf.pool_ = std::move(pool);
@@ -192,6 +181,47 @@ public:
     return buf;
   }
 
+  // Create a non-owning, synthetic write buffer that views `data`. Mirrors
+  // `make_synthetic` but for the write side: `payload_span` and
+  // `active_span` start empty, so the full block is available via
+  // `tail_span` for the caller (or a wrapper like `quic_conn::write_pkt`)
+  // to fill. Backed by the same process-wide null pool, so destruction and
+  // `reset` do not free anything; the caller owns `data` and must keep it
+  // alive while the buffer is in use. Same kernel-I/O caveats as
+  // `make_synthetic` apply.
+  [[nodiscard]] static iou_buffer
+  make_synthetic_write(span_t data, pool_ptr_t pool = {}) noexcept {
+    if (!pool) pool = synthetic_null_pool();
+    if (!data.data()) data = {};
+    iou_buffer buf;
+    buf.pool_ = std::move(pool);
+    buf.full_span_ = data;
+    buf.payload_span_ = {data.data(), 0};
+    buf.active_span_ = {data.data(), 0};
+    buf.blockrw_ = block_type::write;
+    return buf;
+  }
+
+private:
+  // Process-wide singleton null pool used by both synthetic factories.
+  // It owns no memory and silently accepts `return_buffer`, so synthetic
+  // buffers backed by it cause no allocation on construction or destruction.
+  [[nodiscard]] static pool_ptr_t synthetic_null_pool() noexcept {
+    struct null_buffer_pool: public buffer_pool_base {
+      [[nodiscard]] std::byte* base() const noexcept override {
+        return nullptr;
+      }
+      [[nodiscard]] bool return_buffer(span_t, block_type) override {
+        return true;
+      }
+    };
+    static null_buffer_pool inst;
+    static const pool_ptr_t instance{std::shared_ptr<buffer_pool_base>{},
+        &inst};
+    return instance;
+  }
+
+public:
 #pragma endregion
 #pragma region Accessors
 
