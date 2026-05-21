@@ -63,11 +63,11 @@ protected:
 
 #pragma endregion
 public:
-  // Public for `make_shared`; use `make` / `make_unregistered` factories. The
-  // plugin is constructed in-place with `(router, *this, plugin_args...)`. The
-  // plugin must only **store** the router and session references during its
-  // own ctor; it must not call any member functions on the session, since the
-  // session's construction is not yet complete.
+  // Public for `make_shared`; use the `make` factory. The plugin is
+  // constructed in-place with `(router, *this, plugin_args...)`. The plugin
+  // must only **store** the router and session references during its own ctor;
+  // it must not call any member functions on the session, since the session's
+  // construction is not yet complete.
   template<typename... PluginArgs>
   explicit iou_dgram_session(allow, router_t& router,
       PluginArgs&&... plugin_args) noexcept
@@ -87,6 +87,12 @@ public:
   // `register_self(buf)` immediately afterwards. Caller should invoke from the
   // loop thread so that any `router.add_session(...)` performed by
   // `register_self` takes effect inline.
+  //
+  // To construct a session WITHOUT auto-registration (e.g., sender-side
+  // pre-register under a known key, or QUIC client whose registration must be
+  // posted to the loop thread), pass a default-constructed `buffer{}`. The
+  // plugin's `register_self(const buffer&)` is required to early-return on
+  // `!buf` per the plugin contract documented in `iou_dgram_router.h`.
   template<typename... PluginArgs>
   [[nodiscard]] static session_ptr
   make(router_t& router, const buffer& buf, PluginArgs&&... plugin_args) {
@@ -94,18 +100,6 @@ public:
         std::forward<PluginArgs>(plugin_args)...);
     (void)self->plugin_.register_self(buf);
     return self;
-  }
-
-  // Construct a session bound to `router` without calling `register_self`.
-  // The caller is responsible for registering it under whatever keys it
-  // wants via `router.add_session(key, sess)`. Useful when pre-registering
-  // a session under a known key (e.g., on the sender side, to receive
-  // responses).
-  template<typename... PluginArgs>
-  [[nodiscard]] static session_ptr
-  make_unregistered(router_t& router, PluginArgs&&... plugin_args) {
-    return std::make_shared<iou_dgram_session>(allow::ctor, router,
-        std::forward<PluginArgs>(plugin_args)...);
   }
 
 #pragma endregion

@@ -37,8 +37,9 @@ namespace corvid { inline namespace proto { namespace quic {
 
 #pragma region quic_decode_status
 
-// `NGTCP2_ERR_*` wrapper. Outcome of `quic_version_cid::decode` (and any
-// other ngtcp2 call we wrap that returns an `int` error code from this set).
+// `NGTCP2_ERR_*` wrapper. Outcome of `quic_version_cid::decode` (and any other
+// ngtcp2 call we wrap that returns an `int` error code from this set).
+// NOLINTNEXTLINE(performance-enum-size)
 enum class quic_decode_status : int16_t {
   ok = 0,
   invalid_argument = NGTCP2_ERR_INVALID_ARGUMENT,                       // -201
@@ -82,7 +83,6 @@ enum class quic_decode_status : int16_t {
   fatal = NGTCP2_ERR_FATAL,                                             // -500
   nomem = NGTCP2_ERR_NOMEM,                                             // -501
   callback_failure = NGTCP2_ERR_CALLBACK_FAILURE,                       // -502
-  NGTCP2_ERR_MUST_BE_INT16 = 0x7FFF
 };
 
 #pragma endregion
@@ -102,17 +102,17 @@ namespace corvid { inline namespace proto { namespace quic {
 #pragma region quic_cid
 
 // Variable-length QUIC Connection ID, wrapping `ngtcp2_cid`. Up to
-// `NGTCP2_MAX_CIDLEN` (20) bytes of payload plus a length field. Used as
-// the routing-table key for the dgram router's session map: a single
-// session can be registered under multiple CIDs (the client's original
-// initial DCID, every SCID ngtcp2 issues for it, every CID added via
-// `NEW_CONNECTION_ID` later in the connection), and ngtcp2's helpers
-// (`ngtcp2_conn_get_scid`, `ngtcp2_conn_get_client_initial_dcid`)
-// enumerate them for us at registration / teardown time.
+// `NGTCP2_MAX_CIDLEN` (20) bytes of payload plus a length field. Used as the
+// routing-table key for the dgram router's session map: a single session can
+// be registered under multiple CIDs (the client's original initial DCID, every
+// SCID ngtcp2 issues for it, every CID added via `NEW_CONNECTION_ID` later in
+// the connection), and ngtcp2's helpers (`ngtcp2_conn_get_scid`,
+// `ngtcp2_conn_get_client_initial_dcid`) enumerate them for us at registration
+// / teardown time.
 //
-// Comparison is byte-wise (length first, then `memcmp` -- consistent total
-// ordering). The hash specialization at file scope hashes the same byte
-// view, so two CIDs are equal iff they hash equally.
+// Comparison is byte-wise (length first, then `memcmp`: consistent total
+// ordering). The hash specialization at file scope hashes the same byte view,
+// so two CIDs are equal iff they hash equally.
 class quic_cid {
 public:
   static constexpr size_t max_length = NGTCP2_MAX_CIDLEN;
@@ -165,16 +165,16 @@ private:
 #pragma region quic_version_cid
 
 // Wrapper over `ngtcp2_version_cid` (the output of
-// `ngtcp2_pkt_decode_version_cid`), which carries the QUIC version and the
-// two (source and destination) CID byte spans recovered from a packet's
-// header without decrypting it.
+// `ngtcp2_pkt_decode_version_cid`), which carries the QUIC version and the two
+// (source and destination) CID byte spans recovered from a packet's header
+// without decrypting it.
 //
 // Use `decode` to populate the wrapped struct from raw packet bytes. The
-// returned `dcid_bytes()` / `scid_bytes()` spans view directly into the
-// source buffer (matching ngtcp2's contract: the struct stores `const
-// uint8_t*` pointers into the original input). They are invalidated if the
-// source buffer is freed, moved, or modified. For a stable copy of a CID,
-// pass the span to `quic_cid`'s span constructor.
+// returned `dcid_bytes()` / `scid_bytes()` spans view directly into the source
+// buffer (matching ngtcp2's contract: the struct stores `const uint8_t*`
+// pointers into the original input). They are invalidated if the source buffer
+// is freed, moved, or modified. For a stable copy of a CID, pass the span to
+// `quic_cid`'s span constructor.
 class quic_version_cid {
 public:
   // Default length, in bytes, of the SCIDs we issue locally.
@@ -182,14 +182,13 @@ public:
 
   constexpr quic_version_cid() noexcept = default;
 
-  // Decode the QUIC header at the start of `packet`, populating version,
-  // DCID, and (for long-header packets) SCID.
+  // Decode the QUIC header at the start of `packet`, populating version, DCID,
+  // and (for long-header packets) SCID.
   //
   // `status() == ok` for any well-formed packet (long or short header).
-  // `version_negotiation` when a long-header packet's version is
-  // unsupported by ngtcp2 ; the CID fields are still populated so the
-  // caller can construct a Version Negotiation response.
-  // `invalid_argument` for malformed framing.
+  // `version_negotiation` when a long-header packet's version is unsupported
+  // by ngtcp2 ; the CID fields are still populated so the caller can construct
+  // a Version Negotiation response. `invalid_argument` for malformed framing.
   explicit quic_version_cid(std::span<const uint8_t> packet,
       size_t short_dcidlen = default_scid_length) noexcept {
     status_ = static_cast<quic_decode_status>(ngtcp2_pkt_decode_version_cid(
@@ -197,8 +196,8 @@ public:
   }
 
   // Result of the decode performed by the constructor.
-  // `quic_decode_status::ok` on a default-constructed object that hasn't
-  // been decoded, matching `iou_res`'s "zero is success" convention.
+  // `quic_decode_status::ok` on a default-constructed object that hasn't been
+  // decoded.
   [[nodiscard]] quic_decode_status status() const noexcept { return status_; }
 
   // True iff `status() == ok`. `operator!` is the inverse, for the
@@ -210,8 +209,8 @@ public:
     return status_ != quic_decode_status::ok;
   }
 
-  // QUIC version field. Zero for short-header packets, since they do not
-  // carry a version on the wire.
+  // QUIC version field. Zero for short-header packets, since they do not carry
+  // a version on the wire.
   [[nodiscard]] uint32_t version() const noexcept { return vc_.version; }
 
   // True for long-header packets (Initial, 0-RTT, Handshake, Retry, Version
@@ -226,8 +225,8 @@ public:
     return {vc_.dcid, vc_.dcidlen};
   }
 
-  // View of the Source Connection ID bytes inside the source packet. Empty
-  // for short-header packets.
+  // View of the Source Connection ID bytes inside the source packet. Empty for
+  // short-header packets.
   [[nodiscard]] std::span<const uint8_t> scid_bytes() const noexcept {
     return {vc_.scid, vc_.scidlen};
   }
@@ -260,13 +259,12 @@ namespace corvid { inline namespace proto { namespace quic {
 
 #pragma region quic_stream_id
 
-// QUIC stream identifier. Bit 0 encodes initiator (0 = client,
-// 1 = server) and bit 1 encodes direction (0 = bidirectional, 1 =
-// unidirectional) per RFC 9000 sec. 2.1; bits above 1 are the stream
-// sequence number, which the bitmask machinery carries as a residual
-// (printed in hex if the value is stringified). `none` (`-1`) is the
-// ngtcp2 sentinel used by `writev_stream` when only ACKs or other
-// non-stream frames should be emitted.
+// QUIC stream identifier. Bit 0 encodes initiator (0 = client, 1 = server) and
+// bit 1 encodes direction (0 = bidirectional, 1 = unidirectional) per RFC 9000
+// sec. 2.1; bits above 1 are the stream sequence number, which the bitmask
+// machinery carries as a residual (printed in hex if the value is
+// stringified). `none` (`-1`) is the ngtcp2 sentinel used by `writev_stream`
+// when only ACKs or other non-stream frames should be emitted.
 enum class quic_stream_id : uint64_t {
   none = static_cast<uint64_t>(-1),
   server_initiated = 0x1,
@@ -277,11 +275,11 @@ enum class quic_stream_id : uint64_t {
 #pragma endregion
 #pragma region quic_stream_side
 
-// Half of a QUIC stream to act on. The two halves are read and write
-// (the local-vs-remote send directions of the same stream), distinct
-// from the bidirectional / unidirectional distinction encoded in a
-// `quic_stream_id`'s low bits. `both` is the union, used when an
-// abort should tear down both halves at once.
+// Half of a QUIC stream to act on. The two halves are read and write (the
+// local-vs-remote send directions of the same stream), distinct from the
+// bidirectional / unidirectional distinction encoded in a `quic_stream_id`'s
+// low bits. `both` is the union, used when an abort should tear down both
+// halves at once.
 enum class quic_stream_side : uint8_t {
   none = 0x0,
   read = 0x1,
@@ -293,10 +291,9 @@ enum class quic_stream_side : uint8_t {
 #pragma region quic_stream_data_flags
 
 // Flags accompanying a `recv_stream_data` upcall, mirroring
-// `NGTCP2_STREAM_DATA_FLAG_*`. `fin` marks the last bytes the peer
-// will ever send on this stream; `zero_rtt` indicates the data
-// arrived in a 0-RTT packet (and is therefore replayable; treat
-// with the usual 0-RTT caution).
+// `NGTCP2_STREAM_DATA_FLAG_*`. `fin` marks the last bytes the peer will ever
+// send on this stream; `zero_rtt` indicates the data arrived in a 0-RTT packet
+// (and is therefore replayable; treat with the usual 0-RTT caution).
 // NOLINTNEXTLINE(performance-enum-size)
 enum class quic_stream_data_flags : uint32_t {
   none = 0x0,
@@ -308,9 +305,8 @@ enum class quic_stream_data_flags : uint32_t {
 #pragma region quic_datagram_flags
 
 // Flags accompanying a `recv_datagram` upcall, mirroring
-// `NGTCP2_DATAGRAM_FLAG_*`. `zero_rtt` indicates the DATAGRAM rode
-// in a 0-RTT packet.
-// NOLINTNEXTLINE(performance-enum-size)
+// `NGTCP2_DATAGRAM_FLAG_*`. `zero_rtt` indicates the DATAGRAM rode in a 0-RTT
+// packet. NOLINTNEXTLINE(performance-enum-size)
 enum class quic_datagram_flags : uint32_t {
   none = 0x0,
   zero_rtt = NGTCP2_DATAGRAM_FLAG_0RTT // 0x1

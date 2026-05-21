@@ -96,20 +96,30 @@ concept iou_dgram_router_plugin = requires(P p, const iou_loop::buffer& cbuf,
 //  `router_t` - typically `iou_dgram_router<MatchingRouterPlugin>`.
 //
 // Required methods (regular, non-static):
+//
 //  `bool register_self(const buffer&)` - called from `iou_dgram_session::make`
 //      immediately after construction. Sniff the key(s) and call
 //      `router.add_session(key, session.shared_from_this())` one or more
 //      times.
+
+//      CONVENTION: if `!buf` (a default-constructed buffer sentinel), return
+//      early without registering. Callers use `make(router, buffer{}, ...)` to
+//      construct a session whose registration is deferred (e.g., the sender
+//      side that wants to pre-register under a known response key, or a client
+//      whose loop-thread registration is posted separately).
+
 //  `bool handle_recv(buffer&&)` - dispatched per received datagram routed to
 //      this session.
+
 //  `bool handle_sent(buffer&&)` - the buffer comes back here when a send
 //      completes; check `buf.result()` for outcome, and potentially resend.
+//
 //  `bool unregister_self()` - called on session close. Plugin must call
 //      `router.remove_session(key)` once per registered key.
 //
 // Not used as a template parameter constraint; verified by a deferred
-// `static_assert` in the `iou_dgram_session` constructor body. See the note
-// on `iou_dgram_router_plugin` above for why.
+// `static_assert` in the `iou_dgram_session` constructor body. See the note on
+// `iou_dgram_router_plugin` above for why.
 template<typename P>
 concept iou_dgram_session_plugin = requires(P p, const iou_loop::buffer& cbuf,
     iou_loop::buffer buf) {
@@ -150,12 +160,14 @@ concept iou_dgram_session_plugin = requires(P p, const iou_loop::buffer& cbuf,
 // `shared_ptr`. This permits a fire-and-forget pattern - `bind`, `release`
 // the handle, hand the resulting `shared_ptr` to a session plugin (or
 // discard it entirely) - and let the router live on its own ref.
+//
 // Termination then comes from one of:
 //   - any holder calling `close` (a session that captured `&router_` can
 //     do this from `unregister_self` or elsewhere);
 //   - a hard recv error driving `do_close()` from inside the recv callback;
 //   - the `iou_loop` shutting down, which clears every slot and so releases
 //     every captured `shared_ptr`.
+//
 // In all three, `close` cancels the in-flight recv via `submit_close`
 // (`prep_cancel_fd`); the recv callback receives the canceled CQE, releases
 // its slot, the last `self` ref drops, and the router destructs.

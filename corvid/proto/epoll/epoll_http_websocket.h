@@ -644,7 +644,7 @@ public:
   // compaction, or `insatiable` to initiate shutdown.
   [[nodiscard]] size_t feed(std::string_view& data) {
     // Loop over all frames in `data`.
-    while (true) {
+    for (;;) {
       if (data.empty()) break;
 
       // Try to parse the header. If it's incomplete, ask for more.

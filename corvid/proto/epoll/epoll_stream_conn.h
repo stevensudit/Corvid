@@ -854,7 +854,7 @@ private:
   // self-owning connection.
   [[nodiscard]] bool handle_listen() {
     assert(loop_.is_loop_thread());
-    while (true) {
+    for (;;) {
       auto accepted = sock().accept();
       if (!accepted) break;
       auto peer = accept_clone(std::move(accepted->first),

@@ -40,6 +40,7 @@ namespace corvid { inline namespace proto { namespace iouring {
 #pragma region iou flags
 
 // `IORING_SETUP_*` wrapper.
+// NOLINTNEXTLINE(performance-enum-size)
 enum class iou_setup_flags : uint32_t {
   setup_iopoll = IORING_SETUP_IOPOLL,                         // 0x0001
   setup_sqpoll = IORING_SETUP_SQPOLL,                         // 0x0002
@@ -57,7 +58,6 @@ enum class iou_setup_flags : uint32_t {
   setup_defer_taskrun = IORING_SETUP_DEFER_TASKRUN,           // 0x2000
   setup_no_mmap = IORING_SETUP_NO_MMAP,                       // 0x4000
   setup_registered_fd_only = IORING_SETUP_REGISTERED_FD_ONLY, // 0x8000
-  IORING_SETUP_MUST_BE_UINT32 = 0x7FFF'FFFF
 };
 
 // `IORING_CQE_F_*` wrapper.
@@ -81,6 +81,7 @@ enum class iou_sqe_flags : uint8_t {
 };
 
 // `IORING_TIMEOUT_*` wrapper.
+// NOLINTNEXTLINE(performance-enum-size)
 enum class iou_timeout_flags : uint32_t {
   rel = 0,                                          // 0x00
   abs = IORING_TIMEOUT_ABS,                         // 0x01
@@ -92,10 +93,10 @@ enum class iou_timeout_flags : uint32_t {
   multishot = IORING_TIMEOUT_MULTISHOT,             // 0x40
   clock_mask = IORING_TIMEOUT_CLOCK_MASK,           // 0x0c
   update_mask = IORING_TIMEOUT_UPDATE_MASK,         // 0x12
-  IORING_TIMEOUT_MUST_BE_INT32 = 0x7FFF'FFFF
 };
 
 // `POLL*` wrapper.
+// NOLINTNEXTLINE(performance-enum-size)
 enum class poll_flags : uint16_t {
   POLL_0 = 0,      // 0x000
   in = POLLIN,     // 0x001
@@ -104,15 +105,14 @@ enum class poll_flags : uint16_t {
   err = POLLERR,   // 0x008
   hup = POLLHUP,   // 0x010
   nval = POLLNVAL, // 0x020
-  POLL_MUST_BE_INT16 = 0x7FFF
 };
 
 // `SHUT_*` wrapper for `prep_shutdown`.
+// NOLINTNEXTLINE(performance-enum-size)
 enum class shutdown_how : int {
   rd = SHUT_RD,     // 0
   wr = SHUT_WR,     // 1
   rdwr = SHUT_RDWR, // 2
-  SHUT_MUST_BE_INT = 0x7FFF'FFFF
 };
 
 }}} // namespace corvid::proto::iouring

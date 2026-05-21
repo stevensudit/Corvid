@@ -747,7 +747,7 @@ constexpr bool parse_array(json_cursor& c, json_value_view& out,
     return true;
   }
 
-  while (true) {
+  for (;;) {
     json_value_view item;
     if (!parse_value(c, item, err, opts, depth + 1)) return false;
 
@@ -785,7 +785,7 @@ constexpr bool parse_object(json_cursor& c, json_value_view& out,
     return true;
   }
 
-  while (true) {
+  for (;;) {
     json_value_view key;
     if (*c != '"')
       return json_error::fail(err, json_errc::expected_key, c.pos);

@@ -36,23 +36,24 @@
 // such as DNS and SMB) sits on.
 //
 // The router-side plugin parses each datagram's header (long or short) by
-// constructing a `quic_version_cid` over the packet bytes and returns the
-// DCID as the routing key. The session-side plugin owns a `quic_conn`
-// (ngtcp2 state machine + per-conn SSL) and drives its read/write/expiry
-// cycle. After each processed datagram, the session calls the upper-layer
-// plugin's `drain(now)` so the plugin can queue outbound stream bytes
-// before the session emits packets.
+// constructing a `quic_version_cid` over the packet bytes and returns the DCID
+// as the routing key. The session-side plugin owns a `quic_conn` (ngtcp2 state
+// machine + per-conn SSL) and drives its read/write/expiry cycle. After each
+// processed datagram, the session calls the upper-layer plugin's `drain(now)`
+// so the plugin can queue outbound stream bytes before the session emits
+// packets.
 
 namespace corvid { inline namespace proto { namespace quic {
 
 #pragma region no_op_plugin
 
-// Upper-layer plugin contract (duck-typed, enforced by the session
-// template):
+// Upper-layer plugin contract (duck-typed, enforced by the session template):
 //   * Constructor accepting `session_plugin&` (so the plugin captures the
 //     session ref and reaches the router / `quic_conn` through it).
+//
 //   * Inherits `quic_conn_handlers` so the session can install it as the
 //     `quic_conn`'s upcall target via `set_handlers`.
+//
 //   * `bool drain(time_point_t now) noexcept` - per-turn hook fired after
 //     every successful `quic_conn::read_pkt`, on the loop thread, before
 //     the session emits outbound packets. The bytes from the incoming
@@ -76,11 +77,10 @@ public:
 #pragma endregion
 #pragma region dgram_protocol
 
-// Bundle of router and session plugin types for QUIC CID-keyed routing
-// over `iou_dgram_router`, templatized on the upper-layer plugin type.
-// Matches the shape of `iouring::iou_dgram_echo_protocol`:
-// `router_plugin` decides routing, `session_plugin` owns per-connection
-// state.
+// Bundle of router and session plugin types for QUIC CID-keyed routing over
+// `iou_dgram_router`, templatized on the upper-layer plugin type. Matches the
+// shape of `iouring::iou_dgram_echo_protocol`: `router_plugin` decides
+// routing, `session_plugin` owns per-connection state.
 template<typename QuicPlugin = quic_no_op_plugin>
 class quic_dgram_protocol {
 public:
@@ -132,18 +132,24 @@ public:
       return key_t{vc.dcid_bytes()};
     }
 
-    // Called when the router has no session registered under the
-    // extracted DCID. Server-role routers turn long-header (Initial)
-    // packets into new sessions; short-header packets to unknown CIDs are
-    // dropped (a future revision may emit a stateless reset instead, per
-    // RFC 9000). Client-role routers always drop: a client never accepts
-    // server-driven inbound.
+    // Called when the router has no session registered under the extracted
+    // DCID. Server-role routers turn long-header (Initial) packets into new
+    // sessions; short-header packets to unknown CIDs are dropped (a future
+    // revision may emit a stateless reset instead, per RFC 9000). Client-role
+    // routers always drop: a client never accepts server-driven inbound.
+    //
+    // The buffer is handed unparsed to `session_t::make`, which calls the
+    // session plugin's `register_self(buf)`. That hook does the wire-header
+    // parse, generates the server's SCID, allocates the `quic_conn`, and
+    // registers the session under both the original DCID and the new SCID. The
+    // long-header sniff up front only exists to reject obviously unsuitable
+    // packets before spinning up a session that would just discard itself.
     bool create_session(const buffer& buf, router_t& router) {
       if (tls_.role() != connection_role::server) return false;
       const quic_version_cid vc{buf.payload_bytes(), cid_length};
       if (!vc || !vc.is_long_header()) return false;
-      return session_plugin::make_server(router, tls_, key_t{vc.scid_bytes()},
-                 key_t{vc.dcid_bytes()}, buf.peer_addr()) != nullptr;
+      auto ssn = session_t::make(router, buf, tls_);
+      return static_cast<bool>(ssn->plugin().conn());
     }
 
 #pragma endregion
@@ -157,19 +163,19 @@ public:
 #pragma endregion
 #pragma region session_plugin
 
-  // Per-connection state: owns the `quic_conn` (ngtcp2 + per-conn SSL),
-  // routes incoming datagrams through `quic_conn::read_pkt`, drives
-  // `quic_conn::write_pkt` through the router's UDP socket, and arms
-  // one expiry-sweeper entry against `iou_loop::timeouts()` to drive
+  // Per-connection state: owns the `quic_conn` (ngtcp2 + per-conn SSL), routes
+  // incoming datagrams through `quic_conn::read_pkt`, drives
+  // `quic_conn::write_pkt` through the router's UDP socket, and arms one
+  // expiry-sweeper entry against `iou_loop::timeouts()` to drive
   // loss-detection / PTO / handshake timers.
   //
   // Server-side sessions register under two CIDs:
-  //   * the client's original DCID (the routing key for the Initial
-  //     packet that created the session, and for any Initial
-  //     retransmissions that arrive before the client switches over);
-  //   * the server's freshly-generated primary SCID (the routing key
-  //     for every subsequent client packet, which uses the server's
-  //     SCID as its DCID).
+  //   * the client's original DCID (the routing key for the Initial packet
+  //     that created the session, and for any Initial retransmissions that
+  //     arrive before the client switches over);
+  //
+  //   * the server's freshly-generated primary SCID (the routing key for every
+  //     subsequent client packet, which uses the server's SCID as its DCID).
   //
   // Client-side sessions register under their own SCID only: inbound packets
   // from the server always address us by the SCID we chose; the initial DCID
@@ -186,78 +192,78 @@ public:
 
 #pragma region Construction
   public:
-    // Server-side construction. Builds a `quic_conn` in the server role bound
-    // to `server_tls`. Reached via the `make_server` factory below, which
-    // `router_plugin::create_session` calls when an Initial arrives for an
-    // unknown DCID.
+    // Server-side construction. Constructs a thin `quic_conn` in the server
+    // role bound to `server_tls`; the underlying `ngtcp2_conn` is allocated by
+    // `register_self(buf)` once the wire header has been parsed for the CIDs
+    // and peer endpoint. Reached via `iou_dgram_session::make(router, buf,
+    // tls)` from `router_plugin::create_session`.
     session_plugin(router_t& router, session_t& session,
-        quic_ssl_ctx& server_tls, const key_t& peer_scid,
-        const key_t& original_dcid, const net_endpoint& local,
-        const net_endpoint& peer) noexcept
-        : router_{router}, session_{session}, original_dcid_{original_dcid},
-          scid_{make_random_cid(quic_dgram_protocol::cid_length)},
-          conn_{server_tls, peer_scid, scid_, original_dcid, local, peer,
-              timeouts::now()},
-          plugin_{*this} {
-      conn_.set_handlers(&plugin_);
-    }
-
-    // Client-side construction. Builds a `quic_conn` in the client role
-    // bound to `client_tls`, generating a fresh initial DCID (which we
-    // put on the wire for our first Initial, never received) and SCID
-    // (which the router will register us under). Reached via the
-    // `make_client` factory below; not used by the router.
-    session_plugin(router_t& router, session_t& session,
-        quic_ssl_ctx& client_tls, const net_endpoint& local,
-        const net_endpoint& peer) noexcept
+        quic_ssl_ctx& server_tls) noexcept
         : router_{router}, session_{session},
           scid_{make_random_cid(quic_dgram_protocol::cid_length)},
-          conn_{client_tls, make_random_cid(quic_dgram_protocol::cid_length),
-              scid_, local, peer, timeouts::now()},
-          plugin_{*this} {
+          conn_{server_tls}, plugin_{*this} {
       conn_.set_handlers(&plugin_);
     }
 
-    // Static factory for server-side construction. Used by
-    // `router_plugin::create_session` once it has parsed the Initial's peer
-    // SCID and original DCID out of the wire header.Returns null if
-    // `quic_conn` construction failed (e.g., `server_tls` is client-role).
-    [[nodiscard]] static std::shared_ptr<session_t> make_server(
-        router_t& router, quic_ssl_ctx& server_tls, const key_t& peer_scid,
-        const key_t& original_dcid, const net_endpoint& peer) {
-      auto ssn = session_t::make_unregistered(router, server_tls, peer_scid,
-          original_dcid, router.local_endpoint(), peer);
-      if (!ssn->plugin().conn_) return {};
-      (void)ssn->plugin().register_self({});
-      return ssn;
+    // Client-side construction. Constructs a thin `quic_conn` in the client
+    // role bound to `client_tls`; the underlying `ngtcp2_conn` is allocated by
+    // `do_register_client`, which `make_client` calls inline on the loop
+    // thread. The peer endpoint is captured here because the buffer passed
+    // to `register_self` is empty for client-role sessions. Reached via the
+    // `make_client` factory below.
+    session_plugin(router_t& router, session_t& session,
+        quic_ssl_ctx& client_tls, const net_endpoint& peer) noexcept
+        : router_{router}, session_{session}, peer_{peer},
+          scid_{make_random_cid(quic_dgram_protocol::cid_length)},
+          conn_{client_tls}, plugin_{*this} {
+      conn_.set_handlers(&plugin_);
     }
 
-    // Static factory for client-side construction. Returns the session ptr
-    // immediately; the handshake progresses asynchronously through the router.
-    // Safe to call from any thread. Returns null if `quic_conn` construction
-    // failed (e.g., `client_tls` is server-role).
+    // Static factory for client-side construction.
+    //
+    // LOOP-THREAD ONLY: returns null if invoked off-loop. Callers on other
+    // threads should wrap the call in `router.loop().post(...)` and store the
+    // returned `session_ptr` themselves.
+    //
+    // Constructs the session via `session_t::make(router, buffer{}, ...)`,
+    // which honors the plugin contract's "empty buffer => caller defers
+    // registration" convention (so `register_self({})` is a no-op here),
+    // then runs `do_register_client` inline. Returns null if either
+    // ngtcp2 init or router registration fails.
     [[nodiscard]] static std::shared_ptr<session_t>
     make_client(router_t& router, const net_endpoint& peer) {
-      auto ssn = session_t::make_unregistered(router, router.plugin().tls(),
-          router.local_endpoint(), peer);
-      if (!ssn->plugin().conn_) return {};
-      (void)router.loop().execute_or_post([ssn]() mutable {
-        return ssn->plugin().register_self({});
-      });
+      if (!router.loop().is_loop_thread()) return {};
+      auto ssn =
+          session_t::make(router, buffer{}, router.plugin().tls(), peer);
+      if (!ssn->plugin().do_register_client()) return {};
       return ssn;
     }
 
 #pragma endregion
 #pragma region Registration
 
-    bool register_self(const buffer&) {
-      bool ok1 = true;
-      if (conn_.role() == connection_role::server)
-        ok1 = router_.add_session(original_dcid_, session_.self());
-      const bool ok2 = router_.add_session(scid_, session_.self());
-      drain_writes(timeouts::now());
-      arm_expiry();
-      return ok1 && ok2;
+    // Recover the server-side CIDs from the inbound Initial, allocate the
+    // `ngtcp2_conn` via `quic_conn::init`, and register this session under
+    // both the original DCID and the server's SCID.
+    //
+    // The empty-buffer sentinel (`!buf`) signals the
+    // `iou_dgram_session_plugin` "construct without auto-register" convention;
+    // the client path uses it (see `make_client`), and we bail without
+    // touching the router. Server-side calls always carry a real Initial
+    // buffer.
+    //
+    // Server-side calls come from `router_plugin::create_session`, which runs
+    // in the router's recv callback on the loop thread; the work runs inline.
+    bool register_self(const buffer& buf) {
+      if (!buf) return true;
+      assert(router_.loop().is_loop_thread());
+      assert(conn_.role() == connection_role::server);
+      const quic_version_cid vc{buf.payload_bytes(),
+          quic_dgram_protocol::cid_length};
+      if (!vc || !vc.is_long_header()) return false;
+      original_dcid_ = key_t{vc.dcid_bytes()};
+      peer_ = buf.peer_addr();
+      return do_register_server(key_t{vc.scid_bytes()});
     }
 
     bool unregister_self() {
@@ -271,21 +277,19 @@ public:
 #pragma endregion
 #pragma region I/O
 
-    // Feed the datagram into ngtcp2, let the upper plugin react, then
-    // drain anything ngtcp2 wants to send. `now` is snapped once at the
-    // top of the turn and threaded through every callee so every
-    // operation sees the same wall-clock view. Loop-thread only,
-    // asserted.
+    // Feed the datagram into ngtcp2, let the upper plugin react, then drain
+    // anything ngtcp2 wants to send. `now` is snapped once at the top of the
+    // turn and threaded through every callee so every operation sees the same
+    // wall-clock view.
     bool handle_recv(buffer&& buf) {
       assert(router_.loop().is_loop_thread());
       const auto now = timeouts::now();
       const auto rv = conn_.read_pkt(buf.payload_bytes(), now);
       if (rv != quic_decode_status::ok) return false;
       // `drain` lets the plugin queue outbound stream bytes (via
-      // `quic_conn::writev_stream`) before `drain_writes` packs them
-      // into UDP packets. Stream data and other higher-layer events
-      // already reached the plugin during `read_pkt` through the
-      // `quic_conn_handlers` upcalls.
+      // `quic_conn::writev_stream`) before `drain_writes` packs them into UDP
+      // packets. Stream data and other higher-layer events already reached the
+      // plugin during `read_pkt` through the `quic_conn_handlers` upcalls.
       (void)plugin_.drain(now);
       drain_writes(now);
       arm_expiry();
@@ -293,15 +297,15 @@ public:
     }
 
     // The send buffer comes back here once the kernel has accepted the
-    // datagram. There is nothing to do at the QUIC layer: ngtcp2's own
-    // ACK / loss-detection machinery (driven via the sweeper-armed
-    // expiry timer) handles retransmits, and the buffer returns to the
-    // pool when this frame unwinds.
+    // datagram. There is nothing to do at the QUIC layer: ngtcp2's own ACK /
+    // loss-detection machinery (driven via the sweeper-armed expiry timer)
+    // handles retransmits, and the buffer returns to the pool when this frame
+    // unwinds.
     //
-    // HTTP/3 cares about stream-level send acceptance, not UDP-level
-    // send acceptance, and ngtcp2 tracks per-stream offsets and ACKs
-    // internally. When nghttp3 sits on top, its data callbacks will
-    // be driven by ngtcp2's own ACK processing, not by this hook.
+    // HTTP/3 cares about stream-level send acceptance, not UDP-level send
+    // acceptance, and ngtcp2 tracks per-stream offsets and ACKs internally.
+    // When nghttp3 sits on top, its data callbacks will be driven by ngtcp2's
+    // own ACK processing, not by this hook.
     bool handle_sent(buffer&& buf) noexcept {
       buf.reset();
       return true;
@@ -315,19 +319,19 @@ public:
     [[nodiscard]] quic_conn& conn() noexcept { return conn_; }
     [[nodiscard]] quic_plugin_t& protocol_plugin() noexcept { return plugin_; }
 
-    // The server's freshly-generated SCID, used as the primary CID for
-    // routing packets after the client switches off the Initial DCID.
-    // Exposed for tests; the full set of keys also includes
-    // `original_dcid_` until the client migrates.
+    // The server's freshly-generated SCID, used as the primary CID for routing
+    // packets after the client switches off the Initial DCID. Exposed for
+    // tests; the full set of keys also includes `original_dcid_` until the
+    // client migrates.
     [[nodiscard]] const key_t& primary_cid() const noexcept { return scid_; }
 
 #pragma endregion
 #pragma region Expiry
 
-    // Sweeper-callback entry point. Invoked by `iou_loop::timeouts()`
-    // when the registered deadline elapses. Stale entries (left over
-    // from a deadline that was superseded by an earlier rearm) detect
-    // themselves via `fired_expire != registered_expiry_` and drop.
+    // Sweeper-callback entry point. Invoked by `iou_loop::timeouts()` when the
+    // registered deadline elapses. Stale entries (left over from a deadline
+    // that was superseded by an earlier rearm) detect themselves via
+    // `fired_expire != registered_expiry_` and drop.
     [[nodiscard]] time_point_t on_expiry_sweep(
         time_point_t fired_expire) noexcept {
       if (fired_expire != registered_expiry_) return {};
@@ -347,14 +351,48 @@ public:
 #pragma endregion
 #pragma region Helpers
   private:
-    // Drain ngtcp2's outbound queue. ngtcp2's pacing dictates one packet
-    // per `write_pkt` call; we loop until it reports nothing more to
-    // send (an empty post-call payload) or an error. Each packet rides
-    // its own borrowed buffer through the router socket. `now` is
-    // supplied by the caller so every `write_pkt` in a single turn sees
-    // the same clock reading.
+    // Loop-thread half of server-side registration: allocate the `ngtcp2_conn`
+    // against the parsed peer SCID, register under both the original DCID and
+    // the server's own SCID, drive any initial ngtcp2 output, and arm the
+    // handshake-expiry timer.
+    bool do_register_server(const key_t& peer_scid) {
+      assert(router_.loop().is_loop_thread());
+      const auto now = timeouts::now();
+      if (!conn_.init(peer_scid, scid_, router_.local_endpoint(), peer_,
+              original_dcid_, now))
+        return false;
+      const bool ok1 = router_.add_session(original_dcid_, session_.self());
+      const bool ok2 = router_.add_session(scid_, session_.self());
+      drain_writes(now);
+      arm_expiry();
+      return ok1 && ok2;
+    }
+
+    // Loop-thread half of client-side registration: pick a random Initial DCID
+    // (which we put on the wire but never receive back), allocate the
+    // `ngtcp2_conn`, register under our SCID, push the Initial through
+    // `drain_writes`, and arm the handshake-expiry timer.
+    bool do_register_client() {
+      assert(router_.loop().is_loop_thread());
+      const key_t initial_dcid =
+          make_random_cid(quic_dgram_protocol::cid_length);
+      const auto now = timeouts::now();
+      if (!conn_.init(initial_dcid, scid_, router_.local_endpoint(), peer_,
+              key_t{}, now))
+        return false;
+      const bool ok = router_.add_session(scid_, session_.self());
+      drain_writes(now);
+      arm_expiry();
+      return ok;
+    }
+
+    // Drain ngtcp2's outbound queue. ngtcp2's pacing dictates one packet per
+    // `write_pkt` call; we loop until it reports nothing more to send (an
+    // empty post-call payload) or an error. Each packet rides its own borrowed
+    // buffer through the router socket. `now` is supplied by the caller so
+    // every `write_pkt` in a single turn sees the same clock reading.
     void drain_writes(time_point_t now) {
-      while (true) {
+      for (;;) {
         auto out = session_.borrow_send_buffer();
         if (!out) return;
         const auto status = conn_.write_pkt(out, now);
@@ -365,13 +403,12 @@ public:
       }
     }
 
-    // Schedule (or reschedule) the expiry-sweeper entry. The sweeper
-    // has no cancel API, so an existing entry that was scheduled at a
-    // later deadline becomes stale and self-cancels on its next fire
-    // (via the `fired_expire != registered_expiry_` check above).
-    // Skipping the schedule when the new target is the same as the
-    // already-registered one (the common case across consecutive
-    // packets in a flight) avoids pointless heap churn.
+    // Schedule (or reschedule) the expiry-sweeper entry. The sweeper has no
+    // cancel API, so an existing entry that was scheduled at a later deadline
+    // becomes stale and self-cancels on its next fire (via the `fired_expire
+    // != registered_expiry_` check above). Skipping the schedule when the new
+    // target is the same as the already-registered one (the common case across
+    // consecutive packets in a flight) avoids pointless heap churn.
     void arm_expiry() {
       const auto target = conn_.expiry();
       if (target == registered_expiry_) return;
@@ -386,10 +423,10 @@ public:
           });
     }
 
-    // RFC 9000 sec. 5.1: CIDs must be unpredictable. Random bytes from
-    // OpenSSL satisfy this; on failure (which should not happen in
-    // normal operation) we return a zero-length CID, which makes the
-    // enclosing conn unusable -- a fail-closed safer than fail-open.
+    // RFC 9000 sec. 5.1: CIDs must be unpredictable. Random bytes from OpenSSL
+    // satisfy this; on failure (which should not happen in normal operation)
+    // we return a zero-length CID, which makes the enclosing conn unusable --
+    // a fail-closed safer than fail-open.
     [[nodiscard]] static key_t make_random_cid(size_t cidlen) noexcept {
       ngtcp2_cid raw{};
       raw.datalen = cidlen;
@@ -402,6 +439,7 @@ public:
 
     router_t& router_;
     session_t& session_;
+    net_endpoint peer_;
     key_t original_dcid_;
     key_t scid_;
     quic_conn conn_;

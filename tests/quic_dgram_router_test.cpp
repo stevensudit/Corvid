@@ -210,14 +210,22 @@ TEST_CASE(
   const quic_cid client_dcid{client_dcid_bytes};
   const quic_cid client_scid{client_scid_bytes};
 
-  quic_conn client{client_tls, client_dcid, client_scid, client_addr,
-      server_addr, now_tp()};
+  quic_conn client{client_tls};
+  REQUIRE(client.init(client_dcid, client_scid, client_addr, server_addr,
+      quic_cid{}, now_tp()));
   REQUIRE(client);
 
-  // Trampolines deref `handlers_` unconditionally; the test only drives
-  // the conn by hand, so attach the base no-op handlers.
-  quic_conn_handlers noop_handlers;
-  client.set_handlers(&noop_handlers);
+  // Trampolines deref `handlers_` unconditionally; attach a handler
+  // that latches a flag from `on_handshake_completed`. The client's
+  // read_pkt runs on this (test) thread, so no synchronization needed.
+  struct handshake_signal: quic_conn_handlers {
+    bool done{};
+    bool on_handshake_completed() noexcept override {
+      done = true;
+      return true;
+    }
+  } client_signal;
+  client.set_handlers(&client_signal);
 
   std::array<std::byte, 1500> backing{};
   std::array<uint8_t, 1500> recv_buf{};
@@ -225,9 +233,9 @@ TEST_CASE(
 
   // Each iteration: drain the client's outbound, ship every emitted
   // packet to the server, then drain whatever the server has bounced
-  // back. Bail as soon as the client reports `is_handshake_completed`,
-  // which can only happen after the server's TLS finished message has
-  // been processed -- so a single client-side check is a sufficient
+  // back. Bail as soon as the client's `on_handshake_completed` upcall
+  // has fired, which can only happen after the server's TLS Finished
+  // has been processed -- so a single client-side check is a sufficient
   // bidirectional witness for the test.
   bool finished = false;
   for (int iter = 0; iter < 32 && !finished; ++iter) {
@@ -253,21 +261,42 @@ TEST_CASE(
       REQUIRE(rv == quic_decode_status::ok);
     }
 
-    finished = client.is_handshake_completed();
+    finished = client_signal.done;
   }
 
   CHECK(finished);
 }
+
+// Test-local upper-layer plugin that latches an atomic when ngtcp2's
+// `on_handshake_completed` upcall fires. Both server and client sides of
+// `quic_dgram_protocol<handshake_signal_plugin>` use it; the test only
+// inspects the client's flag.
+namespace {
+struct handshake_signal_plugin: quic_conn_handlers {
+  template<typename Session>
+  explicit handshake_signal_plugin(Session&) noexcept {}
+  bool drain(timeouts::time_point_t /*now*/) noexcept {
+    (void)this;
+    return true;
+  }
+  bool on_handshake_completed() noexcept override {
+    completed.store(true, std::memory_order::release);
+    return true;
+  }
+  std::atomic_bool completed{false};
+};
+} // namespace
 
 TEST_CASE(
     "quic_dgram_protocol drives a TLS 1.3 handshake through the live "
     "iou_dgram_router on both sides",
     "[quic][router][handshake][client]") {
   // Both client and server run on the same `iou_loop_runner`. The client
-  // session is constructed via `session_plugin::make_client`, which posts
-  // `register_self` to the loop thread; that pushes the Initial out and
-  // arms the handshake-expiry timer. The router then ferries every
-  // subsequent packet automatically.
+  // session is constructed via `session_plugin::make_client`, which is
+  // loop-thread only; the test wraps the call in `post_and_wait` so it
+  // runs on the loop thread while the test thread blocks for the result.
+
+  using protocol_t = quic_dgram_protocol<handshake_signal_plugin>;
 
   self_signed_cert ck;
   REQUIRE(ck);
@@ -279,30 +308,33 @@ TEST_CASE(
   iou_loop_runner runner;
 
   auto server_router =
-      iou_dgram_router_handle<quic_dgram_protocol<>::router_plugin>::bind(
-          *runner.loop(), net_endpoint::loopback_v4(), shot_type::multi,
-          server_tls);
+      iou_dgram_router_handle<protocol_t::router_plugin>::bind(*runner.loop(),
+          net_endpoint::loopback_v4(), shot_type::multi, server_tls);
   CHECK(server_router);
   const auto server_addr = server_router->local_endpoint();
   REQUIRE_FALSE(server_addr.empty());
 
   auto client_router =
-      iou_dgram_router_handle<quic_dgram_protocol<>::router_plugin>::bind(
-          *runner.loop(), net_endpoint::loopback_v4(), shot_type::multi,
-          client_tls);
+      iou_dgram_router_handle<protocol_t::router_plugin>::bind(*runner.loop(),
+          net_endpoint::loopback_v4(), shot_type::multi, client_tls);
   CHECK(client_router);
   REQUIRE_FALSE(client_router->local_endpoint().empty());
 
-  auto client_sess = quic_dgram_protocol<>::session_plugin::make_client(
-      *client_router.pointer(), server_addr);
+  std::shared_ptr<protocol_t::session_plugin::session_t> client_sess;
+  REQUIRE(runner.loop()->post_and_wait([&]() -> bool {
+    client_sess = protocol_t::session_plugin::make_client(
+        *client_router.pointer(), server_addr);
+    return client_sess != nullptr;
+  }));
   REQUIRE(client_sess);
 
   // Client-side handshake completion is a sufficient bidirectional
-  // witness: it only flips true after the client consumes the server's
-  // TLS Finished, which only ships once the server has processed the
+  // witness: it only fires after the client consumes the server's TLS
+  // Finished, which only ships once the server has processed the
   // client's handshake bytes routed through `server_router`.
   CHECK(WaitFor([&] {
-    return client_sess->plugin().conn().is_handshake_completed();
+    return client_sess->plugin().protocol_plugin().completed.load(
+        std::memory_order::acquire);
   }));
 }
 // NOLINTEND(readability-function-cognitive-complexity)

@@ -80,7 +80,7 @@ enum class quic_close_kind : uint8_t {
   application = 0x1d,
 };
 
-// A pending request to close the connection, carrying the variant, error code,
+// A pending request to close the connection, carrying the kind, error code,
 // and optional UTF-8 reason phrase. Stashed on `quic_conn` by `request_close`
 // (typically called from inside a `quic_conn_handlers` upcall) and consumed
 // by the session's drain on the same turn, which feeds it into
@@ -101,8 +101,8 @@ struct quic_close_request {
 #pragma region quic_conn_handlers
 
 // Protocol-neutral upcall contract that `quic_conn`'s static ngtcp2 callback
-// trampolines forward into. The upper-layer plugin (echo, DNS, HTTP/3, etc.)
-// inherits this; the owning session installs the plugin via
+// trampolines forward into. The upper-layer protocol plugin (echo, DNS,
+// HTTP/3, etc.) inherits this; the owning session installs the plugin via
 // `quic_conn::set_handlers` after the plugin is constructed.
 //
 // All upcalls run on the loop thread inside an ngtcp2 callback frame.
@@ -132,7 +132,7 @@ struct quic_close_request {
 // see the stash and emit the requested CONNECTION_CLOSE after
 // `read_pkt` returns.
 //
-// Defaults are no-op `true` so concrete plugins override only what they
+// Defaults are no-op `true`, so concrete plugins override only what they
 // need.
 class quic_conn_handlers {
 public:
@@ -298,17 +298,18 @@ public:
 //     cryptographic handshake), and
 //   - an `ngtcp2_crypto_ossl_ctx*` (the shim that lets ngtcp2 drive the
 //     OpenSSL state machine).
-// The shim's standard callback set is installed on the ngtcp2 conn, so a
-// real TLS 1.3 handshake actually runs to completion against a properly
-// configured peer.
 //
-// `quic_conn` is intentionally neither copyable nor movable: ngtcp2 stores
-// our `this` pointer as `user_data` at construction time and the shim
-// stores `&conn_ref_` (also pointing into `this`) on the SSL via
-// `SSL_set_app_data`. Neither has a setter, so the wrapper's address must
-// stay fixed for the lifetime of the underlying objects. Hold one by
-// value at a stable address (a member of a session whose own address is
-// pinned via `shared_ptr`) or via `std::unique_ptr<quic_conn>`.
+// The shim's standard callback set is installed on the ngtcp2 conn, so a real
+// TLS 1.3 handshake actually runs to completion against a properly configured
+// peer.
+//
+// `quic_conn` is intentionally neither copyable nor movable: ngtcp2 stores our
+// `this` pointer as `user_data` at construction time and the shim stores
+// `&conn_ref_` (also pointing into `this`) on the SSL via `SSL_set_app_data`.
+// Neither has a setter, so the wrapper's address must stay fixed for the
+// lifetime of the underlying objects. Hold one by value at a stable address (a
+// member of a session whose own address is pinned via `shared_ptr`) or via
+// `std::unique_ptr<quic_conn>`.
 class quic_conn {
 public:
   using key_t = quic_cid;
@@ -316,67 +317,27 @@ public:
 
 #pragma region Construction
 
-  // Construct a CLIENT-side connection.
+  // Construct a `quic_conn` bound to `tls`. The role is taken from
+  // `tls.role()` and pinned for the lifetime of the conn. Only sets up
+  // the per-conn SSL object and shim context; the `ngtcp2_conn` itself
+  // is allocated by `init`, once the CIDs and endpoints are known.
   //
-  // On failure the resulting conn evaluates to `false` via `operator
-  // bool`. Methods do NOT check this; calling them on a failed-ctor
-  // conn will deref a null `ngtcp2_conn*` and crash. Callers must gate
-  // on `bool(conn)` after construction.
+  // Loop-thread only beyond construction:
+  //   * Call `init` exactly once before any I/O method or handler
+  //     upcall fires. Check its return; on `false`, discard the conn.
+  //   * Call `set_handlers` between construction and the first I/O.
+  //   * All I/O methods (`read_pkt`, `write_pkt`, `writev_stream`,
+  //     `open_bidi_stream`, `expiry`, `handle_expiry`) deref `conn_`
+  //     unconditionally; they require a successful `init` and must
+  //     run on the loop thread.
   //
-  // `initial_dcid` is the random CID the client picks for the Initial
-  // DCID (which the server echoes back via the
-  // `original_destination_connection_id` transport parameter so the
-  // client can verify the response came from the same server it asked).
-  // `scid` is the client's own CID, used as the Initial SCID.
-  explicit quic_conn(quic_ssl_ctx& client_tls, const key_t& initial_dcid,
-      const key_t& scid, const net_endpoint& local, const net_endpoint& peer,
-      time_point_t now) noexcept
-      : quic_conn{init_tag{}, connection_role::client, client_tls,
-            initial_dcid, scid, local, peer, now, key_t{}} {}
-
-  // Construct a SERVER-side connection.
-  //
-  // On failure the resulting conn evaluates to `false` via `operator
-  // bool`. Methods do NOT check this; calling them on a failed-ctor
-  // conn will deref a null `ngtcp2_conn*` and crash. Callers must gate
-  // on `bool(conn)` after construction.
-  //
-  // `peer_scid` is the SCID the client put on the wire (the server uses
-  // it as its destination when sending). `scid` is the server's own
-  // freshly-generated CID. `original_dcid` is the DCID the client put
-  // on the wire; it travels back to the client via the
-  // `original_destination_connection_id` transport parameter.
-  explicit quic_conn(quic_ssl_ctx& server_tls, const key_t& peer_scid,
-      const key_t& scid, const key_t& original_dcid, const net_endpoint& local,
-      const net_endpoint& peer, time_point_t now) noexcept
-      : quic_conn{init_tag{}, connection_role::server, server_tls, peer_scid,
-            scid, local, peer, now, original_dcid} {}
-
-  quic_conn(const quic_conn&) = delete;
-  quic_conn& operator=(const quic_conn&) = delete;
-  // Non-movable: ngtcp2 captured `this` as `user_data` at construction,
-  // and the SSL holds a pointer back into `conn_ref_`.
-  quic_conn(quic_conn&&) = delete;
-  quic_conn& operator=(quic_conn&&) = delete;
-
-private:
-  // Tag for the unified worker constructor below. Disambiguates it from
-  // the two public role-specific constructors that delegate to it.
-  struct init_tag {};
-
-  // Unified worker. `expected_role` must agree with `tls.role()` or the
-  // conn is left in the null state.
-  quic_conn(init_tag, connection_role expected_role, quic_ssl_ctx& tls,
-      const key_t& dcid, const key_t& scid, const net_endpoint& local,
-      const net_endpoint& peer, time_point_t now,
-      const key_t& original_dcid) noexcept
-      : role_{expected_role} {
-    ngtcp2_path_storage_init(&path_storage_, local.as_sockaddr_ptr(),
-        local.sockaddr_size(), peer.as_sockaddr_ptr(), peer.sockaddr_size(),
-        nullptr);
-
+  // The session layer wraps all of this; outside callers never see a
+  // not-yet-initialized or failed conn (a failed `init` is terminal,
+  // and the session is discarded before the caller observes it). For
+  // cross-thread progress signals, override the relevant
+  // `quic_conn_handlers` upcall instead of reaching into the conn.
+  explicit quic_conn(quic_ssl_ctx& tls) noexcept : role_{tls.role()} {
     ensure_crypto_init();
-    if (tls.role() != expected_role) return;
     if (!tls) return;
 
     // 1. Per-conn SSL object, with `conn_ref_` set as app_data so the
@@ -405,6 +366,48 @@ private:
     if (ngtcp2_crypto_ossl_ctx_new(&raw_oc, ssl.get()) != 0) return;
     ossl_ctx_ptr ossl_ctx{raw_oc};
 
+    // Store what we have but stop short of instantiating the ngtcp2 conn.
+    ssl_ = std::move(ssl);
+    ossl_ctx_ = std::move(ossl_ctx);
+  }
+
+  quic_conn(const quic_conn&) = delete;
+  quic_conn& operator=(const quic_conn&) = delete;
+  quic_conn(quic_conn&&) = delete;
+  quic_conn& operator=(quic_conn&&) = delete;
+
+  // Finish initalization, using the provided CIDs and endpoints to allocate
+  // the underlying `ngtcp2_conn`. Must be called exactly once after
+  // construction, before any I/O or handler upcall fires.
+  //
+  // Returns `false` if the ctor's SSL setup failed, or if
+  // `ngtcp2_conn_{server,client}_new` fails; the caller is expected to discard
+  // the entire `quic_conn` in that case.
+  //
+  // `dcid` is the destination CID this side puts on outbound packets. For the
+  // server role, that is the SCID the client first sent (the client's own
+  // CID). For the client role, that is a random CID the client picks for the
+  // Initial DCID, which the server echoes back via the
+  // `original_destination_connection_id` transport parameter so the client can
+  // verify the response came from the same server it asked.
+  //
+  // `scid` is this side's own CID (the source CID we put on outbound
+  // packets and the routing key by which the peer addresses us).
+  //
+  // `original_dcid` applies only to the server role: it is the DCID the
+  // client put on the wire in its first Initial, which travels back via
+  // the `original_destination_connection_id` transport parameter. For
+  // the client role, pass `key_t{}`.
+  [[nodiscard]] bool init(const key_t& dcid, const key_t& scid,
+      const net_endpoint& local, const net_endpoint& peer,
+      const key_t& original_dcid, time_point_t now) noexcept {
+    if (!ssl_ || !ossl_ctx_) return false;
+    if (conn_) return false;
+
+    ngtcp2_path_storage_init(&path_storage_, local.as_sockaddr_ptr(),
+        local.sockaddr_size(), peer.as_sockaddr_ptr(), peer.sockaddr_size(),
+        nullptr);
+
     // 4. Build ngtcp2 settings + transport params + path.
     ngtcp2_settings settings;
     ngtcp2_settings_default(&settings);
@@ -430,30 +433,23 @@ private:
             : ngtcp2_conn_client_new(&raw_conn, dcid.pointer(), scid.pointer(),
                   &path_storage_.path, NGTCP2_PROTO_VER_V1, &cbs, &settings,
                   &params, nullptr, this);
-    if (rv != 0) return;
+    if (rv != 0) return false;
     conn_ptr conn{raw_conn};
 
     // 5. Bind shim ctx to the ngtcp2 conn. ngtcp2 does not take ownership;
     //    the ctx and SSL must outlive the conn (handled by member order).
-    ngtcp2_conn_set_tls_native_handle(conn.get(), ossl_ctx.get());
+    ngtcp2_conn_set_tls_native_handle(conn.get(), ossl_ctx_.get());
 
-    // All steps succeeded; commit.
-    ssl_ = std::move(ssl);
-    ossl_ctx_ = std::move(ossl_ctx);
     conn_ = std::move(conn);
+    return true;
   }
 
-public:
 #pragma endregion
 #pragma region Accessors
 
   [[nodiscard]] explicit operator bool() const noexcept { return !!conn_; }
   [[nodiscard]] connection_role role() const noexcept { return role_; }
   [[nodiscard]] auto native(this auto& self) { return self.conn_.get(); }
-
-  [[nodiscard]] bool is_handshake_completed() const noexcept {
-    return ngtcp2_conn_get_handshake_completed(conn_.get()) != 0;
-  }
 
   [[nodiscard]] const net_endpoint& local() const noexcept {
     return *reinterpret_cast<net_endpoint*>(path_storage_.path.local.addr);
@@ -468,11 +464,12 @@ public:
   // Install the upcall handlers that `quic_conn`'s ngtcp2 trampolines
   // dispatch into. The session must call this once, after the upper
   // plugin is constructed and before any I/O entry point (`read_pkt`,
-  // `write_pkt`, `writev_stream`) fires; the trampolines deref
-  // `handlers_` unconditionally, so a null pointer here at I/O time
-  // crashes. The pointee must outlive `quic_conn`; typically it is a
-  // base subobject of the upper plugin owned next to `quic_conn` in
-  // the session.
+  // `write_pkt`, `writev_stream`) fires.
+  //
+  // The trampolines deref `handlers_` unconditionally, so a null pointer here
+  // at I/O time crashes. The pointee must outlive `quic_conn`; typically it is
+  // a base subobject of the upper plugin owned next to `quic_conn` in the
+  // session.
   void set_handlers(quic_conn_handlers* handlers) noexcept {
     handlers_ = handlers;
   }
@@ -494,10 +491,10 @@ public:
   }
 
 #pragma endregion
-#pragma region IO
+#pragma region I/O
 
-  // Feed a received datagram into the conn for decryption + decoding. Invokes
-  // various callbacks, as needed.
+  // Feed a received datagram into the conn for decryption + decoding. This
+  // leads to various callbacks being invoked.
   [[nodiscard]] quic_decode_status read_pkt(std::span<const uint8_t> pkt,
       time_point_t now = timeouts::now()) noexcept {
     const int rv = ngtcp2_conn_read_pkt(conn_.get(), &path_storage_.path,
@@ -517,12 +514,14 @@ public:
   // ngtcp2 wants to emit, not just when the tail is fully empty. The same
   // status (`ok`, payload unchanged) covers three cases the caller can't
   // distinguish directly: tail too small, congestion control limit, or
-  // ngtcp2 idle. The cheap disambiguator is "retry once with a fresh
-  // buffer": if the new buffer also doesn't grow, it was congestion or
-  // idle and the drain can stop; if it grows, the prior failure was
-  // capacity. Production one-packet-per-buffer drains (the session's
-  // `drain_writes`) get this for free since every iteration starts from a
-  // fresh path-MTU buffer. On error, `buf` is left unchanged.
+  // ngtcp2 idle.
+  //
+  // The cheap disambiguator is "retry once with a fresh buffer": if the new
+  // buffer also doesn't grow, it was congestion or idle and the drain can
+  // stop; if it grows, the prior failure was capacity. Production
+  // one-packet-per-buffer drains (the session's `drain_writes`) get this for
+  // free since every iteration starts from a fresh path-MTU buffer. On error,
+  // `buf` is left unchanged.
   [[nodiscard]] quic_decode_status write_pkt(iouring::iou_buffer& buf,
       time_point_t now = timeouts::now()) noexcept {
     auto tail = buf.tail_span();
@@ -546,26 +545,27 @@ public:
   // its own UDP datagram, borrow a fresh `buf` per packet.
   //
   // ngtcp2 packets are atomic, so this gives up (returns `ok` without
-  // extending `buf` or advancing `vec`) whenever the remaining tail
-  // can't hold the next packet ngtcp2 wants to emit, not just when the
-  // tail is fully empty. The same status (`ok`, payload unchanged)
-  // covers three cases the caller can't distinguish directly: tail too
-  // small, congestion control limit, or ngtcp2 idle. The cheap
-  // disambiguator is "retry once with a fresh buffer": if the new
-  // buffer also doesn't grow, it was congestion or idle and the drain
-  // can stop; if it grows, the prior failure was capacity (ship the
-  // partial buffer, keep the new one going). The drain terminates when
-  // `vec` is empty and a fresh-buffer call also stops growing.
+  // extending `buf` or advancing `vec`) whenever the remaining tail can't hold
+  // the next packet ngtcp2 wants to emit, not just when the tail is fully
+  // empty. The same status (`ok`, payload unchanged) covers three cases the
+  // caller can't distinguish directly: tail too small, congestion control
+  // limit, or ngtcp2 idle.
   //
-  // Bytes accepted into the stream queue must remain valid until the
-  // peer ACKs them via `on_acked_stream_data_offset`. `stream_id ==
-  // quic_stream_id::none` (the ngtcp2 -1 sentinel) emits a packet
-  // carrying only non-stream frames (ACKs, MAX_DATA, etc.), the same as
-  // `write_pkt`; `vec` is left untouched in that case. `flags` selects
-  // ngtcp2 write modifiers; see `write_stream_flags` for the per-bit
-  // semantics (`fin` to terminate the stream, `more` to coalesce
-  // subsequent calls into the same packet, `padding` to pad to path
-  // MTU). On error, `buf` and `vec` are left unchanged.
+  // The cheap disambiguator is "retry once with a fresh buffer": if the new
+  // buffer also doesn't grow, it was congestion or idle and the drain can
+  // stop; if it grows, the prior failure was capacity (ship the partial
+  // buffer, keep the new one going). The drain terminates when `vec` is empty
+  // and a fresh-buffer call also stops growing.
+  //
+  // Bytes accepted into the stream queue must remain valid until the peer ACKs
+  // them via `on_acked_stream_data_offset`. `stream_id ==
+  // quic_stream_id::none` (the ngtcp2 -1 sentinel) emits a packet carrying
+  // only non-stream frames (ACKs, MAX_DATA, etc.), the same as `write_pkt`;
+  // `vec` is left untouched in that case. `flags` selects ngtcp2 write
+  // modifiers; see `write_stream_flags` for the per-bit semantics (`fin` to
+  // terminate the stream, `more` to coalesce subsequent calls into the same
+  // packet, `padding` to pad to path MTU). On error, `buf` and `vec` are left
+  // unchanged.
   [[nodiscard]] quic_decode_status writev_stream(quic_stream_id stream_id,
       std::span<ngtcp2_vec>& vec, iouring::iou_buffer& buf,
       write_stream_flags flags = write_stream_flags::none,
@@ -579,25 +579,24 @@ public:
         timeouts::as_nanoseconds(now));
     if (rv < 0) return static_cast<quic_decode_status>(rv);
 
-    // Extend `buf`'s payload to cover what ngtcp2 wrote, and advance
-    // `vec` past whatever ngtcp2 consumed. `update_payload` can only
-    // fail on a tail-start/overrun invariant violation, neither of which
-    // can happen here. `pdatalen < 0` means no stream data was attached
-    // (e.g., `stream_id == none`); leave `vec` alone in that case.
+    // Extend `buf`'s payload to cover what ngtcp2 wrote, and advance `vec`
+    // past whatever ngtcp2 consumed. `update_payload` can only fail on a
+    // tail-start/overrun invariant violation, neither of which can happen
+    // here. `pdatalen < 0` means no stream data was attached (e.g., `stream_id
+    // == none`); leave `vec` alone in that case.
     if (rv > 0)
       (void)buf.update_payload({tail.data(), static_cast<size_t>(rv)});
     if (pdatalen > 0) advance_vec(vec, static_cast<size_t>(pdatalen));
     return quic_decode_status::ok;
   }
 
-  // Open a locally-initiated bidirectional stream. On success `stream_id`
-  // is set to the ngtcp2-picked id from the next free slot in the local
-  // bidirectional space, which the caller uses on subsequent
-  // `writev_stream` calls. Fails with `NGTCP2_ERR_STREAM_ID_BLOCKED` when
-  // the peer's `initial_max_streams_bidi` has been exhausted; the caller
-  // may retry after `on_extend_max_local_streams_bidi` fires. On input,
-  // `stream_id` must be `quic_stream_id::none`. On failure `stream_id` is left
-  // untouched.
+  // Open a locally-initiated bidirectional stream. On success `stream_id` is
+  // set to the ngtcp2-picked id from the next free slot in the local
+  // bidirectional space, which the caller uses on subsequent `writev_stream`
+  // calls. Fails with `NGTCP2_ERR_STREAM_ID_BLOCKED` when the peer's
+  // `initial_max_streams_bidi` has been exhausted; the caller may retry after
+  // `on_extend_max_local_streams_bidi` fires. On input, `stream_id` must be
+  // `quic_stream_id::none`. On failure `stream_id` is left untouched.
   [[nodiscard]] quic_decode_status open_bidi_stream(
       quic_stream_id& stream_id) noexcept {
     assert(stream_id == quic_stream_id::none);
@@ -627,22 +626,21 @@ public:
 #pragma endregion
 #pragma region Handlers
 private:
-  // App-supplied callbacks. The crypto-shim functions handle the AEAD /
-  // HP / key / crypto-data callbacks; we only own the ones the shim does
-  // not provide. Trampolines that surface a `quic_conn_handlers` upcall
-  // recover the typed `quic_conn*` from `user_data` and translate the
-  // handler's bool return into `0` / `NGTCP2_ERR_CALLBACK_FAILURE`. The
-  // owning session must call `set_handlers` before any I/O fires
-  // (`read_pkt`, `write_pkt`, `writev_stream`), since the trampolines
-  // deref `handlers_` unconditionally; a null pointer here will crash.
-  // A handler that wants a graceful CONNECTION_CLOSE instead of a
-  // callback failure calls `request_close` first to request the close,
-  // then returns whichever bool fits its needs.
+  // App-supplied callbacks. The crypto-shim functions handle the AEAD / HP /
+  // key / crypto-data callbacks; we only own the ones the shim does not
+  // provide. Trampolines that surface a `quic_conn_handlers` upcall recover
+  // the typed `quic_conn*` from `user_data` and translate the handler's bool
+  // return into `0` / `NGTCP2_ERR_CALLBACK_FAILURE`. The owning session must
+  // call `set_handlers` before any I/O fires (`read_pkt`, `write_pkt`,
+  // `writev_stream`), since the trampolines deref `handlers_` unconditionally;
+  // a null pointer here will crash. A handler that wants a graceful
+  // CONNECTION_CLOSE instead of a callback failure calls `request_close` first
+  // to request the close, then returns whichever bool fits its needs.
 
   // Generate random bytes. No way to signal error and can't throw through C,
   // so just terminate in the unlikely event that it fails
-  static void on_rand(uint8_t* dest, size_t destlen,
-      const ngtcp2_rand_ctx* /*ctx*/) noexcept {
+  static void
+  on_rand(uint8_t* dest, size_t destlen, const ngtcp2_rand_ctx*) noexcept {
     if (destlen > static_cast<size_t>(std::numeric_limits<int>::max()))
       std::terminate();
 
@@ -653,35 +651,33 @@ private:
   // cryptographic randomness. The stateless-reset token is reused as the
   // "secret known to the issuer" in the reset path; same constraint
   // applies.
-  static int on_get_new_connection_id2(ngtcp2_conn* /*conn*/, ngtcp2_cid* cid,
-      ngtcp2_stateless_reset_token* token, size_t cidlen,
-      void* /*user_data*/) noexcept {
+  static int on_get_new_connection_id2(ngtcp2_conn*, ngtcp2_cid* cid,
+      ngtcp2_stateless_reset_token* token, size_t cidlen, void*) noexcept {
     cid->datalen = cidlen;
     return success(
         RAND_bytes(cid->data, static_cast<int>(cidlen)) == 1 &&
         RAND_bytes(token->data, sizeof(token->data)) == 1);
   }
 
-  // CID retirement is not yet plumbed back to the router; the
-  // CID-rotation milestone will replace this no-op with a session-level
+  // CID retirement is not yet plumbed back to the router; the CID-rotation
+  // milestone will replace this no-op with a session-level
   // `router.remove_session` call.
   static int
   on_remove_connection_id(ngtcp2_conn*, const ngtcp2_cid*, void*) noexcept {
     return success(true);
   }
 
-  // `recv_rx_key` is unused: nothing in the handler contract reacts to RX
-  // key installation. The TX direction is handled separately by
-  // `on_recv_tx_key` (it filters on 1-RTT and surfaces `on_app_tx_ready`).
+  // `recv_rx_key` is unused: nothing in the handler contract reacts to RX key
+  // installation. The TX direction is handled separately by `on_recv_tx_key`
+  // (it filters on 1-RTT and surfaces `on_app_tx_ready`).
   static int
   on_recv_rx_key(ngtcp2_conn*, ngtcp2_encryption_level, void*) noexcept {
     return success(true);
   }
 
-  // v2 trampoline around the shim's v1 `get_path_challenge_data` (which
-  // writes raw bytes). The ngtcp2 callback table at version V3 uses the
-  // v2 signature, which takes a typed struct that wraps the same byte
-  // array.
+  // v2 trampoline around the shim's v1 `get_path_challenge_data` (which writes
+  // raw bytes). The ngtcp2 callback table at version V3 uses the v2 signature,
+  // which takes a typed struct that wraps the same byte array.
   static int on_get_path_challenge_data2(ngtcp2_conn* conn,
       ngtcp2_path_challenge_data* data, void* user_data) noexcept {
     return ngtcp2_crypto_get_path_challenge_data_cb(conn, data->data,
@@ -700,11 +696,11 @@ private:
     return success(self->handlers_->on_handshake_confirmed());
   }
 
-  // `recv_tx_key` fires once per TX-key install during the handshake;
-  // ngtcp2 omits the INITIAL level, so the levels we observe are
-  // HANDSHAKE and 1-RTT. Application data only becomes sendable at
-  // 1-RTT, so we filter and only surface `on_app_tx_ready` then. The
-  // intermediate HANDSHAKE call is silently ignored.
+  // `recv_tx_key` fires once per TX-key install during the handshake; ngtcp2
+  // omits the INITIAL level, so the levels we observe are HANDSHAKE and 1-RTT.
+  // Application data only becomes sendable at 1-RTT, so we filter and only
+  // surface `on_app_tx_ready` then. The intermediate HANDSHAKE call is
+  // silently ignored.
   static int on_recv_tx_key(ngtcp2_conn*, ngtcp2_encryption_level level,
       void* user_data) noexcept {
     if (level != NGTCP2_ENCRYPTION_LEVEL_1RTT) return success(true);
@@ -721,7 +717,7 @@ private:
 
   static int on_recv_stream_data(ngtcp2_conn*, uint32_t flags,
       int64_t stream_id, uint64_t offset, const uint8_t* data, size_t datalen,
-      void* user_data, void* /*stream_user_data*/) noexcept {
+      void* user_data, void*) noexcept {
     auto* self = static_cast<quic_conn*>(user_data);
     return success(self->handlers_->on_recv_stream_data(
         static_cast<quic_stream_id>(stream_id), offset,
@@ -730,8 +726,7 @@ private:
   }
 
   static int on_acked_stream_data_offset(ngtcp2_conn*, int64_t stream_id,
-      uint64_t offset, uint64_t datalen, void* user_data,
-      void* /*stream_user_data*/) noexcept {
+      uint64_t offset, uint64_t datalen, void* user_data, void*) noexcept {
     auto* self = static_cast<quic_conn*>(user_data);
     return success(self->handlers_->on_acked_stream_data_offset(
         static_cast<quic_stream_id>(stream_id), offset, datalen));
@@ -739,23 +734,21 @@ private:
 
   static int on_stream_reset(ngtcp2_conn*, int64_t stream_id,
       uint64_t final_size, uint64_t app_error_code, void* user_data,
-      void* /*stream_user_data*/) noexcept {
+      void*) noexcept {
     auto* self = static_cast<quic_conn*>(user_data);
     return success(self->handlers_->on_stream_reset(
         static_cast<quic_stream_id>(stream_id), final_size, app_error_code));
   }
 
   static int on_stream_stop_sending(ngtcp2_conn*, int64_t stream_id,
-      uint64_t app_error_code, void* user_data,
-      void* /*stream_user_data*/) noexcept {
+      uint64_t app_error_code, void* user_data, void*) noexcept {
     auto* self = static_cast<quic_conn*>(user_data);
     return success(self->handlers_->on_stream_stop_sending(
         static_cast<quic_stream_id>(stream_id), app_error_code));
   }
 
   static int on_stream_close(ngtcp2_conn*, uint32_t flags, int64_t stream_id,
-      uint64_t app_error_code, void* user_data,
-      void* /*stream_user_data*/) noexcept {
+      uint64_t app_error_code, void* user_data, void*) noexcept {
     auto* self = static_cast<quic_conn*>(user_data);
     std::optional<uint64_t> ec;
     if (flags & NGTCP2_STREAM_CLOSE_FLAG_APP_ERROR_CODE_SET)
@@ -765,8 +758,7 @@ private:
   }
 
   static int on_extend_max_stream_data(ngtcp2_conn*, int64_t stream_id,
-      uint64_t max_data, void* user_data,
-      void* /*stream_user_data*/) noexcept {
+      uint64_t max_data, void* user_data, void*) noexcept {
     auto* self = static_cast<quic_conn*>(user_data);
     return success(self->handlers_->on_extend_max_stream_data(
         static_cast<quic_stream_id>(stream_id), max_data));
@@ -920,10 +912,10 @@ private:
     }();
   }
 
-  // Sever the SSL's back-pointer to `conn_ref_` before `SSL_free`, per
-  // the shim's contract (we cannot guarantee that the ngtcp2_conn
-  // outlives `SSL_free`, because `conn_` is destroyed first by member
-  // order).
+  // For `ssl_ptr`, sever the SSL's back-pointer to `conn_ref_` before
+  // `SSL_free`, per the shim's contract (we cannot guarantee that the
+  // ngtcp2_conn outlives `SSL_free`, because `conn_` is destroyed first by
+  // member order).
   using ssl_ptr = std::unique_ptr<SSL, decltype([](SSL* p) noexcept {
     if (!p) return;
     SSL_set_app_data(p, nullptr);
@@ -955,13 +947,13 @@ private:
   conn_ptr conn_;
 
   // Upper-plugin upcalls, installed via `set_handlers` after construction.
-  // Null until then; trampolines deref unconditionally, so the session
-  // must install handlers before any I/O fires.
+  // Null until then; trampolines deref unconditionally, so the session must
+  // install handlers before any I/O fires.
   quic_conn_handlers* handlers_{};
 
-  // Close request stashed by `request_close` (typically called from
-  // inside a handler upcall); not externally observable. `kind ==
-  // quic_close_kind{}` means "not set". Last write in a turn wins.
+  // Close request stashed by `request_close` (typically called from inside a
+  // handler upcall); not externally observable. `kind == quic_close_kind{}`
+  // means "not set". Last write in a turn wins.
   quic_close_request pending_close_;
 
 #pragma endregion

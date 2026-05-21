@@ -150,7 +150,7 @@ public:
   //
   // Intended to be called from a single driver thread.
   void tick(time_point_t now) {
-    while (true) {
+    for (;;) {
       callback_t callback;
       time_point_t expire;
 

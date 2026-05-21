@@ -62,6 +62,7 @@ enum class msg_flags : int {
 };
 
 // `F_*` wrapper for `fcntl` operations.
+// NOLINTNEXTLINE(performance-enum-size)
 enum class fcntl_ops : int {
   dupfd = F_DUPFD,                 // 0
   getfd = F_GETFD,                 // 1
@@ -81,10 +82,10 @@ enum class fcntl_ops : int {
   setownex = F_SETOWN_EX,          // 15
   getownex = F_GETOWN_EX,          // 16
   dupfd_cloexec = F_DUPFD_CLOEXEC, // 1030
-  F_MUST_BE_INT32 = 0x7FFF'FFFF
 };
 
 // `E_*` wrapper for `errno` values.
+// NOLINTNEXTLINE(performance-enum-size)
 enum class errno_code : int {
   ok = 0,
   perm = EPERM,                     // 1
@@ -221,7 +222,6 @@ enum class errno_code : int {
   notrecoverable = ENOTRECOVERABLE, // 131
   rfkill = ERFKILL,                 // 132
   hwpoison = EHWPOISON,             // 133
-  E_MUST_BE_INT32 = 0x7FFF'FFFF
 };
 
 // Type-safe aliasing for `errno`.
@@ -295,6 +295,7 @@ enum class mmap_mask : uint32_t {
 };
 
 // `MADV_*` wrapper.
+// NOLINTNEXTLINE(performance-enum-size)
 enum class mmap_advice : int32_t {
   normal = MADV_NORMAL,                   // 0
   random = MADV_RANDOM,                   // 1
@@ -320,7 +321,6 @@ enum class mmap_advice : int32_t {
   dontneed_locked = MADV_DONTNEED_LOCKED, // 24
   collapse = MADV_COLLAPSE,               // 25
   hwpoison = MADV_HWPOISON,               // 100
-  MADV_MUST_BE_INT32 = 0x7FFF'FFFF
 };
 
 }} // namespace corvid::filesys

@@ -96,6 +96,8 @@ public:
     }
 
     bool register_self(const iou_loop::buffer& buf) {
+      // Empty-buffer sentinel => caller registers manually.
+      if (!buf) return true;
       key_ = buf.peer_addr();
       return router_.add_session(key_, session_.self());
     }
@@ -161,8 +163,8 @@ TEST_CASE("BasicSendRecv", "[IouDgramRouter]") {
     const auto destA = routerA->local_endpoint();
     CHECK_FALSE(destA.empty());
 
-    auto sessB =
-        capture_session::make_unregistered(*routerB.pointer(), &stateB, destA);
+    auto sessB = capture_session::make(*routerB.pointer(), iou_loop::buffer{},
+        &stateB, destA);
     CHECK(routerB->add_session(destA, sessB));
 
     CHECK(sessB->send_to(destA, "buf-udp"));
@@ -203,8 +205,8 @@ TEST_CASE("OnSentReturnsBuffer", "[IouDgramRouter]") {
     CHECK(routerB);
 
     const auto destA = routerA->local_endpoint();
-    auto sessB =
-        capture_session::make_unregistered(*routerB.pointer(), &stateB, destA);
+    auto sessB = capture_session::make(*routerB.pointer(), iou_loop::buffer{},
+        &stateB, destA);
     CHECK(routerB->add_session(destA, sessB));
 
     CHECK(sessB->send_to(destA, "ping"));
@@ -241,8 +243,8 @@ TEST_CASE("LazySession", "[IouDgramRouter]") {
     CHECK(routerB);
 
     const auto destA = routerA->local_endpoint();
-    auto sessB =
-        capture_session::make_unregistered(*routerB.pointer(), &stateB, destA);
+    auto sessB = capture_session::make(*routerB.pointer(), iou_loop::buffer{},
+        &stateB, destA);
     CHECK(routerB->add_session(destA, sessB));
 
     CHECK(sessB->send_to(destA, "p1"));
@@ -283,8 +285,8 @@ TEST_CASE("DropOnNullFactory", "[IouDgramRouter]") {
     CHECK(routerB);
 
     const auto destA = routerA->local_endpoint();
-    auto sessB =
-        capture_session::make_unregistered(*routerB.pointer(), &stateB, destA);
+    auto sessB = capture_session::make(*routerB.pointer(), iou_loop::buffer{},
+        &stateB, destA);
     CHECK(routerB->add_session(destA, sessB));
 
     CHECK(sessB->send_to(destA, "drop1"));
@@ -397,8 +399,8 @@ TEST_CASE("CustomKey", "[IouDgramRouter]") {
     CHECK(routerB);
 
     const auto destA = routerA->local_endpoint();
-    auto sessB =
-        capture_session::make_unregistered(*routerB.pointer(), &stateB, destA);
+    auto sessB = capture_session::make(*routerB.pointer(), iou_loop::buffer{},
+        &stateB, destA);
     CHECK(routerB->add_session(destA, sessB));
 
     auto send_id = [&](std::uint32_t id, std::string_view tail) {
@@ -510,8 +512,8 @@ TEST_CASE("WithPluginState", "[IouDgramRouter]") {
     CHECK(routerB);
 
     const auto destA = routerA->local_endpoint();
-    auto sessB =
-        capture_session::make_unregistered(*routerB.pointer(), &stateB, destA);
+    auto sessB = capture_session::make(*routerB.pointer(), iou_loop::buffer{},
+        &stateB, destA);
     CHECK(routerB->add_session(destA, sessB));
 
     CHECK(sessB->send_to(destA, "p1")); // create_session only
@@ -549,8 +551,8 @@ TEST_CASE("Multishot", "[IouDgramRouter]") {
     CHECK(routerB);
 
     const auto destA = routerA->local_endpoint();
-    auto sessB =
-        capture_session::make_unregistered(*routerB.pointer(), &stateB, destA);
+    auto sessB = capture_session::make(*routerB.pointer(), iou_loop::buffer{},
+        &stateB, destA);
     CHECK(routerB->add_session(destA, sessB));
 
     constexpr int total = 16;
@@ -581,8 +583,8 @@ TEST_CASE("OnClose", "[IouDgramRouter]") {
     CHECK(routerA);
 
     const auto preset_key = net_endpoint::loopback_v4(/*port=*/12345);
-    auto sess = capture_session::make_unregistered(*routerA.pointer(), &stateA,
-        preset_key);
+    auto sess = capture_session::make(*routerA.pointer(), iou_loop::buffer{},
+        &stateA, preset_key);
     CHECK(routerA->add_session(preset_key, sess));
 
     // `add_session` posts to the loop thread; `close()` flips `open_`
@@ -629,8 +631,8 @@ TEST_CASE("RoundTrip", "[IouDgramEchoProtocol]") {
     CHECK(routerB);
 
     const auto destA = echoA.local_endpoint();
-    auto sessB =
-        capture_session::make_unregistered(*routerB.pointer(), &stateB, destA);
+    auto sessB = capture_session::make(*routerB.pointer(), iou_loop::buffer{},
+        &stateB, destA);
     CHECK(routerB->add_session(destA, sessB));
 
     CHECK(sessB->send_to(destA, "hello-echo"));

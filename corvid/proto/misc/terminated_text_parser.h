@@ -39,7 +39,7 @@ namespace corvid { inline namespace proto {
 //
 //   // In on_data (constructed per call):
 //   terminated_text_parser parser{parser_state};
-//   while (true) {
+//   for (;;) {
 //     auto sv = view.active_view();
 //     std::string_view text;
 //     if (const auto r = parser.parse(sv, text); r == true) {

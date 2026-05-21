@@ -815,7 +815,7 @@ private:
 
     auto input = view.active_view();
 
-    while (true) {
+    for (;;) {
       switch (state.phase) {
       case http_phase::request_line: {
         const auto r = handle_request_line(conn, input, view);
