@@ -3,6 +3,12 @@
 # Fail fast.
 set -e
 
+# Side effect on first run after a fresh clone: CMake regenerates `.clangd`
+# at the project root from `.clangd.in` via `configure_file`. The generated
+# file is gitignored because it bakes in absolute dep paths (ngtcp2, openssl)
+# tied to this checkout. IDE clangd won't resolve those headers correctly
+# until this script (or a bare `cmake -S tests -B tests/build`) has run once.
+
 # Choose which standard library to use. Optionally pass a test source filename
 # first to build and run a matching unit test, then pass "libstdcpp" or
 # "libcxx" to override the default. Add "tidy" to run clang-tidy during the

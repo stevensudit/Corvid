@@ -341,3 +341,14 @@ foreach(SOURCE_FILE ${SOURCES})
         target_link_libraries(${EXECUTABLE_NAME} PRIVATE c++ c++abi)
     endif()
 endforeach()
+
+# Generate `.clangd` at the project root from `.clangd.in`. The dep paths
+# baked in (ngtcp2, openssl) are absolute and tied to this checkout, so the
+# generated file is gitignored; edit `.clangd.in` and re-configure to update.
+# `CMAKE_SOURCE_DIR` is this `tests/` directory (the only CMake project in
+# the repo), so the .. step is the actual project root.
+get_filename_component(PROJECT_ROOT_DIR "${CMAKE_SOURCE_DIR}/.." ABSOLUTE)
+configure_file(
+    "${PROJECT_ROOT_DIR}/.clangd.in"
+    "${PROJECT_ROOT_DIR}/.clangd"
+    @ONLY)
