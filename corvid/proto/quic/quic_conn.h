@@ -21,6 +21,7 @@
 #include <memory>
 #include <optional>
 #include <span>
+#include <sys/uio.h>
 #include <utility>
 
 #include <ngtcp2/ngtcp2.h>
@@ -537,56 +538,62 @@ public:
 
   // Drive a single outgoing packet, optionally carrying stream bytes. ngtcp2
   // writes the produced packet into `buf`'s tail (extending `buf`'s payload by
-  // the packet length), and `vec` is advanced past the stream bytes ngtcp2
-  // accepted into its send queue: whole entries fully covered are dropped from
-  // the front, and a partially-consumed leading entry is updated in place. To
-  // keep appending packets, call again on the same `buf`: its tail
-  // moves forward automatically across calls. To ship each packet as
-  // its own UDP datagram, borrow a fresh `buf` per packet.
+  // the packet length) and reports through `bytes_accepted` how many bytes of
+  // `iov` it consumed into its send queue. The caller owns `iov` and is
+  // responsible for advancing its own per-stream cursors by `bytes_accepted`
+  // between calls; ngtcp2 may accept zero, some prefix, or all of the offered
+  // bytes depending on flow control and packet capacity. To keep appending
+  // packets, call again on the same `buf`: its tail moves forward across
+  // calls. To ship each packet as its own UDP datagram, borrow a fresh `buf`
+  // per packet.
   //
   // ngtcp2 packets are atomic, so this gives up (returns `ok` without
-  // extending `buf` or advancing `vec`) whenever the remaining tail can't hold
-  // the next packet ngtcp2 wants to emit, not just when the tail is fully
-  // empty. The same status (`ok`, payload unchanged) covers three cases the
-  // caller can't distinguish directly: tail too small, congestion control
-  // limit, or ngtcp2 idle.
+  // extending `buf` and with `bytes_accepted == 0`) whenever the remaining
+  // tail can't hold the next packet ngtcp2 wants to emit, not just when the
+  // tail is fully empty. The same status covers three cases the caller can't
+  // distinguish directly: tail too small, congestion control limit, or ngtcp2
+  // idle.
   //
   // The cheap disambiguator is "retry once with a fresh buffer": if the new
   // buffer also doesn't grow, it was congestion or idle and the drain can
   // stop; if it grows, the prior failure was capacity (ship the partial
-  // buffer, keep the new one going). The drain terminates when `vec` is empty
-  // and a fresh-buffer call also stops growing.
+  // buffer, keep the new one going). The drain terminates when the caller has
+  // no more bytes to offer and a fresh-buffer call also stops growing.
   //
-  // Bytes accepted into the stream queue must remain valid until the peer ACKs
-  // them via `on_acked_stream_data_offset`. `stream_id ==
-  // quic_stream_id::none` (the ngtcp2 -1 sentinel) emits a packet carrying
-  // only non-stream frames (ACKs, MAX_DATA, etc.), the same as `write_pkt`;
-  // `vec` is left untouched in that case. `flags` selects ngtcp2 write
-  // modifiers; see `write_stream_flags` for the per-bit semantics (`fin` to
-  // terminate the stream, `more` to coalesce subsequent calls into the same
-  // packet, `padding` to pad to path MTU). On error, `buf` and `vec` are left
-  // unchanged.
+  // Bytes accepted into the stream queue (reflected in `bytes_accepted`) must
+  // remain valid in the caller's storage until the peer ACKs them via
+  // `on_acked_stream_data_offset`. `stream_id == quic_stream_id::none` (the
+  // ngtcp2 -1 sentinel) emits a packet carrying only non-stream frames (ACKs,
+  // MAX_DATA, etc.), the same as `write_pkt`; `bytes_accepted` is `0` in that
+  // case. `flags` selects ngtcp2 write modifiers; see `write_stream_flags` for
+  // the per-bit semantics (`fin` to terminate the stream, `more` to coalesce
+  // subsequent calls into the same packet, `padding` to pad to path MTU). On
+  // error, `buf` is left unchanged and `bytes_accepted` is `0`.
   [[nodiscard]] quic_decode_status writev_stream(quic_stream_id stream_id,
-      std::span<ngtcp2_vec>& vec, iouring::iou_buffer& buf,
+      std::span<const iovec> iov, iouring::iou_buffer& buf,
+      uint64_t& bytes_accepted,
       write_stream_flags flags = write_stream_flags::none,
       time_point_t now = timeouts::now()) noexcept {
+    bytes_accepted = 0;
     auto tail = buf.tail_span();
     if (tail.empty()) return quic_decode_status::ok;
     ngtcp2_ssize pdatalen{-1};
     const ngtcp2_ssize rv = ngtcp2_conn_writev_stream(conn_.get(),
         &path_storage_.path, nullptr, reinterpret_cast<uint8_t*>(tail.data()),
-        tail.size(), &pdatalen, *flags, *stream_id, vec.data(), vec.size(),
+        tail.size(), &pdatalen, *flags, *stream_id,
+        reinterpret_cast<const ngtcp2_vec*>(iov.data()), iov.size(),
         timeouts::as_nanoseconds(now));
     if (rv < 0) return static_cast<quic_decode_status>(rv);
 
-    // Extend `buf`'s payload to cover what ngtcp2 wrote, and advance `vec`
-    // past whatever ngtcp2 consumed. `update_payload` can only fail on a
+    // Extend `buf`'s payload to cover what ngtcp2 wrote, and surface the
+    // stream-byte count through `bytes_accepted` so the caller can advance
+    // its own per-stream state. `update_payload` can only fail on a
     // tail-start/overrun invariant violation, neither of which can happen
-    // here. `pdatalen < 0` means no stream data was attached (e.g., `stream_id
-    // == none`); leave `vec` alone in that case.
+    // here. `pdatalen < 0` means no stream data was attached (e.g.,
+    // `stream_id == none`); leave `bytes_accepted` at 0 in that case.
     if (rv > 0)
       (void)buf.update_payload({tail.data(), static_cast<size_t>(rv)});
-    if (pdatalen > 0) advance_vec(vec, static_cast<size_t>(pdatalen));
+    if (pdatalen > 0) bytes_accepted = static_cast<uint64_t>(pdatalen);
     return quic_decode_status::ok;
   }
 
@@ -805,27 +812,6 @@ private:
   // `0` on success, `NGTCP2_ERR_CALLBACK_FAILURE` on failure.
   [[nodiscard]] static constexpr int success(bool ok) noexcept {
     return ok ? 0 : NGTCP2_ERR_CALLBACK_FAILURE;
-  }
-
-  // Advance `vec` past `consumed` bytes' worth of its content. Whole entries
-  // fully covered by `consumed` are dropped from the front of the span; the
-  // first remaining entry (if any) has its `base` and `len` trimmed in place.
-  // `consumed` must not exceed the total bytes currently spanned by `vec`.
-  static void
-  advance_vec(std::span<ngtcp2_vec>& vec, size_t consumed) noexcept {
-    size_t whole_entries = 0;
-    for (auto& entry : vec) {
-      if (entry.len <= consumed) {
-        consumed -= entry.len;
-        ++whole_entries;
-        if (consumed == 0) break;
-      } else {
-        entry.base += consumed;
-        entry.len -= consumed;
-        break;
-      }
-    }
-    vec = vec.subspan(whole_entries);
   }
 
   // Callback tables, one per role. Unmentioned slots are value-initialized to

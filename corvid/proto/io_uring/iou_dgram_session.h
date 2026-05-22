@@ -24,6 +24,88 @@
 
 namespace corvid { inline namespace proto { namespace iouring {
 
+#pragma region iou_dgram_session_base
+
+// Non-templated base of `iou_dgram_session<SessionPlugin>`. Owns the
+// session-side state and operations that do NOT depend on the plugin type:
+// the loop reference, the open flag, the send-buffer block size, and the
+// `borrow_send_buffer` / `send` / `send_to` I/O surface.
+//
+// Lifted out so protocol-layer wrappers (e.g., `quic_session_io`) can hold a
+// reference to a non-templated session handle and drive I/O without taking
+// the templated session type as a parameter. `shared_from_this` lives here
+// (single inheritance below); the templated derived's typed `self()` is a
+// `static_pointer_cast` of `shared_from_this()` into its own type.
+//
+// The single virtual (`do_send`) bridges to the templated derived, which
+// knows how to ship a buffer through the typed router with a typed
+// `shared_from_this`.
+class iou_dgram_session_base
+    : public std::enable_shared_from_this<iou_dgram_session_base> {
+public:
+  using buffer = iou_loop::buffer;
+  using completion_token = iou_loop::completion_token;
+
+  iou_dgram_session_base(const iou_dgram_session_base&) = delete;
+  iou_dgram_session_base(iou_dgram_session_base&&) = delete;
+  iou_dgram_session_base& operator=(const iou_dgram_session_base&) = delete;
+  iou_dgram_session_base& operator=(iou_dgram_session_base&&) = delete;
+  virtual ~iou_dgram_session_base() = default;
+
+#pragma region Accessors
+
+  [[nodiscard]] bool is_open() const noexcept { return open_; }
+  [[nodiscard]] iou_loop& loop() noexcept { return loop_; }
+
+#pragma endregion
+#pragma region Send
+
+  // Borrow a buffer for sending. The buffer is owned by the loop's pool and
+  // will be returned to the pool on completion. Safe from any thread.
+  [[nodiscard]] buffer borrow_send_buffer() const {
+    return loop_.borrow_write_buffer(buf_size_);
+  }
+
+  // Send a datagram. The buffer must already carry its `peer_addr`. Returns
+  // the `completion_token` for the in-flight send (invalid on failure); the
+  // buffer is returned to the plugin via `handle_sent` on completion. Safe
+  // from any thread.
+  [[nodiscard]] completion_token send(buffer&& buf) {
+    if (!open_) return {};
+    return do_send(std::move(buf));
+  }
+
+  // Convenience: copy `data` into a JIT-borrowed write buffer with the given
+  // `peer` address, then send. Safe from any thread.
+  [[nodiscard]] completion_token
+  send_to(const net_endpoint& peer, std::string_view data) {
+    if (!open_) return {};
+    auto buf = borrow_send_buffer();
+    if (!buf) return {};
+    buf.peer_addr() = peer;
+    if (!buf.append(data)) return {};
+    return do_send(std::move(buf));
+  }
+
+#pragma endregion
+protected:
+  iou_dgram_session_base(iou_loop& loop, block_size buf_size) noexcept
+      : loop_{loop}, buf_size_{buf_size} {}
+
+  // Templated derived implements: routes the buffer through the typed
+  // router's `submit_session_send` with a typed `shared_from_this`.
+  virtual completion_token do_send(buffer&& buf) = 0;
+
+#pragma region Data members
+
+  iou_loop& loop_;
+  block_size buf_size_;
+  relaxed_atomic_bool open_{true};
+
+#pragma endregion
+};
+
+#pragma endregion
 #pragma region iou_dgram_session
 
 // A logical conversation, owned by an `iou_dgram_router` via `shared_ptr`. The
@@ -48,11 +130,8 @@ namespace corvid { inline namespace proto { namespace iouring {
 // `make_shared`, then invokes `plugin.register_self(buf)` so the plugin
 // can register the session under one or more keys.
 template<typename SessionPlugin>
-class iou_dgram_session
-    : public std::enable_shared_from_this<iou_dgram_session<SessionPlugin>> {
+class iou_dgram_session: public iou_dgram_session_base {
 public:
-  using buffer = iou_loop::buffer;
-  using completion_token = iou_loop::completion_token;
   using session_plugin_t = SessionPlugin;
   using router_t = SessionPlugin::router_t;
   using session_ptr = std::shared_ptr<iou_dgram_session>;
@@ -71,7 +150,8 @@ public:
   template<typename... PluginArgs>
   explicit iou_dgram_session(allow, router_t& router,
       PluginArgs&&... plugin_args) noexcept
-      : loop_{router.loop()}, router_{router},
+      : iou_dgram_session_base{router.loop(), router_t::buf_size},
+        router_{router},
         plugin_{router, *this, std::forward<PluginArgs>(plugin_args)...} {
     // Deferred concept check: see the matching note in iou_dgram_router.h.
     static_assert(iou_dgram_session_plugin<SessionPlugin>,
@@ -105,41 +185,16 @@ public:
 #pragma endregion
 #pragma region Accessors
 
-  [[nodiscard]] bool is_open() const noexcept { return open_; }
   [[nodiscard]] router_t& router() noexcept { return router_; }
-  [[nodiscard]] iou_loop& loop() noexcept { return loop_; }
   [[nodiscard]] session_plugin_t& plugin() noexcept { return plugin_; }
 
-  [[nodiscard]] session_ptr self() { return this->shared_from_this(); }
-
-#pragma endregion
-#pragma region Send
-
-  // Borrow a buffer for sending. The buffer is owned by the loop's pool and
-  // will be returned to the pool on completion. Safe from any thread.
-  [[nodiscard]] buffer borrow_send_buffer() const {
-    return loop_.borrow_write_buffer(router_t::buf_size);
-  }
-
-  // Send a datagram. The buffer must already carry its `peer_addr`. Returns
-  // the `completion_token` for the in-flight send (invalid on failure); the
-  // buffer is returned to the plugin via `handle_sent` on completion. Safe
-  // from any thread.
-  [[nodiscard]] completion_token send(buffer&& buf) {
-    if (!open_ || !router_.is_open()) return {};
-    return router_.submit_session_send(std::move(buf), self());
-  }
-
-  // Convenience: copy `data` into a JIT-borrowed write buffer with the given
-  // `peer` address, then send. Safe from any thread.
-  [[nodiscard]] completion_token
-  send_to(const net_endpoint& peer, std::string_view data) {
-    if (!open_ || !router_.is_open()) return {};
-    auto buf = loop_.borrow_write_buffer(router_t::buf_size);
-    if (!buf) return {};
-    buf.peer_addr() = peer;
-    if (!buf.append(data)) return {};
-    return router_.submit_session_send(std::move(buf), self());
+  // Typed view of `shared_from_this()`. The base's `enable_shared_from_this`
+  // yields `shared_ptr<iou_dgram_session_base>`; the cast is safe because the
+  // dynamic type of every `iou_dgram_session_base` instance constructed
+  // through `make` is `iou_dgram_session<SessionPlugin>`.
+  [[nodiscard]] session_ptr self() {
+    return std::static_pointer_cast<iou_dgram_session>(
+        this->shared_from_this());
   }
 
 #pragma endregion
@@ -176,12 +231,20 @@ public:
   }
 
 #pragma endregion
-#pragma region Data members
+#pragma region Helpers
 private:
-  iou_loop& loop_;
+  // Bridges the base's `send` / `send_to` to the typed router; gated on
+  // router open so a session outliving its router fails-closed.
+  completion_token do_send(buffer&& buf) override {
+    if (!router_.is_open()) return {};
+    return router_.submit_session_send(std::move(buf), self());
+  }
+
+#pragma endregion
+#pragma region Data members
+
   router_t& router_;
   SessionPlugin plugin_;
-  relaxed_atomic_bool open_{true};
   bool close_notified_{};
 
 #pragma endregion
