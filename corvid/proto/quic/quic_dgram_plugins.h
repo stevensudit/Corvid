@@ -77,7 +77,7 @@ public:
   // buffer. `stream_id::none` means "emit whatever non-stream frames are
   // queued"; concrete plugins override this with a per-stream drive and may
   // end with a `stream_id::none` flush to pick up any remaining ACKs.
-  bool drain(time_point_t now) {
+  [[nodiscard]] bool drain(time_point_t now) {
     for (;;) {
       auto out = io_.borrow_send_buffer();
       if (!out) return true;

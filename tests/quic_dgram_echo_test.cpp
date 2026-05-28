@@ -63,9 +63,8 @@ constexpr std::string_view echo_alpn = "corvid-echo";
 // `inject` is the test API: queue bytes (and optionally `fin`) on a stream.
 // Loop-thread only; the caller wraps in `post_and_wait` from the test
 // thread.
-struct echo_client_plugin: quic_no_op_plugin {
-  explicit echo_client_plugin(quic_session_io& s) noexcept
-      : quic_no_op_plugin{s} {}
+struct echo_client_plugin: quic_conn_handlers {
+  explicit echo_client_plugin(quic_session_io& s) noexcept : io_{s} {}
 
   [[nodiscard]] bool on_app_tx_ready() noexcept override {
     app_tx_ready.store(true, std::memory_order::release);
@@ -105,7 +104,7 @@ struct echo_client_plugin: quic_no_op_plugin {
     return true;
   }
 
-  [[nodiscard]] bool drain(steady_now_clock::time_point_t now) {
+  [[nodiscard]] bool drain(time_point_t now) {
     for (;;) {
       quic_stream_id sid = quic_stream_id::none;
       std::span<const iovec> iov;
@@ -148,6 +147,7 @@ struct echo_client_plugin: quic_no_op_plugin {
     return it->second;
   }
 
+  quic_session_io& io_;
   std::unordered_map<quic_stream_id, quic_stream_send_queue> queues;
   std::mutex mu;
   std::unordered_map<quic_stream_id, std::vector<uint8_t>> received;

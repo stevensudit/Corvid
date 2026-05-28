@@ -51,6 +51,7 @@ constexpr std::string_view alpn = "corvid-test";
 // trampolines wire through to the right virtual methods. Override only the
 // upcalls the tests actually inspect; the base-class no-op defaults cover
 // the rest.
+// NOLINTBEGIN(bugprone-exception-escape)
 struct trace_handlers: quic_conn_handlers {
   std::vector<std::string> events;
 
@@ -73,6 +74,7 @@ struct trace_handlers: quic_conn_handlers {
     return false;
   }
 };
+// NOLINTEND(bugprone-exception-escape)
 
 // A UDP socket bound to loopback on an OS-assigned port. The socket is
 // held open by this object so the assigned port stays reserved to us;

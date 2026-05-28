@@ -247,6 +247,7 @@ TEST_CASE(
       if (payload.empty()) break;
       const auto sent = ::sendto(client_sock.handle(), payload.data(),
           payload.size(), 0, server_sockaddr.first, server_sockaddr.second);
+      // NOLINTNEXTLINE(modernize-use-integer-sign-comparison)
       REQUIRE(sent == static_cast<ssize_t>(payload.size()));
     }
 

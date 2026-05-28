@@ -58,14 +58,13 @@ namespace corvid { inline namespace proto { namespace quic {
 //
 // Half-close semantics: when the peer sends `fin`, we mirror it back once our
 // outbound queue has drained, so the server's stream-close follows the peer's.
-// We do not act on STOP_SENDING or RESET_STREAM here; ngtcp2's defaults (and
-// the no-op base) are sufficient for the echo scenario.
-class quic_echo_plugin: public quic_no_op_plugin {
+// We do not act on STOP_SENDING or RESET_STREAM here; ngtcp2's defaults are
+// sufficient for the echo scenario.
+class quic_echo_plugin: public quic_conn_handlers {
 public:
 #pragma region Construction
 
-  explicit quic_echo_plugin(quic_session_io& s) noexcept
-      : quic_no_op_plugin{s} {}
+  explicit quic_echo_plugin(quic_session_io& s) noexcept : io_{s} {}
 
 #pragma endregion
 #pragma region Handlers
@@ -119,7 +118,7 @@ public:
   // that keeps having bytes accepted into ngtcp2's queue can starve
   // others. Acceptable for the echo scenario; revisit if a real protocol
   // needs strict fairness.
-  [[nodiscard]] bool drain(steady_now_clock::time_point_t now) {
+  [[nodiscard]] bool drain(time_point_t now) {
     for (;;) {
       quic_stream_id sid = quic_stream_id::none;
       std::span<const iovec> iov;
@@ -156,6 +155,7 @@ public:
 #pragma endregion
 #pragma region Data members
 private:
+  quic_session_io& io_;
   // NOTE: This could easily be a `std::vector<std::pair<quic_stream_id,
   // quic_stream_send_queue>>`.
   std::unordered_map<quic_stream_id, quic_stream_send_queue> queues_;
