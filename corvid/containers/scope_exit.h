@@ -43,8 +43,11 @@ public:
       std::is_nothrow_constructible_v<EF, Fn>)
       : exit_function_(std::forward<Fn>(fn)) {}
 
-  ~scope_exit() noexcept(noexcept(std::declval<EF&>()())) {
-    if (active_) exit_function_();
+  ~scope_exit() {
+    try_or_terminate([&] {
+      if (active_) exit_function_();
+      return true;
+    });
   }
 
   scope_exit(const scope_exit&) = delete;

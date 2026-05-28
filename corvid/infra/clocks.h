@@ -22,7 +22,7 @@
 
 namespace corvid { inline namespace infra {
 
-#pragma region global_clock
+#pragma region now_clock
 
 // Indirection over `Clock`. Provides a single point where production reads the
 // wall-clock and tests can install a fake.
@@ -30,15 +30,15 @@ namespace corvid { inline namespace infra {
 // Static-only; the class exists to namespace the clock state and the
 // replaceable `now()` entry point. Atomic ops use relaxed ordering on the
 // read path (single-threaded fairness isn't needed because the value being
-// loaded is just a function pointer or time_point that updates rarely).
+// loaded is just a function pointer or `time_point` that updates rarely).
 //
 // The `size_t` template parameter is just to give each instantiation a unique
 // address for its statics, so different clock types don't step on each other's
 // `now_fn_` and `fake_now_`. This can happen with, for example,
 // `high_resolution_clock`, which is typically defined as a typedef of another
 // clock.
-template<typename Clock, size_t = 0>
-class global_clock {
+template<typename Clock, size_t>
+class now_clock {
 public:
   using clock_t = Clock;
 
@@ -50,7 +50,7 @@ public:
 
 #pragma endregion
 
-  global_clock() = delete;
+  now_clock() = delete;
 
 #pragma region Clock
 
@@ -114,14 +114,15 @@ private:
 #pragma endregion
 #pragma region Clocks
 
-using steady_clock = global_clock<std::chrono::steady_clock, 1>;
-using system_clock = global_clock<std::chrono::system_clock, 2>;
-using file_clock = global_clock<std::chrono::file_clock, 3>;
-using high_resolution_clock =
-    global_clock<std::chrono::high_resolution_clock, 4>;
-using utc_clock = global_clock<std::chrono::utc_clock, 5>;
-using gps_clock = global_clock<std::chrono::gps_clock, 6>;
-using tai_clock = global_clock<std::chrono::tai_clock, 7>;
+// Common clock types. Use these.
+using steady_now_clock = now_clock<std::chrono::steady_clock, 1>;
+using system_now_clock = now_clock<std::chrono::system_clock, 2>;
+using file_now_clock = now_clock<std::chrono::file_clock, 3>;
+using high_resolution_now_clock =
+    now_clock<std::chrono::high_resolution_clock, 4>;
+using utc_now_clock = now_clock<std::chrono::utc_clock, 5>;
+using gps_now_clock = now_clock<std::chrono::gps_clock, 6>;
+using tai_now_clock = now_clock<std::chrono::tai_clock, 7>;
 
 #pragma endregion
 

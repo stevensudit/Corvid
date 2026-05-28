@@ -122,7 +122,9 @@ public:
   component_scene& operator=(const component_scene&) = delete;
   component_scene& operator=(component_scene&&) = delete;
 
-  ~component_scene() { clear(); }
+  ~component_scene() {
+    try_or_terminate([&] { return clear() || true; });
+  }
 
   // Registry access.
   [[nodiscard]] decltype(auto) registry(this auto& self) noexcept {
@@ -350,7 +352,7 @@ public:
   //
   // Preserve path: erases entities one by one via each storage's `clear`,
   // preserving generation counter validity. O(N) in entities.
-  void clear(deallocation_policy policy = deallocation_policy::release) {
+  bool clear(deallocation_policy policy = deallocation_policy::release) {
     if (policy == deallocation_policy::release) {
       [&]<size_t... Is>(std::index_sequence<Is...>) {
         (storage_drop_all(std::get<Is + 1>(storages_)), ...);
@@ -362,6 +364,7 @@ public:
       }(std::make_index_sequence<storage_count_v>{});
       erase_staged_entities();
     }
+    return true;
   }
 
 private:

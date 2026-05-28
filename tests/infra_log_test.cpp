@@ -16,25 +16,15 @@
 // limitations under the License.
 
 #include "../corvid/infra.h"
-#include "../corvid/strings/conversion.h"
 #include "catch2_main.h"
 
 #include <sstream>
 
-using namespace corvid;
 using corvid::infra::log;
 using corvid::infra::log_level;
 using corvid::infra::logger;
 
 // NOLINTBEGIN(readability-function-cognitive-complexity)
-
-TEST_CASE("log_level registers as a sequence enum", "[infra][log]") {
-  CHECK(strings::enum_as_string(log_level::trace) == "trace");
-  CHECK(strings::enum_as_string(log_level::debug) == "debug");
-  CHECK(strings::enum_as_string(log_level::info) == "info");
-  CHECK(strings::enum_as_string(log_level::warn) == "warn");
-  CHECK(strings::enum_as_string(log_level::error) == "error");
-}
 
 TEST_CASE("logger threshold gates output", "[infra][log]") {
   logger lg;
@@ -50,8 +40,7 @@ TEST_CASE("logger threshold gates output", "[infra][log]") {
   CHECK(lg.enabled(log_level::warn));
 }
 
-TEST_CASE("logger emits to cerr with [level file:line] prefix",
-    "[infra][log]") {
+TEST_CASE("logger emits to cerr with [L file:line] prefix", "[infra][log]") {
   // Redirect cerr to a stringstream so we can inspect the output.
   std::stringstream captured;
   auto* old_buf = std::cerr.rdbuf(captured.rdbuf());
@@ -61,7 +50,7 @@ TEST_CASE("logger emits to cerr with [level file:line] prefix",
 
   std::cerr.rdbuf(old_buf);
   auto out = captured.str();
-  CHECK(out.contains("[info "));
+  CHECK(out.contains("[I "));
   CHECK(out.contains("infra_log_test.cpp:"));
   CHECK(out.contains("hello 42"));
   CHECK(out.back() == '\n');
@@ -90,7 +79,7 @@ TEST_CASE("logger writes to an injected ostream", "[infra][log]") {
   logger lg{sink};
   lg.info("routed to {}", "sink");
   auto out = sink.str();
-  CHECK(out.contains("[info "));
+  CHECK(out.contains("[I "));
   CHECK(out.contains("routed to sink"));
 }
 
@@ -119,7 +108,7 @@ TEST_CASE("logger rebinds its stream via set_stream", "[infra][log]") {
 
 TEST_CASE("logger prefixes output with a UTC ISO-8601 timestamp",
     "[infra][log]") {
-  using sysclk = corvid::infra::system_clock;
+  using sysclk = corvid::system_now_clock;
   using namespace std::chrono;
 
   // Install a deterministic time: 2026-05-28T12:34:56.789Z.
@@ -132,7 +121,7 @@ TEST_CASE("logger prefixes output with a UTC ISO-8601 timestamp",
   logger lg{sink};
   lg.info("hello");
 
-  CHECK(sink.str().starts_with("2026-05-28T12:34:56.789Z [info "));
+  CHECK(sink.str().starts_with("2026-05-28T12:34:56.789Z [I "));
 
   // Restore the real clock so later tests see real time.
   sysclk::set_now_fn(&std::chrono::system_clock::now);
@@ -159,7 +148,7 @@ TEST_CASE("log static facade forwards to its singleton", "[infra][log]") {
 
   std::cerr.rdbuf(old_buf);
   auto out = captured.str();
-  CHECK(out.contains("[trace "));
+  CHECK(out.contains("[T "));
   CHECK(out.contains("static trace x=7"));
 }
 

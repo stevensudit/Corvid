@@ -41,8 +41,6 @@ public:
   epoll& operator=(epoll&&) noexcept = default;
   epoll& operator=(const epoll&) = delete;
 
-  ~epoll() = default;
-
   // Create an `epoll` instance with `flags` (default: `EPOLL_CLOEXEC`).
   [[nodiscard]] static epoll create(int flags = default_flags) noexcept {
     return epoll{flags};

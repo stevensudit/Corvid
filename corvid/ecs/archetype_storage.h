@@ -27,6 +27,7 @@
 #include <utility>
 #include <vector>
 
+#include "../infra/exception_wrappers.h"
 #include "archetype_storage_base.h"
 
 namespace corvid { inline namespace ecs { inline namespace archetype_storages {
@@ -122,7 +123,9 @@ public:
   archetype_storage(const archetype_storage&) = delete;
   archetype_storage(archetype_storage&&) noexcept = default;
 
-  ~archetype_storage() { clear(); }
+  ~archetype_storage() {
+    try_or_terminate([&] { return clear() || true; });
+  }
 
   archetype_storage& operator=(const archetype_storage&) = delete;
   archetype_storage& operator=(archetype_storage&&) noexcept = default;
@@ -191,29 +194,32 @@ private:
   // Append one row of components (called by base's `add(id_t, ...)`).
   // Note: `for_each_component` would only complicate this.
   template<typename... Args>
-  void do_add_components(Args&&... args) {
+  bool do_add_components(Args&&... args) {
     (std::get<component_vector_t<Cs>>(components_)
             .emplace_back(std::forward<Args>(args)),
         ...);
+    return true;
   }
 
   // Roll back all component vectors to `new_size` (called by base's
   // `add_guard` on exception).
-  void do_resize_storage(size_type new_size) {
+  bool do_resize_storage(size_type new_size) {
     for_each_component([&](auto& vec) { vec.resize(new_size); });
+    return true;
   }
 
   // Swap elements at `left_ndx` and `right_ndx`, including their IDs.
-  void do_swap_elements(size_type left_ndx, size_type right_ndx) noexcept {
+  bool do_swap_elements(size_type left_ndx, size_type right_ndx) noexcept {
     for_each_component([&](auto& vec) {
       std::swap(vec[left_ndx], vec[right_ndx]);
     });
     std::swap(ids_[left_ndx], ids_[right_ndx]);
+    return true;
   }
 
   // Swap element at `ndx` with the last element and pop. Updates the displaced
   // entity's registry location.
-  void do_swap_and_pop(size_type ndx) {
+  bool do_swap_and_pop(size_type ndx) {
     assert(size());
     const auto last = size() - 1;
     if (ndx != last) {
@@ -222,11 +228,13 @@ private:
     }
     for_each_component([&](auto& vec) { vec.pop_back(); });
     ids_.pop_back();
+    return true;
   }
 
   // Clear all component vectors (called by base's `do_remove_erase_all`).
-  void do_clear_storage() {
+  bool do_clear_storage() {
     for_each_component([](auto& vec) { vec.clear(); });
+    return true;
   }
 
   // Customization points called by base's `do_remove_erase_if_component` and

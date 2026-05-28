@@ -107,6 +107,18 @@ template<std::invocable F, typename T = bool>
   return on_throw;
 }
 
+// Like `try_or_log`, but terminates the process on throw instead of returning
+// a value. This is ideal for destructors.
+template<std::invocable F, typename T = bool>
+[[nodiscard]] auto try_or_terminate(F&& fn,
+    format_with_loc<const char*, const char*> msg =
+        "exception {}: {}") noexcept {
+  if (!try_or_log(std::forward<F>(fn), false, msg)) {
+    log::singleton().stream() << std::flush;
+    std::terminate();
+  }
+}
+
 #pragma endregion
 
 }} // namespace corvid::infra

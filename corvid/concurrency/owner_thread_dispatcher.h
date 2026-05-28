@@ -30,6 +30,7 @@
 #include <vector>
 
 #include "../meta/concepts.h"
+#include "../infra/exception_wrappers.h"
 #include "../filesys/os_file.h"
 #include "../filesys/event_fd.h"
 #include "../concurrency/relaxed_atomic.h"
@@ -137,12 +138,15 @@ public:
   }
 
   ~owner_thread_dispatcher() noexcept(false) {
-    if (current_loop_ != this)
-      throw std::logic_error{
-          "owner_thread_dispatcher destructed on a different thread than it "
-          "was created on"};
-    (void)shutdown();
-    current_loop_ = nullptr;
+    try_or_terminate([&] {
+      if (current_loop_ != this)
+        throw std::logic_error{
+            "owner_thread_dispatcher destructed on a different thread than it "
+            "was created on"};
+      (void)shutdown();
+      current_loop_ = nullptr;
+      return true;
+    });
   }
 
 #pragma endregion

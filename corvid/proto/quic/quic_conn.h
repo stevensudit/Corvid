@@ -156,7 +156,7 @@ struct quic_close_request {
 // need.
 class quic_conn_handlers {
 public:
-  using time_point_t = infra::steady_clock::time_point_t;
+  using time_point_t = steady_now_clock::time_point_t;
 
   quic_conn_handlers() = default;
   quic_conn_handlers(const quic_conn_handlers&) = delete;
@@ -334,7 +334,7 @@ public:
 class quic_conn {
 public:
   using key_t = quic_cid;
-  using time_point_t = infra::steady_clock::time_point_t;
+  using time_point_t = steady_now_clock::time_point_t;
 
 #pragma region Construction
 
@@ -431,7 +431,7 @@ public:
     // 4. Build ngtcp2 settings + transport params + path.
     ngtcp2_settings settings;
     ngtcp2_settings_default(&settings);
-    settings.initial_ts = infra::steady_clock::as_nanoseconds(now);
+    settings.initial_ts = steady_now_clock::as_nanoseconds(now);
 
     ngtcp2_transport_params params;
     ngtcp2_transport_params_default(&params);
@@ -531,10 +531,10 @@ public:
   // Feed a received datagram into the conn for decryption + decoding. This
   // leads to various callbacks being invoked.
   [[nodiscard]] quic_decode_status read_pkt(std::span<const uint8_t> pkt,
-      time_point_t now = infra::steady_clock::now()) noexcept {
+      time_point_t now = steady_now_clock::now()) noexcept {
     const int rv = ngtcp2_conn_read_pkt(conn_.get(), &path_storage_.path,
         nullptr, pkt.data(), pkt.size(),
-        infra::steady_clock::as_nanoseconds(now));
+        steady_now_clock::as_nanoseconds(now));
     return static_cast<quic_decode_status>(rv);
   }
 
@@ -559,12 +559,12 @@ public:
   // free since every iteration starts from a fresh path-MTU buffer. On error,
   // `buf` is left unchanged.
   [[nodiscard]] quic_decode_status write_pkt(iouring::iou_buffer& buf,
-      time_point_t now = infra::steady_clock::now()) noexcept {
+      time_point_t now = steady_now_clock::now()) noexcept {
     auto tail = buf.tail_span();
     if (tail.empty()) return quic_decode_status::ok;
     const ngtcp2_ssize rv = ngtcp2_conn_write_pkt(conn_.get(),
         &path_storage_.path, nullptr, reinterpret_cast<uint8_t*>(tail.data()),
-        tail.size(), infra::steady_clock::as_nanoseconds(now));
+        tail.size(), steady_now_clock::as_nanoseconds(now));
     if (rv < 0) return static_cast<quic_decode_status>(rv);
     if (rv > 0)
       (void)buf.update_payload({tail.data(), static_cast<size_t>(rv)});
@@ -608,7 +608,7 @@ public:
       std::span<const iovec> iov, iouring::iou_buffer& buf,
       uint64_t& bytes_accepted,
       write_stream_flags flags = write_stream_flags::none,
-      time_point_t now = infra::steady_clock::now()) noexcept {
+      time_point_t now = steady_now_clock::now()) noexcept {
     bytes_accepted = 0;
     auto tail = buf.tail_span();
     if (tail.empty()) return quic_decode_status::ok;
@@ -617,7 +617,7 @@ public:
         &path_storage_.path, nullptr, reinterpret_cast<uint8_t*>(tail.data()),
         tail.size(), &pdatalen, *flags, *stream_id,
         reinterpret_cast<const ngtcp2_vec*>(iov.data()), iov.size(),
-        infra::steady_clock::as_nanoseconds(now));
+        steady_now_clock::as_nanoseconds(now));
     if (rv < 0) return static_cast<quic_decode_status>(rv);
 
     // Extend `buf`'s payload to cover what ngtcp2 wrote, and surface the
@@ -656,14 +656,14 @@ public:
   // currently has no pending timer, returns `time_point_t::max`. Caller arms
   // an external timer at this point and invokes `handle_expiry` when it fires.
   [[nodiscard]] time_point_t expiry() const noexcept {
-    return infra::steady_clock::from_nanoseconds(
+    return steady_now_clock::from_nanoseconds(
         ngtcp2_conn_get_expiry(conn_.get()));
   }
 
   [[nodiscard]] quic_decode_status handle_expiry(
-      time_point_t now = infra::steady_clock::now()) noexcept {
+      time_point_t now = steady_now_clock::now()) noexcept {
     return static_cast<quic_decode_status>(ngtcp2_conn_handle_expiry(
-        conn_.get(), infra::steady_clock::as_nanoseconds(now)));
+        conn_.get(), steady_now_clock::as_nanoseconds(now)));
   }
 
 #pragma endregion

@@ -25,6 +25,7 @@
 
 #include "relaxed_atomic.h"
 #include "timeouts.h"
+#include "../infra/exception_wrappers.h"
 
 namespace corvid { inline namespace concurrency {
 #pragma region timeout_sweeper
@@ -86,15 +87,15 @@ namespace corvid { inline namespace concurrency {
 // low tens of bytes is enough). Example:
 //
 //   using my_sweeper = timeout_sweeper<fixed_function<32,
-//       std::chrono::steady_clock::time_point(
-//           std::chrono::steady_clock::time_point)>>;
-template<typename CB = std::function<infra::steady_clock::time_point_t(
-             infra::steady_clock::time_point_t)>>
+//       steady_now_clock::time_point_t(
+//           steady_now_clock::time_point_t)>>;
+template<typename CB = std::function<steady_now_clock::time_point_t(
+             steady_now_clock::time_point_t)>>
 class timeout_sweeper: public timeouts {
 #pragma region Types
 public:
-  using time_point_t = infra::steady_clock::time_point_t;
-  using duration_t = infra::steady_clock::duration_t;
+  using time_point_t = steady_now_clock::time_point_t;
+  using duration_t = steady_now_clock::duration_t;
 
   using callback_t = CB;
 
@@ -118,9 +119,9 @@ public:
   // Mark the sweeper as closing (further `schedule` calls are rejected) and
   // drain anything still in the heap by invoking every remaining callback
   // once.
-  ~timeout_sweeper() noexcept(false) {
+  ~timeout_sweeper() {
     closing_ = true;
-    tick(time_point_t::max());
+    try_or_terminate([&] { return tick(time_point_t::max()) || true; });
   }
 
 #pragma endregion
@@ -152,15 +153,15 @@ public:
   // causes the callback to be re-inserted at the returned time.
   //
   // Intended to be called from a single driver thread.
-  void tick(time_point_t now) {
+  bool tick(time_point_t now) {
     for (;;) {
       callback_t callback;
       time_point_t expire;
 
       if (std::scoped_lock lock{mutex_}; true) {
         // Stop when the heap is empty or the next entry hasn't expired yet.
-        if (heap_.empty()) return;
-        if (heap_.front().expire > now) return;
+        if (heap_.empty()) return true;
+        if (heap_.front().expire > now) return true;
 
         // Move next entry to back and extract it.
         std::pop_heap(heap_.begin(), heap_.end());

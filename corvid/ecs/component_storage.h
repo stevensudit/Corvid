@@ -23,6 +23,7 @@
 #include <utility>
 #include <vector>
 
+#include "../infra/exception_wrappers.h"
 #include "component_index_policies.h"
 #include "component_storage_base.h"
 
@@ -99,7 +100,9 @@ public:
   }
 
   component_storage(component_storage&&) noexcept = default;
-  ~component_storage() { clear(); }
+  ~component_storage() {
+    try_or_terminate([&] { return clear() || true; });
+  }
 
   component_storage& operator=(component_storage&& other) noexcept {
     if (this == &other) return *this;
@@ -345,27 +348,35 @@ private:
   friend base_t::add_guard;
 
   // Append one component row (called by the base's `add(id_t, ...)`).
-  void do_add_components(const component_t& component) {
+  bool do_add_components(const component_t& component) {
     components_.push_back(component);
+    return true;
   }
 
   // Swap the component at `ndx` with the last element and pop. The base
   // handles `ids_` and `reverse_index_`; this method touches only
   // `components_`.
-  void do_swap_and_pop(size_type ndx) {
+  bool do_swap_and_pop(size_type ndx) {
     assert(components_.size() > 0);
     const auto last = static_cast<size_type>(components_.size() - 1);
     if (ndx != last) std::swap(components_[ndx], components_[last]);
     components_.pop_back();
+    return true;
   }
 
   // Clear all component data (called by `do_drop_all` and
   // `do_remove_erase_all`).
-  void do_clear_storage() { components_.clear(); }
+  bool do_clear_storage() {
+    components_.clear();
+    return true;
+  }
 
   // Roll back component storage to `new_size` (called by `add_guard` on
   // exception).
-  void do_resize_storage(size_type new_size) { components_.resize(new_size); }
+  bool do_resize_storage(size_type new_size) {
+    components_.resize(new_size);
+    return true;
+  }
 
   // Sweep the storage, calling `pred(components_[ndx], ids_[ndx])` and either
   // erasing or removing each entity that satisfies `pred`.

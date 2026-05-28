@@ -44,8 +44,8 @@ public:
   // Sentinel value used to enter logical pause mode. One decade shy of
   // `time_point_t::max`, leaving ample headroom against overflow when
   // arithmetic is done on it.
-  static constexpr infra::steady_clock::time_point_t paused_expiration =
-      infra::steady_clock::time_point_t::max() - std::chrono::years{10};
+  static constexpr steady_now_clock::time_point_t paused_expiration =
+      steady_now_clock::time_point_t::max() - std::chrono::years{10};
 
 #pragma endregion
 };

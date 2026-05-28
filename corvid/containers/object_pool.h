@@ -131,14 +131,17 @@ public:
     }
     borrowed& operator=(const borrowed&) = delete;
 
-    ~borrowed() { reset(); }
+    ~borrowed() {
+      try_or_terminate([&] { return reset() || true; });
+    }
 
     // Returns the slot to the pool immediately; handle becomes empty.
-    void reset() noexcept {
-      if (!item_) return;
+    bool reset() {
+      if (!item_) return false;
       pool_->return_slot(item_);
       item_ = nullptr;
       pool_ = nullptr;
+      return true;
     }
 
     [[nodiscard]] explicit operator bool() const noexcept { return item_; }
@@ -335,7 +338,9 @@ public:
   object_pool& operator=(const object_pool&) = delete;
   object_pool& operator=(object_pool&&) = delete;
 
-  ~object_pool() noexcept(false) { (void)shutdown(); }
+  ~object_pool() {
+    try_or_terminate([&] { return shutdown() || true; });
+  }
 
 #pragma endregion
 #pragma region Borrowing

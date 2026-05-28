@@ -23,6 +23,7 @@
 #include <utility>
 #include <vector>
 
+#include "../infra/exception_wrappers.h"
 #include "component_index_policies.h"
 #include "entity_registry.h"
 
@@ -53,11 +54,11 @@ inline namespace component_storage_bases {
 // Required customization points in `CHILD` (may be private; befriend `base_t`
 // and `typename base_t::add_guard`):
 //   `template<typename... Args>
-//         void do_add_components(Args&&... args);`
-//   `void do_swap_and_pop(size_type ndx);`  // swaps component arrays only;
+//         bool do_add_components(Args&&... args);`
+//   `bool do_swap_and_pop(size_type ndx);`  // swaps component arrays only;
 //         the base handles `ids_` and `reverse_index_`
-//   `void do_clear_storage();`
-//   `void do_resize_storage(size_type new_size);`
+//   `bool do_clear_storage();`
+//   `bool do_resize_storage(size_type new_size);`
 //
 // Template parameters:
 //   CHILD - The concrete derived class (CRTP).
@@ -151,7 +152,7 @@ public:
 
   // Remove all entities from this storage. Entities with no remaining
   // storages are destroyed in the registry.
-  void clear() { do_remove_erase_all(removal_mode::remove); }
+  bool clear() { return do_remove_erase_all(removal_mode::remove) || true; }
 
   // Insert component data for an entity. Entity must be valid and not already
   // in this storage. May be in other storages (component model allows this).
@@ -210,10 +211,13 @@ public:
       return true;
     }
 
-    ~add_guard() { // NOLINT(bugprone-exception-escape)
+    ~add_guard() {
       if (saved_size_ == *id_t::invalid) return;
-      owner_->ids_.resize(saved_size_);
-      owner_->derived().do_resize_storage(saved_size_);
+      try_or_terminate([&] {
+        owner_->ids_.resize(saved_size_);
+        owner_->do_resize_storage(saved_size_);
+        return true;
+      });
     }
 
   private:
@@ -260,8 +264,6 @@ protected:
     return *this;
   }
 
-  ~component_storage_base() = default;
-
   // CRTP helpers.
   [[nodiscard]] derived_t& derived() noexcept {
     return static_cast<derived_t&>(*this);
@@ -271,13 +273,14 @@ protected:
   }
 
   // Swap all base-class members with `other`.
-  void do_swap_base(component_storage_base& other) noexcept {
+  bool do_swap_base(component_storage_base& other) noexcept {
     using std::swap;
     swap(registry_, other.registry_);
     swap(store_id_, other.store_id_);
     swap(limit_, other.limit_);
     ids_.swap(other.ids_);
     swap(reverse_index_, other.reverse_index_);
+    return true;
   }
 
   // Data members.
@@ -296,10 +299,11 @@ private:
   // registry. Only safe when the registry will be reset wholesale immediately
   // afterward (e.g. `component_scene::clear`). Called via
   // `component_scene_base::storage_drop_all`.
-  void do_drop_all() {
+  bool do_drop_all() {
     ids_.clear();
     reverse_index_.clear();
     derived().do_clear_storage();
+    return true;
   }
 
   bool do_remove_erase(id_t id, removal_mode mode) {
@@ -319,11 +323,12 @@ private:
     return true;
   }
 
-  void do_remove_erase_all(removal_mode mode) {
+  bool do_remove_erase_all(removal_mode mode) {
     for (const auto id : ids_) registry_->remove_location(id, store_id_, mode);
     ids_.clear();
     reverse_index_.clear();
     derived().do_clear_storage();
+    return true;
   }
 };
 

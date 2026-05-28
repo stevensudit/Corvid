@@ -15,13 +15,15 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 #pragma once
-#include "./meta_shared.h"
-#include "./concepts.h"
 #include <cassert>
 #include <cstddef>
 #include <functional>
 #include <new>
 #include <stdexcept>
+
+#include "../infra/exception_wrappers.h"
+#include "./meta_shared.h"
+#include "./concepts.h"
 
 namespace corvid { inline namespace meta {
 
@@ -106,7 +108,11 @@ public:
   }
 
   ~fixed_function() {
-    if (lifespan_) lifespan_(storage_, nullptr);
+    if (lifespan_)
+      try_or_terminate([&] {
+        lifespan_(storage_, nullptr);
+        return true;
+      });
   }
 
   void swap(fixed_function& other) noexcept {

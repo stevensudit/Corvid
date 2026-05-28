@@ -26,6 +26,7 @@
 #include <type_traits>
 #include <utility>
 
+#include "../infra/exception_wrappers.h"
 #include "../containers/fixed_bitset.h"
 #include "../meta/maybe.h"
 #include "entity_ids.h"
@@ -713,7 +714,9 @@ public:
       return *this;
     }
 
-    ~handle_owner() { reset(); }
+    ~handle_owner() {
+      try_or_terminate([&] { return reset() || true; });
+    }
 
     // Get the owned ID.
     [[nodiscard]] id_t id() const noexcept { return handle_.id(); }
@@ -732,9 +735,10 @@ public:
     }
 
     // Erase the owned entity (if any) and reset to empty.
-    void reset() noexcept {
+    bool reset() noexcept {
       if (handle_.id() != id_t::invalid) registry_->erase(handle_);
       handle_ = handle_t{};
+      return true;
     }
 
     // Get the registry.

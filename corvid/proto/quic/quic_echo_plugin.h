@@ -119,7 +119,7 @@ public:
   // that keeps having bytes accepted into ngtcp2's queue can starve
   // others. Acceptable for the echo scenario; revisit if a real protocol
   // needs strict fairness.
-  [[nodiscard]] bool drain(infra::steady_clock::time_point_t now) {
+  [[nodiscard]] bool drain(steady_now_clock::time_point_t now) {
     for (;;) {
       quic_stream_id sid = quic_stream_id::none;
       std::span<const iovec> iov;

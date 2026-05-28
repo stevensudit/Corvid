@@ -26,7 +26,7 @@ using namespace std::chrono_literals;
 using namespace corvid::concurrency;
 
 using sweeper = timeout_sweeper<>;
-using clk = corvid::infra::steady_clock;
+using clk = corvid::steady_now_clock;
 using tp = clk::time_point_t;
 using dur = clk::duration_t;
 using mode = timeouts::mode;

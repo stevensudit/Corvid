@@ -24,6 +24,7 @@
 #include <utility>
 #include <vector>
 
+#include "../infra/exception_wrappers.h"
 #include "archetype_storage_base.h"
 
 namespace corvid { inline namespace ecs {
@@ -95,7 +96,9 @@ public:
   }
 
   mono_archetype_storage(mono_archetype_storage&&) noexcept = default;
-  ~mono_archetype_storage() { clear(); }
+  ~mono_archetype_storage() {
+    try_or_terminate([&] { return clear() || true; });
+  }
 
   mono_archetype_storage& operator=(mono_archetype_storage&& other) noexcept {
     if (this == &other) return *this;
@@ -374,8 +377,9 @@ private:
 
   // Append one component row (called by the base's `add(id_t, ...)`).
   template<typename... Args>
-  void do_add_components(Args&&... args) {
+  bool do_add_components(Args&&... args) {
     components_.push_back(std::forward<Args>(args)...);
+    return true;
   }
 
   // Access the component by type (called by `row_wrapper::component<C>` and
@@ -405,7 +409,7 @@ private:
 
   // Swap element at `ndx` with the last element and pop. Updates the
   // swapped-in entity's registry location.
-  void do_swap_and_pop(size_type ndx) {
+  bool do_swap_and_pop(size_type ndx) {
     assert(size());
     const auto last = static_cast<size_type>(components_.size() - 1);
     if (ndx != last) {
@@ -416,15 +420,22 @@ private:
     }
     components_.pop_back();
     ids_.pop_back();
+    return true;
   }
 
   // Clear all component data (called by
   // `archetype_storage_base::do_drop_all`).
-  void do_clear_storage() { components_.clear(); }
+  bool do_clear_storage() {
+    components_.clear();
+    return true;
+  }
 
   // Roll back component storage to `new_size` (called by `add_guard` on
   // exception).
-  void do_resize_storage(size_type new_size) { components_.resize(new_size); }
+  bool do_resize_storage(size_type new_size) {
+    components_.resize(new_size);
+    return true;
+  }
 
 private:
   std::vector<C, component_allocator_type> components_;

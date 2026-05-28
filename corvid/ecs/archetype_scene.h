@@ -24,6 +24,7 @@
 #include <utility>
 #include <variant>
 
+#include "../infra/exception_wrappers.h"
 #include "ecs_meta.h"
 #include "entity_registry.h"
 
@@ -37,8 +38,8 @@ protected:
   // Invoke `do_drop_all` on storage `s`. Skips per-entity registry updates;
   // safe only when the registry will be reset wholesale immediately after.
   template<typename S>
-  static void storage_drop_all(S& s) {
-    s.do_drop_all();
+  static bool storage_drop_all(S& s) {
+    return s.do_drop_all();
   }
 };
 
@@ -139,7 +140,9 @@ public:
   archetype_scene& operator=(const archetype_scene&) = delete;
   archetype_scene& operator=(archetype_scene&&) = delete;
 
-  ~archetype_scene() { clear(); }
+  ~archetype_scene() {
+    try_or_terminate([&] { return clear() || true; });
+  }
 
   // Registry access.
   [[nodiscard]] decltype(auto) registry(this auto& self) noexcept {
@@ -665,7 +668,7 @@ public:
   // then resets the registry wholesale. This invalidates all outstanding
   // generation counters, but that is acceptable since every entity is
   // destroyed. O(S) in the number of storages, not O(N) in entities.
-  void clear(deallocation_policy policy = deallocation_policy::release) {
+  bool clear(deallocation_policy policy = deallocation_policy::release) {
     if (policy == deallocation_policy::release) {
       [&]<size_t... Is>(std::index_sequence<Is...>) {
         (storage_drop_all(std::get<Is>(storages_)), ...);
@@ -679,6 +682,7 @@ public:
       }(storage_indices());
       erase_staged_entities();
     }
+    return true;
   }
 
 private:

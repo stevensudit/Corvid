@@ -17,6 +17,7 @@
 
 #pragma once
 #include "containers_shared.h"
+#include "../infra/exception_wrappers.h"
 
 #ifdef _WIN32
 #define NO_UNIQUE_ADDRESS [[msvc::no_unique_address]]
@@ -182,7 +183,12 @@ public:
     other.ptr_ = pointer{};
   }
 
-  ~own_ptr() { do_delete(); }
+  ~own_ptr() {
+    try_or_terminate([&] {
+      do_delete();
+      return true;
+    });
+  }
 
   own_ptr(own_ptr&) = delete;
   own_ptr(const own_ptr&) = delete;
@@ -197,6 +203,8 @@ public:
   requires is_move_constructible_deleter_v
   {
     if (this != &other) {
+      // TODO: Consider either wrapping this in try_or_terminate or making
+      // the noexcept contingent upon the deleter.
       do_delete() = std::exchange(other.ptr_, pointer{});
       del_ = std::move(other.del_);
     }

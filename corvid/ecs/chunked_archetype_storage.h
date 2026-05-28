@@ -26,6 +26,7 @@
 #include <utility>
 #include <vector>
 
+#include "../infra/exception_wrappers.h"
 #include "archetype_storage_base.h"
 
 namespace corvid { inline namespace ecs {
@@ -131,7 +132,9 @@ public:
   chunked_archetype_storage(const chunked_archetype_storage&) = delete;
   chunked_archetype_storage(chunked_archetype_storage&&) noexcept = default;
 
-  ~chunked_archetype_storage() { clear(); }
+  ~chunked_archetype_storage() {
+    try_or_terminate([&] { return clear() || true; });
+  }
 
   chunked_archetype_storage& operator=(
       const chunked_archetype_storage&) = delete;
@@ -186,21 +189,23 @@ private:
   // Append one row of components into the correct chunk slot (called by
   // base's `add(id_t, ...)`).
   template<typename... Args>
-  void do_add_components(Args&&... args) {
+  bool do_add_components(Args&&... args) {
     const auto [chunk_ndx, element_ndx] = chunk_coords(size());
     if (element_ndx == 0) chunks_.emplace_back();
     auto& chunk = chunks_.back();
     ((void)(std::get<chunk_t<Cs>>(chunk)[element_ndx] =
                 std::forward<Args>(args)),
         ...);
+    return true;
   }
 
   // Roll back chunks_ to the number needed for `new_size` entities (called
   // by base's `add_guard` on exception).
-  void do_resize_storage(size_type new_size) {
+  bool do_resize_storage(size_type new_size) {
     const auto chunk_count =
         (static_cast<size_t>(new_size) + chunk_size_v - 1) / chunk_size_v;
     chunks_.resize(chunk_count);
+    return true;
   }
 
   // Decompose a flat logical index into a `(chunk_index, element_index)` pair.
@@ -211,7 +216,7 @@ private:
   }
 
   // Swap the elements (all component slots and the ID) at two logical indices.
-  void do_swap_elements(size_type left_ndx, size_type right_ndx) noexcept {
+  bool do_swap_elements(size_type left_ndx, size_type right_ndx) noexcept {
     const auto [left_chunk_ndx, left_element_ndx] = chunk_coords(left_ndx);
     const auto [right_chunk_ndx, right_element_ndx] = chunk_coords(right_ndx);
     (std::swap(
@@ -219,12 +224,13 @@ private:
          std::get<chunk_t<Cs>>(chunks_[right_chunk_ndx])[right_element_ndx]),
         ...);
     std::swap(ids_[left_ndx], ids_[right_ndx]);
+    return true;
   }
 
   // Swap element at `ndx` with the last element, pop the last slot, and drop
   // the last chunk if it is now empty. Updates the displaced entity's registry
   // location.
-  void do_swap_and_pop(size_type ndx) {
+  bool do_swap_and_pop(size_type ndx) {
     assert(size());
     const auto last = size() - 1;
     if (ndx != last) {
@@ -236,10 +242,14 @@ private:
     // first slot (slot 0), i.e. `ids_.size()` is now a multiple of
     // `chunk_size_v`.
     if (ids_.size() % chunk_size_v == 0) chunks_.pop_back();
+    return true;
   }
 
   // Clear chunk storage (called by base's `do_remove_erase_all`).
-  void do_clear_storage() { chunks_.clear(); }
+  bool do_clear_storage() {
+    chunks_.clear();
+    return true;
+  }
 
   // Customization points called by base's `do_remove_erase_if_component` and
   // by `row_wrapper`'s `component` accessors.

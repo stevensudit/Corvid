@@ -51,8 +51,8 @@ template<typename Owner, typename Sweeper = timeout_sweeper<>>
 class idle_timeout: public timeouts {
 #pragma region Types
 public:
-  using time_point_t = infra::steady_clock::time_point_t;
-  using duration_t = infra::steady_clock::duration_t;
+  using time_point_t = steady_now_clock::time_point_t;
+  using duration_t = steady_now_clock::duration_t;
 
   using owner_t = Owner;
   using sweeper_t = Sweeper;
@@ -106,7 +106,7 @@ public:
   // Current mode.
   [[nodiscard]] mode get_mode() const noexcept {
     if (*deadline_ >= paused_expiration) return mode::paused;
-    if (*deadline_ <= infra::steady_clock::now()) return mode::stopped;
+    if (*deadline_ <= steady_now_clock::now()) return mode::stopped;
     return mode::running;
   }
 
@@ -130,7 +130,7 @@ public:
   void postpone() noexcept {
     const auto active_snapshot = *active_;
     if (active_snapshot == duration_t{}) return;
-    deadline_ = infra::steady_clock::now() + active_snapshot;
+    deadline_ = steady_now_clock::now() + active_snapshot;
   }
 
   // Stop the timeout and cancel any pending entry. Idempotent. Safe to call in
@@ -146,7 +146,7 @@ public:
   // does is postpone once. Fails if `configured_timeout` is zero or it can't
   // schedule.
   [[nodiscard]] bool start() {
-    const auto now_time = infra::steady_clock::now();
+    const auto now_time = steady_now_clock::now();
     const auto was_stopped = (*deadline_ <= now_time);
     const auto configured_snapshot = *configured_;
     if (configured_snapshot == duration_t{}) return false;
@@ -168,7 +168,7 @@ public:
   //
   // Fails if `configured_timeout` is zero or it can't schedule.
   [[nodiscard]] bool pause() {
-    const auto now_time = infra::steady_clock::now();
+    const auto now_time = steady_now_clock::now();
     const auto was_stopped = (*deadline_ <= now_time);
     const auto configured_snapshot = *configured_;
     if (configured_snapshot == duration_t{}) return false;
@@ -250,7 +250,7 @@ private:
         return {{}, false};
       }
       // Clip back to a near-future fire so we keep checking periodically.
-      return {infra::steady_clock::now() + *configured_, false};
+      return {steady_now_clock::now() + *configured_, false};
     }
     // `mode::running` and deadline reached: nobody restarted between the
     // schedule and now. Fire the cancelation action and drop the entry.

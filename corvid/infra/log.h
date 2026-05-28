@@ -24,31 +24,17 @@
 #include <type_traits>
 #include <utility>
 
-#include "../enums/sequence_enum.h"
-#include "../strings/conversion.h"
 #include "clocks.h"
 
 namespace corvid { inline namespace infra {
 
 #pragma region log_level
 
-// Severity levels in ascending order. Registered as a sequence enum, so
-// `strings::enum_as_string(log_level::info)` yields `"info"`, etc.
+// Severity levels in ascending order.
 // NOLINTNEXTLINE(performance-enum-size)
 enum class log_level : int { trace, debug, info, warn, error };
 
 #pragma endregion
-
-}} // namespace corvid::infra
-
-template<>
-constexpr inline auto corvid::enums::registry::enum_spec_v<
-    corvid::infra::log_level> =
-    corvid::enums::sequence::make_sequence_enum_spec<corvid::infra::log_level,
-        "trace, debug, info, warn, error">();
-
-namespace corvid { inline namespace infra {
-
 #pragma region format_with_loc
 
 // Pairs a `std::format_string<Args...>` with the `std::source_location` of the
@@ -82,10 +68,11 @@ struct format_with_loc {
 // The stream is held by reference, so the caller owns its lifetime; the
 // default is `std::cerr`, whose lifetime spans the program.
 //
-// Output format: `YYYY-MM-DDTHH:MM:SS.sssZ [LEVEL file:line] message\n`. The
-// timestamp is ISO 8601 in UTC at millisecond precision so alphabetical and
-// chronological sort match. Timestamps come from `infra::system_clock`, so
-// tests can install a deterministic fake.
+// Output format: `YYYY-MM-DDTHH:MM:SS.sssZ [L file:line] message\n` where `L`
+// is the level's first letter (`T`/`D`/`I`/`W`/`E`). The timestamp is ISO
+// 8601 in UTC at millisecond precision so alphabetical and chronological
+// sort match. Timestamps come from `system_now_clock`, so tests can
+// install a deterministic fake.
 class logger {
 public:
 #pragma region Construction
@@ -160,11 +147,16 @@ private:
   void write_line(log_level lvl, const std::source_location& loc,
       std::string_view body) {
     const auto now = std::chrono::time_point_cast<std::chrono::milliseconds>(
-        system_clock::now());
+        system_now_clock::now());
+    // Single-letter level prefix, indexed by enum value. Update the string
+    // when adding levels.
+    constexpr std::string_view k_level_initials = "TDIWE";
+    static_assert(
+        k_level_initials.size() == static_cast<size_t>(log_level::error) + 1);
     std::scoped_lock lock{mutex_};
     (*out_) << std::format("{:%FT%T}", now) << "Z ["
-            << strings::enum_as_string(lvl) << ' ' << loc.file_name() << ':'
-            << loc.line() << "] " << body << '\n';
+            << k_level_initials[static_cast<size_t>(lvl)] << ' '
+            << loc.file_name() << ':' << loc.line() << "] " << body << '\n';
   }
 
 #pragma endregion
