@@ -48,7 +48,7 @@ public:
 
 #pragma region Accessors
 
-  [[nodiscard]] auto& conn(this auto& self) noexcept { return self.conn(); }
+  [[nodiscard]] auto& conn(this auto& self) noexcept { return self.conn_; }
   [[nodiscard]] bool is_loop_thread() const noexcept {
     return ssnbase_.loop().is_loop_thread();
   }
