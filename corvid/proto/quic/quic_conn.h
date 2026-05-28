@@ -530,12 +530,12 @@ public:
 
   // Feed a received datagram into the conn for decryption + decoding. This
   // leads to various callbacks being invoked.
-  [[nodiscard]] quic_decode_status read_pkt(std::span<const uint8_t> pkt,
+  [[nodiscard]] quic_status read_pkt(std::span<const uint8_t> pkt,
       time_point_t now = steady_now_clock::now()) noexcept {
     const int rv = ngtcp2_conn_read_pkt(conn_.get(), &path_storage_.path,
         nullptr, pkt.data(), pkt.size(),
         steady_now_clock::as_nanoseconds(now));
-    return static_cast<quic_decode_status>(rv);
+    return static_cast<quic_status>(rv);
   }
 
   // Drive a single outgoing packet carrying only non-stream frames (ACKs,
@@ -558,17 +558,17 @@ public:
   // one-packet-per-buffer drains (the session's `drain_writes`) get this for
   // free since every iteration starts from a fresh path-MTU buffer. On error,
   // `buf` is left unchanged.
-  [[nodiscard]] quic_decode_status write_pkt(iouring::iou_buffer& buf,
+  [[nodiscard]] quic_status write_pkt(iouring::iou_buffer& buf,
       time_point_t now = steady_now_clock::now()) noexcept {
     auto tail = buf.tail_span();
-    if (tail.empty()) return quic_decode_status::ok;
+    if (tail.empty()) return quic_status::ok;
     const ngtcp2_ssize rv = ngtcp2_conn_write_pkt(conn_.get(),
         &path_storage_.path, nullptr, reinterpret_cast<uint8_t*>(tail.data()),
         tail.size(), steady_now_clock::as_nanoseconds(now));
-    if (rv < 0) return static_cast<quic_decode_status>(rv);
+    if (rv < 0) return static_cast<quic_status>(rv);
     if (rv > 0)
       (void)buf.update_payload({tail.data(), static_cast<size_t>(rv)});
-    return quic_decode_status::ok;
+    return quic_status::ok;
   }
 
   // Drive a single outgoing packet, optionally carrying stream bytes. ngtcp2
@@ -604,21 +604,21 @@ public:
   // the per-bit semantics (`fin` to terminate the stream, `more` to coalesce
   // subsequent calls into the same packet, `padding` to pad to path MTU). On
   // error, `buf` is left unchanged and `bytes_accepted` is `0`.
-  [[nodiscard]] quic_decode_status writev_stream(quic_stream_id stream_id,
+  [[nodiscard]] quic_status writev_stream(quic_stream_id stream_id,
       std::span<const iovec> iov, iouring::iou_buffer& buf,
       uint64_t& bytes_accepted,
       write_stream_flags flags = write_stream_flags::none,
       time_point_t now = steady_now_clock::now()) noexcept {
     bytes_accepted = 0;
     auto tail = buf.tail_span();
-    if (tail.empty()) return quic_decode_status::ok;
+    if (tail.empty()) return quic_status::ok;
     ngtcp2_ssize pdatalen{-1};
     const ngtcp2_ssize rv = ngtcp2_conn_writev_stream(conn_.get(),
         &path_storage_.path, nullptr, reinterpret_cast<uint8_t*>(tail.data()),
         tail.size(), &pdatalen, *flags, *stream_id,
         reinterpret_cast<const ngtcp2_vec*>(iov.data()), iov.size(),
         steady_now_clock::as_nanoseconds(now));
-    if (rv < 0) return static_cast<quic_decode_status>(rv);
+    if (rv < 0) return static_cast<quic_status>(rv);
 
     // Extend `buf`'s payload to cover what ngtcp2 wrote, and surface the
     // stream-byte count through `bytes_accepted` so the caller can advance its
@@ -629,7 +629,7 @@ public:
     if (rv > 0)
       (void)buf.update_payload({tail.data(), static_cast<size_t>(rv)});
     if (pdatalen > 0) bytes_accepted = static_cast<uint64_t>(pdatalen);
-    return quic_decode_status::ok;
+    return quic_status::ok;
   }
 
   // Open a locally-initiated bidirectional stream. On success `stream_id` is
@@ -639,14 +639,14 @@ public:
   // `initial_max_streams_bidi` has been exhausted; the caller may retry after
   // `on_extend_max_local_streams_bidi` fires. On input, `stream_id` must be
   // `quic_stream_id::none`. On failure `stream_id` is left untouched.
-  [[nodiscard]] quic_decode_status open_bidi_stream(
+  [[nodiscard]] quic_status open_bidi_stream(
       quic_stream_id& stream_id) noexcept {
     assert(stream_id == quic_stream_id::none);
     int64_t raw{};
     const int rv = ngtcp2_conn_open_bidi_stream(conn_.get(), &raw, nullptr);
-    if (rv != 0) return static_cast<quic_decode_status>(rv);
+    if (rv != 0) return static_cast<quic_status>(rv);
     stream_id = static_cast<quic_stream_id>(raw);
-    return quic_decode_status::ok;
+    return quic_status::ok;
   }
 
 #pragma endregion
@@ -660,10 +660,10 @@ public:
         ngtcp2_conn_get_expiry(conn_.get()));
   }
 
-  [[nodiscard]] quic_decode_status handle_expiry(
+  [[nodiscard]] quic_status handle_expiry(
       time_point_t now = steady_now_clock::now()) noexcept {
-    return static_cast<quic_decode_status>(ngtcp2_conn_handle_expiry(
-        conn_.get(), steady_now_clock::as_nanoseconds(now)));
+    return static_cast<quic_status>(ngtcp2_conn_handle_expiry(conn_.get(),
+        steady_now_clock::as_nanoseconds(now)));
   }
 
 #pragma endregion

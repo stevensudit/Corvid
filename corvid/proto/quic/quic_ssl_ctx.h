@@ -69,6 +69,10 @@ public:
   // presents; both are referenced (refcounted) by the context, so the caller's
   // `ssl_identity` keeps its owning unique_ptrs. `alpn` is the single QUIC
   // application protocol the server accepts.
+  //
+  // Note: It can technically throw on a string alloc, but if this happens, the
+  // process is already dead.
+  // NOLINTNEXTLINE(bugprone-exception-escape)
   quic_ssl_ctx(const ssl_identity& identity, std::string_view alpn) noexcept
       : alpn_wire_{to_alpn_wire(alpn)}, role_{connection_role::server} {
     if (!identity) return;
@@ -87,7 +91,7 @@ public:
   // Peer-certificate verification is disabled (tests use self-signed certs);
   // callers needing verification should configure the returned `native`
   // directly.
-  explicit quic_ssl_ctx(std::string_view alpn) noexcept
+  explicit quic_ssl_ctx(std::string_view alpn)
       : alpn_wire_{to_alpn_wire(alpn)}, role_{connection_role::client} {
     ssl_ctx_ptr ctx{SSL_CTX_new(TLS_client_method())};
     if (!ctx) return;

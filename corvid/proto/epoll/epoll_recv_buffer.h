@@ -24,6 +24,7 @@
 #include <string_view>
 #include <utility>
 
+#include "../../infra/exception_wrappers.h"
 #include "../../concurrency/relaxed_atomic.h"
 #include "../../strings/no_zero.h"
 
@@ -301,11 +302,13 @@ public:
 
   // Destructor: calls `resume_cb_(new_buffer_size_, last_seen_end_)` to post
   // compact / re-enable-reads / optional re-dispatch back to the loop.
-  // NOLINTBEGIN(bugprone-exception-escape)
   ~epoll_recv_buffer_view() {
-    if (buf_) resume_cb_(new_buffer_size_, last_seen_end_);
+    try_or_terminate([&] {
+      if (buf_) resume_cb_(new_buffer_size_, last_seen_end_);
+      return true;
+    });
   }
-  // NOLINTEND(bugprone-exception-escape)
+
 #pragma endregion
 #pragma region Accessors
 

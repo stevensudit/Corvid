@@ -35,12 +35,12 @@
 
 namespace corvid { inline namespace proto { namespace quic {
 
-#pragma region quic_decode_status
+#pragma region quic_status
 
 // `NGTCP2_ERR_*` wrapper. Outcome of `quic_version_cid::decode` (and any other
 // ngtcp2 call we wrap that returns an `int` error code from this set).
 // NOLINTNEXTLINE(performance-enum-size)
-enum class quic_decode_status : int16_t {
+enum class quic_status : int16_t {
   ok = 0,
   invalid_argument = NGTCP2_ERR_INVALID_ARGUMENT,                       // -201
   nobuf = NGTCP2_ERR_NOBUF,                                             // -202
@@ -91,11 +91,10 @@ enum class quic_decode_status : int16_t {
 
 template<>
 constexpr inline auto corvid::enums::registry::enum_spec_v<
-    corvid::proto::quic::quic_decode_status> =
+    corvid::proto::quic::quic_status> =
     corvid::enums::sequence::make_sequence_enum_spec<
-        corvid::proto::quic::quic_decode_status,
-        corvid::proto::quic::quic_decode_status::ok,
-        corvid::proto::quic::quic_decode_status::callback_failure>();
+        corvid::proto::quic::quic_status, corvid::proto::quic::quic_status::ok,
+        corvid::proto::quic::quic_status::callback_failure>();
 
 namespace corvid { inline namespace proto { namespace quic {
 
@@ -118,10 +117,9 @@ namespace corvid { inline namespace proto { namespace quic {
 // Anything else non-ok is connection-fatal. New ngtcp2 statuses default
 // to fatal (close-the-session) until a reviewer audits them and adds them
 // here if appropriate.
-[[nodiscard]] constexpr bool is_soft_error(quic_decode_status s) noexcept {
-  return s == quic_decode_status::decrypt ||
-         s == quic_decode_status::discard_pkt ||
-         s == quic_decode_status::draining || s == quic_decode_status::closing;
+[[nodiscard]] constexpr bool is_soft_error(quic_status s) noexcept {
+  return s == quic_status::decrypt || s == quic_status::discard_pkt ||
+         s == quic_status::draining || s == quic_status::closing;
 }
 
 #pragma endregion
@@ -218,22 +216,22 @@ public:
   // a Version Negotiation response. `invalid_argument` for malformed framing.
   explicit quic_version_cid(std::span<const uint8_t> packet,
       size_t short_dcidlen = default_scid_length) noexcept {
-    status_ = static_cast<quic_decode_status>(ngtcp2_pkt_decode_version_cid(
-        &vc_, packet.data(), packet.size(), short_dcidlen));
+    status_ = static_cast<quic_status>(ngtcp2_pkt_decode_version_cid(&vc_,
+        packet.data(), packet.size(), short_dcidlen));
   }
 
   // Result of the decode performed by the constructor.
-  // `quic_decode_status::ok` on a default-constructed object that hasn't been
+  // `quic_status::ok` on a default-constructed object that hasn't been
   // decoded.
-  [[nodiscard]] quic_decode_status status() const noexcept { return status_; }
+  [[nodiscard]] quic_status status() const noexcept { return status_; }
 
   // True iff `status() == ok`. `operator!` is the inverse, for the
   // `if (!vc) { /* decode failed */ }` idiom.
   [[nodiscard]] explicit operator bool() const noexcept {
-    return status_ == quic_decode_status::ok;
+    return status_ == quic_status::ok;
   }
   [[nodiscard]] bool operator!() const noexcept {
-    return status_ != quic_decode_status::ok;
+    return status_ != quic_status::ok;
   }
 
   // QUIC version field. Zero for short-header packets, since they do not carry
@@ -266,7 +264,7 @@ public:
 
 private:
   ngtcp2_version_cid vc_{};
-  quic_decode_status status_{};
+  quic_status status_{};
 };
 
 #pragma endregion

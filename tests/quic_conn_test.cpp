@@ -236,11 +236,11 @@ TEST_CASE("quic_conn handshake completes in-process", "[quic][conn]") {
       auto buf = iouring::iou_buffer::make_synthetic_write(
           {backing.data(), backing.size()});
       const auto status = from.write_pkt(buf, now_tp());
-      if (status != quic_decode_status::ok) return false;
+      if (status != quic_status::ok) return false;
       const auto payload = buf.payload_bytes();
       if (payload.empty()) return true;
       const auto rv = to.read_pkt(payload, now_tp());
-      if (rv != quic_decode_status::ok) return false;
+      if (rv != quic_status::ok) return false;
     }
     return false;
   };
@@ -305,11 +305,11 @@ TEST_CASE("quic_conn handler upcalls fire during handshake", "[quic][conn]") {
       auto buf = iouring::iou_buffer::make_synthetic_write(
           {backing.data(), backing.size()});
       const auto status = from.write_pkt(buf, now_tp());
-      if (status != quic_decode_status::ok) return false;
+      if (status != quic_status::ok) return false;
       const auto payload = buf.payload_bytes();
       if (payload.empty()) return true;
       const auto rv = to.read_pkt(payload, now_tp());
-      if (rv != quic_decode_status::ok) return false;
+      if (rv != quic_status::ok) return false;
     }
     return false;
   };
@@ -405,14 +405,14 @@ TEST_CASE("quic_conn handler returning false aborts read_pkt",
     for (int safety = 0; safety < 32; ++safety) {
       auto buf = make_buf();
       const auto status = client.write_pkt(buf, now_tp());
-      if (status != quic_decode_status::ok) {
+      if (status != quic_status::ok) {
         saw_error = true;
         break;
       }
       const auto payload = buf.payload_bytes();
       if (payload.empty()) break;
       const auto rv = server.read_pkt(payload, now_tp());
-      if (rv != quic_decode_status::ok) {
+      if (rv != quic_status::ok) {
         saw_error = true;
         break;
       }
@@ -421,14 +421,14 @@ TEST_CASE("quic_conn handler returning false aborts read_pkt",
     for (int safety = 0; safety < 32; ++safety) {
       auto buf = make_buf();
       const auto status = server.write_pkt(buf, now_tp());
-      if (status != quic_decode_status::ok) {
+      if (status != quic_status::ok) {
         saw_error = true;
         break;
       }
       const auto payload = buf.payload_bytes();
       if (payload.empty()) break;
       const auto rv = client.read_pkt(payload, now_tp());
-      if (rv != quic_decode_status::ok) {
+      if (rv != quic_status::ok) {
         saw_error = true;
         break;
       }

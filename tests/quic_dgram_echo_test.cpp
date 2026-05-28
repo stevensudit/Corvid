@@ -84,7 +84,7 @@ struct echo_client_plugin: quic_no_op_plugin {
       uint64_t /*offset*/, std::span<const uint8_t> data,
       quic_stream_data_flags flags) override {
     {
-      std::lock_guard lock{mu};
+      std::scoped_lock lock{mu};
       auto& v = received[stream_id];
       v.insert(v.end(), data.begin(), data.end());
     }
@@ -124,7 +124,7 @@ struct echo_client_plugin: quic_no_op_plugin {
       uint64_t accepted = 0;
       const auto status =
           io_.conn().writev_stream(sid, iov, out, accepted, flags, now);
-      if (status != quic_decode_status::ok) return false;
+      if (status != quic_status::ok) return false;
       if (out.payload_bytes().empty()) return true;
       if (qp) qp->commit(accepted);
       (void)io_.send_packet(std::move(out));
@@ -135,14 +135,14 @@ struct echo_client_plugin: quic_no_op_plugin {
   // it. Returns the chosen stream id, or `none` on failure.
   [[nodiscard]] quic_stream_id send_with_fin(std::vector<uint8_t>&& payload) {
     quic_stream_id sid = quic_stream_id::none;
-    if (io_.conn().open_bidi_stream(sid) != quic_decode_status::ok)
+    if (io_.conn().open_bidi_stream(sid) != quic_status::ok)
       return quic_stream_id::none;
     queues[sid].append(std::move(payload), write_stream_flags::fin);
     return sid;
   }
 
   std::vector<uint8_t> received_for(quic_stream_id sid) {
-    std::lock_guard lock{mu};
+    std::scoped_lock lock{mu};
     auto it = received.find(sid);
     if (it == received.end()) return {};
     return it->second;

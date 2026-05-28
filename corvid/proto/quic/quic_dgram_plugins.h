@@ -77,14 +77,14 @@ public:
   // buffer. `stream_id::none` means "emit whatever non-stream frames are
   // queued"; concrete plugins override this with a per-stream drive and may
   // end with a `stream_id::none` flush to pick up any remaining ACKs.
-  bool drain(time_point_t now) noexcept {
+  bool drain(time_point_t now) {
     for (;;) {
       auto out = io_.borrow_send_buffer();
       if (!out) return true;
       uint64_t accepted = 0;
       const auto status = io_.conn().writev_stream(quic_stream_id::none, {},
           out, accepted, write_stream_flags::none, now);
-      if (status != quic_decode_status::ok) return false;
+      if (status != quic_status::ok) return false;
       if (out.payload_bytes().empty()) return true;
       (void)io_.send_packet(std::move(out));
     }
@@ -313,10 +313,10 @@ public:
       assert(router_.loop().is_loop_thread());
       const auto now = steady_now_clock::now();
       const auto rv = conn().read_pkt(buf.payload_bytes(), now);
-      if (rv != quic_decode_status::ok) return is_soft_error(rv);
-      (void)plugin_.drain(now);
+      if (rv != quic_status::ok) return is_soft_error(rv);
+      const auto ok = plugin_.drain(now);
       arm_expiry();
-      return true;
+      return ok;
     }
 
     // The send buffer comes back here once the kernel has accepted the
@@ -356,8 +356,13 @@ public:
     // registered deadline elapses. Stale entries (left over from a deadline
     // that was superseded by an earlier rearm) detect themselves via
     // `fired_expire != registered_expiry_` and drop.
-    [[nodiscard]] time_point_t on_expiry_sweep(
-        time_point_t fired_expire) noexcept {
+    //
+    // `handle_expiry` advances ngtcp2's loss-detection state and queues
+    // anything that needs to fly (PTO probes, delayed ACKs, retransmits);
+    // `drain` flushes that queue. If either reports a hard error the
+    // connection is corrupt, so close the session and drop the sweeper entry
+    // rather than asking a broken conn for its next deadline.
+    [[nodiscard]] time_point_t on_expiry_sweep(time_point_t fired_expire) {
       if (fired_expire != registered_expiry_) return {};
       const auto now = steady_now_clock::now();
       const auto target = conn().expiry();
@@ -365,8 +370,11 @@ public:
         registered_expiry_ = target;
         return target;
       }
-      (void)conn().handle_expiry(now);
-      (void)plugin_.drain(now);
+      if (conn().handle_expiry(now) != quic_status::ok || !plugin_.drain(now))
+      {
+        (void)session_.close();
+        return {};
+      }
       const auto next = conn().expiry();
       registered_expiry_ = next;
       return next;
@@ -378,7 +386,9 @@ public:
     // Loop-thread half of server-side registration: allocate the `ngtcp2_conn`
     // against the parsed peer SCID, register under both the original DCID and
     // the server's own SCID, drive any initial ngtcp2 output through the
-    // plugin, and arm the handshake-expiry timer.
+    // plugin, and arm the handshake-expiry timer. A hard `drain` failure here
+    // means the session is born tainted; close to undo the registrations and
+    // report failure to the caller.
     bool do_register_server(const key_t& peer_scid) {
       assert(router_.loop().is_loop_thread());
       const auto now = steady_now_clock::now();
@@ -387,7 +397,7 @@ public:
         return false;
       const bool ok1 = router_.add_session(original_dcid_, session_.self());
       const bool ok2 = router_.add_session(scid_, session_.self());
-      (void)plugin_.drain(now);
+      if (!plugin_.drain(now)) return session_.close() && false;
       arm_expiry();
       return ok1 && ok2;
     }
@@ -395,7 +405,9 @@ public:
     // Loop-thread half of client-side registration: pick a random Initial DCID
     // (which we put on the wire but never receive back), allocate the
     // `ngtcp2_conn`, register under our SCID, push the Initial through the
-    // plugin's drain, and arm the handshake-expiry timer.
+    // plugin's drain, and arm the handshake-expiry timer. A hard `drain`
+    // failure here means the session is born tainted; close to undo the
+    // registration and report failure to the caller.
     bool do_register_client() {
       assert(router_.loop().is_loop_thread());
       const key_t initial_dcid =
@@ -405,7 +417,7 @@ public:
               key_t{}, now))
         return false;
       const bool ok = router_.add_session(scid_, session_.self());
-      (void)plugin_.drain(now);
+      if (!plugin_.drain(now)) return session_.close() && false;
       arm_expiry();
       return ok;
     }

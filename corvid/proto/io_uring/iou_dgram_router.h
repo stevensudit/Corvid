@@ -23,6 +23,7 @@
 #include <utility>
 #include <vector>
 
+#include "../../infra/exception_wrappers.h"
 #include "../../containers/opt_find.h"
 #include "../../enums/bool_enums.h"
 #include "../net_endpoint.h"
@@ -78,7 +79,7 @@ class iou_dgram_router;
 // the unsatisfied requirement.
 template<typename P>
 concept iou_dgram_router_plugin = requires(P p, const iou_loop::buffer& cbuf,
-    iou_dgram_router<P>& router, const typename P::key_t& key) {
+    iou_dgram_router<P>& router, const P::key_t& key) {
   typename P::session_t;
   typename P::key_t;
   { p.extract(cbuf) } -> std::convertible_to<typename P::key_t>;
@@ -294,7 +295,7 @@ public:
   // the `completion_token` for the in-flight send (invalid token on
   // failure). Safe from any thread.
   [[nodiscard]] completion_token
-  submit_session_send(buffer&& buf, const session_ptr& ssn) noexcept {
+  submit_session_send(buffer&& buf, const session_ptr& ssn) {
     if (!open_ || !ssn) return {};
     return loop_.submit_sendmsg_buffer(sock_, std::move(buf),
         [ssn](completion_id, buffer& b) -> slot_retention {
@@ -505,14 +506,16 @@ public:
 
   // Wrap an existing router in the RAII handle. Mainly used by `bind` and by
   // CTAD; users normally go through `bind`.
+  // NOLINTNEXTLINE(modernize-pass-by-value)
   explicit iou_dgram_router_handle(const shared_ptr_t& router) noexcept
       : router_{router} {}
 
-  // NOLINTBEGIN(bugprone-exception-escape)
   ~iou_dgram_router_handle() {
-    if (router_) (void)router_->close();
+    try_or_terminate([&] {
+      if (router_) (void)router_->close();
+      return true;
+    });
   }
-  // NOLINTEND(bugprone-exception-escape)
 
 #pragma endregion
 #pragma region Factories

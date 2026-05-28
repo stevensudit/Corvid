@@ -29,6 +29,7 @@
 #include <utility>
 #include <vector>
 
+#include "../../infra/exception_wrappers.h"
 #include "../../enums/bool_enums.h"
 #include "../../strings/concat_join.h"
 #include "../../strings/conversion.h"
@@ -1072,8 +1073,12 @@ class json_writer {
     scoped_writer& operator=(const scoped_writer&) = delete;
     scoped_writer& operator=(scoped_writer&&) = delete;
 
-    // NOLINTNEXTLINE(bugprone-exception-escape)
-    constexpr ~scoped_writer() { end_(*writer_); }
+    constexpr ~scoped_writer() {
+      try_or_terminate([&] {
+        end_(*writer_);
+        return true;
+      });
+    }
 
     [[nodiscard]] constexpr json_writer* operator->() noexcept {
       return writer_;

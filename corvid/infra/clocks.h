@@ -44,8 +44,8 @@ public:
 
 #pragma region Types
 
-  using time_point_t = typename clock_t::time_point;
-  using duration_t = typename clock_t::duration;
+  using time_point_t = clock_t::time_point;
+  using duration_t = clock_t::duration;
   using now_fnt = time_point_t (*)() noexcept(noexcept(Clock::now()));
 
 #pragma endregion

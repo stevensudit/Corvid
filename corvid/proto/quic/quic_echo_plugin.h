@@ -139,7 +139,7 @@ public:
       uint64_t accepted = 0;
       const auto status =
           io_.conn().writev_stream(sid, iov, out, accepted, flags, now);
-      if (status != quic_decode_status::ok) return false;
+      if (status != quic_status::ok) return false;
       if (out.payload_bytes().empty()) return true;
       if (qp) qp->commit(accepted);
       (void)io_.send_packet(std::move(out));

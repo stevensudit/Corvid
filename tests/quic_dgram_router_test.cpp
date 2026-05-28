@@ -167,7 +167,6 @@ constexpr std::array<uint8_t, 16> client_scid_bytes{0x11, 0x22, 0x33, 0x44,
 
 } // namespace
 
-// NOLINTBEGIN(readability-function-cognitive-complexity)
 TEST_CASE(
     "quic_dgram_protocol drives a server-side TLS 1.3 handshake "
     "through the live iou_dgram_router",
@@ -243,7 +242,7 @@ TEST_CASE(
       auto buf = iouring::iou_buffer::make_synthetic_write(
           {backing.data(), backing.size()});
       const auto status = client.write_pkt(buf, now_tp());
-      if (status != quic_decode_status::ok) break;
+      if (status != quic_status::ok) break;
       const auto payload = buf.payload_bytes();
       if (payload.empty()) break;
       const auto sent = ::sendto(client_sock.handle(), payload.data(),
@@ -258,7 +257,7 @@ TEST_CASE(
       const auto rv = client.read_pkt(
           std::span<const uint8_t>{recv_buf.data(), static_cast<size_t>(got)},
           now_tp());
-      REQUIRE(rv == quic_decode_status::ok);
+      REQUIRE(rv == quic_status::ok);
     }
 
     finished = client_signal.done;

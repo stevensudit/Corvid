@@ -33,14 +33,15 @@
 #include <unistd.h>
 #include <fcntl.h>
 
-#include "epoll_loop.h"
+#include "../../infra/exception_wrappers.h"
 #include "../iov_msghdr.h"
 #include "../net_endpoint.h"
-#include "epoll_recv_buffer.h"
 #include "../../concurrency/relaxed_atomic.h"
 #include "../../enums/bool_enums.h"
 #include "../../strings/any_strings.h"
 #include "../../strings/no_zero.h"
+#include "epoll_loop.h"
+#include "epoll_recv_buffer.h"
 
 namespace corvid { inline namespace proto {
 
@@ -1234,14 +1235,15 @@ public:
 
   // Performs `hangup` on destruction. If you want to close cleanly, you must
   // call `close` before the instance is destructed.
-  // NOLINTBEGIN(bugprone-exception-escape)
   ~epoll_stream_conn_ptr_with() {
-    if (!conn_ || conn_->no_hangup_on_destruct_) return;
-    (void)conn_->loop_.execute_or_post([p = std::move(conn_)] {
-      return p->do_hangup();
+    try_or_terminate([&] {
+      if (!conn_ || conn_->no_hangup_on_destruct_) return true;
+      return conn_->loop_.execute_or_post([p = std::move(conn_)] {
+        return p->do_hangup();
+      }) || true;
     });
   }
-  // NOLINTEND(bugprone-exception-escape)
+
 #pragma endregion
 #pragma region Accessors
 

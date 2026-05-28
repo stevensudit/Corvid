@@ -24,6 +24,7 @@
 #include <string_view>
 #include <variant>
 
+#include "../../infra/exception_wrappers.h"
 #include "../../concurrency/idle_timeout.h"
 #include "../../enums/bool_enums.h"
 #include "../net_endpoint.h"
@@ -70,18 +71,19 @@ public:
   iou_recv_view& operator=(const iou_recv_view&) = delete;
   iou_recv_view& operator=(iou_recv_view&&) = delete;
 
-  // NOLINTBEGIN(bugprone-exception-escape)
-  ~iou_recv_view() noexcept(false) {
-    if (!resume_) return; // View was moved from or stop_receiving consumed.
-    if (!buf_.payload_view().empty() && buf_.active_span().empty())
-      throw std::logic_error{
-          "iou_recv_view with unconsumed payload cannot be reused"};
+  ~iou_recv_view() {
+    try_or_terminate([&] {
+      // View was moved from or stop_receiving consumed.
+      if (!resume_) return true;
+      if (!buf_.payload_view().empty() && buf_.active_span().empty())
+        throw std::logic_error{
+            "iou_recv_view with unconsumed payload cannot be reused"};
 
-    // Normal re-arm path. The returned `posted_fn` is empty here.
-    assert(buf_.result()); // not deactivated.
-    (void)resume_(std::move(buf_));
+      // Normal re-arm path. The returned `posted_fn` is empty here.
+      assert(buf_.result()); // not deactivated.
+      return resume_(std::move(buf_)) || true;
+    });
   }
-  // NOLINTEND(bugprone-exception-escape)
 
 #pragma endregion
 #pragma region Buffer management

@@ -24,15 +24,16 @@
 #include <unordered_map>
 #include <variant>
 
-#include "epoll_loop.h"
+#include "../../infra/exception_wrappers.h"
 #include "../misc/http_head_codec.h"
-#include "epoll_http_transaction.h"
-#include "epoll_stream_conn.h"
 #include "../misc/terminated_text_parser.h"
 #include "../../containers/opt_find.h"
 #include "../../concurrency/timer_fuse.h"
 #include "../../containers/scoped_value.h"
 #include "../../containers/hash_combiner.h"
+#include "epoll_loop.h"
+#include "epoll_http_transaction.h"
+#include "epoll_stream_conn.h"
 
 namespace corvid { inline namespace proto {
 
@@ -351,21 +352,22 @@ public:
   // `post_and_wait` returns, the conn's handlers (and their
   // `weak_ptr<epoll_http_server>` captures) have been destroyed on the worker
   // thread, sequenced before our own dec.
-  //
-  // NOLINTNEXTLINE(bugprone-exception-escape)
   ~epoll_http_server() {
-    if (runner_) {
-      listener_ = {};
-      routes_.clear();
-      loop_.reset();
-      runner_.reset();
-      return;
-    }
-    if (loop_) {
-      listener_ = {};
-      routes_.clear();
-      (void)loop_->post_and_wait([] { return true; });
-    }
+    try_or_terminate([&] {
+      if (runner_) {
+        listener_ = {};
+        routes_.clear();
+        loop_.reset();
+        runner_.reset();
+        return true;
+      }
+      if (loop_) {
+        listener_ = {};
+        routes_.clear();
+        (void)loop_->post_and_wait([] { return true; });
+      }
+      return true;
+    });
   }
 #pragma endregion
 #pragma region Internals
