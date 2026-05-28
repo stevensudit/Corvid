@@ -117,6 +117,27 @@ TEST_CASE("logger rebinds its stream via set_stream", "[infra][log]") {
   CHECK_FALSE(second.str().contains("to first"));
 }
 
+TEST_CASE("logger prefixes output with a UTC ISO-8601 timestamp",
+    "[infra][log]") {
+  using sysclk = corvid::infra::system_clock;
+  using namespace std::chrono;
+
+  // Install a deterministic time: 2026-05-28T12:34:56.789Z.
+  sysclk::set_now_fn();
+  const sysclk::time_point_t when =
+      sys_days{2026y / May / 28} + 12h + 34min + 56s + 789ms;
+  sysclk::set_fake_now(when);
+
+  std::stringstream sink;
+  logger lg{sink};
+  lg.info("hello");
+
+  CHECK(sink.str().starts_with("2026-05-28T12:34:56.789Z [info "));
+
+  // Restore the real clock so later tests see real time.
+  sysclk::set_now_fn(&std::chrono::system_clock::now);
+}
+
 TEST_CASE("log singleton can be redirected via set_stream", "[infra][log]") {
   std::stringstream sink;
   log::singleton().set_stream(sink);

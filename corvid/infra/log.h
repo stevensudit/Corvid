@@ -15,6 +15,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 #pragma once
+#include <chrono>
 #include <format>
 #include <iostream>
 #include <mutex>
@@ -25,6 +26,7 @@
 
 #include "../enums/sequence_enum.h"
 #include "../strings/conversion.h"
+#include "clocks.h"
 
 namespace corvid { inline namespace infra {
 
@@ -80,8 +82,10 @@ struct format_with_loc {
 // The stream is held by reference, so the caller owns its lifetime; the
 // default is `std::cerr`, whose lifetime spans the program.
 //
-// Output format: `[LEVEL file:line] message\n`. No timestamp yet; rendering
-// is intentionally minimal because this is the first cut.
+// Output format: `YYYY-MM-DDTHH:MM:SS.sssZ [LEVEL file:line] message\n`. The
+// timestamp is ISO 8601 in UTC at millisecond precision so alphabetical and
+// chronological sort match. Timestamps come from `infra::system_clock`, so
+// tests can install a deterministic fake.
 class logger {
 public:
 #pragma region Construction
@@ -144,20 +148,23 @@ public:
 #pragma region Helpers
 private:
   template<typename... Args>
-  void emit(log_level lv, const format_with_loc<Args...>& msg, Args... args) {
-    if (!enabled(lv)) return;
+  void emit(log_level lvl, const format_with_loc<Args...>& msg, Args... args) {
+    if (!enabled(lvl)) return;
     // `args` are lvalues in this body; `std::format`'s `Args&&` would deduce
     // them as `T&` and reject `msg.fmt` (typed without refs). Cast to xvalue
     // so deduction collapses to the value type.
     auto body = std::format(msg.fmt, std::move(args)...);
-    write_line(lv, msg.loc, body);
+    write_line(lvl, msg.loc, body);
   }
 
   void write_line(log_level lvl, const std::source_location& loc,
       std::string_view body) {
+    const auto now = std::chrono::time_point_cast<std::chrono::milliseconds>(
+        system_clock::now());
     std::scoped_lock lock{mutex_};
-    (*out_) << '[' << strings::enum_as_string(lvl) << ' ' << loc.file_name()
-            << ':' << loc.line() << "] " << body << '\n';
+    (*out_) << std::format("{:%FT%T}", now) << "Z ["
+            << strings::enum_as_string(lvl) << ' ' << loc.file_name() << ':'
+            << loc.line() << "] " << body << '\n';
   }
 
 #pragma endregion
