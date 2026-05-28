@@ -199,8 +199,8 @@ concept iou_stream_conn_plugin = requires(P p, iou_recv_view&& view,
 // expectation is "lock once if you need to drive it, then let the in-flight
 // callbacks carry it from there."
 //
-// Callers who need to hold the conn strongly can `lock()` the weak_ptr to a
-// `std::shared_ptr`, or call `self()` on the conn to get a fresh strong ref.
+// Callers who need to hold the conn strongly can `lock` the weak_ptr to a
+// `std::shared_ptr`, or call `self` on the conn to get a fresh strong ref.
 // Callers who only want to observe later without keeping it alive can keep
 // the weak_ptr and `lock` before each use; an expired weak_ptr means the
 // conn has already torn down.
@@ -593,7 +593,7 @@ public:
 
   // Adopt an already-connected socket. `sock` must be non-blocking. Returns a
   // `std::weak_ptr<iou_stream_conn>`; the conn is self-sustaining via its
-  // in-flight callbacks. `lock()` for ad-hoc access. An empty/expired
+  // in-flight callbacks. `lock` for ad-hoc access. An empty/expired
   // `std::weak_ptr` signals either a failure to launch or that the conn has
   // already finished its life and torn down.
   template<typename... PluginArgs>
@@ -666,7 +666,7 @@ private:
   relaxed_atomic<block_size> send_buf_size_{block_size::kb004};
 
   // Idle timeouts. One per direction; configured at construction and
-  // driven via the `read_idle()` / `write_idle()` accessors.
+  // driven via the `read_idle` / `write_idle` accessors.
   idle_timeout_t read_idle_;
   idle_timeout_t write_idle_;
 

@@ -587,7 +587,7 @@ TEST_CASE("OnClose", "[IouDgramRouter]") {
         &stateA, preset_key);
     CHECK(routerA->add_session(preset_key, sess));
 
-    // `add_session` posts to the loop thread; `close()` flips `open_`
+    // `add_session` posts to the loop thread; `close` flips `open_`
     // synchronously. Without a barrier, the queued add can run after that
     // flip, see `!is_open()`, and silently drop. Post a sentinel and wait:
     // FIFO guarantees the add ran first.

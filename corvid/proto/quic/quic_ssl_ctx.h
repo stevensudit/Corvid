@@ -85,7 +85,7 @@ public:
 
   // Client SSL_CTX. `alpn` is the application protocol the client offers.
   // Peer-certificate verification is disabled (tests use self-signed certs);
-  // callers needing verification should configure the returned `native()`
+  // callers needing verification should configure the returned `native`
   // directly.
   explicit quic_ssl_ctx(std::string_view alpn) noexcept
       : alpn_wire_{to_alpn_wire(alpn)}, role_{connection_role::client} {

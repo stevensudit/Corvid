@@ -30,7 +30,7 @@ using sweeper = timeout_sweeper<>;
 using tp = sweeper::time_point_t;
 
 // Construct a deterministic `time_point` at `ms` milliseconds past the
-// steady-clock epoch. Tests use this rather than `sweeper::now()` so that
+// steady-clock epoch. Tests use this rather than `sweeper::now` so that
 // expirations are independent of wall time.
 static tp T(int ms) { return tp{} + std::chrono::milliseconds{ms}; }
 

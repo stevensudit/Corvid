@@ -50,8 +50,8 @@ inline void msan_unpoison_kernel_write([[maybe_unused]] const void* p,
 #pragma region iou_buffer
 
 // Moveable RAII handle to a single slab allocation. Returns its memory to the
-// pool on destruction or `reset()`. `offset()` gives the byte distance from
-// the pool base for file-offset SQE fields.
+// pool on destruction or `reset`. `offset` gives the byte distance from the
+// pool base for file-offset SQE fields.
 //
 // These spans define the buffer state:
 //   `full_span`     -- entire allocation; never changes after construction.
@@ -94,7 +94,7 @@ inline void msan_unpoison_kernel_write([[maybe_unused]] const void* p,
 //
 // The second is also related to being bound into `std::function`. Inheriting
 // `address_forwarder<iou_buffer>` allows a caller to register an external
-// `iou_buffer*` via `forwarding_address()`; it is updated on every move and
+// `iou_buffer*` via `forwarding_address`; it is updated on every move and
 // nulled on destruction. Clear it once the buffer has settled.
 class iou_buffer: public address_forwarder<iou_buffer> {
 #pragma region Construction
@@ -369,10 +369,10 @@ public:
   // writer after directly appending to the tail.
   //
   // The start of `payload` must equal the current end of `payload_span`
-  // (i.e. it must be the span returned by `tail_span()`, trimmed to the
-  // bytes actually written). The end of `payload` must not exceed
-  // `full_span`. Returns false on violation; spans are left unchanged.
-  // Implicitly resets if the buffer is in consumed state before extending.
+  // (i.e. it must be the span returned by `tail_span`, trimmed to the bytes
+  // actually written). The end of `payload` must not exceed `full_span`.
+  // Returns false on violation; spans are left unchanged. Implicitly resets if
+  // the buffer is in consumed state before extending.
   [[nodiscard]] bool update_payload(span_t payload) noexcept {
     assert(blockrw_ == block_type::write);
     auto tail = tail_span();
@@ -521,7 +521,7 @@ public:
 
     // The kernel wrote a `recvmsg` header + peer address + payload at the
     // start of `full_span_`. Unpoison the touched prefix so `iou_recvmsg_out`
-    // can parse it without tripping MSAN. `res.bytes()` is the total written.
+    // can parse it without tripping MSAN. `res.bytes` is the total written.
     if (res) msan_unpoison_kernel_write(full_span_.data(), res.bytes());
 
     iou_recvmsg_out out{full_span_.data(), msgh, res};
@@ -593,7 +593,7 @@ public:
 
   // Configure `msg_` for a recvmsg operation. Points `iov_` at `active_span_`
   // and `msg_name` at `addr_` to capture the sender address. Returns `&msg_`
-  // for use with `prep_recvmsg`. Call `prepare_msg()` after this.
+  // for use with `prep_recvmsg`. Call `prepare_msg` after this.
   [[nodiscard]] msghdr* prepare_recvmsg() noexcept {
     assert(blockrw_ == block_type::read);
     reset_result();
@@ -612,7 +612,7 @@ public:
   }
 
   // Configure `msg_` for a sendmsg operation to `peer_addr`. Returns
-  // `&msg_` for use with `prep_sendmsg`. Call `prepare_msg()` after this.
+  // `&msg_` for use with `prep_sendmsg`. Call `prepare_msg` after this.
   [[nodiscard]] msghdr* prepare_sendmsg() noexcept {
     assert(blockrw_ == block_type::write);
     reset_result();

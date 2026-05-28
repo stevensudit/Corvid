@@ -170,7 +170,7 @@ private:
 // without decrypting it.
 //
 // Use `decode` to populate the wrapped struct from raw packet bytes. The
-// returned `dcid_bytes()` / `scid_bytes()` spans view directly into the source
+// returned `dcid_bytes` / `scid_bytes` spans view directly into the source
 // buffer (matching ngtcp2's contract: the struct stores `const uint8_t*`
 // pointers into the original input). They are invalidated if the source buffer
 // is freed, moved, or modified. For a stable copy of a CID, pass the span to

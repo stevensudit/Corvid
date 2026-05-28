@@ -45,9 +45,8 @@ public:
 
   // Single source of truth for the current time. When a steady clock timestamp
   // is needed, this method should be called instead of directly invoking
-  // `std::chrono::steady_clock::now()`. By default, it points to
-  // `std::chrono::steady_clock::now`, but tests can replace it with a fake
-  // clock by calling `set_now_fn`.
+  // `std::chrono::steady_clock::now`, which is where it points to by default.
+  // Tests can replace it with a fake clock by calling `set_now_fn`.
   [[nodiscard]] static time_point_t now() noexcept { return now_fn(); }
 
   // Replace the clock function with `fn`. If `fn` is null, installs
@@ -77,7 +76,7 @@ public:
   };
 
   // Sentinel value used to enter logical pause mode. One decade shy of
-  // `time_point_t::max()`, leaving ample headroom against overflow when
+  // `time_point_t::max`, leaving ample headroom against overflow when
   // arithmetic is done on it.
   static constexpr time_point_t paused_expiration =
       time_point_t::max() - std::chrono::years{10};

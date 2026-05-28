@@ -69,7 +69,7 @@ public:
   //   ":", "\r\n\r\n"). The pointed-to bytes must outlive the `state`.
   // `max_length`: maximum bytes that may be scanned before `false` is
   //   returned. 0 means no limit is enforced here; the caller is responsible
-  //   for the full-buffer case (compare `bytes_scanned()` against
+  //   for the full-buffer case (compare `bytes_scanned` against
   //   `view.buffer_capacity()`).
   //
   // Default construction leaves the sentinel empty, which is falsy and signals
@@ -108,12 +108,11 @@ public:
   //      past the full frame and its sentinel. Note that `text_out` could be
   //      empty if there's nothing before the sentinel.
   //    - The `text_out` view will remain valid until the
-  //    `epoll_recv_buffer_view`
-  //      destructs, so the caller should act on it in place and return, or
-  //      move the `epoll_recv_buffer_view` into a worker thread, or possibly
-  //      copy it.
+  //      `epoll_recv_buffer_view` destructs, so the caller should act on it in
+  //      place and return, or move the `epoll_recv_buffer_view` into a worker
+  //      thread, or possibly copy it.
   //    - The caller should pass `input` to `view.update_active_view(input)` so
-  //      that it can be consumed, then call `reset()` before the next frame.
+  //      that it can be consumed, then call `reset` before the next frame.
   //
   // Incomplete:
   //   - Returns `std::nullopt`, and doesn't modify `text_out` or `input`.
@@ -121,7 +120,7 @@ public:
   //     The caller should wait for more data to arrive and call `parse` again
   //     with the same `state` and the new `input` (which will necessarily
   //     contain the same unconsumed bytes as before, plus the new ones).
-  //   - If `input.size() == view.buffer_capacity()`, the buffer is full
+  //   - If `input.size() == view.buffer_capacity`, the buffer is full
   //     with no terminator found; call `view.expand_to(...)` or close.
   //
   // Invalid:

@@ -49,17 +49,20 @@ class between them:
   `read_pkt`, a stream-aware `writev_stream` over
   `ngtcp2_conn_writev_stream`, and stream-open.
 - **`quic_dgram_protocol::session_plugin`** is the protocol-agnostic
-  carrier. Owns `quic_conn`, runs the per-turn cycle
-  (`read_pkt` -> upcalls fire into the plugin -> plugin's drain -> arm
-  expiry), handles CID registration, expiry, and lifetime. Delegates all
-  protocol-specific behavior to the upper plugin.
+  carrier. Inherits `quic_session_io` (which owns `quic_conn` and pairs
+  it with the non-templated `iou_dgram_session_base`), runs the per-turn
+  cycle (`read_pkt` -> upcalls fire into the plugin -> plugin's drain ->
+  arm expiry), handles CID registration, expiry, and lifetime. Delegates
+  all protocol-specific behavior to the upper plugin.
 - **Upper plugin (the `QuicPlugin` template parameter)** IS the adapter.
   For HTTP/3 it owns the `nghttp3_conn` and inherits `quic_conn_handlers`.
-  Sees only `quic_conn`, not ngtcp2. Bridges `quic_conn`'s typed upcalls
-  into nghttp3's read/ack/block/unblock APIs. Owns ngtcp2 stream opening
+  Holds a `quic_session_io&` (which exposes `quic_conn`,
+  `borrow_send_buffer`, `send_packet`); does not see ngtcp2 or the
+  templated session directly. Bridges `quic_conn`'s typed upcalls into
+  nghttp3's read/ack/block/unblock APIs. Owns ngtcp2 stream opening
   through `quic_conn::open_bidi_stream` and pairs each new stream with
   `nghttp3_conn_submit_request` on the client side. Drives the outbound
-  drain.
+  drain via its `drain(now)` hook.
 - **Application handler** (above the upper plugin) is the HTTP/3 user.
   Operates at the HTTP level: start request, submit response, "body is
   available." Supplies body bytes through `nghttp3_data_reader::read_data`
@@ -262,16 +265,42 @@ needs it, or if we want a watchdog beneath ngtcp2's own timers.
   the no-op session compiles unchanged. Covered by `quic_conn_test`'s
   "handler upcalls fire during handshake" and "handler returning false
   aborts read_pkt" cases.
-- **[planned] QUIC echo server.** First end-to-end milestone. Grows the
-  upper-plugin contract beyond `quic_conn_handlers` into the per-turn
-  outbound shape (drain hook, stream-open and `writev_stream` primitives
-  on `quic_conn`, retained send buffers released on
-  `on_acked_stream_data_offset`). Replaces the obsolete
-  `on_packet_receive`-only `quic_plugin` concept. `quic_echo_plugin` is
-  the first concrete handler: opens a bidirectional stream on handshake
-  completion and echoes application bytes back. Validates packet
-  send/recv pacing, ACK handling, key updates, and graceful close.
-  Likely tested against the `ngtcp2` reference client.
+- **[done] Echo-prep scaffolding.** Four pieces that unblock the echo
+  milestone. (1) `quic_conn::writev_stream` now takes
+  `std::span<const iovec>` plus an out `uint64_t& bytes_accepted`, with
+  reinterpret-cast at the ngtcp2 boundary (`ngtcp2_vec` is iovec-compatible
+  per its docs); callers advance their own per-stream state from
+  `bytes_accepted`, and the in-place `advance_vec` helper is gone.
+  (2) `iouring::iou_dgram_session_base` lifted out of
+  `iou_dgram_session<SessionPlugin>` via single inheritance, owning the
+  loop ref, open flag, buf_size, and `borrow_send_buffer` / `send` /
+  `send_to`; one virtual (`do_send`) bridges through the typed router with
+  a typed `shared_from_this`. (3) `quic_session_io` (non-templated, in
+  `quic_session_io.h`) owns `quic_conn` and holds an
+  `iou_dgram_session_base&`; exposes `conn()`, `borrow_send_buffer()`,
+  `send_packet()`, `is_loop_thread()`. `quic_dgram_protocol::session_plugin`
+  public-inherits it; its prior `conn_` data member and `conn()` accessor
+  are gone, and the session's `drain_writes` now goes through the inherited
+  `borrow_send_buffer` / `send_packet`. (4) `quic_stream_send_queue`
+  (`quic_stream_send_queue.h`) -- per-stream owning byte queue. Move-in
+  `append(std::vector<uint8_t>&&, flags)`; sticky `pending_flags_` cleared
+  by `commit(bytes_accepted)` once offered == appended;
+  `retire_acked(datalen)` pops front chunks whose extent is fully covered;
+  `writable_iov()` rebuilds an `iovec` view over a reused scratch vector.
+  Covered by `quic_stream_send_queue_test` (8 cases).
+- **[planned] QUIC echo server.** First end-to-end milestone. Writes
+  `quic_echo_plugin`, which holds a `quic_session_io&` and one
+  `quic_stream_send_queue` per active stream. Overrides: `on_stream_open`
+  to start a queue, `on_recv_stream_data` to `append` the inbound bytes
+  for echo, `on_acked_stream_data_offset` to call `retire_acked`,
+  `drain(now)` to loop `writev_stream` over each queue. Moves the per-turn
+  outbound drive from `session_plugin::drain_writes` into `plugin.drain(now)`;
+  contract is that `drain` MUST call `writev_stream` at least once per
+  turn (any `stream_id`, including `none`) since it is the only outbound
+  path. `quic_no_op_plugin::drain` does exactly the `stream_id::none` loop
+  and serves as the base/fallback. Validates packet send/recv pacing, ACK
+  handling, key updates, graceful close. Likely tested against the
+  `ngtcp2` reference client.
 - **[planned] Connection ID rotation, path validation, migration.** Extends
   the session plugin to handle NEW_CONNECTION_ID / RETIRE_CONNECTION_ID
   exchanges, address validation tokens, and 4-tuple migration. Exercises the

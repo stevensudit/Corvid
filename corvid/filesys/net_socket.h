@@ -591,16 +591,16 @@ public:
   recv_at(std::string& data, size_t offset, msg_flags flags = {}) const {
     if (offset >= data.size()) return true;
 
-    // Unlike the raw `recv(void*, len)` / `recv(msghdr&)` overloads, this
-    // path intentionally permits a closed socket: the kernel returns -1
-    // with `EBADF` and the hard-failure branch below trims `data` and reports
+    // Unlike the raw `recv(void*, len)` / `recv(msghdr&)` overloads, this path
+    // intentionally permits a closed socket: the kernel returns -1 with
+    // `EBADF` and the hard-failure branch below trims `data` and reports
     // false. Analyzer flags handle() = -1 as invalid; that's by design here.
     //
     // `BlockInCriticalSection` is suppressed because the analyzer can't tell
-    // `weak_ptr::lock()` (atomic CAS on the control block, no critical
-    // section) from `mutex::lock()`; once it sees a `shared_from_this()`
-    // anywhere upstream it tags this `recv` as blocking-in-a-lock. We don't
-    // call `recv` while holding any actual lock.
+    // `weak_ptr::lock` (atomic CAS on the control block, no critical section)
+    // from `mutex::lock`; once it sees a `shared_from_this` anywhere upstream
+    // it tags this `recv` as blocking-in-a-lock. We don't call `recv` while
+    // holding any actual lock.
     // NOLINTBEGIN(clang-analyzer-unix.StdCLibraryFunctions,clang-analyzer-unix.BlockInCriticalSection)
     const ssize_t n =
         ::recv(handle(), data.data() + offset, data.size() - offset, *flags);

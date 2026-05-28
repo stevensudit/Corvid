@@ -885,7 +885,7 @@ TEST_CASE("Send_Client", "[WebSocket]") {
 #pragma endregion
 #pragma region FrameWrapper_HeaderAndViews
 
-// `header()`, `header_view()`, and `payload_view()` return correctly bounded
+// `header`, `header_view`, and `payload_view` return correctly bounded
 // views after `parse`.
 TEST_CASE("FrameWrapper_HeaderAndViews", "[WebSocket]") {
   const auto frame = ws_frame_lens::serialize_frame(
@@ -893,7 +893,7 @@ TEST_CASE("FrameWrapper_HeaderAndViews", "[WebSocket]") {
   ws_frame_view hdr{frame.data(), frame.size()};
   REQUIRE((hdr.is_complete() && hdr.parse()));
 
-  // `header_view` covers exactly the header bytes and begins at `header()`.
+  // `header_view` covers exactly the header bytes and begins at `header`.
   CHECK(hdr.header_view().size() == hdr.header_length());
   CHECK((hdr.header_view().data()) ==
         (reinterpret_cast<const char*>(&hdr.header())));
@@ -927,7 +927,7 @@ TEST_CASE("FrameWrapper_CopyTo", "[WebSocket]") {
 #pragma region FrameWrapper_MaskPayloadInPlace
 
 // `mask_payload` unmasks the payload bytes of a masked frame in-place,
-// exercising `mask_key()` and the mutable `variable_section()` accessor.
+// exercising `mask_key` and the mutable `variable_section` accessor.
 TEST_CASE("FrameWrapper_MaskPayloadInPlace", "[WebSocket]") {
   const std::string payload{"hello"};
   const uint32_t key = 0xDEADBEEF;
@@ -939,7 +939,7 @@ TEST_CASE("FrameWrapper_MaskPayloadInPlace", "[WebSocket]") {
   CHECK(lens.is_masked());
   CHECK(lens.mask_key() != 0U);
 
-  // The mutable `variable_section()` pointer falls right after the two fixed
+  // The mutable `variable_section` pointer falls right after the two fixed
   // header bytes.
   CHECK((reinterpret_cast<const char*>(lens.variable_section())) ==
         (frame.data() + 2));
@@ -1208,7 +1208,7 @@ TEST_CASE("DrainSendsResponse", "[WebSocketTransaction]") {
   CHECK(tx->handle_drain(send_fn) == stream_claim::claim);
   REQUIRE_FALSE(sent.empty());
 
-  // `parse()` expects the wire text without the trailing blank-line CRLF.
+  // `parse` expects the wire text without the trailing blank-line CRLF.
   response_head resp;
   REQUIRE(resp.parse(sent.substr(0, sent.size() - 2)));
   CHECK(resp.status_code == http_status_code::SWITCHING_PROTOCOLS);

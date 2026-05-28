@@ -136,7 +136,7 @@ TEST_CASE("Move", "[NetSocket]") {
 TEST_CASE("Release", "[NetSocket]") {
   if (is_codex()) return;
 
-  // `release()` yields the handle without closing it; socket becomes invalid.
+  // `release` yields the handle without closing it; socket becomes invalid.
   if (true) {
     net_socket s{address_family::inet, socket_type::stream, {}};
     const auto h = s.release();
@@ -259,7 +259,7 @@ TEST_CASE("RecvAtContract", "[NetSocket]") {
     CHECK(buf.size() == 8U);
   }
 
-  // `recv()` still clears on hard failure.
+  // `recv` still clears on hard failure.
   if (true) {
     CHECK(reader.close());
     std::string buf(8, '\0');

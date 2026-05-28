@@ -174,7 +174,7 @@ private:
 // A two-level page table: an outer `std::vector<size_type*>` of page pointers
 // (null = page not yet allocated), backed by `std::unique_ptr<size_type[]>`
 // page objects. Pages are allocated on demand and freed all at once by
-// `clear()`. O(1) lookup (two array accesses). Memory: only populated pages
+// `clear`. O(1) lookup (two array accesses). Memory: only populated pages
 // consume space (O(K_pages x PAGE_SIZE x sizeof(size_type))).
 //
 // Best for: components with moderate or variable entity counts, where neither
@@ -245,7 +245,7 @@ private:
   // `nullptr` means the page has not been allocated yet.
   std::vector<size_type*> page_dir_;
 
-  // Owning storage for each allocated page. Freed all at once by `clear()`.
+  // Owning storage for each allocated page. Freed all at once by `clear`.
   std::vector<std::unique_ptr<size_type[]>> alloc_;
 };
 

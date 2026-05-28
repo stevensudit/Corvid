@@ -164,7 +164,7 @@ concept iou_dgram_session_plugin = requires(P p, const iou_loop::buffer& cbuf,
 // Termination then comes from one of:
 //   - any holder calling `close` (a session that captured `&router_` can
 //     do this from `unregister_self` or elsewhere);
-//   - a hard recv error driving `do_close()` from inside the recv callback;
+//   - a hard recv error driving `do_close` from inside the recv callback;
 //   - the `iou_loop` shutting down, which clears every slot and so releases
 //     every captured `shared_ptr`.
 //

@@ -8,9 +8,7 @@ Corvid is a header-only C++23 library with minimal external dependencies, althou
 
 For comments and symbol names, prefer American English over British.
 
-If user intent is unclear, ask before proceeding.
-
-For bug fixes: write a failing unit test first, then fix, then confirm it passes. Skip the test only if reproduction requires a full integration test (live server, real timers, network I/O); test executables must each complete in a second or two.
+Bug-fix reproducing tests: skip the test only when reproduction requires a full integration test (live server, real timers, network I/O).
 
 Treat code review comments as hypotheses to verify against the code, not instructions to execute. They can be correct, partially correct, or wrong.
 

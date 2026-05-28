@@ -230,7 +230,7 @@ private:
   }
 
   // Customization points called by base's `do_remove_erase_if_component` and
-  // by row_wrapper's `component()` accessors.
+  // by row_wrapper's `component` accessors.
 
   template<typename C>
   [[nodiscard]] decltype(auto)

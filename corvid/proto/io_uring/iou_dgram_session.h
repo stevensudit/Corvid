@@ -34,8 +34,8 @@ namespace corvid { inline namespace proto { namespace iouring {
 // Lifted out so protocol-layer wrappers (e.g., `quic_session_io`) can hold a
 // reference to a non-templated session handle and drive I/O without taking
 // the templated session type as a parameter. `shared_from_this` lives here
-// (single inheritance below); the templated derived's typed `self()` is a
-// `static_pointer_cast` of `shared_from_this()` into its own type.
+// (single inheritance below); the templated derived's typed `self` is a
+// `static_pointer_cast` of `shared_from_this` into its own type.
 //
 // The single virtual (`do_send`) bridges to the templated derived, which
 // knows how to ship a buffer through the typed router with a typed
@@ -111,7 +111,7 @@ protected:
 // A logical conversation, owned by an `iou_dgram_router` via `shared_ptr`. The
 // session holds a reference to its router.
 //
-// (The router is intended to outlive all of its sessions; `router.close()`
+// (The router is intended to outlive all of its sessions; `router.close`
 // drains them first. It is possible for a zombie session, kept alive by an
 // outstanding `shared_ptr`, to linger after the router is gone, but it is in
 // the closed state and will never attempt to call through to the router).
@@ -119,16 +119,16 @@ protected:
 // All per-session state lives on the `SessionPlugin` instance, which the
 // session constructs in-place with `(router&, *this, user_args...)`.
 //
-// Send path: `send(buffer&&)` flows through the router and eventually
-// fires the plugin's `handle_sent` with the `buffer`'s `result()` reflecting
-// the send outcome. The `buffer` itself is available for resending, if needed.
+// Send path: `send(buffer&&)` flows through the router and eventually fires
+// the plugin's `handle_sent` with the `buffer`'s `result` reflecting the send
+// outcome. The `buffer` itself is available for resending, if needed.
 //
-// Recv path: the router calls `on_receive(buffer&&)`, which forwards into
-// the plugin's `handle_recv`.
+// Recv path: the router calls `on_receive(buffer&&)`, which forwards into the
+// plugin's `handle_recv`.
 //
 // Construction: the router plugin uses the static `make` factory, which calls
-// `make_shared`, then invokes `plugin.register_self(buf)` so the plugin
-// can register the session under one or more keys.
+// `make_shared`, then invokes `plugin.register_self(buf)` so the plugin can
+// register the session under one or more keys.
 template<typename SessionPlugin>
 class iou_dgram_session: public iou_dgram_session_base {
 public:
@@ -188,7 +188,7 @@ public:
   [[nodiscard]] router_t& router() noexcept { return router_; }
   [[nodiscard]] session_plugin_t& plugin() noexcept { return plugin_; }
 
-  // Typed view of `shared_from_this()`. The base's `enable_shared_from_this`
+  // Typed view of `shared_from_this`. The base's `enable_shared_from_this`
   // yields `shared_ptr<iou_dgram_session_base>`; the cast is safe because the
   // dynamic type of every `iou_dgram_session_base` instance constructed
   // through `make` is `iou_dgram_session<SessionPlugin>`.

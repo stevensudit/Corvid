@@ -801,7 +801,7 @@ TEST_CASE("DestroySource", "[AddressForwarder]") {
 
 #pragma endregion
 
-// Derived type with a custom move constructor that uses `as_base_move()`.
+// Derived type with a custom move constructor that uses `as_base_move`.
 struct Trackable2: public address_forwarder<Trackable2> {
   int value{};
   explicit Trackable2(int v) : value{v} {}
@@ -919,7 +919,7 @@ TEST_CASE("MoveAssign", "[FixedFunction]") {
 #pragma region FixedFunction_Destructor
 
 TEST_CASE("Destructor", "[FixedFunction]") {
-  // `Counted` does not null `count_` on move, so every `~Counted()` call
+  // `Counted` does not null `count_` on move, so every `~Counted` call
   // increments the counter regardless of moved-from state.
   struct Counted {
     int* count_;

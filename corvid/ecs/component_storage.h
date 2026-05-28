@@ -38,8 +38,8 @@ namespace corvid { inline namespace ecs { inline namespace component_storages {
 // Derives from `component_storage_base` with a policy-based reverse index
 // (`IDX`) for O(1) or O(log K) entity-to-ndx lookup. Provides:
 //   - A contiguous iterator (the underlying `components_` vector is plain
-//     `std::vector`), exposing `id()` per element.
-//   - A `row_view` with both `component<T>()` and implicit `const C&`
+//     `std::vector`), exposing `id` per element.
+//   - A `row_view` with both `component<T>` and implicit `const C&`
 //     conversion.
 //   - `erase_if` and `remove_if` for predicated bulk operations.
 //

@@ -156,9 +156,9 @@ public:
   // Destroy all entities in the registry and empty the storage.
   void clear() { do_remove_erase_all(store_id_t::invalid); }
 
-  // RAII guard for `add()`: captures `size()` on construction. If `disarm()`
-  // is not called before destruction, rolls `ids_` and derived storage back to
-  // the saved size, providing strong exception safety.
+  // RAII guard for `add`: captures `size` on construction. If `disarm` is not
+  // called before destruction, rolls `ids_` and derived storage back to the
+  // saved size, providing strong exception safety.
   struct add_guard {
     explicit add_guard(derived_t& owner) noexcept
         : owner_{&owner}, saved_size_{owner.size()} {}
@@ -485,9 +485,9 @@ public:
   archetype_storage_base(const archetype_storage_base&) = delete;
 
   // Custom move constructor: explicitly clears `other.ids_` after stealing it.
-  // Derived destructors call `clear()`, which iterates `ids_` and writes to
-  // the registry. The standard only guarantees a moved-from `std::vector` is
-  // "valid but unspecified" - not necessarily empty - so this explicit clear
+  // Derived destructors call `clear`, which iterates `ids_` and writes to the
+  // registry. The standard only guarantees a moved-from `std::vector` is
+  // "valid but unspecified", not necessarily empty, so this explicit clear
   // makes destruction safe.
   archetype_storage_base(archetype_storage_base&& other) noexcept
       : registry_{other.registry_}, store_id_{other.store_id_},
@@ -535,8 +535,8 @@ protected:
     return static_cast<const derived_t&>(*this);
   }
 
-  // Swap all base-class members with `other`. `CHILD::swap()` should call
-  // this, then swap its own component storage.
+  // Swap all base-class members with `other`. `CHILD::swap` should call this,
+  // then swap its own component storage.
   void do_swap_base(archetype_storage_base& other) noexcept {
     using std::swap;
     swap(registry_, other.registry_);
@@ -552,13 +552,13 @@ protected:
   id_vector_t ids_{};
 
   // Grant `archetype_scene_base` (and through it, `archetype_scene<>`) access
-  // to `do_drop_all()`.
+  // to `do_drop_all`.
   friend class ::corvid::ecs::archetype_scene_base;
 
 private:
   // Fast bulk-drop: clear component and ID vectors without touching the
   // registry. Only safe when the registry will be reset wholesale immediately
-  // afterward (e.g. `archetype_scene::clear()`). Called via
+  // afterward (e.g. `archetype_scene::clear`). Called via
   // `archetype_scene_base::storage_drop_all`.
   void do_drop_all() {
     ids_.clear();

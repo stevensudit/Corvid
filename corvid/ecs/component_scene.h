@@ -31,11 +31,11 @@ namespace corvid { inline namespace ecs { inline namespace component_scenes {
 
 // Non-templated base for `component_scene<>`. Befriended by
 // `component_storage_base` so that the protected `storage_drop_all` thunk can
-// reach the otherwise-private `do_drop_all()` on any storage, without making
+// reach the otherwise-private `do_drop_all` on any storage, without making
 // that method public.
 class component_scene_base {
 protected:
-  // Invoke `do_drop_all()` on storage `s`. Skips per-entity registry updates;
+  // Invoke `do_drop_all` on storage `s`. Skips per-entity registry updates;
   // safe only when the registry will be reset wholesale immediately after.
   template<typename S>
   static void storage_drop_all(S& s) {
@@ -348,7 +348,7 @@ public:
   // updates, then resets the registry wholesale. Invalidates all outstanding
   // generation counters. O(S) in the number of storages.
   //
-  // Preserve path: erases entities one by one via each storage's `clear()`,
+  // Preserve path: erases entities one by one via each storage's `clear`,
   // preserving generation counter validity. O(N) in entities.
   void clear(deallocation_policy policy = deallocation_policy::release) {
     if (policy == deallocation_policy::release) {
@@ -464,9 +464,9 @@ private:
     return mask;
   }
 
-  // Return the `entity_ids()` span of the smallest storage among those
-  // named by `Cs...`. Each selector is resolved via `storage_index_for_v`
-  // (component type first, then `tag_t` fallback).
+  // Return the `entity_ids` span of the smallest storage among those named by
+  // `Cs...`. Each selector is resolved via `storage_index_for_v` (component
+  // type first, then `tag_t` fallback).
   template<typename... Cs>
   [[nodiscard]] std::span<const id_t> find_primary_ids() const noexcept {
     using first_c = std::tuple_element_t<0, std::tuple<Cs...>>;

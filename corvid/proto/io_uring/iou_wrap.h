@@ -454,7 +454,7 @@ public:
   }
 
   // Receive from a socket using provided buffers, repeatedly. `bgid` is the
-  // buffer group ID from `iou_provided_buf_pool::bgid()`.
+  // buffer group ID from `iou_provided_buf_pool::bgid`.
   bool prep_recv_multishot(int fd, msg_flags flags, uint16_t bgid) noexcept {
     io_uring_prep_recv_multishot(sqe_, fd, nullptr, 0, *flags);
     sqe_->flags |= IOSQE_BUFFER_SELECT;
@@ -544,9 +544,9 @@ public:
   }
 
   // Receive a message from a socket using provided buffers, repeatedly. `bgid`
-  // is the buffer group ID from `iou_provided_buf_pool::bgid()`. Each
-  // provided buffer holds an `io_uring_recvmsg_out` header followed by peer
-  // address, control data, and payload.
+  // is the buffer group ID from `iou_provided_buf_pool::bgid`. Each provided
+  // buffer holds an `io_uring_recvmsg_out` header followed by peer address,
+  // control data, and payload.
   bool prep_recvmsg_multishot(int fd, msghdr* msgh, msg_flags flags,
       uint16_t bgid) noexcept {
     io_uring_prep_recvmsg_multishot(sqe_, fd, msgh, *flags);
@@ -795,10 +795,10 @@ public:
         io_uring_wait_cqe_timeout(&ring_, cqe.pointer(), ts.pointer())};
   }
 
-  // Loop over available CQEs, calling `fn` on each, up to `limit` CQEs .
+  // Loop over available CQEs, calling `fn` on each, up to `limit` CQEs.
   // Advances the CQ head by the number of CQEs processed. Must be called on
-  // the loop thread after a call to `wait_cqe_timeout()` that returned at
-  // least one CQE. Returns the number of CQEs processed.
+  // the loop thread after a call to `wait_cqe_timeout` that returned at least
+  // one CQE. Returns the number of CQEs processed.
   [[nodiscard]] size_t for_each_cqe(auto&& fn, size_t limit = max_size) {
     size_t count{};
     iou_cqe::ptr_t cqe;
@@ -832,17 +832,17 @@ public:
     return sqe_available() >= s;
   }
 
-  // Get the next SQE to fill, or null if the SQ is full. The caller must
-  // later call `submit()`.
+  // Get the next SQE to fill, or null if the SQ is full. The caller must later
+  // call `submit`.
   iou_sqe next_sqe() noexcept { return iou_sqe{io_uring_get_sqe(&ring_)}; }
 
-  // Submit filled SQEs to the kernel. Returns an `iou_res` with the number
-  // of SQEs submitted, or an error. An `ok(n)` on the result is a good idea.
+  // Submit filled SQEs to the kernel. Returns an `iou_res` with the number of
+  // SQEs submitted, or an error. An `ok(n)` on the result is a good idea.
   iou_res submit() noexcept { return iou_res{io_uring_submit(&ring_)}; }
 
   // Submit filled SQEs and wait for at least one CQE, with an optional
-  // timeout. Combines `submit()` and `wait_cqe_timeout()` into one syscall,
-  // which also flushes deferred task work (required by `setup_defer_taskrun`).
+  // timeout. Combines `submit` and `wait_cqe_timeout` into one syscall, which
+  // also flushes deferred task work (required by `setup_defer_taskrun`).
   [[nodiscard]] iou_res submit_and_wait_timeout(
       iou_timespec ts = {}) noexcept {
     iou_cqe cqe; // Peeked but not returned.

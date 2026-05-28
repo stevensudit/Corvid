@@ -140,7 +140,7 @@ constexpr pos_range npos_range{npos, npos};
 enum class npos_choice : std::uint8_t { npos, size };
 } // namespace literals
 
-// Utility to convert `npos` to `size()`, based on `npos_choice`.
+// Utility to convert `npos` to `size`, based on `npos_choice`.
 template<npos_choice npv = npos_choice::npos>
 [[nodiscard]] constexpr position
 as_npos(const std::string_view& s, position pos = npos) noexcept {
@@ -161,7 +161,7 @@ as_nloc(const std::string_view& s, const auto& values, position pos = npos,
   return {pos, pos_value};
 }
 
-// Utility to convert `size()` to `npos`, based on `npos_choice`.
+// Utility to convert `size` to `npos`, based on `npos_choice`.
 template<npos_choice npv = npos_choice::npos>
 [[nodiscard]] constexpr position
 from_npos(const std::string_view& s, position pos) noexcept {

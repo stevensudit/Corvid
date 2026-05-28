@@ -28,6 +28,7 @@
 #include "../io_uring/iou_dgram_session.h"
 #include "quic_conn.h"
 #include "quic_header.h"
+#include "quic_session_io.h"
 #include "quic_ssl_ctx.h"
 
 // `iou_dgram_router_plugin`/`iou_dgram_session_plugin` pair that demuxes UDP
@@ -166,8 +167,8 @@ public:
   // Per-connection state: owns the `quic_conn` (ngtcp2 + per-conn SSL), routes
   // incoming datagrams through `quic_conn::read_pkt`, drives
   // `quic_conn::write_pkt` through the router's UDP socket, and arms one
-  // expiry-sweeper entry against `iou_loop::timeouts()` to drive
-  // loss-detection / PTO / handshake timers.
+  // expiry-sweeper entry against `iou_loop::timeouts` to drive loss-detection
+  // / PTO / handshake timers.
   //
   // Server-side sessions register under two CIDs:
   //   * the client's original DCID (the routing key for the Initial packet
@@ -184,7 +185,7 @@ public:
   // Additional CIDs issued by ngtcp2 through `get_new_connection_id2` are not
   // yet registered with the router: that is the next-next milestone (CID
   // rotation / migration).
-  class session_plugin {
+  class session_plugin: public quic_session_io {
   public:
     using router_t = iouring::iou_dgram_router<router_plugin>;
     using session_t = iouring::iou_dgram_session<session_plugin>;
@@ -192,17 +193,19 @@ public:
 
 #pragma region Construction
   public:
-    // Server-side construction. Constructs a thin `quic_conn` in the server
-    // role bound to `server_tls`; the underlying `ngtcp2_conn` is allocated by
-    // `register_self(buf)` once the wire header has been parsed for the CIDs
-    // and peer endpoint. Reached via `iou_dgram_session::make(router, buf,
-    // tls)` from `router_plugin::create_session`.
+    // Server-side construction. Constructs a thin `quic_conn` (owned by the
+    // `quic_session_io` base) in the server role bound to `server_tls`; the
+    // underlying `ngtcp2_conn` is allocated by `register_self(buf)` once the
+    // wire header has been parsed for the CIDs and peer endpoint. Reached
+    // via `iou_dgram_session::make(router, buf, tls)` from
+    // `router_plugin::create_session`.
     session_plugin(router_t& router, session_t& session,
         quic_ssl_ctx& server_tls) noexcept
-        : router_{router}, session_{session},
+        : quic_session_io{session, server_tls}, router_{router},
+          session_{session},
           scid_{make_random_cid(quic_dgram_protocol::cid_length)},
-          conn_{server_tls}, plugin_{*this} {
-      conn_.set_handlers(&plugin_);
+          plugin_{*this} {
+      conn().set_handlers(&plugin_);
     }
 
     // Client-side construction. Constructs a thin `quic_conn` in the client
@@ -213,10 +216,11 @@ public:
     // `make_client` factory below.
     session_plugin(router_t& router, session_t& session,
         quic_ssl_ctx& client_tls, const net_endpoint& peer) noexcept
-        : router_{router}, session_{session}, peer_{peer},
+        : quic_session_io{session, client_tls}, router_{router},
+          session_{session}, peer_{peer},
           scid_{make_random_cid(quic_dgram_protocol::cid_length)},
-          conn_{client_tls}, plugin_{*this} {
-      conn_.set_handlers(&plugin_);
+          plugin_{*this} {
+      conn().set_handlers(&plugin_);
     }
 
     // Static factory for client-side construction.
@@ -257,7 +261,7 @@ public:
     bool register_self(const buffer& buf) {
       if (!buf) return true;
       assert(router_.loop().is_loop_thread());
-      assert(conn_.role() == connection_role::server);
+      assert(conn().role() == connection_role::server);
       const quic_version_cid vc{buf.payload_bytes(),
           quic_dgram_protocol::cid_length};
       if (!vc || !vc.is_long_header()) return false;
@@ -269,7 +273,7 @@ public:
     bool unregister_self() {
       const bool ok1 = router_.remove_session(scid_);
       bool ok2 = true;
-      if (conn_.role() == connection_role::server)
+      if (conn().role() == connection_role::server)
         ok2 = router_.remove_session(original_dcid_);
       return ok1 && ok2;
     }
@@ -284,7 +288,7 @@ public:
     bool handle_recv(buffer&& buf) {
       assert(router_.loop().is_loop_thread());
       const auto now = timeouts::now();
-      const auto rv = conn_.read_pkt(buf.payload_bytes(), now);
+      const auto rv = conn().read_pkt(buf.payload_bytes(), now);
       if (rv != quic_decode_status::ok) return false;
       // `drain` lets the plugin queue outbound stream bytes (via
       // `quic_conn::writev_stream`) before `drain_writes` packs them into UDP
@@ -316,7 +320,6 @@ public:
 
     [[nodiscard]] router_t& router() noexcept { return router_; }
     [[nodiscard]] session_t& session() noexcept { return session_; }
-    [[nodiscard]] quic_conn& conn() noexcept { return conn_; }
     [[nodiscard]] quic_plugin_t& protocol_plugin() noexcept { return plugin_; }
 
     // The server's freshly-generated SCID, used as the primary CID for routing
@@ -328,7 +331,7 @@ public:
 #pragma endregion
 #pragma region Expiry
 
-    // Sweeper-callback entry point. Invoked by `iou_loop::timeouts()` when the
+    // Sweeper-callback entry point. Invoked by `iou_loop::timeouts` when the
     // registered deadline elapses. Stale entries (left over from a deadline
     // that was superseded by an earlier rearm) detect themselves via
     // `fired_expire != registered_expiry_` and drop.
@@ -336,14 +339,14 @@ public:
         time_point_t fired_expire) noexcept {
       if (fired_expire != registered_expiry_) return {};
       const auto now = timeouts::now();
-      const auto target = conn_.expiry();
+      const auto target = conn().expiry();
       if (target > now) {
         registered_expiry_ = target;
         return target;
       }
-      (void)conn_.handle_expiry(now);
+      (void)conn().handle_expiry(now);
       drain_writes(now);
-      const auto next = conn_.expiry();
+      const auto next = conn().expiry();
       registered_expiry_ = next;
       return next;
     }
@@ -358,7 +361,7 @@ public:
     bool do_register_server(const key_t& peer_scid) {
       assert(router_.loop().is_loop_thread());
       const auto now = timeouts::now();
-      if (!conn_.init(peer_scid, scid_, router_.local_endpoint(), peer_,
+      if (!conn().init(peer_scid, scid_, router_.local_endpoint(), peer_,
               original_dcid_, now))
         return false;
       const bool ok1 = router_.add_session(original_dcid_, session_.self());
@@ -377,7 +380,7 @@ public:
       const key_t initial_dcid =
           make_random_cid(quic_dgram_protocol::cid_length);
       const auto now = timeouts::now();
-      if (!conn_.init(initial_dcid, scid_, router_.local_endpoint(), peer_,
+      if (!conn().init(initial_dcid, scid_, router_.local_endpoint(), peer_,
               key_t{}, now))
         return false;
       const bool ok = router_.add_session(scid_, session_.self());
@@ -393,13 +396,12 @@ public:
     // every `write_pkt` in a single turn sees the same clock reading.
     void drain_writes(time_point_t now) {
       for (;;) {
-        auto out = session_.borrow_send_buffer();
+        auto out = borrow_send_buffer();
         if (!out) return;
-        const auto status = conn_.write_pkt(out, now);
+        const auto status = conn().write_pkt(out, now);
         if (status != quic_decode_status::ok) return;
         if (out.payload_bytes().empty()) return;
-        out.peer_addr() = conn_.peer();
-        (void)session_.send(std::move(out));
+        (void)send_packet(std::move(out));
       }
     }
 
@@ -410,7 +412,7 @@ public:
     // target is the same as the already-registered one (the common case across
     // consecutive packets in a flight) avoids pointless heap churn.
     void arm_expiry() {
-      const auto target = conn_.expiry();
+      const auto target = conn().expiry();
       if (target == registered_expiry_) return;
       registered_expiry_ = target;
       if (target == time_point_t::max()) return;
@@ -442,7 +444,6 @@ public:
     net_endpoint peer_;
     key_t original_dcid_;
     key_t scid_;
-    quic_conn conn_;
     quic_plugin_t plugin_;
     time_point_t registered_expiry_;
 

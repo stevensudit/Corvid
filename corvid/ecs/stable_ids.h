@@ -204,10 +204,10 @@ public:
   // Set a new ID limit. Returns true on success, false if the limit would
   // invalidate live IDs (i.e., if `new_limit <= find_max_extant_id()`).
   //
-  // If the new limit is lower than `max_id()` but higher than
-  // `find_max_extant_id()`, this calls `shrink_to_fit()` to reclaim freed
-  // slots that would exceed the new limit. This prevents reusing IDs that
-  // were previously allocated but are now beyond the new limit.
+  // If the new limit is lower than `max_id` but higher than
+  // `find_max_extant_id`, this calls `shrink_to_fit` to reclaim freed slots
+  // that would exceed the new limit. This prevents reusing IDs that were
+  // previously allocated but are now beyond the new limit.
   //
   // After setting a new id limit, consider calling `reserve` with
   // `prefill=true` to pre-allocate slots up to the new limit.

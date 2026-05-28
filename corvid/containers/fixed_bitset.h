@@ -668,7 +668,7 @@ public:
 
   // Iteration. All const.
 
-  // Iterator to the first set bit, or `end()` if none are set.
+  // Iterator to the first set bit, or `end` if none are set.
   [[nodiscard]] constexpr iterator begin() const noexcept {
     return iterator{*this};
   }

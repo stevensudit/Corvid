@@ -409,9 +409,9 @@ constexpr file_handle_t invalid_file_handle = -1;
 // RAII wrapper around an OS file descriptor or handle.
 //
 // `os_file` owns a single file and closes it on destruction.
-// It is movable and non-copyable. `control()` wraps `fcntl`; `get_flags()`,
-// `set_flags()`, and `set_nonblocking()` are named helpers for common
-// fd-level operations.
+// It is movable and non-copyable. `control` wraps `fcntl`; `get_flags`,
+// `set_flags`, and `set_nonblocking` are named helpers for common fd-level
+// operations.
 //
 // Platform-specific code is isolated in a guarded section.
 class [[nodiscard]] os_file {

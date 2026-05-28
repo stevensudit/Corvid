@@ -94,7 +94,7 @@ private:
 //
 // Cross-thread dispatch is provided by `owner_thread_dispatcher`: `post`,
 // `execute_or_post`, `post_and_wait`, and `is_loop_thread` come from the base
-// class. The base owns the wakeup `event_fd` (exposed as `wake_fd()`), which
+// class. The base owns the wakeup `event_fd` (exposed as `wake_fd`), which
 // `epoll_loop` registers with `epoll` so that posts interrupt a sleeping
 // `epoll_wait`. Posted callbacks run at the top of the next `run_once`. The
 // expected pattern is that I/O callbacks fire on the loop thread and handle

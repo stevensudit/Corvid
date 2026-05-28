@@ -123,7 +123,7 @@ struct EntityDefinition {
   int menuOrder{};         // Display order within the category.
   std::string category;    // Top-level menu category (e.g., "area", "laser").
   std::string flavorText;  // Description of its capabilities.
-  // `max()` means "not for sale" (all invaders default to this).
+  // `max` means "not for sale" (all invaders default to this).
   uint32_t resourceCost{std::numeric_limits<uint32_t>::max()};
   WorldScene::megatuple_t megatuple; // Component template.
 };
@@ -251,8 +251,8 @@ public:
   }
 
   // Run all physics and game logic for the current tick, without advancing the
-  // counter. To advance the counter, call `tick()` after streaming the state
-  // to clients.
+  // counter. To advance the counter, call `tick` after streaming the state to
+  // clients.
   [[nodiscard]] bool next() {
     (void)evaluatePendingUiIntents();
     if (phase_ == GamePhase::build || phase_ == GamePhase::wave)
@@ -306,7 +306,7 @@ public:
   }
 
   // Advance the tick counter and return the new value. Call this at the end
-  // of each frame, after `next()` and streaming.
+  // of each frame, after `next` and streaming.
   [[nodiscard]] WorldTick tick() { return world_.tick(); }
 
   // Return the current tick counter without advancing it.
@@ -785,7 +785,7 @@ private:
 };
 
 // Parse a single map JSON file into `out`. The caller is responsible for
-// calling `registerEntityDefs()` and `registerPaths()` afterward.
+// calling `registerEntityDefs` and `registerPaths` afterward.
 // NOLINTBEGIN(readability-function-cognitive-complexity)
 [[nodiscard]] inline bool
 SimGame::loadMapFromJson(const std::filesystem::path& file, MapDesign& out) {
@@ -877,7 +877,7 @@ SimGame::loadMapFromJson(const std::filesystem::path& file, MapDesign& out) {
       opt_str(eo, "category", def.category);
       opt_str(eo, "flavorText", def.flavorText);
       if (const auto v = eo.get_number<int>("menuOrder")) def.menuOrder = *v;
-      // Absent `resourceCost` leaves the default `max()` = not for sale.
+      // Absent `resourceCost` leaves the default `max` = not for sale.
       if (const auto v = eo.get_number<uint32_t>("resourceCost"))
         def.resourceCost = *v;
 

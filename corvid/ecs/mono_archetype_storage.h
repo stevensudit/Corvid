@@ -38,7 +38,7 @@ inline namespace mono_archetype_storages {
 //
 // Derives from `archetype_storage_base` with a single-element tuple. Provides
 // a contiguous iterator (the underlying `components_` vector is a plain
-// `std::vector`), a `row_view` with both `component<T>()` and implicit
+// `std::vector`), a `row_view` with both `component<T>` and implicit
 // `const component_t&` conversion, and a component-first `erase_if`.
 //
 // Template parameters:
@@ -187,7 +187,7 @@ public:
     return cnt;
   }
 
-  // Read-only view of a single entity's row. Provides a `component<T>()`
+  // Read-only view of a single entity's row. Provides a `component<T>`
   // accessor uniform with archetype storages (only valid for `T ==
   // component_t`), plus an implicit conversion to `const component_t&` for
   // backward compatibility.
@@ -252,7 +252,7 @@ public:
   }
 
   // Contiguous iterator over components. Dereferencing yields a `component_t`
-  // reference; `id()` returns the entity ID at the current position.
+  // reference; `id` returns the entity ID at the current position.
   template<access ACCESS>
   class iterator_t {
   public:
@@ -378,8 +378,8 @@ private:
     components_.push_back(std::forward<Args>(args)...);
   }
 
-  // Access the component by type (called by `row_wrapper::component<C>()`
-  // and `erase_if_component<C>()`).
+  // Access the component by type (called by `row_wrapper::component<C>` and
+  // `erase_if_component<C>`).
   template<typename T>
   [[nodiscard]] decltype(auto)
   do_get_component(this auto& self, size_type ndx) noexcept {

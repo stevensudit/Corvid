@@ -339,10 +339,9 @@ public:
 #pragma region Masking
 
   // Copy `src` to `dst`, applying the mask key from the header. Uses `memcpy`
-  // when it's effectively zero. Works correctly even if `dst` is `src.data()`
-  // for in-place masking. `dst` must point to a buffer of at least
-  // `src.size()` bytes. This operation is suitable for both masking and
-  // unmasking
+  // when it's effectively zero. Works correctly even if `dst` is `src.data`
+  // for in-place masking. `dst` must point to a buffer of at least `src.size`
+  // bytes. This operation is suitable for both masking and unmasking
   [[nodiscard]] bool
   mask_payload_copy(char* dst, std::string_view src) noexcept {
     auto* p = reinterpret_cast<uint8_t*>(dst);

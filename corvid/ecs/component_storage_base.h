@@ -192,11 +192,11 @@ public:
     return owner.release();
   }
 
-  // RAII guard for `add()`: captures `size()` on construction. If `disarm()`
-  // is not called before destruction, rolls `ids_` and the derived storage
-  // back to the saved size, providing strong exception safety. The
-  // `reverse_index_` is NOT rolled back; any stale entry is harmless because
-  // the bitmap bit is never set on the failure path.
+  // RAII guard for `add`: captures `size` on construction. If `disarm` is not
+  // called before destruction, rolls `ids_` and the derived storage back to
+  // the saved size, providing strong exception safety. The `reverse_index_` is
+  // NOT rolled back; any stale entry is harmless because the bitmap bit is
+  // never set on the failure path.
   struct add_guard {
     explicit add_guard(derived_t& owner) noexcept
         : owner_{&owner}, saved_size_{owner.size()} {}
@@ -230,7 +230,7 @@ private:
   component_storage_base() noexcept = default;
 
   // Move constructor: explicitly clears `other.ids_` after stealing, so
-  // derived destructors calling `clear()` do not iterate stale IDs.
+  // derived destructors calling `clear` do not iterate stale IDs.
   component_storage_base(component_storage_base&& other) noexcept
       : registry_{other.registry_}, store_id_{other.store_id_},
         limit_{other.limit_}, ids_{std::move(other.ids_)},
@@ -288,13 +288,13 @@ protected:
   index_t reverse_index_{};
 
   // Grant `component_scene_base` (and through it, `component_scene<>`) access
-  // to `do_drop_all()`.
+  // to `do_drop_all`.
   friend class ::corvid::ecs::component_scene_base;
 
 private:
   // Fast bulk-drop: clear component and ID vectors without touching the
   // registry. Only safe when the registry will be reset wholesale immediately
-  // afterward (e.g. `component_scene::clear()`). Called via
+  // afterward (e.g. `component_scene::clear`). Called via
   // `component_scene_base::storage_drop_all`.
   void do_drop_all() {
     ids_.clear();

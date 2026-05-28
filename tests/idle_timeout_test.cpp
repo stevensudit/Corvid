@@ -41,8 +41,8 @@ namespace {
 
 // Minimal owner: holds one `idle_timeout` and records every invocation of the
 // cancel action. Tests drive the clock through the inherited `timeouts`
-// machinery: `set_now_fn()` (with no argument) installs `fake_now_cb`, so
-// `now()` reads `timeouts::fake_now`.
+// machinery: `set_now_fn` (with no argument) installs `fake_now_cb`, so `now`
+// reads `timeouts::fake_now`.
 struct test_owner: std::enable_shared_from_this<test_owner> {
   int idle_count{0};
   idle_timeout<test_owner> idle;

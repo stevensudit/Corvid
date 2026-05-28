@@ -165,7 +165,7 @@ concept PostedInvocable =
 // force single-threading of ring access.
 using posted_fn = fixed_function<default_fixed_function::capacity, bool()>;
 
-// Callback for entries registered with the loop's `timeouts()` sweeper.
+// Callback for entries registered with the loop's `timeouts` sweeper.
 // Sized for the typical idle-timeout capture: one `std::weak_ptr` on top of
 // the `fixed_function` invoke/manage overhead.
 using expiration_fn =
@@ -1800,8 +1800,8 @@ public:
     }
     if (!loop || !loop->wait_until_running(1000ms)) {
       // Drop our local ref before stopping the worker so the worker's local
-      // in `run()` is the last owner and `~loop_t` fires on the worker
-      // thread (required by `owner_thread_dispatcher`).
+      // in `run` is the last owner and `~loop_t` fires on the worker thread
+      // (required by `owner_thread_dispatcher`).
       loop.reset();
       thread_.request_stop();
       if (thread_.joinable()) thread_.join();
@@ -1892,27 +1892,26 @@ private:
         loop->run();
       }
 
-      // Drop the local loop ref so `~loop_t` happens on this thread
-      // rather than on whichever thread later destroys `runner_state`.
-      // The `owner_thread_dispatcher` base requires destruction on the
-      // owning thread.
+      // Drop the local loop ref so `~loop_t` happens on this thread rather
+      // than on whichever thread later destroys `runner_state`. The
+      // `owner_thread_dispatcher` base requires destruction on the owning
+      // thread.
       //
       // Order:
-      //   1. Drop the local `loop` so `state->loop` should be the sole
-      //      owner. (Unlike `epoll_loop`, no separate shutdown step is
-      //      needed: `iou_stream_conn` holds a bare `iou_loop&` rather
-      //      than a `shared_ptr`, so there are no ownership cycles
-      //      from connections to break.)
-      //   2. Belt-and-suspenders: confirm no external `shared_ptr`
-      //      still holds the loop alive (e.g., a copy taken from
-      //      `loop()`). `use_count` is approximate (the standard
-      //      explicitly calls it "immediately stale" in MT contexts),
-      //      but adequate as a misuse detector. Retry briefly to
-      //      absorb in-flight releases. If it never settles, call
-      //      `std::terminate` rather than let `~loop_t` fire on a
-      //      non-owner thread (which would itself throw from inside a
-      //      destructor). `std::terminate` is used instead of `throw`
-      //      so the catch handler below cannot swallow it.
+      //   1. Drop the local `loop` so `state->loop` should be the sole owner.
+      //      (Unlike `epoll_loop`, no separate shutdown step is needed:
+      //      `iou_stream_conn` holds a bare `iou_loop&` rather than a
+      //      `shared_ptr`, so there are no ownership cycles from connections
+      //      to break.)
+      //   2. Belt-and-suspenders: confirm no external `shared_ptr` still holds
+      //      the loop alive (e.g., a copy taken from `loop`). `use_count` is
+      //      approximate (the standard explicitly calls it "immediately stale"
+      //      in MT contexts), but adequate as a misuse detector. Retry briefly
+      //      to absorb in-flight releases. If it never settles, call
+      //      `std::terminate` rather than let `~loop_t` fire on a non-owner
+      //      thread (which would itself throw from inside a destructor).
+      //      `std::terminate` is used instead of `throw` so the catch handler
+      //      below cannot swallow it.
       //   3. Drop `state->loop`, triggering `~loop_t` on this thread.
       loop.reset();
 

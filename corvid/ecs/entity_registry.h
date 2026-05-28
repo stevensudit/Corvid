@@ -679,7 +679,7 @@ public:
     }
 
     // Create a new entity and take ownership of it (archetype mode). Check
-    // `operator bool` or `id()` afterward to detect allocation failure.
+    // `operator bool` or `id` afterward to detect allocation failure.
     //
     // Prefer calling `create_owner` instead.
     handle_owner(entity_registry& reg, location_t location,
@@ -688,7 +688,7 @@ public:
         : registry_{&reg}, handle_{reg.create_handle(location, metadata)} {}
 
     // Create a new entity and take ownership of it (component mode). Check
-    // `operator bool` or `id()` afterward to detect allocation failure.
+    // `operator bool` or `id` afterward to detect allocation failure.
     //
     // Prefer calling `create_owner` instead.
     handle_owner(entity_registry& reg, const metadata_t& metadata = {})

@@ -48,15 +48,15 @@ namespace corvid { inline namespace proto {
 // Stores the endpoint in a `sockaddr_storage`, using `ss_family` as the tag.
 // Default-constructs to an empty state.
 //
-// Constructors do not throw: on failure, they leave the endpoint `empty()`.
+// Constructors do not throw: on failure, they leave the endpoint `empty`.
 //
 // IP construction: from an `ipv4_addr` or `ipv6_addr` plus a port, or by
 // parsing text in "1.2.3.4:80" (IPv4) or "[2001:db8::1]:80" (IPv6) notation,
-// where the port is mandatory but may be 0. Named factories `any_v4()` and
-// `any_v6()` produce wildcard bind addresses. You can also use `dns_resolver`.
+// where the port is mandatory but may be 0. Named factories `any_v4` and
+// `any_v6` produce wildcard bind addresses. You can also use `dns_resolver`.
 //
-// UDS construction: from a path beginning with '/'. Afterwards, `uds_path()`
-// retrieves the path; `to_string()` formats it as "unix:<path>". Note: UDS
+// UDS construction: from a path beginning with '/'. Afterwards, `uds_path`
+// retrieves the path; `to_string` formats it as "unix:<path>". Note: UDS
 // sockets are also called Pathname Sockets, as they are defined by a file
 // path.
 //
@@ -80,11 +80,10 @@ namespace corvid { inline namespace proto {
 // directory structure, and even embedded zeros are significant. They can be
 // discovered by parsing "/proc/net/unix".
 //
-// An ANS is a UDS, so `is_uds()` returns true for it, as does the
-// more-specific `is_ans()`. For an ANS, `uds_path()` skips the leading
-// '\0' and returns the full 107-byte remainder, including trailing zeros;
-// `to_string()` formats it as "unix:@<name>", which does truncate at the first
-// zero (after the '@').
+// An ANS is a UDS, so `is_uds` returns true for it, as does the more-specific
+// `is_ans`. For an ANS, `uds_path` skips the leading '\0' and returns the full
+// 107-byte remainder, including trailing zeros; `to_string` formats it as
+// "unix:@<name>", which does truncate at the first zero (after the '@').
 //
 // Interop with `sockaddr_in`, `sockaddr_in6`, `sockaddr_un`, and
 // `sockaddr_storage` is provided.
@@ -233,7 +232,7 @@ public:
     return is_uds() && as_uds().sun_path[0] == '\0';
   }
 
-  // Return the port number. For UDS/ANS (or `empty()`), returns 0.
+  // Return the port number. For UDS/ANS (or `empty`), returns 0.
   [[nodiscard]] constexpr uint16_t port() const noexcept {
     if (is_v4()) return ntoh16(as_v4().sin_port);
     if (is_v6()) return ntoh16(as_v6().sin6_port);

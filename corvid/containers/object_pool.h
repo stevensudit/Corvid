@@ -48,9 +48,9 @@ concept IsNoOpCb = std::is_same_v<no_op_cb, std::remove_cvref_t<FN>>;
 
 // Thread-safe fixed-capacity object pool with LIFO slot reuse.
 //
-// Callers borrow slots via `borrow()`, which returns a moveable RAII
-// `borrowed` handle. When the `borrowed` is destroyed (or `reset()`), the slot
-// returns to the free list.
+// Callers borrow slots via `borrow`, which returns a moveable RAII `borrowed`
+// handle. When the `borrowed` is destroyed (or `reset`), the slot returns to
+// the free list.
 //
 // Optional callbacks, both with signature `void cb(T&)`:
 //   `BorrowCb` -- called on each borrow.
@@ -61,8 +61,8 @@ concept IsNoOpCb = std::is_same_v<no_op_cb, std::remove_cvref_t<FN>>;
 //
 // Note, however, that the whole point of an object pool is to reuse objects,
 // so you should free up things like locks, but not buffers. For a pool of
-// `std::string`, for example, you could call `clear()` in the `ReturnCb`,
-// since it doesn't deallocate.
+// `std::string`, for example, you could call `clear` in the `ReturnCb`, since
+// it doesn't deallocate.
 //
 // Optimizations:
 // There's an obvious potential for false sharing, particularly among the
@@ -257,7 +257,7 @@ public:
     // empty if the slot is already borrowed or if the generation doesn't match
     // (stale token).
     //
-    // This is akin to `std::weak_ptr::lock()`, except that it can only succeed
+    // This is akin to `std::weak_ptr::lock`, except that it can only succeed
     // if the slot is not currently borrowed, and it returns a `borrowed`
     // handle that has ownership semantics.
     //
@@ -377,10 +377,9 @@ public:
     return std::exchange(h.item_, nullptr);
   }
 
-  // Reattach item to a new handle. Useful after `detach()`. Returns empty if
-  // the item is not from this pool, which "should never happen", so check
-  // the results. Nulls out the input.
-  // NOLINTBEGIN(performance-move-const-arg)
+  // Reattach item to a new handle. Useful after `detach`. Returns empty if the
+  // item is not from this pool, which "should never happen", so check the
+  // results. Nulls out the input. NOLINTBEGIN(performance-move-const-arg)
   [[nodiscard]] borrowed reattach(T*&& item) noexcept {
     if (!is_in_pool(item)) return {};
     if constexpr (is_versioned_v) {

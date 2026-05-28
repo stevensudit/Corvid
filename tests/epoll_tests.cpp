@@ -163,7 +163,7 @@ TEST_CASE("Move", "[Epoll]") {
 #pragma region Release
 
 TEST_CASE("Release", "[Epoll]") {
-  // `release()` yields the handle without closing it; epoll becomes invalid.
+  // `release` yields the handle without closing it; epoll becomes invalid.
   if (true) {
     epoll p{epoll::default_flags};
     const auto h = p.release();
@@ -305,7 +305,7 @@ TEST_CASE("Move", "[EventFd]") {
 #pragma region EventFd_Release
 
 TEST_CASE("Release", "[EventFd]") {
-  // `release()` yields the handle without closing it; eventfd becomes invalid.
+  // `release` yields the handle without closing it; eventfd becomes invalid.
   if (true) {
     event_fd e{0};
     const auto h = e.release();

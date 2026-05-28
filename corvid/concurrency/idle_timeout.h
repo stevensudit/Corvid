@@ -40,8 +40,8 @@ namespace corvid { inline namespace concurrency {
 // keepalive is built lazily on the first `set_mode` transition that requires
 // scheduling (`mode::stopped` -> `mode::running` or `mode::stopped` ->
 // `mode::paused`). By then the owner's `shared_ptr` is established and
-// `shared_from_this()` works. `idle_timeout` can therefore be a value member
-// of the owner and constructed in the owner's member-init list.
+// `shared_from_this` works. `idle_timeout` can therefore be a value member of
+// the owner and constructed in the owner's member-init list.
 //
 // The `postpone` method is fully thread-safe. Past that, individual loads and
 // stores are atomic, but there is no serialization of concurrent mutators. To

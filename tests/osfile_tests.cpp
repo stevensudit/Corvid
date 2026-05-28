@@ -129,7 +129,7 @@ TEST_CASE("Move", "[OsFile]") {
 #pragma region ReleaseFlags
 
 TEST_CASE("ReleaseFlags", "[OsFile]") {
-  // `release()` yields the handle without closing it; file becomes invalid.
+  // `release` yields the handle without closing it; file becomes invalid.
   if (true) {
     auto [reader, writer] = make_nb_pipe();
     const auto h = reader.release();

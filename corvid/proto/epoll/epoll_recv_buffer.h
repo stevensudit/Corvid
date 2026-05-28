@@ -116,7 +116,7 @@ struct epoll_recv_buffer {
   // The effective resize size is determined as follows:
   //   - If `target` exceeds the current capacity: grow to `target`.
   //   - If `target == 0` and the buffer has bloated beyond 2x `min_capacity`
-  //     (e.g., after a one-off large `expand_to()`): shrink back to
+  //     (e.g., after a one-off large `expand_to`): shrink back to
   //     `min_capacity`, but only when all active data fits.
   //   - If `target == 0` and the buffer is below `min_capacity` (e.g.,
   //     `set_recv_buf_size` raised the target): grow to `min_capacity`.

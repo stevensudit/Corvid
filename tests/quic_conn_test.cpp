@@ -227,11 +227,10 @@ TEST_CASE("quic_conn handshake completes in-process", "[quic][conn]") {
   std::array<std::byte, 1500> backing{};
 
   // Drive each side's `write_pkt` until it has nothing more to emit,
-  // delivering each emitted packet straight to the peer's `read_pkt`.
-  // Returns false if either call reports a status other than `ok`. The
-  // synthetic buffer is re-created each iteration so its payload starts
-  // empty and the post-call `payload_bytes()` is exactly the produced
-  // packet.
+  // delivering each emitted packet straight to the peer's `read_pkt`. Returns
+  // false if either call reports a status other than `ok`. The synthetic
+  // buffer is re-created each iteration so its payload starts empty and the
+  // post-call `payload_bytes` is exactly the produced packet.
   auto pump = [&backing](quic_conn& from, quic_conn& to) -> bool {
     for (int safety = 0; safety < 32; ++safety) {
       auto buf = iouring::iou_buffer::make_synthetic_write(
@@ -258,8 +257,8 @@ TEST_CASE("quic_conn handshake completes in-process", "[quic][conn]") {
   CHECK(server_trace.saw("handshake_completed"));
 }
 TEST_CASE("quic_conn handler upcalls fire during handshake", "[quic][conn]") {
-  // Same setup as the handshake test, but with a `trace_handlers` attached
-  // to each side. After the handshake completes we expect at least the
+  // Same setup as the handshake test, but with a `trace_handlers` attached to
+  // each side. After the handshake completes we expect at least the
   // handshake-progression upcalls (`on_handshake_completed`,
   // `on_app_tx_ready`, `on_handshake_confirmed`) to have fired on both
   // ends. We do not pin to an exact order: ordering between the events

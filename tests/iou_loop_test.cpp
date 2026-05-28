@@ -279,7 +279,7 @@ TEST_CASE("RecvWriteFixed", "[IouLoop]") {
 TEST_CASE("SendBuffer", "[IouLoop]") {
   // `submit_send_buffer` uses `IORING_OP_SEND_ZC` over connected UDP sockets
   // on loopback. ZC send requires IP sockets; Unix domain sockets return
-  // `EOPNOTSUPP`. A sync `connect()` on the send socket sets the peer so the
+  // `EOPNOTSUPP`. A sync `connect` on the send socket sets the peer so the
   // kernel knows the destination without a `sendmsg` address.
   //
   // The send callback may fire twice when ZC is active: once for the send
@@ -343,7 +343,7 @@ TEST_CASE("SendBuffer", "[IouLoop]") {
 
 #pragma region IsLoopThread
 TEST_CASE("IsLoopThread", "[IouLoop]") {
-  // `is_loop_thread()` returns false on the test thread and true inside a
+  // `is_loop_thread` returns false on the test thread and true inside a
   // callback executing on the loop thread.
   if (true) {
     iou_loop_runner loop;
@@ -749,7 +749,7 @@ TEST_CASE("SlotRetentionRetain", "[IouLoop]") {
 
 #pragma region TimespecDurationRoundTrip
 TEST_CASE("TimespecDurationRoundTrip", "[IouWrap]") {
-  // Construct from durations and verify `as_duration()` recovers the original.
+  // Construct from durations and verify `as_duration` recovers the original.
   if (true) {
     iou_timespec invalid;
     CHECK(invalid.as_duration<std::chrono::nanoseconds>().count() < 0);
@@ -773,7 +773,7 @@ TEST_CASE("TimespecDurationRoundTrip", "[IouWrap]") {
 
 #pragma region TimespecTimePointRoundTrip
 TEST_CASE("TimespecTimePointRoundTrip", "[IouWrap]") {
-  // Construct from a `steady_clock` time_point and verify `as_time_point()`
+  // Construct from a `steady_clock` time_point and verify `as_time_point`
   // recovers the exact same value.
   using clk = std::chrono::steady_clock;
   using dur = clk::duration;
@@ -857,7 +857,7 @@ TEST_CASE("ItimerspecConstruct", "[IouWrap]") {
 
 #pragma region ResStatus
 TEST_CASE("ResStatus", "[IouWrap]") {
-  // `ok()`, `bool`, and `!` reflect the sign of the raw result.
+  // `ok`, `bool`, and `!` reflect the sign of the raw result.
   if (true) {
     iou_res r{0};
     CHECK(r.ok());

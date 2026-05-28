@@ -288,7 +288,7 @@ public:
 
   // Pop values from back.
   //
-  // Only valid when `!empty()` and `size() >= len`.
+  // Only valid when `!empty() && size() >= len`.
   constexpr void pop_back(size_type len = 1) noexcept {
     assert(!empty() && size() >= len);
     e() -= as_u(len);
@@ -296,7 +296,7 @@ public:
 
   // Pop values from front.
   //
-  // Only valid when `!empty()` and `size() >= len`.
+  // Only valid when `!empty() && size() >= len`.
   constexpr void pop_front(size_type len = 1) noexcept {
     assert(!empty() && size() >= len);
     b() += as_u(len);
