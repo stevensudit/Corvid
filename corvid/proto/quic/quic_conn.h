@@ -33,7 +33,7 @@
 #include "../net_endpoint.h"
 #include "../../enums/bool_enums.h"
 #include "../../concurrency/timeouts.h"
-#include "../../meta/try_or_log.h"
+#include "../../infra/exception_wrappers.h"
 #include "../io_uring/iou_buffer.h"
 
 #include "quic_header.h"
@@ -137,7 +137,7 @@ struct quic_close_request {
 // Noexcept policy: the trampolines in `quic_conn` are the firewall, not
 // these virtuals. The trampolines are themselves `noexcept` (forced by
 // the C ABI) and wrap each upcall in `quic_conn::try_callback`, which
-// runs the call through `meta::try_or_log` and converts the result to
+// runs the call through `infra::try_or_log` and converts the result to
 // ngtcp2's int status. That means the virtuals here are intentionally
 // NOT `noexcept`: overrides are free to throw on allocation failure or
 // library errors, and a thrown exception will be caught at the

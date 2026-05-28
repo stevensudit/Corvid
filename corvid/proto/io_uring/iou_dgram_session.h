@@ -20,7 +20,7 @@
 #include <string_view>
 #include <utility>
 
-#include "../../meta/try_or_log.h"
+#include "../../infra/exception_wrappers.h"
 #include "iou_dgram_router.h"
 
 namespace corvid { inline namespace proto { namespace iouring {

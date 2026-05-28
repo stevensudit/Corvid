@@ -85,6 +85,11 @@ enum class fcntl_ops : int {
 };
 
 // `E_*` wrapper for `errno` values.
+//
+// Note that, although this is much like `std::errc`, it has additional values
+// that are found in Linux but not in the C++ standard library, and it's safe
+// to register as a sequence enum.
+//
 // NOLINTNEXTLINE(performance-enum-size)
 enum class errno_code : int {
   ok = 0,

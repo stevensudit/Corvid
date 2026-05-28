@@ -20,7 +20,7 @@
 #include <string_view>
 #include <utility>
 
-namespace corvid { inline namespace meta {
+namespace corvid { inline namespace infra {
 
 #pragma region try_or_log
 
@@ -72,4 +72,4 @@ template<std::invocable F, typename T = bool>
 
 #pragma endregion
 
-}} // namespace corvid::meta
+}} // namespace corvid::infra
