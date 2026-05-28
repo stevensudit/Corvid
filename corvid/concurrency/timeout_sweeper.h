@@ -62,7 +62,7 @@ namespace corvid { inline namespace concurrency {
 //   using sweeper_t = timeout_sweeper<>;
 //   // Initial registration. Set a real deadline, register, then mark as
 //   // paused so the first real read activity will trigger a rearm.
-//   conn->read_expiration_ = sweeper_t::now() + conn->read_timeout_;
+//   conn->read_expiration_ = infra::steady_clock::now() + conn->read_timeout_;
 //   sweeper.schedule(conn->read_expiration_,
 //       [weak_conn = std::weak_ptr{conn}](sweeper_t::time_point_t expire)
 //           -> sweeper_t::time_point_t {
@@ -72,7 +72,7 @@ namespace corvid { inline namespace concurrency {
 //         if (current == expire) { conn->close(); return {}; }
 //         // Only needed in callback when timer can be logically paused.
 //         if (current == sweeper_t::paused_expiration)
-//           current = sweeper_t::now() + conn->read_timeout_;
+//           current = infra::steady_clock::now() + conn->read_timeout_;
 //         return current;
 //       });
 //   // Logically pause. It will rearm every read_timeout_, without ever
@@ -88,11 +88,14 @@ namespace corvid { inline namespace concurrency {
 //   using my_sweeper = timeout_sweeper<fixed_function<32,
 //       std::chrono::steady_clock::time_point(
 //           std::chrono::steady_clock::time_point)>>;
-template<typename CB =
-             std::function<timeouts::time_point_t(timeouts::time_point_t)>>
+template<typename CB = std::function<infra::steady_clock::time_point_t(
+             infra::steady_clock::time_point_t)>>
 class timeout_sweeper: public timeouts {
 #pragma region Types
 public:
+  using time_point_t = infra::steady_clock::time_point_t;
+  using duration_t = infra::steady_clock::duration_t;
+
   using callback_t = CB;
 
   static_assert(

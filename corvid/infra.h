@@ -15,5 +15,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 #pragma once
+#include "infra/clocks.h"
 #include "infra/exception_wrappers.h"
 #include "infra/log.h"

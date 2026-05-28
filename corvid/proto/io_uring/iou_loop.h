@@ -168,8 +168,8 @@ using posted_fn = fixed_function<default_fixed_function::capacity, bool()>;
 // Callback for entries registered with the loop's `timeouts` sweeper.
 // Sized for the typical idle-timeout capture: one `std::weak_ptr` on top of
 // the `fixed_function` invoke/manage overhead.
-using expiration_fn =
-    fixed_function<32, timeouts::time_point_t(timeouts::time_point_t)>;
+using expiration_fn = fixed_function<32,
+    infra::steady_clock::time_point_t(infra::steady_clock::time_point_t)>;
 
 #pragma endregion
 #pragma region iou_loop
@@ -442,7 +442,7 @@ public:
     });
 
     // Sweep expired timeouts.
-    timeout_sweeper_.tick(timeouts::now());
+    timeout_sweeper_.tick(infra::steady_clock::now());
 
     (void)total;
     return dispatched;

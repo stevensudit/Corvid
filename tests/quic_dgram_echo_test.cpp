@@ -105,7 +105,7 @@ struct echo_client_plugin: quic_no_op_plugin {
     return true;
   }
 
-  [[nodiscard]] bool drain(timeouts::time_point_t now) {
+  [[nodiscard]] bool drain(infra::steady_clock::time_point_t now) {
     for (;;) {
       quic_stream_id sid = quic_stream_id::none;
       std::span<const iovec> iov;
@@ -224,7 +224,7 @@ TEST_CASE(
     if (sid == quic_stream_id::none) return false;
     // Nudge the outbound drain so the first packet ships without waiting
     // for an unrelated inbound to trigger handle_recv.
-    return client_plugin.drain(timeouts::now());
+    return client_plugin.drain(infra::steady_clock::now());
   }));
   REQUIRE(sid != quic_stream_id::none);
 

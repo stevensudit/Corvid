@@ -59,9 +59,13 @@ else()
     # Use Clang 22 and avoid pulling in GCC.
     set(CMAKE_CXX_COMPILER "/usr/bin/clang++-22")
     set(CMAKE_CXX_COMPILER_TARGET "x86_64-pc-linux-gnu")
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O3 -march=native -Wall -Wextra -Werror -nostdinc++ -isystem ${LIBCXX_PREFIX}/include/c++/v1 -std=c++23")
+    # `-fexperimental-library` unlocks libc++'s tzdb / utc_clock / zoned_time
+    # headers (gated behind `_LIBCPP_HAS_EXPERIMENTAL_TZDB`); the matching
+    # runtime lives in libc++experimental, which must come before libc++ in
+    # the link order because it references symbols from libc++.
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O3 -march=native -Wall -Wextra -Werror -nostdinc++ -isystem ${LIBCXX_PREFIX}/include/c++/v1 -std=c++23 -fexperimental-library")
     set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -stdlib=libc++ --rtlib=compiler-rt -fuse-ld=lld")
-    set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -L${LIBCXX_PREFIX}/lib -lc++ -lc++abi")
+    set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -L${LIBCXX_PREFIX}/lib -lc++experimental -lc++ -lc++abi")
     # Embed an rpath so binaries find libc++/libunwind .so files at the chosen
     # prefix without requiring LD_LIBRARY_PATH. Harmless for the system path,
     # essential for SANITIZER=msan where LIBCXX_PREFIX is outside ld.so config.

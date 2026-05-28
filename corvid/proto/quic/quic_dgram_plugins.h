@@ -107,7 +107,7 @@ public:
 #pragma region Types
 
   using buffer = iouring::iou_loop::buffer;
-  using time_point_t = timeouts::time_point_t;
+  using time_point_t = infra::steady_clock::time_point_t;
   using quic_plugin_t = QuicPlugin;
 
   static constexpr size_t cid_length = quic_version_cid::default_scid_length;
@@ -311,7 +311,7 @@ public:
     // Returning `false` closes the session.
     bool handle_recv(buffer&& buf) {
       assert(router_.loop().is_loop_thread());
-      const auto now = timeouts::now();
+      const auto now = infra::steady_clock::now();
       const auto rv = conn().read_pkt(buf.payload_bytes(), now);
       if (rv != quic_decode_status::ok) return is_soft_error(rv);
       (void)plugin_.drain(now);
@@ -359,7 +359,7 @@ public:
     [[nodiscard]] time_point_t on_expiry_sweep(
         time_point_t fired_expire) noexcept {
       if (fired_expire != registered_expiry_) return {};
-      const auto now = timeouts::now();
+      const auto now = infra::steady_clock::now();
       const auto target = conn().expiry();
       if (target > now) {
         registered_expiry_ = target;
@@ -381,7 +381,7 @@ public:
     // plugin, and arm the handshake-expiry timer.
     bool do_register_server(const key_t& peer_scid) {
       assert(router_.loop().is_loop_thread());
-      const auto now = timeouts::now();
+      const auto now = infra::steady_clock::now();
       if (!conn().init(peer_scid, scid_, router_.local_endpoint(), peer_,
               original_dcid_, now))
         return false;
@@ -400,7 +400,7 @@ public:
       assert(router_.loop().is_loop_thread());
       const key_t initial_dcid =
           make_random_cid(quic_dgram_protocol::cid_length);
-      const auto now = timeouts::now();
+      const auto now = infra::steady_clock::now();
       if (!conn().init(initial_dcid, scid_, router_.local_endpoint(), peer_,
               key_t{}, now))
         return false;

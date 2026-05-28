@@ -51,6 +51,9 @@ template<typename Owner, typename Sweeper = timeout_sweeper<>>
 class idle_timeout: public timeouts {
 #pragma region Types
 public:
+  using time_point_t = infra::steady_clock::time_point_t;
+  using duration_t = infra::steady_clock::duration_t;
+
   using owner_t = Owner;
   using sweeper_t = Sweeper;
   using callback_t = Sweeper::callback_t;
@@ -91,19 +94,19 @@ public:
   // Active timeout. Non-zero iff currently `mode::running`.
   [[nodiscard]] duration_t active_timeout() const noexcept { return active_; }
 
-  // Current deadline. When `mode::running`, this time was set to `now() +
-  // active_timeout()` and used to schedule the next sweep. When
-  // `mode::paused`, this is at or past the sentinel value
+  // Current deadline. When `mode::running`, this time was set to
+  // `infra::steady_clock::now() + active_timeout()` and used to schedule the
+  // next sweep. When `mode::paused`, this is at or past the sentinel value
   // (`paused_expiration`) that signals the clipping behavior, so that the next
-  // sweep is scheduled for `now() + configured_timeout()` but will not
-  // trigger an expiration. When `mode::stopped`, this will be a value in the
-  // past.
+  // sweep is scheduled for `infra::steady_clock::now() + configured_timeout()`
+  // but will not trigger an expiration. When `mode::stopped`, this will be a
+  // value in the past.
   [[nodiscard]] time_point_t deadline() const noexcept { return deadline_; }
 
   // Current mode.
   [[nodiscard]] mode get_mode() const noexcept {
     if (*deadline_ >= paused_expiration) return mode::paused;
-    if (*deadline_ <= now()) return mode::stopped;
+    if (*deadline_ <= infra::steady_clock::now()) return mode::stopped;
     return mode::running;
   }
 
@@ -127,7 +130,7 @@ public:
   void postpone() noexcept {
     const auto active_snapshot = *active_;
     if (active_snapshot == duration_t{}) return;
-    deadline_ = now() + active_snapshot;
+    deadline_ = infra::steady_clock::now() + active_snapshot;
   }
 
   // Stop the timeout and cancel any pending entry. Idempotent. Safe to call in
@@ -143,7 +146,7 @@ public:
   // does is postpone once. Fails if `configured_timeout` is zero or it can't
   // schedule.
   [[nodiscard]] bool start() {
-    const auto now_time = now();
+    const auto now_time = infra::steady_clock::now();
     const auto was_stopped = (*deadline_ <= now_time);
     const auto configured_snapshot = *configured_;
     if (configured_snapshot == duration_t{}) return false;
@@ -159,13 +162,13 @@ public:
   // Pause the timeout. If already paused, does nothing.
   //
   // In pause mode, the deadline is parked at the sentinel value, and the
-  // sweeper callback clips it back to `now() + configured_timeout()` on each
-  // fire without ever invoking the `on_idle` expiration callback. Also,
-  // `postpone` becomes a no-op.
+  // sweeper callback clips it back to `infra::steady_clock::now() +
+  // configured_timeout()` on each fire without ever invoking the `on_idle`
+  // expiration callback. Also, `postpone` becomes a no-op.
   //
   // Fails if `configured_timeout` is zero or it can't schedule.
   [[nodiscard]] bool pause() {
-    const auto now_time = now();
+    const auto now_time = infra::steady_clock::now();
     const auto was_stopped = (*deadline_ <= now_time);
     const auto configured_snapshot = *configured_;
     if (configured_snapshot == duration_t{}) return false;
@@ -247,7 +250,7 @@ private:
         return {{}, false};
       }
       // Clip back to a near-future fire so we keep checking periodically.
-      return {now() + *configured_, false};
+      return {infra::steady_clock::now() + *configured_, false};
     }
     // `mode::running` and deadline reached: nobody restarted between the
     // schedule and now. Fire the cancelation action and drop the entry.
