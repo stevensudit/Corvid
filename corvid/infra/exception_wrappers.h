@@ -17,10 +17,47 @@
 #pragma once
 #include <concepts>
 #include <exception>
-#include <string_view>
+#include <typeinfo>
 #include <utility>
 
+#include "log.h"
+
 namespace corvid { inline namespace infra {
+
+#pragma region Details
+
+namespace details {
+
+// Log an exception via `log::error`. If the rich path throws (e.g.
+// `bad_alloc` inside `std::format`), fall back to a minimal raw line written
+// directly to the singleton's stream, using only `operator<<` on builtin
+// types so it doesn't itself reach for the allocator.
+//
+// `noexcept` keeps this safe to call from a noexcept frame; the fallback can
+// only throw if the caller has enabled exceptions on the stream, which is not
+// the default.
+inline void
+do_log_exception(const format_with_loc<const char*, const char*>& msg,
+    const char* type_name, const char* what) noexcept {
+  try {
+    log::error(msg, type_name, what);
+  }
+  catch (...) {
+    try {
+      log::singleton().stream()
+          << "[error " << msg.loc.file_name() << ':' << msg.loc.line()
+          << "] exception during logging\n";
+    }
+    // NOLINTNEXTLINE(bugprone-empty-catch)
+    catch (...) {
+      // Give up; nothing we can do.
+    }
+  }
+}
+
+} // namespace details
+
+#pragma endregion
 
 #pragma region try_or_log
 
@@ -30,43 +67,43 @@ namespace corvid { inline namespace infra {
 // needs to recover from `std::bad_alloc` (or similar) by reporting failure to
 // its caller instead of terminating the process.
 //
-// `on_throw` defaults to `false`, so the common bool-returning case ("session
-// healthy?" / "callback succeeded?") works with no second argument. For other
-// return types, pass a matching `on_throw` value: e.g., `try_or_log([&]{
-// return when(); }, time_point_t{})` for a timer callback that wants to
-// unschedule on throw.
+// On throw, logs at `error` via the `log` singleton using `msg` as the format
+// string with two arguments: the exception's type name (from
+// `typeid(e).name()`, ABI-mangled on most platforms) and its `what()` text.
+// Non-`std::exception` throws log placeholder strings, since extracting the
+// type without a typed reference would require platform sniffing (e.g.
+// `abi::__cxa_demangle`).
 //
-// The lambda's return type and `on_throw`'s type must agree (or be unifiable);
-// the function's return type is deduced from both. Logical-false and
-// exceptional failure map to the same outer return when `on_throw` matches the
-// "failure" sentinel, which is usually what we want at a firewall.
+// `on_throw` defaults to `false` so the common bool-returning case works with
+// no extra argument. For other return types, pass a matching value: e.g.,
+// `try_or_log([&]{ return when(); }, time_point_t{})` for a timer callback
+// that wants to unschedule on throw. The lambda's return type and
+// `on_throw`'s type must agree (or be unifiable); the outer return type is
+// deduced from both.
 //
-// On exception, a `reason` view is captured (`what()` for `std::exception`, a
-// placeholder literal otherwise) and currently discarded. The two-arm shape
-// matches the production pattern: the typed handler is preferred and yields a
-// readable message; the catch-all is the fallback for non-std throws, where a
-// useful message would require platform-specific sniffing (e.g., demangling
-// the active exception's type via `abi::__cxa_demangle`).
+// `msg` defaults to "exception {}: {}", capturing the caller's
+// `source_location` so the emitted log line points to the `try_or_log` site.
+// Override the format string for context-specific text; the two `{}` slots
+// are filled with the type name and `what()` text, respectively.
 //
-// `reason` is held as a `string_view`, not a `string`, so the recovery path
-// itself cannot trigger a second `bad_alloc` and terminate via this function's
-// own `noexcept`. When real logging is wired in, the logger must consume
-// `reason` within this scope; `e.what()`'s lifetime ends with the catch frame.
+// Logging itself is routed through `details::do_log_exception`, which keeps
+// the outer `noexcept` contract by swallowing any throw from the formatter
+// and falling back to a minimal raw line written directly to the stream.
 //
-// TODO: route `reason` to a logging facility once Corvid has one.
+// TODO: Use https://github.com/jeremy-rifkin/cpptrace for richer traces.
 template<std::invocable F, typename T = bool>
-[[nodiscard]] auto try_or_log(F&& fn, T on_throw = false) noexcept {
-  std::string_view reason;
+[[nodiscard]] auto try_or_log(F&& fn, T on_throw = false,
+    format_with_loc<const char*, const char*> msg =
+        "exception {}: {}") noexcept {
   try {
     return std::forward<F>(fn)();
   }
   catch (const std::exception& e) {
-    reason = e.what();
+    details::do_log_exception(msg, typeid(e).name(), e.what());
   }
   catch (...) {
-    reason = "unknown exception";
+    details::do_log_exception(msg, "<unknown>", "unknown exception");
   }
-  (void)reason;
   return on_throw;
 }
 

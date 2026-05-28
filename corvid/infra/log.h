@@ -111,43 +111,45 @@ public:
 #pragma region Emit
 
   template<typename... Args>
-  void
-  trace(format_with_loc<std::type_identity_t<Args>...> msg, Args&&... args) {
-    emit(log_level::trace, msg, std::forward<Args>(args)...);
+  void trace(const format_with_loc<std::type_identity_t<Args>...>& msg,
+      Args... args) {
+    emit(log_level::trace, msg, args...);
   }
 
   template<typename... Args>
-  void
-  debug(format_with_loc<std::type_identity_t<Args>...> msg, Args&&... args) {
-    emit(log_level::debug, msg, std::forward<Args>(args)...);
+  void debug(const format_with_loc<std::type_identity_t<Args>...>& msg,
+      Args... args) {
+    emit(log_level::debug, msg, args...);
   }
 
   template<typename... Args>
-  void
-  info(format_with_loc<std::type_identity_t<Args>...> msg, Args&&... args) {
-    emit(log_level::info, msg, std::forward<Args>(args)...);
+  void info(const format_with_loc<std::type_identity_t<Args>...>& msg,
+      Args... args) {
+    emit(log_level::info, msg, args...);
   }
 
   template<typename... Args>
-  void
-  warn(format_with_loc<std::type_identity_t<Args>...> msg, Args&&... args) {
-    emit(log_level::warn, msg, std::forward<Args>(args)...);
+  void warn(const format_with_loc<std::type_identity_t<Args>...>& msg,
+      Args... args) {
+    emit(log_level::warn, msg, args...);
   }
 
   template<typename... Args>
-  void
-  error(format_with_loc<std::type_identity_t<Args>...> msg, Args&&... args) {
-    emit(log_level::error, msg, std::forward<Args>(args)...);
+  void error(const format_with_loc<std::type_identity_t<Args>...>& msg,
+      Args... args) {
+    emit(log_level::error, msg, args...);
   }
 
 #pragma endregion
 #pragma region Helpers
 private:
   template<typename... Args>
-  void
-  emit(log_level lv, const format_with_loc<Args...>& msg, Args&&... args) {
+  void emit(log_level lv, const format_with_loc<Args...>& msg, Args... args) {
     if (!enabled(lv)) return;
-    auto body = std::format(msg.fmt, std::forward<Args>(args)...);
+    // `args` are lvalues in this body; `std::format`'s `Args&&` would deduce
+    // them as `T&` and reject `msg.fmt` (typed without refs). Cast to xvalue
+    // so deduction collapses to the value type.
+    auto body = std::format(msg.fmt, std::move(args)...);
     write_line(lv, msg.loc, body);
   }
 
@@ -188,33 +190,33 @@ public:
 #pragma region Emit
 
   template<typename... Args>
-  static void
-  trace(format_with_loc<std::type_identity_t<Args>...> msg, Args&&... args) {
-    singleton().trace(msg, std::forward<Args>(args)...);
+  static void trace(const format_with_loc<std::type_identity_t<Args>...>& msg,
+      Args... args) {
+    singleton().trace(msg, args...);
   }
 
   template<typename... Args>
-  static void
-  debug(format_with_loc<std::type_identity_t<Args>...> msg, Args&&... args) {
-    singleton().debug(msg, std::forward<Args>(args)...);
+  static void debug(const format_with_loc<std::type_identity_t<Args>...>& msg,
+      Args... args) {
+    singleton().debug(msg, args...);
   }
 
   template<typename... Args>
-  static void
-  info(format_with_loc<std::type_identity_t<Args>...> msg, Args&&... args) {
-    singleton().info(msg, std::forward<Args>(args)...);
+  static void info(const format_with_loc<std::type_identity_t<Args>...>& msg,
+      Args... args) {
+    singleton().info(msg, args...);
   }
 
   template<typename... Args>
-  static void
-  warn(format_with_loc<std::type_identity_t<Args>...> msg, Args&&... args) {
-    singleton().warn(msg, std::forward<Args>(args)...);
+  static void warn(const format_with_loc<std::type_identity_t<Args>...>& msg,
+      Args... args) {
+    singleton().warn(msg, args...);
   }
 
   template<typename... Args>
-  static void
-  error(format_with_loc<std::type_identity_t<Args>...> msg, Args&&... args) {
-    singleton().error(msg, std::forward<Args>(args)...);
+  static void error(const format_with_loc<std::type_identity_t<Args>...>& msg,
+      Args... args) {
+    singleton().error(msg, args...);
   }
 
 #pragma endregion
