@@ -49,30 +49,49 @@ namespace corvid { inline namespace proto { namespace quic {
 #pragma region no_op_plugin
 
 // Upper-layer plugin contract (duck-typed, enforced by the session template):
-//   * Constructor accepting `session_plugin&` (so the plugin captures the
+//   * Constructor accepting `quic_session_io&` (so the plugin captures the
 //     session ref and reaches the router / `quic_conn` through it).
+//     `session_plugin` inherits `quic_session_io` publicly and binds to the
+//     base reference at construction.
 //
 //   * Inherits `quic_conn_handlers` so the session can install it as the
 //     `quic_conn`'s upcall target via `set_handlers`.
 //
 //   * `bool drain(time_point_t now) noexcept` - per-turn hook fired after
-//     every successful `quic_conn::read_pkt`, on the loop thread, before
-//     the session emits outbound packets. The bytes from the incoming
-//     datagram are *not* passed in: by the time this hook fires,
-//     `read_pkt` has already decrypted them and dispatched them through
-//     `quic_conn_handlers` upcalls. Stream data is the plugin's chance
-//     to call `quic_conn::writev_stream` to push queued bytes into
-//     ngtcp2, which the session's `drain_writes` then packs into UDP
-//     packets via `write_pkt`.
+//     every successful `quic_conn::read_pkt`, on the loop thread. This is
+//     the ONLY outbound path: drain MUST loop `writev_stream` over its
+//     per-stream queues and/or `stream_id::none` until ngtcp2 reports
+//     nothing more to send, shipping each non-empty packet through
+//     `quic_session_io::send_packet`. The bytes from the incoming datagram
+//     are *not* passed in: by the time this hook fires, `read_pkt` has
+//     already decrypted them and dispatched them through
+//     `quic_conn_handlers` upcalls. `quic_no_op_plugin::drain` is the
+//     base/fallback that emits non-stream frames (ACKs, MAX_DATA, etc.)
+//     via the `stream_id::none` form.
 class quic_no_op_plugin: public quic_conn_handlers {
 public:
-  template<typename Session>
-  explicit quic_no_op_plugin(Session&) noexcept {}
+  explicit quic_no_op_plugin(quic_session_io& s) noexcept : io_{s} {}
 
-  bool drain(timeouts::time_point_t /*now*/) noexcept {
-    (void)this;
-    return true;
+  // Drive ngtcp2's outbound queue until it stops producing. ngtcp2's pacing
+  // dictates one packet per call; we ship each packet on its own borrowed
+  // buffer. `stream_id::none` means "emit whatever non-stream frames are
+  // queued"; concrete plugins override this with a per-stream drive and may
+  // end with a `stream_id::none` flush to pick up any remaining ACKs.
+  bool drain(time_point_t now) noexcept {
+    for (;;) {
+      auto out = io_.borrow_send_buffer();
+      if (!out) return true;
+      uint64_t accepted = 0;
+      const auto status = io_.conn().writev_stream(quic_stream_id::none, {},
+          out, accepted, write_stream_flags::none, now);
+      if (status != quic_decode_status::ok) return false;
+      if (out.payload_bytes().empty()) return true;
+      (void)io_.send_packet(std::move(out));
+    }
   }
+
+protected:
+  quic_session_io& io_;
 };
 
 #pragma endregion
@@ -281,21 +300,19 @@ public:
 #pragma endregion
 #pragma region I/O
 
-    // Feed the datagram into ngtcp2, let the upper plugin react, then drain
-    // anything ngtcp2 wants to send. `now` is snapped once at the top of the
-    // turn and threaded through every callee so every operation sees the same
-    // wall-clock view.
+    // Feed the datagram into ngtcp2, let the upper plugin drive outbound, then
+    // re-arm expiry. `now` is snapped once at the top of the turn and threaded
+    // through every callee so every operation sees the same wall-clock view.
+    // `plugin_.drain` is the only outbound path: stream data and other
+    // higher-layer events already reached the plugin during `read_pkt` through
+    // the `quic_conn_handlers` upcalls; the plugin then loops `writev_stream`
+    // until ngtcp2 reports nothing more to send.
     bool handle_recv(buffer&& buf) {
       assert(router_.loop().is_loop_thread());
       const auto now = timeouts::now();
       const auto rv = conn().read_pkt(buf.payload_bytes(), now);
       if (rv != quic_decode_status::ok) return false;
-      // `drain` lets the plugin queue outbound stream bytes (via
-      // `quic_conn::writev_stream`) before `drain_writes` packs them into UDP
-      // packets. Stream data and other higher-layer events already reached the
-      // plugin during `read_pkt` through the `quic_conn_handlers` upcalls.
       (void)plugin_.drain(now);
-      drain_writes(now);
       arm_expiry();
       return true;
     }
@@ -345,7 +362,7 @@ public:
         return target;
       }
       (void)conn().handle_expiry(now);
-      drain_writes(now);
+      (void)plugin_.drain(now);
       const auto next = conn().expiry();
       registered_expiry_ = next;
       return next;
@@ -356,8 +373,8 @@ public:
   private:
     // Loop-thread half of server-side registration: allocate the `ngtcp2_conn`
     // against the parsed peer SCID, register under both the original DCID and
-    // the server's own SCID, drive any initial ngtcp2 output, and arm the
-    // handshake-expiry timer.
+    // the server's own SCID, drive any initial ngtcp2 output through the
+    // plugin, and arm the handshake-expiry timer.
     bool do_register_server(const key_t& peer_scid) {
       assert(router_.loop().is_loop_thread());
       const auto now = timeouts::now();
@@ -366,15 +383,15 @@ public:
         return false;
       const bool ok1 = router_.add_session(original_dcid_, session_.self());
       const bool ok2 = router_.add_session(scid_, session_.self());
-      drain_writes(now);
+      (void)plugin_.drain(now);
       arm_expiry();
       return ok1 && ok2;
     }
 
     // Loop-thread half of client-side registration: pick a random Initial DCID
     // (which we put on the wire but never receive back), allocate the
-    // `ngtcp2_conn`, register under our SCID, push the Initial through
-    // `drain_writes`, and arm the handshake-expiry timer.
+    // `ngtcp2_conn`, register under our SCID, push the Initial through the
+    // plugin's drain, and arm the handshake-expiry timer.
     bool do_register_client() {
       assert(router_.loop().is_loop_thread());
       const key_t initial_dcid =
@@ -384,25 +401,9 @@ public:
               key_t{}, now))
         return false;
       const bool ok = router_.add_session(scid_, session_.self());
-      drain_writes(now);
+      (void)plugin_.drain(now);
       arm_expiry();
       return ok;
-    }
-
-    // Drain ngtcp2's outbound queue. ngtcp2's pacing dictates one packet per
-    // `write_pkt` call; we loop until it reports nothing more to send (an
-    // empty post-call payload) or an error. Each packet rides its own borrowed
-    // buffer through the router socket. `now` is supplied by the caller so
-    // every `write_pkt` in a single turn sees the same clock reading.
-    void drain_writes(time_point_t now) {
-      for (;;) {
-        auto out = borrow_send_buffer();
-        if (!out) return;
-        const auto status = conn().write_pkt(out, now);
-        if (status != quic_decode_status::ok) return;
-        if (out.payload_bytes().empty()) return;
-        (void)send_packet(std::move(out));
-      }
     }
 
     // Schedule (or reschedule) the expiry-sweeper entry. The sweeper has no

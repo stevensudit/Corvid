@@ -270,15 +270,13 @@ TEST_CASE(
 // Test-local upper-layer plugin that latches an atomic when ngtcp2's
 // `on_handshake_completed` upcall fires. Both server and client sides of
 // `quic_dgram_protocol<handshake_signal_plugin>` use it; the test only
-// inspects the client's flag.
+// inspects the client's flag. Inherits `quic_no_op_plugin` so the base
+// `drain` drives outbound non-stream frames; this layer adds only the
+// completion latch.
 namespace {
-struct handshake_signal_plugin: quic_conn_handlers {
-  template<typename Session>
-  explicit handshake_signal_plugin(Session&) noexcept {}
-  bool drain(timeouts::time_point_t /*now*/) noexcept {
-    (void)this;
-    return true;
-  }
+struct handshake_signal_plugin: quic_no_op_plugin {
+  explicit handshake_signal_plugin(quic_session_io& s) noexcept
+      : quic_no_op_plugin{s} {}
   bool on_handshake_completed() noexcept override {
     completed.store(true, std::memory_order::release);
     return true;

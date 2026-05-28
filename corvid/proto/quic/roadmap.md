@@ -288,19 +288,31 @@ needs it, or if we want a watchdog beneath ngtcp2's own timers.
   `retire_acked(datalen)` pops front chunks whose extent is fully covered;
   `writable_iov()` rebuilds an `iovec` view over a reused scratch vector.
   Covered by `quic_stream_send_queue_test` (8 cases).
-- **[planned] QUIC echo server.** First end-to-end milestone. Writes
-  `quic_echo_plugin`, which holds a `quic_session_io&` and one
-  `quic_stream_send_queue` per active stream. Overrides: `on_stream_open`
-  to start a queue, `on_recv_stream_data` to `append` the inbound bytes
-  for echo, `on_acked_stream_data_offset` to call `retire_acked`,
-  `drain(now)` to loop `writev_stream` over each queue. Moves the per-turn
-  outbound drive from `session_plugin::drain_writes` into `plugin.drain(now)`;
-  contract is that `drain` MUST call `writev_stream` at least once per
-  turn (any `stream_id`, including `none`) since it is the only outbound
-  path. `quic_no_op_plugin::drain` does exactly the `stream_id::none` loop
-  and serves as the base/fallback. Validates packet send/recv pacing, ACK
-  handling, key updates, graceful close. Likely tested against the
-  `ngtcp2` reference client.
+- **[done] QUIC echo server.** First end-to-end milestone.
+  `quic_echo_plugin` (in `quic_echo_plugin.h`) inherits `quic_no_op_plugin`
+  and holds one `quic_stream_send_queue` per active stream, keyed by
+  `quic_stream_id`. Overrides `on_stream_open` to allocate a queue,
+  `on_recv_stream_data` to `append` inbound bytes (with any sticky `fin`
+  translated to `write_stream_flags::fin`), `on_acked_stream_data_offset`
+  to `retire_acked`, `on_stream_close` to drop the queue, and `drain(now)`
+  as a unified loop that picks any stream-with-work or falls back to
+  `stream_id::none` for non-stream frames (ACKs, MAX_DATA), shipping each
+  non-empty packet through `quic_session_io::send_packet`.
+  `session_plugin::drain_writes` is gone; the four sites that used to call
+  it (`handle_recv`, `on_expiry_sweep`, `do_register_server`,
+  `do_register_client`) now call `plugin_.drain(now)`. The contract is
+  that `drain` MUST call `writev_stream` at least once per turn (any
+  `stream_id`, including `none`) since it is the only outbound path.
+  `quic_no_op_plugin::drain` does exactly the `stream_id::none` loop and
+  serves as the base/fallback. `quic_conn::init` now sets v1 working
+  transport-param defaults (64 bidi streams, 3 uni, 1 MB conn-level and
+  256 KB per-stream flow-control windows) so peers can actually open
+  streams; before, the ngtcp2 all-zero defaults forbade them.
+  `tests/quic_dgram_echo_test.cpp` drives a full handshake + bidi stream
+  + echo + FIN-mirror through two routers on the same
+  `iou_loop_runner`. Tested against `ngtcp2`'s reference client is
+  deferred to the next milestone where path/migration coverage gives a
+  reason to wire up an external client.
 - **[planned] Connection ID rotation, path validation, migration.** Extends
   the session plugin to handle NEW_CONNECTION_ID / RETIRE_CONNECTION_ID
   exchanges, address validation tokens, and 4-tuple migration. Exercises the

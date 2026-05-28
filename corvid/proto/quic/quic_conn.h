@@ -137,6 +137,8 @@ struct quic_close_request {
 // need.
 class quic_conn_handlers {
 public:
+  using time_point_t = timeouts::time_point_t;
+
   quic_conn_handlers() = default;
   quic_conn_handlers(const quic_conn_handlers&) = delete;
   quic_conn_handlers& operator=(const quic_conn_handlers&) = delete;
@@ -415,6 +417,21 @@ public:
 
     ngtcp2_transport_params params;
     ngtcp2_transport_params_default(&params);
+    // ngtcp2's defaults are all-zero, which would forbid the peer from opening
+    // any streams or sending any data. Set v1 working defaults so the echo
+    // plugin (and any other stream-using upper plugin) can do meaningful work
+    // out of the box: 64 bidi streams, 3 uni streams (the HTTP/3 control +
+    // qpack enc/dec count), and a 1 MB connection-level flow-control window
+    // with 256 KB per stream. These can be raised mid- connection by
+    // MAX_STREAMS / MAX_DATA frames. Configurability is deferred; if a caller
+    // needs tighter or looser limits, init will grow a transport-params
+    // override later.
+    params.initial_max_streams_bidi = 64;
+    params.initial_max_streams_uni = 3;
+    params.initial_max_data = 1U << 20;                    // 1 MB
+    params.initial_max_stream_data_bidi_local = 1U << 18;  // 256 KB
+    params.initial_max_stream_data_bidi_remote = 1U << 18; // 256 KB
+    params.initial_max_stream_data_uni = 1U << 18;         // 256 KB
     if (role_ == connection_role::server) {
       params.original_dcid = original_dcid.value();
       params.original_dcid_present = 1;
