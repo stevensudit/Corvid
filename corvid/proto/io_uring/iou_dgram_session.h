@@ -20,6 +20,7 @@
 #include <string_view>
 #include <utility>
 
+#include "../../meta/try_or_log.h"
 #include "iou_dgram_router.h"
 
 namespace corvid { inline namespace proto { namespace iouring {
@@ -201,17 +202,21 @@ public:
 #pragma region Dispatch
 
   // Loop-thread only. Forwards to the plugin's `handle_recv`.
-  bool on_receive(buffer&& buf) {
+  //
+  // Returning false closes the session.
+  bool on_receive(buffer&& buf) noexcept {
     assert(loop_.is_loop_thread());
     if (!open_) return false;
-    return plugin_.handle_recv(std::move(buf));
+    return try_or_log([&] { return plugin_.handle_recv(std::move(buf)); });
   }
 
-  // Loop-thread only. Forwards to the plugin's `handle_sent`.
-  bool on_sent(buffer&& buf) {
+  // Loop-thread only. Forwards to the plugin's `handle_sent`
+  //
+  // Returning false closes the session.
+  bool on_sent(buffer&& buf) noexcept {
     assert(loop_.is_loop_thread());
     if (!open_) return false;
-    return plugin_.handle_sent(std::move(buf));
+    return try_or_log([&] { return plugin_.handle_sent(std::move(buf)); });
   }
 
 #pragma endregion

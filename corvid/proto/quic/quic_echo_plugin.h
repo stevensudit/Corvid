@@ -70,18 +70,20 @@ public:
 #pragma endregion
 #pragma region Handlers
 
-  [[nodiscard]] bool on_stream_open(
-      quic_stream_id stream_id) noexcept override {
+  [[nodiscard]] bool on_stream_open(quic_stream_id stream_id) override {
     (void)queues_[stream_id];
     return true;
   }
 
   // Append the received bytes (and the sticky `fin` flag if set) to the
   // stream's outgoing queue. ngtcp2 hands us a non-owning span valid only
-  // for the call, so the queue must take a copy.
+  // for the call, so the queue must take a copy. The map insert, span-to-
+  // vector copy, and `queue::append` all allocate; a `bad_alloc` here is
+  // caught by the ngtcp2 trampoline's `try_callback` firewall, which turns
+  // it into `NGTCP2_ERR_CALLBACK_FAILURE` and drops the connection.
   [[nodiscard]] bool on_recv_stream_data(quic_stream_id stream_id,
       uint64_t /*offset*/, std::span<const uint8_t> data,
-      quic_stream_data_flags flags) noexcept override {
+      quic_stream_data_flags flags) override {
     const auto write_flags =
         bitmask::has(flags, quic_stream_data_flags::fin)
             ? write_stream_flags::fin
@@ -117,7 +119,7 @@ public:
   // that keeps having bytes accepted into ngtcp2's queue can starve
   // others. Acceptable for the echo scenario; revisit if a real protocol
   // needs strict fairness.
-  [[nodiscard]] bool drain(timeouts::time_point_t now) noexcept {
+  [[nodiscard]] bool drain(timeouts::time_point_t now) {
     for (;;) {
       quic_stream_id sid = quic_stream_id::none;
       std::span<const iovec> iov;

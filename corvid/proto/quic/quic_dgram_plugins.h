@@ -57,9 +57,9 @@ namespace corvid { inline namespace proto { namespace quic {
 //   * Inherits `quic_conn_handlers` so the session can install it as the
 //     `quic_conn`'s upcall target via `set_handlers`.
 //
-//   * `bool drain(time_point_t now) noexcept` - per-turn hook fired after
-//     every successful `quic_conn::read_pkt`, on the loop thread. This is
-//     the ONLY outbound path: drain MUST loop `writev_stream` over its
+//   * `bool drain(time_point_t now)` - per-turn hook fired after every
+//     successful `quic_conn::read_pkt`, on the loop thread. This is the
+//     ONLY outbound path: drain MUST loop `writev_stream` over its
 //     per-stream queues and/or `stream_id::none` until ngtcp2 reports
 //     nothing more to send, shipping each non-empty packet through
 //     `quic_session_io::send_packet`. The bytes from the incoming datagram
@@ -307,11 +307,13 @@ public:
     // higher-layer events already reached the plugin during `read_pkt` through
     // the `quic_conn_handlers` upcalls; the plugin then loops `writev_stream`
     // until ngtcp2 reports nothing more to send.
+    //
+    // Returning `false` closes the session.
     bool handle_recv(buffer&& buf) {
       assert(router_.loop().is_loop_thread());
       const auto now = timeouts::now();
       const auto rv = conn().read_pkt(buf.payload_bytes(), now);
-      if (rv != quic_decode_status::ok) return false;
+      if (rv != quic_decode_status::ok) return is_soft_error(rv);
       (void)plugin_.drain(now);
       arm_expiry();
       return true;
@@ -327,7 +329,9 @@ public:
     // acceptance, and ngtcp2 tracks per-stream offsets and ACKs internally.
     // When nghttp3 sits on top, its data callbacks will be driven by ngtcp2's
     // own ACK processing, not by this hook.
-    bool handle_sent(buffer&& buf) noexcept {
+    //
+    // Returning `false` closes the session.
+    bool handle_sent(buffer&& buf) {
       buf.reset();
       return true;
     }
@@ -422,7 +426,9 @@ public:
               time_point_t fired_expire) -> time_point_t {
             auto self = weak.lock();
             if (!self) return {};
-            return self->plugin().on_expiry_sweep(fired_expire);
+            return try_or_log(
+                [&] { return self->plugin().on_expiry_sweep(fired_expire); },
+                time_point_t{});
           });
     }
 

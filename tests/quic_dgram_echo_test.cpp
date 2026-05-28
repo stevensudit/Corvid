@@ -79,16 +79,16 @@ struct echo_client_plugin: quic_no_op_plugin {
 
   // Mirror of the echo plugin's per-stream queue, minus the auto-echo:
   // received bytes are recorded for the test to inspect, not appended for
-  // outbound.
+  // outbound. Allocates on the map insert and the byte-vector grow.
   [[nodiscard]] bool on_recv_stream_data(quic_stream_id stream_id,
       uint64_t /*offset*/, std::span<const uint8_t> data,
-      quic_stream_data_flags flags) noexcept override {
+      quic_stream_data_flags flags) override {
     {
       std::lock_guard lock{mu};
       auto& v = received[stream_id];
       v.insert(v.end(), data.begin(), data.end());
     }
-    if (!!(flags & quic_stream_data_flags::fin))
+    if (bitmask::has(flags, quic_stream_data_flags::fin))
       fins_seen.fetch_add(1, std::memory_order::acq_rel);
     return true;
   }
@@ -105,7 +105,7 @@ struct echo_client_plugin: quic_no_op_plugin {
     return true;
   }
 
-  [[nodiscard]] bool drain(timeouts::time_point_t now) noexcept {
+  [[nodiscard]] bool drain(timeouts::time_point_t now) {
     for (;;) {
       quic_stream_id sid = quic_stream_id::none;
       std::span<const iovec> iov;
@@ -133,8 +133,7 @@ struct echo_client_plugin: quic_no_op_plugin {
 
   // Loop-thread API: open a bidi stream and queue `payload` (with FIN) on
   // it. Returns the chosen stream id, or `none` on failure.
-  [[nodiscard]] quic_stream_id send_with_fin(
-      std::vector<uint8_t> payload) noexcept {
+  [[nodiscard]] quic_stream_id send_with_fin(std::vector<uint8_t>&& payload) {
     quic_stream_id sid = quic_stream_id::none;
     if (io_.conn().open_bidi_stream(sid) != quic_decode_status::ok)
       return quic_stream_id::none;
@@ -220,7 +219,8 @@ TEST_CASE(
       0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b};
   quic_stream_id sid = quic_stream_id::none;
   REQUIRE(runner.loop()->post_and_wait([&]() -> bool {
-    sid = client_plugin.send_with_fin(payload);
+    auto payload_copy = payload;
+    sid = client_plugin.send_with_fin(std::move(payload_copy));
     if (sid == quic_stream_id::none) return false;
     // Nudge the outbound drain so the first packet ships without waiting
     // for an unrelated inbound to trigger handle_recv.

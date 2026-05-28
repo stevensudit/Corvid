@@ -294,11 +294,11 @@ public:
   // the `completion_token` for the in-flight send (invalid token on
   // failure). Safe from any thread.
   [[nodiscard]] completion_token
-  submit_session_send(buffer&& buf, const session_ptr& ssn) {
+  submit_session_send(buffer&& buf, const session_ptr& ssn) noexcept {
     if (!open_ || !ssn) return {};
     return loop_.submit_sendmsg_buffer(sock_, std::move(buf),
         [ssn](completion_id, buffer& b) -> slot_retention {
-          (void)ssn->on_sent(std::move(b));
+          if (!ssn->on_sent(std::move(b))) (void)ssn->close();
           return slot_retention{};
         });
   }
@@ -307,6 +307,12 @@ public:
 #pragma region Internals
 private:
   // Demux a successfully received datagram to a session.
+  //
+  // `on_receive` is the session's noexcept firewall: a `false` return there
+  // means the session is no longer viable (plugin saw a connection-fatal
+  // status, or a thrown exception was caught and converted to `false`),
+  // and we close that session here. The router and other sessions keep
+  // running.
   [[nodiscard]] bool dispatch_packet(buffer&& buf) {
     return loop_.execute_or_post(
         [this, buf = std::move(buf)]() mutable -> bool {
@@ -314,7 +320,7 @@ private:
           if (!key) return false;
 
           if (auto found = find_opt(sessions_, key)) {
-            (void)(*found)->on_receive(std::move(buf));
+            if (!(*found)->on_receive(std::move(buf))) (void)(*found)->close();
             return true;
           }
 
@@ -324,8 +330,10 @@ private:
           (void)plugin_.create_session(buf, *this);
 
           // Re-lookup. If still missing (rejection), drop.
-          if (auto found = find_opt(sessions_, key))
-            return (*found)->on_receive(std::move(buf)) || true;
+          if (auto found = find_opt(sessions_, key)) {
+            if (!(*found)->on_receive(std::move(buf))) (void)(*found)->close();
+            return true;
+          }
           return false;
         });
   }

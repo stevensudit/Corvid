@@ -33,6 +33,7 @@
 #include "../net_endpoint.h"
 #include "../../enums/bool_enums.h"
 #include "../../concurrency/timeouts.h"
+#include "../../meta/try_or_log.h"
 #include "../io_uring/iou_buffer.h"
 
 #include "quic_header.h"
@@ -133,6 +134,24 @@ struct quic_close_request {
 // see the stash and emit the requested CONNECTION_CLOSE after
 // `read_pkt` returns.
 //
+// Noexcept policy: the trampolines in `quic_conn` are the firewall, not
+// these virtuals. The trampolines are themselves `noexcept` (forced by
+// the C ABI) and wrap each upcall in `quic_conn::try_callback`, which
+// runs the call through `meta::try_or_log` and converts the result to
+// ngtcp2's int status. That means the virtuals here are intentionally
+// NOT `noexcept`: overrides are free to throw on allocation failure or
+// library errors, and a thrown exception will be caught at the
+// trampoline and reported to ngtcp2 as `NGTCP2_ERR_CALLBACK_FAILURE`,
+// which drops the connection cleanly without terminating the process.
+// Overrides MAY still mark themselves `noexcept` if they can't throw but MUST
+// if they're not exception-safe. Outside this upcall surface, Corvid types
+// reflect their throw behavior honestly (e.g.,
+// `quic_stream_send_queue::append` is not `noexcept` because it
+// allocates, while `commit` is). The same shape applies to other
+// C-library callback wrappers (nghttp3, etc.): the wrapper static is
+// the firewall via `try_callback`, the virtual / C++ method behind it
+// can throw.
+//
 // Defaults are no-op `true`, so concrete plugins override only what they
 // need.
 class quic_conn_handlers {
@@ -149,13 +168,13 @@ public:
   // TLS handshake finished (both endpoints have completed). On the server this
   // fires once the server has received and processed the client's Finished; on
   // the client, when the client itself has sent Finished. Fires once per conn.
-  [[nodiscard]] virtual bool on_handshake_completed() noexcept { return true; }
+  [[nodiscard]] virtual bool on_handshake_completed() { return true; }
 
   // 1-RTT TX key is installed; the endpoint can now send application data.
   // This is the moment HTTP/3 / nghttp3 cares about for submitting requests
   // and responses. Fires before `on_handshake_completed` on the server, after
   // it on the client.
-  [[nodiscard]] virtual bool on_app_tx_ready() noexcept { return true; }
+  [[nodiscard]] virtual bool on_app_tx_ready() { return true; }
 
   // Handshake confirmed (RFC 9001 sec. 4.1.2). Client-only: fires when
   // HANDSHAKE_DONE arrives, signaling that the server has fully
@@ -163,14 +182,13 @@ public:
   // ngtcp2 silently transitions the server into the confirmed state
   // without a callback, so concrete plugins do not see this on the
   // server side; rely on `on_handshake_completed` there instead.
-  [[nodiscard]] virtual bool on_handshake_confirmed() noexcept { return true; }
+  [[nodiscard]] virtual bool on_handshake_confirmed() { return true; }
 
 #pragma endregion
 #pragma region Stream lifecycle
 
   // Peer opened a new stream.
-  [[nodiscard]] virtual bool on_stream_open(
-      quic_stream_id stream_id) noexcept {
+  [[nodiscard]] virtual bool on_stream_open(quic_stream_id stream_id) {
     (void)stream_id;
     return true;
   }
@@ -181,7 +199,7 @@ public:
   // `nghttp3_conn_read_stream`) before returning.
   [[nodiscard]] virtual bool on_recv_stream_data(quic_stream_id stream_id,
       uint64_t offset, std::span<const uint8_t> data,
-      quic_stream_data_flags flags) noexcept {
+      quic_stream_data_flags flags) {
     (void)stream_id;
     (void)offset;
     (void)data;
@@ -193,7 +211,7 @@ public:
   // were received. The plugin can release send-side buffers it was retaining
   // for retransmit; HTTP/3 forwards to `nghttp3_conn_add_ack_offset`.
   [[nodiscard]] virtual bool on_acked_stream_data_offset(
-      quic_stream_id stream_id, uint64_t offset, uint64_t datalen) noexcept {
+      quic_stream_id stream_id, uint64_t offset, uint64_t datalen) {
     (void)stream_id;
     (void)offset;
     (void)datalen;
@@ -205,7 +223,7 @@ public:
   // `on_recv_stream_data` for this stream. `app_error_code` is
   // peer-supplied.
   [[nodiscard]] virtual bool on_stream_reset(quic_stream_id stream_id,
-      uint64_t final_size, uint64_t app_error_code) noexcept {
+      uint64_t final_size, uint64_t app_error_code) {
     (void)stream_id;
     (void)final_size;
     (void)app_error_code;
@@ -215,8 +233,8 @@ public:
   // Peer sent STOP_SENDING: it no longer wants our data on `stream_id`. The
   // plugin should stop submitting bytes for this stream; ngtcp2 will emit
   // RESET_STREAM on the next outbound turn.
-  [[nodiscard]] virtual bool on_stream_stop_sending(quic_stream_id stream_id,
-      uint64_t app_error_code) noexcept {
+  [[nodiscard]] virtual bool
+  on_stream_stop_sending(quic_stream_id stream_id, uint64_t app_error_code) {
     (void)stream_id;
     (void)app_error_code;
     return true;
@@ -228,7 +246,7 @@ public:
   // (ngtcp2's `NGTCP2_STREAM_CLOSE_FLAG_APP_ERROR_CODE_SET`); empty for
   // clean closes that carried no error code.
   [[nodiscard]] virtual bool on_stream_close(quic_stream_id stream_id,
-      std::optional<uint64_t> app_error_code) noexcept {
+      std::optional<uint64_t> app_error_code) {
     (void)stream_id;
     (void)app_error_code;
     return true;
@@ -240,8 +258,8 @@ public:
   // Peer raised our send window on `stream_id` to `max_data` bytes total. A
   // plugin previously stalled on this stream may resume; HTTP/3 forwards to
   // `nghttp3_conn_unblock_stream`.
-  [[nodiscard]] virtual bool on_extend_max_stream_data(
-      quic_stream_id stream_id, uint64_t max_data) noexcept {
+  [[nodiscard]] virtual bool
+  on_extend_max_stream_data(quic_stream_id stream_id, uint64_t max_data) {
     (void)stream_id;
     (void)max_data;
     return true;
@@ -251,12 +269,12 @@ public:
   // streams to `max_streams` total. The plugin may now open additional streams
   // up to that count.
   [[nodiscard]] virtual bool on_extend_max_local_streams_bidi(
-      uint64_t max_streams) noexcept {
+      uint64_t max_streams) {
     (void)max_streams;
     return true;
   }
   [[nodiscard]] virtual bool on_extend_max_local_streams_uni(
-      uint64_t max_streams) noexcept {
+      uint64_t max_streams) {
     (void)max_streams;
     return true;
   }
@@ -265,8 +283,8 @@ public:
 #pragma region Datagrams (RFC 9221)
 
   // Inbound DATAGRAM frame.
-  [[nodiscard]] virtual bool on_recv_datagram(std::span<const uint8_t> data,
-      quic_datagram_flags flags) noexcept {
+  [[nodiscard]] virtual bool
+  on_recv_datagram(std::span<const uint8_t> data, quic_datagram_flags flags) {
     (void)data;
     (void)flags;
     return true;
@@ -276,7 +294,7 @@ public:
   // value we passed to `writev_datagram`) is given. Datagrams are unreliable;
   // this is a telemetry signal, not a contract: it fires at most once per
   // `dgram_id`.
-  [[nodiscard]] virtual bool on_ack_datagram(uint64_t dgram_id) noexcept {
+  [[nodiscard]] virtual bool on_ack_datagram(uint64_t dgram_id) {
     (void)dgram_id;
     return true;
   }
@@ -284,7 +302,7 @@ public:
   // ngtcp2 declared the packet carrying the DATAGRAM with `dgram_id` lost.
   // Datagrams are not retransmitted; this is a telemetry signal for the
   // application to decide whether to resend.
-  [[nodiscard]] virtual bool on_lost_datagram(uint64_t dgram_id) noexcept {
+  [[nodiscard]] virtual bool on_lost_datagram(uint64_t dgram_id) {
     (void)dgram_id;
     return true;
   }
@@ -710,12 +728,16 @@ private:
 
   static int on_handshake_completed(ngtcp2_conn*, void* user_data) noexcept {
     auto* self = static_cast<quic_conn*>(user_data);
-    return success(self->handlers_->on_handshake_completed());
+    return try_callback([&] {
+      return self->handlers_->on_handshake_completed();
+    });
   }
 
   static int on_handshake_confirmed(ngtcp2_conn*, void* user_data) noexcept {
     auto* self = static_cast<quic_conn*>(user_data);
-    return success(self->handlers_->on_handshake_confirmed());
+    return try_callback([&] {
+      return self->handlers_->on_handshake_confirmed();
+    });
   }
 
   // `recv_tx_key` fires once per TX-key install during the handshake; ngtcp2
@@ -727,46 +749,56 @@ private:
       void* user_data) noexcept {
     if (level != NGTCP2_ENCRYPTION_LEVEL_1RTT) return success(true);
     auto* self = static_cast<quic_conn*>(user_data);
-    return success(self->handlers_->on_app_tx_ready());
+    return try_callback([&] { return self->handlers_->on_app_tx_ready(); });
   }
 
   static int
   on_stream_open(ngtcp2_conn*, int64_t stream_id, void* user_data) noexcept {
     auto* self = static_cast<quic_conn*>(user_data);
-    return success(self->handlers_->on_stream_open(
-        static_cast<quic_stream_id>(stream_id)));
+    return try_callback([&] {
+      return self->handlers_->on_stream_open(
+          static_cast<quic_stream_id>(stream_id));
+    });
   }
 
   static int on_recv_stream_data(ngtcp2_conn*, uint32_t flags,
       int64_t stream_id, uint64_t offset, const uint8_t* data, size_t datalen,
       void* user_data, void*) noexcept {
     auto* self = static_cast<quic_conn*>(user_data);
-    return success(self->handlers_->on_recv_stream_data(
-        static_cast<quic_stream_id>(stream_id), offset,
-        std::span<const uint8_t>{data, datalen},
-        static_cast<quic_stream_data_flags>(flags)));
+    return try_callback([&] {
+      return self->handlers_->on_recv_stream_data(
+          static_cast<quic_stream_id>(stream_id), offset,
+          std::span<const uint8_t>{data, datalen},
+          static_cast<quic_stream_data_flags>(flags));
+    });
   }
 
   static int on_acked_stream_data_offset(ngtcp2_conn*, int64_t stream_id,
       uint64_t offset, uint64_t datalen, void* user_data, void*) noexcept {
     auto* self = static_cast<quic_conn*>(user_data);
-    return success(self->handlers_->on_acked_stream_data_offset(
-        static_cast<quic_stream_id>(stream_id), offset, datalen));
+    return try_callback([&] {
+      return self->handlers_->on_acked_stream_data_offset(
+          static_cast<quic_stream_id>(stream_id), offset, datalen);
+    });
   }
 
   static int on_stream_reset(ngtcp2_conn*, int64_t stream_id,
       uint64_t final_size, uint64_t app_error_code, void* user_data,
       void*) noexcept {
     auto* self = static_cast<quic_conn*>(user_data);
-    return success(self->handlers_->on_stream_reset(
-        static_cast<quic_stream_id>(stream_id), final_size, app_error_code));
+    return try_callback([&] {
+      return self->handlers_->on_stream_reset(
+          static_cast<quic_stream_id>(stream_id), final_size, app_error_code);
+    });
   }
 
   static int on_stream_stop_sending(ngtcp2_conn*, int64_t stream_id,
       uint64_t app_error_code, void* user_data, void*) noexcept {
     auto* self = static_cast<quic_conn*>(user_data);
-    return success(self->handlers_->on_stream_stop_sending(
-        static_cast<quic_stream_id>(stream_id), app_error_code));
+    return try_callback([&] {
+      return self->handlers_->on_stream_stop_sending(
+          static_cast<quic_stream_id>(stream_id), app_error_code);
+    });
   }
 
   static int on_stream_close(ngtcp2_conn*, uint32_t flags, int64_t stream_id,
@@ -775,49 +807,61 @@ private:
     std::optional<uint64_t> ec;
     if (flags & NGTCP2_STREAM_CLOSE_FLAG_APP_ERROR_CODE_SET)
       ec = app_error_code;
-    return success(self->handlers_->on_stream_close(
-        static_cast<quic_stream_id>(stream_id), ec));
+    return try_callback([&] {
+      return self->handlers_->on_stream_close(
+          static_cast<quic_stream_id>(stream_id), ec);
+    });
   }
 
   static int on_extend_max_stream_data(ngtcp2_conn*, int64_t stream_id,
       uint64_t max_data, void* user_data, void*) noexcept {
     auto* self = static_cast<quic_conn*>(user_data);
-    return success(self->handlers_->on_extend_max_stream_data(
-        static_cast<quic_stream_id>(stream_id), max_data));
+    return try_callback([&] {
+      return self->handlers_->on_extend_max_stream_data(
+          static_cast<quic_stream_id>(stream_id), max_data);
+    });
   }
 
   static int on_extend_max_local_streams_bidi(ngtcp2_conn*,
       uint64_t max_streams, void* user_data) noexcept {
     auto* self = static_cast<quic_conn*>(user_data);
-    return success(
-        self->handlers_->on_extend_max_local_streams_bidi(max_streams));
+    return try_callback([&] {
+      return self->handlers_->on_extend_max_local_streams_bidi(max_streams);
+    });
   }
 
   static int on_extend_max_local_streams_uni(ngtcp2_conn*,
       uint64_t max_streams, void* user_data) noexcept {
     auto* self = static_cast<quic_conn*>(user_data);
-    return success(
-        self->handlers_->on_extend_max_local_streams_uni(max_streams));
+    return try_callback([&] {
+      return self->handlers_->on_extend_max_local_streams_uni(max_streams);
+    });
   }
 
   static int on_recv_datagram(ngtcp2_conn*, uint32_t flags,
       const uint8_t* data, size_t datalen, void* user_data) noexcept {
     auto* self = static_cast<quic_conn*>(user_data);
-    return success(self->handlers_->on_recv_datagram(
-        std::span<const uint8_t>{data, datalen},
-        static_cast<quic_datagram_flags>(flags)));
+    return try_callback([&] {
+      return self->handlers_->on_recv_datagram(
+          std::span<const uint8_t>{data, datalen},
+          static_cast<quic_datagram_flags>(flags));
+    });
   }
 
   static int
   on_ack_datagram(ngtcp2_conn*, uint64_t dgram_id, void* user_data) noexcept {
     auto* self = static_cast<quic_conn*>(user_data);
-    return success(self->handlers_->on_ack_datagram(dgram_id));
+    return try_callback([&] {
+      return self->handlers_->on_ack_datagram(dgram_id);
+    });
   }
 
   static int
   on_lost_datagram(ngtcp2_conn*, uint64_t dgram_id, void* user_data) noexcept {
     auto* self = static_cast<quic_conn*>(user_data);
-    return success(self->handlers_->on_lost_datagram(dgram_id));
+    return try_callback([&] {
+      return self->handlers_->on_lost_datagram(dgram_id);
+    });
   }
 
 #pragma endregion
@@ -827,6 +871,18 @@ private:
   // `0` on success, `NGTCP2_ERR_CALLBACK_FAILURE` on failure.
   [[nodiscard]] static constexpr int success(bool ok) noexcept {
     return ok ? 0 : NGTCP2_ERR_CALLBACK_FAILURE;
+  }
+
+  // Run `fn` (the body of a ngtcp2 trampoline) inside `try_or_log` so a thrown
+  // exception becomes a `false` result, then convert that result to ngtcp2's
+  // callback status via `success`. This is the canonical body for every
+  // trampoline that forwards into a `quic_conn_handlers` upcall: the
+  // trampoline is the noexcept firewall, and the virtual it calls is free to
+  // throw under low memory or other failures without crossing the C ABI.
+  template<std::invocable F>
+  requires std::same_as<std::invoke_result_t<F>, bool>
+  [[nodiscard]] static int try_callback(F&& fn) noexcept {
+    return success(try_or_log(std::forward<F>(fn)));
   }
 
   // Callback tables, one per role. Unmentioned slots are value-initialized to

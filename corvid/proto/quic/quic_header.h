@@ -99,6 +99,33 @@ constexpr inline auto corvid::enums::registry::enum_spec_v<
 
 namespace corvid { inline namespace proto { namespace quic {
 
+#pragma region is_soft_error
+
+// True if `s` is a per-packet drop that should NOT take the connection
+// down.
+//
+// Currently soft:
+//   `decrypt`     - AEAD packet protection check failed (RFC 9001 sec. 5.2:
+//                   discard the packet, keep the connection).
+//   `discard_pkt` - ngtcp2 signals "drop this packet" (e.g., stateless
+//                   reset, packet at the wrong encryption level).
+//   `draining`    - peer sent CONNECTION_CLOSE; we are in the draining
+//                   period and let ngtcp2's timer manage the wind-down.
+//   `closing`     - we sent CONNECTION_CLOSE; ngtcp2 keeps responding to
+//                   stragglers with rate-limited CONNECTION_CLOSEs until
+//                   its own timer expires.
+//
+// Anything else non-ok is connection-fatal. New ngtcp2 statuses default
+// to fatal (close-the-session) until a reviewer audits them and adds them
+// here if appropriate.
+[[nodiscard]] constexpr bool is_soft_error(quic_decode_status s) noexcept {
+  return s == quic_decode_status::decrypt ||
+         s == quic_decode_status::discard_pkt ||
+         s == quic_decode_status::draining || s == quic_decode_status::closing;
+}
+
+#pragma endregion
+
 #pragma region quic_cid
 
 // Variable-length QUIC Connection ID, wrapping `ngtcp2_cid`. Up to

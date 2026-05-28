@@ -64,7 +64,7 @@ public:
   // modifiers (typically `fin`) that ride on every `writev` call until ngtcp2
   // has buffered all appended bytes.
   void append(std::vector<uint8_t>&& chunk,
-      write_stream_flags flags = write_stream_flags::none) noexcept {
+      write_stream_flags flags = write_stream_flags::none) {
     appended_ += chunk.size();
     if (!chunk.empty()) chunks_.push_back(std::move(chunk));
     pending_flags_ = pending_flags_ | flags;
