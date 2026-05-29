@@ -208,11 +208,21 @@ endif()
 # once across cleanbuilds. It also isolates target names (the nghttp3
 # `check`-target collision goes away when we add it later) and prevents
 # `CMAKE_BUILD_TYPE` from leaking back into our compile lines.
-set(OPENSSL_ROOT_DIR "${CMAKE_CURRENT_SOURCE_DIR}/.local/openssl")
+# Under MSAN, OpenSSL and ngtcp2 must themselves be instrumented; an
+# uninstrumented static OpenSSL floods every QUIC test with use-of-uninit
+# false positives (its internal lhash/config/memcmp reads). The instrumented
+# build installs to a separate prefix so it coexists with the plain one.
+if(SANITIZER STREQUAL "msan")
+    set(OPENSSL_ROOT_DIR "${CMAKE_CURRENT_SOURCE_DIR}/.local/openssl-msan")
+    set(_openssl_build_hint "scripts/build_openssl_quic.sh msan")
+else()
+    set(OPENSSL_ROOT_DIR "${CMAKE_CURRENT_SOURCE_DIR}/.local/openssl")
+    set(_openssl_build_hint "scripts/build_openssl_quic.sh")
+endif()
 if(NOT EXISTS "${OPENSSL_ROOT_DIR}/lib64/libssl.a")
     message(FATAL_ERROR
         "OpenSSL 3.5+ not found at ${OPENSSL_ROOT_DIR}. "
-        "Run scripts/build_openssl_quic.sh first (one-time, ~5 min).")
+        "Run ${_openssl_build_hint} first (one-time, ~5 min).")
 endif()
 set(OPENSSL_USE_STATIC_LIBS ON)
 find_package(OpenSSL 3.5 REQUIRED COMPONENTS SSL Crypto)
@@ -220,10 +230,29 @@ message(STATUS "Using OpenSSL ${OPENSSL_VERSION} at ${OPENSSL_ROOT_DIR}")
 
 include(ExternalProject)
 
-set(NGTCP2_PREFIX_DIR  "${CMAKE_CURRENT_SOURCE_DIR}/.local/ngtcp2-external")
-set(NGTCP2_INSTALL_DIR "${CMAKE_CURRENT_SOURCE_DIR}/.local/ngtcp2")
+# A `-msan` suffix keeps the instrumented ngtcp2 (built with MSAN cflags
+# against the instrumented OpenSSL) from clobbering the plain install, mirroring
+# the OpenSSL split above.
+if(SANITIZER STREQUAL "msan")
+    set(_ngtcp2_suffix "-msan")
+else()
+    set(_ngtcp2_suffix "")
+endif()
+set(NGTCP2_PREFIX_DIR  "${CMAKE_CURRENT_SOURCE_DIR}/.local/ngtcp2-external${_ngtcp2_suffix}")
+set(NGTCP2_INSTALL_DIR "${CMAKE_CURRENT_SOURCE_DIR}/.local/ngtcp2${_ngtcp2_suffix}")
 set(NGTCP2_LIB_DIR     "${NGTCP2_INSTALL_DIR}/lib")
 set(NGTCP2_INCLUDE_DIR "${NGTCP2_INSTALL_DIR}/include")
+
+# Forward MSAN instrumentation into ngtcp2's sub-build: clang plus the same
+# plain `-fsanitize=memory` the test side uses (origin tracking overflows the
+# stack in our templated TUs). Without this, ngtcp2's own writes stay invisible
+# to MSAN and its output poisons our QUIC code paths.
+set(_ngtcp2_san_args "")
+if(SANITIZER STREQUAL "msan")
+    set(_ngtcp2_san_args
+        "-DCMAKE_C_COMPILER=clang-22"
+        "-DCMAKE_C_FLAGS=-fsanitize=memory -fno-omit-frame-pointer -g")
+endif()
 
 # `BUILD_BYPRODUCTS` lists the artifacts the sub-build produces. Ninja
 # requires this to track downstream dependencies on imported targets that
@@ -243,6 +272,7 @@ ExternalProject_Add(ngtcp2_external
         -DCMAKE_INSTALL_LIBDIR=lib
         -DCMAKE_BUILD_TYPE=Release
         -DOPENSSL_ROOT_DIR=${OPENSSL_ROOT_DIR}
+        ${_ngtcp2_san_args}
         -DENABLE_OPENSSL=ON
         -DENABLE_STATIC_LIB=ON
         -DENABLE_SHARED_LIB=OFF

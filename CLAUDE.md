@@ -36,7 +36,7 @@ CMakeLists.txt lives in `tests/` only; there is none at the project root. Build 
 
 Sanitizer modes accept the same `[testname.cpp]` and `libstdcpp|libcxx` arguments as the plain build. `asan`/`tsan`/`msan` are mutually exclusive (each instruments a conflicting runtime); run them separately. Sanitizer sweeps continue past test failures so all issues surface in one run; plain runs still bail on the first failure.
 
-MSAN requires a one-time setup: run `scripts/build_msan_libcxx.sh` before `./cleanbuild.sh msan`.
+MSAN requires a one-time setup: run `scripts/build_msan_libcxx.sh` and `scripts/build_openssl_quic.sh msan` before `./cleanbuild.sh msan`. Both build instrumented dependencies (libc++ and OpenSSL/ngtcp2) so the QUIC tests don't drown in false positives from uninstrumented library internals.
 
 ## Code Style
 
