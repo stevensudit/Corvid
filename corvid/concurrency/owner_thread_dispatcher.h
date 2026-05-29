@@ -30,7 +30,7 @@
 #include <vector>
 
 #include "../meta/concepts.h"
-#include "../infra/exception_wrappers.h"
+#include "../infra/exception_firewalls.h"
 #include "../filesys/os_file.h"
 #include "../filesys/event_fd.h"
 #include "../concurrency/relaxed_atomic.h"

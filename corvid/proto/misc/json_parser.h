@@ -29,7 +29,7 @@
 #include <utility>
 #include <vector>
 
-#include "../../infra/exception_wrappers.h"
+#include "../../infra/exception_firewalls.h"
 #include "../../enums/bool_enums.h"
 #include "../../strings/concat_join.h"
 #include "../../strings/conversion.h"

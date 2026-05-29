@@ -25,7 +25,7 @@
 
 #include "relaxed_atomic.h"
 #include "timeouts.h"
-#include "../infra/exception_wrappers.h"
+#include "../infra/exception_firewalls.h"
 
 namespace corvid { inline namespace concurrency {
 #pragma region timeout_sweeper

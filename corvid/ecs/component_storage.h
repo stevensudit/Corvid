@@ -23,7 +23,7 @@
 #include <utility>
 #include <vector>
 
-#include "../infra/exception_wrappers.h"
+#include "../infra/exception_firewalls.h"
 #include "component_index_policies.h"
 #include "component_storage_base.h"
 

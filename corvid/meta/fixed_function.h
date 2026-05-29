@@ -21,7 +21,7 @@
 #include <new>
 #include <stdexcept>
 
-#include "../infra/exception_wrappers.h"
+#include "../infra/exception_firewalls.h"
 #include "./meta_shared.h"
 #include "./concepts.h"
 

@@ -24,7 +24,7 @@
 #include <unordered_map>
 #include <variant>
 
-#include "../../infra/exception_wrappers.h"
+#include "../../infra/exception_firewalls.h"
 #include "../misc/http_head_codec.h"
 #include "../misc/terminated_text_parser.h"
 #include "../../containers/opt_find.h"

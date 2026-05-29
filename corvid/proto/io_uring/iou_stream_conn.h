@@ -24,7 +24,7 @@
 #include <string_view>
 #include <variant>
 
-#include "../../infra/exception_wrappers.h"
+#include "../../infra/exception_firewalls.h"
 #include "../../concurrency/idle_timeout.h"
 #include "../../enums/bool_enums.h"
 #include "../net_endpoint.h"

@@ -24,7 +24,7 @@
 #include <string_view>
 #include <utility>
 
-#include "../../infra/exception_wrappers.h"
+#include "../../infra/exception_firewalls.h"
 #include "../../concurrency/relaxed_atomic.h"
 #include "../../strings/no_zero.h"
 

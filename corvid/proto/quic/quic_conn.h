@@ -33,7 +33,7 @@
 #include "../net_endpoint.h"
 #include "../../enums/bool_enums.h"
 #include "../../concurrency/timeouts.h"
-#include "../../infra/exception_wrappers.h"
+#include "../../infra/exception_firewalls.h"
 #include "../../infra/log.h"
 #include "../../strings/conversion.h"
 #include "../io_uring/iou_buffer.h"

@@ -26,7 +26,7 @@
 #include <utility>
 #include <vector>
 
-#include "../infra/exception_wrappers.h"
+#include "../infra/exception_firewalls.h"
 #include "archetype_storage_base.h"
 
 namespace corvid { inline namespace ecs {

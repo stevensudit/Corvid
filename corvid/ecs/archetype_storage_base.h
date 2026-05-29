@@ -25,7 +25,7 @@
 #include <vector>
 
 #include "../meta/forward_like.h"
-#include "../infra/exception_wrappers.h"
+#include "../infra/exception_firewalls.h"
 #include "entity_registry.h"
 
 // Forward declaration for friendship; defined in "archetype_scene.h".

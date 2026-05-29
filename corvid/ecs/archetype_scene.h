@@ -24,7 +24,7 @@
 #include <utility>
 #include <variant>
 
-#include "../infra/exception_wrappers.h"
+#include "../infra/exception_firewalls.h"
 #include "ecs_meta.h"
 #include "entity_registry.h"
 
