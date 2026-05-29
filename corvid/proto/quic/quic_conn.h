@@ -765,11 +765,15 @@ private:
   // so just terminate in the unlikely event that it fails
   static void
   on_rand(uint8_t* dest, size_t destlen, const ngtcp2_rand_ctx*) noexcept {
-    if (destlen > static_cast<size_t>(std::numeric_limits<int>::max()))
-      log::fatal("on_rand: destlen {} exceeds int max", destlen);
+    try_or_terminate([&] {
+      if (destlen > static_cast<size_t>(std::numeric_limits<int>::max()))
+        log::fatal("on_rand: destlen {} exceeds int max", destlen);
 
-    if (RAND_bytes(dest, static_cast<int>(destlen)) != 1)
-      log::fatal("on_rand: RAND_bytes failed");
+      if (RAND_bytes(dest, static_cast<int>(destlen)) != 1)
+        log::fatal("on_rand: RAND_bytes failed");
+
+      return true;
+    });
   }
 
   // CIDs must be unpredictable per RFC 9000 sec. 5.1, so fill with
@@ -969,8 +973,8 @@ private:
     return success(try_or_log(std::forward<F>(fn)));
   }
 
-  // Callback tables, one per role. Unmentioned slots are value-initialized to
-  // null, which is what ngtcp2 expects for optional callbacks.
+// Callback tables, one per role. Unmentioned slots are value-initialized to
+// null, which is what ngtcp2 expects for optional callbacks.
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wmissing-designated-field-initializers"
   static constexpr ngtcp2_callbacks server_callbacks{
@@ -1054,9 +1058,12 @@ private:
   // context. No recovery is possible: log and terminate.
   static void ensure_crypto_init() noexcept {
     [[maybe_unused]] static const int once = [] {
-      const int rv = ngtcp2_crypto_ossl_init();
-      if (rv != 0) log::fatal("ngtcp2_crypto_ossl_init failed (rv={})", rv);
-      return rv;
+      try_or_terminate([] {
+        const int rv = ngtcp2_crypto_ossl_init();
+        if (rv != 0) log::fatal("ngtcp2_crypto_ossl_init failed (rv={})", rv);
+        return true;
+      });
+      return true;
     }();
   }
 

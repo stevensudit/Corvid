@@ -95,6 +95,7 @@ public:
   // The `exit` and `fail` cases may run while an exception is unwinding, so a
   // throw there terminates. success runs only on the normal path, so it is
   // conditionally noexcept and lets a throwing exit function propagate.
+  // NOLINTNEXTLINE(bugprone-exception-escape)
   ~scope_guard() noexcept(
       Kind != scope_kind::success || noexcept(std::declval<EF&>()())) {
     if (!active_) return;
