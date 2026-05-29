@@ -36,7 +36,7 @@
 #include "../../filesys/os_file.h"
 #include "../../concurrency/jthread_stoppable_sleep.h"
 #include "../../concurrency/notifiable.h"
-#include "../../concurrency/relaxed_atomic.h"
+#include "../../infra/relaxed_atomic.h"
 #include "../../concurrency/owner_thread_dispatcher.h"
 #include "../../concurrency/timeout_sweeper.h"
 #include "../../infra/scope_exit.h"

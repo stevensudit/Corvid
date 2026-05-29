@@ -26,7 +26,7 @@
 #include <span>
 #include <system_error>
 
-#include "../../concurrency/relaxed_atomic.h"
+#include "../../infra/relaxed_atomic.h"
 #include "../../containers/fixed_bitset.h"
 #include "../../enums/sequence_enum.h"
 #include "iou_buffer_pool_base.h"

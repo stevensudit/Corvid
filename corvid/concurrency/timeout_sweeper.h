@@ -23,7 +23,7 @@
 #include <utility>
 #include <vector>
 
-#include "relaxed_atomic.h"
+#include "../infra/relaxed_atomic.h"
 #include "timeouts.h"
 #include "../infra/exception_firewalls.h"
 

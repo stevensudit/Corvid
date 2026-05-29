@@ -24,7 +24,7 @@
 #include <sys/mman.h>
 
 #include "../../concurrency/owner_thread_dispatcher.h"
-#include "../../concurrency/relaxed_atomic.h"
+#include "../../infra/relaxed_atomic.h"
 
 #include "iou_buffer_pool_base.h"
 #include "iou_buffer.h"

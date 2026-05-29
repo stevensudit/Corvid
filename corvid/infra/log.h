@@ -26,6 +26,7 @@
 #include <utility>
 
 #include "clocks.h"
+#include "relaxed_atomic.h"
 
 namespace corvid { inline namespace infra {
 
@@ -166,8 +167,6 @@ private:
       std::string_view body) {
     const auto now = std::chrono::time_point_cast<std::chrono::milliseconds>(
         system_now_clock::now());
-    // Single-letter level prefix, indexed by enum value. Update the string
-    // when adding levels.
     constexpr std::string_view k_level_initials = "TDIWE";
     static_assert(
         k_level_initials.size() == static_cast<size_t>(log_level::error) + 1);
@@ -183,7 +182,7 @@ private:
 
   std::ostream* out_{&std::cerr};
   std::mutex mutex_;
-  log_level threshold_{log_level::info};
+  relaxed_atomic<log_level> threshold_{log_level::info};
 
 #pragma endregion
 };

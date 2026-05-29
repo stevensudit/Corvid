@@ -33,7 +33,7 @@
 #include "../infra/exception_firewalls.h"
 #include "../filesys/os_file.h"
 #include "../filesys/event_fd.h"
-#include "../concurrency/relaxed_atomic.h"
+#include "../infra/relaxed_atomic.h"
 
 namespace corvid { inline namespace concurrency {
 inline namespace owner_thread_dispatcherns {

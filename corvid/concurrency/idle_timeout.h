@@ -20,7 +20,7 @@
 #include <utility>
 
 #include "../meta/fixed_function.h"
-#include "relaxed_atomic.h"
+#include "../infra/relaxed_atomic.h"
 #include "timeout_sweeper.h"
 #include "timeouts.h"
 

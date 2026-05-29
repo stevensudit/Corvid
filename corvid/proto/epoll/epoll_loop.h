@@ -33,7 +33,7 @@
 #include "../../concurrency/jthread_stoppable_sleep.h"
 #include "../../concurrency/notifiable.h"
 #include "../../concurrency/owner_thread_dispatcher.h"
-#include "../../concurrency/relaxed_atomic.h"
+#include "../../infra/relaxed_atomic.h"
 #include "../../concurrency/tombstone.h"
 #include "../../infra/scope_exit.h"
 #include "../../containers/opt_find.h"

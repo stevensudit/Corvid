@@ -24,8 +24,6 @@
 //  notifiable              - value guarded by mutex and condition variable
 //  owner_thread_dispatcher - dispatches callbacks to execute only in the
 //                            owning thread
-//  relaxed_atomic          - `std::atomic<T>` wrapper with relaxed
-//                            load/store operators
 //  sync_lock               - `synchronizer`, `lock`, and `reverse_lock`
 //                            attestation idiom
 //  timeout_sweeper         - heap of (`expiration`, `callback`) pairs swept
@@ -42,7 +40,6 @@
 #include "concurrency/jthread_stoppable_sleep.h"
 #include "concurrency/notifiable.h"
 #include "concurrency/owner_thread_dispatcher.h"
-#include "concurrency/relaxed_atomic.h"
 #include "concurrency/sync_lock.h"
 #include "concurrency/timeout_sweeper.h"
 #include "concurrency/timeouts.h"
