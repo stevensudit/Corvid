@@ -17,6 +17,7 @@
 
 #include "../corvid/concurrency/timeout_sweeper.h"
 #include "../corvid/meta/fixed_function.h"
+#include "../corvid/infra.h"
 
 #include "catch2_main.h"
 
@@ -25,6 +26,7 @@
 
 using namespace std::chrono_literals;
 using namespace corvid::concurrency;
+using namespace corvid::infra;
 
 using sweeper = timeout_sweeper<>;
 using tp = sweeper::time_point_t;
