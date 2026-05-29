@@ -402,9 +402,10 @@ public:
         return false;
       const bool ok1 = router_.add_session(original_dcid_, session_.self());
       const bool ok2 = router_.add_session(scid_, session_.self());
-      if (!drain_then_close(now)) return session_.close() && false;
+      if (!ok1 || !ok2 || !drain_then_close(now))
+        return session_.close() && false;
       arm_expiry();
-      return ok1 && ok2;
+      return true;
     }
 
     // Loop-thread half of client-side registration: pick a random Initial DCID
@@ -421,10 +422,10 @@ public:
       if (!conn().init(initial_dcid, scid_, router_.local_endpoint(), peer_,
               key_t{}, now))
         return false;
-      const bool ok = router_.add_session(scid_, session_.self());
+      if (!router_.add_session(scid_, session_.self())) return false;
       if (!drain_then_close(now)) return session_.close() && false;
       arm_expiry();
-      return ok;
+      return true;
     }
 
     // Run the upper-plugin drain, then emit a CONNECTION_CLOSE if one was
