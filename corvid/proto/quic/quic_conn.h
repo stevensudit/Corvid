@@ -424,6 +424,9 @@ public:
       const key_t& original_dcid, time_point_t now) noexcept {
     if (!ssl_ || !ossl_ctx_) return false;
     if (conn_) return false;
+    // Cascade failure in the unlikely event that `RAND_bytes` fails.
+    if (!dcid || !scid) return false;
+    if (role_ == connection_role::server && !original_dcid) return false;
 
     ngtcp2_path_storage_init(&path_storage_, local.as_sockaddr_ptr(),
         local.sockaddr_size(), peer.as_sockaddr_ptr(), peer.sockaddr_size(),
