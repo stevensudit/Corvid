@@ -15,65 +15,161 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 #pragma once
-#include "containers_shared.h"
-
+#include <cstdint>
+#include <exception>
 #include <type_traits>
 #include <utility>
 
+#include "../meta/maybe.h"
+#include "containers_shared.h"
+
 namespace corvid { inline namespace container { inline namespace scope_guards {
 
-// RAII helper that invokes a callable when leaving the current scope.
+// Scope guards
 //
-// Placeholder for
-// https://www.en.cppreference.com/w/cpp/experimental/scope_exit.html.
-template<typename EF>
-class [[nodiscard]] scope_exit {
-public:
+// RAII helpers that run a callable on scope exit, either always
+// (`scope_exit`), only on an exceptional exit (`scope_fail`), or only on a
+// normal exit (`scope_success`).
+//
+//  These are placeholders for the `std::experimental::scope_exit`,
+//  `std::experimental::scope_fail`, and `std::experimental::scope_success`,
+//  which are not only experimental, but currently unavailable in libcpp.
+//
+// https://en.cppreference.com/cpp/experimental/scope_success.
+
+namespace details {
+
+#pragma region scope_kind
+
+// Which scope-exit policy a `scope_guard` implements: run always, only on an
+// exceptional exit, or only on a normal exit.
+enum class scope_kind : std::uint8_t { exit, fail, success };
+
+#pragma endregion
+#pragma region scope_guard
+
+// Combined implementation for the three scope guards, parameterized on the
+// exit-function type `EF` and the policy `Kind`. The public names (scope_exit,
+// scope_fail, scope_success) are thin derived classes that pin `Kind`, so all
+// of the policy-dependent logic lives here in one place.
+template<typename EF, scope_kind Kind>
+class scope_guard {
+#pragma region Policy
+
   static_assert(std::is_object_v<EF>,
-      "scope_exit requires EF to be an object type");
+      "scope guard requires EF to be an object type");
   static_assert(!std::is_reference_v<EF>,
-      "scope_exit requires EF to be stored by value");
+      "scope guard requires EF to be stored by value");
   static_assert(std::is_invocable_v<EF&>,
-      "scope_exit requires EF to be invocable");
+      "scope guard requires EF to be invocable");
+  static constexpr bool counts_exceptions_v = (Kind != scope_kind::exit);
+  using exception_count_t = maybe_t<int, counts_exceptions_v>;
 
+#pragma endregion
+#pragma region Construction
+public:
   template<typename Fn>
-  requires(!std::is_same_v<std::remove_cvref_t<Fn>, scope_exit> &&
+  requires(!std::is_same_v<std::remove_cvref_t<Fn>, scope_guard> &&
            std::is_constructible_v<EF, Fn>)
-  explicit scope_exit(Fn&& fn) noexcept(
+  explicit scope_guard(Fn&& fn) noexcept(
       std::is_nothrow_constructible_v<EF, Fn>)
-      : exit_function_(std::forward<Fn>(fn)) {}
-
-  ~scope_exit() {
-    try_or_terminate([&] {
-      if (active_) exit_function_();
-      return true;
-    });
+      : exit_function_(std::forward<Fn>(fn)) {
+    if constexpr (counts_exceptions_v)
+      uncaught_on_entry_ = std::uncaught_exceptions();
   }
 
-  scope_exit(const scope_exit&) = delete;
-  scope_exit& operator=(const scope_exit&) = delete;
-  scope_exit& operator=(scope_exit&&) = delete;
+  scope_guard(const scope_guard&) = delete;
+  scope_guard& operator=(const scope_guard&) = delete;
+  scope_guard& operator=(scope_guard&&) = delete;
 
-  scope_exit(scope_exit&& other) noexcept(
+  scope_guard(scope_guard&& other) noexcept(
       std::is_nothrow_move_constructible_v<EF> ||
       std::is_nothrow_copy_constructible_v<EF>)
       : exit_function_(std::move_if_noexcept(other.exit_function_)),
-        active_(std::exchange(other.active_, false)) {}
+        active_(std::exchange(other.active_, false)),
+        uncaught_on_entry_(other.uncaught_on_entry_) {}
 
+#pragma endregion
+#pragma region Destruction
+
+  // The `exit` and `fail` cases may run while an exception is unwinding, so a
+  // throw there terminates. success runs only on the normal path, so it is
+  // conditionally noexcept and lets a throwing exit function propagate.
+  ~scope_guard() noexcept(
+      Kind != scope_kind::success || noexcept(std::declval<EF&>()())) {
+    if (!active_) return;
+    if constexpr (Kind == scope_kind::exit)
+      exit_function_();
+    else if constexpr (Kind == scope_kind::fail) {
+      if (std::uncaught_exceptions() > uncaught_on_entry_) exit_function_();
+    } else {
+      if (std::uncaught_exceptions() <= uncaught_on_entry_) exit_function_();
+    }
+  }
+
+#pragma endregion
+#pragma region Accessors
+
+  // Disarm the guard so the exit function will not run.
   void release() noexcept { active_ = false; }
 
+#pragma endregion
+#pragma region Data members
 private:
   EF exit_function_;
   bool active_{true};
+  [[no_unique_address]] exception_count_t uncaught_on_entry_;
+
+#pragma endregion
+};
+
+#pragma endregion
+
+} // namespace details
+
+#pragma region scope_exit
+
+// Always invokes on leaving current scope.
+template<typename EF>
+class [[nodiscard]]
+scope_exit: public details::scope_guard<EF, details::scope_kind::exit> {
+public:
+  using details::scope_guard<EF, details::scope_kind::exit>::scope_guard;
 };
 
 template<typename EF>
-[[nodiscard]] auto make_scope_exit(EF&& fn) noexcept(
-    noexcept(scope_exit<std::remove_cvref_t<EF>>(std::forward<EF>(fn)))) {
-  return scope_exit<std::remove_cvref_t<EF>>(std::forward<EF>(fn));
-}
+scope_exit(EF) -> scope_exit<EF>;
+
+#pragma endregion
+#pragma region scope_fail
+
+// Only invokes on leaving current scope via an exception.
+template<typename EF>
+class [[nodiscard]]
+scope_fail: public details::scope_guard<EF, details::scope_kind::fail> {
+public:
+  using details::scope_guard<EF, details::scope_kind::fail>::scope_guard;
+};
 
 template<typename EF>
-scope_exit(EF) -> scope_exit<EF>;
+scope_fail(EF) -> scope_fail<EF>;
+
+#pragma endregion
+#pragma region scope_success
+
+// Only invokes on leaving current scope normally.
+//
+// Note that the destructor is only conditionally noexcept.
+template<typename EF>
+class [[nodiscard]]
+scope_success: public details::scope_guard<EF, details::scope_kind::success> {
+public:
+  using details::scope_guard<EF, details::scope_kind::success>::scope_guard;
+};
+
+template<typename EF>
+scope_success(EF) -> scope_success<EF>;
+
+#pragma endregion
 
 }}} // namespace corvid::container::scope_guards
