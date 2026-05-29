@@ -34,6 +34,7 @@
 #include "../../enums/bool_enums.h"
 #include "../../concurrency/timeouts.h"
 #include "../../infra/exception_wrappers.h"
+#include "../../infra/log.h"
 #include "../../strings/conversion.h"
 #include "../io_uring/iou_buffer.h"
 
@@ -737,9 +738,10 @@ private:
   static void
   on_rand(uint8_t* dest, size_t destlen, const ngtcp2_rand_ctx*) noexcept {
     if (destlen > static_cast<size_t>(std::numeric_limits<int>::max()))
-      std::terminate();
+      log::fatal("on_rand: destlen {} exceeds int max", destlen);
 
-    if (RAND_bytes(dest, static_cast<int>(destlen)) != 1) std::terminate();
+    if (RAND_bytes(dest, static_cast<int>(destlen)) != 1)
+      log::fatal("on_rand: RAND_bytes failed");
   }
 
   // CIDs must be unpredictable per RFC 9000 sec. 5.1, so fill with
@@ -1016,10 +1018,17 @@ private:
   }
 
   // One-time process-wide initialization for the ngtcp2 OpenSSL backend.
-  // Documented as optional but strongly recommended for performance.
+  // Documented as optional but strongly recommended for performance. A
+  // failure here means the crypto backend can't function (FIPS provider
+  // load failure, OpenSSL provider mismatch, sandbox without urandom,
+  // etc.) and every subsequent ngtcp2_crypto_* call would either crash
+  // inside libssl or report `NGTCP2_ERR_INTERNAL` with no upstream
+  // context. No recovery is possible: log and terminate.
   static void ensure_crypto_init() noexcept {
     [[maybe_unused]] static const int once = [] {
-      return ngtcp2_crypto_ossl_init();
+      const int rv = ngtcp2_crypto_ossl_init();
+      if (rv != 0) log::fatal("ngtcp2_crypto_ossl_init failed (rv={})", rv);
+      return rv;
     }();
   }
 

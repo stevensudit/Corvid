@@ -16,6 +16,7 @@
 // limitations under the License.
 #pragma once
 #include <chrono>
+#include <exception>
 #include <format>
 #include <iostream>
 #include <mutex>
@@ -101,50 +102,67 @@ public:
 #pragma endregion
 #pragma region Emit
 
+  // As a convenience, all of these methods return `false`.
+
   template<typename... Args>
-  void trace(const format_with_loc<std::type_identity_t<Args>...>& msg,
+  bool trace(const format_with_loc<std::type_identity_t<Args>...>& msg,
       Args... args) {
-    emit(log_level::trace, msg, args...);
+    return emit(log_level::trace, msg, args...);
   }
 
   template<typename... Args>
-  void debug(const format_with_loc<std::type_identity_t<Args>...>& msg,
+  bool debug(const format_with_loc<std::type_identity_t<Args>...>& msg,
       Args... args) {
-    emit(log_level::debug, msg, args...);
+    return emit(log_level::debug, msg, args...);
   }
 
   template<typename... Args>
-  void info(const format_with_loc<std::type_identity_t<Args>...>& msg,
+  bool info(const format_with_loc<std::type_identity_t<Args>...>& msg,
       Args... args) {
-    emit(log_level::info, msg, args...);
+    return emit(log_level::info, msg, args...);
   }
 
   template<typename... Args>
-  void warn(const format_with_loc<std::type_identity_t<Args>...>& msg,
+  bool warn(const format_with_loc<std::type_identity_t<Args>...>& msg,
       Args... args) {
-    emit(log_level::warn, msg, args...);
+    return emit(log_level::warn, msg, args...);
   }
 
   template<typename... Args>
-  void error(const format_with_loc<std::type_identity_t<Args>...>& msg,
+  bool error(const format_with_loc<std::type_identity_t<Args>...>& msg,
+      Args... args) {
+    return emit(log_level::error, msg, args...);
+  }
+
+  template<typename... Args>
+  [[noreturn]] void
+  fatal(const format_with_loc<std::type_identity_t<Args>...>& msg,
       Args... args) {
     emit(log_level::error, msg, args...);
+    terminate();
+  }
+
+  [[noreturn]] void terminate() {
+    std::scoped_lock lock{mutex_};
+    (*out_) << "Terminating due to previous fatal log message.\n"
+            << std::flush;
+    std::terminate();
   }
 
 #pragma endregion
 #pragma region Helpers
 private:
   template<typename... Args>
-  void emit(log_level lvl, const format_with_loc<Args...>& msg, Args... args) {
-    if (!enabled(lvl)) return;
+  bool emit(log_level lvl, const format_with_loc<Args...>& msg, Args... args) {
+    if (!enabled(lvl)) return false;
     // `args` are lvalues in this body; `std::format`'s `Args&&` would deduce
     // them as `T&` and reject `msg.fmt` (typed without refs). Cast to xvalue
     // so deduction collapses to the value type.
     auto body = std::format(msg.fmt, std::move(args)...);
-    write_line(lvl, msg.loc, body);
+    return write_line(lvl, msg.loc, body) && false;
   }
 
-  void write_line(log_level lvl, const std::source_location& loc,
+  bool write_line(log_level lvl, const std::source_location& loc,
       std::string_view body) {
     const auto now = std::chrono::time_point_cast<std::chrono::milliseconds>(
         system_now_clock::now());
@@ -157,6 +175,7 @@ private:
     (*out_) << std::format("{:%FT%T}", now) << "Z ["
             << k_level_initials[static_cast<size_t>(lvl)] << ' '
             << loc.file_name() << ':' << loc.line() << "] " << body << '\n';
+    return true;
   }
 
 #pragma endregion
@@ -188,35 +207,46 @@ public:
 #pragma endregion
 #pragma region Emit
 
+  // As a convenience, all of these methods return `false`.
+
   template<typename... Args>
-  static void trace(const format_with_loc<std::type_identity_t<Args>...>& msg,
+  static bool trace(const format_with_loc<std::type_identity_t<Args>...>& msg,
       Args... args) {
-    singleton().trace(msg, args...);
+    return singleton().trace(msg, args...);
   }
 
   template<typename... Args>
-  static void debug(const format_with_loc<std::type_identity_t<Args>...>& msg,
+  static bool debug(const format_with_loc<std::type_identity_t<Args>...>& msg,
       Args... args) {
-    singleton().debug(msg, args...);
+    return singleton().debug(msg, args...);
   }
 
   template<typename... Args>
-  static void info(const format_with_loc<std::type_identity_t<Args>...>& msg,
+  static bool info(const format_with_loc<std::type_identity_t<Args>...>& msg,
       Args... args) {
-    singleton().info(msg, args...);
+    return singleton().info(msg, args...);
   }
 
   template<typename... Args>
-  static void warn(const format_with_loc<std::type_identity_t<Args>...>& msg,
+  static bool warn(const format_with_loc<std::type_identity_t<Args>...>& msg,
       Args... args) {
-    singleton().warn(msg, args...);
+    return singleton().warn(msg, args...);
   }
 
   template<typename... Args>
-  static void error(const format_with_loc<std::type_identity_t<Args>...>& msg,
+  static bool error(const format_with_loc<std::type_identity_t<Args>...>& msg,
       Args... args) {
-    singleton().error(msg, args...);
+    return singleton().error(msg, args...);
   }
+
+  template<typename... Args>
+  [[noreturn]] static void
+  fatal(const format_with_loc<std::type_identity_t<Args>...>& msg,
+      Args... args) {
+    singleton().fatal(msg, args...);
+  }
+
+  [[noreturn]] static void terminate() { singleton().terminate(); }
 
 #pragma endregion
 };

@@ -1918,7 +1918,8 @@ private:
       for (size_t retry = 0; retry < 10 && state->loop.use_count() != 1;
           ++retry)
         std::this_thread::sleep_for(1s);
-      if (state->loop.use_count() != 1) std::terminate();
+      if (state->loop.use_count() != 1)
+        log::fatal("Impossible loop use count: {}", state->loop.use_count());
 
       if (std::scoped_lock lock{state->startup_mutex}; true)
         state->loop.reset();
