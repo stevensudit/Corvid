@@ -19,10 +19,13 @@
 #include "catch2_main.h"
 
 #include <sstream>
+#include <stdexcept>
 
 using corvid::infra::log;
 using corvid::infra::log_level;
 using corvid::infra::logger;
+using corvid::infra::rethrow_policy;
+using corvid::infra::try_or_log;
 
 // NOLINTBEGIN(readability-function-cognitive-complexity)
 
@@ -150,6 +153,65 @@ TEST_CASE("log static facade forwards to its singleton", "[infra][log]") {
   auto out = captured.str();
   CHECK(out.contains("[T "));
   CHECK(out.contains("static trace x=7"));
+}
+
+TEST_CASE("try_or_log swallows and returns on_throw by default",
+    "[infra][exception]") {
+  std::stringstream sink;
+  log::singleton().set_stream(sink);
+
+  CHECK(
+      try_or_log([]() -> bool { throw std::runtime_error("boom"); }) == false);
+  CHECK(
+      try_or_log([]() -> int { throw std::runtime_error("boom"); }, 42) == 42);
+  CHECK(try_or_log([] { return 7; }, 0) == 7);
+
+  log::singleton().set_stream(std::cerr);
+  CHECK(sink.str().contains("boom"));
+}
+
+TEST_CASE("try_or_log with attempt rethrows when not unwinding",
+    "[infra][exception]") {
+  std::stringstream sink;
+  log::singleton().set_stream(sink);
+
+  CHECK_THROWS_AS(try_or_log<rethrow_policy::attempt>([]() -> bool {
+    throw std::runtime_error("rethrown");
+  }),
+      std::runtime_error);
+
+  log::singleton().set_stream(std::cerr);
+  CHECK(sink.str().contains("rethrown"));
+}
+
+TEST_CASE("try_or_log with attempt swallows mid-unwind",
+    "[infra][exception]") {
+  std::stringstream sink;
+  log::singleton().set_stream(sink);
+
+  // A destructor invoked while `outer` unwinds calls `try_or_log<attempt>`,
+  // whose `fn` throws. Because `std::uncaught_exceptions()` is nonzero, it
+  // must not rethrow (that would terminate); it logs and returns `on_throw`,
+  // so the destructor completes and `outer` keeps propagating.
+  bool swallowed = false;
+  struct guard {
+    bool& swallowed;
+    ~guard() noexcept(false) {
+      swallowed = try_or_log<rethrow_policy::attempt>(
+          []() -> bool { throw std::runtime_error("inner"); }, true);
+    }
+  };
+
+  CHECK_THROWS_AS(
+      [&] {
+        guard g{swallowed};
+        throw std::logic_error("outer");
+      }(),
+      std::logic_error);
+  CHECK(swallowed);
+
+  log::singleton().set_stream(std::cerr);
+  CHECK(sink.str().contains("inner"));
 }
 
 // NOLINTEND(readability-function-cognitive-complexity)
