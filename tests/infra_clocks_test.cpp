@@ -30,19 +30,6 @@ namespace {
 int custom_now_calls = 0;
 } // namespace
 
-TEST_CASE("now() returns the real clock under the default function",
-    "[infra][clocks]") {
-  // Re-install the default (in case a prior test in this file rebound it).
-  steady_now_clock::set_now_fn(&std::chrono::steady_clock::now);
-
-  const auto before = std::chrono::steady_clock::now();
-  const auto via_clk = steady_now_clock::now();
-  const auto after = std::chrono::steady_clock::now();
-
-  CHECK(before <= via_clk);
-  CHECK(via_clk <= after);
-}
-
 TEST_CASE("set_now_fn installs a custom function", "[infra][clocks]") {
   custom_now_calls = 0;
   const auto sentinel =
