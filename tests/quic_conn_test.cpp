@@ -511,6 +511,11 @@ TEST_CASE("quic_conn request_close + write_connection_close ships a packet",
   // No close pending after a normal handshake.
   CHECK_FALSE(client.has_pending_close());
 
+  // A live, post-handshake conn is not winding down, and exposes a positive
+  // PTO for the 3*PTO close-period reaper to scale off of.
+  CHECK_FALSE(client.in_close_period());
+  CHECK(client.pto().count() > 0);
+
   // Request a graceful application close. The reason's storage outlives
   // the emit (it's a string literal).
   constexpr std::string_view reason = "test close";
@@ -525,6 +530,9 @@ TEST_CASE("quic_conn request_close + write_connection_close ships a packet",
   CHECK_FALSE(close_buf.payload_bytes().empty());
   CHECK_FALSE(client.has_pending_close());
 
+  // Emitting the CONNECTION_CLOSE puts the client into the closing period.
+  CHECK(client.in_close_period());
+
   // A second call with no stash is a no-op: returns ok and leaves the
   // fresh buffer's empty payload alone.
   std::array<std::byte, 1500> retry_backing{};
@@ -538,6 +546,10 @@ TEST_CASE("quic_conn request_close + write_connection_close ships a packet",
   // are acceptable signals that the close reached the peer.
   const auto server_rv = server.read_pkt(close_buf.payload_bytes(), now_tp());
   CHECK((server_rv == quic_status::ok || is_soft_error(server_rv)));
+
+  // Receiving the peer's CONNECTION_CLOSE puts the server into the draining
+  // period.
+  CHECK(server.in_close_period());
 }
 
 TEST_CASE(

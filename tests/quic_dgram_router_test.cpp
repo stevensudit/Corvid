@@ -335,4 +335,153 @@ TEST_CASE(
         std::memory_order::acquire);
   }));
 }
+
+// Counts live server-side upper plugins, and counts server handshake
+// completions. A server session constructs its plugin on creation and destroys
+// it on reap (when the router drops its last reference), so
+// `g_server_plugins_live` returning to zero after a close is a witness that
+// the session was actually torn down, not merely marked closed.
+namespace {
+std::atomic<int> g_server_plugins_live{0};
+std::atomic<int> g_server_hs{0};
+
+struct reap_probe_plugin: quic_no_op_plugin {
+  explicit reap_probe_plugin(quic_session_io& s) noexcept
+      : quic_no_op_plugin{s} {
+    g_server_plugins_live.fetch_add(1, std::memory_order::relaxed);
+  }
+  ~reap_probe_plugin() override {
+    g_server_plugins_live.fetch_sub(1, std::memory_order::relaxed);
+  }
+  bool on_handshake_completed() noexcept override {
+    g_server_hs.fetch_add(1, std::memory_order::relaxed);
+    return true;
+  }
+};
+} // namespace
+
+TEST_CASE(
+    "quic_dgram_protocol reaps a draining server session after a "
+    "client-initiated close",
+    "[quic][router][close][.slow]") {
+  // Client-initiated shutdown: drive a full handshake by hand against the live
+  // server router, then ship a real CONNECTION_CLOSE. The server session
+  // enters the draining period -- the path where `handle_recv` previously
+  // returned without rearming. With the 3*PTO reaper the session is torn down
+  // shortly after; without it, and with no idle timeout configured
+  // (`max_idle_timeout` defaults to 0), the draining session would linger
+  // indefinitely. Teardown is witnessed by the server plugin's destructor.
+  //
+  // Tagged [.slow]: the reaper deadline is a real 3*PTO wall-clock wait, so
+  // this is excluded from the default fast sweep.
+
+  g_server_plugins_live.store(0, std::memory_order::relaxed);
+
+  using protocol_t = quic_dgram_protocol<reap_probe_plugin>;
+
+  self_signed_cert ck;
+  REQUIRE(ck);
+  quic_ssl_ctx server_tls{ck, handshake_alpn};
+  REQUIRE(server_tls);
+  quic_ssl_ctx client_tls{handshake_alpn};
+  REQUIRE(client_tls);
+
+  iou_loop_runner runner;
+
+  auto server_router =
+      iou_dgram_router_handle<protocol_t::router_plugin>::bind(*runner.loop(),
+          net_endpoint::loopback_v4(), shot_type::multi, server_tls);
+  CHECK(server_router);
+  const auto server_addr = server_router->local_endpoint();
+  REQUIRE_FALSE(server_addr.empty());
+
+  // Hand-driven client over a raw blocking UDP socket, mirroring the
+  // server-side handshake test above.
+  auto client_sock = net_socket::create_for(net_endpoint::loopback_v4(),
+      execution::blocking, message_style::datagram);
+  REQUIRE(client_sock);
+  REQUIRE(client_sock.bind(net_endpoint::loopback_v4()));
+  const timeval rcv_timeout{.tv_sec = 0, .tv_usec = 50000};
+  REQUIRE(client_sock.set_option(socket_option::rcvtimeo, rcv_timeout));
+  const net_endpoint client_addr{client_sock};
+
+  quic_conn client{client_tls};
+  REQUIRE(client.init(quic_cid{client_dcid_bytes}, quic_cid{client_scid_bytes},
+      client_addr, server_addr, quic_cid{}, now_tp()));
+  REQUIRE(client);
+
+  struct handshake_signal: quic_conn_handlers {
+    bool done{};
+    bool on_handshake_completed() noexcept override {
+      done = true;
+      return true;
+    }
+  } client_signal;
+  client.set_handlers(&client_signal);
+
+  std::array<std::byte, 1500> backing{};
+  std::array<uint8_t, 1500> recv_buf{};
+  const auto server_sockaddr = server_addr.as_sockaddr();
+
+  auto pump_out = [&] {
+    for (int safety = 0; safety < 32; ++safety) {
+      auto buf = iouring::iou_buffer::make_synthetic_write(
+          {backing.data(), backing.size()});
+      if (client.write_pkt(buf, now_tp()) != quic_status::ok) break;
+      const auto payload = buf.payload_bytes();
+      if (payload.empty()) break;
+      const auto sent = ::sendto(client_sock.handle(), payload.data(),
+          payload.size(), 0, server_sockaddr.first, server_sockaddr.second);
+      // NOLINTNEXTLINE(modernize-use-integer-sign-comparison)
+      REQUIRE(sent == static_cast<ssize_t>(payload.size()));
+    }
+  };
+  auto pump_in = [&] {
+    for (int safety = 0; safety < 32; ++safety) {
+      const auto got = ::recvfrom(client_sock.handle(), recv_buf.data(),
+          recv_buf.size(), 0, nullptr, nullptr);
+      if (got <= 0) break;
+      REQUIRE(client.read_pkt({recv_buf.data(), static_cast<size_t>(got)},
+                  now_tp()) == quic_status::ok);
+    }
+  };
+
+  // Pump until the *server* confirms its handshake, not just the client: the
+  // server needs its 1-RTT read keys installed before it can decrypt the
+  // application CONNECTION_CLOSE below. The server runs on the loop thread, so
+  // its completion lands asynchronously in `g_server_hs`.
+  for (int iter = 0; iter < 64; ++iter) {
+    pump_out();
+    pump_in();
+    if (client_signal.done &&
+        g_server_hs.load(std::memory_order::relaxed) >= 1)
+      break;
+  }
+  REQUIRE(client_signal.done);
+  REQUIRE(g_server_hs.load(std::memory_order::relaxed) == 1);
+  CHECK(g_server_plugins_live.load(std::memory_order::relaxed) == 1);
+
+  // Ship a real CONNECTION_CLOSE to the server, putting it into draining.
+  client.request_close(quic_close_kind::application, 0x0, {});
+  auto close_buf = iouring::iou_buffer::make_synthetic_write(
+      {backing.data(), backing.size()});
+  REQUIRE(
+      client.write_connection_close(close_buf, now_tp()) == quic_status::ok);
+  const auto close_payload = close_buf.payload_bytes();
+  REQUIRE_FALSE(close_payload.empty());
+  const auto sent = ::sendto(client_sock.handle(), close_payload.data(),
+      close_payload.size(), 0, server_sockaddr.first, server_sockaddr.second);
+  // NOLINTNEXTLINE(modernize-use-integer-sign-comparison)
+  REQUIRE(sent == static_cast<ssize_t>(close_payload.size()));
+
+  // The server enters draining and the 3*PTO reaper tears the session down,
+  // dropping the live-plugin count back to zero. Pre-fix, with no idle timeout
+  // configured (`max_idle_timeout` defaults to 0), the draining session has
+  // no reaper at all and lingers forever, so this never reaches zero.
+  CHECK(WaitFor(
+      [] {
+        return g_server_plugins_live.load(std::memory_order::relaxed) == 0;
+      },
+      5000ms));
+}
 // NOLINTEND(readability-function-cognitive-complexity)

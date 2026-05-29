@@ -719,6 +719,22 @@ public:
         steady_now_clock::as_nanoseconds(now)));
   }
 
+  // True once ngtcp2 has entered the closing (we sent CONNECTION_CLOSE) or
+  // draining (peer sent it) period. In both, no further transmission is
+  // allowed; the application owns the RFC 9000 sec. 10.2 wind-down timer,
+  // since ngtcp2 does not fold that period into `expiry`.
+  [[nodiscard]] bool in_close_period() const noexcept {
+    return ngtcp2_conn_in_closing_period(conn_.get()) ||
+           ngtcp2_conn_in_draining_period(conn_.get());
+  }
+
+  // Current Probe Timeout. The wind-down period after entering closing /
+  // draining is 3*PTO (RFC 9000 sec. 10.2). This is expected to be much
+  // shorter than the idle timeout.
+  [[nodiscard]] std::chrono::nanoseconds pto() const noexcept {
+    return std::chrono::nanoseconds{ngtcp2_conn_get_pto(conn_.get())};
+  }
+
 #pragma endregion
 #pragma region Handlers
 private:

@@ -84,6 +84,9 @@ public:
       uint64_t accepted = 0;
       const auto status = io_.conn().writev_stream(quic_stream_id::none, {},
           out, accepted, write_stream_flags::none, now);
+      // Draining/closing is a connection-level state, so give up.
+      if (status == quic_status::draining || status == quic_status::closing)
+        return true;
       if (status != quic_status::ok) return false;
       if (out.payload_bytes().empty()) return true;
       (void)io_.send_packet(std::move(out));
@@ -318,7 +321,12 @@ public:
       assert(router_.loop().is_loop_thread());
       const auto now = steady_now_clock::now();
       const auto rv = conn().read_pkt(buf.payload_bytes(), now);
-      if (rv != quic_status::ok) return is_soft_error(rv);
+      if (rv != quic_status::ok) {
+        if (!is_soft_error(rv)) return false;
+        // Switch to short timeout if we're closing.
+        if (conn().in_close_period()) arm_expiry();
+        return true;
+      }
       const auto ok = drain_then_maybe_close(now);
       arm_expiry();
       return ok;
@@ -367,22 +375,32 @@ public:
     // `drain` flushes that queue. If either reports a hard error the
     // connection is corrupt, so close the session and drop the sweeper entry
     // rather than asking a broken conn for its next deadline.
+    //
+    // The 3*PTO wind-down is an application-level deadline ngtcp2 does not
+    // track, so reaching `close_deadline_` is the session's own cue to reap;
+    // ngtcp2's `handle_expiry` would still report `ok` there (idle is far
+    // off). Both reschedule points fold `close_deadline_` into the `min` so
+    // the sweeper actually wakes at it. While the conn is live the deadline is
+    // `max()` and all three reduce to the plain ngtcp2 expiry.
     [[nodiscard]] time_point_t on_expiry_sweep(time_point_t fired_expire) {
       if (fired_expire != registered_expiry_) return {};
       const auto now = steady_now_clock::now();
+      if (now >= close_deadline_) {
+        (void)session_.close();
+        return {};
+      }
       const auto target = conn().expiry();
       if (target > now) {
-        registered_expiry_ = target;
-        return target;
+        registered_expiry_ = std::min(target, close_deadline_);
+        return registered_expiry_;
       }
       if (conn().handle_expiry(now) != quic_status::ok || !plugin_.drain(now))
       {
         (void)session_.close();
         return {};
       }
-      const auto next = conn().expiry();
-      registered_expiry_ = next;
-      return next;
+      registered_expiry_ = std::min(conn().expiry(), close_deadline_);
+      return registered_expiry_;
     }
 
 #pragma endregion
@@ -446,17 +464,32 @@ public:
       return true;
     }
 
-    // Schedule (or reschedule) the expiry-sweeper entry. The sweeper has no
-    // cancel API, so an existing entry that was scheduled at a later deadline
-    // becomes stale and self-cancels on its next fire (via the `fired_expire
-    // != registered_expiry_` check above). Skipping the schedule when the new
-    // target is the same as the already-registered one (the common case across
-    // consecutive packets in a flight) avoids pointless heap churn.
-    void arm_expiry() {
-      const auto target = conn().expiry();
-      if (target == registered_expiry_) return;
+    // Schedule (or reschedule) the expiry-sweeper entry at `min(ngtcp2 expiry,
+    // close_deadline_)`. The sweeper has no cancel API, so an existing entry
+    // that was scheduled at a later deadline becomes stale and self-cancels on
+    // its next fire (via the `fired_expire != registered_expiry_` check
+    // above). Skipping the schedule when the new target is the same as the
+    // already-registered one (the common case across consecutive packets in a
+    // flight) avoids pointless heap churn.
+    //
+    // The first time the conn is seen in a closing/draining period, latch the
+    // RFC 9000 sec. 10.2 3*PTO wind-down deadline; `close_deadline_` stays
+    // `time_point_t::max()` (and the `min` stays transparent) while the conn
+    // is live.
+    bool arm_expiry() {
+      // Detect the transition into the closing/draining period. On that turn
+      // we must force a fresh schedule even if `target` matches the
+      // already-registered deadline: the `target == registered_expiry_`
+      // shortcut below assumes a live sweeper entry already sits at that
+      // deadline, but the reaper needs its own guaranteed-live entry to fire.
+      const bool entering =
+          close_deadline_ == time_point_t::max() && conn().in_close_period();
+      if (entering)
+        close_deadline_ = steady_now_clock::now() + 3 * conn().pto();
+      const auto target = std::min(conn().expiry(), close_deadline_);
+      if (!entering && target == registered_expiry_) return false;
       registered_expiry_ = target;
-      if (target == time_point_t::max()) return;
+      if (target == time_point_t::max()) return false;
       (void)router_.loop().timeouts().schedule(target,
           [weak = std::weak_ptr<session_t>{session_.self()}](
               time_point_t fired_expire) -> time_point_t {
@@ -466,6 +499,7 @@ public:
                 [&] { return self->plugin().on_expiry_sweep(fired_expire); },
                 time_point_t{});
           });
+      return true;
     }
 
     // RFC 9000 sec. 5.1: CIDs must be unpredictable. Random bytes from OpenSSL
@@ -489,6 +523,11 @@ public:
     key_t scid_;
     quic_plugin_t plugin_;
     time_point_t registered_expiry_;
+
+    // Deadline at which a closing/draining session is reaped (RFC 9000 sec.
+    // 10.2, 3*PTO). `max()` while the conn is live; latched once on entry to
+    // the close period by `arm_expiry` and never pushed back.
+    time_point_t close_deadline_{time_point_t::max()};
 
 #pragma endregion
   };

@@ -428,9 +428,11 @@ public:
     assert(is_loop_thread());
     (void)execute_post_queue();
 
-    // Simultaneously submit SQEs and wait for CQEs.
+    // Simultaneously submit SQEs and wait for CQEs. If no actual work ready,
+    // times out, allowing posted callbacks to run in the next loop.
     pending_sqe_count_ = 0;
     auto res = ring_.submit_and_wait_timeout(timeout);
+    if (!res.ok() && res.err() == EC::time) res = iou_res{};
     if (res.is_soft_error()) return 0;
     res.throw_if_error("submit_and_wait_timeout");
 

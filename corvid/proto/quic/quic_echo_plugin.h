@@ -118,6 +118,9 @@ public:
   // that keeps having bytes accepted into ngtcp2's queue can starve
   // others. Acceptable for the echo scenario; revisit if a real protocol
   // needs strict fairness.
+  //
+  // TODO: Consider starvation avoidance, perhaps with rotation so we
+  // round-robin.
   [[nodiscard]] bool drain(time_point_t now) {
     for (;;) {
       quic_stream_id sid = quic_stream_id::none;
@@ -138,6 +141,10 @@ public:
       uint64_t accepted = 0;
       const auto status =
           io_.conn().writev_stream(sid, iov, out, accepted, flags, now);
+      // Draining/closing is a connection-level state: ngtcp2 will emit nothing
+      // more, so this is a clean stop, not a failure.
+      if (status == quic_status::draining || status == quic_status::closing)
+        return true;
       if (status != quic_status::ok) return false;
       if (out.payload_bytes().empty()) return true;
       if (qp) qp->commit(accepted);
