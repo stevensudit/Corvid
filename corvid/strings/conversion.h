@@ -15,6 +15,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 #pragma once
+#include <cstdint>
+#include <span>
+
 #include "strings_shared.h"
 #include "trimming.h"
 #include "../enums/enum_registry.h"
@@ -247,6 +250,17 @@ constexpr std::string enum_as_string(ScopedEnum auto t) {
 // These had to be separated out so as to manage dependencies.
 
 } // namespace cvt_enum
+
+inline namespace cvt_bytes {
+
+// Reinterpret the bytes of `sv` as a span of `char_t`.
+template<typename char_t = uint8_t>
+[[nodiscard]] constexpr std::span<const char_t>
+as_byte_span(std::string_view sv) noexcept {
+  return {reinterpret_cast<const char_t*>(sv.data()), sv.size()};
+}
+
+} // namespace cvt_bytes
 
 inline namespace cvt_stream {
 

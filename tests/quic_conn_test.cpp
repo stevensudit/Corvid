@@ -443,6 +443,103 @@ TEST_CASE("quic_conn handler returning false aborts read_pkt",
   CHECK_FALSE(server_trace.saw("handshake_completed"));
 }
 
+TEST_CASE("quic_conn request_close + write_connection_close ships a packet",
+    "[quic][conn]") {
+  // After a full handshake, a `request_close` followed by
+  // `write_connection_close` must ship a CONNECTION_CLOSE packet and
+  // clear the stash. The session's per-turn drain runs the same pair
+  // after each read_pkt; if `write_connection_close` were unwired (the
+  // pre-fix state of the world) ngtcp2 would never emit the close
+  // packet and the peer would idle-time out instead of seeing a clean
+  // shutdown.
+
+  self_signed_cert ck;
+  REQUIRE(ck);
+  quic_ssl_ctx server_tls{ck, alpn};
+  quic_ssl_ctx client_tls{alpn};
+  REQUIRE(server_tls);
+  REQUIRE(client_tls);
+
+  const auto server_loop = bound_loopback::make_v4();
+  const auto client_loop = bound_loopback::make_v4();
+  REQUIRE(server_loop);
+  REQUIRE(client_loop);
+
+  const quic_cid client_chosen_dcid{dcid_bytes};
+  const quic_cid client_scid{scid_bytes};
+  quic_conn client{client_tls};
+  REQUIRE(client.init(client_chosen_dcid, client_scid, client_loop.addr,
+      server_loop.addr, quic_cid{}, now_tp()));
+
+  constexpr std::array<uint8_t, 16> server_scid_bytes{0xaa, 0xbb, 0xcc, 0xdd,
+      0xee, 0xff, 0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88, 0x99};
+  const quic_cid server_scid{server_scid_bytes};
+  quic_conn server{server_tls};
+  REQUIRE(server.init(client_scid, server_scid, server_loop.addr,
+      client_loop.addr, client_chosen_dcid, now_tp()));
+
+  trace_handlers client_trace;
+  trace_handlers server_trace;
+  client.set_handlers(&client_trace);
+  server.set_handlers(&server_trace);
+
+  std::array<std::byte, 1500> backing{};
+  auto pump = [&backing](quic_conn& from, quic_conn& to) -> bool {
+    for (int safety = 0; safety < 32; ++safety) {
+      auto buf = iouring::iou_buffer::make_synthetic_write(
+          {backing.data(), backing.size()});
+      const auto status = from.write_pkt(buf, now_tp());
+      if (status != quic_status::ok) return false;
+      const auto payload = buf.payload_bytes();
+      if (payload.empty()) return true;
+      const auto rv = to.read_pkt(payload, now_tp());
+      if (rv != quic_status::ok) return false;
+    }
+    return false;
+  };
+
+  for (int iter = 0; iter < 16; ++iter) {
+    REQUIRE(pump(client, server));
+    REQUIRE(pump(server, client));
+    if (client_trace.saw("handshake_completed") &&
+        server_trace.saw("handshake_completed"))
+      break;
+  }
+  REQUIRE(client_trace.saw("handshake_completed"));
+  REQUIRE(server_trace.saw("handshake_completed"));
+
+  // No close pending after a normal handshake.
+  CHECK_FALSE(client.has_pending_close());
+
+  // Request a graceful application close. The reason's storage outlives
+  // the emit (it's a string literal).
+  constexpr std::string_view reason = "test close";
+  client.request_close(quic_close_kind::application, 0x42, reason);
+  CHECK(client.has_pending_close());
+
+  // Emit the close packet. The stash clears on a successful emit.
+  std::array<std::byte, 1500> close_backing{};
+  auto close_buf = iouring::iou_buffer::make_synthetic_write(
+      {close_backing.data(), close_backing.size()});
+  CHECK(client.write_connection_close(close_buf, now_tp()) == quic_status::ok);
+  CHECK_FALSE(close_buf.payload_bytes().empty());
+  CHECK_FALSE(client.has_pending_close());
+
+  // A second call with no stash is a no-op: returns ok and leaves the
+  // fresh buffer's empty payload alone.
+  std::array<std::byte, 1500> retry_backing{};
+  auto retry_buf = iouring::iou_buffer::make_synthetic_write(
+      {retry_backing.data(), retry_backing.size()});
+  CHECK(client.write_connection_close(retry_buf, now_tp()) == quic_status::ok);
+  CHECK(retry_buf.payload_bytes().empty());
+
+  // Feed the close packet into the server. ngtcp2 may report ok or a
+  // soft-error (draining/closing) on receipt of CONNECTION_CLOSE; both
+  // are acceptable signals that the close reached the peer.
+  const auto server_rv = server.read_pkt(close_buf.payload_bytes(), now_tp());
+  CHECK((server_rv == quic_status::ok || is_soft_error(server_rv)));
+}
+
 #pragma region CloseKindString
 TEST_CASE("CloseKindString", "[quic]") {
   // Each named value round-trips through `enum_as_string` / `parse_enum`.

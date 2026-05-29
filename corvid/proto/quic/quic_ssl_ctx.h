@@ -26,6 +26,7 @@
 #include <openssl/x509.h>
 
 #include "../../enums/bool_enums.h"
+#include "../../strings/conversion.h"
 
 namespace corvid { inline namespace proto { namespace quic {
 
@@ -100,9 +101,9 @@ public:
     SSL_CTX_set_verify(ctx.get(), SSL_VERIFY_NONE, nullptr);
     // `SSL_CTX_set_alpn_protos` returns 0 on success, non-zero on failure
     // (one of OpenSSL's inverted-return APIs).
-    if (SSL_CTX_set_alpn_protos(ctx.get(),
-            reinterpret_cast<const uint8_t*>(alpn_wire_.data()),
-            static_cast<unsigned int>(alpn_wire_.size())) != 0)
+    const auto wire = strings::as_byte_span(alpn_wire_);
+    if (SSL_CTX_set_alpn_protos(ctx.get(), wire.data(),
+            static_cast<unsigned int>(wire.size())) != 0)
       return;
     ctx_ = std::move(ctx);
   }
@@ -133,9 +134,9 @@ private:
       void* arg) noexcept {
     auto* self = static_cast<quic_ssl_ctx*>(arg);
     unsigned char* sel = nullptr;
-    const int rv = SSL_select_next_proto(&sel, outlen,
-        reinterpret_cast<const unsigned char*>(self->alpn_wire_.data()),
-        static_cast<unsigned int>(self->alpn_wire_.size()), in, inlen);
+    const auto wire = strings::as_byte_span<unsigned char>(self->alpn_wire_);
+    const int rv = SSL_select_next_proto(&sel, outlen, wire.data(),
+        static_cast<unsigned int>(wire.size()), in, inlen);
     if (rv == OPENSSL_NPN_NEGOTIATED) {
       *out = sel;
       return SSL_TLSEXT_ERR_OK;

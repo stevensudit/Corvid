@@ -23,6 +23,8 @@
 #include <string_view>
 #include <vector>
 
+#include "../../strings/conversion.h"
+
 namespace corvid { inline namespace proto {
 
 namespace detail {
@@ -84,8 +86,7 @@ struct base_64 {
   }
 
   [[nodiscard]] static std::string encode(std::string_view bytes) {
-    return encode(std::span{reinterpret_cast<const uint8_t*>(bytes.data()),
-        bytes.size()});
+    return encode(strings::as_byte_span(bytes));
   }
 
   // Decode a Base64-encoded string (RFC 4648). Returns the decoded bytes, or

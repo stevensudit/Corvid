@@ -314,7 +314,7 @@ public:
       const auto now = steady_now_clock::now();
       const auto rv = conn().read_pkt(buf.payload_bytes(), now);
       if (rv != quic_status::ok) return is_soft_error(rv);
-      const auto ok = plugin_.drain(now);
+      const auto ok = drain_then_close(now);
       arm_expiry();
       return ok;
     }
@@ -397,7 +397,7 @@ public:
         return false;
       const bool ok1 = router_.add_session(original_dcid_, session_.self());
       const bool ok2 = router_.add_session(scid_, session_.self());
-      if (!plugin_.drain(now)) return session_.close() && false;
+      if (!drain_then_close(now)) return session_.close() && false;
       arm_expiry();
       return ok1 && ok2;
     }
@@ -417,9 +417,27 @@ public:
               key_t{}, now))
         return false;
       const bool ok = router_.add_session(scid_, session_.self());
-      if (!plugin_.drain(now)) return session_.close() && false;
+      if (!drain_then_close(now)) return session_.close() && false;
       arm_expiry();
       return ok;
+    }
+
+    // Run the upper-plugin drain, then emit a CONNECTION_CLOSE if one was
+    // requested via `quic_conn::request_close` during this turn. Drain itself
+    // stays close-agnostic: this helper is the single place the session
+    // observes `quic_conn::has_pending_close` and ships the terminal packet.
+    // Used from every drain call site (`handle_recv`, `do_register_server`,
+    // `do_register_client`) so registration-time and steady-state requests
+    // are handled the same way.
+    [[nodiscard]] bool drain_then_close(time_point_t now) {
+      if (!plugin_.drain(now)) return false;
+      if (!conn().has_pending_close()) return true;
+      auto out = borrow_send_buffer();
+      if (!out) return false;
+      if (conn().write_connection_close(out, now) != quic_status::ok)
+        return false;
+      (void)send_packet(std::move(out));
+      return true;
     }
 
     // Schedule (or reschedule) the expiry-sweeper entry. The sweeper has no

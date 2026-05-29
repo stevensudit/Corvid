@@ -34,6 +34,7 @@
 #include "../../enums/bool_enums.h"
 #include "../../concurrency/timeouts.h"
 #include "../../infra/exception_wrappers.h"
+#include "../../strings/conversion.h"
 #include "../io_uring/iou_buffer.h"
 
 #include "quic_header.h"
@@ -525,6 +526,14 @@ public:
     pending_close_ = {kind, error_code, reason};
   }
 
+  // True iff a `request_close` has been stashed and not yet shipped. The
+  // session inspects this after the upper-plugin drain returns and, if set,
+  // ships one more packet via `write_connection_close`. `quic_conn` itself
+  // does not poll this; the consumer is the session's post-drain step.
+  [[nodiscard]] bool has_pending_close() const noexcept {
+    return pending_close_.kind != quic_close_kind{};
+  }
+
 #pragma endregion
 #pragma region I/O
 
@@ -629,6 +638,30 @@ public:
     if (rv > 0)
       (void)buf.update_payload({tail.data(), static_cast<size_t>(rv)});
     if (pdatalen > 0) bytes_accepted = static_cast<uint64_t>(pdatalen);
+    return quic_status::ok;
+  }
+
+  // Emit a CONNECTION_CLOSE frame from the stash set by `request_close`.
+  [[nodiscard]] quic_status write_connection_close(iouring::iou_buffer& buf,
+      time_point_t now = steady_now_clock::now()) noexcept {
+    if (!has_pending_close()) return quic_status::ok;
+    auto tail = buf.tail_span();
+    if (tail.empty()) return quic_status::ok;
+    ngtcp2_ccerr ccerr;
+    const auto reason = strings::as_byte_span(pending_close_.reason);
+    if (pending_close_.kind == quic_close_kind::application)
+      ngtcp2_ccerr_set_application_error(&ccerr, pending_close_.error_code,
+          reason.data(), reason.size());
+    else
+      ngtcp2_ccerr_set_transport_error(&ccerr, pending_close_.error_code,
+          reason.data(), reason.size());
+    const ngtcp2_ssize rv = ngtcp2_conn_write_connection_close(conn_.get(),
+        &path_storage_.path, nullptr, reinterpret_cast<uint8_t*>(tail.data()),
+        tail.size(), &ccerr, steady_now_clock::as_nanoseconds(now));
+    if (rv < 0) return static_cast<quic_status>(rv);
+    if (rv == 0) return quic_status::internal;
+    (void)buf.update_payload({tail.data(), static_cast<size_t>(rv)});
+    pending_close_ = {};
     return quic_status::ok;
   }
 
