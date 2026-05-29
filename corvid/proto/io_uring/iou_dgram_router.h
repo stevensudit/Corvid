@@ -273,7 +273,7 @@ public:
   // Pre-register `ssn` under `key`. Posts to the loop thread; actual insert
   // is async when called off-loop. Safe from any thread.
   [[nodiscard]] bool add_session(const key_t& key, const session_ptr& ssn) {
-    if (!ssn) return false;
+    if (!ssn || !key) return false;
     return loop_.execute_or_post([this, key, ssn]() mutable -> bool {
       if (!is_open()) return false;
       auto [it, inserted] = sessions_.try_emplace(key, std::move(ssn));

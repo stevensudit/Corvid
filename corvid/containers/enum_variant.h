@@ -261,7 +261,7 @@ public:
       std::is_nothrow_constructible_v<underlying_type, T&&>)
       : value_{std::forward<T>(t)} {}
 
-  // Emplace constructor for a specific type `T`. Consider using `make<T>`
+  // Emplace constructor for a specific type `T`. Consider using `make<I>`
   // instead.
   template<typename T, typename... Args>
   constexpr explicit enum_variant(std::in_place_type_t<T>,
