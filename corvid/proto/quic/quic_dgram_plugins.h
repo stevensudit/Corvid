@@ -169,7 +169,12 @@ public:
       const quic_version_cid vc{buf.payload_bytes(), cid_length};
       if (!vc || !vc.is_long_header()) return false;
       auto ssn = session_t::make(router, buf, tls_);
-      return static_cast<bool>(ssn->plugin().conn());
+      // Informational only: reports whether `init()` produced an
+      // `ngtcp2_conn`, not whether `register_self` actually landed the session
+      // in the router. The sole caller (`iou_dgram_router::dispatch_packet`)
+      // discards this return and re-looks up `sessions_`, which is the
+      // load-bearing success check.
+      return ssn->plugin().conn().ok();
     }
 
 #pragma endregion
