@@ -785,7 +785,7 @@ private:
 };
 
 // Parse a single map JSON file into `out`. The caller is responsible for
-// calling `registerEntityDefs` and `registerPaths` afterward.
+// calling `finalizeMapDesign` and `registerPaths` afterward.
 // NOLINTBEGIN(readability-function-cognitive-complexity)
 [[nodiscard]] inline bool
 SimGame::loadMapFromJson(const std::filesystem::path& file, MapDesign& out) {

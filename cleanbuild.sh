@@ -294,7 +294,10 @@ if $use_coverage; then
   export LLVM_PROFILE_FILE="$(pwd)/$covDir/profraw/%p.profraw"
 fi
 
-ctest "${ctest_args[@]}"
+# Don't let set -e abort on a test failure: we still want the tidy summary
+# below to print. Capture the status and propagate it after summarizing.
+ctest_status=0
+ctest "${ctest_args[@]}" || ctest_status=$?
 
 # In tidy mode, clang-tidy warnings stream through the build phase but get
 # buried under the ctest run that follows. Summarize them at the very end so
@@ -325,6 +328,10 @@ if $use_tidy; then
     echo "clean: no warnings"
   fi
   echo "============================================================"
+fi
+
+if [[ $ctest_status -ne 0 ]]; then
+  exit $ctest_status
 fi
 
 if $use_coverage; then
