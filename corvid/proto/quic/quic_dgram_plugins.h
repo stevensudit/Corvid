@@ -319,7 +319,7 @@ public:
       const auto now = steady_now_clock::now();
       const auto rv = conn().read_pkt(buf.payload_bytes(), now);
       if (rv != quic_status::ok) return is_soft_error(rv);
-      const auto ok = drain_then_close(now);
+      const auto ok = drain_then_maybe_close(now);
       arm_expiry();
       return ok;
     }
@@ -402,7 +402,7 @@ public:
         return false;
       const bool ok1 = router_.add_session(original_dcid_, session_.self());
       const bool ok2 = router_.add_session(scid_, session_.self());
-      if (!ok1 || !ok2 || !drain_then_close(now))
+      if (!ok1 || !ok2 || !drain_then_maybe_close(now))
         return session_.close() && false;
       arm_expiry();
       return true;
@@ -423,7 +423,7 @@ public:
               key_t{}, now))
         return false;
       if (!router_.add_session(scid_, session_.self())) return false;
-      if (!drain_then_close(now)) return session_.close() && false;
+      if (!drain_then_maybe_close(now)) return session_.close() && false;
       arm_expiry();
       return true;
     }
@@ -435,7 +435,7 @@ public:
     // Used from every drain call site (`handle_recv`, `do_register_server`,
     // `do_register_client`) so registration-time and steady-state requests
     // are handled the same way.
-    [[nodiscard]] bool drain_then_close(time_point_t now) {
+    [[nodiscard]] bool drain_then_maybe_close(time_point_t now) {
       if (!plugin_.drain(now)) return false;
       if (!conn().has_pending_close()) return true;
       auto out = borrow_send_buffer();
