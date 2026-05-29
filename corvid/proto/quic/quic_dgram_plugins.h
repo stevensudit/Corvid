@@ -416,7 +416,7 @@ public:
       assert(router_.loop().is_loop_thread());
       const auto now = steady_now_clock::now();
       if (!conn().init(peer_scid, scid_, router_.local_endpoint(), peer_,
-              original_dcid_, now))
+              original_dcid_, now, plugin_.idle_timeout))
         return false;
       const bool ok1 = router_.add_session(original_dcid_, session_.self());
       const bool ok2 = router_.add_session(scid_, session_.self());
@@ -438,7 +438,7 @@ public:
           make_random_cid(quic_dgram_protocol::cid_length);
       const auto now = steady_now_clock::now();
       if (!conn().init(initial_dcid, scid_, router_.local_endpoint(), peer_,
-              key_t{}, now))
+              key_t{}, now, plugin_.idle_timeout))
         return false;
       if (!router_.add_session(scid_, session_.self())) return false;
       if (!drain_then_maybe_close(now)) return session_.close() && false;

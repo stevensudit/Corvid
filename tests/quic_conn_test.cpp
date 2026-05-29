@@ -31,6 +31,7 @@
 
 using namespace corvid;
 using namespace corvid::proto::quic;
+using namespace std::chrono_literals;
 
 namespace {
 
@@ -119,7 +120,7 @@ TEST_CASE("quic_conn constructs as server", "[quic][conn]") {
 
   quic_conn conn{tls};
   REQUIRE(conn.init(peer_scid, scid, local.addr, peer.addr, original_dcid,
-      now_tp()));
+      now_tp(), 30s));
   REQUIRE(conn);
   CHECK(conn.role() == connection_role::server);
   CHECK(conn.native());
@@ -138,7 +139,8 @@ TEST_CASE("quic_conn constructs as client", "[quic][conn]") {
   const quic_cid scid{scid_bytes};
 
   quic_conn conn{tls};
-  REQUIRE(conn.init(dcid, scid, local.addr, peer.addr, quic_cid{}, now_tp()));
+  REQUIRE(
+      conn.init(dcid, scid, local.addr, peer.addr, quic_cid{}, now_tp(), 30s));
   REQUIRE(conn);
   CHECK(conn.role() == connection_role::client);
   CHECK(conn.native());
@@ -165,7 +167,7 @@ TEST_CASE("quic_conn expiry is queryable on a fresh conn", "[quic][conn]") {
 
   quic_conn conn{tls};
   REQUIRE(conn.init(peer_scid, scid, local.addr, peer.addr, original_dcid,
-      now_tp()));
+      now_tp(), 30s));
   REQUIRE(conn);
 
   const auto deadline = conn.expiry();
@@ -200,7 +202,7 @@ TEST_CASE("quic_conn handshake completes in-process", "[quic][conn]") {
   const quic_cid client_scid{scid_bytes};
   quic_conn client{client_tls};
   REQUIRE(client.init(client_chosen_dcid, client_scid, client_addr,
-      server_addr, quic_cid{}, now_tp()));
+      server_addr, quic_cid{}, now_tp(), 30s));
   REQUIRE(client);
 
   // Server-side construction:
@@ -215,7 +217,7 @@ TEST_CASE("quic_conn handshake completes in-process", "[quic][conn]") {
   const quic_cid server_scid{server_scid_bytes};
   quic_conn server{server_tls};
   REQUIRE(server.init(client_scid, server_scid, server_addr, client_addr,
-      client_chosen_dcid, now_tp()));
+      client_chosen_dcid, now_tp(), 30s));
   REQUIRE(server);
 
   // Trampolines deref `handlers_` unconditionally; tests that drive I/O
@@ -285,7 +287,7 @@ TEST_CASE("quic_conn handler upcalls fire during handshake", "[quic][conn]") {
   const quic_cid client_scid{scid_bytes};
   quic_conn client{client_tls};
   REQUIRE(client.init(client_chosen_dcid, client_scid, client_addr,
-      server_addr, quic_cid{}, now_tp()));
+      server_addr, quic_cid{}, now_tp(), 30s));
   REQUIRE(client);
 
   constexpr std::array<uint8_t, 16> server_scid_bytes{0xaa, 0xbb, 0xcc, 0xdd,
@@ -293,7 +295,7 @@ TEST_CASE("quic_conn handler upcalls fire during handshake", "[quic][conn]") {
   const quic_cid server_scid{server_scid_bytes};
   quic_conn server{server_tls};
   REQUIRE(server.init(client_scid, server_scid, server_addr, client_addr,
-      client_chosen_dcid, now_tp()));
+      client_chosen_dcid, now_tp(), 30s));
   REQUIRE(server);
 
   trace_handlers client_trace;
@@ -377,14 +379,14 @@ TEST_CASE("quic_conn handler returning false aborts read_pkt",
   const quic_cid client_scid{scid_bytes};
   quic_conn client{client_tls};
   REQUIRE(client.init(client_chosen_dcid, client_scid, client_addr,
-      server_addr, quic_cid{}, now_tp()));
+      server_addr, quic_cid{}, now_tp(), 30s));
   REQUIRE(client);
   constexpr std::array<uint8_t, 16> server_scid_bytes{0xaa, 0xbb, 0xcc, 0xdd,
       0xee, 0xff, 0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88, 0x99};
   const quic_cid server_scid{server_scid_bytes};
   quic_conn server{server_tls};
   REQUIRE(server.init(client_scid, server_scid, server_addr, client_addr,
-      client_chosen_dcid, now_tp()));
+      client_chosen_dcid, now_tp(), 30s));
   REQUIRE(server);
 
   abort_on_tx_ready server_trace;
@@ -469,14 +471,14 @@ TEST_CASE("quic_conn request_close + write_connection_close ships a packet",
   const quic_cid client_scid{scid_bytes};
   quic_conn client{client_tls};
   REQUIRE(client.init(client_chosen_dcid, client_scid, client_loop.addr,
-      server_loop.addr, quic_cid{}, now_tp()));
+      server_loop.addr, quic_cid{}, now_tp(), 30s));
 
   constexpr std::array<uint8_t, 16> server_scid_bytes{0xaa, 0xbb, 0xcc, 0xdd,
       0xee, 0xff, 0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88, 0x99};
   const quic_cid server_scid{server_scid_bytes};
   quic_conn server{server_tls};
   REQUIRE(server.init(client_scid, server_scid, server_loop.addr,
-      client_loop.addr, client_chosen_dcid, now_tp()));
+      client_loop.addr, client_chosen_dcid, now_tp(), 30s));
 
   trace_handlers client_trace;
   trace_handlers server_trace;
@@ -552,6 +554,73 @@ TEST_CASE("quic_conn request_close + write_connection_close ships a packet",
   CHECK(server.in_close_period());
 }
 
+TEST_CASE("quic_conn honors a configured idle timeout", "[quic][conn]") {
+  // `set_idle_timeout` (called before `init`) lowers the advertised
+  // `max_idle_timeout`, so `handle_expiry` past the idle deadline reports
+  // `idle_close`. Driven with synthetic future timestamps, so no real waiting.
+  // The far-future check is also the discriminator: with the 30s default it
+  // would return `ok` at +2s, so `idle_close` there proves the 100ms override
+  // took effect.
+
+  self_signed_cert ck;
+  REQUIRE(ck);
+  quic_ssl_ctx server_tls{ck, alpn};
+  quic_ssl_ctx client_tls{alpn};
+  REQUIRE(server_tls);
+  REQUIRE(client_tls);
+
+  const auto server_loop = bound_loopback::make_v4();
+  const auto client_loop = bound_loopback::make_v4();
+  REQUIRE(server_loop);
+  REQUIRE(client_loop);
+
+  const quic_cid client_chosen_dcid{dcid_bytes};
+  const quic_cid client_scid{scid_bytes};
+  quic_conn client{client_tls};
+  REQUIRE(client.init(client_chosen_dcid, client_scid, client_loop.addr,
+      server_loop.addr, quic_cid{}, now_tp(), 100ms));
+
+  constexpr std::array<uint8_t, 16> server_scid_bytes{0xaa, 0xbb, 0xcc, 0xdd,
+      0xee, 0xff, 0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88, 0x99};
+  const quic_cid server_scid{server_scid_bytes};
+  quic_conn server{server_tls};
+  REQUIRE(server.init(client_scid, server_scid, server_loop.addr,
+      client_loop.addr, client_chosen_dcid, now_tp(), 30s));
+
+  trace_handlers client_trace;
+  trace_handlers server_trace;
+  client.set_handlers(&client_trace);
+  server.set_handlers(&server_trace);
+
+  std::array<std::byte, 1500> backing{};
+  auto pump = [&backing](quic_conn& from, quic_conn& to) -> bool {
+    for (int safety = 0; safety < 32; ++safety) {
+      auto buf = iouring::iou_buffer::make_synthetic_write(
+          {backing.data(), backing.size()});
+      if (from.write_pkt(buf, now_tp()) != quic_status::ok) return false;
+      const auto payload = buf.payload_bytes();
+      if (payload.empty()) return true;
+      if (to.read_pkt(payload, now_tp()) != quic_status::ok) return false;
+    }
+    return false;
+  };
+
+  for (int iter = 0; iter < 16; ++iter) {
+    REQUIRE(pump(client, server));
+    REQUIRE(pump(server, client));
+    if (client_trace.saw("handshake_completed") &&
+        server_trace.saw("handshake_completed"))
+      break;
+  }
+  REQUIRE(client_trace.saw("handshake_completed"));
+
+  // Effective idle timeout is min(client 100ms, server 30s default) == 100ms.
+  // Just inside the window, no idle close; well past it, idle close.
+  const auto base = now_tp();
+  CHECK(client.handle_expiry(base + 10ms) == quic_status::ok);
+  CHECK(client.handle_expiry(base + 2s) == quic_status::idle_close);
+}
+
 TEST_CASE(
     "quic_conn writev_stream with MORE flag surfaces write_more and "
     "bytes_accepted",
@@ -584,14 +653,14 @@ TEST_CASE(
   const quic_cid client_scid{scid_bytes};
   quic_conn client{client_tls};
   REQUIRE(client.init(client_chosen_dcid, client_scid, client_loop.addr,
-      server_loop.addr, quic_cid{}, now_tp()));
+      server_loop.addr, quic_cid{}, now_tp(), 30s));
 
   constexpr std::array<uint8_t, 16> server_scid_bytes{0xaa, 0xbb, 0xcc, 0xdd,
       0xee, 0xff, 0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88, 0x99};
   const quic_cid server_scid{server_scid_bytes};
   quic_conn server{server_tls};
   REQUIRE(server.init(client_scid, server_scid, server_loop.addr,
-      client_loop.addr, client_chosen_dcid, now_tp()));
+      client_loop.addr, client_chosen_dcid, now_tp(), 30s));
 
   trace_handlers client_trace;
   trace_handlers server_trace;

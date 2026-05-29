@@ -70,6 +70,8 @@ constexpr inline auto corvid::enums::registry::enum_spec_v<
 
 namespace corvid { inline namespace proto { namespace quic {
 
+using namespace std::chrono_literals;
+
 #pragma region quic_close_request
 
 // Which CONNECTION_CLOSE frame variant ngtcp2 should emit.
@@ -160,7 +162,14 @@ class quic_conn_handlers {
 public:
   using time_point_t = steady_now_clock::time_point_t;
 
-  quic_conn_handlers() = default;
+  // Idle-timeout transport parameter advertised for this plugin's connections,
+  // forwarded into `quic_conn::init` by the session's registration path. A `0`
+  // disables the local idle timeout.
+  const std::chrono::nanoseconds idle_timeout;
+
+  explicit quic_conn_handlers(
+      std::chrono::nanoseconds idle_timeout = 30s) noexcept
+      : idle_timeout{idle_timeout} {}
   quic_conn_handlers(const quic_conn_handlers&) = delete;
   quic_conn_handlers& operator=(const quic_conn_handlers&) = delete;
   virtual ~quic_conn_handlers() = default;
@@ -422,7 +431,8 @@ public:
   // role, pass `key_t{}`.
   [[nodiscard]] bool init(const key_t& dcid, const key_t& scid,
       const net_endpoint& local, const net_endpoint& peer,
-      const key_t& original_dcid, time_point_t now) noexcept {
+      const key_t& original_dcid, time_point_t now,
+      std::chrono::nanoseconds idle_timeout) noexcept {
     if (!ssl_ || !ossl_ctx_) return false;
     if (conn_) return false;
     // Cascade failure in the unlikely event that `RAND_bytes` fails.
@@ -455,6 +465,8 @@ public:
     params.initial_max_stream_data_bidi_local = 1U << 18;  // 256 KB
     params.initial_max_stream_data_bidi_remote = 1U << 18; // 256 KB
     params.initial_max_stream_data_uni = 1U << 18;         // 256 KB
+    params.max_idle_timeout =
+        static_cast<ngtcp2_duration>(idle_timeout.count());
     if (role_ == connection_role::server) {
       params.original_dcid = original_dcid.value();
       params.original_dcid_present = 1;

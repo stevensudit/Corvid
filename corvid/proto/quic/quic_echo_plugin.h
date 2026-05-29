@@ -64,7 +64,8 @@ class quic_echo_plugin: public quic_conn_handlers {
 public:
 #pragma region Construction
 
-  explicit quic_echo_plugin(quic_session_io& s) noexcept : io_{s} {}
+  explicit quic_echo_plugin(quic_session_io& s) noexcept
+      : quic_conn_handlers{15s}, io_{s} {}
 
 #pragma endregion
 #pragma region Handlers

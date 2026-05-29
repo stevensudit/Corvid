@@ -211,7 +211,7 @@ TEST_CASE(
 
   quic_conn client{client_tls};
   REQUIRE(client.init(client_dcid, client_scid, client_addr, server_addr,
-      quic_cid{}, now_tp()));
+      quic_cid{}, now_tp(), 30s));
   REQUIRE(client);
 
   // Trampolines deref `handlers_` unconditionally; attach a handler
@@ -407,7 +407,7 @@ TEST_CASE(
 
   quic_conn client{client_tls};
   REQUIRE(client.init(quic_cid{client_dcid_bytes}, quic_cid{client_scid_bytes},
-      client_addr, server_addr, quic_cid{}, now_tp()));
+      client_addr, server_addr, quic_cid{}, now_tp(), 30s));
   REQUIRE(client);
 
   struct handshake_signal: quic_conn_handlers {
