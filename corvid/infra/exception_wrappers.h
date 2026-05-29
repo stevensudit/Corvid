@@ -101,6 +101,8 @@ template<std::invocable F, typename T = bool>
 
 // Like `try_or_log`, but terminates the process on throw instead of returning
 // a value. This is ideal for destructors.
+//
+// The lambda must return `true` on success.
 template<std::invocable F>
 void try_or_terminate(F&& fn,
     format_with_loc<const char*, const char*> msg =

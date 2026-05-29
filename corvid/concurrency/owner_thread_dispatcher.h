@@ -137,7 +137,7 @@ public:
     return true;
   }
 
-  ~owner_thread_dispatcher() noexcept(false) {
+  ~owner_thread_dispatcher() {
     try_or_terminate([&] {
       if (current_loop_ != this)
         throw std::logic_error{
