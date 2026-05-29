@@ -613,8 +613,25 @@ public:
   // MAX_DATA, etc.), the same as `write_pkt`; `bytes_accepted` is `0` in that
   // case. `flags` selects ngtcp2 write modifiers; see `write_stream_flags` for
   // the per-bit semantics (`fin` to terminate the stream, `more` to coalesce
-  // subsequent calls into the same packet, `padding` to pad to path MTU). On
-  // error, `buf` is left unchanged and `bytes_accepted` is `0`.
+  // subsequent calls into the same packet, `padding` to pad to path MTU).
+  //
+  // `write_more` is not a real error: ngtcp2 returns it when the caller
+  // passed `write_stream_flags::more`, bytes were consumed into an
+  // in-progress packet (`bytes_accepted` reflects the count), and ngtcp2
+  // wants the caller to either supply more stream data on the same `buf`
+  // or finalize via `write_pkt` / a follow-up call without `more`. `buf`
+  // is intentionally not extended yet: no packet exists on the wire until
+  // finalization. Callers that do not pass `more` will never see this status.
+  // On any other error, `buf` is left unchanged and `bytes_accepted` is `0`.
+  //
+  // ngtcp2 may prefer to emit queued non-stream frames (ACKs, MAX_DATA,
+  // HANDSHAKE_DONE, etc.) ahead of the offered stream data even when
+  // `stream_id` names a real stream and `more` was set: the call returns `ok`
+  // with `bytes_accepted == 0` and `buf` extended by the non-stream packet,
+  // while the offered stream bytes stay buffered for the next call. A
+  // MORE-using drain must keep calling: the first invocation does not reliably
+  // surface `write_more`. Termination is "buf stopped growing", not
+  // "bytes_accepted == 0".
   [[nodiscard]] quic_status writev_stream(quic_stream_id stream_id,
       std::span<const iovec> iov, iouring::iou_buffer& buf,
       uint64_t& bytes_accepted,
@@ -629,18 +646,15 @@ public:
         tail.size(), &pdatalen, *flags, *stream_id,
         reinterpret_cast<const ngtcp2_vec*>(iov.data()), iov.size(),
         steady_now_clock::as_nanoseconds(now));
-    if (rv < 0) return static_cast<quic_status>(rv);
-
-    // Extend `buf`'s payload to cover what ngtcp2 wrote, and surface the
-    // stream-byte count through `bytes_accepted` so the caller can advance its
-    // own per-stream state. `update_payload` can only fail on a
-    // tail-start/overrun invariant violation, neither of which can happen
-    // here. `pdatalen < 0` means no stream data was attached (e.g., `stream_id
-    // == none`); leave `bytes_accepted` at 0 in that case.
-    if (rv > 0)
+    auto status = quic_status::ok;
+    if (rv > 0) {
       (void)buf.update_payload({tail.data(), static_cast<size_t>(rv)});
+    } else {
+      status = static_cast<quic_status>(rv);
+      if (status != quic_status::write_more) return status;
+    }
     if (pdatalen > 0) bytes_accepted = static_cast<uint64_t>(pdatalen);
-    return quic_status::ok;
+    return status;
   }
 
   // Emit a CONNECTION_CLOSE frame from the stash set by `request_close`.

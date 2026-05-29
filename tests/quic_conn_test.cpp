@@ -540,6 +540,120 @@ TEST_CASE("quic_conn request_close + write_connection_close ships a packet",
   CHECK((server_rv == quic_status::ok || is_soft_error(server_rv)));
 }
 
+TEST_CASE(
+    "quic_conn writev_stream with MORE flag surfaces write_more and "
+    "bytes_accepted",
+    "[quic][conn]") {
+  // After a full handshake, calling `writev_stream` with
+  // `write_stream_flags::more` should return `quic_status::write_more`
+  // (not a fatal status), populate `bytes_accepted` with the number of
+  // stream bytes ngtcp2 consumed into the in-progress packet, and leave
+  // `buf` un-extended (no packet finalized yet). A follow-up `write_pkt`
+  // then finalizes the packet and grows the buffer.
+  //
+  // The pre-fix code surfaced `write_more` as the status but bailed
+  // before populating `bytes_accepted`, so a coalescing caller saw
+  // `accepted == 0` and would re-offer the same bytes on the next call,
+  // duplicating data on the wire.
+
+  self_signed_cert ck;
+  REQUIRE(ck);
+  quic_ssl_ctx server_tls{ck, alpn};
+  quic_ssl_ctx client_tls{alpn};
+  REQUIRE(server_tls);
+  REQUIRE(client_tls);
+
+  const auto server_loop = bound_loopback::make_v4();
+  const auto client_loop = bound_loopback::make_v4();
+  REQUIRE(server_loop);
+  REQUIRE(client_loop);
+
+  const quic_cid client_chosen_dcid{dcid_bytes};
+  const quic_cid client_scid{scid_bytes};
+  quic_conn client{client_tls};
+  REQUIRE(client.init(client_chosen_dcid, client_scid, client_loop.addr,
+      server_loop.addr, quic_cid{}, now_tp()));
+
+  constexpr std::array<uint8_t, 16> server_scid_bytes{0xaa, 0xbb, 0xcc, 0xdd,
+      0xee, 0xff, 0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88, 0x99};
+  const quic_cid server_scid{server_scid_bytes};
+  quic_conn server{server_tls};
+  REQUIRE(server.init(client_scid, server_scid, server_loop.addr,
+      client_loop.addr, client_chosen_dcid, now_tp()));
+
+  trace_handlers client_trace;
+  trace_handlers server_trace;
+  client.set_handlers(&client_trace);
+  server.set_handlers(&server_trace);
+
+  std::array<std::byte, 1500> backing{};
+  auto pump = [&backing](quic_conn& from, quic_conn& to) -> bool {
+    for (int safety = 0; safety < 32; ++safety) {
+      auto buf = iouring::iou_buffer::make_synthetic_write(
+          {backing.data(), backing.size()});
+      const auto status = from.write_pkt(buf, now_tp());
+      if (status != quic_status::ok) return false;
+      const auto payload = buf.payload_bytes();
+      if (payload.empty()) return true;
+      const auto rv = to.read_pkt(payload, now_tp());
+      if (rv != quic_status::ok) return false;
+    }
+    return false;
+  };
+
+  for (int iter = 0; iter < 16; ++iter) {
+    REQUIRE(pump(client, server));
+    REQUIRE(pump(server, client));
+    if (client_trace.saw("handshake_completed") &&
+        server_trace.saw("handshake_completed"))
+      break;
+  }
+  REQUIRE(client_trace.saw("handshake_completed"));
+  REQUIRE(server_trace.saw("handshake_completed"));
+
+  // Drain any remaining post-handshake bookkeeping (ACKs, HANDSHAKE_DONE,
+  // etc.) so the writev_stream call below exercises the stream-data path
+  // exclusively; if non-stream frames are still queued, ngtcp2 emits them
+  // and returns `ok` instead of `write_more`.
+  for (int i = 0; i < 4; ++i) {
+    REQUIRE(pump(client, server));
+    REQUIRE(pump(server, client));
+  }
+
+  // Open a client-initiated bidirectional stream. App TX is ready once
+  // handshake_completed has fired on both sides.
+  quic_stream_id sid = quic_stream_id::none;
+  REQUIRE(client.open_bidi_stream(sid) == quic_status::ok);
+  REQUIRE(sid != quic_stream_id::none);
+
+  // Small payload into a path-MTU buffer: ngtcp2 has plenty of room left
+  // after consuming these bytes, so the MORE flag triggers a write_more
+  // return inviting the caller to add more data or finalize.
+  const std::string payload = "hello-more";
+  iovec iov{const_cast<char*>(payload.data()), payload.size()};
+  const std::array<iovec, 1> iovs{iov};
+
+  std::array<std::byte, 1500> stream_backing{};
+  auto stream_buf = iouring::iou_buffer::make_synthetic_write(
+      {stream_backing.data(), stream_backing.size()});
+
+  uint64_t accepted = 0;
+  const auto status = client.writev_stream(sid, iovs, stream_buf, accepted,
+      write_stream_flags::more, now_tp());
+
+  CHECK(status == quic_status::write_more);
+  CHECK(accepted == payload.size());
+  CHECK(stream_buf.payload_bytes().empty());
+
+  // Finalize the in-progress packet. The buffer grows now.
+  CHECK(client.write_pkt(stream_buf, now_tp()) == quic_status::ok);
+  CHECK_FALSE(stream_buf.payload_bytes().empty());
+
+  // The server reads the packet without error.
+  CHECK(server.read_pkt(stream_buf.payload_bytes(), now_tp()) ==
+        quic_status::ok);
+}
+
 #pragma region CloseKindString
 TEST_CASE("CloseKindString", "[quic]") {
   // Each named value round-trips through `enum_as_string` / `parse_enum`.
