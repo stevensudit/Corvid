@@ -114,8 +114,9 @@ TEST_CASE("logger prefixes output with a UTC ISO-8601 timestamp",
   using sysclk = corvid::system_now_clock;
   using namespace std::chrono;
 
-  // Install a deterministic time: 2026-05-28T12:34:56.789Z.
-  sysclk::set_now_fn();
+  // Install a deterministic time: 2026-05-28T12:34:56.789Z. The scope guard
+  // restores the real clock on exit so later tests see real time.
+  auto clock_guard = sysclk::fake_now_scope();
   const sysclk::time_point_t when =
       sys_days{2026y / May / 28} + 12h + 34min + 56s + 789ms;
   sysclk::set_fake_now(when);
@@ -125,9 +126,6 @@ TEST_CASE("logger prefixes output with a UTC ISO-8601 timestamp",
   lg.info("hello");
 
   CHECK(sink.str().starts_with("2026-05-28T12:34:56.789Z [I "));
-
-  // Restore the real clock so later tests see real time.
-  sysclk::set_now_fn(&std::chrono::system_clock::now);
 }
 
 TEST_CASE("log singleton can be redirected via set_stream", "[infra][log]") {

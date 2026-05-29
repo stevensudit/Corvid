@@ -41,8 +41,8 @@ static tp T(int ms) { return tp{} + std::chrono::milliseconds{ms}; }
 namespace {
 
 // Minimal owner: holds one `idle_timeout` and records every invocation of
-// the cancel action. Tests drive the clock through `clk::set_now_fn` (with
-// no argument installs the fake-clock callback) and `clk::set_fake_now`.
+// the cancel action. Each test installs the fake clock with
+// `clk::fake_now_scope` and drives it through `clk::set_fake_now`.
 struct test_owner: std::enable_shared_from_this<test_owner> {
   int idle_count{0};
   idle_timeout<test_owner> idle;
@@ -52,10 +52,9 @@ struct test_owner: std::enable_shared_from_this<test_owner> {
                ++idle_count;
              }},
             configured} {
-    // Reset between tests so each fixture starts with `fake_now == T(0)`,
-    // and install the fake clock for this process.
+    // Reset so each fixture starts with `fake_now == T(0)`. The fake clock
+    // itself is installed by the per-test `fake_now_scope` guard.
     clk::set_fake_now(tp{});
-    clk::set_now_fn();
   }
 };
 
@@ -76,6 +75,7 @@ make_owner(sweeper& sw, dur configured) {
 
 TEST_CASE("DefaultIsStopped", "[IdleTimeout]") {
   sweeper sw;
+  auto fake_clock = clk::fake_now_scope();
   auto o = make_owner(sw, 100ms);
   CHECK((static_cast<int>(o->idle.get_mode())) ==
         (static_cast<int>(mode::stopped)));
@@ -89,6 +89,7 @@ TEST_CASE("DefaultIsStopped", "[IdleTimeout]") {
 TEST_CASE("ActiveRequiresNonZeroConfigured", "[IdleTimeout]") {
   // With configured == 0, only Stopped is reachable.
   sweeper sw;
+  auto fake_clock = clk::fake_now_scope();
   auto o = make_owner(sw, dur{});
   CHECK_FALSE(o->idle.set_mode(mode::running));
   CHECK_FALSE(o->idle.set_mode(mode::paused));
@@ -105,6 +106,7 @@ TEST_CASE("StoppedToActive", "[IdleTimeout]") {
   // Transitioning Stopped -> Active sets the deadline to now+configured
   // and schedules a fresh sweeper entry.
   sweeper sw;
+  auto fake_clock = clk::fake_now_scope();
   auto o = make_owner(sw, 100ms);
   clk::set_fake_now(T(50));
   CHECK(o->idle.set_mode(mode::running));
@@ -123,6 +125,7 @@ TEST_CASE("ActiveFiresOnIdle", "[IdleTimeout]") {
   // No `postpone` calls -> deadline matches the registered time,
   // callback invokes the cancel action exactly once, sweeper entry drops.
   sweeper sw;
+  auto fake_clock = clk::fake_now_scope();
   auto o = make_owner(sw, 100ms);
   clk::set_fake_now(T(0));
   CHECK(o->idle.set_mode(mode::running));
@@ -150,6 +153,7 @@ TEST_CASE("RestartPushesDeadline", "[IdleTimeout]") {
   // pushes the deadline forward; the callback rearms instead of firing
   // the idle action.
   sweeper sw;
+  auto fake_clock = clk::fake_now_scope();
   auto o = make_owner(sw, 100ms);
   clk::set_fake_now(T(0));
   CHECK(o->idle.set_mode(mode::running));
@@ -184,6 +188,7 @@ TEST_CASE("RestartFromStoppedIsRecoverable", "[IdleTimeout]") {
   // `set_mode(running)` then schedules a fresh entry: `was_stopped` is
   // satisfied because `deadline_ == T0 <= now`.
   sweeper sw;
+  auto fake_clock = clk::fake_now_scope();
   auto o = make_owner(sw, 100ms);
   clk::set_fake_now(T(42));
   o->idle.postpone();
@@ -204,6 +209,7 @@ TEST_CASE("PostponeIsNoOpOutsideRunning", "[IdleTimeout]") {
   // `postpone` reads `active_` and bails when zero, so neither Paused nor
   // Stopped should observe any change to `deadline_`.
   sweeper sw;
+  auto fake_clock = clk::fake_now_scope();
   auto o = make_owner(sw, 100ms);
 
   // Paused: postpone must not disturb the sentinel, must not break the
@@ -241,6 +247,7 @@ TEST_CASE("StoppedToPausedBootstrap", "[IdleTimeout]") {
   // Stopped -> Paused schedules a near-future entry then parks the
   // deadline at the sentinel.
   sweeper sw;
+  auto fake_clock = clk::fake_now_scope();
   auto o = make_owner(sw, 100ms);
   clk::set_fake_now(T(0));
   CHECK(o->idle.set_mode(mode::paused));
@@ -258,6 +265,7 @@ TEST_CASE("PausedClipsAndStays", "[IdleTimeout]") {
   // When the bootstrap entry fires, the callback sees the sentinel and
   // clips back to now + configured, staying in Paused.
   sweeper sw;
+  auto fake_clock = clk::fake_now_scope();
   auto o = make_owner(sw, 100ms);
   clk::set_fake_now(T(0));
   CHECK(o->idle.set_mode(mode::paused));
@@ -285,6 +293,7 @@ TEST_CASE("PausedToActive", "[IdleTimeout]") {
   // Resume from Paused: deadline becomes now+configured immediately; no
   // new schedule is needed (the existing entry adapts on its next fire).
   sweeper sw;
+  auto fake_clock = clk::fake_now_scope();
   auto o = make_owner(sw, 100ms);
   clk::set_fake_now(T(0));
   CHECK(o->idle.set_mode(mode::paused));
@@ -317,6 +326,7 @@ TEST_CASE("ActiveToStoppedDropsEntry", "[IdleTimeout]") {
   // Going Stopped from Active sets the deadline to T0. The existing
   // entry fires at the originally-registered time, sees T0, drops.
   sweeper sw;
+  auto fake_clock = clk::fake_now_scope();
   auto o = make_owner(sw, 100ms);
   clk::set_fake_now(T(0));
   CHECK(o->idle.set_mode(mode::running));
@@ -341,6 +351,7 @@ TEST_CASE("ActiveToStoppedDropsEntry", "[IdleTimeout]") {
 
 TEST_CASE("ConfigureSyncsActiveOnlyWhenActive", "[IdleTimeout]") {
   sweeper sw;
+  auto fake_clock = clk::fake_now_scope();
   auto o = make_owner(sw, 100ms);
 
   // Stopped: configure should NOT sync active (active was 0; stays 0).
@@ -384,6 +395,7 @@ TEST_CASE("OwnerDeathDropsCallback", "[IdleTimeout]") {
   // lock fails and the callback returns {} so the sweeper drops the
   // entry. The idle action never fires.
   sweeper sw;
+  auto fake_clock = clk::fake_now_scope();
   int fired_before_dtor = 0;
   {
     auto o = make_owner(sw, 100ms);
@@ -406,6 +418,7 @@ TEST_CASE("ExpireIsIdempotent", "[IdleTimeout]") {
   // `expire` fires the cancel action exactly once. `reset_expiration` arms
   // it to fire again. Both calls are also no-ops if no rearm is pending.
   sweeper sw;
+  auto fake_clock = clk::fake_now_scope();
   auto o = make_owner(sw, 100ms);
   clk::set_fake_now(T(0));
   CHECK(o->idle.set_mode(mode::running));
@@ -441,6 +454,7 @@ TEST_CASE("SweepAndExpireFireOnce", "[IdleTimeout]") {
   // The sweeper-driven fire and a manual `expire` share the same one-shot
   // slot, so a manual call after the sweep is a no-op.
   sweeper sw;
+  auto fake_clock = clk::fake_now_scope();
   auto o = make_owner(sw, 100ms);
   clk::set_fake_now(T(0));
   CHECK(o->idle.set_mode(mode::running));

@@ -39,7 +39,7 @@
 #include "../../concurrency/relaxed_atomic.h"
 #include "../../concurrency/owner_thread_dispatcher.h"
 #include "../../concurrency/timeout_sweeper.h"
-#include "../../containers/scope_exit.h"
+#include "../../infra/scope_exit.h"
 #include "../../containers/scoped_value.h"
 #include "../../containers/object_pool.h"
 #include "iou_buf_pool.h"

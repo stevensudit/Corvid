@@ -69,7 +69,7 @@ namespace corvid { inline namespace concurrency {
 //           -> sweeper_t::time_point_t {
 //         auto conn = weak_conn.lock();
 //         if (!conn) return {};
-//         const auto current = conn->read_expiration_;
+//         auto current = conn->read_expiration_;
 //         if (current == expire) { conn->close(); return {}; }
 //         // Only needed in callback when timer can be logically paused.
 //         if (current == sweeper_t::paused_expiration)

@@ -46,21 +46,27 @@ TEST_CASE("set_now_fn installs a custom function", "[infra][clocks]") {
   CHECK(custom_now_calls == 2);
 }
 
-TEST_CASE("set_now_fn() with no argument installs the fake-clock callback",
+TEST_CASE("fake_now_scope installs the fake-clock callback for its lifetime",
     "[infra][clocks]") {
-  steady_now_clock::set_now_fn();
+  {
+    auto guard = steady_now_clock::fake_now_scope();
 
-  steady_now_clock::set_fake_now(steady_now_clock::time_point_t{1234ms});
-  CHECK(steady_now_clock::now() == steady_now_clock::time_point_t{1234ms});
+    steady_now_clock::set_fake_now(steady_now_clock::time_point_t{1234ms});
+    CHECK(steady_now_clock::now() == steady_now_clock::time_point_t{1234ms});
 
-  steady_now_clock::set_fake_now(steady_now_clock::time_point_t{5678ms});
-  CHECK(steady_now_clock::now() == steady_now_clock::time_point_t{5678ms});
+    steady_now_clock::set_fake_now(steady_now_clock::time_point_t{5678ms});
+    CHECK(steady_now_clock::now() == steady_now_clock::time_point_t{5678ms});
+  }
+
+  // Leaving the scope restored the real clock, so reads no longer return the
+  // last faked value.
+  CHECK(steady_now_clock::now() != steady_now_clock::time_point_t{5678ms});
 }
 
 TEST_CASE("steady_clock and system_clock keep independent fake state",
     "[infra][clocks]") {
-  steady_now_clock::set_now_fn();
-  system_now_clock::set_now_fn();
+  auto steady_guard = steady_now_clock::fake_now_scope();
+  auto system_guard = system_now_clock::fake_now_scope();
 
   steady_now_clock::set_fake_now(steady_now_clock::time_point_t{42ms});
   system_now_clock::set_fake_now(system_now_clock::time_point_t{99ms});
@@ -81,8 +87,8 @@ TEST_CASE(
   // On most platforms `std::chrono::high_resolution_clock` is a typedef for
   // `steady_clock` or `system_clock`. The `size_t` template parameter on
   // `global_clock` gives this instantiation its own statics regardless.
-  steady_now_clock::set_now_fn();
-  high_resolution_now_clock::set_now_fn();
+  auto steady_guard = steady_now_clock::fake_now_scope();
+  auto hires_guard = high_resolution_now_clock::fake_now_scope();
 
   steady_now_clock::set_fake_now(steady_now_clock::time_point_t{1ms});
   high_resolution_now_clock::set_fake_now(
@@ -121,28 +127,28 @@ TEST_CASE("from_nanoseconds(int64_t) treats negatives as max",
 }
 
 TEST_CASE("utc_clock supports fake injection", "[infra][clocks]") {
-  utc_now_clock::set_now_fn();
+  auto guard = utc_now_clock::fake_now_scope();
   utc_now_clock::set_fake_now(utc_now_clock::time_point_t{42ms});
   CHECK(utc_now_clock::now() == utc_now_clock::time_point_t{42ms});
 }
 
 TEST_CASE("tai_clock supports fake injection", "[infra][clocks]") {
-  tai_now_clock::set_now_fn();
+  auto guard = tai_now_clock::fake_now_scope();
   tai_now_clock::set_fake_now(tai_now_clock::time_point_t{42ms});
   CHECK(tai_now_clock::now() == tai_now_clock::time_point_t{42ms});
 }
 
 TEST_CASE("gps_clock supports fake injection", "[infra][clocks]") {
-  gps_now_clock::set_now_fn();
+  auto guard = gps_now_clock::fake_now_scope();
   gps_now_clock::set_fake_now(gps_now_clock::time_point_t{42ms});
   CHECK(gps_now_clock::now() == gps_now_clock::time_point_t{42ms});
 }
 
 TEST_CASE("utc/tai/gps clocks keep independent fake state",
     "[infra][clocks]") {
-  utc_now_clock::set_now_fn();
-  tai_now_clock::set_now_fn();
-  gps_now_clock::set_now_fn();
+  auto utc_guard = utc_now_clock::fake_now_scope();
+  auto tai_guard = tai_now_clock::fake_now_scope();
+  auto gps_guard = gps_now_clock::fake_now_scope();
 
   utc_now_clock::set_fake_now(utc_now_clock::time_point_t{1ms});
   tai_now_clock::set_fake_now(tai_now_clock::time_point_t{2ms});

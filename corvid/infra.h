@@ -18,3 +18,4 @@
 #include "infra/clocks.h"
 #include "infra/exception_firewalls.h"
 #include "infra/log.h"
+#include "infra/scope_exit.h"

@@ -25,6 +25,16 @@
 #define NO_UNIQUE_ADDRESS [[no_unique_address]]
 #endif
 
+//
+// STATUS
+//
+// `own_ptr` is implemented and tested, but is only used in `custom_handle`.
+// The code is dated, as it doesn't use concepts. It's also incomplete, in that
+// it doesn't handle arrays or work with `std::shared_ptr` in the way that
+// `std::unique_ptr` does. Moreover, its uses constexpr and noexcept
+// excessively and unsustainably. For these reasons, this is legacy code.
+//
+
 namespace corvid { inline namespace ownptr {
 namespace details {
 

@@ -16,7 +16,7 @@
 // limitations under the License.
 #pragma once
 #include "../containers/containers_shared.h"
-#include "../containers/scope_exit.h"
+#include "../infra/scope_exit.h"
 
 #include <atomic>
 #include <chrono>

@@ -20,6 +20,8 @@
 #include <chrono>
 #include <cstdint>
 
+#include "scope_exit.h"
+
 namespace corvid { inline namespace infra {
 
 #pragma region now_clock
@@ -61,15 +63,19 @@ public:
     return now_fn_.load(std::memory_order::relaxed)();
   }
 
-  // Install a custom clock function. Passing null (the default) installs the
-  // fake-clock callback, which returns whatever `set_fake_now` last stored.
-  static void set_now_fn(now_fnt fn = nullptr) noexcept {
-    if (!fn) fn = fake_now_cb;
+  // Install a custom clock function.
+  static void set_now_fn(now_fnt fn) noexcept {
     now_fn_.store(fn, std::memory_order::relaxed);
   }
 
-  // Set the value returned by the fake clock. No-op unless `set_now_fn()` has
-  // installed `fake_now_cb`.
+  // Convenience RAII scope guard for tests that install a fake clock. Resets
+  // the clock on scope exit.
+  [[nodiscard]] static auto fake_now_scope() noexcept {
+    set_now_fn(fake_now_cb);
+    return scope_exit{[]() noexcept { set_now_fn(&clock_t::now); }};
+  }
+
+  // Set the value returned by the fake clock.
   static void set_fake_now(time_point_t tp) noexcept {
     fake_now_.store(tp, std::memory_order::relaxed);
   }

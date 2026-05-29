@@ -21,9 +21,8 @@
 #include <utility>
 
 #include "../meta/maybe.h"
-#include "containers_shared.h"
 
-namespace corvid { inline namespace container { inline namespace scope_guards {
+namespace corvid { inline namespace infra {
 
 // Scope guards
 //
@@ -173,4 +172,4 @@ scope_success(EF) -> scope_success<EF>;
 
 #pragma endregion
 
-}}} // namespace corvid::container::scope_guards
+}} // namespace corvid::infra
