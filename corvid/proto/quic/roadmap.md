@@ -184,8 +184,9 @@ needs it, or if we want a watchdog beneath ngtcp2's own timers.
 
 - **[done] ngtcp2 + OpenSSL 3.5+ build integration.** OpenSSL 3.5.6 (static)
   built one-time via `scripts/build_openssl_quic.sh` into
-  `tests/.local/openssl/`; ngtcp2 v1.22.1 fetched into
-  `tests/.fetchcontent/` and built against that OpenSSL via the
+  `tests/.local/openssl/`; ngtcp2 v1.22.1 built via `ExternalProject_Add`
+  (its autoconf-style probe sweep needs an isolated CMake cache, so not
+  `FetchContent`) into `tests/.local/ngtcp2/`, against that OpenSSL via the
   `ngtcp2_crypto_ossl` backend (`ENABLE_OPENSSL=ON`). Both libs are
   static-only (`ENABLE_STATIC_LIB=ON`, `ENABLE_SHARED_LIB=OFF`), example
   clients suppressed (`ENABLE_LIB_ONLY=ON`). Linked into every test target
@@ -220,8 +221,9 @@ needs it, or if we want a watchdog beneath ngtcp2's own timers.
   `remove_connection_id` / `recv_*_key` hooks reserved for the session
   layer to override. The `SSL` is put into accept/connect state after
   `ngtcp2_crypto_ossl_configure_*_session` (the shim wires callbacks but
-  does not pick a direction). `tests/quic_test_cert.h` generates a
-  fresh RSA-2048 self-signed cert in memory each run. `quic_conn_test`
+  does not pick a direction). `quic_self_signed_cert` (sibling header)
+  generates a fresh RSA-2048 self-signed cert in memory each run.
+  `quic_conn_test`
   drives a full in-process handshake by ferrying datagrams between a
   client and server conn until both report `is_handshake_completed()`;
   convergence is two round-trips on the happy path.

@@ -73,7 +73,6 @@ public:
   //
   // Note: It can technically throw on a string alloc, but if this happens, the
   // process is already dead.
-  // NOLINTNEXTLINE(bugprone-exception-escape)
   quic_ssl_ctx(const ssl_identity& identity, std::string_view alpn) noexcept
       : alpn_wire_{to_alpn_wire(alpn)}, role_{connection_role::server} {
     if (!identity) return;
@@ -146,11 +145,20 @@ private:
 
   // Build the wire-format ALPN list (`<len><bytes>...`) for a single
   // protocol.
-  [[nodiscard]] static std::string to_alpn_wire(std::string_view proto) {
-    std::string s;
-    s.reserve(proto.size() + 1);
-    s.push_back(static_cast<char>(proto.size()));
-    s.append(proto);
+  [[nodiscard]] static std::string to_alpn_wire(
+      std::string_view proto) noexcept {
+    auto s = try_or_log(
+        [&] {
+          std::string s;
+          if (proto.empty() || proto.size() > 255)
+            throw std::length_error("ALPN protocol name must be 1-255 bytes");
+          s.reserve(proto.size() + 1);
+          s.push_back(static_cast<char>(proto.size()));
+          s.append(proto);
+          return s;
+        },
+        std::string{});
+    if (s.empty()) log::terminate();
     return s;
   }
 

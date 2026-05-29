@@ -255,6 +255,7 @@ inline namespace cvt_bytes {
 
 // Reinterpret the bytes of `sv` as a span of `char_t`.
 template<typename char_t = uint8_t>
+requires(sizeof(char_t) == 1)
 [[nodiscard]] constexpr std::span<const char_t>
 as_byte_span(std::string_view sv) noexcept {
   return {reinterpret_cast<const char_t*>(sv.data()), sv.size()};
