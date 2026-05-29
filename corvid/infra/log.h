@@ -15,12 +15,18 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 #pragma once
+#include <pthread.h>
+#include <sys/syscall.h>
+#include <unistd.h>
+
+#include <array>
 #include <chrono>
 #include <exception>
 #include <format>
 #include <iostream>
 #include <mutex>
 #include <source_location>
+#include <string>
 #include <string_view>
 #include <type_traits>
 #include <utility>
@@ -70,7 +76,8 @@ struct format_with_loc {
 // The stream is held by reference, so the caller owns its lifetime; the
 // default is `std::cerr`, whose lifetime spans the program.
 //
-// Output format: `YYYY-MM-DDTHH:MM:SS.sssZ [L file:line] message\n` where `L`
+// Output format: `YYYY-MM-DDTHH:MM:SS.sssZ [name(tid)] [L file:line]
+// message\n` where `name(tid)` is the calling thread's name and ID, and `L`
 // is the level's first letter (`T`/`D`/`I`/`W`/`E`). The timestamp is ISO
 // 8601 in UTC at millisecond precision so alphabetical and chronological
 // sort match. Timestamps come from `system_now_clock`, so tests can
@@ -93,8 +100,14 @@ public:
   [[nodiscard]] log_level threshold() const noexcept { return threshold_; }
   void set_threshold(log_level lvl) noexcept { threshold_ = lvl; }
 
-  [[nodiscard]] std::ostream& stream() const noexcept { return *out_; }
-  void set_stream(std::ostream& out) noexcept { out_ = &out; }
+  [[nodiscard]] std::ostream& stream() const noexcept {
+    std::scoped_lock lock{mutex_};
+    return *out_;
+  }
+  void set_stream(std::ostream& out) noexcept {
+    std::scoped_lock lock{mutex_};
+    out_ = &out;
+  }
 
   [[nodiscard]] bool enabled(log_level lvl) const noexcept {
     return lvl >= threshold_;
@@ -143,7 +156,7 @@ public:
     terminate();
   }
 
-  [[noreturn]] void terminate() {
+  [[noreturn]] void terminate() noexcept {
     std::scoped_lock lock{mutex_};
     (*out_) << "Terminating due to previous fatal log message.\n"
             << std::flush;
@@ -163,17 +176,46 @@ private:
     return write_line(lvl, msg.loc, body) && false;
   }
 
+  // Returns the calling thread's `name(tid)` label, computed once per thread
+  // and cached in thread-local storage. The name falls back to "thread" when
+  // unnamed; it is at most 16 bytes including the null terminator.
+  static const std::string& thread_label() {
+    thread_local const std::string label = [] {
+      std::array<char, 16> name{};
+      const char* thread_name =
+          (pthread_getname_np(pthread_self(), name.data(), name.size()) == 0 &&
+              name[0] != '\0')
+              ? name.data()
+              : "thread";
+      return std::string{thread_name} + '(' +
+             std::to_string(syscall(SYS_gettid)) + ')';
+    }();
+    return label;
+  }
+
+  // Sample output:
+  // 2026-05-29T22:26:27Z [wheel(42)] [I file.cpp:42] message
   bool write_line(log_level lvl, const std::source_location& loc,
       std::string_view body) {
+    static constexpr std::string_view k_level_initials = "TDIWE";
     const auto now = std::chrono::time_point_cast<std::chrono::milliseconds>(
         system_now_clock::now());
-    constexpr std::string_view k_level_initials = "TDIWE";
-    static_assert(
-        k_level_initials.size() == static_cast<size_t>(log_level::error) + 1);
+    // Build everything but the body into a stack buffer before locking, so the
+    // lock only spans the stream writes (no heap-allocating timestamp format
+    // inside it). 256 bytes covers the fixed-width timestamp, the <=15-char
+    // thread name and tid, the level, and a full file path with line.
+    // `format_to_n` stops at the buffer end, so a long path truncates the
+    // prefix rather than overflowing.
+    std::array<char, 256> prefix;
+    auto res = std::format_to_n(prefix.data(), prefix.size(),
+        "{:%FT%T}Z [{}] [{} {}:{}] ", now, thread_label(),
+        k_level_initials[static_cast<size_t>(lvl)], loc.file_name(),
+        loc.line());
+    const auto prefix_len = res.out - prefix.data();
     std::scoped_lock lock{mutex_};
-    (*out_) << std::format("{:%FT%T}", now) << "Z ["
-            << k_level_initials[static_cast<size_t>(lvl)] << ' '
-            << loc.file_name() << ':' << loc.line() << "] " << body << '\n';
+    out_->write(prefix.data(), static_cast<std::streamsize>(prefix_len));
+    out_->write(body.data(), static_cast<std::streamsize>(body.size()));
+    out_->put('\n');
     return true;
   }
 
@@ -181,7 +223,7 @@ private:
 #pragma region Data members
 
   std::ostream* out_{&std::cerr};
-  std::mutex mutex_;
+  mutable std::mutex mutex_;
   relaxed_atomic<log_level> threshold_{log_level::info};
 
 #pragma endregion

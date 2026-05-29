@@ -31,6 +31,7 @@
 #include <type_traits>
 #include <utility>
 
+#include "../infra/exception_firewalls.h"
 #include "../enums/bool_enums.h"
 
 namespace corvid { inline namespace container {

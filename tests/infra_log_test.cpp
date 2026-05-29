@@ -125,7 +125,10 @@ TEST_CASE("logger prefixes output with a UTC ISO-8601 timestamp",
   logger lg{sink};
   lg.info("hello");
 
-  CHECK(sink.str().starts_with("2026-05-28T12:34:56.789Z [I "));
+  // The thread name/ID segment sits between the timestamp and the level.
+  auto out = sink.str();
+  CHECK(out.starts_with("2026-05-28T12:34:56.789Z ["));
+  CHECK(out.contains("] [I "));
 }
 
 TEST_CASE("log singleton can be redirected via set_stream", "[infra][log]") {
