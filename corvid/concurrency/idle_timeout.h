@@ -162,7 +162,7 @@ public:
   // Pause the timeout. If already paused, does nothing.
   //
   // In pause mode, the deadline is parked at the sentinel value, and the
-  // sweeper callback clips it back to `infra::steady_clock::now() +
+  // sweeper callback clips it back to `infra::steady_now_clock::now() +
   // configured_timeout()` on each fire without ever invoking the `on_idle`
   // expiration callback. Also, `postpone` becomes a no-op.
   //

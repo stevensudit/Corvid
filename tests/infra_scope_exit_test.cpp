@@ -25,6 +25,8 @@
 
 using namespace corvid;
 
+// NOLINTBEGIN(readability-function-cognitive-complexity)
+
 #pragma region ScopeExit_Basic
 
 TEST_CASE("Basic", "[ScopeExit]") {
@@ -100,6 +102,7 @@ TEST_CASE("Basic", "[ScopeFail]") {
       throw std::runtime_error("boom");
     }
     catch (const std::runtime_error&) {
+      (void)failed;
     }
     CHECK(failed);
   }
@@ -113,9 +116,11 @@ TEST_CASE("Basic", "[ScopeFail]") {
         // *new* exception, so it must not fire on normal destruction.
         scope_fail inner{[&]() noexcept { ++calls; }};
       }};
+      (void)outer;
       throw std::runtime_error("boom");
     }
     catch (const std::runtime_error&) {
+      (void)calls;
     }
     CHECK(calls == 0);
   }
@@ -128,6 +133,7 @@ TEST_CASE("Basic", "[ScopeFail]") {
       throw std::runtime_error("boom");
     }
     catch (const std::runtime_error&) {
+      (void)failed;
     }
     CHECK_FALSE(failed);
   }
@@ -141,6 +147,7 @@ TEST_CASE("Basic", "[ScopeFail]") {
       throw std::runtime_error("boom");
     }
     catch (const std::runtime_error&) {
+      (void)calls;
     }
     CHECK(calls == 1);
   }
@@ -166,6 +173,7 @@ TEST_CASE("Basic", "[ScopeSuccess]") {
       throw std::runtime_error("boom");
     }
     catch (const std::runtime_error&) {
+      (void)succeeded;
     }
     CHECK_FALSE(succeeded);
   }
@@ -198,3 +206,5 @@ TEST_CASE("Basic", "[ScopeSuccess]") {
   }
 }
 #pragma endregion
+
+// NOLINTEND(readability-function-cognitive-complexity)

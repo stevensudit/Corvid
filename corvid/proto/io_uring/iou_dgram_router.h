@@ -510,7 +510,7 @@ public:
   explicit iou_dgram_router_handle(const shared_ptr_t& router) noexcept
       : router_{router} {}
 
-  ~iou_dgram_router_handle() {
+  ~iou_dgram_router_handle() noexcept {
     try_or_terminate([&] {
       if (router_) (void)router_->close();
       return true;
