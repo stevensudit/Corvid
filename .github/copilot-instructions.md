@@ -11,7 +11,7 @@
 - **cleanbuild.sh**: Run `./cleanbuild.sh` from project root for a clean build and execution of all unit tests
   - Use this to check for regressions globally after broad changes
   - Run before commits are ready to be pushed into a PR
-  - Optional arguments: `libstdcpp` or `libcxx` to choose standard library, `tidy` to run clang-tidy
+  - Optional arguments: `libstdcpp` or `libcxx` to choose standard library; `tidy` to run clang-tidy; `asan`/`tsan`/`ubsan`/`msan` for sanitizer sweeps (mutually exclusive); `coverage` for instrumented coverage; a `<testname>.cpp` to build and run only that target
 
 ## Code Style
 - Avoid using emojis in code or comments unless explicitly requested
@@ -33,15 +33,16 @@
 
 ## Testing
 - Test executables are built to: tests/build/release_bin/
-- The test framework is minitest (custom, minimal test framework)
-- Tests use EXPECT_EQ, EXPECT_TRUE, etc. macros
-- Test files follow the pattern: *_test.cpp
+- The test framework is Catch2 v3
+- Each test source includes `tests/catch2_main.h` (provides the Catch2 macros plus `main`)
+- Tests use `TEST_CASE("Name", "[tag]")` with `SECTION("desc")` sub-blocks; assertions are `CHECK` / `REQUIRE` (and `_FALSE` / `_THROWS_AS` variants)
+- Test files follow the pattern `*_test.cpp` or `*_tests.cpp`; sources prefixed `notest_` are built but not run as part of the sweep
 
 ## Project Structure
 - Headers: corvid/**/*.h
-- Tests: tests/*_test.cpp
+- Tests: tests/*_test.cpp and tests/*_tests.cpp
 - String utilities: corvid/strings/
-- Test framework: tests/minitest.h
+- Test framework: Catch2 v3, included via tests/catch2_main.h
 - **TODO file**: The project uses a TODO file at the root level to track enhancement requests and design decisions
   - When encountering TODO comments in code that represent enhancement requests (not immediate implementation tasks), move them to the TODO file
   - Keep TODO comments in code only for items that should be addressed soon as part of ongoing work
