@@ -55,14 +55,21 @@ class between them:
   arm expiry), handles CID registration, expiry, and lifetime. Delegates
   all protocol-specific behavior to the upper plugin.
 - **Upper plugin (the `QuicPlugin` template parameter)** IS the adapter.
-  For HTTP/3 it owns the `nghttp3_conn` and inherits `quic_conn_handlers`.
-  Holds a `quic_session_io&` (which exposes `quic_conn`,
-  `borrow_send_buffer`, `send_packet`); does not see ngtcp2 or the
-  templated session directly. Bridges `quic_conn`'s typed upcalls into
-  nghttp3's read/ack/block/unblock APIs. Owns ngtcp2 stream opening
-  through `quic_conn::open_bidi_stream` and pairs each new stream with
-  `nghttp3_conn_submit_request` on the client side. Drives the outbound
-  drain via its `drain(now)` hook.
+  For HTTP/3 it owns an `http3_conn` (the RAII nghttp3 wrapper) and inherits
+  BOTH abstract upcall bases: `quic_conn_handlers` for transport events from
+  ngtcp2 and `http3_conn_handlers` for HTTP/3 events from nghttp3. One object,
+  two hats; the tight, bidirectional, single-turn coupling between the two
+  argues against splitting them across separate objects. Holds a
+  `quic_session_io&` (which exposes `quic_conn`, `borrow_send_buffer`,
+  `send_packet`); does not see ngtcp2 or the templated session directly. The
+  bridge is mechanical forwarding: a `quic_conn_handlers` transport upcall
+  feeds an `http3_conn` method (`on_recv_stream_data` -> `read_stream`,
+  `on_acked_stream_data_offset` -> `add_ack_offset`, `on_stream_close` ->
+  `close_stream`), and the decoded result re-emerges synchronously as an
+  `http3_conn_handlers` upcall on the same object. Owns ngtcp2 stream opening
+  through `quic_conn::open_bidi_stream` and pairs each new stream with an
+  nghttp3 request submission on the client side. Drives the outbound drain via
+  its `drain(now)` hook.
 - **Application handler** (above the upper plugin) is the HTTP/3 user.
   Operates at the HTTP level: start request, submit response, "body is
   available." Supplies body bytes through `nghttp3_data_reader::read_data`
@@ -103,6 +110,25 @@ The plugin's drain orchestrates the nghttp3 -> ngtcp2 hand-off:
    much ngtcp2 consumed (which may be less than offered, due to flow
    control or packet sizing).
 4. Loop until both nghttp3 and ngtcp2 report nothing more to send.
+
+### Per-stream state via `stream_user_data`
+
+Every per-stream `http3_conn_handlers` upcall carries nghttp3's opaque `void*
+stream_user_data` (the connection-level `on_recv_settings` does not). It is
+null today: `http3_conn` exposes no setter yet, so nothing populates it, and
+the upcalls forward it only so adopting it later needs no signature change.
+
+Once a request needs per-stream state richer than the fake-GET canned response
+(a request/response object holding the accumulated method / path / headers, a
+body source, decode progress), the plugin allocates one such object per stream
+and registers it as that stream's user data, so each upcall arrives with a
+direct back-pointer instead of a per-call stream-id map lookup. This is the
+idiomatic nghttp3 design and needs the still-unwrapped primitives
+`set_stream_user_data` (and the `submit_request` / `submit_response` calls,
+which take the pointer at submission time). Ownership stays with the plugin;
+`stream_user_data` is a non-owning back-pointer. nghttp3 fires no further
+callbacks after `close_stream`, so the natural lifetime is allocate at
+stream / request start, free in `on_stream_close`.
 
 ### Dispatch choice: virtual base, not template, not `std::function`
 
@@ -222,7 +248,7 @@ needs it, or if we want a watchdog beneath ngtcp2's own timers.
   `remove_connection_id` / `recv_*_key` hooks reserved for the session
   layer to override. The `SSL` is put into accept/connect state after
   `ngtcp2_crypto_ossl_configure_*_session` (the shim wires callbacks but
-  does not pick a direction). `quic_self_signed_cert` (sibling header)
+  does not pick a direction). `self_signed_cert` (sibling header)
   generates a fresh RSA-2048 self-signed cert in memory each run.
   `quic_conn_test`
   drives a full in-process handshake by ferrying datagrams between a
@@ -292,7 +318,7 @@ needs it, or if we want a watchdog beneath ngtcp2's own timers.
   `writable_iov()` rebuilds an `iovec` view over a reused scratch vector.
   Covered by `quic_stream_send_queue_test` (8 cases).
 - **[done] QUIC echo server.** First end-to-end milestone.
-  `quic_echo_plugin` (in `quic_echo_plugin.h`) inherits `quic_no_op_plugin`
+  `quic_echo_plugin` (in `quic_echo_plugin.h`) inherits `quic_conn_handlers`
   and holds one `quic_stream_send_queue` per active stream, keyed by
   `quic_stream_id`. Overrides `on_stream_open` to allocate a queue,
   `on_recv_stream_data` to `append` inbound bytes (with any sticky `fin`
@@ -334,12 +360,24 @@ needs it, or if we want a watchdog beneath ngtcp2's own timers.
   so non-HTTP/3 tests pay nothing. Smoke-tested by
   `tests/nghttp3_smoke_test.cpp` (link + version check, mirroring
   `quic_smoke_test.cpp`).
-- **[planned] nghttp3 wrapping + http3 plugin.** RAII wrap of
-  `nghttp3_conn` (custom-deleter `unique_ptr`, `[[nodiscard]] bool` error
-  translation, QPACK encoder/decoder context owned alongside) shaped like
-  `quic_conn`, but owned BY the HTTP/3 upper plugin, not a separate
-  adapter class between the plugin and nghttp3 (the upper plugin IS the
-  adapter; see [HTTP/3 layering](#http3-layering)).
+- **[done] nghttp3 wrapping (`http3_conn`).** RAII wrap of `nghttp3_conn`
+  (custom-deleter `unique_ptr`, `[[nodiscard]] bool` error translation, QPACK
+  encoder/decoder state owned inside the `nghttp3_conn` itself, not as separate
+  context objects) shaped like `quic_conn`: owned BY the HTTP/3 upper plugin,
+  not a separate adapter (the upper plugin IS the adapter; see [HTTP/3
+  layering](#http3-layering)). Provides `init`, control / QPACK stream binding,
+  `read_stream`, `writev_stream` + `add_write_offset`, `add_ack_offset`, and
+  `close_stream`, plus a protocol-neutral `http3_conn_handlers` upcall base
+  mirroring `quic_conn_handlers` one layer up (begin / recv / end headers,
+  recv-data, end-stream, deferred-consume, stream-close, acked, stop-sending,
+  reset-stream, recv-settings). nghttp3 C types are wrapped as `qpack_token`,
+  `nv_flags`, `h3_error_code`, `stream_chunk`, and `http3_settings`. The
+  remaining nghttp3 primitives (`submit_request` / `submit_response`,
+  `block_stream` / `unblock_stream`, `set_stream_user_data`) land with the
+  plugin milestone.
+- **[planned] http3 plugin.** The bridge object that inherits both
+  `quic_conn_handlers` and `http3_conn_handlers` and forwards between them;
+  see [HTTP/3 layering](#http3-layering).
 - **[planned] HTTP/3 fake GET.** First HTTP/3 milestone. Decodes a
   request HEADERS frame and emits a canned response HEADERS + DATA (not
   a stream echo: the request body, if any, is ignored). Verifies

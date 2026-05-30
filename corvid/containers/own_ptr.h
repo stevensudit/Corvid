@@ -34,6 +34,9 @@
 // `std::unique_ptr` does. Moreover, its uses constexpr and noexcept
 // excessively and unsustainably. For these reasons, this is legacy code.
 //
+// Realistically, this should be replaced with:
+// https://en.cppreference.com/cpp/experimental/unique_resource
+//
 
 namespace corvid { inline namespace ownptr {
 namespace details {

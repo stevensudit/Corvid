@@ -174,7 +174,7 @@ public:
   quic_conn_handlers& operator=(const quic_conn_handlers&) = delete;
   virtual ~quic_conn_handlers() = default;
 
-#pragma region Handshake progression
+#pragma region Handshake
 
   // TLS handshake finished (both endpoints have completed). On the server this
   // fires once the server has received and processed the client's Finished; on
@@ -264,7 +264,7 @@ public:
   }
 
 #pragma endregion
-#pragma region Flow control feedback
+#pragma region Flow control
 
   // Peer raised our send window on `stream_id` to `max_data` bytes total. A
   // plugin previously stalled on this stream may resume; HTTP/3 forwards to
@@ -291,7 +291,7 @@ public:
   }
 
 #pragma endregion
-#pragma region Datagrams (RFC 9221)
+#pragma region Datagrams
 
   // Inbound DATAGRAM frame.
   [[nodiscard]] virtual bool
