@@ -55,6 +55,7 @@ enum class socket_type : int {
 };
 
 // `AF_*` wrapper for address family domains.
+// NOLINTNEXTLINE(performance-enum-size)
 enum class address_family : int {
   unspecified = AF_UNSPEC,    // 0
   local = AF_LOCAL,           // 1
@@ -106,10 +107,10 @@ enum class address_family : int {
   xdp = AF_XDP,               // 44
   mctp = AF_MCTP,             // 45
   max = AF_MAX,               // 46
-  AF_MUST_BE_INT32 = 0x7FFF'FFFF
 };
 
 // `IPPROTO_*` wrapper for protocol types.
+// NOLINTNEXTLINE(performance-enum-size)
 enum class protocol_type : int {
   ip = IPPROTO_IP,             // 0
   icmp = IPPROTO_ICMP,         // 1
@@ -145,10 +146,10 @@ enum class protocol_type : int {
   ethernet = IPPROTO_ETHERNET, // 143
   raw = IPPROTO_RAW,           // 255
   max = 256,
-  IPPROTO_MUST_BE_INT32 = 0x7FFF'FFFF
 };
 
 // `SO_*` wrapper for socket options.
+// NOLINTNEXTLINE(performance-enum-size)
 enum class socket_option : int {
   debug = SO_DEBUG,                                                 // 1
   reuse_addr = SO_REUSEADDR,                                        // 2
@@ -230,10 +231,10 @@ enum class socket_option : int {
   rcvmark = SO_RCVMARK,                                    // 75
   passpidfd = SO_PASSPIDFD,                                // 76
   peerpidfd = SO_PEERPIDFD,                                // 77
-  SO_MUST_BE_INT32 = 0x7FFF'FFFF
 };
 
 // "TCP_* wrapper for TCP-level socket options".
+// NOLINTNEXTLINE(performance-enum-size)
 enum class tcp_option : int {
   nodelay = TCP_NODELAY,                           // 1
   maxseg = TCP_MAXSEG,                             // 2
@@ -272,7 +273,6 @@ enum class tcp_option : int {
   zerocopy_receive = TCP_ZEROCOPY_RECEIVE,         // 35
   inq = TCP_INQ,                                   // 36
   tx_delay = TCP_TX_DELAY,                         // 37
-  TCP_MUST_BE_INT32 = 0x7FFF'FFFF
 };
 
 }} // namespace corvid::filesys
@@ -591,16 +591,16 @@ public:
   recv_at(std::string& data, size_t offset, msg_flags flags = {}) const {
     if (offset >= data.size()) return true;
 
-    // Unlike the raw `recv(void*, len)` / `recv(msghdr&)` overloads, this
-    // path intentionally permits a closed socket: the kernel returns -1
-    // with `EBADF` and the hard-failure branch below trims `data` and reports
+    // Unlike the raw `recv(void*, len)` / `recv(msghdr&)` overloads, this path
+    // intentionally permits a closed socket: the kernel returns -1 with
+    // `EBADF` and the hard-failure branch below trims `data` and reports
     // false. Analyzer flags handle() = -1 as invalid; that's by design here.
     //
     // `BlockInCriticalSection` is suppressed because the analyzer can't tell
-    // `weak_ptr::lock()` (atomic CAS on the control block, no critical
-    // section) from `mutex::lock()`; once it sees a `shared_from_this()`
-    // anywhere upstream it tags this `recv` as blocking-in-a-lock. We don't
-    // call `recv` while holding any actual lock.
+    // `weak_ptr::lock` (atomic CAS on the control block, no critical section)
+    // from `mutex::lock`; once it sees a `shared_from_this` anywhere upstream
+    // it tags this `recv` as blocking-in-a-lock. We don't call `recv` while
+    // holding any actual lock.
     // NOLINTBEGIN(clang-analyzer-unix.StdCLibraryFunctions,clang-analyzer-unix.BlockInCriticalSection)
     const ssize_t n =
         ::recv(handle(), data.data() + offset, data.size() - offset, *flags);

@@ -41,8 +41,6 @@ public:
   epoll& operator=(epoll&&) noexcept = default;
   epoll& operator=(const epoll&) = delete;
 
-  ~epoll() = default;
-
   // Create an `epoll` instance with `flags` (default: `EPOLL_CLOEXEC`).
   [[nodiscard]] static epoll create(int flags = default_flags) noexcept {
     return epoll{flags};
@@ -88,7 +86,7 @@ public:
 
   // Wait overload for a fixed-size array: `maxevents` is deduced from `N`.
   //
-  // See other `wait()` overload for more.
+  // See other `wait` overload for more.
   template<std::size_t N>
   [[nodiscard]] std::optional<int>
   wait(epoll_event (&events)[N], int timeout_ms) const noexcept {

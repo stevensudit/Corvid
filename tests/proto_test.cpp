@@ -1584,7 +1584,7 @@ TEST_CASE("PeerClose", "[StreamConn]") {
 // the first `handle_readable` delivers the data via `on_data`. The subsequent
 // EOF event enters `handle_read_eof` with a non-empty buffer and no live view,
 // so it must dispatch `on_data` once more with the residual bytes (at which
-// point `can_read()` is already false) before firing `on_close`.
+// point `can_read` is already false) before firing `on_close`.
 #pragma region PeerClose_WithBufferedData
 
 TEST_CASE("PeerClose_WithBufferedData", "[StreamConn]") {
@@ -1990,7 +1990,7 @@ TEST_CASE("CloseThenDestructStaysGraceful", "[StreamConn]") {
 
 #pragma endregion
 
-// With `coordination_policy::bilateral` set, `close()` shuts down writes after
+// With `coordination_policy::bilateral` set, `close` shuts down writes after
 // the send queue drains, then waits for the peer to close before firing
 // `on_close`. Incoming data arriving during the drain is silently discarded.
 #pragma region MutualClose
@@ -2040,17 +2040,17 @@ TEST_CASE("MutualClose", "[StreamConn]") {
 // connection's bilateral handshake completes correctly end to end.
 //
 // The critical invariant under test: with `bilateral` coordination, the
-// server's `on_close` does NOT fire after `conn.close()` alone -- it fires
-// only after the peer (client) has also closed. Since the client is still open
-// when we check, the absence of `on_close` is logically guaranteed, not
+// server's `on_close` does NOT fire after `conn.close()` alone, it fires only
+// after the peer (client) has also closed. Since the client is still open when
+// we check, the absence of `on_close` is logically guaranteed, not
 // timing-based.
 #pragma region Listen_MutualClose
 
 TEST_CASE("Listen_MutualClose", "[StreamConn]") {
   epoll_loop_runner loop;
 
-  // Set in `on_data` after the server calls `conn.close()`, so the test
-  // thread knows the server has initiated its half-close.
+  // Set in `on_data` after the server calls `conn.close`, so the test thread
+  // knows the server has initiated its half-close.
   notifiable<bool> close_initiated{false};
   // Set in `on_close` once the server connection fully closes.
   notifiable<bool> server_closed{false};
@@ -2199,8 +2199,8 @@ TEST_CASE("EchoServer", "[StreamConn]") {
 
 // `epoll_stream_conn_with_state` tests.
 
-// Verify that `adopt()` creates a typed handle, that state is
-// zero-initialized, and that it is mutable via the typed pointer.
+// Verify that `adopt` creates a typed handle, that state is zero-initialized,
+// and that it is mutable via the typed pointer.
 #pragma region Adopt
 
 TEST_CASE("Adopt", "[StreamConnWithState]") {

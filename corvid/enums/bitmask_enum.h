@@ -71,11 +71,11 @@ inline namespace enums { namespace bitmask {
 // When specifying bit or value names, the following placeholders have special
 // meaning:
 // - Empty string or hyphen (`-`): The bit/value is invalid. Invalid bits are
-//   not included in `max_value()` and operations involving them may produce
+//   not included in `max_value` and operations involving them may produce
 //   unexpected results.
 // - Question mark (`?`) or asterisk (`*`): The bit/value is valid but unnamed.
 //   When printed, the numeric value is shown instead of a name. The bit is
-//   included in `max_value()`.
+//   included in `max_value`.
 //
 // Registration.
 //

@@ -20,10 +20,12 @@
 #include <deque>
 #include <memory>
 #include <optional>
+#include <stdexcept>
 #include <string>
 #include <string_view>
 #include <variant>
 
+#include "../../infra/exception_firewalls.h"
 #include "../../concurrency/idle_timeout.h"
 #include "../../enums/bool_enums.h"
 #include "../net_endpoint.h"
@@ -70,18 +72,19 @@ public:
   iou_recv_view& operator=(const iou_recv_view&) = delete;
   iou_recv_view& operator=(iou_recv_view&&) = delete;
 
-  // NOLINTBEGIN(bugprone-exception-escape)
-  ~iou_recv_view() noexcept(false) {
-    if (!resume_) return; // View was moved from or stop_receiving consumed.
-    if (!buf_.payload_view().empty() && buf_.active_span().empty())
-      throw std::logic_error{
-          "iou_recv_view with unconsumed payload cannot be reused"};
+  ~iou_recv_view() {
+    try_or_terminate([&] {
+      // View was moved from or stop_receiving consumed.
+      if (!resume_) return true;
+      if (!buf_.payload_view().empty() && buf_.active_span().empty())
+        throw std::logic_error{
+            "iou_recv_view with unconsumed payload cannot be reused"};
 
-    // Normal re-arm path. The returned `posted_fn` is empty here.
-    assert(buf_.result()); // not deactivated.
-    (void)resume_(std::move(buf_));
+      // Normal re-arm path. The returned `posted_fn` is empty here.
+      assert(buf_.result()); // not deactivated.
+      return resume_(std::move(buf_)) || true;
+    });
   }
-  // NOLINTEND(bugprone-exception-escape)
 
 #pragma endregion
 #pragma region Buffer management
@@ -199,8 +202,8 @@ concept iou_stream_conn_plugin = requires(P p, iou_recv_view&& view,
 // expectation is "lock once if you need to drive it, then let the in-flight
 // callbacks carry it from there."
 //
-// Callers who need to hold the conn strongly can `lock()` the weak_ptr to a
-// `std::shared_ptr`, or call `self()` on the conn to get a fresh strong ref.
+// Callers who need to hold the conn strongly can `lock` the weak_ptr to a
+// `std::shared_ptr`, or call `self` on the conn to get a fresh strong ref.
 // Callers who only want to observe later without keeping it alive can keep
 // the weak_ptr and `lock` before each use; an expired weak_ptr means the
 // conn has already torn down.
@@ -593,7 +596,7 @@ public:
 
   // Adopt an already-connected socket. `sock` must be non-blocking. Returns a
   // `std::weak_ptr<iou_stream_conn>`; the conn is self-sustaining via its
-  // in-flight callbacks. `lock()` for ad-hoc access. An empty/expired
+  // in-flight callbacks. `lock` for ad-hoc access. An empty/expired
   // `std::weak_ptr` signals either a failure to launch or that the conn has
   // already finished its life and torn down.
   template<typename... PluginArgs>
@@ -666,7 +669,7 @@ private:
   relaxed_atomic<block_size> send_buf_size_{block_size::kb004};
 
   // Idle timeouts. One per direction; configured at construction and
-  // driven via the `read_idle()` / `write_idle()` accessors.
+  // driven via the `read_idle` / `write_idle` accessors.
   idle_timeout_t read_idle_;
   idle_timeout_t write_idle_;
 

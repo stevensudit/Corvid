@@ -49,7 +49,7 @@ using namespace std::chrono_literals;
 //
 // Typical use is to install WebSocket callbacks directly onto the
 // `epoll_http_websocket` in the `configure` function passed to
-// `make_factory()`:
+// `make_factory`:
 //
 //   auto factory = epoll_http_websocket_transaction::make_factory(
 //       [](epoll_http_websocket_transaction& tx) {

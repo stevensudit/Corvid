@@ -36,10 +36,10 @@
 #include "../../filesys/os_file.h"
 #include "../../concurrency/jthread_stoppable_sleep.h"
 #include "../../concurrency/notifiable.h"
-#include "../../concurrency/relaxed_atomic.h"
+#include "../../infra/relaxed_atomic.h"
 #include "../../concurrency/owner_thread_dispatcher.h"
 #include "../../concurrency/timeout_sweeper.h"
-#include "../../containers/scope_exit.h"
+#include "../../infra/scope_exit.h"
 #include "../../containers/scoped_value.h"
 #include "../../containers/object_pool.h"
 #include "iou_buf_pool.h"
@@ -165,11 +165,11 @@ concept PostedInvocable =
 // force single-threading of ring access.
 using posted_fn = fixed_function<default_fixed_function::capacity, bool()>;
 
-// Callback for entries registered with the loop's `timeouts()` sweeper.
+// Callback for entries registered with the loop's `timeouts` sweeper.
 // Sized for the typical idle-timeout capture: one `std::weak_ptr` on top of
 // the `fixed_function` invoke/manage overhead.
 using expiration_fn = fixed_function<32,
-    timeout_sweeper_base::time_point_t(timeout_sweeper_base::time_point_t)>;
+    steady_now_clock::time_point_t(steady_now_clock::time_point_t)>;
 
 #pragma endregion
 #pragma region iou_loop
@@ -377,7 +377,7 @@ public:
     // outlives this loop (held by a conn the user kept past
     // `~iou_basic_loop`), its destructor must not touch our `iou_ring` or our
     // dispatcher base, both of which are about to vanish.
-    timeouts_.clear();
+    timeout_sweeper_.clear();
     (void)completion_cb_pool_.shutdown();
     udp_buf_pool_->skip_unregister();
     tcp_provided_buf_pool_->skip_unregister();
@@ -428,9 +428,11 @@ public:
     assert(is_loop_thread());
     (void)execute_post_queue();
 
-    // Simultaneously submit SQEs and wait for CQEs.
+    // Simultaneously submit SQEs and wait for CQEs. If no actual work ready,
+    // times out, allowing posted callbacks to run in the next loop.
     pending_sqe_count_ = 0;
     auto res = ring_.submit_and_wait_timeout(timeout);
+    if (!res.ok() && res.err() == EC::time) res = iou_res{};
     if (res.is_soft_error()) return 0;
     res.throw_if_error("submit_and_wait_timeout");
 
@@ -440,6 +442,9 @@ public:
       if (do_dispatch(cqe)) ++dispatched;
       return true;
     });
+
+    // Sweep expired timeouts.
+    timeout_sweeper_.tick(steady_now_clock::now());
 
     (void)total;
     return dispatched;
@@ -503,7 +508,7 @@ public:
 
   // Shared timeout sweeper. Conn classes (or any other client of the loop)
   // may register expirations with it.
-  [[nodiscard]] auto& timeouts() noexcept { return timeouts_; }
+  [[nodiscard]] auto& timeouts() noexcept { return timeout_sweeper_; }
 
 #pragma endregion
 #pragma region Completion tokens
@@ -1736,7 +1741,7 @@ private:
   completion_cb_pool_t completion_cb_pool_;
 
   // Shared timeout sweeper.
-  sweeper_t timeouts_;
+  sweeper_t timeout_sweeper_;
 
   // Stop system.
   std::atomic_bool stop_;
@@ -1797,8 +1802,8 @@ public:
     }
     if (!loop || !loop->wait_until_running(1000ms)) {
       // Drop our local ref before stopping the worker so the worker's local
-      // in `run()` is the last owner and `~loop_t` fires on the worker
-      // thread (required by `owner_thread_dispatcher`).
+      // in `run` is the last owner and `~loop_t` fires on the worker thread
+      // (required by `owner_thread_dispatcher`).
       loop.reset();
       thread_.request_stop();
       if (thread_.joinable()) thread_.join();
@@ -1889,34 +1894,34 @@ private:
         loop->run();
       }
 
-      // Drop the local loop ref so `~loop_t` happens on this thread
-      // rather than on whichever thread later destroys `runner_state`.
-      // The `owner_thread_dispatcher` base requires destruction on the
-      // owning thread.
+      // Drop the local loop ref so `~loop_t` happens on this thread rather
+      // than on whichever thread later destroys `runner_state`. The
+      // `owner_thread_dispatcher` base requires destruction on the owning
+      // thread.
       //
       // Order:
-      //   1. Drop the local `loop` so `state->loop` should be the sole
-      //      owner. (Unlike `epoll_loop`, no separate shutdown step is
-      //      needed: `iou_stream_conn` holds a bare `iou_loop&` rather
-      //      than a `shared_ptr`, so there are no ownership cycles
-      //      from connections to break.)
-      //   2. Belt-and-suspenders: confirm no external `shared_ptr`
-      //      still holds the loop alive (e.g., a copy taken from
-      //      `loop()`). `use_count` is approximate (the standard
-      //      explicitly calls it "immediately stale" in MT contexts),
-      //      but adequate as a misuse detector. Retry briefly to
-      //      absorb in-flight releases. If it never settles, call
-      //      `std::terminate` rather than let `~loop_t` fire on a
-      //      non-owner thread (which would itself throw from inside a
-      //      destructor). `std::terminate` is used instead of `throw`
-      //      so the catch handler below cannot swallow it.
+      //   1. Drop the local `loop` so `state->loop` should be the sole owner.
+      //      (Unlike `epoll_loop`, no separate shutdown step is needed:
+      //      `iou_stream_conn` holds a bare `iou_loop&` rather than a
+      //      `shared_ptr`, so there are no ownership cycles from connections
+      //      to break.)
+      //   2. Belt-and-suspenders: confirm no external `shared_ptr` still holds
+      //      the loop alive (e.g., a copy taken from `loop`). `use_count` is
+      //      approximate (the standard explicitly calls it "immediately stale"
+      //      in MT contexts), but adequate as a misuse detector. Retry briefly
+      //      to absorb in-flight releases. If it never settles, call
+      //      `std::terminate` rather than let `~loop_t` fire on a non-owner
+      //      thread (which would itself throw from inside a destructor).
+      //      `std::terminate` is used instead of `throw` so the catch handler
+      //      below cannot swallow it.
       //   3. Drop `state->loop`, triggering `~loop_t` on this thread.
       loop.reset();
 
       for (size_t retry = 0; retry < 10 && state->loop.use_count() != 1;
           ++retry)
         std::this_thread::sleep_for(1s);
-      if (state->loop.use_count() != 1) std::terminate();
+      if (state->loop.use_count() != 1)
+        log::fatal("Impossible loop use count: {}", state->loop.use_count());
 
       if (std::scoped_lock lock{state->startup_mutex}; true)
         state->loop.reset();

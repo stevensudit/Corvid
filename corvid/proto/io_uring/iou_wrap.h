@@ -40,6 +40,7 @@ namespace corvid { inline namespace proto { namespace iouring {
 #pragma region iou flags
 
 // `IORING_SETUP_*` wrapper.
+// NOLINTNEXTLINE(performance-enum-size)
 enum class iou_setup_flags : uint32_t {
   setup_iopoll = IORING_SETUP_IOPOLL,                         // 0x0001
   setup_sqpoll = IORING_SETUP_SQPOLL,                         // 0x0002
@@ -57,7 +58,6 @@ enum class iou_setup_flags : uint32_t {
   setup_defer_taskrun = IORING_SETUP_DEFER_TASKRUN,           // 0x2000
   setup_no_mmap = IORING_SETUP_NO_MMAP,                       // 0x4000
   setup_registered_fd_only = IORING_SETUP_REGISTERED_FD_ONLY, // 0x8000
-  IORING_SETUP_MUST_BE_UINT32 = 0x7FFF'FFFF
 };
 
 // `IORING_CQE_F_*` wrapper.
@@ -81,6 +81,7 @@ enum class iou_sqe_flags : uint8_t {
 };
 
 // `IORING_TIMEOUT_*` wrapper.
+// NOLINTNEXTLINE(performance-enum-size)
 enum class iou_timeout_flags : uint32_t {
   rel = 0,                                          // 0x00
   abs = IORING_TIMEOUT_ABS,                         // 0x01
@@ -92,10 +93,10 @@ enum class iou_timeout_flags : uint32_t {
   multishot = IORING_TIMEOUT_MULTISHOT,             // 0x40
   clock_mask = IORING_TIMEOUT_CLOCK_MASK,           // 0x0c
   update_mask = IORING_TIMEOUT_UPDATE_MASK,         // 0x12
-  IORING_TIMEOUT_MUST_BE_INT32 = 0x7FFF'FFFF
 };
 
 // `POLL*` wrapper.
+// NOLINTNEXTLINE(performance-enum-size)
 enum class poll_flags : uint16_t {
   POLL_0 = 0,      // 0x000
   in = POLLIN,     // 0x001
@@ -104,15 +105,14 @@ enum class poll_flags : uint16_t {
   err = POLLERR,   // 0x008
   hup = POLLHUP,   // 0x010
   nval = POLLNVAL, // 0x020
-  POLL_MUST_BE_INT16 = 0x7FFF
 };
 
 // `SHUT_*` wrapper for `prep_shutdown`.
+// NOLINTNEXTLINE(performance-enum-size)
 enum class shutdown_how : int {
   rd = SHUT_RD,     // 0
   wr = SHUT_WR,     // 1
   rdwr = SHUT_RDWR, // 2
-  SHUT_MUST_BE_INT = 0x7FFF'FFFF
 };
 
 }}} // namespace corvid::proto::iouring
@@ -454,7 +454,7 @@ public:
   }
 
   // Receive from a socket using provided buffers, repeatedly. `bgid` is the
-  // buffer group ID from `iou_provided_buf_pool::bgid()`.
+  // buffer group ID from `iou_provided_buf_pool::bgid`.
   bool prep_recv_multishot(int fd, msg_flags flags, uint16_t bgid) noexcept {
     io_uring_prep_recv_multishot(sqe_, fd, nullptr, 0, *flags);
     sqe_->flags |= IOSQE_BUFFER_SELECT;
@@ -544,9 +544,9 @@ public:
   }
 
   // Receive a message from a socket using provided buffers, repeatedly. `bgid`
-  // is the buffer group ID from `iou_provided_buf_pool::bgid()`. Each
-  // provided buffer holds an `io_uring_recvmsg_out` header followed by peer
-  // address, control data, and payload.
+  // is the buffer group ID from `iou_provided_buf_pool::bgid`. Each provided
+  // buffer holds an `io_uring_recvmsg_out` header followed by peer address,
+  // control data, and payload.
   bool prep_recvmsg_multishot(int fd, msghdr* msgh, msg_flags flags,
       uint16_t bgid) noexcept {
     io_uring_prep_recvmsg_multishot(sqe_, fd, msgh, *flags);
@@ -795,10 +795,10 @@ public:
         io_uring_wait_cqe_timeout(&ring_, cqe.pointer(), ts.pointer())};
   }
 
-  // Loop over available CQEs, calling `fn` on each, up to `limit` CQEs .
+  // Loop over available CQEs, calling `fn` on each, up to `limit` CQEs.
   // Advances the CQ head by the number of CQEs processed. Must be called on
-  // the loop thread after a call to `wait_cqe_timeout()` that returned at
-  // least one CQE. Returns the number of CQEs processed.
+  // the loop thread after a call to `wait_cqe_timeout` that returned at least
+  // one CQE. Returns the number of CQEs processed.
   [[nodiscard]] size_t for_each_cqe(auto&& fn, size_t limit = max_size) {
     size_t count{};
     iou_cqe::ptr_t cqe;
@@ -832,17 +832,17 @@ public:
     return sqe_available() >= s;
   }
 
-  // Get the next SQE to fill, or null if the SQ is full. The caller must
-  // later call `submit()`.
+  // Get the next SQE to fill, or null if the SQ is full. The caller must later
+  // call `submit`.
   iou_sqe next_sqe() noexcept { return iou_sqe{io_uring_get_sqe(&ring_)}; }
 
-  // Submit filled SQEs to the kernel. Returns an `iou_res` with the number
-  // of SQEs submitted, or an error. An `ok(n)` on the result is a good idea.
+  // Submit filled SQEs to the kernel. Returns an `iou_res` with the number of
+  // SQEs submitted, or an error. An `ok(n)` on the result is a good idea.
   iou_res submit() noexcept { return iou_res{io_uring_submit(&ring_)}; }
 
   // Submit filled SQEs and wait for at least one CQE, with an optional
-  // timeout. Combines `submit()` and `wait_cqe_timeout()` into one syscall,
-  // which also flushes deferred task work (required by `setup_defer_taskrun`).
+  // timeout. Combines `submit` and `wait_cqe_timeout` into one syscall, which
+  // also flushes deferred task work (required by `setup_defer_taskrun`).
   [[nodiscard]] iou_res submit_and_wait_timeout(
       iou_timespec ts = {}) noexcept {
     iou_cqe cqe; // Peeked but not returned.

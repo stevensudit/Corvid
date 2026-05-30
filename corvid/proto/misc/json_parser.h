@@ -29,6 +29,7 @@
 #include <utility>
 #include <vector>
 
+#include "../../infra/exception_firewalls.h"
 #include "../../enums/bool_enums.h"
 #include "../../strings/concat_join.h"
 #include "../../strings/conversion.h"
@@ -747,7 +748,7 @@ constexpr bool parse_array(json_cursor& c, json_value_view& out,
     return true;
   }
 
-  while (true) {
+  for (;;) {
     json_value_view item;
     if (!parse_value(c, item, err, opts, depth + 1)) return false;
 
@@ -785,7 +786,7 @@ constexpr bool parse_object(json_cursor& c, json_value_view& out,
     return true;
   }
 
-  while (true) {
+  for (;;) {
     json_value_view key;
     if (*c != '"')
       return json_error::fail(err, json_errc::expected_key, c.pos);
@@ -1072,8 +1073,12 @@ class json_writer {
     scoped_writer& operator=(const scoped_writer&) = delete;
     scoped_writer& operator=(scoped_writer&&) = delete;
 
-    // NOLINTNEXTLINE(bugprone-exception-escape)
-    constexpr ~scoped_writer() { end_(*writer_); }
+    constexpr ~scoped_writer() {
+      try_or_terminate([&] {
+        end_(*writer_);
+        return true;
+      });
+    }
 
     [[nodiscard]] constexpr json_writer* operator->() noexcept {
       return writer_;

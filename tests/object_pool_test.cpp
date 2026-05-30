@@ -59,7 +59,7 @@ TEST_CASE("BorrowAndReturn", "[ObjectPool]") {
     CHECK(pool.borrow()); // slot was returned on destruction
   }
 
-  // Explicit `reset()` returns the slot early.
+  // Explicit `reset` returns the slot early.
   if (true) {
     object_pool<int, 1> pool;
     auto h = pool.borrow();
@@ -369,7 +369,7 @@ TEST_CASE("TokenDetachAndBorrow", "[ObjectPool]") {
     CHECK(h.get_ptr(pool) == p); // handle still resolves to the pointer
   }
 
-  // `handle::borrow()` re-acquires the detached slot.
+  // `token::borrow` re-acquires the detached slot.
   if (true) {
     object_pool<int, 1> pool;
     auto b = pool.borrow();
@@ -381,7 +381,7 @@ TEST_CASE("TokenDetachAndBorrow", "[ObjectPool]") {
     CHECK(*b2 == 42);
     CHECK_FALSE(pool.borrow()); // slot still held by b2
 
-    // A second `borrow()` on the same handle fails while b2 owns the slot.
+    // A second `borrow` on the same handle fails while b2 owns the slot.
     CHECK_FALSE(h.borrow(pool));
 
     b2.reset();
@@ -403,7 +403,7 @@ TEST_CASE("TokenStaleness", "[ObjectPool]") {
     CHECK(h.get_ptr(pool) == nullptr); // stale
   }
 
-  // `handle::borrow()` returns empty once the handle is stale.
+  // `token::borrow` returns empty once the handle is stale.
   if (true) {
     object_pool<int, 4> pool;
     auto b = pool.borrow();
@@ -412,7 +412,7 @@ TEST_CASE("TokenStaleness", "[ObjectPool]") {
     CHECK_FALSE(h.borrow(pool));
   }
 
-  // `handle::borrow()` returns empty if the slot is currently borrowed.
+  // `token::borrow` returns empty if the slot is currently borrowed.
   if (true) {
     object_pool<int, 4> pool;
     auto b = pool.borrow();

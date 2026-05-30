@@ -33,14 +33,15 @@
 #include <unistd.h>
 #include <fcntl.h>
 
-#include "epoll_loop.h"
+#include "../../infra/exception_firewalls.h"
 #include "../iov_msghdr.h"
 #include "../net_endpoint.h"
-#include "epoll_recv_buffer.h"
-#include "../../concurrency/relaxed_atomic.h"
+#include "../../infra/relaxed_atomic.h"
 #include "../../enums/bool_enums.h"
 #include "../../strings/any_strings.h"
 #include "../../strings/no_zero.h"
+#include "epoll_loop.h"
+#include "epoll_recv_buffer.h"
 
 namespace corvid { inline namespace proto {
 
@@ -186,16 +187,16 @@ public:
   // down.
   [[nodiscard]] bool can_write() const noexcept { return !write_shut_; }
 
-  // The shutdown `coordination_policy` used by `close()`. `bilateral` shuts
-  // down the write side after the send queue flushes, then discards incoming
-  // data until the peer sends EOF. `unilateral` (the default) closes the
-  // entire socket once the queue empties. Safe from any thread.
+  // The shutdown `coordination_policy` used by `close`. `bilateral` shuts down
+  // the write side after the send queue flushes, then discards incoming data
+  // until the peer sends EOF. `unilateral` (the default) closes the entire
+  // socket once the queue empties. Safe from any thread.
   [[nodiscard]] coordination_policy shutdown() const noexcept {
     return shutdown_;
   }
 
   // Set the shutdown coordination policy. `shutdown` defaults to `unilateral`.
-  // Call before `close()`. Safe from any thread.
+  // Call before `close`. Safe from any thread.
   void set_shutdown(coordination_policy shutdown) noexcept {
     shutdown_ = shutdown;
   }
@@ -472,10 +473,10 @@ private:
   // preventing a second view from being created while the first is still live.
   bool eof_pending_ = false;
 
-  // When `bilateral`, `close()` shuts down the write side after the send
-  // queue flushes, then discards incoming data until the peer closes. When
-  // `unilateral` (the default), `close()` closes the socket immediately once
-  // the queue empties.
+  // When `bilateral`, `close` shuts down the write side after the send queue
+  // flushes, then discards incoming data until the peer closes. When
+  // `unilateral` (the default), `close` closes the socket immediately once the
+  // queue empties.
   relaxed_atomic<coordination_policy> shutdown_{
       coordination_policy::unilateral};
 #pragma endregion
@@ -512,7 +513,7 @@ private:
     assert(loop_.is_loop_thread());
     if (listening_) return handle_listen();
     if (connecting_) return handle_connect();
-    // Once `close()` is in progress, discard incoming data rather than
+    // Once `close` is in progress, discard incoming data rather than
     // dispatching it. For mutual close this is the read-drain loop; for
     // non-mutual close it is belt-and-suspenders during the send queue flush.
     if (close_requested_) return handle_drain_reads();
@@ -854,7 +855,7 @@ private:
   // self-owning connection.
   [[nodiscard]] bool handle_listen() {
     assert(loop_.is_loop_thread());
-    while (true) {
+    for (;;) {
       auto accepted = sock().accept();
       if (!accepted) break;
       auto peer = accept_clone(std::move(accepted->first),
@@ -1115,7 +1116,7 @@ private:
     // Shut down the write side. When called from the server-initiated-close
     // path, `read_open_` is still true so `maybe_finish_after_side_close`
     // inside `do_shutdown_write` is a no-op. When called from the
-    // peer-closed-first path (EOF received before `close()`), `read_open_` is
+    // peer-closed-first path (EOF received before `close`), `read_open_` is
     // already false, so `do_shutdown_write` calls `do_close_now` via
     // `maybe_finish_after_side_close`, setting `open_` to false.
     (void)do_shutdown_write();
@@ -1128,7 +1129,7 @@ private:
     return loop_.enable_reads(*this, true);
   }
 
-  // Discard incoming data once `close()` has been requested. For mutual close,
+  // Discard incoming data once `close` has been requested. For mutual close,
   // called after `SHUT_WR` with `EPOLLIN` armed; closes gracefully on peer
   // EOF. For non-mutual close, should not actually be called.
   [[nodiscard]] bool handle_drain_reads() {
@@ -1234,14 +1235,15 @@ public:
 
   // Performs `hangup` on destruction. If you want to close cleanly, you must
   // call `close` before the instance is destructed.
-  // NOLINTBEGIN(bugprone-exception-escape)
   ~epoll_stream_conn_ptr_with() {
-    if (!conn_ || conn_->no_hangup_on_destruct_) return;
-    (void)conn_->loop_.execute_or_post([p = std::move(conn_)] {
-      return p->do_hangup();
+    try_or_terminate([&] {
+      if (!conn_ || conn_->no_hangup_on_destruct_) return true;
+      return conn_->loop_.execute_or_post([p = std::move(conn_)] {
+        return p->do_hangup();
+      }) || true;
     });
   }
-  // NOLINTEND(bugprone-exception-escape)
+
 #pragma endregion
 #pragma region Accessors
 

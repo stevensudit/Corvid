@@ -247,7 +247,7 @@ public:
 
   // `remove_suffix` would break the termination invariant.
 
-  // `substr` would likewise do so if `count` isn't `npos` or `size()`.
+  // `substr` would likewise do so if `count` isn't `npos` or `size`.
 
   //
   // New

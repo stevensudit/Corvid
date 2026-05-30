@@ -24,7 +24,8 @@
 #include <string_view>
 #include <utility>
 
-#include "../../concurrency/relaxed_atomic.h"
+#include "../../infra/exception_firewalls.h"
+#include "../../infra/relaxed_atomic.h"
 #include "../../strings/no_zero.h"
 
 namespace corvid { inline namespace proto {
@@ -116,7 +117,7 @@ struct epoll_recv_buffer {
   // The effective resize size is determined as follows:
   //   - If `target` exceeds the current capacity: grow to `target`.
   //   - If `target == 0` and the buffer has bloated beyond 2x `min_capacity`
-  //     (e.g., after a one-off large `expand_to()`): shrink back to
+  //     (e.g., after a one-off large `expand_to`): shrink back to
   //     `min_capacity`, but only when all active data fits.
   //   - If `target == 0` and the buffer is below `min_capacity` (e.g.,
   //     `set_recv_buf_size` raised the target): grow to `min_capacity`.
@@ -301,11 +302,13 @@ public:
 
   // Destructor: calls `resume_cb_(new_buffer_size_, last_seen_end_)` to post
   // compact / re-enable-reads / optional re-dispatch back to the loop.
-  // NOLINTBEGIN(bugprone-exception-escape)
-  ~epoll_recv_buffer_view() {
-    if (buf_) resume_cb_(new_buffer_size_, last_seen_end_);
+  ~epoll_recv_buffer_view() noexcept {
+    try_or_terminate([&] {
+      if (buf_) resume_cb_(new_buffer_size_, last_seen_end_);
+      return true;
+    });
   }
-  // NOLINTEND(bugprone-exception-escape)
+
 #pragma endregion
 #pragma region Accessors
 

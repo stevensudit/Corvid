@@ -159,8 +159,6 @@ public:
   template<class U>
   constexpr arena_allocator(const arena_allocator<U>&) noexcept {}
 
-  constexpr ~arena_allocator() = default;
-
   // NOLINTBEGIN(bugprone-sizeof-expression)
 
   // Allocates a block of memory suitable for an array of `n` objects of type

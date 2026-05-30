@@ -86,7 +86,7 @@ struct timer_invocation {
 // `repeat_in`. To be very specific, this duration is added to the current time
 // once the callback is done. If you instead return the next invocation time,
 // you override this. Among other things, this allows you to space invocations
-// based on any of the timestamps in `timer_invocation` or on `get_now()`.
+// based on any of the timestamps in `timer_invocation` or on `get_now`.
 //
 // For a one-shot event, you will typically return zero. However, if you
 // specify a value other than zero, then it will be scheduled for that time.
@@ -353,7 +353,7 @@ public:
       invocation.now = get_now(attestation);
 
       // If no time specified, calculate it. Note how we add `repeat_in` to
-      // `get_now()`, not `callback_now`, so that it's the interval between
+      // `get_now`, not `callback_now`, so that it's the interval between
       // returns, not calls.
       if (next_at == time_point_t{} && event.repeat_in != duration_t::max())
         next_at = invocation.now + event.repeat_in;

@@ -24,7 +24,7 @@
 #include <sys/mman.h>
 
 #include "../../concurrency/owner_thread_dispatcher.h"
-#include "../../concurrency/relaxed_atomic.h"
+#include "../../infra/relaxed_atomic.h"
 
 #include "iou_buffer_pool_base.h"
 #include "iou_buffer.h"
@@ -35,15 +35,15 @@ namespace corvid { inline namespace proto { namespace iouring {
 //
 // A hugepage-aligned slab of `slab_size` bytes is split into fixed-size
 // `buf_size` slots. The ring is registered via `register_with`; callers submit
-// SQEs with `IOSQE_BUFFER_SELECT` and `bgid()`, then reconstruct an
-// `iou_buffer` from the resulting CQE.
+// SQEs with `IOSQE_BUFFER_SELECT` and `bgid`, then reconstruct an `iou_buffer`
+// from the resulting CQE.
 //
-// Unlike `iou_buf_pool`, there is no borrow/return API: the kernel selects
-// and fills a slot, and the caller reconstructs an `iou_buffer` view over it.
+// Unlike `iou_buf_pool`, there is no borrow/return API: the kernel selects and
+// fills a slot, and the caller reconstructs an `iou_buffer` view over it.
 // Destroying or resetting the buffer replenishes the slot back into the ring.
 //
 // Passing `slab_size = 0` produces a no-op pool: no memory is allocated,
-// `operator bool()` returns false, and all operations fail gently.
+// `operator bool` returns false, and all operations fail gently.
 //
 // `iou_provided_buf_pool` is non-copyable and non-movable. The pool must
 // outlive all `iou_buffer` objects it produces.

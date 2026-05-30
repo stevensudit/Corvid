@@ -16,7 +16,7 @@
 // limitations under the License.
 #pragma once
 #include "../containers/containers_shared.h"
-#include "../containers/scope_exit.h"
+#include "../infra/scope_exit.h"
 
 #include <atomic>
 #include <chrono>
@@ -58,8 +58,8 @@ struct notifiable_result<T> {
 };
 
 // Matches any `T` that is a specialization of `std::atomic` or provides
-// `is_relaxed_atomic`. Used to gate the lock-free `get()` overload and
-// `load_value()` path.
+// `is_relaxed_atomic`. Used to gate the lock-free `get` overload and
+// `load_value` path.
 template<typename T>
 concept atomic_like =
     is_specialization_of_v<T, std::atomic> || relaxed_atomic_like<T>;
@@ -73,8 +73,8 @@ concept atomic_like =
 //
 // The mutating methods (`notify`, `notify_one`, `modify_and_notify`,
 // `modify_and_notify_one`) hold the lock while updating the value, release it,
-// then call `std::condition_variable::notify_all()` or
-// `std::condition_variable::notify_one()`. This is the correct ordering that
+// then call `std::condition_variable::notify_all` or
+// `std::condition_variable::notify_one`. This is the correct ordering that
 // prevents missed wakeups.
 //
 // All waiting methods always supply a predicate to
@@ -97,10 +97,10 @@ concept atomic_like =
 //
 // About `std::atomic`:
 //
-// `T` may be a specialization of `std::atomic`. In that case, `get()` skips
-// the mutex and delegates directly to `T::load()`, so readers pay no locking
-// cost while writers still go through the mutex to ensure correct
-// notification ordering.
+// `T` may be a specialization of `std::atomic`. In that case, `get` skips the
+// mutex and delegates directly to `T::load`, so readers pay no locking cost
+// while writers still go through the mutex to ensure correct notification
+// ordering.
 //
 // When considering `notifiable<std::atomic<U>>` vs. `std::atomic<U>`'s own
 // `wait`/`notify_one`/`notify_all` interface (added in C++20), prefer the
@@ -131,10 +131,10 @@ public:
 
   // Set value to `val` under lock, then wake all waiters.
   //
-  // `notify_all()` is called even if the move assignment throws, so waiters
-  // are never left stuck.
+  // `notify_all` is called even if the move assignment throws, so waiters are
+  // never left stuck.
   void notify(value_t val) {
-    auto on_exit = make_scope_exit([&]() noexcept { cv_.notify_all(); });
+    auto on_exit = scope_exit{[&]() noexcept { cv_.notify_all(); }};
     std::scoped_lock lock{mutex_};
     value_ = std::move(val);
   }
@@ -145,7 +145,7 @@ public:
   // the change is single-consumer (though note that there is no guarantee that
   // the waiter will be woken before the value changes again).
   void notify_one(value_t val) {
-    auto on_exit = make_scope_exit([&]() noexcept { cv_.notify_one(); });
+    auto on_exit = scope_exit{[&]() noexcept { cv_.notify_one(); }};
     std::scoped_lock lock{mutex_};
     value_ = std::move(val);
   }
@@ -155,10 +155,10 @@ public:
   // (e.g., `[](int& v){ ++v; }`). Use this when the new value depends on the
   // old one.
   //
-  // `notify_all()` is called even if `modify_value` throws, so waiters are
-  // never left stuck.
+  // `notify_all` is called even if `modify_value` throws, so waiters are never
+  // left stuck.
   void modify_and_notify(std::invocable<T&> auto modify_value) {
-    auto on_exit = make_scope_exit([&]() noexcept { cv_.notify_all(); });
+    auto on_exit = scope_exit{[&]() noexcept { cv_.notify_all(); }};
     std::scoped_lock lock{mutex_};
     modify_value(value_);
   }
@@ -169,7 +169,7 @@ public:
   // waiter or the change is single-consumer (though note that there is no
   // guarantee that the waiter will be woken before the value changes again).
   void modify_and_notify_one(std::invocable<T&> auto modify_value) {
-    auto on_exit = make_scope_exit([&]() noexcept { cv_.notify_one(); });
+    auto on_exit = scope_exit{[&]() noexcept { cv_.notify_one(); }};
     std::scoped_lock lock{mutex_};
     modify_value(value_);
   }
@@ -221,8 +221,8 @@ public:
   // thread has already changed the value before this call is entered, the
   // captured `old_value` equals the new value and the wait never unblocks. Use
   // the `wait_until_changed(expected_old)` overload instead: capture the
-  // before-value via `get()` before starting the notifying thread, then pass
-  // it here.
+  // before-value via `get` before starting the notifying thread, then pass it
+  // here.
   [[nodiscard]] value_t wait_until_changed() const {
     std::unique_lock lock{mutex_};
     const auto old_value = do_load();
@@ -232,7 +232,7 @@ public:
 
   // Block until `value` differs from `expected_old`; return the new value.
   //
-  // The caller should capture `expected_old` via `get()` before starting any
+  // The caller should capture `expected_old` via `get` before starting any
   // notifying thread, ensuring the wait succeeds even if notification arrives
   // before this call is entered.
   [[nodiscard]] value_t wait_until_changed(value_t expected_old) const {
@@ -268,7 +268,7 @@ public:
   // Block until `value` changes from its current state or `timeout` elapses.
   // Returns the new value if a change was observed, or `nullopt` on timeout.
   //
-  // Subject to the same CAUTION as `wait_until_changed()`: if the notifying
+  // Subject to the same CAUTION as `wait_until_changed`: if the notifying
   // thread has already run, the internally captured `old_value` equals the new
   // value and the call always times out. Use `wait_for_changed(timeout,
   // expected_old)` when ordering is not guaranteed.
@@ -285,7 +285,7 @@ public:
   // Block until `value` differs from `expected_old` or `timeout` elapses.
   // Returns the new value if a change was observed, or `nullopt` on timeout.
   //
-  // The caller should capture `expected_old` via `get()` before starting any
+  // The caller should capture `expected_old` via `get` before starting any
   // notifying thread; see `wait_until_changed(expected_old)`.
   template<typename Rep, typename Period>
   [[nodiscard]] std::optional<value_t> wait_for_changed(

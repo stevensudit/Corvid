@@ -26,6 +26,7 @@
 #include <type_traits>
 #include <utility>
 
+#include "../infra/exception_firewalls.h"
 #include "../containers/fixed_bitset.h"
 #include "../meta/maybe.h"
 #include "entity_ids.h"
@@ -679,7 +680,7 @@ public:
     }
 
     // Create a new entity and take ownership of it (archetype mode). Check
-    // `operator bool` or `id()` afterward to detect allocation failure.
+    // `operator bool` or `id` afterward to detect allocation failure.
     //
     // Prefer calling `create_owner` instead.
     handle_owner(entity_registry& reg, location_t location,
@@ -688,7 +689,7 @@ public:
         : registry_{&reg}, handle_{reg.create_handle(location, metadata)} {}
 
     // Create a new entity and take ownership of it (component mode). Check
-    // `operator bool` or `id()` afterward to detect allocation failure.
+    // `operator bool` or `id` afterward to detect allocation failure.
     //
     // Prefer calling `create_owner` instead.
     handle_owner(entity_registry& reg, const metadata_t& metadata = {})
@@ -713,7 +714,9 @@ public:
       return *this;
     }
 
-    ~handle_owner() { reset(); }
+    ~handle_owner() {
+      try_or_terminate([&] { return reset() || true; });
+    }
 
     // Get the owned ID.
     [[nodiscard]] id_t id() const noexcept { return handle_.id(); }
@@ -732,9 +735,10 @@ public:
     }
 
     // Erase the owned entity (if any) and reset to empty.
-    void reset() noexcept {
+    bool reset() noexcept {
       if (handle_.id() != id_t::invalid) registry_->erase(handle_);
       handle_ = handle_t{};
+      return true;
     }
 
     // Get the registry.

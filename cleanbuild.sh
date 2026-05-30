@@ -3,6 +3,12 @@
 # Fail fast.
 set -e
 
+# Side effect on first run after a fresh clone: CMake regenerates `.clangd`
+# at the project root from `.clangd.in` via `configure_file`. The generated
+# file is gitignored because it bakes in absolute dep paths (ngtcp2, openssl)
+# tied to this checkout. IDE clangd won't resolve those headers correctly
+# until this script (or a bare `cmake -S tests -B tests/build`) has run once.
+
 # Choose which standard library to use. Optionally pass a test source filename
 # first to build and run a matching unit test, then pass "libstdcpp" or
 # "libcxx" to override the default. Add "tidy" to run clang-tidy during the
@@ -288,7 +294,45 @@ if $use_coverage; then
   export LLVM_PROFILE_FILE="$(pwd)/$covDir/profraw/%p.profraw"
 fi
 
-ctest "${ctest_args[@]}"
+# Don't let set -e abort on a test failure: we still want the tidy summary
+# below to print. Capture the status and propagate it after summarizing.
+ctest_status=0
+ctest "${ctest_args[@]}" || ctest_status=$?
+
+# In tidy mode, clang-tidy warnings stream through the build phase but get
+# buried under the ctest run that follows. Summarize them at the very end so
+# the bottom-line state is visible. Filter out diagnostics in
+# .fetchcontent/ or .local/ (FetchContent'd Catch2, prebuilt OpenSSL, ngtcp2
+# ExternalProject sources) so only Corvid-owned issues appear.
+if $use_tidy; then
+  echo
+  echo "==================== clang-tidy summary ===================="
+  warn_lines=$(grep -E ': warning: .*\[[A-Za-z][A-Za-z0-9._-]*\]' "$tidyLogFile" \
+               | grep -v -F '.fetchcontent/' \
+               | grep -v -F '.local/' \
+               || true)
+  if [[ -n "$warn_lines" ]]; then
+    warn_count=$(printf '%s\n' "$warn_lines" | wc -l)
+    echo "$warn_count warning(s):"
+    echo
+    printf '%s\n' "$warn_lines"
+    echo
+    echo "By check:"
+    printf '%s\n' "$warn_lines" \
+        | grep -oE '\[[A-Za-z][A-Za-z0-9._-]*\]$' \
+        | sort | uniq -c | sort -rn \
+        | sed 's/^/  /'
+    echo
+    echo "Full log: $tidyLogFile"
+  else
+    echo "clean: no warnings"
+  fi
+  echo "============================================================"
+fi
+
+if [[ $ctest_status -ne 0 ]]; then
+  exit $ctest_status
+fi
 
 if $use_coverage; then
   echo

@@ -59,9 +59,13 @@ else()
     # Use Clang 22 and avoid pulling in GCC.
     set(CMAKE_CXX_COMPILER "/usr/bin/clang++-22")
     set(CMAKE_CXX_COMPILER_TARGET "x86_64-pc-linux-gnu")
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O3 -march=native -Wall -Wextra -Werror -nostdinc++ -isystem ${LIBCXX_PREFIX}/include/c++/v1 -std=c++23")
+    # `-fexperimental-library` unlocks libc++'s tzdb / utc_clock / zoned_time
+    # headers (gated behind `_LIBCPP_HAS_EXPERIMENTAL_TZDB`); the matching
+    # runtime lives in libc++experimental, which must come before libc++ in
+    # the link order because it references symbols from libc++.
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O3 -march=native -Wall -Wextra -Werror -nostdinc++ -isystem ${LIBCXX_PREFIX}/include/c++/v1 -std=c++23 -fexperimental-library")
     set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -stdlib=libc++ --rtlib=compiler-rt -fuse-ld=lld")
-    set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -L${LIBCXX_PREFIX}/lib -lc++ -lc++abi")
+    set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -L${LIBCXX_PREFIX}/lib -lc++experimental -lc++ -lc++abi")
     # Embed an rpath so binaries find libc++/libunwind .so files at the chosen
     # prefix without requiring LD_LIBRARY_PATH. Harmless for the system path,
     # essential for SANITIZER=msan where LIBCXX_PREFIX is outside ld.so config.
@@ -189,6 +193,116 @@ if(NOT _have_catch2)
     FetchContent_MakeAvailable(Catch2)
 endif()
 
+# QUIC dependency: ngtcp2 (ExternalProject) linked against a preflight-built
+# OpenSSL 3.5+ (the LTS line; needed for the native QUIC API, which Ubuntu
+# Noble's 3.0.13 lacks). Linked into every test target -- the static linker
+# drops unreferenced object files, so tests that do not include any QUIC
+# headers pay essentially nothing.
+#
+# ExternalProject_Add rather than FetchContent because ngtcp2's CMakeLists
+# runs an autoconf-style probe sweep (`check_function_exists`,
+# `check_include_files`, ...) and the answers live in our parent
+# `CMakeCache.txt`, which `cleanbuild.sh` wipes every run. ExternalProject
+# runs the sub-build as a separate CMake invocation with its own persistent
+# cache under `tests/.local/ngtcp2-external/`, so the probes execute exactly
+# once across cleanbuilds. It also isolates target names (the nghttp3
+# `check`-target collision goes away when we add it later) and prevents
+# `CMAKE_BUILD_TYPE` from leaking back into our compile lines.
+# Under MSAN, OpenSSL and ngtcp2 must themselves be instrumented; an
+# uninstrumented static OpenSSL floods every QUIC test with use-of-uninit
+# false positives (its internal lhash/config/memcmp reads). The instrumented
+# build installs to a separate prefix so it coexists with the plain one.
+if(SANITIZER STREQUAL "msan")
+    set(OPENSSL_ROOT_DIR "${CMAKE_CURRENT_SOURCE_DIR}/.local/openssl-msan")
+    set(_openssl_build_hint "scripts/build_openssl_quic.sh msan")
+else()
+    set(OPENSSL_ROOT_DIR "${CMAKE_CURRENT_SOURCE_DIR}/.local/openssl")
+    set(_openssl_build_hint "scripts/build_openssl_quic.sh")
+endif()
+if(NOT EXISTS "${OPENSSL_ROOT_DIR}/lib64/libssl.a")
+    message(FATAL_ERROR
+        "OpenSSL 3.5+ not found at ${OPENSSL_ROOT_DIR}. "
+        "Run ${_openssl_build_hint} first (one-time, ~5 min).")
+endif()
+set(OPENSSL_USE_STATIC_LIBS ON)
+find_package(OpenSSL 3.5 REQUIRED COMPONENTS SSL Crypto)
+message(STATUS "Using OpenSSL ${OPENSSL_VERSION} at ${OPENSSL_ROOT_DIR}")
+
+include(ExternalProject)
+
+# A `-msan` suffix keeps the instrumented ngtcp2 (built with MSAN cflags
+# against the instrumented OpenSSL) from clobbering the plain install, mirroring
+# the OpenSSL split above.
+if(SANITIZER STREQUAL "msan")
+    set(_ngtcp2_suffix "-msan")
+else()
+    set(_ngtcp2_suffix "")
+endif()
+set(NGTCP2_PREFIX_DIR  "${CMAKE_CURRENT_SOURCE_DIR}/.local/ngtcp2-external${_ngtcp2_suffix}")
+set(NGTCP2_INSTALL_DIR "${CMAKE_CURRENT_SOURCE_DIR}/.local/ngtcp2${_ngtcp2_suffix}")
+set(NGTCP2_LIB_DIR     "${NGTCP2_INSTALL_DIR}/lib")
+set(NGTCP2_INCLUDE_DIR "${NGTCP2_INSTALL_DIR}/include")
+
+# Forward MSAN instrumentation into ngtcp2's sub-build: clang plus the same
+# plain `-fsanitize=memory` the test side uses (origin tracking overflows the
+# stack in our templated TUs). Without this, ngtcp2's own writes stay invisible
+# to MSAN and its output poisons our QUIC code paths.
+set(_ngtcp2_san_args "")
+if(SANITIZER STREQUAL "msan")
+    set(_ngtcp2_san_args
+        "-DCMAKE_C_COMPILER=clang-22"
+        "-DCMAKE_C_FLAGS=-fsanitize=memory -fno-omit-frame-pointer -g")
+endif()
+
+# `BUILD_BYPRODUCTS` lists the artifacts the sub-build produces. Ninja
+# requires this to track downstream dependencies on imported targets that
+# reference these files. `CMAKE_INSTALL_LIBDIR=lib` forces a flat `lib/`
+# rather than the `lib64/` that GNUInstallDirs picks on some distros, so
+# the IMPORTED_LOCATION paths below are stable.
+ExternalProject_Add(ngtcp2_external
+    PREFIX            "${NGTCP2_PREFIX_DIR}"
+    GIT_REPOSITORY    https://github.com/ngtcp2/ngtcp2.git
+    GIT_TAG           v1.22.1
+    GIT_SHALLOW       TRUE
+    UPDATE_DISCONNECTED TRUE
+    INSTALL_DIR       "${NGTCP2_INSTALL_DIR}"
+    CMAKE_GENERATOR   "Ninja"
+    CMAKE_ARGS
+        -DCMAKE_INSTALL_PREFIX=${NGTCP2_INSTALL_DIR}
+        -DCMAKE_INSTALL_LIBDIR=lib
+        -DCMAKE_BUILD_TYPE=Release
+        -DOPENSSL_ROOT_DIR=${OPENSSL_ROOT_DIR}
+        ${_ngtcp2_san_args}
+        -DENABLE_OPENSSL=ON
+        -DENABLE_STATIC_LIB=ON
+        -DENABLE_SHARED_LIB=OFF
+        -DENABLE_LIB_ONLY=ON
+        -DENABLE_WERROR=OFF
+        -DBUILD_TESTING=OFF
+    BUILD_BYPRODUCTS
+        "${NGTCP2_LIB_DIR}/libngtcp2.a"
+        "${NGTCP2_LIB_DIR}/libngtcp2_crypto_ossl.a"
+)
+
+# The install dir's include subdir must exist at configure time, otherwise
+# CMake errors on the IMPORTED_LOCATION / INTERFACE_INCLUDE_DIRECTORIES
+# property below. Create it eagerly; ngtcp2_external will populate it on
+# first build.
+file(MAKE_DIRECTORY "${NGTCP2_INCLUDE_DIR}")
+
+add_library(ngtcp2_static STATIC IMPORTED GLOBAL)
+set_target_properties(ngtcp2_static PROPERTIES
+    IMPORTED_LOCATION             "${NGTCP2_LIB_DIR}/libngtcp2.a"
+    INTERFACE_INCLUDE_DIRECTORIES "${NGTCP2_INCLUDE_DIR}")
+add_dependencies(ngtcp2_static ngtcp2_external)
+
+add_library(ngtcp2_crypto_ossl_static STATIC IMPORTED GLOBAL)
+set_target_properties(ngtcp2_crypto_ossl_static PROPERTIES
+    IMPORTED_LOCATION             "${NGTCP2_LIB_DIR}/libngtcp2_crypto_ossl.a"
+    INTERFACE_INCLUDE_DIRECTORIES "${NGTCP2_INCLUDE_DIR}"
+    INTERFACE_LINK_LIBRARIES      "ngtcp2_static;OpenSSL::SSL;OpenSSL::Crypto")
+add_dependencies(ngtcp2_crypto_ossl_static ngtcp2_external)
+
 if(USE_CLANG_TIDY)
     find_program(CLANG_TIDY_EXE NAMES clang-tidy clang-tidy-22)
     if(CLANG_TIDY_EXE)
@@ -235,20 +349,40 @@ foreach(SOURCE_FILE ${SOURCES})
         # the limit and registrations fail with ENOMEM. Serialize them
         # against each other with RESOURCE_LOCK (they can still run in
         # parallel with non-iou tests). The label is for `ctest -L iou`.
-        if(${EXECUTABLE_NAME} MATCHES "^iou_")
+        # `quic_dgram_*` tests sit on top of `iou_dgram_router`, so they
+        # share the same constraints.
+        if(${EXECUTABLE_NAME} MATCHES "^iou_|^quic_dgram_")
             set_tests_properties(${EXECUTABLE_NAME} PROPERTIES
                 LABELS "iou"
                 RESOURCE_LOCK "iou_memlock")
         endif()
     endif()
 
-    if(${EXECUTABLE_NAME} MATCHES "^iou_")
+    if(${EXECUTABLE_NAME} MATCHES "^iou_|^quic_dgram_")
         target_include_directories(${EXECUTABLE_NAME} PRIVATE ${LIBURING_INCLUDE_DIRS})
         target_link_libraries(${EXECUTABLE_NAME} PRIVATE ${LIBURING_LIBRARIES})
     endif()
+
+    # QUIC stack. Linked into every target; the static linker drops archive
+    # members that no symbol references, so tests that do not include any of
+    # the headers pay no measurable size or link-time cost. The crypto
+    # target's INTERFACE_LINK_LIBRARIES carries ngtcp2_static + OpenSSL
+    # transitively.
+    target_link_libraries(${EXECUTABLE_NAME} PRIVATE ngtcp2_crypto_ossl_static)
 
     if(NOT USE_LIBSTDCPP)
         # Link libc++ and libc++abi explicitly
         target_link_libraries(${EXECUTABLE_NAME} PRIVATE c++ c++abi)
     endif()
 endforeach()
+
+# Generate `.clangd` at the project root from `.clangd.in`. The dep paths
+# baked in (ngtcp2, openssl) are absolute and tied to this checkout, so the
+# generated file is gitignored; edit `.clangd.in` and re-configure to update.
+# `CMAKE_SOURCE_DIR` is this `tests/` directory (the only CMake project in
+# the repo), so the .. step is the actual project root.
+get_filename_component(PROJECT_ROOT_DIR "${CMAKE_SOURCE_DIR}/.." ABSOLUTE)
+configure_file(
+    "${PROJECT_ROOT_DIR}/.clangd.in"
+    "${PROJECT_ROOT_DIR}/.clangd"
+    @ONLY)

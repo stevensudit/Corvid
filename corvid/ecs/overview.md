@@ -46,8 +46,8 @@ not a real storage; it represents an entity that has been allocated but not
 yet placed in any storage.
 
 Handles vs. IDs: a raw `id_t` is a plain integer with no generation context.
-A `handle_t` carries an id and a generation snapshot, allowing `is_valid()`
-to detect stale handles after the entity has been erased and its ID reused.
+A `handle_t` carries an id and a generation snapshot, allowing `is_valid` to
+detect stale handles after the entity has been erased and its ID reused.
 Unversioned mode omits the generation field but still performs alive checks.
 
 

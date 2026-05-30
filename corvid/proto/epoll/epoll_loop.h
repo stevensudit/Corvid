@@ -33,9 +33,9 @@
 #include "../../concurrency/jthread_stoppable_sleep.h"
 #include "../../concurrency/notifiable.h"
 #include "../../concurrency/owner_thread_dispatcher.h"
-#include "../../concurrency/relaxed_atomic.h"
+#include "../../infra/relaxed_atomic.h"
 #include "../../concurrency/tombstone.h"
-#include "../../containers/scope_exit.h"
+#include "../../infra/scope_exit.h"
 #include "../../containers/opt_find.h"
 #include "../../filesys/epoll.h"
 #include "../../filesys/event_fd.h"
@@ -94,7 +94,7 @@ private:
 //
 // Cross-thread dispatch is provided by `owner_thread_dispatcher`: `post`,
 // `execute_or_post`, `post_and_wait`, and `is_loop_thread` come from the base
-// class. The base owns the wakeup `event_fd` (exposed as `wake_fd()`), which
+// class. The base owns the wakeup `event_fd` (exposed as `wake_fd`), which
 // `epoll_loop` registers with `epoll` so that posts interrupt a sleeping
 // `epoll_wait`. Posted callbacks run at the top of the next `run_once`. The
 // expected pattern is that I/O callbacks fire on the loop thread and handle
@@ -208,14 +208,12 @@ public:
 
     // Dispatch each event to handler.
     int dispatched = 0;
-    int woken = 0;
     for (int ndx = 0; ndx < *available; ++ndx) {
       const int fd = events[ndx].data.fd;
 
       // Drain the internal wakeup handle and skip: it carries no user event.
       if (fd == wake_fd().handle()) {
         if (!wake_fd().read()) return -1;
-        ++woken;
         continue;
       }
 
@@ -226,7 +224,6 @@ public:
       if (!dispatch_event(fd, events[ndx].events)) return -1;
     }
 
-    assert(dispatched + woken == available);
     return dispatched;
   }
 
@@ -621,7 +618,8 @@ private:
       for (size_t retry = 0; retry < 10 && state->loop.use_count() != 1;
           ++retry)
         std::this_thread::sleep_for(1s);
-      if (state->loop.use_count() != 1) std::terminate();
+      if (state->loop.use_count() != 1)
+        log::fatal("Impossible loop use count: {}", state->loop.use_count());
 
       if (std::scoped_lock lock{state->startup_mutex}; true)
         state->loop.reset();

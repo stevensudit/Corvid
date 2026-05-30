@@ -46,16 +46,15 @@ using namespace std::chrono_literals;
 // timing wheel provides O(1) schedule and O(fired) tick, at the cost of fixed
 // precision and a bounded maximum delay (~60 s at the default configuration).
 //
-// Thread safety: `schedule()` is thread-safe; `tick()` is intended to be
+// Thread safety: `schedule` is thread-safe; `tick` is intended to be
 // called from a single driver thread (see `timing_wheel_runner`).
 //
-// Shutdown: call `stop()` on the runner (or destroy it) before destroying
-// any object referenced by a pending callback. Pending callbacks in unfired
-// slots are discarded when the runner stops; they do not fire after `stop()`
-// returns.
+// Shutdown: call `stop` on the runner (or destroy it) before destroying any
+// object referenced by a pending callback. Pending callbacks in unfired slots
+// are discarded when the runner stops; they do not fire after `stop` returns.
 //
-// Maximum delay: `(slot_count - 1) * tick_interval`. `schedule()` returns
-// false if the delay exceeds this. For longer delays, use `timers` instead.
+// Maximum delay: `(slot_count - 1) * tick_interval`. `schedule` returns false
+// if the delay exceeds this. For longer delays, use `timers` instead.
 //
 // Example (serving suggestion -- one way to handle write timeouts):
 //
@@ -133,13 +132,13 @@ public:
 
   // Schedule `callback` to fire after `delay`. Thread-safe.
   //
-  // Returns false if `delay` exceeds `(slot_count - 1) * tick_interval`;
-  // use `timers` for longer delays, or chain callbacks.
-  // Delays below `tick_interval` are clamped up to one tick (fires on the
-  // next `tick()` call, not the current one, to avoid re-entrancy).
-  // The `delay` represents the minimum time before the callback fires; actual
-  // firing time is rounded to the next slot boundary after that, and only
-  // occurs after all previous callbacks have fired.
+  // Returns false if `delay` exceeds `(slot_count - 1) * tick_interval`; use
+  // `timers` for longer delays, or chain callbacks. Delays below
+  // `tick_interval` are clamped up to one tick (fires on the next `tick` call,
+  // not the current one, to avoid re-entrancy). The `delay` represents the
+  // minimum time before the callback fires; actual firing time is rounded to
+  // the next slot boundary after that, and only occurs after all previous
+  // callbacks have fired.
   [[nodiscard]] bool schedule(eventfn callback, duration_t delay) {
     if (delay > max_delay()) return false;
     delay = std::max(delay, tick_interval_);
@@ -153,15 +152,15 @@ public:
 
   // Signal that no further callbacks should fire. Called by
   // `timing_wheel_runner` via `std::stop_callback` when a stop is requested,
-  // causing any in-progress `tick()` to bail at the next callback boundary.
+  // causing any in-progress `tick` to bail at the next callback boundary.
   // Idempotent.
   [[nodiscard]] bool stop() { return stopped_.kill(); }
 
-  // Advance the wheel to `now`, firing all expired callbacks outside the
-  // lock. Multiple elapsed slots are drained in order.
+  // Advance the wheel to `now`, firing all expired callbacks outside the lock.
+  // Multiple elapsed slots are drained in order.
   //
-  // If the elapsed time exceeds the full ring (more than
-  // `(slot_count - 1) * tick_interval`), each slot is drained at most once.
+  // If the elapsed time exceeds the full ring (more than `(slot_count - 1) *
+  // tick_interval`), each slot is drained at most once.
   //
   // `last_tick_` advances by the consumed tick intervals rather than by the
   // full elapsed time, so sub-interval remainders carry over correctly.
@@ -185,9 +184,9 @@ public:
       // Cap to avoid visiting any slot twice in one tick call.
       advance = std::min(advance, slots_.size() - 1);
 
-      // Swap each expired slot into a local buffer while holding the lock.
-      // The slot is left empty for future use. Releasing the lock before
-      // firing allows `schedule()` to run concurrently.
+      // Swap each expired slot into a local buffer while holding the lock. The
+      // slot is left empty for future use. Releasing the lock before firing
+      // allows `schedule` to run concurrently.
       ready_events.resize(advance);
       for (auto& slot : ready_events) {
         current_slot_ = (current_slot_ + 1) % slots_.size();
@@ -198,10 +197,10 @@ public:
       last_tick_ += tick_interval_ * static_cast<int>(advance);
     }
 
-    // Fire all collected callbacks outside the lock, bailing immediately if
-    // a stop has been requested. Callbacks that call `schedule()` land in
-    // future slots (guaranteed by the 1-tick minimum delay), so no slot is
-    // visited twice.
+    // Fire all collected callbacks outside the lock, bailing immediately if a
+    // stop has been requested. Callbacks that call `schedule` land in future
+    // slots (guaranteed by the 1-tick minimum delay), so no slot is visited
+    // twice.
     for (auto& slot : ready_events) {
       for (auto& cb : slot) {
         if (stopped_.dead()) return;
@@ -232,12 +231,12 @@ private:
 
 // Runs a `timing_wheel` in its own background thread.
 //
-// The thread sleeps until the next slot boundary then calls `tick()`.
+// The thread sleeps until the next slot boundary then calls `tick`.
 //
-// Shutdown ordering: destroy the runner (or call `stop()` then let it go out
-// of scope) before destroying any object that a pending callback might
-// reference. Pending callbacks in unfired slots are discarded; none fire after
-// the runner is destroyed.
+// Shutdown ordering: destroy the runner (or call `stop` then let it go out of
+// scope) before destroying any object that a pending callback might reference.
+// Pending callbacks in unfired slots are discarded; none fire after the runner
+// is destroyed.
 class [[nodiscard]] timing_wheel_runner {
 public:
   explicit timing_wheel_runner(
@@ -280,7 +279,7 @@ private:
     jthread_stoppable_sleep::set_thread_name("wheel");
 
     // Kill the wheel's tombstone immediately when a stop is requested, so
-    // any in-progress `tick()` bails at the next callback boundary.
+    // any in-progress `tick` bails at the next callback boundary.
     std::stop_callback on_stop{st, [this] { (void)wheel_->stop(); }};
     jthread_stoppable_sleep sleep;
     while (!sleep.until(st, wheel_->next_tick_time()))

@@ -24,6 +24,7 @@
 #include <utility>
 #include <variant>
 
+#include "../infra/exception_firewalls.h"
 #include "ecs_meta.h"
 #include "entity_registry.h"
 
@@ -31,14 +32,14 @@ namespace corvid { inline namespace ecs { inline namespace archetype_scenes {
 
 // Non-templated base for `archetype_scene<>`. Befriended by `storage_base` so
 // that the protected `storage_drop_all` thunk can reach the otherwise-private
-// `do_drop_all()` on any storage, without making that method public.
+// `do_drop_all` on any storage, without making that method public.
 class archetype_scene_base {
 protected:
-  // Invoke `do_drop_all()` on storage `s`. Skips per-entity registry updates;
+  // Invoke `do_drop_all` on storage `s`. Skips per-entity registry updates;
   // safe only when the registry will be reset wholesale immediately after.
   template<typename S>
-  static void storage_drop_all(S& s) {
-    s.do_drop_all();
+  static bool storage_drop_all(S& s) {
+    return s.do_drop_all();
   }
 };
 
@@ -71,7 +72,7 @@ protected:
 //       store_id alignment problem (ensuring sequential IDs match tuple
 //       positions) is solved cleanly.
 //
-// TODO: Add `for_each<C>()` to iterate across all storages that contain
+// TODO: Add `for_each<C>` to iterate across all storages that contain
 //       component type `C` at compile time (multi-storage view).
 //
 // Template parameters:
@@ -139,7 +140,9 @@ public:
   archetype_scene& operator=(const archetype_scene&) = delete;
   archetype_scene& operator=(archetype_scene&&) = delete;
 
-  ~archetype_scene() { clear(); }
+  ~archetype_scene() {
+    try_or_terminate([&] { return clear() || true; });
+  }
 
   // Registry access.
   [[nodiscard]] decltype(auto) registry(this auto& self) noexcept {
@@ -190,7 +193,7 @@ public:
   // Create a new entity in the storage uniquely identified by the type of
   // `obj`. `T` must be the `tuple_t` of exactly one storage in this scene; if
   // two or more storages share the same `tuple_t`, use the
-  // `store_new_entity<SID>()` overload to disambiguate. The component tuple is
+  // `store_new_entity<SID>` overload to disambiguate. The component tuple is
   // unpacked into the storage. Returns a valid handle on success, or an
   // invalid handle if the registry refused creation or the storage limit would
   // be exceeded.
@@ -259,7 +262,7 @@ public:
 
   // Insert an already-staged entity into the storage uniquely identified by
   // the type of `obj`. `T` must be the `tuple_t` of exactly one storage in
-  // this scene; use `store_entity<SID>()` to disambiguate when two storages
+  // this scene; use `store_entity<SID>` to disambiguate when two storages
   // share the same `tuple_t`. The component tuple is unpacked into the
   // storage. Returns false if the entity is not in staging or insertion fails.
   // ID must be valid.
@@ -268,7 +271,7 @@ public:
     using U = std::remove_cvref_t<T>;
     static_assert(count_stores_with_tuple_v<U> == 1,
         "store_entity: T must be the `tuple_t` of exactly one storage; "
-        "use store_entity<SID>() to disambiguate");
+        "use store_entity<SID> to disambiguate");
     assert(registry_.is_valid(id));
     constexpr auto SID =
         find_sid_for_tuple<U>(std::index_sequence_for<STORES...>{});
@@ -665,7 +668,7 @@ public:
   // then resets the registry wholesale. This invalidates all outstanding
   // generation counters, but that is acceptable since every entity is
   // destroyed. O(S) in the number of storages, not O(N) in entities.
-  void clear(deallocation_policy policy = deallocation_policy::release) {
+  bool clear(deallocation_policy policy = deallocation_policy::release) {
     if (policy == deallocation_policy::release) {
       [&]<size_t... Is>(std::index_sequence<Is...>) {
         (storage_drop_all(std::get<Is>(storages_)), ...);
@@ -679,6 +682,7 @@ public:
       }(storage_indices());
       erase_staged_entities();
     }
+    return true;
   }
 
 private:

@@ -230,7 +230,7 @@ TEST_CASE("SendRecvBuffer", "[IouStreamConn]") {
 #pragma region BufferMoveOut
 
 TEST_CASE("BufferMoveOut", "[IouStreamConn]") {
-  // `take()` in on_data -> fresh recv submitted, caller owns buffer.
+  // `take` in on_data -> fresh recv submitted, caller owns buffer.
   if (true) {
     auto [sock0, sock1] = net_socket::create_pair();
 
@@ -272,7 +272,7 @@ TEST_CASE("BufferMoveOut", "[IouStreamConn]") {
 #pragma region GracefulClose
 
 TEST_CASE("GracefulClose", "[IouStreamConn]") {
-  // `close()` -> on_close fires on the closing side. The peer sees EOF via
+  // `close` -> on_close fires on the closing side. The peer sees EOF via
   // an empty on_data view and only fires its own on_close once it closes
   // itself; that is covered by `PeerEofDeliversEmptyView`.
   if (true) {
@@ -309,7 +309,7 @@ TEST_CASE("GracefulClose", "[IouStreamConn]") {
 #pragma region HangupClose
 
 TEST_CASE("HangupClose", "[IouStreamConn]") {
-  // `hangup()` -> socket closed immediately.
+  // `hangup` -> socket closed immediately.
   if (true) {
     auto [sock0, sock1] = net_socket::create_pair();
 
@@ -557,7 +557,7 @@ TEST_CASE("MultishotRecv_MultipleMessages", "[IouStreamConn]") {
 #pragma region MultishotRecvTakeBuffer
 
 TEST_CASE("MultishotRecv_TakeBuffer", "[IouStreamConn]") {
-  // `take()` in multishot mode: multishot resubmits after the taken buffer is
+  // `take` in multishot mode: multishot resubmits after the taken buffer is
   // released.
   if (true) {
     auto [sock0, sock1] = net_socket::create_pair();
@@ -609,7 +609,7 @@ TEST_CASE("MultishotRecv_TakeBuffer", "[IouStreamConn]") {
 #pragma region MultishotRecvStopAndResume
 
 TEST_CASE("MultishotRecv_StopAndResume", "[IouStreamConn]") {
-  // `stop_receiving()` pauses recv and returns a resume callback; the
+  // `stop_receiving` pauses recv and returns a resume callback; the
   // callback both keeps the conn alive and, when invoked, restarts the
   // recv loop.
   if (true) {
@@ -942,7 +942,7 @@ TEST_CASE("ShutdownSend", "[IouStreamConn]") {
     auto send_conn = send_raw->self();
 
     // send + shutdown_send back-to-back: the send was authorized when
-    // `writes_allowed()` first returned true, so the in-lambda guard
+    // `writes_allowed` first returned true, so the in-lambda guard
     // (which checks `closed_`, not `shutdown_send_requested_`) honors it
     // before `shutdown_send` tears down.
     CHECK(send_conn->send(std::string{msg}));

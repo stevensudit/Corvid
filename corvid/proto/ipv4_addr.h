@@ -33,10 +33,10 @@ namespace corvid { inline namespace proto {
 // Default-constructs to an empty state. Construction is available from four
 // octets (most-significant first), a host-byte-order `uint32_t`, or by parsing
 // dotted-decimal notation. Interop with `in_addr` is provided via the
-// constructor and `to_in_addr()`.
+// constructor and `to_in_addr`.
 //
-// Constructors do not throw: on failure, they leave it `empty()`. See
-// `parse()` for the alternative.
+// Constructors do not throw: on failure, they leave it `empty`. See `parse`
+// for the alternative.
 //
 // All address arithmetic uses host byte order internally; network byte order
 // is only introduced at the `in_addr` boundary.
@@ -61,9 +61,9 @@ public:
       : addr_{host_order} {}
 
   // Construct from a dotted-decimal string (e.g., "192.168.1.1").
-  // If not a valid IPv4 address, the result is `empty()`. If you need to
+  // If not a valid IPv4 address, the result is `empty`. If you need to
   // distinguish between an invalid address and the "any" address ("0.0.0.0"),
-  // use `parse()` instead.
+  // use `parse` instead.
   explicit constexpr ipv4_addr(std::string_view s) {
     if (const auto parsed = parse(s); parsed) *this = *parsed;
   }

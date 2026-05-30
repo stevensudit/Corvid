@@ -17,12 +17,23 @@
 
 #pragma once
 #include "containers_shared.h"
+#include "../infra/exception_firewalls.h"
 
 #ifdef _WIN32
 #define NO_UNIQUE_ADDRESS [[msvc::no_unique_address]]
 #else
 #define NO_UNIQUE_ADDRESS [[no_unique_address]]
 #endif
+
+//
+// STATUS
+//
+// `own_ptr` is implemented and tested, but is only used in `custom_handle`.
+// The code is dated, as it doesn't use concepts. It's also incomplete, in that
+// it doesn't handle arrays or work with `std::shared_ptr` in the way that
+// `std::unique_ptr` does. Moreover, its uses constexpr and noexcept
+// excessively and unsustainably. For these reasons, this is legacy code.
+//
 
 namespace corvid { inline namespace ownptr {
 namespace details {
@@ -182,7 +193,12 @@ public:
     other.ptr_ = pointer{};
   }
 
-  ~own_ptr() { do_delete(); }
+  ~own_ptr() {
+    try_or_terminate([&] {
+      do_delete();
+      return true;
+    });
+  }
 
   own_ptr(own_ptr&) = delete;
   own_ptr(const own_ptr&) = delete;
@@ -197,6 +213,8 @@ public:
   requires is_move_constructible_deleter_v
   {
     if (this != &other) {
+      // TODO: Consider either wrapping this in try_or_terminate or making
+      // the noexcept contingent upon the deleter.
       do_delete() = std::exchange(other.ptr_, pointer{});
       del_ = std::move(other.del_);
     }

@@ -110,8 +110,8 @@ TEST_CASE("NoSp", "[HttpHeaderBlock]") {
 #pragma endregion
 #pragma region HeaderLookupCanonical
 
-// Verify that `http_headers::get()` requires the canonical key form.
-// `add()` folds to canonical form before indexing; lookups with
+// Verify that `http_headers::get` requires the canonical key form.
+// `add` folds to canonical form before indexing; lookups with
 // non-canonical names return `nullopt`.
 TEST_CASE("HeaderLookupCanonical", "[HttpHeaderBlock]") {
   http_headers h;
@@ -125,7 +125,7 @@ TEST_CASE("HeaderLookupCanonical", "[HttpHeaderBlock]") {
 #pragma endregion
 #pragma region HeaderGet
 
-// Verify that `get()` returns `nullopt` for absent or non-canonical names.
+// Verify that `get` returns `nullopt` for absent or non-canonical names.
 TEST_CASE("HeaderGet", "[HttpHeaderBlock]") {
   http_headers h;
   CHECK(h.add("Host", "localhost"));
@@ -138,7 +138,7 @@ TEST_CASE("HeaderGet", "[HttpHeaderBlock]") {
 #pragma endregion
 #pragma region HeaderGetEmptyValue
 
-// Verify that `get()` distinguishes an empty stored value from a missing one.
+// Verify that `get` distinguishes an empty stored value from a missing one.
 TEST_CASE("HeaderGetEmptyValue", "[HttpHeaderBlock]") {
   http_headers h;
   CHECK(h.add_raw("X-Empty", ""));
@@ -150,7 +150,7 @@ TEST_CASE("HeaderGetEmptyValue", "[HttpHeaderBlock]") {
 #pragma endregion
 #pragma region HeaderCombine
 
-// Verify that `http_headers::get_combined()` joins multiple values with ", ".
+// Verify that `http_headers::get_combined` joins multiple values with ", ".
 TEST_CASE("HeaderCombine", "[HttpHeaderBlock]") {
   http_headers h;
   CHECK(h.add("Accept", "text/html"));
@@ -161,7 +161,7 @@ TEST_CASE("HeaderCombine", "[HttpHeaderBlock]") {
 #pragma endregion
 #pragma region KeepAlive
 
-// Verify `keep_alive()` for HTTP/1.1 (default on) and HTTP/1.0 (default off).
+// Verify `keep_alive` for HTTP/1.1 (default on) and HTTP/1.0 (default off).
 TEST_CASE("KeepAlive", "[HttpHeaderBlock]") {
   {
     request_head req;
@@ -187,7 +187,7 @@ TEST_CASE("KeepAlive", "[HttpHeaderBlock]") {
 #pragma endregion
 #pragma region KeepAliveTokenList
 
-// Verify `keep_alive()` parses `Connection` as a comma-separated token list,
+// Verify `keep_alive` parses `Connection` as a comma-separated token list,
 // with `"close"` taking precedence over `"keep-alive"`.
 TEST_CASE("KeepAliveTokenList", "[HttpHeaderBlock]") {
   // Token list containing `"close"` among other tokens -> close.
@@ -221,8 +221,8 @@ TEST_CASE("KeepAliveTokenList", "[HttpHeaderBlock]") {
 #pragma endregion
 #pragma region ResponseSerialize
 
-// Verify that `response_head::serialize()` produces the correct
-// HTTP wire format (headers only; body is sent separately).
+// Verify that `response_head::serialize` produces the correct HTTP wire format
+// (headers only; body is sent separately).
 TEST_CASE("ResponseSerialize", "[HttpHeaderBlock]") {
   response_head resp;
   resp.version = http_version::http_1_1;
@@ -292,8 +292,8 @@ TEST_CASE("ExtractHeaderErrors", "[HttpHeaderBlock]") {
 #pragma endregion
 #pragma region RequestSerialize
 
-// Verify that `request_head::serialize()` produces correct wire format
-// and that a round-trip through `parse` is lossless.
+// Verify that `request_head::serialize` produces correct wire format and that
+// a round-trip through `parse` is lossless.
 TEST_CASE("RequestSerialize", "[HttpHeaderBlock]") {
   {
     // HTTP/1.1 with headers.
@@ -347,7 +347,7 @@ TEST_CASE("RequestSerialize", "[HttpHeaderBlock]") {
 #pragma region ResponseExtract
 
 // Verify that a well-formed HTTP response is parsed by
-// `response_head::parse()`.
+// `response_head::parse`.
 TEST_CASE("ResponseExtract", "[HttpHeaderBlock]") {
   {
     // HTTP/1.1 200 with headers.
@@ -734,7 +734,7 @@ TEST_CASE("IsChunked", "[HttpHeaderBlock]") {
 #pragma endregion
 #pragma region SizeAndEmpty
 
-// Verify `empty()`, `size()`, and ordered iteration.
+// Verify `empty`, `size`, and ordered iteration.
 TEST_CASE("SizeAndEmpty", "[HttpHeaderBlock]") {
   http_headers h;
   CHECK(h.empty());
@@ -765,12 +765,12 @@ TEST_CASE("AddRawWithRawName", "[HttpHeaderBlock]") {
   // Index key is canonical "Content-Type"; wire name is lowercase.
   CHECK(h.add_raw("Content-Type", "text/html", "content-type"));
 
-  // `get()` looks up via canonical index key.
+  // `get` looks up via canonical index key.
   const auto ct = h.get("Content-Type");
   REQUIRE(ct);
   CHECK(*ct == "text/html");
 
-  // `serialize()` writes the raw (wire) name, not the canonical key.
+  // `serialize` writes the raw (wire) name, not the canonical key.
   std::string out;
   h.serialize(out);
   CHECK(out.contains("content-type: text/html\r\n"));
@@ -779,8 +779,8 @@ TEST_CASE("AddRawWithRawName", "[HttpHeaderBlock]") {
 #pragma endregion
 #pragma region GetReturnsFirst
 
-// Verify that `get()` returns only the first value when a field name appears
-// multiple times (use `get_combined()` for all values).
+// Verify that `get` returns only the first value when a field name appears
+// multiple times (use `get_combined` for all values).
 TEST_CASE("GetReturnsFirst", "[HttpHeaderBlock]") {
   http_headers h;
   CHECK(h.add("Accept", "text/html"));
@@ -791,14 +791,14 @@ TEST_CASE("GetReturnsFirst", "[HttpHeaderBlock]") {
   REQUIRE(first);
   CHECK(*first == "text/html");
 
-  // `get_combined()` joins all three.
+  // `get_combined` joins all three.
   CHECK((h.get_combined("Accept")) ==
         ("text/html, application/json, image/webp"));
 }
 #pragma endregion
 #pragma region KeepAliveHttp09
 
-// Verify `keep_alive()` for HTTP/0.9: always `close`, regardless of any
+// Verify `keep_alive` for HTTP/0.9: always `close`, regardless of any
 // `Connection` header (HTTP/0.9 headers don't exist, but guard against it).
 TEST_CASE("KeepAliveHttp09", "[HttpHeaderBlock]") {
   // HTTP/0.9 always yields `close` regardless of any `Connection` header.
@@ -860,8 +860,8 @@ TEST_CASE("TargetNotPath", "[HttpHeaderBlock]") {
 #pragma endregion
 #pragma region ClearRequest
 
-// Verify that `request_head::clear()` restores default-constructed state so
-// the object can be reused for a second request.
+// Verify that `request_head::clear` restores default-constructed state so the
+// object can be reused for a second request.
 TEST_CASE("ClearRequest", "[HttpHeaderBlock]") {
   request_head req;
   REQUIRE(req.parse(
@@ -878,7 +878,7 @@ TEST_CASE("ClearRequest", "[HttpHeaderBlock]") {
 #pragma endregion
 #pragma region ClearResponse
 
-// Verify that `response_head::clear()` restores default-constructed state.
+// Verify that `response_head::clear` restores default-constructed state.
 TEST_CASE("ClearResponse", "[HttpHeaderBlock]") {
   response_head resp;
   resp.version = http_version::http_1_1;
@@ -895,7 +895,7 @@ TEST_CASE("ClearResponse", "[HttpHeaderBlock]") {
 #pragma endregion
 #pragma region ResponseSerializeInvalid
 
-// Verify that `response_head::serialize()` returns an empty string when the
+// Verify that `response_head::serialize` returns an empty string when the
 // version is `http_version::invalid`.
 TEST_CASE("ResponseSerializeInvalid", "[HttpHeaderBlock]") {
   response_head resp;
@@ -911,7 +911,7 @@ TEST_CASE("ResponseSerializeInvalid", "[HttpHeaderBlock]") {
 #pragma endregion
 #pragma region MakeErrorResponse
 
-// Verify `make_error_response()` with default and custom arguments.
+// Verify `make_error_response` with default and custom arguments.
 TEST_CASE("MakeErrorResponse", "[HttpHeaderBlock]") {
   {
     // Defaults: HTTP/1.1 400 Bad Request, Connection: close.
@@ -936,7 +936,7 @@ TEST_CASE("MakeErrorResponse", "[HttpHeaderBlock]") {
 #pragma endregion
 #pragma region ResponseParseEdgeCases
 
-// Verify `response_head::parse()` edge cases: empty reason phrase (trailing
+// Verify `response_head::parse` edge cases: empty reason phrase (trailing
 // space after status code with no text) succeeds; missing space after status
 // code fails.
 TEST_CASE("ResponseParseEdgeCases", "[HttpHeaderBlock]") {
@@ -1065,8 +1065,8 @@ TEST_CASE("HttpOptionsExtractApply", "[HttpHeaderBlock]") {
 #pragma endregion
 #pragma region GetValues
 
-// Verify `get_values()`: iteration over all values for a field, `size()`,
-// `empty()`, and `iterator::index()`.
+// Verify `get_values`: iteration over all values for a field, `size`, `empty`,
+// and `iterator::index`.
 TEST_CASE("GetValues", "[HttpHeaderBlock]") {
   // Empty range when field not found.
   {
@@ -1103,7 +1103,7 @@ TEST_CASE("GetValues", "[HttpHeaderBlock]") {
     ++it;
     CHECK(it == r.end());
   }
-  // `iterator::set()` replaces the value in place.
+  // `iterator::set` replaces the value in place.
   {
     http_headers h;
     CHECK(h.add_raw("Accept", "text/html"));
@@ -1120,7 +1120,7 @@ TEST_CASE("GetValues", "[HttpHeaderBlock]") {
 #pragma endregion
 #pragma region SetRawAndRemove
 
-// Verify `reset_raw()` upsert, `remove_entry()`, and `remove_key()`.
+// Verify `reset_raw` upsert, `remove_entry`, and `remove_key`.
 TEST_CASE("SetRawAndRemove", "[HttpHeaderBlock]") {
   // reset_raw adds when field is absent.
   {

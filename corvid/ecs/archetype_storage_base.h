@@ -25,6 +25,7 @@
 #include <vector>
 
 #include "../meta/forward_like.h"
+#include "../infra/exception_firewalls.h"
 #include "entity_registry.h"
 
 // Forward declaration for friendship; defined in "archetype_scene.h".
@@ -53,16 +54,16 @@ inline namespace archetype_storage_bases {
 // Required customization points in `CHILD` (may be private; befriend `base_t`
 // and `typename base_t::add_guard`):
 //   `template<typename... Args>
-//         void do_add_components(Args&&... args);`
+//         bool do_add_components(Args&&... args);`
 //   `template<typename C>
 //         decltype(auto) do_get_component(this auto& self, size_type ndx);`
 //   `template<size_t I>
 //         decltype(auto) do_get_component_by_index(this auto& self,
 //         size_type ndx);`
 //   `decltype(auto) do_make_components_tuple(this auto& self, size_type ndx);`
-//   `void do_swap_and_pop(size_type ndx);`
-//   `void do_clear_storage();`
-//   `void do_resize_storage(size_type new_size);`
+//   `bool do_swap_and_pop(size_type ndx);`
+//   `bool do_clear_storage();`
+//   `bool do_resize_storage(size_type new_size);`
 //
 // Template parameters:
 //   CHILD   - The concrete derived class (CRTP).
@@ -154,11 +155,14 @@ public:
   }
 
   // Destroy all entities in the registry and empty the storage.
-  void clear() { do_remove_erase_all(store_id_t::invalid); }
+  bool clear() {
+    do_remove_erase_all(store_id_t::invalid);
+    return true;
+  }
 
-  // RAII guard for `add()`: captures `size()` on construction. If `disarm()`
-  // is not called before destruction, rolls `ids_` and derived storage back to
-  // the saved size, providing strong exception safety.
+  // RAII guard for `add`: captures `size` on construction. If `disarm` is not
+  // called before destruction, rolls `ids_` and derived storage back to the
+  // saved size, providing strong exception safety.
   struct add_guard {
     explicit add_guard(derived_t& owner) noexcept
         : owner_{&owner}, saved_size_{owner.size()} {}
@@ -172,10 +176,13 @@ public:
       return true;
     }
 
-    ~add_guard() { // NOLINT(bugprone-exception-escape)
-      if (saved_size_ == *id_t::invalid) return;
-      owner_->ids_.resize(saved_size_);
-      owner_->do_resize_storage(saved_size_);
+    ~add_guard() {
+      try_or_terminate([&] {
+        if (saved_size_ == *id_t::invalid) return true;
+        owner_->ids_.resize(saved_size_);
+        owner_->do_resize_storage(saved_size_);
+        return true;
+      });
     }
 
   private:
@@ -485,9 +492,9 @@ public:
   archetype_storage_base(const archetype_storage_base&) = delete;
 
   // Custom move constructor: explicitly clears `other.ids_` after stealing it.
-  // Derived destructors call `clear()`, which iterates `ids_` and writes to
-  // the registry. The standard only guarantees a moved-from `std::vector` is
-  // "valid but unspecified" - not necessarily empty - so this explicit clear
+  // Derived destructors call `clear`, which iterates `ids_` and writes to the
+  // registry. The standard only guarantees a moved-from `std::vector` is
+  // "valid but unspecified", not necessarily empty, so this explicit clear
   // makes destruction safe.
   archetype_storage_base(archetype_storage_base&& other) noexcept
       : registry_{other.registry_}, store_id_{other.store_id_},
@@ -525,8 +532,6 @@ protected:
     return *this;
   }
 
-  ~archetype_storage_base() = default;
-
   // CRTP helpers.
   [[nodiscard]] derived_t& derived() noexcept {
     return static_cast<derived_t&>(*this);
@@ -535,14 +540,15 @@ protected:
     return static_cast<const derived_t&>(*this);
   }
 
-  // Swap all base-class members with `other`. `CHILD::swap()` should call
-  // this, then swap its own component storage.
-  void do_swap_base(archetype_storage_base& other) noexcept {
+  // Swap all base-class members with `other`. `CHILD::swap` should call this,
+  // then swap its own component storage.
+  bool do_swap_base(archetype_storage_base& other) noexcept {
     using std::swap;
     swap(registry_, other.registry_);
     swap(store_id_, other.store_id_);
     swap(limit_, other.limit_);
     ids_.swap(other.ids_);
+    return true;
   }
 
   // Data members shared by all derived classes.
@@ -552,17 +558,18 @@ protected:
   id_vector_t ids_{};
 
   // Grant `archetype_scene_base` (and through it, `archetype_scene<>`) access
-  // to `do_drop_all()`.
+  // to `do_drop_all`.
   friend class ::corvid::ecs::archetype_scene_base;
 
 private:
   // Fast bulk-drop: clear component and ID vectors without touching the
   // registry. Only safe when the registry will be reset wholesale immediately
-  // afterward (e.g. `archetype_scene::clear()`). Called via
+  // afterward (e.g. `archetype_scene::clear`). Called via
   // `archetype_scene_base::storage_drop_all`.
-  void do_drop_all() {
+  bool do_drop_all() {
     ids_.clear();
     derived().do_clear_storage();
+    return true;
   }
 
   bool do_remove_erase(id_t id, store_id_t new_store_id) {
@@ -572,9 +579,9 @@ private:
     return true;
   }
 
-  void do_remove_erase_all(store_id_t new_store_id) {
+  bool do_remove_erase_all(store_id_t new_store_id) {
     for (const auto id : ids_) registry_->set_location(id, {new_store_id});
-    do_drop_all();
+    return do_drop_all();
   }
 
   // Return arg I from a `forward_as_tuple` result, or a default-constructed

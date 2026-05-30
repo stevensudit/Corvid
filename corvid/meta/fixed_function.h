@@ -15,13 +15,14 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 #pragma once
-#include "./meta_shared.h"
-#include "./concepts.h"
 #include <cassert>
 #include <cstddef>
 #include <functional>
 #include <new>
 #include <stdexcept>
+
+#include "./meta_shared.h"
+#include "./concepts.h"
 
 namespace corvid { inline namespace meta {
 
@@ -67,6 +68,12 @@ public:
         "fixed_function: functor too large for storage");
     static_assert(alignof(FD) <= alignof(std::max_align_t),
         "fixed_function: functor alignment exceeds max_align_t");
+    static_assert(std::is_nothrow_move_constructible_v<FD>,
+        "fixed_function: functor move constructor may throw; inline storage "
+        "relocates the functor, so its move must be noexcept");
+    static_assert(std::is_nothrow_destructible_v<FD>,
+        "fixed_function: functor destructor may throw; inline storage "
+        "destroys the functor, so its destructor must be noexcept");
     static_assert(!std::is_reference_v<RP> ||
                       std::is_reference_v<std::invoke_result_t<FD, ARGS...>>,
         "fixed_function: callable returns a prvalue but RP is a reference "
@@ -105,7 +112,7 @@ public:
     return *this;
   }
 
-  ~fixed_function() {
+  ~fixed_function() noexcept {
     if (lifespan_) lifespan_(storage_, nullptr);
   }
 
@@ -140,7 +147,7 @@ private:
   // Type erasure function pointer types for invocation and lifespan
   // management.
   using invoke_fn_t = RP (*)(void*, ARGS...);
-  using lifespan_fn_t = void (*)(void*, void*);
+  using lifespan_fn_t = void (*)(void*, void*) noexcept;
 
   // Invoke through a downcast pointer to the stored callable. Uses
   // `std::invoke` so member function pointers and data member pointers work
@@ -160,7 +167,7 @@ private:
   // When `from` and `to` are both non-null: move-constructs `*from` into `to`.
   // Destructs the object at `from`, regardless.
   template<class F>
-  static void manage_impl(void* from, void* to) {
+  static void manage_impl(void* from, void* to) noexcept {
     assert(from);
     auto* f = static_cast<F*>(from);
     if (to) new (to) F{std::move(*f)};

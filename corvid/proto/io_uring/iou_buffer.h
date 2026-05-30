@@ -50,8 +50,8 @@ inline void msan_unpoison_kernel_write([[maybe_unused]] const void* p,
 #pragma region iou_buffer
 
 // Moveable RAII handle to a single slab allocation. Returns its memory to the
-// pool on destruction or `reset()`. `offset()` gives the byte distance from
-// the pool base for file-offset SQE fields.
+// pool on destruction or `reset`. `offset` gives the byte distance from the
+// pool base for file-offset SQE fields.
 //
 // These spans define the buffer state:
 //   `full_span`     -- entire allocation; never changes after construction.
@@ -94,7 +94,7 @@ inline void msan_unpoison_kernel_write([[maybe_unused]] const void* p,
 //
 // The second is also related to being bound into `std::function`. Inheriting
 // `address_forwarder<iou_buffer>` allows a caller to register an external
-// `iou_buffer*` via `forwarding_address()`; it is updated on every move and
+// `iou_buffer*` via `forwarding_address`; it is updated on every move and
 // nulled on destruction. Clear it once the buffer has settled.
 class iou_buffer: public address_forwarder<iou_buffer> {
 #pragma region Construction
@@ -168,18 +168,7 @@ public:
   // local static, so no allocation ever occurs.
   [[nodiscard]] static iou_buffer make_synthetic(span_t data,
       pool_ptr_t pool = {}, iou_res res = {}) noexcept {
-    struct null_buffer_pool: public buffer_pool_base {
-      [[nodiscard]] std::byte* base() const noexcept override {
-        return nullptr;
-      }
-      [[nodiscard]] bool return_buffer(span_t, block_type) override {
-        return true;
-      }
-    };
-    static null_buffer_pool inst;
-    static const pool_ptr_t instance{std::shared_ptr<buffer_pool_base>{},
-        &inst};
-    if (!pool) pool = instance;
+    if (!pool) pool = synthetic_null_pool();
     if (!data.data()) data = {};
     iou_buffer buf;
     buf.pool_ = std::move(pool);
@@ -192,6 +181,47 @@ public:
     return buf;
   }
 
+  // Create a non-owning, synthetic write buffer that views `data`. Mirrors
+  // `make_synthetic` but for the write side: `payload_span` and
+  // `active_span` start empty, so the full block is available via
+  // `tail_span` for the caller (or a wrapper like `quic_conn::write_pkt`)
+  // to fill. Backed by the same process-wide null pool, so destruction and
+  // `reset` do not free anything; the caller owns `data` and must keep it
+  // alive while the buffer is in use. Same kernel-I/O caveats as
+  // `make_synthetic` apply.
+  [[nodiscard]] static iou_buffer
+  make_synthetic_write(span_t data, pool_ptr_t pool = {}) noexcept {
+    if (!pool) pool = synthetic_null_pool();
+    if (!data.data()) data = {};
+    iou_buffer buf;
+    buf.pool_ = std::move(pool);
+    buf.full_span_ = data;
+    buf.payload_span_ = {data.data(), 0};
+    buf.active_span_ = {data.data(), 0};
+    buf.blockrw_ = block_type::write;
+    return buf;
+  }
+
+private:
+  // Process-wide singleton null pool used by both synthetic factories.
+  // It owns no memory and silently accepts `return_buffer`, so synthetic
+  // buffers backed by it cause no allocation on construction or destruction.
+  [[nodiscard]] static pool_ptr_t synthetic_null_pool() noexcept {
+    struct null_buffer_pool: public buffer_pool_base {
+      [[nodiscard]] std::byte* base() const noexcept override {
+        return nullptr;
+      }
+      [[nodiscard]] bool return_buffer(span_t, block_type) override {
+        return true;
+      }
+    };
+    static null_buffer_pool inst;
+    static const pool_ptr_t instance{std::shared_ptr<buffer_pool_base>{},
+        &inst};
+    return instance;
+  }
+
+public:
 #pragma endregion
 #pragma region Accessors
 
@@ -302,6 +332,12 @@ public:
         payload_span_.size()};
   }
 
+  // Byte span over `payload_span`.
+  [[nodiscard]] std::span<const uint8_t> payload_bytes() const noexcept {
+    return {reinterpret_cast<const uint8_t*>(payload_span_.data()),
+        payload_span_.size()};
+  }
+
   // Consume up to `n` bytes from the front of the payload. Returns the
   // taken slice. Fully draining the payload resets the buffer to its
   // initial read state (empty payload, active = full block).
@@ -333,10 +369,10 @@ public:
   // writer after directly appending to the tail.
   //
   // The start of `payload` must equal the current end of `payload_span`
-  // (i.e. it must be the span returned by `tail_span()`, trimmed to the
-  // bytes actually written). The end of `payload` must not exceed
-  // `full_span`. Returns false on violation; spans are left unchanged.
-  // Implicitly resets if the buffer is in consumed state before extending.
+  // (i.e. it must be the span returned by `tail_span`, trimmed to the bytes
+  // actually written). The end of `payload` must not exceed `full_span`.
+  // Returns false on violation; spans are left unchanged. Implicitly resets if
+  // the buffer is in consumed state before extending.
   [[nodiscard]] bool update_payload(span_t payload) noexcept {
     assert(blockrw_ == block_type::write);
     auto tail = tail_span();
@@ -485,7 +521,7 @@ public:
 
     // The kernel wrote a `recvmsg` header + peer address + payload at the
     // start of `full_span_`. Unpoison the touched prefix so `iou_recvmsg_out`
-    // can parse it without tripping MSAN. `res.bytes()` is the total written.
+    // can parse it without tripping MSAN. `res.bytes` is the total written.
     if (res) msan_unpoison_kernel_write(full_span_.data(), res.bytes());
 
     iou_recvmsg_out out{full_span_.data(), msgh, res};
@@ -557,7 +593,7 @@ public:
 
   // Configure `msg_` for a recvmsg operation. Points `iov_` at `active_span_`
   // and `msg_name` at `addr_` to capture the sender address. Returns `&msg_`
-  // for use with `prep_recvmsg`. Call `prepare_msg()` after this.
+  // for use with `prep_recvmsg`. Call `prepare_msg` after this.
   [[nodiscard]] msghdr* prepare_recvmsg() noexcept {
     assert(blockrw_ == block_type::read);
     reset_result();
@@ -576,7 +612,7 @@ public:
   }
 
   // Configure `msg_` for a sendmsg operation to `peer_addr`. Returns
-  // `&msg_` for use with `prep_sendmsg`. Call `prepare_msg()` after this.
+  // `&msg_` for use with `prep_sendmsg`. Call `prepare_msg` after this.
   [[nodiscard]] msghdr* prepare_sendmsg() noexcept {
     assert(blockrw_ == block_type::write);
     reset_result();

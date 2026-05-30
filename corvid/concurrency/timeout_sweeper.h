@@ -23,8 +23,9 @@
 #include <utility>
 #include <vector>
 
-#include "relaxed_atomic.h"
-#include "timeout_sweeper_base.h"
+#include "../infra/relaxed_atomic.h"
+#include "timeouts.h"
+#include "../infra/exception_firewalls.h"
 
 namespace corvid { inline namespace concurrency {
 #pragma region timeout_sweeper
@@ -62,17 +63,18 @@ namespace corvid { inline namespace concurrency {
 //   using sweeper_t = timeout_sweeper<>;
 //   // Initial registration. Set a real deadline, register, then mark as
 //   // paused so the first real read activity will trigger a rearm.
-//   conn->read_expiration_ = sweeper_t::now() + conn->read_timeout_;
+//   conn->read_expiration_ = infra::steady_now_clock::now() +
+//          conn->read_timeout_;
 //   sweeper.schedule(conn->read_expiration_,
 //       [weak_conn = std::weak_ptr{conn}](sweeper_t::time_point_t expire)
 //           -> sweeper_t::time_point_t {
 //         auto conn = weak_conn.lock();
 //         if (!conn) return {};
-//         const auto current = conn->read_expiration_;
+//         auto current = conn->read_expiration_;
 //         if (current == expire) { conn->close(); return {}; }
 //         // Only needed in callback when timer can be logically paused.
-//         if (current == sweeper_t::paused_expiration)
-//           current = sweeper_t::now() + conn->read_timeout_;
+//         if (current == infra::steady_now_clock::paused_expiration)
+//           current = infra::steady_now_clock::now() + conn->read_timeout_;
 //         return current;
 //       });
 //   // Logically pause. It will rearm every read_timeout_, without ever
@@ -86,13 +88,16 @@ namespace corvid { inline namespace concurrency {
 // low tens of bytes is enough). Example:
 //
 //   using my_sweeper = timeout_sweeper<fixed_function<32,
-//       std::chrono::steady_clock::time_point(
-//           std::chrono::steady_clock::time_point)>>;
-template<typename CB = std::function<timeout_sweeper_base::time_point_t(
-             timeout_sweeper_base::time_point_t)>>
-class timeout_sweeper: public timeout_sweeper_base {
+//       steady_now_clock::time_point_t(
+//           steady_now_clock::time_point_t)>>;
+template<typename CB = std::function<steady_now_clock::time_point_t(
+             steady_now_clock::time_point_t)>>
+class timeout_sweeper: public timeouts {
 #pragma region Types
 public:
+  using time_point_t = steady_now_clock::time_point_t;
+  using duration_t = steady_now_clock::duration_t;
+
   using callback_t = CB;
 
   static_assert(
@@ -115,9 +120,9 @@ public:
   // Mark the sweeper as closing (further `schedule` calls are rejected) and
   // drain anything still in the heap by invoking every remaining callback
   // once.
-  ~timeout_sweeper() noexcept(false) {
+  ~timeout_sweeper() {
     closing_ = true;
-    tick(time_point_t::max());
+    try_or_terminate([&] { return tick(time_point_t::max()) || true; });
   }
 
 #pragma endregion
@@ -149,15 +154,15 @@ public:
   // causes the callback to be re-inserted at the returned time.
   //
   // Intended to be called from a single driver thread.
-  void tick(time_point_t now) {
-    while (true) {
+  bool tick(time_point_t now) {
+    for (;;) {
       callback_t callback;
       time_point_t expire;
 
       if (std::scoped_lock lock{mutex_}; true) {
         // Stop when the heap is empty or the next entry hasn't expired yet.
-        if (heap_.empty()) return;
-        if (heap_.front().expire > now) return;
+        if (heap_.empty()) return true;
+        if (heap_.front().expire > now) return true;
 
         // Move next entry to back and extract it.
         std::pop_heap(heap_.begin(), heap_.end());

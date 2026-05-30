@@ -17,6 +17,7 @@
 
 #include "../corvid/concurrency/timeout_sweeper.h"
 #include "../corvid/meta/fixed_function.h"
+#include "../corvid/infra.h"
 
 #include "catch2_main.h"
 
@@ -25,12 +26,13 @@
 
 using namespace std::chrono_literals;
 using namespace corvid::concurrency;
+using namespace corvid::infra;
 
 using sweeper = timeout_sweeper<>;
 using tp = sweeper::time_point_t;
 
 // Construct a deterministic `time_point` at `ms` milliseconds past the
-// steady-clock epoch. Tests use this rather than `sweeper::now()` so that
+// steady-clock epoch. Tests use this rather than `sweeper::now` so that
 // expirations are independent of wall time.
 static tp T(int ms) { return tp{} + std::chrono::milliseconds{ms}; }
 

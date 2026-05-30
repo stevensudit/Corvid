@@ -1151,61 +1151,6 @@ TEST_CASE("Basic", "[ScopedValue]") {
 }
 #pragma endregion
 
-#pragma region ScopeExit_Basic
-
-TEST_CASE("Basic", "[ScopeExit]") {
-  if (true) {
-    bool exited = false;
-    {
-      scope_exit guard{[&]() noexcept { exited = true; }};
-      CHECK_FALSE(exited);
-    }
-    CHECK(exited);
-  }
-  if (true) {
-    int value = 0;
-    {
-      auto guard = make_scope_exit([&]() noexcept { value = 42; });
-      (void)guard;
-      CHECK(value == 0);
-    }
-    CHECK(value == 42);
-  }
-  if (true) {
-    bool exited = false;
-    {
-      auto guard = make_scope_exit([&]() noexcept { exited = true; });
-      guard.release();
-    }
-    CHECK_FALSE(exited);
-  }
-  if (true) {
-    int calls = 0;
-    {
-      auto guard1 = make_scope_exit([&]() noexcept { ++calls; });
-      {
-        auto guard2 = std::move(guard1);
-        CHECK(calls == 0);
-        (void)guard2;
-      }
-      CHECK(calls == 1);
-    }
-    CHECK(calls == 1);
-  }
-  if (true) {
-    int value = 0;
-    {
-      auto payload = std::make_unique<int>(7);
-      auto guard = make_scope_exit(
-          [owned = std::move(payload), &value]() noexcept { value = *owned; });
-      CHECK_FALSE(payload);
-      (void)guard;
-    }
-    CHECK(value == 7);
-  }
-}
-#pragma endregion
-
 #pragma region HashCombiner_Basic
 
 TEST_CASE("Basic", "[HashCombiner]") {

@@ -500,10 +500,10 @@ struct EntityTemplateStore {
 // Simulation world: encapsulates all ECS entity state for the game and
 // provides physics.
 //
-// Each `tick()` advances `Position` components based on velocity and bounces
-// off the world boundary. The registry metadata records the tick count at
-// each entity's last state change so callers can request delta snapshots
-// starting from any past tick.
+// Each `tick` advances `Position` components based on velocity and bounces off
+// the world boundary. The registry metadata records the tick count at each
+// entity's last state change so callers can request delta snapshots starting
+// from any past tick.
 class SimWorld: public SimWorldBounds {
 public:
   static constexpr WorldSid sidStaging{0};
@@ -751,8 +751,8 @@ public:
   }
 
   // Run all physics for the current tick without advancing the counter. Call
-  // `tick()` once all game logic for this frame is complete, including
-  // streaming the state to clients.
+  // `tick` once all game logic for this frame is complete, including streaming
+  // the state to clients.
   [[nodiscard]] bool next() {
     (void)updateMovers();
     (void)updatePathFollowers();
@@ -763,16 +763,14 @@ public:
     return true;
   }
 
-  // Advance the tick counter and return the new value. Call this at the end
-  // of each frame, after `next()`, all game-level logic, and streaming have
-  // run.
+  // Advance the tick counter and return the new value. Call this at the end of
+  // each frame, after `next`, all game-level logic, and streaming have run.
   [[nodiscard]] WorldTick tick() { return ++tick_; }
 
   // Return the current tick counter without advancing it.
   [[nodiscard]] WorldTick currentTick() const { return tick_; }
 
-  // Total number of entities in all storages (does not count staged
-  // entities).
+  // Total number of entities in all storages (does not count staged entities).
   [[nodiscard]] std::size_t size() const { return scene_.size(); }
 
   // Whether any invader entities are currently active (i.e. not yet
@@ -903,8 +901,8 @@ public:
   // Mark all entities dirty. When `update_strategy::incremental`, marks
   // entities only. When `update_strategy::full`, also stamps `Appearance` and
   // `VisualEffects` `modified` fields with `tick_` so the next extraction
-  // includes them. Must be called before `tick()` so `markDirty`'s
-  // deduplication check (`last_updated == tick_`) is valid.
+  // includes them. Must be called before `tick` so `markDirty`'s deduplication
+  // check (`last_updated == tick_`) is valid.
   [[nodiscard]] bool markAllDirty(
       update_strategy strategy = update_strategy::incremental) {
     scene_.registry().for_each([&](auto id, auto&) {

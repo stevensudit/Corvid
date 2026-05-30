@@ -62,6 +62,7 @@ enum class msg_flags : int {
 };
 
 // `F_*` wrapper for `fcntl` operations.
+// NOLINTNEXTLINE(performance-enum-size)
 enum class fcntl_ops : int {
   dupfd = F_DUPFD,                 // 0
   getfd = F_GETFD,                 // 1
@@ -81,10 +82,15 @@ enum class fcntl_ops : int {
   setownex = F_SETOWN_EX,          // 15
   getownex = F_GETOWN_EX,          // 16
   dupfd_cloexec = F_DUPFD_CLOEXEC, // 1030
-  F_MUST_BE_INT32 = 0x7FFF'FFFF
 };
 
 // `E_*` wrapper for `errno` values.
+//
+// Note that, although this is much like `std::errc`, it has additional values
+// that are found in Linux but not in the C++ standard library, and it's safe
+// to register as a sequence enum.
+//
+// NOLINTNEXTLINE(performance-enum-size)
 enum class errno_code : int {
   ok = 0,
   perm = EPERM,                     // 1
@@ -221,7 +227,6 @@ enum class errno_code : int {
   notrecoverable = ENOTRECOVERABLE, // 131
   rfkill = ERFKILL,                 // 132
   hwpoison = EHWPOISON,             // 133
-  E_MUST_BE_INT32 = 0x7FFF'FFFF
 };
 
 // Type-safe aliasing for `errno`.
@@ -295,6 +300,7 @@ enum class mmap_mask : uint32_t {
 };
 
 // `MADV_*` wrapper.
+// NOLINTNEXTLINE(performance-enum-size)
 enum class mmap_advice : int32_t {
   normal = MADV_NORMAL,                   // 0
   random = MADV_RANDOM,                   // 1
@@ -320,7 +326,6 @@ enum class mmap_advice : int32_t {
   dontneed_locked = MADV_DONTNEED_LOCKED, // 24
   collapse = MADV_COLLAPSE,               // 25
   hwpoison = MADV_HWPOISON,               // 100
-  MADV_MUST_BE_INT32 = 0x7FFF'FFFF
 };
 
 }} // namespace corvid::filesys
@@ -409,9 +414,9 @@ constexpr file_handle_t invalid_file_handle = -1;
 // RAII wrapper around an OS file descriptor or handle.
 //
 // `os_file` owns a single file and closes it on destruction.
-// It is movable and non-copyable. `control()` wraps `fcntl`; `get_flags()`,
-// `set_flags()`, and `set_nonblocking()` are named helpers for common
-// fd-level operations.
+// It is movable and non-copyable. `control` wraps `fcntl`; `get_flags`,
+// `set_flags`, and `set_nonblocking` are named helpers for common fd-level
+// operations.
 //
 // Platform-specific code is isolated in a guarded section.
 class [[nodiscard]] os_file {

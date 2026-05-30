@@ -23,6 +23,7 @@
 #include <utility>
 #include <vector>
 
+#include "../../infra/exception_firewalls.h"
 #include "../../containers/opt_find.h"
 #include "../../enums/bool_enums.h"
 #include "../net_endpoint.h"
@@ -45,10 +46,17 @@ class iou_dgram_router;
 //
 // Required type aliases:
 //  `session_t` - typically `iou_dgram_session<MatchingSessionPlugin>`.
-//  `key_t`     - the routing key type.
+//  `key_t`     - the routing key type. Must support `!key` and
+//      `bool(key)` (typically via `explicit operator bool`) so the router
+//      can check validity uniformly. Built-in integral types and
+//      `net_endpoint` already satisfy this.
 //
 // Required methods (regular, non-static):
-//  `key_t extract(const buffer&)` - deterministic key extraction.
+//  `key_t extract(const buffer&)` - deterministic key extraction. May
+//      return an invalid key (i.e., one for which `!key` is true) to
+//      signal parse failure or rejection; the router then drops the
+//      originating packet without consulting the session registry or
+//      invoking `create_session`.
 //  `bool create_session(const buffer&, iou_dgram_router&)` - invoked on
 //      key not found in the session registry. Constructs a session via
 //      `session_t::make` (whose factory calls the session plugin's
@@ -71,11 +79,13 @@ class iou_dgram_router;
 // the unsatisfied requirement.
 template<typename P>
 concept iou_dgram_router_plugin = requires(P p, const iou_loop::buffer& cbuf,
-    iou_dgram_router<P>& router) {
+    iou_dgram_router<P>& router, const P::key_t& key) {
   typename P::session_t;
   typename P::key_t;
   { p.extract(cbuf) } -> std::convertible_to<typename P::key_t>;
   { p.create_session(cbuf, router) } -> std::same_as<bool>;
+  { !key } -> std::convertible_to<bool>;
+  { static_cast<bool>(key) } -> std::same_as<bool>;
 };
 
 // Plugin contract for `iou_dgram_session`. The plugin owns per-session state
@@ -87,20 +97,30 @@ concept iou_dgram_router_plugin = requires(P p, const iou_loop::buffer& cbuf,
 //  `router_t` - typically `iou_dgram_router<MatchingRouterPlugin>`.
 //
 // Required methods (regular, non-static):
+//
 //  `bool register_self(const buffer&)` - called from `iou_dgram_session::make`
 //      immediately after construction. Sniff the key(s) and call
 //      `router.add_session(key, session.shared_from_this())` one or more
 //      times.
+
+//      CONVENTION: if `!buf` (a default-constructed buffer sentinel), return
+//      early without registering. Callers use `make(router, buffer{}, ...)` to
+//      construct a session whose registration is deferred (e.g., the sender
+//      side that wants to pre-register under a known response key, or a client
+//      whose loop-thread registration is posted separately).
+
 //  `bool handle_recv(buffer&&)` - dispatched per received datagram routed to
 //      this session.
+
 //  `bool handle_sent(buffer&&)` - the buffer comes back here when a send
 //      completes; check `buf.result()` for outcome, and potentially resend.
+//
 //  `bool unregister_self()` - called on session close. Plugin must call
 //      `router.remove_session(key)` once per registered key.
 //
 // Not used as a template parameter constraint; verified by a deferred
-// `static_assert` in the `iou_dgram_session` constructor body. See the note
-// on `iou_dgram_router_plugin` above for why.
+// `static_assert` in the `iou_dgram_session` constructor body. See the note on
+// `iou_dgram_router_plugin` above for why.
 template<typename P>
 concept iou_dgram_session_plugin = requires(P p, const iou_loop::buffer& cbuf,
     iou_loop::buffer buf) {
@@ -141,12 +161,14 @@ concept iou_dgram_session_plugin = requires(P p, const iou_loop::buffer& cbuf,
 // `shared_ptr`. This permits a fire-and-forget pattern - `bind`, `release`
 // the handle, hand the resulting `shared_ptr` to a session plugin (or
 // discard it entirely) - and let the router live on its own ref.
+//
 // Termination then comes from one of:
 //   - any holder calling `close` (a session that captured `&router_` can
 //     do this from `unregister_self` or elsewhere);
-//   - a hard recv error driving `do_close()` from inside the recv callback;
+//   - a hard recv error driving `do_close` from inside the recv callback;
 //   - the `iou_loop` shutting down, which clears every slot and so releases
 //     every captured `shared_ptr`.
+//
 // In all three, `close` cancels the in-flight recv via `submit_close`
 // (`prep_cancel_fd`); the recv callback receives the canceled CQE, releases
 // its slot, the last `self` ref drops, and the router destructs.
@@ -251,7 +273,7 @@ public:
   // Pre-register `ssn` under `key`. Posts to the loop thread; actual insert
   // is async when called off-loop. Safe from any thread.
   [[nodiscard]] bool add_session(const key_t& key, const session_ptr& ssn) {
-    if (!ssn) return false;
+    if (!ssn || !key) return false;
     return loop_.execute_or_post([this, key, ssn]() mutable -> bool {
       if (!is_open()) return false;
       auto [it, inserted] = sessions_.try_emplace(key, std::move(ssn));
@@ -277,7 +299,7 @@ public:
     if (!open_ || !ssn) return {};
     return loop_.submit_sendmsg_buffer(sock_, std::move(buf),
         [ssn](completion_id, buffer& b) -> slot_retention {
-          (void)ssn->on_sent(std::move(b));
+          if (!ssn->on_sent(std::move(b))) (void)ssn->close();
           return slot_retention{};
         });
   }
@@ -286,13 +308,20 @@ public:
 #pragma region Internals
 private:
   // Demux a successfully received datagram to a session.
+  //
+  // `on_receive` is the session's noexcept firewall: a `false` return there
+  // means the session is no longer viable (plugin saw a connection-fatal
+  // status, or a thrown exception was caught and converted to `false`),
+  // and we close that session here. The router and other sessions keep
+  // running.
   [[nodiscard]] bool dispatch_packet(buffer&& buf) {
     return loop_.execute_or_post(
         [this, buf = std::move(buf)]() mutable -> bool {
           const key_t& key = plugin_.extract(buf);
+          if (!key) return false;
 
           if (auto found = find_opt(sessions_, key)) {
-            (void)(*found)->on_receive(std::move(buf));
+            if (!(*found)->on_receive(std::move(buf))) (void)(*found)->close();
             return true;
           }
 
@@ -302,8 +331,10 @@ private:
           (void)plugin_.create_session(buf, *this);
 
           // Re-lookup. If still missing (rejection), drop.
-          if (auto found = find_opt(sessions_, key))
-            return (*found)->on_receive(std::move(buf)) || true;
+          if (auto found = find_opt(sessions_, key)) {
+            if (!(*found)->on_receive(std::move(buf))) (void)(*found)->close();
+            return true;
+          }
           return false;
         });
   }
@@ -475,14 +506,16 @@ public:
 
   // Wrap an existing router in the RAII handle. Mainly used by `bind` and by
   // CTAD; users normally go through `bind`.
-  explicit iou_dgram_router_handle(shared_ptr_t router) noexcept
-      : router_{std::move(router)} {}
+  // NOLINTNEXTLINE(modernize-pass-by-value)
+  explicit iou_dgram_router_handle(const shared_ptr_t& router) noexcept
+      : router_{router} {}
 
-  // NOLINTBEGIN(bugprone-exception-escape)
-  ~iou_dgram_router_handle() {
-    if (router_) (void)router_->close();
+  ~iou_dgram_router_handle() noexcept {
+    try_or_terminate([&] {
+      if (router_) (void)router_->close();
+      return true;
+    });
   }
-  // NOLINTEND(bugprone-exception-escape)
 
 #pragma endregion
 #pragma region Factories
@@ -521,6 +554,9 @@ public:
 
   [[nodiscard]] auto operator->(this auto&& self) noexcept {
     return self.router_.get();
+  }
+  [[nodiscard]] auto& operator*(this auto&& self) noexcept {
+    return *self.router_;
   }
   [[nodiscard]] explicit operator bool() const noexcept {
     return router_.get();

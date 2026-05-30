@@ -1,0 +1,487 @@
+// Corvid: A general-purpose modern C++ library extending std.
+// https://github.com/stevensudit/Corvid
+//
+// Copyright 2022-2026 Steven Sudit
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+#include <algorithm>
+#include <array>
+#include <chrono>
+#include <cstddef>
+#include <cstdint>
+#include <span>
+#include <sys/socket.h>
+#include <thread>
+#include <vector>
+
+#include "../corvid/proto/io_uring/iou_loop.h"
+#include "../corvid/proto/quic/quic_conn.h"
+#include "../corvid/proto/quic/quic_dgram_plugins.h"
+#include "../corvid/proto/quic/quic_self_signed_cert.h"
+#include "../corvid/proto/quic/quic_ssl_ctx.h"
+
+#define CATCH2_SHOW_TIMERS 0
+#include "catch2_main.h"
+
+using namespace corvid;
+using namespace corvid::iouring;
+using namespace corvid::proto::quic;
+using namespace std::chrono_literals;
+
+namespace {
+
+bool WaitFor(const auto& pred, std::chrono::milliseconds timeout = 500ms) {
+#ifdef DEBUG
+  timeout = 1h;
+#endif
+  const auto deadline = std::chrono::steady_clock::now() + timeout;
+  while (!pred() && std::chrono::steady_clock::now() < deadline)
+    std::this_thread::sleep_for(1ms);
+  return pred();
+}
+
+// Build a minimal QUIC v1 long-header packet header with the given DCID and
+// SCID. Returns the byte sequence; everything past the SCID is unused by
+// `ngtcp2_pkt_decode_version_cid`, so no payload follows.
+std::vector<uint8_t> make_long_header_packet(std::span<const uint8_t> dcid,
+    std::span<const uint8_t> scid, uint32_t version = 1) {
+  std::vector<uint8_t> bytes;
+  bytes.reserve(7 + dcid.size() + scid.size());
+  bytes.push_back(0xc0); // long header, fixed bit, Initial type
+  bytes.push_back(static_cast<uint8_t>((version >> 24) & 0xff));
+  bytes.push_back(static_cast<uint8_t>((version >> 16) & 0xff));
+  bytes.push_back(static_cast<uint8_t>((version >> 8) & 0xff));
+  bytes.push_back(static_cast<uint8_t>(version & 0xff));
+  bytes.push_back(static_cast<uint8_t>(dcid.size()));
+  bytes.insert(bytes.end(), dcid.begin(), dcid.end());
+  bytes.push_back(static_cast<uint8_t>(scid.size()));
+  bytes.insert(bytes.end(), scid.begin(), scid.end());
+  return bytes;
+}
+
+// Build a short-header packet with the given DCID. The DCID length is not on
+// the wire; the decoder must be told via `short_dcidlen` (here, the protocol
+// constant `quic_dgram_protocol<>::cid_length`).
+std::vector<uint8_t> make_short_header_packet(std::span<const uint8_t> dcid) {
+  std::vector<uint8_t> bytes;
+  bytes.reserve(1 + dcid.size() + 1);
+  bytes.push_back(0x40); // short header (bit 7 clear), fixed bit set
+  bytes.insert(bytes.end(), dcid.begin(), dcid.end());
+  bytes.push_back(0x00); // a stray packet-number byte to look realistic
+  return bytes;
+}
+
+// Wrap raw bytes in a synthetic, non-owning `iou_loop::buffer` so the plugin
+// can read them through `payload_view`.
+iou_loop::buffer wrap(std::span<uint8_t> bytes) {
+  return iou_loop::buffer::make_synthetic(
+      {reinterpret_cast<std::byte*>(bytes.data()), bytes.size()});
+}
+
+constexpr std::array<uint8_t, 16> sample_dcid{0xde, 0xad, 0xbe, 0xef, 0xfe,
+    0xed, 0xfa, 0xce, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08};
+
+constexpr std::array<uint8_t, 16> sample_scid{0x11, 0x22, 0x33, 0x44, 0x55,
+    0x66, 0x77, 0x88, 0x99, 0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff, 0x00};
+
+} // namespace
+
+// NOLINTBEGIN(readability-function-cognitive-complexity)
+
+TEST_CASE("quic_dgram_protocol::router_plugin::extract", "[quic][router]") {
+  // `router_plugin` requires a server SSL context for `create_session`, but
+  // we only exercise `extract` here, which doesn't consult it. A client-side
+  // context is enough to satisfy construction.
+  quic_ssl_ctx tls{"corvid-test"};
+  REQUIRE(tls);
+  quic_dgram_protocol<>::router_plugin plugin{tls};
+
+  SECTION("long-header packet yields the on-wire DCID") {
+    auto pkt = make_long_header_packet(sample_dcid, sample_scid);
+    auto buf = wrap(pkt);
+    const quic_cid key = plugin.extract(buf);
+    REQUIRE(key.length() == sample_dcid.size());
+    CHECK(std::ranges::equal(key.bytes(), sample_dcid));
+  }
+
+  SECTION("long-header DCID may be shorter than the local cid_length") {
+    // Long-header packets carry the DCID length on the wire, so an 8-byte
+    // DCID is decoded as 8 bytes regardless of our `cid_length` constant.
+    std::array<uint8_t, 8> short_dcid{0xa0, 0xa1, 0xa2, 0xa3, 0xa4, 0xa5, 0xa6,
+        0xa7};
+    auto pkt = make_long_header_packet(short_dcid, sample_scid);
+    auto buf = wrap(pkt);
+    const quic_cid key = plugin.extract(buf);
+    REQUIRE(key.length() == short_dcid.size());
+    CHECK(std::ranges::equal(key.bytes(), short_dcid));
+  }
+
+  SECTION("short-header packet yields cid_length bytes after the type byte") {
+    auto pkt = make_short_header_packet(sample_dcid);
+    auto buf = wrap(pkt);
+    const quic_cid key = plugin.extract(buf);
+    REQUIRE(key.length() == quic_dgram_protocol<>::cid_length);
+    CHECK(std::ranges::equal(key.bytes(), sample_dcid));
+  }
+
+  SECTION("truncated packet yields an empty CID") {
+    std::array<uint8_t, 1> stub{0xc0}; // long header, no version, no len
+    auto buf = wrap(stub);
+    const quic_cid key = plugin.extract(buf);
+    CHECK(key.empty());
+  }
+
+  SECTION("short-header packet shorter than cid_length yields empty CID") {
+    std::array<uint8_t, 8> stub{0x40, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00};
+    auto buf = wrap(stub);
+    const quic_cid key = plugin.extract(buf);
+    CHECK(key.empty());
+  }
+}
+
+namespace {
+
+constexpr std::string_view handshake_alpn = "corvid-test";
+
+constexpr std::array<uint8_t, 16> client_dcid_bytes{0xde, 0xad, 0xbe, 0xef,
+    0xfe, 0xed, 0xfa, 0xce, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08};
+
+constexpr std::array<uint8_t, 16> client_scid_bytes{0x11, 0x22, 0x33, 0x44,
+    0x55, 0x66, 0x77, 0x88, 0x99, 0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff, 0x00};
+
+[[nodiscard]] quic_conn::time_point_t now_tp() noexcept {
+  return std::chrono::steady_clock::now();
+}
+
+} // namespace
+
+TEST_CASE(
+    "quic_dgram_protocol drives a server-side TLS 1.3 handshake "
+    "through the live iou_dgram_router",
+    "[quic][router][handshake]") {
+  // The server runs on an `iou_loop_runner`, accepting datagrams via the
+  // QUIC plugin pair. The client side is driven by hand, ferrying packets
+  // through a raw UDP socket so the test can step the handshake at its
+  // own pace.
+
+  self_signed_cert ck;
+  REQUIRE(ck);
+  quic_ssl_ctx server_tls{ck, handshake_alpn};
+  REQUIRE(server_tls);
+  quic_ssl_ctx client_tls{handshake_alpn};
+  REQUIRE(client_tls);
+
+  iou_loop_runner runner;
+
+  // Bind the server-side router. Each incoming Initial creates a new
+  // `quic_dgram_protocol::session_plugin` carrying its own `quic_conn`.
+  auto server_router =
+      iou_dgram_router_handle<quic_dgram_protocol<>::router_plugin>::bind(
+          *runner.loop(), net_endpoint::loopback_v4(), shot_type::multi,
+          server_tls);
+  CHECK(server_router);
+  const auto server_addr = server_router->local_endpoint();
+  REQUIRE_FALSE(server_addr.empty());
+
+  // Raw blocking UDP socket for the client. SO_RCVTIMEO bounds each
+  // recvfrom so the loop drains naturally when the server has nothing
+  // more to send for now.
+  auto client_sock = net_socket::create_for(net_endpoint::loopback_v4(),
+      execution::blocking, message_style::datagram);
+  REQUIRE(client_sock);
+  REQUIRE(client_sock.bind(net_endpoint::loopback_v4()));
+  const timeval rcv_timeout{.tv_sec = 0, .tv_usec = 50000};
+  REQUIRE(client_sock.set_option(socket_option::rcvtimeo, rcv_timeout));
+  const net_endpoint client_addr{client_sock};
+
+  const quic_cid client_dcid{client_dcid_bytes};
+  const quic_cid client_scid{client_scid_bytes};
+
+  quic_conn client{client_tls};
+  REQUIRE(client.init(client_dcid, client_scid, client_addr, server_addr,
+      quic_cid{}, now_tp(), 30s));
+  REQUIRE(client);
+
+  // Trampolines deref `handlers_` unconditionally; attach a handler
+  // that latches a flag from `on_handshake_completed`. The client's
+  // read_pkt runs on this (test) thread, so no synchronization needed.
+  struct handshake_signal: quic_conn_handlers {
+    bool done{};
+    bool on_handshake_completed() noexcept override {
+      done = true;
+      return true;
+    }
+  } client_signal;
+  client.set_handlers(&client_signal);
+
+  std::array<std::byte, 1500> backing{};
+  std::array<uint8_t, 1500> recv_buf{};
+  const auto server_sockaddr = server_addr.as_sockaddr();
+
+  // Each iteration: drain the client's outbound, ship every emitted
+  // packet to the server, then drain whatever the server has bounced
+  // back. Bail as soon as the client's `on_handshake_completed` upcall
+  // has fired, which can only happen after the server's TLS Finished
+  // has been processed -- so a single client-side check is a sufficient
+  // bidirectional witness for the test.
+  bool finished = false;
+  for (int iter = 0; iter < 32 && !finished; ++iter) {
+    for (int safety = 0; safety < 32; ++safety) {
+      auto buf = iouring::iou_buffer::make_synthetic_write(
+          {backing.data(), backing.size()});
+      const auto status = client.write_pkt(buf, now_tp());
+      if (status != quic_status::ok) break;
+      const auto payload = buf.payload_bytes();
+      if (payload.empty()) break;
+      const auto sent = ::sendto(client_sock.handle(), payload.data(),
+          payload.size(), 0, server_sockaddr.first, server_sockaddr.second);
+      // NOLINTNEXTLINE(modernize-use-integer-sign-comparison)
+      REQUIRE(sent == static_cast<ssize_t>(payload.size()));
+    }
+
+    for (int safety = 0; safety < 32; ++safety) {
+      const auto got = ::recvfrom(client_sock.handle(), recv_buf.data(),
+          recv_buf.size(), 0, nullptr, nullptr);
+      if (got <= 0) break;
+      const auto rv = client.read_pkt(
+          std::span<const uint8_t>{recv_buf.data(), static_cast<size_t>(got)},
+          now_tp());
+      REQUIRE(rv == quic_status::ok);
+    }
+
+    finished = client_signal.done;
+  }
+
+  CHECK(finished);
+}
+
+// Test-local upper-layer plugin that latches an atomic when ngtcp2's
+// `on_handshake_completed` upcall fires. Both server and client sides of
+// `quic_dgram_protocol<handshake_signal_plugin>` use it; the test only
+// inspects the client's flag. Inherits `quic_no_op_plugin` so the base
+// `drain` drives outbound non-stream frames; this layer adds only the
+// completion latch.
+namespace {
+struct handshake_signal_plugin: quic_no_op_plugin {
+  explicit handshake_signal_plugin(quic_session_io& s) noexcept
+      : quic_no_op_plugin{s} {}
+  bool on_handshake_completed() noexcept override {
+    completed.store(true, std::memory_order::release);
+    return true;
+  }
+  std::atomic_bool completed{false};
+};
+} // namespace
+
+TEST_CASE(
+    "quic_dgram_protocol drives a TLS 1.3 handshake through the live "
+    "iou_dgram_router on both sides",
+    "[quic][router][handshake][client]") {
+  // Both client and server run on the same `iou_loop_runner`. The client
+  // session is constructed via `session_plugin::make_client`, which is
+  // loop-thread only; the test wraps the call in `post_and_wait` so it
+  // runs on the loop thread while the test thread blocks for the result.
+
+  using protocol_t = quic_dgram_protocol<handshake_signal_plugin>;
+
+  self_signed_cert ck;
+  REQUIRE(ck);
+  quic_ssl_ctx server_tls{ck, handshake_alpn};
+  REQUIRE(server_tls);
+  quic_ssl_ctx client_tls{handshake_alpn};
+  REQUIRE(client_tls);
+
+  iou_loop_runner runner;
+
+  auto server_router =
+      iou_dgram_router_handle<protocol_t::router_plugin>::bind(*runner.loop(),
+          net_endpoint::loopback_v4(), shot_type::multi, server_tls);
+  CHECK(server_router);
+  const auto server_addr = server_router->local_endpoint();
+  REQUIRE_FALSE(server_addr.empty());
+
+  auto client_router =
+      iou_dgram_router_handle<protocol_t::router_plugin>::bind(*runner.loop(),
+          net_endpoint::loopback_v4(), shot_type::multi, client_tls);
+  CHECK(client_router);
+  REQUIRE_FALSE(client_router->local_endpoint().empty());
+
+  std::shared_ptr<protocol_t::session_plugin::session_t> client_sess;
+  REQUIRE(runner.loop()->post_and_wait([&]() -> bool {
+    client_sess = protocol_t::session_plugin::make_client(
+        *client_router.pointer(), server_addr);
+    return client_sess != nullptr;
+  }));
+  REQUIRE(client_sess);
+
+  // Client-side handshake completion is a sufficient bidirectional
+  // witness: it only fires after the client consumes the server's TLS
+  // Finished, which only ships once the server has processed the
+  // client's handshake bytes routed through `server_router`.
+  CHECK(WaitFor([&] {
+    return client_sess->plugin().protocol_plugin().completed.load(
+        std::memory_order::acquire);
+  }));
+}
+
+// Counts live server-side upper plugins, and counts server handshake
+// completions. A server session constructs its plugin on creation and destroys
+// it on reap (when the router drops its last reference), so
+// `g_server_plugins_live` returning to zero after a close is a witness that
+// the session was actually torn down, not merely marked closed.
+namespace {
+std::atomic<int> g_server_plugins_live{0};
+std::atomic<int> g_server_hs{0};
+
+struct reap_probe_plugin: quic_no_op_plugin {
+  explicit reap_probe_plugin(quic_session_io& s) noexcept
+      : quic_no_op_plugin{s} {
+    g_server_plugins_live.fetch_add(1, std::memory_order::relaxed);
+  }
+  ~reap_probe_plugin() override {
+    g_server_plugins_live.fetch_sub(1, std::memory_order::relaxed);
+  }
+  bool on_handshake_completed() noexcept override {
+    g_server_hs.fetch_add(1, std::memory_order::relaxed);
+    return true;
+  }
+};
+} // namespace
+
+TEST_CASE(
+    "quic_dgram_protocol reaps a draining server session after a "
+    "client-initiated close",
+    "[quic][router][close][.slow]") {
+  // Client-initiated shutdown: drive a full handshake by hand against the live
+  // server router, then ship a real CONNECTION_CLOSE. The server session
+  // enters the draining period -- the path where `handle_recv` previously
+  // returned without rearming. With the 3*PTO reaper the session is torn down
+  // shortly after; without it, and with no idle timeout configured
+  // (`max_idle_timeout` defaults to 0), the draining session would linger
+  // indefinitely. Teardown is witnessed by the server plugin's destructor.
+  //
+  // Tagged [.slow]: the reaper deadline is a real 3*PTO wall-clock wait, so
+  // this is excluded from the default fast sweep.
+
+  g_server_plugins_live.store(0, std::memory_order::relaxed);
+
+  using protocol_t = quic_dgram_protocol<reap_probe_plugin>;
+
+  self_signed_cert ck;
+  REQUIRE(ck);
+  quic_ssl_ctx server_tls{ck, handshake_alpn};
+  REQUIRE(server_tls);
+  quic_ssl_ctx client_tls{handshake_alpn};
+  REQUIRE(client_tls);
+
+  iou_loop_runner runner;
+
+  auto server_router =
+      iou_dgram_router_handle<protocol_t::router_plugin>::bind(*runner.loop(),
+          net_endpoint::loopback_v4(), shot_type::multi, server_tls);
+  CHECK(server_router);
+  const auto server_addr = server_router->local_endpoint();
+  REQUIRE_FALSE(server_addr.empty());
+
+  // Hand-driven client over a raw blocking UDP socket, mirroring the
+  // server-side handshake test above.
+  auto client_sock = net_socket::create_for(net_endpoint::loopback_v4(),
+      execution::blocking, message_style::datagram);
+  REQUIRE(client_sock);
+  REQUIRE(client_sock.bind(net_endpoint::loopback_v4()));
+  const timeval rcv_timeout{.tv_sec = 0, .tv_usec = 50000};
+  REQUIRE(client_sock.set_option(socket_option::rcvtimeo, rcv_timeout));
+  const net_endpoint client_addr{client_sock};
+
+  quic_conn client{client_tls};
+  REQUIRE(client.init(quic_cid{client_dcid_bytes}, quic_cid{client_scid_bytes},
+      client_addr, server_addr, quic_cid{}, now_tp(), 30s));
+  REQUIRE(client);
+
+  struct handshake_signal: quic_conn_handlers {
+    bool done{};
+    bool on_handshake_completed() noexcept override {
+      done = true;
+      return true;
+    }
+  } client_signal;
+  client.set_handlers(&client_signal);
+
+  std::array<std::byte, 1500> backing{};
+  std::array<uint8_t, 1500> recv_buf{};
+  const auto server_sockaddr = server_addr.as_sockaddr();
+
+  auto pump_out = [&] {
+    for (int safety = 0; safety < 32; ++safety) {
+      auto buf = iouring::iou_buffer::make_synthetic_write(
+          {backing.data(), backing.size()});
+      if (client.write_pkt(buf, now_tp()) != quic_status::ok) break;
+      const auto payload = buf.payload_bytes();
+      if (payload.empty()) break;
+      const auto sent = ::sendto(client_sock.handle(), payload.data(),
+          payload.size(), 0, server_sockaddr.first, server_sockaddr.second);
+      // NOLINTNEXTLINE(modernize-use-integer-sign-comparison)
+      REQUIRE(sent == static_cast<ssize_t>(payload.size()));
+    }
+  };
+  auto pump_in = [&] {
+    for (int safety = 0; safety < 32; ++safety) {
+      const auto got = ::recvfrom(client_sock.handle(), recv_buf.data(),
+          recv_buf.size(), 0, nullptr, nullptr);
+      if (got <= 0) break;
+      REQUIRE(client.read_pkt({recv_buf.data(), static_cast<size_t>(got)},
+                  now_tp()) == quic_status::ok);
+    }
+  };
+
+  // Pump until the *server* confirms its handshake, not just the client: the
+  // server needs its 1-RTT read keys installed before it can decrypt the
+  // application CONNECTION_CLOSE below. The server runs on the loop thread, so
+  // its completion lands asynchronously in `g_server_hs`.
+  for (int iter = 0; iter < 64; ++iter) {
+    pump_out();
+    pump_in();
+    if (client_signal.done &&
+        g_server_hs.load(std::memory_order::relaxed) >= 1)
+      break;
+  }
+  REQUIRE(client_signal.done);
+  REQUIRE(g_server_hs.load(std::memory_order::relaxed) == 1);
+  CHECK(g_server_plugins_live.load(std::memory_order::relaxed) == 1);
+
+  // Ship a real CONNECTION_CLOSE to the server, putting it into draining.
+  client.request_close(quic_close_kind::application, 0x0, {});
+  auto close_buf = iouring::iou_buffer::make_synthetic_write(
+      {backing.data(), backing.size()});
+  REQUIRE(
+      client.write_connection_close(close_buf, now_tp()) == quic_status::ok);
+  const auto close_payload = close_buf.payload_bytes();
+  REQUIRE_FALSE(close_payload.empty());
+  const auto sent = ::sendto(client_sock.handle(), close_payload.data(),
+      close_payload.size(), 0, server_sockaddr.first, server_sockaddr.second);
+  // NOLINTNEXTLINE(modernize-use-integer-sign-comparison)
+  REQUIRE(sent == static_cast<ssize_t>(close_payload.size()));
+
+  // The server enters draining and the 3*PTO reaper tears the session down,
+  // dropping the live-plugin count back to zero. Pre-fix, with no idle timeout
+  // configured (`max_idle_timeout` defaults to 0), the draining session has
+  // no reaper at all and lingers forever, so this never reaches zero.
+  CHECK(WaitFor(
+      [] {
+        return g_server_plugins_live.load(std::memory_order::relaxed) == 0;
+      },
+      5000ms));
+}
+// NOLINTEND(readability-function-cognitive-complexity)

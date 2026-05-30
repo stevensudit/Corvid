@@ -39,8 +39,8 @@ namespace corvid { inline namespace proto {
 // colon-hex string. Comparison, classification predicates, and formatting are
 // provided.
 //
-// Constructors do not throw: on failure, they leave it `empty()`. See
-// `parse()` for the alternative.
+// Constructors do not throw: on failure, they leave it `empty`. See `parse`
+// for the alternative.
 class ipv6_addr {
 public:
   using byte_array = std::array<uint8_t, 16>;
@@ -67,9 +67,9 @@ public:
 
   // Construct from a colon-hex string (e.g., "2001:db8::1").
   //
-  // If not a valid IPv6 address, the result is `empty()`. If you need to
+  // If not a valid IPv6 address, the result is `empty`. If you need to
   // distinguish between an invalid address and the "any" address ("::"), use
-  // `parse()` instead.
+  // `parse` instead.
   explicit constexpr ipv6_addr(std::string_view s) {
     if (const auto parsed = parse(s); parsed) *this = *parsed;
   }

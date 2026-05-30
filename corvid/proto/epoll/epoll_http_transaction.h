@@ -85,8 +85,8 @@ struct epoll_http_transaction
   // Callback types for the optional `on_data` / `on_drain` hooks.
   //
   // `data_fn` receives a reference to the connection's receive buffer view.
-  // The callback may call `view.active_view()`, `view.consume()`, and
-  // `view.update_active_view()` to consume bytes.
+  // The callback may call `view.active_view`, `view.consume`, and
+  // `view.update_active_view` to consume bytes.
   using data_fn = std::function<stream_claim(epoll_http_transaction&,
       epoll_recv_buffer_view&)>;
   using drain_fn =

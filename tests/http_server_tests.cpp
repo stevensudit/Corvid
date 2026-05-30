@@ -406,7 +406,7 @@ TEST_CASE("IdleTimeout", "[HttpServer]") {
   REQUIRE(server);
 
   // No recv timeout: the server's idle timeout should fire first. A watchdog
-  // aborts the process if `recv()` blocks for more than 5 seconds.
+  // aborts the process if `recv` blocks for more than 5 seconds.
   auto client =
       net_socket::create_sync_connected(server->local_endpoint(), 0ms);
   REQUIRE(client.is_open());
