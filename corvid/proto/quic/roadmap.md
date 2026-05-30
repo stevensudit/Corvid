@@ -376,9 +376,32 @@ needs it, or if we want a watchdog beneath ngtcp2's own timers.
   per-stream-state primitives (`block_stream` / `unblock_stream`,
   `set_stream_user_data`) are wrapped here too; the plugin milestone consumes
   them rather than adding more.
-- **[planned] http3 plugin.** The bridge object that inherits both
-  `quic_conn_handlers` and `http3_conn_handlers` and forwards between them;
-  see [HTTP/3 layering](#http3-layering).
+- **[done] http3 plugin.** `http3_plugin` (in `http3_plugin.h`) is the bridge
+  object: it inherits both `quic_conn_handlers` and `http3_conn_handlers`, owns
+  the `http3_conn` between them, and forwards mechanically in both directions.
+  Transport to HTTP/3: `on_recv_stream_data` -> `read_stream` plus QUIC
+  flow-control credit, `on_acked_stream_data_offset` -> `add_ack_offset`,
+  `on_stream_close` -> `close_stream`, `on_stream_reset` ->
+  `shutdown_stream_read`, `on_stream_stop_sending` -> `shutdown_stream_write`,
+  `on_extend_max_stream_data` -> `unblock_stream`. HTTP/3 to transport:
+  `on_stop_sending` -> `quic_conn::shutdown_stream_read`, `on_reset_stream` ->
+  `quic_conn::shutdown_stream_write`, `on_deferred_consume` -> flow-control
+  credit. nghttp3 is initialized lazily; the control + QPACK encoder / decoder
+  streams open and bind on `on_app_tx_ready`, deferring to
+  `on_extend_max_local_streams_uni` when the client reaches TX-ready before
+  ngtcp2 has applied the peer's unidirectional-stream credit (the alternative
+  was a spurious `STREAM_ID_BLOCKED` failure). The per-turn `drain` runs the
+  nghttp3 -> ngtcp2 hand-off (`writev_stream` -> `quic_conn::writev_stream` ->
+  `add_write_offset`). The HTTP/3-side stream-close upcall was renamed
+  `on_h3_stream_close` so the bridge can override it and the transport-level
+  `on_stream_close` without one hiding the other. New `quic_conn` primitives
+  the bridge needs: `open_uni_stream`, `shutdown_stream_read` /
+  `shutdown_stream_write` (callback-safe per-stream abort), and the
+  flow-control pair `extend_max_stream_offset` / `extend_max_offset`. Covered
+  by `quic_dgram_http3_test`, which stands up a client and server
+  `quic_dgram_protocol<http3_plugin>` on one `iou_loop_runner` and confirms the
+  handshake completes and the client decodes the server's SETTINGS, exercising
+  stream opening, both drain directions, and the read path end to end.
 - **[planned] HTTP/3 fake GET.** First HTTP/3 milestone. Decodes a
   request HEADERS frame and emits a canned response HEADERS + DATA (not
   a stream echo: the request body, if any, is ignored). Verifies

@@ -119,10 +119,10 @@ struct quic_close_request {
 // in the session's per-turn drain, after `read_pkt` returns.
 //
 // Per-stream abort *is* allowed from inside a callback via
-// `quic_conn::shutdown_stream`: that path calls
+// `quic_conn::shutdown_stream_read` / `shutdown_stream_write`: those call
 // `ngtcp2_conn_shutdown_stream_read` / `_write` immediately (which have
 // local-only effects: stopping further read delivery and marking the write
-// side closed) and only the eventual RESET_STREAM / STOP_SENDING packet
+// side closed) and only the eventual STOP_SENDING / RESET_STREAM packet
 // emission is deferred to drain. The local effects matter: deferring the
 // ngtcp2 call would let already- processed stream data continue to be
 // delivered during the current `read_pkt` path.
@@ -715,6 +715,71 @@ public:
     if (rv != 0) return static_cast<quic_status>(rv);
     stream_id = static_cast<quic_stream_id>(raw);
     return quic_status::ok;
+  }
+
+  // Open a locally-initiated unidirectional stream (the HTTP/3 control and
+  // QPACK encoder / decoder streams are three of these). Same contract as
+  // `open_bidi_stream`, against the local unidirectional space and the peer's
+  // `initial_max_streams_uni`. ngtcp2 permits this once the 1-RTT TX key is
+  // installed (signaled by `on_app_tx_ready`).
+  [[nodiscard]] quic_status open_uni_stream(
+      quic_stream_id& stream_id) noexcept {
+    assert(stream_id == quic_stream_id::none);
+    int64_t raw{};
+    const int rv = ngtcp2_conn_open_uni_stream(conn_.get(), &raw, nullptr);
+    if (rv != 0) return static_cast<quic_status>(rv);
+    stream_id = static_cast<quic_stream_id>(raw);
+    return quic_status::ok;
+  }
+
+  // Abruptly close the read side of `stream_id`, emitting STOP_SENDING with
+  // `app_error_code` (an opaque transport value; HTTP/3 passes an
+  // `h3_error_code` cast to its underlying `uint64_t`). ngtcp2 stops
+  // forwarding inbound data for the stream immediately (the local effect) and
+  // queues the STOP_SENDING frame for the next outbound turn. Safe to call
+  // from inside a callback (the HTTP/3 plugin forwards nghttp3's
+  // `on_stop_sending` here). Returns `ok` for an unknown stream; rejects a
+  // local unidirectional stream (no read side).
+  [[nodiscard]] quic_status shutdown_stream_read(quic_stream_id stream_id,
+      uint64_t app_error_code) noexcept {
+    return static_cast<quic_status>(ngtcp2_conn_shutdown_stream_read(
+        conn_.get(), 0, static_cast<int64_t>(*stream_id), app_error_code));
+  }
+
+  // Abruptly close the write side of `stream_id`, emitting RESET_STREAM with
+  // `app_error_code` and discarding unacknowledged send data. ngtcp2 marks the
+  // write side closed immediately and queues the RESET_STREAM frame for the
+  // next outbound turn. Safe to call from inside a callback (the HTTP/3 plugin
+  // forwards nghttp3's `on_reset_stream` here). Returns `ok` for an unknown
+  // stream; rejects a remote unidirectional stream (no write side).
+  [[nodiscard]] quic_status shutdown_stream_write(quic_stream_id stream_id,
+      uint64_t app_error_code) noexcept {
+    return static_cast<quic_status>(ngtcp2_conn_shutdown_stream_write(
+        conn_.get(), 0, static_cast<int64_t>(*stream_id), app_error_code));
+  }
+
+#pragma endregion
+#pragma region Flow control
+
+  // Return flow-control credit to the peer after the upper layer has consumed
+  // `datalen` bytes received on `stream_id`: `extend_max_stream_offset` raises
+  // the stream-level window, `extend_max_offset` the connection-level one. The
+  // HTTP/3 plugin calls both with the byte count nghttp3 reports it consumed
+  // (from `read_stream` and `on_deferred_consume`), so the peer's send window
+  // reopens as the application drains data. ngtcp2 folds the new limits into
+  // MAX_STREAM_DATA / MAX_DATA frames on the next outbound turn.
+  //
+  // `extend_max_stream_offset` returns `ok` for an unknown stream and rejects
+  // a local unidirectional stream (which has no receive side) with
+  // `NGTCP2_ERR_INVALID_ARGUMENT`; only ever call it for streams we receive
+  // on.
+  [[nodiscard]] quic_status extend_max_stream_offset(quic_stream_id stream_id,
+      uint64_t datalen) noexcept {
+    return static_cast<quic_status>(ngtcp2_conn_extend_max_stream_offset(
+        conn_.get(), static_cast<int64_t>(*stream_id), datalen));
+  }
+  void extend_max_offset(uint64_t datalen) noexcept {
+    ngtcp2_conn_extend_max_offset(conn_.get(), datalen);
   }
 
 #pragma endregion

@@ -255,17 +255,16 @@ namespace corvid { inline namespace proto { namespace quic {
 #pragma region h3_error_code
 
 // Wrapper over the HTTP/3 application error codes nghttp3 surfaces on stream
-// teardown (`on_stream_close`, `on_stop_sending`, `on_reset_stream`). The
+// teardown (`on_h3_stream_close`, `on_stop_sending`, `on_reset_stream`). The
 // named values mirror nghttp3's `NGHTTP3_H3_*` (RFC 9114 sec. 8.1) and
 // `NGHTTP3_QPACK_*` (RFC 9204) constants; `no_error` (0x0100) is the
 // clean-close code.
 //
-// This is an open value space, not a closed set, so it stays a plain
-// `enum class` (not a registered sequence or bitmask): the code rides a QUIC
+// This is an open value space, not a closed set: the code rides a QUIC
 // application error field, a 62-bit varint the peer may populate with any
 // value, including codes from another application protocol layered over QUIC
 // or RFC 9114 GREASE. An unrecognized code is still a valid `h3_error_code`,
-// just unnamed, so the underlying type must stay 64-bit and callers must not
+// just unnamed, so the underlying type stays 64-bit and callers must not
 // assume the value matches one of the named constants.
 // NOLINTNEXTLINE(performance-enum-size)
 enum class h3_error_code : uint64_t {
@@ -292,6 +291,19 @@ enum class h3_error_code : uint64_t {
 };
 
 #pragma endregion
+
+}}} // namespace corvid::proto::quic
+
+template<>
+constexpr inline auto corvid::enums::registry::enum_spec_v<
+    corvid::proto::quic::h3_error_code> =
+    corvid::enums::sequence::make_sequence_enum_spec<
+        corvid::proto::quic::h3_error_code,
+        corvid::proto::quic::h3_error_code::qpack_decoder_stream_error,
+        corvid::proto::quic::h3_error_code::no_error>();
+
+namespace corvid { inline namespace proto { namespace quic {
+
 #pragma region http3_settings
 
 // The peer's HTTP/3 SETTINGS, copied out of nghttp3's `nghttp3_proto_settings`
@@ -456,9 +468,12 @@ public:
     return true;
   }
 
-  // `stream_id` is fully closed. `app_error_code` is the HTTP/3 application
-  // error code for the closure (`h3_error_code::no_error` for a clean close).
-  [[nodiscard]] virtual bool on_stream_close(quic_stream_id stream_id,
+  // `stream_id` is fully closed at the HTTP/3 layer. `app_error_code` is the
+  // HTTP/3 application error code for the closure (`h3_error_code::no_error`
+  // for a clean close). Named distinctly from the transport-level
+  // `quic_conn_handlers::on_stream_close` so a bridge plugin inheriting both
+  // bases can override each without one hiding the other.
+  [[nodiscard]] virtual bool on_h3_stream_close(quic_stream_id stream_id,
       h3_error_code app_error_code, void* stream_user_data) {
     (void)stream_id;
     (void)app_error_code;
@@ -483,7 +498,7 @@ public:
 
   // nghttp3 asks the application to send STOP_SENDING on `stream_id` (it no
   // longer wants the peer's data). The plugin forwards this to ngtcp2 via
-  // `quic_conn::shutdown_stream`.
+  // `quic_conn::shutdown_stream_read`.
   [[nodiscard]] virtual bool on_stop_sending(quic_stream_id stream_id,
       h3_error_code app_error_code, void* stream_user_data) {
     (void)stream_id;
@@ -493,7 +508,8 @@ public:
   }
 
   // nghttp3 asks the application to reset (RESET_STREAM) the sending side of
-  // `stream_id`. The plugin forwards this to ngtcp2.
+  // `stream_id`. The plugin forwards this to ngtcp2 via
+  // `quic_conn::shutdown_stream_write`.
   [[nodiscard]] virtual bool on_reset_stream(quic_stream_id stream_id,
       h3_error_code app_error_code, void* stream_user_data) {
     (void)stream_id;
@@ -672,12 +688,12 @@ public:
 
   // Tell nghttp3 that `stream_id` has closed at the QUIC layer with
   // `app_error_code`. nghttp3 releases the stream's state and may fire
-  // `on_stream_close`.
+  // `on_h3_stream_close`.
   [[nodiscard]] bool close_stream(quic_stream_id stream_id,
       h3_error_code app_error_code) noexcept {
     return ok("nghttp3_conn_close_stream",
         nghttp3_conn_close_stream(conn_.get(), from(stream_id),
-            static_cast<uint64_t>(app_error_code)));
+            *app_error_code));
   }
 
 #pragma endregion
@@ -758,6 +774,27 @@ public:
   }
 
 #pragma endregion
+#pragma region Stream shutdown
+
+  // Tell nghttp3 the read side of `stream_id` is abruptly closed (the peer
+  // sent RESET_STREAM at the QUIC layer); nghttp3 discards any further inbound
+  // data and pending stream state. The plugin forwards `quic_conn_handlers::
+  // on_stream_reset` here. A no-op (returns true) for streams nghttp3 does not
+  // track as client-bidirectional; false means only NOMEM / QPACK overflow.
+  [[nodiscard]] bool shutdown_stream_read(quic_stream_id stream_id) noexcept {
+    return ok("nghttp3_conn_shutdown_stream_read",
+        nghttp3_conn_shutdown_stream_read(conn_.get(), from(stream_id)));
+  }
+
+  // Tell nghttp3 that further writes to `stream_id` are prohibited (the peer
+  // sent STOP_SENDING at the QUIC layer); like `block_stream`, but permanent:
+  // `unblock_stream` will not reopen it. The plugin forwards `quic_conn_-
+  // handlers::on_stream_stop_sending` here.
+  void shutdown_stream_write(quic_stream_id stream_id) noexcept {
+    nghttp3_conn_shutdown_stream_write(conn_.get(), from(stream_id));
+  }
+
+#pragma endregion
 private:
 #pragma region Trampolines
 
@@ -833,7 +870,7 @@ private:
       void* stream_user_data) noexcept {
     auto* self = static_cast<http3_conn*>(conn_user_data);
     return try_callback([&] {
-      return self->handlers_->on_stream_close(make_stream_id(stream_id),
+      return self->handlers_->on_h3_stream_close(make_stream_id(stream_id),
           static_cast<h3_error_code>(app_error_code), stream_user_data);
     });
   }
