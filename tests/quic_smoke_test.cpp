@@ -28,7 +28,7 @@
 // Smoke test for the QUIC build integration. Verifies that ngtcp2 and
 // OpenSSL 3.5+ are linkable and report sensible versions. Not a functional
 // test of the libraries themselves; that comes with the wrappers.
-// nghttp3 will land alongside the HTTP/3 milestone.
+// nghttp3's matching link/version check lives in nghttp3_smoke_test.cpp.
 
 TEST_CASE("QUIC dependencies link and report versions", "[quic]") {
   SECTION("OpenSSL is 3.5 or newer (native QUIC API)") {

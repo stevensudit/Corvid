@@ -192,11 +192,12 @@ needs it, or if we want a watchdog beneath ngtcp2's own timers.
   clients suppressed (`ENABLE_LIB_ONLY=ON`). Linked into every test target
   unconditionally; the static linker drops unreferenced archive members, so
   non-QUIC tests pay nothing. Smoke-tested by `tests/quic_smoke_test.cpp`.
-  **nghttp3 is deferred** to the HTTP/3 milestone: its top-level
+  nghttp3 was deferred at this point to its own build-integration milestone
+  below; the once-feared `check`-target collision (its top-level
   CMakeLists.txt unconditionally creates an `add_custom_target(check ...)`
-  that collides with ngtcp2's same-named target when both are loaded in one
-  CMake configure; patching around it is doable but unnecessary until we
-  actually need HTTP/3.
+  that shares a name with ngtcp2's) turned out to be a non-issue under
+  `ExternalProject_Add`, since each dependency builds in its own CMake
+  invocation.
 - **[done] CID-keyed router plugin.**
   `corvid/proto/quic/quic_dgram_plugins.h` defines `quic_dgram_protocol`
   with a `router_plugin` (DCID extraction via `quic_version_cid` for both
@@ -319,9 +320,21 @@ needs it, or if we want a watchdog beneath ngtcp2's own timers.
   the session plugin to handle NEW_CONNECTION_ID / RETIRE_CONNECTION_ID
   exchanges, address validation tokens, and 4-tuple migration. Exercises the
   router's add/remove_session under load.
-- **[planned] nghttp3 build integration + wrapping.** Bring in nghttp3 via
-  FetchContent (with the `check`-target collision patched, likely via a
-  `PATCH_COMMAND` that renames it to `nghttp3_check`). RAII wrap of
+- **[done] nghttp3 build integration.** nghttp3 v1.15.0 brought in via a
+  second `ExternalProject_Add` mirroring ngtcp2, not FetchContent. The
+  ExternalProject route makes the planned `check`-target collision patch
+  unnecessary: each sub-build is its own CMake invocation, so nghttp3's
+  top-level `check` target never shares a namespace with ngtcp2's. nghttp3
+  is crypto-agnostic (HTTP/3 framing + QPACK, no OpenSSL dependency), so its
+  config is ngtcp2's minus the crypto knobs: `ENABLE_LIB_ONLY=ON`,
+  static-only, `BUILD_TESTING=OFF`, with the same isolated probe-sweep cache
+  and the `-msan` suffix / instrumented-C-compiler plumbing for MSAN runs.
+  One `nghttp3_static` IMPORTED target linked into every test target next to
+  `ngtcp2_crypto_ossl_static`; the static linker drops unreferenced members,
+  so non-HTTP/3 tests pay nothing. Smoke-tested by
+  `tests/nghttp3_smoke_test.cpp` (link + version check, mirroring
+  `quic_smoke_test.cpp`).
+- **[planned] nghttp3 wrapping + http3 plugin.** RAII wrap of
   `nghttp3_conn` (custom-deleter `unique_ptr`, `[[nodiscard]] bool` error
   translation, QPACK encoder/decoder context owned alongside) shaped like
   `quic_conn`, but owned BY the HTTP/3 upper plugin, not a separate
