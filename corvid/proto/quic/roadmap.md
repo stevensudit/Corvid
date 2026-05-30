@@ -376,3 +376,12 @@ needs it, or if we want a watchdog beneath ngtcp2's own timers.
 - **CID length.** Constant `8` is the common pick; ngtcp2 examples use it.
   Worth making a router-config knob in case we want a different default
   later.
+- **Client peer-certificate verification.** The client `quic_ssl_ctx`
+  disables peer verification (`SSL_VERIFY_NONE`, which is also OpenSSL's
+  client default), since tests use self-signed certs against our own test
+  server. Once HTTP/3 works, an early interop test would point the client
+  at real websites; to detect invalid or self-signed certs there, we need
+  `SSL_VERIFY_PEER` plus a populated trust store
+  (`SSL_CTX_set_default_verify_paths` or an explicit CA bundle). Decide
+  whether to make verification a constructor option with an explicit
+  insecure opt-out for tests, or leave it caller-configured via `native`.

@@ -47,7 +47,20 @@ fi
 if [[ -f "$INSTALL_PREFIX/lib64/libssl.a" \
    && -f "$INSTALL_PREFIX/lib64/libcrypto.a" \
    && -f "$INSTALL_PREFIX/include/openssl/quic.h" ]]; then
-    echo "OpenSSL ($FLAVOR) already installed at $INSTALL_PREFIX"
+    # Reuse the existing install only if it matches the requested version.
+    # Without this check the short-circuit ignores OPENSSL_VERSION: bumping the
+    # tag with a stale install present would silently link the wrong version's
+    # headers and libs. The installed version is recorded in opensslv.h; the
+    # tag carries an "openssl-" prefix that the header omits.
+    expected_version="${OPENSSL_VERSION#openssl-}"
+    installed_version="$(sed -n 's/^[[:space:]]*#[[:space:]]*define[[:space:]]\+OPENSSL_VERSION_STR[[:space:]]\+"\([^"]*\)".*/\1/p' \
+        "$INSTALL_PREFIX/include/openssl/opensslv.h" 2>/dev/null)"
+    if [[ "$installed_version" != "$expected_version" ]]; then
+        echo "ERROR: installed OpenSSL ($FLAVOR) is version '$installed_version', expected '$expected_version'." >&2
+        echo "Delete $INSTALL_PREFIX and rerun this script." >&2
+        exit 1
+    fi
+    echo "OpenSSL ($FLAVOR) $installed_version already installed at $INSTALL_PREFIX"
     echo "Delete that directory to force a rebuild."
     exit 0
 fi
