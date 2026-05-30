@@ -95,12 +95,12 @@ public:
   [[nodiscard]] duration_t active_timeout() const noexcept { return active_; }
 
   // Current deadline. When `mode::running`, this time was set to
-  // `infra::steady_clock::now() + active_timeout()` and used to schedule the
-  // next sweep. When `mode::paused`, this is at or past the sentinel value
+  // `infra::steady_now_clock::now() + active_timeout()` and used to schedule
+  // the next sweep. When `mode::paused`, this is at or past the sentinel value
   // (`paused_expiration`) that signals the clipping behavior, so that the next
-  // sweep is scheduled for `infra::steady_clock::now() + configured_timeout()`
-  // but will not trigger an expiration. When `mode::stopped`, this will be a
-  // value in the past.
+  // sweep is scheduled for `infra::steady_now_clock::now() +
+  // configured_timeout()` but will not trigger an expiration. When
+  // `mode::stopped`, this will be a value in the past.
   [[nodiscard]] time_point_t deadline() const noexcept { return deadline_; }
 
   // Current mode.

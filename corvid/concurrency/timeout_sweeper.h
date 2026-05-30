@@ -63,7 +63,8 @@ namespace corvid { inline namespace concurrency {
 //   using sweeper_t = timeout_sweeper<>;
 //   // Initial registration. Set a real deadline, register, then mark as
 //   // paused so the first real read activity will trigger a rearm.
-//   conn->read_expiration_ = infra::steady_clock::now() + conn->read_timeout_;
+//   conn->read_expiration_ = infra::steady_now_clock::now() +
+//          conn->read_timeout_;
 //   sweeper.schedule(conn->read_expiration_,
 //       [weak_conn = std::weak_ptr{conn}](sweeper_t::time_point_t expire)
 //           -> sweeper_t::time_point_t {
@@ -72,8 +73,8 @@ namespace corvid { inline namespace concurrency {
 //         auto current = conn->read_expiration_;
 //         if (current == expire) { conn->close(); return {}; }
 //         // Only needed in callback when timer can be logically paused.
-//         if (current == sweeper_t::paused_expiration)
-//           current = infra::steady_clock::now() + conn->read_timeout_;
+//         if (current == infra::steady_now_clock::paused_expiration)
+//           current = infra::steady_now_clock::now() + conn->read_timeout_;
 //         return current;
 //       });
 //   // Logically pause. It will rearm every read_timeout_, without ever
