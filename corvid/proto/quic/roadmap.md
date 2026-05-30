@@ -372,9 +372,10 @@ needs it, or if we want a watchdog beneath ngtcp2's own timers.
   recv-data, end-stream, deferred-consume, stream-close, acked, stop-sending,
   reset-stream, recv-settings). nghttp3 C types are wrapped as `qpack_token`,
   `nv_flags`, `h3_error_code`, `stream_chunk`, and `http3_settings`. The
-  remaining nghttp3 primitives (`submit_request` / `submit_response`,
-  `block_stream` / `unblock_stream`, `set_stream_user_data`) land with the
-  plugin milestone.
+  header-only `submit_request` / `submit_response` and the flow-control /
+  per-stream-state primitives (`block_stream` / `unblock_stream`,
+  `set_stream_user_data`) are wrapped here too; the plugin milestone consumes
+  them rather than adding more.
 - **[planned] http3 plugin.** The bridge object that inherits both
   `quic_conn_handlers` and `http3_conn_handlers` and forwards between them;
   see [HTTP/3 layering](#http3-layering).

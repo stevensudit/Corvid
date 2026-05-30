@@ -45,6 +45,7 @@ struct recording_handlers: http3_conn_handlers {
   std::vector<std::pair<std::string, std::string>> headers;
   bool headers_ended{false};
   bool stream_ended{false};
+  void* last_user_data{};
 
   [[nodiscard]] bool on_recv_settings(const http3_settings&) override {
     settings_received = true;
@@ -52,8 +53,9 @@ struct recording_handlers: http3_conn_handlers {
   }
   [[nodiscard]] bool on_recv_header(quic_stream_id, qpack_token,
       std::string_view name, std::string_view value, nv_flags,
-      void*) override {
+      void* user_data) override {
     headers.emplace_back(std::string{name}, std::string{value});
+    last_user_data = user_data;
     return true;
   }
   [[nodiscard]] bool
@@ -205,6 +207,87 @@ TEST_CASE("http3_conn round-trips a request and response", "[http3]") {
   CHECK(client_handlers.stream_ended);
   CHECK(has_field(client_handlers.headers, field_name::status, "200"));
   CHECK(has_field(client_handlers.headers, field_name::content_length, "0"));
+}
+
+TEST_CASE("http3_conn blocks and unblocks stream output", "[http3]") {
+  recording_handlers client_handlers;
+  recording_handlers server_handlers;
+
+  http3_conn client;
+  http3_conn server;
+  client.set_handlers(&client_handlers);
+  server.set_handlers(&server_handlers);
+  REQUIRE(client.init(connection_role::client));
+  REQUIRE(server.init(connection_role::server));
+
+  REQUIRE(client.bind_control_stream(client_control));
+  REQUIRE(client.bind_qpack_streams(client_qpack_enc, client_qpack_dec));
+  REQUIRE(server.bind_control_stream(server_control));
+  REQUIRE(server.bind_qpack_streams(server_qpack_enc, server_qpack_dec));
+
+  // Block every outgoing uni stream the client has pending (control carries
+  // SETTINGS, the QPACK streams their type byte). `writev_stream` then offers
+  // nothing, so the server never sees the SETTINGS.
+  client.block_stream(client_control);
+  client.block_stream(client_qpack_enc);
+  client.block_stream(client_qpack_dec);
+  CHECK(pump(client, server) == 0);
+  CHECK_FALSE(server_handlers.settings_received);
+
+  // Unblocking releases the same bytes; the SETTINGS now flush through.
+  CHECK(client.unblock_stream(client_control));
+  CHECK(client.unblock_stream(client_qpack_enc));
+  CHECK(client.unblock_stream(client_qpack_dec));
+  CHECK(pump(client, server) > 0);
+  CHECK(server_handlers.settings_received);
+}
+
+TEST_CASE("http3_conn set_stream_user_data round-trips to upcalls",
+    "[http3]") {
+  recording_handlers client_handlers;
+  recording_handlers server_handlers;
+
+  http3_conn client;
+  http3_conn server;
+  client.set_handlers(&client_handlers);
+  server.set_handlers(&server_handlers);
+  REQUIRE(client.init(connection_role::client));
+  REQUIRE(server.init(connection_role::server));
+
+  REQUIRE(client.bind_control_stream(client_control));
+  REQUIRE(client.bind_qpack_streams(client_qpack_enc, client_qpack_dec));
+  REQUIRE(server.bind_control_stream(server_control));
+  REQUIRE(server.bind_qpack_streams(server_qpack_enc, server_qpack_dec));
+
+  const auto request_stream = static_cast<quic_stream_id>(0U);
+
+  // No such stream yet: nghttp3 has nothing to attach the pointer to.
+  int marker{};
+  CHECK_FALSE(client.set_stream_user_data(request_stream, &marker));
+
+  const std::array request{
+      http3_field{field_name::method, "GET"},
+      http3_field{field_name::scheme, "https"},
+      http3_field{field_name::authority, "example.com"},
+      http3_field{field_name::path, "/"},
+  };
+  REQUIRE(client.submit_request(request_stream, request));
+  pump(client, server);
+
+  // The request stream now exists on the client; associate user data with it.
+  CHECK(client.set_stream_user_data(request_stream, &marker));
+
+  // The server's response drives the client's recv-header upcalls, which must
+  // carry the pointer we just set.
+  const std::array response{
+      http3_field{field_name::status, "200"},
+      http3_field{field_name::content_length, "0"},
+  };
+  REQUIRE(server.submit_response(request_stream, response));
+  pump(server, client);
+
+  REQUIRE_FALSE(client_handlers.headers.empty());
+  CHECK(client_handlers.last_user_data == &marker);
 }
 
 TEST_CASE("NvFlagsString", "[http3]") {

@@ -723,6 +723,41 @@ public:
   }
 
 #pragma endregion
+#pragma region Flow control
+
+  // Tell nghttp3 that `stream_id` is blocked by QUIC flow control, so it stops
+  // offering that stream's bytes in `writev_stream` until the matching
+  // `unblock_stream`. The caller blocks a stream when
+  // `quic_conn::writev_stream` accepts fewer bytes than offered because the
+  // stream's send window is full.
+  void block_stream(quic_stream_id stream_id) noexcept {
+    nghttp3_conn_block_stream(conn_.get(), from(stream_id));
+  }
+
+  // Tell nghttp3 that `stream_id`, previously blocked via `block_stream`, is
+  // writable again (the peer extended its flow-control window). nghttp3
+  // reports success even when it has no such stream, so false here means only
+  // NOMEM.
+  [[nodiscard]] bool unblock_stream(quic_stream_id stream_id) noexcept {
+    return ok("nghttp3_conn_unblock_stream",
+        nghttp3_conn_unblock_stream(conn_.get(), from(stream_id)));
+  }
+
+#pragma endregion
+#pragma region Stream user data
+
+  // Associate `stream_user_data` with `stream_id` after the fact; nghttp3 then
+  // passes it to every per-stream upcall (the trailing `stream_user_data`
+  // parameter on `http3_conn_handlers`), letting the plugin hang per-request
+  // state off a stream. Returns false if nghttp3 has no such stream.
+  [[nodiscard]] bool set_stream_user_data(quic_stream_id stream_id,
+      void* stream_user_data) noexcept {
+    return ok("nghttp3_conn_set_stream_user_data",
+        nghttp3_conn_set_stream_user_data(conn_.get(), from(stream_id),
+            stream_user_data));
+  }
+
+#pragma endregion
 private:
 #pragma region Trampolines
 
