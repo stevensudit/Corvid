@@ -16,6 +16,7 @@
 // limitations under the License.
 #pragma once
 #include <array>
+#include <cassert>
 #include <cstdint>
 #include <memory>
 #include <span>
@@ -32,6 +33,8 @@
 #include "quic_ssl_ctx.h"
 
 namespace corvid { inline namespace proto { namespace quic {
+
+using namespace std::string_view_literals;
 
 #pragma region qpack_token
 
@@ -120,6 +123,88 @@ enum class qpack_token : int32_t {
   protocol = NGHTTP3_QPACK_TOKEN__PROTOCOL, // :protocol
   priority = NGHTTP3_QPACK_TOKEN_PRIORITY,
 };
+
+#pragma endregion
+#pragma region field_name
+
+// Canonical HTTP/3 field names: the `string_view` to put in
+// `http3_field::name` when submitting, one per `qpack_token`, so callers never
+// hand-type a name (a typo there silently corrupts the request).
+// Pseudo-headers carry their leading ':'. These are plain constants,
+// deliberately not tied to the token's numeric value; the names match
+// nghttp3's own static table (RFC 9114 / the QPACK static table).
+namespace field_name {
+inline constexpr auto authority = ":authority"sv;
+inline constexpr auto method = ":method"sv;
+inline constexpr auto path = ":path"sv;
+inline constexpr auto scheme = ":scheme"sv;
+inline constexpr auto status = ":status"sv;
+inline constexpr auto accept = "accept"sv;
+inline constexpr auto accept_encoding = "accept-encoding"sv;
+inline constexpr auto accept_language = "accept-language"sv;
+inline constexpr auto accept_ranges = "accept-ranges"sv;
+inline constexpr auto access_control_allow_credentials =
+    "access-control-allow-credentials"sv;
+inline constexpr auto access_control_allow_headers =
+    "access-control-allow-headers"sv;
+inline constexpr auto access_control_allow_methods =
+    "access-control-allow-methods"sv;
+inline constexpr auto access_control_allow_origin =
+    "access-control-allow-origin"sv;
+inline constexpr auto access_control_expose_headers =
+    "access-control-expose-headers"sv;
+inline constexpr auto access_control_request_headers =
+    "access-control-request-headers"sv;
+inline constexpr auto access_control_request_method =
+    "access-control-request-method"sv;
+inline constexpr auto age = "age"sv;
+inline constexpr auto alt_svc = "alt-svc"sv;
+inline constexpr auto authorization = "authorization"sv;
+inline constexpr auto cache_control = "cache-control"sv;
+inline constexpr auto content_disposition = "content-disposition"sv;
+inline constexpr auto content_encoding = "content-encoding"sv;
+inline constexpr auto content_length = "content-length"sv;
+inline constexpr auto content_security_policy = "content-security-policy"sv;
+inline constexpr auto content_type = "content-type"sv;
+inline constexpr auto cookie = "cookie"sv;
+inline constexpr auto date = "date"sv;
+inline constexpr auto early_data = "early-data"sv;
+inline constexpr auto etag = "etag"sv;
+inline constexpr auto expect_ct = "expect-ct"sv;
+inline constexpr auto forwarded = "forwarded"sv;
+inline constexpr auto if_modified_since = "if-modified-since"sv;
+inline constexpr auto if_none_match = "if-none-match"sv;
+inline constexpr auto if_range = "if-range"sv;
+inline constexpr auto last_modified = "last-modified"sv;
+inline constexpr auto link = "link"sv;
+inline constexpr auto location = "location"sv;
+inline constexpr auto origin = "origin"sv;
+inline constexpr auto purpose = "purpose"sv;
+inline constexpr auto range = "range"sv;
+inline constexpr auto referer = "referer"sv;
+inline constexpr auto server = "server"sv;
+inline constexpr auto set_cookie = "set-cookie"sv;
+inline constexpr auto strict_transport_security =
+    "strict-transport-security"sv;
+inline constexpr auto timing_allow_origin = "timing-allow-origin"sv;
+inline constexpr auto upgrade_insecure_requests =
+    "upgrade-insecure-requests"sv;
+inline constexpr auto user_agent = "user-agent"sv;
+inline constexpr auto vary = "vary"sv;
+inline constexpr auto x_content_type_options = "x-content-type-options"sv;
+inline constexpr auto x_forwarded_for = "x-forwarded-for"sv;
+inline constexpr auto x_frame_options = "x-frame-options"sv;
+inline constexpr auto x_xss_protection = "x-xss-protection"sv;
+inline constexpr auto host = "host"sv;
+inline constexpr auto connection = "connection"sv;
+inline constexpr auto keep_alive = "keep-alive"sv;
+inline constexpr auto proxy_connection = "proxy-connection"sv;
+inline constexpr auto transfer_encoding = "transfer-encoding"sv;
+inline constexpr auto upgrade = "upgrade"sv;
+inline constexpr auto te = "te"sv;
+inline constexpr auto protocol = ":protocol"sv;
+inline constexpr auto priority = "priority"sv;
+} // namespace field_name
 
 #pragma endregion
 #pragma region nv_flags
@@ -232,6 +317,21 @@ struct http3_settings {
 
   // Peer enabled HTTP/3 Datagrams (RFC 9297).
   bool h3_datagram{};
+};
+
+#pragma endregion
+#pragma region http3_field
+
+// An HTTP field (name / value pair plus QPACK flags) to submit in a request or
+// response HEADERS frame: the Corvid-facing form of `nghttp3_nv`. `name` and
+// `value` are borrowed for the duration of the submit call only; nghttp3
+// copies them unless a `no_copy_*` flag says otherwise, so the default (`flags
+// == nv_flags::none`) lets the caller pass ephemeral views. Pseudo-headers use
+// their ':' name (":method", ":path", ":status", and so on).
+struct http3_field {
+  std::string_view name;
+  std::string_view value;
+  nv_flags flags{nv_flags::none};
 };
 
 #pragma endregion
@@ -505,6 +605,41 @@ public:
   }
 
 #pragma endregion
+#pragma region Submit
+
+  // Submit a request  on `stream_id`, a client-initiated bidirectional stream
+  // the caller has opened via `quic_conn::open_bidi_stream`. `fields` are the
+  // request HEADERS, with the pseudo-headers (":method", ":scheme",
+  // ":authority", ":path") first per RFC 9114. This is the header-only path:
+  // it ends the stream after the headers (no request body). nghttp3 queues the
+  // HEADERS for the next `writev_stream` and copies `fields` (names and
+  // values), so the views need not outlive this call. Returns false if
+  // `fields` exceeds `max_submit_fields`.
+  [[nodiscard]] bool submit_request(quic_stream_id stream_id,
+      std::span<const http3_field> fields) noexcept {
+    assert(role_ == connection_role::client);
+    std::array<nghttp3_nv, max_submit_fields> nva{};
+    if (!fill_nv(fields, nva)) return false;
+    return ok("nghttp3_conn_submit_request",
+        nghttp3_conn_submit_request(conn_.get(), from(stream_id), nva.data(),
+            fields.size(), nullptr, nullptr));
+  }
+
+  // Submit a response on the request's `stream_id`. `fields` are
+  // the response HEADERS (":status" first). Header-only path: ends the stream
+  // after the headers (no response body). Same copy / cap notes as
+  // `submit_request`.
+  [[nodiscard]] bool submit_response(quic_stream_id stream_id,
+      std::span<const http3_field> fields) noexcept {
+    assert(role_ == connection_role::server);
+    std::array<nghttp3_nv, max_submit_fields> nva{};
+    if (!fill_nv(fields, nva)) return false;
+    return ok("nghttp3_conn_submit_response",
+        nghttp3_conn_submit_response(conn_.get(), from(stream_id), nva.data(),
+            fields.size(), nullptr));
+  }
+
+#pragma endregion
 #pragma region Inbound
 
   // Feed `data` (received on `stream_id`, with `chunk_fin ==
@@ -730,6 +865,33 @@ private:
   [[nodiscard]] static constexpr stream_chunk make_stream_chunk(
       int fin) noexcept {
     return static_cast<stream_chunk>(fin != 0);
+  }
+
+  // Upper bound on fields per `submit_request` / `submit_response`. These are
+  // our own outgoing headers, so this is a sanity cap (lets the submit scratch
+  // live on the stack instead of allocating), not a data-driven limit.
+  static constexpr size_t max_submit_fields = 64;
+
+  // Convert one `http3_field` to the `nghttp3_nv` the submit calls take. The
+  // name / value pointers alias the field's views; nghttp3 copies them during
+  // the synchronous submit (default flags), so they need only outlive the
+  // call.
+  [[nodiscard]] static nghttp3_nv to_nv(const http3_field& f) noexcept {
+    return {.name = strings::as_byte_span(f.name).data(),
+        .value = strings::as_byte_span(f.value).data(),
+        .namelen = f.name.size(),
+        .valuelen = f.value.size(),
+        .flags = *f.flags};
+  }
+
+  // Fill `nva` with the `nghttp3_nv` form of `fields` for a submit call, or
+  // log and return false if `fields` exceeds the scratch capacity.
+  [[nodiscard]] static bool fill_nv(std::span<const http3_field> fields,
+      std::span<nghttp3_nv> nva) noexcept {
+    if (fields.size() > nva.size())
+      return log::error("too many fields") && false;
+    for (size_t i = 0; i < fields.size(); ++i) nva[i] = to_nv(fields[i]);
+    return true;
   }
 
   // Translate a handler's `bool` into the int nghttp3 callbacks expect: `0` on

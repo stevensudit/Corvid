@@ -37,15 +37,44 @@ constexpr auto server_control = static_cast<quic_stream_id>(3U);
 constexpr auto server_qpack_enc = static_cast<quic_stream_id>(7U);
 constexpr auto server_qpack_dec = static_cast<quic_stream_id>(11U);
 
-// Records whether the peer's SETTINGS frame arrived. Everything else keeps the
-// no-op base behavior.
+// Records the peer's SETTINGS arrival plus any received HEADERS,
+// end-of-headers, and end-of-stream. Everything else keeps the no-op base
+// behavior.
 struct recording_handlers: http3_conn_handlers {
   bool settings_received{false};
+  std::vector<std::pair<std::string, std::string>> headers;
+  bool headers_ended{false};
+  bool stream_ended{false};
+
   [[nodiscard]] bool on_recv_settings(const http3_settings&) override {
     settings_received = true;
     return true;
   }
+  [[nodiscard]] bool on_recv_header(quic_stream_id, qpack_token,
+      std::string_view name, std::string_view value, nv_flags,
+      void*) override {
+    headers.emplace_back(std::string{name}, std::string{value});
+    return true;
+  }
+  [[nodiscard]] bool
+  on_end_headers(quic_stream_id, stream_chunk, void*) override {
+    headers_ended = true;
+    return true;
+  }
+  [[nodiscard]] bool on_end_stream(quic_stream_id, void*) override {
+    stream_ended = true;
+    return true;
+  }
 };
+
+// True if `headers` contains a field with the given name and value.
+[[nodiscard]] bool
+has_field(const std::vector<std::pair<std::string, std::string>>& headers,
+    std::string_view name, std::string_view value) {
+  for (const auto& [n, v] : headers)
+    if (n == name && v == value) return true;
+  return false;
+}
 
 // Drive `from`'s outbound queue until it stops producing, feeding every byte
 // into `to` on the same stream ID. Mirrors the eventual session drain, minus
@@ -61,12 +90,20 @@ int pump(http3_conn& from, http3_conn& to) {
     if (stream_id == quic_stream_id::none) break;
 
     size_t total{0};
-    for (const auto& v : vecs) {
+    for (size_t i = 0; i < vecs.size(); ++i) {
+      const auto& v = vecs[i];
+      // The FIN rides with the final byte chunk.
+      const auto fin = (i + 1 == vecs.size()) ? chunk_fin : stream_chunk::more;
       size_t consumed{0};
       REQUIRE(to.read_stream(stream_id,
-          {static_cast<const uint8_t*>(v.iov_base), v.iov_len},
-          stream_chunk::more, consumed));
+          {static_cast<const uint8_t*>(v.iov_base), v.iov_len}, fin,
+          consumed));
       total += v.iov_len;
+    }
+    // A pure FIN (no bytes) still has to be delivered.
+    if (vecs.empty() && chunk_fin == stream_chunk::fin) {
+      size_t consumed{0};
+      REQUIRE(to.read_stream(stream_id, {}, stream_chunk::fin, consumed));
     }
     REQUIRE(from.add_write_offset(stream_id, total));
     if (total != 0) ++writes;
@@ -117,6 +154,57 @@ TEST_CASE("http3_conn links nghttp3 control streams end to end", "[http3]") {
     CHECK(pump(server, client) > 0);
     CHECK(client_handlers.settings_received);
   }
+}
+
+TEST_CASE("http3_conn round-trips a request and response", "[http3]") {
+  recording_handlers client_handlers;
+  recording_handlers server_handlers;
+
+  http3_conn client;
+  http3_conn server;
+  client.set_handlers(&client_handlers);
+  server.set_handlers(&server_handlers);
+  REQUIRE(client.init(connection_role::client));
+  REQUIRE(server.init(connection_role::server));
+
+  REQUIRE(client.bind_control_stream(client_control));
+  REQUIRE(client.bind_qpack_streams(client_qpack_enc, client_qpack_dec));
+  REQUIRE(server.bind_control_stream(server_control));
+  REQUIRE(server.bind_qpack_streams(server_qpack_enc, server_qpack_dec));
+
+  // First client-initiated bidirectional stream (low two bits 0b00).
+  const auto request_stream = static_cast<quic_stream_id>(0U);
+
+  // Client -> server: a header-only GET request (ends the stream).
+  const std::array request{
+      http3_field{field_name::method, "GET"},
+      http3_field{field_name::scheme, "https"},
+      http3_field{field_name::authority, "example.com"},
+      http3_field{field_name::path, "/"},
+  };
+  REQUIRE(client.submit_request(request_stream, request));
+  pump(client, server);
+
+  CHECK(server_handlers.headers_ended);
+  CHECK(server_handlers.stream_ended);
+  CHECK(has_field(server_handlers.headers, field_name::method, "GET"));
+  CHECK(has_field(server_handlers.headers, field_name::scheme, "https"));
+  CHECK(has_field(server_handlers.headers, field_name::authority,
+      "example.com"));
+  CHECK(has_field(server_handlers.headers, field_name::path, "/"));
+
+  // Server -> client: a header-only 200 response (ends the stream).
+  const std::array response{
+      http3_field{field_name::status, "200"},
+      http3_field{field_name::content_length, "0"},
+  };
+  REQUIRE(server.submit_response(request_stream, response));
+  pump(server, client);
+
+  CHECK(client_handlers.headers_ended);
+  CHECK(client_handlers.stream_ended);
+  CHECK(has_field(client_handlers.headers, field_name::status, "200"));
+  CHECK(has_field(client_handlers.headers, field_name::content_length, "0"));
 }
 
 TEST_CASE("NvFlagsString", "[http3]") {
