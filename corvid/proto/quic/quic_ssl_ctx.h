@@ -25,6 +25,7 @@
 #include <openssl/ssl.h>
 #include <openssl/x509.h>
 
+#include "../../infra/exception_firewalls.h"
 #include "../../enums/bool_enums.h"
 #include "../../strings/conversion.h"
 

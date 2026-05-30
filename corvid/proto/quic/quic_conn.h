@@ -505,11 +505,14 @@ public:
   [[nodiscard]] connection_role role() const noexcept { return role_; }
   [[nodiscard]] auto native(this auto& self) { return self.conn_.get(); }
 
-  [[nodiscard]] const net_endpoint& local() const noexcept {
-    return *reinterpret_cast<net_endpoint*>(path_storage_.path.local.addr);
+  // Return the bound local/peer address by value..
+  [[nodiscard]] net_endpoint local() const noexcept {
+    return net_endpoint{*path_storage_.path.local.addr,
+        path_storage_.path.local.addrlen};
   }
-  [[nodiscard]] const net_endpoint& peer() const noexcept {
-    return *reinterpret_cast<net_endpoint*>(path_storage_.path.remote.addr);
+  [[nodiscard]] net_endpoint peer() const noexcept {
+    return net_endpoint{*path_storage_.path.remote.addr,
+        path_storage_.path.remote.addrlen};
   }
 
 #pragma endregion
