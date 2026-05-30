@@ -147,7 +147,7 @@ public:
   explicit quic_cid(const ngtcp2_cid& cid) noexcept : cid_{cid} {}
 
   explicit quic_cid(std::span<const uint8_t> bytes) noexcept {
-    assert(bytes.size() <= max_length);
+    if (bytes.size() > max_length) return;
     cid_.datalen = bytes.size();
     std::memcpy(cid_.data, bytes.data(), bytes.size());
   }
