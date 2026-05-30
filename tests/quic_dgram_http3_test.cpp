@@ -21,7 +21,7 @@
 #include <thread>
 
 #include "../corvid/proto/io_uring/iou_loop.h"
-#include "../corvid/proto/quic/http3_plugin.h"
+#include "../corvid/proto/quic/http3_plugins.h"
 #include "../corvid/proto/quic/quic_conn.h"
 #include "../corvid/proto/quic/quic_dgram_plugins.h"
 #include "../corvid/proto/quic/quic_self_signed_cert.h"
@@ -52,13 +52,13 @@ constexpr std::string_view h3_alpn = "h3";
 
 // Both sides run the HTTP/3 bridge plugin; the router_plugin's role (set by
 // its TLS context) decides client vs server behavior.
-using protocol_t = quic_dgram_protocol<http3_plugin>;
+using protocol_t = quic_dgram_protocol<http3_router>;
 
 } // namespace
 
 // NOLINTBEGIN(readability-function-cognitive-complexity)
 TEST_CASE(
-    "http3_plugin establishes a connection and exchanges SETTINGS over the "
+    "http3_router establishes a connection and exchanges SETTINGS over the "
     "live iou_dgram_router",
     "[quic][router][http3]") {
   self_signed_cert ck;

@@ -257,7 +257,7 @@ needs it, or if we want a watchdog beneath ngtcp2's own timers.
 - **[done] Wire `quic_conn` into `quic_dgram_protocol::session_plugin`.**
   `quic_dgram_protocol` is now a template parameterized on a `quic_plugin`
   upper layer (default `quic_no_op_plugin`; `quic_echo_plugin` follows in
-  the next milestone, `http3_plugin` later). The `session_plugin` owns a
+  the next milestone, `http3_router` later). The `session_plugin` owns a
   `quic_conn` in either role, drives `read_pkt` / `write_pkt` per
   datagram, and arms a single rearmable expiry-sweeper entry against
   `iou_loop::timeouts()`. `iou_basic_loop::run_once` now ticks `timeouts_`
@@ -376,9 +376,13 @@ needs it, or if we want a watchdog beneath ngtcp2's own timers.
   per-stream-state primitives (`block_stream` / `unblock_stream`,
   `set_stream_user_data`) are wrapped here too; the plugin milestone consumes
   them rather than adding more.
-- **[done] http3 plugin.** `http3_plugin` (in `http3_plugin.h`) is the bridge
-  object: it inherits both `quic_conn_handlers` and `http3_conn_handlers`, owns
-  the `http3_conn` between them, and forwards mechanically in both directions.
+- **[done] http3 router.** `http3_router` (in `http3_plugins.h`, alongside the
+  `http3_stream` per-stream transaction base) is the bridge object plus
+  per-stream demux: it inherits both `quic_conn_handlers` and
+  `http3_conn_handlers`, owns the `http3_conn` between them, forwards
+  mechanically in both directions, and routes the per-stream HTTP/3 events to
+  `http3_stream` objects keyed by stream ID (so `http3_client` / `http3_server`
+  subclass it). The bridge forwarding is:
   Transport to HTTP/3: `on_recv_stream_data` -> `read_stream` plus QUIC
   flow-control credit, `on_acked_stream_data_offset` -> `add_ack_offset`,
   `on_stream_close` -> `close_stream`, `on_stream_reset` ->
@@ -399,7 +403,7 @@ needs it, or if we want a watchdog beneath ngtcp2's own timers.
   `shutdown_stream_write` (callback-safe per-stream abort), and the
   flow-control pair `extend_max_stream_offset` / `extend_max_offset`. Covered
   by `quic_dgram_http3_test`, which stands up a client and server
-  `quic_dgram_protocol<http3_plugin>` on one `iou_loop_runner` and confirms the
+  `quic_dgram_protocol<http3_router>` on one `iou_loop_runner` and confirms the
   handshake completes and the client decodes the server's SETTINGS, exercising
   stream opening, both drain directions, and the read path end to end.
 - **[planned] HTTP/3 fake GET.** First HTTP/3 milestone. Decodes a

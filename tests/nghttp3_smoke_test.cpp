@@ -23,7 +23,7 @@
 
 // Smoke test for the HTTP/3 build integration. Verifies that nghttp3 is
 // linkable and exercises a couple of stable library entry points. Not a
-// functional test of HTTP/3 itself; that arrives with the http3_plugin
+// functional test of HTTP/3 itself; that arrives with the http3_router
 // wrapping nghttp3_conn.
 
 TEST_CASE("HTTP/3 dependency links and reports version", "[http3]") {

@@ -81,11 +81,11 @@ classDiagram
 ```
 
 The second view zooms in on the plugin family: the two abstract handler bases
-and the concrete plugins. `http3_plugin` (planned) is the hinge: it inherits
+and the concrete plugins. `http3_router` (planned) is the hinge: it inherits
 *both* bases, so it takes transport upcalls from `quic_conn` and HTTP/3 upcalls
 from `http3_conn` at the same time. Note the second handler pointer loop,
-identical in shape to the first: `http3_plugin` owns `http3_conn`, which points
-back at `http3_plugin` through its own `handlers_`.
+identical in shape to the first: `http3_router` owns `http3_conn`, which points
+back at `http3_router` through its own `handlers_`.
 
 ```mermaid
 classDiagram
@@ -100,7 +100,7 @@ classDiagram
     class quic_session_io
     class quic_no_op_plugin
     class quic_echo_plugin
-    class http3_plugin {
+    class http3_router {
         <<planned>>
     }
     class http3_conn {
@@ -110,21 +110,21 @@ classDiagram
 
     quic_conn_handlers <|-- quic_no_op_plugin
     quic_conn_handlers <|-- quic_echo_plugin
-    quic_conn_handlers <|-- http3_plugin
-    http3_conn_handlers <|-- http3_plugin
+    quic_conn_handlers <|-- http3_router
+    http3_conn_handlers <|-- http3_router
 
-    http3_plugin *-- http3_conn : conn_
+    http3_router *-- http3_conn : conn_
     http3_conn o-- http3_conn_handlers : handlers_
     quic_echo_plugin *-- quic_stream_send_queue : queues_
     quic_no_op_plugin o-- quic_session_io : io_
     quic_echo_plugin o-- quic_session_io : io_
-    http3_plugin o-- quic_session_io : io_
+    http3_router o-- quic_session_io : io_
 ```
 
 The `QuicPlugin` template parameter on
 [quic_dgram_protocol](quic_dgram_plugins.h#L108) is the upper plugin. It
 defaults to `quic_no_op_plugin`; `quic_echo_plugin` and the planned
-`http3_plugin` are the other realizations.
+`http3_router` are the other realizations.
 
 ## The classes
 
@@ -158,7 +158,7 @@ them.
 | ----- | ---- | ------------- |
 | [http3_conn](http3_conn.h#L214) | http3_conn.h | Wraps `nghttp3_conn` (HTTP/3 framing + QPACK). Forwards nghttp3's callback table into `http3_conn_handlers*`. Non-copyable, non-movable (nghttp3 stores `this`). Owned **by the upper plugin**, not by `quic_session_io`. |
 | [http3_conn_handlers](http3_conn.h#L65) | http3_conn.h | Abstract base: HTTP/3 upcalls (`on_begin_headers`, `on_recv_header`, `on_end_headers`, `on_recv_data`, `on_end_stream`, `on_stream_close`, `on_recv_settings`, ...). |
-| `http3_plugin` *(planned)* | (none yet) | The upper plugin for HTTP/3. Will inherit **both** `quic_conn_handlers` (transport upcalls in) **and** `http3_conn_handlers` (HTTP/3 upcalls out), own an `http3_conn` by value, and hold a `quic_session_io&`. See [roadmap.md](roadmap.md). |
+| `http3_router` *(planned)* | (none yet) | The upper plugin for HTTP/3. Will inherit **both** `quic_conn_handlers` (transport upcalls in) **and** `http3_conn_handlers` (HTTP/3 upcalls out), own an `http3_conn` by value, and hold a `quic_session_io&`. See [roadmap.md](roadmap.md). |
 
 ### Supporting value types
 
@@ -169,7 +169,7 @@ them.
 | [quic_stream_send_queue](quic_stream_send_queue.h#L59) | quic_stream_send_queue.h | Per-stream owning byte queue with sticky flags; used by `quic_echo_plugin` (and future stream-writing plugins) to retain bytes until ngtcp2 acks them. |
 | [quic_cid](quic_header.h#L141) / [quic_version_cid](quic_header.h#L203) | quic_header.h | Connection ID value type and the header decoder the `router_plugin` uses to recover the DCID. Also `quic_stream_id`, `quic_status`, and the stream/datagram flag enums. |
 
-## How a request would flow (planned http3_plugin)
+## How a request would flow (planned http3_router)
 
 This is the path the two wrapper/handlers pairs are built to support. The two
 phases are separated because no writes may happen inside a callback (ngtcp2
@@ -182,7 +182,7 @@ sequenceDiagram
     participant Router as iou_dgram_router
     participant Ssn as session_plugin
     participant QC as quic_conn / ngtcp2
-    participant HP as http3_plugin
+    participant HP as http3_router
     participant HC as http3_conn / nghttp3
 
     rect rgb(238, 246, 255)
@@ -208,7 +208,7 @@ sequenceDiagram
     end
 ```
 
-The same `http3_plugin` instance wears two hats: as a `quic_conn_handlers` it
+The same `http3_router` instance wears two hats: as a `quic_conn_handlers` it
 receives raw stream bytes from ngtcp2, and as an `http3_conn_handlers` it
 receives decoded HTTP/3 events from nghttp3. It is the only object that touches
 both wrappers; `quic_conn` never sees nghttp3 and `http3_conn` never sees

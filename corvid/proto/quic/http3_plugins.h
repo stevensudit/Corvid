@@ -17,9 +17,12 @@
 #pragma once
 #include <cstddef>
 #include <cstdint>
+#include <memory>
 #include <optional>
 #include <span>
+#include <string_view>
 #include <sys/uio.h>
+#include <unordered_map>
 
 #include "http3_conn.h"
 #include "quic_conn.h"
@@ -28,7 +31,73 @@
 
 namespace corvid { inline namespace proto { namespace quic {
 
-#pragma region http3_plugin
+#pragma region http3_stream
+
+// Abstract per-stream HTTP/3 transaction: the object `http3_router` associates
+// with one request/response stream and routes that stream's events to. The
+// connection-level `http3_conn_handlers` upcalls carry a bare `stream_id`; the
+// plugin looks the object up and dispatches here, so a concrete stream sees
+// only its own stream's events and accumulates that stream's state (a client
+// response, a server request, and so on).
+//
+// Defaults are no-op `true`, so concrete streams override only what they need.
+// Returning `false` from any upcall fails the nghttp3 callback and tears the
+// connection down, the same contract as the connection-level handlers.
+class http3_stream {
+public:
+  explicit http3_stream(quic_stream_id stream_id) noexcept
+      : stream_id_{stream_id} {}
+  http3_stream(const http3_stream&) = delete;
+  http3_stream& operator=(const http3_stream&) = delete;
+  virtual ~http3_stream() = default;
+
+  [[nodiscard]] quic_stream_id stream_id() const noexcept {
+    return stream_id_;
+  }
+
+  // An incoming HEADERS section has started on this stream.
+  [[nodiscard]] virtual bool on_begin_headers() { return true; }
+
+  // One decoded HTTP field. `token` names a known header or is
+  // `qpack_token::unknown`; `name` / `value` are valid only for the call.
+  [[nodiscard]] virtual bool on_recv_header(qpack_token token,
+      std::string_view name, std::string_view value, nv_flags flags) {
+    (void)token;
+    (void)name;
+    (void)value;
+    (void)flags;
+    return true;
+  }
+
+  // The HEADERS section ended; `chunk_fin` is `fin` if the receiving side also
+  // ended here (a message with no body).
+  [[nodiscard]] virtual bool on_end_headers(stream_chunk chunk_fin) {
+    (void)chunk_fin;
+    return true;
+  }
+
+  // Inbound body bytes (DATA payload), valid only for the call.
+  [[nodiscard]] virtual bool on_recv_data(std::span<const uint8_t> data) {
+    (void)data;
+    return true;
+  }
+
+  // The receiving side of this stream is closed (the message arrived in full).
+  [[nodiscard]] virtual bool on_end_stream() { return true; }
+
+  // The stream is fully closed at the HTTP/3 layer; the object is destroyed
+  // right after. `app_error_code` is `no_error` for a clean close.
+  [[nodiscard]] virtual bool on_close(h3_error_code app_error_code) {
+    (void)app_error_code;
+    return true;
+  }
+
+private:
+  quic_stream_id stream_id_;
+};
+
+#pragma endregion
+#pragma region http3_router
 
 // Upper-layer plugin for `quic_dgram_protocol` that runs HTTP/3 over a
 // `quic_conn`. It is the bridge between the two protocol layers: it inherits
@@ -38,6 +107,14 @@ namespace corvid { inline namespace proto { namespace quic {
 // bidirectional, single-turn coupling between the layers is the reason they
 // share one object rather than splitting across two (see the roadmap's HTTP/3
 // layering section).
+//
+// On top of the bridge it also demuxes the per-stream HTTP/3 events to
+// `http3_stream` objects, one per active request/response stream, so concrete
+// endpoints (`http3_client`, `http3_server`) subclass it and work in terms of
+// stream objects rather than a connection-wide event flow tagged with bare
+// stream IDs. This parallels the datagram router one stack down (CID -> session)
+// and does not preclude non-stream HTTP/3 later (datagrams, WebTransport), the
+// way the QUIC router/session split still carries datagrams.
 //
 // The forwarding is mechanical:
 //
@@ -64,14 +141,14 @@ namespace corvid { inline namespace proto { namespace quic {
 // later `on_extend_max_local_streams_uni`. Binding queues the control-stream
 // type byte and SETTINGS, which the per-turn `drain` ships.
 //
-// Request / response submission and HEADERS / DATA handling (the application
-// surface above this bridge) land with the HTTP/3 fake-GET milestone; the
-// header / body upcalls keep their no-op base behavior here.
-class http3_plugin: public quic_conn_handlers, public http3_conn_handlers {
+// The per-stream HEADERS / DATA upcalls are demuxed to `http3_stream` objects
+// (see the stream registry below). Request submission and the concrete
+// per-stream behavior live in the `http3_client` / `http3_server` subclasses.
+class http3_router: public quic_conn_handlers, public http3_conn_handlers {
 public:
 #pragma region Construction
 
-  explicit http3_plugin(quic_session_io& s) noexcept : io_{s} {
+  explicit http3_router(quic_session_io& s) noexcept : io_{s} {
     // nghttp3's `set_handlers` must precede `init`; `init` itself is lazy (see
     // `ensure_h3_init`) and runs the first time any path needs nghttp3.
     h3_.set_handlers(this);
@@ -190,6 +267,54 @@ public:
   }
 
 #pragma endregion
+#pragma region Stream demux
+
+  // Route each per-stream HTTP/3 event to the stream's `http3_stream` object.
+  // The object is created on the first `on_begin_headers` (peer-initiated, via
+  // `create_inbound_stream`) or by a subclass at request start (`add_stream`),
+  // and freed in `on_h3_stream_close`. An event for a stream with no object
+  // (e.g. unsolicited inbound on a client) is ignored.
+
+  [[nodiscard]] bool
+  on_begin_headers(quic_stream_id stream_id, void*) override {
+    auto* stream = ensure_stream(stream_id);
+    return stream ? stream->on_begin_headers() : true;
+  }
+
+  [[nodiscard]] bool on_recv_header(quic_stream_id stream_id, qpack_token token,
+      std::string_view name, std::string_view value, nv_flags flags,
+      void*) override {
+    auto* stream = find_stream(stream_id);
+    return stream ? stream->on_recv_header(token, name, value, flags) : true;
+  }
+
+  [[nodiscard]] bool on_end_headers(quic_stream_id stream_id,
+      stream_chunk chunk_fin, void*) override {
+    auto* stream = find_stream(stream_id);
+    return stream ? stream->on_end_headers(chunk_fin) : true;
+  }
+
+  [[nodiscard]] bool on_recv_data(quic_stream_id stream_id,
+      std::span<const uint8_t> data, void*) override {
+    auto* stream = find_stream(stream_id);
+    return stream ? stream->on_recv_data(data) : true;
+  }
+
+  [[nodiscard]] bool on_end_stream(quic_stream_id stream_id, void*) override {
+    auto* stream = find_stream(stream_id);
+    return stream ? stream->on_end_stream() : true;
+  }
+
+  [[nodiscard]] bool on_h3_stream_close(quic_stream_id stream_id,
+      h3_error_code app_error_code, void*) override {
+    auto it = streams_.find(stream_id);
+    if (it == streams_.end()) return true;
+    const bool ok = it->second->on_close(app_error_code);
+    streams_.erase(it);
+    return ok;
+  }
+
+#pragma endregion
 #pragma region Drain
 
   // Per-turn outbound path. Each iteration pulls the next chunk nghttp3 wants
@@ -247,6 +372,38 @@ public:
   }
 
 #pragma endregion
+#pragma region Subclass access
+protected:
+  // The owned nghttp3 wrapper and the session I/O, exposed to the concrete
+  // client / server subclasses that open streams and submit requests /
+  // responses. The bridge's own forwarding uses the members directly.
+  [[nodiscard]] http3_conn& h3() noexcept { return h3_; }
+  [[nodiscard]] quic_session_io& io() noexcept { return io_; }
+
+  // Associate `stream` with its stream ID. A subclass calls this for a
+  // locally-initiated stream just after opening it (the client, per request).
+  void add_stream(std::unique_ptr<http3_stream> stream) {
+    const auto id = stream->stream_id();
+    streams_.insert_or_assign(id, std::move(stream));
+  }
+
+  // Factory for a peer-initiated request stream, called on its first
+  // `on_begin_headers`. The default (client) returns null, so unsolicited
+  // inbound request streams get no object and their events are ignored. The
+  // server overrides this to mint a request handler.
+  [[nodiscard]] virtual std::unique_ptr<http3_stream>
+  create_inbound_stream(quic_stream_id stream_id) {
+    (void)stream_id;
+    return nullptr;
+  }
+
+  // The stream object for `stream_id`, or null if none is registered.
+  [[nodiscard]] http3_stream* find_stream(quic_stream_id stream_id) noexcept {
+    auto it = streams_.find(stream_id);
+    return it == streams_.end() ? nullptr : it->second.get();
+  }
+
+#pragma endregion
 #pragma region Helpers
 private:
   // Create the nghttp3 connection once. It needs no QUIC stream credit or
@@ -297,6 +454,18 @@ private:
     return true;
   }
 
+  // For `on_begin_headers`: return the existing object (a client response
+  // stream, added at submit time) or mint one through `create_inbound_stream`
+  // (a server request stream). Null if neither applies.
+  [[nodiscard]] http3_stream* ensure_stream(quic_stream_id stream_id) {
+    if (auto* stream = find_stream(stream_id)) return stream;
+    auto stream = create_inbound_stream(stream_id);
+    if (!stream) return nullptr;
+    auto* raw = stream.get();
+    streams_.insert_or_assign(stream_id, std::move(stream));
+    return raw;
+  }
+
 #pragma endregion
 #pragma region Data members
 
@@ -304,6 +473,7 @@ private:
   http3_conn h3_;
   std::optional<http3_settings> peer_settings_;
   bool streams_bound_{false};
+  std::unordered_map<quic_stream_id, std::unique_ptr<http3_stream>> streams_;
 
 #pragma endregion
 };
