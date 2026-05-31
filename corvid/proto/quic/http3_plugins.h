@@ -112,9 +112,10 @@ private:
 // `http3_stream` objects, one per active request/response stream, so concrete
 // endpoints (`http3_client`, `http3_server`) subclass it and work in terms of
 // stream objects rather than a connection-wide event flow tagged with bare
-// stream IDs. This parallels the datagram router one stack down (CID -> session)
-// and does not preclude non-stream HTTP/3 later (datagrams, WebTransport), the
-// way the QUIC router/session split still carries datagrams.
+// stream IDs. This parallels the datagram router one stack down (CID ->
+// session) and does not preclude non-stream HTTP/3 later (datagrams,
+// WebTransport), the way the QUIC router/session split still carries
+// datagrams.
 //
 // The forwarding is mechanical:
 //
@@ -281,9 +282,9 @@ public:
     return stream ? stream->on_begin_headers() : true;
   }
 
-  [[nodiscard]] bool on_recv_header(quic_stream_id stream_id, qpack_token token,
-      std::string_view name, std::string_view value, nv_flags flags,
-      void*) override {
+  [[nodiscard]] bool on_recv_header(quic_stream_id stream_id,
+      qpack_token token, std::string_view name, std::string_view value,
+      nv_flags flags, void*) override {
     auto* stream = find_stream(stream_id);
     return stream ? stream->on_recv_header(token, name, value, flags) : true;
   }
@@ -391,8 +392,8 @@ protected:
   // `on_begin_headers`. The default (client) returns null, so unsolicited
   // inbound request streams get no object and their events are ignored. The
   // server overrides this to mint a request handler.
-  [[nodiscard]] virtual std::unique_ptr<http3_stream>
-  create_inbound_stream(quic_stream_id stream_id) {
+  [[nodiscard]] virtual std::unique_ptr<http3_stream> create_inbound_stream(
+      quic_stream_id stream_id) {
     (void)stream_id;
     return nullptr;
   }

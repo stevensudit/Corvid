@@ -16,7 +16,6 @@
 // limitations under the License.
 
 #include "../corvid/proto/quic/http3_conn.h"
-#include "../corvid/strings/enum_conversion.h"
 
 #include "catch2_main.h"
 
@@ -179,34 +178,35 @@ TEST_CASE("http3_conn round-trips a request and response", "[http3]") {
 
   // Client -> server: a header-only GET request (ends the stream).
   const std::array request{
-      http3_field{field_name::method, "GET"},
-      http3_field{field_name::scheme, "https"},
-      http3_field{field_name::authority, "example.com"},
-      http3_field{field_name::path, "/"},
+      http3_field_view{http3_headers::method, "GET"},
+      http3_field_view{http3_headers::scheme, "https"},
+      http3_field_view{http3_headers::authority, "example.com"},
+      http3_field_view{http3_headers::path, "/"},
   };
   REQUIRE(client.submit_request(request_stream, request));
   pump(client, server);
 
   CHECK(server_handlers.headers_ended);
   CHECK(server_handlers.stream_ended);
-  CHECK(has_field(server_handlers.headers, field_name::method, "GET"));
-  CHECK(has_field(server_handlers.headers, field_name::scheme, "https"));
-  CHECK(has_field(server_handlers.headers, field_name::authority,
+  CHECK(has_field(server_handlers.headers, http3_headers::method, "GET"));
+  CHECK(has_field(server_handlers.headers, http3_headers::scheme, "https"));
+  CHECK(has_field(server_handlers.headers, http3_headers::authority,
       "example.com"));
-  CHECK(has_field(server_handlers.headers, field_name::path, "/"));
+  CHECK(has_field(server_handlers.headers, http3_headers::path, "/"));
 
   // Server -> client: a header-only 200 response (ends the stream).
   const std::array response{
-      http3_field{field_name::status, "200"},
-      http3_field{field_name::content_length, "0"},
+      http3_field_view{http3_headers::status, "200"},
+      http3_field_view{http3_headers::content_length, "0"},
   };
   REQUIRE(server.submit_response(request_stream, response));
   pump(server, client);
 
   CHECK(client_handlers.headers_ended);
   CHECK(client_handlers.stream_ended);
-  CHECK(has_field(client_handlers.headers, field_name::status, "200"));
-  CHECK(has_field(client_handlers.headers, field_name::content_length, "0"));
+  CHECK(has_field(client_handlers.headers, http3_headers::status, "200"));
+  CHECK(
+      has_field(client_handlers.headers, http3_headers::content_length, "0"));
 }
 
 TEST_CASE("http3_conn blocks and unblocks stream output", "[http3]") {
@@ -266,10 +266,10 @@ TEST_CASE("http3_conn set_stream_user_data round-trips to upcalls",
   CHECK_FALSE(client.set_stream_user_data(request_stream, &marker));
 
   const std::array request{
-      http3_field{field_name::method, "GET"},
-      http3_field{field_name::scheme, "https"},
-      http3_field{field_name::authority, "example.com"},
-      http3_field{field_name::path, "/"},
+      http3_field_view{http3_headers::method, "GET"},
+      http3_field_view{http3_headers::scheme, "https"},
+      http3_field_view{http3_headers::authority, "example.com"},
+      http3_field_view{http3_headers::path, "/"},
   };
   REQUIRE(client.submit_request(request_stream, request));
   pump(client, server);
@@ -280,54 +280,13 @@ TEST_CASE("http3_conn set_stream_user_data round-trips to upcalls",
   // The server's response drives the client's recv-header upcalls, which must
   // carry the pointer we just set.
   const std::array response{
-      http3_field{field_name::status, "200"},
-      http3_field{field_name::content_length, "0"},
+      http3_field_view{http3_headers::status, "200"},
+      http3_field_view{http3_headers::content_length, "0"},
   };
   REQUIRE(server.submit_response(request_stream, response));
   pump(server, client);
 
   REQUIRE_FALSE(client_handlers.headers.empty());
   CHECK(client_handlers.last_user_data == &marker);
-}
-
-TEST_CASE("NvFlagsString", "[http3]") {
-  // Each named bit round-trips through `enum_as_string` / `parse_enum`.
-  using namespace corvid;
-  using namespace corvid::strings;
-  using F = nv_flags;
-  if (true) {
-    CHECK(enum_as_string(F::never_index) == "never_index");
-    CHECK(enum_as_string(F::no_copy_name) == "no_copy_name");
-    CHECK(enum_as_string(F::no_copy_value) == "no_copy_value");
-    CHECK(enum_as_string(F::try_index) == "try_index");
-  }
-  if (true) {
-    // Higher bits print first.
-    CHECK(enum_as_string(F::try_index | F::never_index) ==
-          "try_index + never_index");
-  }
-  if (true) {
-    constexpr F bad{0xff};
-    CHECK(parse_enum("never_index", bad) == F::never_index);
-    CHECK(parse_enum("try_index", bad) == F::try_index);
-    CHECK(parse_enum("try_index + never_index", bad) ==
-          (F::try_index | F::never_index));
-  }
-}
-
-TEST_CASE("StreamChunkString", "[http3]") {
-  // Both sequence values round-trip through `enum_as_string` / `parse_enum`.
-  using namespace corvid;
-  using namespace corvid::strings;
-  using C = stream_chunk;
-  if (true) {
-    CHECK(enum_as_string(C::more) == "more");
-    CHECK(enum_as_string(C::fin) == "fin");
-  }
-  if (true) {
-    constexpr C bad{0xff};
-    CHECK(parse_enum("more", bad) == C::more);
-    CHECK(parse_enum("fin", bad) == C::fin);
-  }
 }
 // NOLINTEND(readability-function-cognitive-complexity)
