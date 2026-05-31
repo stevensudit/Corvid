@@ -312,53 +312,60 @@ public:
   // `create_inbound_stream`) or by a subclass at request start (`add_stream`),
   // and freed in `on_h3_stream_close`. An event for a stream with no object
   // (e.g. unsolicited inbound on a client) is ignored.
+  //
+  // `on_begin_headers` resolves the object once via `ensure_stream`, which
+  // stashes it as nghttp3's per-stream user data; every later per-stream
+  // callback then recovers it with a `to_stream` cast rather than a map
+  // lookup.
 
   [[nodiscard]] bool
-  on_begin_headers(quic_stream_id stream_id, void*) override {
-    auto* stream = ensure_stream(stream_id);
+  on_begin_headers(quic_stream_id stream_id, void* stream_user_data) override {
+    auto* stream = to_stream(stream_user_data);
+    if (!stream) stream = ensure_stream(stream_id);
     return stream ? stream->on_begin_headers() : true;
   }
 
-  [[nodiscard]] bool on_recv_header(quic_stream_id stream_id,
-      qpack_token token, std::string_view name, std::string_view value,
-      nv_flags flags, void*) override {
-    auto* stream = find_stream(stream_id);
+  [[nodiscard]] bool on_recv_header(quic_stream_id, qpack_token token,
+      std::string_view name, std::string_view value, nv_flags flags,
+      void* stream_user_data) override {
+    auto* stream = to_stream(stream_user_data);
     return stream ? stream->on_recv_header(token, name, value, flags) : true;
   }
 
-  [[nodiscard]] bool on_end_headers(quic_stream_id stream_id,
-      stream_chunk chunk_fin, void*) override {
-    auto* stream = find_stream(stream_id);
+  [[nodiscard]] bool on_end_headers(quic_stream_id, stream_chunk chunk_fin,
+      void* stream_user_data) override {
+    auto* stream = to_stream(stream_user_data);
     return stream ? stream->on_end_headers(chunk_fin) : true;
   }
 
   [[nodiscard]] bool
-  on_begin_trailers(quic_stream_id stream_id, void*) override {
-    auto* stream = find_stream(stream_id);
+  on_begin_trailers(quic_stream_id, void* stream_user_data) override {
+    auto* stream = to_stream(stream_user_data);
     return stream ? stream->on_begin_trailers() : true;
   }
 
-  [[nodiscard]] bool on_recv_trailer(quic_stream_id stream_id,
-      qpack_token token, std::string_view name, std::string_view value,
-      nv_flags flags, void*) override {
-    auto* stream = find_stream(stream_id);
+  [[nodiscard]] bool on_recv_trailer(quic_stream_id, qpack_token token,
+      std::string_view name, std::string_view value, nv_flags flags,
+      void* stream_user_data) override {
+    auto* stream = to_stream(stream_user_data);
     return stream ? stream->on_recv_trailer(token, name, value, flags) : true;
   }
 
-  [[nodiscard]] bool on_end_trailers(quic_stream_id stream_id,
-      stream_chunk chunk_fin, void*) override {
-    auto* stream = find_stream(stream_id);
+  [[nodiscard]] bool on_end_trailers(quic_stream_id, stream_chunk chunk_fin,
+      void* stream_user_data) override {
+    auto* stream = to_stream(stream_user_data);
     return stream ? stream->on_end_trailers(chunk_fin) : true;
   }
 
-  [[nodiscard]] bool on_recv_data(quic_stream_id stream_id,
-      std::span<const uint8_t> data, void*) override {
-    auto* stream = find_stream(stream_id);
+  [[nodiscard]] bool on_recv_data(quic_stream_id,
+      std::span<const uint8_t> data, void* stream_user_data) override {
+    auto* stream = to_stream(stream_user_data);
     return stream ? stream->on_recv_data(data) : true;
   }
 
-  [[nodiscard]] bool on_end_stream(quic_stream_id stream_id, void*) override {
-    auto* stream = find_stream(stream_id);
+  [[nodiscard]] bool
+  on_end_stream(quic_stream_id, void* stream_user_data) override {
+    auto* stream = to_stream(stream_user_data);
     return stream ? stream->on_end_stream() : true;
   }
 
@@ -460,6 +467,13 @@ protected:
     return it == streams_.end() ? nullptr : it->second.get();
   }
 
+  // Recover the `http3_stream` that `ensure_stream` stashed as nghttp3's
+  // per-stream user data. Null for a stream with no object (an ignored event).
+  [[nodiscard]] static http3_stream* to_stream(
+      void* stream_user_data) noexcept {
+    return static_cast<http3_stream*>(stream_user_data);
+  }
+
 #pragma endregion
 #pragma region Helpers
 private:
@@ -513,13 +527,20 @@ private:
 
   // For `on_begin_headers`: return the existing object (a client response
   // stream, added at submit time) or mint one through `create_inbound_stream`
-  // (a server request stream). Null if neither applies.
+  // (a server request stream). Null if neither applies. Stashes the resolved
+  // object as nghttp3's per-stream user data so the later per-stream callbacks
+  // recover it with a `to_stream` cast instead of a map lookup; the set is
+  // safe because the sole caller, `on_begin_headers`, runs inside nghttp3's
+  // callback for this stream (so nghttp3 already knows it).
   [[nodiscard]] http3_stream* ensure_stream(quic_stream_id stream_id) {
-    if (auto* stream = find_stream(stream_id)) return stream;
-    auto stream = create_inbound_stream(stream_id);
-    if (!stream) return nullptr;
-    auto* raw = stream.get();
-    streams_.insert_or_assign(stream_id, std::move(stream));
+    auto* raw = find_stream(stream_id);
+    if (!raw) {
+      auto stream = create_inbound_stream(stream_id);
+      if (!stream) return nullptr;
+      raw = stream.get();
+      streams_.insert_or_assign(stream_id, std::move(stream));
+    }
+    (void)h3_.set_stream_user_data(stream_id, raw);
     return raw;
   }
 
