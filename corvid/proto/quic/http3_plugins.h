@@ -56,23 +56,58 @@ public:
   }
 
   // An incoming HEADERS section has started on this stream.
-  [[nodiscard]] virtual bool on_begin_headers() { return true; }
+  [[nodiscard]] virtual bool on_begin_headers() {
+    headers_.clear();
+    return true;
+  }
 
   // One decoded HTTP field. `token` names a known header or is
   // `qpack_token::unknown`; `name` / `value` are valid only for the call.
   [[nodiscard]] virtual bool on_recv_header(qpack_token token,
       std::string_view name, std::string_view value, nv_flags flags) {
-    (void)token;
-    (void)name;
-    (void)value;
-    (void)flags;
+    if (headers_.size() >= http3_conn::max_submit_fields) return false;
+    headers_.add({name, value, flags}, token);
     return true;
   }
 
   // The HEADERS section ended; `chunk_fin` is `fin` if the receiving side also
   // ended here (a message with no body).
   [[nodiscard]] virtual bool on_end_headers(stream_chunk chunk_fin) {
-    (void)chunk_fin;
+    headers_.set_chunk_fin(chunk_fin);
+    return on_recv_headers(headers_);
+  }
+
+  // Deliver the accumulated headers as a batch.
+  [[nodiscard]] virtual bool on_recv_headers(http3_headers& headers) {
+    (void)headers;
+    return true;
+  }
+
+  // An incoming trailer section has started on this stream (after the body).
+  [[nodiscard]] virtual bool on_begin_trailers() {
+    trailers_.clear();
+    return true;
+  }
+
+  // One decoded trailer field, same contract as `on_recv_header`.
+  [[nodiscard]] virtual bool on_recv_trailer(qpack_token token,
+      std::string_view name, std::string_view value, nv_flags flags) {
+    if (trailers_.size() >= http3_conn::max_submit_fields) return false;
+    trailers_.add({name, value, flags}, token);
+    return true;
+  }
+
+  // The trailer section ended; `chunk_fin` is `fin` if the receiving side also
+  // ended here (the usual case, since trailers are the last thing on a
+  // stream).
+  [[nodiscard]] virtual bool on_end_trailers(stream_chunk chunk_fin) {
+    trailers_.set_chunk_fin(chunk_fin);
+    return on_recv_trailers(trailers_);
+  }
+
+  // Deliver the accumulated trailers as a batch.
+  [[nodiscard]] virtual bool on_recv_trailers(http3_headers& trailers) {
+    (void)trailers;
     return true;
   }
 
@@ -94,6 +129,8 @@ public:
 
 private:
   quic_stream_id stream_id_;
+  http3_headers headers_;
+  http3_headers trailers_;
 };
 
 #pragma endregion
@@ -293,6 +330,25 @@ public:
       stream_chunk chunk_fin, void*) override {
     auto* stream = find_stream(stream_id);
     return stream ? stream->on_end_headers(chunk_fin) : true;
+  }
+
+  [[nodiscard]] bool
+  on_begin_trailers(quic_stream_id stream_id, void*) override {
+    auto* stream = find_stream(stream_id);
+    return stream ? stream->on_begin_trailers() : true;
+  }
+
+  [[nodiscard]] bool on_recv_trailer(quic_stream_id stream_id,
+      qpack_token token, std::string_view name, std::string_view value,
+      nv_flags flags, void*) override {
+    auto* stream = find_stream(stream_id);
+    return stream ? stream->on_recv_trailer(token, name, value, flags) : true;
+  }
+
+  [[nodiscard]] bool on_end_trailers(quic_stream_id stream_id,
+      stream_chunk chunk_fin, void*) override {
+    auto* stream = find_stream(stream_id);
+    return stream ? stream->on_end_trailers(chunk_fin) : true;
   }
 
   [[nodiscard]] bool on_recv_data(quic_stream_id stream_id,

@@ -213,24 +213,36 @@ public:
 
 #pragma region Construction
 
+  http3_headers() = default;
+  http3_headers(const http3_headers&) = delete;
+  http3_headers(http3_headers&&) = default;
+  http3_headers& operator=(const http3_headers&) = delete;
+  http3_headers& operator=(http3_headers&&) = default;
+
 #pragma endregion
 #pragma region Accessors
 
-  // Add a field with token. Returns its index (valid until the next mutation).
+  [[nodiscard]] auto chunk_fin() const noexcept { return chunk_fin_; }
+  void set_chunk_fin(stream_chunk chunk_fin) noexcept {
+    chunk_fin_ = chunk_fin;
+  }
+
+  // Add a field with token. Returns its index (valid until the next
+  // mutation).
   size_t add(const http3_field_view& field, qpack_token token) {
     fields_.emplace_back(token, std::string{field.name},
         std::string{field.value}, field.flags);
     return fields_.size() - 1;
   }
 
-  // Add a field, looking up its token from the name. Returns its index (valid
-  // until the next mutation).
+  // Add a field, looking up its token from the name. Returns its index
+  // (valid until the next mutation).
   size_t add(const http3_field_view& field) {
     return add(field, token_from_name(field.name));
   }
 
-  // Set the field `value` (and `flags`): modify the first existing field with
-  // that name if one is present, otherwise add a new one. If `token` is
+  // Set the field `value` (and `flags`): modify the first existing field
+  // with that name if one is present, otherwise add a new one. If `token` is
   // specified, uses that for search; otherwise, uses `name`. Returns index.
   size_t set_value(std::string_view name, std::string_view value,
       qpack_token token = qpack_token::unknown,
@@ -294,7 +306,8 @@ public:
     return npos;
   }
 
-  // Access the field at `ndx`. Returns a const reference on a const instance.
+  // Access the field at `ndx`. Returns a const reference on a const
+  // instance.
   [[nodiscard]] auto& operator[](this auto& self, size_t ndx) noexcept {
     return self.fields_[ndx];
   }
@@ -322,7 +335,14 @@ public:
   }
 
   // Remove all fields.
-  void clear() noexcept { fields_.clear(); }
+  void clear() noexcept {
+    fields_.clear();
+    fields_.reserve(32);
+    chunk_fin_ = stream_chunk::more;
+  }
+
+  // Reserve space for at least `capacity` fields.
+  void reserve(size_t capacity) { fields_.reserve(capacity); }
 
   // Convert to span for submission.
   [[nodiscard]] operator std::span<const http3_field>() const noexcept {
@@ -564,6 +584,7 @@ public:
 #pragma region Data members
 private:
   std::vector<http3_field> fields_;
+  stream_chunk chunk_fin_;
 
 #pragma endregion
 };

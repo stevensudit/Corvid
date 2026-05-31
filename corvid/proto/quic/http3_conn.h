@@ -18,6 +18,7 @@
 #include <array>
 #include <cassert>
 #include <cstdint>
+#include <limits>
 #include <memory>
 #include <span>
 #include <string_view>
@@ -25,6 +26,7 @@
 #include <utility>
 
 #include <nghttp3/nghttp3.h>
+#include <openssl/rand.h>
 
 #include "../../infra/exception_firewalls.h"
 #include "../../infra/log.h"
@@ -202,6 +204,43 @@ public:
   }
 
 #pragma endregion
+#pragma region Trailers
+
+  // An incoming HTTP trailer field section (the optional HEADERS after the
+  // body) has started on `stream_id`.
+  [[nodiscard]] virtual bool
+  on_begin_trailers(quic_stream_id stream_id, void* stream_user_data) {
+    (void)stream_id;
+    (void)stream_user_data;
+    return true;
+  }
+
+  // One decoded HTTP trailer field, with the same `token` / `name` / `value` /
+  // `flags` contract as `on_recv_header`.
+  [[nodiscard]] virtual bool on_recv_trailer(quic_stream_id stream_id,
+      qpack_token token, std::string_view name, std::string_view value,
+      nv_flags flags, void* stream_user_data) {
+    (void)stream_id;
+    (void)token;
+    (void)name;
+    (void)value;
+    (void)flags;
+    (void)stream_user_data;
+    return true;
+  }
+
+  // The incoming trailer section on `stream_id` has ended. `chunk_fin` is
+  // `stream_chunk::fin` if the stream's receiving side also ended here (the
+  // usual case, since trailers are the last thing on a stream).
+  [[nodiscard]] virtual bool on_end_trailers(quic_stream_id stream_id,
+      stream_chunk chunk_fin, void* stream_user_data) {
+    (void)stream_id;
+    (void)chunk_fin;
+    (void)stream_user_data;
+    return true;
+  }
+
+#pragma endregion
 #pragma region Body and stream
 
   // Inbound HTTP body bytes (DATA frame payload) on `stream_id`. Valid only
@@ -324,6 +363,11 @@ public:
 //     via `add_ack_offset`; report stream closure via `close_stream`.
 class http3_conn {
 public:
+  // Upper bound on fields per `submit_request` / `submit_response`. These are
+  // our own outgoing headers, so this is a sanity cap (lets the submit scratch
+  // live on the stack instead of allocating), not a data-driven limit.
+  static constexpr size_t max_submit_fields = 64;
+
   http3_conn() = default;
   http3_conn(const http3_conn&) = delete;
   http3_conn(http3_conn&&) = delete;
@@ -603,6 +647,39 @@ private:
     });
   }
 
+  static int on_begin_trailers(nghttp3_conn*, int64_t stream_id,
+      void* conn_user_data, void* stream_user_data) noexcept {
+    auto* self = static_cast<http3_conn*>(conn_user_data);
+    return try_callback([&] {
+      return self->handlers_->on_begin_trailers(make_stream_id(stream_id),
+          stream_user_data);
+    });
+  }
+
+  static int on_recv_trailer(nghttp3_conn*, int64_t stream_id, int32_t token,
+      nghttp3_rcbuf* name, nghttp3_rcbuf* value, uint8_t flags,
+      void* conn_user_data, void* stream_user_data) noexcept {
+    auto* self = static_cast<http3_conn*>(conn_user_data);
+    return try_callback([&] {
+      const nghttp3_vec n = nghttp3_rcbuf_get_buf(name);
+      const nghttp3_vec v = nghttp3_rcbuf_get_buf(value);
+      return self->handlers_->on_recv_trailer(make_stream_id(stream_id),
+          static_cast<qpack_token>(token),
+          strings::as_string_view(std::span{n.base, n.len}),
+          strings::as_string_view(std::span{v.base, v.len}),
+          static_cast<nv_flags>(flags), stream_user_data);
+    });
+  }
+
+  static int on_end_trailers(nghttp3_conn*, int64_t stream_id, int fin,
+      void* conn_user_data, void* stream_user_data) noexcept {
+    auto* self = static_cast<http3_conn*>(conn_user_data);
+    return try_callback([&] {
+      return self->handlers_->on_end_trailers(make_stream_id(stream_id),
+          make_stream_chunk(fin), stream_user_data);
+    });
+  }
+
   static int on_recv_data(nghttp3_conn*, int64_t stream_id,
       const uint8_t* data, size_t datalen, void* conn_user_data,
       void* stream_user_data) noexcept {
@@ -705,10 +782,19 @@ private:
     return static_cast<stream_chunk>(fin != 0);
   }
 
-  // Upper bound on fields per `submit_request` / `submit_response`. These are
-  // our own outgoing headers, so this is a sanity cap (lets the submit scratch
-  // live on the stack instead of allocating), not a data-driven limit.
-  static constexpr size_t max_submit_fields = 64;
+  // Fill `dest` with `destlen` unpredictable bytes (nghttp3's `rand` callback,
+  // recommended to harden against a malicious peer). There is no way to signal
+  // an error and we can't throw through C, so terminate in the unlikely event
+  // the RNG fails. Mirrors `quic_conn`'s ngtcp2 rand callback one layer down.
+  static void on_rand(uint8_t* dest, size_t destlen) noexcept {
+    try_or_terminate([&] {
+      if (destlen > static_cast<size_t>(std::numeric_limits<int>::max()))
+        log::fatal("on_rand: destlen {} exceeds int max", destlen);
+      if (RAND_bytes(dest, static_cast<int>(destlen)) != 1)
+        log::fatal("on_rand: RAND_bytes failed");
+      return true;
+    });
+  }
 
   // Convert one `http3_field_view` to the `nghttp3_nv` the submit calls take.
   // The name / value pointers alias the field's views; nghttp3 copies them
@@ -799,9 +885,13 @@ private:
       .begin_headers = &on_begin_headers,
       .recv_header = &on_recv_header,
       .end_headers = &on_end_headers,
+      .begin_trailers = &on_begin_trailers,
+      .recv_trailer = &on_recv_trailer,
+      .end_trailers = &on_end_trailers,
       .stop_sending = &on_stop_sending,
       .end_stream = &on_end_stream,
       .reset_stream = &on_reset_stream,
+      .rand = &on_rand,
       .recv_settings2 = &on_recv_settings,
   };
 #pragma clang diagnostic pop
