@@ -369,8 +369,8 @@ needs it, or if we want a watchdog beneath ngtcp2's own timers.
   `read_stream`, `writev_stream` + `add_write_offset`, `add_ack_offset`, and
   `close_stream`, plus a protocol-neutral `http3_conn_handlers` upcall base
   mirroring `quic_conn_handlers` one layer up (begin / recv / end headers,
-  recv-data, end-stream, deferred-consume, stream-close, acked, stop-sending,
-  reset-stream, recv-settings). nghttp3 C types are wrapped as `qpack_token`,
+  begin / recv / end trailers, recv-data, end-stream, deferred-consume,
+  stream-close, acked, stop-sending, reset-stream, recv-settings). nghttp3 C types are wrapped as `qpack_token`,
   `nv_flags`, `h3_error_code`, `stream_chunk`, and `http3_settings`. The
   header-only `submit_request` / `submit_response` and the flow-control /
   per-stream-state primitives (`block_stream` / `unblock_stream`,
