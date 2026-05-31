@@ -541,7 +541,7 @@ public:
     return get_raw_option<T>(*protocol_type::tcp, *optname);
   }
 
-  // Allow reuse of a recently-freed local address (`SO_REUSEADDR`).
+  // Allow reuse of a recently freed local address (`SO_REUSEADDR`).
   [[nodiscard]] bool set_reuse_addr(bool on = true) noexcept {
     return set_option(socket_option::reuse_addr, int{on});
   }

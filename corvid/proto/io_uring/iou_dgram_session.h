@@ -172,7 +172,7 @@ public:
   // To construct a session WITHOUT auto-registration (e.g., sender-side
   // pre-register under a known key, or QUIC client whose registration must be
   // posted to the loop thread), pass a default-constructed `buffer{}`. The
-  // plugin's `register_self(const buffer&)` is required to early-return on
+  // plugin's `register_self(const buffer&)` is required to early return on
   // `!buf` per the plugin contract documented in `iou_dgram_router.h`.
   template<typename... PluginArgs>
   [[nodiscard]] static session_ptr

@@ -62,7 +62,7 @@ inline namespace fixed_bitsets {
 // prevent accidental mixing of unrelated index spaces.
 //
 // `TAG` is an optional tag type for disambiguating multiple
-// structurally-identical `fixed_bitset` types. It has no effect on the
+// structurally identical `fixed_bitset` types. It has no effect on the
 // implementation, except to provide type safety and prevent mixing.
 //
 // So long as `FORCED_WORD=0`, `sizeof(fixed_bitset<...>)` is `N_BITS / 8`,

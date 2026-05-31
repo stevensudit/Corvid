@@ -19,7 +19,7 @@
 
 namespace corvid { inline namespace enums { namespace bool_enums {
 
-// Strongly-typed two-value enums intended to replace plain `bool` parameters.
+// Strongly typed two-value enums intended to replace plain `bool` parameters.
 // All have `bool` as their underlying type, enabling explicit conversion via
 // `static_cast` and use as C++20 non-type template parameters.
 //

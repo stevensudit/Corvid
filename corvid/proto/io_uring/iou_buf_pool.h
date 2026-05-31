@@ -141,7 +141,7 @@ class iou_buf_pool_of: public buffer_pool_base {
   };
 
 private:
-  // Doubly-linked intrusive free-list. The head is the hot (LIFO) end:
+  // Doubly linked intrusive free-list. The head is the hot (LIFO) end:
   // direct allocations pop from here and returned blocks push here. The tail
   // is the deferred (cold) end: splits borrow from here, and coalesced or
   // freshly split blocks are pushed here so they accumulate for preferential

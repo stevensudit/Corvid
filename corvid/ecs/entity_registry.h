@@ -889,7 +889,7 @@ private:
   // FIFO: `free_tail_` is the last freed ID (queue tail); new IDs are
   // appended there, maximizing the interval before reuse.
   // LIFO: `free_tail_` is absent; new IDs are pushed onto `free_head_`,
-  // giving stack (most-recently-freed-first) reuse order.
+  // giving stack (most-recently freed-first) reuse order.
   id_t free_head_{id_t::invalid};
   [[no_unique_address]] maybe_t<id_t, is_fifo_v> free_tail_{id_t::invalid};
 };

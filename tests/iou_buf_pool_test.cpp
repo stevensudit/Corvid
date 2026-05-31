@@ -43,7 +43,7 @@ static size_t sim_read(iou_buf_pool::buffer& buf, std::string_view data) {
 
 #pragma region ReadInitialState
 TEST_CASE("ReadInitialState", "[IouBufPool]") {
-  // Freshly-allocated read buffer: empty payload, active = entire block.
+  // Freshly allocated read buffer: empty payload, active = entire block.
   if (true) {
     auto pool = iou_buf_pool::create();
     auto buf = pool->borrow_reader();
@@ -188,7 +188,7 @@ TEST_CASE("ReadUpdateError", "[IouBufPool]") {
 
 #pragma region WriteInitialState
 TEST_CASE("WriteInitialState", "[IouBufPool]") {
-  // Freshly-allocated write buffer: both payload and active are empty.
+  // Freshly allocated write buffer: both payload and active are empty.
   if (true) {
     auto pool = iou_buf_pool::create();
     auto buf = pool->borrow_writer();
@@ -782,7 +782,7 @@ TEST_CASE("SyntheticDestructionHarmless", "[IouBufPool]") {
 
 #pragma region SyntheticConsumeRead
 TEST_CASE("SyntheticConsumeRead", "[IouBufPool]") {
-  // A synthetic buffer behaves like a freshly-completed read: the consumer
+  // A synthetic buffer behaves like a freshly completed read: the consumer
   // can drain it via `consume_read`.
   std::string data{"abcdef"};
   iou_buffer::span_t span{reinterpret_cast<std::byte*>(data.data()),

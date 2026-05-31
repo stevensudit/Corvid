@@ -518,7 +518,7 @@ public:
   // `completion_fn`.
   //
   // Callbacks are first moved into the pool, where their slot is referenced by
-  // `completion_token`s. These are cheaply-copied, generation-checking tokens
+  // `completion_token`s. These are cheaply copied, generation-checking tokens
   // that fit in 64 bits. When stored as `user_data_` or passed as a parameter
   // when the callback is invoked, these are watered down to `completion_id`,
   // which is a type-unsafe `uint64_t` that breaks the dependency loop.

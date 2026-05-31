@@ -1065,7 +1065,7 @@ TEST_CASE("SetReadable", "[IoLoop]") {
 #pragma endregion
 
 // When `EPOLLERR` or `EPOLLHUP` fires together with `EPOLLOUT`, `on_error` is
-// called but `on_writable` is skipped (the early-return path in
+// called but `on_writable` is skipped (the early return path in
 // `dispatch_event`).
 #pragma region ErrorSkipsWritable
 

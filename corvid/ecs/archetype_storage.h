@@ -35,7 +35,7 @@ namespace corvid { inline namespace ecs { inline namespace archetype_storages {
 // Packed archetype components storage with O(1) lookup through
 // `entity_registry`.
 //
-// Maps entity IDs to densely-packed sets of component records using
+// Maps entity IDs to densely packed sets of component records using
 // swap-and-pop for removal. The entity registry's `location_t.ndx` stores each
 // entity's index in this class's vectors, enabling O(1) access by entity ID
 // while centralizing the management of these IDs.
@@ -58,7 +58,7 @@ namespace corvid { inline namespace ecs { inline namespace archetype_storages {
 //  REG      - `entity_registry` instantiation. Provides types.
 //  TUPLE    - Tuple of component types. Each must be trivially copyable.
 //  TAG      - Optional tag type (default: `void`). Use a distinct tag to
-//             create multiple structurally-identical storages that are
+//             create multiple structurally identical storages that are
 //             nevertheless different types and can coexist in the same
 //             `archetype_scene<>` tuple.
 template<typename REG, typename TUPLE, typename TAG = void>
@@ -104,7 +104,7 @@ public:
   // Constructors.
 
   // Default-constructed storage has no registry binding. Assign from a
-  // fully-constructed instance before calling any mutation methods.
+  // fully constructed instance before calling any mutation methods.
   archetype_storage() = default;
 
   // Construct bound to `registry` with the given `store_id`. `store_id` must

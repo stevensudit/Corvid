@@ -31,7 +31,7 @@ namespace corvid { inline namespace ecs { inline namespace component_storages {
 
 // Packed single-component storage for the component model.
 //
-// Maps entity IDs to densely-packed component records using swap-and-pop for
+// Maps entity IDs to densely packed component records using swap-and-pop for
 // removal. Unlike `mono_archetype_storage`, a single entity may occupy
 // multiple `component_storage` instances simultaneously; the registry bitmap
 // (not the `ndx` field) tracks membership.
@@ -49,7 +49,7 @@ namespace corvid { inline namespace ecs { inline namespace component_storages {
 //         (`is_component_v == true`).
 //   C   - Component type. Must be trivially copyable.
 //   TAG - Optional tag type (default: `void`). Use a distinct tag to
-//         create multiple structurally-identical storages that are
+//         create multiple structurally identical storages that are
 //         nevertheless different types and can coexist in the same
 //         `component_scene<>` tuple.
 //   IDX - Reverse-index policy (default: `flat_sparse_index<id_t>`).

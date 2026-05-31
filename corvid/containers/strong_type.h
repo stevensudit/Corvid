@@ -31,7 +31,7 @@ concept StrongType =
 template<typename T>
 concept NotStrongType = !StrongType<T>;
 
-// Generic strongly-typed wrapper.
+// Generic strongly typed wrapper.
 //
 // Does not inherit from `T`. Attempts to be useful as a `T` substitute without
 // being a `T`, as such. Note that, for integers, you can usually get all you

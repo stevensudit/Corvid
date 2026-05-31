@@ -263,7 +263,7 @@ needs it, or if we want a watchdog beneath ngtcp2's own timers.
   `iou_loop::timeouts()`. `iou_basic_loop::run_once` now ticks `timeouts_`
   at the end of each batch, which was a pre-existing gap that blocked the
   expiry plumbing. Server-role sessions register under both the client's
-  original DCID and the server's freshly-generated primary SCID; client-
+  original DCID and the server's freshly generated primary SCID; client-
   role sessions register under their own SCID only and are constructed
   via the `session_plugin::make_client` factory, which posts
   `register_self` to the loop thread to push the Initial out and arm

@@ -57,7 +57,7 @@ protected:
 // template parameter pack. At index 0 is a `std::monostate` placeholder, once
 // again representing staging in the entity registry.
 //
-// All `storage_ts` must be fully-typed storage specializations (e.g.,
+// All `storage_ts` must be fully typed storage specializations (e.g.,
 // `archetype_storage<registry_t, tuple<Pos, Vel>>`) sharing the same
 // `registry_t` type. At most `*store_id_t::invalid - 1` storages are
 // supported. It is helpful if each type is distinct, so you can use the `TAG`
@@ -77,7 +77,7 @@ protected:
 //
 // Template parameters:
 //   REG      - Shared `entity_registry` specialization.
-//   STORES   - Fully-typed storage specializations, all using `REG`.
+//   STORES   - Fully typed storage specializations, all using `REG`.
 template<typename REG, typename... STORES>
 class archetype_scene: public archetype_scene_base {
 public:

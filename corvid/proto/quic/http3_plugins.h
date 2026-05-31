@@ -34,6 +34,10 @@
 
 namespace corvid { inline namespace proto { namespace quic {
 
+// Defined below; each `http3_stream` holds a back-pointer to its owning
+// router (set by `add_stream`).
+class http3_router;
+
 #pragma region http3_stream
 
 // Abstract per-stream HTTP/3 transaction: the object `http3_router` associates
@@ -57,6 +61,14 @@ public:
   [[nodiscard]] quic_stream_id stream_id() const noexcept {
     return stream_id_;
   }
+
+  // Called by `http3_router::add_stream` once the stream is wired up (its
+  // stream id and owning router set), on the loop thread. A client request
+  // stream submits its request here through `router()`; the default is a
+  // no-op for streams that have nothing to initiate (e.g. server-side request
+  // streams the router minted on inbound HEADERS). Returning false fails the
+  // add.
+  [[nodiscard]] virtual bool on_added() { return true; }
 
   // An incoming HEADERS section has started on this stream.
   [[nodiscard]] virtual bool on_begin_headers() {
@@ -130,8 +142,22 @@ public:
     return true;
   }
 
+protected:
+  // The owning router, valid from `on_added` onward (null before). Concrete
+  // streams reach `submit_request` and other router services through it.
+  [[nodiscard]] http3_router* router() const noexcept { return router_; }
+
 private:
+  friend class http3_router; // wires the stream to its router + id on add.
+  // Imprint the owning router and the assigned stream id. Always set together,
+  // by `http3_router::add_stream`, before it calls `on_added`.
+  void attach(http3_router* router, quic_stream_id stream_id) noexcept {
+    router_ = router;
+    stream_id_ = stream_id;
+  }
+
   quic_stream_id stream_id_;
+  http3_router* router_{};
   http3_headers headers_;
   http3_headers trailers_;
 };
@@ -439,20 +465,47 @@ public:
   }
 
 #pragma endregion
+#pragma region Outbound requests
+
+  // Inject a locally initiated stream.
+  [[nodiscard]] bool add_stream(std::unique_ptr<http3_stream> stream) {
+    if (!ensure_h3_init()) return false;
+    quic_stream_id id = quic_stream_id::none;
+    if (io_.conn().open_bidi_stream(id) != quic_status::ok) return false;
+    stream->attach(this, id);
+    auto it = streams_.insert_or_assign(id, std::move(stream)).first;
+    if (!it->second->on_added()) {
+      streams_.erase(it);
+      return false;
+    }
+    return true;
+  }
+
+  // Submit a request on a stream this router owns and post a drain so the
+  // queued HEADERS ship without waiting for an inbound packet. An
+  // `http3_stream` calls this from `on_added`; it may also be called from a
+  // response upcall to pipeline a follow-up request on a fresh stream (the
+  // drain is posted, so this is safe inside a callback). `fields` are the
+  // request HEADERS, pseudo-headers first per RFC 9114.
+  [[nodiscard]] bool submit_request(quic_stream_id stream_id,
+      std::span<const http3_field_view> fields) {
+    if (!h3_.submit_request(stream_id, fields)) return false;
+    return io_.request_drain();
+  }
+  [[nodiscard]] bool submit_request(quic_stream_id stream_id,
+      std::span<const http3_field> fields) {
+    if (!h3_.submit_request(stream_id, fields)) return false;
+    return io_.request_drain();
+  }
+
+#pragma endregion
 #pragma region Subclass access
 protected:
   // The owned nghttp3 wrapper and the session I/O, exposed to the concrete
-  // client / server subclasses that open streams and submit requests /
-  // responses. The bridge's own forwarding uses the members directly.
+  // server subclasses that mint inbound streams. The bridge's own forwarding
+  // uses the members directly.
   [[nodiscard]] http3_conn& h3() noexcept { return h3_; }
   [[nodiscard]] quic_session_io& io() noexcept { return io_; }
-
-  // Associate `stream` with its stream ID. A subclass calls this for a
-  // locally-initiated stream just after opening it (the client, per request).
-  void add_stream(std::unique_ptr<http3_stream> stream) {
-    const auto id = stream->stream_id();
-    streams_.insert_or_assign(id, std::move(stream));
-  }
 
   // Factory for a peer-initiated request stream, called on its first
   // `on_begin_headers`. The default (client) returns null, so unsolicited

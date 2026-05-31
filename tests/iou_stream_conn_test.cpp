@@ -423,7 +423,7 @@ TEST_CASE("WithState", "[IouStreamConn]") {
 
 TEST_CASE("FullBufferPartialConsume", "[IouStreamConn]") {
   // Fills the recv buffer completely, then consumes part of it on the first
-  // full-buffer delivery. The remaining bytes plus newly-received bytes are
+  // full-buffer delivery. The remaining bytes plus newly received bytes are
   // delivered on a subsequent recv. Verifies that partial consume of a full
   // buffer makes forward progress (the buffer regains headroom) and that the
   // contract violation -- returning a full buffer with zero consumed -- is

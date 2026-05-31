@@ -29,7 +29,7 @@ namespace corvid { inline namespace meta {
 // track the new location, and nulled on destruction to prevent wild writes.
 //
 // It is your responsibility to clear the forwarding address of the
-// currently-active instance before what it points to leaves scope. Otherwise,
+// currently active instance before what it points to leaves scope. Otherwise,
 // it will do a wild write on destruction or move. Also note that the pointer
 // is not thread-safe.
 //

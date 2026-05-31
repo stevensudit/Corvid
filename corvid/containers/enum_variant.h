@@ -180,7 +180,7 @@ struct indexed_callbacks {
   }
   template<typename R, typename Callback, typename Variant>
   static constexpr R visit(Callback&& cb, Variant&& v) {
-    // Define an immediately-invoked lambda to expand the index sequence.
+    // Define an immediately invoked lambda to expand the index sequence.
     using IndexSeq = std::make_index_sequence<variant_size_v<Variant>>;
     return [&]<std::size_t... Is>(std::index_sequence<Is...>) -> R {
       // Define a function pointer type that takes the variant and callback,

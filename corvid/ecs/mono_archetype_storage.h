@@ -32,7 +32,7 @@ inline namespace mono_archetype_storages {
 
 // Packed single-component storage with O(1) lookup through `entity_registry`.
 //
-// Maps entity IDs to densely-packed component records using swap-and-pop for
+// Maps entity IDs to densely packed component records using swap-and-pop for
 // removal. The entity registry's `location_t.ndx` stores each entity's index
 // in this class's vector, enabling O(1) access by entity ID while
 // centralizing the management of these IDs.
@@ -46,7 +46,7 @@ inline namespace mono_archetype_storages {
 //  REG - `entity_registry` instantiation. Provides types.
 //  C   - Component type. Must be trivially copyable.
 //  TAG - Optional tag type (default: `void`). Use a distinct tag to create
-//        multiple structurally-identical storages that are nevertheless
+//        multiple structurally identical storages that are nevertheless
 //        different types and can coexist in the same `archetype_scene<>`
 //        tuple.
 template<typename REG, typename C, typename TAG = void>

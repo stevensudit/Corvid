@@ -109,7 +109,7 @@ private:
 // lookup via binary search. O(K) insert and erase due to shifting. Memory:
 // O(K x (sizeof(id_t) + sizeof(size_type))), with no wasted slots.
 //
-// Best for: components held by a small, slowly-changing set of entities.
+// Best for: components held by a small, slowly changing set of entities.
 template<sequence::SequentialEnum ID_T,
     typename SIZE_T = std::underlying_type_t<ID_T>>
 class sorted_pair_index {

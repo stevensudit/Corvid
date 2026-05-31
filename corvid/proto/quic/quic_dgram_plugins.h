@@ -203,7 +203,7 @@ public:
   //     that created the session, and for any Initial retransmissions that
   //     arrive before the client switches over);
   //
-  //   * the server's freshly-generated primary SCID (the routing key for every
+  //   * the server's freshly generated primary SCID (the routing key for every
   //     subsequent client packet, which uses the server's SCID as its DCID).
   //
   // Client-side sessions register under their own SCID only: inbound packets
@@ -263,12 +263,12 @@ public:
     // registration" convention (so `register_self({})` is a no-op here),
     // then runs `do_register_client` inline. Returns null if either
     // ngtcp2 init or router registration fails.
-    [[nodiscard]] static std::shared_ptr<session_t> make_client(
-        router_t& router, const net_endpoint& peer,
+    [[nodiscard]] static std::shared_ptr<session_t>
+    make_client(router_t& router, const net_endpoint& peer,
         std::string_view server_name = {}) {
       if (!router.loop().is_loop_thread()) return {};
-      auto ssn = session_t::make(
-          router, buffer{}, router.plugin().tls(), peer, server_name);
+      auto ssn = session_t::make(router, buffer{}, router.plugin().tls(), peer,
+          server_name);
       if (!ssn->plugin().do_register_client()) return {};
       return ssn;
     }
@@ -359,7 +359,7 @@ public:
     [[nodiscard]] session_t& session() noexcept { return session_; }
     [[nodiscard]] quic_plugin_t& protocol_plugin() noexcept { return plugin_; }
 
-    // The server's freshly-generated SCID, used as the primary CID for routing
+    // The server's freshly generated SCID, used as the primary CID for routing
     // packets after the client switches off the Initial DCID. Exposed for
     // tests; the full set of keys also includes `original_dcid_` until the
     // client migrates.

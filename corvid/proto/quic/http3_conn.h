@@ -416,14 +416,14 @@ public:
 #pragma region Stream binding
 
   // Bind `stream_id` as the outgoing HTTP/3 control stream (a
-  // locally-initiated unidirectional stream). nghttp3 queues the stream type
+  // locally initiated unidirectional stream). nghttp3 queues the stream type
   // byte + SETTINGS for the next `writev_stream`.
   [[nodiscard]] bool bind_control_stream(quic_stream_id stream_id) noexcept {
     return ok("nghttp3_conn_bind_control_stream",
         nghttp3_conn_bind_control_stream(conn_.get(), from(stream_id)));
   }
 
-  // Bind the outgoing QPACK encoder and decoder streams (two locally-initiated
+  // Bind the outgoing QPACK encoder and decoder streams (two locally initiated
   // unidirectional streams).
   [[nodiscard]] bool bind_qpack_streams(quic_stream_id enc_stream_id,
       quic_stream_id dec_stream_id) noexcept {

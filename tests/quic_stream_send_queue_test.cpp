@@ -101,7 +101,7 @@ TEST_CASE("partial accept advances offered into mid-chunk",
   CHECK_FALSE(q.has_work());
 }
 
-TEST_CASE("retire pops only fully-acked chunks", "[quic][send_queue]") {
+TEST_CASE("retire pops only fully acked chunks", "[quic][send_queue]") {
   quic_stream_send_queue q;
   q.append(bytes({1, 2, 3}));
   q.append(bytes({4, 5, 6, 7}));

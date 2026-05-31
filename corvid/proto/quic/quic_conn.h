@@ -276,7 +276,7 @@ public:
     return true;
   }
 
-  // Peer raised our limit on locally-initiated bidirectional / unidirectional
+  // Peer raised our limit on locally initiated bidirectional / unidirectional
   // streams to `max_streams` total. The plugin may now open additional streams
   // up to that count.
   [[nodiscard]] virtual bool on_extend_max_local_streams_bidi(
@@ -710,7 +710,7 @@ public:
     return quic_status::ok;
   }
 
-  // Open a locally-initiated bidirectional stream. On success `stream_id` is
+  // Open a locally initiated bidirectional stream. On success `stream_id` is
   // set to the ngtcp2-picked id from the next free slot in the local
   // bidirectional space, which the caller uses on subsequent `writev_stream`
   // calls. Fails with `NGTCP2_ERR_STREAM_ID_BLOCKED` when the peer's
@@ -727,7 +727,7 @@ public:
     return quic_status::ok;
   }
 
-  // Open a locally-initiated unidirectional stream (the HTTP/3 control and
+  // Open a locally initiated unidirectional stream (the HTTP/3 control and
   // QPACK encoder / decoder streams are three of these). Same contract as
   // `open_bidi_stream`, against the local unidirectional space and the peer's
   // `initial_max_streams_uni`. ngtcp2 permits this once the 1-RTT TX key is

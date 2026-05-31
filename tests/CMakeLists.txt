@@ -36,7 +36,7 @@ else()
 endif()
 
 # Default libc++ prefix is the system clang-22 install. SANITIZER=msan
-# overrides this to the locally-built MSAN-instrumented libc++ so that the
+# overrides this to the locally built MSAN-instrumented libc++ so that the
 # C++ stdlib code MSAN's instrumentation observes is itself instrumented.
 set(LIBCXX_PREFIX "/usr/lib/llvm-22")
 if(SANITIZER STREQUAL "msan")
@@ -420,18 +420,15 @@ foreach(SOURCE_FILE ${SOURCES})
         endif()
     endif()
 
-    if(${EXECUTABLE_NAME} MATCHES "^iou_|^quic_dgram_")
-        target_include_directories(${EXECUTABLE_NAME} PRIVATE ${LIBURING_INCLUDE_DIRS})
-        target_link_libraries(${EXECUTABLE_NAME} PRIVATE ${LIBURING_LIBRARIES})
-    endif()
-
-    # QUIC + HTTP/3 stack. Linked into every target; the static linker drops
-    # archive members that no symbol references, so tests that do not include
-    # any of the headers pay no measurable size or link-time cost. The crypto
-    # target's INTERFACE_LINK_LIBRARIES carries ngtcp2_static + OpenSSL
-    # transitively; nghttp3_static is standalone (no crypto dependency).
+    # liburing, the QUIC stack, and the HTTP/3 stack are linked into every
+    # target. The static linker drops archive members that no symbol
+    # references, so targets that touch none of these headers pay no
+    # measurable size or link-time cost. The crypto target's
+    # INTERFACE_LINK_LIBRARIES carries ngtcp2_static + OpenSSL transitively;
+    # nghttp3_static is standalone (no crypto dependency).
+    target_include_directories(${EXECUTABLE_NAME} PRIVATE ${LIBURING_INCLUDE_DIRS})
     target_link_libraries(${EXECUTABLE_NAME} PRIVATE
-        ngtcp2_crypto_ossl_static nghttp3_static)
+        ${LIBURING_LIBRARIES} ngtcp2_crypto_ossl_static nghttp3_static)
 
     if(NOT USE_LIBSTDCPP)
         # Link libc++ and libc++abi explicitly

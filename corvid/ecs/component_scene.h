@@ -70,7 +70,7 @@ protected:
 //
 // Template parameters:
 //   REG    - Shared component-mode `entity_registry` specialization.
-//   STORES - Fully-typed `component_storage`-family specializations,
+//   STORES - Fully typed `component_storage`-family specializations,
 //            all using `REG`.
 template<typename REG, typename... STORES>
 class component_scene: public component_scene_base {

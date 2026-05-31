@@ -44,7 +44,7 @@ namespace corvid { inline namespace proto { namespace quic {
 //   `on_recv_stream_data`        append the inbound bytes (and any sticky
 //                                `fin`) to the stream's queue
 //
-//   `on_acked_stream_data_offset` retire the freshly-ACKed prefix of that
+//   `on_acked_stream_data_offset` retire the freshly ACKed prefix of that
 //                                 queue
 //
 //   `on_stream_close`            drop the queue

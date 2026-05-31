@@ -173,7 +173,7 @@ public:
 #pragma endregion
 #pragma region token
 
-  // A cheaply-copied, non-owning token for a slot. It has `std::weak_ptr`
+  // A cheaply copied, non-owning token for a slot. It has `std::weak_ptr`
   // semantics in that it can escalate to ownership. However, it can only do
   // this if there isn't a `borrowed` handle that currently owns the slot.
   //
@@ -399,7 +399,7 @@ public:
   // Permanently shut down the pool. After the first call, `borrow` (and
   // `token::borrow`) returns empty. Already-borrowed handles can still be
   // reset/destroyed safely; `return_cb_` runs as usual on each return, but
-  // the freed slots are not offered for reuse. Each currently-free slot
+  // the freed slots are not offered for reuse. Each currently free slot
   // also has `return_cb_` invoked, for callers that use it to release
   // resources. Idempotent; returns true on the first call, false on any
   // subsequent call.
@@ -407,7 +407,7 @@ public:
   // The mechanism that rejects post-shutdown borrows differs by path. `borrow`
   // is blocked because `free_top_` is cleared. `token::borrow`, in versioned
   // mode, is blocked because `release_slot_gen` below increments the gen of
-  // every currently-borrowed slot, so any outstanding token's gen no longer
+  // every currently borrowed slot, so any outstanding token's gen no longer
   // matches; tokens for already-returned slots were stale anyway. In
   // unversioned mode `token::borrow` has no staleness check at all (see the
   // caveat on `token::borrow`), so shutdown adds no protection beyond what

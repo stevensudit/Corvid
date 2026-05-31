@@ -259,7 +259,7 @@ public:
   // inserted.
   //
   // Do not use on an `empty` interval or if value might be below `front`. This
-  // is a highly-optimized function that does not consider, much less alter,
+  // is a highly optimized function that does not consider, much less alter,
   // the value of `front` in any way. It does not check for `empty` or even
   // `invalid`. If any of these are possible, call `insert` instead.
   constexpr bool push_back(V v) noexcept {
@@ -275,7 +275,7 @@ public:
   // Only inserts if less than `front`. Returns whether the value was inserted.
   //
   // Do not use on an `empty` interval or if value might be above `back`. This
-  // is a highly-optimized function that does not consider, much less alter,
+  // is a highly optimized function that does not consider, much less alter,
   // the value of `back` in any way. It does not check for `empty` or even
   // `invalid`. If any of these are possible, call `insert` instead.
   constexpr bool push_front(V v) noexcept {
