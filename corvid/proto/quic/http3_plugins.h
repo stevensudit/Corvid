@@ -20,9 +20,12 @@
 #include <memory>
 #include <optional>
 #include <span>
+#include <string>
 #include <string_view>
 #include <sys/uio.h>
 #include <unordered_map>
+#include <utility>
+#include <vector>
 
 #include "http3_conn.h"
 #include "quic_conn.h"

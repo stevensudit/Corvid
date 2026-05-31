@@ -19,6 +19,7 @@
 #include <cstdint>
 #include <memory>
 #include <span>
+#include <string>
 #include <utility>
 
 #include <openssl/rand.h>
@@ -242,9 +243,10 @@ public:
     // to `register_self` is empty for client-role sessions. Reached via the
     // `make_client` factory below.
     session_plugin(router_t& router, session_t& session,
-        quic_ssl_ctx& client_tls, const net_endpoint& peer) noexcept
+        quic_ssl_ctx& client_tls, const net_endpoint& peer,
+        std::string_view server_name) noexcept
         : quic_session_io{session, client_tls}, router_{router},
-          session_{session}, peer_{peer},
+          session_{session}, peer_{peer}, server_name_{server_name},
           scid_{make_random_cid(quic_dgram_protocol::cid_length)},
           plugin_{*this} {
       conn().set_handlers(&plugin_);
@@ -261,11 +263,12 @@ public:
     // registration" convention (so `register_self({})` is a no-op here),
     // then runs `do_register_client` inline. Returns null if either
     // ngtcp2 init or router registration fails.
-    [[nodiscard]] static std::shared_ptr<session_t>
-    make_client(router_t& router, const net_endpoint& peer) {
+    [[nodiscard]] static std::shared_ptr<session_t> make_client(
+        router_t& router, const net_endpoint& peer,
+        std::string_view server_name = {}) {
       if (!router.loop().is_loop_thread()) return {};
-      auto ssn =
-          session_t::make(router, buffer{}, router.plugin().tls(), peer);
+      auto ssn = session_t::make(
+          router, buffer{}, router.plugin().tls(), peer, server_name);
       if (!ssn->plugin().do_register_client()) return {};
       return ssn;
     }
@@ -440,6 +443,8 @@ public:
       if (!conn().init(initial_dcid, scid_, router_.local_endpoint(), peer_,
               key_t{}, now, plugin_.idle_timeout))
         return false;
+      if (!server_name_.empty() && !conn().set_server_name(server_name_))
+        return false;
       if (!router_.add_session(scid_, session_.self())) return false;
       if (!drain_then_maybe_close(now)) return session_.close() && false;
       arm_expiry();
@@ -461,6 +466,16 @@ public:
       if (conn().write_connection_close(out, now) != quic_status::ok)
         return false;
       (void)send_packet(std::move(out));
+      return true;
+    }
+
+    // `quic_session_io` override: run one outbound turn on behalf of a
+    // `request_drain` the upper plugin posted (e.g. after submitting a
+    // request). Same drain / close / expiry cycle as `do_register_client`, so
+    // a request that originated off a read cycle is recovered identically.
+    [[nodiscard]] bool do_drain_cycle(time_point_t now) override {
+      if (!drain_then_maybe_close(now)) return session_.close() && false;
+      arm_expiry();
       return true;
     }
 
@@ -519,6 +534,7 @@ public:
     router_t& router_;
     session_t& session_;
     net_endpoint peer_;
+    std::string server_name_; // TLS SNI.
     key_t original_dcid_;
     key_t scid_;
     quic_plugin_t plugin_;

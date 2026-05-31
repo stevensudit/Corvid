@@ -73,11 +73,33 @@ public:
     return ssnbase_.send(std::move(buf));
   }
 
+  // Ask the session to run an outbound turn soon, for use after the upper
+  // plugin queues work that did not originate from an inbound packet (the
+  // first request on an idle connection, or a follow-up request fired from
+  // inside a response upcall). The drain is posted to the loop rather than run
+  // inline because ngtcp2/nghttp3 forbid emitting I/O from within a callback;
+  // a posted task always runs after the current callback returns. Safe from
+  // any thread; the session is kept alive across the hop. Returns false only
+  // if the post could not be enqueued.
+  [[nodiscard]] bool request_drain() {
+    auto keepalive = ssnbase_.shared_from_this();
+    return ssnbase_.loop().post(
+        [this, keepalive = std::move(keepalive)]() -> bool {
+          return do_drain_cycle(steady_now_clock::now());
+        });
+  }
+
 #pragma endregion
 protected:
   quic_session_io(iouring::iou_dgram_session_base& ssnbase,
       quic_ssl_ctx& tls) noexcept
       : ssnbase_{ssnbase}, conn_{tls} {}
+
+  // One outbound turn: flush queued packets and re-arm expiry. Implemented by
+  // `session_plugin`, which owns the drain / close / expiry machinery;
+  // `request_drain` posts it to the loop.
+  [[nodiscard]] virtual bool do_drain_cycle(
+      steady_now_clock::time_point_t now) = 0;
 
 #pragma region Data members
 private:

@@ -496,6 +496,16 @@ public:
     return true;
   }
 
+  // Set the TLS server name (SNI) the client sends in its ClientHello, so a
+  // virtual-hosting server selects the right certificate. Client role only,
+  // and must be called before the handshake's first outbound packet. OpenSSL
+  // copies the name internally, so the view need not outlive the call.
+  [[nodiscard]] bool set_server_name(std::string_view name) noexcept {
+    if (!ssl_ || role_ != connection_role::client) return false;
+    const std::string sni{name};
+    return SSL_set_tlsext_host_name(ssl_.get(), sni.c_str()) == 1;
+  }
+
 #pragma endregion
 #pragma region Accessors
 
