@@ -25,6 +25,7 @@
 //   ./notest_http3_client_test [host] [path]   (defaults: cloudflare-quic.com
 //   /)
 
+#include <algorithm>
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
@@ -40,6 +41,7 @@
 #include "../corvid/proto/dns_resolver.h"
 #include "../corvid/proto/io_uring/iou_loop.h"
 #include "../corvid/proto/quic/http3_plugins.h"
+#include "../corvid/proto/quic/http3_request_stream.h"
 #include "../corvid/proto/quic/quic_conn.h"
 #include "../corvid/proto/quic/quic_dgram_plugins.h"
 #include "../corvid/proto/quic/quic_ssl_ctx.h"
@@ -62,10 +64,10 @@ bool WaitFor(const auto& pred, std::chrono::milliseconds timeout = 10s) {
   return pred();
 }
 
-// Loop-thread-owned capture of one GET response. The caller holds a shared_ptr
-// to it alongside the stream; the stream (destroyed on stream close) writes
-// into it, so the result outlives the stream. All access stays on the loop
-// thread (the stream writes there; main reads via post_and_wait).
+// Loop-thread-owned capture of one response. The caller holds a shared_ptr to
+// it; the `request_stream` completion callback fills it (on the loop thread,
+// in `on_close`), so the result outlives the stream. main reads it via
+// post_and_wait once `complete` is set.
 struct response_capture {
   bool complete{false};
   bool failed{false};
@@ -75,68 +77,60 @@ struct response_capture {
   size_t body_bytes{0};
 };
 
-// A client request stream configured to GET `path` at `authority`. It submits
-// the request once the router wires it up (`on_added`) and records the
-// response through the per-stream HTTP/3 callbacks. It retains the headers and
-// trailers but only counts the body, showing that the stream decides what to
-// keep (no library-side buffering).
-class get_stream: public http3_stream {
-public:
-  get_stream(std::string_view authority, std::string_view path,
-      std::shared_ptr<response_capture> out)
-      : http3_stream{quic_stream_id::none}, out_{std::move(out)} {
-    fields_.push_back({.name = ":method", .value = "GET"});
-    fields_.push_back({.name = ":scheme", .value = "https"});
-    fields_.push_back({.name = ":authority", .value = std::string{authority}});
-    fields_.push_back({.name = ":path", .value = std::string{path}});
-  }
-
-  [[nodiscard]] bool on_added() override {
-    return router()->submit_request(stream_id(),
-        std::span<const http3_field>{fields_});
-  }
-
-  [[nodiscard]] bool on_recv_headers(http3_headers& headers) override {
-    for (const auto& f : headers) out_->headers.emplace_back(f.name, f.value);
-    if (const auto* f = headers.find(qpack_token::status))
-      out_->status = f->value;
-    return true;
-  }
-
-  [[nodiscard]] bool on_recv_data(std::span<const uint8_t> data) override {
-    out_->body_bytes += data.size();
-    return true;
-  }
-
-  [[nodiscard]] bool on_recv_trailers(http3_headers& trailers) override {
-    for (const auto& f : trailers)
-      out_->trailers.emplace_back(f.name, f.value);
-    return true;
-  }
-
-  [[nodiscard]] bool on_end_stream() override {
-    out_->complete = true;
-    return true;
-  }
-
-  [[nodiscard]] bool on_close(h3_error_code app_error_code) override {
-    if (app_error_code != h3_error_code::no_error) out_->failed = true;
-    return true;
-  }
-
-private:
-  std::shared_ptr<response_capture> out_;
-  std::vector<http3_field> fields_;
-};
-
 using protocol_t = quic_dgram_protocol<http3_router>;
+
+// Copy the finished stream's response into `out`. Runs on the loop thread from
+// the stream's completion callback (in `on_close`), so `out` outlives it.
+void capture_response(request_stream& s, response_capture& out) {
+  out.failed = s.app_error_code() != h3_error_code::no_error || !s.completed();
+  for (const auto& f : s.response_headers())
+    out.headers.emplace_back(f.name, f.value);
+  if (const auto* f = s.response_headers().find(qpack_token::status))
+    out.status = f->value;
+  for (const auto& f : s.response_trailers())
+    out.trailers.emplace_back(f.name, f.value);
+  out.body_bytes = s.receive_queue().appended();
+  out.complete = true; // set last: main waits on this
+}
+
+// Build a configured request stream: request line, an optional body (chunked
+// small so a sizeable body spans more than the 16 vec slots, exercising the
+// multi-segment gather and the veccnt truncation path), and the completion
+// callback.
+std::unique_ptr<request_stream> make_request(std::string_view method,
+    std::string_view authority, std::string_view path,
+    std::span<const uint8_t> body,
+    request_stream::completion_callback on_complete) {
+  auto stream = std::make_unique<request_stream>(std::move(on_complete));
+  request_stream::configure_request(stream->request_headers(), method,
+      authority, path);
+  if (!body.empty()) {
+    stream->request_headers().set_value("content-type", "text/plain");
+    stream->request_headers().set_value("content-length",
+        std::to_string(body.size()));
+    constexpr size_t piece = 8;
+    for (size_t off = 0; off < body.size(); off += piece) {
+      const size_t len = std::min(piece, body.size() - off);
+      stream->send_queue().append(std::vector<uint8_t>(
+          body.begin() + static_cast<std::ptrdiff_t>(off),
+          body.begin() + static_cast<std::ptrdiff_t>(off + len)));
+    }
+  }
+  return stream;
+}
 
 } // namespace
 
 int main(int argc, char** argv) {
   const std::string host = argc > 1 ? argv[1] : "cloudflare-quic.com";
   const std::string path = argc > 2 ? argv[2] : "/";
-  std::cout << "GET https://" << host << path << " over HTTP/3\n";
+  // A third arg is a request body, which turns the GET into a POST.
+  const std::string body_str = argc > 3 ? argv[3] : "";
+  const std::vector<uint8_t> body(body_str.begin(), body_str.end());
+  const std::string method = body.empty() ? "GET" : "POST";
+  std::cout << method << " https://" << host << path << " over HTTP/3";
+  if (!body.empty()) std::cout << " (" << body.size() << "-byte body)";
+  std::cout << "\n";
 
   const auto peer = dns_resolver::find_one(host, 443, AF_INET);
   if (peer.empty()) {
@@ -188,9 +182,10 @@ int main(int argc, char** argv) {
   std::cout << "handshake complete, server SETTINGS received\n";
 
   auto out = std::make_shared<response_capture>();
+  auto on_complete = [out](request_stream& s) { capture_response(s, *out); };
   if (!runner.loop()->post_and_wait([&]() -> bool {
         return client.add_stream(
-            std::make_unique<get_stream>(host, path, out));
+            make_request(method, host, path, body, on_complete));
       }))
   {
     std::cerr << "error: could not submit request\n";

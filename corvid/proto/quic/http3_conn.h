@@ -18,6 +18,7 @@
 #include <array>
 #include <cassert>
 #include <cstdint>
+#include <cstring>
 #include <limits>
 #include <memory>
 #include <span>
@@ -92,11 +93,12 @@ namespace corvid { inline namespace proto { namespace quic {
 #pragma region http3_settings
 
 // The peer's HTTP/3 SETTINGS, copied out of nghttp3's `nghttp3_proto_settings`
-// (the values nghttp3 recognizes) for delivery to `on_recv_settings`. A plain
-// value type, copied during the callback because the source pointer does not
-// outlive it. The two flag fields are exposed as `bool` (nghttp3 stores them
-// as nonzero-means-enabled `uint8_t`); the rest are widened to `uint64_t` to
-// match the wire varint range and stay platform-independent.
+// (the values nghttp3 recognizes) for delivery to `on_recv_settings`.
+//
+// A plain value type, copied during the callback because the source pointer
+// does not outlive it. The two flag fields are exposed as `bool` (nghttp3
+// stores them as nonzero-means-enabled `uint8_t`); the rest are widened to
+// `uint64_t` to match the wire varint range and stay platform-independent.
 struct http3_settings {
   // Maximum header section size the peer will accept (SETTINGS_MAX_FIELD_-
   // SECTION_SIZE).
@@ -114,6 +116,30 @@ struct http3_settings {
 
   // Peer enabled HTTP/3 Datagrams (RFC 9297).
   bool h3_datagram{};
+};
+
+#pragma endregion
+#pragma region body_vecs
+
+// The next slice of an outbound body, returned by
+// `http3_conn_handlers::on_send_data_ready` when nghttp3 pulls request
+// (client) or response (server) body data.
+//
+// `iov` is a gather view of one or more segments. The iovec array itself need
+// only stay valid for the call (the trampoline copies it into nghttp3's vec
+// array at once), but the bytes the segments point at MUST stay valid until
+// nghttp3 reports them acked via `on_acked_stream_data` (the buffer-lifetime
+// invariant).
+//
+// The producer must cap `iov` at the `max_vecs` budget passed to
+// `on_send_data_ready`, since nghttp3 lends a fixed-size vec array. `eof`
+// marks the final slice; after it, the send side closes. `block` (empty `iov`,
+// not `eof`) means "no bytes yet": nghttp3 pauses the stream until
+// `resume_stream`.
+struct body_vecs {
+  std::span<const iovec> iov;
+  bool eof{false};
+  bool block{false};
 };
 
 #pragma endregion
@@ -149,9 +175,10 @@ struct http3_settings {
 // they cannot throw.
 //
 // Every per-stream upcall takes a trailing `void* stream_user_data`: the
-// opaque pointer the application associated with the stream. `http3_conn`
-// never sets it, so it is null today; it is forwarded so a plugin can hang
-// per-stream state off it later without changing these signatures. The
+// opaque pointer associated with the stream. It is set when a request /
+// response is submitted with a body (the pointer passed to `submit_request`,
+// so `on_read_body` and the response upcalls can recover per-stream state)
+// or explicitly via `set_stream_user_data`; it is null otherwise. The
 // connection-level `on_recv_settings` has no such parameter.
 //
 // Defaults are no-op `true`, so concrete plugins override only what they need.
@@ -300,6 +327,21 @@ public:
     return true;
   }
 
+  // nghttp3 is pulling the next slice of the outbound body for `stream_id` (a
+  // request body on the client, a response body on the server), to frame into
+  // DATA. Fill at most `max_vecs` segments, nghttp3's vec budget for this
+  // pull. Return the next `body_vecs`; the default has no body (immediate
+  // `eof`). `stream_user_data` is whatever was associated with the stream at
+  // submit time. The returned bytes MUST stay valid until acked (see
+  // `body_vecs`).
+  [[nodiscard]] virtual body_vecs on_send_data_ready(quic_stream_id stream_id,
+      size_t max_vecs, void* stream_user_data) {
+    (void)stream_id;
+    (void)max_vecs;
+    (void)stream_user_data;
+    return {.iov = {}, .eof = true};
+  }
+
 #pragma endregion
 #pragma region Stream reset
 
@@ -435,21 +477,29 @@ public:
 #pragma endregion
 #pragma region Submit
 
-  // Submit a request  on `stream_id`, a client-initiated bidirectional stream
+  // Submit a request on `stream_id`, a client-initiated bidirectional stream
   // the caller has opened via `quic_conn::open_bidi_stream`. `fields` are the
   // request HEADERS, with the pseudo-headers (":method", ":scheme",
-  // ":authority", ":path") first per RFC 9114. This is the header-only path:
-  // it ends the stream after the headers (no request body). nghttp3 queues the
-  // HEADERS for the next `writev_stream` and copies `fields` (names and
-  // values), so the views need not outlive this call. Returns false if
-  // `fields` exceeds `max_submit_fields`.
+  // ":authority", ":path") first per RFC 9114. nghttp3 queues the HEADERS for
+  // the next `writev_stream` and copies `fields` (names and values), so the
+  // views need not outlive this call.
+  //
+  // With `with_body == false` (the default) this is the header-only path: the
+  // stream ends after the HEADERS (no request body). With `with_body == true`
+  // a body data reader is installed, so nghttp3 will pull the body via
+  // `on_read_body` upcalls (the stream ends when `on_read_body` reports eof);
+  // `stream_user_data` is associated with the stream and handed back to those
+  // upcalls (and the response upcalls). Returns false if `fields` exceeds
+  // `max_submit_fields`.
   [[nodiscard]] bool submit_request(quic_stream_id stream_id,
-      std::span<const http3_field_view> fields) noexcept {
-    return do_submit_request(stream_id, fields);
+      std::span<const http3_field_view> fields, bool with_body = false,
+      void* stream_user_data = nullptr) noexcept {
+    return do_submit_request(stream_id, fields, with_body, stream_user_data);
   }
   [[nodiscard]] bool submit_request(quic_stream_id stream_id,
-      std::span<const http3_field> fields) noexcept {
-    return do_submit_request(stream_id, fields);
+      std::span<const http3_field> fields, bool with_body = false,
+      void* stream_user_data = nullptr) noexcept {
+    return do_submit_request(stream_id, fields, with_body, stream_user_data);
   }
 
   // Submit a response on the request's `stream_id`. `fields` are
@@ -728,6 +778,37 @@ private:
     });
   }
 
+  // Body data source (installed per request/response via
+  // `nghttp3_data_reader`, not part of the callback table). Called to provide
+  // body data for an outbound stream when nghttp3 is ready to frame it into a
+  // DATA frame.
+  //
+  // Unlike the other trampolines, which return the int 0 / CALLBACK_FAILURE
+  // convention, this returns `nghttp3_ssize`: the number of `vec` entries
+  // filled, with eof signaled via `*pflags` and back-pressure via
+  // `NGHTTP3_ERR_WOULDBLOCK`.
+  //
+  // We lend `on_send_data_ready` the `veccnt` budget; it caps its gather at
+  // that, so the returned segments fit `vec` as-is and we copy them wholesale
+  // (`iovec` and `nghttp3_vec` are layout-compatible, pointer + length).
+  static nghttp3_ssize read_data(nghttp3_conn*, int64_t stream_id,
+      nghttp3_vec* vec, size_t veccnt, uint32_t* pflags, void* conn_user_data,
+      void* stream_user_data) noexcept {
+    auto* self = static_cast<http3_conn*>(conn_user_data);
+    return try_or_log(
+        [&]() -> nghttp3_ssize {
+          const auto chunk = self->handlers_->on_send_data_ready(
+              make_stream_id(stream_id), veccnt, stream_user_data);
+          if (chunk.block) return NGHTTP3_ERR_WOULDBLOCK;
+          assert(chunk.iov.size() <= veccnt);
+          if (!chunk.iov.empty())
+            std::memcpy(vec, chunk.iov.data(), chunk.iov.size_bytes());
+          if (chunk.eof) *pflags |= NGHTTP3_DATA_FLAG_EOF;
+          return static_cast<nghttp3_ssize>(chunk.iov.size());
+        },
+        static_cast<nghttp3_ssize>(NGHTTP3_ERR_CALLBACK_FAILURE));
+  }
+
   static int on_stop_sending(nghttp3_conn*, int64_t stream_id,
       uint64_t app_error_code, void* conn_user_data,
       void* stream_user_data) noexcept {
@@ -822,15 +903,20 @@ private:
 
   // Shared body of the `submit_request` overloads, generic over the field
   // element type (`http3_field` or `http3_field_view`).
+  //
+  // When `with_body`, a data reader is installed so nghttp3 pulls the body via
+  // `read_data` -> `on_read_body`.
   template<typename T>
-  [[nodiscard]] bool do_submit_request(quic_stream_id stream_id,
-      std::span<const T> fields) noexcept {
+  [[nodiscard]] bool
+  do_submit_request(quic_stream_id stream_id, std::span<const T> fields,
+      bool with_body, void* stream_user_data) noexcept {
     assert(role_ == connection_role::client);
     std::array<nghttp3_nv, max_submit_fields> nva{};
     if (!fill_nv(fields, nva)) return false;
+    const nghttp3_data_reader dr{.read_data = &read_data};
     return ok("nghttp3_conn_submit_request",
         nghttp3_conn_submit_request(conn_.get(), from(stream_id), nva.data(),
-            fields.size(), nullptr, nullptr));
+            fields.size(), with_body ? &dr : nullptr, stream_user_data));
   }
 
   // Shared body of the `submit_response` overloads, generic over the field

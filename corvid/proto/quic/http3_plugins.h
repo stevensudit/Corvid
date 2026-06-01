@@ -51,45 +51,97 @@ class http3_router;
 // Returning `false` from any upcall fails the nghttp3 callback and tears the
 // connection down, the same contract as the connection-level handlers.
 class http3_stream {
+#pragma region Construction
 public:
   explicit http3_stream(quic_stream_id stream_id) noexcept
       : stream_id_{stream_id} {}
+
   http3_stream(const http3_stream&) = delete;
   http3_stream& operator=(const http3_stream&) = delete;
+  http3_stream(http3_stream&&) = delete;
+  http3_stream& operator=(http3_stream&&) = delete;
+
   virtual ~http3_stream() = default;
 
+#pragma endregion
+#pragma region Accessors
+
+  // The stream id, set by the router when the stream is added.
   [[nodiscard]] quic_stream_id stream_id() const noexcept {
     return stream_id_;
   }
 
-  // Called by `http3_router::add_stream` once the stream is wired up (its
-  // stream id and owning router set), on the loop thread. A client request
-  // stream submits its request here through `router()`; the default is a
-  // no-op for streams that have nothing to initiate (e.g. server-side request
-  // streams the router minted on inbound HEADERS). Returning false fails the
-  // add.
+  // The owning router, valid from `on_added` onward (null before). Concrete
+  // streams reach `submit_request` and other router services through it.
+  [[nodiscard]] http3_router* router() const noexcept { return router_; }
+
+  // The request fields and the response fields, each its own header and
+  // trailer pair.
+  //
+  // A client populates the request pair and submits it, and the peer's reply
+  // lands in the response pair; a server is the mirror. Inbound fields
+  // accumulate into whichever pair this stream is oriented toward (see
+  // `orient_as_client`).
+  [[nodiscard]] auto& request_headers(this auto& self) noexcept {
+    return self.request_headers_;
+  }
+  [[nodiscard]] auto& request_trailers(this auto& self) noexcept {
+    return self.request_trailers_;
+  }
+  [[nodiscard]] auto& response_headers(this auto& self) noexcept {
+    return self.response_headers_;
+  }
+  [[nodiscard]] auto& response_trailers(this auto& self) noexcept {
+    return self.response_trailers_;
+  }
+
+  // Whether a clean `on_end_stream` has been seen (the full message arrived).
+  [[nodiscard]] bool completed() const noexcept { return completed_; }
+
+  // The close code, valid from `on_close` onward.
+  [[nodiscard]] h3_error_code app_error_code() const noexcept {
+    return app_error_code_;
+  }
+
+  // Reverse the default server orientation: route inbound headers/trailers
+  // into the response pair instead of the request pair. A client stream calls
+  // this at construction, since the bytes it receives from the peer are the
+  // response.
+  void orient_as_client() noexcept {
+    inbound_headers_ = &response_headers_;
+    inbound_trailers_ = &response_trailers_;
+  }
+
+#pragma endregion
+#pragma region Handlers
+
+  // Called by `http3_router::add_stream` once the stream is wired up, on the
+  // loop thread. Wiring it up includes setting the stream id and owning
+  // router, as well as any other information needed for it to start doing its
+  // job when added. Returning false fails the add.
   [[nodiscard]] virtual bool on_added() { return true; }
 
   // An incoming HEADERS section has started on this stream.
   [[nodiscard]] virtual bool on_begin_headers() {
-    headers_.clear();
+    inbound_headers_->clear();
     return true;
   }
 
   // One decoded HTTP field. `token` names a known header or is
-  // `qpack_token::unknown`; `name` / `value` are valid only for the call.
+  // `qpack_token::unknown`.
   [[nodiscard]] virtual bool on_recv_header(qpack_token token,
       std::string_view name, std::string_view value, nv_flags flags) {
-    if (headers_.size() >= http3_conn::max_submit_fields) return false;
-    headers_.add({name, value, flags}, token);
+    if (inbound_headers_->size() >= http3_conn::max_submit_fields)
+      return false;
+    inbound_headers_->add({name, value, flags}, token);
     return true;
   }
 
-  // The HEADERS section ended; `chunk_fin` is `fin` if the receiving side also
+  // The HEADERS section ended; `stream_chunk::fin` if the receiving side also
   // ended here (a message with no body).
   [[nodiscard]] virtual bool on_end_headers(stream_chunk chunk_fin) {
-    headers_.set_chunk_fin(chunk_fin);
-    return on_recv_headers(headers_);
+    inbound_headers_->set_chunk_fin(chunk_fin);
+    return on_recv_headers(*inbound_headers_);
   }
 
   // Deliver the accumulated headers as a batch.
@@ -100,24 +152,25 @@ public:
 
   // An incoming trailer section has started on this stream (after the body).
   [[nodiscard]] virtual bool on_begin_trailers() {
-    trailers_.clear();
+    inbound_trailers_->clear();
     return true;
   }
 
   // One decoded trailer field, same contract as `on_recv_header`.
   [[nodiscard]] virtual bool on_recv_trailer(qpack_token token,
       std::string_view name, std::string_view value, nv_flags flags) {
-    if (trailers_.size() >= http3_conn::max_submit_fields) return false;
-    trailers_.add({name, value, flags}, token);
+    if (inbound_trailers_->size() >= http3_conn::max_submit_fields)
+      return false;
+    inbound_trailers_->add({name, value, flags}, token);
     return true;
   }
 
-  // The trailer section ended; `chunk_fin` is `fin` if the receiving side also
-  // ended here (the usual case, since trailers are the last thing on a
+  // The trailer section ended; `stream_chunk::fin` is if the receiving side
+  // also ended here (the usual case, since trailers are the last thing on a
   // stream).
   [[nodiscard]] virtual bool on_end_trailers(stream_chunk chunk_fin) {
-    trailers_.set_chunk_fin(chunk_fin);
-    return on_recv_trailers(trailers_);
+    inbound_trailers_->set_chunk_fin(chunk_fin);
+    return on_recv_trailers(*inbound_trailers_);
   }
 
   // Deliver the accumulated trailers as a batch.
@@ -126,29 +179,42 @@ public:
     return true;
   }
 
-  // Inbound body bytes (DATA payload), valid only for the call.
+  // Inbound body bytes (DATA payload).
   [[nodiscard]] virtual bool on_recv_data(std::span<const uint8_t> data) {
     (void)data;
     return true;
   }
 
+  // nghttp3 is pulling the next slice of this stream's outbound body (a
+  // request body on a client request stream).
+  //
+  // Override to vend body bytes, gathered into at most `max_vecs` segments
+  // (nghttp3's vec budget); the bytes MUST stay valid until acked (see
+  // `body_vecs`).
+  [[nodiscard]] virtual body_vecs on_send_data_ready(size_t max_vecs) {
+    (void)max_vecs;
+    return {.iov = {}, .eof = true};
+  }
+
   // The receiving side of this stream is closed (the message arrived in full).
-  [[nodiscard]] virtual bool on_end_stream() { return true; }
+  // The default records completion, which `completed` reports.
+  [[nodiscard]] virtual bool on_end_stream() {
+    completed_ = true;
+    return true;
+  }
 
   // The stream is fully closed at the HTTP/3 layer; the object is destroyed
   // right after. `app_error_code` is `no_error` for a clean close.
   [[nodiscard]] virtual bool on_close(h3_error_code app_error_code) {
-    (void)app_error_code;
+    app_error_code_ = app_error_code;
     return true;
   }
 
-protected:
-  // The owning router, valid from `on_added` onward (null before). Concrete
-  // streams reach `submit_request` and other router services through it.
-  [[nodiscard]] http3_router* router() const noexcept { return router_; }
-
+#pragma endregion
+#pragma region Router integration
 private:
   friend class http3_router; // wires the stream to its router + id on add.
+
   // Imprint the owning router and the assigned stream id. Always set together,
   // by `http3_router::add_stream`, before it calls `on_added`.
   void attach(http3_router* router, quic_stream_id stream_id) noexcept {
@@ -156,10 +222,26 @@ private:
     stream_id_ = stream_id;
   }
 
+#pragma endregion
+#pragma region Data members
+
   quic_stream_id stream_id_;
   http3_router* router_{};
-  http3_headers headers_;
-  http3_headers trailers_;
+
+  http3_headers request_headers_;
+  http3_headers request_trailers_;
+  http3_headers response_headers_;
+  http3_headers response_trailers_;
+
+  // Inbound headers/trailers land here. Defaults to the request pair (server
+  // orientation); `orient_as_client` repoints them to the response pair.
+  http3_headers* inbound_headers_{&request_headers_};
+  http3_headers* inbound_trailers_{&request_trailers_};
+
+  bool completed_{};
+  h3_error_code app_error_code_{h3_error_code::no_error};
+
+#pragma endregion
 };
 
 #pragma endregion
@@ -171,17 +253,15 @@ private:
 // events, `http3_conn_handlers` for nghttp3's HTTP/3 events) and owns the
 // `http3_conn` that sits between them. One object, two hats; the tight,
 // bidirectional, single-turn coupling between the layers is the reason they
-// share one object rather than splitting across two (see the roadmap's HTTP/3
-// layering section).
+// share one object rather than splitting across two.
 //
-// On top of the bridge it also demuxes the per-stream HTTP/3 events to
+// On top of the bridge, it also demuxes the per-stream HTTP/3 events to
 // `http3_stream` objects, one per active request/response stream, so concrete
-// endpoints (`http3_client`, `http3_server`) subclass it and work in terms of
-// stream objects rather than a connection-wide event flow tagged with bare
-// stream IDs. This parallels the datagram router one stack down (CID ->
-// session) and does not preclude non-stream HTTP/3 later (datagrams,
-// WebTransport), the way the QUIC router/session split still carries
-// datagrams.
+// endpoints work in terms of stream objects rather than a connection-wide
+// event flow tagged with bare stream IDs. This parallels the datagram router
+// one stack down (CID -> session) and does not preclude non-stream HTTP/3
+// later (datagrams, WebTransport), the way the QUIC router/session split still
+// carries datagrams.
 //
 // The forwarding is mechanical:
 //
@@ -209,8 +289,7 @@ private:
 // type byte and SETTINGS, which the per-turn `drain` ships.
 //
 // The per-stream HEADERS / DATA upcalls are demuxed to `http3_stream` objects
-// (see the stream registry below). Request submission and the concrete
-// per-stream behavior live in the `http3_client` / `http3_server` subclasses.
+// (see the stream registry below).
 class http3_router: public quic_conn_handlers, public http3_conn_handlers {
 public:
 #pragma region Construction
@@ -219,6 +298,19 @@ public:
     // nghttp3's `set_handlers` must precede `init`; `init` itself is lazy (see
     // `ensure_h3_init`) and runs the first time any path needs nghttp3.
     h3_.set_handlers(this);
+  }
+
+#pragma endregion
+#pragma region Accessors
+
+  // The peer's HTTP/3 SETTINGS, populated once its control stream's SETTINGS
+  // frame has been decoded. Empty until then. Exposed for tests / diagnostics.
+  [[nodiscard]] bool has_peer_settings() const noexcept {
+    return peer_settings_.has_value();
+  }
+  [[nodiscard]] const std::optional<http3_settings>&
+  peer_settings() const noexcept {
+    return peer_settings_;
   }
 
 #pragma endregion
@@ -333,7 +425,6 @@ public:
     return credit_flow_control(stream_id, consumed);
   }
 
-#pragma endregion
 #pragma region Stream demux
 
   // Route each per-stream HTTP/3 event to the stream's `http3_stream` object.
@@ -392,6 +483,13 @@ public:
     return stream ? stream->on_recv_data(data) : true;
   }
 
+  [[nodiscard]] body_vecs on_send_data_ready(quic_stream_id, size_t max_vecs,
+      void* stream_user_data) override {
+    auto* stream = to_stream(stream_user_data);
+    return stream ? stream->on_send_data_ready(max_vecs)
+                  : body_vecs{.iov = {}, .eof = true};
+  }
+
   [[nodiscard]] bool
   on_end_stream(quic_stream_id, void* stream_user_data) override {
     auto* stream = to_stream(stream_user_data);
@@ -399,11 +497,10 @@ public:
   }
 
   [[nodiscard]] bool on_h3_stream_close(quic_stream_id stream_id,
-      h3_error_code app_error_code, void*) override {
-    auto it = streams_.find(stream_id);
-    if (it == streams_.end()) return true;
-    const bool ok = it->second->on_close(app_error_code);
-    streams_.erase(it);
+      h3_error_code app_error_code, void* stream_user_data) override {
+    auto* stream = to_stream(stream_user_data);
+    const bool ok = stream->on_close(app_error_code);
+    streams_.erase(stream_id);
     return ok;
   }
 
@@ -452,18 +549,6 @@ public:
   }
 
 #pragma endregion
-#pragma region Accessors
-
-  // The peer's HTTP/3 SETTINGS, populated once its control stream's SETTINGS
-  // frame has been decoded. Empty until then. Exposed for tests / diagnostics.
-  [[nodiscard]] bool has_peer_settings() const noexcept {
-    return peer_settings_.has_value();
-  }
-  [[nodiscard]] const std::optional<http3_settings>&
-  peer_settings() const noexcept {
-    return peer_settings_;
-  }
-
 #pragma endregion
 #pragma region Outbound requests
 
@@ -487,14 +572,22 @@ public:
   // response upcall to pipeline a follow-up request on a fresh stream (the
   // drain is posted, so this is safe inside a callback). `fields` are the
   // request HEADERS, pseudo-headers first per RFC 9114.
+  //
+  // With `with_body == true`, nghttp3 pulls the body via the stream's
+  // `on_read_body`; the stream is passed as nghttp3's `stream_user_data` so
+  // the body and response upcalls route back to it.
   [[nodiscard]] bool submit_request(quic_stream_id stream_id,
-      std::span<const http3_field_view> fields) {
-    if (!h3_.submit_request(stream_id, fields)) return false;
+      std::span<const http3_field_view> fields, bool with_body = false) {
+    if (!h3_.submit_request(stream_id, fields, with_body,
+            with_body ? find_stream(stream_id) : nullptr))
+      return false;
     return io_.request_drain();
   }
   [[nodiscard]] bool submit_request(quic_stream_id stream_id,
-      std::span<const http3_field> fields) {
-    if (!h3_.submit_request(stream_id, fields)) return false;
+      std::span<const http3_field> fields, bool with_body = false) {
+    if (!h3_.submit_request(stream_id, fields, with_body,
+            with_body ? find_stream(stream_id) : nullptr))
+      return false;
     return io_.request_drain();
   }
 
@@ -519,8 +612,8 @@ protected:
 
   // The stream object for `stream_id`, or null if none is registered.
   [[nodiscard]] http3_stream* find_stream(quic_stream_id stream_id) noexcept {
-    auto it = streams_.find(stream_id);
-    return it == streams_.end() ? nullptr : it->second.get();
+    auto it = find_opt(streams_, stream_id);
+    return it ? it->get() : nullptr;
   }
 
   // Recover the `http3_stream` that `ensure_stream` stashed as nghttp3's
@@ -533,22 +626,25 @@ protected:
 #pragma endregion
 #pragma region Helpers
 private:
-  // Create the nghttp3 connection once. It needs no QUIC stream credit or
-  // keys, so it can run as soon as any path needs nghttp3 (the read path or
-  // the bind path); nghttp3's `set_handlers` was wired in the ctor. Returns
-  // false only on nghttp3 NOMEM.
+  // Create the nghttp3 connection once.
+  //
+  // It needs no QUIC stream credit or keys, so it can run as soon as any path
+  // needs nghttp3 (the read path or the bind path); nghttp3's `set_handlers`
+  // was wired in the ctor. Returns false only on nghttp3 NOMEM.
   [[nodiscard]] bool ensure_h3_init() noexcept {
     if (h3_) return true;
     return h3_.init(io_.conn().role());
   }
 
   // Open and bind the three local unidirectional HTTP/3 streams (control,
-  // QPACK encoder, QPACK decoder). Requires nghttp3 initialized and the 1-RTT
-  // TX key installed. If the peer has not yet granted unidirectional-stream
-  // credit, the first open returns `stream_id_blocked`; that is not an error,
-  // so we defer and retry from `on_extend_max_local_streams_uni`. The three
-  // streams draw from one credit pool (the peer advertises three), so once the
-  // first opens the other two do too; an unexpected failure there is fatal.
+  // QPACK encoder, QPACK decoder).
+  //
+  // Requires nghttp3 initialized and the 1-RTT TX key installed. If the peer
+  // has not yet granted unidirectional-stream credit, the first open returns
+  // `stream_id_blocked`; that is not an error, so we defer and retry from
+  // `on_extend_max_local_streams_uni`. The three streams draw from one credit
+  // pool (the peer advertises three), so once the first opens the other two do
+  // too; an unexpected failure there is fatal.
   [[nodiscard]] bool try_bind_streams() noexcept {
     if (streams_bound_) return true;
     quic_stream_id control = quic_stream_id::none;
@@ -568,10 +664,11 @@ private:
   }
 
   // Return `n` consumed receive bytes to both QUIC flow-control windows so the
-  // peer's send window reopens. `on_recv_stream_data` only ever fires for
-  // streams we receive on (never a local unidirectional stream), so the
-  // stream-level extend is always valid; it returns `ok` for an unknown stream
-  // and fails only on NOMEM.
+  // peer's send window reopens.
+  //
+  // `on_recv_stream_data` only ever fires for streams we receive on (never a
+  // local unidirectional stream), so the stream-level extend is always valid;
+  // it returns `ok` for an unknown stream and fails only on NOMEM.
   [[nodiscard]] bool
   credit_flow_control(quic_stream_id stream_id, size_t n) noexcept {
     if (n == 0) return true;
@@ -583,11 +680,13 @@ private:
 
   // For `on_begin_headers`: return the existing object (a client response
   // stream, added at submit time) or mint one through `create_inbound_stream`
-  // (a server request stream). Null if neither applies. Stashes the resolved
-  // object as nghttp3's per-stream user data so the later per-stream callbacks
-  // recover it with a `to_stream` cast instead of a map lookup; the set is
-  // safe because the sole caller, `on_begin_headers`, runs inside nghttp3's
-  // callback for this stream (so nghttp3 already knows it).
+  // (a server request stream).
+  //
+  // Null if neither applies. Stashes the resolved object as nghttp3's
+  // per-stream user data so the later per-stream callbacks recover it with a
+  // `to_stream` cast instead of a map lookup; the set is safe because the sole
+  // caller, `on_begin_headers`, runs inside nghttp3's callback for this stream
+  // (so nghttp3 already knows it).
   [[nodiscard]] http3_stream* ensure_stream(quic_stream_id stream_id) {
     auto* raw = find_stream(stream_id);
     if (!raw) {

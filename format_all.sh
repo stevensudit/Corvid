@@ -23,6 +23,7 @@ echo "Formatting all .cpp and .h files..."
 find . -type f \( -name "*.cpp" -o -name "*.h" \) \
   -not -path "*/build/*" \
   -not -path "*/CMakeFiles/*" \
+  -not -path "*/.fetchcontent/*" \
   -not -path "*/.local/*" \
   -print0 | while IFS= read -r -d '' file; do
   echo "Formatting: $file"
