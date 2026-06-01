@@ -15,6 +15,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 #pragma once
+#include <string>
+#include <string_view>
 #include <utility>
 
 #include "../io_uring/iou_dgram_session.h"
@@ -51,6 +53,12 @@ public:
   [[nodiscard]] auto& conn(this auto& self) noexcept { return self.conn_; }
   [[nodiscard]] bool is_loop_thread() const noexcept {
     return ssnbase_.loop().is_loop_thread();
+  }
+
+  // The TLS server name (SNI) configured for a client session, or empty for a
+  // server session or when none was set.
+  [[nodiscard]] const std::string& server_name() const noexcept {
+    return server_name_;
   }
 
 #pragma endregion
@@ -91,9 +99,9 @@ public:
 
 #pragma endregion
 protected:
-  quic_session_io(iouring::iou_dgram_session_base& ssnbase,
-      quic_ssl_ctx& tls) noexcept
-      : ssnbase_{ssnbase}, conn_{tls} {}
+  quic_session_io(iouring::iou_dgram_session_base& ssnbase, quic_ssl_ctx& tls,
+      std::string server_name = {}) noexcept
+      : ssnbase_{ssnbase}, conn_{tls}, server_name_{std::move(server_name)} {}
 
   // One outbound turn: flush queued packets and re-arm expiry. Implemented by
   // `session_plugin`, which owns the drain / close / expiry machinery;
@@ -105,6 +113,7 @@ protected:
 private:
   iouring::iou_dgram_session_base& ssnbase_;
   quic_conn conn_;
+  std::string server_name_;
 
 #pragma endregion
 };

@@ -98,12 +98,10 @@ void capture_response(request_stream& s, response_capture& out) {
 // multi-segment gather and the veccnt truncation path), and the completion
 // callback.
 std::unique_ptr<request_stream> make_request(http_method method,
-    std::string_view authority, std::string_view path,
-    std::span<const uint8_t> body,
+    std::string_view path, std::span<const uint8_t> body,
     request_stream::completion_callback on_complete) {
   auto stream = std::make_unique<request_stream>(std::move(on_complete));
-  request_stream::configure_request(stream->request_headers(), method, path,
-      authority);
+  request_stream::configure_request(stream->request_headers(), method, path);
   if (!body.empty()) {
     stream->request_headers().set_value("content-type", "text/plain");
     stream->request_headers().set_value("content-length",
@@ -187,7 +185,7 @@ int main(int argc, char** argv) {
   auto on_complete = [out](request_stream& s) { capture_response(s, *out); };
   if (!runner.loop()->post_and_wait([&]() -> bool {
         return client.add_stream(
-            make_request(method, host, path, body, on_complete));
+            make_request(method, path, body, on_complete));
       }))
   {
     std::cerr << "error: could not submit request\n";

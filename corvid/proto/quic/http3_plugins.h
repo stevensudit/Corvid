@@ -347,6 +347,12 @@ public:
     return peer_settings_;
   }
 
+  // The connection's TLS server name (SNI), or empty if none. A client request
+  // defaults an empty :authority to this; see `request_stream::on_added`.
+  [[nodiscard]] const std::string& server_name() const noexcept {
+    return io_.server_name();
+  }
+
 #pragma endregion
 #pragma region QUIC handlers
 

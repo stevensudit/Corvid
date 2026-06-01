@@ -19,7 +19,7 @@
 #include <cstdint>
 #include <memory>
 #include <span>
-#include <string>
+#include <string_view>
 #include <utility>
 
 #include <openssl/rand.h>
@@ -244,9 +244,9 @@ public:
     // `make_client` factory below.
     session_plugin(router_t& router, session_t& session,
         quic_ssl_ctx& client_tls, const net_endpoint& peer,
-        std::string_view server_name) noexcept
-        : quic_session_io{session, client_tls}, router_{router},
-          session_{session}, peer_{peer}, server_name_{server_name},
+        std::string server_name) noexcept
+        : quic_session_io{session, client_tls, std::move(server_name)},
+          router_{router}, session_{session}, peer_{peer},
           scid_{make_random_cid(quic_dgram_protocol::cid_length)},
           plugin_{*this} {
       conn().set_handlers(&plugin_);
@@ -265,10 +265,10 @@ public:
     // ngtcp2 init or router registration fails.
     [[nodiscard]] static std::shared_ptr<session_t>
     make_client(router_t& router, const net_endpoint& peer,
-        std::string_view server_name = {}) {
+        std::string server_name = {}) {
       if (!router.loop().is_loop_thread()) return {};
       auto ssn = session_t::make(router, buffer{}, router.plugin().tls(), peer,
-          server_name);
+          std::move(server_name));
       if (!ssn->plugin().do_register_client()) return {};
       return ssn;
     }
@@ -443,7 +443,7 @@ public:
       if (!conn().init(initial_dcid, scid_, router_.local_endpoint(), peer_,
               key_t{}, now, plugin_.idle_timeout))
         return false;
-      if (!server_name_.empty() && !conn().set_server_name(server_name_))
+      if (!server_name().empty() && !conn().set_server_name(server_name()))
         return false;
       if (!router_.add_session(scid_, session_.self())) return false;
       if (!drain_then_maybe_close(now)) return session_.close() && false;
@@ -534,7 +534,6 @@ public:
     router_t& router_;
     session_t& session_;
     net_endpoint peer_;
-    std::string server_name_; // TLS SNI.
     key_t original_dcid_;
     key_t scid_;
     quic_plugin_t plugin_;

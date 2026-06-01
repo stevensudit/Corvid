@@ -65,18 +65,19 @@ public:
   // the headers however it likes; the pseudo-headers are placeholders the
   // constructor already added, so this just sets their values.
   static bool configure_request(http3_headers& headers, method_name method,
-      std::string_view path, std::string_view authority) {
+      std::string_view path) {
     if (path.empty()) return headers.clear() && false;
 
     headers.set_value(":method", method);
-    headers.set_value(":authority", authority);
     headers.set_value(":path", path);
     return true;
   }
 
   [[nodiscard]] bool on_added() override {
-    return router()->submit_request(this, request_headers(),
-        send_queue().appended());
+    auto& headers = request_headers();
+    if (auto* a = headers.find(":authority"); a && a->value.empty())
+      a->value = router()->server_name();
+    return router()->submit_request(this, headers, send_queue().appended());
   }
 
   [[nodiscard]] bool on_close(h3_error_code app_error_code) override {
