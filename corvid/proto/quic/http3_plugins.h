@@ -35,6 +35,8 @@
 
 namespace corvid { inline namespace proto { namespace quic {
 
+using namespace http3_literals;
+
 // Defined below; each `http3_stream` holds a back-pointer to its owning
 // router (set by `add_stream`).
 class http3_router;
@@ -121,15 +123,15 @@ public:
       inbound_headers_ = &response_headers_;
       inbound_trailers_ = &response_trailers_;
       auto& h = request_headers();
-      h.add({http3_headers::method, "HEAD"}, qpack_token::method);
-      h.add({http3_headers::scheme, "https"}, qpack_token::scheme);
-      h.add({http3_headers::authority, ""}, qpack_token::authority);
-      h.add({http3_headers::path, "/"}, qpack_token::path);
+      h.add({":method", "HEAD"}, qpack_token::method);
+      h.add({":scheme", "https"}, qpack_token::scheme);
+      h.add({":authority", ""}, qpack_token::authority);
+      h.add({":path", "/"}, qpack_token::path);
     } else {
       inbound_headers_ = &request_headers_;
       inbound_trailers_ = &request_trailers_;
       auto& h = response_headers();
-      h.add({http3_headers::status, "500"}, qpack_token::status);
+      h.add({":status", "500"}, qpack_token::status);
     }
     return true;
   }
@@ -155,7 +157,8 @@ public:
       std::string_view name, std::string_view value, nv_flags flags) {
     if (inbound_headers_->size() >= http3_conn::max_submit_fields)
       return false;
-    inbound_headers_->add({name, value, flags}, token);
+    inbound_headers_->add({header_name::silent_force(name), value, flags},
+        token);
     return true;
   }
 
@@ -180,7 +183,7 @@ public:
 
   // One decoded trailer field, same contract as `on_recv_header`.
   [[nodiscard]] virtual bool on_recv_trailer(qpack_token token,
-      std::string_view name, std::string_view value, nv_flags flags) {
+      header_name name, std::string_view value, nv_flags flags) {
     if (inbound_trailers_->size() >= http3_conn::max_submit_fields)
       return false;
     inbound_trailers_->add({name, value, flags}, token);
@@ -494,7 +497,9 @@ public:
       std::string_view name, std::string_view value, nv_flags flags,
       void* stream_user_data) override {
     auto* stream = to_stream(stream_user_data);
-    return stream ? stream->on_recv_trailer(token, name, value, flags) : true;
+    return stream ? stream->on_recv_trailer(token,
+                        header_name::silent_force(name), value, flags)
+                  : true;
   }
 
   [[nodiscard]] bool on_end_trailers(quic_stream_id, stream_chunk chunk_fin,

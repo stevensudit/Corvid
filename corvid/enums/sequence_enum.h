@@ -19,6 +19,7 @@
 #include "../strings/lite.h"
 #include "enum_registry.h"
 #include "scoped_enum.h"
+#include <string>
 
 namespace corvid {
 inline namespace enums { namespace sequence {
@@ -294,6 +295,113 @@ template<SequentialEnum E>
   return registry::enum_spec_v<std::decay_t<E>>.as_view(v);
 }
 
+// Linear search of a sequence enum's names for an exact match, returning that
+// name or an empty view if absent. Names only; never interprets numeric text.
+// Requires `E` to be registered with a name list.
+template<SequentialEnum E>
+[[nodiscard]] constexpr std::string_view
+enum_find_named(std::string_view sv) noexcept {
+  return registry::enum_spec_v<E>.find_named(sv);
+}
+
+// Linear search of a sequence enum's names for an exact match, returning the
+// enum, or nullopt. Names only; never interprets numeric text. Requires `E` to
+// be registered with a name list.
+template<SequentialEnum E>
+[[nodiscard]] constexpr std::optional<E>
+enum_find_named_enum(std::string_view sv) noexcept {
+  return registry::enum_spec_v<E>.find_named_enum(sv);
+}
+
+// A compile-time-validated name for one of sequence enum `E`'s values. Can be
+// used as a type-safe wrapper over `std::string_view`.
+//
+// The `consteval` constructors accept a string literal that names a registered
+// value, or the enum value itself, so a typo, an unknown name, or an unnamed
+// value is a compile error rather than a runtime failure.
+//
+// Converts to `std::string_view`, so it passes anywhere a name view is wanted
+// while carrying a guarantee a bare view cannot. `E` must be registered with a
+// name list.
+//
+// Does not provide a UDL directly but is designed to easily support one.
+//
+// Example:
+//
+//  using color_name = sequential_enum_string_view<color>;
+//
+//  color_name red{"red"}; // OK
+//  color_name blue{"blue"}; // OK
+//  color_name typo{"reed"}; // Compile error: not a registered name
+//  color_name empty{""}; // Compile error: empty is not a valid name
+//  color_name green{color::green}; // OK: name looked up from the value
+//
+//  void paint(color_name c) { ... }
+//
+//  paint{"red"}; // OK
+//  paint{"reed"}; // Compile error: not a registered name
+//  paint{color::red}; // OK
+//
+//  consteval color_name operator""_h3h(const char* s, std::size_t n) {
+//   return color_name{s, n};
+//  }
+//
+//  auto c = "red"_h3h; // OK
+//  auto d = "reed"_h3h; // Compile error: not a registered name
+template<SequentialEnum E>
+class sequential_enum_string_view {
+public:
+  // Literal.
+  template<size_t N>
+  consteval sequential_enum_string_view(const char (&s)[N])
+      : sequential_enum_string_view(s, N - 1) {}
+
+  // From pointer + length (used by the literal ctor above and by UDLs).
+  consteval sequential_enum_string_view(const char* s, size_t n)
+      : sv_(enum_find_named<E>({s, n})) {
+    if (sv_.empty()) throw "not a registered name for this enum";
+  }
+
+  // From the enum value itself.
+  constexpr sequential_enum_string_view(E e) : sv_(enum_as_view(e)) {
+    assert(sv_ != "(unknown)");
+  }
+
+  // Safely force at runtime.
+  static constexpr sequential_enum_string_view force(std::string_view sv) {
+    assert(enum_find_named<E>(sv) == sv);
+    return sequential_enum_string_view(sv, force_tag{});
+  }
+
+  // Unsafely force at runtime.
+  static constexpr sequential_enum_string_view silent_force(
+      std::string_view sv) {
+    return sequential_enum_string_view(sv, force_tag{});
+  }
+
+  // Look up enum at compile time.
+  [[nodiscard]] consteval E as_enum(E or_default = E{}) const noexcept {
+    return enum_find_named_enum<E>(sv_).value_or(or_default);
+  }
+
+  [[nodiscard]] constexpr operator std::string_view() const noexcept {
+    return sv_;
+  }
+  [[nodiscard]] constexpr std::string_view operator*() const noexcept {
+    return sv_;
+  }
+
+  [[nodiscard]] constexpr auto operator->() const noexcept { return &sv_; }
+
+private:
+  struct force_tag {};
+  constexpr sequential_enum_string_view(std::string_view sv, force_tag)
+      : sv_(sv) {}
+
+private:
+  std::string_view sv_;
+};
+
 // Length of range.
 template<SequentialEnum E>
 [[nodiscard]] constexpr auto range_length() noexcept {
@@ -336,6 +444,28 @@ struct sequence_enum_names_spec
     size_t ofs = n - *min_value<E>();
     if (ofs < names.size() && names[ofs].size()) return names[ofs];
     return std::string_view{"(unknown)"};
+  }
+
+  // Linear search of the names for an exact match, returning the enum, or
+  // nullopt. Names only: unlike `lookup`, it never interprets numeric text, so
+  // it stays usable in a constant expression.
+  [[nodiscard]] constexpr std::optional<E> find_named_enum(
+      std::string_view sv) const noexcept {
+    if (sv.empty()) return {};
+    auto found = std::find(names.begin(), names.end(), sv);
+    return found != names.end()
+               ? make<E>(std::distance(names.begin(), found) + *min_value<E>())
+               : std::optional<E>{};
+  }
+
+  // Linear search of the names for an exact match, returning that name or an
+  // empty view if absent. Names only: unlike `lookup`, it never interprets
+  // numeric text, so it stays usable in a constant expression.
+  [[nodiscard]] constexpr std::string_view find_named(
+      std::string_view sv) const noexcept {
+    if (sv.empty()) return {};
+    auto found = std::find(names.begin(), names.end(), sv);
+    return found != names.end() ? *found : std::string_view{};
   }
 
   [[nodiscard]] bool lookup(E& v, std::string_view sv) const {

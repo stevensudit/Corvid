@@ -70,11 +70,10 @@ public:
     if (method == http_method::invalid || path.empty())
       return headers.clear() && false;
 
-    headers.set_value(http3_headers::method, strings::enum_as_string(method),
+    headers.set_value(":method", strings::enum_as_string(method),
         qpack_token::method);
-    headers.set_value(http3_headers::authority, authority,
-        qpack_token::authority);
-    headers.set_value(http3_headers::path, path, qpack_token::path);
+    headers.set_value(":authority", authority, qpack_token::authority);
+    headers.set_value(":path", path, qpack_token::path);
     return true;
   }
 

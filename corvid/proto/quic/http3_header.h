@@ -16,6 +16,7 @@
 // limitations under the License.
 #pragma once
 #include <cstdint>
+#include <cstddef>
 #include <flat_map>
 #include <span>
 #include <string>
@@ -141,21 +142,6 @@ enum class nv_flags : uint8_t {
 };
 
 #pragma endregion
-#pragma region http3_field_view
-
-// An HTTP field (name / value pair plus QPACK flags) to submit in a request or
-// response HEADERS frame: the Corvid-facing form of `nghttp3_nv`. `name` and
-// `value` are borrowed for the duration of the submit call only; nghttp3
-// copies them unless a `no_copy_*` flag says otherwise, so the default (`flags
-// == nv_flags::none`) lets the caller pass ephemeral views. Pseudo-headers use
-// their ':' name (":method", ":path", ":status", and so on).
-struct http3_field_view {
-  std::string_view name;
-  std::string_view value;
-  nv_flags flags{nv_flags::none};
-};
-
-#pragma endregion
 #pragma region stream_chunk
 
 // Whether a chunk of stream data is the last the sender will put on this
@@ -166,21 +152,7 @@ enum class stream_chunk : uint8_t {
 };
 
 #pragma endregion
-#pragma region http3_field
-
-// An HTTP field with owned storage.
-struct http3_field {
-  qpack_token token{qpack_token::unknown};
-  std::string name;
-  std::string value;
-  nv_flags flags{nv_flags::none};
-
-  [[nodiscard]] auto as_view() const noexcept {
-    return http3_field_view{name, value, flags};
-  }
-
-  operator http3_field_view() const noexcept { return as_view(); }
-};
+#pragma region http_method
 
 // The HTTP/3 methods, for use in the `:method` pseudo-header.
 enum class http_method : uint8_t {
@@ -227,13 +199,42 @@ enum class http_method : uint8_t {
   VERSION_CONTROL
 };
 
+#pragma endregion
+
 }}} // namespace corvid::proto::quic
 
 template<>
-constexpr inline auto
-    corvid::enums::registry::enum_spec_v<corvid::proto::quic::qpack_token> =
-        corvid::enums::sequence::make_sequence_enum_spec<
-            corvid::proto::quic::qpack_token, "">();
+constexpr inline auto corvid::enums::registry::enum_spec_v<
+    corvid::proto::quic::qpack_token> =
+    corvid::enums::sequence::make_sequence_enum_spec<
+        corvid::proto::quic::qpack_token,
+        ":authority,:method,,,,,,,:path,:scheme,,:status,,,,,,,,,,,,,,accept,,"
+        "accept-encoding,accept-language,accept-ranges,access-control-allow-"
+        "credentials,,access-control-allow-headers,,,access-control-allow-"
+        "methods,,,access-control-allow-origin,access-control-expose-headers,"
+        "access-control-request-headers,access-control-request-method,,age,"
+        "alt-svc,authorization,cache-control,,,,,,content-disposition,content-"
+        "encoding,,content-length,content-security-policy,content-type,,,,,,,,"
+        ",,,cookie,date,early-data,etag,expect-ct,forwarded,if-modified-since,"
+        "if-none-match,if-range,last-modified,link,location,origin,purpose,"
+        "range,referer,server,set-cookie,strict-transport-security,,,timing-"
+        "allow-origin,upgrade-insecure-requests,user-agent,vary,,x-content-"
+        "type-options,x-forwarded-for,x-frame-options,,x-xss-protection,,,,,,,"
+        ",,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,"
+        ",,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,"
+        ",,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,"
+        ",,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,"
+        ",,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,"
+        ",,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,"
+        ",,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,"
+        ",,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,"
+        ",,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,"
+        ",,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,"
+        ",,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,"
+        ",,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,"
+        ",,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,"
+        "host,connection,keep-alive,proxy-connection,transfer-encoding,"
+        "upgrade,te,:protocol,priority">();
 
 template<>
 constexpr inline auto
@@ -261,6 +262,64 @@ constexpr inline auto corvid::enums::registry::enum_spec_v<
         "UNLOCK, UPDATE, UPDATEREDIRECTREF, VERSION-CONTROL">();
 
 namespace corvid { inline namespace proto { namespace quic {
+
+#pragma region header_name
+
+// String view guaranteed to have a valid value.
+using header_name = enums::sequence::sequential_enum_string_view<qpack_token>;
+
+namespace http3_literals {
+
+// HTTP/3 Header field literal.
+consteval header_name operator""_h3h(const char* s, std::size_t n) {
+  return header_name{s, n};
+}
+
+} // namespace http3_literals
+
+#pragma endregion
+#pragma region method_name
+
+using method_name = enums::sequence::sequential_enum_string_view<http_method>;
+
+namespace http3_literals {
+consteval method_name operator""_h3m(const char* s, std::size_t n) {
+  return method_name{s, n};
+}
+} // namespace http3_literals
+
+#pragma endregion
+#pragma region http3_field_view
+
+// An HTTP field (name / value pair plus QPACK flags) to submit in a request or
+// response HEADERS frame: the Corvid-facing form of `nghttp3_nv`. `name` and
+// `value` are borrowed for the duration of the submit call only; nghttp3
+// copies them unless a `no_copy_*` flag says otherwise, so the default (`flags
+// == nv_flags::none`) lets the caller pass ephemeral views. Pseudo-headers use
+// their ':' name (":method", ":path", ":status", and so on).
+struct http3_field_view {
+  header_name name;
+  std::string_view value;
+  nv_flags flags{nv_flags::none};
+};
+
+#pragma endregion
+#pragma region http3_field
+
+// An HTTP field with owned storage.
+struct http3_field {
+  qpack_token token{qpack_token::unknown};
+  std::string name;
+  std::string value;
+  nv_flags flags{nv_flags::none};
+
+  [[nodiscard]] auto as_view() const noexcept {
+    return http3_field_view{header_name::silent_force(name), value, flags};
+  }
+  operator http3_field_view() const noexcept { return as_view(); }
+};
+
+#pragma endregion
 #pragma region http3_headers
 
 // A collection of HTTP fields, with support for the QPACK token lookups.
@@ -284,6 +343,21 @@ public:
     chunk_fin_ = chunk_fin;
   }
 
+#if 0
+  consteval size_t
+  add(header_name name, std::string value, nv_flags flags = nv_flags::none) {
+    // TODO: Use `as_enum`, which is consteval to get the token.
+    // This means that this method would have to be consteval, which is fine
+    // because it's intended for places where we're hardcoding the values, like
+    // adding ":method". However the emplace part of the function is obviously
+    // runtime only, so the question is whether we can do the lookups at
+    // compile time and then pass it to the runtime code.
+    const auto token = *name.as_enum();
+    fields_.emplace_back(token, std::string{name}, value, flags);
+    return fields_.size() - 1;
+  }
+#endif
+
   // Add a field with token. Returns its index (valid until the next
   // mutation).
   size_t add(const http3_field_view& field, qpack_token token) {
@@ -301,10 +375,9 @@ public:
   // Set the field `value` (and `flags`): modify the first existing field
   // with that name if one is present, otherwise add a new one. If `token` is
   // specified, uses that for search; otherwise, uses `name`. Returns index.
-  size_t set_value(std::string_view name, std::string_view value,
+  size_t set_value(header_name name, std::string_view value,
       qpack_token token = qpack_token::unknown,
       nv_flags flags = nv_flags::none) {
-    assert(!name.empty());
     size_t ndx;
     if (token != qpack_token::unknown)
       ndx = find_next(token, 0);
@@ -357,7 +430,7 @@ public:
       {
         if (fields_[ndx].token == key) return ndx;
       } else {
-        if (fields_[ndx].name == key) return ndx;
+        if (fields_[ndx].name == *key) return ndx;
       }
     }
     return npos;
@@ -408,233 +481,39 @@ public:
   }
 
 #pragma endregion
-#pragma region Field names
-
-  static constexpr auto authority = ":authority"sv;
-  static constexpr auto method = ":method"sv;
-  static constexpr auto path = ":path"sv;
-  static constexpr auto scheme = ":scheme"sv;
-  static constexpr auto status = ":status"sv;
-  static constexpr auto accept = "accept"sv;
-  static constexpr auto accept_encoding = "accept-encoding"sv;
-  static constexpr auto accept_language = "accept-language"sv;
-  static constexpr auto accept_ranges = "accept-ranges"sv;
-  static constexpr auto access_control_allow_credentials =
-      "access-control-allow-credentials"sv;
-  static constexpr auto access_control_allow_headers =
-      "access-control-allow-headers"sv;
-  static constexpr auto access_control_allow_methods =
-      "access-control-allow-methods"sv;
-  static constexpr auto access_control_allow_origin =
-      "access-control-allow-origin"sv;
-  static constexpr auto access_control_expose_headers =
-      "access-control-expose-headers"sv;
-  static constexpr auto access_control_request_headers =
-      "access-control-request-headers"sv;
-  static constexpr auto access_control_request_method =
-      "access-control-request-method"sv;
-  static constexpr auto age = "age"sv;
-  static constexpr auto alt_svc = "alt-svc"sv;
-  static constexpr auto authorization = "authorization"sv;
-  static constexpr auto cache_control = "cache-control"sv;
-  static constexpr auto content_disposition = "content-disposition"sv;
-  static constexpr auto content_encoding = "content-encoding"sv;
-  static constexpr auto content_length = "content-length"sv;
-  static constexpr auto content_security_policy = "content-security-policy"sv;
-  static constexpr auto content_type = "content-type"sv;
-  static constexpr auto cookie = "cookie"sv;
-  static constexpr auto date = "date"sv;
-  static constexpr auto early_data = "early-data"sv;
-  static constexpr auto etag = "etag"sv;
-  static constexpr auto expect_ct = "expect-ct"sv;
-  static constexpr auto forwarded = "forwarded"sv;
-  static constexpr auto if_modified_since = "if-modified-since"sv;
-  static constexpr auto if_none_match = "if-none-match"sv;
-  static constexpr auto if_range = "if-range"sv;
-  static constexpr auto last_modified = "last-modified"sv;
-  static constexpr auto link = "link"sv;
-  static constexpr auto location = "location"sv;
-  static constexpr auto origin = "origin"sv;
-  static constexpr auto purpose = "purpose"sv;
-  static constexpr auto range = "range"sv;
-  static constexpr auto referer = "referer"sv;
-  static constexpr auto server = "server"sv;
-  static constexpr auto set_cookie = "set-cookie"sv;
-  static constexpr auto strict_transport_security =
-      "strict-transport-security"sv;
-  static constexpr auto timing_allow_origin = "timing-allow-origin"sv;
-  static constexpr auto upgrade_insecure_requests =
-      "upgrade-insecure-requests"sv;
-  static constexpr auto user_agent = "user-agent"sv;
-  static constexpr auto vary = "vary"sv;
-  static constexpr auto x_content_type_options = "x-content-type-options"sv;
-  static constexpr auto x_forwarded_for = "x-forwarded-for"sv;
-  static constexpr auto x_frame_options = "x-frame-options"sv;
-  static constexpr auto x_xss_protection = "x-xss-protection"sv;
-  static constexpr auto host = "host"sv;
-  static constexpr auto connection = "connection"sv;
-  static constexpr auto keep_alive = "keep-alive"sv;
-  static constexpr auto proxy_connection = "proxy-connection"sv;
-  static constexpr auto transfer_encoding = "transfer-encoding"sv;
-  static constexpr auto upgrade = "upgrade"sv;
-  static constexpr auto te = "te"sv;
-  static constexpr auto protocol = ":protocol"sv;
-  static constexpr auto priority = "priority"sv;
-
-#pragma endregion
 #pragma region Lookups
 
   // Maps a `qpack_token` to its canonical field-name string, or `{}` if the
   // token is `unknown`
   [[nodiscard]] static std::string_view name_from_token(
       qpack_token token) noexcept {
-    static const std::flat_map<qpack_token, std::string_view> names{
-        {qpack_token::authority, authority},
-        {qpack_token::method, method},
-        {qpack_token::path, path},
-        {qpack_token::scheme, scheme},
-        {qpack_token::status, status},
-        {qpack_token::accept, accept},
-        {qpack_token::accept_encoding, accept_encoding},
-        {qpack_token::accept_language, accept_language},
-        {qpack_token::accept_ranges, accept_ranges},
-        {qpack_token::access_control_allow_credentials,
-            access_control_allow_credentials},
-        {qpack_token::access_control_allow_headers,
-            access_control_allow_headers},
-        {qpack_token::access_control_allow_methods,
-            access_control_allow_methods},
-        {qpack_token::access_control_allow_origin,
-            access_control_allow_origin},
-        {qpack_token::access_control_expose_headers,
-            access_control_expose_headers},
-        {qpack_token::access_control_request_headers,
-            access_control_request_headers},
-        {qpack_token::access_control_request_method,
-            access_control_request_method},
-        {qpack_token::age, age},
-        {qpack_token::alt_svc, alt_svc},
-        {qpack_token::authorization, authorization},
-        {qpack_token::cache_control, cache_control},
-        {qpack_token::content_disposition, content_disposition},
-        {qpack_token::content_encoding, content_encoding},
-        {qpack_token::content_length, content_length},
-        {qpack_token::content_security_policy, content_security_policy},
-        {qpack_token::content_type, content_type},
-        {qpack_token::cookie, cookie},
-        {qpack_token::date, date},
-        {qpack_token::early_data, early_data},
-        {qpack_token::etag, etag},
-        {qpack_token::expect_ct, expect_ct},
-        {qpack_token::forwarded, forwarded},
-        {qpack_token::if_modified_since, if_modified_since},
-        {qpack_token::if_none_match, if_none_match},
-        {qpack_token::if_range, if_range},
-        {qpack_token::last_modified, last_modified},
-        {qpack_token::link, link},
-        {qpack_token::location, location},
-        {qpack_token::origin, origin},
-        {qpack_token::purpose, purpose},
-        {qpack_token::range, range},
-        {qpack_token::referer, referer},
-        {qpack_token::server, server},
-        {qpack_token::set_cookie, set_cookie},
-        {qpack_token::strict_transport_security, strict_transport_security},
-        {qpack_token::timing_allow_origin, timing_allow_origin},
-        {qpack_token::upgrade_insecure_requests, upgrade_insecure_requests},
-        {qpack_token::user_agent, user_agent},
-        {qpack_token::vary, vary},
-        {qpack_token::x_content_type_options, x_content_type_options},
-        {qpack_token::x_forwarded_for, x_forwarded_for},
-        {qpack_token::x_frame_options, x_frame_options},
-        {qpack_token::x_xss_protection, x_xss_protection},
-        {qpack_token::host, host},
-        {qpack_token::connection, connection},
-        {qpack_token::keep_alive, keep_alive},
-        {qpack_token::proxy_connection, proxy_connection},
-        {qpack_token::transfer_encoding, transfer_encoding},
-        {qpack_token::upgrade, upgrade},
-        {qpack_token::te, te},
-        {qpack_token::protocol, protocol},
-        {qpack_token::priority, priority},
-    };
-    if (auto found = find_opt(names, token)) return *found;
-    return {};
+    auto v = enums::sequence::enum_as_view(token);
+    return (v != "(unknown)"sv) ? v : ""sv;
   }
 
   // Maps a field name to its `qpack_token`, or `qpack_token::unknown`.
   [[nodiscard]] static qpack_token token_from_name(
       std::string_view name) noexcept {
-    static const std::unordered_map<std::string_view, qpack_token> tokens{
-        {authority, qpack_token::authority},
-        {method, qpack_token::method},
-        {path, qpack_token::path},
-        {scheme, qpack_token::scheme},
-        {status, qpack_token::status},
-        {accept, qpack_token::accept},
-        {accept_encoding, qpack_token::accept_encoding},
-        {accept_language, qpack_token::accept_language},
-        {accept_ranges, qpack_token::accept_ranges},
-        {access_control_allow_credentials,
-            qpack_token::access_control_allow_credentials},
-        {access_control_allow_headers,
-            qpack_token::access_control_allow_headers},
-        {access_control_allow_methods,
-            qpack_token::access_control_allow_methods},
-        {access_control_allow_origin,
-            qpack_token::access_control_allow_origin},
-        {access_control_expose_headers,
-            qpack_token::access_control_expose_headers},
-        {access_control_request_headers,
-            qpack_token::access_control_request_headers},
-        {access_control_request_method,
-            qpack_token::access_control_request_method},
-        {age, qpack_token::age},
-        {alt_svc, qpack_token::alt_svc},
-        {authorization, qpack_token::authorization},
-        {cache_control, qpack_token::cache_control},
-        {content_disposition, qpack_token::content_disposition},
-        {content_encoding, qpack_token::content_encoding},
-        {content_length, qpack_token::content_length},
-        {content_security_policy, qpack_token::content_security_policy},
-        {content_type, qpack_token::content_type},
-        {cookie, qpack_token::cookie},
-        {date, qpack_token::date},
-        {early_data, qpack_token::early_data},
-        {etag, qpack_token::etag},
-        {expect_ct, qpack_token::expect_ct},
-        {forwarded, qpack_token::forwarded},
-        {if_modified_since, qpack_token::if_modified_since},
-        {if_none_match, qpack_token::if_none_match},
-        {if_range, qpack_token::if_range},
-        {last_modified, qpack_token::last_modified},
-        {link, qpack_token::link},
-        {location, qpack_token::location},
-        {origin, qpack_token::origin},
-        {purpose, qpack_token::purpose},
-        {range, qpack_token::range},
-        {referer, qpack_token::referer},
-        {server, qpack_token::server},
-        {set_cookie, qpack_token::set_cookie},
-        {strict_transport_security, qpack_token::strict_transport_security},
-        {timing_allow_origin, qpack_token::timing_allow_origin},
-        {upgrade_insecure_requests, qpack_token::upgrade_insecure_requests},
-        {user_agent, qpack_token::user_agent},
-        {vary, qpack_token::vary},
-        {x_content_type_options, qpack_token::x_content_type_options},
-        {x_forwarded_for, qpack_token::x_forwarded_for},
-        {x_frame_options, qpack_token::x_frame_options},
-        {x_xss_protection, qpack_token::x_xss_protection},
-        {host, qpack_token::host},
-        {connection, qpack_token::connection},
-        {keep_alive, qpack_token::keep_alive},
-        {proxy_connection, qpack_token::proxy_connection},
-        {transfer_encoding, qpack_token::transfer_encoding},
-        {upgrade, qpack_token::upgrade},
-        {te, qpack_token::te},
-        {protocol, qpack_token::protocol},
-        {priority, qpack_token::priority},
-    };
+    // Invert the registered names so this lookup shares their single source
+    // of truth. nghttp3 numbers the common QPACK tokens up through 98 and a
+    // second block (host through priority) at 1000-1008, with a large unused
+    // gap between, so walk only [0, 100) and [1000, 1009) to skip the gap and
+    // map each named value's view back to its token.
+    static const auto tokens = [] {
+      std::unordered_map<std::string_view, qpack_token> m;
+      m.reserve(64); // Approximate; ~61 named tokens, bucket count rounds up.
+      auto invert = [&](int lo, int hi) {
+        for (auto v = lo; v < hi; ++v) {
+          auto token = qpack_token(v);
+          if (auto sv = enums::sequence::enum_as_view(token);
+              sv != "(unknown)"sv)
+            m.emplace(sv, token);
+        }
+      };
+      invert(0, 100);
+      invert(1000, 1009);
+      return m;
+    }();
     if (auto found = find_opt(tokens, name)) return *found;
     return qpack_token::unknown;
   }

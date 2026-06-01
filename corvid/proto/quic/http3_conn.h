@@ -884,7 +884,7 @@ private:
   [[nodiscard]] static nghttp3_nv to_nv(const http3_field_view& f) noexcept {
     return {.name = strings::as_byte_span(f.name).data(),
         .value = strings::as_byte_span(f.value).data(),
-        .namelen = f.name.size(),
+        .namelen = f.name->size(),
         .valuelen = f.value.size(),
         .flags = *f.flags};
   }

@@ -86,6 +86,7 @@ void do_log_exception(const format_with_loc<const char*, const char*>& msg,
 // Run `fn` inside a try block as a noexcept firewall: returns `fn()` on
 // no-throw, or `on_throw` (defaulting to `false`) if it threw.
 // TODO: Use https://github.com/jeremy-rifkin/cpptrace for richer traces.
+// TODO: Consider catch `const char*`.
 template<rethrow_policy policy = rethrow_policy::never, std::invocable F,
     typename T = bool>
 [[nodiscard]] auto try_or_log(F&& fn, T on_throw = false,

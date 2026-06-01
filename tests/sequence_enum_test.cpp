@@ -946,6 +946,92 @@ TEST_CASE("AsView", "[SequentialEnumTest]") {
 }
 
 #pragma endregion
+#pragma region EnumFindNamed
+
+TEST_CASE("EnumFindNamed", "[SequentialEnumTest]") {
+  // Names-only lookup: the matching name view, or empty on a miss. Never
+  // interprets numeric text, and is usable in a constant expression.
+  static_assert(enum_find_named<tiger_pick>("eeny") == "eeny");
+  static_assert(enum_find_named<tiger_pick>("moe") == "moe");
+  static_assert(enum_find_named<tiger_pick>("nope").empty());
+  static_assert(enum_find_named<tiger_pick>("").empty());
+  static_assert(enum_find_named<tiger_pick>("0").empty()); // not numeric-aware
+  CHECK(enum_find_named<tiger_pick>("meany") == "meany");
+  CHECK(enum_find_named<tiger_pick>("nope").empty());
+}
+
+#pragma endregion
+#pragma region EnumStringView
+
+// Shows that a bare literal or enum value is validated by the parameter type,
+// with no ceremony at the call site.
+constexpr std::string_view take_tiger(
+    sequential_enum_string_view<tiger_pick> s) {
+  return *s;
+}
+
+TEST_CASE("EnumStringView", "[SequentialEnumTest]") {
+  using tiger_sv = sequential_enum_string_view<tiger_pick>;
+
+  // Bare string literal, validated at compile time (array-ref ctor). Acts as
+  // the matching view through `operator*` and the implicit conversion.
+  if (true) {
+    constexpr tiger_sv s{"meany"};
+    static_assert(*s == "meany");
+    static_assert(std::string_view{s} == "meany");
+    CHECK(*s == "meany");
+    CHECK(std::string_view{s} == "meany");
+  }
+  // Pointer-and-length ctor: what a string-literal UDL feeds it.
+  if (true) {
+    constexpr tiger_sv s{"moe", 3};
+    static_assert(*s == "moe");
+    CHECK(*s == "moe");
+  }
+  // From the enum value itself, with its name looked up at compile time.
+  if (true) {
+    constexpr tiger_sv s{tiger_pick::miny};
+    static_assert(*s == "miny");
+    CHECK(*s == "miny");
+  }
+  // Bare literal and enum value both convert implicitly at the parameter.
+  if (true) {
+    static_assert(take_tiger("eeny") == "eeny");
+    static_assert(take_tiger(tiger_pick::moe) == "moe");
+    CHECK(take_tiger("miny") == "miny");
+    CHECK(take_tiger(tiger_pick::eeny) == "eeny");
+  }
+  // `force` / `silent_force`: runtime escape hatches that wrap an existing
+  // view without the `consteval` path. They store the caller's view (which
+  // must outlive the wrapper), not the interned name.
+  if (true) {
+    std::string_view name = "meany"; // A runtime value.
+    CHECK(*tiger_sv::force(name) == "meany");
+    CHECK(*tiger_sv::silent_force(name) == "meany");
+  }
+  // `silent_force` does no validation, so it wraps an unregistered name
+  // verbatim. (`force` would assert in a debug build.)
+  if (true) {
+    std::string_view bogus = "notaname";
+    auto s = tiger_sv::silent_force(bogus);
+    CHECK(*s == "notaname");
+    CHECK(enum_find_named<tiger_pick>(*s).empty());
+  }
+  // `operator->` reaches the underlying view's members.
+  if (true) {
+    constexpr tiger_sv s{"moe"};
+    CHECK(s->size() == 3);
+  }
+
+  // The following correctly fail to compile. The `consteval` constructors'
+  // throw makes the construction a non-constant expression when the name is
+  // not registered or the enum value has no name:
+  // * constexpr tiger_sv bad_name{"mooe"};
+  // * constexpr tiger_sv bad_value{tiger_pick(7)};
+  // * (void)take_tiger("notaname");
+}
+
+#pragma endregion
 
 // NOLINTEND(readability-function-cognitive-complexity,
 // readability-function-size)
