@@ -492,14 +492,15 @@ public:
   // upcalls (and the response upcalls). Returns false if `fields` exceeds
   // `max_submit_fields`.
   [[nodiscard]] bool submit_request(quic_stream_id stream_id,
-      std::span<const http3_field_view> fields, bool with_body = false,
-      void* stream_user_data = nullptr) noexcept {
-    return do_submit_request(stream_id, fields, with_body, stream_user_data);
-  }
-  [[nodiscard]] bool submit_request(quic_stream_id stream_id,
       std::span<const http3_field> fields, bool with_body = false,
       void* stream_user_data = nullptr) noexcept {
-    return do_submit_request(stream_id, fields, with_body, stream_user_data);
+    assert(role_ == connection_role::client);
+    std::array<nghttp3_nv, max_submit_fields> nva{};
+    if (!fill_nv(fields, nva)) return false;
+    const nghttp3_data_reader dr{.read_data = &read_data};
+    return ok("nghttp3_conn_submit_request",
+        nghttp3_conn_submit_request(conn_.get(), from(stream_id), nva.data(),
+            fields.size(), with_body ? &dr : nullptr, stream_user_data));
   }
 
   // Submit a response on the request's `stream_id`. `fields` are
@@ -507,12 +508,13 @@ public:
   // after the headers (no response body). Same copy / cap notes as
   // `submit_request`.
   [[nodiscard]] bool submit_response(quic_stream_id stream_id,
-      std::span<const http3_field_view> fields) noexcept {
-    return do_submit_response(stream_id, fields);
-  }
-  [[nodiscard]] bool submit_response(quic_stream_id stream_id,
       std::span<const http3_field> fields) noexcept {
-    return do_submit_response(stream_id, fields);
+    assert(role_ == connection_role::server);
+    std::array<nghttp3_nv, max_submit_fields> nva{};
+    if (!fill_nv(fields, nva)) return false;
+    return ok("nghttp3_conn_submit_response",
+        nghttp3_conn_submit_response(conn_.get(), from(stream_id), nva.data(),
+            fields.size(), nullptr));
   }
 
 #pragma endregion
@@ -877,59 +879,27 @@ private:
     });
   }
 
-  // Convert one `http3_field_view` to the `nghttp3_nv` the submit calls take.
-  // The name / value pointers alias the field's views; nghttp3 copies them
-  // during the synchronous submit (default flags), so they need only outlive
-  // the call.
-  [[nodiscard]] static nghttp3_nv to_nv(const http3_field_view& f) noexcept {
+  // Convert one `http3_field` to the `nghttp3_nv` the submit calls take.
+  // The name / value pointers alias the field's; nghttp3 copies them during
+  // the synchronous submit (default flags), so they need only outlive the
+  // call.
+  [[nodiscard]] static nghttp3_nv to_nv(const http3_field& f) noexcept {
     return {.name = strings::as_byte_span(f.name).data(),
         .value = strings::as_byte_span(f.value).data(),
-        .namelen = f.name->size(),
+        .namelen = f.name.size(),
         .valuelen = f.value.size(),
         .flags = *f.flags};
   }
 
-  // Fill `nva` with the `nghttp3_nv` form of `fields` of `http3_field` or
-  // `http3_field_view` for a submit call, or log and return false if `fields`
-  // exceeds the scratch capacity.
-  template<typename T>
-  [[nodiscard]] static bool
-  fill_nv(std::span<const T> fields, std::span<nghttp3_nv> nva) noexcept {
+  // Fill `nva` with the `nghttp3_nv` form of `fields` of `http3_field` for a
+  // submit call, or log and return false if `fields` exceeds the scratch
+  // capacity.
+  [[nodiscard]] static bool fill_nv(std::span<const http3_field> fields,
+      std::span<nghttp3_nv> nva) noexcept {
     if (fields.size() > nva.size())
       return log::error("too many fields") && false;
     for (size_t i = 0; i < fields.size(); ++i) nva[i] = to_nv(fields[i]);
     return true;
-  }
-
-  // Shared body of the `submit_request` overloads, generic over the field
-  // element type (`http3_field` or `http3_field_view`).
-  //
-  // When `with_body`, a data reader is installed so nghttp3 pulls the body via
-  // `read_data` -> `on_read_body`.
-  template<typename T>
-  [[nodiscard]] bool
-  do_submit_request(quic_stream_id stream_id, std::span<const T> fields,
-      bool with_body, void* stream_user_data) noexcept {
-    assert(role_ == connection_role::client);
-    std::array<nghttp3_nv, max_submit_fields> nva{};
-    if (!fill_nv(fields, nva)) return false;
-    const nghttp3_data_reader dr{.read_data = &read_data};
-    return ok("nghttp3_conn_submit_request",
-        nghttp3_conn_submit_request(conn_.get(), from(stream_id), nva.data(),
-            fields.size(), with_body ? &dr : nullptr, stream_user_data));
-  }
-
-  // Shared body of the `submit_response` overloads, generic over the field
-  // element type (`http3_field` or `http3_field_view`).
-  template<typename T>
-  [[nodiscard]] bool do_submit_response(quic_stream_id stream_id,
-      std::span<const T> fields) noexcept {
-    assert(role_ == connection_role::server);
-    std::array<nghttp3_nv, max_submit_fields> nva{};
-    if (!fill_nv(fields, nva)) return false;
-    return ok("nghttp3_conn_submit_response",
-        nghttp3_conn_submit_response(conn_.get(), from(stream_id), nva.data(),
-            fields.size(), nullptr));
   }
 
   // Translate a handler's `bool` into the int nghttp3 callbacks expect: `0` on

@@ -123,15 +123,15 @@ public:
       inbound_headers_ = &response_headers_;
       inbound_trailers_ = &response_trailers_;
       auto& h = request_headers();
-      h.add({":method", "HEAD"}, qpack_token::method);
-      h.add({":scheme", "https"}, qpack_token::scheme);
-      h.add({":authority", ""}, qpack_token::authority);
-      h.add({":path", "/"}, qpack_token::path);
+      h.add(":method", "HEAD"_method);
+      h.add(":scheme", "https");
+      h.add(":authority", "");
+      h.add(":path", "/");
     } else {
       inbound_headers_ = &request_headers_;
       inbound_trailers_ = &request_trailers_;
       auto& h = response_headers();
-      h.add({":status", "500"}, qpack_token::status);
+      h.add(":status", "500");
     }
     return true;
   }
@@ -608,13 +608,6 @@ public:
   // With `with_body == true`, nghttp3 pulls the body via the stream's
   // `on_read_body`; the stream is passed as nghttp3's `stream_user_data` so
   // the body and response upcalls route back to it.
-  [[nodiscard]] bool submit_request(quic_stream_id stream_id,
-      std::span<const http3_field_view> fields, bool with_body = false) {
-    if (!h3_.submit_request(stream_id, fields, with_body,
-            with_body ? find_stream(stream_id) : nullptr))
-      return false;
-    return io_.request_drain();
-  }
   [[nodiscard]] bool submit_request(quic_stream_id stream_id,
       std::span<const http3_field> fields, bool with_body = false) {
     if (!h3_.submit_request(stream_id, fields, with_body,

@@ -33,9 +33,7 @@
 
 // HTTP/3 header-field vocabulary: the QPACK field-name tokens, the canonical
 // field-name strings, the per-field QPACK flags, the stream-FIN marker, and
-// the `http3_field_view` submit type. Split out of `http3_conn.h` so callers
-// that only build or inspect header fields need not pull in the whole
-// `nghttp3_conn` wrapper.
+// the `http3_field` submit type.
 
 namespace corvid { inline namespace proto { namespace quic {
 
@@ -293,21 +291,6 @@ consteval method_name operator""_method(const char* s, std::size_t n) {
 } // namespace http3_literals
 
 #pragma endregion
-#pragma region http3_field_view
-
-// An HTTP field (name / value pair plus QPACK flags) to submit in a request or
-// response HEADERS frame: the Corvid-facing form of `nghttp3_nv`. `name` and
-// `value` are borrowed for the duration of the submit call only; nghttp3
-// copies them unless a `no_copy_*` flag says otherwise, so the default (`flags
-// == nv_flags::none`) lets the caller pass ephemeral views. Pseudo-headers use
-// their ':' name (":method", ":path", ":status", and so on).
-struct http3_field_view {
-  header_name name;
-  std::string_view value;
-  nv_flags flags{nv_flags::none};
-};
-
-#pragma endregion
 #pragma region http3_field
 
 // An HTTP field with owned storage.
@@ -317,10 +300,10 @@ struct http3_field {
   std::string value;
   nv_flags flags{nv_flags::none};
 
-  [[nodiscard]] auto as_view() const noexcept {
-    return http3_field_view{header_name::force(name), value, flags};
+  static http3_field make(header_name_and_enum key, std::string_view value,
+      nv_flags flags = nv_flags::none) {
+    return {key.as_enum(), std::string{key}, std::string{value}, flags};
   }
-  operator http3_field_view() const noexcept { return as_view(); }
 };
 
 #pragma endregion
@@ -348,35 +331,26 @@ public:
   }
 
   // Add a field with name and token. Returns its index.
-  size_t add(header_name_and_enum key, std::string value,
+  size_t add(header_name_and_enum key, std::string_view value,
       nv_flags flags = nv_flags::none) {
     const auto token = key.as_enum();
     const auto name = std::string_view{key};
-    fields_.emplace_back(token, std::string{name}, std::move(value), flags);
+    fields_.emplace_back(token, std::string{name}, std::string{value}, flags);
     return fields_.size() - 1;
-  }
-
-  // Add a field with token. Returns its index.
-  size_t add(const http3_field_view& field, qpack_token token) {
-    fields_.emplace_back(token, std::string{field.name},
-        std::string{field.value}, field.flags);
-    return fields_.size() - 1;
-  }
-
-  // Add a field, looking up its token from the name. Returns its index.
-  size_t add(const http3_field_view& field) {
-    return add(field, token_from_name(field.name));
   }
 
   // Add a field. Returns its index.
-  size_t add(const http3_field& field) { return add(field, field.token); }
+  size_t add(const http3_field& field) {
+    return add(header_name_and_enum::force(field.name, field.token),
+        field.value, field.flags);
+  }
 
   // Set the field `value` (and `flags`): modify the first existing field with
   // that name if one is present, otherwise add a new one. Returns index.
   size_t set_value(header_name_and_enum key, std::string_view value,
       nv_flags flags = nv_flags::none) {
     size_t ndx = find_next(key, 0);
-    if (ndx == npos) return add({key.as_name(), value, flags}, key.as_enum());
+    if (ndx == npos) return add(key, value, flags);
     auto& field = fields_[ndx];
     field.value = std::string{value};
     field.flags |= flags;

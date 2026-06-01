@@ -149,7 +149,7 @@ TEST_CASE("Http3HeadersAdd", "[http3]") {
   CHECK(h.size() == 0);
 
   SECTION("add looks up the token from the name") {
-    const auto ndx = h.add({"content-length", "0"});
+    const auto ndx = h.add("content-length", "0");
     CHECK(ndx == 0);
     CHECK(h.size() == 1);
     CHECK_FALSE(h.empty());
@@ -160,26 +160,10 @@ TEST_CASE("Http3HeadersAdd", "[http3]") {
     CHECK(f.flags == nv_flags::none);
   }
 
-  SECTION("an unknown name stores `unknown` and the verbatim name") {
-    h.add({header_name::force("x-custom"), "v"});
-    CHECK(h[0].token == qpack_token::unknown);
-    CHECK(h[0].name == "x-custom");
-    CHECK(h[0].value == "v");
-  }
-
-  SECTION("the explicit-token overload keeps the given token and name") {
-    // The token is taken as given, not re-derived from the name.
-    h.add({header_name::force("x-custom"), "v", nv_flags::never_index},
-        qpack_token::method);
-    CHECK(h[0].token == qpack_token::method);
-    CHECK(h[0].name == "x-custom");
-    CHECK(h[0].flags == nv_flags::never_index);
-  }
-
   SECTION("add returns each new index in order") {
-    CHECK(h.add({":method", "GET"}) == 0);
-    CHECK(h.add({":path", "/"}) == 1);
-    CHECK(h.add({":path", "/other"}) == 2);
+    CHECK(h.add(":method", "GET"_method) == 0);
+    CHECK(h.add(":path", "/") == 1);
+    CHECK(h.add(":path", "/other") == 2);
     CHECK(h.size() == 3);
   }
 }
@@ -198,7 +182,7 @@ TEST_CASE("Http3HeadersSet", "[http3]") {
   }
 
   SECTION("set on an existing name modifies it in place") {
-    h.add({"content-length", "0"});
+    h.add("content-length", "0");
     const auto ndx =
         h.set_value("content-length", "42", nv_flags::never_index);
     CHECK(ndx == 0);
@@ -209,7 +193,7 @@ TEST_CASE("Http3HeadersSet", "[http3]") {
   }
 
   SECTION("an explicit token finds and modifies an existing field by token") {
-    h.add({"content-length", "0"});
+    h.add("content-length", "0");
     // Match by token (not name); the field's value is updated in place.
     const auto ndx = h.set_value("content-length", "9");
     CHECK(ndx == 0);
@@ -218,7 +202,7 @@ TEST_CASE("Http3HeadersSet", "[http3]") {
   }
 
   SECTION("set merges flags into an existing field rather than replacing") {
-    h.add({"content-length", "0", nv_flags::no_copy_value});
+    h.add("content-length", "0", nv_flags::no_copy_value);
     h.set_value("content-length", "1", nv_flags::never_index);
     // The pre-existing flag is preserved; the new one is OR'd in.
     CHECK(h[0].flags == (nv_flags::no_copy_value | nv_flags::never_index));
@@ -232,8 +216,8 @@ TEST_CASE("Http3HeadersSet", "[http3]") {
   }
 
   SECTION("set updates only the first of several duplicates") {
-    h.add({"accept", "a"});
-    h.add({"accept", "b"});
+    h.add("accept", "a");
+    h.add("accept", "b");
     const auto ndx = h.set_value("accept", "c");
     CHECK(ndx == 0);
     CHECK(h.size() == 2);
@@ -244,9 +228,9 @@ TEST_CASE("Http3HeadersSet", "[http3]") {
 
 TEST_CASE("Http3HeadersFind", "[http3]") {
   http3_headers h;
-  h.add({":method", "GET"_method});
-  h.add({"accept", "a"});
-  h.add({"accept", "b"}); // duplicate name / token
+  h.add(":method", "GET"_method);
+  h.add("accept", "a");
+  h.add("accept", "b"); // duplicate name / token
 
   SECTION("find returns the first match by name or token") {
     auto* by_name = h.find("accept");
@@ -293,8 +277,8 @@ TEST_CASE("Http3HeadersFind", "[http3]") {
 
 TEST_CASE("Http3HeadersIteration", "[http3]") {
   http3_headers h;
-  h.add({":method", "GET"});
-  h.add({":path", "/"});
+  h.add(":method", "GET"_method);
+  h.add(":path", "/");
 
   SECTION("range-for visits fields in insertion order") {
     std::vector<std::string_view> names;
@@ -329,9 +313,9 @@ TEST_CASE("Http3HeadersIteration", "[http3]") {
 
 TEST_CASE("Http3HeadersEraseAndClear", "[http3]") {
   http3_headers h;
-  h.add({":method", "GET"});
-  h.add({":path", "/"});
-  h.add({":scheme", "https"});
+  h.add(":method", "GET"_method);
+  h.add(":path", "/");
+  h.add(":scheme", "https");
 
   SECTION("erase removes the field and shifts the rest down") {
     CHECK(h.erase(1));
@@ -355,8 +339,8 @@ TEST_CASE("Http3HeadersEraseAndClear", "[http3]") {
 
 TEST_CASE("Http3HeadersSpanConversion", "[http3]") {
   http3_headers h;
-  h.add({":status", "200"});
-  h.add({"content-length", "0"});
+  h.add(":status", "200");
+  h.add("content-length", "0");
 
   // The implicit conversion exposes the fields as a contiguous span for the
   // submit path, in the same order.

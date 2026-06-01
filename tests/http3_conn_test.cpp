@@ -179,10 +179,10 @@ TEST_CASE("http3_conn round-trips a request and response", "[http3]") {
 
   // Client -> server: a header-only GET request (ends the stream).
   const std::array request{
-      http3_field_view{":method", "GET"_method},
-      http3_field_view{":scheme", "https"},
-      http3_field_view{":authority", "example.com"},
-      http3_field_view{":path", "/"},
+      http3_field::make(":method", "GET"_method),
+      http3_field::make(":scheme", "https"),
+      http3_field::make(":authority", "example.com"),
+      http3_field::make(":path", "/"),
   };
   REQUIRE(client.submit_request(request_stream, request));
   pump(client, server);
@@ -196,8 +196,8 @@ TEST_CASE("http3_conn round-trips a request and response", "[http3]") {
 
   // Server -> client: a header-only 200 response (ends the stream).
   const std::array response{
-      http3_field_view{":status", "200"},
-      http3_field_view{"content-length", "0"},
+      http3_field::make(":status", "200"),
+      http3_field::make("content-length", "0"),
   };
   REQUIRE(server.submit_response(request_stream, response));
   pump(server, client);
@@ -265,10 +265,10 @@ TEST_CASE("http3_conn set_stream_user_data round-trips to upcalls",
   CHECK_FALSE(client.set_stream_user_data(request_stream, &marker));
 
   const std::array request{
-      http3_field_view{":method", "GET"_method},
-      http3_field_view{":scheme", "https"},
-      http3_field_view{":authority", "example.com"},
-      http3_field_view{":path", "/"},
+      http3_field::make(":method", "GET"_method),
+      http3_field::make(":scheme", "https"),
+      http3_field::make(":authority", "example.com"),
+      http3_field::make(":path", "/"),
   };
   REQUIRE(client.submit_request(request_stream, request));
   pump(client, server);
@@ -279,8 +279,8 @@ TEST_CASE("http3_conn set_stream_user_data round-trips to upcalls",
   // The server's response drives the client's recv-header upcalls, which must
   // carry the pointer we just set.
   const std::array response{
-      http3_field_view{":status", "200"},
-      http3_field_view{"content-length", "0"},
+      http3_field::make(":status", "200"),
+      http3_field::make("content-length", "0"),
   };
   REQUIRE(server.submit_response(request_stream, response));
   pump(server, client);
