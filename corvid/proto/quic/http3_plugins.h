@@ -27,6 +27,7 @@
 #include <utility>
 #include <vector>
 
+#include "../iov_queue.h"
 #include "http3_conn.h"
 #include "quic_conn.h"
 #include "quic_header.h"
@@ -51,8 +52,11 @@ class http3_router;
 // Returning `false` from any upcall fails the nghttp3 callback and tears the
 // connection down, the same contract as the connection-level handlers.
 class http3_stream {
-#pragma region Construction
+  using iov_queue_t = iov_queue<>;
+
 public:
+#pragma region Construction
+
   explicit http3_stream(quic_stream_id stream_id) noexcept
       : stream_id_{stream_id} {}
 
@@ -95,6 +99,13 @@ public:
     return self.response_trailers_;
   }
 
+  [[nodiscard]] auto& send_queue(this auto& self) noexcept {
+    return self.send_queue_;
+  }
+  [[nodiscard]] auto& receive_queue(this auto& self) noexcept {
+    return self.receive_queue_;
+  }
+
   // Whether a clean `on_end_stream` has been seen (the full message arrived).
   [[nodiscard]] bool completed() const noexcept { return completed_; }
 
@@ -103,13 +114,24 @@ public:
     return app_error_code_;
   }
 
-  // Reverse the default server orientation: route inbound headers/trailers
-  // into the response pair instead of the request pair. A client stream calls
-  // this at construction, since the bytes it receives from the peer are the
-  // response.
-  void orient_as_client() noexcept {
-    inbound_headers_ = &response_headers_;
-    inbound_trailers_ = &response_trailers_;
+  bool set_role(connection_role role) noexcept {
+    if (role_ && *role_ != role) return false;
+    role_ = role;
+    if (role == connection_role::client) {
+      inbound_headers_ = &response_headers_;
+      inbound_trailers_ = &response_trailers_;
+      auto& h = request_headers();
+      h.add({http3_headers::method, "HEAD"}, qpack_token::method);
+      h.add({http3_headers::scheme, "https"}, qpack_token::scheme);
+      h.add({http3_headers::authority, ""}, qpack_token::authority);
+      h.add({http3_headers::path, "/"}, qpack_token::path);
+    } else {
+      inbound_headers_ = &request_headers_;
+      inbound_trailers_ = &request_trailers_;
+      auto& h = response_headers();
+      h.add({http3_headers::status, "500"}, qpack_token::status);
+    }
+    return true;
   }
 
 #pragma endregion
@@ -181,19 +203,17 @@ public:
 
   // Inbound body bytes (DATA payload).
   [[nodiscard]] virtual bool on_recv_data(std::span<const uint8_t> data) {
-    (void)data;
+    receive_queue_.append(std::vector<uint8_t>(data.begin(), data.end()));
     return true;
   }
 
   // nghttp3 is pulling the next slice of this stream's outbound body (a
   // request body on a client request stream).
-  //
-  // Override to vend body bytes, gathered into at most `max_vecs` segments
-  // (nghttp3's vec budget); the bytes MUST stay valid until acked (see
-  // `body_vecs`).
   [[nodiscard]] virtual body_vecs on_send_data_ready(size_t max_vecs) {
-    (void)max_vecs;
-    return {.iov = {}, .eof = true};
+    const auto all = send_queue_.unused();
+    const auto iov = all.first(std::min(all.size(), max_vecs));
+    send_queue_.consume(iov_queue<>::iov_byte_count(iov));
+    return {.iov = iov, .eof = iov.size() == all.size()};
   }
 
   // The receiving side of this stream is closed (the message arrived in full).
@@ -228,8 +248,11 @@ private:
   quic_stream_id stream_id_;
   http3_router* router_{};
 
+  std::optional<connection_role> role_;
+
   http3_headers request_headers_;
   http3_headers request_trailers_;
+
   http3_headers response_headers_;
   http3_headers response_trailers_;
 
@@ -237,6 +260,9 @@ private:
   // orientation); `orient_as_client` repoints them to the response pair.
   http3_headers* inbound_headers_{&request_headers_};
   http3_headers* inbound_trailers_{&request_trailers_};
+
+  iov_queue_t send_queue_;
+  iov_queue_t receive_queue_;
 
   bool completed_{};
   h3_error_code app_error_code_{h3_error_code::no_error};

@@ -97,13 +97,13 @@ void capture_response(request_stream& s, response_capture& out) {
 // small so a sizeable body spans more than the 16 vec slots, exercising the
 // multi-segment gather and the veccnt truncation path), and the completion
 // callback.
-std::unique_ptr<request_stream> make_request(std::string_view method,
+std::unique_ptr<request_stream> make_request(http_method method,
     std::string_view authority, std::string_view path,
     std::span<const uint8_t> body,
     request_stream::completion_callback on_complete) {
   auto stream = std::make_unique<request_stream>(std::move(on_complete));
-  request_stream::configure_request(stream->request_headers(), method,
-      authority, path);
+  request_stream::configure_request(stream->request_headers(), method, path,
+      authority);
   if (!body.empty()) {
     stream->request_headers().set_value("content-type", "text/plain");
     stream->request_headers().set_value("content-length",
@@ -127,8 +127,10 @@ int main(int argc, char** argv) {
   // A third arg is a request body, which turns the GET into a POST.
   const std::string body_str = argc > 3 ? argv[3] : "";
   const std::vector<uint8_t> body(body_str.begin(), body_str.end());
-  const std::string method = body.empty() ? "GET" : "POST";
-  std::cout << method << " https://" << host << path << " over HTTP/3";
+  const http_method method =
+      body.empty() ? http_method::GET : http_method::POST;
+  std::cout << strings::enum_as_string(method) << " https://" << host << path
+            << " over HTTP/3";
   if (!body.empty()) std::cout << " (" << body.size() << "-byte body)";
   std::cout << "\n";
 

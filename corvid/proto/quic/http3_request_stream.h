@@ -25,7 +25,6 @@
 #include <utility>
 #include <vector>
 
-#include "../iov_queue.h"
 #include "http3_plugins.h"
 
 namespace corvid { inline namespace proto { namespace quic {
@@ -55,58 +54,33 @@ class request_stream: public http3_stream {
 public:
   using completion_callback = std::function<void(request_stream&)>;
 
-  explicit request_stream(completion_callback on_complete)
+  explicit request_stream(completion_callback&& on_complete)
       : http3_stream{quic_stream_id::none},
         on_complete_{std::move(on_complete)} {
     assert(on_complete_);
-    orient_as_client();
-    auto& h = request_headers();
-    h.set_value(http3_headers::method, "", qpack_token::method);
-    h.set_value(http3_headers::scheme, "https", qpack_token::scheme);
-    h.set_value(http3_headers::authority, "", qpack_token::authority);
-    h.set_value(http3_headers::path, "", qpack_token::path);
+    set_role(connection_role::client);
   }
 
   // Fill the request line (method, authority, path) on `headers`, leaving any
   // other fields untouched. A free-standing helper so a caller can configure
   // the headers however it likes; the pseudo-headers are placeholders the
   // constructor already added, so this just sets their values.
-  static void configure_request(http3_headers& headers,
-      std::string_view method, std::string_view authority,
-      std::string_view path) {
-    headers.set_value(http3_headers::method, method, qpack_token::method);
+  static bool configure_request(http3_headers& headers, http_method method,
+      std::string_view path, std::string_view authority) {
+    if (method == http_method::invalid || path.empty())
+      return headers.clear() && false;
+
+    headers.set_value(http3_headers::method, strings::enum_as_string(method),
+        qpack_token::method);
     headers.set_value(http3_headers::authority, authority,
         qpack_token::authority);
     headers.set_value(http3_headers::path, path, qpack_token::path);
-  }
-
-  // The outbound body to send (append chunks before `add_stream`) and the
-  // accumulated inbound body (read from the completion callback).
-  [[nodiscard]] auto& send_queue(this auto& self) noexcept {
-    return self.send_queue_;
-  }
-  [[nodiscard]] auto& receive_queue(this auto& self) noexcept {
-    return self.receive_queue_;
+    return true;
   }
 
   [[nodiscard]] bool on_added() override {
     return router()->submit_request(stream_id(), request_headers(),
-        send_queue_.appended() != 0);
-  }
-
-  // Vend up to `max_vecs` of the queue's unsent segments, then mark exactly
-  // those bytes consumed so the next pull resumes past them. eof once the
-  // capped span reaches the last unsent segment.
-  [[nodiscard]] body_vecs on_send_data_ready(size_t max_vecs) override {
-    const auto all = send_queue_.unused();
-    const auto iov = all.first(std::min(all.size(), max_vecs));
-    send_queue_.consume(iov_queue<>::iov_byte_count(iov));
-    return {.iov = iov, .eof = iov.size() == all.size()};
-  }
-
-  [[nodiscard]] bool on_recv_data(std::span<const uint8_t> data) override {
-    receive_queue_.append(std::vector<uint8_t>(data.begin(), data.end()));
-    return true;
+        send_queue().appended());
   }
 
   [[nodiscard]] bool on_close(h3_error_code app_error_code) override {
@@ -117,8 +91,6 @@ public:
 
 private:
   completion_callback on_complete_;
-  iov_queue<> send_queue_;
-  iov_queue<> receive_queue_;
 };
 
 #pragma endregion

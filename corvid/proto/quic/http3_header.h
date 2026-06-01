@@ -182,6 +182,51 @@ struct http3_field {
   operator http3_field_view() const noexcept { return as_view(); }
 };
 
+// The HTTP/3 methods, for use in the `:method` pseudo-header.
+enum class http_method : uint8_t {
+  invalid,
+  ACL,
+  BASELINE_CONTROL,
+  BIND,
+  CHECKIN,
+  CHECKOUT,
+  CONNECT,
+  COPY,
+  DELETE,
+  GET,
+  HEAD,
+  LABEL,
+  LINK,
+  LOCK,
+  MERGE,
+  MKACTIVITY,
+  MKCALENDAR,
+  MKCOL,
+  MKREDIRECTREF,
+  MKWORKSPACE,
+  MOVE,
+  OPTIONS,
+  ORDERPATCH,
+  PATCH,
+  POST,
+  PRI,
+  PROPFIND,
+  PROPPATCH,
+  PUT,
+  QUERY,
+  REBIND,
+  REPORT,
+  SEARCH,
+  TRACE,
+  UNBIND,
+  UNCHECKOUT,
+  UNLINK,
+  UNLOCK,
+  UPDATE,
+  UPDATEREDIRECTREF,
+  VERSION_CONTROL
+};
+
 }}} // namespace corvid::proto::quic
 
 template<>
@@ -202,6 +247,18 @@ constexpr inline auto
     corvid::enums::registry::enum_spec_v<corvid::proto::quic::stream_chunk> =
         corvid::enums::sequence::make_sequence_enum_spec<
             corvid::proto::quic::stream_chunk, "more, fin">();
+
+template<>
+constexpr inline auto corvid::enums::registry::enum_spec_v<
+    corvid::proto::quic::http_method> =
+    corvid::enums::sequence::make_sequence_enum_spec<
+        corvid::proto::quic::http_method,
+        "invalid, ACL, BASELINE-CONTROL, BIND, CHECKIN, CHECKOUT, CONNECT, "
+        "COPY, DELETE, GET, HEAD, LABEL, LINK, LOCK, MERGE, MKACTIVITY, "
+        "MKCALENDAR, MKCOL, MKREDIRECTREF, MKWORKSPACE, MOVE, OPTIONS, "
+        "ORDERPATCH, PATCH, POST, PRI, PROPFIND, PROPPATCH, PUT, QUERY, "
+        "REBIND, REPORT, SEARCH, TRACE, UNBIND, UNCHECKOUT, UNLINK, "
+        "UNLOCK, UPDATE, UPDATEREDIRECTREF, VERSION-CONTROL">();
 
 namespace corvid { inline namespace proto { namespace quic {
 #pragma region http3_headers
@@ -335,10 +392,11 @@ public:
   }
 
   // Remove all fields.
-  void clear() noexcept {
+  bool clear() noexcept {
     fields_.clear();
     fields_.reserve(32);
     chunk_fin_ = stream_chunk::more;
+    return true;
   }
 
   // Reserve space for at least `capacity` fields.
