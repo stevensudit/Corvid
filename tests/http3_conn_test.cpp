@@ -20,6 +20,7 @@
 #include "catch2_main.h"
 
 using namespace corvid::proto::quic;
+using namespace corvid::proto::quic::http3_literals;
 
 // NOLINTBEGIN(readability-function-cognitive-complexity)
 
@@ -178,35 +179,33 @@ TEST_CASE("http3_conn round-trips a request and response", "[http3]") {
 
   // Client -> server: a header-only GET request (ends the stream).
   const std::array request{
-      http3_field_view{http3_headers::method, "GET"},
-      http3_field_view{http3_headers::scheme, "https"},
-      http3_field_view{http3_headers::authority, "example.com"},
-      http3_field_view{http3_headers::path, "/"},
+      http3_field_view{":method", "GET"_method},
+      http3_field_view{":scheme", "https"},
+      http3_field_view{":authority", "example.com"},
+      http3_field_view{":path", "/"},
   };
   REQUIRE(client.submit_request(request_stream, request));
   pump(client, server);
 
   CHECK(server_handlers.headers_ended);
   CHECK(server_handlers.stream_ended);
-  CHECK(has_field(server_handlers.headers, http3_headers::method, "GET"));
-  CHECK(has_field(server_handlers.headers, http3_headers::scheme, "https"));
-  CHECK(has_field(server_handlers.headers, http3_headers::authority,
-      "example.com"));
-  CHECK(has_field(server_handlers.headers, http3_headers::path, "/"));
+  CHECK(has_field(server_handlers.headers, ":method", "GET"_method));
+  CHECK(has_field(server_handlers.headers, ":scheme", "https"));
+  CHECK(has_field(server_handlers.headers, ":authority", "example.com"));
+  CHECK(has_field(server_handlers.headers, ":path", "/"));
 
   // Server -> client: a header-only 200 response (ends the stream).
   const std::array response{
-      http3_field_view{http3_headers::status, "200"},
-      http3_field_view{http3_headers::content_length, "0"},
+      http3_field_view{":status", "200"},
+      http3_field_view{"content-length", "0"},
   };
   REQUIRE(server.submit_response(request_stream, response));
   pump(server, client);
 
   CHECK(client_handlers.headers_ended);
   CHECK(client_handlers.stream_ended);
-  CHECK(has_field(client_handlers.headers, http3_headers::status, "200"));
-  CHECK(
-      has_field(client_handlers.headers, http3_headers::content_length, "0"));
+  CHECK(has_field(client_handlers.headers, ":status", "200"));
+  CHECK(has_field(client_handlers.headers, "content-length", "0"));
 }
 
 TEST_CASE("http3_conn blocks and unblocks stream output", "[http3]") {
@@ -266,10 +265,10 @@ TEST_CASE("http3_conn set_stream_user_data round-trips to upcalls",
   CHECK_FALSE(client.set_stream_user_data(request_stream, &marker));
 
   const std::array request{
-      http3_field_view{http3_headers::method, "GET"},
-      http3_field_view{http3_headers::scheme, "https"},
-      http3_field_view{http3_headers::authority, "example.com"},
-      http3_field_view{http3_headers::path, "/"},
+      http3_field_view{":method", "GET"_method},
+      http3_field_view{":scheme", "https"},
+      http3_field_view{":authority", "example.com"},
+      http3_field_view{":path", "/"},
   };
   REQUIRE(client.submit_request(request_stream, request));
   pump(client, server);
@@ -280,8 +279,8 @@ TEST_CASE("http3_conn set_stream_user_data round-trips to upcalls",
   // The server's response drives the client's recv-header upcalls, which must
   // carry the pointer we just set.
   const std::array response{
-      http3_field_view{http3_headers::status, "200"},
-      http3_field_view{http3_headers::content_length, "0"},
+      http3_field_view{":status", "200"},
+      http3_field_view{"content-length", "0"},
   };
   REQUIRE(server.submit_response(request_stream, response));
   pump(server, client);

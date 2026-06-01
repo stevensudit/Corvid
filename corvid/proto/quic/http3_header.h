@@ -265,13 +265,15 @@ namespace corvid { inline namespace proto { namespace quic {
 
 #pragma region header_name
 
-// String view guaranteed to have a valid value.
-using header_name = enums::sequence::sequential_enum_string_view<qpack_token>;
+// Compile-time checked header name, with associated QPACK token if it's a
+// known name.
+using header_name = enums::sequence::enum_string_view<qpack_token>;
+using header_name_and_enum =
+    enums::sequence::enum_value_string_view<qpack_token>;
 
 namespace http3_literals {
-
 // HTTP/3 Header field literal.
-consteval header_name operator""_h3h(const char* s, std::size_t n) {
+consteval header_name operator""_header(const char* s, std::size_t n) {
   return header_name{s, n};
 }
 
@@ -280,10 +282,12 @@ consteval header_name operator""_h3h(const char* s, std::size_t n) {
 #pragma endregion
 #pragma region method_name
 
-using method_name = enums::sequence::sequential_enum_string_view<http_method>;
+// Compile-time checked HTTP method name, for use in the `:method`
+// pseudo-header.
+using method_name = enums::sequence::enum_string_view<http_method>;
 
 namespace http3_literals {
-consteval method_name operator""_h3m(const char* s, std::size_t n) {
+consteval method_name operator""_method(const char* s, std::size_t n) {
   return method_name{s, n};
 }
 } // namespace http3_literals
@@ -314,7 +318,7 @@ struct http3_field {
   nv_flags flags{nv_flags::none};
 
   [[nodiscard]] auto as_view() const noexcept {
-    return http3_field_view{header_name::silent_force(name), value, flags};
+    return http3_field_view{header_name::force(name), value, flags};
   }
   operator http3_field_view() const noexcept { return as_view(); }
 };
@@ -343,59 +347,44 @@ public:
     chunk_fin_ = chunk_fin;
   }
 
-#if 0
-  consteval size_t
-  add(header_name name, std::string value, nv_flags flags = nv_flags::none) {
-    // TODO: Use `as_enum`, which is consteval to get the token.
-    // This means that this method would have to be consteval, which is fine
-    // because it's intended for places where we're hardcoding the values, like
-    // adding ":method". However the emplace part of the function is obviously
-    // runtime only, so the question is whether we can do the lookups at
-    // compile time and then pass it to the runtime code.
-    const auto token = *name.as_enum();
-    fields_.emplace_back(token, std::string{name}, value, flags);
+  // Add a field with name and token. Returns its index.
+  size_t add(header_name_and_enum key, std::string value,
+      nv_flags flags = nv_flags::none) {
+    const auto token = key.as_enum();
+    const auto name = std::string_view{key};
+    fields_.emplace_back(token, std::string{name}, std::move(value), flags);
     return fields_.size() - 1;
   }
-#endif
 
-  // Add a field with token. Returns its index (valid until the next
-  // mutation).
+  // Add a field with token. Returns its index.
   size_t add(const http3_field_view& field, qpack_token token) {
     fields_.emplace_back(token, std::string{field.name},
         std::string{field.value}, field.flags);
     return fields_.size() - 1;
   }
 
-  // Add a field, looking up its token from the name. Returns its index
-  // (valid until the next mutation).
+  // Add a field, looking up its token from the name. Returns its index.
   size_t add(const http3_field_view& field) {
     return add(field, token_from_name(field.name));
   }
 
-  // Set the field `value` (and `flags`): modify the first existing field
-  // with that name if one is present, otherwise add a new one. If `token` is
-  // specified, uses that for search; otherwise, uses `name`. Returns index.
-  size_t set_value(header_name name, std::string_view value,
-      qpack_token token = qpack_token::unknown,
+  // Add a field. Returns its index.
+  size_t add(const http3_field& field) { return add(field, field.token); }
+
+  // Set the field `value` (and `flags`): modify the first existing field with
+  // that name if one is present, otherwise add a new one. Returns index.
+  size_t set_value(header_name_and_enum key, std::string_view value,
       nv_flags flags = nv_flags::none) {
-    size_t ndx;
-    if (token != qpack_token::unknown)
-      ndx = find_next(token, 0);
-    else
-      ndx = find_next(name, 0);
-    if (ndx != npos) {
-      auto& field = fields_[ndx];
-      field.value = std::string{value};
-      field.flags |= flags;
-    } else {
-      if (token == qpack_token::unknown) token = token_from_name(name);
-      ndx = add({name, value, flags}, token);
-    }
+    size_t ndx = find_next(key, 0);
+    if (ndx == npos) return add({key.as_name(), value, flags}, key.as_enum());
+    auto& field = fields_[ndx];
+    field.value = std::string{value};
+    field.flags |= flags;
     return ndx;
   }
 
   // Find the first field with the given name or token, or `nullptr` if none.
-  auto find(this auto& self, const auto& key) noexcept
+  auto find(this auto& self, header_name_and_enum key) noexcept
       -> decltype(self.fields_.data()) {
     const auto ndx = self.find_next(key, 0);
     return ndx != npos ? &self.fields_[ndx] : nullptr;
@@ -403,7 +392,7 @@ public:
 
   // Find the unique field with the given name or token, or `nullptr` if none
   // or more than one.
-  auto find_unique(this auto& self, const auto& key) noexcept
+  auto find_unique(this auto& self, header_name_and_enum key) noexcept
       -> decltype(self.fields_.data()) {
     const auto ndx = self.find_next(key, 0);
     if (ndx == npos) return nullptr;
@@ -412,7 +401,7 @@ public:
   }
 
   // Count the number of fields with the given name or token.
-  [[nodiscard]] size_t count(const auto& key) const noexcept {
+  [[nodiscard]] size_t count(header_name_and_enum key) const noexcept {
     size_t count{0};
     for (size_t ndx = find_next(key, 0); ndx != npos;
         ndx = find_next(key, ndx + 1))
@@ -423,15 +412,14 @@ public:
   // Find index of the next field with the given name or token, starting with
   // `start`, or `npos` if none.
   [[nodiscard]] size_t
-  find_next(const auto& key, size_t start) const noexcept {
-    for (size_t ndx = start; ndx < fields_.size(); ++ndx) {
-      if constexpr (std::is_same_v<std::remove_cvref_t<decltype(key)>,
-                        qpack_token>)
-      {
-        if (fields_[ndx].token == key) return ndx;
-      } else {
-        if (fields_[ndx].name == *key) return ndx;
-      }
+  find_next(header_name_and_enum key, size_t start) const noexcept {
+    if (auto token = key.as_enum(); token != qpack_token::unknown) {
+      for (size_t ndx = start; ndx < fields_.size(); ++ndx)
+        if (fields_[ndx].token == token) return ndx;
+    } else {
+      const auto name = std::string_view{key};
+      for (size_t ndx = start; ndx < fields_.size(); ++ndx)
+        if (fields_[ndx].name == name) return ndx;
     }
     return npos;
   }
@@ -497,8 +485,8 @@ public:
     // Invert the registered names so this lookup shares their single source
     // of truth. nghttp3 numbers the common QPACK tokens up through 98 and a
     // second block (host through priority) at 1000-1008, with a large unused
-    // gap between, so walk only [0, 100) and [1000, 1009) to skip the gap and
-    // map each named value's view back to its token.
+    // gap between, so walk only [0, 100) and [1000, 1009) to skip the gap
+    // and map each named value's view back to its token.
     static const auto tokens = [] {
       std::unordered_map<std::string_view, qpack_token> m;
       m.reserve(64); // Approximate; ~61 named tokens, bucket count rounds up.

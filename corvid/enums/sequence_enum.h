@@ -328,7 +328,7 @@ enum_find_named_enum(std::string_view sv) noexcept {
 //
 // Example:
 //
-//  using color_name = sequential_enum_string_view<color>;
+//  using color_name = enum_string_view<color>;
 //
 //  color_name red{"red"}; // OK
 //  color_name blue{"blue"}; // OK
@@ -342,41 +342,40 @@ enum_find_named_enum(std::string_view sv) noexcept {
 //  paint{"reed"}; // Compile error: not a registered name
 //  paint{color::red}; // OK
 //
-//  consteval color_name operator""_h3h(const char* s, std::size_t n) {
+//  consteval color_name operator""_color(const char* s, std::size_t n) {
 //   return color_name{s, n};
 //  }
 //
-//  auto c = "red"_h3h; // OK
-//  auto d = "reed"_h3h; // Compile error: not a registered name
+//  auto c = "red"_color; // OK
+//  auto d = "reed"_color; // Compile error: not a registered name
 template<SequentialEnum E>
-class sequential_enum_string_view {
+class enum_string_view {
 public:
   // Literal.
   template<size_t N>
-  consteval sequential_enum_string_view(const char (&s)[N])
-      : sequential_enum_string_view(s, N - 1) {}
+  consteval enum_string_view(const char (&s)[N])
+      : enum_string_view(s, N - 1) {}
 
   // From pointer + length (used by the literal ctor above and by UDLs).
-  consteval sequential_enum_string_view(const char* s, size_t n)
+  consteval enum_string_view(const char* s, size_t n)
       : sv_(enum_find_named<E>({s, n})) {
     if (sv_.empty()) throw "not a registered name for this enum";
   }
 
   // From the enum value itself.
-  constexpr sequential_enum_string_view(E e) : sv_(enum_as_view(e)) {
+  constexpr enum_string_view(E e) : sv_(enum_as_view(e)) {
     assert(sv_ != "(unknown)");
   }
 
-  // Safely force at runtime.
-  static constexpr sequential_enum_string_view force(std::string_view sv) {
+  // Safely force conversion at runtime.
+  static constexpr auto convert(std::string_view sv) {
     assert(enum_find_named<E>(sv) == sv);
-    return sequential_enum_string_view(sv, force_tag{});
+    return enum_string_view(sv, force_tag{});
   }
 
-  // Unsafely force at runtime.
-  static constexpr sequential_enum_string_view silent_force(
-      std::string_view sv) {
-    return sequential_enum_string_view(sv, force_tag{});
+  // Unsafely force conversion at runtime.
+  static constexpr auto force(std::string_view sv) {
+    return enum_string_view(sv, force_tag{});
   }
 
   // Look up enum at compile time.
@@ -393,13 +392,59 @@ public:
 
   [[nodiscard]] constexpr auto operator->() const noexcept { return &sv_; }
 
-private:
+protected:
   struct force_tag {};
-  constexpr sequential_enum_string_view(std::string_view sv, force_tag)
-      : sv_(sv) {}
+  constexpr enum_string_view(std::string_view sv, force_tag) : sv_(sv) {}
 
 private:
   std::string_view sv_;
+};
+
+// Extends `enum_string_view<E>` with the `E` value it names, both
+// resolved at compile time by the same constructors. Use it where a call site
+// needs the validated name and its enum together (e.g. to skip a runtime
+// name->enum lookup), without adding a field to the bare string view.
+template<SequentialEnum E>
+class enum_value_string_view: enum_string_view<E> {
+  using force_tag = typename enum_string_view<E>::force_tag;
+
+public:
+  using base = enum_string_view<E>;
+
+  // Literal.
+  template<size_t N>
+  consteval enum_value_string_view(const char (&s)[N])
+      : base{s}, enum_{base{s}.as_enum()} {}
+
+  // From pointer + length (e.g. a UDL).
+  consteval enum_value_string_view(const char* s, size_t n)
+      : base{s, n}, enum_{base{s, n}.as_enum()} {}
+
+  // From the enum value itself.
+  constexpr enum_value_string_view(E e) : base{e}, enum_{e} {}
+
+  // Safely force conversion at runtime.
+  static constexpr auto convert(std::string_view sv, E e) {
+    return enum_value_string_view{base::convert(sv), e, force_tag{}};
+  }
+
+  // Unsafely force conversion at runtime.
+  static constexpr auto force(std::string_view sv, E e) {
+    return enum_value_string_view{base::force(sv), e, force_tag{}};
+  }
+
+  [[nodiscard]] constexpr operator std::string_view() const noexcept {
+    return base::operator std::string_view();
+  }
+  [[nodiscard]] constexpr base as_name() const noexcept { return *this; }
+  [[nodiscard]] constexpr E as_enum() const noexcept { return enum_; }
+
+protected:
+  constexpr enum_value_string_view(std::string_view sv, E e, force_tag f)
+      : base{sv, f}, enum_{e} {}
+
+private:
+  E enum_;
 };
 
 // Length of range.

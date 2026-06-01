@@ -65,15 +65,13 @@ public:
   // other fields untouched. A free-standing helper so a caller can configure
   // the headers however it likes; the pseudo-headers are placeholders the
   // constructor already added, so this just sets their values.
-  static bool configure_request(http3_headers& headers, http_method method,
+  static bool configure_request(http3_headers& headers, method_name method,
       std::string_view path, std::string_view authority) {
-    if (method == http_method::invalid || path.empty())
-      return headers.clear() && false;
+    if (path.empty()) return headers.clear() && false;
 
-    headers.set_value(":method", strings::enum_as_string(method),
-        qpack_token::method);
-    headers.set_value(":authority", authority, qpack_token::authority);
-    headers.set_value(":path", path, qpack_token::path);
+    headers.set_value(":method", method);
+    headers.set_value(":authority", authority);
+    headers.set_value(":path", path);
     return true;
   }
 

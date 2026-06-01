@@ -15,6 +15,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#define EXCEPTION_FIREWALLS_NO_ASSERT 1
+
 #include "../corvid/infra.h"
 #include "catch2_main.h"
 

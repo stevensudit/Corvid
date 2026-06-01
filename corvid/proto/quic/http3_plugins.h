@@ -157,8 +157,8 @@ public:
       std::string_view name, std::string_view value, nv_flags flags) {
     if (inbound_headers_->size() >= http3_conn::max_submit_fields)
       return false;
-    inbound_headers_->add({header_name::silent_force(name), value, flags},
-        token);
+    inbound_headers_->add(header_name_and_enum::force(name, token),
+        std::string{value}, flags);
     return true;
   }
 
@@ -183,10 +183,11 @@ public:
 
   // One decoded trailer field, same contract as `on_recv_header`.
   [[nodiscard]] virtual bool on_recv_trailer(qpack_token token,
-      header_name name, std::string_view value, nv_flags flags) {
+      std::string_view name, std::string_view value, nv_flags flags) {
     if (inbound_trailers_->size() >= http3_conn::max_submit_fields)
       return false;
-    inbound_trailers_->add({name, value, flags}, token);
+    inbound_trailers_->add(header_name_and_enum::force(name, token),
+        std::string{value}, flags);
     return true;
   }
 
@@ -497,8 +498,8 @@ public:
       std::string_view name, std::string_view value, nv_flags flags,
       void* stream_user_data) override {
     auto* stream = to_stream(stream_user_data);
-    return stream ? stream->on_recv_trailer(token,
-                        header_name::silent_force(name), value, flags)
+    return stream ? stream->on_recv_trailer(token, header_name::force(name),
+                        value, flags)
                   : true;
   }
 

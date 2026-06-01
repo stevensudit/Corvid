@@ -965,13 +965,12 @@ TEST_CASE("EnumFindNamed", "[SequentialEnumTest]") {
 
 // Shows that a bare literal or enum value is validated by the parameter type,
 // with no ceremony at the call site.
-constexpr std::string_view take_tiger(
-    sequential_enum_string_view<tiger_pick> s) {
+constexpr std::string_view take_tiger(enum_string_view<tiger_pick> s) {
   return *s;
 }
 
 TEST_CASE("EnumStringView", "[SequentialEnumTest]") {
-  using tiger_sv = sequential_enum_string_view<tiger_pick>;
+  using tiger_sv = enum_string_view<tiger_pick>;
 
   // Bare string literal, validated at compile time (array-ref ctor). Acts as
   // the matching view through `operator*` and the implicit conversion.
@@ -1006,14 +1005,14 @@ TEST_CASE("EnumStringView", "[SequentialEnumTest]") {
   // must outlive the wrapper), not the interned name.
   if (true) {
     std::string_view name = "meany"; // A runtime value.
+    CHECK(*tiger_sv::convert(name) == "meany");
     CHECK(*tiger_sv::force(name) == "meany");
-    CHECK(*tiger_sv::silent_force(name) == "meany");
   }
   // `silent_force` does no validation, so it wraps an unregistered name
   // verbatim. (`force` would assert in a debug build.)
   if (true) {
     std::string_view bogus = "notaname";
-    auto s = tiger_sv::silent_force(bogus);
+    auto s = tiger_sv::force(bogus);
     CHECK(*s == "notaname");
     CHECK(enum_find_named<tiger_pick>(*s).empty());
   }
@@ -1029,6 +1028,54 @@ TEST_CASE("EnumStringView", "[SequentialEnumTest]") {
   // * constexpr tiger_sv bad_name{"mooe"};
   // * constexpr tiger_sv bad_value{tiger_pick(7)};
   // * (void)take_tiger("notaname");
+}
+
+#pragma endregion
+#pragma region StringViewAndValue
+
+// Shows that a bare literal or enum value carries both name and enum to the
+// parameter, validated at compile time.
+constexpr tiger_pick take_pair(enum_value_string_view<tiger_pick> ne) {
+  return ne.as_enum();
+}
+
+TEST_CASE("StringViewAndValue", "[SequentialEnumTest]") {
+  using tiger_nv = enum_value_string_view<tiger_pick>;
+
+  // From a literal: carries both the validated name and its enum, resolved at
+  // compile time.
+  if (true) {
+    constexpr tiger_nv nv{"meany"};
+    static_assert(std::string_view{nv} == "meany");
+    static_assert(nv.as_enum() == tiger_pick::meany);
+    CHECK(std::string_view{nv} == "meany");
+    CHECK(nv.as_enum() == tiger_pick::meany);
+  }
+  // Pointer-and-length ctor: what a string-literal UDL feeds it.
+  if (true) {
+    constexpr tiger_nv nv{"moe", 3};
+    static_assert(nv.as_enum() == tiger_pick::moe);
+    CHECK(std::string_view{nv} == "moe");
+  }
+  // From the enum value (constexpr ctor, so it also works at runtime).
+  if (true) {
+    constexpr tiger_nv nv{tiger_pick::miny};
+    static_assert(std::string_view{nv} == "miny");
+    static_assert(nv.as_enum() == tiger_pick::miny);
+    CHECK(nv.as_enum() == tiger_pick::miny);
+  }
+  // A bare literal and an enum value both convert implicitly at the parameter.
+  if (true) {
+    static_assert(take_pair("eeny") == tiger_pick::eeny);
+    static_assert(take_pair(tiger_pick::moe) == tiger_pick::moe);
+    CHECK(take_pair("miny") == tiger_pick::miny);
+    CHECK(take_pair(tiger_pick::eeny) == tiger_pick::eeny);
+  }
+
+  // The following correctly fail to compile, with the same validation as the
+  // underlying view (unregistered name, or enum value with no name):
+  // * constexpr tiger_nv bad_name{"mooe"};
+  // * constexpr tiger_nv bad_value{tiger_pick(7)};
 }
 
 #pragma endregion

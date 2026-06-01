@@ -58,13 +58,12 @@ struct capture_stream: http3_stream {
 } // namespace
 
 TEST_CASE("Http3StreamHeaders", "[http3]") {
-  using H = http3_headers;
   capture_stream s{a_stream_id};
   CHECK(s.stream_id() == a_stream_id);
 
   SECTION("a section accumulates and is delivered on end") {
     CHECK(s.on_begin_headers());
-    CHECK(s.on_recv_header(qpack_token::method, H::method, "GET",
+    CHECK(s.on_recv_header(qpack_token::method, ":method"_header, "GET"_method,
         nv_flags::none));
     CHECK(s.on_recv_header(qpack_token::unknown, "x-foo", "bar",
         nv_flags::never_index));
@@ -86,10 +85,10 @@ TEST_CASE("Http3StreamHeaders", "[http3]") {
 
   SECTION("on_begin_headers clears any prior accumulation") {
     CHECK(s.on_begin_headers());
-    CHECK(s.on_recv_header(qpack_token::method, H::method, "GET",
+    CHECK(s.on_recv_header(qpack_token::method, ":method"_header, "GET"_method,
         nv_flags::none));
     CHECK(s.on_begin_headers()); // resets before the real section
-    CHECK(s.on_recv_header(qpack_token::status, H::status, "200",
+    CHECK(s.on_recv_header(qpack_token::status, ":status"_header, "200",
         nv_flags::none));
     CHECK(s.on_end_headers(stream_chunk::more));
 
@@ -109,7 +108,6 @@ TEST_CASE("Http3StreamHeaders", "[http3]") {
 }
 
 TEST_CASE("Http3StreamTrailers", "[http3]") {
-  using H = http3_headers;
   capture_stream s{a_stream_id};
 
   SECTION("a trailer section accumulates and is delivered on end") {
@@ -129,7 +127,7 @@ TEST_CASE("Http3StreamTrailers", "[http3]") {
   SECTION("headers and trailers are independent sections") {
     // Leading header section (no FIN: a body follows).
     CHECK(s.on_begin_headers());
-    CHECK(s.on_recv_header(qpack_token::status, H::status, "200",
+    CHECK(s.on_recv_header(qpack_token::status, ":status"_header, "200",
         nv_flags::none));
     CHECK(s.on_end_headers(stream_chunk::more));
 
@@ -162,7 +160,7 @@ TEST_CASE("Http3StreamDefaults", "[http3]") {
   http3_stream s{a_stream_id};
   const std::array<uint8_t, 1> byte{'x'};
   CHECK(s.on_begin_headers());
-  CHECK(s.on_recv_header(qpack_token::method, http3_headers::method, "GET",
+  CHECK(s.on_recv_header(qpack_token::method, ":method"_header, "GET"_method,
       nv_flags::none));
   CHECK(s.on_end_headers(stream_chunk::more));
   CHECK(s.on_recv_data(byte));

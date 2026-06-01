@@ -73,6 +73,9 @@ void do_log_exception(const format_with_loc<const char*, const char*>& msg,
   catch (...) {
     log::terminate();
   }
+#ifndef EXCEPTION_FIREWALLS_NO_ASSERT
+  assert("Logged exception" && false);
+#endif
   if constexpr (policy == rethrow_policy::attempt)
     if (std::uncaught_exceptions() == 0) throw;
 }
