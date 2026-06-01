@@ -100,7 +100,7 @@ public:
   // A client populates the request pair and submits it, and the peer's reply
   // lands in the response pair; a server is the mirror. Inbound fields
   // accumulate into whichever pair this stream is oriented toward (see
-  // `orient_as_client`).
+  // `set_role`).
   [[nodiscard]] auto& request_headers(this auto& self) noexcept {
     return self.request_headers_;
   }

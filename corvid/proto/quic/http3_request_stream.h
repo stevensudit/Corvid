@@ -34,9 +34,9 @@ namespace corvid { inline namespace proto { namespace quic {
 // A client request stream, usable two ways.
 //
 // Without inheritance: construct it with a completion callback, fill in the
-// request line via `set_request` (or by editing `request_headers()` directly,
-// so any extra fields are yours to add), optionally append body chunks to
-// `send_queue()`, and hand it to a plain `http3_router::add_stream`.
+// request line via `configure_request` (or by editing `request_headers()`
+// directly, so any extra fields are yours to add), optionally append body
+// chunks to `send_queue()`, and hand it to a plain `http3_router::add_stream`.
 //
 // With inheritance: override `on_send_data_ready` to stream or generate the
 // body on the fly, `on_recv_data` to consume the response body differently, or

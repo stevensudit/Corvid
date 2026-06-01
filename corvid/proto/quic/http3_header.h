@@ -483,7 +483,7 @@ public:
 #pragma region Data members
 private:
   std::vector<http3_field> fields_;
-  stream_chunk chunk_fin_;
+  stream_chunk chunk_fin_{stream_chunk::more};
 
 #pragma endregion
 };

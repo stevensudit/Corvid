@@ -70,12 +70,14 @@ class between them:
   through `quic_conn::open_bidi_stream` and pairs each new stream with an
   nghttp3 request submission on the client side. Drives the outbound drain via
   its `drain(now)` hook.
-- **Application handler** (above the upper plugin) is the HTTP/3 user.
-  Operates at the HTTP level: start request, submit response, "body is
-  available." Supplies body bytes through `nghttp3_data_reader::read_data`
-  (must retain bytes until ngtcp2 reports them acked; may return
-  `NGHTTP3_ERR_WOULDBLOCK` and later call `nghttp3_conn_resume_stream`).
-  Touches neither ngtcp2 nor `quic_conn`. nghttp3 -- not the handler --
+- **Per-stream handler** is the HTTP/3 user: a concrete `http3_stream` the
+  router owns and demuxes each stream's events to (`request_stream` on the
+  client, a server `Stream` minted by `create_inbound_stream`). Operates at the
+  HTTP level through the `http3_stream` hooks: accumulates inbound headers /
+  trailers / body, and produces outbound body bytes from its `send_queue` via
+  `on_send_data_ready`, which the single `read_data` reader `http3_conn`
+  installs pulls from (bytes must stay retained until ngtcp2 reports them
+  acked). Touches neither ngtcp2 nor `quic_conn`. nghttp3, not the handler,
   chooses stream write order (control streams first, then HTTP priority).
 
 ### Hard invariants
@@ -114,21 +116,21 @@ The plugin's drain orchestrates the nghttp3 -> ngtcp2 hand-off:
 ### Per-stream state via `stream_user_data`
 
 Every per-stream `http3_conn_handlers` upcall carries nghttp3's opaque `void*
-stream_user_data` (the connection-level `on_recv_settings` does not). It is
-null today: `http3_conn` exposes no setter yet, so nothing populates it, and
-the upcalls forward it only so adopting it later needs no signature change.
+stream_user_data` (the connection-level `on_recv_settings` does not).
+`http3_router` carries the stream's `http3_stream*` there: `ensure_stream`
+resolves the object once on the first `on_begin_headers` (the one a client
+added at submit time, or a server one minted via `create_inbound_stream`) and
+stashes it through `http3_conn::set_stream_user_data`; every later per-stream
+upcall recovers it with a `to_stream` cast instead of a per-call stream-id map
+lookup. `submit_request` also passes the pointer at submission time for
+body-bearing requests, so the body and response upcalls route back before the
+first `on_begin_headers`.
 
-Once a request needs per-stream state richer than the fake-GET canned response
-(a request/response object holding the accumulated method / path / headers, a
-body source, decode progress), the plugin allocates one such object per stream
-and registers it as that stream's user data, so each upcall arrives with a
-direct back-pointer instead of a per-call stream-id map lookup. This is the
-idiomatic nghttp3 design and needs the still-unwrapped primitives
-`set_stream_user_data` (and the `submit_request` / `submit_response` calls,
-which take the pointer at submission time). Ownership stays with the plugin;
-`stream_user_data` is a non-owning back-pointer. nghttp3 fires no further
-callbacks after `close_stream`, so the natural lifetime is allocate at
-stream / request start, free in `on_stream_close`.
+Ownership stays with the router: `streams_` holds the
+`unique_ptr<http3_stream>` keyed by stream id, and `stream_user_data` is a
+non-owning back-pointer into it. nghttp3 fires no further callbacks after a
+stream closes, so the lifetime is allocate at stream / request start, free in
+`on_h3_stream_close`.
 
 ### Dispatch choice: virtual base, not template, not `std::function`
 
@@ -381,8 +383,11 @@ needs it, or if we want a watchdog beneath ngtcp2's own timers.
   per-stream demux: it inherits both `quic_conn_handlers` and
   `http3_conn_handlers`, owns the `http3_conn` between them, forwards
   mechanically in both directions, and routes the per-stream HTTP/3 events to
-  `http3_stream` objects keyed by stream ID (so `http3_client` / `http3_server`
-  subclass it). The bridge forwarding is:
+  `http3_stream` objects keyed by stream ID. A server supplies its stream type
+  by overriding `create_inbound_stream` (the `http3_server_router<Stream>`
+  template does this for a fixed `Stream`); a client builds an `http3_stream`
+  (e.g. `request_stream`) and submits it via `add_stream`. The bridge
+  forwarding is:
   Transport to HTTP/3: `on_recv_stream_data` -> `read_stream` plus QUIC
   flow-control credit, `on_acked_stream_data_offset` -> `add_ack_offset`,
   `on_stream_close` -> `close_stream`, `on_stream_reset` ->
@@ -406,12 +411,31 @@ needs it, or if we want a watchdog beneath ngtcp2's own timers.
   `quic_dgram_protocol<http3_router>` on one `iou_loop_runner` and confirms the
   handshake completes and the client decodes the server's SETTINGS, exercising
   stream opening, both drain directions, and the read path end to end.
-- **[planned] HTTP/3 fake GET.** First HTTP/3 milestone. Decodes a
-  request HEADERS frame and emits a canned response HEADERS + DATA (not
-  a stream echo: the request body, if any, is ignored). Verifies
-  stream multiplexing, flow control, and HEADERS / QPACK encoding
-  round-trip end-to-end. Tested against `curl --http3` and `nghttp3`'s
-  reference client.
+- **[done] HTTP/3 request/response stream layer.** `http3_stream` grew from a
+  thin per-stream hook into a full transaction object: it holds the request and
+  response header/trailer pairs, a send and a receive `iov_queue`, and a
+  `connection_role` (`set_role` orients which pair inbound fields land in and
+  seeds the pseudo-headers). The default hooks accumulate inbound headers /
+  trailers / body and serve outbound body bytes from `send_queue` via
+  `on_send_data_ready` (the one `read_data` reader `http3_conn` installs pulls
+  from it). Per-stream demux uses nghttp3's `stream_user_data`: `ensure_stream`
+  stashes the `http3_stream*` via `set_stream_user_data` on the first
+  `on_begin_headers`, and later upcalls recover it with `to_stream`. Two ready
+  endpoints sit on top: `request_stream` (`http3_request_stream.h`), a client
+  request stream that submits itself in `on_added` and fires a completion
+  callback from `on_close`; and `http3_server_router<Stream>`, a server router
+  that mints a fixed `Stream` per inbound request. Covered by `http3_stream_test`
+  (headers / trailers / defaults) and `http3_conn_test` (request / response
+  round-trip, blocking, `set_stream_user_data` round-trip), plus a manual
+  interop client `notest_http3_client_test` (a hardwired `GET` against a live
+  public HTTP/3 server, built but not run by the sweep).
+- **[planned] HTTP/3 GET over the live router.** Close the remaining gap from
+  the stream layer to an automated end-to-end test: a server
+  `http3_server_router<Stream>` decoding a request and emitting a response
+  HEADERS + DATA, and a client `request_stream` reading it back, both over the
+  live `iou_dgram_router` (today's `quic_dgram_http3_test` stops at the SETTINGS
+  exchange). Then interop against `curl --http3` and `nghttp3`'s reference
+  client.
 - **[planned] HTTP/3 streaming bodies, trailers, server push (maybe).**
   Wire up request/response body streaming through nghttp3's data callbacks.
   Server push is RFC-permitted but deprecated in practice; treat as optional.

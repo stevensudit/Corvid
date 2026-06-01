@@ -143,6 +143,45 @@ TEST_CASE("Http3HeadersTokenNameRoundTrip", "[http3]") {
     CHECK(H::token_from_name(H::name_from_token(token)) == token);
 }
 
+TEST_CASE("Http3HeaderLiterals", "[http3]") {
+  // The `_header` literal validates the field name at compile time. It stores
+  // only the name; `as_enum` resolves the token by lookup, not from a stored
+  // value (carrying the token is what the `header_name_and_enum` child adds).
+  // An unregistered name is a compile error, so only the success path is
+  // testable here.
+  CHECK(std::string_view{"content-length"_header} == "content-length");
+  CHECK(("content-length"_header).as_enum() == qpack_token::content_length);
+  // Pseudo-headers keep their leading ':'.
+  CHECK(std::string_view{":authority"_header} == ":authority");
+  CHECK((":authority"_header).as_enum() == qpack_token::authority);
+
+  // The `_method` literal likewise validates the method name at compile time.
+  CHECK(std::string_view{"GET"_method} == "GET");
+  CHECK(("GET"_method).as_enum() == http_method::GET);
+  // Underscored enumerators spell as hyphenated names on the wire.
+  CHECK(("VERSION-CONTROL"_method).as_enum() == http_method::VERSION_CONTROL);
+}
+
+TEST_CASE("Http3FieldMake", "[http3]") {
+  SECTION("make derives the token from a known name") {
+    const auto f = http3_field::make(":status", "200");
+    CHECK(f.token == qpack_token::status);
+    CHECK(f.name == ":status");
+    CHECK(f.value == "200");
+    CHECK(f.flags == nv_flags::none);
+  }
+
+  SECTION("make carries flags and an unknown custom name") {
+    const auto key =
+        header_name_and_enum::force("x-custom", qpack_token::unknown);
+    const auto f = http3_field::make(key, "v", nv_flags::never_index);
+    CHECK(f.token == qpack_token::unknown);
+    CHECK(f.name == "x-custom");
+    CHECK(f.value == "v");
+    CHECK(f.flags == nv_flags::never_index);
+  }
+}
+
 TEST_CASE("Http3HeadersAdd", "[http3]") {
   http3_headers h;
   CHECK(h.empty());
@@ -165,6 +204,26 @@ TEST_CASE("Http3HeadersAdd", "[http3]") {
     CHECK(h.add(":path", "/") == 1);
     CHECK(h.add(":path", "/other") == 2);
     CHECK(h.size() == 3);
+  }
+
+  SECTION("add(http3_field) copies the whole field, token and all") {
+    const auto field =
+        http3_field::make("content-type", "text/plain", nv_flags::never_index);
+    CHECK(h.add(field) == 0);
+    const auto& f = h[0];
+    CHECK(f.token == qpack_token::content_type);
+    CHECK(f.name == "content-type");
+    CHECK(f.value == "text/plain");
+    CHECK(f.flags == nv_flags::never_index);
+  }
+
+  SECTION("add(http3_field) preserves an unknown token and custom name") {
+    const http3_field field{qpack_token::unknown, "x-trace-id", "abc",
+        nv_flags::none};
+    CHECK(h.add(field) == 0);
+    CHECK(h[0].token == qpack_token::unknown);
+    CHECK(h[0].name == "x-trace-id");
+    CHECK(h[0].value == "abc");
   }
 }
 
@@ -273,6 +332,25 @@ TEST_CASE("Http3HeadersFind", "[http3]") {
               qpack_token::unknown)) == nullptr); // none
     CHECK(h.find_unique(qpack_token::status) == nullptr);
   }
+
+  SECTION("lookups match an unknown-token field by name") {
+    // With no token to match on, the lookups fall back to comparing the
+    // field name. Append two duplicates after the fixture's three fields.
+    const auto key =
+        header_name_and_enum::force("x-custom", qpack_token::unknown);
+    h.add(key, "1");
+    h.add(key, "2");
+    CHECK(h.count(key) == 2);
+    auto* first = h.find(key);
+    REQUIRE(first != nullptr);
+    CHECK(first->value == "1");
+    CHECK(h.find_unique(key) == nullptr); // two matches
+    const auto i0 = h.find_next(key, 0);
+    CHECK(i0 == 3);
+    const auto i1 = h.find_next(key, i0 + 1);
+    CHECK(i1 == 4);
+    CHECK(h.find_next(key, i1 + 1) == http3_headers::npos);
+  }
 }
 
 TEST_CASE("Http3HeadersIteration", "[http3]") {
@@ -337,6 +415,25 @@ TEST_CASE("Http3HeadersEraseAndClear", "[http3]") {
   }
 }
 
+TEST_CASE("Http3HeadersChunkFin", "[http3]") {
+  http3_headers h;
+
+  SECTION("set_chunk_fin round-trips through chunk_fin") {
+    h.set_chunk_fin(stream_chunk::fin);
+    CHECK(h.chunk_fin() == stream_chunk::fin);
+    h.set_chunk_fin(stream_chunk::more);
+    CHECK(h.chunk_fin() == stream_chunk::more);
+  }
+
+  SECTION("clear resets the FIN marker to `more`") {
+    h.add(":status", "200");
+    h.set_chunk_fin(stream_chunk::fin);
+    h.clear();
+    CHECK(h.empty());
+    CHECK(h.chunk_fin() == stream_chunk::more);
+  }
+}
+
 TEST_CASE("Http3HeadersSpanConversion", "[http3]") {
   http3_headers h;
   h.add(":status", "200");
@@ -390,6 +487,27 @@ TEST_CASE("StreamChunkString", "[http3]") {
     constexpr C bad{0xff};
     CHECK(parse_enum("more", bad) == C::more);
     CHECK(parse_enum("fin", bad) == C::fin);
+  }
+}
+
+TEST_CASE("HttpMethodString", "[http3]") {
+  // Method names round-trip through `enum_as_string` / `parse_enum`.
+  using namespace corvid;
+  using namespace corvid::strings;
+  using M = http_method;
+  if (true) {
+    CHECK(enum_as_string(M::invalid) == "invalid");
+    CHECK(enum_as_string(M::GET) == "GET");
+    CHECK(enum_as_string(M::CONNECT) == "CONNECT");
+    // Underscored enumerators render as hyphenated wire names.
+    CHECK(enum_as_string(M::BASELINE_CONTROL) == "BASELINE-CONTROL");
+    CHECK(enum_as_string(M::VERSION_CONTROL) == "VERSION-CONTROL");
+  }
+  if (true) {
+    constexpr M bad{0xff};
+    CHECK(parse_enum("GET", bad) == M::GET);
+    CHECK(parse_enum("BASELINE-CONTROL", bad) == M::BASELINE_CONTROL);
+    CHECK(parse_enum("VERSION-CONTROL", bad) == M::VERSION_CONTROL);
   }
 }
 // NOLINTEND(readability-function-cognitive-complexity)
