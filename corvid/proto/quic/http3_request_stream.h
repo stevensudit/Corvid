@@ -76,7 +76,7 @@ public:
   }
 
   [[nodiscard]] bool on_added() override {
-    return router()->submit_request(stream_id(), request_headers(),
+    return router()->submit_request(this, request_headers(),
         send_queue().appended());
   }
 

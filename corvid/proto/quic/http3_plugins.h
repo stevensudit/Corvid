@@ -54,13 +54,17 @@ class http3_router;
 // Returning `false` from any upcall fails the nghttp3 callback and tears the
 // connection down, the same contract as the connection-level handlers.
 class http3_stream {
-  using iov_queue_t = iov_queue<>;
+  // Add maximum size as additional state.
+  using iov_queue_t = iov_queue<std::vector<uint8_t>, size_t>;
 
 public:
 #pragma region Construction
 
   explicit http3_stream(quic_stream_id stream_id) noexcept
-      : stream_id_{stream_id} {}
+      : stream_id_{stream_id} {
+    // Stop at 16MB on read, unless otherwise configured.
+    receive_queue_.state() = 16ULL * 1024 * 1024;
+  }
 
   http3_stream(const http3_stream&) = delete;
   http3_stream& operator=(const http3_stream&) = delete;
@@ -207,6 +211,9 @@ public:
 
   // Inbound body bytes (DATA payload).
   [[nodiscard]] virtual bool on_recv_data(std::span<const uint8_t> data) {
+    if (receive_queue_.size() + data.size() > receive_queue_.state())
+      return log::error("Receive queue overflow") && false;
+
     receive_queue_.append(std::vector<uint8_t>(data.begin(), data.end()));
     return true;
   }
@@ -608,10 +615,10 @@ public:
   // With `with_body == true`, nghttp3 pulls the body via the stream's
   // `on_read_body`; the stream is passed as nghttp3's `stream_user_data` so
   // the body and response upcalls route back to it.
-  [[nodiscard]] bool submit_request(quic_stream_id stream_id,
+  [[nodiscard]] bool submit_request(http3_stream* stream,
       std::span<const http3_field> fields, bool with_body = false) {
-    if (!h3_.submit_request(stream_id, fields, with_body,
-            with_body ? find_stream(stream_id) : nullptr))
+    if (!h3_.submit_request(stream->stream_id_, fields, with_body,
+            with_body ? stream : nullptr))
       return false;
     return io_.request_drain();
   }
