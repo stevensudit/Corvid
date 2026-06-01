@@ -54,14 +54,13 @@ class http3_router;
 // Returning `false` from any upcall fails the nghttp3 callback and tears the
 // connection down, the same contract as the connection-level handlers.
 class http3_stream {
-  // Add maximum size as additional state.
+  // Queue with maximum size as additional state.
   using iov_queue_t = iov_queue<std::vector<uint8_t>, size_t>;
 
 public:
 #pragma region Construction
 
-  explicit http3_stream(quic_stream_id stream_id) noexcept
-      : stream_id_{stream_id} {
+  explicit http3_stream() noexcept {
     // Stop at 16MB on read, unless otherwise configured.
     receive_queue_.state() = 16ULL * 1024 * 1024;
   }
@@ -72,6 +71,15 @@ public:
   http3_stream& operator=(http3_stream&&) = delete;
 
   virtual ~http3_stream() = default;
+
+  // Imprint the owning router and the assigned stream id. Always set together,
+  // by `http3_router::add_stream`, before it calls `on_added`.
+  bool attach(http3_router* router, quic_stream_id stream_id) noexcept {
+    if (stream_id_ != quic_stream_id::none || router_) return false;
+    router_ = router;
+    stream_id_ = stream_id;
+    return true;
+  }
 
 #pragma endregion
 #pragma region Accessors
@@ -242,21 +250,9 @@ public:
   }
 
 #pragma endregion
-#pragma region Router integration
-private:
-  friend class http3_router; // wires the stream to its router + id on add.
-
-  // Imprint the owning router and the assigned stream id. Always set together,
-  // by `http3_router::add_stream`, before it calls `on_added`.
-  void attach(http3_router* router, quic_stream_id stream_id) noexcept {
-    router_ = router;
-    stream_id_ = stream_id;
-  }
-
-#pragma endregion
 #pragma region Data members
 
-  quic_stream_id stream_id_;
+  quic_stream_id stream_id_{quic_stream_id::none};
   http3_router* router_{};
 
   std::optional<connection_role> role_;

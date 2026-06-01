@@ -55,8 +55,7 @@ public:
   using completion_callback = std::function<void(request_stream&)>;
 
   explicit request_stream(completion_callback&& on_complete)
-      : http3_stream{quic_stream_id::none},
-        on_complete_{std::move(on_complete)} {
+      : on_complete_{std::move(on_complete)} {
     assert(on_complete_);
     set_role(connection_role::client);
   }

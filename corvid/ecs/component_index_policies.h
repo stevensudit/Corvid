@@ -219,7 +219,7 @@ public:
   void update(id_t id, size_type ndx) noexcept {
     const auto raw = *id;
     assert(page_of(raw) < page_dir_.size());
-    assert(page_dir_[page_of(raw)] != nullptr);
+    assert(page_dir_[page_of(raw)]);
     page_dir_[page_of(raw)][slot_of(raw)] = ndx;
   }
 
@@ -227,7 +227,7 @@ public:
   [[nodiscard]] size_type lookup(id_t id) const noexcept {
     const auto raw = *id;
     assert(page_of(raw) < page_dir_.size());
-    assert(page_dir_[page_of(raw)] != nullptr);
+    assert(page_dir_[page_of(raw)]);
     return page_dir_[page_of(raw)][slot_of(raw)];
   }
 

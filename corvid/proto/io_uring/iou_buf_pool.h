@@ -151,7 +151,7 @@ private:
     free_node* tail{};
     size_t sz{};
 
-    explicit operator bool() const noexcept { return head != nullptr; }
+    explicit operator bool() const noexcept { return head; }
 
     // Push block to head (hot end). Used when returning a directly borrowed
     // block (LIFO).

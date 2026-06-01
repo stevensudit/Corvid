@@ -58,7 +58,8 @@ struct capture_stream: http3_stream {
 } // namespace
 
 TEST_CASE("Http3StreamHeaders", "[http3]") {
-  capture_stream s{a_stream_id};
+  capture_stream s{};
+  s.attach(nullptr, a_stream_id);
   CHECK(s.stream_id() == a_stream_id);
 
   SECTION("a section accumulates and is delivered on end") {
@@ -108,7 +109,8 @@ TEST_CASE("Http3StreamHeaders", "[http3]") {
 }
 
 TEST_CASE("Http3StreamTrailers", "[http3]") {
-  capture_stream s{a_stream_id};
+  capture_stream s;
+  s.attach(nullptr, a_stream_id);
 
   SECTION("a trailer section accumulates and is delivered on end") {
     CHECK(s.on_begin_trailers());
@@ -157,7 +159,8 @@ TEST_CASE("Http3StreamTrailers", "[http3]") {
 
 TEST_CASE("Http3StreamDefaults", "[http3]") {
   // The base class is concrete; its unoverridden hooks are no-op `true`.
-  http3_stream s{a_stream_id};
+  http3_stream s;
+  s.attach(nullptr, a_stream_id);
   const std::array<uint8_t, 1> byte{'x'};
   CHECK(s.on_begin_headers());
   CHECK(s.on_recv_header(qpack_token::method, ":method"_header, "GET"_method,

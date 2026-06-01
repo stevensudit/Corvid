@@ -431,7 +431,7 @@ private:
           };
           (check.template operator()<Is>(), ...);
         }(std::make_index_sequence<storage_count_v>{});
-        assert(result != nullptr);
+        assert(result);
         return *result; // const C&
       } else {
         C* result = nullptr;
@@ -445,7 +445,7 @@ private:
           };
           (check.template operator()<Is>(), ...);
         }(std::make_index_sequence<storage_count_v>{});
-        assert(result != nullptr);
+        assert(result);
         return *result; // C&
       }
     }
