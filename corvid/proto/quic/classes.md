@@ -113,7 +113,7 @@ classDiagram
     class http3_conn {
         <<wraps nghttp3_conn>>
     }
-    class quic_stream_send_queue
+    class iov_queue
 
     quic_conn_handlers <|-- quic_no_op_plugin
     quic_conn_handlers <|-- quic_echo_plugin
@@ -125,7 +125,7 @@ classDiagram
     http3_router *-- http3_conn : h3_
     http3_router *-- http3_stream : streams_
     http3_conn o-- http3_conn_handlers : handlers_
-    quic_echo_plugin *-- quic_stream_send_queue : queues_
+    quic_echo_plugin *-- iov_queue : queues_
     quic_no_op_plugin o-- quic_session_io : io_
     quic_echo_plugin o-- quic_session_io : io_
     http3_router o-- quic_session_io : io_
@@ -160,7 +160,7 @@ them.
 | [quic_conn](quic_conn.h#L345) | quic_conn.h | Wraps `ngtcp2_conn` + `SSL` + crypto ctx. Forwards ngtcp2's callback table into `quic_conn_handlers*`. Non-copyable, non-movable (ngtcp2 stores `this`). |
 | [quic_conn_handlers](quic_conn.h#L161) | quic_conn.h | Abstract base: protocol-neutral transport upcalls (`on_recv_stream_data`, `on_acked_stream_data_offset`, `on_stream_close`, flow control, datagrams). |
 | [quic_no_op_plugin](quic_dgram_plugins.h#L72) | quic_dgram_plugins.h | Inherits `quic_conn_handlers`. Holds `quic_session_io&`. The default/base upper plugin: its `drain` emits only non-stream frames (ACKs, MAX_DATA). |
-| [quic_echo_plugin](quic_echo_plugin.h#L63) | quic_echo_plugin.h | Inherits `quic_conn_handlers`. Holds `quic_session_io&` and one `quic_stream_send_queue` per stream; echoes inbound bytes back. |
+| [quic_echo_plugin](quic_echo_plugin.h#L63) | quic_echo_plugin.h | Inherits `quic_conn_handlers`. Holds `quic_session_io&` and one `iov_queue` per stream; echoes inbound bytes back. |
 
 ### HTTP/3 layer
 
@@ -179,7 +179,7 @@ them.
 | ----- | ---- | ---- |
 | [quic_ssl_ctx](quic_ssl_ctx.h#L66) | quic_ssl_ctx.h | Wraps `SSL_CTX` (TLS 1.3, one ALPN). Carries the `connection_role` (server/client) that drives router mode and `quic_conn` construction. |
 | [self_signed_cert](quic_self_signed_cert.h#L43) | quic_self_signed_cert.h | Inherits `ssl_identity`. Generates a fresh in-memory self-signed cert for tests. |
-| [quic_stream_send_queue](quic_stream_send_queue.h#L59) | quic_stream_send_queue.h | Per-stream owning byte queue with sticky flags; used by `quic_echo_plugin` (and future stream-writing plugins) to retain bytes until ngtcp2 acks them. |
+| [iov_queue&lt;Chunk, State&gt;](../iov_queue.h#L93) | ../iov_queue.h | Queue of owned byte buffers presented to a gather/scatter syscall as an `iovec` view; one queue serves either direction, carrying an optional per-queue `State`. Used by `quic_echo_plugin` as the send queue (with sticky `write_stream_flags`) and by `http3_stream` as both send and receive queues. |
 | [quic_cid](quic_header.h#L141) / [quic_version_cid](quic_header.h#L203) | quic_header.h | Connection ID value type and the header decoder the `router_plugin` uses to recover the DCID. Also `quic_stream_id`, `quic_status`, and the stream/datagram flag enums. |
 | [http3_headers](http3_header.h#L313) / [http3_field](http3_header.h#L297) | http3_header.h | Ordered collection of HTTP fields and its element (owned name / value plus `nv_flags` and `qpack_token`). Token-aware lookups (`find`, `find_next`, `count`, `set_value`), a `stream_chunk` FIN marker, an implicit `span<const http3_field>` for the submit path, and the static `name_from_token` / `token_from_name` maps. |
 | [qpack_token](http3_header.h#L53) / [header_name](http3_header.h#L268) | http3_header.h | HTTP/3 header vocabulary: the QPACK well-known field-name tokens plus the compile-time-checked name views `header_name` and `header_name_and_enum` (the latter also carries the token) and `method_name`, with the `_header` / `_method` UDLs. Also the `nv_flags`, `stream_chunk`, and `http_method` enums. |

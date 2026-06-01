@@ -312,20 +312,21 @@ needs it, or if we want a watchdog beneath ngtcp2's own timers.
   `send_packet()`, `is_loop_thread()`. `quic_dgram_protocol::session_plugin`
   public-inherits it; its prior `conn_` data member and `conn()` accessor
   are gone, and the session's `drain_writes` now goes through the inherited
-  `borrow_send_buffer` / `send_packet`. (4) `quic_stream_send_queue`
-  (`quic_stream_send_queue.h`) -- per-stream owning byte queue. Move-in
-  `append(std::vector<uint8_t>&&, flags)`; sticky `pending_flags_` cleared
-  by `commit(bytes_accepted)` once offered == appended;
-  `retire_acked(datalen)` pops front chunks whose extent is fully covered;
-  `writable_iov()` rebuilds an `iovec` view over a reused scratch vector.
-  Covered by `quic_stream_send_queue_test` (8 cases).
+  `borrow_send_buffer` / `send_packet`. (4) the per-stream outbound send
+  queue is now the general `iov_queue` (`../iov_queue.h`): move-in
+  `append(std::vector<uint8_t>&&)`, with the sticky `write_stream_flags`
+  carried as the queue's per-queue `State` and cleared by the plugin once
+  `consume(bytes_accepted)` has drained the appended bytes;
+  `retire(datalen)` frees front chunks once fully acked; `unused()`
+  rebuilds an `iovec` view over a reused scratch vector. Covered by
+  `iov_queue_test`.
 - **[done] QUIC echo server.** First end-to-end milestone.
   `quic_echo_plugin` (in `quic_echo_plugin.h`) inherits `quic_conn_handlers`
-  and holds one `quic_stream_send_queue` per active stream, keyed by
+  and holds one `iov_queue` per active stream, keyed by
   `quic_stream_id`. Overrides `on_stream_open` to allocate a queue,
   `on_recv_stream_data` to `append` inbound bytes (with any sticky `fin`
   translated to `write_stream_flags::fin`), `on_acked_stream_data_offset`
-  to `retire_acked`, `on_stream_close` to drop the queue, and `drain(now)`
+  to `retire`, `on_stream_close` to drop the queue, and `drain(now)`
   as a unified loop that picks any stream-with-work or falls back to
   `stream_id::none` for non-stream frames (ACKs, MAX_DATA), shipping each
   non-empty packet through `quic_session_io::send_packet`.

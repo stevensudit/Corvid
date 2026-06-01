@@ -150,8 +150,8 @@ struct quic_close_request {
 // Overrides MAY still mark themselves `noexcept` if they can't throw but MUST
 // if they're not exception-safe. Outside this upcall surface, Corvid types
 // reflect their throw behavior honestly (e.g.,
-// `quic_stream_send_queue::append` is not `noexcept` because it
-// allocates, while `commit` is). The same shape applies to other
+// `iov_queue::append` is not `noexcept` because it
+// allocates, while `consume` is). The same shape applies to other
 // C-library callback wrappers (nghttp3, etc.): the wrapper static is
 // the firewall via `try_callback`, the virtual / C++ method behind it
 // can throw.

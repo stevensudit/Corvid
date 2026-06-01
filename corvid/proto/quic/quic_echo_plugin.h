@@ -23,18 +23,18 @@
 #include <vector>
 
 #include "../../containers/opt_find.h"
+#include "../iov_queue.h"
 #include "quic_conn.h"
 #include "quic_dgram_plugins.h"
 #include "quic_header.h"
 #include "quic_session_io.h"
-#include "quic_stream_send_queue.h"
 
 namespace corvid { inline namespace proto { namespace quic {
 
 #pragma region quic_echo_plugin
 
 // Upper-layer plugin for `quic_dgram_protocol` that echoes every byte and FIN
-// it receives back on the same stream. Holds one `quic_stream_send_queue` per
+// it receives back on the same stream. Holds one outbound `iov_queue` per
 // active stream, keyed by `quic_stream_id`.
 //
 // Lifecycle:
@@ -61,6 +61,11 @@ namespace corvid { inline namespace proto { namespace quic {
 // We do not act on STOP_SENDING or RESET_STREAM here; ngtcp2's defaults are
 // sufficient for the echo scenario.
 class quic_echo_plugin: public quic_conn_handlers {
+  // Per-stream outbound queue: owned byte buffers presented to `writev_stream`
+  // as an iovec, carrying the sticky `write_stream_flags` (typically `fin`) as
+  // its per-queue state.
+  using send_queue_t = iov_queue<std::vector<uint8_t>, write_stream_flags>;
+
 public:
 #pragma region Construction
 
@@ -89,13 +94,14 @@ public:
             ? write_stream_flags::fin
             : write_stream_flags::none;
     auto& q = queues_[stream_id];
-    q.append(std::vector<uint8_t>(data.begin(), data.end()), write_flags);
+    q.append(std::vector<uint8_t>(data.begin(), data.end()));
+    q.state() |= write_flags;
     return true;
   }
 
   [[nodiscard]] bool on_acked_stream_data_offset(quic_stream_id stream_id,
       uint64_t /*offset*/, uint64_t datalen) noexcept override {
-    if (auto q = find_opt(queues_, stream_id)) q->retire_acked(datalen);
+    if (auto q = find_opt(queues_, stream_id)) q->retire(datalen);
     return true;
   }
 
@@ -127,12 +133,12 @@ public:
       quic_stream_id sid = quic_stream_id::none;
       std::span<const iovec> iov;
       write_stream_flags flags = write_stream_flags::none;
-      quic_stream_send_queue* qp = nullptr;
+      send_queue_t* qp = nullptr;
       for (auto& [id, q] : queues_) {
-        if (!q.has_work()) continue;
+        if (q.size() == 0 && q.state() == write_stream_flags::none) continue;
         sid = id;
-        iov = q.writable_iov();
-        flags = q.writable_flags();
+        iov = q.unused();
+        flags = q.state();
         qp = &q;
         break;
       }
@@ -148,7 +154,10 @@ public:
         return true;
       if (status != quic_status::ok) return false;
       if (out.payload_bytes().empty()) return true;
-      if (qp) qp->commit(accepted);
+      if (qp) {
+        qp->consume(accepted);
+        if (qp->size() == 0) qp->state() = write_stream_flags::none;
+      }
       (void)io_.send_packet(std::move(out));
     }
   }
@@ -165,8 +174,8 @@ public:
 private:
   quic_session_io& io_;
   // NOTE: This could easily be a `std::vector<std::pair<quic_stream_id,
-  // quic_stream_send_queue>>`.
-  std::unordered_map<quic_stream_id, quic_stream_send_queue> queues_;
+  // send_queue_t>>`.
+  std::unordered_map<quic_stream_id, send_queue_t> queues_;
 
 #pragma endregion
 };
