@@ -15,6 +15,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 #pragma once
+#include <concepts>
 #include <cstddef>
 #include <cstdint>
 #include <memory>
@@ -737,6 +738,31 @@ private:
   std::unordered_map<quic_stream_id, std::unique_ptr<http3_stream>> streams_;
 
 #pragma endregion
+};
+
+#pragma endregion
+#pragma region http3_server_router
+
+// Server-side `http3_router` that mints a fixed `http3_stream` subtype for
+// each peer-initiated request stream, so an application can serve requests
+// without subclassing the router just to override one factory method.
+//
+// `Stream` must derive from `http3_stream` and be default constructible. Plug
+// it in as the protocol type:
+// `quic_dgram_protocol<http3_server_router<my_request_handler>>`.
+template<std::derived_from<http3_stream> Stream>
+class http3_server_router: public http3_router {
+public:
+  using http3_router::http3_router;
+
+protected:
+  [[nodiscard]] std::unique_ptr<http3_stream> create_inbound_stream(
+      quic_stream_id stream_id) override {
+    auto stream = std::make_unique<Stream>();
+    stream->set_role(connection_role::server);
+    stream->attach(this, stream_id);
+    return stream;
+  }
 };
 
 #pragma endregion
