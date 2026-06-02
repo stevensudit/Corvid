@@ -61,7 +61,7 @@ class http3_stream {
 public:
 #pragma region Construction
 
-  explicit http3_stream() noexcept {
+  explicit http3_stream() {
     // Stop at 16MB on read, unless otherwise configured.
     receive_queue_.state() = 16ULL * 1024 * 1024;
   }
@@ -129,7 +129,7 @@ public:
     return app_error_code_;
   }
 
-  bool set_role(connection_role role) noexcept {
+  bool set_role(connection_role role) {
     if (role_ && *role_ != role) return false;
     role_ = role;
     if (role == connection_role::client) {
@@ -361,7 +361,7 @@ public:
   // streams. The client commonly reaches this point before ngtcp2 has applied
   // the peer's transport params, leaving no uni credit yet; `try_bind_streams`
   // then defers and the retry lands in `on_extend_max_local_streams_uni`.
-  [[nodiscard]] bool on_app_tx_ready() noexcept override {
+  [[nodiscard]] bool on_app_tx_ready() override {
     if (!ensure_h3_init()) return false;
     return try_bind_streams();
   }
@@ -371,7 +371,7 @@ public:
   // those are credited via `on_deferred_consume` / the body handler).
   [[nodiscard]] bool on_recv_stream_data(quic_stream_id stream_id,
       uint64_t /*offset*/, std::span<const uint8_t> data,
-      quic_stream_data_flags flags) noexcept override {
+      quic_stream_data_flags flags) override {
     if (!ensure_h3_init()) return false;
     const auto chunk =
         bitmask::has(flags, quic_stream_data_flags::fin)
@@ -383,13 +383,13 @@ public:
   }
 
   [[nodiscard]] bool on_acked_stream_data_offset(quic_stream_id stream_id,
-      uint64_t /*offset*/, uint64_t datalen) noexcept override {
+      uint64_t /*offset*/, uint64_t datalen) override {
     if (!h3_) return true;
     return h3_.add_ack_offset(stream_id, datalen);
   }
 
   [[nodiscard]] bool on_stream_close(quic_stream_id stream_id,
-      std::optional<uint64_t> app_error_code) noexcept override {
+      std::optional<uint64_t> app_error_code) override {
     if (!h3_) return true;
     auto code = h3_error_code::no_error;
     if (app_error_code) code = static_cast<h3_error_code>(*app_error_code);
@@ -400,7 +400,7 @@ public:
   // side. The transport error code is HTTP/3's to interpret; nghttp3's
   // shutdown takes none.
   [[nodiscard]] bool on_stream_reset(quic_stream_id stream_id,
-      uint64_t /*final_size*/, uint64_t /*app_error_code*/) noexcept override {
+      uint64_t /*final_size*/, uint64_t /*app_error_code*/) override {
     if (!h3_) return true;
     return h3_.shutdown_stream_read(stream_id);
   }
@@ -415,7 +415,7 @@ public:
 
   // Peer raised our per-stream send window: nghttp3 may resume the stream.
   [[nodiscard]] bool on_extend_max_stream_data(quic_stream_id stream_id,
-      uint64_t /*max_data*/) noexcept override {
+      uint64_t /*max_data*/) override {
     if (!h3_) return true;
     return h3_.unblock_stream(stream_id);
   }
@@ -424,7 +424,7 @@ public:
   // streams could not be bound earlier (no uni credit when the TX key
   // arrived), bind them now. A no-op once bound.
   [[nodiscard]] bool on_extend_max_local_streams_uni(
-      uint64_t /*max_streams*/) noexcept override {
+      uint64_t /*max_streams*/) override {
     if (!h3_) return true;
     return try_bind_streams();
   }
@@ -666,7 +666,7 @@ private:
   // It needs no QUIC stream credit or keys, so it can run as soon as any path
   // needs nghttp3 (the read path or the bind path); nghttp3's `set_handlers`
   // was wired in the ctor. Returns false only on nghttp3 NOMEM.
-  [[nodiscard]] bool ensure_h3_init() noexcept {
+  [[nodiscard]] bool ensure_h3_init() {
     if (h3_) return true;
     return h3_.init(io_.conn().role());
   }
@@ -680,7 +680,7 @@ private:
   // `on_extend_max_local_streams_uni`. The three streams draw from one credit
   // pool (the peer advertises three), so once the first opens the other two do
   // too; an unexpected failure there is fatal.
-  [[nodiscard]] bool try_bind_streams() noexcept {
+  [[nodiscard]] bool try_bind_streams() {
     if (streams_bound_) return true;
     quic_stream_id control = quic_stream_id::none;
     const auto status = io_.conn().open_uni_stream(control);

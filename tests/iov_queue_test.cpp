@@ -455,6 +455,8 @@ TEST_CASE("tidy(release) rebases watermarks mid-chunk", "[iov_queue]") {
 #pragma region chunk and state types
 
 TEST_CASE("string chunk type with defeated SSO", "[iov_queue]") {
+  // Clang-tidy is drunk.
+  // NOLINTBEGIN(bugprone-use-after-move)
   iov_queue<std::string> q;
   std::string s;
   s.reserve(64); // force heap storage so the buffer survives moves
@@ -467,6 +469,7 @@ TEST_CASE("string chunk type with defeated SSO", "[iov_queue]") {
   CHECK(iov[0].iov_len == 5);
   const auto* p = static_cast<const char*>(iov[0].iov_base);
   CHECK(std::string(p, 5) == "hello");
+  // NOLINTEND(bugprone-use-after-move)
 }
 
 namespace {

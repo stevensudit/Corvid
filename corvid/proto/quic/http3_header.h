@@ -17,6 +17,7 @@
 #pragma once
 #include <cstdint>
 #include <cstddef>
+#include <concepts>
 #include <flat_map>
 #include <span>
 #include <string>
@@ -333,9 +334,15 @@ public:
   // Add a field with name and token. Returns its index.
   size_t add(header_name_and_enum key, std::string_view value,
       nv_flags flags = nv_flags::none) {
+    return add(key, std::string{value}, flags);
+  }
+  template<std::same_as<std::string> S>
+  size_t
+  add(header_name_and_enum key, S&& value, nv_flags flags = nv_flags::none) {
     const auto token = key.as_enum();
     const auto name = std::string_view{key};
-    fields_.emplace_back(token, std::string{name}, std::string{value}, flags);
+    // NOLINTNEXTLINE(bugprone-move-forwarding-reference)
+    fields_.emplace_back(token, std::string{name}, std::move(value), flags);
     return fields_.size() - 1;
   }
 
@@ -349,10 +356,17 @@ public:
   // that name if one is present, otherwise add a new one. Returns index.
   size_t set_value(header_name_and_enum key, std::string_view value,
       nv_flags flags = nv_flags::none) {
+    return set_value(key, std::string{value}, flags);
+  }
+  template<std::same_as<std::string> S>
+  size_t set_value(header_name_and_enum key, S&& value,
+      nv_flags flags = nv_flags::none) {
     size_t ndx = find_next(key, 0);
-    if (ndx == npos) return add(key, value, flags);
+    // NOLINTBEGIN(bugprone-move-forwarding-reference)
+    if (ndx == npos) return add(key, std::move(value), flags);
     auto& field = fields_[ndx];
-    field.value = std::string{value};
+    field.value = std::move(value);
+    // NOLINTEND(bugprone-move-forwarding-reference)
     field.flags |= flags;
     return ndx;
   }
@@ -427,7 +441,7 @@ public:
   }
 
   // Remove all fields.
-  bool clear() noexcept {
+  bool clear() {
     fields_.clear();
     fields_.reserve(32);
     chunk_fin_ = stream_chunk::more;
@@ -454,8 +468,7 @@ public:
   }
 
   // Maps a field name to its `qpack_token`, or `qpack_token::unknown`.
-  [[nodiscard]] static qpack_token token_from_name(
-      std::string_view name) noexcept {
+  [[nodiscard]] static qpack_token token_from_name(std::string_view name) {
     // Invert the registered names so this lookup shares their single source
     // of truth. nghttp3 numbers the common QPACK tokens up through 98 and a
     // second block (host through priority) at 1000-1008, with a large unused

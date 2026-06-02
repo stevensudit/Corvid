@@ -428,7 +428,7 @@ public:
   // Create the underlying `nghttp3_conn` in the given role with
   // library-default settings. Returns false if already initialized or nghttp3
   // reports an error (only `NGHTTP3_ERR_NOMEM` in practice).
-  [[nodiscard]] bool init(connection_role role) noexcept {
+  [[nodiscard]] bool init(connection_role role) {
     if (conn_) return false;
     nghttp3_settings settings;
     nghttp3_settings_default(&settings);
@@ -460,7 +460,7 @@ public:
   // Bind `stream_id` as the outgoing HTTP/3 control stream (a
   // locally initiated unidirectional stream). nghttp3 queues the stream type
   // byte + SETTINGS for the next `writev_stream`.
-  [[nodiscard]] bool bind_control_stream(quic_stream_id stream_id) noexcept {
+  [[nodiscard]] bool bind_control_stream(quic_stream_id stream_id) {
     return ok("nghttp3_conn_bind_control_stream",
         nghttp3_conn_bind_control_stream(conn_.get(), from(stream_id)));
   }
@@ -468,7 +468,7 @@ public:
   // Bind the outgoing QPACK encoder and decoder streams (two locally initiated
   // unidirectional streams).
   [[nodiscard]] bool bind_qpack_streams(quic_stream_id enc_stream_id,
-      quic_stream_id dec_stream_id) noexcept {
+      quic_stream_id dec_stream_id) {
     return ok("nghttp3_conn_bind_qpack_streams",
         nghttp3_conn_bind_qpack_streams(conn_.get(), from(enc_stream_id),
             from(dec_stream_id)));
@@ -493,7 +493,7 @@ public:
   // `max_submit_fields`.
   [[nodiscard]] bool submit_request(quic_stream_id stream_id,
       std::span<const http3_field> fields, bool with_body = false,
-      void* stream_user_data = nullptr) noexcept {
+      void* stream_user_data = nullptr) {
     assert(role_ == connection_role::client);
     std::array<nghttp3_nv, max_submit_fields> nva{};
     if (!fill_nv(fields, nva)) return false;
@@ -508,7 +508,7 @@ public:
   // after the headers (no response body). Same copy / cap notes as
   // `submit_request`.
   [[nodiscard]] bool submit_response(quic_stream_id stream_id,
-      std::span<const http3_field> fields) noexcept {
+      std::span<const http3_field> fields) {
     assert(role_ == connection_role::server);
     std::array<nghttp3_nv, max_submit_fields> nva{};
     if (!fill_nv(fields, nva)) return false;
@@ -530,7 +530,7 @@ public:
   // legal.
   [[nodiscard]] bool read_stream(quic_stream_id stream_id,
       std::span<const uint8_t> data, stream_chunk chunk_fin,
-      size_t& consumed) noexcept {
+      size_t& consumed) {
     consumed = 0;
     const nghttp3_ssize rv = nghttp3_conn_read_stream(conn_.get(),
         from(stream_id), data.data(), data.size(), *chunk_fin);
@@ -543,7 +543,7 @@ public:
   // Report that QUIC has acknowledged `datalen` more bytes on `stream_id`'s
   // send side, so nghttp3 can release the corresponding retained body buffers.
   [[nodiscard]] bool
-  add_ack_offset(quic_stream_id stream_id, uint64_t datalen) noexcept {
+  add_ack_offset(quic_stream_id stream_id, uint64_t datalen) {
     return ok("nghttp3_conn_add_ack_offset",
         nghttp3_conn_add_ack_offset(conn_.get(), from(stream_id), datalen));
   }
@@ -551,8 +551,8 @@ public:
   // Tell nghttp3 that `stream_id` has closed at the QUIC layer with
   // `app_error_code`. nghttp3 releases the stream's state and may fire
   // `on_h3_stream_close`.
-  [[nodiscard]] bool close_stream(quic_stream_id stream_id,
-      h3_error_code app_error_code) noexcept {
+  [[nodiscard]] bool
+  close_stream(quic_stream_id stream_id, h3_error_code app_error_code) {
     return ok("nghttp3_conn_close_stream",
         nghttp3_conn_close_stream(conn_.get(), from(stream_id),
             *app_error_code));
@@ -575,7 +575,7 @@ public:
   // closes here", which the caller must still relay (an `add_write_offset` of
   // 0).
   [[nodiscard]] bool writev_stream(quic_stream_id& stream_id,
-      std::span<const iovec>& vecs, stream_chunk& chunk_fin) noexcept {
+      std::span<const iovec>& vecs, stream_chunk& chunk_fin) {
     int64_t raw_id{-1};
     int raw_fin{};
     // `iovec` and `nghttp3_vec` are layout-compatible (pointer + length); the
@@ -594,8 +594,7 @@ public:
   // Report how many bytes the QUIC stack accepted for `stream_id` from the
   // most recent `writev_stream`. Must be called even when `n` is 0 (e.g., a
   // pure fin), so nghttp3 advances its own offset.
-  [[nodiscard]] bool
-  add_write_offset(quic_stream_id stream_id, size_t n) noexcept {
+  [[nodiscard]] bool add_write_offset(quic_stream_id stream_id, size_t n) {
     return ok("nghttp3_conn_add_write_offset",
         nghttp3_conn_add_write_offset(conn_.get(), from(stream_id), n));
   }
@@ -616,7 +615,7 @@ public:
   // writable again (the peer extended its flow-control window). nghttp3
   // reports success even when it has no such stream, so false here means only
   // NOMEM.
-  [[nodiscard]] bool unblock_stream(quic_stream_id stream_id) noexcept {
+  [[nodiscard]] bool unblock_stream(quic_stream_id stream_id) {
     return ok("nghttp3_conn_unblock_stream",
         nghttp3_conn_unblock_stream(conn_.get(), from(stream_id)));
   }
@@ -628,8 +627,8 @@ public:
   // passes it to every per-stream upcall (the trailing `stream_user_data`
   // parameter on `http3_conn_handlers`), letting the plugin hang per-request
   // state off a stream. Returns false if nghttp3 has no such stream.
-  [[nodiscard]] bool set_stream_user_data(quic_stream_id stream_id,
-      void* stream_user_data) noexcept {
+  [[nodiscard]] bool
+  set_stream_user_data(quic_stream_id stream_id, void* stream_user_data) {
     return ok("nghttp3_conn_set_stream_user_data",
         nghttp3_conn_set_stream_user_data(conn_.get(), from(stream_id),
             stream_user_data));
@@ -643,7 +642,7 @@ public:
   // data and pending stream state. The plugin forwards `quic_conn_handlers::
   // on_stream_reset` here. A no-op (returns true) for streams nghttp3 does not
   // track as client-bidirectional; false means only NOMEM / QPACK overflow.
-  [[nodiscard]] bool shutdown_stream_read(quic_stream_id stream_id) noexcept {
+  [[nodiscard]] bool shutdown_stream_read(quic_stream_id stream_id) {
     return ok("nghttp3_conn_shutdown_stream_read",
         nghttp3_conn_shutdown_stream_read(conn_.get(), from(stream_id)));
   }
@@ -894,8 +893,8 @@ private:
   // Fill `nva` with the `nghttp3_nv` form of `fields` of `http3_field` for a
   // submit call, or log and return false if `fields` exceeds the scratch
   // capacity.
-  [[nodiscard]] static bool fill_nv(std::span<const http3_field> fields,
-      std::span<nghttp3_nv> nva) noexcept {
+  [[nodiscard]] static bool
+  fill_nv(std::span<const http3_field> fields, std::span<nghttp3_nv> nva) {
     if (fields.size() > nva.size())
       return log::error("too many fields") && false;
     for (size_t i = 0; i < fields.size(); ++i) nva[i] = to_nv(fields[i]);
@@ -918,13 +917,13 @@ private:
 
   // Log an nghttp3 library error with its textual reason and return false, for
   // the `[[nodiscard]] bool` method translation.
-  [[nodiscard]] static bool log_error(const char* what, int rv) noexcept {
+  [[nodiscard]] static bool log_error(const char* what, int rv) {
     log::error("{} failed: {} ({})", what, nghttp3_strerror(rv), rv);
     return false;
   }
 
   // Translate a 0-or-negative nghttp3 status into `bool`, logging on error.
-  [[nodiscard]] static bool ok(const char* what, int rv) noexcept {
+  [[nodiscard]] static bool ok(const char* what, int rv) {
     return rv == 0 ? true : log_error(what, rv);
   }
 

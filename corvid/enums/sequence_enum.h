@@ -24,9 +24,7 @@
 namespace corvid {
 inline namespace enums { namespace sequence {
 
-//
-// sequence enum
-//
+#pragma region sequence spec
 
 // A sequence enum is a scoped enum (aka `enum class`) that holds a sequence of
 // contiguous values. It supports operations such as add and subtract while
@@ -70,9 +68,15 @@ struct sequence_enum_spec
     : public registry::scoped_enum_spec<E, minseq, maxseq, true, wrapseq, 0,
           wrapclip{}> {};
 
+#pragma endregion
+#pragma region Concept
+
 // Concept for sequential enum.
 template<typename E>
 concept SequentialEnum = (registry::enum_spec_v<E>.seq_valid_v);
+
+#pragma endregion
+#pragma region internal
 
 inline namespace internal {
 
@@ -130,9 +134,8 @@ template<SequentialEnum E>
 
 } // namespace internal
 
-//
-// Makers
-//
+#pragma endregion
+#pragma region Makers
 
 // Cast integer value from underlying type to sequence, wrapping to keep it in
 // range.
@@ -168,7 +171,12 @@ template<SequentialEnum E, wrapclip mode = wrapclip::limit>
     return static_cast<E>(u);
 }
 
+#pragma endregion
+#pragma region ops
+
 inline namespace ops {
+
+#pragma region Dereference
 
 // Dereference operator.
 //
@@ -178,27 +186,21 @@ template<SequentialEnum E>
   return as_underlying<E>(v);
 }
 
-// Math
-//
-// Only heterogeneous addition and subtraction operations are supported.
-//
-// When `wrapclip::limit`, all results are modulo the sequence size. Otherwise,
-// they are undefined when they exceed the range.
-//
-
-//
-// Logical operators
-//
+#pragma endregion
+#pragma region Logical ops
 
 template<SequentialEnum E>
 [[nodiscard]] constexpr bool operator!(E v) noexcept {
   return !as_underlying<E>(v);
 }
 
-//
-// Addition operators
-//
+#pragma endregion
+#pragma region Addition ops
 
+// Only heterogeneous addition and subtraction operations are supported.
+//
+// When `wrapclip::limit`, all results are modulo the sequence size. Otherwise,
+// they are undefined when they exceed the range.
 template<SequentialEnum E>
 [[nodiscard]] constexpr E
 operator+(E l, std::underlying_type_t<E> r) noexcept {
@@ -231,9 +233,8 @@ template<SequentialEnum E>
   return o;
 }
 
-//
-// Subtraction operators
-//
+#pragma endregion
+#pragma region Subtraction ops
 
 template<SequentialEnum E>
 [[nodiscard]] constexpr E
@@ -261,13 +262,12 @@ template<SequentialEnum E>
   return o;
 }
 
+#pragma endregion
+
 } // namespace ops
 
-//
-// Named functions
-//
-
-// Traits
+#pragma endregion
+#pragma region Traits
 
 // Maximum value.
 template<SequentialEnum E>
@@ -288,6 +288,18 @@ template<std::integral T>
 [[nodiscard]] constexpr T to_integer(SequentialEnum auto v) noexcept {
   return static_cast<T>(v);
 }
+
+#pragma endregion
+#pragma region range_length
+
+// Length of range.
+template<SequentialEnum E>
+[[nodiscard]] constexpr auto range_length() noexcept {
+  return to_integer<size_t>(seq_size_v<E>);
+}
+
+#pragma endregion
+#pragma region Name lookup
 
 // Look up exact string_view for value, or "(unknown)" if not found or empty.
 template<SequentialEnum E>
@@ -312,6 +324,9 @@ template<SequentialEnum E>
 enum_find_named_enum(std::string_view sv) noexcept {
   return registry::enum_spec_v<E>.find_named_enum(sv);
 }
+
+#pragma endregion
+#pragma region enum_string_view
 
 // A compile-time-validated name for one of sequence enum `E`'s values. Can be
 // used as a type-safe wrapper over `std::string_view`.
@@ -351,6 +366,8 @@ enum_find_named_enum(std::string_view sv) noexcept {
 template<SequentialEnum E>
 class enum_string_view {
 public:
+#pragma region Construction
+
   // Literal.
   template<size_t N>
   consteval enum_string_view(const char (&s)[N])
@@ -367,6 +384,9 @@ public:
     assert(sv_ != "(unknown)");
   }
 
+#pragma endregion
+#pragma region Factories
+
   // Safely force conversion at runtime.
   static constexpr auto convert(std::string_view sv) {
     assert(enum_find_named<E>(sv) == sv);
@@ -377,6 +397,9 @@ public:
   static constexpr auto force(std::string_view sv) {
     return enum_string_view(sv, force_tag{});
   }
+
+#pragma endregion
+#pragma region Accessors
 
   // Look up enum at compile time.
   [[nodiscard]] consteval E as_enum(E or_default = E{}) const noexcept {
@@ -392,13 +415,24 @@ public:
 
   [[nodiscard]] constexpr auto operator->() const noexcept { return &sv_; }
 
+#pragma endregion
 protected:
+#pragma region Forced construction
+
   struct force_tag {};
   constexpr enum_string_view(std::string_view sv, force_tag) : sv_(sv) {}
 
+#pragma endregion
 private:
+#pragma region Data members
+
   std::string_view sv_;
+
+#pragma endregion
 };
+
+#pragma endregion
+#pragma region with value
 
 // Extends `enum_string_view<E>` with the `E` value it names, both
 // resolved at compile time by the same constructors. Use it where a call site
@@ -406,10 +440,12 @@ private:
 // name->enum lookup), without adding a field to the bare string view.
 template<SequentialEnum E>
 class enum_value_string_view: enum_string_view<E> {
-  using force_tag = typename enum_string_view<E>::force_tag;
+  using force_tag = enum_string_view<E>::force_tag;
 
 public:
   using base = enum_string_view<E>;
+
+#pragma region Construction
 
   // Literal.
   template<size_t N>
@@ -423,6 +459,9 @@ public:
   // From the enum value itself.
   constexpr enum_value_string_view(E e) : base{e}, enum_{e} {}
 
+#pragma endregion
+#pragma region Factories
+
   // Safely force conversion at runtime.
   static constexpr auto convert(std::string_view sv, E e) {
     return enum_value_string_view{base::convert(sv), e, force_tag{}};
@@ -433,25 +472,33 @@ public:
     return enum_value_string_view{base::force(sv), e, force_tag{}};
   }
 
+#pragma endregion
+#pragma region Accessors
+
   [[nodiscard]] constexpr operator std::string_view() const noexcept {
     return base::operator std::string_view();
   }
   [[nodiscard]] constexpr base as_name() const noexcept { return *this; }
   [[nodiscard]] constexpr E as_enum() const noexcept { return enum_; }
 
+#pragma endregion
 protected:
+#pragma region Forced construction
+
   constexpr enum_value_string_view(std::string_view sv, E e, force_tag f)
       : base{sv, f}, enum_{e} {}
 
+#pragma endregion
 private:
+#pragma region Data members
+
   E enum_;
+
+#pragma endregion
 };
 
-// Length of range.
-template<SequentialEnum E>
-[[nodiscard]] constexpr auto range_length() noexcept {
-  return to_integer<size_t>(seq_size_v<E>);
-}
+#pragma endregion
+#pragma region details
 
 namespace details {
 // Helper function to append a sequence enum value to a target by using a list
@@ -530,6 +577,9 @@ struct sequence_enum_names_spec
 };
 } // namespace details
 
+#pragma endregion
+#pragma region make spec
+
 // Make an `enum_spec_v` from a list of names, marking `E` as a sequence enum.
 //
 // The list must be a string literal, delimited by commas. Whitespace is
@@ -564,6 +614,8 @@ template<ScopedEnum E, E maxseq, E minseq = E{}, wrapclip wrapseq = wrapclip{}>
 [[nodiscard]] consteval auto make_sequence_enum_spec() {
   return sequence_enum_spec<E, maxseq, minseq, wrapseq>{};
 }
+
+#pragma endregion
 
 }} // namespace enums::sequence
 
