@@ -321,7 +321,7 @@ TEST_CASE(
   std::shared_ptr<protocol_t::session_plugin::session_t> client_sess;
   REQUIRE(runner.loop()->post_and_wait([&]() -> bool {
     client_sess = protocol_t::session_plugin::make_client(
-        *client_router.pointer(), server_addr);
+        *client_router.pointer(), server_addr, ""); // no SNI
     return client_sess != nullptr;
   }));
   REQUIRE(client_sess);

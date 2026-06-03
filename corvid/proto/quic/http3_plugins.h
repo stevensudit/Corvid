@@ -129,6 +129,10 @@ public:
     return app_error_code_;
   }
 
+  // Whether a response has already been submitted on this stream (via
+  // `submit_response`). A server stream consults it to avoid responding twice.
+  [[nodiscard]] bool responded() const noexcept { return responded_; }
+
   bool set_role(connection_role role) {
     if (role_ && *role_ != role) return false;
     role_ = role;
@@ -148,6 +152,19 @@ public:
     }
     return true;
   }
+
+#pragma endregion
+#pragma region Response
+
+  // Submit this stream's response exactly once, from its own
+  // `response_headers` plus any `send_queue` body. The first call hands it to
+  // the owning router (which queues it and schedules the drain) and, if the
+  // request body is still arriving (`completed` is false), sends
+  // STOP_SENDING to curtail it. This lets any handler answer early (a bad
+  // request, a misdirected authority, an auth failure) and stop, without a
+  // later hook double-responding. Defined out of line below, after
+  // `http3_router`.
+  [[nodiscard]] bool submit_response();
 
 #pragma endregion
 #pragma region Handlers
@@ -220,6 +237,10 @@ public:
 
   // Inbound body bytes (DATA payload).
   [[nodiscard]] virtual bool on_recv_data(std::span<const uint8_t> data) {
+    // Once we have responded, drop the rest of the body instead of buffering
+    // it. `submit_response` also sends STOP_SENDING, but bytes already in the
+    // current packet still surface here, so the discard is what handles them.
+    if (responded_) return true;
     if (receive_queue_.size() + data.size() > receive_queue_.state())
       return log::error("Receive queue overflow") && false;
 
@@ -273,6 +294,7 @@ public:
   iov_queue_t receive_queue_;
 
   bool completed_{};
+  bool responded_{};
   h3_error_code app_error_code_{h3_error_code::no_error};
 
 #pragma endregion
@@ -348,9 +370,15 @@ public:
   }
 
   // The connection's TLS server name (SNI), or empty if none. A client request
-  // defaults an empty :authority to this; see `request_stream::on_added`.
+  // defaults an empty :authority to this; see `http3_client_stream::on_added`.
   [[nodiscard]] const std::string& server_name() const noexcept {
     return io_.server_name();
+  }
+
+  // Whether the caller is on the session's loop thread, for a stream to assert
+  // that a hook runs where it must.
+  [[nodiscard]] bool is_loop_thread() const noexcept {
+    return io_.is_loop_thread();
   }
 
 #pragma endregion
@@ -592,7 +620,7 @@ public:
 
 #pragma endregion
 #pragma endregion
-#pragma region Outbound requests
+#pragma region Submit
 
   // Inject a locally initiated stream.
   [[nodiscard]] bool add_stream(std::unique_ptr<http3_stream> stream) {
@@ -624,6 +652,35 @@ public:
             with_body ? stream : nullptr))
       return false;
     return io_.request_drain();
+  }
+
+  // Submit `stream`'s response from its `response_headers` (plus a body
+  // whenever its `send_queue` holds any) and post a drain so the queued
+  // HEADERS and body ship without waiting for an inbound packet. The drain is
+  // posted, so this is safe inside a callback. The usual entry is the guarded
+  // `http3_stream::submit_response`, which calls here once; this is the raw
+  // mechanism and does not track whether a response was already sent.
+  //
+  // A response body is pulled by nghttp3 via the stream's
+  // `on_send_data_ready`. The stream's user data was stashed when its inbound
+  // request stream was minted (`ensure_stream`), so those upcalls route back
+  // to it.
+  [[nodiscard]] bool submit_response(http3_stream* stream) {
+    if (!h3_.submit_response(stream->stream_id_, stream->response_headers(),
+            stream->send_queue().appended()))
+      return false;
+    return io_.request_drain();
+  }
+
+  // Ask the peer to stop sending on `stream_id` (emit STOP_SENDING with the
+  // HTTP/3 error code; ngtcp2 also drops further inbound for the stream
+  // locally). A server stream calls this once it has responded and no longer
+  // wants the rest of the request body, much less any trailer. Returns false
+  // only on a transport error; `ok` for an unknown stream.
+  [[nodiscard]] bool shutdown_stream_read(quic_stream_id stream_id,
+      h3_error_code app_error_code) {
+    return io_.conn().shutdown_stream_read(stream_id, *app_error_code) ==
+           quic_status::ok;
   }
 
 #pragma endregion
@@ -770,6 +827,24 @@ protected:
     return stream;
   }
 };
+
+#pragma endregion
+#pragma region http3_stream out-of-line
+
+// Defined here, after `http3_router`, because it reaches back into the router;
+// declared in `http3_stream` above. The first call submits and latches
+// `responded_`; later calls are no-ops, so an early failure response and a
+// normal one never both go out.
+inline bool http3_stream::submit_response() {
+  if (responded_) return false;
+  responded_ = true;
+  if (!router_->submit_response(this)) return false;
+  // If the request has not finished arriving, tell the peer to stop sending
+  // the rest of its body: we have already answered. Pointless once
+  // `completed_` (the read side saw fin), so skip it there.
+  if (completed_) return true;
+  return router_->shutdown_stream_read(stream_id_, h3_error_code::no_error);
+}
 
 #pragma endregion
 

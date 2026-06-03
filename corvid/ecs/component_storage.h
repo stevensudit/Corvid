@@ -166,7 +166,7 @@ public:
     return do_bulk_op(std::move(pred), removal_mode::preserve);
   }
 
-  // Read-only view of a single entity's row. Provides a `component<T>()`
+  // Read-only view of a single entity's row. Provides a `component<T>`
   // accessor uniform with archetype storages (only valid for `T ==
   // component_t`), plus an implicit conversion to `const component_t&`.
   struct row_view {
@@ -230,7 +230,7 @@ public:
   }
 
   // Contiguous iterator over components. Dereferencing yields a `component_t`
-  // reference; `id()` returns the entity ID at the current position.
+  // reference; `id` returns the entity ID at the current position.
   template<access ACCESS>
   class iterator_t {
   public:

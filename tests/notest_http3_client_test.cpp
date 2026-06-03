@@ -41,7 +41,7 @@
 #include "../corvid/proto/dns_resolver.h"
 #include "../corvid/proto/io_uring/iou_loop.h"
 #include "../corvid/proto/quic/http3_plugins.h"
-#include "../corvid/proto/quic/http3_request_stream.h"
+#include "../corvid/proto/quic/http3_client_stream.h"
 #include "../corvid/proto/quic/quic_conn.h"
 #include "../corvid/proto/quic/quic_dgram_plugins.h"
 #include "../corvid/proto/quic/quic_ssl_ctx.h"
@@ -65,8 +65,8 @@ bool WaitFor(const auto& pred, std::chrono::milliseconds timeout = 10s) {
 }
 
 // Loop-thread-owned capture of one response. The caller holds a shared_ptr to
-// it; the `request_stream` completion callback fills it (on the loop thread,
-// in `on_close`), so the result outlives the stream. main reads it via
+// it; the `http3_client_stream` completion callback fills it (on the loop
+// thread, in `on_close`), so the result outlives the stream. main reads it via
 // post_and_wait once `complete` is set.
 struct response_capture {
   bool complete{false};
@@ -81,7 +81,7 @@ using protocol_t = quic_dgram_protocol<http3_router>;
 
 // Copy the finished stream's response into `out`. Runs on the loop thread from
 // the stream's completion callback (in `on_close`), so `out` outlives it.
-void capture_response(request_stream& s, response_capture& out) {
+void capture_response(http3_client_stream& s, response_capture& out) {
   out.failed = s.app_error_code() != h3_error_code::no_error || !s.completed();
   for (const auto& f : s.response_headers())
     out.headers.emplace_back(f.name, f.value);
@@ -97,11 +97,12 @@ void capture_response(request_stream& s, response_capture& out) {
 // small so a sizeable body spans more than the 16 vec slots, exercising the
 // multi-segment gather and the veccnt truncation path), and the completion
 // callback.
-std::unique_ptr<request_stream> make_request(http_method method,
+std::unique_ptr<http3_client_stream> make_request(http_method method,
     std::string_view path, std::span<const uint8_t> body,
-    request_stream::completion_callback on_complete) {
-  auto stream = std::make_unique<request_stream>(std::move(on_complete));
-  request_stream::configure_request(stream->request_headers(), method, path);
+    http3_client_stream::completion_callback on_complete) {
+  auto stream = std::make_unique<http3_client_stream>(std::move(on_complete));
+  http3_client_stream::configure_request(stream->request_headers(), method,
+      path);
   if (!body.empty()) {
     stream->request_headers().set_value("content-type", "text/plain");
     stream->request_headers().set_value("content-length",
@@ -182,7 +183,9 @@ bool curl(int argc, char** argv) {
   std::cout << "handshake complete, server SETTINGS received\n";
 
   auto out = std::make_shared<response_capture>();
-  auto on_complete = [out](request_stream& s) { capture_response(s, *out); };
+  auto on_complete = [out](http3_client_stream& s) {
+    capture_response(s, *out);
+  };
   if (!runner.loop()->post_and_wait([&]() -> bool {
         return client.add_stream(
             make_request(method, path, body, on_complete));

@@ -29,33 +29,34 @@
 
 namespace corvid { inline namespace proto { namespace quic {
 
-#pragma region request_stream
+#pragma region http3_client_stream
 
-// A client request stream, usable two ways.
+// A client-side HTTP/3 stream, usable two ways.
 //
 // Without inheritance: construct it with a completion callback, fill in the
-// request line via `configure_request` (or by editing `request_headers()`
-// directly, so any extra fields are yours to add), optionally append body
-// chunks to `send_queue()`, and hand it to a plain `http3_router::add_stream`.
+// request line via `configure_request` (and/or by editing `request_headers`
+// directly), optionally append body chunks to `send_queue`, and hand it to a
+// plain `http3_router::add_stream`.
 //
 // With inheritance: override `on_send_data_ready` to stream or generate the
 // body on the fly, `on_recv_data` to consume the response body differently, or
 // any other `http3_stream` hook.
 //
-// Responses land in `response_headers()` / `response_trailers()` (and
-// `:status` within them). The callback fires once, from `on_close`, with
-// `completed()` and `app_error_code()` already set, so it can tell a clean
-// finish from an error.
+// Responses land in `response_headers` / `response_trailers` (and `:status`
+// within them). The callback fires once, from `on_close`, with `completed`
+// and `app_error_code` already set, so it can tell a clean finish from an
+// error.
 //
 // The default `on_recv_data` appends a copy of each received buffer to
-// `receive_queue()`, accumulating the response body as a gather without
+// `receive_queue`, accumulating the response body as a gather without
 // coalescing it; the callback reads it from there.
-class request_stream: public http3_stream {
+class http3_client_stream: public http3_stream {
 public:
-  using completion_callback = std::function<void(request_stream&)>;
+  using completion_callback = std::function<void(http3_client_stream&)>;
 
-  explicit request_stream(completion_callback&& on_complete)
+  explicit http3_client_stream(completion_callback&& on_complete)
       : on_complete_{std::move(on_complete)} {
+    // No router yet, so we can't assert that we're on the loop thread.
     assert(on_complete_);
     set_role(connection_role::client);
   }
@@ -73,14 +74,21 @@ public:
     return true;
   }
 
+  // Send request once added.
   [[nodiscard]] bool on_added() override {
+    assert(router()->is_loop_thread());
     auto& headers = request_headers();
+
+    // Default the authority to the server name. Does not overwrite.
     if (auto* a = headers.find(":authority"); a && a->value.empty())
       a->value = router()->server_name();
+
     return router()->submit_request(this, headers, send_queue().appended());
   }
 
+  // Invoke callback once the response is available.
   [[nodiscard]] bool on_close(h3_error_code app_error_code) override {
+    assert(router()->is_loop_thread());
     const bool ok = http3_stream::on_close(app_error_code);
     on_complete_(*this);
     return ok;

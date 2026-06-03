@@ -70,7 +70,7 @@ public:
   // `max_length`: maximum bytes that may be scanned before `false` is
   //   returned. 0 means no limit is enforced here; the caller is responsible
   //   for the full-buffer case (compare `bytes_scanned` against
-  //   `view.buffer_capacity()`).
+  //   `view.buffer_capacity`).
   //
   // Default construction leaves the sentinel empty, which is falsy and signals
   // that the state has not yet been configured. Assign a configured `state`

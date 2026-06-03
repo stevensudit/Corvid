@@ -193,7 +193,7 @@ TEST_CASE("try_or_log with attempt swallows mid-unwind",
   log::singleton().set_stream(sink);
 
   // A destructor invoked while `outer` unwinds calls `try_or_log<attempt>`,
-  // whose `fn` throws. Because `std::uncaught_exceptions()` is nonzero, it
+  // whose `fn` throws. Because `std::uncaught_exceptions` is nonzero, it
   // must not rethrow (that would terminate); it logs and returns `on_throw`,
   // so the destructor completes and `outer` keeps propagating.
   bool swallowed = false;

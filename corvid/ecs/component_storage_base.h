@@ -204,8 +204,7 @@ public:
     add_guard(const add_guard&) = delete;
     add_guard& operator=(const add_guard&) = delete;
 
-    // Disarm the guard (success path). Returns true for use in
-    // `return guard.disarm()`.
+    // Disarm the guard (success path).
     bool disarm() noexcept {
       saved_size_ = *id_t::invalid;
       return true;

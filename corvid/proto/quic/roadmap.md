@@ -71,7 +71,7 @@ class between them:
   nghttp3 request submission on the client side. Drives the outbound drain via
   its `drain(now)` hook.
 - **Per-stream handler** is the HTTP/3 user: a concrete `http3_stream` the
-  router owns and demuxes each stream's events to (`request_stream` on the
+  router owns and demuxes each stream's events to (`http3_client_stream` on the
   client, a server `Stream` minted by `create_inbound_stream`). Operates at the
   HTTP level through the `http3_stream` hooks: accumulates inbound headers /
   trailers / body, and produces outbound body bytes from its `send_queue` via
@@ -387,7 +387,7 @@ needs it, or if we want a watchdog beneath ngtcp2's own timers.
   `http3_stream` objects keyed by stream ID. A server supplies its stream type
   by overriding `create_inbound_stream` (the `http3_server_router<Stream>`
   template does this for a fixed `Stream`); a client builds an `http3_stream`
-  (e.g. `request_stream`) and submits it via `add_stream`. The bridge
+  (e.g. `http3_client_stream`) and submits it via `add_stream`. The bridge
   forwarding is:
   Transport to HTTP/3: `on_recv_stream_data` -> `read_stream` plus QUIC
   flow-control credit, `on_acked_stream_data_offset` -> `add_ack_offset`,
@@ -422,21 +422,26 @@ needs it, or if we want a watchdog beneath ngtcp2's own timers.
   from it). Per-stream demux uses nghttp3's `stream_user_data`: `ensure_stream`
   stashes the `http3_stream*` via `set_stream_user_data` on the first
   `on_begin_headers`, and later upcalls recover it with `to_stream`. Two ready
-  endpoints sit on top: `request_stream` (`http3_request_stream.h`), a client
-  request stream that submits itself in `on_added` and fires a completion
+  endpoints sit on top: `http3_client_stream` (`http3_client_stream.h`), a
+  client request stream that submits itself in `on_added` and fires a completion
   callback from `on_close`; and `http3_server_router<Stream>`, a server router
   that mints a fixed `Stream` per inbound request. Covered by `http3_stream_test`
   (headers / trailers / defaults) and `http3_conn_test` (request / response
   round-trip, blocking, `set_stream_user_data` round-trip), plus a manual
   interop client `notest_http3_client_test` (a hardwired `GET` against a live
   public HTTP/3 server, built but not run by the sweep).
-- **[planned] HTTP/3 GET over the live router.** Close the remaining gap from
-  the stream layer to an automated end-to-end test: a server
-  `http3_server_router<Stream>` decoding a request and emitting a response
-  HEADERS + DATA, and a client `request_stream` reading it back, both over the
-  live `iou_dgram_router` (today's `quic_dgram_http3_test` stops at the SETTINGS
-  exchange). Then interop against `curl --http3` and `nghttp3`'s reference
-  client.
+- **[done] HTTP/3 GET over the live router.** Closed the gap from the stream
+  layer to an automated end-to-end test. `http3_server_stream` is the server
+  endpoint (the mirror of `http3_client_stream`): it accumulates the request,
+  gates it on the `:authority` via the virtual `authority_reject_status` (`421`
+  on a mismatch with the server's configured authority, `500` when none is
+  configured), and otherwise builds a reply in `build_response` and submits it
+  through the guarded `http3_stream::submit_response`. The accepted authority is
+  configured at `bind` and threaded into `quic_session_io::server_name_`.
+  `quic_dgram_http3_test` now drives a live `GET /`: a
+  `http3_server_router<hello_stream>` returns `200` + a body that a client
+  `http3_client_stream` reads back, plus the `421` and `500` rejection paths.
+  Interop against `curl --http3` and `nghttp3`'s reference client remains.
 - **[planned] HTTP/3 streaming bodies, trailers, server push (maybe).**
   Wire up request/response body streaming through nghttp3's data callbacks.
   Server push is RFC-permitted but deprecated in practice; treat as optional.

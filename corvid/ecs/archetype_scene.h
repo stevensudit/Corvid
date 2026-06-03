@@ -130,7 +130,7 @@ public:
   // Construct with unlimited, unbound storages. Each storage is bound to
   // this scene's registry and assigned `store_id_t{N}` for 1-based index N.
   // An optional allocator propagates to the registry; all storage allocations
-  // derive from it via `registry_.get_allocator()`.
+  // derive from it via `registry_.get_allocator`.
   explicit archetype_scene(const allocator_type& alloc = allocator_type{})
       : registry_{alloc},
         storages_{make_storages(std::index_sequence_for<STORES...>{})} {}

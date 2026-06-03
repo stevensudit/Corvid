@@ -89,9 +89,9 @@ in shape to the first: `http3_router` owns `http3_conn`, which points back at
 demuxes the per-stream HTTP/3 events to `http3_stream` objects it owns, one per
 active request/response stream. A server provides the stream type by overriding
 `http3_router::create_inbound_stream` (the `http3_server_router<Stream>`
-template does this for a fixed `Stream`); a client builds an outbound
-`http3_stream` (e.g. `request_stream`) and hands it to
-`http3_router::add_stream`.
+template does this for a fixed `Stream`, typically an `http3_server_stream`); a
+client builds an outbound `http3_stream` (e.g. `http3_client_stream`) and hands
+it to `http3_router::add_stream`.
 
 ```mermaid
 classDiagram
@@ -109,7 +109,8 @@ classDiagram
     class http3_router
     class http3_server_router~Stream~
     class http3_stream
-    class request_stream
+    class http3_client_stream
+    class http3_server_stream
     class http3_conn {
         <<wraps nghttp3_conn>>
     }
@@ -120,7 +121,8 @@ classDiagram
     quic_conn_handlers <|-- http3_router
     http3_conn_handlers <|-- http3_router
     http3_router <|-- http3_server_router~Stream~
-    http3_stream <|-- request_stream
+    http3_stream <|-- http3_client_stream
+    http3_stream <|-- http3_server_stream
 
     http3_router *-- http3_conn : h3_
     http3_router *-- http3_stream : streams_
@@ -168,10 +170,11 @@ them.
 | ----- | ---- | ------------- |
 | [http3_conn](http3_conn.h#L406) | http3_conn.h | Wraps `nghttp3_conn` (HTTP/3 framing + QPACK). Forwards nghttp3's callback table into `http3_conn_handlers*`. Non-copyable, non-movable (nghttp3 stores `this`). Owned **by the upper plugin**, not by `quic_session_io`. |
 | [http3_conn_handlers](http3_conn.h#L185) | http3_conn.h | Abstract base: HTTP/3 upcalls (`on_begin_headers`, `on_recv_header`, `on_end_headers`, trailers, `on_recv_data`, `on_send_data_ready`, `on_end_stream`, `on_h3_stream_close`, `on_recv_settings`, ...). Each per-stream upcall carries nghttp3's `stream_user_data`. |
-| [http3_router](http3_plugins.h#L327) | http3_plugins.h | The upper plugin for HTTP/3. Inherits **both** `quic_conn_handlers` (transport upcalls in) **and** `http3_conn_handlers` (HTTP/3 upcalls out), owns an `http3_conn` by value (`h3_`), and holds a `quic_session_io&` (`io_`). Bridges mechanically in both directions and demuxes the connection-level HTTP/3 events to per-stream `http3_stream` objects it owns in `streams_` (`unordered_map<quic_stream_id, unique_ptr<http3_stream>>`), keyed by stream id. A server overrides `create_inbound_stream`; a client calls `add_stream` / `submit_request`. |
-| [http3_server_router&lt;Stream&gt;](http3_plugins.h#L760) | http3_plugins.h | Ready-made server subclass of `http3_router`: overrides `create_inbound_stream` to mint a fixed `Stream` (must derive from `http3_stream`, be default-constructible) per peer-initiated request, so a server needs no router subclass of its own. Plug in as `quic_dgram_protocol<http3_server_router<Stream>>`. |
-| [http3_stream](http3_plugins.h#L57) | http3_plugins.h | Per-stream HTTP/3 transaction the `http3_router` associates with one request/response stream and routes that stream's HEADERS / trailers / DATA / end / close events to. Concrete (default hooks return no-op `true`); holds the request and response header/trailer pairs, a send and a receive `iov_queue`, and a `connection_role` (`set_role` orients which pair inbound fields land in). Subclasses override only the hooks they need. |
-| [request_stream](http3_request_stream.h#L53) | http3_request_stream.h | Concrete client `http3_stream`: built with a completion callback, configured by editing `request_headers()` (or the static `configure_request` helper), optional body appended to `send_queue()`; submits itself in `on_added` and fires the callback from `on_close`. The response lands in `response_headers()` / `receive_queue()`. |
+| [http3_router](http3_plugins.h#L343) | http3_plugins.h | The upper plugin for HTTP/3. Inherits **both** `quic_conn_handlers` (transport upcalls in) **and** `http3_conn_handlers` (HTTP/3 upcalls out), owns an `http3_conn` by value (`h3_`), and holds a `quic_session_io&` (`io_`). Bridges mechanically in both directions and demuxes the connection-level HTTP/3 events to per-stream `http3_stream` objects it owns in `streams_` (`unordered_map<quic_stream_id, unique_ptr<http3_stream>>`), keyed by stream id. A server overrides `create_inbound_stream`; a client calls `add_stream` / `submit_request`. |
+| [http3_server_router&lt;Stream&gt;](http3_plugins.h#L793) | http3_plugins.h | Ready-made server subclass of `http3_router`: overrides `create_inbound_stream` to mint a fixed `Stream` (must derive from `http3_stream`, be default-constructible) per peer-initiated request, so a server needs no router subclass of its own. Plug in as `quic_dgram_protocol<http3_server_router<Stream>>`. |
+| [http3_stream](http3_plugins.h#L57) | http3_plugins.h | Per-stream HTTP/3 transaction the `http3_router` associates with one request/response stream and routes that stream's HEADERS / trailers / DATA / end / close events to. Concrete (default hooks return no-op `true`); holds the request and response header/trailer pairs, a send and a receive `iov_queue`, and a `connection_role` (`set_role` orients which pair inbound fields land in). Its `submit_response` sends `response_headers()` (plus any `send_queue()` body) through the owning router exactly once, latching `responded()` so an early error and a normal reply never both go out. Subclasses override only the hooks they need. |
+| [http3_client_stream](http3_client_stream.h#L53) | http3_client_stream.h | Concrete client `http3_stream`: built with a completion callback, configured by editing `request_headers()` (or the static `configure_request` helper), optional body appended to `send_queue()`; submits itself in `on_added` and fires the callback from `on_close`. The response lands in `response_headers()` / `receive_queue()`. |
+| [http3_server_stream](http3_server_stream.h#L50) | http3_server_stream.h | Server counterpart to `http3_client_stream` (the `Stream` for `http3_server_router`). The request lands in `request_headers()` / `receive_queue()`. `on_end_headers` gates the request through the virtual `authority_reject_status` (default: `421` when the `:authority` does not match `router()->server_name()`, `500` when the server has no configured authority), answering a rejected request itself; on success `on_end_stream` calls the overridable `build_response` hook and submits via the guarded `http3_stream::submit_response`. The default `build_response` is a no-op, so an accepted request gets the seeded 500. |
 
 ### Supporting value types
 

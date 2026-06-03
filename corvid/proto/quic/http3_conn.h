@@ -432,6 +432,7 @@ public:
     if (conn_) return false;
     nghttp3_settings settings;
     nghttp3_settings_default(&settings);
+    // TODO: Consider enabling `h3_datagram` here.
     nghttp3_conn* raw{};
     role_ = role;
     const int rv =
@@ -503,18 +504,28 @@ public:
             fields.size(), with_body ? &dr : nullptr, stream_user_data));
   }
 
-  // Submit a response on the request's `stream_id`. `fields` are
-  // the response HEADERS (":status" first). Header-only path: ends the stream
-  // after the headers (no response body). Same copy / cap notes as
+  // Submit a response on the request's `stream_id`. `fields` are the response
+  // HEADERS (":status" first). nghttp3 queues the HEADERS for the next
+  // `writev_stream` and copies `fields`, so the views need not outlive this
+  // call.
+  //
+  // With `with_body == false` (the default) this is the header-only path: the
+  // stream ends after the HEADERS (no response body). With `with_body == true`
+  // a body data reader is installed, so nghttp3 pulls the body via
+  // `on_send_data_ready` upcalls (the stream ends when one reports eof).
+  // Unlike `submit_request`, this takes no `stream_user_data`: a server
+  // response runs on a peer-initiated stream whose user data is already set,
+  // so those upcalls route back without it. Same copy / cap notes as
   // `submit_request`.
   [[nodiscard]] bool submit_response(quic_stream_id stream_id,
-      std::span<const http3_field> fields) {
+      std::span<const http3_field> fields, bool with_body = false) {
     assert(role_ == connection_role::server);
     std::array<nghttp3_nv, max_submit_fields> nva{};
     if (!fill_nv(fields, nva)) return false;
+    const nghttp3_data_reader dr{.read_data = &read_data};
     return ok("nghttp3_conn_submit_response",
         nghttp3_conn_submit_response(conn_.get(), from(stream_id), nva.data(),
-            fields.size(), nullptr));
+            fields.size(), with_body ? &dr : nullptr));
   }
 
 #pragma endregion

@@ -30,9 +30,9 @@ namespace corvid { inline namespace infra {
 // wall-clock and tests can install a fake.
 //
 // Static-only; the class exists to namespace the clock state and the
-// replaceable `now()` entry point. Atomic ops use relaxed ordering on the
-// read path (single-threaded fairness isn't needed because the value being
-// loaded is just a function pointer or `time_point` that updates rarely).
+// replaceable `now` entry point. Atomic ops use relaxed ordering on the read
+// path (single-threaded fairness isn't needed because the value being loaded
+// is just a function pointer or `time_point` that updates rarely).
 //
 // The `size_t` template parameter is just to give each instantiation a unique
 // address for its statics, so different clock types don't step on each other's

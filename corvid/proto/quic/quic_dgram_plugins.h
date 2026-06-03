@@ -19,6 +19,7 @@
 #include <cstdint>
 #include <memory>
 #include <span>
+#include <string>
 #include <string_view>
 #include <utility>
 
@@ -133,12 +134,23 @@ public:
     // cert/key (server role) or verify settings (client role) flow into new
     // sessions. Held by reference; must outlive the router.
     //
+    // `server_name` is the authority a server answers for (server role only).
+    // It is stamped into every accepted session as its
+    // `quic_session_io::server_name`, so the HTTP/3 layer can refuse a request
+    // whose `:authority` names a different host (`http3_server_stream`'s
+    // misdirected-request gate). Empty means no configured authority, and that
+    // gate then refuses every request. A client router has no authority to
+    // declare and leaves it empty; each client connection carries its own
+    // target via `make_client` instead.
+    //
     // A server-role context lets `create_session` turn unsolicited Initials
     // into server-side sessions. A client-role context disables
     // `create_session` (unsolicited inbound is dropped); client sessions
     // are instead constructed explicitly via `session_plugin::make_client`
     // and registered under their own SCID.
-    explicit router_plugin(quic_ssl_ctx& tls) noexcept : tls_{tls} {}
+    explicit router_plugin(quic_ssl_ctx& tls,
+        std::string server_name = {}) noexcept
+        : tls_{tls}, server_name_{std::move(server_name)} {}
 
 #pragma endregion
 #pragma region Accessors
@@ -172,12 +184,9 @@ public:
       if (tls_.role() != connection_role::server) return false;
       const quic_version_cid vc{buf.payload_bytes(), cid_length};
       if (!vc || !vc.is_long_header()) return false;
-      auto ssn = session_t::make(router, buf, tls_);
-      // Informational only: reports whether `init()` produced an
-      // `ngtcp2_conn`, not whether `register_self` actually landed the session
-      // in the router. The sole caller (`iou_dgram_router::dispatch_packet`)
-      // discards this return and re-looks up `sessions_`, which is the
-      // load-bearing success check.
+      auto ssn = session_t::make(router, buf, tls_, server_name_);
+      // Informational only: reports whether `init` produced an `ngtcp2_conn`,
+      // not whether `register_self` actually landed the session in the router.
       return ssn->plugin().conn().ok();
     }
 
@@ -185,6 +194,7 @@ public:
 #pragma region Data members
   private:
     quic_ssl_ctx& tls_;
+    std::string server_name_;
 
 #pragma endregion
   };
@@ -224,13 +234,15 @@ public:
     // Server-side construction. Constructs a thin `quic_conn` (owned by the
     // `quic_session_io` base) in the server role bound to `server_tls`; the
     // underlying `ngtcp2_conn` is allocated by `register_self(buf)` once the
-    // wire header has been parsed for the CIDs and peer endpoint. Reached
-    // via `iou_dgram_session::make(router, buf, tls)` from
-    // `router_plugin::create_session`.
+    // wire header has been parsed for the CIDs and peer endpoint.
+    // `server_name` is the authority this server answers for, carried by
+    // `router_plugin` from `bind` and stamped into the `quic_session_io` base.
+    // Reached via `iou_dgram_session::make(router, buf, tls, server_name)`
+    // from `router_plugin::create_session`.
     session_plugin(router_t& router, session_t& session,
-        quic_ssl_ctx& server_tls) noexcept
-        : quic_session_io{session, server_tls}, router_{router},
-          session_{session},
+        quic_ssl_ctx& server_tls, std::string server_name) noexcept
+        : quic_session_io{session, server_tls, std::move(server_name)},
+          router_{router}, session_{session},
           scid_{make_random_cid(quic_dgram_protocol::cid_length)},
           plugin_{*this} {
       conn().set_handlers(&plugin_);
@@ -263,9 +275,13 @@ public:
     // registration" convention (so `register_self({})` is a no-op here),
     // then runs `do_register_client` inline. Returns null if either
     // ngtcp2 init or router registration fails.
-    [[nodiscard]] static std::shared_ptr<session_t>
-    make_client(router_t& router, const net_endpoint& peer,
-        std::string server_name = {}) {
+    //
+    // `server_name` is the TLS SNI to send and the default request
+    // `:authority`. It is required (no default) so the call site states
+    // intent; pass `""` for neither (e.g. connecting by IP, or setting
+    // `:authority` per request).
+    [[nodiscard]] static std::shared_ptr<session_t> make_client(
+        router_t& router, const net_endpoint& peer, std::string server_name) {
       if (!router.loop().is_loop_thread()) return {};
       auto ssn = session_t::make(router, buffer{}, router.plugin().tls(), peer,
           std::move(server_name));
@@ -384,7 +400,7 @@ public:
     // ngtcp2's `handle_expiry` would still report `ok` there (idle is far
     // off). Both reschedule points fold `close_deadline_` into the `min` so
     // the sweeper actually wakes at it. While the conn is live the deadline is
-    // `max()` and all three reduce to the plain ngtcp2 expiry.
+    // `max` and all three reduce to the plain ngtcp2 expiry.
     [[nodiscard]] time_point_t on_expiry_sweep(time_point_t fired_expire) {
       if (fired_expire != registered_expiry_) return {};
       const auto now = steady_now_clock::now();
@@ -540,7 +556,7 @@ public:
     time_point_t registered_expiry_;
 
     // Deadline at which a closing/draining session is reaped (RFC 9000 sec.
-    // 10.2, 3*PTO). `max()` while the conn is live; latched once on entry to
+    // 10.2, 3*PTO). `max` while the conn is live; latched once on entry to
     // the close period by `arm_expiry` and never pushed back.
     time_point_t close_deadline_{time_point_t::max()};
 
