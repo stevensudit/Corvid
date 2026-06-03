@@ -114,6 +114,7 @@ public:
 
   // The host portion of an authority, dropping a trailing ":port" (a bare host
   // or an IPv6 literal without a port is returned unchanged).
+  // NOLINTBEGIN(bugprone-exception-escape)
   [[nodiscard]] static std::string_view host_of(
       std::string_view authority) noexcept {
     const auto colon = authority.rfind(':');
@@ -127,6 +128,7 @@ public:
       if (!strings::is_digit(c)) return authority;
     return authority.substr(0, colon);
   }
+  // NOLINTEND(bugprone-exception-escape)
 };
 
 #pragma endregion

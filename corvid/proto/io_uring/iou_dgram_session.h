@@ -150,7 +150,7 @@ public:
   // construction is not yet complete.
   template<typename... PluginArgs>
   explicit iou_dgram_session(allow, router_t& router,
-      PluginArgs&&... plugin_args) noexcept
+      PluginArgs&&... plugin_args)
       : iou_dgram_session_base{router.loop(), router_t::buf_size},
         router_{router},
         plugin_{router, *this, std::forward<PluginArgs>(plugin_args)...} {

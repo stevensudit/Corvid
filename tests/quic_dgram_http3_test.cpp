@@ -116,7 +116,7 @@ run_get(std::string server_name, std::string client_authority) {
   std::shared_ptr<protocol_t::session_plugin::session_t> client_sess;
   REQUIRE(runner.loop()->post_and_wait([&]() -> bool {
     client_sess = protocol_t::session_plugin::make_client(
-        *client_router.pointer(), server_addr, std::move(client_authority));
+        *client_router.pointer(), server_addr, client_authority);
     return client_sess != nullptr;
   }));
 
