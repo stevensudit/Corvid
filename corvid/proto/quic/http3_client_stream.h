@@ -38,9 +38,12 @@ namespace corvid { inline namespace proto { namespace quic {
 // directly), optionally append body chunks to `send_queue`, and hand it to a
 // plain `http3_router::add_stream`.
 //
-// With inheritance: override `on_send_data_ready` to stream or generate the
-// body on the fly, `on_recv_data` to consume the response body differently, or
-// any other `http3_stream` hook.
+// With inheritance: override `on_send_data_ready` to generate the body on the
+// fly, `on_recv_data` to consume the response body differently, or any other
+// `http3_stream` hook. A body produced lazily, with nothing appended to
+// `send_queue` before the stream is added, must also set
+// `send_queue().state().body_production = production_policy::streaming` so the
+// request is submitted with a body and nghttp3 pulls `on_send_data_ready`.
 //
 // Responses land in `response_headers` / `response_trailers` (and `:status`
 // within them). The callback fires once, from `on_close`, with `completed`
@@ -83,7 +86,7 @@ public:
     if (auto* a = headers.find(":authority"); a && a->value.empty())
       a->value = router()->server_name();
 
-    return router()->submit_request(this, headers, send_queue().appended());
+    return router()->submit_request(this, headers, has_body());
   }
 
   // Invoke callback once the response is available.

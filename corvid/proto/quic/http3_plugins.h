@@ -55,15 +55,23 @@ class http3_router;
 // Returning `false` from any upcall fails the nghttp3 callback and tears the
 // connection down, the same contract as the connection-level handlers.
 class http3_stream {
-  // Queue with maximum size as additional state.
-  using iov_queue_t = iov_queue<std::vector<uint8_t>, size_t>;
+  // Per-queue state for the send and receive queues. `max_size` caps a receive
+  // queue (enforced in `on_recv_data`). `body_production` tells the send path
+  // whether the body is produced eagerly (all queued before submit) or lazily
+  // (streamed via `on_send_data_ready`); a lazy body forces `with_body` at
+  // submit time even when no bytes are queued yet.
+  struct queue_state {
+    size_t max_size{};
+    production_policy body_production{};
+  };
+  using iov_queue_t = iov_queue<std::vector<uint8_t>, queue_state>;
 
 public:
 #pragma region Construction
 
   explicit http3_stream() {
     // Stop at 16MB on read, unless otherwise configured.
-    receive_queue_.state() = 16ULL * 1024 * 1024;
+    receive_queue_.state().max_size = 16ULL * 1024 * 1024;
   }
 
   http3_stream(const http3_stream&) = delete;
@@ -119,6 +127,15 @@ public:
   }
   [[nodiscard]] auto& receive_queue(this auto& self) noexcept {
     return self.receive_queue_;
+  }
+
+  // Whether this stream submits an outbound body: bytes are already queued, or
+  // the producer declared a lazy body via `send_queue().state()`. Read once at
+  // submit time to set `with_body`; a lazy body forces it true so nghttp3
+  // pulls `on_send_data_ready` even when nothing is queued yet.
+  [[nodiscard]] bool has_body() const noexcept {
+    return send_queue_.appended() != 0 ||
+           send_queue_.state().body_production == production_policy::streaming;
   }
 
   // Whether a clean `on_end_stream` has been seen (the full message arrived).
@@ -241,7 +258,7 @@ public:
     // it. `submit_response` also sends STOP_SENDING, but bytes already in the
     // current packet still surface here, so the discard is what handles them.
     if (responded_) return true;
-    if (receive_queue_.size() + data.size() > receive_queue_.state())
+    if (receive_queue_.size() + data.size() > receive_queue_.state().max_size)
       return log::error("Receive queue overflow") && false;
 
     receive_queue_.append(std::vector<uint8_t>(data.begin(), data.end()));
@@ -667,7 +684,7 @@ public:
   // to it.
   [[nodiscard]] bool submit_response(http3_stream* stream) {
     if (!h3_.submit_response(stream->stream_id_, stream->response_headers(),
-            stream->send_queue().appended()))
+            stream->has_body()))
       return false;
     return io_.request_drain();
   }

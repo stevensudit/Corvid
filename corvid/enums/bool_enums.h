@@ -86,4 +86,7 @@ enum class text_validation : bool { untrusted = false, trusted = true };
 // Whether an operation is single-shot or multi-shot.
 enum class shot_type : bool { single = false, multi = true };
 
+// Whether the data is generated in advance or on demand.
+enum class production_policy : bool { complete = false, streaming = true };
+
 }}} // namespace corvid::enums::bool_enums
