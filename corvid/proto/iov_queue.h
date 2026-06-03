@@ -229,8 +229,8 @@ public:
         chunks_.begin() + static_cast<std::ptrdiff_t>(retained_index_));
     unused_index_ -= retained_index_;
     retained_index_ = 0;
-    chunks_.shrink_to_fit();
     if (policy == deallocation_policy::release) {
+      chunks_.shrink_to_fit();
       // The dropped slots held `reclaimed - retained_offset` bytes; the rest
       // of `reclaimed` stays as the front buffer's already-reclaimed prefix.
       const uint64_t dropped = reclaimed_ - retained_offset_;
