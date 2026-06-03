@@ -1580,7 +1580,7 @@ TEST_CASE("Ordering", "[FixedBitset]") {
 #pragma endregion
 #pragma region Tag
 
-// TAG prevents structurally-identical bitsets from being mixed.
+// TAG prevents structurally identical bitsets from being mixed.
 
 TEST_CASE("Tag", "[FixedBitset]") {
   struct tag_a {};

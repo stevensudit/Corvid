@@ -19,7 +19,7 @@
 
 namespace corvid { inline namespace enums { namespace bool_enums {
 
-// Strongly-typed two-value enums intended to replace plain `bool` parameters.
+// Strongly typed two-value enums intended to replace plain `bool` parameters.
 // All have `bool` as their underlying type, enabling explicit conversion via
 // `static_cast` and use as C++20 non-type template parameters.
 //
@@ -85,5 +85,8 @@ enum class text_validation : bool { untrusted = false, trusted = true };
 
 // Whether an operation is single-shot or multi-shot.
 enum class shot_type : bool { single = false, multi = true };
+
+// Whether the data is generated in advance or on demand.
+enum class production_policy : bool { complete = false, streaming = true };
 
 }}} // namespace corvid::enums::bool_enums

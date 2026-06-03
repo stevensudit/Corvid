@@ -99,7 +99,7 @@ TEST_CASE("Disarm", "[TimerFuse]") {
 
 TEST_CASE("Rearm", "[TimerFuse]") {
   // Re-arming increments the sequencer so the earlier fuse fizzles; only the
-  // most-recently-armed fuse sees a live resource.
+  // most-recently armed fuse sees a live resource.
   auto resource = std::make_shared<FakeResource>();
   auto t0 = std::chrono::steady_clock::now();
   timing_wheel wheel{6, 1ms, t0};

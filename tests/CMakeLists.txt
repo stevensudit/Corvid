@@ -36,7 +36,7 @@ else()
 endif()
 
 # Default libc++ prefix is the system clang-22 install. SANITIZER=msan
-# overrides this to the locally-built MSAN-instrumented libc++ so that the
+# overrides this to the locally built MSAN-instrumented libc++ so that the
 # C++ stdlib code MSAN's instrumentation observes is itself instrumented.
 set(LIBCXX_PREFIX "/usr/lib/llvm-22")
 if(SANITIZER STREQUAL "msan")
@@ -303,6 +303,68 @@ set_target_properties(ngtcp2_crypto_ossl_static PROPERTIES
     INTERFACE_LINK_LIBRARIES      "ngtcp2_static;OpenSSL::SSL;OpenSSL::Crypto")
 add_dependencies(ngtcp2_crypto_ossl_static ngtcp2_external)
 
+# HTTP/3 dependency: nghttp3 (ExternalProject), the same pattern as ngtcp2
+# above. nghttp3 is crypto-agnostic -- it implements HTTP/3 framing and QPACK
+# and has no OpenSSL dependency -- so its config is ngtcp2's minus the crypto
+# knobs. ExternalProject (rather than FetchContent) for the same reasons: it
+# runs the autoconf-style probe sweep in an isolated cache that survives
+# `cleanbuild.sh`'s build-dir wipe, and it sidesteps nghttp3's top-level
+# `check` target colliding with ngtcp2's (each sub-build is its own CMake
+# invocation, so target names never share a namespace).
+if(SANITIZER STREQUAL "msan")
+    set(_nghttp3_suffix "-msan")
+else()
+    set(_nghttp3_suffix "")
+endif()
+set(NGHTTP3_PREFIX_DIR  "${CMAKE_CURRENT_SOURCE_DIR}/.local/nghttp3-external${_nghttp3_suffix}")
+set(NGHTTP3_INSTALL_DIR "${CMAKE_CURRENT_SOURCE_DIR}/.local/nghttp3${_nghttp3_suffix}")
+set(NGHTTP3_LIB_DIR     "${NGHTTP3_INSTALL_DIR}/lib")
+set(NGHTTP3_INCLUDE_DIR "${NGHTTP3_INSTALL_DIR}/include")
+
+# Forward MSAN instrumentation into nghttp3's sub-build, mirroring ngtcp2:
+# clang plus the same plain `-fsanitize=memory` (origin tracking overflows the
+# stack in our templated TUs). Without this, nghttp3's own writes stay
+# invisible to MSAN and poison our HTTP/3 code paths with false positives.
+set(_nghttp3_san_args "")
+if(SANITIZER STREQUAL "msan")
+    set(_nghttp3_san_args
+        "-DCMAKE_C_COMPILER=clang-22"
+        "-DCMAKE_C_FLAGS=-fsanitize=memory -fno-omit-frame-pointer -g")
+endif()
+
+ExternalProject_Add(nghttp3_external
+    PREFIX            "${NGHTTP3_PREFIX_DIR}"
+    GIT_REPOSITORY    https://github.com/ngtcp2/nghttp3.git
+    GIT_TAG           v1.15.0
+    GIT_SHALLOW       TRUE
+    UPDATE_DISCONNECTED TRUE
+    INSTALL_DIR       "${NGHTTP3_INSTALL_DIR}"
+    CMAKE_GENERATOR   "Ninja"
+    CMAKE_ARGS
+        -DCMAKE_INSTALL_PREFIX=${NGHTTP3_INSTALL_DIR}
+        -DCMAKE_INSTALL_LIBDIR=lib
+        -DCMAKE_BUILD_TYPE=Release
+        ${_nghttp3_san_args}
+        -DENABLE_STATIC_LIB=ON
+        -DENABLE_SHARED_LIB=OFF
+        -DENABLE_LIB_ONLY=ON
+        -DENABLE_WERROR=OFF
+        -DBUILD_TESTING=OFF
+    BUILD_BYPRODUCTS
+        "${NGHTTP3_LIB_DIR}/libnghttp3.a"
+)
+
+# As with ngtcp2: the include dir must exist at configure time for the
+# IMPORTED target properties below. nghttp3_external populates it on first
+# build.
+file(MAKE_DIRECTORY "${NGHTTP3_INCLUDE_DIR}")
+
+add_library(nghttp3_static STATIC IMPORTED GLOBAL)
+set_target_properties(nghttp3_static PROPERTIES
+    IMPORTED_LOCATION             "${NGHTTP3_LIB_DIR}/libnghttp3.a"
+    INTERFACE_INCLUDE_DIRECTORIES "${NGHTTP3_INCLUDE_DIR}")
+add_dependencies(nghttp3_static nghttp3_external)
+
 if(USE_CLANG_TIDY)
     find_program(CLANG_TIDY_EXE NAMES clang-tidy clang-tidy-22)
     if(CLANG_TIDY_EXE)
@@ -358,17 +420,15 @@ foreach(SOURCE_FILE ${SOURCES})
         endif()
     endif()
 
-    if(${EXECUTABLE_NAME} MATCHES "^iou_|^quic_dgram_")
-        target_include_directories(${EXECUTABLE_NAME} PRIVATE ${LIBURING_INCLUDE_DIRS})
-        target_link_libraries(${EXECUTABLE_NAME} PRIVATE ${LIBURING_LIBRARIES})
-    endif()
-
-    # QUIC stack. Linked into every target; the static linker drops archive
-    # members that no symbol references, so tests that do not include any of
-    # the headers pay no measurable size or link-time cost. The crypto
-    # target's INTERFACE_LINK_LIBRARIES carries ngtcp2_static + OpenSSL
-    # transitively.
-    target_link_libraries(${EXECUTABLE_NAME} PRIVATE ngtcp2_crypto_ossl_static)
+    # liburing, the QUIC stack, and the HTTP/3 stack are linked into every
+    # target. The static linker drops archive members that no symbol
+    # references, so targets that touch none of these headers pay no
+    # measurable size or link-time cost. The crypto target's
+    # INTERFACE_LINK_LIBRARIES carries ngtcp2_static + OpenSSL transitively;
+    # nghttp3_static is standalone (no crypto dependency).
+    target_include_directories(${EXECUTABLE_NAME} PRIVATE ${LIBURING_INCLUDE_DIRS})
+    target_link_libraries(${EXECUTABLE_NAME} PRIVATE
+        ${LIBURING_LIBRARIES} ngtcp2_crypto_ossl_static nghttp3_static)
 
     if(NOT USE_LIBSTDCPP)
         # Link libc++ and libc++abi explicitly

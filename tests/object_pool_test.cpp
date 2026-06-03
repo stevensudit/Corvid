@@ -480,7 +480,7 @@ TEST_CASE("Shutdown", "[ObjectPool]") {
   }
 
   // `shutdown` invokes `return_cb_` on every slot regardless of state:
-  // free slots (already returned), and currently-borrowed slots (which it
+  // free slots (already returned), and currently borrowed slots (which it
   // forcibly clears). Returning a still-live handle afterwards still runs
   // `return_cb_` from the normal `return_slot` path.
   if (true) {

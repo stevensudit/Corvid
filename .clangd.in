@@ -35,7 +35,7 @@ CompileFlags:
 If:
   PathMatch: [corvid/proto/.*]
 CompileFlags:
-  Add: [-isystem, @NGTCP2_INCLUDE_DIR@, -isystem, @OPENSSL_INCLUDE_DIR@]
+  Add: [-isystem, @NGTCP2_INCLUDE_DIR@, -isystem, @NGHTTP3_INCLUDE_DIR@, -isystem, @OPENSSL_INCLUDE_DIR@]
 
 ---
 Diagnostics:

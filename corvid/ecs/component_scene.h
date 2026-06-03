@@ -70,7 +70,7 @@ protected:
 //
 // Template parameters:
 //   REG    - Shared component-mode `entity_registry` specialization.
-//   STORES - Fully-typed `component_storage`-family specializations,
+//   STORES - Fully typed `component_storage`-family specializations,
 //            all using `REG`.
 template<typename REG, typename... STORES>
 class component_scene: public component_scene_base {
@@ -431,7 +431,7 @@ private:
           };
           (check.template operator()<Is>(), ...);
         }(std::make_index_sequence<storage_count_v>{});
-        assert(result != nullptr);
+        assert(result);
         return *result; // const C&
       } else {
         C* result = nullptr;
@@ -445,7 +445,7 @@ private:
           };
           (check.template operator()<Is>(), ...);
         }(std::make_index_sequence<storage_count_v>{});
-        assert(result != nullptr);
+        assert(result);
         return *result; // C&
       }
     }

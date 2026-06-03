@@ -108,7 +108,7 @@
 
 19. enums/sequence_enum.h improvements:
    a. It might be nice if we could specialize `std::numeric_limits` for all enums that are flagged as sequence, inheriting from the underlying class and providing correct min and max values. Not sure if that's actually possible, though. Maybe we can't do it automatically but can make it easier.
-   b. Consider making a variation on sequence enums that allows homogeneous operations, which makes sense for `std::byte` and other strongly-typed integers, like `arithmetic_enum`. It would also support the full set of ops.
+   b. Consider making a variation on sequence enums that allows homogeneous operations, which makes sense for `std::byte` and other strongly typed integers, like `arithmetic_enum`. It would also support the full set of ops.
 
 20. strings.h: Get extract_num to work with cstring_view cleanly. It's safe because we only remove the prefix, never the suffix. The brute-force solution is to add overloads for the extract methods. Maybe add extract_num and such to cstring, so as not to pollute this.
 

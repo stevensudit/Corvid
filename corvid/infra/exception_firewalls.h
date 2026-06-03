@@ -15,6 +15,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 #pragma once
+#include <cassert>
 #include <concepts>
 #include <exception>
 #include <typeinfo>
@@ -73,6 +74,9 @@ void do_log_exception(const format_with_loc<const char*, const char*>& msg,
   catch (...) {
     log::terminate();
   }
+#ifndef EXCEPTION_FIREWALLS_NO_ASSERT
+  assert("Logged exception" && false);
+#endif
   if constexpr (policy == rethrow_policy::attempt)
     if (std::uncaught_exceptions() == 0) throw;
 }
@@ -86,6 +90,7 @@ void do_log_exception(const format_with_loc<const char*, const char*>& msg,
 // Run `fn` inside a try block as a noexcept firewall: returns `fn()` on
 // no-throw, or `on_throw` (defaulting to `false`) if it threw.
 // TODO: Use https://github.com/jeremy-rifkin/cpptrace for richer traces.
+// TODO: Consider catch `const char*`.
 template<rethrow_policy policy = rethrow_policy::never, std::invocable F,
     typename T = bool>
 [[nodiscard]] auto try_or_log(F&& fn, T on_throw = false,

@@ -1370,9 +1370,8 @@ public:
   }
 
   // True if this handle is non-empty (i.e., holds a connection).
-  [[nodiscard]] explicit operator bool() const noexcept {
-    return conn_ != nullptr;
-  }
+  [[nodiscard]] explicit operator bool() const noexcept { return conn_.get(); }
+
 #pragma endregion
 #pragma region Internals
 private:

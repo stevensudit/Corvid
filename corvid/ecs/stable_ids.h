@@ -669,7 +669,7 @@ private:
   // The free list lives in the tail of `reverse_` -- the slots past
   // `data_.size()`. When `REUSE_ORDER` is LIFO, `alloc_id` takes the first
   // free slot. When `REUSE_ORDER` is FIFO, the free slots are threaded into
-  // a singly-linked list via their `fifo_next_` fields, ordered by free time;
+  // a singly linked list via their `fifo_next_` fields, ordered by free time;
   // `alloc_id` pops from the head (oldest) and swaps the slot into the
   // tail-front position before the caller's `push_back` absorbs it.
   //

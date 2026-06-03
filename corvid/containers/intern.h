@@ -86,7 +86,7 @@ public:
   using value_t = T;
   using id_t = ID;
 
-  // Effectively-private constructors.
+  // Effectively private constructors.
   constexpr interned_value(allow, const value_t& value, id_t id)
       : value_{&value}, id_{id} {}
   constexpr interned_value(allow, const value_t* value, id_t id)
@@ -264,7 +264,7 @@ public:
   // allocator, which maintains ABI compatibility.
   static_assert(sizeof(arena_value_t) == sizeof(value_t));
 
-  // Effectively-private constructor.
+  // Effectively private constructor.
   intern_table(allow, id_t min_id, id_t max_id, const_pointer next = {})
       : min_id_{min_id}, max_id_{max_id},
         lookup_by_id_{arena_construct<lookup_by_id_t>(arena_)},

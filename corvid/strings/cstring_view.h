@@ -87,7 +87,7 @@ inline namespace cstringview {
 // to `c_str` returns an empty, terminated string but `data` returns `nullptr`.
 //
 // This revanchist implementation is based closely on Andrew Tomazos'
-// wrongly-rejected ANSI committee proposal.
+// wrongly rejected ANSI committee proposal.
 // http://open-std.org/JTC1/SC22/WG21/docs/papers/2019/p1402r0.pdf
 // https://github.com/cplusplus/papers/issues/189
 template<typename T = std::string_view>

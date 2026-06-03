@@ -31,7 +31,7 @@ namespace corvid { inline namespace ecs { inline namespace component_storages {
 
 // Packed single-component storage for the component model.
 //
-// Maps entity IDs to densely-packed component records using swap-and-pop for
+// Maps entity IDs to densely packed component records using swap-and-pop for
 // removal. Unlike `mono_archetype_storage`, a single entity may occupy
 // multiple `component_storage` instances simultaneously; the registry bitmap
 // (not the `ndx` field) tracks membership.
@@ -49,7 +49,7 @@ namespace corvid { inline namespace ecs { inline namespace component_storages {
 //         (`is_component_v == true`).
 //   C   - Component type. Must be trivially copyable.
 //   TAG - Optional tag type (default: `void`). Use a distinct tag to
-//         create multiple structurally-identical storages that are
+//         create multiple structurally identical storages that are
 //         nevertheless different types and can coexist in the same
 //         `component_scene<>` tuple.
 //   IDX - Reverse-index policy (default: `flat_sparse_index<id_t>`).
@@ -166,7 +166,7 @@ public:
     return do_bulk_op(std::move(pred), removal_mode::preserve);
   }
 
-  // Read-only view of a single entity's row. Provides a `component<T>()`
+  // Read-only view of a single entity's row. Provides a `component<T>`
   // accessor uniform with archetype storages (only valid for `T ==
   // component_t`), plus an implicit conversion to `const component_t&`.
   struct row_view {
@@ -230,7 +230,7 @@ public:
   }
 
   // Contiguous iterator over components. Dereferencing yields a `component_t`
-  // reference; `id()` returns the entity ID at the current position.
+  // reference; `id` returns the entity ID at the current position.
   template<access ACCESS>
   class iterator_t {
   public:

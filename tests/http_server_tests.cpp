@@ -477,7 +477,13 @@ TEST_CASE("WriteTimeout", "[HttpServer]") {
   // deterministic regardless of kernel autotuning. The kernel doubles the
   // value but the resulting ~8 KB ceiling is still tiny relative to the
   // response size.
-  CHECK(client->sock().set_recv_buffer_size(4096));
+  //
+  // The connection's socket is owned by the loop thread once registered, so
+  // set the option on that thread via `post_and_wait`; calling it directly
+  // from here would race the loop's close path.
+  CHECK(loop.loop()->post_and_wait([&] {
+    return client->sock().set_recv_buffer_size(4096);
+  }));
 
   const auto start = std::chrono::steady_clock::now();
 

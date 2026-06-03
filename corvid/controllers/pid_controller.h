@@ -161,7 +161,7 @@ public:
 
     // The other two terms need to apply the time delta. However, if the clock
     // jumped backwards, we want to start using this new time zone while still
-    // returning the previously-calculated value.
+    // returning the previously calculated value.
     const auto time_delta = time_now - time_last_;
     time_last_ = time_now;
     if (time_delta < 0.0) return value_last_;

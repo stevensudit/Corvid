@@ -55,7 +55,7 @@ inline namespace chunked_archetype_storages {
 //              Default: 16. Tune so that one chunk fills a cache line
 //              (e.g., CHUNKSZ = 64 / sizeof(largest_component_type)).
 //  TAG       - Optional tag type (default: `void`). Use a distinct tag to
-//              create multiple structurally-identical storages that are
+//              create multiple structurally identical storages that are
 //              nevertheless different types and can coexist in the same
 //              `archetype_scene<>` tuple.
 template<typename REG, typename TUPLE, size_t CHUNKSZ = 16,
@@ -113,7 +113,7 @@ public:
   // Constructors.
 
   // Default-constructed storage has no registry binding. Assign from a
-  // fully-constructed instance before calling any mutation methods.
+  // fully constructed instance before calling any mutation methods.
   chunked_archetype_storage() = default;
 
   // Construct bound to `registry` with the given `store_id`. `store_id` must

@@ -20,13 +20,40 @@
 namespace corvid::strings { inline namespace cases {
 
 //
+// Character predicates.
+//
+// These are intentionally simple, avoiding localization and Unicode
+// complications.
+//
+
+[[nodiscard]] constexpr bool is_lower(char c) noexcept {
+  return c >= 'a' && c <= 'z';
+}
+
+[[nodiscard]] constexpr bool is_upper(char c) noexcept {
+  return c >= 'A' && c <= 'Z';
+}
+
+[[nodiscard]] constexpr bool is_alpha(char c) noexcept {
+  return is_lower(c) || is_upper(c);
+}
+
+[[nodiscard]] constexpr bool is_digit(char c) noexcept {
+  return c >= '0' && c <= '9';
+}
+
+[[nodiscard]] constexpr bool is_alnum(char c) noexcept {
+  return is_alpha(c) || is_digit(c);
+}
+
+//
 // Case change.
 //
 
 // Convert to uppercase.
 // Avoids `std::toupper` because it's locale-dependent and slow.
 [[nodiscard]] constexpr char to_upper(char c) noexcept {
-  return (c >= 'a' && c <= 'z') ? static_cast<char>(c - ('a' - 'A')) : c;
+  return is_lower(c) ? static_cast<char>(c - ('a' - 'A')) : c;
 }
 
 // Convert to uppercase.
@@ -44,7 +71,7 @@ constexpr void to_upper(Range auto& r) noexcept {
 // Convert to lowercase.
 // Avoids `std::tolower` because it's locale-dependent and slow.
 [[nodiscard]] constexpr char to_lower(char c) noexcept {
-  return (c >= 'A' && c <= 'Z') ? static_cast<char>(c + ('a' - 'A')) : c;
+  return is_upper(c) ? static_cast<char>(c + ('a' - 'A')) : c;
 }
 
 // Convert to lowercase.
@@ -57,6 +84,17 @@ constexpr void to_lower(Range auto& r) noexcept {
   std::string s{sv};
   to_lower(s);
   return s;
+}
+
+// Compare case-insensitively. In many cases, it is better to store `as_lower`
+// versions and compare those, particularly if one of the values is checked
+// against repeatedly.
+[[nodiscard]] constexpr bool
+ci_equal(std::string_view lhs, std::string_view rhs) noexcept {
+  if (lhs.size() != rhs.size()) return false;
+  for (size_t i = 0; i < lhs.size(); ++i)
+    if (to_lower(lhs[i]) != to_lower(rhs[i])) return false;
+  return true;
 }
 
 }} // namespace corvid::strings::cases

@@ -7745,7 +7745,7 @@ TEST_CASE("TagLookup", "[ComponentScene]") {
     (void)hb;
   }
 
-  // for_each<FloatTagA> early-terminates when fn returns false.
+  // for_each<FloatTagA> terminates early when fn returns false.
   if (true) {
     two_tagged_scene_t s;
     auto ha = s.stage_new_entity();
@@ -8005,7 +8005,7 @@ TEST_CASE("ForAllSharedType", "[ComponentScene]") {
     (void)hb;
   }
 
-  // for_all<float> early-terminates when fn returns false.
+  // for_all<float> terminates early when fn returns false.
   if (true) {
     two_tagged_scene_t s;
     auto ha = s.stage_new_entity(); // TagA only

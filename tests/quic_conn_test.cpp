@@ -208,7 +208,7 @@ TEST_CASE("quic_conn handshake completes in-process", "[quic][conn]") {
   // Server-side construction:
   //   - dcid sent to ngtcp2 = the client's SCID (where the server will
   //     send its packets);
-  //   - scid = the server's own freshly-generated CID;
+  //   - scid = the server's own freshly generated CID;
   //   - original_dcid = the client's chosen DCID (the value that travels
   //     back via the `original_destination_connection_id` transport
   //     parameter).

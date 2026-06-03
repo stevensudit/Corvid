@@ -19,7 +19,7 @@
 
 namespace corvid { inline namespace container { namespace arena {
 
-// Arena implemented as a singly-linked list of blocks.
+// Arena implemented as a singly linked list of blocks.
 //
 // To use:
 // 1. Create an `extensible_arena`, with the desired capacity, as a member of

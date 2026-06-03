@@ -23,7 +23,7 @@ namespace corvid { inline namespace meta { inline namespace naming {
 // Typename
 //
 
-// Extract fully-qualified type name.
+// Extract fully qualified type name.
 //
 // This is a crude solution, but sufficient for debugging.
 template<typename T>
@@ -46,7 +46,7 @@ std::string type_name() {
   return r;
 }
 
-// Extract fully-qualified type name, deducing it from the parameter.
+// Extract fully qualified type name, deducing it from the parameter.
 template<typename T>
 std::string type_name(T&&) {
   return type_name<T>();

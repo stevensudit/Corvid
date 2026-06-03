@@ -324,7 +324,7 @@ TEST_CASE("PausedToActive", "[IdleTimeout]") {
 
 TEST_CASE("ActiveToStoppedDropsEntry", "[IdleTimeout]") {
   // Going Stopped from Active sets the deadline to T0. The existing
-  // entry fires at the originally-registered time, sees T0, drops.
+  // entry fires at the originally registered time, sees T0, drops.
   sweeper sw;
   auto fake_clock = clk::fake_now_scope();
   auto o = make_owner(sw, 100ms);

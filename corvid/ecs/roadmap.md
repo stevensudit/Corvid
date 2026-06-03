@@ -87,7 +87,7 @@ sorted_pair_index<ID_T, SIZE_T>
   A sorted vector<pair<ID_T, SIZE_T>>. Lookup: O(log K) binary search.
   Insert/remove: O(K) due to shifting. Memory: O(K x (sizeof(ID_T) +
   sizeof(SIZE_T))), no wasted slots.
-  Best for: components held by a small, slowly-changing set of entities
+  Best for: components held by a small, slowly changing set of entities
   (a handful of Combatants) where the log-N lookup and linear insert cost
   are acceptable. Not suitable for high-churn or large-K use cases.
 

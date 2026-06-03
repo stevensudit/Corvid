@@ -26,12 +26,12 @@
 
 #include "../corvid/containers/opt_find.h"
 #include "../corvid/proto/io_uring/iou_loop.h"
+#include "../corvid/proto/iov_queue.h"
 #include "../corvid/proto/quic/quic_conn.h"
 #include "../corvid/proto/quic/quic_dgram_plugins.h"
 #include "../corvid/proto/quic/quic_echo_plugin.h"
 #include "../corvid/proto/quic/quic_self_signed_cert.h"
 #include "../corvid/proto/quic/quic_ssl_ctx.h"
-#include "../corvid/proto/quic/quic_stream_send_queue.h"
 
 #define CATCH2_SHOW_TIMERS 0
 #include "catch2_main.h"
@@ -55,10 +55,12 @@ bool WaitFor(const auto& pred, std::chrono::milliseconds timeout = 1000ms) {
 
 constexpr std::string_view echo_alpn = "corvid-echo";
 
+using send_queue_t = iov_queue<std::vector<uint8_t>, write_stream_flags>;
+
 // Client-side upper plugin for the bilateral echo test. Drives an outbound
-// `quic_stream_send_queue` per stream the test asks to send on, accumulates
-// inbound bytes (without echoing back, unlike the server), and uses the
-// same unified drain loop the echo plugin uses.
+// `iov_queue` per stream the test asks to send on, accumulates inbound bytes
+// (without echoing back, unlike the server), and uses the same unified drain
+// loop the echo plugin uses.
 //
 // `inject` is the test API: queue bytes (and optionally `fin`) on a stream.
 // Loop-thread only; the caller wraps in `post_and_wait` from the test
@@ -94,7 +96,7 @@ struct echo_client_plugin: quic_conn_handlers {
 
   [[nodiscard]] bool on_acked_stream_data_offset(quic_stream_id stream_id,
       uint64_t /*offset*/, uint64_t datalen) noexcept override {
-    if (auto q = find_opt(queues, stream_id)) q->retire_acked(datalen);
+    if (auto q = find_opt(queues, stream_id)) q->retire(datalen);
     return true;
   }
 
@@ -109,12 +111,12 @@ struct echo_client_plugin: quic_conn_handlers {
       quic_stream_id sid = quic_stream_id::none;
       std::span<const iovec> iov;
       write_stream_flags flags = write_stream_flags::none;
-      quic_stream_send_queue* qp = nullptr;
+      send_queue_t* qp = nullptr;
       for (auto& [id, q] : queues) {
-        if (!q.has_work()) continue;
+        if (q.size() == 0 && q.state() == write_stream_flags::none) continue;
         sid = id;
-        iov = q.writable_iov();
-        flags = q.writable_flags();
+        iov = q.unused();
+        flags = q.state();
         qp = &q;
         break;
       }
@@ -125,7 +127,10 @@ struct echo_client_plugin: quic_conn_handlers {
           io_.conn().writev_stream(sid, iov, out, accepted, flags, now);
       if (status != quic_status::ok) return false;
       if (out.payload_bytes().empty()) return true;
-      if (qp) qp->commit(accepted);
+      if (qp) {
+        qp->consume(accepted);
+        if (qp->size() == 0) qp->state() = write_stream_flags::none;
+      }
       (void)io_.send_packet(std::move(out));
     }
   }
@@ -136,7 +141,9 @@ struct echo_client_plugin: quic_conn_handlers {
     quic_stream_id sid = quic_stream_id::none;
     if (io_.conn().open_bidi_stream(sid) != quic_status::ok)
       return quic_stream_id::none;
-    queues[sid].append(std::move(payload), write_stream_flags::fin);
+    auto& q = queues[sid];
+    q.append(std::move(payload));
+    q.state() = bitmask::set(q.state(), write_stream_flags::fin);
     return sid;
   }
 
@@ -148,7 +155,7 @@ struct echo_client_plugin: quic_conn_handlers {
   }
 
   quic_session_io& io_;
-  std::unordered_map<quic_stream_id, quic_stream_send_queue> queues;
+  std::unordered_map<quic_stream_id, send_queue_t> queues;
   std::mutex mu;
   std::unordered_map<quic_stream_id, std::vector<uint8_t>> received;
   std::atomic_bool handshake_completed{false};
@@ -196,7 +203,7 @@ TEST_CASE(
   std::shared_ptr<client_protocol_t::session_plugin::session_t> client_sess;
   REQUIRE(runner.loop()->post_and_wait([&]() -> bool {
     client_sess = client_protocol_t::session_plugin::make_client(
-        *client_router.pointer(), server_addr);
+        *client_router.pointer(), server_addr, ""); // no SNI
     return client_sess != nullptr;
   }));
   REQUIRE(client_sess);

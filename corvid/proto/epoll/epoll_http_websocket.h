@@ -635,12 +635,12 @@ public:
     return true;
   }
 
-  // Accumulates (potentially-fragmented) messages across data frames and fires
-  // callbacks, while handling control frames. On success, consumes frames from
-  // the front of `data`, updating it. Once it's done, `data` will have had all
-  // complete frames removed from the front. Returns the total bytes required
-  // for the next incomplete header or frame to fit in the receive buffer after
-  // compaction, or `insatiable` to initiate shutdown.
+  // Accumulates (potentially fragmented) messages across data frames and
+  // fires callbacks, while handling control frames. On success, consumes
+  // frames from the front of `data`, updating it. Once it's done, `data` will
+  // have had all complete frames removed from the front. Returns the total
+  // bytes required for the next incomplete header or frame to fit in the
+  // receive buffer after compaction, or `insatiable` to initiate shutdown.
   [[nodiscard]] size_t feed(std::string_view& data) {
     // Loop over all frames in `data`.
     for (;;) {

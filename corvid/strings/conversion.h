@@ -261,6 +261,14 @@ as_byte_span(std::string_view sv) noexcept {
   return {reinterpret_cast<const char_t*>(sv.data()), sv.size()};
 }
 
+// Reinterpret the bytes of `s` as a `std::string_view`.
+template<typename char_t>
+requires(sizeof(char_t) == 1)
+[[nodiscard]] constexpr std::string_view
+as_string_view(std::span<char_t> s) noexcept {
+  return {reinterpret_cast<const char*>(s.data()), s.size()};
+}
+
 } // namespace cvt_bytes
 
 inline namespace cvt_stream {

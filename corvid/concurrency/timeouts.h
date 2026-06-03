@@ -24,10 +24,7 @@ namespace corvid { inline namespace concurrency {
 
 #pragma region timeouts
 
-// Utility class for timeouts: mode enum and paused-expiration sentinel. The
-// clock and its nanosecond conversions live in `infra::steady_now_clock`;
-// reach for `infra::steady_now_clock::now()` or
-// `infra::steady_now_clock::time_point_t` when you need either.
+// Shared utilities for timeout implementations.
 //
 // Offers only static members and can be inherited from.
 struct timeouts {
