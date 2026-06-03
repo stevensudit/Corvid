@@ -1000,7 +1000,7 @@ TEST_CASE("EnumStringView", "[SequentialEnumTest]") {
     CHECK(take_tiger("miny") == "miny");
     CHECK(take_tiger(tiger_pick::eeny) == "eeny");
   }
-  // `force` / `silent_force`: runtime escape hatches that wrap an existing
+  // `convert` / `force`: runtime escape hatches that wrap an existing
   // view without the `consteval` path. They store the caller's view (which
   // must outlive the wrapper), not the interned name.
   if (true) {
@@ -1008,8 +1008,8 @@ TEST_CASE("EnumStringView", "[SequentialEnumTest]") {
     CHECK(*tiger_sv::convert(name) == "meany");
     CHECK(*tiger_sv::force(name) == "meany");
   }
-  // `silent_force` does no validation, so it wraps an unregistered name
-  // verbatim. (`force` would assert in a debug build.)
+  // `force` does no validation, so it wraps an unregistered name verbatim.
+  // (`convert` would assert in a debug build.)
   if (true) {
     std::string_view bogus = "notaname";
     auto s = tiger_sv::force(bogus);
