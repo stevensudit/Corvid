@@ -702,6 +702,21 @@ public:
            quic_status::ok;
   }
 
+  // Reset `stream_id`'s send side (emit RESET_STREAM with the HTTP/3 error
+  // code) and tell nghttp3 to stop pulling its body. A server stream calls
+  // this when its response could not be submitted, so the peer learns the
+  // request failed rather than waiting out the idle timeout. Posts a drain to
+  // ship the RESET_STREAM, since no submit drain ran. Returns false on a
+  // transport error or a failed drain post.
+  [[nodiscard]] bool
+  reset_stream(quic_stream_id stream_id, h3_error_code app_error_code) {
+    h3_.shutdown_stream_write(stream_id);
+    if (io_.conn().shutdown_stream_write(stream_id, *app_error_code) !=
+        quic_status::ok)
+      return false;
+    return io_.request_drain();
+  }
+
 #pragma endregion
 #pragma region Subclass access
 protected:
@@ -857,7 +872,14 @@ protected:
 inline bool http3_stream::submit_response() {
   if (responded_) return false;
   responded_ = true;
-  if (!router_->submit_response(this)) return false;
+  if (!router_->submit_response(this)) {
+    // The response could not be queued. Abort our send side (RESET_STREAM)
+    // so the peer learns the request failed instead of waiting out the idle
+    // timeout. Best-effort: if the submit failed on a failed drain post, the
+    // reset's own drain cannot ship either.
+    (void)router_->reset_stream(stream_id_, h3_error_code::internal_error);
+    return false;
+  }
   // If the request has not finished arriving, tell the peer to stop sending
   // the rest of its body: we have already answered. Pointless once
   // `completed_` (the read side saw fin), so skip it there.
