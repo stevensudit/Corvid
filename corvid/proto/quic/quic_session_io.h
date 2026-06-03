@@ -55,8 +55,12 @@ public:
     return ssnbase_.loop().is_loop_thread();
   }
 
-  // The TLS server name (SNI) configured for a client session, or empty for a
-  // server session or when none was set.
+  // The configured server name, with a role-dependent meaning. For a client
+  // session it is the TLS SNI sent in the handshake and the default request
+  // `:authority`. For a server session it is the authority the server answers
+  // for, which the HTTP/3 layer matches against each request's `:authority`
+  // (`http3_server_stream`'s misdirected-request gate). Empty when none was
+  // configured.
   [[nodiscard]] const std::string& server_name() const noexcept {
     return server_name_;
   }
