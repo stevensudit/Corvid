@@ -586,7 +586,9 @@ public:
   [[nodiscard]] bool on_h3_stream_close(quic_stream_id stream_id,
       h3_error_code app_error_code, void* stream_user_data) override {
     auto* stream = to_stream(stream_user_data);
-    const bool ok = stream->on_close(app_error_code);
+    if (!stream) stream = find_stream(stream_id);
+    bool ok{true};
+    if (stream) ok = stream->on_close(app_error_code);
     streams_.erase(stream_id);
     return ok;
   }
