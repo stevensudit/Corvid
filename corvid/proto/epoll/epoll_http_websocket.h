@@ -79,17 +79,11 @@ enum class ws_frame_control : uint8_t {
   rsvd = 0x74,
   fin = 0x80,
 };
+consteval auto corvid_enum_spec(ws_frame_control*) {
+  return corvid::enums::bitmask::make_bitmask_enum_spec<ws_frame_control,
+      "fin,rsv1,rsv2,rsv3,close,rsv4,binary,text">();
+}
 
-}} // namespace corvid::proto
-
-template<>
-constexpr inline auto
-    corvid::enums::registry::enum_spec_v<corvid::proto::ws_frame_control> =
-        corvid::enums::bitmask::make_bitmask_enum_spec<
-            corvid::proto::ws_frame_control,
-            "fin, rsv1, rsv2, rsv3, close, rsv4, binary, text">();
-
-namespace corvid { inline namespace proto {
 #pragma endregion
 
 #pragma region ws_frame_header

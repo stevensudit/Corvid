@@ -369,22 +369,21 @@ enum class join_opt : std::uint8_t {
   // json.
   json = braced | keyed | quoted
 };
+consteval auto corvid_enum_spec(join_opt*) {
+  return corvid::enums::bitmask::make_bitmask_enum_spec<join_opt,
+      "prefixed,quoted,keyed,flat">();
+}
 
 } // namespace joinoptions
 } // namespace corvid::strings
 
-template<>
-constexpr inline auto corvid::enums::registry::enum_spec_v<
-    corvid::strings::joinoptions::join_opt> =
-    corvid::enums::bitmask::make_bitmask_enum_spec<
-        corvid::strings::joinoptions::join_opt,
-        "prefixed, quoted, keyed, flat">();
+namespace corvid { inline namespace meta { inline namespace containers {
+consteval auto corvid_enum_spec(extract_field*) {
+  return corvid::enums::sequence::make_sequence_enum_spec<extract_field,
+      "value,key_value">();
+}
 
-template<>
-constexpr inline auto corvid::enums::registry::enum_spec_v<
-    corvid::meta::containers::extract_field> =
-    corvid::enums::sequence::make_sequence_enum_spec<
-        corvid::meta::containers::extract_field, "value, key_value">();
+}}} // namespace corvid::meta::containers
 
 namespace corvid::strings {
 inline namespace registration {

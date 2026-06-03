@@ -496,7 +496,8 @@ TEST_CASE("HttpMethodString", "[http3]") {
   using namespace corvid::strings;
   using M = http_method;
   if (true) {
-    CHECK(enum_as_string(M::invalid) == "invalid");
+    // `invalid` is excluded from the name list, so it prints numerically.
+    CHECK(enum_as_string(M::invalid) == "0");
     CHECK(enum_as_string(M::GET) == "GET");
     CHECK(enum_as_string(M::CONNECT) == "CONNECT");
     // Underscored enumerators render as hyphenated wire names.

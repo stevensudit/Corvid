@@ -98,18 +98,9 @@ enum class block_size : size_t {
   m32 = 32UL * 1024 * 1024,
   m64 = 64UL * 1024 * 1024,
 };
-
-}}} // namespace corvid::proto::iouring
-
-template<>
-constexpr inline auto corvid::enums::registry::enum_spec_v<
-    corvid::proto::iouring::block_size> =
-    corvid::enums::sequence::make_sequence_enum_spec<
-        corvid::proto::iouring::block_size,
-        "kb001, kb002, kb004, kb008, kb016, kb032, kb064, kb128, kb256, "
-        "kb512, m01, m02, m04, m08, m16, m32, m64">();
-
-namespace corvid { inline namespace proto { namespace iouring {
+consteval auto corvid_enum_spec(block_size*) {
+  return corvid::enums::sequence::make_sequence_enum_spec<block_size, "">();
+}
 
 #pragma endregion
 

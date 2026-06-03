@@ -32,48 +32,39 @@ namespace id_enums {
 // global namespace. Note that "sys/types.h" also defines a type named `id_t`
 // and rudely injects it into the global namespace.
 enum class id_t : size_t { invalid = std::numeric_limits<size_t>::max() };
+consteval auto corvid_enum_spec(id_t*) {
+  return corvid::enums::sequence::make_sequence_enum_spec<id_t, "">();
+}
+
 enum class entity_id_t : size_t {
   invalid = std::numeric_limits<size_t>::max()
 };
+consteval auto corvid_enum_spec(entity_id_t*) {
+  return corvid::enums::sequence::make_sequence_enum_spec<entity_id_t, "">();
+}
+
 enum class component_id_t : size_t {
   invalid = std::numeric_limits<size_t>::max()
 };
+consteval auto corvid_enum_spec(component_id_t*) {
+  return corvid::enums::sequence::make_sequence_enum_spec<component_id_t,
+      "">();
+}
+
 enum class archetype_id_t : size_t {
   invalid = std::numeric_limits<size_t>::max()
 };
+consteval auto corvid_enum_spec(archetype_id_t*) {
+  return corvid::enums::sequence::make_sequence_enum_spec<archetype_id_t,
+      "">();
+}
+
 enum class store_id_t : size_t {
   invalid = std::numeric_limits<size_t>::max()
 };
+consteval auto corvid_enum_spec(store_id_t*) {
+  return corvid::enums::sequence::make_sequence_enum_spec<store_id_t, "">();
+}
 
 } // namespace id_enums
 }} // namespace corvid::ecs
-
-template<>
-constexpr auto
-    corvid::enums::registry::enum_spec_v<corvid::ecs::id_enums::id_t> =
-        corvid::enums::sequence::make_sequence_enum_spec<
-            corvid::ecs::id_enums::id_t, "">();
-
-template<>
-constexpr auto
-    corvid::enums::registry::enum_spec_v<corvid::ecs::id_enums::entity_id_t> =
-        corvid::enums::sequence::make_sequence_enum_spec<
-            corvid::ecs::id_enums::entity_id_t, "">();
-
-template<>
-constexpr auto corvid::enums::registry::enum_spec_v<
-    corvid::ecs::id_enums::component_id_t> =
-    corvid::enums::sequence::make_sequence_enum_spec<
-        corvid::ecs::id_enums::component_id_t, "">();
-
-template<>
-constexpr auto corvid::enums::registry::enum_spec_v<
-    corvid::ecs::id_enums::archetype_id_t> =
-    corvid::enums::sequence::make_sequence_enum_spec<
-        corvid::ecs::id_enums::archetype_id_t, "">();
-
-template<>
-constexpr auto
-    corvid::enums::registry::enum_spec_v<corvid::ecs::id_enums::store_id_t> =
-        corvid::enums::sequence::make_sequence_enum_spec<
-            corvid::ecs::id_enums::store_id_t, "">();

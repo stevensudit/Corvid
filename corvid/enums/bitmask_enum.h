@@ -41,11 +41,10 @@ inline namespace enums { namespace bitmask {
 // so can lead to strange side-effects, such as `max_value` being negative when
 // all bits are valid.
 //
-// The way to register a scoped enum as a bitmask is to specialize the
-// `corvid::enums::registry::enum_spec_v` for the enum type and assign an
-// instance of `bitmask_enum_spec` to it. There are various
-// `make_bitmask_enum*_spec` helper functions that let you specify the valid
-// bits, and optionally, their names.
+// The way to register a scoped enum as a bitmask is to declare a
+// `corvid_enum_spec` overload for it in the enum's own namespace, returning
+// the result of a `make_bitmask_enum*_spec` helper. It is found by ADL. These
+// helpers let you specify the valid bits, and optionally, their names.
 
 // Wrapping:
 //
@@ -80,10 +79,9 @@ inline namespace enums { namespace bitmask {
 // Example:
 //
 //    enum class rgb { red = 4, green = 2, blue = 1 };
-//
-//    template<>
-//    constexpr inline auto registry::enum_spec_v<rgb> =
-//        make_bitmask_enum_spec<rgb, "red,green,blue">();
+//    consteval auto corvid_enum_spec(rgb*) {
+//      return make_bitmask_enum_spec<rgb, "red,green,blue">();
+//    }
 
 template<ScopedEnum E, uint64_t validbits = 0, wrapclip bitclip = wrapclip{}>
 struct bitmask_enum_spec

@@ -41,10 +41,9 @@ inline namespace enums { namespace sequence {
 // Valid values do not need to be named. So, for example, `std::byte` has a
 // range of [0,255], but no named values.
 //
-// The way to register a scoped enum as a sequence is to specialize the
-// `corvid::enums::registry::enum_spec_v` for the enum type and assign an
-// instance of `sequence_enum_spec` to it by calling a
-// `make_sequence_enum_spec` overload.
+// The way to register a scoped enum as a sequence is to declare a
+// `corvid_enum_spec` overload for it in the enum's own namespace, returning
+// the result of a `make_sequence_enum_spec` overload. It is found by ADL.
 //
 // You must set `maxseq` to the highest enum value that is valid, or allow it
 // to be inferred from the comma-delimited list of value names. If the lowest
@@ -58,9 +57,9 @@ inline namespace enums { namespace sequence {
 //
 //    enum class tiger_pick { eeny, meany, miny, moe };
 //
-//    template<>
-//    constexpr inline auto registry::enum_spec_v<tiger_pick> =
-//        make_sequence_enum_spec<tiger_pick, "eeny, meany, miny, moe">();
+//    consteval auto corvid_enum_spec(tiger_pick*) {
+//      return make_sequence_enum_spec<tiger_pick, "eeny, meany, miny, moe">();
+//    }
 
 template<ScopedEnum E, E maxseq = E{}, E minseq = E{},
     wrapclip wrapseq = wrapclip{}>

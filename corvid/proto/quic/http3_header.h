@@ -122,6 +122,36 @@ enum class qpack_token : int32_t {
   protocol = NGHTTP3_QPACK_TOKEN__PROTOCOL, // :protocol
   priority = NGHTTP3_QPACK_TOKEN_PRIORITY,
 };
+consteval auto corvid_enum_spec(qpack_token*) {
+  return corvid::enums::sequence::make_sequence_enum_spec<qpack_token,
+      ":authority,:method,,,,,,,:path,:scheme,,:status,,,,,,,,,,,,,,accept,,"
+      "accept-encoding,accept-language,accept-ranges,access-control-allow-"
+      "credentials,,access-control-allow-headers,,,access-control-allow-"
+      "methods,,,access-control-allow-origin,access-control-expose-headers,"
+      "access-control-request-headers,access-control-request-method,,age,"
+      "alt-svc,authorization,cache-control,,,,,,content-disposition,content-"
+      "encoding,,content-length,content-security-policy,content-type,,,,,,,,"
+      ",,,cookie,date,early-data,etag,expect-ct,forwarded,if-modified-since,"
+      "if-none-match,if-range,last-modified,link,location,origin,purpose,"
+      "range,referer,server,set-cookie,strict-transport-security,,,timing-"
+      "allow-origin,upgrade-insecure-requests,user-agent,vary,,x-content-"
+      "type-options,x-forwarded-for,x-frame-options,,x-xss-protection,,,,,,,"
+      ",,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,"
+      ",,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,"
+      ",,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,"
+      ",,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,"
+      ",,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,"
+      ",,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,"
+      ",,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,"
+      ",,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,"
+      ",,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,"
+      ",,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,"
+      ",,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,"
+      ",,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,"
+      ",,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,"
+      "host,connection,keep-alive,proxy-connection,transfer-encoding,"
+      "upgrade,te,:protocol,priority">();
+}
 
 #pragma endregion
 #pragma region nv_flags
@@ -139,6 +169,10 @@ enum class nv_flags : uint8_t {
   no_copy_value = NGHTTP3_NV_FLAG_NO_COPY_VALUE, // 0x04
   try_index = NGHTTP3_NV_FLAG_TRY_INDEX          // 0x08
 };
+consteval auto corvid_enum_spec(nv_flags*) {
+  return corvid::enums::bitmask::make_bitmask_enum_spec<nv_flags,
+      "try_index,no_copy_value,no_copy_name,never_index">();
+}
 
 #pragma endregion
 #pragma region stream_chunk
@@ -149,6 +183,10 @@ enum class stream_chunk : uint8_t {
   more = 0,
   fin = 1,
 };
+consteval auto corvid_enum_spec(stream_chunk*) {
+  return corvid::enums::sequence::make_sequence_enum_spec<stream_chunk,
+      "more,fin">();
+}
 
 #pragma endregion
 #pragma region http_method
@@ -197,70 +235,17 @@ enum class http_method : uint8_t {
   UPDATEREDIRECTREF,
   VERSION_CONTROL
 };
+consteval auto corvid_enum_spec(http_method*) {
+  return corvid::enums::sequence::make_sequence_enum_spec<http_method,
+      "ACL,BASELINE-CONTROL,BIND,CHECKIN,CHECKOUT,CONNECT,COPY,DELETE,GET,"
+      "HEAD,LABEL,LINK,LOCK,MERGE,MKACTIVITY,MKCALENDAR,MKCOL,MKREDIRECTREF,"
+      "MKWORKSPACE,MOVE,OPTIONS,ORDERPATCH,PATCH,POST,PRI,PROPFIND,PROPPATCH,"
+      "PUT,QUERY,REBIND,REPORT,SEARCH,TRACE,UNBIND,UNCHECKOUT,UNLINK,UNLOCK,"
+      "UPDATE,UPDATEREDIRECTREF,VERSION-CONTROL",
+      wrapclip{}, http_method{1}>();
+}
 
 #pragma endregion
-
-}}} // namespace corvid::proto::quic
-
-template<>
-constexpr inline auto corvid::enums::registry::enum_spec_v<
-    corvid::proto::quic::qpack_token> =
-    corvid::enums::sequence::make_sequence_enum_spec<
-        corvid::proto::quic::qpack_token,
-        ":authority,:method,,,,,,,:path,:scheme,,:status,,,,,,,,,,,,,,accept,,"
-        "accept-encoding,accept-language,accept-ranges,access-control-allow-"
-        "credentials,,access-control-allow-headers,,,access-control-allow-"
-        "methods,,,access-control-allow-origin,access-control-expose-headers,"
-        "access-control-request-headers,access-control-request-method,,age,"
-        "alt-svc,authorization,cache-control,,,,,,content-disposition,content-"
-        "encoding,,content-length,content-security-policy,content-type,,,,,,,,"
-        ",,,cookie,date,early-data,etag,expect-ct,forwarded,if-modified-since,"
-        "if-none-match,if-range,last-modified,link,location,origin,purpose,"
-        "range,referer,server,set-cookie,strict-transport-security,,,timing-"
-        "allow-origin,upgrade-insecure-requests,user-agent,vary,,x-content-"
-        "type-options,x-forwarded-for,x-frame-options,,x-xss-protection,,,,,,,"
-        ",,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,"
-        ",,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,"
-        ",,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,"
-        ",,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,"
-        ",,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,"
-        ",,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,"
-        ",,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,"
-        ",,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,"
-        ",,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,"
-        ",,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,"
-        ",,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,"
-        ",,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,"
-        ",,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,"
-        "host,connection,keep-alive,proxy-connection,transfer-encoding,"
-        "upgrade,te,:protocol,priority">();
-
-template<>
-constexpr inline auto
-    corvid::enums::registry::enum_spec_v<corvid::proto::quic::nv_flags> =
-        corvid::enums::bitmask::make_bitmask_enum_spec<
-            corvid::proto::quic::nv_flags,
-            "try_index, no_copy_value, no_copy_name, never_index">();
-
-template<>
-constexpr inline auto
-    corvid::enums::registry::enum_spec_v<corvid::proto::quic::stream_chunk> =
-        corvid::enums::sequence::make_sequence_enum_spec<
-            corvid::proto::quic::stream_chunk, "more, fin">();
-
-template<>
-constexpr inline auto corvid::enums::registry::enum_spec_v<
-    corvid::proto::quic::http_method> =
-    corvid::enums::sequence::make_sequence_enum_spec<
-        corvid::proto::quic::http_method,
-        "invalid, ACL, BASELINE-CONTROL, BIND, CHECKIN, CHECKOUT, CONNECT, "
-        "COPY, DELETE, GET, HEAD, LABEL, LINK, LOCK, MERGE, MKACTIVITY, "
-        "MKCALENDAR, MKCOL, MKREDIRECTREF, MKWORKSPACE, MOVE, OPTIONS, "
-        "ORDERPATCH, PATCH, POST, PRI, PROPFIND, PROPPATCH, PUT, QUERY, "
-        "REBIND, REPORT, SEARCH, TRACE, UNBIND, UNCHECKOUT, UNLINK, "
-        "UNLOCK, UPDATE, UPDATEREDIRECTREF, VERSION-CONTROL">();
-
-namespace corvid { inline namespace proto { namespace quic {
 
 #pragma region header_name
 

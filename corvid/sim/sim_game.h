@@ -46,11 +46,18 @@ enum class GamePhase : uint8_t {
   game_over, // Player has no lives left
   victory    // All waves completed with lives remaining
 };
+consteval auto corvid_enum_spec(GamePhase*) {
+  return corvid::enums::sequence::make_sequence_enum_spec<GamePhase,
+      "build,wave,game_over,victory", wrapclip{}, GamePhase::build>();
+}
 
 // Tick from start of wave.
 enum class WaveTick : uint32_t {
   invalid = std::numeric_limits<uint32_t>::max()
 };
+consteval auto corvid_enum_spec(WaveTick*) {
+  return corvid::enums::sequence::make_sequence_enum_spec<WaveTick, "">();
+}
 
 // Mouse click events.
 enum class UiCanvasEvent : uint8_t {
@@ -62,35 +69,17 @@ enum class UiCanvasEvent : uint8_t {
   dragend
 };
 
+consteval auto corvid_enum_spec(UiCanvasEvent*) {
+  return corvid::enums::sequence::make_sequence_enum_spec<UiCanvasEvent,
+      "click,dblclick,contextmenu,dragstart,dragmove,dragend">();
+}
+
 // Mouse buttons.
 enum class UiMouseButton : uint8_t { left, middle, right, other };
-
-}} // namespace corvid::sim
-
-template<>
-constexpr auto corvid::enums::registry::enum_spec_v<corvid::sim::GamePhase> =
-    corvid::enums::sequence::make_sequence_enum_spec<corvid::sim::GamePhase,
-        "invalid, build, wave, game_over, victory">();
-
-template<>
-constexpr auto corvid::enums::registry::enum_spec_v<corvid::sim::WaveTick> =
-    corvid::enums::sequence::make_sequence_enum_spec<corvid::sim::WaveTick,
-        "">();
-
-template<>
-constexpr auto
-    corvid::enums::registry::enum_spec_v<corvid::sim::UiCanvasEvent> =
-        corvid::enums::sequence::make_sequence_enum_spec<
-            corvid::sim::UiCanvasEvent,
-            "click, dblclick, contextmenu, dragstart, dragmove, dragend">();
-
-template<>
-constexpr auto
-    corvid::enums::registry::enum_spec_v<corvid::sim::UiMouseButton> =
-        corvid::enums::sequence::make_sequence_enum_spec<
-            corvid::sim::UiMouseButton, "left, middle, right, other">();
-
-namespace corvid { inline namespace sim {
+consteval auto corvid_enum_spec(UiMouseButton*) {
+  return corvid::enums::sequence::make_sequence_enum_spec<UiMouseButton,
+      "left,middle,right,other">();
+}
 
 // Enemy spawn definition for a wave.
 struct EnemySpawn {

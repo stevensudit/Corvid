@@ -60,6 +60,12 @@ enum class msg_flags : int {
   fastopen = MSG_FASTOPEN,     // 0x2000'0000
   cloexec = MSG_CMSG_CLOEXEC   // 0x4000'0000
 };
+consteval auto corvid_enum_spec(msg_flags*) {
+  return corvid::enums::bitmask::make_bitmask_enum_spec<msg_flags,
+      "cloexec,fastopen,,,zerocopy,,,,,,,,batch,,waitforone,more,nosignal,"
+      "errqueue,rst,confirm,syn,fin,waitall,eor,dontwait,trunc,proxy,ctrunc,"
+      "dontroute,peek,oob">();
+}
 
 // `F_*` wrapper for `fcntl` operations.
 // NOLINTNEXTLINE(performance-enum-size)
@@ -83,6 +89,11 @@ enum class fcntl_ops : int {
   getownex = F_GETOWN_EX,          // 16
   dupfd_cloexec = F_DUPFD_CLOEXEC, // 1030
 };
+consteval auto corvid_enum_spec(fcntl_ops*) {
+  return corvid::enums::sequence::make_sequence_enum_spec<fcntl_ops,
+      "dupfd,getfd,setfd,getfl,setfl,getlk,setlk,setlkw,setown,getown,setsig,"
+      "getsig,getlk64,setlk64,setlkw64,setownex,getownex">();
+}
 
 // `E_*` wrapper for `errno` values.
 //
@@ -228,6 +239,25 @@ enum class errno_code : int {
   rfkill = ERFKILL,                 // 132
   hwpoison = EHWPOISON,             // 133
 };
+consteval auto corvid_enum_spec(errno_code*) {
+  return corvid::enums::sequence::make_sequence_enum_spec<errno_code,
+      "ok,perm,noent,srch,intr,io,nxio,toobig,noexec,badf,child,again,nomem,"
+      "acces,fault,notblk,busy,exist,xdev,nodev,notdir,isdir,inval,nfile,"
+      "mfile,notty,txtbsy,fbig,nospc,spipe,rofs,mlink,pipe,dom,range,deadlk,"
+      "nametoolong,nolck,nosys,notempty,loop,old_wouldblock,nomsg,idrm,chrng,"
+      "l2nsync,l3hlt,l3rst,lnrng,unatch,ncsi,l2hlt,bade,badr,exfull,noano,"
+      "badrqc,badslt,old_deadlock,bfont,nostr,nodata,time,nosr,nonet,nopkg,"
+      "remote,nolink,adv,srmnt,comm,proto,multihop,dotdot,badmsg,overflow,"
+      "notuniq,badfd,remchg,libacc,libbad,libscn,libmax,libexec,ilseq,restart,"
+      "strpipe,users,notsock,destaddrreq,msgsize,prototype,noprotoopt,"
+      "protonosupport,socktnosupport,opnotsupp,pfnosupport,afnosupport,"
+      "addrinuse,addrnotavail,netdown,netunreach,netreset,connaborted,"
+      "connreset,nobufs,isconn,notconn,shutdown,toomanyrefs,timedout,"
+      "connrefused,hostdown,hostunreach,already,inprogress,stale,uclean,"
+      "notnam,navail,isnam,remoteio,dquot,nomedium,mediumtype,canceled,nokey,"
+      "keyexpired,keyrevoked,keyrejected,ownerdead,notrecoverable,rfkill,"
+      "hwpoison">();
+}
 
 // Type-safe aliasing for `errno`.
 using EC = errno_code;
@@ -262,6 +292,12 @@ enum class o_flags : int {
   raw_tmpfile = O_TMPFILE & O_DIRECTORY, // 0x0040'0000 aka __O_TMPFILE
   tmpfile = O_TMPFILE,                   // 0x0041'0000 raw_tmpfile + directory
 };
+consteval auto corvid_enum_spec(o_flags*) {
+  return corvid::enums::bitmask::make_bitmask_enum_spec<o_flags,
+      "rdonly,wronly,rdwr,creat,excl,noctty,trunc,append,nonblock,dsync,async,"
+      "direct,largefile,directory,nofollow,noattime,cloexec,raw_osync,path,"
+      "raw_tmpfile">();
+}
 
 // TODO: Move out into "mmap.h", which also wraps `::map` and `::madvise` and
 // defines a RAII `mmap` wrapper class.
@@ -275,6 +311,11 @@ enum class mmap_prot : uint32_t {
   growsdown = PROT_GROWSDOWN, // 0x01000000
   growsup = PROT_GROWSUP,     // 0x02000000
 };
+
+consteval auto corvid_enum_spec(mmap_prot*) {
+  return corvid::enums::bitmask::make_bitmask_enum_spec<mmap_prot,
+      "exec,write,read">();
+}
 
 // `MAP_*` wrapper.
 enum class mmap_mask : uint32_t {
@@ -298,6 +339,12 @@ enum class mmap_mask : uint32_t {
   sync = MAP_SYNC,                       // 0x80000
   fixed_noreplace = MAP_FIXED_NOREPLACE, // 0x100000
 };
+
+consteval auto corvid_enum_spec(mmap_mask*) {
+  return corvid::enums::bitmask::make_bitmask_enum_spec<mmap_mask,
+      "fixed_noreplace,sync,hugetlb,stack,nonblock,populate,noreserve,locked,"
+      "executable,denywrite,,,growsdown,,,anonymous,fixed,,,private,shared">();
+}
 
 // `MADV_*` wrapper.
 // NOLINTNEXTLINE(performance-enum-size)
@@ -327,84 +374,13 @@ enum class mmap_advice : int32_t {
   collapse = MADV_COLLAPSE,               // 25
   hwpoison = MADV_HWPOISON,               // 100
 };
-
-}} // namespace corvid::filesys
-
-template<>
-constexpr inline auto corvid::enums::registry::enum_spec_v<
-    corvid::filesys::msg_flags> =
-    corvid::enums::bitmask::make_bitmask_enum_spec<corvid::filesys::msg_flags,
-        "cloexec, fastopen, , , zerocopy, , , , , , , , batch, , waitforone, "
-        "more, nosignal, errqueue, rst, confirm, syn, fin, waitall, eor, "
-        "dontwait, trunc, proxy, ctrunc, dontroute, peek, oob">();
-
-template<>
-constexpr inline auto corvid::enums::registry::enum_spec_v<
-    corvid::filesys::fcntl_ops> =
-    corvid::enums::sequence::make_sequence_enum_spec<
-        corvid::filesys::fcntl_ops,
-        "dupfd, getfd, setfd, getfl, setfl, getlk, setlk, setlkw, setown, "
-        "getown, setsig, getsig, getlk64, setlk64, setlkw64, setownex, "
-        "getownex">();
-
-template<>
-constexpr inline auto corvid::enums::registry::enum_spec_v<
-    corvid::filesys::errno_code> =
-    corvid::enums::sequence::make_sequence_enum_spec<
-        corvid::filesys::errno_code,
-        "ok, perm, noent, srch, intr, io, nxio, toobig, noexec, badf, child, "
-        "again, nomem, acces, fault, notblk, busy, exist, xdev, "
-        "nodev, notdir,  isdir, inval, nfile, mfile, notty, txtbsy, fbig, "
-        "nospc, spipe, rofs, mlink,  pipe, dom, range, deadlk, nametoolong, "
-        "nolck, nosys, notempty, loop, old_wouldblock, nomsg, idrm, chrng, "
-        "l2nsync, l3hlt, l3rst, lnrng, unatch, ncsi, l2hlt, bade, badr, "
-        "exfull, noano, badrqc, badslt, old_deadlock, bfont, nostr, nodata, "
-        "time, nosr, nonet, nopkg, remote, nolink, adv, srmnt, comm, proto, "
-        "multihop, dotdot, badmsg, overflow, notuniq, badfd, remchg, libacc, "
-        "libbad, libscn, libmax, libexec, ilseq, restart,  strpipe,  users, "
-        "notsock, destaddrreq, msgsize, prototype, noprotoopt, "
-        "protonosupport, socktnosupport, opnotsupp, pfnosupport, afnosupport, "
-        "addrinuse, addrnotavail, netdown, netunreach, netreset, connaborted, "
-        "connreset,  nobufs, isconn, notconn, shutdown, toomanyrefs, "
-        "timedout, connrefused, hostdown, hostunreach, already, inprogress, "
-        "stale, uclean, notnam, navail, isnam, remoteio, dquot, nomedium, "
-        "mediumtype, canceled, nokey, keyexpired, keyrevoked, keyrejected, "
-        "ownerdead, notrecoverable, rfkill, hwpoison">();
-
-template<>
-constexpr inline auto corvid::enums::registry::enum_spec_v<
-    corvid::filesys::o_flags> =
-    corvid::enums::bitmask::make_bitmask_enum_spec<corvid::filesys::o_flags,
-        "rdonly, wronly, rdwr, creat, excl, noctty, trunc, append, nonblock, "
-        "dsync, async, direct, largefile, directory, nofollow, noattime, "
-        "cloexec, raw_osync, path, raw_tmpfile">();
-
-template<>
-constexpr inline auto corvid::enums::registry::enum_spec_v<
-    corvid::filesys::mmap_prot> =
-    corvid::enums::bitmask::make_bitmask_enum_spec<corvid::filesys::mmap_prot,
-        "exec, write, read">();
-
-template<>
-constexpr inline auto corvid::enums::registry::enum_spec_v<
-    corvid::filesys::mmap_mask> =
-    corvid::enums::bitmask::make_bitmask_enum_spec<corvid::filesys::mmap_mask,
-        "fixed_noreplace, sync, hugetlb, stack, nonblock, populate, "
-        "noreserve, locked, executable, denywrite, , , growsdown, , , "
-        "anonymous, fixed , , , private , shared">();
-
-template<>
-constexpr inline auto corvid::enums::registry::enum_spec_v<
-    corvid::filesys::mmap_advice> =
-    corvid::enums::sequence::make_sequence_enum_spec<
-        corvid::filesys::mmap_advice,
-        "normal, random, sequential, willneed, dontneed, -, -, -, free, "
-        "remove, dontfork, dofork, mergeable, unmergeable, hugepage, "
-        "nohugepage,  dontdump, dodump, wipeonfork, keeponfork, cold, "
-        "pageout, populate_read, populate_write, dontneed_locked, "
-        "collapse">();
-
-namespace corvid { inline namespace filesys {
+consteval auto corvid_enum_spec(mmap_advice*) {
+  return corvid::enums::sequence::make_sequence_enum_spec<mmap_advice,
+      "normal,random,sequential,willneed,dontneed,,,,free,remove,dontfork,"
+      "dofork,mergeable,unmergeable,hugepage,nohugepage,dontdump,dodump,"
+      "wipeonfork,keeponfork,cold,pageout,populate_read,populate_write,"
+      "dontneed_locked,collapse">();
+}
 namespace details {
 // Platform file handle type and invalid-handle sentinel.
 using file_handle_t = int;

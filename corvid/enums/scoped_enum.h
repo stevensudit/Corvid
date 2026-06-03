@@ -48,12 +48,21 @@ PRAGMA_CLANG_DIAG(pop);
 #pragma endregion
 #pragma region enum_spec_v
 
-// Registers generic support for all scoped enums. This allows outputting
-// the value as its underlying integer but fails to qualify as either a
-// bitmask or sequential enum. A further specialization is needed to mark a
-// type as a bitmask or sequence enum.
+// Default registration hook. A scoped enum opts into sequence or bitmask
+// behavior by declaring its own `corvid_enum_spec` overload in its own
+// namespace, found here by ADL. Absent that, this fallback gives the numeric
+// append and lookup. The pointer is never dereferenced; it only carries the
+// type for overload resolution and ADL.
 template<ScopedEnum E>
-constexpr inline auto enum_spec_v<E> = scoped_enum_spec<E>();
+consteval auto corvid_enum_spec(E*) {
+  return scoped_enum_spec<E>();
+}
+
+// Registers generic support for all scoped enums through the hook above. A
+// per-enum overload, being a non-template exact match, outranks this fallback.
+template<ScopedEnum E>
+constexpr inline auto enum_spec_v<E> =
+    corvid_enum_spec(static_cast<E*>(nullptr));
 
 #pragma endregion
 

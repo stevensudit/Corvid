@@ -75,20 +75,12 @@ enum class h3_error_code : uint64_t {
   qpack_encoder_stream_error = NGHTTP3_QPACK_ENCODER_STREAM_ERROR,
   qpack_decoder_stream_error = NGHTTP3_QPACK_DECODER_STREAM_ERROR,
 };
+consteval auto corvid_enum_spec(h3_error_code*) {
+  return corvid::enums::sequence::make_sequence_enum_spec<h3_error_code,
+      h3_error_code::qpack_decoder_stream_error, h3_error_code::no_error>();
+}
 
 #pragma endregion
-
-}}} // namespace corvid::proto::quic
-
-template<>
-constexpr inline auto corvid::enums::registry::enum_spec_v<
-    corvid::proto::quic::h3_error_code> =
-    corvid::enums::sequence::make_sequence_enum_spec<
-        corvid::proto::quic::h3_error_code,
-        corvid::proto::quic::h3_error_code::qpack_decoder_stream_error,
-        corvid::proto::quic::h3_error_code::no_error>();
-
-namespace corvid { inline namespace proto { namespace quic {
 
 #pragma region http3_settings
 

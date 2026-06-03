@@ -32,10 +32,9 @@ using namespace corvid::enums::sequence;
 // readability-function-size)
 
 enum class tiger_pick : std::int8_t { eeny, meany, miny, moe };
-
-template<>
-constexpr auto registry::enum_spec_v<tiger_pick> =
-    make_sequence_enum_spec<tiger_pick, "eeny, meany, miny, moe">();
+consteval auto corvid_enum_spec(tiger_pick*) {
+  return make_sequence_enum_spec<tiger_pick, "eeny, meany, miny, moe">();
+}
 
 enum old_enum : std::uint8_t { old_zero, old_one, old_two, old_three };
 enum class new_enum : std::uint8_t { new_zero, new_one, new_two, new_three };
@@ -112,68 +111,65 @@ TEST_CASE("Ops", "[SequentialEnumTest]") {
 
 // Range of 0 to 3.
 enum class e0_3 : int8_t {};
-
-template<>
-constexpr auto registry::enum_spec_v<e0_3> =
-    make_sequence_enum_spec<e0_3, "a, *, c, ?", wrapclip::limit>();
+consteval auto corvid_enum_spec(e0_3*) {
+  return make_sequence_enum_spec<e0_3, "a, *, c, ?", wrapclip::limit>();
+}
 
 // Range of 10 to 13. Tests non-zero minimums.
 enum class e10_13 : int8_t {};
-
-template<>
-constexpr auto registry::enum_spec_v<e10_13> = make_sequence_enum_spec<e10_13,
-    "ten, eleven, twelve, thirteen", wrapclip::limit, e10_13{10}>();
+consteval auto corvid_enum_spec(e10_13*) {
+  return make_sequence_enum_spec<e10_13, "ten, eleven, twelve, thirteen",
+      wrapclip::limit, e10_13{10}>();
+}
 
 // Range of -3 to 3. Tests negative minimums.
 enum class eneg3_3 : int8_t {};
-
-template<>
-constexpr auto registry::enum_spec_v<eneg3_3> = make_sequence_enum_spec<
-    eneg3_3, "neg-three, neg-two, neg-one, zero, one, two, three",
-    wrapclip::limit, eneg3_3{-3}>();
+consteval auto corvid_enum_spec(eneg3_3*) {
+  return make_sequence_enum_spec<eneg3_3,
+      "neg-three, neg-two, neg-one, zero, one, two, three", wrapclip::limit,
+      eneg3_3{-3}>();
+}
 
 // Range of 0 to 255. Tests exact fit, unsigned. Enabling wrap has no effect.
 enum class e0_255 : uint8_t {};
-
-template<>
-constexpr auto registry::enum_spec_v<e0_255> =
-    make_sequence_enum_spec<e0_255, e0_255{255}>();
+consteval auto corvid_enum_spec(e0_255*) {
+  return make_sequence_enum_spec<e0_255, e0_255{255}>();
+}
 
 // Range of -128 to 127. Tests exact fit, signed.
 enum class eneg128_127 : int8_t {};
-
-template<>
-constexpr auto registry::enum_spec_v<eneg128_127> = make_sequence_enum_spec<
-    eneg128_127, eneg128_127{127}, eneg128_127{-128}>();
+consteval auto corvid_enum_spec(eneg128_127*) {
+  return make_sequence_enum_spec<eneg128_127, eneg128_127{127},
+      eneg128_127{-128}>();
+}
 
 // Range of 0 to 3. Tests int64_t underlying type.
 enum class e64_0_3 : int64_t {};
-
-template<>
-constexpr auto registry::enum_spec_v<e64_0_3> = make_sequence_enum_spec<
-    e64_0_3, "alpha, beta, gamma, delta", wrapclip::limit>();
+consteval auto corvid_enum_spec(e64_0_3*) {
+  return make_sequence_enum_spec<e64_0_3, "alpha, beta, gamma, delta",
+      wrapclip::limit>();
+}
 
 // Range with large int64_t values near the limits.
 enum class e64_large : int64_t {};
-
-template<>
-constexpr auto registry::enum_spec_v<e64_large> = make_sequence_enum_spec<
-    e64_large, "low, mid, high", wrapclip::limit, e64_large{1000000000000}>();
+consteval auto corvid_enum_spec(e64_large*) {
+  return make_sequence_enum_spec<e64_large, "low, mid, high", wrapclip::limit,
+      e64_large{1000000000000}>();
+}
 
 // Range of 0 to 3. Tests uint64_t underlying type.
 enum class eu64_0_3 : uint64_t {};
-
-template<>
-constexpr auto registry::enum_spec_v<eu64_0_3> = make_sequence_enum_spec<
-    eu64_0_3, "one, two, three, four", wrapclip::limit>();
+consteval auto corvid_enum_spec(eu64_0_3*) {
+  return make_sequence_enum_spec<eu64_0_3, "one, two, three, four",
+      wrapclip::limit>();
+}
 
 // Range with large uint64_t values.
 enum class eu64_large : uint64_t {};
-
-template<>
-constexpr auto registry::enum_spec_v<eu64_large> =
-    make_sequence_enum_spec<eu64_large, "first, second, third",
-        wrapclip::limit, eu64_large{UINT64_C(10000000000000000000)}>();
+consteval auto corvid_enum_spec(eu64_large*) {
+  return make_sequence_enum_spec<eu64_large, "first, second, third",
+      wrapclip::limit, eu64_large{UINT64_C(10000000000000000000)}>();
+}
 
 #pragma region MakeSafely
 
@@ -421,10 +417,9 @@ TEST_CASE("SafeOps", "[SequentialEnumTest]") {
 #pragma endregion
 
 enum class tiger_nochoice : std::uint8_t { tiger };
-
-template<>
-constexpr auto registry::enum_spec_v<tiger_nochoice> =
-    make_sequence_enum_spec<tiger_nochoice, tiger_nochoice{}>();
+consteval auto corvid_enum_spec(tiger_nochoice*) {
+  return make_sequence_enum_spec<tiger_nochoice, tiger_nochoice{}>();
+}
 
 #pragma region NoChoice
 
@@ -440,10 +435,9 @@ TEST_CASE("NoChoice", "[SequentialEnumTest]") {
 
 // Range of 0 to 3, but without wrapping.
 enum class e0_3unsafe : int8_t {};
-
-template<>
-constexpr auto registry::enum_spec_v<e0_3unsafe> =
-    make_sequence_enum_spec<e0_3unsafe, e0_3unsafe{3}>();
+consteval auto corvid_enum_spec(e0_3unsafe*) {
+  return make_sequence_enum_spec<e0_3unsafe, e0_3unsafe{3}>();
+}
 
 #pragma region SubtleBugRepro
 
@@ -485,17 +479,16 @@ TEST_CASE("StreamingOut", "[SequentialEnumTest]") {
 #pragma endregion
 
 enum class tiger_missing : std::uint8_t { eeny, miny = 2, moe };
-
-template<>
-constexpr auto registry::enum_spec_v<tiger_missing> =
-    make_sequence_enum_spec<tiger_missing, "eeny, - , miny   , moe">();
+consteval auto corvid_enum_spec(tiger_missing*) {
+  return make_sequence_enum_spec<tiger_missing, "eeny, - , miny   , moe">();
+}
 
 // Tests empty-string placeholder (whitespace-only element between commas).
 enum class tiger_gapped : std::uint8_t { ga, gb, gc, gd };
 
-template<>
-constexpr auto registry::enum_spec_v<tiger_gapped> =
-    make_sequence_enum_spec<tiger_gapped, "ga,  , gc, gd">();
+consteval auto corvid_enum_spec(tiger_gapped*) {
+  return make_sequence_enum_spec<tiger_gapped, "ga,  , gc, gd">();
+}
 
 #pragma region Missing
 
