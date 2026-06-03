@@ -21,6 +21,8 @@
 
 namespace corvid { inline namespace enums { namespace registry {
 
+#pragma region scoped_enum_spec
+
 // Default specification for a scoped enum. By default, opts out of both
 // sequential and bitmask while providing a simple append method that outputs
 // the underlying value as a number.
@@ -43,11 +45,16 @@ struct scoped_enum_spec
 };
 PRAGMA_CLANG_DIAG(pop);
 
+#pragma endregion
+#pragma region enum_spec_v
+
 // Registers generic support for all scoped enums. This allows outputting
 // the value as its underlying integer but fails to qualify as either a
 // bitmask or sequential enum. A further specialization is needed to mark a
 // type as a bitmask or sequence enum.
 template<ScopedEnum E>
 constexpr inline auto enum_spec_v<E> = scoped_enum_spec<E>();
+
+#pragma endregion
 
 }}} // namespace corvid::enums::registry

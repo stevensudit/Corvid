@@ -24,6 +24,8 @@
 
 namespace corvid { inline namespace enums {
 
+#pragma region wrapclip
+
 // Whether or not to limit the value, as by wrapping or clipping, when it
 // exceeds the range of the enum.
 //
@@ -32,7 +34,11 @@ namespace corvid { inline namespace enums {
 //   enums) to stay within the valid range.
 enum class wrapclip : std::uint8_t { none, limit };
 
+#pragma endregion
+
 namespace registry {
+
+#pragma region base_enum_spec
 
 // Base template for enum specifications. By default, this does not enable
 // anything.
@@ -50,6 +56,9 @@ struct base_enum_spec {
   static constexpr wrapclip bit_clip_v = bitclip;
 };
 
+#pragma endregion
+#pragma region enum_spec_v
+
 // Base template for enum specifications.
 //
 // This is only intended to match non-enums in order to satisfy the compiler.
@@ -61,6 +70,9 @@ struct base_enum_spec {
 // significant.
 template<typename T, typename... Ts>
 constexpr inline auto enum_spec_v = base_enum_spec<std::byte>();
+
+#pragma endregion
+#pragma region details
 
 namespace details {
 
@@ -91,6 +103,8 @@ template<StdEnum E>
 }
 
 } // namespace details
+
+#pragma endregion
 
 } // namespace registry
 }} // namespace corvid::enums
