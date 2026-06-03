@@ -68,16 +68,8 @@ public:
   // A server that answers for several authorities overrides this.
   [[nodiscard]] virtual std::string_view authority_reject_status() const {
     assert(router()->is_loop_thread());
-    const auto& expected = router()->server_name();
-    if (expected.empty()) return "500";
-
-    const auto* authority = request_headers().find(":authority");
-    const auto* host = request_headers().find("host");
-    const auto* effective = authority ? authority : host;
-
-    if (!effective || !host_matches(effective->value, expected)) return "421";
-    if (host && authority && authority->value != host->value) return "421";
-    return {};
+    return authority_reject_status_for(request_headers(),
+        router()->server_name());
   }
 
   // Gate the completed request HEADERS on the authority before handing them to
@@ -104,6 +96,25 @@ public:
   }
 
   // Helpers.
+
+  // The reject status for a request targeting `expected` (the configured
+  // server authority host), or empty to accept. "500" when `expected` is
+  // empty (a server misconfiguration), else "421" unless every authority the
+  // request carries names `expected`: the `:authority`, the `Host`, or both,
+  // compared host-wise so a differing case or ":port" does not reject. A
+  // request that carries neither is rejected. The pure core of
+  // `authority_reject_status`, factored out so it can be tested without a
+  // live router.
+  [[nodiscard]] static std::string_view authority_reject_status_for(
+      const http3_headers& headers, std::string_view expected) noexcept {
+    if (expected.empty()) return "500";
+    const auto* authority = headers.find(":authority");
+    const auto* host = headers.find("host");
+    if (!authority && !host) return "421";
+    if (authority && !host_matches(authority->value, expected)) return "421";
+    if (host && !host_matches(host->value, expected)) return "421";
+    return {};
+  }
 
   // Case-insensitive match of an authority's host (any trailing ":port"
   // dropped) against the configured name.
