@@ -175,7 +175,7 @@ consteval auto corvid_enum_spec(stream_chunk*) {
 }
 
 #pragma endregion
-#pragma region http_method
+#pragma region http3_method
 
 // The HTTP/3 methods, for use in the `:method` pseudo-header.
 enum class http3_method : uint8_t {
