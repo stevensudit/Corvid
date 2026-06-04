@@ -22,7 +22,7 @@
 #include <type_traits>
 #include <utility>
 
-#include "../containers/enum_vector.h"
+#include "../containers/utils/enum_vector.h"
 #include "entity_ids.h"
 
 namespace corvid { inline namespace ecs { inline namespace id_containers {

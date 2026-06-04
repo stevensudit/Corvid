@@ -26,7 +26,7 @@
 
 #include "../../infra/exception_firewalls.h"
 #include "../../infra/relaxed_atomic.h"
-#include "../../strings/no_zero.h"
+#include "../../strings/core/no_zero.h"
 
 namespace corvid { inline namespace proto {
 

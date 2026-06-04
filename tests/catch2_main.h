@@ -19,7 +19,7 @@
 
 #include <chrono>
 #include <csignal>
-#include <print>
+#include <cstdio>
 #include <string_view>
 #include <vector>
 
@@ -71,6 +71,9 @@ int main(int argc, char* argv[]) {
       Catch::Session().run(static_cast<int>(args.size()), args.data());
   const auto elapsed = std::chrono::steady_clock::now() - start;
   const double ms = std::chrono::duration<double, std::milli>(elapsed).count();
-  std::println("[TIME] Total: {:.3f} ms", ms);
+  // Use `printf` rather than `std::println`: some libstdc++ versions we
+  // build against don't ship `<print>` yet.
+  // NOLINTNEXTLINE(modernize-use-std-print)
+  std::printf("[TIME] Total: %.3f ms\n", ms);
   return rc;
 }

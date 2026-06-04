@@ -21,7 +21,7 @@
 #include <functional>
 
 #include "../corvid/proto/quic/quic_header.h"
-#include "../corvid/strings/enum_conversion.h"
+#include "../corvid/strings/utils/enum_conversion.h"
 #include "catch2_main.h"
 
 namespace quic = corvid::proto::quic;

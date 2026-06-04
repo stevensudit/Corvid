@@ -40,6 +40,10 @@ target_name=""
 
 usage="Usage: $0 [all | [testname.cpp] [libstdcpp|libcxx] [tidy] [asan|tsan|ubsan|msan] [coverage] [scan]]"
 
+# Enforce the core/utils band layering before any build (fast, static, and
+# build-independent). See corvid/deps.md.
+"$(dirname "$0")/scripts/check_layering.sh" || exit 1
+
 # "all" short-circuits to the comprehensive multi-config sweep and doesn't
 # compose with the per-config options.
 if [[ "${1:-}" == "all" ]]; then

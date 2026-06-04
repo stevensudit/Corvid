@@ -21,7 +21,9 @@
 #include <optional>
 
 #include "enums_shared.h"
-#include "../strings/lite.h"
+#include "../strings/core/fixed_string_utils.h"
+#include "../strings/core/targeting.h"
+#include "../strings/core/conversion.h"
 #include "enum_registry.h"
 #include "scoped_enum.h"
 

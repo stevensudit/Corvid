@@ -27,7 +27,7 @@
 #include <system_error>
 
 #include "../../infra/relaxed_atomic.h"
-#include "../../containers/fixed_bitset.h"
+#include "../../containers/core/fixed_bitset.h"
 #include "../../enums/sequence_enum.h"
 #include "iou_buffer_pool_base.h"
 #include "iou_buffer.h"

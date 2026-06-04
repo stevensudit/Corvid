@@ -20,7 +20,7 @@
 #include <set>
 #include <span>
 
-#include "../corvid/strings/opt_string_view.h"
+#include "../corvid/strings/core/opt_string_view.h"
 #include "../corvid/meta.h"
 #include "catch2_main.h"
 

@@ -267,6 +267,13 @@ ExternalProject_Add(ngtcp2_external
     UPDATE_DISCONNECTED TRUE
     INSTALL_DIR       "${NGTCP2_INSTALL_DIR}"
     CMAKE_GENERATOR   "Ninja"
+    # Route ngtcp2's configure output to a log file rather than the console.
+    # Its crypto-backend probe warns that quictls and LibreSSL are disabled
+    # (benign: we build the OpenSSL backend), which otherwise clutters every
+    # clean build and inflates the CTest dashboard warning count. The log is
+    # still printed if configure fails.
+    LOG_CONFIGURE 1
+    LOG_OUTPUT_ON_FAILURE 1
     CMAKE_ARGS
         -DCMAKE_INSTALL_PREFIX=${NGTCP2_INSTALL_DIR}
         -DCMAKE_INSTALL_LIBDIR=lib

@@ -22,6 +22,7 @@
 
 #include "../corvid/meta.h"
 #include "../corvid/enums/bitmask_enum.h"
+#include "../corvid/strings/utils/enum_conversion.h"
 #include "../corvid/containers.h"
 #include "catch2_main.h"
 
@@ -893,6 +894,14 @@ TEST_CASE("ExtractEnum", "[BitMaskTest]") {
     sv = "";
     CHECK_FALSE(extract_enum(e, sv));
     sv = " + ";
+    CHECK_FALSE(extract_enum(e, sv));
+
+    // Empty pieces are rejected, whether leading, trailing, or doubled.
+    sv = "+red";
+    CHECK_FALSE(extract_enum(e, sv));
+    sv = "red+";
+    CHECK_FALSE(extract_enum(e, sv));
+    sv = "red++blue";
     CHECK_FALSE(extract_enum(e, sv));
   }
 }

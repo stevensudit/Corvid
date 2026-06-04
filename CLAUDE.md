@@ -87,5 +87,5 @@ Scan relevant headers first when writing new code to avoid reimplementing.
 
 ## Non-Obvious Locations
 
-- `npos` / base string position types: `corvid/strings/string_base.h`
-- `npos_choice`: `corvid/strings/locating.h`
+- `npos` / base string position types: `corvid/strings/core/string_base.h`
+- `npos_choice`: `corvid/strings/core/locating.h`

@@ -36,7 +36,7 @@
 #include "../../infra/relaxed_atomic.h"
 #include "../../concurrency/tombstone.h"
 #include "../../infra/scope_exit.h"
-#include "../../containers/opt_find.h"
+#include "../../containers/core/opt_find.h"
 #include "../../filesys/epoll.h"
 #include "../../filesys/event_fd.h"
 #include "../../filesys/net_socket.h"

@@ -16,8 +16,12 @@
 // limitations under the License.
 #pragma once
 #include "enums_shared.h"
-#include "../strings/lite.h"
-#include "../containers/opt_find.h"
+#include "../strings/core/fixed_string_utils.h"
+#include "../strings/core/targeting.h"
+#include "../strings/core/conversion.h"
+#include "../strings/core/delimiting.h"
+#include "../strings/core/splitting.h"
+#include "../containers/core/opt_find.h"
 #include "enum_registry.h"
 #include "scoped_enum.h"
 
@@ -496,7 +500,32 @@ struct bitmask_enum_names_spec
       return strings::append_num<16>(target, *v);
   }
 
+  // Look up a bitmask value from `sv`. A bitmask may be given as one or more
+  // names or numbers joined by '+' (e.g. "red + blue"); each piece is looked
+  // up and the results are OR'd together. Every piece must be non-empty, so a
+  // leading, trailing, or doubled '+' is rejected. On success, sets `v` and
+  // returns true; on failure, returns false without setting `v`.
   [[nodiscard]] bool lookup(E& v, std::string_view sv) const {
+    E result{};
+    E piece_value{};
+    bool succeeded{};
+    for (bool more = !sv.empty(); more;) {
+      auto before = sv.size();
+      auto piece = strings::extract_piece(sv, "+");
+      // A '+' was consumed when `extract_piece` removed more than the piece
+      // itself, which means another piece must follow.
+      more = sv.size() + piece.size() < before;
+      if (!lookup_one(piece_value, strings::trim(piece))) return false;
+      // Use operator syntax to avoid ADL issues.
+      corvid::enums::bitmask::operator|=(result, piece_value);
+      succeeded = true;
+    }
+    if (succeeded) v = result;
+    return succeeded;
+  }
+
+  // Look up a single bitmask value, given as one name or number, from `sv`.
+  [[nodiscard]] bool lookup_one(E& v, std::string_view sv) const {
     if (sv.empty()) return false;
     if (registry::details::lookup_helper(v, sv)) {
       if constexpr (bit_clip_v<E>)

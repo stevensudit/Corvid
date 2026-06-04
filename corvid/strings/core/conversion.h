@@ -20,7 +20,6 @@
 
 #include "strings_shared.h"
 #include "trimming.h"
-#include "../enums/enum_registry.h"
 
 namespace corvid::strings { inline namespace conversion {
 
@@ -231,26 +230,6 @@ num_as_string(std::floating_point auto num) {
 
 } // namespace cvt_float
 
-inline namespace cvt_enum {
-
-// From enum.
-
-// Append enum to `target`. Returns `target`.
-constexpr auto& append_enum(AppendTarget auto& target, ScopedEnum auto e) {
-  return registry::enum_spec_v<decltype(e)>.append(target, e);
-}
-
-// Return enum as string.
-constexpr std::string enum_as_string(ScopedEnum auto t) {
-  std::string target;
-  return append_enum(target, t);
-}
-
-// Note: See "enum_conversion.h" for `extract_enum` and `parse_enum`.
-// These had to be separated out so as to manage dependencies.
-
-} // namespace cvt_enum
-
 inline namespace cvt_bytes {
 
 // Reinterpret the bytes of `sv` as a span of `char_t`.
@@ -302,11 +281,3 @@ auto& append_stream(AppendTarget auto& target, const OStreamable auto& t) {
 }
 } // namespace cvt_stream
 }} // namespace corvid::strings::conversion
-
-// Append scoped enum to `os`.
-//
-// No need to define this for old-style enums because they're treated as
-// aliases for their underlying type, which is already supported.
-auto& operator<<(std::ostream& os, corvid::ScopedEnum auto t) {
-  return corvid::strings::append_enum(os, t);
-}

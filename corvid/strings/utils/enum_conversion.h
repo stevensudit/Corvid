@@ -15,45 +15,40 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 #pragma once
-#include "strings_shared.h"
-#include "trimming.h"
-#include "conversion.h"
-#include "../enums/sequence_enum.h"
-#include "../enums/bitmask_enum.h"
+#include "../core/strings_shared.h"
+#include "../core/trimming.h"
+#include "../core/splitting.h"
+#include "../core/conversion.h"
+#include "../../enums/enum_registry.h"
 
 namespace corvid::strings { inline namespace conversion {
 inline namespace cvt_enum {
 
-namespace details {
-constexpr bool
-help_extract_bitmask(bitmask::BitmaskEnum auto& e, std::string_view& sv) {
-  using E = std::remove_cvref_t<decltype(e)>;
-  E ev{};
-  bool succeeded{};
-  for (auto piece = trim(extract_piece(sv, "+")); !piece.empty();
-      piece = trim(extract_piece(sv, "+")))
-  {
-    if (!registry::enum_spec_v<E>.lookup(ev, piece)) return false;
-    // Use operator syntax to avoid ADL issues.
-    corvid::enums::bitmask::operator|=(e, ev);
-    succeeded = true;
-  }
-  return succeeded;
+// From enum.
+
+// Append enum to `target`. Returns `target`.
+constexpr auto& append_enum(AppendTarget auto& target, ScopedEnum auto e) {
+  return registry::enum_spec_v<decltype(e)>.append(target, e);
 }
 
+// Return enum as string.
+constexpr std::string enum_as_string(ScopedEnum auto t) {
+  std::string target;
+  return append_enum(target, t);
+}
+
+namespace details {
+// Extract any enum from `sv`. Scoped enums (sequential and bitmask) dispatch
+// to the registered spec's `lookup`, which the bitmask spec extends to parse
+// "a + b + c" combinations. Plain (unscoped) enums accept numeric input only.
 constexpr bool help_extract_enum(StdEnum auto& e, std::string_view sv) {
   using E = std::remove_cvref_t<decltype(e)>;
   e = {};
   if (sv.empty()) return false;
-  bool succeeded{};
-  if constexpr (bitmask::BitmaskEnum<E>)
-    succeeded = details::help_extract_bitmask(e, sv);
-  else if constexpr (ScopedEnum<E>)
-    succeeded = registry::enum_spec_v<E>.lookup(e, sv);
+  if constexpr (ScopedEnum<E>)
+    return registry::enum_spec_v<E>.lookup(e, sv);
   else
-    succeeded = registry::details::lookup_helper_wrapper(e, sv);
-
-  return succeeded;
+    return registry::details::lookup_helper_wrapper(e, sv);
 }
 
 } // namespace details
@@ -150,3 +145,11 @@ constexpr E parse_enum(std::string_view sv, E default_value) {
 }
 
 }}} // namespace corvid::strings::conversion::cvt_enum
+
+// Append scoped enum to `os`.
+//
+// No need to define this for old-style enums because they're treated as
+// aliases for their underlying type, which is already supported.
+auto& operator<<(std::ostream& os, corvid::ScopedEnum auto t) {
+  return corvid::strings::append_enum(os, t);
+}

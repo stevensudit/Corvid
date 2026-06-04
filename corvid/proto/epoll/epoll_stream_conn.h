@@ -38,8 +38,8 @@
 #include "../net_endpoint.h"
 #include "../../infra/relaxed_atomic.h"
 #include "../../enums/bool_enums.h"
-#include "../../strings/any_strings.h"
-#include "../../strings/no_zero.h"
+#include "../../strings/core/any_strings.h"
+#include "../../strings/core/no_zero.h"
 #include "epoll_loop.h"
 #include "epoll_recv_buffer.h"
 
