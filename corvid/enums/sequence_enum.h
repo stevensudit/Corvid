@@ -298,9 +298,9 @@ template<SequentialEnum E>
 }
 
 #pragma endregion
-#pragma region Name lookup
+#pragma region Lookup
 
-// Look up exact string_view for value, or "(unknown)" if not found or empty.
+// Look up exact string_view for value, or "" if not found or empty.
 template<SequentialEnum E>
 [[nodiscard]] constexpr std::string_view enum_as_view(E v) noexcept {
   return registry::enum_spec_v<std::decay_t<E>>.as_view(v);
@@ -380,7 +380,7 @@ public:
 
   // From the enum value itself.
   constexpr enum_string_view(E e) : sv_(enum_as_view(e)) {
-    assert(sv_ != "(unknown)");
+    if (sv_.empty()) throw "not a registered name for this enum";
   }
 
 #pragma endregion
@@ -534,7 +534,7 @@ struct sequence_enum_names_spec
     auto n = as_underlying(v);
     size_t ofs = n - *min_value<E>();
     if (ofs < names.size() && names[ofs].size()) return names[ofs];
-    return std::string_view{"(unknown)"};
+    return {};
   }
 
   // Linear search of the names for an exact match, returning the enum, or

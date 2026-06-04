@@ -448,8 +448,7 @@ public:
   // token is `unknown`
   [[nodiscard]] static std::string_view name_from_token(
       qpack_token token) noexcept {
-    auto v = enums::sequence::enum_as_view(token);
-    return (v != "(unknown)"sv) ? v : ""sv;
+    return enums::sequence::enum_as_view(token);
   }
 
   // Maps a field name to its `qpack_token`, or `qpack_token::unknown`.
@@ -465,8 +464,7 @@ public:
       auto invert = [&](int lo, int hi) {
         for (auto v = lo; v < hi; ++v) {
           auto token = qpack_token(v);
-          if (auto sv = enums::sequence::enum_as_view(token);
-              sv != "(unknown)"sv)
+          if (auto sv = enums::sequence::enum_as_view(token); !sv.empty())
             m.emplace(sv, token);
         }
       };

@@ -931,10 +931,10 @@ TEST_CASE("Int64", "[SequentialEnumTest]") {
 TEST_CASE("AsView", "[SequentialEnumTest]") {
   if (true) {
     CHECK(enum_as_view(e0_3(0)) == "a");
-    CHECK(enum_as_view(e0_3(1)) == "(unknown)");
+    CHECK(enum_as_view(e0_3(1)) == "");
     CHECK(enum_as_view(e0_3(2)) == "c");
-    CHECK(enum_as_view(e0_3(3)) == "(unknown)");
-    CHECK(enum_as_view(e0_3(4)) == "(unknown)");
+    CHECK(enum_as_view(e0_3(3)) == "");
+    CHECK(enum_as_view(e0_3(4)) == "");
   }
 }
 
