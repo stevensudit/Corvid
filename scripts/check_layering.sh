@@ -55,6 +55,9 @@ allowed() {
   local src="$1" dst="$2"
   # A band may always include its own siblings.
   [ "$src" = "$dst" ] && return 0
+  # controllers is a standalone leaf (std only): no cross-band edges, not
+  # even the otherwise-universal meta. Reject before the meta shortcut.
+  case "$src" in controllers) return 1 ;; esac
   # Apex bands may depend on anything lower (including umbrellas).
   case "$src" in ecs | proto | lang | sim) return 0 ;; esac
   # meta is the universal foundation.
