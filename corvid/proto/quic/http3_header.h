@@ -18,7 +18,6 @@
 #include <cstdint>
 #include <cstddef>
 #include <concepts>
-#include <flat_map>
 #include <span>
 #include <string>
 #include <string_view>
@@ -179,7 +178,7 @@ consteval auto corvid_enum_spec(stream_chunk*) {
 #pragma region http_method
 
 // The HTTP/3 methods, for use in the `:method` pseudo-header.
-enum class http_method : uint8_t {
+enum class http3_method : uint8_t {
   invalid,
   ACL,
   BASELINE_CONTROL,
@@ -222,14 +221,14 @@ enum class http_method : uint8_t {
   UPDATEREDIRECTREF,
   VERSION_CONTROL
 };
-consteval auto corvid_enum_spec(http_method*) {
-  return corvid::enums::sequence::make_sequence_enum_spec<http_method,
+consteval auto corvid_enum_spec(http3_method*) {
+  return corvid::enums::sequence::make_sequence_enum_spec<http3_method,
       "ACL,BASELINE-CONTROL,BIND,CHECKIN,CHECKOUT,CONNECT,COPY,DELETE,GET,"
       "HEAD,LABEL,LINK,LOCK,MERGE,MKACTIVITY,MKCALENDAR,MKCOL,MKREDIRECTREF,"
       "MKWORKSPACE,MOVE,OPTIONS,ORDERPATCH,PATCH,POST,PRI,PROPFIND,PROPPATCH,"
       "PUT,QUERY,REBIND,REPORT,SEARCH,TRACE,UNBIND,UNCHECKOUT,UNLINK,UNLOCK,"
       "UPDATE,UPDATEREDIRECTREF,VERSION-CONTROL",
-      wrapclip{}, http_method{1}>();
+      wrapclip{}, http3_method{1}>();
 }
 
 #pragma endregion
@@ -254,7 +253,7 @@ consteval header_name operator""_header(const char* s, std::size_t n) {
 
 // Compile-time checked HTTP method name, for use in the `:method`
 // pseudo-header.
-using method_name = enums::sequence::enum_name<http_method>;
+using method_name = enums::sequence::enum_name<http3_method>;
 
 namespace http3_literals {
 consteval method_name operator""_method(const char* s, std::size_t n) {
@@ -427,40 +426,6 @@ public:
     return {fields_.data(), fields_.size()};
   }
 
-#pragma endregion
-#pragma region Lookups
-
-  // Maps a `qpack_token` to its canonical field-name string, or `{}` if the
-  // token is `unknown`
-  [[nodiscard]] static std::string_view name_from_token(
-      qpack_token token) noexcept {
-    return enums::sequence::enum_as_view(token);
-  }
-
-  // Maps a field name to its `qpack_token`, or `qpack_token::unknown`.
-  [[nodiscard]] static qpack_token token_from_name(std::string_view name) {
-    // Invert the registered names so this lookup shares their single source
-    // of truth. nghttp3 numbers the common QPACK tokens up through 98 and a
-    // second block (host through priority) at 1000-1008, with a large unused
-    // gap between, so walk only [0, 100) and [1000, 1009) to skip the gap
-    // and map each named value's view back to its token.
-    static const auto tokens = [] {
-      std::unordered_map<std::string_view, qpack_token> m;
-      m.reserve(64); // Approximate; ~61 named tokens, bucket count rounds up.
-      auto invert = [&](int lo, int hi) {
-        for (auto v = lo; v < hi; ++v) {
-          auto token = qpack_token(v);
-          if (auto sv = enums::sequence::enum_as_view(token); !sv.empty())
-            m.emplace(sv, token);
-        }
-      };
-      invert(0, 100);
-      invert(1000, 1009);
-      return m;
-    }();
-    if (auto found = find_opt(tokens, name)) return *found;
-    return qpack_token::unknown;
-  }
 #pragma endregion
 #pragma region Data members
 private:

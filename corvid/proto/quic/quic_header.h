@@ -86,7 +86,15 @@ enum class quic_status : int16_t {
 };
 consteval auto corvid_enum_spec(quic_status*) {
   return corvid::enums::sequence::make_sequence_enum_spec<quic_status,
-      quic_status::ok, quic_status::callback_failure>();
+      "-502,callback_failure,nomem,fatal|-238,idle_close,version_negotiation_"
+      "failure,handshake_timeout,version_negotiation,no_viable_path,aead_"
+      "limit_reached,drop_conn,retry,write_more,crypto_buffer_exceeded,"
+      "internal,conn_id_blocked,discard_pkt,transport_param,draining,closing,"
+      "recv_version_negotiation,stream_state,stream_not_found,stream_shut_wr,"
+      "decrypt,frame_encoding,malformed_transport_param,required_transport_"
+      "param,pkt_num_exhausted,crypto,final_size,stream_limit,connection_id_"
+      "limit,flow_control,stream_data_blocked,stream_in_use,stream_id_blocked,"
+      "ack_frame,invalid_state,proto,nobuf,invalid_argument|0,ok">();
 }
 
 #pragma endregion

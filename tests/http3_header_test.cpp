@@ -119,30 +119,6 @@ TEST_CASE("Http3HeadersNameFromToken", "[http3]") {
   }
 }
 
-TEST_CASE("Http3HeadersTokenFromName", "[http3]") {
-  using H = http3_headers;
-  if (true) {
-    CHECK(H::token_from_name(":authority") == qpack_token::authority);
-    CHECK(H::token_from_name(":protocol") == qpack_token::protocol);
-    CHECK(H::token_from_name("content-length") == qpack_token::content_length);
-    CHECK(H::token_from_name("te") == qpack_token::te);
-  }
-  if (true) {
-    // Unrecognized names yield `unknown`.
-    CHECK(H::token_from_name("") == qpack_token::unknown);
-    CHECK(H::token_from_name("x-not-a-header") == qpack_token::unknown);
-    // Lookup is exact; the table is lowercase, so mixed case does not match.
-    CHECK(H::token_from_name("Content-Length") == qpack_token::unknown);
-  }
-}
-
-TEST_CASE("Http3HeadersTokenNameRoundTrip", "[http3]") {
-  using H = http3_headers;
-  // The two maps are exact inverses for every known token.
-  for (auto token : all_tokens)
-    CHECK(H::token_from_name(H::name_from_token(token)) == token);
-}
-
 TEST_CASE("Http3HeaderLiterals", "[http3]") {
   // The `_header` literal validates the field name at compile time. It stores
   // only the name; `as_enum` resolves the token by lookup, not from a stored
@@ -157,9 +133,9 @@ TEST_CASE("Http3HeaderLiterals", "[http3]") {
 
   // The `_method` literal likewise validates the method name at compile time.
   CHECK(std::string_view{"GET"_method} == "GET");
-  CHECK(("GET"_method).as_enum() == http_method::GET);
+  CHECK(("GET"_method).as_enum() == http3_method::GET);
   // Underscored enumerators spell as hyphenated names on the wire.
-  CHECK(("VERSION-CONTROL"_method).as_enum() == http_method::VERSION_CONTROL);
+  CHECK(("VERSION-CONTROL"_method).as_enum() == http3_method::VERSION_CONTROL);
 }
 
 TEST_CASE("Http3FieldMake", "[http3]") {
@@ -494,7 +470,7 @@ TEST_CASE("HttpMethodString", "[http3]") {
   // Method names round-trip through `enum_as_string` / `parse_enum`.
   using namespace corvid;
   using namespace corvid::strings;
-  using M = http_method;
+  using M = http3_method;
   if (true) {
     // `invalid` is excluded from the name list, so it prints numerically.
     CHECK(enum_as_string(M::invalid) == "0");

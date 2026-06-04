@@ -97,7 +97,7 @@ void capture_response(http3_client_stream& s, response_capture& out) {
 // small so a sizeable body spans more than the 16 vec slots, exercising the
 // multi-segment gather and the veccnt truncation path), and the completion
 // callback.
-std::unique_ptr<http3_client_stream> make_request(http_method method,
+std::unique_ptr<http3_client_stream> make_request(http3_method method,
     std::string_view path, std::span<const uint8_t> body,
     http3_client_stream::completion_callback on_complete) {
   auto stream = std::make_unique<http3_client_stream>(std::move(on_complete));
@@ -126,8 +126,8 @@ bool curl(int argc, char** argv) {
   // A third arg is a request body, which turns the GET into a POST.
   const std::string body_str = argc > 3 ? argv[3] : "";
   const std::vector<uint8_t> body(body_str.begin(), body_str.end());
-  const http_method method =
-      body.empty() ? http_method::GET : http_method::POST;
+  const http3_method method =
+      body.empty() ? http3_method::GET : http3_method::POST;
   std::cout << strings::enum_as_string(method) << " https://" << host << path
             << " over HTTP/3";
   if (!body.empty()) std::cout << " (" << body.size() << "-byte body)";

@@ -164,6 +164,28 @@ TEST_CASE("DatagramFlagsString", "[quic]") {
     CHECK(parse_enum("zero_rtt", bad) == F::zero_rtt);
   }
 }
+
+TEST_CASE("QuicStatusString", "[quic]") {
+  // Sequence enum split into three segments (the two ngtcp2 error blocks plus
+  // `ok`); named values resolve and the gaps between blocks print numerically.
+  using namespace corvid;
+  using namespace corvid::strings;
+  using S = quic::quic_status;
+  if (true) {
+    CHECK(enum_as_string(S::ok) == "ok");                             // 0
+    CHECK(enum_as_string(S::invalid_argument) == "invalid_argument"); // -201
+    CHECK(enum_as_string(S::idle_close) == "idle_close");             // -238
+    CHECK(enum_as_string(S::fatal) == "fatal");                       // -500
+    CHECK(enum_as_string(S::callback_failure) == "callback_failure"); // -502
+    CHECK(enum_as_string(S{-300}) == "-300"); // in a gap between blocks
+  }
+  if (true) {
+    constexpr S bad{1};
+    CHECK(parse_enum("nomem", bad) == S::nomem);
+    CHECK(parse_enum("crypto", bad) == S::crypto);
+    CHECK(parse_enum("nonexistent", bad) == bad); // unknown -> default
+  }
+}
 #pragma endregion
 
 // NOLINTEND(readability-function-cognitive-complexity)
