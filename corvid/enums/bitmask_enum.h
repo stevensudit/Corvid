@@ -24,9 +24,7 @@
 namespace corvid {
 inline namespace enums { namespace bitmask {
 
-//
-// bitmask enum
-//
+#pragma region bitmask spec
 
 // A bitmask enum is a scoped enum (aka `enum class`) whose values are
 // made of bits that can be independently referenced. It satisfies the
@@ -43,11 +41,10 @@ inline namespace enums { namespace bitmask {
 // so can lead to strange side-effects, such as `max_value` being negative when
 // all bits are valid.
 //
-// The way to register a scoped enum as a bitmask is to specialize the
-// `corvid::enums::registry::enum_spec_v` for the enum type and assign an
-// instance of `bitmask_enum_spec` to it. There are various
-// `make_bitmask_enum*_spec` helper functions that let you specify the valid
-// bits, and optionally, their names.
+// The way to register a scoped enum as a bitmask is to declare a
+// `corvid_enum_spec` overload for it in the enum's own namespace, returning
+// the result of a `make_bitmask_enum*_spec` helper. It is found by ADL. These
+// helpers let you specify the valid bits, and optionally, their names.
 
 // Wrapping:
 //
@@ -82,15 +79,17 @@ inline namespace enums { namespace bitmask {
 // Example:
 //
 //    enum class rgb { red = 4, green = 2, blue = 1 };
-//
-//    template<>
-//    constexpr inline auto registry::enum_spec_v<rgb> =
-//        make_bitmask_enum_spec<rgb, "red,green,blue">();
+//    consteval auto corvid_enum_spec(rgb*) {
+//      return make_bitmask_enum_spec<rgb, "red,green,blue">();
+//    }
 
 template<ScopedEnum E, uint64_t validbits = 0, wrapclip bitclip = wrapclip{}>
 struct bitmask_enum_spec
     : public registry::scoped_enum_spec<E, E{}, E{}, false, wrapclip{},
           validbits, bitclip> {};
+
+#pragma endregion
+#pragma region internal
 
 inline namespace internal {
 
@@ -118,20 +117,21 @@ constexpr E do_max_value() noexcept {
 } // namespace details
 
 } // namespace internal
+
+#pragma endregion
+#pragma region ops
+
 inline namespace ops {
 
-//
-// Operator overloads.
-//
-
-//
-// Logical operators
-//
+#pragma region Logical ops
 
 template<BitmaskEnum E>
 [[nodiscard]] constexpr bool operator!(E v) noexcept {
   return !as_underlying<E>(v);
 }
+
+#pragma endregion
+#pragma region Dereference
 
 // Dereference operator.
 //
@@ -141,7 +141,9 @@ template<BitmaskEnum E>
   return as_underlying<E>(v);
 }
 
-// Or operators.
+#pragma endregion
+#pragma region Or ops
+
 template<BitmaskEnum E>
 [[nodiscard]] constexpr E operator|(E l, E r) noexcept {
   return E(*l | *r);
@@ -152,7 +154,9 @@ constexpr const E& operator|=(E& l, E r) noexcept {
   return l = l | r;
 }
 
-// And operators.
+#pragma endregion
+#pragma region And ops
+
 template<BitmaskEnum E>
 [[nodiscard]] constexpr E operator&(E l, E r) noexcept {
   return E(*l & *r);
@@ -163,7 +167,9 @@ constexpr const E& operator&=(E& l, E r) noexcept {
   return l = l & r;
 }
 
-// Xor operators.
+#pragma endregion
+#pragma region Xor ops
+
 template<BitmaskEnum E>
 [[nodiscard]] constexpr E operator^(E l, E r) noexcept {
   return E(*l ^ *r);
@@ -173,6 +179,9 @@ template<BitmaskEnum E>
 constexpr const E& operator^=(E& l, E r) noexcept {
   return l = l ^ r;
 }
+
+#pragma endregion
+#pragma region Complement
 
 // Complement operator.
 //
@@ -186,7 +195,9 @@ template<BitmaskEnum E>
     return E(~*v);
 }
 
-// Plus operators.
+#pragma endregion
+#pragma region Plus ops
+
 template<BitmaskEnum E>
 [[nodiscard]] constexpr E operator+(E l, E r) noexcept {
   return l | r;
@@ -197,7 +208,9 @@ constexpr const E& operator+=(E& l, E r) noexcept {
   return l = l + r;
 }
 
-// Minus operators.
+#pragma endregion
+#pragma region Minus ops
+
 template<BitmaskEnum E>
 [[nodiscard]] constexpr E operator-(E l, E r) noexcept {
   return l & ~r;
@@ -208,13 +221,12 @@ constexpr const E& operator-=(E& l, E r) noexcept {
   return l = l - r;
 }
 
+#pragma endregion
+
 } // namespace ops
 
-//
-// Named functions
-//
-
-// Traits
+#pragma endregion
+#pragma region Traits
 
 // Maximum value, inclusive, which is also a mask of valid bits.
 //
@@ -247,6 +259,9 @@ template<std::integral T>
   return static_cast<T>(v);
 }
 
+#pragma endregion
+#pragma region range_length
+
 // Length of range.
 //
 // This is the number of distinct values that are valid, if and only if valid
@@ -260,7 +275,8 @@ template<BitmaskEnum E>
   return to_integer<size_t>(max_value<E>()) + 1;
 }
 
-// Makers
+#pragma endregion
+#pragma region Makers
 
 // Cast integer value to bitmask, keeping only the valid bits.
 template<BitmaskEnum E>
@@ -286,7 +302,8 @@ template<BitmaskEnum E>
   return make<E>(std::underlying_type_t<E>{1} << (ndx - 1));
 }
 
-// Set
+#pragma endregion
+#pragma region Set
 
 // Return `v` with the bits in `m` set.
 template<BitmaskEnum E>
@@ -324,7 +341,8 @@ template<BitmaskEnum E>
   return v ^ max_value<E>();
 }
 
-// Set at index
+#pragma endregion
+#pragma region At index
 
 // Return `v` with the bit at `ndx` set.
 template<BitmaskEnum E>
@@ -356,7 +374,8 @@ template<BitmaskEnum E>
   return value ? set_at(v, ndx) : clear_at(v, ndx);
 }
 
-// Has
+#pragma endregion
+#pragma region Has
 
 // Return whether `v` has any of the bits in `m` set.
 template<BitmaskEnum E>
@@ -381,6 +400,9 @@ template<BitmaskEnum E>
 [[nodiscard]] constexpr bool missing_all(E v, E m) noexcept {
   return !has(v, m);
 }
+
+#pragma endregion
+#pragma region details
 
 namespace details {
 // Helper function to append bitmask to target, using bit names.
@@ -465,7 +487,7 @@ struct bitmask_enum_names_spec
       const std::array<std::string_view, N>& name_list)
       : names(name_list) {}
 
-  auto& append(AppendTarget auto& target, E v) const {
+  [[nodiscard]] auto& append(AppendTarget auto& target, E v) const {
     if constexpr (N == bits_length<E>())
       return details::do_bit_append(target, v, names);
     else if constexpr (N)
@@ -474,7 +496,7 @@ struct bitmask_enum_names_spec
       return strings::append_num<16>(target, *v);
   }
 
-  bool lookup(E& v, std::string_view sv) const {
+  [[nodiscard]] bool lookup(E& v, std::string_view sv) const {
     if (sv.empty()) return false;
     if (registry::details::lookup_helper(v, sv)) {
       if constexpr (bit_clip_v<E>)
@@ -536,6 +558,9 @@ consteval uint64_t calc_valid_bits_from_value_names() {
   return valid_bits;
 }
 } // namespace details
+
+#pragma endregion
+#pragma region make spec
 
 // Make an `enum_spec_v` from its valid bits, marking `E` as a bitmask enum.
 // If the enum has named value that is the maximum, pass that in for validbits.
@@ -610,6 +635,8 @@ template<ScopedEnum E, strings::fixed_string bit_names,
   return details::bitmask_enum_names_spec<E, bitclip, E{valid_bits},
       name_count>{trimmed_names};
 }
+
+#pragma endregion
 
 }} // namespace enums::bitmask
 

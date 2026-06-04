@@ -1384,9 +1384,9 @@ TEST_CASE("Basic", "[StableId]") {
 
 enum class small_id_t : std::uint8_t { invalid = 255 };
 
-template<>
-constexpr auto corvid::enums::registry::enum_spec_v<small_id_t> =
-    corvid::enums::sequence::make_sequence_enum_spec<small_id_t, "">();
+consteval auto corvid_enum_spec(small_id_t*) {
+  return corvid::enums::sequence::make_sequence_enum_spec<small_id_t, "">();
+}
 
 using int_stable_small_ids = stable_ids<int, small_id_t>;
 

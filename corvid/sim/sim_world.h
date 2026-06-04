@@ -54,33 +54,24 @@ namespace corvid { inline namespace sim {
 enum class PathId : uint16_t {
   invalid = std::numeric_limits<uint16_t>::max()
 };
+consteval auto corvid_enum_spec(PathId*) {
+  return corvid::enums::sequence::make_sequence_enum_spec<PathId, "">();
+}
 
 // Tick for world state.
 enum class WorldTick : uint32_t {
   invalid = std::numeric_limits<uint32_t>::max()
 };
+consteval auto corvid_enum_spec(WorldTick*) {
+  return corvid::enums::sequence::make_sequence_enum_spec<WorldTick, "">();
+}
 
 // Targeting modes for defenders.
 enum class TargetMode : uint8_t { first, last, closest, strongest, weakest };
-
-}} // namespace corvid::sim
-
-template<>
-constexpr auto corvid::enums::registry::enum_spec_v<corvid::sim::PathId> =
-    corvid::enums::sequence::make_sequence_enum_spec<corvid::sim::PathId,
-        "">();
-
-template<>
-constexpr auto corvid::enums::registry::enum_spec_v<corvid::sim::WorldTick> =
-    corvid::enums::sequence::make_sequence_enum_spec<corvid::sim::WorldTick,
-        "">();
-
-template<>
-constexpr auto corvid::enums::registry::enum_spec_v<corvid::sim::TargetMode> =
-    corvid::enums::sequence::make_sequence_enum_spec<corvid::sim::TargetMode,
-        "first, last, closest, strongest, weakest">();
-
-namespace corvid { inline namespace sim {
+consteval auto corvid_enum_spec(TargetMode*) {
+  return corvid::enums::sequence::make_sequence_enum_spec<TargetMode,
+      "first,last,closest,strongest,weakest">();
+}
 
 // Conversions between Cartesian coordinates (x, y), and Euclidean vectors
 // represented in polar form (length, direction). Direction is in radians, with

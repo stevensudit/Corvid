@@ -16,6 +16,7 @@
 // limitations under the License.
 
 #include "../corvid/proto/quic/http3_conn.h"
+#include "../corvid/strings/enum_conversion.h"
 
 #include "catch2_main.h"
 
@@ -23,6 +24,28 @@ using namespace corvid::proto::quic;
 using namespace corvid::proto::quic::http3_literals;
 
 // NOLINTBEGIN(readability-function-cognitive-complexity)
+
+TEST_CASE("h3_error_code names round-trip across the gap", "[http3]") {
+  using namespace corvid::strings;
+  using E = h3_error_code;
+
+  // Forward: both blocks resolve by name; the gap between them, and codes
+  // past the last block, print numerically.
+  CHECK(enum_as_string(E::no_error) == "no_error");                 // 0x0100
+  CHECK(enum_as_string(E::version_fallback) == "version_fallback"); // 0x0110
+  CHECK(enum_as_string(E::qpack_decompression_failed) ==
+        "qpack_decompression_failed"); // 0x0200
+  CHECK(enum_as_string(E::qpack_decoder_stream_error) ==
+        "qpack_decoder_stream_error");      // 0x0202
+  CHECK(enum_as_string(E{0x111}) == "273"); // in the gap between blocks
+  CHECK(enum_as_string(E{0x300}) == "768"); // past the last block
+
+  // Reverse: names map back; an unknown code does not.
+  CHECK(parse_enum<E>("internal_error") == E::internal_error);
+  CHECK(parse_enum<E>("qpack_encoder_stream_error") ==
+        E::qpack_encoder_stream_error);
+  CHECK(!parse_enum<E>("nonexistent"));
+}
 
 namespace {
 

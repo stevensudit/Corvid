@@ -43,10 +43,10 @@ struct intern_test {
 }}} // namespace corvid::container::intern
 
 enum class string_id : std::uint8_t { missing };
-
-template<>
-constexpr inline auto corvid::enums::registry::enum_spec_v<string_id> =
-    corvid::enums::sequence::make_sequence_enum_spec<string_id, "missing">();
+consteval auto corvid_enum_spec(string_id*) {
+  return corvid::enums::sequence::make_sequence_enum_spec<string_id,
+      "missing">();
+}
 
 using interned_string = interned_value<std::string, string_id>;
 using string_intern_test = intern_test<std::string, string_id>;

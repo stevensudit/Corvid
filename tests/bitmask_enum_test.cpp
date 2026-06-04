@@ -41,10 +41,9 @@ enum class rgb : std::int8_t {
   cyan = 3,   // -gb
   white = 7   // rgb
 };
-
-template<>
-constexpr auto registry::enum_spec_v<rgb> =
-    make_bitmask_enum_spec<rgb, "red, green, blue">();
+consteval auto corvid_enum_spec(rgb*) {
+  return make_bitmask_enum_spec<rgb, "red,green,blue">();
+}
 
 // Same thing, but safe due to clipping.
 enum class safe_rgb : std::uint8_t {
@@ -57,11 +56,10 @@ enum class safe_rgb : std::uint8_t {
   cyan = 3,   // -gb
   white = 7   // rgb
 };
-
-template<>
-constexpr auto registry::enum_spec_v<safe_rgb> = make_bitmask_enum_values_spec<
-    safe_rgb, "black, blue, green, cyan, red, purple, yellow, white",
-    wrapclip::limit>();
+consteval auto corvid_enum_spec(safe_rgb*) {
+  return make_bitmask_enum_values_spec<safe_rgb,
+      "black,blue,green,cyan,red,purple,yellow,white", wrapclip::limit>();
+}
 
 // This is not a bitmask class, so it shouldn't work as a bitmap.
 enum class tires : std::uint8_t { none, one, two, three, four, five, six };
@@ -284,10 +282,10 @@ enum class rgb_unnamed : std::uint8_t {
   cyan = 3,   // -gb
   white = 7   // rgb
 };
-
-template<>
-constexpr auto registry::enum_spec_v<rgb_unnamed> =
-    make_bitmask_enum_spec<rgb_unnamed, rgb_unnamed::white, wrapclip::limit>();
+consteval auto corvid_enum_spec(rgb_unnamed*) {
+  return make_bitmask_enum_spec<rgb_unnamed, rgb_unnamed::white,
+      wrapclip::limit>();
+}
 
 enum class patchy_rgb : std::uint8_t {
   black = 0,  // ---
@@ -299,11 +297,10 @@ enum class patchy_rgb : std::uint8_t {
   cyan = 3,   // -gb
   white = 7   // rgb
 };
-
-template<>
-constexpr auto registry::enum_spec_v<patchy_rgb> =
-    make_bitmask_enum_values_spec<patchy_rgb,
-        "-,blue,green,-,red,purple,-,white">();
+consteval auto corvid_enum_spec(patchy_rgb*) {
+  return make_bitmask_enum_values_spec<patchy_rgb,
+      "-,blue,green,-,red,purple,-,white">();
+}
 
 #pragma region MoreNamingTests
 
@@ -373,10 +370,9 @@ enum class rb : std::uint8_t {
   blue = 1,   // --b
   purple = 5, // r-b
 };
-
-template<>
-constexpr auto registry::enum_spec_v<rb> =
-    make_bitmask_enum_spec<rb, "red, , blue">();
+consteval auto corvid_enum_spec(rb*) {
+  return make_bitmask_enum_spec<rb, "red, , blue">();
+}
 
 #pragma region NoGreen
 
@@ -410,10 +406,9 @@ enum class rg : std::uint8_t {
   green = 2,  // -g-
   yellow = 6, // rg-
 };
-
-template<>
-constexpr auto registry::enum_spec_v<rg> =
-    make_bitmask_enum_spec<rg, "red, green, -">();
+consteval auto corvid_enum_spec(rg*) {
+  return make_bitmask_enum_spec<rg, "red, green, -">();
+}
 
 #pragma region NoBlue
 
@@ -451,9 +446,9 @@ enum class gb : std::uint8_t {
 // Note: A leading comma here would trigger a static assert, whether or not a
 // hyphen was prefixed. In contrast, we would allow a leading wildcard
 // placeholder
-template<>
-constexpr auto registry::enum_spec_v<gb> =
-    make_bitmask_enum_spec<gb, "green, blue">();
+consteval auto corvid_enum_spec(gb*) {
+  return make_bitmask_enum_spec<gb, "green,blue">();
+}
 
 #pragma region NoRed
 
@@ -487,10 +482,10 @@ enum class safe_rb : std::uint8_t {
   blue = 1,   // --b
   purple = 5, // r-b
 };
-
-template<>
-constexpr auto registry::enum_spec_v<safe_rb> = make_bitmask_enum_values_spec<
-    safe_rb, "black,blue,,,red,purple,,", wrapclip::limit>();
+consteval auto corvid_enum_spec(safe_rb*) {
+  return make_bitmask_enum_values_spec<safe_rb, "black,blue,,,red,purple,,",
+      wrapclip::limit>();
+}
 
 #pragma region SafeNoGreen
 
@@ -524,10 +519,10 @@ enum class safe_rg : std::uint8_t {
   green = 2,  // -g-
   yellow = 6, // rg-
 };
-
-template<>
-constexpr auto registry::enum_spec_v<safe_rg> = make_bitmask_enum_values_spec<
-    safe_rg, "black,,green,,red,,yellow,", wrapclip::limit>();
+consteval auto corvid_enum_spec(safe_rg*) {
+  return make_bitmask_enum_values_spec<safe_rg, "black,,green,,red,,yellow,",
+      wrapclip::limit>();
+}
 
 #pragma region SafeNoBlue
 
@@ -561,10 +556,10 @@ enum class safe_gb : std::uint8_t {
   blue = 1,  // --b
   cyan = 3,  // -gb
 };
-
-template<>
-constexpr auto registry::enum_spec_v<safe_gb> = make_bitmask_enum_values_spec<
-    safe_gb, "black,blue,green,cyan,,,,", wrapclip::limit>();
+consteval auto corvid_enum_spec(safe_gb*) {
+  return make_bitmask_enum_values_spec<safe_gb, "black,blue,green,cyan,,,,",
+      wrapclip::limit>();
+}
 
 #pragma region SafeNoRed
 
@@ -605,9 +600,9 @@ enum class rskipb : std::uint8_t {
   white = 7   // rgb
 };
 
-template<>
-constexpr auto registry::enum_spec_v<rskipb> =
-    make_bitmask_enum_spec<rskipb, "red,*,blue">();
+consteval auto corvid_enum_spec(rskipb*) {
+  return make_bitmask_enum_spec<rskipb, "red,*,blue">();
+}
 
 // All three bits are valid, but we have no names for colors with green.
 // Contrast this with safe_rb, which considers the green bit invalid.
@@ -621,11 +616,10 @@ enum class safe_rskipb : std::uint8_t {
   cyan = 3,   // -gb
   white = 7   // rgb
 };
-
-template<>
-constexpr auto registry::enum_spec_v<safe_rskipb> =
-    make_bitmask_enum_values_spec<safe_rskipb,
-        "black, blue,*  ,  ?,red, purple,?, ?", wrapclip::limit>();
+consteval auto corvid_enum_spec(safe_rskipb*) {
+  return make_bitmask_enum_values_spec<safe_rskipb,
+      "black, blue,*  ,  ?,red, purple,?, ?", wrapclip::limit>();
+}
 
 // Like rskipb but uses question-mark placeholder, confirming identical
 // behavior to asterisk: green bit is valid but unnamed, so it appears in hex
@@ -640,10 +634,9 @@ enum class rqb : std::uint8_t {
   cyan = 3,   // -gb
   white = 7   // rgb
 };
-
-template<>
-constexpr auto registry::enum_spec_v<rqb> =
-    make_bitmask_enum_spec<rqb, "red,?,blue">();
+consteval auto corvid_enum_spec(rqb*) {
+  return make_bitmask_enum_spec<rqb, "red,?,blue">();
+}
 
 // Like safe_rb but uses hyphen for invalid values instead of empty element,
 // confirming identical behavior: invalid values appear in hex residual.
@@ -653,11 +646,10 @@ enum class safe_rb_h : std::uint8_t {
   red = 4,    // r--
   purple = 5, // r-b
 };
-
-template<>
-constexpr auto registry::enum_spec_v<safe_rb_h> =
-    make_bitmask_enum_values_spec<safe_rb_h, "black,blue,-,-,red,purple,-,-",
-        wrapclip::limit>();
+consteval auto corvid_enum_spec(safe_rb_h*) {
+  return make_bitmask_enum_values_spec<safe_rb_h,
+      "black,blue,-,-,red,purple,-,-", wrapclip::limit>();
+}
 
 #pragma region Placeholders
 
@@ -738,10 +730,10 @@ TEST_CASE("SkipBlue", "[BitMaskTest]") {
 
 // Same thing, but safe due to clipping.
 enum class safe_bw : std::uint8_t { black, white };
-
-template<>
-constexpr auto registry::enum_spec_v<safe_bw> = make_bitmask_enum_values_spec<
-    safe_bw, "color::black,color::white", wrapclip::limit>();
+consteval auto corvid_enum_spec(safe_bw*) {
+  return make_bitmask_enum_values_spec<safe_bw, "color::black,color::white",
+      wrapclip::limit>();
+}
 
 #pragma region SafeBlackWhite
 
@@ -770,10 +762,10 @@ TEST_CASE("SafeBlackWhite", "[BitMaskTest]") {
 
 // Same thing, but safe due to clipping.
 enum class safe_w : std::uint8_t { white = 1 };
-
-template<>
-constexpr auto registry::enum_spec_v<safe_w> =
-    make_bitmask_enum_values_spec<safe_w, ",color::white", wrapclip::limit>();
+consteval auto corvid_enum_spec(safe_w*) {
+  return make_bitmask_enum_values_spec<safe_w, ",color::white",
+      wrapclip::limit>();
+}
 
 #pragma region SafeWhite
 

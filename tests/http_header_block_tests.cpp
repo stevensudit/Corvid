@@ -42,6 +42,36 @@ bool is_codex() {
 
 // `http_head_codec` unit tests.
 
+#pragma region StatusCodeString
+
+TEST_CASE("StatusCodeString", "[HttpHeaderBlock]") {
+  // Sparse sequence enum: named codes resolve across the class gaps, while
+  // in-class gaps, the omitted `invalid` (0), and out-of-range values print as
+  // the number. The wire status line emits the number directly, so this only
+  // adds a readable name; it does not change serialization.
+  using namespace corvid::strings;
+  using S = http_status_code;
+  if (true) {
+    CHECK(enum_as_string(S::CONTINUE) == "CONTINUE");       // 100
+    CHECK(enum_as_string(S::OK) == "OK");                   // 200
+    CHECK(enum_as_string(S::NOT_FOUND) == "NOT_FOUND");     // 404
+    CHECK(enum_as_string(S::IM_A_TEAPOT) == "IM_A_TEAPOT"); // 418
+    CHECK(enum_as_string(S::NETWORK_AUTHENTICATION_REQUIRED) ==
+          "NETWORK_AUTHENTICATION_REQUIRED"); // 511
+    CHECK(enum_as_string(S{}) == "0");        // invalid is omitted
+    CHECK(enum_as_string(S{199}) == "199");   // between 1xx and 2xx blocks
+    CHECK(enum_as_string(S{306}) == "306");   // in-class gap (placeholder)
+  }
+  if (true) {
+    CHECK(parse_enum<S>("OK") == S::OK);
+    CHECK(parse_enum<S>("UNAVAILABLE_FOR_LEGAL_REASONS") ==
+          S::UNAVAILABLE_FOR_LEGAL_REASONS);
+    CHECK(!parse_enum<S>("NOPE"));
+  }
+}
+
+#pragma endregion
+
 // Verify that a well-formed HTTP/1.1 GET request is parsed correctly.
 #pragma region ParseHttp11
 

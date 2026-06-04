@@ -84,19 +84,20 @@ enum class quic_status : int16_t {
   nomem = NGTCP2_ERR_NOMEM,                                             // -501
   callback_failure = NGTCP2_ERR_CALLBACK_FAILURE,                       // -502
 };
+consteval auto corvid_enum_spec(quic_status*) {
+  return corvid::enums::sequence::make_sequence_enum_spec<quic_status,
+      "-502,callback_failure,nomem,fatal|-238,idle_close,version_negotiation_"
+      "failure,handshake_timeout,version_negotiation,no_viable_path,aead_"
+      "limit_reached,drop_conn,retry,write_more,crypto_buffer_exceeded,"
+      "internal,conn_id_blocked,discard_pkt,transport_param,draining,closing,"
+      "recv_version_negotiation,stream_state,stream_not_found,stream_shut_wr,"
+      "decrypt,frame_encoding,malformed_transport_param,required_transport_"
+      "param,pkt_num_exhausted,crypto,final_size,stream_limit,connection_id_"
+      "limit,flow_control,stream_data_blocked,stream_in_use,stream_id_blocked,"
+      "ack_frame,invalid_state,proto,nobuf,invalid_argument|0,ok">();
+}
 
 #pragma endregion
-
-}}} // namespace corvid::proto::quic
-
-template<>
-constexpr inline auto corvid::enums::registry::enum_spec_v<
-    corvid::proto::quic::quic_status> =
-    corvid::enums::sequence::make_sequence_enum_spec<
-        corvid::proto::quic::quic_status, corvid::proto::quic::quic_status::ok,
-        corvid::proto::quic::quic_status::callback_failure>();
-
-namespace corvid { inline namespace proto { namespace quic {
 
 #pragma region is_soft_error
 
@@ -296,6 +297,10 @@ enum class quic_stream_id : uint64_t {
   unidirectional = 0x2,
   sequence_mask = ~static_cast<uint64_t>(0x3)
 };
+consteval auto corvid_enum_spec(quic_stream_id*) {
+  return corvid::enums::bitmask::make_bitmask_enum_spec<quic_stream_id,
+      "unidirectional,server_initiated">();
+}
 
 #pragma endregion
 #pragma region quic_stream_side
@@ -311,6 +316,10 @@ enum class quic_stream_side : uint8_t {
   write = 0x2,
   both = read | write,
 };
+consteval auto corvid_enum_spec(quic_stream_side*) {
+  return corvid::enums::bitmask::make_bitmask_enum_spec<quic_stream_side,
+      "write,read">();
+}
 
 #pragma endregion
 #pragma region quic_stream_data_flags
@@ -325,6 +334,10 @@ enum class quic_stream_data_flags : uint32_t {
   fin = NGTCP2_STREAM_DATA_FLAG_FIN,      // 0x1
   zero_rtt = NGTCP2_STREAM_DATA_FLAG_0RTT // 0x2
 };
+consteval auto corvid_enum_spec(quic_stream_data_flags*) {
+  return corvid::enums::bitmask::make_bitmask_enum_spec<quic_stream_data_flags,
+      "zero_rtt,fin">();
+}
 
 #pragma endregion
 #pragma region quic_datagram_flags
@@ -336,32 +349,11 @@ enum class quic_datagram_flags : uint32_t {
   none = 0x0,
   zero_rtt = NGTCP2_DATAGRAM_FLAG_0RTT // 0x1
 };
+consteval auto corvid_enum_spec(quic_datagram_flags*) {
+  return corvid::enums::bitmask::make_bitmask_enum_spec<quic_datagram_flags,
+      "zero_rtt">();
+}
 
 #pragma endregion
 
 }}} // namespace corvid::proto::quic
-
-template<>
-constexpr inline auto
-    corvid::enums::registry::enum_spec_v<corvid::proto::quic::quic_stream_id> =
-        corvid::enums::bitmask::make_bitmask_enum_spec<
-            corvid::proto::quic::quic_stream_id,
-            "unidirectional, server_initiated">();
-
-template<>
-constexpr inline auto corvid::enums::registry::enum_spec_v<
-    corvid::proto::quic::quic_stream_side> =
-    corvid::enums::bitmask::make_bitmask_enum_spec<
-        corvid::proto::quic::quic_stream_side, "write, read">();
-
-template<>
-constexpr inline auto corvid::enums::registry::enum_spec_v<
-    corvid::proto::quic::quic_stream_data_flags> =
-    corvid::enums::bitmask::make_bitmask_enum_spec<
-        corvid::proto::quic::quic_stream_data_flags, "zero_rtt, fin">();
-
-template<>
-constexpr inline auto corvid::enums::registry::enum_spec_v<
-    corvid::proto::quic::quic_datagram_flags> =
-    corvid::enums::bitmask::make_bitmask_enum_spec<
-        corvid::proto::quic::quic_datagram_flags, "zero_rtt">();

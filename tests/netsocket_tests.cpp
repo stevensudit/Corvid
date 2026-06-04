@@ -438,8 +438,7 @@ TEST_CASE("AddressFamilyString", "[NetSocket]") {
 #pragma region ProtocolTypeString
 
 TEST_CASE("ProtocolTypeString", "[NetSocket]") {
-  // Each named protocol round-trips. (`tp` is unnamed in the spec and prints
-  // as "U29", so it is intentionally excluded.)
+  // Each named protocol round-trips.
   using namespace corvid::strings;
   using P = protocol_type;
   if (true) {
@@ -452,6 +451,7 @@ TEST_CASE("ProtocolTypeString", "[NetSocket]") {
     CHECK(enum_as_string(P::pup) == "pup");
     CHECK(enum_as_string(P::udp) == "udp");
     CHECK(enum_as_string(P::idp) == "idp");
+    CHECK(enum_as_string(P::tp) == "tp");
     CHECK(enum_as_string(P::dccp) == "dccp");
     CHECK(enum_as_string(P::ipv6) == "ipv6");
     CHECK(enum_as_string(P::routing) == "routing");

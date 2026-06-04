@@ -59,6 +59,13 @@ enum class iou_setup_flags : uint32_t {
   setup_no_mmap = IORING_SETUP_NO_MMAP,                       // 0x4000
   setup_registered_fd_only = IORING_SETUP_REGISTERED_FD_ONLY, // 0x8000
 };
+consteval auto corvid_enum_spec(iou_setup_flags*) {
+  return corvid::enums::bitmask::make_bitmask_enum_spec<iou_setup_flags,
+      "setup_registered_fd_only,setup_no_mmap,setup_defer_taskrun,setup_"
+      "single_issuer,setup_cqe32,setup_sqe128,setup_taskrun_flag,setup_coop_"
+      "taskrun,setup_submit_all,setup_r_disabled,setup_attach_wq,setup_clamp,"
+      "setup_cqsize,setup_sq_aff,setup_sqpoll,setup_iopoll">();
+}
 
 // `IORING_CQE_F_*` wrapper.
 enum class iou_cqe_flags : uint32_t {
@@ -68,6 +75,10 @@ enum class iou_cqe_flags : uint32_t {
   notif = IORING_CQE_F_NOTIF,                 // 0x8
   buffer_id = 0xffff0000,
 };
+consteval auto corvid_enum_spec(iou_cqe_flags*) {
+  return corvid::enums::bitmask::make_bitmask_enum_spec<iou_cqe_flags,
+      "notif,sock_nonempty,more,buffer">();
+}
 
 // `IOSQE_*` wrapper.
 enum class iou_sqe_flags : uint8_t {
@@ -79,6 +90,11 @@ enum class iou_sqe_flags : uint8_t {
   buffer_select = IOSQE_BUFFER_SELECT,       // 0x20
   cqe_skip_success = IOSQE_CQE_SKIP_SUCCESS, // 0x40
 };
+consteval auto corvid_enum_spec(iou_sqe_flags*) {
+  return corvid::enums::bitmask::make_bitmask_enum_spec<iou_sqe_flags,
+      "cqe_skip_success,buffer_select,async,io_hardlink,io_link,io_drain,"
+      "fixed_file">();
+}
 
 // `IORING_TIMEOUT_*` wrapper.
 // NOLINTNEXTLINE(performance-enum-size)
@@ -94,6 +110,11 @@ enum class iou_timeout_flags : uint32_t {
   clock_mask = IORING_TIMEOUT_CLOCK_MASK,           // 0x0c
   update_mask = IORING_TIMEOUT_UPDATE_MASK,         // 0x12
 };
+consteval auto corvid_enum_spec(iou_timeout_flags*) {
+  return corvid::enums::bitmask::make_bitmask_enum_spec<iou_timeout_flags,
+      "multishot,etime_success,link_timeout_update,real_time,boot_time,update,"
+      "abs">();
+}
 
 // `POLL*` wrapper.
 // NOLINTNEXTLINE(performance-enum-size)
@@ -106,6 +127,10 @@ enum class poll_flags : uint16_t {
   hup = POLLHUP,   // 0x010
   nval = POLLNVAL, // 0x020
 };
+consteval auto corvid_enum_spec(poll_flags*) {
+  return corvid::enums::bitmask::make_bitmask_enum_spec<poll_flags,
+      "nval,hup,err,out,pri,in">();
+}
 
 // `SHUT_*` wrapper for `prep_shutdown`.
 // NOLINTNEXTLINE(performance-enum-size)
@@ -114,56 +139,10 @@ enum class shutdown_how : int {
   wr = SHUT_WR,     // 1
   rdwr = SHUT_RDWR, // 2
 };
-
-}}} // namespace corvid::proto::iouring
-
-template<>
-constexpr inline auto corvid::enums::registry::enum_spec_v<
-    corvid::proto::iouring::iou_setup_flags> =
-    corvid::enums::bitmask::make_bitmask_enum_spec<
-        corvid::proto::iouring::iou_setup_flags,
-        "setup_registered_fd_only, setup_no_mmap, setup_defer_taskrun, "
-        "setup_single_issuer, setup_cqe32, setup_sqe128, setup_taskrun_flag, "
-        "setup_coop_taskrun, setup_submit_all, setup_r_disabled, "
-        "setup_attach_wq, setup_clamp, setup_cqsize, setup_sq_aff, "
-        "setup_sqpoll, setup_iopoll">();
-
-template<>
-constexpr inline auto corvid::enums::registry::enum_spec_v<
-    corvid::proto::iouring::iou_cqe_flags> =
-    corvid::enums::bitmask::make_bitmask_enum_spec<
-        corvid::proto::iouring::iou_cqe_flags,
-        "notif, sock_nonempty, more, buffer">();
-
-template<>
-constexpr inline auto corvid::enums::registry::enum_spec_v<
-    corvid::proto::iouring::iou_sqe_flags> =
-    corvid::enums::bitmask::make_bitmask_enum_spec<
-        corvid::proto::iouring::iou_sqe_flags,
-        "cqe_skip_success, buffer_select, async, io_hardlink, io_link, "
-        "io_drain, fixed_file">();
-
-template<>
-constexpr inline auto corvid::enums::registry::enum_spec_v<
-    corvid::proto::iouring::iou_timeout_flags> =
-    corvid::enums::bitmask::make_bitmask_enum_spec<
-        corvid::proto::iouring::iou_timeout_flags,
-        "multishot, etime_success, link_timeout_update, real_time, boot_time, "
-        "update, abs">();
-
-template<>
-constexpr inline auto corvid::enums::registry::enum_spec_v<
-    corvid::proto::iouring::poll_flags> =
-    corvid::enums::bitmask::make_bitmask_enum_spec<
-        corvid::proto::iouring::poll_flags, "nval, hup, err, out, pri, in">();
-
-template<>
-constexpr inline auto corvid::enums::registry::enum_spec_v<
-    corvid::proto::iouring::shutdown_how> =
-    corvid::enums::sequence::make_sequence_enum_spec<
-        corvid::proto::iouring::shutdown_how, "rd, wr, rdwr">();
-
-namespace corvid { inline namespace proto { namespace iouring {
+consteval auto corvid_enum_spec(shutdown_how*) {
+  return corvid::enums::sequence::make_sequence_enum_spec<shutdown_how,
+      "rd,wr,rdwr">();
+}
 
 // Extracts the buffer ID from `flags` if `buffer` is set; otherwise returns 0.
 inline size_t get_buffer_id(iou_cqe_flags flags) noexcept {

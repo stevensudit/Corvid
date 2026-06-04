@@ -18,7 +18,6 @@
 #include <cstdint>
 #include <cstddef>
 #include <concepts>
-#include <flat_map>
 #include <span>
 #include <string>
 #include <string_view>
@@ -122,6 +121,23 @@ enum class qpack_token : int32_t {
   protocol = NGHTTP3_QPACK_TOKEN__PROTOCOL, // :protocol
   priority = NGHTTP3_QPACK_TOKEN_PRIORITY,
 };
+consteval auto corvid_enum_spec(qpack_token*) {
+  return corvid::enums::sequence::make_sequence_enum_spec<qpack_token,
+      "0,:authority,:method|8,:path,:scheme,,:status|25,accept,,accept-"
+      "encoding,accept-language,accept-ranges,access-control-allow-"
+      "credentials,,access-control-allow-headers|35,access-control-allow-"
+      "methods|38,access-control-allow-origin,access-control-expose-headers,"
+      "access-control-request-headers,access-control-request-method,,age,alt-"
+      "svc,authorization,cache-control|52,content-disposition,content-"
+      "encoding,,content-length,content-security-policy,content-type|68,"
+      "cookie,date,early-data,etag,expect-ct,forwarded,if-modified-since,if-"
+      "none-match,if-range,last-modified,link,location,origin,purpose,range,"
+      "referer,server,set-cookie,strict-transport-security|89,timing-allow-"
+      "origin,upgrade-insecure-requests,user-agent,vary,,x-content-type-"
+      "options,x-forwarded-for,x-frame-options,,x-xss-protection|1000,host,"
+      "connection,keep-alive,proxy-connection,transfer-encoding,upgrade,te,"
+      ":protocol,priority">();
+}
 
 #pragma endregion
 #pragma region nv_flags
@@ -139,6 +155,10 @@ enum class nv_flags : uint8_t {
   no_copy_value = NGHTTP3_NV_FLAG_NO_COPY_VALUE, // 0x04
   try_index = NGHTTP3_NV_FLAG_TRY_INDEX          // 0x08
 };
+consteval auto corvid_enum_spec(nv_flags*) {
+  return corvid::enums::bitmask::make_bitmask_enum_spec<nv_flags,
+      "try_index,no_copy_value,no_copy_name,never_index">();
+}
 
 #pragma endregion
 #pragma region stream_chunk
@@ -149,12 +169,16 @@ enum class stream_chunk : uint8_t {
   more = 0,
   fin = 1,
 };
+consteval auto corvid_enum_spec(stream_chunk*) {
+  return corvid::enums::sequence::make_sequence_enum_spec<stream_chunk,
+      "more,fin">();
+}
 
 #pragma endregion
-#pragma region http_method
+#pragma region http3_method
 
 // The HTTP/3 methods, for use in the `:method` pseudo-header.
-enum class http_method : uint8_t {
+enum class http3_method : uint8_t {
   invalid,
   ACL,
   BASELINE_CONTROL,
@@ -197,78 +221,24 @@ enum class http_method : uint8_t {
   UPDATEREDIRECTREF,
   VERSION_CONTROL
 };
+consteval auto corvid_enum_spec(http3_method*) {
+  return corvid::enums::sequence::make_sequence_enum_spec<http3_method,
+      "ACL,BASELINE-CONTROL,BIND,CHECKIN,CHECKOUT,CONNECT,COPY,DELETE,GET,"
+      "HEAD,LABEL,LINK,LOCK,MERGE,MKACTIVITY,MKCALENDAR,MKCOL,MKREDIRECTREF,"
+      "MKWORKSPACE,MOVE,OPTIONS,ORDERPATCH,PATCH,POST,PRI,PROPFIND,PROPPATCH,"
+      "PUT,QUERY,REBIND,REPORT,SEARCH,TRACE,UNBIND,UNCHECKOUT,UNLINK,UNLOCK,"
+      "UPDATE,UPDATEREDIRECTREF,VERSION-CONTROL",
+      wrapclip{}, http3_method{1}>();
+}
 
 #pragma endregion
-
-}}} // namespace corvid::proto::quic
-
-template<>
-constexpr inline auto corvid::enums::registry::enum_spec_v<
-    corvid::proto::quic::qpack_token> =
-    corvid::enums::sequence::make_sequence_enum_spec<
-        corvid::proto::quic::qpack_token,
-        ":authority,:method,,,,,,,:path,:scheme,,:status,,,,,,,,,,,,,,accept,,"
-        "accept-encoding,accept-language,accept-ranges,access-control-allow-"
-        "credentials,,access-control-allow-headers,,,access-control-allow-"
-        "methods,,,access-control-allow-origin,access-control-expose-headers,"
-        "access-control-request-headers,access-control-request-method,,age,"
-        "alt-svc,authorization,cache-control,,,,,,content-disposition,content-"
-        "encoding,,content-length,content-security-policy,content-type,,,,,,,,"
-        ",,,cookie,date,early-data,etag,expect-ct,forwarded,if-modified-since,"
-        "if-none-match,if-range,last-modified,link,location,origin,purpose,"
-        "range,referer,server,set-cookie,strict-transport-security,,,timing-"
-        "allow-origin,upgrade-insecure-requests,user-agent,vary,,x-content-"
-        "type-options,x-forwarded-for,x-frame-options,,x-xss-protection,,,,,,,"
-        ",,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,"
-        ",,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,"
-        ",,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,"
-        ",,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,"
-        ",,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,"
-        ",,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,"
-        ",,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,"
-        ",,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,"
-        ",,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,"
-        ",,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,"
-        ",,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,"
-        ",,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,"
-        ",,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,"
-        "host,connection,keep-alive,proxy-connection,transfer-encoding,"
-        "upgrade,te,:protocol,priority">();
-
-template<>
-constexpr inline auto
-    corvid::enums::registry::enum_spec_v<corvid::proto::quic::nv_flags> =
-        corvid::enums::bitmask::make_bitmask_enum_spec<
-            corvid::proto::quic::nv_flags,
-            "try_index, no_copy_value, no_copy_name, never_index">();
-
-template<>
-constexpr inline auto
-    corvid::enums::registry::enum_spec_v<corvid::proto::quic::stream_chunk> =
-        corvid::enums::sequence::make_sequence_enum_spec<
-            corvid::proto::quic::stream_chunk, "more, fin">();
-
-template<>
-constexpr inline auto corvid::enums::registry::enum_spec_v<
-    corvid::proto::quic::http_method> =
-    corvid::enums::sequence::make_sequence_enum_spec<
-        corvid::proto::quic::http_method,
-        "invalid, ACL, BASELINE-CONTROL, BIND, CHECKIN, CHECKOUT, CONNECT, "
-        "COPY, DELETE, GET, HEAD, LABEL, LINK, LOCK, MERGE, MKACTIVITY, "
-        "MKCALENDAR, MKCOL, MKREDIRECTREF, MKWORKSPACE, MOVE, OPTIONS, "
-        "ORDERPATCH, PATCH, POST, PRI, PROPFIND, PROPPATCH, PUT, QUERY, "
-        "REBIND, REPORT, SEARCH, TRACE, UNBIND, UNCHECKOUT, UNLINK, "
-        "UNLOCK, UPDATE, UPDATEREDIRECTREF, VERSION-CONTROL">();
-
-namespace corvid { inline namespace proto { namespace quic {
 
 #pragma region header_name
 
 // Compile-time checked header name, with associated QPACK token if it's a
 // known name.
-using header_name = enums::sequence::enum_string_view<qpack_token>;
-using header_name_and_enum =
-    enums::sequence::enum_value_string_view<qpack_token>;
+using header_name = enums::sequence::enum_name<qpack_token>;
+using header_name_and_enum = enums::sequence::enum_named_value<qpack_token>;
 
 namespace http3_literals {
 // HTTP/3 Header field literal.
@@ -283,7 +253,7 @@ consteval header_name operator""_header(const char* s, std::size_t n) {
 
 // Compile-time checked HTTP method name, for use in the `:method`
 // pseudo-header.
-using method_name = enums::sequence::enum_string_view<http_method>;
+using method_name = enums::sequence::enum_name<http3_method>;
 
 namespace http3_literals {
 consteval method_name operator""_method(const char* s, std::size_t n) {
@@ -456,42 +426,6 @@ public:
     return {fields_.data(), fields_.size()};
   }
 
-#pragma endregion
-#pragma region Lookups
-
-  // Maps a `qpack_token` to its canonical field-name string, or `{}` if the
-  // token is `unknown`
-  [[nodiscard]] static std::string_view name_from_token(
-      qpack_token token) noexcept {
-    auto v = enums::sequence::enum_as_view(token);
-    return (v != "(unknown)"sv) ? v : ""sv;
-  }
-
-  // Maps a field name to its `qpack_token`, or `qpack_token::unknown`.
-  [[nodiscard]] static qpack_token token_from_name(std::string_view name) {
-    // Invert the registered names so this lookup shares their single source
-    // of truth. nghttp3 numbers the common QPACK tokens up through 98 and a
-    // second block (host through priority) at 1000-1008, with a large unused
-    // gap between, so walk only [0, 100) and [1000, 1009) to skip the gap
-    // and map each named value's view back to its token.
-    static const auto tokens = [] {
-      std::unordered_map<std::string_view, qpack_token> m;
-      m.reserve(64); // Approximate; ~61 named tokens, bucket count rounds up.
-      auto invert = [&](int lo, int hi) {
-        for (auto v = lo; v < hi; ++v) {
-          auto token = qpack_token(v);
-          if (auto sv = enums::sequence::enum_as_view(token);
-              sv != "(unknown)"sv)
-            m.emplace(sv, token);
-        }
-      };
-      invert(0, 100);
-      invert(1000, 1009);
-      return m;
-    }();
-    if (auto found = find_opt(tokens, name)) return *found;
-    return qpack_token::unknown;
-  }
 #pragma endregion
 #pragma region Data members
 private:

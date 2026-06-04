@@ -32,10 +32,9 @@ using namespace corvid::enums::sequence;
 // readability-function-size)
 
 enum class tiger_pick : std::int8_t { eeny, meany, miny, moe };
-
-template<>
-constexpr auto registry::enum_spec_v<tiger_pick> =
-    make_sequence_enum_spec<tiger_pick, "eeny, meany, miny, moe">();
+consteval auto corvid_enum_spec(tiger_pick*) {
+  return make_sequence_enum_spec<tiger_pick, "eeny, meany, miny, moe">();
+}
 
 enum old_enum : std::uint8_t { old_zero, old_one, old_two, old_three };
 enum class new_enum : std::uint8_t { new_zero, new_one, new_two, new_three };
@@ -112,68 +111,65 @@ TEST_CASE("Ops", "[SequentialEnumTest]") {
 
 // Range of 0 to 3.
 enum class e0_3 : int8_t {};
-
-template<>
-constexpr auto registry::enum_spec_v<e0_3> =
-    make_sequence_enum_spec<e0_3, "a, *, c, ?", wrapclip::limit>();
+consteval auto corvid_enum_spec(e0_3*) {
+  return make_sequence_enum_spec<e0_3, "a, *, c, ?", wrapclip::limit>();
+}
 
 // Range of 10 to 13. Tests non-zero minimums.
 enum class e10_13 : int8_t {};
-
-template<>
-constexpr auto registry::enum_spec_v<e10_13> = make_sequence_enum_spec<e10_13,
-    "ten, eleven, twelve, thirteen", wrapclip::limit, e10_13{10}>();
+consteval auto corvid_enum_spec(e10_13*) {
+  return make_sequence_enum_spec<e10_13, "ten, eleven, twelve, thirteen",
+      wrapclip::limit, e10_13{10}>();
+}
 
 // Range of -3 to 3. Tests negative minimums.
 enum class eneg3_3 : int8_t {};
-
-template<>
-constexpr auto registry::enum_spec_v<eneg3_3> = make_sequence_enum_spec<
-    eneg3_3, "neg-three, neg-two, neg-one, zero, one, two, three",
-    wrapclip::limit, eneg3_3{-3}>();
+consteval auto corvid_enum_spec(eneg3_3*) {
+  return make_sequence_enum_spec<eneg3_3,
+      "neg-three, neg-two, neg-one, zero, one, two, three", wrapclip::limit,
+      eneg3_3{-3}>();
+}
 
 // Range of 0 to 255. Tests exact fit, unsigned. Enabling wrap has no effect.
 enum class e0_255 : uint8_t {};
-
-template<>
-constexpr auto registry::enum_spec_v<e0_255> =
-    make_sequence_enum_spec<e0_255, e0_255{255}>();
+consteval auto corvid_enum_spec(e0_255*) {
+  return make_sequence_enum_spec<e0_255, e0_255{255}>();
+}
 
 // Range of -128 to 127. Tests exact fit, signed.
 enum class eneg128_127 : int8_t {};
-
-template<>
-constexpr auto registry::enum_spec_v<eneg128_127> = make_sequence_enum_spec<
-    eneg128_127, eneg128_127{127}, eneg128_127{-128}>();
+consteval auto corvid_enum_spec(eneg128_127*) {
+  return make_sequence_enum_spec<eneg128_127, eneg128_127{127},
+      eneg128_127{-128}>();
+}
 
 // Range of 0 to 3. Tests int64_t underlying type.
 enum class e64_0_3 : int64_t {};
-
-template<>
-constexpr auto registry::enum_spec_v<e64_0_3> = make_sequence_enum_spec<
-    e64_0_3, "alpha, beta, gamma, delta", wrapclip::limit>();
+consteval auto corvid_enum_spec(e64_0_3*) {
+  return make_sequence_enum_spec<e64_0_3, "alpha, beta, gamma, delta",
+      wrapclip::limit>();
+}
 
 // Range with large int64_t values near the limits.
 enum class e64_large : int64_t {};
-
-template<>
-constexpr auto registry::enum_spec_v<e64_large> = make_sequence_enum_spec<
-    e64_large, "low, mid, high", wrapclip::limit, e64_large{1000000000000}>();
+consteval auto corvid_enum_spec(e64_large*) {
+  return make_sequence_enum_spec<e64_large, "low, mid, high", wrapclip::limit,
+      e64_large{1000000000000}>();
+}
 
 // Range of 0 to 3. Tests uint64_t underlying type.
 enum class eu64_0_3 : uint64_t {};
-
-template<>
-constexpr auto registry::enum_spec_v<eu64_0_3> = make_sequence_enum_spec<
-    eu64_0_3, "one, two, three, four", wrapclip::limit>();
+consteval auto corvid_enum_spec(eu64_0_3*) {
+  return make_sequence_enum_spec<eu64_0_3, "one, two, three, four",
+      wrapclip::limit>();
+}
 
 // Range with large uint64_t values.
 enum class eu64_large : uint64_t {};
-
-template<>
-constexpr auto registry::enum_spec_v<eu64_large> =
-    make_sequence_enum_spec<eu64_large, "first, second, third",
-        wrapclip::limit, eu64_large{UINT64_C(10000000000000000000)}>();
+consteval auto corvid_enum_spec(eu64_large*) {
+  return make_sequence_enum_spec<eu64_large, "first, second, third",
+      wrapclip::limit, eu64_large{UINT64_C(10000000000000000000)}>();
+}
 
 #pragma region MakeSafely
 
@@ -421,10 +417,9 @@ TEST_CASE("SafeOps", "[SequentialEnumTest]") {
 #pragma endregion
 
 enum class tiger_nochoice : std::uint8_t { tiger };
-
-template<>
-constexpr auto registry::enum_spec_v<tiger_nochoice> =
-    make_sequence_enum_spec<tiger_nochoice, tiger_nochoice{}>();
+consteval auto corvid_enum_spec(tiger_nochoice*) {
+  return make_sequence_enum_spec<tiger_nochoice, tiger_nochoice{}>();
+}
 
 #pragma region NoChoice
 
@@ -440,10 +435,9 @@ TEST_CASE("NoChoice", "[SequentialEnumTest]") {
 
 // Range of 0 to 3, but without wrapping.
 enum class e0_3unsafe : int8_t {};
-
-template<>
-constexpr auto registry::enum_spec_v<e0_3unsafe> =
-    make_sequence_enum_spec<e0_3unsafe, e0_3unsafe{3}>();
+consteval auto corvid_enum_spec(e0_3unsafe*) {
+  return make_sequence_enum_spec<e0_3unsafe, e0_3unsafe{3}>();
+}
 
 #pragma region SubtleBugRepro
 
@@ -485,17 +479,16 @@ TEST_CASE("StreamingOut", "[SequentialEnumTest]") {
 #pragma endregion
 
 enum class tiger_missing : std::uint8_t { eeny, miny = 2, moe };
-
-template<>
-constexpr auto registry::enum_spec_v<tiger_missing> =
-    make_sequence_enum_spec<tiger_missing, "eeny, - , miny   , moe">();
+consteval auto corvid_enum_spec(tiger_missing*) {
+  return make_sequence_enum_spec<tiger_missing, "eeny, - , miny   , moe">();
+}
 
 // Tests empty-string placeholder (whitespace-only element between commas).
 enum class tiger_gapped : std::uint8_t { ga, gb, gc, gd };
 
-template<>
-constexpr auto registry::enum_spec_v<tiger_gapped> =
-    make_sequence_enum_spec<tiger_gapped, "ga,  , gc, gd">();
+consteval auto corvid_enum_spec(tiger_gapped*) {
+  return make_sequence_enum_spec<tiger_gapped, "ga,  , gc, gd">();
+}
 
 #pragma region Missing
 
@@ -938,10 +931,10 @@ TEST_CASE("Int64", "[SequentialEnumTest]") {
 TEST_CASE("AsView", "[SequentialEnumTest]") {
   if (true) {
     CHECK(enum_as_view(e0_3(0)) == "a");
-    CHECK(enum_as_view(e0_3(1)) == "(unknown)");
+    CHECK(enum_as_view(e0_3(1)) == "");
     CHECK(enum_as_view(e0_3(2)) == "c");
-    CHECK(enum_as_view(e0_3(3)) == "(unknown)");
-    CHECK(enum_as_view(e0_3(4)) == "(unknown)");
+    CHECK(enum_as_view(e0_3(3)) == "");
+    CHECK(enum_as_view(e0_3(4)) == "");
   }
 }
 
@@ -951,13 +944,14 @@ TEST_CASE("AsView", "[SequentialEnumTest]") {
 TEST_CASE("EnumFindNamed", "[SequentialEnumTest]") {
   // Names-only lookup: the matching name view, or empty on a miss. Never
   // interprets numeric text, and is usable in a constant expression.
-  static_assert(enum_find_named<tiger_pick>("eeny") == "eeny");
-  static_assert(enum_find_named<tiger_pick>("moe") == "moe");
-  static_assert(enum_find_named<tiger_pick>("nope").empty());
-  static_assert(enum_find_named<tiger_pick>("").empty());
-  static_assert(enum_find_named<tiger_pick>("0").empty()); // not numeric-aware
-  CHECK(enum_find_named<tiger_pick>("meany") == "meany");
-  CHECK(enum_find_named<tiger_pick>("nope").empty());
+  static_assert(enum_intern_name<tiger_pick>("eeny") == "eeny");
+  static_assert(enum_intern_name<tiger_pick>("moe") == "moe");
+  static_assert(enum_intern_name<tiger_pick>("nope").empty());
+  static_assert(enum_intern_name<tiger_pick>("").empty());
+  static_assert(
+      enum_intern_name<tiger_pick>("0").empty()); // not numeric-aware
+  CHECK(enum_intern_name<tiger_pick>("meany") == "meany");
+  CHECK(enum_intern_name<tiger_pick>("nope").empty());
 }
 
 #pragma endregion
@@ -965,12 +959,10 @@ TEST_CASE("EnumFindNamed", "[SequentialEnumTest]") {
 
 // Shows that a bare literal or enum value is validated by the parameter type,
 // with no ceremony at the call site.
-constexpr std::string_view take_tiger(enum_string_view<tiger_pick> s) {
-  return *s;
-}
+constexpr std::string_view take_tiger(enum_name<tiger_pick> s) { return *s; }
 
 TEST_CASE("EnumStringView", "[SequentialEnumTest]") {
-  using tiger_sv = enum_string_view<tiger_pick>;
+  using tiger_sv = enum_name<tiger_pick>;
 
   // Bare string literal, validated at compile time (array-ref ctor). Acts as
   // the matching view through `operator*` and the implicit conversion.
@@ -1000,21 +992,33 @@ TEST_CASE("EnumStringView", "[SequentialEnumTest]") {
     CHECK(take_tiger("miny") == "miny");
     CHECK(take_tiger(tiger_pick::eeny) == "eeny");
   }
-  // `convert` / `force`: runtime escape hatches that wrap an existing
-  // view without the `consteval` path. They store the caller's view (which
-  // must outlive the wrapper), not the interned name.
+  // `intern` / `try_intern` / `force`: runtime escape hatches that build a
+  // view without the `consteval` path. `intern` and `try_intern` keep the
+  // registry's canonical copy; `force` keeps the caller's view (which must
+  // outlive it).
   if (true) {
     std::string_view name = "meany"; // A runtime value.
-    CHECK(*tiger_sv::convert(name) == "meany");
+    CHECK(*tiger_sv::intern(name) == "meany");
+    CHECK(tiger_sv::try_intern(name)->as_view() == name);
     CHECK(*tiger_sv::force(name) == "meany");
+
+    // `intern`/`try_intern` point into the name table; `force` points at the
+    // caller's buffer.
+    CHECK(tiger_sv::intern(name)->data() ==
+          enum_intern_name<tiger_pick>("meany").data());
+    CHECK(tiger_sv::try_intern(name)->as_view().data() ==
+          enum_intern_name<tiger_pick>("meany").data());
+    CHECK(tiger_sv::force(name)->data() == name.data());
   }
-  // `force` does no validation, so it wraps an unregistered name verbatim.
-  // (`convert` would assert in a debug build.)
+  // `try_intern` is empty on an unregistered name; `intern` throws; `force`
+  // keeps the unregistered bytes verbatim.
   if (true) {
     std::string_view bogus = "notaname";
+    CHECK(!tiger_sv::try_intern(bogus));
+    CHECK_THROWS(tiger_sv::intern(bogus));
     auto s = tiger_sv::force(bogus);
     CHECK(*s == "notaname");
-    CHECK(enum_find_named<tiger_pick>(*s).empty());
+    CHECK(enum_intern_name<tiger_pick>(*s).empty());
   }
   // `operator->` reaches the underlying view's members.
   if (true) {
@@ -1035,12 +1039,12 @@ TEST_CASE("EnumStringView", "[SequentialEnumTest]") {
 
 // Shows that a bare literal or enum value carries both name and enum to the
 // parameter, validated at compile time.
-constexpr tiger_pick take_pair(enum_value_string_view<tiger_pick> ne) {
+constexpr tiger_pick take_pair(enum_named_value<tiger_pick> ne) {
   return ne.as_enum();
 }
 
 TEST_CASE("StringViewAndValue", "[SequentialEnumTest]") {
-  using tiger_nv = enum_value_string_view<tiger_pick>;
+  using tiger_nv = enum_named_value<tiger_pick>;
 
   // From a literal: carries both the validated name and its enum, resolved at
   // compile time.
@@ -1071,11 +1075,163 @@ TEST_CASE("StringViewAndValue", "[SequentialEnumTest]") {
     CHECK(take_pair("miny") == tiger_pick::miny);
     CHECK(take_pair(tiger_pick::eeny) == tiger_pick::eeny);
   }
+  // `intern` / `try_intern` / `force` at runtime. `intern`/`try_intern` keep
+  // the registry's canonical name; `force` keeps the caller's view.
+  // `try_intern` returns an optional, empty when it cannot intern.
+  if (true) {
+    std::string_view name = "meany"; // A runtime value.
+
+    // By name and enum, by name alone, and by enum alone all intern to the
+    // same canonical pair.
+    for (auto in : {tiger_nv::intern(name, tiger_pick::meany),
+             tiger_nv::intern(name), tiger_nv::intern(tiger_pick::meany)})
+    {
+      CHECK(std::string_view{in} == "meany");
+      CHECK(in.as_enum() == tiger_pick::meany);
+      CHECK(std::string_view{in}.data() ==
+            enum_intern_name<tiger_pick>("meany").data());
+    }
+
+    // The `try_` forms succeed for a known name and/or enum.
+    CHECK(tiger_nv::try_intern(name, tiger_pick::meany)->as_enum() ==
+          tiger_pick::meany);
+    CHECK(tiger_nv::try_intern(name)->as_enum() == tiger_pick::meany);
+    CHECK(tiger_nv::try_intern(tiger_pick::meany)->as_enum() ==
+          tiger_pick::meany);
+
+    // `force` keeps the caller's buffer, not the interned copy.
+    auto fo = tiger_nv::force(name, tiger_pick::meany);
+    CHECK(std::string_view{fo}.data() == name.data());
+  }
+  // What cannot be interned: an unnamed enum, a mismatched name/enum pair, or
+  // an unregistered name. `try_intern` is empty; `intern` throws.
+  if (true) {
+    constexpr auto unnamed = tiger_pick(7);
+    CHECK(!tiger_nv::try_intern("", unnamed));
+    CHECK(!tiger_nv::try_intern("notaname"));
+    CHECK(!tiger_nv::try_intern("moe", tiger_pick::meany)); // name != enum
+    CHECK_THROWS(tiger_nv::intern("", unnamed));
+    CHECK_THROWS(tiger_nv::intern("notaname"));
+  }
 
   // The following correctly fail to compile, with the same validation as the
   // underlying view (unregistered name, or enum value with no name):
   // * constexpr tiger_nv bad_name{"mooe"};
   // * constexpr tiger_nv bad_value{tiger_pick(7)};
+}
+
+#pragma endregion
+#pragma region Segmented
+
+// Sparse enum registered with the segmented syntax: two runs separated by a
+// gap. '|' delimits segments; each segment's first comma-field is its absolute
+// start value, the rest are names.
+enum class seg_basic : int { a = 0, b = 1, x = 10, y = 11, z = 12 };
+consteval auto corvid_enum_spec(seg_basic*) {
+  return make_sequence_enum_spec<seg_basic, "0,a,b|10,x,y,z">();
+}
+
+// Segmented enum that keeps a small gap inside a segment as a placeholder
+// ('-') and a larger gap between segments.
+enum class seg_inner : int { p = 3, r = 5, s = 6, far = 20 };
+consteval auto corvid_enum_spec(seg_inner*) {
+  return make_sequence_enum_spec<seg_inner, "3,p,-,r,s|20,far">();
+}
+
+// Segmented enum with a negative start, exercising signed underlying math.
+enum class seg_neg : std::int8_t { lo = -5, lo2 = -4, hi = 7, hi2 = 8 };
+consteval auto corvid_enum_spec(seg_neg*) {
+  return make_sequence_enum_spec<seg_neg, "-5,lo,lo2|7,hi,hi2">();
+}
+
+// Three ascending segments exercise the running offset across more than two
+// runs, including a middle segment with a single name. Segments must ascend
+// and be separated by more than one value; out-of-order, overlapping, or
+// too-close runs are compile-time errors, e.g.
+// * make_sequence_enum_spec<seg_three, "10,x,y|0,a,b">(); // not ascending
+// * make_sequence_enum_spec<seg_three, "0,a,b|3,c">(); // gap of 1; fold into
+//   a placeholder instead: "0,a,b,-,c"
+enum class seg_three : int { a = 0, b = 1, m = 5, x = 10, y = 11 };
+consteval auto corvid_enum_spec(seg_three*) {
+  return make_sequence_enum_spec<seg_three, "0,a,b|5,m|10,x,y">();
+}
+
+TEST_CASE("Segmented", "[SequentialEnumTest]") {
+  using namespace corvid::strings;
+
+  SECTION("Forward, reverse, and derived range") {
+    // Min and max span the segments; the gap lies within the range.
+    static_assert(*min_value<seg_basic>() == 0);
+    static_assert(*max_value<seg_basic>() == 12);
+    CHECK(range_length<seg_basic>() == 13); // [0, 12], gap included
+
+    // Forward: named values resolve; values in or past the gap print numbers.
+    CHECK(enum_as_string(seg_basic::a) == "a");
+    CHECK(enum_as_string(seg_basic::b) == "b");
+    CHECK(enum_as_string(seg_basic::x) == "x");
+    CHECK(enum_as_string(seg_basic::z) == "z");
+    CHECK(enum_as_string(seg_basic(5)) == "5");   // between segments
+    CHECK(enum_as_string(seg_basic(13)) == "13"); // past the last segment
+
+    // Reverse (names only): a hit returns the value, a miss is empty, and
+    // numeric text is never matched. Usable in a constant expression.
+    static_assert(enum_intern_name<seg_basic>("a") == "a");
+    static_assert(enum_intern_name<seg_basic>("z") == "z");
+    static_assert(enum_intern_name<seg_basic>("q").empty());
+    static_assert(enum_intern_name<seg_basic>("5").empty());
+    CHECK(*enum_find_by_name<seg_basic>("a") == seg_basic::a);
+    CHECK(*enum_find_by_name<seg_basic>("z") == seg_basic::z);
+    CHECK(!enum_find_by_name<seg_basic>("q"));
+
+    // Numeric-aware parse still reaches gap values.
+    CHECK(parse_enum<seg_basic>("x") == seg_basic::x);
+    CHECK(parse_enum<seg_basic>("5") == seg_basic(5));
+  }
+
+  SECTION("Placeholder inside a segment") {
+    static_assert(*min_value<seg_inner>() == 3);
+    static_assert(*max_value<seg_inner>() == 20);
+
+    CHECK(enum_as_string(seg_inner::p) == "p");
+    CHECK(enum_as_string(seg_inner(4)) == "4"); // in-segment placeholder
+    CHECK(enum_as_string(seg_inner::r) == "r");
+    CHECK(enum_as_string(seg_inner::s) == "s");
+    CHECK(enum_as_string(seg_inner::far) == "far");
+    CHECK(enum_as_string(seg_inner(10)) == "10"); // between segments
+
+    CHECK(*enum_find_by_name<seg_inner>("p") == seg_inner::p);
+    CHECK(*enum_find_by_name<seg_inner>("far") == seg_inner::far);
+    CHECK(!enum_find_by_name<seg_inner>("-")); // placeholder is not a name
+  }
+
+  SECTION("Negative start") {
+    static_assert(*min_value<seg_neg>() == -5);
+    static_assert(*max_value<seg_neg>() == 8);
+
+    CHECK(enum_as_string(seg_neg::lo) == "lo");
+    CHECK(enum_as_string(seg_neg::lo2) == "lo2");
+    CHECK(enum_as_string(seg_neg::hi) == "hi");
+    CHECK(enum_as_string(seg_neg::hi2) == "hi2");
+    CHECK(enum_as_string(seg_neg(0)) == "0"); // between segments
+
+    CHECK(*enum_find_by_name<seg_neg>("lo") == seg_neg::lo);
+    CHECK(*enum_find_by_name<seg_neg>("hi2") == seg_neg::hi2);
+  }
+
+  SECTION("Three ascending segments") {
+    static_assert(*min_value<seg_three>() == 0);
+    static_assert(*max_value<seg_three>() == 11);
+
+    CHECK(enum_as_string(seg_three::a) == "a");
+    CHECK(enum_as_string(seg_three::m) == "m"); // lone-name middle segment
+    CHECK(enum_as_string(seg_three::y) == "y");
+    CHECK(enum_as_string(seg_three(3)) == "3"); // between segments 0 and 1
+    CHECK(enum_as_string(seg_three(7)) == "7"); // between segments 1 and 2
+
+    CHECK(*enum_find_by_name<seg_three>("a") == seg_three::a);
+    CHECK(*enum_find_by_name<seg_three>("m") == seg_three::m);
+    CHECK(*enum_find_by_name<seg_three>("y") == seg_three::y);
+  }
 }
 
 #pragma endregion

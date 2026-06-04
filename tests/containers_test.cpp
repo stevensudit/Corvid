@@ -33,10 +33,9 @@ using namespace corvid::internal;
 
 // Enum type for testing enum_vector.
 enum class test_id_t : size_t { invalid = std::numeric_limits<size_t>::max() };
-
-template<>
-constexpr auto corvid::enums::registry::enum_spec_v<test_id_t> =
-    corvid::enums::sequence::make_sequence_enum_spec<test_id_t, "">();
+consteval auto corvid_enum_spec(test_id_t*) {
+  return corvid::enums::sequence::make_sequence_enum_spec<test_id_t, "">();
+}
 
 // NOLINTBEGIN(readability-function-cognitive-complexity,
 // readability-function-size)

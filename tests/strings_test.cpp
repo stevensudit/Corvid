@@ -1785,10 +1785,9 @@ enum class rgb : std::uint8_t {
   cyan = 3,   // -gb
   white = 7   // rgb
 };
-
-template<>
-constexpr auto registry::enum_spec_v<rgb> =
-    make_bitmask_enum_spec<rgb, "red,green,blue">();
+consteval auto corvid_enum_spec(rgb*) {
+  return make_bitmask_enum_spec<rgb, "red,green,blue">();
+}
 
 #pragma region AppendEnum
 
@@ -1824,20 +1823,21 @@ enum class marine_rank : std::uint8_t {
   SergeantMajorOfTheMarineCorps
 };
 
-template<>
-constexpr auto registry::enum_spec_v<marine_rank> =
-    make_sequence_enum_spec<marine_rank,
-        "Civilian, Private, PrivateFirstClass, LanceCorporal, Sergeant, "
-        "StaffSergeant, GunnerySergeant, MasterSergeant, FirstSergeant, "
-        "MasterGunnerySergeant, SergeantMajor, SergeantMajorOfTheMarineCorps",
-        wrapclip::limit>();
+consteval auto corvid_enum_spec(marine_rank*) {
+  return make_sequence_enum_spec<marine_rank,
+      "Civilian, Private, PrivateFirstClass, LanceCorporal, Sergeant, "
+      "StaffSergeant, GunnerySergeant, MasterSergeant, FirstSergeant, "
+      "MasterGunnerySergeant, SergeantMajor, SergeantMajorOfTheMarineCorps",
+      wrapclip::limit>();
+}
 
 // Enum with special characters in names for quote-encoding test.
 enum class special_chars : int { normal, has_backslash, has_quote };
 
-template<>
-constexpr auto registry::enum_spec_v<special_chars> = make_sequence_enum_spec<
-    special_chars, R"(normal, back\slash, has"quote)">();
+consteval auto corvid_enum_spec(special_chars*) {
+  return make_sequence_enum_spec<special_chars,
+      R"(normal, back\slash, has"quote)">();
+}
 
 struct soldier {
   std::string name;

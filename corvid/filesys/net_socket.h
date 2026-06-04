@@ -54,6 +54,12 @@ enum class socket_type : int {
   sequence_mask = 0x0000'000F            // aka SOCK_TYPE_MASK
 };
 
+consteval auto corvid_enum_spec(socket_type*) {
+  return corvid::enums::sequence::make_sequence_enum_spec<socket_type,
+      "stream,datagram,raw,rdm,seqpacket,dccp,,,,packet", wrapclip{},
+      socket_type{1}>();
+}
+
 // `AF_*` wrapper for address family domains.
 // NOLINTNEXTLINE(performance-enum-size)
 enum class address_family : int {
@@ -109,6 +115,15 @@ enum class address_family : int {
   max = AF_MAX,               // 46
 };
 
+consteval auto corvid_enum_spec(address_family*) {
+  return corvid::enums::sequence::make_sequence_enum_spec<address_family,
+      "unspecified,local,inet,ax25,ipx,appletalk,netrom,bridge,atmpvc,x25,"
+      "inet6,rose,decnet,netbeui,security,key,netlink,packet,ash,econet,"
+      "atmsvc,rds,sna,irda,pppox,wanpipe,llc,ib,mpls,can,tipc,bluetooth,iucv,"
+      "rxrpc,isdn,phonet,ieee802154,caif,alg,nfc,vsock,kcm,qipcrtr,smc,xdp,"
+      "mctp">();
+}
+
 // `IPPROTO_*` wrapper for protocol types.
 // NOLINTNEXTLINE(performance-enum-size)
 enum class protocol_type : int {
@@ -147,6 +162,14 @@ enum class protocol_type : int {
   raw = IPPROTO_RAW,           // 255
   max = 256,
 };
+
+consteval auto corvid_enum_spec(protocol_type*) {
+  return corvid::enums::sequence::make_sequence_enum_spec<protocol_type,
+      "0,ip,icmp,igmp,,ipip,,tcp,,egp,,,,pup|17,udp,,,,,idp|29,tp|33,dccp|"
+      "41,ipv6,,routing,fragment,,rsvp,gre,,,esp,ah|58,icmpv6,none,dstopts|92,"
+      "mtp,,beetph|98,encap|103,pim|108,comp|115,l2tp|132,sctp|135,mh,udplite,"
+      "mpls|143,ethernet|255,raw">();
+}
 
 // `SO_*` wrapper for socket options.
 // NOLINTNEXTLINE(performance-enum-size)
@@ -233,6 +256,26 @@ enum class socket_option : int {
   peerpidfd = SO_PEERPIDFD,                                // 77
 };
 
+consteval auto corvid_enum_spec(socket_option*) {
+  return corvid::enums::sequence::make_sequence_enum_spec<socket_option,
+      "debug,reuse_addr,type,error,dontroute,broadcast,sndbuf,rcvbuf,keep_"
+      "alive,oob_inline,no_check,priority,linger,bsd_compat,reuse_port, "
+      "passcred,peercred,rcvlowat,sndlowat,rcvtimeo,sndtimeo,security_"
+      "authentication,security_encryption_transport,security_encryption_"
+      "network,bind_to_device,attach_filter,detach_filter,peername,timestamp_"
+      "old,acceptconn,peersec,sndbufforce,rcvbufforce,passsec,timestamp_ns_"
+      "old,mark,timestamping_old,protocol,domain,rxq_ovfl,wifi_status,peek_"
+      "off,nofcs,lock_filter,select_err_queue,busy_poll,max_pacing_rate,bpf_"
+      "extensions,incoming_cpu,attach_bpf,attach_reuseport_cbpf,attach_"
+      "reuseport_ebpf,cnx_advice,scm_timestamping_opt_stats,meminfo,incoming_"
+      "napi_id,cookie,scm_timestamping_pktinfo,peergroups,zerocopy,txtime,"
+      "bind_to_ifindex,timestamp_new,timestamp_ns_new,timestamping_new,"
+      "rcvtimeo_new,sndtimeo_new,detach_reuseport_bpf,prefer_busy_poll,busy_"
+      "poll_budget,netns_cookie,buf_lock,reserve_mem,tx_rehash,rcvmark,"
+      "passpidfd,peerpidfd",
+      wrapclip{}, socket_option{1}>();
+}
+
 // "TCP_* wrapper for TCP-level socket options".
 // NOLINTNEXTLINE(performance-enum-size)
 enum class tcp_option : int {
@@ -275,80 +318,16 @@ enum class tcp_option : int {
   tx_delay = TCP_TX_DELAY,                         // 37
 };
 
-}} // namespace corvid::filesys
-
-template<>
-constexpr inline auto
-    corvid::enums::registry::enum_spec_v<corvid::filesys::socket_type> =
-        corvid::enums::sequence::make_sequence_enum_spec<
-            corvid::filesys::socket_type,
-            "-, stream, datagram, raw, rdm, seqpacket, dccp, , , , packet">();
-
-template<>
-constexpr inline auto corvid::enums::registry::enum_spec_v<
-    corvid::filesys::address_family> =
-    corvid::enums::sequence::make_sequence_enum_spec<
-        corvid::filesys::address_family,
-        "unspecified, local, inet, ax25, ipx, appletalk, netrom, bridge, "
-        "atmpvc, x25, inet6, rose, decnet, netbeui,  security, key, netlink, "
-        "packet, ash, econet, atmsvc, rds, sna, irda, pppox, wanpipe, llc, "
-        "ib, mpls, can, tipc, bluetooth,  iucv, rxrpc, isdn, phonet, "
-        "ieee802154, caif, alg, nfc, vsock, kcm, qipcrtr, smc, xdp, mctp">();
-
-template<>
-constexpr inline auto corvid::enums::registry::enum_spec_v<
-    corvid::filesys::protocol_type> =
-    corvid::enums::sequence::make_sequence_enum_spec<
-        corvid::filesys::protocol_type,
-        "ip, icmp, igmp, , ipip, , tcp, , egp, , , , pup, , , , , udp, , , , "
-        ", idp, , , , , , , , , , , dccp, , , , , , , , ipv6, , routing, "
-        "fragment, , rsvp, gre, , , esp, ah, , , , , , , icmpv6, none, "
-        "dstopts, , , , , , , , , , , , , , , , , , , , , , , , , , , , , , , "
-        ", mtp, , beetph, , , , encap, , , , , pim, , , , , comp, , , , , , , "
-        "l2tp, , , , , , , , , , , , , , , , , sctp, , , mh, udplite, mpls, , "
-        ", , , , ethernet, , , , , , , , , , , , , , , , , , , , ,  , ,  ,  , "
-        ", , , , , , , , , , , , , , , , , , , , , , , , , , , , ,  , , ,  , "
-        ", , , , , , , , , , , , , , , , , ,  , , , , , , , , , , , , , , , , "
-        ", , , , , , , , , , , , , , , , , , , , raw">();
-
-template<>
-constexpr inline auto corvid::enums::registry::enum_spec_v<
-    corvid::filesys::socket_option> =
-    corvid::enums::sequence::make_sequence_enum_spec<
-        corvid::filesys::socket_option,
-        ",debug, reuse_addr, type, error, dontroute, broadcast, sndbuf, "
-        "rcvbuf, keep_alive, oob_inline, no_check, priority, linger, "
-        "bsd_compat, reuse_port,  passcred, peercred, rcvlowat, sndlowat, "
-        "rcvtimeo, sndtimeo, security_authentication, "
-        "security_encryption_transport, security_encryption_network, "
-        "bind_to_device, attach_filter, detach_filter, peername, "
-        "timestamp_old, acceptconn, peersec, sndbufforce, rcvbufforce, "
-        "passsec, timestamp_ns_old, mark, timestamping_old, protocol, domain, "
-        "rxq_ovfl, wifi_status, peek_off, nofcs, lock_filter, "
-        "select_err_queue, busy_poll, max_pacing_rate, bpf_extensions, "
-        "incoming_cpu, attach_bpf, attach_reuseport_cbpf, "
-        "attach_reuseport_ebpf, cnx_advice, scm_timestamping_opt_stats, "
-        "meminfo, incoming_napi_id, cookie, scm_timestamping_pktinfo, "
-        "peergroups, zerocopy, txtime, bind_to_ifindex, "
-        "timestamp_new, timestamp_ns_new, timestamping_new, rcvtimeo_new, "
-        "sndtimeo_new, detach_reuseport_bpf, prefer_busy_poll, "
-        "busy_poll_budget, netns_cookie, buf_lock, reserve_mem, tx_rehash, "
-        "rcvmark, passpidfd, peerpidfd">();
-
-template<>
-constexpr inline auto corvid::enums::registry::enum_spec_v<
-    corvid::filesys::tcp_option> =
-    corvid::enums::sequence::make_sequence_enum_spec<
-        corvid::filesys::tcp_option,
-        ",nodelay, maxseg, cork, keep_idle, keep_intvl, keep_cnt, syncnt, "
-        "linger2, defer_accept, window_clamp, info, quickack, congestion, "
-        "md5sig, cookie_transactions, thin_linear_timeouts, thin_dupack, "
-        "user_timeout, repair, repair_queue, queue_seq, repair_options, "
-        "fastopen, timestamp, notsent_lowat, cc_info, save_syn, saved_syn, "
-        "repair_window, fastopen_connect, ulp, md5sig_ext, fastopen_key, "
-        "fastopen_no_cookie, zerocopy_receive, inq, tx_delay">();
-
-namespace corvid { inline namespace filesys {
+consteval auto corvid_enum_spec(tcp_option*) {
+  return corvid::enums::sequence::make_sequence_enum_spec<tcp_option,
+      "nodelay,maxseg,cork,keep_idle,keep_intvl,keep_cnt,syncnt,linger2,defer_"
+      "accept,window_clamp,info,quickack,congestion,md5sig,cookie_"
+      "transactions,thin_linear_timeouts,thin_dupack,user_timeout,repair,"
+      "repair_queue,queue_seq,repair_options,fastopen,timestamp,notsent_lowat,"
+      "cc_info,save_syn,saved_syn,repair_window,fastopen_connect,ulp,md5sig_"
+      "ext,fastopen_key,fastopen_no_cookie,zerocopy_receive,inq,tx_delay",
+      wrapclip{}, tcp_option{1}>();
+}
 
 #pragma endregion
 #pragma region net_socket

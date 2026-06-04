@@ -59,18 +59,12 @@ enum class operation : std::uint8_t {
   ends_with,
   matches,
 };
-
-}}} // namespace corvid::lang::ast_pred
-
-template<>
-constexpr inline auto corvid::enums::registry::enum_spec_v<
-    corvid::lang::ast_pred::operation> =
-    corvid::enums::sequence::make_sequence_enum_spec<
-        corvid::lang::ast_pred::operation,
-        "undefined, false, true, and, or, not, exists, absent, eq, ne, "
-        "lt, le, gt, ge, contains, starts_with, ends_with, matches">();
-
-namespace corvid { inline namespace lang { namespace ast_pred {
+consteval auto corvid_enum_spec(operation*) {
+  return corvid::enums::sequence::make_sequence_enum_spec<operation,
+      "false,true,and,or,not,exists,absent,eq,ne,lt,le,gt,ge,contains,starts_"
+      "with,ends_with,matches",
+      wrapclip{}, operation{1}>();
+}
 
 // AST predicate lookup.
 //

@@ -26,123 +26,6 @@ using namespace corvid::proto::quic::http3_literals;
 
 // NOLINTBEGIN(readability-function-cognitive-complexity)
 
-namespace {
-
-// Every known `qpack_token`, used to drive the round-trip checks below. Omits
-// `unknown`, which has no canonical name.
-constexpr qpack_token all_tokens[]{
-    qpack_token::authority,
-    qpack_token::method,
-    qpack_token::path,
-    qpack_token::scheme,
-    qpack_token::status,
-    qpack_token::accept,
-    qpack_token::accept_encoding,
-    qpack_token::accept_language,
-    qpack_token::accept_ranges,
-    qpack_token::access_control_allow_credentials,
-    qpack_token::access_control_allow_headers,
-    qpack_token::access_control_allow_methods,
-    qpack_token::access_control_allow_origin,
-    qpack_token::access_control_expose_headers,
-    qpack_token::access_control_request_headers,
-    qpack_token::access_control_request_method,
-    qpack_token::age,
-    qpack_token::alt_svc,
-    qpack_token::authorization,
-    qpack_token::cache_control,
-    qpack_token::content_disposition,
-    qpack_token::content_encoding,
-    qpack_token::content_length,
-    qpack_token::content_security_policy,
-    qpack_token::content_type,
-    qpack_token::cookie,
-    qpack_token::date,
-    qpack_token::early_data,
-    qpack_token::etag,
-    qpack_token::expect_ct,
-    qpack_token::forwarded,
-    qpack_token::if_modified_since,
-    qpack_token::if_none_match,
-    qpack_token::if_range,
-    qpack_token::last_modified,
-    qpack_token::link,
-    qpack_token::location,
-    qpack_token::origin,
-    qpack_token::purpose,
-    qpack_token::range,
-    qpack_token::referer,
-    qpack_token::server,
-    qpack_token::set_cookie,
-    qpack_token::strict_transport_security,
-    qpack_token::timing_allow_origin,
-    qpack_token::upgrade_insecure_requests,
-    qpack_token::user_agent,
-    qpack_token::vary,
-    qpack_token::x_content_type_options,
-    qpack_token::x_forwarded_for,
-    qpack_token::x_frame_options,
-    qpack_token::x_xss_protection,
-    qpack_token::host,
-    qpack_token::connection,
-    qpack_token::keep_alive,
-    qpack_token::proxy_connection,
-    qpack_token::transfer_encoding,
-    qpack_token::upgrade,
-    qpack_token::te,
-    qpack_token::protocol,
-    qpack_token::priority,
-};
-
-} // namespace
-
-TEST_CASE("Http3HeadersNameFromToken", "[http3]") {
-  using H = http3_headers;
-  if (true) {
-    // Pseudo-headers carry their leading ':'.
-    CHECK(H::name_from_token(qpack_token::authority) == ":authority");
-    CHECK(H::name_from_token(qpack_token::method) == ":method");
-    CHECK(H::name_from_token(qpack_token::protocol) == ":protocol");
-    // Regular and hyphenated names match the static table.
-    CHECK(H::name_from_token(qpack_token::content_length) == "content-length");
-    CHECK(H::name_from_token(qpack_token::te) == "te");
-  }
-  if (true) {
-    // `unknown` and out-of-range tokens have no name.
-    CHECK(H::name_from_token(qpack_token::unknown).empty());
-    CHECK(H::name_from_token(static_cast<qpack_token>(9999)).empty());
-  }
-  if (true) {
-    // Every known token maps to a non-empty name.
-    for (auto token : all_tokens)
-      CHECK_FALSE(H::name_from_token(token).empty());
-  }
-}
-
-TEST_CASE("Http3HeadersTokenFromName", "[http3]") {
-  using H = http3_headers;
-  if (true) {
-    CHECK(H::token_from_name(":authority") == qpack_token::authority);
-    CHECK(H::token_from_name(":protocol") == qpack_token::protocol);
-    CHECK(H::token_from_name("content-length") == qpack_token::content_length);
-    CHECK(H::token_from_name("te") == qpack_token::te);
-  }
-  if (true) {
-    // Unrecognized names yield `unknown`.
-    CHECK(H::token_from_name("") == qpack_token::unknown);
-    CHECK(H::token_from_name("x-not-a-header") == qpack_token::unknown);
-    // Lookup is exact; the table is lowercase, so mixed case does not match.
-    CHECK(H::token_from_name("Content-Length") == qpack_token::unknown);
-  }
-}
-
-TEST_CASE("Http3HeadersTokenNameRoundTrip", "[http3]") {
-  using H = http3_headers;
-  // The two maps are exact inverses for every known token.
-  for (auto token : all_tokens)
-    CHECK(H::token_from_name(H::name_from_token(token)) == token);
-}
-
 TEST_CASE("Http3HeaderLiterals", "[http3]") {
   // The `_header` literal validates the field name at compile time. It stores
   // only the name; `as_enum` resolves the token by lookup, not from a stored
@@ -157,9 +40,9 @@ TEST_CASE("Http3HeaderLiterals", "[http3]") {
 
   // The `_method` literal likewise validates the method name at compile time.
   CHECK(std::string_view{"GET"_method} == "GET");
-  CHECK(("GET"_method).as_enum() == http_method::GET);
+  CHECK(("GET"_method).as_enum() == http3_method::GET);
   // Underscored enumerators spell as hyphenated names on the wire.
-  CHECK(("VERSION-CONTROL"_method).as_enum() == http_method::VERSION_CONTROL);
+  CHECK(("VERSION-CONTROL"_method).as_enum() == http3_method::VERSION_CONTROL);
 }
 
 TEST_CASE("Http3FieldMake", "[http3]") {
@@ -494,9 +377,10 @@ TEST_CASE("HttpMethodString", "[http3]") {
   // Method names round-trip through `enum_as_string` / `parse_enum`.
   using namespace corvid;
   using namespace corvid::strings;
-  using M = http_method;
+  using M = http3_method;
   if (true) {
-    CHECK(enum_as_string(M::invalid) == "invalid");
+    // `invalid` is excluded from the name list, so it prints numerically.
+    CHECK(enum_as_string(M::invalid) == "0");
     CHECK(enum_as_string(M::GET) == "GET");
     CHECK(enum_as_string(M::CONNECT) == "CONNECT");
     // Underscored enumerators render as hyphenated wire names.

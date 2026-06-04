@@ -75,20 +75,17 @@ enum class h3_error_code : uint64_t {
   qpack_encoder_stream_error = NGHTTP3_QPACK_ENCODER_STREAM_ERROR,
   qpack_decoder_stream_error = NGHTTP3_QPACK_DECODER_STREAM_ERROR,
 };
+consteval auto corvid_enum_spec(h3_error_code*) {
+  return corvid::enums::sequence::make_sequence_enum_spec<h3_error_code,
+      "256,no_error,general_protocol_error,internal_error,"
+      "stream_creation_error,closed_critical_stream,frame_unexpected,"
+      "frame_error,excessive_load,id_error,settings_error,missing_settings,"
+      "request_rejected,request_cancelled,request_incomplete,message_error,"
+      "connect_error,version_fallback|512,qpack_decompression_failed,"
+      "qpack_encoder_stream_error,qpack_decoder_stream_error">();
+}
 
 #pragma endregion
-
-}}} // namespace corvid::proto::quic
-
-template<>
-constexpr inline auto corvid::enums::registry::enum_spec_v<
-    corvid::proto::quic::h3_error_code> =
-    corvid::enums::sequence::make_sequence_enum_spec<
-        corvid::proto::quic::h3_error_code,
-        corvid::proto::quic::h3_error_code::qpack_decoder_stream_error,
-        corvid::proto::quic::h3_error_code::no_error>();
-
-namespace corvid { inline namespace proto { namespace quic {
 
 #pragma region http3_settings
 
@@ -981,7 +978,6 @@ private:
   http3_conn_handlers* handlers_{};
 
   connection_role role_{};
-
   conn_ptr conn_;
 
 #pragma endregion

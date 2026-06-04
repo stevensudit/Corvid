@@ -138,7 +138,7 @@ run_get(std::string server_name, std::string client_authority) {
           out->complete = true; // set last: the waiter keys on this
         });
     http3_client_stream::configure_request(stream->request_headers(),
-        http_method::GET, "/");
+        http3_method::GET, "/");
     return client_plugin.add_stream(std::move(stream));
   }));
 

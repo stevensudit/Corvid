@@ -33,17 +33,11 @@ enum class SimClientMessageKind : uint8_t {
   ui_canvas,
   ui_action,
 };
+consteval auto corvid_enum_spec(SimClientMessageKind*) {
+  return corvid::enums::sequence::make_sequence_enum_spec<SimClientMessageKind,
+      "hello,ui_canvas,ui_action", wrapclip{}, SimClientMessageKind::hello>();
+}
 
-}} // namespace corvid::sim
-
-template<>
-constexpr auto
-    corvid::enums::registry::enum_spec_v<corvid::sim::SimClientMessageKind> =
-        corvid::enums::sequence::make_sequence_enum_spec<
-            corvid::sim::SimClientMessageKind,
-            "unknown, hello, ui_canvas, ui_action">();
-
-namespace corvid { inline namespace sim {
 namespace detail {
 
 [[nodiscard]] constexpr bool

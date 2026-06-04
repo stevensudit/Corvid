@@ -57,18 +57,12 @@ enum class write_stream_flags : uint8_t {
   fin = NGTCP2_WRITE_STREAM_FLAG_FIN,        // 0x02
   padding = NGTCP2_WRITE_STREAM_FLAG_PADDING // 0x04
 };
+consteval auto corvid_enum_spec(write_stream_flags*) {
+  return corvid::enums::bitmask::make_bitmask_enum_spec<write_stream_flags,
+      "padding,fin,more">();
+}
 
 #pragma endregion
-
-}}} // namespace corvid::proto::quic
-
-template<>
-constexpr inline auto corvid::enums::registry::enum_spec_v<
-    corvid::proto::quic::write_stream_flags> =
-    corvid::enums::bitmask::make_bitmask_enum_spec<
-        corvid::proto::quic::write_stream_flags, "padding, fin, more">();
-
-namespace corvid { inline namespace proto { namespace quic {
 
 using namespace std::chrono_literals;
 
@@ -85,6 +79,12 @@ enum class quic_close_kind : uint8_t {
   transport = 0x1c,
   application = 0x1d,
 };
+
+consteval auto corvid_enum_spec(quic_close_kind*) {
+  return corvid::enums::sequence::make_sequence_enum_spec<quic_close_kind,
+      "transport, application", corvid::enums::wrapclip{},
+      quic_close_kind::transport>();
+}
 
 // A pending request to close the connection, carrying the kind, error code,
 // and optional UTF-8 reason phrase. Stashed on `quic_conn` by `request_close`
@@ -1194,11 +1194,3 @@ private:
 #pragma endregion
 
 }}} // namespace corvid::proto::quic
-
-template<>
-constexpr inline auto corvid::enums::registry::enum_spec_v<
-    corvid::proto::quic::quic_close_kind> =
-    corvid::enums::sequence::make_sequence_enum_spec<
-        corvid::proto::quic::quic_close_kind, "transport, application",
-        corvid::enums::wrapclip{},
-        corvid::proto::quic::quic_close_kind::transport>();

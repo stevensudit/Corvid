@@ -272,11 +272,11 @@ TEST_CASE("ErrnoCodeString", "[OsFile]") {
     CHECK(enum_as_string(EC{134}) == "134");
   }
   if (true) {
-    // `enum_as_view` returns "(unknown)" for out-of-range or unnamed values.
+    // `enum_as_view` returns "" for out-of-range or unnamed values.
     CHECK(enums::sequence::enum_as_view(EC::ok) == "ok");
     CHECK(enums::sequence::enum_as_view(EC::noent) == "noent");
-    CHECK(enums::sequence::enum_as_view(EC{-1}) == "(unknown)");
-    CHECK(enums::sequence::enum_as_view(EC{134}) == "(unknown)");
+    CHECK(enums::sequence::enum_as_view(EC{-1}) == "");
+    CHECK(enums::sequence::enum_as_view(EC{134}) == "");
   }
   if (true) {
     constexpr EC bad{-1};
@@ -363,9 +363,9 @@ TEST_CASE("MmapAdviceString", "[OsFile]") {
     CHECK(enum_as_string(MA::hwpoison) == "100");
     CHECK(enum_as_string(MA{-1}) == "-1");
     CHECK(enums::sequence::enum_as_view(MA::normal) == "normal");
-    CHECK(enums::sequence::enum_as_view(MA{5}) == "(unknown)");
-    CHECK(enums::sequence::enum_as_view(MA{26}) == "(unknown)");
-    CHECK(enums::sequence::enum_as_view(MA{-1}) == "(unknown)");
+    CHECK(enums::sequence::enum_as_view(MA{5}) == "");
+    CHECK(enums::sequence::enum_as_view(MA{26}) == "");
+    CHECK(enums::sequence::enum_as_view(MA{-1}) == "");
   }
   if (true) {
     constexpr MA bad{-1};

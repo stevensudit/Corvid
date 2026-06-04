@@ -45,6 +45,10 @@ using namespace std::string_view_literals;
 
 // HTTP protocol version.
 enum class http_version : uint8_t { invalid, http_0_9, http_1_0, http_1_1 };
+consteval auto corvid_enum_spec(http_version*) {
+  return corvid::enums::sequence::make_sequence_enum_spec<http_version,
+      "invalid, HTTP/0.9, HTTP/1.0, HTTP/1.1">();
+}
 
 // HTTP request method.
 enum class http_method : uint8_t {
@@ -59,10 +63,19 @@ enum class http_method : uint8_t {
   CONNECT,
   TRACE
 };
+consteval auto corvid_enum_spec(http_method*) {
+  return corvid::enums::sequence::make_sequence_enum_spec<http_method,
+      "GET,HEAD,POST,PUT,DELETE,OPTIONS,PATCH,CONNECT,TRACE", wrapclip{},
+      http_method{1}>();
+}
 
 // Connection disposition: whether to keep a connection alive after responding
 // or to close it.
 enum class after_response : uint8_t { close = 0, keep_alive = 1 };
+consteval auto corvid_enum_spec(after_response*) {
+  return corvid::enums::sequence::make_sequence_enum_spec<after_response,
+      "close,keep-alive">();
+}
 
 // Canonical media type from a `Content-Type` header field.
 // `unknown`: header present but value not recognized.
@@ -72,14 +85,29 @@ enum class content_type_value : uint8_t {
   text_plain,
   application_json
 };
+consteval auto corvid_enum_spec(content_type_value*) {
+  return corvid::enums::sequence::make_sequence_enum_spec<content_type_value,
+      "text/html,text/plain,application/json", wrapclip{},
+      content_type_value{1}>();
+}
 
 // Transfer encoding from a `Transfer-Encoding` header field.
 // `unknown`: header present but value not recognized.
 enum class transfer_encoding_value : uint8_t { unknown, identity, chunked };
 
+consteval auto corvid_enum_spec(transfer_encoding_value*) {
+  return corvid::enums::sequence::make_sequence_enum_spec<
+      transfer_encoding_value, "unknown, identity, chunked">();
+}
+
 // Upgrade protocol from an `Upgrade` header field.
 // `unknown`: header present but value not recognized.
 enum class upgrade_value : uint8_t { unknown, websocket };
+
+consteval auto corvid_enum_spec(upgrade_value*) {
+  return corvid::enums::sequence::make_sequence_enum_spec<upgrade_value,
+      "unknown, websocket">();
+}
 
 // HTTP response status code.
 enum class http_status_code : uint16_t {
@@ -144,57 +172,24 @@ enum class http_status_code : uint16_t {
   NOT_EXTENDED = 510,
   NETWORK_AUTHENTICATION_REQUIRED = 511,
 };
-
-}}} // namespace corvid::proto::http_proto
-
-template<>
-constexpr inline auto corvid::enums::registry::enum_spec_v<
-    corvid::proto::http_proto::http_version> =
-    corvid::enums::sequence::make_sequence_enum_spec<
-        corvid::proto::http_proto::http_version,
-        "invalid, HTTP/0.9, HTTP/1.0, HTTP/1.1">();
-
-template<>
-constexpr inline auto corvid::enums::registry::enum_spec_v<
-    corvid::proto::http_proto::http_method> =
-    corvid::enums::sequence::make_sequence_enum_spec<
-        corvid::proto::http_proto::http_method,
-        "invalid, GET, HEAD, POST, PUT, DELETE, OPTIONS, PATCH, CONNECT, "
-        "TRACE">();
-
-template<>
-constexpr inline auto corvid::enums::registry::enum_spec_v<
-    corvid::proto::http_proto::after_response> =
-    corvid::enums::sequence::make_sequence_enum_spec<
-        corvid::proto::http_proto::after_response, "close, keep-alive">();
-
-template<>
-constexpr inline auto corvid::enums::registry::enum_spec_v<
-    corvid::proto::http_proto::http_status_code> =
-    corvid::enums::sequence::make_sequence_enum_spec<
-        corvid::proto::http_proto::http_status_code, "invalid">();
-
-template<>
-constexpr inline auto corvid::enums::registry::enum_spec_v<
-    corvid::proto::http_proto::content_type_value> =
-    corvid::enums::sequence::make_sequence_enum_spec<
-        corvid::proto::http_proto::content_type_value,
-        "unknown, text/html, text/plain, application/json">();
-
-template<>
-constexpr inline auto corvid::enums::registry::enum_spec_v<
-    corvid::proto::http_proto::transfer_encoding_value> =
-    corvid::enums::sequence::make_sequence_enum_spec<
-        corvid::proto::http_proto::transfer_encoding_value,
-        "unknown, identity, chunked">();
-
-template<>
-constexpr inline auto corvid::enums::registry::enum_spec_v<
-    corvid::proto::http_proto::upgrade_value> =
-    corvid::enums::sequence::make_sequence_enum_spec<
-        corvid::proto::http_proto::upgrade_value, "unknown, websocket">();
-
-namespace corvid { inline namespace proto { inline namespace http_proto {
+consteval auto corvid_enum_spec(http_status_code*) {
+  return corvid::enums::sequence::make_sequence_enum_spec<http_status_code,
+      "100,CONTINUE,SWITCHING_PROTOCOLS,PROCESSING,EARLY_HINTS|200,OK,CREATED,"
+      "ACCEPTED,NON_AUTHORITATIVE_INFORMATION,NO_CONTENT,RESET_CONTENT,"
+      "PARTIAL_CONTENT|300,MULTIPLE_CHOICES,MOVED_PERMANENTLY,FOUND,SEE_OTHER,"
+      "NOT_MODIFIED,USE_PROXY,-,TEMPORARY_REDIRECT,PERMANENT_REDIRECT|400,BAD_"
+      "REQUEST,UNAUTHORIZED,PAYMENT_REQUIRED,FORBIDDEN,NOT_FOUND,METHOD_NOT_"
+      "ALLOWED,NOT_ACCEPTABLE,PROXY_AUTHENTICATION_REQUIRED,REQUEST_TIMEOUT,"
+      "CONFLICT,GONE,LENGTH_REQUIRED,PRECONDITION_FAILED,CONTENT_TOO_LARGE,"
+      "URI_TOO_LONG,UNSUPPORTED_MEDIA_TYPE,RANGE_NOT_SATISFIABLE,EXPECTATION_"
+      "FAILED,IM_A_TEAPOT|421,MISDIRECTED_REQUEST,UNPROCESSABLE_CONTENT,"
+      "LOCKED,FAILED_DEPENDENCY,TOO_EARLY,UPGRADE_REQUIRED,-,PRECONDITION_"
+      "REQUIRED,TOO_MANY_REQUESTS,,REQUEST_HEADER_FIELDS_TOO_LARGE|451,"
+      "UNAVAILABLE_FOR_LEGAL_REASONS|500,INTERNAL_SERVER_ERROR,NOT_"
+      "IMPLEMENTED,BAD_GATEWAY,SERVICE_UNAVAILABLE,GATEWAY_TIMEOUT,HTTP_"
+      "VERSION_NOT_SUPPORTED,VARIANT_ALSO_NEGOTIATES,INSUFFICIENT_STORAGE,"
+      "LOOP_DETECTED,-,NOT_EXTENDED,NETWORK_AUTHENTICATION_REQUIRED">();
+}
 
 // Old-school struct as namespace.
 struct http_constants {
