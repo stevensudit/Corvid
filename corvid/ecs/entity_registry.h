@@ -27,7 +27,7 @@
 #include <utility>
 
 #include "../infra/exception_firewalls.h"
-#include "../containers/fixed_bitset.h"
+#include "../containers/core/fixed_bitset.h"
 #include "../meta/maybe.h"
 #include "entity_ids.h"
 #include "id_container.h"

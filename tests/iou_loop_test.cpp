@@ -16,7 +16,7 @@
 // limitations under the License.
 #include "../corvid/proto/io_uring/iou_loop.h"
 #include "../corvid/filesys/net_socket.h"
-#include "../corvid/strings/enum_conversion.h"
+#include "../corvid/strings/utils/enum_conversion.h"
 
 #include <atomic>
 #include <chrono>

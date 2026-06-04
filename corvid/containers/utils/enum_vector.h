@@ -19,7 +19,7 @@
 #include <type_traits>
 #include <vector>
 
-#include "../enums/sequence_enum.h"
+#include "../../enums/sequence_enum.h"
 
 namespace corvid { inline namespace container { inline namespace enum_vectors {
 

@@ -21,7 +21,7 @@
 
 #include "../corvid/filesys.h"
 #include "../corvid/proto/net_endpoint.h"
-#include "../corvid/strings/enum_conversion.h"
+#include "../corvid/strings/utils/enum_conversion.h"
 #include "catch2_main.h"
 
 #include <cstdlib>

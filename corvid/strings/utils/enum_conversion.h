@@ -15,11 +15,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 #pragma once
-#include "strings_shared.h"
-#include "trimming.h"
-#include "splitting.h"
-#include "conversion.h"
-#include "../enums/enum_registry.h"
+#include "../core/strings_shared.h"
+#include "../core/trimming.h"
+#include "../core/splitting.h"
+#include "../core/conversion.h"
+#include "../../enums/enum_registry.h"
 
 namespace corvid::strings { inline namespace conversion {
 inline namespace cvt_enum {

@@ -15,7 +15,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 #pragma once
-#include "containers_shared.h"
+#include "../core/containers_shared.h"
 
 #include <array>
 #include <atomic>
@@ -31,8 +31,8 @@
 #include <type_traits>
 #include <utility>
 
-#include "../infra/exception_firewalls.h"
-#include "../enums/bool_enums.h"
+#include "../../infra/exception_firewalls.h"
+#include "../../enums/bool_enums.h"
 
 namespace corvid { inline namespace container {
 using namespace bool_enums;

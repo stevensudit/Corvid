@@ -20,7 +20,7 @@
 #include <vector>
 #include <memory>
 
-#include "../containers/transparent.h"
+#include "../containers/core/transparent.h"
 #include "../enums/sequence_enum.h"
 #include "../strings.h"
 

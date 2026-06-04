@@ -17,7 +17,7 @@
 #pragma once
 #include "enums_shared.h"
 #include "enum_registry.h"
-#include "../strings/conversion.h"
+#include "../strings/core/conversion.h"
 
 namespace corvid { inline namespace enums { namespace registry {
 

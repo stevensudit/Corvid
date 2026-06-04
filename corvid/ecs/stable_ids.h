@@ -26,7 +26,7 @@
 #include <type_traits>
 #include <utility>
 
-#include "../containers/enum_vector.h"
+#include "../containers/utils/enum_vector.h"
 #include "../meta/maybe.h"
 #include "entity_ids.h"
 

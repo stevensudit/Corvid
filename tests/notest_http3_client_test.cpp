@@ -38,7 +38,7 @@
 #include <utility>
 #include <vector>
 
-#include "../corvid/strings/enum_conversion.h"
+#include "../corvid/strings/utils/enum_conversion.h"
 #include "../corvid/proto/dns_resolver.h"
 #include "../corvid/proto/io_uring/iou_loop.h"
 #include "../corvid/proto/quic/http3_plugins.h"

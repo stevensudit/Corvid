@@ -21,8 +21,8 @@
 #include <new>
 #include <stdexcept>
 
-#include "./meta_shared.h"
-#include "./concepts.h"
+#include "meta_shared.h"
+#include "concepts.h"
 
 namespace corvid { inline namespace meta {
 

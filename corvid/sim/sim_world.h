@@ -26,8 +26,8 @@
 #include <string_view>
 #include <vector>
 
-#include "../containers/transparent.h"
-#include "../containers/opt_find.h"
+#include "../containers/core/transparent.h"
+#include "../containers/core/opt_find.h"
 
 #include "../ecs.h"
 

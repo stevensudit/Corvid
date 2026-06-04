@@ -28,7 +28,7 @@
 #include "iou_buffer_pool_base.h"
 #include "iou_wrap.h"
 #include "../../meta/forwarding_address.h"
-#include "../../containers/object_pool.h"
+#include "../../containers/utils/object_pool.h"
 
 #if defined(__has_feature) && __has_feature(memory_sanitizer)
 #include <sanitizer/msan_interface.h>

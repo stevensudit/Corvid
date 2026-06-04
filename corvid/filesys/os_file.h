@@ -27,7 +27,7 @@
 #include <sys/socket.h>
 #include <sys/uio.h>
 
-#include "../strings/no_zero.h"
+#include "../strings/core/no_zero.h"
 #include "../enums/bitmask_enum.h"
 #include "../enums/sequence_enum.h"
 

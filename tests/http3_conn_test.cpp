@@ -16,7 +16,7 @@
 // limitations under the License.
 
 #include "../corvid/proto/quic/http3_conn.h"
-#include "../corvid/strings/enum_conversion.h"
+#include "../corvid/strings/utils/enum_conversion.h"
 
 #include "catch2_main.h"
 

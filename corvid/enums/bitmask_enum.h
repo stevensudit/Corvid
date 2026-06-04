@@ -16,12 +16,12 @@
 // limitations under the License.
 #pragma once
 #include "enums_shared.h"
-#include "../strings/fixed_string_utils.h"
-#include "../strings/targeting.h"
-#include "../strings/conversion.h"
-#include "../strings/delimiting.h"
-#include "../strings/splitting.h"
-#include "../containers/opt_find.h"
+#include "../strings/core/fixed_string_utils.h"
+#include "../strings/core/targeting.h"
+#include "../strings/core/conversion.h"
+#include "../strings/core/delimiting.h"
+#include "../strings/core/splitting.h"
+#include "../containers/core/opt_find.h"
 #include "enum_registry.h"
 #include "scoped_enum.h"
 

@@ -15,7 +15,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#include "../corvid/containers/object_pool.h"
+#include "../corvid/containers/utils/object_pool.h"
 #include "catch2_main.h"
 
 using namespace corvid;

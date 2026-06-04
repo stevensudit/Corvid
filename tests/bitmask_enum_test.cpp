@@ -22,7 +22,7 @@
 
 #include "../corvid/meta.h"
 #include "../corvid/enums/bitmask_enum.h"
-#include "../corvid/strings/enum_conversion.h"
+#include "../corvid/strings/utils/enum_conversion.h"
 #include "../corvid/containers.h"
 #include "catch2_main.h"
 

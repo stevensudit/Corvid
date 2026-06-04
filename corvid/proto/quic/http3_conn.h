@@ -31,7 +31,7 @@
 
 #include "../../infra/exception_firewalls.h"
 #include "../../infra/log.h"
-#include "../../strings/conversion.h"
+#include "../../strings/core/conversion.h"
 #include "http3_header.h"
 #include "quic_header.h"
 #include "quic_ssl_ctx.h"

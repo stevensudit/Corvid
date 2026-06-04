@@ -15,11 +15,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 #pragma once
-#include "containers_shared.h"
-#include "arena_allocator.h"
-#include "opt_find.h"
-#include "../concurrency/sync_lock.h"
-#include "../enums/sequence_enum.h"
+#include "../core/containers_shared.h"
+#include "../core/arena_allocator.h"
+#include "../core/opt_find.h"
+#include "../../concurrency/sync_lock.h"
+#include "../../enums/sequence_enum.h"
 
 namespace corvid { inline namespace container { inline namespace intern {
 
