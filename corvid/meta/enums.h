@@ -16,6 +16,7 @@
 // limitations under the License.
 #pragma once
 #include "meta_shared.h"
+#include "concepts.h"
 #include "pragmas.h"
 
 namespace corvid { inline namespace meta { inline namespace enum_utils {

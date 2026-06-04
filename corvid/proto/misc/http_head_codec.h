@@ -33,6 +33,7 @@
 #include "../../strings/core/token_parser.h"
 #include "../../strings/utils/enum_conversion.h"
 #include "../../containers/core/transparent.h"
+#include "../../containers/core/opt_find.h"
 
 namespace corvid { inline namespace proto { inline namespace http_proto {
 

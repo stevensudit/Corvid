@@ -18,6 +18,7 @@
 #include "../core/containers_shared.h"
 #include "../core/arena_allocator.h"
 #include "../core/opt_find.h"
+#include "../core/indirect_key.h"
 #include "../../concurrency/sync_lock.h"
 #include "../../enums/sequence_enum.h"
 
