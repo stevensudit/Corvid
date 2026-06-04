@@ -2562,7 +2562,7 @@ foregroundCanvas.addEventListener('mousedown', (event: MouseEvent) => {
 
   // Collapse the build-menu overlay whenever the user left-clicks on the
   // canvas without a selection already active. This covers both empty-space
-  // clicks AND clicks on an unselected defender — in the latter case the
+  // clicks AND clicks on an unselected defender: in the latter case the
   // overlay will reopen with the defender panel once the server confirms the
   // selection, so the build menu must not be visible in the interim.
   if (
@@ -3013,7 +3013,7 @@ overlayCanvas.addEventListener('mousedown', (event: MouseEvent) => {
   const items = currentMenuItems()
   const index = menuScrollOffset * MENU_COLS + row * MENU_COLS + col
   if (index >= items.length) {
-    // Click below last populated cell — deselect.
+    // Click below last populated cell: deselect.
     selectedMenuIndex = null
     invalidateSidePanel()
     return

@@ -29,7 +29,7 @@ files already obey.
 Counts are the number of include lines, not symbols. `proto -> misc` is
 internal (`corvid/proto/misc/`), not a real cross-folder edge, and is omitted.
 
-```
+```text
 concurrency  -> containers, filesys, infra, meta
 containers   -> concurrency, enums, infra, meta, strings
 ecs          -> containers, enums, infra, meta
@@ -81,7 +81,7 @@ The diagnosis is exactly right: part of strings is *below* enums and part is
 *above* it. The file-level order is a clean DAG that interleaves the two
 folders:
 
-```
+```text
 strings/targeting.h, strings/trimming.h        (strings, low)
    -> enums/enum_registry.h                     (enums, low; needs targeting)
       -> strings/conversion.h                   (strings, mid; dispatches enum
@@ -223,7 +223,7 @@ it fail the build.
 
 Layer summary:
 
-```
+```text
 L0  meta
 L1  infra, strings-core, containers-core
 L2  enums (on enum_registry + strings-core + containers-core/opt_find)
@@ -387,7 +387,7 @@ header, resolve its `#include "..."` directives to a band and fail if the
 target band is not in the source band's allow-list. Allow-list (lower bands are
 the load-bearing, verified rows; apex rows may include any lower band):
 
-```
+```text
 meta             -> (std only)
 infra            -> meta
 strings/core     -> meta

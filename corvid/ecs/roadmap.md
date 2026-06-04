@@ -30,9 +30,9 @@ id_container<T, id_t>
 entity_registry
 ----------------
 OWN_COUNT template parameter selects registry mode:
-  OWN_COUNT == 1 (default, archetype mode) — record_t holds location_t
+  OWN_COUNT == 1 (default, archetype mode): record_t holds location_t
     {store_id, ndx}, as before.
-  OWN_COUNT any multiple of 8 >= 8 (component mode) — record_t holds a
+  OWN_COUNT any multiple of 8 >= 8 (component mode): record_t holds a
     fixed_bitset<OWN_COUNT> presence bitmap instead of location_t. Each bit
     corresponds to a store_id (bit i = store_id_t{i} is occupied). No ndx
     stored here; ndx lookup goes through component_storage_base's own
@@ -151,15 +151,15 @@ Status Assessment (2026-03-13)
 
 Feature status
 ---------------
-1. Query / View System — RESOLVED. for_each<Cs...>(fn) on both archetype_scene
+1. Query / View System: RESOLVED. for_each<Cs...>(fn) on both archetype_scene
    and component_scene covers all practical use cases. A separate range-based
    view<> object is not needed; the callback form is sufficient.
 
-2. Multi-storage iteration — RESOLVED, as part of item 1.
+2. Multi-storage iteration: RESOLVED, as part of item 1.
 
-3. System scheduling — Intentionally out of scope.
+3. System scheduling: Intentionally out of scope.
 
-4. Change detection — DEFERRED. All viable mechanisms hit the same wall:
+4. Change detection: DEFERRED. All viable mechanisms hit the same wall:
    there is no tick/frame counter because Corvid owns no outer loop.
    - Storage-level version counter: cheap, but only tells you "something
      changed" and forces a full re-scan. Very limited utility.
@@ -171,17 +171,17 @@ Feature status
    Users who need change detection can embed a dirty flag or version field in
    their own component structs. Revisit if a concrete use case arises.
 
-5. Entity relationships / hierarchy — NEXT (see "Next Steps" below).
+5. Entity relationships / hierarchy: NEXT (see "Next Steps" below).
 
-6. Prefabs / templates — Deferred; no concrete driver.
+6. Prefabs / templates: Deferred; no concrete driver.
 
-7. Serialization — Out of scope.
+7. Serialization: Out of scope.
 
-8. Scene constructor flexibility — Open; second priority after scene graph.
+8. Scene constructor flexibility: Open; second priority after scene graph.
 
 Next Steps
 -----------
-1. Scene graph — A scene_graph class owning a tree of scene_node objects.
+1. Scene graph: A scene_graph class owning a tree of scene_node objects.
    Each node holds an entity handle (with generation counter). Design:
    - Nodes carry an entity handle; is_valid(handle) is checked on access.
    - Stale nodes (entity destroyed outside the tree) are pruned JIT on
@@ -194,9 +194,9 @@ Next Steps
    - No on_destroy callbacks needed: handle validity replaces them.
    This is a separate data structure alongside the ECS, not embedded in it.
 
-2. Scene constructor flexibility — Resolve the store_id alignment TODO
+2. Scene constructor flexibility: Resolve the store_id alignment TODO
    (noted in archetype_scene.h).
 
-3. Reactive callbacks and change detection — Deferred until a concrete use
+3. Reactive callbacks and change detection: Deferred until a concrete use
    case pulls them in. Without a frame boundary they introduce ordering and
    re-entrancy complexity that outweighs the benefit.

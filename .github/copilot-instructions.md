@@ -2,7 +2,7 @@
 
 ## Build System
 - Always use CMake to build files, never direct calls to clang or g++ (unless you are specifically debugging issues related to build flags, such as release/debug or optimization level)
-- **IMPORTANT**: CMakeLists.txt lives in `tests/` only — there is none at the project root
+- **IMPORTANT**: CMakeLists.txt lives in `tests/` only, there is none at the project root
   - The build directory is at `tests/build/`
   - Build a single target: `cd tests/build && ninja <target>`
   - Or equivalently: `cd tests && cmake --build build --target <target>`

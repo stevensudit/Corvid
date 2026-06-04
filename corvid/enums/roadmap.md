@@ -3,7 +3,7 @@
 Status and next steps for `corvid/enums`, following the registration-mechanism
 migration.
 
-### 1. cstring_view accessor (optional)
+## 1. cstring_view accessor (optional)
 
 A registration may opt into a `'\0'`-delimited backing blob, enabling an
 `enum_as_cstring_view` accessor for handing names straight to C APIs (e.g.

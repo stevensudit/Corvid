@@ -1,6 +1,6 @@
 # CLAUDE.md
 
-`enum_spec_v<>` is the central access point for enum metadata, populated per-enum by an ADL-found `corvid_enum_spec` hook — the strings subsystem uses it for enum↔string conversion, and bitmask/sequence/bool enum adapters all build on it.
+`enum_spec_v<>` is the central access point for enum metadata, populated per-enum by an ADL-found `corvid_enum_spec` hook: the strings subsystem uses it for enum↔string conversion, and bitmask/sequence/bool enum adapters all build on it.
 
 ## How registration works
 
@@ -18,8 +18,8 @@ This is what unlocks the operator overloads and string conversion. Unregistered 
 ## Operators enabled by registration
 
 Both `SequentialEnum` and `BitmaskEnum` get:
-- `operator*` — extracts the underlying integer value (modeled on `std::optional`). When you see `*some_id` in ECS or container code, this is not a pointer dereference.
-- `operator!` — tests for zero
+- `operator*`: extracts the underlying integer value (modeled on `std::optional`). When you see `*some_id` in ECS or container code, this is not a pointer dereference.
+- `operator!`: tests for zero
 
 `SequentialEnum` additionally gets `++`, `--`, `+`, `-` (with optional wrapping to stay in range).
 
