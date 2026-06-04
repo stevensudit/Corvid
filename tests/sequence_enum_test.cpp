@@ -944,13 +944,14 @@ TEST_CASE("AsView", "[SequentialEnumTest]") {
 TEST_CASE("EnumFindNamed", "[SequentialEnumTest]") {
   // Names-only lookup: the matching name view, or empty on a miss. Never
   // interprets numeric text, and is usable in a constant expression.
-  static_assert(enum_find_named<tiger_pick>("eeny") == "eeny");
-  static_assert(enum_find_named<tiger_pick>("moe") == "moe");
-  static_assert(enum_find_named<tiger_pick>("nope").empty());
-  static_assert(enum_find_named<tiger_pick>("").empty());
-  static_assert(enum_find_named<tiger_pick>("0").empty()); // not numeric-aware
-  CHECK(enum_find_named<tiger_pick>("meany") == "meany");
-  CHECK(enum_find_named<tiger_pick>("nope").empty());
+  static_assert(enum_intern_name<tiger_pick>("eeny") == "eeny");
+  static_assert(enum_intern_name<tiger_pick>("moe") == "moe");
+  static_assert(enum_intern_name<tiger_pick>("nope").empty());
+  static_assert(enum_intern_name<tiger_pick>("").empty());
+  static_assert(
+      enum_intern_name<tiger_pick>("0").empty()); // not numeric-aware
+  CHECK(enum_intern_name<tiger_pick>("meany") == "meany");
+  CHECK(enum_intern_name<tiger_pick>("nope").empty());
 }
 
 #pragma endregion
@@ -1007,7 +1008,7 @@ TEST_CASE("EnumStringView", "[SequentialEnumTest]") {
     std::string_view bogus = "notaname";
     auto s = tiger_sv::force(bogus);
     CHECK(*s == "notaname");
-    CHECK(enum_find_named<tiger_pick>(*s).empty());
+    CHECK(enum_intern_name<tiger_pick>(*s).empty());
   }
   // `operator->` reaches the underlying view's members.
   if (true) {

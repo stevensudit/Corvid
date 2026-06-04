@@ -300,19 +300,19 @@ template<SequentialEnum E>
 #pragma endregion
 #pragma region Lookup
 
-// Look up exact string_view for value, or "" if not found or empty.
+// Look up the canonical name for value, or an empty view if it has none.
 template<SequentialEnum E>
 [[nodiscard]] constexpr std::string_view enum_as_view(E v) noexcept {
-  return registry::enum_spec_v<std::decay_t<E>>.as_view(v);
+  return registry::enum_spec_v<std::decay_t<E>>.find_name_by_enum(v);
 }
 
-// Linear search of a sequence enum's names for an exact match, returning that
-// name or an empty view if absent. Names only; never interprets numeric text.
-// Requires `E` to be registered with a name list.
+// Map a candidate name to the registry's own copy of it (interning), or an
+// empty view if it is not a registered name. Names only; never interprets
+// numeric text. Requires `E` to be registered with a name list.
 template<SequentialEnum E>
 [[nodiscard]] constexpr std::string_view
-enum_find_named(std::string_view sv) noexcept {
-  return registry::enum_spec_v<E>.find_named(sv);
+enum_intern_name(std::string_view sv) noexcept {
+  return registry::enum_spec_v<E>.intern_name(sv);
 }
 
 // Linear search of a sequence enum's names for an exact match, returning the
@@ -320,8 +320,8 @@ enum_find_named(std::string_view sv) noexcept {
 // be registered with a name list.
 template<SequentialEnum E>
 [[nodiscard]] constexpr std::optional<E>
-enum_find_named_enum(std::string_view sv) noexcept {
-  return registry::enum_spec_v<E>.find_named_enum(sv);
+enum_find_by_name(std::string_view sv) noexcept {
+  return registry::enum_spec_v<E>.find_enum_by_name(sv);
 }
 
 #pragma endregion
@@ -374,7 +374,7 @@ public:
 
   // From pointer + length (used by the literal ctor above and by UDLs).
   consteval enum_string_view(const char* s, size_t n)
-      : sv_(enum_find_named<E>({s, n})) {
+      : sv_(enum_intern_name<E>({s, n})) {
     if (sv_.empty()) throw "not a registered name for this enum";
   }
 
@@ -388,7 +388,7 @@ public:
 
   // Safely force conversion at runtime.
   static constexpr auto convert(std::string_view sv) {
-    assert(enum_find_named<E>(sv) == sv);
+    assert(enum_intern_name<E>(sv) == sv);
     return enum_string_view(sv, force_tag{});
   }
 
@@ -402,7 +402,7 @@ public:
 
   // Look up enum at compile time.
   [[nodiscard]] consteval E as_enum(E or_default = E{}) const noexcept {
-    return enum_find_named_enum<E>(sv_).value_or(or_default);
+    return enum_find_by_name<E>(sv_).value_or(or_default);
   }
 
   [[nodiscard]] constexpr operator std::string_view() const noexcept {
@@ -500,23 +500,6 @@ private:
 #pragma region details
 
 namespace details {
-// Helper function to append a sequence enum value to a target by using a list
-// of value names. Behavior is documented in `make_sequence_enum_spec`.
-template<ScopedEnum E, size_t N>
-auto& do_seq_append(AppendTarget auto& target, E v,
-    const std::array<std::string_view, N>& names) {
-  auto n = as_underlying(v);
-  size_t ofs = n - *min_value<E>();
-
-  // Print looked-up name or the numerical value.
-  if (ofs < names.size() && names[ofs].size())
-    strings::appender{target}.append(names[ofs]);
-  else
-    strings::append_num(target, n);
-
-  return target;
-}
-
 // Specialization of `sequence_enum_spec`, adding a list of names for the
 // values. Use `make_sequence_enum_spec` to construct.
 template<ScopedEnum E, E maxseq = E{}, E minseq = E{},
@@ -526,21 +509,33 @@ struct sequence_enum_names_spec
   constexpr sequence_enum_names_spec(std::array<std::string_view, N> name_list)
       : names(name_list) {}
 
+  // Append the name for `v`, falling back to its numeric text when `v` is out
+  // of range or names a placeholder slot.
   constexpr auto& append(AppendTarget auto& target, E v) const {
-    return do_seq_append(target, v, names);
+    const auto name = find_name_by_enum(v);
+    if (name.empty())
+      strings::append_num(target, as_underlying(v));
+    else
+      strings::appender{target}.append(name);
+    return target;
   }
 
-  [[nodiscard]] constexpr std::string_view as_view(E v) const noexcept {
+  // The forward half of the name<->enum mapping: a fast lookup returning the
+  // canonical name for `v`, or an empty view if `v` is out of range or names a
+  // placeholder slot.
+  [[nodiscard]] constexpr std::string_view find_name_by_enum(
+      E v) const noexcept {
     auto n = as_underlying(v);
     size_t ofs = n - *min_value<E>();
     if (ofs < names.size() && names[ofs].size()) return names[ofs];
     return {};
   }
 
-  // Linear search of the names for an exact match, returning the enum, or
-  // nullopt. Names only: unlike `lookup`, it never interprets numeric text, so
-  // it stays usable in a constant expression.
-  [[nodiscard]] constexpr std::optional<E> find_named_enum(
+  // The reverse half of the name<->enum mapping: a linear search of the names
+  // for an exact match, returning the enum, or nullopt. Names only: unlike
+  // `lookup`, it never interprets numeric text, so it stays usable in a
+  // constant expression.
+  [[nodiscard]] constexpr std::optional<E> find_enum_by_name(
       std::string_view sv) const noexcept {
     if (sv.empty()) return {};
     auto found = std::find(names.begin(), names.end(), sv);
@@ -549,16 +544,17 @@ struct sequence_enum_names_spec
                : std::optional<E>{};
   }
 
-  // Linear search of the names for an exact match, returning that name or an
-  // empty view if absent. Names only: unlike `lookup`, it never interprets
-  // numeric text, so it stays usable in a constant expression.
-  [[nodiscard]] constexpr std::string_view find_named(
+  // Map a candidate name to the registry's own copy of it, or an empty view if
+  // it is not a registered name. Canonicalizes (interns) so the result points
+  // into `names` rather than at the caller's buffer; emptiness doubles as the
+  // "not a name" test. Names only, so it stays usable from `consteval`.
+  [[nodiscard]] constexpr std::string_view intern_name(
       std::string_view sv) const noexcept {
-    if (sv.empty()) return {};
-    auto found = std::find(names.begin(), names.end(), sv);
-    return found != names.end() ? *found : std::string_view{};
+    auto e = find_enum_by_name(sv);
+    return e ? find_name_by_enum(*e) : std::string_view{};
   }
 
+  // Look up value from string view, parsing numeric text if necessary.
   [[nodiscard]] bool lookup(E& v, std::string_view sv) const {
     if (sv.empty()) return false;
     if (registry::details::lookup_helper(v, sv)) {
@@ -566,9 +562,9 @@ struct sequence_enum_names_spec
         if (v != make<E>(*v)) return false;
       return true;
     }
-    auto found = std::find(names.begin(), names.end(), sv);
-    if (found == names.end()) return false;
-    v = make<E>(std::distance(names.begin(), found) + *min_value<E>());
+    auto e = find_enum_by_name(sv);
+    if (!e) return false;
+    v = *e;
     return true;
   }
 
