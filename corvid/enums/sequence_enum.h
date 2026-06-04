@@ -569,6 +569,8 @@ public:
   //
   //  Note: There is no `try_force` (or `triforce`), only do `force`.
   static constexpr auto force(std::string_view sv, E e) {
+    if (sv.empty())
+      throw std::invalid_argument("empty string is not a valid name");
     return enum_named_value{sv, e, force_tag{}};
   }
 
