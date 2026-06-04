@@ -378,13 +378,15 @@ public:
   // Convert from pointer + length.
   consteval enum_name(const char* s, size_t n)
       : sv_(enum_intern_name<E>({s, n})) {
-    if (sv_.empty()) throw "not a registered name for this enum";
+    if (sv_.empty())
+      throw std::invalid_argument("not a registered name for this enum");
   }
 
   // Convert from the enum value itself. Can be called `consteval` but does not
   // need to be. To construct with a value that has no name, use `force`.
   constexpr enum_name(E e) : sv_(enum_as_view(e)) {
-    if (sv_.empty()) throw "not a registered name for this enum";
+    if (sv_.empty())
+      throw std::invalid_argument("not a registered name for this enum");
   }
 
 #pragma endregion
@@ -618,18 +620,23 @@ struct enum_segment {
 template<std::integral U>
 [[nodiscard]] consteval U parse_segment_start(std::string_view sv) {
   if (sv.empty())
-    throw "segmented enum: segment needs a start value before its names";
+    throw std::invalid_argument(
+        "segmented enum: segment needs a start value before its names");
   const bool neg = (sv.front() == '-');
   if (neg) {
     if constexpr (std::is_unsigned_v<U>)
-      throw "segmented enum: negative start value for an unsigned enum";
+      throw std::invalid_argument(
+          "segmented enum: negative start value for an unsigned enum");
     sv.remove_prefix(1);
-    if (sv.empty()) throw "segmented enum: segment start value is just a sign";
+    if (sv.empty())
+      throw std::invalid_argument(
+          "segmented enum: segment start value is just a sign");
   }
   U value{};
   for (const char c : sv) {
     if (c < '0' || c > '9')
-      throw "segmented enum: segment start value must be a decimal integer";
+      throw std::invalid_argument(
+          "segmented enum: segment start value must be a decimal integer");
     value = static_cast<U>(value * 10 + (c - '0'));
   }
   return neg ? static_cast<U>(-value) : value;
@@ -664,15 +671,18 @@ template<strings::fixed_string names, std::integral U, size_t N, size_t S>
     auto seg = seg_views[segment_ndx];
     const auto comma = seg.find(',');
     if (comma == seg.npos)
-      throw "segmented enum: each segment needs a start value and a name";
+      throw std::invalid_argument(
+          "segmented enum: each segment needs a start value and a name");
     const U start =
         parse_segment_start<U>(strings::trim(seg.substr(0, comma)));
     if (segment_ndx != 0) {
       if (start <= name_segments.max)
-        throw "segmented enum: segments must ascend and not overlap";
+        throw std::invalid_argument(
+            "segmented enum: segments must ascend and not overlap");
       if (start - name_segments.max <= 2)
-        throw "segmented enum: segments must be separated by more than one "
-              "value; merge closer runs into one segment with placeholders";
+        throw std::invalid_argument(
+            "segmented enum: segments must be separated by more than one "
+            "value; merge closer runs into one segment with placeholders");
     }
     auto rest = seg.substr(comma + 1);
     size_t length{};
