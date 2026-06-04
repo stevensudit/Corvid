@@ -15,7 +15,7 @@ CompileFlags:
 If:
   PathMatch: [.*\.cpp, .*\.cc, .*\.cxx, .*\.hpp, .*\.hh, .*\.hxx, .*\.h]
 CompileFlags:
-  Add: [-xc++, -std=c++23, -stdlib=libc++, -D_LIBCPP_NO_ABI_TAG, -Wall, -Wextra, -Werror, -Wno-unused-variable]
+  Add: [-xc++, -std=c++23, -stdlib=libc++, -fexperimental-library, -D_LIBCPP_NO_ABI_TAG, -Wall, -Wextra, -Werror, -Wno-unused-variable]
 
 ---
 If:
