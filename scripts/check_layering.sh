@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# check_layering.sh -- enforce the core/utils band layering described in
-# corvid/deps.md (section 6).
+# check_layering.sh: enforce the core/utils band layering described in
+# corvid/deps.md.
 #
 # For every library header under corvid/, each local `#include "..."` is
 # resolved to a target header, both source and target are mapped to a band by
@@ -101,7 +101,7 @@ if [ -s "$violations" ]; then
   echo "Layering check FAILED: $n disallowed include edge(s):"
   cat "$violations"
   echo
-  echo "See corvid/deps.md (section 6) for the band allow-list."
+  echo "See corvid/deps.md for the band allow-list."
   exit 1
 fi
 
