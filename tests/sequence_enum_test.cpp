@@ -21,6 +21,7 @@
 
 #include "../corvid/meta.h"
 #include "../corvid/enums/sequence_enum.h"
+#include "../corvid/strings/enum_conversion.h"
 #include "../corvid/containers.h"
 #include "catch2_main.h"
 

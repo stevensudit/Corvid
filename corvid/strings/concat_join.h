@@ -16,7 +16,9 @@
 // limitations under the License.
 #pragma once
 #include "lite.h"
-#include "../enums.h"
+#include "enum_conversion.h"
+#include "../enums/bitmask_enum.h"
+#include "../enums/sequence_enum.h"
 
 // Recommendation: While you can import the entire `corvid::strings` namespace,
 // you may not want to bring in all of these symbols, or you may wish to do so

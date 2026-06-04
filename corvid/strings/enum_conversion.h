@@ -24,6 +24,19 @@
 namespace corvid::strings { inline namespace conversion {
 inline namespace cvt_enum {
 
+// From enum.
+
+// Append enum to `target`. Returns `target`.
+constexpr auto& append_enum(AppendTarget auto& target, ScopedEnum auto e) {
+  return registry::enum_spec_v<decltype(e)>.append(target, e);
+}
+
+// Return enum as string.
+constexpr std::string enum_as_string(ScopedEnum auto t) {
+  std::string target;
+  return append_enum(target, t);
+}
+
 namespace details {
 constexpr bool
 help_extract_bitmask(bitmask::BitmaskEnum auto& e, std::string_view& sv) {
@@ -150,3 +163,11 @@ constexpr E parse_enum(std::string_view sv, E default_value) {
 }
 
 }}} // namespace corvid::strings::conversion::cvt_enum
+
+// Append scoped enum to `os`.
+//
+// No need to define this for old-style enums because they're treated as
+// aliases for their underlying type, which is already supported.
+auto& operator<<(std::ostream& os, corvid::ScopedEnum auto t) {
+  return corvid::strings::append_enum(os, t);
+}

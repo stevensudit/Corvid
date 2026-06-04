@@ -19,7 +19,7 @@
 #include "arena_allocator.h"
 #include "opt_find.h"
 #include "../concurrency/sync_lock.h"
-#include "../enums.h"
+#include "../enums/sequence_enum.h"
 
 namespace corvid { inline namespace container { inline namespace intern {
 

@@ -18,8 +18,10 @@
 #define NOMINMAX
 
 #include "containers_shared.h"
-#include "../strings.h"
-#include "../enums.h"
+#include "../strings/concat_join.h"
+#include "../strings/delimiting.h"
+#include "../enums/bitmask_enum.h"
+#include "../enums/sequence_enum.h"
 #include <cassert>
 #include <limits>
 #include <iterator>
