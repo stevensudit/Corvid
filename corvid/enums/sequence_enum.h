@@ -432,7 +432,7 @@ public:
 #pragma endregion
 #pragma region Accessors
 
-  [[nodiscard]] constexpr auto as_view() const noexcept { return *this; }
+  [[nodiscard]] constexpr auto as_view() const noexcept { return sv_; }
   [[nodiscard]] constexpr operator std::string_view() const noexcept {
     return sv_;
   }

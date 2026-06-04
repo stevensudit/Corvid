@@ -1006,7 +1006,7 @@ TEST_CASE("EnumStringView", "[SequentialEnumTest]") {
     // caller's buffer.
     CHECK(tiger_sv::intern(name)->data() ==
           enum_intern_name<tiger_pick>("meany").data());
-    CHECK(tiger_sv::try_intern(name)->as_view()->data() ==
+    CHECK(tiger_sv::try_intern(name)->as_view().data() ==
           enum_intern_name<tiger_pick>("meany").data());
     CHECK(tiger_sv::force(name)->data() == name.data());
   }
