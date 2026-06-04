@@ -15,7 +15,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 #pragma once
-#include "../containers/containers_shared.h"
+#include "../meta/traits.h"
 #include "../infra/scope_exit.h"
 
 #include <atomic>
