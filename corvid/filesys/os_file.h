@@ -294,9 +294,9 @@ enum class o_flags : int {
 };
 consteval auto corvid_enum_spec(o_flags*) {
   return corvid::enums::bitmask::make_bitmask_enum_spec<o_flags,
-      "rdonly,wronly,rdwr,creat,excl,noctty,trunc,append,nonblock,dsync,async,"
-      "direct,largefile,directory,nofollow,noattime,cloexec,raw_osync,path,"
-      "raw_tmpfile">();
+      "raw_tmpfile,path,raw_osync,cloexec,noattime,nofollow,directory,"
+      "largefile,direct,async,dsync,nonblock,append,trunc,noctty,excl,creat,,,"
+      ",,rdwr,wronly">();
 }
 
 // TODO: Move out into "mmap.h", which also wraps `::map` and `::madvise` and
