@@ -614,13 +614,24 @@ struct enum_segment {
 };
 
 // Parse a segment's absolute start value: a decimal integer with an optional
-// leading '-', from an already-trimmed, non-empty view.
+// leading '-', from an already-trimmed view.
 template<std::integral U>
 [[nodiscard]] consteval U parse_segment_start(std::string_view sv) {
+  if (sv.empty())
+    throw "segmented enum: segment needs a start value before its names";
   const bool neg = (sv.front() == '-');
+  if (neg) {
+    if constexpr (std::is_unsigned_v<U>)
+      throw "segmented enum: negative start value for an unsigned enum";
+    sv.remove_prefix(1);
+    if (sv.empty()) throw "segmented enum: segment start value is just a sign";
+  }
   U value{};
-  for (size_t ndx = neg ? 1 : 0; ndx != sv.size(); ++ndx)
-    value = static_cast<U>(value * 10 + (sv[ndx] - '0'));
+  for (const char c : sv) {
+    if (c < '0' || c > '9')
+      throw "segmented enum: segment start value must be a decimal integer";
+    value = static_cast<U>(value * 10 + (c - '0'));
+  }
   return neg ? static_cast<U>(-value) : value;
 }
 
