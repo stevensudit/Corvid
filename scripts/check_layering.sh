@@ -19,6 +19,14 @@ set -uo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 CORVID="$ROOT/corvid"
 
+# Resolving includes depends on `realpath -m`. If it is missing or does not
+# support `-m`, every target would resolve to empty and be skipped, turning
+# the check into a silent pass. Fail loudly instead.
+if ! realpath -m / >/dev/null 2>&1; then
+  echo "check_layering.sh requires 'realpath -m' (GNU coreutils)." >&2
+  exit 1
+fi
+
 # Map a corvid-relative path to its band. Order matters: specific before
 # general.
 band_of() {

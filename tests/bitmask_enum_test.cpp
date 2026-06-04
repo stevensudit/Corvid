@@ -895,6 +895,14 @@ TEST_CASE("ExtractEnum", "[BitMaskTest]") {
     CHECK_FALSE(extract_enum(e, sv));
     sv = " + ";
     CHECK_FALSE(extract_enum(e, sv));
+
+    // Empty pieces are rejected, whether leading, trailing, or doubled.
+    sv = "+red";
+    CHECK_FALSE(extract_enum(e, sv));
+    sv = "red+";
+    CHECK_FALSE(extract_enum(e, sv));
+    sv = "red++blue";
+    CHECK_FALSE(extract_enum(e, sv));
   }
 }
 #pragma endregion
