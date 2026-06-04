@@ -67,17 +67,22 @@ table.
 This kills the comma walls, drops space from O(range) to O(count), and makes
 reverse lookup O(count). `protocol_type` and `qpack_token` are the witnesses.
 
-Status: the mechanism is implemented and tested. `make_sequence_enum_spec`
-detects the `'|'` form and builds the packed array plus a `{start, length}`
-segment table; a dense enum is a single segment, so existing registrations are
-unchanged. Segments must be listed in ascending order and separated by a gap
-(overlap and zero-gap adjacency are rejected at registration as compile-time
-errors), which lets forward lookup stop early and keeps the door open for a
-future binary search. The `Segmented` case in
+Status: done. `make_sequence_enum_spec` detects the `'|'` form and builds the
+packed array plus a `{start, length}` segment table; a dense enum is a single
+segment, so existing registrations are unchanged. Segments must be listed in
+ascending order and separated by more than one value (overlap, adjacency, and
+single-value gaps are compile-time errors): a single-value gap costs the same as
+a placeholder, so it must be written as a placeholder within one segment, not as
+a split. This keeps the form canonical, lets forward lookup stop early, and
+keeps the door open for a future binary search. The `Segmented` case in
 `sequence_enum_test.cpp` covers forward, reverse, in-segment placeholders,
-negative starts, and multi-segment ascending runs. Remaining follow-up: convert
-the two witnesses to the segmented form (they still compile in the dense form
-meanwhile).
+negative starts, and multi-segment ascending runs.
+
+Both witnesses are converted, with the name<->value mapping preserved exactly
+(verified against the prior dense form). `qpack_token` goes from 17957 bytes to
+~2010, as 9 segments over 68 packed slots (61 names plus 7 placeholders for
+single-value gaps). `protocol_type` is maintained by hand in the same style and
+additionally names `tp` (29), which the dense form had left to print as `"29"`.
 
 ### 2. Self-contained bitmask lookup (layering)
 

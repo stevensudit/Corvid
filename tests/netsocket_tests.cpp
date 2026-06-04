@@ -452,6 +452,7 @@ TEST_CASE("ProtocolTypeString", "[NetSocket]") {
     CHECK(enum_as_string(P::pup) == "pup");
     CHECK(enum_as_string(P::udp) == "udp");
     CHECK(enum_as_string(P::idp) == "idp");
+    CHECK(enum_as_string(P::tp) == "tp");
     CHECK(enum_as_string(P::dccp) == "dccp");
     CHECK(enum_as_string(P::ipv6) == "ipv6");
     CHECK(enum_as_string(P::routing) == "routing");

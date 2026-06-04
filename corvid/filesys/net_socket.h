@@ -165,13 +165,10 @@ enum class protocol_type : int {
 
 consteval auto corvid_enum_spec(protocol_type*) {
   return corvid::enums::sequence::make_sequence_enum_spec<protocol_type,
-      "ip,icmp,igmp,,ipip,,tcp,,egp,,,,pup,,,,,udp,,,,,idp,,,,,,,,,"
-      ",,dccp,,,,,,,,ipv6,,routing,fragment,,rsvp,gre,,,esp,ah,,,,,"
-      ",,icmpv6,none,dstopts,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,mtp,,"
-      "beetph,,,,encap,,,,,pim,,,,,comp,,,,,,,l2tp,,,,,,,,,,,,,,,,,"
-      "sctp,,,mh,udplite,mpls,,,,,,ethernet,,,,,,,,,,,,,,,,,,,,,,,,"
-      ",,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,"
-      ",,,,,,,,,,,,,,,,,,,,,,,,,,,,raw">();
+      "0,ip,icmp,igmp,,ipip,,tcp,,egp,,,,pup|17,udp,,,,,idp|29,tp|33,dccp|"
+      "41,ipv6,,routing,fragment,,rsvp,gre,,,esp,ah|58,icmpv6,none,dstopts|92,"
+      "mtp,,beetph|98,encap|103,pim|108,comp|115,l2tp|132,sctp|135,mh,udplite,"
+      "mpls|143,ethernet|255,raw">();
 }
 
 // `SO_*` wrapper for socket options.

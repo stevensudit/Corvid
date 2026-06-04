@@ -640,8 +640,10 @@ struct segmented_names {
 // Each '|'-delimited segment is `start, name, name, ...`: the first
 // comma-field is the absolute start value and the rest are names, with the
 // same placeholder handling as the dense form. Segments must ascend and be
-// separated by a gap; overlap and zero-gap adjacency are rejected, since
-// adjacent runs are just one segment. `min` and `max` are derived from them.
+// separated by more than one value; runs any closer are rejected and should be
+// merged into one segment, using placeholders for the gap, since a
+// single-value gap costs the same as a placeholder. `min` and `max` are
+// derived from them.
 template<strings::fixed_string names, std::integral U, size_t N, size_t S>
 [[nodiscard]] consteval auto parse_segmented_names() {
   segmented_names<U, N, S> name_segments{};
@@ -657,8 +659,9 @@ template<strings::fixed_string names, std::integral U, size_t N, size_t S>
     if (segment_ndx != 0) {
       if (start <= name_segments.max)
         throw "segmented enum: segments must ascend and not overlap";
-      if (start - name_segments.max == 1)
-        throw "segmented enum: adjacent segments should be a single segment";
+      if (start - name_segments.max <= 2)
+        throw "segmented enum: segments must be separated by more than one "
+              "value; merge closer runs into one segment with placeholders";
     }
     auto rest = seg.substr(comma + 1);
     size_t length{};
@@ -789,12 +792,13 @@ struct sequence_enum_names_spec
 // even if there are a few gaps.
 //
 // In the segmented form, a '|' separates two or more segments (with no leading
-// or trailing '|'), listed in ascending order and separated by gaps (overlap
-// or zero-gap adjacency is a compile-time error, since adjacent runs are one
-// segment). Each segment's first comma-field is its absolute start value and
-// the rest are names. This compacts a sparse enum: the gaps between segments
-// cost nothing, instead of a placeholder per skipped value. `min` and `max`
-// are derived from the segments, so `minseq` is not passed.
+// or trailing '|'), listed in ascending order and separated by more than one
+// value (closer runs are a compile-time error: merge them into one segment,
+// using placeholders for the gap). Each segment's first comma-field is its
+// absolute start value and the rest are names. This compacts a sparse enum:
+// the gaps between segments cost nothing, instead of a placeholder per skipped
+// value. `min` and `max` are derived from the segments, so `minseq` is not
+// passed.
 //
 // Set `wrapseq` to `wrapclip::limit` to enable wrapping.
 template<ScopedEnum E, strings::fixed_string names,

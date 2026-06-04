@@ -1145,11 +1145,12 @@ consteval auto corvid_enum_spec(seg_neg*) {
 }
 
 // Three ascending segments exercise the running offset across more than two
-// runs, including a middle segment with a single name. Out-of-order,
-// overlapping, or merely adjacent (zero-gap) segments are a compile-time
-// error, e.g.
+// runs, including a middle segment with a single name. Segments must ascend
+// and be separated by more than one value; out-of-order, overlapping, or
+// too-close runs are compile-time errors, e.g.
 // * make_sequence_enum_spec<seg_three, "10,x,y|0,a,b">(); // not ascending
-// * make_sequence_enum_spec<seg_three, "0,a,b|2,c">();    // adjacent, merge
+// * make_sequence_enum_spec<seg_three, "0,a,b|3,c">(); // gap of 1; fold into
+//   a placeholder instead: "0,a,b,-,c"
 enum class seg_three : int { a = 0, b = 1, m = 5, x = 10, y = 11 };
 consteval auto corvid_enum_spec(seg_three*) {
   return make_sequence_enum_spec<seg_three, "0,a,b|5,m|10,x,y">();
