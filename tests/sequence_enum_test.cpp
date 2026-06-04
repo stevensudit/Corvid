@@ -959,12 +959,10 @@ TEST_CASE("EnumFindNamed", "[SequentialEnumTest]") {
 
 // Shows that a bare literal or enum value is validated by the parameter type,
 // with no ceremony at the call site.
-constexpr std::string_view take_tiger(enum_string_view<tiger_pick> s) {
-  return *s;
-}
+constexpr std::string_view take_tiger(enum_name<tiger_pick> s) { return *s; }
 
 TEST_CASE("EnumStringView", "[SequentialEnumTest]") {
-  using tiger_sv = enum_string_view<tiger_pick>;
+  using tiger_sv = enum_name<tiger_pick>;
 
   // Bare string literal, validated at compile time (array-ref ctor). Acts as
   // the matching view through `operator*` and the implicit conversion.
@@ -994,18 +992,30 @@ TEST_CASE("EnumStringView", "[SequentialEnumTest]") {
     CHECK(take_tiger("miny") == "miny");
     CHECK(take_tiger(tiger_pick::eeny) == "eeny");
   }
-  // `convert` / `force`: runtime escape hatches that wrap an existing
-  // view without the `consteval` path. They store the caller's view (which
-  // must outlive the wrapper), not the interned name.
+  // `intern` / `try_intern` / `force`: runtime escape hatches that build a
+  // view without the `consteval` path. `intern` and `try_intern` keep the
+  // registry's canonical copy; `force` keeps the caller's view (which must
+  // outlive it).
   if (true) {
     std::string_view name = "meany"; // A runtime value.
-    CHECK(*tiger_sv::convert(name) == "meany");
+    CHECK(*tiger_sv::intern(name) == "meany");
+    CHECK(tiger_sv::try_intern(name)->as_view() == name);
     CHECK(*tiger_sv::force(name) == "meany");
+
+    // `intern`/`try_intern` point into the name table; `force` points at the
+    // caller's buffer.
+    CHECK(tiger_sv::intern(name)->data() ==
+          enum_intern_name<tiger_pick>("meany").data());
+    CHECK(tiger_sv::try_intern(name)->as_view()->data() ==
+          enum_intern_name<tiger_pick>("meany").data());
+    CHECK(tiger_sv::force(name)->data() == name.data());
   }
-  // `force` does no validation, so it wraps an unregistered name verbatim.
-  // (`convert` would assert in a debug build.)
+  // `try_intern` is empty on an unregistered name; `intern` throws; `force`
+  // keeps the unregistered bytes verbatim.
   if (true) {
     std::string_view bogus = "notaname";
+    CHECK(!tiger_sv::try_intern(bogus));
+    CHECK_THROWS(tiger_sv::intern(bogus));
     auto s = tiger_sv::force(bogus);
     CHECK(*s == "notaname");
     CHECK(enum_intern_name<tiger_pick>(*s).empty());
@@ -1029,12 +1039,12 @@ TEST_CASE("EnumStringView", "[SequentialEnumTest]") {
 
 // Shows that a bare literal or enum value carries both name and enum to the
 // parameter, validated at compile time.
-constexpr tiger_pick take_pair(enum_value_string_view<tiger_pick> ne) {
+constexpr tiger_pick take_pair(enum_named_value<tiger_pick> ne) {
   return ne.as_enum();
 }
 
 TEST_CASE("StringViewAndValue", "[SequentialEnumTest]") {
-  using tiger_nv = enum_value_string_view<tiger_pick>;
+  using tiger_nv = enum_named_value<tiger_pick>;
 
   // From a literal: carries both the validated name and its enum, resolved at
   // compile time.
@@ -1064,6 +1074,44 @@ TEST_CASE("StringViewAndValue", "[SequentialEnumTest]") {
     static_assert(take_pair(tiger_pick::moe) == tiger_pick::moe);
     CHECK(take_pair("miny") == tiger_pick::miny);
     CHECK(take_pair(tiger_pick::eeny) == tiger_pick::eeny);
+  }
+  // `intern` / `try_intern` / `force` at runtime. `intern`/`try_intern` keep
+  // the registry's canonical name; `force` keeps the caller's view.
+  // `try_intern` returns an optional, empty when it cannot intern.
+  if (true) {
+    std::string_view name = "meany"; // A runtime value.
+
+    // By name and enum, by name alone, and by enum alone all intern to the
+    // same canonical pair.
+    for (auto in : {tiger_nv::intern(name, tiger_pick::meany),
+             tiger_nv::intern(name), tiger_nv::intern(tiger_pick::meany)})
+    {
+      CHECK(std::string_view{in} == "meany");
+      CHECK(in.as_enum() == tiger_pick::meany);
+      CHECK(std::string_view{in}.data() ==
+            enum_intern_name<tiger_pick>("meany").data());
+    }
+
+    // The `try_` forms succeed for a known name and/or enum.
+    CHECK(tiger_nv::try_intern(name, tiger_pick::meany)->as_enum() ==
+          tiger_pick::meany);
+    CHECK(tiger_nv::try_intern(name)->as_enum() == tiger_pick::meany);
+    CHECK(tiger_nv::try_intern(tiger_pick::meany)->as_enum() ==
+          tiger_pick::meany);
+
+    // `force` keeps the caller's buffer, not the interned copy.
+    auto fo = tiger_nv::force(name, tiger_pick::meany);
+    CHECK(std::string_view{fo}.data() == name.data());
+  }
+  // What cannot be interned: an unnamed enum, a mismatched name/enum pair, or
+  // an unregistered name. `try_intern` is empty; `intern` throws.
+  if (true) {
+    constexpr auto unnamed = tiger_pick(7);
+    CHECK(!tiger_nv::try_intern("", unnamed));
+    CHECK(!tiger_nv::try_intern("notaname"));
+    CHECK(!tiger_nv::try_intern("moe", tiger_pick::meany)); // name != enum
+    CHECK_THROWS(tiger_nv::intern("", unnamed));
+    CHECK_THROWS(tiger_nv::intern("notaname"));
   }
 
   // The following correctly fail to compile, with the same validation as the

@@ -251,9 +251,8 @@ consteval auto corvid_enum_spec(http_method*) {
 
 // Compile-time checked header name, with associated QPACK token if it's a
 // known name.
-using header_name = enums::sequence::enum_string_view<qpack_token>;
-using header_name_and_enum =
-    enums::sequence::enum_value_string_view<qpack_token>;
+using header_name = enums::sequence::enum_name<qpack_token>;
+using header_name_and_enum = enums::sequence::enum_named_value<qpack_token>;
 
 namespace http3_literals {
 // HTTP/3 Header field literal.
@@ -268,7 +267,7 @@ consteval header_name operator""_header(const char* s, std::size_t n) {
 
 // Compile-time checked HTTP method name, for use in the `:method`
 // pseudo-header.
-using method_name = enums::sequence::enum_string_view<http_method>;
+using method_name = enums::sequence::enum_name<http_method>;
 
 namespace http3_literals {
 consteval method_name operator""_method(const char* s, std::size_t n) {

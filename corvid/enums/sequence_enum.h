@@ -15,11 +15,15 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 #pragma once
+#include <string>
+#include <string_view>
+#include <stdexcept>
+#include <optional>
+
 #include "enums_shared.h"
 #include "../strings/lite.h"
 #include "enum_registry.h"
 #include "scoped_enum.h"
-#include <string>
 
 namespace corvid {
 inline namespace enums { namespace sequence {
@@ -325,101 +329,131 @@ enum_find_by_name(std::string_view sv) noexcept {
 }
 
 #pragma endregion
-#pragma region enum_string_view
+#pragma region enum_name
 
-// A compile-time-validated name for one of sequence enum `E`'s values. Can be
-// used as a type-safe wrapper over `std::string_view`.
+// A name for a registered value of a sequence enum, validated and interned.
+// Can do both at compile time, as part of implicit conversion. Acts as a
+// strongly typed wrapper for `std::string_view`, which cannot be empty. Does
+// not provide a UDL directly but is designed to easily support one.
 //
-// The `consteval` constructors accept a string literal that names a registered
-// value, or the enum value itself, so a typo, an unknown name, or an unnamed
-// value is a compile error rather than a runtime failure.
+// The `consteval` constructors accept a string literal that is the name for a
+// value, or the value itself. As a result, a typo, an unknown name, or an
+// unnamed value is a compile error rather than a runtime failure.
 //
-// Converts to `std::string_view`, so it passes anywhere a name view is wanted
-// while carrying a guarantee a bare view cannot. `E` must be registered with a
-// name list.
-//
-// Does not provide a UDL directly but is designed to easily support one.
+// Allows checked runtime assignment, with a risky `force` option.
 //
 // Example:
 //
-//  using color_name = enum_string_view<color>;
+//  using color_name = enum_name<color>;
 //
-//  color_name red{"red"}; // OK
+//  color_name red{"red"};   // OK
 //  color_name blue{"blue"}; // OK
 //  color_name typo{"reed"}; // Compile error: not a registered name
-//  color_name empty{""}; // Compile error: empty is not a valid name
+//  color_name empty{""};    // Compile error: empty is not a valid name
 //  color_name green{color::green}; // OK: name looked up from the value
 //
 //  void paint(color_name c) { ... }
 //
-//  paint{"red"}; // OK
-//  paint{"reed"}; // Compile error: not a registered name
+//  paint{"red"};      // OK
+//  paint{"reed"};     // Compile error: not a registered name
 //  paint{color::red}; // OK
 //
 //  consteval color_name operator""_color(const char* s, std::size_t n) {
-//   return color_name{s, n};
+//    return color_name{s, n};
 //  }
 //
-//  auto c = "red"_color; // OK
+//  auto c = "red"_color;  // OK
 //  auto d = "reed"_color; // Compile error: not a registered name
 template<SequentialEnum E>
-class enum_string_view {
+class enum_name {
 public:
 #pragma region Construction
 
-  // Literal.
+  // Convert from literal.
   template<size_t N>
-  consteval enum_string_view(const char (&s)[N])
-      : enum_string_view(s, N - 1) {}
+  consteval enum_name(const char (&s)[N]) : enum_name(s, N - 1) {}
 
-  // From pointer + length (used by the literal ctor above and by UDLs).
-  consteval enum_string_view(const char* s, size_t n)
+  // Convert from pointer + length.
+  consteval enum_name(const char* s, size_t n)
       : sv_(enum_intern_name<E>({s, n})) {
     if (sv_.empty()) throw "not a registered name for this enum";
   }
 
-  // From the enum value itself.
-  constexpr enum_string_view(E e) : sv_(enum_as_view(e)) {
+  // Convert from the enum value itself. Can be called `consteval` but does not
+  // need to be. To construct with a value that has no name, use `force`.
+  constexpr enum_name(E e) : sv_(enum_as_view(e)) {
     if (sv_.empty()) throw "not a registered name for this enum";
   }
 
 #pragma endregion
 #pragma region Factories
 
-  // Safely force conversion at runtime.
-  static constexpr auto convert(std::string_view sv) {
-    assert(enum_intern_name<E>(sv) == sv);
-    return enum_string_view(sv, force_tag{});
+  // Intern `sv` at runtime.
+  //
+  // Looks up the name in the registry and keeps the registry's own canonical
+  // copy, so the result carries the same interning guarantee as the
+  // `consteval` constructors. Throws if `sv` is not a registered name.
+  static constexpr auto intern(std::string_view sv) {
+    if (const auto self = try_intern(sv); self) return *self;
+    throw std::invalid_argument("not a registered name for this enum");
   }
 
-  // Unsafely force conversion at runtime.
+  // Attempt to intern `sv` at runtime.
+  //
+  // If this does not match a name registered for the enum, fails so that the
+  // caller can use the `force`.
+  static constexpr std::optional<enum_name<E>> try_intern(
+      std::string_view sv) {
+    if (const auto interned = enum_intern_name<E>(sv); !interned.empty())
+      return force(interned);
+    return std::nullopt;
+  }
+
+  // Force runtime construction of non-interned name, which might not even be
+  // registered for a value.
+  //
+  // Keeps `sv` verbatim, without interning. Does not look it up; only
+  // validates that it's not empty.
+  //
+  // The caller vouches for the bytes and their lifetime, and the result of
+  // calls with equal contents do not necessarily share storage.
+  //
+  // Note: There is no `try_force` (or `triforce`), only do `force`.
   static constexpr auto force(std::string_view sv) {
-    return enum_string_view(sv, force_tag{});
+    if (sv.empty())
+      throw std::invalid_argument("empty string is not a valid name");
+    return enum_name(sv, force_tag{});
   }
 
 #pragma endregion
 #pragma region Accessors
 
-  // Look up enum at compile time.
-  [[nodiscard]] consteval E as_enum(E or_default = E{}) const noexcept {
-    return enum_find_by_name<E>(sv_).value_or(or_default);
-  }
-
+  [[nodiscard]] constexpr auto as_view() const noexcept { return *this; }
   [[nodiscard]] constexpr operator std::string_view() const noexcept {
     return sv_;
   }
   [[nodiscard]] constexpr std::string_view operator*() const noexcept {
     return sv_;
   }
-
   [[nodiscard]] constexpr auto operator->() const noexcept { return &sv_; }
+
+  // Look up enum at compile time.
+  [[nodiscard]] consteval E as_enum() const noexcept {
+    return *enum_find_by_name<E>(sv_);
+  }
+
+  // Find enum at runtime. Can fail if `force` was used, hence the
+  // `or_default`.
+  [[nodiscard]] E find_enum(E or_default = E{}) const noexcept {
+    return enum_find_by_name<E>(sv_).value_or(or_default);
+  }
 
 #pragma endregion
 protected:
 #pragma region Forced construction
 
   struct force_tag {};
-  constexpr enum_string_view(std::string_view sv, force_tag) : sv_(sv) {}
+  constexpr enum_name(std::string_view sv, force_tag) : sv_(sv) {}
 
 #pragma endregion
 private:
@@ -433,49 +467,112 @@ private:
 #pragma endregion
 #pragma region with value
 
-// Extends `enum_string_view<E>` with the `E` value it names, both
+// Extends `enum_name<E>` with the `E` value it names, both
 // resolved at compile time by the same constructors. Use it where a call site
 // needs the validated name and its enum together (e.g. to skip a runtime
 // name->enum lookup), without adding a field to the bare string view.
 template<SequentialEnum E>
-class enum_value_string_view: enum_string_view<E> {
-  using force_tag = enum_string_view<E>::force_tag;
+class enum_named_value: enum_name<E> {
+  using force_tag = enum_name<E>::force_tag;
 
 public:
-  using base = enum_string_view<E>;
+  using base = enum_name<E>;
 
 #pragma region Construction
 
-  // Literal.
+  // Convert from literal.
   template<size_t N>
-  consteval enum_value_string_view(const char (&s)[N])
-      : base{s}, enum_{base{s}.as_enum()} {}
+  consteval enum_named_value(const char (&s)[N])
+      : base{s}, enum_{base::as_enum()} {}
 
-  // From pointer + length (e.g. a UDL).
-  consteval enum_value_string_view(const char* s, size_t n)
-      : base{s, n}, enum_{base{s, n}.as_enum()} {}
+  // Convert from pointer + length.
+  consteval enum_named_value(const char* s, size_t n)
+      : base{s, n}, enum_{base::as_enum()} {}
 
-  // From the enum value itself.
-  constexpr enum_value_string_view(E e) : base{e}, enum_{e} {}
+  // Convert from the enum value itself.
+  constexpr enum_named_value(E e) : base{e}, enum_{e} {}
 
 #pragma endregion
 #pragma region Factories
 
-  // Safely force conversion at runtime.
-  static constexpr auto convert(std::string_view sv, E e) {
-    return enum_value_string_view{base::convert(sv), e, force_tag{}};
+  // Intern at runtime.
+  //
+  // If `e` does not have a name, or if `sv` is nonempty and does not match it,
+  // throws.
+  static constexpr auto intern(std::string_view sv, E e) {
+    if (const auto self = try_intern(sv, e); self) return *self;
+    throw std::invalid_argument("enum has no registered name to intern");
   }
 
-  // Unsafely force conversion at runtime.
+  // Intern at runtime.
+  //
+  // If `sv` does not  match a name, throws.
+  static constexpr auto intern(std::string_view sv) {
+    if (const auto self = try_intern(sv); self) return *self;
+    throw std::invalid_argument("not a registered name for this enum");
+  }
+
+  // Intern at runtime.
+  //
+  // If `e` does not have a name, throws.
+  static constexpr auto intern(E e) {
+    if (const auto self = try_intern(e); self) return *self;
+    throw std::invalid_argument("enum has no registered name to intern");
+  }
+
+  // Attempt to intern `sv` and `e` at runtime.
+  //
+  // If `e` does not have a name, or if `sv` is nonempty and does not match it,
+  // fails so that the caller can use the `force`.
+  static constexpr std::optional<enum_named_value<E>>
+  try_intern([[maybe_unused]] std::string_view sv, E e) {
+    const auto self = try_intern(e);
+    if (!self) return std::nullopt;
+    if (!sv.empty() && sv != *self) return std::nullopt;
+    return self;
+  }
+
+  // Attempt to intern `e` at runtime.
+  //
+  // If `e` does not have a name, fails.
+  static constexpr std::optional<enum_named_value<E>> try_intern(E e) {
+    if (const auto name = enum_as_view(e); !name.empty())
+      return force(name, e);
+    return std::nullopt;
+  }
+
+  // Attempt to intern `sv`. If `sv` does not match a name, fails.
+  static constexpr std::optional<enum_named_value<E>> try_intern(
+      [[maybe_unused]] std::string_view sv) {
+    const auto value = enum_find_by_name<E>(sv);
+    if (!value) return std::nullopt;
+    const auto name = enum_as_view(*value);
+    // TODO: We can optimize this by having a single lookup that returns both;
+    // particularly when, for sparse enums, finding by enum requires a small
+    // search.
+    assert(sv == name);
+    return force(name, *value);
+  }
+
+  // Force runtime construction of non-interned name, which might not even be
+  // registered for a value, and might or might not match the value.
+  //
+  // Keeps `sv` and `e` verbatim, without interning. Does not look either up;
+  // only validates that `sv`'s not empty.
+  //
+  // The caller vouches for the bytes and their lifetime, and the result of
+  // calls with equal contents do not necessarily share storage.
+  //
+  //  Note: There is no `try_force` (or `triforce`), only do `force`.
   static constexpr auto force(std::string_view sv, E e) {
-    return enum_value_string_view{base::force(sv), e, force_tag{}};
+    return enum_named_value{sv, e, force_tag{}};
   }
 
 #pragma endregion
 #pragma region Accessors
 
   [[nodiscard]] constexpr operator std::string_view() const noexcept {
-    return base::operator std::string_view();
+    return base::as_view();
   }
   [[nodiscard]] constexpr base as_name() const noexcept { return *this; }
   [[nodiscard]] constexpr E as_enum() const noexcept { return enum_; }
@@ -484,7 +581,7 @@ public:
 protected:
 #pragma region Forced construction
 
-  constexpr enum_value_string_view(std::string_view sv, E e, force_tag f)
+  constexpr enum_named_value(std::string_view sv, E e, force_tag f)
       : base{sv, f}, enum_{e} {}
 
 #pragma endregion
