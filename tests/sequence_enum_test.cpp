@@ -1121,6 +1121,119 @@ TEST_CASE("StringViewAndValue", "[SequentialEnumTest]") {
 }
 
 #pragma endregion
+#pragma region Segmented
+
+// Sparse enum registered with the segmented syntax: two runs separated by a
+// gap. '|' delimits segments; each segment's first comma-field is its absolute
+// start value, the rest are names.
+enum class seg_basic : int { a = 0, b = 1, x = 10, y = 11, z = 12 };
+consteval auto corvid_enum_spec(seg_basic*) {
+  return make_sequence_enum_spec<seg_basic, "0,a,b|10,x,y,z">();
+}
+
+// Segmented enum that keeps a small gap inside a segment as a placeholder
+// ('-') and a larger gap between segments.
+enum class seg_inner : int { p = 3, r = 5, s = 6, far = 20 };
+consteval auto corvid_enum_spec(seg_inner*) {
+  return make_sequence_enum_spec<seg_inner, "3,p,-,r,s|20,far">();
+}
+
+// Segmented enum with a negative start, exercising signed underlying math.
+enum class seg_neg : std::int8_t { lo = -5, lo2 = -4, hi = 7, hi2 = 8 };
+consteval auto corvid_enum_spec(seg_neg*) {
+  return make_sequence_enum_spec<seg_neg, "-5,lo,lo2|7,hi,hi2">();
+}
+
+// Three ascending segments exercise the running offset across more than two
+// runs, including a middle segment with a single name. Out-of-order,
+// overlapping, or merely adjacent (zero-gap) segments are a compile-time
+// error, e.g.
+// * make_sequence_enum_spec<seg_three, "10,x,y|0,a,b">(); // not ascending
+// * make_sequence_enum_spec<seg_three, "0,a,b|2,c">();    // adjacent, merge
+enum class seg_three : int { a = 0, b = 1, m = 5, x = 10, y = 11 };
+consteval auto corvid_enum_spec(seg_three*) {
+  return make_sequence_enum_spec<seg_three, "0,a,b|5,m|10,x,y">();
+}
+
+TEST_CASE("Segmented", "[SequentialEnumTest]") {
+  using namespace corvid::strings;
+
+  SECTION("Forward, reverse, and derived range") {
+    // Min and max span the segments; the gap lies within the range.
+    static_assert(*min_value<seg_basic>() == 0);
+    static_assert(*max_value<seg_basic>() == 12);
+    CHECK(range_length<seg_basic>() == 13); // [0, 12], gap included
+
+    // Forward: named values resolve; values in or past the gap print numbers.
+    CHECK(enum_as_string(seg_basic::a) == "a");
+    CHECK(enum_as_string(seg_basic::b) == "b");
+    CHECK(enum_as_string(seg_basic::x) == "x");
+    CHECK(enum_as_string(seg_basic::z) == "z");
+    CHECK(enum_as_string(seg_basic(5)) == "5");   // between segments
+    CHECK(enum_as_string(seg_basic(13)) == "13"); // past the last segment
+
+    // Reverse (names only): a hit returns the value, a miss is empty, and
+    // numeric text is never matched. Usable in a constant expression.
+    static_assert(enum_intern_name<seg_basic>("a") == "a");
+    static_assert(enum_intern_name<seg_basic>("z") == "z");
+    static_assert(enum_intern_name<seg_basic>("q").empty());
+    static_assert(enum_intern_name<seg_basic>("5").empty());
+    CHECK(*enum_find_by_name<seg_basic>("a") == seg_basic::a);
+    CHECK(*enum_find_by_name<seg_basic>("z") == seg_basic::z);
+    CHECK(!enum_find_by_name<seg_basic>("q"));
+
+    // Numeric-aware parse still reaches gap values.
+    CHECK(parse_enum<seg_basic>("x") == seg_basic::x);
+    CHECK(parse_enum<seg_basic>("5") == seg_basic(5));
+  }
+
+  SECTION("Placeholder inside a segment") {
+    static_assert(*min_value<seg_inner>() == 3);
+    static_assert(*max_value<seg_inner>() == 20);
+
+    CHECK(enum_as_string(seg_inner::p) == "p");
+    CHECK(enum_as_string(seg_inner(4)) == "4"); // in-segment placeholder
+    CHECK(enum_as_string(seg_inner::r) == "r");
+    CHECK(enum_as_string(seg_inner::s) == "s");
+    CHECK(enum_as_string(seg_inner::far) == "far");
+    CHECK(enum_as_string(seg_inner(10)) == "10"); // between segments
+
+    CHECK(*enum_find_by_name<seg_inner>("p") == seg_inner::p);
+    CHECK(*enum_find_by_name<seg_inner>("far") == seg_inner::far);
+    CHECK(!enum_find_by_name<seg_inner>("-")); // placeholder is not a name
+  }
+
+  SECTION("Negative start") {
+    static_assert(*min_value<seg_neg>() == -5);
+    static_assert(*max_value<seg_neg>() == 8);
+
+    CHECK(enum_as_string(seg_neg::lo) == "lo");
+    CHECK(enum_as_string(seg_neg::lo2) == "lo2");
+    CHECK(enum_as_string(seg_neg::hi) == "hi");
+    CHECK(enum_as_string(seg_neg::hi2) == "hi2");
+    CHECK(enum_as_string(seg_neg(0)) == "0"); // between segments
+
+    CHECK(*enum_find_by_name<seg_neg>("lo") == seg_neg::lo);
+    CHECK(*enum_find_by_name<seg_neg>("hi2") == seg_neg::hi2);
+  }
+
+  SECTION("Three ascending segments") {
+    static_assert(*min_value<seg_three>() == 0);
+    static_assert(*max_value<seg_three>() == 11);
+
+    CHECK(enum_as_string(seg_three::a) == "a");
+    CHECK(enum_as_string(seg_three::m) == "m"); // lone-name middle segment
+    CHECK(enum_as_string(seg_three::y) == "y");
+    CHECK(enum_as_string(seg_three(3)) == "3"); // between segments 0 and 1
+    CHECK(enum_as_string(seg_three(7)) == "7"); // between segments 1 and 2
+
+    CHECK(*enum_find_by_name<seg_three>("a") == seg_three::a);
+    CHECK(*enum_find_by_name<seg_three>("m") == seg_three::m);
+    CHECK(*enum_find_by_name<seg_three>("y") == seg_three::y);
+  }
+}
+
+#pragma endregion
 
 // NOLINTEND(readability-function-cognitive-complexity,
 // readability-function-size)

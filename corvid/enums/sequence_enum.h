@@ -295,10 +295,12 @@ template<std::integral T>
 #pragma endregion
 #pragma region range_length
 
-// Length of range.
+// Length of range: the count of values in `[min, max]`, including any unnamed
+// gaps. Returns 0 when the range spans the full underlying type and the count
+// wraps, matching the bitmask `range_length`.
 template<SequentialEnum E>
 [[nodiscard]] constexpr auto range_length() noexcept {
-  return to_integer<size_t>(seq_size_v<E>);
+  return static_cast<size_t>(seq_size_v<E>);
 }
 
 #pragma endregion
@@ -597,14 +599,96 @@ private:
 #pragma region details
 
 namespace details {
-// Specialization of `sequence_enum_spec`, adding a list of names for the
-// values. Use `make_sequence_enum_spec` to construct.
+
+// A contiguous run of enum values `[start, start + length)`, with the names in
+// the matching slice of the packed array.
+//
+// Segments are stored in ascending, non-overlapping order, so a slice's offset
+// is the running sum of the preceding segments' lengths. A dense registration
+// is a single segment; a sparse one breaks the runs apart at the gaps, sizing
+// the packed array to the named count, not the value range.
+template<std::integral U>
+struct enum_segment {
+  U start;
+  size_t length;
+};
+
+// Parse a segment's absolute start value: a decimal integer with an optional
+// leading '-', from an already-trimmed, non-empty view.
+template<std::integral U>
+[[nodiscard]] consteval U parse_segment_start(std::string_view sv) {
+  const bool neg = (sv.front() == '-');
+  U value{};
+  for (size_t ndx = neg ? 1 : 0; ndx != sv.size(); ++ndx)
+    value = static_cast<U>(value * 10 + (sv[ndx] - '0'));
+  return neg ? static_cast<U>(-value) : value;
+}
+
+// The packed names, segment table, and derived value range produced by parsing
+// the segmented registration form.
+template<std::integral U, size_t N, size_t S>
+struct segmented_names {
+  std::array<std::string_view, N> packed{};
+  std::array<enum_segment<U>, S> segments{};
+  U min{};
+  U max{};
+};
+
+// Parse the segmented registration string into packed names plus a segment
+// table.
+//
+// Each '|'-delimited segment is `start, name, name, ...`: the first
+// comma-field is the absolute start value and the rest are names, with the
+// same placeholder handling as the dense form. Segments must ascend and be
+// separated by a gap; overlap and zero-gap adjacency are rejected, since
+// adjacent runs are just one segment. `min` and `max` are derived from them.
+template<strings::fixed_string names, std::integral U, size_t N, size_t S>
+[[nodiscard]] consteval auto parse_segmented_names() {
+  segmented_names<U, N, S> name_segments{};
+  const auto seg_views = strings::fixed_split<names, "|", "">();
+  size_t packed_ndx{};
+  for (size_t segment_ndx = 0; segment_ndx != S; ++segment_ndx) {
+    auto seg = seg_views[segment_ndx];
+    const auto comma = seg.find(',');
+    if (comma == seg.npos)
+      throw "segmented enum: each segment needs a start value and a name";
+    const U start =
+        parse_segment_start<U>(strings::trim(seg.substr(0, comma)));
+    if (segment_ndx != 0) {
+      if (start <= name_segments.max)
+        throw "segmented enum: segments must ascend and not overlap";
+      if (start - name_segments.max == 1)
+        throw "segmented enum: adjacent segments should be a single segment";
+    }
+    auto rest = seg.substr(comma + 1);
+    size_t length{};
+    while (true) {
+      const auto next = rest.find(',');
+      name_segments.packed[packed_ndx++] =
+          strings::trim(rest.substr(0, next), " -?*");
+      ++length;
+      if (next == rest.npos) break;
+      rest = rest.substr(next + 1);
+    }
+    name_segments.segments[segment_ndx] = enum_segment<U>{start, length};
+    if (segment_ndx == 0) name_segments.min = start;
+    name_segments.max = static_cast<U>(start + static_cast<U>(length) - 1);
+  }
+  return name_segments;
+}
+
+// Specialization of `sequence_enum_spec`, adding names for the values, stored
+// as a packed array plus a segment table.
 template<ScopedEnum E, E maxseq = E{}, E minseq = E{},
-    wrapclip wrapseq = wrapclip{}, size_t N = 0>
+    wrapclip wrapseq = wrapclip{}, size_t N = 0, size_t S = 1>
 struct sequence_enum_names_spec
     : public sequence_enum_spec<E, maxseq, minseq, wrapseq> {
-  constexpr sequence_enum_names_spec(std::array<std::string_view, N> name_list)
-      : names(name_list) {}
+  using U = std::underlying_type_t<E>;
+
+  constexpr sequence_enum_names_spec(
+      std::array<std::string_view, N> packed_names,
+      std::array<enum_segment<U>, S> segment_table)
+      : names(packed_names), segments(segment_table) {}
 
   // Append the name for `v`, falling back to its numeric text when `v` is out
   // of range or names a placeholder slot.
@@ -620,25 +704,44 @@ struct sequence_enum_names_spec
   // The forward half of the name<->enum mapping: a fast lookup returning the
   // canonical name for `v`, or an empty view if `v` is out of range or names a
   // placeholder slot.
+  //
+  // Walks the segments in order (O(1) for a dense enum's single segment),
+  // stopping once `v` falls below a segment's start, and indexes into the
+  // packed names.
   [[nodiscard]] constexpr std::string_view find_name_by_enum(
       E v) const noexcept {
-    auto n = as_underlying(v);
-    size_t ofs = n - *min_value<E>();
-    if (ofs < names.size() && names[ofs].size()) return names[ofs];
+    const auto n = as_underlying(v);
+    size_t offset = 0;
+    for (const auto& seg : segments) {
+      if (n < seg.start) break;
+      const auto intra = static_cast<size_t>(n - seg.start);
+      if (intra < seg.length) {
+        const auto name = names[offset + intra];
+        return name.size() ? name : std::string_view{};
+      }
+      offset += seg.length;
+    }
     return {};
   }
 
-  // The reverse half of the name<->enum mapping: a linear search of the names
-  // for an exact match, returning the enum, or nullopt. Names only: unlike
-  // `lookup`, it never interprets numeric text, so it stays usable in a
-  // constant expression.
+  // The reverse half of the name<->enum mapping: a linear search of the packed
+  // names, segment by segment, for an exact match, recovering the enum as the
+  // segment's start plus the intra-segment index.
+  //
+  // Names only: unlike `lookup`, it never interprets numeric text, so it stays
+  // usable in a constant expression. The inter-segment gaps never appear in
+  // the scan.
   [[nodiscard]] constexpr std::optional<E> find_enum_by_name(
       std::string_view sv) const noexcept {
     if (sv.empty()) return {};
-    auto found = std::find(names.begin(), names.end(), sv);
-    return found != names.end()
-               ? make<E>(std::distance(names.begin(), found) + *min_value<E>())
-               : std::optional<E>{};
+    size_t offset = 0;
+    for (const auto& seg : segments) {
+      for (size_t ndx = 0; ndx != seg.length; ++ndx)
+        if (names[offset + ndx] == sv)
+          return make<E>(static_cast<U>(seg.start + static_cast<U>(ndx)));
+      offset += seg.length;
+    }
+    return {};
   }
 
   // Map a candidate name to the registry's own copy of it, or an empty view if
@@ -666,6 +769,7 @@ struct sequence_enum_names_spec
   }
 
   const std::array<std::string_view, N> names;
+  const std::array<enum_segment<U>, S> segments;
 };
 } // namespace details
 
@@ -674,23 +778,54 @@ struct sequence_enum_names_spec
 
 // Make an `enum_spec_v` from a list of names, marking `E` as a sequence enum.
 //
-// The list must be a string literal, delimited by commas. Whitespace is
-// trimmed. An element that is empty, a hyphen, or a question mark or asterisk
-// is a placeholder, and its numeric value is printed instead of a name. The
-// same applies to values outside the name list's range.
+// The list must be a string literal. Whitespace is trimmed. An element that is
+// empty, a hyphen, or a question mark or asterisk is a placeholder, and its
+// numeric value is printed instead of a name. The same applies to values
+// outside the named range.
+//
+// In the dense form, the names are a single comma-delimited list indexed from
+// `minseq`. The `maxseq` is calculated from the number of names, but if the
+// minimum value isn't 0, you must set `minseq` to it. This is the right choice
+// even if there are a few gaps.
+//
+// In the segmented form, a '|' separates two or more segments (with no leading
+// or trailing '|'), listed in ascending order and separated by gaps (overlap
+// or zero-gap adjacency is a compile-time error, since adjacent runs are one
+// segment). Each segment's first comma-field is its absolute start value and
+// the rest are names. This compacts a sparse enum: the gaps between segments
+// cost nothing, instead of a placeholder per skipped value. `min` and `max`
+// are derived from the segments, so `minseq` is not passed.
 //
 // Set `wrapseq` to `wrapclip::limit` to enable wrapping.
-//
-// The `maxseq` is automatically calculated from the number of names, but if
-// the minimum value isn't 0, you must set `minseq` to it.
 template<ScopedEnum E, strings::fixed_string names,
     wrapclip wrapseq = wrapclip{}, E minseq = E{}>
 [[nodiscard]] consteval auto make_sequence_enum_spec() {
-  constexpr auto name_array = strings::fixed_split_trim<names, " -?*">();
-  constexpr auto name_count = name_array.size();
-  constexpr auto maxseq = E{as_underlying(minseq) + name_count - 1};
-  return details::sequence_enum_names_spec<E, maxseq, minseq, wrapseq,
-      name_count>{name_array};
+  using U = std::underlying_type_t<E>;
+  constexpr auto whole = names.view();
+  if constexpr (whole.find('|') == std::string_view::npos) {
+    // Dense form: a single segment spanning the whole name list.
+    constexpr auto name_array = strings::fixed_split_trim<names, " -?*">();
+    constexpr auto name_count = name_array.size();
+    constexpr auto maxseq = E{as_underlying(minseq) + name_count - 1};
+    constexpr std::array<details::enum_segment<U>, 1> segments{
+        {{as_underlying(minseq), name_count}}};
+    return details::sequence_enum_names_spec<E, maxseq, minseq, wrapseq,
+        name_count, 1>{name_array, segments};
+  } else {
+    // Segmented form: min, max, and the segment table are derived from
+    // parsing.
+    static_assert(minseq == E{},
+        "segmented registration derives min from the segments; do not pass "
+        "minseq");
+    constexpr auto seg_count =
+        static_cast<size_t>(std::ranges::count(whole, '|')) + 1;
+    constexpr auto name_count =
+        static_cast<size_t>(std::ranges::count(whole, ','));
+    constexpr auto parsed =
+        details::parse_segmented_names<names, U, name_count, seg_count>();
+    return details::sequence_enum_names_spec<E, E{parsed.max}, E{parsed.min},
+        wrapseq, name_count, seg_count>{parsed.packed, parsed.segments};
+  }
 }
 
 // Make an `enum_spec_v` from a range of values, marking `E` as a sequence

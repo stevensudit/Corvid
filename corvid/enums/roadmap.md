@@ -67,6 +67,18 @@ table.
 This kills the comma walls, drops space from O(range) to O(count), and makes
 reverse lookup O(count). `protocol_type` and `qpack_token` are the witnesses.
 
+Status: the mechanism is implemented and tested. `make_sequence_enum_spec`
+detects the `'|'` form and builds the packed array plus a `{start, length}`
+segment table; a dense enum is a single segment, so existing registrations are
+unchanged. Segments must be listed in ascending order and separated by a gap
+(overlap and zero-gap adjacency are rejected at registration as compile-time
+errors), which lets forward lookup stop early and keeps the door open for a
+future binary search. The `Segmented` case in
+`sequence_enum_test.cpp` covers forward, reverse, in-segment placeholders,
+negative starts, and multi-segment ascending runs. Remaining follow-up: convert
+the two witnesses to the segmented form (they still compile in the dense form
+meanwhile).
+
 ### 2. Self-contained bitmask lookup (layering)
 
 The reverse path for bitmask enums parses the `"a + b + c"` combination in the
