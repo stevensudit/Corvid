@@ -487,7 +487,7 @@ struct bitmask_enum_names_spec
       const std::array<std::string_view, N>& name_list)
       : names(name_list) {}
 
-  auto& append(AppendTarget auto& target, E v) const {
+  [[nodiscard]] auto& append(AppendTarget auto& target, E v) const {
     if constexpr (N == bits_length<E>())
       return details::do_bit_append(target, v, names);
     else if constexpr (N)
@@ -496,7 +496,7 @@ struct bitmask_enum_names_spec
       return strings::append_num<16>(target, *v);
   }
 
-  bool lookup(E& v, std::string_view sv) const {
+  [[nodiscard]] bool lookup(E& v, std::string_view sv) const {
     if (sv.empty()) return false;
     if (registry::details::lookup_helper(v, sv)) {
       if constexpr (bit_clip_v<E>)

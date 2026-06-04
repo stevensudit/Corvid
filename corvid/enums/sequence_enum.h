@@ -608,7 +608,7 @@ struct sequence_enum_names_spec
 
   // Append the name for `v`, falling back to its numeric text when `v` is out
   // of range or names a placeholder slot.
-  constexpr auto& append(AppendTarget auto& target, E v) const {
+  [[nodiscard]] constexpr auto& append(AppendTarget auto& target, E v) const {
     const auto name = find_name_by_enum(v);
     if (name.empty())
       strings::append_num(target, as_underlying(v));
