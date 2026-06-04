@@ -307,6 +307,7 @@ template<SequentialEnum E>
 #pragma region Lookup
 
 // Look up the canonical name for value, or an empty view if it has none.
+// Requires `E` to be registered with a name list.
 template<SequentialEnum E>
 [[nodiscard]] constexpr std::string_view enum_as_view(E v) noexcept {
   return registry::enum_spec_v<std::decay_t<E>>.find_name_by_enum(v);
