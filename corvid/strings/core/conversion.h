@@ -306,6 +306,7 @@ auto& append_stream(AppendTarget auto& target, const OStreamable auto& t) {
 #pragma endregion
 #pragma region consteval
 
+// Simple compile-time integer parser.
 template<std::integral U>
 [[nodiscard]] consteval std::optional<U> parse_int(std::string_view sv) {
   if (sv.empty()) return std::nullopt;
@@ -315,20 +316,19 @@ template<std::integral U>
     sv.remove_prefix(1);
     if (sv.empty()) return std::nullopt;
   }
-  // Accumulate in the negative domain so the most-negative value of a signed
-  // type stays representable; its magnitude exceeds the positive maximum.
-  // Unsigned types already rejected a leading sign above, so they accumulate
-  // positively.
+  // For signed types, accumulate in the negative domain so the most-negative
+  // value of a signed type stays representable; its magnitude exceeds the
+  // positive maximum.
   U value{};
   for (const char c : sv) {
     if (!strings::is_digit(c)) return std::nullopt;
-    if constexpr (std::is_signed_v<U>)
-      value = static_cast<U>((value * 10) - (c - '0'));
-    else
-      value = static_cast<U>((value * 10) + (c - '0'));
+    U digit = c - '0';
+    if constexpr (std::is_signed_v<U>) digit = -digit;
+    value *= 10;
+    value += digit;
   }
   if constexpr (std::is_signed_v<U>)
-    return neg ? value : static_cast<U>(-value);
+    if (!neg) value = -value;
   return value;
 }
 

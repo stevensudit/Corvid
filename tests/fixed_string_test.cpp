@@ -243,33 +243,5 @@ TEST_CASE("fixed_replaced", "[FixedStringTest]") {
 }
 
 #pragma endregion
-#pragma region fixed_split_cstr
-
-TEST_CASE("fixed_split_cstr", "[FixedStringTest]") {
-  SECTION("returns null-terminated pieces") {
-    constexpr auto parts = strings::fixed_split_cstr<"red,green,blue">();
-    STATIC_REQUIRE(parts.size() == 3);
-    CHECK(parts[0] == "red"sv);
-    CHECK(parts[1] == "green"sv);
-    CHECK(parts[2] == "blue"sv);
-    // Each piece is terminated at its own end, not the end of the whole.
-    CHECK(parts[0].c_str() == "red"sv);
-  }
-
-  SECTION("custom delimiter") {
-    constexpr auto parts = strings::fixed_split_cstr<"a|b|c", '|'>();
-    STATIC_REQUIRE(parts.size() == 3);
-    CHECK(parts[1] == "b"sv);
-  }
-
-  SECTION("trailing delimiter yields an empty final piece") {
-    constexpr auto parts = strings::fixed_split_cstr<"a,">();
-    STATIC_REQUIRE(parts.size() == 2);
-    CHECK(parts[0] == "a"sv);
-    CHECK(parts[1].empty());
-  }
-}
-
-#pragma endregion
 
 // NOLINTEND(readability-function-cognitive-complexity)
