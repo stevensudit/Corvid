@@ -294,12 +294,26 @@ TEST_CASE("Workalike", "[OptStringViewTest]") {
     opt_string_view osv;
     CHECK_FALSE(osv.has_value());
     CHECK(osv.value_or("def") == "def");
-    osv.emplace("abc");
+    osv = "abc"sv;
     CHECK(osv.has_value());
     CHECK(osv.value() == "abc");
     CHECK(osv.value_or("def") == "abc");
     osv.reset();
     CHECK_FALSE(osv.has_value());
+  }
+
+  // value_or preserves the argument's type: an SV fallback yields an SV, while
+  // a same-typed child fallback yields the child (keeping its invariants).
+  if (true) {
+    opt_string_view present{"abc"};
+    opt_string_view absent;
+    CHECK(
+        (std::is_same_v<decltype(present.value_or("x"sv)), std::string_view>));
+    CHECK((std::is_same_v<decltype(present.value_or(opt_string_view{})),
+        opt_string_view>));
+    CHECK(present.value_or(opt_string_view{"def"}) == "abc");
+    CHECK(absent.value_or(opt_string_view{"def"}) == "def");
+    CHECK_FALSE(absent.value_or(opt_string_view{"def"}).null());
   }
 
   // Interaction with temporaries and moved-from values.
@@ -323,7 +337,6 @@ TEST_CASE("Workalike", "[OptStringViewTest]") {
     opt_string_view osv{"qqq"};
     // NOLINTNEXTLINE(performance-move-const-arg)
     CHECK(std::move(osv).value_or("def") == "qqq");
-    opt_string_view{"aaa"}.emplace("bbb");
   }
 }
 
@@ -331,7 +344,6 @@ auto accept_string_view(std::string_view v) { return v; }
 auto accept_opt_string_view(opt_string_view v) { return v; }
 
 void accept_string_view_ref(std::string_view& v) { v = "changed"; }
-void accept_string_view_rref(std::string_view&& v) { v = "changed"; }
 
 std::string_view accept_overloaded(std::string_view) { return "sv"; }
 std::string_view accept_overloaded(opt_string_view) { return "osv"; }
@@ -366,28 +378,23 @@ TEST_CASE("Cast", "[OptStringViewTest]") {
   CHECK(StringViewConvertible<opt_string_view>);
 
   auto osv = "abc"_osv;
-  std::string_view sv = osv;
-  accept_string_view_ref(sv);
-  // And even this.
-  accept_string_view_ref(osv);
-  // NOLINTNEXTLINE(performance-move-const-arg)
-  accept_string_view_rref(std::move(sv));
-  // NOLINTNEXTLINE(bugprone-use-after-move,clang-analyzer-cplusplus.Move)
-  CHECK(sv == "changed");
-  // NOLINTNEXTLINE(performance-move-const-arg)
-  accept_string_view_rref(std::move(osv));
-  // NOLINTNEXTLINE(bugprone-use-after-move,clang-analyzer-cplusplus.Move)
-  CHECK(osv == "changed");
-  // Same thing happens with `std::string`. If you want this not to happen, you
-  // need to prevent conversion (by hiding behind `enable_if` or forcing a
-  // conversion to a transitional type).
-  auto s = ""s;
-  accept_string_view_rref(s);
-  CHECK(s == "");
 
+  // Converts to `std::string_view` by value. The conversion yields a copy, so
+  // (unlike the old design that inherited from `std::string_view`)
+  // `opt_string_view` is not a mutable alias: mutating the copy leaves `osv`
+  // alone, and binding `osv` to a `std::string_view&` no longer compiles.
+  std::string_view sv = osv;
+  CHECK(sv == "abc");
+  accept_string_view_ref(sv);
+  CHECK(sv == "changed");
+  CHECK(osv == "abc");
+  // * accept_string_view_ref(osv);
+
+  // It still converts into a `std::string`.
+  std::string s;
   s = osv;
-  CHECK(s == "changed");
-  CHECK(std::string(osv) == "changed");
+  CHECK(s == "abc");
+  CHECK(std::string(osv) == "abc");
 }
 
 #pragma endregion
@@ -414,6 +421,11 @@ TEST_CASE("OptStringViewTestEqual", "[OptStringViewTestEqual]") {
 
   CHECK("abc"s == "abc"_osv);
   CHECK("abc"_osv == "abc"s);
+
+  // operator!= is synthesized from operator== (C++20), in both directions.
+  CHECK("abc"_osv != "def");
+  CHECK("def" != "abc"_osv);
+  CHECK_FALSE("abc"_osv != "abc");
 
   // null and empty.
   constexpr auto e = ""_osv;

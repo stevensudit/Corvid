@@ -15,30 +15,35 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 #pragma once
-#include <string>
-#include <string_view>
+#include <concepts>
+#include <iterator>
 #include <optional>
 #include <stdexcept>
-#include <iterator>
+#include <string>
+#include <string_view>
 #include <utility>
-#include <concepts>
+
+#include "string_view_wrapper.h"
 
 namespace corvid {
 inline namespace optstringview {
 
-// Optional string view.
+// Optional string view
 //
-// The purpose of this class is to provide a std::string_view with
-// optional semantics, better handling null vs. empty.
+// A `std::string_view` with optional semantics, distinguishing null from
+// empty.
 //
-// Fundamentally, it's just a `std::string_view` with some semantic differences
-// in the construction and a few `std::optional`-like methods. It changes
-// construction and interpretation, but does not fundamentally constrain
-// content, which is why it can be implemented as a child of
-// `std::string_view`. In specific, it assumes that any string view it's fed
-// was valid.
+// Fundamentally it's a `std::string_view` with different construction and a
+// few `std::optional`-like methods. It changes construction and interpretation
+// but does not constrain content.
 //
-// Unlike using `std::string` for everything, this avoids the overhead of
+// It is built on `string_view_wrapper`, but converts to a
+// `std::string_view` freely. The wrapper supplies the read-only view API, the
+// null/empty distinction, and the optional interface; this class adds the
+// lenient constructors and the reslicing operations (`substr`,
+// `remove_prefix`, `remove_suffix`) that its lack of any invariant makes safe.
+//
+// Unlike using `std::string` for everything, this class avoids the overhead of
 // copying while still preserving the distinction between `empty` and `null`.
 //
 // Like a `std::string_view`, `data` sometimes returns `nullptr` when `size` is
@@ -50,109 +55,98 @@ inline namespace optstringview {
 // Like `std::optional<std::string_view>`, it can distinguish between missing
 // null and empty, and offers such things as existence checks and defaults.
 //
-// The most convenient way to declare a `constexpr opt_string_view` is
-// with a literal using the `_osv` UDL.
+// The most convenient way to declare a `constexpr opt_string_view` is with a
+// literal using the `_osv` UDL.
 //
 // For comparison purposes, `empty` and `null` values are always equivalent. If
 // you want to check for an exact match that distinguishes between these two
 // states, use `same`.
-class opt_string_view final: public std::string_view {
+
+#pragma region basic_opt_string_view
+
+template<typename char_t = char>
+class basic_opt_string_view final
+    : public string_view_wrapper<basic_opt_string_view<char_t>, char_t> {
+  using wrapper = string_view_wrapper<basic_opt_string_view<char_t>, char_t>;
+
+#pragma region Member types
 public:
-  using base = std::string_view;
+  using SV = typename wrapper::view_t;
+  using size_type = typename wrapper::size_type;
+  using wrapper::npos;
 
-  //
-  // Construction
-  //
+#pragma endregion
+#pragma region Construction
 
-  constexpr opt_string_view() noexcept = default;
-  constexpr opt_string_view(std::nullptr_t) noexcept {}
-  constexpr opt_string_view(std::nullopt_t) noexcept {}
+  constexpr basic_opt_string_view() noexcept = default;
+  constexpr basic_opt_string_view(std::nullptr_t) noexcept {}
+  constexpr basic_opt_string_view(std::nullopt_t) noexcept {}
 
-  constexpr opt_string_view(const base& sv) noexcept : base{sv} {}
-  constexpr opt_string_view(const std::string& s) noexcept : base{s} {}
-  constexpr opt_string_view(const char* ps, size_t l)
-      : base{from_ptr(ps, l)} {}
-  constexpr opt_string_view(const char* psz) : base{from_ptr(psz)} {}
+  constexpr basic_opt_string_view(SV sv) noexcept : wrapper{sv} {}
+  constexpr basic_opt_string_view(const std::basic_string<char_t>& s) noexcept
+      : wrapper{SV{s}} {}
+  constexpr basic_opt_string_view(const char_t* ps, size_type l)
+      : wrapper{from_ptr(ps, l)} {}
+  constexpr basic_opt_string_view(const char_t* psz)
+      : wrapper{from_ptr(psz)} {}
   template<std::contiguous_iterator It, std::sized_sentinel_for<It> End>
-  requires std::same_as<std::iter_value_t<It>, char> &&
+  requires std::same_as<std::iter_value_t<It>, char_t> &&
            (!std::convertible_to<End, size_type>)
-  constexpr opt_string_view(It first, End last)
-      : base{from_ptr(std::to_address(first), last - first)} {}
+  constexpr basic_opt_string_view(It first, End last)
+      : wrapper{from_ptr(std::to_address(first),
+            static_cast<size_type>(last - first))} {}
 
   // Optional as null.
-  constexpr opt_string_view(
-      const std::optional<std::string_view>& osv) noexcept
-      : base{osv ? *osv : base{}} {}
-  constexpr opt_string_view(const std::optional<std::string>& os) noexcept
-      : base{os ? *os : base{}} {}
+  constexpr basic_opt_string_view(const std::optional<SV>& osv) noexcept
+      : wrapper{osv ? SV{*osv} : SV{}} {}
+  constexpr basic_opt_string_view(
+      const std::optional<std::basic_string<char_t>>& os) noexcept
+      : wrapper{os ? SV{*os} : SV{}} {}
 
-  constexpr opt_string_view& operator=(const base& sv) noexcept {
-    return *this = opt_string_view{sv};
-  }
-
-  // Novel
-
-  // Whether `data` is `nullptr`.
-  [[nodiscard]] constexpr bool null() const noexcept { return !data(); }
-
-  // Essentially `operator===`, distinguishing between empty and null.
-  [[nodiscard]] constexpr bool same(opt_string_view v) const noexcept {
-    return ((*this == v) && (null() == v.null()));
-  }
-
-  // std::optional workalike.
-  [[nodiscard]] constexpr bool has_value() const noexcept { return !null(); }
-  [[nodiscard]] constexpr explicit operator bool() const noexcept {
-    return has_value();
-  }
-  [[nodiscard]] constexpr const base& value() const noexcept { return *this; }
-  [[nodiscard]] constexpr base& operator*() noexcept { return *this; }
-  [[nodiscard]] constexpr const base& operator*() const noexcept {
+  constexpr basic_opt_string_view& operator=(SV sv) noexcept {
+    this->sv_ = sv;
     return *this;
   }
-  [[nodiscard]] constexpr base value_or(base v) const noexcept {
-    return *this ? base{*this} : v;
-  }
-  constexpr base* operator->() { return this; }
-  constexpr const base* operator->() const { return this; }
-  constexpr explicit
-  operator std::optional<std::string_view>() const noexcept {
-    return *this ? *this : std::nullopt;
-  }
-  template<typename T>
-  requires std::convertible_to<T, opt_string_view>
-  constexpr void swap(std::optional<T>& other) noexcept {
-    opt_string_view tmp = *this;
-    *this = other;
-    other = tmp;
-  }
-  constexpr void reset() noexcept { *this = std::nullopt; }
-  template<class... Args>
-  constexpr opt_string_view& emplace(Args&&... args) {
-    return *this = opt_string_view{std::forward<Args>(args)...};
-  }
 
+#pragma endregion
+#pragma region Reslicing
+
+  // Safe because, unlike `cstring_view`, this imposes no termination
+  // invariant.
+  [[nodiscard]] constexpr SV
+  substr(size_type pos = 0, size_type n = npos) const {
+    return this->sv_.substr(pos, n);
+  }
+  constexpr void remove_prefix(size_type n) { this->sv_.remove_prefix(n); }
+  constexpr void remove_suffix(size_type n) { this->sv_.remove_suffix(n); }
+
+#pragma endregion
+#pragma region Helpers
 private:
-  [[nodiscard]] static constexpr base from_ptr(const char* psz) {
-    // Null pointer maps to default instance.
-    return psz ? base{psz} : base{};
+  [[nodiscard]] static constexpr SV from_ptr(const char_t* psz) {
+    // Null pointer maps to the null (default) instance.
+    return psz ? SV{psz} : SV{};
+  }
+  [[nodiscard]] static constexpr SV from_ptr(const char_t* ps, size_type l) {
+    // A null pointer is always zero-length. We don't enforce this for the
+    // underlying view, since a null with a non-zero length is undefined
+    // behavior for it, but not for us.
+    if (!ps && l) l = 0;
+    return SV{ps, l};
   }
 
-  [[nodiscard]] static constexpr base from_ptr(const char* ps, size_t l) {
-    // Null is always zero-length. But note that we do not enforce this when
-    // dealing with base instances. We expect them to be valid, since a null
-    // with a non-zero length is undefined behavior for them, but not us.
-    if (!ps && l) l = 0;
-    return base{ps, l};
-  }
+#pragma endregion
 };
+
+using opt_string_view = basic_opt_string_view<char>;
+
+#pragma endregion
 
 } // namespace optstringview
 
 namespace literals {
-//
-// UDL
-//
+
+#pragma region UDL
 
 // opt_string_view literal.
 constexpr opt_string_view
@@ -165,6 +159,8 @@ constexpr opt_string_view operator""_osv(unsigned long long zero_only) {
   if (zero_only) throw std::out_of_range("opt_string_view not zero");
   return opt_string_view{};
 }
+
+#pragma endregion
 
 } // namespace literals
 } // namespace corvid
