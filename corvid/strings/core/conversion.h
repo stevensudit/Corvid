@@ -23,9 +23,20 @@
 
 namespace corvid::strings { inline namespace conversion {
 
+// Conversions
 //
-// Numerical conversions
+// Conversions between strings and other representations, organized into nested
+// inline namespaces:
 //
+// - `cvt_int`: parse, extract, and format integral (and bool) values.
+// - `cvt_float`: parse, extract, and format floating-point values.
+// - `cvt_bytes`: reinterpret raw bytes between `std::string_view` and spans.
+// - `cvt_stream`: append user types that opt in via `operator<<`.
+//
+// Within `cvt_int` and `cvt_float`, the `extract_num`, `parse_num`,
+// `append_num`, and `num_as_string` names are shared and selected by overload.
+
+#pragma region cvt_int
 
 inline namespace cvt_int {
 
@@ -131,6 +142,10 @@ template<int base = 10, size_t width = 0, char pad = ' '>
 }
 
 } // namespace cvt_int
+
+#pragma endregion
+#pragma region cvt_float
+
 inline namespace cvt_float {
 
 // To float.
@@ -230,6 +245,9 @@ num_as_string(std::floating_point auto num) {
 
 } // namespace cvt_float
 
+#pragma endregion
+#pragma region cvt_bytes
+
 inline namespace cvt_bytes {
 
 // Reinterpret the bytes of `sv` as a span of `char_t`.
@@ -249,6 +267,9 @@ as_string_view(std::span<char_t> s) noexcept {
 }
 
 } // namespace cvt_bytes
+
+#pragma endregion
+#pragma region cvt_stream
 
 inline namespace cvt_stream {
 
@@ -280,4 +301,7 @@ auto& append_stream(AppendTarget auto& target, const OStreamable auto& t) {
   return target;
 }
 } // namespace cvt_stream
+
+#pragma endregion
+
 }} // namespace corvid::strings::conversion

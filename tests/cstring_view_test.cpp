@@ -267,7 +267,6 @@ TEST_CASE("Construction", "[CStringViewTest]") {
     CHECK(d.size() == 3U);
     auto e = 0_csv;
     CHECK(e.null());
-    CHECK_THROWS_AS((1_csv), std::out_of_range);
   }
 }
 
@@ -378,10 +377,8 @@ TEST_CASE("CStringViewTestEqual", "[CStringViewTestEqual]") {
   constexpr auto e = ""_csv;
   constexpr auto n = 0_csv;
 
-  CHECK_THROWS_AS(1_csv, std::out_of_range);
-
-  // It's really constexpr, despite throwing on non-0, because it knows at
-  // compile-time that it's 0.
+  // `0_csv` is consteval, so `n` is computed at compile time; a non-zero
+  // literal like `1_csv` would not compile.
   if constexpr (n.empty()) { CHECK(true); }
 
   auto csv = cstring_view{"abc"};

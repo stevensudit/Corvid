@@ -19,12 +19,15 @@
 
 namespace corvid::strings { inline namespace cases {
 
+// Cases
 //
-// Character predicates.
-//
-// These are intentionally simple, avoiding localization and Unicode
-// complications.
-//
+// ASCII letter-case utilities: character predicates, case conversion, and
+// case-insensitive comparison. Everything here is deliberately ASCII-only and
+// locale-independent, sidestepping the localization and Unicode complications
+// (and the cost) of the `std::ctype` and `std::toupper`/`std::tolower`
+// facilities.
+
+#pragma region Character predicates
 
 [[nodiscard]] constexpr bool is_lower(char c) noexcept {
   return c >= 'a' && c <= 'z';
@@ -46,9 +49,8 @@ namespace corvid::strings { inline namespace cases {
   return is_alpha(c) || is_digit(c);
 }
 
-//
-// Case change.
-//
+#pragma endregion
+#pragma region Case change
 
 // Convert to uppercase.
 // Avoids `std::toupper` because it's locale-dependent and slow.
@@ -86,6 +88,9 @@ constexpr void to_lower(Range auto& r) noexcept {
   return s;
 }
 
+#pragma endregion
+#pragma region ci_equal
+
 // Compare case-insensitively. In many cases, it is better to store `as_lower`
 // versions and compare those, particularly if one of the values is checked
 // against repeatedly.
@@ -96,5 +101,7 @@ ci_equal(std::string_view lhs, std::string_view rhs) noexcept {
     if (to_lower(lhs[i]) != to_lower(rhs[i])) return false;
   return true;
 }
+
+#pragma endregion
 
 }} // namespace corvid::strings::cases

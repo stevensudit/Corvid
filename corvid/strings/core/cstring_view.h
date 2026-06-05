@@ -29,6 +29,16 @@
 namespace corvid {
 inline namespace cstringview {
 
+// C-string view
+//
+// This header defines `basic_cstring_view`, a `std::string_view` that also
+// guarantees zero termination, along with its per-character-type aliases
+// (`cstring_view`, `wcstring_view`, and so on) and the `_csv` family of UDLs
+// in the `literals` namespace. See the class comment below for the rationale
+// and invariants.
+
+#pragma region basic_cstring_view
+
 // String view of a C-style, zero-terminated string.
 //
 // The purpose of this class is to provide a drop-in replacement for
@@ -86,12 +96,13 @@ inline namespace cstringview {
 // `[foo; foo + size()]` is valid. The difference is that, when `null`, a call
 // to `c_str` returns an empty, terminated string but `data` returns `nullptr`.
 //
-// This revanchist implementation is based closely on Andrew Tomazos'
-// wrongly rejected ANSI committee proposal.
+// This revanchist implementation is based closely on Andrew Tomazos'  wrongly
+// rejected ANSI committee proposal.
 // http://open-std.org/JTC1/SC22/WG21/docs/papers/2019/p1402r0.pdf
 // https://github.com/cplusplus/papers/issues/189
 template<typename T = std::string_view>
 class basic_cstring_view final {
+#pragma region Member types
 public:
   using SV = T;
   using CharT = SV::value_type;
@@ -109,9 +120,8 @@ public:
   using difference_type = SV::difference_type;
   static constexpr size_type npos = SV::npos;
 
-  //
-  // Construction
-  //
+#pragma endregion
+#pragma region Construction
 
   // Safe construction.
   //
@@ -145,9 +155,8 @@ public:
       : basic_cstring_view{opt.has_value() ? basic_cstring_view{*opt}
                                            : basic_cstring_view{}} {}
 
-  //
-  // Passthrough
-  //
+#pragma endregion
+#pragma region Passthrough
 
   constexpr basic_cstring_view& operator=(
       const basic_cstring_view& csv) noexcept = default;
@@ -241,17 +250,15 @@ public:
     return os << csv.sv_;
   }
 
-  //
-  // Omitted
-  //
+#pragma endregion
+#pragma region Omitted
 
   // `remove_suffix` would break the termination invariant.
 
   // `substr` would likewise do so if `count` isn't `npos` or `size`.
 
-  //
-  // New
-  //
+#pragma endregion
+#pragma region New
 
   // Whether `data` is `nullptr`.
   [[nodiscard]] constexpr bool null() const noexcept { return !sv_.data(); }
@@ -279,8 +286,13 @@ public:
     return ((*this == v) && (null() == v.null()));
   }
 
+#pragma endregion
+#pragma region Data members
 private:
   SV sv_;
+
+#pragma endregion
+#pragma region Helpers
 
   [[nodiscard]] static constexpr SV from_ptr(const char* psz) {
     return psz ? SV{psz} : SV{};
@@ -299,6 +311,8 @@ private:
     sv.remove_suffix(1);
     return sv;
   }
+
+#pragma endregion
 };
 
 // Specialized aliases.
@@ -307,50 +321,51 @@ using wcstring_view = basic_cstring_view<std::wstring_view>;
 using u8cstring_view = basic_cstring_view<std::u8string_view>;
 using u16cstring_view = basic_cstring_view<std::u16string_view>;
 using u32cstring_view = basic_cstring_view<std::u32string_view>;
+
+#pragma endregion
+
 } // namespace cstringview
 namespace literals {
 
-//
-// UDL
-//
+#pragma region UDL
 
 // basic_cstring_view literals.
-constexpr cstring_view operator""_csv(const char* ps, std::size_t n) {
+consteval cstring_view operator""_csv(const char* ps, std::size_t n) {
   return cstring_view{std::string_view{ps, n + 1}};
 }
-constexpr wcstring_view operator""_wcsv(const wchar_t* ps, std::size_t n) {
+consteval wcstring_view operator""_wcsv(const wchar_t* ps, std::size_t n) {
   return wcstring_view{std::wstring_view{ps, n + 1}};
 }
-constexpr u8cstring_view operator""_u8csv(const char8_t* ps, std::size_t n) {
+consteval u8cstring_view operator""_u8csv(const char8_t* ps, std::size_t n) {
   return u8cstring_view{std::u8string_view{ps, n + 1}};
 }
-constexpr u16cstring_view
+consteval u16cstring_view
 operator""_u16csv(const char16_t* ps, std::size_t n) {
   return u16cstring_view{std::u16string_view{ps, n + 1}};
 }
-constexpr u32cstring_view
+consteval u32cstring_view
 operator""_u32csv(const char32_t* ps, std::size_t n) {
   return u32cstring_view{std::u32string_view{ps, n + 1}};
 }
 
 // Null literal; must pass 0.
-constexpr cstring_view operator""_csv(unsigned long long zero_only) {
+consteval cstring_view operator""_csv(unsigned long long zero_only) {
   if (zero_only) throw std::out_of_range("cstring_view not zero");
   return cstring_view{};
 }
-constexpr wcstring_view operator""_wcsv(unsigned long long zero_only) {
+consteval wcstring_view operator""_wcsv(unsigned long long zero_only) {
   if (zero_only) throw std::out_of_range("wcstring_view not zero");
   return wcstring_view{};
 }
-constexpr u8cstring_view operator""_u8csv(unsigned long long zero_only) {
+consteval u8cstring_view operator""_u8csv(unsigned long long zero_only) {
   if (zero_only) throw std::out_of_range("u8cstring_view not zero");
   return u8cstring_view{};
 }
-constexpr u16cstring_view operator""_u16csv(unsigned long long zero_only) {
+consteval u16cstring_view operator""_u16csv(unsigned long long zero_only) {
   if (zero_only) throw std::out_of_range("u16cstring_view not zero");
   return u16cstring_view{};
 }
-constexpr u32cstring_view operator""_u32csv(unsigned long long zero_only) {
+consteval u32cstring_view operator""_u32csv(unsigned long long zero_only) {
   if (zero_only) throw std::out_of_range("u32cstring_view not zero");
   return u32cstring_view{};
 }
@@ -359,6 +374,8 @@ constexpr u32cstring_view operator""_u32csv(unsigned long long zero_only) {
 cstring_view operator""_env(const char* ps, std::size_t) noexcept {
   return std::getenv(ps);
 }
+
+#pragma endregion
 
 } // namespace literals
 } // namespace corvid
