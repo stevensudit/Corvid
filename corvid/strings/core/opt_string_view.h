@@ -86,15 +86,14 @@ public:
   constexpr basic_opt_string_view(const std::basic_string<char_t>& s) noexcept
       : wrapper{SV{s}} {}
   constexpr basic_opt_string_view(const char_t* ps, size_type l)
-      : wrapper{from_ptr(ps, l)} {}
-  constexpr basic_opt_string_view(const char_t* psz)
-      : wrapper{from_ptr(psz)} {}
+      : wrapper{ps, l} {}
+  constexpr basic_opt_string_view(const char_t* psz) : wrapper{psz} {}
   template<std::contiguous_iterator It, std::sized_sentinel_for<It> End>
   requires std::same_as<std::iter_value_t<It>, char_t> &&
            (!std::convertible_to<End, size_type>)
   constexpr basic_opt_string_view(It first, End last)
-      : wrapper{from_ptr(std::to_address(first),
-            static_cast<size_type>(last - first))} {}
+      : wrapper{std::to_address(first), static_cast<size_type>(last - first)} {
+  }
 
   // Optional as null.
   constexpr basic_opt_string_view(const std::optional<SV>& osv) noexcept
@@ -119,21 +118,6 @@ public:
   }
   constexpr void remove_prefix(size_type n) { this->sv_.remove_prefix(n); }
   constexpr void remove_suffix(size_type n) { this->sv_.remove_suffix(n); }
-
-#pragma endregion
-#pragma region Helpers
-private:
-  [[nodiscard]] static constexpr SV from_ptr(const char_t* psz) {
-    // Null pointer maps to the null (default) instance.
-    return psz ? SV{psz} : SV{};
-  }
-  [[nodiscard]] static constexpr SV from_ptr(const char_t* ps, size_type l) {
-    // A null pointer is always zero-length. We don't enforce this for the
-    // underlying view, since a null with a non-zero length is undefined
-    // behavior for it, but not for us.
-    if (!ps && l) l = 0;
-    return SV{ps, l};
-  }
 
 #pragma endregion
 };

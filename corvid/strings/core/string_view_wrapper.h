@@ -244,6 +244,15 @@ protected:
   constexpr explicit string_view_wrapper(view_t sv = view_t{}) noexcept
       : sv_{sv} {}
 
+  // Null-safe pointer construction, so a child that accepts raw pointers
+  // routes through here instead of `view_t`'s pointer constructors, which
+  // crash (or are undefined) on a null pointer. A null `psz` becomes the null
+  // instance; a null `ps` with a non-zero `l` is treated as zero-length.
+  constexpr explicit string_view_wrapper(const char_t* psz)
+      : sv_{from_ptr(psz)} {}
+  constexpr string_view_wrapper(const char_t* ps, size_type l)
+      : sv_{from_ptr(ps, l)} {}
+
 #pragma endregion
 #pragma region Data members
 
@@ -251,10 +260,21 @@ protected:
 
 #pragma endregion
 #pragma region Helpers
-private:
+protected:
   // Downcast to the concrete child (CRTP).
   [[nodiscard]] constexpr const child_t& as_child() const noexcept {
     return static_cast<const child_t&>(*this);
+  }
+
+  // Null pointer maps to the null (default) instance.
+  [[nodiscard]] static constexpr view_t from_ptr(const char_t* psz) {
+    return psz ? view_t{psz} : view_t{};
+  }
+  // Null pointer is always zero-length.
+  [[nodiscard]] static constexpr view_t
+  from_ptr(const char_t* ps, size_type l) {
+    if (!ps && l) l = 0;
+    return view_t{ps, l};
   }
 
 #pragma endregion
