@@ -27,21 +27,49 @@ namespace corvid { inline namespace meta { inline namespace concepts {
 template<typename T, typename U>
 concept SameAs = std::same_as<T, std::remove_cvref_t<U>>;
 
+// `T` must be a type derived from `std::basic_ostream<C>`.
+template<typename T, typename C>
+concept BasicOStreamDerived = std::derived_from<T, std::basic_ostream<C>>;
+
 // `T` must be a type derived from `std::ostream`.
 template<typename T>
-concept OStreamDerived = std::derived_from<T, std::ostream>;
+concept OStreamDerived = BasicOStreamDerived<T, char>;
+
+// `T` must derive from `std::basic_ostream<C>` for some code unit `C`.
+template<typename T>
+concept AnyOStreamDerived = requires {
+  typename T::char_type;
+} && BasicOStreamDerived<T, typename T::char_type>;
 
 // `T` must be a type that can be inserted into a `std::ostream`.
 template<typename T>
 concept OStreamable = requires(T t, std::ostream& os) { os << t; };
 
+// `T` must be a `std::basic_string<C>`.
+template<typename T, typename C>
+concept BasicStdString = SameAs<std::basic_string<C>, T>;
+
 // `T` must be a `std::string`.
 template<typename T>
-concept StdString = SameAs<std::string, T>;
+concept StdString = BasicStdString<T, char>;
+
+// `T` must be a `std::basic_string<C>` for some code unit `C`.
+template<typename T>
+concept AnyStdString = requires {
+  typename T::value_type;
+} && BasicStdString<T, typename T::value_type>;
+
+// `T` must be a target to append to with code unit `C`.
+template<typename T, typename C>
+concept BasicAppendTarget = BasicOStreamDerived<T, C> || BasicStdString<T, C>;
 
 // `T` must be a target to append to.
 template<typename T>
-concept AppendTarget = OStreamDerived<T> || StdString<T>;
+concept AppendTarget = BasicAppendTarget<T, char>;
+
+// `T` must be a target to append to with some code unit.
+template<typename T>
+concept AnyAppendTarget = AnyOStreamDerived<T> || AnyStdString<T>;
 
 // `T` must be an enum, which could be scoped or not.
 template<typename T>
@@ -71,6 +99,14 @@ concept NullPtr = SameAs<T, std::nullptr_t>;
 template<typename T>
 concept Char = SameAs<char, T>;
 
+// `T` must be a character (code-unit) type: `char`, `char8_t`, `char16_t`,
+// `char32_t`, or `wchar_t`. Note that we exclude `unsigned char` and `signed
+// char` as they are not supported by `std::char_traits`.
+template<typename T>
+concept CharType =
+    SameAs<char, T> || SameAs<char8_t, T> || SameAs<char16_t, T> ||
+    SameAs<char32_t, T> || SameAs<wchar_t, T>;
+
 // `T` must be a char*.
 template<typename T>
 concept CharPtr = SameAs<char*, std::remove_cvref_t<T>>;
@@ -81,10 +117,14 @@ concept CharArray =
     std::is_array_v<std::remove_cvref_t<T>> &&
     SameAs<char, std::remove_extent_t<T>>;
 
+// `T` must be implicitly convertible to `std::basic_string_view<C>`.
+template<typename T, typename C>
+concept BasicStringViewConvertible =
+    std::is_convertible_v<T, std::basic_string_view<C>> && (!NullPtr<T>);
+
 // `T` must be implicitly convertible to `std::string_view`.
 template<typename T>
-concept StringViewConvertible =
-    std::is_convertible_v<T, std::string_view> && (!NullPtr<T>);
+concept StringViewConvertible = BasicStringViewConvertible<T, char>;
 
 // `T` must be a void pointer.
 template<typename T>

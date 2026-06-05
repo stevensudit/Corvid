@@ -41,8 +41,14 @@ class appender;
 // This replaces the CRTP pattern - the `this auto&& self` parameter deduces
 // the actual derived type, allowing base class methods to call derived
 // class methods and return the correct type.
-template<typename T>
+template<typename T, typename C>
 class appender_base {
+#pragma region Types
+public:
+  using char_t = C;
+  using view_t = std::basic_string_view<char_t>;
+
+#pragma endregion
 #pragma region Construction
 public:
   explicit appender_base(T& target) : target_{target} {}
@@ -52,15 +58,13 @@ public:
 
   // Deducing this: `self` deduces to the actual derived type (appender<T>).
   // All append overloads forward to append_sv or append_ch in the derived.
-  auto& append(this auto&& self, std::string_view sv) {
-    return self.append_sv(sv);
+  auto& append(this auto&& self, view_t sv) { return self.append_sv(sv); }
+  auto& append(this auto&& self, const char_t* ps, size_t len) {
+    return self.append(view_t{ps, len});
   }
-  auto& append(this auto&& self, const char* ps, size_t len) {
-    return self.append(std::string_view{ps, len});
-  }
-  auto& append(this auto&& self, char ch) { return self.append_ch(1, ch); }
+  auto& append(this auto&& self, char_t ch) { return self.append_ch(1, ch); }
   // NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
-  auto& append(this auto&& self, size_t len, char ch) {
+  auto& append(this auto&& self, size_t len, char_t ch) {
     return self.append_ch(len, ch);
   }
 
@@ -82,24 +86,26 @@ protected:
 #pragma endregion
 };
 
-// std::ostream specialization.
-template<OStreamDerived T>
-class appender<T> final: public appender_base<T> {
-  using appender_base<T>::target_;
+// `std::basic_ostream` specialization.
+template<AnyOStreamDerived T>
+class appender<T> final: public appender_base<T, typename T::char_type> {
+  using char_t = typename T::char_type;
+  using base = appender_base<T, char_t>;
+  using base::target_;
 
 #pragma region Construction
 public:
-  using appender_base<T>::appender_base;
+  using base::base;
 
 #pragma endregion
 #pragma region Appending
 private:
-  friend appender_base<T>;
-  auto& append_sv(std::string_view sv) {
+  friend base;
+  auto& append_sv(std::basic_string_view<char_t> sv) {
     target_.write(sv.data(), sv.size());
     return *this;
   }
-  auto& append_ch(size_t len, char ch) {
+  auto& append_ch(size_t len, char_t ch) {
     while (len--) target_.put(ch);
     return *this;
   }
@@ -107,14 +113,16 @@ private:
 #pragma endregion
 };
 
-// String specialization.
-template<StdString T>
-class appender<T> final: public appender_base<T> {
-  using appender_base<T>::target_;
+// `std::basic_string` specialization.
+template<AnyStdString T>
+class appender<T> final: public appender_base<T, typename T::value_type> {
+  using char_t = typename T::value_type;
+  using base = appender_base<T, char_t>;
+  using base::target_;
 
 #pragma region Construction
 public:
-  using appender_base<T>::appender_base;
+  using base::base;
 
 #pragma endregion
 #pragma region Appending
@@ -125,12 +133,12 @@ public:
   }
 
 private:
-  friend appender_base<T>;
-  auto& append_sv(std::string_view sv) {
+  friend base;
+  auto& append_sv(std::basic_string_view<char_t> sv) {
     target_.append(sv);
     return *this;
   }
-  auto& append_ch(size_t len, char ch) {
+  auto& append_ch(size_t len, char_t ch) {
     if (len == 1)
       target_.push_back(ch);
     else
@@ -142,7 +150,7 @@ private:
 };
 
 // Deduction guide.
-template<AppendTarget T>
+template<AnyAppendTarget T>
 appender(T) -> appender<T>;
 
 #pragma endregion appender
