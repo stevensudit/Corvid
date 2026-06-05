@@ -40,6 +40,14 @@ struct alpha_tag {};
 struct beta_tag {};
 using alpha = tagged_string_view<alpha_tag>;
 using beta = tagged_string_view<beta_tag>;
+
+// UDLs that build each tagged type straight from a string literal.
+consteval alpha operator""_alpha(const char* s, std::size_t n) {
+  return alpha{std::string_view{s, n}};
+}
+consteval beta operator""_beta(const char* s, std::size_t n) {
+  return beta{std::string_view{s, n}};
+}
 } // namespace
 
 // NOLINTBEGIN(readability-function-cognitive-complexity,
@@ -101,6 +109,24 @@ TEST_CASE("TaggedConstruction", "[tagged_string_view]") {
     c = a;
     CHECK(c == "abc");
   }
+}
+
+#pragma endregion
+#pragma region Literals
+
+TEST_CASE("TaggedLiterals", "[tagged_string_view]") {
+  // The UDLs yield the tagged type directly, distinct per tag.
+  auto a = "abc"_alpha;
+  auto b = "xyz"_beta;
+  static_assert(std::is_same_v<decltype(a), alpha>);
+  static_assert(std::is_same_v<decltype(b), beta>);
+  CHECK(a == "abc");
+  CHECK(b == "xyz");
+  CHECK_FALSE(a.null());
+
+  // An empty literal still yields a non-null, empty view.
+  CHECK(""_alpha.empty());
+  CHECK_FALSE(""_alpha.null());
 }
 
 #pragma endregion

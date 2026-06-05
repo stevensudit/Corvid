@@ -15,6 +15,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 #pragma once
+#include <cassert>
 #include <concepts>
 #include <optional>
 #include <ostream>
@@ -167,14 +168,20 @@ public:
     return has_value();
   }
   // The value as the `Child` itself, not a bare `SV`, so the child's
-  // invariants carry through `value`, `operator*`, and `operator->`.
-  [[nodiscard]] constexpr const child_t& value() const noexcept {
+  // invariants carry through `value`, `operator*`, and `operator->`. As with
+  // `std::optional`, `value` throws `std::bad_optional_access` when `null`,
+  // while `operator*` and `operator->` are undefined when `null` (asserted in
+  // debug builds).
+  [[nodiscard]] constexpr const child_t& value() const {
+    if (null()) throw std::bad_optional_access{};
     return as_child();
   }
   [[nodiscard]] constexpr const child_t& operator*() const noexcept {
+    assert(!null());
     return as_child();
   }
   [[nodiscard]] constexpr const child_t* operator->() const noexcept {
+    assert(!null());
     return &as_child();
   }
 

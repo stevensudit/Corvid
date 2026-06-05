@@ -302,6 +302,18 @@ TEST_CASE("Workalike", "[OptStringViewTest]") {
     CHECK_FALSE(osv.has_value());
   }
 
+  // value throws bad_optional_access when null; operator* and operator-> are
+  // undefined on null, so only the present case is exercised for them.
+  if (true) {
+    opt_string_view absent;
+    CHECK_THROWS_AS(absent.value(), std::bad_optional_access);
+
+    opt_string_view present{"abc"};
+    CHECK(present.value() == "abc");
+    CHECK(*present == "abc");
+    CHECK(present->size() == 3);
+  }
+
   // value_or preserves the argument's type: an SV fallback yields an SV, while
   // a same-typed child fallback yields the child (keeping its invariants).
   if (true) {
