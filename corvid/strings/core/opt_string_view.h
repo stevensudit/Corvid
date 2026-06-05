@@ -88,9 +88,9 @@ class basic_opt_string_view final
 #pragma region Member types
 public:
   using tag_type = Tag;
-  using char_t = typename base::char_t;
-  using view_t = typename base::view_t;
-  using size_type = typename base::size_type;
+  using char_t = base::char_t;
+  using view_t = base::view_t;
+  using size_type = base::size_type;
   using base::npos;
 
   using string_t = std::basic_string<Char>;

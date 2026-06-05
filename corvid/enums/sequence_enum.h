@@ -15,6 +15,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 #pragma once
+#include <algorithm>
 #include <string>
 #include <string_view>
 #include <stdexcept>
@@ -617,49 +618,22 @@ struct enum_segment {
   size_t length;
 };
 
-// Parse a segment's absolute start value: a decimal integer with an optional
-// leading '-', taken verbatim from the segment's start field.
-template<std::integral U>
-[[nodiscard]] consteval U parse_segment_start(std::string_view sv) {
-  if (sv.empty())
-    throw std::invalid_argument(
-        "segmented enum: segment needs a start value before its names");
-  const bool neg = (sv.front() == '-');
-  if (neg) {
-    if constexpr (std::is_unsigned_v<U>)
-      throw std::invalid_argument(
-          "segmented enum: negative start value for an unsigned enum");
-    sv.remove_prefix(1);
-    if (sv.empty())
-      throw std::invalid_argument(
-          "segmented enum: segment start value is just a sign");
-  }
-  U value{};
-  for (const char c : sv) {
-    if (c < '0' || c > '9')
-      throw std::invalid_argument(
-          "segmented enum: segment start value must be a decimal integer");
-    value = static_cast<U>(value * 10 + (c - '0'));
-  }
-  return neg ? static_cast<U>(-value) : value;
-}
-
 // The packed names, segment table, and derived value range produced by parsing
 // the segmented registration form. Exists only at compile time as an
-// intermedary for constructing the final `sequence_enum_names_spec`.
-template<std::integral U, size_t N, size_t S>
+// intermediary for constructing the final `sequence_enum_names_spec`.
+template<std::integral U, size_t NameCount, size_t SegCount>
 struct segmented_names {
-  std::array<cstring_view, N> packed{};
-  std::array<enum_segment<U>, S> segments{};
+  std::array<cstring_view, NameCount> packed{};
+  std::array<enum_segment<U>, SegCount> segments{};
   U min{};
   U max{};
 };
 
 // Create a length-preserving copy of the registration with both delimiters
-// ('|' and
-// ',') turned into terminators, so each field becomes an independently
-// null-terminated span in place. The packed names are views into this buffer,
-// which is held as a template parameter and so has static storage.
+// ('|' and ',') turned into terminators, so each field becomes an
+// independently null-terminated span in place. The packed names are views into
+// this buffer, which is held as a template parameter and so has static
+// storage.
 template<strings::fixed_string names>
 [[nodiscard]] consteval auto make_nulled() {
   return strings::fixed_replaced<strings::fixed_replaced<names, '|', '\0'>(),
@@ -676,42 +650,42 @@ template<strings::fixed_string names>
 // segment, using empty names for the gap, since a single-value gap costs the
 // same as an empty name. `min` and `max` are derived from them. The packed
 // names are views into `Nulled`.
-template<strings::fixed_string names, std::integral U, size_t N, size_t S,
-    strings::fixed_string Nulled = make_nulled<names>()>
+template<strings::fixed_string names, std::integral U, size_t NameCount,
+    size_t SegCount, strings::fixed_string Nulled = make_nulled<names>()>
 [[nodiscard]] consteval auto parse_segmented_names() {
-  segmented_names<U, N, S> name_segments{};
+  segmented_names<U, NameCount, SegCount> name_segments{};
   constexpr auto whole = names.view();
   const char* base = Nulled.data();
   size_t packed_ndx{};
   size_t pos{};
-  for (size_t segment_ndx = 0; segment_ndx != S; ++segment_ndx) {
-    size_t seg_end = whole.find('|', pos);
-    if (seg_end == whole.npos) seg_end = whole.size();
+
+  for (size_t segment_ndx = 0; segment_ndx != SegCount; ++segment_ndx) {
+    const size_t seg_end = std::min(whole.find('|', pos), whole.size());
     const size_t comma = whole.find(',', pos);
-    if (comma == whole.npos || comma > seg_end)
-      throw std::invalid_argument(
-          "segmented enum: each segment needs a start value and a name");
-    const U start = parse_segment_start<U>(whole.substr(pos, comma - pos));
+    if (comma > seg_end) throw std::invalid_argument("invalid structure");
+    const auto maybe_start =
+        strings::parse_int<U>(whole.substr(pos, comma - pos));
+    if (!maybe_start) throw std::invalid_argument("invalid segment start");
+
+    const U start = *maybe_start;
     if (segment_ndx != 0) {
       if (start <= name_segments.max)
-        throw std::invalid_argument(
-            "segmented enum: segments must ascend and not overlap");
+        throw std::invalid_argument("segments must ascend");
       if (start - name_segments.max <= 2)
-        throw std::invalid_argument(
-            "segmented enum: segments must be separated by more than one "
-            "value; merge closer runs into one segment with empty names");
+        throw std::invalid_argument("segments too close");
     }
+
     size_t length{};
     size_t field = comma + 1;
     while (true) {
-      size_t field_end = whole.find(',', field);
-      if (field_end == whole.npos || field_end > seg_end) field_end = seg_end;
+      size_t field_end = std::min(whole.find(',', field), seg_end);
       name_segments.packed[packed_ndx++] =
           cstring_view{base + field, field_end - field + 1};
       ++length;
       if (field_end == seg_end) break;
       field = field_end + 1;
     }
+
     name_segments.segments[segment_ndx] = enum_segment<U>{start, length};
     if (segment_ndx == 0) name_segments.min = start;
     name_segments.max = static_cast<U>(start + static_cast<U>(length) - 1);
@@ -723,13 +697,14 @@ template<strings::fixed_string names, std::integral U, size_t N, size_t S,
 // Specialization of `sequence_enum_spec`, adding names for the values, stored
 // as a packed array plus a segment table.
 template<ScopedEnum E, E maxseq = E{}, E minseq = E{},
-    wrapclip wrapseq = wrapclip{}, size_t N = 0, size_t S = 1>
+    wrapclip wrapseq = wrapclip{}, size_t NameCount = 0, size_t SegCount = 1>
 struct sequence_enum_names_spec
     : public sequence_enum_spec<E, maxseq, minseq, wrapseq> {
   using U = std::underlying_type_t<E>;
 
-  constexpr sequence_enum_names_spec(std::array<cstring_view, N> packed_names,
-      std::array<enum_segment<U>, S> segment_table)
+  constexpr sequence_enum_names_spec(
+      std::array<cstring_view, NameCount> packed_names,
+      std::array<enum_segment<U>, SegCount> segment_table)
       : names(packed_names), segments(segment_table) {}
 
   // Append the name for `v`, falling back to its numeric text when `v` is out
@@ -809,8 +784,8 @@ struct sequence_enum_names_spec
     return true;
   }
 
-  const std::array<cstring_view, N> names;
-  const std::array<enum_segment<U>, S> segments;
+  const std::array<cstring_view, NameCount> names;
+  const std::array<enum_segment<U>, SegCount> segments;
 };
 } // namespace details
 
@@ -845,7 +820,7 @@ template<ScopedEnum E, strings::fixed_string names,
 [[nodiscard]] consteval auto make_sequence_enum_spec() {
   using U = std::underlying_type_t<E>;
   constexpr auto whole = names.view();
-  if constexpr (whole.find('|') == std::string_view::npos) {
+  if constexpr (whole.find('|') == whole.npos) {
     // Dense form: a single segment spanning the whole name list. Each
     // comma-field is a verbatim name, viewed in `Nulled`.
     constexpr auto name_count =
@@ -855,8 +830,7 @@ template<ScopedEnum E, strings::fixed_string names,
     size_t name_ndx = 0;
     size_t field = 0;
     while (true) {
-      size_t field_end = whole.find(',', field);
-      if (field_end == whole.npos) field_end = whole.size();
+      const size_t field_end = std::min(whole.find(',', field), whole.size());
       packed[name_ndx++] = cstring_view{base + field, field_end - field + 1};
       if (field_end == whole.size()) break;
       field = field_end + 1;

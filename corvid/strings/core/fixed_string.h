@@ -109,6 +109,7 @@ struct basic_fixed_string {
 #pragma region Conversions
 
   [[nodiscard]] constexpr std::basic_string_view<CharT> view() const {
+    // NOLINTNEXTLINE(bugprone-string-constructor)
     return {do_not_use, N};
   }
   [[nodiscard]] constexpr operator std::basic_string_view<CharT>() const {

@@ -107,10 +107,10 @@ class basic_cstring_view final
 
 #pragma region Member types
 public:
-  using view_t = typename base::view_t;
-  using char_t = typename view_t::value_type;
-  using size_type = typename base::size_type;
-  using const_pointer = typename base::const_pointer;
+  using view_t = base::view_t;
+  using char_t = view_t::value_type;
+  using size_type = base::size_type;
+  using const_pointer = base::const_pointer;
   using base::npos;
 
 #pragma endregion

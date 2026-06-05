@@ -241,6 +241,7 @@ public:
 #pragma endregion
 #pragma region Construction
 protected:
+  // NOLINTBEGIN(bugprone-crtp-constructor-accessibility)
   constexpr explicit string_view_wrapper(view_t sv = view_t{}) noexcept
       : sv_{sv} {}
 
@@ -252,6 +253,7 @@ protected:
       : sv_{from_ptr(psz)} {}
   constexpr string_view_wrapper(const char_t* ps, size_type l)
       : sv_{from_ptr(ps, l)} {}
+  // NOLINTEND(bugprone-crtp-constructor-accessibility)
 
 #pragma endregion
 #pragma region Data members
