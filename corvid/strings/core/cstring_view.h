@@ -159,7 +159,7 @@ public:
   // invariant unless the cut happened to land on the terminator.
 
 #pragma endregion
-#pragma region C-string
+#pragma region c_str
 
   // Pointer to a terminated string; never `nullptr`. When `null`, returns an
   // empty, terminated string. (In contrast, `data` returns `nullptr` when

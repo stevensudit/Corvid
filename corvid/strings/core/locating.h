@@ -81,12 +81,17 @@
 // corvid::literals;` to get `npos` and `nloc`.
 namespace corvid::strings { inline namespace locating {
 
+#pragma region SingleLocateValue
+
 // A single value to `locate`, which can be a `char` or something that converts
 // to a `std::string_view`. Contrast with lists of these values. Note that, in
 // C++20, range-based construction was added for `std::string_view`, so we have
 // to manually exclude it.
 template<typename T>
 concept SingleLocateValue = (StringViewConvertible<T> || Char<T>);
+
+#pragma endregion
+#pragma region as_views
 
 // Convert any container shaped like a `std::span` whose elements are
 // convertible to `std::string_view` into a `std::vector<std::string_view>`
@@ -108,6 +113,9 @@ concept SingleLocateValue = (StringViewConvertible<T> || Char<T>);
   return result;
 }
 
+#pragma endregion
+#pragma region location
+
 // For `locate` on a list of values, the `location` is used to return both
 // the pos of where the value was located in the target and the pos (in
 // the value list) of which value was located. The two values are set to `npos`
@@ -119,6 +127,9 @@ struct location {
   constexpr auto operator<=>(const location&) const noexcept = default;
 };
 
+#pragma endregion
+#pragma region pos_range
+
 // A pos_range is a pair of positions, used to indicate the range of the found
 // item. When nothing is found, both positions are `npos`. Otherwise, `begin`
 // points to the found item and `end` points to the character after it. This is
@@ -127,6 +138,9 @@ struct pos_range {
   position begin{};
   position end{};
 };
+
+#pragma endregion
+#pragma region literals
 
 // To get `npos`, `nloc`, `npos_choice`, and `nloc_value`, use:
 //  using namespace corvid::literals;
@@ -139,6 +153,9 @@ constexpr pos_range npos_range{npos, npos};
 // Whether to return `npos` or `size` when nothing is found.
 enum class npos_choice : std::uint8_t { npos, size };
 } // namespace literals
+
+#pragma endregion
+#pragma region as_npos
 
 // Utility to convert `npos` to `size`, based on `npos_choice`.
 template<npos_choice npv = npos_choice::npos>
@@ -161,6 +178,9 @@ as_nloc(const std::string_view& s, const auto& values, position pos = npos,
   return {pos, pos_value};
 }
 
+#pragma endregion
+#pragma region from_npos
+
 // Utility to convert `size` to `npos`, based on `npos_choice`.
 template<npos_choice npv = npos_choice::npos>
 [[nodiscard]] constexpr position
@@ -178,6 +198,9 @@ from_npos(const std::string_view& s, location loc) noexcept {
   return loc;
 }
 
+#pragma endregion
+#pragma region as_pos_range
+
 // Utility to return `pos_range`.
 [[nodiscard]] constexpr pos_range
 as_pos_range(const std::string_view& s, position pos) noexcept {
@@ -191,6 +214,9 @@ as_pos_range(const std::string_view& s, position pos) noexcept {
   return {loc.pos, loc.pos + value_size(values[loc.pos_value])};
 }
 
+#pragma endregion
+#pragma region value_size
+
 // Size of a single value, regardless of type.
 [[nodiscard]] constexpr size_t value_size(const auto& value) noexcept {
   if constexpr (Char<decltype(value)>)
@@ -198,6 +224,9 @@ as_pos_range(const std::string_view& s, position pos) noexcept {
   else
     return std::string_view{value}.size();
 }
+
+#pragma endregion
+#pragma region min_value_size
 
 // Smallest size of a list of values. If no values, returns 0.
 [[nodiscard]] constexpr size_t min_value_size(
@@ -207,6 +236,9 @@ as_pos_range(const std::string_view& s, position pos) noexcept {
   if (smallest != values.end()) return smallest->size();
   return 0;
 }
+
+#pragma endregion
+#pragma region point_past
 
 // Updates the `pos` or `location` to point past the value that was just
 // located, returning it as well. This can be used with `located` to loop over
@@ -235,9 +267,8 @@ constexpr position point_past(location& loc,
   return point_past(loc, std::span{values.begin(), values.end()});
 }
 
-//
-// Locate
-//
+#pragma endregion
+#pragma region locate
 
 // We define the implementation functions separately from the public interface,
 // avoiding all overloading. The public function then takes any type and
@@ -249,6 +280,8 @@ constexpr position point_past(location& loc,
 // in a way that is much less brittle in the face on ongoing language changes.
 // C++23 broke this scheme in at least two distinct ways, so we should expect
 // more of the same in the future.
+
+#pragma region helpers
 
 // This namespace contains helpers that should not be called directly, but are
 // also not purely internal implementation details because this is where the
@@ -279,7 +312,7 @@ namespace helpers {
 // intentional (and otherwise good) change in C++23. To fix the break and
 // remove future brittleness, we now overload more explicitly.
 
-// Single character locating.
+#pragma region Single character
 
 // Locate single char.
 template<npos_choice npv = npos_choice::npos>
@@ -312,7 +345,8 @@ template<npos_choice npv = npos_choice::npos>
   return as_npos<npv>(s, s.find_last_not_of(value, pos));
 }
 
-// Single string locating.
+#pragma endregion
+#pragma region Single string
 
 // Locate single string.
 template<npos_choice npv = npos_choice::npos>
@@ -358,7 +392,8 @@ template<npos_choice npv = npos_choice::npos>
   return from_npos<npv>(s, pos);
 }
 
-// Multiple character `locate`, `locate_not`, `rlocate`, `rlocate_not`.
+#pragma endregion
+#pragma region Multiple character
 
 // Locate the first instance of any of the `values` of type `char` in `s`,
 // starting at `pos`.
@@ -428,7 +463,8 @@ template<npos_choice npv = npos_choice::npos>
   return as_nloc<npv>(s, values);
 }
 
-// Locate strings.
+#pragma endregion
+#pragma region Multiple string
 
 // Locate the first instance of any of the `values` of type `std::string_view`
 // in `s`, starting at `pos`.
@@ -515,7 +551,12 @@ template<npos_choice npv = npos_choice::npos>
   return as_nloc<npv>(s, values);
 }
 
+#pragma endregion
+
 } // namespace helpers
+
+#pragma endregion
+#pragma region locate
 
 // NOLINTBEGIN(bugprone-branch-clone)
 
@@ -556,6 +597,9 @@ template<npos_choice npv = npos_choice::npos>
       std::span<const std::string_view>{values.begin(), values.end()}, pos);
 }
 
+#pragma endregion
+#pragma region locate_not
+
 // NOLINTBEGIN(bugprone-branch-clone)
 
 // See documentation for the corresponding `details::locate_not_*` above.
@@ -595,6 +639,9 @@ template<npos_choice npv = npos_choice::npos>
       std::span<const std::string_view>{values.begin(), values.end()}, pos);
 }
 
+#pragma endregion
+#pragma region rlocate
+
 // NOLINTBEGIN(bugprone-branch-clone)
 
 // See documentation for the corresponding `details::rlocate_*` above.
@@ -633,6 +680,9 @@ template<npos_choice npv = npos_choice::npos>
   return rlocate<npv>(s,
       std::span<const std::string_view>{values.begin(), values.end()}, pos);
 }
+
+#pragma endregion
+#pragma region rlocate_not
 
 // NOLINTBEGIN(bugprone-branch-clone)
 
@@ -674,9 +724,11 @@ template<npos_choice npv = npos_choice::npos>
       std::span<const std::string_view>{values.begin(), values.end()}, pos);
 }
 
-//
-// Located
-//
+#pragma endregion
+#pragma endregion
+#pragma region located
+
+#pragma region located
 
 // Return whether a single `value` was located in `s`, starting at `pos`,
 // and updating `pos` to where it was located. Works for `char` and
@@ -697,6 +749,10 @@ located(position& pos, std::string_view s, auto&& value) noexcept {
     static_assert(false, "Multiple values not supported");
   return {};
 }
+
+#pragma endregion
+#pragma region located_not
+
 template<npos_choice npv = npos_choice::npos>
 constexpr bool
 located_not(position& pos, std::string_view s, auto&& value) noexcept {
@@ -707,6 +763,10 @@ located_not(position& pos, std::string_view s, auto&& value) noexcept {
     static_assert(false, "Multiple values not supported");
   return {};
 }
+
+#pragma endregion
+#pragma region rlocated
+
 // Same as above, but from the rear. To locate the previous instance,
 // subtract 1.
 //
@@ -727,6 +787,10 @@ rlocated(position& pos, std::string_view s, const auto& value) noexcept {
     static_assert(false, "Multiple values not supported");
   return {};
 }
+
+#pragma endregion
+#pragma region rlocated_not
+
 template<npos_choice npv = npos_choice::npos>
 constexpr bool
 rlocated_not(position& pos, std::string_view s, const auto& value) noexcept {
@@ -741,6 +805,9 @@ rlocated_not(position& pos, std::string_view s, const auto& value) noexcept {
     static_assert(false, "Multiple values not supported");
   return {};
 }
+
+#pragma endregion
+#pragma region Multiple values
 
 // Return whether any of the `values` were located in `s`, starting at the
 // `pos` in `loc`, and updating both the `pos` and `pos_value`. Ignores the
@@ -776,9 +843,9 @@ constexpr bool rlocated(location& loc, std::string_view s, auto&& values) {
   return {};
 }
 
-//
-// count_located
-//
+#pragma endregion
+#pragma endregion
+#pragma region count_located
 
 // Return count of instances of a `value` in `s`, starting at `pos`.
 [[nodiscard]] size_t
@@ -805,9 +872,10 @@ count_located(std::string_view s, auto&& value, position pos = 0) {
       std::span<const std::string_view>{values.begin(), values.end()}, pos);
 }
 
-//
-// Substitute
-//
+#pragma endregion
+#pragma region substitute
+
+#pragma region Single value
 
 // Substitute all instances of `from` in `s` with `to`, returning count of
 // substitutions. Note that an empty `from` follows the same behavior as Python
@@ -829,6 +897,10 @@ size_t substitute(std::string& s, const SingleLocateValue auto& from,
   }
   return cnt;
 }
+
+#pragma endregion
+#pragma region Multiple chars
+
 inline size_t substitute(std::string& s, std::span<const char> from,
     std::span<const char> to, position pos = 0) {
   size_t cnt{};
@@ -842,6 +914,10 @@ inline size_t substitute(std::string& s, std::initializer_list<char> from,
   return substitute(s, std::span<const char>{from}, std::span<const char>{to},
       pos);
 }
+
+#pragma endregion
+#pragma region Multiple strings
+
 inline size_t substitute(std::string& s,
     std::span<const std::string_view> from,
     std::span<const std::string_view> to, position pos = 0) {
@@ -861,9 +937,9 @@ inline size_t substitute(std::string& s,
       std::span<const std::string_view>{to}, pos);
 }
 
-//
-// Substituted
-//
+#pragma endregion
+#pragma endregion
+#pragma region substituted
 
 // Return new string that contains `s` with `from` replaced with `to`.
 [[nodiscard]] std::string
@@ -883,9 +959,10 @@ substituted(std::string s, const auto& from, const auto& to) {
   return s;
 }
 
-//
-// Excise
-//
+#pragma endregion
+#pragma region excise
+
+#pragma region Single value
 
 // Excise all instances of `from` in `s`, returning count of
 // excisions. An empty `from` clears the string.
@@ -905,6 +982,10 @@ excise(std::string& s, const SingleLocateValue auto& from, position pos = 0) {
   }
   return cnt;
 }
+
+#pragma endregion
+#pragma region Multiple chars
+
 inline size_t
 excise(std::string& s, std::span<const char> from, position pos = 0) {
   if (from.empty() || pos >= s.size()) return 0;
@@ -929,6 +1010,10 @@ inline size_t
 excise(std::string& s, std::initializer_list<char> from, position pos = 0) {
   return excise(s, std::span<const char>{from}, pos);
 }
+
+#pragma endregion
+#pragma region Multiple strings
+
 inline size_t excise(std::string& s, std::span<const std::string_view> from,
     position pos = 0) {
   if (from.empty() || pos >= s.size()) return 0;
@@ -966,9 +1051,9 @@ inline size_t excise(std::string& s,
   return excise(s, std::span<const std::string_view>{from}, pos);
 }
 
-//
-// Excised.
-//
+#pragma endregion
+#pragma endregion
+#pragma region excised
 
 // Return new string that contains `s` with `from` excised.
 [[nodiscard]] std::string excised(std::string s, const auto& from) {
@@ -985,6 +1070,8 @@ excised(std::string s, std::initializer_list<std::string_view> from) {
   excise(s, from);
   return s;
 }
+
+#pragma endregion
 
 }} // namespace corvid::strings::locating
 

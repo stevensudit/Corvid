@@ -15,10 +15,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 #pragma once
-#include "../core/lite.h"
-#include "enum_conversion.h"
+#include "../core/strings_shared.h"
+#include "../core/targeting.h"
+#include "../core/delimiting.h"
+#include "../core/conversion.h"
 #include "../../enums/bitmask_enum.h"
 #include "../../enums/sequence_enum.h"
+#include "enum_conversion.h"
 
 // Recommendation: While you can import the entire `corvid::strings` namespace,
 // you may not want to bring in all of these symbols, or you may wish to do so
