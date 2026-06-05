@@ -22,66 +22,82 @@ namespace corvid::strings { inline namespace trimming {
 
 #pragma region Trim
 
-// For all trim functions, `delim` defaults to " " and can be specified as any
-// set of characters.
+// For all trim functions, the delimiter defaults to a single space and can be
+// any set of characters of the haystack's code unit. The return type `R`
+// defaults to a view of the haystack; pass an owning string type to get a
+// copy.
 
 // Trim whitespace on left, returning part. When all whitespace, returns empty.
-template<typename R = std::string_view>
-[[nodiscard]] constexpr auto trim_left(std::string_view whole, delim ws = {}) {
-  auto pos = ws.find_not_in(whole);
-  std::string_view part;
-  if (pos != part.npos) part = whole.substr(pos);
+template<StringViewLike S,
+    typename R = std::basic_string_view<char_type_of_t<S>>>
+[[nodiscard]] constexpr auto
+trim_left(const S& whole, basic_delim<char_type_of_t<S>> ws = {}) {
+  using C = char_type_of_t<S>;
+  const std::basic_string_view<C> sv{as_view(whole)};
+  auto pos = ws.find_not_in(sv);
+  std::basic_string_view<C> part;
+  if (pos != part.npos) part = sv.substr(pos);
   return R{part};
 }
 
 // Trim whitespace on right, returning part. When all whitespace, returns
 // empty.
-template<typename R = std::string_view>
+template<StringViewLike S,
+    typename R = std::basic_string_view<char_type_of_t<S>>>
 [[nodiscard]] constexpr auto
-trim_right(std::string_view whole, delim ws = {}) {
-  auto pos = ws.find_last_not_in(whole);
-  auto part = whole.substr(0, pos + 1);
-  return R{part};
+trim_right(const S& whole, basic_delim<char_type_of_t<S>> ws = {}) {
+  using C = char_type_of_t<S>;
+  const std::basic_string_view<C> sv{as_view(whole)};
+  auto pos = ws.find_last_not_in(sv);
+  return R{sv.substr(0, pos + 1)};
 }
 
 // Trim whitespace, returning part.
-template<typename R = std::string_view>
-[[nodiscard]] constexpr auto trim(std::string_view whole, delim ws = {}) {
-  return trim_right<R>(trim_left(whole, ws), ws);
+template<StringViewLike S,
+    typename R = std::basic_string_view<char_type_of_t<S>>>
+[[nodiscard]] constexpr auto
+trim(const S& whole, basic_delim<char_type_of_t<S>> ws = {}) {
+  return R{trim_right(trim_left(whole, ws), ws)};
 }
 
 // Trim container in place.
-constexpr void trim(Container auto& wholes, const delim ws = {}) {
+template<Container Cont, typename Char = char>
+constexpr void trim(Cont& wholes, basic_delim<Char> ws = {}) {
   for (auto& item : wholes) {
     auto& part = element_value(item);
-    part = trim<std::remove_reference_t<decltype(part)>>(part, ws);
+    using P = std::remove_cvref_t<decltype(part)>;
+    part = trim<P, P>(part, ws);
   }
 }
 
 // Trim whitespace on left in place.
-inline void trim_left(std::string& whole, delim ws = {}) {
-  auto pos = ws.find_not_in(std::string_view{whole});
-  if (pos == std::string_view::npos)
+template<typename C>
+void trim_left(std::basic_string<C>& whole, basic_delim<C> ws = {}) {
+  const std::basic_string_view<C> sv{whole};
+  auto pos = ws.find_not_in(sv);
+  if (pos == sv.npos)
     whole.clear();
   else if (pos)
     whole.erase(0, pos);
 }
 
 // Trim whitespace on right in place.
-inline void trim_right(std::string& whole, delim ws = {}) {
-  auto sv = std::string_view{whole};
+template<typename C>
+void trim_right(std::basic_string<C>& whole, basic_delim<C> ws = {}) {
+  const std::basic_string_view<C> sv{whole};
   auto pos = ws.find_last_not_in(sv);
-  if (pos == std::string_view::npos)
+  if (pos == sv.npos)
     whole.clear();
   else if (pos + 1 < whole.size())
     whole.erase(pos + 1);
 }
 
 // Trim whitespace in place.
-inline void trim(std::string& whole, delim ws = {}) {
-  auto sv = std::string_view{whole};
+template<typename C>
+void trim(std::basic_string<C>& whole, basic_delim<C> ws = {}) {
+  const std::basic_string_view<C> sv{whole};
   auto left = ws.find_not_in(sv);
-  if (left == std::string_view::npos) {
+  if (left == sv.npos) {
     whole.clear();
     return;
   }
@@ -93,28 +109,47 @@ inline void trim(std::string& whole, delim ws = {}) {
 #pragma endregion
 #pragma region Braces
 
-// For braces, the `delim` is interpreted as a pair of characters.
+// Backing storage for the default square-bracket brace pair, per code unit.
+template<typename Char>
+inline constexpr Char square_braces[] = {Char('['), Char(']')};
+
+// The default brace pair ("[]") for the given code unit.
+template<typename Char>
+[[nodiscard]] constexpr basic_delim<Char> bracket_delim() noexcept {
+  return basic_delim<Char>{
+      std::basic_string_view<Char>{square_braces<Char>, 2}};
+}
+
+// For braces, the delimiter is interpreted as a pair of characters.
 
 // Trim off matching braces, returning part.
-template<typename R = std::string_view>
-[[nodiscard]] constexpr auto
-trim_braces(std::string_view whole, delim braces = {"[]"}) {
+template<StringViewLike S,
+    typename R = std::basic_string_view<char_type_of_t<S>>>
+[[nodiscard]] constexpr auto trim_braces(const S& whole,
+    basic_delim<char_type_of_t<S>> braces =
+        bracket_delim<char_type_of_t<S>>()) {
+  using C = char_type_of_t<S>;
+  std::basic_string_view<C> sv{as_view(whole)};
   auto front = braces.front();
   auto back = braces.back();
-  if (whole.size() > 1 && whole.front() == front && whole.back() == back) {
-    whole.remove_prefix(1);
-    whole.remove_suffix(1);
+  if (sv.size() > 1 && sv.front() == front && sv.back() == back) {
+    sv.remove_prefix(1);
+    sv.remove_suffix(1);
   }
-  return R{whole};
+  return R{sv};
 }
 
 // Add braces.
-[[nodiscard]] constexpr auto
-add_braces(std::string_view whole, delim braces = {"[]"}) {
-  std::string target;
-  target.reserve(whole.size() + 2);
+template<StringViewLike S>
+[[nodiscard]] constexpr auto add_braces(const S& whole,
+    basic_delim<char_type_of_t<S>> braces =
+        bracket_delim<char_type_of_t<S>>()) {
+  using C = char_type_of_t<S>;
+  const std::basic_string_view<C> sv{as_view(whole)};
+  std::basic_string<C> target;
+  target.reserve(sv.size() + 2);
   target.push_back(braces.front());
-  target.append(whole);
+  target.append(sv);
   target.push_back(braces.back());
   return target;
 }

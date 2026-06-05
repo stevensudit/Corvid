@@ -261,6 +261,40 @@ TEST_CASE("WideDelim", "[StringUtilsTest]") {
 
 #pragma endregion
 
+// Test trimming over a wide code unit.
+#pragma region WideTrim
+
+TEST_CASE("WideTrim", "[StringUtilsTest]") {
+  // Value-returning trims default to a view of the haystack's code unit.
+  CHECK(strings::trim(u"  hi  ") == u"hi");
+  CHECK(strings::trim_left(u"..xy", strings::basic_delim<char16_t>{u"."}) ==
+        u"xy");
+  CHECK(strings::trim_right(u"xy..", strings::basic_delim<char16_t>{u"."}) ==
+        u"xy");
+
+  // An owning return type is requested as the second template argument.
+  const std::u16string owned =
+      strings::trim<std::u16string_view, std::u16string>(u"  hi  "sv);
+  CHECK(owned == u"hi");
+
+  // In-place on a wide string (not misclassified as a container).
+  std::u16string s = u"  hi  ";
+  strings::trim(s);
+  CHECK(s == u"hi");
+
+  // Container of wide strings (explicit wide delimiter).
+  std::vector<std::u16string> v{u" a ", u"  b"};
+  strings::trim(v, strings::basic_delim<char16_t>{});
+  CHECK(v[0] == u"a");
+  CHECK(v[1] == u"b");
+
+  // Braces.
+  CHECK(strings::trim_braces(u"[x]") == u"x");
+  CHECK(strings::add_braces(u"x") == u"[x]");
+}
+
+#pragma endregion
+
 // Test locate.
 #pragma region Locate
 

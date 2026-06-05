@@ -214,10 +214,10 @@ template<typename T>
 concept StringViewConvertibleSpan =
     is_span_v<T> && StringViewConvertible<typename T::element_type>;
 
-// `T` must be a container, which excludes strings and pairs.
+// `T` must be a container, which excludes strings and pairs. Strings of any
+// code unit are excluded via `StringViewLike`, not just `char` strings.
 template<typename T>
-concept Container =
-    Range<T> && (!StringViewConvertible<T>) && (!PairConvertible<T>);
+concept Container = Range<T> && (!StringViewLike<T>) && (!PairConvertible<T>);
 
 // `T` must be a `std::variant`.
 template<typename T>
