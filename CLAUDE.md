@@ -42,8 +42,6 @@ MSAN requires a one-time setup: run `scripts/build_msan_libcxx.sh` and `scripts/
 
 - Run `./format_all.sh` after edits and before `git commit`. Edit/Write bypass IDE save hooks, so this is manual.
 - Code references in markdown: `[filename.ext:line](filename.ext#Lline)`.
-- Comment quoting: backticks for literal names (types, vars, fns, enums, templates, constants); single quotes for characters (`'@'`); double quotes for strings/filenames (`"config.json"`).
-- When mentioning a function in a comment, write `do_something`, not `do_something()`. The backticks quote the symbol itself, not a call. Only include parentheses when you specifically need to show the parameters used (e.g., `foo(nullptr)`).
 - Plain 7-bit ASCII only in comments and docs: `->` not the Unicode arrow; no em dashes, curly quotes, etc. The em-dash prohibition is about the punctuation, not just the Unicode codepoint: don't use `--` (double hyphen) as an em-dash substitute, and don't abuse a single `-` to stand in for one either. Rewrite the sentence so it doesn't need em-dash-style asides: use a comma, a colon, parentheses, or two sentences.
 - Don't pre-wrap comments. Write each paragraph as a single logical line and let clang-format reflow it (`ReflowComments: true`, `ColumnLimit: 79`). Use a blank `//` line between paragraphs in multi-paragraph comments. Note that clang-format will not reflow across structural boundaries (e.g., comments adjacent to `#pragma region` lines), so an occasional manual wrap there is fine.
 - No trailing-underscore private methods. Prefix with `do_` instead: public `close()`, private `do_close()`.
@@ -55,7 +53,6 @@ MSAN requires a one-time setup: run `scripts/build_msan_libcxx.sh` and `scripts/
 - Wrap declarations in `#pragma region <name>` / `#pragma endregion` blocks. Two levels:
   - **File scope** (inside the namespace): each top-level declaration (class, struct, enum, related free-function group) gets its own region named after the symbol, e.g. `#pragma region quic_conn`.
   - **Class scope**: group logically related members under nested regions, e.g. `Construction`, `Accessors`, `IO`, `Expiry`, `Handlers`, `Helpers`, `Data members`, or domain-specific names (`Stream lifecycle`, `Flow control feedback`). Don't use plain `// section` header comments for this; promote them to regions.
-  - Pragmas live at column 0 regardless of nesting (clang-format will not indent them). The closing `#pragma endregion` is followed immediately by the next `#pragma region <name>` on the next line (no blank line between the two pragmas, blank line after the opener).
 
 ## Git Workflow
 
