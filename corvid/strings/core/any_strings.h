@@ -24,10 +24,11 @@ namespace corvid::strings { inline namespace any_strings_types {
 
 // Any strings
 //
-// A compact way to carry zero, one, or many strings through a single value.
-// `any_strings` is a variant whose alternatives are `std::monostate` (none), a
-// `std::string` (one), or a `std::vector<std::string>` (many), so the common
-// single-string case avoids allocating a vector.
+// A compact, expressive way to carry zero, one, or many strings through a
+// single value. `any_strings` is a variant whose alternatives are
+// `std::monostate` (none), a `std::string` (one), or a
+// `std::vector<std::string>` (many), so the common single-string case avoids
+// allocating a vector.
 //
 // The `as_vector` and `as_any` factories build these by moving their arguments
 // in: `as_vector` always yields a vector, while `as_any` collapses to the

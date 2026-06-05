@@ -20,9 +20,7 @@
 
 namespace corvid::strings { inline namespace delimiting {
 
-//
-// Delimiter
-//
+#pragma region delim
 
 // Delimiter wrapper.
 //
@@ -35,6 +33,7 @@ namespace corvid::strings { inline namespace delimiting {
 // - When joining, appends the entire string.
 // - When manipulating braces, treated as an open/close pair.
 struct delim: public std::string_view {
+#pragma region Construction
   // Note: Delegating to the templated constructor with `std::forward` breaks
   // `constexpr` evaluation. Direct base class initialization is required.
   constexpr delim() : std::string_view(" "sv) {}
@@ -45,6 +44,8 @@ struct delim: public std::string_view {
   constexpr delim(T&& list) : std::string_view(std::forward<T>(list)) {}
 
   constexpr delim& operator=(const delim&) = default;
+#pragma endregion Construction
+#pragma region Locating
 
   [[nodiscard]] constexpr auto find_in(std::string_view whole) const {
     if (size() == 1) return whole.find(front());
@@ -60,6 +61,8 @@ struct delim: public std::string_view {
     if (size() == 1) return whole.find_last_not_of(front());
     return whole.find_last_not_of(*this);
   }
+#pragma endregion Locating
+#pragma region Append
 
   // Append.
   constexpr auto& append(AppendTarget auto& target) const {
@@ -87,6 +90,9 @@ struct delim: public std::string_view {
     if constexpr (emit) append(target);
     return target;
   }
+#pragma endregion Append
 };
+
+#pragma endregion delim
 
 }} // namespace corvid::strings::delimiting
