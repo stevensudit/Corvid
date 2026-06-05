@@ -21,9 +21,7 @@
 
 namespace corvid::strings { inline namespace splitting {
 
-//
-// Split
-//
+#pragma region Split
 
 // For all split functions, `delim` defaults to " " and can be specified as any
 // set of characters.
@@ -72,6 +70,9 @@ template<typename R = std::string_view>
   return split<std::string>(std::string_view(whole), d);
 }
 
+#pragma endregion Split
+#pragma region PieceGenerator
+
 // Concept to detect whether a type is a piece_generator.
 //
 // This requires it to be moveable, be constructable from `std::string_view`,
@@ -94,12 +95,17 @@ concept PieceGenerator = requires(T t, std::string_view s) {
   { t.more_pieces(s) };
 };
 
+#pragma endregion PieceGenerator
+#pragma region piece_generator
+
 // Implements the PieceGenerator concept to provide a working example that is
 // composable enough to handle many common cases.
 //
 // Treats input as `opt_string_view`, returning a piece when `empty` but not
 // `null`. The end state is `null`.
 struct piece_generator {
+#pragma region Member types
+
   // Callback to find next delimiter. What constitutes a delimiter is baked
   // into the lambda. Likewise, it is always fed the remainder of the string,
   // so there's no need for a `pos` parameter. Returns a pair of positions for
@@ -112,15 +118,20 @@ struct piece_generator {
   // out padding, or even use an internal buffer to unescape.
   using filter_piece_cb = std::function<opt_string_view(std::string_view)>;
 
+#pragma endregion Member types
+#pragma region Reset
+
   // This is technically not a requirement for a PieceGenerator, but it's a
   // good idea, especially if you have state that needs to be cleared in
   // between calls. The return allows passing `piece_generator.reset(x)` to the
   // `split` function.
-  //
   auto& reset(std::string_view new_whole) {
     whole = new_whole;
     return *this;
   }
+
+#pragma endregion Reset
+#pragma region Pieces
 
   // Stateless static helper, which can be easily reused from your own class.
   //
@@ -149,13 +160,21 @@ struct piece_generator {
     return more_pieces(part, whole, finder, filter);
   }
 
+#pragma endregion Pieces
+#pragma region Data members
+
   opt_string_view whole;
   find_delim_cb finder = [](std::string_view s) {
     auto pos = s.find(' ');
     return std::pair{pos, pos + 1};
   };
   filter_piece_cb filter = [](std::string_view s) { return s; };
+
+#pragma endregion Data members
 };
+
+#pragma endregion piece_generator
+#pragma region split_gen
 
 // Split `whole` using the PieceGenerator and return parts in vector.
 template<PieceGenerator PG = piece_generator, typename R = std::string_view>
@@ -176,5 +195,7 @@ template<typename R = std::string_view>
 // For alternative design choices when solving a similar problem, compare
 // with:
 // https://github.com/abseil/abseil-cpp/blob/master/absl/strings/internal/str_split_internal.h
+
+#pragma endregion split_gen
 
 }} // namespace corvid::strings::splitting

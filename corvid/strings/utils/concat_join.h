@@ -34,9 +34,7 @@
 namespace corvid::strings {
 inline namespace registration {
 
-//
-// Append plugin
-//
+#pragma region Append plugin
 
 // Register an `append` function for a type.
 //
@@ -91,8 +89,10 @@ concept StreamAppendable = stream_append_v<T>;
 template<typename T>
 concept Appendable = (!AppendableOverridden<T>) && (!StreamAppendable<T>);
 
+#pragma endregion
 } // namespace registration
 inline namespace existing {
+#pragma region is_present
 // We want to be able to check if something exists by using it as a predicate,
 // whether it's a pointer or an optional or something similar, but this angers
 // gcc, so we isolate it.
@@ -112,12 +112,11 @@ requires(!BoolLike<T>)
 [[nodiscard]] constexpr bool is_present(const T&) {
   return true;
 }
+#pragma endregion
 } // namespace existing
 inline namespace appending {
 
-//
-// Append, Concat, and Join
-//
+#pragma region Append, Concat, Join
 
 // The `append`, `append_join`, and `append_join_with` functions take an
 // AppendTarget, `target`, which can be a `std::string` or any `std::ostream`,
@@ -335,12 +334,11 @@ inline auto& append_escaped(AppendTarget auto& target, std::string_view part) {
   return target;
 }
 
+#pragma endregion
 } // namespace appending
 inline namespace joinoptions {
 
-//
-// Join options
-//
+#pragma region Join options
 
 // Join option bitmask flags.
 //
@@ -379,23 +377,24 @@ consteval auto corvid_enum_spec(join_opt*) {
       "prefixed,quoted,keyed,flat">();
 }
 
+#pragma endregion
 } // namespace joinoptions
 } // namespace corvid::strings
 
 namespace corvid { inline namespace meta { inline namespace containers {
+#pragma region corvid_enum_spec
 consteval auto corvid_enum_spec(extract_field*) {
   return corvid::enums::sequence::make_sequence_enum_spec<extract_field,
       "value,key_value">();
 }
+#pragma endregion
 
 }}} // namespace corvid::meta::containers
 
 namespace corvid::strings {
 inline namespace registration {
 
-//
-// Append join plugin
-//
+#pragma region Append join plugin
 
 // Register an `append_join` function for a type.
 //
@@ -436,13 +435,12 @@ concept JoinAppendableOverridden = (!std::is_null_pointer_v<
 template<typename T>
 concept JoinAppendable = (!JoinAppendableOverridden<T>) || Appendable<T>;
 
+#pragma endregion
 } // namespace registration
 namespace decode {
 using namespace corvid::bitmask;
 
-//
-// Decode
-//
+#pragma region Decode
 
 // Determine whether to add braces.
 // Logic: Unless braces are suppressed, use braces when we have them.
@@ -477,13 +475,11 @@ template<join_opt opt>
 constexpr bool json_v =
     has_all(opt, join_opt::json) && !has(opt, join_opt::flat);
 
+#pragma endregion
 } // namespace decode
 inline namespace joining {
 
-//
-// Join
-//
-//
+#pragma region Join
 
 // Append one piece to `target`, joining with `delim`.
 template<auto opt = join_opt::braced, char open = 0, char close = 0,
@@ -717,5 +713,6 @@ append_json(AppendTarget auto& target, const auto& head, const auto&... tail) {
       tail...);
 }
 
+#pragma endregion
 } // namespace joining
 } // namespace corvid::strings

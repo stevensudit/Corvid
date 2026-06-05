@@ -20,15 +20,24 @@
 
 namespace corvid::strings { inline namespace parsers {
 
+#pragma region token_parser
+
 // Separator-based token parse.
 class token_parser {
 public:
+#pragma region Construction
   explicit token_parser(std::string_view separator) : separator_(separator) {}
+
+#pragma endregion
+#pragma region Accessors
 
   [[nodiscard]] auto separator() const noexcept { return separator_; }
   void separator(std::string_view separator) noexcept {
     separator_ = separator;
   }
+
+#pragma endregion
+#pragma region Delimited
 
   // Extract the next token delimited by `separator_`, returning it (without
   // the delimiter), and consuming it (and the delimiter) from `text`.
@@ -86,6 +95,9 @@ public:
     return next_delimited(separator_, text);
   }
 
+#pragma endregion
+#pragma region Terminated
+
   // Extract the next token terminated by `separator_`, returning it (without
   // the terminator), and consuming it (and the terminator) from `text`.
   //
@@ -133,7 +145,14 @@ public:
     return next_terminated(separator_, text);
   }
 
+#pragma endregion
+#pragma region Data members
+
 private:
   std::string_view separator_;
+
+#pragma endregion
 };
+
+#pragma endregion
 }} // namespace corvid::strings::parsers

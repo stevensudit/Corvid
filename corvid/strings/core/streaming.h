@@ -20,9 +20,7 @@
 
 namespace corvid::strings { inline namespace streaming {
 
-//
-// Streaming
-//
+#pragma region streaming functions
 
 // Lightweight streaming wrappers to avoid having to constantly type
 // `std::cout <<` and `<< std::endl`, while providing a small amount of
@@ -69,10 +67,15 @@ constexpr auto& report_with(delim d, const OStreamable auto&... parts) {
   return stream_out_with(std::cerr, d, parts...) << std::endl;
 }
 
+#pragma endregion streaming functions
+#pragma region ostream_redirector
+
 // Redirect a `std::ostream`, `from`, to a different one, `to`, during its
 // lifespan.
 class ostream_redirector final {
 public:
+#pragma region Construction
+
   explicit ostream_redirector(std::ostream& from, std::ostream& to)
       : from_{&from}, rdbuf_{from.rdbuf()} {
     from.rdbuf(to.rdbuf());
@@ -85,9 +88,16 @@ public:
 
   ~ostream_redirector() noexcept { from_->rdbuf(rdbuf_); }
 
+#pragma endregion Construction
+#pragma region Data members
+
 private:
   std::ostream* from_;
   std::streambuf* rdbuf_;
+
+#pragma endregion Data members
 };
+
+#pragma endregion ostream_redirector
 
 }} // namespace corvid::strings::streaming

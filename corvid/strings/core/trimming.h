@@ -20,9 +20,7 @@
 
 namespace corvid::strings { inline namespace trimming {
 
-//
-// Trim
-//
+#pragma region Trim
 
 // For all trim functions, `delim` defaults to " " and can be specified as any
 // set of characters.
@@ -92,9 +90,8 @@ inline void trim(std::string& whole, delim ws = {}) {
   if (left) whole.erase(0, left);
 }
 
-//
-// Braces
-//
+#pragma endregion
+#pragma region Braces
 
 // For braces, the `delim` is interpreted as a pair of characters.
 
@@ -122,4 +119,5 @@ add_braces(std::string_view whole, delim braces = {"[]"}) {
   return target;
 }
 
+#pragma endregion
 }} // namespace corvid::strings::trimming

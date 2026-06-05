@@ -33,19 +33,15 @@ inline namespace optstringview {
 // Optional string view
 //
 // A `std::string_view` with optional semantics, distinguishing null from
-// empty. This is designed as a general-purpose replacement for when you need
-// to honor null semantics and/or enforce type-safety.
-//
-// Fundamentally it's a `std::string_view` with different construction and a
-// few `std::optional`-like methods, along with an optional tag. It changes
-// construction and interpretation but does not constrain content.
+// empty. This is designed as a general-purpose `std::string_view` replacement
+// for when you need to honor null semantics and/or enforce type-safety.
 //
 // It is built on `string_view_wrapper`, but converts to a
-// `std::string_view` freely. The wrapper supplies the read-only view API,
-// support for the null/empty distinction, and the `std::optional` interface;
-// this class adds the lenient, null-aware constructors and the reslicing
-// operations (`substr`, `remove_prefix`, `remove_suffix`) that its lack of any
-// invariant makes safe.
+// `std::string_view` freely in both directions. The wrapper supplies the
+// read-only view API, support for the null/empty distinction, and the
+// `std::optional` interface; this class adds the lenient, null-aware
+// constructors and the reslicing operations (`substr`, `remove_prefix`,
+// `remove_suffix`) that its lack of any invariant makes safe.
 //
 // Unlike using `std::string` for everything, this class avoids the overhead of
 // copying while still preserving the distinction between `empty` and `null`.

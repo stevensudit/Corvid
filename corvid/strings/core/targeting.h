@@ -31,6 +31,8 @@ namespace corvid::strings { inline namespace targeting {
 // quite. But this is consistent with MSVC's overall pattern of underwhelming
 // optimization.
 
+#pragma region appender
+
 // Base template forward declaration. Only specialized for supported targets.
 template<typename T>
 class appender;
@@ -41,8 +43,12 @@ class appender;
 // class methods and return the correct type.
 template<typename T>
 class appender_base {
+#pragma region Construction
 public:
   explicit appender_base(T& target) : target_{target} {}
+
+#pragma endregion
+#pragma region Appending
 
   // Deducing this: `self` deduces to the actual derived type (appender<T>).
   // All append overloads forward to append_sv or append_ch in the derived.
@@ -62,11 +68,18 @@ public:
   // Uses deducing this for return type consistency, not polymorphic dispatch.
   auto& reserve(this auto&& self, size_t) { return self; }
 
+#pragma endregion
+#pragma region Accessors
+
   [[nodiscard]] T& operator*() { return target_; }
   [[nodiscard]] T* operator->() { return &target_; }
 
+#pragma endregion
+#pragma region Data members
 protected:
   T& target_;
+
+#pragma endregion
 };
 
 // std::ostream specialization.
@@ -74,9 +87,12 @@ template<OStreamDerived T>
 class appender<T> final: public appender_base<T> {
   using appender_base<T>::target_;
 
+#pragma region Construction
 public:
   using appender_base<T>::appender_base;
 
+#pragma endregion
+#pragma region Appending
 private:
   friend appender_base<T>;
   auto& append_sv(std::string_view sv) {
@@ -87,6 +103,8 @@ private:
     while (len--) target_.put(ch);
     return *this;
   }
+
+#pragma endregion
 };
 
 // String specialization.
@@ -94,8 +112,12 @@ template<StdString T>
 class appender<T> final: public appender_base<T> {
   using appender_base<T>::target_;
 
+#pragma region Construction
 public:
   using appender_base<T>::appender_base;
+
+#pragma endregion
+#pragma region Appending
 
   auto& reserve(size_t len) {
     target_.reserve(target_.size() + len);
@@ -115,10 +137,14 @@ private:
       target_.append(len, ch);
     return *this;
   }
+
+#pragma endregion
 };
 
 // Deduction guide.
 template<AppendTarget T>
 appender(T) -> appender<T>;
+
+#pragma endregion appender
 
 }} // namespace corvid::strings::targeting

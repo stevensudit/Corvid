@@ -28,6 +28,8 @@ namespace corvid::strings { inline namespace no_zero_funcs {
 // indeterminate after any of these calls.
 namespace no_zero {
 
+#pragma region no_zero
+
 // Clear out string, actually releasing the buffer. Capacity drops to
 // whatever the small string optimization allows.
 constexpr auto& clear_out(std::string& s) {
@@ -103,6 +105,8 @@ rightsize_to(std::string& s, size_t minimum_size, size_t maximum_size) {
   // Otherwise, use `enlarge_to`.
   return enlarge_to(s, minimum_size);
 }
+
+#pragma endregion no_zero
 
 } // namespace no_zero
 }} // namespace corvid::strings::no_zero_funcs
