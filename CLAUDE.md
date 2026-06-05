@@ -20,23 +20,7 @@ Before adding a `(void)` cast on a `[[nodiscard]]` result, prefer propagating, l
 
 ## Build System
 
-CMakeLists.txt lives in `tests/` only; there is none at the project root. Build directory: `tests/build/`.
-
-```sh
-./cleanbuild.sh                  # clean build + run all tests (libc++)
-./cleanbuild.sh libstdcpp        # use libstdc++
-./cleanbuild.sh tidy             # also run clang-tidy
-./cleanbuild.sh asan             # build + run with ASAN + UBSAN
-./cleanbuild.sh tsan             # build + run with TSAN
-./cleanbuild.sh ubsan            # build + run with UBSAN only
-./cleanbuild.sh msan             # build + run with MSAN (needs one-time setup)
-./cleanbuild.sh strings_test.cpp # build + run only that target
-./format_all.sh                  # format all sources (run before commit)
-```
-
-Sanitizer modes accept the same `[testname.cpp]` and `libstdcpp|libcxx` arguments as the plain build. `asan`/`tsan`/`msan` are mutually exclusive (each instruments a conflicting runtime); run them separately. Sanitizer sweeps continue past test failures so all issues surface in one run; plain runs still bail on the first failure.
-
-MSAN requires a one-time setup: run `scripts/build_msan_libcxx.sh` and `scripts/build_openssl_quic.sh msan` before `./cleanbuild.sh msan`. Both build instrumented dependencies (libc++ and OpenSSL/ngtcp2) so the QUIC tests don't drown in false positives from uninstrumented library internals.
+Build and run one test with `./cleanbuild.sh <name>_test.cpp` (the common case; the arg is the test source filename), or `./cleanbuild.sh` for a clean build of the whole suite. Never hand-run cmake/ninja in `tests/build/` (stale dir breaks FetchContent). Run `./format_all.sh` before committing. See the `project-build` skill for the full menu: libstdc++, clang-tidy, and the sanitizers (including MSAN setup).
 
 ## Code Style
 
