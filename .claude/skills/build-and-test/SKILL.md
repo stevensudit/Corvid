@@ -1,9 +1,9 @@
 ---
-name: project-build
-description: How to build, test, format, and sanitize the Corvid project via ./cleanbuild.sh and ./format_all.sh. Use whenever building, running tests, verifying a change, formatting before commit, or running clang-tidy / ASAN / TSAN / UBSAN / MSAN in this repo.
+name: build-and-test
+description: How to build, run, format, sanitize, and write tests for the Corvid project via ./cleanbuild.sh and ./format_all.sh. Use whenever building, running tests, verifying a change, formatting before commit, running clang-tidy / ASAN / TSAN / UBSAN / MSAN, or writing a Catch2 test in this repo.
 ---
 
-# Project build
+# Build and test
 
 Corvid builds and runs its tests through `./cleanbuild.sh`, and formats through
 `./format_all.sh`. Never hand-run cmake or ninja in `tests/build/`: that
@@ -39,3 +39,12 @@ MSAN requires a one-time setup: run `scripts/build_msan_libcxx.sh` and
 `scripts/build_openssl_quic.sh msan` before `./cleanbuild.sh msan`. Both build
 instrumented dependencies (libc++ and OpenSSL/ngtcp2) so the QUIC tests don't
 drown in false positives from uninstrumented library internals.
+
+## Writing tests
+
+Framework: Catch2 v3. Each test source includes `tests/catch2_main.h` (provides
+Catch2 macros + `main`), uses `TEST_CASE("Name", "[tag]")` for test cases and
+`SECTION("desc")` for sub-blocks. Assertions are `CHECK` / `REQUIRE` (or
+`_FALSE` / `_THROWS_AS` variants). Tests may be per-class, per-group, or
+per-subfolder; check `tests/` before asking about coverage. Sources prefixed
+`notest_` are built but not run as part of the sweep.

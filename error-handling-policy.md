@@ -16,6 +16,9 @@ stack or run destructors. Therefore:
 - **Rule:** Given the above, calling `std::terminate` on a detected bad state is
   always acceptable. Continuing in an unknown or invalid state is never
   acceptable. Keeping the process alive is not an obligation; correctness is.
+- **Rule:** A branch reachable only via contract violation (kernel bug, memory
+  corruption, a broken invariant) must not try to recover state. A leak or no-op
+  is safer than a recovery path that assumes the violated contract still held.
 
 ## Classify every function by how it fails
 
@@ -59,6 +62,14 @@ stack or run destructors. Therefore:
   is deliberate, not an oversight; unit tests should check it.
 - **Rule:** Mark `[[nodiscard]]` when calling without using the result is
   pointless, such as `empty`.
+- **Reviewing or adding a `(void)` cast on a `[[nodiscard]]` result:** before
+  *adding* one, prefer propagating, logging, or handling the error; voiding is
+  acceptable when intentional. Before *flagging* an existing one, verify the
+  callee can actually fail in practice and that the caller should do something
+  different on failure. Some functions have a nominal `bool` return that is
+  always `true` given internal invariants (e.g. `execute_or_post_with_retry`
+  retries until success); treat the cast as deliberate unless you can identify a
+  concrete failure path.
 - To carry "no value", choose by how easy the missing-value path is to forget:
   - A natural sentinel that is never valid in context (`nullptr`, empty string,
     `npos`) is fine and often leaner than wrapping. But it gives no type-level

@@ -12,31 +12,22 @@ Bug-fix reproducing tests: skip the test only when reproduction requires a full 
 
 Treat code review comments as hypotheses to verify against the code, not instructions to execute. They can be correct, partially correct, or wrong.
 
-When a function can fail, prefer returning a status over `void`.
-
-Before adding a `(void)` cast on a `[[nodiscard]]` result, prefer propagating, logging, or handling the error; voiding is acceptable when intentional. When reviewing an existing `(void)`, verify the callee can actually fail in practice before flagging, and that the caller should do something different on failure. Some functions have a nominal `bool` return that is always `true` given internal invariants (e.g., `execute_or_post_with_retry` retries until success). Treat the cast as deliberate unless you can identify a concrete failure path.
-
-"Impossible" branches reachable only via contract violation (kernel bug, memory corruption, broken invariant) should not try to recover state. A leak or no-op is safer than a recovery path that assumes the violated contract held.
+When a function can fail, prefer returning a status over `void`. See [error-handling-policy.md](error-handling-policy.md) for the full policy: `noexcept`, return-signaling, `[[nodiscard]]`, exceptions, the `(void)`-cast nuance, and contract-violation branches.
 
 ## Build System
 
-Build and run one test with `./cleanbuild.sh <name>_test.cpp` (the common case; the arg is the test source filename), or `./cleanbuild.sh` for a clean build of the whole suite. Never hand-run cmake/ninja in `tests/build/` (stale dir breaks FetchContent). Run `./format_all.sh` before committing. See the `project-build` skill for the full menu: libstdc++, clang-tidy, and the sanitizers (including MSAN setup).
+Build and run one test with `./cleanbuild.sh <name>_test.cpp` (the common case; the arg is the test source filename), or `./cleanbuild.sh` for a clean build of the whole suite. Never hand-run cmake/ninja in `tests/build/` (stale dir breaks FetchContent). Run `./format_all.sh` before committing. See the `build-and-test` skill for the full menu (libstdc++, clang-tidy, sanitizers, MSAN setup) and the Catch2 test-writing conventions.
 
 ## Code Style
 
 - Run `./format_all.sh` after edits and before `git commit`. Edit/Write bypass IDE save hooks, so this is manual.
-- Code references in markdown: `[filename.ext:line](filename.ext#Lline)`.
 - Plain 7-bit ASCII only in comments and docs: `->` not the Unicode arrow; no em dashes, curly quotes, etc. The em-dash prohibition is about the punctuation, not just the Unicode codepoint: don't use `--` (double hyphen) as an em-dash substitute, and don't abuse a single `-` to stand in for one either. Rewrite the sentence so it doesn't need em-dash-style asides: use a comma, a colon, parentheses, or two sentences.
 - Don't pre-wrap comments. Write each paragraph as a single logical line and let clang-format reflow it (`ReflowComments: true`, `ColumnLimit: 79`). Use a blank `//` line between paragraphs in multi-paragraph comments. Note that clang-format will not reflow across structural boundaries (e.g., comments adjacent to `#pragma region` lines), so an occasional manual wrap there is fine.
 - No trailing-underscore private methods. Prefix with `do_` instead: public `close()`, private `do_close()`.
 - Prefer uniform initialization: `int i{4};`, `: option_{option}`. Don't use `{}` for variables with a default constructor (clang-tidy flags it); do use it for `int`/`bool`/etc.
 - Use `std::chrono` literal suffixes (`1s`, `500ms`, `100us`) over explicit constructors. Library headers already pull in `using namespace std::chrono_literals;`; add it in test files as needed.
-- "Token" is reserved for things that are literally named tokens (e.g., `completion_token`). Don't use the word loosely in comments or docs to mean "handle," "callback," "view," "ticket," "marker," etc. For example, an `iou_recv_view` is not a token; a `posted_fn` returned by `stop_receiving` is a callback, not a token. Pick the precise word, or just describe what the thing is.
+- "Token" is reserved for things that are literally named tokens (e.g., `completion_token`). Don't use the word loosely in comments or docs to mean "handle," "callback," "view," "ticket," "marker," etc.; pick the precise word or describe the thing.
 - Lambda init-captures: keep the name the same as the bound variable. Prefer `[data = std::move(data)]` over `[d = std::move(data)]`. The lambda body reads as if the variable kept its identity, which it morally did.
-- Whenever you declare a `class enum`, consider whether it should be registered as a bitmask or sequence enum. If so, declare a `corvid_enum_spec(E*)` overload in the enum's own namespace, returning a `make_sequence_enum_spec` or `make_bitmask_enum_spec` result; it is found by ADL and must precede any use of the enum's string conversion.  See `quic_status` in [quic_header.h](corvid/proto/quic/quic_header.h) and `write_stream_flags` in [quic_conn.h](corvid/proto/quic/quic_conn.h) for the shape. For registered enums, take full advantage of what registration unlocks: prefer `operator*` over `static_cast` to read the underlying value, and prefer the `bitmask::` helpers (`has`, `has_all`, `missing`, `set_at`, etc., in [bitmask_enum.h](corvid/enums/bitmask_enum.h)) over hand-rolled `!!(v & m)` or other bit-twiddling.
-- Wrap declarations in `#pragma region <name>` / `#pragma endregion` blocks. Two levels:
-  - **File scope** (inside the namespace): each top-level declaration (class, struct, enum, related free-function group) gets its own region named after the symbol, e.g. `#pragma region quic_conn`.
-  - **Class scope**: group logically related members under nested regions, e.g. `Construction`, `Accessors`, `IO`, `Expiry`, `Handlers`, `Helpers`, `Data members`, or domain-specific names (`Stream lifecycle`, `Flow control feedback`). Don't use plain `// section` header comments for this; promote them to regions.
 
 ## Git Workflow
 
@@ -44,14 +35,6 @@ Build and run one test with `./cleanbuild.sh <name>_test.cpp` (the common case; 
 - PRs are squash-merged; respond to review with new commits, not amends.
 - PR descriptions: verify every claim against the code. Don't rely on general knowledge about patterns or algorithms (e.g., the "timing wheel" here is single-level, not hierarchical).
 - When pushing a branch as a new PR, review all changes first and flag bugs, doc errors, or style violations before writing the description.
-
-## Testing
-
-Framework: Catch2 v3. Each test source includes `tests/catch2_main.h` (provides Catch2 macros + `main`), uses `TEST_CASE("Name", "[tag]")` for test cases and `SECTION("desc")` for sub-blocks. Assertions are `CHECK` / `REQUIRE` (or `_FALSE` / `_THROWS_AS` variants). Tests may be per-class, per-group, or per-subfolder; check `tests/` before asking about coverage. Sources prefixed `notest_` are built but not run as part of the sweep.
-
-## TODO File
-
-Root `TODO` tracks long-term enhancement requests and design decisions. Move enhancement-style TODO comments from code to here, rewriting positional references ("below", "above") to name the function or class.
 
 ## Reuse Library Utilities
 
@@ -61,10 +44,6 @@ Corvid provides utilities that replace direct calls on std types. Search the lib
 - String searching/splitting: prefer parsers/locators in `corvid/strings/` over `std::string::find`, `substr`, etc.
 
 Scan relevant headers first when writing new code to avoid reimplementing.
-
-## Refactoring
-
-`clang-query-22` is installed. Reach for it instead of grep when AST-level matching matters: telling overloaded methods apart, finding callers of a specific overload (not every method that shares the name), template-instantiation patterns, or `[[nodiscard]]` discard sites. For unique symbol search and plain renames, grep is still faster and worth trying first.
 
 ## Non-Obvious Locations
 

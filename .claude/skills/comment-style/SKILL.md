@@ -96,6 +96,20 @@ labeled lead-in line and `-` bullets:
 
 (`corvid/strings/core/delimiting.h`.)
 
+## Region organization
+
+Wrap declarations in `#pragma region <name>` / `#pragma endregion` blocks at two
+levels:
+
+- **File scope** (inside the namespace): each top-level declaration (class,
+  struct, enum, related free-function group) gets its own region named after the
+  symbol, e.g. `#pragma region quic_conn`.
+- **Class scope**: group logically related members under nested regions, e.g.
+  `Construction`, `Accessors`, `IO`, `Expiry`, `Handlers`, `Helpers`, `Data
+  members`, or domain-specific names (`Stream lifecycle`, `Flow control
+  feedback`). Don't use plain `// section` header comments for this; promote them
+  to regions.
+
 ## Quoting and punctuation
 
 These apply to every comment:
