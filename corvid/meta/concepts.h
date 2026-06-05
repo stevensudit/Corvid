@@ -126,6 +126,11 @@ concept BasicStringViewConvertible =
 template<typename T>
 concept StringViewConvertible = BasicStringViewConvertible<T, char>;
 
+// `T` must be convertible to some `std::basic_string_view`, of any code-unit
+// type; `char_type_of_t<T>` names that type.
+template<typename T>
+concept StringViewLike = !std::is_void_v<char_type_of_t<T>>;
+
 // `T` must be a void pointer.
 template<typename T>
 concept VoidPointer = std::is_void_v<std::remove_pointer_t<T>>;

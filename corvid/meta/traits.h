@@ -15,6 +15,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 #pragma once
+#include <string_view>
+
 #include "meta_shared.h"
 
 namespace corvid { inline namespace meta { inline namespace traits {
@@ -48,6 +50,30 @@ constexpr bool is_char_ptr_v =
     std::is_pointer_v<std::decay_t<T>> &&
     std::is_same_v<std::remove_cvref_t<std::remove_pointer_t<std::decay_t<T>>>,
         char>;
+
+// Code-unit type that `T` views as: the `C` for which `T` is convertible to
+// `std::basic_string_view<C>`, or `void` when `T` is not string-view-like.
+// Covers `std::basic_string`, `std::basic_string_view`, character pointers and
+// arrays, and any wrapper that converts to a `std::basic_string_view`.
+template<typename T>
+struct char_type_of {
+private:
+  using U = std::remove_cvref_t<T>;
+
+  template<typename C>
+  static constexpr bool conv =
+      std::is_convertible_v<U, std::basic_string_view<C>>;
+
+public:
+  using type = std::conditional_t<conv<char>, char,
+      std::conditional_t<conv<char8_t>, char8_t,
+          std::conditional_t<conv<char16_t>, char16_t,
+              std::conditional_t<conv<char32_t>, char32_t,
+                  std::conditional_t<conv<wchar_t>, wchar_t, void>>>>>;
+};
+
+template<typename T>
+using char_type_of_t = typename char_type_of<T>::type;
 
 // Determine whether `T` is a `bool`.
 template<typename T>

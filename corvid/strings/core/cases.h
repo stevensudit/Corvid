@@ -22,30 +22,37 @@ namespace corvid::strings { inline namespace cases {
 // Cases
 //
 // ASCII letter-case utilities: character predicates, case conversion, and
-// case-insensitive comparison. Everything here is deliberately ASCII-only and
-// locale-independent, sidestepping the localization and Unicode complications
-// (and the cost) of the `std::ctype` and `std::toupper`/`std::tolower`
-// facilities.
+// case-insensitive comparison. The per-character predicates and `to_upper`/
+// `to_lower` work on any code-unit type; the semantics stay deliberately
+// ASCII-only and locale-independent, so only the 26 Latin letters are ever
+// affected, whatever the encoding. This sidesteps the localization and Unicode
+// complications (and the cost) of the `std::ctype` and `std::toupper`/
+// `std::tolower` facilities.
 
 #pragma region Character predicates
 
-[[nodiscard]] constexpr bool is_lower(char c) noexcept {
-  return c >= 'a' && c <= 'z';
+template<CharType C>
+[[nodiscard]] constexpr bool is_lower(C c) noexcept {
+  return c >= C('a') && c <= C('z');
 }
 
-[[nodiscard]] constexpr bool is_upper(char c) noexcept {
-  return c >= 'A' && c <= 'Z';
+template<CharType C>
+[[nodiscard]] constexpr bool is_upper(C c) noexcept {
+  return c >= C('A') && c <= C('Z');
 }
 
-[[nodiscard]] constexpr bool is_alpha(char c) noexcept {
+template<CharType C>
+[[nodiscard]] constexpr bool is_alpha(C c) noexcept {
   return is_lower(c) || is_upper(c);
 }
 
-[[nodiscard]] constexpr bool is_digit(char c) noexcept {
-  return c >= '0' && c <= '9';
+template<CharType C>
+[[nodiscard]] constexpr bool is_digit(C c) noexcept {
+  return c >= C('0') && c <= C('9');
 }
 
-[[nodiscard]] constexpr bool is_alnum(char c) noexcept {
+template<CharType C>
+[[nodiscard]] constexpr bool is_alnum(C c) noexcept {
   return is_alpha(c) || is_digit(c);
 }
 
@@ -54,38 +61,44 @@ namespace corvid::strings { inline namespace cases {
 
 // Convert to uppercase.
 // Avoids `std::toupper` because it's locale-dependent and slow.
-[[nodiscard]] constexpr char to_upper(char c) noexcept {
-  return is_lower(c) ? static_cast<char>(c - ('a' - 'A')) : c;
+template<CharType C>
+[[nodiscard]] constexpr C to_upper(C c) noexcept {
+  return is_lower(c) ? static_cast<C>(c - (C('a') - C('A'))) : c;
 }
 
-// Convert to uppercase.
+// Convert to uppercase in place.
 constexpr void to_upper(Range auto& r) noexcept {
-  for (auto& ch : std::span{r}) ch = to_upper(static_cast<char>(ch));
+  for (auto& ch : std::span{r}) ch = to_upper(ch);
 }
 
-// Return as uppercase.
-[[nodiscard]] constexpr std::string as_upper(std::string_view sv) {
-  std::string s{sv};
-  to_upper(s);
-  return s;
+// Return as uppercase. Accepts any string-like argument and yields a
+// `std::basic_string` of its code-unit type.
+template<StringViewLike S>
+[[nodiscard]] constexpr auto as_upper(const S& s) {
+  std::basic_string<char_type_of_t<S>> r{as_view(s)};
+  to_upper(r);
+  return r;
 }
 
 // Convert to lowercase.
 // Avoids `std::tolower` because it's locale-dependent and slow.
-[[nodiscard]] constexpr char to_lower(char c) noexcept {
-  return is_upper(c) ? static_cast<char>(c + ('a' - 'A')) : c;
+template<CharType C>
+[[nodiscard]] constexpr C to_lower(C c) noexcept {
+  return is_upper(c) ? static_cast<C>(c + (C('a') - C('A'))) : c;
 }
 
-// Convert to lowercase.
+// Convert to lowercase in place.
 constexpr void to_lower(Range auto& r) noexcept {
-  for (auto& ch : std::span{r}) ch = to_lower(static_cast<char>(ch));
+  for (auto& ch : std::span{r}) ch = to_lower(ch);
 }
 
-// Return as lowercase.
-[[nodiscard]] constexpr std::string as_lower(std::string_view sv) {
-  std::string s{sv};
-  to_lower(s);
-  return s;
+// Return as lowercase. Accepts any string-like argument and yields a
+// `std::basic_string` of its code-unit type.
+template<StringViewLike S>
+[[nodiscard]] constexpr auto as_lower(const S& s) {
+  std::basic_string<char_type_of_t<S>> r{as_view(s)};
+  to_lower(r);
+  return r;
 }
 
 #pragma endregion
@@ -93,9 +106,13 @@ constexpr void to_lower(Range auto& r) noexcept {
 
 // Compare case-insensitively. In many cases, it is better to store `as_lower`
 // versions and compare those, particularly if one of the values is checked
-// against repeatedly.
-[[nodiscard]] constexpr bool
-ci_equal(std::string_view lhs, std::string_view rhs) noexcept {
+// against repeatedly. Both arguments must be string-like with the same
+// code-unit type.
+template<StringViewLike A, StringViewLike B>
+requires std::same_as<char_type_of_t<A>, char_type_of_t<B>>
+[[nodiscard]] constexpr bool ci_equal(const A& a, const B& b) noexcept {
+  const auto lhs = as_view(a);
+  const auto rhs = as_view(b);
   if (lhs.size() != rhs.size()) return false;
   for (size_t i = 0; i < lhs.size(); ++i)
     if (to_lower(lhs[i]) != to_lower(rhs[i])) return false;

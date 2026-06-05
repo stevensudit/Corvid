@@ -17,6 +17,8 @@
 #pragma once
 #include <string_view>
 
+#include "../../meta.h"
+
 namespace corvid::strings {
 
 // A `position` is a `size_t` that represents a location within a string, with
@@ -28,6 +30,16 @@ using position = std::size_t;
 inline namespace literals {
 
 constexpr position npos = std::string_view::npos;
+
+// View any string-like value as a `std::basic_string_view` of its own
+// code-unit type. This is how the generic operations recover the view (and its
+// code unit) from an argument that may be a `std::string`, a literal, a raw
+// pointer, or a view wrapper, while keeping the implicit-conversion ergonomics
+// that a bare `std::basic_string_view` parameter would lose.
+template<StringViewLike S>
+[[nodiscard]] constexpr auto as_view(const S& s) noexcept {
+  return std::basic_string_view<char_type_of_t<S>>{s};
+}
 
 } // namespace literals
 } // namespace corvid::strings

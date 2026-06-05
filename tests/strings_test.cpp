@@ -216,6 +216,47 @@ TEST_CASE("Case", "[StringUtilsTest]") {
   char a[] = "abcdefghij";
   strings::to_upper(a);
   CHECK(a == "ABCDEFGHIJ"sv);
+
+  // Wide code units: same ASCII semantics on any character type.
+  CHECK(strings::to_upper(u'a') == u'A');
+  CHECK(strings::to_lower(U'Z') == U'z');
+  CHECK(strings::is_digit(u'7'));
+  CHECK(strings::is_alpha(U'q'));
+  CHECK_FALSE(strings::is_upper(char16_t{0xe9})); // U+00E9, not ASCII
+  auto w = u"abcXYZ"s;
+  strings::to_upper(w);
+  CHECK(w == u"ABCXYZ");
+
+  // Deduced string-like helpers across code units.
+  CHECK(strings::as_lower(u"MIXEDcase") == u"mixedcase");
+  CHECK(strings::as_upper(U"MixedCase") == U"MIXEDCASE");
+  CHECK(strings::ci_equal("HeLLo", "hello"s));
+  CHECK(strings::ci_equal(u"HeLLo", u"hello"));
+  CHECK_FALSE(strings::ci_equal(U"abc", U"abd"));
+
+  // `string_view_wrapper` children flow through `char_type_of`/`as_view`
+  // automatically, since they convert to a `std::basic_string_view`.
+  CHECK(strings::as_upper("abc"_csv) == "ABC");
+  CHECK(strings::ci_equal("Hi"_osv, "hi"));
+}
+
+#pragma endregion
+
+// Test basic_delim over a wide code unit.
+#pragma region WideDelim
+
+TEST_CASE("WideDelim", "[StringUtilsTest]") {
+  strings::basic_delim<char16_t> d{u",;"};
+  CHECK(d.find_in(u"ab,cd") == 2);
+  CHECK(d.find_not_in(u",,xy") == 2);
+  CHECK(d.find_last_not_in(u"xy;,") == 1);
+
+  std::u16string out;
+  d.append(out);
+  CHECK(out == u",;");
+
+  // The default delimiter is a single space, whatever the code unit.
+  CHECK(strings::basic_delim<char16_t>{}.find_in(u"ab cd") == 2);
 }
 
 #pragma endregion

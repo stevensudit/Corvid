@@ -23,6 +23,10 @@ namespace corvid::strings { inline namespace delimiting {
 
 #pragma region delim
 
+// Storage backing the default single-space delimiter, one per code unit.
+template<typename Char>
+inline constexpr Char delim_space = Char(' ');
+
 // Delimiter wrapper.
 //
 // This class is not intended for standalone use. While it provides some
@@ -33,36 +37,38 @@ namespace corvid::strings { inline namespace delimiting {
 // - When splitting, checks for any of the characters.
 // - When joining, appends the entire string.
 // - When manipulating braces, treated as an open/close pair.
-struct delim: public string_view_wrapper<delim> {
-  using base = string_view_wrapper<delim>;
+template<typename Char = char>
+struct basic_delim: public string_view_wrapper<basic_delim<Char>, Char> {
+  using base = string_view_wrapper<basic_delim<Char>, Char>;
   using view_t = base::view_t;
+  using char_t = base::char_t;
 
 #pragma region Construction
 
   // The default delimiter is a single space.
-  constexpr delim() noexcept : base{" "sv} {}
+  constexpr basic_delim() noexcept : base{view_t{&delim_space<char_t>, 1}} {}
 
   // Implicit construction from any view, so string literals, strings, and
   // other view wrappers all pass through transparently. Raw pointers route
   // through the base's null-safe constructor.
-  constexpr delim(view_t list) noexcept : base{list} {}
-  constexpr delim(const char* psz) : base{psz} {}
+  constexpr basic_delim(view_t list) noexcept : base{list} {}
+  constexpr basic_delim(const char_t* psz) : base{psz} {}
 
 #pragma endregion Construction
 #pragma region Locating
 
-  [[nodiscard]] constexpr auto find_in(std::string_view whole) const {
-    if (size() == 1) return whole.find(front());
+  [[nodiscard]] constexpr auto find_in(view_t whole) const {
+    if (this->size() == 1) return whole.find(this->front());
     return whole.find_first_of(*this);
   }
 
-  [[nodiscard]] constexpr auto find_not_in(std::string_view whole) const {
-    if (size() == 1) return whole.find_first_not_of(front());
+  [[nodiscard]] constexpr auto find_not_in(view_t whole) const {
+    if (this->size() == 1) return whole.find_first_not_of(this->front());
     return whole.find_first_not_of(*this);
   }
 
-  [[nodiscard]] constexpr auto find_last_not_in(std::string_view whole) const {
-    if (size() == 1) return whole.find_last_not_of(front());
+  [[nodiscard]] constexpr auto find_last_not_in(view_t whole) const {
+    if (this->size() == 1) return whole.find_last_not_of(this->front());
     return whole.find_last_not_of(*this);
   }
 
@@ -70,7 +76,7 @@ struct delim: public string_view_wrapper<delim> {
 #pragma region Append
 
   // Append.
-  constexpr auto& append(AppendTarget auto& target) const {
+  constexpr auto& append(BasicAppendTarget<char_t> auto& target) const {
     appender{target}.append(*this);
     return target;
   }
@@ -80,8 +86,8 @@ struct delim: public string_view_wrapper<delim> {
   // Caller must set `first` initially. Then, on the first call, `first` will
   // be cleared, but nothing will be appended. On subsequent calls `first` will
   // remain cleared, so the delimiter will be appended.
-  constexpr auto&
-  append_skip_first(AppendTarget auto& target, bool& first) const {
+  constexpr auto& append_skip_first(BasicAppendTarget<char_t> auto& target,
+      bool& first) const {
     if (!first)
       append(target);
     else
@@ -91,13 +97,16 @@ struct delim: public string_view_wrapper<delim> {
 
   // Append when `emit`.
   template<bool emit = true>
-  constexpr auto& append_if(AppendTarget auto& target) const {
+  constexpr auto& append_if(BasicAppendTarget<char_t> auto& target) const {
     if constexpr (emit) append(target);
     return target;
   }
 
 #pragma endregion Append
 };
+
+// The default delimiter type, over `char`.
+using delim = basic_delim<char>;
 
 #pragma endregion delim
 
