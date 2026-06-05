@@ -22,6 +22,7 @@
 
 #include "enums_shared.h"
 #include "../strings/core/fixed_string_utils.h"
+#include "../strings/core/string_view_wrapper.h"
 #include "../strings/core/targeting.h"
 #include "../strings/core/conversion.h"
 #include "enum_registry.h"
@@ -370,8 +371,14 @@ enum_find_by_name(std::string_view sv) noexcept {
 //  auto c = "red"_color;  // OK
 //  auto d = "reed"_color; // Compile error: not a registered name
 template<SequentialEnum E>
-class enum_name {
+class enum_name: public string_view_wrapper<enum_name<E>> {
+  using base = string_view_wrapper<enum_name<E>>;
+  using base::operator->;
+  using base::operator*;
+
 public:
+  using view_t = base::view_t;
+
 #pragma region Construction
 
   // Convert from literal.
@@ -380,15 +387,15 @@ public:
 
   // Convert from pointer + length.
   consteval enum_name(const char* s, size_t n)
-      : sv_(enum_intern_name<E>({s, n})) {
-    if (sv_.empty())
+      : base{enum_intern_name<E>({s, n})} {
+    if (base::empty())
       throw std::invalid_argument("not a registered name for this enum");
   }
 
   // Convert from the enum value itself. Can be called `consteval` but does not
   // need to be. To construct with a value that has no name, use `force`.
-  constexpr enum_name(E e) : sv_(enum_as_view(e)) {
-    if (sv_.empty())
+  constexpr enum_name(E e) : base{enum_as_view(e)} {
+    if (base::empty())
       throw std::invalid_argument("not a registered name for this enum");
   }
 
@@ -435,24 +442,19 @@ public:
 #pragma endregion
 #pragma region Accessors
 
-  [[nodiscard]] constexpr auto as_view() const noexcept { return sv_; }
-  [[nodiscard]] constexpr operator std::string_view() const noexcept {
-    return sv_;
+  [[nodiscard]] constexpr auto as_view() const noexcept {
+    return base::view();
   }
-  [[nodiscard]] constexpr std::string_view operator*() const noexcept {
-    return sv_;
-  }
-  [[nodiscard]] constexpr auto operator->() const noexcept { return &sv_; }
 
   // Look up enum at compile time.
   [[nodiscard]] consteval E as_enum() const noexcept {
-    return *enum_find_by_name<E>(sv_);
+    return *enum_find_by_name<E>(as_view());
   }
 
   // Find enum at runtime. Can fail if `force` was used, hence the
   // `or_default`.
   [[nodiscard]] E find_enum(E or_default = E{}) const noexcept {
-    return enum_find_by_name<E>(sv_).value_or(or_default);
+    return enum_find_by_name<E>(as_view()).value_or(or_default);
   }
 
 #pragma endregion
@@ -460,13 +462,7 @@ protected:
 #pragma region Forced construction
 
   struct force_tag {};
-  constexpr enum_name(std::string_view sv, force_tag) : sv_(sv) {}
-
-#pragma endregion
-private:
-#pragma region Data members
-
-  std::string_view sv_;
+  constexpr enum_name(std::string_view sv, force_tag) : base{sv} {}
 
 #pragma endregion
 };

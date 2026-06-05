@@ -960,31 +960,31 @@ TEST_CASE("EnumFindNamed", "[SequentialEnumTest]") {
 
 // Shows that a bare literal or enum value is validated by the parameter type,
 // with no ceremony at the call site.
-constexpr std::string_view take_tiger(enum_name<tiger_pick> s) { return *s; }
+constexpr std::string_view take_tiger(enum_name<tiger_pick> s) { return s; }
 
 TEST_CASE("EnumStringView", "[SequentialEnumTest]") {
   using tiger_sv = enum_name<tiger_pick>;
 
-  // Bare string literal, validated at compile time (array-ref ctor). Acts as
-  // the matching view through `operator*` and the implicit conversion.
+  // Bare string literal, validated at compile time (array-ref ctor). Compares
+  // equal to the matching view and converts to it implicitly.
   if (true) {
     constexpr tiger_sv s{"meany"};
-    static_assert(*s == "meany");
+    static_assert(s == "meany");
     static_assert(std::string_view{s} == "meany");
-    CHECK(*s == "meany");
+    CHECK(s == "meany");
     CHECK(std::string_view{s} == "meany");
   }
   // Pointer-and-length ctor: what a string-literal UDL feeds it.
   if (true) {
     constexpr tiger_sv s{"moe", 3};
-    static_assert(*s == "moe");
-    CHECK(*s == "moe");
+    static_assert(s == "moe");
+    CHECK(s == "moe");
   }
   // From the enum value itself, with its name looked up at compile time.
   if (true) {
     constexpr tiger_sv s{tiger_pick::miny};
-    static_assert(*s == "miny");
-    CHECK(*s == "miny");
+    static_assert(s == "miny");
+    CHECK(s == "miny");
   }
   // Bare literal and enum value both convert implicitly at the parameter.
   if (true) {
@@ -999,17 +999,17 @@ TEST_CASE("EnumStringView", "[SequentialEnumTest]") {
   // outlive it).
   if (true) {
     std::string_view name = "meany"; // A runtime value.
-    CHECK(*tiger_sv::intern(name) == "meany");
+    CHECK(tiger_sv::intern(name) == "meany");
     CHECK(tiger_sv::try_intern(name)->as_view() == name);
-    CHECK(*tiger_sv::force(name) == "meany");
+    CHECK(tiger_sv::force(name) == "meany");
 
     // `intern`/`try_intern` point into the name table; `force` points at the
     // caller's buffer.
-    CHECK(tiger_sv::intern(name)->data() ==
+    CHECK(tiger_sv::intern(name).data() ==
           enum_intern_name<tiger_pick>("meany").data());
     CHECK(tiger_sv::try_intern(name)->as_view().data() ==
           enum_intern_name<tiger_pick>("meany").data());
-    CHECK(tiger_sv::force(name)->data() == name.data());
+    CHECK(tiger_sv::force(name).data() == name.data());
   }
   // `try_intern` is empty on an unregistered name; `intern` throws; `force`
   // keeps the unregistered bytes verbatim.
@@ -1018,13 +1018,8 @@ TEST_CASE("EnumStringView", "[SequentialEnumTest]") {
     CHECK(!tiger_sv::try_intern(bogus));
     CHECK_THROWS(tiger_sv::intern(bogus));
     auto s = tiger_sv::force(bogus);
-    CHECK(*s == "notaname");
-    CHECK(enum_intern_name<tiger_pick>(*s).empty());
-  }
-  // `operator->` reaches the underlying view's members.
-  if (true) {
-    constexpr tiger_sv s{"moe"};
-    CHECK(s->size() == 3);
+    CHECK(s == "notaname");
+    CHECK(enum_intern_name<tiger_pick>(s).empty());
   }
 
   // The following correctly fail to compile. The `consteval` constructors'

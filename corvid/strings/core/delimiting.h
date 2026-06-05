@@ -15,6 +15,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 #pragma once
+#include "string_view_wrapper.h"
 #include "strings_shared.h"
 #include "targeting.h"
 
@@ -32,18 +33,21 @@ namespace corvid::strings { inline namespace delimiting {
 // - When splitting, checks for any of the characters.
 // - When joining, appends the entire string.
 // - When manipulating braces, treated as an open/close pair.
-struct delim: public std::string_view {
+struct delim: public string_view_wrapper<delim> {
+  using base = string_view_wrapper<delim>;
+  using view_t = base::view_t;
+
 #pragma region Construction
-  // Note: Delegating to the templated constructor with `std::forward` breaks
-  // `constexpr` evaluation. Direct base class initialization is required.
-  constexpr delim() : std::string_view(" "sv) {}
-  constexpr delim(const delim&) = default;
 
-  template<typename T>
-  requires(!std::is_same_v<std::decay_t<T>, delim>)
-  constexpr delim(T&& list) : std::string_view(std::forward<T>(list)) {}
+  // The default delimiter is a single space.
+  constexpr delim() noexcept : base{" "sv} {}
 
-  constexpr delim& operator=(const delim&) = default;
+  // Implicit construction from any view, so string literals, strings, and
+  // other view wrappers all pass through transparently. Raw pointers route
+  // through the base's null-safe constructor.
+  constexpr delim(view_t list) noexcept : base{list} {}
+  constexpr delim(const char* psz) : base{psz} {}
+
 #pragma endregion Construction
 #pragma region Locating
 
@@ -61,6 +65,7 @@ struct delim: public std::string_view {
     if (size() == 1) return whole.find_last_not_of(front());
     return whole.find_last_not_of(*this);
   }
+
 #pragma endregion Locating
 #pragma region Append
 
@@ -90,6 +95,7 @@ struct delim: public std::string_view {
     if constexpr (emit) append(target);
     return target;
   }
+
 #pragma endregion Append
 };
 
