@@ -937,6 +937,13 @@ TEST_CASE("AsView", "[SequentialEnumTest]") {
     CHECK(enum_as_view(e0_3(3)) == "");
     CHECK(enum_as_view(e0_3(4)) == "");
   }
+
+  SECTION("views are null-terminated") {
+    // `enum_as_view` returns a `cstring_view`: c_str() stops at this name's
+    // own terminator in the packed buffer, not at the next name.
+    CHECK(std::string_view{enum_as_view(tiger_pick::eeny).c_str()} == "eeny");
+    CHECK(std::string_view{enum_as_view(tiger_pick::moe).c_str()} == "moe");
+  }
 }
 
 #pragma endregion
