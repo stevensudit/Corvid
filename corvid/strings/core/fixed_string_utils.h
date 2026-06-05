@@ -21,6 +21,8 @@
 
 namespace corvid::strings { inline namespace fixed {
 
+#pragma region fixed_split
+
 // Split fixed string by delimiter, returning array of string views, optionally
 // trimming by whitespace.
 //
@@ -52,6 +54,9 @@ consteval auto fixed_split() {
   return result;
 }
 
+#pragma endregion
+#pragma region fixed_split_trim
+
 // Split fixed string by delimiter, returning array of string views, trimming
 // by specified whitespace.
 //
@@ -61,5 +66,52 @@ template<strings::fixed_string W, strings::fixed_string WS = " ",
 consteval auto fixed_split_trim() {
   return fixed_split<W, D, WS>();
 }
+
+#pragma endregion
+#pragma region fixed_replaced
+
+// Return a copy of `W` with every occurrence of `F` replaced by `T`. The
+// length is unchanged, so this is handy for swapping a delimiter, such as
+// turning a comma-delimited list into a null-delimited one.
+template<strings::fixed_string W, char F, char T>
+consteval auto fixed_replaced() {
+  constexpr std::size_t n = W.size();
+  char buf[n + 1]{};
+  for (std::size_t ndx = 0; ndx != n; ++ndx)
+    buf[ndx] = W[ndx] == F ? T : W[ndx];
+  return strings::basic_fixed_string{buf,
+      std::integral_constant<std::size_t, n>{}};
+}
+
+#pragma endregion
+#pragma region fixed_split_cstr
+
+// Split a fixed string into null-terminated `cstring_view`s.
+//
+// Like `fixed_split`, but the pieces are `cstring_view`s instead of
+// `string_view`s. `W` is split on the single delimiter character `D`. Each
+// piece can only be terminated if the delimiter is itself a terminator, so the
+// delimiter is replaced by '\0' to give null-delimited storage. Those views
+// must outlive the call, so the storage is materialized as the template
+// parameter `Nulled` (a template-parameter object with static storage), not a
+// local. `Nulled` is an implementation detail; do not pass it explicitly.
+template<strings::fixed_string W, char D = ',',
+    strings::fixed_string Nulled = fixed_replaced<W, D, '\0'>()>
+consteval auto fixed_split_cstr() {
+  constexpr auto whole = Nulled.view();
+  constexpr auto n = std::count(whole.begin(), whole.end(), '\0');
+  std::array<cstring_view, n + 1> result;
+
+  size_t start = 0;
+  for (size_t i = 0; i != result.size(); ++i) {
+    result[i] = cstring_view{Nulled.data() + start};
+    auto pos = whole.find('\0', start);
+    start = pos == whole.npos ? whole.size() : pos + 1;
+  }
+
+  return result;
+}
+
+#pragma endregion
 
 }} // namespace corvid::strings::fixed
