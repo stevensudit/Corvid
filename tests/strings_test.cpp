@@ -191,12 +191,15 @@ TEST_CASE("SplitPg", "[StringUtilsTest]") {
     CHECK((split_gen<PG, R>(("11 22 33"sv))) == V{"11", "22", "33"});
   }
   if (true) {
-    strings::piece_generator pg{""sv,
+    // Custom callables are stored without std::function erasure; CTAD deduces
+    // the code unit and both callable types.
+    strings::basic_piece_generator pg{"a b\tc"sv,
         [](std::string_view s) {
           auto loc = strings::locate(s, {' ', '\t', '\n', '\r'});
           return std::pair{loc.pos, loc.pos + 1};
         },
         [](std::string_view s) { return s; }};
+    CHECK(strings::split(pg) == std::vector<std::string_view>{"a", "b", "c"});
   }
 }
 

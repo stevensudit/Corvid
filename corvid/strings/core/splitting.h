@@ -120,12 +120,57 @@ concept PieceGenerator = requires(T t,
 #pragma endregion PieceGenerator
 #pragma region piece_generator
 
+// Finds the next delimiter in the remainder of the string. What constitutes a
+// delimiter is baked into the callable. It is always fed the remainder, so
+// there's no need for a `pos` parameter. Returns a pair of positions for the
+// start and end of the delimiter; if not found, the first is `npos` and the
+// second is unused.
+template<typename F, typename Char>
+concept DelimFinder =
+    std::invocable<F, std::basic_string_view<Char>> &&
+    std::convertible_to<std::invoke_result_t<F, std::basic_string_view<Char>>,
+        std::pair<size_t, size_t>>;
+
+// Filters a candidate piece. Returns a `null` value to skip it. Can strip
+// padding, or even use an internal buffer to unescape.
+template<typename F, typename Char>
+concept PieceFilter =
+    std::invocable<F, std::basic_string_view<Char>> &&
+    std::convertible_to<std::invoke_result_t<F, std::basic_string_view<Char>>,
+        basic_opt_string_view<void, Char>>;
+
+// Default delimiter finder: splits on a single space.
+template<typename Char>
+struct default_delim_finder {
+  constexpr std::pair<size_t, size_t> operator()(
+      std::basic_string_view<Char> s) const {
+    auto pos = s.find(Char(' '));
+    return {pos, pos + 1};
+  }
+};
+
+// Default piece filter: passes every piece through unchanged.
+template<typename Char>
+struct default_piece_filter {
+  constexpr basic_opt_string_view<void, Char> operator()(
+      std::basic_string_view<Char> s) const {
+    return s;
+  }
+};
+
 // Implements the PieceGenerator concept to provide a working example that is
 // composable enough to handle many common cases.
 //
+// The delimiter finder and piece filter are stored by value as their own
+// types (any invocables matching `DelimFinder` / `PieceFilter`), so no
+// `std::function` type erasure is imposed. Build one with custom callables via
+// CTAD; the `piece_generator` alias uses the defaults.
+//
 // Treats input as `basic_opt_string_view`, returning a piece when `empty` but
 // not `null`. The end state is `null`.
-template<typename Char = char>
+template<typename Char = char,
+    DelimFinder<Char> Finder = default_delim_finder<Char>,
+    PieceFilter<Char> Filter = default_piece_filter<Char>>
 struct basic_piece_generator {
 #pragma region Member types
 
@@ -133,17 +178,6 @@ struct basic_piece_generator {
   using char_t = Char;
   using view_t = std::basic_string_view<Char>;
   using opt_view_t = basic_opt_string_view<void, Char>;
-
-  // Callback to find next delimiter. What constitutes a delimiter is baked
-  // into the lambda. Likewise, it is always fed the remainder of the string,
-  // so there's no need for a `pos` parameter. Returns a pair of positions for
-  // the start and end of the delimiter. If not found, the first value is
-  // `npos` and the second is unused.
-  using find_delim_cb = std::function<std::pair<size_t, size_t>(view_t)>;
-
-  // Callback to filter out a piece. Returns a `null` value to skip. Can strip
-  // out padding, or even use an internal buffer to unescape.
-  using filter_piece_cb = std::function<opt_view_t(view_t)>;
 
 #pragma endregion Member types
 #pragma region Reset
@@ -165,11 +199,12 @@ struct basic_piece_generator {
   // Fills `part` with the next piece from `whole` and returns `true`. On
   // failure, such as when there's nothing left to parse, returns `false`.
   [[nodiscard]] static bool more_pieces(view_t& part, opt_view_t& whole,
-      const find_delim_cb& finder, const filter_piece_cb& filter) {
+      const DelimFinder<Char> auto& finder,
+      const PieceFilter<Char> auto& filter) {
     for (;;) {
       if (whole.null()) return false;
-      auto [pos, next] = finder(whole);
-      auto opt_part = filter(whole.substr(0, pos));
+      const auto [pos, next] = std::pair<size_t, size_t>(finder(whole));
+      const opt_view_t opt_part = filter(whole.substr(0, pos));
       if (pos == npos)
         whole = std::nullopt;
       else
@@ -190,17 +225,22 @@ struct basic_piece_generator {
 #pragma region Data members
 
   opt_view_t whole;
-  find_delim_cb finder = [](view_t s) {
-    auto pos = s.find(Char(' '));
-    return std::pair{pos, pos + 1};
-  };
-  filter_piece_cb filter = [](view_t s) { return opt_view_t{s}; };
+  [[no_unique_address]] Finder finder{};
+  [[no_unique_address]] Filter filter{};
 
 #pragma endregion Data members
 };
 
 // The default piece generator, over `char`.
 using piece_generator = basic_piece_generator<char>;
+
+// Deduce the code unit and the callable types from the constructor arguments.
+template<typename Char>
+basic_piece_generator(std::basic_string_view<Char>)
+    -> basic_piece_generator<Char>;
+template<typename Char, DelimFinder<Char> Finder, PieceFilter<Char> Filter>
+basic_piece_generator(std::basic_string_view<Char>, Finder, Filter)
+    -> basic_piece_generator<Char, Finder, Filter>;
 
 #pragma endregion piece_generator
 #pragma region split_gen
