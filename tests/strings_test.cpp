@@ -202,6 +202,43 @@ TEST_CASE("SplitPg", "[StringUtilsTest]") {
 
 #pragma endregion
 
+// Test splitting over a wide code unit.
+#pragma region WideSplit
+
+TEST_CASE("WideSplit", "[StringUtilsTest]") {
+  // extract_piece defaults its return to a view of `whole`'s code unit.
+  std::u16string_view sv = u"1,2";
+  CHECK(strings::extract_piece(sv, u",") == u"1");
+  CHECK(strings::extract_piece(sv, u",") == u"2");
+  CHECK(sv.empty());
+
+  // An owning return type is requested as the first template argument.
+  sv = u"1,2";
+  CHECK(strings::extract_piece<std::u16string>(sv, u",") == u"1");
+
+  // more_pieces threads the same code unit.
+  std::u16string_view w = u"a;b", part;
+  CHECK(strings::more_pieces(part, w, u";"));
+  CHECK(part == u"a");
+  CHECK_FALSE(strings::more_pieces(part, w, u";"));
+  CHECK(part == u"b");
+
+  // split defaults to views; an owning element type makes deep copies.
+  using V = std::vector<std::u16string_view>;
+  using S = std::vector<std::u16string>;
+  CHECK(strings::split(u"1,2,3", u",") == V{u"1", u"2", u"3"});
+  CHECK(strings::split<std::u16string>(u"1,2,3", u",") == S{u"1", u"2", u"3"});
+
+  // A temporary wide string is split into deep copies.
+  CHECK(strings::split(std::u16string{u"1,2,3"}, u",") == S{u"1", u"2", u"3"});
+
+  // split_gen over a wide generator (default whitespace delimiter).
+  using PG = strings::basic_piece_generator<char16_t>;
+  CHECK(strings::split_gen<PG>(u"1 2 3"sv) == V{u"1", u"2", u"3"});
+}
+
+#pragma endregion
+
 // Test as_lower, as_upper.
 #pragma region Case
 

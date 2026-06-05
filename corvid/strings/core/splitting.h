@@ -28,23 +28,28 @@ namespace corvid::strings { inline namespace splitting {
 
 // Extract next delimited piece destructively from `whole`.
 //
-// Specify R as `std::string` to make a deep copy.
-template<typename R = std::string_view>
-[[nodiscard]] constexpr auto
-extract_piece(std::string_view& whole, delim d = {}) {
+// The return type `R` effectively defaults to a `std::basic_string_view` of
+// `whole`'s own code unit; specify `R` as an owning string type (e.g.
+// `std::string`) to make a deep copy.
+template<typename R = void, typename C>
+[[nodiscard]] constexpr auto extract_piece(std::basic_string_view<C>& whole,
+    std::type_identity_t<basic_delim<C>> d = {}) {
+  using result_t =
+      std::conditional_t<std::is_void_v<R>, std::basic_string_view<C>, R>;
   auto pos = std::min(whole.size(), d.find_in(whole));
   auto part = whole.substr(0, pos);
   whole.remove_prefix(std::min(whole.size(), pos + 1));
-  return R{part};
+  return result_t{part};
 }
 
 // Extract next delimited piece into `part`, removing it from `whole`.
 //
 // Returns true so long as there's more work to do.
-// Specify R as `std::string` to make a deep copy.
-template<typename R>
+// Pass an owning string type as `part` to make a deep copy.
+template<typename R, typename C>
 [[nodiscard]] constexpr bool
-more_pieces(R& part, std::string_view& whole, delim d = {}) {
+more_pieces(R& part, std::basic_string_view<C>& whole,
+    std::type_identity_t<basic_delim<C>> d = {}) {
   auto all = whole.size();
   part = extract_piece<R>(whole, d);
   return part.size() != all;
@@ -52,12 +57,18 @@ more_pieces(R& part, std::string_view& whole, delim d = {}) {
 
 // Split all pieces by delimiters and return parts in vector.
 //
-// Does not omit empty parts.
-// Specify R as `std::string` to make a deep copy.
-template<typename R = std::string_view>
-[[nodiscard]] constexpr auto split(std::string_view whole, delim d = {}) {
-  std::vector<R> parts;
-  std::string_view part;
+// Does not omit empty parts. The vector element type `R` effectively defaults
+// to a `std::basic_string_view` of `whole`'s own code unit; specify `R` as an
+// owning string type (e.g. `std::string`) to make deep copies.
+template<typename R = void, StringViewLike S>
+[[nodiscard]] constexpr auto
+split(const S& whole_in, basic_delim<char_type_of_t<S>> d = {}) {
+  using C = char_type_of_t<S>;
+  using result_t =
+      std::conditional_t<std::is_void_v<R>, std::basic_string_view<C>, R>;
+  std::basic_string_view<C> whole{as_view(whole_in)};
+  std::vector<result_t> parts;
+  std::basic_string_view<C> part;
   for (bool more = !whole.empty(); more;) {
     more = more_pieces(part, whole, d);
     parts.emplace_back(part);
@@ -65,9 +76,17 @@ template<typename R = std::string_view>
   return parts;
 }
 
-// Split a temporary string by delimiters, making deep copies of the parts.
-[[nodiscard]] constexpr auto split(std::string&& whole, delim d = {}) {
-  return split<std::string>(std::string_view(whole), d);
+// Split a temporary string by delimiters, returning deep copies of parts in a
+// vector.
+//
+// The vector element type `R` effectively defaults to an owning string of
+// `whole`'s code unit, since views into the temporary would dangle.
+template<typename R = void, typename C>
+[[nodiscard]] constexpr auto split(std::basic_string<C>&& whole,
+    std::type_identity_t<basic_delim<C>> d = {}) {
+  using result_t =
+      std::conditional_t<std::is_void_v<R>, std::basic_string<C>, R>;
+  return split<result_t>(std::basic_string_view<C>(whole), d);
 }
 
 #pragma endregion Split
@@ -75,12 +94,13 @@ template<typename R = std::string_view>
 
 // Concept to detect whether a type is a piece_generator.
 //
-// This requires it to be moveable, be constructable from `std::string_view`,
-// and to support the `more_pieces` method.
+// This requires it to expose a `char_t` code unit, be moveable, be
+// constructible from a view of that code unit, and support the `more_pieces`
+// method.
 //
 // A piece generator is plugged into a split adapter to perform split
 // operations. This modularized approach makes it possible to define delimiters
-// any way you like, strip padding, or skip empty pieces. Using a stateful
+// any way you like, or strip padding, or skip empty pieces. Using a stateful
 // object also allows you to do things like limit how many pieces are returned,
 // alternate the delimiters, or make a mutable copy of each so as to unescape.
 //
@@ -89,7 +109,9 @@ template<typename R = std::string_view>
 // dangling references. Alternately, you can choose to provide memory backing
 // for all of the pieces, relaxing this requirement.
 template<typename T>
-concept PieceGenerator = requires(T t, std::string_view s) {
+concept PieceGenerator = requires(T t,
+    std::basic_string_view<typename T::char_t> s) {
+  typename T::char_t;
   requires std::is_move_constructible_v<T>;
   { T{s} };
   { t.more_pieces(s) };
@@ -101,22 +123,27 @@ concept PieceGenerator = requires(T t, std::string_view s) {
 // Implements the PieceGenerator concept to provide a working example that is
 // composable enough to handle many common cases.
 //
-// Treats input as `opt_string_view`, returning a piece when `empty` but not
-// `null`. The end state is `null`.
-struct piece_generator {
+// Treats input as `basic_opt_string_view`, returning a piece when `empty` but
+// not `null`. The end state is `null`.
+template<typename Char = char>
+struct basic_piece_generator {
 #pragma region Member types
+
+  // The code unit and its view / optional-view types.
+  using char_t = Char;
+  using view_t = std::basic_string_view<Char>;
+  using opt_view_t = basic_opt_string_view<void, Char>;
 
   // Callback to find next delimiter. What constitutes a delimiter is baked
   // into the lambda. Likewise, it is always fed the remainder of the string,
   // so there's no need for a `pos` parameter. Returns a pair of positions for
   // the start and end of the delimiter. If not found, the first value is
   // `npos` and the second is unused.
-  using find_delim_cb =
-      std::function<std::pair<size_t, size_t>(std::string_view)>;
+  using find_delim_cb = std::function<std::pair<size_t, size_t>(view_t)>;
 
   // Callback to filter out a piece. Returns a `null` value to skip. Can strip
   // out padding, or even use an internal buffer to unescape.
-  using filter_piece_cb = std::function<opt_string_view(std::string_view)>;
+  using filter_piece_cb = std::function<opt_view_t(view_t)>;
 
 #pragma endregion Member types
 #pragma region Reset
@@ -125,7 +152,7 @@ struct piece_generator {
   // good idea, especially if you have state that needs to be cleared in
   // between calls. The return allows passing `piece_generator.reset(x)` to the
   // `split` function.
-  auto& reset(std::string_view new_whole) {
+  auto& reset(view_t new_whole) {
     whole = new_whole;
     return *this;
   }
@@ -137,9 +164,8 @@ struct piece_generator {
   //
   // Fills `part` with the next piece from `whole` and returns `true`. On
   // failure, such as when there's nothing left to parse, returns `false`.
-  [[nodiscard]] static bool more_pieces(std::string_view& part,
-      opt_string_view& whole, const find_delim_cb& finder,
-      const filter_piece_cb& filter) {
+  [[nodiscard]] static bool more_pieces(view_t& part, opt_view_t& whole,
+      const find_delim_cb& finder, const filter_piece_cb& filter) {
     for (;;) {
       if (whole.null()) return false;
       auto [pos, next] = finder(whole);
@@ -156,38 +182,45 @@ struct piece_generator {
 
   // Fills `part` with the next piece and returns `true`. On failure, such as
   // when there's nothing left to parse, returns `false`.
-  [[nodiscard]] bool more_pieces(std::string_view& part) {
+  [[nodiscard]] bool more_pieces(view_t& part) {
     return more_pieces(part, whole, finder, filter);
   }
 
 #pragma endregion Pieces
 #pragma region Data members
 
-  opt_string_view whole;
-  find_delim_cb finder = [](std::string_view s) {
-    auto pos = s.find(' ');
+  opt_view_t whole;
+  find_delim_cb finder = [](view_t s) {
+    auto pos = s.find(Char(' '));
     return std::pair{pos, pos + 1};
   };
-  filter_piece_cb filter = [](std::string_view s) { return s; };
+  filter_piece_cb filter = [](view_t s) { return opt_view_t{s}; };
 
 #pragma endregion Data members
 };
+
+// The default piece generator, over `char`.
+using piece_generator = basic_piece_generator<char>;
 
 #pragma endregion piece_generator
 #pragma region split_gen
 
 // Split `whole` using the PieceGenerator and return parts in vector.
-template<PieceGenerator PG = piece_generator, typename R = std::string_view>
-[[nodiscard]] constexpr auto split_gen(std::string_view whole) {
+template<PieceGenerator PG = piece_generator, typename R = void>
+[[nodiscard]] constexpr auto
+split_gen(std::basic_string_view<typename PG::char_t> whole) {
   return split<R>(PG{whole});
 }
 
 // Use this version when you want to set additional generator parameters or
 // need access to it afterwards.
-template<typename R = std::string_view>
-[[nodiscard]] constexpr auto split(PieceGenerator auto pgen) {
-  std::vector<R> parts;
-  std::string_view part;
+template<typename R = void, PieceGenerator PG>
+[[nodiscard]] constexpr auto split(PG pgen) {
+  using C = typename PG::char_t;
+  using result_t =
+      std::conditional_t<std::is_void_v<R>, std::basic_string_view<C>, R>;
+  std::vector<result_t> parts;
+  std::basic_string_view<C> part;
   while (pgen.more_pieces(part)) parts.emplace_back(part);
   return parts;
 }
