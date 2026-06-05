@@ -82,7 +82,7 @@ enum class quic_close_kind : uint8_t {
 
 consteval auto corvid_enum_spec(quic_close_kind*) {
   return corvid::enums::sequence::make_sequence_enum_spec<quic_close_kind,
-      "transport, application", corvid::enums::wrapclip{},
+      "transport,application", corvid::enums::wrapclip{},
       quic_close_kind::transport>();
 }
 

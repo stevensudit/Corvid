@@ -1825,9 +1825,9 @@ enum class marine_rank : std::uint8_t {
 
 consteval auto corvid_enum_spec(marine_rank*) {
   return make_sequence_enum_spec<marine_rank,
-      "Civilian, Private, PrivateFirstClass, LanceCorporal, Sergeant, "
-      "StaffSergeant, GunnerySergeant, MasterSergeant, FirstSergeant, "
-      "MasterGunnerySergeant, SergeantMajor, SergeantMajorOfTheMarineCorps",
+      "Civilian,Private,PrivateFirstClass,LanceCorporal,Sergeant,"
+      "StaffSergeant,GunnerySergeant,MasterSergeant,FirstSergeant,"
+      "MasterGunnerySergeant,SergeantMajor,SergeantMajorOfTheMarineCorps",
       wrapclip::limit>();
 }
 
@@ -1836,7 +1836,7 @@ enum class special_chars : int { normal, has_backslash, has_quote };
 
 consteval auto corvid_enum_spec(special_chars*) {
   return make_sequence_enum_spec<special_chars,
-      R"(normal, back\slash, has"quote)">();
+      R"(normal,back\slash,has"quote)">();
 }
 
 struct soldier {

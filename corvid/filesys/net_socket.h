@@ -259,7 +259,7 @@ enum class socket_option : int {
 consteval auto corvid_enum_spec(socket_option*) {
   return corvid::enums::sequence::make_sequence_enum_spec<socket_option,
       "debug,reuse_addr,type,error,dontroute,broadcast,sndbuf,rcvbuf,keep_"
-      "alive,oob_inline,no_check,priority,linger,bsd_compat,reuse_port, "
+      "alive,oob_inline,no_check,priority,linger,bsd_compat,reuse_port,"
       "passcred,peercred,rcvlowat,sndlowat,rcvtimeo,sndtimeo,security_"
       "authentication,security_encryption_transport,security_encryption_"
       "network,bind_to_device,attach_filter,detach_filter,peername,timestamp_"
