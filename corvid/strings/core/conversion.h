@@ -20,6 +20,7 @@
 
 #include "strings_shared.h"
 #include "cases.h"
+#include "charconv_wrapper.h"
 #include "trimming.h"
 
 namespace corvid::strings { inline namespace conversion {
@@ -57,7 +58,7 @@ template<int base = 10>
 constexpr bool extract_num(std::integral auto& t, std::string_view& sv) {
   const auto save_sv = sv;
   sv = trim_left(sv);
-  auto [ptr, ec] = std::from_chars(sv.data(), sv.data() + sv.size(), t, base);
+  auto [ptr, ec] = int_from_chars(sv.data(), sv.data() + sv.size(), t, base);
   sv.remove_prefix(ptr - sv.data());
   if (ec == std::errc{}) return true;
   sv = save_sv;
@@ -109,7 +110,7 @@ template<int base = 10, size_t width = 0, char pad = ' '>
 constexpr auto& append_num(AppendTarget auto& target, Integer auto num) {
   auto a = appender{target};
   std::array<char, 64> b;
-  auto [ptr, ec] = std::to_chars(b.data(), b.data() + b.size(), num, base);
+  auto [ptr, ec] = int_to_chars(b.data(), b.data() + b.size(), num, base);
   if (ec != std::errc{}) return target;
   size_t len = ptr - b.data();
   // Apply padding and prefix.
@@ -166,7 +167,7 @@ template<std::chars_format fmt = std::chars_format::general>
 constexpr bool extract_num(std::floating_point auto& t, std::string_view& sv) {
   const auto save_sv = sv;
   sv = trim_left(sv);
-  auto [ptr, ec] = std::from_chars(sv.data(), sv.data() + sv.size(), t, fmt);
+  auto [ptr, ec] = float_from_chars(sv.data(), sv.data() + sv.size(), t, fmt);
   sv.remove_prefix(ptr - sv.data());
   if (ec == std::errc{}) return true;
   sv = save_sv;
@@ -222,12 +223,8 @@ constexpr auto&
 append_num(AppendTarget auto& target, std::floating_point auto num) {
   auto a = appender{target};
   std::array<char, 64> b;
-  std::to_chars_result res;
-  if constexpr (precision != -1)
-    res = std::to_chars(b.data(), b.data() + b.size(), num, fmt, precision);
-  else
-    res = std::to_chars(b.data(), b.data() + b.size(), num, fmt);
-  auto [ptr, ec] = res;
+  auto [ptr, ec] =
+      float_to_chars(b.data(), b.data() + b.size(), num, fmt, precision);
   if (ec != std::errc{}) return target;
   const size_t len = ptr - b.data();
   if constexpr (width && pad)
