@@ -258,7 +258,8 @@ TEST_CASE("Construction", "[OptStringViewTest]") {
     CHECK(d.size() == 3U);
     auto e = 0_osv;
     CHECK(e.null());
-    CHECK_THROWS_AS((1_osv), std::out_of_range);
+    // The following won't even compile:
+    //*    1_osv;
   }
 }
 
@@ -409,6 +410,16 @@ TEST_CASE("Cast", "[OptStringViewTest]") {
   CHECK(std::string(osv) == "abc");
 }
 
+TEST_CASE("Sanity", "[OptStringViewTest]") {
+  opt_string_view osv{"hello"};
+  osv = nullptr;
+  CHECK(osv.null());
+  osv = "world";
+  CHECK(osv == "world");
+  osv = "bird"_osv;
+  CHECK(osv == "bird");
+}
+
 #pragma endregion
 #pragma region Equal
 
@@ -443,7 +454,8 @@ TEST_CASE("OptStringViewTestEqual", "[OptStringViewTestEqual]") {
   constexpr auto e = ""_osv;
   constexpr auto n = 0_osv;
 
-  CHECK_THROWS_AS(1_osv, std::out_of_range);
+  // The following won't even compile.
+  // * 1_osv
 
   // It's really constexpr, despite throwing on non-0, because it knows at
   // compile-time that it's 0.

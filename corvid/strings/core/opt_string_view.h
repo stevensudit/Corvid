@@ -28,20 +28,24 @@
 namespace corvid {
 inline namespace optstringview {
 
+#pragma region basic_opt_string_view
+
 // Optional string view
 //
 // A `std::string_view` with optional semantics, distinguishing null from
-// empty.
+// empty. This is designed as a general-purpose replacement for when you need
+// to honor null semantics and/or enforce type-safety.
 //
 // Fundamentally it's a `std::string_view` with different construction and a
-// few `std::optional`-like methods. It changes construction and interpretation
-// but does not constrain content.
+// few `std::optional`-like methods, along with an optional tag. It changes
+// construction and interpretation but does not constrain content.
 //
 // It is built on `string_view_wrapper`, but converts to a
-// `std::string_view` freely. The wrapper supplies the read-only view API, the
-// null/empty distinction, and the optional interface; this class adds the
-// lenient constructors and the reslicing operations (`substr`,
-// `remove_prefix`, `remove_suffix`) that its lack of any invariant makes safe.
+// `std::string_view` freely. The wrapper supplies the read-only view API,
+// support for the null/empty distinction, and the `std::optional` interface;
+// this class adds the lenient, null-aware constructors and the reslicing
+// operations (`substr`, `remove_prefix`, `remove_suffix`) that its lack of any
+// invariant makes safe.
 //
 // Unlike using `std::string` for everything, this class avoids the overhead of
 // copying while still preserving the distinction between `empty` and `null`.
@@ -52,28 +56,44 @@ inline namespace optstringview {
 //
 // Unlike `std::string_view`, it can be constructed from a `nullptr`.
 //
-// Like `std::optional<std::string_view>`, it can distinguish between missing
-// null and empty, and offers such things as existence checks and defaults.
+// Like `std::optional<std::string_view>`, it can distinguish between null and
+// empty, and offers existence checks and defaults.
 //
 // The most convenient way to declare a `constexpr opt_string_view` is with a
 // literal using the `_osv` UDL.
 //
-// For comparison purposes, `empty` and `null` values are always equivalent. If
-// you want to check for an exact match that distinguishes between these two
+// For comparison purposes, `empty` and `null` values are equivalent. If you
+// want to check for an exact match that distinguishes between these two
 // states, use `same`.
-
-#pragma region basic_opt_string_view
-
-template<typename char_t = char>
+//
+// The optional `Tag` parameter turns this into a tagged view: a non-void `Tag`
+// makes distinct tags distinct types that don't implicitly mix, and forces the
+// view-taking (and other string-like) constructors to be `explicit` so a raw
+// `std::string_view` can't silently become a tagged one.
+//
+// The untagged default (`Tag` is `void`) keeps those conversions implicit, so
+// `opt_string_view` stays a drop-in replacement for `std::string_view`. The
+// `tagged_string_view` alias names the tagged form. Conversion the other way
+// (to `std::string_view`) stays implicit for both, as does comparison against
+// any view.
+template<typename Tag = void, typename Char = char>
 class basic_opt_string_view final
-    : public string_view_wrapper<basic_opt_string_view<char_t>, char_t> {
-  using wrapper = string_view_wrapper<basic_opt_string_view<char_t>, char_t>;
+    : public string_view_wrapper<basic_opt_string_view<Tag, Char>, Char> {
+  using base = string_view_wrapper<basic_opt_string_view<Tag, Char>, Char>;
+
+  // A tagged view forces string-like conversions to be explicit; the untagged
+  // default leaves them implicit.
+  static constexpr bool tagged = !std::is_void_v<Tag>;
 
 #pragma region Member types
 public:
-  using SV = typename wrapper::view_t;
-  using size_type = typename wrapper::size_type;
-  using wrapper::npos;
+  using tag_type = Tag;
+  using char_t = typename base::char_t;
+  using view_t = typename base::view_t;
+  using size_type = typename base::size_type;
+  using base::npos;
+
+  using string_t = std::basic_string<Char>;
 
 #pragma endregion
 #pragma region Construction
@@ -82,48 +102,72 @@ public:
   constexpr basic_opt_string_view(std::nullptr_t) noexcept {}
   constexpr basic_opt_string_view(std::nullopt_t) noexcept {}
 
-  constexpr basic_opt_string_view(SV sv) noexcept : wrapper{sv} {}
-  constexpr basic_opt_string_view(const std::basic_string<char_t>& s) noexcept
-      : wrapper{SV{s}} {}
-  constexpr basic_opt_string_view(const char_t* ps, size_type l)
-      : wrapper{ps, l} {}
-  constexpr basic_opt_string_view(const char_t* psz) : wrapper{psz} {}
+  constexpr explicit(tagged) basic_opt_string_view(view_t sv) noexcept
+      : base{sv} {}
+  constexpr explicit(tagged) basic_opt_string_view(const string_t& s) noexcept
+      : base{view_t{s}} {}
+  constexpr explicit(tagged)
+      basic_opt_string_view(const char_t* ps, size_type l)
+      : base{ps, l} {}
+  constexpr explicit(tagged) basic_opt_string_view(const char_t* psz)
+      : base{psz} {}
   template<std::contiguous_iterator It, std::sized_sentinel_for<It> End>
   requires std::same_as<std::iter_value_t<It>, char_t> &&
            (!std::convertible_to<End, size_type>)
-  constexpr basic_opt_string_view(It first, End last)
-      : wrapper{std::to_address(first), static_cast<size_type>(last - first)} {
-  }
+  constexpr explicit(tagged) basic_opt_string_view(It first, End last)
+      : base{std::to_address(first), static_cast<size_type>(last - first)} {}
 
   // Optional as null.
-  constexpr basic_opt_string_view(const std::optional<SV>& osv) noexcept
-      : wrapper{osv ? SV{*osv} : SV{}} {}
-  constexpr basic_opt_string_view(
-      const std::optional<std::basic_string<char_t>>& os) noexcept
-      : wrapper{os ? SV{*os} : SV{}} {}
+  constexpr explicit(tagged)
+      basic_opt_string_view(const std::optional<view_t>& osv) noexcept
+      : base{osv ? view_t{*osv} : view_t{}} {}
+  constexpr explicit(tagged)
+      basic_opt_string_view(const std::optional<string_t>& os) noexcept
+      : base{os ? view_t{*os} : view_t{}} {}
 
-  constexpr basic_opt_string_view& operator=(SV sv) noexcept {
-    this->sv_ = sv;
+  // View assignment exists only for the untagged form; a tagged view admits a
+  // raw view only through its explicit constructor.
+  constexpr basic_opt_string_view& operator=(view_t sv) noexcept
+  requires(!tagged)
+  {
+    base::sv_ = sv;
+    return *this;
+  }
+  constexpr basic_opt_string_view& operator=(const char_t* s) noexcept
+  requires(!tagged)
+  {
+    base::sv_ = base::from_ptr(s);
     return *this;
   }
 
 #pragma endregion
 #pragma region Reslicing
 
-  // Safe because, unlike `cstring_view`, this imposes no termination
-  // invariant.
-  [[nodiscard]] constexpr SV
+  [[nodiscard]] constexpr basic_opt_string_view
   substr(size_type pos = 0, size_type n = npos) const {
-    return this->sv_.substr(pos, n);
+    return basic_opt_string_view{base::sv_.substr(pos, n)};
   }
-  constexpr void remove_prefix(size_type n) { this->sv_.remove_prefix(n); }
-  constexpr void remove_suffix(size_type n) { this->sv_.remove_suffix(n); }
+  constexpr void remove_prefix(size_type n) { base::sv_.remove_prefix(n); }
+  constexpr void remove_suffix(size_type n) { base::sv_.remove_suffix(n); }
 
 #pragma endregion
 };
 
-using opt_string_view = basic_opt_string_view<char>;
+#pragma region opt_string_view
 
+// Untagged: a drop-in replacement for `std::string_view` with null/empty and
+// optional semantics.
+using opt_string_view = basic_opt_string_view<>;
+
+#pragma endregion
+#pragma region tagged_string_view
+
+// Tagged: distinct `Tag` types are distinct, non-interconverting view types,
+// and construction from a raw view is explicit.
+template<typename Tag, typename Char = char>
+using tagged_string_view = basic_opt_string_view<Tag, Char>;
+
+#pragma endregion
 #pragma endregion
 
 } // namespace optstringview
@@ -133,13 +177,13 @@ namespace literals {
 #pragma region UDL
 
 // opt_string_view literal.
-constexpr opt_string_view
+consteval opt_string_view
 operator""_osv(const char* ps, std::size_t n) noexcept {
   return opt_string_view{ps, n};
 }
 
 // Null literal; must pass 0.
-constexpr opt_string_view operator""_osv(unsigned long long zero_only) {
+consteval opt_string_view operator""_osv(unsigned long long zero_only) {
   if (zero_only) throw std::out_of_range("opt_string_view not zero");
   return opt_string_view{};
 }
