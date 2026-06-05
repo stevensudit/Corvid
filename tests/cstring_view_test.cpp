@@ -111,6 +111,16 @@ TEST_CASE("Construction", "[CStringViewTest]") {
     CHECK(v.c_str() != nullptr);
     CHECK(v.data() == v.data() + v.size());
   }
+  // Construct cstring_view on null and a nonzero length. A null pointer always
+  // yields null rather than dereferencing the bogus length.
+  if (true) {
+    const char* p{};
+    cstring_view v{p, 5};
+    CHECK(v.empty());
+    CHECK(v.null());
+    CHECK(v.data() == nullptr);
+    CHECK(v.c_str() != nullptr);
+  }
   // Construct string_view on empty.
   if (true) {
     const char* p = "";
