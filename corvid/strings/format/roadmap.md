@@ -100,11 +100,19 @@ It inherits `std::formatter<std::basic_string_view<Char>, Char>` to reuse the
 full spec grammar (fill, align, width, precision, `?`), and in `format()`
 converts the wrapper to its `string_view` and delegates. Regular `{}` is pure
 delegation. The one addition: in `{:?}` debug mode a null wrapper (null is
-distinct from empty, the reason the type exists) renders as `(null)` unquoted,
-honoring the requested width, instead of `""`. So content prints as `"text"`,
-empty as `""`, and null as `(null)`: three visibly distinct debug outputs.
-Unquoted `(null)` cannot be confused with a string whose contents are those
-letters, which prints `"(null)"`.
+distinct from empty, the reason the type exists) renders as `(null)` unquoted
+instead of `""`. So content prints as `"text"`, empty as `""`, and null as
+`(null)`: three visibly distinct debug outputs. Unquoted `(null)` cannot be
+confused with a string whose contents are those letters, which prints
+`"(null)"`.
+
+The marker honors fill, align, width, and precision: a second
+`std::formatter<basic_string_view>` member captures the spec with its `?`
+stripped (parsed in `parse` via a local context) and formats the marker through
+it, reusing the base's padding while bypassing its debug quoting. The one
+combination it cannot serve is a dynamic width or precision (`{:{}?}`), whose
+argument is bound to the real parse context; re-parsing against a local context
+would read the wrong argument, so the marker falls back to unpadded there.
 
 #### fixed_string
 

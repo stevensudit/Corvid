@@ -152,9 +152,10 @@ public:
 
 #pragma region opt_string_view
 
-// Untagged: a drop-in replacement for `std::string_view` with null/empty and
-// optional semantics.
-using opt_string_view = basic_opt_string_view<>;
+// Untagged: drop-in replacements for `std::string_view` and
+// `std::wstring_view` with null/empty and optional semantics.
+using opt_string_view = basic_opt_string_view<void, char>;
+using opt_wstring_view = basic_opt_string_view<void, wchar_t>;
 
 #pragma endregion
 #pragma region tagged_string_view

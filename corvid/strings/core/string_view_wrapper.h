@@ -19,6 +19,7 @@
 #include <concepts>
 #include <format>
 #include <iterator>
+#include <memory>
 #include <optional>
 #include <ostream>
 #include <string_view>
@@ -315,11 +316,15 @@ constexpr std::range_format std::format_kind<W> = std::range_format::disabled;
 // `{}` prints the contents, `{:?}` prints the quoted, escaped debug form.
 //
 // A null wrapper (null distinct from empty) stays transparent under `{}`,
-// printing as empty, and prints as the bare, unquoted marker `(null)` under
-// `{:?}`. The marker is distinct from an empty string (`""`) and from a string
-// whose contents are those letters (`"(null)"`). Fill, align, and width are
-// not applied to the marker itself; honoring them would mean reparsing the
-// spec the base hides, deferred until a caller needs it.
+// printing as empty, and prints as the unquoted marker `(null)` under `{:?}`.
+// The marker is distinct from an empty string (`""`) and from a string whose
+// contents are those letters (`"(null)"`). Fill, align, width, and precision
+// apply to the marker too: a second formatter captures the spec with its `?`
+// stripped and formats the marker through that, so the base's debug quoting is
+// bypassed while its padding is reused. The exception is a dynamic width or
+// precision (`{:{}?}`), whose argument is bound to the real parse context;
+// re-parsing it against a local context would read the wrong argument, so the
+// marker falls back to unpadded there.
 //
 // Only a context whose char type matches the wrapper's is claimed; cross-type
 // transcoding is out of scope.
@@ -331,32 +336,54 @@ struct std::formatter<W, CharT>
 
   // The range and map formatters turn on element debug through this rather
   // than a spec `?`, so mirror their call into `debug_` to keep null elements
-  // rendering as `(null)` inside a range.
+  // rendering as `(null)` inside a range. A container enables debug here only
+  // when no element spec was given, so it never carries element width; a bare
+  // (empty-spec) marker is correct. Guard against clobbering a width that a
+  // `?`-bearing spec already captured.
   constexpr void set_debug_format() {
+    const bool was_debug = debug_;
     debug_ = true;
     base::set_debug_format();
+    if (!was_debug) parse_marker({});
   }
 
   constexpr auto parse(auto& ctx) {
     auto it = base::parse(ctx);
     // The debug `?` type is terminal, so a `?` just before the spec end means
-    // debug mode, the only case that changes how a null is rendered.
-    if (it != ctx.begin() && *std::prev(it) == static_cast<CharT>('?'))
+    // debug mode, the only case that changes how a null is rendered. The
+    // marker matters only in debug mode, so capture its spec only then.
+    if (it != ctx.begin() && *std::prev(it) == static_cast<CharT>('?')) {
       debug_ = true;
+      // Capture the spec without the `?` so a null can be padded as the bare
+      // `(null)` marker, reusing the base's fill/align/width without its debug
+      // quoting. A dynamic `{...}` width/precision binds an arg to the real
+      // context; re-parsing it locally would read the wrong argument, so drop
+      // it and let the marker fall back to unpadded.
+      std::basic_string_view<CharT> spec{std::to_address(ctx.begin()),
+          static_cast<size_t>(std::prev(it) - ctx.begin())};
+      if (spec.find(static_cast<CharT>('{')) != spec.npos) spec = {};
+      parse_marker(spec);
+    }
     return it;
   }
 
   template<typename FormatContext>
   auto format(const W& w, FormatContext& ctx) const {
     if (w.null() && debug_) {
-      auto out = ctx.out();
-      for (const char c : std::string_view{"(null)"})
-        *out++ = static_cast<CharT>(static_cast<unsigned char>(c));
-      return out;
+      static constexpr CharT marker[]{CharT('('), CharT('n'), CharT('u'),
+          CharT('l'), CharT('l'), CharT(')')};
+      return marker_.format(std::basic_string_view<CharT>{marker, 6}, ctx);
     }
     return base::format(w.view(), ctx);
   }
 
 private:
+  // Parse `spec` (the padding spec, no `?`) into the marker formatter.
+  constexpr void parse_marker(std::basic_string_view<CharT> spec) {
+    std::basic_format_parse_context<CharT> ctx{spec};
+    marker_.parse(ctx);
+  }
+
   bool debug_{false};
+  base marker_;
 };

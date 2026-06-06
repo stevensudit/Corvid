@@ -59,6 +59,8 @@ consteval auto corvid_enum_spec(weird*) {
   return make_sequence_enum_spec<weird, "ok,q\"x,b\\y,a\tb">();
 }
 
+// NOLINTBEGIN(readability-function-cognitive-complexity)
+
 TEST_CASE("Sequence enum formats by name", "[EnumFormatterTest]") {
   if (true) {
     CHECK(std::format("{}", hue::red) == "red");
@@ -136,3 +138,5 @@ TEST_CASE("Composes inside std range and map", "[EnumFormatterTest]") {
     CHECK(std::format("{}", m) == R"({1: "red", 2: "blue"})");
   }
 }
+
+// NOLINTEND(readability-function-cognitive-complexity)
