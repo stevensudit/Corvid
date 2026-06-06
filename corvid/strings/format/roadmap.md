@@ -164,9 +164,20 @@ them):
   raw half-open underlying `[begin, end)`. Narrow only. Tested in
   `interval_test.cpp`. (Also refactored off `std::pair` inheritance to
   composition with a conversion operator, which the debug path reuses.)
-- [ ] `fixed_bitset` ([../../containers/core/fixed_bitset.h](../../containers/core/fixed_bitset.h)):
-  no std bitset formatter; render as a bit string (model on its existing
-  `operator<<` / `to_string`).
+- [x] `fixed_bitset` ([../../containers/core/fixed_bitset.h](../../containers/core/fixed_bitset.h)):
+  renders the `std::bitset` string (`'0'`/`'1'`, MSB first), verified equal to
+  `std::bitset::to_string()`. Streams the bits one at a time to the output (no
+  buffer the size of the bit count, which would dwarf the N/8-byte instance),
+  plus `format_kind = disabled` because its iterator yields set-bit positions,
+  not bits. Three mutually exclusive representations: default bit string; `#`
+  lists the ascending set-bit indexes (`[1, 2]`, numeric, bit 0 = LSB); `?`
+  (debug) dumps the `word_t` words in hex, most significant first, no `0x`. No
+  `set_debug_format` (a range of bitsets shows the bit strings, not auto-quoted
+  or hex). No width/fill yet (addable later, the length is known). Narrow only.
+  Tested in `fixed_bitset_test.cpp`. (Note: `std::bitset` itself has no
+  `std::formatter`
+  in this libc++, and `fixed_bitset` has no `to_string` yet, a standing TODO; if
+  added, the formatter should delegate to it.)
 - [ ] `strong_type` ([../../containers/core/strong_type.h](../../containers/core/strong_type.h)):
   forward to the underlying `T`'s formatter, the modern replacement for its
   `operator<<`. It conditionally forwards `begin`/`end`, so a range-typed
