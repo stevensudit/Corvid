@@ -404,14 +404,3 @@ template<typename T>
 concept Interval = is_specialization_of_v<T, interval>;
 
 }} // namespace corvid::intervals
-namespace corvid::strings {
-// Register appends.
-template<corvid::AppendTarget A, typename V, typename U>
-constexpr auto append_override_fn<A, interval<V, U>> =
-    interval<V, U>::template append_fn<A>;
-
-template<join_opt opt, char open, char close, corvid::AppendTarget A,
-    typename V, typename U>
-constexpr auto append_join_override_fn<opt, open, close, A, interval<V, U>> =
-    interval<V, U>::template append_join_with_fn<opt, open, close, A>;
-} // namespace corvid::strings

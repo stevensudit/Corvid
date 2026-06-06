@@ -252,33 +252,5 @@ TEST_CASE("CompareAndSwap", "[IntervalTest]") {
 }
 #pragma endregion
 
-#pragma region Append
-
-TEST_CASE("Append", "[IntervalTest]") {
-  if (true) {
-    auto i = interval{1, 4};
-    using I = decltype(i);
-    CHECK_FALSE(is_pair_v<decltype(i)>);
-    CHECK(is_pair_convertible_v<decltype(i)>);
-
-    auto s = ""s;
-    I::append_fn(s, i);
-    CHECK(s == "1, 4");
-    s = strings::concat(i);
-    CHECK(s == "1, 4");
-
-    s = strings::join<strings::join_opt::json>(i);
-    CHECK(s == "[1, 4]");
-
-    i.clear();
-    s = strings::join<strings::join_opt::json>(i);
-    CHECK(s == "[]");
-
-    // Note: make_interval is tested in bitmask_enum_test.cpp and
-    // sequence_enum_test.cpp.
-  }
-}
-#pragma endregion
-
 // NOLINTEND(readability-function-size)
 // NOLINTEND(readability-function-cognitive-complexity)
