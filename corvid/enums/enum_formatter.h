@@ -20,16 +20,24 @@
 #include "../meta/concepts.h"
 #include "../strings/targeting.h"
 #include "enum_conversion.h"
+#include "sequence_enum.h"
+#include "bitmask_enum.h"
 #include "../strings/debug_escaping.h"
 
-// Formatter for any scoped enum, narrow or wide.
+// Formatter for registered Corvid enums (sequence or bitmask), narrow or wide.
+//
+// Deliberately constrained to enums that opt into the registry rather than to
+// every scoped enum: [namespace.std] only permits specializing
+// `std::formatter` on a program-defined type, so a blanket scoped-enum
+// specialization would also match std scoped enums such as `std::byte` and
+// `std::errc`, which is undefined behavior and can collide with another
+// library's enum formatter. Unregistered scoped enums therefore have no
+// formatter.
 //
 // Writes the value straight into the format context's output iterator through
-// Corvid's enum string conversion, so all three flavors are covered by the
-// existing registry with no intermediate string: a registered sequence enum
-// prints by name, a registered bitmask enum prints as its "a + b + c"
-// combination, and an unregistered scoped enum prints as its numeric
-// underlying value.
+// Corvid's enum string conversion, with no intermediate string: a sequence
+// enum prints by name and a bitmask enum prints as its "a + b + c"
+// combination.
 //
 // Enum names are stored as char; for a wide CharT the per-unit widening
 // happens in the output target (see
@@ -42,7 +50,9 @@
 // element, and `set_debug_format` lets a `map<int, E>` print `{1: "red"}`.
 // There is no fill, align, width, or precision; those would need a
 // materialized string to pad.
-template<corvid::ScopedEnum E, corvid::CharType CharT>
+template<typename E, corvid::CharType CharT>
+requires(corvid::enums::sequence::SequentialEnum<E> ||
+         corvid::enums::bitmask::BitmaskEnum<E>)
 struct std::formatter<E, CharT> {
   constexpr void set_debug_format() { debug_ = true; }
 

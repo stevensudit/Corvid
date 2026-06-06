@@ -77,11 +77,16 @@ TEST_CASE("Bitmask enum formats as combination", "[EnumFormatterTest]") {
   }
 }
 
-TEST_CASE("Unregistered scoped enum formats numerically",
+TEST_CASE("Unregistered scoped enums are not formattable",
     "[EnumFormatterTest]") {
   if (true) {
-    CHECK(std::format("{}", plain::zero) == "0");
-    CHECK(std::format("{}", plain::two) == "2");
+    // The formatter is constrained to registered enums, so it does not
+    // specialize std::formatter for unregistered scoped enums, including std
+    // ones (which would be UB per [namespace.std]).
+    CHECK(std::formattable<hue, char>);
+    CHECK(std::formattable<rgb, char>);
+    CHECK(!std::formattable<plain, char>);
+    CHECK(!std::formattable<std::byte, char>);
   }
 }
 
@@ -89,7 +94,6 @@ TEST_CASE("Wide formatting widens the name", "[EnumFormatterTest]") {
   if (true) {
     CHECK(std::format(L"{}", hue::green) == L"green");
     CHECK(std::format(L"{}", rgb::yellow) == L"red + green");
-    CHECK(std::format(L"{}", plain::one) == L"1");
   }
 }
 
@@ -98,7 +102,6 @@ TEST_CASE("Debug spec quotes the rendering", "[EnumFormatterTest]") {
     CHECK(std::format("{:?}", hue::red) == R"("red")");
     CHECK(std::format("{:?}", rgb::yellow) == R"("red + green")");
     CHECK(std::format("{:?}", rgb::black) == R"("0x00")");
-    CHECK(std::format("{:?}", plain::two) == R"("2")");
   }
 }
 
