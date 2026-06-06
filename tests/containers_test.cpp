@@ -804,6 +804,20 @@ TEST_CASE("Extended", "[StrongType]") {
   std::ostringstream oss;
   oss << fn;
   CHECK(oss.str() == "John");
+
+  // Test std::format: the formatter forwards to the underlying type's
+  // formatter, so the spec grammar and debug quoting come along.
+  CHECK(std::format("{}", fn) == "John");
+  CHECK(std::format("{:>6}", fn) == "  John");
+  CHECK(std::format("{:?}", fn) == "\"John\"");
+  CHECK(std::format("{}", PersonAge{42}) == "42");
+  CHECK(std::format("{:04}", PersonAge{42}) == "0042");
+  CHECK(std::format(L"{}", PersonAge{42}) == L"42");
+
+  // A range-typed underlying forwards to the range formatter rather than
+  // being enumerated as a strong_type range.
+  using Tags = strong_type<std::vector<int>, struct TagsTag>;
+  CHECK(std::format("{}", Tags{std::vector<int>{1, 2, 3}}) == "[1, 2, 3]");
 }
 #pragma endregion
 

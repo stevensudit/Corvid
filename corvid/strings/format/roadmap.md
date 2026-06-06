@@ -178,11 +178,15 @@ them):
   `std::formatter`
   in this libc++, and `fixed_bitset` has no `to_string` yet, a standing TODO; if
   added, the formatter should delegate to it.)
-- [ ] `strong_type` ([../../containers/core/strong_type.h](../../containers/core/strong_type.h)):
-  forward to the underlying `T`'s formatter, the modern replacement for its
-  `operator<<`. It conditionally forwards `begin`/`end`, so a range-typed
-  underlying needs `format_kind = disabled` to avoid the enumerate-vs-forward
-  ambiguity.
+- [x] `strong_type` ([../../containers/core/strong_type.h](../../containers/core/strong_type.h)):
+  own formatter inheriting `std::formatter<T, CharT>` and forwarding `value`,
+  the modern replacement for its `operator<<`. Constrained on
+  `std::formattable<T, CharT>`, so it exists only when the underlying formats,
+  and narrow or wide comes along with the inherited spec grammar. It
+  conditionally forwards `begin`/`end`, so it also sets `format_kind = disabled`
+  to avoid the enumerate-vs-forward ambiguity when the underlying is a range (a
+  no-op for a non-range underlying). Tested in `containers_test.cpp`
+  (`[StrongType]` Extended).
 - [ ] `enum_variant` ([../../containers/core/enum_variant.h](../../containers/core/enum_variant.h)):
   std formats no variant; print the active alternative (`tag: value`).
 - [ ] `interned_value` ([../../containers/utils/intern.h](../../containers/utils/intern.h)):
