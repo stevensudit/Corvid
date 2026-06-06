@@ -17,7 +17,7 @@
 #pragma once
 #include <optional>
 
-#include "../../meta/concepts.h"
+#include "../meta/concepts.h"
 #include "strings_shared.h"
 
 namespace corvid::strings { inline namespace parsers {

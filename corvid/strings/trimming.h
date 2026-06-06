@@ -16,7 +16,7 @@
 // limitations under the License.
 #pragma once
 #include "strings_shared.h"
-#include "../../meta/concepts.h"
+#include "../meta/concepts.h"
 #include "delimiting.h"
 
 namespace corvid::strings { inline namespace trimming {

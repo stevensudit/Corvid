@@ -23,7 +23,7 @@
 #include <string_view>
 #include <utility>
 
-#include "../../meta/concepts.h"
+#include "../meta/concepts.h"
 #include "string_view_wrapper.h"
 
 namespace corvid {

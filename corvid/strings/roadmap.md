@@ -1,6 +1,6 @@
 # Formatting roadmap
 
-Status and plan for `corvid/strings/format`: modernizing Corvid string
+Status and plan for `corvid/strings`: modernizing Corvid string
 formatting onto C++23 `std::format` rather than porting the bespoke
 `concat_join.h` machinery to wide code units.
 
@@ -31,22 +31,22 @@ So the old `join_opt` surface is largely subsumed: flat -> `{:n}`, quoted ->
 
 ### 1. Enum formatter (done)
 
-Shipped in [enum_formatter.h](enum_formatter.h), tested by
-[../../../tests/enum_formatter_test.cpp](../../../tests/enum_formatter_test.cpp).
+Shipped in [enum_formatter.h](../enums/enum_formatter.h), tested by
+[../../../tests/enum_formatter_test.cpp](../../tests/enum_formatter_test.cpp).
 
 `std::format` does not format enums at all. A single
 `std::formatter<E, CharT>` partial specialization, constrained on
 `corvid::ScopedEnum`, covers all three flavors by writing straight into the
 format context's output iterator through `corvid::strings::append_enum` (see
-[../utils/enum_conversion.h](../utils/enum_conversion.h)): a registered
+[../enums/enum_conversion.h](../enums/enum_conversion.h)): a registered
 sequence enum prints by name, a registered bitmask enum prints as its
 "a + b + c" combination, and an unregistered scoped enum prints as its numeric
 underlying value.
 
 No intermediate string: the formatter wraps `ctx.out()` in
 `output_iterator_appendable<It, SrcChar, DestChar>` (added to
-[../core/targeting.h](../core/targeting.h), wired into the `AppendTarget`
-concepts in [../../meta/concepts.h](../../meta/concepts.h)). It is an append
+[targeting.h](targeting.h), wired into the `AppendTarget`
+concepts in [../../meta/concepts.h](../meta/concepts.h)). It is an append
 target generic in its input code unit `SrcChar` (matched by the concepts via an
 `append_char_type` member), converting each unit to `DestChar` on the way out:
 identity when the units match, a value-preserving widen when narrower. The enum
@@ -80,7 +80,7 @@ caller needs it. Numeric width is already covered by formatting `*e` (or
 Goal: broad `std::formatter` coverage for the Corvid classes that benefit, so
 anything formattable composes inside the std range, map, and tuple formatters.
 This replaces the earlier `json()` wrapper plan. JSON is out of scope: the
-parser at [../../proto/misc/json_parser.h](../../proto/misc/json_parser.h) owns
+parser at [../../proto/misc/json_parser.h](../proto/misc/json_parser.h) owns
 JSON parsing and writing, and its `json_writer` already does RFC-correct
 escaping, quoted keys, non-finite-float handling, and a trusted-bytes bypass. A
 second JSON renderer here would just reinvent it. The `concat_join` "JSON" was
@@ -123,7 +123,7 @@ underlying `view()` for dynamic-width debug on a known non-null wrapper.
 
 `basic_fixed_string` cannot be null, so its formatter is pure delegation with
 no debug branch. Define it at the bottom of
-[../core/fixed_string.h](../core/fixed_string.h): call the value's `view()` and
+[fixed_string.h](fixed_string.h): call the value's `view()` and
 forward to `std::formatter<std::basic_string_view<Char>, Char>`.
 
 #### containers
@@ -142,14 +142,14 @@ formatter already covers it.
 Done / covered:
 
 - [x] `opt_string_view`, `cstring_view`: wrapper formatter, tested.
-- [x] `delim` (`basic_delim`, [../core/delimiting.h](../core/delimiting.h)): a
+- [x] `delim` (`basic_delim`, [delimiting.h](delimiting.h)): a
   `string_view_wrapper` child, so the wrapper formatter already covers it (auto).
   Regression test in `strings_test.cpp` (`DelimFormats`).
 
 Strings:
 
 - [x] `fixed_string` (`basic_fixed_string`,
-  [../core/fixed_string.h](../core/fixed_string.h)): own formatter forwarding
+  [fixed_string.h](fixed_string.h)): own formatter forwarding
   `view()`, per the `fixed_string` section above. Not a wrapper child, cannot be
   null; like the wrappers it exposes `begin`/`end`, so it also sets
   `format_kind = disabled`. Tested in `fixed_string_test.cpp`.
@@ -157,14 +157,14 @@ Strings:
 Containers needing a custom formatter (std gets these wrong or will not touch
 them):
 
-- [x] `interval` ([../../containers/utils/interval.h](../../containers/utils/interval.h)):
+- [x] `interval` ([../../containers/utils/interval.h](../containers/utils/interval.h)):
   custom formatter plus `format_kind = disabled` (it is iterable, so the std
   range formatter would otherwise enumerate every value). Regular `{}` shows the
   closed `[min, max]` (`[]` empty, `[invalid]` reversed); debug `{:?}` shows the
   raw half-open underlying `[begin, end)`. Narrow only. Tested in
   `interval_test.cpp`. (Also refactored off `std::pair` inheritance to
   composition with a conversion operator, which the debug path reuses.)
-- [x] `fixed_bitset` ([../../containers/core/fixed_bitset.h](../../containers/core/fixed_bitset.h)):
+- [x] `fixed_bitset` ([../../containers/core/fixed_bitset.h](../containers/core/fixed_bitset.h)):
   renders the `std::bitset` string (`'0'`/`'1'`, MSB first), verified equal to
   `std::bitset::to_string()`. Streams the bits one at a time to the output (no
   buffer the size of the bit count, which would dwarf the N/8-byte instance),
@@ -178,7 +178,7 @@ them):
   `std::formatter`
   in this libc++, and `fixed_bitset` has no `to_string` yet, a standing TODO; if
   added, the formatter should delegate to it.)
-- [x] `strong_type` ([../../containers/core/strong_type.h](../../containers/core/strong_type.h)):
+- [x] `strong_type` ([../../containers/core/strong_type.h](../containers/core/strong_type.h)):
   own formatter inheriting `std::formatter<T, CharT>` and forwarding `value`,
   the modern replacement for its `operator<<`. Constrained on
   `std::formattable<T, CharT>`, so it exists only when the underlying formats,
@@ -187,9 +187,9 @@ them):
   to avoid the enumerate-vs-forward ambiguity when the underlying is a range (a
   no-op for a non-range underlying). Tested in `containers_test.cpp`
   (`[StrongType]` Extended).
-- [ ] `enum_variant` ([../../containers/core/enum_variant.h](../../containers/core/enum_variant.h)):
+- [ ] `enum_variant` ([../../containers/core/enum_variant.h](../containers/core/enum_variant.h)):
   std formats no variant; print the active alternative (`tag: value`).
-- [x] `interned_value` ([../../containers/utils/intern.h](../../containers/utils/intern.h)):
+- [x] `interned_value` ([../../containers/utils/intern.h](../containers/utils/intern.h)):
   own formatter inheriting `std::formatter<T, CharT>`. Plain `{}` forwards to
   the interned value's formatter (honoring its full spec); debug `{:?}` instead
   renders the `(value, id)` pair through the std pair formatter, so the value's
@@ -197,7 +197,7 @@ them):
   (promoted past `char`-sized types). Both modes read the value, so an empty
   `interned_value` is a precondition violation, as it is for `value`. Tested in
   `intern_table_test.cpp`.
-- [x] `optional_ptr` ([../../containers/core/optional_ptr.h](../../containers/core/optional_ptr.h)):
+- [x] `optional_ptr` ([../../containers/core/optional_ptr.h](../containers/core/optional_ptr.h)):
   own formatter inheriting the pointee's `std::formatter`, forwarding `value()`
   with its full spec (so `{:?}` debugs the pointee when supported). A null
   `optional_ptr` renders the unquoted `(null)` marker, parallel to the
@@ -205,7 +205,7 @@ them):
   Unlike `opt_string_view`, the marker is not padded: fill/align/width apply
   only to a present pointee. Not a range, so no `format_kind` disabling. Tested
   in `optional_ptr_test.cpp`.
-- [x] `custom_handle` ([../../containers/core/custom_handle.h](../../containers/core/custom_handle.h)):
+- [x] `custom_handle` ([../../containers/core/custom_handle.h](../containers/core/custom_handle.h)):
   own formatter inheriting the `element_type`'s `std::formatter`, dereferencing
   a live handle and forwarding with its full spec; a null handle (equal to
   `null_v`) renders the unquoted `(null)` marker, exactly like `optional_ptr`
@@ -214,7 +214,7 @@ them):
   itself be formattable, so an enum `element_type` (the file-descriptor case)
   needs the enum formatter in scope at the call site.
 - [x] `indirect_hash_key` / `indirect_map_key`
-  ([../../containers/core/indirect_key.h](../../containers/core/indirect_key.h)):
+  ([../../containers/core/indirect_key.h](../containers/core/indirect_key.h)):
   each acts like its referenced key, so its formatter inherits the key's
   `std::formatter<T, CharT>` and forwards the `key` reference, honoring the
   key's full spec grammar. No null state. Tested in `containers_test.cpp`
@@ -223,7 +223,7 @@ them):
 
 Containers already free via std ranges:
 
-- [x] `circular_buffer` ([../../containers/core/circular_buffer.h](../../containers/core/circular_buffer.h)):
+- [x] `circular_buffer` ([../../containers/core/circular_buffer.h](../containers/core/circular_buffer.h)):
   formats as `[...]` via the std range formatter, in logical front-to-back
   order. This needed an iterator fix, not a formatter: `iterator_t` advertised
   `forward_iterator_tag` but did not model even `input_iterator`, so the type
@@ -231,7 +231,7 @@ Containers already free via std ranges:
   no default constructor (not `semiregular`, so it failed `sentinel_for`) and
   non-const `operator*`/`operator->` (failed `indirectly_readable`). It now
   models `forward_range`. Tested in `circular_buffer_test.cpp` (`Format`).
-- [x] `enum_vector` ([../../containers/utils/enum_vector.h](../../containers/utils/enum_vector.h)):
+- [x] `enum_vector` ([../../containers/utils/enum_vector.h](../containers/utils/enum_vector.h)):
   free as a plain sequence through the std range formatter, narrow and wide, no
   code. Tested in `containers_test.cpp` (`[EnumVector]`). A custom formatter to
   render enum keys (`{red: 1, green: 2}`) instead of a bare list remains
@@ -259,7 +259,7 @@ the string wrappers and `fixed_string`, the enum formatter, `interval`,
 
 What is left is a long tail of small wrappers whose formatter would all be the
 same trivial shape: forward an underlying scalar to its std formatter. For
-example, `os_file` ([../../filesys/os_file.h](../../filesys/os_file.h)) is an
+example, `os_file` ([../../filesys/os_file.h](../filesys/os_file.h)) is an
 owning fd wrapper whose handle is an `int`, so its formatter would just forward
 that number to the integer formatter. Each one is only a few lines, but they
 are near-identical lines, and one hand-written `std::formatter` specialization
@@ -279,12 +279,12 @@ basic types, but its ad-hoc register-a-type extension mechanism was never
 broadly adopted, and broad `std::formatter` coverage made it redundant. Its
 only non-test consumers were migrated off it first:
 
-- `ast_pred` ([../../lang/ast_pred.h](../../lang/ast_pred.h)): the `append`
+- `ast_pred` ([../../lang/ast_pred.h](../lang/ast_pred.h)): the `append`
   calls became `std::string::operator+=`.
 - the JSON writer
-  ([../../proto/misc/json_parser.h](../../proto/misc/json_parser.h)): `append`
+  ([../../proto/misc/json_parser.h](../proto/misc/json_parser.h)): `append`
   calls became `+=`, integers route through `append_num`
-  ([../core/conversion.h](../core/conversion.h)), and `append_escaped` plus its
+  ([conversion.h](conversion.h)), and `append_escaped` plus its
   `needs_escaping` helper were ported into the writer's own `detail` namespace,
   so the writer now owns its JSON escaping. The writer is `std::string`-only;
   the old `AppendTarget` / `std::ostream` genericity that rode along with

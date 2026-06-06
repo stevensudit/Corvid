@@ -26,12 +26,12 @@
 #include <vector>
 
 #include "../../enums.h"
-#include "../../strings/core/cases.h"
-#include "../../strings/core/conversion.h"
-#include "../../strings/core/trimming.h"
-#include "../../strings/core/splitting.h"
-#include "../../strings/core/token_parser.h"
-#include "../../strings/utils/enum_conversion.h"
+#include "../../strings/cases.h"
+#include "../../strings/conversion.h"
+#include "../../strings/trimming.h"
+#include "../../strings/splitting.h"
+#include "../../strings/token_parser.h"
+#include "../../enums/enum_conversion.h"
 #include "../../containers/core/transparent.h"
 #include "../../containers/core/opt_find.h"
 

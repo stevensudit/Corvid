@@ -61,7 +61,7 @@ concept AnyStdString = requires {
 
 // `T` must be an append target backed by an output iterator. Recognized
 // structurally by its `append_char_type` member, which names the code unit it
-// accepts; see `output_iterator_appendable` in strings/core/targeting.h. This
+// accepts; see `output_iterator_appendable` in strings/targeting.h. This
 // low-level concept needs no dependency on that header.
 template<typename T>
 concept OutputIteratorAppendable = requires { typename T::append_char_type; };

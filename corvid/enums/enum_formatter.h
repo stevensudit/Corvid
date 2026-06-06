@@ -17,10 +17,10 @@
 #pragma once
 #include <format>
 
-#include "../../meta/concepts.h"
-#include "../core/targeting.h"
-#include "../utils/enum_conversion.h"
-#include "debug_escaping.h"
+#include "../meta/concepts.h"
+#include "../strings/targeting.h"
+#include "enum_conversion.h"
+#include "../strings/debug_escaping.h"
 
 // Formatter for any scoped enum, narrow or wide.
 //

@@ -35,7 +35,7 @@
 #include "../../concurrency/timeouts.h"
 #include "../../infra/exception_firewalls.h"
 #include "../../infra/log.h"
-#include "../../strings/core/conversion.h"
+#include "../../strings/conversion.h"
 #include "../io_uring/iou_buffer.h"
 
 #include "quic_header.h"

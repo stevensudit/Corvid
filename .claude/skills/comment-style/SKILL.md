@@ -21,7 +21,7 @@ with a period:
 ```
 
 Imperative mood, not third person: "Extract", not "Extracts"; "Split", not
-"Splits". (See `corvid/strings/core/splitting.h`, `locating.h`.)
+"Splits". (See `corvid/strings/splitting.h`, `locating.h`.)
 
 Describe the **contract, not the implementation**: what it does, its
 preconditions, what the return value means, and how it fails. Scale length to
@@ -40,7 +40,7 @@ only about the opening sentence):
 // Pass an owning string type as `part` to make a deep copy.
 ```
 
-(`corvid/strings/core/splitting.h`.)
+(`corvid/strings/splitting.h`.)
 
 ## Type comments (class / struct / enum)
 
@@ -52,7 +52,7 @@ imperative verb:
 // Delimiter wrapper.
 ```
 
-(`corvid/containers/utils/object_pool.h`, `corvid/strings/core/delimiting.h`.)
+(`corvid/containers/utils/object_pool.h`, `corvid/strings/delimiting.h`.)
 
 Follow with paragraphs covering how to use it, its semantics, and caveats, each
 separated by a blank `//` line. A longer block may introduce a list with a
@@ -99,7 +99,7 @@ labeled lead-in line and `-` bullets:
 #pragma region Locating
 ```
 
-(`corvid/strings/core/delimiting.h`.)
+(`corvid/strings/delimiting.h`.)
 
 Region-with-access example: the opening `public:` precedes the first region,
 while a later region that switches access hugs its specifier.

@@ -16,7 +16,7 @@
 // limitations under the License.
 #pragma once
 
-#include "../../meta/concepts.h"
+#include "../meta/concepts.h"
 #include "strings_shared.h"
 #include "delimiting.h"
 #include "opt_string_view.h"

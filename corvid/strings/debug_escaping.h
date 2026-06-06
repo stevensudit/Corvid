@@ -17,8 +17,8 @@
 #pragma once
 #include <string_view>
 
-#include "../core/targeting.h"
-#include "../core/conversion.h"
+#include "targeting.h"
+#include "conversion.h"
 
 namespace corvid::strings { inline namespace targeting {
 

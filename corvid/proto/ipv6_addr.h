@@ -28,7 +28,7 @@
 
 #include <netinet/in.h>
 
-#include "../strings/core/conversion.h"
+#include "../strings/conversion.h"
 #include "ipv4_addr.h"
 
 namespace corvid { inline namespace proto {

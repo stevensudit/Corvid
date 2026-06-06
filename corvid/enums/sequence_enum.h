@@ -22,11 +22,11 @@
 #include <optional>
 
 #include "enums_shared.h"
-#include "../strings/core/fixed_string_utils.h"
-#include "../strings/core/string_view_wrapper.h"
-#include "../strings/core/cstring_view.h"
-#include "../strings/core/targeting.h"
-#include "../strings/core/conversion.h"
+#include "../strings/fixed_string_utils.h"
+#include "../strings/string_view_wrapper.h"
+#include "../strings/cstring_view.h"
+#include "../strings/targeting.h"
+#include "../strings/conversion.h"
 #include "enum_registry.h"
 #include "scoped_enum.h"
 

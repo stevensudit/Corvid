@@ -21,7 +21,7 @@
 #include <string_view>
 #include <type_traits>
 
-#include "../../meta.h"
+#include "../meta.h"
 #include "cstring_view.h"
 
 namespace corvid::strings { inline namespace fixed {

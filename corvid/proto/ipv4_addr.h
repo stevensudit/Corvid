@@ -26,7 +26,7 @@
 
 #include <netinet/in.h>
 
-#include "../strings/core/cases.h"
+#include "../strings/cases.h"
 
 namespace corvid { inline namespace proto {
 

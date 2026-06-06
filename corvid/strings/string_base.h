@@ -17,7 +17,7 @@
 #pragma once
 #include <string_view>
 
-#include "../../meta.h"
+#include "../meta.h"
 
 namespace corvid::strings {
 

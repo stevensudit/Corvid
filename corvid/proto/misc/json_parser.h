@@ -31,9 +31,9 @@
 
 #include "../../infra/exception_firewalls.h"
 #include "../../enums/bool_enums.h"
-#include "../../strings/core/delimiting.h"
-#include "../../strings/core/conversion.h"
-#include "../../strings/core/trimming.h"
+#include "../../strings/delimiting.h"
+#include "../../strings/conversion.h"
+#include "../../strings/trimming.h"
 
 // Strict JSON parser, non-owning value views, and compact JSON writer.
 namespace corvid { inline namespace proto { inline namespace json {
