@@ -18,8 +18,10 @@
 #define NOMINMAX
 
 #include <cassert>
-#include <limits>
+#include <format>
 #include <iterator>
+#include <limits>
+#include <utility>
 
 #include "../core/containers_shared.h"
 #include "../../strings/utils/concat_join.h"
@@ -328,31 +330,6 @@ public:
     return *this;
   }
 
-  // Append.
-  template<AppendTarget A>
-  static auto& append_fn(A& target, const interval& i) {
-    if (i.empty()) return target;
-    return corvid::strings::append(target, i.min(), ", ", i.max());
-  }
-
-  template<auto opt = strings::join_opt::braced, char open = 0, char close = 0,
-      AppendTarget A>
-  static A&
-  append_join_with_fn(A& target, strings::delim d, const interval& i) {
-    using namespace corvid::strings;
-    constexpr auto is_json = decode::json_v<opt>;
-    constexpr char next_open = open ? open : (is_json ? '[' : 0);
-    constexpr char next_close = close ? close : (is_json ? ']' : 0);
-    if (i.empty()) {
-      if constexpr (next_open && next_close)
-        strings::append(strings::append(target, next_open), next_close);
-
-      return target;
-    }
-    return corvid::strings::append_join_with<opt, next_open, next_close>(
-        target, d, i.min(), i.max());
-  }
-
 private:
   [[nodiscard]] constexpr bool ok() const noexcept {
     assert(!invalid());
@@ -404,3 +381,51 @@ template<typename T>
 concept Interval = is_specialization_of_v<T, interval>;
 
 }} // namespace corvid::intervals
+
+// `interval` is iterable, so without this the std range formatter would
+// enumerate every value instead of showing the bounds. Disabling its range
+// format leaves the interval formatter below as the only match.
+template<typename V, typename U>
+constexpr std::range_format std::format_kind<corvid::interval<V, U>> =
+    std::range_format::disabled;
+
+// Formatter for `interval`, narrow only: a numeric or enum range is a narrow
+// concern, and going wide would mean parameterizing the brackets too.
+//
+// Regular `{}` shows the closed presentation interval, `[min, max]`, with the
+// bounds formatted through `V`'s own formatter, so an enum interval prints its
+// names. An empty interval is `[]` and an invalid one (reversed bounds) is
+// `[invalid]`. Debug `{:?}` shows the raw half-open storage in the underlying
+// integer representation, `[begin, end)`; there an empty interval reads as
+// `[n, n)` and an invalid one as reversed bounds. The only accepted specs are
+// the empty spec and `?`.
+template<typename V, typename U>
+struct std::formatter<corvid::interval<V, U>, char> {
+  constexpr auto parse(auto& ctx) {
+    auto it = ctx.begin();
+    if (it != ctx.end() && *it == '?') {
+      debug_ = true;
+      ++it;
+    }
+    if (it != ctx.end() && *it != '}')
+      throw std::format_error("interval format spec accepts only '?'");
+    return it;
+  }
+
+  template<typename FormatContext>
+  auto format(const corvid::interval<V, U>& iv, FormatContext& ctx) const {
+    auto out = ctx.out();
+    if (debug_) {
+      // Raw half-open [begin, end) in the underlying integers. The unary plus
+      // promotes a char-like `U` so it prints as a number, not a character.
+      const std::pair<U, U> p = iv;
+      return std::format_to(out, "[{}, {})", +p.first, +p.second);
+    }
+    if (iv.invalid()) return std::format_to(out, "[invalid]");
+    if (iv.empty()) return std::format_to(out, "[]");
+    return std::format_to(out, "[{}, {}]", iv.front(), iv.back());
+  }
+
+private:
+  bool debug_{false};
+};

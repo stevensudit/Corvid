@@ -157,11 +157,13 @@ Strings:
 Containers needing a custom formatter (std gets these wrong or will not touch
 them):
 
-- [ ] `interval` ([../../containers/utils/interval.h](../../containers/utils/interval.h)):
-  iterable, so the std range formatter would enumerate every value
-  (`[1, 2, 3, 4, 5]`) instead of the bounds. Needs a custom formatter (e.g.
-  `[1, 5]`) plus `format_kind = disabled`, the same trap the wrappers hit.
-  Inheriting `std::pair` gives it no formatter.
+- [x] `interval` ([../../containers/utils/interval.h](../../containers/utils/interval.h)):
+  custom formatter plus `format_kind = disabled` (it is iterable, so the std
+  range formatter would otherwise enumerate every value). Regular `{}` shows the
+  closed `[min, max]` (`[]` empty, `[invalid]` reversed); debug `{:?}` shows the
+  raw half-open underlying `[begin, end)`. Narrow only. Tested in
+  `interval_test.cpp`. (Also refactored off `std::pair` inheritance to
+  composition with a conversion operator, which the debug path reuses.)
 - [ ] `fixed_bitset` ([../../containers/core/fixed_bitset.h](../../containers/core/fixed_bitset.h)):
   no std bitset formatter; render as a bit string (model on its existing
   `operator<<` / `to_string`).
