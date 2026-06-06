@@ -158,6 +158,64 @@ TEST_CASE("EscapesAndTrustedStrings", "[JsonWriter]") {
 }
 
 #pragma endregion
+#pragma region Writer_EscapesControlAndNamedChars
+
+TEST_CASE("EscapesControlAndNamedChars", "[JsonWriter]") {
+  std::string out;
+  json_writer writer{out};
+
+  {
+    auto root = writer.object();
+    // Quote, backslash, newline (named escapes) and a control char (\uXXXX).
+    root->member("s", "a\"b\\c\nd\x01z");
+  }
+
+  CHECK(out == "{\"s\":\"a\\\"b\\\\c\\nd\\u0001z\"}");
+}
+
+#pragma endregion
+#pragma region Writer_PassesUtf8ThroughUnescaped
+
+TEST_CASE("PassesUtf8ThroughUnescaped", "[JsonWriter]") {
+  std::string out;
+  json_writer writer{out};
+
+  {
+    auto root = writer.object();
+    // High bytes (UTF-8 for "cafe-acute" and a snowman) must pass through
+    // verbatim. With a signed `char`, a `c < 32` check would treat them as
+    // control units and mangle them into bogus \uXXXX escapes.
+    root->member("s", "caf\xC3\xA9\xE2\x98\x83");
+  }
+
+  CHECK(out == "{\"s\":\"caf\xC3\xA9\xE2\x98\x83\"}");
+}
+
+#pragma endregion
+#pragma region Writer_SupportsOstreamTarget
+
+TEST_CASE("SupportsOstreamTarget", "[JsonWriter]") {
+  // json_writer's contract covers std::ostream targets, which have no
+  // operator+=. Exercise every append path (braces, comma/colon, escaped
+  // string, null, bool, integer, float, nested array) over a stream.
+  std::ostringstream os;
+  json_writer writer{os};
+
+  {
+    auto root = writer.object();
+    root->member("s", "a/b");
+    root->member("z", nullptr);
+    root->member("b", true);
+    root->member("i", 42);
+    root->member("f", 1.5);
+    if (auto arr = root->member_array("a")) arr->value(1).value(2);
+  }
+
+  CHECK(os.str() ==
+        R"({"s":"a\/b","z":null,"b":true,"i":42,"f":1.5,"a":[1,2]})");
+}
+
+#pragma endregion
 #pragma region Writer_FormatsFloatsAndRoundTrips
 
 TEST_CASE("FormatsFloatsAndRoundTrips", "[JsonWriter]") {
@@ -208,10 +266,10 @@ TEST_CASE("FormatsFloatsAndRoundTrips", "[JsonWriter]") {
 }
 
 #pragma endregion
-#pragma region Writer_WritesToOstreamTargets
+#pragma region Writer_WritesScalarsAndTrusted
 
-TEST_CASE("WritesToOstreamTargets", "[JsonWriter]") {
-  std::ostringstream out;
+TEST_CASE("WritesScalarsAndTrusted", "[JsonWriter]") {
+  std::string out;
   json_writer writer{out};
 
   {
@@ -222,7 +280,7 @@ TEST_CASE("WritesToOstreamTargets", "[JsonWriter]") {
     items->value(nullptr).value(json_trusted{"raw"});
   }
 
-  CHECK(out.str() == R"({"ok":true,"items":[null,"raw"]})");
+  CHECK(out == R"({"ok":true,"items":[null,"raw"]})");
 }
 
 #pragma endregion

@@ -19,13 +19,26 @@
 #include <span>
 
 #include "strings_shared.h"
+#include "cases.h"
+#include "charconv_wrapper.h"
 #include "trimming.h"
 
 namespace corvid::strings { inline namespace conversion {
 
+// Conversions
 //
-// Numerical conversions
+// Conversions between strings and other representations, organized into nested
+// inline namespaces:
 //
+// - `cvt_int`: parse, extract, and format integral (and bool) values.
+// - `cvt_float`: parse, extract, and format floating-point values.
+// - `cvt_bytes`: reinterpret raw bytes between `std::string_view` and spans.
+// - `cvt_stream`: append user types that opt in via `operator<<`.
+//
+// Within `cvt_int` and `cvt_float`, the `extract_num`, `parse_num`,
+// `append_num`, and `num_as_string` names are shared and selected by overload.
+
+#pragma region cvt_int
 
 inline namespace cvt_int {
 
@@ -41,11 +54,12 @@ inline namespace cvt_int {
 // view, and returns true.
 //
 // On failure, leaves the parameters unchanged and returns false.
-template<int base = 10>
-constexpr bool extract_num(std::integral auto& t, std::string_view& sv) {
+template<int base = 10, typename C>
+constexpr bool
+extract_num(std::integral auto& t, std::basic_string_view<C>& sv) {
   const auto save_sv = sv;
   sv = trim_left(sv);
-  auto [ptr, ec] = std::from_chars(sv.data(), sv.data() + sv.size(), t, base);
+  auto [ptr, ec] = int_from_chars(sv.data(), sv.data() + sv.size(), t, base);
   sv.remove_prefix(ptr - sv.data());
   if (ec == std::errc{}) return true;
   sv = save_sv;
@@ -59,8 +73,8 @@ constexpr bool extract_num(std::integral auto& t, std::string_view& sv) {
 // from the string view.
 //
 // On failure, returns optional without value and leaves string view unchanged.
-template<std::integral T = int64_t, int base = 10>
-constexpr std::optional<T> extract_num(std::string_view& sv) {
+template<std::integral T = int64_t, int base = 10, typename C>
+constexpr std::optional<T> extract_num(std::basic_string_view<C>& sv) {
   T t;
   return extract_num<base>(t, sv) ? std::make_optional(t) : std::nullopt;
 }
@@ -71,8 +85,9 @@ constexpr std::optional<T> extract_num(std::string_view& sv) {
 // On success, returns optional with value.
 //
 // On failure, returns optional without value.
-template<std::integral T = int64_t, int base = 10>
-constexpr std::optional<T> parse_num(std::string_view sv) {
+template<std::integral T = int64_t, int base = 10, StringViewLike S>
+constexpr std::optional<T> parse_num(const S& s) {
+  auto sv = as_view(s);
   T t;
   return extract_num<base>(t, sv) && sv.empty()
              ? std::make_optional(t)
@@ -85,8 +100,9 @@ constexpr std::optional<T> parse_num(std::string_view sv) {
 // On success, returns parsed value.
 //
 // On failure, returns `default_value`.
-template<std::integral T = int64_t, int base = 10>
-constexpr T parse_num(std::string_view sv, T default_value) {
+template<std::integral T = int64_t, int base = 10, StringViewLike S>
+constexpr T parse_num(const S& s, T default_value) {
+  auto sv = as_view(s);
   T t;
   return (extract_num<base>(t, sv) && sv.empty()) ? t : default_value;
 }
@@ -94,19 +110,20 @@ constexpr T parse_num(std::string_view sv, T default_value) {
 // Append integral number to `target`. Hex is prefixed with "0x" and
 // zero-padded to an appropriate size. Returns `target`.
 template<int base = 10, size_t width = 0, char pad = ' '>
-constexpr auto& append_num(AppendTarget auto& target, Integer auto num) {
+constexpr auto& append_num(AnyAppendTarget auto& target, Integer auto num) {
   auto a = appender{target};
-  std::array<char, 64> b;
-  auto [ptr, ec] = std::to_chars(b.data(), b.data() + b.size(), num, base);
+  using C = decltype(a)::view_t::value_type;
+  std::array<C, 64> b;
+  auto [ptr, ec] = int_to_chars(b.data(), b.data() + b.size(), num, base);
   if (ec != std::errc{}) return target;
   size_t len = ptr - b.data();
   // Apply padding and prefix.
   if constexpr ((width && pad) || base == 16) {
     auto w = width;
-    auto p = pad;
+    auto p = C(pad);
     if constexpr (base == 16 && !width) {
-      a.append("0x"sv);
-      p = '0';
+      a.append(C('0')).append(C('x'));
+      p = C('0');
       w = sizeof(num) * 2;
     }
     if (len < w) a.append(w - len, p);
@@ -117,20 +134,25 @@ constexpr auto& append_num(AppendTarget auto& target, Integer auto num) {
 
 // Append bool, as number, to `target`.  Returns `target`.
 template<int base = 10, size_t width = 0, char pad = ' '>
-constexpr auto& append_num(AppendTarget auto& target, Bool auto num) {
+constexpr auto& append_num(AnyAppendTarget auto& target, Bool auto num) {
   // Cast is needed because `std::to_chars` intentionally doesn't accept bool.
   return append_num<base, width, pad>(target, static_cast<int>(num));
 }
 
 // Return integral number as string.
 // Accepts integers or bool.
-template<int base = 10, size_t width = 0, char pad = ' '>
-[[nodiscard]] constexpr std::string num_as_string(std::integral auto num) {
-  std::string target;
+template<int base = 10, size_t width = 0, char pad = ' ', typename C = char>
+[[nodiscard]] constexpr std::basic_string<C>
+num_as_string(std::integral auto num) {
+  std::basic_string<C> target;
   return append_num<base, width, pad>(target, num);
 }
 
 } // namespace cvt_int
+
+#pragma endregion
+#pragma region cvt_float
+
 inline namespace cvt_float {
 
 // To float.
@@ -146,11 +168,12 @@ inline namespace cvt_float {
 // view, and returns true.
 //
 // On failure, leaves parameters unchanged and returns false.
-template<std::chars_format fmt = std::chars_format::general>
-constexpr bool extract_num(std::floating_point auto& t, std::string_view& sv) {
+template<std::chars_format fmt = std::chars_format::general, typename C>
+constexpr bool
+extract_num(std::floating_point auto& t, std::basic_string_view<C>& sv) {
   const auto save_sv = sv;
   sv = trim_left(sv);
-  auto [ptr, ec] = std::from_chars(sv.data(), sv.data() + sv.size(), t, fmt);
+  auto [ptr, ec] = float_from_chars(sv.data(), sv.data() + sv.size(), t, fmt);
   sv.remove_prefix(ptr - sv.data());
   if (ec == std::errc{}) return true;
   sv = save_sv;
@@ -165,8 +188,8 @@ constexpr bool extract_num(std::floating_point auto& t, std::string_view& sv) {
 //
 // On failure, returns optional without value and leaves string view unchanged.
 template<std::floating_point T,
-    std::chars_format fmt = std::chars_format::general>
-constexpr std::optional<T> extract_num(std::string_view& sv) {
+    std::chars_format fmt = std::chars_format::general, typename C>
+constexpr std::optional<T> extract_num(std::basic_string_view<C>& sv) {
   T t;
   return extract_num<fmt>(t, sv) ? std::make_optional(t) : std::nullopt;
 }
@@ -178,8 +201,9 @@ constexpr std::optional<T> extract_num(std::string_view& sv) {
 //
 // On failure, returns optional without value.
 template<std::floating_point T,
-    std::chars_format fmt = std::chars_format::general>
-constexpr std::optional<T> parse_num(std::string_view sv) {
+    std::chars_format fmt = std::chars_format::general, StringViewLike S>
+constexpr std::optional<T> parse_num(const S& s) {
+  auto sv = as_view(s);
   T t;
   return extract_num<fmt>(t, sv) && sv.empty()
              ? std::make_optional(t)
@@ -193,8 +217,9 @@ constexpr std::optional<T> parse_num(std::string_view sv) {
 //
 // On failure, returns `default_value`.
 template<std::floating_point T,
-    std::chars_format fmt = std::chars_format::general>
-constexpr T parse_num(std::string_view sv, T default_value) {
+    std::chars_format fmt = std::chars_format::general, StringViewLike S>
+constexpr T parse_num(const S& s, T default_value) {
+  auto sv = as_view(s);
   T t;
   return extract_num<fmt>(t, sv) && sv.empty() ? t : default_value;
 }
@@ -203,32 +228,32 @@ constexpr T parse_num(std::string_view sv, T default_value) {
 template<std::chars_format fmt = std::chars_format::general,
     int precision = -1, size_t width = 0, char pad = ' '>
 constexpr auto&
-append_num(AppendTarget auto& target, std::floating_point auto num) {
+append_num(AnyAppendTarget auto& target, std::floating_point auto num) {
   auto a = appender{target};
-  std::array<char, 64> b;
-  std::to_chars_result res;
-  if constexpr (precision != -1)
-    res = std::to_chars(b.data(), b.data() + b.size(), num, fmt, precision);
-  else
-    res = std::to_chars(b.data(), b.data() + b.size(), num, fmt);
-  auto [ptr, ec] = res;
+  using C = decltype(a)::view_t::value_type;
+  std::array<C, 64> b;
+  auto [ptr, ec] =
+      float_to_chars(b.data(), b.data() + b.size(), num, fmt, precision);
   if (ec != std::errc{}) return target;
   const size_t len = ptr - b.data();
   if constexpr (width && pad)
-    if (len < width) a.append(width - len, pad);
+    if (len < width) a.append(width - len, C(pad));
   return *a.append(b.data(), len);
 }
 
 // Return floating-point number as string.
 template<std::chars_format fmt = std::chars_format::general,
-    int precision = -1, size_t width = 0, char pad = ' '>
-[[nodiscard]] constexpr std::string
+    int precision = -1, size_t width = 0, char pad = ' ', typename C = char>
+[[nodiscard]] constexpr std::basic_string<C>
 num_as_string(std::floating_point auto num) {
-  std::string target;
+  std::basic_string<C> target;
   return append_num<fmt, precision, width, pad>(target, num);
 }
 
 } // namespace cvt_float
+
+#pragma endregion
+#pragma region cvt_bytes
 
 inline namespace cvt_bytes {
 
@@ -249,6 +274,9 @@ as_string_view(std::span<char_t> s) noexcept {
 }
 
 } // namespace cvt_bytes
+
+#pragma endregion
+#pragma region cvt_stream
 
 inline namespace cvt_stream {
 
@@ -280,4 +308,106 @@ auto& append_stream(AppendTarget auto& target, const OStreamable auto& t) {
   return target;
 }
 } // namespace cvt_stream
+
+#pragma endregion
+#pragma region Utilities
+
+// Convert a hex digit value to the corresponding lowercase character. Uses
+// just the last four bits of `n`.
+template<CharType C = char>
+[[nodiscard]] constexpr C as_hex_lc_digit(std::integral auto n) {
+  static constexpr char hex[] = "0123456789abcdef";
+  return C(hex[n & 0xf]);
+}
+
+// Convert a hex digit value to the corresponding uppercase character. Uses
+// just the last four bits of `n`.
+template<CharType C = char>
+[[nodiscard]] constexpr C as_hex_uc_digit(std::integral auto n) {
+  static constexpr char hex[] = "0123456789ABCDEF";
+  return C(hex[n & 0xf]);
+}
+
+// Convert a hex digit character to its value. Returns -1 if `c` is not a hex
+// digit.
+template<CharType C>
+[[nodiscard]] inline int16_t hex_digit_value(C ch) noexcept {
+  if (is_digit(ch)) return static_cast<int16_t>(ch - C('0'));
+  if (is_lc_hex_alpha(ch)) return static_cast<int16_t>(10 + (ch - C('a')));
+  if (is_uc_hex_alpha(ch)) return static_cast<int16_t>(10 + (ch - C('A')));
+  return -1;
+}
+
+// Parse four hex digits from `s` at `pos`, returning their value.
+template<CharType C = char>
+[[nodiscard]] std::optional<uint16_t>
+parse_hex4(std::basic_string_view<C> s, size_t pos) noexcept {
+  if (pos + 4 > s.size()) return std::nullopt;
+  uint16_t value{};
+  for (size_t i = 0; i < 4; ++i) {
+    const C ch = s[pos + i];
+    if (!is_hex_digit(ch)) return std::nullopt;
+    value = static_cast<uint16_t>((value << 4U) | hex_digit_value(ch));
+  }
+  return value;
+}
+
+// Appends UTF-8 encoding of `code_point` to `out`. Returns false if
+// `code_point` is not a valid Unicode code point.
+[[nodiscard]] constexpr bool
+append_utf8(std::string& out, uint32_t code_point) {
+  // Reject invalid Unicode: surrogates and anything past U+10FFFF.
+  if (code_point > 0x10FFFFU ||
+      (code_point >= 0xD800U && code_point <= 0xDFFFU))
+    return false;
+
+  if (code_point <= 0x7FU) {
+    out.push_back(static_cast<char>(code_point));
+  } else if (code_point <= 0x7FFU) {
+    out.push_back(static_cast<char>(0xC0U | (code_point >> 6U)));
+    out.push_back(static_cast<char>(0x80U | (code_point & 0x3FU)));
+  } else if (code_point <= 0xFFFFU) {
+    out.push_back(static_cast<char>(0xE0U | (code_point >> 12U)));
+    out.push_back(static_cast<char>(0x80U | ((code_point >> 6U) & 0x3FU)));
+    out.push_back(static_cast<char>(0x80U | (code_point & 0x3FU)));
+  } else {
+    out.push_back(static_cast<char>(0xF0U | (code_point >> 18U)));
+    out.push_back(static_cast<char>(0x80U | ((code_point >> 12U) & 0x3FU)));
+    out.push_back(static_cast<char>(0x80U | ((code_point >> 6U) & 0x3FU)));
+    out.push_back(static_cast<char>(0x80U | (code_point & 0x3FU)));
+  }
+  return true;
+}
+
+#pragma endregion
+#pragma region consteval
+
+// Simple compile-time integer parser.
+template<std::integral U>
+[[nodiscard]] consteval std::optional<U> parse_int(std::string_view sv) {
+  if (sv.empty()) return std::nullopt;
+  const bool neg = (sv.front() == '-');
+  if (neg) {
+    if constexpr (std::is_unsigned_v<U>) return std::nullopt;
+    sv.remove_prefix(1);
+    if (sv.empty()) return std::nullopt;
+  }
+  // For signed types, accumulate in the negative domain so the most-negative
+  // value of a signed type stays representable; its magnitude exceeds the
+  // positive maximum.
+  U value{};
+  for (const char c : sv) {
+    if (!strings::is_digit(c)) return std::nullopt;
+    U digit = c - '0';
+    if constexpr (std::is_signed_v<U>) digit = -digit;
+    value *= 10;
+    value += digit;
+  }
+  if constexpr (std::is_signed_v<U>)
+    if (!neg) value = -value;
+  return value;
+}
+
+#pragma endregion
+
 }} // namespace corvid::strings::conversion

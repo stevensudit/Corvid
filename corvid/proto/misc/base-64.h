@@ -23,7 +23,7 @@
 #include <string_view>
 #include <vector>
 
-#include "../../strings/core/conversion.h"
+#include "../../strings/conversion.h"
 
 namespace corvid { inline namespace proto {
 

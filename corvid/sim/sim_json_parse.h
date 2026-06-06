@@ -23,7 +23,7 @@
 #include <vector>
 
 #include "../proto/misc/json_parser.h"
-#include "../strings/utils/enum_conversion.h"
+#include "../enums/enum_conversion.h"
 #include "sim_game.h"
 
 namespace corvid { inline namespace sim {

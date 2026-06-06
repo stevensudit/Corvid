@@ -18,7 +18,7 @@
 #include <cstddef>
 #include <string_view>
 
-#include "../../strings/core/cases.h"
+#include "../../strings/cases.h"
 #include "http3_plugins.h"
 
 namespace corvid { inline namespace proto { namespace quic {

@@ -20,7 +20,7 @@
 #include <set>
 #include <span>
 
-#include "../corvid/strings/core/cstring_view.h"
+#include "../corvid/strings/cstring_view.h"
 #include "../corvid/meta.h"
 #include "catch2_main.h"
 
@@ -110,6 +110,16 @@ TEST_CASE("Construction", "[CStringViewTest]") {
     CHECK(v.data() == nullptr);
     CHECK(v.c_str() != nullptr);
     CHECK(v.data() == v.data() + v.size());
+  }
+  // Construct cstring_view on null and a nonzero length. A null pointer always
+  // yields null rather than dereferencing the bogus length.
+  if (true) {
+    const char* p{};
+    cstring_view v{p, 5};
+    CHECK(v.empty());
+    CHECK(v.null());
+    CHECK(v.data() == nullptr);
+    CHECK(v.c_str() != nullptr);
   }
   // Construct string_view on empty.
   if (true) {
@@ -255,19 +265,18 @@ TEST_CASE("Construction", "[CStringViewTest]") {
   }
   // Construct using UDL.
   if (true) {
-    auto a = ""_csv;
+    auto a = ""_czsv;
     CHECK(a.empty());
     CHECK_FALSE(a.null());
-    auto b = "abc"_csv;
+    auto b = "abc"_czsv;
     CHECK(b.size() == 3U);
     // Embedded zeros are permitted.
-    auto c = "abc\0def"_csv;
+    auto c = "abc\0def"_czsv;
     CHECK(c.size() == 7U);
     auto d = cstring_view(c.c_str());
     CHECK(d.size() == 3U);
-    auto e = 0_csv;
+    auto e = 0_czsv;
     CHECK(e.null());
-    CHECK_THROWS_AS((1_csv), std::out_of_range);
   }
 }
 
@@ -301,13 +310,13 @@ std::string_view accept_overloaded(cstring_view) { return "csv"; }
 
 TEST_CASE("Cast", "[CStringViewTest]") {
   // Casts "up" implicitly.
-  CHECK("abc"_csv == "abc"_csv);
+  CHECK("abc"_czsv == "abc"_czsv);
   CHECK(accept_string_view("abc"sv) == "abc");
   auto abc_str = "abc"s;
   CHECK(accept_string_view(abc_str) == "abc");
-  CHECK(accept_string_view("abc"_csv) == "abc");
+  CHECK(accept_string_view("abc"_czsv) == "abc");
 
-  CHECK(accept_cstring_view("abc"_csv) == "abc");
+  CHECK(accept_cstring_view("abc"_czsv) == "abc");
   CHECK(accept_cstring_view(abc_str) == "abc");
 
   // But not down.
@@ -315,7 +324,7 @@ TEST_CASE("Cast", "[CStringViewTest]") {
 
   // Handles overloading just fine.
   CHECK(accept_overloaded("abc"sv) == "sv");
-  CHECK(accept_overloaded("abc"_csv) == "csv");
+  CHECK(accept_overloaded("abc"_czsv) == "csv");
 
   // But not this ambiguity.
   // Need to either cast here or add a specific overload.
@@ -325,7 +334,7 @@ TEST_CASE("Cast", "[CStringViewTest]") {
   CHECK_FALSE((std::is_same_v<cstring_view, std::string_view>));
   CHECK(StringViewConvertible<cstring_view>);
 
-  auto csv = "abc"_csv;
+  auto csv = "abc"_czsv;
   std::string_view sv = csv;
   accept_string_view_ref(sv);
   // But not this, so we can maintain our invariant.
@@ -359,29 +368,27 @@ TEST_CASE("CStringViewTestEqual", "[CStringViewTestEqual]") {
   CHECK("abc"sv == "abc"s);
 
   // csv
-  CHECK("abc"_csv == "abc");
-  CHECK("abc"_csv == "abc"sv);
-  CHECK("abc"_csv == "abc"s);
-  CHECK("abc"_csv == "abc"_csv);
+  CHECK("abc"_czsv == "abc");
+  CHECK("abc"_czsv == "abc"sv);
+  CHECK("abc"_czsv == "abc"s);
+  CHECK("abc"_czsv == "abc"_czsv);
 
   // commutative
-  CHECK("abc" == "abc"_csv);
-  CHECK("abc"_csv == "abc");
+  CHECK("abc" == "abc"_czsv);
+  CHECK("abc"_czsv == "abc");
 
-  CHECK("abc"sv == "abc"_csv);
-  CHECK("abc"_csv == "abc"sv);
+  CHECK("abc"sv == "abc"_czsv);
+  CHECK("abc"_czsv == "abc"sv);
 
-  CHECK("abc"s == "abc"_csv);
-  CHECK("abc"_csv == "abc"s);
+  CHECK("abc"s == "abc"_czsv);
+  CHECK("abc"_czsv == "abc"s);
 
   // null and empty.
-  constexpr auto e = ""_csv;
-  constexpr auto n = 0_csv;
+  constexpr auto e = ""_czsv;
+  constexpr auto n = 0_czsv;
 
-  CHECK_THROWS_AS(1_csv, std::out_of_range);
-
-  // It's really constexpr, despite throwing on non-0, because it knows at
-  // compile-time that it's 0.
+  // `0_czsv` is consteval, so `n` is computed at compile time; a non-zero
+  // literal like `1_czsv` would not compile.
   if constexpr (n.empty()) { CHECK(true); }
 
   auto csv = cstring_view{"abc"};
@@ -427,13 +434,13 @@ TEST_CASE("CStringViewTestEqual", "[CStringViewTestEqual]") {
   i = !n ? 24 : 42;
   CHECK(i == 24);
 
-  CHECK("abc"_csv == "abc"_csv);
-  CHECK(("abc"_csv) < ("def"_csv));
+  CHECK("abc"_czsv == "abc"_czsv);
+  CHECK(("abc"_czsv) < ("def"_czsv));
 
   // Hash test.
   std::set<cstring_view> ss;
-  ss.insert("abc"_csv);
-  CHECK(ss.contains("abc"_csv));
+  ss.insert("abc"_czsv);
+  CHECK(ss.contains("abc"_czsv));
 }
 
 #pragma endregion

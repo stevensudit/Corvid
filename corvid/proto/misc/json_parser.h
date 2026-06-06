@@ -31,15 +31,20 @@
 
 #include "../../infra/exception_firewalls.h"
 #include "../../enums/bool_enums.h"
-#include "../../strings/utils/concat_join.h"
-#include "../../strings/core/conversion.h"
-#include "../../strings/core/trimming.h"
+#include "../../strings/delimiting.h"
+#include "../../strings/conversion.h"
+#include "../../strings/targeting.h"
+#include "../../strings/trimming.h"
 
 // Strict JSON parser, non-owning value views, and compact JSON writer.
 namespace corvid { inline namespace proto { inline namespace json {
+using namespace strings::cases;
+using namespace strings::conversion;
 using namespace corvid::enums::bool_enums;
 
 size_t npos = std::string_view::npos;
+
+#pragma region json_kind
 
 // Kind of JSON value represented by a `json_value_view`.
 enum class json_kind : uint8_t {
@@ -51,6 +56,9 @@ enum class json_kind : uint8_t {
   array,
   object,
 };
+
+#pragma endregion
+#pragma region json_errc
 
 // Parse error category reported in `json_error`.
 enum class json_errc : uint8_t {
@@ -70,6 +78,9 @@ enum class json_errc : uint8_t {
   trailing_data,
   depth_exceeded,
 };
+
+#pragma endregion
+#pragma region json_error
 
 // Parse error plus byte offset within the original input.
 struct json_error {
@@ -94,10 +105,16 @@ struct json_error {
   }
 };
 
+#pragma endregion
+#pragma region json_parse_options
+
 // Parser configuration. `max_depth` guards against adversarial nesting.
 struct json_parse_options {
   size_t max_depth{64};
 };
+
+#pragma endregion
+#pragma region json_trusted
 
 // String wrapper for bytes already known to be safe inside JSON quotes.
 //
@@ -112,9 +129,15 @@ struct json_trusted {
   }
 };
 
+#pragma endregion
+#pragma region Forward declarations
+
 // Fwd.
 class json_object_view;
 class json_array_view;
+
+#pragma endregion
+#pragma region json_value_view
 
 // Non-owning view of one validated JSON value.
 //
@@ -122,12 +145,17 @@ class json_array_view;
 // outlive the view and any derived object/array subviews.
 class json_value_view {
 public:
+#pragma region Construction
+
   constexpr json_value_view() = default;
   constexpr explicit json_value_view(std::string_view source,
       json_kind kind) noexcept
       : source_{source}, kind_{kind} {
     assert(!source.empty() || is(json_kind::invalid));
   }
+
+#pragma endregion
+#pragma region Observers
 
   [[nodiscard]] constexpr explicit operator bool() const noexcept {
     return !empty();
@@ -216,14 +244,23 @@ public:
   // Otherwise, returns a default-constructed empty view.
   [[nodiscard]] constexpr json_array_view as_array() const noexcept;
 
+#pragma endregion
+#pragma region Data members
 private:
   std::string_view source_;
   json_kind kind_{json_kind::invalid};
+
+#pragma endregion
 };
+
+#pragma endregion
+#pragma region json_array_view
 
 // Non-owning view of a validated JSON array.
 class json_array_view {
 public:
+#pragma region iterator
+
   // Forward iterator over the immediate elements of a validated JSON array.
   class iterator {
   public:
@@ -267,9 +304,15 @@ public:
     json_value_view current_;
   };
 
+#pragma endregion
+#pragma region Construction
+
   constexpr json_array_view() = default;
   constexpr explicit json_array_view(std::string_view source) noexcept
       : source_{source} {}
+
+#pragma endregion
+#pragma region Observers
 
   [[nodiscard]] constexpr explicit operator bool() const noexcept {
     return !source_.empty();
@@ -285,20 +328,32 @@ public:
   // NOLINTNEXTLINE(readability-convert-member-functions-to-static)
   [[nodiscard]] constexpr iterator end() const noexcept { return {}; }
 
+#pragma endregion
+#pragma region Data members
 private:
   std::string_view source_;
+
+#pragma endregion
 };
+
+#pragma endregion
+#pragma region json_object_view
 
 // Non-owning view of a validated JSON object.
 //
 // Lookup is linear and iteration preserves the original field order.
 class json_object_view {
 public:
+#pragma region entry
+
   // One object member as two JSON subviews: key string and value.
   struct entry {
     json_value_view key;
     json_value_view value;
   };
+
+#pragma endregion
+#pragma region iterator
 
   // Forward iterator over the immediate members of a validated JSON object.
   class iterator {
@@ -343,9 +398,15 @@ public:
     entry current_{};
   };
 
+#pragma endregion
+#pragma region Construction
+
   constexpr json_object_view() = default;
   constexpr explicit json_object_view(std::string_view source) noexcept
       : source_{source} {}
+
+#pragma endregion
+#pragma region Observers
 
   [[nodiscard]] constexpr explicit operator bool() const noexcept {
     return !source_.empty();
@@ -360,6 +421,9 @@ public:
   [[nodiscard]] constexpr iterator begin() const;
   // NOLINTNEXTLINE(readability-convert-member-functions-to-static)
   [[nodiscard]] constexpr iterator end() const noexcept { return {}; }
+
+#pragma endregion
+#pragma region Lookup
 
   // Return the value for the first matching key, or an empty view if absent.
   [[nodiscard]] constexpr json_value_view find(std::string_view key) const;
@@ -411,11 +475,18 @@ public:
     return find(key).as_array();
   }
 
+#pragma endregion
+#pragma region Data members
 private:
   std::string_view source_;
+
+#pragma endregion
 };
 
+#pragma endregion
 namespace detail {
+
+#pragma region json_cursor
 
 // JSON delimiters.
 inline constexpr strings::delim json_ws{" \t\r\n"};
@@ -483,58 +554,8 @@ struct json_cursor {
   }
 };
 
-[[nodiscard]] inline bool is_digit(char ch) noexcept {
-  return ch >= '0' && ch <= '9';
-}
-
-[[nodiscard]] inline bool is_lc_hex_alpha(char ch) noexcept {
-  return (ch >= 'a' && ch <= 'f');
-}
-
-[[nodiscard]] inline bool is_uc_hex_alpha(char ch) noexcept {
-  return (ch >= 'A' && ch <= 'F');
-}
-
-[[nodiscard]] inline bool is_hex_digit(char ch) noexcept {
-  return is_digit(ch) || is_lc_hex_alpha(ch) || is_uc_hex_alpha(ch);
-}
-
-[[nodiscard]] inline uint16_t hex_digit_value(char ch) noexcept {
-  if (is_digit(ch)) return static_cast<uint16_t>(ch - '0');
-  if (is_lc_hex_alpha(ch)) return static_cast<uint16_t>(10 + (ch - 'a'));
-  return static_cast<uint16_t>(10 + (ch - 'A'));
-}
-
-[[nodiscard]] inline std::optional<uint16_t>
-parse_hex4(std::string_view s, size_t pos) noexcept {
-  if (pos + 4 > s.size()) return std::nullopt;
-  uint16_t value{};
-  for (size_t i = 0; i < 4; ++i) {
-    const auto ch = s[pos + i];
-    if (!is_hex_digit(ch)) return std::nullopt;
-    value = static_cast<uint16_t>((value << 4U) | hex_digit_value(ch));
-  }
-  return value;
-}
-
-constexpr bool append_utf8(std::string& out, uint32_t code_point) {
-  if (code_point <= 0x7FU) {
-    out.push_back(static_cast<char>(code_point));
-  } else if (code_point <= 0x7FFU) {
-    out.push_back(static_cast<char>(0xC0U | (code_point >> 6U)));
-    out.push_back(static_cast<char>(0x80U | (code_point & 0x3FU)));
-  } else if (code_point <= 0xFFFFU) {
-    out.push_back(static_cast<char>(0xE0U | (code_point >> 12U)));
-    out.push_back(static_cast<char>(0x80U | ((code_point >> 6U) & 0x3FU)));
-    out.push_back(static_cast<char>(0x80U | (code_point & 0x3FU)));
-  } else {
-    out.push_back(static_cast<char>(0xF0U | (code_point >> 18U)));
-    out.push_back(static_cast<char>(0x80U | ((code_point >> 12U) & 0x3FU)));
-    out.push_back(static_cast<char>(0x80U | ((code_point >> 6U) & 0x3FU)));
-    out.push_back(static_cast<char>(0x80U | (code_point & 0x3FU)));
-  }
-  return true;
-}
+#pragma endregion
+#pragma region Decoding
 
 constexpr bool validate_unicode_escape(json_cursor& c, json_error* err) {
   const auto start = c.pos;
@@ -622,6 +643,9 @@ decode_string_contents(std::string_view source, std::string& out) {
 
   return true;
 }
+
+#pragma endregion
+#pragma region Parsing
 
 constexpr bool parse_literal(json_cursor& c, std::string_view literal,
     json_kind kind, json_value_view& out, json_error* err) {
@@ -848,11 +872,14 @@ string_equals(json_value_view candidate, std::string_view wanted) {
   return candidate.decode_string(decoded) && decoded == wanted;
 }
 
+#pragma endregion
+#pragma region Writer support
+
 template<AppendTarget Target, std::floating_point Number>
 constexpr void append_float(Target& target, Number value,
     std::chars_format fmt, int precision) {
   if (!std::isfinite(value)) {
-    target += "null";
+    strings::appender{target}.append("null");
     return;
   }
 
@@ -865,13 +892,68 @@ constexpr void append_float(Target& target, Number value,
     result = std::to_chars(buffer, buffer + sizeof(buffer), value, fmt);
 
   if (result.ec != std::errc{}) return;
-  target += std::string_view{buffer, static_cast<size_t>(result.ptr - buffer)};
+  strings::appender{target}.append(
+      std::string_view{buffer, static_cast<size_t>(result.ptr - buffer)});
 }
+
+// Determine if `c` needs escaping for JSON.
+[[nodiscard]] constexpr bool needs_escaping(char c) noexcept {
+  // Compare as an unsigned byte: on a signed `char`, UTF-8 lead/continuation
+  // bytes (0x80-0xFF) are negative and would wrongly satisfy `c < 32`, so
+  // valid UTF-8 must pass through unescaped.
+  const auto uc = static_cast<unsigned char>(c);
+  return uc == '"' || uc == '\\' || uc == '/' || uc < 32;
+}
+
+// Determine if `s` needs escaping for JSON.
+[[nodiscard]] constexpr bool needs_escaping(std::string_view s) noexcept {
+  for (auto c : s)
+    if (needs_escaping(c)) return true;
+  return false;
+}
+
+// Append `text` to `target`, escaping the characters JSON requires escaped.
+template<AppendTarget Target>
+constexpr void append_escaped(Target& target, std::string_view text) {
+  strings::appender out{target};
+  if (!needs_escaping(text)) {
+    out.append(text);
+    return;
+  }
+
+  for (const char c : text) {
+    if (!needs_escaping(c)) {
+      out.append(c);
+      continue;
+    }
+    out.append('\\');
+    switch (c) {
+    case '"':
+    case '\\':
+    case '/': out.append(c); break;
+    case '\b': out.append('b'); break;
+    case '\f': out.append('f'); break;
+    case '\n': out.append('n'); break;
+    case '\r': out.append('r'); break;
+    case '\t': out.append('t'); break;
+    default:
+      out.append('u');
+      strings::append_num<16, 4, '0'>(target, static_cast<uint16_t>(c));
+      break;
+    }
+  }
+}
+
+#pragma endregion
+#pragma region iterator_parse_options
 
 constexpr json_parse_options iterator_parse_options{
     std::numeric_limits<size_t>::max()};
 
+#pragma endregion
 } // namespace detail
+
+#pragma region Parse API
 
 // Parse and validate a complete JSON document.
 //
@@ -899,8 +981,11 @@ constexpr json_parse_options iterator_parse_options{
 }
 
 [[nodiscard]] constexpr bool needs_json_escaping(std::string_view s) noexcept {
-  return strings::needs_escaping(s);
+  return detail::needs_escaping(s);
 }
+
+#pragma endregion
+#pragma region View member definitions
 
 constexpr bool json_value_view::decode_string(std::string& out) const {
   if (!is_string()) return false;
@@ -1050,6 +1135,9 @@ json_object_view::parse_bool(std::string_view key, bool& out) const {
   return true;
 }
 
+#pragma endregion
+#pragma region json_writer
+
 template<AppendTarget Target>
 // Stateful compact JSON writer over a `std::string` or `std::ostream`.
 //
@@ -1058,6 +1146,8 @@ template<AppendTarget Target>
 // matching `begin_*` / `end_*` pairs and to write object keys before their
 // values.
 class json_writer {
+#pragma region scoped_writer
+
   template<typename Begin, typename End>
   class scoped_writer {
   public:
@@ -1099,6 +1189,9 @@ class json_writer {
     [[no_unique_address]] End end_;
   };
 
+#pragma endregion
+#pragma region Framing
+
   template<typename Begin, typename End>
   [[nodiscard]] constexpr auto scoped(Begin&& begin, End&& end) {
     return scoped_writer<std::decay_t<Begin>, std::decay_t<End>>{*this,
@@ -1108,37 +1201,42 @@ class json_writer {
   // Begin/end a JSON object or array value.
   constexpr json_writer& begin_object() {
     before_value();
-    strings::append(target_, '{');
+    strings::appender(target_).append('{');
     stack_.push_back(frame{frame_kind::object});
     return *this;
   }
 
   constexpr json_writer& end_object() {
     if (stack_.empty()) return *this;
-    strings::append(target_, '}');
+    strings::appender(target_).append('}');
     stack_.pop_back();
     return *this;
   }
 
   constexpr json_writer& begin_array() {
     before_value();
-    strings::append(target_, '[');
+    strings::appender(target_).append('[');
     stack_.push_back(frame{frame_kind::array});
     return *this;
   }
 
   constexpr json_writer& end_array() {
     if (stack_.empty()) return *this;
-    strings::append(target_, ']');
+    strings::appender(target_).append(']');
     stack_.pop_back();
     return *this;
   }
 
+#pragma endregion
+#pragma region Construction
 public:
   explicit constexpr json_writer(Target& target) : target_{target} {}
   explicit constexpr json_writer(Target&& target) = delete;
 
   [[nodiscard]] constexpr Target& target() noexcept { return target_; }
+
+#pragma endregion
+#pragma region Containers
 
   [[nodiscard]] constexpr auto object() {
     return scoped([](json_writer& writer) { writer.begin_object(); },
@@ -1174,6 +1272,9 @@ public:
     return array();
   }
 
+#pragma endregion
+#pragma region Values
+
   // Write an object key. `json_trusted` skips the escape scan.
   template<StringViewConvertible S>
   requires(!SameAs<json_trusted, S>)
@@ -1190,13 +1291,13 @@ public:
   // Write scalar values. String overloads emit quoted JSON strings.
   constexpr json_writer& value(std::nullptr_t) {
     before_value();
-    strings::append(target_, "null");
+    strings::appender(target_).append("null");
     return *this;
   }
 
   constexpr json_writer& value(bool v) {
     before_value();
-    strings::append(target_, v ? "true" : "false");
+    strings::appender(target_).append(v ? "true" : "false");
     return *this;
   }
 
@@ -1204,7 +1305,7 @@ public:
   requires(!std::same_as<std::remove_cvref_t<T>, bool>)
   constexpr json_writer& value(T v) {
     before_value();
-    strings::append(target_, v);
+    strings::append_num(target_, v);
     return *this;
   }
 
@@ -1229,6 +1330,9 @@ public:
     write_quoted(s.value, text_validation::trusted);
     return *this;
   }
+
+#pragma endregion
+#pragma region Members
 
   // Write one `"key": value` object member in a single call.
   template<typename T>
@@ -1264,6 +1368,8 @@ public:
     return key(key_text).value(value_text, fmt, precision);
   }
 
+#pragma endregion
+#pragma region State
 private:
   enum class frame_kind : uint8_t { array, object };
 
@@ -1275,13 +1381,16 @@ private:
     bool expect_value{};
   };
 
+#pragma endregion
+#pragma region Helpers
+
   // Emit any comma needed before the next array element or object value.
   constexpr void before_value() {
     if (stack_.empty()) return;
 
     auto& top = stack_.back();
     if (top.kind == frame_kind::array) {
-      if (!top.first) strings::append(target_, ',');
+      if (!top.first) strings::appender(target_).append(',');
       top.first = false;
       return;
     }
@@ -1299,28 +1408,35 @@ private:
     auto& top = stack_.back();
     if (top.kind != frame_kind::object || top.expect_value) return;
 
-    if (!top.first) strings::append(target_, ',');
+    if (!top.first) strings::appender(target_).append(',');
     top.first = false;
     write_quoted(key_text, validated);
-    strings::append(target_, ':');
+    strings::appender(target_).append(':');
     top.expect_value = true;
   }
 
   // Emit one quoted JSON string, escaping unless explicitly trusted.
   constexpr void write_quoted(std::string_view text,
       text_validation validated = text_validation::untrusted) {
-    strings::append(target_, '"');
+    strings::appender(target_).append('"');
     if (validated == text_validation::trusted)
-      strings::append(target_, text);
+      strings::appender(target_).append(text);
     else
-      strings::append_escaped(target_, text);
-    strings::append(target_, '"');
+      detail::append_escaped(target_, text);
+    strings::appender(target_).append('"');
   }
+
+#pragma endregion
+#pragma region Data members
 
   Target& target_;
   std::vector<frame> stack_;
+
+#pragma endregion
 };
 
 template<AppendTarget Target>
 json_writer(Target&) -> json_writer<Target>;
+
+#pragma endregion
 }}} // namespace corvid::proto::json

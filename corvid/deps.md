@@ -2,9 +2,9 @@
 
 This records how Corvid's header modules are layered and how that layering is
 enforced. Each top-level directory under `corvid/`, plus the `core`/`utils`
-subdivisions of `strings` and `containers`, is a *band*: a cohesive group of
-headers that sits at one level of the dependency graph. The bands form a DAG,
-enforced by `scripts/check_layering.sh`.
+subdivision of `containers`, is a *band*: a cohesive group of headers that sits
+at one level of the dependency graph. The bands form a DAG, enforced by
+`scripts/check_layering.sh`.
 
 At file granularity the library is a DAG (it compiles). The bands exist to make
 the *folder* boundaries honest about that layering, so a layer violation becomes
@@ -18,11 +18,10 @@ points to below.
 ```text
 L0  meta              corvid/meta/, corvid/meta.h    Foundation: std + internal only.
 L1  infra             corvid/infra/                  scope_exit, relaxed_atomic, firewalls.
-    strings/core      corvid/strings/core/           Enum-free string utilities.
+    strings           corvid/strings/                Enum-free string utilities.
     containers/core   corvid/containers/core/        Enum-free container utilities.
-L2  enums             corvid/enums/                  scoped/sequence/bitmask/bool + registry.
-L3  strings/utils     corvid/strings/utils/          Enum-aware string code.
-    filesys           corvid/filesys/                os_file, event_fd, epoll glue.
+L2  enums             corvid/enums/                  scoped/sequence/bitmask/bool, registry, enum<->string + formatter.
+L3  filesys           corvid/filesys/                os_file, event_fd, epoll glue.
     concurrency       corvid/concurrency/            locks, timers, dispatch, atomics.
     containers/utils  corvid/containers/utils/       Enum/string-aware containers.
 L4  ecs, proto, lang  corvid/{ecs,proto,lang}/       Apex consumers.
@@ -30,57 +29,62 @@ L5  sim               corvid/sim/                    Apex consumer.
 --  controllers       corvid/controllers/            Standalone leaf: std only.
 ```
 
-The `L3` row is not flat: `strings/utils` and `filesys` rest on `enums` and
-`strings/core`; `concurrency` rests on `filesys`; `containers/utils` rests on
-`concurrency`. The allow-list below captures that order precisely.
+The `L3` row is not flat: `filesys` rests on `enums` and `strings`;
+`concurrency` rests on `filesys`; `containers/utils` rests on `concurrency`. The
+allow-list below captures that order precisely.
 
 The apex bands (`ecs`, `proto`, `lang`, `sim`) may depend on any lower band.
 `controllers` is a leaf parallel to the tree: it has no cross-folder edges.
 
 ## The core/utils split
 
-`strings` and `containers` are each split into two bands by exactly one
-question: does the header know about enums (for `containers`, enums or strings)?
-Enum-free headers are `core` (L1, below enums); enum-aware headers are `utils`
-(L3, above enums). Classification follows includes, not names:
-`containers/core/enum_variant.h` only pulls `meta/concepts.h`, so despite the
-name it is `core`.
+`containers` is split into two bands by exactly one question: does the header
+know about enums or strings? Enum-free headers are `core` (L1, below enums);
+enum-aware headers are `utils` (L3, above enums). Classification follows
+includes, not names: `containers/core/enum_variant.h` only pulls
+`meta/concepts.h`, so despite the name it is `core`.
 
-`strings/utils` (everything else under `strings/` is `strings/core`):
+`strings` is not split. The whole folder is enum-free (L1, below enums). The
+enum-aware string code that used to force a split now lives in the `enums` band,
+with the enum types it serves:
 
-- `concat_join.h`: the generic append/join dispatcher. It branches on
-  `ScopedEnum` and registers its own `join_opt`.
-- `enum_conversion.h`: enum<->string conversion. Forward path (`append_enum`,
-  `enum_as_string`, the scoped-enum `operator<<`) and reverse path
-  (`extract_enum`, `parse_enum`) together.
+- `enums/enum_conversion.h`: enum<->string conversion. Forward path
+  (`append_enum`, `enum_as_string`, the scoped-enum `operator<<`) and reverse
+  path (`extract_enum`, `parse_enum`) together.
+- `enums/enum_formatter.h`: the `std::format` specialization for scoped enums. A
+  formatter that rides along with the type it formats lives with that type (the
+  `string_view_wrapper` formatter sits at the bottom of its own `strings`
+  header); the enum formatter follows the same rule by living in `enums`.
 
 `containers/utils` (everything else under `containers/` is `containers/core`):
 
 - `enum_vector.h`, `object_pool.h`, `intern.h`, `interval.h`.
 
 The split is physical (folders). The public API stays flat: symbols keep their
-existing namespaces, so e.g. `corvid::strings::append_num` resolves regardless
-of band. Enforcement keys off the folder path, not the namespace.
+existing namespaces, so e.g. `corvid::strings::append_num` and
+`corvid::strings::append_enum` both resolve, even though the latter now lives in
+a header under `enums/`. Enforcement keys off the folder path, not the
+namespace.
 
 ## The strings <-> enums seam
 
-This was the original tangle. It is now a thin DAG with one intentional seam:
+This was the original tangle. It is now a clean one-way edge: `enums` depends on
+`strings`, and nothing under `strings` depends on `enums`.
 
-- `corvid/enums/enum_registry.h` is the bridge both subsystems rest on. It
-  depends down on `strings/core` (`targeting.h`) and exposes `enum_spec_v`,
-  which the string converter dispatches through. It is the only place
-  `strings/core` and `enums` meet.
-- `strings/core/conversion.h` is enum-free. The forward enum path lives in
-  `strings/utils/enum_conversion.h`, which reaches `enums` only through
-  `enum_registry.h`.
+- `strings` is entirely enum-free. `strings/conversion.h` handles numeric and
+  related conversions; it knows nothing about enums.
+- The enum<->string code (`enums/enum_conversion.h`, `enums/enum_formatter.h`)
+  lives in the `enums` band and dispatches through `enums/enum_registry.h`,
+  which exposes `enum_spec_v`. The registry depends down on `strings`
+  (`targeting.h`); it is where `enums` reaches into `strings`.
 - The `"a + b + c"` bitmask-combination parsing lives in the bitmask spec's
   `lookup` (`corvid/enums/bitmask_enum.h`), so `enum_conversion.h` needs no
   sequence/bitmask adapter, only the registry.
-- The enum adapters (`sequence_enum.h`, `bitmask_enum.h`) include specific
-  `strings/core` headers, never the `strings` umbrella.
+- The enum headers include specific `strings` headers, never the `strings`
+  umbrella.
 
-Net: `enums` depends only on `strings/core`; the only `strings -> enums` edges
-run from `strings/utils`. No folder-level cycle.
+Net: the only cross-folder edge between the two is `enums -> strings`. No
+folder-level cycle, and no separate band needed to break one.
 
 ## Cross-band edges
 
@@ -89,19 +93,17 @@ cross-band edges.
 
 ```text
 infra            -> meta
-strings/core     -> meta
+strings          -> meta
 containers/core  -> meta, infra
-enums            -> strings/core, containers/core
-strings/utils    -> strings/core, enums
-filesys          -> strings/core, enums
+enums            -> meta, strings, containers/core
+filesys          -> strings, enums
 concurrency      -> meta, infra, filesys
-containers/utils -> infra, containers/core, strings/core, strings/utils, enums,
-                    concurrency
+containers/utils -> infra, containers/core, strings, enums, concurrency
 ecs              -> meta, infra, enums, containers/core, containers/utils
-proto            -> meta, infra, filesys, concurrency, strings/core,
-                    strings/utils, enums, containers/core, containers/utils
+proto            -> meta, infra, filesys, concurrency, strings, enums,
+                    containers/core, containers/utils
 lang             -> enums, containers/core, corvid/strings.h (umbrella)
-sim              -> strings/core, strings/utils, containers/core, proto,
+sim              -> strings, enums, containers/core, proto,
                     corvid/ecs.h + corvid/proto.h (umbrellas)
 ```
 
@@ -111,10 +113,9 @@ The spine, with transitively-implied edges omitted for readability:
 graph TD
     meta[meta]
     infra[infra]
-    strings_core["strings/core"]
+    strings[strings]
     containers_core["containers/core"]
     enums[enums]
-    strings_utils["strings/utils"]
     filesys[filesys]
     concurrency[concurrency]
     containers_utils["containers/utils"]
@@ -122,18 +123,16 @@ graph TD
     controllers["controllers<br/>(standalone: std only)"]
 
     infra --> meta
-    strings_core --> meta
+    strings --> meta
     containers_core --> infra
-    enums --> strings_core
+    enums --> strings
     enums --> containers_core
-    strings_utils --> strings_core
-    strings_utils --> enums
-    filesys --> strings_core
+    filesys --> strings
     filesys --> enums
     concurrency --> infra
     concurrency --> filesys
     containers_utils --> containers_core
-    containers_utils --> strings_utils
+    containers_utils --> strings
     containers_utils --> enums
     containers_utils --> concurrency
     apex --> containers_utils
@@ -170,14 +169,12 @@ only):
 ```text
 meta             -> (std only)
 infra            -> meta
-strings/core     -> meta
+strings          -> meta
 containers/core  -> meta, infra
-enums            -> meta, strings/core, containers/core
-strings/utils    -> meta, strings/core, enums
-filesys          -> meta, strings/core, strings/utils, enums
+enums            -> meta, strings, containers/core
+filesys          -> meta, strings, enums
 concurrency      -> meta, infra, filesys
-containers/utils -> meta, infra, strings/core, strings/utils, enums,
-                    containers/core, concurrency
+containers/utils -> meta, infra, strings, enums, containers/core, concurrency
 ecs, proto, lang, sim -> (any lower band, plus consumer umbrellas)
 controllers      -> (std only)
 ```

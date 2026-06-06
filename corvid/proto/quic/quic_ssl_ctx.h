@@ -27,7 +27,7 @@
 
 #include "../../infra/exception_firewalls.h"
 #include "../../enums/bool_enums.h"
-#include "../../strings/core/conversion.h"
+#include "../../strings/conversion.h"
 
 namespace corvid { inline namespace proto { namespace quic {
 

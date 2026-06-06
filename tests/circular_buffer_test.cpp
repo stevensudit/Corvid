@@ -549,6 +549,31 @@ TEST_CASE("Smoke", "[CircularBufferTest]") {
   }
 }
 #pragma endregion
+#pragma region Format
+
+TEST_CASE("Format", "[CircularBufferTest]") {
+  std::vector<int> v{0, 0, 0};
+  circular_buffer cb{v};
+  cb.push_back(1);
+  cb.push_back(2);
+  cb.push_back(3);
+
+  // A circular_buffer is a std range, so it formats for free via the range
+  // formatter, in logical front-to-back order, narrow and wide.
+  CHECK(std::format("{}", cb) == "[1, 2, 3]");
+  CHECK(std::format("{:n}", cb) == "1, 2, 3");
+  CHECK(std::format(L"{}", cb) == L"[1, 2, 3]");
+
+  // Wrapping overwrites the frontmost element; the format reflects live order.
+  cb.push_back(4);
+  CHECK(std::format("{}", cb) == "[2, 3, 4]");
+
+  // A const buffer formats too.
+  const auto& ccb = cb;
+  CHECK(std::format("{}", ccb) == "[2, 3, 4]");
+}
+
+#pragma endregion
 
 // NOLINTEND(readability-function-cognitive-complexity,
 // readability-function-size)

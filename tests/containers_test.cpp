@@ -102,6 +102,12 @@ TEST_CASE("Basic", "[IndirectKey]") {
   std::map<IMK, int> m;
   m[key] = 42;
   CHECK(m[key] == 42);
+
+  // Each key formats as its referenced value, honoring the value's spec.
+  CHECK(std::format("{}", IHK{key}) == "abc");
+  CHECK(std::format("{:?}", IHK{key}) == "\"abc\"");
+  CHECK(std::format("{}", IMK{key}) == "abc");
+  CHECK(std::format("{:>5}", IMK{key}) == "  abc");
 }
 #pragma endregion
 
@@ -400,6 +406,23 @@ TEST_CASE("Basic", "[CustomHandleTest]") {
   }
   CHECK(fd_deleter::close_count == 8U);
 #endif
+}
+
+TEST_CASE("Format", "[CustomHandleTest]") {
+  using handle = custom_handle<struct FormatTag, int>;
+  int i{42};
+  handle h{&i};
+  handle n;
+
+  // A live handle forwards to the element's formatter (with its spec); a null
+  // handle renders the unquoted `(null)` marker.
+  CHECK(std::format("{}", h) == "42");
+  CHECK(std::format("{:>4}", h) == "  42");
+  CHECK(std::format("{}", n) == "(null)");
+
+  // Narrow and wide both come along.
+  CHECK(std::format(L"{}", h) == L"42");
+  CHECK(std::format(L"{}", n) == L"(null)");
 }
 #pragma endregion
 
@@ -804,6 +827,20 @@ TEST_CASE("Extended", "[StrongType]") {
   std::ostringstream oss;
   oss << fn;
   CHECK(oss.str() == "John");
+
+  // Test std::format: the formatter forwards to the underlying type's
+  // formatter, so the spec grammar and debug quoting come along.
+  CHECK(std::format("{}", fn) == "John");
+  CHECK(std::format("{:>6}", fn) == "  John");
+  CHECK(std::format("{:?}", fn) == "\"John\"");
+  CHECK(std::format("{}", PersonAge{42}) == "42");
+  CHECK(std::format("{:04}", PersonAge{42}) == "0042");
+  CHECK(std::format(L"{}", PersonAge{42}) == L"42");
+
+  // A range-typed underlying forwards to the range formatter rather than
+  // being enumerated as a strong_type range.
+  using Tags = strong_type<std::vector<int>, struct TagsTag>;
+  CHECK(std::format("{}", Tags{std::vector<int>{1, 2, 3}}) == "[1, 2, 3]");
 }
 #pragma endregion
 
@@ -1020,6 +1057,16 @@ TEST_CASE("Basic", "[EnumVector]") {
   const auto& u3 = *cv;
   (void)u2;
   (void)u3;
+
+  // As a plain sequence, `enum_vector` formats for free through the std range
+  // formatter (narrow and wide), with no formatter of its own.
+  enum_vector<int, id_t> fv;
+  fv.push_back(1);
+  fv.push_back(2);
+  fv.push_back(3);
+  CHECK(std::format("{}", fv) == "[1, 2, 3]");
+  CHECK(std::format("{:n}", fv) == "1, 2, 3");
+  CHECK(std::format(L"{}", fv) == L"[1, 2, 3]");
 
   v.clear();
   CHECK(v.empty());

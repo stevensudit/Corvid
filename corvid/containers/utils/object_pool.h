@@ -54,8 +54,8 @@ concept IsNoOpCb = std::is_same_v<no_op_cb, std::remove_cvref_t<FN>>;
 // the free list.
 //
 // Optional callbacks, both with signature `void cb(T&)`:
-//   `BorrowCb` -- called on each borrow.
-//   `ReturnCb` -- called on each return.
+//   `BorrowCb`: called on each borrow.
+//   `ReturnCb`: called on each return.
 //
 // Use `BorrowCb` if the desired initial state is not the same as the
 // default-constructed state. Use `ReturnCb` in order to free up resources.

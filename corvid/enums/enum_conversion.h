@@ -15,16 +15,16 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 #pragma once
-#include "../core/strings_shared.h"
-#include "../core/trimming.h"
-#include "../core/splitting.h"
-#include "../core/conversion.h"
-#include "../../enums/enum_registry.h"
+#include "../strings/strings_shared.h"
+#include "../strings/trimming.h"
+#include "../strings/splitting.h"
+#include "../strings/conversion.h"
+#include "enum_registry.h"
 
 namespace corvid::strings { inline namespace conversion {
 inline namespace cvt_enum {
 
-// From enum.
+#pragma region From enum
 
 // Append enum to `target`. Returns `target`.
 constexpr auto& append_enum(AppendTarget auto& target, ScopedEnum auto e) {
@@ -36,6 +36,9 @@ constexpr std::string enum_as_string(ScopedEnum auto t) {
   std::string target;
   return append_enum(target, t);
 }
+
+#pragma endregion
+#pragma region To enum
 
 namespace details {
 // Extract any enum from `sv`. Scoped enums (sequential and bitmask) dispatch
@@ -144,7 +147,10 @@ constexpr E parse_enum(std::string_view sv, E default_value) {
   return (extract_enum(e, sv) && sv.empty()) ? e : default_value;
 }
 
+#pragma endregion
 }}} // namespace corvid::strings::conversion::cvt_enum
+
+#pragma region operator<<
 
 // Append scoped enum to `os`.
 //
@@ -153,3 +159,5 @@ constexpr E parse_enum(std::string_view sv, E default_value) {
 auto& operator<<(std::ostream& os, corvid::ScopedEnum auto t) {
   return corvid::strings::append_enum(os, t);
 }
+
+#pragma endregion

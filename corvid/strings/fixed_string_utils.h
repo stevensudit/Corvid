@@ -21,6 +21,8 @@
 
 namespace corvid::strings { inline namespace fixed {
 
+#pragma region fixed_split
+
 // Split fixed string by delimiter, returning array of string views, optionally
 // trimming by whitespace.
 //
@@ -52,6 +54,9 @@ consteval auto fixed_split() {
   return result;
 }
 
+#pragma endregion
+#pragma region fixed_split_trim
+
 // Split fixed string by delimiter, returning array of string views, trimming
 // by specified whitespace.
 //
@@ -61,5 +66,23 @@ template<strings::fixed_string W, strings::fixed_string WS = " ",
 consteval auto fixed_split_trim() {
   return fixed_split<W, D, WS>();
 }
+
+#pragma endregion
+#pragma region fixed_replaced
+
+// Return a copy of `W` with every occurrence of `F` replaced by `T`. The
+// length is unchanged, so this is handy for swapping a delimiter, such as
+// turning a comma-delimited list into a null-delimited one.
+template<strings::fixed_string W, char F, char T>
+consteval auto fixed_replaced() {
+  constexpr std::size_t n = W.size();
+  char buf[n + 1]{};
+  for (std::size_t ndx = 0; ndx != n; ++ndx)
+    buf[ndx] = W[ndx] == F ? T : W[ndx];
+  return strings::basic_fixed_string{buf,
+      std::integral_constant<std::size_t, n>{}};
+}
+
+#pragma endregion
 
 }} // namespace corvid::strings::fixed

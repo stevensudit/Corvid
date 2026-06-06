@@ -23,7 +23,7 @@
 #include "../misc/http_head_codec.h"
 #include "epoll_recv_buffer.h"
 #include "epoll_stream_conn.h"
-#include "../../strings/core/any_strings.h"
+#include "../../strings/any_strings.h"
 
 namespace corvid { inline namespace proto {
 

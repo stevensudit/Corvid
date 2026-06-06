@@ -15,10 +15,16 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 #pragma once
+
+// Note: Do not IWYU for enums. Just include this header to bring in the whole
+// system, including registration and formatter support.
+
 #include "enums/enums_shared.h"
 #include "enums/bitmask_enum.h"
 #include "enums/sequence_enum.h"
+#include "enums/enum_formatter.h"
 #include "enums/bool_enums.h"
+#include "enums/enum_conversion.h"
 
 // Importing the `corvid::enums::bitmask` and `corvid::enums::sequence`
 // namespaces is optional, but you need to import `corvid::enums::bitmask::ops`

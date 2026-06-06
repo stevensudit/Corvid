@@ -16,11 +16,14 @@
 // limitations under the License.
 
 #include <cstdint>
+#include <format>
 #include <map>
 #include <set>
 #include <type_traits>
 
 #include "../corvid/strings.h"
+#include "../corvid/enums.h"
+
 std::ostream&
 operator<<(std::ostream& os, const corvid::strings::location& l) {
   return os << "location{" << l.pos << ", " << l.pos_value << "}";
@@ -33,6 +36,7 @@ using namespace corvid;
 using namespace corvid::literals;
 using namespace corvid::enums::sequence;
 using namespace corvid::enums::bitmask;
+using namespace corvid::strings::delimiting;
 
 // NOLINTBEGIN(readability-function-cognitive-complexity,
 // readability-function-size)
@@ -152,9 +156,9 @@ TEST_CASE("SplitPg", "[StringUtilsTest]") {
 
     CHECK(strings::split_gen(std::string_view{}) == V{});
     CHECK(strings::split_gen(opt_string_view{std::nullopt}) == V{});
-    CHECK(strings::split_gen(0_osv) == V{});
+    CHECK(strings::split_gen(0_optsv) == V{});
     CHECK(strings::split_gen(""sv) == V{""});
-    CHECK(strings::split_gen(""_osv) == V{""});
+    CHECK(strings::split_gen(""_optsv) == V{""});
     CHECK(strings::split_gen("1"sv) == V{"1"});
     CHECK(strings::split_gen("1 "sv) == V{"1", ""});
     CHECK(strings::split_gen(" 1"sv) == V{"", "1"});
@@ -175,9 +179,9 @@ TEST_CASE("SplitPg", "[StringUtilsTest]") {
     CHECK((split_gen<PG, R>(std::string_view{})) == V{});
     CHECK((split_gen<PG, R>((opt_string_view{std::nullopt}))) == V{});
     CHECK((split_gen<PG, R>((opt_string_view{std::nullopt}))) == V{});
-    CHECK((split_gen<PG, R>((0_osv))) == V{});
+    CHECK((split_gen<PG, R>((0_optsv))) == V{});
     CHECK((split_gen<PG, R>((""sv))) == V{""});
-    CHECK((split_gen<PG, R>((""_osv))) == V{""});
+    CHECK((split_gen<PG, R>((""_optsv))) == V{""});
     CHECK((split_gen<PG, R>(("1"sv))) == V{"1"});
     CHECK((split_gen<PG, R>(("1 "sv))) == V{"1", ""});
     CHECK((split_gen<PG, R>((" 1"sv))) == V{"", "1"});
@@ -191,13 +195,53 @@ TEST_CASE("SplitPg", "[StringUtilsTest]") {
     CHECK((split_gen<PG, R>(("11 22 33"sv))) == V{"11", "22", "33"});
   }
   if (true) {
-    strings::piece_generator pg{""sv,
+    // Custom callables are stored without std::function erasure; CTAD deduces
+    // the code unit and both callable types.
+    strings::basic_piece_generator pg{"a b\tc"sv,
         [](std::string_view s) {
           auto loc = strings::locate(s, {' ', '\t', '\n', '\r'});
           return std::pair{loc.pos, loc.pos + 1};
         },
         [](std::string_view s) { return s; }};
+    CHECK(strings::split(pg) == std::vector<std::string_view>{"a", "b", "c"});
   }
+}
+
+#pragma endregion
+
+// Test splitting over a wide code unit.
+#pragma region WideSplit
+
+TEST_CASE("WideSplit", "[StringUtilsTest]") {
+  // extract_piece defaults its return to a view of `whole`'s code unit.
+  std::u16string_view sv = u"1,2";
+  CHECK(strings::extract_piece(sv, u",") == u"1");
+  CHECK(strings::extract_piece(sv, u",") == u"2");
+  CHECK(sv.empty());
+
+  // An owning return type is requested as the first template argument.
+  sv = u"1,2";
+  CHECK(strings::extract_piece<std::u16string>(sv, u",") == u"1");
+
+  // more_pieces threads the same code unit.
+  std::u16string_view w = u"a;b", part;
+  CHECK(strings::more_pieces(part, w, u";"));
+  CHECK(part == u"a");
+  CHECK_FALSE(strings::more_pieces(part, w, u";"));
+  CHECK(part == u"b");
+
+  // split defaults to views; an owning element type makes deep copies.
+  using V = std::vector<std::u16string_view>;
+  using S = std::vector<std::u16string>;
+  CHECK(strings::split(u"1,2,3", u",") == V{u"1", u"2", u"3"});
+  CHECK(strings::split<std::u16string>(u"1,2,3", u",") == S{u"1", u"2", u"3"});
+
+  // A temporary wide string is split into deep copies.
+  CHECK(strings::split(std::u16string{u"1,2,3"}, u",") == S{u"1", u"2", u"3"});
+
+  // split_gen over a wide generator (default whitespace delimiter).
+  using PG = strings::basic_piece_generator<char16_t>;
+  CHECK(strings::split_gen<PG>(u"1 2 3"sv) == V{u"1", u"2", u"3"});
 }
 
 #pragma endregion
@@ -216,6 +260,115 @@ TEST_CASE("Case", "[StringUtilsTest]") {
   char a[] = "abcdefghij";
   strings::to_upper(a);
   CHECK(a == "ABCDEFGHIJ"sv);
+
+  // Wide code units: same ASCII semantics on any character type.
+  CHECK(strings::to_upper(u'a') == u'A');
+  CHECK(strings::to_lower(U'Z') == U'z');
+  CHECK(strings::is_digit(u'7'));
+  CHECK(strings::is_alpha(U'q'));
+  CHECK_FALSE(strings::is_upper(char16_t{0xe9})); // U+00E9, not ASCII
+  auto w = u"abcXYZ"s;
+  strings::to_upper(w);
+  CHECK(w == u"ABCXYZ");
+
+  // Deduced string-like helpers across code units.
+  CHECK(strings::as_lower(u"MIXEDcase") == u"mixedcase");
+  CHECK(strings::as_upper(U"MixedCase") == U"MIXEDCASE");
+  CHECK(strings::ci_equal("HeLLo", "hello"s));
+  CHECK(strings::ci_equal(u"HeLLo", u"hello"));
+  CHECK_FALSE(strings::ci_equal(U"abc", U"abd"));
+
+  // `string_view_wrapper` children flow through `char_type_of`/`as_view`
+  // automatically, since they convert to a `std::basic_string_view`.
+  CHECK(strings::as_upper("abc"_czsv) == "ABC");
+  CHECK(strings::ci_equal("Hi"_optsv, "hi"));
+}
+
+#pragma endregion
+
+// Test basic_delim over a wide code unit.
+#pragma region WideDelim
+
+TEST_CASE("WideDelim", "[StringUtilsTest]") {
+  strings::basic_delim<char16_t> d{u",;"};
+  CHECK(d.find_in(u"ab,cd") == 2);
+  CHECK(d.find_not_in(u",,xy") == 2);
+  CHECK(d.find_last_not_in(u"xy;,") == 1);
+
+  std::u16string out;
+  d.append(out);
+  CHECK(out == u",;");
+
+  // The default delimiter is a single space, whatever the code unit.
+  CHECK(strings::basic_delim<char16_t>{}.find_in(u"ab cd") == 2);
+}
+
+#pragma endregion
+
+// Test trimming over a wide code unit.
+#pragma region WideTrim
+
+TEST_CASE("WideTrim", "[StringUtilsTest]") {
+  // Value-returning trims default to a view of the haystack's code unit.
+  CHECK(strings::trim(u"  hi  ") == u"hi");
+  CHECK(strings::trim_left(u"..xy", strings::basic_delim<char16_t>{u"."}) ==
+        u"xy");
+  CHECK(strings::trim_right(u"xy..", strings::basic_delim<char16_t>{u"."}) ==
+        u"xy");
+
+  // An owning return type is requested as the second template argument.
+  const std::u16string owned =
+      strings::trim<std::u16string_view, std::u16string>(u"  hi  "sv);
+  CHECK(owned == u"hi");
+
+  // In-place on a wide string (not misclassified as a container).
+  std::u16string s = u"  hi  ";
+  strings::trim(s);
+  CHECK(s == u"hi");
+
+  // Container of wide strings: the delimiter's code unit is deduced from the
+  // elements, so the default (single space) works with no explicit delimiter.
+  std::vector<std::u16string> v{u" a ", u"  b"};
+  strings::trim(v);
+  CHECK(v[0] == u"a");
+  CHECK(v[1] == u"b");
+
+  // An explicit wide delimiter still works.
+  std::vector<std::u16string> v2{u".a.", u"..b"};
+  strings::trim(v2, strings::basic_delim<char16_t>{u"."});
+  CHECK(v2[0] == u"a");
+  CHECK(v2[1] == u"b");
+
+  // Map-like container: the code unit is deduced from the mapped value.
+  std::map<int, std::u16string> m{{1, u" a "}, {2, u"  b"}};
+  strings::trim(m);
+  CHECK(m[1] == u"a");
+  CHECK(m[2] == u"b");
+
+  // Braces.
+  CHECK(strings::trim_braces(u"[x]") == u"x");
+  CHECK(strings::add_braces(u"x") == u"[x]");
+}
+
+#pragma endregion
+#pragma region AsViews
+
+TEST_CASE("AsViews", "[StringUtilsTest]") {
+  // Narrow container deduces `std::string_view` (unchanged behavior).
+  const std::vector<std::string> narrow{"a", "bc"};
+  const auto nv = strings::as_views(narrow);
+  using nview = decltype(nv)::value_type;
+  static_assert(std::is_same_v<nview, std::string_view>);
+  CHECK(nv[0] == "a");
+  CHECK(nv[1] == "bc");
+
+  // Wide container deduces the elements' code unit.
+  const std::vector<std::u16string> wide{u"a", u"bc"};
+  const auto wv = strings::as_views(wide);
+  using wview = decltype(wv)::value_type;
+  static_assert(std::is_same_v<wview, std::u16string_view>);
+  CHECK(wv[0] == u"a");
+  CHECK(wv[1] == u"bc");
 }
 
 #pragma endregion
@@ -1328,6 +1481,52 @@ TEST_CASE("ParseNum", "[StringUtilsTest]") {
 }
 
 #pragma endregion
+#pragma region ParseInt
+
+TEST_CASE("ParseInt", "[StringUtilsTest]") {
+  // `parse_int` is consteval, so every call must be a constant expression.
+  if (true) {
+    // Decimal parsing of positive values.
+    static_assert(strings::parse_int<int>("0") == 0);
+    static_assert(strings::parse_int<int>("7") == 7);
+    static_assert(strings::parse_int<int>("123") == 123);
+    static_assert(strings::parse_int<int>("2147483647") == 2147483647);
+  }
+  if (true) {
+    // Negative values are accepted for signed types.
+    static_assert(strings::parse_int<int>("-1") == -1);
+    static_assert(strings::parse_int<int>("-123") == -123);
+    // The most-negative value is representable even though its magnitude
+    // exceeds the positive maximum.
+    static_assert(strings::parse_int<int>("-2147483648") == -2147483647 - 1);
+    static_assert(strings::parse_int<int8_t>("-128") == int8_t{-128});
+  }
+  if (true) {
+    // Negative values are rejected for unsigned types.
+    static_assert(strings::parse_int<unsigned>("-1") == std::nullopt);
+    static_assert(strings::parse_int<unsigned>("42") == 42u);
+  }
+  if (true) {
+    // Empty input, a lone sign, and non-digit characters all fail.
+    static_assert(strings::parse_int<int>("") == std::nullopt);
+    static_assert(strings::parse_int<int>("-") == std::nullopt);
+    static_assert(strings::parse_int<int>("abc") == std::nullopt);
+    static_assert(strings::parse_int<int>("12a") == std::nullopt);
+    static_assert(strings::parse_int<int>("1 2") == std::nullopt);
+    static_assert(strings::parse_int<int>("+5") == std::nullopt);
+  }
+  if (true) {
+    // Works with other integral widths.
+    static_assert(
+        strings::parse_int<int64_t>("9223372036854775807") ==
+        9223372036854775807LL);
+    static_assert(strings::parse_int<uint8_t>("255") == uint8_t{255});
+  }
+  // A runtime CHECK keeps the case visible in the test report.
+  CHECK(strings::parse_int<int>("123") == 123);
+}
+
+#pragma endregion
 #pragma region AppendNum
 
 TEST_CASE("AppendNum", "[StringUtilsTest]") {
@@ -1356,721 +1555,36 @@ TEST_CASE("AppendNum", "[StringUtilsTest]") {
 }
 
 #pragma endregion
-#pragma region Append
+// Test number conversion over a wide code unit.
+#pragma region WideConversion
 
-TEST_CASE("Append", "[StringUtilsTest]") {
-  using strings::join_opt;
-  std::string s;
-
+TEST_CASE("WideConversion", "[StringUtilsTest]") {
+  // append_num formats into a target of any code unit.
+  std::u16string s;
+  strings::append_num(s, 42);
+  CHECK(s == u"42");
   s.clear();
-  strings::append(s, "1"); // is_string_view_convertible_v
-  strings::append(s, "2"s);
-  strings::append(s, "3"sv);
-  CHECK(s == "123");
+  strings::append_num<16>(s, uint16_t(0xab)); // hex "0x" prefix + zero-pad
+  CHECK(s == u"0x00ab");
   s.clear();
-  strings::append(s, '1');       // char (digit)
-  strings::append(s, "2", "3");  // many
-  strings::append(s, (char*){}); // char nullptr
-  strings::append(s, (size_t)4); // append size_t
-  strings::append(s, nullptr);   // nullptr
-  CHECK(s == "123null4null");
-
+  strings::append_num<10, 5>(s, 7); // width and pad
+  CHECK(s == u"    7");
   s.clear();
-  strings::append<2>(s, 0xaa); // append binary
-  CHECK(s == "10101010");
-  s.clear();
-  strings::append<16>(s, 0xaa); // append hex
-  CHECK(s == "0x000000aa");
-
-  s.clear();
-  strings::append(s, false);          // append bool
-  strings::append(s, true);           // append bool
-  strings::append(s, (float)2);       // append float
-  strings::append(s, (double)3);      // append float
-  strings::append(s, (long double)4); // append float
-  CHECK(s == "falsetrue234");
-
-  s.clear();
-  strings::append(s, (double)123.456789012345);
-  CHECK(s == "123.456789012345");
-  s.clear();
-  strings::append<std::chars_format::scientific>(s, (double)123.456789012345);
-  CHECK(s == "1.23456789012345e+02");
-  s.clear();
-  strings::append<std::chars_format::fixed, 1>(s, (double)123.456789012345);
-  CHECK(s == "123.5");
-  s.clear();
-  strings::append<std::chars_format::fixed, 6>(s, (double)123.456789012345);
-  CHECK(s == "123.456789");
-
-  const int i = 42;
-  s.clear();
-  strings::append(s, i);
-  CHECK(s == "42");
-  s.clear();
-  strings::append(s, &i);
-  CHECK(s == "42");
-  s.clear();
-  strings::append(s, reinterpret_cast<intptr_t>(&i));
-  CHECK(s != "42");
-  CHECK_FALSE(s.starts_with("0x"));
-  s.clear();
-  strings::append(s, (void*){});
-  CHECK(s == "0x0000000000000000");
-  s.clear();
-  strings::append(s, reinterpret_cast<const void*>(&i));
-  CHECK(s != "42");
-  CHECK(s.starts_with("0x"));
-  auto oi = std::make_optional(i);
-  s.clear();
-  strings::append(s, oi);
-  CHECK(s == "42");
-  oi.reset();
-  s.clear();
-  strings::append(s, oi);
-  CHECK(s == "null");
-
-  // None of these char-like types are char so they're all treated as ints.
-  CHECK_FALSE((std::is_same_v<char, signed char>));
-  CHECK_FALSE((std::is_same_v<char, unsigned char>));
-  CHECK_FALSE((std::is_same_v<char, char8_t>));
-  CHECK_FALSE((std::is_same_v<signed char, unsigned char>));
-
-  s.clear();
-  strings::append(s, (signed char)1);
-  strings::append(s, (unsigned char)2);
-  strings::append(s, (wchar_t)3);
-  strings::append(s, (char8_t)4);
-  strings::append(s, (char16_t)5);
-  strings::append(s, (char32_t)6);
-  CHECK(s == "123456");
-
-  // Might as well test all the integral types, if only for regression.
-  s.clear();
-  strings::append(s, (short int)1);
-  strings::append(s, (unsigned short int)2);
-  strings::append(s, (int)3);
-  strings::append(s, (unsigned int)4);
-  strings::append(s, (long int)5);
-  strings::append(s, (unsigned long int)6);
-  strings::append(s, (long long int)7);
-  strings::append(s, (unsigned long long int)8);
-  CHECK(s == "12345678");
-
-  s.clear();
-  strings::append(s, (int8_t)1);
-  strings::append(s, (int16_t)2);
-  strings::append(s, (int32_t)3);
-  strings::append(s, (int64_t)4);
-  CHECK(s == "1234");
-
-  s.clear();
-  strings::append(s, (uint8_t)1);
-  strings::append(s, (uint16_t)2);
-  strings::append(s, (uint32_t)3);
-  strings::append(s, (uint64_t)4);
-  CHECK(s == "1234");
-
-  s.clear();
-  strings::append(s, (int_fast8_t)1);
-  strings::append(s, (int_fast16_t)2);
-  strings::append(s, (int_fast32_t)3);
-  strings::append(s, (int_fast64_t)4);
-  CHECK(s == "1234");
-
-  s.clear();
-  strings::append(s, (uint_fast8_t)1);
-  strings::append(s, (uint_fast16_t)2);
-  strings::append(s, (uint_fast32_t)3);
-  strings::append(s, (uint_fast64_t)4);
-  CHECK(s == "1234");
-
-  s.clear();
-  strings::append(s, (int_least8_t)1);
-  strings::append(s, (int_least16_t)2);
-  strings::append(s, (int_least32_t)3);
-  strings::append(s, (int_least64_t)4);
-  CHECK(s == "1234");
-
-  s.clear();
-  strings::append(s, (uint_least8_t)1);
-  strings::append(s, (uint_least16_t)2);
-  strings::append(s, (uint_least32_t)3);
-  strings::append(s, (uint_least64_t)4);
-  CHECK(s == "1234");
-
-  s.clear();
-  strings::append(s, (intmax_t)1);
-  strings::append(s, (intptr_t)2);
-  strings::append(s, (uintmax_t)3);
-  strings::append(s, (uintptr_t)4);
-  CHECK(s == "1234");
-
-  enum ColorEnum : std::uint8_t { red, green = 20, blue };
-  enum class ColorClass : std::uint8_t { red, green = 20, blue };
-
-  s.clear();
-  strings::append(s, green);
-  strings::append(s, ColorClass::blue);
-  CHECK(s == "2021");
-  s.clear();
-
-  strings::append(s, ColorClass::green);
-  CHECK(s == "20");
-  s.clear();
-  strings::append(s, ColorClass(20));
-  CHECK(s == "20"); // not hex!
-
-  std::map<std::string, int> msi{{"a", 1}, {"c", 2}};
-  std::set<int> si{3, 4, 5};
-  s.clear();
-  strings::append(s, msi);
-  strings::append(s, si);
-  CHECK(s == "12345");
-
-  std::variant<std::monostate, int, std::map<std::string, int>> va;
-  s.clear();
-  strings::append(s, va);
-  CHECK(s == "null");
-  va = 52;
-  s.clear();
-  strings::append(s, va);
-  CHECK(s == "52");
-
-  va = msi;
-  s.clear();
-  strings::append(s, va);
-  CHECK(s == "12");
-
-  std::map<std::string, std::set<int>> mssi{{"c", {5, 4}}, {"a", {3, 2, 1}}};
-  s.clear();
-  strings::append(s, mssi);
-  CHECK(s == "12345");
-
-  CHECK_FALSE((std::is_same_v<int8_t, char>));
-  CHECK(strings::num_as_string(42) == "42");
-  CHECK(strings::num_as_string<16>(10) == "0x0000000a");
-  CHECK(strings::num_as_string('a') == "97");
-  CHECK(strings::num_as_string(123.0L) == "123");
-  CHECK(strings::num_as_string(12.3L) == "12.3");
-
-  CHECK(strings::concat("1", "2"sv, "3"s) == "123");
-  CHECK(strings::concat(1, 2.0, 3ULL) == "123");
-  CHECK(strings::concat(true, std::byte{2}, 3) == "true23");
-  CHECK(strings::concat("1", "2") == "12");
-
-  auto t = std::make_tuple("1"s, 2, 3.0);
-  auto l = {"1"s, "2"s, "3"s};
-  auto p = std::make_pair("1"s, "2, 3");
-  auto a = std::array<int, 3>{1, 2, 3};
-  std::vector<std::string> v = l;
-
-  CHECK(strings::concat(l, v) == "123123");
-
-  CHECK(strings::concat(t) == "123");
-  CHECK(strings::concat(p) == "12, 3");
-  CHECK(strings::concat(a) == "123");
-
-  CHECK(strings::join<join_opt::quoted>(l) == R"(["1", "2", "3"])");
-
-  s.clear();
-  strings::append_join_with(s, ";", "123"); // single
-  CHECK(s == "123");
-  strings::append_join_with(s, ";", std::optional<std::string>{});
-  strings::append_join_with(s, ";", "456");
-  CHECK(s == "123null456");
-  strings::append_join_with<join_opt::prefixed, '`', '\''>(s, ";", "789");
-  CHECK(s == "123null456;`789'");
-
-  s.clear();
-  strings::append_join_with(s, ";", v); // container
-  CHECK(s == "[1;2;3]");
-
-  s = "a";
-  strings::append_join_with<join_opt::prefixed>(s, ";", v);
-  CHECK(s == "a;[1;2;3]");
-  s = "v=";
-  strings::append_join_with(s, ";", v);
-  CHECK(s == "v=[1;2;3]");
-
-  s.clear();
-  strings::append_join_with(s, ";", t); // tuple
-  CHECK(s == "{1;2;3}");
-
-  s.clear();
-  strings::append_join_with<join_opt::flat>(s, ";", t); // tuple
-  CHECK(s == "1;2;3");
-
-  s.clear();
-  strings::append_join_with(s, ";", intptr_t(42));
-  CHECK(s == "42");
-
-  s.clear();
-  strings::append_join_with(s, ";", reinterpret_cast<const void*>(&i));
-  CHECK(s != "42");
-
-  s.clear();
-  // NOLINTNEXTLINE(performance-no-int-to-ptr)
-  strings::append_join_with(s, ";", reinterpret_cast<const void*>(NULL));
-  CHECK(s == "0x0000000000000000");
-
-  s.clear();
-  const char* psz{};
-  strings::append_join_with(s, ";", psz);
-  CHECK(s == "null");
-
-  va = 52;
-  s.clear();
-  strings::append_join_with(s, ";", va);
-  CHECK(s == "52");
-  CHECK(strings::concat(va) == "52");
-
-  va = msi;
-  s.clear();
-  strings::append_join_with(s, ";", va);
-  CHECK(s == "[1;2]");
-
-  s.clear();
-  strings::append_join_with(s, ",", std::pair{"a", 1});
-  CHECK(s == "1");
-
-  s.clear();
-  strings::append_join_with<join_opt::flat>(s, ",", std::pair{"a", 1});
-  CHECK(s == "1");
-
-  s.clear();
-  strings::append_join_with<join_opt::keyed>(s, ",", std::pair{"a", 1});
-  CHECK(s == "{a,1}");
-
-  s.clear();
-  strings::append_join_with<join_opt::flat_keyed>(s, ",", std::pair{"a", 1});
-  CHECK(s == "a,1");
-
-  s.clear();
-  strings::append_join_with<join_opt::json>(s, ",", std::pair{"a", 1});
-  CHECK(s == R"("a": 1)");
-
-  s.clear();
-  strings::append_join_with<join_opt::json>(s, ",", std::pair{1, "a"});
-  CHECK(s == R"("1": "a")");
-
-  s.clear();
-  strings::append_join_with(s, ",", mssi);
-  CHECK(s == "[[1,2,3],[4,5]]");
-
-  s.clear();
-  strings::append_join_with<join_opt::json>(s, ", ", mssi);
-  CHECK(s == R"({"a": [1, 2, 3], "c": [4, 5]})");
-
-  auto om = std::make_optional(mssi);
-  s.clear();
-  strings::append_join_with(s, ",", om);
-  CHECK(s == "[[1,2,3],[4,5]]");
-
-  s.clear();
-  strings::append_join<join_opt::json>(s, mssi);
-  CHECK(s == R"({"a": [1, 2, 3], "c": [4, 5]})");
-
-  s.clear();
-  strings::append_join<join_opt::json>(s,
-      std::map<std::string, int>{{"b", 2}, {"a", 1}});
-  CHECK(s == R"({"a": 1, "b": 2})");
-
-  s.clear();
-  strings::append_join<join_opt::json>(s,
-      std::map<std::string, std::string>{{"b", "2"}, {"a", "1"}});
-  CHECK(s == R"({"a": "1", "b": "2"})");
-
-  s.clear();
-  strings::append_join<join_opt::json>(s,
-      std::map<int, std::string>{{2, "2"}, {1, "1"}});
-  CHECK(s == R"({"1": "1", "2": "2"})");
-
-  s.clear();
-  auto il = {3, 1, 4};
-  strings::append_join_with(s, ";", il); // Initializer list.
-  // Unbound initializer lists can't be deduced by templates.
-  // * strings::append_join_with(s, ";", {1, 2, 3});
-  CHECK(s == "[3;1;4]");
-
-  CHECK(strings::join(1, 2, 3) == "[1, 2, 3]");
-  CHECK(strings::join("1"s, "2"s, "3"s) == "[1, 2, 3]");
-  CHECK(strings::join(t) == "{1, 2, 3}");
-  CHECK(strings::join<join_opt::keyed>(p) == "{1, 2, 3}");
-  s.clear();
-  strings::append_join_with<join_opt::keyed>(s, ",", std::pair{1, 2});
-  CHECK(s == "{1,2}");
-  CHECK(strings::join(a) == "[1, 2, 3]");
-
-  CHECK(strings::join<join_opt::flat_keyed>(t) == "1, 2, 3");
-  CHECK(strings::join<join_opt::flat_keyed>(p) == "1, 2, 3");
-  CHECK(strings::join<join_opt::flat_keyed>(a) == "1, 2, 3");
-
-  CHECK(strings::concat('1', '2', '3') == "123");
-
-  CHECK(strings::join(mssi) == "[[1, 2, 3], [4, 5]]");
-  CHECK(strings::join<join_opt::flat>(mssi) == "1, 2, 3, 4, 5");
-
-  // More JSON A/B tests.
-  s.clear();
-  strings::append_join_with(s, ", ", std::vector{1, 2, 3});
-  CHECK(s == "[1, 2, 3]");
-
-  s.clear();
-  strings::append_join_with<join_opt::json>(s, ", ", std::vector{1, 2, 3});
-  CHECK(s == "[1, 2, 3]");
-
-  s.clear();
-  strings::append_join_with(s, ", ", std::vector<int>{});
-  CHECK(s == "[]");
-
-  s = strings::join_json(std::vector<int>{});
-  CHECK(s == "[]");
-
-  s.clear();
-  strings::append_join_with(s, ", ", std::vector{"a", "b", "c"});
-  CHECK(s == "[a, b, c]");
-
-  s = strings::join_json(std::vector{"a", "b", "c"});
-  CHECK(s == R"(["a", "b", "c"])");
-
-  s = strings::join_json(std::vector{"a", "b", "c"},
-      std::vector{"d", "e", "f"});
-  CHECK(s == R"([["a", "b", "c"], ["d", "e", "f"]])");
-}
-
-#pragma endregion
-#pragma region Edges
-
-TEST_CASE("Edges", "[StringUtilsTest]") {
-  using strings::join_opt;
-
-  std::vector<int> a{1, 2, 3};
-  std::vector<int> b{4, 5, 6};
-  CHECK(strings::join(a, b) == "[[1, 2, 3], [4, 5, 6]]");
-  CHECK(strings::join<join_opt::flat>(a, b) == "1, 2, 3, 4, 5, 6");
-  CHECK(((strings::join<join_opt::braced, '(', ')'>(a, b))) ==
-        ("([1, 2, 3], [4, 5, 6])"));
-  CHECK(((strings::join<join_opt::prefixed, '{', '}'>(a, b))) ==
-        (", {[1, 2, 3], [4, 5, 6]}"));
-  CHECK((strings::join<join_opt::prefixed>(a, b)) ==
-        (", [[1, 2, 3], [4, 5, 6]]"));
-}
-
-#pragma endregion
-#pragma region Streams
-
-TEST_CASE("Streams", "[StringUtilsTest]") {
-  using strings::join_opt;
-
-  std::vector<int> a{1, 2, 3};
-  std::vector<int> b{4, 5, 6};
-
-  if (true) {
-    std::stringstream s;
-    strings::append_join(s, a, b);
-    CHECK(s.str() == "[[1, 2, 3], [4, 5, 6]]");
-  }
-}
-
-#pragma endregion
-
-enum class rgb : std::uint8_t {
-  black,      // ---
-  red = 4,    // r--
-  green = 2,  // -g-
-  blue = 1,   // --b
-  yellow = 6, // rg-
-  purple = 5, // r-b
-  cyan = 3,   // -gb
-  white = 7   // rgb
-};
-consteval auto corvid_enum_spec(rgb*) {
-  return make_bitmask_enum_spec<rgb, "red,green,blue">();
-}
-
-#pragma region AppendEnum
-
-TEST_CASE("AppendEnum", "[StringUtilsTest]") {
-  std::string s;
-  CHECK(strings::concat(rgb::yellow) == "red + green");
-  CHECK(((strings::join(rgb::yellow, rgb::cyan))) ==
-        ("[red + green, green + blue]"));
-  s = (strings::join<strings::join_opt::braced, -1, -1>(rgb::yellow,
-      rgb::cyan));
-  CHECK(s == "red + green, green + blue");
-  s.clear();
-  strings::append_join_with<strings::join_opt::braced, -1, -1>(s, ", ",
-      rgb::yellow, rgb::cyan);
-  CHECK(s == "red + green, green + blue");
-}
-
-#pragma endregion
-
-// Enlisted Marine Corps ranks.
-enum class marine_rank : std::uint8_t {
-  Civilian,
-  Private,
-  PrivateFirstClass,
-  LanceCorporal,
-  Sergeant,
-  StaffSergeant,
-  GunnerySergeant,
-  MasterSergeant,
-  FirstSergeant,
-  MasterGunnerySergeant,
-  SergeantMajor,
-  SergeantMajorOfTheMarineCorps
-};
-
-consteval auto corvid_enum_spec(marine_rank*) {
-  return make_sequence_enum_spec<marine_rank,
-      "Civilian, Private, PrivateFirstClass, LanceCorporal, Sergeant, "
-      "StaffSergeant, GunnerySergeant, MasterSergeant, FirstSergeant, "
-      "MasterGunnerySergeant, SergeantMajor, SergeantMajorOfTheMarineCorps",
-      wrapclip::limit>();
-}
-
-// Enum with special characters in names for quote-encoding test.
-enum class special_chars : int { normal, has_backslash, has_quote };
-
-consteval auto corvid_enum_spec(special_chars*) {
-  return make_sequence_enum_spec<special_chars,
-      R"(normal, back\slash, has"quote)">();
-}
-
-struct soldier {
-  std::string name;
-  marine_rank rank;
-  int64_t serial_number;
-
-  friend std::ostream& operator<<(std::ostream& os, const soldier& s) {
-    return os << "[" << s.name << ", " << s.rank << ", " << s.serial_number
-              << "]";
-  }
-};
-
-template<>
-constexpr bool strings::stream_append_v<soldier> = true;
-
-struct person {
-  std::string last;
-  std::string first;
-
-  template<AppendTarget A>
-  static auto& append(A& target, const person& p) {
-    return corvid::strings::append(target, p.last, ", ", p.first);
-  }
-
-  template<auto opt = strings::join_opt::braced, char open = 0, char close = 0,
-      AppendTarget A>
-  static A& append_join_with(A& target, strings::delim d, const person& p) {
-    constexpr auto is_json = strings::decode::json_v<opt>;
-    constexpr char next_open = open ? open : (is_json ? '[' : 0);
-    constexpr char next_close = close ? close : (is_json ? ']' : 0);
-    return corvid::strings::append_join_with<opt, next_open, next_close>(
-        target, d, p.last, p.first);
-  }
-};
-
-template<AppendTarget A>
-constexpr auto strings::append_override_fn<A, person> = person::append<A>;
-
-template<strings::join_opt opt, char open, char close, AppendTarget A>
-constexpr auto strings::append_join_override_fn<opt, open, close, A, person> =
-    person::append_join_with<opt, open, close, A>;
-
-#pragma region AppendStream
-
-TEST_CASE("AppendStream", "[StringUtilsTest]") {
-  using strings::join_opt;
-  soldier pyle{"Gomer", marine_rank::Private, 12345678};
-  soldier carter{"Vince", marine_rank::GunnerySergeant, 23456789};
-  person doe{"Doe", "John"};
-  using tuple0 = std::tuple<>;
-  using tuple1 = std::tuple<int>;
-  using tuple2 = std::tuple<int, std::string>;
-  if (true) {
-    std::stringstream os;
-    os << pyle;
-    CHECK(os.str() == "[Gomer, Private, 12345678]");
-  }
-  if (true) {
-    std::stringstream os;
-    strings::append_stream(os, pyle);
-    CHECK(os.str() == "[Gomer, Private, 12345678]");
-  }
-  if (true) {
-    std::string s;
-    strings::append_stream(s, pyle);
-    CHECK(s == "[Gomer, Private, 12345678]");
-  }
-  if (true) {
-    std::string s;
-    strings::append(s, pyle);
-    CHECK(s == "[Gomer, Private, 12345678]");
-  }
-  if (true) {
-    std::string s;
-    strings::append_join<strings::join_opt::json>(s, pyle);
-    CHECK(s == "[Gomer, Private, 12345678]");
-  }
-  if (true) {
-    auto v = std::vector{std::make_pair(pyle, 30'000.15),
-        std::make_pair(carter, 40'000.21)};
-    std::string s;
-    strings::append_join<join_opt::keyed>(s, v);
-    CHECK((s) ==
-          ("[{[Gomer, Private, 12345678], 30000.15}, {[Vince, "
-           "GunnerySergeant, "
-           "23456789], 40000.21}]"));
-
-    s.clear();
-    strings::append_join<strings::join_opt::json>(s, v);
-    CHECK(
-        (s) ==
-        (R"({"[Gomer, Private, 12345678]": 30000.15, "[Vince, GunnerySergeant, 23456789]": 40000.21})"));
-  }
-  if (true) {
-    std::string s;
-    strings::append(s, doe);
-    CHECK(s == "Doe, John");
-
-    s.clear();
-    strings::append_join(s, doe);
-    CHECK(s == "[Doe, John]");
-  }
-  if (true) {
-    std::string s;
-    strings::append_join_with<strings::join_opt::flat>(s, "; ", doe);
-    CHECK(s == "Doe; John");
-  }
-  if (true) {
-    std::string s;
-    strings::append_join_with<strings::join_opt::quoted>(s, "; ", doe);
-    CHECK(s == R"(["Doe"; "John"])");
-  }
-  if (true) {
-    std::string s;
-    strings::append_join<strings::join_opt::json>(s, doe);
-    CHECK(s == R"(["Doe", "John"])");
-  }
-  if (true) {
-    std::string s;
-    strings::append_join<strings::join_opt::json>(s, doe, doe, doe);
-    CHECK(s == R"([["Doe", "John"], ["Doe", "John"], ["Doe", "John"]])");
-  }
-  if (true) {
-    std::string s;
-    strings::append_join<strings::join_opt::flat>(s, doe, doe, doe);
-    CHECK(s == "Doe, John, Doe, John, Doe, John");
-  }
-  if (true) {
-    tuple0 t0{};
-    tuple1 t1{1};
-    tuple2 t2{1, "2"};
-    std::string s;
-
-    strings::append_join(s, t0);
-    CHECK(s == "");
-    s.clear();
-    strings::append_join<strings::join_opt::flat>(s, t0);
-    CHECK(s == "");
-    s.clear();
-    strings::append_join<strings::join_opt::quoted>(s, t0);
-    CHECK(s == "");
-    s.clear();
-    strings::append_join<strings::join_opt::json>(s, t0);
-    CHECK(s == "");
-    // Test whether we need a special case.
-    s.clear();
-    strings::append_join_with(s, ";", t0, t1, t2);
-    CHECK(s == "[;{1};{1;2}]");
-    s.clear();
-    strings::append_join_with(s, ";", t0);
-    CHECK(s == "");
-
-    s.clear();
-    strings::append_join(s, t1);
-    CHECK(s == "{1}");
-    s.clear();
-    strings::append_join<strings::join_opt::flat>(s, t1);
-    CHECK(s == "1");
-    s.clear();
-    strings::append_join<strings::join_opt::quoted>(s, t1);
-    CHECK(s == "{1}");
-    s.clear();
-    strings::append_join<strings::join_opt::json>(s, t1);
-    CHECK(s == "{1}");
-
-    s.clear();
-    strings::append_join(s, t2);
-    CHECK(s == "{1, 2}");
-    s.clear();
-    strings::append_join<strings::join_opt::flat>(s, t2);
-    CHECK(s == "1, 2");
-    s.clear();
-    strings::append_join<strings::join_opt::json>(s, t2);
-    CHECK(s == "{1, \"2\"}");
-  }
-}
-
-#pragma endregion
-#pragma region AppendJson
-
-TEST_CASE("AppendJson", "[StringUtilsTest]") {
-  using strings::join_opt;
-
-  if (true) {
-    std::string s;
-    strings::append_json(s, marine_rank::Private);
-    CHECK(s == R"("Private")");
-  }
-  if (true) {
-    std::string s;
-    strings::append_escaped(s, R"(he"l"lo)");
-    CHECK(s == R"(he\"l\"lo)");
-  }
-  if (true) {
-    std::string s;
-    strings::append_escaped(s, R"(he"l"lo)");
-    CHECK(s == R"(he\"l\"lo)");
-    s.clear();
-    strings::append_escaped(s, "a\tb\\c\"d\n\b\f\r\x1f");
-    CHECK(s == R"(a\tb\\c\"d\n\b\f\r\u001f)");
-  }
-  if (true) {
-    std::string s;
-    const char* p{};
-    strings::append_json(s, p);
-    CHECK(s == R"(null)");
-    s.clear();
-    strings::append_json(s, cstring_view{});
-    CHECK(s == R"(null)");
-    s.clear();
-    strings::append_json(s, cstring_view{""});
-    CHECK(s == R"("")");
-  }
-  // Test quote-encoding when non-string wrapped in quotes.
-  // Strings are escaped, but enums are not. This documents current behavior.
-  if (true) {
-    std::string s;
-
-    // String with special chars gets escaped.
-    strings::append_json(s, R"(back\slash)");
-    CHECK(s == R"("back\\slash")");
-    s.clear();
-    strings::append_json(s, R"(has"quote)");
-    CHECK(s == (R"("has\"quote")"));
-
-    // Enum with special chars in name is NOT escaped (current behavior).
-    s.clear();
-    strings::append_json(s, special_chars::has_backslash);
-    CHECK((s) == (R"("back\slash")"));
-    s.clear();
-    strings::append_json(s, special_chars::has_quote);
-    CHECK((s) == (R"("has"quote")"));
-  }
+  strings::append_num(s, double(0.25));
+  CHECK(s == u"0.25");
+
+  // num_as_string can return a wide string (code unit as the trailing arg).
+  CHECK((strings::num_as_string<16, 0, ' ', char16_t>(uint8_t(0))) == u"0x00");
+
+  // extract_num / parse_num read a number out of a wide view.
+  std::u16string_view sv = u"  123 rest";
+  auto v = strings::extract_num<int>(sv);
+  CHECK(v.has_value());
+  CHECK(*v == 123);
+  CHECK(sv == u" rest");
+  CHECK(strings::parse_num<int>(u"456", -1) == 456);
+  CHECK(strings::parse_num<int>(u"nope", -1) == -1);
+  CHECK(strings::parse_num<double>(u"2.5", -1.0) == 2.5);
 }
 
 #pragma endregion
@@ -2588,6 +2102,39 @@ TEST_CASE("TokenParser", "[StringUtilsTest]") {
 
 #pragma endregion
 
+// Test token parsing over a wide code unit.
+#pragma region WideTokenParser
+
+TEST_CASE("WideTokenParser", "[StringUtilsTest]") {
+  using parser = strings::basic_token_parser<char16_t>;
+
+  parser p{u"\r\n"};
+  std::u16string_view input = u"alpha\r\n\r\nbeta";
+  CHECK(p.separator() == u"\r\n");
+  CHECK(p.next_delimited(input) == u"alpha");
+  CHECK(p.next_delimited(input) == u"");
+  CHECK(p.next_delimited(input) == u"beta");
+  CHECK(input.empty());
+
+  // Single-character separator overloads.
+  input = u"one,two,three";
+  CHECK(parser::next_delimited(u',', input) == u"one");
+  CHECK(parser::next_delimited(u',', input) == u"two");
+  CHECK(parser::next_delimited(u',', input) == u"three");
+  CHECK(input.empty());
+
+  // Terminated: the terminator is required.
+  input = u"a;b";
+  auto t = parser::next_terminated(u';', input);
+  REQUIRE(t.has_value());
+  CHECK(*t == u"a");
+  t = parser::next_terminated(u';', input);
+  REQUIRE_FALSE(t.has_value()); // no trailing ';'
+  CHECK(input == u"b");
+}
+
+#pragma endregion
+
 // Test any_strings, strings::as_vector, and strings::as_any.
 #pragma region AnyStrings
 
@@ -2625,6 +2172,13 @@ TEST_CASE("AnyStrings", "[StringUtilsTest]") {
   REQUIRE(sv.size() == 2u);
   CHECK(sv[0] == "x");
   CHECK(sv[1] == "y");
+}
+
+TEST_CASE("DelimFormats", "[StringUtilsTest]") {
+  // basic_delim is a string_view_wrapper child, so the wrapper formatter
+  // already covers it; this guards against a regression in that coverage.
+  CHECK(std::format("{}", delim{", "}) == ", ");
+  CHECK(std::format("{:?}", delim{"\t"}) == R"("\t")");
 }
 
 #pragma endregion

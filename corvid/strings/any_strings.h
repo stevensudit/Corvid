@@ -22,9 +22,26 @@
 
 namespace corvid::strings { inline namespace any_strings_types {
 
+// Any strings
+//
+// A compact, expressive way to carry zero, one, or many strings through a
+// single value. `any_strings` is a variant whose alternatives are
+// `std::monostate` (none), a `std::string` (one), or a
+// `std::vector<std::string>` (many), so the common single-string case avoids
+// allocating a vector.
+//
+// The `as_vector` and `as_any` factories build these by moving their arguments
+// in: `as_vector` always yields a vector, while `as_any` collapses to the
+// cheapest alternative for the argument count.
+
+#pragma region any_strings
+
 // A single string, a vector of strings, or `std::monostate`.
 using any_strings =
     std::variant<std::monostate, std::string, std::vector<std::string>>;
+
+#pragma endregion
+#pragma region as_vector
 
 // `as_vector`: Efficiently fill a vector with strings by moving them
 // in. If no parameters, returns an empty vector.
@@ -36,6 +53,9 @@ requires(std::same_as<Strings, std::string> && ...)
   (result.emplace_back(std::move(strings)), ...);
   return result;
 }
+
+#pragma endregion
+#pragma region as_any
 
 // `as_any`: Make an `any_strings` out of the parameters, moving them
 // in. If no parameters, returns `std::monostate`.
@@ -51,5 +71,7 @@ requires(std::same_as<Strings, std::string> && ...)
         as_vector(std::move(strings)...)};
   }
 }
+
+#pragma endregion
 
 }} // namespace corvid::strings::any_strings_types

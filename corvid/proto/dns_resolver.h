@@ -22,7 +22,7 @@
 #include <netdb.h>
 #include <sys/socket.h>
 
-#include "../strings/core/cstring_view.h"
+#include "../strings/cstring_view.h"
 #include "net_endpoint.h"
 
 namespace corvid { inline namespace proto {

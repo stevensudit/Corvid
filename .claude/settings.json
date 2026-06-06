@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(./cleanbuild.sh:*)",
+      "Bash(gh pr *)",
+      "Read(./**)",
+      "Bash(grep:*)",
+      "Bash(sed:*)",
+      "Bash(awk:*)"
+    ]
+  }
+}

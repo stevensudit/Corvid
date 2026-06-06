@@ -15,19 +15,27 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 #pragma once
-// For std::getenv, which is deprecated.
-// NOLINTNEXTLINE(bugprone-reserved-identifier)
-#define _CRT_SECURE_NO_WARNINGS 1
 #include <cstdlib>
-
 #include <iostream>
 #include <string>
 #include <string_view>
 #include <optional>
 #include <stdexcept>
 
+#include "string_view_wrapper.h"
+
 namespace corvid {
 inline namespace cstringview {
+
+// C-string view
+//
+// This header defines `basic_cstring_view`, a `std::string_view` that also
+// guarantees zero termination, along with its per-character-type aliases
+// (`cstring_view`, `wcstring_view`, and so on) and the `_czsv` family of UDLs
+// in the `literals` namespace. See the class comment below for the rationale
+// and invariants.
+
+#pragma region basic_cstring_view
 
 // String view of a C-style, zero-terminated string.
 //
@@ -72,7 +80,7 @@ inline namespace cstringview {
 // explicitly cast by calling `view`).
 //
 // The most convenient way to declare a `constexpr cstring_view` is with a
-// literal using the `_csv` UDL.
+// literal using the `_czsv` UDL.
 //
 // The `substr` and `remove_suffix` functions cannot be supported because they
 // would violate the termination invariant. The workaround is to copy to
@@ -86,32 +94,27 @@ inline namespace cstringview {
 // `[foo; foo + size()]` is valid. The difference is that, when `null`, a call
 // to `c_str` returns an empty, terminated string but `data` returns `nullptr`.
 //
-// This revanchist implementation is based closely on Andrew Tomazos'
-// wrongly rejected ANSI committee proposal.
+// This revanchist implementation is based closely on Andrew Tomazos'  wrongly
+// rejected ANSI committee proposal.
 // http://open-std.org/JTC1/SC22/WG21/docs/papers/2019/p1402r0.pdf
 // https://github.com/cplusplus/papers/issues/189
 template<typename T = std::string_view>
-class basic_cstring_view final {
-public:
-  using SV = T;
-  using CharT = SV::value_type;
-  using traits_type = SV::traits_type;
-  using value_type = SV::value_type;
-  using pointer = SV::pointer;
-  using const_pointer = SV::const_pointer;
-  using reference = SV::reference;
-  using const_reference = SV::const_reference;
-  using const_iterator = SV::const_iterator;
-  using iterator = SV::iterator;
-  using const_reverse_iterator = SV::const_reverse_iterator;
-  using reverse_iterator = SV::reverse_iterator;
-  using size_type = SV::size_type;
-  using difference_type = SV::difference_type;
-  static constexpr size_type npos = SV::npos;
+class basic_cstring_view final
+    : public string_view_wrapper<basic_cstring_view<T>,
+          typename T::value_type> {
+  using base =
+      string_view_wrapper<basic_cstring_view<T>, typename T::value_type>;
 
-  //
-  // Construction
-  //
+#pragma region Member types
+public:
+  using view_t = base::view_t;
+  using char_t = view_t::value_type;
+  using size_type = base::size_type;
+  using const_pointer = base::const_pointer;
+  using base::npos;
+
+#pragma endregion
+#pragma region Construction
 
   // Safe construction.
   //
@@ -120,18 +123,19 @@ public:
   constexpr basic_cstring_view(std::nullptr_t) noexcept {}
   constexpr basic_cstring_view(std::nullopt_t) noexcept {}
 
-  constexpr basic_cstring_view(const basic_cstring_view&) noexcept = default;
-  constexpr basic_cstring_view(const std::string& s) noexcept : sv_{s} {}
-  constexpr basic_cstring_view(const char* psz) : sv_{from_ptr(psz)} {}
+  constexpr basic_cstring_view(const std::string& s) noexcept
+      : base{view_t{s}} {}
+  // Allows `nullptr`.
+  constexpr basic_cstring_view(const char_t* psz) : base{psz} {}
 
   // Risky construction.
   //
   // To demonstrate that it's actually terminated, the input must extend so
   // that the last character is a terminator. Otherwise, this is a logic error
   // and we throw.
-  constexpr explicit basic_cstring_view(SV sv) : sv_{from_sv(sv)} {}
-  constexpr explicit basic_cstring_view(const CharT* ps, size_type len)
-      : sv_{from_sv(std::string_view{ps, len})} {}
+  constexpr explicit basic_cstring_view(view_t sv) : base{from_sv(sv)} {}
+  constexpr explicit basic_cstring_view(const char_t* ps, size_type len)
+      : base{from_sv(base::from_ptr(ps, len))} {}
   template<std::contiguous_iterator It, std::sized_sentinel_for<It> End>
   requires std::same_as<std::iter_value_t<It>, char> &&
            (!std::convertible_to<End, size_type>)
@@ -140,153 +144,36 @@ public:
 
   // Optional as null.
   template<typename U>
-  requires std::is_constructible_v<SV, U>
+  requires std::is_constructible_v<view_t, U>
   constexpr basic_cstring_view(const std::optional<U>& opt)
       : basic_cstring_view{opt.has_value() ? basic_cstring_view{*opt}
                                            : basic_cstring_view{}} {}
 
-  //
-  // Passthrough
-  //
+#pragma endregion
+#pragma region Reslicing
 
-  constexpr basic_cstring_view& operator=(
-      const basic_cstring_view& csv) noexcept = default;
+  // Safe because trimming the front keeps the terminator at the end.
+  constexpr void remove_prefix(size_type n) { this->sv_.remove_prefix(n); }
 
-  [[nodiscard]] constexpr auto begin() const noexcept { return sv_.begin(); };
-  [[nodiscard]] constexpr auto end() const noexcept { return sv_.end(); };
-  [[nodiscard]] constexpr auto cbegin() const noexcept {
-    return sv_.cbegin();
-  };
-  [[nodiscard]] constexpr auto cend() const noexcept { return sv_.cend(); };
+  // `remove_suffix` and `substr` are omitted: they would break the termination
+  // invariant unless the cut happened to land on the terminator.
 
-  [[nodiscard]] constexpr auto rbegin() const noexcept {
-    return sv_.rbegin();
-  };
-  [[nodiscard]] constexpr auto rend() const noexcept { return sv_.rend(); };
-  [[nodiscard]] constexpr auto crbegin() const noexcept {
-    return sv_.crbegin();
-  };
-  [[nodiscard]] constexpr auto crend() const noexcept { return sv_.crend(); };
+#pragma endregion
+#pragma region c_str
 
-  [[nodiscard]] constexpr auto& operator[](size_type pos) const {
-    return sv_[pos];
-  };
-  [[nodiscard]] constexpr auto& at(size_type pos) const { return sv_.at(pos); }
-  [[nodiscard]] constexpr auto& front() const { return sv_.front(); }
-  [[nodiscard]] constexpr auto& back() const { return sv_.back(); }
-  [[nodiscard]] constexpr auto data() const noexcept { return sv_.data(); }
-
-  [[nodiscard]] constexpr auto size() const noexcept { return sv_.size(); }
-  [[nodiscard]] constexpr auto length() const noexcept { return sv_.length(); }
-  [[nodiscard]] constexpr auto max_size() const noexcept {
-    return sv_.max_size();
-  }
-
-  [[nodiscard]] constexpr bool empty() const noexcept { return sv_.empty(); }
-  constexpr void remove_prefix(size_type n) { sv_.remove_prefix(n); }
-  constexpr void swap(basic_cstring_view& csv) noexcept { sv_.swap(csv.sv_); }
-  constexpr auto copy(CharT* dest, size_type count, size_type pos = 0) const {
-    return sv_.copy(dest, count, pos);
-  }
-
-  template<typename... Args>
-  [[nodiscard]] constexpr auto compare(Args&&... args) const noexcept {
-    return sv_.compare(std::forward<Args>(args)...);
-  }
-
-  template<typename... Args>
-  [[nodiscard]] constexpr auto find(Args&&... args) const noexcept {
-    return sv_.find(std::forward<Args>(args)...);
-  }
-
-  template<typename... Args>
-  [[nodiscard]] constexpr auto rfind(Args&&... args) const noexcept {
-    return sv_.rfind(std::forward<Args>(args)...);
-  }
-
-  template<typename... Args>
-  [[nodiscard]] constexpr auto find_first_of(Args&&... args) const noexcept {
-    return sv_.find_first_of(std::forward<Args>(args)...);
-  }
-
-  template<typename... Args>
-  [[nodiscard]] constexpr auto find_last_of(Args&&... args) const noexcept {
-    return sv_.find_last_of(std::forward<Args>(args)...);
-  }
-
-  template<typename... Args>
-  [[nodiscard]] constexpr auto
-  find_first_not_of(Args&&... args) const noexcept {
-    return sv_.find_first_not_of(std::forward<Args>(args)...);
-  }
-
-  template<typename... Args>
-  [[nodiscard]] constexpr auto
-  find_last_not_of(Args&&... args) const noexcept {
-    return sv_.find_last_not_of(std::forward<Args>(args)...);
-  }
-
-  [[nodiscard]] friend auto constexpr operator<=>(const basic_cstring_view&,
-      const basic_cstring_view&) noexcept = default;
-  [[nodiscard]] friend auto constexpr operator<=>(const std::string_view& lv,
-      const basic_cstring_view& r) noexcept {
-    return lv <=> r.view();
-  };
-  [[nodiscard]] friend auto constexpr operator<=>(const basic_cstring_view& l,
-      const std::string_view& rv) noexcept {
-    return l.view() <=> rv;
-  };
-
-  friend std::ostream& operator<<(std::ostream& os, basic_cstring_view csv) {
-    return os << csv.sv_;
-  }
-
-  //
-  // Omitted
-  //
-
-  // `remove_suffix` would break the termination invariant.
-
-  // `substr` would likewise do so if `count` isn't `npos` or `size`.
-
-  //
-  // New
-  //
-
-  // Whether `data` is `nullptr`.
-  [[nodiscard]] constexpr bool null() const noexcept { return !sv_.data(); }
-
-  // Conversion to `std::string_view`.
-  [[nodiscard]] constexpr std::string_view view() const noexcept {
-    return sv_;
-  }
-  [[nodiscard]] constexpr operator std::string_view() const noexcept {
-    return sv_;
-  }
-
-  // Pointer to terminated string; never `nullptr`.
+  // Pointer to a terminated string; never `nullptr`. When `null`, returns an
+  // empty, terminated string. (In contrast, `data` returns `nullptr` when
+  // `null`.)
   [[nodiscard]] constexpr const_pointer c_str() const noexcept {
-    return data() ? data() : reinterpret_cast<const_pointer>(U"");
+    if (const auto p = this->data()) return p;
+    static constexpr char_t empty[1]{};
+    return empty;
   }
 
-  // The precedent for this is `std::optional`.
-  [[nodiscard]] constexpr explicit operator bool() const noexcept {
-    return !null();
-  }
-
-  // Essentially `operator===`, distinguishing between empty and null.
-  [[nodiscard]] constexpr bool same(basic_cstring_view v) const noexcept {
-    return ((*this == v) && (null() == v.null()));
-  }
-
+#pragma endregion
+#pragma region Helpers
 private:
-  SV sv_;
-
-  [[nodiscard]] static constexpr SV from_ptr(const char* psz) {
-    return psz ? SV{psz} : SV{};
-  }
-
-  [[nodiscard]] static constexpr SV from_sv(SV sv) {
+  [[nodiscard]] static constexpr view_t from_sv(view_t sv) {
     // Empty is allowed, but only when null. A non-null empty must include the
     // terminator in its length.
     if (sv.empty()) {
@@ -299,6 +186,8 @@ private:
     sv.remove_suffix(1);
     return sv;
   }
+
+#pragma endregion
 };
 
 // Specialized aliases.
@@ -307,50 +196,51 @@ using wcstring_view = basic_cstring_view<std::wstring_view>;
 using u8cstring_view = basic_cstring_view<std::u8string_view>;
 using u16cstring_view = basic_cstring_view<std::u16string_view>;
 using u32cstring_view = basic_cstring_view<std::u32string_view>;
+
+#pragma endregion
+
 } // namespace cstringview
 namespace literals {
 
-//
-// UDL
-//
+#pragma region UDL
 
 // basic_cstring_view literals.
-constexpr cstring_view operator""_csv(const char* ps, std::size_t n) {
+consteval cstring_view operator""_czsv(const char* ps, std::size_t n) {
   return cstring_view{std::string_view{ps, n + 1}};
 }
-constexpr wcstring_view operator""_wcsv(const wchar_t* ps, std::size_t n) {
+consteval wcstring_view operator""_wczsv(const wchar_t* ps, std::size_t n) {
   return wcstring_view{std::wstring_view{ps, n + 1}};
 }
-constexpr u8cstring_view operator""_u8csv(const char8_t* ps, std::size_t n) {
+consteval u8cstring_view operator""_u8csv(const char8_t* ps, std::size_t n) {
   return u8cstring_view{std::u8string_view{ps, n + 1}};
 }
-constexpr u16cstring_view
+consteval u16cstring_view
 operator""_u16csv(const char16_t* ps, std::size_t n) {
   return u16cstring_view{std::u16string_view{ps, n + 1}};
 }
-constexpr u32cstring_view
+consteval u32cstring_view
 operator""_u32csv(const char32_t* ps, std::size_t n) {
   return u32cstring_view{std::u32string_view{ps, n + 1}};
 }
 
 // Null literal; must pass 0.
-constexpr cstring_view operator""_csv(unsigned long long zero_only) {
+consteval cstring_view operator""_czsv(unsigned long long zero_only) {
   if (zero_only) throw std::out_of_range("cstring_view not zero");
   return cstring_view{};
 }
-constexpr wcstring_view operator""_wcsv(unsigned long long zero_only) {
+consteval wcstring_view operator""_wczsv(unsigned long long zero_only) {
   if (zero_only) throw std::out_of_range("wcstring_view not zero");
   return wcstring_view{};
 }
-constexpr u8cstring_view operator""_u8csv(unsigned long long zero_only) {
+consteval u8cstring_view operator""_u8csv(unsigned long long zero_only) {
   if (zero_only) throw std::out_of_range("u8cstring_view not zero");
   return u8cstring_view{};
 }
-constexpr u16cstring_view operator""_u16csv(unsigned long long zero_only) {
+consteval u16cstring_view operator""_u16csv(unsigned long long zero_only) {
   if (zero_only) throw std::out_of_range("u16cstring_view not zero");
   return u16cstring_view{};
 }
-constexpr u32cstring_view operator""_u32csv(unsigned long long zero_only) {
+consteval u32cstring_view operator""_u32csv(unsigned long long zero_only) {
   if (zero_only) throw std::out_of_range("u32cstring_view not zero");
   return u32cstring_view{};
 }
@@ -359,6 +249,8 @@ constexpr u32cstring_view operator""_u32csv(unsigned long long zero_only) {
 cstring_view operator""_env(const char* ps, std::size_t) noexcept {
   return std::getenv(ps);
 }
+
+#pragma endregion
 
 } // namespace literals
 } // namespace corvid

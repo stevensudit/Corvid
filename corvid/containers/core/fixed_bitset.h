@@ -23,6 +23,7 @@
 #include <compare>
 #include <cstddef>
 #include <cstdint>
+#include <format>
 #include <iterator>
 #include <limits>
 #include <stdexcept>
@@ -518,16 +519,17 @@ public:
   }
 
   // Set all bits.
-  constexpr void set() noexcept {
+  constexpr auto& set() noexcept {
     words_.fill(all_ones_v);
     if constexpr (top_padding_bits_ != 0)
       words_[word_count_v - 1] &= top_word_mask_;
+    return *this;
   }
 
   // Set or clear bit at `pos`. Throws `std::out_of_range`. The fastest path is
   // `operator[]`.
-  constexpr void set(pos_t pos, bool value = true) {
-    set_unchecked(checked_index(pos), value);
+  constexpr auto& set(pos_t pos, bool value = true) {
+    return set_unchecked(checked_index(pos), value);
   }
 
   // Clear all bits.
@@ -535,7 +537,7 @@ public:
 
   // Clear bit at `pos`. Throws `std::out_of_range`. The fastest path is
   // `operator[]`.
-  constexpr fixed_bitset& reset(pos_t pos) {
+  constexpr auto& reset(pos_t pos) {
     return set_unchecked(checked_index(pos), false);
   }
 
@@ -549,7 +551,7 @@ public:
 
   // Flip bit at `pos`. Throws `std::out_of_range`. The fastest path is
   // `operator[]`.
-  constexpr fixed_bitset& flip(pos_t pos) {
+  constexpr auto& flip(pos_t pos) {
     return flip_unchecked(checked_index(pos));
   }
 
@@ -740,7 +742,7 @@ private:
   }
 
   // Set or clear the bit at pre-validated `ndx` (no bounds check).
-  constexpr fixed_bitset& set_unchecked(size_t ndx, bool value) noexcept {
+  constexpr auto& set_unchecked(size_t ndx, bool value) noexcept {
     assert(ndx < bit_count_v);
     const auto w = word_of(ndx);
     const auto m = mask_of(ndx);
@@ -749,7 +751,7 @@ private:
   }
 
   // Flip the bit at pre-validated `ndx` (no bounds check).
-  constexpr fixed_bitset& flip_unchecked(size_t ndx) noexcept {
+  constexpr auto& flip_unchecked(size_t ndx) noexcept {
     assert(ndx < bit_count_v);
     words_[word_of(ndx)] ^= mask_of(ndx);
     return *this;
@@ -766,3 +768,86 @@ private:
 };
 
 }}} // namespace corvid::container::fixed_bitsets
+
+// `fixed_bitset` iterates the positions of its set bits, so without this the
+// std range formatter would print those positions (`[1, 3]`, like in the
+// alternate "#" representation) instead of the bits. Disabling its range
+// format leaves the bitset formatter below as the only match.
+template<std::size_t N, typename POS, typename TAG, std::size_t FW>
+constexpr std::range_format
+    std::format_kind<corvid::container::fixed_bitset<N, POS, TAG, FW>> =
+        std::range_format::disabled;
+
+// Formatter for `fixed_bitset`. Three mutually exclusive representations, all
+// streamed straight to the output so nothing the size of the bit count is
+// buffered:
+//
+// - Default: the bits as '0'/'1', most significant first (bit N-1 down to bit
+//   0), matching `std::bitset`.
+// - `#`: the set-bit indexes in ascending order as `[i, j, ...]`, using the
+//   same index as `set`/`test`/`operator[]` (bit 0 is the least significant).
+//   So a value with bits 1 and 2 set is `00000110` by default and `[1, 2]`
+//   with `#`.
+// - `?` (debug): the underlying `word_t` words in hex, most significant word
+//   first, each zero-padded to its width, with no `0x` prefix.
+//
+// There is no fill, align, width, or precision, since streaming has no
+// rendered length up front.
+template<std::size_t N, typename POS, typename TAG, std::size_t FW>
+struct std::formatter<corvid::container::fixed_bitset<N, POS, TAG, FW>, char> {
+  constexpr auto parse(auto& ctx) {
+    auto it = ctx.begin();
+    if (it != ctx.end() && *it == '#') {
+      mode_ = mode::index;
+      ++it;
+    } else if (it != ctx.end() && *it == '?') {
+      mode_ = mode::hex;
+      ++it;
+    }
+    if (it != ctx.end() && *it != '}')
+      throw std::format_error(
+          "fixed_bitset format spec accepts only '#' or '?'");
+    return it;
+  }
+
+  template<typename FormatContext>
+  auto format(const corvid::container::fixed_bitset<N, POS, TAG, FW>& bs,
+      FormatContext& ctx) const {
+    using bitset_t = corvid::container::fixed_bitset<N, POS, TAG, FW>;
+    auto out = ctx.out();
+    switch (mode_) {
+    case mode::index: {
+      *out++ = '[';
+      bool first = true;
+      for (const POS pos : bs) {
+        if (!first) {
+          *out++ = ',';
+          *out++ = ' ';
+        }
+        first = false;
+        // The index is numeric, so emit it as a number rather than through
+        // `POS`'s formatter; a scoped-enum `POS` then needs no enum formatter.
+        out = std::format_to(out, "{}", static_cast<std::size_t>(pos));
+      }
+      *out++ = ']';
+      break;
+    }
+    case mode::hex: {
+      constexpr int digits = 2 * sizeof(typename bitset_t::word_t);
+      const auto& words = bs.array();
+      for (std::size_t wi = words.size(); wi-- > 0;)
+        out = std::format_to(out, "{:0{}x}", words[wi], digits);
+      break;
+    }
+    case mode::binary:
+      for (std::size_t i = N; i-- > 0;)
+        *out++ = bs[static_cast<POS>(i)] ? '1' : '0';
+      break;
+    }
+    return out;
+  }
+
+private:
+  enum class mode : std::uint8_t { binary, index, hex };
+  mode mode_{mode::binary};
+};

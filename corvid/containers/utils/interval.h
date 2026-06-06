@@ -17,14 +17,16 @@
 #pragma once
 #define NOMINMAX
 
+#include <cassert>
+#include <format>
+#include <iterator>
+#include <limits>
+#include <utility>
+
 #include "../core/containers_shared.h"
-#include "../../strings/utils/concat_join.h"
-#include "../../strings/core/delimiting.h"
+#include "../../strings/delimiting.h"
 #include "../../enums/bitmask_enum.h"
 #include "../../enums/sequence_enum.h"
-#include <cassert>
-#include <limits>
-#include <iterator>
 
 namespace corvid { inline namespace intervals {
 
@@ -46,9 +48,9 @@ namespace corvid { inline namespace intervals {
 // move the front and back around but can't modify anything being referred to.
 // As a result, all iterators are const.
 //
-// The class is implemented as a child of `std::pair(begin, end)`, where this
-// holds a half-open interval, [begin, end), but is exposed as a closed
-// interval, [min, max], in keeping with the vector fiction.
+// Internally it holds a `std::pair{begin, end}` as a half-open interval,
+// [begin, end), but exposes a closed interval, [min, max], in keeping with the
+// vector fiction.
 //
 // Note: Iterating over an interval that ends at the maximum value for the
 // underlying type doesn't work, and can't work unless we use a prohibitively
@@ -66,7 +68,7 @@ namespace corvid { inline namespace intervals {
 // bad idea.
 template<typename V = int64_t, typename U = as_underlying_t<V>>
 requires Integer<V> || StdEnum<V>
-class interval: public std::pair<U, U> {
+class interval {
 public:
   class interval_iterator {
     // A note on iterator size:
@@ -140,7 +142,7 @@ public:
   // Types
   //
 
-  using parent = std::pair<U, U>;
+  using raw_pair = std::pair<U, U>;
   using value_type = V;
   using representation_type = U;
   using size_type = size_t;
@@ -156,17 +158,28 @@ public:
   // Construction
   //
 
-  constexpr interval() noexcept : parent{U{}, U{}} {};
+  constexpr interval() noexcept : pair_{U{}, U{}} {}
   constexpr interval(const interval&) noexcept = default;
   explicit constexpr interval(V val) noexcept : interval{val, val} {}
   constexpr interval(V min_val, V max_val) noexcept
-      : parent{as_u(min_val), as_u(max_val) + 1} {
+      : pair_{as_u(min_val), as_u(max_val) + 1} {
     assert(!invalid());
   }
 
   constexpr interval& operator=(const interval&) = default;
 
   void clear() { *this = interval{}; }
+
+  constexpr void swap(interval& other) noexcept { pair_.swap(other.pair_); }
+  friend constexpr void swap(interval& l, interval& r) noexcept { l.swap(r); }
+
+  // Compare by the underlying half-open [begin, end) representation. This also
+  // generates `operator==`.
+  [[nodiscard]] constexpr auto operator<=>(
+      const interval&) const noexcept = default;
+
+  // Convert to a copy of the underlying half-open [begin, end) pair.
+  [[nodiscard]] constexpr operator raw_pair() const noexcept { return pair_; }
 
   //
   // Iterators
@@ -240,18 +253,10 @@ public:
   constexpr bool insert(V v) noexcept {
     auto u = as_u(v);
     if (invalid()) return false;
-    if (empty()) {
-      min(u).max(u);
-      return true;
-    }
-    if (u < min()) {
-      min(u);
-      return true;
-    }
-    if (u > max()) {
-      max(u);
-      return true;
-    }
+    if (empty()) return min(u).max(u).ok();
+
+    if (u < min()) return min(u).ok();
+    if (u > max()) return max(u).ok();
     return false;
   }
 
@@ -268,8 +273,7 @@ public:
     assert(!empty());
     auto u = as_u(v);
     if (u <= max()) return false;
-    max(u);
-    return true;
+    return max(u).ok();
   }
 
   // Push value to the front.
@@ -284,8 +288,7 @@ public:
     assert(!empty());
     auto u = as_u(v);
     if (u >= min()) return false;
-    min(u);
-    return true;
+    return min(u).ok();
   }
 
   // Pop values from back.
@@ -326,44 +329,26 @@ public:
     return *this;
   }
 
-  // Append.
-  template<AppendTarget A>
-  static auto& append_fn(A& target, const interval& i) {
-    if (i.empty()) return target;
-    return corvid::strings::append(target, i.min(), ", ", i.max());
-  }
-
-  template<auto opt = strings::join_opt::braced, char open = 0, char close = 0,
-      AppendTarget A>
-  static A&
-  append_join_with_fn(A& target, strings::delim d, const interval& i) {
-    using namespace corvid::strings;
-    constexpr auto is_json = decode::json_v<opt>;
-    constexpr char next_open = open ? open : (is_json ? '[' : 0);
-    constexpr char next_close = close ? close : (is_json ? ']' : 0);
-    if (i.empty()) {
-      if constexpr (next_open && next_close)
-        strings::append(strings::append(target, next_open), next_close);
-
-      return target;
-    }
-    return corvid::strings::append_join_with<opt, next_open, next_close>(
-        target, d, i.min(), i.max());
-  }
-
 private:
-  [[nodiscard]] constexpr parent& p() { return static_cast<parent&>(*this); }
-  [[nodiscard]] constexpr const parent& p() const {
-    return static_cast<const parent&>(*this);
+  [[nodiscard]] constexpr bool ok() const noexcept {
+    assert(!invalid());
+    return true;
   }
-  [[nodiscard]] constexpr U& b() noexcept { return p().first; }
-  [[nodiscard]] constexpr const U& b() const noexcept { return p().first; }
+  [[nodiscard]] constexpr auto& p(this auto& self) noexcept {
+    return self.pair_;
+  }
 
-  [[nodiscard]] constexpr U& e() noexcept { return p().second; }
-  [[nodiscard]] constexpr const U& e() const noexcept { return p().second; }
+  [[nodiscard]] constexpr auto& b(this auto& self) noexcept {
+    return self.pair_.first;
+  }
+  [[nodiscard]] constexpr auto& e(this auto& self) noexcept {
+    return self.pair_.second;
+  }
 
   [[nodiscard]] static constexpr U as_u(V v) { return static_cast<U>(v); }
   [[nodiscard]] static constexpr V as_v(U u) { return static_cast<V>(u); }
+
+  raw_pair pair_{};
 };
 
 // Make interval for full range of sequence enum, for use with ranged-for.
@@ -395,14 +380,51 @@ template<typename T>
 concept Interval = is_specialization_of_v<T, interval>;
 
 }} // namespace corvid::intervals
-namespace corvid::strings {
-// Register appends.
-template<corvid::AppendTarget A, typename V, typename U>
-constexpr auto append_override_fn<A, interval<V, U>> =
-    interval<V, U>::template append_fn<A>;
 
-template<join_opt opt, char open, char close, corvid::AppendTarget A,
-    typename V, typename U>
-constexpr auto append_join_override_fn<opt, open, close, A, interval<V, U>> =
-    interval<V, U>::template append_join_with_fn<opt, open, close, A>;
-} // namespace corvid::strings
+// `interval` is iterable, so without this the std range formatter would
+// enumerate every value instead of showing the bounds. Disabling its range
+// format leaves the interval formatter below as the only match.
+template<typename V, typename U>
+constexpr std::range_format std::format_kind<corvid::interval<V, U>> =
+    std::range_format::disabled;
+
+// Formatter for `interval`, narrow only: a numeric or enum range is a narrow
+// concern, and going wide would mean parameterizing the brackets too.
+//
+// Regular `{}` shows the closed presentation interval, `[min, max]`, with the
+// bounds formatted through `V`'s own formatter, so an enum interval prints its
+// names. An empty interval is `[]` and an invalid one (reversed bounds) is
+// `[invalid]`. Debug `{:?}` shows the raw half-open storage in the underlying
+// integer representation, `[begin, end)`; there an empty interval reads as
+// `[n, n)` and an invalid one as reversed bounds. The only accepted specs are
+// the empty spec and `?`.
+template<typename V, typename U>
+struct std::formatter<corvid::interval<V, U>, char> {
+  constexpr auto parse(auto& ctx) {
+    auto it = ctx.begin();
+    if (it != ctx.end() && *it == '?') {
+      debug_ = true;
+      ++it;
+    }
+    if (it != ctx.end() && *it != '}')
+      throw std::format_error("interval format spec accepts only '?'");
+    return it;
+  }
+
+  template<typename FormatContext>
+  auto format(const corvid::interval<V, U>& iv, FormatContext& ctx) const {
+    auto out = ctx.out();
+    if (debug_) {
+      // Raw half-open [begin, end) in the underlying integers. The unary plus
+      // promotes a char-like `U` so it prints as a number, not a character.
+      const std::pair<U, U> p = iv;
+      return std::format_to(out, "[{}, {})", +p.first, +p.second);
+    }
+    if (iv.invalid()) return std::format_to(out, "[invalid]");
+    if (iv.empty()) return std::format_to(out, "[]");
+    return std::format_to(out, "[{}, {}]", iv.front(), iv.back());
+  }
+
+private:
+  bool debug_{false};
+};

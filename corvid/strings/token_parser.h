@@ -16,31 +16,46 @@
 // limitations under the License.
 #pragma once
 #include <optional>
+
+#include "../meta/concepts.h"
 #include "strings_shared.h"
 
 namespace corvid::strings { inline namespace parsers {
 
+#pragma region basic_token_parser
+
 // Separator-based token parse.
-class token_parser {
+template<CharType Char = char>
+class basic_token_parser {
 public:
-  explicit token_parser(std::string_view separator) : separator_(separator) {}
+#pragma region Member types
+
+  using char_t = Char;
+  using view_t = std::basic_string_view<char_t>;
+
+#pragma endregion
+#pragma region Construction
+  explicit basic_token_parser(view_t separator) : separator_(separator) {}
+
+#pragma endregion
+#pragma region Accessors
 
   [[nodiscard]] auto separator() const noexcept { return separator_; }
-  void separator(std::string_view separator) noexcept {
-    separator_ = separator;
-  }
+  void separator(view_t separator) noexcept { separator_ = separator; }
+
+#pragma endregion
+#pragma region Delimited
 
   // Extract the next token delimited by `separator_`, returning it (without
   // the delimiter), and consuming it (and the delimiter) from `text`.
   //
   // As this is a delimiter, not a terminator, the last token is returned when
-  // no more delimiters are found. An empty `std::string_view` is returned
-  // under two conditions. First, when `text` contains just a delimiter; that
-  // delimiter is consumed. Second, when `text` is empty.
+  // no more delimiters are found. An empty view is returned under two
+  // conditions. First, when `text` contains just a delimiter; that delimiter
+  // is consumed. Second, when `text` is empty.
   //
   // Similar to `extract_piece`.
-  [[nodiscard]] static std::string_view
-  next_delimited(std::string_view separator, std::string_view& text) {
+  [[nodiscard]] static view_t next_delimited(view_t separator, view_t& text) {
     // If no input, nothing to parse.
     if (text.empty() || separator.empty()) return {};
 
@@ -59,10 +74,9 @@ public:
     return token;
   }
 
-  // Overload for `char` separator; skips empty-separator check and uses the
-  // `char` overload of `find` for efficiency.
-  [[nodiscard]] static std::string_view
-  next_delimited(char separator, std::string_view& text) {
+  // Overload for single-character separator; skips empty-separator check and
+  // uses the `char_t` overload of `find` for efficiency.
+  [[nodiscard]] static view_t next_delimited(char_t separator, view_t& text) {
     // If no input, nothing to parse.
     if (text.empty()) return {};
 
@@ -82,19 +96,22 @@ public:
   }
 
   // See static method.
-  [[nodiscard]] std::string_view next_delimited(std::string_view& text) const {
+  [[nodiscard]] view_t next_delimited(view_t& text) const {
     return next_delimited(separator_, text);
   }
+
+#pragma endregion
+#pragma region Terminated
 
   // Extract the next token terminated by `separator_`, returning it (without
   // the terminator), and consuming it (and the terminator) from `text`.
   //
   // As this is a terminator, not a delimiter, the terminator is required; if
   // not found, `nullopt` is returned. In contrast, if `text` contains just a
-  // terminator, an empty `std::string_view` is returned, and the terminator is
-  // removed from `text`.
-  [[nodiscard]] static std::optional<std::string_view>
-  next_terminated(std::string_view separator, std::string_view& text) {
+  // terminator, an empty view is returned, and the terminator is removed from
+  // `text`.
+  [[nodiscard]] static std::optional<view_t>
+  next_terminated(view_t separator, view_t& text) {
     // If no input, nothing to parse.
     if (text.empty() || separator.empty()) return {};
 
@@ -109,10 +126,10 @@ public:
     return token;
   }
 
-  // Overload for `char` separator; skips empty-separator check and uses the
-  // `char` overload of `find` for efficiency.
-  [[nodiscard]] static std::optional<std::string_view>
-  next_terminated(char separator, std::string_view& text) {
+  // Overload for single-character separator; skips empty-separator check and
+  // uses the `char_t` overload of `find` for efficiency.
+  [[nodiscard]] static std::optional<view_t>
+  next_terminated(char_t separator, view_t& text) {
     // If no input, nothing to parse.
     if (text.empty()) return {};
 
@@ -128,12 +145,21 @@ public:
   }
 
   // See static method.
-  [[nodiscard]] std::optional<std::string_view> next_terminated(
-      std::string_view& text) const {
+  [[nodiscard]] std::optional<view_t> next_terminated(view_t& text) const {
     return next_terminated(separator_, text);
   }
 
+#pragma endregion
+#pragma region Data members
+
 private:
-  std::string_view separator_;
+  view_t separator_;
+
+#pragma endregion
 };
+
+// The default token parser, over `char`.
+using token_parser = basic_token_parser<char>;
+
+#pragma endregion
 }} // namespace corvid::strings::parsers

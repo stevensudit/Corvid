@@ -1,4 +1,5 @@
 #pragma once
+#include <format>
 #include <unordered_map>
 #include <functional>
 #include <cstddef>
@@ -12,10 +13,14 @@ namespace corvid { inline namespace container { inline namespace indirect_key {
 // guarantees that the value will not be moved, but we want an associative
 // container to act as an additional index.
 
+#pragma region indirect_hash_key
+
 // Indirect key for use in hash containers. Contains a reference to the key and
 // acts more or less like the key, but is lightweight.
 template<typename T, typename H = std::hash<T>, typename E = std::equal_to<T>>
 struct indirect_hash_key {
+#pragma region Key
+
   const T& key;
 
   constexpr indirect_hash_key(const T& key) : key{key} {}
@@ -24,6 +29,9 @@ struct indirect_hash_key {
   indirect_hash_key(const T&&) = delete;
 
   [[nodiscard]] constexpr operator const T&() const noexcept { return key; }
+
+#pragma endregion
+#pragma region hash_equal_to
 
   struct hash_equal_to {
     using is_transparent = void;
@@ -52,12 +60,19 @@ struct indirect_hash_key {
       return E{}(l, r.key);
     }
   };
+
+#pragma endregion
 };
+
+#pragma endregion
+#pragma region indirect_map_key
 
 // Indirect key for use in map containers. Contains a reference to the key and
 // acts more or less like the key, but is lightweight.
 template<typename T, class C = std::less<T>>
 struct indirect_map_key {
+#pragma region Key
+
   const T& key;
 
   constexpr indirect_map_key(const T& key) : key{key} {}
@@ -71,6 +86,9 @@ struct indirect_map_key {
       const indirect_map_key& r) const noexcept {
     return C{}(key, r.key);
   }
+
+#pragma endregion
+#pragma region compare
 
   struct compare {
     using is_transparent = void;
@@ -90,7 +108,11 @@ struct indirect_map_key {
       return C{}(l, r.key);
     }
   };
+
+#pragma endregion
 };
+
+#pragma endregion
 
 }}} // namespace corvid::container::indirect_key
 
@@ -105,3 +127,28 @@ struct std::equal_to<corvid::indirect_hash_key<T, H, E>>
 template<typename T, typename C>
 struct std::less<corvid::indirect_map_key<T, C>>
     : corvid::indirect_map_key<T, C>::compare {};
+
+// Formatters for the indirect keys, narrow or wide. Each acts like its
+// referenced key, so it forwards to the key's formatter, honoring its full
+// spec grammar.
+template<typename T, typename H, typename E, typename CharT>
+requires std::formattable<T, CharT>
+struct std::formatter<corvid::indirect_hash_key<T, H, E>, CharT>
+    : std::formatter<T, CharT> {
+  template<typename FormatContext>
+  auto format(const corvid::indirect_hash_key<T, H, E>& k,
+      FormatContext& ctx) const {
+    return std::formatter<T, CharT>::format(k.key, ctx);
+  }
+};
+
+template<typename T, typename C, typename CharT>
+requires std::formattable<T, CharT>
+struct std::formatter<corvid::indirect_map_key<T, C>, CharT>
+    : std::formatter<T, CharT> {
+  template<typename FormatContext>
+  auto
+  format(const corvid::indirect_map_key<T, C>& k, FormatContext& ctx) const {
+    return std::formatter<T, CharT>::format(k.key, ctx);
+  }
+};

@@ -26,7 +26,7 @@
 #include "../corvid/proto/quic/quic_conn.h"
 #include "../corvid/proto/quic/quic_self_signed_cert.h"
 #include "../corvid/proto/quic/quic_ssl_ctx.h"
-#include "../corvid/strings/utils/enum_conversion.h"
+#include "../corvid/enums/enum_conversion.h"
 #include "catch2_main.h"
 
 using namespace corvid;

@@ -30,7 +30,7 @@
 
 #include "../../containers/core/opt_find.h"
 #include "../../containers/core/transparent.h"
-#include "../../strings/core/token_parser.h"
+#include "../../strings/token_parser.h"
 #include "../misc/http_head_codec.h"
 #include "epoll_http_transaction.h"
 

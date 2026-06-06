@@ -25,13 +25,13 @@
 #include <unordered_map>
 #include <vector>
 
-#include "../../enums/sequence_enum.h"
-#include "../../strings/core/cases.h"
-#include "../../strings/core/conversion.h"
-#include "../../strings/core/trimming.h"
-#include "../../strings/core/splitting.h"
-#include "../../strings/core/token_parser.h"
-#include "../../strings/utils/enum_conversion.h"
+#include "../../enums.h"
+#include "../../strings/cases.h"
+#include "../../strings/conversion.h"
+#include "../../strings/trimming.h"
+#include "../../strings/splitting.h"
+#include "../../strings/token_parser.h"
+#include "../../enums/enum_conversion.h"
 #include "../../containers/core/transparent.h"
 #include "../../containers/core/opt_find.h"
 
@@ -48,7 +48,7 @@ using namespace std::string_view_literals;
 enum class http_version : uint8_t { invalid, http_0_9, http_1_0, http_1_1 };
 consteval auto corvid_enum_spec(http_version*) {
   return corvid::enums::sequence::make_sequence_enum_spec<http_version,
-      "invalid, HTTP/0.9, HTTP/1.0, HTTP/1.1">();
+      "invalid,HTTP/0.9,HTTP/1.0,HTTP/1.1">();
 }
 
 // HTTP request method.
@@ -98,7 +98,7 @@ enum class transfer_encoding_value : uint8_t { unknown, identity, chunked };
 
 consteval auto corvid_enum_spec(transfer_encoding_value*) {
   return corvid::enums::sequence::make_sequence_enum_spec<
-      transfer_encoding_value, "unknown, identity, chunked">();
+      transfer_encoding_value, "unknown,identity,chunked">();
 }
 
 // Upgrade protocol from an `Upgrade` header field.
@@ -107,7 +107,7 @@ enum class upgrade_value : uint8_t { unknown, websocket };
 
 consteval auto corvid_enum_spec(upgrade_value*) {
   return corvid::enums::sequence::make_sequence_enum_spec<upgrade_value,
-      "unknown, websocket">();
+      "unknown,websocket">();
 }
 
 // HTTP response status code.
@@ -178,18 +178,18 @@ consteval auto corvid_enum_spec(http_status_code*) {
       "100,CONTINUE,SWITCHING_PROTOCOLS,PROCESSING,EARLY_HINTS|200,OK,CREATED,"
       "ACCEPTED,NON_AUTHORITATIVE_INFORMATION,NO_CONTENT,RESET_CONTENT,"
       "PARTIAL_CONTENT|300,MULTIPLE_CHOICES,MOVED_PERMANENTLY,FOUND,SEE_OTHER,"
-      "NOT_MODIFIED,USE_PROXY,-,TEMPORARY_REDIRECT,PERMANENT_REDIRECT|400,BAD_"
+      "NOT_MODIFIED,USE_PROXY,,TEMPORARY_REDIRECT,PERMANENT_REDIRECT|400,BAD_"
       "REQUEST,UNAUTHORIZED,PAYMENT_REQUIRED,FORBIDDEN,NOT_FOUND,METHOD_NOT_"
       "ALLOWED,NOT_ACCEPTABLE,PROXY_AUTHENTICATION_REQUIRED,REQUEST_TIMEOUT,"
       "CONFLICT,GONE,LENGTH_REQUIRED,PRECONDITION_FAILED,CONTENT_TOO_LARGE,"
       "URI_TOO_LONG,UNSUPPORTED_MEDIA_TYPE,RANGE_NOT_SATISFIABLE,EXPECTATION_"
       "FAILED,IM_A_TEAPOT|421,MISDIRECTED_REQUEST,UNPROCESSABLE_CONTENT,"
-      "LOCKED,FAILED_DEPENDENCY,TOO_EARLY,UPGRADE_REQUIRED,-,PRECONDITION_"
+      "LOCKED,FAILED_DEPENDENCY,TOO_EARLY,UPGRADE_REQUIRED,,PRECONDITION_"
       "REQUIRED,TOO_MANY_REQUESTS,,REQUEST_HEADER_FIELDS_TOO_LARGE|451,"
       "UNAVAILABLE_FOR_LEGAL_REASONS|500,INTERNAL_SERVER_ERROR,NOT_"
       "IMPLEMENTED,BAD_GATEWAY,SERVICE_UNAVAILABLE,GATEWAY_TIMEOUT,HTTP_"
       "VERSION_NOT_SUPPORTED,VARIANT_ALSO_NEGOTIATES,INSUFFICIENT_STORAGE,"
-      "LOOP_DETECTED,-,NOT_EXTENDED,NETWORK_AUTHENTICATION_REQUIRED">();
+      "LOOP_DETECTED,,NOT_EXTENDED,NETWORK_AUTHENTICATION_REQUIRED">();
 }
 
 // Old-school struct as namespace.

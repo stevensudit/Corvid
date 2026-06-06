@@ -15,14 +15,17 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 #pragma once
+#include "string_view_wrapper.h"
 #include "strings_shared.h"
 #include "targeting.h"
 
 namespace corvid::strings { inline namespace delimiting {
 
-//
-// Delimiter
-//
+#pragma region delim
+
+// Storage backing the default single-space delimiter, one per code unit.
+template<CharType CharT>
+inline constexpr CharT delim_space = CharT(' ');
 
 // Delimiter wrapper.
 //
@@ -34,35 +37,46 @@ namespace corvid::strings { inline namespace delimiting {
 // - When splitting, checks for any of the characters.
 // - When joining, appends the entire string.
 // - When manipulating braces, treated as an open/close pair.
-struct delim: public std::string_view {
-  // Note: Delegating to the templated constructor with `std::forward` breaks
-  // `constexpr` evaluation. Direct base class initialization is required.
-  constexpr delim() : std::string_view(" "sv) {}
-  constexpr delim(const delim&) = default;
+template<CharType CharT = char>
+struct basic_delim: public string_view_wrapper<basic_delim<CharT>, CharT> {
+  using base = string_view_wrapper<basic_delim<CharT>, CharT>;
+  using view_t = base::view_t;
+  using char_t = base::char_t;
 
-  template<typename T>
-  requires(!std::is_same_v<std::decay_t<T>, delim>)
-  constexpr delim(T&& list) : std::string_view(std::forward<T>(list)) {}
+#pragma region Construction
 
-  constexpr delim& operator=(const delim&) = default;
+  // The default delimiter is a single space.
+  constexpr basic_delim() noexcept : base{view_t{&delim_space<char_t>, 1}} {}
 
-  [[nodiscard]] constexpr auto find_in(std::string_view whole) const {
-    if (size() == 1) return whole.find(front());
+  // Implicit construction from any view, so string literals, strings, and
+  // other view wrappers all pass through transparently. Raw pointers route
+  // through the base's null-safe constructor.
+  constexpr basic_delim(view_t list) noexcept : base{list} {}
+  constexpr basic_delim(const char_t* psz) : base{psz} {}
+
+#pragma endregion Construction
+#pragma region Locating
+
+  [[nodiscard]] constexpr auto find_in(view_t whole) const {
+    if (this->size() == 1) return whole.find(this->front());
     return whole.find_first_of(*this);
   }
 
-  [[nodiscard]] constexpr auto find_not_in(std::string_view whole) const {
-    if (size() == 1) return whole.find_first_not_of(front());
+  [[nodiscard]] constexpr auto find_not_in(view_t whole) const {
+    if (this->size() == 1) return whole.find_first_not_of(this->front());
     return whole.find_first_not_of(*this);
   }
 
-  [[nodiscard]] constexpr auto find_last_not_in(std::string_view whole) const {
-    if (size() == 1) return whole.find_last_not_of(front());
+  [[nodiscard]] constexpr auto find_last_not_in(view_t whole) const {
+    if (this->size() == 1) return whole.find_last_not_of(this->front());
     return whole.find_last_not_of(*this);
   }
 
+#pragma endregion Locating
+#pragma region Append
+
   // Append.
-  constexpr auto& append(AppendTarget auto& target) const {
+  constexpr auto& append(BasicAppendTarget<char_t> auto& target) const {
     appender{target}.append(*this);
     return target;
   }
@@ -72,8 +86,8 @@ struct delim: public std::string_view {
   // Caller must set `first` initially. Then, on the first call, `first` will
   // be cleared, but nothing will be appended. On subsequent calls `first` will
   // remain cleared, so the delimiter will be appended.
-  constexpr auto&
-  append_skip_first(AppendTarget auto& target, bool& first) const {
+  constexpr auto& append_skip_first(BasicAppendTarget<char_t> auto& target,
+      bool& first) const {
     if (!first)
       append(target);
     else
@@ -83,10 +97,17 @@ struct delim: public std::string_view {
 
   // Append when `emit`.
   template<bool emit = true>
-  constexpr auto& append_if(AppendTarget auto& target) const {
+  constexpr auto& append_if(BasicAppendTarget<char_t> auto& target) const {
     if constexpr (emit) append(target);
     return target;
   }
+
+#pragma endregion Append
 };
+
+// The default delimiter type, over `char`.
+using delim = basic_delim<char>;
+
+#pragma endregion delim
 
 }} // namespace corvid::strings::delimiting

@@ -166,6 +166,12 @@ TEST_CASE("Basic", "[InternTableTest]") {
     CHECK(extensible_arena::contains(&iv.value()));
     CHECK(extensible_arena::contains(iv.value().data()));
 
+    // Plain `{}` forwards to the value's formatter (honoring its spec);
+    // debug `{:?}` shows the `(value, id)` pair, with the id as a number.
+    CHECK(std::format("{}", iv) == "abc");
+    CHECK(std::format("{:>5}", iv) == "  abc");
+    CHECK(std::format("{:?}", iv) == "(\"abc\", 1)");
+
     iv = sit("defghijklmnopqrstuvwxyz"sv);
     CHECK_FALSE(iv);
     iv = sit.intern("defghijklmnopqrstuvwxyz"sv);

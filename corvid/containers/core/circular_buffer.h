@@ -26,6 +26,8 @@
 
 namespace corvid { inline namespace adapters {
 
+#pragma region circular_buffer
+
 // Circular buffer adapter over any container that supports `std::span`. Allows
 // access to the full range, with pushing to back and front, popping from back
 // and front, and random access. Does not own the underlying container.
@@ -35,6 +37,8 @@ namespace corvid { inline namespace adapters {
 template<typename T, typename SZ = size_t>
 class circular_buffer final {
 public:
+#pragma region Types
+
   using value_type = T;
   using reference = T&;
   using const_reference = const T&;
@@ -42,6 +46,9 @@ public:
   using const_pointer = const T*;
   using size_type = SZ;
   static_assert(std::is_unsigned_v<size_type>);
+
+#pragma endregion
+#pragma region Construction
 
   // Default.
   circular_buffer() noexcept = default;
@@ -74,6 +81,9 @@ public:
     assert(range_.size() <= std::numeric_limits<size_type>::max());
     assert(size <= capacity());
   }
+
+#pragma endregion
+#pragma region Modifiers
 
   // Clear the buffer. Does not affect underlying container.
   void clear() noexcept {
@@ -178,12 +188,18 @@ public:
     return result;
   }
 
+#pragma endregion
+#pragma region Capacity
+
   // Size accessors. Note that capacity is full size of the underlying
   // range.
   [[nodiscard]] size_type capacity() const noexcept { return range_.size(); }
   [[nodiscard]] size_type size() const noexcept { return size_; }
   [[nodiscard]] bool empty() const noexcept { return !size_; }
   [[nodiscard]] bool full() const noexcept { return size() == capacity(); }
+
+#pragma endregion
+#pragma region Element access
 
   // Front and back accessors. Must not be empty.
   [[nodiscard]] const auto& front() const noexcept { return data(front_); }
@@ -206,6 +222,9 @@ public:
     return data(index_at_checked(index));
   }
 
+#pragma endregion
+#pragma region Iterators
+
   [[nodiscard]] auto begin() const noexcept { return iterator_t(*this, 0); }
   [[nodiscard]] auto begin() noexcept { return iterator_t(*this, 0); }
   [[nodiscard]] auto cbegin() const noexcept { return iterator_t(*this, 0); }
@@ -216,6 +235,8 @@ public:
     return iterator_t(*this, size());
   }
 
+#pragma endregion
+#pragma region iterator_t
 private:
   // Templated so that it can const or mutable.
   template<typename CB>
@@ -232,11 +253,12 @@ private:
     using pointer = value_type*;
     using reference = value_type&;
 
+    iterator_t() noexcept = default;
     iterator_t(CB& buf, size_type index) noexcept
         : buf_(&buf), index_(index) {}
 
-    [[nodiscard]] reference operator*() { return buf_->at(index_); }
-    [[nodiscard]] pointer operator->() { return &(buf_->at(index_)); }
+    [[nodiscard]] reference operator*() const { return buf_->at(index_); }
+    [[nodiscard]] pointer operator->() const { return &(buf_->at(index_)); }
 
     // Prefix increment.
     auto& operator++() noexcept {
@@ -261,18 +283,22 @@ private:
     }
 
   private:
-    CB* buf_;
-    size_type index_;
+    CB* buf_{};
+    size_type index_{};
   };
 
   // Deduction guide.
   template<typename CB>
   iterator_t(CB&, size_type) -> iterator_t<CB>;
 
+#pragma endregion
+#pragma region Iterator types
 public:
   using iterator = iterator_t<circular_buffer>;
   using const_iterator = iterator_t<const circular_buffer>;
 
+#pragma endregion
+#pragma region Data members
 private:
   // Implementation details:
   // For any non-empty buffer, the `front_` and `back_` indexes point
@@ -285,6 +311,9 @@ private:
   size_type front_{};
   size_type back_{};
   size_type size_{};
+
+#pragma endregion
+#pragma region Helpers
 
   // Note: Size must be adjusted before calling these, due to assert.
   [[nodiscard]] auto* data() noexcept {
@@ -351,7 +380,12 @@ private:
     back_ = std::exchange(other.back_, {});
     size_ = std::exchange(other.size_, {});
   }
+
+#pragma endregion
 };
+
+#pragma endregion
+#pragma region Deduction guides
 
 // Deduction guides.
 template<typename T>
@@ -371,4 +405,7 @@ circular_buffer(std::array<T, N>&) -> circular_buffer<T>;
 
 template<typename T, std::size_t N, typename SZ>
 circular_buffer(std::array<T, N>&, SZ) -> circular_buffer<T>;
+
+#pragma endregion
+
 }} // namespace corvid::adapters

@@ -16,13 +16,25 @@
 // limitations under the License.
 
 #include <algorithm>
+#include <cstdint>
+#include <format>
+#include <vector>
 
 #include "../corvid/containers.h"
+#include "../corvid/enums.h"
 #include "catch2_main.h"
 
 using namespace std::literals;
 using namespace corvid;
 using namespace corvid::sequence;
+
+// A registered sequence enum, to check that an interval of enums prints names
+// in regular mode and the underlying numbers in debug.
+enum class hue : std::uint8_t { red, green, blue };
+consteval auto corvid_enum_spec(hue*) {
+  return corvid::enums::sequence::make_sequence_enum_spec<hue,
+      "red,green,blue">();
+}
 
 // NOLINTBEGIN(readability-function-cognitive-complexity)
 // NOLINTBEGIN(readability-function-size)
@@ -251,33 +263,36 @@ TEST_CASE("CompareAndSwap", "[IntervalTest]") {
   CHECK(i.back() == 4);
 }
 #pragma endregion
+#pragma region Formatting
 
-#pragma region Append
-
-TEST_CASE("Append", "[IntervalTest]") {
+TEST_CASE("Formatting", "[Intervals]") {
   if (true) {
-    auto i = interval{1, 4};
-    using I = decltype(i);
-    CHECK_FALSE(is_pair_v<decltype(i)>);
-    CHECK(is_pair_convertible_v<decltype(i)>);
+    // Regular shows the closed interval; debug shows the raw half-open
+    // underlying representation.
+    CHECK(std::format("{}", interval{7, 9}) == "[7, 9]");
+    CHECK(std::format("{:?}", interval{7, 9}) == "[7, 10)");
 
-    auto s = ""s;
-    I::append_fn(s, i);
-    CHECK(s == "1, 4");
-    s = strings::concat(i);
-    CHECK(s == "1, 4");
+    // Empty and invalid in regular mode; debug shows the raw bounds.
+    CHECK(std::format("{}", interval{}) == "[]");
+    CHECK(std::format("{:?}", interval{}) == "[0, 0)");
+    interval bad{5, 9};
+    bad.max(3);
+    REQUIRE(bad.invalid());
+    CHECK(std::format("{}", bad) == "[invalid]");
+    CHECK(std::format("{:?}", bad) == "[5, 4)");
 
-    s = strings::join<strings::join_opt::json>(i);
-    CHECK(s == "[1, 4]");
+    // Not enumerated: format_kind is disabled, and a range of intervals shows
+    // each as its closed form rather than a flattened list of values.
+    CHECK(std::format("{}", std::vector{interval{1, 2}, interval{3, 4}}) ==
+          "[[1, 2], [3, 4]]");
 
-    i.clear();
-    s = strings::join<strings::join_opt::json>(i);
-    CHECK(s == "[]");
-
-    // Note: make_interval is tested in bitmask_enum_test.cpp and
-    // sequence_enum_test.cpp.
+    // Enum interval: names in regular mode, underlying numbers in debug.
+    interval<hue> h{hue::red, hue::blue};
+    CHECK(std::format("{}", h) == "[red, blue]");
+    CHECK(std::format("{:?}", h) == "[0, 3)");
   }
 }
+
 #pragma endregion
 
 // NOLINTEND(readability-function-size)

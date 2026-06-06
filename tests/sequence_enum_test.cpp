@@ -20,8 +20,8 @@
 #include <set>
 
 #include "../corvid/meta.h"
-#include "../corvid/enums/sequence_enum.h"
-#include "../corvid/strings/utils/enum_conversion.h"
+#include "../corvid/enums.h"
+#include "../corvid/enums/enum_conversion.h"
 #include "../corvid/containers.h"
 #include "catch2_main.h"
 
@@ -34,7 +34,7 @@ using namespace corvid::enums::sequence;
 
 enum class tiger_pick : std::int8_t { eeny, meany, miny, moe };
 consteval auto corvid_enum_spec(tiger_pick*) {
-  return make_sequence_enum_spec<tiger_pick, "eeny, meany, miny, moe">();
+  return make_sequence_enum_spec<tiger_pick, "eeny,meany,miny,moe">();
 }
 
 enum old_enum : std::uint8_t { old_zero, old_one, old_two, old_three };
@@ -113,13 +113,13 @@ TEST_CASE("Ops", "[SequentialEnumTest]") {
 // Range of 0 to 3.
 enum class e0_3 : int8_t {};
 consteval auto corvid_enum_spec(e0_3*) {
-  return make_sequence_enum_spec<e0_3, "a, *, c, ?", wrapclip::limit>();
+  return make_sequence_enum_spec<e0_3, "a,,c,", wrapclip::limit>();
 }
 
 // Range of 10 to 13. Tests non-zero minimums.
 enum class e10_13 : int8_t {};
 consteval auto corvid_enum_spec(e10_13*) {
-  return make_sequence_enum_spec<e10_13, "ten, eleven, twelve, thirteen",
+  return make_sequence_enum_spec<e10_13, "ten,eleven,twelve,thirteen",
       wrapclip::limit, e10_13{10}>();
 }
 
@@ -127,7 +127,7 @@ consteval auto corvid_enum_spec(e10_13*) {
 enum class eneg3_3 : int8_t {};
 consteval auto corvid_enum_spec(eneg3_3*) {
   return make_sequence_enum_spec<eneg3_3,
-      "neg-three, neg-two, neg-one, zero, one, two, three", wrapclip::limit,
+      "neg-three,neg-two,neg-one,zero,one,two,three", wrapclip::limit,
       eneg3_3{-3}>();
 }
 
@@ -147,28 +147,28 @@ consteval auto corvid_enum_spec(eneg128_127*) {
 // Range of 0 to 3. Tests int64_t underlying type.
 enum class e64_0_3 : int64_t {};
 consteval auto corvid_enum_spec(e64_0_3*) {
-  return make_sequence_enum_spec<e64_0_3, "alpha, beta, gamma, delta",
+  return make_sequence_enum_spec<e64_0_3, "alpha,beta,gamma,delta",
       wrapclip::limit>();
 }
 
 // Range with large int64_t values near the limits.
 enum class e64_large : int64_t {};
 consteval auto corvid_enum_spec(e64_large*) {
-  return make_sequence_enum_spec<e64_large, "low, mid, high", wrapclip::limit,
+  return make_sequence_enum_spec<e64_large, "low,mid,high", wrapclip::limit,
       e64_large{1000000000000}>();
 }
 
 // Range of 0 to 3. Tests uint64_t underlying type.
 enum class eu64_0_3 : uint64_t {};
 consteval auto corvid_enum_spec(eu64_0_3*) {
-  return make_sequence_enum_spec<eu64_0_3, "one, two, three, four",
+  return make_sequence_enum_spec<eu64_0_3, "one,two,three,four",
       wrapclip::limit>();
 }
 
 // Range with large uint64_t values.
 enum class eu64_large : uint64_t {};
 consteval auto corvid_enum_spec(eu64_large*) {
-  return make_sequence_enum_spec<eu64_large, "first, second, third",
+  return make_sequence_enum_spec<eu64_large, "first,second,third",
       wrapclip::limit, eu64_large{UINT64_C(10000000000000000000)}>();
 }
 
@@ -468,27 +468,20 @@ TEST_CASE("StreamingOut", "[SequentialEnumTest]") {
     ss << tiger_pick::moe << std::flush;
     CHECK(ss.str() == "moe");
   }
-
-  if (true) {
-    std::stringstream ss;
-    ss << extract_field::value << ", " << extract_field::key_value
-       << std::flush;
-    CHECK(ss.str() == "value, key_value");
-  }
 }
 
 #pragma endregion
 
 enum class tiger_missing : std::uint8_t { eeny, miny = 2, moe };
 consteval auto corvid_enum_spec(tiger_missing*) {
-  return make_sequence_enum_spec<tiger_missing, "eeny, - , miny   , moe">();
+  return make_sequence_enum_spec<tiger_missing, "eeny,,miny,moe">();
 }
 
 // Tests empty-string placeholder (whitespace-only element between commas).
 enum class tiger_gapped : std::uint8_t { ga, gb, gc, gd };
 
 consteval auto corvid_enum_spec(tiger_gapped*) {
-  return make_sequence_enum_spec<tiger_gapped, "ga,  , gc, gd">();
+  return make_sequence_enum_spec<tiger_gapped, "ga,,gc,gd">();
 }
 
 #pragma region Missing
@@ -937,6 +930,13 @@ TEST_CASE("AsView", "[SequentialEnumTest]") {
     CHECK(enum_as_view(e0_3(3)) == "");
     CHECK(enum_as_view(e0_3(4)) == "");
   }
+
+  SECTION("views are null-terminated") {
+    // `enum_as_view` returns a `cstring_view`: c_str() stops at this name's
+    // own terminator in the packed buffer, not at the next name.
+    CHECK(std::string_view{enum_as_view(tiger_pick::eeny).c_str()} == "eeny");
+    CHECK(std::string_view{enum_as_view(tiger_pick::moe).c_str()} == "moe");
+  }
 }
 
 #pragma endregion
@@ -960,31 +960,31 @@ TEST_CASE("EnumFindNamed", "[SequentialEnumTest]") {
 
 // Shows that a bare literal or enum value is validated by the parameter type,
 // with no ceremony at the call site.
-constexpr std::string_view take_tiger(enum_name<tiger_pick> s) { return *s; }
+constexpr std::string_view take_tiger(enum_name<tiger_pick> s) { return s; }
 
 TEST_CASE("EnumStringView", "[SequentialEnumTest]") {
   using tiger_sv = enum_name<tiger_pick>;
 
-  // Bare string literal, validated at compile time (array-ref ctor). Acts as
-  // the matching view through `operator*` and the implicit conversion.
+  // Bare string literal, validated at compile time (array-ref ctor). Compares
+  // equal to the matching view and converts to it implicitly.
   if (true) {
     constexpr tiger_sv s{"meany"};
-    static_assert(*s == "meany");
+    static_assert(s == "meany");
     static_assert(std::string_view{s} == "meany");
-    CHECK(*s == "meany");
+    CHECK(s == "meany");
     CHECK(std::string_view{s} == "meany");
   }
   // Pointer-and-length ctor: what a string-literal UDL feeds it.
   if (true) {
     constexpr tiger_sv s{"moe", 3};
-    static_assert(*s == "moe");
-    CHECK(*s == "moe");
+    static_assert(s == "moe");
+    CHECK(s == "moe");
   }
   // From the enum value itself, with its name looked up at compile time.
   if (true) {
     constexpr tiger_sv s{tiger_pick::miny};
-    static_assert(*s == "miny");
-    CHECK(*s == "miny");
+    static_assert(s == "miny");
+    CHECK(s == "miny");
   }
   // Bare literal and enum value both convert implicitly at the parameter.
   if (true) {
@@ -999,17 +999,17 @@ TEST_CASE("EnumStringView", "[SequentialEnumTest]") {
   // outlive it).
   if (true) {
     std::string_view name = "meany"; // A runtime value.
-    CHECK(*tiger_sv::intern(name) == "meany");
+    CHECK(tiger_sv::intern(name) == "meany");
     CHECK(tiger_sv::try_intern(name)->as_view() == name);
-    CHECK(*tiger_sv::force(name) == "meany");
+    CHECK(tiger_sv::force(name) == "meany");
 
     // `intern`/`try_intern` point into the name table; `force` points at the
     // caller's buffer.
-    CHECK(tiger_sv::intern(name)->data() ==
+    CHECK(tiger_sv::intern(name).data() ==
           enum_intern_name<tiger_pick>("meany").data());
     CHECK(tiger_sv::try_intern(name)->as_view().data() ==
           enum_intern_name<tiger_pick>("meany").data());
-    CHECK(tiger_sv::force(name)->data() == name.data());
+    CHECK(tiger_sv::force(name).data() == name.data());
   }
   // `try_intern` is empty on an unregistered name; `intern` throws; `force`
   // keeps the unregistered bytes verbatim.
@@ -1018,13 +1018,8 @@ TEST_CASE("EnumStringView", "[SequentialEnumTest]") {
     CHECK(!tiger_sv::try_intern(bogus));
     CHECK_THROWS(tiger_sv::intern(bogus));
     auto s = tiger_sv::force(bogus);
-    CHECK(*s == "notaname");
-    CHECK(enum_intern_name<tiger_pick>(*s).empty());
-  }
-  // `operator->` reaches the underlying view's members.
-  if (true) {
-    constexpr tiger_sv s{"moe"};
-    CHECK(s->size() == 3);
+    CHECK(s == "notaname");
+    CHECK(enum_intern_name<tiger_pick>(s).empty());
   }
 
   // The following correctly fail to compile. The `consteval` constructors'
@@ -1136,7 +1131,7 @@ consteval auto corvid_enum_spec(seg_basic*) {
 // ('-') and a larger gap between segments.
 enum class seg_inner : int { p = 3, r = 5, s = 6, far = 20 };
 consteval auto corvid_enum_spec(seg_inner*) {
-  return make_sequence_enum_spec<seg_inner, "3,p,-,r,s|20,far">();
+  return make_sequence_enum_spec<seg_inner, "3,p,,r,s|20,far">();
 }
 
 // Segmented enum with a negative start, exercising signed underlying math.

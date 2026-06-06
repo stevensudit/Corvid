@@ -16,7 +16,7 @@
 // limitations under the License.
 #pragma once
 #include "enums_shared.h"
-#include "../strings/core/targeting.h"
+#include "../strings/targeting.h"
 
 // Note: This does not need to be directly included by the user because it's
 // in both "bitmask_enum.h" and "sequence_enum.h". It does get included by

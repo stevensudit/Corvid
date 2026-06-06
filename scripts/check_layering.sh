@@ -33,8 +33,7 @@ band_of() {
   case "$1" in
   meta.h | meta/*) echo meta ;;
   infra.h | infra/*) echo infra ;;
-  strings/core/*) echo strings/core ;;
-  strings/utils/*) echo strings/utils ;;
+  strings/*) echo strings ;;
   containers/core/*) echo containers/core ;;
   containers/utils/*) echo containers/utils ;;
   enums/*) echo enums ;;
@@ -64,15 +63,14 @@ allowed() {
   [ "$dst" = meta ] && return 0
   case "$src=>$dst" in
   infra'=>'meta) return 0 ;;
-  strings/core'=>'meta) return 0 ;;
+  strings'=>'meta) return 0 ;;
   containers/core'=>'infra) return 0 ;;
-  enums'=>'strings/core | enums'=>'containers/core) return 0 ;;
-  strings/utils'=>'strings/core | strings/utils'=>'enums) return 0 ;;
-  filesys'=>'strings/core | filesys'=>'strings/utils | filesys'=>'enums) return 0 ;;
+  enums'=>'strings | enums'=>'containers/core) return 0 ;;
+  filesys'=>'strings | filesys'=>'enums) return 0 ;;
   concurrency'=>'infra | concurrency'=>'filesys) return 0 ;;
-  containers/utils'=>'infra | containers/utils'=>'strings/core | \
-    containers/utils'=>'strings/utils | containers/utils'=>'enums | \
-    containers/utils'=>'containers/core | containers/utils'=>'concurrency)
+  containers/utils'=>'infra | containers/utils'=>'strings | \
+    containers/utils'=>'enums | containers/utils'=>'containers/core | \
+    containers/utils'=>'concurrency)
     return 0
     ;;
   esac

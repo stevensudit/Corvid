@@ -29,8 +29,7 @@
 #include <string_view>
 
 #include "../../containers/core/scoped_value.h"
-#include "../../enums/bool_enums.h"
-#include "../../enums/bitmask_enum.h"
+#include "../../enums.h"
 #include "../misc/base-64.h"
 #include "endian.h"
 #include "../misc/sha-1.h"

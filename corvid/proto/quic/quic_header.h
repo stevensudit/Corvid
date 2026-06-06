@@ -26,8 +26,7 @@
 
 #include <ngtcp2/ngtcp2.h>
 
-#include "../../enums/bitmask_enum.h"
-#include "../../enums/sequence_enum.h"
+#include "../../enums.h"
 
 // C++ wrappers over the slice of ngtcp2's C API used to recover the
 // Destination Connection ID (DCID) from a received QUIC datagram, which is

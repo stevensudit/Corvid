@@ -15,6 +15,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 #pragma once
+#include <format>
+
 #include "containers_shared.h"
 
 namespace corvid { inline namespace strongtypes {
@@ -51,8 +53,8 @@ concept NotStrongType = !StrongType<T>;
 template<typename T, typename TAG>
 class strong_type {
 public:
-  using UnderlyingType = T;
-  using Tag = TAG;
+  using underlying_t = T;
+  using tag_t = TAG;
   static_assert(!std::is_reference_v<T>,
       "strong_type cannot wrap a reference type");
   static_assert(NotStrongType<T>,
@@ -689,6 +691,7 @@ public:
   [[nodiscard]] constexpr auto rend() const {
     return value_.rend();
   }
+
 #pragma endregion iteration
 #pragma region braces
 
@@ -767,3 +770,28 @@ struct hash<corvid::strongtypes::strong_type<T, TAG>>
   }
 };
 } // namespace std
+
+// `strong_type` conditionally forwards `begin`/`end`, so when the underlying
+// `T` is a range it would otherwise be claimed by the std range formatter and
+// enumerated element by element. Disabling its range format leaves the
+// forwarding formatter below as the only match; for a non-range `T` this is a
+// harmless no-op, since `format_kind` is consulted only for ranges.
+template<typename T, typename TAG>
+constexpr std::range_format std::format_kind<corvid::strong_type<T, TAG>> =
+    std::range_format::disabled;
+
+// Formatter for `strong_type`, narrow or wide.
+//
+// Formats the wrapper exactly as its underlying value would, honoring that
+// type's full spec grammar, including `?` debug. Available only when the
+// underlying type is itself formattable for `CharT`.
+template<typename T, typename TAG, corvid::CharType CharT>
+requires std::formattable<T, CharT>
+struct std::formatter<corvid::strong_type<T, TAG>, CharT>
+    : std::formatter<T, CharT> {
+  template<typename FormatContext>
+  auto
+  format(const corvid::strong_type<T, TAG>& obj, FormatContext& ctx) const {
+    return std::formatter<T, CharT>::format(obj.value(), ctx);
+  }
+};
