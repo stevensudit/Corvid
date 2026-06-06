@@ -81,8 +81,7 @@ labeled lead-in line and `-` bullets:
     the `#pragma endregion`.
   - No blank line between a `#pragma endregion` and the next `#pragma region`;
     the two pragma lines are adjacent.
-  - Pragmas sit at column 0 regardless of nesting (clang-format will not indent
-    them).
+  - Pragmas are moved to column 0 by clang-format.
 
 ```cpp
 #pragma region Construction

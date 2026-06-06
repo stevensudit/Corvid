@@ -224,7 +224,7 @@ public:
   static constexpr enum_type variant_npos = static_cast<enum_type>(-1);
   static constexpr std::size_t variant_size = sizeof...(Ts);
 
-#pragma region Construct and Assign
+#pragma region Construction
 
   //
   // Constructors.
@@ -330,9 +330,8 @@ public:
   requires std::is_move_constructible_v<underlying_type>
       : value_{std::move(v)} {}
 
-  //
-  // Assignment.
-  //
+#pragma endregion
+#pragma region Assignment
 
   // Assignment by value.
   constexpr enum_variant& operator=(const enum_variant& v) noexcept(

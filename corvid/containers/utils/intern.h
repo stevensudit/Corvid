@@ -24,8 +24,20 @@
 
 namespace corvid { inline namespace container { inline namespace intern {
 
+// Overview:
+// An intern table stores unique values of type `T` and allows them to be
+// looked up by ID or by value. The address of the value is its identity, so
+// the ID is effectively a pointer. This table is implemented as a chain,
+// allowing lower ID ranges to be shared.
+//
+// For efficiency, the table uses an arena allocator to store the values and
+// the containers that index them, which requires some trickery to allow the
+// arena-based internal types to appear as the external types.
+
 using namespace sequence;
 using namespace arena;
+
+#pragma region restrict ctor
 
 // Provide restricted access to `allow` to control construction.
 class restrict_intern_construction {
@@ -41,6 +53,9 @@ class restrict_intern_construction {
   friend struct intern_test;
 };
 
+#pragma endregion
+#pragma region Forward decl
+
 // Fwd.
 template<typename T, SequentialEnum ID>
 class interned_value;
@@ -51,17 +66,8 @@ struct intern_traits {};
 template<typename T, SequentialEnum ID, typename TR>
 class intern_table;
 
-// Overview:
-// An intern table stores unique values of type `T` and allows them to be
-// looked up by ID or by value. The address of the value is its identity, so
-// the ID is effectively a pointer. This table is implemented as a chain,
-// allowing lower ID ranges to be shared.
-//
-// For efficiency, the table uses an arena allocator to store the values and
-// the containers that index them, which requires some trickery to allow the
-// arena-based internal types to appear as the external types.
-
-//
+#pragma endregion
+#pragma region interned_value
 
 // Lightweight view of interned value.
 //
@@ -84,8 +90,13 @@ class interned_value {
   using allow = restrict_intern_construction::allow;
 
 public:
+#pragma region Types
+
   using value_t = T;
   using id_t = ID;
+
+#pragma endregion
+#pragma region Construction
 
   // Effectively private constructors.
   constexpr interned_value(allow, const value_t& value, id_t id)
@@ -117,7 +128,9 @@ public:
   interned_value(intern_table<T, ID, TR>& table, U&& value,
       const lock& attestation = {});
 
-  // Accessors.
+#pragma endregion
+#pragma region Accessors
+
   [[nodiscard]] constexpr id_t id() const noexcept { return id_; }
 
   [[nodiscard]] constexpr bool has_value() const noexcept { return value_; }
@@ -129,6 +142,9 @@ public:
   [[nodiscard]] constexpr bool operator!() const noexcept { return !value_; }
   [[nodiscard]] constexpr const value_t& operator*() const { return value(); }
   [[nodiscard]] constexpr const value_t* operator->() const { return value_; }
+
+#pragma endregion
+#pragma region Comparison
 
   // Equality is optimized to compare by address. We do not want to compare
   // ID's because we can't be sure that they're from the same table.
@@ -165,6 +181,9 @@ public:
     return lhs <=> *rhs.value_;
   }
 
+#pragma endregion
+#pragma region Streaming
+
   friend std::ostream&
   operator<<(std::ostream& out, const interned_value& iv) {
     out << iv.id() << ": ";
@@ -175,10 +194,19 @@ public:
     return out;
   }
 
+#pragma endregion
+
 private:
+#pragma region Data members
+
   const value_t* value_{};
   id_t id_{};
+
+#pragma endregion
 };
+
+#pragma endregion
+#pragma region intern_traits
 
 // Intern traits define the data structures used for the specified type.
 //
@@ -239,6 +267,9 @@ struct intern_traits<std::string, ID> {
   using lookup_by_value_t = arena_map<key_t, id_t>;
 };
 
+#pragma endregion
+#pragma region intern_table
+
 // Intern table of `T` values, indexed by `ID`, using the traits `TR`.
 //
 // Instances can only be constructed through the `make` factory functions,
@@ -250,6 +281,8 @@ class intern_table
   using allow = restrict_intern_construction::allow;
 
 public:
+#pragma region Types
+
   using pointer = std::shared_ptr<intern_table>;
   using const_pointer = std::shared_ptr<const intern_table>;
   using value_t = TR::value_t;
@@ -264,6 +297,9 @@ public:
   // valid. For strings, arena_string is std::basic_string with a different
   // allocator, which maintains ABI compatibility.
   static_assert(sizeof(arena_value_t) == sizeof(value_t));
+
+#pragma endregion
+#pragma region Construction
 
   // Effectively private constructor.
   intern_table(allow, id_t min_id, id_t max_id, const_pointer next = {})
@@ -302,6 +338,9 @@ public:
   [[nodiscard]] auto make_next(id_t max_id = id_t{}) const {
     return make(max_id_ + 1, max_id, this->shared_from_this());
   }
+
+#pragma endregion
+#pragma region Lookup and interning
 
   // When full, `intern` fails.
   [[nodiscard]] bool is_full() const { return sync.is_disabled(); }
@@ -400,9 +439,16 @@ public:
     return iv.value();
   }
 
+#pragma endregion
+#pragma region Synchronizer
+
   const breakable_synchronizer sync;
 
+#pragma endregion
+
 private:
+#pragma region Data members
+
   extensible_arena arena_{4096};
   const id_t min_id_;
   const id_t max_id_;
@@ -410,13 +456,21 @@ private:
   lookup_by_value_t& lookup_by_value_;
   const_pointer next_;
 
+#pragma endregion
+#pragma region Helpers
+
   // Find value by ID, returning address or `nullptr`.
   [[nodiscard]] const value_t* find_by_id(id_t id) const {
     const size_t index = *id - *min_id_;
     if (index >= lookup_by_id_.size()) return nullptr;
     return reinterpret_cast<const value_t*>(&lookup_by_id_[index]);
   }
+
+#pragma endregion
 };
+
+#pragma endregion
+#pragma region interned_value definitions
 
 // Inline constructors.
 template<typename T, SequentialEnum ID>
@@ -441,5 +495,7 @@ interned_value<T, ID>::interned_value(intern_table<T, ID, TR>& table,
     U&& value, const lock& attestation) {
   *this = table.intern(std::forward<U>(value), attestation);
 }
+
+#pragma endregion
 
 }}} // namespace corvid::container::intern
