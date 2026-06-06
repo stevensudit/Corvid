@@ -173,6 +173,24 @@ TEST_CASE("EscapesControlAndNamedChars", "[JsonWriter]") {
 }
 
 #pragma endregion
+#pragma region Writer_PassesUtf8ThroughUnescaped
+
+TEST_CASE("PassesUtf8ThroughUnescaped", "[JsonWriter]") {
+  std::string out;
+  json_writer writer{out};
+
+  {
+    auto root = writer.object();
+    // High bytes (UTF-8 for "cafe-acute" and a snowman) must pass through
+    // verbatim. With a signed `char`, a `c < 32` check would treat them as
+    // control units and mangle them into bogus \uXXXX escapes.
+    root->member("s", "caf\xC3\xA9\xE2\x98\x83");
+  }
+
+  CHECK(out == "{\"s\":\"caf\xC3\xA9\xE2\x98\x83\"}");
+}
+
+#pragma endregion
 #pragma region Writer_FormatsFloatsAndRoundTrips
 
 TEST_CASE("FormatsFloatsAndRoundTrips", "[JsonWriter]") {

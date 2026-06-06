@@ -819,7 +819,11 @@ constexpr void append_float(Target& target, Number value,
 
 // Determine if `c` needs escaping for JSON.
 [[nodiscard]] constexpr bool needs_escaping(char c) noexcept {
-  return c == '"' || c == '\\' || c == '/' || c < 32;
+  // Compare as an unsigned byte: on a signed `char`, UTF-8 lead/continuation
+  // bytes (0x80-0xFF) are negative and would wrongly satisfy `c < 32`, so
+  // valid UTF-8 must pass through unescaped.
+  return c == '"' || c == '\\' || c == '/' ||
+         static_cast<unsigned char>(c) < 32;
 }
 
 // Determine if `s` needs escaping for JSON.
