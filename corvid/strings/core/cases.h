@@ -41,8 +41,7 @@ template<CharType C>
   return c >= C('A') && c <= C('Z');
 }
 
-template<CharType C>
-[[nodiscard]] constexpr bool is_alpha(C c) noexcept {
+[[nodiscard]] constexpr bool is_alpha(CharType auto c) noexcept {
   return is_lower(c) || is_upper(c);
 }
 
@@ -51,9 +50,22 @@ template<CharType C>
   return c >= C('0') && c <= C('9');
 }
 
-template<CharType C>
-[[nodiscard]] constexpr bool is_alnum(C c) noexcept {
+[[nodiscard]] constexpr bool is_alnum(CharType auto c) noexcept {
   return is_alpha(c) || is_digit(c);
+}
+
+template<CharType C>
+[[nodiscard]] inline bool is_lc_hex_alpha(C ch) noexcept {
+  return (ch >= C('a') && ch <= C('f'));
+}
+
+template<CharType C>
+[[nodiscard]] inline bool is_uc_hex_alpha(C ch) noexcept {
+  return (ch >= C('A') && ch <= C('F'));
+}
+
+[[nodiscard]] inline bool is_hex_digit(CharType auto ch) noexcept {
+  return is_digit(ch) || is_lc_hex_alpha(ch) || is_uc_hex_alpha(ch);
 }
 
 #pragma endregion

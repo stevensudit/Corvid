@@ -24,8 +24,8 @@ namespace corvid::strings { inline namespace delimiting {
 #pragma region delim
 
 // Storage backing the default single-space delimiter, one per code unit.
-template<typename Char>
-inline constexpr Char delim_space = Char(' ');
+template<CharType CharT>
+inline constexpr CharT delim_space = CharT(' ');
 
 // Delimiter wrapper.
 //
@@ -37,9 +37,9 @@ inline constexpr Char delim_space = Char(' ');
 // - When splitting, checks for any of the characters.
 // - When joining, appends the entire string.
 // - When manipulating braces, treated as an open/close pair.
-template<typename Char = char>
-struct basic_delim: public string_view_wrapper<basic_delim<Char>, Char> {
-  using base = string_view_wrapper<basic_delim<Char>, Char>;
+template<CharType CharT = char>
+struct basic_delim: public string_view_wrapper<basic_delim<CharT>, CharT> {
+  using base = string_view_wrapper<basic_delim<CharT>, CharT>;
   using view_t = base::view_t;
   using char_t = base::char_t;
 

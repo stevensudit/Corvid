@@ -310,6 +310,70 @@ auto& append_stream(AppendTarget auto& target, const OStreamable auto& t) {
 } // namespace cvt_stream
 
 #pragma endregion
+#pragma region Utilities
+
+// Convert a hex digit value to the corresponding lowercase character. Uses
+// just the last four bits of `n`.
+template<CharType C = char>
+[[nodiscard]] constexpr C as_hex_lc_digit(std::integral auto n) {
+  static constexpr char hex[] = "0123456789abcdef";
+  return C(hex[n & 0xf]);
+}
+
+// Convert a hex digit value to the corresponding uppercase character. Uses
+// just the last four bits of `n`.
+template<CharType C = char>
+[[nodiscard]] constexpr C as_hex_uc_digit(std::integral auto n) {
+  static constexpr char hex[] = "0123456789ABCDEF";
+  return C(hex[n & 0xf]);
+}
+
+// Convert a hex digit character to its value. Returns -1 if `c` is not a hex
+// digit.
+template<CharType C>
+[[nodiscard]] inline int16_t hex_digit_value(C ch) noexcept {
+  if (is_digit(ch)) return static_cast<int16_t>(ch - C('0'));
+  if (is_lc_hex_alpha(ch)) return static_cast<int16_t>(10 + (ch - C('a')));
+  if (is_uc_hex_alpha(ch)) return static_cast<int16_t>(10 + (ch - C('A')));
+  return -1;
+}
+
+// Parse four hex digits from `s` at `pos`, returning their value.
+template<CharType C = char>
+[[nodiscard]] std::optional<uint16_t>
+parse_hex4(std::basic_string_view<C> s, size_t pos) noexcept {
+  if (pos + 4 > s.size()) return std::nullopt;
+  uint16_t value{};
+  for (size_t i = 0; i < 4; ++i) {
+    const C ch = s[pos + i];
+    if (!is_hex_digit(ch)) return std::nullopt;
+    value = static_cast<uint16_t>((value << 4U) | hex_digit_value(ch));
+  }
+  return value;
+}
+
+// Appends UTF-8 encoding of `code_point` to `out`. Returns false if
+// `code_point` is not a valid Unicode code point.
+constexpr bool append_utf8(std::string& out, uint32_t code_point) {
+  if (code_point <= 0x7FU) {
+    out.push_back(static_cast<char>(code_point));
+  } else if (code_point <= 0x7FFU) {
+    out.push_back(static_cast<char>(0xC0U | (code_point >> 6U)));
+    out.push_back(static_cast<char>(0x80U | (code_point & 0x3FU)));
+  } else if (code_point <= 0xFFFFU) {
+    out.push_back(static_cast<char>(0xE0U | (code_point >> 12U)));
+    out.push_back(static_cast<char>(0x80U | ((code_point >> 6U) & 0x3FU)));
+    out.push_back(static_cast<char>(0x80U | (code_point & 0x3FU)));
+  } else {
+    out.push_back(static_cast<char>(0xF0U | (code_point >> 18U)));
+    out.push_back(static_cast<char>(0x80U | ((code_point >> 12U) & 0x3FU)));
+    out.push_back(static_cast<char>(0x80U | ((code_point >> 6U) & 0x3FU)));
+    out.push_back(static_cast<char>(0x80U | (code_point & 0x3FU)));
+  }
+  return true;
+}
+
+#pragma endregion
 #pragma region consteval
 
 // Simple compile-time integer parser.

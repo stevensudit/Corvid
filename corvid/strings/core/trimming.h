@@ -16,6 +16,7 @@
 // limitations under the License.
 #pragma once
 #include "strings_shared.h"
+#include "../../meta/concepts.h"
 #include "delimiting.h"
 
 namespace corvid::strings { inline namespace trimming {
@@ -61,7 +62,7 @@ trim(const S& whole, basic_delim<char_type_of_t<S>> ws = {}) {
 }
 
 // Trim container in place.
-template<Container Cont, typename Char = char>
+template<Container Cont, CharType Char = char>
 constexpr void trim(Cont& wholes, basic_delim<Char> ws = {}) {
   for (auto& item : wholes) {
     auto& part = element_value(item);
@@ -110,11 +111,11 @@ void trim(std::basic_string<C>& whole, basic_delim<C> ws = {}) {
 #pragma region Braces
 
 // Backing storage for the default square-bracket brace pair, per code unit.
-template<typename Char>
+template<CharType Char>
 inline constexpr Char square_braces[] = {Char('['), Char(']')};
 
 // The default brace pair ("[]") for the given code unit.
-template<typename Char>
+template<CharType Char>
 [[nodiscard]] constexpr basic_delim<Char> bracket_delim() noexcept {
   return basic_delim<Char>{
       std::basic_string_view<Char>{square_braces<Char>, 2}};

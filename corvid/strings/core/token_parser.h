@@ -16,6 +16,8 @@
 // limitations under the License.
 #pragma once
 #include <optional>
+
+#include "../../meta/concepts.h"
 #include "strings_shared.h"
 
 namespace corvid::strings { inline namespace parsers {
@@ -23,7 +25,7 @@ namespace corvid::strings { inline namespace parsers {
 #pragma region basic_token_parser
 
 // Separator-based token parse.
-template<typename Char = char>
+template<CharType Char = char>
 class basic_token_parser {
 public:
 #pragma region Member types

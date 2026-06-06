@@ -20,6 +20,7 @@
 #include <string_view>
 #include <type_traits>
 
+#include "../../meta.h"
 #include "cstring_view.h"
 
 namespace corvid::strings { inline namespace fixed {
@@ -36,16 +37,17 @@ namespace corvid::strings { inline namespace fixed {
 // As of C++23/26, it's still needed, but there are proposals to add a
 // `std::fixed_string` to the standard, which would make this class redundant.
 // See https://www.open-std.org/jtc1/sc22/wg21/docs/papers/2024/p3094r0.html
-template<typename CharT, std::size_t N>
+template<CharType CharT, std::size_t N>
 struct basic_fixed_string {
 #pragma region Types
 
-  using value_type = CharT;
-  using pointer = CharT*;
-  using const_pointer = const CharT*;
-  using reference = CharT&;
-  using const_reference = const CharT&;
-  using const_iterator = const CharT*;
+  using char_t = CharT;
+  using value_type = char_t;
+  using pointer = char_t*;
+  using const_pointer = const char_t*;
+  using reference = char_t&;
+  using const_reference = const char_t&;
+  using const_iterator = const char_t*;
   using iterator = const_iterator;
   using size_type = std::size_t;
   using difference_type = std::ptrdiff_t;
@@ -56,13 +58,13 @@ struct basic_fixed_string {
   // Construct from a string literal. The deduction guide supplies `N` as the
   // literal length, less the terminator.
   constexpr explicit(false)
-      basic_fixed_string(const CharT (&txt)[N + 1]) noexcept {
+      basic_fixed_string(const char_t (&txt)[N + 1]) noexcept {
     for (size_t ndx = 0; ndx != N; ++ndx) do_not_use[ndx] = txt[ndx];
   }
 
   // Construct from a pointer when there is no array to bind to, with `N`
   // carried as a compile-time tag.
-  constexpr basic_fixed_string(const CharT* ptr,
+  constexpr basic_fixed_string(const char_t* ptr,
       std::integral_constant<std::size_t, N>) noexcept {
     for (size_t ndx = 0; ndx != N; ++ndx) do_not_use[ndx] = ptr[ndx];
   }
@@ -70,7 +72,7 @@ struct basic_fixed_string {
   // Construct from exactly `N` characters.
   template<std::convertible_to<CharT>... Rest>
   requires(1 + sizeof...(Rest) == N)
-  constexpr explicit basic_fixed_string(CharT first, Rest... rest) noexcept {
+  constexpr explicit basic_fixed_string(char_t first, Rest... rest) noexcept {
     size_t ndx = 0;
     do_not_use[ndx++] = first;
     ((do_not_use[ndx++] = static_cast<CharT>(rest)), ...);
@@ -84,7 +86,7 @@ struct basic_fixed_string {
   [[nodiscard]] constexpr const_pointer data() const noexcept {
     return do_not_use;
   }
-  [[nodiscard]] constexpr const CharT* c_str() const noexcept {
+  [[nodiscard]] constexpr const char_t* c_str() const noexcept {
     return do_not_use;
   }
   [[nodiscard]] constexpr value_type operator[](
@@ -117,9 +119,9 @@ struct basic_fixed_string {
   }
 
   // A fixed string is necessarily terminated.
-  [[nodiscard]] constexpr basic_cstring_view<std::basic_string_view<CharT>>
+  [[nodiscard]] constexpr basic_cstring_view<std::basic_string_view<char_t>>
   cview() const {
-    return basic_cstring_view<std::basic_string_view<CharT>>{do_not_use,
+    return basic_cstring_view<std::basic_string_view<char_t>>{do_not_use,
         N + 1};
   }
 
@@ -172,16 +174,16 @@ struct basic_fixed_string {
 };
 
 // Deduction guide for basic_fixed_string from string literal.
-template<typename CharT, std::size_t N>
+template<CharType CharT, std::size_t N>
 basic_fixed_string(CharT const (&)[N]) -> basic_fixed_string<CharT, N - 1>;
 
 // Deduction guide for the pointer-plus-size-tag constructor.
-template<typename CharT, std::size_t N>
+template<CharType CharT, std::size_t N>
 basic_fixed_string(const CharT*, std::integral_constant<std::size_t, N>)
     -> basic_fixed_string<CharT, N>;
 
 // Deduction guide for the character-pack constructor.
-template<typename CharT, std::convertible_to<CharT>... Rest>
+template<CharType CharT, std::convertible_to<CharT>... Rest>
 basic_fixed_string(CharT, Rest...)
     -> basic_fixed_string<CharT, 1 + sizeof...(Rest)>;
 

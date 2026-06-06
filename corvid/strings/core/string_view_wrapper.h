@@ -22,6 +22,8 @@
 #include <string_view>
 #include <utility>
 
+#include "../../meta/concepts.h"
+
 namespace corvid { inline namespace stringviewwrapper {
 
 #pragma region string_view_wrapper
@@ -55,7 +57,7 @@ namespace corvid { inline namespace stringviewwrapper {
 // - Operations that reslice the view (`substr`, `remove_prefix`,
 // `remove_suffix`) are not universally safe (they break `enum_name`, and
 //   suffix removal breaks `cstring_view`), so they belong in the children.
-template<typename Child, typename Char = char>
+template<typename Child, CharType Char = char>
 class string_view_wrapper {
 #pragma region Types
 public:

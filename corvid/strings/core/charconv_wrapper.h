@@ -23,6 +23,8 @@
 #include <system_error>
 #include <type_traits>
 
+#include "../../meta/concepts.h"
+
 namespace corvid::strings { inline namespace charconv {
 
 // Character conversion
@@ -51,14 +53,14 @@ namespace corvid::strings { inline namespace charconv {
 #pragma region Results
 
 // Mirror of `std::from_chars_result`, but templated on the code-unit type.
-template<typename CharT>
+template<CharType CharT>
 struct from_chars_result {
   const CharT* ptr;
   std::errc ec;
 };
 
 // Mirror of `std::to_chars_result`, but templated on the code-unit type.
-template<typename CharT>
+template<CharType CharT>
 struct to_chars_result {
   CharT* ptr;
   std::errc ec;
@@ -70,7 +72,7 @@ struct to_chars_result {
 // Value of a base-36 digit character, or -1 if `c` is not a digit. Accepts
 // '0'-'9', 'a'-'z', and 'A'-'Z'; the caller rejects values that are not below
 // its base.
-template<typename CharT>
+template<CharType CharT>
 [[nodiscard]] constexpr int digit_value(CharT c) noexcept {
   if (c >= CharT('0') && c <= CharT('9'))
     return static_cast<int>(c - CharT('0'));
@@ -83,7 +85,7 @@ template<typename CharT>
 
 // Character for a base-36 digit value in [0, 36), using lowercase letters
 // above 9, matching `std::to_chars`.
-template<typename CharT>
+template<CharType CharT>
 [[nodiscard]] constexpr CharT to_digit_char(int d) noexcept {
   return d < 10 ? static_cast<CharT>(CharT('0') + d)
                 : static_cast<CharT>(CharT('a') + (d - 10));
@@ -93,7 +95,7 @@ template<typename CharT>
 #pragma region int_from_chars
 
 // Parse an integer from `[first, last)`, base 2 through 36, into `value`.
-template<typename CharT, std::integral T>
+template<CharType CharT, std::integral T>
 requires(!std::same_as<T, bool>)
 [[nodiscard]] constexpr from_chars_result<CharT> int_from_chars(
     const CharT* first, const CharT* last, T& value, int base = 10) noexcept {
@@ -143,7 +145,7 @@ requires(!std::same_as<T, bool>)
 
 // Format an integer `value` into `[first, last)`, base 2 through 36. Writes no
 // sign for non-negative values and no "0x" prefix.
-template<typename CharT, std::integral T>
+template<CharType CharT, std::integral T>
 requires(!std::same_as<T, bool>)
 [[nodiscard]] constexpr to_chars_result<CharT>
 int_to_chars(CharT* first, CharT* last, T value, int base = 10) noexcept {
@@ -202,7 +204,7 @@ inline constexpr int max_float_precision =
 // wider code unit is narrowed through a `char` buffer; a non-ASCII code unit
 // ends the number, and a number whose text is longer than `float_buffer_size`
 // is truncated.
-template<typename CharT, std::floating_point T>
+template<CharType CharT, std::floating_point T>
 [[nodiscard]] from_chars_result<CharT>
 float_from_chars(const CharT* first, const CharT* last, T& value,
     std::chars_format fmt = std::chars_format::general) noexcept {
@@ -232,7 +234,7 @@ float_from_chars(const CharT* first, const CharT* last, T& value,
 // `max_float_precision`. Single-byte code units (`char`, `char8_t`) are
 // reinterpreted and forwarded to `std` directly; a wider code unit is
 // formatted as `char` and widened.
-template<typename CharT, std::floating_point T>
+template<CharType CharT, std::floating_point T>
 [[nodiscard]] to_chars_result<CharT> float_to_chars(CharT* first, CharT* last,
     T value, std::chars_format fmt = std::chars_format::general,
     int precision = -1) noexcept {

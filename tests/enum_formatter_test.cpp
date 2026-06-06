@@ -17,7 +17,9 @@
 
 #include <cstdint>
 #include <format>
+#include <map>
 #include <string>
+#include <vector>
 
 #include "../corvid/enums/sequence_enum.h"
 #include "../corvid/enums/bitmask_enum.h"
@@ -51,6 +53,13 @@ consteval auto corvid_enum_spec(rgb*) {
 // An unregistered scoped enum: formats as its numeric underlying value.
 enum class plain : std::int8_t { zero, one, two };
 
+// A sequence enum whose names contain characters that the debug spec escapes:
+// an embedded quote, backslash, and tab (internal, so trimming keeps it).
+enum class weird : std::uint8_t { norm, quote, slash, tab };
+consteval auto corvid_enum_spec(weird*) {
+  return make_sequence_enum_spec<weird, "ok,q\"x,b\\y,a\tb">();
+}
+
 TEST_CASE("Sequence enum formats by name", "[EnumFormatterTest]") {
   if (true) {
     CHECK(std::format("{}", hue::red) == "red");
@@ -80,5 +89,51 @@ TEST_CASE("Wide formatting widens the name", "[EnumFormatterTest]") {
     CHECK(std::format(L"{}", hue::green) == L"green");
     CHECK(std::format(L"{}", rgb::yellow) == L"red + green");
     CHECK(std::format(L"{}", plain::one) == L"1");
+  }
+}
+
+TEST_CASE("Debug spec quotes the rendering", "[EnumFormatterTest]") {
+  if (true) {
+    CHECK(std::format("{:?}", hue::red) == "\"red\"");
+    CHECK(std::format("{:?}", rgb::yellow) == "\"red + green\"");
+    CHECK(std::format("{:?}", rgb::black) == "\"0x00\"");
+    CHECK(std::format("{:?}", plain::two) == "\"2\"");
+  }
+}
+
+TEST_CASE("Debug spec escapes special characters", "[EnumFormatterTest]") {
+  if (true) {
+    CHECK(std::format("{:?}", weird::quote) == "\"q\\\"x\"");
+    CHECK(std::format("{:?}", weird::slash) == "\"b\\\\y\"");
+    CHECK(std::format("{:?}", weird::tab) == "\"a\\tb\"");
+    CHECK(std::format(L"{:?}", weird::quote) == L"\"q\\\"x\"");
+  }
+}
+
+TEST_CASE("Rejects unsupported format specs", "[EnumFormatterTest]") {
+  if (true) {
+    // A bad spec in a literal format string is a compile error, so the throw
+    // path is reachable only through a runtime format string. The only
+    // accepted specs are the empty spec and `?`.
+    hue h = hue::red;
+    CHECK(std::vformat("{:?}", std::make_format_args(h)) == "\"red\"");
+    CHECK_THROWS_AS(std::vformat("{:0?}", std::make_format_args(h)),
+        std::format_error);
+    CHECK_THROWS_AS(std::vformat("{:x}", std::make_format_args(h)),
+        std::format_error);
+    CHECK_THROWS_AS(std::vformat("{:?x}", std::make_format_args(h)),
+        std::format_error);
+  }
+}
+
+TEST_CASE("Composes inside std range and map", "[EnumFormatterTest]") {
+  if (true) {
+    // The range and map formatters auto-enable debug on elements that have
+    // set_debug_format, so enums quote the same way std strings do.
+    std::vector<hue> v{hue::red, hue::green};
+    CHECK(std::format("{}", v) == "[\"red\", \"green\"]");
+    CHECK(std::format("{::?}", v) == "[\"red\", \"green\"]");
+    std::map<int, hue> m{{1, hue::red}, {2, hue::blue}};
+    CHECK(std::format("{}", m) == "{1: \"red\", 2: \"blue\"}");
   }
 }

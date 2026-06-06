@@ -15,6 +15,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 #pragma once
+
+#include "../../meta/concepts.h"
 #include "strings_shared.h"
 #include "delimiting.h"
 #include "opt_string_view.h"
@@ -31,7 +33,7 @@ namespace corvid::strings { inline namespace splitting {
 // The return type `R` effectively defaults to a `std::basic_string_view` of
 // `whole`'s own code unit; specify `R` as an owning string type (e.g.
 // `std::string`) to make a deep copy.
-template<typename R = void, typename C>
+template<typename R = void, CharType C>
 [[nodiscard]] constexpr auto extract_piece(std::basic_string_view<C>& whole,
     std::type_identity_t<basic_delim<C>> d = {}) {
   using result_t =
@@ -46,7 +48,7 @@ template<typename R = void, typename C>
 //
 // Returns true so long as there's more work to do.
 // Pass an owning string type as `part` to make a deep copy.
-template<typename R, typename C>
+template<typename R, CharType C>
 [[nodiscard]] constexpr bool
 more_pieces(R& part, std::basic_string_view<C>& whole,
     std::type_identity_t<basic_delim<C>> d = {}) {
@@ -81,7 +83,7 @@ split(const S& whole_in, basic_delim<char_type_of_t<S>> d = {}) {
 //
 // The vector element type `R` effectively defaults to an owning string of
 // `whole`'s code unit, since views into the temporary would dangle.
-template<typename R = void, typename C>
+template<typename R = void, CharType C>
 [[nodiscard]] constexpr auto split(std::basic_string<C>&& whole,
     std::type_identity_t<basic_delim<C>> d = {}) {
   using result_t =
@@ -140,7 +142,7 @@ concept PieceFilter =
         basic_opt_string_view<void, Char>>;
 
 // Default delimiter finder: splits on a single space.
-template<typename Char>
+template<CharType Char>
 struct default_delim_finder {
   constexpr std::pair<size_t, size_t> operator()(
       std::basic_string_view<Char> s) const {
@@ -150,7 +152,7 @@ struct default_delim_finder {
 };
 
 // Default piece filter: passes every piece through unchanged.
-template<typename Char>
+template<CharType Char>
 struct default_piece_filter {
   constexpr basic_opt_string_view<void, Char> operator()(
       std::basic_string_view<Char> s) const {
@@ -168,7 +170,7 @@ struct default_piece_filter {
 //
 // Treats input as `basic_opt_string_view`, returning a piece when `empty` but
 // not `null`. The end state is `null`.
-template<typename Char = char,
+template<CharType Char = char,
     DelimFinder<Char> Finder = default_delim_finder<Char>,
     PieceFilter<Char> Filter = default_piece_filter<Char>>
 struct basic_piece_generator {
@@ -235,10 +237,10 @@ struct basic_piece_generator {
 using piece_generator = basic_piece_generator<char>;
 
 // Deduce the code unit and the callable types from the constructor arguments.
-template<typename Char>
+template<CharType Char>
 basic_piece_generator(std::basic_string_view<Char>)
     -> basic_piece_generator<Char>;
-template<typename Char, DelimFinder<Char> Finder, PieceFilter<Char> Filter>
+template<CharType Char, DelimFinder<Char> Finder, PieceFilter<Char> Filter>
 basic_piece_generator(std::basic_string_view<Char>, Finder, Filter)
     -> basic_piece_generator<Char, Finder, Filter>;
 

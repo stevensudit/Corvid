@@ -26,7 +26,11 @@
 
 #include <netinet/in.h>
 
+#include "../strings/core/cases.h"
+
 namespace corvid { inline namespace proto {
+
+using namespace strings::cases;
 
 // IPv4 address, stored as a 32-bit value in host byte order.
 //
@@ -177,11 +181,6 @@ public:
   // Convert to a POSIX `in_addr` (network byte order).
   [[nodiscard]] in_addr to_in_addr() const noexcept {
     return in_addr{.s_addr = htonl(addr_)};
-  }
-
-private:
-  [[nodiscard]] static constexpr bool is_digit(char c) noexcept {
-    return c >= '0' && c <= '9';
   }
 
 private:

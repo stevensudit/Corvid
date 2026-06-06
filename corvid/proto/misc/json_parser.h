@@ -37,6 +37,8 @@
 
 // Strict JSON parser, non-owning value views, and compact JSON writer.
 namespace corvid { inline namespace proto { inline namespace json {
+using namespace strings::cases;
+using namespace strings::conversion;
 using namespace corvid::enums::bool_enums;
 
 size_t npos = std::string_view::npos;
@@ -482,59 +484,6 @@ struct json_cursor {
     return *this;
   }
 };
-
-[[nodiscard]] inline bool is_digit(char ch) noexcept {
-  return ch >= '0' && ch <= '9';
-}
-
-[[nodiscard]] inline bool is_lc_hex_alpha(char ch) noexcept {
-  return (ch >= 'a' && ch <= 'f');
-}
-
-[[nodiscard]] inline bool is_uc_hex_alpha(char ch) noexcept {
-  return (ch >= 'A' && ch <= 'F');
-}
-
-[[nodiscard]] inline bool is_hex_digit(char ch) noexcept {
-  return is_digit(ch) || is_lc_hex_alpha(ch) || is_uc_hex_alpha(ch);
-}
-
-[[nodiscard]] inline uint16_t hex_digit_value(char ch) noexcept {
-  if (is_digit(ch)) return static_cast<uint16_t>(ch - '0');
-  if (is_lc_hex_alpha(ch)) return static_cast<uint16_t>(10 + (ch - 'a'));
-  return static_cast<uint16_t>(10 + (ch - 'A'));
-}
-
-[[nodiscard]] inline std::optional<uint16_t>
-parse_hex4(std::string_view s, size_t pos) noexcept {
-  if (pos + 4 > s.size()) return std::nullopt;
-  uint16_t value{};
-  for (size_t i = 0; i < 4; ++i) {
-    const auto ch = s[pos + i];
-    if (!is_hex_digit(ch)) return std::nullopt;
-    value = static_cast<uint16_t>((value << 4U) | hex_digit_value(ch));
-  }
-  return value;
-}
-
-constexpr bool append_utf8(std::string& out, uint32_t code_point) {
-  if (code_point <= 0x7FU) {
-    out.push_back(static_cast<char>(code_point));
-  } else if (code_point <= 0x7FFU) {
-    out.push_back(static_cast<char>(0xC0U | (code_point >> 6U)));
-    out.push_back(static_cast<char>(0x80U | (code_point & 0x3FU)));
-  } else if (code_point <= 0xFFFFU) {
-    out.push_back(static_cast<char>(0xE0U | (code_point >> 12U)));
-    out.push_back(static_cast<char>(0x80U | ((code_point >> 6U) & 0x3FU)));
-    out.push_back(static_cast<char>(0x80U | (code_point & 0x3FU)));
-  } else {
-    out.push_back(static_cast<char>(0xF0U | (code_point >> 18U)));
-    out.push_back(static_cast<char>(0x80U | ((code_point >> 12U) & 0x3FU)));
-    out.push_back(static_cast<char>(0x80U | ((code_point >> 6U) & 0x3FU)));
-    out.push_back(static_cast<char>(0x80U | (code_point & 0x3FU)));
-  }
-  return true;
-}
 
 constexpr bool validate_unicode_escape(json_cursor& c, json_error* err) {
   const auto start = c.pos;

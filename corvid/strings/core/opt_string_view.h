@@ -23,6 +23,7 @@
 #include <string_view>
 #include <utility>
 
+#include "../../meta/concepts.h"
 #include "string_view_wrapper.h"
 
 namespace corvid {
@@ -72,7 +73,7 @@ inline namespace optstringview {
 // `tagged_string_view` alias names the tagged form. Conversion the other way
 // (to `std::string_view`) stays implicit for both, as does comparison against
 // any view.
-template<typename Tag = void, typename Char = char>
+template<typename Tag = void, CharType Char = char>
 class basic_opt_string_view final
     : public string_view_wrapper<basic_opt_string_view<Tag, Char>, Char> {
   using base = string_view_wrapper<basic_opt_string_view<Tag, Char>, Char>;
@@ -160,7 +161,7 @@ using opt_string_view = basic_opt_string_view<>;
 
 // Tagged: distinct `Tag` types are distinct, non-interconverting view types,
 // and construction from a raw view is explicit.
-template<typename Tag, typename Char = char>
+template<typename Tag, CharType Char = char>
 using tagged_string_view = basic_opt_string_view<Tag, Char>;
 
 #pragma endregion

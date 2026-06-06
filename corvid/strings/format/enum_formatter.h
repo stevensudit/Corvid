@@ -20,6 +20,7 @@
 #include "../../meta/concepts.h"
 #include "../core/targeting.h"
 #include "../utils/enum_conversion.h"
+#include "debug_escaping.h"
 
 // Formatter for any scoped enum, narrow or wide.
 //
@@ -35,18 +36,45 @@
 // corvid::strings::output_iterator_appendable). Corvid names are 7-bit ASCII,
 // so the widening is a direct per-unit conversion.
 //
-// Only the default (empty) format spec is accepted: there is no fill, align,
-// width, or precision.
-template<corvid::ScopedEnum E, typename CharT>
+// Supports the empty spec (the plain rendering above) and the `?` debug spec,
+// which quotes and escapes the rendering with the standard's debug rules so an
+// enum composes with the std range and map formatters: `{::?}` quotes each
+// element, and `set_debug_format` lets a `map<int, E>` print `{1: "red"}`.
+// There is no fill, align, width, or precision; those would need a
+// materialized string to pad.
+template<corvid::ScopedEnum E, corvid::CharType CharT>
 struct std::formatter<E, CharT> {
-  constexpr auto parse(auto& ctx) { return ctx.begin(); }
+  constexpr void set_debug_format() { debug_ = true; }
+
+  constexpr auto parse(auto& ctx) {
+    auto it = ctx.begin();
+    if (it != ctx.end() && *it == '?') {
+      debug_ = true;
+      ++it;
+    }
+    if (it != ctx.end() && *it != '}')
+      throw std::format_error("enum format spec accepts only '?'");
+    return it;
+  }
 
   template<typename FormatContext>
   auto format(E e, FormatContext& ctx) const {
-    corvid::strings::output_iterator_appendable<
-        typename FormatContext::iterator, char, CharT>
-        target{ctx.out()};
-    corvid::strings::append_enum(target, e);
-    return target.out;
+    using namespace corvid::strings;
+    using It = typename FormatContext::iterator;
+    if (!debug_) {
+      output_iterator_appendable<It, char, CharT> target{ctx.out()};
+      append_enum(target, e);
+      return target.out;
+    }
+    auto out = ctx.out();
+    *out++ = CharT('"');
+    debug_escaping_appendable<It, CharT> target{out};
+    append_enum(target, e);
+    out = target.out;
+    *out++ = CharT('"');
+    return out;
   }
+
+private:
+  bool debug_{false};
 };

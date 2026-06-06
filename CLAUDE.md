@@ -42,6 +42,7 @@ Corvid provides utilities that replace direct calls on std types. Search the lib
 
 - Map/set lookup: prefer `find_opt` (returns `std::optional`) over `find` + end-check.
 - String searching/splitting: prefer parsers/locators in `corvid/strings/` over `std::string::find`, `substr`, etc.
+- Case and conversion: `corvid/strings/core/cases.h` and `conversion.h` already provide character classification, case folding, and digit conversion (e.g. `is_digit`, `is_alpha`, `is_hex_digit`, `as_upper`, `as_lower`, `ci_equal`, `as_hex_lc_digit`). Never reinvent these.
 
 Scan relevant headers first when writing new code to avoid reimplementing.
 

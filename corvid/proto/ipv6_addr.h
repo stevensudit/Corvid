@@ -28,6 +28,7 @@
 
 #include <netinet/in.h>
 
+#include "../strings/core/conversion.h"
 #include "ipv4_addr.h"
 
 namespace corvid { inline namespace proto {
@@ -358,12 +359,11 @@ private:
   }
 
   static constexpr void do_append_hex_group(std::string& out, uint16_t value) {
-    static constexpr char digits[] = "0123456789abcdef";
     char buffer[4];
     int len = 0;
 
     do {
-      buffer[len++] = digits[value & 0xfU];
+      buffer[len++] = strings::as_hex_lc_digit(value);
       value = uint16_t(value >> 4);
     } while (value != 0);
 

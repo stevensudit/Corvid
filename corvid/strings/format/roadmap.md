@@ -60,10 +60,20 @@ comes along. Enum-name storage stays `char`: there is no multi-type name
 storage and no justification for one; the output target does the ASCII `char`
 -> `CharT` widening at format time.
 
-Trade-off: appending directly into `ctx.out()` forgoes the inherited
-string_view formatter, so the formatter accepts only the empty spec (no fill,
-align, width, or precision). Supporting those would need a materialized string
-to pad, reintroducing an allocation. Revisit only if a caller needs it.
+The `?` debug spec is supported by a streaming quoting/escaping target
+([debug_escaping.h](debug_escaping.h)): emit the opening quote, run
+`append_enum` through an escaper that applies the standard's C++ debug rules
+per code unit, then the closing quote. No temporary, since escaping is a
+per-unit transform. This was verified necessary: registration ALLOWS names with
+embedded quotes, backslashes, and control characters, and naive quote-wrapping
+would leave them unescaped (invalid output). With `?` plus `set_debug_format`,
+enums quote consistently inside the std range and map formatters: `{::?}` ->
+`["red", "green"]`, and `map<int, E>` -> `{1: "red"}`.
+
+Still deferred: fill, align, width, precision. Those depend on the rendered
+length, so they would need a materialized string to pad; revisit only if a
+caller needs it. Numeric width is already covered by formatting `*e` (or
+`std::to_underlying(e)`), which routes to the standard integer formatter.
 
 ### 2. corvid::fmt wrappers (scope to confirm after stage 1)
 
@@ -76,8 +86,15 @@ does), do NOT inherit the std type as that example does.
 
 Candidate wrappers:
 
-- `json(x)`: JSON-exact escaping per RFC 8259. `{:?}` uses C++ debug rules
-  (`\u{..}`, no `/`) and leaves map keys unquoted, so it is not valid JSON.
+- `json(x)`: JSON-exact escaping per RFC 8259. std::format has NO JSON mode and
+  cannot be configured into one. Verified divergences from the `?` debug rules:
+  control units come out `\u{1f}` (braced) vs JSON's `\uXXXX` (4 hex), DEL is
+  escaped vs left literal, and map keys print unquoted (`{1: "x"}`) vs JSON's
+  `{"1": "x"}`. So `json<T>` must own the recursion and impose JSON at every
+  level (quoted object keys, JSON string escaping, array syntax), re-wrapping
+  each child in `json<>`; it cannot delegate nested structure to the std range
+  or map formatters. Scalar leaves can reuse std::format (a plain `{}` on an int
+  is valid JSON), except non-finite floats (inf and nan are not JSON).
 - quoted / optional / null / pointer "null" semantics: `std::optional` has no
   formatter before C++26, so small Corvid wrappers fill the gap.
 
