@@ -80,7 +80,7 @@ template<CharType C>
 
 // Convert to uppercase in place.
 constexpr void to_upper(Range auto& r) noexcept {
-  for (auto& ch : std::span{r}) ch = to_upper(ch);
+  for (auto& ch : r) ch = to_upper(ch);
 }
 
 // Return as uppercase. Accepts any string-like argument and yields a
@@ -101,7 +101,7 @@ template<CharType C>
 
 // Convert to lowercase in place.
 constexpr void to_lower(Range auto& r) noexcept {
-  for (auto& ch : std::span{r}) ch = to_lower(ch);
+  for (auto& ch : r) ch = to_lower(ch);
 }
 
 // Return as lowercase. Accepts any string-like argument and yields a
