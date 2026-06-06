@@ -48,7 +48,7 @@ namespace corvid { inline namespace intervals {
 // move the front and back around but can't modify anything being referred to.
 // As a result, all iterators are const.
 //
-// Internally it holds a `std::pair(begin, end)` as a half-open interval,
+// Internally it holds a `std::pair{begin, end}` as a half-open interval,
 // [begin, end), but exposes a closed interval, [min, max], in keeping with the
 // vector fiction.
 //

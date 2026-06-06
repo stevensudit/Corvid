@@ -55,10 +55,11 @@ struct output_iterator_appendable {
   It out;
 };
 
-// Base class with shared functionality using C++23 deducing this.
-// This replaces the CRTP pattern - the `this auto&& self` parameter deduces
-// the actual derived type, allowing base class methods to call derived
-// class methods and return the correct type.
+// Base class with shared functionality, using C++23 deducing this for static
+// polymorphism in place of the CRTP idiom. The `this auto&& self` parameter
+// deduces the actual derived type, so the base dispatches to derived hooks
+// (`append_sv`/`append_ch`) and returns the correct type without a recurring
+// template parameter or `static_cast`.
 template<typename T, typename C>
 class appender_base {
 #pragma region Types
@@ -69,32 +70,36 @@ public:
 #pragma endregion
 #pragma region Construction
 public:
-  explicit appender_base(T& target) : target_{target} {}
+  constexpr explicit appender_base(T& target) : target_{target} {}
 
 #pragma endregion
 #pragma region Appending
 
   // Deducing this: `self` deduces to the actual derived type (appender<T>).
   // All append overloads forward to append_sv or append_ch in the derived.
-  auto& append(this auto&& self, view_t sv) { return self.append_sv(sv); }
-  auto& append(this auto&& self, const char_t* ps, size_t len) {
+  constexpr auto& append(this auto&& self, view_t sv) {
+    return self.append_sv(sv);
+  }
+  constexpr auto& append(this auto&& self, const char_t* ps, size_t len) {
     return self.append(view_t{ps, len});
   }
-  auto& append(this auto&& self, char_t ch) { return self.append_ch(1, ch); }
+  constexpr auto& append(this auto&& self, char_t ch) {
+    return self.append_ch(1, ch);
+  }
   // NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
-  auto& append(this auto&& self, size_t len, char_t ch) {
+  constexpr auto& append(this auto&& self, size_t len, char_t ch) {
     return self.append_ch(len, ch);
   }
 
   // Default reserve is no-op; string specialization overrides.
   // Uses deducing this for return type consistency, not polymorphic dispatch.
-  auto& reserve(this auto&& self, size_t) { return self; }
+  constexpr auto& reserve(this auto&& self, size_t) { return self; }
 
 #pragma endregion
 #pragma region Accessors
 
-  [[nodiscard]] T& operator*() { return target_; }
-  [[nodiscard]] T* operator->() { return &target_; }
+  [[nodiscard]] constexpr T& operator*() { return target_; }
+  [[nodiscard]] constexpr T* operator->() { return &target_; }
 
 #pragma endregion
 #pragma region Data members
@@ -119,6 +124,8 @@ public:
 #pragma region Appending
 private:
   friend base;
+  // Not constexpr: `std::basic_ostream` write/put are never constant
+  // evaluable, unlike the string and output-iterator specializations.
   auto& append_sv(std::basic_string_view<char_t> sv) {
     target_.write(sv.data(), sv.size());
     return *this;
@@ -145,18 +152,18 @@ public:
 #pragma endregion
 #pragma region Appending
 
-  auto& reserve(size_t len) {
+  constexpr auto& reserve(size_t len) {
     target_.reserve(target_.size() + len);
     return *this;
   }
 
 private:
   friend base;
-  auto& append_sv(std::basic_string_view<char_t> sv) {
+  constexpr auto& append_sv(std::basic_string_view<char_t> sv) {
     target_.append(sv);
     return *this;
   }
-  auto& append_ch(size_t len, char_t ch) {
+  constexpr auto& append_ch(size_t len, char_t ch) {
     if (len == 1)
       target_.push_back(ch);
     else
@@ -191,11 +198,11 @@ private:
     return static_cast<DestChar>(
         static_cast<std::make_unsigned_t<SrcChar>>(unit));
   }
-  auto& append_sv(std::basic_string_view<SrcChar> sv) {
+  constexpr auto& append_sv(std::basic_string_view<SrcChar> sv) {
     for (const SrcChar unit : sv) *target_.out++ = to_dest(unit);
     return *this;
   }
-  auto& append_ch(size_t len, SrcChar unit) {
+  constexpr auto& append_ch(size_t len, SrcChar unit) {
     const DestChar dest = to_dest(unit);
     while (len--) *target_.out++ = dest;
     return *this;

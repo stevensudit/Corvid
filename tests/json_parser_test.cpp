@@ -17,6 +17,7 @@
 
 #include "../corvid/proto.h"
 
+#include <sstream>
 #include <string>
 
 #include "catch2_main.h"
@@ -188,6 +189,30 @@ TEST_CASE("PassesUtf8ThroughUnescaped", "[JsonWriter]") {
   }
 
   CHECK(out == "{\"s\":\"caf\xC3\xA9\xE2\x98\x83\"}");
+}
+
+#pragma endregion
+#pragma region Writer_SupportsOstreamTarget
+
+TEST_CASE("SupportsOstreamTarget", "[JsonWriter]") {
+  // json_writer's contract covers std::ostream targets, which have no
+  // operator+=. Exercise every append path (braces, comma/colon, escaped
+  // string, null, bool, integer, float, nested array) over a stream.
+  std::ostringstream os;
+  json_writer writer{os};
+
+  {
+    auto root = writer.object();
+    root->member("s", "a/b");
+    root->member("z", nullptr);
+    root->member("b", true);
+    root->member("i", 42);
+    root->member("f", 1.5);
+    if (auto arr = root->member_array("a")) arr->value(1).value(2);
+  }
+
+  CHECK(os.str() ==
+        R"({"s":"a\/b","z":null,"b":true,"i":42,"f":1.5,"a":[1,2]})");
 }
 
 #pragma endregion

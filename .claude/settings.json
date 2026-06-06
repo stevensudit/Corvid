@@ -3,7 +3,7 @@
     "allow": [
       "Bash(./cleanbuild.sh:*)",
       "Bash(gh pr *)",
-      "Read(//home/user/src/**)",
+      "Read(./**)",
       "Bash(grep:*)",
       "Bash(sed:*)",
       "Bash(awk:*)"
