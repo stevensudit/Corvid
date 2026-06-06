@@ -1481,52 +1481,6 @@ TEST_CASE("ParseNum", "[StringUtilsTest]") {
 }
 
 #pragma endregion
-#pragma region ParseInt
-
-TEST_CASE("ParseInt", "[StringUtilsTest]") {
-  // `parse_int` is consteval, so every call must be a constant expression.
-  if (true) {
-    // Decimal parsing of positive values.
-    static_assert(strings::parse_int<int>("0") == 0);
-    static_assert(strings::parse_int<int>("7") == 7);
-    static_assert(strings::parse_int<int>("123") == 123);
-    static_assert(strings::parse_int<int>("2147483647") == 2147483647);
-  }
-  if (true) {
-    // Negative values are accepted for signed types.
-    static_assert(strings::parse_int<int>("-1") == -1);
-    static_assert(strings::parse_int<int>("-123") == -123);
-    // The most-negative value is representable even though its magnitude
-    // exceeds the positive maximum.
-    static_assert(strings::parse_int<int>("-2147483648") == -2147483647 - 1);
-    static_assert(strings::parse_int<int8_t>("-128") == int8_t{-128});
-  }
-  if (true) {
-    // Negative values are rejected for unsigned types.
-    static_assert(strings::parse_int<unsigned>("-1") == std::nullopt);
-    static_assert(strings::parse_int<unsigned>("42") == 42u);
-  }
-  if (true) {
-    // Empty input, a lone sign, and non-digit characters all fail.
-    static_assert(strings::parse_int<int>("") == std::nullopt);
-    static_assert(strings::parse_int<int>("-") == std::nullopt);
-    static_assert(strings::parse_int<int>("abc") == std::nullopt);
-    static_assert(strings::parse_int<int>("12a") == std::nullopt);
-    static_assert(strings::parse_int<int>("1 2") == std::nullopt);
-    static_assert(strings::parse_int<int>("+5") == std::nullopt);
-  }
-  if (true) {
-    // Works with other integral widths.
-    static_assert(
-        strings::parse_int<int64_t>("9223372036854775807") ==
-        9223372036854775807LL);
-    static_assert(strings::parse_int<uint8_t>("255") == uint8_t{255});
-  }
-  // A runtime CHECK keeps the case visible in the test report.
-  CHECK(strings::parse_int<int>("123") == 123);
-}
-
-#pragma endregion
 #pragma region AppendNum
 
 TEST_CASE("AppendNum", "[StringUtilsTest]") {

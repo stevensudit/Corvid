@@ -380,34 +380,5 @@ append_utf8(std::string& out, uint32_t code_point) {
 }
 
 #pragma endregion
-#pragma region consteval
-
-// Simple compile-time integer parser.
-template<std::integral U>
-[[nodiscard]] consteval std::optional<U> parse_int(std::string_view sv) {
-  if (sv.empty()) return std::nullopt;
-  const bool neg = (sv.front() == '-');
-  if (neg) {
-    if constexpr (std::is_unsigned_v<U>) return std::nullopt;
-    sv.remove_prefix(1);
-    if (sv.empty()) return std::nullopt;
-  }
-  // For signed types, accumulate in the negative domain so the most-negative
-  // value of a signed type stays representable; its magnitude exceeds the
-  // positive maximum.
-  U value{};
-  for (const char c : sv) {
-    if (!strings::is_digit(c)) return std::nullopt;
-    U digit = c - '0';
-    if constexpr (std::is_signed_v<U>) digit = -digit;
-    value *= 10;
-    value += digit;
-  }
-  if constexpr (std::is_signed_v<U>)
-    if (!neg) value = -value;
-  return value;
-}
-
-#pragma endregion
 
 }} // namespace corvid::strings::conversion
