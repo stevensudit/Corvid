@@ -131,10 +131,75 @@ forward to `std::formatter<std::basic_string_view<Char>, Char>`.
 With the string and enum leaves formatting, the std range, map, tuple, and pair
 formatters cover most Corvid containers for free: format an element type and the
 container comes along. What is left is container types that are not plain ranges
-or want custom rendering. `interval`
-([../../containers/utils/interval.h](../../containers/utils/interval.h)) would
-need its own formatter, but it is low priority: little-used, and originally a
-proof of concept.
+or want custom rendering. See the work list below.
+
+#### Work list
+
+The value types under `strings/` and `containers/` that should format, to go
+down in order. "Done" means a tested formatter exists; "auto" means an existing
+formatter already covers it.
+
+Done / covered:
+
+- [x] `opt_string_view`, `cstring_view`: wrapper formatter, tested.
+- [x] `delim` (`basic_delim`, [../core/delimiting.h](../core/delimiting.h)): a
+  `string_view_wrapper` child, so the wrapper formatter already covers it (auto).
+  Regression test in `strings_test.cpp` (`DelimFormats`).
+
+Strings:
+
+- [x] `fixed_string` (`basic_fixed_string`,
+  [../core/fixed_string.h](../core/fixed_string.h)): own formatter forwarding
+  `view()`, per the `fixed_string` section above. Not a wrapper child, cannot be
+  null; like the wrappers it exposes `begin`/`end`, so it also sets
+  `format_kind = disabled`. Tested in `fixed_string_test.cpp`.
+
+Containers needing a custom formatter (std gets these wrong or will not touch
+them):
+
+- [ ] `interval` ([../../containers/utils/interval.h](../../containers/utils/interval.h)):
+  iterable, so the std range formatter would enumerate every value
+  (`[1, 2, 3, 4, 5]`) instead of the bounds. Needs a custom formatter (e.g.
+  `[1, 5]`) plus `format_kind = disabled`, the same trap the wrappers hit.
+  Inheriting `std::pair` gives it no formatter.
+- [ ] `fixed_bitset` ([../../containers/core/fixed_bitset.h](../../containers/core/fixed_bitset.h)):
+  no std bitset formatter; render as a bit string (model on its existing
+  `operator<<` / `to_string`).
+- [ ] `strong_type` ([../../containers/core/strong_type.h](../../containers/core/strong_type.h)):
+  forward to the underlying `T`'s formatter, the modern replacement for its
+  `operator<<`. It conditionally forwards `begin`/`end`, so a range-typed
+  underlying needs `format_kind = disabled` to avoid the enumerate-vs-forward
+  ambiguity.
+- [ ] `enum_variant` ([../../containers/core/enum_variant.h](../../containers/core/enum_variant.h)):
+  std formats no variant; print the active alternative (`tag: value`).
+- [ ] `interned_value` ([../../containers/utils/intern.h](../../containers/utils/intern.h)):
+  print the underlying interned value.
+- [ ] `optional_ptr` ([../../containers/core/optional_ptr.h](../../containers/core/optional_ptr.h)):
+  print the pointee or a null marker, parallel to the `opt_string_view` null
+  handling (std formats no `optional` before C++26).
+- [ ] Lower value: `custom_handle` (underlying id), `indirect_*_key` (forward to
+  underlying), `own_ptr` (pointee or address, questionable).
+
+Containers already free via std ranges (verify, probably no code):
+
+- [ ] `circular_buffer` ([../../containers/core/circular_buffer.h](../../containers/core/circular_buffer.h)):
+  a range, formats as `[...]` once elements format; confirm it models
+  `input_range`.
+- [ ] `enum_vector` ([../../containers/utils/enum_vector.h](../../containers/utils/enum_vector.h)):
+  free as a plain sequence; a custom formatter is optional, only to render enum
+  keys (`{red: 1, green: 2}`) rather than a bare list.
+
+Excluded (not value types to print): `any_strings` (a `std::variant` alias,
+awkward to format), `pos_range` / `location` (marginal debug structs), and the
+utility, RAII, algorithm, comparator, and allocator types (`targeting`
+appenders, `token_parser`, `splitting` generators, `ostream_redirector`,
+`charconv` result structs, `trimming`, `arena_allocator`, `hash_combiner`,
+`scoped_value`, `transparent`, `opt_find`, `object_pool`, `no_zero`).
+
+Two patterns recur, worth factoring once: disabling `format_kind` for any
+iterable type that should print as a summary rather than a sequence (`interval`,
+range-backed `strong_type`), and "forward to the underlying type's formatter"
+(`fixed_string`, `strong_type`, `interned_value`, `optional_ptr`).
 
 ### 3. Retire concat_join (migration)
 

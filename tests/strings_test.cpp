@@ -16,6 +16,7 @@
 // limitations under the License.
 
 #include <cstdint>
+#include <format>
 #include <map>
 #include <set>
 #include <type_traits>
@@ -33,6 +34,7 @@ using namespace corvid;
 using namespace corvid::literals;
 using namespace corvid::enums::sequence;
 using namespace corvid::enums::bitmask;
+using namespace corvid::strings::delimiting;
 
 // NOLINTBEGIN(readability-function-cognitive-complexity,
 // readability-function-size)
@@ -2852,6 +2854,13 @@ TEST_CASE("AnyStrings", "[StringUtilsTest]") {
   REQUIRE(sv.size() == 2u);
   CHECK(sv[0] == "x");
   CHECK(sv[1] == "y");
+}
+
+TEST_CASE("DelimFormats", "[StringUtilsTest]") {
+  // basic_delim is a string_view_wrapper child, so the wrapper formatter
+  // already covers it; this guards against a regression in that coverage.
+  CHECK(std::format("{}", delim{", "}) == ", ");
+  CHECK(std::format("{:?}", delim{"\t"}) == R"("\t")");
 }
 
 #pragma endregion

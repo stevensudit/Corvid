@@ -15,7 +15,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#include <format>
 #include <sstream>
+#include <vector>
 
 #include "../corvid/strings/core/fixed_string.h"
 #include "../corvid/strings/core/fixed_string_utils.h"
@@ -240,6 +242,22 @@ TEST_CASE("fixed_replaced", "[FixedStringTest]") {
     constexpr auto r = strings::fixed_replaced<"abc", 'z', 'y'>();
     STATIC_REQUIRE(r.view() == "abc"sv);
   }
+}
+
+#pragma endregion
+#pragma region Formatting
+
+TEST_CASE("Fixed string formats like its view", "[FixedStringTest]") {
+  static constexpr strings::basic_fixed_string fs{"hi"};
+  CHECK(std::format("{}", fs) == "hi");
+  CHECK(std::format("{:?}", fs) == R"("hi")");
+  CHECK(std::format("{:>5}", fs) == "   hi");
+  // format_kind is disabled, so it stays a string rather than a list of chars,
+  // and the range formatter quotes it.
+  CHECK(std::format("{}", std::vector{fs, fs}) == R"(["hi", "hi"])");
+
+  static constexpr strings::basic_fixed_string wfs{L"hi"};
+  CHECK(std::format(L"{}", wfs) == L"hi");
 }
 
 #pragma endregion
