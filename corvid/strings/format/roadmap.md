@@ -189,8 +189,14 @@ them):
   (`[StrongType]` Extended).
 - [ ] `enum_variant` ([../../containers/core/enum_variant.h](../../containers/core/enum_variant.h)):
   std formats no variant; print the active alternative (`tag: value`).
-- [ ] `interned_value` ([../../containers/utils/intern.h](../../containers/utils/intern.h)):
-  print the underlying interned value.
+- [x] `interned_value` ([../../containers/utils/intern.h](../../containers/utils/intern.h)):
+  own formatter inheriting `std::formatter<T, CharT>`. Plain `{}` forwards to
+  the interned value's formatter (honoring its full spec); debug `{:?}` instead
+  renders the `(value, id)` pair through the std pair formatter, so the value's
+  debug quoting comes along and the id prints as its numeric underlying
+  (promoted past `char`-sized types). Both modes read the value, so an empty
+  `interned_value` is a precondition violation, as it is for `value`. Tested in
+  `intern_table_test.cpp`.
 - [ ] `optional_ptr` ([../../containers/core/optional_ptr.h](../../containers/core/optional_ptr.h)):
   print the pointee or a null marker, parallel to the `opt_string_view` null
   handling (std formats no `optional` before C++26).

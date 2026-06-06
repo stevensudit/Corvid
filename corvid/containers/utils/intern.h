@@ -15,6 +15,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 #pragma once
+#include <format>
+
 #include "../core/containers_shared.h"
 #include "../core/arena_allocator.h"
 #include "../core/opt_find.h"
@@ -499,3 +501,52 @@ interned_value<T, ID>::interned_value(intern_table<T, ID, TR>& table,
 #pragma endregion
 
 }}} // namespace corvid::container::intern
+
+// Formatter for `interned_value`, narrow or wide.
+//
+// Plain `{}` forwards to the interned value's own formatter, honoring its full
+// spec grammar. Debug `{:?}` instead renders the `(value, id)` pair, with the
+// id as its numeric underlying. Both modes read the value, so an empty
+// `interned_value` is a precondition violation, exactly as it is for `value`.
+template<typename T, corvid::sequence::SequentialEnum ID,
+    corvid::CharType CharT>
+requires std::formattable<T, CharT>
+struct std::formatter<corvid::container::intern::interned_value<T, ID>, CharT>
+    : std::formatter<T, CharT> {
+  using base = std::formatter<T, CharT>;
+  using value_type = corvid::container::intern::interned_value<T, ID>;
+  // Promote so a `char`-sized underlying prints as a number, not a character.
+  using id_print_t = decltype(+corvid::as_underlying_t<ID>{});
+
+  // The `?` type repurposes debug mode for the pair, so it is terminal and
+  // takes no further spec; a plain spec is forwarded to the value's grammar.
+  constexpr auto parse(auto& ctx) {
+    auto it = ctx.begin();
+    if (it != ctx.end() && *it == CharT('?')) {
+      debug_ = true;
+      ++it;
+      if (it != ctx.end() && *it != CharT('}'))
+        throw std::format_error("interned_value debug spec accepts only '?'");
+      return it;
+    }
+    return base::parse(ctx);
+  }
+
+  template<typename FormatContext>
+  auto format(const value_type& iv, FormatContext& ctx) const {
+    if (!debug_) return base::format(iv.value(), ctx);
+
+    // Render through the std pair formatter so the pair layout and the value's
+    // debug quoting come along for free, narrow or wide.
+    const std::pair<const T&, id_print_t> pr{iv.value(),
+        +corvid::as_underlying(iv.id())};
+    std::formatter<std::pair<const T&, id_print_t>, CharT> pair_formatter;
+    std::basic_format_parse_context<CharT> pctx{
+        std::basic_string_view<CharT>{}};
+    pair_formatter.parse(pctx);
+    return pair_formatter.format(pr, ctx);
+  }
+
+private:
+  bool debug_{false};
+};
