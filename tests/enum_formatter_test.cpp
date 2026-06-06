@@ -94,19 +94,19 @@ TEST_CASE("Wide formatting widens the name", "[EnumFormatterTest]") {
 
 TEST_CASE("Debug spec quotes the rendering", "[EnumFormatterTest]") {
   if (true) {
-    CHECK(std::format("{:?}", hue::red) == "\"red\"");
-    CHECK(std::format("{:?}", rgb::yellow) == "\"red + green\"");
-    CHECK(std::format("{:?}", rgb::black) == "\"0x00\"");
-    CHECK(std::format("{:?}", plain::two) == "\"2\"");
+    CHECK(std::format("{:?}", hue::red) == R"("red")");
+    CHECK(std::format("{:?}", rgb::yellow) == R"("red + green")");
+    CHECK(std::format("{:?}", rgb::black) == R"("0x00")");
+    CHECK(std::format("{:?}", plain::two) == R"("2")");
   }
 }
 
 TEST_CASE("Debug spec escapes special characters", "[EnumFormatterTest]") {
   if (true) {
-    CHECK(std::format("{:?}", weird::quote) == "\"q\\\"x\"");
-    CHECK(std::format("{:?}", weird::slash) == "\"b\\\\y\"");
-    CHECK(std::format("{:?}", weird::tab) == "\"a\\tb\"");
-    CHECK(std::format(L"{:?}", weird::quote) == L"\"q\\\"x\"");
+    CHECK(std::format("{:?}", weird::quote) == R"("q\"x")");
+    CHECK(std::format("{:?}", weird::slash) == R"("b\\y")");
+    CHECK(std::format("{:?}", weird::tab) == R"("a\tb")");
+    CHECK(std::format(L"{:?}", weird::quote) == LR"("q\"x")");
   }
 }
 
@@ -116,7 +116,7 @@ TEST_CASE("Rejects unsupported format specs", "[EnumFormatterTest]") {
     // path is reachable only through a runtime format string. The only
     // accepted specs are the empty spec and `?`.
     hue h = hue::red;
-    CHECK(std::vformat("{:?}", std::make_format_args(h)) == "\"red\"");
+    CHECK(std::vformat("{:?}", std::make_format_args(h)) == R"("red")");
     CHECK_THROWS_AS(std::vformat("{:0?}", std::make_format_args(h)),
         std::format_error);
     CHECK_THROWS_AS(std::vformat("{:x}", std::make_format_args(h)),
@@ -131,9 +131,9 @@ TEST_CASE("Composes inside std range and map", "[EnumFormatterTest]") {
     // The range and map formatters auto-enable debug on elements that have
     // set_debug_format, so enums quote the same way std strings do.
     std::vector<hue> v{hue::red, hue::green};
-    CHECK(std::format("{}", v) == "[\"red\", \"green\"]");
-    CHECK(std::format("{::?}", v) == "[\"red\", \"green\"]");
+    CHECK(std::format("{}", v) == R"(["red", "green"])");
+    CHECK(std::format("{::?}", v) == R"(["red", "green"])");
     std::map<int, hue> m{{1, hue::red}, {2, hue::blue}};
-    CHECK(std::format("{}", m) == "{1: \"red\", 2: \"blue\"}");
+    CHECK(std::format("{}", m) == R"({1: "red", 2: "blue"})");
   }
 }
