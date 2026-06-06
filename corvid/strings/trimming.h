@@ -61,8 +61,10 @@ trim(const S& whole, basic_delim<char_type_of_t<S>> ws = {}) {
   return R{trim_right(trim_left(whole, ws), ws)};
 }
 
-// Trim container in place.
-template<Container Cont, CharType Char = char>
+// Trim each container element in place. Like the scalar overloads, the
+// delimiter defaults to a single space of the elements' code unit, deduced
+// from the element value type (the mapped value for map-like containers).
+template<Container Cont, CharType Char = char_type_of_t<element_value_t<Cont>>>
 constexpr void trim(Cont& wholes, basic_delim<Char> ws = {}) {
   for (auto& item : wholes) {
     auto& part = element_value(item);

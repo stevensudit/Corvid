@@ -15,6 +15,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 #pragma once
+#include <ranges>
+
 #include "meta_shared.h"
 #include "concepts.h"
 
@@ -33,6 +35,12 @@ template<auto field = extract_field::value>
   else
     return e;
 }
+
+// Value type that `element_value` yields for a range's elements: the mapped
+// value type for map-like ranges (pairs), otherwise the element type itself.
+template<typename Cont>
+using element_value_t = std::remove_cvref_t<decltype(element_value(
+    std::declval<std::ranges::range_value_t<Cont>&>()))>;
 
 // References value from container iterator, based on `field`
 template<auto field = extract_field::value>

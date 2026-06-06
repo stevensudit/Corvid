@@ -94,8 +94,10 @@ concept SingleLocateValue = (StringViewConvertible<T> || Char<T>);
 #pragma region as_views
 
 // Convert any container shaped like a `std::span` whose elements are
-// convertible to `std::string_view` into a `std::vector<std::string_view>`
-// that you can use for functions requiring multiple values.
+// convertible to a `std::basic_string_view` into a `std::vector` of that view
+// type that you can use for functions requiring multiple values. The view's
+// code unit is deduced from the elements, so narrow and wide containers alike
+// work.
 //
 // This function is usually unnecessary, but there might be some recalcitrant
 // string-like types that need it. In theory, it could also be an optimization
@@ -106,10 +108,13 @@ concept SingleLocateValue = (StringViewConvertible<T> || Char<T>);
 // Note that the `std::string_view` elements do not own any memory, but
 // instead use whatever the source values point at, and that the return value
 // is a temporary vector, so use caution.
-[[nodiscard]] constexpr auto as_views(const auto& values) {
-  std::vector<std::string_view> result;
+template<typename Cont>
+[[nodiscard]] constexpr auto as_views(const Cont& values) {
+  using view_t =
+      std::basic_string_view<char_type_of_t<std::ranges::range_value_t<Cont>>>;
+  std::vector<view_t> result;
   result.reserve(values.size());
-  for (auto& value : values) result.emplace_back(std::string_view{value});
+  for (const auto& value : values) result.emplace_back(view_t{value});
   return result;
 }
 

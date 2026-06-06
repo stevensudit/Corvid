@@ -326,15 +326,49 @@ TEST_CASE("WideTrim", "[StringUtilsTest]") {
   strings::trim(s);
   CHECK(s == u"hi");
 
-  // Container of wide strings (explicit wide delimiter).
+  // Container of wide strings: the delimiter's code unit is deduced from the
+  // elements, so the default (single space) works with no explicit delimiter.
   std::vector<std::u16string> v{u" a ", u"  b"};
-  strings::trim(v, strings::basic_delim<char16_t>{});
+  strings::trim(v);
   CHECK(v[0] == u"a");
   CHECK(v[1] == u"b");
+
+  // An explicit wide delimiter still works.
+  std::vector<std::u16string> v2{u".a.", u"..b"};
+  strings::trim(v2, strings::basic_delim<char16_t>{u"."});
+  CHECK(v2[0] == u"a");
+  CHECK(v2[1] == u"b");
+
+  // Map-like container: the code unit is deduced from the mapped value.
+  std::map<int, std::u16string> m{{1, u" a "}, {2, u"  b"}};
+  strings::trim(m);
+  CHECK(m[1] == u"a");
+  CHECK(m[2] == u"b");
 
   // Braces.
   CHECK(strings::trim_braces(u"[x]") == u"x");
   CHECK(strings::add_braces(u"x") == u"[x]");
+}
+
+#pragma endregion
+#pragma region AsViews
+
+TEST_CASE("AsViews", "[StringUtilsTest]") {
+  // Narrow container deduces `std::string_view` (unchanged behavior).
+  const std::vector<std::string> narrow{"a", "bc"};
+  const auto nv = strings::as_views(narrow);
+  using nview = decltype(nv)::value_type;
+  static_assert(std::is_same_v<nview, std::string_view>);
+  CHECK(nv[0] == "a");
+  CHECK(nv[1] == "bc");
+
+  // Wide container deduces the elements' code unit.
+  const std::vector<std::u16string> wide{u"a", u"bc"};
+  const auto wv = strings::as_views(wide);
+  using wview = decltype(wv)::value_type;
+  static_assert(std::is_same_v<wview, std::u16string_view>);
+  CHECK(wv[0] == u"a");
+  CHECK(wv[1] == u"bc");
 }
 
 #pragma endregion
