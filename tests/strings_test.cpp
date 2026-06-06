@@ -2782,6 +2782,39 @@ TEST_CASE("TokenParser", "[StringUtilsTest]") {
 
 #pragma endregion
 
+// Test token parsing over a wide code unit.
+#pragma region WideTokenParser
+
+TEST_CASE("WideTokenParser", "[StringUtilsTest]") {
+  using parser = strings::basic_token_parser<char16_t>;
+
+  parser p{u"\r\n"};
+  std::u16string_view input = u"alpha\r\n\r\nbeta";
+  CHECK(p.separator() == u"\r\n");
+  CHECK(p.next_delimited(input) == u"alpha");
+  CHECK(p.next_delimited(input) == u"");
+  CHECK(p.next_delimited(input) == u"beta");
+  CHECK(input.empty());
+
+  // Single-character separator overloads.
+  input = u"one,two,three";
+  CHECK(parser::next_delimited(u',', input) == u"one");
+  CHECK(parser::next_delimited(u',', input) == u"two");
+  CHECK(parser::next_delimited(u',', input) == u"three");
+  CHECK(input.empty());
+
+  // Terminated: the terminator is required.
+  input = u"a;b";
+  auto t = parser::next_terminated(u';', input);
+  REQUIRE(t.has_value());
+  CHECK(*t == u"a");
+  t = parser::next_terminated(u';', input);
+  REQUIRE_FALSE(t.has_value()); // no trailing ';'
+  CHECK(input == u"b");
+}
+
+#pragma endregion
+
 // Test any_strings, strings::as_vector, and strings::as_any.
 #pragma region AnyStrings
 
