@@ -28,8 +28,7 @@
 #include <nghttp3/nghttp3.h>
 
 #include "../../containers/core/opt_find.h"
-#include "../../enums/bitmask_enum.h"
-#include "../../enums/sequence_enum.h"
+#include "../../enums.h"
 
 // HTTP/3 header-field vocabulary: the QPACK field-name tokens, the canonical
 // field-name strings, the per-field QPACK flags, the stream-FIN marker, and

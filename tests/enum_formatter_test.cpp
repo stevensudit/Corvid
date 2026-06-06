@@ -21,8 +21,7 @@
 #include <string>
 #include <vector>
 
-#include "../corvid/enums/sequence_enum.h"
-#include "../corvid/enums/bitmask_enum.h"
+#include "../corvid/enums.h"
 #include "../corvid/strings/format/enum_formatter.h"
 #include "catch2_main.h"
 

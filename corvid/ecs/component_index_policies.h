@@ -24,7 +24,7 @@
 #include <utility>
 #include <vector>
 
-#include "../enums/sequence_enum.h"
+#include "../enums.h"
 
 namespace corvid { inline namespace ecs { inline namespace component_indexes {
 

@@ -35,6 +35,7 @@ band_of() {
   infra.h | infra/*) echo infra ;;
   strings/core/*) echo strings/core ;;
   strings/utils/*) echo strings/utils ;;
+  strings/format/*) echo strings/format ;;
   containers/core/*) echo containers/core ;;
   containers/utils/*) echo containers/utils ;;
   enums/*) echo enums ;;
@@ -68,6 +69,7 @@ allowed() {
   containers/core'=>'infra) return 0 ;;
   enums'=>'strings/core | enums'=>'containers/core) return 0 ;;
   strings/utils'=>'strings/core | strings/utils'=>'enums) return 0 ;;
+  strings/format'=>'strings/core | strings/format'=>'strings/utils) return 0 ;;
   filesys'=>'strings/core | filesys'=>'strings/utils | filesys'=>'enums) return 0 ;;
   concurrency'=>'infra | concurrency'=>'filesys) return 0 ;;
   containers/utils'=>'infra | containers/utils'=>'strings/core | \

@@ -21,7 +21,7 @@
 #include <memory>
 
 #include "../containers/core/transparent.h"
-#include "../enums/sequence_enum.h"
+#include "../enums.h"
 #include "../strings.h"
 
 namespace corvid { inline namespace lang { namespace ast_pred {

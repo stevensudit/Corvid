@@ -75,51 +75,82 @@ length, so they would need a materialized string to pad; revisit only if a
 caller needs it. Numeric width is already covered by formatting `*e` (or
 `std::to_underlying(e)`), which routes to the standard integer formatter.
 
-### 2. corvid::fmt wrappers (scope to confirm after stage 1)
+### 2. Formatter support for Corvid value types
 
-For behaviors std::format cannot express, or cannot legally attach to a
-non-owned type, wrap the value and format the wrapper. We cannot specialize
-`std::formatter<std::vector<...>>` and friends because C++23 already defines
-them. Follow cppreference's `QuotableString` pattern in shape, but COMPOSE the
-wrapped value (the way [../core/string_view_wrapper.h](../core/string_view_wrapper.h)
-does), do NOT inherit the std type as that example does.
+Goal: broad `std::formatter` coverage for the Corvid classes that benefit, so
+anything formattable composes inside the std range, map, and tuple formatters.
+This replaces the earlier `json()` wrapper plan. JSON is out of scope: the
+parser at [../../proto/misc/json_parser.h](../../proto/misc/json_parser.h) owns
+JSON parsing and writing, and its `json_writer` already does RFC-correct
+escaping, quoted keys, non-finite-float handling, and a trusted-bytes bypass. A
+second JSON renderer here would just reinvent it. The `concat_join` "JSON" was
+really `{:?}`-style debug escaping with non-JSON rules, which `std::format` now
+provides directly.
 
-Candidate wrappers:
+#### string_view_wrapper children
 
-- `json(x)`: JSON-exact escaping per RFC 8259. std::format has NO JSON mode and
-  cannot be configured into one. Verified divergences from the `?` debug rules:
-  control units come out `\u{1f}` (braced) vs JSON's `\uXXXX` (4 hex), DEL is
-  escaped vs left literal, and map keys print unquoted (`{1: "x"}`) vs JSON's
-  `{"1": "x"}`. So `json<T>` must own the recursion and impose JSON at every
-  level (quoted object keys, JSON string escaping, array syntax), re-wrapping
-  each child in `json<>`; it cannot delegate nested structure to the std range
-  or map formatters. Scalar leaves can reuse std::format (a plain `{}` on an int
-  is valid JSON), except non-finite floats (inf and nan are not JSON).
-- quoted / optional / null / pointer "null" semantics: `std::optional` has no
-  formatter before C++26, so small Corvid wrappers fill the gap.
+`opt_string_view`, `cstring_view`, and `enum_name` all derive from
+`string_view_wrapper<Child, Char>`, and the base forwards `begin` and `end`, so
+today they are ranges of `char`: `std::format("{}", ov)` is claimed by the std
+range formatter and prints `['h', 'e', ...]`. A single concept-constrained
+`std::formatter<Child, Char>` matching the wrapper children fixes this for all
+of them at once.
 
-### 3. Migration (separate, later)
+It inherits `std::formatter<std::basic_string_view<Char>, Char>` to reuse the
+full spec grammar (fill, align, width, precision, `?`), and in `format()`
+converts the wrapper to its `string_view` and delegates. Regular `{}` is pure
+delegation. The one addition: in `{:?}` debug mode a null wrapper (null is
+distinct from empty, the reason the type exists) renders as `(null)` unquoted,
+honoring the requested width, instead of `""`. So content prints as `"text"`,
+empty as `""`, and null as `(null)`: three visibly distinct debug outputs.
+Unquoted `(null)` cannot be confused with a string whose contents are those
+letters, which prints `"(null)"`.
 
-As the std::format path matures, parts of the char legacy layer may retire.
-That is a distinct migration, tracked separately, and gated on the std path
-being a full replacement for each consumer.
+#### fixed_string
 
-## Keep concat_join
+`basic_fixed_string` cannot be null, so its formatter is pure delegation with
+no debug branch. Define it at the bottom of
+[../core/fixed_string.h](../core/fixed_string.h): call the value's `view()` and
+forward to `std::formatter<std::basic_string_view<Char>, Char>`.
 
-Do NOT delete or port [../utils/concat_join.h](../utils/concat_join.h). It is
-load-bearing:
+#### containers
+
+With the string and enum leaves formatting, the std range, map, tuple, and pair
+formatters cover most Corvid containers for free: format an element type and the
+container comes along. What is left is container types that are not plain ranges
+or want custom rendering. `interval`
+([../../containers/utils/interval.h](../../containers/utils/interval.h)) would
+need its own formatter, but it is low priority: little-used, and originally a
+proof of concept.
+
+### 3. Retire concat_join (migration)
+
+`concat_join` never met its original goal. It handles basic types, but its
+ad-hoc register-a-type extension mechanism was never broadly adopted. Broad
+`std::formatter` coverage makes it redundant: anything that benefits gets a
+formatter instead. Once each consumer moves to the std path, `concat_join`
+retires. A few pieces may be worth salvaging as a simple, fast path for the
+spots that already use it that way, but the file as a whole is slated for
+removal. This is gated on the std path being a full replacement per consumer.
+
+## concat_join: frozen until its consumers migrate
+
+Until stage 3, do NOT extend or port
+[../utils/concat_join.h](../utils/concat_join.h). It is still load-bearing, and
+these are the migration targets:
 
 - the JSON writer uses `append_escaped`
   ([../../proto/misc/json_parser.h](../../proto/misc/json_parser.h))
 - `interval` registers an `append_join_with` override and uses `join_opt`
   ([../../containers/utils/interval.h](../../containers/utils/interval.h))
 
-It stays the `char` legacy layer. `json_parser` keeps its own writer
-regardless.
+New formatting goes through `std::format`; `concat_join` gets no new code.
+`json_parser` keeps its own writer regardless.
 
 ## Deferred / decided against
 
-- Exact JSON escaping is a wrapper concern (stage 2), not a change to `{:?}`.
+- Exact JSON escaping is out of scope for the format submodule entirely;
+  `json_parser.h` owns JSON.
 - `char8_t` / UTF-8 names transcoded to UTF-16/32 for wider targets: the only
   future reason to revisit `char` name storage. Corvid has no UTF-8 support
   anywhere yet, so this is explicitly deferred.

@@ -20,7 +20,7 @@
 #include <set>
 
 #include "../corvid/meta.h"
-#include "../corvid/enums/sequence_enum.h"
+#include "../corvid/enums.h"
 #include "../corvid/strings/utils/enum_conversion.h"
 #include "../corvid/containers.h"
 #include "catch2_main.h"

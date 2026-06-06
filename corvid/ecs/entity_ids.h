@@ -16,7 +16,7 @@
 // limitations under the License.
 #pragma once
 
-#include "../enums/sequence_enum.h"
+#include "../enums.h"
 #include "../enums/bool_enums.h"
 
 namespace corvid { inline namespace ecs {

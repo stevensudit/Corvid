@@ -30,7 +30,7 @@
 
 #include "../../filesys/event_fd.h"
 #include "../net_endpoint.h"
-#include "../../enums/bitmask_enum.h"
+#include "../../enums.h"
 
 // Wrapper around `io_uring`'s C API, with the primary goal of adding C++
 // conveniences.

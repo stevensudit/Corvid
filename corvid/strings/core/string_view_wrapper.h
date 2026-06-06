@@ -17,6 +17,8 @@
 #pragma once
 #include <cassert>
 #include <concepts>
+#include <format>
+#include <iterator>
 #include <optional>
 #include <ostream>
 #include <string_view>
@@ -285,5 +287,76 @@ protected:
 };
 
 #pragma endregion
+#pragma region Formatter support
+
+// Whether `T` is a concrete `string_view_wrapper` child, identified by
+// deriving from the CRTP base instantiated on itself. Gates the
+// `std::formatter` below.
+template<typename T>
+concept StringViewWrapperChild =
+    std::derived_from<T, string_view_wrapper<T, typename T::char_t>>;
+
+#pragma endregion
 
 }} // namespace corvid::stringviewwrapper
+
+// The wrappers forward `begin`/`end`, so without this they would be claimed by
+// the std range formatter and print as a list of chars. Disabling their range
+// format leaves the string formatter below as the only match.
+template<corvid::StringViewWrapperChild W>
+constexpr std::range_format std::format_kind<W> = std::range_format::disabled;
+
+// Formatter for any `string_view_wrapper` child (opt_string_view,
+// cstring_view, enum_name), narrow or wide.
+//
+// Inherits the `std::basic_string_view` formatter for the full spec grammar
+// (fill, align, width, precision, and the `?` debug spec) and formats the
+// wrapper's view, so a wrapper renders exactly like the string_view it holds:
+// `{}` prints the contents, `{:?}` prints the quoted, escaped debug form.
+//
+// A null wrapper (null distinct from empty) stays transparent under `{}`,
+// printing as empty, and prints as the bare, unquoted marker `(null)` under
+// `{:?}`. The marker is distinct from an empty string (`""`) and from a string
+// whose contents are those letters (`"(null)"`). Fill, align, and width are
+// not applied to the marker itself; honoring them would mean reparsing the
+// spec the base hides, deferred until a caller needs it.
+//
+// Only a context whose char type matches the wrapper's is claimed; cross-type
+// transcoding is out of scope.
+template<corvid::StringViewWrapperChild W, corvid::CharType CharT>
+requires std::same_as<CharT, typename W::char_t>
+struct std::formatter<W, CharT>
+    : std::formatter<std::basic_string_view<CharT>, CharT> {
+  using base = std::formatter<std::basic_string_view<CharT>, CharT>;
+
+  // The range and map formatters turn on element debug through this rather
+  // than a spec `?`, so mirror their call into `debug_` to keep null elements
+  // rendering as `(null)` inside a range.
+  constexpr void set_debug_format() {
+    debug_ = true;
+    base::set_debug_format();
+  }
+
+  constexpr auto parse(auto& ctx) {
+    auto it = base::parse(ctx);
+    // The debug `?` type is terminal, so a `?` just before the spec end means
+    // debug mode, the only case that changes how a null is rendered.
+    if (it != ctx.begin() && *std::prev(it) == static_cast<CharT>('?'))
+      debug_ = true;
+    return it;
+  }
+
+  template<typename FormatContext>
+  auto format(const W& w, FormatContext& ctx) const {
+    if (w.null() && debug_) {
+      auto out = ctx.out();
+      for (const char c : std::string_view{"(null)"})
+        *out++ = static_cast<CharT>(static_cast<unsigned char>(c));
+      return out;
+    }
+    return base::format(w.view(), ctx);
+  }
+
+private:
+  bool debug_{false};
+};

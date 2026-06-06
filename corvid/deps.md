@@ -22,6 +22,7 @@ L1  infra             corvid/infra/                  scope_exit, relaxed_atomic,
     containers/core   corvid/containers/core/        Enum-free container utilities.
 L2  enums             corvid/enums/                  scoped/sequence/bitmask/bool + registry.
 L3  strings/utils     corvid/strings/utils/          Enum-aware string code.
+    strings/format    corvid/strings/format/         std::format specializations + wrappers.
     filesys           corvid/filesys/                os_file, event_fd, epoll glue.
     concurrency       corvid/concurrency/            locks, timers, dispatch, atomics.
     containers/utils  corvid/containers/utils/       Enum/string-aware containers.
@@ -31,8 +32,9 @@ L5  sim               corvid/sim/                    Apex consumer.
 ```
 
 The `L3` row is not flat: `strings/utils` and `filesys` rest on `enums` and
-`strings/core`; `concurrency` rests on `filesys`; `containers/utils` rests on
-`concurrency`. The allow-list below captures that order precisely.
+`strings/core`; `strings/format` rests on `strings/utils`; `concurrency` rests
+on `filesys`; `containers/utils` rests on `concurrency`. The allow-list below
+captures that order precisely.
 
 The apex bands (`ecs`, `proto`, `lang`, `sim`) may depend on any lower band.
 `controllers` is a leaf parallel to the tree: it has no cross-folder edges.
@@ -46,13 +48,22 @@ Enum-free headers are `core` (L1, below enums); enum-aware headers are `utils`
 `containers/core/enum_variant.h` only pulls `meta/concepts.h`, so despite the
 name it is `core`.
 
-`strings/utils` (everything else under `strings/` is `strings/core`):
+`strings/utils` (everything under `strings/` is `strings/core` except the
+`utils` and `format` folders):
 
 - `concat_join.h`: the generic append/join dispatcher. It branches on
   `ScopedEnum` and registers its own `join_opt`.
 - `enum_conversion.h`: enum<->string conversion. Forward path (`append_enum`,
   `enum_as_string`, the scoped-enum `operator<<`) and reverse path
   (`extract_enum`, `parse_enum`) together.
+
+`strings/format` is a third `strings` band, above `strings/utils`: the
+`std::format` presentation layer (formatter specializations and wrappers). It is
+separate from the core/utils enum question, sitting on top because a formatter
+may pull both enum-aware string code (`enum_conversion.h`) and the core string
+types. A formatter that rides along with the type it formats lives with that
+type instead (the `string_view_wrapper` formatter is at the bottom of its own
+`strings/core` header); `strings/format` holds the standalone ones.
 
 `containers/utils` (everything else under `containers/` is `containers/core`):
 
@@ -93,6 +104,7 @@ strings/core     -> meta
 containers/core  -> meta, infra
 enums            -> strings/core, containers/core
 strings/utils    -> strings/core, enums
+strings/format   -> meta, strings/core, strings/utils
 filesys          -> strings/core, enums
 concurrency      -> meta, infra, filesys
 containers/utils -> infra, containers/core, strings/core, strings/utils, enums,
@@ -115,6 +127,7 @@ graph TD
     containers_core["containers/core"]
     enums[enums]
     strings_utils["strings/utils"]
+    strings_format["strings/format"]
     filesys[filesys]
     concurrency[concurrency]
     containers_utils["containers/utils"]
@@ -128,6 +141,7 @@ graph TD
     enums --> containers_core
     strings_utils --> strings_core
     strings_utils --> enums
+    strings_format --> strings_utils
     filesys --> strings_core
     filesys --> enums
     concurrency --> infra
@@ -174,6 +188,7 @@ strings/core     -> meta
 containers/core  -> meta, infra
 enums            -> meta, strings/core, containers/core
 strings/utils    -> meta, strings/core, enums
+strings/format   -> meta, strings/core, strings/utils
 filesys          -> meta, strings/core, strings/utils, enums
 concurrency      -> meta, infra, filesys
 containers/utils -> meta, infra, strings/core, strings/utils, enums,

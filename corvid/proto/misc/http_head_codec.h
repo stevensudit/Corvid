@@ -25,7 +25,7 @@
 #include <unordered_map>
 #include <vector>
 
-#include "../../enums/sequence_enum.h"
+#include "../../enums.h"
 #include "../../strings/core/cases.h"
 #include "../../strings/core/conversion.h"
 #include "../../strings/core/trimming.h"
