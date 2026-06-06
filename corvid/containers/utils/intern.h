@@ -184,18 +184,6 @@ public:
   }
 
 #pragma endregion
-#pragma region Streaming
-
-  friend std::ostream&
-  operator<<(std::ostream& out, const interned_value& iv) {
-    out << iv.id() << ": ";
-    if (iv)
-      out << *iv;
-    else
-      out << "{}";
-    return out;
-  }
-
 #pragma endregion
 
 private:

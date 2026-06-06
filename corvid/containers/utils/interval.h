@@ -24,7 +24,6 @@
 #include <utility>
 
 #include "../core/containers_shared.h"
-#include "../../strings/utils/concat_join.h"
 #include "../../strings/core/delimiting.h"
 #include "../../enums/bitmask_enum.h"
 #include "../../enums/sequence_enum.h"

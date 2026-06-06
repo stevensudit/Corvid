@@ -468,13 +468,6 @@ TEST_CASE("StreamingOut", "[SequentialEnumTest]") {
     ss << tiger_pick::moe << std::flush;
     CHECK(ss.str() == "moe");
   }
-
-  if (true) {
-    std::stringstream ss;
-    ss << extract_field::value << ", " << extract_field::key_value
-       << std::flush;
-    CHECK(ss.str() == "value, key_value");
-  }
 }
 
 #pragma endregion

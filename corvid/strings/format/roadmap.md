@@ -249,6 +249,29 @@ iterable type that should print as a summary rather than a sequence (`interval`,
 range-backed `strong_type`), and "forward to the underlying type's formatter"
 (`fixed_string`, `strong_type`, `interned_value`, `optional_ptr`).
 
+#### Status: paused pending a forwarding helper
+
+Stage 2 is paused here. Every Corvid type that materially benefits now formats:
+the string wrappers and `fixed_string`, the enum formatter, `interval`,
+`fixed_bitset`, `strong_type`, `interned_value`, `optional_ptr`,
+`custom_handle`, and the indirect keys, with `circular_buffer` and
+`enum_vector` coming along as ranges.
+
+What is left is a long tail of small wrappers whose formatter would all be the
+same trivial shape: forward an underlying scalar to its std formatter. For
+example, `os_file` ([../../filesys/os_file.h](../../filesys/os_file.h)) is an
+owning fd wrapper whose handle is an `int`, so its formatter would just forward
+that number to the integer formatter. Each one is only a few lines, but they
+are near-identical lines, and one hand-written `std::formatter` specialization
+per type does not scale.
+
+So before adding more, build the "forward to the underlying type's formatter"
+helper noted just above: a small CRTP base or generator that, given an
+accessor, synthesizes the inherit-and-forward formatter, reducing a new
+forwarder to a single declaration instead of a full specialization. Factor the
+`format_kind`-disabling pattern at the same time. Revisit this tail once that
+helper exists, or sooner if a specific type needs to print.
+
 ### 3. Retire concat_join (migration)
 
 `concat_join` never met its original goal. It handles basic types, but its
