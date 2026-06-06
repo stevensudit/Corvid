@@ -354,7 +354,13 @@ parse_hex4(std::basic_string_view<C> s, size_t pos) noexcept {
 
 // Appends UTF-8 encoding of `code_point` to `out`. Returns false if
 // `code_point` is not a valid Unicode code point.
-constexpr bool append_utf8(std::string& out, uint32_t code_point) {
+[[nodiscard]] constexpr bool
+append_utf8(std::string& out, uint32_t code_point) {
+  // Reject invalid Unicode: surrogates and anything past U+10FFFF.
+  if (code_point > 0x10FFFFU ||
+      (code_point >= 0xD800U && code_point <= 0xDFFFU))
+    return false;
+
   if (code_point <= 0x7FU) {
     out.push_back(static_cast<char>(code_point));
   } else if (code_point <= 0x7FFU) {

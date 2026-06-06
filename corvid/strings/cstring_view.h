@@ -165,7 +165,9 @@ public:
   // empty, terminated string. (In contrast, `data` returns `nullptr` when
   // `null`.)
   [[nodiscard]] constexpr const_pointer c_str() const noexcept {
-    return this->data() ? this->data() : reinterpret_cast<const_pointer>(U"");
+    if (const auto p = this->data()) return p;
+    static constexpr char_t empty[1]{};
+    return empty;
   }
 
 #pragma endregion
