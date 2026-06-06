@@ -54,8 +54,9 @@ inline namespace cvt_int {
 // view, and returns true.
 //
 // On failure, leaves the parameters unchanged and returns false.
-template<int base = 10>
-constexpr bool extract_num(std::integral auto& t, std::string_view& sv) {
+template<int base = 10, typename C>
+constexpr bool
+extract_num(std::integral auto& t, std::basic_string_view<C>& sv) {
   const auto save_sv = sv;
   sv = trim_left(sv);
   auto [ptr, ec] = int_from_chars(sv.data(), sv.data() + sv.size(), t, base);
@@ -72,8 +73,8 @@ constexpr bool extract_num(std::integral auto& t, std::string_view& sv) {
 // from the string view.
 //
 // On failure, returns optional without value and leaves string view unchanged.
-template<std::integral T = int64_t, int base = 10>
-constexpr std::optional<T> extract_num(std::string_view& sv) {
+template<std::integral T = int64_t, int base = 10, typename C>
+constexpr std::optional<T> extract_num(std::basic_string_view<C>& sv) {
   T t;
   return extract_num<base>(t, sv) ? std::make_optional(t) : std::nullopt;
 }
@@ -84,8 +85,9 @@ constexpr std::optional<T> extract_num(std::string_view& sv) {
 // On success, returns optional with value.
 //
 // On failure, returns optional without value.
-template<std::integral T = int64_t, int base = 10>
-constexpr std::optional<T> parse_num(std::string_view sv) {
+template<std::integral T = int64_t, int base = 10, StringViewLike S>
+constexpr std::optional<T> parse_num(const S& s) {
+  auto sv = as_view(s);
   T t;
   return extract_num<base>(t, sv) && sv.empty()
              ? std::make_optional(t)
@@ -98,8 +100,9 @@ constexpr std::optional<T> parse_num(std::string_view sv) {
 // On success, returns parsed value.
 //
 // On failure, returns `default_value`.
-template<std::integral T = int64_t, int base = 10>
-constexpr T parse_num(std::string_view sv, T default_value) {
+template<std::integral T = int64_t, int base = 10, StringViewLike S>
+constexpr T parse_num(const S& s, T default_value) {
+  auto sv = as_view(s);
   T t;
   return (extract_num<base>(t, sv) && sv.empty()) ? t : default_value;
 }
@@ -107,19 +110,20 @@ constexpr T parse_num(std::string_view sv, T default_value) {
 // Append integral number to `target`. Hex is prefixed with "0x" and
 // zero-padded to an appropriate size. Returns `target`.
 template<int base = 10, size_t width = 0, char pad = ' '>
-constexpr auto& append_num(AppendTarget auto& target, Integer auto num) {
+constexpr auto& append_num(AnyAppendTarget auto& target, Integer auto num) {
   auto a = appender{target};
-  std::array<char, 64> b;
+  using C = typename decltype(a)::view_t::value_type;
+  std::array<C, 64> b;
   auto [ptr, ec] = int_to_chars(b.data(), b.data() + b.size(), num, base);
   if (ec != std::errc{}) return target;
   size_t len = ptr - b.data();
   // Apply padding and prefix.
   if constexpr ((width && pad) || base == 16) {
     auto w = width;
-    auto p = pad;
+    auto p = C(pad);
     if constexpr (base == 16 && !width) {
-      a.append("0x"sv);
-      p = '0';
+      a.append(C('0')).append(C('x'));
+      p = C('0');
       w = sizeof(num) * 2;
     }
     if (len < w) a.append(w - len, p);
@@ -130,16 +134,17 @@ constexpr auto& append_num(AppendTarget auto& target, Integer auto num) {
 
 // Append bool, as number, to `target`.  Returns `target`.
 template<int base = 10, size_t width = 0, char pad = ' '>
-constexpr auto& append_num(AppendTarget auto& target, Bool auto num) {
+constexpr auto& append_num(AnyAppendTarget auto& target, Bool auto num) {
   // Cast is needed because `std::to_chars` intentionally doesn't accept bool.
   return append_num<base, width, pad>(target, static_cast<int>(num));
 }
 
 // Return integral number as string.
 // Accepts integers or bool.
-template<int base = 10, size_t width = 0, char pad = ' '>
-[[nodiscard]] constexpr std::string num_as_string(std::integral auto num) {
-  std::string target;
+template<int base = 10, size_t width = 0, char pad = ' ', typename C = char>
+[[nodiscard]] constexpr std::basic_string<C>
+num_as_string(std::integral auto num) {
+  std::basic_string<C> target;
   return append_num<base, width, pad>(target, num);
 }
 
@@ -163,8 +168,9 @@ inline namespace cvt_float {
 // view, and returns true.
 //
 // On failure, leaves parameters unchanged and returns false.
-template<std::chars_format fmt = std::chars_format::general>
-constexpr bool extract_num(std::floating_point auto& t, std::string_view& sv) {
+template<std::chars_format fmt = std::chars_format::general, typename C>
+constexpr bool
+extract_num(std::floating_point auto& t, std::basic_string_view<C>& sv) {
   const auto save_sv = sv;
   sv = trim_left(sv);
   auto [ptr, ec] = float_from_chars(sv.data(), sv.data() + sv.size(), t, fmt);
@@ -182,8 +188,8 @@ constexpr bool extract_num(std::floating_point auto& t, std::string_view& sv) {
 //
 // On failure, returns optional without value and leaves string view unchanged.
 template<std::floating_point T,
-    std::chars_format fmt = std::chars_format::general>
-constexpr std::optional<T> extract_num(std::string_view& sv) {
+    std::chars_format fmt = std::chars_format::general, typename C>
+constexpr std::optional<T> extract_num(std::basic_string_view<C>& sv) {
   T t;
   return extract_num<fmt>(t, sv) ? std::make_optional(t) : std::nullopt;
 }
@@ -195,8 +201,9 @@ constexpr std::optional<T> extract_num(std::string_view& sv) {
 //
 // On failure, returns optional without value.
 template<std::floating_point T,
-    std::chars_format fmt = std::chars_format::general>
-constexpr std::optional<T> parse_num(std::string_view sv) {
+    std::chars_format fmt = std::chars_format::general, StringViewLike S>
+constexpr std::optional<T> parse_num(const S& s) {
+  auto sv = as_view(s);
   T t;
   return extract_num<fmt>(t, sv) && sv.empty()
              ? std::make_optional(t)
@@ -210,8 +217,9 @@ constexpr std::optional<T> parse_num(std::string_view sv) {
 //
 // On failure, returns `default_value`.
 template<std::floating_point T,
-    std::chars_format fmt = std::chars_format::general>
-constexpr T parse_num(std::string_view sv, T default_value) {
+    std::chars_format fmt = std::chars_format::general, StringViewLike S>
+constexpr T parse_num(const S& s, T default_value) {
+  auto sv = as_view(s);
   T t;
   return extract_num<fmt>(t, sv) && sv.empty() ? t : default_value;
 }
@@ -220,24 +228,25 @@ constexpr T parse_num(std::string_view sv, T default_value) {
 template<std::chars_format fmt = std::chars_format::general,
     int precision = -1, size_t width = 0, char pad = ' '>
 constexpr auto&
-append_num(AppendTarget auto& target, std::floating_point auto num) {
+append_num(AnyAppendTarget auto& target, std::floating_point auto num) {
   auto a = appender{target};
-  std::array<char, 64> b;
+  using C = typename decltype(a)::view_t::value_type;
+  std::array<C, 64> b;
   auto [ptr, ec] =
       float_to_chars(b.data(), b.data() + b.size(), num, fmt, precision);
   if (ec != std::errc{}) return target;
   const size_t len = ptr - b.data();
   if constexpr (width && pad)
-    if (len < width) a.append(width - len, pad);
+    if (len < width) a.append(width - len, C(pad));
   return *a.append(b.data(), len);
 }
 
 // Return floating-point number as string.
 template<std::chars_format fmt = std::chars_format::general,
-    int precision = -1, size_t width = 0, char pad = ' '>
-[[nodiscard]] constexpr std::string
+    int precision = -1, size_t width = 0, char pad = ' ', typename C = char>
+[[nodiscard]] constexpr std::basic_string<C>
 num_as_string(std::floating_point auto num) {
-  std::string target;
+  std::basic_string<C> target;
   return append_num<fmt, precision, width, pad>(target, num);
 }
 

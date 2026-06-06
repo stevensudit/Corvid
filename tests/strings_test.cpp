@@ -1517,6 +1517,39 @@ TEST_CASE("AppendNum", "[StringUtilsTest]") {
 }
 
 #pragma endregion
+// Test number conversion over a wide code unit.
+#pragma region WideConversion
+
+TEST_CASE("WideConversion", "[StringUtilsTest]") {
+  // append_num formats into a target of any code unit.
+  std::u16string s;
+  strings::append_num(s, 42);
+  CHECK(s == u"42");
+  s.clear();
+  strings::append_num<16>(s, uint16_t(0xab)); // hex "0x" prefix + zero-pad
+  CHECK(s == u"0x00ab");
+  s.clear();
+  strings::append_num<10, 5>(s, 7); // width and pad
+  CHECK(s == u"    7");
+  s.clear();
+  strings::append_num(s, double(0.25));
+  CHECK(s == u"0.25");
+
+  // num_as_string can return a wide string (code unit as the trailing arg).
+  CHECK((strings::num_as_string<16, 0, ' ', char16_t>(uint8_t(0))) == u"0x00");
+
+  // extract_num / parse_num read a number out of a wide view.
+  std::u16string_view sv = u"  123 rest";
+  auto v = strings::extract_num<int>(sv);
+  CHECK(v.has_value());
+  CHECK(*v == 123);
+  CHECK(sv == u" rest");
+  CHECK(strings::parse_num<int>(u"456", -1) == 456);
+  CHECK(strings::parse_num<int>(u"nope", -1) == -1);
+  CHECK(strings::parse_num<double>(u"2.5", -1.0) == 2.5);
+}
+
+#pragma endregion
 #pragma region Append
 
 TEST_CASE("Append", "[StringUtilsTest]") {
