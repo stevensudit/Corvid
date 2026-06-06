@@ -197,9 +197,14 @@ them):
   (promoted past `char`-sized types). Both modes read the value, so an empty
   `interned_value` is a precondition violation, as it is for `value`. Tested in
   `intern_table_test.cpp`.
-- [ ] `optional_ptr` ([../../containers/core/optional_ptr.h](../../containers/core/optional_ptr.h)):
-  print the pointee or a null marker, parallel to the `opt_string_view` null
-  handling (std formats no `optional` before C++26).
+- [x] `optional_ptr` ([../../containers/core/optional_ptr.h](../../containers/core/optional_ptr.h)):
+  own formatter inheriting the pointee's `std::formatter`, forwarding `value()`
+  with its full spec (so `{:?}` debugs the pointee when supported). A null
+  `optional_ptr` renders the unquoted `(null)` marker, parallel to the
+  `opt_string_view` null handling (std formats no `optional` before C++26).
+  Unlike `opt_string_view`, the marker is not padded: fill/align/width apply
+  only to a present pointee. Not a range, so no `format_kind` disabling. Tested
+  in `optional_ptr_test.cpp`.
 - [ ] Lower value: `custom_handle` (underlying id), `indirect_*_key` (forward to
   underlying), `own_ptr` (pointee or address, questionable).
 

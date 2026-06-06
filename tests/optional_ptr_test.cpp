@@ -273,5 +273,32 @@ TEST_CASE("Dumb", "[OptionalPtrTest]") {
 }
 
 #pragma endregion
+#pragma region Format
+
+TEST_CASE("Format", "[OptionalPtrTest]") {
+  int i{42};
+  optional_ptr<int*> p{&i};
+  optional_ptr<int*> n;
+
+  // A present pointee forwards to its formatter (with its spec); a null
+  // renders the unquoted `(null)` marker.
+  CHECK(std::format("{}", p) == "42");
+  CHECK(std::format("{:>4}", p) == "  42");
+  CHECK(std::format("{}", n) == "(null)");
+
+  // Narrow and wide both come along.
+  CHECK(std::format(L"{}", p) == L"42");
+  CHECK(std::format(L"{}", n) == L"(null)");
+
+  // `{:?}` forwards to the pointee's debug format when present.
+  std::string s{"hello"};
+  optional_ptr<std::string*> sp{&s};
+  optional_ptr<std::string*> sn;
+  CHECK(std::format("{}", sp) == "hello");
+  CHECK(std::format("{:?}", sp) == "\"hello\"");
+  CHECK(std::format("{:?}", sn) == "(null)");
+}
+
+#pragma endregion
 
 // NOLINTEND(readability-function-cognitive-complexity)

@@ -16,10 +16,14 @@
 // limitations under the License.
 
 #pragma once
+#include <format>
+
 #include "containers_shared.h"
 
 // This is internal, like it says, so don't import it.
 namespace corvid::internal {
+
+#pragma region optional_ptr
 
 // Pointer adapter with `std::optional` semantics, specialized on a raw or
 // smart pointer. It satisfies the requirements of NullablePointer, per
@@ -39,6 +43,8 @@ namespace corvid::internal {
 template<PointerLike Ptr>
 class optional_ptr final {
 public:
+#pragma region Types
+
   // Infer.
   using P = Ptr;
   using E = pointer_element_t<P>;
@@ -48,9 +54,8 @@ public:
   using raw_pointer = E*;
   using pointer = P;
 
-  //
-  // Construct
-  //
+#pragma endregion
+#pragma region Construct
 
   constexpr optional_ptr() noexcept = default;
   constexpr optional_ptr(std::nullptr_t) noexcept {}
@@ -73,9 +78,8 @@ public:
   constexpr optional_ptr& operator=(optional_ptr&& o) noexcept(
       std::is_nothrow_move_assignable_v<pointer>) = default;
 
-  //
-  // Access
-  //
+#pragma endregion
+#pragma region Access
 
   // For raw pointers, the implicit conversion to pointer operator means it can
   // be evaluated as a bool in a predicate expression or dereferenced.
@@ -158,9 +162,8 @@ public:
     return ptr_ ? *ptr_ : f();
   }
 
-  //
-  // Disabled ops.
-  //
+#pragma endregion
+#pragma region Disabled ops
 
   void operator[](size_t) const = delete;
 
@@ -176,13 +179,47 @@ public:
   template<typename V>
   friend void operator-(const V&, const optional_ptr&) = delete;
 
+#pragma endregion
+#pragma region Data members
 private:
   pointer ptr_{};
+
+#pragma endregion
+#pragma region Helpers
 
   [[nodiscard]] constexpr static auto& deref(auto&& p) {
     if (p) return *p;
     throw std::bad_optional_access{};
   }
+
+#pragma endregion
 };
 
+#pragma endregion
+
 } // namespace corvid::internal
+
+// Formatter for `optional_ptr`, narrow or wide.
+//
+// Forwards to the pointee's formatter, honoring its full spec grammar (so
+// `{:?}` debugs the pointee when the pointee type supports it). A null
+// `optional_ptr` instead renders the unquoted marker `(null)`. The marker is
+// not padded: fill, align, and width apply only to a present pointee.
+template<corvid::PointerLike Ptr, corvid::CharType CharT>
+requires std::formattable<corvid::pointer_element_t<Ptr>, CharT>
+struct std::formatter<corvid::internal::optional_ptr<Ptr>, CharT>
+    : std::formatter<corvid::pointer_element_t<Ptr>, CharT> {
+  using base = std::formatter<corvid::pointer_element_t<Ptr>, CharT>;
+
+  template<typename FormatContext>
+  auto format(const corvid::internal::optional_ptr<Ptr>& op,
+      FormatContext& ctx) const {
+    if (op.has_value()) return base::format(op.value(), ctx);
+
+    static constexpr CharT marker[]{CharT('('), CharT('n'), CharT('u'),
+        CharT('l'), CharT('l'), CharT(')')};
+    auto out = ctx.out();
+    for (const CharT c : std::basic_string_view<CharT>{marker, 6}) *out++ = c;
+    return out;
+  }
+};
