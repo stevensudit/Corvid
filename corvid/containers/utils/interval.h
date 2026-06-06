@@ -47,9 +47,9 @@ namespace corvid { inline namespace intervals {
 // move the front and back around but can't modify anything being referred to.
 // As a result, all iterators are const.
 //
-// The class is implemented as a child of `std::pair(begin, end)`, where this
-// holds a half-open interval, [begin, end), but is exposed as a closed
-// interval, [min, max], in keeping with the vector fiction.
+// Internally it holds a `std::pair(begin, end)` as a half-open interval,
+// [begin, end), but exposes a closed interval, [min, max], in keeping with the
+// vector fiction.
 //
 // Note: Iterating over an interval that ends at the maximum value for the
 // underlying type doesn't work, and can't work unless we use a prohibitively
@@ -67,7 +67,7 @@ namespace corvid { inline namespace intervals {
 // bad idea.
 template<typename V = int64_t, typename U = as_underlying_t<V>>
 requires Integer<V> || StdEnum<V>
-class interval: public std::pair<U, U> {
+class interval {
 public:
   class interval_iterator {
     // A note on iterator size:
@@ -141,7 +141,7 @@ public:
   // Types
   //
 
-  using parent = std::pair<U, U>;
+  using raw_pair = std::pair<U, U>;
   using value_type = V;
   using representation_type = U;
   using size_type = size_t;
@@ -157,17 +157,28 @@ public:
   // Construction
   //
 
-  constexpr interval() noexcept : parent{U{}, U{}} {};
+  constexpr interval() noexcept : pair_{U{}, U{}} {}
   constexpr interval(const interval&) noexcept = default;
   explicit constexpr interval(V val) noexcept : interval{val, val} {}
   constexpr interval(V min_val, V max_val) noexcept
-      : parent{as_u(min_val), as_u(max_val) + 1} {
+      : pair_{as_u(min_val), as_u(max_val) + 1} {
     assert(!invalid());
   }
 
   constexpr interval& operator=(const interval&) = default;
 
   void clear() { *this = interval{}; }
+
+  constexpr void swap(interval& other) noexcept { pair_.swap(other.pair_); }
+  friend constexpr void swap(interval& l, interval& r) noexcept { l.swap(r); }
+
+  // Compare by the underlying half-open [begin, end) representation. This also
+  // generates `operator==`.
+  [[nodiscard]] constexpr auto operator<=>(
+      const interval&) const noexcept = default;
+
+  // Convert to a copy of the underlying half-open [begin, end) pair.
+  [[nodiscard]] constexpr operator raw_pair() const noexcept { return pair_; }
 
   //
   // Iterators
@@ -241,18 +252,10 @@ public:
   constexpr bool insert(V v) noexcept {
     auto u = as_u(v);
     if (invalid()) return false;
-    if (empty()) {
-      min(u).max(u);
-      return true;
-    }
-    if (u < min()) {
-      min(u);
-      return true;
-    }
-    if (u > max()) {
-      max(u);
-      return true;
-    }
+    if (empty()) return min(u).max(u).ok();
+
+    if (u < min()) return min(u).ok();
+    if (u > max()) return max(u).ok();
     return false;
   }
 
@@ -269,8 +272,7 @@ public:
     assert(!empty());
     auto u = as_u(v);
     if (u <= max()) return false;
-    max(u);
-    return true;
+    return max(u).ok();
   }
 
   // Push value to the front.
@@ -285,8 +287,7 @@ public:
     assert(!empty());
     auto u = as_u(v);
     if (u >= min()) return false;
-    min(u);
-    return true;
+    return min(u).ok();
   }
 
   // Pop values from back.
@@ -353,18 +354,25 @@ public:
   }
 
 private:
-  [[nodiscard]] constexpr parent& p() { return static_cast<parent&>(*this); }
-  [[nodiscard]] constexpr const parent& p() const {
-    return static_cast<const parent&>(*this);
+  [[nodiscard]] constexpr bool ok() const noexcept {
+    assert(!invalid());
+    return true;
   }
-  [[nodiscard]] constexpr U& b() noexcept { return p().first; }
-  [[nodiscard]] constexpr const U& b() const noexcept { return p().first; }
+  [[nodiscard]] constexpr auto& p(this auto& self) noexcept {
+    return self.pair_;
+  }
 
-  [[nodiscard]] constexpr U& e() noexcept { return p().second; }
-  [[nodiscard]] constexpr const U& e() const noexcept { return p().second; }
+  [[nodiscard]] constexpr auto& b(this auto& self) noexcept {
+    return self.pair_.first;
+  }
+  [[nodiscard]] constexpr auto& e(this auto& self) noexcept {
+    return self.pair_.second;
+  }
 
   [[nodiscard]] static constexpr U as_u(V v) { return static_cast<U>(v); }
   [[nodiscard]] static constexpr V as_v(U u) { return static_cast<V>(u); }
+
+  raw_pair pair_{};
 };
 
 // Make interval for full range of sequence enum, for use with ranged-for.
