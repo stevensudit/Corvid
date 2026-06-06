@@ -48,3 +48,10 @@ Catch2 macros + `main`), uses `TEST_CASE("Name", "[tag]")` for test cases and
 `_FALSE` / `_THROWS_AS` variants). Tests may be per-class, per-group, or
 per-subfolder; check `tests/` before asking about coverage. Sources prefixed
 `notest_` are built but not run as part of the sweep.
+
+Always wrap the `TEST_CASE`s in a file with a
+`// NOLINTBEGIN(readability-function-cognitive-complexity)` line before the
+first one and a matching
+`// NOLINTEND(readability-function-cognitive-complexity)` after the last. The
+`CHECK` / `REQUIRE` macros expand into enough branching to trip the clang-tidy
+cognitive-complexity check, so every test file suppresses it this way.

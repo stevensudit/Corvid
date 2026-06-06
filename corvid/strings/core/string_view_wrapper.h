@@ -321,10 +321,13 @@ constexpr std::range_format std::format_kind<W> = std::range_format::disabled;
 // contents are those letters (`"(null)"`). Fill, align, width, and precision
 // apply to the marker too: a second formatter captures the spec with its `?`
 // stripped and formats the marker through that, so the base's debug quoting is
-// bypassed while its padding is reused. The exception is a dynamic width or
-// precision (`{:{}?}`), whose argument is bound to the real parse context;
-// re-parsing it against a local context would read the wrong argument, so the
-// marker falls back to unpadded there.
+// bypassed while its padding is reused. A dynamic width or precision combined
+// with the debug spec (`{:{}?}`) is rejected with a `std::format_error`: its
+// argument is bound to the real parse context, which the local marker parse
+// cannot read, so the marker could not honor it, and silently dropping the
+// padding would corrupt tabular output. The rejection is value-independent
+// (null or not); to get dynamic width with debug on a known non-null wrapper,
+// format its `view()` directly.
 //
 // Only a context whose char type matches the wrapper's is claimed; cross-type
 // transcoding is out of scope.
@@ -356,12 +359,17 @@ struct std::formatter<W, CharT>
       debug_ = true;
       // Capture the spec without the `?` so a null can be padded as the bare
       // `(null)` marker, reusing the base's fill/align/width without its debug
-      // quoting. A dynamic `{...}` width/precision binds an arg to the real
-      // context; re-parsing it locally would read the wrong argument, so drop
-      // it and let the marker fall back to unpadded.
+      // quoting. A dynamic `{...}` width or precision binds its arg to the
+      // real context, which the local marker parse cannot read, so the marker
+      // could not honor it; reject the spec rather than silently drop the
+      // padding and corrupt tabular output. (Fill cannot be `{`, so any `{` is
+      // a dynamic arg.)
       std::basic_string_view<CharT> spec{std::to_address(ctx.begin()),
           static_cast<size_t>(std::prev(it) - ctx.begin())};
-      if (spec.find(static_cast<CharT>('{')) != spec.npos) spec = {};
+      if (spec.find(static_cast<CharT>('{')) != spec.npos)
+        throw std::format_error(
+            "dynamic width or precision is unsupported "
+            "with the debug spec for a string_view_wrapper");
       parse_marker(spec);
     }
     return it;

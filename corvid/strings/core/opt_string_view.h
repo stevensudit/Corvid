@@ -57,7 +57,7 @@ inline namespace optstringview {
 // empty, and offers existence checks and defaults.
 //
 // The most convenient way to declare a `constexpr opt_string_view` is with a
-// literal using the `_osv` UDL.
+// literal using the `_optsv` UDL.
 //
 // For comparison purposes, `empty` and `null` values are equivalent. If you
 // want to check for an exact match that distinguishes between these two
@@ -176,12 +176,12 @@ namespace literals {
 
 // opt_string_view literal.
 consteval opt_string_view
-operator""_osv(const char* ps, std::size_t n) noexcept {
+operator""_optsv(const char* ps, std::size_t n) noexcept {
   return opt_string_view{ps, n};
 }
 
 // Null literal; must pass 0.
-consteval opt_string_view operator""_osv(unsigned long long zero_only) {
+consteval opt_string_view operator""_optsv(unsigned long long zero_only) {
   if (zero_only) throw std::out_of_range("opt_string_view not zero");
   return opt_string_view{};
 }

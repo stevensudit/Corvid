@@ -111,8 +111,13 @@ The marker honors fill, align, width, and precision: a second
 stripped (parsed in `parse` via a local context) and formats the marker through
 it, reusing the base's padding while bypassing its debug quoting. The one
 combination it cannot serve is a dynamic width or precision (`{:{}?}`), whose
-argument is bound to the real parse context; re-parsing against a local context
-would read the wrong argument, so the marker falls back to unpadded there.
+argument is bound to the real parse context that a local re-parse cannot read.
+Rather than silently drop the padding and corrupt tabular output, `parse`
+rejects that spec with a `std::format_error` (a compile error for a literal
+format string). The rejection is value-independent, by design: a spec whose
+validity depends on whether the value happens to be null would be a trap, so
+`{:{}?}` is rejected for null and non-null wrappers alike. Format the
+underlying `view()` for dynamic-width debug on a known non-null wrapper.
 
 #### fixed_string
 

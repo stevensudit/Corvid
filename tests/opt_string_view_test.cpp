@@ -245,21 +245,21 @@ TEST_CASE("Construction", "[OptStringViewTest]") {
   }
   // Construct using UDL.
   if (true) {
-    auto a = ""_osv;
+    auto a = ""_optsv;
     CHECK(a.empty());
     CHECK_FALSE(a.null());
-    auto b = "abc"_osv;
+    auto b = "abc"_optsv;
     CHECK(b.size() == 3U);
     // Embedded zeros are permitted.
-    auto c = "abc\0def"_osv;
+    auto c = "abc\0def"_optsv;
     CHECK(c.size() == 7U);
     // NOLINTNEXTLINE(bugprone-suspicious-stringview-data-usage)
     auto d = opt_string_view(c.data());
     CHECK(d.size() == 3U);
-    auto e = 0_osv;
+    auto e = 0_optsv;
     CHECK(e.null());
     // The following won't even compile:
-    //*    1_osv;
+    //*    1_optsv;
   }
 }
 
@@ -366,13 +366,13 @@ std::string_view accept_overloaded(opt_string_view) { return "osv"; }
 
 TEST_CASE("Cast", "[OptStringViewTest]") {
   // Casts "up" implicitly.
-  CHECK("abc"_osv == "abc"_osv);
+  CHECK("abc"_optsv == "abc"_optsv);
   CHECK(accept_string_view("abc"sv) == "abc");
   auto abc_str = "abc"s;
   CHECK(accept_string_view(abc_str) == "abc");
-  CHECK(accept_string_view("abc"_osv) == "abc");
+  CHECK(accept_string_view("abc"_optsv) == "abc");
 
-  CHECK(accept_opt_string_view("abc"_osv) == "abc");
+  CHECK(accept_opt_string_view("abc"_optsv) == "abc");
   CHECK(accept_opt_string_view(abc_str) == "abc");
 
   // Or down.
@@ -380,7 +380,7 @@ TEST_CASE("Cast", "[OptStringViewTest]") {
 
   // Handles overloading just fine.
   CHECK(accept_overloaded("abc"sv) == "sv");
-  CHECK(accept_overloaded("abc"_osv) == "osv");
+  CHECK(accept_overloaded("abc"_optsv) == "osv");
 
   // But not this ambiguity.
   // Need to either cast here or add a specific overload.
@@ -390,7 +390,7 @@ TEST_CASE("Cast", "[OptStringViewTest]") {
   CHECK_FALSE((std::is_same_v<opt_string_view, std::string_view>));
   CHECK(StringViewConvertible<opt_string_view>);
 
-  auto osv = "abc"_osv;
+  auto osv = "abc"_optsv;
 
   // Converts to `std::string_view` by value. The conversion yields a copy, so
   // (unlike the old design that inherited from `std::string_view`)
@@ -416,7 +416,7 @@ TEST_CASE("Sanity", "[OptStringViewTest]") {
   CHECK(osv.null());
   osv = "world";
   CHECK(osv == "world");
-  osv = "bird"_osv;
+  osv = "bird"_optsv;
   CHECK(osv == "bird");
 }
 
@@ -430,32 +430,32 @@ TEST_CASE("OptStringViewTestEqual", "[OptStringViewTestEqual]") {
   CHECK("abc"sv == "abc"s);
 
   // osv
-  CHECK("abc"_osv == "abc");
-  CHECK("abc"_osv == "abc"sv);
-  CHECK("abc"_osv == "abc"s);
-  CHECK("abc"_osv == "abc"_osv);
+  CHECK("abc"_optsv == "abc");
+  CHECK("abc"_optsv == "abc"sv);
+  CHECK("abc"_optsv == "abc"s);
+  CHECK("abc"_optsv == "abc"_optsv);
 
   // commutative
-  CHECK("abc" == "abc"_osv);
-  CHECK("abc"_osv == "abc");
+  CHECK("abc" == "abc"_optsv);
+  CHECK("abc"_optsv == "abc");
 
-  CHECK("abc"sv == "abc"_osv);
-  CHECK("abc"_osv == "abc"sv);
+  CHECK("abc"sv == "abc"_optsv);
+  CHECK("abc"_optsv == "abc"sv);
 
-  CHECK("abc"s == "abc"_osv);
-  CHECK("abc"_osv == "abc"s);
+  CHECK("abc"s == "abc"_optsv);
+  CHECK("abc"_optsv == "abc"s);
 
   // operator!= is synthesized from operator== (C++20), in both directions.
-  CHECK("abc"_osv != "def");
-  CHECK("def" != "abc"_osv);
-  CHECK_FALSE("abc"_osv != "abc");
+  CHECK("abc"_optsv != "def");
+  CHECK("def" != "abc"_optsv);
+  CHECK_FALSE("abc"_optsv != "abc");
 
   // null and empty.
-  constexpr auto e = ""_osv;
-  constexpr auto n = 0_osv;
+  constexpr auto e = ""_optsv;
+  constexpr auto n = 0_optsv;
 
   // The following won't even compile.
-  // * 1_osv
+  // * 1_optsv
 
   // It's really constexpr, despite throwing on non-0, because it knows at
   // compile-time that it's 0.
@@ -503,13 +503,13 @@ TEST_CASE("OptStringViewTestEqual", "[OptStringViewTestEqual]") {
   i = !n ? 24 : 42;
   CHECK(i == 24);
 
-  CHECK("abc"_osv == "abc"_osv);
-  CHECK(("abc"_osv) < ("def"_osv));
+  CHECK("abc"_optsv == "abc"_optsv);
+  CHECK(("abc"_optsv) < ("def"_optsv));
 
   // Hash test.
   std::set<opt_string_view> ss;
-  ss.insert("abc"_osv);
-  CHECK(ss.contains("abc"_osv));
+  ss.insert("abc"_optsv);
+  CHECK(ss.contains("abc"_optsv));
 }
 
 #pragma endregion

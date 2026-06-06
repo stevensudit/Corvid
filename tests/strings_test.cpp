@@ -152,9 +152,9 @@ TEST_CASE("SplitPg", "[StringUtilsTest]") {
 
     CHECK(strings::split_gen(std::string_view{}) == V{});
     CHECK(strings::split_gen(opt_string_view{std::nullopt}) == V{});
-    CHECK(strings::split_gen(0_osv) == V{});
+    CHECK(strings::split_gen(0_optsv) == V{});
     CHECK(strings::split_gen(""sv) == V{""});
-    CHECK(strings::split_gen(""_osv) == V{""});
+    CHECK(strings::split_gen(""_optsv) == V{""});
     CHECK(strings::split_gen("1"sv) == V{"1"});
     CHECK(strings::split_gen("1 "sv) == V{"1", ""});
     CHECK(strings::split_gen(" 1"sv) == V{"", "1"});
@@ -175,9 +175,9 @@ TEST_CASE("SplitPg", "[StringUtilsTest]") {
     CHECK((split_gen<PG, R>(std::string_view{})) == V{});
     CHECK((split_gen<PG, R>((opt_string_view{std::nullopt}))) == V{});
     CHECK((split_gen<PG, R>((opt_string_view{std::nullopt}))) == V{});
-    CHECK((split_gen<PG, R>((0_osv))) == V{});
+    CHECK((split_gen<PG, R>((0_optsv))) == V{});
     CHECK((split_gen<PG, R>((""sv))) == V{""});
-    CHECK((split_gen<PG, R>((""_osv))) == V{""});
+    CHECK((split_gen<PG, R>((""_optsv))) == V{""});
     CHECK((split_gen<PG, R>(("1"sv))) == V{"1"});
     CHECK((split_gen<PG, R>(("1 "sv))) == V{"1", ""});
     CHECK((split_gen<PG, R>((" 1"sv))) == V{"", "1"});
@@ -276,8 +276,8 @@ TEST_CASE("Case", "[StringUtilsTest]") {
 
   // `string_view_wrapper` children flow through `char_type_of`/`as_view`
   // automatically, since they convert to a `std::basic_string_view`.
-  CHECK(strings::as_upper("abc"_csv) == "ABC");
-  CHECK(strings::ci_equal("Hi"_osv, "hi"));
+  CHECK(strings::as_upper("abc"_czsv) == "ABC");
+  CHECK(strings::ci_equal("Hi"_optsv, "hi"));
 }
 
 #pragma endregion
