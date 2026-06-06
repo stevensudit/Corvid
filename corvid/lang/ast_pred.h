@@ -141,12 +141,14 @@ public:
   [[nodiscard]] static std::shared_ptr<node> make(Args&&... args);
 
   static bool dump(std::string& out, const any_single_value& value) {
-    if (std::holds_alternative<std::string>(value))
-      strings::append(out, '"', std::get<std::string>(value), '"');
-    else if (std::holds_alternative<int64_t>(value))
+    if (std::holds_alternative<std::string>(value)) {
+      out += '"';
+      out += std::get<std::string>(value);
+      out += '"';
+    } else if (std::holds_alternative<int64_t>(value))
       strings::append_num(out, std::get<int64_t>(value));
     else
-      strings::append(out, "null");
+      out += "null";
     return true;
   }
 
@@ -155,38 +157,38 @@ public:
       return dump(out, std::get<any_single_value>(value));
     if (std::holds_alternative<std::vector<any_single_value>>(value)) {
       const auto& values = std::get<std::vector<any_single_value>>(value);
-      strings::append(out, '[');
+      out += '[';
       for (const auto& v : values) {
         if (!dump(out, v)) return false;
-        strings::append(out, ", ");
+        out += ", ";
       }
       if (!values.empty()) out.resize(out.size() - 2);
-      strings::append(out, ']');
+      out += ']';
       return true;
     }
-    strings::append(out, "null");
+    out += "null";
     return true;
   }
 
   static bool dump(std::string& out, const key_or_value& value) {
     if (std::holds_alternative<std::string>(value))
-      strings::append(out, std::get<std::string>(value));
+      out += std::get<std::string>(value);
     else if (std::holds_alternative<any_value>(value))
       return dump(out, std::get<any_value>(value));
     else
-      strings::append(out, "null");
+      out += "null";
 
     return true;
   }
 
   static bool dump(std::string& out, const node_list& nodes) {
-    strings::append(out, ":(");
+    out += ":(";
     for (const auto& n : nodes) {
       n->append(out);
-      strings::append(out, ", ");
+      out += ", ";
     }
     if (!nodes.empty()) out.resize(out.size() - 2);
-    strings::append(out, ')');
+    out += ')';
     return true;
   }
 };
@@ -261,9 +263,9 @@ struct unary_leaf: public node {
 
   bool append(std::string& out) const override {
     node::append(out);
-    strings::append(out, ":(");
+    out += ":(";
     node::dump(out, value);
-    strings::append(out, ')');
+    out += ')';
     return true;
   }
 
@@ -276,11 +278,11 @@ struct binary_leaf: public node {
 
   bool append(std::string& out) const override {
     node::append(out);
-    strings::append(out, ":(");
+    out += ":(";
     node::dump(out, lhs);
-    strings::append(out, ", ");
+    out += ", ";
     node::dump(out, rhs);
-    strings::append(out, ')');
+    out += ')';
     return true;
   }
 

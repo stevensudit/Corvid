@@ -22,6 +22,8 @@
 #include <type_traits>
 
 #include "../corvid/strings.h"
+#include "../corvid/strings/utils/concat_join.h"
+
 std::ostream&
 operator<<(std::ostream& os, const corvid::strings::location& l) {
   return os << "location{" << l.pos << ", " << l.pos_value << "}";
