@@ -112,7 +112,7 @@ constexpr T parse_num(const S& s, T default_value) {
 template<int base = 10, size_t width = 0, char pad = ' '>
 constexpr auto& append_num(AnyAppendTarget auto& target, Integer auto num) {
   auto a = appender{target};
-  using C = typename decltype(a)::view_t::value_type;
+  using C = decltype(a)::view_t::value_type;
   std::array<C, 64> b;
   auto [ptr, ec] = int_to_chars(b.data(), b.data() + b.size(), num, base);
   if (ec != std::errc{}) return target;
@@ -230,7 +230,7 @@ template<std::chars_format fmt = std::chars_format::general,
 constexpr auto&
 append_num(AnyAppendTarget auto& target, std::floating_point auto num) {
   auto a = appender{target};
-  using C = typename decltype(a)::view_t::value_type;
+  using C = decltype(a)::view_t::value_type;
   std::array<C, 64> b;
   auto [ptr, ec] =
       float_to_chars(b.data(), b.data() + b.size(), num, fmt, precision);

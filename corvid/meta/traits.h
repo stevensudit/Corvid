@@ -73,7 +73,7 @@ public:
 };
 
 template<typename T>
-using char_type_of_t = typename char_type_of<T>::type;
+using char_type_of_t = char_type_of<T>::type;
 
 // Determine whether `T` is a `bool`.
 template<typename T>

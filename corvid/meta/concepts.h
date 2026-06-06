@@ -59,9 +59,18 @@ concept AnyStdString = requires {
   typename T::value_type;
 } && BasicStdString<T, typename T::value_type>;
 
+// `T` must be an append target backed by an output iterator. Recognized
+// structurally by its `append_char_type` member, which names the code unit it
+// accepts; see `output_iterator_appendable` in strings/core/targeting.h. This
+// low-level concept needs no dependency on that header.
+template<typename T>
+concept OutputIteratorAppendable = requires { typename T::append_char_type; };
+
 // `T` must be a target to append to with code unit `C`.
 template<typename T, typename C>
-concept BasicAppendTarget = BasicOStreamDerived<T, C> || BasicStdString<T, C>;
+concept BasicAppendTarget =
+    BasicOStreamDerived<T, C> || BasicStdString<T, C> ||
+    (OutputIteratorAppendable<T> && SameAs<C, typename T::append_char_type>);
 
 // `T` must be a target to append to.
 template<typename T>
@@ -69,7 +78,8 @@ concept AppendTarget = BasicAppendTarget<T, char>;
 
 // `T` must be a target to append to with some code unit.
 template<typename T>
-concept AnyAppendTarget = AnyOStreamDerived<T> || AnyStdString<T>;
+concept AnyAppendTarget =
+    AnyOStreamDerived<T> || AnyStdString<T> || OutputIteratorAppendable<T>;
 
 // `T` must be an enum, which could be scoped or not.
 template<typename T>

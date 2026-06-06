@@ -256,7 +256,7 @@ split_gen(std::basic_string_view<typename PG::char_t> whole) {
 // need access to it afterwards.
 template<typename R = void, PieceGenerator PG>
 [[nodiscard]] constexpr auto split(PG pgen) {
-  using C = typename PG::char_t;
+  using C = PG::char_t;
   using result_t =
       std::conditional_t<std::is_void_v<R>, std::basic_string_view<C>, R>;
   std::vector<result_t> parts;

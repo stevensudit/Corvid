@@ -36,18 +36,34 @@ Shipped in [enum_formatter.h](enum_formatter.h), tested by
 
 `std::format` does not format enums at all. A single
 `std::formatter<E, CharT>` partial specialization, constrained on
-`corvid::ScopedEnum`, covers all three flavors by delegating to
-`corvid::strings::enum_as_string` (see
+`corvid::ScopedEnum`, covers all three flavors by writing straight into the
+format context's output iterator through `corvid::strings::append_enum` (see
 [../utils/enum_conversion.h](../utils/enum_conversion.h)): a registered
 sequence enum prints by name, a registered bitmask enum prints as its
 "a + b + c" combination, and an unregistered scoped enum prints as its numeric
-underlying value. It inherits `std::formatter<basic_string_view<CharT>, CharT>`
-to reuse the standard fill/align/width/precision spec.
+underlying value.
+
+No intermediate string: the formatter wraps `ctx.out()` in
+`output_iterator_appendable<It, SrcChar, DestChar>` (added to
+[../core/targeting.h](../core/targeting.h), wired into the `AppendTarget`
+concepts in [../../meta/concepts.h](../../meta/concepts.h)). It is an append
+target generic in its input code unit `SrcChar` (matched by the concepts via an
+`append_char_type` member), converting each unit to `DestChar` on the way out:
+identity when the units match, a value-preserving widen when narrower. The enum
+case is `char` in, `CharT` out; a later wide-content formatter (quoted strings)
+can be `CharT` in, `CharT` out. Real multibyte transcoding (UTF-8 to UTF-16) is
+out of scope. This is reusable infrastructure: any later formatter can append
+into `ctx.out()` the same way.
 
 Additive, no std conflict (std formats no enums), and `CharT`-templated so wide
 comes along. Enum-name storage stays `char`: there is no multi-type name
-storage and no justification for one. The wide formatter widens the ASCII name
-`char` -> `CharT` at format time.
+storage and no justification for one; the output target does the ASCII `char`
+-> `CharT` widening at format time.
+
+Trade-off: appending directly into `ctx.out()` forgoes the inherited
+string_view formatter, so the formatter accepts only the empty spec (no fill,
+align, width, or precision). Supporting those would need a materialized string
+to pad, reintroducing an allocation. Revisit only if a caller needs it.
 
 ### 2. corvid::fmt wrappers (scope to confirm after stage 1)
 

@@ -15,6 +15,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 #pragma once
+#include <type_traits>
+
 #include "strings_shared.h"
 
 namespace corvid::strings { inline namespace targeting {
@@ -36,6 +38,22 @@ namespace corvid::strings { inline namespace targeting {
 // Base template forward declaration. Only specialized for supported targets.
 template<typename T>
 class appender;
+
+// Append target that forwards output to an output iterator, converting each
+// `SrcChar` input unit to the destination unit `DestChar` (which defaults to
+// `SrcChar`, a plain passthrough). This lets the append machinery (enum names,
+// numbers, delimiters, quoted strings) write straight into a `std::format`
+// context's output iterator, with no intermediate string. The conversion is
+// per code unit: an identity copy when the units match, and a value-preserving
+// widen when `SrcChar` is narrower (e.g. char names into a wide context). It
+// does not decode multibyte encodings; real transcoding (such as UTF-8 to
+// UTF-16) is out of scope. The `out` iterator is live and is advanced in place
+// as appends occur.
+template<typename It, CharType SrcChar, CharType DestChar = SrcChar>
+struct output_iterator_appendable {
+  using append_char_type = SrcChar;
+  It out;
+};
 
 // Base class with shared functionality using C++23 deducing this.
 // This replaces the CRTP pattern - the `this auto&& self` parameter deduces
@@ -89,7 +107,7 @@ protected:
 // `std::basic_ostream` specialization.
 template<AnyOStreamDerived T>
 class appender<T> final: public appender_base<T, typename T::char_type> {
-  using char_t = typename T::char_type;
+  using char_t = T::char_type;
   using base = appender_base<T, char_t>;
   using base::target_;
 
@@ -116,7 +134,7 @@ private:
 // `std::basic_string` specialization.
 template<AnyStdString T>
 class appender<T> final: public appender_base<T, typename T::value_type> {
-  using char_t = typename T::value_type;
+  using char_t = T::value_type;
   using base = appender_base<T, char_t>;
   using base::target_;
 
@@ -143,6 +161,43 @@ private:
       target_.push_back(ch);
     else
       target_.append(len, ch);
+    return *this;
+  }
+
+#pragma endregion
+};
+
+// `output_iterator_appendable` specialization: `SrcChar` in, `DestChar` out.
+template<typename It, CharType SrcChar, CharType DestChar>
+class appender<output_iterator_appendable<It, SrcChar, DestChar>> final
+    : public appender_base<output_iterator_appendable<It, SrcChar, DestChar>,
+          SrcChar> {
+  using target_t = output_iterator_appendable<It, SrcChar, DestChar>;
+  using base = appender_base<target_t, SrcChar>;
+  using base::target_;
+
+#pragma region Construction
+public:
+  using base::base;
+
+#pragma endregion
+#pragma region Appending
+private:
+  friend base;
+  // Per-unit conversion: identity when the units match, otherwise a widen
+  // through the unsigned value, so a high byte maps to its code point rather
+  // than sign-extending.
+  static constexpr DestChar to_dest(SrcChar unit) {
+    return static_cast<DestChar>(
+        static_cast<std::make_unsigned_t<SrcChar>>(unit));
+  }
+  auto& append_sv(std::basic_string_view<SrcChar> sv) {
+    for (const SrcChar unit : sv) *target_.out++ = to_dest(unit);
+    return *this;
+  }
+  auto& append_ch(size_t len, SrcChar unit) {
+    const DestChar dest = to_dest(unit);
+    while (len--) *target_.out++ = dest;
     return *this;
   }
 

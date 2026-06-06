@@ -75,14 +75,6 @@ TEST_CASE("Unregistered scoped enum formats numerically",
   }
 }
 
-TEST_CASE("String format spec is honored", "[EnumFormatterTest]") {
-  if (true) {
-    // Fill, align, and width come from the inherited string formatter.
-    CHECK(std::format("{:>6}", hue::red) == "   red");
-    CHECK(std::format("{:*<6}", hue::red) == "red***");
-  }
-}
-
 TEST_CASE("Wide formatting widens the name", "[EnumFormatterTest]") {
   if (true) {
     CHECK(std::format(L"{}", hue::green) == L"green");

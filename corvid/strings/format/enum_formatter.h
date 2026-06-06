@@ -16,38 +16,37 @@
 // limitations under the License.
 #pragma once
 #include <format>
-#include <string>
-#include <string_view>
-#include <type_traits>
 
 #include "../../meta/concepts.h"
+#include "../core/targeting.h"
 #include "../utils/enum_conversion.h"
 
 // Formatter for any scoped enum, narrow or wide.
 //
-// Renders the value through Corvid's enum string conversion, so all three
-// flavors are covered by the existing registry: a registered sequence enum
+// Writes the value straight into the format context's output iterator through
+// Corvid's enum string conversion, so all three flavors are covered by the
+// existing registry with no intermediate string: a registered sequence enum
 // prints by name, a registered bitmask enum prints as its "a + b + c"
 // combination, and an unregistered scoped enum prints as its numeric
-// underlying value. The standard string format spec (fill, align, width,
-// precision) is honored, inherited from the string_view formatter.
+// underlying value.
 //
-// Enum names are stored as char; for a wide CharT they are widened at format
-// time. Corvid names are 7-bit ASCII, so the widening is a direct per-unit
-// conversion.
+// Enum names are stored as char; for a wide CharT the per-unit widening
+// happens in the output target (see
+// corvid::strings::output_iterator_appendable). Corvid names are 7-bit ASCII,
+// so the widening is a direct per-unit conversion.
+//
+// Only the default (empty) format spec is accepted: there is no fill, align,
+// width, or precision.
 template<corvid::ScopedEnum E, typename CharT>
-struct std::formatter<E, CharT>
-    : std::formatter<std::basic_string_view<CharT>, CharT> {
-  using base = std::formatter<std::basic_string_view<CharT>, CharT>;
+struct std::formatter<E, CharT> {
+  constexpr auto parse(auto& ctx) { return ctx.begin(); }
 
   template<typename FormatContext>
   auto format(E e, FormatContext& ctx) const {
-    const std::string narrow = corvid::strings::enum_as_string(e);
-    if constexpr (std::is_same_v<CharT, char>) {
-      return base::format(narrow, ctx);
-    } else {
-      const std::basic_string<CharT> wide(narrow.begin(), narrow.end());
-      return base::format(wide, ctx);
-    }
+    corvid::strings::output_iterator_appendable<
+        typename FormatContext::iterator, char, CharT>
+        target{ctx.out()};
+    corvid::strings::append_enum(target, e);
+    return target.out;
   }
 };

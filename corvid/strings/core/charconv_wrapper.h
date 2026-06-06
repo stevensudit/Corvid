@@ -149,7 +149,10 @@ requires(!std::same_as<T, bool>)
 int_to_chars(CharT* first, CharT* last, T value, int base = 10) noexcept {
   using U = std::make_unsigned_t<T>;
   bool negative = false;
-  U mag = static_cast<U>(value);
+  // U is make_unsigned_t<T>: for a signed value this is a same-width
+  // reinterpret to its two's-complement bit pattern, not a widening, so the
+  // sign cannot extend.
+  U mag = static_cast<U>(value); // NOLINT(bugprone-signed-char-misuse)
   if constexpr (std::is_signed_v<T>)
     if (value < 0) {
       negative = true;

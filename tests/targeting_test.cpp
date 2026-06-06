@@ -14,6 +14,7 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
+#include <iterator>
 #include <ostream>
 #include <sstream>
 #include <string>
@@ -24,6 +25,8 @@
 
 using namespace std::literals;
 using namespace corvid::strings;
+
+// NOLINTBEGIN(readability-function-cognitive-complexity)
 
 #pragma region AppenderString
 
@@ -68,3 +71,46 @@ TEST_CASE("AppenderStream", "[targeting]") {
 }
 
 #pragma endregion
+#pragma region AppenderOutputIterator
+
+TEST_CASE("AppenderOutputIteratorPassthrough", "[targeting]") {
+  SECTION("char") {
+    std::string s;
+    output_iterator_appendable<std::back_insert_iterator<std::string>, char>
+        target{std::back_inserter(s)};
+    appender{target}.append("ab"sv).append('c').append(size_t{2}, 'd');
+    CHECK(s == "abcdd");
+  }
+  SECTION("wchar_t") {
+    std::wstring s;
+    output_iterator_appendable<std::back_insert_iterator<std::wstring>,
+        wchar_t>
+        target{std::back_inserter(s)};
+    appender{target}.append(L"hi").append(L'!');
+    CHECK(s == L"hi!");
+  }
+}
+
+TEST_CASE("AppenderOutputIteratorWiden", "[targeting]") {
+  SECTION("char to wchar_t") {
+    std::wstring s;
+    output_iterator_appendable<std::back_insert_iterator<std::wstring>, char,
+        wchar_t>
+        target{std::back_inserter(s)};
+    appender{target}.append("ab"sv).append('c');
+    CHECK(s == L"abc");
+  }
+  SECTION("high byte widens to its code point, not sign-extended") {
+    std::wstring s;
+    output_iterator_appendable<std::back_insert_iterator<std::wstring>, char,
+        wchar_t>
+        target{std::back_inserter(s)};
+    appender{target}.append(static_cast<char>(0xE9));
+    REQUIRE(s.size() == 1);
+    CHECK(s[0] == static_cast<wchar_t>(0xE9));
+  }
+}
+
+#pragma endregion
+
+// NOLINTEND(readability-function-cognitive-complexity)
