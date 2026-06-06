@@ -81,6 +81,12 @@ labeled lead-in line and `-` bullets:
     the `#pragma endregion`.
   - No blank line between a `#pragma endregion` and the next `#pragma region`;
     the two pragma lines are adjacent.
+  - When a region begins at an access-specifier change, the `#pragma region X`
+    line comes first and the `public:`/`private:` sits immediately on the next
+    line, with no blank line between them and the region's content following
+    directly: the access specifier takes the place of the usual blank line
+    after the opener. The class's opening access specifier is the exception, it
+    precedes the first `#pragma region` (which then keeps its blank line).
   - Pragmas are moved to column 0 by clang-format.
 
 ```cpp
@@ -94,6 +100,28 @@ labeled lead-in line and `-` bullets:
 ```
 
 (`corvid/strings/core/delimiting.h`.)
+
+Region-with-access example: the opening `public:` precedes the first region,
+while a later region that switches access hugs its specifier.
+
+```cpp
+class circular_buffer final {
+public:
+#pragma region Types
+
+  using value_type = T;
+
+#pragma endregion
+#pragma region iterator_t
+private:
+  template<typename CB>
+  class iterator_t { ... };
+
+#pragma endregion
+};
+```
+
+(`corvid/containers/core/circular_buffer.h`.)
 
 ## Region organization
 

@@ -205,17 +205,37 @@ them):
   Unlike `opt_string_view`, the marker is not padded: fill/align/width apply
   only to a present pointee. Not a range, so no `format_kind` disabling. Tested
   in `optional_ptr_test.cpp`.
-- [ ] Lower value: `custom_handle` (underlying id), `indirect_*_key` (forward to
-  underlying), `own_ptr` (pointee or address, questionable).
+- [x] `custom_handle` ([../../containers/core/custom_handle.h](../../containers/core/custom_handle.h)):
+  own formatter inheriting the `element_type`'s `std::formatter`, dereferencing
+  a live handle and forwarding with its full spec; a null handle (equal to
+  `null_v`) renders the unquoted `(null)` marker, exactly like `optional_ptr`
+  (marker unpadded). Not a range, so no `format_kind` disabling. Tested in
+  `containers_test.cpp` (`[CustomHandleTest]` Format). Note the element must
+  itself be formattable, so an enum `element_type` (the file-descriptor case)
+  needs the enum formatter in scope at the call site.
+- [x] `indirect_hash_key` / `indirect_map_key`
+  ([../../containers/core/indirect_key.h](../../containers/core/indirect_key.h)):
+  each acts like its referenced key, so its formatter inherits the key's
+  `std::formatter<T, CharT>` and forwards the `key` reference, honoring the
+  key's full spec grammar. No null state. Tested in `containers_test.cpp`
+  (`[IndirectKey]`).
+- [ ] Lower value: `own_ptr` (pointee or address, questionable).
 
-Containers already free via std ranges (verify, probably no code):
+Containers already free via std ranges:
 
-- [ ] `circular_buffer` ([../../containers/core/circular_buffer.h](../../containers/core/circular_buffer.h)):
-  a range, formats as `[...]` once elements format; confirm it models
-  `input_range`.
-- [ ] `enum_vector` ([../../containers/utils/enum_vector.h](../../containers/utils/enum_vector.h)):
-  free as a plain sequence; a custom formatter is optional, only to render enum
-  keys (`{red: 1, green: 2}`) rather than a bare list.
+- [x] `circular_buffer` ([../../containers/core/circular_buffer.h](../../containers/core/circular_buffer.h)):
+  formats as `[...]` via the std range formatter, in logical front-to-back
+  order. This needed an iterator fix, not a formatter: `iterator_t` advertised
+  `forward_iterator_tag` but did not model even `input_iterator`, so the type
+  was not a `std::ranges::range` and would not format. Two defects, both fixed:
+  no default constructor (not `semiregular`, so it failed `sentinel_for`) and
+  non-const `operator*`/`operator->` (failed `indirectly_readable`). It now
+  models `forward_range`. Tested in `circular_buffer_test.cpp` (`Format`).
+- [x] `enum_vector` ([../../containers/utils/enum_vector.h](../../containers/utils/enum_vector.h)):
+  free as a plain sequence through the std range formatter, narrow and wide, no
+  code. Tested in `containers_test.cpp` (`[EnumVector]`). A custom formatter to
+  render enum keys (`{red: 1, green: 2}`) instead of a bare list remains
+  optional and unimplemented.
 
 Excluded (not value types to print): `any_strings` (a `std::variant` alias,
 awkward to format), `pos_range` / `location` (marginal debug structs), and the

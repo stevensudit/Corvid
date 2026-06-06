@@ -16,6 +16,7 @@
 // limitations under the License.
 
 #pragma once
+#include <format>
 
 #include "containers_shared.h"
 
@@ -26,6 +27,8 @@
 // works fine with `own_ptr`, which is a replacement class.
 
 namespace corvid { inline namespace custhandle {
+
+#pragma region custom_handle
 
 // A `custom_handle` is a wrapper for a raw pointer, or for a resource ID that
 // is the moral equivalent of one, such as a file descriptor. It fulfills
@@ -83,11 +86,16 @@ namespace corvid { inline namespace custhandle {
 template<typename TAG, typename T, typename TPtr = T*, TPtr N = nullptr>
 class custom_handle final {
 public:
+#pragma region Types
+
   using element_type = T;
   using resource_id_type = TPtr;
   using tag_type = TAG;
   using reference_type = element_type&;
   static constexpr resource_id_type null_v = N;
+
+#pragma endregion
+#pragma region Construction
 
   custom_handle() noexcept = default;
   custom_handle(std::nullptr_t) noexcept {}
@@ -96,6 +104,9 @@ public:
   custom_handle(element_type element)
       : resource_{static_cast<resource_id_type>(element)} {}
   custom_handle(resource_id_type resource) : resource_(resource) {}
+
+#pragma endregion
+#pragma region Assignment
 
   custom_handle& operator=(std::nullptr_t) noexcept {
     resource_ = null_v;
@@ -111,6 +122,9 @@ public:
     return *this;
   }
 
+#pragma endregion
+#pragma region Access
+
   [[nodiscard]] reference_type operator*() const {
     if constexpr (std::is_pointer_v<resource_id_type>)
       return *reinterpret_cast<element_type*>(resource_);
@@ -124,6 +138,9 @@ public:
     else
       return reinterpret_cast<element_type*>(&resource_);
   }
+
+#pragma endregion
+#pragma region Comparison
 
   [[nodiscard]] friend bool
   operator==(const custom_handle& p, std::nullptr_t) {
@@ -140,9 +157,43 @@ public:
 
   [[nodiscard]] explicit operator bool() const { return resource_ != null_v; }
 
+#pragma endregion
+#pragma region Data members
+
   // Note: Mutable because a const pointer to a mutable resource allows mutable
   // access and this is just as true for resource ID's.
   mutable resource_id_type resource_ = null_v;
+
+#pragma endregion
 };
 
+#pragma endregion
+
 }} // namespace corvid::custhandle
+
+// Formatter for `custom_handle`, narrow or wide.
+//
+// Forwards to the `element_type` formatter, dereferencing the handle and
+// honoring the element's full spec grammar (so `{:?}` debugs the element when
+// it supports it). A null handle (one comparing equal to `null_v`) instead
+// renders the unquoted marker `(null)`. As with `optional_ptr`, the marker is
+// not padded: fill, align, and width apply only to a live handle.
+template<typename TAG, typename T, typename TPtr, TPtr N,
+    corvid::CharType CharT>
+requires std::formattable<T, CharT>
+struct std::formatter<corvid::custhandle::custom_handle<TAG, T, TPtr, N>,
+    CharT>: std::formatter<T, CharT> {
+  using base = std::formatter<T, CharT>;
+
+  template<typename FormatContext>
+  auto format(const corvid::custhandle::custom_handle<TAG, T, TPtr, N>& h,
+      FormatContext& ctx) const {
+    if (h) return base::format(*h, ctx);
+
+    static constexpr CharT marker[]{CharT('('), CharT('n'), CharT('u'),
+        CharT('l'), CharT('l'), CharT(')')};
+    auto out = ctx.out();
+    for (const CharT c : std::basic_string_view<CharT>{marker, 6}) *out++ = c;
+    return out;
+  }
+};
