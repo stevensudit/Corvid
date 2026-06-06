@@ -60,7 +60,7 @@ struct std::formatter<E, CharT> {
   template<typename FormatContext>
   auto format(E e, FormatContext& ctx) const {
     using namespace corvid::strings;
-    using It = typename FormatContext::iterator;
+    using It = FormatContext::iterator;
     if (!debug_) {
       output_iterator_appendable<It, char, CharT> target{ctx.out()};
       append_enum(target, e);
