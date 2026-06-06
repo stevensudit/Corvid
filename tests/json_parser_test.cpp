@@ -17,7 +17,6 @@
 
 #include "../corvid/proto.h"
 
-#include <sstream>
 #include <string>
 
 #include "catch2_main.h"
@@ -158,6 +157,22 @@ TEST_CASE("EscapesAndTrustedStrings", "[JsonWriter]") {
 }
 
 #pragma endregion
+#pragma region Writer_EscapesControlAndNamedChars
+
+TEST_CASE("EscapesControlAndNamedChars", "[JsonWriter]") {
+  std::string out;
+  json_writer writer{out};
+
+  {
+    auto root = writer.object();
+    // Quote, backslash, newline (named escapes) and a control char (\uXXXX).
+    root->member("s", "a\"b\\c\nd\x01z");
+  }
+
+  CHECK(out == "{\"s\":\"a\\\"b\\\\c\\nd\\u0001z\"}");
+}
+
+#pragma endregion
 #pragma region Writer_FormatsFloatsAndRoundTrips
 
 TEST_CASE("FormatsFloatsAndRoundTrips", "[JsonWriter]") {
@@ -208,10 +223,10 @@ TEST_CASE("FormatsFloatsAndRoundTrips", "[JsonWriter]") {
 }
 
 #pragma endregion
-#pragma region Writer_WritesToOstreamTargets
+#pragma region Writer_WritesScalarsAndTrusted
 
-TEST_CASE("WritesToOstreamTargets", "[JsonWriter]") {
-  std::ostringstream out;
+TEST_CASE("WritesScalarsAndTrusted", "[JsonWriter]") {
+  std::string out;
   json_writer writer{out};
 
   {
@@ -222,7 +237,7 @@ TEST_CASE("WritesToOstreamTargets", "[JsonWriter]") {
     items->value(nullptr).value(json_trusted{"raw"});
   }
 
-  CHECK(out.str() == R"({"ok":true,"items":[null,"raw"]})");
+  CHECK(out == R"({"ok":true,"items":[null,"raw"]})");
 }
 
 #pragma endregion

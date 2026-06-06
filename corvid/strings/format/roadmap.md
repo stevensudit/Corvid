@@ -272,29 +272,27 @@ forwarder to a single declaration instead of a full specialization. Factor the
 `format_kind`-disabling pattern at the same time. Revisit this tail once that
 helper exists, or sooner if a specific type needs to print.
 
-### 3. Retire concat_join (migration)
+### 3. Retire concat_join (done)
 
-`concat_join` never met its original goal. It handles basic types, but its
-ad-hoc register-a-type extension mechanism was never broadly adopted. Broad
-`std::formatter` coverage makes it redundant: anything that benefits gets a
-formatter instead. Once each consumer moves to the std path, `concat_join`
-retires. A few pieces may be worth salvaging as a simple, fast path for the
-spots that already use it that way, but the file as a whole is slated for
-removal. This is gated on the std path being a full replacement per consumer.
+`concat_join` has been removed. It never met its original goal: it handled the
+basic types, but its ad-hoc register-a-type extension mechanism was never
+broadly adopted, and broad `std::formatter` coverage made it redundant. Its
+only non-test consumers were migrated off it first:
 
-## concat_join: frozen until its consumers migrate
+- `ast_pred` ([../../lang/ast_pred.h](../../lang/ast_pred.h)): the `append`
+  calls became `std::string::operator+=`.
+- the JSON writer
+  ([../../proto/misc/json_parser.h](../../proto/misc/json_parser.h)): `append`
+  calls became `+=`, integers route through `append_num`
+  ([../core/conversion.h](../core/conversion.h)), and `append_escaped` plus its
+  `needs_escaping` helper were ported into the writer's own `detail` namespace,
+  so the writer now owns its JSON escaping. The writer is `std::string`-only;
+  the old `AppendTarget` / `std::ostream` genericity that rode along with
+  `concat_join` is gone.
 
-Until stage 3, do NOT extend or port
-[../utils/concat_join.h](../utils/concat_join.h). It is still load-bearing, and
-these are the migration targets:
-
-- the JSON writer uses `append_escaped`
-  ([../../proto/misc/json_parser.h](../../proto/misc/json_parser.h))
-- `interval` registers an `append_join_with` override and uses `join_opt`
-  ([../../containers/utils/interval.h](../../containers/utils/interval.h))
-
-New formatting goes through `std::format`; `concat_join` gets no new code.
-`json_parser` keeps its own writer regardless.
+`interval` carried only a stale leftover include, which was dropped. The
+escaping helpers were the one piece worth keeping, and they moved into
+`json_parser` rather than surviving as a shared utility.
 
 ## Deferred / decided against
 

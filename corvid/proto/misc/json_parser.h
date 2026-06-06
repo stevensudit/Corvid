@@ -31,7 +31,7 @@
 
 #include "../../infra/exception_firewalls.h"
 #include "../../enums/bool_enums.h"
-#include "../../strings/utils/concat_join.h"
+#include "../../strings/core/delimiting.h"
 #include "../../strings/core/conversion.h"
 #include "../../strings/core/trimming.h"
 
@@ -817,6 +817,49 @@ constexpr void append_float(Target& target, Number value,
   target += std::string_view{buffer, static_cast<size_t>(result.ptr - buffer)};
 }
 
+// Determine if `c` needs escaping for JSON.
+[[nodiscard]] constexpr bool needs_escaping(char c) noexcept {
+  return c == '"' || c == '\\' || c == '/' || c < 32;
+}
+
+// Determine if `s` needs escaping for JSON.
+[[nodiscard]] constexpr bool needs_escaping(std::string_view s) noexcept {
+  for (auto c : s)
+    if (needs_escaping(c)) return true;
+  return false;
+}
+
+// Append `text` to `target`, escaping the characters JSON requires escaped.
+template<AppendTarget Target>
+constexpr void append_escaped(Target& target, std::string_view text) {
+  if (!needs_escaping(text)) {
+    target += text;
+    return;
+  }
+
+  for (const char c : text) {
+    if (!needs_escaping(c)) {
+      target += c;
+      continue;
+    }
+    target += '\\';
+    switch (c) {
+    case '"':
+    case '\\':
+    case '/': target += c; break;
+    case '\b': target += 'b'; break;
+    case '\f': target += 'f'; break;
+    case '\n': target += 'n'; break;
+    case '\r': target += 'r'; break;
+    case '\t': target += 't'; break;
+    default:
+      target += 'u';
+      strings::append_num<16, 4, '0'>(target, static_cast<uint16_t>(c));
+      break;
+    }
+  }
+}
+
 constexpr json_parse_options iterator_parse_options{
     std::numeric_limits<size_t>::max()};
 
@@ -848,7 +891,7 @@ constexpr json_parse_options iterator_parse_options{
 }
 
 [[nodiscard]] constexpr bool needs_json_escaping(std::string_view s) noexcept {
-  return strings::needs_escaping(s);
+  return detail::needs_escaping(s);
 }
 
 constexpr bool json_value_view::decode_string(std::string& out) const {
@@ -1057,28 +1100,28 @@ class json_writer {
   // Begin/end a JSON object or array value.
   constexpr json_writer& begin_object() {
     before_value();
-    strings::append(target_, '{');
+    target_ += '{';
     stack_.push_back(frame{frame_kind::object});
     return *this;
   }
 
   constexpr json_writer& end_object() {
     if (stack_.empty()) return *this;
-    strings::append(target_, '}');
+    target_ += '}';
     stack_.pop_back();
     return *this;
   }
 
   constexpr json_writer& begin_array() {
     before_value();
-    strings::append(target_, '[');
+    target_ += '[';
     stack_.push_back(frame{frame_kind::array});
     return *this;
   }
 
   constexpr json_writer& end_array() {
     if (stack_.empty()) return *this;
-    strings::append(target_, ']');
+    target_ += ']';
     stack_.pop_back();
     return *this;
   }
@@ -1139,13 +1182,13 @@ public:
   // Write scalar values. String overloads emit quoted JSON strings.
   constexpr json_writer& value(std::nullptr_t) {
     before_value();
-    strings::append(target_, "null");
+    target_ += "null";
     return *this;
   }
 
   constexpr json_writer& value(bool v) {
     before_value();
-    strings::append(target_, v ? "true" : "false");
+    target_ += v ? "true" : "false";
     return *this;
   }
 
@@ -1153,7 +1196,7 @@ public:
   requires(!std::same_as<std::remove_cvref_t<T>, bool>)
   constexpr json_writer& value(T v) {
     before_value();
-    strings::append(target_, v);
+    strings::append_num(target_, v);
     return *this;
   }
 
@@ -1230,7 +1273,7 @@ private:
 
     auto& top = stack_.back();
     if (top.kind == frame_kind::array) {
-      if (!top.first) strings::append(target_, ',');
+      if (!top.first) target_ += ',';
       top.first = false;
       return;
     }
@@ -1248,22 +1291,22 @@ private:
     auto& top = stack_.back();
     if (top.kind != frame_kind::object || top.expect_value) return;
 
-    if (!top.first) strings::append(target_, ',');
+    if (!top.first) target_ += ',';
     top.first = false;
     write_quoted(key_text, validated);
-    strings::append(target_, ':');
+    target_ += ':';
     top.expect_value = true;
   }
 
   // Emit one quoted JSON string, escaping unless explicitly trusted.
   constexpr void write_quoted(std::string_view text,
       text_validation validated = text_validation::untrusted) {
-    strings::append(target_, '"');
+    target_ += '"';
     if (validated == text_validation::trusted)
-      strings::append(target_, text);
+      target_ += text;
     else
-      strings::append_escaped(target_, text);
-    strings::append(target_, '"');
+      detail::append_escaped(target_, text);
+    target_ += '"';
   }
 
   Target& target_;

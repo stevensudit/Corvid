@@ -39,13 +39,6 @@
    g. Implement split_adapter with efficient pre-allocation and single-pass splitting.
    h. Benchmark and optimize single-char delimiter handling.
 
-8. strings/concat_join.h improvements:
-   a. Consider adding !Container validation and null key handling in append_join_with for pairs.
-   b. Add method that takes pieces and counts up their total (estimated) size for pre-allocation.
-   c. Benchmark delim `find` single-char optimizations to verify performance gains.
-   d. Consider offering a way to register a tuple-view function for use in formatted output.
-   e. Consider offering the reverse of `stream_append_v` for deserialization.
-
 9. containers/own_ptr.h - own_ptr class improvements:
    a. Consider supporting arrays (like std::unique_ptr<T[]>).
    b. Consider supporting interop with `std::shared_ptr`.

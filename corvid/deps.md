@@ -51,8 +51,6 @@ name it is `core`.
 `strings/utils` (everything under `strings/` is `strings/core` except the
 `utils` and `format` folders):
 
-- `concat_join.h`: the generic append/join dispatcher. It branches on
-  `ScopedEnum` and registers its own `join_opt`.
 - `enum_conversion.h`: enum<->string conversion. Forward path (`append_enum`,
   `enum_as_string`, the scoped-enum `operator<<`) and reverse path
   (`extract_enum`, `parse_enum`) together.
