@@ -18,6 +18,7 @@
 #include <algorithm>
 #include <cassert>
 #include <charconv>
+#include <cstdint>
 #include <cstdlib>
 #include <concepts>
 #include <functional>

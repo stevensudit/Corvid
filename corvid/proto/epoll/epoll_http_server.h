@@ -17,6 +17,7 @@
 #pragma once
 #include <atomic>
 #include <compare>
+#include <cstdint>
 #include <memory>
 #include <optional>
 #include <string>

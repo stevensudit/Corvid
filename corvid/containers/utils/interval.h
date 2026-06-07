@@ -18,6 +18,7 @@
 #define NOMINMAX
 
 #include <cassert>
+#include <cstdint>
 #include <format>
 #include <iterator>
 #include <limits>
