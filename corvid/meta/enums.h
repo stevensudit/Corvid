@@ -21,7 +21,7 @@
 
 namespace corvid { inline namespace meta { inline namespace enum_utils {
 
-// Enums
+#pragma region Underlying type
 
 // Cast enum to underlying integer value.
 //
@@ -40,6 +40,9 @@ template<typename E>
 template<typename E>
 using as_underlying_t = decltype(as_underlying(std::declval<E>()));
 
+#pragma endregion
+#pragma region Enum bounds
+
 PRAGMA_CLANG_DIAG(push);
 PRAGMA_CLANG_IGNORED_ENUM_CONSTEXPR_CONV;
 
@@ -54,6 +57,9 @@ constexpr auto max_scoped_enum_v =
     static_cast<E>(std::numeric_limits<as_underlying_t<E>>::max());
 
 PRAGMA_CLANG_DIAG(pop);
+
+#pragma endregion
+#pragma region Bit math
 
 // Note:
 // std::popcount() gives us how many bits are set.
@@ -70,5 +76,7 @@ PRAGMA_CLANG_DIAG(pop);
 [[nodiscard]] constexpr uint64_t highest_value_in_n_bits(uint64_t n) noexcept {
   return pow2(n) - 1;
 }
+
+#pragma endregion
 
 }}} // namespace corvid::meta::enum_utils
