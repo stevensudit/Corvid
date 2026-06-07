@@ -644,13 +644,8 @@ public:
               using storage_t = std::remove_cvref_t<decltype(storage)>;
               auto row = storage[id];
               found = result_t{
-                  [&]() -> std::conditional_t<std::is_const_v<self_t>,
-                            const Cs*, Cs*> {
-                    if constexpr (has_all_components_v<storage_t, Cs>)
-                      return &row.template component<Cs>();
-                    else
-                      return nullptr;
-                  }()...};
+                  some_component_ptr<std::is_const_v<self_t>, storage_t, Cs>(
+                      row)...};
             }
           }(std::get<Is>(self.storages_)),
           ...);
@@ -687,6 +682,20 @@ public:
   }
 
 private:
+  // Pointer to component `C` in `row`, or null when the row's storage lacks
+  // `C`. `IsConst` pins the pointer constness to the scene's, independent of
+  // whether `C` is present, so the absent case still yields a matching `const
+  // C*` / `C*`. Factored out of `try_get_some_components` because gcc cannot
+  // pack-expand a lambda that names an unexpanded parameter pack.
+  template<bool IsConst, typename StorageT, typename C, typename Row>
+  [[nodiscard]] static constexpr std::conditional_t<IsConst, const C*, C*>
+  some_component_ptr(Row& row) noexcept {
+    if constexpr (has_all_components_v<StorageT, C>)
+      return &row.template component<C>();
+    else
+      return nullptr;
+  }
+
   // Bit index of component type C in `component_union_t` / `megatuple_t`.
   template<typename C>
   static constexpr size_t component_bit_v =
