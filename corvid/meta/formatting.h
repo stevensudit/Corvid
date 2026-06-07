@@ -31,6 +31,8 @@
 // {}`.
 namespace corvid { inline namespace meta { inline namespace formatting {
 
+#pragma region parsed_spec
+
 // A parsed standard format spec: the individual fields, plus the operations to
 // parse a spec string into them and to emit a padded field. The fields are
 // public and the helpers are a few methods on top; this is a struct with
@@ -44,7 +46,8 @@ struct parsed_spec {
 
   // An argument value containing a width or precision field. This can be a
   // fixed value `10`, an auto `{}`, a manual `{n}`, or absent. `value` carries
-  // the fixed value or the manual arg id.
+  // the fixed value, the manual arg id, or the auto arg id once claimed from
+  // the parse context.
   struct arg_value_t {
     arg_kind kind = arg_kind::none;
     std::size_t value = 0;
@@ -95,6 +98,10 @@ struct parsed_spec {
 
     [[nodiscard]] bool is_empty() const { return kind == arg_kind::none; }
 
+    [[nodiscard]] bool is_automatic() const {
+      return kind == arg_kind::automatic;
+    }
+
     [[nodiscard]] std::optional<size_t> get_arg_id() const {
       if (kind != arg_kind::manual) return std::nullopt;
       return value;
@@ -102,6 +109,11 @@ struct parsed_spec {
 
     [[nodiscard]] std::optional<size_t> get_fixed() const {
       if (kind != arg_kind::fixed) return std::nullopt;
+      return value;
+    }
+
+    [[nodiscard]] std::optional<size_t> get_automatic() const {
+      if (kind != arg_kind::automatic) return std::nullopt;
       return value;
     }
 
@@ -147,24 +159,11 @@ struct parsed_spec {
   arg_value_t precision_arg;
 
 #pragma endregion
-
-  // TODO: These four fields are obsolete and will be replaced by the two
-  // `arg_value` fields above.
-  //
-  // A dynamic width or precision draws its value from a format arg at format
-  // time. `*_arg_id` holds that arg's index once known: read straight from a
-  // manual `{n}`, or claimed from the parse context for an auto `{}`. The
-  // `*_arg_auto` flags record that the spec wrote `{}`, so a delegating
-  // formatter knows it must claim the id itself rather than read it here.
-  std::optional<std::size_t> width_arg_id;
-  std::optional<std::size_t> precision_arg_id;
-  bool width_arg_auto = false;
-  bool precision_arg_auto = false;
+#pragma region Operations
 
   // Whether any width or precision is dynamic.
   [[nodiscard]] constexpr bool is_dynamic() const {
-    return width_arg_id || precision_arg_id || width_arg_auto ||
-           precision_arg_auto;
+    return width_arg.is_dynamic() || precision_arg.is_dynamic();
   }
 
   // Parse the standard format spec into this instance, stopping at the closing
@@ -201,29 +200,13 @@ struct parsed_spec {
       ++ndx;
     }
     // width
-    {
-      ndx = width_arg.parse(spec, ndx);
-      // TODO: Remove the following when arg_value_t::get_dynamic() obsoletes
-      // it.
-      if (width_arg.kind == arg_kind::fixed)
-        width = width_arg.value;
-      else if (width_arg.kind == arg_kind::automatic)
-        width_arg_auto = true;
-      else if (width_arg.kind == arg_kind::manual)
-        width_arg_id = width_arg.value;
-    }
+    ndx = width_arg.parse(spec, ndx);
+    if (const auto fixed = width_arg.get_fixed()) width = *fixed;
     // `.` precision
     if (ndx < cnt && spec[ndx] == CharT('.')) {
       ++ndx;
       ndx = precision_arg.parse(spec, ndx);
-      // TODO: Remove the following when arg_value_t::get_dynamic() obsoletes
-      // it.
-      if (precision_arg.kind == arg_kind::fixed)
-        precision = precision_arg.value;
-      else if (precision_arg.kind == arg_kind::automatic)
-        precision_arg_auto = true;
-      else if (precision_arg.kind == arg_kind::manual)
-        precision_arg_id = precision_arg.value;
+      if (const auto fixed = precision_arg.get_fixed()) precision = *fixed;
     }
     // `L` locale
     if (ndx < cnt && spec[ndx] == CharT('L')) {
@@ -241,15 +224,6 @@ struct parsed_spec {
     return ndx;
   }
 
-  // Resolve the width to apply, reading a dynamic width's arg or returning the
-  // fixed `width`.
-  // TODO: Remove this when arg_value_t::get_dynamic() obsoletes it.
-  template<typename FormatContext>
-  [[nodiscard]] std::size_t get_dynamic_width(FormatContext& ctx) const {
-    return width_arg_id ? arg_value_t::get_dynamic_num(ctx, *width_arg_id)
-                        : width;
-  }
-
   // Rewrite the spec to make all dynamic fields explicit. In other words,
   // every auto `{}` is replaced by a manual `{n}` with the claimed id `n` so
   // that the base reads the same arg the auto field would have.
@@ -260,8 +234,8 @@ struct parsed_spec {
       std::basic_string_view<CharT> spec) const {
     std::array<std::size_t, 2> ids{};
     std::size_t got = 0;
-    if (width_arg_auto) ids[got++] = *width_arg_id;
-    if (precision_arg_auto) ids[got++] = *precision_arg_id;
+    if (const auto id = width_arg.get_automatic()) ids[got++] = *id;
+    if (const auto id = precision_arg.get_automatic()) ids[got++] = *id;
 
     std::basic_string<CharT> out;
     out.reserve(spec.size() + (got * 4));
@@ -290,6 +264,8 @@ struct parsed_spec {
     return out;
   }
 
+#pragma endregion
+#pragma region Helpers
 private:
   static constexpr bool is_align(CharT c) {
     return c == CharT('<') || c == CharT('>') || c == CharT('^');
@@ -345,12 +321,20 @@ private:
       *out++ = static_cast<CharT>(static_cast<wchar_t>(c));
     return out;
   }
+
+#pragma endregion
 };
+
+#pragma endregion
+#pragma region null_formatting
 
 // Whether a null renders as an empty field or the text sentinel (default
 // `(null)`). Selected independently for the plain and debug specs of
 // `nullable_formatter`.
 enum class null_formatting : bool { empty = false, sentinel = true };
+
+#pragma endregion
+#pragma region forwarding_formatter
 
 // Base for a `std::formatter` on a wrapper that should format exactly like
 // some underlying value of type `U`. It inherits the underlying type's
@@ -368,6 +352,9 @@ struct forwarding_formatter: std::formatter<U, CharT> {
     return std::formatter<U, CharT>::format(static_cast<const U&>(w), ctx);
   }
 };
+
+#pragma endregion
+#pragma region nullable_formatter
 
 // Base for a `std::formatter` on a nullable, pointer-like wrapper. It inherits
 // the pointee/element type `U`'s formatter and forwards the dereferenced value
@@ -400,11 +387,16 @@ template<typename U, CharType CharT,
     null_formatting PlainNull = null_formatting::sentinel,
     null_formatting DebugNull = null_formatting::sentinel>
 struct nullable_formatter: std::formatter<U, CharT> {
+#pragma region Construction
+
   using base = std::formatter<U, CharT>;
 
   constexpr nullable_formatter() = default;
   constexpr explicit nullable_formatter(std::string_view marker)
       : marker_{marker} {}
+
+#pragma endregion
+#pragma region Parse
 
   // Offered only when the underlying formatter has it, so a containing range
   // or map can enable element quoting; also records debug mode for the
@@ -435,12 +427,15 @@ struct nullable_formatter: std::formatter<U, CharT> {
     // it directly), but an auto `{}` has no id there: claim it from the
     // context and re-present the spec to the base with explicit ids. Otherwise
     // the base parses the real spec.
-    constexpr bool plain_sentinel = PlainNull == null_formatting::sentinel;
-    constexpr bool debug_sentinel = DebugNull == null_formatting::sentinel;
-    const bool sentinel_shown = spec_.debug ? debug_sentinel : plain_sentinel;
-    if (sentinel_shown && (spec_.width_arg_auto || spec_.precision_arg_auto)) {
-      if (spec_.width_arg_auto) spec_.width_arg_id = ctx.next_arg_id();
-      if (spec_.precision_arg_auto) spec_.precision_arg_id = ctx.next_arg_id();
+    constexpr bool is_plain_sentinel = PlainNull == null_formatting::sentinel;
+    constexpr bool is_debug_sentinel = DebugNull == null_formatting::sentinel;
+    const bool is_sentinel_shown =
+        spec_.debug ? is_debug_sentinel : is_plain_sentinel;
+    const bool is_width_auto = spec_.width_arg.is_automatic();
+    const bool is_precision_auto = spec_.precision_arg.is_automatic();
+    if (is_sentinel_shown && (is_width_auto || is_precision_auto)) {
+      if (is_width_auto) spec_.width_arg.value = ctx.next_arg_id();
+      if (is_precision_auto) spec_.precision_arg.value = ctx.next_arg_id();
       const auto synthetic = spec_.rewrite_spec_as_explicit(
           std::basic_string_view<CharT>{begin, consumed});
       std::basic_format_parse_context<CharT> sctx(synthetic);
@@ -449,6 +444,9 @@ struct nullable_formatter: std::formatter<U, CharT> {
     }
     return base::parse(ctx);
   }
+
+#pragma endregion
+#pragma region Format
 
   template<typename W, typename FormatContext>
   auto format(const W& w, FormatContext& ctx) const {
@@ -469,21 +467,34 @@ struct nullable_formatter: std::formatter<U, CharT> {
     }
   }
 
+#pragma endregion
+#pragma region Helpers
 private:
   template<typename FormatContext>
   auto pad_sentinel(FormatContext& ctx) const {
-    return spec_.write_padded(ctx.out(), marker_,
-        spec_.get_dynamic_width(ctx));
+    const std::size_t field_width =
+        spec_.width_arg.is_dynamic()
+            ? spec_.width_arg.get_dynamic(ctx)
+            : spec_.width;
+    return spec_.write_padded(ctx.out(), marker_, field_width);
   }
+
+#pragma endregion
+#pragma region Data members
 
   std::string_view marker_{"(null)"};
   parsed_spec<CharT> spec_;
+
+#pragma endregion
 };
+
+#pragma endregion
+#pragma region self_rendering_formatter
 
 // Base for a `std::formatter` on a type that renders itself through a
 // `format_to(out)` member, the modern analog of `operator<<`. A deriving
-// specialization needs only `: format_to_formatter<CharT> {}`; the type is
-// deduced at format time.
+// specialization needs only `: self_rendering_formatter<CharT> {}`; the type
+// is deduced at format time.
 //
 // Supports the empty spec (plain rendering) and the `?` debug spec. In debug
 // mode it calls `debug_format_to(out)` when the type provides one, otherwise
@@ -498,7 +509,9 @@ private:
 // `std::formatter<basic_string_view<CharT>>`) if a caller needs it; until then
 // this streams straight to the output with no buffer.
 template<CharType CharT>
-struct format_to_formatter {
+struct self_rendering_formatter {
+#pragma region Parse
+
   constexpr void set_debug_format() { spec_.debug = true; }
 
   constexpr auto parse(std::basic_format_parse_context<CharT>& ctx)
@@ -512,6 +525,9 @@ struct format_to_formatter {
     return it;
   }
 
+#pragma endregion
+#pragma region Format
+
   template<typename T, typename FormatContext>
   auto format(const T& obj, FormatContext& ctx) const {
     if constexpr (requires { obj.format_to_spec(spec_, ctx.out()); })
@@ -524,8 +540,14 @@ struct format_to_formatter {
     return obj.format_to(ctx.out());
   }
 
+#pragma endregion
+#pragma region Data members
 private:
   parsed_spec<CharT> spec_;
+
+#pragma endregion
 };
+
+#pragma endregion
 
 }}} // namespace corvid::meta::formatting
