@@ -15,8 +15,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 #pragma once
+#include <array>
 #include <cstdint>
 #include <format>
+#include <optional>
+#include <string>
+#include <type_traits>
 
 #include "concepts.h"
 
@@ -27,15 +31,106 @@
 // {}`.
 namespace corvid { inline namespace meta { inline namespace formatting {
 
-namespace specs {
-
 // A parsed standard format spec: the individual fields, plus the operations to
 // parse a spec string into them and to emit a padded field. The fields are
 // public and the helpers are a few methods on top; this is a struct with
 // benefits, not a tightly encapsulated value type.
 template<CharType CharT>
 struct parsed_spec {
+#pragma region Types
   enum class aligned : std::uint8_t { left, right, center };
+
+  enum class arg_kind : std::uint8_t { none, fixed, automatic, manual };
+
+  // An argument value containing a width or precision field. This can be a
+  // fixed value `10`, an auto `{}`, a manual `{n}`, or absent. `value` carries
+  // the fixed value or the manual arg id.
+  struct arg_value_t {
+    arg_kind kind = arg_kind::none;
+    std::size_t value = 0;
+
+    // Read an arg value from `spec` at `ndx`, returning an index past the
+    // consumed text.
+    [[nodiscard]] constexpr std::size_t
+    parse(std::basic_string_view<CharT> spec, std::size_t ndx) {
+      *this = make_from_parse(spec, ndx);
+      return ndx;
+    }
+
+    // Read an arg value (a width or precision) at `ndx`, advancing it. A
+    // `{...}` is dynamic: empty is auto, digits are a manual arg id.
+    [[nodiscard]] static constexpr arg_value_t
+    make_from_parse(std::basic_string_view<CharT> spec, std::size_t& ndx) {
+      const std::size_t n = spec.size();
+      if (ndx < n && spec[ndx] == CharT('{')) {
+        ++ndx;
+        std::size_t id = 0;
+        bool has_id = false;
+        for (; ndx < n && spec[ndx] >= CharT('0') && spec[ndx] <= CharT('9');
+            ++ndx)
+        {
+          id = (id * 10) + static_cast<std::size_t>(spec[ndx] - CharT('0'));
+          has_id = true;
+        }
+        if (ndx < n && spec[ndx] == CharT('}')) ++ndx;
+        return has_id ? arg_value_t{arg_kind::manual, id}
+                      : arg_value_t{arg_kind::automatic, 0};
+      }
+      std::size_t value = 0;
+      bool any = false;
+      for (; ndx < n && spec[ndx] >= CharT('0') && spec[ndx] <= CharT('9');
+          ++ndx)
+      {
+        value =
+            (value * 10) + static_cast<std::size_t>(spec[ndx] - CharT('0'));
+        any = true;
+      }
+      return any ? arg_value_t{arg_kind::fixed, value}
+                 : arg_value_t{arg_kind::none, 0};
+    }
+
+    [[nodiscard]] bool is_dynamic() const {
+      return kind == arg_kind::automatic || kind == arg_kind::manual;
+    }
+
+    [[nodiscard]] bool is_empty() const { return kind == arg_kind::none; }
+
+    [[nodiscard]] std::optional<size_t> get_arg_id() const {
+      if (kind != arg_kind::manual) return std::nullopt;
+      return value;
+    }
+
+    [[nodiscard]] std::optional<size_t> get_fixed() const {
+      if (kind != arg_kind::fixed) return std::nullopt;
+      return value;
+    }
+
+    template<typename FormatContext>
+    [[nodiscard]] std::size_t get_dynamic(FormatContext& ctx) const {
+      if (!is_dynamic()) return 0;
+      return get_dynamic_num(ctx, value);
+    }
+
+    // Resolve a dynamic width or precision: arg `id` as a non-negative
+    // integer.
+    template<typename FormatContext>
+    static std::size_t get_dynamic_num(FormatContext& ctx, std::size_t id) {
+      return std::visit_format_arg(
+          [](auto value) -> std::size_t {
+            using T = std::remove_cvref_t<decltype(value)>;
+            if constexpr (std::is_integral_v<T> && !std::is_same_v<T, bool>) {
+              if constexpr (std::is_signed_v<T>)
+                if (value < 0) throw std::format_error("negative arg");
+              return static_cast<std::size_t>(value);
+            } else
+              throw std::format_error("arg is not an integer");
+          },
+          ctx.arg(id));
+    }
+  };
+
+#pragma endregion
+#pragma region Fields
 
   std::size_t width = 0;
   std::optional<std::size_t> precision; // Meaningful for numerics.
@@ -47,10 +142,35 @@ struct parsed_spec {
   bool zero_pad = false;
   bool has_locale = false;
   CharT type = CharT(0); // Debug is '?'.
-  bool dynamic = false;  // Either dynamic width or precision was attempted.
 
-  // Parse the standard format spec into this instance.
-  constexpr void parse_pad(std::basic_string_view<CharT> spec) {
+  arg_value_t width_arg;
+  arg_value_t precision_arg;
+
+#pragma endregion
+
+  // TODO: These four fields are obsolete and will be replaced by the two
+  // `arg_value` fields above.
+  //
+  // A dynamic width or precision draws its value from a format arg at format
+  // time. `*_arg_id` holds that arg's index once known: read straight from a
+  // manual `{n}`, or claimed from the parse context for an auto `{}`. The
+  // `*_arg_auto` flags record that the spec wrote `{}`, so a delegating
+  // formatter knows it must claim the id itself rather than read it here.
+  std::optional<std::size_t> width_arg_id;
+  std::optional<std::size_t> precision_arg_id;
+  bool width_arg_auto = false;
+  bool precision_arg_auto = false;
+
+  // Whether any width or precision is dynamic.
+  [[nodiscard]] constexpr bool is_dynamic() const {
+    return width_arg_id || precision_arg_id || width_arg_auto ||
+           precision_arg_auto;
+  }
+
+  // Parse the standard format spec into this instance, stopping at the closing
+  // `}` (as there may be more after it). Returns the count of code units
+  // consumed, which is the offset of that `}`.
+  constexpr std::size_t parse_pad(std::basic_string_view<CharT> spec) {
     std::size_t ndx = 0;
     const std::size_t cnt = spec.size();
     // [fill] align
@@ -81,33 +201,89 @@ struct parsed_spec {
       ++ndx;
     }
     // width
-    if (const auto w = read_count(spec, ndx)) width = *w;
+    {
+      ndx = width_arg.parse(spec, ndx);
+      // TODO: Remove the following when arg_value_t::get_dynamic() obsoletes
+      // it.
+      if (width_arg.kind == arg_kind::fixed)
+        width = width_arg.value;
+      else if (width_arg.kind == arg_kind::automatic)
+        width_arg_auto = true;
+      else if (width_arg.kind == arg_kind::manual)
+        width_arg_id = width_arg.value;
+    }
     // `.` precision
     if (ndx < cnt && spec[ndx] == CharT('.')) {
       ++ndx;
-      precision = read_count(spec, ndx);
+      ndx = precision_arg.parse(spec, ndx);
+      // TODO: Remove the following when arg_value_t::get_dynamic() obsoletes
+      // it.
+      if (precision_arg.kind == arg_kind::fixed)
+        precision = precision_arg.value;
+      else if (precision_arg.kind == arg_kind::automatic)
+        precision_arg_auto = true;
+      else if (precision_arg.kind == arg_kind::manual)
+        precision_arg_id = precision_arg.value;
     }
     // `L` locale
     if (ndx < cnt && spec[ndx] == CharT('L')) {
       has_locale = true;
       ++ndx;
     }
-    // type: the one remaining char, if any
-    if (ndx < cnt) type = spec[ndx];
-
+    // type: the one remaining char before the closing `}`, if any
+    if (ndx < cnt && spec[ndx] != CharT('}')) {
+      type = spec[ndx];
+      ++ndx;
+    }
     // The `?` type is debug.
     if (type == CharT('?')) debug = true;
 
-    // A `{` flags a dynamic width or precision (value unreadable here).
-    if (spec.find(CharT('{')) != spec.npos) dynamic = true;
+    return ndx;
   }
 
-  // Emit `content` (narrow, 7-bit ASCII) widened to `CharT`, padded to this
-  // spec's `width` with its `fill` per its `align`. A width no larger than the
-  // content is a no-op (width is a minimum).
+  // Resolve the width to apply, reading a dynamic width's arg or returning the
+  // fixed `width`.
+  // TODO: Remove this when arg_value_t::get_dynamic() obsoletes it.
+  template<typename FormatContext>
+  [[nodiscard]] std::size_t get_dynamic_width(FormatContext& ctx) const {
+    return width_arg_id ? arg_value_t::get_dynamic_num(ctx, *width_arg_id)
+                        : width;
+  }
+
+  // Rewrite the spec to make all dynamic fields explicit. In other words,
+  // every auto `{}` is replaced by a manual `{n}` with the claimed id `n` so
+  // that the base reads the same arg the auto field would have.
+  //
+  // Only call once the ids are claimed; assumes any dynamic field here is
+  // auto, as a format string cannot mix auto and manual indexing.
+  [[nodiscard]] std::basic_string<CharT> rewrite_spec_as_explicit(
+      std::basic_string_view<CharT> spec) const {
+    std::array<std::size_t, 2> ids{};
+    std::size_t got = 0;
+    if (width_arg_auto) ids[got++] = *width_arg_id;
+    if (precision_arg_auto) ids[got++] = *precision_arg_id;
+
+    std::basic_string<CharT> out;
+    out.reserve(spec.size() + (got * 4));
+    std::size_t next = 0;
+    for (std::size_t i = 0; i < spec.size(); ++i) {
+      out.push_back(spec[i]);
+      if (spec[i] == CharT('{') && i + 1 < spec.size() &&
+          spec[i + 1] == CharT('}'))
+        append_decimal(out, ids[next++]);
+    }
+    return out;
+  }
+
+  // Emit `content`.
+  //
+  // The input is (narrow, 7-bit ASCII), so it's widened to `CharT`. It is
+  // then padded to `field_width` with this spec's `fill` per its `align`. A
+  // width no larger than the content is a no-op (width is a minimum).
   template<typename OutIt>
-  constexpr OutIt write_padded(OutIt out, std::string_view content) const {
-    auto [lead, trail] = calc_padding(align, content.size(), width);
+  [[nodiscard]] constexpr OutIt write_padded(OutIt out,
+      std::string_view content, std::size_t field_width) const {
+    auto [lead, trail] = calc_padding(align, content.size(), field_width);
     out = write_repeat(out, fill, lead);
     out = write_sv(out, content);
     out = write_repeat(out, fill, trail);
@@ -125,20 +301,17 @@ private:
     return aligned::left;
   }
 
-  // Read a count (a width or precision) at `ndx`, advancing it.
-  static constexpr std::optional<std::size_t>
-  read_count(std::basic_string_view<CharT> spec, std::size_t& ndx) {
-    const std::size_t n = spec.size();
-    if (ndx < n && spec[ndx] == CharT('{')) {
-      while (ndx < n && spec[ndx] != CharT('}')) ++ndx;
-      if (ndx < n) ++ndx;
-      return std::nullopt;
-    }
-    std::size_t value = 0;
-    for (; ndx < n && spec[ndx] >= CharT('0') && spec[ndx] <= CharT('9');
-        ++ndx)
-      value = (value * 10) + static_cast<std::size_t>(spec[ndx] - CharT('0'));
-    return value;
+  // Append `v` as decimal digits, widened to `CharT`.
+  // TODO: I know we're very low in the stack, but do we have to reinvent this
+  // particular wheel?
+  static void append_decimal(std::basic_string<CharT>& out, std::size_t v) {
+    CharT buf[20];
+    std::size_t len = 0;
+    do {
+      buf[len++] = static_cast<CharT>(CharT('0') + (v % 10));
+      v /= 10;
+    } while (v != 0);
+    while (len != 0) out.push_back(buf[--len]);
   }
 
   static constexpr std::pair<size_t, size_t> calc_padding(aligned align,
@@ -173,8 +346,6 @@ private:
     return out;
   }
 };
-
-} // namespace specs
 
 // Whether a null renders as an empty field or the text sentinel (default
 // `(null)`). Selected independently for the plain and debug specs of
@@ -220,9 +391,11 @@ struct forwarding_formatter: std::formatter<U, CharT> {
 //
 // Only fill, align, and width reach the sentinel; it is a fixed string, so
 // precision and type are meaningless for it, while the present value still
-// honors the whole spec through the inherited formatter. A dynamic width or
-// precision combined with the debug spec is rejected, since the sentinel's own
-// padding cannot read an argument bound to the real format context.
+// honors the whole spec through the inherited formatter. A dynamic width
+// reaches the sentinel, too: a manual id is read from the spec, and an auto
+// `{}` is claimed from the parse context and re-presented to the base as an
+// explicit id, so the sentinel and the present value resolve the same
+// argument.
 template<typename U, CharType CharT,
     null_formatting PlainNull = null_formatting::sentinel,
     null_formatting DebugNull = null_formatting::sentinel>
@@ -244,13 +417,37 @@ struct nullable_formatter: std::formatter<U, CharT> {
   }
 
   constexpr auto parse(std::basic_format_parse_context<CharT>& ctx) {
+    if consteval {
+      // Compile-time validation: let the base consume any dynamic arg ids and
+      // check the spec. The recovered ids are only needed at format time, and
+      // a manually constructed parse context cannot run those checks during
+      // constant evaluation anyway.
+      return base::parse(ctx);
+    }
+
     const auto begin = ctx.begin();
-    const auto it = base::parse(ctx);
-    spec_.parse_pad(std::basic_string_view<CharT>{begin,
-        static_cast<std::size_t>(it - begin)});
-    if (spec_.debug && spec_.dynamic)
-      throw std::format_error("dynamic is unsupported");
-    return it;
+    const auto spec_text = std::basic_string_view<CharT>{begin,
+        static_cast<std::size_t>(ctx.end() - begin)};
+    const auto consumed = spec_.parse_pad(spec_text);
+
+    // The sentinel resolves its own dynamic width, so when it will be shown we
+    // must learn the arg id. A manual `{n}` is in the text (and the base reads
+    // it directly), but an auto `{}` has no id there: claim it from the
+    // context and re-present the spec to the base with explicit ids. Otherwise
+    // the base parses the real spec.
+    constexpr bool plain_sentinel = PlainNull == null_formatting::sentinel;
+    constexpr bool debug_sentinel = DebugNull == null_formatting::sentinel;
+    const bool sentinel_shown = spec_.debug ? debug_sentinel : plain_sentinel;
+    if (sentinel_shown && (spec_.width_arg_auto || spec_.precision_arg_auto)) {
+      if (spec_.width_arg_auto) spec_.width_arg_id = ctx.next_arg_id();
+      if (spec_.precision_arg_auto) spec_.precision_arg_id = ctx.next_arg_id();
+      const auto synthetic = spec_.rewrite_spec_as_explicit(
+          std::basic_string_view<CharT>{begin, consumed});
+      std::basic_format_parse_context<CharT> sctx(synthetic);
+      base::parse(sctx);
+      return begin + consumed;
+    }
+    return base::parse(ctx);
   }
 
   template<typename W, typename FormatContext>
@@ -275,11 +472,12 @@ struct nullable_formatter: std::formatter<U, CharT> {
 private:
   template<typename FormatContext>
   auto pad_sentinel(FormatContext& ctx) const {
-    return spec_.write_padded(ctx.out(), marker_);
+    return spec_.write_padded(ctx.out(), marker_,
+        spec_.get_dynamic_width(ctx));
   }
 
   std::string_view marker_{"(null)"};
-  specs::parsed_spec<CharT> spec_;
+  parsed_spec<CharT> spec_;
 };
 
 // Base for a `std::formatter` on a type that renders itself through a
@@ -303,13 +501,13 @@ template<CharType CharT>
 struct format_to_formatter {
   constexpr void set_debug_format() { spec_.debug = true; }
 
-  constexpr auto parse(std::basic_format_parse_context<CharT>& ctx) ->
-      typename std::basic_format_parse_context<CharT>::iterator {
+  constexpr auto parse(std::basic_format_parse_context<CharT>& ctx)
+      -> std::basic_format_parse_context<CharT>::iterator {
     const auto begin = ctx.begin();
     const auto it = ctx.end();
     spec_.parse_pad(std::basic_string_view<CharT>{begin,
         static_cast<std::size_t>(it - begin)});
-    if (spec_.debug && spec_.dynamic)
+    if (spec_.debug && spec_.is_dynamic())
       throw std::format_error("dynamic is unsupported");
     return it;
   }
@@ -327,7 +525,7 @@ struct format_to_formatter {
   }
 
 private:
-  specs::parsed_spec<CharT> spec_;
+  parsed_spec<CharT> spec_;
 };
 
 }}} // namespace corvid::meta::formatting
