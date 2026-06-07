@@ -4,6 +4,8 @@
 #include <functional>
 #include <cstddef>
 
+#include "../../meta/formatting.h"
+
 namespace corvid { inline namespace container { inline namespace indirect_key {
 
 // Indirect keys are similar to `std::reference_wrapper`, but are designed to
@@ -128,27 +130,12 @@ template<typename T, typename C>
 struct std::less<corvid::indirect_map_key<T, C>>
     : corvid::indirect_map_key<T, C>::compare {};
 
-// Formatters for the indirect keys, narrow or wide. Each acts like its
-// referenced key, so it forwards to the key's formatter, honoring its full
-// spec grammar.
 template<typename T, typename H, typename E, typename CharT>
 requires std::formattable<T, CharT>
 struct std::formatter<corvid::indirect_hash_key<T, H, E>, CharT>
-    : std::formatter<T, CharT> {
-  template<typename FormatContext>
-  auto format(const corvid::indirect_hash_key<T, H, E>& k,
-      FormatContext& ctx) const {
-    return std::formatter<T, CharT>::format(k.key, ctx);
-  }
-};
+    : corvid::forwarding_formatter<T, CharT> {};
 
 template<typename T, typename C, typename CharT>
 requires std::formattable<T, CharT>
 struct std::formatter<corvid::indirect_map_key<T, C>, CharT>
-    : std::formatter<T, CharT> {
-  template<typename FormatContext>
-  auto
-  format(const corvid::indirect_map_key<T, C>& k, FormatContext& ctx) const {
-    return std::formatter<T, CharT>::format(k.key, ctx);
-  }
-};
+    : corvid::forwarding_formatter<T, CharT> {};

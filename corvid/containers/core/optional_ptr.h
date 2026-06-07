@@ -19,6 +19,7 @@
 #include <format>
 
 #include "containers_shared.h"
+#include "../../meta/formatting.h"
 
 // This is internal, like it says, so don't import it.
 namespace corvid::internal {
@@ -199,27 +200,7 @@ private:
 
 } // namespace corvid::internal
 
-// Formatter for `optional_ptr`, narrow or wide.
-//
-// Forwards to the pointee's formatter, honoring its full spec grammar (so
-// `{:?}` debugs the pointee when the pointee type supports it). A null
-// `optional_ptr` instead renders the unquoted marker `(null)`. The marker is
-// not padded: fill, align, and width apply only to a present pointee.
 template<corvid::PointerLike Ptr, corvid::CharType CharT>
 requires std::formattable<corvid::pointer_element_t<Ptr>, CharT>
 struct std::formatter<corvid::internal::optional_ptr<Ptr>, CharT>
-    : std::formatter<corvid::pointer_element_t<Ptr>, CharT> {
-  using base = std::formatter<corvid::pointer_element_t<Ptr>, CharT>;
-
-  template<typename FormatContext>
-  auto format(const corvid::internal::optional_ptr<Ptr>& op,
-      FormatContext& ctx) const {
-    if (op.has_value()) return base::format(op.value(), ctx);
-
-    static constexpr CharT marker[]{CharT('('), CharT('n'), CharT('u'),
-        CharT('l'), CharT('l'), CharT(')')};
-    auto out = ctx.out();
-    for (const CharT c : std::basic_string_view<CharT>{marker, 6}) *out++ = c;
-    return out;
-  }
-};
+    : corvid::nullable_formatter<corvid::pointer_element_t<Ptr>, CharT> {};

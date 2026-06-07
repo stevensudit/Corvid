@@ -26,6 +26,7 @@
 #include <utility>
 
 #include "../meta/concepts.h"
+#include "../meta/formatting.h"
 
 namespace corvid { inline namespace stringviewwrapper {
 
@@ -307,91 +308,8 @@ concept StringViewWrapperChild =
 template<corvid::StringViewWrapperChild W>
 constexpr std::range_format std::format_kind<W> = std::range_format::disabled;
 
-// Formatter for any `string_view_wrapper` child (opt_string_view,
-// cstring_view, enum_name), narrow or wide.
-//
-// Inherits the `std::basic_string_view` formatter for the full spec grammar
-// (fill, align, width, precision, and the `?` debug spec) and formats the
-// wrapper's view, so a wrapper renders exactly like the string_view it holds:
-// `{}` prints the contents, `{:?}` prints the quoted, escaped debug form.
-//
-// A null wrapper (null distinct from empty) stays transparent under `{}`,
-// printing as empty, and prints as the unquoted marker `(null)` under `{:?}`.
-// The marker is distinct from an empty string (`""`) and from a string whose
-// contents are those letters (`"(null)"`). Fill, align, width, and precision
-// apply to the marker too: a second formatter captures the spec with its `?`
-// stripped and formats the marker through that, so the base's debug quoting is
-// bypassed while its padding is reused. A dynamic width or precision combined
-// with the debug spec (`{:{}?}`) is rejected with a `std::format_error`: its
-// argument is bound to the real parse context, which the local marker parse
-// cannot read, so the marker could not honor it, and silently dropping the
-// padding would corrupt tabular output. The rejection is value-independent
-// (null or not); to get dynamic width with debug on a known non-null wrapper,
-// format its `view()` directly.
-//
-// Only a context whose char type matches the wrapper's is claimed; cross-type
-// transcoding is out of scope.
 template<corvid::StringViewWrapperChild W, corvid::CharType CharT>
 requires std::same_as<CharT, typename W::char_t>
 struct std::formatter<W, CharT>
-    : std::formatter<std::basic_string_view<CharT>, CharT> {
-  using base = std::formatter<std::basic_string_view<CharT>, CharT>;
-
-  // The range and map formatters turn on element debug through this rather
-  // than a spec `?`, so mirror their call into `debug_` to keep null elements
-  // rendering as `(null)` inside a range. A container enables debug here only
-  // when no element spec was given, so it never carries element width; a bare
-  // (empty-spec) marker is correct. Guard against clobbering a width that a
-  // `?`-bearing spec already captured.
-  constexpr void set_debug_format() {
-    const bool was_debug = debug_;
-    debug_ = true;
-    base::set_debug_format();
-    if (!was_debug) parse_marker({});
-  }
-
-  constexpr auto parse(auto& ctx) {
-    auto it = base::parse(ctx);
-    // The debug `?` type is terminal, so a `?` just before the spec end means
-    // debug mode, the only case that changes how a null is rendered. The
-    // marker matters only in debug mode, so capture its spec only then.
-    if (it != ctx.begin() && *std::prev(it) == static_cast<CharT>('?')) {
-      debug_ = true;
-      // Capture the spec without the `?` so a null can be padded as the bare
-      // `(null)` marker, reusing the base's fill/align/width without its debug
-      // quoting. A dynamic `{...}` width or precision binds its arg to the
-      // real context, which the local marker parse cannot read, so the marker
-      // could not honor it; reject the spec rather than silently drop the
-      // padding and corrupt tabular output. (Fill cannot be `{`, so any `{` is
-      // a dynamic arg.)
-      std::basic_string_view<CharT> spec{std::to_address(ctx.begin()),
-          static_cast<size_t>(std::prev(it) - ctx.begin())};
-      if (spec.find(static_cast<CharT>('{')) != spec.npos)
-        throw std::format_error(
-            "dynamic width or precision is unsupported "
-            "with the debug spec for a string_view_wrapper");
-      parse_marker(spec);
-    }
-    return it;
-  }
-
-  template<typename FormatContext>
-  auto format(const W& w, FormatContext& ctx) const {
-    if (w.null() && debug_) {
-      static constexpr CharT marker[]{CharT('('), CharT('n'), CharT('u'),
-          CharT('l'), CharT('l'), CharT(')')};
-      return marker_.format(std::basic_string_view<CharT>{marker, 6}, ctx);
-    }
-    return base::format(w.view(), ctx);
-  }
-
-private:
-  // Parse `spec` (the padding spec, no `?`) into the marker formatter.
-  constexpr void parse_marker(std::basic_string_view<CharT> spec) {
-    std::basic_format_parse_context<CharT> ctx{spec};
-    marker_.parse(ctx);
-  }
-
-  bool debug_{false};
-  base marker_;
-};
+    : corvid::nullable_formatter<std::basic_string_view<CharT>, CharT,
+          corvid::null_formatting::empty> {};
