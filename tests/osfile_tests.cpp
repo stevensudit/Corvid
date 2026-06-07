@@ -25,6 +25,7 @@
 #include "catch2_main.h"
 
 #include <cstdlib>
+#include <format>
 #include <fcntl.h>
 #include <string_view>
 #include <unistd.h>
@@ -420,6 +421,49 @@ TEST_CASE("MmapMaskString", "[OsFile]") {
     CHECK((parse_enum("hugetlb + growsdown", bad)) ==
           (M::hugetlb | M::growsdown));
   }
+}
+
+TEST_CASE("Formatter", "[OsFile]") {
+  // An open file renders as `fd=<handle>`, a closed one as `fd=closed`. Open
+  // files adopt a sentinel handle we never owned and release it before
+  // destruction so no real fd is touched; closed temporaries hold -1.
+  os_file open_file{42};
+  CHECK(std::format("{}", open_file) == "fd=42");
+  (void)open_file.release();
+  CHECK(std::format("{}", os_file{}) == "fd=closed");
+
+  // Width, fill, and align come from the spec and pad the whole rendering.
+  os_file seven{7};
+  CHECK(std::format("{:>8}", seven) == "    fd=7");
+  CHECK(std::format("{:*<8}", seven) == "fd=7****");
+  (void)seven.release();
+
+  // Width is a minimum: a field narrower than the content is a no-op.
+  CHECK(std::format("{:>4}", os_file{}) == "fd=closed");
+
+  // Precision truncates the rendered text (string-formatter semantics).
+  os_file big{12345};
+  CHECK(std::format("{:.2}", big) == "fd");
+  CHECK(std::format("{:.5}", big) == "fd=12");
+  (void)big.release();
+
+  // Dynamic width resolves whether the arg is automatic `{}` or a manual id.
+  os_file dyn{7};
+  CHECK(std::format("{:>{}}", dyn, 8) == "    fd=7");
+  CHECK(std::format("{0:>{1}}", dyn, 8) == "    fd=7");
+  (void)dyn.release();
+  CHECK(std::format("{:>{}}", os_file{}, 11) == "  fd=closed");
+
+  // Dynamic precision resolves the same way.
+  os_file dp{12345};
+  CHECK(std::format("{:.{}}", dp, 4) == "fd=1");
+  (void)dp.release();
+
+  // Code-unit-generic: the same wrapper formats under wide formatting.
+  os_file wide{9};
+  CHECK(std::format(L"{}", wide) == L"fd=9");
+  (void)wide.release();
+  CHECK(std::format(L"{:>11}", os_file{}) == L"  fd=closed");
 }
 
 #pragma endregion

@@ -92,33 +92,35 @@ struct parsed_spec {
                  : arg_value_t{arg_kind::none, 0};
     }
 
-    [[nodiscard]] bool is_dynamic() const {
+    [[nodiscard]] constexpr bool is_dynamic() const {
       return kind == arg_kind::automatic || kind == arg_kind::manual;
     }
 
-    [[nodiscard]] bool is_empty() const { return kind == arg_kind::none; }
+    [[nodiscard]] constexpr bool is_empty() const {
+      return kind == arg_kind::none;
+    }
 
-    [[nodiscard]] bool is_automatic() const {
+    [[nodiscard]] constexpr bool is_automatic() const {
       return kind == arg_kind::automatic;
     }
 
-    [[nodiscard]] std::optional<size_t> get_arg_id() const {
+    [[nodiscard]] constexpr std::optional<size_t> get_arg_id() const {
       if (kind != arg_kind::manual) return std::nullopt;
       return value;
     }
 
-    [[nodiscard]] std::optional<size_t> get_fixed() const {
+    [[nodiscard]] constexpr std::optional<size_t> get_fixed() const {
       if (kind != arg_kind::fixed) return std::nullopt;
       return value;
     }
 
-    [[nodiscard]] std::optional<size_t> get_automatic() const {
+    [[nodiscard]] constexpr std::optional<size_t> get_automatic() const {
       if (kind != arg_kind::automatic) return std::nullopt;
       return value;
     }
 
     template<typename FormatContext>
-    [[nodiscard]] std::size_t get_dynamic(FormatContext& ctx) const {
+    [[nodiscard]] constexpr std::size_t get_dynamic(FormatContext& ctx) const {
       if (!is_dynamic()) return 0;
       return get_dynamic_num(ctx, value);
     }
@@ -126,7 +128,8 @@ struct parsed_spec {
     // Resolve a dynamic width or precision: arg `id` as a non-negative
     // integer.
     template<typename FormatContext>
-    static std::size_t get_dynamic_num(FormatContext& ctx, std::size_t id) {
+    static constexpr std::size_t
+    get_dynamic_num(FormatContext& ctx, std::size_t id) {
       return std::visit_format_arg(
           [](auto value) -> std::size_t {
             using T = std::remove_cvref_t<decltype(value)>;
@@ -503,11 +506,12 @@ private:
 // std range and map formatters. Both `format_to` and `debug_format_to` must
 // return the advanced output iterator.
 //
-// Fill, align, width, and precision are not supported: padding needs the
-// rendered length, which would require materializing the rendering into a
-// temporary. Add that here (render to a temporary, then pad through a
-// `std::formatter<basic_string_view<CharT>>`) if a caller needs it; until then
-// this streams straight to the output with no buffer.
+// A type that only provides `format_to`/`debug_format_to` streams straight to
+// the output with no padding. A type that instead provides `format_to_spec(s,
+// out)` receives the parsed spec and applies fill, align, width, and precision
+// itself (it knows its own rendered length). Any dynamic width or precision is
+// resolved against the format args before the call, so `format_to_spec` sees
+// concrete `s.width` / `s.precision` and never touches the format context.
 template<CharType CharT>
 struct self_rendering_formatter {
 #pragma region Parse
@@ -517,12 +521,18 @@ struct self_rendering_formatter {
   constexpr auto parse(std::basic_format_parse_context<CharT>& ctx)
       -> std::basic_format_parse_context<CharT>::iterator {
     const auto begin = ctx.begin();
-    const auto it = ctx.end();
-    spec_.parse_pad(std::basic_string_view<CharT>{begin,
-        static_cast<std::size_t>(it - begin)});
-    if (spec_.debug && spec_.is_dynamic())
-      throw std::format_error("dynamic is unsupported");
-    return it;
+    const auto spec_text = std::basic_string_view<CharT>{begin,
+        static_cast<std::size_t>(ctx.end() - begin)};
+    const auto consumed = spec_.parse_pad(spec_text);
+    // An automatic `{}` width or precision has no id in the spec string, so
+    // claim one from the parse context now, width before precision to match
+    // arg order; format time reads it back from `value`.
+    if (spec_.width_arg.is_automatic())
+      spec_.width_arg.value = ctx.next_arg_id();
+    if (spec_.precision_arg.is_automatic())
+      spec_.precision_arg.value = ctx.next_arg_id();
+    // Stop at the spec-terminating `}`
+    return begin + consumed;
   }
 
 #pragma endregion
@@ -530,14 +540,25 @@ struct self_rendering_formatter {
 
   template<typename T, typename FormatContext>
   auto format(const T& obj, FormatContext& ctx) const {
-    if constexpr (requires { obj.format_to_spec(spec_, ctx.out()); })
-      return obj.format_to_spec(spec_, ctx.out());
-
-    if (spec_.debug) {
-      if constexpr (requires { obj.debug_format_to(ctx.out()); })
-        return obj.debug_format_to(ctx.out());
+    if constexpr (requires { obj.format_to_spec(spec_, ctx.out()); }) {
+      // Resolve any dynamic width/precision against the args now, so the type
+      // sees concrete values and never touches the format context.
+      parsed_spec<CharT> resolved = spec_;
+      if (resolved.width_arg.is_dynamic())
+        resolved.width = resolved.width_arg.get_dynamic(ctx);
+      if (resolved.precision_arg.is_dynamic())
+        resolved.precision = resolved.precision_arg.get_dynamic(ctx);
+      return obj.format_to_spec(resolved, ctx.out());
+    } else {
+      // No spec handling: stream the rendering, honoring the `?` debug spec
+      // when the type offers a `debug_format_to`. The `else` matters: it keeps
+      // `format_to` from being required of a `format_to_spec`-only type.
+      if (spec_.debug) {
+        if constexpr (requires { obj.debug_format_to(ctx.out()); })
+          return obj.debug_format_to(ctx.out());
+      }
+      return obj.format_to(ctx.out());
     }
-    return obj.format_to(ctx.out());
   }
 
 #pragma endregion

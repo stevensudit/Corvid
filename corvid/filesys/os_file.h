@@ -28,6 +28,7 @@
 #include <sys/socket.h>
 #include <sys/uio.h>
 
+#include "../meta/formatting.h"
 #include "../strings/no_zero.h"
 #include "../enums/bitmask_enum.h"
 #include "../enums/sequence_enum.h"
@@ -433,6 +434,24 @@ public:
   [[nodiscard]] file_handle_t handle() const noexcept { return handle_; }
   [[nodiscard]] file_handle_t operator*() const noexcept { return handle_; }
 
+  // Render as `fd=<handle>` for an open file, or `fd=closed`. As a
+  // `self_rendering_formatter` target, it applies the spec's width, fill, and
+  // align, plus precision (truncating the rendered text), itself, since it
+  // knows its own length. Any dynamic width/precision arrives already
+  // resolved.
+  template<corvid::CharType CharT, typename OutIt>
+  OutIt
+  format_to_spec(const corvid::parsed_spec<CharT>& spec, OutIt out) const {
+    std::string content{"fd=closed"};
+    if (!is_open()) {
+      content.resize(3);
+      strings::append_num(content, handle_);
+    }
+    std::string_view view{content};
+    if (spec.precision) view = view.substr(0, *spec.precision);
+    return spec.write_padded(out, view, spec.width);
+  }
+
   // Close the file. Idempotent. Returns true when the file was open and is
   // now closed, false if it could not be closed (likely because it already
   // was). Note that, on failure, the file is left in a closed state to avoid
@@ -577,3 +596,9 @@ private:
   file_handle_t handle_{invalid_file_handle};
 };
 }} // namespace corvid::filesys
+
+// Format an `os_file` by self-rendering as `fd=<handle>` (or `fd=closed`),
+// applying the spec's width/fill/align and precision via `format_to_spec`.
+template<corvid::CharType CharT>
+struct std::formatter<corvid::filesys::os_file, CharT>
+    : corvid::self_rendering_formatter<CharT> {};
