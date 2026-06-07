@@ -9,17 +9,20 @@ set -e
 # tied to this checkout. IDE clangd won't resolve those headers correctly
 # until this script (or a bare `cmake -S tests -B tests/build`) has run once.
 
-# Choose which standard library to use. Optionally pass a test source filename
-# first to build and run a matching unit test, then pass "libstdcpp" or
-# "libcxx" to override the default. Add "tidy" to run clang-tidy during the
+# Choose the compiler and standard library. Optionally pass a test source
+# filename first to build and run a matching unit test, then pass "clang"
+# (default) or "gcc" to pick the compiler. The standard library defaults to
+# match the compiler (clang -> libc++, gcc -> libstdc++); pass "libstdcpp" or
+# "libcxx" to override, except gcc + libc++ is rejected because the libc++ path
+# is clang-only. Add "tidy" to run clang-tidy during the
 # build. Add a sanitizer mode ("asan" [which includes ubsan], "tsan", "ubsan",
 # or "msan") to instrument the build with the corresponding LLVM sanitizer.
 # Add "coverage" to build with source-based coverage instrumentation and run
 # llvm-profdata/llvm-cov after tests pass; mutually exclusive with sanitizers
 # and tidy. Add "scan" to skip the build and run the Clang Static Analyzer
 # (`analyze-build`) against the compile_commands.json instead; mutually
-# exclusive with everything else. The default is `libcxx`, no tidy, no
-# sanitizer, no coverage, no scan.
+# exclusive with everything else. The default is clang with `libcxx`, no tidy,
+# no sanitizer, no coverage, no scan.
 #
 # This script builds and runs one configuration at a time. To exercise every
 # configuration (plain, asan, tsan, msan, tidy) in sequence, pass "all":
@@ -31,6 +34,7 @@ set -e
 # the run exits non-zero if any config fails configure, build, or test.
 
 choice=""
+compiler=""
 use_tidy=false
 sanitizer=""
 use_coverage=false
@@ -38,7 +42,7 @@ use_scan=false
 test_name=""
 target_name=""
 
-usage="Usage: $0 [all | [testname.cpp] [libstdcpp|libcxx] [tidy] [asan|tsan|ubsan|msan] [coverage] [scan]]"
+usage="Usage: $0 [all | [testname.cpp] [clang|gcc] [libstdcpp|libcxx] [tidy] [asan|tsan|ubsan|msan] [coverage] [scan]]"
 
 # Enforce the core/utils band layering before any build (fast, static, and
 # build-independent). See corvid/deps.md.
@@ -76,6 +80,7 @@ if [[ "${1:-}" == "all" ]]; then
 fi
 
 if [[ $# -gt 0 && "$1" != "libstdcpp" && "$1" != "libcxx" \
+      && "$1" != "clang" && "$1" != "gcc" \
       && "$1" != "tidy" && "$1" != "--tidy" \
       && "$1" != "asan" && "$1" != "tsan" && "$1" != "ubsan" \
       && "$1" != "msan" && "$1" != "coverage" && "$1" != "scan" ]]; then
@@ -93,6 +98,9 @@ for arg in "$@"; do
   case "$arg" in
     libstdcpp|libcxx)
       choice="$arg"
+      ;;
+    clang|gcc)
+      compiler="$arg"
       ;;
     tidy|--tidy)
       use_tidy=true
@@ -138,17 +146,41 @@ if $use_scan; then
   fi
 fi
 
+# Default the compiler to clang; gcc is opt-in.
+if [[ -z "$compiler" ]]; then
+  compiler="clang"
+fi
+
+# The standard library defaults to match the compiler: clang pairs with
+# libc++, gcc with libstdc++. An explicit libstdcpp/libcxx arg overrides this.
 if [[ -z "$choice" ]]; then
-  choice="libcxx"
+  if [[ "$compiler" == "gcc" ]]; then
+    choice="libstdcpp"
+  else
+    choice="libcxx"
+  fi
+fi
+
+# The libc++ path below is clang-only (it hardcodes -nostdinc++, the libc++
+# include prefix, compiler-rt, and lld), so gcc + libc++ cannot work here.
+if [[ "$compiler" == "gcc" && "$choice" == "libcxx" ]]; then
+  echo "$0: gcc cannot build against libc++; use 'gcc libstdcpp'" >&2
+  exit 1
 fi
 
 if [[ "$choice" == "libstdcpp" ]]; then
-  echo "Using libstdc++"
-  export CC="$(command -v clang)"
-  export CXX="$(command -v clang++)"
   LIBSTD_OPTION="-DUSE_LIBSTDCPP=ON"
+  if [[ "$compiler" == "gcc" ]]; then
+    echo "Using gcc with libstdc++"
+    export CC="$(command -v gcc)"
+    export CXX="$(command -v g++)"
+  else
+    echo "Using clang with libstdc++"
+    export CC="$(command -v clang)"
+    export CXX="$(command -v clang++)"
+  fi
 else
-  echo "Using libc++"
+  echo "Using clang with libc++"
   export CC="/usr/bin/clang-22"
   export CXX="/usr/bin/clang++-22"
   LIBSTD_OPTION="-DUSE_LIBSTDCPP=OFF"
@@ -206,7 +238,7 @@ fi
 rm -rf "$buildRoot"
 mkdir -p "$buildRoot" "$buildDir"
 
-# Run cmake to configure the project with Ninja (or MinGW Makefiles) and clang
+# Run cmake to configure the project with Ninja and the selected compiler
 cmake -S tests -B "$buildRoot" -G "Ninja" $LIBSTD_OPTION $TIDY_OPTION $TEST_NAME_OPTION $SAN_OPTION $COV_OPTION
 
 # Scan mode: hand the compile database to the Clang Static Analyzer and

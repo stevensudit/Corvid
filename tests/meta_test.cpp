@@ -774,10 +774,10 @@ TEST_CASE("SelfAssign", "[AddressForwarder]") {
   a.forwarding_address() = &ptr;
 
   // Self-assignment must not corrupt state.
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Wself-move"
+  PRAGMA_DIAG(push)
+  PRAGMA_IGNORED("-Wself-move")
   a = std::move(a);
-#pragma clang diagnostic pop
+  PRAGMA_DIAG(pop)
   // After self-move `ptr` still points to `a`.
   CHECK(ptr == &a);
 }

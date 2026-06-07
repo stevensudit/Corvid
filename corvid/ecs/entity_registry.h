@@ -309,7 +309,7 @@ public:
     friend class entity_registry<T, EID, SID, GEN, OWN_COUNT, REUSE, A>;
   };
 
-  static constexpr location_record invalid_location;
+  static constexpr location_record invalid_location{};
 
   // Entity record. The entity ID is implied by its location in `records_`.
   //

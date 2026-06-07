@@ -30,6 +30,7 @@
 #include <openssl/rand.h>
 #include <openssl/ssl.h>
 
+#include "../../meta/pragmas.h"
 #include "../net_endpoint.h"
 #include "../../enums/bool_enums.h"
 #include "../../concurrency/timeouts.h"
@@ -1050,10 +1051,11 @@ private:
     return success(try_or_log(std::forward<F>(fn)));
   }
 
-// Callback tables, one per role. Unmentioned slots are value-initialized to
-// null, which is what ngtcp2 expects for optional callbacks.
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Wmissing-designated-field-initializers"
+  // Callback tables, one per role. Unmentioned slots are value-initialized to
+  // null, which is what ngtcp2 expects for optional callbacks.
+  PRAGMA_DIAG(push)
+  PRAGMA_CLANG_IGNORED("-Wmissing-designated-field-initializers")
+  PRAGMA_GCC_IGNORED("-Wmissing-field-initializers")
   static constexpr ngtcp2_callbacks server_callbacks{
       .recv_client_initial = &ngtcp2_crypto_recv_client_initial_cb,
       .recv_crypto_data = &ngtcp2_crypto_recv_crypto_data_cb,
@@ -1118,7 +1120,7 @@ private:
       .get_new_connection_id2 = &on_get_new_connection_id2,
       .get_path_challenge_data2 = &on_get_path_challenge_data2,
   };
-#pragma clang diagnostic pop
+  PRAGMA_DIAG(pop)
 
   // The shim retrieves our `ngtcp2_conn*` via the conn_ref's `get_conn`
   // callback, which lets it find us starting from just an SSL pointer.

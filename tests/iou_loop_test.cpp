@@ -17,6 +17,7 @@
 #include "../corvid/proto/io_uring/iou_loop.h"
 #include "../corvid/filesys/net_socket.h"
 #include "../corvid/enums/enum_conversion.h"
+#include "../corvid/meta/pragmas.h"
 
 #include <atomic>
 #include <chrono>
@@ -32,6 +33,13 @@
 using namespace corvid;
 using namespace corvid::filesys;
 using namespace corvid::iouring;
+
+// The `bound_*` helpers derive from a CRTP `address_forwarder` base, so
+// designated-initializing them (`bound_timeout{.when = ...}`) leaves the base
+// value-initialized. gcc reports that base as a missing field initializer;
+// clang does not. The base is correctly value-initialized, so silence it on
+// gcc for this test.
+PRAGMA_GCC_IGNORED("-Wmissing-field-initializers")
 using namespace std::chrono_literals;
 
 namespace {

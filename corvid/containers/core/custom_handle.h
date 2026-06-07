@@ -126,11 +126,11 @@ public:
 #pragma endregion
 #pragma region Access
 
-  [[nodiscard]] reference_type operator*() const {
+  [[nodiscard]] decltype(auto) operator*() const {
     if constexpr (std::is_pointer_v<resource_id_type>)
       return *reinterpret_cast<element_type*>(resource_);
     else
-      return reinterpret_cast<reference_type>(resource_);
+      return static_cast<element_type>(resource_);
   }
 
   [[nodiscard]] constexpr element_type* operator->() const noexcept {

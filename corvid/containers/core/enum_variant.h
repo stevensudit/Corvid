@@ -121,6 +121,11 @@ struct overloaded_callbacks: Lambdas... {
   }
 };
 
+// Deduction guide. Needed for gcc, which does not perform aggregate CTAD for
+// this base-class aggregate the way clang does.
+template<typename... Lambdas>
+overloaded_callbacks(Lambdas...) -> overloaded_callbacks<Lambdas...>;
+
 // Indexed callbacks.
 //
 // Like the `overloaded` helper documented for `std::visit`, except that it's

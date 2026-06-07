@@ -29,6 +29,7 @@
 #include <nghttp3/nghttp3.h>
 #include <openssl/rand.h>
 
+#include "../../meta/pragmas.h"
 #include "../../infra/exception_firewalls.h"
 #include "../../infra/log.h"
 #include "../../strings/conversion.h"
@@ -938,8 +939,9 @@ private:
   // The nghttp3 callback table. Identical for both roles (only the `_new`
   // entry point differs); unmentioned slots are value-initialized to null,
   // which nghttp3 treats as "callback not installed".
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Wmissing-designated-field-initializers"
+  PRAGMA_DIAG(push)
+  PRAGMA_CLANG_IGNORED("-Wmissing-designated-field-initializers")
+  PRAGMA_GCC_IGNORED("-Wmissing-field-initializers")
   static constexpr nghttp3_callbacks callbacks{
       .acked_stream_data = &on_acked_stream_data,
       .stream_close = &on_stream_close,
@@ -957,7 +959,7 @@ private:
       .rand = &on_rand,
       .recv_settings2 = &on_recv_settings,
   };
-#pragma clang diagnostic pop
+  PRAGMA_DIAG(pop)
 
   using conn_ptr =
       std::unique_ptr<nghttp3_conn, decltype([](nghttp3_conn* p) noexcept {

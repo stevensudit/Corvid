@@ -130,6 +130,12 @@ public:
   }
 
   // Sets thread-local scope for arena.
+  //
+  // gcc's -Wdangling-pointer misfires here: `arena` is a reference parameter,
+  // so `&arena.head_` points into the caller's arena (which outlives the
+  // guard), not a local. Silence it on gcc; clang does not warn.
+  PRAGMA_GCC_DIAG(push)
+  PRAGMA_GCC_IGNORED("-Wdangling-pointer")
   class [[nodiscard]] scope {
   public:
     explicit scope(extensible_arena& arena) noexcept : old_head{&arena.head_} {
@@ -141,6 +147,7 @@ public:
   private:
     pointer* old_head;
   };
+  PRAGMA_GCC_DIAG(pop)
 };
 
 // Allocator that uses the `extensible_arena` that is currently in scope.
