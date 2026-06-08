@@ -18,6 +18,7 @@
 #include <liburing.h>
 
 #include <cstddef>
+#include <cstdint>
 #include <chrono>
 #include <limits>
 #include <linux/time_types.h>

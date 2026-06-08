@@ -36,6 +36,8 @@ class archetype_scene_base;
 namespace corvid { inline namespace ecs {
 inline namespace archetype_storage_bases {
 
+#pragma region archetype_storage_base
+
 // CRTP base class for `archetype_storage`, `chunked_archetype_storage`, and
 // `mono_archetype_storage`. Provides the registry-interaction plumbing common
 // to all packed archetype storages (entity ID tracking, `entity_registry`
@@ -75,6 +77,8 @@ class archetype_storage_base;
 template<typename CHILD, typename REG, typename... Cs>
 class archetype_storage_base<CHILD, REG, std::tuple<Cs...>> {
 public:
+#pragma region Types
+
   using derived_t = CHILD;
   using registry_t = REG;
   using id_t = registry_t::id_t;
@@ -90,6 +94,9 @@ public:
   using tuple_t = std::tuple<Cs...>;
 
   static_assert(sizeof...(Cs) > 0);
+
+#pragma endregion
+#pragma region Queries
 
   // Check whether an entity is in this storage, by ID.
   [[nodiscard]] bool contains(id_t id) const {
@@ -124,6 +131,9 @@ public:
     limit_ = new_limit;
     return true;
   }
+
+#pragma endregion
+#pragma region Removal
 
   // Remove entity by ID, moving it back to staging. Returns success flag.
   bool remove(id_t id) { return do_remove_erase(id, store_id_t{}); }
@@ -160,6 +170,9 @@ public:
     return true;
   }
 
+#pragma endregion
+#pragma region add_guard
+
   // RAII guard for `add`: captures `size` on construction. If `disarm` is not
   // called before destruction, rolls `ids_` and derived storage back to the
   // saved size, providing strong exception safety.
@@ -188,6 +201,9 @@ public:
     derived_t* owner_{};
     size_type saved_size_{};
   };
+
+#pragma endregion
+#pragma region row_wrapper
 
   // Lightweight, non-owning handle to a single entity's row. When
   // `ACCESS=access::as_mutable`, `row_lens` (mutable);
@@ -262,6 +278,9 @@ public:
   // Mutable row lens.
   using row_lens = row_wrapper<access::as_mutable>;
 
+#pragma endregion
+#pragma region row_iterator
+
   // Bidirectional iterator. Dereferencing yields a `row_lens` or `row_view`,
   // depending on constness. Invalidated by any structural mutation
   // (add/remove/erase).
@@ -328,6 +347,9 @@ public:
   using iterator = row_iterator<access::as_mutable>;
   using const_iterator = row_iterator<access::as_const>;
 
+#pragma endregion
+#pragma region Insertion
+
   // Atomically create an entity in the registry and insert it into this
   // storage. Returns the new entity's handle on success, or an invalid handle
   // if the registry refused creation or the storage limit would be exceeded.
@@ -376,6 +398,9 @@ public:
     if (!registry_->is_valid(handle)) return false;
     return add(handle.id(), std::forward<Args>(args)...);
   }
+
+#pragma endregion
+#pragma region Conditional removal
 
   // Erase entities for which `pred(comp, id)` returns true, where `comp` is a
   // const reference to the entity's `C` component and `id` is its ID. Uses
@@ -433,6 +458,9 @@ public:
     return do_remove_erase_if(std::move(pred), store_id_t{});
   }
 
+#pragma endregion
+#pragma region Element access
+
   // Access the row for entity `id` as a `row_lens` (mutable) or `row_view`
   // (const). Entity must be valid and in this storage; asserts in debug.
   [[nodiscard]] row_lens operator[](id_t id) noexcept {
@@ -471,6 +499,9 @@ public:
     return (*this)[handle.id()];
   }
 
+#pragma endregion
+#pragma region Iteration
+
   // Bidirectional iteration over all entities in storage-sequential order.
   [[nodiscard]] iterator begin() noexcept { return iterator{*this, 0}; }
   [[nodiscard]] iterator end() noexcept { return iterator{*this, size()}; }
@@ -486,6 +517,9 @@ public:
   [[nodiscard]] const_iterator cend() const noexcept {
     return const_iterator{*this, size()};
   }
+
+#pragma endregion
+#pragma region Construction
 
   // Public deleted/defined special members.
   archetype_storage_base(const archetype_storage_base&) = delete;
@@ -531,6 +565,9 @@ protected:
     return *this;
   }
 
+#pragma endregion
+#pragma region Helpers
+
   // CRTP helpers.
   [[nodiscard]] derived_t& derived() noexcept {
     return static_cast<derived_t&>(*this);
@@ -550,6 +587,9 @@ protected:
     return true;
   }
 
+#pragma endregion
+#pragma region Data members
+
   // Data members shared by all derived classes.
   registry_t* registry_{nullptr};
   store_id_t store_id_{store_id_t::invalid};
@@ -560,6 +600,8 @@ protected:
   // to `do_drop_all`.
   friend class ::corvid::ecs::archetype_scene_base;
 
+#pragma endregion
+#pragma region Implementation
 private:
   // Fast bulk-drop: clear component and ID vectors without touching the
   // registry. Only safe when the registry will be reset wholesale immediately
@@ -631,6 +673,9 @@ private:
     }
     return cnt;
   }
+
+#pragma endregion
 };
 
+#pragma endregion
 }}} // namespace corvid::ecs::archetype_storage_bases

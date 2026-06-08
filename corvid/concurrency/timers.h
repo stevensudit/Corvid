@@ -29,9 +29,9 @@
 
 namespace corvid { inline namespace concurrency {
 
-//
 // Thread-safe timers.
-//
+
+#pragma region Aliases
 
 // Time point and duration using steady clock.
 using time_point_t = std::chrono::steady_clock::time_point;
@@ -44,6 +44,9 @@ class timer_event;
 // Timers and events can only be constructed as shared.
 using timers_ptr = std::shared_ptr<timers>;
 using timer_event_ptr = std::shared_ptr<timer_event>;
+
+#pragma endregion
+#pragma region timer_invocation
 
 // Parameter passed to the timer callback. Besides the event itself, and access
 // to the `timers` object, it also includes various timestamps and counts
@@ -74,6 +77,9 @@ struct timer_invocation {
   time_point_t now;
 };
 
+#pragma endregion
+#pragma region Callbacks
+
 // Callback invoked when a timer fires.
 //
 // See below for notes on synchronization and thread safety.
@@ -102,6 +108,9 @@ using timer_callback_t = std::function<time_point_t(const timer_invocation&)>;
 // be safe to call from any thread. Value should increase monotonically.
 using clock_callback_t = std::function<time_point_t()>;
 
+#pragma endregion
+#pragma region timer_event
+
 // Timer event.
 //
 // Contains full state of the event. All contents are either immutable or
@@ -109,6 +118,8 @@ using clock_callback_t = std::function<time_point_t()>;
 //
 // Set `canceled` to true to prevent the event from firing again.
 class timer_event final {
+#pragma region Construction
+
   enum class allow : bool { ctor };
 
 public:
@@ -145,6 +156,9 @@ public:
   timer_event(timer_event&&) = delete;
   timer_event& operator=(const timer_event&) = delete;
   timer_event& operator=(timer_event&&) = delete;
+
+#pragma endregion
+#pragma region Data members
 
   // When the timer was created.
   const time_point_t created_at;
@@ -192,7 +206,12 @@ public:
 
   // Synchronize access to data bound into the callback, if needed.
   synchronizer sync;
+
+#pragma endregion
 };
+
+#pragma endregion
+#pragma region timers
 
 // Priority queue of timers.
 //
@@ -200,6 +219,8 @@ public:
 // is called. All methods are thread-safe and may be safely invoked even from
 // inside a callback without deadlock.
 class timers final: public std::enable_shared_from_this<timers> {
+#pragma region Types
+
   // Lightweight internal class to reference an upcoming event. If there's no
   // `scheduled_event` for an `event` in the priority queue, it's not
   // scheduled. Note that the `event` is kept alive by its presence in a
@@ -216,6 +237,9 @@ class timers final: public std::enable_shared_from_this<timers> {
   using scheduled_queue_t = std::priority_queue<scheduled_event>;
   enum class allow : bool { ctor };
 
+#pragma endregion
+#pragma region Construction
+
 public:
   // Effectively private: can only be constructed through `make` factory
   // method.
@@ -231,6 +255,9 @@ public:
   [[nodiscard]] static timers_ptr make(std::string name) {
     return std::make_shared<timers>(allow::ctor, std::move(name));
   }
+
+#pragma endregion
+#pragma region Operations
 
   // Get current time according to the registered clock callback.
   [[nodiscard]] auto get_now(const lock& attestation = {}) const {
@@ -382,6 +409,9 @@ public:
     clock_callback_ = callback;
   }
 
+#pragma endregion
+#pragma region Data members
+
   // Name, for logging.
   const std::string name;
 
@@ -397,6 +427,9 @@ private:
   // For each event that is scheduled, there should be exactly one entry in
   // `scheduled_events_` at any time.
   scheduled_queue_t scheduled_events_;
+
+#pragma endregion
 };
 
+#pragma endregion
 }} // namespace corvid::concurrency

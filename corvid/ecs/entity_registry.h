@@ -34,6 +34,8 @@
 
 namespace corvid { inline namespace ecs { inline namespace entity_registries {
 
+#pragma region entity_registry
+
 // Entity Component System: Entity Registry
 //
 // The entity registry owns IDs for entities of a particular entity type in the
@@ -94,6 +96,8 @@ template<typename T = void,
     sequence_order REUSE = sequence_order::fifo, class A = std::allocator<T>>
 class entity_registry {
 public:
+#pragma region Types
+
   static constexpr bool is_versioned_v = (GEN == generation_scheme::versioned);
   static constexpr bool is_archetype_v = (OWN_COUNT == 1);
   static constexpr bool is_component_v = !is_archetype_v;
@@ -142,6 +146,9 @@ public:
 
   static_assert(OWN_COUNT >= 1,
       "OWN_COUNT must be 1 (archetype mode) or >= 2 (component mode)");
+
+#pragma endregion
+#pragma region handle_t
 
   // A handle to an entity. Contains ID and optionally generation data to
   // detect reuse. No ownership: does nothing on destruction.
@@ -195,6 +202,9 @@ public:
     friend class entity_registry<T, EID, SID, GEN, OWN_COUNT, REUSE, A>;
   };
 
+#pragma endregion
+#pragma region location_t
+
   // Single location type.
   //
   // This is the type used for parameters.
@@ -205,6 +215,9 @@ public:
     store_id_t store_id{store_id_t::invalid};
     size_type ndx{*id_t::invalid};
   };
+
+#pragma endregion
+#pragma region location_record
 
   // Record of external storage location(s) for entity.
   //
@@ -309,7 +322,10 @@ public:
     friend class entity_registry<T, EID, SID, GEN, OWN_COUNT, REUSE, A>;
   };
 
-  static constexpr location_record invalid_location;
+  static constexpr location_record invalid_location{};
+
+#pragma endregion
+#pragma region record_t
 
   // Entity record. The entity ID is implied by its location in `records_`.
   //
@@ -335,6 +351,9 @@ public:
   using record_allocator_type =
       std::allocator_traits<A>::template rebind_alloc<record_t>;
 
+#pragma endregion
+#pragma region Construction
+
 public:
   entity_registry() = default;
   explicit entity_registry(const allocator_type& alloc)
@@ -348,6 +367,9 @@ public:
   [[nodiscard]] allocator_type get_allocator() const noexcept {
     return allocator_type{records_.get_allocator()};
   }
+
+#pragma endregion
+#pragma region Limit
 
   // Maximum allowed ID value.
   //
@@ -377,6 +399,9 @@ public:
 
     return records_.set_id_limit(new_limit);
   }
+
+#pragma endregion
+#pragma region Creation
 
   // Create a new entity record, returning its ID, or `id_t::invalid` on
   // failure.
@@ -417,6 +442,9 @@ public:
       return handle_t{id, 0};
   }
 
+#pragma endregion
+#pragma region Validity
+
   // Check whether the ID is valid. Cannot detect ID reuse, since it's not a
   // handle.
   //
@@ -440,6 +468,9 @@ public:
     if (!is_valid(handle)) return id_t::invalid;
     return handle.id();
   }
+
+#pragma endregion
+#pragma region Location
 
   // Get location for ID. Must be valid.
   //
@@ -531,6 +562,9 @@ public:
     return records_[id].location.store_ids_[sid];
   }
 
+#pragma endregion
+#pragma region Erase
+
   // Erase by ID. Fails if ID is invalid (but cannot detect ID reuse). Returns
   // success.
   //
@@ -547,6 +581,9 @@ public:
     if (!is_valid(handle)) return false;
     return do_erase(handle.id_);
   }
+
+#pragma endregion
+#pragma region Metadata access
 
   // Access metadata by ID. Must be valid.
   [[nodiscard]]
@@ -568,6 +605,9 @@ public:
     if (!self.is_valid(handle)) throw std::invalid_argument("invalid handle");
     return std::forward<decltype(self)>(self).at(handle.id_);
   }
+
+#pragma endregion
+#pragma region Iteration
 
   // Erase all records matching predicate called as `pred(id, rec)`, where
   // `id` is the entity ID and `rec` is the `record_t&`. Returns count erased.
@@ -604,6 +644,9 @@ public:
     return cnt;
   }
 
+#pragma endregion
+#pragma region Queries
+
   // Return current size, which is the count of living entities.
   //
   // This is not necessarily the size of the underlying vector, which may be
@@ -618,6 +661,9 @@ public:
   [[nodiscard]] id_t max_id() const noexcept {
     return id_t{records_.size() - 1};
   }
+
+#pragma endregion
+#pragma region Capacity
 
   // Clear all records.
   //
@@ -666,6 +712,9 @@ public:
       for (size_type i = old_size; i < new_cap; ++i) push_free(id_t{i});
     }
   }
+
+#pragma endregion
+#pragma region handle_owner
 
   // RAII owner for an entity ID handle. Erases the entity on destruction
   // unless ownership is released first.
@@ -766,6 +815,8 @@ public:
     return handle_owner{*this, metadata};
   }
 
+#pragma endregion
+#pragma region Implementation
 private:
   // True if the record at `id` represents a living entity.
   //
@@ -875,6 +926,8 @@ private:
     return true;
   }
 
+#pragma endregion
+#pragma region Data members
 private:
   using id_container_t = id_container<record_t, id_t, record_allocator_type>;
 
@@ -892,5 +945,9 @@ private:
   // giving stack (most-recently freed-first) reuse order.
   id_t free_head_{id_t::invalid};
   [[no_unique_address]] maybe_t<id_t, is_fifo_v> free_tail_{id_t::invalid};
+
+#pragma endregion
 };
+
+#pragma endregion
 }}} // namespace corvid::ecs::entity_registries

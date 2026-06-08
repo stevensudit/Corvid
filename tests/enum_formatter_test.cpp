@@ -114,13 +114,41 @@ TEST_CASE("Debug spec escapes special characters", "[EnumFormatterTest]") {
   }
 }
 
-TEST_CASE("Rejects unsupported format specs", "[EnumFormatterTest]") {
+TEST_CASE("Honors width, align, fill, and precision", "[EnumFormatterTest]") {
   if (true) {
-    // A bad spec in a literal format string is a compile error, so the throw
-    // path is reachable only through a runtime format string. The only
-    // accepted specs are the empty spec and `?`.
+    // A named sequence value pads its stored view; default align is left.
+    CHECK(std::format("{:8}", hue::red) == "red     ");
+    CHECK(std::format("{:>8}", hue::red) == "     red");
+    CHECK(std::format("{:^8}", hue::red) == "  red   ");
+    CHECK(std::format("{:*<8}", hue::red) == "red*****");
+    // Precision truncates the rendering.
+    CHECK(std::format("{:.2}", hue::green) == "gr");
+    CHECK(std::format("{:6.2}", hue::green) == "gr    ");
+    // A bitmask combination and a numeric form go through a buffer, then pad.
+    CHECK(std::format("{:>14}", rgb::yellow) == "   red + green");
+    CHECK(std::format("{:.3}", rgb::yellow) == "red");
+    CHECK(std::format("{:>6}", rgb::black) == "  0x00");
+    // Dynamic width and precision pull from later args.
+    CHECK(std::format("{:{}}", hue::blue, 6) == "blue  ");
+    CHECK(std::format("{:.{}}", hue::blue, 2) == "bl");
+    // The debug spec pads the quoted rendering.
+    CHECK(std::format("{:8?}", hue::red) == R"("red"   )");
+    // Wide widens both fill and content.
+    CHECK(std::format(L"{:>6}", hue::red) == L"   red");
+    CHECK(std::format(L"{:*^15}", rgb::yellow) == L"**red + green**");
+  }
+}
+
+TEST_CASE("Rejects specs that don't apply to a name", "[EnumFormatterTest]") {
+  if (true) {
+    // Fill/align, width, precision, and `?` are accepted; sign, `#`, zero-pad,
+    // locale, and any non-`?` type are not. A bad spec in a literal format
+    // string is a compile error, so the throw path is reachable only through a
+    // runtime format string.
     hue h = hue::red;
     CHECK(std::vformat("{:?}", std::make_format_args(h)) == R"("red")");
+    CHECK_THROWS_AS(std::vformat("{:+}", std::make_format_args(h)),
+        std::format_error);
     CHECK_THROWS_AS(std::vformat("{:0?}", std::make_format_args(h)),
         std::format_error);
     CHECK_THROWS_AS(std::vformat("{:x}", std::make_format_args(h)),

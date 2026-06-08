@@ -133,6 +133,9 @@
     "lldb.dereferencePointers": true,
     "lldb.consoleMode": "commands",
     "cmake.ignoreCMakeListsMissing": true,
+    "files.exclude": {
+        "**/tests/.local/**": true
+    },
     "files.watcherExclude": {
         "**/.git/**": true,
         "**/build/**": true,
@@ -145,6 +148,7 @@
     },
     "search.exclude": {
         "**/build/**": true,
-        "**/out/**": true
+        "**/out/**": true,
+        "**/tests/.local/**": true
     }
 }

@@ -22,10 +22,13 @@
 
 namespace corvid { inline namespace meta { inline namespace containers {
 
+#pragma region extract_field
+
 // Extract just the value or the entire key-value pair.
 enum class extract_field : bool { value, key_value };
 
-// Containers
+#pragma endregion
+#pragma region Element access
 
 // References value from container element, based on `field`
 template<auto field = extract_field::value>
@@ -76,17 +79,6 @@ template<auto field = extract_field::value>
   return ndx != -1 ? &container_element_v<field>(&c[ndx]) : nullptr;
 }
 
-// Compile-time search and replace for `std::string_view` array. It operates
-// on whole `std::string_view` elements, not substrings.
-// This function is most useful with `fixed_string`.
-template<size_t N>
-[[nodiscard]] consteval auto search_and_replace(
-    std::array<std::string, N> values, std::string from, std::string to) {
-  std::array<std::string, N> result;
-  for (size_t i = 0; i < N; ++i) {
-    result[i] = (values[i] == from) ? to : values[i];
-  }
-  return result;
-}
+#pragma endregion
 
 }}} // namespace corvid::meta::containers

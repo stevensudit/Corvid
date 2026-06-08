@@ -24,6 +24,8 @@
 
 namespace corvid { inline namespace infra { inline namespace relaxed_atomicns {
 
+#pragma region relaxed_atomic
+
 // Thin wrapper around `std::atomic<T>`, providing only implicit conversion to
 // `T` and assignment from `T` while using relaxed memory ordering.  All other
 // `std::atomic<T>` operations are accessed using `operator->`.
@@ -41,12 +43,17 @@ namespace corvid { inline namespace infra { inline namespace relaxed_atomicns {
 template<typename T>
 class relaxed_atomic {
 public:
+#pragma region Types
+
   using value_type = T;
   using underlying_t = std::atomic<value_type>;
   using is_relaxed_atomic = std::true_type;
 
   static_assert(underlying_t::is_always_lock_free,
       "relaxed_atomic<T> requires T to be lock-free");
+
+#pragma endregion
+#pragma region Construction
 
   constexpr relaxed_atomic() noexcept(
       std::is_nothrow_default_constructible_v<T>)
@@ -58,6 +65,9 @@ public:
 
   relaxed_atomic(const relaxed_atomic&) = delete;
   relaxed_atomic& operator=(const relaxed_atomic&) = delete;
+
+#pragma endregion
+#pragma region Conversion and assignment
 
   // Conversion to `value_type` with relaxed semantics.
   operator value_type() const noexcept {
@@ -71,7 +81,8 @@ public:
     return desired;
   }
 
-  // Extended functionality.
+#pragma endregion
+#pragma region Extended functionality
 
   // Direct access to the underlying `std::atomic<T>`.
   [[nodiscard]] auto& underlying(this auto& self) noexcept {
@@ -148,9 +159,16 @@ public:
     return self.value_.fetch_sub(n, std::memory_order::relaxed) - n;
   }
 
+#pragma endregion
+#pragma region Data members
 private:
   underlying_t value_{};
+
+#pragma endregion
 };
+
+#pragma endregion
+#pragma region Aliases
 
 // Aliases matching the `std::atomic_*` typedef family.
 
@@ -210,5 +228,7 @@ using relaxed_atomic_size_t = relaxed_atomic<std::size_t>;
 using relaxed_atomic_ptrdiff_t = relaxed_atomic<std::ptrdiff_t>;
 using relaxed_atomic_intmax_t = relaxed_atomic<std::intmax_t>;
 using relaxed_atomic_uintmax_t = relaxed_atomic<std::uintmax_t>;
+
+#pragma endregion
 
 }}} // namespace corvid::infra::relaxed_atomicns

@@ -23,6 +23,7 @@
 
 #include "../meta.h"
 #include "cstring_view.h"
+#include "../meta/formatting.h"
 
 namespace corvid::strings { inline namespace fixed {
 
@@ -196,24 +197,10 @@ using fixed_string = basic_fixed_string<char, N>;
 
 }} // namespace corvid::strings::fixed
 
-// `basic_fixed_string` exposes `begin`/`end`, so without this it would be
-// claimed by the std range formatter and print as a list of chars. Disabling
-// its range format leaves the string formatter below as the only match.
 template<corvid::CharType CharT, std::size_t N>
 constexpr std::range_format
     std::format_kind<corvid::strings::basic_fixed_string<CharT, N>> =
         std::range_format::disabled;
-
-// Formatter for `basic_fixed_string`, narrow or wide. It is pure delegation:
-// inherit the `std::basic_string_view` formatter for the full spec grammar
-// (fill, align, width, precision, `?`) and forward `view()`.
 template<corvid::CharType CharT, std::size_t N>
 struct std::formatter<corvid::strings::basic_fixed_string<CharT, N>, CharT>
-    : std::formatter<std::basic_string_view<CharT>, CharT> {
-  template<typename FormatContext>
-  auto format(const corvid::strings::basic_fixed_string<CharT, N>& s,
-      FormatContext& ctx) const {
-    return std::formatter<std::basic_string_view<CharT>, CharT>::format(
-        s.view(), ctx);
-  }
-};
+    : corvid::forwarding_formatter<std::basic_string_view<CharT>, CharT> {};

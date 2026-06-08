@@ -27,6 +27,8 @@
 
 namespace corvid { inline namespace concurrency {
 
+#pragma region jthread_stoppable_sleep
+
 // Interruptible deadline sleep for use with `std::jthread`.
 //
 // Wraps the workaround needed because libc++ does not yet implement the
@@ -49,6 +51,8 @@ namespace corvid { inline namespace concurrency {
 //
 class jthread_stoppable_sleep {
 public:
+#pragma region Operations
+
   // Sleep until `deadline`. Returns true if a stop was requested before the
   // deadline, false if the deadline elapsed normally.
   template<typename Clock, typename Duration>
@@ -71,8 +75,14 @@ public:
     (void)::pthread_setname_np(::pthread_self(), label.c_str());
   }
 
+#pragma endregion
+#pragma region Data members
 private:
   std::mutex mutex_;
   std::condition_variable cv_;
+
+#pragma endregion
 };
+
+#pragma endregion
 }} // namespace corvid::concurrency

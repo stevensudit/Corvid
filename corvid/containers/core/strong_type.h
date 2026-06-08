@@ -18,6 +18,7 @@
 #include <format>
 
 #include "containers_shared.h"
+#include "../../meta/formatting.h"
 
 namespace corvid { inline namespace strongtypes {
 
@@ -771,27 +772,10 @@ struct hash<corvid::strongtypes::strong_type<T, TAG>>
 };
 } // namespace std
 
-// `strong_type` conditionally forwards `begin`/`end`, so when the underlying
-// `T` is a range it would otherwise be claimed by the std range formatter and
-// enumerated element by element. Disabling its range format leaves the
-// forwarding formatter below as the only match; for a non-range `T` this is a
-// harmless no-op, since `format_kind` is consulted only for ranges.
 template<typename T, typename TAG>
 constexpr std::range_format std::format_kind<corvid::strong_type<T, TAG>> =
     std::range_format::disabled;
-
-// Formatter for `strong_type`, narrow or wide.
-//
-// Formats the wrapper exactly as its underlying value would, honoring that
-// type's full spec grammar, including `?` debug. Available only when the
-// underlying type is itself formattable for `CharT`.
 template<typename T, typename TAG, corvid::CharType CharT>
 requires std::formattable<T, CharT>
 struct std::formatter<corvid::strong_type<T, TAG>, CharT>
-    : std::formatter<T, CharT> {
-  template<typename FormatContext>
-  auto
-  format(const corvid::strong_type<T, TAG>& obj, FormatContext& ctx) const {
-    return std::formatter<T, CharT>::format(obj.value(), ctx);
-  }
-};
+    : corvid::forwarding_formatter<T, CharT> {};

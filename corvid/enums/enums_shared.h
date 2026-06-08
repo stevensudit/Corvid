@@ -19,6 +19,7 @@
 #include <algorithm>
 #include <charconv>
 #include <concepts>
+#include <cstdint>
 #include <limits>
 #include <ranges>
 #include <vector>

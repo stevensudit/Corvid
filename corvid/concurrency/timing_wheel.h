@@ -35,6 +35,8 @@ namespace corvid { inline namespace concurrency {
 
 using namespace std::chrono_literals;
 
+#pragma region timing_wheel
+
 // Single-level timing wheel with configurable precision (100ms by default).
 //
 // Schedules `std::function<void()>` callbacks and fires them at the
@@ -82,6 +84,8 @@ using namespace std::chrono_literals;
 //
 class timing_wheel {
 public:
+#pragma region Types
+
   using time_point_t = std::chrono::steady_clock::time_point;
   using duration_t = std::chrono::milliseconds;
 
@@ -94,11 +98,17 @@ public:
   // All slots in the wheel, indexed by the tick position.
   using slots_t = std::vector<slot_t>;
 
+#pragma endregion
+#pragma region Constants
+
   // Default slot count covers ~60s at 100ms per slot.
   static constexpr size_t default_slot_count{600};
 
   // Default resolution: one 100ms slot per tick.
   static constexpr duration_t default_tick_interval{100ms};
+
+#pragma endregion
+#pragma region Construction
 
   // Construct a timing wheel with `slot_count` slots and `tick_interval`
   // precision, starting from `start_time`. `slot_count` must be at least 2.
@@ -123,6 +133,9 @@ public:
   timing_wheel(timing_wheel&&) = delete;
   timing_wheel& operator=(const timing_wheel&) = delete;
   timing_wheel& operator=(timing_wheel&&) = delete;
+
+#pragma endregion
+#pragma region Operations
 
   // Return the maximum delay this wheel can schedule. Attempts to schedule a
   // delay beyond this value will fail; they will not be capped.
@@ -216,6 +229,8 @@ public:
     return last_tick_ + tick_interval_;
   }
 
+#pragma endregion
+#pragma region Data members
 private:
   mutable std::mutex mutex_;
 
@@ -227,7 +242,12 @@ private:
   size_t current_slot_{0};
   time_point_t last_tick_;
   tombstone stopped_;
+
+#pragma endregion
 };
+
+#pragma endregion
+#pragma region timing_wheel_runner
 
 // Runs a `timing_wheel` in its own background thread.
 //
@@ -239,6 +259,8 @@ private:
 // is destroyed.
 class [[nodiscard]] timing_wheel_runner {
 public:
+#pragma region Construction
+
   explicit timing_wheel_runner(
       size_t slot_count = timing_wheel::default_slot_count,
       timing_wheel::duration_t tick_interval =
@@ -263,6 +285,9 @@ public:
   timing_wheel_runner& operator=(const timing_wheel_runner&) = delete;
   timing_wheel_runner& operator=(timing_wheel_runner&&) = delete;
 
+#pragma endregion
+#pragma region Operations
+
   // Signal the wheel thread to exit. Pending callbacks are discarded.
   // Idempotent and thread-safe. Also called implicitly by the destructor.
   [[nodiscard]] bool stop() { return thread_.request_stop(); }
@@ -274,6 +299,8 @@ public:
   }
   [[nodiscard]] operator timing_wheel&() noexcept { return *wheel_; }
 
+#pragma endregion
+#pragma region Implementation
 private:
   void run(const std::stop_token& st) {
     jthread_stoppable_sleep::set_thread_name("wheel");
@@ -286,8 +313,14 @@ private:
       wheel_->tick(std::chrono::steady_clock::now());
   }
 
+#pragma endregion
+#pragma region Data members
+
   std::shared_ptr<timing_wheel> wheel_;
   std::jthread thread_;
+
+#pragma endregion
 };
 
+#pragma endregion
 }} // namespace corvid::concurrency

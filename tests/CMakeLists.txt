@@ -55,6 +55,13 @@ endif()
 if(USE_LIBSTDCPP)
     # Rely on whichever clang is available and the default libstdc++ install.
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O3 -march=native -Wall -Wextra -Werror -std=c++23")
+    if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
+        # At -O3, gcc raises false-positive -Wmaybe-uninitialized and
+        # -Warray-bounds from inside libstdc++ and Catch2 template
+        # instantiations, not from Corvid code, so they cannot be suppressed at
+        # the source. Keep them as warnings but do not fail the build on them.
+        set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-error=maybe-uninitialized -Wno-error=array-bounds")
+    endif()
 else()
     # Use Clang 22 and avoid pulling in GCC.
     set(CMAKE_CXX_COMPILER "/usr/bin/clang++-22")

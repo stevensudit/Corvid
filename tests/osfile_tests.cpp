@@ -25,6 +25,7 @@
 #include "catch2_main.h"
 
 #include <cstdlib>
+#include <format>
 #include <fcntl.h>
 #include <string_view>
 #include <unistd.h>
@@ -420,6 +421,43 @@ TEST_CASE("MmapMaskString", "[OsFile]") {
     CHECK((parse_enum("hugetlb + growsdown", bad)) ==
           (M::hugetlb | M::growsdown));
   }
+}
+
+TEST_CASE("Formatter", "[OsFile]") {
+  // An open file forwards its handle to the int formatter, a closed one
+  // renders the `(closed)` sentinel. Open files adopt a sentinel handle we
+  // never owned and release it before destruction so no real fd is touched;
+  // closed temporaries hold -1.
+  os_file open_file{42};
+  CHECK(std::format("{}", open_file) == "42");
+  (void)open_file.release();
+  CHECK(std::format("{}", os_file{}) == "(closed)");
+
+  // Width, fill, and align come from the spec. The handle formats as an int,
+  // so it right-aligns by default.
+  os_file seven{7};
+  CHECK(std::format("{:>8}", seven) == "       7");
+  CHECK(std::format("{:*<8}", seven) == "7*******");
+  (void)seven.release();
+
+  // The sentinel honors width and align; width is a minimum, so a field
+  // narrower than the sentinel is a no-op.
+  CHECK(std::format("{:>11}", os_file{}) == "   (closed)");
+  CHECK(std::format("{:>4}", os_file{}) == "(closed)");
+
+  // Dynamic width resolves whether the arg is automatic `{}` or a manual id,
+  // for both the handle and the sentinel.
+  os_file dyn{7};
+  CHECK(std::format("{:>{}}", dyn, 8) == "       7");
+  CHECK(std::format("{0:>{1}}", dyn, 8) == "       7");
+  (void)dyn.release();
+  CHECK(std::format("{:>{}}", os_file{}, 11) == "   (closed)");
+
+  // Code-unit-generic: the same wrapper formats under wide formatting.
+  os_file wide{9};
+  CHECK(std::format(L"{}", wide) == L"9");
+  (void)wide.release();
+  CHECK(std::format(L"{:>11}", os_file{}) == L"   (closed)");
 }
 
 #pragma endregion

@@ -17,6 +17,7 @@
 #pragma once
 #include <algorithm>
 #include <cerrno>
+#include <cstdint>
 #include <linux/fscrypt.h>
 #include <utility>
 #include <csignal>
@@ -27,6 +28,7 @@
 #include <sys/socket.h>
 #include <sys/uio.h>
 
+#include "../meta/formatting.h"
 #include "../strings/no_zero.h"
 #include "../enums/bitmask_enum.h"
 #include "../enums/sequence_enum.h"
@@ -34,6 +36,8 @@
 namespace corvid { inline namespace filesys {
 
 using namespace corvid::strings::no_zero_funcs;
+
+#pragma region msg_flags
 
 // `MSG_*` wrapper.
 enum class msg_flags : int {
@@ -67,6 +71,9 @@ consteval auto corvid_enum_spec(msg_flags*) {
       "dontroute,peek,oob">();
 }
 
+#pragma endregion
+#pragma region fcntl_ops
+
 // `F_*` wrapper for `fcntl` operations.
 // NOLINTNEXTLINE(performance-enum-size)
 enum class fcntl_ops : int {
@@ -94,6 +101,9 @@ consteval auto corvid_enum_spec(fcntl_ops*) {
       "dupfd,getfd,setfd,getfl,setfl,getlk,setlk,setlkw,setown,getown,setsig,"
       "getsig,getlk64,setlk64,setlkw64,setownex,getownex">();
 }
+
+#pragma endregion
+#pragma region errno_code
 
 // `E_*` wrapper for `errno` values.
 //
@@ -264,6 +274,9 @@ using EC = errno_code;
 inline errno_code e_code() { return errno_code{errno}; };
 inline bool e_code_is(errno_code code) { return e_code() == code; }
 
+#pragma endregion
+#pragma region o_flags
+
 // `O_*` wrapper for `open` flags.
 enum class o_flags : int {
   rdonly = O_RDONLY,                     // 0x0000'0000 sequence value
@@ -299,8 +312,12 @@ consteval auto corvid_enum_spec(o_flags*) {
       ",,rdwr,wronly">();
 }
 
+#pragma endregion
+
 // TODO: Move out into "mmap.h", which also wraps `::map` and `::madvise` and
 // defines a RAII `mmap` wrapper class.
+
+#pragma region mmap_prot
 
 // `PROT_*` wrapper.
 enum class mmap_prot : uint32_t {
@@ -316,6 +333,9 @@ consteval auto corvid_enum_spec(mmap_prot*) {
   return corvid::enums::bitmask::make_bitmask_enum_spec<mmap_prot,
       "exec,write,read">();
 }
+
+#pragma endregion
+#pragma region mmap_mask
 
 // `MAP_*` wrapper.
 enum class mmap_mask : uint32_t {
@@ -345,6 +365,9 @@ consteval auto corvid_enum_spec(mmap_mask*) {
       "fixed_noreplace,sync,hugetlb,stack,nonblock,populate,noreserve,locked,"
       "executable,denywrite,,,growsdown,,,anonymous,fixed,,,private,shared">();
 }
+
+#pragma endregion
+#pragma region mmap_advice
 
 // `MADV_*` wrapper.
 // NOLINTNEXTLINE(performance-enum-size)
@@ -381,11 +404,18 @@ consteval auto corvid_enum_spec(mmap_advice*) {
       "wipeonfork,keeponfork,cold,pageout,populate_read,populate_write,"
       "dontneed_locked,collapse">();
 }
+
+#pragma endregion
+#pragma region details
+
 namespace details {
 // Platform file handle type and invalid-handle sentinel.
 using file_handle_t = int;
 constexpr file_handle_t invalid_file_handle = -1;
 } // namespace details
+
+#pragma endregion
+#pragma region os_file
 
 // RAII wrapper around an OS file descriptor or handle.
 //
@@ -397,9 +427,14 @@ constexpr file_handle_t invalid_file_handle = -1;
 // Platform-specific code is isolated in a guarded section.
 class [[nodiscard]] os_file {
 public:
+#pragma region Types
+
   using file_handle_t = details::file_handle_t;
   static constexpr file_handle_t invalid_file_handle =
       details::invalid_file_handle;
+
+#pragma endregion
+#pragma region Construction
 
   // Adopt an existing handle. Defaults to an invalid (closed) file.
   explicit os_file(file_handle_t h = invalid_file_handle) noexcept
@@ -420,6 +455,9 @@ public:
 
   ~os_file() { close(); }
 
+#pragma endregion
+#pragma region Accessors
+
   // True if the handle is valid (i.e., the file is open).
   [[nodiscard]] bool is_open() const noexcept {
     return handle_ != invalid_file_handle;
@@ -431,6 +469,9 @@ public:
   // Return the raw platform handle.
   [[nodiscard]] file_handle_t handle() const noexcept { return handle_; }
   [[nodiscard]] file_handle_t operator*() const noexcept { return handle_; }
+
+#pragma endregion
+#pragma region Close and release
 
   // Close the file. Idempotent. Returns true when the file was open and is
   // now closed, false if it could not be closed (likely because it already
@@ -449,6 +490,9 @@ public:
     handle_ = invalid_file_handle;
     return h;
   }
+
+#pragma endregion
+#pragma region I/O
 
   // Write as much of `data` as possible to the file. On success, removes the
   // written prefix from `data` and returns true. On failure, leaves `data`
@@ -532,6 +576,9 @@ public:
     return true;
   }
 
+#pragma endregion
+#pragma region Control
+
   // Invoke `fcntl(cmd, args...)` on the handle. Returns -1 on failure.
   template<typename... Args>
   [[nodiscard]] int control(fcntl_ops cmd, Args&&... args) const noexcept {
@@ -560,6 +607,9 @@ public:
     return set_flags(new_flags);
   }
 
+#pragma endregion
+#pragma region Errors
+
   // Check whether the last error was a hard error (true) or a soft error
   // (false). A soft error represents flow control conditions that are expected
   // to occur in normal operation and can be retried, while a hard error is an
@@ -572,7 +622,28 @@ public:
     return (err != EC::again && err != EC::wouldblock && err != EC::intr);
   }
 
+#pragma endregion
+#pragma region Data members
 private:
   file_handle_t handle_{invalid_file_handle};
+
+#pragma endregion
 };
+
+#pragma endregion
 }} // namespace corvid::filesys
+
+#pragma region formatter
+
+// Format an `os_file` as its handle, or `(closed)` when it holds no open file.
+// As a `nullable_formatter`, an open file forwards its handle to the `int`
+// formatter (so it takes the full integer spec grammar) while a closed one
+// renders the sentinel, padded to width.
+template<corvid::CharType CharT>
+struct std::formatter<corvid::filesys::os_file, CharT>
+    : corvid::nullable_formatter<int, CharT> {
+  constexpr formatter() noexcept
+      : corvid::nullable_formatter<int, CharT>{"(closed)"} {}
+};
+
+#pragma endregion

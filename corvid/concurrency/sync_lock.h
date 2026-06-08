@@ -21,6 +21,8 @@
 
 namespace corvid { inline namespace concurrency { inline namespace sync_lock {
 
+#pragma region synchronizer
+
 // Synchronization object for use with containers.
 //
 // Not copyable or moveable.
@@ -32,6 +34,9 @@ public:
 private:
   mutable std::mutex mutex_;
 };
+
+#pragma endregion
+#pragma region breakable_synchronizer
 
 // Breakable synchronization object. Once the guarded resource is frozen, you
 // call `disable` and the conversion to `synchronizer` returns `nullptr`, so
@@ -51,12 +56,17 @@ private:
   mutable std::atomic<const synchronizer*> sync_ = &actual_sync_;
 };
 
+#pragma endregion
+#pragma region reverse_lock
+
 // Reversed lock. Unlocks on construction, relocks on destruction.
 //
 // This class is largely internal. The normal way to use it is to call
 // `reverse` on a `lock`.
 class [[nodiscard]] reverse_lock final {
 public:
+#pragma region Construction
+
   explicit reverse_lock(const synchronizer* sync) : sync_{sync} {
     if (sync_) sync_->unlock();
   }
@@ -70,6 +80,9 @@ public:
     if (sync_) sync_->lock();
   }
 
+#pragma endregion
+#pragma region Operations
+
   [[nodiscard]] const synchronizer* release() const noexcept {
     const auto old = sync_;
     sync_ = nullptr;
@@ -78,9 +91,16 @@ public:
 
   [[nodiscard]] operator bool() const noexcept { return sync_; }
 
+#pragma endregion
+#pragma region Data members
 private:
   mutable const synchronizer* sync_{};
+
+#pragma endregion
 };
+
+#pragma endregion
+#pragma region lock
 
 // Attestation of a lock on a sync object.
 //
@@ -129,6 +149,8 @@ private:
 // even construct it on the instance's `sync` member.
 class [[nodiscard]] lock final {
 public:
+#pragma region Construction
+
   constexpr lock() noexcept = default;
 
   explicit lock(const synchronizer& sync) : sync_{&sync} { sync_->lock(); }
@@ -150,6 +172,9 @@ public:
   ~lock() {
     if (sync_) sync_->unlock();
   }
+
+#pragma endregion
+#pragma region Operations
 
   // Whether a `synchronizer` is associated.
   [[nodiscard]] explicit operator bool() const noexcept { return sync_; }
@@ -179,8 +204,13 @@ public:
     return reverse_lock{sync_};
   }
 
+#pragma endregion
+#pragma region Data members
 private:
   mutable const synchronizer* sync_{};
+
+#pragma endregion
 };
 
+#pragma endregion
 }}} // namespace corvid::concurrency::sync_lock

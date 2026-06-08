@@ -25,6 +25,8 @@
 
 namespace corvid { inline namespace concurrency {
 
+#pragma region timer_fuse
+
 // Copyable liveness token for a per-operation timeout on a shared resource.
 //
 // `T` is the resource type (e.g., a connection class), which must be managed
@@ -62,13 +64,21 @@ namespace corvid { inline namespace concurrency {
 template<typename T>
 class timer_fuse {
 public:
+#pragma region Types
+
   using resource_t = T;
   using resource_ptr_t = std::shared_ptr<T>;
   using resource_weak_ptr_t = std::weak_ptr<T>;
 
+#pragma endregion
+#pragma region Construction
+
   // Default-constructed fuse is permanently unarmed: `get_if_armed` always
   // returns `nullptr`. It exists only to be copied over.
   timer_fuse() = default;
+
+#pragma endregion
+#pragma region Operations
 
   // Return the live resource if the fuse is still armed, `nullptr` otherwise.
   //
@@ -112,6 +122,8 @@ public:
   // Stale any pending callback on `seq` without scheduling a new one.
   static void disarm(std::atomic_uint64_t& seq) { ++seq; }
 
+#pragma endregion
+#pragma region Implementation
 private:
   // Due to global treaties against war crimes, only `set_timeout` may
   // construct an armed fuse.
@@ -119,9 +131,15 @@ private:
       uint64_t target) noexcept
       : resource_{std::move(resource)}, seq_{&seq}, target_{target} {}
 
+#pragma endregion
+#pragma region Data members
+
   resource_weak_ptr_t resource_;
   std::atomic_uint64_t* seq_{};
   uint64_t target_{};
+
+#pragma endregion
 };
 
+#pragma endregion
 }} // namespace corvid::concurrency

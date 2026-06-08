@@ -37,6 +37,7 @@ using namespace std::chrono_literals;
 using namespace bool_enums;
 
 #pragma region Enums
+#pragma region socket_type
 
 // `SOCK_*` wrapper for socket types and flags.
 enum class socket_type : int {
@@ -59,6 +60,9 @@ consteval auto corvid_enum_spec(socket_type*) {
       "stream,datagram,raw,rdm,seqpacket,dccp,,,,packet", wrapclip{},
       socket_type{1}>();
 }
+
+#pragma endregion
+#pragma region address_family
 
 // `AF_*` wrapper for address family domains.
 // NOLINTNEXTLINE(performance-enum-size)
@@ -124,6 +128,9 @@ consteval auto corvid_enum_spec(address_family*) {
       "mctp">();
 }
 
+#pragma endregion
+#pragma region protocol_type
+
 // `IPPROTO_*` wrapper for protocol types.
 // NOLINTNEXTLINE(performance-enum-size)
 enum class protocol_type : int {
@@ -170,6 +177,9 @@ consteval auto corvid_enum_spec(protocol_type*) {
       "mtp,,beetph|98,encap|103,pim|108,comp|115,l2tp|132,sctp|135,mh,udplite,"
       "mpls|143,ethernet|255,raw">();
 }
+
+#pragma endregion
+#pragma region socket_option
 
 // `SO_*` wrapper for socket options.
 // NOLINTNEXTLINE(performance-enum-size)
@@ -276,6 +286,9 @@ consteval auto corvid_enum_spec(socket_option*) {
       wrapclip{}, socket_option{1}>();
 }
 
+#pragma endregion
+#pragma region tcp_option
+
 // "TCP_* wrapper for TCP-level socket options".
 // NOLINTNEXTLINE(performance-enum-size)
 enum class tcp_option : int {
@@ -329,6 +342,7 @@ consteval auto corvid_enum_spec(tcp_option*) {
       wrapclip{}, tcp_option{1}>();
 }
 
+#pragma endregion
 #pragma endregion
 #pragma region net_socket
 
@@ -800,6 +814,8 @@ public:
     return std::pair{net_socket{os_file{fd}}, addr};
   }
 
+#pragma endregion
+#pragma region Implementation
 private:
   [[nodiscard]] static net_socket do_create(address_family domain,
       execution exec, message_style style) noexcept {
@@ -812,6 +828,8 @@ private:
       type = socket_type{*type | *socket_type::nonblock};
     return net_socket{domain, type, protocol_type{0}};
   }
+
+#pragma endregion
 };
 
 #pragma endregion

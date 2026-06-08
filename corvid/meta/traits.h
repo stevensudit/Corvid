@@ -24,9 +24,7 @@ namespace corvid { inline namespace meta { inline namespace traits {
 // Note: Some of these definitions are universal traits that apply anywhere,
 // while others enforce distinctions that are specific to this library.
 
-//
-// Specialization
-//
+#pragma region Specialization
 
 // Determine whether `T` is a specialization of `B`.
 //
@@ -38,7 +36,9 @@ constexpr bool is_specialization_of_v = false;
 template<template<typename...> typename B, typename... Args>
 constexpr bool is_specialization_of_v<B<Args...>, B> = true;
 
-// Detect.
+#pragma endregion
+#pragma region Detection
+#pragma region Character, boolean
 
 // Determine whether `T` is a `char`.
 template<typename T>
@@ -79,6 +79,9 @@ using char_type_of_t = char_type_of<T>::type;
 template<typename T>
 constexpr bool is_bool_v = std::is_same_v<std::remove_cvref_t<T>, bool>;
 
+#pragma endregion
+#pragma region Tuple, variant
+
 // Determine whether `T` is a `std::variant`.
 template<typename T>
 constexpr bool is_variant_v = is_specialization_of_v<T, std::variant>;
@@ -112,6 +115,9 @@ template<typename T>
 requires(!std::same_as<T, std::remove_cvref_t<T>>)
 constexpr bool is_pair_convertible_v<T> =
     is_pair_convertible_v<std::remove_cvref_t<T>>;
+
+#pragma endregion
+#pragma region Sequences
 
 // Determine whether `T` is a `std::array`.
 // Note: Can't use `is_specialization_of_v` because `std::array` specializes
@@ -166,6 +172,10 @@ template<typename T>
 constexpr bool is_initializer_list_v =
     is_specialization_of_v<T, std::initializer_list>;
 
+#pragma endregion
+#pragma endregion
+#pragma region pointers
+
 inline namespace pointers {
 
 // Get underlying element type of a raw or smart pointer.
@@ -184,6 +194,10 @@ template<typename T>
 using pointer_element_t = decltype(details::pointer_element<T>(0));
 
 } // namespace pointers
+
+#pragma endregion
+#pragma region keyfinding
+
 inline namespace keyfinding {
 
 // Determine whether `T` has a `find` method which takes a `T::key_type`.
@@ -202,4 +216,6 @@ constexpr bool has_key_find_v =
     details::has_key_find_method<std::remove_cvref_t<T>>::value;
 
 } // namespace keyfinding
+
+#pragma endregion
 }}} // namespace corvid::meta::traits

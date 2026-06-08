@@ -23,6 +23,8 @@
 
 namespace corvid { inline namespace ecs { inline namespace ecs_metas {
 
+#pragma region Tuple membership
+
 // True if `T` appears at least once in `Tuple`.
 template<typename T, typename Tuple>
 struct tuple_contains;
@@ -39,10 +41,16 @@ inline constexpr bool has_all_components_v =
     (tuple_contains_v<Cs, typename Storage::tuple_t> && ...);
 // NOLINTEND(readability-redundant-typename)
 
+#pragma endregion
+#pragma region dependent_false_v
+
 // Always-false helper for `static_assert` in templates, avoiding reliance on
 // `sizeof(C) == 0` which requires `C` to be a complete type.
 template<typename>
 inline constexpr bool dependent_false_v = false;
+
+#pragma endregion
+#pragma region Storage selection
 
 // 0-based index into `Storages...` of the first storage whose
 // `component_t == C`. Fails to compile if no storage matches.
@@ -133,6 +141,9 @@ template<typename C, typename... Storages>
 inline constexpr size_t storage_index_for_v =
     storage_index_for_impl<C, Storages...>();
 
+#pragma endregion
+#pragma region Migration
+
 // Returns a copy of component `C` from `row` if `SrcTuple` contains `C`,
 // otherwise returns a value-initialized `C{}`.
 //
@@ -145,6 +156,9 @@ template<typename C, typename SrcTuple>
   else
     return C{};
 }
+
+#pragma endregion
+#pragma region Tuple operations
 
 // Helper: append T to Tuple only if T is not already present.
 template<typename T, typename Tuple>
@@ -204,4 +218,5 @@ struct wrap_optionals<std::tuple<Cs...>> {
 template<typename Tuple>
 using wrap_optionals_t = wrap_optionals<Tuple>::type;
 
+#pragma endregion
 }}} // namespace corvid::ecs::ecs_metas

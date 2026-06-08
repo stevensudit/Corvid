@@ -29,6 +29,8 @@
 
 namespace corvid { inline namespace ecs { inline namespace component_storages {
 
+#pragma region component_storage
+
 // Packed single-component storage for the component model.
 //
 // Maps entity IDs to densely packed component records using swap-and-pop for
@@ -58,6 +60,8 @@ template<typename REG, typename C, typename TAG = void,
 class component_storage final
     : public component_storage_base<component_storage<REG, C, TAG, IDX>, REG,
           IDX> {
+#pragma region Types
+
   using base_t =
       component_storage_base<component_storage<REG, C, TAG, IDX>, REG, IDX>;
 
@@ -85,7 +89,8 @@ public:
   static_assert(std::is_trivially_copyable_v<component_t>,
       "Component type must be trivially copyable");
 
-  // Constructors.
+#pragma endregion
+#pragma region Construction
 
   // Default-constructed instances can only be assigned to.
   component_storage() noexcept = default;
@@ -115,6 +120,9 @@ public:
     return *this;
   }
 
+#pragma endregion
+#pragma region Swap
+
   // Swap with another storage of the same type.
   void swap(component_storage& other) noexcept {
     base_t::do_swap_base(other);
@@ -124,6 +132,9 @@ public:
   friend void swap(component_storage& lhs, component_storage& rhs) noexcept {
     lhs.swap(rhs);
   }
+
+#pragma endregion
+#pragma region Capacity
 
   // Reduce memory usage to fit current size.
   void shrink_to_fit() {
@@ -137,6 +148,9 @@ public:
     ids_.reserve(new_cap);
   }
 
+#pragma endregion
+#pragma region Insertion
+
   // Add a component for a new entity. Component-first convenience overload.
   [[nodiscard]] handle_t
   add_new(const component_t& component, const metadata_t& metadata = {}) {
@@ -149,6 +163,9 @@ public:
       const component_t& component = component_t{}) {
     return base_t::add_new(metadata, component);
   }
+
+#pragma endregion
+#pragma region Conditional removal
 
   // Erase entities for which `pred(component, id)` returns true. Removed
   // entities are erased from the registry if this is their last storage.
@@ -165,6 +182,9 @@ public:
   size_type remove_if(auto pred) {
     return do_bulk_op(std::move(pred), removal_mode::preserve);
   }
+
+#pragma endregion
+#pragma region row_view
 
   // Read-only view of a single entity's row. Provides a `component<T>`
   // accessor uniform with archetype storages (only valid for `T ==
@@ -187,6 +207,9 @@ public:
 
     [[nodiscard]] id_t id() const noexcept { return entity_id; }
   };
+
+#pragma endregion
+#pragma region Element access
 
   // Mutable access: returns `component_t&` directly.
   [[nodiscard]] component_t& operator[](id_t id) noexcept {
@@ -228,6 +251,9 @@ public:
           "invalid handle or entity not in this storage");
     return (*this)[handle.id()];
   }
+
+#pragma endregion
+#pragma region iterator_t
 
   // Contiguous iterator over components. Dereferencing yields a `component_t`
   // reference; `id` returns the entity ID at the current position.
@@ -328,6 +354,9 @@ public:
   using iterator = iterator_t<access::as_mutable>;
   using const_iterator = iterator_t<access::as_const>;
 
+#pragma endregion
+#pragma region Iteration
+
   [[nodiscard]] iterator begin() noexcept { return {this, 0}; }
   [[nodiscard]] iterator end() noexcept { return {this, size()}; }
   [[nodiscard]] const_iterator begin() const noexcept { return {this, 0}; }
@@ -335,6 +364,8 @@ public:
   [[nodiscard]] const_iterator cbegin() const noexcept { return begin(); }
   [[nodiscard]] const_iterator cend() const noexcept { return end(); }
 
+#pragma endregion
+#pragma region Implementation
 private:
   using base_t::registry_;
   using base_t::store_id_;
@@ -406,8 +437,13 @@ private:
     return cnt;
   }
 
+#pragma endregion
+#pragma region Data members
 private:
   std::vector<C, component_allocator_type> components_;
+
+#pragma endregion
 };
 
+#pragma endregion
 }}} // namespace corvid::ecs::component_storages

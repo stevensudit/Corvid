@@ -31,10 +31,16 @@ namespace id_enums {
 // These have to be declared up front so that we can place `enum_spec_v` in the
 // global namespace. Note that "sys/types.h" also defines a type named `id_t`
 // and rudely injects it into the global namespace.
+
+#pragma region id_t
+
 enum class id_t : size_t { invalid = std::numeric_limits<size_t>::max() };
 consteval auto corvid_enum_spec(id_t*) {
   return corvid::enums::sequence::make_sequence_enum_spec<id_t, "">();
 }
+
+#pragma endregion
+#pragma region entity_id_t
 
 enum class entity_id_t : size_t {
   invalid = std::numeric_limits<size_t>::max()
@@ -42,6 +48,9 @@ enum class entity_id_t : size_t {
 consteval auto corvid_enum_spec(entity_id_t*) {
   return corvid::enums::sequence::make_sequence_enum_spec<entity_id_t, "">();
 }
+
+#pragma endregion
+#pragma region component_id_t
 
 enum class component_id_t : size_t {
   invalid = std::numeric_limits<size_t>::max()
@@ -51,6 +60,9 @@ consteval auto corvid_enum_spec(component_id_t*) {
       "">();
 }
 
+#pragma endregion
+#pragma region archetype_id_t
+
 enum class archetype_id_t : size_t {
   invalid = std::numeric_limits<size_t>::max()
 };
@@ -59,6 +71,9 @@ consteval auto corvid_enum_spec(archetype_id_t*) {
       "">();
 }
 
+#pragma endregion
+#pragma region store_id_t
+
 enum class store_id_t : size_t {
   invalid = std::numeric_limits<size_t>::max()
 };
@@ -66,5 +81,6 @@ consteval auto corvid_enum_spec(store_id_t*) {
   return corvid::enums::sequence::make_sequence_enum_spec<store_id_t, "">();
 }
 
+#pragma endregion
 } // namespace id_enums
 }} // namespace corvid::ecs

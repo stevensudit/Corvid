@@ -18,6 +18,7 @@
 
 #include <array>
 #include <cstddef>
+#include <cstdint>
 #include <optional>
 #include <tuple>
 #include <type_traits>
@@ -29,6 +30,8 @@
 #include "entity_registry.h"
 
 namespace corvid { inline namespace ecs { inline namespace archetype_scenes {
+
+#pragma region archetype_scene_base
 
 // Non-templated base for `archetype_scene<>`. Befriended by `storage_base` so
 // that the protected `storage_drop_all` thunk can reach the otherwise-private
@@ -42,6 +45,9 @@ protected:
     return s.do_drop_all();
   }
 };
+
+#pragma endregion
+#pragma region archetype_scene
 
 // Aggregates an `entity_registry` with a fixed, heterogeneous tuple of entity
 // data storages (`archetype_storage` or `chunked_archetype_storage` or
@@ -81,6 +87,8 @@ protected:
 template<typename REG, typename... STORES>
 class archetype_scene: public archetype_scene_base {
 public:
+#pragma region Types
+
   using registry_t = REG;
   using storage_ts = std::tuple<STORES...>;
   using storage_tuple_t = std::tuple<std::monostate, STORES...>;
@@ -127,6 +135,9 @@ public:
   template<store_id_t SID>
   using storage_t = std::tuple_element_t<*SID, storage_tuple_t>;
 
+#pragma endregion
+#pragma region Construction
+
   // Construct with unlimited, unbound storages. Each storage is bound to
   // this scene's registry and assigned `store_id_t{N}` for 1-based index N.
   // An optional allocator propagates to the registry; all storage allocations
@@ -143,6 +154,9 @@ public:
   ~archetype_scene() {
     try_or_terminate([&] { return clear() || true; });
   }
+
+#pragma endregion
+#pragma region Accessors
 
   // Registry access.
   [[nodiscard]] decltype(auto) registry(this auto& self) noexcept {
@@ -163,6 +177,9 @@ public:
     using storage_type = std::remove_cvref_t<STORAGE>;
     return (std::get<storage_type>(self.storages_));
   }
+
+#pragma endregion
+#pragma region Create
 
   // Create a new entity in staging. Returns its handle, or an invalid handle
   // on failure (e.g., registry at ID limit).
@@ -240,6 +257,9 @@ public:
     return handle_t{};
   }
 
+#pragma endregion
+#pragma region Store
+
   // Insert an already-staged entity into a storage selected at runtime by
   // `store_id`. Returns false if `store_id` does not match a storage, the
   // entity is not in staging, or insertion fails (e.g., storage at limit).
@@ -308,6 +328,9 @@ public:
     return store_entity(handle.id(), std::forward<T>(obj));
   }
 
+#pragma endregion
+#pragma region Erase and remove
+
   // Erase entity from whatever storage it occupies (or from staging if it
   // has not been placed in any storage). Invalidates `id`. ID must be valid.
   [[nodiscard]] bool erase_entity(id_t& id) {
@@ -365,6 +388,9 @@ public:
     if (!registry_.is_valid(handle)) return false;
     return remove_entity(handle.id());
   }
+
+#pragma endregion
+#pragma region Migrate
 
   // Migrate entity to storage `to` using a caller-supplied `build` function
   // that maps the source row to the target components. Both the source storage
@@ -482,6 +508,9 @@ public:
     if (!registry_.is_valid(handle)) return false;
     return migrate_entity(handle.id(), to);
   }
+
+#pragma endregion
+#pragma region Queries
 
   // Return the total number of entities across all storages. Does not include
   // staged entities.
@@ -643,19 +672,17 @@ public:
               using storage_t = std::remove_cvref_t<decltype(storage)>;
               auto row = storage[id];
               found = result_t{
-                  [&]() -> std::conditional_t<std::is_const_v<self_t>,
-                            const Cs*, Cs*> {
-                    if constexpr (has_all_components_v<storage_t, Cs>)
-                      return &row.template component<Cs>();
-                    else
-                      return nullptr;
-                  }()...};
+                  some_component_ptr<std::is_const_v<self_t>, storage_t, Cs>(
+                      row)...};
             }
           }(std::get<Is>(self.storages_)),
           ...);
     }(storage_indices());
     return found;
   }
+
+#pragma endregion
+#pragma region Clear
 
   // Erase all entities in all storages and in staging. After this call the
   // registry and all storages are empty. When `policy` is release, uses the
@@ -685,7 +712,23 @@ public:
     return true;
   }
 
+#pragma endregion
+#pragma region Implementation
 private:
+  // Pointer to component `C` in `row`, or null when the row's storage lacks
+  // `C`. `IsConst` pins the pointer constness to the scene's, independent of
+  // whether `C` is present, so the absent case still yields a matching `const
+  // C*` / `C*`. Factored out of `try_get_some_components` because gcc cannot
+  // pack-expand a lambda that names an unexpanded parameter pack.
+  template<bool IsConst, typename StorageT, typename C, typename Row>
+  [[nodiscard]] static constexpr std::conditional_t<IsConst, const C*, C*>
+  some_component_ptr(Row& row) noexcept {
+    if constexpr (has_all_components_v<StorageT, C>)
+      return &row.template component<C>();
+    else
+      return nullptr;
+  }
+
   // Bit index of component type C in `component_union_t` / `megatuple_t`.
   template<typename C>
   static constexpr size_t component_bit_v =
@@ -778,11 +821,16 @@ private:
     return result;
   }
 
+#pragma endregion
+#pragma region Data members
 private:
   // `registry_` must be declared before `storages_` because each storage
   // holds a pointer to it (initialized in `make_storages`).
   registry_t registry_;
   storage_tuple_t storages_;
+
+#pragma endregion
 };
 
+#pragma endregion
 }}} // namespace corvid::ecs::archetype_scenes

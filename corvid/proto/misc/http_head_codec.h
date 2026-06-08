@@ -44,12 +44,17 @@ namespace corvid { inline namespace proto { inline namespace http_proto {
 
 using namespace std::string_view_literals;
 
+#pragma region http_version
+
 // HTTP protocol version.
 enum class http_version : uint8_t { invalid, http_0_9, http_1_0, http_1_1 };
 consteval auto corvid_enum_spec(http_version*) {
   return corvid::enums::sequence::make_sequence_enum_spec<http_version,
       "invalid,HTTP/0.9,HTTP/1.0,HTTP/1.1">();
 }
+
+#pragma endregion
+#pragma region http_method
 
 // HTTP request method.
 enum class http_method : uint8_t {
@@ -70,6 +75,9 @@ consteval auto corvid_enum_spec(http_method*) {
       http_method{1}>();
 }
 
+#pragma endregion
+#pragma region after_response
+
 // Connection disposition: whether to keep a connection alive after responding
 // or to close it.
 enum class after_response : uint8_t { close = 0, keep_alive = 1 };
@@ -77,6 +85,9 @@ consteval auto corvid_enum_spec(after_response*) {
   return corvid::enums::sequence::make_sequence_enum_spec<after_response,
       "close,keep-alive">();
 }
+
+#pragma endregion
+#pragma region content_type_value
 
 // Canonical media type from a `Content-Type` header field.
 // `unknown`: header present but value not recognized.
@@ -92,6 +103,9 @@ consteval auto corvid_enum_spec(content_type_value*) {
       content_type_value{1}>();
 }
 
+#pragma endregion
+#pragma region transfer_encoding_value
+
 // Transfer encoding from a `Transfer-Encoding` header field.
 // `unknown`: header present but value not recognized.
 enum class transfer_encoding_value : uint8_t { unknown, identity, chunked };
@@ -101,6 +115,9 @@ consteval auto corvid_enum_spec(transfer_encoding_value*) {
       transfer_encoding_value, "unknown,identity,chunked">();
 }
 
+#pragma endregion
+#pragma region upgrade_value
+
 // Upgrade protocol from an `Upgrade` header field.
 // `unknown`: header present but value not recognized.
 enum class upgrade_value : uint8_t { unknown, websocket };
@@ -109,6 +126,9 @@ consteval auto corvid_enum_spec(upgrade_value*) {
   return corvid::enums::sequence::make_sequence_enum_spec<upgrade_value,
       "unknown,websocket">();
 }
+
+#pragma endregion
+#pragma region http_status_code
 
 // HTTP response status code.
 enum class http_status_code : uint16_t {
@@ -192,6 +212,9 @@ consteval auto corvid_enum_spec(http_status_code*) {
       "LOOP_DETECTED,,NOT_EXTENDED,NETWORK_AUTHENTICATION_REQUIRED">();
 }
 
+#pragma endregion
+#pragma region http_constants
+
 // Old-school struct as namespace.
 struct http_constants {
   static constexpr auto valid_field_name_chars =
@@ -201,6 +224,9 @@ struct http_constants {
   static constexpr auto crlfcrlf = "\r\n\r\n"sv;
 };
 
+#pragma endregion
+#pragma region http_headers
+
 // Ordered multimap of HTTP header fields with O(1) average lookup.
 //
 // Insertion order is preserved via `entries_`. A parallel `index_` maps
@@ -209,6 +235,8 @@ struct http_constants {
 //
 // Field names are normalized in the index to "Content-Type" form.
 class http_headers: http_constants {
+#pragma region Types
+
   struct field_line {
     std::string name;
     std::string value;
@@ -217,14 +245,23 @@ class http_headers: http_constants {
   using index_vector = std::vector<size_t>;
   using index_map = string_unordered_map<index_vector>;
 
+#pragma endregion
+#pragma region Data members
+
   field_line_vector entries_;
   index_map index_;
 
+#pragma endregion
+
 public:
+#pragma region value_range
+
   // A lazy, non-owning view over all field values for a given field name,
   // returned by `get_values`. Iterates in insertion order.
   class value_range {
   public:
+#pragma region iterator
+
     class iterator {
     public:
       using iterator_category = std::forward_iterator_tag;
@@ -277,6 +314,8 @@ public:
       }
     };
 
+#pragma endregion
+
     [[nodiscard]] iterator begin() const noexcept {
       return {entries_, indices_->begin(), indices_->end()};
     }
@@ -299,6 +338,9 @@ public:
         const index_vector& indices) noexcept
         : entries_{&entries}, indices_{&indices} {}
   };
+
+#pragma endregion
+#pragma region Validation
 
   // Normalize a field name to Train-Case, in place. Only alphanumeric
   // characters, hyphens, and the token special characters are permitted.
@@ -353,6 +395,9 @@ public:
     return true;
   }
 
+#pragma endregion
+#pragma region Modifiers
+
   // Add a field line from parts, storing `field_name` and `field_value`
   // as-is (no validation or normalization). If specified `raw_field_name` is
   // stored for the line, while `field_name` is stored for the index.
@@ -404,6 +449,9 @@ public:
     return add_raw(normal_field_name, std::string{field_value}, field_name);
   }
 
+#pragma endregion
+#pragma region Accessors
+
   // Return a `string_view` into the field value for the field line whose
   // name matches `field_name`. The `field_name` is expected to be
   // normalized. Returns `std::nullopt` if not found, as opposed to empty if
@@ -445,6 +493,9 @@ public:
     return {entries_, ref};
   }
 
+#pragma endregion
+#pragma region Parsing
+
   // Add a field line by parsing `line`, which does not include the trailing
   // crlf. Must not be empty: the caller is responsible for detecting the
   // end-of-headers blank line. The field name is required to be non-empty
@@ -477,6 +528,9 @@ public:
     return true;
   }
 
+#pragma endregion
+#pragma region Serialization
+
   // Serialize all headers into wire format, which is the block of text after
   // the request/status line. Tombstoned entries (empty name) are skipped.
   //
@@ -495,11 +549,17 @@ public:
     out += crlf;
   }
 
+#pragma endregion
+#pragma region Iteration
+
   // Ordered iteration (insertion order).
   [[nodiscard]] auto begin() const noexcept { return entries_.begin(); }
   [[nodiscard]] auto end() const noexcept { return entries_.end(); }
   [[nodiscard]] bool empty() const noexcept { return entries_.empty(); }
   [[nodiscard]] size_t size() const noexcept { return entries_.size(); }
+
+#pragma endregion
+#pragma region Removal
 
   // Tombstone all entries for the normalized `field_name` and remove it
   // from the index entirely.
@@ -510,7 +570,12 @@ public:
     for (size_t ndx : it->second) entries_[ndx].name.clear();
     index_.erase(it);
   }
+
+#pragma endregion
 };
+
+#pragma endregion
+#pragma region http_options
 
 // Parsed representation of key HTTP header fields. Populated from an
 // `http_headers` instance after parsing via `extract`, and written back
@@ -519,11 +584,16 @@ public:
 // `std::nullopt` means the corresponding header was absent. For enum fields,
 // `unknown` means the header was present but the value was not recognized.
 struct http_options {
+#pragma region Data members
+
   std::optional<after_response> connection;
   std::optional<size_t> content_length;
   std::optional<content_type_value> content_type;
   std::optional<transfer_encoding_value> transfer_encoding;
   std::optional<upgrade_value> upgrade;
+
+#pragma endregion
+#pragma region Operations
 
   // Populate all fields by parsing `headers`. Call after headers are parsed.
   void extract(http_headers& headers) {
@@ -569,6 +639,8 @@ struct http_options {
                : after_response::close;
   }
 
+#pragma endregion
+#pragma region Implementation
 private:
   bool do_extract_connection(http_headers& headers) {
     bool has_close{};
@@ -653,7 +725,12 @@ private:
       }
     }
   }
+
+#pragma endregion
 };
+
+#pragma endregion
+#pragma region head_base
 
 // Shared base for `request_head` and `response_head`. Holds the fields common
 // to both: the HTTP version, the parsed header fields, and the extracted
@@ -664,14 +741,22 @@ struct head_base: http_constants {
   http_options options;
 };
 
+#pragma endregion
+#pragma region request_head
+
 // HTTP request head, consisting of the request line and the header fields.
 // The body is not included.
 //
 // Obtained via `parse` after `terminated_text_parser` delivers the head (the
 // bytes before the crlfcrlf sentinel).
 struct request_head: head_base {
+#pragma region Data members
+
   http_method method{};
   std::string target;
+
+#pragma endregion
+#pragma region Operations
 
   // Reset to default-constructed state.
   void clear() {
@@ -772,12 +857,19 @@ struct request_head: head_base {
     return result;
   }
 
+#pragma endregion
+#pragma region Implementation
 private:
   bool fail(std::string failure) {
     target = std::move(failure);
     return false;
   }
+
+#pragma endregion
 };
+
+#pragma endregion
+#pragma region response_head
 
 // HTTP response head, consisting of the status line and the header fields.
 // The body is not included.
@@ -785,8 +877,13 @@ private:
 // Populate the fields and call `serialize` to produce the wire-format response
 // string to pass to `epoll_stream_conn::send`.
 struct response_head: head_base {
+#pragma region Data members
+
   http_status_code status_code{};
   std::string reason;
+
+#pragma endregion
+#pragma region Operations
 
   // Reset to default-constructed state.
   void clear() {
@@ -869,10 +966,16 @@ struct response_head: head_base {
     return resp.serialize();
   }
 
+#pragma endregion
+#pragma region Implementation
 private:
   bool fail(std::string failure) {
     reason = std::move(failure);
     return false;
   }
+
+#pragma endregion
 };
+
+#pragma endregion
 }}} // namespace corvid::proto::http_proto

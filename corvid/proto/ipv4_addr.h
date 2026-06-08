@@ -32,6 +32,8 @@ namespace corvid { inline namespace proto {
 
 using namespace strings::cases;
 
+#pragma region ipv4_addr
+
 // IPv4 address, stored as a 32-bit value in host byte order.
 //
 // Default-constructs to an empty state. Construction is available from four
@@ -46,9 +48,12 @@ using namespace strings::cases;
 // is only introduced at the `in_addr` boundary.
 class ipv4_addr {
 public:
+#pragma region Types
+
   using byte_array = std::array<uint8_t, 4>;
 
-  // Constructors.
+#pragma endregion
+#pragma region Construction
 
   // Default-constructs to the "any" address (0.0.0.0), which is empty.
   constexpr ipv4_addr() noexcept = default;
@@ -75,7 +80,8 @@ public:
   // Construct from a POSIX `in_addr` (which is in network byte order).
   explicit ipv4_addr(const in_addr& a) noexcept : addr_{ntohl(a.s_addr)} {}
 
-  // Named address constants.
+#pragma endregion
+#pragma region Constants
 
   // The "any" address (0.0.0.0): typically used to bind to all interfaces.
   static const ipv4_addr any;
@@ -86,6 +92,9 @@ public:
   // The limited broadcast address (255.255.255.255).
   static const ipv4_addr broadcast;
 
+#pragma endregion
+#pragma region Emptiness
+
   // Whether this address is empty, which is also the "any" address
   // ("0.0.0.0").
   [[nodiscard]] constexpr bool empty() const noexcept { return !addr_; }
@@ -93,7 +102,8 @@ public:
   // Return whether this has a non-any address.
   [[nodiscard]] constexpr operator bool() const noexcept { return !empty(); }
 
-  // Parsing.
+#pragma endregion
+#pragma region Parsing
 
   // Parse from dotted-decimal notation (e.g., "192.168.1.1").
   // Returns `std::nullopt` if the string is not a valid IPv4 address.
@@ -122,7 +132,8 @@ public:
     return ipv4_addr{result};
   }
 
-  // Accessors.
+#pragma endregion
+#pragma region Accessors
 
   // Return the four octets in network order (most significant first).
   [[nodiscard]] constexpr byte_array octets() const noexcept {
@@ -133,7 +144,8 @@ public:
   // Return the raw address in host byte order.
   [[nodiscard]] constexpr uint32_t to_uint32() const noexcept { return addr_; }
 
-  // Classification predicates.
+#pragma endregion
+#pragma region Classification
 
   // True if this is the "any" address (0.0.0.0).
   [[nodiscard]] constexpr bool is_any() const noexcept { return !addr_; }
@@ -161,12 +173,16 @@ public:
            (addr_ & 0xffff0000U) == 0xc0a80000U;
   }
 
+#pragma endregion
+#pragma region Comparison
+
   // Comparison (lexicographic on the host-byte-order value, which is also
   // numerically correct for IPv4 ordering).
   [[nodiscard]] friend constexpr auto
   operator<=>(const ipv4_addr&, const ipv4_addr&) noexcept = default;
 
-  // Formatting.
+#pragma endregion
+#pragma region Formatting
 
   // Format as dotted-decimal (e.g., "192.168.1.1").
   [[nodiscard]] constexpr std::string to_string() const {
@@ -183,12 +199,20 @@ public:
     return in_addr{.s_addr = htonl(addr_)};
   }
 
+#pragma endregion
+#pragma region Data members
 private:
   uint32_t addr_{}; // Host byte order.
+
+#pragma endregion
 };
+
+#pragma endregion
+#pragma region Constant definitions
 
 constexpr ipv4_addr ipv4_addr::any{uint32_t{0}};
 constexpr ipv4_addr ipv4_addr::loopback{uint32_t{0x7f000001U}};
 constexpr ipv4_addr ipv4_addr::broadcast{uint32_t{0xffffffffU}};
 
+#pragma endregion
 }} // namespace corvid::proto

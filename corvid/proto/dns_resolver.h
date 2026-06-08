@@ -15,6 +15,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 #pragma once
+#include <cstdint>
 #include <memory>
 #include <string>
 #include <vector>
@@ -26,6 +27,8 @@
 #include "net_endpoint.h"
 
 namespace corvid { inline namespace proto {
+
+#pragma region dns_resolver
 
 // Resolves hostnames to `net_endpoint` values via `getaddrinfo`.
 struct dns_resolver {
@@ -77,4 +80,5 @@ struct dns_resolver {
   }
 };
 
+#pragma endregion
 }} // namespace corvid::proto

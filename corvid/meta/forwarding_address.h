@@ -23,10 +23,12 @@
 
 namespace corvid { inline namespace meta {
 
+#pragma region address_forwarder
+
 // CRTP base for objects that need to remain addressable after being moved out
 // of visibility, such as by being captured into a `std::function` and/or a
 // lambda. Maintains a non-owning `Derived**` that is updated on each move to
-// track the new location, and nulled on destruction to prevent wild writes.
+// track the new location, and is nulled on destruction to prevent wild writes.
 //
 // It is your responsibility to clear the forwarding address of the
 // currently active instance before what it points to leaves scope. Otherwise,
@@ -42,17 +44,22 @@ namespace corvid { inline namespace meta {
 //
 //   Foo* ptr = nullptr;
 //   Foo f;
-//   f.forwarding_address() = &ptr;  // ptr tracks f
-//   auto g = std::move(f);          // ptr now tracks g
+//   f.forwarding_address() = &ptr;    // ptr tracks f
+//   auto g = std::move(f);            // ptr now tracks g
 //   g.forwarding_address() = nullptr; // clear once stable
 template<typename Derived>
 class address_forwarder {
 public:
+#pragma region Accessors
+
   // Reference to the external tracking pointer. Set to `&ptr` to have `ptr`
   // follow this object across moves; assign `nullptr` to stop tracking.
   [[nodiscard]] Derived**& forwarding_address() noexcept {
     return forwarding_address_;
   }
+
+#pragma endregion
+#pragma region Construction
 
   // The clang-tidy warning is generally good advice, but it also blocks
   // compilation.
@@ -61,7 +68,6 @@ public:
 
 protected:
   // NOLINTBEGIN(bugprone-crtp-constructor-accessibility)
-
   address_forwarder(address_forwarder&& o) noexcept
       : forwarding_address_{std::exchange(o.forwarding_address_, nullptr)} {
     if (forwarding_address_)
@@ -96,12 +102,21 @@ public:
   address_forwarder&& as_base_move() noexcept { return std::move(*this); }
 
   // NOLINTEND(bugprone-crtp-constructor-accessibility)
+
+#pragma endregion
+#pragma region Data members
 private:
   Derived** forwarding_address_{};
+
+#pragma endregion
 };
+
+#pragma endregion
+#pragma region AddressForwarder
 
 template<typename T>
 concept AddressForwarder = std::derived_from<std::remove_cvref_t<T>,
     address_forwarder<std::remove_cvref_t<T>>>;
 
+#pragma endregion
 }} // namespace corvid::meta

@@ -23,9 +23,14 @@ namespace corvid { inline namespace meta { inline namespace concepts {
 // Note: Some of these definitions are universal concepts that apply anywhere,
 // while others enforce distinctions that are specific to this library.
 
+#pragma region Same type
+
 // `T` must be the same as `U`, ignoring cvref.
 template<typename T, typename U>
 concept SameAs = std::same_as<T, std::remove_cvref_t<U>>;
+
+#pragma endregion
+#pragma region Output streams
 
 // `T` must be a type derived from `std::basic_ostream<C>`.
 template<typename T, typename C>
@@ -45,6 +50,9 @@ concept AnyOStreamDerived = requires {
 template<typename T>
 concept OStreamable = requires(T t, std::ostream& os) { os << t; };
 
+#pragma endregion
+#pragma region Strings
+
 // `T` must be a `std::basic_string<C>`.
 template<typename T, typename C>
 concept BasicStdString = SameAs<std::basic_string<C>, T>;
@@ -58,6 +66,9 @@ template<typename T>
 concept AnyStdString = requires {
   typename T::value_type;
 } && BasicStdString<T, typename T::value_type>;
+
+#pragma endregion
+#pragma region Append targets
 
 // `T` must be an append target backed by an output iterator. Recognized
 // structurally by its `append_char_type` member, which names the code unit it
@@ -81,6 +92,9 @@ template<typename T>
 concept AnyAppendTarget =
     AnyOStreamDerived<T> || AnyStdString<T> || OutputIteratorAppendable<T>;
 
+#pragma endregion
+#pragma region Enums and integers
+
 // `T` must be an enum, which could be scoped or not.
 template<typename T>
 concept StdEnum = std::is_enum_v<std::remove_cvref_t<T>>;
@@ -100,6 +114,9 @@ concept Integer = std::integral<T> && (!Bool<T>);
 // `T` must be an enum or integral type.
 template<typename T>
 concept IntegerOrEnum = Integer<T> || StdEnum<T>;
+
+#pragma endregion
+#pragma region Null and characters
 
 // `T` must be nullptr_t.
 template<typename T>
@@ -127,6 +144,9 @@ concept CharArray =
     std::is_array_v<std::remove_cvref_t<T>> &&
     SameAs<char, std::remove_extent_t<T>>;
 
+#pragma endregion
+#pragma region String views
+
 // `T` must be implicitly convertible to `std::basic_string_view<C>`.
 template<typename T, typename C>
 concept BasicStringViewConvertible =
@@ -140,6 +160,9 @@ concept StringViewConvertible = BasicStringViewConvertible<T, char>;
 // type; `char_type_of_t<T>` names that type.
 template<typename T>
 concept StringViewLike = !std::is_void_v<char_type_of_t<T>>;
+
+#pragma endregion
+#pragma region Pointers
 
 // `T` must be a void pointer.
 template<typename T>
@@ -167,6 +190,9 @@ concept RawPointer = std::is_pointer_v<std::remove_cvref_t<T>>;
 template<typename T>
 concept SmartPointer = PointerLike<T> && (!RawPointer<T>);
 
+#pragma endregion
+#pragma region Ranges and optionals
+
 // `T` must be a range.
 template<typename T>
 concept Range = std::ranges::range<T>;
@@ -176,6 +202,9 @@ template<typename T>
 concept OptionalLike =
     Dereferenceable<T> && (!ScopedEnum<T>) && (!StringViewConvertible<T>) &&
     (!Range<T>);
+
+#pragma endregion
+#pragma region Pairs and tuples
 
 // `T` must be a `std::pair`.
 template<typename T>
@@ -192,6 +221,9 @@ concept StdTuple = is_tuple_v<T>;
 // `T` must be a `std::tuple` or convertible to a pair.
 template<typename T>
 concept TupleLike = StdTuple<T> || PairConvertible<T>;
+
+#pragma endregion
+#pragma region Arrays and spans
 
 // `T` must be a `std::array`.
 template<typename T>
@@ -224,10 +256,16 @@ template<typename T>
 concept StringViewConvertibleSpan =
     is_span_v<T> && StringViewConvertible<typename T::element_type>;
 
+#pragma endregion
+#pragma region Containers
+
 // `T` must be a container, which excludes strings and pairs. Strings of any
 // code unit are excluded via `StringViewLike`, not just `char` strings.
 template<typename T>
 concept Container = Range<T> && (!StringViewLike<T>) && (!PairConvertible<T>);
+
+#pragma endregion
+#pragma region Variants
 
 // `T` must be a `std::variant`.
 template<typename T>
@@ -237,6 +275,9 @@ concept Variant = is_variant_v<T>;
 template<typename T>
 concept MonoState = SameAs<std::monostate, T>;
 
+#pragma endregion
+#pragma region Keyed lookup
+
 // `T` must have a `find` method that takes a `T::key_type`.
 template<typename T>
 concept KeyFindable = has_key_find_v<T>;
@@ -244,6 +285,9 @@ concept KeyFindable = has_key_find_v<T>;
 // `T` must be a container that lacks a `find` method.
 template<typename T>
 concept RangeWithoutFind = Range<T> && (!KeyFindable<T>);
+
+#pragma endregion
+#pragma region Construction and comparison
 
 // `U` must be usable for constructing a `T`.
 template<typename T, typename U>
@@ -258,6 +302,9 @@ template<typename T, typename U>
 concept Viewable =
     Makeable<std::remove_cvref_t<T>, std::remove_cvref_t<U>> &&
     Comparable<std::remove_cvref_t<T>, std::remove_cvref_t<U>>;
+
+#pragma endregion
+#pragma region Callables
 
 // `F` must be callable with `Args` and return void.
 template<typename F, typename... Args>
@@ -281,5 +328,7 @@ template<class FN>
 concept MoveConsumable =
     !std::is_lvalue_reference_v<FN> &&
     !std::is_const_v<std::remove_reference_t<FN>>;
+
+#pragma endregion
 
 }}} // namespace corvid::meta::concepts

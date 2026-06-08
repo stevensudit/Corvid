@@ -21,5 +21,14 @@ sudo update-alternatives --install /usr/bin/clang clang /usr/bin/clang-22 100 \
 --slave /usr/bin/clang++ clang++ /usr/bin/clang++-22
 sudo apt install -y catch22 ccache strace
 ```
-8. In the repo, run `code .`, which brings up VSCode remotely.
-9. Run `./cleanbuild.sh tidy` to build the tests with clang-tidy enabled. You can specify `libstdcpp` or `libcxx` as the first argument to choose the standard library.
+8. Install the latest GCC for its libstdc++.
+```
+sudo apt install -y software-properties-common
+sudo add-apt-repository -y ppa:ubuntu-toolchain-r/test
+sudo apt update
+sudo apt install -y gcc-16 g++-16 libstdc++-16-dev
+sudo update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-16 100 \
+--slave /usr/bin/g++ g++ /usr/bin/g++-16
+```
+9. In the repo, run `code .`, which brings up VSCode remotely.
+10. Run `./cleanbuild.sh tidy` to build the tests with clang-tidy enabled. See usage for how to select compiler and standard library.

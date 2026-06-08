@@ -15,10 +15,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 #pragma once
+#include <cstdint>
+#include <memory>
 #include <string_view>
 #include <variant>
 #include <vector>
-#include <memory>
 
 #include "../containers/core/transparent.h"
 #include "../enums.h"
@@ -27,6 +28,8 @@
 namespace corvid { inline namespace lang { namespace ast_pred {
 
 // Predicate Abstract Syntax Tree (AST) and DNF transform.
+
+#pragma region Values
 
 // Any single value for a key.
 using any_single_value = std::variant<std::monostate, std::string, int64_t>;
@@ -37,6 +40,9 @@ using any_value = std::variant<std::monostate, any_single_value,
 
 // Key for lookup, or a literal value.
 using key_or_value = std::variant<std::monostate, std::string, any_value>;
+
+#pragma endregion
+#pragma region operation
 
 // Operations for AST predicates.
 enum class operation : std::uint8_t {
@@ -66,6 +72,9 @@ consteval auto corvid_enum_spec(operation*) {
       wrapclip{}, operation{1}>();
 }
 
+#pragma endregion
+#pragma region lookup
+
 // AST predicate lookup.
 //
 // Returns `std::monostate` for missing keys.
@@ -84,6 +93,9 @@ struct map_lookup: public lookup {
 
   string_map<any_value> m;
 };
+
+#pragma endregion
+#pragma region node
 
 // Forward declaration of node.
 struct node;
@@ -193,6 +205,9 @@ public:
   }
 };
 
+#pragma endregion
+#pragma region Junctions
+
 // AST predicate junction.
 //
 // Junction for child nodes, which may be junctions or leaf nodes. Op is either
@@ -246,6 +261,9 @@ struct not_node final: public junction {
   explicit not_node(allow, Args&&... args)
       : not_node{allow::ctor, node_list{std::forward<Args>(args)...}} {}
 };
+
+#pragma endregion
+#pragma region Leaf nodes
 
 struct true_node final: public node {
   true_node(allow) : node{allow::ctor, operation::always_true} {}
@@ -312,6 +330,9 @@ struct absent_node final: public unary_leaf {
       : unary_leaf{allow::ctor, operation::absent, std::move(value)} {}
 };
 
+#pragma endregion
+#pragma region make
+
 template<operation op, typename... Args>
 std::shared_ptr<node> node::make(Args&&... args) {
   if constexpr (op == operation::and_junction)
@@ -343,6 +364,9 @@ template<operation op, typename... Args>
 [[nodiscard]] node_ptr make(Args&&... args) {
   return node::make<op>(std::forward<Args>(args)...);
 }
+
+#pragma endregion
+#pragma region dnf
 
 // Disjunctive Normal Form (DNF) conversion.
 //
@@ -528,4 +552,6 @@ private:
     return make<operation::or_junction>(std::move(converted_nodes));
   }
 };
+
+#pragma endregion
 }}} // namespace corvid::lang::ast_pred

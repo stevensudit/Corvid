@@ -20,6 +20,8 @@
 
 namespace corvid { inline namespace concurrency {
 
+#pragma region tombstone_of
+
 // A tombstone is a thread-safe, atomic value that can be set to a final value
 // which indicates that it is dead.
 //
@@ -37,6 +39,8 @@ namespace corvid { inline namespace concurrency {
 template<typename T = bool, T FV = true, T IV = {}>
 class tombstone_of {
 public:
+#pragma region Types
+
   using value_type = T;
   using atomic_type = std::atomic<value_type>;
   static constexpr value_type final_v = FV;
@@ -47,6 +51,9 @@ public:
   static_assert(initial_v != final_v,
       "Initial value must not be the same as final value.");
 
+#pragma endregion
+#pragma region Construction
+
   tombstone_of() = default;
 
   tombstone_of(const tombstone_of&) = delete;
@@ -55,6 +62,9 @@ public:
   tombstone_of& operator=(tombstone_of&&) = delete;
 
   explicit tombstone_of(value_type v) noexcept : value_{v} {}
+
+#pragma endregion
+#pragma region Operations
 
   // Kill the tombstone, returning true if this call killed it and false if it
   // was already dead.
@@ -117,10 +127,18 @@ public:
     return *this;
   }
 
+#pragma endregion
+#pragma region Data members
 private:
   atomic_type value_{initial_v};
+
+#pragma endregion
 };
+
+#pragma endregion
+#pragma region tombstone
 
 using tombstone = tombstone_of<bool, true, false>;
 
+#pragma endregion
 }} // namespace corvid::concurrency

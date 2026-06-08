@@ -31,6 +31,9 @@ namespace corvid { inline namespace containers {
 // `hash` and `equal`.
 //
 // http://www.open-std.org/jtc1/sc22/wg21/docs/papers/2018/p0919r3.html
+
+#pragma region transparent less
+
 struct transparent_less_stringlike {
   using is_transparent = void;
 
@@ -39,6 +42,9 @@ struct transparent_less_stringlike {
     return std::string_view{l} < std::string_view{r};
   }
 };
+
+#pragma endregion
+#pragma region transparent hash
 
 struct transparent_hash_equal_stringlike {
   using is_transparent = void;
@@ -54,6 +60,9 @@ struct transparent_hash_equal_stringlike {
            static_cast<std::string_view>(r);
   }
 };
+
+#pragma endregion
+#pragma region Aliases
 
 // Map keyed by `std::string`, with transparent search.
 template<typename V = std::string,
@@ -79,4 +88,5 @@ using string_unordered_set_alloc = std::unordered_set<std::string,
 
 using string_unordered_set = string_unordered_set_alloc<>;
 
+#pragma endregion
 }} // namespace corvid::containers

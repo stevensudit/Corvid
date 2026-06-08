@@ -58,6 +58,8 @@ namespace corvid { inline namespace ecs { inline namespace component_indexes {
 //   SIZE_T - Type used to store packed-array indices. Defaults to the
 //             underlying type of `ID_T`.
 
+#pragma region flat_sparse_index
+
 // Flat sparse reverse index.
 //
 // A plain `std::vector<size_type>`, indexed by `*id`. The vector grows to
@@ -71,8 +73,13 @@ template<sequence::SequentialEnum ID_T,
     typename SIZE_T = std::underlying_type_t<ID_T>>
 class flat_sparse_index {
 public:
+#pragma region Types
+
   using id_t = ID_T;
   using size_type = SIZE_T;
+
+#pragma endregion
+#pragma region Operations
 
   // Insert or overwrite the ndx for `id`. Grows the vector if needed.
   void insert(id_t id, size_type ndx) {
@@ -99,9 +106,16 @@ public:
   // Clear all state.
   void clear() noexcept { data_.clear(); }
 
+#pragma endregion
+#pragma region Data members
 private:
   std::vector<size_type> data_;
+
+#pragma endregion
 };
+
+#pragma endregion
+#pragma region sorted_pair_index
 
 // Sorted-pair reverse index.
 //
@@ -113,11 +127,16 @@ private:
 template<sequence::SequentialEnum ID_T,
     typename SIZE_T = std::underlying_type_t<ID_T>>
 class sorted_pair_index {
+#pragma region Types
+
   using id_t = ID_T;
   using size_type = SIZE_T;
   using pair_t = std::pair<id_t, size_type>;
   using iter_t = std::vector<pair_t>::iterator;
   using citer_t = std::vector<pair_t>::const_iterator;
+
+#pragma endregion
+#pragma region Helpers
 
   [[nodiscard]] iter_t find_it(id_t id) {
     return std::lower_bound(data_.begin(), data_.end(), id,
@@ -128,6 +147,9 @@ class sorted_pair_index {
     return std::lower_bound(data_.cbegin(), data_.cend(), id,
         [](const pair_t& p, id_t v) { return p.first < v; });
   }
+
+#pragma endregion
+#pragma region Operations
 
 public:
   // Insert ndx for `id`. If a stale entry already exists (from a prior failed
@@ -165,9 +187,16 @@ public:
   // Clear all state.
   void clear() { data_.clear(); }
 
+#pragma endregion
+#pragma region Data members
 private:
   std::vector<pair_t> data_;
+
+#pragma endregion
 };
+
+#pragma endregion
+#pragma region paged_sparse_index
 
 // Paged sparse reverse index.
 //
@@ -185,11 +214,16 @@ private:
 template<sequence::SequentialEnum ID_T,
     typename SIZE_T = std::underlying_type_t<ID_T>, size_t PAGE_SIZE = 256>
 class paged_sparse_index {
+#pragma region Types
+
   using id_t = ID_T;
   using size_type = SIZE_T;
   static constexpr size_t page_size_v = PAGE_SIZE;
   static_assert((page_size_v & (page_size_v - 1)) == 0,
       "PAGE_SIZE must be a power of two");
+
+#pragma endregion
+#pragma region Helpers
 
   static constexpr size_t page_of(size_t raw) noexcept {
     return raw / page_size_v;
@@ -206,6 +240,9 @@ class paged_sparse_index {
     }
     return page_dir_[pg];
   }
+
+#pragma endregion
+#pragma region Operations
 
 public:
   // Insert or overwrite the ndx for `id`.
@@ -240,6 +277,8 @@ public:
     alloc_.clear();
   }
 
+#pragma endregion
+#pragma region Data members
 private:
   // Outer directory: page index -> raw pointer into the page's array.
   // `nullptr` means the page has not been allocated yet.
@@ -247,6 +286,9 @@ private:
 
   // Owning storage for each allocated page. Freed all at once by `clear`.
   std::vector<std::unique_ptr<size_type[]>> alloc_;
+
+#pragma endregion
 };
 
+#pragma endregion
 }}} // namespace corvid::ecs::component_indexes

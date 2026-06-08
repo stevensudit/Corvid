@@ -29,6 +29,8 @@
 namespace corvid { inline namespace concurrency {
 inline namespace notifiable_ns {
 
+#pragma region details
+
 namespace details {
 // Detects a `relaxed_atomic<U>`, or any type that opts in by defining
 // `is_relaxed_atomic = std::true_type` and `value_type`. Does not require
@@ -64,6 +66,9 @@ template<typename T>
 concept atomic_like =
     is_specialization_of_v<T, std::atomic> || relaxed_atomic_like<T>;
 } // namespace details
+
+#pragma endregion
+#pragma region notifiable
 
 // A value of type `T` guarded by a mutex and condition variable.
 //
@@ -113,6 +118,8 @@ concept atomic_like =
 template<typename T>
 class notifiable {
 public:
+#pragma region Construction
+
   // Return type of `wait_until` / `wait_until_changed` / `wait_for` /
   // `wait_for_changed`, and parameter type of `notify` / `notify_one`.
   // For non-atomic `T` this is `T` itself; for `std::atomic<U>` it is `U`,
@@ -128,6 +135,9 @@ public:
 
   notifiable(const notifiable&) = delete;
   notifiable& operator=(const notifiable&) = delete;
+
+#pragma endregion
+#pragma region Notification
 
   // Set value to `val` under lock, then wake all waiters.
   //
@@ -174,6 +184,9 @@ public:
     modify_value(value_);
   }
 
+#pragma endregion
+#pragma region Reading
+
   // Return a snapshot of the current value under lock.
   [[nodiscard]] T get() const
   requires(!details::atomic_like<T>)
@@ -194,6 +207,9 @@ public:
     else
       return value_->load(order);
   }
+
+#pragma endregion
+#pragma region Waiting
 
   // Block until `pred(value)` returns true; return the value at that point.
   template<std::predicate<const T&> Pred>
@@ -240,6 +256,9 @@ public:
     cv_.wait(lock, [&] { return do_load() != expected_old; });
     return do_load();
   }
+
+#pragma endregion
+#pragma region Timed waiting
 
   // Block until `pred(value)` returns true or `timeout` elapses.
   //
@@ -296,6 +315,9 @@ public:
     return std::nullopt;
   }
 
+#pragma endregion
+#pragma region Helpers
+
   // Read a `T` as a `value_t`. For `std::atomic<U>` or `relaxed_atomic<U>`,
   // uses a `relaxed` load rather than the implicit conversion operator (which
   // would be `seq_cst` for `std::atomic`). This is correct when called inside
@@ -310,9 +332,15 @@ public:
 private:
   [[nodiscard]] value_t do_load() const { return load_value(value_); }
 
+#pragma endregion
+#pragma region Data members
+
   mutable std::mutex mutex_;
   mutable std::condition_variable cv_;
   T value_;
+
+#pragma endregion
 };
 
+#pragma endregion
 }}} // namespace corvid::concurrency::notifiable_ns

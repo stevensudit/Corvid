@@ -27,6 +27,8 @@
 
 namespace corvid { inline namespace proto {
 
+#pragma region detail
+
 namespace detail {
 constexpr std::string_view alpha =
     "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
@@ -43,6 +45,9 @@ constexpr std::array<uint8_t, 256> make_base64_decode_table() noexcept {
 inline constexpr auto base64_decode_table = make_base64_decode_table();
 } // namespace detail
 
+#pragma endregion
+#pragma region base_64
+
 // Small Base64 helper for protocol code that needs RFC 4648-style text
 // encoding of arbitrary bytes.
 //
@@ -51,6 +56,8 @@ inline constexpr auto base64_decode_table = make_base64_decode_table();
 // optimized by resizing without initialization because -o3 is smart enough to
 // elide the expansion checks due to knowing the size up front.
 struct base_64 {
+#pragma region Encode
+
   [[nodiscard]] static std::string encode(std::span<const uint8_t> bytes) {
     std::string out;
     out.reserve(((bytes.size() + 2) / 3) * 4);
@@ -88,6 +95,9 @@ struct base_64 {
   [[nodiscard]] static std::string encode(std::string_view bytes) {
     return encode(strings::as_byte_span(bytes));
   }
+
+#pragma endregion
+#pragma region Decode
 
   // Decode a Base64-encoded string (RFC 4648). Returns the decoded bytes, or
   // an empty vector if `encoded` contains invalid characters or has a length
@@ -155,6 +165,9 @@ struct base_64 {
 
     return out;
   }
+
+#pragma endregion
 };
 
+#pragma endregion
 }} // namespace corvid::proto

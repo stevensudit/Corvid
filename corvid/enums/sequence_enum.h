@@ -664,7 +664,7 @@ template<strings::fixed_string names, std::integral U, size_t NameCount,
     const size_t comma = whole.find(',', pos);
     if (comma > seg_end) throw std::invalid_argument("invalid structure");
     const auto maybe_start =
-        strings::parse_int<U>(whole.substr(pos, comma - pos));
+        strings::parse_num<U>(whole.substr(pos, comma - pos));
     if (!maybe_start) throw std::invalid_argument("invalid segment start");
 
     const U start = *maybe_start;

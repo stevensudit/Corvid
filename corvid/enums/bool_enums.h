@@ -26,6 +26,8 @@ namespace corvid { inline namespace enums { namespace bool_enums {
 // For naming, these typically have suffixes like "_scheme", "_mode",
 // "_behavior", or "_policy", or they have prefixes like "on_".
 
+#pragma region Boolean enums
+
 // Whether to access values as const or as mutable.
 enum class access : bool { as_const = false, as_mutable = true };
 
@@ -89,4 +91,5 @@ enum class shot_type : bool { single = false, multi = true };
 // Whether the data is generated in advance or on demand.
 enum class production_policy : bool { complete = false, streaming = true };
 
+#pragma endregion
 }}} // namespace corvid::enums::bool_enums

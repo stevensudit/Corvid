@@ -23,6 +23,8 @@ namespace corvid { inline namespace meta { inline namespace maybe_types {
 // with `[[no_unique_address]]` inside a struct or class to avoid any space
 // overhead.
 
+#pragma region empty_t
+
 // Empty type used when `maybe_t` is disabled.
 //
 // Note that it can be explicitly constructed on anything, so that default
@@ -34,12 +36,18 @@ struct empty_t {
   explicit constexpr empty_t(Args&&...) noexcept {}
 };
 
+#pragma endregion
+#pragma region maybe_t
+
 // Maybe bool type: `T` if `Enabled` is true, otherwise `empty_t`.
 //
 // Usage:
 //   [[no_unique_address]] maybe_t<int, Enabled> int_or_missing{42};
 template<typename T, bool Enabled = false>
 using maybe_t = std::conditional_t<Enabled, T, empty_t>;
+
+#pragma endregion
+#pragma region maybe_void_t
 
 // Maybe void type: `T` if `T` is not void, otherwise `empty_t`.
 //
@@ -48,4 +56,5 @@ using maybe_t = std::conditional_t<Enabled, T, empty_t>;
 template<typename T = void>
 using maybe_void_t = maybe_t<T, !std::is_void_v<T>>;
 
+#pragma endregion
 }}} // namespace corvid::meta::maybe_types

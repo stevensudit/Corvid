@@ -18,6 +18,7 @@
 #define NOMINMAX
 
 #include <cassert>
+#include <cstdint>
 #include <format>
 #include <iterator>
 #include <limits>
@@ -30,9 +31,7 @@
 
 namespace corvid { inline namespace intervals {
 
-//
-// interval
-//
+#pragma region interval
 
 // Represent a closed interval of integers.
 //
@@ -70,6 +69,8 @@ template<typename V = int64_t, typename U = as_underlying_t<V>>
 requires Integer<V> || StdEnum<V>
 class interval {
 public:
+#pragma region interval_iterator
+
   class interval_iterator {
     // A note on iterator size:
     //
@@ -137,11 +138,10 @@ public:
     U u_;
   };
 
-public:
-  //
-  // Types
-  //
+#pragma endregion
+#pragma region Types
 
+public:
   using raw_pair = std::pair<U, U>;
   using value_type = V;
   using representation_type = U;
@@ -154,9 +154,8 @@ public:
   using reverse_iterator = std::reverse_iterator<iterator>;
   using const_reverse_iterator = std::reverse_iterator<const_iterator>;
 
-  //
-  // Construction
-  //
+#pragma endregion
+#pragma region Construction
 
   constexpr interval() noexcept : pair_{U{}, U{}} {}
   constexpr interval(const interval&) noexcept = default;
@@ -181,9 +180,8 @@ public:
   // Convert to a copy of the underlying half-open [begin, end) pair.
   [[nodiscard]] constexpr operator raw_pair() const noexcept { return pair_; }
 
-  //
-  // Iterators
-  //
+#pragma endregion
+#pragma region Iterators
 
   // Note: When `invalid`, so are the iterators, but `empty` is fine.
 
@@ -207,9 +205,8 @@ public:
   [[nodiscard]] constexpr auto rbegin() const noexcept { return crbegin(); }
   [[nodiscard]] constexpr auto rend() const noexcept { return crend(); }
 
-  //
-  // Size
-  //
+#pragma endregion
+#pragma region Size
 
   // Note: When `invalid`, then `size` underflows by going negative. Therefore,
   // while an invalid instance counts as empty, its size is undefined.
@@ -307,9 +304,8 @@ public:
     b() += as_u(len);
   }
 
-  //
-  // Min/max
-  //
+#pragma endregion
+#pragma region Min/max
 
   // The `min` and `max` methods provide lower-level access to the interval
   // values, both because they return U instead of V, and also because they
@@ -329,6 +325,8 @@ public:
     return *this;
   }
 
+#pragma endregion
+#pragma region Implementation
 private:
   [[nodiscard]] constexpr bool ok() const noexcept {
     assert(!invalid());
@@ -348,8 +346,16 @@ private:
   [[nodiscard]] static constexpr U as_u(V v) { return static_cast<U>(v); }
   [[nodiscard]] static constexpr V as_v(U u) { return static_cast<V>(u); }
 
+#pragma endregion
+#pragma region Data members
+
   raw_pair pair_{};
+
+#pragma endregion
 };
+
+#pragma endregion
+#pragma region make_interval
 
 // Make interval for full range of sequence enum, for use with ranged-for.
 //
@@ -375,11 +381,17 @@ template<bitmask::BitmaskEnum E, typename U = as_underlying_t<E>>
   return interval<E, U>{E{}, max_value<E>()};
 }
 
+#pragma endregion
+#pragma region Interval
+
 // `T` must be an an `interval`.
 template<typename T>
 concept Interval = is_specialization_of_v<T, interval>;
 
+#pragma endregion
 }} // namespace corvid::intervals
+
+#pragma region format_kind
 
 // `interval` is iterable, so without this the std range formatter would
 // enumerate every value instead of showing the bounds. Disabling its range
@@ -387,6 +399,9 @@ concept Interval = is_specialization_of_v<T, interval>;
 template<typename V, typename U>
 constexpr std::range_format std::format_kind<corvid::interval<V, U>> =
     std::range_format::disabled;
+
+#pragma endregion
+#pragma region formatter
 
 // Formatter for `interval`, narrow only: a numeric or enum range is a narrow
 // concern, and going wide would mean parameterizing the brackets too.
@@ -428,3 +443,5 @@ struct std::formatter<corvid::interval<V, U>, char> {
 private:
   bool debug_{false};
 };
+
+#pragma endregion

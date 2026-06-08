@@ -32,6 +32,8 @@
 namespace corvid { inline namespace ecs {
 inline namespace chunked_archetype_storages {
 
+#pragma region chunked_archetype_storage
+
 // AoSoA archetype component storage with O(1) lookup through
 // `entity_registry`.
 //
@@ -67,6 +69,8 @@ class chunked_archetype_storage<REG, std::tuple<Cs...>, CHUNKSZ, TAG> final
     : public archetype_storage_base<
           chunked_archetype_storage<REG, std::tuple<Cs...>, CHUNKSZ, TAG>, REG,
           std::tuple<Cs...>> {
+#pragma region Types
+
   using base_t = archetype_storage_base<
       chunked_archetype_storage<REG, std::tuple<Cs...>, CHUNKSZ, TAG>, REG,
       std::tuple<Cs...>>;
@@ -110,7 +114,8 @@ public:
 
   using chunk_vector_t = std::vector<chunk_tuple_t, chunk_allocator_t>;
 
-  // Constructors.
+#pragma endregion
+#pragma region Construction
 
   // Default-constructed storage has no registry binding. Assign from a
   // fully constructed instance before calling any mutation methods.
@@ -141,7 +146,9 @@ public:
   chunked_archetype_storage& operator=(
       chunked_archetype_storage&&) noexcept = default;
 
-  // Swap.
+#pragma endregion
+#pragma region Swap
+
   void swap(chunked_archetype_storage& other) noexcept {
     base_t::do_swap_base(other);
     chunks_.swap(other.chunks_);
@@ -151,6 +158,9 @@ public:
       chunked_archetype_storage& rhs) noexcept(noexcept(lhs.swap(rhs))) {
     lhs.swap(rhs);
   }
+
+#pragma endregion
+#pragma region Capacity
 
   // Shrink the chunk vector and IDs to fit their current sizes.
   void shrink_to_fit() {
@@ -173,6 +183,8 @@ public:
     return static_cast<size_type>(ids_.capacity());
   }
 
+#pragma endregion
+#pragma region Implementation
 private:
   using base_t::registry_;
   using base_t::store_id_;
@@ -281,9 +293,14 @@ private:
     // NOLINTEND(clang-analyzer-core.NullDereference)
   }
 
+#pragma endregion
+#pragma region Data members
 private:
   // AoSoA storage: one chunk per K entities, each chunk a tuple of arrays.
   chunk_vector_t chunks_{};
+
+#pragma endregion
 };
 
+#pragma endregion
 }}} // namespace corvid::ecs::chunked_archetype_storages

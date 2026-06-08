@@ -19,6 +19,7 @@
 #include <format>
 
 #include "containers_shared.h"
+#include "../../meta/formatting.h"
 
 // NOTE:
 // This was originally intended to work with `std::unique_ptr` but that's not
@@ -125,11 +126,11 @@ public:
 #pragma endregion
 #pragma region Access
 
-  [[nodiscard]] reference_type operator*() const {
+  [[nodiscard]] decltype(auto) operator*() const {
     if constexpr (std::is_pointer_v<resource_id_type>)
       return *reinterpret_cast<element_type*>(resource_);
     else
-      return reinterpret_cast<reference_type>(resource_);
+      return static_cast<element_type>(resource_);
   }
 
   [[nodiscard]] constexpr element_type* operator->() const noexcept {
@@ -171,29 +172,8 @@ public:
 
 }} // namespace corvid::custhandle
 
-// Formatter for `custom_handle`, narrow or wide.
-//
-// Forwards to the `element_type` formatter, dereferencing the handle and
-// honoring the element's full spec grammar (so `{:?}` debugs the element when
-// it supports it). A null handle (one comparing equal to `null_v`) instead
-// renders the unquoted marker `(null)`. As with `optional_ptr`, the marker is
-// not padded: fill, align, and width apply only to a live handle.
 template<typename TAG, typename T, typename TPtr, TPtr N,
     corvid::CharType CharT>
 requires std::formattable<T, CharT>
 struct std::formatter<corvid::custhandle::custom_handle<TAG, T, TPtr, N>,
-    CharT>: std::formatter<T, CharT> {
-  using base = std::formatter<T, CharT>;
-
-  template<typename FormatContext>
-  auto format(const corvid::custhandle::custom_handle<TAG, T, TPtr, N>& h,
-      FormatContext& ctx) const {
-    if (h) return base::format(*h, ctx);
-
-    static constexpr CharT marker[]{CharT('('), CharT('n'), CharT('u'),
-        CharT('l'), CharT('l'), CharT(')')};
-    auto out = ctx.out();
-    for (const CharT c : std::basic_string_view<CharT>{marker, 6}) *out++ = c;
-    return out;
-  }
-};
+    CharT>: corvid::nullable_formatter<T, CharT> {};

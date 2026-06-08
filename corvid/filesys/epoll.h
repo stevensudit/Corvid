@@ -21,15 +21,22 @@
 
 namespace corvid { inline namespace filesys {
 
+#pragma region epoll
+
 // RAII wrapper around Linux `epoll`.
 //
 // `epoll` owns a single epoll instance, inherits the general fd helpers from
 // `os_file`, and adds named helpers for `epoll_ctl` and `epoll_wait`.
 class [[nodiscard]] epoll: public os_file {
 public:
+#pragma region Types
+
   using handle_t = os_file::file_handle_t;
   static constexpr handle_t invalid_handle = os_file::invalid_file_handle;
   static constexpr int default_flags = EPOLL_CLOEXEC;
+
+#pragma endregion
+#pragma region Construction
 
   epoll() noexcept = default;
   explicit epoll(int flags) noexcept : os_file(::epoll_create1(flags)) {}
@@ -45,6 +52,9 @@ public:
   [[nodiscard]] static epoll create(int flags = default_flags) noexcept {
     return epoll{flags};
   }
+
+#pragma endregion
+#pragma region Control
 
   // Invoke `epoll_ctl` on this epoll instance.
   [[nodiscard]] bool
@@ -72,6 +82,9 @@ public:
     return control(EPOLL_CTL_DEL, fd);
   }
 
+#pragma endregion
+#pragma region Wait
+
   // Wait for up to `maxevents` ready entries, optionally timing out.
   // A `timeout_ms` of -1 means to wait indefinitely (which is probably
   // unwise), while 0 means to return immediately. Returns the number of ready
@@ -92,6 +105,9 @@ public:
   wait(epoll_event (&events)[N], int timeout_ms) const noexcept {
     return wait(events, static_cast<int>(N), timeout_ms);
   }
+
+#pragma endregion
 };
 
+#pragma endregion
 }} // namespace corvid::filesys

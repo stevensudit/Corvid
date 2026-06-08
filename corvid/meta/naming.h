@@ -19,9 +19,7 @@
 
 namespace corvid { inline namespace meta { inline namespace naming {
 
-//
-// Typename
-//
+#pragma region type_name
 
 // Extract fully qualified type name.
 //
@@ -52,4 +50,5 @@ std::string type_name(T&&) {
   return type_name<T>();
 }
 
+#pragma endregion
 }}} // namespace corvid::meta::naming
