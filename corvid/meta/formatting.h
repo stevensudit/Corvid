@@ -487,9 +487,20 @@ private:
   }
 
   template<typename FormatContext>
+  [[nodiscard]] std::optional<std::size_t>
+  get_precision(FormatContext& ctx) const {
+    if (spec_.precision_arg.is_dynamic())
+      return spec_.precision_arg.get_dynamic(ctx);
+    return spec_.precision;
+  }
+
+  template<typename FormatContext>
   auto pad_sentinel(FormatContext& ctx) const {
     const std::size_t field_width = get_width(ctx);
-    return spec_.write_padded(ctx.out(), marker_, field_width);
+    std::string_view content = marker_;
+    if (const auto prec = get_precision(ctx))
+      content = content.substr(0, *prec);
+    return spec_.write_padded(ctx.out(), content, field_width);
   }
 
 #pragma endregion

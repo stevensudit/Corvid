@@ -430,6 +430,23 @@ TEST_CASE("DynamicWidthSentinel", "[nullable_formatter]") {
   CHECK(std::format("{:{}}", nbox<int>{&n}, 6) == "    42");
 }
 
+TEST_CASE("PrecisionSentinel", "[nullable_formatter]") {
+  // Precision caps the sentinel just as the base caps a present value, so a
+  // null cell stays within a precision-bounded column. The base must accept
+  // precision (string_view here; an int base rejects it before format).
+  using sbox = nbox<std::string_view>;
+  CHECK(std::format("{:.3}", sbox{}) == "(nu");
+  CHECK(std::format("{:.3?}", sbox{}) == "(nu");
+  // Width still pads the capped text.
+  CHECK(std::format("{:6.3}", sbox{}) == "(nu   ");
+  CHECK(std::format("{:>6.3}", sbox{}) == "   (nu");
+  // Dynamic precision resolves the claimed arg for the sentinel.
+  CHECK(std::format("{:.{}}", sbox{}, 3) == "(nu");
+  // A present value caps through the base, for parity.
+  std::string_view sv = "hello";
+  CHECK(std::format("{:.3}", sbox{&sv}) == "hel");
+}
+
 TEST_CASE("CustomMarker", "[nullable_formatter]") {
   CHECK(std::format("{}", closing_handle{}) == "closed");
   CHECK(std::format("{:8}", closing_handle{}) == "closed  ");
