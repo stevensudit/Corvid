@@ -114,6 +114,9 @@ struct parsed_spec {
 #pragma region spec_parser
 
 // Format spec parser: all of the bits that are only needed internally.
+//
+// Note that this works correctly with valid specs, but does not guarantee
+// detecting and rejecting invalid ones.
 template<CharType CharT>
 struct spec_parser: parsed_spec<CharT> {
 #pragma region Types
