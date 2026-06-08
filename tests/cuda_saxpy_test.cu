@@ -5,11 +5,18 @@
 // nonzero on any CUDA error or mismatch so CTest flags a regression.
 
 #include <cstdio>
+#include <print>
+
+#include <cmath>
+#include <cuda_runtime.h>
 
 #include "../cuda/saxpy.cuh"
 
 namespace {
 
+// CUDA kernel that calls the saxpy function and writes the result to a device
+// pointer. This is a simple wrapper to test that the saxpy function can be
+// called from device code and that the result can be retrieved on the host.
 __global__ void saxpy_kernel(float a, float x, float y, float* out) {
   *out = corvid::cuda::saxpy(a, x, y);
 }
@@ -26,17 +33,17 @@ int main() {
 
   cudaError_t err = cudaGetLastError();
   if (err != cudaSuccess) {
-    std::fprintf(stderr, "CUDA error: %s\n", cudaGetErrorString(err));
+    std::println(stderr, "CUDA error: {}", cudaGetErrorString(err));
     return 1;
   }
 
   // 2*3 + 4 == 10, exactly representable in float.
   if (h_out != 10.0F) {
-    std::fprintf(stderr, "saxpy mismatch: got %f, want 10\n", h_out);
+    std::println(stderr, "saxpy mismatch: got {}, want 10", h_out);
     return 1;
   }
 
-  std::fprintf(stderr, "Great success!\n");
+  std::println(stderr, "Great success!");
 
   return 0;
 }
