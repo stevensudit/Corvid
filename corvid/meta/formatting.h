@@ -547,8 +547,9 @@ struct self_rendering_formatter {
         spec_.precision_arg.is_dynamic()
             ? spec_.precision_arg.get_dynamic(ctx)
             : spec_.precision;
+
+    // When available, use `format_to_spec` for maximum flexibility.
     if constexpr (requires { obj.format_to_spec(spec_, ctx.out()); }) {
-      // Use `format_to_spec` for maximum flexibility.
       parsed_spec<CharT> resolved = spec_;
       resolved.width = width;
       resolved.precision = prec;
@@ -573,7 +574,7 @@ struct self_rendering_formatter {
 #pragma endregion
 #pragma region Helpers
 
-  auto format_to_it(const auto& obj, auto& it) {
+  auto format_to_it(const auto& obj, auto it) const {
     if (spec_.debug) {
       if constexpr (requires { obj.debug_format_to(it); })
         return obj.debug_format_to(it);
