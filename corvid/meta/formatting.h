@@ -273,8 +273,7 @@ struct spec_parser: parsed_spec<CharT> {
     if (ndx < cnt && spec[ndx] == CharT('.')) {
       ++ndx;
       ndx = precision_arg.parse(spec, ndx);
-      if (const auto fixed = precision_arg.get_fixed())
-        base::precision = *fixed;
+      base::precision = precision_arg.get_fixed();
     }
     // `L` locale
     if (ndx < cnt && spec[ndx] == CharT('L')) {
@@ -559,7 +558,7 @@ struct self_rendering_formatter {
       // Use a buffer to apply width and precision, if needed.
       if (width || prec) {
         std::basic_string<CharT> buffer;
-        format_to_it(obj, std::back_inserter(buffer));
+        (void)format_to_it(obj, std::back_inserter(buffer));
 
         std::basic_string_view<CharT> content = buffer;
         if (prec) content = content.substr(0, *prec);
@@ -574,7 +573,7 @@ struct self_rendering_formatter {
 #pragma endregion
 #pragma region Helpers
 
-  auto format_to_it(const auto& obj, auto it) const {
+  [[nodiscard]] auto format_to_it(const auto& obj, auto it) const {
     if (spec_.debug) {
       if constexpr (requires { obj.debug_format_to(it); })
         return obj.debug_format_to(it);
