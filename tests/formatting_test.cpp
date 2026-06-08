@@ -203,17 +203,29 @@ TEST_CASE("WritePadded", "[parsed_spec]") {
   spec.alignment = align::right;
   spec.width = 5;
   std::string out;
-  (void)spec.write_padded(std::back_inserter(out), "xy");
+  (void)spec.write_padded(std::back_inserter(out), "xy"sv);
   CHECK(out == "   xy");
 }
 
 TEST_CASE("WidePadded", "[parsed_spec]") {
-  // The narrow content is widened to the spec's code unit.
   parsed_spec<wchar_t> spec;
   spec.alignment = parsed_spec<wchar_t>::aligned::right;
+
+  // Narrow content is widened to the spec's code unit.
   std::wstring out;
-  (void)spec.write_padded(std::back_inserter(out), "ab", 5);
+  (void)spec.write_padded(std::back_inserter(out), "ab"sv, 5);
   CHECK(out == L"   ab");
+
+  // Already-wide content pads without re-widening (the self-rendering case).
+  std::wstring wide;
+  (void)spec.write_padded(std::back_inserter(wide), L"cd"sv, 5);
+  CHECK(wide == L"   cd");
+
+  // The default-width overload is generic over the input width too.
+  spec.width = 5;
+  std::wstring deflt;
+  (void)spec.write_padded(std::back_inserter(deflt), L"ef"sv);
+  CHECK(deflt == L"   ef");
 }
 
 #pragma endregion
@@ -496,6 +508,10 @@ TEST_CASE("SelfRendering", "[self_rendering_formatter]") {
   CHECK(std::format("{:{}}", greeter{"x"}, 5) == "hi x ");
   // The `?` spec routes to debug_format_to.
   CHECK(std::format("{:?}", greeter{"bob"}) == "<bob>");
+
+  // Wide formatting drives the buffer path with already-wide content.
+  CHECK(std::format(L"{:>8}", greeter{"x"}) == L"    hi x");
+  CHECK(std::format(L"{:.2}", greeter{"x"}) == L"hi");
 }
 
 TEST_CASE("FormatToSpec", "[self_rendering_formatter]") {

@@ -72,16 +72,16 @@ struct parsed_spec {
   }
 
   // Write `content` with padding.
-  template<typename OutIt>
+  template<CharType InCharT, typename OutIt>
   [[nodiscard]] constexpr OutIt
-  write_padded(OutIt out, std::string_view content) const {
+  write_padded(OutIt out, std::basic_string_view<InCharT> content) const {
     return write_padded(out, content, width);
   }
 
   // Write `content` with padding, overriding width.
-  template<typename OutIt>
+  template<CharType InCharT, typename OutIt>
   [[nodiscard]] constexpr OutIt write_padded(OutIt out,
-      std::string_view content, std::size_t field_width) const {
+      std::basic_string_view<InCharT> content, std::size_t field_width) const {
     auto [lead, trail] = calc_padding(alignment, content.size(), field_width);
     out = write_repeat(out, fill, lead);
     out = write_sv(out, content);
