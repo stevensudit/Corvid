@@ -19,6 +19,8 @@
 
 namespace corvid { inline namespace meta { inline namespace pragmas {
 
+#pragma region Suppression
+
 // Glue to silence overeager warnings.
 #define PRAGMA_DIAG_HELPER(action) _Pragma(#action)
 #ifdef __clang__
@@ -54,4 +56,5 @@ namespace corvid { inline namespace meta { inline namespace pragmas {
 #define PRAGMA_CLANG_IGNORED_ENUM_CONSTEXPR_CONV
 #endif
 
+#pragma endregion
 }}} // namespace corvid::meta::pragmas

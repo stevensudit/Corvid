@@ -23,6 +23,8 @@
 
 namespace corvid { inline namespace lang { namespace controllers {
 
+#pragma region pid_controller
+
 // PID controller class.
 //
 // The Proportional-Integral-Derivative (PID) controller is a common control
@@ -108,10 +110,15 @@ namespace corvid { inline namespace lang { namespace controllers {
 // change in the measured value instead of the error.
 class pid_controller {
 public:
+#pragma region Constants
+
   static constexpr double pos_infinity =
       std::numeric_limits<double>::infinity();
   static constexpr double neg_infinity =
       -std::numeric_limits<double>::infinity();
+
+#pragma endregion
+#pragma region Construction
 
   pid_controller(double kp, double ki, double kd, double alpha = 0.0,
       double min_value = neg_infinity,
@@ -126,6 +133,9 @@ public:
 
   pid_controller(const pid_controller&) = default;
   pid_controller& operator=(const pid_controller&) = delete;
+
+#pragma endregion
+#pragma region Operations
 
   // Update the controller, returning the new input value.
   [[nodiscard]] double
@@ -203,7 +213,9 @@ public:
     d_term_last_ = 0.0;
   }
 
-  // Accessors.
+#pragma endregion
+#pragma region Accessors
+
   [[nodiscard]] double kp() const noexcept { return kp_; }
   [[nodiscard]] double ki() const noexcept { return ki_; }
   [[nodiscard]] double kd() const noexcept { return kd_; }
@@ -218,6 +230,8 @@ public:
     return cumulative_error_;
   }
 
+#pragma endregion
+#pragma region Data members
 private:
   const double kp_{0.0};
   const double ki_{0.0};
@@ -231,6 +245,9 @@ private:
   double error_last_{0.0};
   double cumulative_error_{0.0};
   double d_term_last_{0.0};
+
+#pragma endregion
 };
 
+#pragma endregion
 }}} // namespace corvid::lang::controllers

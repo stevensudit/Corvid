@@ -30,6 +30,8 @@
 namespace corvid { inline namespace ecs {
 inline namespace mono_archetype_storages {
 
+#pragma region mono_archetype_storage
+
 // Packed single-component storage with O(1) lookup through `entity_registry`.
 //
 // Maps entity IDs to densely packed component records using swap-and-pop for
@@ -53,6 +55,8 @@ template<typename REG, typename C, typename TAG = void>
 class mono_archetype_storage final
     : public archetype_storage_base<mono_archetype_storage<REG, C, TAG>, REG,
           std::tuple<C>> {
+#pragma region Types
+
   using base_t = archetype_storage_base<mono_archetype_storage<REG, C, TAG>,
       REG, std::tuple<C>>;
 
@@ -81,7 +85,8 @@ public:
   static_assert(std::is_trivially_copyable_v<component_t>,
       "Component type must be trivially copyable");
 
-  // Constructors.
+#pragma endregion
+#pragma region Construction
 
   // Default-constructed instances can only be assigned to.
   mono_archetype_storage() noexcept = default;
@@ -111,6 +116,9 @@ public:
     return *this;
   }
 
+#pragma endregion
+#pragma region Swap
+
   // Swap with another storage.
   void swap(mono_archetype_storage& other) noexcept {
     base_t::do_swap_base(other);
@@ -121,6 +129,9 @@ public:
   swap(mono_archetype_storage& lhs, mono_archetype_storage& rhs) noexcept {
     lhs.swap(rhs);
   }
+
+#pragma endregion
+#pragma region Capacity
 
   // Reduce memory usage to fit current size.
   void shrink_to_fit() {
@@ -133,6 +144,9 @@ public:
     components_.reserve(new_cap);
     ids_.reserve(new_cap);
   }
+
+#pragma endregion
+#pragma region Insertion
 
   // Add a component for a new entity, returning its handle or an invalid
   // handle on failure.
@@ -173,6 +187,9 @@ public:
     return add(handle.id(), component);
   }
 
+#pragma endregion
+#pragma region Conditional removal
+
   // Erase components for which `pred(component, id)` returns true. Returns
   // count erased.
   // Predicate shape: `(const component_t& comp, id_t id) -> bool`.
@@ -189,6 +206,9 @@ public:
     }
     return cnt;
   }
+
+#pragma endregion
+#pragma region row_view
 
   // Read-only view of a single entity's row. Provides a `component<T>`
   // accessor uniform with archetype storages (only valid for `T ==
@@ -212,6 +232,9 @@ public:
 
     [[nodiscard]] id_t id() const noexcept { return entity_id; }
   };
+
+#pragma endregion
+#pragma region Element access
 
   // Mutable access: returns `component_t&` directly.
   [[nodiscard]] component_t& operator[](id_t id) noexcept {
@@ -253,6 +276,9 @@ public:
           "invalid handle or entity not in this storage");
     return (*this)[handle.id()];
   }
+
+#pragma endregion
+#pragma region iterator_t
 
   // Contiguous iterator over components. Dereferencing yields a `component_t`
   // reference; `id` returns the entity ID at the current position.
@@ -355,6 +381,9 @@ public:
   using iterator = iterator_t<access::as_mutable>;
   using const_iterator = iterator_t<access::as_const>;
 
+#pragma endregion
+#pragma region Iteration
+
   [[nodiscard]] iterator begin() noexcept { return {this, 0}; }
   [[nodiscard]] iterator end() noexcept { return {this, size()}; }
   [[nodiscard]] const_iterator begin() const noexcept { return {this, 0}; }
@@ -362,6 +391,8 @@ public:
   [[nodiscard]] const_iterator cbegin() const noexcept { return begin(); }
   [[nodiscard]] const_iterator cend() const noexcept { return end(); }
 
+#pragma endregion
+#pragma region Implementation
 private:
   using base_t::registry_;
   using base_t::store_id_;
@@ -437,8 +468,13 @@ private:
     return true;
   }
 
+#pragma endregion
+#pragma region Data members
 private:
   std::vector<C, component_allocator_type> components_;
+
+#pragma endregion
 };
 
+#pragma endregion
 }}} // namespace corvid::ecs::mono_archetype_storages

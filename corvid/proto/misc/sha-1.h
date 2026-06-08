@@ -23,6 +23,8 @@
 
 namespace corvid { inline namespace proto {
 
+#pragma region sha_1
+
 // Small SHA-1 helper used by protocol code that needs a stable 20-byte digest.
 // This is suitable for non-security-critical protocol work such as the
 // WebSocket handshake.
@@ -30,8 +32,13 @@ namespace corvid { inline namespace proto {
 // Not touched by human hands. Vibe-coded by Claude for use in WebSocket
 // accept-key computation, then factored out by Codex.
 struct sha_1 {
+#pragma region Types
+
   using digest_t = std::array<uint32_t, 5>;
   using bytes_t = std::array<uint8_t, 20>;
+
+#pragma endregion
+#pragma region Operations
 
   [[nodiscard]] static digest_t digest(std::string_view msg) {
     digest_t out{};
@@ -115,10 +122,15 @@ struct sha_1 {
     return raw;
   }
 
+#pragma endregion
+#pragma region Implementation
 private:
   static constexpr uint32_t rol(uint32_t v, unsigned n) noexcept {
     return (v << n) | (v >> (32U - n));
   }
+
+#pragma endregion
 };
 
+#pragma endregion
 }} // namespace corvid::proto

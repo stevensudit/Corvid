@@ -37,12 +37,16 @@ namespace corvid { inline namespace proto {
 // Fwd.
 struct iov_msghdr_test;
 
+#pragma region iov_msghdr
+
 // Scatter/gather socket I/O support using `msghdr` and `sendmsg`. Wraps the
 // `msghdr` and the `iovec` array. Use `iov_msghdr_sender` for sending and
 // `iov_msghdr_receiver` for receiving.
 template<bool SENDER>
 class iov_msghdr {
 public:
+#pragma region Types
+
   static constexpr bool is_sender = SENDER;
   static constexpr bool is_receiver = !SENDER;
   static constexpr size_t npos = std::numeric_limits<size_t>::max();
@@ -57,6 +61,9 @@ public:
     size_t index{};
     size_t offset{};
   };
+
+#pragma endregion
+#pragma region Construction
 
   // Default constructor, allowing segments to be added with `append`. POSIX
   // requires `IOV_MAX` to be at least 16, while Linux typically allows 1024.
@@ -76,6 +83,9 @@ public:
     update();
   }
 
+#pragma endregion
+#pragma region Accessors
+
   // Full access to `msghdr`.
   [[nodiscard]] decltype(auto) header(this auto& self) noexcept {
     return (self.msgh_);
@@ -85,6 +95,9 @@ public:
   [[nodiscard]] auto segments() const noexcept {
     return std::span{segments_}.subspan(first_index_);
   }
+
+#pragma endregion
+#pragma region Modifiers
 
   // Full clear.
   void clear() noexcept { (void)do_clear(); }
@@ -127,9 +140,15 @@ public:
     return append(data.data(), data.size_bytes());
   }
 
+#pragma endregion
+#pragma region Capacity
+
   [[nodiscard]] bool empty() const noexcept { return size_ == 0; }
 
   [[nodiscard]] size_t size() const noexcept { return size_; }
+
+#pragma endregion
+#pragma region I/O
 
   // Compact the segments if there is excessive slack. Completely optional, and
   // only useful if you have a long-running instance and never quite finish
@@ -222,6 +241,8 @@ public:
 
   [[nodiscard]] const auto& last_op() const noexcept { return last_op_; }
 
+#pragma endregion
+#pragma region Implementation
 private:
   friend struct iov_msghdr_test;
 
@@ -335,14 +356,24 @@ private:
     return do_set_last(npos, npos, npos) && false;
   }
 
+#pragma endregion
+#pragma region Data members
+
   msghdr msgh_{};
   std::vector<iovec> segments_;
   size_t first_index_{};
   size_t size_{};
   op_results last_op_{};
+
+#pragma endregion
 };
+
+#pragma endregion
+#pragma region Aliases
 
 // I/O vector for sending or receiving.
 using iov_msghdr_sender = iov_msghdr<true>;
 using iov_msghdr_receiver = iov_msghdr<false>;
+
+#pragma endregion
 }} // namespace corvid::proto

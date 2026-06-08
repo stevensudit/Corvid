@@ -503,7 +503,7 @@ private:
 };
 
 #pragma endregion
-#pragma region self_rendering_formatter
+#pragma region self_rendering
 
 // Base for a `std::formatter` on a type that renders itself through a
 // `format_to(out)` member: the modern analog of `operator<<`.

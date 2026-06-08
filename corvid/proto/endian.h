@@ -31,6 +31,8 @@ namespace corvid { inline namespace proto {
 // identical in implementation; both names are provided so that call
 // sites read naturally.
 
+#pragma region Byte swapping
+
 inline auto swap_always(auto v) noexcept { return std::byteswap(v); }
 
 inline __uint128_t swap_always(__uint128_t v) noexcept {
@@ -50,6 +52,9 @@ inline auto swap_not_little(auto v) noexcept {
   return swap_always(v);
 }
 
+#pragma endregion
+#pragma region Host/network
+
 inline uint16_t hton16(uint16_t v) noexcept { return swap_not_big(v); }
 inline uint16_t ntoh16(uint16_t v) noexcept { return swap_not_big(v); }
 inline uint32_t hton32(uint32_t v) noexcept { return swap_not_big(v); }
@@ -59,4 +64,5 @@ inline uint64_t ntoh64(uint64_t v) noexcept { return swap_not_big(v); }
 inline __uint128_t hton128(__uint128_t v) noexcept { return swap_not_big(v); }
 inline __uint128_t ntoh128(__uint128_t v) noexcept { return swap_not_big(v); }
 
+#pragma endregion
 }} // namespace corvid::proto

@@ -27,6 +27,8 @@
 
 namespace corvid { inline namespace ecs { inline namespace id_containers {
 
+#pragma region id_container
+
 // ECS ID-keyed flat vector.
 //
 // Wraps `enum_vector<T, ID, A>` plus an `ID limit_`, using composition instead
@@ -50,6 +52,8 @@ namespace corvid { inline namespace ecs { inline namespace id_containers {
 template<typename T, sequence::SequentialEnum ID, class A = std::allocator<T>>
 class id_container {
 public:
+#pragma region Types
+
   using id_t = ID;
   using size_type = std::underlying_type_t<id_t>;
   using value_type = T;
@@ -62,7 +66,8 @@ public:
   static_assert(std::is_unsigned_v<size_type>,
       "id_container: ID underlying type must be unsigned");
 
-  // Construction.
+#pragma endregion
+#pragma region Construction
 
   id_container() = default;
 
@@ -79,7 +84,8 @@ public:
     return data_.get_allocator();
   }
 
-  // ID limit.
+#pragma endregion
+#pragma region ID limit
 
   // Exclusive upper bound on valid IDs. Defaults to `id_t::invalid`.
   [[nodiscard]] id_t id_limit() const noexcept { return limit_; }
@@ -95,7 +101,8 @@ public:
     return true;
   }
 
-  // Capacity and size.
+#pragma endregion
+#pragma region Capacity and size
 
   [[nodiscard]] size_type size() const noexcept {
     return static_cast<size_type>(data_.size());
@@ -111,7 +118,8 @@ public:
 
   [[nodiscard]] bool empty() const noexcept { return data_.empty(); }
 
-  // Memory management.
+#pragma endregion
+#pragma region Memory management
 
   void reserve(size_type new_cap) { data_.reserve(new_cap); }
 
@@ -126,7 +134,8 @@ public:
 
   void shrink_to_fit() { data_.shrink_to_fit(); }
 
-  // Element access.
+#pragma endregion
+#pragma region Element access
 
   // Access slot by ID. No bounds check.
   [[nodiscard]] decltype(auto) operator[](this auto& self, id_t id) noexcept {
@@ -151,7 +160,8 @@ public:
     return self.data_.data();
   }
 
-  // Modifiers.
+#pragma endregion
+#pragma region Modifiers
 
   [[nodiscard]] bool push_back(const value_type& value) {
     if (size_as_enum() >= limit_) return false;
@@ -173,7 +183,8 @@ public:
 
   void pop_back() { data_.pop_back(); }
 
-  // Iteration over all allocated slots (slot 0 through size()-1).
+#pragma endregion
+#pragma region Iteration
 
   [[nodiscard]] decltype(auto) begin(this auto& self) noexcept {
     return self.data_.begin();
@@ -191,9 +202,14 @@ public:
     return self.data_.underlying();
   }
 
+#pragma endregion
+#pragma region Data members
 private:
   enum_vector<value_type, id_t, allocator_type> data_;
   id_t limit_{id_t::invalid};
+
+#pragma endregion
 };
 
+#pragma endregion
 }}} // namespace corvid::ecs::id_containers

@@ -29,6 +29,8 @@
 
 namespace corvid { inline namespace ecs { inline namespace component_scenes {
 
+#pragma region component_scene_base
+
 // Non-templated base for `component_scene<>`. Befriended by
 // `component_storage_base` so that the protected `storage_drop_all` thunk can
 // reach the otherwise-private `do_drop_all` on any storage, without making
@@ -42,6 +44,9 @@ protected:
     s.do_drop_all();
   }
 };
+
+#pragma endregion
+#pragma region component_scene
 
 // Aggregates a component-mode `entity_registry` with a fixed, heterogeneous
 // tuple of `component_storage_base`-derived storages and exposes a unified
@@ -75,6 +80,8 @@ protected:
 template<typename REG, typename... STORES>
 class component_scene: public component_scene_base {
 public:
+#pragma region Types
+
   using registry_t = REG;
   using storage_ts = std::tuple<STORES...>;
   using storage_tuple_t = std::tuple<std::monostate, STORES...>;
@@ -110,6 +117,9 @@ public:
   template<store_id_t SID>
   using storage_t = std::tuple_element_t<*SID, storage_tuple_t>;
 
+#pragma endregion
+#pragma region Construction
+
   // Construct with unlimited, unbound storages. Each storage is bound to this
   // scene's registry and assigned `store_id_t{N}` for 1-based index `N`. An
   // optional allocator propagates to the registry.
@@ -125,6 +135,9 @@ public:
   ~component_scene() {
     try_or_terminate([&] { return clear() || true; });
   }
+
+#pragma endregion
+#pragma region Accessors
 
   // Registry access.
   [[nodiscard]] decltype(auto) registry(this auto& self) noexcept {
@@ -145,11 +158,17 @@ public:
     return (std::get<storage_type>(self.storages_));
   }
 
+#pragma endregion
+#pragma region Create
+
   // Create a new entity in staging. Returns its handle, or an invalid handle
   // on failure (e.g., registry at ID limit).
   [[nodiscard]] handle_t stage_new_entity(const metadata_t& metadata = {}) {
     return registry_.create_handle({}, metadata);
   }
+
+#pragma endregion
+#pragma region Store
 
   // Insert an existing entity into storage `SID`. The entity must be valid
   // and not already present in that storage. Trailing components may be
@@ -170,6 +189,9 @@ public:
     if (!registry_.is_valid(handle)) return false;
     return store_entity<SID>(handle.id(), std::forward<Args>(args)...);
   }
+
+#pragma endregion
+#pragma region Remove and restage
 
   // Remove entity from storage `SID` only. The entity remains alive in the
   // registry and any other storages it occupies. If this is its last storage,
@@ -209,6 +231,9 @@ public:
     return restage_entity(handle.id());
   }
 
+#pragma endregion
+#pragma region Erase
+
   // Erase entity: remove from all storages it currently occupies, then
   // destroy it in the registry. Sets `id` to `id_t::invalid`. Returns false
   // if the entity is already invalid.
@@ -245,6 +270,9 @@ public:
       return rec.location.contains(store_id_t{});
     });
   }
+
+#pragma endregion
+#pragma region Queries
 
   // Return the total number of living entities (including those in staging).
   [[nodiscard]] size_type size() const noexcept { return registry_.size(); }
@@ -344,6 +372,9 @@ public:
     return failures;
   }
 
+#pragma endregion
+#pragma region Clear
+
   // Erase all entities in all storages and in staging.
   //
   // Release path (default): drops storage vectors without per-entity registry
@@ -367,6 +398,8 @@ public:
     return true;
   }
 
+#pragma endregion
+#pragma region Implementation
 private:
   // Return a mutable or const reference to the component held by the storage
   // matched by selector `C` for entity `id`, propagating the scene's
@@ -493,10 +526,16 @@ private:
         STORES{registry_, store_id_t{Is + 1}}...);
   }
 
+#pragma endregion
+#pragma region Data members
+
   // `registry_` must be declared before `storages_` because each storage
   // holds a pointer to it (initialized in `make_storages`).
   registry_t registry_;
   storage_tuple_t storages_;
+
+#pragma endregion
 };
 
+#pragma endregion
 }}} // namespace corvid::ecs::component_scenes

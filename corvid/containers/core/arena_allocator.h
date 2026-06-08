@@ -19,6 +19,8 @@
 
 namespace corvid { inline namespace container { namespace arena {
 
+#pragma region extensible_arena
+
 // Arena implemented as a singly linked list of blocks.
 //
 // To use:
@@ -47,6 +49,8 @@ namespace corvid { inline namespace container { namespace arena {
 // The expectation is that the arena is much larger than any single value, so
 // the waste from the last unfilled bit is minimal.
 class extensible_arena final {
+#pragma region Implementation
+
   struct list_node;
   struct list_node_deleter {
     void operator()(list_node* node) const noexcept {
@@ -114,9 +118,15 @@ class extensible_arena final {
 
   pointer head_;
 
+#pragma endregion
+#pragma region Construction
+
 public:
   explicit extensible_arena(size_t capacity) noexcept
       : head_{list_node::make(capacity)} {}
+
+#pragma endregion
+#pragma region Operations
 
   [[nodiscard]] static void* allocate(size_t n, size_t align) {
     return allocate(get_head(), n, align);
@@ -128,6 +138,9 @@ public:
 
     return false;
   }
+
+#pragma endregion
+#pragma region scope
 
   // Sets thread-local scope for arena.
   //
@@ -148,11 +161,18 @@ public:
     pointer* old_head;
   };
   PRAGMA_GCC_DIAG(pop)
+
+#pragma endregion
 };
+
+#pragma endregion
+#pragma region arena_allocator
 
 // Allocator that uses the `extensible_arena` that is currently in scope.
 template<typename T>
 class arena_allocator {
+#pragma region Types
+
   static_assert(std::is_same_v<T, std::remove_cv_t<T>>);
 
 public:
@@ -161,10 +181,16 @@ public:
   using difference_type = std::ptrdiff_t;
   using propagate_on_container_move_assignment = std::true_type;
 
+#pragma endregion
+#pragma region Construction
+
   constexpr arena_allocator() noexcept = default;
   constexpr arena_allocator(const arena_allocator&) noexcept = default;
   template<class U>
   constexpr arena_allocator(const arena_allocator<U>&) noexcept {}
+
+#pragma endregion
+#pragma region Operations
 
   // NOLINTBEGIN(bugprone-sizeof-expression)
 
@@ -178,7 +204,12 @@ public:
   // NOLINTEND(bugprone-sizeof-expression)
 
   constexpr void deallocate(T*, std::size_t) {}
+
+#pragma endregion
 };
+
+#pragma endregion
+#pragma region Collections
 
 // Arena-specialized collections. Can be reinterpreted as their standard forms
 // because they are designed to be the same size and memory layout.
@@ -207,7 +238,8 @@ static_assert(
     sizeof(arena_allocator_traits<int>) ==
     sizeof(std::allocator_traits<std::allocator<int>>));
 
-// Helpers:
+#pragma endregion
+#pragma region Helpers
 
 // Allocate a new object of type `T` using the scoped `extensible_arena`.
 // Designed to allocate an arena-specialized container whose contents use the
@@ -235,4 +267,5 @@ decltype(auto) arena_scope(extensible_arena& arena, F&& f) {
   return std::forward<F>(f)();
 }
 
+#pragma endregion
 }}} // namespace corvid::container::arena

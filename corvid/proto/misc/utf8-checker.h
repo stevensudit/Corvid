@@ -20,6 +20,8 @@
 
 namespace corvid { inline namespace proto {
 
+#pragma region utf8_checker
+
 // Incremental UTF-8 validator.
 //
 // Use `is_valid`, or feed one chunk after another via `consume`. The validator
@@ -28,8 +30,13 @@ namespace corvid { inline namespace proto {
 // most common case, which is 7-bit ASCII.
 class utf8_checker {
 public:
+#pragma region Types
+
   // Result of incremental UTF-8 validation.
   enum class validation : uint8_t { complete, incomplete, failed };
+
+#pragma endregion
+#pragma region Operations
 
   [[nodiscard]] static constexpr bool is_valid(
       std::string_view input) noexcept {
@@ -58,6 +65,9 @@ public:
     max_cont_ = 0xBF;
   }
 
+#pragma endregion
+#pragma region Accessors
+
   [[nodiscard]] constexpr validation state() const noexcept { return state_; }
   [[nodiscard]] constexpr bool is_complete() const noexcept {
     return state_ == validation::complete;
@@ -69,6 +79,8 @@ public:
     return state_ == validation::failed;
   }
 
+#pragma endregion
+#pragma region Implementation
 private:
   [[nodiscard]] constexpr bool consume_lead_byte(uint8_t byte) noexcept {
     if (byte <= 0x7F) return true;
@@ -123,10 +135,16 @@ private:
     return true;
   }
 
+#pragma endregion
+#pragma region Data members
+
   validation state_{validation::complete};
   uint8_t remaining_{};
   uint8_t min_cont_{0x80};
   uint8_t max_cont_{0xBF};
+
+#pragma endregion
 };
 
+#pragma endregion
 }} // namespace corvid::proto

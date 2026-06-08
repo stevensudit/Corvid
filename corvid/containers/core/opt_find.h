@@ -21,10 +21,12 @@
 
 namespace corvid { inline namespace opt_find {
 
-// Search container for key `k`, returning `optional_ptr` to element. When a
-// search fails to find anything, the `has_value` of the return is false.
+#pragma region find_opt
+
+// Search container for key `k`, returning `optional_ptr` to element, allowing
+// `std::optional` semantics instead of comparison with `end`.
 //
-// Uses `find` method on `T::key_type` if available, `std::find` otherwise.
+// Uses `find` method on `T::key_type` when available, `std::find` otherwise.
 // Note that this means it only uses the find method on associative containers,
 // not strings.
 //
@@ -35,7 +37,7 @@ namespace corvid { inline namespace opt_find {
 //
 // For `std::string` and `std::string_view`, searches for a single character
 // using `std::find`. Even works for arrays, but not arrays decayed into
-// pointers (because we can't determine the size, then).
+// pointers (because then we can't determine the size).
 template<auto field = extract_field::value>
 [[nodiscard]] constexpr auto find_opt(KeyFindable auto&& c, const auto& k) {
   return internal::optional_ptr{it_to_ptr<field>(c, c.find(k))};
@@ -49,9 +51,13 @@ find_opt(RangeWithoutFind auto&& c, const auto& k) {
       it_to_ptr<field>(c, std::find(begin(c), end(c), k))};
 }
 
+#pragma endregion
+#pragma region contains
+
 // Determine whether the container has the key.
 [[nodiscard]] constexpr bool contains(auto&& c, const auto& k) {
   return find_opt(c, k).has_value();
 }
 
+#pragma endregion
 }} // namespace corvid::opt_find

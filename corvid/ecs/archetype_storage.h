@@ -32,6 +32,8 @@
 
 namespace corvid { inline namespace ecs { inline namespace archetype_storages {
 
+#pragma region archetype_storage
+
 // Packed archetype components storage with O(1) lookup through
 // `entity_registry`.
 //
@@ -69,6 +71,8 @@ class archetype_storage<REG, std::tuple<Cs...>, TAG> final
     : public archetype_storage_base<
           archetype_storage<REG, std::tuple<Cs...>, TAG>, REG,
           std::tuple<Cs...>> {
+#pragma region Types
+
   using base_t = archetype_storage_base<
       archetype_storage<REG, std::tuple<Cs...>, TAG>, REG, std::tuple<Cs...>>;
 
@@ -101,7 +105,8 @@ public:
   template<typename T>
   using component_vector_t = std::vector<T, component_allocator_t<T>>;
 
-  // Constructors.
+#pragma endregion
+#pragma region Construction
 
   // Default-constructed storage has no registry binding. Assign from a
   // fully constructed instance before calling any mutation methods.
@@ -130,7 +135,9 @@ public:
   archetype_storage& operator=(const archetype_storage&) = delete;
   archetype_storage& operator=(archetype_storage&&) noexcept = default;
 
-  // Swap.
+#pragma endregion
+#pragma region Swap
+
   void swap(archetype_storage& other) noexcept {
     base_t::do_swap_base(other);
     components_.swap(other.components_);
@@ -140,6 +147,9 @@ public:
       noexcept(lhs.swap(rhs))) {
     lhs.swap(rhs);
   }
+
+#pragma endregion
+#pragma region Capacity
 
   // Shrink all component vectors and IDs to fit their size.
   void shrink_to_fit() {
@@ -166,6 +176,9 @@ public:
     return static_cast<size_type>(min_cap);
   }
 
+#pragma endregion
+#pragma region Insertion
+
   // Create a new entity by extracting this archetype's components from `mega`,
   // a `megatuple_t` (tuple of optionals). Each `optional<C>` for a component
   // `C` in this archetype must have a value; the caller is responsible for
@@ -178,6 +191,8 @@ public:
   }
   // NOLINTEND(bugprone-unchecked-optional-access)
 
+#pragma endregion
+#pragma region Implementation
 private:
   using base_t::registry_;
   using base_t::store_id_;
@@ -273,9 +288,14 @@ private:
         component_vector_t<Cs>{component_allocator_t<Cs>{alloc}}...};
   }
 
+#pragma endregion
+#pragma region Data members
 private:
   // SoA storage: a tuple of vectors, one per component type.
   std::tuple<component_vector_t<Cs>...> components_{};
+
+#pragma endregion
 };
 
+#pragma endregion
 }}} // namespace corvid::ecs::archetype_storages

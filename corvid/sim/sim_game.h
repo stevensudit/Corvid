@@ -39,6 +39,8 @@
 
 namespace corvid { inline namespace sim {
 
+#pragma region GamePhase
+
 // Different phases of the game.
 enum class GamePhase : uint8_t {
   invalid,
@@ -52,6 +54,9 @@ consteval auto corvid_enum_spec(GamePhase*) {
       "build,wave,game_over,victory", wrapclip{}, GamePhase::build>();
 }
 
+#pragma endregion
+#pragma region WaveTick
+
 // Tick from start of wave.
 enum class WaveTick : uint32_t {
   invalid = std::numeric_limits<uint32_t>::max()
@@ -59,6 +64,9 @@ enum class WaveTick : uint32_t {
 consteval auto corvid_enum_spec(WaveTick*) {
   return corvid::enums::sequence::make_sequence_enum_spec<WaveTick, "">();
 }
+
+#pragma endregion
+#pragma region UiCanvasEvent
 
 // Mouse click events.
 enum class UiCanvasEvent : uint8_t {
@@ -75,12 +83,18 @@ consteval auto corvid_enum_spec(UiCanvasEvent*) {
       "click,dblclick,contextmenu,dragstart,dragmove,dragend">();
 }
 
+#pragma endregion
+#pragma region UiMouseButton
+
 // Mouse buttons.
 enum class UiMouseButton : uint8_t { left, middle, right, other };
 consteval auto corvid_enum_spec(UiMouseButton*) {
   return corvid::enums::sequence::make_sequence_enum_spec<UiMouseButton,
       "left,middle,right,other">();
 }
+
+#pragma endregion
+#pragma region EnemySpawn
 
 // Enemy spawn definition for a wave.
 struct EnemySpawn {
@@ -89,11 +103,17 @@ struct EnemySpawn {
   PathId pathId{};
 };
 
+#pragma endregion
+#pragma region WaveDefinition
+
 // All of the enemy spawns for a wave.
 struct WaveDefinition {
   std::vector<EnemySpawn> enemies; // Sorted by `startTicks`
   uint32_t resourceInflux{};       // Resources rewarded at start of wave
 };
+
+#pragma endregion
+#pragma region CategoryDefinition
 
 // Top-level category in the build menu. Each category has its own `Appearance`
 // (including the glyph that doubles as a hotkey) and a `flavorText` shown when
@@ -104,6 +124,9 @@ struct CategoryDefinition {
   std::string flavorText;  // Shown in the info box on hover.
   Appearance appearance;   // Glyph, radius, and colors for the category cell.
 };
+
+#pragma endregion
+#pragma region EntityDefinition
 
 // Full definition of one entity type, combining display metadata with the
 // component template used to register and spawn it.
@@ -120,6 +143,9 @@ struct EntityDefinition {
 
 // Collection of `EntityDefinition`s, keyed by `entityName`.
 using EntityDefinitions = string_unordered_map<EntityDefinition>;
+
+#pragma endregion
+#pragma region DefenderSummary
 
 // Human-focused summary of a defender, used for both the build menu and the
 // selected tab.
@@ -140,6 +166,9 @@ struct DefenderSummary {
 // defenders only. Note that these are not indexed by `entityTemplateIndex`.
 using DefenderMenu = std::vector<DefenderSummary>;
 
+#pragma endregion
+#pragma region MapDesign
+
 // Everything needed to play one map: paths, sprites, entity definitions,
 // derived defender menu, and wave schedule. Self-contained so that
 // `SimGame` can hold multiple `MapDesign`s, all read in from map files.
@@ -153,6 +182,9 @@ struct MapDesign {
   DefenderMenu defenderMenu;
   std::vector<WaveDefinition> waves;
 };
+
+#pragma endregion
+#pragma region UiCanvasInput
 
 // Input from the UI canvas, such as mouse clicks and drags. Includes `command`
 // and `parameters` for when the mouse location is paired with an action.
@@ -180,11 +212,17 @@ struct UiCanvasInput {
   }
 };
 
+#pragma endregion
+#pragma region UiActionField
+
 // Input from the UI for actions, such as form submissions.
 struct UiActionField {
   std::string key;
   std::string value;
 };
+
+#pragma endregion
+#pragma region UiActionInput
 
 // Represents an action input from the UI, such as pressing a button. Can
 // include related data, such as form fields.
@@ -194,6 +232,9 @@ struct UiActionInput {
   std::vector<UiActionField> fields;
 };
 
+#pragma endregion
+#pragma region UiState
+
 // Current state of the UI, for inclusion in a `WorldDelta` to the client.
 struct UiState {
   std::optional<bool> placementAllowed;
@@ -202,10 +243,18 @@ struct UiState {
   std::optional<DefenderSummary> defenderSummary;
 };
 
+#pragma endregion
+#pragma region SimGame
+
 // Game simulation.
 class SimGame {
 public:
+#pragma region Construction
+
   explicit SimGame() { (void)resetMap(); }
+
+#pragma endregion
+#pragma region Map management
 
   // Load all maps from the maps directory and activate the first one.
   [[nodiscard]] bool loadMap() {
@@ -239,6 +288,9 @@ public:
     selectedDefender_ = {};
     return true;
   }
+
+#pragma endregion
+#pragma region Simulation
 
   // Run all physics and game logic for the current tick, without advancing the
   // counter. To advance the counter, call `tick` after streaming the state to
@@ -312,6 +364,9 @@ public:
     return true;
   }
 
+#pragma endregion
+#pragma region UI input
+
   // Record most recent action intent from the UI canvas.
   [[nodiscard]] bool handleUiCanvas(const UiCanvasInput& input) {
     // Drag a defender ghost.
@@ -363,9 +418,15 @@ public:
     return true;
   }
 
+#pragma endregion
+#pragma region Accessors
+
   // Access the current map design (for streaming and inspection).
   [[nodiscard]] const MapDesign& mapDesign() const { return *mapDesign_; }
   [[nodiscard]] const UiState& uiState() const { return uiState_; }
+
+#pragma endregion
+#pragma region Extraction
 
   // Extract a snapshot of the paths for `WorldSnapshot`, calling back
   // `cbPath(PathId, Position)` for each joint.
@@ -421,6 +482,8 @@ public:
     return true;
   }
 
+#pragma endregion
+#pragma region Implementation
 private:
   // Find `EntityDefinition` by name.
   [[nodiscard]] const EntityDefinition* findEntityDef(
@@ -673,6 +736,8 @@ private:
     }
   }
 
+#pragma endregion
+#pragma region Data members
 private:
   SimWorld world_;
 
@@ -706,6 +771,9 @@ private:
   // Handle to the currently selected defender, used to clear its range
   // circle when deselected.
   SimWorld::Handle selectedDefender_;
+
+#pragma endregion
+#pragma region Map loading
 
   // Walk up from the executable to find the `corvid/sim/maps` directory.
   [[nodiscard]] static std::filesystem::path findSimMapsDir() {
@@ -772,7 +840,12 @@ private:
     world_.setEntityTemplateStore(&mapDesign_->entityTemplateStore);
     return registerPaths();
   }
+
+#pragma endregion
 };
+
+#pragma endregion
+#pragma region loadMapFromJson
 
 // Parse a single map JSON file into `out`. The caller is responsible for
 // calling `finalizeMapDesign` and `registerPaths` afterward.
@@ -1058,6 +1131,9 @@ SimGame::loadMapFromJson(const std::filesystem::path& file, MapDesign& out) {
 }
 // NOLINTEND(readability-function-cognitive-complexity)
 
+#pragma endregion
+#pragma region buildMapEntityCsvReport
+
 [[nodiscard]] inline std::string SimGame::buildMapEntityCsvReport(
     const MapDesign& design) {
   auto csv_escape = [](std::string_view value) {
@@ -1116,4 +1192,5 @@ SimGame::loadMapFromJson(const std::filesystem::path& file, MapDesign& out) {
   return oss.str();
 }
 
+#pragma endregion
 }} // namespace corvid::sim

@@ -32,6 +32,8 @@
 
 namespace corvid { inline namespace ecs { inline namespace stable_id_vector {
 
+#pragma region stable_ids
+
 // An indexed vector to store elements by stable ID, suitable for Entity
 // Component Systems, where it functions as the basis for a sparse set.
 //
@@ -86,6 +88,8 @@ template<typename T, sequence::SequentialEnum ID = id_enums::id_t,
     typename ALLOCATOR = std::allocator<T>>
 class stable_ids {
 public:
+#pragma region Types
+
   using id_t = ID;
   using size_type = std::underlying_type_t<id_t>;
   using allocator_type = ALLOCATOR;
@@ -105,6 +109,9 @@ public:
       "its underlying type");
   static_assert(std::is_unsigned_v<std::underlying_type_t<id_t>>,
       "ID type for stable_ids must use an unsigned underlying type");
+
+#pragma endregion
+#pragma region handle_t
 
   // An opaque handle that refers to an element. When GEN is enabled, it
   // captures a generation snapshot that allows `is_valid(handle_t)` to detect
@@ -147,6 +154,8 @@ public:
     friend class stable_ids<T, ID, GEN, REUSE_ORDER, ALLOCATOR>;
   };
 
+#pragma endregion
+#pragma region slot_t
 private:
   // Internal slot stored in `reverse_`. Contains the handle and, when FIFO is
   // enabled, a next-pointer for the intrusive free list.
@@ -162,8 +171,10 @@ private:
   static_assert(sizeof(handle_t) <= 16);
   static_assert(std::is_trivially_copyable_v<slot_t>);
 
+#pragma endregion
+#pragma region Construction
+
 public:
-  // Construction.
   stable_ids() = default;
   explicit stable_ids(const allocator_type& alloc)
       : data_{alloc}, indexes_{index_allocator_type{alloc}},
@@ -196,6 +207,9 @@ public:
       swap(lhs.fifo_tail_, rhs.fifo_tail_);
     }
   }
+
+#pragma endregion
+#pragma region Limit
 
   // Maximum allowed ID value. Insertion fails when this limit is reached.
   // Defaults to `id_t::invalid` (the maximum representable value).
@@ -240,6 +254,9 @@ public:
     return true;
   }
 
+#pragma endregion
+#pragma region Failure policy
+
   // Control whether insertion throws on ID overflow (by default) or returns
   // `id_t::invalid`, requiring the caller to check.
   [[nodiscard]] on_failure throw_on_insert_failure() const noexcept {
@@ -248,6 +265,9 @@ public:
   void throw_on_insert_failure(on_failure policy) noexcept {
     throw_on_insert_failure_ = policy;
   }
+
+#pragma endregion
+#pragma region Insertion
 
   // Push a new element, returning its assigned ID.
   [[nodiscard]] id_t push_back(const T& value) {
@@ -281,6 +301,9 @@ public:
     return get_handle(emplace_back(std::forward<Args>(args)...));
   }
 
+#pragma endregion
+#pragma region Validity
+
   // Get handle for ID.
   [[nodiscard]] handle_t get_handle(id_t id) const {
     if (!is_valid(id)) return handle_t{id_t::invalid};
@@ -308,6 +331,9 @@ public:
     if constexpr (is_versioned_v) return live.gen_ == handle.gen_;
     return true;
   }
+
+#pragma endregion
+#pragma region Erase
 
   // Erase element by ID. Returns true if erased, false if ID was invalid.
   //
@@ -338,6 +364,9 @@ public:
     }
     return cnt;
   }
+
+#pragma endregion
+#pragma region Capacity
 
   // Clear all elements. If `policy` is release, also free all memory.
   // It's faster to clear with release than to clear and then `shrink_to_fit`.
@@ -413,6 +442,9 @@ public:
     if (prefill == allocation_policy::eager) do_prefill(new_cap);
   }
 
+#pragma endregion
+#pragma region Queries
+
   // Return current size. This is the count of elements actually present,
   // regardless of their IDs.
   [[nodiscard]] size_type size() const noexcept {
@@ -458,6 +490,9 @@ public:
   // Return whether container is empty.
   [[nodiscard]] bool empty() const noexcept { return data_.empty(); }
 
+#pragma endregion
+#pragma region Element access
+
   // Access element by ID. Must be valid.
   [[nodiscard]] decltype(auto) operator[](this auto& self, id_t id) noexcept {
     assert(self.is_valid(id));
@@ -488,6 +523,9 @@ public:
     return std::span{self.data_};
   }
 
+#pragma endregion
+#pragma region Iteration
+
   // Iterators.
   [[nodiscard]] auto begin(this auto& self) noexcept {
     return std::forward<decltype(self)>(self).data_.begin();
@@ -498,6 +536,8 @@ public:
   [[nodiscard]] auto cbegin() const noexcept { return data_.cbegin(); }
   [[nodiscard]] auto cend() const noexcept { return data_.cend(); }
 
+#pragma endregion
+#pragma region Implementation
 private:
   // Allocate a new ID, either by reusing a freed one or creating a new one.
   // When `REUSE_ORDER` is FIFO, pops the oldest freed ID and swaps it into the
@@ -636,6 +676,8 @@ private:
     if constexpr (is_fifo_v) rebuild_fifo_list();
   }
 
+#pragma endregion
+#pragma region Data members
 private:
   // Actual data.
   std::vector<T, data_allocator_type> data_;
@@ -685,5 +727,9 @@ private:
   // reactivate it (LIFO or FIFO as above). Otherwise we expand and prefill
   // `indexes_` and `reverse_` with a new ID. Either way, the caller pushes
   // the new value to the back of `data_`.
+
+#pragma endregion
 };
+
+#pragma endregion
 }}} // namespace corvid::ecs::stable_id_vector

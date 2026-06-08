@@ -21,6 +21,8 @@
 
 namespace corvid { inline namespace proto {
 
+#pragma region terminated_text_parser
+
 // Parser for sentinel-terminated text frames, designed for line-oriented
 // protocols such as HTTP, SMTP, and POP3.
 //
@@ -62,6 +64,8 @@ namespace corvid { inline namespace proto {
 // the pointed-to bytes must outlive the `state`.
 class terminated_text_parser {
 public:
+#pragma region state
+
   // Persistent state for `terminated_text_parser`. Intended to live in the
   // connection so that parse progress is preserved across `on_data` calls.
   //
@@ -96,8 +100,14 @@ public:
     size_t bytes_scanned_{};
   };
 
+#pragma endregion
+#pragma region Construction
+
   // Construct a parser over `s`. The `state` must outlive the parser.
   explicit terminated_text_parser(state& s) noexcept : state_{s} {}
+
+#pragma endregion
+#pragma region Operations
 
   // Using the associated state, try to parse one sentinel-terminated frame
   // from `input`.
@@ -173,8 +183,13 @@ public:
     return state_.bytes_scanned_;
   }
 
+#pragma endregion
+#pragma region Data members
 private:
   state& state_;
+
+#pragma endregion
 };
 
+#pragma endregion
 }} // namespace corvid::proto

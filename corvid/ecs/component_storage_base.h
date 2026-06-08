@@ -35,6 +35,8 @@ class component_scene_base;
 namespace corvid { inline namespace ecs {
 inline namespace component_storage_bases {
 
+#pragma region component_storage_base
+
 // CRTP base class for component-model entity storages.
 //
 // Mirrors `archetype_storage_base` structurally but uses a policy-based
@@ -68,6 +70,8 @@ inline namespace component_storage_bases {
 template<typename CHILD, typename REG, typename IDX>
 class component_storage_base {
 public:
+#pragma region Types
+
   static_assert(REG::is_component_v,
       "component_storage_base requires a component-mode registry "
       "(OWN_COUNT must be >= 2)");
@@ -84,6 +88,9 @@ public:
       std::allocator_traits<allocator_type>::template rebind_alloc<id_t>;
   using id_vector_t = std::vector<id_t, id_allocator_t>;
   using index_t = IDX;
+
+#pragma endregion
+#pragma region Queries
 
   // Check whether entity `id` is currently in this storage (via bitmap).
   [[nodiscard]] bool contains(id_t id) const {
@@ -124,6 +131,9 @@ public:
     return true;
   }
 
+#pragma endregion
+#pragma region Removal
+
   // Remove entity from this storage. Entity remains alive: moved to staging
   // if this was its only storage, otherwise remains in its other storages.
   // Returns false if entity is invalid or not in this storage.
@@ -153,6 +163,9 @@ public:
   // Remove all entities from this storage. Entities with no remaining
   // storages are destroyed in the registry.
   bool clear() { return do_remove_erase_all(removal_mode::remove) || true; }
+
+#pragma endregion
+#pragma region Insertion
 
   // Insert component data for an entity. Entity must be valid and not already
   // in this storage. May be in other storages (component model allows this).
@@ -193,6 +206,9 @@ public:
     return owner.release();
   }
 
+#pragma endregion
+#pragma region add_guard
+
   // RAII guard for `add`: captures `size` on construction. If `disarm` is not
   // called before destruction, rolls `ids_` and the derived storage back to
   // the saved size, providing strong exception safety. The `reverse_index_` is
@@ -223,6 +239,9 @@ public:
     derived_t* owner_{};
     size_type saved_size_{};
   };
+
+#pragma endregion
+#pragma region Construction
 
   component_storage_base(const component_storage_base&) = delete;
   component_storage_base& operator=(const component_storage_base&) = delete;
@@ -263,6 +282,9 @@ protected:
     return *this;
   }
 
+#pragma endregion
+#pragma region Helpers
+
   // CRTP helpers.
   [[nodiscard]] derived_t& derived() noexcept {
     return static_cast<derived_t&>(*this);
@@ -282,6 +304,9 @@ protected:
     return true;
   }
 
+#pragma endregion
+#pragma region Data members
+
   // Data members.
   registry_t* registry_{nullptr};
   store_id_t store_id_{store_id_t::invalid};
@@ -293,6 +318,8 @@ protected:
   // to `do_drop_all`.
   friend class ::corvid::ecs::component_scene_base;
 
+#pragma endregion
+#pragma region Implementation
 private:
   // Fast bulk-drop: clear component and ID vectors without touching the
   // registry. Only safe when the registry will be reset wholesale immediately
@@ -329,6 +356,9 @@ private:
     derived().do_clear_storage();
     return true;
   }
+
+#pragma endregion
 };
 
+#pragma endregion
 }}} // namespace corvid::ecs::component_storage_bases

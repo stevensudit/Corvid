@@ -24,6 +24,8 @@
 namespace corvid { inline namespace container {
 inline namespace value_scoping {
 
+#pragma region scoped_value
+
 // RAII helper for temporarily changing a value and restoring it on scope exit.
 //
 // Example:
@@ -38,6 +40,8 @@ inline namespace value_scoping {
 template<typename T>
 class [[nodiscard]] scoped_value {
 public:
+#pragma region Construction
+
   static_assert(!std::is_reference_v<T>,
       "scoped_value cannot store a reference type");
   static_assert(std::is_move_constructible_v<T>,
@@ -76,13 +80,21 @@ public:
     return *this;
   }
 
+#pragma endregion
+#pragma region Operations
+
   // Disarm the `scoped_value`, leaving the current value in place and
   // preventing any future restore.
   void release() noexcept { target_ = nullptr; }
 
+#pragma endregion
+#pragma region Data members
 private:
   T* target_{};
   T old_value_;
+
+#pragma endregion
+#pragma region Implementation
 
   void do_swap() noexcept(std::is_nothrow_swappable_v<T>) {
     using std::swap;
@@ -92,6 +104,9 @@ private:
   void restore() noexcept(std::is_nothrow_swappable_v<T>) {
     if (target_) do_swap();
   }
+
+#pragma endregion
 };
 
+#pragma endregion
 }}} // namespace corvid::container::value_scoping

@@ -23,6 +23,8 @@
 
 namespace corvid { inline namespace hash_combiners {
 
+#pragma region hash_combiner
+
 // Incrementally combine hashes for compound keys.
 //
 // The mixer matches the common boost-style combine formula and is suitable for
@@ -38,14 +40,22 @@ namespace corvid { inline namespace hash_combiners {
 //   }
 class hash_combiner {
 public:
+#pragma region Construction
+
   constexpr hash_combiner() noexcept = default;
   constexpr explicit hash_combiner(size_t seed) noexcept : seed_(seed) {}
+
+#pragma endregion
+#pragma region Accessors
 
   // Return the current accumulated hash value.
   [[nodiscard]] constexpr size_t value() const noexcept { return seed_; }
   [[nodiscard]] constexpr explicit operator size_t() const noexcept {
     return seed_;
   }
+
+#pragma endregion
+#pragma region Operations
 
   // Mix an already-computed hash value into the accumulator.
   constexpr void combine_hash(size_t hash) noexcept {
@@ -66,9 +76,16 @@ public:
     (combine(values), ...);
   }
 
+#pragma endregion
+#pragma region Data members
 private:
   size_t seed_ = 0;
+
+#pragma endregion
 };
+
+#pragma endregion
+#pragma region combined_hash
 
 // Hash several values as an ordered tuple-like sequence.
 //
@@ -83,4 +100,5 @@ template<typename... Ts>
   return combiner.value();
 }
 
+#pragma endregion
 }} // namespace corvid::hash_combiners

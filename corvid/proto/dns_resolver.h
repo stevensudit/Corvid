@@ -28,6 +28,8 @@
 
 namespace corvid { inline namespace proto {
 
+#pragma region dns_resolver
+
 // Resolves hostnames to `net_endpoint` values via `getaddrinfo`.
 struct dns_resolver {
   // Resolve a hostname to a list of `net_endpoint` values.
@@ -78,4 +80,5 @@ struct dns_resolver {
   }
 };
 
+#pragma endregion
 }} // namespace corvid::proto

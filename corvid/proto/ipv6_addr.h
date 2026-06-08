@@ -33,6 +33,8 @@
 
 namespace corvid { inline namespace proto {
 
+#pragma region ipv6_addr
+
 // IPv6 address.
 //
 // `ipv6_addr` wraps a 128-bit IPv6 address as 16 bytes in network order. It
@@ -44,12 +46,15 @@ namespace corvid { inline namespace proto {
 // for the alternative.
 class ipv6_addr {
 public:
+#pragma region Types
+
   using byte_array = std::array<uint8_t, 16>;
   using word_array = std::array<uint16_t, 8>;
   static_assert(sizeof(in6_addr) == sizeof(byte_array));
   static_assert(std::is_trivially_copyable_v<in6_addr>);
 
-  // Constructors.
+#pragma endregion
+#pragma region Construction
 
   // Default-constructs to the "any" address (::), which is empty.
   constexpr ipv6_addr() noexcept = default;
@@ -85,9 +90,14 @@ public:
             uint8_t(a.s6_addr[12]), uint8_t(a.s6_addr[13]),
             uint8_t(a.s6_addr[14]), uint8_t(a.s6_addr[15])} {}
 
-  // Named address constants.
+#pragma endregion
+#pragma region Constants
+
   static const ipv6_addr any;
   static const ipv6_addr loopback;
+
+#pragma endregion
+#pragma region Emptiness
 
   // Whether this address is empty, which is also the "any" address ("::").
   [[nodiscard]] constexpr bool empty() const noexcept {
@@ -98,7 +108,8 @@ public:
   // Return whether this has a non-any address.
   [[nodiscard]] constexpr operator bool() const noexcept { return !empty(); }
 
-  // Parsing.
+#pragma endregion
+#pragma region Parsing
 
   // Parse from IPv6 colon-hex notation, including "::" compression and
   // IPv4-embedded tails such as `::ffff:192.168.1.1`.
@@ -117,7 +128,8 @@ public:
     return ipv6_addr{groups_to_bytes(groups)};
   }
 
-  // Accessors.
+#pragma endregion
+#pragma region Accessors
 
   // Return the 16 bytes in network order.
   [[nodiscard]] constexpr const byte_array& bytes() const noexcept {
@@ -130,7 +142,8 @@ public:
         word_at(5), word_at(6), word_at(7)};
   }
 
-  // Classification predicates.
+#pragma endregion
+#pragma region Classification
 
   [[nodiscard]] constexpr bool is_any() const noexcept { return empty(); }
 
@@ -153,10 +166,14 @@ public:
     return (bytes_[0] & 0xfeU) == 0xfcU;
   }
 
+#pragma endregion
+#pragma region Comparison
+
   [[nodiscard]] friend constexpr auto
   operator<=>(const ipv6_addr&, const ipv6_addr&) noexcept = default;
 
-  // Formatting.
+#pragma endregion
+#pragma region Formatting
 
   // Format using lowercase hex with RFC 5952-style zero-run compression.
   [[nodiscard]] constexpr std::string to_string() const {
@@ -208,6 +225,8 @@ public:
     return std::bit_cast<in6_addr>(bytes_);
   }
 
+#pragma endregion
+#pragma region Implementation
 private:
   // Parse the IPv4-embedded tail token (e.g., "192.168.1.1") and append two
   // 16-bit groups to `groups`, advancing `group_count`. Returns false if
@@ -370,12 +389,20 @@ private:
     while (len-- > 0) out += buffer[len];
   }
 
+#pragma endregion
+#pragma region Data members
 private:
   byte_array bytes_{};
+
+#pragma endregion
 };
+
+#pragma endregion
+#pragma region Constant definitions
 
 constexpr ipv6_addr ipv6_addr::any{};
 constexpr ipv6_addr ipv6_addr::loopback{uint16_t{0}, uint16_t{0}, uint16_t{0},
     uint16_t{0}, uint16_t{0}, uint16_t{0}, uint16_t{0}, uint16_t{1}};
 
+#pragma endregion
 }} // namespace corvid::proto

@@ -23,6 +23,8 @@
 
 namespace corvid { inline namespace container { inline namespace enum_vectors {
 
+#pragma region enum_vector
+
 // Wrapper for vector where the index is a class enum.
 //
 // Provides full access to underlying type, but avoids casting.
@@ -30,6 +32,8 @@ template<typename T, sequence::SequentialEnum E,
     class Allocator = std::allocator<T>>
 class enum_vector {
 public:
+#pragma region Types
+
   using value_type = T;
   using allocator_type = Allocator;
   using size_type = std::underlying_type_t<E>;
@@ -42,6 +46,9 @@ public:
   using const_iterator = std::vector<T, Allocator>::const_iterator;
   using enum_t = E;
 
+#pragma endregion
+#pragma region Construction
+
   enum_vector() = default;
   explicit enum_vector(size_type count, const T& value = T(),
       const Allocator& alloc = Allocator())
@@ -50,6 +57,9 @@ public:
   enum_vector(std::initializer_list<T> init,
       const Allocator& alloc = Allocator())
       : data_(init, alloc) {}
+
+#pragma endregion
+#pragma region Capacity
 
   [[nodiscard]] size_type size() const noexcept { return data_.size(); }
   [[nodiscard]] bool empty() const noexcept { return data_.empty(); }
@@ -61,6 +71,9 @@ public:
   void resize(size_type count, const T& value) { data_.resize(count, value); }
   void clear() noexcept { data_.clear(); }
   void shrink_to_fit() { data_.shrink_to_fit(); }
+
+#pragma endregion
+#pragma region Element access
 
   [[nodiscard]] decltype(auto)
   operator[](this auto& self, enum_t ndx) noexcept {
@@ -81,6 +94,9 @@ public:
     return self.data_.data();
   }
 
+#pragma endregion
+#pragma region Iterators
+
   [[nodiscard]] decltype(auto) begin(this auto& self) noexcept {
     return self.data_.begin();
   }
@@ -92,6 +108,9 @@ public:
   }
   [[nodiscard]] const_iterator cend() const noexcept { return data_.cend(); }
 
+#pragma endregion
+#pragma region Modifiers
+
   void push_back(const T& value) { data_.push_back(value); }
   void push_back(T&& value) { data_.push_back(std::move(value)); }
   template<class... Args>
@@ -100,7 +119,8 @@ public:
   }
   void pop_back() { data_.pop_back(); }
 
-  // Additional methods.
+#pragma endregion
+#pragma region Additional methods
 
   [[nodiscard]] enum_t size_as_enum() const noexcept {
     return enum_t{static_cast<size_type>(data_.size())};
@@ -115,8 +135,13 @@ public:
     return data_.get_allocator();
   }
 
+#pragma endregion
+#pragma region Data members
 private:
   std::vector<T, Allocator> data_{};
+
+#pragma endregion
 };
 
+#pragma endregion
 }}} // namespace corvid::container::enum_vectors

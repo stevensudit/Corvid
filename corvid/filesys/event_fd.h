@@ -26,16 +26,23 @@
 namespace corvid { inline namespace filesys {
 using namespace bool_enums;
 
+#pragma region event_fd
+
 // RAII wrapper around Linux `eventfd`.
 //
 // `event_fd` owns a single eventfd handle, inherits the general fd helpers
 // from `os_file`, and adds typed counter-based read/write operations.
 class [[nodiscard]] event_fd: public os_file {
 public:
+#pragma region Types
+
   using handle_t = os_file::file_handle_t;
   using counter_t = eventfd_t;
   static constexpr handle_t invalid_handle = os_file::invalid_file_handle;
   static constexpr int default_flags = EFD_CLOEXEC | EFD_NONBLOCK;
+
+#pragma endregion
+#pragma region Construction
 
   event_fd() noexcept = default;
   explicit event_fd(counter_t initial_value,
@@ -49,8 +56,6 @@ public:
   event_fd& operator=(event_fd&&) noexcept = default;
   event_fd& operator=(const event_fd&) = delete;
 
-  ~event_fd() = default;
-
   // Create an `event_fd` with `initial_value`. Defaults to non-blocking
   // counter mode (`EFD_CLOEXEC | EFD_NONBLOCK`); pass `event_mode::semaphore`
   // to add `EFD_SEMAPHORE`, or `execution::blocking` to omit `EFD_NONBLOCK`.
@@ -62,6 +67,9 @@ public:
     if (exec == execution::nonblocking) flags |= EFD_NONBLOCK;
     return event_fd{initial_value, flags};
   }
+
+#pragma endregion
+#pragma region Operations
 
   // Add `value` to the counter. Returns true on success.
   [[nodiscard]] bool notify(counter_t value = 1) const noexcept {
@@ -83,6 +91,9 @@ public:
   [[nodiscard]] bool read(counter_t& value) const noexcept {
     return ::eventfd_read(handle(), &value) == 0;
   }
+
+#pragma endregion
 };
 
+#pragma endregion
 }} // namespace corvid::filesys

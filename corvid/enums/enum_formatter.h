@@ -24,6 +24,8 @@
 #include "bitmask_enum.h"
 #include "../strings/debug_escaping.h"
 
+#pragma region formatter
+
 // Formatter for registered Corvid enums (sequence or bitmask), narrow or wide.
 //
 // Deliberately constrained to enums that opt into the registry rather than to
@@ -54,6 +56,8 @@ template<typename E, corvid::CharType CharT>
 requires(corvid::enums::sequence::SequentialEnum<E> ||
          corvid::enums::bitmask::BitmaskEnum<E>)
 struct std::formatter<E, CharT> {
+#pragma region Parse
+
   constexpr void set_debug_format() { debug_ = true; }
 
   constexpr auto parse(auto& ctx) {
@@ -66,6 +70,9 @@ struct std::formatter<E, CharT> {
       throw std::format_error("enum format spec accepts only '?'");
     return it;
   }
+
+#pragma endregion
+#pragma region Format
 
   template<typename FormatContext>
   auto format(E e, FormatContext& ctx) const {
@@ -85,6 +92,12 @@ struct std::formatter<E, CharT> {
     return out;
   }
 
+#pragma endregion
+#pragma region Data members
 private:
   bool debug_{false};
+
+#pragma endregion
 };
+
+#pragma endregion

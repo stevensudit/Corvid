@@ -22,6 +22,8 @@
 
 namespace corvid { inline namespace lang { namespace controllers {
 
+#pragma region soptd_plant
+
 // Simulation of SOPTD (Second-Order Plus Dead Time) plant for testing
 // purposes.
 //
@@ -36,6 +38,8 @@ namespace corvid { inline namespace lang { namespace controllers {
 // intended for testing, not production use.
 class soptd_plant {
 public:
+#pragma region Construction
+
   soptd_plant(double K, double tau1, double tau2, double L, double dt)
       : K_{K}, tau1_{tau1}, tau2_{tau2}, L_{L}, dt_{dt} {
     // Compute number of samples corresponding to dead time L.
@@ -48,6 +52,9 @@ public:
 
   soptd_plant(const soptd_plant&) = default;
   soptd_plant& operator=(const soptd_plant&) = delete;
+
+#pragma endregion
+#pragma region Operations
 
   [[nodiscard]] double update(double u) {
     // Apply dead time via delay buffer.
@@ -67,12 +74,17 @@ public:
     std::ranges::fill(delay_buffer_, 0.0);
   }
 
+#pragma endregion
+#pragma region Accessors
+
   [[nodiscard]] double get_gain() const { return K_; }
   [[nodiscard]] double get_tau1() const { return tau1_; }
   [[nodiscard]] double get_tau2() const { return tau2_; }
   [[nodiscard]] double get_dead_time() const { return L_; }
   [[nodiscard]] double get_dt() const { return dt_; }
 
+#pragma endregion
+#pragma region Data members
 private:
   const double K_;
   const double tau1_;
@@ -82,6 +94,9 @@ private:
   double x1_ = 0.0;
   double x2_ = 0.0;
   std::vector<double> delay_buffer_;
+
+#pragma endregion
 };
 
+#pragma endregion
 }}} // namespace corvid::lang::controllers

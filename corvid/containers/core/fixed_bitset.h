@@ -31,6 +31,8 @@
 namespace corvid { inline namespace container {
 inline namespace fixed_bitsets {
 
+#pragma region fixed_bitset
+
 // Fixed-size bitset backed by `std::array<word_t, word_count_v>`.
 //
 // This is a maximalist version of `std::bitset`.
@@ -72,6 +74,8 @@ template<size_t N_BITS = 64, typename POS = size_t, typename TAG = void,
     size_t FORCED_WORD = 0>
 class fixed_bitset {
 public:
+#pragma region Types
+
   static constexpr size_t bit_count_v = N_BITS;
   static constexpr size_t forced_word_v = FORCED_WORD;
 
@@ -109,6 +113,9 @@ public:
   // Number of words needed to hold all `bit_count_v` bits (ceiling division).
   static constexpr size_t word_count_v =
       (bit_count_v + bits_per_word_v - 1) / bits_per_word_v;
+
+#pragma endregion
+#pragma region iterator
 
   // Read-only iterator over bit positions that are set.
   //
@@ -181,6 +188,9 @@ public:
 
   using const_iterator = iterator;
 
+#pragma endregion
+#pragma region reference
+
   // Akin to `std::bitset<N>::reference`.
   // This is a proxy object that behaves like a reference to a single bit,
   // allowing read and write access. It is returned by the mutable
@@ -229,7 +239,8 @@ public:
     friend class fixed_bitset;
   };
 
-  // Construction.
+#pragma endregion
+#pragma region Construction
 
   constexpr fixed_bitset() = default;
   constexpr fixed_bitset(const fixed_bitset&) = default;
@@ -247,7 +258,8 @@ public:
   // TODO: Consider implementing `to_string`, `to_ulong`, `to_ullong`, and
   // constructors that initialize from numbers and strings.
 
-  // Comparison.
+#pragma endregion
+#pragma region Comparison
 
   // Equality comparison.
   [[nodiscard]] constexpr bool operator==(
@@ -259,7 +271,8 @@ public:
   [[nodiscard]] constexpr auto operator<=>(
       const fixed_bitset&) const noexcept = default;
 
-  // Element access.
+#pragma endregion
+#pragma region Element access
 
   // Read-only bit access. Does not throw. Fastest path.
   [[nodiscard]] constexpr bool operator[](pos_t pos) const noexcept {
@@ -305,12 +318,15 @@ public:
     return cnt;
   }
 
-  // Capacity.
+#pragma endregion
+#pragma region Capacity
 
   // Number of bit positions (`N_BITS`).
   [[nodiscard]] constexpr size_t size() const noexcept { return bit_count_v; }
 
-  // Modifiers.
+#pragma endregion
+#pragma region Modifiers
+#pragma region Bitwise
 
   // AND each word with `rhs` in place.
   constexpr fixed_bitset& operator&=(const fixed_bitset& rhs) noexcept {
@@ -357,6 +373,9 @@ public:
   operator^(fixed_bitset lhs, const fixed_bitset& rhs) noexcept {
     return lhs ^= rhs;
   }
+
+#pragma endregion
+#pragma region Shifts
 
   // Left shift.
   [[nodiscard]] friend constexpr fixed_bitset
@@ -427,6 +446,9 @@ public:
     for (size_t ndx = limit; ndx < word_count_v; ++ndx) words_[ndx] = 0;
     return *this;
   }
+
+#pragma endregion
+#pragma region Rotations
 
   // Rotate bits left by shift positions.
   constexpr fixed_bitset& rotl(size_t shift) noexcept {
@@ -518,6 +540,9 @@ public:
     return lhs.rotr(shift);
   }
 
+#pragma endregion
+#pragma region Set, reset, flip
+
   // Set all bits.
   constexpr auto& set() noexcept {
     words_.fill(all_ones_v);
@@ -555,7 +580,9 @@ public:
     return flip_unchecked(checked_index(pos));
   }
 
-  // Extended queries.
+#pragma endregion
+#pragma endregion
+#pragma region Extended queries
 
   // Number of consecutive zero bits starting at bit 0.
   [[nodiscard]] constexpr pos_t countr_zero() const noexcept {
@@ -668,7 +695,8 @@ public:
     return as_pos(bit_count_v - static_cast<size_t>(countl_zero()));
   }
 
-  // Iteration. All const.
+#pragma endregion
+#pragma region Iteration
 
   // Iterator to the first set bit, or `end` if none are set.
   [[nodiscard]] constexpr iterator begin() const noexcept {
@@ -688,8 +716,13 @@ public:
     return (self.words_);
   }
 
+#pragma endregion
+#pragma region Data members
 private:
   std::array<word_t, word_count_v> words_{};
+
+#pragma endregion
+#pragma region Implementation
 
   // Valid bits in the topmost word. Less than `bits_per_word_v` only when
   // `FORCED_WORD` causes `N_BITS` to not be a multiple of `bits_per_word_v`.
@@ -765,9 +798,14 @@ private:
       throw std::out_of_range{"fixed_bitset: pos out of range"};
     return ndx;
   }
+
+#pragma endregion
 };
 
+#pragma endregion
 }}} // namespace corvid::container::fixed_bitsets
+
+#pragma region format_kind
 
 // `fixed_bitset` iterates the positions of its set bits, so without this the
 // std range formatter would print those positions (`[1, 3]`, like in the
@@ -777,6 +815,9 @@ template<std::size_t N, typename POS, typename TAG, std::size_t FW>
 constexpr std::range_format
     std::format_kind<corvid::container::fixed_bitset<N, POS, TAG, FW>> =
         std::range_format::disabled;
+
+#pragma endregion
+#pragma region formatter
 
 // Formatter for `fixed_bitset`. Three mutually exclusive representations, all
 // streamed straight to the output so nothing the size of the bit count is
@@ -851,3 +892,5 @@ private:
   enum class mode : std::uint8_t { binary, index, hex };
   mode mode_{mode::binary};
 };
+
+#pragma endregion
