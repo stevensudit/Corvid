@@ -502,12 +502,15 @@ foreach(SOURCE_FILE ${SOURCES})
     endif()
 endforeach()
 
-# CUDA (.cu) test executables. Same single-source-per-executable model as the
-# .cpp suite above, but compiled by nvcc (g++-15 host) and linked against
-# libstdc++ -- no Catch2 or QUIC/io_uring deps, just the CUDA runtime nvcc
-# links by default. notest_* opt out of CTest as usual. A .cu file reaches its
-# headers the same way .cpp tests do, with a relative include ("../cuda/..."),
-# so no include directories are needed here.
+# CUDA (.cu) test executables, the same single-source-per-executable model as
+# the .cpp suite above but compiled by nvcc (g++-15 host) and linked against
+# libstdc++. They use Catch2 like the rest of the suite. Because .cu targets
+# are always libstdc++, they need the system (apt) Catch2 rather than the libc++
+# FetchContent build the .cpp suite may be using, so we locate it directly
+# instead of reusing Catch2::Catch2 (the wrong ABI in a libc++ configure).
+# notest_* opt out of Catch2 and CTest, as in the .cpp loop. A .cu file reaches
+# its own headers with a relative include ("../corvid/cuda/..."), as the .cpp
+# tests do.
 if(CORVID_ENABLE_CUDA)
     if(DEFINED CUDA_TEST_NAME_SOURCE)
         set(CUDA_SOURCES "${CUDA_TEST_NAME_SOURCE}")
@@ -517,10 +520,27 @@ if(CORVID_ENABLE_CUDA)
         file(GLOB CUDA_SOURCES "*.cu")
     endif()
 
+    if(CUDA_SOURCES)
+        find_path(CUDA_CATCH2_INCLUDE_DIR catch2/catch_test_macros.hpp)
+        find_library(CUDA_CATCH2_LIBRARY NAMES Catch2)
+        if(NOT CUDA_CATCH2_INCLUDE_DIR OR NOT CUDA_CATCH2_LIBRARY)
+            message(FATAL_ERROR
+                "CUDA tests use Catch2 but the system libstdc++ Catch2 was not "
+                "found (apt install catch2).")
+        endif()
+        # The catch2_main.h that each test includes supplies main() via
+        # Catch::Session, so only libCatch2 is needed (not libCatch2Main).
+        add_library(cuda_catch2 STATIC IMPORTED)
+        set_target_properties(cuda_catch2 PROPERTIES
+            IMPORTED_LOCATION "${CUDA_CATCH2_LIBRARY}"
+            INTERFACE_INCLUDE_DIRECTORIES "${CUDA_CATCH2_INCLUDE_DIR}")
+    endif()
+
     foreach(SOURCE_FILE ${CUDA_SOURCES})
         get_filename_component(EXECUTABLE_NAME ${SOURCE_FILE} NAME_WE)
         add_executable(${EXECUTABLE_NAME} ${SOURCE_FILE})
         if(NOT ${EXECUTABLE_NAME} MATCHES "^notest_")
+            target_link_libraries(${EXECUTABLE_NAME} PRIVATE cuda_catch2)
             add_test(NAME ${EXECUTABLE_NAME} COMMAND ${EXECUTABLE_NAME})
         endif()
     endforeach()

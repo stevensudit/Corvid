@@ -25,13 +25,17 @@ out="$outDir/$stem"
 if [[ "$src" == *.cu ]]; then
   # nvcc rejects gcc newer than 15, so pin the host compiler to g++-15. -g emits
   # host debug info (lldb can step host-side code); -G adds device debug info
-  # for cuda-gdb. -arch=native targets the build host's GPU.
+  # for cuda-gdb. -arch=native targets the build host's GPU. .cu tests use
+  # Catch2 (via catch2_main.h) like the rest of the suite; .cu is libstdc++, so
+  # link the system (apt) Catch2, matching the CMake build. It supplies main()
+  # via Catch::Session, so only libCatch2 is needed (not libCatch2Main).
   exec nvcc \
     -ccbin /usr/bin/g++-15 \
     -std=c++23 \
     -arch=native \
     -g -G -O0 \
     "$src" \
+    /usr/lib/libCatch2.a \
     -o "$out"
 fi
 

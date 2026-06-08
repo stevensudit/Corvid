@@ -645,11 +645,12 @@ template<strings::fixed_string names>
 //
 // Each '|'-delimited segment is `start,name,name,...`: the first comma-field
 // is the absolute start value and the rest are names, taken verbatim. An empty
-// field is an empty name. Segments must ascend and be separated by more than
-// one value; runs any closer are rejected and should be merged into one
-// segment, using empty names for the gap, since a single-value gap costs the
-// same as an empty name. `min` and `max` are derived from them. The packed
-// names are views into `Nulled`.
+// field is an empty name. Segments must ascend and be separated by at least
+// three values; runs any closer are rejected and should be merged into one
+// segment, using empty names for the gap, since a one- or two-value gap costs
+// about as much as the empty names while a new segment also pays for its start
+// value and the '|'. `min` and `max` are derived from them. The packed names
+// are views into `Nulled`.
 template<strings::fixed_string names, std::integral U, size_t NameCount,
     size_t SegCount, strings::fixed_string Nulled = make_nulled<names>()>
 [[nodiscard]] consteval auto parse_segmented_names() {
@@ -671,7 +672,7 @@ template<strings::fixed_string names, std::integral U, size_t NameCount,
     if (segment_ndx != 0) {
       if (start <= name_segments.max)
         throw std::invalid_argument("segments must ascend");
-      if (start - name_segments.max <= 2)
+      if (start - name_segments.max <= 3)
         throw std::invalid_argument("segments too close");
     }
 

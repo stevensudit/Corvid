@@ -20,6 +20,8 @@
 
 #include <cuda_runtime.h>
 
+#include "../enums/sequence_enum.h"
+
 namespace corvid::cuda {
 
 enum class cuda_status : std::uint16_t {
@@ -163,5 +165,58 @@ enum class cuda_status : std::uint16_t {
   unknown = cudaErrorUnknown,                               // 999
   api_failure_base = cudaErrorApiFailureBase,               // 10000
 };
+
+// Register cuda_status as a sparse sequence enum so it gets enum<->string
+// conversion. The names string is segmented: runs are separated by '|', each
+// run starts with the numeric value of its first name and then names
+// consecutive values. Gaps of one or two values stay inside a run as empty
+// names; only the larger gaps between CUDA's error-code blocks start a new
+// run.
+consteval auto corvid_enum_spec(cuda_status*) {
+  return corvid::enums::sequence::make_sequence_enum_spec<cuda_status,
+      "0,success,invalid_value,memory_allocation,initialization_error,cudart_"
+      "unloading,profiler_disabled,profiler_not_initialized,profiler_already_"
+      "started,profiler_already_stopped,invalid_configuration,version_"
+      "translation,,invalid_pitch_value,invalid_symbol,,,invalid_host_pointer,"
+      "invalid_device_pointer,invalid_texture,invalid_texture_binding,invalid_"
+      "channel_descriptor,invalid_memcpy_direction,address_of_constant,"
+      "texture_fetch_failed,texture_not_bound,synchronization_error,invalid_"
+      "filter_setting,invalid_norm_setting,mixed_device_execution,,,not_yet_"
+      "implemented,memory_value_too_large,,stub_library,insufficient_driver,"
+      "call_requires_newer_driver,invalid_surface|43,duplicate_variable_name,"
+      "duplicate_texture_name,duplicate_surface_name,devices_unavailable,,,"
+      "incompatible_driver_context,,missing_configuration,prior_launch_"
+      "failure|65,launch_max_depth_exceeded,launch_file_scoped_tex,launch_"
+      "file_scoped_surf,sync_depth_exceeded,launch_pending_count_exceeded|98,"
+      "invalid_device_function,,no_device,invalid_device,device_not_licensed,"
+      "software_validity_not_established|127,startup_failure|200,invalid_"
+      "kernel_image,device_uninitialized|205,map_buffer_object_failed,unmap_"
+      "buffer_object_failed,array_is_mapped,already_mapped,no_kernel_image_"
+      "for_device,already_acquired,not_mapped,not_mapped_as_array,not_mapped_"
+      "as_pointer,ecc_uncorrectable,unsupported_limit,device_already_in_use,"
+      "peer_access_unsupported,invalid_ptx,invalid_graphics_context,nvlink_"
+      "uncorrectable,jit_compiler_not_found,unsupported_ptx_version,jit_"
+      "compilation_disabled,unsupported_exec_affinity,unsupported_dev_side_"
+      "sync,contained|300,invalid_source,file_not_found,shared_object_symbol_"
+      "not_found,shared_object_init_failed,operating_system|400,invalid_"
+      "resource_handle,illegal_state,lossy_query|500,symbol_not_found|600,not_"
+      "ready|700,illegal_address,launch_out_of_resources,launch_timeout,"
+      "launch_incompatible_texturing,peer_access_already_enabled,peer_access_"
+      "not_enabled,,,set_on_active_process,context_is_destroyed,assert,too_"
+      "many_peers,host_memory_already_registered,host_memory_not_registered,"
+      "hardware_stack_error,illegal_instruction,misaligned_address,invalid_"
+      "address_space,invalid_pc,launch_failure,cooperative_launch_too_large,"
+      "tensor_memory_leak|800,not_permitted,not_supported,system_not_ready,"
+      "system_driver_mismatch,compat_not_supported_on_device,mps_connection_"
+      "failed,mps_rpc_failure,mps_server_not_ready,mps_max_clients_reached,"
+      "mps_max_connections_reached,mps_client_terminated,cdp_not_supported,"
+      "cdp_version_mismatch|900,stream_capture_unsupported,stream_capture_"
+      "invalidated,stream_capture_merge,stream_capture_unmatched,stream_"
+      "capture_unjoined,stream_capture_isolation,stream_capture_implicit,"
+      "captured_event,stream_capture_wrong_thread,timeout,graph_exec_update_"
+      "failure,external_device,invalid_cluster_size,function_not_loaded,"
+      "invalid_resource_type,invalid_resource_configuration,,stream_detached,"
+      "graph_recapture_failure|999,unknown|10000,api_failure_base">();
+}
 
 } // namespace corvid::cuda

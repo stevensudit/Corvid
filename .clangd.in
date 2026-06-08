@@ -38,11 +38,11 @@ CompileFlags:
   Add: [-isystem, @NGTCP2_INCLUDE_DIR@, -isystem, @NGHTTP3_INCLUDE_DIR@, -isystem, @OPENSSL_INCLUDE_DIR@]
 
 ---
-# CUDA sources/headers (cuda/, tests/*.cu). clangd otherwise parses these as
-# plain C++ and flags the CUDA attributes (__host__, __device__, __global__)
-# and the <<<...>>> launch syntax as unknown. Put clangd into CUDA mode with
-# clang's own CUDA frontend (the one clangd embeds): -xcuda plus the toolkit
-# path. clang-22 only "partially supports" up to CUDA 12.9, so
+# CUDA sources/headers (corvid/cuda/, tests/*.cu). clangd otherwise parses
+# these as plain C++ and flags the CUDA attributes (__host__, __device__,
+# __global__) and the <<<...>>> launch syntax as unknown. Put clangd into CUDA
+# mode with clang's own CUDA frontend (the one clangd embeds): -xcuda plus the
+# toolkit path. clang-22 only "partially supports" up to CUDA 12.9, so
 # --no-cuda-version-check silences the version-mismatch warning for the 13.3
 # toolkit; parsing is unaffected.
 #
