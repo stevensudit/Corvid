@@ -442,13 +442,13 @@ public:
   template<corvid::CharType CharT, typename OutIt>
   OutIt
   format_to_spec(const corvid::parsed_spec<CharT>& spec, OutIt out) const {
-    std::string content{"fd=closed"};
-    if (!is_open()) {
-      content.resize(3);
+    std::string content{"fd="};
+    if (is_open())
       strings::append_num(content, handle_);
-    }
+    else
+      content += "closed";
     std::string_view view{content};
-    if (spec.precision) view = view.substr(0, *spec.precision);
+    if (const auto prec = spec.precision) view = view.substr(0, *prec);
     return spec.write_padded(out, view, spec.width);
   }
 
