@@ -24,6 +24,12 @@ set -e
 # exclusive with everything else. The default is clang with `libcxx`, no tidy,
 # no sanitizer, no coverage, no scan.
 #
+# CUDA: when nvcc and g++-15 are installed and the mode is plain (no sanitizer,
+# coverage, or scan), the *.cu sources in tests/ build alongside the *.cpp
+# suite as their own nvcc/libstdc++ executables, regardless of the compiler and
+# standard library chosen for the C++ files. Pass a *.cu filename to build and
+# run just one.
+#
 # This script builds and runs one configuration at a time. To exercise every
 # configuration (plain, asan, tsan, msan, tidy) in sequence, pass "all":
 #
@@ -42,7 +48,7 @@ use_scan=false
 test_name=""
 target_name=""
 
-usage="Usage: $0 [all | [testname.cpp] [clang|gcc] [libstdcpp|libcxx] [tidy] [asan|tsan|ubsan|msan] [coverage] [scan]]"
+usage="Usage: $0 [all | [testname.cpp|testname.cu] [clang|gcc] [libstdcpp|libcxx] [tidy] [asan|tsan|ubsan|msan] [coverage] [scan]]"
 
 # Enforce the core/utils band layering before any build (fast, static, and
 # build-independent). See corvid/deps.md.
@@ -84,9 +90,9 @@ if [[ $# -gt 0 && "$1" != "libstdcpp" && "$1" != "libcxx" \
       && "$1" != "tidy" && "$1" != "--tidy" \
       && "$1" != "asan" && "$1" != "tsan" && "$1" != "ubsan" \
       && "$1" != "msan" && "$1" != "coverage" && "$1" != "scan" ]]; then
-  if [[ "$1" == *.cpp ]]; then
+  if [[ "$1" == *.cpp || "$1" == *.cu ]]; then
     test_name="$1"
-    target_name="${test_name%.cpp}"
+    target_name="${test_name%.*}"
     shift
   else
     echo "$usage" >&2
@@ -144,6 +150,27 @@ if $use_scan; then
     echo "$0: 'scan' takes no other arguments (configure-only static analysis)" >&2
     exit 1
   fi
+fi
+
+# CUDA (.cu) targets build automatically in plain modes when the toolchain is
+# present, independently of the compiler/stdlib chosen for the .cpp files: each
+# .cu is its own single-source executable (nvcc, g++-15 host, libstdc++) and
+# shares no link line with a .cpp binary. nvcc rejects gcc newer than 15, so we
+# pin its host compiler to g++-15 and target the build host's GPU (native).
+# Skip CUDA under sanitizers/coverage/scan: clang's instrumentation does not
+# apply to nvcc, and those flags would break the g++-15-driven CUDA link.
+CUDA_OPTION=""
+if [[ -z "$sanitizer" ]] && ! $use_coverage && ! $use_scan; then
+  if command -v nvcc >/dev/null 2>&1 && command -v g++-15 >/dev/null 2>&1; then
+    CUDA_OPTION="-DCORVID_ENABLE_CUDA=ON -DCMAKE_CUDA_HOST_COMPILER=$(command -v g++-15) -DCMAKE_CUDA_ARCHITECTURES=native"
+  fi
+fi
+
+# A requested .cu source needs that toolchain and a plain mode; fail clearly
+# rather than configuring a build that silently produces no target.
+if [[ "$test_name" == *.cu && -z "$CUDA_OPTION" ]]; then
+  echo "$0: '$test_name' needs CUDA (nvcc + g++-15) in a plain build mode (no sanitizer/coverage/scan)" >&2
+  exit 1
 fi
 
 # Default the compiler to clang; gcc is opt-in.
@@ -239,7 +266,7 @@ rm -rf "$buildRoot"
 mkdir -p "$buildRoot" "$buildDir"
 
 # Run cmake to configure the project with Ninja and the selected compiler
-cmake -S tests -B "$buildRoot" -G "Ninja" $LIBSTD_OPTION $TIDY_OPTION $TEST_NAME_OPTION $SAN_OPTION $COV_OPTION
+cmake -S tests -B "$buildRoot" -G "Ninja" $LIBSTD_OPTION $TIDY_OPTION $TEST_NAME_OPTION $SAN_OPTION $COV_OPTION $CUDA_OPTION
 
 # Scan mode: hand the compile database to the Clang Static Analyzer and
 # stop. We don't need ninja artifacts -- analyze-build re-invokes clang with

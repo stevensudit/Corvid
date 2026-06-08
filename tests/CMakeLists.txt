@@ -16,6 +16,7 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 # Codex, where libstdc++ is required.
 option(USE_LIBSTDCPP "Use GNU libstdc++ instead of libc++" OFF)
 option(USE_CLANG_TIDY "Run clang-tidy analysis" OFF)
+option(CORVID_ENABLE_CUDA "Build .cu targets with nvcc (host g++-15, libstdc++)" OFF)
 set(TEST_NAME "" CACHE STRING "Build only the named test source file")
 
 # Set the C++ standard to C++23
@@ -71,12 +72,25 @@ else()
     # runtime lives in libc++experimental, which must come before libc++ in
     # the link order because it references symbols from libc++.
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O3 -march=native -Wall -Wextra -Werror -nostdinc++ -isystem ${LIBCXX_PREFIX}/include/c++/v1 -std=c++23 -fexperimental-library")
-    set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -stdlib=libc++ --rtlib=compiler-rt -fuse-ld=lld")
-    set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -L${LIBCXX_PREFIX}/lib -lc++experimental -lc++ -lc++abi")
-    # Embed an rpath so binaries find libc++/libunwind .so files at the chosen
-    # prefix without requiring LD_LIBRARY_PATH. Harmless for the system path,
-    # essential for SANITIZER=msan where LIBCXX_PREFIX is outside ld.so config.
-    set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -Wl,-rpath,${LIBCXX_PREFIX}/lib")
+    # These are libc++/clang link flags. We add them with add_link_options
+    # guarded by $<LINK_LANGUAGE:CXX> rather than the global
+    # CMAKE_EXE_LINKER_FLAGS so that only CXX-linked targets see them. CUDA
+    # (.cu) executables are linked by g++-15 (the nvcc host compiler) and must
+    # stay on libstdc++; g++-15 also rejects -stdlib=libc++ / --rtlib=compiler-rt
+    # outright. The genex keeps these off that link line. -lc++experimental must
+    # precede -lc++ (it references libc++ symbols). The rpath lets binaries find
+    # the libc++/libunwind .so files at the chosen prefix without
+    # LD_LIBRARY_PATH: harmless for the system path, essential for
+    # SANITIZER=msan where LIBCXX_PREFIX is outside the ld.so config.
+    add_link_options(
+        "$<$<LINK_LANGUAGE:CXX>:-stdlib=libc++>"
+        "$<$<LINK_LANGUAGE:CXX>:--rtlib=compiler-rt>"
+        "$<$<LINK_LANGUAGE:CXX>:-fuse-ld=lld>"
+        "$<$<LINK_LANGUAGE:CXX>:-L${LIBCXX_PREFIX}/lib>"
+        "$<$<LINK_LANGUAGE:CXX>:-lc++experimental>"
+        "$<$<LINK_LANGUAGE:CXX>:-lc++>"
+        "$<$<LINK_LANGUAGE:CXX>:-lc++abi>"
+        "$<$<LINK_LANGUAGE:CXX>:-Wl,-rpath,${LIBCXX_PREFIX}/lib>")
 endif()
 
 # Use ccache as a compiler launcher when available so that cleanbuild's
@@ -392,10 +406,36 @@ if(USE_CLANG_TIDY)
     endif()
 endif()
 
+# CUDA (.cu) targets. cleanbuild.sh sets CORVID_ENABLE_CUDA=ON (and passes
+# CMAKE_CUDA_HOST_COMPILER + CMAKE_CUDA_ARCHITECTURES) whenever nvcc and g++-15
+# are present and the build is a plain one (no sanitizer/coverage/scan). nvcc
+# rejects gcc newer than 15, so it must use g++-15 as its host compiler. The
+# .cu targets are independent single-source executables linked against
+# libstdc++, so they coexist with whatever compiler/stdlib the .cpp suite uses;
+# the libc++ link flags above are CXX-only and never reach this link line.
+if(CORVID_ENABLE_CUDA)
+    enable_language(CUDA)
+    if(NOT CMAKE_CUDA_ARCHITECTURES)
+        # `native` resolves to the build host's GPU (sm_89 on an RTX 4090).
+        set(CMAKE_CUDA_ARCHITECTURES native)
+    endif()
+    # CMake 3.28 cannot map CUDA_STANDARD 23 (it rejects the dialect as
+    # unsupported by nvcc), though nvcc 13.3 accepts -std=c++23. Clear CMake's
+    # default standard flag and pass c++23 ourselves so the nvcc command line
+    # carries a single -std (no "incompatible redefinition for option 'std'"
+    # warning).
+    set(CMAKE_CUDA_STANDARD_DEFAULT "")
+    string(APPEND CMAKE_CUDA_FLAGS " -std=c++23 -O3")
+    message(STATUS
+        "CUDA enabled: ${CMAKE_CUDA_COMPILER} (host ${CMAKE_CUDA_HOST_COMPILER}, "
+        "arch ${CMAKE_CUDA_ARCHITECTURES})")
+endif()
+
 # Output directory
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/release_bin")
 
-# Source files (only in this directory)
+# Source files (only in this directory). .cpp builds the CXX suite below; .cu
+# is routed to the CUDA loop further down (built only when CORVID_ENABLE_CUDA).
 file(GLOB SOURCES "*.cpp")
 
 if(TEST_NAME)
@@ -404,7 +444,19 @@ if(TEST_NAME)
         message(FATAL_ERROR "Requested test source not found: ${TEST_NAME}")
     endif()
 
-    set(SOURCES "${FILTERED_SOURCE}")
+    # Route the single requested source to its language. A .cu filter leaves
+    # SOURCES empty (the CXX loop builds nothing) and hands the file to the
+    # CUDA loop; a .cpp filter does the reverse.
+    if(TEST_NAME MATCHES "\\.cu$")
+        if(NOT CORVID_ENABLE_CUDA)
+            message(FATAL_ERROR
+                "Requested .cu source '${TEST_NAME}' but CUDA is not enabled")
+        endif()
+        set(SOURCES "")
+        set(CUDA_TEST_NAME_SOURCE "${FILTERED_SOURCE}")
+    else()
+        set(SOURCES "${FILTERED_SOURCE}")
+    endif()
     message(STATUS "Building only test source: ${TEST_NAME}")
 endif()
 
@@ -449,6 +501,30 @@ foreach(SOURCE_FILE ${SOURCES})
         target_link_libraries(${EXECUTABLE_NAME} PRIVATE c++ c++abi)
     endif()
 endforeach()
+
+# CUDA (.cu) test executables. Same single-source-per-executable model as the
+# .cpp suite above, but compiled by nvcc (g++-15 host) and linked against
+# libstdc++ -- no Catch2 or QUIC/io_uring deps, just the CUDA runtime nvcc
+# links by default. notest_* opt out of CTest as usual. A .cu file reaches its
+# headers the same way .cpp tests do, with a relative include ("../cuda/..."),
+# so no include directories are needed here.
+if(CORVID_ENABLE_CUDA)
+    if(DEFINED CUDA_TEST_NAME_SOURCE)
+        set(CUDA_SOURCES "${CUDA_TEST_NAME_SOURCE}")
+    elseif(TEST_NAME)
+        set(CUDA_SOURCES "") # a .cpp single-file filter builds no .cu targets
+    else()
+        file(GLOB CUDA_SOURCES "*.cu")
+    endif()
+
+    foreach(SOURCE_FILE ${CUDA_SOURCES})
+        get_filename_component(EXECUTABLE_NAME ${SOURCE_FILE} NAME_WE)
+        add_executable(${EXECUTABLE_NAME} ${SOURCE_FILE})
+        if(NOT ${EXECUTABLE_NAME} MATCHES "^notest_")
+            add_test(NAME ${EXECUTABLE_NAME} COMMAND ${EXECUTABLE_NAME})
+        endif()
+    endforeach()
+endif()
 
 # Generate `.clangd` at the project root from `.clangd.in`. The dep paths
 # baked in (ngtcp2, openssl) are absolute and tied to this checkout, so the
