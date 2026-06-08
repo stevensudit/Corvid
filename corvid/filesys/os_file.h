@@ -471,27 +471,6 @@ public:
   [[nodiscard]] file_handle_t operator*() const noexcept { return handle_; }
 
 #pragma endregion
-#pragma region Formatting
-
-  // Render as `fd=<handle>` for an open file, or `fd=closed`. As a
-  // `self_rendering_formatter` target, it applies the spec's width, fill, and
-  // align, plus precision (truncating the rendered text), itself, since it
-  // knows its own length. Any dynamic width/precision arrives already
-  // resolved.
-  template<corvid::CharType CharT, typename OutIt>
-  OutIt
-  format_to_spec(const corvid::parsed_spec<CharT>& spec, OutIt out) const {
-    std::string content{"fd="};
-    if (is_open())
-      strings::append_num(content, handle_);
-    else
-      content += "closed";
-    std::string_view view{content};
-    if (const auto prec = spec.precision) view = view.substr(0, *prec);
-    return spec.write_padded(out, view, spec.width);
-  }
-
-#pragma endregion
 #pragma region Close and release
 
   // Close the file. Idempotent. Returns true when the file was open and is
@@ -656,10 +635,15 @@ private:
 
 #pragma region formatter
 
-// Format an `os_file` by self-rendering as `fd=<handle>` (or `fd=closed`),
-// applying the spec's width/fill/align and precision via `format_to_spec`.
+// Format an `os_file` as its handle, or `(closed)` when it holds no open file.
+// As a `nullable_formatter`, an open file forwards its handle to the `int`
+// formatter (so it takes the full integer spec grammar) while a closed one
+// renders the sentinel, padded to width.
 template<corvid::CharType CharT>
 struct std::formatter<corvid::filesys::os_file, CharT>
-    : corvid::self_rendering_formatter<CharT> {};
+    : corvid::nullable_formatter<int, CharT> {
+  constexpr formatter() noexcept
+      : corvid::nullable_formatter<int, CharT>{"(closed)"} {}
+};
 
 #pragma endregion

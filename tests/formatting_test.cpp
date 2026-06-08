@@ -79,7 +79,7 @@ struct greeter {
 };
 
 // A `self_rendering_formatter` target that applies the spec itself through a
-// `format_to_spec` member (the path `os_file` uses).
+// `format_to_spec` member.
 struct dashes {
   template<CharType CharT, typename OutIt>
   OutIt format_to_spec(const parsed_spec<CharT>& spec, OutIt out) const {
