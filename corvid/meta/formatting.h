@@ -539,24 +539,46 @@ struct self_rendering_formatter {
 
   template<typename T, typename FormatContext>
   auto format(const T& obj, FormatContext& ctx) const {
+    auto width =
+        spec_.width_arg.is_dynamic()
+            ? spec_.width_arg.get_dynamic(ctx)
+            : spec_.width;
+    const auto prec =
+        spec_.precision_arg.is_dynamic()
+            ? spec_.precision_arg.get_dynamic(ctx)
+            : spec_.precision;
     if constexpr (requires { obj.format_to_spec(spec_, ctx.out()); }) {
-      // Pass copy with dynamic width/precision resolved to concrete values.
+      // Use `format_to_spec` for maximum flexibility.
       parsed_spec<CharT> resolved = spec_;
-      if (spec_.width_arg.is_dynamic())
-        resolved.width = spec_.width_arg.get_dynamic(ctx);
-      if (spec_.precision_arg.is_dynamic())
-        resolved.precision = spec_.precision_arg.get_dynamic(ctx);
+      resolved.width = width;
+      resolved.precision = prec;
 
       return obj.format_to_spec(resolved, ctx.out());
     } else {
-      // No spec handling: stream the rendering, honoring the `?` debug spec
-      // when the type offers a `debug_format_to`.
-      if (spec_.debug) {
-        if constexpr (requires { obj.debug_format_to(ctx.out()); })
-          return obj.debug_format_to(ctx.out());
+      // Use a buffer to apply width and precision, if needed.
+      if (width || prec) {
+        std::basic_string<CharT> buffer;
+        format_to_it(obj, std::back_inserter(buffer));
+
+        std::basic_string_view<CharT> content = buffer;
+        if (prec) content = content.substr(0, *prec);
+        return spec_.write_padded(ctx.out(), content, width);
       }
-      return obj.format_to(ctx.out());
+
+      // No padding needed, so call directly.
+      return format_to_it(obj, ctx.out());
     }
+  }
+
+#pragma endregion
+#pragma region Helpers
+
+  auto format_to_it(const auto& obj, auto& it) {
+    if (spec_.debug) {
+      if constexpr (requires { obj.debug_format_to(it); })
+        return obj.debug_format_to(it);
+    }
+    return obj.format_to(it);
   }
 
 #pragma endregion
