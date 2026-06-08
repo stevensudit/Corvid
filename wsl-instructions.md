@@ -31,4 +31,4 @@ sudo update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-16 100 \
 --slave /usr/bin/g++ g++ /usr/bin/g++-16
 ```
 9. In the repo, run `code .`, which brings up VSCode remotely.
-10. Run `./cleanbuild.sh tidy` to build the tests with clang-tidy enabled. You can specify `libstdcpp` or `libcxx` as the first argument to choose the standard library.
+10. Run `./cleanbuild.sh tidy` to build the tests with clang-tidy enabled. See usage for how to select compiler and standard library.
