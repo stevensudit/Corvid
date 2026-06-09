@@ -34,13 +34,12 @@ int main() {
   const size_t bytes = (size_t)N * sizeof(float);
   const float a = 2.0F;
 
+  std::vector<float> host_x(N, 1.0F);
+  std::vector<float> host_y(N, 2.0F);
+
   // --- Host memory ---
-  auto h_x = (float*)malloc(bytes);
-  auto h_y = (float*)malloc(bytes);
-  for (int i = 0; i < N; ++i) {
-    h_x[i] = 1.0F;
-    h_y[i] = 2.0F;
-  }
+  auto h_x = host_x.data();
+  auto h_y = host_y.data();
 
   // --- Device memory ---
   float* d_x;
@@ -93,7 +92,6 @@ int main() {
 
   cudaFree(d_x);
   cudaFree(d_y);
-  free(h_x);
-  free(h_y);
+
   return 0;
 }
