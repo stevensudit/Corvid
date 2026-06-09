@@ -21,10 +21,12 @@
 
 #include <cuda_runtime.h>
 
+#include "../enums/bool_enums.h"
 #include "../enums/sequence_enum.h"
 #include "../enums/enum_conversion.h"
 
 namespace corvid::cuda {
+using corvid::enums::bool_enums::read_mode;
 
 enum class cuda_status : std::uint16_t {
   success = cudaSuccess,                                               // 0
@@ -221,10 +223,21 @@ consteval auto corvid_enum_spec(cuda_status*) {
       "graph_recapture_failure|999,unknown|10000,api_failure_base">();
 }
 
-// Wrapper around the last CUDA status.
+// CUDA status wrapper.
+//
+// Contains the last CUDA error status, which could be the return value of an
+// API call, or the last error produced by any runtime call in the same host
+// thread.
+//
+// When retrieving the thread-wide error status, it consumes it (unless
+// `read_mode::peek` is used). However, execution errors are sticky: they
+// corrupt the context, causing all subsequent CUDA calls to fail. Consuming
+// these doesn't clear the condition, and every API call on the context will
+// return the error. Synchronous launch errors are non-sticky.
 class cuda_last_status {
 public:
-  cuda_last_status() : cuda_last_status{cudaGetLastError()} {}
+  cuda_last_status() : cuda_last_status{read_mode::consume} {}
+  explicit cuda_last_status(read_mode mode) : cuda_last_status{read(mode)} {}
   explicit cuda_last_status(cudaError_t err)
       : value_{static_cast<cuda_status>(err)} {}
 
@@ -247,6 +260,12 @@ public:
 
 private:
   cuda_status value_;
+
+  [[nodiscard]] static cudaError_t read(read_mode mode) {
+    return mode == read_mode::peek
+               ? cudaPeekAtLastError()
+               : cudaGetLastError();
+  }
 
   [[nodiscard]] static cudaError_t as_raw(cuda_status status) {
     return static_cast<cudaError_t>(status);

@@ -13,9 +13,23 @@
 
 namespace {
 
-// The kernel function is the body of one thread, which the runtime will
-// execute on the device in parallel. `__global__` identifies a kernel function
-// that can be launched from the host.
+// This is a global function, which CUDA refers to as a kernel, for reasons.
+// It's invoked with `gridDim`, `blockDim`, `sharedMem`, and `stream`.
+//
+// A thread is one execution of the kernel body.
+
+// A (thread) block is a group of threads that can synchronize with each other
+// (via `__syncthreads`) and share memory.
+//
+// A grid is a group of blocks.
+//
+// The `blockDim` and  `gridDim` are `dim3`, meaning they're up to 3D, so a
+// bare `1` maps to `(1,1,1)`.
+//
+// `sharedMem` is the amount of shared memory to allocate for the block.
+//
+// `stream` is the stream to launch the kernel on; `0` means the default
+// stream, which is sequential and synchronous with the host.
 __global__ void saxpy_kernel(float a, float x, float y, float* out) {
   *out = corvid::cuda::saxpy(a, x, y);
 }
@@ -28,9 +42,16 @@ TEST_CASE("cuda saxpy kernel runs on the device", "[cuda]") {
   float h_out = 0.0F;
   if (cuda_ptr<float> d_out; true) {
     REQUIRE(d_out.ok());
+    // Runs a single grid of a single block of a single thread.
     saxpy_kernel<<<1, 1>>>(2.0F, 3.0F, 4.0F, d_out.device_ptr());
+    // Because we're on the default stream, the copy from device to host
+    // blocks.
     REQUIRE(d_out.store(h_out));
   }
+  // We have to check here, not when we invoke the kernel, because CUDA kernel
+  // launches are asynchronous and return before the kernel has actually
+  // executed. The error is recorded and
+  // can be checked explicity.
   REQUIRE(cuda_last_status{}.ok());
 
   // 2*3 + 4 == 10, exactly representable in float.
