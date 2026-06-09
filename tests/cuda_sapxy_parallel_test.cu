@@ -9,16 +9,14 @@
 #include "../corvid/cuda/cuda_ptr.cuh"
 #include "../corvid/cuda/cuda_status.cuh"
 
+using namespace corvid::cuda;
+
 // Wrap every CUDA call in this. CUDA fails silently otherwise — a kernel can
 // "run" and quietly do nothing. Cheap insurance you should never omit.
 #define CUDA_CHECK(call)                                                      \
   do {                                                                        \
-    cudaError_t err = (call);                                                 \
-    if (err != cudaSuccess) {                                                 \
-      fprintf(stderr, "CUDA error %s:%d: %s\n", __FILE__, __LINE__,           \
-          cudaGetErrorString(err));                                           \
-      exit(EXIT_FAILURE);                                                     \
-    }                                                                         \
+    cuda_last_status status = (call);                                         \
+    status.throw_if_error();                                                  \
   } while (0)
 
 // THE KERNEL. This is the body of ONE thread. The runtime will run N of these.
@@ -34,18 +32,19 @@ __global__ void saxpy(int n, float a, const float* x, float* y) {
 int main() {
   const int N = 1 << 26; // ~67M elements (~268 MB per array)
   const size_t bytes = (size_t)N * sizeof(float);
-  const float a = 2.0f;
+  const float a = 2.0F;
 
   // --- Host memory ---
-  float* h_x = (float*)malloc(bytes);
-  float* h_y = (float*)malloc(bytes);
+  auto h_x = (float*)malloc(bytes);
+  auto h_y = (float*)malloc(bytes);
   for (int i = 0; i < N; ++i) {
-    h_x[i] = 1.0f;
-    h_y[i] = 2.0f;
+    h_x[i] = 1.0F;
+    h_y[i] = 2.0F;
   }
 
   // --- Device memory ---
-  float *d_x, *d_y;
+  float* d_x;
+  float* d_y;
   CUDA_CHECK(cudaMalloc(&d_x, bytes));
   CUDA_CHECK(cudaMalloc(&d_y, bytes));
 
@@ -64,7 +63,8 @@ int main() {
 
   // --- Time the kernel with CUDA events (kernel launches are async; you
   //     cannot trust wall-clock timers around them without synchronizing) ---
-  cudaEvent_t start, stop;
+  cudaEvent_t start;
+  cudaEvent_t stop;
   CUDA_CHECK(cudaEventCreate(&start));
   CUDA_CHECK(cudaEventCreate(&stop));
 
@@ -74,13 +74,13 @@ int main() {
   CUDA_CHECK(cudaEventSynchronize(stop));
   CUDA_CHECK(cudaGetLastError()); // catch launch errors (bad config, etc.)
 
-  float ms = 0.0f;
+  float ms = 0.0F;
   CUDA_CHECK(cudaEventElapsedTime(&ms, start, stop));
 
   // --- Verify correctness against the known CPU answer (2*1 + 2 == 4) ---
   CUDA_CHECK(cudaMemcpy(h_y, d_y, bytes, cudaMemcpyDeviceToHost));
-  float maxErr = 0.0f;
-  for (int i = 0; i < N; ++i) maxErr = fmaxf(maxErr, fabsf(h_y[i] - 4.0f));
+  float maxErr = 0.0F;
+  for (int i = 0; i < N; ++i) maxErr = fmaxf(maxErr, fabsf(h_y[i] - 4.0F));
 
   // --- The whole point: effective bandwidth ---
   // SAXPY touches 3 arrays' worth of memory per run: read x, read y, write y.

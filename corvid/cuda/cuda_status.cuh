@@ -238,8 +238,7 @@ class cuda_last_status {
 public:
   cuda_last_status() : cuda_last_status{read_mode::consume} {}
   explicit cuda_last_status(read_mode mode) : cuda_last_status{read(mode)} {}
-  explicit cuda_last_status(cudaError_t err)
-      : value_{static_cast<cuda_status>(err)} {}
+  cuda_last_status(cudaError_t err) : value_{static_cast<cuda_status>(err)} {}
 
   [[nodiscard]] cuda_status value() const { return value_; }
 
