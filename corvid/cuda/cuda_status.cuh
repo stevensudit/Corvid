@@ -21,6 +21,7 @@
 #include <cuda_runtime.h>
 
 #include "../enums/sequence_enum.h"
+#include "../enums/enum_conversion.h"
 
 namespace corvid::cuda {
 
@@ -218,5 +219,17 @@ consteval auto corvid_enum_spec(cuda_status*) {
       "invalid_resource_type,invalid_resource_configuration,,stream_detached,"
       "graph_recapture_failure|999,unknown|10000,api_failure_base">();
 }
+
+struct cuda_last_status {
+  cuda_last_status(cudaError_t err) : value{static_cast<cuda_status>(err)} {}
+
+  void throw_if_error() const {
+    if (value != cuda_status::success) {
+      throw std::runtime_error{enum_as_string(value)};
+    }
+  }
+
+  cuda_status value;
+};
 
 } // namespace corvid::cuda

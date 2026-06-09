@@ -131,6 +131,7 @@ private:
   template<corvid::CharType RenderCharT, typename OutIt>
   OutIt render(E e, OutIt out) const {
     using namespace corvid::strings;
+    using namespace corvid::enums; // append_enum now lives here
     if (!spec_.debug) {
       output_iterator_appendable<OutIt, char, RenderCharT> target{out};
       append_enum(target, e);

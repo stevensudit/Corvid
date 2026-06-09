@@ -611,20 +611,18 @@ struct http_options {
   // Enum fields set to `unknown` are not written. Call before serializing.
   void apply(http_headers& headers) const {
     if (connection)
-      (void)headers.reset_raw("Connection",
-          strings::enum_as_string(*connection));
+      (void)headers.reset_raw("Connection", enum_as_string(*connection));
     if (content_length)
       (void)headers.reset_raw("Content-Length",
           std::to_string(*content_length));
     if (content_type && *content_type != content_type_value::unknown)
-      (void)headers.reset_raw("Content-Type",
-          strings::enum_as_string(*content_type));
+      (void)headers.reset_raw("Content-Type", enum_as_string(*content_type));
     if (transfer_encoding &&
         *transfer_encoding != transfer_encoding_value::unknown)
       (void)headers.reset_raw("Transfer-Encoding",
-          strings::enum_as_string(*transfer_encoding));
+          enum_as_string(*transfer_encoding));
     if (upgrade && *upgrade != upgrade_value::unknown)
-      (void)headers.reset_raw("Upgrade", strings::enum_as_string(*upgrade));
+      (void)headers.reset_raw("Upgrade", enum_as_string(*upgrade));
   }
 
   // Return the resolved connection disposition, applying the HTTP version
@@ -652,7 +650,7 @@ private:
         t = strings::trim(token);
         strings::to_lower(t);
         after_response ar{};
-        if (strings::convert_text_enum(ar, t)) {
+        if (convert_text_enum(ar, t)) {
           if (ar == after_response::close)
             has_close = true;
           else if (ar == after_response::keep_alive)
@@ -683,7 +681,7 @@ private:
     const auto media_type = strings::trim(strings::split(*sv, ";").front());
     content_type_value ct{};
     content_type =
-        strings::convert_text_enum(ct, strings::as_lower(media_type))
+        convert_text_enum(ct, strings::as_lower(media_type))
             ? ct
             : content_type_value::unknown;
   }
@@ -706,8 +704,7 @@ private:
     if (t.empty()) return;
     strings::to_lower(t);
     transfer_encoding_value te{};
-    if (strings::convert_text_enum(te, t) &&
-        te == transfer_encoding_value::chunked)
+    if (convert_text_enum(te, t) && te == transfer_encoding_value::chunked)
       transfer_encoding = te;
   }
 
@@ -720,7 +717,7 @@ private:
         t = v;
         strings::to_lower(t);
         upgrade_value up{};
-        (void)strings::convert_text_enum(up, t);
+        (void)convert_text_enum(up, t);
         if (up == upgrade_value::websocket || !upgrade) upgrade = up;
       }
     }
@@ -803,7 +800,7 @@ struct request_head: head_base {
     auto method_sv = space_parser.next_delimited(request_line);
     if (method_sv.empty()) return fail("No SP after method");
 
-    if (!strings::convert_text_enum(method, method_sv) ||
+    if (!convert_text_enum(method, method_sv) ||
         method == http_method::invalid)
       return fail("Invalid HTTP method");
 
@@ -814,7 +811,7 @@ struct request_head: head_base {
     auto version_sv = request_line;
     if (version_sv.empty())
       version = http_version::http_0_9;
-    else if (!strings::convert_text_enum(version, version_sv) ||
+    else if (!convert_text_enum(version, version_sv) ||
              version == http_version::invalid)
       return fail("Invalid HTTP version");
 
@@ -843,13 +840,13 @@ struct request_head: head_base {
     std::string result;
     if (version == http_version::invalid) return result;
     options.apply(headers);
-    result += strings::enum_as_string(method);
+    result += enum_as_string(method);
     result += ' ';
     result += target;
 
     if (version != http_version::http_0_9) {
       result += ' ';
-      result += strings::enum_as_string(version);
+      result += enum_as_string(version);
     }
 
     result += "\r\n";
@@ -905,7 +902,7 @@ struct response_head: head_base {
 
     strings::token_parser space_parser{" "sv};
     auto version_sv = space_parser.next_delimited(status_line);
-    if (!strings::convert_text_enum(version, version_sv) ||
+    if (!convert_text_enum(version, version_sv) ||
         version == http_version::invalid)
       return fail("Invalid HTTP version");
 
@@ -915,8 +912,8 @@ struct response_head: head_base {
     if (!status_code_sv_opt) return fail("Status code not terminated by SP");
     auto status_code_sv = *status_code_sv_opt;
 
-    if (!strings::convert_enum(status_code, status_code_sv) ||
-        *status_code < 100 || *status_code > 999)
+    if (!convert_enum(status_code, status_code_sv) || *status_code < 100 ||
+        *status_code > 999)
       return fail("Invalid status code");
 
     reason = std::string{status_line};
@@ -938,7 +935,7 @@ struct response_head: head_base {
     if (version == http_version::invalid) return result;
     options.apply(headers);
 
-    result += strings::enum_as_string(version);
+    result += enum_as_string(version);
     result += ' ';
     result += std::to_string(static_cast<int>(status_code));
     result += ' ';

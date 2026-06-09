@@ -43,7 +43,7 @@ enum class new_enum : std::uint8_t { new_zero, new_one, new_two, new_three };
 #pragma region Registry
 
 TEST_CASE("Registry", "[SequentialEnumTest]") {
-  if (true) { CHECK(strings::enum_as_string(tiger_pick::eeny) == "eeny"); }
+  if (true) { CHECK(enum_as_string(tiger_pick::eeny) == "eeny"); }
 }
 
 #pragma endregion

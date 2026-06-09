@@ -129,7 +129,7 @@ bool curl(int argc, char** argv) {
   const std::vector<uint8_t> body(body_str.begin(), body_str.end());
   const http3_method method =
       body.empty() ? http3_method::GET : http3_method::POST;
-  std::cout << strings::enum_as_string(method) << " https://" << host << path
+  std::cout << enum_as_string(method) << " https://" << host << path
             << " over HTTP/3";
   if (!body.empty()) std::cout << " (" << body.size() << "-byte body)";
   std::cout << "\n";
