@@ -16,7 +16,7 @@ using namespace corvid::cuda;
 #define CUDA_CHECK(call)                                                      \
   do {                                                                        \
     cuda_last_status status = (call);                                         \
-    status.throw_if_error();                                                  \
+    *status;                                                                  \
   } while (0)
 
 // THE KERNEL. This is the body of ONE thread. The runtime will run N of these.
@@ -25,7 +25,7 @@ __global__ void saxpy(int n, float a, const float* x, float* y) {
   // Where am I in the global array? This is THE canonical CUDA idiom.
   int i = blockIdx.x * blockDim.x + threadIdx.x;
   if (i < n) { // N rarely divides evenly by block size; guard it.
-    y[i] = a * x[i] + y[i];
+    y[i] = (a * x[i]) + y[i];
   }
 }
 
@@ -37,19 +37,13 @@ int main() {
   std::vector<float> host_x(N, 1.0F);
   std::vector<float> host_y(N, 2.0F);
 
-  // --- Host memory ---
-  auto h_x = host_x.data();
-  auto h_y = host_y.data();
-
   // --- Device memory ---
-  float* d_x;
-  float* d_y;
-  CUDA_CHECK(cudaMalloc(&d_x, bytes));
-  CUDA_CHECK(cudaMalloc(&d_y, bytes));
+  cuda_ptr<float> device_x(N);
+  cuda_ptr<float> device_y(N);
 
   // --- Host -> Device copy (over PCIe; deliberately NOT timed below) ---
-  CUDA_CHECK(cudaMemcpy(d_x, h_x, bytes, cudaMemcpyHostToDevice));
-  CUDA_CHECK(cudaMemcpy(d_y, h_y, bytes, cudaMemcpyHostToDevice));
+  *device_x.load(host_x);
+  *device_y.load(host_y);
 
   // --- Launch configuration ---
   const int threadsPerBlock = 256; // multiple of 32 (warp size); good default
@@ -57,7 +51,9 @@ int main() {
 
   // Warm-up launch: the FIRST launch pays one-time context/JIT setup.
   // Timing that instead of the kernel is a classic beginner mistake.
-  saxpy<<<blocks, threadsPerBlock>>>(N, a, d_x, d_y);
+  saxpy<<<blocks, threadsPerBlock>>>(N, a, device_x, device_y);
+
+  // TODO: Not sure how to wrap this.
   CUDA_CHECK(cudaDeviceSynchronize());
 
   // --- Time the kernel with CUDA events (kernel launches are async; you
@@ -68,18 +64,19 @@ int main() {
   CUDA_CHECK(cudaEventCreate(&stop));
 
   CUDA_CHECK(cudaEventRecord(start));
-  saxpy<<<blocks, threadsPerBlock>>>(N, a, d_x, d_y);
+  saxpy<<<blocks, threadsPerBlock>>>(N, a, device_x, device_y);
   CUDA_CHECK(cudaEventRecord(stop));
   CUDA_CHECK(cudaEventSynchronize(stop));
-  CUDA_CHECK(cudaGetLastError()); // catch launch errors (bad config, etc.)
+  *cuda_last_status{}; // check for launch errors
 
   float ms = 0.0F;
   CUDA_CHECK(cudaEventElapsedTime(&ms, start, stop));
 
   // --- Verify correctness against the known CPU answer (2*1 + 2 == 4) ---
-  CUDA_CHECK(cudaMemcpy(h_y, d_y, bytes, cudaMemcpyDeviceToHost));
+  *device_y.store(host_y);
+
   float maxErr = 0.0F;
-  for (int i = 0; i < N; ++i) maxErr = fmaxf(maxErr, fabsf(h_y[i] - 4.0F));
+  for (int i = 0; i < N; ++i) maxErr = fmaxf(maxErr, fabsf(host_y[i] - 4.0F));
 
   // --- The whole point: effective bandwidth ---
   // SAXPY touches 3 arrays' worth of memory per run: read x, read y, write y.
@@ -89,9 +86,6 @@ int main() {
   printf("max error          : %f\n", maxErr);
   printf("kernel time        : %.3f ms\n", ms);
   printf("effective bandwidth: %.1f GB/s\n", bandwidth);
-
-  cudaFree(d_x);
-  cudaFree(d_y);
 
   return 0;
 }

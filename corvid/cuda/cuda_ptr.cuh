@@ -126,6 +126,9 @@ public:
     assert(count <= count_ && "store array size exceeds allocated count");
     return details::cuda_copy(host_ptr, ptr_, count, cudaMemcpyDeviceToHost);
   }
+  [[nodiscard]] cuda_last_status store(std::span<T> host_span) {
+    return store(host_span.data(), host_span.size());
+  }
   // Store a single object into `host_ref`.
   [[nodiscard]] cuda_last_status store(T& host_ref) const {
     return store(&host_ref, 1);
@@ -143,6 +146,9 @@ public:
     assert(count <= count_ && "load array size exceeds allocated count");
     return details::cuda_copy(ptr_, host_ptr, count, cudaMemcpyHostToDevice);
   }
+  [[nodiscard]] cuda_last_status load(std::span<const T> host_span) {
+    return load(host_span.data(), host_span.size());
+  }
   // Load a single object from `host_ref`.
   [[nodiscard]] cuda_last_status load(const T& host_ref) {
     return load(&host_ref, 1);
@@ -159,7 +165,8 @@ public:
 #pragma region Accessors
 
   // Return address of device pointer; cannot be dereferenced on the host.
-  [[nodiscard]] T* device_ptr() const { return ptr_; }
+  [[nodiscard]] T* device_ptr() const noexcept { return ptr_; }
+  [[nodiscard]] operator T*() const noexcept { return ptr_; }
 
 #pragma endregion Accessors
 #pragma region Data members

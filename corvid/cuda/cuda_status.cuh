@@ -252,9 +252,15 @@ public:
     return cudaGetErrorString(as_raw(value_));
   }
 
-  void throw_if_error() const {
+  // NOLINTNEXTLINE(modernize-use-nodiscard)
+  bool or_throw() const {
     if (value_ != cuda_status::success)
       throw std::runtime_error{cudaGetErrorString(as_raw(value_))};
+    return true;
+  }
+  bool operator*() const {
+    or_throw();
+    return true;
   }
 
 private:
