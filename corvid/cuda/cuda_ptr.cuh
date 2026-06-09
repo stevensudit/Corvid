@@ -27,8 +27,6 @@
 
 #include "./cuda_status.cuh"
 
-namespace corvid::cuda {
-
 // CUDA memory management.
 //
 // CUDA allows you to allocate and free device memory, giving you a pointer
@@ -37,6 +35,8 @@ namespace corvid::cuda {
 //
 // This is wrapped as `cuda_ptr<T>`, which is the moral equivalent to
 // `std::unique_ptr`, providing RAII and
+
+namespace corvid::cuda {
 
 #pragma region details
 
@@ -167,6 +167,9 @@ public:
   // Return address of device pointer; cannot be dereferenced on the host.
   [[nodiscard]] T* device_ptr() const noexcept { return ptr_; }
   [[nodiscard]] operator T*() const noexcept { return ptr_; }
+  void operator*() const {
+    if (!ptr_) throw std::runtime_error{"dereferencing null cuda_ptr"};
+  }
 
 #pragma endregion Accessors
 #pragma region Data members

@@ -25,9 +25,17 @@
 #include "../enums/sequence_enum.h"
 #include "../enums/enum_conversion.h"
 
+// CUDA status.
+//
+// Wraps CUDA error codes, whether returned by API calls or recorded by the
+// runtime for asynchronous errors.
+
 namespace corvid::cuda {
 using corvid::enums::bool_enums::read_mode;
 
+#pragma region cuda_status
+
+// Enum to wrap `cudaError`.
 enum class cuda_status : std::uint16_t {
   success = cudaSuccess,                                               // 0
   invalid_value = cudaErrorInvalidValue,                               // 1
@@ -223,6 +231,9 @@ consteval auto corvid_enum_spec(cuda_status*) {
       "graph_recapture_failure|999,unknown|10000,api_failure_base">();
 }
 
+#pragma endregion cuda_status
+#pragma region cuda_last_status
+
 // CUDA status wrapper.
 //
 // Contains the last CUDA error status, which could be the return value of an
@@ -236,9 +247,14 @@ consteval auto corvid_enum_spec(cuda_status*) {
 // return the error. Synchronous launch errors are non-sticky.
 class cuda_last_status {
 public:
+#pragma region Construction
+
   cuda_last_status() : cuda_last_status{read_mode::consume} {}
   explicit cuda_last_status(read_mode mode) : cuda_last_status{read(mode)} {}
   cuda_last_status(cudaError_t err) : value_{static_cast<cuda_status>(err)} {}
+
+#pragma endregion Construction
+#pragma region Status
 
   [[nodiscard]] cuda_status value() const { return value_; }
 
@@ -247,6 +263,9 @@ public:
   }
   [[nodiscard]] explicit operator bool() const noexcept { return ok(); }
   [[nodiscard]] bool operator!() const noexcept { return !ok(); }
+
+#pragma endregion Status
+#pragma region Errors
 
   [[nodiscard]] const char* message() const {
     return cudaGetErrorString(as_raw(value_));
@@ -263,8 +282,8 @@ public:
     return true;
   }
 
-private:
-  cuda_status value_;
+#pragma endregion Errors
+#pragma region Helpers
 
   [[nodiscard]] static cudaError_t read(read_mode mode) {
     return mode == read_mode::peek
@@ -275,6 +294,15 @@ private:
   [[nodiscard]] static cudaError_t as_raw(cuda_status status) {
     return static_cast<cudaError_t>(status);
   }
+
+#pragma endregion Helpers
+#pragma region Data members
+private:
+  cuda_status value_;
+
+#pragma endregion Data members
 };
+
+#pragma endregion cuda_last_status
 
 } // namespace corvid::cuda

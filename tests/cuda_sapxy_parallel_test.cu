@@ -8,6 +8,7 @@
 
 #include "../corvid/cuda/cuda_ptr.cuh"
 #include "../corvid/cuda/cuda_status.cuh"
+#include "../corvid/cuda/cuda_event.cuh"
 
 using namespace corvid::cuda;
 
@@ -23,7 +24,7 @@ using namespace corvid::cuda;
 // __global__ = "callable from host, runs on device."
 __global__ void saxpy(int n, float a, const float* x, float* y) {
   // Where am I in the global array? This is THE canonical CUDA idiom.
-  int i = blockIdx.x * blockDim.x + threadIdx.x;
+  int i = (blockIdx.x * blockDim.x) + threadIdx.x;
   if (i < n) { // N rarely divides evenly by block size; guard it.
     y[i] = (a * x[i]) + y[i];
   }
@@ -40,6 +41,8 @@ int main() {
   // --- Device memory ---
   cuda_ptr<float> device_x(N);
   cuda_ptr<float> device_y(N);
+  *device_x;
+  *device_y;
 
   // --- Host -> Device copy (over PCIe; deliberately NOT timed below) ---
   *device_x.load(host_x);
@@ -53,24 +56,13 @@ int main() {
   // Timing that instead of the kernel is a classic beginner mistake.
   saxpy<<<blocks, threadsPerBlock>>>(N, a, device_x, device_y);
 
-  // TODO: Not sure how to wrap this.
-  CUDA_CHECK(cudaDeviceSynchronize());
+  *cuda_timer::synchronize(); // wait for the warm-up to finish
 
-  // --- Time the kernel with CUDA events (kernel launches are async; you
-  //     cannot trust wall-clock timers around them without synchronizing) ---
-  cudaEvent_t start;
-  cudaEvent_t stop;
-  CUDA_CHECK(cudaEventCreate(&start));
-  CUDA_CHECK(cudaEventCreate(&stop));
-
-  CUDA_CHECK(cudaEventRecord(start));
-  saxpy<<<blocks, threadsPerBlock>>>(N, a, device_x, device_y);
-  CUDA_CHECK(cudaEventRecord(stop));
-  CUDA_CHECK(cudaEventSynchronize(stop));
-  *cuda_last_status{}; // check for launch errors
-
-  float ms = 0.0F;
-  CUDA_CHECK(cudaEventElapsedTime(&ms, start, stop));
+  float ms;
+  if (auto timer = cuda_timer{ms}; true) {
+    saxpy<<<blocks, threadsPerBlock>>>(N, a, device_x, device_y);
+    *cuda_last_status{}; // check for launch errors
+  }
 
   // --- Verify correctness against the known CPU answer (2*1 + 2 == 4) ---
   *device_y.store(host_y);
