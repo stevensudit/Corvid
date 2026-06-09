@@ -17,6 +17,7 @@
 #pragma once
 
 #include <cstdint>
+#include <stdexcept>
 
 #include <cuda_runtime.h>
 
@@ -220,16 +221,36 @@ consteval auto corvid_enum_spec(cuda_status*) {
       "graph_recapture_failure|999,unknown|10000,api_failure_base">();
 }
 
-struct cuda_last_status {
-  cuda_last_status(cudaError_t err) : value{static_cast<cuda_status>(err)} {}
+// Wrapper around the last CUDA status.
+class cuda_last_status {
+public:
+  cuda_last_status() : cuda_last_status{cudaGetLastError()} {}
+  explicit cuda_last_status(cudaError_t err)
+      : value_{static_cast<cuda_status>(err)} {}
 
-  void throw_if_error() const {
-    if (value != cuda_status::success) {
-      throw std::runtime_error{enum_as_string(value)};
-    }
+  [[nodiscard]] cuda_status value() const { return value_; }
+
+  [[nodiscard]] bool ok() const noexcept {
+    return value_ == cuda_status::success;
+  }
+  [[nodiscard]] explicit operator bool() const noexcept { return ok(); }
+  [[nodiscard]] bool operator!() const noexcept { return !ok(); }
+
+  [[nodiscard]] const char* message() const {
+    return cudaGetErrorString(as_raw(value_));
   }
 
-  cuda_status value;
+  void throw_if_error() const {
+    if (value_ != cuda_status::success)
+      throw std::runtime_error{cudaGetErrorString(as_raw(value_))};
+  }
+
+private:
+  cuda_status value_;
+
+  [[nodiscard]] static cudaError_t as_raw(cuda_status status) {
+    return static_cast<cudaError_t>(status);
+  }
 };
 
 } // namespace corvid::cuda
