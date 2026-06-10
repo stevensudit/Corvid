@@ -36,6 +36,8 @@ using namespace corvid::cuda;
 //        int, per-device.
 __global__ void sapxy(int n, float a, const float* x, float* y) {
   // Where am I in the global array? This is THE canonical CUDA idiom.
+  // Flatten the thread inside the block and the block inside the grid into a
+  // linear index.
   // Note: This cast is only honest so long as the index fits in 32 bits.
   const auto i = static_cast<int>((blockIdx.x * blockDim.x) + threadIdx.x);
   if (i < n) { // N rarely divides evenly by block size; guard it.

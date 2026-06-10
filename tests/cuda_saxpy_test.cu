@@ -23,8 +23,8 @@ namespace {
 //
 // A grid is a group of blocks.
 //
-// The `blockDim` and  `gridDim` are `dim3`, meaning they're up to 3D, so a
-// bare `1` maps to `(1,1,1)`.
+// The `blockDim` and `gridDim` are `dim3`, meaning they're up to 3D, so a bare
+// `1` maps to `(1,1,1)`.
 //
 // `sharedMem` is the amount of shared memory to allocate for the block.
 //
