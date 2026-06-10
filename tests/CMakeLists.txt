@@ -521,6 +521,10 @@ if(CORVID_ENABLE_CUDA)
     endif()
 
     if(CUDA_SOURCES)
+        # cuBLAS ships with the CUDA toolkit; FindCUDAToolkit exposes it as the
+        # CUDA::cublas imported target (include dirs + link). A .cu target opts
+        # in below by referencing cublas in its source.
+        find_package(CUDAToolkit REQUIRED)
         find_path(CUDA_CATCH2_INCLUDE_DIR catch2/catch_test_macros.hpp)
         find_library(CUDA_CATCH2_LIBRARY NAMES Catch2)
         if(NOT CUDA_CATCH2_INCLUDE_DIR OR NOT CUDA_CATCH2_LIBRARY)
@@ -539,6 +543,11 @@ if(CORVID_ENABLE_CUDA)
     foreach(SOURCE_FILE ${CUDA_SOURCES})
         get_filename_component(EXECUTABLE_NAME ${SOURCE_FILE} NAME_WE)
         add_executable(${EXECUTABLE_NAME} ${SOURCE_FILE})
+        # Auto-link cuBLAS for sources that use it, matching `nvcc ... -lcublas`.
+        file(STRINGS ${SOURCE_FILE} CUDA_USES_CUBLAS REGEX "cublas")
+        if(CUDA_USES_CUBLAS)
+            target_link_libraries(${EXECUTABLE_NAME} PRIVATE CUDA::cublas)
+        endif()
         if(NOT ${EXECUTABLE_NAME} MATCHES "^notest_")
             target_link_libraries(${EXECUTABLE_NAME} PRIVATE cuda_catch2)
             add_test(NAME ${EXECUTABLE_NAME} COMMAND ${EXECUTABLE_NAME})

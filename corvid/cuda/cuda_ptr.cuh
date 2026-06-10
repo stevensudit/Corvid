@@ -36,6 +36,8 @@
 //
 // This is wrapped as `cuda_ptr<T>`, which is the moral equivalent to
 // `std::unique_ptr`, providing RAII and
+//
+// Note: This turns out to be something like `thrust::device_vector`.
 
 namespace corvid::cuda {
 

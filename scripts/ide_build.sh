@@ -29,6 +29,13 @@ if [[ "$src" == *.cu ]]; then
   # Catch2 (via catch2_main.h) like the rest of the suite; .cu is libstdc++, so
   # link the system (apt) Catch2, matching the CMake build. It supplies main()
   # via Catch::Session, so only libCatch2 is needed (not libCatch2Main).
+  #
+  # Auto-link cuBLAS for sources that use it, matching `nvcc ... -lcublas` and
+  # the CMake build's CUDA::cublas opt-in.
+  cublas=()
+  if grep -q cublas "$src"; then
+    cublas=(-lcublas)
+  fi
   exec nvcc \
     -ccbin /usr/bin/g++-15 \
     -std=c++23 \
@@ -36,6 +43,7 @@ if [[ "$src" == *.cu ]]; then
     -g -G -O0 \
     "$src" \
     /usr/lib/libCatch2.a \
+    "${cublas[@]}" \
     -o "$out"
 fi
 
