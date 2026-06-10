@@ -246,6 +246,15 @@ else
   COV_OPTION=""
 fi
 
+# Strip asserts (define NDEBUG) for the plain and coverage builds. Keep them
+# live for the analysis modes -- sanitizers, tidy, and scan (CSA) -- where the
+# assert checks, and the facts they hand the static analyzer, are the point.
+if ! $use_tidy && ! $use_scan && [[ -z "$sanitizer" ]]; then
+  NDEBUG_OPTION="-DCORVID_DISABLE_ASSERTS=ON"
+else
+  NDEBUG_OPTION=""
+fi
+
 # Define the build directory (assuming you're using an out-of-source build)
 buildRoot="tests/build"
 buildDir="$buildRoot/release_bin"
@@ -266,7 +275,7 @@ rm -rf "$buildRoot"
 mkdir -p "$buildRoot" "$buildDir"
 
 # Run cmake to configure the project with Ninja and the selected compiler
-cmake -S tests -B "$buildRoot" -G "Ninja" $LIBSTD_OPTION $TIDY_OPTION $TEST_NAME_OPTION $SAN_OPTION $COV_OPTION $CUDA_OPTION
+cmake -S tests -B "$buildRoot" -G "Ninja" $LIBSTD_OPTION $TIDY_OPTION $TEST_NAME_OPTION $SAN_OPTION $COV_OPTION $CUDA_OPTION $NDEBUG_OPTION
 
 # Scan mode: hand the compile database to the Clang Static Analyzer and
 # stop. We don't need ninja artifacts -- analyze-build re-invokes clang with

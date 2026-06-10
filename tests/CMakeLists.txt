@@ -17,6 +17,10 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 option(USE_LIBSTDCPP "Use GNU libstdc++ instead of libc++" OFF)
 option(USE_CLANG_TIDY "Run clang-tidy analysis" OFF)
 option(CORVID_ENABLE_CUDA "Build .cu targets with nvcc (host g++-15, libstdc++)" OFF)
+# Default OFF keeps asserts live, so a bare configure and the analysis modes
+# (sanitizers, tidy, scan) all retain them. cleanbuild.sh turns this ON only
+# for the plain and coverage builds, where the assert cost is not wanted.
+option(CORVID_DISABLE_ASSERTS "Define NDEBUG to strip asserts" OFF)
 set(TEST_NAME "" CACHE STRING "Build only the named test source file")
 
 # Set the C++ standard to C++23
@@ -178,6 +182,15 @@ if(SANITIZER)
     endif()
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${_san_flags}")
     set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} ${_san_flags}")
+endif()
+
+# Strip asserts via NDEBUG when requested. Applied as a compile definition (not
+# a CXX flag) so the .cu targets, compiled by nvcc, pick it up too.
+if(CORVID_DISABLE_ASSERTS)
+    add_compile_definitions(NDEBUG)
+    message(STATUS "Asserts disabled (NDEBUG)")
+else()
+    message(STATUS "Asserts live (NDEBUG not set)")
 endif()
 
 # External dependencies: requires apt install liburing-dev pkg-config
