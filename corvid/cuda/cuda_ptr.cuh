@@ -74,7 +74,7 @@ cuda_copy(T* dest_ptr, const T* src_ptr, size_t count, cudaMemcpyKind kind) {
 
 } // namespace details
 
-#pragma endregion details
+#pragma endregion
 #pragma region cuda_ptr
 
 // Owning, move-only RAII handle to an uninitialized block of `count` objects
@@ -112,14 +112,14 @@ public:
 
   ~cuda_ptr() { details::cuda_free(ptr_); }
 
-#pragma endregion Construction
+#pragma endregion
 #pragma region Status
 
   [[nodiscard]] bool ok() const { return ptr_; }
   [[nodiscard]] explicit operator bool() const { return ok(); }
   [[nodiscard]] bool operator!() const { return !ok(); }
 
-#pragma endregion Status
+#pragma endregion
 #pragma region Transfer
 
   // Store memory from the CUDA device into the host buffer. Copies `count`
@@ -164,7 +164,7 @@ public:
 
   // TODO: Add overloads that take a `cuda_ptr` to do device-to-device.
 
-#pragma endregion Transfer
+#pragma endregion
 #pragma region Accessors
 
   // Return address of device pointer; cannot be dereferenced on the host.
@@ -174,15 +174,15 @@ public:
     if (!ptr_) throw std::runtime_error{"dereferencing null cuda_ptr"};
   }
 
-#pragma endregion Accessors
+#pragma endregion
 #pragma region Data members
 private:
   T* ptr_;
   size_t count_;
 
-#pragma endregion Data members
+#pragma endregion
 };
 
-#pragma endregion cuda_ptr
+#pragma endregion
 
 } // namespace corvid::cuda

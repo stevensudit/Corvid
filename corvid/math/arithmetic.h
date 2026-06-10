@@ -38,6 +38,6 @@ template<std::integral T, std::integral U>
   return (rn / rd) + static_cast<R>(rn % rd != 0);
 }
 
-#pragma endregion ceil_div
+#pragma endregion
 
 }}} // namespace corvid::math::arithmetic

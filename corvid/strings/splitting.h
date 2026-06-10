@@ -91,7 +91,7 @@ template<typename R = void, CharType C>
   return split<result_t>(std::basic_string_view<C>(whole), d);
 }
 
-#pragma endregion Split
+#pragma endregion
 #pragma region PieceGenerator
 
 // Concept to detect whether a type is a piece_generator.
@@ -119,7 +119,7 @@ concept PieceGenerator = requires(T t,
   { t.more_pieces(s) };
 };
 
-#pragma endregion PieceGenerator
+#pragma endregion
 #pragma region piece_generator
 
 // Finds the next delimiter in the remainder of the string. What constitutes a
@@ -181,7 +181,7 @@ struct basic_piece_generator {
   using view_t = std::basic_string_view<Char>;
   using opt_view_t = basic_opt_string_view<void, Char>;
 
-#pragma endregion Member types
+#pragma endregion
 #pragma region Reset
 
   // This is technically not a requirement for a PieceGenerator, but it's a
@@ -193,7 +193,7 @@ struct basic_piece_generator {
     return *this;
   }
 
-#pragma endregion Reset
+#pragma endregion
 #pragma region Pieces
 
   // Stateless static helper, which can be easily reused from your own class.
@@ -223,14 +223,14 @@ struct basic_piece_generator {
     return more_pieces(part, whole, finder, filter);
   }
 
-#pragma endregion Pieces
+#pragma endregion
 #pragma region Data members
 
   opt_view_t whole;
   [[no_unique_address]] Finder finder{};
   [[no_unique_address]] Filter filter{};
 
-#pragma endregion Data members
+#pragma endregion
 };
 
 // The default piece generator, over `char`.
@@ -244,7 +244,7 @@ template<CharType Char, DelimFinder<Char> Finder, PieceFilter<Char> Filter>
 basic_piece_generator(std::basic_string_view<Char>, Finder, Filter)
     -> basic_piece_generator<Char, Finder, Filter>;
 
-#pragma endregion piece_generator
+#pragma endregion
 #pragma region split_gen
 
 // Split `whole` using the PieceGenerator and return parts in vector.
@@ -271,6 +271,6 @@ template<typename R = void, PieceGenerator PG>
 // with:
 // https://github.com/abseil/abseil-cpp/blob/master/absl/strings/internal/str_split_internal.h
 
-#pragma endregion split_gen
+#pragma endregion
 
 }} // namespace corvid::strings::splitting

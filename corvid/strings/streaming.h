@@ -67,7 +67,7 @@ constexpr auto& report_with(delim d, const OStreamable auto&... parts) {
   return stream_out_with(std::cerr, d, parts...) << std::endl;
 }
 
-#pragma endregion streaming functions
+#pragma endregion
 #pragma region ostream_redirector
 
 // Redirect a `std::ostream`, `from`, to a different one, `to`, during its
@@ -88,16 +88,16 @@ public:
 
   ~ostream_redirector() noexcept { from_->rdbuf(rdbuf_); }
 
-#pragma endregion Construction
+#pragma endregion
 #pragma region Data members
 
 private:
   std::ostream* from_;
   std::streambuf* rdbuf_;
 
-#pragma endregion Data members
+#pragma endregion
 };
 
-#pragma endregion ostream_redirector
+#pragma endregion
 
 }} // namespace corvid::strings::streaming

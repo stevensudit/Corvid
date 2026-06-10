@@ -15,6 +15,7 @@
 #include "../corvid/cuda/cuda_ptr.cuh"
 #include "../corvid/cuda/cuda_status.cuh"
 #include "../corvid/cuda/cuda_event.cuh"
+#include "../corvid/cuda/cuda_cublas.cuh"
 #include "../corvid/math.h"
 
 using namespace corvid;
@@ -30,19 +31,20 @@ using namespace corvid::cuda;
     }                                                                         \
   } while (0)
 
-// Naive SGEMM. Each thread computes ONE element of C (M x N, row-major).
-// It walks the entire K dimension, reading a full row of A and a full column
-// of B straight from global memory. No staging, no reuse. This is the floor.
+// Naive SGEMM, column-major to match cuBLAS's native layout. Each thread
+// computes ONE element of C (M x N), walking the entire K dimension and
+// reading a full column of A and a full row of B straight from global memory.
+// No staging, no reuse. This is the floor.
 __global__ void
 matmul_naive(int M, int N, int K, const float* A, const float* B, float* C) {
-  const auto col = static_cast<int>(
-      (blockIdx.x * blockDim.x) + threadIdx.x); // 2D index now
+  const auto col =
+      static_cast<int>((blockIdx.x * blockDim.x) + threadIdx.x); // 2D index
   const auto row = static_cast<int>((blockIdx.y * blockDim.y) + threadIdx.y);
   if (row < M && col < N) {
     float acc = 0.0F;
-    for (int k = 0; k < K; ++k)
-      acc += A[(row * K) + k] * B[(k * N) + col]; // row-major addressing
-    C[(row * N) + col] = acc;
+    // Column-major addressing: element (i, j) of a P-row matrix is at j*P + i.
+    for (int k = 0; k < K; ++k) acc += A[(k * M) + row] * B[(col * K) + k];
+    C[(col * M) + row] = acc;
   }
 }
 
@@ -90,34 +92,34 @@ int main() {
     *cuda_last_status{}; // check for launch errors
   }
   *d_C.store(h_C_naive);
+
   std::println("naive  : {:8.2f} ms   {:9.1f} GFLOP/s", ms,
       gflops(n, n, n, ms));
 
   // ---------- cuBLAS reference ----------
-  // THE FOOTGUN: cuBLAS is COLUMN-major; our arrays are ROW-major. A row-major
-  // matrix reinterpreted as column-major is its transpose. So to get row-major
-  // C = A*B, we ask cuBLAS for C^T = B^T * A^T, which, with both operands
-  // already "transposed" by the layout mismatch, is just sgemm(B, A), no
-  // explicit transpose flags. (Square here, so all leading dims are n.)
+  // Both sides are column-major now, so this is the textbook call: C = A*B
+  // with A, B, and C all column-major and every leading dimension n. No
+  // operand swap, no transpose flags.
   cublasHandle_t handle;
   CUBLAS_CHECK(cublasCreate(&handle));
   const float alpha = 1.0F;
   const float beta = 0.0F;
 
   CUBLAS_CHECK(cublasSgemm(handle, CUBLAS_OP_N, CUBLAS_OP_N, n, n, n, &alpha,
-      d_B, n, d_A, n, &beta, d_C, n)); // warm-up
+      d_A, n, d_B, n, &beta, d_C, n)); // warm-up
   *cuda_timer::synchronize();
 
   if (auto timer = cuda_timer{ms}; true) {
     CUBLAS_CHECK(cublasSgemm(handle, CUBLAS_OP_N, CUBLAS_OP_N, n, n, n, &alpha,
-        d_B, n, d_A, n, &beta, d_C, n));
+        d_A, n, d_B, n, &beta, d_C, n));
   }
   *d_C.store(h_C_cublas);
   std::println("cuBLAS : {:8.2f} ms   {:9.1f} GFLOP/s", ms,
       gflops(n, n, n, ms));
 
   // ---------- Cross-check: the two answers must agree ----------
-  // Validates both your kernel AND that the column-major incantation is right.
+  // Validates both your kernel AND that its column-major addressing matches
+  // what cuBLAS computed.
   double maxRel = 0.0;
   for (int i = 0; i < n * n; ++i) {
     double a = h_C_naive[i];

@@ -51,7 +51,7 @@ public:
   }
   ~cuda_event() { destroy(); }
 
-#pragma endregion Construction
+#pragma endregion
 #pragma region Status
 
   [[nodiscard]] bool ok() const { return event_; }
@@ -61,7 +61,7 @@ public:
     if (!event_) throw std::runtime_error{"dereferencing null cuda_event"};
   }
 
-#pragma endregion Status
+#pragma endregion
 #pragma region Operations
 
   // Record this event into `stream` (default stream).
@@ -73,13 +73,13 @@ public:
     return cudaEventSynchronize(event_);
   }
 
-#pragma endregion Operations
+#pragma endregion
 #pragma region Accessors
 
   [[nodiscard]] cudaEvent_t get() const { return event_; }
   [[nodiscard]] operator cudaEvent_t() const { return event_; }
 
-#pragma endregion Accessors
+#pragma endregion
 #pragma region Timing
 
   // Milliseconds between two recorded events; `stop` must have completed.
@@ -88,22 +88,22 @@ public:
     return cudaEventElapsedTime(&ms, start, stop);
   }
 
-#pragma endregion Timing
+#pragma endregion
 #pragma region Helpers
 private:
   void destroy() {
     if (event_) cudaEventDestroy(event_);
   }
 
-#pragma endregion Helpers
+#pragma endregion
 #pragma region Data members
 
   cudaEvent_t event_{};
 
-#pragma endregion Data members
+#pragma endregion
 };
 
-#pragma endregion cuda_event
+#pragma endregion
 #pragma region cuda_timer
 
 // RAII timer for CUDA code. Imprints on `ms` during construction and sets it
@@ -127,7 +127,7 @@ public:
     (void)cuda_event::elapsed_ms(start_, stop_, ms_);
   }
 
-#pragma endregion Construction
+#pragma endregion
 #pragma region Operations
 
   // Synchronize the device and host, blocking until all preceding work on the
@@ -136,16 +136,16 @@ public:
     return cudaDeviceSynchronize();
   }
 
-#pragma endregion Operations
+#pragma endregion
 #pragma region Data members
 private:
   cuda_event start_;
   cuda_event stop_;
   float& ms_;
 
-#pragma endregion Data members
+#pragma endregion
 };
 
-#pragma endregion cuda_timer
+#pragma endregion
 
 } // namespace corvid::cuda
