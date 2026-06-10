@@ -15,6 +15,7 @@
 #include "../corvid/cuda/cuda_ptr.cuh"
 #include "../corvid/cuda/cuda_status.cuh"
 #include "../corvid/cuda/cuda_event.cuh"
+#include "../corvid/math.h"
 
 using namespace corvid::cuda;
 
@@ -65,7 +66,7 @@ int main() {
 
   // --- Launch configuration ---
   const int threadsPerBlock = 256; // multiple of 32 (warp size); good default
-  const int blocks = (N + threadsPerBlock - 1) / threadsPerBlock;
+  const int blocks = corvid::ceil_div(N, threadsPerBlock);
 
   // Warm-up launch: the FIRST launch pays one-time context/JIT setup.
   // Timing that instead of the kernel is a classic beginner mistake.

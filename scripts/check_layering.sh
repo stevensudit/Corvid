@@ -11,9 +11,10 @@
 #
 # Subsystem umbrella headers ("../enums.h", "../strings.h", "../containers.h",
 # etc.) map to the band `umbrella` and are rejected from any non-apex band,
-# which keeps the de-umbrella work from regressing. The `corvid/meta.h` and
-# `corvid/infra.h` umbrellas are the exception: they aggregate the foundation,
-# so they map to `meta`/`infra` and stay cheap to depend on.
+# which keeps the de-umbrella work from regressing. The `corvid/meta.h`,
+# `corvid/infra.h`, and `corvid/math.h` umbrellas are the exception: they
+# aggregate the foundation, so they map to `meta`/`infra`/`math` and stay cheap
+# to depend on.
 set -uo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -33,6 +34,7 @@ band_of() {
   case "$1" in
   meta.h | meta/*) echo meta ;;
   infra.h | infra/*) echo infra ;;
+  math.h | math/*) echo math ;;
   strings/*) echo strings ;;
   containers/core/*) echo containers/core ;;
   containers/utils/*) echo containers/utils ;;
@@ -61,6 +63,8 @@ allowed() {
   case "$src" in ecs | proto | lang | sim) return 0 ;; esac
   # meta is the universal foundation.
   [ "$dst" = meta ] && return 0
+  # math is a std-only foundation too, universally dependable like meta.
+  [ "$dst" = math ] && return 0
   case "$src=>$dst" in
   infra'=>'meta) return 0 ;;
   strings'=>'meta) return 0 ;;
