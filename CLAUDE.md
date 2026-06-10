@@ -2,7 +2,7 @@
 
 Guidance for Claude Code working in this repository.
 
-Corvid is a header-only C++23 library with minimal external dependencies, although it does bring some in for its network code (liburing, ngtcp2, nghttp3). All headers live under `corvid/`.
+Corvid is a header-only C++23 library with minimal external dependencies, although it does bring some in for its network code (liburing, ngtcp2, nghttp3, cuda). All headers live under `corvid/`.
 
 ## General
 
