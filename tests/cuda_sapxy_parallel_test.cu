@@ -4,6 +4,12 @@
 // the result round-trips back to the host. Doubles as the canary that the CUDA
 // toolchain (nvcc + g++-15) and the .cu Catch2 wiring work end to end.
 
+#include <cassert>
+#include <cmath>
+#include <cstdio>
+#include <print>
+#include <vector>
+
 #include <cuda_runtime.h>
 
 #include "../corvid/cuda/cuda_ptr.cuh"
@@ -12,19 +18,26 @@
 
 using namespace corvid::cuda;
 
-// Wrap every CUDA call in this. CUDA fails silently otherwise — a kernel can
-// "run" and quietly do nothing. Cheap insurance you should never omit.
-#define CUDA_CHECK(call)                                                      \
-  do {                                                                        \
-    cuda_last_status status = (call);                                         \
-    *status;                                                                  \
-  } while (0)
-
-// THE KERNEL. This is the body of ONE thread. The runtime will run N of these.
-// __global__ = "callable from host, runs on device."
-__global__ void saxpy(int n, float a, const float* x, float* y) {
+// A kernel gets additional implicit arguments:
+//
+// threadIdx: the thread's index within its block (0..blockDim.x-1)
+//            uint3, per-thread.
+//
+// blockIdx: the block's index within the grid (0..gridDim.x-1)
+//        uint3, per-block.
+//
+// blockDim: the number of threads per block (same for all blocks)
+//        dim3.
+//
+// gridDim: the number of blocks in the grid (same for all blocks)
+//        dim3.
+//
+// warpSize: the number of threads in a warp (32 on all current NVIDIA GPUs)
+//        int, per-device.
+__global__ void sapxy(int n, float a, const float* x, float* y) {
   // Where am I in the global array? This is THE canonical CUDA idiom.
-  int i = (blockIdx.x * blockDim.x) + threadIdx.x;
+  // Note: This cast is only honest so long as the index fits in 32 bits.
+  const auto i = static_cast<int>((blockIdx.x * blockDim.x) + threadIdx.x);
   if (i < n) { // N rarely divides evenly by block size; guard it.
     y[i] = (a * x[i]) + y[i];
   }
@@ -54,13 +67,17 @@ int main() {
 
   // Warm-up launch: the FIRST launch pays one-time context/JIT setup.
   // Timing that instead of the kernel is a classic beginner mistake.
-  saxpy<<<blocks, threadsPerBlock>>>(N, a, device_x, device_y);
+  sapxy<<<blocks, threadsPerBlock>>>(N, a, device_x, device_y);
 
   *cuda_timer::synchronize(); // wait for the warm-up to finish
 
+  // Reset `device_y`; the warm-up already mutated it, and the timed run must
+  // start from the same inputs the check below expects.
+  *device_y.load(host_y);
+
   float ms;
   if (auto timer = cuda_timer{ms}; true) {
-    saxpy<<<blocks, threadsPerBlock>>>(N, a, device_x, device_y);
+    sapxy<<<blocks, threadsPerBlock>>>(N, a, device_x, device_y);
     *cuda_last_status{}; // check for launch errors
   }
 
@@ -69,15 +86,20 @@ int main() {
 
   float maxErr = 0.0F;
   for (int i = 0; i < N; ++i) maxErr = fmaxf(maxErr, fabsf(host_y[i] - 4.0F));
+  // 2*1 + 2 == 4 is exact in float, so a correct run must match to the bit.
+  if (maxErr != 0.0F) {
+    std::println(stderr, "verification failed: max error {}", maxErr);
+    return 1;
+  }
 
   // --- The whole point: effective bandwidth ---
   // SAXPY touches 3 arrays' worth of memory per run: read x, read y, write y.
   double gb = 3.0 * (double)bytes / 1.0e9;
   double bandwidth = gb / (ms / 1000.0);
 
-  printf("max error          : %f\n", maxErr);
-  printf("kernel time        : %.3f ms\n", ms);
-  printf("effective bandwidth: %.1f GB/s\n", bandwidth);
+  std::println("max error          : {}", maxErr);
+  std::println("kernel time        : {:.3f} ms", ms);
+  std::println("effective bandwidth: {:.1f} GB/s", bandwidth);
 
   return 0;
 }

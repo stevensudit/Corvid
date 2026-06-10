@@ -20,6 +20,7 @@
 #include <cstddef>
 #include <limits>
 #include <memory>
+#include <span>
 #include <type_traits>
 #include <utility>
 
@@ -112,7 +113,7 @@ public:
 #pragma endregion Construction
 #pragma region Status
 
-  [[nodiscard]] bool ok() const { return ptr_ != nullptr; }
+  [[nodiscard]] bool ok() const { return ptr_; }
   [[nodiscard]] explicit operator bool() const { return ok(); }
   [[nodiscard]] bool operator!() const { return !ok(); }
 
@@ -126,7 +127,7 @@ public:
     assert(count <= count_ && "store array size exceeds allocated count");
     return details::cuda_copy(host_ptr, ptr_, count, cudaMemcpyDeviceToHost);
   }
-  [[nodiscard]] cuda_last_status store(std::span<T> host_span) {
+  [[nodiscard]] cuda_last_status store(std::span<T> host_span) const {
     return store(host_span.data(), host_span.size());
   }
   // Store a single object into `host_ref`.
