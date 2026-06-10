@@ -1,16 +1,12 @@
 // Benchmarks a naive SGEMM kernel against cuBLAS on a square matrix, then
-// cross-checks the two results. Ported to the corvid/cuda/ wrappers (cuda_ptr,
-// cuda_timer, cuda_last_status); the cuBLAS handle and calls are still raw,
-// pending a cuBLAS wrapper.
+// cross-checks the two results. Uses the corvid/cuda/ wrappers throughout:
+// cuda_ptr, cuda_timer, cuda_last_status, and cublas_handle.
 
 #include <cmath>
-#include <cstdio>
-#include <cstdlib>
 #include <print>
 #include <vector>
 
 #include <cuda_runtime.h>
-#include <cublas_v2.h>
 
 #include "../corvid/cuda/cuda_ptr.cuh"
 #include "../corvid/cuda/cuda_status.cuh"
@@ -20,16 +16,6 @@
 
 using namespace corvid;
 using namespace corvid::cuda;
-
-#define CUBLAS_CHECK(call)                                                    \
-  do {                                                                        \
-    cublasStatus_t st = (call);                                               \
-    if (st != CUBLAS_STATUS_SUCCESS) {                                        \
-      fprintf(stderr, "cuBLAS error %s:%d: status %d\n", __FILE__, __LINE__,  \
-          (int)st);                                                           \
-      exit(EXIT_FAILURE);                                                     \
-    }                                                                         \
-  } while (0)
 
 // Naive SGEMM, column-major to match cuBLAS's native layout. Each thread
 // computes ONE element of C (M x N), walking the entire K dimension and
@@ -100,18 +86,16 @@ int main() {
   // Both sides are column-major now, so this is the textbook call: C = A*B
   // with A, B, and C all column-major and every leading dimension n. No
   // operand swap, no transpose flags.
-  cublasHandle_t handle;
-  CUBLAS_CHECK(cublasCreate(&handle));
+  cublas_handle handle;
+  *handle;
   const float alpha = 1.0F;
   const float beta = 0.0F;
 
-  CUBLAS_CHECK(cublasSgemm(handle, CUBLAS_OP_N, CUBLAS_OP_N, n, n, n, &alpha,
-      d_A, n, d_B, n, &beta, d_C, n)); // warm-up
+  *handle.multiply(n, alpha, d_A, d_B, beta, d_C); // warm-up
   *cuda_timer::synchronize();
 
   if (auto timer = cuda_timer{ms}; true) {
-    CUBLAS_CHECK(cublasSgemm(handle, CUBLAS_OP_N, CUBLAS_OP_N, n, n, n, &alpha,
-        d_A, n, d_B, n, &beta, d_C, n));
+    *handle.multiply(n, alpha, d_A, d_B, beta, d_C);
   }
   *d_C.store(h_C_cublas);
   std::println("cuBLAS : {:8.2f} ms   {:9.1f} GFLOP/s", ms,
@@ -129,6 +113,5 @@ int main() {
   }
   std::println("max relative diff (naive vs cuBLAS): {:.2e}", maxRel);
 
-  cublasDestroy(handle);
   return 0;
 }

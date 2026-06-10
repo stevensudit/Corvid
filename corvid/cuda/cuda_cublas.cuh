@@ -139,8 +139,9 @@ public:
   // Where op(X) is X or its transpose. C, A, and B are column-major (cuBLAS
   // default) and every leading dimension is `n`.
 
-  cublas_last_status multiply(int n, float alpha, cuda_ptr<float>& A,
-      cuda_ptr<float>& B, float beta, cuda_ptr<float>& C,
+  // Simple square multiply.
+  cublas_last_status multiply(int n, float alpha, const cuda_ptr<float>& A,
+      const cuda_ptr<float>& B, float beta, cuda_ptr<float>& C,
       cublas_operation opA = cublas_operation::none,
       cublas_operation opB = cublas_operation::none) const {
     return cublasSgemm(handle_, as_raw(opA), as_raw(opB), n, n, n, &alpha, A,
