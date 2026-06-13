@@ -104,6 +104,10 @@ find_program(CCACHE_PROGRAM ccache)
 if(CCACHE_PROGRAM)
     message(STATUS "ccache enabled: ${CCACHE_PROGRAM}")
     set(CMAKE_CXX_COMPILER_LAUNCHER "${CCACHE_PROGRAM}")
+    # Cache nvcc too, so a clean rebuild of an unchanged .cu restores from
+    # cache instead of recompiling. ccache hashes -arch=native verbatim, so the
+    # cache is only valid while the build host's GPU is unchanged -- true here.
+    set(CMAKE_CUDA_COMPILER_LAUNCHER "${CCACHE_PROGRAM}")
 endif()
 
 # Optional coverage mode. Selected via -DCOVERAGE=ON (or `./cleanbuild.sh

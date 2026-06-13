@@ -258,24 +258,49 @@ fi
 # Define the build directory (assuming you're using an out-of-source build)
 buildRoot="tests/build"
 buildDir="$buildRoot/release_bin"
+sigFile="$buildRoot/.cleanbuild-config"
 
-rm -f CMakeCache.txt cmake_install.cmake ClangExeProject.sln build.ninja
-rm -rf CMakeFiles .ninja_deps .ninja_log
+# Signature of everything that determines the CMake configuration. When a
+# single-file build is requested and the existing build dir already carries a
+# matching signature, the configuration cannot have changed, so we skip the
+# wipe and the cold reconfigure (~19s of nvcc/find_package probing that would
+# only reproduce identical build files) and rebuild just the one target. A full
+# build, a changed option, a different file, or a first run all fall through to
+# the clean path. Editing CMakeLists.txt still reconfigures: `cmake --build`
+# re-runs CMake itself when the lists file is newer than the cache.
+configSig="$LIBSTD_OPTION|$TIDY_OPTION|$TEST_NAME_OPTION|$SAN_OPTION|$COV_OPTION|$CUDA_OPTION|$NDEBUG_OPTION|CC=$CC|CXX=$CXX"
 
-# If the release directory exists, delete it to clean the build
-if [ -d "$buildDir" ]; then
-    echo "Cleaning the build directory at $buildDir"
-    rm -rf "$buildDir"
-else
-    echo "Build directory not found. Creating a new one at $buildDir"
+reuse=false
+if [[ -n "$test_name" ]] && ! $use_scan &&
+  [[ -f "$sigFile" && "$(cat "$sigFile")" == "$configSig" ]]; then
+  reuse=true
 fi
 
-# Remove and recreate the CMake build directory
-rm -rf "$buildRoot"
-mkdir -p "$buildRoot" "$buildDir"
+if $reuse; then
+  echo "Reusing configured build dir for $test_name (config unchanged); skipping wipe and reconfigure."
+  # "Clean" still means a fresh executable: drop just this target's binary so
+  # it relinks, leaving the cached objects and configuration in place.
+  rm -f "$buildDir/$target_name"
+else
+  # Clean any stray artifacts from a legacy in-source build at the repo root.
+  rm -f CMakeCache.txt cmake_install.cmake ClangExeProject.sln build.ninja
+  rm -rf CMakeFiles .ninja_deps .ninja_log
 
-# Run cmake to configure the project with Ninja and the selected compiler
-cmake -S tests -B "$buildRoot" -G "Ninja" $LIBSTD_OPTION $TIDY_OPTION $TEST_NAME_OPTION $SAN_OPTION $COV_OPTION $CUDA_OPTION $NDEBUG_OPTION
+  # Remove and recreate the CMake build directory, then configure from scratch.
+  if [ -d "$buildDir" ]; then
+    echo "Cleaning the build directory at $buildDir"
+  else
+    echo "Build directory not found. Creating a new one at $buildDir"
+  fi
+  rm -rf "$buildRoot"
+  mkdir -p "$buildRoot" "$buildDir"
+
+  # Run cmake to configure the project with Ninja and the selected compiler.
+  cmake -S tests -B "$buildRoot" -G "Ninja" $LIBSTD_OPTION $TIDY_OPTION $TEST_NAME_OPTION $SAN_OPTION $COV_OPTION $CUDA_OPTION $NDEBUG_OPTION
+
+  # Record the signature so the next matching single-file run can reuse this.
+  echo "$configSig" >"$sigFile"
+fi
 
 # Scan mode: hand the compile database to the Clang Static Analyzer and
 # stop. We don't need ninja artifacts -- analyze-build re-invokes clang with
@@ -340,7 +365,8 @@ else
 fi
 
 # Run the registered CTest suite. `notest_*` sources are built but not
-# registered, so ctest naturally skips them.
+# registered, so ctest naturally skips them -- except a single `notest_*` file
+# requested by name, which is run directly below.
 #
 # In sanitizer modes we keep going past failures so the whole sweep reports
 # every issue rather than bailing on the first one. Plain runs still bail
@@ -369,7 +395,21 @@ fi
 # Don't let set -e abort on a test failure: we still want the tidy summary
 # below to print. Capture the status and propagate it after summarizing.
 ctest_status=0
-ctest "${ctest_args[@]}" || ctest_status=$?
+if [[ -n "$target_name" && "$target_name" == notest_* ]]; then
+  # A `notest_*` source opts out of CTest, so nothing is registered to run.
+  # A build-everything run skips it (the point of the prefix), but an explicit
+  # single-file request means "build AND run this one", so run it directly.
+  notest_bin="$buildDir/$target_name"
+  if [[ -x "$notest_bin" ]]; then
+    echo "Running $notest_bin"
+    "$notest_bin" || ctest_status=$?
+  else
+    echo "$0: built binary not found: $notest_bin" >&2
+    ctest_status=1
+  fi
+else
+  ctest "${ctest_args[@]}" || ctest_status=$?
+fi
 
 # In tidy mode, clang-tidy warnings stream through the build phase but get
 # buried under the ctest run that follows. Summarize them at the very end so
