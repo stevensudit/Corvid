@@ -438,7 +438,10 @@ if(CORVID_ENABLE_CUDA)
     # carries a single -std (no "incompatible redefinition for option 'std'"
     # warning).
     set(CMAKE_CUDA_STANDARD_DEFAULT "")
-    string(APPEND CMAKE_CUDA_FLAGS " -std=c++23 -O3")
+    # -lineinfo adds source-line correlation to the optimized SASS so Nsight
+    # (and compute-sanitizer) can attribute results to source lines. Unlike -G
+    # it leaves device optimization intact, so the runtime cost is negligible.
+    string(APPEND CMAKE_CUDA_FLAGS " -std=c++23 -O3 -lineinfo")
     message(STATUS
         "CUDA enabled: ${CMAKE_CUDA_COMPILER} (host ${CMAKE_CUDA_HOST_COMPILER}, "
         "arch ${CMAKE_CUDA_ARCHITECTURES})")
