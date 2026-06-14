@@ -24,6 +24,8 @@
 
 namespace corvid::cuda {
 
+#pragma region cuda_device_attr
+
 // Wrapper for `cudaDeviceAttr`.
 enum class cuda_device_attr : std::uint8_t {
   max_threads_per_block = cudaDevAttrMaxThreadsPerBlock,               // 1
@@ -231,12 +233,23 @@ consteval auto corvid_enum_spec(cuda_device_attr*) {
       corvid::enums::wrapclip::none, cuda_device_attr{1}>();
 }
 
+#pragma endregion
+#pragma region cuda_device
+
 class cuda_device {
 public:
+#pragma region Construction
+
   explicit cuda_device(int device_id = get_current_device_id())
       : device_id(device_id) {}
 
+#pragma endregion
+#pragma region Accessors
+
   [[nodiscard]] int id() const { return device_id; }
+
+#pragma endregion
+#pragma region Operations
 
   [[nodiscard]] int get_attribute(cuda_device_attr attr) const {
     int value;
@@ -254,6 +267,8 @@ public:
     return static_cast<size_t>(count);
   }
 
+#pragma endregion
+#pragma region Helpers
 private:
   static int get_current_device_id() {
     int device_id;
@@ -262,7 +277,13 @@ private:
     return device_id;
   }
 
+#pragma endregion
+#pragma region Data members
 private:
   int device_id{};
+
+#pragma endregion
 };
+
+#pragma endregion
 } // namespace corvid::cuda
