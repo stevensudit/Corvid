@@ -350,7 +350,7 @@ fi
 
 # Run the build (this will compile everything from scratch)
 if $use_tidy; then
-  tidyLogFile="$buildRoot/tidy.log"
+  tidyLogFile="$(pwd)/$buildRoot/tidy.log"
   if [[ -n "$target_name" ]]; then
     cmake --build "$buildRoot" --config Release --target "$target_name" 2>&1 | tee "$tidyLogFile"
   else
@@ -434,11 +434,11 @@ if $use_tidy; then
         | grep -oE '\[[A-Za-z][A-Za-z0-9._-]*\]$' \
         | sort | uniq -c | sort -rn \
         | sed 's/^/  /'
-    echo
-    echo "Full log: $tidyLogFile"
   else
     echo "clean: no warnings"
   fi
+  echo
+  echo "Full log: $tidyLogFile"
   echo "============================================================"
 fi
 

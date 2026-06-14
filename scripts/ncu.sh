@@ -17,6 +17,10 @@
 # cuobjdump and filters to those. Pass your own --kernel-name/-k to override
 # the filter, and any other ncu options (e.g. --set full, -o report, -c 1)
 # after the sample name; they are forwarded as given.
+#
+# The console output is also written to tests/build/ncu-<stem>.log (mirroring
+# how `cleanbuild.sh tidy` tees its output), so a long profile is scrollable
+# after the fact.
 
 set -e
 
@@ -61,4 +65,10 @@ case " $* " in
   ;;
 esac
 
-exec ncu "${filter[@]}" "$@" "$bin"
+# Tee to a log alongside the build dir (gitignored), and preserve ncu's exit
+# status rather than tee's. PIPESTATUS[0] is the ncu side of the pipe.
+log="$root/tests/build/ncu-$(basename "$bin").log"
+ncu "${filter[@]}" "$@" "$bin" 2>&1 | tee "$log"
+status=${PIPESTATUS[0]}
+echo "Full log: $log"
+exit "$status"
