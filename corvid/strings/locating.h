@@ -752,7 +752,6 @@ located(position& pos, std::string_view s, auto&& value) noexcept {
     return (pos = locate<npv>(s, value, pos)) != as_npos<npv>(s);
   else
     static_assert(false, "Multiple values not supported");
-  return {};
 }
 
 #pragma endregion
@@ -766,7 +765,6 @@ located_not(position& pos, std::string_view s, auto&& value) noexcept {
     return (pos = locate_not<npv>(s, value, pos)) != as_npos<npv>(s);
   else
     static_assert(false, "Multiple values not supported");
-  return {};
 }
 
 #pragma endregion
@@ -790,7 +788,6 @@ rlocated(position& pos, std::string_view s, const auto& value) noexcept {
     return (pos = rlocate<npv>(s, value, pos)) != as_npos<npv>(s);
   else
     static_assert(false, "Multiple values not supported");
-  return {};
 }
 
 #pragma endregion
@@ -808,7 +805,6 @@ rlocated_not(position& pos, std::string_view s, const auto& value) noexcept {
     return (pos = rlocate_not<npv>(s, value, pos)) != as_npos<npv>(s);
   else
     static_assert(false, "Multiple values not supported");
-  return {};
 }
 
 #pragma endregion
@@ -830,7 +826,6 @@ constexpr bool located(location& loc, std::string_view s, auto&& values) {
     return (loc = locate<npv>(s, values, loc.pos)).pos != as_npos<npv>(s);
   else
     static_assert(false, "Single value not supported");
-  return {};
 }
 // Same as above, but from the rear. Read the notes above for single-value
 // `rlocated` for more about `pos`.
@@ -845,7 +840,6 @@ constexpr bool rlocated(location& loc, std::string_view s, auto&& values) {
     return (loc = rlocate<npv>(s, values, loc.pos)).pos != as_npos<npv>(s);
   else
     static_assert(false, "Single value not supported");
-  return {};
 }
 
 #pragma endregion
