@@ -31,6 +31,9 @@ if ($Src -like '*.cu') {
 if (-not $env:VSCMD_VER) {
   $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
   if (-not (Test-Path $vswhere)) { throw "vswhere not found at $vswhere" }
+  # Put the Installer dir on PATH so Enter-VsDevShell's own internal vswhere
+  # lookup succeeds instead of printing a benign "vswhere not found" error.
+  $env:PATH = "$(Split-Path $vswhere);$env:PATH"
   $vsPath = & $vswhere -latest -property installationPath
   if (-not $vsPath) { throw 'No Visual Studio installation found' }
   Import-Module (Join-Path $vsPath 'Common7\Tools\Microsoft.VisualStudio.DevShell.dll')
@@ -38,22 +41,27 @@ if (-not $env:VSCMD_VER) {
     -DevCmdArguments '-arch=x64 -host_arch=x64' | Out-Null
 }
 
-# Catch2 comes from the CMake build's persistent FetchContent cache (built with
-# the same clang-cl and debug CRT). catch2_main.h supplies main() via
-# Catch::Session, so only Catch2d.lib is needed, not Catch2Maind.lib. Run
-# ./cleanbuild.ps1 once to populate the cache.
+# Catch2 comes from the CMake build's persistent FetchContent cache (built by
+# cleanbuild.ps1). catch2_main.h supplies main() via Catch::Session, so only the
+# core Catch2 lib is needed, not Catch2Main. cleanbuild builds release, so the
+# lib is Catch2.lib (/MD); fall back to Catch2d.lib (/MDd) if a debug cache is
+# present. Run ./cleanbuild.ps1 once to populate the cache.
 $fc = Join-Path $workspace 'tests/.fetchcontent'
-$catch2Lib = Join-Path $fc 'catch2-build/src/Catch2d.lib'
-if (-not (Test-Path $catch2Lib)) {
-  throw "Catch2 not built yet ($catch2Lib). Run ./cleanbuild.ps1 first."
+$catch2 = Get-ChildItem (Join-Path $fc 'catch2-build/src') -Filter 'Catch2*.lib' -ErrorAction SilentlyContinue |
+  Where-Object { $_.Name -notmatch 'Main' } | Select-Object -First 1
+if (-not $catch2) {
+  throw "Catch2 not built yet (under $fc). Run ./cleanbuild.ps1 first."
 }
+# Match the CRT cleanbuild used for Catch2 - a /MD vs /MDd mismatch is a hard
+# link error on Windows.
+$crt = if ($catch2.Name -match 'd\.lib$') { '/MDd' } else { '/MD' }
 
-# Debug single-file build: /MDd (debug CRT, matching Catch2d.lib), /Zi (PDB debug
-# info), /Od (un-optimized stepping). C++23 via /std:c++latest. Test sources
-# include corvid headers root-relative ("corvid/...") and catch2_main.h by bare
-# name, so the repo root and tests/ both go on the include path.
+# Debug single-file build: /Zi (PDB debug info), /Od (un-optimized stepping), and
+# the CRT that matches Catch2. C++23 via /std:c++latest. Test sources include
+# corvid headers root-relative ("corvid/...") and catch2_main.h by bare name, so
+# the repo root and tests/ both go on the include path.
 $clArgs = @(
-  '/nologo', '/std:c++latest', '/EHsc', '/MDd', '/Zi', '/Od',
+  '/nologo', '/std:c++latest', '/EHsc', $crt, '/Zi', '/Od',
   # clang's real warning set via the /clang: escape (bare -Wall is MSVC's /Wall
   # under clang-cl), mirroring ide_build.sh's -Wall -Wextra -Werror.
   '/clang:-Wall', '/clang:-Wextra', '/clang:-Werror', '/clang:-Wno-unused-variable',
@@ -62,7 +70,7 @@ $clArgs = @(
   '-I', (Join-Path $fc 'catch2-src/src'),
   '-I', (Join-Path $fc 'catch2-build/generated-includes'),
   $Src,
-  $catch2Lib,
+  $catch2.FullName,
   "/Fe:$out",
   "/Fo:$outDir\",
   "/Fd:$outDir\$stem.pdb"

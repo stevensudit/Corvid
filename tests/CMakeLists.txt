@@ -58,26 +58,32 @@ if(SANITIZER STREQUAL "msan")
 endif()
 
 if(WIN32)
-    # Windows builds the portable (and cuda) buckets with clang-cl against the
-    # MSVC STL. The libc++/clang-22 knobs in the branches below (-nostdinc++,
-    # the libc++ include prefix, -march=native, -fexperimental-library, and the
+    # Windows builds the portable (and cuda) buckets against the MSVC STL with
+    # either clang-cl (default) or MSVC cl, mirroring the clang/gcc split on
+    # Linux. The libc++/clang-22 knobs in the branches below (-nostdinc++, the
+    # libc++ include prefix, -march=native, -fexperimental-library, and the
     # libc++ link options) have no MSVC analog, so none apply here. The Linux
-    # network stack is excluded at the source-bucket level. A tuned warning set
-    # plus -Werror (clang-cl's -Wall maps to MSVC's, not clang's) is a follow-up;
-    # the default level still surfaces real issues. See crossplatform.md.
+    # network stack is excluded at the source-bucket level. See crossplatform.md.
     #
-    # Emit the cl-style /std:c++latest for C++23 rather than CMake's default
-    # `-clang:-std=c++23`: clangd mis-parses the `-clang:` prefix in
-    # compile_commands.json (it surfaces as a bogus `-std==c++23` that clangd
-    # drops, losing C++23 in the editor). clang-cl treats /std:c++latest as
-    # C++23, so the build itself is unaffected.
+    # Emit the cl-style /std:c++latest for C++23 (both compilers accept it)
+    # rather than CMake's clang-cl default `-clang:-std=c++23`, which clangd
+    # mis-parses in compile_commands.json (it surfaces as a bogus `-std==c++23`
+    # that clangd drops, losing C++23 in the editor).
     set(CMAKE_CXX23_STANDARD_COMPILE_OPTION "/std:c++latest")
     set(CMAKE_CXX23_EXTENSION_COMPILE_OPTION "/std:c++latest")
-    # clang-cl aliases bare -Wall/-Wextra to MSVC's /Wall (~ -Weverything, which
-    # floods c++98-compat / padded noise), so pass clang's real warning set
-    # through the /clang: escape to mirror the Linux build's -Wall -Wextra
-    # -Werror. The portable suite and the Catch2 subbuild are clean under it.
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /EHsc /clang:-Wall /clang:-Wextra /clang:-Werror")
+    if(CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
+        # clang-cl aliases bare -Wall/-Wextra to MSVC's /Wall (~ -Weverything,
+        # flooding c++98-compat / padded noise), so pass clang's real warning
+        # set through the /clang: escape, as errors. Mirrors Linux's -Wall
+        # -Wextra -Werror; the suite and the Catch2 subbuild are clean under it.
+        set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /EHsc /clang:-Wall /clang:-Wextra /clang:-Werror")
+    else()
+        # MSVC cl: /W4 with warnings as errors (cl rejects the /clang: escape).
+        set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /EHsc /W4 /WX")
+    endif()
+    # cleanbuild.ps1 drives this as a Release build (optimization, NDEBUG, and the
+    # release /MD CRT all come from CMAKE_BUILD_TYPE=Release), like Linux's -O3;
+    # ide_build.ps1 is the separate debug (/Od) path.
 elseif(USE_LIBSTDCPP)
     # Rely on whichever clang is available and the default libstdc++ install.
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O3 -march=native -Wall -Wextra -Werror -std=c++23")
@@ -207,6 +213,35 @@ if(SANITIZER)
     endif()
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${_san_flags}")
     set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} ${_san_flags}")
+endif()
+
+# Windows: CMake links clang-cl targets through lld-link directly, which ignores
+# the -fsanitize driver flag on the link line, so the compiler-rt runtime never
+# gets pulled in (undefined __asan_*/__ubsan_* at link). Add the runtime the way
+# clang-cl's own link driver would; the lib set came from
+# `clang-cl -fsanitize=address,undefined -###`. asan's combined runtime also
+# resolves the ubsan handlers, and plain ubsan links no runtime (it traps on UB),
+# so only asan needs libs here. Refresh these if the toolchain changes.
+if(SANITIZER AND WIN32)
+    # Release omits the linker PDB, but sanitizer findings are only actionable
+    # with symbols. /DEBUG emits a PDB from the CodeView that the -g above puts
+    # in the objects; it is link-only, so it does not trip the /clang:-Werror
+    # compile flags. /DEBUG also leaves /OPT at NOICF, which is required, not
+    # incidental: the Release default /OPT:ICF folds identical COMDATs (string
+    # literals among them), overlapping globals so ASAN's per-global redzones no
+    # longer match the layout. That shows up as false-positive
+    # global-buffer-overflow and ODR reports on small pooled literals. ICF is
+    # incompatible with ASAN.
+    add_link_options("/DEBUG")
+    get_filename_component(_llvm_root "${CMAKE_CXX_COMPILER}" DIRECTORY)
+    get_filename_component(_llvm_root "${_llvm_root}/.." ABSOLUTE)
+    string(REGEX MATCH "^[0-9]+" _clang_major "${CMAKE_CXX_COMPILER_VERSION}")
+    set(_rtdir "${_llvm_root}/lib/clang/${_clang_major}/lib/windows")
+    if(SANITIZER STREQUAL "asan")
+        add_link_options(
+            "${_rtdir}/clang_rt.asan_dynamic-x86_64.lib"
+            "-wholearchive:${_rtdir}/clang_rt.asan_dynamic_runtime_thunk-x86_64.lib")
+    endif()
 endif()
 
 # Strip asserts via NDEBUG when requested. Applied as a compile definition (not
