@@ -28,6 +28,8 @@ namespace corvid { inline namespace meta { inline namespace crossplatform {
 #define PRAGMA_CLANG_IGNORED(quoted) PRAGMA_CLANG_DIAG(ignored quoted)
 #define PRAGMA_GCC_DIAG(action)
 #define PRAGMA_GCC_IGNORED(quoted)
+#define PRAGMA_MSVC_DIAG(action)
+#define PRAGMA_MSVC_IGNORED(number)
 #define PRAGMA_DIAG(action) PRAGMA_CLANG_DIAG(action)
 #define PRAGMA_IGNORED(quoted) PRAGMA_CLANG_IGNORED(quoted)
 // Removed in clang 20+; guard with __has_warning to stay forward-compatible.
@@ -42,8 +44,24 @@ namespace corvid { inline namespace meta { inline namespace crossplatform {
 #define PRAGMA_CLANG_IGNORED(quoted)
 #define PRAGMA_GCC_DIAG(action) PRAGMA_DIAG_HELPER(GCC diagnostic action)
 #define PRAGMA_GCC_IGNORED(quoted) PRAGMA_GCC_DIAG(ignored quoted)
+#define PRAGMA_MSVC_DIAG(action)
+#define PRAGMA_MSVC_IGNORED(number)
 #define PRAGMA_DIAG(action) PRAGMA_GCC_DIAG(action)
 #define PRAGMA_IGNORED(quoted) PRAGMA_GCC_IGNORED(quoted)
+#define PRAGMA_CLANG_IGNORED_ENUM_CONSTEXPR_CONV
+#elif defined(_MSC_VER)
+// MSVC cl; clang-cl takes the __clang__ branch above. MSVC names warnings by
+// number, not by the clang/gcc spelling, so the name-based PRAGMA_IGNORED is a
+// no-op here; suppress by number with PRAGMA_MSVC_IGNORED instead. push/pop do
+// translate, so the generic PRAGMA_DIAG(push)/(pop) still bracket a region.
+#define PRAGMA_CLANG_DIAG(action)
+#define PRAGMA_CLANG_IGNORED(quoted)
+#define PRAGMA_GCC_DIAG(action)
+#define PRAGMA_GCC_IGNORED(quoted)
+#define PRAGMA_MSVC_DIAG(action) PRAGMA_DIAG_HELPER(warning(action))
+#define PRAGMA_MSVC_IGNORED(number) PRAGMA_MSVC_DIAG(disable : number)
+#define PRAGMA_DIAG(action) PRAGMA_MSVC_DIAG(action)
+#define PRAGMA_IGNORED(quoted)
 #define PRAGMA_CLANG_IGNORED_ENUM_CONSTEXPR_CONV
 #else
 // Other compilers - define empty macro stubs
@@ -51,6 +69,8 @@ namespace corvid { inline namespace meta { inline namespace crossplatform {
 #define PRAGMA_CLANG_IGNORED(quoted)
 #define PRAGMA_GCC_DIAG(action)
 #define PRAGMA_GCC_IGNORED(quoted)
+#define PRAGMA_MSVC_DIAG(action)
+#define PRAGMA_MSVC_IGNORED(number)
 #define PRAGMA_DIAG(action)
 #define PRAGMA_IGNORED(quoted)
 #define PRAGMA_CLANG_IGNORED_ENUM_CONSTEXPR_CONV

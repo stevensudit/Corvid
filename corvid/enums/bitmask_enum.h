@@ -112,13 +112,13 @@ constexpr bool bit_clip_v =
 template<typename E>
 concept BitmaskEnum = (valid_bits_v<E> != 0);
 
-namespace details {
+namespace int_details {
 // Guts of max_value, moved up to satisfy compiler.
 template<BitmaskEnum E>
 constexpr E do_max_value() noexcept {
   return E(valid_bits_v<E>);
 }
-} // namespace details
+} // namespace int_details
 
 } // namespace internal
 
@@ -194,7 +194,7 @@ constexpr const E& operator^=(E& l, E r) noexcept {
 template<BitmaskEnum E>
 [[nodiscard]] constexpr E operator~(E v) noexcept {
   if constexpr (bit_clip_v<E>)
-    return v ^ details::do_max_value<E>();
+    return v ^ int_details::do_max_value<E>();
   else
     return E(~*v);
 }
@@ -240,7 +240,7 @@ constexpr const E& operator-=(E& l, E r) noexcept {
 // `int`, which is signed.
 template<BitmaskEnum E>
 [[nodiscard]] constexpr E max_value() noexcept {
-  return details::do_max_value<E>();
+  return int_details::do_max_value<E>();
 }
 
 // Minimum value, inclusive, which is always 0.

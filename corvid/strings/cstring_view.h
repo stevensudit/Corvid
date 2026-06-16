@@ -250,9 +250,11 @@ consteval u32cstring_view operator""_u32csv(unsigned long long zero_only) {
 cstring_view operator""_env(const char* ps, std::size_t) noexcept {
   // MSVC's CRT deprecates getenv in favor of _dupenv_s, but the borrowed
   // pointer is exactly what this non-owning view wants, so suppress the nag
-  // rather than change the contract.
+  // rather than change the contract. clang-cl flags it as
+  // -Wdeprecated-declarations, MSVC cl as C4996.
   PRAGMA_DIAG(push)
   PRAGMA_IGNORED("-Wdeprecated-declarations")
+  PRAGMA_MSVC_IGNORED(4996)
   return std::getenv(ps);
   PRAGMA_DIAG(pop)
 }
