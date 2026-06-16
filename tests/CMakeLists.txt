@@ -554,7 +554,7 @@ if(CORVID_ENABLE_CUDA)
         endif()
         # The catch2_main.h that each test includes supplies main() via
         # Catch::Session, so only libCatch2 is needed (not libCatch2Main).
-        add_library(cuda_catch2 STATIC IMPORTED)
+        add_library(cuda_catch2 UNKNOWN IMPORTED)
         set_target_properties(cuda_catch2 PROPERTIES
             IMPORTED_LOCATION "${CUDA_CATCH2_LIBRARY}"
             INTERFACE_INCLUDE_DIRECTORIES "${CUDA_CATCH2_INCLUDE_DIR}")

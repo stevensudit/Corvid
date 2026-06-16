@@ -5,6 +5,8 @@
 
 #pragma once
 
+#include <cuda_runtime.h>
+
 namespace corvid::cuda {
 
 __host__ __device__ inline float saxpy(float a, float x, float y) {
