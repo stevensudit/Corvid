@@ -1,12 +1,22 @@
 {
   "configurations": [
     {
-      "name": "Type lldb (using CodeLLDB)",
+      "name": "Debug test (Linux - CodeLLDB)",
       "type": "lldb",
       "request": "launch",
       "program": "${fileDirname}/debug_bin/${fileBasenameNoExtension}.exe",
       "args": [],
       "stopOnEntry": false,
+      "cwd": "${workspaceFolder}",
+      "preLaunchTask": "build"
+    },
+    {
+      "name": "Debug test (Windows - cppvsdbg)",
+      "type": "cppvsdbg",
+      "request": "launch",
+      "program": "${fileDirname}/debug_bin/${fileBasenameNoExtension}.exe",
+      "args": [],
+      "stopAtEntry": false,
       "cwd": "${workspaceFolder}",
       "preLaunchTask": "build"
     }

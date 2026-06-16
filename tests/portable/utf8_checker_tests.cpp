@@ -17,6 +17,7 @@
 
 #include "corvid/proto/misc/utf8-checker.h"
 #include "corvid/concurrency/jthread_stoppable_sleep.h"
+#include "corvid/meta/crossplatform.h"
 
 #include <charconv>
 #include <cerrno>
@@ -32,7 +33,11 @@ using namespace std::string_literals;
 using namespace std::chrono_literals;
 
 bool is_codex() {
+  // MSVC's CRT deprecates getenv in favor of _dupenv_s; the read is safe here.
+  PRAGMA_DIAG(push)
+  PRAGMA_IGNORED("-Wdeprecated-declarations")
   const char* value = std::getenv("CODEX_SANDBOX_NETWORK_DISABLED");
+  PRAGMA_DIAG(pop)
   return value && std::string_view{value} == "1";
 }
 

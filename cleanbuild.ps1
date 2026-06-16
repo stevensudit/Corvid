@@ -1,57 +1,70 @@
-# Choose which standard library to use. Pass 'libstdcpp' or 'libcxx' as the
-# first argument to override the default. Outside of Codex, the default is
-# libc++.
-param(
-    [string]$StdLib
-)
+# cleanbuild.ps1 - Windows build driver for the portable (and, later, CUDA) test
+# buckets. Mirrors cleanbuild.sh's role on Linux: wipe tests/build, configure
+# with clang-cl against the MSVC STL, build, and run ctest. The Linux-only modes
+# (libc++/libstdc++ choice, msan/tsan, analyze-build scan, llvm-cov coverage,
+# compiler-rt/lld) have no MSVC analog and are deliberately absent. See
+# crossplatform.md.
+#
+# Usage:
+#   ./cleanbuild.ps1                    clean-build and ctest the whole portable suite
+#   ./cleanbuild.ps1 strings_test.cpp   build and run just that one test
+[CmdletBinding()]
+param([Parameter(ValueFromRemainingArguments = $true)][string[]] $Rest)
 
-if ($StdLib -and $StdLib -ne 'libstdcpp' -and $StdLib -ne 'libcxx') {
-    Write-Host "Usage: cleanbuild.ps1 [libstdcpp|libcxx]" -ForegroundColor Red
-    exit 1
+$ErrorActionPreference = 'Stop'
+
+# clang-cl from the standalone LLVM install matches the clang-22 the Linux build
+# uses; the MSVC STL and Windows SDK come from Visual Studio (set up below).
+$repo = $PSScriptRoot
+$clang = 'C:/Program Files/LLVM/bin/clang-cl.exe'
+$srcDir = Join-Path $repo 'tests'
+$bldDir = Join-Path $repo 'tests/build'
+
+if (-not (Test-Path $clang)) { throw "clang-cl not found at $clang" }
+
+# A *.cpp argument selects a single test; nothing else is recognized yet.
+$testName = ''
+foreach ($a in $Rest) {
+  if ($a -like '*.cpp') { $testName = $a }
+  else { throw "Unrecognized argument '$a' (expected a <name>_test.cpp)" }
 }
 
-if (-not $StdLib) {
-    if ($Env:CODEX_PROXY_CERT) {
-        $StdLib = 'libstdcpp'
-    } else {
-        $StdLib = 'libcxx'
-    }
+# Bring in the MSVC environment (INCLUDE/LIB so clang-cl finds the STL and SDK)
+# unless we are already inside a Developer shell.
+if (-not $env:VSCMD_VER) {
+  $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+  if (-not (Test-Path $vswhere)) { throw "vswhere not found at $vswhere" }
+  $vsPath = & $vswhere -latest -property installationPath
+  if (-not $vsPath) { throw 'No Visual Studio installation found' }
+  Import-Module (Join-Path $vsPath 'Common7\Tools\Microsoft.VisualStudio.DevShell.dll')
+  Enter-VsDevShell -VsInstallPath $vsPath -SkipAutomaticLocation `
+    -DevCmdArguments '-arch=x64 -host_arch=x64' | Out-Null
 }
 
-if ($StdLib -eq 'libstdcpp') {
-    Write-Host "Using libstdc++"
-    $env:CC = (Get-Command clang).Source
-    $env:CXX = (Get-Command clang++).Source
-    $env:RC = (Get-Command clang).Source
-    $libStdOption = "-DUSE_LIBSTDCPP=ON"
+# Wipe the build dir for a truly clean configure (matches cleanbuild.sh). The
+# persistent Catch2 cache lives in tests/.fetchcontent, so this does not force a
+# Catch2 rebuild.
+if (Test-Path $bldDir) {
+  Write-Host 'Cleaning tests/build ...'
+  Remove-Item -Recurse -Force $bldDir
+}
+
+# Configure. C++23 comes from CMAKE_CXX_STANDARD; the WIN32 branch in
+# tests/CMakeLists.txt selects clang-cl flags and excludes the Linux buckets.
+$cfg = @('-S', $srcDir, '-B', $bldDir, '-G', 'Ninja', "-DCMAKE_CXX_COMPILER=$clang")
+if ($testName) {
+  Write-Host "Configuring single test: $testName"
+  $cfg += "-DTEST_NAME=$testName"
 } else {
-    Write-Host "Using libc++"
-    $env:CC="c:/program files/llvm/bin/clang"
-    $env:CXX="c:/program files/llvm/bin/clang++"
-
-    # This is a crude lie to shut it up about resource compilers.
-    $env:RC="c:/program files/llvm/bin/clang"
-    $libStdOption = "-DUSE_LIBSTDCPP=OFF"
+  Write-Host 'Configuring full portable suite'
 }
+cmake @cfg
+if ($LASTEXITCODE) { throw "configure failed ($LASTEXITCODE)" }
 
-# Define the build directory (assuming you're using an out-of-source build)
-$buildDir = "build"
-$buildRoot = "$buildDir/cmake"
+# Build everything, keep-going so all failures surface in one pass.
+cmake --build $bldDir -- -k 0
+if ($LASTEXITCODE) { throw "build failed ($LASTEXITCODE)" }
 
-# If the build directory exists, delete it to clean the build
-if (Test-Path $buildDir) {
-    Write-Host "Cleaning the build directory..."
-    Remove-Item -Recurse -Force $buildDir
-} else {
-    Write-Host "Build directory not found. Creating a new one."
-}
-
-# Create the build directory
-New-Item -ItemType Directory -Force -Path $buildRoot | Out-Null
-New-Item -ItemType Directory -Force -Path $buildDir | Out-Null
-
-# Run cmake to configure the project with Ninja and clang
-cmake -S tests -B $buildRoot -G "Ninja" $libStdOption
-
-# Run the build (this will compile everything from scratch)
-cmake --build $buildRoot --config Release
+# Run the tests.
+ctest --test-dir $bldDir --output-on-failure
+exit $LASTEXITCODE

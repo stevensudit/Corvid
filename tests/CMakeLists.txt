@@ -62,11 +62,17 @@ if(WIN32)
     # MSVC STL. The libc++/clang-22 knobs in the branches below (-nostdinc++,
     # the libc++ include prefix, -march=native, -fexperimental-library, and the
     # libc++ link options) have no MSVC analog, so none apply here. The Linux
-    # network stack is excluded at the source-bucket level. C++23 comes from
-    # CMAKE_CXX_STANDARD above (CMake emits the clang-cl /std flag). A tuned
-    # warning set plus -Werror (clang-cl's -Wall maps to MSVC's, not clang's) is
-    # a follow-up; the default level still surfaces real issues. See
-    # crossplatform.md.
+    # network stack is excluded at the source-bucket level. A tuned warning set
+    # plus -Werror (clang-cl's -Wall maps to MSVC's, not clang's) is a follow-up;
+    # the default level still surfaces real issues. See crossplatform.md.
+    #
+    # Emit the cl-style /std:c++latest for C++23 rather than CMake's default
+    # `-clang:-std=c++23`: clangd mis-parses the `-clang:` prefix in
+    # compile_commands.json (it surfaces as a bogus `-std==c++23` that clangd
+    # drops, losing C++23 in the editor). clang-cl treats /std:c++latest as
+    # C++23, so the build itself is unaffected.
+    set(CMAKE_CXX23_STANDARD_COMPILE_OPTION "/std:c++latest")
+    set(CMAKE_CXX23_EXTENSION_COMPILE_OPTION "/std:c++latest")
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /EHsc")
 elseif(USE_LIBSTDCPP)
     # Rely on whichever clang is available and the default libstdc++ install.
@@ -634,7 +640,18 @@ endif()
 # `CMAKE_SOURCE_DIR` is this `tests/` directory (the only CMake project in
 # the repo), so the .. step is the actual project root.
 get_filename_component(PROJECT_ROOT_DIR "${CMAKE_SOURCE_DIR}/.." ABSOLUTE)
-configure_file(
-    "${PROJECT_ROOT_DIR}/.clangd.in"
-    "${PROJECT_ROOT_DIR}/.clangd"
-    @ONLY)
+if(WIN32)
+    # Windows uses clang-cl against the MSVC STL and builds only the portable
+    # (and cuda) buckets, so its clangd config is far simpler than Linux: no
+    # libc++ flags, no ngtcp2/openssl/liburing isystem paths. Generated from a
+    # separate template. See crossplatform.md.
+    configure_file(
+        "${PROJECT_ROOT_DIR}/.clangd.win.in"
+        "${PROJECT_ROOT_DIR}/.clangd"
+        @ONLY)
+else()
+    configure_file(
+        "${PROJECT_ROOT_DIR}/.clangd.in"
+        "${PROJECT_ROOT_DIR}/.clangd"
+        @ONLY)
+endif()

@@ -8,6 +8,17 @@
             "args": [
                 "${file}"
             ],
+            "windows": {
+                "command": "pwsh",
+                "args": [
+                    "-NoProfile",
+                    "-ExecutionPolicy",
+                    "Bypass",
+                    "-File",
+                    "${workspaceFolder}/scripts/ide_build.ps1",
+                    "${file}"
+                ]
+            },
             "group": {
                 "kind": "build",
                 "isDefault": true
