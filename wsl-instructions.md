@@ -30,20 +30,26 @@ sudo apt install -y gcc-16 g++-16 libstdc++-16-dev
 sudo update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-16 100 \
 --slave /usr/bin/g++ g++ /usr/bin/g++-16
 ```
-9. CUDA install.
-First install on Windows, then install inside WSL, but not with `sudo apt install cuda`!
-Windows:
-https://developer.nvidia.com/cuda-downloads?target_os=Windows&target_arch=x86_64&target_version=11&target_type=exe_network
-Linux WSL:
-https://developer.nvidia.com/cuda-downloads?target_os=Linux&target_arch=x86_64&Distribution=WSL-Ubuntu&target_version=2.0&target_type=deb_network
-You want `nvidia-smi` inside and outside WSL to show the same version.
-```
-wget https://developer.download.nvidia.com/compute/cuda/repos/wsl-ubuntu/x86_64/cuda-keyring_1.1-1_all.deb
-sudo dpkg -i cuda-keyring_1.1-1_all.deb
-sudo apt-get update
-sudo apt-get -y install cuda-toolkit-13-3
-sudo apt install gcc-15 g++-15
-```
-You will likely need to add `/usr/local/cuda-13.3/bin/` to your path in `.bashrc`.
+9. CUDA install. First install on Windows, then install inside WSL, but not
+   with `sudo apt install cuda`!
+
+   Windows:
+   https://developer.nvidia.com/cuda-downloads?target_os=Windows&target_arch=x86_64&target_version=11&target_type=exe_network
+
+   Linux WSL:
+   https://developer.nvidia.com/cuda-downloads?target_os=Linux&target_arch=x86_64&Distribution=WSL-Ubuntu&target_version=2.0&target_type=deb_network
+
+   You want `nvidia-smi` inside and outside WSL to show the same version.
+
+   ```
+   wget https://developer.download.nvidia.com/compute/cuda/repos/wsl-ubuntu/x86_64/cuda-keyring_1.1-1_all.deb
+   sudo dpkg -i cuda-keyring_1.1-1_all.deb
+   sudo apt-get update
+   sudo apt-get -y install cuda-toolkit-13-3
+   sudo apt install gcc-15 g++-15
+   ```
+
+   You will likely need to add `/usr/local/cuda-13.3/bin/` to your path in `.bashrc`.
+
 10. In the repo, run `code .`, which brings up VSCode remotely.
 11. Run `./cleanbuild.sh tidy` to build the tests with clang-tidy enabled. See usage for how to select compiler and standard library.
