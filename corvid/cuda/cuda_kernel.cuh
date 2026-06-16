@@ -28,11 +28,43 @@
 
 #include "./cuda_status.cuh"
 
+// CUDA kernel-centered utilities.
+//
+// https://docs.nvidia.com/cuda/cuda-runtime-api/index.html
+
 namespace corvid::cuda {
 
 class cuda_kernel {
 public:
   __device__ cuda_kernel(unsigned n) : n_(n) {}
+
+  // Thread in each dimension.
+  template<typename T = int>
+  __device__ static T x_thread() {
+    return static_cast<T>(threadIdx.x);
+  }
+  template<typename T = int>
+  __device__ static T y_thread() {
+    return static_cast<T>(threadIdx.y);
+  }
+  template<typename T = int>
+  __device__ static T z_thread() {
+    return static_cast<T>(threadIdx.z);
+  }
+
+  // Block dim in each dimension.
+  template<typename T = int>
+  __device__ static T x_block_dim() {
+    return static_cast<T>(blockDim.x);
+  }
+  template<typename T = int>
+  __device__ static T y_block_dim() {
+    return static_cast<T>(blockDim.y);
+  }
+  template<typename T = int>
+  __device__ static T z_block_dim() {
+    return static_cast<T>(blockDim.z);
+  }
 
   // Index in each dimension.
 
