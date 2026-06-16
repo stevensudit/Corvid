@@ -15,7 +15,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#include "../corvid/concurrency/timers.h"
+#include "corvid/concurrency/timers.h"
 
 std::ostream&
 operator<<(std::ostream& os, const corvid::concurrency::time_point_t& when) {

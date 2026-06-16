@@ -19,10 +19,10 @@
 #include <map>
 #include <set>
 
-#include "../corvid/meta.h"
-#include "../corvid/enums.h"
-#include "../corvid/enums/enum_conversion.h"
-#include "../corvid/containers.h"
+#include "corvid/meta.h"
+#include "corvid/enums.h"
+#include "corvid/enums/enum_conversion.h"
+#include "corvid/containers.h"
 #include "catch2_main.h"
 
 using namespace corvid;

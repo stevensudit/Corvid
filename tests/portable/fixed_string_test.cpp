@@ -19,8 +19,8 @@
 #include <sstream>
 #include <vector>
 
-#include "../corvid/strings/fixed_string.h"
-#include "../corvid/strings/fixed_string_utils.h"
+#include "corvid/strings/fixed_string.h"
+#include "corvid/strings/fixed_string_utils.h"
 #include "catch2_main.h"
 
 using namespace std::literals;

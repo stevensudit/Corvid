@@ -24,7 +24,7 @@
 #include <sys/uio.h>
 #include <vector>
 
-#include "../corvid/proto/iov_queue.h"
+#include "corvid/proto/iov_queue.h"
 #include "catch2_main.h"
 
 using corvid::proto::iov_queue;

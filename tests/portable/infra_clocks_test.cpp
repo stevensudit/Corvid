@@ -15,7 +15,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#include "../corvid/infra/clocks.h"
+#include "corvid/infra/clocks.h"
 
 #include "catch2_main.h"
 

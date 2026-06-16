@@ -5,13 +5,13 @@
 
 #include <cuda_runtime.h>
 
-#include "../corvid/cuda/cuda_device.cuh"
-#include "../corvid/cuda/cuda_ptr.cuh"
-#include "../corvid/cuda/cuda_status.cuh"
-#include "../corvid/cuda/cuda_event.cuh"
-#include "../corvid/cuda/cuda_cublas.cuh"
-#include "../corvid/cuda/cuda_kernel.cuh"
-#include "../corvid/math.h"
+#include "corvid/cuda/cuda_device.cuh"
+#include "corvid/cuda/cuda_ptr.cuh"
+#include "corvid/cuda/cuda_status.cuh"
+#include "corvid/cuda/cuda_event.cuh"
+#include "corvid/cuda/cuda_cublas.cuh"
+#include "corvid/cuda/cuda_kernel.cuh"
+#include "corvid/math.h"
 
 using namespace corvid;
 using namespace corvid::cuda;

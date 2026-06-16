@@ -23,9 +23,9 @@
 #include <utility>
 #include <vector>
 
-#include "../corvid/sim/sim_game.h"
-#include "../corvid/sim/sim_json_parse.h"
-#include "../corvid/sim/sim_json_wire.h"
+#include "corvid/sim/sim_game.h"
+#include "corvid/sim/sim_json_parse.h"
+#include "corvid/sim/sim_json_wire.h"
 #include "catch2_main.h"
 
 using namespace corvid;

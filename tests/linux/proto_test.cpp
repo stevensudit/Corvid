@@ -18,7 +18,7 @@
 // Codex note: in this sandbox, creating AF_INET/AF_INET6 sockets can fail
 // with EPERM, so tests here that rely on real network sockets may fail even
 // when the code is correct in a normal local environment.
-#include "../corvid/proto.h"
+#include "corvid/proto.h"
 
 #include <type_traits>
 #include <atomic>

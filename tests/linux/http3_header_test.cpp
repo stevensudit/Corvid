@@ -15,8 +15,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#include "../corvid/proto/quic/http3_header.h"
-#include "../corvid/enums/enum_conversion.h"
+#include "corvid/proto/quic/http3_header.h"
+#include "corvid/enums/enum_conversion.h"
 
 #include "catch2_main.h"
 

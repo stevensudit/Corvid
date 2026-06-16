@@ -19,7 +19,7 @@
 #include <stdexcept>
 #include <vector>
 
-#include "../corvid/ecs/id_container.h"
+#include "corvid/ecs/id_container.h"
 #include "catch2_main.h"
 
 using namespace corvid;

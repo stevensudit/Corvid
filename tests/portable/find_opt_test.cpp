@@ -19,7 +19,7 @@
 #include <set>
 #include <vector>
 
-#include "../corvid/containers.h"
+#include "corvid/containers.h"
 
 #include "catch2_main.h"
 

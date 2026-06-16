@@ -20,8 +20,8 @@
 #include <set>
 #include <span>
 
-#include "../corvid/strings/cstring_view.h"
-#include "../corvid/meta.h"
+#include "corvid/strings/cstring_view.h"
+#include "corvid/meta.h"
 #include "catch2_main.h"
 
 using namespace std::literals;

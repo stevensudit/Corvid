@@ -14,10 +14,10 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
-#include "../corvid/proto/io_uring/iou_loop.h"
-#include "../corvid/filesys/net_socket.h"
-#include "../corvid/enums/enum_conversion.h"
-#include "../corvid/meta/pragmas.h"
+#include "corvid/proto/io_uring/iou_loop.h"
+#include "corvid/filesys/net_socket.h"
+#include "corvid/enums/enum_conversion.h"
+#include "corvid/meta/pragmas.h"
 
 #include <atomic>
 #include <chrono>

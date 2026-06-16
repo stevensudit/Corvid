@@ -18,7 +18,8 @@
 #include <chrono>
 #include <memory>
 
-#include "../corvid/concurrency.h"
+#include "corvid/concurrency/timer_fuse.h"
+#include "corvid/concurrency/timing_wheel.h"
 #include "catch2_main.h"
 
 using namespace corvid;

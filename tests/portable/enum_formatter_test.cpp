@@ -21,8 +21,8 @@
 #include <string>
 #include <vector>
 
-#include "../corvid/enums.h"
-#include "../corvid/enums/enum_formatter.h"
+#include "corvid/enums.h"
+#include "corvid/enums/enum_formatter.h"
 #include "catch2_main.h"
 
 using namespace corvid;

@@ -19,8 +19,8 @@
 #include <map>
 #include <vector>
 
-#include "../corvid/strings/cstring_view.h"
-#include "../corvid/strings/opt_string_view.h"
+#include "corvid/strings/cstring_view.h"
+#include "corvid/strings/opt_string_view.h"
 #include "catch2_main.h"
 
 using namespace corvid;

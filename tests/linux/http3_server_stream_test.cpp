@@ -18,7 +18,7 @@
 #include <optional>
 #include <string_view>
 
-#include "../corvid/proto/quic/http3_server_stream.h"
+#include "corvid/proto/quic/http3_server_stream.h"
 
 #include "catch2_main.h"
 

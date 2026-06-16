@@ -23,7 +23,9 @@
 #include <string>
 #include <atomic>
 #include <thread>
+#ifndef _WIN32
 #include <pthread.h>
+#endif
 
 namespace corvid { inline namespace concurrency {
 
@@ -66,6 +68,11 @@ public:
   }
 
   static void set_thread_name(std::string_view name) {
+#ifdef _WIN32
+    // Thread naming is dropped on Windows (SetThreadDescription needs a wide
+    // string; the label is debug-only). No-op, keeping the call site.
+    (void)name;
+#else
     static std::atomic_int thread_count;
     const int n = ++thread_count;
     std::string label = std::to_string(n);
@@ -73,6 +80,7 @@ public:
     label += name;
     if (label.size() > 15) label.resize(15);
     (void)::pthread_setname_np(::pthread_self(), label.c_str());
+#endif
   }
 
 #pragma endregion

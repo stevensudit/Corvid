@@ -20,8 +20,8 @@
 #include <cstring>
 #include <functional>
 
-#include "../corvid/proto/quic/quic_header.h"
-#include "../corvid/enums/enum_conversion.h"
+#include "corvid/proto/quic/quic_header.h"
+#include "corvid/enums/enum_conversion.h"
 #include "catch2_main.h"
 
 namespace quic = corvid::proto::quic;

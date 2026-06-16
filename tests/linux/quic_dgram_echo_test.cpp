@@ -24,14 +24,14 @@
 #include <unordered_map>
 #include <vector>
 
-#include "../corvid/containers/core/opt_find.h"
-#include "../corvid/proto/io_uring/iou_loop.h"
-#include "../corvid/proto/iov_queue.h"
-#include "../corvid/proto/quic/quic_conn.h"
-#include "../corvid/proto/quic/quic_dgram_plugins.h"
-#include "../corvid/proto/quic/quic_echo_plugin.h"
-#include "../corvid/proto/quic/quic_self_signed_cert.h"
-#include "../corvid/proto/quic/quic_ssl_ctx.h"
+#include "corvid/containers/core/opt_find.h"
+#include "corvid/proto/io_uring/iou_loop.h"
+#include "corvid/proto/iov_queue.h"
+#include "corvid/proto/quic/quic_conn.h"
+#include "corvid/proto/quic/quic_dgram_plugins.h"
+#include "corvid/proto/quic/quic_echo_plugin.h"
+#include "corvid/proto/quic/quic_self_signed_cert.h"
+#include "corvid/proto/quic/quic_ssl_ctx.h"
 
 #define CATCH2_SHOW_TIMERS 0
 #include "catch2_main.h"

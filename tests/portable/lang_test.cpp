@@ -20,7 +20,7 @@
 #include <set>
 #include <vector>
 
-#include "../corvid/lang.h"
+#include "corvid/lang.h"
 #include "catch2_main.h"
 
 using namespace std::literals;

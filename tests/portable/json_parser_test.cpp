@@ -15,7 +15,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#include "../corvid/proto.h"
+#include "corvid/proto/misc/json_parser.h"
 
 #include <sstream>
 #include <string>

@@ -20,7 +20,7 @@
 #include <format>
 #include <vector>
 
-#include "../corvid/containers/core/fixed_bitset.h"
+#include "corvid/containers/core/fixed_bitset.h"
 #include "catch2_main.h"
 
 using namespace corvid;

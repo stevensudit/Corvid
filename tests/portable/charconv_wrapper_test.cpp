@@ -20,7 +20,7 @@
 #include <string>
 #include <string_view>
 
-#include "../corvid/strings/charconv_wrapper.h"
+#include "corvid/strings/charconv_wrapper.h"
 
 #include "catch2_main.h"
 

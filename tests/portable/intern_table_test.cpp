@@ -18,7 +18,7 @@
 #include <deque>
 #include <string>
 
-#include "../corvid/containers.h"
+#include "corvid/containers.h"
 #include "catch2_main.h"
 
 using namespace std::literals;

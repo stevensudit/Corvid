@@ -21,7 +21,7 @@
 #include <string>
 #include <string_view>
 
-#include "../corvid/meta/formatting.h"
+#include "corvid/meta/formatting.h"
 #include "catch2_main.h"
 
 using namespace std::literals;

@@ -17,7 +17,7 @@
 
 #include <optional>
 
-#include "../corvid/proto/quic/http3_plugins.h"
+#include "corvid/proto/quic/http3_plugins.h"
 
 #include "catch2_main.h"
 

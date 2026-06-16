@@ -14,9 +14,9 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
-#include "../corvid/proto/io_uring/iou_dgram_echo_server.h"
-#include "../corvid/proto/io_uring/iou_dgram_router.h"
-#include "../corvid/proto/io_uring/iou_dgram_session.h"
+#include "corvid/proto/io_uring/iou_dgram_echo_server.h"
+#include "corvid/proto/io_uring/iou_dgram_router.h"
+#include "corvid/proto/io_uring/iou_dgram_session.h"
 
 #include <atomic>
 #include <chrono>

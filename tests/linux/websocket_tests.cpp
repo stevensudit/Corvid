@@ -15,8 +15,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#include "../corvid/proto.h"
-#include "../corvid/concurrency/jthread_stoppable_sleep.h"
+#include "corvid/proto.h"
+#include "corvid/concurrency/jthread_stoppable_sleep.h"
 
 #include <charconv>
 #include <cerrno>

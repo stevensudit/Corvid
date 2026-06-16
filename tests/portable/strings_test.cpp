@@ -21,8 +21,8 @@
 #include <set>
 #include <type_traits>
 
-#include "../corvid/strings.h"
-#include "../corvid/enums.h"
+#include "corvid/strings.h"
+#include "corvid/enums.h"
 
 std::ostream&
 operator<<(std::ostream& os, const corvid::strings::location& l) {

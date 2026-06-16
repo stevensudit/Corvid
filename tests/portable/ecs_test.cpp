@@ -21,7 +21,7 @@
 #include <tuple>
 #include <vector>
 
-#include "../corvid/ecs.h"
+#include "corvid/ecs.h"
 #include "catch2_main.h"
 
 using namespace std::literals;

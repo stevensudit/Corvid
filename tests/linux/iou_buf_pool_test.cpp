@@ -14,7 +14,7 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
-#include "../corvid/proto/io_uring/iou_buf_pool.h"
+#include "corvid/proto/io_uring/iou_buf_pool.h"
 
 #include <cstring>
 #include <netinet/in.h>

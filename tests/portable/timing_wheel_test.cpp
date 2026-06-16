@@ -15,7 +15,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#include "../corvid/concurrency/timing_wheel.h"
+#include "corvid/concurrency/timing_wheel.h"
 
 #include "catch2_main.h"
 

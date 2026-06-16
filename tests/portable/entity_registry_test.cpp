@@ -19,7 +19,7 @@
 #include <memory>
 #include <stdexcept>
 
-#include "../corvid/ecs/entity_registry.h"
+#include "corvid/ecs/entity_registry.h"
 #include "catch2_main.h"
 
 using namespace corvid;

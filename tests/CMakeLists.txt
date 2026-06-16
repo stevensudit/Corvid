@@ -197,9 +197,14 @@ else()
     message(STATUS "Asserts live (NDEBUG not set)")
 endif()
 
+# External dependencies for the linux bucket (io_uring / QUIC / HTTP/3). None of
+# this exists or is wanted on Windows, where only the portable and cuda buckets
+# build, so it is all guarded behind a Linux check. See crossplatform.md.
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
 # External dependencies: requires apt install liburing-dev pkg-config
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(LIBURING REQUIRED liburing)
+endif()
 
 # Catch2 v3. Under libstdc++, prefer a system install (apt install catch2),
 # since Ubuntu's package is built against libstdc++ and links cleanly. Under
@@ -231,6 +236,7 @@ if(NOT _have_catch2)
     FetchContent_MakeAvailable(Catch2)
 endif()
 
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
 # QUIC dependency: ngtcp2 (ExternalProject) linked against a preflight-built
 # OpenSSL 3.5+ (the LTS line; needed for the native QUIC API, which Ubuntu
 # Noble's 3.0.13 lacks). Linked into every test target -- the static linker
@@ -409,6 +415,7 @@ set_target_properties(nghttp3_static PROPERTIES
     IMPORTED_LOCATION             "${NGHTTP3_LIB_DIR}/libnghttp3.a"
     INTERFACE_INCLUDE_DIRECTORIES "${NGHTTP3_INCLUDE_DIR}")
 add_dependencies(nghttp3_static nghttp3_external)
+endif() # CMAKE_SYSTEM_NAME STREQUAL "Linux" (io_uring / QUIC / HTTP/3 deps)
 
 if(USE_CLANG_TIDY)
     find_program(CLANG_TIDY_EXE NAMES clang-tidy clang-tidy-22)
@@ -454,14 +461,29 @@ endif()
 # Output directory
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/release_bin")
 
-# Source files (only in this directory). .cpp builds the CXX suite below; .cu
-# is routed to the CUDA loop further down (built only when CORVID_ENABLE_CUDA).
-file(GLOB SOURCES "*.cpp")
+# Test sources are partitioned into platform buckets: portable/ builds on every
+# platform, linux/ only on Linux, cuda/ only when CORVID_ENABLE_CUDA (handled in
+# the CUDA section). .cpp builds the CXX suite below; .cu is routed to the CUDA
+# loop further down. See crossplatform.md.
+file(GLOB PORTABLE_SOURCES "portable/*.cpp")
+set(SOURCES ${PORTABLE_SOURCES})
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    file(GLOB LINUX_SOURCES "linux/*.cpp")
+    list(APPEND SOURCES ${LINUX_SOURCES})
+endif()
 
 if(TEST_NAME)
-    set(FILTERED_SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/${TEST_NAME}")
-    if(NOT EXISTS "${FILTERED_SOURCE}")
-        message(FATAL_ERROR "Requested test source not found: ${TEST_NAME}")
+    # Locate the single requested source in whichever bucket holds it.
+    set(FILTERED_SOURCE "")
+    foreach(_bucket portable linux cuda)
+        if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/${_bucket}/${TEST_NAME}")
+            set(FILTERED_SOURCE
+                "${CMAKE_CURRENT_SOURCE_DIR}/${_bucket}/${TEST_NAME}")
+        endif()
+    endforeach()
+    if(NOT FILTERED_SOURCE)
+        message(FATAL_ERROR
+            "Requested test source not found in any bucket: ${TEST_NAME}")
     endif()
 
     # Route the single requested source to its language. A .cu filter leaves
@@ -474,6 +496,12 @@ if(TEST_NAME)
         endif()
         set(SOURCES "")
         set(CUDA_TEST_NAME_SOURCE "${FILTERED_SOURCE}")
+    elseif(FILTERED_SOURCE MATCHES "/linux/")
+        if(NOT CMAKE_SYSTEM_NAME STREQUAL "Linux")
+            message(FATAL_ERROR
+                "Requested Linux-only source '${TEST_NAME}' on ${CMAKE_SYSTEM_NAME}")
+        endif()
+        set(SOURCES "${FILTERED_SOURCE}")
     else()
         set(SOURCES "${FILTERED_SOURCE}")
     endif()
@@ -486,6 +514,13 @@ foreach(SOURCE_FILE ${SOURCES})
     get_filename_component(EXECUTABLE_NAME ${SOURCE_FILE} NAME_WE)
 
     add_executable(${EXECUTABLE_NAME} ${SOURCE_FILE})
+
+    # Test sources include library headers root-relative ("corvid/...") and the
+    # shared Catch2 main wrapper by bare name ("catch2_main.h"), so put the repo
+    # root (parent of tests/) and tests/ itself on the include path. This keeps
+    # includes independent of which bucket subdir a test lives in.
+    target_include_directories(${EXECUTABLE_NAME} PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}/.." "${CMAKE_CURRENT_SOURCE_DIR}")
 
     # Every test file uses Catch2 except `notest_*` programs (long-lived
     # servers/demos that opt out via filename convention).
@@ -506,15 +541,18 @@ foreach(SOURCE_FILE ${SOURCES})
         endif()
     endif()
 
-    # liburing, the QUIC stack, and the HTTP/3 stack are linked into every
-    # target. The static linker drops archive members that no symbol
-    # references, so targets that touch none of these headers pay no
-    # measurable size or link-time cost. The crypto target's
-    # INTERFACE_LINK_LIBRARIES carries ngtcp2_static + OpenSSL transitively;
-    # nghttp3_static is standalone (no crypto dependency).
-    target_include_directories(${EXECUTABLE_NAME} PRIVATE ${LIBURING_INCLUDE_DIRS})
-    target_link_libraries(${EXECUTABLE_NAME} PRIVATE
-        ${LIBURING_LIBRARIES} ngtcp2_crypto_ossl_static nghttp3_static)
+    # Linux-bucket targets link liburing, the QUIC stack, and the HTTP/3 stack.
+    # The static linker drops archive members no symbol references, so a linux
+    # target that touches none of these headers pays no measurable size or
+    # link-time cost. The crypto target's INTERFACE_LINK_LIBRARIES carries
+    # ngtcp2_static + OpenSSL transitively; nghttp3_static is standalone (no
+    # crypto dependency). Portable-bucket targets link none of this (and on
+    # non-Linux platforms these imported targets do not exist).
+    if(SOURCE_FILE MATCHES "/linux/")
+        target_include_directories(${EXECUTABLE_NAME} PRIVATE ${LIBURING_INCLUDE_DIRS})
+        target_link_libraries(${EXECUTABLE_NAME} PRIVATE
+            ${LIBURING_LIBRARIES} ngtcp2_crypto_ossl_static nghttp3_static)
+    endif()
 
     if(NOT USE_LIBSTDCPP)
         # Link libc++ and libc++abi explicitly
@@ -529,15 +567,15 @@ endforeach()
 # FetchContent build the .cpp suite may be using, so we locate it directly
 # instead of reusing Catch2::Catch2 (the wrong ABI in a libc++ configure).
 # notest_* opt out of Catch2 and CTest, as in the .cpp loop. A .cu file reaches
-# its own headers with a relative include ("../corvid/cuda/..."), as the .cpp
-# tests do.
+# its headers root-relative ("corvid/cuda/...") and Catch2 by bare name
+# ("catch2_main.h"); the include path below adds the repo root and tests/.
 if(CORVID_ENABLE_CUDA)
     if(DEFINED CUDA_TEST_NAME_SOURCE)
         set(CUDA_SOURCES "${CUDA_TEST_NAME_SOURCE}")
     elseif(TEST_NAME)
         set(CUDA_SOURCES "") # a .cpp single-file filter builds no .cu targets
     else()
-        file(GLOB CUDA_SOURCES "*.cu")
+        file(GLOB CUDA_SOURCES "cuda/*.cu")
     endif()
 
     if(CUDA_SOURCES)
@@ -563,6 +601,10 @@ if(CORVID_ENABLE_CUDA)
     foreach(SOURCE_FILE ${CUDA_SOURCES})
         get_filename_component(EXECUTABLE_NAME ${SOURCE_FILE} NAME_WE)
         add_executable(${EXECUTABLE_NAME} ${SOURCE_FILE})
+        # Repo root (parent of tests/) for "corvid/..." and tests/ for the
+        # bare-name "catch2_main.h", as in the CXX loop above.
+        target_include_directories(${EXECUTABLE_NAME} PRIVATE
+            "${CMAKE_CURRENT_SOURCE_DIR}/.." "${CMAKE_CURRENT_SOURCE_DIR}")
         # Auto-link cuBLAS for sources that use it, matching `nvcc ... -lcublas`.
         file(STRINGS ${SOURCE_FILE} CUDA_USES_CUBLAS REGEX "cublas")
         if(CUDA_USES_CUBLAS)

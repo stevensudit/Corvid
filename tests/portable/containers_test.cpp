@@ -24,7 +24,7 @@
 #include <unordered_map>
 #include <vector>
 
-#include "../corvid/containers.h"
+#include "corvid/containers.h"
 #include "catch2_main.h"
 
 using namespace std::literals;

@@ -19,9 +19,9 @@
 // with EPERM, so the network-socket portions of this test file may fail even
 // when the code is correct in a normal local environment.
 
-#include "../corvid/filesys.h"
-#include "../corvid/proto/net_endpoint.h"
-#include "../corvid/enums/enum_conversion.h"
+#include "corvid/filesys.h"
+#include "corvid/proto/net_endpoint.h"
+#include "corvid/enums/enum_conversion.h"
 #include "catch2_main.h"
 
 #include <cstdlib>

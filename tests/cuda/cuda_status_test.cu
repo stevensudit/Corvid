@@ -9,8 +9,8 @@
 
 #include <cuda_runtime.h>
 
-#include "../corvid/enums/enum_conversion.h"
-#include "../corvid/cuda/cuda_status.cuh"
+#include "corvid/enums/enum_conversion.h"
+#include "corvid/cuda/cuda_status.cuh"
 #include "catch2_main.h"
 
 using namespace corvid;

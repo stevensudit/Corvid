@@ -17,7 +17,8 @@
 
 #include <thread>
 
-#include "../corvid/concurrency.h"
+#include "corvid/concurrency/notifiable.h"
+#include "corvid/infra/relaxed_atomic.h"
 #include "catch2_main.h"
 
 using namespace corvid;

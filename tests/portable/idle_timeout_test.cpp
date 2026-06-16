@@ -15,8 +15,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#include "../corvid/concurrency/idle_timeout.h"
-#include "../corvid/concurrency/timeout_sweeper.h"
+#include "corvid/concurrency/idle_timeout.h"
+#include "corvid/concurrency/timeout_sweeper.h"
 
 #include "catch2_main.h"
 

@@ -15,9 +15,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 #pragma once
+#ifdef _WIN32
+#include <thread> // std::this_thread::get_id is the Win32 thread id under MSVC
+#else
 #include <pthread.h>
 #include <sys/syscall.h>
 #include <unistd.h>
+#endif
 
 #include <array>
 #include <chrono>
@@ -181,6 +185,11 @@ private:
   // unnamed; it is at most 16 bytes including the null terminator.
   static const std::string& thread_label() {
     thread_local const std::string label = [] {
+#ifdef _WIN32
+      // MSVC's std::thread::id is the Win32 thread id. Format it and skip the
+      // thread name (no cheap query here); avoids pulling in <windows.h>.
+      return std::format("thread({})", std::this_thread::get_id());
+#else
       std::array<char, 16> name{};
       const char* thread_name =
           (pthread_getname_np(pthread_self(), name.data(), name.size()) == 0 &&
@@ -189,6 +198,7 @@ private:
               : "thread";
       return std::string{thread_name} + '(' +
              std::to_string(syscall(SYS_gettid)) + ')';
+#endif
     }();
     return label;
   }

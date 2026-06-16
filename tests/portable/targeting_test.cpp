@@ -19,7 +19,7 @@
 #include <sstream>
 #include <string>
 
-#include "../corvid/strings/targeting.h"
+#include "corvid/strings/targeting.h"
 
 #include "catch2_main.h"
 

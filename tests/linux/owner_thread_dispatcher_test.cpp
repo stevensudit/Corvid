@@ -18,7 +18,7 @@
 #include <atomic>
 #include <thread>
 
-#include "../corvid/concurrency.h"
+#include "corvid/concurrency.h"
 #include "catch2_main.h"
 
 using namespace corvid;

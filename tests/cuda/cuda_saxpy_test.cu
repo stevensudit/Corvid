@@ -6,9 +6,9 @@
 
 #include <cuda_runtime.h>
 
-#include "../corvid/cuda/saxpy.cuh"
-#include "../corvid/cuda/cuda_ptr.cuh"
-#include "../corvid/cuda/cuda_status.cuh"
+#include "corvid/cuda/saxpy.cuh"
+#include "corvid/cuda/cuda_ptr.cuh"
+#include "corvid/cuda/cuda_status.cuh"
 #include "catch2_main.h"
 
 namespace {

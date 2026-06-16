@@ -15,7 +15,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#include "../corvid/infra/scope_exit.h"
+#include "corvid/infra/scope_exit.h"
 
 #include "catch2_main.h"
 

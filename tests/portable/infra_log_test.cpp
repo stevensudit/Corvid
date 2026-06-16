@@ -17,7 +17,7 @@
 
 #define EXCEPTION_FIREWALLS_NO_ASSERT 1
 
-#include "../corvid/infra.h"
+#include "corvid/infra.h"
 #include "catch2_main.h"
 
 #include <sstream>

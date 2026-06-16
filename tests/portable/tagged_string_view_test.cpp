@@ -29,7 +29,7 @@
 #include <string_view>
 #include <type_traits>
 
-#include "../corvid/strings/opt_string_view.h"
+#include "corvid/strings/opt_string_view.h"
 #include "catch2_main.h"
 
 using namespace std::literals;

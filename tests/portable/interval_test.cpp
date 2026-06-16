@@ -20,8 +20,8 @@
 #include <format>
 #include <vector>
 
-#include "../corvid/containers.h"
-#include "../corvid/enums.h"
+#include "corvid/containers.h"
+#include "corvid/enums.h"
 #include "catch2_main.h"
 
 using namespace std::literals;

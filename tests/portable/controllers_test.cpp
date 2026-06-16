@@ -15,7 +15,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#include "../corvid/controllers.h"
+#include "corvid/controllers.h"
 #include "catch2_main.h"
 
 #include <iomanip>

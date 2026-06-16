@@ -38,14 +38,14 @@
 #include <utility>
 #include <vector>
 
-#include "../corvid/enums/enum_conversion.h"
-#include "../corvid/proto/dns_resolver.h"
-#include "../corvid/proto/io_uring/iou_loop.h"
-#include "../corvid/proto/quic/http3_plugins.h"
-#include "../corvid/proto/quic/http3_client_stream.h"
-#include "../corvid/proto/quic/quic_conn.h"
-#include "../corvid/proto/quic/quic_dgram_plugins.h"
-#include "../corvid/proto/quic/quic_ssl_ctx.h"
+#include "corvid/enums/enum_conversion.h"
+#include "corvid/proto/dns_resolver.h"
+#include "corvid/proto/io_uring/iou_loop.h"
+#include "corvid/proto/quic/http3_plugins.h"
+#include "corvid/proto/quic/http3_client_stream.h"
+#include "corvid/proto/quic/quic_conn.h"
+#include "corvid/proto/quic/quic_dgram_plugins.h"
+#include "corvid/proto/quic/quic_ssl_ctx.h"
 
 using namespace corvid;
 using namespace corvid::iouring;
