@@ -1468,10 +1468,10 @@ TEST_CASE("Ordering", "[FixedBitset]") {
   // Reflexive: equal bitsets compare equal.
   if (true) {
     fixed_bitset<64> a, b;
-    CHECK(a <=> b == 0);
+    CHECK(std::is_eq(a <=> b));
     a.set(5);
     b.set(5);
-    CHECK(a <=> b == 0);
+    CHECK(std::is_eq(a <=> b));
   }
 
   // Within one word: a higher-index bit makes the word value larger.

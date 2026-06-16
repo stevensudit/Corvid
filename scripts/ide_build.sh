@@ -4,8 +4,11 @@
 # (.vscode/tasks.json). Routes by file extension so Ctrl+Shift+B works on
 # either kind of source: a .cu file compiles with nvcc (g++-15 host,
 # libstdc++); anything else compiles with clang++/libc++, matching the
-# historical single-file debug build. The output lands at <dir>/debug_bin/<stem>
-# so launch.json (CodeLLDB) and the "Run Executable" task find it unchanged.
+# historical single-file debug build. The output lands at
+# <dir>/debug_bin/<stem>.exe, where launch.json (CodeLLDB) and the "Run
+# Executable" task find it. The .exe suffix is used on both platforms (harmless
+# on Linux) so one tasks.json/launch.json path template also serves the Windows
+# build, where binaries carry .exe.
 
 # Fail fast.
 set -e
@@ -20,7 +23,7 @@ srcDir="$(dirname "$src")"
 stem="$(basename "${src%.*}")"
 outDir="$srcDir/debug_bin"
 mkdir -p "$outDir"
-out="$outDir/$stem"
+out="$outDir/$stem.exe"
 
 # Test sources include library headers root-relative ("corvid/...") and the
 # shared Catch2 main wrapper by bare name ("catch2_main.h"), so put the repo

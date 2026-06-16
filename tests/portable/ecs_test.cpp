@@ -1795,7 +1795,7 @@ TEST_CASE("NoGen", "[StableId]") {
   }
 
   // handle_t is exactly sizeof(id_t): the gen field is zero-size via
-  // [[no_unique_address]].  Smaller than the default (gen-enabled) handle.
+  // CORVID_NO_UNIQUE_ADDRESS.  Smaller than the default (gen-enabled) handle.
   if (true) {
     static_assert(sizeof(V::handle_t) == sizeof(V::id_t));
     using WithGen = int_stable_ids;

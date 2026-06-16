@@ -530,8 +530,8 @@ struct self_rendering_formatter {
 
   constexpr auto parse(std::basic_format_parse_context<CharT>& ctx)
       -> std::basic_format_parse_context<CharT>::iterator {
-    const auto begin = ctx.begin();
-    const auto spec_text = std::basic_string_view<CharT>{begin, ctx.end()};
+    const auto spec_text =
+        std::basic_string_view<CharT>{ctx.begin(), ctx.end()};
     const auto consumed = spec_.parse(spec_text);
 
     // An automatic `{}` width or precision has no id in the spec string, so
@@ -542,7 +542,7 @@ struct self_rendering_formatter {
       spec_.precision_arg.value = ctx.next_arg_id();
 
     // Stop at the spec-terminating `}`
-    return begin + consumed;
+    return ctx.begin() + consumed;
   }
 
 #pragma endregion

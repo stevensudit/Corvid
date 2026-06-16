@@ -38,7 +38,7 @@
         {
             "label": "Run Executable",
             "type": "shell",
-            "command": "${fileDirname}/debug_bin/${fileBasenameNoExtension}",
+            "command": "${fileDirname}/debug_bin/${fileBasenameNoExtension}.exe",
             "group": {
                 "kind": "test",
                 "isDefault": true

@@ -657,8 +657,10 @@ TEST_CASE("Underlying", "[MetaTest]") {
   auto z = as_underlying(z1);
   CHECK(z0 == 1U);
   CHECK(z == 1U);
-  // Unscoped enum has unsigned int as underlying type
-  CHECK((std::is_same_v<unsigned int, decltype(z)>));
+  // The underlying type of an unscoped enum is implementation-defined
+  // (unsigned int on the Itanium ABI, int on the MSVC ABI), so check that
+  // as_underlying yields the underlying type rather than a fixed spelling.
+  CHECK((std::is_same_v<std::underlying_type_t<Z>, decltype(z)>));
 }
 
 #pragma endregion
@@ -683,7 +685,7 @@ TEST_CASE("MaybeTypes", "[MetaTest]") {
   CHECK((std::is_same_v<maybe_void_t<>, empty_t>));
 
   struct NoExtraSpace {
-    [[no_unique_address]] maybe_t<int, false> maybe{42};
+    CORVID_NO_UNIQUE_ADDRESS maybe_t<int, false> maybe{42};
     int value{};
   };
   struct Baseline {

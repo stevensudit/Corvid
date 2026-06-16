@@ -23,7 +23,6 @@
 #include <chrono>
 #include <cstdlib>
 #include <iostream>
-#include <unistd.h>
 
 #define CATCH2_SHOW_TIMERS 0
 #include "catch2_main.h"

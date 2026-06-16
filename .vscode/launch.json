@@ -4,7 +4,7 @@
       "name": "Type lldb (using CodeLLDB)",
       "type": "lldb",
       "request": "launch",
-      "program": "${fileDirname}/debug_bin/${fileBasenameNoExtension}",
+      "program": "${fileDirname}/debug_bin/${fileBasenameNoExtension}.exe",
       "args": [],
       "stopOnEntry": false,
       "cwd": "${workspaceFolder}",

@@ -88,7 +88,7 @@ template<StdEnum E>
   // Convert to enum value of integer.
   std::underlying_type_t<E> t;
   auto [ptr, ec] = std::from_chars(sv.data(), sv.data() + sv.size(), t);
-  if (ec != std::errc{} || ptr != sv.end()) return false;
+  if (ec != std::errc{} || ptr != sv.data() + sv.size()) return false;
   v = static_cast<E>(t);
   return true;
 }

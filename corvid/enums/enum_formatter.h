@@ -73,9 +73,8 @@ struct std::formatter<E, CharT> {
   constexpr void set_debug_format() { spec_.debug = true; }
 
   constexpr auto parse(std::basic_format_parse_context<CharT>& ctx) {
-    const auto begin = ctx.begin();
-    const auto spec_text = std::basic_string_view<CharT>{begin,
-        static_cast<std::size_t>(ctx.end() - begin)};
+    const auto spec_text =
+        std::basic_string_view<CharT>{ctx.begin(), ctx.end()};
     const auto consumed = spec_.parse(spec_text);
     validate_spec();
 
@@ -87,7 +86,7 @@ struct std::formatter<E, CharT> {
       spec_.precision_arg.value = ctx.next_arg_id();
 
     // Stop at the spec-terminating `}`.
-    return begin + consumed;
+    return ctx.begin() + consumed;
   }
 
 #pragma endregion
