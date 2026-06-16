@@ -73,7 +73,11 @@ if(WIN32)
     # C++23, so the build itself is unaffected.
     set(CMAKE_CXX23_STANDARD_COMPILE_OPTION "/std:c++latest")
     set(CMAKE_CXX23_EXTENSION_COMPILE_OPTION "/std:c++latest")
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /EHsc")
+    # clang-cl aliases bare -Wall/-Wextra to MSVC's /Wall (~ -Weverything, which
+    # floods c++98-compat / padded noise), so pass clang's real warning set
+    # through the /clang: escape to mirror the Linux build's -Wall -Wextra
+    # -Werror. The portable suite and the Catch2 subbuild are clean under it.
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /EHsc /clang:-Wall /clang:-Wextra /clang:-Werror")
 elseif(USE_LIBSTDCPP)
     # Rely on whichever clang is available and the default libstdc++ install.
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O3 -march=native -Wall -Wextra -Werror -std=c++23")

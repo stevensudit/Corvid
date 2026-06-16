@@ -54,6 +54,9 @@ if (-not (Test-Path $catch2Lib)) {
 # name, so the repo root and tests/ both go on the include path.
 $clArgs = @(
   '/nologo', '/std:c++latest', '/EHsc', '/MDd', '/Zi', '/Od',
+  # clang's real warning set via the /clang: escape (bare -Wall is MSVC's /Wall
+  # under clang-cl), mirroring ide_build.sh's -Wall -Wextra -Werror.
+  '/clang:-Wall', '/clang:-Wextra', '/clang:-Werror', '/clang:-Wno-unused-variable',
   '-I', $workspace,
   '-I', (Join-Path $workspace 'tests'),
   '-I', (Join-Path $fc 'catch2-src/src'),
