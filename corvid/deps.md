@@ -17,6 +17,7 @@ points to below.
 
 ```text
 L0  meta              corvid/meta/, corvid/meta.h    Foundation: std + internal only.
+    math              corvid/math/, corvid/math.h    Foundation: abstract math, std only.
 L1  infra             corvid/infra/                  scope_exit, relaxed_atomic, firewalls.
     strings           corvid/strings/                Enum-free string utilities.
     containers/core   corvid/containers/core/        Enum-free container utilities.
@@ -35,6 +36,10 @@ allow-list below captures that order precisely.
 
 The apex bands (`ecs`, `proto`, `lang`, `sim`) may depend on any lower band.
 `controllers` is a leaf parallel to the tree: it has no cross-folder edges.
+
+`math` is a second std-only foundation alongside `meta`. Because it includes
+nothing from corvid, it can never form a cycle, so any band may depend on it
+(it is universally dependable, like `meta`).
 
 ## The core/utils split
 
@@ -88,13 +93,13 @@ folder-level cycle, and no separate band needed to break one.
 
 ## Cross-band edges
 
-Derived from `#include` directives. `meta` and `controllers` have no outgoing
-cross-band edges.
+Derived from `#include` directives. `meta`, `math`, and `controllers` have no
+outgoing cross-band edges.
 
 ```text
 infra            -> meta
 strings          -> meta
-containers/core  -> meta, infra
+containers/core  -> meta, infra, math
 enums            -> meta, strings, containers/core
 filesys          -> strings, enums
 concurrency      -> meta, infra, filesys
@@ -162,15 +167,16 @@ against the allow-list. It is wired into `cleanbuild.sh` (it runs first, before
 any build, since it is static and build-independent) and is runnable on its own
 for CI.
 
-Allow-list (a band may always include its own siblings; `meta` is the universal
-foundation; apex bands may include any lower band; `controllers` includes std
-only):
+Allow-list (a band may always include its own siblings; `meta` and `math` are
+universal foundations; apex bands may include any lower band; `controllers`
+includes std only):
 
 ```text
 meta             -> (std only)
+math             -> (std only)
 infra            -> meta
 strings          -> meta
-containers/core  -> meta, infra
+containers/core  -> meta, infra, math
 enums            -> meta, strings, containers/core
 filesys          -> meta, strings, enums
 concurrency      -> meta, infra, filesys

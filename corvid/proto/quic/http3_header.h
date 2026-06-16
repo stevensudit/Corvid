@@ -124,18 +124,18 @@ consteval auto corvid_enum_spec(qpack_token*) {
   return corvid::enums::sequence::make_sequence_enum_spec<qpack_token,
       "0,:authority,:method|8,:path,:scheme,,:status|25,accept,,accept-"
       "encoding,accept-language,accept-ranges,access-control-allow-"
-      "credentials,,access-control-allow-headers|35,access-control-allow-"
-      "methods|38,access-control-allow-origin,access-control-expose-headers,"
+      "credentials,,access-control-allow-headers,,,access-control-allow-"
+      "methods,,,access-control-allow-origin,access-control-expose-headers,"
       "access-control-request-headers,access-control-request-method,,age,alt-"
       "svc,authorization,cache-control|52,content-disposition,content-"
       "encoding,,content-length,content-security-policy,content-type|68,"
       "cookie,date,early-data,etag,expect-ct,forwarded,if-modified-since,if-"
       "none-match,if-range,last-modified,link,location,origin,purpose,range,"
-      "referer,server,set-cookie,strict-transport-security|89,timing-allow-"
+      "referer,server,set-cookie,strict-transport-security,,,timing-allow-"
       "origin,upgrade-insecure-requests,user-agent,vary,,x-content-type-"
       "options,x-forwarded-for,x-frame-options,,x-xss-protection|1000,host,"
-      "connection,keep-alive,proxy-connection,transfer-encoding,upgrade,te,"
-      ":protocol,priority">();
+      "connection,keep-alive,proxy-connection,transfer-encoding,upgrade,te,:"
+      "protocol,priority">();
 }
 
 #pragma endregion

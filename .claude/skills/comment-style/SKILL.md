@@ -95,7 +95,7 @@ labeled lead-in line and `-` bullets:
   // The default delimiter is a single space.
   constexpr basic_delim() noexcept : base{view_t{&delim_space<char_t>, 1}} {}
 
-#pragma endregion Construction
+#pragma endregion
 #pragma region Locating
 ```
 

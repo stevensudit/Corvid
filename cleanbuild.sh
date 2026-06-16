@@ -24,6 +24,12 @@ set -e
 # exclusive with everything else. The default is clang with `libcxx`, no tidy,
 # no sanitizer, no coverage, no scan.
 #
+# CUDA: when nvcc and g++-15 are installed and the mode is plain (no sanitizer,
+# coverage, or scan), the *.cu sources in tests/ build alongside the *.cpp
+# suite as their own nvcc/libstdc++ executables, regardless of the compiler and
+# standard library chosen for the C++ files. Pass a *.cu filename to build and
+# run just one.
+#
 # This script builds and runs one configuration at a time. To exercise every
 # configuration (plain, asan, tsan, msan, tidy) in sequence, pass "all":
 #
@@ -42,7 +48,7 @@ use_scan=false
 test_name=""
 target_name=""
 
-usage="Usage: $0 [all | [testname.cpp] [clang|gcc] [libstdcpp|libcxx] [tidy] [asan|tsan|ubsan|msan] [coverage] [scan]]"
+usage="Usage: $0 [all | [testname.cpp|testname.cu] [clang|gcc] [libstdcpp|libcxx] [tidy] [asan|tsan|ubsan|msan] [coverage] [scan]]"
 
 # Enforce the core/utils band layering before any build (fast, static, and
 # build-independent). See corvid/deps.md.
@@ -84,9 +90,9 @@ if [[ $# -gt 0 && "$1" != "libstdcpp" && "$1" != "libcxx" \
       && "$1" != "tidy" && "$1" != "--tidy" \
       && "$1" != "asan" && "$1" != "tsan" && "$1" != "ubsan" \
       && "$1" != "msan" && "$1" != "coverage" && "$1" != "scan" ]]; then
-  if [[ "$1" == *.cpp ]]; then
+  if [[ "$1" == *.cpp || "$1" == *.cu ]]; then
     test_name="$1"
-    target_name="${test_name%.cpp}"
+    target_name="${test_name%.*}"
     shift
   else
     echo "$usage" >&2
@@ -144,6 +150,27 @@ if $use_scan; then
     echo "$0: 'scan' takes no other arguments (configure-only static analysis)" >&2
     exit 1
   fi
+fi
+
+# CUDA (.cu) targets build automatically in plain modes when the toolchain is
+# present, independently of the compiler/stdlib chosen for the .cpp files: each
+# .cu is its own single-source executable (nvcc, g++-15 host, libstdc++) and
+# shares no link line with a .cpp binary. nvcc rejects gcc newer than 15, so we
+# pin its host compiler to g++-15 and target the build host's GPU (native).
+# Skip CUDA under sanitizers/coverage/scan: clang's instrumentation does not
+# apply to nvcc, and those flags would break the g++-15-driven CUDA link.
+CUDA_OPTION=""
+if [[ -z "$sanitizer" ]] && ! $use_coverage && ! $use_scan; then
+  if command -v nvcc >/dev/null 2>&1 && command -v g++-15 >/dev/null 2>&1; then
+    CUDA_OPTION="-DCORVID_ENABLE_CUDA=ON -DCMAKE_CUDA_HOST_COMPILER=$(command -v g++-15) -DCMAKE_CUDA_ARCHITECTURES=native"
+  fi
+fi
+
+# A requested .cu source needs that toolchain and a plain mode; fail clearly
+# rather than configuring a build that silently produces no target.
+if [[ "$test_name" == *.cu && -z "$CUDA_OPTION" ]]; then
+  echo "$0: '$test_name' needs CUDA (nvcc + g++-15) in a plain build mode (no sanitizer/coverage/scan)" >&2
+  exit 1
 fi
 
 # Default the compiler to clang; gcc is opt-in.
@@ -219,27 +246,61 @@ else
   COV_OPTION=""
 fi
 
+# Strip asserts (define NDEBUG) for the plain and coverage builds. Keep them
+# live for the analysis modes -- sanitizers, tidy, and scan (CSA) -- where the
+# assert checks, and the facts they hand the static analyzer, are the point.
+if ! $use_tidy && ! $use_scan && [[ -z "$sanitizer" ]]; then
+  NDEBUG_OPTION="-DCORVID_DISABLE_ASSERTS=ON"
+else
+  NDEBUG_OPTION=""
+fi
+
 # Define the build directory (assuming you're using an out-of-source build)
 buildRoot="tests/build"
 buildDir="$buildRoot/release_bin"
+sigFile="$buildRoot/.cleanbuild-config"
 
-rm -f CMakeCache.txt cmake_install.cmake ClangExeProject.sln build.ninja
-rm -rf CMakeFiles .ninja_deps .ninja_log
+# Signature of everything that determines the CMake configuration. When a
+# single-file build is requested and the existing build dir already carries a
+# matching signature, the configuration cannot have changed, so we skip the
+# wipe and the cold reconfigure (~19s of nvcc/find_package probing that would
+# only reproduce identical build files) and rebuild just the one target. A full
+# build, a changed option, a different file, or a first run all fall through to
+# the clean path. Editing CMakeLists.txt still reconfigures: `cmake --build`
+# re-runs CMake itself when the lists file is newer than the cache.
+configSig="$LIBSTD_OPTION|$TIDY_OPTION|$TEST_NAME_OPTION|$SAN_OPTION|$COV_OPTION|$CUDA_OPTION|$NDEBUG_OPTION|CC=$CC|CXX=$CXX"
 
-# If the release directory exists, delete it to clean the build
-if [ -d "$buildDir" ]; then
-    echo "Cleaning the build directory at $buildDir"
-    rm -rf "$buildDir"
-else
-    echo "Build directory not found. Creating a new one at $buildDir"
+reuse=false
+if [[ -n "$test_name" ]] && ! $use_scan &&
+  [[ -f "$sigFile" && "$(cat "$sigFile")" == "$configSig" ]]; then
+  reuse=true
 fi
 
-# Remove and recreate the CMake build directory
-rm -rf "$buildRoot"
-mkdir -p "$buildRoot" "$buildDir"
+if $reuse; then
+  echo "Reusing configured build dir for $test_name (config unchanged); skipping wipe and reconfigure."
+  # "Clean" still means a fresh executable: drop just this target's binary so
+  # it relinks, leaving the cached objects and configuration in place.
+  rm -f "$buildDir/$target_name"
+else
+  # Clean any stray artifacts from a legacy in-source build at the repo root.
+  rm -f CMakeCache.txt cmake_install.cmake ClangExeProject.sln build.ninja
+  rm -rf CMakeFiles .ninja_deps .ninja_log
 
-# Run cmake to configure the project with Ninja and the selected compiler
-cmake -S tests -B "$buildRoot" -G "Ninja" $LIBSTD_OPTION $TIDY_OPTION $TEST_NAME_OPTION $SAN_OPTION $COV_OPTION
+  # Remove and recreate the CMake build directory, then configure from scratch.
+  if [ -d "$buildDir" ]; then
+    echo "Cleaning the build directory at $buildDir"
+  else
+    echo "Build directory not found. Creating a new one at $buildDir"
+  fi
+  rm -rf "$buildRoot"
+  mkdir -p "$buildRoot" "$buildDir"
+
+  # Run cmake to configure the project with Ninja and the selected compiler.
+  cmake -S tests -B "$buildRoot" -G "Ninja" $LIBSTD_OPTION $TIDY_OPTION $TEST_NAME_OPTION $SAN_OPTION $COV_OPTION $CUDA_OPTION $NDEBUG_OPTION
+
+  # Record the signature so the next matching single-file run can reuse this.
+  echo "$configSig" >"$sigFile"
+fi
 
 # Scan mode: hand the compile database to the Clang Static Analyzer and
 # stop. We don't need ninja artifacts -- analyze-build re-invokes clang with
@@ -289,7 +350,7 @@ fi
 
 # Run the build (this will compile everything from scratch)
 if $use_tidy; then
-  tidyLogFile="$buildRoot/tidy.log"
+  tidyLogFile="$(pwd)/$buildRoot/tidy.log"
   if [[ -n "$target_name" ]]; then
     cmake --build "$buildRoot" --config Release --target "$target_name" 2>&1 | tee "$tidyLogFile"
   else
@@ -304,7 +365,8 @@ else
 fi
 
 # Run the registered CTest suite. `notest_*` sources are built but not
-# registered, so ctest naturally skips them.
+# registered, so ctest naturally skips them -- except a single `notest_*` file
+# requested by name, which is run directly below.
 #
 # In sanitizer modes we keep going past failures so the whole sweep reports
 # every issue rather than bailing on the first one. Plain runs still bail
@@ -333,7 +395,21 @@ fi
 # Don't let set -e abort on a test failure: we still want the tidy summary
 # below to print. Capture the status and propagate it after summarizing.
 ctest_status=0
-ctest "${ctest_args[@]}" || ctest_status=$?
+if [[ -n "$target_name" && "$target_name" == notest_* ]]; then
+  # A `notest_*` source opts out of CTest, so nothing is registered to run.
+  # A build-everything run skips it (the point of the prefix), but an explicit
+  # single-file request means "build AND run this one", so run it directly.
+  notest_bin="$buildDir/$target_name"
+  if [[ -x "$notest_bin" ]]; then
+    echo "Running $notest_bin"
+    "$notest_bin" || ctest_status=$?
+  else
+    echo "$0: built binary not found: $notest_bin" >&2
+    ctest_status=1
+  fi
+else
+  ctest "${ctest_args[@]}" || ctest_status=$?
+fi
 
 # In tidy mode, clang-tidy warnings stream through the build phase but get
 # buried under the ctest run that follows. Summarize them at the very end so
@@ -358,11 +434,11 @@ if $use_tidy; then
         | grep -oE '\[[A-Za-z][A-Za-z0-9._-]*\]$' \
         | sort | uniq -c | sort -rn \
         | sed 's/^/  /'
-    echo
-    echo "Full log: $tidyLogFile"
   else
     echo "clean: no warnings"
   fi
+  echo
+  echo "Full log: $tidyLogFile"
   echo "============================================================"
 fi
 

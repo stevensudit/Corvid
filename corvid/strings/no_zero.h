@@ -106,7 +106,7 @@ rightsize_to(std::string& s, size_t minimum_size, size_t maximum_size) {
   return enlarge_to(s, minimum_size);
 }
 
-#pragma endregion no_zero
+#pragma endregion
 
 } // namespace no_zero
 }} // namespace corvid::strings::no_zero_funcs

@@ -16,11 +16,12 @@ else
 fi
 
 echo "Using $CLANG_FORMAT"
-echo "Formatting all .cpp and .h files..."
+echo "Formatting all .cpp, .h, .cu, and .cuh files..."
 
-# Find and format all .cpp and .h files, excluding build directories, CMake
-# files, and the .local sandbox (used for MSAN-instrumented LLVM source).
-find . -type f \( -name "*.cpp" -o -name "*.h" \) \
+# Find and format all .cpp, .h, .cu, and .cuh files, excluding build
+# directories, CMake files, and the .local sandbox (used for MSAN-instrumented
+# LLVM source).
+find . -type f \( -name "*.cpp" -o -name "*.h" -o -name "*.cu" -o -name "*.cuh" \) \
   -not -path "*/build/*" \
   -not -path "*/CMakeFiles/*" \
   -not -path "*/.fetchcontent/*" \

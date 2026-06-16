@@ -645,11 +645,13 @@ template<strings::fixed_string names>
 //
 // Each '|'-delimited segment is `start,name,name,...`: the first comma-field
 // is the absolute start value and the rest are names, taken verbatim. An empty
-// field is an empty name. Segments must ascend and be separated by more than
-// one value; runs any closer are rejected and should be merged into one
-// segment, using empty names for the gap, since a single-value gap costs the
-// same as an empty name. `min` and `max` are derived from them. The packed
-// names are views into `Nulled`.
+// field is an empty name. Segments must ascend, and each segment's start must
+// exceed the previous segment's last value by at least four, leaving at least
+// three unnamed values between them; runs any closer are rejected and should be
+// merged into one segment, using empty names for the gap, since a one- or
+// two-value gap costs about as much as the empty names while a new segment also
+// pays for its start value and the '|'. `min` and `max` are derived from them.
+// The packed names are views into `Nulled`.
 template<strings::fixed_string names, std::integral U, size_t NameCount,
     size_t SegCount, strings::fixed_string Nulled = make_nulled<names>()>
 [[nodiscard]] consteval auto parse_segmented_names() {
@@ -671,7 +673,7 @@ template<strings::fixed_string names, std::integral U, size_t NameCount,
     if (segment_ndx != 0) {
       if (start <= name_segments.max)
         throw std::invalid_argument("segments must ascend");
-      if (start - name_segments.max <= 2)
+      if (start - name_segments.max <= 3)
         throw std::invalid_argument("segments too close");
     }
 
@@ -805,9 +807,10 @@ struct sequence_enum_names_spec
 // even if there are a few gaps.
 //
 // In the segmented form, a '|' separates two or more segments (with no leading
-// or trailing '|'), listed in ascending order and separated by more than one
-// value (closer runs are a compile-time error: merge them into one segment,
-// using empty names for the gap). Each segment's first comma-field is its
+// or trailing '|'), listed in ascending order, with each segment's start at
+// least four greater than the previous segment's last value (closer runs are a
+// compile-time error: merge them into one segment, using empty names for the
+// gap). Each segment's first comma-field is its
 // absolute start value and the rest are names. This compacts a sparse enum:
 // the gaps between segments cost nothing, instead of an empty name per skipped
 // value. `min` and `max` are derived from the segments, so `minseq` is not

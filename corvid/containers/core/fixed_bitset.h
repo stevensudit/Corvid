@@ -17,6 +17,8 @@
 #pragma once
 #include "containers_shared.h"
 
+#include "../../math/arithmetic.h"
+
 #include <array>
 #include <bit>
 #include <cassert>
@@ -110,9 +112,9 @@ public:
           std::conditional_t<(word_bits_v == 16), uint16_t, uint8_t>>>;
   static constexpr size_t bits_per_word_v = sizeof(word_t) * 8;
 
-  // Number of words needed to hold all `bit_count_v` bits (ceiling division).
+  // Number of words needed to hold all `bit_count_v` bits.
   static constexpr size_t word_count_v =
-      (bit_count_v + bits_per_word_v - 1) / bits_per_word_v;
+      ceil_div(bit_count_v, bits_per_word_v);
 
 #pragma endregion
 #pragma region iterator

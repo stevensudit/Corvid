@@ -8,6 +8,8 @@
     },
     "C_Cpp.default.enableIntelliSense": true,
     "files.associations": {
+        "*.cu": "cpp",
+        "*.cuh": "cpp",
         "algorithm": "cpp",
         "array": "cpp",
         "atomic": "cpp",

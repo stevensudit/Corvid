@@ -138,7 +138,7 @@ public:
     return false;
   }
   virtual bool append(std::string& out) const {
-    strings::append_enum(out, op);
+    append_enum(out, op);
     return true;
   }
   std::string print() const {

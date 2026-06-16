@@ -215,6 +215,6 @@ private:
 template<AnyAppendTarget T>
 appender(T) -> appender<T>;
 
-#pragma endregion appender
+#pragma endregion
 
 }} // namespace corvid::strings::targeting

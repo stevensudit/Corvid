@@ -38,6 +38,27 @@ CompileFlags:
   Add: [-isystem, @NGTCP2_INCLUDE_DIR@, -isystem, @NGHTTP3_INCLUDE_DIR@, -isystem, @OPENSSL_INCLUDE_DIR@]
 
 ---
+# CUDA sources/headers (corvid/cuda/, tests/*.cu). clangd otherwise parses
+# these as plain C++ and flags the CUDA attributes (__host__, __device__,
+# __global__) and the <<<...>>> launch syntax as unknown. Put clangd into CUDA
+# mode with clang's own CUDA frontend (the one clangd embeds): -xcuda plus the
+# toolkit path. clang-22 only "partially supports" up to CUDA 12.9, so
+# --no-cuda-version-check silences the version-mismatch warning for the 13.3
+# toolkit; parsing is unaffected.
+#
+# A .cu file (unlike a header) has an nvcc entry in compile_commands.json.
+# clangd runs that command through its embedded clang, which rejects nvcc-only
+# flags as "unknown argument", so strip them: -forward-unknown-to-host-compiler,
+# -ccbin=..., and -arch=... (clang gets its arch via the default sm_52, which is
+# fine for parsing).
+If:
+  PathMatch: [.*\.cu, .*\.cuh]
+CompileFlags:
+  Compiler: /usr/bin/clang++-22
+  Remove: [-forward-unknown-to-host-compiler, -ccbin=*, -arch=*]
+  Add: [-xcuda, --cuda-path=/usr/local/cuda, --no-cuda-version-check, -std=c++23]
+
+---
 Diagnostics:
   UnusedIncludes: None
   MissingIncludes: None

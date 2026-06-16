@@ -26,7 +26,7 @@ using namespace corvid::proto::quic::http3_literals;
 // NOLINTBEGIN(readability-function-cognitive-complexity)
 
 TEST_CASE("h3_error_code names round-trip across the gap", "[http3]") {
-  using namespace corvid::strings;
+  using namespace corvid;
   using E = h3_error_code;
 
   // Forward: both blocks resolve by name; the gap between them, and codes

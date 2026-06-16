@@ -54,7 +54,7 @@ struct basic_delim: public string_view_wrapper<basic_delim<CharT>, CharT> {
   constexpr basic_delim(view_t list) noexcept : base{list} {}
   constexpr basic_delim(const char_t* psz) : base{psz} {}
 
-#pragma endregion Construction
+#pragma endregion
 #pragma region Locating
 
   [[nodiscard]] constexpr auto find_in(view_t whole) const {
@@ -72,7 +72,7 @@ struct basic_delim: public string_view_wrapper<basic_delim<CharT>, CharT> {
     return whole.find_last_not_of(*this);
   }
 
-#pragma endregion Locating
+#pragma endregion
 #pragma region Append
 
   // Append.
@@ -102,12 +102,12 @@ struct basic_delim: public string_view_wrapper<basic_delim<CharT>, CharT> {
     return target;
   }
 
-#pragma endregion Append
+#pragma endregion
 };
 
 // The default delimiter type, over `char`.
 using delim = basic_delim<char>;
 
-#pragma endregion delim
+#pragma endregion
 
 }} // namespace corvid::strings::delimiting

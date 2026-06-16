@@ -16,6 +16,11 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 # Codex, where libstdc++ is required.
 option(USE_LIBSTDCPP "Use GNU libstdc++ instead of libc++" OFF)
 option(USE_CLANG_TIDY "Run clang-tidy analysis" OFF)
+option(CORVID_ENABLE_CUDA "Build .cu targets with nvcc (host g++-15, libstdc++)" OFF)
+# Default OFF keeps asserts live, so a bare configure and the analysis modes
+# (sanitizers, tidy, scan) all retain them. cleanbuild.sh turns this ON only
+# for the plain and coverage builds, where the assert cost is not wanted.
+option(CORVID_DISABLE_ASSERTS "Define NDEBUG to strip asserts" OFF)
 set(TEST_NAME "" CACHE STRING "Build only the named test source file")
 
 # Set the C++ standard to C++23
@@ -71,12 +76,25 @@ else()
     # runtime lives in libc++experimental, which must come before libc++ in
     # the link order because it references symbols from libc++.
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O3 -march=native -Wall -Wextra -Werror -nostdinc++ -isystem ${LIBCXX_PREFIX}/include/c++/v1 -std=c++23 -fexperimental-library")
-    set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -stdlib=libc++ --rtlib=compiler-rt -fuse-ld=lld")
-    set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -L${LIBCXX_PREFIX}/lib -lc++experimental -lc++ -lc++abi")
-    # Embed an rpath so binaries find libc++/libunwind .so files at the chosen
-    # prefix without requiring LD_LIBRARY_PATH. Harmless for the system path,
-    # essential for SANITIZER=msan where LIBCXX_PREFIX is outside ld.so config.
-    set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -Wl,-rpath,${LIBCXX_PREFIX}/lib")
+    # These are libc++/clang link flags. We add them with add_link_options
+    # guarded by $<LINK_LANGUAGE:CXX> rather than the global
+    # CMAKE_EXE_LINKER_FLAGS so that only CXX-linked targets see them. CUDA
+    # (.cu) executables are linked by g++-15 (the nvcc host compiler) and must
+    # stay on libstdc++; g++-15 also rejects -stdlib=libc++ / --rtlib=compiler-rt
+    # outright. The genex keeps these off that link line. -lc++experimental must
+    # precede -lc++ (it references libc++ symbols). The rpath lets binaries find
+    # the libc++/libunwind .so files at the chosen prefix without
+    # LD_LIBRARY_PATH: harmless for the system path, essential for
+    # SANITIZER=msan where LIBCXX_PREFIX is outside the ld.so config.
+    add_link_options(
+        "$<$<LINK_LANGUAGE:CXX>:-stdlib=libc++>"
+        "$<$<LINK_LANGUAGE:CXX>:--rtlib=compiler-rt>"
+        "$<$<LINK_LANGUAGE:CXX>:-fuse-ld=lld>"
+        "$<$<LINK_LANGUAGE:CXX>:-L${LIBCXX_PREFIX}/lib>"
+        "$<$<LINK_LANGUAGE:CXX>:-lc++experimental>"
+        "$<$<LINK_LANGUAGE:CXX>:-lc++>"
+        "$<$<LINK_LANGUAGE:CXX>:-lc++abi>"
+        "$<$<LINK_LANGUAGE:CXX>:-Wl,-rpath,${LIBCXX_PREFIX}/lib>")
 endif()
 
 # Use ccache as a compiler launcher when available so that cleanbuild's
@@ -86,6 +104,10 @@ find_program(CCACHE_PROGRAM ccache)
 if(CCACHE_PROGRAM)
     message(STATUS "ccache enabled: ${CCACHE_PROGRAM}")
     set(CMAKE_CXX_COMPILER_LAUNCHER "${CCACHE_PROGRAM}")
+    # Cache nvcc too, so a clean rebuild of an unchanged .cu restores from
+    # cache instead of recompiling. ccache hashes -arch=native verbatim, so the
+    # cache is only valid while the build host's GPU is unchanged -- true here.
+    set(CMAKE_CUDA_COMPILER_LAUNCHER "${CCACHE_PROGRAM}")
 endif()
 
 # Optional coverage mode. Selected via -DCOVERAGE=ON (or `./cleanbuild.sh
@@ -164,6 +186,15 @@ if(SANITIZER)
     endif()
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${_san_flags}")
     set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} ${_san_flags}")
+endif()
+
+# Strip asserts via NDEBUG when requested. Applied as a compile definition (not
+# a CXX flag) so the .cu targets, compiled by nvcc, pick it up too.
+if(CORVID_DISABLE_ASSERTS)
+    add_compile_definitions(NDEBUG)
+    message(STATUS "Asserts disabled (NDEBUG)")
+else()
+    message(STATUS "Asserts live (NDEBUG not set)")
 endif()
 
 # External dependencies: requires apt install liburing-dev pkg-config
@@ -392,10 +423,39 @@ if(USE_CLANG_TIDY)
     endif()
 endif()
 
+# CUDA (.cu) targets. cleanbuild.sh sets CORVID_ENABLE_CUDA=ON (and passes
+# CMAKE_CUDA_HOST_COMPILER + CMAKE_CUDA_ARCHITECTURES) whenever nvcc and g++-15
+# are present and the build is a plain one (no sanitizer/coverage/scan). nvcc
+# rejects gcc newer than 15, so it must use g++-15 as its host compiler. The
+# .cu targets are independent single-source executables linked against
+# libstdc++, so they coexist with whatever compiler/stdlib the .cpp suite uses;
+# the libc++ link flags above are CXX-only and never reach this link line.
+if(CORVID_ENABLE_CUDA)
+    enable_language(CUDA)
+    if(NOT CMAKE_CUDA_ARCHITECTURES)
+        # `native` resolves to the build host's GPU (sm_89 on an RTX 4090).
+        set(CMAKE_CUDA_ARCHITECTURES native)
+    endif()
+    # CMake 3.28 cannot map CUDA_STANDARD 23 (it rejects the dialect as
+    # unsupported by nvcc), though nvcc 13.3 accepts -std=c++23. Clear CMake's
+    # default standard flag and pass c++23 ourselves so the nvcc command line
+    # carries a single -std (no "incompatible redefinition for option 'std'"
+    # warning).
+    set(CMAKE_CUDA_STANDARD_DEFAULT "")
+    # -lineinfo adds source-line correlation to the optimized SASS so Nsight
+    # (and compute-sanitizer) can attribute results to source lines. Unlike -G
+    # it leaves device optimization intact, so the runtime cost is negligible.
+    string(APPEND CMAKE_CUDA_FLAGS " -std=c++23 -O3 -lineinfo")
+    message(STATUS
+        "CUDA enabled: ${CMAKE_CUDA_COMPILER} (host ${CMAKE_CUDA_HOST_COMPILER}, "
+        "arch ${CMAKE_CUDA_ARCHITECTURES})")
+endif()
+
 # Output directory
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/release_bin")
 
-# Source files (only in this directory)
+# Source files (only in this directory). .cpp builds the CXX suite below; .cu
+# is routed to the CUDA loop further down (built only when CORVID_ENABLE_CUDA).
 file(GLOB SOURCES "*.cpp")
 
 if(TEST_NAME)
@@ -404,7 +464,19 @@ if(TEST_NAME)
         message(FATAL_ERROR "Requested test source not found: ${TEST_NAME}")
     endif()
 
-    set(SOURCES "${FILTERED_SOURCE}")
+    # Route the single requested source to its language. A .cu filter leaves
+    # SOURCES empty (the CXX loop builds nothing) and hands the file to the
+    # CUDA loop; a .cpp filter does the reverse.
+    if(TEST_NAME MATCHES "\\.cu$")
+        if(NOT CORVID_ENABLE_CUDA)
+            message(FATAL_ERROR
+                "Requested .cu source '${TEST_NAME}' but CUDA is not enabled")
+        endif()
+        set(SOURCES "")
+        set(CUDA_TEST_NAME_SOURCE "${FILTERED_SOURCE}")
+    else()
+        set(SOURCES "${FILTERED_SOURCE}")
+    endif()
     message(STATUS "Building only test source: ${TEST_NAME}")
 endif()
 
@@ -449,6 +521,59 @@ foreach(SOURCE_FILE ${SOURCES})
         target_link_libraries(${EXECUTABLE_NAME} PRIVATE c++ c++abi)
     endif()
 endforeach()
+
+# CUDA (.cu) test executables, the same single-source-per-executable model as
+# the .cpp suite above but compiled by nvcc (g++-15 host) and linked against
+# libstdc++. They use Catch2 like the rest of the suite. Because .cu targets
+# are always libstdc++, they need the system (apt) Catch2 rather than the libc++
+# FetchContent build the .cpp suite may be using, so we locate it directly
+# instead of reusing Catch2::Catch2 (the wrong ABI in a libc++ configure).
+# notest_* opt out of Catch2 and CTest, as in the .cpp loop. A .cu file reaches
+# its own headers with a relative include ("../corvid/cuda/..."), as the .cpp
+# tests do.
+if(CORVID_ENABLE_CUDA)
+    if(DEFINED CUDA_TEST_NAME_SOURCE)
+        set(CUDA_SOURCES "${CUDA_TEST_NAME_SOURCE}")
+    elseif(TEST_NAME)
+        set(CUDA_SOURCES "") # a .cpp single-file filter builds no .cu targets
+    else()
+        file(GLOB CUDA_SOURCES "*.cu")
+    endif()
+
+    if(CUDA_SOURCES)
+        # cuBLAS ships with the CUDA toolkit; FindCUDAToolkit exposes it as the
+        # CUDA::cublas imported target (include dirs + link). A .cu target opts
+        # in below by referencing cublas in its source.
+        find_package(CUDAToolkit REQUIRED)
+        find_path(CUDA_CATCH2_INCLUDE_DIR catch2/catch_test_macros.hpp)
+        find_library(CUDA_CATCH2_LIBRARY NAMES Catch2)
+        if(NOT CUDA_CATCH2_INCLUDE_DIR OR NOT CUDA_CATCH2_LIBRARY)
+            message(FATAL_ERROR
+                "CUDA tests use Catch2 but the system libstdc++ Catch2 was not "
+                "found (apt install catch2).")
+        endif()
+        # The catch2_main.h that each test includes supplies main() via
+        # Catch::Session, so only libCatch2 is needed (not libCatch2Main).
+        add_library(cuda_catch2 UNKNOWN IMPORTED)
+        set_target_properties(cuda_catch2 PROPERTIES
+            IMPORTED_LOCATION "${CUDA_CATCH2_LIBRARY}"
+            INTERFACE_INCLUDE_DIRECTORIES "${CUDA_CATCH2_INCLUDE_DIR}")
+    endif()
+
+    foreach(SOURCE_FILE ${CUDA_SOURCES})
+        get_filename_component(EXECUTABLE_NAME ${SOURCE_FILE} NAME_WE)
+        add_executable(${EXECUTABLE_NAME} ${SOURCE_FILE})
+        # Auto-link cuBLAS for sources that use it, matching `nvcc ... -lcublas`.
+        file(STRINGS ${SOURCE_FILE} CUDA_USES_CUBLAS REGEX "cublas")
+        if(CUDA_USES_CUBLAS)
+            target_link_libraries(${EXECUTABLE_NAME} PRIVATE CUDA::cublas)
+        endif()
+        if(NOT ${EXECUTABLE_NAME} MATCHES "^notest_")
+            target_link_libraries(${EXECUTABLE_NAME} PRIVATE cuda_catch2)
+            add_test(NAME ${EXECUTABLE_NAME} COMMAND ${EXECUTABLE_NAME})
+        endif()
+    endforeach()
+endif()
 
 # Generate `.clangd` at the project root from `.clangd.in`. The dep paths
 # baked in (ngtcp2, openssl) are absolute and tied to this checkout, so the

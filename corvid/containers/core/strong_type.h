@@ -83,7 +83,7 @@ public:
       std::is_nothrow_constructible_v<T, U&&>)
       : value_{std::forward<U>(value)} {}
 
-#pragma endregion ctors
+#pragma endregion
 #pragma region assignment
 
   // Assignment and move.
@@ -111,7 +111,7 @@ public:
     swap(value_, other.value_);
   }
 
-#pragma endregion assignment
+#pragma endregion
 #pragma region access
 
   // Access.
@@ -119,7 +119,7 @@ public:
     return forward_like<decltype(self)>(self.value_);
   }
 
-#pragma endregion access
+#pragma endregion
 #pragma region pointers
 
   // Deference and pointer semantics for access. Unlike `std::optional` or
@@ -138,7 +138,7 @@ public:
   // provide a bit of syntactic sugar to avoid calling an accessor. In reality,
   // this doesn't work very well at all.
 
-#pragma endregion pointers
+#pragma endregion
 #pragma region relational
 
   // Relational operators.
@@ -277,7 +277,7 @@ public:
     return (lhs <=> rhs) >= 0;
   }
 
-#pragma endregion relational
+#pragma endregion
 #pragma region unary
 
   // Unary operators.
@@ -337,7 +337,7 @@ public:
   [[nodiscard]] explicit operator const T&() const { return value_; }
   [[nodiscard]] explicit operator T&() { return value_; }
 
-#pragma endregion unary
+#pragma endregion
 #pragma region binarymath
 
   // Binary arithmetic operators.
@@ -438,7 +438,7 @@ public:
     return strong_type{lhs % rhs.value_};
   }
 
-#pragma endregion binarymath
+#pragma endregion
 #pragma region binarybitwise
 
   // Binary bitwise operators.
@@ -529,7 +529,7 @@ public:
     return strong_type{lhs.value_ >> rhs};
   }
 
-#pragma endregion binarybitwise
+#pragma endregion
 #pragma region assignmath
 
   // Arithmetic assignment operators.
@@ -598,7 +598,7 @@ public:
     return *this;
   }
 
-#pragma endregion assignmath
+#pragma endregion
 #pragma region assignbitwise
 
   // Bitwise assignment operators.
@@ -667,7 +667,7 @@ public:
     return *this;
   }
 
-#pragma endregion assignbitwise
+#pragma endregion
 #pragma region iteration
 
   // Iteration.
@@ -693,7 +693,7 @@ public:
     return value_.rend();
   }
 
-#pragma endregion iteration
+#pragma endregion
 #pragma region braces
 
   // Function call returning void.
@@ -734,7 +734,7 @@ public:
     return value_[key];
   }
 
-#pragma endregion braces
+#pragma endregion
 
 private:
   T value_;

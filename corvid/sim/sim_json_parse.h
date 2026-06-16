@@ -85,7 +85,7 @@ parseSimClientMessageRoot(std::string_view msg) {
 [[nodiscard]] constexpr SimClientMessageKind classifySimClientMessage(
     json_object_view msg) {
   SimClientMessageKind kind{};
-  (void)strings::convert_text_enum(kind, detail::decodeString(msg, "type"));
+  (void)convert_text_enum(kind, detail::decodeString(msg, "type"));
   return kind;
 }
 
@@ -111,12 +111,10 @@ parseSimClientMessageRoot(std::string_view msg) {
       !msg.parse_bool("alt", input.alt) || !msg.parse_bool("meta", input.meta))
     return std::nullopt;
 
-  if (!strings::convert_text_enum(input.event,
-          detail::decodeString(msg, "event")))
+  if (!convert_text_enum(input.event, detail::decodeString(msg, "event")))
     return std::nullopt;
 
-  if (!strings::convert_text_enum(input.button,
-          detail::decodeString(msg, "button")))
+  if (!convert_text_enum(input.button, detail::decodeString(msg, "button")))
     return std::nullopt;
 
   // Optional; missing or non-string is silently treated as empty.

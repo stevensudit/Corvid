@@ -21,7 +21,7 @@
 #include "../strings/conversion.h"
 #include "enum_registry.h"
 
-namespace corvid::strings { inline namespace conversion {
+namespace corvid { inline namespace enums { inline namespace conversion {
 inline namespace cvt_enum {
 
 #pragma region From enum
@@ -102,7 +102,7 @@ constexpr bool extract_enum(StdEnum auto& e, std::string_view& sv) {
   using E = std::remove_cvref_t<decltype(e)>;
   e = E{};
   auto new_sv = sv;
-  auto whole = trim(extract_piece(new_sv, ",.;"));
+  auto whole = strings::trim(strings::extract_piece(new_sv, ",.;"));
   if (whole.empty()) return false;
   if (!details::help_extract_enum(e, whole)) return false;
   sv = new_sv;
@@ -148,16 +148,17 @@ constexpr E parse_enum(std::string_view sv, E default_value) {
 }
 
 #pragma endregion
-}}} // namespace corvid::strings::conversion::cvt_enum
+}}}} // namespace corvid::enums::conversion::cvt_enum
 
 #pragma region operator<<
 
-// Append scoped enum to `os`.
+// Append scoped enum to `os`. Defined at global scope (not inside `corvid`) so
+// ordinary lookup and ADL find it for enums declared in any namespace.
 //
 // No need to define this for old-style enums because they're treated as
 // aliases for their underlying type, which is already supported.
 auto& operator<<(std::ostream& os, corvid::ScopedEnum auto t) {
-  return corvid::strings::append_enum(os, t);
+  return corvid::enums::append_enum(os, t);
 }
 
 #pragma endregion
