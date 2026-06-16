@@ -83,8 +83,8 @@ public:
   }
   template<typename T = int>
   __device__ static T index() {
-    return (z_index<T>() * y_stride() * x_stride()) +
-           (y_index<T>() * x_stride()) + x_index<T>();
+    return (z_index<T>() * y_stride<T>() * x_stride<T>()) +
+           (y_index<T>() * x_stride<T>()) + x_index<T>();
   }
 
   // Stride in each dimension.

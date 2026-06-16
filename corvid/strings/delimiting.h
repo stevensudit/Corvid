@@ -72,6 +72,7 @@ struct basic_delim: public string_view_wrapper<basic_delim<CharT>, CharT> {
     return whole.find_last_not_of(*this);
   }
 
+#pragma endregion
 #pragma region Append
 
   // Append.

@@ -1,8 +1,7 @@
 // Smoke test for the corvid/cuda/ subproject and the CUDA build path: launches
 // a trivial kernel that calls corvid::cuda::saxpy on the device and checks
-// that
-// the result round-trips back to the host. Doubles as the canary that the CUDA
-// toolchain (nvcc + g++-15) and the .cu Catch2 wiring work end to end.
+// that the result round-trips back to the host. Doubles as the canary that the
+// CUDA toolchain (nvcc + g++-15) and the .cu Catch2 wiring work end to end.
 
 #include <cassert>
 #include <cmath>
