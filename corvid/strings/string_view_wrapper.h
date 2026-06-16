@@ -22,7 +22,9 @@
 #include <memory>
 #include <optional>
 #include <ostream>
+#include <ranges>
 #include <string_view>
+#include <type_traits>
 #include <utility>
 
 #include "../meta/concepts.h"
@@ -305,7 +307,16 @@ concept StringViewWrapperChild =
 // The wrappers forward `begin`/`end`, so without this they would be claimed by
 // the std range formatter and print as a list of chars. Disabling their range
 // format leaves the string formatter below as the only match.
+//
+// A wrapper is also an `input_range`, so the standard's own range-keyed
+// `format_kind` partial specialization matches it too. Its constraint
+// (`input_range` plus `same_as<W, remove_cvref_t<W>>`) and ours
+// (`StringViewWrapperChild`) do not subsume each other, so the choice between
+// them is ambiguous, which the standard makes ill-formed and which clang and
+// MSVC then resolve differently. Repeat the standard's constraints here so
+// ours strictly subsumes it and wins on every compiler.
 template<corvid::StringViewWrapperChild W>
+requires std::ranges::input_range<W> && std::same_as<W, std::remove_cvref_t<W>>
 constexpr std::range_format std::format_kind<W> = std::range_format::disabled;
 
 template<corvid::StringViewWrapperChild W, corvid::CharType CharT>
