@@ -21,6 +21,7 @@
 #include <utility>
 
 #include "../meta/maybe.h"
+#include "../meta/crossplatform.h"
 
 namespace corvid { inline namespace infra {
 
@@ -118,7 +119,7 @@ public:
 private:
   EF exit_function_;
   bool active_{true};
-  [[no_unique_address]] exception_count_t uncaught_on_entry_;
+  CORVID_NO_UNIQUE_ADDRESS exception_count_t uncaught_on_entry_;
 
 #pragma endregion
 };

@@ -29,6 +29,7 @@
 #include "../infra/exception_firewalls.h"
 #include "../containers/core/fixed_bitset.h"
 #include "../meta/maybe.h"
+#include "../meta/crossplatform.h"
 #include "entity_ids.h"
 #include "id_container.h"
 
@@ -196,7 +197,7 @@ public:
 
   private:
     id_t id_{id_t::invalid};
-    [[no_unique_address]] gen_t gen_{*id_t::invalid};
+    CORVID_NO_UNIQUE_ADDRESS gen_t gen_{*id_t::invalid};
 
     explicit handle_t(id_t id, size_type gen) : id_{id}, gen_{gen} {}
     friend class entity_registry<T, EID, SID, GEN, OWN_COUNT, REUSE, A>;
@@ -311,9 +312,10 @@ public:
     }
 
   private:
-    [[no_unique_address]] maybe_t<store_id_t, is_archetype_v> store_id_{
+    CORVID_NO_UNIQUE_ADDRESS maybe_t<store_id_t, is_archetype_v> store_id_{
         *store_id_t::invalid};
-    [[no_unique_address]] maybe_t<store_id_set_t, is_component_v> store_ids_;
+    CORVID_NO_UNIQUE_ADDRESS maybe_t<store_id_set_t, is_component_v>
+        store_ids_;
     size_type ndx_{*id_t::invalid};
 
     constexpr location_record(location_t location = location_t{}) noexcept {
@@ -341,11 +343,11 @@ public:
     location_record location{};
 
     // Generation counter for this entity.
-    [[no_unique_address]] gen_t gen{};
+    CORVID_NO_UNIQUE_ADDRESS gen_t gen{};
 
     // Optional user metadata. This is the only field that can be freely
     // modified by the user.
-    [[no_unique_address]] metadata_t metadata{};
+    CORVID_NO_UNIQUE_ADDRESS metadata_t metadata{};
   };
 
   using record_allocator_type =
@@ -944,7 +946,7 @@ private:
   // LIFO: `free_tail_` is absent; new IDs are pushed onto `free_head_`,
   // giving stack (most-recently freed-first) reuse order.
   id_t free_head_{id_t::invalid};
-  [[no_unique_address]] maybe_t<id_t, is_fifo_v> free_tail_{id_t::invalid};
+  CORVID_NO_UNIQUE_ADDRESS maybe_t<id_t, is_fifo_v> free_tail_{id_t::invalid};
 
 #pragma endregion
 };

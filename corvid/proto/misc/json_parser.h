@@ -30,6 +30,7 @@
 #include <vector>
 
 #include "../../infra/exception_firewalls.h"
+#include "../../meta/crossplatform.h"
 #include "../../enums/bool_enums.h"
 #include "../../strings/delimiting.h"
 #include "../../strings/conversion.h"
@@ -1186,7 +1187,7 @@ class json_writer {
 
   private:
     json_writer* writer_;
-    [[no_unique_address]] End end_;
+    CORVID_NO_UNIQUE_ADDRESS End end_;
   };
 
 #pragma endregion

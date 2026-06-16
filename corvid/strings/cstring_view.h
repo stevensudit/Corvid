@@ -23,6 +23,7 @@
 #include <stdexcept>
 
 #include "string_view_wrapper.h"
+#include "../meta/crossplatform.h"
 
 namespace corvid {
 inline namespace cstringview {
@@ -247,7 +248,13 @@ consteval u32cstring_view operator""_u32csv(unsigned long long zero_only) {
 
 // Environment.
 cstring_view operator""_env(const char* ps, std::size_t) noexcept {
+  // MSVC's CRT deprecates getenv in favor of _dupenv_s, but the borrowed
+  // pointer is exactly what this non-owning view wants, so suppress the nag
+  // rather than change the contract.
+  PRAGMA_DIAG(push)
+  PRAGMA_IGNORED("-Wdeprecated-declarations")
   return std::getenv(ps);
+  PRAGMA_DIAG(pop)
 }
 
 #pragma endregion

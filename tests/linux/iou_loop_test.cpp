@@ -17,7 +17,7 @@
 #include "corvid/proto/io_uring/iou_loop.h"
 #include "corvid/filesys/net_socket.h"
 #include "corvid/enums/enum_conversion.h"
-#include "corvid/meta/pragmas.h"
+#include "corvid/meta/crossplatform.h"
 
 #include <atomic>
 #include <chrono>

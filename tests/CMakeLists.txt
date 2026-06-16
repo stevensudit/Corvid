@@ -57,7 +57,18 @@ if(SANITIZER STREQUAL "msan")
     message(STATUS "Using MSAN libc++ at ${LIBCXX_PREFIX}")
 endif()
 
-if(USE_LIBSTDCPP)
+if(WIN32)
+    # Windows builds the portable (and cuda) buckets with clang-cl against the
+    # MSVC STL. The libc++/clang-22 knobs in the branches below (-nostdinc++,
+    # the libc++ include prefix, -march=native, -fexperimental-library, and the
+    # libc++ link options) have no MSVC analog, so none apply here. The Linux
+    # network stack is excluded at the source-bucket level. C++23 comes from
+    # CMAKE_CXX_STANDARD above (CMake emits the clang-cl /std flag). A tuned
+    # warning set plus -Werror (clang-cl's -Wall maps to MSVC's, not clang's) is
+    # a follow-up; the default level still surfaces real issues. See
+    # crossplatform.md.
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /EHsc")
+elseif(USE_LIBSTDCPP)
     # Rely on whichever clang is available and the default libstdc++ install.
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O3 -march=native -Wall -Wextra -Werror -std=c++23")
     if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
@@ -554,7 +565,7 @@ foreach(SOURCE_FILE ${SOURCES})
             ${LIBURING_LIBRARIES} ngtcp2_crypto_ossl_static nghttp3_static)
     endif()
 
-    if(NOT USE_LIBSTDCPP)
+    if(NOT USE_LIBSTDCPP AND NOT WIN32)
         # Link libc++ and libc++abi explicitly
         target_link_libraries(${EXECUTABLE_NAME} PRIVATE c++ c++abi)
     endif()

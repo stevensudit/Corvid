@@ -425,8 +425,7 @@ struct nullable_formatter: std::formatter<U, CharT> {
     if consteval { return base::parse(ctx); }
 
     const auto begin = ctx.begin();
-    const auto spec_text = std::basic_string_view<CharT>{begin,
-        static_cast<std::size_t>(ctx.end() - begin)};
+    const auto spec_text = std::basic_string_view<CharT>{begin, ctx.end()};
     const auto consumed = spec_.parse(spec_text);
 
     // The sentinel resolves its own dynamic width, so when it will be shown we
@@ -446,7 +445,7 @@ struct nullable_formatter: std::formatter<U, CharT> {
       spec_.width_arg.claim_next_automatic(ctx);
       spec_.precision_arg.claim_next_automatic(ctx);
       const auto synthetic = spec_.rewrite_spec_as_explicit(
-          std::basic_string_view<CharT>{begin, consumed});
+          std::basic_string_view<CharT>{begin, begin + consumed});
 
       std::basic_format_parse_context<CharT> sctx(synthetic);
       base::parse(sctx);
@@ -532,8 +531,7 @@ struct self_rendering_formatter {
   constexpr auto parse(std::basic_format_parse_context<CharT>& ctx)
       -> std::basic_format_parse_context<CharT>::iterator {
     const auto begin = ctx.begin();
-    const auto spec_text = std::basic_string_view<CharT>{begin,
-        static_cast<std::size_t>(ctx.end() - begin)};
+    const auto spec_text = std::basic_string_view<CharT>{begin, ctx.end()};
     const auto consumed = spec_.parse(spec_text);
 
     // An automatic `{}` width or precision has no id in the spec string, so

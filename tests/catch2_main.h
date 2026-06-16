@@ -43,8 +43,11 @@ int main(int argc, char* argv[]) {
   // Ignore SIGPIPE so socket-using tests don't die when a peer closes
   // mid-write. The library's `submit_write_buffer` path can't pass
   // MSG_NOSIGNAL; the close-then-write race surfaces intermittently
-  // (especially under MSAN). Server programs do the same at startup.
+  // (especially under MSAN). Server programs do the same at startup. Windows
+  // has no SIGPIPE (and its socket tests live in the linux bucket anyway).
+#ifdef SIGPIPE
   std::signal(SIGPIPE, SIG_IGN);
+#endif
 
   std::vector<char*> args(argv, argv + argc);
   bool have_durations{false};

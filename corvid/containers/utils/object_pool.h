@@ -16,6 +16,7 @@
 // limitations under the License.
 #pragma once
 #include "../core/containers_shared.h"
+#include "../../meta/crossplatform.h"
 
 #include <array>
 #include <atomic>
@@ -304,7 +305,7 @@ public:
   private:
     // Order is important for packing. The index could be 8 bits while the
     // generation is always 32 when present.
-    [[no_unique_address]] gen_t gen_{};
+    CORVID_NO_UNIQUE_ADDRESS gen_t gen_{};
     index_t ndx_{npos};
   };
 
@@ -540,9 +541,9 @@ private:
   bool shut_down_{};
   mutable std::mutex pool_mutex_;
   mutable std::mutex func_mutex_;
-  [[no_unique_address]] gen_array_t gen_array_;
-  [[no_unique_address]] BorrowCb borrow_cb_;
-  [[no_unique_address]] ReturnCb return_cb_;
+  CORVID_NO_UNIQUE_ADDRESS gen_array_t gen_array_;
+  CORVID_NO_UNIQUE_ADDRESS BorrowCb borrow_cb_;
+  CORVID_NO_UNIQUE_ADDRESS ReturnCb return_cb_;
 };
 
 #pragma endregion

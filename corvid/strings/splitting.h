@@ -17,6 +17,7 @@
 #pragma once
 
 #include "../meta/concepts.h"
+#include "../meta/crossplatform.h"
 #include "strings_shared.h"
 #include "delimiting.h"
 #include "opt_string_view.h"
@@ -227,8 +228,8 @@ struct basic_piece_generator {
 #pragma region Data members
 
   opt_view_t whole;
-  [[no_unique_address]] Finder finder{};
-  [[no_unique_address]] Filter filter{};
+  CORVID_NO_UNIQUE_ADDRESS Finder finder{};
+  CORVID_NO_UNIQUE_ADDRESS Filter filter{};
 
 #pragma endregion
 };

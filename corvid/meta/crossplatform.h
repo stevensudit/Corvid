@@ -17,7 +17,7 @@
 #pragma once
 #include "meta_shared.h"
 
-namespace corvid { inline namespace meta { inline namespace pragmas {
+namespace corvid { inline namespace meta { inline namespace crossplatform {
 
 #pragma region Suppression
 
@@ -57,4 +57,19 @@ namespace corvid { inline namespace meta { inline namespace pragmas {
 #endif
 
 #pragma endregion
-}}} // namespace corvid::meta::pragmas
+
+#pragma region Attributes
+
+// `[[no_unique_address]]` is silently ignored under the MSVC ABI, which spells
+// the attribute `[[msvc::no_unique_address]]` instead. clang-cl and cl both
+// target that ABI and define `_MSC_VER`; every other toolchain takes the
+// standard spelling. Without this, types that rely on empty-member elision
+// silently grow on Windows.
+#ifdef _MSC_VER
+#define CORVID_NO_UNIQUE_ADDRESS [[msvc::no_unique_address]]
+#else
+#define CORVID_NO_UNIQUE_ADDRESS [[no_unique_address]]
+#endif
+
+#pragma endregion
+}}} // namespace corvid::meta::crossplatform

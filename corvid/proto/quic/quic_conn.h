@@ -30,7 +30,7 @@
 #include <openssl/rand.h>
 #include <openssl/ssl.h>
 
-#include "../../meta/pragmas.h"
+#include "../../meta/crossplatform.h"
 #include "../net_endpoint.h"
 #include "../../enums/bool_enums.h"
 #include "../../concurrency/timeouts.h"
