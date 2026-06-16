@@ -173,6 +173,20 @@ TEST_CASE("try_or_log swallows and returns on_throw by default",
   CHECK(sink.str().contains("boom"));
 }
 
+// AddressSanitizer on Windows (clang-cl plus the VCRUNTIME exception runtime)
+// access-violates when an in-flight exception is rethrown: the initial throw
+// and catch work, but the rethrow reads a null per-thread exception record
+// inside VCRUNTIME140 and faults. It is a toolchain limitation, not a Corvid
+// bug. The same code passes on Linux and on Windows without the sanitizer, and
+// only a live rethrow is affected; a plain throw or a swallowed mid-unwind
+// throw (the cases above and below) is fine. This is the only test that
+// performs a live rethrow, so skip just it under that one configuration.
+#if defined(_WIN32) && defined(__has_feature)
+#if __has_feature(address_sanitizer)
+#define CORVID_WIN_ASAN_NO_RETHROW 1
+#endif
+#endif
+#ifndef CORVID_WIN_ASAN_NO_RETHROW
 TEST_CASE("try_or_log with attempt rethrows when not unwinding",
     "[infra][exception]") {
   std::stringstream sink;
@@ -186,6 +200,7 @@ TEST_CASE("try_or_log with attempt rethrows when not unwinding",
   log::singleton().set_stream(std::cerr);
   CHECK(sink.str().contains("rethrown"));
 }
+#endif
 
 TEST_CASE("try_or_log with attempt swallows mid-unwind",
     "[infra][exception]") {

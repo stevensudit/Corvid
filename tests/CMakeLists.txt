@@ -219,10 +219,22 @@ endif()
 # the -fsanitize driver flag on the link line, so the compiler-rt runtime never
 # gets pulled in (undefined __asan_*/__ubsan_* at link). Add the runtime the way
 # clang-cl's own link driver would; the lib set came from
-# `clang-cl -fsanitize=address,undefined -###`. asan's combined runtime also
-# resolves the ubsan handlers, and plain ubsan links no runtime (it traps on UB),
-# so only asan needs libs here. Refresh these if the toolchain changes.
+# `clang-cl -fsanitize=address,undefined -###`. Refresh these if the toolchain
+# changes.
 if(SANITIZER AND WIN32)
+    # Only ASAN is supported on Windows, and it carries UBSAN with it
+    # (-fsanitize=address,undefined; the dynamic asan runtime also resolves the
+    # __ubsan_* handlers). Standalone UBSAN cannot link here: LLVM ships only a
+    # static-CRT ubsan runtime (clang_rt.ubsan_standalone*-x86_64.lib is
+    # MT_StaticRelease, no _dynamic variant), which clang-cl auto-embeds as a
+    # /DEFAULTLIB that then collides with this /MD build (lld-link
+    # /failifmismatch). tsan/msan are Linux-only too. Fail fast with the reason
+    # rather than the cryptic linker error.
+    if(NOT SANITIZER STREQUAL "asan")
+        message(FATAL_ERROR
+            "On Windows only SANITIZER=asan is supported; it already includes "
+            "UBSAN. SANITIZER=${SANITIZER} has no /MD-compatible runtime here.")
+    endif()
     # Release omits the linker PDB, but sanitizer findings are only actionable
     # with symbols. /DEBUG emits a PDB from the CodeView that the -g above puts
     # in the objects; it is link-only, so it does not trip the /clang:-Werror
@@ -237,11 +249,9 @@ if(SANITIZER AND WIN32)
     get_filename_component(_llvm_root "${_llvm_root}/.." ABSOLUTE)
     string(REGEX MATCH "^[0-9]+" _clang_major "${CMAKE_CXX_COMPILER_VERSION}")
     set(_rtdir "${_llvm_root}/lib/clang/${_clang_major}/lib/windows")
-    if(SANITIZER STREQUAL "asan")
-        add_link_options(
-            "${_rtdir}/clang_rt.asan_dynamic-x86_64.lib"
-            "-wholearchive:${_rtdir}/clang_rt.asan_dynamic_runtime_thunk-x86_64.lib")
-    endif()
+    add_link_options(
+        "${_rtdir}/clang_rt.asan_dynamic-x86_64.lib"
+        "-wholearchive:${_rtdir}/clang_rt.asan_dynamic_runtime_thunk-x86_64.lib")
 endif()
 
 # Strip asserts via NDEBUG when requested. Applied as a compile definition (not

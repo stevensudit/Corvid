@@ -1,17 +1,19 @@
 # cleanbuild.ps1 - Windows build driver for the portable (and, later, CUDA) test
 # buckets. Mirrors cleanbuild.sh's role on Linux: configure a fresh, optimized
 # (release) build against the MSVC STL and run ctest. Like the Linux clang/gcc
-# split, the compiler is selectable: clang-cl (default) or MSVC cl. ASAN/UBSAN
-# are supported under clang-cl. The Linux-only modes (libc++/libstdc++ choice,
-# tsan/msan, analyze-build scan, llvm-cov coverage, compiler-rt/lld) have no MSVC
-# analog and are deliberately absent. See crossplatform.md.
+# split, the compiler is selectable: clang-cl (default) or MSVC cl. ASAN is
+# supported under clang-cl, and it carries UBSAN with it
+# (-fsanitize=address,undefined): standalone UBSAN ships a static-CRT-only
+# runtime that collides with this /MD build, so it is not a separate Windows
+# mode. The other Linux-only modes (libc++/libstdc++ choice, tsan/msan,
+# analyze-build scan, llvm-cov coverage, compiler-rt/lld) have no MSVC analog and
+# are deliberately absent. See crossplatform.md.
 #
 # Usage (args combine in any order):
 #   ./cleanbuild.ps1                     clang-cl, whole portable suite, ctest
 #   ./cleanbuild.ps1 strings_test.cpp    build and run just that one test
 #   ./cleanbuild.ps1 cl                  build with MSVC cl instead of clang-cl
-#   ./cleanbuild.ps1 asan                ASAN+UBSAN build + ctest (clang-cl only)
-#   ./cleanbuild.ps1 ubsan               UBSAN build + ctest (clang-cl only)
+#   ./cleanbuild.ps1 asan                ASAN (+UBSAN) build + ctest (clang-cl only)
 [CmdletBinding()]
 param([Parameter(ValueFromRemainingArguments = $true)][string[]] $Rest)
 
@@ -24,7 +26,7 @@ $llvmRoot = 'C:/Program Files/LLVM'
 $clangCl = "$llvmRoot/bin/clang-cl.exe"
 
 # Parse args: a *.cpp name selects one test; clang-cl|cl picks the compiler;
-# asan|ubsan picks a sanitizer.
+# asan picks the sanitizer.
 $testName = ''
 $compiler = 'clang-cl'
 $sanitizer = ''
@@ -33,12 +35,12 @@ foreach ($a in $Rest) {
     '\.cpp$' { $testName = $a }
     '^(clang-cl|clangcl|clang)$' { $compiler = 'clang-cl' }
     '^(cl|msvc)$' { $compiler = 'cl' }
-    '^(asan|ubsan)$' { $sanitizer = $a }
-    default { throw "Unrecognized argument '$a' (expected <name>_test.cpp, clang-cl|cl, or asan|ubsan)" }
+    '^asan$' { $sanitizer = $a }
+    default { throw "Unrecognized argument '$a' (expected <name>_test.cpp, clang-cl|cl, or asan)" }
   }
 }
 if ($sanitizer -and $compiler -eq 'cl') {
-  throw 'Sanitizers (asan/ubsan) require clang-cl, not MSVC cl.'
+  throw 'ASAN requires clang-cl, not MSVC cl.'
 }
 
 # Resolve the compiler. clang-cl uses the full LLVM path; cl rides the dev-shell
