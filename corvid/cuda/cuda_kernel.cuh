@@ -116,6 +116,9 @@ public:
   // Divide `a` by `b`, rounding up.
   __host__ __device__ static unsigned ceil_div(unsigned a, unsigned b) {
     return (a + b - 1) / b;
+    // TODO: Copilot insists on this:
+    //      assert(b > 0 && "ceil_div divisor must be positive");
+    //  return (a / b) + static_cast<unsigned>(a % b != 0);
   }
 
 private:
