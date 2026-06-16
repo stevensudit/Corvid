@@ -1,6 +1,6 @@
 Here is a structured CUDA curriculum, ordered so that each layer depends on the previous one. It is written for your current setup: CUDA 13.3 under WSL Ubuntu, RTX 4090 / `sm_89`, and explicit CUDA host compiler selection.
 
-## Track 0 — Environment and build model
+## Track 0:  Environment and build model
 
 Goal: make CUDA builds boring.
 
@@ -40,7 +40,7 @@ Milestone: you can compile, run, and diagnose a trivial kernel from VSCode/WSL w
 
 ---
 
-## Track 1 — CUDA’s execution model
+## Track 1:  CUDA’s execution model
 
 Goal: understand what code runs where.
 
@@ -86,7 +86,7 @@ Milestone: given `kernel<<<4, 256>>>`, you can say exactly how many blocks, thre
 
 ---
 
-## Track 2 — CUDA function qualifiers
+## Track 2:  CUDA function qualifiers
 
 Goal: understand `__global__`, `__device__`, and `__host__`.
 
@@ -158,7 +158,7 @@ Milestone: you can predict whether a function is callable from host, device, or 
 
 ---
 
-## Track 3 — Built-in kernel variables
+## Track 3:  Built-in kernel variables
 
 Goal: know the implicit variables available inside kernels.
 
@@ -214,7 +214,7 @@ Milestone: you can write correct 1D and 2D grid-stride indexing without looking 
 
 ---
 
-## Track 4 — Memory model, first pass
+## Track 4:  Memory model, first pass
 
 Goal: know which memory exists and who can see it.
 
@@ -271,7 +271,7 @@ Milestone: you understand that `__shared__` is programmer-managed block-local me
 
 ---
 
-## Track 5 — Synchronization and ordering
+## Track 5:  Synchronization and ordering
 
 Goal: avoid invalid cross-thread assumptions.
 
@@ -310,7 +310,7 @@ Milestone: you can identify whether an algorithm needs warp, block, grid, or hos
 
 ---
 
-## Track 6 — Host/device memory management
+## Track 6:  Host/device memory management
 
 Goal: move data deliberately.
 
@@ -354,7 +354,7 @@ Milestone: you can explain where each pointer lives and whether it is legal to d
 
 ---
 
-## Track 7 — Error handling and debugging
+## Track 7:  Error handling and debugging
 
 Goal: make CUDA failures visible immediately.
 
@@ -401,7 +401,7 @@ Milestone: you never write a kernel launch without checking both launch failure 
 
 ---
 
-## Track 8 — Performance basics
+## Track 8:  Performance basics
 
 Goal: understand the first-order CUDA performance rules.
 
@@ -441,7 +441,7 @@ Milestone: you can explain why a kernel is memory-bound, compute-bound, or launc
 
 ---
 
-## Track 9 — Common algorithm patterns
+## Track 9:  Common algorithm patterns
 
 Goal: build a useful CUDA toolbox.
 
@@ -483,7 +483,7 @@ Milestone: when facing a problem, you can classify it as map/reduce/stencil/scan
 
 ---
 
-## Track 10 — Libraries before custom kernels
+## Track 10:  Libraries before custom kernels
 
 Goal: know when not to write CUDA kernels.
 
@@ -526,7 +526,7 @@ Milestone: you can decide whether to write a kernel or compose existing CUDA lib
 
 ---
 
-## Track 11 — Streams and concurrency
+## Track 11:  Streams and concurrency
 
 Goal: overlap work.
 
@@ -555,7 +555,7 @@ Milestone: you can distinguish CPU async launch behavior from actual GPU overlap
 
 ---
 
-## Track 12 — Advanced CUDA C++
+## Track 12:  Advanced CUDA C++
 
 Goal: write maintainable CUDA code without fighting the language.
 
@@ -597,7 +597,7 @@ Milestone: you can structure a CUDA project without putting everything into one 
 
 ---
 
-## Track 13 — Architecture-specific knowledge
+## Track 13:  Architecture-specific knowledge
 
 Goal: tune for actual hardware without overfitting too early.
 
@@ -627,7 +627,7 @@ Milestone: you can read NVIDIA documentation and know whether a feature applies 
 
 ---
 
-## Track 14 — Cooperative groups and advanced synchronization
+## Track 14:  Cooperative groups and advanced synchronization
 
 Goal: replace ad-hoc synchronization assumptions with explicit group abstractions.
 
@@ -655,7 +655,7 @@ Milestone: you understand why normal CUDA kernels usually synchronize globally b
 
 ---
 
-## Track 15 — Advanced memory movement
+## Track 15:  Advanced memory movement
 
 Goal: learn the mechanisms used by high-performance kernels.
 
@@ -684,7 +684,7 @@ Milestone: you can read optimized CUDA kernels without every line looking magica
 
 ---
 
-## Track 16 — Dynamic parallelism, clusters, and newer features
+## Track 16:  Dynamic parallelism, clusters, and newer features
 
 Goal: know what exists, not necessarily use it immediately.
 
@@ -793,12 +793,12 @@ cudaFree
 That is the right starting point. From there, the first real project should be a sequence of increasingly optimized vector/matrix kernels, not ML or graphics.
 
 [1]: https://docs.nvidia.com/cuda/cuda-programming-guide/02-basics/writing-cuda-kernels.html?utm_source=chatgpt.com "2.2. Writing CUDA SIMT Kernels"
-[2]: https://docs.nvidia.com/cuda/cuda-programming-guide/05-appendices/cpp-language-extensions.html?utm_source=chatgpt.com "5.4. C/C++ Language Extensions — CUDA Programming ..."
+[2]: https://docs.nvidia.com/cuda/cuda-programming-guide/05-appendices/cpp-language-extensions.html?utm_source=chatgpt.com "5.4. C/C++ Language Extensions:  CUDA Programming ..."
 [3]: https://docs.nvidia.com/cuda/cuda-programming-guide/pdf/cuda-programming-guide.pdf?utm_source=chatgpt.com "cuda-programming-guide.pdf"
-[4]: https://docs.nvidia.com/cuda/cuda-programming-guide/02-basics/intro-to-cuda-cpp.html?utm_source=chatgpt.com "2.1. Intro to CUDA C++ — CUDA Programming Guide"
+[4]: https://docs.nvidia.com/cuda/cuda-programming-guide/02-basics/intro-to-cuda-cpp.html?utm_source=chatgpt.com "2.1. Intro to CUDA C++:  CUDA Programming Guide"
 [5]: https://docs.nvidia.com/cuda/archive/11.4.1/cuda-c-programming-guide/index.html?utm_source=chatgpt.com "Programming Guide :: CUDA Toolkit Documentation"
-[6]: https://docs.nvidia.com/cuda/cuda-programming-guide/04-special-topics/async-barriers.html?utm_source=chatgpt.com "4.9. Asynchronous Barriers — CUDA Programming Guide"
-[7]: https://docs.nvidia.com/cuda/cuda-c-best-practices-guide/contents.html?utm_source=chatgpt.com "Contents — CUDA C++ Best Practices Guide 13.2 ..."
+[6]: https://docs.nvidia.com/cuda/cuda-programming-guide/04-special-topics/async-barriers.html?utm_source=chatgpt.com "4.9. Asynchronous Barriers:  CUDA Programming Guide"
+[7]: https://docs.nvidia.com/cuda/cuda-c-best-practices-guide/contents.html?utm_source=chatgpt.com "Contents:  CUDA C++ Best Practices Guide 13.2 ..."
 [8]: https://developer.nvidia.com/cuda/gpus?utm_source=chatgpt.com "CUDA GPU Compute Capability"
-[9]: https://docs.nvidia.com/cuda/cuda-programming-guide/04-special-topics/cooperative-groups.html?utm_source=chatgpt.com "4.4. Cooperative Groups — CUDA Programming Guide"
-[10]: https://docs.nvidia.com/cuda/cuda-programming-guide/04-special-topics/async-copies.html?utm_source=chatgpt.com "4.11. Asynchronous Data Copies — CUDA Programming ..."
+[9]: https://docs.nvidia.com/cuda/cuda-programming-guide/04-special-topics/cooperative-groups.html?utm_source=chatgpt.com "4.4. Cooperative Groups:  CUDA Programming Guide"
+[10]: https://docs.nvidia.com/cuda/cuda-programming-guide/04-special-topics/async-copies.html?utm_source=chatgpt.com "4.11. Asynchronous Data Copies:  CUDA Programming ..."

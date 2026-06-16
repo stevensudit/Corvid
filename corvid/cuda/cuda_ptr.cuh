@@ -35,7 +35,7 @@
 // from it.
 //
 // This is wrapped as `cuda_ptr<T>`, which is the moral equivalent to
-// `std::unique_ptr`, providing RAII and
+// `std::unique_ptr`, providing RAII.
 //
 // Note: This turns out to be something like `thrust::device_vector`.
 

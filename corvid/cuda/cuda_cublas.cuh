@@ -120,7 +120,7 @@ public:
 #pragma endregion
 #pragma region Accessors
 
-  // Return address of device pointer; cannot be dereferenced on the host.
+  // Return address of device handle; cannot be dereferenced on the host.
   [[nodiscard]] cublasHandle_t device_handle() const noexcept {
     return handle_;
   }

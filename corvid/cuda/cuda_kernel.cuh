@@ -36,6 +36,7 @@ namespace corvid::cuda {
 
 class cuda_kernel {
 public:
+  // TODO: Use an instance for methods that call a lambda.
   __device__ cuda_kernel(unsigned n) : n_(n) {}
 
   // Thread in each dimension.

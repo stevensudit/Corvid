@@ -51,7 +51,7 @@ TEST_CASE("cuda saxpy kernel runs on the device", "[cuda]") {
   // We have to check here, not when we invoke the kernel, because CUDA kernel
   // launches are asynchronous and return before the kernel has actually
   // executed. The error is recorded and
-  // can be checked explicity.
+  // can be checked explicitly.
   REQUIRE(cuda_last_status{}.ok());
 
   // 2*3 + 4 == 10, exactly representable in float.

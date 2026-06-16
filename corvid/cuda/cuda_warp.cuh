@@ -60,24 +60,21 @@ public:
     return __shfl_sync(static_cast<int>(mask), value, src_lane);
   }
 
-  // Return value of `value` from the thread with lane ID `src_lane` + `delta`.
-  // If the source lane ID would be outside the warp, the return value is
-  // undefined so the caller should either avoid calling
-
+  // Return value of `value` from the thread with current lane ID - `delta`.
   template<typename T>
   __device__ static T shuffle_up(T value, unsigned delta,
       uint32_t mask = active_mask(), unsigned width = warpSize) {
     return __shfl_up_sync(static_cast<int>(mask), value, delta, width);
   }
 
-  // Return value of `value` from the thread with lane ID `src_lane` - `delta`.
+  // Return value of `value` from the thread with current lane ID + `delta`.
   template<typename T>
   __device__ static T shuffle_down(T value, unsigned delta,
       uint32_t mask = active_mask(), unsigned width = warpSize) {
     return __shfl_down_sync(static_cast<int>(mask), value, delta, width);
   }
 
-  // Return value of `value` from the thread with lane ID `src_lane` XOR
+  // Return value of `value` from the thread with current lane ID XOR
   // `laneMask`.
   template<typename T>
   __device__ static T shuffle_xor(T value, unsigned laneMask,
