@@ -133,7 +133,8 @@ public:
 
   // Type of the storage with the given `store_id`.
   template<store_id_t SID>
-  using storage_t = std::tuple_element_t<*SID, storage_tuple_t>;
+  using storage_t =
+      std::tuple_element_t<std::to_underlying(SID), storage_tuple_t>;
 
 #pragma endregion
 #pragma region Construction
@@ -167,7 +168,8 @@ public:
   // reference.
   template<store_id_t SID>
   [[nodiscard]] decltype(auto) storage(this auto& self) noexcept {
-    return (std::get<*SID>(self.storages_));
+    // std::to_underlying, not *SID, for cl; see storage_t above.
+    return (std::get<std::to_underlying(SID)>(self.storages_));
   }
 
   // Access a storage with the given storage type by mutable or const
@@ -529,8 +531,8 @@ public:
   // from the scene: on a const scene, component references are `const Cs&...`.
   //
   // Fn shape: `(id_t, std::tuple<Cs&...>) -> bool`.
-  template<typename... Cs>
-  void for_each(this auto& self, auto&& fn) {
+  template<typename... Cs, typename Self>
+  void for_each(this Self& self, auto&& fn) {
     [&]<size_t... Is>(std::index_sequence<Is...>) {
       bool cont = true;
       (
@@ -605,12 +607,11 @@ public:
   // calling `try_get_component` once per component, this avoids repeating the
   // registry lookup and the S-way fold for each component, making it
   // preferable when fetching two or more components at once.
-  template<typename... Cs>
-  [[nodiscard]] auto try_get_components(this auto& self, id_t id) noexcept
-      -> std::tuple<std::conditional_t<
-          std::is_const_v<std::remove_reference_t<decltype(self)>>, const Cs*,
-          Cs*>...> {
-    using self_t = std::remove_reference_t<decltype(self)>;
+  template<typename... Cs, typename Self>
+  [[nodiscard]] auto
+  try_get_components(this Self& self, id_t id) noexcept -> std::tuple<
+      std::conditional_t<std::is_const_v<Self>, const Cs*, Cs*>...> {
+    using self_t = Self;
     using result_t = std::tuple<
         std::conditional_t<std::is_const_v<self_t>, const Cs*, Cs*>...>;
 
@@ -649,12 +650,11 @@ public:
   // the result from a single row access. Prefer this over N separate
   // `try_get_component` calls when the components may or may not all be
   // present and the single-lookup savings matter.
-  template<typename... Cs>
-  [[nodiscard]] auto try_get_some_components(this auto& self, id_t id) noexcept
-      -> std::tuple<std::conditional_t<
-          std::is_const_v<std::remove_reference_t<decltype(self)>>, const Cs*,
-          Cs*>...> {
-    using self_t = std::remove_reference_t<decltype(self)>;
+  template<typename... Cs, typename Self>
+  [[nodiscard]] auto
+  try_get_some_components(this Self& self, id_t id) noexcept -> std::tuple<
+      std::conditional_t<std::is_const_v<Self>, const Cs*, Cs*>...> {
+    using self_t = Self;
     using result_t = std::tuple<
         std::conditional_t<std::is_const_v<self_t>, const Cs*, Cs*>...>;
 

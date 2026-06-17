@@ -113,9 +113,11 @@ public:
       "too many STORES: storage_count_v must be < OWN_COUNT (bitmap_bits_v)");
 
   // Type of the storage with the given `store_id`. `std::monostate` occupies
-  // index 0 so that `*SID` equals the tuple index directly.
+  // index 0 so that the underlying value of `SID` equals the tuple index
+  // directly.
   template<store_id_t SID>
-  using storage_t = std::tuple_element_t<*SID, storage_tuple_t>;
+  using storage_t =
+      std::tuple_element_t<std::to_underlying(SID), storage_tuple_t>;
 
 #pragma endregion
 #pragma region Construction
@@ -148,7 +150,7 @@ public:
   // reference.
   template<store_id_t SID>
   [[nodiscard]] decltype(auto) storage(this auto& self) noexcept {
-    return (std::get<*SID>(self.storages_));
+    return (std::get<std::to_underlying(SID)>(self.storages_));
   }
 
   // Access a storage with the given type by mutable or const reference.
@@ -298,8 +300,8 @@ public:
   //   - Otherwise, compilation fails with a diagnostic.
   //
   // Fn shape: `(id_t, std::tuple<component&...>) -> bool`.
-  template<typename... Cs>
-  void for_each(this auto& self, auto&& fn) {
+  template<typename... Cs, typename Self>
+  void for_each(this Self& self, auto&& fn) {
     static_assert(sizeof...(Cs) >= 1,
         "`for_each` requires at least one component type");
     constexpr auto target_mask = make_target_mask<Cs...>();
@@ -332,8 +334,8 @@ public:
   // count if `fn` causes early termination by returning `false`.
   //
   // Fn shape: `(id_t, std::tuple<component&...>) -> bool`.
-  template<typename... Cs>
-  [[nodiscard]] size_type for_all(this auto& self, auto&& fn) {
+  template<typename... Cs, typename Self>
+  [[nodiscard]] size_type for_all(this Self& self, auto&& fn) {
     static_assert(sizeof...(Cs) >= 1,
         "`for_all` requires at least one component type");
     size_type failures = 0;
