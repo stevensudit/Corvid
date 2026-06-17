@@ -22,6 +22,13 @@
 namespace corvid { inline namespace ecs {
 using namespace bool_enums;
 
+// MSVC cl's two-phase name lookup does not reach the corvid-scope using-
+// directive for `corvid::enums::sequence::ops` from inside a class-template
+// body (a static_assert or static data member), so the sequence-enum
+// `operator*` applied to ECS ids there (e.g. `*id_t::invalid`) goes unfound. A
+// using- declaration in this namespace is honored where the directive is not.
+using corvid::enums::sequence::ops::operator*;
+
 namespace id_enums {
 
 // These are the default ID types for various ECS concepts. You can use them

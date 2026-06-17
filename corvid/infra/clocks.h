@@ -48,7 +48,17 @@ public:
 
   using time_point_t = clock_t::time_point;
   using duration_t = clock_t::duration;
+  // MSVC cl chokes on a `noexcept` function-pointer type here two ways: it
+  // ICEs on `std::atomic` of one (the `now_fn_` member below), and it
+  // mis-parses the `noexcept(noexcept(Clock::now()))` specifier inside this
+  // alias. So pure cl gets a plain pointer; clang (including clang-cl) and gcc
+  // keep the noexcept. A `noexcept` function converts to the plain pointer, so
+  // the installed functions are unchanged either way.
+#if defined(_MSC_VER) && !defined(__clang__)
+  using now_fnt = time_point_t (*)();
+#else
   using now_fnt = time_point_t (*)() noexcept(noexcept(Clock::now()));
+#endif
 
 #pragma endregion
 

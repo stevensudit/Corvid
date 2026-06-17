@@ -79,7 +79,10 @@ if(WIN32)
         set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /EHsc /clang:-Wall /clang:-Wextra /clang:-Werror")
     else()
         # MSVC cl: /W4 with warnings as errors (cl rejects the /clang: escape).
-        set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /EHsc /W4 /WX")
+        # /permissive- turns on conformance mode (proper two-phase template name
+        # lookup among other things), without which cl misses the operators that
+        # clang finds via using-directive (e.g. the sequence-enum `operator*`).
+        set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /EHsc /permissive- /W4 /WX")
     endif()
     # cleanbuild.ps1 drives this as a Release build (optimization, NDEBUG, and the
     # release /MD CRT all come from CMAKE_BUILD_TYPE=Release), like Linux's -O3;
