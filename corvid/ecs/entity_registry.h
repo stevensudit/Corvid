@@ -168,8 +168,10 @@ public:
 
     [[nodiscard]] bool operator==(const handle_t& other) const noexcept {
       if (id_ != other.id_) return false;
-      if constexpr (is_versioned_v) return gen_ == other.gen_;
-      return true;
+      if constexpr (is_versioned_v)
+        return gen_ == other.gen_;
+      else
+        return true;
     }
 
     [[nodiscard]] auto operator<=>(const handle_t& other) const noexcept {

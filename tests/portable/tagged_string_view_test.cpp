@@ -299,8 +299,8 @@ TEST_CASE("TaggedComparison", "[tagged_string_view]") {
   }
   SECTION("ordering and set") {
     CHECK(alpha{"abc"sv} < alpha{"def"sv});
-    CHECK((alpha{"abc"sv} <=> alpha{"abc"sv}) == 0);
-    CHECK((alpha{"abc"sv} <=> alpha{"def"sv}) < 0);
+    CHECK(std::is_eq(alpha{"abc"sv} <=> alpha{"abc"sv}));
+    CHECK(std::is_lt(alpha{"abc"sv} <=> alpha{"def"sv}));
 
     std::set<alpha> s;
     s.insert(alpha{"abc"sv});

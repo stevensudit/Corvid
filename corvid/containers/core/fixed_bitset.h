@@ -737,11 +737,10 @@ private:
   static constexpr size_t top_padding_bits_ =
       bits_per_word_v - top_word_valid_bits_;
 
-  // Mask covering only the valid bits of the top word.
-  static constexpr word_t top_word_mask_ =
-      (top_padding_bits_ == 0)
-          ? std::numeric_limits<word_t>::max()
-          : static_cast<word_t>((word_t{1} << top_word_valid_bits_) - 1);
+  // Mask covering only the valid bits of the top word: all-ones with the top
+  // `top_padding_bits_` bits shifted out.
+  static constexpr word_t top_word_mask_ = static_cast<word_t>(
+      std::numeric_limits<word_t>::max() >> top_padding_bits_);
 
   // All-ones sentinel. Uses `numeric_limits` rather than `~word_t{0}` to avoid
   // integer-promotion bugs when `word_t` is narrower than `int`: `~uint8_t{0}`
@@ -781,7 +780,7 @@ private:
     assert(ndx < bit_count_v);
     const auto w = word_of(ndx);
     const auto m = mask_of(ndx);
-    words_[w] = (words_[w] & ~m) | (static_cast<word_t>(-value) & m);
+    words_[w] = (words_[w] & ~m) | (value ? m : word_t{0});
     return *this;
   }
 

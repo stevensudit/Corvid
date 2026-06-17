@@ -191,7 +191,7 @@ public:
     return is(json_kind::object);
   }
 
-  [[nodiscard]] std::optional<bool> as_bool() const noexcept {
+  [[nodiscard]] constexpr std::optional<bool> as_bool() const noexcept {
     if (!is_bool()) return std::nullopt;
     if (source_ == "true") return true;
     if (source_ == "false") return false;
@@ -226,7 +226,8 @@ public:
   // If this is a plain JSON string (properly quoted and containing no escape
   // sequences), returns the inner `std::string_view`, which may be empty.
   // Otherwise, returns `std::nullopt`.
-  [[nodiscard]] std::optional<std::string_view> string_view_if_plain() const {
+  [[nodiscard]] constexpr std::optional<std::string_view>
+  string_view_if_plain() const {
     if (!is_string() || source_.size() < 2) return std::nullopt;
     auto inner = source_.substr(1, source_.size() - 2);
     if (inner.contains('\\')) return std::nullopt;
@@ -543,8 +544,8 @@ struct json_cursor {
 
   constexpr char next() noexcept { return input[pos++]; }
 
-  [[nodiscard]] constexpr auto substr(size_t pos, size_t count = npos) const {
-    return input.substr(pos, count);
+  [[nodiscard]] constexpr auto substr(size_t from, size_t count = npos) const {
+    return input.substr(from, count);
   }
 
   constexpr auto& skip_ws() {

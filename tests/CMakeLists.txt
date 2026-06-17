@@ -82,7 +82,20 @@ if(WIN32)
         # /permissive- turns on conformance mode (proper two-phase template name
         # lookup among other things), without which cl misses the operators that
         # clang finds via using-directive (e.g. the sequence-enum `operator*`).
-        set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /EHsc /permissive- /W4 /WX")
+        #
+        # /Zc:preprocessor selects the conformant preprocessor (as clang uses),
+        # without which cl corrupts raw string literals passed through macros
+        # (e.g. a JSON `\uXXXX` inside a Catch2 CHECK re-forms as an invalid
+        # universal-character-name).
+        #
+        # /wd silences warnings that fire beyond clang's -Wall -Wextra (the level
+        # this build mirrors) on correct, idiomatic code rather than real bugs:
+        #   4245 - signed/unsigned mismatch passing a literal (deliberate -1 etc.
+        #          in wraparound tests).
+        #   4267 - narrowing size_t to a smaller integer (an in-range index/count).
+        #   4305 - "truncation" using an integer/size as a bool condition.
+        #   4310 - cast truncates a constant value (deliberate wraparound tests).
+        set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /EHsc /permissive- /Zc:preprocessor /W4 /WX /wd4245 /wd4267 /wd4305 /wd4310")
     endif()
     # cleanbuild.ps1 drives this as a Release build (optimization, NDEBUG, and the
     # release /MD CRT all come from CMAKE_BUILD_TYPE=Release), like Linux's -O3;

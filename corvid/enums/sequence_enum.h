@@ -212,7 +212,8 @@ template<SequentialEnum E>
 template<SequentialEnum E>
 [[nodiscard]] constexpr E
 operator+(E l, std::underlying_type_t<E> r) noexcept {
-  return make<E, wrapclip::none>(*l + clip_if_wrap<E>(r));
+  return make<E, wrapclip::none>(
+      static_cast<std::underlying_type_t<E>>(*l + clip_if_wrap<E>(r)));
 }
 
 template<SequentialEnum E>
@@ -247,7 +248,8 @@ template<SequentialEnum E>
 template<SequentialEnum E>
 [[nodiscard]] constexpr E
 operator-(E l, std::underlying_type_t<E> r) noexcept {
-  return make<E, wrapclip::none>(*l - clip_if_wrap<E>(r));
+  return make<E, wrapclip::none>(
+      static_cast<std::underlying_type_t<E>>(*l - clip_if_wrap<E>(r)));
 }
 
 template<SequentialEnum E>

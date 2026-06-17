@@ -534,10 +534,12 @@ struct bitmask_enum_names_spec
     }
     auto found = std::find(names.begin(), names.end(), sv);
     if (found == names.end()) return false;
-    auto ofs = std::distance(names.begin(), found);
+    const auto ofs = std::distance(names.begin(), found);
     constexpr auto bits = bits_length<E>();
-    if constexpr (N == bits) ofs = 1 << (bits - ofs - 1);
-    v = static_cast<E>(ofs);
+    if constexpr (N == bits)
+      v = static_cast<E>(std::underlying_type_t<E>{1} << (bits - ofs - 1));
+    else
+      v = static_cast<E>(ofs);
     return true;
   }
 

@@ -77,8 +77,8 @@ private:
     const auto byte = static_cast<unsigned char>(c);
     if (byte >= 0x20 && byte < 0x7f) return emit(c);
     emit('\\')('u')('{');
-    if (byte >= 0x10) emit(as_hex_lc_digit<DestChar>(byte >> 4));
-    return emit(as_hex_lc_digit<DestChar>(byte))('}');
+    if (byte >= 0x10) emit(as_hex_lc_digit<char>(byte >> 4));
+    return emit(as_hex_lc_digit<char>(byte))('}');
   }
 
   auto& append_sv(std::string_view sv) {
