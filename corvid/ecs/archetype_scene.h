@@ -531,8 +531,8 @@ public:
   // from the scene: on a const scene, component references are `const Cs&...`.
   //
   // Fn shape: `(id_t, std::tuple<Cs&...>) -> bool`.
-  template<typename... Cs, typename Self>
-  void for_each(this Self& self, auto&& fn) {
+  template<typename... Cs>
+  void for_each(this auto& self, auto&& fn) {
     [&]<size_t... Is>(std::index_sequence<Is...>) {
       bool cont = true;
       (
@@ -611,13 +611,12 @@ public:
   [[nodiscard]] auto
   try_get_components(this Self& self, id_t id) noexcept -> std::tuple<
       std::conditional_t<std::is_const_v<Self>, const Cs*, Cs*>...> {
-    using self_t = Self;
     using result_t = std::tuple<
-        std::conditional_t<std::is_const_v<self_t>, const Cs*, Cs*>...>;
+        std::conditional_t<std::is_const_v<Self>, const Cs*, Cs*>...>;
 
-    const result_t missing{static_cast<
-        std::conditional_t<std::is_const_v<self_t>, const Cs*, Cs*>>(
-        nullptr)...};
+    const result_t missing{
+        static_cast<std::conditional_t<std::is_const_v<Self>, const Cs*, Cs*>>(
+            nullptr)...};
     if (!self.registry_.is_valid(id)) return missing;
 
     auto loc = self.registry_.get_location(id);
@@ -654,13 +653,12 @@ public:
   [[nodiscard]] auto
   try_get_some_components(this Self& self, id_t id) noexcept -> std::tuple<
       std::conditional_t<std::is_const_v<Self>, const Cs*, Cs*>...> {
-    using self_t = Self;
     using result_t = std::tuple<
-        std::conditional_t<std::is_const_v<self_t>, const Cs*, Cs*>...>;
+        std::conditional_t<std::is_const_v<Self>, const Cs*, Cs*>...>;
 
-    const result_t missing{static_cast<
-        std::conditional_t<std::is_const_v<self_t>, const Cs*, Cs*>>(
-        nullptr)...};
+    const result_t missing{
+        static_cast<std::conditional_t<std::is_const_v<Self>, const Cs*, Cs*>>(
+            nullptr)...};
     if (!self.registry_.is_valid(id)) return missing;
 
     auto loc = self.registry_.get_location(id);
@@ -672,7 +670,7 @@ public:
               using storage_t = std::remove_cvref_t<decltype(storage)>;
               auto row = storage[id];
               found = result_t{
-                  some_component_ptr<std::is_const_v<self_t>, storage_t, Cs>(
+                  some_component_ptr<std::is_const_v<Self>, storage_t, Cs>(
                       row)...};
             }
           }(std::get<Is>(self.storages_)),

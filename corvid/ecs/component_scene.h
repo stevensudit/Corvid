@@ -300,8 +300,8 @@ public:
   //   - Otherwise, compilation fails with a diagnostic.
   //
   // Fn shape: `(id_t, std::tuple<component&...>) -> bool`.
-  template<typename... Cs, typename Self>
-  void for_each(this Self& self, auto&& fn) {
+  template<typename... Cs>
+  void for_each(this auto& self, auto&& fn) {
     static_assert(sizeof...(Cs) >= 1,
         "`for_each` requires at least one component type");
     constexpr auto target_mask = make_target_mask<Cs...>();
@@ -334,8 +334,8 @@ public:
   // count if `fn` causes early termination by returning `false`.
   //
   // Fn shape: `(id_t, std::tuple<component&...>) -> bool`.
-  template<typename... Cs, typename Self>
-  [[nodiscard]] size_type for_all(this Self& self, auto&& fn) {
+  template<typename... Cs>
+  [[nodiscard]] size_type for_all(this auto& self, auto&& fn) {
     static_assert(sizeof...(Cs) >= 1,
         "`for_all` requires at least one component type");
     size_type failures = 0;
