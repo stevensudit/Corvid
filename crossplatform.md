@@ -340,7 +340,7 @@ Video Codec SDK's NVENC/NVDEC), so they cannot build on Linux. They do not fit
 the existing `cuda` bucket, which builds on both platforms and assumes no
 platform-specific dependencies.
 
-Planned shape (not yet implemented, open to revision):
+Planned shape (the open items below are now resolved; first target being implemented):
 
 - Sources live in a Windows-only CUDA sub-area, globbed only when `WIN32` and the
   CUDA toolkit are both present, the way the linux bucket gates its Linux-only
@@ -358,9 +358,29 @@ Planned shape (not yet implemented, open to revision):
   Video Codec SDK, a separate download and so a new external dependency to wire up
   (analogous to the Linux ngtcp2 / openssl prebuilds).
 
-Open decisions: the test subdir (`tests/cuda/windows/` vs a `tests/windows/`
-bucket), the library-header home, and whether the first targets need only D3D
-interop (Windows SDK) or also the Video Codec SDK.
+Decided (first target, 2026-06-18). The three open items are resolved: sources
+live in `tests/cuda/windows/` (globbed only on `WIN32`, under the CUDA bucket);
+the Windows-only library headers live in `corvid/cuda/windows/`; and the first
+target needs only D3D interop (Windows SDK), not the Video Codec SDK. That first
+target is a CUDA-driven fractal viewer: a kernel writes a texture that Direct3D
+presents via `cudaGraphicsD3D11*` interop, so the frame never crosses PCIe.
+D3D11, not D3D12, because the present is a single full-screen texture and is
+never the bottleneck; D3D11's map/unmap gives zero-copy interop without D3D12's
+external-memory and fence ceremony. The app owns its own `ID3D11Device` plus a
+flip-model swapchain (uncapped present); SDL3 supplies only the window, input,
+and event loop, with the `HWND` pulled from it.
+
+SDL3 is a new external dependency, brought in as a prebuilt drop in
+`tests/.local/sdl3/` (the official VC binaries, fetched by
+`scripts/fetch_sdl3.ps1`), checked at configure time with a `FATAL_ERROR` hint
+like the Linux OpenSSL prebuild. Prebuilt rather than FetchContent-from-source
+because SDL exposes a C API: there is no C++ ABI to match against the stdlib
+(the reason Catch2 must be source-built), so an MSVC-built SDL links cleanly from
+clang++, and a C DLL's CRT is independent of the app's, so one `SDL3.dll` serves
+both the Release and debug build paths. The shared DLL is staged next to each
+windows-cell executable. The interop, D3D11, and SDL3 wrappers this viewer
+brings into existence are the reusable substrate for later, larger Windows-only
+GPU work.
 
 Resolved this round (detail in sections 7 and 8): device correctness via
 `./cleanbuild.ps1 cudacheck` (compute-sanitizer) and device debugging via Nsight

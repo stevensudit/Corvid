@@ -573,7 +573,12 @@ endif()
 if(TEST_NAME)
     # Locate the single requested source in whichever bucket holds it.
     set(FILTERED_SOURCE "")
-    foreach(_bucket portable linux cuda)
+    set(_buckets portable linux cuda)
+    if(WIN32)
+        # Windows-only CUDA cell (D3D/SDL3 targets); see crossplatform.md s11.
+        list(APPEND _buckets cuda/windows)
+    endif()
+    foreach(_bucket ${_buckets})
         if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/${_bucket}/${TEST_NAME}")
             set(FILTERED_SOURCE
                 "${CMAKE_CURRENT_SOURCE_DIR}/${_bucket}/${TEST_NAME}")
@@ -673,6 +678,12 @@ if(CORVID_ENABLE_CUDA)
         set(CUDA_SOURCES "") # a .cpp single-file filter builds no .cu targets
     else()
         file(GLOB CUDA_SOURCES "cuda/*.cu")
+        if(WIN32)
+            # Windows-only CUDA cell: D3D/SDL3 targets that can't build on Linux
+            # (see crossplatform.md s11). Globbed only here, under WIN32.
+            file(GLOB CUDA_WINDOWS_SOURCES "cuda/windows/*.cu")
+            list(APPEND CUDA_SOURCES ${CUDA_WINDOWS_SOURCES})
+        endif()
     endif()
 
     if(CUDA_SOURCES)
@@ -707,6 +718,31 @@ if(CORVID_ENABLE_CUDA)
                 INTERFACE_INCLUDE_DIRECTORIES "${CUDA_CATCH2_INCLUDE_DIR}")
             set(CUDA_CATCH2_TARGET cuda_catch2)
         endif()
+
+        # Windows-only CUDA cell needs SDL3 (window/input/events). It is a
+        # prebuilt drop in tests/.local/sdl3 (run scripts/fetch_sdl3.ps1),
+        # mirroring the Linux OpenSSL prebuild: prebuilt rather than
+        # FetchContent because SDL is a C API with no C++ ABI to match. Required
+        # only when a windows-cell target is actually in the build, so the
+        # portable and plain-cuda builds do not depend on it. See
+        # crossplatform.md s11.
+        set(_have_win_cuda FALSE)
+        foreach(_s ${CUDA_SOURCES})
+            if(_s MATCHES "/cuda/windows/")
+                set(_have_win_cuda TRUE)
+            endif()
+        endforeach()
+        if(_have_win_cuda)
+            set(SDL3_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/.local/sdl3")
+            if(NOT EXISTS "${SDL3_ROOT}/cmake/SDL3Config.cmake")
+                message(FATAL_ERROR
+                    "SDL3 not found at ${SDL3_ROOT}. "
+                    "Run scripts/fetch_sdl3.ps1 first (one-time).")
+            endif()
+            find_package(SDL3 CONFIG REQUIRED
+                PATHS "${SDL3_ROOT}/cmake" NO_DEFAULT_PATH)
+            message(STATUS "Using SDL3 ${SDL3_VERSION} at ${SDL3_ROOT}")
+        endif()
     endif()
 
     foreach(SOURCE_FILE ${CUDA_SOURCES})
@@ -720,6 +756,16 @@ if(CORVID_ENABLE_CUDA)
         file(STRINGS ${SOURCE_FILE} CUDA_USES_CUBLAS REGEX "cublas")
         if(CUDA_USES_CUBLAS)
             target_link_libraries(${EXECUTABLE_NAME} PRIVATE CUDA::cublas)
+        endif()
+        # Windows-only CUDA cell links SDL3 and stages SDL3.dll next to the exe.
+        # (The Windows SDK graphics libs d3d11/dxgi join here at the D3D
+        # milestone.) See crossplatform.md s11.
+        if(SOURCE_FILE MATCHES "/cuda/windows/")
+            target_link_libraries(${EXECUTABLE_NAME} PRIVATE SDL3::SDL3)
+            add_custom_command(TARGET ${EXECUTABLE_NAME} POST_BUILD
+                COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                    "$<TARGET_FILE:SDL3::SDL3>"
+                    "$<TARGET_FILE_DIR:${EXECUTABLE_NAME}>")
         endif()
         if(NOT ${EXECUTABLE_NAME} MATCHES "^notest_")
             target_link_libraries(${EXECUTABLE_NAME} PRIVATE ${CUDA_CATCH2_TARGET})

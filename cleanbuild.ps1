@@ -159,8 +159,33 @@ $cfg += $cudaArgs
 $mode = if ($tidy) { 'tidy' } elseif ($cudacheck) { 'cudacheck' } elseif ($sanitizer) { $sanitizer } else { 'plain' }
 $cfgLabel = if ($tidy) { 'Release, asserts-live' } else { 'Release' }
 Write-Host "Compiler: $compiler   Mode: $mode ($cfgLabel)$(if ($testName) { "   Test: $testName" })"
-cmake @cfg
-if ($LASTEXITCODE) { throw "configure failed ($LASTEXITCODE)" }
+
+# Signature of everything that determines the configuration (the configure args
+# themselves). When a single-file build is requested and the build dir already
+# carries a matching signature, the configuration cannot have changed, so skip
+# the cold reconfigure (the ~20s of nvcc/find_package probing that would only
+# reproduce identical build files) and rebuild just that target. A full build, a
+# changed option, a different file, or a first run all fall through to configure.
+# Editing CMakeLists.txt still reconfigures: `cmake --build` re-runs CMake when
+# the lists file is newer than the cache. Mirrors cleanbuild.sh.
+$sigFile = Join-Path $bldDir '.cleanbuild-config'
+$configSig = ($cfg -join '|')
+$reuse = $testName -and (Test-Path $sigFile) -and
+  (Test-Path (Join-Path $bldDir 'CMakeCache.txt')) -and
+  ((Get-Content $sigFile -Raw).Trim() -eq $configSig)
+
+if ($reuse) {
+  Write-Host "Reusing configured build dir for $testName (config unchanged); skipping reconfigure."
+  # "Clean" still means a fresh executable: drop just this target's binary so it
+  # relinks, leaving the cached objects and configuration in place.
+  $stem = [IO.Path]::GetFileNameWithoutExtension($testName)
+  Remove-Item (Join-Path $bldDir "release_bin/$stem.exe") -Force -ErrorAction SilentlyContinue
+} else {
+  cmake @cfg
+  if ($LASTEXITCODE) { throw "configure failed ($LASTEXITCODE)" }
+  # Record the signature so the next matching single-file run can reuse this.
+  Set-Content -Path $sigFile -Value $configSig
+}
 
 # The .cu test stems cudacheck will sanitize: one if a .cu was named, else all
 # registered cuda/*.cu (notest_ excluded). Also scopes the build, so cudacheck
@@ -249,8 +274,24 @@ if ($cudacheck) {
   exit 0
 }
 
-ctest --test-dir $bldDir --output-on-failure
-$ctestRc = $LASTEXITCODE
+# notest_* sources opt out of CTest, so a build-everything run skips them (the
+# point of the prefix). But an explicit single-file request means "build AND run
+# this one", so run the binary directly, mirroring cleanbuild.sh.
+$stem = if ($testName) { [IO.Path]::GetFileNameWithoutExtension($testName) } else { '' }
+if ($stem -like 'notest_*') {
+  $bin = Join-Path $bldDir "release_bin/$stem.exe"
+  if (Test-Path $bin) {
+    Write-Host "Running $bin"
+    & $bin
+    $ctestRc = $LASTEXITCODE
+  } else {
+    Write-Error "built binary not found: $bin"
+    $ctestRc = 1
+  }
+} else {
+  ctest --test-dir $bldDir --output-on-failure
+  $ctestRc = $LASTEXITCODE
+}
 
 # tidy mode: clang-tidy warnings streamed past during the build and got buried
 # under the ctest run. Summarize them at the end so the bottom-line state is
