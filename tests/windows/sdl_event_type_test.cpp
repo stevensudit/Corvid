@@ -1,4 +1,4 @@
-// Unit test for corvid::sdl::sdl_event_type (corvid/sdl/sdl_event_type.h):
+// Unit test for corvid::sdl::sdl_event_type (corvid/sdl/sdl_event.h):
 // exercises the sparse sequence-enum registration of SDL's ~118 event types.
 // Checks the first and last value of every block so a misaligned run in the
 // spec string is caught, that enum<->string round-trips, that an in-gap value
@@ -8,7 +8,7 @@
 #include <string_view>
 
 #include "corvid/enums/enum_conversion.h"
-#include "corvid/sdl/sdl_event_type.h"
+#include "corvid/sdl/sdl_event.h"
 #include "catch2_main.h"
 
 using namespace corvid;
@@ -32,7 +32,8 @@ constexpr event_case event_cases[] = {
     {sdl_event_type::display_usable_bounds_changed, 344,
         "display_usable_bounds_changed"},
     {sdl_event_type::window_shown, 514, "window_shown"},
-    {sdl_event_type::window_hdr_state_changed, 538, "window_hdr_state_changed"},
+    {sdl_event_type::window_hdr_state_changed, 538,
+        "window_hdr_state_changed"},
     {sdl_event_type::key_down, 768, "key_down"},
     {sdl_event_type::screen_keyboard_hidden, 777, "screen_keyboard_hidden"},
     {sdl_event_type::mouse_motion, 1024, "mouse_motion"},

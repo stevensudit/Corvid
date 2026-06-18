@@ -838,6 +838,11 @@ if(WIN32)
     else()
         set(CORVID_CLANGD_CUDA_FLAGS "-xcuda, --no-cuda-version-check, -std=c++23")
     endif()
+    # SDL3 sits behind -isystem only on windows-bucket TU commands, so a
+    # standalone parse of a vendored SDL header resolves no types; add it
+    # globally for clangd.
+    set(CORVID_CLANGD_SDL_INCLUDE
+        "${CMAKE_CURRENT_SOURCE_DIR}/.local/sdl3/include")
     configure_file(
         "${PROJECT_ROOT_DIR}/.clangd.win.in"
         "${PROJECT_ROOT_DIR}/.clangd"

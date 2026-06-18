@@ -10,6 +10,10 @@ CompileFlags:
   # under corvid/ have no entry of their own and inherit flags from the nearest
   # indexed TU that includes them.
   CompilationDatabase: tests/build
+  # SDL3 sits behind -isystem only on windows-bucket TU commands, so a
+  # standalone parse of a vendored SDL header inherits a command without it and
+  # resolves no SDL types; add it globally (harmless extra search path).
+  Add: [-isystem, @CORVID_CLANGD_SDL_INCLUDE@]
 
 ---
 # CUDA sources/headers (corvid/cuda/, tests/*.cu). A .cu has a clang++ CUDA entry

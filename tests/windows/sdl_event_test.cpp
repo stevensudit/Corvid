@@ -1,18 +1,16 @@
-// Unit test for corvid::sdl::sdl_event / poll_event (corvid/sdl/sdl_event.h):
-// exercises the union-aware wrapper. The classify switch is covered with at
-// least one event type per data shape (plus first/last of the big display and
-// window blocks, where a mis-grouped case label would slip through); the
-// registered enums round-trip; the header accessors and the display payload
-// accessor copy through; and a headless push/poll case drives poll_event.
-
-#include <optional>
+// Unit test for corvid::sdl::sdl_event / sdl_event::poll (corvid/sdl/
+// sdl_event.h): exercises the union-aware wrapper. The classify switch is
+// covered with at least one event type per data shape (plus first/last of the
+// big display and window blocks, where a mis-grouped case label would slip
+// through); the registered enums round-trip; the header accessors and the
+// display payload accessor copy through; and a headless push/poll case drives
+// `poll`.
 
 #include "corvid/enums/enum_conversion.h"
 #include "corvid/sdl/sdl_event.h"
 #include "catch2_main.h"
 
 using namespace corvid::enums;
-using corvid::sdl::poll_event;
 using corvid::sdl::sdl_display_id_type;
 using corvid::sdl::sdl_event;
 using corvid::sdl::sdl_event_data_type;
@@ -61,7 +59,6 @@ TEST_CASE("sdl_event classifies every union member", "[sdl][event]") {
   check_data_type(SDL_EVENT_AUDIO_DEVICE_ADDED, dt::adevice);
   check_data_type(SDL_EVENT_CAMERA_DEVICE_ADDED, dt::cdevice);
   check_data_type(SDL_EVENT_SENSOR_UPDATE, dt::sensor);
-  check_data_type(SDL_EVENT_QUIT, dt::quit);
   check_data_type(SDL_EVENT_FINGER_DOWN, dt::tfinger);
   check_data_type(SDL_EVENT_PINCH_BEGIN, dt::pinch);
   check_data_type(SDL_EVENT_PEN_PROXIMITY_IN, dt::pproximity);
@@ -73,11 +70,12 @@ TEST_CASE("sdl_event classifies every union member", "[sdl][event]") {
   check_data_type(SDL_EVENT_DROP_FILE, dt::drop);
   check_data_type(SDL_EVENT_CLIPBOARD_UPDATE, dt::clipboard);
 
-  // A registered user event (>= SDL_EVENT_USER) is `user`; payload-less
-  // application events fall back to `common`.
+  // A registered user event (>= SDL_EVENT_USER) is `user`; header-only events
+  // (quit and the application events) fall back to `common`.
   SDL_Event raw{};
   raw.type = SDL_EVENT_USER + 7;
   CHECK(sdl_event{raw}.data_type() == dt::user);
+  check_data_type(SDL_EVENT_QUIT, dt::common);
   check_data_type(SDL_EVENT_TERMINATING, dt::common);
   check_data_type(SDL_EVENT_KEYMAP_CHANGED, dt::common);
 }
@@ -114,22 +112,23 @@ TEST_CASE("sdl_event get_display copies the cleaned payload", "[sdl][event]") {
   CHECK(d.data2 == 200);
 }
 
-TEST_CASE("poll_event drains the queue through the wrapper", "[sdl][event]") {
+TEST_CASE("sdl_event::poll drains the queue through the wrapper",
+    "[sdl][event]") {
   // SDL_INIT_EVENTS is headless (no display), so this runs without a window.
   REQUIRE(SDL_Init(SDL_INIT_EVENTS));
 
   // Nothing pushed yet: the queue is empty.
   SDL_FlushEvents(SDL_EVENT_FIRST, SDL_EVENT_LAST);
-  CHECK_FALSE(poll_event().has_value());
+  CHECK_FALSE(sdl_event::poll());
 
   SDL_Event quit{};
   quit.type = SDL_EVENT_QUIT;
   REQUIRE(SDL_PushEvent(&quit));
 
-  const auto ev = poll_event();
-  REQUIRE(ev.has_value());
-  CHECK(ev->type() == sdl_event_type::quit);
-  CHECK_FALSE(poll_event().has_value()); // queue drained again
+  const auto ev = sdl_event::poll();
+  REQUIRE(ev);
+  CHECK(ev.type() == sdl_event_type::quit);
+  CHECK_FALSE(sdl_event::poll()); // queue drained again
 
   SDL_Quit();
 }

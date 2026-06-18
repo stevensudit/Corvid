@@ -20,8 +20,8 @@ int main() {
 
     bool running = true;
     while (running) {
-      while (auto ev = poll_event())
-        if (ev->type() == sdl_event_type::quit) running = false;
+      while (auto ev = sdl_event::poll())
+        if (ev.type() == sdl_event_type::quit) running = false;
     }
     return 0;
   }
