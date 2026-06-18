@@ -1,19 +1,27 @@
-# cleanbuild.ps1 - Windows build driver for the portable (and, later, CUDA) test
+# cleanbuild.ps1 - Windows build driver for the portable and CUDA test
 # buckets. Mirrors cleanbuild.sh's role on Linux: configure a fresh, optimized
 # (release) build against the MSVC STL and run ctest. Like the Linux clang/gcc
-# split, the compiler is selectable: clang-cl (default) or MSVC cl. ASAN is
-# supported under clang-cl, and it carries UBSAN with it
-# (-fsanitize=address,undefined): standalone UBSAN ships a static-CRT-only
-# runtime that collides with this /MD build, so it is not a separate Windows
-# mode. The other Linux-only modes (libc++/libstdc++ choice, tsan/msan,
-# analyze-build scan, llvm-cov coverage, compiler-rt/lld) have no MSVC analog and
-# are deliberately absent. See crossplatform.md.
+# split, the compiler is selectable: clang++ (default) or MSVC cl. clang++ uses
+# a GNU-style driver targeting the MSVC ABI (the same driver as Linux clang),
+# and is also what compiles the CUDA bucket. ASAN is supported under clang++,
+# and it carries UBSAN with it (-fsanitize=address,undefined): standalone UBSAN
+# ships a static-CRT-only runtime that collides with this /MD build, so it is
+# not a separate Windows mode. The other Linux-only modes (libc++/libstdc++
+# choice, tsan/msan, analyze-build scan, llvm-cov coverage, compiler-rt/lld)
+# have no MSVC analog and are deliberately absent. See crossplatform.md.
+#
+# CUDA: when the CUDA toolkit is present and the build is the default clang++
+# one in a plain (not asan) mode, the cuda/*.cu tests build alongside the
+# portable suite as their own clang++ executables (MSVC ABI). CUDA does not ride
+# with the cl build (CMake forbids a cl host + clang++ CUDA mix). Pass a *.cu
+# filename to build and run just one. See crossplatform.md.
 #
 # Usage (args combine in any order):
-#   ./cleanbuild.ps1                     clang-cl, whole portable suite, ctest
+#   ./cleanbuild.ps1                     clang++, portable + CUDA suite, ctest
 #   ./cleanbuild.ps1 strings_test.cpp    build and run just that one test
-#   ./cleanbuild.ps1 cl                  build with MSVC cl instead of clang-cl
-#   ./cleanbuild.ps1 asan                ASAN (+UBSAN) build + ctest (clang-cl only)
+#   ./cleanbuild.ps1 cuda_status_test.cu build and run just that one CUDA test
+#   ./cleanbuild.ps1 cl                  portable suite via MSVC cl (no CUDA)
+#   ./cleanbuild.ps1 asan                ASAN (+UBSAN) build + ctest (clang++ only)
 [CmdletBinding()]
 param([Parameter(ValueFromRemainingArguments = $true)][string[]] $Rest)
 
@@ -23,31 +31,31 @@ $repo = $PSScriptRoot
 $srcDir = Join-Path $repo 'tests'
 $bldDir = Join-Path $repo 'tests/build'
 $llvmRoot = 'C:/Program Files/LLVM'
-$clangCl = "$llvmRoot/bin/clang-cl.exe"
+$clangXx = "$llvmRoot/bin/clang++.exe"
 
-# Parse args: a *.cpp name selects one test; clang-cl|cl picks the compiler;
-# asan picks the sanitizer.
+# Parse args: a *.cpp or *.cu name selects one test; clang|cl picks the
+# compiler; asan picks the sanitizer.
 $testName = ''
-$compiler = 'clang-cl'
+$compiler = 'clang'
 $sanitizer = ''
 foreach ($a in $Rest) {
   switch -Regex ($a) {
-    '\.cpp$' { $testName = $a }
-    '^(clang-cl|clangcl|clang)$' { $compiler = 'clang-cl' }
+    '\.(cpp|cu)$' { $testName = $a }
+    '^(clang\+\+|clang)$' { $compiler = 'clang' }
     '^(cl|msvc)$' { $compiler = 'cl' }
     '^asan$' { $sanitizer = $a }
-    default { throw "Unrecognized argument '$a' (expected <name>_test.cpp, clang-cl|cl, or asan)" }
+    default { throw "Unrecognized argument '$a' (expected <name>_test.cpp, <name>_test.cu, clang|cl, or asan)" }
   }
 }
 if ($sanitizer -and $compiler -eq 'cl') {
-  throw 'ASAN requires clang-cl, not MSVC cl.'
+  throw 'ASAN requires clang++, not MSVC cl.'
 }
 
-# Resolve the compiler. clang-cl uses the full LLVM path; cl rides the dev-shell
+# Resolve the compiler. clang++ uses the full LLVM path; cl rides the dev-shell
 # PATH set up below.
-if ($compiler -eq 'clang-cl') {
-  if (-not (Test-Path $clangCl)) { throw "clang-cl not found at $clangCl" }
-  $cxx = $clangCl
+if ($compiler -eq 'clang') {
+  if (-not (Test-Path $clangXx)) { throw "clang++ not found at $clangXx" }
+  $cxx = $clangXx
 } else {
   $cxx = 'cl'
 }
@@ -67,6 +75,33 @@ if (-not $env:VSCMD_VER) {
     -DevCmdArguments '-arch=x64 -host_arch=x64' | Out-Null
 }
 
+# CUDA (.cu) targets build automatically when the CUDA toolkit is present and
+# the build is the default clang++ one in a plain (non-asan) mode: each .cu is
+# its own clang++ executable (MSVC ABI) sharing no link line with a .cpp binary.
+# Windows compiles CUDA with clang, not nvcc: nvcc 13.3's MSVC device frontend
+# has no C++23 dialect (it drops -std=c++23), so it cannot build Corvid's C++23
+# headers, while clang's unified C++23 frontend can. clang-CUDA's `native` arch
+# detection does not work on Windows, so resolve the GPU's compute capability
+# explicitly via nvidia-smi (e.g. 8.9 -> sm_89). CUDA rides only with clang++,
+# not cl: CMake forbids mixing a cl (MSVC) host with a clang++ (GNU) CUDA
+# compiler. Skip under asan too: the sanitizer runtime is a .cpp-suite concern
+# that would not match the clang-CUDA link. See crossplatform.md.
+$cudaArgs = @()
+if ($compiler -eq 'clang' -and -not $sanitizer -and
+  (Get-Command nvcc -ErrorAction SilentlyContinue)) {
+  if (-not (Test-Path $clangXx)) { throw "CUDA needs clang++ at $clangXx" }
+  $cc = nvidia-smi --query-gpu=compute_cap --format=csv,noheader 2>$null | Select-Object -First 1
+  if (-not $cc) { throw 'CUDA toolkit present but no GPU arch from nvidia-smi' }
+  $arch = ($cc.Trim() -replace '\.', '')
+  $cudaArgs = @('-DCORVID_ENABLE_CUDA=ON', "-DCMAKE_CUDA_COMPILER=$clangXx",
+    "-DCMAKE_CUDA_ARCHITECTURES=$arch")
+}
+# A requested .cu source needs the toolkit, the clang++ compiler, and a plain
+# mode; fail clearly rather than configuring a build that produces no target.
+if ($testName -like '*.cu' -and -not $cudaArgs) {
+  throw "'$testName' needs the CUDA toolkit, the clang++ compiler (not cl), and a plain build mode (not asan)"
+}
+
 # Configure fresh. `cmake --fresh` clears the cache and CMakeFiles/ and
 # reconfigures in place WITHOUT deleting tests/build - on Windows clangd keeps an
 # open handle to compile_commands.json, which would block a directory wipe (a
@@ -79,6 +114,7 @@ $cfg = @('--fresh', '-S', $srcDir, '-B', $bldDir, '-G', 'Ninja',
   "-DCMAKE_CXX_COMPILER=$cxx", '-DCMAKE_BUILD_TYPE=Release')
 if ($testName) { $cfg += "-DTEST_NAME=$testName" }
 if ($sanitizer) { $cfg += "-DSANITIZER=$sanitizer" }
+$cfg += $cudaArgs
 $mode = if ($sanitizer) { $sanitizer } else { 'plain' }
 Write-Host "Compiler: $compiler   Mode: $mode (Release)$(if ($testName) { "   Test: $testName" })"
 cmake @cfg

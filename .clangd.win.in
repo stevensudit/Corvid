@@ -1,15 +1,30 @@
-# clangd configuration (Windows / clang-cl). Generated from `.clangd.win.in` by
+# clangd configuration (Windows / clang++). Generated from `.clangd.win.in` by
 # `tests/CMakeLists.txt` via `configure_file` and gitignored (rewritten on every
 # configure). Edit this template, not the generated `.clangd`. The Linux variant
-# is `.clangd.in`; the two diverge because Windows builds with clang-cl against
+# is `.clangd.in`; the two diverge because Windows builds with clang++ against
 # the MSVC STL (no libc++) and only the portable/cuda buckets exist (no
 # ngtcp2/openssl/liburing isystem paths).
 CompileFlags:
-  # compile_commands.json (under tests/build) carries the real clang-cl command
-  # for every test .cpp, including /std:c++latest and the include paths. Headers
+  # compile_commands.json (under tests/build) carries the real clang++ command
+  # for every test .cpp/.cu, including -std=c++23 and the include paths. Headers
   # under corvid/ have no entry of their own and inherit flags from the nearest
   # indexed TU that includes them.
   CompilationDatabase: tests/build
+
+---
+# CUDA sources/headers (corvid/cuda/, tests/*.cu). A .cu has a clang++ CUDA entry
+# in compile_commands.json that clangd parses directly, but a .cuh header has no
+# entry and would be parsed as plain C++, flagging the CUDA attributes
+# (__host__, __device__, __global__) and the <<<...>>> launch syntax as unknown.
+# Put clangd into CUDA mode with clang's own CUDA frontend: -xcuda plus the
+# toolkit path (derived from nvcc at configure time). --no-cuda-version-check
+# silences the note that the 13.3 toolkit is newer than clang 22's last fully
+# supported version; parsing is unaffected.
+If:
+  PathMatch: [.*\.cu, .*\.cuh]
+CompileFlags:
+  Compiler: C:/Program Files/LLVM/bin/clang++.exe
+  Add: [@CORVID_CLANGD_CUDA_FLAGS@]
 
 ---
 Diagnostics:

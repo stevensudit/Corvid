@@ -1,17 +1,18 @@
 # ide_build.ps1 - Windows single-file build dispatcher for the VSCode default
 # build task (.vscode/tasks.json, windows override). The Windows counterpart of
-# ide_build.sh: a .cpp compiles with clang-cl against the MSVC STL; the output
-# lands at <dir>/debug_bin/<stem>.exe, where launch.json and the "Run
-# Executable" task find it (the .exe suffix matches the Linux side, which now
-# also appends it). CUDA (.cu) on Windows is Phase 4 and not wired yet. See
-# crossplatform.md.
+# ide_build.sh: a .cpp or .cu compiles with clang++ (GNU-style driver, MSVC ABI)
+# to <dir>/debug_bin/<stem>.exe, where launch.json and the "Run Executable" task
+# find it (the .exe suffix matches the Linux side). A .cu adds clang's CUDA
+# flags: the CUDA bucket builds with clang, not nvcc, because nvcc 13.3's MSVC
+# device frontend has no C++23 dialect. See crossplatform.md.
 [CmdletBinding()]
 param([Parameter(Mandatory)][string] $Src)
 
 $ErrorActionPreference = 'Stop'
 
-$clang = 'C:/Program Files/LLVM/bin/clang-cl.exe'
-if (-not (Test-Path $clang)) { throw "clang-cl not found at $clang" }
+$llvmRoot = 'C:/Program Files/LLVM'
+$clang = "$llvmRoot/bin/clang++.exe"
+if (-not (Test-Path $clang)) { throw "clang++ not found at $clang" }
 if (-not (Test-Path $Src)) { throw "source not found: $Src" }
 
 # scripts/ide_build.ps1 -> the repo root is the parent directory.
@@ -22,11 +23,7 @@ $outDir = Join-Path $srcDir 'debug_bin'
 New-Item -ItemType Directory -Force -Path $outDir | Out-Null
 $out = Join-Path $outDir "$stem.exe"
 
-if ($Src -like '*.cu') {
-  throw 'CUDA single-file build on Windows is not wired yet (Phase 4); build .cu under WSL/Linux for now.'
-}
-
-# Bring in the MSVC environment (INCLUDE/LIB for clang-cl) unless already inside
+# Bring in the MSVC environment (INCLUDE/LIB for clang++) unless already inside
 # a Developer shell.
 if (-not $env:VSCMD_VER) {
   $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
@@ -52,28 +49,45 @@ $catch2 = Get-ChildItem (Join-Path $fc 'catch2-build/src') -Filter 'Catch2*.lib'
 if (-not $catch2) {
   throw "Catch2 not built yet (under $fc). Run ./cleanbuild.ps1 first."
 }
-# Match the CRT cleanbuild used for Catch2 - a /MD vs /MDd mismatch is a hard
-# link error on Windows.
-$crt = if ($catch2.Name -match 'd\.lib$') { '/MDd' } else { '/MD' }
+# Match the CRT cleanbuild used for Catch2 - a dynamic/static or release/debug
+# CRT mismatch is a hard link error on Windows. clang++ defaults to the static
+# CRT, so request the dynamic one (dll = /MD, dll_dbg = /MDd) to match Catch2.
+$crt = if ($catch2.Name -match 'd\.lib$') { 'dll_dbg' } else { 'dll' }
 
-# Debug single-file build: /Zi (PDB debug info), /Od (un-optimized stepping), and
-# the CRT that matches Catch2. C++23 via /std:c++latest. Test sources include
-# corvid headers root-relative ("corvid/...") and catch2_main.h by bare name, so
-# the repo root and tests/ both go on the include path.
+# Debug single-file build: -g (CodeView debug info -> PDB, which launch.json's
+# cppvsdbg config reads), -O0 (un-optimized stepping), C++23, and the CRT that
+# matches Catch2. Test sources include corvid headers root-relative ("corvid/...")
+# and catch2_main.h by bare name, so the repo root and tests/ both go on the
+# include path.
 $clArgs = @(
-  '/nologo', '/std:c++latest', '/EHsc', $crt, '/Zi', '/Od',
-  # clang's real warning set via the /clang: escape (bare -Wall is MSVC's /Wall
-  # under clang-cl), mirroring ide_build.sh's -Wall -Wextra -Werror.
-  '/clang:-Wall', '/clang:-Wextra', '/clang:-Werror', '/clang:-Wno-unused-variable',
+  '-std=c++23', '-g', '-O0', "-fms-runtime-lib=$crt",
   '-I', $workspace,
   '-I', (Join-Path $workspace 'tests'),
   '-I', (Join-Path $fc 'catch2-src/src'),
-  '-I', (Join-Path $fc 'catch2-build/generated-includes'),
-  $Src,
-  $catch2.FullName,
-  "/Fe:$out",
-  "/Fo:$outDir\",
-  "/Fd:$outDir\$stem.pdb"
+  '-I', (Join-Path $fc 'catch2-build/generated-includes')
 )
+
+if ($Src -like '*.cu') {
+  # CUDA flags. clang's CUDA driver needs the target GPU arch (resolved from
+  # nvidia-smi, e.g. 8.9 -> sm_89), the toolkit path (derived from nvcc's
+  # location), and an explicit cudart link (clang does not auto-add it on
+  # Windows). -Wno-unknown-cuda-version silences the note that CUDA 13.3 is
+  # newer than clang 22's last fully supported toolkit. No -Wall/-Werror here,
+  # matching the cleanbuild CUDA bucket.
+  $nvcc = Get-Command nvcc -ErrorAction SilentlyContinue
+  if (-not $nvcc) { throw 'CUDA (.cu) build needs nvcc on PATH' }
+  $cudaPath = Split-Path (Split-Path $nvcc.Source)
+  $cc = nvidia-smi --query-gpu=compute_cap --format=csv,noheader 2>$null | Select-Object -First 1
+  if (-not $cc) { throw 'no GPU arch from nvidia-smi' }
+  $arch = ($cc.Trim() -replace '\.', '')
+  $clArgs += @(
+    "--cuda-gpu-arch=sm_$arch", "--cuda-path=$cudaPath", '-Wno-unknown-cuda-version',
+    "-L$cudaPath/lib/x64", '-lcudart')
+} else {
+  # clang's real warning set, as errors, mirroring ide_build.sh.
+  $clArgs += @('-Wall', '-Wextra', '-Werror', '-Wno-unused-variable')
+}
+
+$clArgs += @($Src, $catch2.FullName, '-o', $out)
 & $clang @clArgs
 exit $LASTEXITCODE

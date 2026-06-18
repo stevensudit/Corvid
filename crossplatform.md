@@ -1,11 +1,13 @@
 # Cross-Platform Build
 
-Status: portable Windows port complete. The portable test suite builds and
-passes on Linux (clang), native Windows (clang-cl), and native Windows (MSVC
-cl): 39 of 39 portable tests on each Windows compiler, and the full Linux suite
-(portable plus linux buckets) stays green. CUDA on Windows is the remaining
-piece (see "Remaining work"). This document records how cross-platform
-capability is structured and maintained; update it when the structure changes.
+Status: Windows port complete, including CUDA. The portable test suite builds
+and passes on Linux (clang), native Windows (clang++), and native Windows (MSVC
+cl): 39 of 39 portable tests on each Windows compiler. The CUDA bucket builds
+and runs natively on Windows under clang++ (3 of 3 registered `.cu` tests pass
+on the GPU, plus the cuBLAS tutorials), and the full Linux suite (portable plus
+linux buckets, plus CUDA under nvcc) stays green. This document records how
+cross-platform capability is structured and maintained; update it when the
+structure changes.
 
 ## 1. Goal and shape
 
@@ -22,11 +24,11 @@ not ported. No IOCP port is planned.
 
 Three buckets, selected by platform at configure time:
 
-| Bucket   | Builds on            | Depends on                            |
-|----------|----------------------|---------------------------------------|
-| portable | every platform       | std C++23 and portable corvid headers |
-| linux    | Linux only           | epoll, io_uring, sockets, QUIC        |
-| cuda     | wherever nvcc + host | CUDA toolkit (plus Catch2)            |
+| Bucket   | Builds on             | Depends on                            |
+|----------|-----------------------|---------------------------------------|
+| portable | every platform        | std C++23 and portable corvid headers |
+| linux    | Linux only            | epoll, io_uring, sockets, QUIC        |
+| cuda     | Linux and Windows     | CUDA toolkit (plus Catch2)            |
 
 Tests live under `tests/portable/`, `tests/linux/`, and `tests/cuda/`.
 `tests/CMakeLists.txt` globs each bucket separately. The linux bucket and its
@@ -50,22 +52,55 @@ the file sits, so moving a test between buckets is free. The shared
 
 ## 3. Toolchains
 
-| Platform | Portable suite          | CUDA bucket           |
-|----------|-------------------------|-----------------------|
-| Linux    | clang + libc++          | nvcc + g++-15         |
-| Windows  | clang-cl (default), cl  | nvcc + cl host (TODO) |
+| Platform | Portable suite          | CUDA bucket    |
+|----------|-------------------------|----------------|
+| Linux    | clang + libc++          | nvcc + g++-15  |
+| Windows  | clang++ (default), cl   | clang++        |
 
-On Windows the portable suite builds with clang-cl by default. Native clang on
-Windows is a wanted capability in its own right (it also enables clang's
-sanitizers and keeps clangd's flags aligned), not merely a fallback. MSVC cl is
-supported as a second compiler, mirroring the clang/gcc choice on Linux. CUDA
-uses nvcc with cl as host because nvcc requires cl on Windows; this mirrors
-Linux, where the `.cu` bucket already uses nvcc + g++-15 rather than the `.cpp`
-suite's clang.
+On Windows the portable suite builds with clang++ by default: the same GNU-style
+LLVM driver used on Linux, but targeting the MSVC ABI against the MSVC STL (no
+libc++). It keeps clangd's flags aligned and carries clang's sanitizers. MSVC cl
+is supported as a second compiler, mirroring the clang/gcc choice on Linux; cl
+is genuinely different from clang and catches real conformance divergences (see
+section 6).
 
-Versions used during bring-up: clang-cl and clang-format from LLVM 22.1.7; MSVC
-STL 14.4x and Windows SDK 10.0.26100 via VS 2022 Community; CMake 4.3, Ninja,
-nvcc 13.3.
+The CUDA bucket on Windows also builds with clang++ (clang's CUDA frontend),
+*not* nvcc. This is forced, not a preference: nvcc 13.3's MSVC device frontend
+(`cudafe++`/`cicc`) has no C++23 dialect. Its highest `--ms_c++NN` is
+`--ms_c++20`; asked for `-std=c++23` with an MSVC host it prints "not supported
+with the configured host compiler" and silently falls back to `--ms_c++14`
+(confirmed via `nvcc --dryrun`). Corvid is a C++23 library (it uses
+`std::is_scoped_enum_v`, `std::forward_like`, `std::range_format`, deducing
+this), so the `.cu` tests cannot compile under nvcc on Windows. clang's unified
+C++23 frontend compiles host and device together and has no such gap. This is a
+host-specific nvcc limitation: on Linux, nvcc + g++-15 builds the same `.cu` at
+C++23 fine (the EDG GNU dialect does support C++23), so Linux keeps nvcc.
+
+Two consequences of the clang++/CUDA choice, both enforced by `cleanbuild.ps1`:
+
+- The whole Windows build unifies on one clang driver. CMake selects the
+  Windows-MSVC platform from a clang-cl C++ compiler and then forces MSVC
+  conventions (`/machine`, `/Fo`, `MSVC_RUNTIME_LIBRARY`) onto the GNU-driver
+  clang++ CUDA compiler, which rejects them. Using clang++ for the `.cpp` suite
+  too makes the platform uniformly GNU-like and those conflicts vanish. This is
+  why clang-cl was retired in favor of clang++.
+- CUDA rides only with the default clang++ build, never with cl: CMake forbids
+  mixing a cl (MSVC-frontend) host with a clang++ (GNU-frontend) CUDA compiler
+  ("mixed frontend variants ... not supported"). `./cleanbuild.ps1 cl` therefore
+  builds the portable suite only; CUDA development happens under the default
+  clang++.
+
+clang++ defaults to the static (`/MT`) CRT; the Windows build forces the dynamic
+(`/MD`) one with `-fms-runtime-lib=dll` on both the `.cpp` and `.cu` flags, so
+the suite, the FetchContent Catch2, and the CUDA objects share one CRT and ASAN
+keeps its dynamic runtime. `CMAKE_CUDA_ARCHITECTURES` is passed explicitly
+(`cleanbuild.ps1` resolves the GPU's compute capability from `nvidia-smi`, e.g.
+8.9 -> sm_89): clang-CUDA's `native` arch detection does not work on Windows and
+silently produces a binary whose kernels never run.
+
+Versions used during bring-up: clang++ and clang-format from LLVM 22.1.7; MSVC
+STL 14.51 and Windows SDK via VS 2026 (MSVC `_MSC_VER` 1951); CMake 4.3, Ninja,
+nvcc 13.3 (toolkit headers/libs and `ptxas`; the compiler driver is clang++).
 
 ## 4. Building
 
@@ -75,30 +110,40 @@ build-and-test skill.
 
 Windows (`./cleanbuild.ps1`) does a fresh Release configure, build, and ctest:
 
-- `./cleanbuild.ps1`: clang-cl, whole portable suite.
-- `./cleanbuild.ps1 <name>_test.cpp`: one test (via `-DTEST_NAME=`).
-- `./cleanbuild.ps1 cl`: build with MSVC cl instead of clang-cl.
-- `./cleanbuild.ps1 asan`: ASAN (which carries UBSAN), clang-cl only.
+- `./cleanbuild.ps1`: clang++, portable suite plus CUDA (when the toolkit and a
+  GPU are present).
+- `./cleanbuild.ps1 <name>_test.cpp` or `<name>_test.cu`: one test (via
+  `-DTEST_NAME=`). A `.cu` needs the default clang++ in a plain mode.
+- `./cleanbuild.ps1 cl`: portable suite via MSVC cl (no CUDA; see section 3).
+- `./cleanbuild.ps1 asan`: ASAN (which carries UBSAN), clang++ only.
 
 The script enters a VS Developer shell for INCLUDE/LIB (skipped if already inside
 one), configures Ninja with the chosen compiler, builds with `-k 0`, and runs
-ctest. It uses `cmake --fresh` rather than wiping `tests/build`, because clangd
-holds an open handle on `compile_commands.json` there. The Linux-only cleanbuild
-modes (libc++/libstdc++ choice, msan/tsan, analyze-build scan, llvm-cov
-coverage, compiler-rt/lld swaps) have no MSVC analog and are deliberately absent.
+ctest. CUDA auto-enables when `nvcc` is on PATH and the mode is the default
+clang++ plain one: it passes `CORVID_ENABLE_CUDA=ON`, `CMAKE_CUDA_COMPILER`
+pointing at `clang++`, and an explicit `CMAKE_CUDA_ARCHITECTURES` from
+`nvidia-smi`. It uses `cmake --fresh` rather than wiping `tests/build`, because
+clangd holds an open handle on `compile_commands.json` there. The Linux-only
+cleanbuild modes (libc++/libstdc++ choice, msan/tsan, analyze-build scan,
+llvm-cov coverage, compiler-rt/lld swaps) have no MSVC analog and are absent.
 
 Compiler flags are set in the `WIN32` branch of `tests/CMakeLists.txt`:
 
-- C++23 is requested as `/std:c++latest`, overriding CMake's clang-cl default
-  `-clang:-std=c++23`, which clangd mis-parses and drops.
-- clang-cl: `/EHsc /clang:-Wall /clang:-Wextra /clang:-Werror`. Bare `-Wall` and
-  `-Wextra` under clang-cl alias to MSVC's `/Wall` (close to `-Weverything`), so
-  the real clang warnings are passed through the `/clang:` escape.
-- cl: `/EHsc /permissive- /Zc:preprocessor /W4 /WX /wd4245 /wd4267 /wd4305
-  /wd4310`. `/permissive-` turns on conformant two-phase name lookup;
-  `/Zc:preprocessor` selects the conformant preprocessor, without which cl
-  corrupts raw string literals passed through Catch2 macros. The four `/wd`
-  codes silence MSVC-only warnings that fire on correct, intentional code.
+- clang++: `-Wall -Wextra -Werror -fms-runtime-lib=dll`, plus the plain
+  `-std=c++23` CMake emits from `CMAKE_CXX_STANDARD=23` (which clangd parses
+  correctly, unlike the clang-cl `/std` form the retired path had to work
+  around). `-fms-runtime-lib=dll` selects the `/MD` CRT (see section 3).
+- cl: `/std:c++latest` (cl has no `/std:c++23`), then `/EHsc /permissive-
+  /Zc:preprocessor /W4 /WX /wd4245 /wd4267 /wd4305 /wd4310`. `/permissive-`
+  turns on conformant two-phase name lookup; `/Zc:preprocessor` selects the
+  conformant preprocessor, without which cl corrupts raw string literals passed
+  through Catch2 macros. The four `/wd` codes silence MSVC-only warnings that
+  fire on correct, intentional code.
+
+The CUDA flags live in the `CORVID_ENABLE_CUDA` block: on Windows `-std=c++23
+-fms-runtime-lib=dll -Wno-unknown-cuda-version` (the last silences the note that
+CUDA 13.3 is newer than clang 22's last fully supported toolkit); on Linux the
+nvcc form `-std=c++23 -O3 -lineinfo`.
 
 ## 5. Header portability conventions
 
@@ -124,9 +169,11 @@ parallel files. When adding code the portable bucket will compile, follow these:
 
 ## 6. Windows conformance notes
 
-clang-cl uses clang's front-end with the MSVC STL, so `std::format`, ranges, and
-chrono behavior follow the MSVC STL version, not libc++. The recurring fixes,
-all guarded so Linux is byte-for-byte unaffected:
+clang++ on Windows uses clang's front-end with the MSVC STL, so `std::format`,
+ranges, and chrono behavior follow the MSVC STL version, not libc++. (These
+notes predate the clang-cl -> clang++ switch; they are properties of the MSVC
+STL and apply unchanged to clang++.) The recurring fixes, all guarded so Linux
+is byte-for-byte unaffected:
 
 - Parse-context iterators are checked class types, not `const char*`. Build a
   `basic_string_view` from the iterator pair `{ctx.begin(), ctx.end()}`, not
@@ -160,19 +207,22 @@ with a minimal repro:
 
 ## 7. Sanitizers on Windows
 
-clang-cl carries clang's sanitizers. `./cleanbuild.ps1 asan` builds with
+clang++ carries clang's sanitizers. `./cleanbuild.ps1 asan` builds with
 `-fsanitize=address,undefined` (ASAN carries UBSAN). Standalone UBSAN is not a
 separate Windows mode: LLVM ships only a static-CRT UBSAN runtime, which clashes
 with the `/MD` build, and ASAN's dynamic runtime resolves the UBSAN handlers, so
 the combined mode is the supported path. tsan and msan have no Windows support
-here. CMake links clang-cl targets through lld-link, which ignores `-fsanitize`
-on the link line, so the `if(SANITIZER AND WIN32)` block adds the asan runtime
-libs explicitly.
+here. Because clang++ drives the link, the `-fsanitize=address,undefined` on the
+link line is honored and clang++ pulls in the dynamic asan runtime + thunk
+itself, so the `if(SANITIZER AND WIN32)` block now only fails-fast on unsupported
+configurations (cl, or a non-asan sanitizer); the retired clang-cl path had to
+add the `clang_rt` libs and `/DEBUG`/`/OPT:NOICF` by hand, because CMake linked
+clang-cl through lld-link directly, bypassing the driver.
 
 One toolchain limitation is worth recording: any C++ rethrow of an in-flight
-exception crashes under ASAN on Windows (clang-cl 22.1.7 with dynamic
+exception crashes under ASAN on Windows (clang 22.1.7 with dynamic
 VCRUNTIME140). The single library rethrow site is exercised by one test, which
-is guarded out under ASAN-on-Windows.
+is guarded out under ASAN-on-Windows (via `__has_feature(address_sanitizer)`).
 
 ## 8. IDE, F5, and clangd
 
@@ -182,11 +232,17 @@ is guarded out under ASAN-on-Windows.
   server after a reconfigure to pick up changes.
 - Single-file IDE build: `scripts/ide_build.sh` (Linux) and
   `scripts/ide_build.ps1` (Windows), both emitting `debug_bin/<stem>.exe`. The
-  Windows builder compiles `.cpp` with clang-cl; `.cu` is Phase 4 and currently
-  errors out.
+  Windows builder compiles `.cpp` and `.cu` with clang++ (a `.cu` adds the
+  CUDA-frontend flags and links cudart), both producing a PDB. It links the
+  FetchContent Catch2 from the `cleanbuild.ps1` cache, so run `./cleanbuild.ps1`
+  once first, and re-run it plain after an `asan` build (an asan-instrumented
+  Catch2 will not link against a plain single-file object).
+- The `.cu` clangd block in `.clangd.win.in` puts clangd into `-xcuda` mode with
+  the toolkit path (substituted from nvcc at configure time), so `.cu`/`.cuh`
+  parse without flagging `__global__` or `<<<...>>>`.
 - `.vscode/tasks.json` and `launch.json` are OS-scoped: the build and run tasks
   pick the platform script, and launch.json carries both a Linux (CodeLLDB) and
-  a Windows (cppvsdbg, since clang-cl emits a PDB) debug config. One committed
+  a Windows (cppvsdbg, since clang++ emits a PDB) debug config. One committed
   `.vscode` serves a native-Windows checkout and a Remote-WSL checkout of the
   same repo.
 
@@ -199,9 +255,13 @@ is guarded out under ASAN-on-Windows.
   considered but deferred; the `RESOURCE_LOCK` still keys on the filename
   prefix.)
 - clangd everywhere, no IntelliSense.
-- Toolchain: clang-cl (default) and cl for the portable suite; nvcc + cl host
-  for CUDA. cl only where nvcc forces it; native clang on Windows is wanted in
-  its own right.
+- Toolchain: clang++ (default) and cl for the portable suite; clang++ for CUDA.
+  clang-cl was the original default but was retired: nvcc 13.3 cannot build the
+  C++23 `.cu` bucket with an MSVC host, so CUDA uses clang's CUDA frontend, and
+  CMake will not mix a clang-cl (MSVC-frontend) host with a clang++ (GNU-frontend)
+  CUDA compiler. Unifying the `.cpp` suite on clang++ too makes the platform
+  uniformly GNU-like (see section 3). cl stays as the genuinely-different MSVC
+  conformance second compiler.
 - The three `proto.h`-umbrella parser tests: json_parser and utf8_checker move
   to portable with narrowed includes; http_header_block stays Linux.
 - Concurrency: the std-based primitives are portable; only
@@ -220,11 +280,11 @@ commit.
 
 ## 11. Remaining work
 
-CUDA on Windows. Add the CMake CUDA path with `CMAKE_CUDA_HOST_COMPILER`
-defaulting to cl, reuse the `CORVID_ENABLE_CUDA` loop, auto-enable when nvcc and
-cl are both present, link an MSVC-ABI Catch2 for the `.cu` bucket, and teach
-`ide_build.ps1` to build `.cu` with `nvcc -ccbin cl`. Build and run one `cuda/`
-test under nvcc + cl to confirm native CUDA without WSL.
+CUDA on Windows is done (clang++ frontend; see section 3). What is left is
+device-side debugging: `cuda-gdb` integration is deferred, so `.cu` debugging on
+Windows is host-side only (clang++ `-g` -> PDB -> cppvsdbg). The `.cu` builds use
+`-lineinfo` on Linux for Nsight / compute-sanitizer attribution; the Windows
+clang++ build does not add a device-debug flag yet.
 
 ## 12. Shared developer context across Windows and WSL
 
