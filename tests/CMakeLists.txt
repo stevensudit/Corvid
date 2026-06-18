@@ -238,6 +238,17 @@ endif()
 # `clang-cl -fsanitize=address,undefined -###`. Refresh these if the toolchain
 # changes.
 if(SANITIZER AND WIN32)
+    # The -fsanitize flags and the compiler-rt runtime added below are
+    # clang-cl's (LLVM's); MSVC cl has no compatible runtime here, so its asan
+    # link would chase a nonexistent clang-runtime path under the MSVC toolset
+    # dir. Fail fast, using the same compiler-ID split as the top of this WIN32
+    # block (line 74).
+    if(NOT CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
+        message(FATAL_ERROR
+            "On Windows, sanitizer builds require clang-cl, not MSVC cl. "
+            "Reconfigure with -DCMAKE_CXX_COMPILER=clang-cl (or use "
+            "./cleanbuild.ps1 asan).")
+    endif()
     # Only ASAN is supported on Windows, and it carries UBSAN with it
     # (-fsanitize=address,undefined; the dynamic asan runtime also resolves the
     # __ubsan_* handlers). Standalone UBSAN cannot link here: LLVM ships only a

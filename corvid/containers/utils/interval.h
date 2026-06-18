@@ -161,7 +161,9 @@ public:
   constexpr interval(const interval&) noexcept = default;
   explicit constexpr interval(V val) noexcept : interval{val, val} {}
   constexpr interval(V min_val, V max_val) noexcept
-      : pair_{as_u(min_val), static_cast<U>(as_u(max_val) + 1)} {
+      : pair_{as_u(min_val), as_u(max_val)} {
+    assert(pair_.second != std::numeric_limits<U>::max());
+    if (pair_.second != std::numeric_limits<U>::max()) ++pair_.second;
     assert(!invalid());
   }
 
