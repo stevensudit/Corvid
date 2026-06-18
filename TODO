@@ -148,6 +148,11 @@
 31. containers/own_ptr.h - CTAD improvements:
    a. Make all of the Ptr/Del ctors take the same three templated arguments, where the third is a named thing defaulted to void with a requires clause requiring it to be void. Then add deduction guides that set the must-be-void to something else.
 
+32. Checked assertions for testable preconditions: native `assert` calls `abort()` (uncatchable by Catch2, which has no death tests), so precondition-violation paths can't be exercised and get commented out (see interval_test.cpp). Add a `corvid_assert` macro backed by a swappable handler with build modes: release -> no-op, debug -> terminate, checked/test -> throw (e.g. `corvid::contract_violation`). Tests then use `CHECK_THROWS_AS`. Aligned with error-handling-policy.md category 2 (the Lakos rule: "a checked build may want the precondition check to throw").
+   a. A throw from a `noexcept` function still terminates, so this only helps non-`noexcept` functions. Narrow-contract (category 2) functions would drop `noexcept`, which the policy already prefers.
+   b. Cross-cutting: new macro + handler + a build flag, then sweep `assert` -> `corvid_assert`. Expose the checked mode as a CMake preset through cleanbuild.sh/ps1.
+   c. Origin: the interval(min, max) max-ending precondition; interval_test currently comments out the asserting constructions because they abort.
+
 
 -----
 
