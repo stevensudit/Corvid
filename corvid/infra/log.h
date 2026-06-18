@@ -15,9 +15,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 #pragma once
+#ifndef _WIN32
 #include <pthread.h>
 #include <sys/syscall.h>
 #include <unistd.h>
+#endif
 
 #include <array>
 #include <chrono>
@@ -28,6 +30,7 @@
 #include <source_location>
 #include <string>
 #include <string_view>
+#include <thread>
 #include <type_traits>
 #include <utility>
 
@@ -181,6 +184,9 @@ private:
   // unnamed; it is at most 16 bytes including the null terminator.
   static const std::string& thread_label() {
     thread_local const std::string label = [] {
+#ifdef _WIN32
+      return std::format("thread({})", std::this_thread::get_id());
+#else
       std::array<char, 16> name{};
       const char* thread_name =
           (pthread_getname_np(pthread_self(), name.data(), name.size()) == 0 &&
@@ -189,6 +195,7 @@ private:
               : "thread";
       return std::string{thread_name} + '(' +
              std::to_string(syscall(SYS_gettid)) + ')';
+#endif
     }();
     return label;
   }

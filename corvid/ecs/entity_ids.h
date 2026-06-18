@@ -21,6 +21,7 @@
 
 namespace corvid { inline namespace ecs {
 using namespace bool_enums;
+using corvid::enums::sequence::ops::operator*;
 
 namespace id_enums {
 

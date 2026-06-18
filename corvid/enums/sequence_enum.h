@@ -212,7 +212,8 @@ template<SequentialEnum E>
 template<SequentialEnum E>
 [[nodiscard]] constexpr E
 operator+(E l, std::underlying_type_t<E> r) noexcept {
-  return make<E, wrapclip::none>(*l + clip_if_wrap<E>(r));
+  return make<E, wrapclip::none>(
+      static_cast<std::underlying_type_t<E>>(*l + clip_if_wrap<E>(r)));
 }
 
 template<SequentialEnum E>
@@ -247,7 +248,8 @@ template<SequentialEnum E>
 template<SequentialEnum E>
 [[nodiscard]] constexpr E
 operator-(E l, std::underlying_type_t<E> r) noexcept {
-  return make<E, wrapclip::none>(*l - clip_if_wrap<E>(r));
+  return make<E, wrapclip::none>(
+      static_cast<std::underlying_type_t<E>>(*l - clip_if_wrap<E>(r)));
 }
 
 template<SequentialEnum E>
@@ -647,11 +649,11 @@ template<strings::fixed_string names>
 // is the absolute start value and the rest are names, taken verbatim. An empty
 // field is an empty name. Segments must ascend, and each segment's start must
 // exceed the previous segment's last value by at least four, leaving at least
-// three unnamed values between them; runs any closer are rejected and should be
-// merged into one segment, using empty names for the gap, since a one- or
-// two-value gap costs about as much as the empty names while a new segment also
-// pays for its start value and the '|'. `min` and `max` are derived from them.
-// The packed names are views into `Nulled`.
+// three unnamed values between them; runs any closer are rejected and should
+// be merged into one segment, using empty names for the gap, since a one- or
+// two-value gap costs about as much as the empty names while a new segment
+// also pays for its start value and the '|'. `min` and `max` are derived from
+// them. The packed names are views into `Nulled`.
 template<strings::fixed_string names, std::integral U, size_t NameCount,
     size_t SegCount, strings::fixed_string Nulled = make_nulled<names>()>
 [[nodiscard]] consteval auto parse_segmented_names() {

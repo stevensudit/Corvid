@@ -28,6 +28,7 @@
 
 #include "../containers/utils/enum_vector.h"
 #include "../meta/maybe.h"
+#include "../meta/crossplatform.h"
 #include "entity_ids.h"
 
 namespace corvid { inline namespace ecs { inline namespace stable_id_vector {
@@ -57,7 +58,7 @@ namespace corvid { inline namespace ecs { inline namespace stable_id_vector {
 //   GEN       -- when versioned (default), handles carry a generation counter
 //               that detects ID reuse via is_valid(handle_t). When
 //               unversioned, the gen field is elided entirely via
-//               [[no_unique_address]].
+//               CORVID_NO_UNIQUE_ADDRESS.
 //   REUSE_ORDER
 //             -- when fifo, freed IDs are reused in FIFO order (oldest
 //               first). When lifo (default), reuse is LIFO. FIFO increases the
@@ -149,7 +150,7 @@ public:
 
   private:
     id_t id_{id_t::invalid};
-    [[no_unique_address]] maybe_t<size_type, is_versioned_v> gen_{};
+    CORVID_NO_UNIQUE_ADDRESS maybe_t<size_type, is_versioned_v> gen_{};
 
     friend class stable_ids<T, ID, GEN, REUSE_ORDER, ALLOCATOR>;
   };
@@ -161,7 +162,8 @@ private:
   // enabled, a next-pointer for the intrusive free list.
   struct slot_t {
     handle_t h_;
-    [[no_unique_address]] maybe_t<id_t, is_fifo_v> fifo_next_{id_t::invalid};
+    CORVID_NO_UNIQUE_ADDRESS maybe_t<id_t, is_fifo_v> fifo_next_{
+        id_t::invalid};
   };
 
   using slot_allocator_type =
@@ -691,8 +693,8 @@ private:
   std::vector<slot_t, slot_allocator_type> reverse_;
 
   // FIFO free-list head and tail.
-  [[no_unique_address]] maybe_t<id_t, is_fifo_v> fifo_head_{id_t::invalid};
-  [[no_unique_address]] maybe_t<id_t, is_fifo_v> fifo_tail_{id_t::invalid};
+  CORVID_NO_UNIQUE_ADDRESS maybe_t<id_t, is_fifo_v> fifo_head_{id_t::invalid};
+  CORVID_NO_UNIQUE_ADDRESS maybe_t<id_t, is_fifo_v> fifo_tail_{id_t::invalid};
 
   // Allowed ID values are below this limit.
   id_t id_limit_{id_t::invalid};

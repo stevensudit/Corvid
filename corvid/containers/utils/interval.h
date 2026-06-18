@@ -161,7 +161,13 @@ public:
   constexpr interval(const interval&) noexcept = default;
   explicit constexpr interval(V val) noexcept : interval{val, val} {}
   constexpr interval(V min_val, V max_val) noexcept
-      : pair_{as_u(min_val), as_u(max_val) + 1} {
+      : pair_{as_u(min_val), as_u(max_val)} {
+    // Advance the closed max to the half-open end. The underlying-max case is
+    // unrepresentable, so make it reliably invalid rather than drop max_val.
+    if (pair_.second != std::numeric_limits<U>::max())
+      ++pair_.second;
+    else
+      pair_ = raw_pair{U{1}, U{0}};
     assert(!invalid());
   }
 
@@ -293,7 +299,7 @@ public:
   // Only valid when `!empty() && size() >= len`.
   constexpr void pop_back(size_type len = 1) noexcept {
     assert(!empty() && size() >= len);
-    e() -= as_u(len);
+    e() -= static_cast<U>(len);
   }
 
   // Pop values from front.
@@ -301,7 +307,7 @@ public:
   // Only valid when `!empty() && size() >= len`.
   constexpr void pop_front(size_type len = 1) noexcept {
     assert(!empty() && size() >= len);
-    b() += as_u(len);
+    b() += static_cast<U>(len);
   }
 
 #pragma endregion

@@ -1,0 +1,488 @@
+// Corvid: A general-purpose modern C++ library extending std.
+// https://github.com/stevensudit/Corvid
+//
+// Copyright 2022-2026 Steven Sudit
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+#include "corvid/concurrency/idle_timeout.h"
+#include "corvid/concurrency/timeout_sweeper.h"
+
+#include "catch2_main.h"
+
+#include <memory>
+
+using namespace std::chrono_literals;
+using namespace corvid::concurrency;
+
+using sweeper = timeout_sweeper<>;
+using clk = corvid::steady_now_clock;
+using tp = clk::time_point_t;
+using dur = clk::duration_t;
+using mode = timeouts::mode;
+
+// Construct a deterministic `time_point` at `ms` milliseconds past the
+// steady-clock epoch. Tests drive the clock through `clk::set_fake_now` and
+// by passing the desired `now` to `sweeper::tick` directly.
+static tp T(int ms) { return tp{} + std::chrono::milliseconds{ms}; }
+
+#pragma region Fixture
+
+namespace {
+
+// Minimal owner: holds one `idle_timeout` and records every invocation of
+// the cancel action. Each test installs the fake clock with
+// `clk::fake_now_scope` and drives it through `clk::set_fake_now`.
+struct test_owner: std::enable_shared_from_this<test_owner> {
+  int idle_count{0};
+  idle_timeout<test_owner> idle;
+
+  test_owner(sweeper& sw, dur configured)
+      : idle{sw, *this, idle_timeout<test_owner>::cancel_action_t{[this] {
+               ++idle_count;
+             }},
+            configured} {
+    // Reset so each fixture starts with `fake_now == T(0)`. The fake clock
+    // itself is installed by the per-test `fake_now_scope` guard.
+    clk::set_fake_now(tp{});
+  }
+};
+
+// Wrap construction so the test always has a valid `shared_ptr` before
+// any `set_mode` call (the lazy aliased keepalive requires it).
+[[nodiscard]] std::shared_ptr<test_owner>
+make_owner(sweeper& sw, dur configured) {
+  return std::make_shared<test_owner>(sw, configured);
+}
+
+} // namespace
+
+#pragma endregion
+
+// NOLINTBEGIN(readability-function-cognitive-complexity)
+
+#pragma region DefaultIsStopped
+
+TEST_CASE("DefaultIsStopped", "[IdleTimeout]") {
+  sweeper sw;
+  auto fake_clock = clk::fake_now_scope();
+  auto o = make_owner(sw, 100ms);
+  CHECK((static_cast<int>(o->idle.get_mode())) ==
+        (static_cast<int>(mode::stopped)));
+  CHECK(o->idle.configured_timeout() == dur{100ms});
+  CHECK(o->idle.active_timeout() == dur{});
+}
+
+#pragma endregion
+#pragma region ActiveRequiresNonZeroConfigured
+
+TEST_CASE("ActiveRequiresNonZeroConfigured", "[IdleTimeout]") {
+  // With configured == 0, only Stopped is reachable.
+  sweeper sw;
+  auto fake_clock = clk::fake_now_scope();
+  auto o = make_owner(sw, dur{});
+  CHECK_FALSE(o->idle.set_mode(mode::running));
+  CHECK_FALSE(o->idle.set_mode(mode::paused));
+  CHECK(o->idle.set_mode(mode::stopped));
+  CHECK((static_cast<int>(o->idle.get_mode())) ==
+        (static_cast<int>(mode::stopped)));
+  CHECK(sw.size() == 0U);
+}
+
+#pragma endregion
+#pragma region StoppedToActive
+
+TEST_CASE("StoppedToActive", "[IdleTimeout]") {
+  // Transitioning Stopped -> Active sets the deadline to now+configured
+  // and schedules a fresh sweeper entry.
+  sweeper sw;
+  auto fake_clock = clk::fake_now_scope();
+  auto o = make_owner(sw, 100ms);
+  clk::set_fake_now(T(50));
+  CHECK(o->idle.set_mode(mode::running));
+  CHECK((static_cast<int>(o->idle.get_mode())) ==
+        (static_cast<int>(mode::running)));
+  CHECK(o->idle.active_timeout() == dur{100ms});
+  CHECK((o->idle.deadline().time_since_epoch().count()) ==
+        (T(150).time_since_epoch().count()));
+  CHECK(sw.size() == 1U);
+}
+
+#pragma endregion
+#pragma region ActiveFiresOnIdle
+
+TEST_CASE("ActiveFiresOnIdle", "[IdleTimeout]") {
+  // No `postpone` calls -> deadline matches the registered time,
+  // callback invokes the cancel action exactly once, sweeper entry drops.
+  sweeper sw;
+  auto fake_clock = clk::fake_now_scope();
+  auto o = make_owner(sw, 100ms);
+  clk::set_fake_now(T(0));
+  CHECK(o->idle.set_mode(mode::running));
+
+  // Not yet expired.
+  clk::set_fake_now(T(99));
+  sw.tick(T(99));
+  CHECK(o->idle_count == 0);
+  CHECK(sw.size() == 1U);
+
+  // Expired.
+  clk::set_fake_now(T(100));
+  sw.tick(T(100));
+  CHECK(o->idle_count == 1);
+  CHECK(sw.empty());
+  CHECK((static_cast<int>(o->idle.get_mode())) ==
+        (static_cast<int>(mode::stopped)));
+}
+
+#pragma endregion
+#pragma region RestartPushesDeadline
+
+TEST_CASE("RestartPushesDeadline", "[IdleTimeout]") {
+  // A `postpone` call between submission and the registered fire
+  // pushes the deadline forward; the callback rearms instead of firing
+  // the idle action.
+  sweeper sw;
+  auto fake_clock = clk::fake_now_scope();
+  auto o = make_owner(sw, 100ms);
+  clk::set_fake_now(T(0));
+  CHECK(o->idle.set_mode(mode::running));
+  // Initially registered at T(100).
+
+  // Activity at T(50): push deadline to T(150).
+  clk::set_fake_now(T(50));
+  o->idle.postpone();
+  CHECK((o->idle.deadline().time_since_epoch().count()) ==
+        (T(150).time_since_epoch().count()));
+
+  // Tick at T(100): the registered entry fires, but current != registered,
+  // so it rearms to T(150) without firing the idle action.
+  clk::set_fake_now(T(100));
+  sw.tick(T(100));
+  CHECK(o->idle_count == 0);
+  CHECK(sw.size() == 1U);
+
+  // Tick at T(150): registered entry now matches; idle action fires once.
+  clk::set_fake_now(T(150));
+  sw.tick(T(150));
+  CHECK(o->idle_count == 1);
+  CHECK(sw.empty());
+}
+
+#pragma endregion
+#pragma region RestartFromStoppedIsRecoverable
+
+TEST_CASE("RestartFromStoppedIsRecoverable", "[IdleTimeout]") {
+  // `postpone` is a no-op while Stopped (active_ is zero), so `deadline_`
+  // stays at T0 and `get_mode` keeps reporting Stopped. A direct
+  // `set_mode(running)` then schedules a fresh entry: `was_stopped` is
+  // satisfied because `deadline_ == T0 <= now`.
+  sweeper sw;
+  auto fake_clock = clk::fake_now_scope();
+  auto o = make_owner(sw, 100ms);
+  clk::set_fake_now(T(42));
+  o->idle.postpone();
+  CHECK((o->idle.deadline().time_since_epoch().count()) ==
+        (tp{}.time_since_epoch().count()));
+  CHECK(sw.empty());
+  CHECK((static_cast<int>(o->idle.get_mode())) ==
+        (static_cast<int>(mode::stopped)));
+
+  CHECK(o->idle.set_mode(mode::running));
+  CHECK(sw.size() == 1U);
+}
+
+#pragma endregion
+#pragma region PostponeIsNoOpOutsideRunning
+
+TEST_CASE("PostponeIsNoOpOutsideRunning", "[IdleTimeout]") {
+  // `postpone` reads `active_` and bails when zero, so neither Paused nor
+  // Stopped should observe any change to `deadline_`.
+  sweeper sw;
+  auto fake_clock = clk::fake_now_scope();
+  auto o = make_owner(sw, 100ms);
+
+  // Paused: postpone must not disturb the sentinel, must not break the
+  // clip cycle, and must leave the mode as Paused.
+  clk::set_fake_now(T(0));
+  CHECK(o->idle.set_mode(mode::paused));
+  clk::set_fake_now(T(50));
+  o->idle.postpone();
+  CHECK((o->idle.deadline().time_since_epoch().count()) ==
+        (timeouts::paused_expiration.time_since_epoch().count()));
+  CHECK((static_cast<int>(o->idle.get_mode())) ==
+        (static_cast<int>(mode::paused)));
+
+  // Bootstrap entry at T(100) still clips back to now + configured.
+  clk::set_fake_now(T(100));
+  sw.tick(T(100));
+  CHECK(o->idle_count == 0);
+  CHECK(sw.size() == 1U);
+  CHECK((static_cast<int>(o->idle.get_mode())) ==
+        (static_cast<int>(mode::paused)));
+
+  // Stopped: postpone must leave `deadline_` at T0.
+  CHECK(o->idle.set_mode(mode::stopped));
+  o->idle.postpone();
+  CHECK((o->idle.deadline().time_since_epoch().count()) ==
+        (tp{}.time_since_epoch().count()));
+  CHECK((static_cast<int>(o->idle.get_mode())) ==
+        (static_cast<int>(mode::stopped)));
+}
+
+#pragma endregion
+#pragma region StoppedToPausedBootstrap
+
+TEST_CASE("StoppedToPausedBootstrap", "[IdleTimeout]") {
+  // Stopped -> Paused schedules a near-future entry then parks the
+  // deadline at the sentinel.
+  sweeper sw;
+  auto fake_clock = clk::fake_now_scope();
+  auto o = make_owner(sw, 100ms);
+  clk::set_fake_now(T(0));
+  CHECK(o->idle.set_mode(mode::paused));
+  CHECK((static_cast<int>(o->idle.get_mode())) ==
+        (static_cast<int>(mode::paused)));
+  CHECK((o->idle.deadline().time_since_epoch().count()) ==
+        (timeouts::paused_expiration.time_since_epoch().count()));
+  CHECK(sw.size() == 1U);
+}
+
+#pragma endregion
+#pragma region PausedClipsAndStays
+
+TEST_CASE("PausedClipsAndStays", "[IdleTimeout]") {
+  // When the bootstrap entry fires, the callback sees the sentinel and
+  // clips back to now + configured, staying in Paused.
+  sweeper sw;
+  auto fake_clock = clk::fake_now_scope();
+  auto o = make_owner(sw, 100ms);
+  clk::set_fake_now(T(0));
+  CHECK(o->idle.set_mode(mode::paused));
+
+  // First sweep at T(100) hits the bootstrap entry. Callback sees the
+  // sentinel and reschedules at now+100 = T(200). No idle fire.
+  clk::set_fake_now(T(100));
+  sw.tick(T(100));
+  CHECK(o->idle_count == 0);
+  CHECK(sw.size() == 1U);
+  CHECK((static_cast<int>(o->idle.get_mode())) ==
+        (static_cast<int>(mode::paused)));
+
+  // Second sweep at T(200). Same thing.
+  clk::set_fake_now(T(200));
+  sw.tick(T(200));
+  CHECK(o->idle_count == 0);
+  CHECK(sw.size() == 1U);
+}
+
+#pragma endregion
+#pragma region PausedToActive
+
+TEST_CASE("PausedToActive", "[IdleTimeout]") {
+  // Resume from Paused: deadline becomes now+configured immediately; no
+  // new schedule is needed (the existing entry adapts on its next fire).
+  sweeper sw;
+  auto fake_clock = clk::fake_now_scope();
+  auto o = make_owner(sw, 100ms);
+  clk::set_fake_now(T(0));
+  CHECK(o->idle.set_mode(mode::paused));
+  CHECK(sw.size() == 1U);
+
+  clk::set_fake_now(T(50));
+  CHECK(o->idle.set_mode(mode::running));
+  CHECK((o->idle.deadline().time_since_epoch().count()) ==
+        (T(150).time_since_epoch().count()));
+  // No fresh schedule; we reused the existing entry.
+  CHECK(sw.size() == 1U);
+
+  // The original bootstrap entry was at T(100). It fires there, sees
+  // current=T(150) != registered, rearms to T(150).
+  clk::set_fake_now(T(100));
+  sw.tick(T(100));
+  CHECK(o->idle_count == 0);
+  CHECK(sw.size() == 1U);
+
+  // Tick at T(150): idle action fires.
+  clk::set_fake_now(T(150));
+  sw.tick(T(150));
+  CHECK(o->idle_count == 1);
+}
+
+#pragma endregion
+#pragma region ActiveToStoppedDropsEntry
+
+TEST_CASE("ActiveToStoppedDropsEntry", "[IdleTimeout]") {
+  // Going Stopped from Active sets the deadline to T0. The existing
+  // entry fires at the originally registered time, sees T0, drops.
+  sweeper sw;
+  auto fake_clock = clk::fake_now_scope();
+  auto o = make_owner(sw, 100ms);
+  clk::set_fake_now(T(0));
+  CHECK(o->idle.set_mode(mode::running));
+  CHECK(sw.size() == 1U);
+
+  clk::set_fake_now(T(50));
+  CHECK(o->idle.set_mode(mode::stopped));
+  CHECK((static_cast<int>(o->idle.get_mode())) ==
+        (static_cast<int>(mode::stopped)));
+  CHECK(o->idle.active_timeout() == dur{});
+  // Sweeper still has the original entry; it'll drop on next fire.
+  CHECK(sw.size() == 1U);
+
+  clk::set_fake_now(T(100));
+  sw.tick(T(100));
+  CHECK(o->idle_count == 0);
+  CHECK(sw.empty());
+}
+
+#pragma endregion
+#pragma region ConfigureSyncsActiveOnlyWhenActive
+
+TEST_CASE("ConfigureSyncsActiveOnlyWhenActive", "[IdleTimeout]") {
+  sweeper sw;
+  auto fake_clock = clk::fake_now_scope();
+  auto o = make_owner(sw, 100ms);
+
+  // Stopped: configure should NOT sync active (active was 0; stays 0).
+  o->idle.configure(dur{200ms});
+  CHECK(o->idle.configured_timeout() == dur{200ms});
+  CHECK(o->idle.active_timeout() == dur{});
+
+  // Activate: active picks up the configured value (200ms).
+  clk::set_fake_now(T(0));
+  CHECK(o->idle.set_mode(mode::running));
+  CHECK(o->idle.active_timeout() == dur{200ms});
+
+  // While active, configure with a non-zero value DOES sync active.
+  o->idle.configure(dur{500ms});
+  CHECK(o->idle.configured_timeout() == dur{500ms});
+  CHECK(o->idle.active_timeout() == dur{500ms});
+
+  // While active, configure(0) updates configured_ but leaves active_
+  // alone -- only `set_mode(stopped)` can clear active_. Prevents the
+  // silent-close footgun where the next sweep would fire the cancel
+  // action because active was zeroed mid-run.
+  o->idle.configure(dur{});
+  CHECK(o->idle.configured_timeout() == dur{});
+  CHECK(o->idle.active_timeout() == dur{500ms});
+  // get_state still says active (deadline_ is a real value).
+  CHECK((static_cast<int>(o->idle.get_mode())) ==
+        (static_cast<int>(mode::running)));
+  // set_mode(active|paused) now rejected because configured_ is 0.
+  CHECK_FALSE(o->idle.set_mode(mode::running));
+  CHECK_FALSE(o->idle.set_mode(mode::paused));
+  // Only set_mode(stopped) actually stops the idle clock.
+  CHECK(o->idle.set_mode(mode::stopped));
+  CHECK(o->idle.active_timeout() == dur{});
+}
+
+#pragma endregion
+#pragma region OwnerDeathDropsCallback
+
+TEST_CASE("OwnerDeathDropsCallback", "[IdleTimeout]") {
+  // When the owner is destroyed before the entry fires, the weak_ptr
+  // lock fails and the callback returns {} so the sweeper drops the
+  // entry. The idle action never fires.
+  sweeper sw;
+  auto fake_clock = clk::fake_now_scope();
+  int fired_before_dtor = 0;
+  {
+    auto o = make_owner(sw, 100ms);
+    clk::set_fake_now(T(0));
+    CHECK(o->idle.set_mode(mode::running));
+    fired_before_dtor = o->idle_count;
+    CHECK(sw.size() == 1U);
+    // owner falls out of scope here.
+  }
+  CHECK(fired_before_dtor == 0);
+  // Sweeper still has the entry; tick should drop it cleanly.
+  sw.tick(T(100));
+  CHECK(sw.empty());
+}
+
+#pragma endregion
+#pragma region ExpireIsIdempotent
+
+TEST_CASE("ExpireIsIdempotent", "[IdleTimeout]") {
+  // `expire` fires the cancel action exactly once. `reset_expiration` arms
+  // it to fire again. Both calls are also no-ops if no rearm is pending.
+  sweeper sw;
+  auto fake_clock = clk::fake_now_scope();
+  auto o = make_owner(sw, 100ms);
+  clk::set_fake_now(T(0));
+  CHECK(o->idle.set_mode(mode::running));
+
+  o->idle.expire();
+  CHECK(o->idle_count == 1);
+  CHECK((static_cast<int>(o->idle.get_mode())) ==
+        (static_cast<int>(mode::stopped)));
+
+  // Repeat calls do nothing until `reset_expiration` arms again.
+  o->idle.expire();
+  o->idle.expire();
+  CHECK(o->idle_count == 1);
+
+  o->idle.reset_expiration();
+  o->idle.expire();
+  CHECK(o->idle_count == 2);
+
+  // `reset_expiration` is itself idempotent: calling it twice doesn't
+  // unlock two more fires.
+  o->idle.reset_expiration();
+  o->idle.reset_expiration();
+  o->idle.expire();
+  CHECK(o->idle_count == 3);
+  o->idle.expire();
+  CHECK(o->idle_count == 3);
+}
+
+#pragma endregion
+#pragma region SweepAndExpireFireOnce
+
+TEST_CASE("SweepAndExpireFireOnce", "[IdleTimeout]") {
+  // The sweeper-driven fire and a manual `expire` share the same one-shot
+  // slot, so a manual call after the sweep is a no-op.
+  sweeper sw;
+  auto fake_clock = clk::fake_now_scope();
+  auto o = make_owner(sw, 100ms);
+  clk::set_fake_now(T(0));
+  CHECK(o->idle.set_mode(mode::running));
+
+  clk::set_fake_now(T(100));
+  sw.tick(T(100));
+  CHECK(o->idle_count == 1);
+
+  o->idle.expire();
+  CHECK(o->idle_count == 1);
+
+  // And in the other order: a manual `expire` first means the subsequent
+  // sweep doesn't double-fire.
+  CHECK(o->idle.set_mode(mode::stopped));
+  o->idle.reset_expiration();
+  CHECK(o->idle.set_mode(mode::running));
+  clk::set_fake_now(T(200));
+  o->idle.expire();
+  CHECK(o->idle_count == 2);
+
+  // The lingering sweeper entry from set_mode(mode::running) drops cleanly
+  // on its next fire without invoking the cancel action again.
+  clk::set_fake_now(T(300));
+  sw.tick(T(300));
+  CHECK(o->idle_count == 2);
+  CHECK(sw.empty());
+}
+
+#pragma endregion
+
+// NOLINTEND(readability-function-cognitive-complexity)

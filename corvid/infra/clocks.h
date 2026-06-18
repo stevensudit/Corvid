@@ -48,7 +48,11 @@ public:
 
   using time_point_t = clock_t::time_point;
   using duration_t = clock_t::duration;
+#if defined(_MSC_VER) && !defined(__clang__)
+  using now_fnt = time_point_t (*)();
+#else
   using now_fnt = time_point_t (*)() noexcept(noexcept(Clock::now()));
+#endif
 
 #pragma endregion
 

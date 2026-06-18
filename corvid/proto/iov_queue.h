@@ -27,6 +27,8 @@
 #include <utility>
 #include <vector>
 
+#include "../meta/crossplatform.h"
+
 #include "../enums/bool_enums.h"
 #include "../meta/maybe.h"
 
@@ -358,7 +360,7 @@ private:
 
   std::vector<chunk_t> chunks_;
   std::vector<iovec> iov_;
-  [[no_unique_address]] maybe_void_t<State> state_{};
+  CORVID_NO_UNIQUE_ADDRESS maybe_void_t<State> state_{};
   size_t unused_index_{};      // first slot with an unused byte
   uint64_t unused_offset_{};   // offset within chunks_[unused_index_]
   size_t retained_index_{};    // first slot with an unreclaimed byte

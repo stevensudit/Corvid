@@ -4,8 +4,11 @@
 # (.vscode/tasks.json). Routes by file extension so Ctrl+Shift+B works on
 # either kind of source: a .cu file compiles with nvcc (g++-15 host,
 # libstdc++); anything else compiles with clang++/libc++, matching the
-# historical single-file debug build. The output lands at <dir>/debug_bin/<stem>
-# so launch.json (CodeLLDB) and the "Run Executable" task find it unchanged.
+# historical single-file debug build. The output lands at
+# <dir>/debug_bin/<stem>.exe, where launch.json (CodeLLDB) and the "Run
+# Executable" task find it. The .exe suffix is used on both platforms (harmless
+# on Linux) so one tasks.json/launch.json path template also serves the Windows
+# build, where binaries carry .exe.
 
 # Fail fast.
 set -e
@@ -20,7 +23,13 @@ srcDir="$(dirname "$src")"
 stem="$(basename "${src%.*}")"
 outDir="$srcDir/debug_bin"
 mkdir -p "$outDir"
-out="$outDir/$stem"
+out="$outDir/$stem.exe"
+
+# Test sources include library headers root-relative ("corvid/...") and the
+# shared Catch2 main wrapper by bare name ("catch2_main.h"), so put the repo
+# root and tests/ on the include path. Both the .cu and .cpp paths use these.
+workspace="$(cd "$(dirname "$0")/.." && pwd)"
+incdirs=(-I "$workspace" -I "$workspace/tests")
 
 if [[ "$src" == *.cu ]]; then
   # nvcc rejects gcc newer than 15, so pin the host compiler to g++-15. -g emits
@@ -41,6 +50,7 @@ if [[ "$src" == *.cu ]]; then
     -std=c++23 \
     -arch=native \
     -g -G -O0 \
+    "${incdirs[@]}" \
     "$src" \
     /usr/lib/libCatch2.a \
     "${cublas[@]}" \
@@ -49,7 +59,6 @@ fi
 
 # .cpp / .cc / default: clang++ with libc++, mirroring the previous clang-build
 # task verbatim.
-workspace="$(cd "$(dirname "$0")/.." && pwd)"
 fc="$workspace/tests/.fetchcontent"
 loc="$workspace/tests/.local"
 
@@ -66,6 +75,7 @@ exec /usr/bin/clang++-22 \
   -Wextra \
   -Werror \
   -Wno-unused-variable \
+  "${incdirs[@]}" \
   -isystem "$fc/catch2-src/src" \
   -isystem "$fc/catch2-build/generated-includes" \
   -isystem "$loc/ngtcp2/include" \

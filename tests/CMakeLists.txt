@@ -57,7 +57,50 @@ if(SANITIZER STREQUAL "msan")
     message(STATUS "Using MSAN libc++ at ${LIBCXX_PREFIX}")
 endif()
 
-if(USE_LIBSTDCPP)
+if(WIN32)
+    # Windows builds the portable (and cuda) buckets against the MSVC STL with
+    # either clang-cl (default) or MSVC cl, mirroring the clang/gcc split on
+    # Linux. The libc++/clang-22 knobs in the branches below (-nostdinc++, the
+    # libc++ include prefix, -march=native, -fexperimental-library, and the
+    # libc++ link options) have no MSVC analog, so none apply here. The Linux
+    # network stack is excluded at the source-bucket level. See crossplatform.md.
+    #
+    # Emit the cl-style /std:c++latest for C++23 (both compilers accept it)
+    # rather than CMake's clang-cl default `-clang:-std=c++23`, which clangd
+    # mis-parses in compile_commands.json (it surfaces as a bogus `-std==c++23`
+    # that clangd drops, losing C++23 in the editor).
+    set(CMAKE_CXX23_STANDARD_COMPILE_OPTION "/std:c++latest")
+    set(CMAKE_CXX23_EXTENSION_COMPILE_OPTION "/std:c++latest")
+    if(CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
+        # clang-cl aliases bare -Wall/-Wextra to MSVC's /Wall (~ -Weverything,
+        # flooding c++98-compat / padded noise), so pass clang's real warning
+        # set through the /clang: escape, as errors. Mirrors Linux's -Wall
+        # -Wextra -Werror; the suite and the Catch2 subbuild are clean under it.
+        set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /EHsc /clang:-Wall /clang:-Wextra /clang:-Werror")
+    else()
+        # MSVC cl: /W4 with warnings as errors (cl rejects the /clang: escape).
+        # /permissive- turns on conformance mode (proper two-phase template name
+        # lookup among other things), without which cl misses the operators that
+        # clang finds via using-directive (e.g. the sequence-enum `operator*`).
+        #
+        # /Zc:preprocessor selects the conformant preprocessor (as clang uses),
+        # without which cl corrupts raw string literals passed through macros
+        # (e.g. a JSON `\uXXXX` inside a Catch2 CHECK re-forms as an invalid
+        # universal-character-name).
+        #
+        # /wd silences warnings that fire beyond clang's -Wall -Wextra (the level
+        # this build mirrors) on correct, idiomatic code rather than real bugs:
+        #   4245 - signed/unsigned mismatch passing a literal (deliberate -1 etc.
+        #          in wraparound tests).
+        #   4267 - narrowing size_t to a smaller integer (an in-range index/count).
+        #   4305 - "truncation" using an integer/size as a bool condition.
+        #   4310 - cast truncates a constant value (deliberate wraparound tests).
+        set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /EHsc /permissive- /Zc:preprocessor /W4 /WX /wd4245 /wd4267 /wd4305 /wd4310")
+    endif()
+    # cleanbuild.ps1 drives this as a Release build (optimization, NDEBUG, and the
+    # release /MD CRT all come from CMAKE_BUILD_TYPE=Release), like Linux's -O3;
+    # ide_build.ps1 is the separate debug (/Od) path.
+elseif(USE_LIBSTDCPP)
     # Rely on whichever clang is available and the default libstdc++ install.
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O3 -march=native -Wall -Wextra -Werror -std=c++23")
     if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
@@ -188,6 +231,56 @@ if(SANITIZER)
     set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} ${_san_flags}")
 endif()
 
+# Windows: CMake links clang-cl targets through lld-link directly, which ignores
+# the -fsanitize driver flag on the link line, so the compiler-rt runtime never
+# gets pulled in (undefined __asan_*/__ubsan_* at link). Add the runtime the way
+# clang-cl's own link driver would; the lib set came from
+# `clang-cl -fsanitize=address,undefined -###`. Refresh these if the toolchain
+# changes.
+if(SANITIZER AND WIN32)
+    # The -fsanitize flags and the compiler-rt runtime added below are
+    # clang-cl's (LLVM's); MSVC cl has no compatible runtime here, so its asan
+    # link would chase a nonexistent clang-runtime path under the MSVC toolset
+    # dir. Fail fast, using the same compiler-ID split as the top of this WIN32
+    # block (line 74).
+    if(NOT CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
+        message(FATAL_ERROR
+            "On Windows, sanitizer builds require clang-cl, not MSVC cl. "
+            "Reconfigure with -DCMAKE_CXX_COMPILER=clang-cl (or use "
+            "./cleanbuild.ps1 asan).")
+    endif()
+    # Only ASAN is supported on Windows, and it carries UBSAN with it
+    # (-fsanitize=address,undefined; the dynamic asan runtime also resolves the
+    # __ubsan_* handlers). Standalone UBSAN cannot link here: LLVM ships only a
+    # static-CRT ubsan runtime (clang_rt.ubsan_standalone*-x86_64.lib is
+    # MT_StaticRelease, no _dynamic variant), which clang-cl auto-embeds as a
+    # /DEFAULTLIB that then collides with this /MD build (lld-link
+    # /failifmismatch). tsan/msan are Linux-only too. Fail fast with the reason
+    # rather than the cryptic linker error.
+    if(NOT SANITIZER STREQUAL "asan")
+        message(FATAL_ERROR
+            "On Windows only SANITIZER=asan is supported; it already includes "
+            "UBSAN. SANITIZER=${SANITIZER} has no /MD-compatible runtime here.")
+    endif()
+    # Release omits the linker PDB, but sanitizer findings are only actionable
+    # with symbols. /DEBUG emits a PDB from the CodeView that the -g above puts
+    # in the objects; it is link-only, so it does not trip the /clang:-Werror
+    # compile flags. /DEBUG also leaves /OPT at NOICF, which is required, not
+    # incidental: the Release default /OPT:ICF folds identical COMDATs (string
+    # literals among them), overlapping globals so ASAN's per-global redzones no
+    # longer match the layout. That shows up as false-positive
+    # global-buffer-overflow and ODR reports on small pooled literals. ICF is
+    # incompatible with ASAN.
+    add_link_options("/DEBUG")
+    get_filename_component(_llvm_root "${CMAKE_CXX_COMPILER}" DIRECTORY)
+    get_filename_component(_llvm_root "${_llvm_root}/.." ABSOLUTE)
+    string(REGEX MATCH "^[0-9]+" _clang_major "${CMAKE_CXX_COMPILER_VERSION}")
+    set(_rtdir "${_llvm_root}/lib/clang/${_clang_major}/lib/windows")
+    add_link_options(
+        "${_rtdir}/clang_rt.asan_dynamic-x86_64.lib"
+        "-wholearchive:${_rtdir}/clang_rt.asan_dynamic_runtime_thunk-x86_64.lib")
+endif()
+
 # Strip asserts via NDEBUG when requested. Applied as a compile definition (not
 # a CXX flag) so the .cu targets, compiled by nvcc, pick it up too.
 if(CORVID_DISABLE_ASSERTS)
@@ -197,9 +290,14 @@ else()
     message(STATUS "Asserts live (NDEBUG not set)")
 endif()
 
+# External dependencies for the linux bucket (io_uring / QUIC / HTTP/3). None of
+# this exists or is wanted on Windows, where only the portable and cuda buckets
+# build, so it is all guarded behind a Linux check. See crossplatform.md.
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
 # External dependencies: requires apt install liburing-dev pkg-config
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(LIBURING REQUIRED liburing)
+endif()
 
 # Catch2 v3. Under libstdc++, prefer a system install (apt install catch2),
 # since Ubuntu's package is built against libstdc++ and links cleanly. Under
@@ -231,6 +329,7 @@ if(NOT _have_catch2)
     FetchContent_MakeAvailable(Catch2)
 endif()
 
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
 # QUIC dependency: ngtcp2 (ExternalProject) linked against a preflight-built
 # OpenSSL 3.5+ (the LTS line; needed for the native QUIC API, which Ubuntu
 # Noble's 3.0.13 lacks). Linked into every test target -- the static linker
@@ -409,6 +508,7 @@ set_target_properties(nghttp3_static PROPERTIES
     IMPORTED_LOCATION             "${NGHTTP3_LIB_DIR}/libnghttp3.a"
     INTERFACE_INCLUDE_DIRECTORIES "${NGHTTP3_INCLUDE_DIR}")
 add_dependencies(nghttp3_static nghttp3_external)
+endif() # CMAKE_SYSTEM_NAME STREQUAL "Linux" (io_uring / QUIC / HTTP/3 deps)
 
 if(USE_CLANG_TIDY)
     find_program(CLANG_TIDY_EXE NAMES clang-tidy clang-tidy-22)
@@ -454,14 +554,29 @@ endif()
 # Output directory
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/release_bin")
 
-# Source files (only in this directory). .cpp builds the CXX suite below; .cu
-# is routed to the CUDA loop further down (built only when CORVID_ENABLE_CUDA).
-file(GLOB SOURCES "*.cpp")
+# Test sources are partitioned into platform buckets: portable/ builds on every
+# platform, linux/ only on Linux, cuda/ only when CORVID_ENABLE_CUDA (handled in
+# the CUDA section). .cpp builds the CXX suite below; .cu is routed to the CUDA
+# loop further down. See crossplatform.md.
+file(GLOB PORTABLE_SOURCES "portable/*.cpp")
+set(SOURCES ${PORTABLE_SOURCES})
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    file(GLOB LINUX_SOURCES "linux/*.cpp")
+    list(APPEND SOURCES ${LINUX_SOURCES})
+endif()
 
 if(TEST_NAME)
-    set(FILTERED_SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/${TEST_NAME}")
-    if(NOT EXISTS "${FILTERED_SOURCE}")
-        message(FATAL_ERROR "Requested test source not found: ${TEST_NAME}")
+    # Locate the single requested source in whichever bucket holds it.
+    set(FILTERED_SOURCE "")
+    foreach(_bucket portable linux cuda)
+        if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/${_bucket}/${TEST_NAME}")
+            set(FILTERED_SOURCE
+                "${CMAKE_CURRENT_SOURCE_DIR}/${_bucket}/${TEST_NAME}")
+        endif()
+    endforeach()
+    if(NOT FILTERED_SOURCE)
+        message(FATAL_ERROR
+            "Requested test source not found in any bucket: ${TEST_NAME}")
     endif()
 
     # Route the single requested source to its language. A .cu filter leaves
@@ -474,6 +589,12 @@ if(TEST_NAME)
         endif()
         set(SOURCES "")
         set(CUDA_TEST_NAME_SOURCE "${FILTERED_SOURCE}")
+    elseif(FILTERED_SOURCE MATCHES "/linux/")
+        if(NOT CMAKE_SYSTEM_NAME STREQUAL "Linux")
+            message(FATAL_ERROR
+                "Requested Linux-only source '${TEST_NAME}' on ${CMAKE_SYSTEM_NAME}")
+        endif()
+        set(SOURCES "${FILTERED_SOURCE}")
     else()
         set(SOURCES "${FILTERED_SOURCE}")
     endif()
@@ -486,6 +607,13 @@ foreach(SOURCE_FILE ${SOURCES})
     get_filename_component(EXECUTABLE_NAME ${SOURCE_FILE} NAME_WE)
 
     add_executable(${EXECUTABLE_NAME} ${SOURCE_FILE})
+
+    # Test sources include library headers root-relative ("corvid/...") and the
+    # shared Catch2 main wrapper by bare name ("catch2_main.h"), so put the repo
+    # root (parent of tests/) and tests/ itself on the include path. This keeps
+    # includes independent of which bucket subdir a test lives in.
+    target_include_directories(${EXECUTABLE_NAME} PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}/.." "${CMAKE_CURRENT_SOURCE_DIR}")
 
     # Every test file uses Catch2 except `notest_*` programs (long-lived
     # servers/demos that opt out via filename convention).
@@ -506,17 +634,20 @@ foreach(SOURCE_FILE ${SOURCES})
         endif()
     endif()
 
-    # liburing, the QUIC stack, and the HTTP/3 stack are linked into every
-    # target. The static linker drops archive members that no symbol
-    # references, so targets that touch none of these headers pay no
-    # measurable size or link-time cost. The crypto target's
-    # INTERFACE_LINK_LIBRARIES carries ngtcp2_static + OpenSSL transitively;
-    # nghttp3_static is standalone (no crypto dependency).
-    target_include_directories(${EXECUTABLE_NAME} PRIVATE ${LIBURING_INCLUDE_DIRS})
-    target_link_libraries(${EXECUTABLE_NAME} PRIVATE
-        ${LIBURING_LIBRARIES} ngtcp2_crypto_ossl_static nghttp3_static)
+    # Linux-bucket targets link liburing, the QUIC stack, and the HTTP/3 stack.
+    # The static linker drops archive members no symbol references, so a linux
+    # target that touches none of these headers pays no measurable size or
+    # link-time cost. The crypto target's INTERFACE_LINK_LIBRARIES carries
+    # ngtcp2_static + OpenSSL transitively; nghttp3_static is standalone (no
+    # crypto dependency). Portable-bucket targets link none of this (and on
+    # non-Linux platforms these imported targets do not exist).
+    if(SOURCE_FILE MATCHES "/linux/")
+        target_include_directories(${EXECUTABLE_NAME} PRIVATE ${LIBURING_INCLUDE_DIRS})
+        target_link_libraries(${EXECUTABLE_NAME} PRIVATE
+            ${LIBURING_LIBRARIES} ngtcp2_crypto_ossl_static nghttp3_static)
+    endif()
 
-    if(NOT USE_LIBSTDCPP)
+    if(NOT USE_LIBSTDCPP AND NOT WIN32)
         # Link libc++ and libc++abi explicitly
         target_link_libraries(${EXECUTABLE_NAME} PRIVATE c++ c++abi)
     endif()
@@ -529,15 +660,15 @@ endforeach()
 # FetchContent build the .cpp suite may be using, so we locate it directly
 # instead of reusing Catch2::Catch2 (the wrong ABI in a libc++ configure).
 # notest_* opt out of Catch2 and CTest, as in the .cpp loop. A .cu file reaches
-# its own headers with a relative include ("../corvid/cuda/..."), as the .cpp
-# tests do.
+# its headers root-relative ("corvid/cuda/...") and Catch2 by bare name
+# ("catch2_main.h"); the include path below adds the repo root and tests/.
 if(CORVID_ENABLE_CUDA)
     if(DEFINED CUDA_TEST_NAME_SOURCE)
         set(CUDA_SOURCES "${CUDA_TEST_NAME_SOURCE}")
     elseif(TEST_NAME)
         set(CUDA_SOURCES "") # a .cpp single-file filter builds no .cu targets
     else()
-        file(GLOB CUDA_SOURCES "*.cu")
+        file(GLOB CUDA_SOURCES "cuda/*.cu")
     endif()
 
     if(CUDA_SOURCES)
@@ -563,6 +694,10 @@ if(CORVID_ENABLE_CUDA)
     foreach(SOURCE_FILE ${CUDA_SOURCES})
         get_filename_component(EXECUTABLE_NAME ${SOURCE_FILE} NAME_WE)
         add_executable(${EXECUTABLE_NAME} ${SOURCE_FILE})
+        # Repo root (parent of tests/) for "corvid/..." and tests/ for the
+        # bare-name "catch2_main.h", as in the CXX loop above.
+        target_include_directories(${EXECUTABLE_NAME} PRIVATE
+            "${CMAKE_CURRENT_SOURCE_DIR}/.." "${CMAKE_CURRENT_SOURCE_DIR}")
         # Auto-link cuBLAS for sources that use it, matching `nvcc ... -lcublas`.
         file(STRINGS ${SOURCE_FILE} CUDA_USES_CUBLAS REGEX "cublas")
         if(CUDA_USES_CUBLAS)
@@ -581,7 +716,18 @@ endif()
 # `CMAKE_SOURCE_DIR` is this `tests/` directory (the only CMake project in
 # the repo), so the .. step is the actual project root.
 get_filename_component(PROJECT_ROOT_DIR "${CMAKE_SOURCE_DIR}/.." ABSOLUTE)
-configure_file(
-    "${PROJECT_ROOT_DIR}/.clangd.in"
-    "${PROJECT_ROOT_DIR}/.clangd"
-    @ONLY)
+if(WIN32)
+    # Windows uses clang-cl against the MSVC STL and builds only the portable
+    # (and cuda) buckets, so its clangd config is far simpler than Linux: no
+    # libc++ flags, no ngtcp2/openssl/liburing isystem paths. Generated from a
+    # separate template. See crossplatform.md.
+    configure_file(
+        "${PROJECT_ROOT_DIR}/.clangd.win.in"
+        "${PROJECT_ROOT_DIR}/.clangd"
+        @ONLY)
+else()
+    configure_file(
+        "${PROJECT_ROOT_DIR}/.clangd.in"
+        "${PROJECT_ROOT_DIR}/.clangd"
+        @ONLY)
+endif()

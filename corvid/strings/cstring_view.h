@@ -23,6 +23,7 @@
 #include <stdexcept>
 
 #include "string_view_wrapper.h"
+#include "../meta/crossplatform.h"
 
 namespace corvid {
 inline namespace cstringview {
@@ -247,7 +248,11 @@ consteval u32cstring_view operator""_u32csv(unsigned long long zero_only) {
 
 // Environment.
 cstring_view operator""_env(const char* ps, std::size_t) noexcept {
+  PRAGMA_DIAG(push)
+  PRAGMA_IGNORED("-Wdeprecated-declarations")
+  PRAGMA_MSVC_IGNORED(4996)
   return std::getenv(ps);
+  PRAGMA_DIAG(pop)
 }
 
 #pragma endregion

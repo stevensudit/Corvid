@@ -29,7 +29,7 @@
 #include <nghttp3/nghttp3.h>
 #include <openssl/rand.h>
 
-#include "../../meta/pragmas.h"
+#include "../../meta/crossplatform.h"
 #include "../../infra/exception_firewalls.h"
 #include "../../infra/log.h"
 #include "../../strings/conversion.h"

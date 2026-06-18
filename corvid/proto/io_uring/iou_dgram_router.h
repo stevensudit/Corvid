@@ -25,6 +25,7 @@
 
 #include "../../infra/exception_firewalls.h"
 #include "../../containers/core/opt_find.h"
+#include "../../meta/crossplatform.h"
 #include "../../enums/bool_enums.h"
 #include "../net_endpoint.h"
 #include "iou_buf_pool.h"
@@ -478,7 +479,7 @@ private:
   relaxed_atomic_bool is_reading_;
   completion_token recv_token_;
 
-  [[no_unique_address]] RouterPlugin plugin_;
+  CORVID_NO_UNIQUE_ADDRESS RouterPlugin plugin_;
   std::unordered_map<key_t, session_ptr> sessions_;
 
 #pragma endregion

@@ -149,7 +149,7 @@ public:
 
   const operation op;
 
-  template<operation op, typename... Args>
+  template<operation op_v, typename... Args>
   [[nodiscard]] static std::shared_ptr<node> make(Args&&... args);
 
   static bool dump(std::string& out, const any_single_value& value) {
@@ -333,36 +333,36 @@ struct absent_node final: public unary_leaf {
 #pragma endregion
 #pragma region make
 
-template<operation op, typename... Args>
+template<operation op_v, typename... Args>
 std::shared_ptr<node> node::make(Args&&... args) {
-  if constexpr (op == operation::and_junction)
+  if constexpr (op_v == operation::and_junction)
     return std::make_shared<and_node>(allow::ctor,
         std::forward<Args>(args)...);
-  else if constexpr (op == operation::or_junction)
+  else if constexpr (op_v == operation::or_junction)
     return std::make_shared<or_node>(allow::ctor, std::forward<Args>(args)...);
-  else if constexpr (op == operation::not_junction)
+  else if constexpr (op_v == operation::not_junction)
     return std::make_shared<not_node>(allow::ctor,
         std::forward<Args>(args)...);
-  else if constexpr (op == operation::always_false)
+  else if constexpr (op_v == operation::always_false)
     return std::make_shared<false_node>(allow::ctor);
-  else if constexpr (op == operation::always_true)
+  else if constexpr (op_v == operation::always_true)
     return std::make_shared<true_node>(allow::ctor);
-  else if constexpr (op == operation::eq)
+  else if constexpr (op_v == operation::eq)
     return std::make_shared<eq_node>(allow::ctor, std::forward<Args>(args)...);
-  else if constexpr (op == operation::ne)
+  else if constexpr (op_v == operation::ne)
     return std::make_shared<ne_node>(allow::ctor, std::forward<Args>(args)...);
-  else if constexpr (op == operation::exists)
+  else if constexpr (op_v == operation::exists)
     return std::make_shared<exists_node>(allow::ctor,
         std::forward<Args>(args)...);
-  else if constexpr (op == operation::absent)
+  else if constexpr (op_v == operation::absent)
     return std::make_shared<absent_node>(allow::ctor,
         std::forward<Args>(args)...);
 }
 
 // Non-member wrapper; still type-safe because it takes `operation`.
-template<operation op, typename... Args>
+template<operation op_v, typename... Args>
 [[nodiscard]] node_ptr make(Args&&... args) {
-  return node::make<op>(std::forward<Args>(args)...);
+  return node::make<op_v>(std::forward<Args>(args)...);
 }
 
 #pragma endregion

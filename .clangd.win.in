@@ -1,0 +1,17 @@
+# clangd configuration (Windows / clang-cl). Generated from `.clangd.win.in` by
+# `tests/CMakeLists.txt` via `configure_file` and gitignored (rewritten on every
+# configure). Edit this template, not the generated `.clangd`. The Linux variant
+# is `.clangd.in`; the two diverge because Windows builds with clang-cl against
+# the MSVC STL (no libc++) and only the portable/cuda buckets exist (no
+# ngtcp2/openssl/liburing isystem paths).
+CompileFlags:
+  # compile_commands.json (under tests/build) carries the real clang-cl command
+  # for every test .cpp, including /std:c++latest and the include paths. Headers
+  # under corvid/ have no entry of their own and inherit flags from the nearest
+  # indexed TU that includes them.
+  CompilationDatabase: tests/build
+
+---
+Diagnostics:
+  UnusedIncludes: None
+  MissingIncludes: None

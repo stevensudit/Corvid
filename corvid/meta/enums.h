@@ -17,7 +17,7 @@
 #pragma once
 #include "meta_shared.h"
 #include "concepts.h"
-#include "pragmas.h"
+#include "crossplatform.h"
 
 namespace corvid { inline namespace meta { inline namespace enum_utils {
 

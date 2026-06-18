@@ -340,7 +340,7 @@ template<CharType C>
 
 // Parse four hex digits from `s` at `pos`, returning their value.
 template<CharType C = char>
-[[nodiscard]] std::optional<uint16_t>
+[[nodiscard]] constexpr std::optional<uint16_t>
 parse_hex4(std::basic_string_view<C> s, size_t pos) noexcept {
   if (pos + 4 > s.size()) return std::nullopt;
   uint16_t value{};
