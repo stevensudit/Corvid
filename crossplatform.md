@@ -358,8 +358,11 @@ Planned shape (the open items below are now resolved; first target being impleme
   Video Codec SDK, a separate download and so a new external dependency to wire up
   (analogous to the Linux ngtcp2 / openssl prebuilds).
 
-Decided (first target, 2026-06-18). The three open items are resolved: sources
-live in `tests/cuda/windows/` (globbed only on `WIN32`, under the CUDA bucket);
+Decided (first target, 2026-06-18). The three open items are resolved: CUDA
+graphics targets live in `tests/cuda/windows/` (globbed only on `WIN32`, under
+the CUDA bucket), while Windows-only plain-C++ tests (such as the SDL wrapper
+tests) live in a separate `tests/windows/` bucket that needs no CUDA toolchain,
+so both of the §11 candidate subdirs exist, split by whether CUDA is involved;
 the genuinely Windows-only library headers (D3D11, CUDA-D3D interop) live in
 `corvid/cuda/windows/`; and the first target needs only D3D interop (Windows
 SDK), not the Video Codec SDK. That first

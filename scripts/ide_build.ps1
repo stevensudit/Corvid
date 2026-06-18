@@ -92,6 +92,26 @@ if ($Src -like '*.cu') {
   $clArgs += @('-Wall', '-Wextra', '-Werror', '-Wno-unused-variable')
 }
 
-$clArgs += @($Src, $catch2.FullName, '-o', $out)
+# SDL3 (window/input) for sources that pull in a corvid/sdl header - the
+# prebuilt drop fetched by scripts/fetch_sdl3.ps1 (mirrors the cuBLAS auto-link
+# above). -isystem keeps SDL's headers clear of -Werror; link the import lib and
+# stage SDL3.dll next to the exe so F5 can run it.
+$sdl3Lib = $null
+$sdl3Dll = $null
+if (Select-String -Path $Src -Pattern 'corvid/sdl|SDL3/' -Quiet) {
+  $sdl3 = Join-Path $workspace 'tests/.local/sdl3'
+  $sdl3Lib = Join-Path $sdl3 'lib/x64/SDL3.lib'
+  $sdl3Dll = Join-Path $sdl3 'lib/x64/SDL3.dll'
+  if (-not (Test-Path $sdl3Lib)) {
+    throw "SDL3 not found at $sdl3. Run ./scripts/fetch_sdl3.ps1 first."
+  }
+  $clArgs += @('-isystem', (Join-Path $sdl3 'include'))
+}
+
+$clArgs += @($Src, $catch2.FullName)
+if ($sdl3Lib) { $clArgs += $sdl3Lib }
+$clArgs += @('-o', $out)
 & $clang @clArgs
-exit $LASTEXITCODE
+$rc = $LASTEXITCODE
+if ($rc -eq 0 -and $sdl3Dll) { Copy-Item -Path $sdl3Dll -Destination $outDir -Force }
+exit $rc
