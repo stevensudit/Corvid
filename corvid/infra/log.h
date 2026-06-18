@@ -15,9 +15,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 #pragma once
-#ifdef _WIN32
-#include <thread> // std::this_thread::get_id is the Win32 thread id under MSVC
-#else
+#ifndef _WIN32
 #include <pthread.h>
 #include <sys/syscall.h>
 #include <unistd.h>
@@ -32,6 +30,7 @@
 #include <source_location>
 #include <string>
 #include <string_view>
+#include <thread>
 #include <type_traits>
 #include <utility>
 
@@ -186,8 +185,6 @@ private:
   static const std::string& thread_label() {
     thread_local const std::string label = [] {
 #ifdef _WIN32
-      // MSVC's std::thread::id is the Win32 thread id. Format it and skip the
-      // thread name (no cheap query here); avoids pulling in <windows.h>.
       return std::format("thread({})", std::this_thread::get_id());
 #else
       std::array<char, 16> name{};
