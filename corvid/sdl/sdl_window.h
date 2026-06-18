@@ -24,13 +24,7 @@ namespace corvid::sdl {
 
 #pragma region SDL window
 
-// RAII for an SDL window: SDL_CreateWindow in the constructor,
-// SDL_DestroyWindow in the destructor. Move-only. Exposes the raw
-// `SDL_Window*` for the platform-specific work that needs it (e.g. pulling the
-// HWND for D3D).
-//
-// Created with no window flags for now; an SDL_WindowFlags parameter, wrapped
-// as a Corvid enum, lands with the rest of the SDL enums.
+// RAII for an SDL window.
 class sdl_window {
 public:
 #pragma region Construction
@@ -58,6 +52,12 @@ public:
 
   [[nodiscard]] SDL_Window* get() const noexcept { return window_; }
   operator SDL_Window*() const noexcept { return window_; }
+
+  // The OS-native window handle.
+  [[nodiscard]] void* native_handle() const noexcept {
+    return SDL_GetPointerProperty(SDL_GetWindowProperties(window_),
+        SDL_PROP_WINDOW_WIN32_HWND_POINTER, nullptr);
+  }
 
 #pragma endregion
 #pragma region Helpers

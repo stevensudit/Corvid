@@ -795,11 +795,11 @@ if(CORVID_ENABLE_CUDA)
         if(CUDA_USES_CUBLAS)
             target_link_libraries(${EXECUTABLE_NAME} PRIVATE CUDA::cublas)
         endif()
-        # Windows-only CUDA cell links SDL3 and stages SDL3.dll next to the exe.
-        # (The Windows SDK graphics libs d3d11/dxgi join here at the D3D
-        # milestone.) See crossplatform.md s11.
+        # Windows-only CUDA cell links SDL3 (window/input/events) and the
+        # Windows SDK graphics libs d3d11/dxgi (device, swapchain, present), and
+        # stages SDL3.dll next to the exe. See crossplatform.md s11.
         if(SOURCE_FILE MATCHES "/cuda/windows/")
-            target_link_libraries(${EXECUTABLE_NAME} PRIVATE SDL3::SDL3)
+            target_link_libraries(${EXECUTABLE_NAME} PRIVATE SDL3::SDL3 d3d11 dxgi)
             add_custom_command(TARGET ${EXECUTABLE_NAME} POST_BUILD
                 COMMAND ${CMAKE_COMMAND} -E copy_if_different
                     "$<TARGET_FILE:SDL3::SDL3>"

@@ -110,6 +110,11 @@ if (Select-String -Path $Src -Pattern 'corvid/sdl|SDL3/' -Quiet) {
 
 $clArgs += @($Src, $catch2.FullName)
 if ($sdl3Lib) { $clArgs += $sdl3Lib }
+# Direct3D 11 (device/swapchain/present) for the Windows-only CUDA cell,
+# mirroring the CMake windows-CUDA targets that link d3d11/dxgi for
+# /cuda/windows/ sources. Both libs ship in the Windows SDK, on %LIB% from the
+# dev shell entered above, so the linker resolves them with no explicit path.
+if ($Src -match 'cuda[\\/]windows') { $clArgs += @('-ld3d11', '-ldxgi') }
 $clArgs += @('-o', $out)
 & $clang @clArgs
 $rc = $LASTEXITCODE
