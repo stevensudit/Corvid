@@ -4,9 +4,15 @@
         {
             "label": "build",
             "type": "shell",
-            "command": "${workspaceFolder}/scripts/ide_build.sh",
+            "command": {
+                "value": "${workspaceFolder}/scripts/ide_build.sh",
+                "quoting": "strong"
+            },
             "args": [
-                "${file}"
+                {
+                    "value": "${file}",
+                    "quoting": "strong"
+                }
             ],
             "windows": {
                 "command": "pwsh",
@@ -15,8 +21,14 @@
                     "-ExecutionPolicy",
                     "Bypass",
                     "-File",
-                    "${workspaceFolder}/scripts/ide_build.ps1",
-                    "${file}"
+                    {
+                        "value": "${workspaceFolder}/scripts/ide_build.ps1",
+                        "quoting": "strong"
+                    },
+                    {
+                        "value": "${file}",
+                        "quoting": "strong"
+                    }
                 ]
             },
             "group": {
@@ -48,7 +60,7 @@
         },
         {
             "label": "Run Executable",
-            "type": "shell",
+            "type": "process",
             "command": "${fileDirname}/debug_bin/${fileBasenameNoExtension}.exe",
             "group": {
                 "kind": "test",
