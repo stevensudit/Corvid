@@ -162,8 +162,12 @@ public:
   explicit constexpr interval(V val) noexcept : interval{val, val} {}
   constexpr interval(V min_val, V max_val) noexcept
       : pair_{as_u(min_val), as_u(max_val)} {
-    assert(pair_.second != std::numeric_limits<U>::max());
-    if (pair_.second != std::numeric_limits<U>::max()) ++pair_.second;
+    // Advance the closed max to the half-open end. The underlying-max case is
+    // unrepresentable, so make it reliably invalid rather than drop max_val.
+    if (pair_.second != std::numeric_limits<U>::max())
+      ++pair_.second;
+    else
+      pair_ = raw_pair{U{1}, U{0}};
     assert(!invalid());
   }
 
