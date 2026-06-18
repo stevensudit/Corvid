@@ -1,12 +1,16 @@
 # Cross-Platform Build
 
-Status: Windows port complete, including CUDA. The portable test suite builds
-and passes on Linux (clang), native Windows (clang++), and native Windows (MSVC
-cl): 39 of 39 portable tests on each Windows compiler. The CUDA bucket builds
-and runs natively on Windows under clang++ (3 of 3 registered `.cu` tests pass
-on the GPU, plus the cuBLAS tutorials), and the full Linux suite (portable plus
-linux buckets, plus CUDA under nvcc) stays green. This document records how
-cross-platform capability is structured and maintained; update it when the
+Status: Windows port complete, including CUDA, device tooling, and lint. The
+portable suite builds and passes on Linux (clang), native Windows (clang++, the
+default), and native Windows (MSVC cl): 39 of 39 portable tests per Windows
+compiler. The CUDA bucket builds and runs natively on Windows under clang++ (3 of
+3 registered `.cu` pass on the GPU, plus the cuBLAS tutorials); device
+correctness runs via `./cleanbuild.ps1 cudacheck` (compute-sanitizer) and device
+debugging via Nsight Visual Studio Edition, and `./cleanbuild.ps1 tidy` is clean.
+The full Linux suite (portable plus linux buckets, plus CUDA under nvcc) stays
+green. The next addition is a genuinely new category, Windows-only CUDA targets
+(CUDA plus Windows graphics/video interop); see section 11. This document records
+how cross-platform capability is structured and maintained; update it when the
 structure changes.
 
 ## 1. Goal and shape
@@ -37,6 +41,14 @@ liburing / OpenSSL / ngtcp2 / nghttp3 dependencies sit behind
 This also speeds the Linux build: portable tests no longer drag in the QUIC
 stack. CUDA is its own bucket, not a sub-case of linux, because building the
 `.cu` tests on Windows is the whole point.
+
+These three are the populated cells of a two-axis space: platform (portable /
+Linux-only / Windows-only) crossed with whether a target needs the CUDA toolkit.
+CUDA has so far been platform-neutral (the cuda bucket builds on Linux and
+Windows alike), so the Windows-only-CUDA cell is empty. That is about to change:
+Windows-only CUDA targets, whose Windows graphics/video dependencies do not exist
+on Linux, are a genuinely new cell. Section 11 covers how the structure will
+accommodate them.
 
 The `notest_` filename prefix means "build the executable but do not register a
 CTest" (servers, demos, tutorials); it is orthogonal to bucket. The io_uring
@@ -116,6 +128,13 @@ Windows (`./cleanbuild.ps1`) does a fresh Release configure, build, and ctest:
   `-DTEST_NAME=`). A `.cu` needs the default clang++ in a plain mode.
 - `./cleanbuild.ps1 cl`: portable suite via MSVC cl (no CUDA; see section 3).
 - `./cleanbuild.ps1 asan`: ASAN (which carries UBSAN), clang++ only.
+- `./cleanbuild.ps1 tidy`: run clang-tidy (`USE_CLANG_TIDY=ON`) during the build,
+  then a grouped warning summary, mirroring the Linux tidy run. clang++ only
+  (clang-tidy is the clang analyzer; cl has no analog). It keeps asserts live so
+  assert facts reach clang-analyzer: the build type stays Release (an empty one
+  makes the GNU-clang platform pull the debug CRT, which then will not link the
+  /MD Catch2), but the default `-DNDEBUG` is dropped via a `CMAKE_CXX_FLAGS_RELEASE`
+  override. LLVM is not on PATH, so the clang-tidy path is passed explicitly.
 
 The script enters a VS Developer shell for INCLUDE/LIB (skipped if already inside
 one), configures Ninja with the chosen compiler, builds with `-k 0`, and runs
@@ -123,7 +142,7 @@ ctest. CUDA auto-enables when `nvcc` is on PATH and the mode is the default
 clang++ plain one: it passes `CORVID_ENABLE_CUDA=ON`, `CMAKE_CUDA_COMPILER`
 pointing at `clang++`, and an explicit `CMAKE_CUDA_ARCHITECTURES` from
 `nvidia-smi`. It uses `cmake --fresh` rather than wiping `tests/build`, because
-clangd holds an open handle on `compile_commands.json` there. The Linux-only
+clangd holds an open handle on `compile_commands.json` there. The other Linux
 cleanbuild modes (libc++/libstdc++ choice, msan/tsan, analyze-build scan,
 llvm-cov coverage, compiler-rt/lld swaps) have no MSVC analog and are absent.
 
@@ -205,6 +224,22 @@ with a minimal repro:
   private members under cl, even where the nested class's own member functions
   can. Use a public accessor instead.
 
+clang-tidy findings differ by standard library too, so `./cleanbuild.ps1 tidy`
+(MSVC STL) surfaces two checks that the Linux libc++ run does not. Both are
+suppressed with targeted NOLINT comments at the sites (not a global exclusion),
+so the run is clean on both:
+
+- `bugprone-std-namespace-modification` flags the library's legal partial
+  `std::formatter` / `std::format_kind` specializations. The check exempts full
+  specializations but not partial ones; libc++ hides `std` in the inline
+  namespace `std::__1`, which the check ignores, so only the MSVC STL and
+  libstdc++ flag them. (Confirmed by an A/B with clang-tidy 22.1.8 on Ubuntu:
+  flagged under libstdc++, silent under libc++.)
+- `bugprone-exception-escape` flags the intentional `noexcept` on
+  `log::terminate` and `entity_registry::clear` (the MSVC STL's `scoped_lock` /
+  `shrink_to_fit` analyze as throwing where both Linux stdlibs do not). These
+  are noexcept-by-policy, so the escape is intended.
+
 ## 7. Sanitizers on Windows
 
 clang++ carries clang's sanitizers. `./cleanbuild.ps1 asan` builds with
@@ -224,6 +259,15 @@ exception crashes under ASAN on Windows (clang 22.1.7 with dynamic
 VCRUNTIME140). The single library rethrow site is exercised by one test, which
 is guarded out under ASAN-on-Windows (via `__has_feature(address_sanitizer)`).
 
+ASAN instruments host code; the device-side analog is `./cleanbuild.ps1
+cudacheck`. It builds the cuda bucket and runs each registered `.cu` test under
+NVIDIA `compute-sanitizer` across its four tools (memcheck, racecheck, synccheck,
+initcheck) with `--error-exitcode 1`. The CUDA build's `-gline-tables-only` (the
+clang analog of nvcc `-lineinfo`) maps a fault to its `.cu` source line. A test
+that launches no kernel and touches no device memory (host-only, or device
+functions exercised on the host) makes no instrumentable CUDA call;
+compute-sanitizer reports that and cudacheck records it as a skip, not a fault.
+
 ## 8. IDE, F5, and clangd
 
 - Editor: clangd everywhere, IntelliSense disabled. The root `.clangd` is
@@ -233,7 +277,8 @@ is guarded out under ASAN-on-Windows (via `__has_feature(address_sanitizer)`).
 - Single-file IDE build: `scripts/ide_build.sh` (Linux) and
   `scripts/ide_build.ps1` (Windows), both emitting `debug_bin/<stem>.exe`. The
   Windows builder compiles `.cpp` and `.cu` with clang++ (a `.cu` adds the
-  CUDA-frontend flags and links cudart), both producing a PDB. It links the
+  CUDA-frontend flags and links cudart, plus cuBLAS when the source uses it),
+  both producing a PDB. It links the
   FetchContent Catch2 from the `cleanbuild.ps1` cache, so run `./cleanbuild.ps1`
   once first, and re-run it plain after an `asan` build (an asan-instrumented
   Catch2 will not link against a plain single-file object).
@@ -245,6 +290,14 @@ is guarded out under ASAN-on-Windows (via `__has_feature(address_sanitizer)`).
   a Windows (cppvsdbg, since clang++ emits a PDB) debug config. One committed
   `.vscode` serves a native-Windows checkout and a Remote-WSL checkout of the
   same repo.
+- Device-side `.cu` debugging on Windows is NVIDIA Nsight Visual Studio Edition
+  (full Visual Studio), not VSCode: Nsight VSCode Edition drives `cuda-gdb`,
+  which is Linux/WSL-only. clang++ `-g -O0` emits the same NVIDIA device-debug
+  sections (`.nv_debug_line_sass`, `.nv_debug_info_reg_sass`, DWARF) that nvcc
+  `-G` does (verified with `cuobjdump --dump-elf`), so the `debug_bin/<stem>.exe`
+  that `ide_build.ps1` already produces for a `.cu` is device-debuggable: open it
+  in Visual Studio and use Nsight's "Start CUDA Debugging". Host-side `.cu`
+  debugging stays on cppvsdbg via the PDB, as for `.cpp`.
 
 ## 9. Decisions (resolved)
 
@@ -280,11 +333,44 @@ commit.
 
 ## 11. Remaining work
 
-CUDA on Windows is done (clang++ frontend; see section 3). What is left is
-device-side debugging: `cuda-gdb` integration is deferred, so `.cu` debugging on
-Windows is host-side only (clang++ `-g` -> PDB -> cppvsdbg). The `.cu` builds use
-`-lineinfo` on Linux for Nsight / compute-sanitizer attribution; the Windows
-clang++ build does not add a device-debug flag yet.
+The next addition is a new bucket cell: Windows-only CUDA targets. These are
+`.cu` executables that depend on Windows-specific GPU-adjacent APIs (Direct3D
+interop via `cudaGraphicsD3D11*` plus the Windows SDK's d3d11/dxgi, or the NVIDIA
+Video Codec SDK's NVENC/NVDEC), so they cannot build on Linux. They do not fit
+the existing `cuda` bucket, which builds on both platforms and assumes no
+platform-specific dependencies.
+
+Planned shape (not yet implemented, open to revision):
+
+- Sources live in a Windows-only CUDA sub-area, globbed only when `WIN32` and the
+  CUDA toolkit are both present, the way the linux bucket gates its Linux-only
+  `.cpp`. Leading candidate `tests/cuda/windows/`, keeping them under the CUDA
+  bucket (reusing the clang++ `.cu` toolchain and Catch2 wiring) with Windows as a
+  sub-condition; the alternative is a `tests/windows/` platform bucket symmetric
+  to `tests/linux/`.
+- The library headers for these features are genuinely Windows-only (they pull in
+  `<d3d11.h>` / `nvEncodeAPI.h`), so they belong in a Windows-only location (for
+  example `corvid/cuda/windows/`) rather than `#ifdef _WIN32` guards threaded
+  through otherwise-portable headers, following the precedent of the
+  genuinely-Linux `owner_thread_dispatcher` staying in the linux bucket.
+- Each target links the Windows libs it needs. Direct3D interop needs only the
+  Windows SDK (d3d11.lib, dxgi.lib), already present; NVENC/NVDEC needs the NVIDIA
+  Video Codec SDK, a separate download and so a new external dependency to wire up
+  (analogous to the Linux ngtcp2 / openssl prebuilds).
+
+Open decisions: the test subdir (`tests/cuda/windows/` vs a `tests/windows/`
+bucket), the library-header home, and whether the first targets need only D3D
+interop (Windows SDK) or also the Video Codec SDK.
+
+Resolved this round (detail in sections 7 and 8): device correctness via
+`./cleanbuild.ps1 cudacheck` (compute-sanitizer) and device debugging via Nsight
+Visual Studio Edition, with the CUDA build's `-gline-tables-only` giving both
+source attribution; `./cleanbuild.ps1 tidy` brought clean (the MSVC-STL-only
+findings carry NOLINTs, section 6); and `cuda-gdb` ruled out (Windows has none;
+the project left WSL on purpose). One thing verified only structurally, not
+interactively: that Nsight VSE sets a live device breakpoint in a clang-built
+kernel. The debug info is provably present and in NVIDIA's format, but the GUI
+session itself was not driven from the build harness.
 
 ## 12. Shared developer context across Windows and WSL
 

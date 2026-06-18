@@ -673,6 +673,8 @@ public:
   //
   // WARNING: When `policy=release`, all generation counters are reset,
   // completely invalidating generation detection for reused IDs.
+  //
+  // NOLINTNEXTLINE(bugprone-exception-escape): noexcept by policy
   void clear(
       deallocation_policy policy = deallocation_policy::preserve) noexcept {
     living_count_ = 0;

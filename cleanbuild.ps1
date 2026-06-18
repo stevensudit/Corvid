@@ -22,6 +22,10 @@
 #   ./cleanbuild.ps1 cuda_status_test.cu build and run just that one CUDA test
 #   ./cleanbuild.ps1 cl                  portable suite via MSVC cl (no CUDA)
 #   ./cleanbuild.ps1 asan                ASAN (+UBSAN) build + ctest (clang++ only)
+#   ./cleanbuild.ps1 tidy                run clang-tidy during the build, then a
+#                                        warning summary (clang++ only)
+#   ./cleanbuild.ps1 cudacheck           CUDA tests under compute-sanitizer (the
+#                                        device analog of asan; memcheck etc.)
 [CmdletBinding()]
 param([Parameter(ValueFromRemainingArguments = $true)][string[]] $Rest)
 
@@ -34,21 +38,40 @@ $llvmRoot = 'C:/Program Files/LLVM'
 $clangXx = "$llvmRoot/bin/clang++.exe"
 
 # Parse args: a *.cpp or *.cu name selects one test; clang|cl picks the
-# compiler; asan picks the sanitizer.
+# compiler; asan picks the sanitizer; tidy runs clang-tidy during the build;
+# cudacheck runs the CUDA tests under compute-sanitizer (the device analog of asan).
 $testName = ''
 $compiler = 'clang'
 $sanitizer = ''
+$cudacheck = $false
+$tidy = $false
 foreach ($a in $Rest) {
   switch -Regex ($a) {
     '\.(cpp|cu)$' { $testName = $a }
     '^(clang\+\+|clang)$' { $compiler = 'clang' }
     '^(cl|msvc)$' { $compiler = 'cl' }
     '^asan$' { $sanitizer = $a }
-    default { throw "Unrecognized argument '$a' (expected <name>_test.cpp, <name>_test.cu, clang|cl, or asan)" }
+    '^cudacheck$' { $cudacheck = $true }
+    '^(tidy|--tidy)$' { $tidy = $true }
+    default { throw "Unrecognized argument '$a' (expected <name>_test.cpp, <name>_test.cu, clang|cl, asan, tidy, or cudacheck)" }
   }
 }
 if ($sanitizer -and $compiler -eq 'cl') {
   throw 'ASAN requires clang++, not MSVC cl.'
+}
+if ($cudacheck -and $sanitizer) {
+  throw 'cudacheck and asan are separate modes (host ASAN vs device compute-sanitizer).'
+}
+if ($cudacheck -and $compiler -eq 'cl') {
+  throw 'cudacheck needs clang++ (CUDA does not build under cl).'
+}
+# tidy mirrors Linux: clang-tidy is clang-based, so it rides the clang++ build,
+# not cl; and it is its own analysis mode, exclusive with the sanitizer/check modes.
+if ($tidy -and $compiler -eq 'cl') {
+  throw 'tidy requires clang++ (clang-tidy is the clang analyzer; cl has no analog here).'
+}
+if ($tidy -and ($sanitizer -or $cudacheck)) {
+  throw 'tidy is exclusive with asan/cudacheck (separate analysis passes).'
 }
 
 # Resolve the compiler. clang++ uses the full LLVM path; cl rides the dev-shell
@@ -101,6 +124,9 @@ if ($compiler -eq 'clang' -and -not $sanitizer -and
 if ($testName -like '*.cu' -and -not $cudaArgs) {
   throw "'$testName' needs the CUDA toolkit, the clang++ compiler (not cl), and a plain build mode (not asan)"
 }
+if ($cudacheck -and -not $cudaArgs) {
+  throw 'cudacheck needs the CUDA toolkit (nvcc + a GPU) in the default clang++ build.'
+}
 
 # Configure fresh. `cmake --fresh` clears the cache and CMakeFiles/ and
 # reconfigures in place WITHOUT deleting tests/build - on Windows clangd keeps an
@@ -114,15 +140,56 @@ $cfg = @('--fresh', '-S', $srcDir, '-B', $bldDir, '-G', 'Ninja',
   "-DCMAKE_CXX_COMPILER=$cxx", '-DCMAKE_BUILD_TYPE=Release')
 if ($testName) { $cfg += "-DTEST_NAME=$testName" }
 if ($sanitizer) { $cfg += "-DSANITIZER=$sanitizer" }
+if ($tidy) {
+  $clangTidy = "$llvmRoot/bin/clang-tidy.exe"
+  if (-not (Test-Path $clangTidy)) { throw "clang-tidy not found at $clangTidy" }
+  # LLVM is not on PATH (we use full tool paths), so the find_program in
+  # tests/CMakeLists.txt would miss clang-tidy; pre-seed the cache var it reads.
+  #
+  # Keep asserts live, like the Linux tidy run, so assert facts still reach
+  # clang-analyzer: override the Release flags to drop the default -DNDEBUG
+  # (keeping -O so the /MD CRT and layout match the normal Release build; the
+  # CRT comes from -fms-runtime-lib=dll, not the build type). The build type
+  # MUST stay Release: an empty build type makes the GNU-clang platform pull the
+  # debug CRT (msvcrtd), which then fails to link against the /MD Catch2.
+  $cfg += @('-DUSE_CLANG_TIDY=ON', "-DCLANG_TIDY_EXE=$clangTidy",
+    '-DCMAKE_CXX_FLAGS_RELEASE=-O2')
+}
 $cfg += $cudaArgs
-$mode = if ($sanitizer) { $sanitizer } else { 'plain' }
-Write-Host "Compiler: $compiler   Mode: $mode (Release)$(if ($testName) { "   Test: $testName" })"
+$mode = if ($tidy) { 'tidy' } elseif ($cudacheck) { 'cudacheck' } elseif ($sanitizer) { $sanitizer } else { 'plain' }
+$cfgLabel = if ($tidy) { 'Release, asserts-live' } else { 'Release' }
+Write-Host "Compiler: $compiler   Mode: $mode ($cfgLabel)$(if ($testName) { "   Test: $testName" })"
 cmake @cfg
 if ($LASTEXITCODE) { throw "configure failed ($LASTEXITCODE)" }
 
-# Build everything, keep-going so all failures surface in one pass.
-cmake --build $bldDir -- -k 0
-if ($LASTEXITCODE) { throw "build failed ($LASTEXITCODE)" }
+# The .cu test stems cudacheck will sanitize: one if a .cu was named, else all
+# registered cuda/*.cu (notest_ excluded). Also scopes the build, so cudacheck
+# does not rebuild the whole portable suite just to check the CUDA bucket.
+$cudaTests = @()
+if ($cudacheck) {
+  if ($testName -like '*.cu') {
+    $cudaTests = @([IO.Path]::GetFileNameWithoutExtension($testName))
+  } else {
+    $cudaTests = @(Get-ChildItem (Join-Path $srcDir 'cuda') -Filter '*.cu' |
+      Where-Object { $_.Name -notmatch '^notest_' } | ForEach-Object { $_.BaseName })
+  }
+}
+
+# Build, keep-going so all failures surface in one pass. cudacheck (without a
+# single named test) builds only the cuda targets. tidy tees the build output to
+# a log (clang-tidy warnings stream during compilation) and does NOT throw on a
+# nonzero result: a .clang-tidy WarningsAsErrors fails the build, but we still
+# want to reach the summary, and a real compile break surfaces via ctest below.
+$tidyLog = Join-Path $bldDir 'tidy.log'
+if ($tidy) {
+  cmake --build $bldDir -- -k 0 2>&1 | Tee-Object $tidyLog
+} elseif ($cudacheck -and -not $testName) {
+  cmake --build $bldDir --target $cudaTests -- -k 0
+  if ($LASTEXITCODE) { throw "build failed ($LASTEXITCODE)" }
+} else {
+  cmake --build $bldDir -- -k 0
+  if ($LASTEXITCODE) { throw "build failed ($LASTEXITCODE)" }
+}
 
 # ASAN links the dynamic runtime, whose DLL must be on PATH for the test exes to
 # start; llvm-symbolizer (in LLVM/bin) gives readable stack traces. UBSAN's
@@ -140,5 +207,75 @@ if ($sanitizer -eq 'asan') {
   $env:ASAN_OPTIONS = 'detect_odr_violation=0'
 }
 
+# cudacheck: run each registered cuda test under compute-sanitizer (the device
+# analog of ASAN), instead of plain ctest. The four tools are cheap on kernels
+# that use no shared memory or barriers (racecheck/synccheck become no-ops
+# there). --error-exitcode 1 makes a device fault fail the run; the build's
+# -gline-tables-only maps a fault to its source line.
+if ($cudacheck) {
+  $cudaRoot = Split-Path (Split-Path (Get-Command nvcc).Source)
+  $cs = Join-Path $cudaRoot 'compute-sanitizer/compute-sanitizer.exe'
+  if (-not (Test-Path $cs)) { throw "compute-sanitizer not found at $cs" }
+  $tools = @('memcheck', 'racecheck', 'synccheck', 'initcheck')
+  $failed = @()
+  $checked = 0
+  foreach ($t in $cudaTests) {
+    $exe = Join-Path $bldDir "release_bin/$t.exe"
+    if (-not (Test-Path $exe)) { $failed += "$t (not built)"; continue }
+    foreach ($tool in $tools) {
+      $out = & $cs --tool $tool --error-exitcode 1 $exe 2>&1
+      $rc = $LASTEXITCODE
+      # A test that launches no kernel and touches no device memory (host-only,
+      # or device functions exercised on the host) makes no instrumentable CUDA
+      # call. compute-sanitizer flags that; it is a skip, not a device fault.
+      if ($out | Select-String 'terminated before first instrumented API call') {
+        Write-Host ("  {0,-22} {1}" -f $t, 'skip - no device activity to check')
+        break
+      }
+      $summary = ($out | Select-String 'SUMMARY' | Select-Object -Last 1).Line -replace '^=+ ', ''
+      $status = if ($rc -eq 0) { 'ok' } else { 'FAIL' }
+      Write-Host ("  {0,-22} {1,-10} {2,-5} {3}" -f $t, $tool, $status, $summary)
+      $checked++
+      if ($rc -ne 0) {
+        $failed += "$t/$tool"
+        $out | Select-String '=========' |
+          Where-Object { $_.Line -notmatch 'SUMMARY|COMPUTE-SANITIZER' } |
+          Select-Object -First 6 | ForEach-Object { Write-Host "      $($_.Line)" }
+      }
+    }
+  }
+  if ($failed) { Write-Host "cudacheck FAILED: $($failed -join ', ')"; exit 1 }
+  Write-Host "cudacheck clean: $checked tool-run(s) across $($cudaTests.Count) test(s), no device errors."
+  exit 0
+}
+
 ctest --test-dir $bldDir --output-on-failure
-exit $LASTEXITCODE
+$ctestRc = $LASTEXITCODE
+
+# tidy mode: clang-tidy warnings streamed past during the build and got buried
+# under the ctest run. Summarize them at the end so the bottom-line state is
+# visible, mirroring cleanbuild.sh. Filter out .fetchcontent (the FetchContent'd
+# Catch2) so only Corvid-owned findings appear; group by check.
+if ($tidy) {
+  Write-Host ''
+  Write-Host '==================== clang-tidy summary ===================='
+  $warn = @(Select-String -Path $tidyLog -Pattern ': warning: .*\[[A-Za-z][A-Za-z0-9._-]*\]' |
+    Where-Object { $_.Line -notmatch '\.fetchcontent' } | ForEach-Object { $_.Line })
+  if ($warn.Count) {
+    Write-Host "$($warn.Count) warning(s):"
+    Write-Host ''
+    $warn | ForEach-Object { Write-Host $_ }
+    Write-Host ''
+    Write-Host 'By check:'
+    $warn | ForEach-Object { if ($_ -match '(\[[A-Za-z][A-Za-z0-9._-]*\])\s*$') { $matches[1] } } |
+      Group-Object | Sort-Object Count -Descending |
+      ForEach-Object { Write-Host ('  {0,5}  {1}' -f $_.Count, $_.Name) }
+  } else {
+    Write-Host 'clean: no warnings'
+  }
+  Write-Host ''
+  Write-Host "Full log: $tidyLog"
+  Write-Host '============================================================'
+}
+
+exit $ctestRc

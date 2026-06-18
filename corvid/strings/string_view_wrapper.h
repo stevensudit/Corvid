@@ -315,6 +315,8 @@ concept StringViewWrapperChild =
 // them is ambiguous, which the standard makes ill-formed and which clang and
 // MSVC then resolve differently. Repeat the standard's constraints here so
 // ours strictly subsumes it and wins on every compiler.
+//
+// NOLINTBEGIN(bugprone-std-namespace-modification)
 template<corvid::StringViewWrapperChild W>
 requires std::ranges::input_range<W> && std::same_as<W, std::remove_cvref_t<W>>
 constexpr std::range_format std::format_kind<W> = std::range_format::disabled;
@@ -324,3 +326,4 @@ requires std::same_as<CharT, typename W::char_t>
 struct std::formatter<W, CharT>
     : corvid::nullable_formatter<std::basic_string_view<CharT>, CharT,
           corvid::null_formatting::empty> {};
+// NOLINTEND(bugprone-std-namespace-modification)

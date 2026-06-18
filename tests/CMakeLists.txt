@@ -538,9 +538,13 @@ if(CORVID_ENABLE_CUDA)
         # match the FetchContent Catch2 (clang defaults to the static /MT one);
         # -Wno-unknown-cuda-version silences the note that CUDA 13.3 is newer
         # than clang 22's last fully supported toolkit (codegen is unaffected).
-        # Release supplies the optimization (-O3 -DNDEBUG). See crossplatform.md.
+        # -gline-tables-only is the clang analog of the Linux side's -lineinfo:
+        # it embeds the SASS<->source line mapping (.nv_debug_line_sass) that
+        # compute-sanitizer (./cleanbuild.ps1 cudacheck) and Nsight attribute
+        # results from, while keeping device optimization intact. Release
+        # supplies the optimization (-O3 -DNDEBUG). See crossplatform.md.
         string(APPEND CMAKE_CUDA_FLAGS
-            " -std=c++23 -fms-runtime-lib=dll -Wno-unknown-cuda-version")
+            " -std=c++23 -fms-runtime-lib=dll -Wno-unknown-cuda-version -gline-tables-only")
     else()
         # Linux uses nvcc (g++-15 host). -lineinfo adds source-line correlation
         # to the optimized SASS so Nsight (and compute-sanitizer) can attribute

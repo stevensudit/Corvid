@@ -202,5 +202,6 @@ private:
 
 template<corvid::PointerLike Ptr, corvid::CharType CharT>
 requires std::formattable<corvid::pointer_element_t<Ptr>, CharT>
+// NOLINTNEXTLINE(bugprone-std-namespace-modification)
 struct std::formatter<corvid::internal::optional_ptr<Ptr>, CharT>
     : corvid::nullable_formatter<corvid::pointer_element_t<Ptr>, CharT> {};

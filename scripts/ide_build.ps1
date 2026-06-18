@@ -83,6 +83,10 @@ if ($Src -like '*.cu') {
   $clArgs += @(
     "--cuda-gpu-arch=sm_$arch", "--cuda-path=$cudaPath", '-Wno-unknown-cuda-version',
     "-L$cudaPath/lib/x64", '-lcudart')
+  # Auto-link cuBLAS for sources that use it, mirroring the cleanbuild CUDA loop
+  # (which adds CUDA::cublas when the source mentions cublas). It ships with the
+  # toolkit, so the lib path above already covers it.
+  if (Select-String -Path $Src -Pattern 'cublas' -Quiet) { $clArgs += '-lcublas' }
 } else {
   # clang's real warning set, as errors, mirroring ide_build.sh.
   $clArgs += @('-Wall', '-Wextra', '-Werror', '-Wno-unused-variable')

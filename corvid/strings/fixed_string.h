@@ -197,6 +197,7 @@ using fixed_string = basic_fixed_string<char, N>;
 
 }} // namespace corvid::strings::fixed
 
+// NOLINTBEGIN(bugprone-std-namespace-modification)
 template<corvid::CharType CharT, std::size_t N>
 constexpr std::range_format
     std::format_kind<corvid::strings::basic_fixed_string<CharT, N>> =
@@ -204,3 +205,4 @@ constexpr std::range_format
 template<corvid::CharType CharT, std::size_t N>
 struct std::formatter<corvid::strings::basic_fixed_string<CharT, N>, CharT>
     : corvid::forwarding_formatter<std::basic_string_view<CharT>, CharT> {};
+// NOLINTEND(bugprone-std-namespace-modification)
