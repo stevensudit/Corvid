@@ -360,8 +360,9 @@ Planned shape (the open items below are now resolved; first target being impleme
 
 Decided (first target, 2026-06-18). The three open items are resolved: sources
 live in `tests/cuda/windows/` (globbed only on `WIN32`, under the CUDA bucket);
-the Windows-only library headers live in `corvid/cuda/windows/`; and the first
-target needs only D3D interop (Windows SDK), not the Video Codec SDK. That first
+the genuinely Windows-only library headers (D3D11, CUDA-D3D interop) live in
+`corvid/cuda/windows/`; and the first target needs only D3D interop (Windows
+SDK), not the Video Codec SDK. That first
 target is a CUDA-driven fractal viewer: a kernel writes a texture that Direct3D
 presents via `cudaGraphicsD3D11*` interop, so the frame never crosses PCIe.
 D3D11, not D3D12, because the present is a single full-screen texture and is
@@ -378,9 +379,12 @@ because SDL exposes a C API: there is no C++ ABI to match against the stdlib
 (the reason Catch2 must be source-built), so an MSVC-built SDL links cleanly from
 clang++, and a C DLL's CRT is independent of the app's, so one `SDL3.dll` serves
 both the Release and debug build paths. The shared DLL is staged next to each
-windows-cell executable. The interop, D3D11, and SDL3 wrappers this viewer
-brings into existence are the reusable substrate for later, larger Windows-only
-GPU work.
+windows-cell executable. The wrappers this viewer brings into existence are the
+reusable substrate for later, larger GPU work, and they split by portability:
+the SDL3 window/input/event wrappers live in `corvid/sdl/` (SDL is
+cross-platform, a portable peer to `corvid/cuda/`, not part of the Windows-only
+cell), while the genuinely Windows-only D3D11 and CUDA-D3D interop wrappers live
+in `corvid/cuda/windows/`.
 
 Resolved this round (detail in sections 7 and 8): device correctness via
 `./cleanbuild.ps1 cudacheck` (compute-sanitizer) and device debugging via Nsight

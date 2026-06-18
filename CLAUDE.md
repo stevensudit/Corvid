@@ -47,6 +47,10 @@ Corvid provides utilities that replace direct calls on std types. Search the lib
 
 Scan relevant headers first when writing new code to avoid reimplementing.
 
+## Wrapping C Libraries
+
+This is a C++ library, so we minimize how much raw C surfaces in calling code: wrap C dependencies (CUDA, SDL, liburing, ngtcp2, ...) in C++-native idioms rather than exposing them directly. In practice that means RAII for every C resource (handle, context, allocation), and the idiomatic C++ form in place of the C one: `std::variant` over a tagged union, a typed status over a bare error code. Favor returning a value (a struct or pair reads cleanly with structured bindings) over an out-param where that is clearer, though out-params have legitimate uses. Keep the C behind the wrapper; don't let it leak out.
+
 ## Non-Obvious Locations
 
 - `npos` / base string position types: `corvid/strings/string_base.h`

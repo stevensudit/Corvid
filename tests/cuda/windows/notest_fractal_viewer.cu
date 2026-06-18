@@ -1,37 +1,35 @@
-// First target of the Windows-only CUDA cell (see crossplatform.md section 11):
-// a CUDA-driven fractal viewer. This initial milestone proves the SDL3
-// dependency alone -- it opens a window and pumps events until closed, with no
-// CUDA kernel and no Direct3D yet. The D3D11 device, the flip-model swapchain,
-// and the CUDA-D3D interop that fills the frame arrive in later milestones; SDL3
-// stays the window, input, and event layer throughout.
+// First target of the Windows-only CUDA cell (see crossplatform.md section
+// 11): a CUDA-driven fractal viewer. This milestone proves the SDL3 dependency
+// and the corvid::sdl wrappers: it opens a window through the RAII
+// subsystem/window types and pumps events until closed, with no CUDA kernel
+// and no Direct3D yet. The event loop is still raw SDL pending the typed event
+// wrapper; the D3D11 device, flip-model swapchain, and CUDA-D3D interop arrive
+// in later milestones.
 
-#define SDL_MAIN_HANDLED
-#include <SDL3/SDL.h>
-#include <SDL3/SDL_main.h>  // SDL_SetMainReady (not pulled in by SDL.h)
+#include <exception>
+
+#include "corvid/sdl/sdl_subsystem.h"
+#include "corvid/sdl/sdl_window.h"
+
+using namespace corvid::sdl;
 
 int main() {
-  SDL_SetMainReady();
-  if (!SDL_Init(SDL_INIT_VIDEO)) {
-    SDL_Log("SDL_Init failed: %s", SDL_GetError());
-    return 1;
-  }
+  try {
+    sdl_subsystem sdl;
+    sdl_window win{"Corvid Fractal Viewer", 1280, 720};
 
-  SDL_Window* window = SDL_CreateWindow("Corvid Fractal Viewer", 1280, 720, 0);
-  if (!window) {
-    SDL_Log("SDL_CreateWindow failed: %s", SDL_GetError());
-    SDL_Quit();
-    return 1;
-  }
-
-  bool running = true;
-  while (running) {
-    SDL_Event ev;
-    while (SDL_PollEvent(&ev)) {
-      if (ev.type == SDL_EVENT_QUIT) running = false;
+    bool running = true;
+    while (running) {
+      // Raw poll until the typed event wrapper lands; only QUIT handled here.
+      SDL_Event event;
+      while (SDL_PollEvent(&event))
+        if (event.type == SDL_EVENT_QUIT) running = false;
     }
+    return 0;
   }
-
-  SDL_DestroyWindow(window);
-  SDL_Quit();
-  return 0;
+  catch (const std::exception& e) {
+    // main is the boundary: report and exit rather than letting it escape.
+    SDL_Log("fatal: %s", e.what());
+    return 1;
+  }
 }
