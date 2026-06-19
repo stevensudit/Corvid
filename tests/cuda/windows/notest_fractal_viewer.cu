@@ -21,7 +21,8 @@
 #include "corvid/sdl/sdl_window.h"
 
 using namespace corvid::sdl;
-using namespace corvid::d3d;
+using namespace corvid::win32;
+using namespace corvid::win32::d3d;
 using namespace corvid::cuda;
 
 namespace {

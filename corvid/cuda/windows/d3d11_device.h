@@ -15,12 +15,19 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 #pragma once
+
+// d3d11.h pulls windows.h's min/max macros; keep them out.
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <d3d11.h>
+
 #include <iterator>
 
 #include "./com_ptr.h"
-#include "./d3d11_status.h"
+#include "./hr_status.h"
 
-namespace corvid::d3d {
+namespace corvid::win32::d3d {
 
 #pragma region d3d11_device
 
@@ -42,10 +49,21 @@ public:
         .or_throw();
   }
 
+  // Pinned: the bundled immediate context is single-threaded and must not be
+  // shared. Deleting the move ops also deletes the implicit copy ops, so a
+  // future copyable com_ptr can't silently make this copyable.
+  d3d11_device(d3d11_device&&) = delete;
+  d3d11_device& operator=(d3d11_device&&) = delete;
+
 #pragma endregion
 #pragma region Accessors
 
+  // The device is a free-threaded D3D interface for a GPU, acting as a factory
+  // for GPU resources and the owner of resources shared across its contexts.
   [[nodiscard]] ID3D11Device* device() const noexcept { return device_.get(); }
+
+  // The context is the single-threaded interface for issuing operations such
+  // as copies, compute dispatches, and rendering to the GPU.
   [[nodiscard]] ID3D11DeviceContext* context() const noexcept {
     return context_.get();
   }
@@ -61,4 +79,4 @@ private:
 
 #pragma endregion
 
-} // namespace corvid::d3d
+} // namespace corvid::win32::d3d

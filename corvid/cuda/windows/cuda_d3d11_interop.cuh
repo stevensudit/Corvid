@@ -16,12 +16,17 @@
 // limitations under the License.
 #pragma once
 
+// d3d11.h pulls windows.h's min/max macros; keep them out.
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <d3d11.h>
+
 #include <utility>
 
 #include <cuda_runtime.h>
 
 #include "../cuda_status.cuh"
-#include "./d3d11_status.h"
 
 #include <cuda_d3d11_interop.h>
 

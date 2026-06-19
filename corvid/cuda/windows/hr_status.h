@@ -18,20 +18,14 @@
 #include <format>
 #include <stdexcept>
 #include <string>
+#include <system_error>
 
 #ifndef NOMINMAX
 #define NOMINMAX
 #endif
+#include <windows.h>
 
-// Common Windows graphics includes for the Direct3D 11 wrappers: the D3D11
-// device, context, and resource API, plus the DXGI 1.2 surface that supplies
-// `IDXGIFactory2::CreateSwapChainForHwnd` and the flip-model
-// `DXGI_SWAP_CHAIN_DESC1`.
-
-#include <d3d11.h>
-#include <dxgi1_2.h>
-
-namespace corvid::d3d {
+namespace corvid::win32 {
 
 #pragma region hr_status
 
@@ -42,19 +36,27 @@ public:
 
   explicit hr_status(HRESULT hr) noexcept : hr_{hr} {}
 
+  // The calling thread's last Win32 error, as an HRESULT. Read it immediately
+  // after the failing call; any intervening Win32 call may overwrite it.
+  [[nodiscard]] static hr_status last_error() noexcept {
+    return hr_status{HRESULT_FROM_WIN32(GetLastError())};
+  }
+
 #pragma endregion
 #pragma region Status
 
   [[nodiscard]] bool ok() const noexcept { return SUCCEEDED(hr_); }
   [[nodiscard]] explicit operator bool() const noexcept { return ok(); }
   [[nodiscard]] bool operator!() const noexcept { return !ok(); }
+
   [[nodiscard]] HRESULT value() const noexcept { return hr_; }
 
 #pragma endregion
 #pragma region Errors
 
   [[nodiscard]] std::string message() const {
-    return std::format("HRESULT 0x{:08X}", static_cast<unsigned long>(hr_));
+    return std::format("{} (0x{:08X})", std::system_category().message(hr_),
+        static_cast<unsigned long>(hr_));
   }
 
   // NOLINTNEXTLINE(modernize-use-nodiscard)
@@ -73,4 +75,4 @@ private:
 
 #pragma endregion
 
-} // namespace corvid::d3d
+} // namespace corvid::win32

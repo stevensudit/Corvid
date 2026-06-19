@@ -16,18 +16,25 @@
 // limitations under the License.
 #pragma once
 
+// d3d11.h/dxgi1_2.h pull windows.h's min/max macros; keep them out.
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <d3d11.h>
+#include <dxgi1_2.h>
+
 #include "./com_ptr.h"
 #include "./d3d11_device.h"
-#include "./d3d11_status.h"
+#include "./hr_status.h"
 
-namespace corvid::d3d {
+namespace corvid::win32::d3d {
 
 #pragma region d3d11_swapchain
 
 // RAII for a flip-model DXGI swapchain bound to a Win32 window.
 //
-// Created from a `d3d11_device` and the window's `HWND` (which SDL supplies
-// for its window), sized to the window's client area, double-buffered,
+// Created from a `d3d11_device` and the Win32 `HWND` (which SDL supplies for
+// its window), sized to the window's client area, double-buffered,
 // `FLIP_DISCARD`.
 //
 // The viewer's window is not resizable, so the swapchain is sized once and
@@ -48,15 +55,16 @@ public:
     com_ptr<IDXGIFactory2> factory;
     hr_status{adapter->GetParent(IID_PPV_ARGS(factory.put()))}.or_throw();
 
-    // Width and height left zero: CreateSwapChainForHwnd takes them from the
+    // Width and height left zero: `CreateSwapChainForHwnd` takes them from the
     // window's client area.
-    DXGI_SWAP_CHAIN_DESC1 desc{};
-    desc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
-    desc.SampleDesc.Count = 1;
-    desc.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
-    desc.BufferCount = 2;
-    desc.SwapEffect = DXGI_SWAP_EFFECT_FLIP_DISCARD;
-    desc.AlphaMode = DXGI_ALPHA_MODE_IGNORE;
+    DXGI_SWAP_CHAIN_DESC1 desc{
+        .Format = DXGI_FORMAT_R8G8B8A8_UNORM,
+        .SampleDesc = {.Count = 1},
+        .BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT,
+        .BufferCount = 2,
+        .SwapEffect = DXGI_SWAP_EFFECT_FLIP_DISCARD,
+        .AlphaMode = DXGI_ALPHA_MODE_IGNORE,
+    };
     hr_status{factory->CreateSwapChainForHwnd(device.device(), hwnd, &desc,
                   nullptr, nullptr, swapchain_.put())}
         .or_throw();
@@ -105,4 +113,4 @@ private:
 
 #pragma endregion
 
-} // namespace corvid::d3d
+} // namespace corvid::win32::d3d

@@ -25,7 +25,7 @@
 #include <concepts>
 #include <utility>
 
-namespace corvid::d3d {
+namespace corvid::win32 {
 
 #pragma region com_ptr
 
@@ -96,4 +96,4 @@ private:
 
 #pragma endregion
 
-} // namespace corvid::d3d
+} // namespace corvid::win32
