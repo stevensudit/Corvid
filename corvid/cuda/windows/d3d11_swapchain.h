@@ -24,8 +24,7 @@ namespace corvid::d3d {
 
 #pragma region d3d11_swapchain
 
-// RAII for a flip-model DXGI swapchain bound to a Win32 window, together with
-// the render-target view of its current backbuffer.
+// RAII for a flip-model DXGI swapchain bound to a Win32 window.
 //
 // Created from a `d3d11_device` and the window's `HWND` (which SDL supplies
 // for its window), sized to the window's client area, double-buffered,
@@ -52,7 +51,7 @@ public:
     // Width and height left zero: CreateSwapChainForHwnd takes them from the
     // window's client area.
     DXGI_SWAP_CHAIN_DESC1 desc{};
-    desc.Format = DXGI_FORMAT_B8G8R8A8_UNORM;
+    desc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
     desc.SampleDesc.Count = 1;
     desc.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
     desc.BufferCount = 2;
@@ -62,22 +61,26 @@ public:
                   nullptr, nullptr, swapchain_.put())}
         .or_throw();
 
-    com_ptr<ID3D11Texture2D> backbuffer;
-    hr_status{swapchain_->GetBuffer(0, IID_PPV_ARGS(backbuffer.put()))}
+    hr_status{swapchain_->GetBuffer(0, IID_PPV_ARGS(back_buffer_.put()))}
         .or_throw();
-    hr_status{device.device()->CreateRenderTargetView(backbuffer.get(),
-                  nullptr, rtv_.put())}
-        .or_throw();
+    D3D11_TEXTURE2D_DESC tex_desc{};
+    back_buffer_->GetDesc(&tex_desc);
+    width_ = tex_desc.Width;
+    height_ = tex_desc.Height;
   }
 
 #pragma endregion
 #pragma region Accessors
 
-  // Render-target view of the current backbuffer, to clear or bind as the
-  // output target.
-  [[nodiscard]] ID3D11RenderTargetView* render_target() const noexcept {
-    return rtv_.get();
+  // The backbuffer texture, for CUDA interop registration. Stable across
+  // `Present` in D3D11 flip model: the runtime rotates buffers underneath.
+  [[nodiscard]] ID3D11Texture2D* back_buffer() const noexcept {
+    return back_buffer_.get();
   }
+
+  // Backbuffer dimensions in pixels (the window's client area at creation).
+  [[nodiscard]] UINT width() const noexcept { return width_; }
+  [[nodiscard]] UINT height() const noexcept { return height_; }
 
 #pragma endregion
 #pragma region Present
@@ -93,7 +96,9 @@ public:
 #pragma region Data members
 private:
   com_ptr<IDXGISwapChain1> swapchain_;
-  com_ptr<ID3D11RenderTargetView> rtv_;
+  com_ptr<ID3D11Texture2D> back_buffer_;
+  UINT width_{};
+  UINT height_{};
 
 #pragma endregion
 };
