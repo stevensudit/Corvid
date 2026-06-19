@@ -16,11 +16,12 @@
 // limitations under the License.
 #pragma once
 
-// d3d11.h pulls windows.h's min/max macros; keep them out.
+// d3d11.h/dxgi1_2.h pull windows.h's min/max macros; keep them out.
 #ifndef NOMINMAX
 #define NOMINMAX
 #endif
 #include <d3d11.h>
+#include <dxgi1_2.h>
 
 #include <iterator>
 
@@ -31,10 +32,10 @@ namespace corvid::win32::d3d {
 
 #pragma region d3d11_device
 
-// RAII for a Direct3D 11 device and its immediate context.
+// RAII handle to a Direct3D 11 device and its immediate context.
 //
-// We own this device; the swapchain and every GPU resource are created from
-// it.
+// The immediate context is single-threaded: sharing a handle does not make
+// concurrent use of it safe.
 class d3d11_device {
 public:
 #pragma region Construction
@@ -49,23 +50,34 @@ public:
         .or_throw();
   }
 
-  // Pinned: the bundled immediate context is single-threaded and must not be
-  // shared. Deleting the move ops also deletes the implicit copy ops, so a
-  // future copyable com_ptr can't silently make this copyable.
-  d3d11_device(d3d11_device&&) = delete;
-  d3d11_device& operator=(d3d11_device&&) = delete;
-
 #pragma endregion
 #pragma region Accessors
 
   // The device is a free-threaded D3D interface for a GPU, acting as a factory
   // for GPU resources and the owner of resources shared across its contexts.
-  [[nodiscard]] ID3D11Device* device() const noexcept { return device_.get(); }
+  [[nodiscard]] const com_ptr<ID3D11Device>& device() const noexcept {
+    return device_;
+  }
 
   // The context is the single-threaded interface for issuing operations such
   // as copies, compute dispatches, and rendering to the GPU.
-  [[nodiscard]] ID3D11DeviceContext* context() const noexcept {
-    return context_.get();
+  [[nodiscard]] const com_ptr<ID3D11DeviceContext>& context() const noexcept {
+    return context_;
+  }
+
+  // Reach the DXGI factory that owns this device's adapter.
+  //
+  // An object built from this device, such as a swapchain, must come from the
+  // device's own factory.
+  [[nodiscard]] com_ptr<IDXGIFactory2> make_factory() const {
+    com_ptr<IDXGIDevice> dxgi_device;
+    hr_status{device_->QueryInterface(IID_PPV_ARGS(dxgi_device.put()))}
+        .or_throw();
+    com_ptr<IDXGIAdapter> adapter;
+    hr_status{dxgi_device->GetAdapter(adapter.put())}.or_throw();
+    com_ptr<IDXGIFactory2> factory;
+    hr_status{adapter->GetParent(IID_PPV_ARGS(factory.put()))}.or_throw();
+    return factory;
   }
 
 #pragma endregion

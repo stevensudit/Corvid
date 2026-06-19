@@ -31,13 +31,14 @@ namespace corvid::win32 {
 
 // RAII handle to a COM interface.
 //
-// The moral equivalent of `std::unique_ptr` for COM: the destructor calls
-// `Release`, so one reference is held for the handle's lifetime.
+// The moral equivalent of `std::shared_ptr` for COM: a copy calls `AddRef` to
+// share ownership, the destructor calls `Release`, so each handle holds one
+// reference for its lifetime.
 //
-// Construction adopts an existing reference without calling `AddRef`, matching
-// the COM convention that a creating call (`Create*`, `QueryInterface`,
-// `GetBuffer`) hands back a reference the caller already owns. Use `put` to
-// receive such a reference into an out-parameter.
+// Construction from a raw pointer adopts an already-owned reference without
+// calling `AddRef`, matching the COM convention that a creating call
+// (`Create*`, `QueryInterface`, `GetBuffer`) hands back a reference the caller
+// already owns. Use `put` to receive such a reference into an out-parameter.
 template<std::derived_from<IUnknown> T>
 class com_ptr {
 public:
@@ -48,8 +49,18 @@ public:
   // Adopt an already-owned reference, without an `AddRef`.
   explicit com_ptr(T* ptr) noexcept : ptr_{ptr} {}
 
-  com_ptr(const com_ptr&) = delete;
-  com_ptr& operator=(const com_ptr&) = delete;
+  // Share ownership by adding a reference.
+  com_ptr(const com_ptr& other) noexcept : ptr_{other.ptr_} {
+    if (ptr_) ptr_->AddRef();
+  }
+  com_ptr& operator=(const com_ptr& other) noexcept {
+    if (this != &other) {
+      reset();
+      ptr_ = other.ptr_;
+      if (ptr_) ptr_->AddRef();
+    }
+    return *this;
+  }
 
   com_ptr(com_ptr&& other) noexcept
       : ptr_{std::exchange(other.ptr_, nullptr)} {}
@@ -66,6 +77,8 @@ public:
 #pragma region Accessors
 
   [[nodiscard]] T* get() const noexcept { return ptr_; }
+  [[nodiscard]] operator T*() const noexcept { return ptr_; }
+
   T* operator->() const noexcept { return ptr_; }
   [[nodiscard]] explicit operator bool() const noexcept { return ptr_; }
 

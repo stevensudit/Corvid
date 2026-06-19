@@ -37,9 +37,10 @@ public:
 #pragma region Construction
 
   explicit cuda_surface(cudaArray_t array) {
-    cudaResourceDesc desc{};
-    desc.resType = cudaResourceTypeArray;
-    desc.res.array.array = array;
+    const cudaResourceDesc desc{
+        .resType = cudaResourceTypeArray,
+        .res = {.array = {.array = array}},
+    };
     cuda_last_status{cudaCreateSurfaceObject(&surface_, &desc)}.or_throw();
   }
 
@@ -61,6 +62,9 @@ public:
 #pragma region Accessors
 
   [[nodiscard]] cudaSurfaceObject_t get() const noexcept { return surface_; }
+  [[nodiscard]] operator cudaSurfaceObject_t() const noexcept {
+    return surface_;
+  }
 
 #pragma endregion
 #pragma region Helpers

@@ -399,6 +399,52 @@ interactively: that Nsight VSE sets a live device breakpoint in a clang-built
 kernel. The debug info is provably present and in NVIDIA's format, but the GUI
 session itself was not driven from the build harness.
 
+Planned: window resize and multi-monitor (2026-06-19). The viewer's window is
+fixed-size today, but resize is a when, not an if, so the design is recorded
+now even though implementation is deferred. Resize is a cross-layer rebuild,
+not a swapchain-local change. The swapchain part is small:
+`IDXGISwapChain::ResizeBuffers(0, 0, 0, format, flags)` re-reads the client
+area, after which the back buffer is re-acquired via `GetBuffer(0)` and the
+stored width/height re-read (the tail of the current constructor, to be
+factored into a shared `d3d11_swapchain::resize()`). The real work is the CUDA
+interop: the kernel writes a separate `render_texture` that `CopyResource`
+moves into the back buffer, and `cuda_d3d11_resource` is bound to that specific
+texture, so a naive resize would recreate the texture, unregister and
+re-register the CUDA resource, and recompute the kernel grid.
+
+The chosen optimization avoids that churn: allocate `render_texture` once at a
+fixed maximum size and have the kernel write, and `CopyResource` copy, only the
+live `w x h` sub-rect (`CopySubresourceRegion`). An ordinary resize then
+changes only the launch dims and the copy rect; the texture and its CUDA
+registration stay valid, so the common path does no reallocation or
+re-registration.
+
+Multi-monitor sets that maximum. A window occupies one display at a time, so
+the cap is the per-axis maximum over all connected displays (max width from one
+monitor, max height from another, queried via SDL's `SDL_GetDisplays` and
+display-mode calls), not the virtual-desktop bounding box. At RGBA8 even a 4K
+cap is about 33 MB of VRAM, so sizing for the largest display is cheap. Moving
+a window between monitors then needs no special handling beyond the normal
+pixel-size-changed path; only the rare cases that exceed the cap (hot-plugging
+a larger display, a resolution-mode change, a window larger than any current
+monitor) fall back to the slow recreate-and-re-register path, the safety net
+that keeps the cap an optimization rather than a hard limit.
+
+Gotchas to carry into the implementation: `ResizeBuffers` fails unless all
+outstanding back-buffer references are released first, so `resize()` must reset
+`back_buffer_` before the call and re-acquire after, and any caller-held view
+counts too; a minimized window has a 0x0 client area, on which both
+`ResizeBuffers` and rendering must be skipped; edge-drag fires a storm of
+resize events, so the latest pixel size is coalesced into one rebuild before
+the next frame; and the swapchain wants pixels, so the size comes from SDL's
+pixel-size events (`SDL_EVENT_WINDOW_PIXEL_SIZE_CHANGED`), not the logical
+window size, which differ under DPI scaling. The window must also be created
+resizable, and `sdl_event` must expose the pixel-size-changed event. Adjacent
+and sharing the same teardown-and-rebuild machinery is device-lost recovery
+(`DXGI_ERROR_DEVICE_REMOVED` from `Present`), which recreates the device and
+everything downstream, so the rebuild path should not be written as
+resize-only.
+
 ## 12. Shared developer context across Windows and WSL
 
 The project `CLAUDE.md` is checked in and travels with `git pull`. The global

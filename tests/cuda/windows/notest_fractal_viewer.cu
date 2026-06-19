@@ -74,26 +74,6 @@ mandelbrot_kernel(cudaSurfaceObject_t surface, int width, int height) {
   }
   surf2Dwrite(pixel, surface, px * static_cast<int>(sizeof(uchar4)), py);
 }
-
-// A backbuffer-matched texture for the kernel to write, then copy to the
-// backbuffer. DEFAULT usage so it lives in VRAM; the format and size match the
-// backbuffer so `CopyResource` is a straight GPU copy.
-com_ptr<ID3D11Texture2D>
-make_render_texture(const d3d11_device& device, UINT width, UINT height) {
-  D3D11_TEXTURE2D_DESC desc{};
-  desc.Width = width;
-  desc.Height = height;
-  desc.MipLevels = 1;
-  desc.ArraySize = 1;
-  desc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
-  desc.SampleDesc.Count = 1;
-  desc.Usage = D3D11_USAGE_DEFAULT;
-  desc.BindFlags = D3D11_BIND_SHADER_RESOURCE;
-  com_ptr<ID3D11Texture2D> texture;
-  hr_status{device.device()->CreateTexture2D(&desc, nullptr, texture.put())}
-      .or_throw();
-  return texture;
-}
 } // namespace
 
 int main() {
@@ -104,35 +84,29 @@ int main() {
     d3d11_device device;
     d3d11_swapchain swapchain{device, static_cast<HWND>(win.native_handle())};
 
-    const UINT w = swapchain.width();
-    const UINT h = swapchain.height();
-
-    // The kernel writes this texture; D3D copies it to the backbuffer.
-    com_ptr<ID3D11Texture2D> render_texture =
-        make_render_texture(device, w, h);
-    cuda_d3d11_resource cuda_target{render_texture.get()};
+    const auto w = swapchain.width();
+    const auto h = swapchain.height();
 
     const dim3 block{16, 16};
     const dim3 grid{cuda_kernel::ceil_div(w, block.x),
         cuda_kernel::ceil_div(h, block.y)};
+
+    // Create a texture for the kernel to write to, and for D3D to copy to the
+    // backbuffer.
+    com_ptr<ID3D11Texture2D> render_texture =
+        swapchain.create_matching_texture(d3d11_bind_flag::shader_resource);
+    cuda_d3d11_resource cuda_target{render_texture};
 
     bool running = true;
     while (running) {
       while (auto ev = sdl_event::poll())
         if (ev.type() == sdl_event_type::quit) running = false;
 
-      {
-        cuda_d3d11_mapping map{cuda_target};
-        cuda_surface surface{map.array()};
-        mandelbrot_kernel<<<grid, block>>>(surface.get(), static_cast<int>(w),
-            static_cast<int>(h));
-        cuda_last_status{cudaGetLastError()}.or_throw();
-        // Finish before the surface and mapping tear down, which also surfaces
-        // any kernel execution error.
-        cuda_last_status{cudaDeviceSynchronize()}.or_throw();
-      }
-      device.context()->CopyResource(swapchain.back_buffer(),
-          render_texture.get());
+      if (cuda_d3d11_mapping map{cuda_target})
+        mandelbrot_kernel<<<grid, block>>>(cuda_surface{map.array()},
+            static_cast<int>(w), static_cast<int>(h));
+
+      swapchain.fill_back_buffer(render_texture);
       swapchain.present().or_throw();
     }
     return 0;
