@@ -272,6 +272,22 @@ consteval auto corvid_enum_spec(sdl_display_id_type*) {
 }
 
 #pragma endregion
+#pragma region sdl_keycode
+
+// Type-safe wrapper over `SDL_Keycode` for the virtual keys consumed so far.
+enum class sdl_keycode : std::uint32_t {
+  right = SDLK_RIGHT,
+  left = SDLK_LEFT,
+  down = SDLK_DOWN,
+  up = SDLK_UP,
+};
+
+consteval auto corvid_enum_spec(sdl_keycode*) {
+  return corvid::enums::sequence::make_sequence_enum_spec<sdl_keycode,
+      "right,left,down,up">();
+}
+
+#pragma endregion
 #pragma region sdl_event
 
 // Cleaned payload of a display event. `data1`/`data2` are event-specific; see
@@ -280,6 +296,34 @@ struct sdl_display_event {
   sdl_display_id_type display_id;
   Sint32 data1;
   Sint32 data2;
+};
+
+// Cleaned payload of a mouse-wheel event. `x`/`y` are the scroll deltas;
+// `mouse_x`/`mouse_y` are the cursor position when it fired.
+struct sdl_wheel_event {
+  float x;
+  float y;
+  float mouse_x;
+  float mouse_y;
+};
+
+// Cleaned payload of a mouse-motion event. `x`/`y` are the cursor position;
+// `xrel`/`yrel` are the movement since the previous event; `left_held` is
+// whether the left button was down during the motion.
+struct sdl_motion_event {
+  float x;
+  float y;
+  float xrel;
+  float yrel;
+  bool left_held;
+};
+
+// Cleaned payload of a keyboard event. `key` is the virtual key; `down` is
+// true on a press and false on a release; `repeat` marks an auto-repeat press.
+struct sdl_key_event {
+  sdl_keycode key;
+  bool down;
+  bool repeat;
 };
 
 // Union-aware wrapper for an `SDL_Event`. Holds the raw event but presents it
@@ -335,6 +379,24 @@ public:
     assert(data_type_ == sdl_event_data_type::display);
     return {sdl_display_id_type{event_.display.displayID},
         event_.display.data1, event_.display.data2};
+  }
+
+  [[nodiscard]] sdl_wheel_event get_wheel() const {
+    assert(data_type_ == sdl_event_data_type::wheel);
+    return {event_.wheel.x, event_.wheel.y, event_.wheel.mouse_x,
+        event_.wheel.mouse_y};
+  }
+
+  [[nodiscard]] sdl_motion_event get_motion() const {
+    assert(data_type_ == sdl_event_data_type::motion);
+    return {event_.motion.x, event_.motion.y, event_.motion.xrel,
+        event_.motion.yrel, (event_.motion.state & SDL_BUTTON_LMASK) != 0};
+  }
+
+  [[nodiscard]] sdl_key_event get_key() const {
+    assert(data_type_ == sdl_event_data_type::key);
+    return {static_cast<sdl_keycode>(event_.key.key), event_.key.down,
+        event_.key.repeat};
   }
 
 #pragma endregion
