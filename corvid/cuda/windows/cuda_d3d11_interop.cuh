@@ -66,6 +66,8 @@ class cuda_d3d11_resource {
 public:
 #pragma region Construction
 
+  cuda_d3d11_resource() = default;
+
   explicit cuda_d3d11_resource(ID3D11Resource* resource,
       cuda_graphics_register_flags flags =
           cuda_graphics_register_flags::surface_load_store) {
@@ -138,6 +140,7 @@ public:
   cuda_d3d11_mapping& operator=(const cuda_d3d11_mapping&) = delete;
   cuda_d3d11_mapping(cuda_d3d11_mapping&&) = delete;
   cuda_d3d11_mapping& operator=(cuda_d3d11_mapping&&) = delete;
+
   ~cuda_d3d11_mapping() { cudaGraphicsUnmapResources(1, &resource_); }
 
 #pragma endregion

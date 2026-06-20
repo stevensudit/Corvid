@@ -85,15 +85,11 @@ __global__ void mandelbrot_kernel(cudaSurfaceObject_t surface, int width,
 int main() {
   try {
     sdl_subsystem sdl;
-    sdl_window win{"Corvid Fractal Viewer", 1280, 720};
+    sdl_window win{"Corvid Fractal Viewer", 1280, 720,
+        sdl_window_flags::resizable};
 
     d3d11_device device;
     d3d11_swapchain swapchain{device, static_cast<HWND>(win.native_handle())};
-
-    const auto w = swapchain.width();
-    const auto h = swapchain.height();
-    const auto fwidth = static_cast<double>(w);
-    const auto fheight = static_cast<double>(h);
 
     // The live view into the complex plane, mutated by input below. The
     // per-axis scale is isotropic: complex units per pixel is view_height / h.
@@ -102,20 +98,42 @@ int main() {
     double view_height = 2.5;
 
     const dim3 block{16, 16};
-    const dim3 grid{cuda_kernel::ceil_div(w, block.x),
-        cuda_kernel::ceil_div(h, block.y)};
 
-    // Create a texture for the kernel to write to, and for D3D to copy to the
-    // backbuffer.
-    com_ptr<ID3D11Texture2D> render_texture =
-        swapchain.create_matching_texture(d3d11_bind_flag::shader_resource);
-    cuda_d3d11_resource cuda_target{render_texture};
+    // Render target and its derived launch state, all sized to the swapchain.
+    // `rebuild` reconstructs them from the current swapchain dimensions, both
+    // at startup and after a resize.
+    UINT w{};
+    UINT h{};
+    double fwidth{};
+    double fheight{};
+    dim3 grid{};
+    com_ptr<ID3D11Texture2D> render_texture;
+    cuda_d3d11_resource cuda_target;
+
+    auto rebuild = [&] {
+      w = swapchain.width();
+      h = swapchain.height();
+      fwidth = static_cast<double>(w);
+      fheight = static_cast<double>(h);
+      grid = dim3{cuda_kernel::ceil_div(w, block.x),
+          cuda_kernel::ceil_div(h, block.y)};
+      render_texture =
+          swapchain.create_matching_texture(d3d11_bind_flag::shader_resource);
+      cuda_target = cuda_d3d11_resource{render_texture};
+    };
+    rebuild();
 
     bool running = true;
+    bool resize_pending = false;
     while (running) {
       while (auto ev = sdl_event::poll()) {
         switch (ev.type()) {
         case sdl_event_type::quit: running = false; break;
+
+        case sdl_event_type::window_pixel_size_changed:
+          // Coalesce a drag's event storm into one rebuild before the frame.
+          resize_pending = true;
+          break;
 
         case sdl_event_type::mouse_wheel: {
           // Zoom toward the cursor: scale view_height while keeping the
@@ -156,6 +174,13 @@ int main() {
 
         default: break;
         }
+      }
+
+      // Rebuild the render target after a resize.
+      if (resize_pending) {
+        resize_pending = false;
+        auto hr = swapchain.resize();
+        if (!hr.or_throw() && !hr.is_false()) rebuild();
       }
 
       // Scale the iteration cap with zoom depth (~200 more per 2x), so detail

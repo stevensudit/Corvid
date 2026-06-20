@@ -29,6 +29,7 @@ namespace corvid::sdl {
 // Bitmask wrapper for `SDL_WindowFlags`: the creation and state flags for an
 // SDL window. Mirrors the full `SDL_WINDOW_*` set, so it covers both the flags
 // passed at creation and the ones SDL reports as window state.
+// NOLINTNEXTLINE(performance-enum-size)
 enum class sdl_window_flags : std::uint64_t {
   none = 0,
   fullscreen = SDL_WINDOW_FULLSCREEN,

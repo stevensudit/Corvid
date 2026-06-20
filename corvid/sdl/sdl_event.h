@@ -272,19 +272,311 @@ consteval auto corvid_enum_spec(sdl_display_id_type*) {
 }
 
 #pragma endregion
+#pragma region sdl_window_id_type
+
+// Type-safe handle for an `SDL_WindowID`.
+enum class sdl_window_id_type : Uint32 {};
+consteval auto corvid_enum_spec(sdl_window_id_type*) {
+  return corvid::enums::sequence::make_sequence_enum_spec<sdl_window_id_type,
+      "">();
+}
+
+#pragma endregion
 #pragma region sdl_keycode
 
-// Type-safe wrapper over `SDL_Keycode` for the virtual keys consumed so far.
+// Wrapper for `SDL_Keycode`, mirroring the full `SDLK_*` set.
 enum class sdl_keycode : std::uint32_t {
+  unknown = SDLK_UNKNOWN,
+  backspace = SDLK_BACKSPACE,
+  tab = SDLK_TAB,
+  return_key = SDLK_RETURN,
+  escape = SDLK_ESCAPE,
+  space = SDLK_SPACE,
+  exclaim = SDLK_EXCLAIM,
+  dblapostrophe = SDLK_DBLAPOSTROPHE,
+  hash = SDLK_HASH,
+  dollar = SDLK_DOLLAR,
+  percent = SDLK_PERCENT,
+  ampersand = SDLK_AMPERSAND,
+  apostrophe = SDLK_APOSTROPHE,
+  leftparen = SDLK_LEFTPAREN,
+  rightparen = SDLK_RIGHTPAREN,
+  asterisk = SDLK_ASTERISK,
+  plus = SDLK_PLUS,
+  comma = SDLK_COMMA,
+  minus = SDLK_MINUS,
+  period = SDLK_PERIOD,
+  slash = SDLK_SLASH,
+  num0 = SDLK_0,
+  num1 = SDLK_1,
+  num2 = SDLK_2,
+  num3 = SDLK_3,
+  num4 = SDLK_4,
+  num5 = SDLK_5,
+  num6 = SDLK_6,
+  num7 = SDLK_7,
+  num8 = SDLK_8,
+  num9 = SDLK_9,
+  colon = SDLK_COLON,
+  semicolon = SDLK_SEMICOLON,
+  less = SDLK_LESS,
+  equals = SDLK_EQUALS,
+  greater = SDLK_GREATER,
+  question = SDLK_QUESTION,
+  at = SDLK_AT,
+  leftbracket = SDLK_LEFTBRACKET,
+  backslash = SDLK_BACKSLASH,
+  rightbracket = SDLK_RIGHTBRACKET,
+  caret = SDLK_CARET,
+  underscore = SDLK_UNDERSCORE,
+  grave = SDLK_GRAVE,
+  a = SDLK_A,
+  b = SDLK_B,
+  c = SDLK_C,
+  d = SDLK_D,
+  e = SDLK_E,
+  f = SDLK_F,
+  g = SDLK_G,
+  h = SDLK_H,
+  i = SDLK_I,
+  j = SDLK_J,
+  k = SDLK_K,
+  l = SDLK_L,
+  m = SDLK_M,
+  n = SDLK_N,
+  o = SDLK_O,
+  p = SDLK_P,
+  q = SDLK_Q,
+  r = SDLK_R,
+  s = SDLK_S,
+  t = SDLK_T,
+  u = SDLK_U,
+  v = SDLK_V,
+  w = SDLK_W,
+  x = SDLK_X,
+  y = SDLK_Y,
+  z = SDLK_Z,
+  leftbrace = SDLK_LEFTBRACE,
+  pipe = SDLK_PIPE,
+  rightbrace = SDLK_RIGHTBRACE,
+  tilde = SDLK_TILDE,
+  delete_key = SDLK_DELETE,
+  plusminus = SDLK_PLUSMINUS,
+  left_tab = SDLK_LEFT_TAB,
+  level5_shift = SDLK_LEVEL5_SHIFT,
+  multi_key_compose = SDLK_MULTI_KEY_COMPOSE,
+  lmeta = SDLK_LMETA,
+  rmeta = SDLK_RMETA,
+  lhyper = SDLK_LHYPER,
+  rhyper = SDLK_RHYPER,
+  capslock = SDLK_CAPSLOCK,
+  f1 = SDLK_F1,
+  f2 = SDLK_F2,
+  f3 = SDLK_F3,
+  f4 = SDLK_F4,
+  f5 = SDLK_F5,
+  f6 = SDLK_F6,
+  f7 = SDLK_F7,
+  f8 = SDLK_F8,
+  f9 = SDLK_F9,
+  f10 = SDLK_F10,
+  f11 = SDLK_F11,
+  f12 = SDLK_F12,
+  printscreen = SDLK_PRINTSCREEN,
+  scrolllock = SDLK_SCROLLLOCK,
+  pause = SDLK_PAUSE,
+  insert = SDLK_INSERT,
+  home = SDLK_HOME,
+  pageup = SDLK_PAGEUP,
+  end = SDLK_END,
+  pagedown = SDLK_PAGEDOWN,
   right = SDLK_RIGHT,
   left = SDLK_LEFT,
   down = SDLK_DOWN,
   up = SDLK_UP,
+  numlockclear = SDLK_NUMLOCKCLEAR,
+  kp_divide = SDLK_KP_DIVIDE,
+  kp_multiply = SDLK_KP_MULTIPLY,
+  kp_minus = SDLK_KP_MINUS,
+  kp_plus = SDLK_KP_PLUS,
+  kp_enter = SDLK_KP_ENTER,
+  kp_1 = SDLK_KP_1,
+  kp_2 = SDLK_KP_2,
+  kp_3 = SDLK_KP_3,
+  kp_4 = SDLK_KP_4,
+  kp_5 = SDLK_KP_5,
+  kp_6 = SDLK_KP_6,
+  kp_7 = SDLK_KP_7,
+  kp_8 = SDLK_KP_8,
+  kp_9 = SDLK_KP_9,
+  kp_0 = SDLK_KP_0,
+  kp_period = SDLK_KP_PERIOD,
+  application = SDLK_APPLICATION,
+  power = SDLK_POWER,
+  kp_equals = SDLK_KP_EQUALS,
+  f13 = SDLK_F13,
+  f14 = SDLK_F14,
+  f15 = SDLK_F15,
+  f16 = SDLK_F16,
+  f17 = SDLK_F17,
+  f18 = SDLK_F18,
+  f19 = SDLK_F19,
+  f20 = SDLK_F20,
+  f21 = SDLK_F21,
+  f22 = SDLK_F22,
+  f23 = SDLK_F23,
+  f24 = SDLK_F24,
+  execute = SDLK_EXECUTE,
+  help = SDLK_HELP,
+  menu = SDLK_MENU,
+  select = SDLK_SELECT,
+  stop = SDLK_STOP,
+  again = SDLK_AGAIN,
+  undo = SDLK_UNDO,
+  cut = SDLK_CUT,
+  copy = SDLK_COPY,
+  paste = SDLK_PASTE,
+  find = SDLK_FIND,
+  mute = SDLK_MUTE,
+  volumeup = SDLK_VOLUMEUP,
+  volumedown = SDLK_VOLUMEDOWN,
+  kp_comma = SDLK_KP_COMMA,
+  kp_equalsas400 = SDLK_KP_EQUALSAS400,
+  alterase = SDLK_ALTERASE,
+  sysreq = SDLK_SYSREQ,
+  cancel = SDLK_CANCEL,
+  clear = SDLK_CLEAR,
+  prior = SDLK_PRIOR,
+  return2 = SDLK_RETURN2,
+  separator = SDLK_SEPARATOR,
+  out = SDLK_OUT,
+  oper = SDLK_OPER,
+  clearagain = SDLK_CLEARAGAIN,
+  crsel = SDLK_CRSEL,
+  exsel = SDLK_EXSEL,
+  kp_00 = SDLK_KP_00,
+  kp_000 = SDLK_KP_000,
+  thousandsseparator = SDLK_THOUSANDSSEPARATOR,
+  decimalseparator = SDLK_DECIMALSEPARATOR,
+  currencyunit = SDLK_CURRENCYUNIT,
+  currencysubunit = SDLK_CURRENCYSUBUNIT,
+  kp_leftparen = SDLK_KP_LEFTPAREN,
+  kp_rightparen = SDLK_KP_RIGHTPAREN,
+  kp_leftbrace = SDLK_KP_LEFTBRACE,
+  kp_rightbrace = SDLK_KP_RIGHTBRACE,
+  kp_tab = SDLK_KP_TAB,
+  kp_backspace = SDLK_KP_BACKSPACE,
+  kp_a = SDLK_KP_A,
+  kp_b = SDLK_KP_B,
+  kp_c = SDLK_KP_C,
+  kp_d = SDLK_KP_D,
+  kp_e = SDLK_KP_E,
+  kp_f = SDLK_KP_F,
+  kp_xor = SDLK_KP_XOR,
+  kp_power = SDLK_KP_POWER,
+  kp_percent = SDLK_KP_PERCENT,
+  kp_less = SDLK_KP_LESS,
+  kp_greater = SDLK_KP_GREATER,
+  kp_ampersand = SDLK_KP_AMPERSAND,
+  kp_dblampersand = SDLK_KP_DBLAMPERSAND,
+  kp_verticalbar = SDLK_KP_VERTICALBAR,
+  kp_dblverticalbar = SDLK_KP_DBLVERTICALBAR,
+  kp_colon = SDLK_KP_COLON,
+  kp_hash = SDLK_KP_HASH,
+  kp_space = SDLK_KP_SPACE,
+  kp_at = SDLK_KP_AT,
+  kp_exclam = SDLK_KP_EXCLAM,
+  kp_memstore = SDLK_KP_MEMSTORE,
+  kp_memrecall = SDLK_KP_MEMRECALL,
+  kp_memclear = SDLK_KP_MEMCLEAR,
+  kp_memadd = SDLK_KP_MEMADD,
+  kp_memsubtract = SDLK_KP_MEMSUBTRACT,
+  kp_memmultiply = SDLK_KP_MEMMULTIPLY,
+  kp_memdivide = SDLK_KP_MEMDIVIDE,
+  kp_plusminus = SDLK_KP_PLUSMINUS,
+  kp_clear = SDLK_KP_CLEAR,
+  kp_clearentry = SDLK_KP_CLEARENTRY,
+  kp_binary = SDLK_KP_BINARY,
+  kp_octal = SDLK_KP_OCTAL,
+  kp_decimal = SDLK_KP_DECIMAL,
+  kp_hexadecimal = SDLK_KP_HEXADECIMAL,
+  lctrl = SDLK_LCTRL,
+  lshift = SDLK_LSHIFT,
+  lalt = SDLK_LALT,
+  lgui = SDLK_LGUI,
+  rctrl = SDLK_RCTRL,
+  rshift = SDLK_RSHIFT,
+  ralt = SDLK_RALT,
+  rgui = SDLK_RGUI,
+  mode = SDLK_MODE,
+  sleep = SDLK_SLEEP,
+  wake = SDLK_WAKE,
+  channel_increment = SDLK_CHANNEL_INCREMENT,
+  channel_decrement = SDLK_CHANNEL_DECREMENT,
+  media_play = SDLK_MEDIA_PLAY,
+  media_pause = SDLK_MEDIA_PAUSE,
+  media_record = SDLK_MEDIA_RECORD,
+  media_fast_forward = SDLK_MEDIA_FAST_FORWARD,
+  media_rewind = SDLK_MEDIA_REWIND,
+  media_next_track = SDLK_MEDIA_NEXT_TRACK,
+  media_previous_track = SDLK_MEDIA_PREVIOUS_TRACK,
+  media_stop = SDLK_MEDIA_STOP,
+  media_eject = SDLK_MEDIA_EJECT,
+  media_play_pause = SDLK_MEDIA_PLAY_PAUSE,
+  media_select = SDLK_MEDIA_SELECT,
+  ac_new = SDLK_AC_NEW,
+  ac_open = SDLK_AC_OPEN,
+  ac_close = SDLK_AC_CLOSE,
+  ac_exit = SDLK_AC_EXIT,
+  ac_save = SDLK_AC_SAVE,
+  ac_print = SDLK_AC_PRINT,
+  ac_properties = SDLK_AC_PROPERTIES,
+  ac_search = SDLK_AC_SEARCH,
+  ac_home = SDLK_AC_HOME,
+  ac_back = SDLK_AC_BACK,
+  ac_forward = SDLK_AC_FORWARD,
+  ac_stop = SDLK_AC_STOP,
+  ac_refresh = SDLK_AC_REFRESH,
+  ac_bookmarks = SDLK_AC_BOOKMARKS,
+  softleft = SDLK_SOFTLEFT,
+  softright = SDLK_SOFTRIGHT,
+  call = SDLK_CALL,
+  endcall = SDLK_ENDCALL,
 };
 
 consteval auto corvid_enum_spec(sdl_keycode*) {
   return corvid::enums::sequence::make_sequence_enum_spec<sdl_keycode,
-      "right,left,down,up">();
+      "0,unknown|8,backspace,tab|13,return_key|27,escape|32,space,exclaim,"
+      "dblapostrophe,hash,dollar,percent,ampersand,apostrophe,leftparen,"
+      "rightparen,asterisk,plus,comma,minus,period,slash,num0,num1,num2,num3,"
+      "num4,num5,num6,num7,num8,num9,colon,semicolon,less,equals,greater,"
+      "question,at|91,leftbracket,backslash,rightbracket,caret,underscore,"
+      "grave,a,b,c,d,e,f,g,h,i,j,k,l,m,n,o,p,q,r,s,t,u,v,w,x,y,z,leftbrace,"
+      "pipe,rightbrace,tilde,delete_key|177,plusminus|536870913,left_tab,"
+      "level5_shift,multi_key_compose,lmeta,rmeta,lhyper,rhyper|1073741881,"
+      "capslock,f1,f2,f3,f4,f5,f6,f7,f8,f9,f10,f11,f12,printscreen,scrolllock,"
+      "pause,insert,home,pageup,,end,pagedown,right,left,down,up,numlockclear,"
+      "kp_divide,kp_multiply,kp_minus,kp_plus,kp_enter,kp_1,kp_2,kp_3,kp_4,kp_"
+      "5,kp_6,kp_7,kp_8,kp_9,kp_0,kp_period,,application,power,kp_equals,f13,"
+      "f14,f15,f16,f17,f18,f19,f20,f21,f22,f23,f24,execute,help,menu,select,"
+      "stop,again,undo,cut,copy,paste,find,mute,volumeup,volumedown|"
+      "1073741957,kp_comma,kp_equalsas400|1073741977,alterase,sysreq,cancel,"
+      "clear,prior,return2,separator,out,oper,clearagain,crsel,exsel|"
+      "1073742000,kp_00,kp_000,thousandsseparator,decimalseparator,"
+      "currencyunit,currencysubunit,kp_leftparen,kp_rightparen,kp_leftbrace,"
+      "kp_rightbrace,kp_tab,kp_backspace,kp_a,kp_b,kp_c,kp_d,kp_e,kp_f,kp_xor,"
+      "kp_power,kp_percent,kp_less,kp_greater,kp_ampersand,kp_dblampersand,kp_"
+      "verticalbar,kp_dblverticalbar,kp_colon,kp_hash,kp_space,kp_at,kp_"
+      "exclam,kp_memstore,kp_memrecall,kp_memclear,kp_memadd,kp_memsubtract,"
+      "kp_memmultiply,kp_memdivide,kp_plusminus,kp_clear,kp_clearentry,kp_"
+      "binary,kp_octal,kp_decimal,kp_hexadecimal,,,lctrl,lshift,lalt,lgui,"
+      "rctrl,rshift,ralt,rgui|1073742081,mode,sleep,wake,channel_increment,"
+      "channel_decrement,media_play,media_pause,media_record,media_fast_"
+      "forward,media_rewind,media_next_track,media_previous_track,media_stop,"
+      "media_eject,media_play_pause,media_select,ac_new,ac_open,ac_close,ac_"
+      "exit,ac_save,ac_print,ac_properties,ac_search,ac_home,ac_back,ac_"
+      "forward,ac_stop,ac_refresh,ac_bookmarks,softleft,softright,call,"
+      "endcall">();
 }
 
 #pragma endregion
@@ -298,8 +590,20 @@ struct sdl_display_event {
   Sint32 data2;
 };
 
-// Cleaned payload of a mouse-wheel event. `x`/`y` are the scroll deltas;
-// `mouse_x`/`mouse_y` are the cursor position when it fired.
+// Payload of a window event.
+//
+// `data1`/`data2` are event-specific; for `window_pixel_size_changed` they are
+// the new width and height in pixels.
+struct sdl_window_event {
+  sdl_window_id_type window_id;
+  Sint32 data1;
+  Sint32 data2;
+};
+
+// Payload of a mouse-wheel event.
+//
+//  `x`/`y` are the scroll deltas; mouse_x`/`mouse_y` are the cursor position
+//  when it fired.
 struct sdl_wheel_event {
   float x;
   float y;
@@ -307,9 +611,11 @@ struct sdl_wheel_event {
   float mouse_y;
 };
 
-// Cleaned payload of a mouse-motion event. `x`/`y` are the cursor position;
-// `xrel`/`yrel` are the movement since the previous event; `left_held` is
-// whether the left button was down during the motion.
+// Payload of a mouse-motion event.
+//
+// `x`/`y` are the cursor position; `xrel`/`yrel` are the movement since the
+// previous event; `left_held` is whether the left button was down during the
+// motion.
 struct sdl_motion_event {
   float x;
   float y;
@@ -318,22 +624,24 @@ struct sdl_motion_event {
   bool left_held;
 };
 
-// Cleaned payload of a keyboard event. `key` is the virtual key; `down` is
-// true on a press and false on a release; `repeat` marks an auto-repeat press.
+// Payload of a keyboard event.
+//
+// `key` is the virtual key; `down` is true on a press and false on a release;
+// `repeat` marks an auto-repeat press.
 struct sdl_key_event {
   sdl_keycode key;
   bool down;
   bool repeat;
 };
 
-// Union-aware wrapper for an `SDL_Event`. Holds the raw event but presents it
-// in C++ terms: `type()` is the registered event enum, `data_type()` names the
-// active union member, and `timestamp()` reads the header every event shares.
+// Union-aware wrapper for an `SDL_Event`.
+//
+// Holds the raw event but presents it safely and in C++ terms: `type()` is the
+// registered event enum, `data_type()` names the active union member.
 //
 // To read an event's payload, switch on `type()` and call the typed accessor
 // for its shape (e.g. `get_display()`), which returns a cleaned-up struct and
-// asserts the shape matches. Shapes without a typed accessor yet are reached
-// through `raw()`, the transitional escape hatch into the underlying union.
+// asserts the shape matches.
 class sdl_event {
 public:
 #pragma region Construction
@@ -343,8 +651,8 @@ public:
   explicit sdl_event(const SDL_Event& event) noexcept
       : event_{event}, data_type_{classify(event)} {}
 
-  // Pull the next event from SDL's queue, wrapped. Like `SDL_PollEvent`, call
-  // only on the main thread.
+  // Pull the next event from SDL's queue, wrapped. Call only on the main
+  // thread.
   [[nodiscard]] static sdl_event poll() noexcept {
     SDL_Event event;
     if (!SDL_PollEvent(&event)) return {};
@@ -354,9 +662,11 @@ public:
 #pragma endregion
 #pragma region Header accessors
 
+  // Specific event type.
   [[nodiscard]] sdl_event_type type() const noexcept {
     return static_cast<sdl_event_type>(event_.type);
   }
+  // Type of data payload.
   [[nodiscard]] sdl_event_data_type data_type() const noexcept {
     return data_type_;
   }
@@ -379,6 +689,12 @@ public:
     assert(data_type_ == sdl_event_data_type::display);
     return {sdl_display_id_type{event_.display.displayID},
         event_.display.data1, event_.display.data2};
+  }
+
+  [[nodiscard]] sdl_window_event get_window() const {
+    assert(data_type_ == sdl_event_data_type::window);
+    return {sdl_window_id_type{event_.window.windowID}, event_.window.data1,
+        event_.window.data2};
   }
 
   [[nodiscard]] sdl_wheel_event get_wheel() const {

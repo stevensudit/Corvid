@@ -49,6 +49,8 @@ public:
   [[nodiscard]] explicit operator bool() const noexcept { return ok(); }
   [[nodiscard]] bool operator!() const noexcept { return !ok(); }
 
+  [[nodiscard]] bool is_false() const noexcept { return hr_ == S_FALSE; }
+
   [[nodiscard]] HRESULT value() const noexcept { return hr_; }
 
 #pragma endregion

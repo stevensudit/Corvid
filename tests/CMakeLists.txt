@@ -707,6 +707,13 @@ foreach(SOURCE_FILE ${SOURCES})
             COMMAND ${CMAKE_COMMAND} -E copy_if_different
                 "$<TARGET_FILE:SDL3::SDL3>"
                 "$<TARGET_FILE_DIR:${EXECUTABLE_NAME}>")
+        # D3D11 (device/swapchain/present) for sources that pull in a d3d11
+        # header; user32 (GetClientRect in swapchain resize()) comes from
+        # CMake's default Windows standard libs. SDL-only windows tests skip it.
+        file(STRINGS ${SOURCE_FILE} _uses_d3d11 REGEX "d3d11")
+        if(_uses_d3d11)
+            target_link_libraries(${EXECUTABLE_NAME} PRIVATE d3d11 dxgi)
+        endif()
     endif()
 
     if(NOT USE_LIBSTDCPP AND NOT WIN32)
@@ -795,15 +802,20 @@ if(CORVID_ENABLE_CUDA)
         if(CUDA_USES_CUBLAS)
             target_link_libraries(${EXECUTABLE_NAME} PRIVATE CUDA::cublas)
         endif()
-        # Windows-only CUDA cell links SDL3 (window/input/events) and the
-        # Windows SDK graphics libs d3d11/dxgi (device, swapchain, present), and
-        # stages SDL3.dll next to the exe. See crossplatform.md s11.
+        # Windows-only CUDA cell links SDL3 (window/input/events) and stages
+        # SDL3.dll next to the exe; d3d11/dxgi (device, swapchain, present) is
+        # linked for sources that pull in a d3d11 header (user32's GetClientRect
+        # comes from CMake's default Windows libs). See crossplatform.md s11.
         if(SOURCE_FILE MATCHES "/cuda/windows/")
-            target_link_libraries(${EXECUTABLE_NAME} PRIVATE SDL3::SDL3 d3d11 dxgi)
+            target_link_libraries(${EXECUTABLE_NAME} PRIVATE SDL3::SDL3)
             add_custom_command(TARGET ${EXECUTABLE_NAME} POST_BUILD
                 COMMAND ${CMAKE_COMMAND} -E copy_if_different
                     "$<TARGET_FILE:SDL3::SDL3>"
                     "$<TARGET_FILE_DIR:${EXECUTABLE_NAME}>")
+            file(STRINGS ${SOURCE_FILE} _uses_d3d11 REGEX "d3d11")
+            if(_uses_d3d11)
+                target_link_libraries(${EXECUTABLE_NAME} PRIVATE d3d11 dxgi)
+            endif()
         endif()
         if(NOT ${EXECUTABLE_NAME} MATCHES "^notest_")
             target_link_libraries(${EXECUTABLE_NAME} PRIVATE ${CUDA_CATCH2_TARGET})
