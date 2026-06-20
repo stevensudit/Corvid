@@ -7,8 +7,8 @@
 // copy is VRAM-to-VRAM, no PCIe round-trip). The kernel targets a separate
 // texture rather than the backbuffer because CUDA cannot register the primary
 // render target. A free-fly camera moves with WASD (Space/Ctrl up and down,
-// Shift to go faster) and looks with the mouse while the right button is held;
-// Escape quits.
+// Shift to go faster) or the mouse wheel (forward/back), and looks with the
+// mouse while the right button is held; Escape quits.
 
 #include <algorithm>
 #include <cmath>
@@ -21,9 +21,11 @@
 #include "corvid/cuda/cuda_kernel.cuh"
 #include "corvid/cuda/cuda_surface.cuh"
 #include "corvid/cuda/radians.cuh"
+#include "corvid/cuda/raycast.cuh"
 #include "corvid/cuda/sdf.cuh"
 #include "corvid/cuda/vec.cuh"
 #include "corvid/cuda/windows/cuda_d3d11_presenter.cuh"
+#include "corvid/math/one_euro_filter.h"
 #include "corvid/sdl/sdl_event.h"
 #include "corvid/sdl/sdl_subsystem.h"
 #include "corvid/sdl/sdl_window.h"
@@ -33,107 +35,65 @@ using namespace corvid::cuda;
 
 namespace {
 
-// Signed distance to the demo scene: a ground plane at y = -1 with a few
+// The demo scene as a `shade_ray` policy: a signed-distance field, a
+// per-object albedo, and a sky. A ground plane at `y = -1` with a few
 // primitives resting on it, two of them smoothly blended.
-__device__ float scene_sdf(pos3 point) {
-  // Inside the field, work in vector space (offsets from the origin).
-  const vec3 p = point.v;
-  float dist = sd_plane(p, vec3{0.0F, 1.0F, 0.0F}, 1.0F);
-  dist = op_union(dist, sd_sphere(p - vec3{-1.3F, 0.0F, 0.0F}, 1.0F));
-  dist = op_smooth_union(dist, sd_sphere(p - vec3{1.1F, -0.3F, 0.6F}, 0.7F),
-      0.5F);
-  dist = op_union(dist,
-      sd_box(p - vec3{0.2F, -0.5F, -2.0F}, vec3{0.8F, 0.5F, 0.8F}));
-  return dist;
-}
-
-// Material id of the nearest primitive at `point`, so the shader can color
-// each object distinctly. Mirrors the primitives in `scene_sdf`; only the
-// final hit needs it, so the march and lighting loops stay distance-only.
-__device__ int scene_material(pos3 point) {
-  const vec3 p = point.v;
-  float best = sd_plane(p, vec3{0.0F, 1.0F, 0.0F}, 1.0F);
-  int material = 0; // ground
-  float d = sd_sphere(p - vec3{-1.3F, 0.0F, 0.0F}, 1.0F);
-  if (d < best) {
-    best = d;
-    material = 1;
+struct scene {
+  // Signed distance to the scene at `point`.
+  static __device__ float sdf(pos3 point) {
+    // Inside the field, work in vector space (offsets from the origin).
+    const vec3 p = point.v;
+    float dist = sd_plane(p, vec3{0.0F, 1.0F, 0.0F}, 1.0F);
+    dist = op_union(dist, sd_sphere(p - vec3{-1.3F, 0.0F, 0.0F}, 1.0F));
+    dist = op_smooth_union(dist, sd_sphere(p - vec3{1.1F, -0.3F, 0.6F}, 0.7F),
+        0.5F);
+    dist = op_union(dist,
+        sd_box(p - vec3{0.2F, -0.5F, -2.0F}, vec3{0.8F, 0.5F, 0.8F}));
+    return dist;
   }
-  d = sd_sphere(p - vec3{1.1F, -0.3F, 0.6F}, 0.7F);
-  if (d < best) {
-    best = d;
-    material = 2;
+
+  // Base color of the surface at `point`: a distinct color per object so each
+  // reads clearly against the others and the sky.
+  static __device__ vec3 albedo(pos3 point) {
+    switch (material(point)) {
+    case 1: return vec3{0.80F, 0.25F, 0.20F};  // red sphere
+    case 2: return vec3{0.20F, 0.40F, 0.80F};  // blue sphere
+    case 3: return vec3{0.85F, 0.65F, 0.18F};  // amber box
+    default: return vec3{0.32F, 0.40F, 0.26F}; // green ground
+    }
   }
-  d = sd_box(p - vec3{0.2F, -0.5F, -2.0F}, vec3{0.8F, 0.5F, 0.8F});
-  if (d < best) material = 3;
-  return material;
-}
 
-// Surface normal at `p`, estimated from the gradient of the scene field by
-// central differences.
-__device__ vec3 scene_normal(pos3 p) {
-  static constexpr float eps = 0.0005F;
-  static constexpr vec3 dx{eps, 0.0F, 0.0F};
-  static constexpr vec3 dy{0.0F, eps, 0.0F};
-  static constexpr vec3 dz{0.0F, 0.0F, eps};
-  return normalize(vec3{scene_sdf(p + dx) - scene_sdf(p - dx),
-      scene_sdf(p + dy) - scene_sdf(p - dy),
-      scene_sdf(p + dz) - scene_sdf(p - dz)});
-}
-
-// Penumbra factor in [0, 1] for the ray from `p` toward the light: 1 is fully
-// lit, 0 fully shadowed. `hardness` sets how sharply the penumbra falls off.
-__device__ float soft_shadow(pos3 p, vec3 light_dir, float hardness) {
-  // Heuristic max steps to reach the light; more is softer but slower.
-  static constexpr int limit = 48;
-
-  float result = 1.0F;
-  float dist = 0.02F;
-  for (int step = 0; step < limit; ++step) {
-    const float surf_dist = scene_sdf(p + (light_dir * dist));
-    if (surf_dist < 0.001F) return 0.0F;
-
-    result = fminf(result, (hardness * surf_dist) / dist);
-    dist += surf_dist;
-    if (dist > 20.0F) break;
+  // Background for a ray that leaves the scene: a gradient by ray height.
+  static __device__ vec3 sky(vec3 dir) {
+    const float blend = (0.5F * dir.y) + 0.5F;
+    return (vec3{0.50F, 0.70F, 1.00F} * blend) +
+           (vec3{0.90F, 0.95F, 1.00F} * (1.0F - blend));
   }
-  return result;
-}
 
-// Ambient occlusion in [0, 1] at `p` with the given `normal`: 1 is unoccluded.
-__device__ float ambient_occlusion(pos3 p, vec3 normal) {
-  // Heuristic number of ambient occlusion samples; more is darker but slower.
-  constexpr int ao_samples = 5;
-
-  // Samples march outward from the surface, starting at `min_offset` and
-  // stepping by `offset_step` (together spanning `offset_span`); nearer ones
-  // weigh more, and `strength` scales the result.
-  constexpr float min_offset = 0.01F;
-  constexpr float offset_span = 0.12F;
-  constexpr float offset_step =
-      offset_span / static_cast<float>(ao_samples - 1);
-  constexpr float weight_falloff = 0.7F;
-  constexpr float strength = 3.0F;
-
-  float occlusion = 0.0F;
-  float weight = 1.0F;
-  float offset = min_offset;
-  for (int step = 0; step < ao_samples; ++step) {
-    const float surf_dist = scene_sdf(p + (normal * offset));
-    occlusion += (offset - surf_dist) * weight;
-    weight *= weight_falloff;
-    offset += offset_step;
+private:
+  // Material id of the nearest primitive at `point`. Mirrors `sdf`; only the
+  // final hit needs it, so the march and lighting stay distance-only.
+  static __device__ int material(pos3 point) {
+    const vec3 p = point.v;
+    float best = sd_plane(p, vec3{0.0F, 1.0F, 0.0F}, 1.0F);
+    int id = 0; // ground
+    float dist = sd_sphere(p - vec3{-1.3F, 0.0F, 0.0F}, 1.0F);
+    if (dist < best) {
+      best = dist;
+      id = 1;
+    }
+    dist = sd_sphere(p - vec3{1.1F, -0.3F, 0.6F}, 0.7F);
+    if (dist < best) {
+      best = dist;
+      id = 2;
+    }
+    dist = sd_box(p - vec3{0.2F, -0.5F, -2.0F}, vec3{0.8F, 0.5F, 0.8F});
+    if (dist < best) id = 3;
+    return id;
   }
-  return fminf(fmaxf(1.0F - (strength * occlusion), 0.0F), 1.0F);
-}
+};
 
-// Convert a linear color channel in [0, 1] to a gamma-encoded byte.
-__device__ unsigned char to_byte(float c) {
-  const float g = powf(fminf(fmaxf(c, 0.0F), 1.0F), 1.0F / 2.2F);
-  return static_cast<unsigned char>(lroundf(g * 255.0F));
-}
-
-// Sphere-trace the scene for every pixel and write the shaded color. The
+// Sphere-trace the `scene` for every pixel and write the shaded color. The
 // texture is `R8G8B8A8_UNORM`, so a `uchar4` of (r, g, b, a) maps straight to
 // its bytes.
 __global__ void
@@ -145,123 +105,17 @@ raymarch_kernel(cudaSurfaceObject_t surface, resolution res, camera_rays cam) {
   if (fx >= res.width || fy >= res.height) return;
 
   const vec3 ray_dir = cam.ray_direction(pos2{vec2{fx, fy}}, res);
-
-  // Sphere-trace to the nearest surface or the far limit. The hit threshold
-  // grows with distance (about a pixel's cone) so grazing rays toward the
-  // horizon, and rays slipping just past a silhouette, converge within the
-  // step budget instead of exhausting it and falling through to sky. That
-  // exhaustion is what bent the horizon near the spheres and left a thin
-  // sky-colored fringe along their edges. Near surfaces keep a tight
-  // threshold, so silhouettes stay sharp.
-  constexpr int max_steps = 256;
-  constexpr float far_dist = 50.0F;
-  constexpr float min_eps = 0.001F;
+  // One pixel's cone in tangent space: the marcher's distance-scaled hit
+  // threshold.
   const float pixel_eps = cam.tan_half_fov / (0.5F * res.height);
-  float dist = 0.0F;
-  bool hit = false;
-  for (int step = 0; step < max_steps; ++step) {
-    const float surf_dist = scene_sdf(cam.eye + (ray_dir * dist));
-    if (surf_dist < fmaxf(min_eps, pixel_eps * dist)) {
-      hit = true;
-      break;
-    }
-    dist += surf_dist;
-    if (dist > far_dist) break;
-  }
+  const vec3 light_dir = normalize(vec3{0.5F, 0.8F, 0.3F});
 
-  vec3 color;
-  if (hit) {
-    const pos3 hit_point = cam.eye + (ray_dir * dist);
-    const vec3 normal = scene_normal(hit_point);
-    const vec3 light_dir = normalize(vec3{0.5F, 0.8F, 0.3F});
-    const float diffuse = fmaxf(dot(normal, light_dir), 0.0F);
-    const float shadow = soft_shadow(hit_point, light_dir, 16.0F);
-    const float occlusion = ambient_occlusion(hit_point, normal);
+  const vec3 color = shade_ray<scene>(cam.eye, ray_dir, pixel_eps, light_dir);
 
-    // A distinct color per object so each reads clearly against the others
-    // and the sky.
-    vec3 albedo;
-    switch (scene_material(hit_point)) {
-    case 1: albedo = vec3{0.80F, 0.25F, 0.20F}; break;  // red sphere
-    case 2: albedo = vec3{0.20F, 0.40F, 0.80F}; break;  // blue sphere
-    case 3: albedo = vec3{0.85F, 0.65F, 0.18F}; break;  // amber box
-    default: albedo = vec3{0.32F, 0.40F, 0.26F}; break; // green ground
-    }
-
-    const vec3 ambient{0.12F, 0.14F, 0.18F};
-    const vec3 sun{1.0F, 0.97F, 0.90F};
-    color = albedo * ((ambient * occlusion) + (sun * (diffuse * shadow)));
-  } else {
-    // A simple sky gradient by ray height.
-    const float sky_blend = (0.5F * ray_dir.y) + 0.5F;
-    color = (vec3{0.50F, 0.70F, 1.00F} * sky_blend) +
-            (vec3{0.90F, 0.95F, 1.00F} * (1.0F - sky_blend));
-  }
-
-  // Reinhard tonemap so highlights roll off, then write gamma-encoded bytes.
-  color = vec3{color.x / (1.0F + color.x), color.y / (1.0F + color.y),
-      color.z / (1.0F + color.z)};
   const uchar4 pixel =
       make_uchar4(to_byte(color.x), to_byte(color.y), to_byte(color.z), 255);
   surf2Dwrite(pixel, surface, px * static_cast<int>(sizeof(uchar4)), py);
 }
-
-// A One Euro Filter (Casiez, Roussel, Vogel, CHI 2012) over the mouse-look
-// delta: an adaptive low-pass that smooths hard when the mouse moves slowly
-// and steadily, where the per-frame sampling jitter shows, and eases off as it
-// speeds up so a fast flick stays responsive. It works in the cursor's own
-// units (raw counts), so the smoothed delta still sums to the same rotation.
-//
-// `rest_ms` is the time constant of the at-rest smoothing (larger is
-// smoother); `beta` is how quickly that smoothing relaxes as the mouse speeds
-// up (0 leaves it a plain fixed low-pass). The driving speed is in counts per
-// second, so `beta` scales against that.
-//
-// A general-purpose filter that could move to the library if it earns reuse;
-// kept local to this viewer for now.
-class one_euro_filter {
-public:
-  one_euro_filter(float rest_ms, float beta) noexcept
-      : min_cutoff_{1000.0F / (two_pi * rest_ms)}, beta_{beta} {}
-
-  // Smooth one frame's raw (`dx`, `dy`) look delta in place over the elapsed
-  // `dt` seconds.
-  void smooth(float dt, float& dx, float& dy) noexcept {
-    if (dt <= 0.0F) return;
-    // Low-pass the speed with a fixed cutoff first, so the adaptive cutoff
-    // does not jitter with the noisy raw delta.
-    const float speed = std::hypot(dx, dy) / dt;
-    speed_ =
-        primed_ ? std::lerp(speed_, speed, alpha(speed_cutoff, dt)) : speed;
-    // Faster motion raises the cutoff, which lightens the smoothing.
-    const float a = alpha(min_cutoff_ + (beta_ * speed_), dt);
-    dx_ = primed_ ? std::lerp(dx_, dx, a) : dx;
-    dy_ = primed_ ? std::lerp(dy_, dy, a) : dy;
-    primed_ = true;
-    dx = dx_;
-    dy = dy_;
-  }
-
-  // Forget the carried state so the next grab starts clean.
-  void reset() noexcept { primed_ = false; }
-
-private:
-  // First-order low-pass weight for a cutoff frequency (Hz) over `dt` seconds.
-  [[nodiscard]] static float alpha(float cutoff, float dt) noexcept {
-    const float tau = 1.0F / (two_pi * cutoff);
-    return 1.0F / (1.0F + (tau / dt));
-  }
-
-  static constexpr float two_pi = 6.2831853F;
-  // Fixed cutoff (Hz) for the speed low-pass, the One Euro default.
-  static constexpr float speed_cutoff = 1.0F;
-  float min_cutoff_;
-  float beta_;
-  float speed_ = 0.0F;
-  float dx_ = 0.0F;
-  float dy_ = 0.0F;
-  bool primed_ = false;
-};
 
 // Which movement keys are held this frame.
 struct fly_keys {
@@ -277,15 +131,16 @@ struct fly_keys {
 // What the event pump asks the frame loop to do next.
 enum class frame_action : std::uint8_t { proceed, resize, quit };
 
-// Fold one batch of input into the held-key set and `look_dx`/`look_dy` (the
-// frame's accumulated mouse-look delta in raw counts), and report any `quit`
-// or `resize` request. Holding the right mouse button captures the cursor for
-// mouse-look and gates the look delta; the caller smooths and applies it.
-// Escape quits.
+// Fold one batch of input into the held-key set, `look_dx`/`look_dy` (the
+// frame's accumulated mouse-look delta in raw counts), and `wheel` (the
+// frame's accumulated wheel scroll), and report any `quit` or `resize`
+// request. Holding the right mouse button captures the cursor for mouse-look
+// and gates the look delta; the caller smooths and applies it. Escape quits.
 frame_action pump_events(fly_keys& keys, bool& looking, sdl_window& win,
-    float& look_dx, float& look_dy) {
+    float& look_dx, float& look_dy, float& wheel) {
   look_dx = 0.0F;
   look_dy = 0.0F;
+  wheel = 0.0F;
   auto action = frame_action::proceed;
   while (auto ev = sdl_event::poll()) {
     switch (ev.type()) {
@@ -314,6 +169,8 @@ frame_action pump_events(fly_keys& keys, bool& looking, sdl_window& win,
         look_dy += motion.yrel;
       }
       break;
+
+    case sdl_event_type::mouse_wheel: wheel += ev.get_wheel().y; break;
 
     case sdl_event_type::key_down:
     case sdl_event_type::key_up: {
@@ -396,16 +253,20 @@ int main() {
     // Mouse-look smoothing via a One Euro Filter: heavy at the low, steady
     // speeds where the per-frame mouse jitter shows, easing off as the mouse
     // speeds up so a fast flick stays responsive. The first argument is the
-    // at-rest smoothing (a ~50 ms time constant, titrated by hand); `beta`
+    // at-rest smoothing (a ~60 ms time constant, titrated by hand); `beta`
     // sets how fast it eases off with speed. Tune `beta` up if fast flicks
     // feel laggy, down if they get jittery; 0 makes it a plain fixed low-pass.
     const float look_sensitivity = 0.0025F;
-    one_euro_filter look_filter{60.0F, 0.001F};
+    // Distance the mouse wheel dollies the camera forward per scroll notch.
+    const float scroll_step = 0.5F;
+    corvid::one_euro_filter look_filter{60.0F, 0.001F};
 
     while (true) {
       float look_dx = 0.0F;
       float look_dy = 0.0F;
-      const auto action = pump_events(keys, looking, win, look_dx, look_dy);
+      float wheel = 0.0F;
+      const auto action =
+          pump_events(keys, looking, win, look_dx, look_dy, wheel);
       if (action == frame_action::quit) break;
       if (action == frame_action::resize) presenter.resize().or_throw();
 
@@ -425,6 +286,10 @@ int main() {
       }
 
       apply_movement(cam, keys, dt);
+
+      // The mouse wheel dollies forward/back in fixed steps: an impulse, not a
+      // held velocity, so it is not scaled by frame time.
+      if (wheel != 0.0F) cam.move(wheel * scroll_step, 0.0F, 0.0F);
 
       // Skip all GPU work when the window has no client area (minimized, or
       // collapsed by the OS during a mixed-DPI cross-monitor drag).
