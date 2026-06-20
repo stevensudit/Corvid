@@ -10,6 +10,8 @@
 // Shift to go faster) and looks with the mouse while the right button is held;
 // Escape quits.
 
+#include <algorithm>
+#include <cmath>
 #include <cstdint>
 #include <exception>
 
@@ -43,6 +45,28 @@ __device__ float scene_sdf(pos3 point) {
   dist = op_union(dist,
       sd_box(p - vec3{0.2F, -0.5F, -2.0F}, vec3{0.8F, 0.5F, 0.8F}));
   return dist;
+}
+
+// Material id of the nearest primitive at `point`, so the shader can color
+// each object distinctly. Mirrors the primitives in `scene_sdf`; only the
+// final hit needs it, so the march and lighting loops stay distance-only.
+__device__ int scene_material(pos3 point) {
+  const vec3 p = point.v;
+  float best = sd_plane(p, vec3{0.0F, 1.0F, 0.0F}, 1.0F);
+  int material = 0; // ground
+  float d = sd_sphere(p - vec3{-1.3F, 0.0F, 0.0F}, 1.0F);
+  if (d < best) {
+    best = d;
+    material = 1;
+  }
+  d = sd_sphere(p - vec3{1.1F, -0.3F, 0.6F}, 0.7F);
+  if (d < best) {
+    best = d;
+    material = 2;
+  }
+  d = sd_box(p - vec3{0.2F, -0.5F, -2.0F}, vec3{0.8F, 0.5F, 0.8F});
+  if (d < best) material = 3;
+  return material;
 }
 
 // Surface normal at `p`, estimated from the gradient of the scene field by
@@ -122,18 +146,27 @@ raymarch_kernel(cudaSurfaceObject_t surface, resolution res, camera_rays cam) {
 
   const vec3 ray_dir = cam.ray_direction(pos2{vec2{fx, fy}}, res);
 
-  // March along the ray, stepping by the distance to the nearest surface until
-  // we reach one or pass the far limit.
+  // Sphere-trace to the nearest surface or the far limit. The hit threshold
+  // grows with distance (about a pixel's cone) so grazing rays toward the
+  // horizon, and rays slipping just past a silhouette, converge within the
+  // step budget instead of exhausting it and falling through to sky. That
+  // exhaustion is what bent the horizon near the spheres and left a thin
+  // sky-colored fringe along their edges. Near surfaces keep a tight
+  // threshold, so silhouettes stay sharp.
+  constexpr int max_steps = 256;
+  constexpr float far_dist = 50.0F;
+  constexpr float min_eps = 0.001F;
+  const float pixel_eps = cam.tan_half_fov / (0.5F * res.height);
   float dist = 0.0F;
   bool hit = false;
-  for (int step = 0; step < 128; ++step) {
+  for (int step = 0; step < max_steps; ++step) {
     const float surf_dist = scene_sdf(cam.eye + (ray_dir * dist));
-    if (surf_dist < 0.001F) {
+    if (surf_dist < fmaxf(min_eps, pixel_eps * dist)) {
       hit = true;
       break;
     }
     dist += surf_dist;
-    if (dist > 50.0F) break;
+    if (dist > far_dist) break;
   }
 
   vec3 color;
@@ -145,13 +178,14 @@ raymarch_kernel(cudaSurfaceObject_t surface, resolution res, camera_rays cam) {
     const float shadow = soft_shadow(hit_point, light_dir, 16.0F);
     const float occlusion = ambient_occlusion(hit_point, normal);
 
-    // A checkerboard on the ground, flat gray on everything else.
-    vec3 albedo{0.80F, 0.80F, 0.82F};
-    if (hit_point.v.y < -0.99F) {
-      const bool dark =
-          (static_cast<int>(floorf(hit_point.v.x) + floorf(hit_point.v.z)) &
-              1) != 0;
-      albedo = dark ? vec3{0.12F, 0.12F, 0.14F} : vec3{0.80F, 0.80F, 0.82F};
+    // A distinct color per object so each reads clearly against the others
+    // and the sky.
+    vec3 albedo;
+    switch (scene_material(hit_point)) {
+    case 1: albedo = vec3{0.80F, 0.25F, 0.20F}; break;  // red sphere
+    case 2: albedo = vec3{0.20F, 0.40F, 0.80F}; break;  // blue sphere
+    case 3: albedo = vec3{0.85F, 0.65F, 0.18F}; break;  // amber box
+    default: albedo = vec3{0.32F, 0.40F, 0.26F}; break; // green ground
     }
 
     const vec3 ambient{0.12F, 0.14F, 0.18F};
@@ -172,6 +206,63 @@ raymarch_kernel(cudaSurfaceObject_t surface, resolution res, camera_rays cam) {
   surf2Dwrite(pixel, surface, px * static_cast<int>(sizeof(uchar4)), py);
 }
 
+// A One Euro Filter (Casiez, Roussel, Vogel, CHI 2012) over the mouse-look
+// delta: an adaptive low-pass that smooths hard when the mouse moves slowly
+// and steadily, where the per-frame sampling jitter shows, and eases off as it
+// speeds up so a fast flick stays responsive. It works in the cursor's own
+// units (raw counts), so the smoothed delta still sums to the same rotation.
+//
+// `rest_ms` is the time constant of the at-rest smoothing (larger is
+// smoother); `beta` is how quickly that smoothing relaxes as the mouse speeds
+// up (0 leaves it a plain fixed low-pass). The driving speed is in counts per
+// second, so `beta` scales against that.
+//
+// A general-purpose filter that could move to the library if it earns reuse;
+// kept local to this viewer for now.
+class one_euro_filter {
+public:
+  one_euro_filter(float rest_ms, float beta) noexcept
+      : min_cutoff_{1000.0F / (two_pi * rest_ms)}, beta_{beta} {}
+
+  // Smooth one frame's raw (`dx`, `dy`) look delta in place over the elapsed
+  // `dt` seconds.
+  void smooth(float dt, float& dx, float& dy) noexcept {
+    if (dt <= 0.0F) return;
+    // Low-pass the speed with a fixed cutoff first, so the adaptive cutoff
+    // does not jitter with the noisy raw delta.
+    const float speed = std::hypot(dx, dy) / dt;
+    speed_ =
+        primed_ ? std::lerp(speed_, speed, alpha(speed_cutoff, dt)) : speed;
+    // Faster motion raises the cutoff, which lightens the smoothing.
+    const float a = alpha(min_cutoff_ + (beta_ * speed_), dt);
+    dx_ = primed_ ? std::lerp(dx_, dx, a) : dx;
+    dy_ = primed_ ? std::lerp(dy_, dy, a) : dy;
+    primed_ = true;
+    dx = dx_;
+    dy = dy_;
+  }
+
+  // Forget the carried state so the next grab starts clean.
+  void reset() noexcept { primed_ = false; }
+
+private:
+  // First-order low-pass weight for a cutoff frequency (Hz) over `dt` seconds.
+  [[nodiscard]] static float alpha(float cutoff, float dt) noexcept {
+    const float tau = 1.0F / (two_pi * cutoff);
+    return 1.0F / (1.0F + (tau / dt));
+  }
+
+  static constexpr float two_pi = 6.2831853F;
+  // Fixed cutoff (Hz) for the speed low-pass, the One Euro default.
+  static constexpr float speed_cutoff = 1.0F;
+  float min_cutoff_;
+  float beta_;
+  float speed_ = 0.0F;
+  float dx_ = 0.0F;
+  float dy_ = 0.0F;
+  bool primed_ = false;
+};
+
 // Which movement keys are held this frame.
 struct fly_keys {
   bool forward = false;
@@ -186,12 +277,15 @@ struct fly_keys {
 // What the event pump asks the frame loop to do next.
 enum class frame_action : std::uint8_t { proceed, resize, quit };
 
-// Fold one batch of input into the camera and the held-key set, and report any
-// `quit` or `resize` request. Holding the right mouse button captures the
-// cursor for mouse-look; motion turns the camera only while it is held. Escape
-// quits.
-frame_action
-pump_events(camera& cam, fly_keys& keys, bool& looking, sdl_window& win) {
+// Fold one batch of input into the held-key set and `look_dx`/`look_dy` (the
+// frame's accumulated mouse-look delta in raw counts), and report any `quit`
+// or `resize` request. Holding the right mouse button captures the cursor for
+// mouse-look and gates the look delta; the caller smooths and applies it.
+// Escape quits.
+frame_action pump_events(fly_keys& keys, bool& looking, sdl_window& win,
+    float& look_dx, float& look_dy) {
+  look_dx = 0.0F;
+  look_dy = 0.0F;
   auto action = frame_action::proceed;
   while (auto ev = sdl_event::poll()) {
     switch (ev.type()) {
@@ -216,9 +310,8 @@ pump_events(camera& cam, fly_keys& keys, bool& looking, sdl_window& win) {
     case sdl_event_type::mouse_motion:
       if (looking) {
         const auto motion = ev.get_motion();
-        const float sensitivity = 0.0025F;
-        cam.look({radians{motion.xrel * sensitivity},
-            radians{-motion.yrel * sensitivity}});
+        look_dx += motion.xrel;
+        look_dy += motion.yrel;
       }
       break;
 
@@ -287,16 +380,50 @@ int main() {
     // lost-device recovery (crossplatform.md section 11).
     cuda_d3d11_presenter presenter{hwnd};
 
-    auto last_ticks = SDL_GetTicks();
+    // Frame timing in nanoseconds: millisecond ticks quantize dt enough to
+    // judder movement at high refresh rates (a 6.94 ms frame reads as 6 or 7).
+    auto last_ns = SDL_GetTicksNS();
+
+    // Frame-time stats over a one-second window, shown in the title bar to
+    // tell steady pacing apart from periodic spikes. The max is what reveals
+    // judder that an average frame rate hides.
+    int stat_frames = 0;
+    float stat_ms_sum = 0.0F;
+    float stat_ms_min = 0.0F;
+    float stat_ms_max = 0.0F;
+    float stat_window = 0.0F;
+
+    // Mouse-look smoothing via a One Euro Filter: heavy at the low, steady
+    // speeds where the per-frame mouse jitter shows, easing off as the mouse
+    // speeds up so a fast flick stays responsive. The first argument is the
+    // at-rest smoothing (a ~50 ms time constant, titrated by hand); `beta`
+    // sets how fast it eases off with speed. Tune `beta` up if fast flicks
+    // feel laggy, down if they get jittery; 0 makes it a plain fixed low-pass.
+    const float look_sensitivity = 0.0025F;
+    one_euro_filter look_filter{60.0F, 0.001F};
 
     while (true) {
-      const auto action = pump_events(cam, keys, looking, win);
+      float look_dx = 0.0F;
+      float look_dy = 0.0F;
+      const auto action = pump_events(keys, looking, win, look_dx, look_dy);
       if (action == frame_action::quit) break;
       if (action == frame_action::resize) presenter.resize().or_throw();
 
-      const auto now = SDL_GetTicks();
-      const auto dt = static_cast<float>(now - last_ticks) / 1000.0F;
-      last_ticks = now;
+      const auto now_ns = SDL_GetTicksNS();
+      const auto dt = static_cast<float>(now_ns - last_ns) / 1.0e9F;
+      last_ns = now_ns;
+
+      // Smooth the look before moving so a strafe uses this frame's facing.
+      // Releasing the button forgets the carried state so it neither glides on
+      // after release nor fires on the next grab.
+      if (looking) {
+        look_filter.smooth(dt, look_dx, look_dy);
+        cam.look({radians{look_dx * look_sensitivity},
+            radians{-look_dy * look_sensitivity}});
+      } else {
+        look_filter.reset();
+      }
+
       apply_movement(cam, keys, dt);
 
       // Skip all GPU work when the window has no client area (minimized, or
@@ -304,6 +431,30 @@ int main() {
       if (!presenter.window_width() || !presenter.window_height()) {
         SDL_Delay(16);
         continue;
+      }
+
+      // Fold this frame's wall-clock time into the stats, refreshing the title
+      // once the window passes a second. The first frame of a window seeds the
+      // min and max.
+      const float frame_ms = dt * 1000.0F;
+      stat_ms_min =
+          (stat_frames == 0) ? frame_ms : std::min(stat_ms_min, frame_ms);
+      stat_ms_max =
+          (stat_frames == 0) ? frame_ms : std::max(stat_ms_max, frame_ms);
+      stat_ms_sum += frame_ms;
+      ++stat_frames;
+      stat_window += dt;
+      if (stat_window >= 1.0F) {
+        char title[128];
+        SDL_snprintf(title, sizeof(title),
+            "Corvid Raymarch Viewer - %.0f fps  %.1f/%.1f/%.1f ms "
+            "(min/avg/max)",
+            static_cast<float>(stat_frames) / stat_window, stat_ms_min,
+            stat_ms_sum / static_cast<float>(stat_frames), stat_ms_max);
+        SDL_SetWindowTitle(win, title);
+        stat_frames = 0;
+        stat_ms_sum = 0.0F;
+        stat_window = 0.0F;
       }
 
       const camera_rays rays = cam.rays();
