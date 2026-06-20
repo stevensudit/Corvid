@@ -17,17 +17,12 @@
 #include "corvid/cuda/cuda_kernel.cuh"
 #include "corvid/cuda/cuda_status.cuh"
 #include "corvid/cuda/cuda_surface.cuh"
-#include "corvid/cuda/windows/cuda_d3d11_interop.cuh"
-#include "corvid/cuda/windows/d3d11_device.h"
-#include "corvid/cuda/windows/d3d11_swapchain.h"
-#include "corvid/math/arithmetic.h"
+#include "corvid/cuda/windows/cuda_d3d11_presenter.cuh"
 #include "corvid/sdl/sdl_event.h"
 #include "corvid/sdl/sdl_subsystem.h"
 #include "corvid/sdl/sdl_window.h"
 
 using namespace corvid::sdl;
-using namespace corvid::win32;
-using namespace corvid::win32::d3d;
 using namespace corvid::cuda;
 
 namespace {
@@ -169,96 +164,25 @@ int main() {
 
     const dim3 block{16, 16};
 
-    // GPU state.
-    //
-    // On a lost device the device is rebuilt and the swapchain rebound to it
-    // via `d3d11_swapchain::reset` (which releases the old swapchain before
-    // creating the new one, as DXGI requires). The render texture is sized to
-    // a grow-only capacity (cap_w x cap_h, each axis a 256-pixel multiple)
-    // held at or above the live w x h, so an ordinary resize neither
-    // reallocates it nor re-registers it with CUDA (crossplatform.md section
-    // 11). The live w x h drives the kernel grid and the copy-out; the
-    // capacity slack is never read.
-    d3d11_device device;
-    d3d11_swapchain swapchain{device, hwnd};
-    com_ptr<ID3D11Texture2D> render_texture;
-    cuda_d3d11_resource cuda_target;
-    UINT cap_w{};
-    UINT cap_h{};
-    UINT w{};
-    UINT h{};
-    double fwidth{};
-    double fheight{};
-    dim3 grid{};
-
-    // Read the live pixel size from the swapchain into the render state.
-    auto sync_dims = [&] {
-      w = swapchain.width();
-      h = swapchain.height();
-      fwidth = static_cast<double>(w);
-      fheight = static_cast<double>(h);
-      grid = dim3{cuda_kernel::ceil_div(w, block.x),
-          cuda_kernel::ceil_div(h, block.y)};
-    };
-
-    // Grow the capacity-sized render texture to fit the live size, recreating
-    // it and re-registering with CUDA only when it must grow. Never shrinks.
-    auto ensure_target = [&] {
-      const UINT need_w = corvid::round_up_to_multiple(w, 256U);
-      const UINT need_h = corvid::round_up_to_multiple(h, 256U);
-      if (render_texture && need_w <= cap_w && need_h <= cap_h) return;
-      cap_w = std::max(cap_w, need_w);
-      cap_h = std::max(cap_h, need_h);
-      cuda_target =
-          cuda_d3d11_resource{}; // unregister before releasing texture
-      render_texture = swapchain.create_texture(cap_w, cap_h,
-          d3d11_bind_flag::shader_resource);
-      cuda_target = cuda_d3d11_resource{render_texture};
-    };
-
-    // Rebuild all GPU state after a lost device: a fresh device, the swapchain
-    // rebound to it, and the render target re-created. The capacity resets so
-    // the new device starts clean.
-    auto recover_device = [&] {
-      cuda_target = cuda_d3d11_resource{};
-      render_texture = com_ptr<ID3D11Texture2D>{};
-      cap_w = 0;
-      cap_h = 0;
-      device = d3d11_device{};
-      swapchain.reset(device, hwnd).or_throw();
-      sync_dims();
-      ensure_target();
-    };
-
-    sync_dims();
-    ensure_target();
+    // The GPU presentation pipeline: a CUDA-written render target copied to
+    // the swapchain backbuffer and presented. It owns resize growth and
+    // lost-device recovery (crossplatform.md section 11).
+    cuda_d3d11_presenter presenter{hwnd};
 
     while (true) {
-      const auto action = pump_events(view, fwidth, fheight);
+      const auto action = pump_events(view, presenter.buffer_width<double>(),
+          presenter.buffer_height<double>());
       if (action == frame_action::quit) break;
 
-      // Apply a coalesced resize: rebuild the swapchain buffers, then grow the
-      // render target only when the new size exceeds its capacity.
-      if (action == frame_action::resize) {
-        auto st = swapchain.resize();
-        if (d3d11_swapchain::is_device_lost(st)) {
-          recover_device();
-          continue;
-        }
-        st.or_throw();
-        if (!st.is_false()) {
-          sync_dims();
-          ensure_target();
-        }
-      }
+      // Apply a coalesced resize: rebuild the swapchain buffers and grow the
+      // render target when the new size exceeds its capacity.
+      if (action == frame_action::resize) presenter.resize().or_throw();
 
       // Skip all GPU work when the window has no client area (minimized, or
       // collapsed by the OS during a mixed-DPI cross-monitor drag): rendering
-      // to a zero-size window wastes the kernel and may fail to present.
-      int live_w = 0;
-      int live_h = 0;
-      SDL_GetWindowSizeInPixels(win, &live_w, &live_h);
-      if (live_w == 0 || live_h == 0) {
+      // to a zero-size window wastes the kernel and may fail to present. The
+      // size is current as of the resize handled just above.
+      if (presenter.window_width() == 0 || presenter.window_height() == 0) {
         SDL_Delay(16);
         continue;
       }
@@ -269,19 +193,14 @@ int main() {
       const auto max_iter = static_cast<int>(std::clamp(
           256.0 + (200.0 * std::log2(2.5 / view.view_height)), 256.0, 8000.0));
 
-      if (cuda_d3d11_mapping map{cuda_target})
-        mandelbrot_kernel<<<grid, block>>>(cuda_surface{map.array()},
-            static_cast<int>(w), static_cast<int>(h), view.center_x,
-            view.center_y, view.view_height, max_iter);
-
-      swapchain.fill_back_buffer(render_texture);
-      if (auto st = swapchain.present(); !st) {
-        if (d3d11_swapchain::is_device_lost(st)) {
-          recover_device();
-          continue;
-        }
-        st.or_throw();
-      }
+      presenter
+          .render([&](cudaArray_t array, int w, int h) {
+            const dim3 grid{cuda_kernel::ceil_div(w, block.x),
+                cuda_kernel::ceil_div(h, block.y)};
+            mandelbrot_kernel<<<grid, block>>>(cuda_surface{array}, w, h,
+                view.center_x, view.center_y, view.view_height, max_iter);
+          })
+          .or_throw();
     }
     return 0;
   }

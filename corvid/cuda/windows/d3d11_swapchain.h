@@ -106,7 +106,10 @@ public:
             hwnd, &desc, nullptr, nullptr, swapchain_.put())};
         !st)
       return st;
-    return acquire_back_buffer();
+    if (hr_status st{acquire_back_buffer()}; !st) return st;
+    window_width_ = buffer_width_;
+    window_height_ = buffer_height_;
+    return hr_status{S_OK};
   }
 
 #pragma endregion
@@ -120,9 +123,30 @@ public:
     return back_buffer_;
   }
 
-  // Backbuffer dimensions in pixels (derived from the window's client area).
-  [[nodiscard]] UINT width() const noexcept { return width_; }
-  [[nodiscard]] UINT height() const noexcept { return height_; }
+  // Backbuffer dimensions in pixels: the size CUDA and the kernel render to.
+  // Cached, because only `resize` changes it.
+  template<typename T = UINT>
+  [[nodiscard]] T buffer_width() const noexcept {
+    return static_cast<T>(buffer_width_);
+  }
+  template<typename T = UINT>
+  [[nodiscard]] T buffer_height() const noexcept {
+    return static_cast<T>(buffer_height_);
+  }
+
+  // Window client-area size in pixels, 0 when minimized or collapsed. Updated
+  // by `resize`, so it holds the size as of the last resize check.
+  template<typename T = UINT>
+  [[nodiscard]] T window_width() const noexcept {
+    return static_cast<T>(window_width_);
+  }
+  template<typename T = UINT>
+  [[nodiscard]] T window_height() const noexcept {
+    return static_cast<T>(window_height_);
+  }
+
+  // The window this swapchain presents to.
+  [[nodiscard]] HWND hwnd() const noexcept { return hwnd_; }
 
 #pragma endregion
 #pragma region Factory
@@ -149,7 +173,7 @@ public:
   // used with `fill_back_buffer`.
   [[nodiscard]] com_ptr<ID3D11Texture2D> create_matching_texture(
       d3d11_bind_flag bind_flags) const {
-    return create_texture(width_, height_, bind_flags);
+    return create_texture(buffer_width_, buffer_height_, bind_flags);
   }
 
 #pragma endregion
@@ -160,15 +184,16 @@ public:
   //
   // The source must share the backbuffer's format and sample count and be at
   // least its size; `create_texture` / `create_matching_texture` build one. A
-  // larger source is allowed: only the live `width` x `height` region is
-  // copied, so a grow-only render target can stay bound across resizes.
+  // larger source is allowed: only the live `buffer_width` x `buffer_height`
+  // region is copied, so a grow-only render target can stay bound across
+  // resizes.
   void fill_back_buffer(ID3D11Resource* source) {
     const D3D11_BOX box{
         .left = 0,
         .top = 0,
         .front = 0,
-        .right = width_,
-        .bottom = height_,
+        .right = buffer_width_,
+        .bottom = buffer_height_,
         .back = 1,
     };
     context_->CopySubresourceRegion(back_buffer_, 0, 0, 0, 0, source, 0, &box);
@@ -176,7 +201,7 @@ public:
 
   // Present the backbuffer. `sync_interval` is the number of vertical blanks
   // to wait for; 0 presents uncapped.
-  [[nodiscard]] hr_status present(UINT sync_interval = 1) {
+  [[nodiscard]] hr_status present(int sync_interval = 1) {
     return hr_status{swapchain_->Present(sync_interval, 0)};
   }
 
@@ -191,15 +216,17 @@ public:
 #pragma endregion
 #pragma region Resize
 
-  // Rebuild the buffers to the window's current client area. Returns `S_FALSE`
-  // when no-op.
+  // Rebuild the buffers to the window's current client area, recording that
+  // area as the window size. Returns `S_FALSE` when no-op.
   [[nodiscard]] hr_status resize() {
     RECT client{};
     if (!GetClientRect(hwnd_, &client)) return hr_status{S_OK};
-    const auto w = static_cast<UINT>(client.right - client.left);
-    const auto h = static_cast<UINT>(client.bottom - client.top);
-    if (w == 0 || h == 0) return hr_status{S_FALSE};            // minimized
-    if (w == width_ && h == height_) return hr_status{S_FALSE}; // unchanged
+    window_width_ = client.right - client.left;
+    window_height_ = client.bottom - client.top;
+    if (window_width_ == 0 || window_height_ == 0)
+      return hr_status{S_FALSE}; // no client area
+    if (window_width_ == buffer_width_ && window_height_ == buffer_height_)
+      return hr_status{S_FALSE}; // unchanged
 
     back_buffer_.reset();
     if (hr_status st{
@@ -225,15 +252,13 @@ public:
 private:
   // Acquire back buffer 0 and read its dimensions.
   [[nodiscard]] hr_status acquire_back_buffer() {
-    if (hr_status st{
-            swapchain_->GetBuffer(0, IID_PPV_ARGS(back_buffer_.put()))};
-        !st)
-      return st;
+    hr_status st{swapchain_->GetBuffer(0, IID_PPV_ARGS(back_buffer_.put()))};
+    if (!st) return st;
 
     const auto tex_desc = back_buffer_desc();
-    width_ = tex_desc.Width;
-    height_ = tex_desc.Height;
-    return hr_status{S_OK};
+    buffer_width_ = tex_desc.Width;
+    buffer_height_ = tex_desc.Height;
+    return st;
   }
 
 #pragma endregion
@@ -244,8 +269,10 @@ private:
   HWND hwnd_{};
   com_ptr<IDXGISwapChain1> swapchain_;
   com_ptr<ID3D11Texture2D> back_buffer_;
-  UINT width_{};
-  UINT height_{};
+  UINT buffer_width_{};
+  UINT buffer_height_{};
+  UINT window_width_{};
+  UINT window_height_{};
 
 #pragma endregion
 };
