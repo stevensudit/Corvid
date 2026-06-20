@@ -162,10 +162,7 @@ Compiler flags are set in the `WIN32` branch of `tests/CMakeLists.txt`:
 The CUDA flags live in the `CORVID_ENABLE_CUDA` block: on Windows `-std=c++23
 -fms-runtime-lib=dll -Wno-unknown-cuda-version` (the last silences the note that
 CUDA 13.3 is newer than clang 22's last fully supported toolkit); on Linux the
-nvcc form `-std=c++23 -O3 -lineinfo --expt-relaxed-constexpr` (the last lets
-device code call a constexpr `__host__` function, e.g. the shared
-`corvid::ceil_div` that `cuda_kernel::ceil_div` forwards to; clang-CUDA allows
-this without a flag).
+nvcc form `-std=c++23 -O3 -lineinfo`.
 
 ## 5. Header portability conventions
 
