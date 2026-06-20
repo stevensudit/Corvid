@@ -36,6 +36,8 @@ class cuda_surface {
 public:
 #pragma region Construction
 
+  cuda_surface() = default;
+
   explicit cuda_surface(cudaArray_t array) {
     const cudaResourceDesc desc{
         .resType = cudaResourceTypeArray,
