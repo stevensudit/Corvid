@@ -1,0 +1,78 @@
+// Corvid: A general-purpose modern C++ library extending std.
+// https://github.com/stevensudit/Corvid
+//
+// Copyright 2022-2026 Steven Sudit
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+#pragma once
+
+#include <cmath>
+
+#include "./vec.cuh"
+
+// Signed distance field primitives and combinators for ray marching.
+//
+// Each returns the signed distance from a point to the surface: negative
+// inside, zero on it, positive outside. A scene is built by combining these,
+// then sphere-traced.
+
+namespace corvid::cuda {
+
+#pragma region Primitives
+
+// Distance from `p` to a sphere of radius `r` centered at the origin.
+[[nodiscard]] __device__ inline float sd_sphere(vec3 p, float r) {
+  return length(p) - r;
+}
+
+// Distance from `p` to an axis-aligned box of half-extents `b`.
+[[nodiscard]] __device__ inline float sd_box(vec3 p, vec3 b) {
+  const vec3 d{fabsf(p.x) - b.x, fabsf(p.y) - b.y, fabsf(p.z) - b.z};
+  const vec3 outside{fmaxf(d.x, 0.0F), fmaxf(d.y, 0.0F), fmaxf(d.z, 0.0F)};
+  return length(outside) + fminf(fmaxf(d.x, fmaxf(d.y, d.z)), 0.0F);
+}
+
+// Distance from `p` to a plane with unit normal `n` whose surface passes at
+// offset `h` along that normal.
+[[nodiscard]] __device__ inline float sd_plane(vec3 p, vec3 n, float h) {
+  return dot(p, n) + h;
+}
+
+#pragma endregion
+#pragma region Combinators
+
+// Union: the nearer of two surfaces.
+[[nodiscard]] __device__ inline float op_union(float a, float b) {
+  return fminf(a, b);
+}
+
+// Intersection: the region common to both.
+[[nodiscard]] __device__ inline float op_intersect(float a, float b) {
+  return fmaxf(a, b);
+}
+
+// Subtraction: `a` with `b` carved out of it.
+[[nodiscard]] __device__ inline float op_subtract(float a, float b) {
+  return fmaxf(a, -b);
+}
+
+// Union with a smooth blend of width `k` where the two surfaces meet.
+[[nodiscard]] __device__ inline float
+op_smooth_union(float a, float b, float k) {
+  const float h = fmaxf(k - fabsf(a - b), 0.0F) / k;
+  return fminf(a, b) - (h * h * k * 0.25F);
+}
+
+#pragma endregion
+
+} // namespace corvid::cuda

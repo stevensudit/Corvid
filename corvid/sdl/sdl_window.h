@@ -116,6 +116,12 @@ public:
     return SDL_SetWindowMinimumSize(window_, width, height);
   }
 
+  // Enable or disable relative mouse mode, which hides the cursor and reports
+  // motion as deltas for mouse-look. Stays in effect until changed.
+  [[nodiscard]] sdl_status set_relative_mouse_mode(bool enabled) noexcept {
+    return SDL_SetWindowRelativeMouseMode(window_, enabled);
+  }
+
 #pragma endregion
 #pragma region Helpers
 private:

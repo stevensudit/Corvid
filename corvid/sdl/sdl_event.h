@@ -580,6 +580,24 @@ consteval auto corvid_enum_spec(sdl_keycode*) {
 }
 
 #pragma endregion
+#pragma region sdl_mouse_button
+
+// Which mouse button a button event refers to, wrapping SDL's `SDL_BUTTON_*`
+// constants.
+enum class sdl_mouse_button : std::uint8_t {
+  left = SDL_BUTTON_LEFT,
+  middle = SDL_BUTTON_MIDDLE,
+  right = SDL_BUTTON_RIGHT,
+  x1 = SDL_BUTTON_X1,
+  x2 = SDL_BUTTON_X2,
+};
+
+consteval auto corvid_enum_spec(sdl_mouse_button*) {
+  return corvid::enums::sequence::make_sequence_enum_spec<sdl_mouse_button,
+      "1,left,middle,right,x1,x2">();
+}
+
+#pragma endregion
 #pragma region sdl_event
 
 // Cleaned payload of a display event. `data1`/`data2` are event-specific; see
@@ -622,6 +640,17 @@ struct sdl_motion_event {
   float xrel;
   float yrel;
   bool left_held;
+};
+
+// Payload of a mouse-button event.
+//
+// `button` is which button changed; `down` is true on a press and false on a
+// release; `x`/`y` are the cursor position when it fired.
+struct sdl_button_event {
+  sdl_mouse_button button;
+  bool down;
+  float x;
+  float y;
 };
 
 // Payload of a keyboard event.
@@ -707,6 +736,12 @@ public:
     assert(data_type_ == sdl_event_data_type::motion);
     return {event_.motion.x, event_.motion.y, event_.motion.xrel,
         event_.motion.yrel, (event_.motion.state & SDL_BUTTON_LMASK) != 0};
+  }
+
+  [[nodiscard]] sdl_button_event get_button() const {
+    assert(data_type_ == sdl_event_data_type::button);
+    return {static_cast<sdl_mouse_button>(event_.button.button),
+        event_.button.down, event_.button.x, event_.button.y};
   }
 
   [[nodiscard]] sdl_key_event get_key() const {
