@@ -26,6 +26,7 @@
 
 #include <cuda_runtime.h>
 
+#include "../math/arithmetic.h"
 #include "./cuda_status.cuh"
 
 // CUDA kernel-centered utilities.
@@ -113,12 +114,10 @@ public:
     return ceil_div(n, threads_per_block);
   }
 
-  // Divide `a` by `b`, rounding up.
+  // Divide `a` by `b`, rounding up: a `__host__ __device__` wrapper over the
+  // host-only `corvid::ceil_div`, so device code can use it too.
   __host__ __device__ static unsigned ceil_div(unsigned a, unsigned b) {
-    return (a + b - 1) / b;
-    // TODO: Copilot insists on this:
-    //      assert(b > 0 && "ceil_div divisor must be positive");
-    //  return (a / b) + static_cast<unsigned>(a % b != 0);
+    return corvid::ceil_div(a, b);
   }
 
 private:

@@ -9,6 +9,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdint>
 #include <exception>
 
 #include <cuda_runtime.h>
@@ -19,6 +20,7 @@
 #include "corvid/cuda/windows/cuda_d3d11_interop.cuh"
 #include "corvid/cuda/windows/d3d11_device.h"
 #include "corvid/cuda/windows/d3d11_swapchain.h"
+#include "corvid/math/arithmetic.h"
 #include "corvid/sdl/sdl_event.h"
 #include "corvid/sdl/sdl_subsystem.h"
 #include "corvid/sdl/sdl_window.h"
@@ -39,10 +41,10 @@ __global__ void mandelbrot_kernel(cudaSurfaceObject_t surface, int width,
   const int py = cuda_kernel::y_index();
   if (px >= width || py >= height) return;
 
-  // Map the pixel to the complex plane: centered at (center_x, center_y), the
-  // given view height, and a width that preserves the pixel aspect ratio. The
-  // math is double precision so deep zooms stay smooth past the ~30,000x where
-  // float pixels would coalesce.
+  // Map the pixel to the complex plane: centered at (`center_x`, `center_y`),
+  // the given view height, and a width that preserves the pixel aspect ratio.
+  // The math is double precision so deep zooms stay smooth past the ~30,000x
+  // where float pixels would coalesce.
   const double aspect =
       static_cast<double>(width) / static_cast<double>(height);
   const double view_width = view_height * aspect;
@@ -80,6 +82,75 @@ __global__ void mandelbrot_kernel(cudaSurfaceObject_t surface, int width,
   }
   surf2Dwrite(pixel, surface, px * static_cast<int>(sizeof(uchar4)), py);
 }
+
+// Mutable view into the complex plane: its center and vertical extent.
+struct fractal_view {
+  double center_x = -0.5;
+  double center_y = 0.0;
+  double view_height = 2.5;
+};
+
+// What the event pump asks the frame loop to do next.
+enum class frame_action : std::uint8_t { proceed, resize, quit };
+
+// Fold one batch of input into the view and report any `quit` or `resize`
+// request. The pixel size converts cursor positions to complex-plane offsets.
+frame_action pump_events(fractal_view& view, double fwidth, double fheight) {
+  auto action = frame_action::proceed;
+  while (auto ev = sdl_event::poll()) {
+    switch (ev.type()) {
+    case sdl_event_type::quit:
+    case sdl_event_type::window_close_requested: return frame_action::quit;
+
+    case sdl_event_type::window_pixel_size_changed:
+      // Coalesce a drag's event storm into one rebuild before the frame by
+      // waiting for the events to stop coming in.
+      action = frame_action::resize;
+      break;
+
+    case sdl_event_type::mouse_wheel: {
+      // Zoom toward the cursor: scale `view_height` while keeping the complex
+      // point under the cursor fixed.
+      const auto wheel = ev.get_wheel();
+      const double upp = view.view_height / fheight;
+      const double factor = std::pow(0.9, wheel.y);
+      view.center_x += (wheel.mouse_x - (fwidth / 2.0)) * upp * (1.0 - factor);
+      view.center_y +=
+          (wheel.mouse_y - (fheight / 2.0)) * upp * (1.0 - factor);
+      view.view_height *= factor;
+      break;
+    }
+
+    case sdl_event_type::mouse_motion: {
+      // Left-button drag pans the view by the cursor movement.
+      const auto motion = ev.get_motion();
+      if (motion.left_held) {
+        const double upp = view.view_height / fheight;
+        view.center_x -= motion.xrel * upp;
+        view.center_y -= motion.yrel * upp;
+      }
+      break;
+    }
+
+    case sdl_event_type::key_down: {
+      // Arrow keys pan by a fixed fraction of the view (so the step scales
+      // with zoom). Repeats fire while a key is held.
+      const double step = 0.05 * view.view_height;
+      switch (ev.get_key().key) {
+      case sdl_keycode::left: view.center_x -= step; break;
+      case sdl_keycode::right: view.center_x += step; break;
+      case sdl_keycode::up: view.center_y -= step; break;
+      case sdl_keycode::down: view.center_y += step; break;
+      default: break;
+      }
+      break;
+    }
+
+    default: break;
+    }
+  }
+  return action;
+}
 } // namespace
 
 int main() {
@@ -87,120 +158,135 @@ int main() {
     sdl_subsystem sdl;
     sdl_window win{"Corvid Fractal Viewer", 1280, 720,
         sdl_window_flags::resizable};
+    win.set_minimum_size(640, 480).or_throw();
 
-    d3d11_device device;
-    d3d11_swapchain swapchain{device, static_cast<HWND>(win.native_handle())};
+    const auto hwnd = static_cast<HWND>(win.native_handle());
 
-    // The live view into the complex plane, mutated by input below. The
-    // per-axis scale is isotropic: complex units per pixel is view_height / h.
-    double center_x = -0.5;
-    double center_y = 0.0;
-    double view_height = 2.5;
+    // The live view into the complex plane, mutated by input in `pump_events`.
+    // The per-axis scale is isotropic: complex units per pixel is
+    // `view_height / h`.
+    fractal_view view;
 
     const dim3 block{16, 16};
 
-    // Render target and its derived launch state, all sized to the swapchain.
-    // `rebuild` reconstructs them from the current swapchain dimensions, both
-    // at startup and after a resize.
+    // GPU state.
+    //
+    // On a lost device the device is rebuilt and the swapchain rebound to it
+    // via `d3d11_swapchain::reset` (which releases the old swapchain before
+    // creating the new one, as DXGI requires). The render texture is sized to
+    // a grow-only capacity (cap_w x cap_h, each axis a 256-pixel multiple)
+    // held at or above the live w x h, so an ordinary resize neither
+    // reallocates it nor re-registers it with CUDA (crossplatform.md section
+    // 11). The live w x h drives the kernel grid and the copy-out; the
+    // capacity slack is never read.
+    d3d11_device device;
+    d3d11_swapchain swapchain{device, hwnd};
+    com_ptr<ID3D11Texture2D> render_texture;
+    cuda_d3d11_resource cuda_target;
+    UINT cap_w{};
+    UINT cap_h{};
     UINT w{};
     UINT h{};
     double fwidth{};
     double fheight{};
     dim3 grid{};
-    com_ptr<ID3D11Texture2D> render_texture;
-    cuda_d3d11_resource cuda_target;
 
-    auto rebuild = [&] {
+    // Read the live pixel size from the swapchain into the render state.
+    auto sync_dims = [&] {
       w = swapchain.width();
       h = swapchain.height();
       fwidth = static_cast<double>(w);
       fheight = static_cast<double>(h);
       grid = dim3{cuda_kernel::ceil_div(w, block.x),
           cuda_kernel::ceil_div(h, block.y)};
-      render_texture =
-          swapchain.create_matching_texture(d3d11_bind_flag::shader_resource);
+    };
+
+    // Grow the capacity-sized render texture to fit the live size, recreating
+    // it and re-registering with CUDA only when it must grow. Never shrinks.
+    auto ensure_target = [&] {
+      const UINT need_w = corvid::round_up_to_multiple(w, 256U);
+      const UINT need_h = corvid::round_up_to_multiple(h, 256U);
+      if (render_texture && need_w <= cap_w && need_h <= cap_h) return;
+      cap_w = std::max(cap_w, need_w);
+      cap_h = std::max(cap_h, need_h);
+      cuda_target =
+          cuda_d3d11_resource{}; // unregister before releasing texture
+      render_texture = swapchain.create_texture(cap_w, cap_h,
+          d3d11_bind_flag::shader_resource);
       cuda_target = cuda_d3d11_resource{render_texture};
     };
-    rebuild();
 
-    bool running = true;
-    bool resize_pending = false;
-    while (running) {
-      while (auto ev = sdl_event::poll()) {
-        switch (ev.type()) {
-        case sdl_event_type::quit: running = false; break;
+    // Rebuild all GPU state after a lost device: a fresh device, the swapchain
+    // rebound to it, and the render target re-created. The capacity resets so
+    // the new device starts clean.
+    auto recover_device = [&] {
+      cuda_target = cuda_d3d11_resource{};
+      render_texture = com_ptr<ID3D11Texture2D>{};
+      cap_w = 0;
+      cap_h = 0;
+      device = d3d11_device{};
+      swapchain.reset(device, hwnd).or_throw();
+      sync_dims();
+      ensure_target();
+    };
 
-        case sdl_event_type::window_pixel_size_changed:
-          // Coalesce a drag's event storm into one rebuild before the frame.
-          resize_pending = true;
-          break;
+    sync_dims();
+    ensure_target();
 
-        case sdl_event_type::mouse_wheel: {
-          // Zoom toward the cursor: scale view_height while keeping the
-          // complex point under the cursor fixed.
-          const auto wheel = ev.get_wheel();
-          const double upp = view_height / fheight;
-          const double factor = std::pow(0.9, wheel.y);
-          center_x += (wheel.mouse_x - (fwidth / 2.0)) * upp * (1.0 - factor);
-          center_y += (wheel.mouse_y - (fheight / 2.0)) * upp * (1.0 - factor);
-          view_height *= factor;
-          break;
+    while (true) {
+      const auto action = pump_events(view, fwidth, fheight);
+      if (action == frame_action::quit) break;
+
+      // Apply a coalesced resize: rebuild the swapchain buffers, then grow the
+      // render target only when the new size exceeds its capacity.
+      if (action == frame_action::resize) {
+        auto st = swapchain.resize();
+        if (d3d11_swapchain::is_device_lost(st)) {
+          recover_device();
+          continue;
         }
-
-        case sdl_event_type::mouse_motion: {
-          // Left-button drag pans the view by the cursor movement.
-          const auto motion = ev.get_motion();
-          if (motion.left_held) {
-            const double upp = view_height / fheight;
-            center_x -= motion.xrel * upp;
-            center_y -= motion.yrel * upp;
-          }
-          break;
-        }
-
-        case sdl_event_type::key_down: {
-          // Arrow keys pan by a fixed fraction of the view (so the step scales
-          // with zoom). Repeats fire while a key is held.
-          const double step = 0.05 * view_height;
-          switch (ev.get_key().key) {
-          case sdl_keycode::left: center_x -= step; break;
-          case sdl_keycode::right: center_x += step; break;
-          case sdl_keycode::up: center_y -= step; break;
-          case sdl_keycode::down: center_y += step; break;
-          default: break;
-          }
-          break;
-        }
-
-        default: break;
+        st.or_throw();
+        if (!st.is_false()) {
+          sync_dims();
+          ensure_target();
         }
       }
 
-      // Rebuild the render target after a resize.
-      if (resize_pending) {
-        resize_pending = false;
-        auto hr = swapchain.resize();
-        if (!hr.or_throw() && !hr.is_false()) rebuild();
+      // Skip all GPU work when the window has no client area (minimized, or
+      // collapsed by the OS during a mixed-DPI cross-monitor drag): rendering
+      // to a zero-size window wastes the kernel and may fail to present.
+      int live_w = 0;
+      int live_h = 0;
+      SDL_GetWindowSizeInPixels(win, &live_w, &live_h);
+      if (live_w == 0 || live_h == 0) {
+        SDL_Delay(16);
+        continue;
       }
 
       // Scale the iteration cap with zoom depth (~200 more per 2x), so detail
       // tracks the zoom instead of saturating at a fixed count. Clamped to
       // keep a deep zoom from stalling the fp64 kernel.
       const auto max_iter = static_cast<int>(std::clamp(
-          256.0 + (200.0 * std::log2(2.5 / view_height)), 256.0, 8000.0));
+          256.0 + (200.0 * std::log2(2.5 / view.view_height)), 256.0, 8000.0));
 
       if (cuda_d3d11_mapping map{cuda_target})
         mandelbrot_kernel<<<grid, block>>>(cuda_surface{map.array()},
-            static_cast<int>(w), static_cast<int>(h), center_x, center_y,
-            view_height, max_iter);
+            static_cast<int>(w), static_cast<int>(h), view.center_x,
+            view.center_y, view.view_height, max_iter);
 
       swapchain.fill_back_buffer(render_texture);
-      swapchain.present().or_throw();
+      if (auto st = swapchain.present(); !st) {
+        if (d3d11_swapchain::is_device_lost(st)) {
+          recover_device();
+          continue;
+        }
+        st.or_throw();
+      }
     }
     return 0;
   }
   catch (const std::exception& e) {
-    // main is the boundary: report and exit rather than letting it escape.
+    // `main` is the boundary: report and exit rather than letting it escape.
     SDL_Log("fatal: %s", e.what());
     return 1;
   }

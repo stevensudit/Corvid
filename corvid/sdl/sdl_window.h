@@ -95,6 +95,7 @@ public:
     }
     return *this;
   }
+
   ~sdl_window() { destroy(); }
 
 #pragma endregion
@@ -107,6 +108,12 @@ public:
   [[nodiscard]] void* native_handle() const noexcept {
     return SDL_GetPointerProperty(SDL_GetWindowProperties(window_),
         SDL_PROP_WINDOW_WIN32_HWND_POINTER, nullptr);
+  }
+
+  // Set the smallest size, in screen coordinates, the window can be resized
+  // to.
+  [[nodiscard]] sdl_status set_minimum_size(int width, int height) noexcept {
+    return SDL_SetWindowMinimumSize(window_, width, height);
   }
 
 #pragma endregion

@@ -64,14 +64,32 @@ consteval auto corvid_enum_spec(d3d11_bind_flag*) {
 // Created from a `d3d11_device` and the Win32 `HWND`, sized to the window's
 // client area, double-buffered, `FLIP_DISCARD`.
 //
-// When the window resizes, call `resize()`.
+// When the window resizes, call `resize()`; to rebind to a new device after a
+// lost device, call `reset()`.
 class d3d11_swapchain {
 public:
 #pragma region Construction
 
-  explicit d3d11_swapchain(const d3d11_device& device, HWND hwnd)
-      : device_{device.device()}, context_{device.context()}, hwnd_{hwnd} {
-    DXGI_SWAP_CHAIN_DESC1 desc{
+  explicit d3d11_swapchain(const d3d11_device& device, HWND hwnd) {
+    reset(device, hwnd).or_throw();
+  }
+
+  // Release the current swapchain (if any) and rebuild it for the given device
+  // and window.
+  [[nodiscard]] hr_status reset(const d3d11_device& device, HWND hwnd) {
+    back_buffer_.reset();
+    swapchain_.reset();
+    // D3D11's deferred destruction is flushed before the new one is created,
+    // because DXGI binds at most one flip-model swapchain to an `HWND` at a
+    // time and defers the teardown that would otherwise free it.
+    if (context_) {
+      context_->ClearState();
+      context_->Flush();
+    }
+    device_ = device.device();
+    context_ = device.context();
+    hwnd_ = hwnd;
+    const DXGI_SWAP_CHAIN_DESC1 desc{
         .Width = 0,
         .Height = 0,
         .Format = DXGI_FORMAT_R8G8B8A8_UNORM,
@@ -84,11 +102,11 @@ public:
         .AlphaMode = DXGI_ALPHA_MODE_IGNORE,
         .Flags = 0,
     };
-    hr_status{device.make_factory()->CreateSwapChainForHwnd(device_, hwnd,
-                  &desc, nullptr, nullptr, swapchain_.put())}
-        .or_throw();
-
-    acquire_back_buffer().or_throw();
+    if (hr_status st{device.make_factory()->CreateSwapChainForHwnd(device_,
+            hwnd, &desc, nullptr, nullptr, swapchain_.put())};
+        !st)
+      return st;
+    return acquire_back_buffer();
   }
 
 #pragma endregion
@@ -109,11 +127,17 @@ public:
 #pragma endregion
 #pragma region Factory
 
-  // Create a texture matching the backbuffer that can be written to and then
-  // used with `fill_back_buffer`.
-  [[nodiscard]] com_ptr<ID3D11Texture2D> create_matching_texture(
-      d3d11_bind_flag bind_flags) const {
+  // Create a texture of the given size, otherwise sharing the backbuffer's
+  // format and sample count, so it is a valid `fill_back_buffer` source.
+  //
+  // The size may exceed the backbuffer (`fill_back_buffer` copies only the
+  // live backbuffer-sized region), which is how a grow-only render target
+  // avoids reallocating on every resize.
+  [[nodiscard]] com_ptr<ID3D11Texture2D>
+  create_texture(UINT width, UINT height, d3d11_bind_flag bind_flags) const {
     D3D11_TEXTURE2D_DESC desc = back_buffer_desc();
+    desc.Width = width;
+    desc.Height = height;
     desc.BindFlags = *bind_flags;
     com_ptr<ID3D11Texture2D> texture;
     hr_status{device_->CreateTexture2D(&desc, nullptr, texture.put())}
@@ -121,21 +145,47 @@ public:
     return texture;
   }
 
+  // Create a texture matching the backbuffer that can be written to and then
+  // used with `fill_back_buffer`.
+  [[nodiscard]] com_ptr<ID3D11Texture2D> create_matching_texture(
+      d3d11_bind_flag bind_flags) const {
+    return create_texture(width_, height_, bind_flags);
+  }
+
 #pragma endregion
 #pragma region Present
 
-  // Copy a resource into the backbuffer through the immediate context.
+  // Copy a source texture's top-left, backbuffer-sized region into the
+  // backbuffer through the immediate context.
   //
-  // The source must be a valid `CopyResource` peer of the backbuffer (same
-  // size, format, and sample count); `create_matching_texture` builds one.
+  // The source must share the backbuffer's format and sample count and be at
+  // least its size; `create_texture` / `create_matching_texture` build one. A
+  // larger source is allowed: only the live `width` x `height` region is
+  // copied, so a grow-only render target can stay bound across resizes.
   void fill_back_buffer(ID3D11Resource* source) {
-    context_->CopyResource(back_buffer_, source);
+    const D3D11_BOX box{
+        .left = 0,
+        .top = 0,
+        .front = 0,
+        .right = width_,
+        .bottom = height_,
+        .back = 1,
+    };
+    context_->CopySubresourceRegion(back_buffer_, 0, 0, 0, 0, source, 0, &box);
   }
 
   // Present the backbuffer. `sync_interval` is the number of vertical blanks
   // to wait for; 0 presents uncapped.
   [[nodiscard]] hr_status present(UINT sync_interval = 1) {
     return hr_status{swapchain_->Present(sync_interval, 0)};
+  }
+
+  // Whether a status from `present` or `resize` signals a lost device, which
+  // invalidates the device and everything built from it. Recovery is to
+  // recreate the device and rebuild downstream, not to retry the call.
+  [[nodiscard]] static bool is_device_lost(const hr_status& status) noexcept {
+    return status.value() == DXGI_ERROR_DEVICE_REMOVED ||
+           status.value() == DXGI_ERROR_DEVICE_RESET;
   }
 
 #pragma endregion
@@ -191,7 +241,7 @@ private:
 private:
   com_ptr<ID3D11Device> device_;
   com_ptr<ID3D11DeviceContext> context_;
-  HWND hwnd_;
+  HWND hwnd_{};
   com_ptr<IDXGISwapChain1> swapchain_;
   com_ptr<ID3D11Texture2D> back_buffer_;
   UINT width_{};

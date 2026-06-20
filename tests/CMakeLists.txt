@@ -553,8 +553,12 @@ if(CORVID_ENABLE_CUDA)
         # Linux uses nvcc (g++-15 host). -lineinfo adds source-line correlation
         # to the optimized SASS so Nsight (and compute-sanitizer) can attribute
         # results to source lines; unlike -G it leaves device optimization
-        # intact, so the runtime cost is negligible.
-        string(APPEND CMAKE_CUDA_FLAGS " -std=c++23 -O3 -lineinfo")
+        # intact, so the runtime cost is negligible. --expt-relaxed-constexpr
+        # lets __host__ __device__ code call a constexpr __host__ function (e.g.
+        # cuda_kernel::ceil_div -> corvid::ceil_div); clang-CUDA allows that
+        # without a flag.
+        string(APPEND CMAKE_CUDA_FLAGS
+            " -std=c++23 -O3 -lineinfo --expt-relaxed-constexpr")
     endif()
     message(STATUS
         "CUDA enabled: ${CMAKE_CUDA_COMPILER} (arch ${CMAKE_CUDA_ARCHITECTURES})")

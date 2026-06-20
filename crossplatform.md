@@ -162,7 +162,10 @@ Compiler flags are set in the `WIN32` branch of `tests/CMakeLists.txt`:
 The CUDA flags live in the `CORVID_ENABLE_CUDA` block: on Windows `-std=c++23
 -fms-runtime-lib=dll -Wno-unknown-cuda-version` (the last silences the note that
 CUDA 13.3 is newer than clang 22's last fully supported toolkit); on Linux the
-nvcc form `-std=c++23 -O3 -lineinfo`.
+nvcc form `-std=c++23 -O3 -lineinfo --expt-relaxed-constexpr` (the last lets
+device code call a constexpr `__host__` function, e.g. the shared
+`corvid::ceil_div` that `cuda_kernel::ceil_div` forwards to; clang-CUDA allows
+this without a flag).
 
 ## 5. Header portability conventions
 
@@ -409,51 +412,103 @@ interactively: that Nsight VSE sets a live device breakpoint in a clang-built
 kernel. The debug info is provably present and in NVIDIA's format, but the GUI
 session itself was not driven from the build harness.
 
-Planned: window resize and multi-monitor (2026-06-19). The viewer's window is
-fixed-size today, but resize is a when, not an if, so the design is recorded
-now even though implementation is deferred. Resize is a cross-layer rebuild,
-not a swapchain-local change. The swapchain part is small:
-`IDXGISwapChain::ResizeBuffers(0, 0, 0, format, flags)` re-reads the client
-area, after which the back buffer is re-acquired via `GetBuffer(0)` and the
-stored width/height re-read (the tail of the current constructor, to be
-factored into a shared `d3d11_swapchain::resize()`). The real work is the CUDA
-interop: the kernel writes a separate `render_texture` that `CopyResource`
-moves into the back buffer, and `cuda_d3d11_resource` is bound to that specific
-texture, so a naive resize would recreate the texture, unregister and
-re-register the CUDA resource, and recompute the kernel grid.
+Implemented: window resize, multi-monitor, and device-lost recovery
+(2026-06-20). Resize is a cross-layer rebuild, not a swapchain-local change.
+The swapchain part is small: `d3d11_swapchain::resize()` calls
+`IDXGISwapChain::ResizeBuffers(0, 0, 0, DXGI_FORMAT_UNKNOWN, 0)` to re-read the
+client area, then re-acquires the back buffer via `GetBuffer(0)` and re-reads
+the stored width/height. The real work is the CUDA interop: the kernel writes a
+separate `render_texture` whose live `w x h` region is copied into the back
+buffer, and `cuda_d3d11_resource` is bound to that texture, so a naive resize
+would recreate the texture, unregister and re-register the CUDA resource, and
+recompute the kernel grid on every resize event.
 
-The chosen optimization avoids that churn: allocate `render_texture` once at a
-fixed maximum size and have the kernel write, and `CopyResource` copy, only the
-live `w x h` sub-rect (`CopySubresourceRegion`). An ordinary resize then
-changes only the launch dims and the copy rect; the texture and its CUDA
-registration stay valid, so the common path does no reallocation or
-re-registration.
+The optimization treats the render texture like a `std::vector`'s backing
+store: a grow-only capacity, decoupled from the live size. Two sizes are kept
+distinct. The live `w x h` is the actual client pixel size; it drives the
+swapchain back buffer (exact, via `ResizeBuffers`), the kernel launch grid, and
+the copy-out box. The capacity is the allocated size of the CUDA-registered
+`render_texture`, held at or above the live size, each axis rounded up to a
+256-pixel quantum. A resize that still fits the current capacity does no
+reallocation and no CUDA re-registration; it changes only the launch grid and
+the copy box. Only a resize that exceeds the capacity grows it (recreate the
+texture, re-register CUDA, recompute the grid), and the capacity never shrinks.
+The copy-out is `CopySubresourceRegion` of the live box from the
+possibly-larger texture into the exact-size back buffer, so the slack is never
+read.
 
-Multi-monitor sets that maximum. A window occupies one display at a time, so
-the cap is the per-axis maximum over all connected displays (max width from one
-monitor, max height from another, queried via SDL's `SDL_GetDisplays` and
-display-mode calls), not the virtual-desktop bounding box. At RGBA8 even a 4K
-cap is about 33 MB of VRAM, so sizing for the largest display is cheap. Moving
-a window between monitors then needs no special handling beyond the normal
-pixel-size-changed path; only the rare cases that exceed the cap (hot-plugging
-a larger display, a resolution-mode change, a window larger than any current
-monitor) fall back to the slow recreate-and-re-register path, the safety net
-that keeps the cap an optimization rather than a hard limit.
+This beats a fixed-maximum preallocation on all three goals. It is correct with
+no precomputed ceiling: a window spanning two monitors (wider than either), a
+monitor changing resolution, and hot-plugging a larger display are all just
+"the live size grew," handled by the same growth path rather than a
+special-case fallback. It is not wasteful: capacity tracks the largest size
+actually used this session, not the theoretical multi-monitor maximum, so a
+small window holds a small texture. And it is efficient on the common path:
+shrinking, and dragging across same-or-smaller monitors, reallocate nothing,
+while a grow-drag reallocates only when it crosses a 256-pixel boundary
+(without the quantum it would reallocate every frame it grows). The 256-pixel
+slack is a few MB at 4K, negligible against the saving. Because there is no cap
+to precompute, multi-monitor support needs no `SDL_GetDisplays` query at all;
+the viewer reacts only to `SDL_EVENT_WINDOW_PIXEL_SIZE_CHANGED`.
 
-Gotchas to carry into the implementation: `ResizeBuffers` fails unless all
-outstanding back-buffer references are released first, so `resize()` must reset
-`back_buffer_` before the call and re-acquire after, and any caller-held view
+The separate `render_texture` is what makes this pay off. `ResizeBuffers`
+re-creates the swapchain back buffers on every resize regardless, so binding
+CUDA to the back buffer would force a re-registration every resize. The owned
+texture lets the CUDA registration outlive resizes; grow-only capacity then
+makes the (rare) growth the only time that registration churns.
+
+Device-lost recovery shares this teardown-and-rebuild machinery. `Present` and
+`ResizeBuffers` can return `DXGI_ERROR_DEVICE_REMOVED` /
+`DXGI_ERROR_DEVICE_RESET` (`d3d11_swapchain::is_device_lost` classifies the
+`hr_status`); on that the viewer recreates everything downstream of the lost
+device (the device, swapchain, render texture, and CUDA registration), resetting
+the grow-only capacity, then continues. The rebuild path is therefore written
+as "(re)create from the current size," not "resize." The swapchain rebuild is
+`d3d11_swapchain::reset(device, hwnd)`, which releases the old swapchain and
+flushes D3D11's deferred destruction (`ClearState` + `Flush`) before creating
+the new one, because DXGI binds only one flip-model swapchain to an `HWND` at a
+time (a plain move-assignment would build the replacement before releasing the
+original, and the deferred teardown would not have freed the `HWND` yet). With
+that sequence owned by the wrapper, the device and swapchain are held as plain
+values; no `std::optional` empty state is needed.
+
+Gotchas handled in the implementation: `ResizeBuffers` fails unless all
+outstanding back-buffer references are released first, so `resize()` resets
+`back_buffer_` before the call and re-acquires after, and any caller-held view
 counts too; a minimized window has a 0x0 client area, on which both
-`ResizeBuffers` and rendering must be skipped; edge-drag fires a storm of
-resize events, so the latest pixel size is coalesced into one rebuild before
-the next frame; and the swapchain wants pixels, so the size comes from SDL's
-pixel-size events (`SDL_EVENT_WINDOW_PIXEL_SIZE_CHANGED`), not the logical
-window size, which differ under DPI scaling. The window must also be created
-resizable, and `sdl_event` must expose the pixel-size-changed event. Adjacent
-and sharing the same teardown-and-rebuild machinery is device-lost recovery
-(`DXGI_ERROR_DEVICE_REMOVED` from `Present`), which recreates the device and
-everything downstream, so the rebuild path should not be written as
-resize-only.
+`ResizeBuffers` and rendering are skipped; edge-drag fires a storm of resize
+events, so the latest pixel size is coalesced into one rebuild before the next
+frame; and the swapchain wants pixels, so the size comes from SDL's pixel-size
+events (`SDL_EVENT_WINDOW_PIXEL_SIZE_CHANGED`), not the logical window size,
+which differ under DPI scaling. The window is created resizable, and
+`sdl_event` exposes the pixel-size-changed event.
+
+Known SDL limitation, cross-DPI resize (investigated 2026-06-20, accepted as
+upstream). Dragging a window that straddles two monitors of different scale (for
+example a 150% portrait display next to a 100% landscape one) can momentarily
+collapse the window's client height to 0 (it first jumps larger, then
+collapses). This is SDL's own `WM_DPICHANGED` handling: SDL applies Windows'
+suggested rectangle via `SetWindowPos`, which scales the window by the DPI ratio
+and, interacting with the in-flight modal resize drag, drives the height to 0.
+It is in SDL, not in this code: `d3d11_swapchain::resize()` only follows the
+window size, and a logging build confirmed the minimum size (below) is honored
+for an ordinary drag at constant DPI but is bypassed on the DPI-transition
+resize. SDL3 has no hint or window flag to opt out (the SDL2
+`SDL_HINT_WINDOWS_DPI_SCALING` / `_DPI_AWARENESS` knobs were removed and not
+replaced), `SDL_WINDOW_HIGH_PIXEL_DENSITY` does not affect this path (tried),
+and resizing the window back during the event is reported to flash and revert,
+so there is no clean fix. The consequence is contained rather than cured, by two
+guards that are correct in their own right:
+
+- A minimum window size (`sdl_window::set_minimum_size`, 640x480 in the viewer)
+  keeps an ordinary drag from shrinking the window to nothing. It is honored on
+  the normal path; the cross-DPI path ignores it, hence the residual collapse.
+- The render loop skips all GPU work (kernel, copy, present) on any zero-area
+  window, queried each frame via `SDL_GetWindowSizeInPixels`. So whether the
+  window is collapsed by this SDL bug or simply minimized, no kernel runs and
+  nothing is presented to a dead surface, and the frame resumes the moment the
+  window has area again. The collapse is then a transient cosmetic glitch under
+  a narrow condition, with no wasted GPU work and no incorrect rendering.
 
 ## 12. Shared developer context across Windows and WSL
 
