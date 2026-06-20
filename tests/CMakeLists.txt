@@ -21,6 +21,10 @@ option(CORVID_ENABLE_CUDA "Build .cu targets with nvcc (host g++-15, libstdc++)"
 # (sanitizers, tidy, scan) all retain them. cleanbuild.sh turns this ON only
 # for the plain and coverage builds, where the assert cost is not wanted.
 option(CORVID_DISABLE_ASSERTS "Define NDEBUG to strip asserts" OFF)
+# Un-optimized, debuggable single-file build for the IDE (scripts/ide_build.*
+# drive this). Switches optimization to -O0 -g and routes output to debug_bin/;
+# the flag logic lives further down, after the per-platform flags are set.
+option(IDE_DEBUG "Un-optimized -O0 -g single-file build for the IDE" OFF)
 set(TEST_NAME "" CACHE STRING "Build only the named test source file")
 
 # Set the C++ standard to C++23
@@ -556,8 +560,36 @@ if(CORVID_ENABLE_CUDA)
         "CUDA enabled: ${CMAKE_CUDA_COMPILER} (arch ${CMAKE_CUDA_ARCHITECTURES})")
 endif()
 
-# Output directory
-set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/release_bin")
+# Single-file IDE debug builds (scripts/ide_build.sh/.ps1 drive this with
+# -DIDE_DEBUG=ON). Strip the optimization the normal build bakes in and switch
+# to -O0 -g for un-optimized stepping and debug info (a PDB on Windows, where
+# the /MD CRT from -fms-runtime-lib stays put so the exe still links the
+# Release-CRT Catch2). Clearing CMAKE_CXX_FLAGS_RELEASE drops the Release -O2
+# -DNDEBUG that a Windows Release configure adds; asserts stay live because
+# CORVID_DISABLE_ASSERTS is left OFF.
+if(IDE_DEBUG)
+    string(REGEX REPLACE "-O[0-9]" "" CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS}")
+    string(REGEX REPLACE "-march=native" "" CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS}")
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O0 -g")
+    set(CMAKE_CXX_FLAGS_RELEASE "")
+    # launch.json/tasks.json use one cross-platform path template ending in
+    # .exe; force that suffix so Linux binaries match it too (a no-op on
+    # Windows, where it is already .exe).
+    set(CMAKE_EXECUTABLE_SUFFIX ".exe")
+    if(CORVID_ENABLE_CUDA)
+        string(REGEX REPLACE "-O[0-9]" "" CMAKE_CUDA_FLAGS "${CMAKE_CUDA_FLAGS}")
+        set(CMAKE_CUDA_FLAGS "${CMAKE_CUDA_FLAGS} -O0 -g")
+        set(CMAKE_CUDA_FLAGS_RELEASE "")
+    endif()
+endif()
+
+# Output directory: debug_bin/ for IDE_DEBUG (where launch.json looks),
+# release_bin/ otherwise (cleanbuild's tree).
+if(IDE_DEBUG)
+    set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/debug_bin")
+else()
+    set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/release_bin")
+endif()
 
 # SDL3 for the Windows-only buckets: the plain-C++ wrapper tests in
 # tests/windows/ and the CUDA graphics targets in tests/cuda/windows/. A

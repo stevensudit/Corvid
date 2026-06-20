@@ -1,30 +1,29 @@
-# ide_build.ps1 - Windows single-file build dispatcher for the VSCode default
-# build task (.vscode/tasks.json, windows override). The Windows counterpart of
-# ide_build.sh: a .cpp or .cu compiles with clang++ (GNU-style driver, MSVC ABI)
-# to <dir>/debug_bin/<stem>.exe, where launch.json and the "Run Executable" task
-# find it (the .exe suffix matches the Linux side). A .cu adds clang's CUDA
-# flags: the CUDA bucket builds with clang, not nvcc, because nvcc 13.3's MSVC
-# device frontend has no C++23 dialect. See crossplatform.md.
+# ide_build.ps1 - Windows single-file IDE build for the VSCode default build
+# task (.vscode/tasks.json, windows override). Drives a dedicated debug CMake
+# tree (tests/build-debug) rather than invoking clang++ directly, so CMake stays
+# the single source of truth for include paths AND link libraries; this script
+# names none of its own. The requested target builds to
+# tests/build-debug/debug_bin/<stem>.exe, where launch.json and the "Run
+# Executable" task look. The Windows counterpart of ide_build.sh. See
+# crossplatform.md.
 [CmdletBinding()]
 param([Parameter(Mandatory)][string] $Src)
 
 $ErrorActionPreference = 'Stop'
 
-$llvmRoot = 'C:/Program Files/LLVM'
-$clang = "$llvmRoot/bin/clang++.exe"
-if (-not (Test-Path $clang)) { throw "clang++ not found at $clang" }
-if (-not (Test-Path $Src)) { throw "source not found: $Src" }
-
 # scripts/ide_build.ps1 -> the repo root is the parent directory.
-$workspace = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
-$srcDir = Split-Path -Parent $Src
+$repo = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
+$srcRoot = Join-Path $repo 'tests'
+$bldDir = Join-Path $repo 'tests/build-debug'
+$fcDebug = Join-Path $repo 'tests/.fetchcontent-debug'
+$llvmRoot = 'C:/Program Files/LLVM'
+$clangXx = "$llvmRoot/bin/clang++.exe"
+if (-not (Test-Path $clangXx)) { throw "clang++ not found at $clangXx" }
+if (-not (Test-Path $Src)) { throw "source not found: $Src" }
 $stem = [IO.Path]::GetFileNameWithoutExtension($Src)
-$outDir = Join-Path $srcDir 'debug_bin'
-New-Item -ItemType Directory -Force -Path $outDir | Out-Null
-$out = Join-Path $outDir "$stem.exe"
 
-# Bring in the MSVC environment (INCLUDE/LIB for clang++) unless already inside
-# a Developer shell.
+# Bring in the MSVC environment (INCLUDE/LIB for clang++, and cmake/ninja) unless
+# already inside a Developer shell. Same block as cleanbuild.ps1.
 if (-not $env:VSCMD_VER) {
   $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
   if (-not (Test-Path $vswhere)) { throw "vswhere not found at $vswhere" }
@@ -38,89 +37,42 @@ if (-not $env:VSCMD_VER) {
     -DevCmdArguments '-arch=x64 -host_arch=x64' | Out-Null
 }
 
-# Catch2 comes from the CMake build's persistent FetchContent cache (built by
-# cleanbuild.ps1). catch2_main.h supplies main() via Catch::Session, so only the
-# core Catch2 lib is needed, not Catch2Main. cleanbuild builds release, so the
-# lib is Catch2.lib (/MD); fall back to Catch2d.lib (/MDd) if a debug cache is
-# present. Run ./cleanbuild.ps1 once to populate the cache.
-$fc = Join-Path $workspace 'tests/.fetchcontent'
-$catch2 = Get-ChildItem (Join-Path $fc 'catch2-build/src') -Filter 'Catch2*.lib' -ErrorAction SilentlyContinue |
-  Where-Object { $_.Name -notmatch 'Main' } | Select-Object -First 1
-if (-not $catch2) {
-  throw "Catch2 not built yet (under $fc). Run ./cleanbuild.ps1 first."
-}
-# Match the CRT cleanbuild used for Catch2 - a dynamic/static or release/debug
-# CRT mismatch is a hard link error on Windows. clang++ defaults to the static
-# CRT, so request the dynamic one (dll = /MD, dll_dbg = /MDd) to match Catch2.
-$crt = if ($catch2.Name -match 'd\.lib$') { 'dll_dbg' } else { 'dll' }
-
-# Debug single-file build: -g (CodeView debug info -> PDB, which launch.json's
-# cppvsdbg config reads), -O0 (un-optimized stepping), C++23, and the CRT that
-# matches Catch2. Test sources include corvid headers root-relative ("corvid/...")
-# and catch2_main.h by bare name, so the repo root and tests/ both go on the
-# include path.
-$clArgs = @(
-  '-std=c++23', '-g', '-O0', "-fms-runtime-lib=$crt",
-  '-I', $workspace,
-  '-I', (Join-Path $workspace 'tests'),
-  '-I', (Join-Path $fc 'catch2-src/src'),
-  '-I', (Join-Path $fc 'catch2-build/generated-includes')
-)
-
-if ($Src -like '*.cu') {
-  # CUDA flags. clang's CUDA driver needs the target GPU arch (resolved from
-  # nvidia-smi, e.g. 8.9 -> sm_89), the toolkit path (derived from nvcc's
-  # location), and an explicit cudart link (clang does not auto-add it on
-  # Windows). -Wno-unknown-cuda-version silences the note that CUDA 13.3 is
-  # newer than clang 22's last fully supported toolkit. No -Wall/-Werror here,
-  # matching the cleanbuild CUDA bucket.
-  $nvcc = Get-Command nvcc -ErrorAction SilentlyContinue
-  if (-not $nvcc) { throw 'CUDA (.cu) build needs nvcc on PATH' }
-  $cudaPath = Split-Path (Split-Path $nvcc.Source)
+# CUDA (.cu) targets compile with clang (not nvcc) on Windows; mirror
+# cleanbuild.ps1's setup (GPU arch from nvidia-smi). Enabling CUDA whenever the
+# toolkit is present keeps the configure signature stable across .cpp and .cu
+# files, so switching files never forces a reconfigure.
+$cudaArgs = @()
+if (Get-Command nvcc -ErrorAction SilentlyContinue) {
   $cc = nvidia-smi --query-gpu=compute_cap --format=csv,noheader 2>$null | Select-Object -First 1
-  if (-not $cc) { throw 'no GPU arch from nvidia-smi' }
+  if (-not $cc) { throw 'CUDA toolkit present but no GPU arch from nvidia-smi' }
   $arch = ($cc.Trim() -replace '\.', '')
-  $clArgs += @(
-    "--cuda-gpu-arch=sm_$arch", "--cuda-path=$cudaPath", '-Wno-unknown-cuda-version',
-    "-L$cudaPath/lib/x64", '-lcudart')
-  # Auto-link cuBLAS for sources that use it, mirroring the cleanbuild CUDA loop
-  # (which adds CUDA::cublas when the source mentions cublas). It ships with the
-  # toolkit, so the lib path above already covers it.
-  if (Select-String -Path $Src -Pattern 'cublas' -Quiet) { $clArgs += '-lcublas' }
-} else {
-  # clang's real warning set, as errors, mirroring ide_build.sh.
-  $clArgs += @('-Wall', '-Wextra', '-Werror', '-Wno-unused-variable')
+  $cudaArgs = @('-DCORVID_ENABLE_CUDA=ON', "-DCMAKE_CUDA_COMPILER=$clangXx",
+    "-DCMAKE_CUDA_ARCHITECTURES=$arch")
+} elseif ($Src -like '*.cu') {
+  throw "'$Src' is a .cu file but the CUDA toolkit (nvcc + a GPU) was not found"
 }
 
-# SDL3 (window/input) for sources that pull in a corvid/sdl header - the
-# prebuilt drop fetched by scripts/fetch_sdl3.ps1 (mirrors the cuBLAS auto-link
-# above). -isystem keeps SDL's headers clear of -Werror; link the import lib and
-# stage SDL3.dll next to the exe so F5 can run it.
-$sdl3Lib = $null
-$sdl3Dll = $null
-if (Select-String -Path $Src -Pattern 'corvid/sdl|SDL3/' -Quiet) {
-  $sdl3 = Join-Path $workspace 'tests/.local/sdl3'
-  $sdl3Lib = Join-Path $sdl3 'lib/x64/SDL3.lib'
-  $sdl3Dll = Join-Path $sdl3 'lib/x64/SDL3.dll'
-  if (-not (Test-Path $sdl3Lib)) {
-    throw "SDL3 not found at $sdl3. Run ./scripts/fetch_sdl3.ps1 first."
-  }
-  $clArgs += @('-isystem', (Join-Path $sdl3 'include'))
+# Configure the debug tree: Release build type for the always-on /MD CRT (an
+# empty/Debug type pulls the debug CRT, which fails to link the Release-CRT
+# Catch2), with IDE_DEBUG flipping the flags to -O0 -g. Its own FetchContent
+# base keeps it from fighting cleanbuild's Release tree over the shared Catch2
+# build. No TEST_NAME: all targets configure once, then a single --target builds
+# on demand. Reuse the configured tree when the signature is unchanged, as
+# cleanbuild does, so only the first build pays the configure cost.
+$cfg = @('-S', $srcRoot, '-B', $bldDir, '-G', 'Ninja',
+  "-DCMAKE_CXX_COMPILER=$clangXx", '-DCMAKE_BUILD_TYPE=Release',
+  '-DIDE_DEBUG=ON', "-DFETCHCONTENT_BASE_DIR=$fcDebug") + $cudaArgs
+$sigFile = Join-Path $bldDir '.ide-build-config'
+$configSig = ($cfg -join '|')
+$reuse = (Test-Path $sigFile) -and (Test-Path (Join-Path $bldDir 'CMakeCache.txt')) -and
+  ((Get-Content $sigFile -Raw).Trim() -eq $configSig)
+if (-not $reuse) {
+  cmake --fresh @cfg
+  if ($LASTEXITCODE) { throw "configure failed ($LASTEXITCODE)" }
+  Set-Content -Path $sigFile -Value $configSig
 }
 
-$clArgs += @($Src, $catch2.FullName)
-if ($sdl3Lib) { $clArgs += $sdl3Lib }
-# Direct3D 11 (device/swapchain/present) plus user32 (GetClientRect in the
-# swapchain's resize()) for any source that pulls in a d3d11 header, across both
-# the tests/windows/ (.cpp) and tests/cuda/windows/ (.cu) buckets. CMake links
-# d3d11/dxgi the same way and gets user32 from its default Windows standard
-# libs, but clang++'s GNU driver adds none, so name them. All ship in the
-# Windows SDK, on %LIB% from the dev shell above, so they resolve with no path.
-if (Select-String -Path $Src -Pattern 'd3d11' -Quiet) {
-  $clArgs += @('-ld3d11', '-ldxgi', '-luser32')
-}
-$clArgs += @('-o', $out)
-& $clang @clArgs
-$rc = $LASTEXITCODE
-if ($rc -eq 0 -and $sdl3Dll) { Copy-Item -Path $sdl3Dll -Destination $outDir -Force }
-exit $rc
+# Build just the requested target. CMake supplies its flags and link libraries;
+# the SDL3.dll stage and PDB land next to the exe in debug_bin/ on their own.
+cmake --build $bldDir --target $stem
+exit $LASTEXITCODE

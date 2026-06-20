@@ -37,6 +37,7 @@
 
 # CMake
 build/
+build-debug/
 build-tests/
 CMakeFiles
 CMakeCache.txt
@@ -50,6 +51,7 @@ debug_bin
 release_bin
 tidy.log
 tests/.fetchcontent/
+tests/.fetchcontent-debug/
 tests/.local/
 
 # Claude Code

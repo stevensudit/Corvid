@@ -275,27 +275,37 @@ compute-sanitizer reports that and cudacheck records it as a skip, not a fault.
   ngtcp2 / openssl / liburing) and `.clangd.in` on Linux. Restart the clangd
   server after a reconfigure to pick up changes.
 - Single-file IDE build: `scripts/ide_build.sh` (Linux) and
-  `scripts/ide_build.ps1` (Windows), both emitting `debug_bin/<stem>.exe`. The
-  Windows builder compiles `.cpp` and `.cu` with clang++ (a `.cu` adds the
-  CUDA-frontend flags and links cudart, plus cuBLAS when the source uses it),
-  both producing a PDB. It links the
-  FetchContent Catch2 from the `cleanbuild.ps1` cache, so run `./cleanbuild.ps1`
-  once first, and re-run it plain after an `asan` build (an asan-instrumented
-  Catch2 will not link against a plain single-file object).
+  `scripts/ide_build.ps1` (Windows) are thin wrappers over a dedicated debug
+  CMake tree at `tests/build-debug` (its own `tests/.fetchcontent-debug` Catch2
+  cache, configured `-DIDE_DEBUG=ON`); each builds one `--target` to
+  `tests/build-debug/debug_bin/<stem>.exe`. CMake stays the single source of
+  truth for include paths and link libraries, so the IDE build and `cleanbuild`
+  cannot diverge on dependencies (the scripts name no flags or `-l` libs of
+  their own). The `IDE_DEBUG` knob (in `tests/CMakeLists.txt`) switches the
+  baked-in optimization to `-O0 -g` (a PDB on Windows, where the `/MD` CRT stays
+  put so the debug exe still links the Catch2 in this tree), keeps asserts live,
+  forces a `.exe` suffix so one path template serves both platforms, and routes
+  output to `debug_bin/`. The first build pays a one-time configure plus Catch2
+  build; later builds reuse the configured tree and relink just the named
+  target. A `.cu` builds the same way (clang++ on Windows, nvcc/g++-15 on Linux)
+  and also produces a PDB.
 - The `.cu` clangd block in `.clangd.win.in` puts clangd into `-xcuda` mode with
   the toolkit path (substituted from nvcc at configure time), so `.cu`/`.cuh`
   parse without flagging `__global__` or `<<<...>>>`.
-- `.vscode/tasks.json` and `launch.json` are OS-scoped: the build and run tasks
-  pick the platform script, and launch.json carries both a Linux (CodeLLDB) and
-  a Windows (cppvsdbg, since clang++ emits a PDB) debug config. One committed
-  `.vscode` serves a native-Windows checkout and a Remote-WSL checkout of the
-  same repo.
+- `.vscode/tasks.json` and `launch.json` are OS-scoped: the build task picks the
+  platform script, and launch.json carries both a Linux (CodeLLDB) and a Windows
+  (cppvsdbg, since clang++ emits a PDB) debug config. The run task and both debug
+  configs point at the fixed `tests/build-debug/debug_bin/<stem>.exe` the scripts
+  produce (one cross-platform template, hence the forced `.exe` suffix). One
+  committed `.vscode` serves a native-Windows checkout and a Remote-WSL checkout
+  of the same repo.
 - Device-side `.cu` debugging on Windows is NVIDIA Nsight Visual Studio Edition
   (full Visual Studio), not VSCode: Nsight VSCode Edition drives `cuda-gdb`,
   which is Linux/WSL-only. clang++ `-g -O0` emits the same NVIDIA device-debug
   sections (`.nv_debug_line_sass`, `.nv_debug_info_reg_sass`, DWARF) that nvcc
-  `-G` does (verified with `cuobjdump --dump-elf`), so the `debug_bin/<stem>.exe`
-  that `ide_build.ps1` already produces for a `.cu` is device-debuggable: open it
+  `-G` does (verified with `cuobjdump --dump-elf`), so the
+  `tests/build-debug/debug_bin/<stem>.exe` that `ide_build.ps1` produces for a
+  `.cu` is device-debuggable: open it
   in Visual Studio and use Nsight's "Start CUDA Debugging". Host-side `.cu`
   debugging stays on cppvsdbg via the PDB, as for `.cpp`.
 
