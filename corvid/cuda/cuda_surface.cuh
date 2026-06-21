@@ -16,10 +16,9 @@
 // limitations under the License.
 #pragma once
 
-#include <utility>
-
 #include <cuda_runtime.h>
 
+#include "./cuda_handle.cuh"
 #include "./cuda_status.cuh"
 
 // CUDA surface objects.
@@ -32,53 +31,29 @@ namespace corvid::cuda {
 // kernel writes through with `surf2Dwrite`.
 //
 // The array is borrowed, not owned, and must outlive the surface.
-class cuda_surface {
+class cuda_surface
+    : public cuda_handle<cudaSurfaceObject_t, cudaDestroySurfaceObject> {
 public:
 #pragma region Construction
 
   cuda_surface() = default;
 
-  explicit cuda_surface(cudaArray_t array) {
-    const cudaResourceDesc desc{
-        .resType = cudaResourceTypeArray,
-        .res = {.array = {.array = array}},
-    };
-    cuda_last_status{cudaCreateSurfaceObject(&surface_, &desc)}.or_throw();
-  }
-
-  cuda_surface(const cuda_surface&) = delete;
-  cuda_surface& operator=(const cuda_surface&) = delete;
-
-  cuda_surface(cuda_surface&& other) noexcept
-      : surface_{std::exchange(other.surface_, 0)} {}
-  cuda_surface& operator=(cuda_surface&& other) noexcept {
-    if (this != &other) {
-      destroy();
-      surface_ = std::exchange(other.surface_, 0);
-    }
-    return *this;
-  }
-  ~cuda_surface() { destroy(); }
-
-#pragma endregion
-#pragma region Accessors
-
-  [[nodiscard]] cudaSurfaceObject_t get() const noexcept { return surface_; }
-  [[nodiscard]] operator cudaSurfaceObject_t() const noexcept {
-    return surface_;
-  }
+  explicit cuda_surface(cudaArray_t array) : cuda_handle{create(array)} {}
 
 #pragma endregion
 #pragma region Helpers
 private:
-  void destroy() const {
-    if (surface_) cudaDestroySurfaceObject(surface_);
+  // Create a surface object over `array`, returning the handle for the base to
+  // adopt.
+  static cudaSurfaceObject_t create(cudaArray_t array) {
+    const cudaResourceDesc desc{
+        .resType = cudaResourceTypeArray,
+        .res = {.array = {.array = array}},
+    };
+    cudaSurfaceObject_t surface{};
+    cuda_last_status{cudaCreateSurfaceObject(&surface, &desc)}.or_throw();
+    return surface;
   }
-
-#pragma endregion
-#pragma region Data members
-private:
-  cudaSurfaceObject_t surface_{};
 
 #pragma endregion
 };

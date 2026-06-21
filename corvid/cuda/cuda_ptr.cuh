@@ -22,10 +22,10 @@
 #include <memory>
 #include <span>
 #include <type_traits>
-#include <utility>
 
 #include <cuda_runtime.h>
 
+#include "./cuda_handle.cuh"
 #include "./cuda_status.cuh"
 
 // CUDA memory management.
@@ -41,48 +41,18 @@
 
 namespace corvid::cuda {
 
-#pragma region details
-
-namespace details {
-// Allocate CUDA device memory for `count` objects of type `T`, and return a
-// pointer to the allocated memory. Returns `nullptr` on failure.
-template<typename T>
-T* cuda_malloc(size_t count) {
-  if (count > std::numeric_limits<size_t>::max() / sizeof(T)) return nullptr;
-  T* ptr = nullptr;
-  cuda_last_status status{cudaMalloc(&ptr, count * sizeof(T))};
-  if (!status) return nullptr;
-  return ptr;
-}
-
-// Free CUDA device memory allocated by `cuda_malloc`. Does nothing if `ptr` is
-// `nullptr`.
-template<typename T>
-void cuda_free(T* ptr) {
-  if (!ptr) return;
-  cudaFree(ptr);
-}
-
-// Copy `count` objects of type `T`, where `kind` identifies which parameter is
-// host or device.
-template<typename T>
-cuda_last_status
-cuda_copy(T* dest_ptr, const T* src_ptr, size_t count, cudaMemcpyKind kind) {
-  return cuda_last_status{
-      cudaMemcpy(dest_ptr, src_ptr, count * sizeof(T), kind)};
-}
-
-} // namespace details
-
-#pragma endregion
 #pragma region cuda_ptr
 
 // Owning, move-only RAII handle to an uninitialized block of `count` objects
 // of type `T` in CUDA device memory.
 //
-// The constructor allocates, leaving the value null on failure.
+// The constructor allocates, leaving the value null on failure. The
+// `cuda_handle` base owns the pointer and supplies `get`, the `T*` conversion,
+// the null checks, and move-only lifetime; this type adds the count and the
+// host transfers.
 template<typename T>
-class cuda_ptr {
+class cuda_ptr: public cuda_handle<T*, cudaFree> {
+  using base = cuda_handle<T*, cudaFree>;
   static_assert(std::is_trivially_copyable_v<T>,
       "cuda_ptr<T> requires a trivially copyable T: device memory is copied "
       "as raw bytes and never constructed.");
@@ -92,32 +62,7 @@ public:
 
   // Allocates but does not initialize device memory for `count` objects of
   // type `T`.
-  explicit cuda_ptr(size_t count = 1)
-      : ptr_{details::cuda_malloc<T>(count)}, count_{count} {}
-
-  cuda_ptr(const cuda_ptr&) = delete;
-  cuda_ptr& operator=(const cuda_ptr&) = delete;
-
-  cuda_ptr(cuda_ptr&& other) noexcept
-      : ptr_{std::exchange(other.ptr_, nullptr)},
-        count_{std::exchange(other.count_, 0)} {}
-  cuda_ptr& operator=(cuda_ptr&& other) noexcept {
-    if (this != &other) {
-      details::cuda_free(ptr_);
-      ptr_ = std::exchange(other.ptr_, nullptr);
-      count_ = std::exchange(other.count_, 0);
-    }
-    return *this;
-  }
-
-  ~cuda_ptr() { details::cuda_free(ptr_); }
-
-#pragma endregion
-#pragma region Status
-
-  [[nodiscard]] bool ok() const { return ptr_; }
-  [[nodiscard]] explicit operator bool() const { return ok(); }
-  [[nodiscard]] bool operator!() const { return !ok(); }
+  explicit cuda_ptr(size_t count = 1) : base{allocate(count)}, count_{count} {}
 
 #pragma endregion
 #pragma region Transfer
@@ -127,7 +72,7 @@ public:
   [[nodiscard]] cuda_last_status store(T* host_ptr, size_t count = 0) const {
     if (count == 0) count = count_;
     assert(count <= count_ && "store array size exceeds allocated count");
-    return details::cuda_copy(host_ptr, ptr_, count, cudaMemcpyDeviceToHost);
+    return copy(host_ptr, this->get(), count, cudaMemcpyDeviceToHost);
   }
   [[nodiscard]] cuda_last_status store(std::span<T> host_span) const {
     return store(host_span.data(), host_span.size());
@@ -147,7 +92,7 @@ public:
   [[nodiscard]] cuda_last_status load(const T* host_ptr, size_t count = 0) {
     if (count == 0) count = count_;
     assert(count <= count_ && "load array size exceeds allocated count");
-    return details::cuda_copy(ptr_, host_ptr, count, cudaMemcpyHostToDevice);
+    return copy(this->get(), host_ptr, count, cudaMemcpyHostToDevice);
   }
   [[nodiscard]] cuda_last_status load(std::span<const T> host_span) {
     return load(host_span.data(), host_span.size());
@@ -165,19 +110,29 @@ public:
   // TODO: Add overloads that take a `cuda_ptr` to do device-to-device.
 
 #pragma endregion
-#pragma region Accessors
+#pragma region Helpers
+private:
+  // Allocate CUDA device memory for `count` objects of type `T`, and return a
+  // pointer to the allocated memory. Returns `nullptr` on failure.
+  static T* allocate(size_t count) {
+    if (count > std::numeric_limits<size_t>::max() / sizeof(T)) return nullptr;
+    T* ptr = nullptr;
+    cuda_last_status status{cudaMalloc(&ptr, count * sizeof(T))};
+    if (!status) return nullptr;
+    return ptr;
+  }
 
-  // Return address of device pointer; cannot be dereferenced on the host.
-  [[nodiscard]] T* device_ptr() const noexcept { return ptr_; }
-  [[nodiscard]] operator T*() const noexcept { return ptr_; }
-  void operator*() const {
-    if (!ptr_) throw std::runtime_error{"dereferencing null cuda_ptr"};
+  // Copy `count` objects of type `T`, where `kind` identifies which parameter
+  // is host or device.
+  static cuda_last_status
+  copy(T* dest_ptr, const T* src_ptr, size_t count, cudaMemcpyKind kind) {
+    return cuda_last_status{
+        cudaMemcpy(dest_ptr, src_ptr, count * sizeof(T), kind)};
   }
 
 #pragma endregion
 #pragma region Data members
 private:
-  T* ptr_;
   size_t count_;
 
 #pragma endregion

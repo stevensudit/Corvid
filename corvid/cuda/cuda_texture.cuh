@@ -16,10 +16,9 @@
 // limitations under the License.
 #pragma once
 
-#include <utility>
-
 #include <cuda_runtime.h>
 
+#include "./cuda_handle.cuh"
 #include "./cuda_status.cuh"
 
 // CUDA texture objects.
@@ -36,13 +35,21 @@ namespace corvid::cuda {
 // y, z)`. Linear filtering requires a floating-point array.
 //
 // The array is borrowed, not owned, and must outlive the texture.
-class cuda_texture {
+class cuda_texture
+    : public cuda_handle<cudaTextureObject_t, cudaDestroyTextureObject> {
 public:
 #pragma region Construction
 
   cuda_texture() = default;
 
-  explicit cuda_texture(cudaArray_t array) {
+  explicit cuda_texture(cudaArray_t array) : cuda_handle{create(array)} {}
+
+#pragma endregion
+#pragma region Helpers
+private:
+  // Create a texture object over `array`, returning the handle for the base to
+  // adopt.
+  static cudaTextureObject_t create(cudaArray_t array) {
     const cudaResourceDesc resource_desc{
         .resType = cudaResourceTypeArray,
         .res = {.array = {.array = array}},
@@ -54,45 +61,13 @@ public:
         .readMode = cudaReadModeElementType,
         .normalizedCoords = 0,
     };
+    cudaTextureObject_t texture{};
     cuda_last_status{
-        cudaCreateTextureObject(&texture_, &resource_desc, &texture_desc,
+        cudaCreateTextureObject(&texture, &resource_desc, &texture_desc,
             nullptr)}
         .or_throw();
+    return texture;
   }
-
-  cuda_texture(const cuda_texture&) = delete;
-  cuda_texture& operator=(const cuda_texture&) = delete;
-
-  cuda_texture(cuda_texture&& other) noexcept
-      : texture_{std::exchange(other.texture_, 0)} {}
-  cuda_texture& operator=(cuda_texture&& other) noexcept {
-    if (this != &other) {
-      destroy();
-      texture_ = std::exchange(other.texture_, 0);
-    }
-    return *this;
-  }
-  ~cuda_texture() { destroy(); }
-
-#pragma endregion
-#pragma region Accessors
-
-  [[nodiscard]] cudaTextureObject_t get() const noexcept { return texture_; }
-  [[nodiscard]] operator cudaTextureObject_t() const noexcept {
-    return texture_;
-  }
-
-#pragma endregion
-#pragma region Helpers
-private:
-  void destroy() const {
-    if (texture_) cudaDestroyTextureObject(texture_);
-  }
-
-#pragma endregion
-#pragma region Data members
-private:
-  cudaTextureObject_t texture_{};
 
 #pragma endregion
 };

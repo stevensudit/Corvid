@@ -43,7 +43,7 @@ TEST_CASE("cuda saxpy kernel runs on the device", "[cuda]") {
   if (cuda_ptr<float> d_out; true) {
     REQUIRE(d_out.ok());
     // Runs a single grid of a single block of a single thread.
-    saxpy_kernel<<<1, 1>>>(2.0F, 3.0F, 4.0F, d_out.device_ptr());
+    saxpy_kernel<<<1, 1>>>(2.0F, 3.0F, 4.0F, d_out.get());
     // Because we're on the default stream, the copy from device to host
     // blocks.
     REQUIRE(d_out.store(h_out));

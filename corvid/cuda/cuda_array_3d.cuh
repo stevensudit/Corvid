@@ -18,7 +18,7 @@
 
 #include <cuda_runtime.h>
 
-#include "./array_owner.cuh"
+#include "./cuda_handle.cuh"
 #include "./cuda_status.cuh"
 
 // An owned 3D CUDA array.
@@ -29,30 +29,26 @@ namespace corvid::cuda {
 
 // RAII handle to an owned 3D `cudaArray` of float elements, sized by a
 // `cudaExtent` and allocated with `cudaArraySurfaceLoadStore` so the same
-// storage can back both a texture (for reads) and a surface (for writes). The
-// array is owned through an `array_owner` member, so copy, move, and
-// destruction all follow by rule of zero.
-class cuda_array_3d {
+// storage can back both a texture (for reads) and a surface (for writes).
+class cuda_array_3d: public cuda_handle<cudaArray_t, cudaFreeArray> {
 public:
 #pragma region Construction
 
   cuda_array_3d() = default;
 
   explicit cuda_array_3d(cudaExtent extent)
-      : array_{allocate(extent)}, extent_{extent} {}
+      : cuda_handle{allocate(extent)}, extent_{extent} {}
 
 #pragma endregion
 #pragma region Accessors
 
-  [[nodiscard]] cudaArray_t get() const noexcept { return array_; }
-  [[nodiscard]] operator cudaArray_t() const noexcept { return array_; }
   [[nodiscard]] const cudaExtent& extent() const noexcept { return extent_; }
 
 #pragma endregion
 #pragma region Helpers
 private:
-  // Allocate a 3D float array of `extent`, returning the handle for the
-  // `array_owner` member to adopt.
+  // Allocate a 3D float array of `extent`, returning the handle for the base
+  // to adopt.
   static cudaArray_t allocate(cudaExtent extent) {
     const cudaChannelFormatDesc channel = cudaCreateChannelDesc<float>();
     cudaArray_t array{};
@@ -65,7 +61,6 @@ private:
 #pragma endregion
 #pragma region Data members
 private:
-  array_owner array_;
   cudaExtent extent_{};
 
 #pragma endregion
