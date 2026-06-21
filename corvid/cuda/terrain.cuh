@@ -158,5 +158,19 @@ value_noise_3d(float x, float y, float z) {
 }
 
 #pragma endregion
+#pragma region Erosion
+
+// Material a column sheds toward one neighbor: zero unless it stands steeper
+// than the repose slope (a height difference over `max_step`), then a `rate`
+// fraction of the excess. Symmetric, so a neighbor pair conserves material.
+[[nodiscard]] __device__ inline float
+talus_flow(float h, float hn, float max_step, float rate) {
+  const float diff = h - hn;
+  if (diff > max_step) return -rate * (diff - max_step);
+  if (diff < -max_step) return rate * ((-diff) - max_step);
+  return 0.0F;
+}
+
+#pragma endregion
 
 } // namespace corvid::cuda::terrain

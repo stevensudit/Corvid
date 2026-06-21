@@ -22,7 +22,7 @@
 #include "./vec.cuh"
 
 // Scene-independent building blocks for an SDF ray marcher: shading terms that
-// march a caller-supplied distance field, plus a color-to-byte conversion. The
+// march a caller-supplied distance field, plus color-to-byte conversions. The
 // field is a template parameter `Sdf`, a `float(pos3)` callable, so these work
 // against any scene.
 
@@ -168,6 +168,13 @@ template<scene_policy Scene>
 [[nodiscard]] __device__ inline unsigned char to_byte(float c) {
   const float g = powf(fminf(fmaxf(c, 0.0F), 1.0F), 1.0F / 2.2F);
   return static_cast<unsigned char>(lroundf(g * 255.0F));
+}
+
+// Convert a linear color channel in [0, 1] to an 8-bit unorm (no gamma), for
+// packing into a normalized-unorm grid that is filtered back as a float.
+[[nodiscard]] __device__ inline unsigned char to_unorm8(float c) {
+  return static_cast<unsigned char>(
+      lroundf(fminf(fmaxf(c, 0.0F), 1.0F) * 255.0F));
 }
 
 #pragma endregion
