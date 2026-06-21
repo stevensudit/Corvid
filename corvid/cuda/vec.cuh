@@ -137,6 +137,11 @@ struct vec3 {
   [[nodiscard]] friend __host__ __device__ vec3 normalize(vec3 a) {
     return a / length(a);
   }
+
+  // Reflect incident direction `d` about unit normal `n`.
+  [[nodiscard]] friend __host__ __device__ vec3 reflect(vec3 d, vec3 n) {
+    return d - (n * (2.0F * dot(d, n)));
+  }
 };
 
 #pragma endregion

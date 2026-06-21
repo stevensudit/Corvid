@@ -35,6 +35,18 @@ namespace corvid::cuda {
   return length(p) - r;
 }
 
+// Distance from `p` to an axis-aligned ellipsoid of radii `r` centered at the
+// origin. The result is a bounded approximation (exact distance to a general
+// ellipsoid has no closed form), accurate enough for sphere tracing.
+[[nodiscard]] __device__ inline float sd_ellipsoid(vec3 p, vec3 r) {
+  const vec3 pr{p.x / r.x, p.y / r.y, p.z / r.z};
+  const float k0 = length(pr);
+  if (k0 == 0.0F) return -fminf(r.x, fminf(r.y, r.z));
+  const vec3 pr2{p.x / (r.x * r.x), p.y / (r.y * r.y), p.z / (r.z * r.z)};
+  const float k1 = length(pr2);
+  return k0 * (k0 - 1.0F) / k1;
+}
+
 // Distance from `p` to an axis-aligned box of half-extents `b`.
 [[nodiscard]] __device__ inline float sd_box(vec3 p, vec3 b) {
   const vec3 d{fabsf(p.x) - b.x, fabsf(p.y) - b.y, fabsf(p.z) - b.z};

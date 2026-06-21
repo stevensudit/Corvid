@@ -5,9 +5,11 @@
 // interop texture through `cudaGraphicsD3D11*`; D3D copies it to the
 // backbuffer and presents. The frame stays on the GPU. Unlike the SDF viewer's
 // analytic scene, the geometry is sampled from the field, so it can be edited
-// in place (the next rung). A free-fly camera moves with WASD (Space/Ctrl up
-// and down, Shift to go faster) or the mouse wheel (forward/back), and looks
-// with the mouse while the right button is held; Escape quits.
+// in place (the next rung). The player is an avatar of a metallic ball and a
+// saucer head: WASD drives the ball (Space/Ctrl raise and lower it, Shift goes
+// faster), the right mouse button orbits the look, and the mouse wheel zooms
+// the view from third person in to first person through the head. Escape
+// quits.
 
 #include <cmath>
 #include <cstdint>
@@ -16,6 +18,7 @@
 
 #include <cuda_runtime.h>
 
+#include "corvid/cuda/avatar.cuh"
 #include "corvid/cuda/camera.cuh"
 #include "corvid/cuda/cuda_kernel.cuh"
 #include "corvid/cuda/cuda_ptr.cuh"
@@ -126,7 +129,8 @@ __global__ void fill_kernel(cudaSurfaceObject_t density_surface,
 // Shade each pixel by supersampling and write the result. The texture is
 // `R8G8B8A8_UNORM`, so a `uchar4` of (r, g, b, a) maps straight to its bytes.
 __global__ void voxel_kernel(cudaSurfaceObject_t out, resolution res,
-    camera_rays cam, density_field field, cudaTextureObject_t color_tex) {
+    camera_rays cam, density_field field, cudaTextureObject_t color_tex,
+    metal_ball ball, saucer_head head) {
   const int px = cuda_kernel::x_index();
   const int py = cuda_kernel::y_index();
   const auto fx = static_cast<float>(px);
@@ -135,7 +139,13 @@ __global__ void voxel_kernel(cudaSurfaceObject_t out, resolution res,
 
   // Average an `aa_samples` x `aa_samples` grid of sub-pixel rays to
   // anti-alias the silhouettes and soften the strata seams. 1 disables it.
-  constexpr int aa_samples = 3;
+  //
+  // Adaptive AA (future): shade one center sample first, then fan out to the
+  // full grid only on pixels whose nearest-hit id or depth disagrees with a
+  // neighbor, the silhouettes that actually alias, leaving flat interiors at
+  // one sample. That spends the AA budget on edges and buys back most of the
+  // supersampling cost.
+  constexpr int aa_samples = 2;
   constexpr float inv = 1.0F / static_cast<float>(aa_samples);
   vec3 color{};
   for (int sy = 0; sy < aa_samples; ++sy)
@@ -144,7 +154,9 @@ __global__ void voxel_kernel(cudaSurfaceObject_t out, resolution res,
       const float oy = (static_cast<float>(sy) + 0.5F) * inv;
       const vec3 ray_dir =
           cam.ray_direction(pos2{vec2{fx + ox, fy + oy}}, res);
-      color = color + shade_terrain_ray(field, color_tex, cam.eye, ray_dir);
+      color =
+          color +
+          shade_primary_ray(field, color_tex, ball, head, cam.eye, ray_dir);
     }
   color = color * (inv * inv);
 
@@ -239,6 +251,139 @@ __global__ void dig_kernel(cudaSurfaceObject_t surface, density_field field,
   default: return false;
   }
 }
+
+#pragma endregion
+#pragma region Avatar
+
+// The player's avatar rig: the ball anchor the player drives and the saucer
+// head the camera rides inside. The camera is always the head, so the head is
+// never drawn in the view; you see it only reflected in the ball. A Warcraft-
+// style zoom slides the head along the yaw-forward axis relative to the ball:
+// pulled back and raised for an over-the-shoulder third-person view, or pushed
+// in front of the ball for first person (the ball then behind you, visible
+// only on a free-look turn). WASD moves the anchor in the yaw-horizontal
+// frame, the right-drag orbits the look, the mouse wheel zooms. No physics
+// yet: the anchor moves directly and the ball floats where it is left.
+struct avatar_rig {
+  pos3 anchor;        // ball center, what the player drives
+  orientation facing; // yaw/pitch look direction
+  radians heading;    // yaw the head sits along; tracks the look while moving
+  float boom;         // head distance behind the ball; negative is in front
+  float
+      boom_target; // where the wheel is taking the boom; `update` eases to it
+  float tan_half_fov;
+  float spin = 0.0F;   // saucer belly rotation, advanced by `update`
+  float thrust = 0.0F; // propulsion glow, from motion, advanced by `update`
+  float moving = 0.0F; // this frame's planar movement amount, set by `move`
+
+  static constexpr float ball_radius = 0.6F;
+  static constexpr float head_radius = 0.45F;
+  static constexpr float head_height = 0.9F; // head hover height over the ball
+  static constexpr float boom_min = -1.5F;   // pushed this far in front (FPS)
+  static constexpr float boom_max = 14.0F;   // pulled this far back (wide)
+  static constexpr float boom_rise = 0.35F;  // head rise per unit pulled back
+  static constexpr float zoom_approach = 8.0F; // boom easing rate per second
+  static constexpr float spin_rate = 0.6F;   // belly spin, radians per second
+  static constexpr float saucer_lean = 0.4F; // belly lean toward the look
+  static constexpr float heading_approach = 8.0F; // heading swing while moving
+  static constexpr float thrust_full = 12.0F;     // speed that reads as full
+  static constexpr float thrust_approach = 5.0F;  // thrust glow ramp/fade rate
+
+  // The orthonormal view basis for the current facing.
+  [[nodiscard]] basis frame() const {
+    const float cos_pitch = cos(facing.pitch);
+    const vec3 forward{cos(facing.yaw) * cos_pitch, sin(facing.pitch),
+        sin(facing.yaw) * cos_pitch};
+    const vec3 right = normalize(cross(forward, camera::world_up));
+    return {forward, right, cross(right, forward)};
+  }
+
+  // The yaw-only forward, flattened to the ground plane, for movement and head
+  // placement that ignore pitch.
+  [[nodiscard]] vec3 ground_forward() const {
+    const basis b = frame();
+    return normalize(vec3{b.forward.x, 0.0F, b.forward.z});
+  }
+
+  // The head position, which is also the eye: offset from the ball along the
+  // heading (behind by the boom, in front when negative) and hovering above
+  // it, rising as it pulls back. The heading, not the live look, places the
+  // head, so free-look turns the camera without orbiting the head around the
+  // ball.
+  [[nodiscard]] pos3 eye() const {
+    const float rise = head_height + ((boom > 0.0F ? boom : 0.0F) * boom_rise);
+    const vec3 heading_fwd{cos(heading), 0.0F, sin(heading)};
+    return anchor - (heading_fwd * boom) + (camera::world_up * rise);
+  }
+
+  // The saucer's tilted up axis (disc normal). The saucer is rigidly mounted
+  // to the view and tilts as a body to aim its fixed camera: the disc normal
+  // is the view up leaned back along the look, so the belly faces outward.
+  // Pitch the look down and the whole saucer noses down with it, showing its
+  // profile.
+  [[nodiscard]] vec3 saucer_up() const {
+    const basis b = frame();
+    return normalize(b.up - (b.forward * saucer_lean));
+  }
+
+  // Drive the anchor in the yaw-horizontal frame. Space/Ctrl still raise and
+  // lower it directly, since there is no terrain following yet. Records the
+  // planar movement so `update` can swing the heading and drive the thrust.
+  void move(float forward, float strafe, float lift) {
+    const basis b = frame();
+    const vec3 fwd = normalize(vec3{b.forward.x, 0.0F, b.forward.z});
+    const vec3 right = normalize(vec3{b.right.x, 0.0F, b.right.z});
+    anchor = anchor + (fwd * forward) + (right * strafe) +
+             (camera::world_up * lift);
+    moving = fabsf(forward) + fabsf(strafe);
+  }
+
+  // Orbit the look by yaw/pitch deltas, clamping pitch shy of vertical.
+  void look(float yaw, float pitch) {
+    facing.yaw = facing.yaw + radians{yaw};
+    facing.pitch = std::clamp(facing.pitch + radians{pitch},
+        -camera::max_pitch, camera::max_pitch);
+  }
+
+  // Aim the zoom: a positive delta (wheel up) targets a smaller boom, toward
+  // first person. The head only glides there in `update`, so it reads as the
+  // saucer moving rather than snapping.
+  void zoom(float delta) {
+    boom_target = std::clamp(boom_target - delta, boom_min, boom_max);
+  }
+
+  // Advance the frame: ease the boom toward its zoom target, turn the belly
+  // spin, swing the heading toward the look while moving (so the head leads
+  // travel but holds still for free-look), and drive the thrust glow from how
+  // fast the saucer is moving and zooming.
+  void update(float dt) {
+    const float old_boom = boom;
+    boom = boom + ((boom_target - boom) * (1.0F - expf(-zoom_approach * dt)));
+    spin = spin + (spin_rate * dt);
+
+    if (moving > 0.0F) {
+      const radians delta =
+          radians_atan2(sin(facing.yaw - heading), cos(facing.yaw - heading));
+      heading = heading + (delta * (1.0F - expf(-heading_approach * dt)));
+    }
+
+    const float planar = dt > 0.0F ? moving / dt : 0.0F;
+    const float zoom_speed = dt > 0.0F ? fabsf(boom - old_boom) / dt : 0.0F;
+    const float target = fminf((planar + zoom_speed) / thrust_full, 1.0F);
+    thrust =
+        thrust + ((target - thrust) * (1.0F - expf(-thrust_approach * dt)));
+  }
+
+  // The view rays for the current pose, looking out from inside the head.
+  [[nodiscard]] camera_rays rays() const {
+    return {eye(), frame(), tan_half_fov};
+  }
+
+  [[nodiscard]] metal_ball ball() const { return {anchor, ball_radius}; }
+  [[nodiscard]] saucer_head head() const {
+    return {eye(), saucer_up(), head_radius, spin, thrust};
+  }
+};
 
 #pragma endregion
 #pragma region World generation
@@ -347,10 +492,13 @@ int main() {
         cuda_kernel::ceil_div(dig_span, dig_block.y),
         cuda_kernel::ceil_div(dig_span, dig_block.z)};
 
-    // Start high and back, looking toward -z and down at the terrain, with a
-    // 60-degree vertical field of view.
-    camera cam{pos3{vec3{0.0F, 16.0F, 28.0F}},
-        orientation{-90.0_deg, -25.0_deg}, 60.0_deg};
+    // The avatar starts floating above the origin (no gravity yet), looking
+    // toward -z and slightly down, in a third-person view pulled back from the
+    // head. The mouse wheel zooms in toward first person; the right-drag
+    // orbits. 60-degree vertical field of view.
+    avatar_rig rig{pos3{vec3{0.0F, 10.0F, 0.0F}},
+        orientation{-90.0_deg, -20.0_deg}, -90.0_deg, 7.0F, 7.0F,
+        tan(60.0_deg * 0.5F)};
     fly_input input;
 
     const dim3 block{16, 16};
@@ -381,14 +529,19 @@ int main() {
 
       // Smooth the look before moving so a strafe uses this frame's facing.
       const auto [yaw, pitch] = input.look(dt);
-      cam.look({radians{yaw}, radians{pitch}});
+      rig.look(yaw, pitch);
 
       const auto [fwd, strafe, lift] = input.movement(dt, 8.0F);
-      cam.move(fwd, strafe, lift);
+      rig.move(fwd, strafe, lift);
 
-      // The mouse wheel dollies forward/back in fixed steps: an impulse, not a
-      // held velocity, so it is not scaled by frame time.
-      if (input.wheel != 0.0F) cam.move(input.dolly(), 0.0F, 0.0F);
+      // The mouse wheel aims the zoom between third and first person: an
+      // impulse, not a held velocity, so it is not scaled by frame time. The
+      // head then glides toward that target in `update`, so a zoom slides the
+      // saucer in or out rather than snapping.
+      if (input.wheel != 0.0F) rig.zoom(input.dolly());
+
+      // Ease the boom toward its zoom target and turn the saucer's belly spin.
+      rig.update(dt);
 
       // Skip all GPU work when the window has no client area (minimized, or
       // collapsed by the OS during a mixed-DPI cross-monitor drag).
@@ -407,11 +560,16 @@ int main() {
         SDL_SetWindowTitle(win, title);
       }
 
-      const camera_rays rays = cam.rays();
+      const camera_rays rays = rig.rays();
+      const metal_ball ball = rig.ball();
+      const saucer_head head = rig.head();
 
       // Carve the field at the crosshair while the left button is held. The
       // pick records the hit in device memory and the brush reads it there, so
       // the dig stays on the GPU; the next frame's march shows the hole.
+      //
+      // The center ray still aims the dig; the cursor-driven in-world reticle
+      // that replaces it is the next step.
       if (digging) {
         pick_kernel<<<1, 1>>>(field, rays.eye, rays.frame.forward, dig_target);
         dig_kernel<<<dig_grid, dig_block>>>(volume.surface(), field,
@@ -424,7 +582,7 @@ int main() {
                 cuda_kernel::ceil_div(h, block.y)};
             voxel_kernel<<<grid_dim, block>>>(cuda_surface{array},
                 resolution{static_cast<float>(w), static_cast<float>(h)}, rays,
-                field, colors.texture());
+                field, colors.texture(), ball, head);
           })
           .or_throw();
     }
