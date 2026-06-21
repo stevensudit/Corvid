@@ -93,20 +93,51 @@ struct density_field {
 #pragma region Marching
 
   // March from `eye` along unit `dir` to the first solid surface, returning
-  // the distance to the hit, or a negative value on a miss. Fixed-step until
-  // the density crosses from air into solid, then bisect that interval for a
-  // crisp surface.
+  // the distance to the hit, or a negative value on a miss.
+  //
+  // The ray is first clipped to the field's world box, so the march never
+  // samples the clamped extrusion outside the volume: outside the box is sky.
+  // Within it the march sphere-traces: in air the surface is at least
+  // `|density| / lipschitz` away, since the field changes by at most
+  // `lipschitz` per unit, so a step that long cannot skip it. Steps shrink
+  // toward the surface. A head-on ray crosses into solid and the interval is
+  // bisected for a crisp hit; a grazing ray, which nears the surface without
+  // crossing, is accepted once within `hit_epsilon`. `lipschitz` must exceed
+  // the field's steepest slope, or a dig wall steeper than it can be overshot.
   [[nodiscard]] __device__ float raymarch(pos3 eye, vec3 dir) const {
-    constexpr float far_dist = 160.0F;
-    constexpr int max_steps = 512;
+    constexpr int max_steps = 1024;
     constexpr int refine_steps = 6;
-    const float step_size = voxel_size * 0.5F;
-    float dist = 0.0F;
+    constexpr float lipschitz = 4.0F;
+    constexpr float hit_epsilon = 0.02F;
+    const float max_step = voxel_size * 8.0F;
+
+    // Clip to the world box (slab test). Voxel (0, 0, 0) is centered at
+    // `origin`, so the box runs half a voxel past the first and last centers.
+    const float half = 0.5F * voxel_size;
+    const vec3 bmin{origin.v.x - half, origin.v.y - half, origin.v.z - half};
+    const vec3 bmax{
+        origin.v.x + ((static_cast<float>(extent.width) - 0.5F) * voxel_size),
+        origin.v.y + ((static_cast<float>(extent.height) - 0.5F) * voxel_size),
+        origin.v.z + ((static_cast<float>(extent.depth) - 0.5F) * voxel_size)};
+    const vec3 inv{1.0F / dir.x, 1.0F / dir.y, 1.0F / dir.z};
+    const float tx0 = (bmin.x - eye.v.x) * inv.x;
+    const float tx1 = (bmax.x - eye.v.x) * inv.x;
+    const float ty0 = (bmin.y - eye.v.y) * inv.y;
+    const float ty1 = (bmax.y - eye.v.y) * inv.y;
+    const float tz0 = (bmin.z - eye.v.z) * inv.z;
+    const float tz1 = (bmax.z - eye.v.z) * inv.z;
+    const float enter = fmaxf(fmaxf(fminf(tx0, tx1), fminf(ty0, ty1)),
+        fmaxf(fminf(tz0, tz1), 0.0F));
+    const float exit =
+        fminf(fminf(fmaxf(tx0, tx1), fmaxf(ty0, ty1)), fmaxf(tz0, tz1));
+    if (exit < enter) return -1.0F;
+
+    float prev = enter;
+    float dist = enter;
     for (int step = 0; step < max_steps; ++step) {
-      dist += step_size;
-      if (dist > far_dist) break;
-      if (sample_density(eye + (dir * dist)) >= 0.0F) {
-        float lo = dist - step_size;
+      const float density = sample_density(eye + (dir * dist));
+      if (density >= 0.0F) {
+        float lo = prev;
         float hi = dist;
         for (int refine = 0; refine < refine_steps; ++refine) {
           const float mid = 0.5F * (lo + hi);
@@ -117,6 +148,11 @@ struct density_field {
         }
         return hi;
       }
+      const float safe = -density / lipschitz;
+      if (safe < hit_epsilon) return dist;
+      prev = dist;
+      dist += fminf(safe, max_step);
+      if (dist > exit) break;
     }
     return -1.0F;
   }

@@ -32,7 +32,9 @@ namespace corvid::cuda {
 //
 // The texture filters linearly, clamps at the edges, and uses unnormalized
 // coordinates, so a fetch at `(x + 0.5, y + 0.5, z + 0.5)` reads element `(x,
-// y, z)`. Linear filtering requires a floating-point array.
+// y, z)`. Linear filtering returns floats, so an integer-element array must be
+// read as `cudaReadModeNormalizedFloat` to filter; a floating-point array uses
+// the default `cudaReadModeElementType`.
 //
 // The array is borrowed, not owned, and must outlive the texture.
 class cuda_texture
@@ -42,14 +44,17 @@ public:
 
   cuda_texture() = default;
 
-  explicit cuda_texture(cudaArray_t array) : cuda_handle{create(array)} {}
+  explicit cuda_texture(cudaArray_t array,
+      cudaTextureReadMode read_mode = cudaReadModeElementType)
+      : cuda_handle{create(array, read_mode)} {}
 
 #pragma endregion
 #pragma region Helpers
 private:
   // Create a texture object over `array`, returning the handle for the base to
   // adopt.
-  static cudaTextureObject_t create(cudaArray_t array) {
+  static cudaTextureObject_t
+  create(cudaArray_t array, cudaTextureReadMode read_mode) {
     const cudaResourceDesc resource_desc{
         .resType = cudaResourceTypeArray,
         .res = {.array = {.array = array}},
@@ -58,7 +63,7 @@ private:
         .addressMode = {cudaAddressModeClamp, cudaAddressModeClamp,
             cudaAddressModeClamp},
         .filterMode = cudaFilterModeLinear,
-        .readMode = cudaReadModeElementType,
+        .readMode = read_mode,
         .normalizedCoords = 0,
     };
     cudaTextureObject_t texture{};

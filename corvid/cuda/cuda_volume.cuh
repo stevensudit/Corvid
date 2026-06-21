@@ -28,14 +28,21 @@ namespace corvid::cuda {
 
 #pragma region cuda_volume
 
-// A 3D float field in device memory, exposed for filtered reads (the marcher
-// samples through the texture) and for writes (an edit overwrites through the
-// surface).
+// A 3D field of `T` in device memory, exposed for filtered reads (the marcher
+// samples through the texture) and for writes (a fill or edit overwrites
+// through the surface).
+//
+// T` is a texture-filterable type: `float` (read as its element type) for the
+// density field, or an integer type like `uchar4` read as
+// `cudaReadModeNormalizedFloat` (`Read`) for a smoothly interpolated color
+// field.
 //
 // Composes the three RAII handles: the array is the storage, the texture and
 // surface are views that borrow it, so the array is declared first and thus
 // destroyed last, after the views. The array does not need to be exposed, so
 // it's not.
+template<typename T = float,
+    cudaTextureReadMode Read = cudaReadModeElementType>
 class cuda_volume {
 public:
 #pragma region Construction
@@ -43,7 +50,7 @@ public:
   cuda_volume() = default;
 
   explicit cuda_volume(cudaExtent extent)
-      : array_{extent}, texture_{array_}, surface_{array_} {}
+      : array_{extent}, texture_{array_, Read}, surface_{array_} {}
 
 #pragma endregion
 #pragma region Accessors
@@ -61,7 +68,7 @@ public:
 #pragma endregion
 #pragma region Data members
 private:
-  cuda_array_3d array_;
+  cuda_array_3d<T> array_;
   cuda_texture texture_;
   cuda_surface surface_;
 

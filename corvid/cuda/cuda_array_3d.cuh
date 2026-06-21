@@ -27,9 +27,10 @@ namespace corvid::cuda {
 
 #pragma region cuda_array_3d
 
-// RAII handle to an owned 3D `cudaArray` of float elements, sized by a
+// RAII handle to an owned 3D `cudaArray` of `T` elements, sized by a
 // `cudaExtent` and allocated with `cudaArraySurfaceLoadStore` so the same
 // storage can back both a texture (for reads) and a surface (for writes).
+template<typename T = float>
 class cuda_array_3d: public cuda_handle<cudaArray_t, cudaFreeArray> {
 public:
 #pragma region Construction
@@ -47,10 +48,10 @@ public:
 #pragma endregion
 #pragma region Helpers
 private:
-  // Allocate a 3D float array of `extent`, returning the handle for the base
+  // Allocate a 3D `T` array of `extent`, returning the handle for the base
   // to adopt.
   static cudaArray_t allocate(cudaExtent extent) {
-    const cudaChannelFormatDesc channel = cudaCreateChannelDesc<float>();
+    const cudaChannelFormatDesc channel = cudaCreateChannelDesc<T>();
     cudaArray_t array{};
     cuda_last_status{
         cudaMalloc3DArray(&array, &channel, extent, cudaArraySurfaceLoadStore)}

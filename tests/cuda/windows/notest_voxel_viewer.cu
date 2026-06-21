@@ -22,6 +22,7 @@
 #include "corvid/cuda/cuda_surface.cuh"
 #include "corvid/cuda/cuda_volume.cuh"
 #include "corvid/cuda/density_field.cuh"
+#include "corvid/cuda/material_volume.cuh"
 #include "corvid/cuda/radians.cuh"
 #include "corvid/cuda/raycast.cuh"
 #include "corvid/cuda/terrain.cuh"
@@ -40,11 +41,90 @@ using namespace corvid::cuda;
 
 namespace {
 
+#pragma region Strata
+
+// The hardness tier of material at `depth` below the terrain surface (the
+// solid voxel's density, in world units). Deeper is harder, laid down once at
+// fill time so digging reveals the bands. Stored as the material grid value;
+// objects (a band above these) come later. See voxel_world.md.
+__device__ uint16_t tier_for_depth(float depth) {
+  if (depth < 2.0F) return 0;  // topsoil
+  if (depth < 6.0F) return 1;  // dirt
+  if (depth < 14.0F) return 2; // clay
+  return 3;                    // rock
+}
+
+// The albedo of a hardness tier, one distinct color per band.
+__device__ vec3 tier_color(uint16_t tier) {
+  const vec3 palette[4] = {
+      {0.45F, 0.34F, 0.20F}, // topsoil
+      {0.34F, 0.25F, 0.16F}, // dirt
+      {0.50F, 0.30F, 0.24F}, // clay
+      {0.46F, 0.47F, 0.50F}, // rock
+  };
+  return palette[tier < 4 ? tier : 3];
+}
+
+#pragma endregion
 #pragma region Terrain
 
-// Fill the field once from the terrain heightfield: solid below the surface,
-// air above.
-__global__ void fill_kernel(cudaSurfaceObject_t surface, density_field field) {
+// Seed the heightfield from the terrain noise: one world-space surface height
+// per (x, z) column, laid out row-major in z.
+__global__ void init_height_kernel(float* height, int width, int depth,
+    pos3 origin, float voxel_size) {
+  const int ix = cuda_kernel::x_index();
+  const int iz = cuda_kernel::y_index();
+  if (ix >= width || iz >= depth) return;
+  const float wx = origin.v.x + (static_cast<float>(ix) * voxel_size);
+  const float wz = origin.v.z + (static_cast<float>(iz) * voxel_size);
+  height[(iz * width) + ix] = terrain::height(wx, wz);
+}
+
+// Material a column sheds toward one neighbor: zero unless it stands steeper
+// than the repose slope (a height difference over `max_step`), then a `rate`
+// fraction of the excess. Symmetric, so a neighbor pair conserves material.
+__device__ float talus_flow(float h, float hn, float max_step, float rate) {
+  const float diff = h - hn;
+  if (diff > max_step) return -rate * (diff - max_step);
+  if (diff < -max_step) return rate * ((-diff) - max_step);
+  return 0.0F;
+}
+
+// One thermal-erosion pass: each column sheds material to its four neighbors
+// wherever it stands steeper than the repose slope. Repeated, this settles
+// every slope to at most `max_step` per cell, so no sharp faces survive. Reads
+// `src`, writes `dst`; the caller ping-pongs them.
+__global__ void erode_kernel(const float* src, float* dst, int width,
+    int depth, float max_step, float rate) {
+  const int ix = cuda_kernel::x_index();
+  const int iz = cuda_kernel::y_index();
+  if (ix >= width || iz >= depth) return;
+  const int xm = ix > 0 ? ix - 1 : 0;
+  const int xp = ix < width - 1 ? ix + 1 : width - 1;
+  const int zm = iz > 0 ? iz - 1 : 0;
+  const int zp = iz < depth - 1 ? iz + 1 : depth - 1;
+  const float h = src[(iz * width) + ix];
+  float delta = 0.0F;
+  delta += talus_flow(h, src[(iz * width) + xm], max_step, rate);
+  delta += talus_flow(h, src[(iz * width) + xp], max_step, rate);
+  delta += talus_flow(h, src[(zm * width) + ix], max_step, rate);
+  delta += talus_flow(h, src[(zp * width) + ix], max_step, rate);
+  dst[(iz * width) + ix] = h + delta;
+}
+
+// Quantize a linear [0, 1] color channel to an 8-bit unorm for the color grid.
+__device__ unsigned char to_unorm8(float f) {
+  return static_cast<unsigned char>(
+      lroundf(fminf(fmaxf(f, 0.0F), 1.0F) * 255.0F));
+}
+
+// Fill the grids from the (eroded) heightfield: the geometry density (solid
+// below the surface, air above), the material tier by depth, and the color
+// seeded from that tier with per-cell brightness and tint variation, so a band
+// is not one flat color.
+__global__ void fill_kernel(cudaSurfaceObject_t density_surface,
+    cudaSurfaceObject_t material_surface, cudaSurfaceObject_t color_surface,
+    const float* height, int height_width, density_field field) {
   const int ix = cuda_kernel::x_index();
   const int iy = cuda_kernel::y_index();
   const int iz = cuda_kernel::z_index();
@@ -52,45 +132,79 @@ __global__ void fill_kernel(cudaSurfaceObject_t surface, density_field field) {
   if (!field.contains(voxel)) return;
 
   const vec3 w = field.voxel_center(voxel).v;
-  const float density = terrain::height(w.x, w.z) - w.y;
-  surf3Dwrite(density, surface, ix * static_cast<int>(sizeof(float)), iy, iz);
+  const float density = height[(iz * height_width) + ix] - w.y;
+  surf3Dwrite(density, density_surface, ix * static_cast<int>(sizeof(float)),
+      iy, iz);
+  const uint16_t tier = tier_for_depth(density);
+  surf3Dwrite(tier, material_surface, ix * static_cast<int>(sizeof(uint16_t)),
+      iy, iz);
+
+  // Vary brightness and tint with 3D fractal noise in world space, so the
+  // filtered color mottles organically instead of revealing a grid.
+  const vec3 base = tier_color(tier);
+  constexpr float noise_scale = 0.15F;
+  const float n =
+      terrain::fbm_3d(w.x * noise_scale, w.y * noise_scale, w.z * noise_scale);
+  const float warm = terrain::fbm_3d((w.x + 100.0F) * noise_scale,
+      w.y * noise_scale, w.z * noise_scale);
+  const float shade = 0.78F + (0.50F * n);
+  const vec3 tint{0.94F + (0.12F * warm), 1.0F, 1.06F - (0.12F * warm)};
+  const vec3 c = base * shade * tint;
+  surf3Dwrite(make_uchar4(to_unorm8(c.x), to_unorm8(c.y), to_unorm8(c.z), 255),
+      color_surface, ix * static_cast<int>(sizeof(uchar4)), iy, iz);
 }
 
 #pragma endregion
 #pragma region Rendering
 
-// Fixed-step march the density field for every pixel and write the shaded
-// color. The texture is `R8G8B8A8_UNORM`, so a `uchar4` of (r, g, b, a) maps
-// straight to its bytes.
+// March one ray and return its linear (pre-tonemap) color: the lit terrain at
+// the hit, tinted by the smoothly filtered color grid, or the sky on a miss.
+__device__ vec3 shade_terrain_ray(const density_field& field,
+    cudaTextureObject_t color, pos3 eye, vec3 ray_dir) {
+  const float dist = field.raymarch(eye, ray_dir);
+  if (dist < 0.0F) {
+    // Sky gradient by ray height.
+    const float blend = (0.5F * ray_dir.y) + 0.5F;
+    return (vec3{0.50F, 0.70F, 1.00F} * blend) +
+           (vec3{0.90F, 0.95F, 1.00F} * (1.0F - blend));
+  }
+  const pos3 hit_point = eye + (ray_dir * dist);
+  const vec3 normal = field.normal(hit_point);
+  const vec3 light_dir = normalize(vec3{0.5F, 0.8F, 0.3F});
+  const float diffuse = fmaxf(dot(normal, light_dir), 0.0F);
+  const vec3 ambient{0.18F, 0.20F, 0.24F};
+  const vec3 sun{1.0F, 0.96F, 0.88F};
+  // Albedo from the linearly filtered color grid: one hardware-filtered fetch
+  // in the field's coordinates, so strata seams stay smooth like the density.
+  const vec3 vf = field.to_voxel(hit_point);
+  const auto c = tex3D<float4>(color, vf.x + 0.5F, vf.y + 0.5F, vf.z + 0.5F);
+  return vec3{c.x, c.y, c.z} * (ambient + (sun * diffuse));
+}
+
+// Shade each pixel by supersampling and write the result. The texture is
+// `R8G8B8A8_UNORM`, so a `uchar4` of (r, g, b, a) maps straight to its bytes.
 __global__ void voxel_kernel(cudaSurfaceObject_t out, resolution res,
-    camera_rays cam, density_field field) {
+    camera_rays cam, density_field field, cudaTextureObject_t color_tex) {
   const int px = cuda_kernel::x_index();
   const int py = cuda_kernel::y_index();
   const auto fx = static_cast<float>(px);
   const auto fy = static_cast<float>(py);
   if (fx >= res.width || fy >= res.height) return;
 
-  const vec3 ray_dir = cam.ray_direction(pos2{vec2{fx, fy}}, res);
-
-  const float dist = field.raymarch(cam.eye, ray_dir);
-  const bool hit = dist >= 0.0F;
-
-  vec3 color;
-  if (hit) {
-    const pos3 hit_point = cam.eye + (ray_dir * dist);
-    const vec3 normal = field.normal(hit_point);
-    const vec3 light_dir = normalize(vec3{0.5F, 0.8F, 0.3F});
-    const float diffuse = fmaxf(dot(normal, light_dir), 0.0F);
-    const vec3 ambient{0.18F, 0.20F, 0.24F};
-    const vec3 sun{1.0F, 0.96F, 0.88F};
-    const vec3 albedo{0.46F, 0.42F, 0.34F};
-    color = albedo * (ambient + (sun * diffuse));
-  } else {
-    // Sky gradient by ray height.
-    const float blend = (0.5F * ray_dir.y) + 0.5F;
-    color = (vec3{0.50F, 0.70F, 1.00F} * blend) +
-            (vec3{0.90F, 0.95F, 1.00F} * (1.0F - blend));
-  }
+  // Average an `aa_samples` x `aa_samples` grid of sub-pixel rays to
+  // anti-alias the silhouettes and soften the strata seams. 1 disables it.
+  constexpr int aa_samples = 3;
+  constexpr float inv = 1.0F / static_cast<float>(aa_samples);
+  vec3 color{};
+  for (int sy = 0; sy < aa_samples; ++sy)
+    for (int sx = 0; sx < aa_samples; ++sx) {
+      const float ox = (static_cast<float>(sx) + 0.5F) * inv;
+      const float oy = (static_cast<float>(sy) + 0.5F) * inv;
+      const vec3 ray_dir =
+          cam.ray_direction(pos2{vec2{fx + ox, fy + oy}}, res);
+      color = color + shade_terrain_ray(field, color_tex, cam.eye, ray_dir);
+    }
+  color = color * (inv * inv);
 
   // Reinhard tonemap so highlights roll off.
   color = vec3{color.x / (1.0F + color.x), color.y / (1.0F + color.y),
@@ -204,7 +318,16 @@ int main() {
     // filled once from the terrain heightfield.
     constexpr cudaExtent vol_extent{512, 128, 512};
     constexpr float voxel_size = 0.5F;
-    cuda_volume volume{vol_extent};
+    cuda_volume<float> volume{vol_extent};
+    // The material grid: one hardness tier per voxel, point-exact (no
+    // texture), the source of truth for digging and (later) SDF object flags.
+    material_volume materials{vol_extent};
+    // The color grid: a uchar4 linear-unorm albedo per voxel, seeded from the
+    // tier at fill and read back as a normalized float through a linearly
+    // filtered texture, so strata read smooth. A quarter the VRAM of float4,
+    // and the filtering still blends in float. Separate from the material grid
+    // because color wants filtering and the material id must stay exact.
+    cuda_volume<uchar4, cudaReadModeNormalizedFloat> colors{vol_extent};
     const float ox =
         -0.5F * static_cast<float>(vol_extent.width - 1) * voxel_size;
     const float oy =
@@ -214,11 +337,42 @@ int main() {
     const density_field field{vol_extent, pos3{vec3{ox, oy, oz}}, voxel_size,
         volume.texture()};
 
+    // Generate the surface heightfield and slump it to the soil's angle of
+    // repose, so world-gen leaves no face steeper than `repose_slope` (no
+    // sharp corners to alias). Each thermal-erosion pass sheds material off
+    // columns standing too tall over a neighbor; a few dozen passes settle
+    // every slope.
+    constexpr float repose_slope = 0.7F; // tangent, about 35 degrees
+    constexpr float erode_rate = 0.15F;
+    constexpr int erode_passes = 80;
+    const int height_w = static_cast<int>(vol_extent.width);
+    const int height_d = static_cast<int>(vol_extent.depth);
+    cuda_ptr<float> height_a{static_cast<size_t>(height_w) * height_d};
+    cuda_ptr<float> height_b{static_cast<size_t>(height_w) * height_d};
+    if (!height_a || !height_b)
+      throw std::runtime_error{"failed to allocate heightfield"};
+    const dim3 height_block{16, 16};
+    const dim3 height_grid{
+        cuda_kernel::ceil_div(vol_extent.width, height_block.x),
+        cuda_kernel::ceil_div(vol_extent.depth, height_block.y)};
+    init_height_kernel<<<height_grid, height_block>>>(height_a.get(), height_w,
+        height_d, pos3{vec3{ox, oy, oz}}, voxel_size);
+    float* height_src = height_a.get();
+    float* height_dst = height_b.get();
+    for (int pass = 0; pass < erode_passes; ++pass) {
+      erode_kernel<<<height_grid, height_block>>>(height_src, height_dst,
+          height_w, height_d, repose_slope * voxel_size, erode_rate);
+      float* const tmp = height_src;
+      height_src = height_dst;
+      height_dst = tmp;
+    }
+
     const dim3 fill_block{8, 8, 8};
     const dim3 fill_grid{cuda_kernel::ceil_div(vol_extent.width, fill_block.x),
         cuda_kernel::ceil_div(vol_extent.height, fill_block.y),
         cuda_kernel::ceil_div(vol_extent.depth, fill_block.z)};
-    fill_kernel<<<fill_grid, fill_block>>>(volume.surface(), field);
+    fill_kernel<<<fill_grid, fill_block>>>(volume.surface(),
+        materials.surface(), colors.surface(), height_src, height_w, field);
     cuda_last_status{cudaDeviceSynchronize()}.or_throw();
 
     // Digging scratch: a one-element device buffer holding where the center
@@ -313,7 +467,7 @@ int main() {
                 cuda_kernel::ceil_div(h, block.y)};
             voxel_kernel<<<grid_dim, block>>>(cuda_surface{array},
                 resolution{static_cast<float>(w), static_cast<float>(h)}, rays,
-                field);
+                field, colors.texture());
           })
           .or_throw();
     }
