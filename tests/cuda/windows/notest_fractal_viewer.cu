@@ -18,6 +18,8 @@
 #include "corvid/cuda/cuda_status.cuh"
 #include "corvid/cuda/cuda_surface.cuh"
 #include "corvid/cuda/windows/cuda_d3d11_presenter.cuh"
+#include "corvid/sdl/frame_loop.h"
+#include "corvid/sdl/frame_stats.h"
 #include "corvid/sdl/sdl_event.h"
 #include "corvid/sdl/sdl_subsystem.h"
 #include "corvid/sdl/sdl_window.h"
@@ -85,66 +87,51 @@ struct fractal_view {
   double view_height = 2.5;
 };
 
-// What the event pump asks the frame loop to do next.
-enum class frame_action : std::uint8_t { proceed, resize, quit };
+// Fold one event into the view: zoom toward the cursor (wheel), pan with a
+// left-button drag (motion), or pan by a fixed fraction of the view (arrow
+// keys). `fwidth`/`fheight` are the pixel size, converting cursor positions to
+// complex-plane offsets. Returns whether it consumed the event.
+[[nodiscard]] bool handle_pan_zoom(const sdl_event& ev, fractal_view& view,
+    double fwidth, double fheight) {
+  switch (ev.type()) {
+  case sdl_event_type::mouse_wheel: {
+    // Zoom toward the cursor: scale `view_height` while keeping the complex
+    // point under the cursor fixed.
+    const auto wheel = ev.get_wheel();
+    const double upp = view.view_height / fheight;
+    const double factor = std::pow(0.9, wheel.y);
+    view.center_x += (wheel.mouse_x - (fwidth / 2.0)) * upp * (1.0 - factor);
+    view.center_y += (wheel.mouse_y - (fheight / 2.0)) * upp * (1.0 - factor);
+    view.view_height *= factor;
+    return true;
+  }
 
-// Fold one batch of input into the view and report any `quit` or `resize`
-// request. The pixel size converts cursor positions to complex-plane offsets.
-frame_action pump_events(fractal_view& view, double fwidth, double fheight) {
-  auto action = frame_action::proceed;
-  while (auto ev = sdl_event::poll()) {
-    switch (ev.type()) {
-    case sdl_event_type::quit:
-    case sdl_event_type::window_close_requested: return frame_action::quit;
-
-    case sdl_event_type::window_pixel_size_changed:
-      // Coalesce a drag's event storm into one rebuild before the frame by
-      // waiting for the events to stop coming in.
-      action = frame_action::resize;
-      break;
-
-    case sdl_event_type::mouse_wheel: {
-      // Zoom toward the cursor: scale `view_height` while keeping the complex
-      // point under the cursor fixed.
-      const auto wheel = ev.get_wheel();
+  case sdl_event_type::mouse_motion: {
+    // Left-button drag pans the view by the cursor movement.
+    const auto motion = ev.get_motion();
+    if (motion.left_held) {
       const double upp = view.view_height / fheight;
-      const double factor = std::pow(0.9, wheel.y);
-      view.center_x += (wheel.mouse_x - (fwidth / 2.0)) * upp * (1.0 - factor);
-      view.center_y +=
-          (wheel.mouse_y - (fheight / 2.0)) * upp * (1.0 - factor);
-      view.view_height *= factor;
-      break;
+      view.center_x -= motion.xrel * upp;
+      view.center_y -= motion.yrel * upp;
     }
+    return true;
+  }
 
-    case sdl_event_type::mouse_motion: {
-      // Left-button drag pans the view by the cursor movement.
-      const auto motion = ev.get_motion();
-      if (motion.left_held) {
-        const double upp = view.view_height / fheight;
-        view.center_x -= motion.xrel * upp;
-        view.center_y -= motion.yrel * upp;
-      }
-      break;
-    }
-
-    case sdl_event_type::key_down: {
-      // Arrow keys pan by a fixed fraction of the view (so the step scales
-      // with zoom). Repeats fire while a key is held.
-      const double step = 0.05 * view.view_height;
-      switch (ev.get_key().key) {
-      case sdl_keycode::left: view.center_x -= step; break;
-      case sdl_keycode::right: view.center_x += step; break;
-      case sdl_keycode::up: view.center_y -= step; break;
-      case sdl_keycode::down: view.center_y += step; break;
-      default: break;
-      }
-      break;
-    }
-
-    default: break;
+  case sdl_event_type::key_down: {
+    // Arrow keys pan by a fixed fraction of the view (so the step scales with
+    // zoom). Repeats fire while a key is held.
+    const double step = 0.05 * view.view_height;
+    switch (ev.get_key().key) {
+    case sdl_keycode::left: view.center_x -= step; return true;
+    case sdl_keycode::right: view.center_x += step; return true;
+    case sdl_keycode::up: view.center_y -= step; return true;
+    case sdl_keycode::down: view.center_y += step; return true;
+    default: return false;
     }
   }
-  return action;
+
+  default: return false;
+  }
 }
 } // namespace
 
@@ -169,14 +156,28 @@ int main() {
     // lost-device recovery (crossplatform.md section 11).
     cuda_d3d11_presenter presenter{hwnd};
 
+    // Frame timing in nanoseconds, folded into the title-bar stats below.
+    auto last_ns = SDL_GetTicksNS();
+
+    // Frame-time stats over a one-second window, shown in the title bar to
+    // tell steady pacing apart from periodic spikes.
+    frame_stats stats;
+
     while (true) {
-      const auto action = pump_events(view, presenter.buffer_width<double>(),
-          presenter.buffer_height<double>());
+      const auto fwidth = presenter.buffer_width<double>();
+      const auto fheight = presenter.buffer_height<double>();
+      const auto action = pump_events([&](const sdl_event& ev) {
+        return handle_pan_zoom(ev, view, fwidth, fheight);
+      });
       if (action == frame_action::quit) break;
 
       // Apply a coalesced resize: rebuild the swapchain buffers and grow the
       // render target when the new size exceeds its capacity.
       if (action == frame_action::resize) presenter.resize().or_throw();
+
+      const auto now_ns = SDL_GetTicksNS();
+      const auto dt = static_cast<float>(now_ns - last_ns) / 1.0e9F;
+      last_ns = now_ns;
 
       // Skip all GPU work when the window has no client area (minimized, or
       // collapsed by the OS during a mixed-DPI cross-monitor drag): rendering
@@ -185,6 +186,17 @@ int main() {
       if (presenter.window_width() == 0 || presenter.window_height() == 0) {
         SDL_Delay(16);
         continue;
+      }
+
+      // Fold this frame's wall-clock time into the stats; refresh the title
+      // once a window passes a second.
+      if (const auto report = stats.record(dt)) {
+        char title[128];
+        SDL_snprintf(title, sizeof(title),
+            "Corvid Fractal Viewer - %.0f fps  %.1f/%.1f/%.1f ms "
+            "(min/avg/max)",
+            report->fps, report->min_ms, report->avg_ms, report->max_ms);
+        SDL_SetWindowTitle(win, title);
       }
 
       // Scale the iteration cap with zoom depth (~200 more per 2x), so detail

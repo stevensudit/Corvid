@@ -24,8 +24,9 @@ Write-Host 'Formatting all .cpp, .h, .cu, and .cuh files...'
 
 # Find all .cpp, .h, .cu, and .cuh files under the repo root (this script's
 # directory), excluding build directories, CMake internals, the FetchContent
-# cache, and the .local sandbox (used for MSAN-instrumented LLVM source).
-$exclude = '[\\/](build|CMakeFiles|\.fetchcontent|\.local)[\\/]'
+# caches (`.fetchcontent`, `.fetchcontent-debug`, ...), and the .local sandbox
+# (used for MSAN-instrumented LLVM source).
+$exclude = '[\\/](build|CMakeFiles|\.fetchcontent[^\\/]*|\.local)[\\/]'
 Get-ChildItem -Path $PSScriptRoot -Recurse -File -Include *.cpp, *.h, *.cu, *.cuh |
   Where-Object { $_.FullName -notmatch $exclude } |
   ForEach-Object {
