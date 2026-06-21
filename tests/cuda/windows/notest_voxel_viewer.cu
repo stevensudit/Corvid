@@ -22,8 +22,10 @@
 #include "corvid/cuda/cuda_ptr.cuh"
 #include "corvid/cuda/cuda_surface.cuh"
 #include "corvid/cuda/cuda_volume.cuh"
+#include "corvid/cuda/density_field.cuh"
 #include "corvid/cuda/radians.cuh"
 #include "corvid/cuda/raycast.cuh"
+#include "corvid/cuda/terrain.cuh"
 #include "corvid/cuda/vec.cuh"
 #include "corvid/cuda/windows/cuda_d3d11_presenter.cuh"
 #include "corvid/math/one_euro_filter.h"
@@ -36,116 +38,7 @@ using namespace corvid::cuda;
 
 namespace {
 
-#pragma region Density field
-
-// A density field sampled in world space: an `extent` of voxels at
-// `voxel_size` spacing with voxel (0, 0, 0)'s center at world `origin`, read
-// through a borrowed texture. Positive density is solid, negative is
-// air, and the surface is the zero crossing.
-struct density_field {
-  cudaExtent extent;
-  pos3 origin;
-  float voxel_size;
-  cudaTextureObject_t tex;
-
-  // Density at world position `p`, trilinearly sampled. The texture reads
-  // voxel `v` at coordinate `v + 0.5` and clamps past the edges.
-  [[nodiscard]] __device__ float sample_density(pos3 p) const {
-    const vec3 v = (p - origin) / voxel_size;
-    return tex3D<float>(tex, v.x + 0.5F, v.y + 0.5F, v.z + 0.5F);
-  }
-
-  // Outward surface normal at `p`, from the density gradient by central
-  // differences. Density rises into the solid, so the outward normal opposes
-  // the gradient.
-  [[nodiscard]] __device__ vec3 normal(pos3 p) const {
-    const float e = voxel_size;
-    const vec3 dx{e, 0.0F, 0.0F};
-    const vec3 dy{0.0F, e, 0.0F};
-    const vec3 dz{0.0F, 0.0F, e};
-    const float gx = sample_density(p + dx) - sample_density(p - dx);
-    const float gy = sample_density(p + dy) - sample_density(p - dy);
-    const float gz = sample_density(p + dz) - sample_density(p - dz);
-    return normalize(vec3{-gx, -gy, -gz});
-  }
-
-  // March from `eye` along unit `dir` to the first solid surface, returning
-  // the distance to the hit, or a negative value on a miss. Fixed-step until
-  // the density crosses from air into solid, then bisect that interval for a
-  // crisp surface.
-  [[nodiscard]] __device__ float raymarch(pos3 eye, vec3 dir) const {
-    constexpr float far_dist = 160.0F;
-    constexpr int max_steps = 512;
-    constexpr int refine_steps = 6;
-    const float step_size = voxel_size * 0.5F;
-    float dist = 0.0F;
-    for (int step = 0; step < max_steps; ++step) {
-      dist += step_size;
-      if (dist > far_dist) break;
-      if (sample_density(eye + (dir * dist)) >= 0.0F) {
-        float lo = dist - step_size;
-        float hi = dist;
-        for (int refine = 0; refine < refine_steps; ++refine) {
-          const float mid = 0.5F * (lo + hi);
-          if (sample_density(eye + (dir * mid)) >= 0.0F)
-            hi = mid;
-          else
-            lo = mid;
-        }
-        return hi;
-      }
-    }
-    return -1.0F;
-  }
-};
-
-#pragma endregion
 #pragma region Terrain
-
-// Hash of a lattice point to a pseudo-random value in [0, 1).
-__device__ float hash2(float x, float y) {
-  const float h = sinf((x * 127.1F) + (y * 311.7F)) * 43758.547F;
-  return h - floorf(h);
-}
-
-// Smooth value noise over the integer lattice, in [0, 1).
-__device__ float value_noise(float x, float y) {
-  const float xi = floorf(x);
-  const float yi = floorf(y);
-  const float xf = x - xi;
-  const float yf = y - yi;
-  // Smoothstep weights, so the lattice cells blend without creases.
-  const float u = xf * xf * (3.0F - (2.0F * xf));
-  const float v = yf * yf * (3.0F - (2.0F * yf));
-  const float a = hash2(xi, yi);
-  const float b = hash2(xi + 1.0F, yi);
-  const float c = hash2(xi, yi + 1.0F);
-  const float d = hash2(xi + 1.0F, yi + 1.0F);
-  const float ab = a + (u * (b - a));
-  const float cd = c + (u * (d - c));
-  return ab + (v * (cd - ab));
-}
-
-// Fractal value noise: octaves at halving amplitude and doubling frequency.
-__device__ float fbm(float x, float y) {
-  float sum = 0.0F;
-  float amplitude = 0.5F;
-  float frequency = 1.0F;
-  for (int octave = 0; octave < 4; ++octave) {
-    sum += amplitude * value_noise(x * frequency, y * frequency);
-    amplitude *= 0.5F;
-    frequency *= 2.0F;
-  }
-  return sum;
-}
-
-// World height of the terrain surface at horizontal position (`x`, `z`).
-__device__ float terrain_height(float x, float z) {
-  constexpr float scale = 0.06F;
-  constexpr float amplitude = 10.0F;
-  constexpr float base = -3.0F;
-  return base + (amplitude * fbm(x * scale, z * scale));
-}
 
 // Fill the field once from the terrain heightfield: solid below the surface,
 // air above.
@@ -153,16 +46,11 @@ __global__ void fill_kernel(cudaSurfaceObject_t surface, density_field field) {
   const int ix = cuda_kernel::x_index();
   const int iy = cuda_kernel::y_index();
   const int iz = cuda_kernel::z_index();
-  if (ix >= static_cast<int>(field.extent.width) ||
-      iy >= static_cast<int>(field.extent.height) ||
-      iz >= static_cast<int>(field.extent.depth))
-    return;
+  const int3 voxel = make_int3(ix, iy, iz);
+  if (!field.contains(voxel)) return;
 
-  const vec3 o = field.origin.v;
-  const float wx = o.x + (static_cast<float>(ix) * field.voxel_size);
-  const float wy = o.y + (static_cast<float>(iy) * field.voxel_size);
-  const float wz = o.z + (static_cast<float>(iz) * field.voxel_size);
-  const float density = terrain_height(wx, wz) - wy;
+  const vec3 w = field.voxel_center(voxel).v;
+  const float density = terrain::height(w.x, w.z) - w.y;
   surf3Dwrite(density, surface, ix * static_cast<int>(sizeof(float)), iy, iz);
 }
 
@@ -232,7 +120,8 @@ struct dig_probe {
 __global__ void
 pick_kernel(density_field field, pos3 eye, vec3 dir, dig_probe* out) {
   const float dist = field.raymarch(eye, dir);
-  out->hit = dist >= 0.0F;
+  out->hit = (dist >= 0.0F);
+  // No need to set on miss, because we check for hit before reading the point.
   if (out->hit) out->point = eye + (dir * dist);
 }
 
@@ -245,6 +134,7 @@ __global__ void dig_kernel(cudaSurfaceObject_t surface, density_field field,
     const dig_probe* probe, float radius, float strength) {
   if (!probe->hit) return;
 
+  // Skip voxels outside the brush's bounding cube.
   const int radius_voxels = static_cast<int>(ceilf(radius / field.voxel_size));
   const int span = (2 * radius_voxels) + 1;
   const int sx = cuda_kernel::x_index();
@@ -253,21 +143,15 @@ __global__ void dig_kernel(cudaSurfaceObject_t surface, density_field field,
   if (sx >= span || sy >= span || sz >= span) return;
 
   // The picked point in voxel space, and the voxel this thread edits.
-  const vec3 rel = (probe->point - field.origin) / field.voxel_size;
+  const vec3 rel = field.to_voxel(probe->point);
   const int vx = static_cast<int>(lroundf(rel.x)) + (sx - radius_voxels);
   const int vy = static_cast<int>(lroundf(rel.y)) + (sy - radius_voxels);
   const int vz = static_cast<int>(lroundf(rel.z)) + (sz - radius_voxels);
-  if (vx < 0 || vx >= static_cast<int>(field.extent.width) || vy < 0 ||
-      vy >= static_cast<int>(field.extent.height) || vz < 0 ||
-      vz >= static_cast<int>(field.extent.depth))
-    return;
+  const int3 voxel = make_int3(vx, vy, vz);
+  if (!field.contains(voxel)) return;
 
   // Skip voxels outside the brush sphere.
-  const vec3 o = field.origin.v;
-  const pos3 voxel_point{vec3{
-      o.x + (static_cast<float>(vx) * field.voxel_size),
-      o.y + (static_cast<float>(vy) * field.voxel_size),
-      o.z + (static_cast<float>(vz) * field.voxel_size)}};
+  const pos3 voxel_point = field.voxel_center(voxel);
   const float d = distance(voxel_point, probe->point);
   if (d > radius) return;
 
@@ -528,10 +412,9 @@ int main() {
       // pick records the hit in device memory and the brush reads it there, so
       // the dig stays on the GPU; the next frame's march shows the hole.
       if (digging) {
-        pick_kernel<<<1, 1>>>(field, rays.eye, rays.frame.forward,
-            dig_target.device_ptr());
+        pick_kernel<<<1, 1>>>(field, rays.eye, rays.frame.forward, dig_target);
         dig_kernel<<<dig_grid, dig_block>>>(volume.surface(), field,
-            dig_target.device_ptr(), dig_radius, dig_rate * dt);
+            dig_target, dig_radius, dig_rate * dt);
       }
 
       presenter
