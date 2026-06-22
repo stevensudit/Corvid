@@ -220,7 +220,7 @@ public:
   // area as the window size. Returns `S_FALSE` when no-op.
   [[nodiscard]] hr_status resize() {
     RECT client{};
-    if (!GetClientRect(hwnd_, &client)) return hr_status{S_OK};
+    if (!GetClientRect(hwnd_, &client)) return hr_status{S_FALSE};
     window_width_ = client.right - client.left;
     window_height_ = client.bottom - client.top;
     if (window_width_ == 0 || window_height_ == 0)

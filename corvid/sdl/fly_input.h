@@ -34,8 +34,8 @@ namespace corvid::sdl {
 
 // The free-fly camera's input state for a frame: which movement keys are held,
 // whether mouse-look is active, and this frame's accumulated look delta and
-// wheel scroll. `handle` folds SDL events into it; `begin_frame` clears the
-// per-frame accumulators.
+// wheel scroll. `handle` folds SDL events into it; `look` and `dolly` clear
+// their accumulators as they consume them.
 struct fly_input {
   bool forward = false;
   bool back = false;
@@ -62,7 +62,8 @@ struct fly_input {
   bool looking = false;
 
   // This frame's accumulated mouse-look delta (raw counts, gated on `looking`)
-  // and wheel scroll, gathered by `handle` and cleared by `begin_frame`.
+  // and wheel scroll, gathered by `handle` and cleared by `look` and `dolly`
+  // as they consume them.
   float look_dx = 0.0F;
   float look_dy = 0.0F;
   float wheel = 0.0F;
@@ -142,6 +143,8 @@ struct fly_input {
   [[nodiscard]] std::pair<float, float> look(float dt) {
     if (!looking) {
       look_filter.reset();
+      look_dx = 0.0F;
+      look_dy = 0.0F;
       return {0.0F, 0.0F};
     }
     look_filter.smooth(dt, look_dx, look_dy);

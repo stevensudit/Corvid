@@ -36,14 +36,17 @@ namespace corvid::cuda {
 // `tip` shown on hover. When `v` differs from its default `def`, the row is
 // tinted and gains an inline reset button, so a changed value is easy to spot
 // and to record back into the code. CTRL+click a slider to type an exact
-// value. Returns whether `v` changed this frame (a slider edit or a reset), so
-// a field with a cached derivative can refresh it.
+// value. Pass `ImGuiSliderFlags_AlwaysClamp` in `flags` for a field where an
+// out-of-range typed value would be invalid (a NaN-producing divisor or
+// exponent) rather than merely unusual. Returns whether `v` changed this frame
+// (a slider edit or a reset), so a field with a cached derivative can refresh
+// it.
 inline bool tuned_slider(const char* label, float& v, float def, float lo,
-    float hi, const char* tip) {
+    float hi, const char* tip, ImGuiSliderFlags flags = 0) {
   const bool modified = v != def;
   if (modified)
     ImGui::PushStyleColor(ImGuiCol_Text, IM_COL32(255, 220, 80, 255));
-  bool changed = ImGui::SliderFloat(label, &v, lo, hi);
+  bool changed = ImGui::SliderFloat(label, &v, lo, hi, "%.3f", flags);
   ImGui::SetItemTooltip("%s", tip);
   if (modified) {
     ImGui::PopStyleColor();
@@ -104,7 +107,8 @@ inline void draw_avatar_section(avatar_tuning& t, const avatar_tuning& d) {
   tuned_slider("ball radius", t.ball_radius, d.ball_radius, 0.1F, 2.0F,
       "Radius of the metal ball body you drive.");
   tuned_slider("head radius", t.head_radius, d.head_radius, 0.1F, 2.0F,
-      "Radius of the saucer head (the camera rides inside it).");
+      "Radius of the saucer head (the camera rides inside it).",
+      ImGuiSliderFlags_AlwaysClamp);
   tuned_slider("head height", t.head_height, d.head_height, 0.0F, 3.0F,
       "How high the saucer head hovers above the ball.");
   tuned_slider("boom min", t.boom_min, d.boom_min, -5.0F, 0.0F,
@@ -139,13 +143,15 @@ inline void draw_avatar_section(avatar_tuning& t, const avatar_tuning& d) {
 inline void draw_saucer_section(avatar_tuning& t, const avatar_tuning& d) {
   if (!ImGui::TreeNodeEx("Saucer", ImGuiTreeNodeFlags_DefaultOpen)) return;
   tuned_slider("body height", t.body_height, d.body_height, 0.1F, 0.6F,
-      "Disc half-height / radius (smaller = flatter saucer).");
+      "Disc half-height / radius (smaller = flatter saucer).",
+      ImGuiSliderFlags_AlwaysClamp);
   tuned_slider("dome offset", t.dome_offset, d.dome_offset, -0.3F, 0.5F,
       "Dome center height / radius (lower buries the dome for more overlap).");
   tuned_slider("dome radius", t.dome_radius, d.dome_radius, 0.3F, 1.0F,
       "Dome sphere radius / disc radius.");
   tuned_slider("dome blend", t.dome_blend, d.dome_blend, 0.05F, 0.6F,
-      "Smooth-union width at the dome/disc seam (wider fills the gap).");
+      "Smooth-union width at the dome/disc seam (wider fills the gap).",
+      ImGuiSliderFlags_AlwaysClamp);
   ImGui::TreePop();
 }
 
@@ -156,17 +162,19 @@ inline void draw_sky_section(render_config& c, const render_config& dc) {
   tuned_color("horizon", c.sky.horizon, dc.sky.horizon,
       "Sky color at the horizon.");
   tuned_slider("gradient bias", c.sky.gradient_bias, dc.sky.gradient_bias,
-      0.1F, 2.0F, "Lower biases the gradient toward the horizon band.");
+      0.1F, 2.0F, "Lower biases the gradient toward the horizon band.",
+      ImGuiSliderFlags_AlwaysClamp);
   tuned_color("halo color", c.sky.halo_color, dc.sky.halo_color,
       "Color of the wide glow around the sun.");
   tuned_slider("halo strength", c.sky.halo_strength, dc.sky.halo_strength,
       0.0F, 2.0F, "Brightness of the sun halo.");
   tuned_slider("halo exponent", c.sky.halo_exponent, dc.sky.halo_exponent,
-      1.0F, 64.0F, "Higher tightens the halo.");
+      1.0F, 64.0F, "Higher tightens the halo.", ImGuiSliderFlags_AlwaysClamp);
   tuned_color("core color", c.sky.core_color, dc.sky.core_color,
       "Color of the bright sun disc.");
   tuned_slider("core exponent", c.sky.core_exponent, dc.sky.core_exponent,
-      1.0F, 1000.0F, "Higher shrinks and sharpens the sun disc.");
+      1.0F, 1000.0F, "Higher shrinks and sharpens the sun disc.",
+      ImGuiSliderFlags_AlwaysClamp);
   ImGui::TreePop();
 }
 
@@ -246,10 +254,10 @@ inline void draw_head_section(render_config& c, const render_config& dc) {
       "Propulsion glow brightness at full motion.");
   tuned_slider("dome specular", c.head.dome_specular_power,
       dc.head.dome_specular_power, 1.0F, 256.0F,
-      "Highlight sharpness on the dome.");
+      "Highlight sharpness on the dome.", ImGuiSliderFlags_AlwaysClamp);
   tuned_slider("belly specular", c.head.belly_specular_power,
       dc.head.belly_specular_power, 1.0F, 256.0F,
-      "Highlight sharpness on the belly.");
+      "Highlight sharpness on the belly.", ImGuiSliderFlags_AlwaysClamp);
   tuned_slider("specular strength", c.head.specular_strength,
       dc.head.specular_strength, 0.0F, 2.0F,
       "Overall specular highlight brightness.");
@@ -259,7 +267,8 @@ inline void draw_head_section(render_config& c, const render_config& dc) {
 // Kernel render options.
 inline void draw_render_section(render_config& c, const render_config& dc) {
   if (!ImGui::TreeNode("Render")) return;
-  ImGui::SliderInt("aa samples", &c.aa_samples, 1, 3);
+  ImGui::SliderInt("aa samples", &c.aa_samples, 1, 3, "%d",
+      ImGuiSliderFlags_AlwaysClamp);
   ImGui::SetItemTooltip("%s",
       "Anti-alias samples per axis (1 disables; cost is the square).");
   ImGui::SameLine();

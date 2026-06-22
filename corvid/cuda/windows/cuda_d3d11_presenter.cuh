@@ -16,6 +16,7 @@
 // limitations under the License.
 #pragma once
 #include <algorithm>
+#include <concepts>
 #include <utility>
 
 #include "../../math/arithmetic.h"
@@ -55,7 +56,7 @@ public:
 #pragma region Construction
 
   explicit cuda_d3d11_presenter(HWND hwnd) : swapchain_{device_, hwnd} {
-    ensure_target();
+    ensure_target().or_throw();
   }
 
   cuda_d3d11_presenter(const cuda_d3d11_presenter&) = delete;

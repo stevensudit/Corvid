@@ -78,8 +78,11 @@ struct vec2 {
     return sqrtf(dot(a, a));
   }
 
+  // Unit vector along `a`. A zero-length `a` returns the zero vector rather
+  // than dividing by zero, so a degenerate input stays finite instead of NaN.
   [[nodiscard]] friend __host__ __device__ vec2 normalize(vec2 a) {
-    return a / length(a);
+    const float len = length(a);
+    return len > 0.0F ? a / len : a;
   }
 };
 
@@ -134,8 +137,11 @@ struct vec3 {
     return sqrtf(dot(a, a));
   }
 
+  // Unit vector along `a`. A zero-length `a` returns the zero vector rather
+  // than dividing by zero, so a degenerate input stays finite instead of NaN.
   [[nodiscard]] friend __host__ __device__ vec3 normalize(vec3 a) {
-    return a / length(a);
+    const float len = length(a);
+    return len > 0.0F ? a / len : a;
   }
 
   // Reflect incident direction `d` about unit normal `n`.
