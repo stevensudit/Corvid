@@ -76,6 +76,15 @@ struct saucer_head {
   float spin;   // belly-pattern rotation angle, radians
   float thrust; // propulsion glow, 0 (idle) to 1 (full)
 
+  // Shape, as fractions of `radius` so the saucer scales as one piece. The
+  // defaults are the original literals; the tuning panel edits them live. A
+  // wider `dome_blend` (or a lower `dome_offset`) fills the dome/disc seam, so
+  // grazing rays no longer slip through it.
+  float body_height = 0.32F; // disc half-height / radius (smaller = flatter)
+  float dome_offset = 0.20F; // dome center height / radius
+  float dome_radius = 0.55F; // dome sphere radius / radius
+  float dome_blend = 0.25F;  // dome/disc smooth-union width / radius
+
   // Point `p` in the saucer's local frame: x and z span the disc, y runs along
   // `up`. The belly shading reads its polar coordinates from this.
   [[nodiscard]] __device__ vec3 to_local(pos3 p) const {
@@ -91,10 +100,11 @@ struct saucer_head {
   // local frame.
   [[nodiscard]] __device__ float sdf(pos3 p) const {
     const vec3 ql = to_local(p);
-    const float body = sd_ellipsoid(ql, vec3{radius, radius * 0.32F, radius});
-    const float dome =
-        sd_sphere(ql - vec3{0.0F, radius * 0.20F, 0.0F}, radius * 0.55F);
-    return op_smooth_union(body, dome, radius * 0.25F);
+    const float body =
+        sd_ellipsoid(ql, vec3{radius, radius * body_height, radius});
+    const float dome = sd_sphere(ql - vec3{0.0F, radius * dome_offset, 0.0F},
+        radius * dome_radius);
+    return op_smooth_union(body, dome, radius * dome_blend);
   }
 
   // Outward unit normal at surface point `p`, from the SDF gradient by central
@@ -113,13 +123,22 @@ struct saucer_head {
   // calls this, always from the ball surface, so the start is outside the
   // head.
   [[nodiscard]] __device__ float raymarch(pos3 eye, vec3 dir) const {
-    constexpr int max_steps = 48;
-    constexpr float hit_epsilon = 1.0e-3F;
+    constexpr int max_steps = 96;
     constexpr float max_dist = 64.0F;
+    // Accept a hit within a tolerance that grows with distance (a cone around
+    // the ray) rather than a single tight threshold. `sdf` is not an exact
+    // distance (the flat `sd_ellipsoid` approximates; `op_smooth_union` is
+    // non-Lipschitz in the blend), so a ray grazing the concave dome/disc seam
+    // stays just above a fixed threshold and never registers, leaving a "sky
+    // line" there even though the surface is continuous. The growing tolerance
+    // closes that seam; at the saucer's reflected size the silhouette rounding
+    // is sub-pixel.
+    constexpr float hit_base = 1.0e-3F;
+    constexpr float hit_slope = 1.0e-2F;
     float dist = 0.0F;
     for (int step = 0; step < max_steps; ++step) {
       const float d = sdf(eye + (dir * dist));
-      if (d < hit_epsilon) return dist;
+      if (d < hit_base + (hit_slope * dist)) return dist;
       dist += d;
       if (dist > max_dist) break;
     }

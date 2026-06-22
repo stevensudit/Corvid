@@ -612,6 +612,39 @@ macro(corvid_require_sdl3)
     endif()
 endmacro()
 
+# Dear ImGui for the live tuning panel in the Windows-only CUDA viewers. ImGui
+# ships no CMakeLists, so FetchContent only populates the source; we then build
+# our own static library from the core plus the SDL3 and D3D11 backends. Called
+# only when a cuda/windows source actually pulls in ImGui (the `imgui` regex
+# gate below), mirroring corvid_require_sdl3; the TARGET guard makes a repeat
+# call a no-op. It depends on SDL3, so it requires it first. ImGui is not clean
+# under our -Wall -Wextra -Werror, so the lib builds with -w. See
+# corvid/cuda/tuning_panel.md.
+macro(corvid_require_imgui)
+    if(NOT TARGET imgui)
+        corvid_require_sdl3()
+        include(FetchContent)
+        FetchContent_Declare(
+            imgui
+            GIT_REPOSITORY https://github.com/ocornut/imgui.git
+            GIT_TAG        v1.91.5
+        )
+        FetchContent_MakeAvailable(imgui)
+        add_library(imgui STATIC
+            ${imgui_SOURCE_DIR}/imgui.cpp
+            ${imgui_SOURCE_DIR}/imgui_draw.cpp
+            ${imgui_SOURCE_DIR}/imgui_tables.cpp
+            ${imgui_SOURCE_DIR}/imgui_widgets.cpp
+            ${imgui_SOURCE_DIR}/backends/imgui_impl_sdl3.cpp
+            ${imgui_SOURCE_DIR}/backends/imgui_impl_dx11.cpp)
+        target_include_directories(imgui PUBLIC
+            ${imgui_SOURCE_DIR} ${imgui_SOURCE_DIR}/backends)
+        target_link_libraries(imgui PUBLIC SDL3::SDL3 d3d11 dxgi)
+        target_compile_options(imgui PRIVATE -w)
+        message(STATUS "Using Dear ImGui (FetchContent) static lib")
+    endif()
+endmacro()
+
 # Test sources are partitioned into platform buckets: portable/ builds on every
 # platform, linux/ only on Linux, windows/ only on Windows (plain C++, e.g. the
 # SDL wrapper tests), cuda/ only when CORVID_ENABLE_CUDA (handled in the CUDA
@@ -848,6 +881,14 @@ if(CORVID_ENABLE_CUDA)
             if(_uses_d3d11)
                 target_link_libraries(${EXECUTABLE_NAME} PRIVATE d3d11 dxgi)
             endif()
+            # The live tuning panel: link the ImGui static lib for sources that
+            # pull in an ImGui header. Source-only, so it can't ride the
+            # prebuilt SDL3 drop; built on demand by corvid_require_imgui.
+            file(STRINGS ${SOURCE_FILE} _uses_imgui REGEX "imgui")
+            if(_uses_imgui)
+                corvid_require_imgui()
+                target_link_libraries(${EXECUTABLE_NAME} PRIVATE imgui)
+            endif()
         endif()
         if(NOT ${EXECUTABLE_NAME} MATCHES "^notest_")
             target_link_libraries(${EXECUTABLE_NAME} PRIVATE ${CUDA_CATCH2_TARGET})
@@ -887,6 +928,19 @@ if(WIN32)
     # globally for clangd.
     set(CORVID_CLANGD_SDL_INCLUDE
         "${CMAKE_CURRENT_SOURCE_DIR}/.local/sdl3/include")
+    # ImGui is reached via -I only on viewers that link it, so like SDL above
+    # add its source and backends dirs globally; otherwise a standalone parse of
+    # imgui_overlay.h resolves no ImGui types. `imgui_SOURCE_DIR` is set by
+    # corvid_require_imgui (FetchContent) during a full configure. Fall back to
+    # the SDL path when ImGui was not configured, so the -isystem tokens stay
+    # well-formed.
+    if(DEFINED imgui_SOURCE_DIR)
+        set(CORVID_CLANGD_IMGUI_INCLUDE "${imgui_SOURCE_DIR}")
+        set(CORVID_CLANGD_IMGUI_BACKENDS "${imgui_SOURCE_DIR}/backends")
+    else()
+        set(CORVID_CLANGD_IMGUI_INCLUDE "${CORVID_CLANGD_SDL_INCLUDE}")
+        set(CORVID_CLANGD_IMGUI_BACKENDS "${CORVID_CLANGD_SDL_INCLUDE}")
+    endif()
     configure_file(
         "${PROJECT_ROOT_DIR}/.clangd.win.in"
         "${PROJECT_ROOT_DIR}/.clangd"

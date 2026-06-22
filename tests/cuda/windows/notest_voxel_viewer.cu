@@ -28,11 +28,15 @@
 #include "corvid/cuda/material_volume.cuh"
 #include "corvid/cuda/radians.cuh"
 #include "corvid/cuda/raycast.cuh"
+#include "corvid/cuda/render_config.cuh"
 #include "corvid/cuda/strata.cuh"
 #include "corvid/cuda/terrain.cuh"
 #include "corvid/cuda/vec.cuh"
 #include "corvid/cuda/voxel_render.cuh"
 #include "corvid/cuda/windows/cuda_d3d11_presenter.cuh"
+#include "corvid/cuda/windows/game/avatar_tuning.cuh"
+#include "corvid/cuda/windows/game/config_panel.cuh"
+#include "corvid/cuda/windows/imgui_overlay.h"
 #include "corvid/sdl/fly_input.h"
 #include "corvid/sdl/frame_loop.h"
 #include "corvid/sdl/frame_stats.h"
@@ -130,7 +134,7 @@ __global__ void fill_kernel(cudaSurfaceObject_t density_surface,
 // `R8G8B8A8_UNORM`, so a `uchar4` of (r, g, b, a) maps straight to its bytes.
 __global__ void voxel_kernel(cudaSurfaceObject_t out, resolution res,
     camera_rays cam, density_field field, cudaTextureObject_t color_tex,
-    metal_ball ball, saucer_head head) {
+    metal_ball ball, saucer_head head, render_config cfg) {
   const int px = cuda_kernel::x_index();
   const int py = cuda_kernel::y_index();
   const auto fx = static_cast<float>(px);
@@ -145,8 +149,8 @@ __global__ void voxel_kernel(cudaSurfaceObject_t out, resolution res,
   // neighbor, the silhouettes that actually alias, leaving flat interiors at
   // one sample. That spends the AA budget on edges and buys back most of the
   // supersampling cost.
-  constexpr int aa_samples = 2;
-  constexpr float inv = 1.0F / static_cast<float>(aa_samples);
+  const int aa_samples = cfg.aa_samples;
+  const float inv = 1.0F / static_cast<float>(aa_samples);
   vec3 color{};
   for (int sy = 0; sy < aa_samples; ++sy)
     for (int sx = 0; sx < aa_samples; ++sx) {
@@ -154,9 +158,8 @@ __global__ void voxel_kernel(cudaSurfaceObject_t out, resolution res,
       const float oy = (static_cast<float>(sy) + 0.5F) * inv;
       const vec3 ray_dir =
           cam.ray_direction(pos2{vec2{fx + ox, fy + oy}}, res);
-      color =
-          color +
-          shade_primary_ray(field, color_tex, ball, head, cam.eye, ray_dir);
+      color = color + shade_primary_ray(field, color_tex, ball, head, cfg,
+                          cam.eye, ray_dir);
     }
   color = color * (inv * inv);
 
@@ -234,6 +237,25 @@ __global__ void dig_kernel(cudaSurfaceObject_t surface, density_field field,
 #pragma endregion
 #pragma region Input
 
+// Whether an event carries mouse or keyboard input, so an open config panel
+// can swallow the input ImGui captured instead of letting the game act on it.
+[[nodiscard]] bool is_mouse_event(const sdl_event& ev) {
+  switch (ev.data_type()) {
+  case sdl_event_data_type::motion:
+  case sdl_event_data_type::button:
+  case sdl_event_data_type::wheel: return true;
+  default: return false;
+  }
+}
+[[nodiscard]] bool is_keyboard_event(const sdl_event& ev) {
+  switch (ev.data_type()) {
+  case sdl_event_data_type::key:
+  case sdl_event_data_type::text:
+  case sdl_event_data_type::edit: return true;
+  default: return false;
+  }
+}
+
 // Fold the left mouse button into the `digging` flag, for composing after
 // `handle_fly`. Returns whether it consumed the event.
 [[nodiscard]] bool handle_dig(const sdl_event& ev, bool& digging) {
@@ -250,6 +272,22 @@ __global__ void dig_kernel(cudaSurfaceObject_t surface, density_field field,
 
   default: return false;
   }
+}
+
+// Route one frame event. ImGui always sees it, so its capture state stays
+// current. While the config panel is open, ImGui swallows the input it
+// captured (a slider drag, a focused field) so the game does not also react;
+// other events still reach the game handlers. Returns whether it consumed the
+// event, leaving Escape for the pump to toggle the panel.
+[[nodiscard]] bool handle_viewer_event(const sdl_event& ev,
+    imgui_overlay& imgui, bool show_config, fly_input& input, sdl_window& win,
+    bool& digging) {
+  imgui.process_event(ev);
+  if (show_config) {
+    if (is_mouse_event(ev) && imgui.wants_mouse()) return true;
+    if (is_keyboard_event(ev) && imgui.wants_keyboard()) return true;
+  }
+  return input.handle(ev, win) || handle_dig(ev, digging);
 }
 
 #pragma endregion
@@ -271,23 +309,10 @@ struct avatar_rig {
   float boom;         // head distance behind the ball; negative is in front
   float
       boom_target; // where the wheel is taking the boom; `update` eases to it
-  float tan_half_fov;
   float spin = 0.0F;   // saucer belly rotation, advanced by `update`
   float thrust = 0.0F; // propulsion glow, from motion, advanced by `update`
   float moving = 0.0F; // this frame's planar movement amount, set by `move`
-
-  static constexpr float ball_radius = 0.6F;
-  static constexpr float head_radius = 0.45F;
-  static constexpr float head_height = 0.9F; // head hover height over the ball
-  static constexpr float boom_min = -1.5F;   // pushed this far in front (FPS)
-  static constexpr float boom_max = 14.0F;   // pulled this far back (wide)
-  static constexpr float boom_rise = 0.35F;  // head rise per unit pulled back
-  static constexpr float zoom_approach = 8.0F; // boom easing rate per second
-  static constexpr float spin_rate = 0.6F;   // belly spin, radians per second
-  static constexpr float saucer_lean = 0.4F; // belly lean toward the look
-  static constexpr float heading_approach = 8.0F; // heading swing while moving
-  static constexpr float thrust_full = 12.0F;     // speed that reads as full
-  static constexpr float thrust_approach = 5.0F;  // thrust glow ramp/fade rate
+  avatar_tuning tune; // live feel constants, read through by the methods below
 
   // The orthonormal view basis for the current facing.
   [[nodiscard]] basis frame() const {
@@ -311,7 +336,8 @@ struct avatar_rig {
   // head, so free-look turns the camera without orbiting the head around the
   // ball.
   [[nodiscard]] pos3 eye() const {
-    const float rise = head_height + ((boom > 0.0F ? boom : 0.0F) * boom_rise);
+    const float rise =
+        tune.head_height + ((boom > 0.0F ? boom : 0.0F) * tune.boom_rise);
     const vec3 heading_fwd{cos(heading), 0.0F, sin(heading)};
     return anchor - (heading_fwd * boom) + (camera::world_up * rise);
   }
@@ -323,7 +349,7 @@ struct avatar_rig {
   // profile.
   [[nodiscard]] vec3 saucer_up() const {
     const basis b = frame();
-    return normalize(b.up - (b.forward * saucer_lean));
+    return normalize(b.up - (b.forward * tune.saucer_lean));
   }
 
   // Drive the anchor in the yaw-horizontal frame. Space/Ctrl still raise and
@@ -349,7 +375,8 @@ struct avatar_rig {
   // first person. The head only glides there in `update`, so it reads as the
   // saucer moving rather than snapping.
   void zoom(float delta) {
-    boom_target = std::clamp(boom_target - delta, boom_min, boom_max);
+    boom_target =
+        std::clamp(boom_target - delta, tune.boom_min, tune.boom_max);
   }
 
   // Advance the frame: ease the boom toward its zoom target, turn the belly
@@ -358,30 +385,34 @@ struct avatar_rig {
   // fast the saucer is moving and zooming.
   void update(float dt) {
     const float old_boom = boom;
-    boom = boom + ((boom_target - boom) * (1.0F - expf(-zoom_approach * dt)));
-    spin = spin + (spin_rate * dt);
+    boom = boom +
+           ((boom_target - boom) * (1.0F - expf(-tune.zoom_approach * dt)));
+    spin = spin + (tune.spin_rate * dt);
 
     if (moving > 0.0F) {
       const radians delta =
           radians_atan2(sin(facing.yaw - heading), cos(facing.yaw - heading));
-      heading = heading + (delta * (1.0F - expf(-heading_approach * dt)));
+      heading = heading + (delta * (1.0F - expf(-tune.heading_approach * dt)));
     }
 
     const float planar = dt > 0.0F ? moving / dt : 0.0F;
     const float zoom_speed = dt > 0.0F ? fabsf(boom - old_boom) / dt : 0.0F;
-    const float target = fminf((planar + zoom_speed) / thrust_full, 1.0F);
-    thrust =
-        thrust + ((target - thrust) * (1.0F - expf(-thrust_approach * dt)));
+    const float target = fminf((planar + zoom_speed) / tune.thrust_full, 1.0F);
+    thrust = thrust +
+             ((target - thrust) * (1.0F - expf(-tune.thrust_approach * dt)));
   }
 
-  // The view rays for the current pose, looking out from inside the head.
+  // The view rays for the current pose, looking out from inside the head. The
+  // field of view's `tan(fov/2)` is cached in `tune` and recomputed only when
+  // the field of view is edited, so this stays a plain read.
   [[nodiscard]] camera_rays rays() const {
-    return {eye(), frame(), tan_half_fov};
+    return {eye(), frame(), tune.tan_half_fov()};
   }
 
-  [[nodiscard]] metal_ball ball() const { return {anchor, ball_radius}; }
+  [[nodiscard]] metal_ball ball() const { return {anchor, tune.ball_radius}; }
   [[nodiscard]] saucer_head head() const {
-    return {eye(), saucer_up(), head_radius, spin, thrust};
+    return {eye(), saucer_up(), tune.head_radius, spin, thrust,
+        tune.body_height, tune.dome_offset, tune.dome_radius, tune.dome_blend};
   }
 };
 
@@ -495,10 +526,17 @@ int main() {
     // The avatar starts floating above the origin (no gravity yet), looking
     // toward -z and slightly down, in a third-person view pulled back from the
     // head. The mouse wheel zooms in toward first person; the right-drag
-    // orbits. 60-degree vertical field of view.
+    // orbits. The feel constants (field of view and the rest) default from
+    // `avatar_tuning`, edited live by the config panel.
     avatar_rig rig{pos3{vec3{0.0F, 10.0F, 0.0F}},
-        orientation{-90.0_deg, -20.0_deg}, -90.0_deg, 7.0F, 7.0F,
-        tan(60.0_deg * 0.5F)};
+        orientation{-90.0_deg, -20.0_deg}, -90.0_deg, 7.0F, 7.0F};
+    const avatar_tuning tuning_defaults{};
+
+    // The live shading config (sky, terrain, ball, head, anti-alias), edited
+    // by the panel and passed to the kernel each frame; the defaults instance
+    // is the baseline the panel compares against.
+    render_config render_cfg;
+    const render_config render_defaults{};
     fly_input input;
 
     const dim3 block{16, 16};
@@ -507,6 +545,13 @@ int main() {
     // the swapchain backbuffer and presented. It owns resize growth and
     // lost-device recovery (crossplatform.md section 11).
     cuda_d3d11_presenter presenter{hwnd};
+
+    // The live config panel: a Dear ImGui overlay drawn over the frame,
+    // toggled by Escape. Constructed after the presenter so it can borrow its
+    // device and context. `show_config` gates both the panel and the input it
+    // grabs.
+    imgui_overlay imgui{win, presenter.device(), presenter.context()};
+    bool show_config = false;
 
     // Frame timing in nanoseconds: millisecond ticks quantize dt enough to
     // judder movement at high refresh rates (a 6.94 ms frame reads as 6 or 7).
@@ -518,10 +563,18 @@ int main() {
 
     while (true) {
       const auto action = pump_events([&](const sdl_event& ev) {
-        return input.handle(ev, win) || handle_dig(ev, digging);
+        return handle_viewer_event(ev, imgui, show_config, input, win,
+            digging);
       });
       if (action == frame_action::quit) break;
       if (action == frame_action::resize) presenter.resize().or_throw();
+      // Escape toggles the config panel. Opening it frees the OS cursor for
+      // the sliders; the game re-grabs the cursor on the next right-button
+      // press.
+      if (action == frame_action::menu) {
+        show_config = !show_config;
+        if (show_config) win.set_relative_mouse_mode(false).or_throw();
+      }
 
       const auto now_ns = SDL_GetTicksNS();
       const auto dt = static_cast<float>(now_ns - last_ns) / 1.0e9F;
@@ -531,7 +584,7 @@ int main() {
       const auto [yaw, pitch] = input.look(dt);
       rig.look(yaw, pitch);
 
-      const auto [fwd, strafe, lift] = input.movement(dt, 8.0F);
+      const auto [fwd, strafe, lift] = input.movement(dt, rig.tune.move_speed);
       rig.move(fwd, strafe, lift);
 
       // The mouse wheel aims the zoom between third and first person: an
@@ -576,14 +629,24 @@ int main() {
             dig_target, dig_radius, dig_rate * dt);
       }
 
+      // Open the ImGui frame and build the panel. One `begin_frame` pairs with
+      // the one `render` below, which runs even with no panel up, so the
+      // pairing always balances.
+      imgui.begin_frame();
+      if (show_config)
+        draw_config_panel(rig.tune, tuning_defaults, render_cfg,
+            render_defaults);
+
       presenter
-          .render([&](cudaArray_t array, int w, int h) {
-            const dim3 grid_dim{cuda_kernel::ceil_div(w, block.x),
-                cuda_kernel::ceil_div(h, block.y)};
-            voxel_kernel<<<grid_dim, block>>>(cuda_surface{array},
-                resolution{static_cast<float>(w), static_cast<float>(h)}, rays,
-                field, colors.texture(), ball, head);
-          })
+          .render(
+              [&](cudaArray_t array, int w, int h) {
+                const dim3 grid_dim{cuda_kernel::ceil_div(w, block.x),
+                    cuda_kernel::ceil_div(h, block.y)};
+                voxel_kernel<<<grid_dim, block>>>(cuda_surface{array},
+                    resolution{static_cast<float>(w), static_cast<float>(h)},
+                    rays, field, colors.texture(), ball, head, render_cfg);
+              },
+              [&] { imgui.render(presenter.back_buffer()); })
           .or_throw();
     }
     return 0;

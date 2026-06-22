@@ -16,6 +16,7 @@
 // limitations under the License.
 #pragma once
 #include <algorithm>
+#include <utility>
 
 #include "../../math/arithmetic.h"
 #include "./com_ptr.h"
@@ -94,6 +95,24 @@ public:
     return cuda_target_;
   }
 
+  // The D3D11 device and its immediate context, for initializing an overlay's
+  // rendering backend (e.g. Dear ImGui). Borrowed: valid for the presenter's
+  // lifetime.
+  [[nodiscard]] ID3D11Device* device() const noexcept {
+    return device_.device().get();
+  }
+  [[nodiscard]] ID3D11DeviceContext* context() const noexcept {
+    return device_.context().get();
+  }
+
+  // The live backbuffer, to build an overlay's render target view from.
+  //
+  // It rotates each present and is recreated on resize, so an overlay should
+  // rebuild its view from this each frame rather than cache it.
+  [[nodiscard]] ID3D11Texture2D* back_buffer() const noexcept {
+    return swapchain_.back_buffer().get();
+  }
+
 #pragma endregion
 #pragma region Frame
 
@@ -114,7 +133,18 @@ public:
   // A lost device is rebuilt in place, dropping the frame so the next call
   // redraws on the fresh device.
   [[nodiscard]] hr_status present(int sync_interval = 1) {
+    return present([] {}, sync_interval);
+  }
+
+  // As `present`, but run `overlay` to draw over the backbuffer between the
+  // copy and the present, for an on-top UI.
+  //
+  // `overlay()` issues its D3D draws onto the live backbuffer; reach it via
+  // `back_buffer`. The presenter stays UI-agnostic.
+  [[nodiscard]] hr_status
+  present(std::invocable auto&& overlay, int sync_interval = 1) {
     swapchain_.fill_back_buffer(render_texture_);
+    overlay();
     auto st = swapchain_.present(sync_interval);
     if (d3d11_swapchain::is_device_lost(st)) st = recover_device();
     return st;
@@ -128,9 +158,17 @@ public:
   [[nodiscard]] hr_status
   render(std::invocable<cudaArray_t, int, int> auto&& draw,
       int sync_interval = 1) {
+    return render(std::forward<decltype(draw)>(draw), [] {}, sync_interval);
+  }
+
+  // As `render(draw)`, plus the overlay step of the `present` overlay
+  // overload: `overlay()` draws over the backbuffer before the present.
+  [[nodiscard]] hr_status
+  render(std::invocable<cudaArray_t, int, int> auto&& draw,
+      std::invocable auto&& overlay, int sync_interval = 1) {
     if (cuda_d3d11_mapping map{cuda_target_})
       draw(map.array(), buffer_width(), buffer_height());
-    return present(sync_interval);
+    return present(std::forward<decltype(overlay)>(overlay), sync_interval);
   }
 
 #pragma endregion
