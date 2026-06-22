@@ -641,6 +641,10 @@ macro(corvid_require_imgui)
             ${imgui_SOURCE_DIR} ${imgui_SOURCE_DIR}/backends)
         target_link_libraries(imgui PUBLIC SDL3::SDL3 d3d11 dxgi)
         target_compile_options(imgui PRIVATE -w)
+        # -w silences the compiler but not clang-tidy, which the global
+        # CMAKE_CXX_CLANG_TIDY would otherwise run on these sources. Clear the
+        # property on this target so only our own code is analyzed.
+        set_target_properties(imgui PROPERTIES CXX_CLANG_TIDY "")
         message(STATUS "Using Dear ImGui (FetchContent) static lib")
     endif()
 endmacro()
