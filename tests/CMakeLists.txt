@@ -647,7 +647,9 @@ macro(corvid_require_imgui)
             ${imgui_SOURCE_DIR}/imgui_widgets.cpp
             ${imgui_SOURCE_DIR}/backends/imgui_impl_sdl3.cpp
             ${imgui_SOURCE_DIR}/backends/imgui_impl_dx11.cpp)
-        target_include_directories(imgui PUBLIC
+        # SYSTEM (-isystem) so clang-tidy/clangd skip imgui's own diagnostics in
+        # consumers, including its macros expanded in our code.
+        target_include_directories(imgui SYSTEM PUBLIC
             ${imgui_SOURCE_DIR} ${imgui_SOURCE_DIR}/backends)
         target_link_libraries(imgui PUBLIC SDL3::SDL3 d3d11 dxgi)
         target_compile_options(imgui PRIVATE -w)
