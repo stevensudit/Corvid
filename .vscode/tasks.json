@@ -56,12 +56,12 @@
                     }
                 ]
             },
-            "detail": "Build the current .cpp (clang++/libc++) or .cu (nvcc/g++-15) file to debug_bin/."
+            "detail": "Build the current .cpp or .cu file via CMake into tests/build-debug/debug_bin/."
         },
         {
             "label": "Run Executable",
             "type": "process",
-            "command": "${fileDirname}/debug_bin/${fileBasenameNoExtension}.exe",
+            "command": "${workspaceFolder}/tests/build-debug/debug_bin/${fileBasenameNoExtension}.exe",
             "group": {
                 "kind": "test",
                 "isDefault": true

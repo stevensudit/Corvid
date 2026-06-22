@@ -16,11 +16,11 @@ When a function can fail, prefer returning a status over `void`. See [error-hand
 
 ## Build System
 
-Build and run one test with `./cleanbuild.sh <name>_test.cpp` (the common case; the arg is the test source filename), or `./cleanbuild.sh` for a clean build of the whole suite. Never hand-run cmake/ninja in `tests/build/` (stale dir breaks FetchContent). Run `./format_all.sh` before committing. See the `build-and-test` skill for the full menu (libstdc++, clang-tidy, sanitizers, MSAN setup) and the Catch2 test-writing conventions.
+Build and run one test with `./cleanbuild.sh/.ps1 <name>_test.cpp` (the common case; the arg is the test source filename), or `./cleanbuild.sh/.ps1` for a clean build of the whole suite. Never hand-run cmake/ninja in `tests/build/` (stale dir breaks FetchContent). Run `./format_all.sh/.ps1` before committing. See the `build-and-test` skill for the full menu (libstdc++, clang-tidy, sanitizers, MSAN setup) and the Catch2 test-writing conventions.
 
 ## Code Style
 
-- Run `./format_all.sh` after edits and before `git commit`. Edit/Write bypass IDE save hooks, so this is manual.
+- Run `./format_all.sh/.ps1` after edits and before `git commit`. Edit/Write bypass IDE save hooks, so this is manual.
 - Plain 7-bit ASCII only in comments and docs: `->` not the Unicode arrow; no em dashes, curly quotes, etc. The em-dash prohibition is about the punctuation, not just the Unicode codepoint: don't use `--` (double hyphen) as an em-dash substitute, and don't abuse a single `-` to stand in for one either. Rewrite the sentence so it doesn't need em-dash-style asides: use a comma, a colon, parentheses, or two sentences.
 - Don't pre-wrap comments. Write each paragraph as a single logical line and let clang-format reflow it (`ReflowComments: true`, `ColumnLimit: 79`). Use a blank `//` line between paragraphs in multi-paragraph comments. Note that clang-format will not reflow across structural boundaries (e.g., comments adjacent to `#pragma region` lines), so an occasional manual wrap there is fine.
 - No trailing-underscore private methods. Prefix with `do_` instead: public `close()`, private `do_close()`.
@@ -46,6 +46,10 @@ Corvid provides utilities that replace direct calls on std types. Search the lib
 - Case and conversion: `corvid/strings/cases.h` and `conversion.h` already provide character classification, case folding, and digit conversion (e.g. `is_digit`, `is_alpha`, `is_hex_digit`, `as_upper`, `as_lower`, `ci_equal`, `as_hex_lc_digit`). Never reinvent these.
 
 Scan relevant headers first when writing new code to avoid reimplementing.
+
+## Wrapping C Libraries
+
+This is a C++ library, so we minimize how much raw C surfaces in calling code: wrap C dependencies (CUDA, SDL, liburing, ngtcp2, ...) in C++-native idioms rather than exposing them directly. In practice that means RAII for every C resource (handle, context, allocation), and the idiomatic C++ form in place of the C one: `std::variant` over a tagged union, a typed status over a bare error code. Favor returning a value (a struct or pair reads cleanly with structured bindings) over an out-param where that is clearer, though out-params have legitimate uses. Keep the C behind the wrapper; don't let it leak out.
 
 ## Non-Obvious Locations
 

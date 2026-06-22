@@ -61,3 +61,43 @@ TEST_CASE("CeilDivConstexpr", "[MathTest]") {
   static_assert(ceil_div(7, 3) == 3);
   static_assert(ceil_div(16'777'216, 4096) == 4096);
 }
+
+TEST_CASE("RoundUpAlreadyMultiple", "[MathTest]") {
+  // A value already on a boundary is returned unchanged.
+  CHECK(round_up_to_multiple(0, 256) == 0);
+  CHECK(round_up_to_multiple(256, 256) == 256);
+  CHECK(round_up_to_multiple(512, 256) == 512);
+}
+
+TEST_CASE("RoundUpRoundsUp", "[MathTest]") {
+  // A value off a boundary rounds up to the next multiple.
+  CHECK(round_up_to_multiple(1, 256) == 256);
+  CHECK(round_up_to_multiple(255, 256) == 256);
+  CHECK(round_up_to_multiple(257, 256) == 512);
+}
+
+TEST_CASE("RoundUpByOne", "[MathTest]") {
+  // Every integer is a multiple of one, so the value is unchanged.
+  CHECK(round_up_to_multiple(7, 1) == 7);
+}
+
+TEST_CASE("RoundUpMixedSign", "[MathTest]") {
+  // Mixed operands resolve to the common type. The viewer rounds a pixel
+  // width up to a 256-pixel quantum with an unsigned multiple.
+  CHECK(round_up_to_multiple(100, 256U) == 256U);
+  CHECK(round_up_to_multiple(513U, 256) == 768U);
+}
+
+TEST_CASE("RoundUpNoDivisionOverflow", "[MathTest]") {
+  // The underlying ceil_div avoids the (n + m - 1) wraparound, so rounding the
+  // maximum up to a multiple of one stays exact (the multiply by one cannot
+  // overflow).
+  constexpr auto max32 = std::numeric_limits<std::uint32_t>::max();
+  CHECK(round_up_to_multiple(max32, std::uint32_t{1}) == max32);
+}
+
+TEST_CASE("RoundUpConstexpr", "[MathTest]") {
+  // Usable in constant expressions.
+  static_assert(round_up_to_multiple(1, 256) == 256);
+  static_assert(round_up_to_multiple(4096, 256) == 4096);
+}

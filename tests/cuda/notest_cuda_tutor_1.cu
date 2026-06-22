@@ -19,7 +19,8 @@ __global__ void add(int n, float* sum, const float* x, const float* y) {
   const auto index = (blockIdx.x * blockDim.x) + threadIdx.x;
   const auto stride = gridDim.x * blockDim.x;
 
-  for (unsigned i = index; i < n; i += stride) sum[i] = x[i] + y[i];
+  const auto count = static_cast<unsigned>(n);
+  for (unsigned i = index; i < count; i += stride) sum[i] = x[i] + y[i];
 }
 
 static double gflops(double N, double ms) {
@@ -32,6 +33,7 @@ static double gbps(double N, double ms) {
   return (3.0 * N * sizeof(float)) / (ms / 1000.0) / 1e9;
 }
 
+// NOLINTNEXTLINE(bugprone-exception-escape)
 int main() {
   const int n = 1 << 24;
 

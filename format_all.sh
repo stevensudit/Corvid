@@ -24,7 +24,7 @@ echo "Formatting all .cpp, .h, .cu, and .cuh files..."
 find . -type f \( -name "*.cpp" -o -name "*.h" -o -name "*.cu" -o -name "*.cuh" \) \
   -not -path "*/build/*" \
   -not -path "*/CMakeFiles/*" \
-  -not -path "*/.fetchcontent/*" \
+  -not -path "*/.fetchcontent*/*" \
   -not -path "*/.local/*" \
   -print0 | while IFS= read -r -d '' file; do
   echo "Formatting: $file"

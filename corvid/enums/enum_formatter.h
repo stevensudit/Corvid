@@ -67,6 +67,7 @@
 template<typename E, corvid::CharType CharT>
 requires(corvid::enums::sequence::SequentialEnum<E> ||
          corvid::enums::bitmask::BitmaskEnum<E>)
+// NOLINTNEXTLINE(bugprone-std-namespace-modification)
 struct std::formatter<E, CharT> {
 #pragma region Parse
 

@@ -1,14 +1,12 @@
 #!/bin/bash
 
-# Single-file build dispatcher for the VSCode default build task
-# (.vscode/tasks.json). Routes by file extension so Ctrl+Shift+B works on
-# either kind of source: a .cu file compiles with nvcc (g++-15 host,
-# libstdc++); anything else compiles with clang++/libc++, matching the
-# historical single-file debug build. The output lands at
-# <dir>/debug_bin/<stem>.exe, where launch.json (CodeLLDB) and the "Run
-# Executable" task find it. The .exe suffix is used on both platforms (harmless
-# on Linux) so one tasks.json/launch.json path template also serves the Windows
-# build, where binaries carry .exe.
+# Single-file IDE build for the VSCode default build task (.vscode/tasks.json).
+# Drives a dedicated debug CMake tree (tests/build-debug) rather than invoking
+# the compiler directly, so CMake stays the single source of truth for include
+# paths AND link libraries; this script names none of its own. The requested
+# target builds to tests/build-debug/debug_bin/<stem>.exe, where launch.json
+# (CodeLLDB) and the "Run Executable" task look. The Linux counterpart of
+# ide_build.ps1. See crossplatform.md.
 
 # Fail fast.
 set -e
@@ -18,77 +16,51 @@ if [[ -z "$src" ]]; then
   echo "usage: $0 <source-file>" >&2
   exit 2
 fi
-
-srcDir="$(dirname "$src")"
-stem="$(basename "${src%.*}")"
-outDir="$srcDir/debug_bin"
-mkdir -p "$outDir"
-out="$outDir/$stem.exe"
-
-# Test sources include library headers root-relative ("corvid/...") and the
-# shared Catch2 main wrapper by bare name ("catch2_main.h"), so put the repo
-# root and tests/ on the include path. Both the .cu and .cpp paths use these.
-workspace="$(cd "$(dirname "$0")/.." && pwd)"
-incdirs=(-I "$workspace" -I "$workspace/tests")
-
-if [[ "$src" == *.cu ]]; then
-  # nvcc rejects gcc newer than 15, so pin the host compiler to g++-15. -g emits
-  # host debug info (lldb can step host-side code); -G adds device debug info
-  # for cuda-gdb. -arch=native targets the build host's GPU. .cu tests use
-  # Catch2 (via catch2_main.h) like the rest of the suite; .cu is libstdc++, so
-  # link the system (apt) Catch2, matching the CMake build. It supplies main()
-  # via Catch::Session, so only libCatch2 is needed (not libCatch2Main).
-  #
-  # Auto-link cuBLAS for sources that use it, matching `nvcc ... -lcublas` and
-  # the CMake build's CUDA::cublas opt-in.
-  cublas=()
-  if grep -q cublas "$src"; then
-    cublas=(-lcublas)
-  fi
-  exec nvcc \
-    -ccbin /usr/bin/g++-15 \
-    -std=c++23 \
-    -arch=native \
-    -g -G -O0 \
-    "${incdirs[@]}" \
-    "$src" \
-    /usr/lib/libCatch2.a \
-    "${cublas[@]}" \
-    -o "$out"
+if [[ ! -f "$src" ]]; then
+  echo "$0: source not found: $src" >&2
+  exit 2
 fi
 
-# .cpp / .cc / default: clang++ with libc++, mirroring the previous clang-build
-# task verbatim.
-fc="$workspace/tests/.fetchcontent"
-loc="$workspace/tests/.local"
+repo="$(cd "$(dirname "$0")/.." && pwd)"
+srcRoot="$repo/tests"
+bldDir="$repo/tests/build-debug"
+fcDebug="$repo/tests/.fetchcontent-debug"
+stem="$(basename "${src%.*}")"
 
-exec /usr/bin/clang++-22 \
-  -std=c++23 \
-  -stdlib=libc++ \
-  -fexperimental-library \
-  -march=native \
-  -g \
-  -O0 \
-  -DDEBUG \
-  -D_LIBCPP_NO_ABI_TAG \
-  -Wall \
-  -Wextra \
-  -Werror \
-  -Wno-unused-variable \
-  "${incdirs[@]}" \
-  -isystem "$fc/catch2-src/src" \
-  -isystem "$fc/catch2-build/generated-includes" \
-  -isystem "$loc/ngtcp2/include" \
-  -isystem "$loc/nghttp3/include" \
-  -isystem "$loc/openssl/include" \
-  "$src" \
-  "$fc/catch2-build/src/libCatch2.a" \
-  "$loc/ngtcp2/lib/libngtcp2_crypto_ossl.a" \
-  "$loc/ngtcp2/lib/libngtcp2.a" \
-  "$loc/nghttp3/lib/libnghttp3.a" \
-  "$loc/openssl/lib64/libssl.a" \
-  "$loc/openssl/lib64/libcrypto.a" \
-  -lc++experimental \
-  -luring \
-  -ldl \
-  -o "$out"
+# clang/libc++ by default, matching cleanbuild.sh's default configuration.
+export CC="/usr/bin/clang-22"
+export CXX="/usr/bin/clang++-22"
+
+# CUDA (.cu) targets compile with nvcc (g++-15 host); mirror cleanbuild.sh.
+# Enabling CUDA whenever the toolchain is present keeps the configure signature
+# stable across .cpp and .cu files, so switching files never forces a
+# reconfigure.
+cudaArgs=()
+if command -v nvcc >/dev/null 2>&1 && command -v g++-15 >/dev/null 2>&1; then
+  cudaArgs=(-DCORVID_ENABLE_CUDA=ON
+    -DCMAKE_CUDA_HOST_COMPILER="$(command -v g++-15)"
+    -DCMAKE_CUDA_ARCHITECTURES=native)
+elif [[ "$src" == *.cu ]]; then
+  echo "$0: '$src' is a .cu file but CUDA (nvcc + g++-15) was not found" >&2
+  exit 1
+fi
+
+# Configure the debug tree: libc++ like cleanbuild's default, IDE_DEBUG flipping
+# the flags to -O0 -g (asserts live). Its own FetchContent base keeps it from
+# fighting cleanbuild's release tree over the shared Catch2 build. No TEST_NAME:
+# all targets configure once, then a single --target builds on demand. Reuse the
+# configured tree when the signature is unchanged, as cleanbuild does, so only
+# the first build pays the configure cost.
+cfg=(-S "$srcRoot" -B "$bldDir" -G Ninja -DUSE_LIBSTDCPP=OFF
+  -DIDE_DEBUG=ON -DFETCHCONTENT_BASE_DIR="$fcDebug" "${cudaArgs[@]}")
+sigFile="$bldDir/.ide-build-config"
+configSig="$(IFS='|'; echo "${cfg[*]}")|CC=$CC|CXX=$CXX"
+if [[ ! -f "$sigFile" || ! -f "$bldDir/CMakeCache.txt" \
+      || "$(cat "$sigFile")" != "$configSig" ]]; then
+  cmake --fresh "${cfg[@]}"
+  echo "$configSig" >"$sigFile"
+fi
+
+# Build just the requested target. CMake supplies its flags and link libraries;
+# debug info lands next to the exe in debug_bin/ on its own.
+cmake --build "$bldDir" --target "$stem"

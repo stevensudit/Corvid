@@ -159,6 +159,7 @@ public:
     terminate();
   }
 
+  // NOLINTNEXTLINE(bugprone-exception-escape): a throw only reaches terminate
   [[noreturn]] void terminate() noexcept {
     std::scoped_lock lock{mutex_};
     (*out_) << "Terminating due to previous fatal log message.\n"

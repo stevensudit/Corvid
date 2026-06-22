@@ -21,6 +21,10 @@ option(CORVID_ENABLE_CUDA "Build .cu targets with nvcc (host g++-15, libstdc++)"
 # (sanitizers, tidy, scan) all retain them. cleanbuild.sh turns this ON only
 # for the plain and coverage builds, where the assert cost is not wanted.
 option(CORVID_DISABLE_ASSERTS "Define NDEBUG to strip asserts" OFF)
+# Un-optimized, debuggable single-file build for the IDE (scripts/ide_build.*
+# drive this). Switches optimization to -O0 -g and routes output to debug_bin/;
+# the flag logic lives further down, after the per-platform flags are set.
+option(IDE_DEBUG "Un-optimized -O0 -g single-file build for the IDE" OFF)
 set(TEST_NAME "" CACHE STRING "Build only the named test source file")
 
 # Set the C++ standard to C++23
@@ -59,26 +63,31 @@ endif()
 
 if(WIN32)
     # Windows builds the portable (and cuda) buckets against the MSVC STL with
-    # either clang-cl (default) or MSVC cl, mirroring the clang/gcc split on
-    # Linux. The libc++/clang-22 knobs in the branches below (-nostdinc++, the
-    # libc++ include prefix, -march=native, -fexperimental-library, and the
-    # libc++ link options) have no MSVC analog, so none apply here. The Linux
-    # network stack is excluded at the source-bucket level. See crossplatform.md.
-    #
-    # Emit the cl-style /std:c++latest for C++23 (both compilers accept it)
-    # rather than CMake's clang-cl default `-clang:-std=c++23`, which clangd
-    # mis-parses in compile_commands.json (it surfaces as a bogus `-std==c++23`
-    # that clangd drops, losing C++23 in the editor).
-    set(CMAKE_CXX23_STANDARD_COMPILE_OPTION "/std:c++latest")
-    set(CMAKE_CXX23_EXTENSION_COMPILE_OPTION "/std:c++latest")
+    # either clang++ (default) or MSVC cl, mirroring the clang/gcc split on
+    # Linux. clang++ drives a GNU-style command line targeting the MSVC ABI: the
+    # same driver and warning flags as Linux clang, which also keeps clangd's
+    # parsing aligned. cl is the conformance-mode second compiler. (The CUDA
+    # bucket also uses clang++, because nvcc's MSVC device frontend has no C++23
+    # dialect; see the CUDA section.) The libc++/clang-22 knobs in the Linux
+    # branches (-nostdinc++, the libc++ include prefix, -march=native,
+    # -fexperimental-library, the libc++ link options) have no MSVC-ABI analog,
+    # so none apply here. The Linux network stack is excluded at the
+    # source-bucket level. See crossplatform.md.
     if(CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
-        # clang-cl aliases bare -Wall/-Wextra to MSVC's /Wall (~ -Weverything,
-        # flooding c++98-compat / padded noise), so pass clang's real warning
-        # set through the /clang: escape, as errors. Mirrors Linux's -Wall
-        # -Wextra -Werror; the suite and the Catch2 subbuild are clean under it.
-        set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /EHsc /clang:-Wall /clang:-Wextra /clang:-Werror")
+        # clang++ (GNU-like driver, MSVC ABI). Plain -Wall -Wextra -Werror as on
+        # Linux (no /clang: escape, unlike the retired clang-cl path); CMake's
+        # CMAKE_CXX_STANDARD=23 yields a plain -std=c++23 that clangd parses
+        # correctly. -fms-runtime-lib=dll selects the dynamic (/MD) CRT to match
+        # the .cu bucket and keep ASAN's dynamic runtime usable; clang++ would
+        # otherwise default to the static (/MT) CRT.
+        set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -Wextra -Werror -fms-runtime-lib=dll")
     else()
-        # MSVC cl: /W4 with warnings as errors (cl rejects the /clang: escape).
+        # MSVC cl, the conformance-mode second compiler. cl has no /std:c++23, so
+        # request C++23 as /std:c++latest (overriding CMake's default), which cl
+        # accepts. clang++ above needs no such override.
+        set(CMAKE_CXX23_STANDARD_COMPILE_OPTION "/std:c++latest")
+        set(CMAKE_CXX23_EXTENSION_COMPILE_OPTION "/std:c++latest")
+        # /W4 with warnings as errors (cl rejects the /clang: escape).
         # /permissive- turns on conformance mode (proper two-phase template name
         # lookup among other things), without which cl misses the operators that
         # clang finds via using-directive (e.g. the sequence-enum `operator*`).
@@ -97,9 +106,9 @@ if(WIN32)
         #   4310 - cast truncates a constant value (deliberate wraparound tests).
         set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /EHsc /permissive- /Zc:preprocessor /W4 /WX /wd4245 /wd4267 /wd4305 /wd4310")
     endif()
-    # cleanbuild.ps1 drives this as a Release build (optimization, NDEBUG, and the
-    # release /MD CRT all come from CMAKE_BUILD_TYPE=Release), like Linux's -O3;
-    # ide_build.ps1 is the separate debug (/Od) path.
+    # cleanbuild.ps1 drives this as a Release build: optimization and NDEBUG come
+    # from CMAKE_BUILD_TYPE=Release (like Linux's -O3). ide_build.ps1 is the
+    # separate debug (/Od) path.
 elseif(USE_LIBSTDCPP)
     # Rely on whichever clang is available and the default libstdc++ install.
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O3 -march=native -Wall -Wextra -Werror -std=c++23")
@@ -231,54 +240,33 @@ if(SANITIZER)
     set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} ${_san_flags}")
 endif()
 
-# Windows: CMake links clang-cl targets through lld-link directly, which ignores
-# the -fsanitize driver flag on the link line, so the compiler-rt runtime never
-# gets pulled in (undefined __asan_*/__ubsan_* at link). Add the runtime the way
-# clang-cl's own link driver would; the lib set came from
-# `clang-cl -fsanitize=address,undefined -###`. Refresh these if the toolchain
-# changes.
+# Windows sanitizer guards. clang++ drives the link, so the
+# -fsanitize=address,undefined set above is honored on the link line and clang++
+# pulls in the dynamic asan runtime + thunk itself. (The retired clang-cl path
+# had to add those clang_rt libs by hand, because CMake linked it through
+# lld-link directly, bypassing the driver.) -g (set above) gives the CodeView
+# debug info asan symbolizes from.
 if(SANITIZER AND WIN32)
-    # The -fsanitize flags and the compiler-rt runtime added below are
-    # clang-cl's (LLVM's); MSVC cl has no compatible runtime here, so its asan
-    # link would chase a nonexistent clang-runtime path under the MSVC toolset
-    # dir. Fail fast, using the same compiler-ID split as the top of this WIN32
-    # block (line 74).
+    # Sanitizers on Windows require clang++ (the LLVM compiler-rt runtimes); MSVC
+    # cl has no compatible runtime, so fail fast rather than chase a nonexistent
+    # clang-runtime path. Same compiler-ID split as the top WIN32 block.
     if(NOT CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
         message(FATAL_ERROR
-            "On Windows, sanitizer builds require clang-cl, not MSVC cl. "
-            "Reconfigure with -DCMAKE_CXX_COMPILER=clang-cl (or use "
-            "./cleanbuild.ps1 asan).")
+            "On Windows, sanitizer builds require clang++, not MSVC cl. "
+            "Use ./cleanbuild.ps1 asan.")
     endif()
     # Only ASAN is supported on Windows, and it carries UBSAN with it
     # (-fsanitize=address,undefined; the dynamic asan runtime also resolves the
     # __ubsan_* handlers). Standalone UBSAN cannot link here: LLVM ships only a
     # static-CRT ubsan runtime (clang_rt.ubsan_standalone*-x86_64.lib is
-    # MT_StaticRelease, no _dynamic variant), which clang-cl auto-embeds as a
-    # /DEFAULTLIB that then collides with this /MD build (lld-link
-    # /failifmismatch). tsan/msan are Linux-only too. Fail fast with the reason
-    # rather than the cryptic linker error.
+    # MT_StaticRelease, no _dynamic variant) that clashes with this /MD build
+    # (lld-link /failifmismatch). tsan/msan are Linux-only too. Fail fast with
+    # the reason rather than the cryptic linker error.
     if(NOT SANITIZER STREQUAL "asan")
         message(FATAL_ERROR
             "On Windows only SANITIZER=asan is supported; it already includes "
             "UBSAN. SANITIZER=${SANITIZER} has no /MD-compatible runtime here.")
     endif()
-    # Release omits the linker PDB, but sanitizer findings are only actionable
-    # with symbols. /DEBUG emits a PDB from the CodeView that the -g above puts
-    # in the objects; it is link-only, so it does not trip the /clang:-Werror
-    # compile flags. /DEBUG also leaves /OPT at NOICF, which is required, not
-    # incidental: the Release default /OPT:ICF folds identical COMDATs (string
-    # literals among them), overlapping globals so ASAN's per-global redzones no
-    # longer match the layout. That shows up as false-positive
-    # global-buffer-overflow and ODR reports on small pooled literals. ICF is
-    # incompatible with ASAN.
-    add_link_options("/DEBUG")
-    get_filename_component(_llvm_root "${CMAKE_CXX_COMPILER}" DIRECTORY)
-    get_filename_component(_llvm_root "${_llvm_root}/.." ABSOLUTE)
-    string(REGEX MATCH "^[0-9]+" _clang_major "${CMAKE_CXX_COMPILER_VERSION}")
-    set(_rtdir "${_llvm_root}/lib/clang/${_clang_major}/lib/windows")
-    add_link_options(
-        "${_rtdir}/clang_rt.asan_dynamic-x86_64.lib"
-        "-wholearchive:${_rtdir}/clang_rt.asan_dynamic_runtime_thunk-x86_64.lib")
 endif()
 
 # Strip asserts via NDEBUG when requested. Applied as a compile definition (not
@@ -523,52 +511,183 @@ if(USE_CLANG_TIDY)
     endif()
 endif()
 
-# CUDA (.cu) targets. cleanbuild.sh sets CORVID_ENABLE_CUDA=ON (and passes
-# CMAKE_CUDA_HOST_COMPILER + CMAKE_CUDA_ARCHITECTURES) whenever nvcc and g++-15
-# are present and the build is a plain one (no sanitizer/coverage/scan). nvcc
-# rejects gcc newer than 15, so it must use g++-15 as its host compiler. The
-# .cu targets are independent single-source executables linked against
-# libstdc++, so they coexist with whatever compiler/stdlib the .cpp suite uses;
-# the libc++ link flags above are CXX-only and never reach this link line.
+# CUDA (.cu) targets. The cleanbuild driver sets CORVID_ENABLE_CUDA=ON (and
+# passes the CUDA compiler + architecture) whenever the toolkit is present and
+# the build is a plain one (no sanitizer/coverage/scan). The CUDA compiler
+# differs by platform: nvcc with a g++-15 host on Linux (nvcc rejects gcc newer
+# than 15), and clang (clang++) on Windows, because nvcc 13.3's MSVC device
+# frontend has no C++23 dialect (see the flag block below). The .cu targets are
+# independent single-source executables that share no link line with a .cpp
+# binary, so they coexist with whatever compiler/stdlib the .cpp suite uses; the
+# libc++ link flags above are CXX-only and never reach this link line.
 if(CORVID_ENABLE_CUDA)
     enable_language(CUDA)
     if(NOT CMAKE_CUDA_ARCHITECTURES)
-        # `native` resolves to the build host's GPU (sm_89 on an RTX 4090).
+        # `native` resolves to the build host's GPU (sm_89 on an RTX 4090) under
+        # nvcc on Linux. On Windows the cleanbuild driver passes an explicit
+        # sm_NN: clang-CUDA's `native` detection does not work there.
         set(CMAKE_CUDA_ARCHITECTURES native)
     endif()
     # CMake 3.28 cannot map CUDA_STANDARD 23 (it rejects the dialect as
     # unsupported by nvcc), though nvcc 13.3 accepts -std=c++23. Clear CMake's
-    # default standard flag and pass c++23 ourselves so the nvcc command line
-    # carries a single -std (no "incompatible redefinition for option 'std'"
-    # warning).
+    # default standard flag and pass c++23 ourselves so the compiler command
+    # carries a single -std (no "incompatible redefinition for option 'std'").
     set(CMAKE_CUDA_STANDARD_DEFAULT "")
-    # -lineinfo adds source-line correlation to the optimized SASS so Nsight
-    # (and compute-sanitizer) can attribute results to source lines. Unlike -G
-    # it leaves device optimization intact, so the runtime cost is negligible.
-    string(APPEND CMAKE_CUDA_FLAGS " -std=c++23 -O3 -lineinfo")
+    if(WIN32)
+        # Windows compiles the CUDA bucket with clang (clang++), not nvcc: nvcc
+        # 13.3's MSVC device frontend has no C++23 dialect (its -std=c++23 maps
+        # to --ms_c++14 and is dropped), so it cannot build Corvid's C++23
+        # headers, whereas clang's unified C++23 frontend compiles host and
+        # device together. -fms-runtime-lib=dll picks the dynamic (/MD) CRT to
+        # match the FetchContent Catch2 (clang defaults to the static /MT one);
+        # -Wno-unknown-cuda-version silences the note that CUDA 13.3 is newer
+        # than clang 22's last fully supported toolkit (codegen is unaffected).
+        # -gline-tables-only is the clang analog of the Linux side's -lineinfo:
+        # it embeds the SASS<->source line mapping (.nv_debug_line_sass) that
+        # compute-sanitizer (./cleanbuild.ps1 cudacheck) and Nsight attribute
+        # results from, while keeping device optimization intact. Release
+        # supplies the optimization (-O3 -DNDEBUG). See crossplatform.md.
+        #
+        # -Wall -Wextra -Werror brings the .cu bucket to the same rigor as the
+        # .cpp suite. -Wno-missing-designated-field-initializers opts out of the
+        # one -Wextra check that fires on the deliberate partial designated-init
+        # idiom for C DESC structs (cudaResourceDesc / cudaTextureDesc, whose
+        # omitted fields zero-init as intended); the positional
+        # -Wmissing-field-initializers stays on. Mirrors the cl /wd codes for
+        # warnings that fire on correct, intentional code.
+        string(APPEND CMAKE_CUDA_FLAGS
+            " -std=c++23 -fms-runtime-lib=dll -Wall -Wextra -Werror"
+            " -Wno-missing-designated-field-initializers"
+            " -Wno-unknown-cuda-version -gline-tables-only")
+    else()
+        # Linux uses nvcc (g++-15 host). -lineinfo adds source-line correlation
+        # to the optimized SASS so Nsight (and compute-sanitizer) can attribute
+        # results to source lines; unlike -G it leaves device optimization
+        # intact, so the runtime cost is negligible.
+        string(APPEND CMAKE_CUDA_FLAGS " -std=c++23 -O3 -lineinfo")
+    endif()
     message(STATUS
-        "CUDA enabled: ${CMAKE_CUDA_COMPILER} (host ${CMAKE_CUDA_HOST_COMPILER}, "
-        "arch ${CMAKE_CUDA_ARCHITECTURES})")
+        "CUDA enabled: ${CMAKE_CUDA_COMPILER} (arch ${CMAKE_CUDA_ARCHITECTURES})")
 endif()
 
-# Output directory
-set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/release_bin")
+# Single-file IDE debug builds (scripts/ide_build.sh/.ps1 drive this with
+# -DIDE_DEBUG=ON). Strip the optimization the normal build bakes in and switch
+# to -O0 -g for un-optimized stepping and debug info (a PDB on Windows, where
+# the /MD CRT from -fms-runtime-lib stays put so the exe still links the
+# Release-CRT Catch2). Clearing CMAKE_CXX_FLAGS_RELEASE drops the Release -O2
+# -DNDEBUG that a Windows Release configure adds; asserts stay live because
+# CORVID_DISABLE_ASSERTS is left OFF.
+if(IDE_DEBUG)
+    string(REGEX REPLACE "-O[0-9]" "" CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS}")
+    string(REGEX REPLACE "-march=native" "" CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS}")
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O0 -g")
+    set(CMAKE_CXX_FLAGS_RELEASE "")
+    # launch.json/tasks.json use one cross-platform path template ending in
+    # .exe; force that suffix so Linux binaries match it too (a no-op on
+    # Windows, where it is already .exe).
+    set(CMAKE_EXECUTABLE_SUFFIX ".exe")
+    if(CORVID_ENABLE_CUDA)
+        string(REGEX REPLACE "-O[0-9]" "" CMAKE_CUDA_FLAGS "${CMAKE_CUDA_FLAGS}")
+        set(CMAKE_CUDA_FLAGS "${CMAKE_CUDA_FLAGS} -O0 -g")
+        set(CMAKE_CUDA_FLAGS_RELEASE "")
+    endif()
+endif()
+
+# Output directory: debug_bin/ for IDE_DEBUG (where launch.json looks),
+# release_bin/ otherwise (cleanbuild's tree).
+if(IDE_DEBUG)
+    set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/debug_bin")
+else()
+    set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/release_bin")
+endif()
+
+# SDL3 for the Windows-only buckets: the plain-C++ wrapper tests in
+# tests/windows/ and the CUDA graphics targets in tests/cuda/windows/. A
+# prebuilt drop in tests/.local/sdl3 (run scripts/fetch_sdl3.ps1), mirroring the
+# Linux OpenSSL prebuild: prebuilt rather than FetchContent because SDL is a C
+# API with no C++ ABI to match. Called only when an SDL target is actually in
+# the build, so portable and plain-cuda builds do not depend on it; the TARGET
+# guard makes a repeat call (both buckets present) a no-op. See crossplatform.md.
+macro(corvid_require_sdl3)
+    if(NOT TARGET SDL3::SDL3)
+        set(SDL3_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/.local/sdl3")
+        if(NOT EXISTS "${SDL3_ROOT}/cmake/SDL3Config.cmake")
+            message(FATAL_ERROR
+                "SDL3 not found at ${SDL3_ROOT}. "
+                "Run scripts/fetch_sdl3.ps1 first (one-time).")
+        endif()
+        find_package(SDL3 CONFIG REQUIRED
+            PATHS "${SDL3_ROOT}/cmake" NO_DEFAULT_PATH)
+        message(STATUS "Using SDL3 ${SDL3_VERSION} at ${SDL3_ROOT}")
+    endif()
+endmacro()
+
+# Dear ImGui for the live tuning panel in the Windows-only CUDA viewers. ImGui
+# ships no CMakeLists, so FetchContent only populates the source; we then build
+# our own static library from the core plus the SDL3 and D3D11 backends. Called
+# only when a cuda/windows source actually pulls in ImGui (the `imgui` regex
+# gate below), mirroring corvid_require_sdl3; the TARGET guard makes a repeat
+# call a no-op. It depends on SDL3, so it requires it first. ImGui is not clean
+# under our -Wall -Wextra -Werror, so the lib builds with -w. See
+# corvid/cuda/tuning_panel.md.
+macro(corvid_require_imgui)
+    if(NOT TARGET imgui)
+        corvid_require_sdl3()
+        include(FetchContent)
+        FetchContent_Declare(
+            imgui
+            GIT_REPOSITORY https://github.com/ocornut/imgui.git
+            GIT_TAG        v1.91.5
+        )
+        FetchContent_MakeAvailable(imgui)
+        add_library(imgui STATIC
+            ${imgui_SOURCE_DIR}/imgui.cpp
+            ${imgui_SOURCE_DIR}/imgui_draw.cpp
+            ${imgui_SOURCE_DIR}/imgui_tables.cpp
+            ${imgui_SOURCE_DIR}/imgui_widgets.cpp
+            ${imgui_SOURCE_DIR}/backends/imgui_impl_sdl3.cpp
+            ${imgui_SOURCE_DIR}/backends/imgui_impl_dx11.cpp)
+        # SYSTEM (-isystem) so clang-tidy/clangd skip imgui's own diagnostics in
+        # consumers, including its macros expanded in our code.
+        target_include_directories(imgui SYSTEM PUBLIC
+            ${imgui_SOURCE_DIR} ${imgui_SOURCE_DIR}/backends)
+        target_link_libraries(imgui PUBLIC SDL3::SDL3 d3d11 dxgi)
+        target_compile_options(imgui PRIVATE -w)
+        # -w silences the compiler but not clang-tidy, which the global
+        # CMAKE_CXX_CLANG_TIDY would otherwise run on these sources. Clear the
+        # property on this target so only our own code is analyzed.
+        set_target_properties(imgui PROPERTIES CXX_CLANG_TIDY "")
+        message(STATUS "Using Dear ImGui (FetchContent) static lib")
+    endif()
+endmacro()
 
 # Test sources are partitioned into platform buckets: portable/ builds on every
-# platform, linux/ only on Linux, cuda/ only when CORVID_ENABLE_CUDA (handled in
-# the CUDA section). .cpp builds the CXX suite below; .cu is routed to the CUDA
-# loop further down. See crossplatform.md.
+# platform, linux/ only on Linux, windows/ only on Windows (plain C++, e.g. the
+# SDL wrapper tests), cuda/ only when CORVID_ENABLE_CUDA (handled in the CUDA
+# section). .cpp builds the CXX suite below; .cu is routed to the CUDA loop
+# further down. See crossplatform.md.
 file(GLOB PORTABLE_SOURCES "portable/*.cpp")
 set(SOURCES ${PORTABLE_SOURCES})
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
     file(GLOB LINUX_SOURCES "linux/*.cpp")
     list(APPEND SOURCES ${LINUX_SOURCES})
 endif()
+if(WIN32)
+    # Windows-only plain-C++ tests (the SDL wrapper tests); no CUDA toolchain.
+    file(GLOB WINDOWS_SOURCES "windows/*.cpp")
+    list(APPEND SOURCES ${WINDOWS_SOURCES})
+endif()
 
 if(TEST_NAME)
     # Locate the single requested source in whichever bucket holds it.
     set(FILTERED_SOURCE "")
-    foreach(_bucket portable linux cuda)
+    set(_buckets portable linux cuda)
+    if(WIN32)
+        # Windows-only buckets: plain-C++ SDL tests (windows/) and CUDA graphics
+        # targets (cuda/windows/). See crossplatform.md s11.
+        list(APPEND _buckets windows cuda/windows)
+    endif()
+    foreach(_bucket ${_buckets})
         if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/${_bucket}/${TEST_NAME}")
             set(FILTERED_SOURCE
                 "${CMAKE_CURRENT_SOURCE_DIR}/${_bucket}/${TEST_NAME}")
@@ -599,6 +718,20 @@ if(TEST_NAME)
         set(SOURCES "${FILTERED_SOURCE}")
     endif()
     message(STATUS "Building only test source: ${TEST_NAME}")
+endif()
+
+# Windows-only CXX targets (the SDL wrapper tests) need SDL3; require it only
+# when such a source is actually in the build.
+if(WIN32)
+    set(_need_sdl3 FALSE)
+    foreach(_s ${SOURCES})
+        if(_s MATCHES "/windows/")
+            set(_need_sdl3 TRUE)
+        endif()
+    endforeach()
+    if(_need_sdl3)
+        corvid_require_sdl3()
+    endif()
 endif()
 
 # Loop through each source file and create a separate executable
@@ -647,6 +780,23 @@ foreach(SOURCE_FILE ${SOURCES})
             ${LIBURING_LIBRARIES} ngtcp2_crypto_ossl_static nghttp3_static)
     endif()
 
+    # Windows-only CXX targets (tests/windows/) link SDL3 and stage SDL3.dll
+    # next to the exe. See crossplatform.md s11.
+    if(SOURCE_FILE MATCHES "/windows/")
+        target_link_libraries(${EXECUTABLE_NAME} PRIVATE SDL3::SDL3)
+        add_custom_command(TARGET ${EXECUTABLE_NAME} POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                "$<TARGET_FILE:SDL3::SDL3>"
+                "$<TARGET_FILE_DIR:${EXECUTABLE_NAME}>")
+        # D3D11 (device/swapchain/present) for sources that pull in a d3d11
+        # header; user32 (GetClientRect in swapchain resize()) comes from
+        # CMake's default Windows standard libs. SDL-only windows tests skip it.
+        file(STRINGS ${SOURCE_FILE} _uses_d3d11 REGEX "d3d11")
+        if(_uses_d3d11)
+            target_link_libraries(${EXECUTABLE_NAME} PRIVATE d3d11 dxgi)
+        endif()
+    endif()
+
     if(NOT USE_LIBSTDCPP AND NOT WIN32)
         # Link libc++ and libc++abi explicitly
         target_link_libraries(${EXECUTABLE_NAME} PRIVATE c++ c++abi)
@@ -654,14 +804,13 @@ foreach(SOURCE_FILE ${SOURCES})
 endforeach()
 
 # CUDA (.cu) test executables, the same single-source-per-executable model as
-# the .cpp suite above but compiled by nvcc (g++-15 host) and linked against
-# libstdc++. They use Catch2 like the rest of the suite. Because .cu targets
-# are always libstdc++, they need the system (apt) Catch2 rather than the libc++
-# FetchContent build the .cpp suite may be using, so we locate it directly
-# instead of reusing Catch2::Catch2 (the wrong ABI in a libc++ configure).
-# notest_* opt out of Catch2 and CTest, as in the .cpp loop. A .cu file reaches
-# its headers root-relative ("corvid/cuda/...") and Catch2 by bare name
-# ("catch2_main.h"); the include path below adds the repo root and tests/.
+# the .cpp suite above but compiled by the CUDA compiler (nvcc + g++-15 host on
+# Linux, clang++ on Windows). They use Catch2 like the rest of the suite; the
+# Catch2 it links
+# differs by platform (see the CUDA_CATCH2_TARGET split below). notest_* opt out
+# of Catch2 and CTest, as in the .cpp loop. A .cu file reaches its headers
+# root-relative ("corvid/cuda/...") and Catch2 by bare name ("catch2_main.h");
+# the include path below adds the repo root and tests/.
 if(CORVID_ENABLE_CUDA)
     if(DEFINED CUDA_TEST_NAME_SOURCE)
         set(CUDA_SOURCES "${CUDA_TEST_NAME_SOURCE}")
@@ -669,6 +818,12 @@ if(CORVID_ENABLE_CUDA)
         set(CUDA_SOURCES "") # a .cpp single-file filter builds no .cu targets
     else()
         file(GLOB CUDA_SOURCES "cuda/*.cu")
+        if(WIN32)
+            # Windows-only CUDA cell: D3D/SDL3 targets that can't build on Linux
+            # (see crossplatform.md s11). Globbed only here, under WIN32.
+            file(GLOB CUDA_WINDOWS_SOURCES "cuda/windows/*.cu")
+            list(APPEND CUDA_SOURCES ${CUDA_WINDOWS_SOURCES})
+        endif()
     endif()
 
     if(CUDA_SOURCES)
@@ -676,19 +831,44 @@ if(CORVID_ENABLE_CUDA)
         # CUDA::cublas imported target (include dirs + link). A .cu target opts
         # in below by referencing cublas in its source.
         find_package(CUDAToolkit REQUIRED)
-        find_path(CUDA_CATCH2_INCLUDE_DIR catch2/catch_test_macros.hpp)
-        find_library(CUDA_CATCH2_LIBRARY NAMES Catch2)
-        if(NOT CUDA_CATCH2_INCLUDE_DIR OR NOT CUDA_CATCH2_LIBRARY)
-            message(FATAL_ERROR
-                "CUDA tests use Catch2 but the system libstdc++ Catch2 was not "
-                "found (apt install catch2).")
+        if(WIN32)
+            # clang++ targets the MSVC ABI on Windows, so the .cu objects match
+            # the clang-cl/cl .cpp suite's FetchContent Catch2 (also MSVC ABI).
+            # Reuse it directly. The Linux split below (a separate system
+            # Catch2) exists only because the .cpp suite there may be libc++
+            # while the .cu targets are libstdc++; no such ABI divergence here.
+            set(CUDA_CATCH2_TARGET Catch2::Catch2)
+        else()
+            # On Linux the .cu targets are libstdc++ (nvcc + g++-15 host), so
+            # they need the system (apt) libstdc++ Catch2 rather than the libc++
+            # FetchContent build the .cpp suite may be using (mixing ABIs gives
+            # unresolved std::__1 / std::__cxx11 symbols at link).
+            find_path(CUDA_CATCH2_INCLUDE_DIR catch2/catch_test_macros.hpp)
+            find_library(CUDA_CATCH2_LIBRARY NAMES Catch2)
+            if(NOT CUDA_CATCH2_INCLUDE_DIR OR NOT CUDA_CATCH2_LIBRARY)
+                message(FATAL_ERROR
+                    "CUDA tests use Catch2 but the system libstdc++ Catch2 was "
+                    "not found (apt install catch2).")
+            endif()
+            # The catch2_main.h that each test includes supplies main() via
+            # Catch::Session, so only libCatch2 is needed (not libCatch2Main).
+            add_library(cuda_catch2 UNKNOWN IMPORTED)
+            set_target_properties(cuda_catch2 PROPERTIES
+                IMPORTED_LOCATION "${CUDA_CATCH2_LIBRARY}"
+                INTERFACE_INCLUDE_DIRECTORIES "${CUDA_CATCH2_INCLUDE_DIR}")
+            set(CUDA_CATCH2_TARGET cuda_catch2)
         endif()
-        # The catch2_main.h that each test includes supplies main() via
-        # Catch::Session, so only libCatch2 is needed (not libCatch2Main).
-        add_library(cuda_catch2 UNKNOWN IMPORTED)
-        set_target_properties(cuda_catch2 PROPERTIES
-            IMPORTED_LOCATION "${CUDA_CATCH2_LIBRARY}"
-            INTERFACE_INCLUDE_DIRECTORIES "${CUDA_CATCH2_INCLUDE_DIR}")
+
+        # The Windows-only CUDA cell (D3D/SDL3 targets) needs SDL3.
+        set(_have_win_cuda FALSE)
+        foreach(_s ${CUDA_SOURCES})
+            if(_s MATCHES "/cuda/windows/")
+                set(_have_win_cuda TRUE)
+            endif()
+        endforeach()
+        if(_have_win_cuda)
+            corvid_require_sdl3()
+        endif()
     endif()
 
     foreach(SOURCE_FILE ${CUDA_SOURCES})
@@ -703,8 +883,31 @@ if(CORVID_ENABLE_CUDA)
         if(CUDA_USES_CUBLAS)
             target_link_libraries(${EXECUTABLE_NAME} PRIVATE CUDA::cublas)
         endif()
+        # Windows-only CUDA cell links SDL3 (window/input/events) and stages
+        # SDL3.dll next to the exe; d3d11/dxgi (device, swapchain, present) is
+        # linked for sources that pull in a d3d11 header (user32's GetClientRect
+        # comes from CMake's default Windows libs). See crossplatform.md s11.
+        if(SOURCE_FILE MATCHES "/cuda/windows/")
+            target_link_libraries(${EXECUTABLE_NAME} PRIVATE SDL3::SDL3)
+            add_custom_command(TARGET ${EXECUTABLE_NAME} POST_BUILD
+                COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                    "$<TARGET_FILE:SDL3::SDL3>"
+                    "$<TARGET_FILE_DIR:${EXECUTABLE_NAME}>")
+            file(STRINGS ${SOURCE_FILE} _uses_d3d11 REGEX "d3d11")
+            if(_uses_d3d11)
+                target_link_libraries(${EXECUTABLE_NAME} PRIVATE d3d11 dxgi)
+            endif()
+            # The live tuning panel: link the ImGui static lib for sources that
+            # pull in an ImGui header. Source-only, so it can't ride the
+            # prebuilt SDL3 drop; built on demand by corvid_require_imgui.
+            file(STRINGS ${SOURCE_FILE} _uses_imgui REGEX "imgui")
+            if(_uses_imgui)
+                corvid_require_imgui()
+                target_link_libraries(${EXECUTABLE_NAME} PRIVATE imgui)
+            endif()
+        endif()
         if(NOT ${EXECUTABLE_NAME} MATCHES "^notest_")
-            target_link_libraries(${EXECUTABLE_NAME} PRIVATE cuda_catch2)
+            target_link_libraries(${EXECUTABLE_NAME} PRIVATE ${CUDA_CATCH2_TARGET})
             add_test(NAME ${EXECUTABLE_NAME} COMMAND ${EXECUTABLE_NAME})
         endif()
     endforeach()
@@ -717,10 +920,43 @@ endif()
 # the repo), so the .. step is the actual project root.
 get_filename_component(PROJECT_ROOT_DIR "${CMAKE_SOURCE_DIR}/.." ABSOLUTE)
 if(WIN32)
-    # Windows uses clang-cl against the MSVC STL and builds only the portable
+    # Windows uses clang++ against the MSVC STL and builds only the portable
     # (and cuda) buckets, so its clangd config is far simpler than Linux: no
     # libc++ flags, no ngtcp2/openssl/liburing isystem paths. Generated from a
     # separate template. See crossplatform.md.
+    #
+    # The .cu/.cuh clangd block points clang's CUDA frontend at the toolkit.
+    # Derive it from nvcc (independent of CORVID_ENABLE_CUDA, so .cu editing
+    # works even in a cl/portable configure) and substitute the whole flag list,
+    # so a box without nvcc just drops --cuda-path rather than emitting an empty
+    # one. @ONLY substitution; see .clangd.win.in.
+    find_program(_corvid_nvcc nvcc)
+    if(_corvid_nvcc)
+        get_filename_component(_corvid_cuda_bin "${_corvid_nvcc}" DIRECTORY)
+        get_filename_component(_corvid_cuda_root "${_corvid_cuda_bin}/.." ABSOLUTE)
+        set(CORVID_CLANGD_CUDA_FLAGS
+            "-xcuda, --cuda-path=${_corvid_cuda_root}, --no-cuda-version-check, -std=c++23")
+    else()
+        set(CORVID_CLANGD_CUDA_FLAGS "-xcuda, --no-cuda-version-check, -std=c++23")
+    endif()
+    # SDL3 sits behind -isystem only on windows-bucket TU commands, so a
+    # standalone parse of a vendored SDL header resolves no types; add it
+    # globally for clangd.
+    set(CORVID_CLANGD_SDL_INCLUDE
+        "${CMAKE_CURRENT_SOURCE_DIR}/.local/sdl3/include")
+    # ImGui is reached via -I only on viewers that link it, so like SDL above
+    # add its source and backends dirs globally; otherwise a standalone parse of
+    # imgui_overlay.h resolves no ImGui types. `imgui_SOURCE_DIR` is set by
+    # corvid_require_imgui (FetchContent) during a full configure. Fall back to
+    # the SDL path when ImGui was not configured, so the -isystem tokens stay
+    # well-formed.
+    if(DEFINED imgui_SOURCE_DIR)
+        set(CORVID_CLANGD_IMGUI_INCLUDE "${imgui_SOURCE_DIR}")
+        set(CORVID_CLANGD_IMGUI_BACKENDS "${imgui_SOURCE_DIR}/backends")
+    else()
+        set(CORVID_CLANGD_IMGUI_INCLUDE "${CORVID_CLANGD_SDL_INCLUDE}")
+        set(CORVID_CLANGD_IMGUI_BACKENDS "${CORVID_CLANGD_SDL_INCLUDE}")
+    endif()
     configure_file(
         "${PROJECT_ROOT_DIR}/.clangd.win.in"
         "${PROJECT_ROOT_DIR}/.clangd"

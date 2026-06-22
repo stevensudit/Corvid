@@ -39,5 +39,20 @@ template<std::integral T, std::integral U>
 }
 
 #pragma endregion
+#pragma region round_up_to_multiple
+
+// Smallest multiple of `m` not less than `n`: rounds `n` up to a multiple of
+// `m`. Requires `m > 0`, and `n >= 0` for signed types. Built on `ceil_div`,
+// so the division does not overflow; the final multiply can still overflow if
+// the rounded result (which is less than `n + m`) exceeds the common type's
+// maximum.
+template<std::integral T, std::integral U>
+[[nodiscard]] constexpr std::common_type_t<T, U>
+round_up_to_multiple(T n, U m) noexcept {
+  using R = std::common_type_t<T, U>;
+  return ceil_div(n, m) * static_cast<R>(m);
+}
+
+#pragma endregion
 
 }}} // namespace corvid::math::arithmetic

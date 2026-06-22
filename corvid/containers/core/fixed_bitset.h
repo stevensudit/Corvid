@@ -812,10 +812,12 @@ private:
 // std range formatter would print those positions (`[1, 3]`, like in the
 // alternate "#" representation) instead of the bits. Disabling its range
 // format leaves the bitset formatter below as the only match.
+// NOLINTBEGIN(bugprone-std-namespace-modification)
 template<std::size_t N, typename POS, typename TAG, std::size_t FW>
 constexpr std::range_format
     std::format_kind<corvid::container::fixed_bitset<N, POS, TAG, FW>> =
         std::range_format::disabled;
+// NOLINTEND(bugprone-std-namespace-modification)
 
 #pragma endregion
 #pragma region formatter
@@ -836,6 +838,7 @@ constexpr std::range_format
 // There is no fill, align, width, or precision, since streaming has no
 // rendered length up front.
 template<std::size_t N, typename POS, typename TAG, std::size_t FW>
+// NOLINTNEXTLINE(bugprone-std-namespace-modification)
 struct std::formatter<corvid::container::fixed_bitset<N, POS, TAG, FW>, char> {
   constexpr auto parse(auto& ctx) {
     auto it = ctx.begin();

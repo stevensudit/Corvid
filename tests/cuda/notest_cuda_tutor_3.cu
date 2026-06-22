@@ -25,6 +25,7 @@ __global__ void iota(int n, int* out) {
 
 // NOLINTEND(modernize-use-std-print)
 
+// NOLINTNEXTLINE(bugprone-exception-escape)
 int main() {
   int n = 42;
 

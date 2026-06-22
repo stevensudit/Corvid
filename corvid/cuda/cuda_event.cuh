@@ -15,11 +15,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 #pragma once
-#include <stdexcept>
-#include <utility>
 
 #include <cuda_runtime.h>
 
+#include "./cuda_handle.cuh"
 #include "./cuda_status.cuh"
 
 namespace corvid::cuda {
@@ -29,55 +28,23 @@ namespace corvid::cuda {
 // CUDA event (timing-enabled) wrapper.
 //
 // You should probably just use `cuda_timer`.
-class cuda_event {
+class cuda_event: public cuda_handle<cudaEvent_t, cudaEventDestroy> {
 public:
 #pragma region Construction
 
-  cuda_event() {
-    if (!cuda_last_status{cudaEventCreate(&event_)}) event_ = nullptr;
-  }
-
-  cuda_event(const cuda_event&) = delete;
-  cuda_event& operator=(const cuda_event&) = delete;
-
-  cuda_event(cuda_event&& other) noexcept
-      : event_{std::exchange(other.event_, nullptr)} {}
-  cuda_event& operator=(cuda_event&& other) noexcept {
-    if (this != &other) {
-      destroy();
-      event_ = std::exchange(other.event_, nullptr);
-    }
-    return *this;
-  }
-  ~cuda_event() { destroy(); }
-
-#pragma endregion
-#pragma region Status
-
-  [[nodiscard]] bool ok() const { return event_; }
-  [[nodiscard]] explicit operator bool() const { return ok(); }
-  [[nodiscard]] bool operator!() const { return !ok(); }
-  void operator*() const {
-    if (!event_) throw std::runtime_error{"dereferencing null cuda_event"};
-  }
+  cuda_event() : cuda_handle{create()} {}
 
 #pragma endregion
 #pragma region Operations
 
   // Record this event into `stream` (default stream).
   [[nodiscard]] cuda_last_status record(cudaStream_t stream = nullptr) {
-    return cudaEventRecord(event_, stream);
+    return cudaEventRecord(get(), stream);
   }
   // Block the host until this event completes.
   [[nodiscard]] cuda_last_status synchronize() const {
-    return cudaEventSynchronize(event_);
+    return cudaEventSynchronize(get());
   }
-
-#pragma endregion
-#pragma region Accessors
-
-  [[nodiscard]] cudaEvent_t get() const { return event_; }
-  [[nodiscard]] operator cudaEvent_t() const { return event_; }
 
 #pragma endregion
 #pragma region Timing
@@ -91,14 +58,11 @@ public:
 #pragma endregion
 #pragma region Helpers
 private:
-  void destroy() {
-    if (event_) cudaEventDestroy(event_);
+  static cudaEvent_t create() noexcept {
+    cudaEvent_t event{};
+    if (!cuda_last_status{cudaEventCreate(&event)}) event = nullptr;
+    return event;
   }
-
-#pragma endregion
-#pragma region Data members
-
-  cudaEvent_t event_{};
 
 #pragma endregion
 };
