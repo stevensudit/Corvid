@@ -21,7 +21,7 @@
 
 #include "./sdl_event.h"
 #include "./sdl_window.h"
-#include "corvid/math/one_euro_filter.h"
+#include "../math/one_euro_filter.h"
 
 // Free-fly camera input state and the SDL event handler that maintains it: the
 // held movement keys, the mouse-look toggle, and the frame's accumulated look

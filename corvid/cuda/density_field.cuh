@@ -60,9 +60,11 @@ struct density_field {
 
   // Whether the voxel at index `idx` is inside the field.
   [[nodiscard]] __device__ bool contains(int3 idx) const {
-    return idx.x >= 0 && idx.x < static_cast<int>(extent.width) &&
-           idx.y >= 0 && idx.y < static_cast<int>(extent.height) &&
-           idx.z >= 0 && idx.z < static_cast<int>(extent.depth);
+    const int w = static_cast<int>(extent.width);
+    const int h = static_cast<int>(extent.height);
+    const int d = static_cast<int>(extent.depth);
+    return idx.x >= 0 && idx.x < w && idx.y >= 0 && idx.y < h && idx.z >= 0 &&
+           idx.z < d;
   }
 
 #pragma endregion

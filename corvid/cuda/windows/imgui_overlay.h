@@ -87,11 +87,13 @@ public:
   // Forward every event, even while the panel is closed, so capture state
   // stays current.
   void process_event(const sdl::sdl_event& ev) {
+    (void)this;
     ImGui_ImplSDL3_ProcessEvent(&ev.raw());
   }
 
   // Open a new ImGui frame; build the UI after this and before `render`.
   void begin_frame() {
+    (void)this;
     ImGui_ImplDX11_NewFrame();
     ImGui_ImplSDL3_NewFrame();
     ImGui::NewFrame();
@@ -117,9 +119,11 @@ public:
   // Whether ImGui is consuming the mouse or keyboard this frame, so the game
   // can leave that input to the panel.
   [[nodiscard]] bool wants_mouse() const {
+    (void)this;
     return ImGui::GetIO().WantCaptureMouse;
   }
   [[nodiscard]] bool wants_keyboard() const {
+    (void)this;
     return ImGui::GetIO().WantCaptureKeyboard;
   }
 

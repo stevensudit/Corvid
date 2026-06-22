@@ -671,7 +671,12 @@ struct sdl_key_event {
 // To read an event's payload, switch on `type()` and call the typed accessor
 // for its shape (e.g. `get_display()`), which returns a cleaned-up struct and
 // asserts the shape matches.
-class sdl_event {
+//
+// The wrapped `SDL_Event` union has more members than `sdl_event_data_type`
+// has tags (the classification is intentionally coarse, e.g. `key_down` and
+// `key_up` both map to `key`), so the tagged-union member/tag-count check
+// would misfire here.
+class sdl_event { // NOLINT(bugprone-tagged-union-member-count)
 public:
 #pragma region Construction
 

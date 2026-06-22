@@ -39,6 +39,7 @@ static double gflops(double M, double N, double K, double ms) {
   return (2.0 * M * N * K) / (ms / 1000.0) / 1e9;
 }
 
+// NOLINTNEXTLINE(bugprone-exception-escape)
 int main() {
   const int n = 4096; // square: M = N = K = n
   const size_t count = (size_t)n * n;

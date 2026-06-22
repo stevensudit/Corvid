@@ -51,7 +51,8 @@ constexpr status_case status_cases[] = {
 TEST_CASE("cuda_status values and string round-trip", "[cuda][enums]") {
   for (const auto& c : status_cases) {
     CAPTURE(c.name);
-    CHECK(*c.value == c.code);                // underlying value
+    const int underlying = *c.value; // underlying value
+    CHECK(underlying == c.code);
     CHECK(enum_as_string(c.value) == c.name); // enum -> string
     cuda_status parsed{};
     CHECK(convert_enum(parsed, c.name)); // string -> enum

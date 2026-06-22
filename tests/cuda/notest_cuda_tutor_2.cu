@@ -79,6 +79,7 @@ __global__ void reduce_block(const float* in, float* block_sums, int n) {
 
 // NOLINTEND(modernize-use-std-print)
 
+// NOLINTNEXTLINE(bugprone-exception-escape)
 int main() {
   int n = 42;
   test<<<4, 256>>>(n); // warm-up

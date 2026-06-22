@@ -94,6 +94,7 @@ matmul_tiled(int M, int N, int K, const float* A, const float* B, float* C) {
 // sub-tile of it, holding those TM*TN partial sums in registers and updating
 // them with rank-1 outer products. The point: one shared-memory read now
 // feeds TM (or TN) fused multiply-adds instead of one.
+// NOLINTBEGIN(readability-function-cognitive-complexity)
 template<int BM, int BN, int BK, int TM, int TN>
 __global__ void
 matmul_regtiled(int M, int N, int K, const float* __restrict__ A,
@@ -164,12 +165,14 @@ matmul_regtiled(int M, int N, int K, const float* __restrict__ A,
     }
   }
 }
+// NOLINTEND(readability-function-cognitive-complexity)
 
 static double gflops(double M, double N, double K, double ms) {
   // matmul does 2*M*N*K flops: one multiply + one add per inner-loop step
   return (2.0 * M * N * K) / (ms / 1000.0) / 1e9;
 }
 
+// NOLINTNEXTLINE(bugprone-exception-escape)
 int main() {
   const int n = 4096; // square: M = N = K = n
   const size_t count = (size_t)n * n;

@@ -45,6 +45,7 @@ __global__ void sapxy(int n, float a, const float* x, float* y) {
   }
 }
 
+// NOLINTNEXTLINE(bugprone-exception-escape)
 int main() {
   const int N = 1 << 26; // ~67M elements (~268 MB per array)
   const size_t bytes = (size_t)N * sizeof(float);

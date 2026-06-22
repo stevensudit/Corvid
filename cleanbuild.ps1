@@ -216,6 +216,23 @@ if ($tidy) {
   if ($LASTEXITCODE) { throw "build failed ($LASTEXITCODE)" }
 }
 
+# The build-integrated clang-tidy above (CMAKE_CXX_CLANG_TIDY) covers only the
+# .cpp suite: CMake's clang-tidy launcher supports C/CXX/OBJC/OBJCXX, not CUDA,
+# so .cu TUs and the CUDA-only headers they pull in (corvid/cuda/**) would
+# otherwise be a tidy blind spot. Run a standalone pass over the .cu sources from
+# the compile DB (which carries their clang-CUDA commands) and append it to the
+# same log, so the summary below includes the CUDA findings. Sequential: clang's
+# CUDA frontend parses each TU twice (host + device), so this adds time.
+if ($tidy -and $cudaArgs) {
+  $db = Join-Path $bldDir 'compile_commands.json'
+  $cuSources = @((Get-Content $db -Raw | ConvertFrom-Json) |
+    Where-Object { $_.file -like '*.cu' } | ForEach-Object { $_.file } | Sort-Object -Unique)
+  Write-Host "Running clang-tidy on $($cuSources.Count) CUDA source(s) (the build launcher skips .cu)..."
+  foreach ($src in $cuSources) {
+    & $clangTidy -p $bldDir --quiet $src 2>&1 | Add-Content $tidyLog
+  }
+}
+
 # ASAN links the dynamic runtime, whose DLL must be on PATH for the test exes to
 # start; llvm-symbolizer (in LLVM/bin) gives readable stack traces. UBSAN's
 # runtime is static, so it needs nothing here. detect_odr_violation=0 silences

@@ -86,6 +86,7 @@ constexpr attr_case attr_cases[] = {
 
 } // namespace
 
+// NOLINTBEGIN(readability-function-cognitive-complexity)
 TEST_CASE("cuda_device_attr derived range", "[cuda][enums]") {
   static_assert(*min_value<cuda_device_attr>() == 1);
   static_assert(*max_value<cuda_device_attr>() == 151);
@@ -96,7 +97,8 @@ TEST_CASE("cuda_device_attr anchors wrap the matching CUDA constants",
     "[cuda][enums]") {
   for (const auto& c : attr_cases) {
     CAPTURE(c.name);
-    CHECK(*c.value == c.code);                // underlying value
+    const int underlying = *c.value; // underlying value
+    CHECK(underlying == c.code);
     CHECK(enum_as_string(c.value) == c.name); // enum -> string
     cuda_device_attr parsed{};
     CHECK(convert_enum(parsed, c.name)); // string -> enum
@@ -111,9 +113,8 @@ TEST_CASE("cuda_device_attr comprehensive round-trip over the whole range",
   // no numeric text); unnamed slots stringify to their number and are never
   // matched as a name.
   size_t named_count = 0;
-  for (int n = *min_value<cuda_device_attr>();
-      n <= *max_value<cuda_device_attr>(); ++n)
-  {
+  const int max_attr = *max_value<cuda_device_attr>();
+  for (int n = *min_value<cuda_device_attr>(); n <= max_attr; ++n) {
     CAPTURE(n);
     const auto value = static_cast<cuda_device_attr>(n);
     const auto name = enum_as_view(value);
@@ -148,3 +149,4 @@ TEST_CASE("cuda_device_attr gap and unknown handling", "[cuda][enums]") {
   cuda_device_attr unused{};
   CHECK_FALSE(convert_enum(unused, "not_a_real_attr"));
 }
+// NOLINTEND(readability-function-cognitive-complexity)
