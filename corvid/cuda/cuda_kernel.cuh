@@ -36,9 +36,6 @@ namespace corvid::cuda {
 
 class cuda_kernel {
 public:
-  // TODO: Use an instance for methods that call a lambda.
-  __device__ cuda_kernel(unsigned n) : n_(n) {}
-
   // Thread in each dimension.
   template<typename T = int>
   __device__ static T x_thread() {
@@ -118,9 +115,6 @@ public:
   __host__ __device__ static unsigned ceil_div(unsigned a, unsigned b) {
     return (a / b) + static_cast<unsigned>(a % b != 0);
   }
-
-private:
-  unsigned n_;
 };
 
 } // namespace corvid::cuda

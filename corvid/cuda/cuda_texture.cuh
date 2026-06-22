@@ -55,10 +55,8 @@ private:
   // adopt.
   static cudaTextureObject_t
   create(cudaArray_t array, cudaTextureReadMode read_mode) {
-    const cudaResourceDesc resource_desc{
-        .resType = cudaResourceTypeArray,
-        .res = {.array = {.array = array}},
-    };
+    const cudaResourceDesc resource_desc{.resType = cudaResourceTypeArray,
+        .res = {.array = {.array = array}}};
     const cudaTextureDesc texture_desc{
         .addressMode = {cudaAddressModeClamp, cudaAddressModeClamp,
             cudaAddressModeClamp},

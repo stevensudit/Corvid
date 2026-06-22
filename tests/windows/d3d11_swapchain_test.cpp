@@ -1,8 +1,8 @@
 // Unit test for corvid::win32::d3d::d3d11_bind_flag
 // (corvid/cuda/windows/d3d11_swapchain.h): exercises the bitmask-enum
-// registration wrapping `D3D11_BIND_FLAG`. Round-trips every named flag, which
-// also verifies the spec string is bit-aligned across the unused bit 8, plus a
-// combined value and an unknown name.
+// registration wrapping `D3D11_BIND_FLAG`. Round-trips every named flag both
+// ways and confirms the named flags are exactly the valid bits (so the unused
+// bit 8 stays invalid), plus a combined value and an unknown name.
 
 #include <string_view>
 
@@ -35,14 +35,23 @@ constexpr flag_case flag_cases[] = {
 
 } // namespace
 
-TEST_CASE("d3d11_bind_flag single-flag string round-trip", "[d3d][enums]") {
+TEST_CASE("d3d11_bind_flag string round-trip and valid-bit set",
+    "[d3d][enums]") {
+  // Convert each named flag both ways, then confirm the named flags are
+  // exactly the registration's valid bits. The union check is what catches a
+  // misregistered bit: D3D11 has no flag at bit 8 (0x100), so naming it, or
+  // dropping a real flag, makes the valid-bit set diverge from this union.
+  using corvid::enums::bitmask::valid_bits_v;
+  unsigned named{};
   for (const auto& c : flag_cases) {
     CAPTURE(c.name);
     CHECK(enum_as_string(c.value) == c.name); // enum -> string
     d3d11_bind_flag parsed{};
     CHECK(convert_enum(parsed, c.name)); // string -> enum
     CHECK(parsed == c.value);
+    named |= *c.value;
   }
+  CHECK(named == valid_bits_v<d3d11_bind_flag>);
 }
 
 TEST_CASE("d3d11_bind_flag combined and unknown handling", "[d3d][enums]") {

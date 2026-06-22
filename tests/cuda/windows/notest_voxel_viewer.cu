@@ -312,7 +312,8 @@ struct avatar_rig {
   float spin = 0.0F;   // saucer belly rotation, advanced by `update`
   float thrust = 0.0F; // propulsion glow, from motion, advanced by `update`
   float moving = 0.0F; // this frame's planar movement amount, set by `move`
-  avatar_tuning tune; // live feel constants, read through by the methods below
+  avatar_tuning
+      tune{}; // live feel constants, read through by the methods below
 
   // The orthonormal view basis for the current facing.
   [[nodiscard]] basis frame() const {

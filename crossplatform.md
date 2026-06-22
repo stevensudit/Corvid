@@ -1,17 +1,20 @@
 # Cross-Platform Build
 
-Status: Windows port complete, including CUDA, device tooling, and lint. The
-portable suite builds and passes on Linux (clang), native Windows (clang++, the
-default), and native Windows (MSVC cl): 39 of 39 portable tests per Windows
-compiler. The CUDA bucket builds and runs natively on Windows under clang++ (3 of
-3 registered `.cu` pass on the GPU, plus the cuBLAS tutorials); device
-correctness runs via `./cleanbuild.ps1 cudacheck` (compute-sanitizer) and device
-debugging via Nsight Visual Studio Edition, and `./cleanbuild.ps1 tidy` is clean.
-The full Linux suite (portable plus linux buckets, plus CUDA under nvcc) stays
-green. The next addition is a genuinely new category, Windows-only CUDA targets
-(CUDA plus Windows graphics/video interop); see section 11. This document records
-how cross-platform capability is structured and maintained; update it when the
-structure changes.
+Status: Windows port complete, including CUDA, device tooling, and lint, and the
+Windows-only CUDA cell (CUDA plus Direct3D 11 interop) is now built. The portable
+suite builds and passes on Linux (clang), native Windows (clang++, the default),
+and native Windows (MSVC cl): 40 of 40 portable tests per Windows compiler. The
+cross-platform CUDA bucket builds and runs natively on Windows under clang++ (4 of
+4 registered `.cu` pass on the GPU, plus the cuBLAS tutorials); device correctness
+runs via `./cleanbuild.ps1 cudacheck` (compute-sanitizer) and device debugging via
+Nsight Visual Studio Edition, and `./cleanbuild.ps1 tidy` is clean. The full Linux
+suite (portable plus linux buckets, plus CUDA under nvcc) stays green. Two
+Windows-only buckets now hold the new GPU work: `tests/windows/` (plain-C++ tests
+for the SDL3 and D3D11 wrappers) and `tests/cuda/windows/` (the CUDA-D3D11 interop
+test plus the fractal, raymarch, and voxel viewers). These grow a new graphics
+substrate under `corvid/sdl/` and `corvid/cuda/windows/`, plus a Dear ImGui live
+tuning panel; see section 11. This document records how cross-platform capability
+is structured and maintained; update it when the structure changes.
 
 ## 1. Goal and shape
 
@@ -26,15 +29,18 @@ not ported. No IOCP port is planned.
 
 ## 2. Source buckets
 
-Three buckets, selected by platform at configure time:
+Five buckets, selected by platform at configure time:
 
-| Bucket   | Builds on             | Depends on                            |
-|----------|-----------------------|---------------------------------------|
-| portable | every platform        | std C++23 and portable corvid headers |
-| linux    | Linux only            | epoll, io_uring, sockets, QUIC        |
-| cuda     | Linux and Windows     | CUDA toolkit (plus Catch2)            |
+| Bucket       | Builds on         | Depends on                                 |
+|--------------|-------------------|--------------------------------------------|
+| portable     | every platform    | std C++23 and portable corvid headers      |
+| linux        | Linux only        | epoll, io_uring, sockets, QUIC             |
+| cuda         | Linux and Windows | CUDA toolkit (plus Catch2)                 |
+| windows      | Windows only      | SDL3 (Windows SDK)                         |
+| cuda/windows | Windows only      | CUDA toolkit + D3D11/DXGI + SDL3 (+ ImGui) |
 
-Tests live under `tests/portable/`, `tests/linux/`, and `tests/cuda/`.
+Tests live under `tests/portable/`, `tests/linux/`, `tests/cuda/`,
+`tests/windows/`, and `tests/cuda/windows/`.
 `tests/CMakeLists.txt` globs each bucket separately. The linux bucket and its
 liburing / OpenSSL / ngtcp2 / nghttp3 dependencies sit behind
 `if(CMAKE_SYSTEM_NAME STREQUAL "Linux")`, so Windows configures none of them.
@@ -42,13 +48,14 @@ This also speeds the Linux build: portable tests no longer drag in the QUIC
 stack. CUDA is its own bucket, not a sub-case of linux, because building the
 `.cu` tests on Windows is the whole point.
 
-These three are the populated cells of a two-axis space: platform (portable /
+These are the populated cells of a two-axis space: platform (portable /
 Linux-only / Windows-only) crossed with whether a target needs the CUDA toolkit.
-CUDA has so far been platform-neutral (the cuda bucket builds on Linux and
-Windows alike), so the Windows-only-CUDA cell is empty. That is about to change:
-Windows-only CUDA targets, whose Windows graphics/video dependencies do not exist
-on Linux, are a genuinely new cell. Section 11 covers how the structure will
-accommodate them.
+The cross-platform `cuda` bucket stays platform-neutral (it builds on Linux and
+Windows alike); the two Windows-only cells are the newest. `windows` holds
+plain-C++ tests (the SDL3 and D3D11 wrappers) that need no CUDA toolchain, and
+`cuda/windows` holds CUDA targets whose Windows graphics dependencies (Direct3D
+interop via `cudaGraphicsD3D11*`, the Windows SDK's d3d11/dxgi) do not exist on
+Linux. Section 11 covers them.
 
 The `notest_` filename prefix means "build the executable but do not register a
 CTest" (servers, demos, tutorials); it is orthogonal to bucket. The io_uring
@@ -159,10 +166,16 @@ Compiler flags are set in the `WIN32` branch of `tests/CMakeLists.txt`:
   through Catch2 macros. The four `/wd` codes silence MSVC-only warnings that
   fire on correct, intentional code.
 
-The CUDA flags live in the `CORVID_ENABLE_CUDA` block: on Windows `-std=c++23
--fms-runtime-lib=dll -Wno-unknown-cuda-version` (the last silences the note that
-CUDA 13.3 is newer than clang 22's last fully supported toolkit); on Linux the
-nvcc form `-std=c++23 -O3 -lineinfo`.
+The CUDA flags live in the `CORVID_ENABLE_CUDA` block. On Windows the warning
+set matches the `.cpp` suite: `-Wall -Wextra -Werror`, with
+`-Wno-missing-designated-field-initializers` dropping the one `-Wextra` check
+that fires on the deliberate partial designated-init idiom for C DESC structs
+(the positional `-Wmissing-field-initializers` stays on, like the cl `/wd`
+codes). Plus `-std=c++23 -fms-runtime-lib=dll -Wno-unknown-cuda-version` (the
+last silences the note that CUDA 13.3 is newer than clang 22's last fully
+supported toolkit) and `-gline-tables-only` (section 8). On Linux the nvcc form
+is `-std=c++23 -O3 -lineinfo`; raising its host warnings to `-Wextra` (via nvcc
+`-Xcompiler`) is a separate follow-up.
 
 ## 5. Header portability conventions
 
@@ -341,16 +354,16 @@ notifiable, tombstone, timerfuse). The library-header bucketing is summarized in
 section 5; the per-test move list lives in the git history for the partition
 commit.
 
-## 11. Remaining work
+## 11. Windows-only CUDA cell
 
-The next addition is a new bucket cell: Windows-only CUDA targets. These are
-`.cu` executables that depend on Windows-specific GPU-adjacent APIs (Direct3D
-interop via `cudaGraphicsD3D11*` plus the Windows SDK's d3d11/dxgi, or the NVIDIA
-Video Codec SDK's NVENC/NVDEC), so they cannot build on Linux. They do not fit
-the existing `cuda` bucket, which builds on both platforms and assumes no
-platform-specific dependencies.
+The newest bucket cell is Windows-only CUDA targets. These are `.cu` executables
+that depend on Windows-specific GPU-adjacent APIs (Direct3D interop via
+`cudaGraphicsD3D11*` plus the Windows SDK's d3d11/dxgi, or the NVIDIA Video Codec
+SDK's NVENC/NVDEC), so they cannot build on Linux. They do not fit the existing
+`cuda` bucket, which builds on both platforms and assumes no platform-specific
+dependencies. The D3D11-interop side is now built; NVENC/NVDEC remain future.
 
-Planned shape (the open items below are now resolved; first target being implemented):
+Shape of the cell (all of the open items below are resolved):
 
 - Sources live in a Windows-only CUDA sub-area, globbed only when `WIN32` and the
   CUDA toolkit are both present, the way the linux bucket gates its Linux-only
@@ -372,7 +385,7 @@ Decided (first target, 2026-06-18). The three open items are resolved: CUDA
 graphics targets live in `tests/cuda/windows/` (globbed only on `WIN32`, under
 the CUDA bucket), while Windows-only plain-C++ tests (such as the SDL wrapper
 tests) live in a separate `tests/windows/` bucket that needs no CUDA toolchain,
-so both of the §11 candidate subdirs exist, split by whether CUDA is involved;
+so both of the section 11 candidate subdirs exist, split by whether CUDA is involved;
 the genuinely Windows-only library headers (D3D11, CUDA-D3D interop) live in
 `corvid/cuda/windows/`; and the first target needs only D3D interop (Windows
 SDK), not the Video Codec SDK. That first
@@ -398,6 +411,32 @@ the SDL3 window/input/event wrappers live in `corvid/sdl/` (SDL is
 cross-platform, a portable peer to `corvid/cuda/`, not part of the Windows-only
 cell), while the genuinely Windows-only D3D11 and CUDA-D3D interop wrappers live
 in `corvid/cuda/windows/`.
+
+The cell has since grown well past that first viewer. Two more `notest_` viewers
+followed the same interop pattern: an SDF raymarch viewer
+(`tests/cuda/windows/notest_raymarch_viewer.cu`) and a CUDA voxel viewer
+(`notest_voxel_viewer.cu`) that ray-marches a voxel world (terrain, per-voxel
+materials, a filtered color grid, and a free-SDF avatar) per pixel on the GPU,
+each frame staying in VRAM via the same `cudaGraphicsD3D11*` interop. The
+reusable headers they grew sit in `corvid/cuda/` (`vec`, `camera`, `radians`,
+`sdf`, `raycast`, `density_field`, `material_volume`, `strata`, `terrain`,
+`voxel_render`, `render_config`, `avatar`) and `corvid/cuda/windows/game/`
+(`avatar_tuning`, `config_panel`), on top of a generalized CUDA RAII layer
+(`cuda_handle` and the `cuda_array_3d` / `cuda_texture` / `cuda_surface` /
+`cuda_volume` owners). The one registered Windows-only CUDA test,
+`tests/cuda/windows/cuda_d3d11_interop_test.cu`, covers the interop path; the
+viewers are `notest_` GUI apps, not CTest targets.
+
+Dear ImGui is a second new external dependency, for the viewers' live tuning
+panel. Unlike SDL3 it ships no prebuilt binaries and no CMakeLists, so it is
+brought in by FetchContent (source only) and compiled into a small static library
+from the core plus its SDL3 and D3D11 backends (`corvid_require_imgui` in
+`tests/CMakeLists.txt`, gated like `corvid_require_sdl3` on a source actually
+pulling in an ImGui header). The vendored sources are not clean under the
+project's `-Wall -Wextra -Werror`, so the lib builds with `-w`; because `-w` does
+not reach clang-tidy, the global `CMAKE_CXX_CLANG_TIDY` is also cleared on that
+target so `./cleanbuild.ps1 tidy` stays clean. The overlay itself is wrapped
+RAII-style in `corvid/cuda/windows/imgui_overlay.h`.
 
 Resolved this round (detail in sections 7 and 8): device correctness via
 `./cleanbuild.ps1 cudacheck` (compute-sanitizer) and device debugging via Nsight

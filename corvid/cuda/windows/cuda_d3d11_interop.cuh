@@ -88,11 +88,7 @@ public:
     }
     return *this;
   }
-  ~cuda_d3d11_resource() {
-    cuda_last_status{cudaGetLastError()}.or_throw();
-    cuda_last_status{cudaDeviceSynchronize()}.or_throw();
-    unregister();
-  }
+  ~cuda_d3d11_resource() { unregister(); }
 
 #pragma endregion
 #pragma region Accessors

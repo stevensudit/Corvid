@@ -19,7 +19,7 @@ __global__ void add(int n, float* sum, const float* x, const float* y) {
   const auto index = (blockIdx.x * blockDim.x) + threadIdx.x;
   const auto stride = gridDim.x * blockDim.x;
 
-  for (unsigned i = index; i < n; i += stride) sum[i] = x[i] + y[i];
+  for (int i = index; i < n; i += stride) sum[i] = x[i] + y[i];
 }
 
 static double gflops(double N, double ms) {

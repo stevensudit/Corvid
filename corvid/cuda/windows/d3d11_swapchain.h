@@ -51,8 +51,8 @@ enum class d3d11_bind_flag : unsigned {
 
 consteval auto corvid_enum_spec(d3d11_bind_flag*) {
   return corvid::enums::bitmask::make_bitmask_enum_spec<d3d11_bind_flag,
-      "video_encoder,decoder,decoder,unordered_access,depth_stencil,render_"
-      "target,stream_output, shader_resource,constant_buffer,index_buffer,"
+      "video_encoder,decoder,-,unordered_access,depth_stencil,render_"
+      "target,stream_output,shader_resource,constant_buffer,index_buffer,"
       "vertex_buffer">();
 }
 

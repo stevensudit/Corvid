@@ -46,10 +46,9 @@ private:
   // Create a surface object over `array`, returning the handle for the base to
   // adopt.
   static cudaSurfaceObject_t create(cudaArray_t array) {
-    const cudaResourceDesc desc{
-        .resType = cudaResourceTypeArray,
+    const cudaResourceDesc desc{.resType = cudaResourceTypeArray,
         .res = {.array = {.array = array}},
-    };
+        .flags = 0};
     cudaSurfaceObject_t surface{};
     cuda_last_status{cudaCreateSurfaceObject(&surface, &desc)}.or_throw();
     return surface;
