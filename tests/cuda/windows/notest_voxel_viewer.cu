@@ -20,6 +20,7 @@
 
 #include "corvid/cuda/avatar.cuh"
 #include "corvid/cuda/camera.cuh"
+#include "corvid/cuda/cuda_event.cuh"
 #include "corvid/cuda/cuda_kernel.cuh"
 #include "corvid/cuda/cuda_ptr.cuh"
 #include "corvid/cuda/cuda_surface.cuh"
@@ -643,9 +644,11 @@ int main() {
               [&](cudaArray_t array, int w, int h) {
                 const dim3 grid_dim{cuda_kernel::ceil_div(w, block.x),
                     cuda_kernel::ceil_div(h, block.y)};
-                voxel_kernel<<<grid_dim, block>>>(cuda_surface{array},
+                cuda_surface surf{array};
+                voxel_kernel<<<grid_dim, block>>>(surf,
                     resolution{static_cast<float>(w), static_cast<float>(h)},
                     rays, field, colors.texture(), ball, head, render_cfg);
+                cuda_timer::synchronize().or_throw();
               },
               [&] { imgui.render(presenter.back_buffer()); })
           .or_throw();
