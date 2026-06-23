@@ -60,6 +60,20 @@ namespace corvid::cuda {
   return dot(p, n) + h;
 }
 
+// Distance from `p` to an infinite cone whose apex is at the origin and whose
+// solid opens downward along -y, its lateral surface at the half-angle from
+// that axis given by `sin_cos` = {sin, cos} of the angle.
+//
+// Negative below the apex inside the cone, positive outside; exact on the
+// lateral surface below the apex and a conservative underestimate above it, so
+// it is safe to sphere-trace and to intersect with a bounded solid.
+[[nodiscard]] __device__ inline float sd_cone(vec3 p, vec2 sin_cos) {
+  const float radial =
+      sqrtf((p.x * p.x) + (p.z * p.z)); // distance from -y axis
+  const float depth = -p.y;             // distance down the axis from the apex
+  return (radial * sin_cos.y) - (depth * sin_cos.x);
+}
+
 #pragma endregion
 #pragma region Combinators
 
@@ -83,6 +97,15 @@ namespace corvid::cuda {
 op_smooth_union(float a, float b, float k) {
   const float h = fmaxf(k - fabsf(a - b), 0.0F) / k;
   return fminf(a, b) - (h * h * k * 0.25F);
+}
+
+// Intersection with a smooth blend of width `k` where the two surfaces meet,
+// the mirror of `op_smooth_union` for rounding an otherwise sharp intersection
+// edge. `k` must be positive.
+[[nodiscard]] __device__ inline float
+op_smooth_intersect(float a, float b, float k) {
+  const float h = fmaxf(k - fabsf(a - b), 0.0F) / k;
+  return fmaxf(a, b) + (h * h * k * 0.25F);
 }
 
 #pragma endregion

@@ -40,15 +40,39 @@ namespace corvid::cuda {
 #pragma region Avatar and scene compositing
 
 // Shade the saucer head at surface point `hit_point`: a fixed cockpit dome
-// carrying one or two hexagonal porthole eyes on its front, and a distinctive
+// carrying a single hexagonal porthole eye on its front, and a distinctive
 // spinning belly on the underside, painted with rings and spokes and carrying
 // the central flashlight and a ring of amber rim lights. The camera rides
 // inside the head, so this is only ever reached by the ball's reflection ray,
 // never by a primary ray.
 [[nodiscard]] __device__ inline vec3 shade_head(const saucer_head& head,
-    const render_config& cfg, pos3 hit_point, vec3 ray_dir) {
+    const render_config& cfg, pos3 hit_point, vec3 ray_dir, float footprint) {
   const render_config::head_params& hp = cfg.head;
-  const vec3 normal = head.normal(hit_point);
+
+  // Snap the marched hit onto the true surface before deriving anything from
+  // its position.
+  //
+  // The raymarch accepts a hit within a distance-growing tolerance (to close
+  // the dome/disc seam), so the returned point sits off the true ray crossing
+  // by an amount that varies pixel to pixel; that slack jitters the
+  // dome-direction `dd` that places the eye and staircases its thin frame and
+  // spokes (the dome shading, taken from the gradient, is insensitive and
+  // stays smooth).
+  //
+  // A Newton step along the ray converges to the true crossing, fixing the
+  // tangential slide a normal projection leaves when the eye is viewed
+  // grazing. The denominator's magnitude is floored (a front-facing hit has
+  // `ndotd < 0`) so the step stays bounded and continuous as the ray nears
+  // tangent: an unbounded grazing step, or a hard branch to the normal
+  // projection, slides the point across the surface and echoes the decal just
+  // outside itself at angles. A tiny residual at the extreme grazing sliver is
+  // invisible next to that echo.
+  vec3 normal = head.normal(hit_point);
+  const float ndotd = dot(normal, ray_dir);
+  hit_point =
+      hit_point - (ray_dir * (head.sdf(hit_point) / fminf(ndotd, -0.4F)));
+  normal = head.normal(hit_point);
+
   const vec3 light_dir = normalize(cfg.sun_direction);
   const float diffuse = fmaxf(dot(normal, light_dir), 0.0F);
 
@@ -60,37 +84,57 @@ namespace corvid::cuda {
   const float rr = sqrtf((ql.x * ql.x) + (ql.z * ql.z)) / head.radius;
   const float ang = atan2f(ql.z, ql.x) + head.spin;
 
-  vec3 albedo = hp.base_albedo;
+  // The dome cap takes its own base albedo, fully replacing `base_albedo` out
+  // to the hex grid's `rr` boundary, then fading to it just past, onto the
+  // cone, so the dome can be darkened to pop without dimming the saucer body.
+  const float dome_cap =
+      (facing_up > 0.0F)
+          ? __saturatef((hp.dome_hex_extent + 0.08F - rr) / 0.08F)
+          : 0.0F;
+  vec3 albedo =
+      (hp.base_albedo * (1.0F - dome_cap)) + (hp.dome_albedo * dome_cap);
   vec3 emissive{0.0F, 0.0F, 0.0F};
   float eye_cover = 0.0F; // how much an eye decal covers this point
 
-  // The dome: a fixed cockpit, mechanical but calmer than the belly. A
-  // canopy-tinted metal shell carrying one or two hexagonal porthole eyes on
-  // its front: an iris glass, a pupil hub at its center, and radial spokes
-  // inside a hex frame. The eyes are placed relative to the saucer's forward,
-  // not the spinning belly frame, so the ship reads as a face that holds
-  // still. Their colors are rendered as emissive (and the lit metal under them
-  // is removed), so a set color reads true rather than darkening to gray
-  // through the lighting and the dimmed reflection; the edges stay crisp so
-  // they hold up small.
-  if (upside > 0.001F) {
-    const float ridges =
-        (1.0F - hp.panel_amplitude) +
-        (hp.panel_amplitude * cosf(rr * hp.panel_frequency));
-    albedo = ((albedo * (1.0F - upside)) + (hp.canopy * upside)) * ridges;
+  // Widen every procedural decal edge to at least the pixel's footprint on the
+  // surface (in `rr` units) so thin lines do not crawl when the head is
+  // reflected small; `decal_aa` scales it up for the ball mirror's
+  // compression.
+  const float aa_floor = hp.decal_aa * footprint / head.radius;
 
-    // Place one centered eye or a symmetric pair by a forward lean off the
-    // apex, then stamp each porthole in the tangent plane at its center: a
-    // glass disc, then a bright hex frame, central hub ring, and radial spokes
-    // over it. `aa` is a narrow ramp that keeps the edges crisp without
-    // aliasing.
-    constexpr float aa = 0.012F;
+  // The dome: a fixed cockpit, mechanical but calmer than the belly. A
+  // canopy-tinted metal shell carrying a single hexagonal porthole eye on its
+  // front: an iris glass, a pupil hub at its center, and radial spokes inside
+  // a hex frame. The eye is placed relative to the saucer's forward, not the
+  // spinning belly frame, so the dome reads as an eye that holds still. Its
+  // colors are rendered as emissive (and the lit metal under it is removed),
+  // so a set color reads true rather than darkening to gray through the
+  // lighting and the dimmed reflection; the edges stay crisp so it holds up
+  // small.
+  if (upside > 0.001F) {
+    albedo = (albedo * (1.0F - upside)) + (hp.canopy * upside);
+
+    // Two crisp seam rings on the conical top: one at the dome base so the
+    // dome reads as a separate inset piece, one near the rim to emphasize the
+    // brim. Albedo grooves keyed to `rr`, fixed in the front frame.
+    const float seam_aa = fmaxf(0.01F, aa_floor);
+    const float seam_in = __saturatef(
+        (hp.seam_inner_width - fabsf(rr - hp.seam_inner)) / seam_aa);
+    const float seam_out = __saturatef(
+        (hp.seam_outer_width - fabsf(rr - hp.seam_outer)) / seam_aa);
+    const float seam = fmaxf(seam_in, seam_out) * hp.seam_strength;
+    albedo = (albedo * (1.0F - seam)) + (hp.seam_color * seam);
+
+    // The single cockpit eye, leaned toward the front off the apex: a
+    // hexagonal porthole stamped in the tangent plane at its center, a glass
+    // iris under a bright hex frame, a central hub ring, and radial spokes.
+    // `aa` is a narrow ramp that keeps the edges crisp without aliasing.
+    const float aa = fmaxf(0.012F, aa_floor);
     constexpr float two_pi = 6.2831853F;
     const auto spokes = static_cast<float>(hp.eye_spokes);
     const vec3 e_up = head.up;
     const vec3 e_fwd = normalize(head.front - (e_up * dot(head.front, e_up)));
-    const vec3 e_right = cross(e_fwd, e_up);
-    const vec3 e_mid = normalize(e_up + (e_fwd * hp.eye_forward));
+    const vec3 c = normalize(e_up + (e_fwd * hp.eye_forward));
 
     // Locate the point by its direction from the dome's center, a position
     // that is unique on the dome, rather than by its surface normal: the
@@ -101,46 +145,66 @@ namespace corvid::cuda {
         head.center + (e_up * (head.radius * head.dome_offset));
     const vec3 dd = normalize(hit_point - dome_c);
 
-    for (int eye = 0; eye < hp.eye_count; ++eye) {
-      const float side = (hp.eye_count < 2) ? 0.0F : (eye == 0 ? -1.0F : 1.0F);
-      const vec3 c = normalize(e_mid + (e_right * (hp.eye_separation * side)));
-      if (dot(dd, c) <= 0.0F) continue; // the eye faces away here
+    // Widened past the front hemisphere so the hex grid can wrap onto the back
+    // of the dome; the eye itself stays front-only, gated below.
+    if (dot(dd, c) > -0.9F) {
       const vec3 th = normalize(cross(e_up, c));
       const vec3 tv = cross(c, th);
       const float ex = dot(dd, th);
       const float ey = dot(dd, tv);
-      const float hexd = hexagon_sd(ex, ey, hp.eye_size);
-      if (hexd > hp.eye_line + aa) continue; // outside this porthole
+      const float fc = dot(dd, c);
 
-      const float er = sqrtf((ex * ex) + (ey * ey));
-      const float ea = atan2f(ey, ex);
-      const float phase = (ea * spokes) / two_pi;
-      const float to_spoke = fabsf(phase - rintf(phase)) * (two_pi / spokes);
-      const float spoke_perp = er * sinf(to_spoke);
+      // A geodesic hex grid across the whole dome cap. Projected
+      // stereographically from the eye direction, which is conformal: the eye
+      // still nests as a clean cell at the center (the projection is the
+      // identity there) and the grid wraps onto the back instead of cutting
+      // off at the front hemisphere, at the cost of cells growing toward the
+      // rear. It fades out past `dome_hex_extent` onto the cone, where the
+      // seam rings take over.
+      const float proj = 2.0F / (1.0F + fc);
+      const float grid_fade = __saturatef((hp.dome_hex_extent - rr) / 0.08F);
+      const float grid =
+          __saturatef(
+              (hp.dome_hex_line -
+                  hex_grid_edge(ex * proj, ey * proj, hp.dome_hex_size)) /
+              aa) *
+          grid_fade * hp.dome_hex_strength;
+      albedo = albedo * (1.0F - grid);
 
-      const float inside = __saturatef(-hexd / aa);
-      const float rim = __saturatef((hp.eye_line - fabsf(hexd)) / aa);
-      const float hub =
-          __saturatef((hp.eye_line - fabsf(er - hp.eye_hub)) / aa);
-      const float spoke =
-          (er > hp.eye_hub)
-              ? __saturatef((hp.eye_line - spoke_perp) / aa)
-              : 0.0F;
-      const float structure = fmaxf(rim, inside * fmaxf(hub, spoke));
-      const float pupil = inside * __saturatef((hp.eye_hub - er) / aa);
+      // The eye, front hemisphere only; the back of the dome carries the grid
+      // alone.
+      const float hexd = (fc > 0.0F) ? hexagon_sd(ex, ey, hp.eye_size) : 1.0F;
+      if (hexd <= hp.eye_line + aa) { // inside the porthole
+        const float er = sqrtf((ex * ex) + (ey * ey));
+        const float ea = atan2f(ey, ex);
+        const float phase = (ea * spokes) / two_pi;
+        const float to_spoke = fabsf(phase - rintf(phase)) * (two_pi / spokes);
+        const float spoke_perp = er * sinf(to_spoke);
 
-      // Build the eye color: iris, then the pupil center, then the bright
-      // frame and spokes over both.
-      vec3 col = hp.eye_glass;
-      col = (col * (1.0F - pupil)) + (hp.eye_pupil * pupil);
-      col = (col * (1.0F - structure)) + (hp.eye_frame_color * structure);
+        const float inside = __saturatef(-hexd / aa);
+        const float rim = __saturatef((hp.eye_line - fabsf(hexd)) / aa);
+        const float hub =
+            __saturatef((hp.eye_line - fabsf(er - hp.eye_hub)) / aa);
+        const float spoke =
+            (er > hp.eye_hub)
+                ? __saturatef((hp.eye_line - spoke_perp) / aa)
+                : 0.0F;
+        const float structure = fmaxf(rim, inside * fmaxf(hub, spoke));
+        const float pupil = inside * __saturatef((hp.eye_hub - er) / aa);
 
-      // The eye reads at its set color (white stays white): drop the lit metal
-      // under it and add the color as emissive rather than albedo.
-      const float cov = fmaxf(inside, rim);
-      albedo = albedo * (1.0F - cov);
-      emissive = (emissive * (1.0F - cov)) + (col * cov);
-      eye_cover = fmaxf(eye_cover, cov);
+        // Build the eye color: iris, then the pupil center, then the bright
+        // frame and spokes over both.
+        vec3 col = hp.eye_glass;
+        col = (col * (1.0F - pupil)) + (hp.eye_pupil * pupil);
+        col = (col * (1.0F - structure)) + (hp.eye_frame_color * structure);
+
+        // The eye reads at its set color (white stays white): drop the lit
+        // metal under it and add the color as emissive rather than albedo.
+        const float cov = fmaxf(inside, rim);
+        albedo = albedo * (1.0F - cov);
+        emissive = (emissive * (1.0F - cov)) + (col * cov);
+        eye_cover = fmaxf(eye_cover, cov);
+      }
     }
   }
 
@@ -185,14 +249,15 @@ namespace corvid::cuda {
 // ball does not reflect itself.
 [[nodiscard]] __device__ inline vec3
 shade_scene_ray(const density_field& field, cudaTextureObject_t color,
-    const saucer_head& head, const render_config& cfg, pos3 eye,
-    vec3 ray_dir) {
+    const saucer_head& head, const render_config& cfg, pos3 eye, vec3 ray_dir,
+    float px_scale, float path) {
   const float t_terrain = field.raymarch(eye, ray_dir);
   const float t_head = head.raymarch(eye, ray_dir);
   const bool head_nearer =
       t_head >= 0.0F && (t_terrain < 0.0F || t_head < t_terrain);
   if (head_nearer)
-    return shade_head(head, cfg, eye + (ray_dir * t_head), ray_dir);
+    return shade_head(head, cfg, eye + (ray_dir * t_head), ray_dir,
+        px_scale * (path + t_head));
   if (t_terrain < 0.0F) return sky_color(cfg, ray_dir);
   return shade_terrain_hit(field, color, cfg, eye + (ray_dir * t_terrain));
 }
@@ -203,10 +268,11 @@ shade_scene_ray(const density_field& field, cudaTextureObject_t color,
 // with a small ambient floor so the darkest reflections do not crush to black.
 [[nodiscard]] __device__ inline vec3 shade_ball(const density_field& field,
     cudaTextureObject_t color, const metal_ball& ball, const saucer_head& head,
-    const render_config& cfg, pos3 hit_point, vec3 ray_dir) {
+    const render_config& cfg, pos3 hit_point, vec3 ray_dir, float px_scale,
+    float path) {
   const vec3 normal = ball.normal(hit_point);
   const vec3 env = shade_scene_ray(field, color, head, cfg, hit_point,
-      reflect(ray_dir, normal));
+      reflect(ray_dir, normal), px_scale, path);
   return (env * cfg.ball.dim * cfg.ball.tint) + cfg.ball.ambient_floor;
 }
 
@@ -218,7 +284,7 @@ shade_scene_ray(const density_field& field, cudaTextureObject_t color,
 [[nodiscard]] __device__ inline vec3
 shade_world_ray(const density_field& field, cudaTextureObject_t color,
     const metal_ball& ball, const saucer_head& head, const render_config& cfg,
-    pos3 eye, vec3 ray_dir) {
+    pos3 eye, vec3 ray_dir, float px_scale, float path) {
   const float t_terrain = field.raymarch(eye, ray_dir);
   const float t_ball = ball.intersect(eye, ray_dir);
   const float t_head = head.raymarch(eye, ray_dir);
@@ -240,8 +306,10 @@ shade_world_ray(const density_field& field, cudaTextureObject_t color,
     return shade_terrain_hit(field, color, cfg, eye + (ray_dir * best));
   if (kind == 2)
     return shade_ball(field, color, ball, head, cfg, eye + (ray_dir * best),
-        ray_dir);
-  if (kind == 3) return shade_head(head, cfg, eye + (ray_dir * best), ray_dir);
+        ray_dir, px_scale, path + best);
+  if (kind == 3)
+    return shade_head(head, cfg, eye + (ray_dir * best), ray_dir,
+        px_scale * (path + best));
   return sky_color(cfg, ray_dir);
 }
 
@@ -253,7 +321,7 @@ shade_world_ray(const density_field& field, cudaTextureObject_t color,
 [[nodiscard]] __device__ inline vec3
 shade_primary_ray(const density_field& field, cudaTextureObject_t color,
     const metal_ball& ball, const saucer_head& head, const flat_mirror& mirror,
-    const render_config& cfg, pos3 eye, vec3 ray_dir) {
+    const render_config& cfg, pos3 eye, vec3 ray_dir, float px_scale) {
   const float t_terrain = field.raymarch(eye, ray_dir);
   const float t_ball = ball.intersect(eye, ray_dir);
   const float t_mirror = mirror.intersect(eye, ray_dir);
@@ -273,11 +341,13 @@ shade_primary_ray(const density_field& field, cudaTextureObject_t color,
   }
   if (kind == 2)
     return shade_ball(field, color, ball, head, cfg, eye + (ray_dir * best),
-        ray_dir);
+        ray_dir, px_scale, best);
   if (kind == 3) {
     const pos3 hit = eye + (ray_dir * best);
     const vec3 refl = reflect(ray_dir, mirror.normal);
-    return shade_world_ray(field, color, ball, head, cfg, hit, refl) * 0.9F;
+    return shade_world_ray(field, color, ball, head, cfg, hit, refl, px_scale,
+               best) *
+           0.9F;
   }
   if (kind == 1)
     return shade_terrain_hit(field, color, cfg, eye + (ray_dir * best));

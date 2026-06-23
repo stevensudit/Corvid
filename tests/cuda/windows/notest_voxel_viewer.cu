@@ -143,6 +143,11 @@ __global__ void voxel_kernel(cudaSurfaceObject_t out, resolution res,
   const auto fy = static_cast<float>(py);
   if (fx >= res.width || fy >= res.height) return;
 
+  // One pixel's world size per unit distance (vertical). The saucer's
+  // procedural decals widen their edges to this footprint so thin lines do not
+  // crawl when the head is reflected small.
+  const float px_scale = (2.0F * cam.tan_half_fov) / res.height;
+
   // Average an `aa_samples` x `aa_samples` grid of sub-pixel rays to
   // anti-alias the silhouettes and soften the strata seams. 1 disables it.
   //
@@ -161,7 +166,7 @@ __global__ void voxel_kernel(cudaSurfaceObject_t out, resolution res,
       const vec3 ray_dir =
           cam.ray_direction(pos2{vec2{fx + ox, fy + oy}}, res);
       color = color + shade_primary_ray(field, color_tex, ball, head, mirror,
-                          cfg, cam.eye, ray_dir);
+                          cfg, cam.eye, ray_dir, px_scale);
     }
   color = color * (inv * inv);
 
@@ -451,16 +456,35 @@ struct avatar_rig {
   // field of view's `tan(fov/2)` is cached in `tune` and recomputed only when
   // the field of view is edited, so this stays a plain read.
   [[nodiscard]] camera_rays rays() const {
-    return {eye(), frame(), tune.tan_half_fov()};
+    // The eye sits above the head's center by `camera_height` (of the head
+    // radius) so the camera looks out from up in the dome rather than the
+    // middle; otherwise the dome-heavy saucer reflects into the top of the
+    // frame. World up, not the tilted disc normal, so the viewpoint does not
+    // swim as the saucer banks.
+    const pos3 cam =
+        eye() + (camera::world_up * (tune.camera_height * tune.head_radius));
+    return {cam, frame(), tune.tan_half_fov()};
   }
 
   [[nodiscard]] metal_ball ball() const { return {anchor, tune.ball_radius}; }
   [[nodiscard]] saucer_head head() const {
     // The propulsion glow is currently unbound from motion (a retrofit
-    // target), so the head's thrust is held at zero. `frame().forward` orients
-    // the cockpit eyes toward the saucer's front.
-    return {eye(), saucer_up(), frame().forward, tune.head_radius, spin, 0.0F,
-        tune.body_height, tune.dome_offset, tune.dome_radius, tune.dome_blend};
+    // target), so the head's thrust is held at zero. The front orients the
+    // cockpit eye; `front_offset_deg` rotates it off the camera heading about
+    // the saucer's up axis, a debug aid to inspect the back of the dome in the
+    // mirror.
+    const vec3 up = saucer_up();
+    vec3 front = frame().forward;
+    if (tune.front_offset_deg != 0.0F) {
+      const float a = tune.front_offset_deg * radians::per_degree;
+      const float ca = cosf(a);
+      const float sa = sinf(a);
+      front = (front * ca) + (cross(up, front) * sa) +
+              (up * (dot(up, front) * (1.0F - ca)));
+    }
+    return {eye(), up, front, tune.head_radius, spin, 0.0F, tune.body_height,
+        tune.dome_offset, tune.dome_radius, tune.dome_blend, tune.top_height,
+        tune.rim_round};
   }
 };
 
@@ -512,6 +536,15 @@ void generate_world(const density_field& field,
   fill_kernel<<<fill_grid, fill_block>>>(volume.surface(), materials.surface(),
       colors.surface(), height_src, height_w, field);
   cuda_last_status{cudaDeviceSynchronize()}.or_throw();
+}
+
+// One present per vsync while the window is the foreground (input-focused)
+// one, else one per 4 vsyncs so a backgrounded viewer idles without spinning
+// up the GPU fan.
+[[nodiscard]] int present_sync_interval(SDL_Window* win) {
+  constexpr int background_sync = 4;
+  const bool focused = (SDL_GetWindowFlags(win) & SDL_WINDOW_INPUT_FOCUS) != 0;
+  return focused ? 1 : background_sync;
 }
 
 #pragma endregion
@@ -701,6 +734,8 @@ int main() {
         draw_config_panel(rig.tune, tuning_defaults, render_cfg,
             render_defaults);
 
+      const int sync_interval = present_sync_interval(win);
+
       presenter
           .render(
               [&](cudaArray_t array, int w, int h) {
@@ -713,7 +748,7 @@ int main() {
                     render_cfg);
                 cuda_timer::synchronize().or_throw();
               },
-              [&] { imgui.render(presenter.back_buffer()); })
+              [&] { imgui.render(presenter.back_buffer()); }, sync_interval)
           .or_throw();
     }
     return 0;

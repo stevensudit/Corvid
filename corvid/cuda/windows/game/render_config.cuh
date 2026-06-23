@@ -67,25 +67,48 @@ struct render_config {
   struct head_params {
     vec3 ambient{0.10F, 0.11F, 0.13F};
     vec3 sun{1.0F, 0.96F, 0.88F};
-    vec3 base_albedo{1.0F, 1.0F, 1.0F}; // bare steel
+    vec3 base_albedo{1.0F, 1.0F, 1.0F}; // bare steel (the cone and belly)
 
-    // Dome canopy: a cooler tint with faint concentric panel ridges.
+    // Dome canopy tint, plus the dome cap's own steel albedo, kept separate
+    // from `base_albedo` so the dome can be darkened to pop without dimming
+    // the rest of the hull. Split at the same `rr` boundary as the hex grid
+    // (`dome_hex_extent`).
     vec3 canopy{0.16F, 0.20F, 0.28F};
-    float panel_frequency = 18.0F;
-    float panel_amplitude = 0.15F;
+    vec3 dome_albedo{0.0F, 0.0F, 0.0F};
 
-    // Cockpit eyes: hexagonal pilot windows on the front of the fixed dome, a
-    // porthole look (a central hub circle and radial spokes inside a hex
-    // frame), placed relative to the saucer's forward so the ship reads as a
-    // face. One centered eye lets the whole dome read as an eye; two read as a
-    // face. Albedo only, crisp, so they hold up small in the ball reflection.
-    int eye_count = 1;            // 1 (centered) or 2 (a pair)
-    float eye_forward = 1.5F;     // lean toward the front (0 = at the apex)
-    float eye_separation = 0.33F; // half-distance between two eyes
-    float eye_size = 0.22F;       // hexagon radius (apothem, angular)
-    float eye_hub = 0.09F;        // central hub-circle radius
-    int eye_spokes = 6;           // radial panes inside the window
-    float eye_line = 0.018F;      // frame, spoke, and hub line width
+    // Geodesic hex grid on the dome cap: faint seams tiling the same hexagon
+    // as the eye, but at half size.
+    float dome_hex_size = 0.118F;    // cell apothem (1/2 eye_size)
+    float dome_hex_line = 0.01F;     // seam half-width
+    float dome_hex_strength = 3.25F; // how much the seams darken the dome
+    float dome_hex_extent = 0.463F;  // rr out to which the grid covers
+
+    // Two seam rings on the conical top, keyed to the radial fraction `rr`:
+    // one at the dome base so the dome reads as a separate piece set into the
+    // cone, one near the rim to emphasize the brim. Darker than the canopy
+    // reads as a groove.
+    float seam_inner = 0.471F;
+    float seam_inner_width = 0.02F;
+    float seam_outer = 1.0F;
+    float seam_outer_width = 0.02F;
+    float seam_strength = 0.7F;
+    vec3 seam_color{0.08F, 0.10F, 0.14F};
+
+    // How far procedural decal edges (eye spokes, seam rings) are widened to
+    // their screen footprint so thin lines do not crawl when the head is
+    // reflected small; 0 leaves them a fixed width.
+    float decal_aa = 0.0F;
+
+    // Cockpit eye: a single hexagonal pilot window on the front of the fixed
+    // dome, a porthole look (a central hub circle and radial spokes inside a
+    // hex frame), placed relative to the saucer's forward so the dome reads as
+    // a single eye. Albedo only, crisp, so it holds up small in the ball
+    // reflection.
+    float eye_forward = 1.5F; // lean toward the front (0 = at the apex)
+    float eye_size = 0.22F;   // hexagon radius (apothem, angular)
+    float eye_hub = 0.09F;    // central hub-circle radius
+    int eye_spokes = 6;       // radial panes inside the window
+    float eye_line = 0.018F;  // frame, spoke, and hub line width
     vec3 eye_glass{0.05F, 0.07F, 0.12F}; // iris (ring between hub and frame)
     vec3 eye_pupil{0.0F, 0.0F, 0.0F};    // hub center (the beam source)
     vec3 eye_frame_color{0.62F, 0.62F, 0.62F}; // frame, spokes, hub ring

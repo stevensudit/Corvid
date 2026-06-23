@@ -38,6 +38,7 @@ struct avatar_tuning {
   float ball_radius = 0.6F;
   float head_radius = 0.45F;
   float head_height = 0.9F;      // head hover height over the ball
+  float camera_height = 0.4F;    // eye height above head center, of the radius
   float boom_min = -1.5F;        // pushed this far in front (FPS)
   float boom_max = 14.0F;        // pulled this far back (wide)
   float boom_rise = 0.35F;       // head rise per unit pulled back
@@ -55,9 +56,16 @@ struct avatar_tuning {
   // Saucer head shape, as fractions of the head radius (see `saucer_head`).
   float body_height = 0.32F; // disc half-height / radius (smaller = flatter)
   float dome_offset =
-      0.221F; // dome center height / radius (lower = more buried)
-  float dome_radius = 0.55F; // dome sphere radius / radius
-  float dome_blend = 0.1F;   // dome/disc smooth-union width / radius
+      0.2F; // dome center height / radius (lower = more buried)
+  float dome_radius = 0.46F; // dome sphere radius / radius
+  float dome_blend = 0.005F; // dome/disc smooth-union width / radius
+  float top_height = 0.47F;  // top-cone apex height / radius (< body = a cone)
+  float rim_round = 0.03F;   // brim smooth-intersection rounding / radius
+
+  // Debug: rotate the head's front (and the cockpit eye) off the camera
+  // heading, in degrees, to inspect the back of the dome in the mirror without
+  // a mirror behind. Also useful for a head-shaking animation.
+  float front_offset_deg = 0.0F;
 
   // Field of view is stored with its derived tan(fov/2), so the per-frame ray
   // setup reads the cached tangent instead of recomputing it. Edit it through

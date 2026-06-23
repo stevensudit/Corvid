@@ -88,6 +88,30 @@ shade_terrain_hit(const density_field& field, cudaTextureObject_t color,
   return copysignf(sqrtf((x * x) + (y * y)), y);
 }
 
+// Distance from 2D point (`x`, `y`) to the nearest border of a hexagonal
+// tiling whose cells are `hexagon_sd` hexagons of apothem `size` (flat top and
+// bottom): zero on a seam, growing into each cell.
+//
+// The hex centers form a triangular lattice split into two interleaved
+// rectangular sublattices, so the nearer of the two candidate centers gives
+// the containing cell, and the negated in-cell `hexagon_sd` is the distance to
+// its border. Used to paint the dome's geodesic grid, with the cockpit eye
+// reading as one of its cells.
+[[nodiscard]] __device__ inline float
+hex_grid_edge(float x, float y, float size) {
+  constexpr float root3 = std::numbers::sqrt3_v<float>;
+  const float px = 2.0F * root3 * size; // rectangular sublattice x period
+  const float py = 2.0F * size;         // rectangular sublattice y period
+  const float hx = root3 * size;        // offset to the second sublattice
+  const float hy = size;
+  const float ax = x - (rintf(x / px) * px);
+  const float ay = y - (rintf(y / py) * py);
+  const float bx = (x - hx) - (rintf((x - hx) / px) * px);
+  const float by = (y - hy) - (rintf((y - hy) / py) * py);
+  const bool a_near = ((ax * ax) + (ay * ay)) < ((bx * bx) + (by * by));
+  return -hexagon_sd(a_near ? ax : bx, a_near ? ay : by, size);
+}
+
 #pragma endregion
 
 } // namespace corvid::cuda

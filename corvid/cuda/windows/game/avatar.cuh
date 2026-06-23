@@ -84,7 +84,18 @@ struct saucer_head {
   float body_height = 0.32F; // disc half-height / radius (smaller = flatter)
   float dome_offset = 0.20F; // dome center height / radius
   float dome_radius = 0.55F; // dome sphere radius / radius
-  float dome_blend = 0.25F;  // dome/disc smooth-union width / radius
+  float dome_blend = 0.007F; // dome/disc smooth-union width / radius
+
+  // The disc's upper half is clipped to a shallow cone so the saucer reads as
+  // a craft rather than a vertically symmetric blob: the cone apex height /
+  // radius, with the rim pinned at the disc equator. Below `body_height` it
+  // forms a cone; at or above it the top stays the rounded ellipsoid.
+  float top_height = 0.18F;
+
+  // Smooth-intersection width / radius that rounds the otherwise sharp brim
+  // where the cone meets the disc bottom, softening the staircasing on that
+  // silhouette edge.
+  float rim_round = 0.03F;
 
   // Point `p` in the saucer's local frame: x and z span the disc, y runs along
   // `up`. The belly shading reads its polar coordinates from this.
@@ -103,9 +114,17 @@ struct saucer_head {
     const vec3 ql = to_local(p);
     const float body =
         sd_ellipsoid(ql, vec3{radius, radius * body_height, radius});
+    // Clip the disc's top half to a shallow cone whose apex sits up the local
+    // +y axis and whose surface passes through the rim, leaving the rounded
+    // ellipsoid bottom untouched. `inv` is sin of the cone's half-angle and
+    // `top_height * inv` its cos, the {sin, cos} `sd_cone` wants.
+    const float inv = 1.0F / sqrtf(1.0F + (top_height * top_height));
+    const float cone = sd_cone(ql - vec3{0.0F, radius * top_height, 0.0F},
+        vec2{inv, top_height * inv});
+    const float clipped = op_smooth_intersect(body, cone, radius * rim_round);
     const float dome = sd_sphere(ql - vec3{0.0F, radius * dome_offset, 0.0F},
         radius * dome_radius);
-    return op_smooth_union(body, dome, radius * dome_blend);
+    return op_smooth_union(clipped, dome, radius * dome_blend);
   }
 
   // Outward unit normal at surface point `p`, from the SDF gradient by central

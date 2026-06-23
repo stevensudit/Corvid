@@ -129,6 +129,13 @@ inline void draw_avatar_section(avatar_tuning& t, const avatar_tuning& d) {
       ImGuiSliderFlags_AlwaysClamp);
   tuned_slider("head height", t.head_height, d.head_height, 0.0F, 3.0F,
       "How high the saucer head hovers above the ball.");
+  tuned_slider("camera height", t.camera_height, d.camera_height, 0.0F, 2.0F,
+      "Eye height above the head center (of the head radius); raises the "
+      "viewpoint so the dome-heavy saucer reflects lower in the frame.");
+  tuned_slider("front offset", t.front_offset_deg, d.front_offset_deg, -180.0F,
+      180.0F,
+      "Debug: rotate the head's front (and the cockpit eye) off the camera "
+      "heading, to bring the back of the dome into the mirror.");
   tuned_slider("boom min", t.boom_min, d.boom_min, -5.0F, 0.0F,
       "Closest boom: head pushed in front of the ball (first person).");
   tuned_slider("boom max", t.boom_max, d.boom_max, 1.0F, 30.0F,
@@ -175,8 +182,16 @@ inline void draw_saucer_section(avatar_tuning& t, const avatar_tuning& d) {
       "Dome center height / radius (lower buries the dome for more overlap).");
   tuned_slider("dome radius", t.dome_radius, d.dome_radius, 0.3F, 1.0F,
       "Dome sphere radius / disc radius.");
-  tuned_slider("dome blend", t.dome_blend, d.dome_blend, 0.05F, 0.6F,
+  tuned_slider("dome blend", t.dome_blend, d.dome_blend, 0.00F, 0.6F,
       "Smooth-union width at the dome/disc seam (wider fills the gap).",
+      ImGuiSliderFlags_AlwaysClamp);
+  tuned_slider("top height", t.top_height, d.top_height, 0.05F, 0.6F,
+      "Top-cone apex height / radius: below 'body height' the top is a cone, "
+      "at or above it stays rounded.",
+      ImGuiSliderFlags_AlwaysClamp);
+  tuned_slider("rim round", t.rim_round, d.rim_round, 0.005F, 0.2F,
+      "Rounds the sharp brim where the cone meets the bottom (reduces edge "
+      "staircasing).",
       ImGuiSliderFlags_AlwaysClamp);
   ImGui::TreePop();
 }
@@ -233,22 +248,43 @@ inline void draw_head_section(render_config& c, const render_config& dc) {
   tuned_color("sun", c.head.sun, dc.head.sun,
       "Direct sunlight color on the saucer.");
   tuned_color("base albedo", c.head.base_albedo, dc.head.base_albedo,
-      "Bare steel color.");
+      "Bare steel color of the cone and belly.");
   tuned_color("canopy", c.head.canopy, dc.head.canopy, "Dome canopy tint.");
-  tuned_slider("panel frequency", c.head.panel_frequency,
-      dc.head.panel_frequency, 0.0F, 40.0F,
-      "Concentric panel-ridge frequency on the dome.");
-  tuned_slider("panel amplitude", c.head.panel_amplitude,
-      dc.head.panel_amplitude, 0.0F, 0.5F,
-      "Strength of the dome panel ridges.");
-  tuned_slider_int("eye count", c.head.eye_count, dc.head.eye_count, 1, 2,
-      "1 centered eye (the dome reads as an eye) or 2 (a face).");
+  tuned_color("dome albedo", c.head.dome_albedo, dc.head.dome_albedo,
+      "Dome-cap steel color, separate from base albedo so the dome can be "
+      "darkened without dimming the hull.");
+  tuned_slider("hex size", c.head.dome_hex_size, dc.head.dome_hex_size, 0.05F,
+      0.5F,
+      "Dome hex-grid cell size; match eye size for the eye to be one cell, or "
+      "try 1/2 and 1/3 for a finer grid.");
+  tuned_slider("hex line", c.head.dome_hex_line, dc.head.dome_hex_line, 0.0F,
+      0.05F, "Half-width of the dome hex-grid seams.");
+  tuned_slider("hex strength", c.head.dome_hex_strength,
+      dc.head.dome_hex_strength, 0.0F, 5.0F,
+      "How much the hex-grid seams darken the dome.");
+  tuned_slider("hex extent", c.head.dome_hex_extent, dc.head.dome_hex_extent,
+      0.0F, 1.0F, "Radius (rr) out to which the hex grid covers the dome.");
+  tuned_slider("seam inner", c.head.seam_inner, dc.head.seam_inner, 0.0F, 1.0F,
+      "Radius of the dome-base seam ring on the top cone.");
+  tuned_slider("seam inner width", c.head.seam_inner_width,
+      dc.head.seam_inner_width, 0.0F, 0.15F,
+      "Half-width of the dome-base seam ring.");
+  tuned_slider("seam outer", c.head.seam_outer, dc.head.seam_outer, 0.0F, 1.0F,
+      "Radius of the rim-emphasis ring on the top cone.");
+  tuned_slider("seam outer width", c.head.seam_outer_width,
+      dc.head.seam_outer_width, 0.0F, 0.15F,
+      "Half-width of the rim-emphasis ring (widen to reach the brim).");
+  tuned_slider("seam strength", c.head.seam_strength, dc.head.seam_strength,
+      0.0F, 1.0F, "How strongly the seam rings darken the cone.");
+  tuned_color("seam color", c.head.seam_color, dc.head.seam_color,
+      "Seam-ring color (darker than the canopy reads as a groove).");
+  tuned_slider("decal aa", c.head.decal_aa, dc.head.decal_aa, 0.0F, 20.0F,
+      "Widens decal edges (eye spokes, seam rings) to the screen footprint so "
+      "they stop crawling when reflected small; 0 disables.");
   tuned_slider("eye forward", c.head.eye_forward, dc.head.eye_forward, 0.0F,
-      3.0F, "How far the eyes lean toward the front (0 = at the apex).");
-  tuned_slider("eye separation", c.head.eye_separation, dc.head.eye_separation,
-      0.0F, 0.8F, "Half-distance between the two eyes.");
+      3.0F, "How far the eye leans toward the front (0 = at the apex).");
   tuned_slider("eye size", c.head.eye_size, dc.head.eye_size, 0.05F, 0.5F,
-      "Radius of each hexagonal eye.");
+      "Radius of the hexagonal eye.");
   tuned_slider("eye hub", c.head.eye_hub, dc.head.eye_hub, 0.0F, 0.25F,
       "Radius of the central hub circle inside the eye.");
   tuned_slider_int("eye spokes", c.head.eye_spokes, dc.head.eye_spokes, 0, 12,
