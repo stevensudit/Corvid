@@ -80,35 +80,34 @@ struct render_config {
     // to `dome_hex_freq` (near-uniform hexagons plus twelve pentagons),
     // reoriented so a cell lands on the eye, `dome_hex_phase` rotating the
     // grid about the eye to align its hexagons with the porthole.
-    int dome_hex_freq = 8;           // icosahedron subdivision frequency
+    int dome_hex_freq = 9;           // icosahedron subdivision frequency
     float dome_hex_line = 0.01F;     // seam half-width, radians
     float dome_hex_strength = 3.25F; // how much the seams darken the dome
     float dome_hex_extent = 0.463F;  // rr out to which the grid covers
     float dome_hex_phase = 0.0F;     // grid rotation about the eye, radians
 
-    // Two seam rings on the conical top, keyed to the radial fraction `rr`:
-    // one at the dome base so the dome reads as a separate piece set into the
-    // cone, one near the rim to emphasize the brim. Darker than the canopy
-    // reads as a groove.
-    float seam_inner = 0.471F;
-    float seam_inner_width = 0.02F;
-    float seam_outer = 1.0F;
-    float seam_outer_width = 0.02F;
-    float seam_strength = 0.7F;
-    vec3 seam_color{0.08F, 0.10F, 0.14F};
+    // A hard black band masking the dome/cone joint. A solid, hard-edged band
+    // whose inner edge is pulled `seam_offset` inside the hex grid's
+    // `dome_hex_extent` cutoff (to cover the specular-washed dome edge just
+    // inside it) and which spans `seam_width`. Drawn like the eye (emissive,
+    // with the lit metal and specular removed) so the whole band reads true
+    // black instead of washing out under the lighting; reads as a groove the
+    // dome sits in, hinting it could separate.
+    float seam_offset = 0.017F;        // inner edge of seam
+    float seam_width = 0.024F;         // band width (solid, hard-edged)
+    vec3 seam_color{0.0F, 0.0F, 0.0F}; // band color (hard black)
 
-    // Cockpit eye: a single hexagonal pilot window on the front of the fixed
-    // dome, a porthole look (a central hub circle and radial spokes inside a
-    // hex frame), placed relative to the saucer's forward so the dome reads as
-    // a single eye. Albedo only, crisp, so it holds up small in the ball
-    // reflection.
+    // Cockpit eye: a pupil hub and radial spokes inside an opaque hexagonal
+    // iris on the front of the fixed dome, placed relative to the saucer's
+    // forward so the dome reads as a single eye. The iris spans two grid
+    // cells, so its edge nests flush with the surrounding hex cells. Albedo
+    // only, crisp, so it holds up small in the ball reflection.
     float eye_forward = 1.5F; // lean toward the front (0 = at the apex)
-    float eye_size = 0.22F;   // hexagon radius (apothem, angular)
     float eye_hub = 0.09F;    // central hub-circle radius
-    int eye_spokes = 6;       // radial panes inside the window
+    int eye_spokes = 6;       // radial spokes inside the iris (try 3)
     float eye_line = 0.018F;  // frame, spoke, and hub line width
-    vec3 eye_glass{0.05F, 0.07F, 0.12F}; // iris (ring between hub and frame)
-    vec3 eye_pupil{0.0F, 0.0F, 0.0F};    // hub center (the beam source)
+    vec3 eye_glass{0.003F, 0.016F, 0.049F};    // iris
+    vec3 eye_pupil{0.0F, 0.0F, 0.0F};          // hub center (the beam source)
     vec3 eye_frame_color{0.62F, 0.62F, 0.62F}; // frame, spokes, hub ring
 
     // Belly paint: concentric rings times spinning spokes.
@@ -137,7 +136,7 @@ struct render_config {
     float thrust_strength = 1.6F;
 
     // Specular highlight.
-    float dome_specular_power = 96.0F;  // sharper glint on the dome
+    float dome_specular_power = 150.0F; // sharper glint on the dome
     float belly_specular_power = 48.0F; // softer on the belly
     float specular_strength = 0.5F;
   } head;

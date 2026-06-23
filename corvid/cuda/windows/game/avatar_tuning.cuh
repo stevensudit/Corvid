@@ -38,7 +38,7 @@ struct avatar_tuning {
   float ball_radius = 0.6F;
   float head_radius = 0.45F;
   float head_height = 0.9F;      // head hover height over the ball
-  float camera_height = 0.4F;    // eye height above head center, of the radius
+  float camera_height = 0.5F;    // eye height above head center, of the radius
   float boom_min = -1.5F;        // pushed this far in front (FPS)
   float boom_max = 14.0F;        // pulled this far back (wide)
   float boom_rise = 0.35F;       // head rise per unit pulled back

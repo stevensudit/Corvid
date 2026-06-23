@@ -194,6 +194,71 @@ geodesic_grid_edge(vec3 dir, int freq, vec3 eye_dir, vec3 eye_tan) {
   return 0.5F * (acosf(fminf(mid, 1.0F)) - acosf(fminf(hi, 1.0F)));
 }
 
+// The geodesic cell the eye nests on (the lattice point near face 0's centroid
+// that `geodesic_grid_edge` reorients onto the eye), as its angular `apothem`
+// (half the mean spacing to its six neighbors) and the grid `phase` about the
+// eye that brings the cell flat-top: a neighbor placed at `+tv` (a quarter
+// turn) so the iris hexagon and the cell share edges.
+//
+// Both depend on `freq` alone and use no floor-based cell lookup, which is
+// degenerate at the exact cell center (the barycentric coordinates fall on
+// integers there) and returns a wrong, motion-jittered value.
+struct geodesic_eye_cell {
+  float apothem; // angular half flat-to-flat of the eye cell
+  float phase;   // grid rotation about the eye that makes the cell flat-top
+};
+
+[[nodiscard]] __device__ inline geodesic_eye_cell geodesic_eye_cell_of(
+    int freq) {
+  const vec3 v0{0.0F, 1.0F, 0.0F};
+  const vec3 v1{0.8944272F, 0.4472136F, 0.0F};
+  const vec3 v2{0.2763932F, 0.4472136F, 0.8506508F};
+  const int n = static_cast<int>(lroundf(static_cast<float>(freq) / 3.0F));
+  const int bi = n;
+  const int bj = n;
+  const int bk = freq - (2 * n);
+  const vec3 cell = normalize(
+      (v0 * static_cast<float>(bi)) + (v1 * static_cast<float>(bj)) +
+      (v2 * static_cast<float>(bk)));
+
+  // The lattice tangent frame `geodesic_grid_edge` builds at this cell.
+  const vec3 utan = normalize(v0 - (cell * dot(v0, cell)));
+  const vec3 ubi = cross(cell, utan);
+
+  // Scan the six neighbor lattice points: sum their angles for the mean
+  // apothem, and keep the nearest (in the tangent frame) for the phase.
+  const int off[6][3] = {{1, -1, 0}, {-1, 1, 0}, {1, 0, -1}, {-1, 0, 1},
+      {0, 1, -1}, {0, -1, 1}};
+  float best = -1.0F;
+  float p = 1.0F;
+  float q = 0.0F;
+  float angle_sum = 0.0F;
+  for (const auto& o : off) {
+    const vec3 nb = normalize(
+        (v0 * static_cast<float>(bi + o[0])) +
+        (v1 * static_cast<float>(bj + o[1])) +
+        (v2 * static_cast<float>(bk + o[2])));
+    const float d = dot(cell, nb);
+    angle_sum += acosf(fminf(d, 1.0F));
+    if (d > best) {
+      best = d;
+      p = dot(nb, utan);
+      q = dot(nb, ubi);
+    }
+  }
+
+  // Phase: the nearest neighbor's eye-frame angle is `atan2(q, p) + phase`;
+  // place it at `+tv` (a quarter turn) for a flat-top cell. Apothem: half the
+  // MEAN neighbor angle, not the nearest. At a multiple-of-3 `freq` the eye
+  // sits on the face centroid, whose six neighbors are equidistant by
+  // symmetry, so a regular-hexagon iris is exactly flush all around (mean ==
+  // min); off the centroid the cell is a slightly irregular hexagon, and the
+  // mean centers the iris so the near and far edges split the mismatch
+  // symmetrically instead of three sitting flush and three gapping.
+  constexpr float half_pi = 1.5707963F;
+  return {0.5F * (angle_sum / 6.0F), half_pi - atan2f(q, p)};
+}
+
 #pragma endregion
 
 } // namespace corvid::cuda

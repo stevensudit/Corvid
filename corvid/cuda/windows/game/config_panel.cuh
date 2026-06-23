@@ -266,37 +266,26 @@ inline void draw_head_section(render_config& c, const render_config& dc) {
       -3.15F, 3.15F,
       "Rotate the grid about the eye to align its hexagons with the "
       "porthole.");
-  tuned_slider("seam inner", c.head.seam_inner, dc.head.seam_inner, 0.0F, 1.0F,
-      "Radius of the inner seam's hard edge; set it to the hex extent so the "
-      "groove butts the dome cutoff without leaking onto the dome.");
-  tuned_slider("seam inner width", c.head.seam_inner_width,
-      dc.head.seam_inner_width, 0.0F, 0.3F,
-      "How far the inner seam fades out onto the cone (its soft outer edge).");
-  tuned_slider("seam outer", c.head.seam_outer, dc.head.seam_outer, 0.0F, 1.0F,
-      "Radius of the rim-emphasis ring on the top cone.");
-  tuned_slider("seam outer width", c.head.seam_outer_width,
-      dc.head.seam_outer_width, 0.0F, 0.15F,
-      "Half-width of the rim-emphasis ring (widen to reach the brim).");
-  tuned_slider("seam strength", c.head.seam_strength, dc.head.seam_strength,
-      0.0F, 1.0F, "How strongly the seam rings darken the cone.");
+  tuned_slider("seam offset", c.head.seam_offset, dc.head.seam_offset, 0.0F,
+      0.3F, "How far the black band's inner edge sits inside the hex cutoff.");
+  tuned_slider("seam width", c.head.seam_width, dc.head.seam_width, 0.0F, 0.3F,
+      "Width of the solid black dome-base band.");
   tuned_color("seam color", c.head.seam_color, dc.head.seam_color,
-      "Seam-ring color (darker than the canopy reads as a groove).");
+      "Dome-base band color (black reads as a separation groove).");
   tuned_slider("eye forward", c.head.eye_forward, dc.head.eye_forward, 0.0F,
       3.0F, "How far the eye leans toward the front (0 = at the apex).");
-  tuned_slider("eye size", c.head.eye_size, dc.head.eye_size, 0.05F, 0.5F,
-      "Radius of the hexagonal eye.");
   tuned_slider("eye hub", c.head.eye_hub, dc.head.eye_hub, 0.0F, 0.25F,
       "Radius of the central hub circle inside the eye.");
   tuned_slider_int("eye spokes", c.head.eye_spokes, dc.head.eye_spokes, 0, 12,
-      "Radial panes inside the eye.");
+      "Radial spokes inside the iris (6 reaches the vertices, 3 alternates).");
   tuned_slider("eye line", c.head.eye_line, dc.head.eye_line, 0.005F, 0.06F,
       "Thickness of the eye's frame, spokes, and hub ring.");
   tuned_color("eye glass", c.head.eye_glass, dc.head.eye_glass,
-      "Iris color (the ring between the hub and the frame).");
+      "Opaque iris color.");
   tuned_color("eye pupil", c.head.eye_pupil, dc.head.eye_pupil,
       "Center hub (pupil) color; the beam source.");
   tuned_color("eye frame color", c.head.eye_frame_color,
-      dc.head.eye_frame_color, "Frame, spoke, and hub-ring color.");
+      dc.head.eye_frame_color, "Frame and hub-ring color.");
   tuned_slider("ring frequency", c.head.ring_frequency, dc.head.ring_frequency,
       0.0F, 60.0F, "Concentric ring frequency on the belly.");
   tuned_slider("spoke frequency", c.head.spoke_frequency,
