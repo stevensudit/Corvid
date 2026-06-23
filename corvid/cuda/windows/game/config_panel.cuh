@@ -144,6 +144,12 @@ inline void draw_avatar_section(avatar_tuning& t, const avatar_tuning& d) {
       "How much the head rises as the boom pulls back.");
   tuned_slider("zoom approach", t.zoom_approach, d.zoom_approach, 1.0F, 20.0F,
       "How fast the boom eases toward the zoom target, per second.");
+  tuned_slider("zoom step", t.zoom_step, d.zoom_step, 0.1F, 5.0F,
+      "How far the boom target moves per mouse-wheel notch.");
+  tuned_slider("portrait", t.portrait_boom, d.portrait_boom, 0.0F, 5.0F,
+      "Dolly-in detent: zooming in stops here once before continuing to boom "
+      "min, so one click frames the head close-up. Set to boom min to "
+      "disable.");
   tuned_slider("spin rate", t.spin_rate, d.spin_rate, -3.0F, 3.0F,
       "Idle saucer belly spin, radians per second.");
   tuned_slider("spin move gain", t.spin_move_gain, d.spin_move_gain, -6.0F,
@@ -158,6 +164,10 @@ inline void draw_avatar_section(avatar_tuning& t, const avatar_tuning& d) {
       "How far the saucer noses forward into travel at full speed.");
   tuned_slider("back tilt", t.back_tilt, d.back_tilt, 0.0F, 1.0F,
       "Backward tilt as a fraction of the forward tilt.");
+  tuned_slider("eye counter", t.eye_counter, d.eye_counter, -3.0F, 3.0F,
+      "Swings the cockpit eye against the saucer's motion nose-tilt so the "
+      "orb "
+      "reads as a gimbal. Past 1 it overshoots; signed to flip direction.");
   tuned_slider("heading approach", t.heading_approach, d.heading_approach,
       1.0F, 20.0F, "How fast the head swings to lead travel while moving.");
   tuned_slider("motion approach", t.motion_approach, d.motion_approach, 1.0F,
@@ -274,6 +284,13 @@ inline void draw_head_section(render_config& c, const render_config& dc) {
       "Dome-base band color (black reads as a separation groove).");
   tuned_slider("eye forward", c.head.eye_forward, dc.head.eye_forward, 0.0F,
       3.0F, "How far the eye leans toward the front (0 = at the apex).");
+  tuned_slider("eye lean", c.head.eye_lean, dc.head.eye_lean, -3.0F, 3.0F,
+      "Extra forward lean added as you look down, so the eye leans down the "
+      "dome with the look (signed; stays nested on the dome).");
+  tuned_slider("eye aim", c.head.eye_aim, dc.head.eye_aim, 0.0F, 1.0F,
+      "Blend the eye toward your actual look direction, so looking at "
+      "something aims the eye toward it. Clamped to the dome cap, which tops "
+      "out near the horizon.");
   tuned_slider("eye hub", c.head.eye_hub, dc.head.eye_hub, 0.0F, 0.25F,
       "Radius of the central hub circle inside the eye.");
   tuned_slider_int("eye spokes", c.head.eye_spokes, dc.head.eye_spokes, 0, 12,

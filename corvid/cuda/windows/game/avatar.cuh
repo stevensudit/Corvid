@@ -97,6 +97,11 @@ struct saucer_head {
   // silhouette edge.
   float rim_round = 0.03F;
 
+  // Per-frame offset added to the cockpit eye's `eye_forward` lean, swinging
+  // the eye against the saucer's motion-driven nose tilt so the orb reads as a
+  // stabilized gimbal. Zero leaves the eye at its tuned placement.
+  float eye_counter_offset = 0.0F;
+
   // Point `p` in the saucer's local frame: x and z span the disc, y runs along
   // `up`. The belly shading reads its polar coordinates from this.
   [[nodiscard]] __device__ vec3 to_local(pos3 p) const {

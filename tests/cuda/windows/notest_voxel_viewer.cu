@@ -394,8 +394,17 @@ struct avatar_rig {
   // first person. The head only glides there in `update`, so it reads as the
   // saucer moving rather than snapping.
   void zoom(float delta) {
-    boom_target =
+    float target =
         std::clamp(boom_target - delta, tune.boom_min, tune.boom_max);
+    // Portrait detent: when a step would cross the portrait distance, stop
+    // there first, so a click in or out always lands on the close-up frame.
+    // The next click then continues past it normally. Set `portrait_boom` to
+    // `boom_min` to disable.
+    const float p = tune.portrait_boom;
+    const bool crosses =
+        (boom_target < p && target > p) || (boom_target > p && target < p);
+    if (crosses) target = p;
+    boom_target = target;
   }
 
   // Advance the frame: ease the boom toward its zoom target, swing the heading
@@ -477,9 +486,15 @@ struct avatar_rig {
       front = (front * ca) + (cross(up, front) * sa) +
               (up * (dot(up, front) * (1.0F - ca)));
     }
+    // The cockpit eye's motion gimbal: as forward/back travel noses the
+    // saucer, swing the eye the other way along the dome so the orb reads as a
+    // gimbal holding against the body tilt. `drive` is the same eased travel
+    // signal that leans the saucer, so the two stay in sync; a gain past unity
+    // overshoots for a livelier counter-swing.
+    const float eye_counter_offset = -tune.eye_counter * drive;
     return {eye(), up, front, tune.head_radius, spin, 0.0F, tune.body_height,
         tune.dome_offset, tune.dome_radius, tune.dome_blend, tune.top_height,
-        tune.rim_round};
+        tune.rim_round, eye_counter_offset};
   }
 };
 
@@ -682,7 +697,9 @@ int main() {
       // The mouse wheel aims the zoom between third and first person: an
       // impulse, not a held velocity, so it is not scaled by frame time. The
       // head then glides toward that target in `update`, so a zoom slides the
-      // saucer in or out rather than snapping.
+      // saucer in or out rather than snapping. The per-notch step is
+      // live-tuned, so sync it from the rig before consuming the wheel.
+      input.scroll_step = rig.tune.zoom_step;
       if (input.wheel != 0.0F) rig.zoom(input.dolly());
 
       // Ease the boom toward its zoom target and turn the saucer's belly spin.

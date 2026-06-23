@@ -133,7 +133,27 @@ namespace corvid::cuda {
     constexpr float aa = 0.012F;
     const vec3 e_up = head.up;
     const vec3 e_fwd = normalize(head.front - (e_up * dot(head.front, e_up)));
-    const vec3 c = normalize(e_up + (e_fwd * hp.eye_forward));
+    // The eye tracks the look and the motion in tunable ways. `eye_lean`
+    // adjusts the forward lean with the look pitch: positive leans the eye
+    // down the dome as the look pitches down, so the eye follows the look;
+    // negative does the reverse, swinging it up past the apex against the
+    // tilt, a gimbal overshoot. `eye_counter_offset` adds a motion-driven
+    // counter-swing on top, against the saucer's travel nose-tilt. `eye_aim`
+    // then blends the placement toward the actual look direction. All are
+    // clamped to the dome cap, which faces only from the apex down to about
+    // the horizon, so the decal stays on renderable surface.
+    const float lean =
+        (hp.eye_lean * (-head.front.y)) + head.eye_counter_offset;
+    const vec3 c_lean = normalize(e_up + (e_fwd * (hp.eye_forward + lean)));
+    vec3 c = normalize(c_lean + ((head.front - c_lean) * hp.eye_aim));
+    constexpr float min_up = 0.34F; // keep the eye within ~70 deg of the apex
+    const float up_dot = dot(c, e_up);
+    if (up_dot < min_up) {
+      const vec3 flat = c - (e_up * up_dot);
+      const float fl = sqrtf(dot(flat, flat));
+      if (fl > 1.0e-4F)
+        c = (e_up * min_up) + ((flat / fl) * sqrtf(1.0F - (min_up * min_up)));
+    }
 
     // The geodesic cell the eye nests on, fixing the iris size and the grid
     // orientation together: its apothem sizes the iris, and its phase rotates
