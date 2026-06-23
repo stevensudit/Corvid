@@ -215,6 +215,20 @@ screen-center crosshair (see the screen-space crosshair note in
 `voxel_world.md`) assumes the beam leaves the eye; here it leaves the ball, and
 the head projects a hologram that honestly shows where.
 
+## Expressive poses (not built)
+
+The saucer's belly already exposes shape knobs that read as expression, not just
+decoration: the central hub is a pupil that can dilate (hub radius), the rim
+lights stretch from dots into radial dashes (rim width) and from a broken ring
+into a solid circle (rim dot frequency), and any of it can shift color. Driven
+statically they are tuning; driven over time they are animation. The plan is to
+capture a few named poses as short interpolation sequences over these
+`render_config` fields and trigger them off events: a pupil-narrow plus a color
+flash on the dig button, a calm idle blink, an alert ring on low charge. The
+shading already supports it; what is missing is a small sequencer that eases the
+fields toward a target pose and back. Belly first (it is the busy expressive
+face); the cockpit dome stays comparatively still.
+
 ## Still open
 
 - Rolling model: how much inertia, whether the ball is torque-driven (it spins

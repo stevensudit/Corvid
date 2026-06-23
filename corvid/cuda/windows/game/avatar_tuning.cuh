@@ -42,11 +42,14 @@ struct avatar_tuning {
   float boom_max = 14.0F;        // pulled this far back (wide)
   float boom_rise = 0.35F;       // head rise per unit pulled back
   float zoom_approach = 8.0F;    // boom easing rate per second
-  float spin_rate = 0.6F;        // belly spin, radians per second
+  float spin_rate = -1.5F;       // idle belly spin, radians per second
+  float spin_move_gain = -3.0F;  // spin gain from forward travel, signed
+  float spin_idle_period = 6.0F; // seconds between idle spin reversals
   float saucer_lean = 0.4F;      // belly lean toward the look
+  float move_tilt = 1.0F;        // forward nose-down lean into travel at speed
+  float back_tilt = 0.5F;        // backward tilt as a fraction of the forward
   float heading_approach = 8.0F; // heading swing rate while moving
-  float thrust_full = 12.0F;     // speed that reads as full thrust
-  float thrust_approach = 5.0F;  // thrust glow ramp/fade rate
+  float motion_approach = 5.0F;  // tilt/spin motion-signal ramp/fade rate
   float move_speed = 8.0F;       // planar move speed, units per second
 
   // Saucer head shape, as fractions of the head radius (see `saucer_head`).

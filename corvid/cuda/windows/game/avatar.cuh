@@ -18,8 +18,8 @@
 
 #include <cmath>
 
-#include "./sdf.cuh"
-#include "./vec.cuh"
+#include "../../sdf.cuh"
+#include "../../vec.cuh"
 
 // The player's avatar as a pair of free signed-distance objects the ray-march
 // tests directly against the terrain, with no grid writes: the metallic ball
@@ -66,12 +66,13 @@ struct metal_ball {
 
 // The saucer head: a flying-saucer SDF that carries the viewpoint. A flat
 // ellipsoid body blended with a small dome on top, sized by one radius. Its
-// `up` axis (the disc normal) tilts so the saucer banks with the look, and a
-// `spin` angle turns the belly pattern. Unlike the ball it has no closed-form
-// hit, so it is sphere-traced.
+// `up` axis (the disc normal) tilts so the saucer banks with the look, a
+// `front` axis orients the cockpit eyes, and a `spin` angle turns the belly
+// pattern. Unlike the ball it has no closed-form hit, so it is sphere-traced.
 struct saucer_head {
   pos3 center;
   vec3 up;      // disc normal (unit); the saucer banks by tilting this
+  vec3 front;   // forward direction (unit); orients the cockpit eyes
   float radius; // disc radius
   float spin;   // belly-pattern rotation angle, radians
   float thrust; // propulsion glow, 0 (idle) to 1 (full)
@@ -119,12 +120,13 @@ struct saucer_head {
   }
 
   // Distance along unit `dir` from `eye` to the nearest surface hit, sphere-
-  // traced, or a negative value on a miss. Only the ball's reflection ray
-  // calls this, always from the ball surface, so the start is outside the
-  // head.
+  // traced, or a negative value on a miss. Called by the ball's reflection ray
+  // (from just off the head) and by the flat mirror's world ray (from across
+  // the scene), so `max_dist` spans the whole world: a too-short cap hid the
+  // head in a distant mirror until the camera closed within range.
   [[nodiscard]] __device__ float raymarch(pos3 eye, vec3 dir) const {
     constexpr int max_steps = 96;
-    constexpr float max_dist = 64.0F;
+    constexpr float max_dist = 512.0F;
     // Accept a hit within a tolerance that grows with distance (a cone around
     // the ray) rather than a single tight threshold. `sdf` is not an exact
     // distance (the flat `sd_ellipsoid` approximates; `op_smooth_union` is

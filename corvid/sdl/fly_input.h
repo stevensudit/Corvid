@@ -123,6 +123,14 @@ struct fly_input {
     }
   }
 
+  // Force-release the held movement keys. Call this when a UI overlay takes
+  // the keyboard mid-hold: the matching key-up is delivered to the overlay,
+  // not to `handle`, so without this a held key would stick and drive the
+  // camera until it is pressed and released again.
+  void release_keys() {
+    forward = back = left = right = up = down = fast = false;
+  }
+
   // The camera-relative movement for this frame as (forward, sideways, up),
   // each scaled by frame time.
   [[nodiscard]] std::tuple<float, float, float>

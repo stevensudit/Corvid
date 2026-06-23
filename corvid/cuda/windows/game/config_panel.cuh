@@ -18,8 +18,8 @@
 
 #include "imgui.h"
 
-#include "../../render_config.cuh"
 #include "../../vec.cuh"
+#include "./render_config.cuh"
 #include "./avatar_tuning.cuh"
 
 // The voxel viewer's live tuning panel (Dear ImGui): widgets that edit the
@@ -59,6 +59,24 @@ inline bool tuned_slider(const char* label, float& v, float def, float lo,
     ImGui::PopID();
   }
   return changed;
+}
+
+// Like `tuned_slider` but for an integer value over [`lo`, `hi`]. Used for
+// small counts (window panes, eyes) where a fractional value is meaningless.
+inline void tuned_slider_int(const char* label, int& v, int def, int lo,
+    int hi, const char* tip) {
+  const bool modified = v != def;
+  if (modified)
+    ImGui::PushStyleColor(ImGuiCol_Text, IM_COL32(255, 220, 80, 255));
+  ImGui::SliderInt(label, &v, lo, hi, "%d", ImGuiSliderFlags_AlwaysClamp);
+  ImGui::SetItemTooltip("%s", tip);
+  if (modified) {
+    ImGui::PopStyleColor();
+    ImGui::SameLine();
+    ImGui::PushID(label);
+    if (ImGui::SmallButton("reset")) v = def;
+    ImGui::PopID();
+  }
 }
 
 // Like `tuned_slider` but for an RGB color, edited with a color swatch. The
@@ -119,16 +137,24 @@ inline void draw_avatar_section(avatar_tuning& t, const avatar_tuning& d) {
       "How much the head rises as the boom pulls back.");
   tuned_slider("zoom approach", t.zoom_approach, d.zoom_approach, 1.0F, 20.0F,
       "How fast the boom eases toward the zoom target, per second.");
-  tuned_slider("spin rate", t.spin_rate, d.spin_rate, 0.0F, 3.0F,
-      "Saucer belly spin speed, radians per second.");
+  tuned_slider("spin rate", t.spin_rate, d.spin_rate, -3.0F, 3.0F,
+      "Idle saucer belly spin, radians per second.");
+  tuned_slider("spin move gain", t.spin_move_gain, d.spin_move_gain, -6.0F,
+      6.0F,
+      "How much forward travel adds to the spin (reverses when backing up).");
+  tuned_slider("spin idle period", t.spin_idle_period, d.spin_idle_period,
+      0.5F, 10.0F, "Seconds between idle spin reversals while stationary.",
+      ImGuiSliderFlags_AlwaysClamp);
   tuned_slider("saucer lean", t.saucer_lean, d.saucer_lean, 0.0F, 1.0F,
       "How far the saucer tilts its belly toward the look direction.");
+  tuned_slider("move tilt", t.move_tilt, d.move_tilt, 0.0F, 2.0F,
+      "How far the saucer noses forward into travel at full speed.");
+  tuned_slider("back tilt", t.back_tilt, d.back_tilt, 0.0F, 1.0F,
+      "Backward tilt as a fraction of the forward tilt.");
   tuned_slider("heading approach", t.heading_approach, d.heading_approach,
       1.0F, 20.0F, "How fast the head swings to lead travel while moving.");
-  tuned_slider("thrust full", t.thrust_full, d.thrust_full, 1.0F, 30.0F,
-      "Movement speed that reads as full propulsion glow.");
-  tuned_slider("thrust approach", t.thrust_approach, d.thrust_approach, 1.0F,
-      20.0F, "How fast the propulsion glow ramps up and fades.");
+  tuned_slider("motion approach", t.motion_approach, d.motion_approach, 1.0F,
+      20.0F, "How fast the motion tilt and spin ramp up and fade.");
   tuned_slider("move speed", t.move_speed, d.move_speed, 1.0F, 30.0F,
       "Planar movement speed, world units per second.");
   // Field of view caches tan(fov/2), so route edits through the setter.
@@ -215,6 +241,26 @@ inline void draw_head_section(render_config& c, const render_config& dc) {
   tuned_slider("panel amplitude", c.head.panel_amplitude,
       dc.head.panel_amplitude, 0.0F, 0.5F,
       "Strength of the dome panel ridges.");
+  tuned_slider_int("eye count", c.head.eye_count, dc.head.eye_count, 1, 2,
+      "1 centered eye (the dome reads as an eye) or 2 (a face).");
+  tuned_slider("eye forward", c.head.eye_forward, dc.head.eye_forward, 0.0F,
+      3.0F, "How far the eyes lean toward the front (0 = at the apex).");
+  tuned_slider("eye separation", c.head.eye_separation, dc.head.eye_separation,
+      0.0F, 0.8F, "Half-distance between the two eyes.");
+  tuned_slider("eye size", c.head.eye_size, dc.head.eye_size, 0.05F, 0.5F,
+      "Radius of each hexagonal eye.");
+  tuned_slider("eye hub", c.head.eye_hub, dc.head.eye_hub, 0.0F, 0.25F,
+      "Radius of the central hub circle inside the eye.");
+  tuned_slider_int("eye spokes", c.head.eye_spokes, dc.head.eye_spokes, 0, 12,
+      "Radial panes inside the eye.");
+  tuned_slider("eye line", c.head.eye_line, dc.head.eye_line, 0.005F, 0.06F,
+      "Thickness of the eye's frame, spokes, and hub ring.");
+  tuned_color("eye glass", c.head.eye_glass, dc.head.eye_glass,
+      "Iris color (the ring between the hub and the frame).");
+  tuned_color("eye pupil", c.head.eye_pupil, dc.head.eye_pupil,
+      "Center hub (pupil) color; the beam source.");
+  tuned_color("eye frame color", c.head.eye_frame_color,
+      dc.head.eye_frame_color, "Frame, spoke, and hub-ring color.");
   tuned_slider("ring frequency", c.head.ring_frequency, dc.head.ring_frequency,
       0.0F, 60.0F, "Concentric ring frequency on the belly.");
   tuned_slider("spoke frequency", c.head.spoke_frequency,
@@ -224,7 +270,7 @@ inline void draw_head_section(render_config& c, const render_config& dc) {
       "Darkest the belly paint dims to.");
   tuned_slider("paint range", c.head.paint_range, dc.head.paint_range, 0.0F,
       1.0F, "Brightness added where rings and spokes peak.");
-  tuned_slider("hub radius", c.head.hub_radius, dc.head.hub_radius, 0.0F, 0.5F,
+  tuned_slider("hub radius", c.head.hub_radius, dc.head.hub_radius, 0.0F, 2.0F,
       "Radius of the central flashlight hub.");
   tuned_slider("hub softness", c.head.hub_softness, dc.head.hub_softness,
       0.01F, 0.3F, "Edge softness of the hub.");

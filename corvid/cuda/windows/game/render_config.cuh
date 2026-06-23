@@ -16,7 +16,7 @@
 // limitations under the License.
 #pragma once
 
-#include "./vec.cuh"
+#include "../../vec.cuh"
 
 // Runtime shading parameters for the voxel viewer, gathered so the tuning
 // panel can edit them live with no recompile.
@@ -67,12 +67,28 @@ struct render_config {
   struct head_params {
     vec3 ambient{0.10F, 0.11F, 0.13F};
     vec3 sun{1.0F, 0.96F, 0.88F};
-    vec3 base_albedo{0.55F, 0.58F, 0.62F}; // bare steel
+    vec3 base_albedo{1.0F, 1.0F, 1.0F}; // bare steel
 
     // Dome canopy: a cooler tint with faint concentric panel ridges.
     vec3 canopy{0.16F, 0.20F, 0.28F};
     float panel_frequency = 18.0F;
     float panel_amplitude = 0.15F;
+
+    // Cockpit eyes: hexagonal pilot windows on the front of the fixed dome, a
+    // porthole look (a central hub circle and radial spokes inside a hex
+    // frame), placed relative to the saucer's forward so the ship reads as a
+    // face. One centered eye lets the whole dome read as an eye; two read as a
+    // face. Albedo only, crisp, so they hold up small in the ball reflection.
+    int eye_count = 1;            // 1 (centered) or 2 (a pair)
+    float eye_forward = 1.5F;     // lean toward the front (0 = at the apex)
+    float eye_separation = 0.33F; // half-distance between two eyes
+    float eye_size = 0.22F;       // hexagon radius (apothem, angular)
+    float eye_hub = 0.09F;        // central hub-circle radius
+    int eye_spokes = 6;           // radial panes inside the window
+    float eye_line = 0.018F;      // frame, spoke, and hub line width
+    vec3 eye_glass{0.05F, 0.07F, 0.12F}; // iris (ring between hub and frame)
+    vec3 eye_pupil{0.0F, 0.0F, 0.0F};    // hub center (the beam source)
+    vec3 eye_frame_color{0.62F, 0.62F, 0.62F}; // frame, spokes, hub ring
 
     // Belly paint: concentric rings times spinning spokes.
     float ring_frequency = 26.0F;

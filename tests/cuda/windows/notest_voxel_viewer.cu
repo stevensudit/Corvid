@@ -18,7 +18,6 @@
 
 #include <cuda_runtime.h>
 
-#include "corvid/cuda/avatar.cuh"
 #include "corvid/cuda/camera.cuh"
 #include "corvid/cuda/cuda_event.cuh"
 #include "corvid/cuda/cuda_kernel.cuh"
@@ -27,16 +26,18 @@
 #include "corvid/cuda/cuda_volume.cuh"
 #include "corvid/cuda/density_field.cuh"
 #include "corvid/cuda/material_volume.cuh"
+#include "corvid/cuda/mirror.cuh"
 #include "corvid/cuda/radians.cuh"
 #include "corvid/cuda/raycast.cuh"
-#include "corvid/cuda/render_config.cuh"
 #include "corvid/cuda/strata.cuh"
 #include "corvid/cuda/terrain.cuh"
 #include "corvid/cuda/vec.cuh"
-#include "corvid/cuda/voxel_render.cuh"
 #include "corvid/cuda/windows/cuda_d3d11_presenter.cuh"
+#include "corvid/cuda/windows/game/avatar.cuh"
 #include "corvid/cuda/windows/game/avatar_tuning.cuh"
 #include "corvid/cuda/windows/game/config_panel.cuh"
+#include "corvid/cuda/windows/game/render_config.cuh"
+#include "corvid/cuda/windows/game/scene_render.cuh"
 #include "corvid/cuda/windows/imgui_overlay.h"
 #include "corvid/sdl/fly_input.h"
 #include "corvid/sdl/frame_loop.h"
@@ -135,7 +136,7 @@ __global__ void fill_kernel(cudaSurfaceObject_t density_surface,
 // `R8G8B8A8_UNORM`, so a `uchar4` of (r, g, b, a) maps straight to its bytes.
 __global__ void voxel_kernel(cudaSurfaceObject_t out, resolution res,
     camera_rays cam, density_field field, cudaTextureObject_t color_tex,
-    metal_ball ball, saucer_head head, render_config cfg) {
+    metal_ball ball, saucer_head head, flat_mirror mirror, render_config cfg) {
   const int px = cuda_kernel::x_index();
   const int py = cuda_kernel::y_index();
   const auto fx = static_cast<float>(px);
@@ -159,8 +160,8 @@ __global__ void voxel_kernel(cudaSurfaceObject_t out, resolution res,
       const float oy = (static_cast<float>(sy) + 0.5F) * inv;
       const vec3 ray_dir =
           cam.ray_direction(pos2{vec2{fx + ox, fy + oy}}, res);
-      color = color + shade_primary_ray(field, color_tex, ball, head, cfg,
-                          cam.eye, ray_dir);
+      color = color + shade_primary_ray(field, color_tex, ball, head, mirror,
+                          cfg, cam.eye, ray_dir);
     }
   color = color * (inv * inv);
 
@@ -310,9 +311,14 @@ struct avatar_rig {
   float boom;         // head distance behind the ball; negative is in front
   float
       boom_target; // where the wheel is taking the boom; `update` eases to it
-  float spin = 0.0F;   // saucer belly rotation, advanced by `update`
-  float thrust = 0.0F; // propulsion glow, from motion, advanced by `update`
-  float moving = 0.0F; // this frame's planar movement amount, set by `move`
+  float spin = 0.0F;       // saucer belly rotation, advanced by `update`
+  float drive = 0.0F;      // smoothed signed forward head speed (-1..1)
+  float slide = 0.0F;      // smoothed signed strafe head speed (-1..1)
+  float spin_clock = 0.0F; // time accumulator for the idle spin reversal
+  float idle_dir = 1.0F;   // smoothed idle spin direction (+/-1)
+  float moving = 0.0F;     // this frame's planar ball movement, set by `move`
+  pos3 prev_eye{};         // last frame's head position, for the head velocity
+  bool primed = false;     // whether `prev_eye` holds a real previous frame
   avatar_tuning
       tune{}; // live feel constants, read through by the methods below
 
@@ -348,15 +354,26 @@ struct avatar_rig {
   // to the view and tilts as a body to aim its fixed camera: the disc normal
   // is the view up leaned back along the look, so the belly faces outward.
   // Pitch the look down and the whole saucer noses down with it, showing its
-  // profile.
+  // profile. It also tilts in the direction the head is moving, like a
+  // helicopter: nose into forward or backward travel and bank toward a strafe,
+  // including a zoom dolly (which moves the head toward or away from the
+  // ball), scaled by `move_tilt`.
   [[nodiscard]] vec3 saucer_up() const {
     const basis b = frame();
-    return normalize(b.up - (b.forward * tune.saucer_lean));
+    const vec3 leaned = b.up - (b.forward * tune.saucer_lean);
+    const vec3 heading_fwd{cos(heading), 0.0F, sin(heading)};
+    const vec3 heading_right{-sin(heading), 0.0F, cos(heading)};
+    // Backward leans less than forward (reversing already faces the right
+    // way).
+    const float nose = drive >= 0.0F ? drive : drive * tune.back_tilt;
+    const vec3 tilt = (heading_fwd * nose) + (heading_right * slide);
+    return normalize(leaned + (tilt * tune.move_tilt));
   }
 
   // Drive the anchor in the yaw-horizontal frame. Space/Ctrl still raise and
   // lower it directly, since there is no terrain following yet. Records the
-  // planar movement so `update` can swing the heading and drive the thrust.
+  // planar movement so `update` knows when to swing the heading toward travel;
+  // the tilt and spin read the head's own velocity, not this input.
   void move(float forward, float strafe, float lift) {
     const basis b = frame();
     const vec3 fwd = normalize(vec3{b.forward.x, 0.0F, b.forward.z});
@@ -381,15 +398,14 @@ struct avatar_rig {
         std::clamp(boom_target - delta, tune.boom_min, tune.boom_max);
   }
 
-  // Advance the frame: ease the boom toward its zoom target, turn the belly
-  // spin, swing the heading toward the look while moving (so the head leads
-  // travel but holds still for free-look), and drive the thrust glow from how
-  // fast the saucer is moving and zooming.
+  // Advance the frame: ease the boom toward its zoom target, swing the heading
+  // toward the look while the ball moves, derive the head's own velocity (so a
+  // zoom dolly tilts the head too, not just ball movement) into the eased
+  // drive/slide that lean the saucer, and spin the belly: travel-driven while
+  // moving, alternating direction while idle.
   void update(float dt) {
-    const float old_boom = boom;
     boom = boom +
            ((boom_target - boom) * (1.0F - expf(-tune.zoom_approach * dt)));
-    spin = spin + (tune.spin_rate * dt);
 
     if (moving > 0.0F) {
       const radians delta =
@@ -397,11 +413,38 @@ struct avatar_rig {
       heading = heading + (delta * (1.0F - expf(-tune.heading_approach * dt)));
     }
 
-    const float planar = dt > 0.0F ? moving / dt : 0.0F;
-    const float zoom_speed = dt > 0.0F ? fabsf(boom - old_boom) / dt : 0.0F;
-    const float target = fminf((planar + zoom_speed) / tune.thrust_full, 1.0F);
-    thrust = thrust +
-             ((target - thrust) * (1.0F - expf(-tune.thrust_approach * dt)));
+    // The tilt and spin read the head's own velocity (the ball-follow, the
+    // zoom dolly, and turning all move the head), measured in the heading
+    // frame: forward/back drives the nose tilt and the spin, strafe banks it.
+    // Eased, and normalized so full move speed reads as 1.
+    const float ramp = 1.0F - expf(-tune.motion_approach * dt);
+    const pos3 here = eye();
+    if (primed && dt > 0.0F) {
+      const vec3 vel = (here - prev_eye) * (1.0F / dt);
+      const vec3 heading_fwd{cos(heading), 0.0F, sin(heading)};
+      const vec3 heading_right{-sin(heading), 0.0F, cos(heading)};
+      const float drive_target =
+          fmaxf(-1.0F, fminf(dot(vel, heading_fwd) / tune.move_speed, 1.0F));
+      const float slide_target =
+          fmaxf(-1.0F, fminf(dot(vel, heading_right) / tune.move_speed, 1.0F));
+      drive = drive + ((drive_target - drive) * ramp);
+      slide = slide + ((slide_target - slide) * ramp);
+    }
+    prev_eye = here;
+    primed = true;
+
+    // The belly spin: while moving it follows travel (faster ahead, reversing
+    // when backing up); while stationary it alternates direction every
+    // `spin_idle_period`, easing through each reversal, which reads livelier
+    // than a constant idle spin.
+    spin_clock = spin_clock + dt;
+    const float idle_target =
+        fmodf(spin_clock, 2.0F * tune.spin_idle_period) < tune.spin_idle_period
+            ? 1.0F
+            : -1.0F;
+    idle_dir = idle_dir + ((idle_target - idle_dir) * ramp);
+    const float idle = tune.spin_rate * idle_dir * (1.0F - fabsf(drive));
+    spin = spin + ((idle + (tune.spin_move_gain * drive)) * dt);
   }
 
   // The view rays for the current pose, looking out from inside the head. The
@@ -413,7 +456,10 @@ struct avatar_rig {
 
   [[nodiscard]] metal_ball ball() const { return {anchor, tune.ball_radius}; }
   [[nodiscard]] saucer_head head() const {
-    return {eye(), saucer_up(), tune.head_radius, spin, thrust,
+    // The propulsion glow is currently unbound from motion (a retrofit
+    // target), so the head's thrust is held at zero. `frame().forward` orients
+    // the cockpit eyes toward the saucer's front.
+    return {eye(), saucer_up(), frame().forward, tune.head_radius, spin, 0.0F,
         tune.body_height, tune.dome_offset, tune.dome_radius, tune.dome_blend};
   }
 };
@@ -507,6 +553,16 @@ int main() {
     const density_field field{vol_extent, pos3{vec3{ox, oy, oz}}, voxel_size,
         volume.texture()};
 
+    // A flat mirror wall along the -z border (which the avatar faces at
+    // start), edge to edge in x and rising from the floor, so the saucer can
+    // be seen undistorted, unlike in the convex ball. Fly up to it to preen.
+    const float world_x1 =
+        ox + (static_cast<float>(vol_extent.width - 1) * voxel_size);
+    const flat_mirror mirror{.plane_z = oz,
+        .lo = vec2{ox, oy},
+        .hi = vec2{world_x1, oy + 80.0F},
+        .normal = vec3{0.0F, 0.0F, 1.0F}};
+
     // Generate the world once into the three grids before the first frame.
     generate_world(field, volume, materials, colors);
 
@@ -582,6 +638,12 @@ int main() {
       const auto dt = static_cast<float>(now_ns - last_ns) / 1.0e9F;
       last_ns = now_ns;
 
+      // While a panel widget owns the keyboard (a Ctrl+click value entry), its
+      // key-up goes to ImGui, not the game, so a movement key held into it
+      // would stick. Release them so the avatar stops when the UI takes over;
+      // moving with the panel open otherwise still works.
+      if (imgui.wants_keyboard()) input.release_keys();
+
       // Smooth the look before moving so a strafe uses this frame's facing.
       const auto [yaw, pitch] = input.look(dt);
       rig.look(yaw, pitch);
@@ -647,7 +709,8 @@ int main() {
                 cuda_surface surf{array};
                 voxel_kernel<<<grid_dim, block>>>(surf,
                     resolution{static_cast<float>(w), static_cast<float>(h)},
-                    rays, field, colors.texture(), ball, head, render_cfg);
+                    rays, field, colors.texture(), ball, head, mirror,
+                    render_cfg);
                 cuda_timer::synchronize().or_throw();
               },
               [&] { imgui.render(presenter.back_buffer()); })
