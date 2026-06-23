@@ -203,6 +203,19 @@ inline void draw_saucer_section(avatar_tuning& t, const avatar_tuning& d) {
       "Rounds the sharp brim where the cone meets the bottom (reduces edge "
       "staircasing).",
       ImGuiSliderFlags_AlwaysClamp);
+  tuned_slider("antenna length", t.antenna_length, d.antenna_length, 0.0F,
+      2.0F, "Antenna rod length / head radius (0 removes the antenna).");
+  tuned_slider("antenna thick", t.antenna_thickness, d.antenna_thickness, 0.0F,
+      0.1F, "Antenna rod thickness / head radius.");
+  tuned_slider("antenna ball", t.antenna_ball, d.antenna_ball, 0.0F, 0.2F,
+      "Antenna tip ball radius / head radius (the beacon bead).");
+  tuned_slider("antenna collar", t.antenna_collar, d.antenna_collar, 0.005F,
+      0.05F,
+      "Metal collar where the antenna meets the dome. Shrink to declutter the "
+      "hex tiling; the rod itself is unaffected.");
+  tuned_slider("edge tol", t.head_hit_cap, d.head_hit_cap, 0.00F, 0.1F,
+      "Caps the head's silhouette hit tolerance (fraction of radius). Lower "
+      "sharpens the far-mirror edge; too low reopens the dome/disc seam.");
   ImGui::TreePop();
 }
 
@@ -349,6 +362,9 @@ inline void draw_head_section(render_config& c, const render_config& dc) {
   tuned_slider("specular strength", c.head.specular_strength,
       dc.head.specular_strength, 0.0F, 2.0F,
       "Overall specular highlight brightness.");
+  tuned_color("antenna tip", c.head.antenna_tip_color,
+      dc.head.antenna_tip_color,
+      "Glowing bead atop the antenna (emissive beacon).");
   ImGui::TreePop();
 }
 

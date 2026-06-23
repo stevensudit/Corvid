@@ -39,6 +39,35 @@ namespace corvid::cuda {
 
 #pragma region Avatar and scene compositing
 
+// Shade an antenna hit: report whether `hit_point` lands on the dome's antenna
+// and, if so, write its color to `out`. The ball tip is an emissive beacon;
+// the rod is bare steel lit by `diffuse`.
+[[nodiscard]] __device__ inline bool shade_antenna(const saucer_head& head,
+    const render_config::head_params& hp, pos3 hit_point, vec3 ray_dir,
+    float diffuse, vec3& out) {
+  if (head.antenna_length <= 0.0F) return false;
+  const vec3 pc = hit_point - head.center;
+  const vec3 tip = head.antenna_tip();
+  const float ball_d = sd_sphere(pc - tip, head.radius * head.antenna_ball);
+  const float rod_d = sd_capsule(pc, head.antenna_base(), tip,
+      head.radius * head.antenna_thickness);
+  if (fminf(rod_d, ball_d) >= head.radius * head.antenna_collar) return false;
+  if (ball_d > rod_d) {
+    out = (hp.ambient + (hp.sun * diffuse)) * hp.base_albedo; // lit steel rod
+    return true;
+  }
+  // The tip reads as a fast-spinning dish blurred into a beacon: an
+  // axially-symmetric emissive glow about the antenna, with a hot core toward
+  // the viewer and a bright band where the spinning rim sweeps.
+  const vec3 n = normalize(pc - tip);
+  const float facing = __saturatef(-dot(n, ray_dir));
+  const float axial = dot(n, head.antenna_dir);
+  const float rim = expf(-(axial * axial) * 8.0F);
+  out = hp.antenna_tip_color *
+        (0.4F + (0.9F * (facing * facing)) + (0.6F * rim));
+  return true;
+}
+
 // Shade the saucer head at surface point `hit_point`: a fixed cockpit dome
 // carrying a single hexagonal porthole eye on its front, and a distinctive
 // spinning belly on the underside, painted with rings and spokes and carrying
@@ -75,6 +104,12 @@ namespace corvid::cuda {
 
   const vec3 light_dir = normalize(cfg.sun_direction);
   const float diffuse = fmaxf(dot(normal, light_dir), 0.0F);
+
+  // The antenna stands proud of the dome (its tip wags with the eye's gimbal),
+  // so classify and shade it before the dome/belly split.
+  vec3 antenna_color{};
+  if (shade_antenna(head, hp, hit_point, ray_dir, diffuse, antenna_color))
+    return antenna_color;
 
   const float facing_up = dot(normal, head.up);
   const float upside = fmaxf(facing_up, 0.0F);     // the dome
@@ -132,28 +167,10 @@ namespace corvid::cuda {
     // narrow ramp that keeps the edges crisp without aliasing.
     constexpr float aa = 0.012F;
     const vec3 e_up = head.up;
-    const vec3 e_fwd = normalize(head.front - (e_up * dot(head.front, e_up)));
-    // The eye tracks the look and the motion in tunable ways. `eye_lean`
-    // adjusts the forward lean with the look pitch: positive leans the eye
-    // down the dome as the look pitches down, so the eye follows the look;
-    // negative does the reverse, swinging it up past the apex against the
-    // tilt, a gimbal overshoot. `eye_counter_offset` adds a motion-driven
-    // counter-swing on top, against the saucer's travel nose-tilt. `eye_aim`
-    // then blends the placement toward the actual look direction. All are
-    // clamped to the dome cap, which faces only from the apex down to about
-    // the horizon, so the decal stays on renderable surface.
-    const float lean =
-        (hp.eye_lean * (-head.front.y)) + head.eye_counter_offset;
-    const vec3 c_lean = normalize(e_up + (e_fwd * (hp.eye_forward + lean)));
-    vec3 c = normalize(c_lean + ((head.front - c_lean) * hp.eye_aim));
-    constexpr float min_up = 0.34F; // keep the eye within ~70 deg of the apex
-    const float up_dot = dot(c, e_up);
-    if (up_dot < min_up) {
-      const vec3 flat = c - (e_up * up_dot);
-      const float fl = sqrtf(dot(flat, flat));
-      if (fl > 1.0e-4F)
-        c = (e_up * min_up) + ((flat / fl) * sqrtf(1.0F - (min_up * min_up)));
-    }
+    // The eye's placement direction is computed once on the host (so the
+    // antenna can share its exact angle) and passed in; see
+    // `camera_rig::head`.
+    const vec3 c = head.eye_dir;
 
     // The geodesic cell the eye nests on, fixing the iris size and the grid
     // orientation together: its apothem sizes the iris, and its phase rotates

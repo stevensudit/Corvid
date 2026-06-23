@@ -471,7 +471,7 @@ struct avatar_rig {
   }
 
   [[nodiscard]] metal_ball ball() const { return {anchor, tune.ball_radius}; }
-  [[nodiscard]] saucer_head head() const {
+  [[nodiscard]] saucer_head head(const render_config::head_params& hp) const {
     // The propulsion glow is currently unbound from motion (a retrofit
     // target), so the head's thrust is held at zero. The front orients the
     // cockpit eye; `front_offset_deg` rotates it off the camera heading about
@@ -492,9 +492,42 @@ struct avatar_rig {
     // signal that leans the saucer, so the two stay in sync; a gain past unity
     // overshoots for a livelier counter-swing.
     const float eye_counter_offset = -tune.eye_counter * drive;
+
+    // The cockpit eye's placement direction, computed here so the shader's eye
+    // decal and the antenna geometry share one source. It leans off the apex
+    // by `eye_forward` plus the look-pitch lean and the motion counter, blends
+    // toward the look by `eye_aim`, then clamps to the dome cap.
+    const vec3 e_fwd = normalize(front - (up * dot(front, up)));
+    const float lean = (hp.eye_lean * (-front.y)) + eye_counter_offset;
+    const vec3 c_lean = normalize(up + (e_fwd * (hp.eye_forward + lean)));
+    vec3 eye_dir = normalize(c_lean + ((front - c_lean) * hp.eye_aim));
+    constexpr float min_up = 0.34F; // the dome cap, matching scene_render
+    const float up_dot = dot(eye_dir, up);
+    if (up_dot < min_up) {
+      const vec3 flat = eye_dir - (up * up_dot);
+      const float fl = sqrtf(dot(flat, flat));
+      if (fl > 1.0e-4F)
+        eye_dir =
+            (up * min_up) + ((flat / fl) * sqrtf(1.0F - (min_up * min_up)));
+    }
+
+    // The antenna takes its angle directly from the eye: it stands at the apex
+    // and rotates by the eye's deviation from its rest lean, so it honors
+    // whatever moves the eye (lean, motion counter, aim, the cap) and the
+    // pole-to-equator spacing stays rigid. `eye_forward` is the rest lean's
+    // tangent; `eye_dir` gives the eye's current angle; the antenna sits at
+    // the difference, and the normalize absorbs the shared scale, so no trig.
+    const float cos_e = dot(eye_dir, up);
+    const float sin_e = dot(eye_dir, e_fwd);
+    const float cos_d = cos_e + (sin_e * hp.eye_forward);
+    const float sin_d = sin_e - (cos_e * hp.eye_forward);
+    const vec3 antenna_dir = normalize((up * cos_d) + (e_fwd * sin_d));
+
     return {eye(), up, front, tune.head_radius, spin, 0.0F, tune.body_height,
         tune.dome_offset, tune.dome_radius, tune.dome_blend, tune.top_height,
-        tune.rim_round, eye_counter_offset};
+        tune.rim_round, eye_counter_offset, eye_dir, antenna_dir,
+        tune.antenna_length, tune.antenna_thickness, tune.antenna_ball,
+        tune.antenna_collar, tune.head_hit_cap};
   }
 };
 
@@ -724,7 +757,7 @@ int main() {
 
       const camera_rays rays = rig.rays();
       const metal_ball ball = rig.ball();
-      const saucer_head head = rig.head();
+      const saucer_head head = rig.head(render_cfg.head);
 
       // Carve the field at the crosshair while the left button is held. The
       // pick records the hit in device memory and the brush reads it there, so

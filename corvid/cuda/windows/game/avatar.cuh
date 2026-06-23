@@ -102,6 +102,34 @@ struct saucer_head {
   // stabilized gimbal. Zero leaves the eye at its tuned placement.
   float eye_counter_offset = 0.0F;
 
+  // The cockpit eye's placement direction (unit), computed per frame in
+  // `camera_rig::head` and shared by the shader's eye decal and the antenna.
+  vec3 eye_dir{0.0F, 1.0F, 0.0F};
+
+  // Antenna: a thin rod with a ball tip standing off the dome top along
+  // `antenna_dir`, a unit world-space direction set per frame to wag with the
+  // eye's gimbal so it reads as an exaggerated tilt signal. Lengths are
+  // fractions of `radius`; `antenna_length` 0 disables it.
+  vec3 antenna_dir{0.0F, 1.0F, 0.0F};
+  float antenna_length = 0.0F;    // rod length / radius (0 disables)
+  float antenna_thickness = 0.0F; // rod radius / radius
+  float antenna_ball = 0.0F;      // tip ball radius / radius
+  float antenna_collar = 0.04F;   // base collar (shading detect) / radius
+
+  // Caps the silhouette hit tolerance (fraction of radius) so the far-mirror
+  // reflection does not fatten into a dark halo; see `raymarch`.
+  float hit_cap = 0.05F;
+
+  // The antenna rod's endpoints, relative to `center`: the base sits on the
+  // dome top along `antenna_dir`, the tip one `antenna_length` further out.
+  [[nodiscard]] __device__ vec3 antenna_base() const {
+    return (up * (radius * dome_offset)) +
+           (antenna_dir * (radius * dome_radius));
+  }
+  [[nodiscard]] __device__ vec3 antenna_tip() const {
+    return antenna_base() + (antenna_dir * (radius * antenna_length));
+  }
+
   // Point `p` in the saucer's local frame: x and z span the disc, y runs along
   // `up`. The belly shading reads its polar coordinates from this.
   [[nodiscard]] __device__ vec3 to_local(pos3 p) const {
@@ -129,7 +157,16 @@ struct saucer_head {
     const float clipped = op_smooth_intersect(body, cone, radius * rim_round);
     const float dome = sd_sphere(ql - vec3{0.0F, radius * dome_offset, 0.0F},
         radius * dome_radius);
-    return op_smooth_union(clipped, dome, radius * dome_blend);
+    const float saucer = op_smooth_union(clipped, dome, radius * dome_blend);
+    if (antenna_length <= 0.0F) return saucer;
+    // The antenna is a separate protrusion in world-relative coordinates (its
+    // direction tilts with the gimbal, off the local frame), hard-unioned on.
+    const vec3 pc = p - center;
+    const vec3 base = antenna_base();
+    const vec3 tip = antenna_tip();
+    const float rod = sd_capsule(pc, base, tip, radius * antenna_thickness);
+    const float ball = sd_sphere(pc - tip, radius * antenna_ball);
+    return op_union(saucer, op_union(rod, ball));
   }
 
   // Outward unit normal at surface point `p`, from the SDF gradient by central
@@ -161,10 +198,16 @@ struct saucer_head {
     // is sub-pixel.
     constexpr float hit_base = 1.0e-3F;
     constexpr float hit_slope = 1.0e-2F;
+    // Cap the growing tolerance at a small fraction of the radius. The slope
+    // closes the grazing dome/disc seam at the near (ball-reflection) range,
+    // but uncapped it balloons at far (flat-mirror) range into a fat, dark
+    // silhouette halo; the cap holds the near behavior while tightening the
+    // far.
+    const float hit_max = radius * hit_cap;
     float dist = 0.0F;
     for (int step = 0; step < max_steps; ++step) {
       const float d = sdf(eye + (dir * dist));
-      if (d < hit_base + (hit_slope * dist)) return dist;
+      if (d < fminf(hit_base + (hit_slope * dist), hit_max)) return dist;
       dist += d;
       if (dist > max_dist) break;
     }

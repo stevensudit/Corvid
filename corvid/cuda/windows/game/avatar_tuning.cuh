@@ -39,17 +39,17 @@ struct avatar_tuning {
   float head_radius = 0.45F;
   float head_height = 0.9F;      // head hover height over the ball
   float camera_height = 0.5F;    // eye height above head center, of the radius
-  float boom_min = 0.0F;         // pushed this far in front (FPS)
+  float boom_min = 0.485F;       // pushed this far in front (FPS)
   float boom_max = 14.0F;        // pulled this far back (wide)
   float boom_rise = 0.35F;       // head rise per unit pulled back
   float zoom_approach = 1.0F;    // boom easing rate per second
   float zoom_step = 1.0F;        // boom change per mouse-wheel notch
-  float portrait_boom = 0.485F;  // dolly-in detent stop on the way in
+  float portrait_boom = 0.0F;    // dolly-in detent stop on the way in
   float spin_rate = -1.5F;       // idle belly spin, radians per second
   float spin_move_gain = -3.0F;  // spin gain from forward travel, signed
   float spin_idle_period = 6.0F; // seconds between idle spin reversals
   float saucer_lean = 0.4F;      // belly lean toward the look
-  float move_tilt = 1.0F;        // forward nose-down lean into travel at speed
+  float move_tilt = 1.75F;       // forward nose-down lean into travel at speed
   float back_tilt = 0.5F;        // backward tilt as a fraction of the forward
   float eye_counter = 1.75F;     // orb counter-swing vs the motion nose tilt
   float heading_approach = 8.0F; // heading swing rate while moving
@@ -64,6 +64,18 @@ struct avatar_tuning {
   float dome_blend = 0.005F; // dome/disc smooth-union width / radius
   float top_height = 0.47F;  // top-cone apex height / radius (< body = a cone)
   float rim_round = 0.03F;   // brim smooth-intersection rounding / radius
+
+  // Antenna standing off the dome top (fractions of the head radius). It wags
+  // with the eye's gimbal as an exaggerated tilt signal; `antenna_length` 0
+  // disables it.
+  float antenna_length = 0.5F;      // rod length / radius
+  float antenna_thickness = 0.004F; // rod radius / radius
+  float antenna_ball = 0.044F;      // tip ball radius / radius
+  float antenna_collar = 0.006F;    // base collar (the metal disc) / radius
+
+  // Caps the head's silhouette hit tolerance (fraction of radius): lower
+  // sharpens the far-mirror edge, too low reopens the dome/disc seam.
+  float head_hit_cap = 0.002F;
 
   // Debug: rotate the head's front (and the cockpit eye) off the camera
   // heading, in degrees, to inspect the back of the dome in the mirror without

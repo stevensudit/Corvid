@@ -103,14 +103,18 @@ struct render_config {
     // cells, so its edge nests flush with the surrounding hex cells. Albedo
     // only, crisp, so it holds up small in the ball reflection.
     float eye_forward = 1.5F; // lean toward the front (0 = at the apex)
-    float eye_lean = 1.0F;    // extra forward lean per unit of look-down
-    float eye_aim = 0.0F;    // 0..1 blend of the eye toward the look direction
+    float eye_lean = 0.432F;  // extra forward lean per unit of look-down
+    float eye_aim = 0.333F;  // 0..1 blend of the eye toward the look direction
     float eye_hub = 0.09F;   // central hub-circle radius
     int eye_spokes = 6;      // radial spokes inside the iris (try 3)
     float eye_line = 0.018F; // frame, spoke, and hub line width
     vec3 eye_glass{0.003F, 0.016F, 0.049F};    // iris
     vec3 eye_pupil{0.0F, 0.0F, 0.0F};          // hub center (the beam source)
     vec3 eye_frame_color{0.62F, 0.62F, 0.62F}; // frame, spokes, hub ring
+
+    // Antenna tip beacon: the ball atop the dome's antenna, drawn emissive so
+    // it reads as a light. The rod uses the bare-steel `base_albedo`.
+    vec3 antenna_tip_color{0.469F, 1.0F, 0.1F}; // glowing bead (green beacon)
 
     // Belly paint: concentric rings times spinning spokes.
     float ring_frequency = 26.0F;

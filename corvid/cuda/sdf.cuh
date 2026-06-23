@@ -54,6 +54,16 @@ namespace corvid::cuda {
   return length(outside) + fminf(fmaxf(d.x, fmaxf(d.y, d.z)), 0.0F);
 }
 
+// Distance from `p` to a capsule: the segment from `a` to `b` swept by radius
+// `r` (a cylinder with hemispherical end caps). `a` and `b` must be distinct.
+[[nodiscard]] __device__ inline float
+sd_capsule(vec3 p, vec3 a, vec3 b, float r) {
+  const vec3 pa = p - a;
+  const vec3 ba = b - a;
+  const float h = __saturatef(dot(pa, ba) / dot(ba, ba));
+  return length(pa - (ba * h)) - r;
+}
+
 // Distance from `p` to a plane with unit normal `n` whose surface passes at
 // offset `h` along that normal.
 [[nodiscard]] __device__ inline float sd_plane(vec3 p, vec3 n, float h) {
