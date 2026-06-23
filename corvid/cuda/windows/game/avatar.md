@@ -229,6 +229,16 @@ shading already supports it; what is missing is a small sequencer that eases the
 fields toward a target pose and back. Belly first (it is the busy expressive
 face); the cockpit dome stays comparatively still.
 
+The head itself can act, too, not just its painted face. Two rig knobs that exist
+today turn out to read as gestures: rotating the cockpit eye forward and back off
+the dome apex (the `eye_forward` lean) reads as a NOD, and yawing the head's front
+off the camera heading (the `front_offset` rotation, originally a debug aid for
+inspecting the back of the dome) reads as a head SHAKE. Both rotate the dome's
+decoration in place without moving the body, so they animate cleanly through the
+same ease-to-a-pose sequencer: a yes-nod on accept, a no-shake on a refused
+action, a curious tilt. Cheap and disproportionately charming, so worth wiring in
+alongside the belly poses.
+
 ## Still open
 
 - Rolling model: how much inertia, whether the ball is torque-driven (it spins

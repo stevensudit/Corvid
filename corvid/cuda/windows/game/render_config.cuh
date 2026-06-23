@@ -76,12 +76,15 @@ struct render_config {
     vec3 canopy{0.16F, 0.20F, 0.28F};
     vec3 dome_albedo{0.0F, 0.0F, 0.0F};
 
-    // Geodesic hex grid on the dome cap: faint seams tiling the same hexagon
-    // as the eye, but at half size.
-    float dome_hex_size = 0.118F;    // cell apothem (1/2 eye_size)
-    float dome_hex_line = 0.01F;     // seam half-width
+    // Geodesic (Goldberg) hex grid on the dome cap: an icosahedron subdivided
+    // to `dome_hex_freq` (near-uniform hexagons plus twelve pentagons),
+    // reoriented so a cell lands on the eye, `dome_hex_phase` rotating the
+    // grid about the eye to align its hexagons with the porthole.
+    int dome_hex_freq = 8;           // icosahedron subdivision frequency
+    float dome_hex_line = 0.01F;     // seam half-width, radians
     float dome_hex_strength = 3.25F; // how much the seams darken the dome
     float dome_hex_extent = 0.463F;  // rr out to which the grid covers
+    float dome_hex_phase = 0.0F;     // grid rotation about the eye, radians
 
     // Two seam rings on the conical top, keyed to the radial fraction `rr`:
     // one at the dome base so the dome reads as a separate piece set into the
@@ -93,11 +96,6 @@ struct render_config {
     float seam_outer_width = 0.02F;
     float seam_strength = 0.7F;
     vec3 seam_color{0.08F, 0.10F, 0.14F};
-
-    // How far procedural decal edges (eye spokes, seam rings) are widened to
-    // their screen footprint so thin lines do not crawl when the head is
-    // reflected small; 0 leaves them a fixed width.
-    float decal_aa = 0.0F;
 
     // Cockpit eye: a single hexagonal pilot window on the front of the fixed
     // dome, a porthole look (a central hub circle and radial spokes inside a

@@ -143,11 +143,6 @@ __global__ void voxel_kernel(cudaSurfaceObject_t out, resolution res,
   const auto fy = static_cast<float>(py);
   if (fx >= res.width || fy >= res.height) return;
 
-  // One pixel's world size per unit distance (vertical). The saucer's
-  // procedural decals widen their edges to this footprint so thin lines do not
-  // crawl when the head is reflected small.
-  const float px_scale = (2.0F * cam.tan_half_fov) / res.height;
-
   // Average an `aa_samples` x `aa_samples` grid of sub-pixel rays to
   // anti-alias the silhouettes and soften the strata seams. 1 disables it.
   //
@@ -166,7 +161,7 @@ __global__ void voxel_kernel(cudaSurfaceObject_t out, resolution res,
       const vec3 ray_dir =
           cam.ray_direction(pos2{vec2{fx + ox, fy + oy}}, res);
       color = color + shade_primary_ray(field, color_tex, ball, head, mirror,
-                          cfg, cam.eye, ray_dir, px_scale);
+                          cfg, cam.eye, ray_dir);
     }
   color = color * (inv * inv);
 

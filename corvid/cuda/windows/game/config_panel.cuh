@@ -253,22 +253,25 @@ inline void draw_head_section(render_config& c, const render_config& dc) {
   tuned_color("dome albedo", c.head.dome_albedo, dc.head.dome_albedo,
       "Dome-cap steel color, separate from base albedo so the dome can be "
       "darkened without dimming the hull.");
-  tuned_slider("hex size", c.head.dome_hex_size, dc.head.dome_hex_size, 0.05F,
-      0.5F,
-      "Dome hex-grid cell size; match eye size for the eye to be one cell, or "
-      "try 1/2 and 1/3 for a finer grid.");
+  tuned_slider_int("hex freq", c.head.dome_hex_freq, dc.head.dome_hex_freq, 1,
+      24, "Icosahedron subdivision frequency: higher = more, smaller cells.");
   tuned_slider("hex line", c.head.dome_hex_line, dc.head.dome_hex_line, 0.0F,
-      0.05F, "Half-width of the dome hex-grid seams.");
+      0.05F, "Half-width of the dome hex-grid seams, radians.");
   tuned_slider("hex strength", c.head.dome_hex_strength,
       dc.head.dome_hex_strength, 0.0F, 5.0F,
       "How much the hex-grid seams darken the dome.");
   tuned_slider("hex extent", c.head.dome_hex_extent, dc.head.dome_hex_extent,
       0.0F, 1.0F, "Radius (rr) out to which the hex grid covers the dome.");
+  tuned_slider("hex phase", c.head.dome_hex_phase, dc.head.dome_hex_phase,
+      -3.15F, 3.15F,
+      "Rotate the grid about the eye to align its hexagons with the "
+      "porthole.");
   tuned_slider("seam inner", c.head.seam_inner, dc.head.seam_inner, 0.0F, 1.0F,
-      "Radius of the dome-base seam ring on the top cone.");
+      "Radius of the inner seam's hard edge; set it to the hex extent so the "
+      "groove butts the dome cutoff without leaking onto the dome.");
   tuned_slider("seam inner width", c.head.seam_inner_width,
-      dc.head.seam_inner_width, 0.0F, 0.15F,
-      "Half-width of the dome-base seam ring.");
+      dc.head.seam_inner_width, 0.0F, 0.3F,
+      "How far the inner seam fades out onto the cone (its soft outer edge).");
   tuned_slider("seam outer", c.head.seam_outer, dc.head.seam_outer, 0.0F, 1.0F,
       "Radius of the rim-emphasis ring on the top cone.");
   tuned_slider("seam outer width", c.head.seam_outer_width,
@@ -278,9 +281,6 @@ inline void draw_head_section(render_config& c, const render_config& dc) {
       0.0F, 1.0F, "How strongly the seam rings darken the cone.");
   tuned_color("seam color", c.head.seam_color, dc.head.seam_color,
       "Seam-ring color (darker than the canopy reads as a groove).");
-  tuned_slider("decal aa", c.head.decal_aa, dc.head.decal_aa, 0.0F, 20.0F,
-      "Widens decal edges (eye spokes, seam rings) to the screen footprint so "
-      "they stop crawling when reflected small; 0 disables.");
   tuned_slider("eye forward", c.head.eye_forward, dc.head.eye_forward, 0.0F,
       3.0F, "How far the eye leans toward the front (0 = at the apex).");
   tuned_slider("eye size", c.head.eye_size, dc.head.eye_size, 0.05F, 0.5F,
