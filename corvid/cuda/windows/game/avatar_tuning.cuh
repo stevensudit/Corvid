@@ -35,35 +35,39 @@ namespace corvid::cuda {
 // rig shipped with; a default-constructed instance is the baseline the panel
 // compares each edited field against.
 struct avatar_tuning {
+  // Body: the metal ball you drive.
   float ball_radius = 0.6F;
+
+  // Head: the overall saucer head size (the camera rides inside it).
   float head_radius = 0.45F;
-  float head_height = 0.9F;      // head hover height over the ball
-  float camera_height = 0.5F;    // eye height above head center, of the radius
-  float boom_min = 0.485F;       // pushed this far in front (FPS)
-  float boom_max = 14.0F;        // pulled this far back (wide)
-  float boom_rise = 0.35F;       // head rise per unit pulled back
-  float zoom_approach = 1.0F;    // boom easing rate per second
-  float zoom_step = 1.0F;        // boom change per mouse-wheel notch
-  float portrait_boom = 0.0F;    // dolly-in detent stop on the way in
+
+  // Saucer shape, as fractions of the head radius (see `saucer_head`).
+  float disc_height = 0.32F; // disc half-height / radius (smaller = flatter)
+  float top_height = 0.47F;  // top-cone apex height / radius (< disc = a cone)
+  float rim_round = 0.03F;   // brim smooth-intersection rounding / radius
+  float dome_blend = 0.005F; // dome/disc smooth-union width / radius
+
+  // Caps the head's silhouette hit tolerance (fraction of radius): lower
+  // sharpens the far-mirror edge, too low reopens the dome/disc seam.
+  float head_hit_cap = 0.002F;
+
+  // Saucer belly spin: the idle rate, the gain from forward travel, and the
+  // idle-reversal period.
   float spin_rate = -1.5F;       // idle belly spin, radians per second
   float spin_move_gain = -3.0F;  // spin gain from forward travel, signed
   float spin_idle_period = 6.0F; // seconds between idle spin reversals
-  float saucer_lean = 0.4F;      // belly lean toward the look
-  float move_tilt = 1.75F;       // forward nose-down lean into travel at speed
-  float back_tilt = 0.5F;        // backward tilt as a fraction of the forward
-  float eye_counter = 1.75F;     // orb counter-swing vs the motion nose tilt
-  float heading_approach = 8.0F; // heading swing rate while moving
-  float motion_approach = 5.0F;  // tilt/spin motion-signal ramp/fade rate
-  float move_speed = 8.0F;       // planar move speed, units per second
 
-  // Saucer head shape, as fractions of the head radius (see `saucer_head`).
-  float body_height = 0.32F; // disc half-height / radius (smaller = flatter)
-  float dome_offset =
-      0.2F; // dome center height / radius (lower = more buried)
+  // Saucer tilt: the lean toward the look and the motion-driven nose tilt.
+  float saucer_lean = 0.4F; // belly lean toward the look
+  float move_tilt = 1.75F;  // forward nose-down lean into travel at speed
+  float back_tilt = 0.5F;   // backward tilt as a fraction of the forward
+
+  // Dome shape, as fractions of the head radius (see `saucer_head`).
+  float dome_offset = 0.2F;  // dome center height / radius (lower = buried)
   float dome_radius = 0.46F; // dome sphere radius / radius
-  float dome_blend = 0.005F; // dome/disc smooth-union width / radius
-  float top_height = 0.47F;  // top-cone apex height / radius (< body = a cone)
-  float rim_round = 0.03F;   // brim smooth-intersection rounding / radius
+
+  // Eye: the cockpit orb's counter-swing against the saucer's nose tilt.
+  float eye_counter = 1.75F; // orb counter-swing vs the motion nose tilt
 
   // Antenna standing off the dome top (fractions of the head radius). It wags
   // with the eye's gimbal as an exaggerated tilt signal; `antenna_length` 0
@@ -73,13 +77,21 @@ struct avatar_tuning {
   float antenna_ball = 0.044F;      // tip ball radius / radius
   float antenna_collar = 0.006F;    // base collar (the metal disc) / radius
 
-  // Caps the head's silhouette hit tolerance (fraction of radius): lower
-  // sharpens the far-mirror edge, too low reopens the dome/disc seam.
-  float head_hit_cap = 0.002F;
+  // Movement: how the rig follows the body, dollies, zooms, and frames it.
+  float move_speed = 8.0F;       // planar move speed, units per second
+  float head_height = 0.9F;      // head hover height over the ball
+  float camera_height = 0.5F;    // eye height above head center, of the radius
+  float boom_min = 0.485F;       // pushed this far in front (FPS)
+  float boom_max = 14.0F;        // pulled this far back (wide)
+  float boom_rise = 0.35F;       // head rise per unit pulled back
+  float zoom_approach = 1.0F;    // boom easing rate per second
+  float zoom_step = 1.0F;        // boom change per mouse-wheel notch
+  float heading_approach = 8.0F; // heading swing rate while moving
+  float motion_approach = 5.0F;  // tilt/spin motion-signal ramp/fade rate
 
-  // Debug: rotate the head's front (and the cockpit eye) off the camera
-  // heading, in degrees, to inspect the back of the dome in the mirror without
-  // a mirror behind. Also useful for a head-shaking animation.
+  // Animation rigging: rotate the head's front (and the cockpit eye) off the
+  // camera heading, in degrees. Mainly to animate the UFO shaking its head;
+  // also handy when debugging to bring the back of the dome into the mirror.
   float front_offset_deg = 0.0F;
 
   // Field of view is stored with its derived tan(fov/2), so the per-frame ray

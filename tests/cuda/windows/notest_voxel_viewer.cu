@@ -397,17 +397,8 @@ struct avatar_rig {
   // first person. The head only glides there in `update`, so it reads as the
   // saucer moving rather than snapping.
   void zoom(float delta) {
-    float target =
+    boom_target =
         std::clamp(boom_target - delta, tune.boom_min, tune.boom_max);
-    // Portrait detent: when a step would cross the portrait distance, stop
-    // there first, so a click in or out always lands on the close-up frame.
-    // The next click then continues past it normally. Set `portrait_boom` to
-    // `boom_min` to disable.
-    const float p = tune.portrait_boom;
-    const bool crosses =
-        (boom_target < p && target > p) || (boom_target > p && target < p);
-    if (crosses) target = p;
-    boom_target = target;
   }
 
   // Advance the frame: ease the boom toward its zoom target, swing the heading
@@ -555,7 +546,7 @@ struct avatar_rig {
         (up * ((cos_e * cos_r) + (sin_e * sin_r))) +
         (e_fwd * ((sin_e * cos_r) - (cos_e * sin_r)));
 
-    return {eye(), up, front, tune.head_radius, spin, tune.body_height,
+    return {eye(), up, front, tune.head_radius, spin, tune.disc_height,
         tune.dome_offset, tune.dome_radius, tune.dome_blend, tune.top_height,
         tune.rim_round, eye_counter_offset, eye_dir, antenna_dir,
         tune.antenna_length, tune.antenna_thickness, tune.antenna_ball,

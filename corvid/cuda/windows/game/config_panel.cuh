@@ -119,14 +119,230 @@ inline void tuned_vec3(const char* label, vec3& v, vec3 def, float lo,
 #pragma endregion
 #pragma region Sections
 
-// The avatar feel constants (phase 1): camera and saucer-motion tuning.
-inline void draw_avatar_section(avatar_tuning& t, const avatar_tuning& d) {
-  if (!ImGui::TreeNodeEx("Avatar", ImGuiTreeNodeFlags_DefaultOpen)) return;
+// Body: the metal ball you drive and how its mirror surface reads.
+inline void draw_body_section(avatar_tuning& t, const avatar_tuning& d,
+    render_config& c, const render_config& dc) {
+  if (!ImGui::TreeNode("Body")) return;
   tuned_slider("ball radius", t.ball_radius, d.ball_radius, 0.1F, 2.0F,
       "Radius of the metal ball body you drive.");
+  tuned_slider("dim", c.ball.dim, dc.ball.dim, 0.0F, 1.0F,
+      "Darkens the scene the ball mirrors.");
+  tuned_color("tint", c.ball.tint, dc.ball.tint, "Tints the ball reflection.");
+  tuned_color("ambient floor", c.ball.ambient_floor, dc.ball.ambient_floor,
+      "Keeps the darkest reflections from crushing to black.");
+  ImGui::TreePop();
+}
+
+// Head: properties of the whole saucer head, above the saucer/dome split.
+inline void draw_head_section(avatar_tuning& t, const avatar_tuning& d,
+    render_config& c, const render_config& dc) {
+  if (!ImGui::TreeNode("Head")) return;
   tuned_slider("head radius", t.head_radius, d.head_radius, 0.1F, 2.0F,
       "Radius of the saucer head (the camera rides inside it).",
       ImGuiSliderFlags_AlwaysClamp);
+  tuned_color("ambient", c.head.ambient, dc.head.ambient,
+      "Ambient light on the saucer head.");
+  tuned_color("sun", c.head.sun, dc.head.sun,
+      "Direct sunlight color on the saucer head.");
+  tuned_slider("specular strength", c.head.specular_strength,
+      dc.head.specular_strength, 0.0F, 2.0F,
+      "Overall specular highlight brightness.");
+  ImGui::TreePop();
+}
+
+// Saucer: the flying-saucer hull below the dome. Split into shape, surface
+// shading, the painted belly, the spin, and the tilt feel.
+inline void draw_saucer_section(avatar_tuning& t, const avatar_tuning& d,
+    render_config& c, const render_config& dc) {
+  if (ImGui::TreeNode("Saucer - Shape")) {
+    tuned_slider("disc height", t.disc_height, d.disc_height, 0.1F, 0.6F,
+        "Disc half-height / radius (smaller = flatter saucer).",
+        ImGuiSliderFlags_AlwaysClamp);
+    tuned_slider("top height", t.top_height, d.top_height, 0.05F, 0.6F,
+        "Top-cone apex height / radius: below 'disc height' the top is a "
+        "cone, "
+        "at or above it stays rounded.",
+        ImGuiSliderFlags_AlwaysClamp);
+    tuned_slider("rim round", t.rim_round, d.rim_round, 0.005F, 0.2F,
+        "Rounds the sharp brim where the cone meets the bottom (reduces edge "
+        "staircasing).",
+        ImGuiSliderFlags_AlwaysClamp);
+    tuned_slider("dome blend", t.dome_blend, d.dome_blend, 0.00F, 0.6F,
+        "Smooth-union width at the dome/disc seam (wider fills the gap).",
+        ImGuiSliderFlags_AlwaysClamp);
+    tuned_slider("edge tol", t.head_hit_cap, d.head_hit_cap, 0.00F, 0.1F,
+        "Caps the head's silhouette hit tolerance (fraction of radius). Lower "
+        "sharpens the far-mirror edge; too low reopens the dome/disc seam.");
+    ImGui::TreePop();
+  }
+  if (ImGui::TreeNode("Saucer - Surface")) {
+    tuned_color("base albedo", c.head.base_albedo, dc.head.base_albedo,
+        "Bare steel color of the cone and belly.");
+    tuned_slider("belly specular", c.head.belly_specular_power,
+        dc.head.belly_specular_power, 1.0F, 256.0F,
+        "Highlight sharpness on the belly.", ImGuiSliderFlags_AlwaysClamp);
+    ImGui::TreePop();
+  }
+  if (ImGui::TreeNode("Saucer - Belly")) {
+    tuned_slider("ring frequency", c.head.ring_frequency,
+        dc.head.ring_frequency, 0.0F, 60.0F,
+        "Concentric ring frequency on the belly.");
+    tuned_slider("spoke frequency", c.head.spoke_frequency,
+        dc.head.spoke_frequency, 0.0F, 40.0F,
+        "Radial spoke frequency on the belly.");
+    tuned_slider("paint base", c.head.paint_base, dc.head.paint_base, 0.0F,
+        1.0F, "Darkest the belly paint dims to.");
+    tuned_slider("paint range", c.head.paint_range, dc.head.paint_range, 0.0F,
+        1.0F, "Brightness added where rings and spokes peak.");
+    tuned_slider("hub radius", c.head.hub_radius, dc.head.hub_radius, 0.0F,
+        2.0F, "Radius of the central flashlight hub.");
+    tuned_slider("hub softness", c.head.hub_softness, dc.head.hub_softness,
+        0.01F, 0.3F, "Edge softness of the hub.");
+    tuned_color("hub color", c.head.hub_color, dc.head.hub_color,
+        "Flashlight hub color.");
+    tuned_slider("hub strength", c.head.hub_strength, dc.head.hub_strength,
+        0.0F, 5.0F, "Flashlight hub brightness.");
+    tuned_slider("rim center", c.head.rim_center, dc.head.rim_center, 0.0F,
+        1.0F, "Radius of the amber rim-light ring.");
+    tuned_slider("rim width", c.head.rim_width, dc.head.rim_width, 1.0F, 40.0F,
+        "Higher makes the rim-light ring thinner.");
+    tuned_color("rim color", c.head.rim_color, dc.head.rim_color,
+        "Rim-light color.");
+    tuned_slider("rim strength", c.head.rim_strength, dc.head.rim_strength,
+        0.0F, 5.0F, "Rim-light brightness.");
+    tuned_slider("rim dot frequency", c.head.rim_dot_frequency,
+        dc.head.rim_dot_frequency, 0.0F, 40.0F,
+        "Number of dots around the rim-light ring.");
+    ImGui::TreePop();
+  }
+  if (ImGui::TreeNode("Saucer - Spin")) {
+    tuned_slider("spin rate", t.spin_rate, d.spin_rate, -3.0F, 3.0F,
+        "Idle saucer belly spin, radians per second.");
+    tuned_slider("spin move gain", t.spin_move_gain, d.spin_move_gain, -6.0F,
+        6.0F,
+        "How much forward travel adds to the spin (reverses when backing "
+        "up).");
+    tuned_slider("spin idle period", t.spin_idle_period, d.spin_idle_period,
+        0.5F, 10.0F, "Seconds between idle spin reversals while stationary.",
+        ImGuiSliderFlags_AlwaysClamp);
+    ImGui::TreePop();
+  }
+  if (ImGui::TreeNode("Saucer - Tilt")) {
+    tuned_slider("saucer lean", t.saucer_lean, d.saucer_lean, 0.0F, 1.0F,
+        "How far the saucer tilts its belly toward the look direction.");
+    tuned_slider("move tilt", t.move_tilt, d.move_tilt, 0.0F, 2.0F,
+        "How far the saucer noses forward into travel at full speed.");
+    tuned_slider("back tilt", t.back_tilt, d.back_tilt, 0.0F, 1.0F,
+        "Backward tilt as a fraction of the forward tilt.");
+    ImGui::TreePop();
+  }
+}
+
+// Dome: the hex-tiled cap on the saucer. Split into shape and albedo, the hex
+// grid, and the seam band.
+inline void draw_dome_section(avatar_tuning& t, const avatar_tuning& d,
+    render_config& c, const render_config& dc) {
+  if (ImGui::TreeNode("Dome - Shape")) {
+    tuned_slider("dome offset", t.dome_offset, d.dome_offset, -0.3F, 0.5F,
+        "Dome center height / radius (lower buries the dome for more "
+        "overlap).");
+    tuned_slider("dome radius", t.dome_radius, d.dome_radius, 0.3F, 1.0F,
+        "Dome sphere radius / disc radius.");
+    tuned_color("canopy", c.head.canopy, dc.head.canopy, "Dome canopy tint.");
+    tuned_color("dome albedo", c.head.dome_albedo, dc.head.dome_albedo,
+        "Dome-cap steel color, separate from base albedo so the dome can be "
+        "darkened without dimming the hull.");
+    tuned_slider("dome specular", c.head.dome_specular_power,
+        dc.head.dome_specular_power, 1.0F, 256.0F,
+        "Highlight sharpness on the dome.", ImGuiSliderFlags_AlwaysClamp);
+    ImGui::TreePop();
+  }
+  if (ImGui::TreeNode("Dome - Hex")) {
+    tuned_slider_int("hex freq", c.head.dome_hex_freq, dc.head.dome_hex_freq,
+        1, 24,
+        "Icosahedron subdivision frequency: higher = more, smaller cells.");
+    tuned_slider("hex line", c.head.dome_hex_line, dc.head.dome_hex_line, 0.0F,
+        0.05F, "Half-width of the dome hex-grid seams, radians.");
+    tuned_slider("hex strength", c.head.dome_hex_strength,
+        dc.head.dome_hex_strength, 0.0F, 5.0F,
+        "How much the hex-grid seams darken the dome.");
+    tuned_slider("hex extent", c.head.dome_hex_extent, dc.head.dome_hex_extent,
+        0.0F, 1.0F, "Radius (rr) out to which the hex grid covers the dome.");
+    tuned_slider("hex phase", c.head.dome_hex_phase, dc.head.dome_hex_phase,
+        -3.15F, 3.15F,
+        "Rotate the grid about the eye to align its hexagons with the "
+        "porthole.");
+    ImGui::TreePop();
+  }
+  if (ImGui::TreeNode("Dome - Seam")) {
+    tuned_slider("seam offset", c.head.seam_offset, dc.head.seam_offset, 0.0F,
+        0.3F,
+        "How far the black band's inner edge sits inside the hex cutoff.");
+    tuned_slider("seam width", c.head.seam_width, dc.head.seam_width, 0.0F,
+        0.3F, "Width of the solid black dome-base band.");
+    tuned_color("seam color", c.head.seam_color, dc.head.seam_color,
+        "Dome-base band color (black reads as a separation groove).");
+    ImGui::TreePop();
+  }
+}
+
+// Eye: the cockpit porthole on the dome front, its placement gimbal and iris.
+inline void draw_eye_section(avatar_tuning& t, const avatar_tuning& d,
+    render_config& c, const render_config& dc) {
+  if (!ImGui::TreeNode("Eye")) return;
+  tuned_slider("eye forward", c.head.eye_forward, dc.head.eye_forward, 0.0F,
+      3.0F, "How far the eye leans toward the front (0 = at the apex).");
+  tuned_slider("eye lean", c.head.eye_lean, dc.head.eye_lean, -3.0F, 3.0F,
+      "Extra forward lean added as you look down, so the eye leans down the "
+      "dome with the look (signed; stays nested on the dome).");
+  tuned_slider("eye aim", c.head.eye_aim, dc.head.eye_aim, 0.0F, 1.0F,
+      "Blend the eye toward your actual look direction, so looking at "
+      "something aims the eye toward it. Clamped to the dome cap, which tops "
+      "out near the horizon.");
+  tuned_slider("eye counter", t.eye_counter, d.eye_counter, -3.0F, 3.0F,
+      "Swings the cockpit eye against the saucer's motion nose-tilt so the "
+      "orb "
+      "reads as a gimbal. Past 1 it overshoots; signed to flip direction.");
+  tuned_slider("eye hub", c.head.eye_hub, dc.head.eye_hub, 0.0F, 0.25F,
+      "Radius of the central hub circle inside the eye.");
+  tuned_slider_int("eye spokes", c.head.eye_spokes, dc.head.eye_spokes, 0, 12,
+      "Radial spokes inside the iris (6 reaches the vertices, 3 alternates).");
+  tuned_slider("eye line", c.head.eye_line, dc.head.eye_line, 0.005F, 0.06F,
+      "Thickness of the eye's frame, spokes, and hub ring.");
+  tuned_color("eye glass", c.head.eye_glass, dc.head.eye_glass,
+      "Opaque iris color.");
+  tuned_color("eye pupil", c.head.eye_pupil, dc.head.eye_pupil,
+      "Center hub (pupil) color; the beam source.");
+  tuned_color("eye frame color", c.head.eye_frame_color,
+      dc.head.eye_frame_color, "Frame and hub-ring color.");
+  ImGui::TreePop();
+}
+
+// Antenna: the rod and beacon tip standing off the dome top.
+inline void draw_antenna_section(avatar_tuning& t, const avatar_tuning& d,
+    render_config& c, const render_config& dc) {
+  if (!ImGui::TreeNode("Antenna")) return;
+  tuned_slider("antenna length", t.antenna_length, d.antenna_length, 0.0F,
+      2.0F, "Antenna rod length / head radius (0 removes the antenna).");
+  tuned_slider("antenna thick", t.antenna_thickness, d.antenna_thickness, 0.0F,
+      0.1F, "Antenna rod thickness / head radius.");
+  tuned_slider("antenna ball", t.antenna_ball, d.antenna_ball, 0.0F, 0.2F,
+      "Antenna tip ball radius / head radius (the beacon bead).");
+  tuned_slider("antenna collar", t.antenna_collar, d.antenna_collar, 0.005F,
+      0.05F,
+      "Metal collar where the antenna meets the dome. Shrink to declutter the "
+      "hex tiling; the rod itself is unaffected.");
+  tuned_color("antenna tip", c.head.antenna_tip_color,
+      dc.head.antenna_tip_color,
+      "Glowing bead atop the antenna (emissive beacon).");
+  ImGui::TreePop();
+}
+
+// Movement: how the rig follows the body, dollies, zooms, and frames it.
+inline void draw_movement_section(avatar_tuning& t, const avatar_tuning& d) {
+  if (!ImGui::TreeNode("Movement")) return;
+  tuned_slider("move speed", t.move_speed, d.move_speed, 1.0F, 30.0F,
+      "Planar movement speed, world units per second.");
   tuned_slider("head height", t.head_height, d.head_height, 0.0F, 3.0F,
       "How high the saucer head hovers above the ball.");
   tuned_slider("camera height", t.camera_height, d.camera_height, 0.0F, 2.0F,
@@ -142,82 +358,19 @@ inline void draw_avatar_section(avatar_tuning& t, const avatar_tuning& d) {
       "How fast the boom eases toward the zoom target, per second.");
   tuned_slider("zoom step", t.zoom_step, d.zoom_step, 0.1F, 5.0F,
       "How far the boom target moves per mouse-wheel notch.");
-  tuned_slider("portrait", t.portrait_boom, d.portrait_boom, 0.0F, 5.0F,
-      "Dolly-in detent: zooming in stops here once before continuing to boom "
-      "min, so one click frames the head close-up. Set to boom min to "
-      "disable.");
-  tuned_slider("spin rate", t.spin_rate, d.spin_rate, -3.0F, 3.0F,
-      "Idle saucer belly spin, radians per second.");
-  tuned_slider("spin move gain", t.spin_move_gain, d.spin_move_gain, -6.0F,
-      6.0F,
-      "How much forward travel adds to the spin (reverses when backing up).");
-  tuned_slider("spin idle period", t.spin_idle_period, d.spin_idle_period,
-      0.5F, 10.0F, "Seconds between idle spin reversals while stationary.",
-      ImGuiSliderFlags_AlwaysClamp);
-  tuned_slider("saucer lean", t.saucer_lean, d.saucer_lean, 0.0F, 1.0F,
-      "How far the saucer tilts its belly toward the look direction.");
-  tuned_slider("move tilt", t.move_tilt, d.move_tilt, 0.0F, 2.0F,
-      "How far the saucer noses forward into travel at full speed.");
-  tuned_slider("back tilt", t.back_tilt, d.back_tilt, 0.0F, 1.0F,
-      "Backward tilt as a fraction of the forward tilt.");
-  tuned_slider("eye counter", t.eye_counter, d.eye_counter, -3.0F, 3.0F,
-      "Swings the cockpit eye against the saucer's motion nose-tilt so the "
-      "orb "
-      "reads as a gimbal. Past 1 it overshoots; signed to flip direction.");
   tuned_slider("heading approach", t.heading_approach, d.heading_approach,
       1.0F, 20.0F, "How fast the head swings to lead travel while moving.");
   tuned_slider("motion approach", t.motion_approach, d.motion_approach, 1.0F,
       20.0F, "How fast the motion tilt and spin ramp up and fade.");
-  tuned_slider("move speed", t.move_speed, d.move_speed, 1.0F, 30.0F,
-      "Planar movement speed, world units per second.");
-  // Field of view caches tan(fov/2), so route edits through the setter.
-  float fov = t.fov_deg();
-  if (tuned_slider("fov", fov, d.fov_deg(), 30.0F, 110.0F,
-          "Vertical field of view, in degrees."))
-    t.set_fov_deg(fov);
   ImGui::TreePop();
 }
 
-// The saucer head shape (fractions of the head radius).
-inline void draw_saucer_section(avatar_tuning& t, const avatar_tuning& d) {
-  if (!ImGui::TreeNodeEx("Saucer", ImGuiTreeNodeFlags_DefaultOpen)) return;
-  tuned_slider("body height", t.body_height, d.body_height, 0.1F, 0.6F,
-      "Disc half-height / radius (smaller = flatter saucer).",
-      ImGuiSliderFlags_AlwaysClamp);
-  tuned_slider("dome offset", t.dome_offset, d.dome_offset, -0.3F, 0.5F,
-      "Dome center height / radius (lower buries the dome for more overlap).");
-  tuned_slider("dome radius", t.dome_radius, d.dome_radius, 0.3F, 1.0F,
-      "Dome sphere radius / disc radius.");
-  tuned_slider("dome blend", t.dome_blend, d.dome_blend, 0.00F, 0.6F,
-      "Smooth-union width at the dome/disc seam (wider fills the gap).",
-      ImGuiSliderFlags_AlwaysClamp);
-  tuned_slider("top height", t.top_height, d.top_height, 0.05F, 0.6F,
-      "Top-cone apex height / radius: below 'body height' the top is a cone, "
-      "at or above it stays rounded.",
-      ImGuiSliderFlags_AlwaysClamp);
-  tuned_slider("rim round", t.rim_round, d.rim_round, 0.005F, 0.2F,
-      "Rounds the sharp brim where the cone meets the bottom (reduces edge "
-      "staircasing).",
-      ImGuiSliderFlags_AlwaysClamp);
-  tuned_slider("antenna length", t.antenna_length, d.antenna_length, 0.0F,
-      2.0F, "Antenna rod length / head radius (0 removes the antenna).");
-  tuned_slider("antenna thick", t.antenna_thickness, d.antenna_thickness, 0.0F,
-      0.1F, "Antenna rod thickness / head radius.");
-  tuned_slider("antenna ball", t.antenna_ball, d.antenna_ball, 0.0F, 0.2F,
-      "Antenna tip ball radius / head radius (the beacon bead).");
-  tuned_slider("antenna collar", t.antenna_collar, d.antenna_collar, 0.005F,
-      0.05F,
-      "Metal collar where the antenna meets the dome. Shrink to declutter the "
-      "hex tiling; the rod itself is unaffected.");
-  tuned_slider("edge tol", t.head_hit_cap, d.head_hit_cap, 0.00F, 0.1F,
-      "Caps the head's silhouette hit tolerance (fraction of radius). Lower "
-      "sharpens the far-mirror edge; too low reopens the dome/disc seam.");
-  ImGui::TreePop();
-}
-
-// Sky gradient and sun glow.
+// Sky gradient, sun direction, and sun glow.
 inline void draw_sky_section(render_config& c, const render_config& dc) {
   if (!ImGui::TreeNode("Sky")) return;
+  tuned_vec3("sun direction", c.sun_direction, dc.sun_direction, -1.0F, 1.0F,
+      "Scene sun direction: drives the sky glow and lights the terrain and "
+      "saucer.");
   tuned_color("zenith", c.sky.zenith, dc.sky.zenith, "Sky color straight up.");
   tuned_color("horizon", c.sky.horizon, dc.sky.horizon,
       "Sky color at the horizon.");
@@ -248,115 +401,9 @@ inline void draw_terrain_section(render_config& c, const render_config& dc) {
   ImGui::TreePop();
 }
 
-// Metal ball reflection look.
-inline void draw_ball_section(render_config& c, const render_config& dc) {
-  if (!ImGui::TreeNode("Ball")) return;
-  tuned_slider("dim", c.ball.dim, dc.ball.dim, 0.0F, 1.0F,
-      "Darkens the scene the ball mirrors.");
-  tuned_color("tint", c.ball.tint, dc.ball.tint, "Tints the ball reflection.");
-  tuned_color("ambient floor", c.ball.ambient_floor, dc.ball.ambient_floor,
-      "Keeps the darkest reflections from crushing to black.");
-  ImGui::TreePop();
-}
-
-// Saucer head shading.
-inline void draw_head_section(render_config& c, const render_config& dc) {
-  if (!ImGui::TreeNode("Head")) return;
-  tuned_color("ambient", c.head.ambient, dc.head.ambient,
-      "Ambient light on the saucer.");
-  tuned_color("sun", c.head.sun, dc.head.sun,
-      "Direct sunlight color on the saucer.");
-  tuned_color("base albedo", c.head.base_albedo, dc.head.base_albedo,
-      "Bare steel color of the cone and belly.");
-  tuned_color("canopy", c.head.canopy, dc.head.canopy, "Dome canopy tint.");
-  tuned_color("dome albedo", c.head.dome_albedo, dc.head.dome_albedo,
-      "Dome-cap steel color, separate from base albedo so the dome can be "
-      "darkened without dimming the hull.");
-  tuned_slider_int("hex freq", c.head.dome_hex_freq, dc.head.dome_hex_freq, 1,
-      24, "Icosahedron subdivision frequency: higher = more, smaller cells.");
-  tuned_slider("hex line", c.head.dome_hex_line, dc.head.dome_hex_line, 0.0F,
-      0.05F, "Half-width of the dome hex-grid seams, radians.");
-  tuned_slider("hex strength", c.head.dome_hex_strength,
-      dc.head.dome_hex_strength, 0.0F, 5.0F,
-      "How much the hex-grid seams darken the dome.");
-  tuned_slider("hex extent", c.head.dome_hex_extent, dc.head.dome_hex_extent,
-      0.0F, 1.0F, "Radius (rr) out to which the hex grid covers the dome.");
-  tuned_slider("hex phase", c.head.dome_hex_phase, dc.head.dome_hex_phase,
-      -3.15F, 3.15F,
-      "Rotate the grid about the eye to align its hexagons with the "
-      "porthole.");
-  tuned_slider("seam offset", c.head.seam_offset, dc.head.seam_offset, 0.0F,
-      0.3F, "How far the black band's inner edge sits inside the hex cutoff.");
-  tuned_slider("seam width", c.head.seam_width, dc.head.seam_width, 0.0F, 0.3F,
-      "Width of the solid black dome-base band.");
-  tuned_color("seam color", c.head.seam_color, dc.head.seam_color,
-      "Dome-base band color (black reads as a separation groove).");
-  tuned_slider("eye forward", c.head.eye_forward, dc.head.eye_forward, 0.0F,
-      3.0F, "How far the eye leans toward the front (0 = at the apex).");
-  tuned_slider("eye lean", c.head.eye_lean, dc.head.eye_lean, -3.0F, 3.0F,
-      "Extra forward lean added as you look down, so the eye leans down the "
-      "dome with the look (signed; stays nested on the dome).");
-  tuned_slider("eye aim", c.head.eye_aim, dc.head.eye_aim, 0.0F, 1.0F,
-      "Blend the eye toward your actual look direction, so looking at "
-      "something aims the eye toward it. Clamped to the dome cap, which tops "
-      "out near the horizon.");
-  tuned_slider("eye hub", c.head.eye_hub, dc.head.eye_hub, 0.0F, 0.25F,
-      "Radius of the central hub circle inside the eye.");
-  tuned_slider_int("eye spokes", c.head.eye_spokes, dc.head.eye_spokes, 0, 12,
-      "Radial spokes inside the iris (6 reaches the vertices, 3 alternates).");
-  tuned_slider("eye line", c.head.eye_line, dc.head.eye_line, 0.005F, 0.06F,
-      "Thickness of the eye's frame, spokes, and hub ring.");
-  tuned_color("eye glass", c.head.eye_glass, dc.head.eye_glass,
-      "Opaque iris color.");
-  tuned_color("eye pupil", c.head.eye_pupil, dc.head.eye_pupil,
-      "Center hub (pupil) color; the beam source.");
-  tuned_color("eye frame color", c.head.eye_frame_color,
-      dc.head.eye_frame_color, "Frame and hub-ring color.");
-  tuned_slider("ring frequency", c.head.ring_frequency, dc.head.ring_frequency,
-      0.0F, 60.0F, "Concentric ring frequency on the belly.");
-  tuned_slider("spoke frequency", c.head.spoke_frequency,
-      dc.head.spoke_frequency, 0.0F, 40.0F,
-      "Radial spoke frequency on the belly.");
-  tuned_slider("paint base", c.head.paint_base, dc.head.paint_base, 0.0F, 1.0F,
-      "Darkest the belly paint dims to.");
-  tuned_slider("paint range", c.head.paint_range, dc.head.paint_range, 0.0F,
-      1.0F, "Brightness added where rings and spokes peak.");
-  tuned_slider("hub radius", c.head.hub_radius, dc.head.hub_radius, 0.0F, 2.0F,
-      "Radius of the central flashlight hub.");
-  tuned_slider("hub softness", c.head.hub_softness, dc.head.hub_softness,
-      0.01F, 0.3F, "Edge softness of the hub.");
-  tuned_color("hub color", c.head.hub_color, dc.head.hub_color,
-      "Flashlight hub color.");
-  tuned_slider("hub strength", c.head.hub_strength, dc.head.hub_strength, 0.0F,
-      5.0F, "Flashlight hub brightness.");
-  tuned_slider("rim center", c.head.rim_center, dc.head.rim_center, 0.0F, 1.0F,
-      "Radius of the amber rim-light ring.");
-  tuned_slider("rim width", c.head.rim_width, dc.head.rim_width, 1.0F, 40.0F,
-      "Higher makes the rim-light ring thinner.");
-  tuned_color("rim color", c.head.rim_color, dc.head.rim_color,
-      "Rim-light color.");
-  tuned_slider("rim strength", c.head.rim_strength, dc.head.rim_strength, 0.0F,
-      5.0F, "Rim-light brightness.");
-  tuned_slider("rim dot frequency", c.head.rim_dot_frequency,
-      dc.head.rim_dot_frequency, 0.0F, 40.0F,
-      "Number of dots around the rim-light ring.");
-  tuned_slider("dome specular", c.head.dome_specular_power,
-      dc.head.dome_specular_power, 1.0F, 256.0F,
-      "Highlight sharpness on the dome.", ImGuiSliderFlags_AlwaysClamp);
-  tuned_slider("belly specular", c.head.belly_specular_power,
-      dc.head.belly_specular_power, 1.0F, 256.0F,
-      "Highlight sharpness on the belly.", ImGuiSliderFlags_AlwaysClamp);
-  tuned_slider("specular strength", c.head.specular_strength,
-      dc.head.specular_strength, 0.0F, 2.0F,
-      "Overall specular highlight brightness.");
-  tuned_color("antenna tip", c.head.antenna_tip_color,
-      dc.head.antenna_tip_color,
-      "Glowing bead atop the antenna (emissive beacon).");
-  ImGui::TreePop();
-}
-
-// Kernel render options.
-inline void draw_render_section(render_config& c, const render_config& dc) {
+// Kernel render options and the camera's field of view.
+inline void draw_render_section(avatar_tuning& t, const avatar_tuning& d,
+    render_config& c, const render_config& dc) {
   if (!ImGui::TreeNode("Render")) return;
   ImGui::SliderInt("aa samples", &c.aa_samples, 1, 3, "%d",
       ImGuiSliderFlags_AlwaysClamp);
@@ -366,16 +413,25 @@ inline void draw_render_section(render_config& c, const render_config& dc) {
   ImGui::PushID("aa samples reset");
   if (ImGui::SmallButton("reset")) c.aa_samples = dc.aa_samples;
   ImGui::PopID();
+  // Field of view caches tan(fov/2), so route edits through the setter.
+  float fov = t.fov_deg();
+  if (tuned_slider("fov", fov, d.fov_deg(), 30.0F, 110.0F,
+          "Vertical field of view, in degrees."))
+    t.set_fov_deg(fov);
   ImGui::TreePop();
 }
 
-// Debug aids: rig-inspection knobs that are not part of the avatar feel.
-inline void draw_debug_section(avatar_tuning& t, const avatar_tuning& d) {
-  if (!ImGui::TreeNode("Debug")) return;
+// Animation rigging: knobs for posing and animating the head, also handy when
+// debugging.
+inline void
+draw_animation_rigging_section(avatar_tuning& t, const avatar_tuning& d) {
+  if (!ImGui::TreeNode("Animation rigging")) return;
   tuned_slider("front offset", t.front_offset_deg, d.front_offset_deg, -180.0F,
       180.0F,
-      "Rotate the head's front (and the cockpit eye) off the camera heading, "
-      "to bring the back of the dome into the mirror.");
+      "Rotate the head's front (and the cockpit eye) off the camera heading. "
+      "Mainly to animate the UFO shaking its head; also brings the back of "
+      "the "
+      "dome into the mirror when debugging.");
   ImGui::TreePop();
 }
 
@@ -408,19 +464,17 @@ inline void draw_config_panel(avatar_tuning& t, const avatar_tuning& d,
       "movement keys then turn and move the ship in front of the fixed "
       "camera, "
       "so you can inspect it from any side. Off rides the head again.");
-  // The scene sun direction is global (sky glow, terrain, saucer), so it sits
-  // above the per-section trees rather than inside one.
-  tuned_vec3("sun direction", c.sun_direction, dc.sun_direction, -1.0F, 1.0F,
-      "Scene sun direction: drives the sky glow and lights the terrain and "
-      "saucer.");
-  draw_avatar_section(t, d);
-  draw_saucer_section(t, d);
+  draw_body_section(t, d, c, dc);
+  draw_head_section(t, d, c, dc);
+  draw_saucer_section(t, d, c, dc);
+  draw_dome_section(t, d, c, dc);
+  draw_eye_section(t, d, c, dc);
+  draw_antenna_section(t, d, c, dc);
+  draw_movement_section(t, d);
   draw_sky_section(c, dc);
   draw_terrain_section(c, dc);
-  draw_ball_section(c, dc);
-  draw_head_section(c, dc);
-  draw_render_section(c, dc);
-  draw_debug_section(t, d);
+  draw_render_section(t, d, c, dc);
+  draw_animation_rigging_section(t, d);
   ImGui::End();
 }
 

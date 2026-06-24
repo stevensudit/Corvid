@@ -256,15 +256,20 @@ zero thrust).
 ### Phase 2: Canonical config structure
 
 Reorganize `avatar_tuning` and `head_params` so every value lives under the part
-it belongs to, matching the model: Body (ball radius; later the motion hex
-grid), Saucer (disc shape `body_height` / `top_height` / `rim_round` /
-`dome_blend`, the helicopter tilts, and the belly paint, rim lights, hub, and
-spin), Dome (`dome_offset`, `dome_radius`, the hex tiling, the seam band, the
-canopy and dome albedo), Eye (placement, iris, the rest angle, the counter-tilt
-feel), Antenna (lengths and tip color, the offset from the Eye), and Movement
-(`move_speed`, the Dolly, the zoom, the approach rates, the field of view). This
-is a mechanical move of fields plus matching panel sections, with no behavior
-change.
+it belongs to, matching the model: Body (ball radius and its mirror look; later
+the motion hex grid), Head (the overall head radius and the head-wide lighting
+and specular strength), Saucer (disc shape `disc_height` / `top_height` /
+`rim_round` / `dome_blend`, the helicopter tilts, and the belly paint, rim
+lights, hub, and spin), Dome (`dome_offset`, `dome_radius`, the dome specular,
+the hex tiling, the seam band, the canopy and dome albedo), Eye (placement,
+iris, the rest angle, the counter-tilt feel), Antenna (lengths and tip color,
+the offset from the Eye), and Movement (`move_speed`, the Dolly, the zoom, and
+the approach rates). The field of view sits with the render options and the sun
+direction with the Sky. This is a mechanical move of fields plus matching panel
+sections, with no behavior change, except that the obsolete portrait detent is
+removed now rather than in Phase 6 (the jockey position is reached by tuning
+`boom_min` instead). The field `body_height` is also renamed `disc_height`,
+since the model reserves "Body" for the Ball.
 
 Split the panel sections as finely as is useful rather than holding to one
 section per part. A part with many knobs can break into named subsections under
@@ -314,9 +319,9 @@ level, with a mild extra wobble that does not move the aim.
 Redefine the `boom` range to the model: the near extreme is the jockey position
 (above and slightly behind the Body), the far extreme is the trailing distance,
 and it never goes in front. Remove the negative-boom in-front / first-person
-path and the portrait detent in their current form. The low-ceiling tunnel that
-auto-shifts the Head in front is physics-gated, so leave a clear seam for it and
-defer. Verify: dollying runs between the jockey and trailing extremes, looking
+path (the portrait detent is already gone, removed in Phase 2). The low-ceiling
+tunnel that auto-shifts the Head in front is physics-gated, so leave a clear
+seam for it and defer. Verify: dollying runs between the jockey and trailing extremes, looking
 level forward from the jockey hides the Body, and looking down gives the profile
 view.
 

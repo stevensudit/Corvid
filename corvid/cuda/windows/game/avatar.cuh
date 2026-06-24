@@ -80,14 +80,14 @@ struct saucer_head {
   // defaults are the original literals; the tuning panel edits them live. A
   // wider `dome_blend` (or a lower `dome_offset`) fills the dome/disc seam, so
   // grazing rays no longer slip through it.
-  float body_height = 0.32F; // disc half-height / radius (smaller = flatter)
+  float disc_height = 0.32F; // disc half-height / radius (smaller = flatter)
   float dome_offset = 0.20F; // dome center height / radius
   float dome_radius = 0.55F; // dome sphere radius / radius
   float dome_blend = 0.007F; // dome/disc smooth-union width / radius
 
   // The disc's upper half is clipped to a shallow cone so the saucer reads as
   // a craft rather than a vertically symmetric blob: the cone apex height /
-  // radius, with the rim pinned at the disc equator. Below `body_height` it
+  // radius, with the rim pinned at the disc equator. Below `disc_height` it
   // forms a cone; at or above it the top stays the rounded ellipsoid.
   float top_height = 0.18F;
 
@@ -147,7 +147,7 @@ struct saucer_head {
   [[nodiscard]] __device__ float saucer_sdf(pos3 p) const {
     const vec3 ql = to_local(p);
     const float body =
-        sd_ellipsoid(ql, vec3{radius, radius * body_height, radius});
+        sd_ellipsoid(ql, vec3{radius, radius * disc_height, radius});
     // Clip the disc's top half to a shallow cone whose apex sits up the local
     // +y axis and whose surface passes through the rim, leaving the rounded
     // ellipsoid bottom untouched. `inv` is sin of the cone's half-angle and

@@ -65,9 +65,33 @@ struct render_config {
 
   // Saucer head shading (see `shade_head`).
   struct head_params {
+    // Surface: the head-wide lighting, the bare-steel hull albedo, and the
+    // specular highlight.
     vec3 ambient{0.10F, 0.11F, 0.13F};
     vec3 sun{1.0F, 0.96F, 0.88F};
     vec3 base_albedo{1.0F, 1.0F, 1.0F}; // bare steel (the cone and belly)
+    float dome_specular_power = 150.0F; // sharper glint on the dome
+    float belly_specular_power = 48.0F; // softer on the belly
+    float specular_strength = 0.5F;
+
+    // Belly paint: concentric rings times spinning spokes.
+    float ring_frequency = 26.0F;
+    float spoke_frequency = 12.0F;
+    float paint_base = 0.35F;  // darkest the paint dims the albedo to
+    float paint_range = 0.65F; // added back where rings and spokes peak
+
+    // Belly central flashlight hub.
+    float hub_radius = 0.15F;
+    float hub_softness = 0.06F;
+    vec3 hub_color{1.0F, 0.95F, 0.80F};
+    float hub_strength = 2.5F;
+
+    // Belly amber rim lights: a ring of glowing dots near the edge.
+    float rim_center = 0.80F; // radius of the ring (fraction of disc radius)
+    float rim_width = 14.0F;  // higher = thinner ring
+    vec3 rim_color{1.0F, 0.50F, 0.12F};
+    float rim_strength = 2.2F;
+    float rim_dot_frequency = 16.0F;
 
     // Dome canopy tint, plus the dome cap's own steel albedo, kept separate
     // from `base_albedo` so the dome can be darkened to pop without dimming
@@ -115,30 +139,6 @@ struct render_config {
     // Antenna tip beacon: the ball atop the dome's antenna, drawn emissive so
     // it reads as a light. The rod uses the bare-steel `base_albedo`.
     vec3 antenna_tip_color{0.469F, 1.0F, 0.1F}; // glowing bead (green beacon)
-
-    // Belly paint: concentric rings times spinning spokes.
-    float ring_frequency = 26.0F;
-    float spoke_frequency = 12.0F;
-    float paint_base = 0.35F;  // darkest the paint dims the albedo to
-    float paint_range = 0.65F; // added back where rings and spokes peak
-
-    // Central flashlight hub.
-    float hub_radius = 0.15F;
-    float hub_softness = 0.06F;
-    vec3 hub_color{1.0F, 0.95F, 0.80F};
-    float hub_strength = 2.5F;
-
-    // Amber rim lights: a ring of glowing dots near the belly edge.
-    float rim_center = 0.80F; // radius of the ring (fraction of disc radius)
-    float rim_width = 14.0F;  // higher = thinner ring
-    vec3 rim_color{1.0F, 0.50F, 0.12F};
-    float rim_strength = 2.2F;
-    float rim_dot_frequency = 16.0F;
-
-    // Specular highlight.
-    float dome_specular_power = 150.0F; // sharper glint on the dome
-    float belly_specular_power = 48.0F; // softer on the belly
-    float specular_strength = 0.5F;
   } head;
 
   // Anti-alias samples per axis in `voxel_kernel`: 1 disables it, 2 to 3 is
