@@ -87,9 +87,11 @@ struct avatar_tuning {
   float boom_min = 0.485F;       // pushed this far in front (FPS)
   float boom_max = 14.0F;        // pulled this far back (wide)
   float boom_rise = 0.35F;       // head rise per unit pulled back
-  float zoom_approach = 1.0F;    // boom easing rate per second
+  float zoom_approach = 8.0F;    // boom easing rate per second
   float zoom_step = 1.0F;        // boom change per mouse-wheel notch
-  float heading_approach = 8.0F; // heading swing rate while moving
+  float heading_approach = 8.0F; // steer heading-chase rate while moving
+  float follow_approach = 3.0F;  // follow look-recenter rate (gentler)
+  float head_fly_speed = 30.0F;  // max head speed vs the ball, units/second
   float motion_approach = 5.0F;  // tilt/spin motion-signal ramp/fade rate
 
   // Animation rigging: rotate the head's front (and the cockpit eye) off the

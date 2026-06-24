@@ -7,9 +7,9 @@
 // analytic scene, the geometry is sampled from the field, so it can be edited
 // in place (the next rung). The player is an avatar of a metallic ball and a
 // saucer head: WASD drives the ball (Space/Ctrl raise and lower it, Shift goes
-// faster), the right mouse button orbits the look, and the mouse wheel zooms
-// the view from third person in to first person through the head. Escape
-// quits.
+// faster), holding the right mouse button aims the eye (Look, or Steer while
+// driving), and the mouse wheel zooms the view from third person in to first
+// person through the head. Escape quits.
 
 #include <cmath>
 #include <cstdint>
@@ -301,9 +301,13 @@ __global__ void dig_kernel(cudaSurfaceObject_t surface, density_field field,
 // style zoom slides the head along the yaw-forward axis relative to the ball:
 // pulled back and raised for an over-the-shoulder third-person view, or pushed
 // in front of the ball for first person (the ball then behind you, visible
-// only on a free-look turn). WASD moves the anchor in the yaw-horizontal
-// frame, the right-drag orbits the look, the mouse wheel zooms. No physics
-// yet: the anchor moves directly and the ball floats where it is left.
+// only on a free-look turn). WASD drives the ball along its heading and the
+// mouse wheel zooms. Holding the right button aims the eye: with no movement
+// keys it is free Look; while driving it is Steer, the heading chasing the eye
+// so the ball arcs toward where you look. Releasing it Follows: the ball keeps
+// its heading and the view rotates to frame the travel. The head flies to its
+// seat at a bounded speed, so it never snaps around the boom. No physics yet:
+// the anchor moves directly and the ball floats where it is left.
 struct avatar_rig {
   pos3 anchor;        // ball center, what the player drives
   orientation facing; // yaw/pitch look direction
@@ -319,9 +323,11 @@ struct avatar_rig {
   float moving = 0.0F;     // this frame's planar ball movement, set by `move`
   pos3 prev_eye{};         // last frame's head position, for the head velocity
   bool primed = false;     // whether `prev_eye` holds a real previous frame
-  bool frozen = false;     // observer freeze: camera pinned, head shown
-  pos3 frozen_cam{};       // the pinned camera position while `frozen`
-  basis frozen_frame{};    // the pinned camera look while `frozen`
+  vec3 head_offset{}; // eased head offset from the ball, flown to the seat
+  bool head_primed = false; // whether `head_offset` holds a real seated offset
+  bool frozen = false;      // observer freeze: camera pinned, head shown
+  pos3 frozen_cam{};        // the pinned camera position while `frozen`
+  basis frozen_frame{};     // the pinned camera look while `frozen`
   avatar_tuning
       tune{}; // live feel constants, read through by the methods below
 
@@ -341,26 +347,35 @@ struct avatar_rig {
     return normalize(vec3{b.forward.x, 0.0F, b.forward.z});
   }
 
-  // The head position, which is also the eye: offset from the ball along the
-  // heading (behind by the boom, in front when negative) and hovering above
-  // it, rising as it pulls back. The heading, not the live look, places the
-  // head, so free-look turns the camera without orbiting the head around the
-  // ball.
-  [[nodiscard]] pos3 eye() const {
+  // The head's seat offset from the ball: behind it along the heading by the
+  // boom (in front when negative) and raised by the rise. The heading, not the
+  // live look, seats the head, so free-look turns the camera without orbiting
+  // the head around the ball. The head's actual offset eases toward this
+  // (`update`), so the head translates with the ball one-to-one (never lagging
+  // the drive, however fast), while a heading swing or boom dolly glides the
+  // offset rather than snapping it around the long boom.
+  [[nodiscard]] vec3 head_seat_offset() const {
     const float rise =
         tune.head_height + ((boom > 0.0F ? boom : 0.0F) * tune.boom_rise);
     const vec3 heading_fwd{cos(heading), 0.0F, sin(heading)};
-    return anchor - (heading_fwd * boom) + (camera::world_up * rise);
+    return (camera::world_up * rise) - (heading_fwd * boom);
   }
 
-  // Drive the anchor in the yaw-horizontal frame. Space/Ctrl still raise and
-  // lower it directly, since there is no terrain following yet. Records the
-  // planar movement so `update` knows when to swing the heading toward travel;
-  // the tilt and spin read the head's own velocity, not this input.
+  // The head position, which is also the eye: the ball plus the eased head
+  // offset. The offset carries all the smoothing, so the head tracks the
+  // ball's translation exactly and only a heading swing or boom dolly glides.
+  [[nodiscard]] pos3 eye() const { return anchor + head_offset; }
+
+  // Drive the anchor along the ground in its own heading, so the ball keeps
+  // its course; steering swings the heading toward the look (see `update`), so
+  // the ball arcs that way. The heading is a flat ground bearing, so looking
+  // up never lifts the ball. Space/Ctrl still raise and lower it directly,
+  // since there is no terrain following yet. Records the planar movement so
+  // `update` knows the body is moving; the tilt and spin read the head's own
+  // velocity, not this input.
   void move(float forward, float strafe, float lift) {
-    const basis b = frame();
-    const vec3 fwd = normalize(vec3{b.forward.x, 0.0F, b.forward.z});
-    const vec3 right = normalize(vec3{b.right.x, 0.0F, b.right.z});
+    const vec3 fwd{cos(heading), 0.0F, sin(heading)};
+    const vec3 right{-sin(heading), 0.0F, cos(heading)};
     anchor = anchor + (fwd * forward) + (right * strafe) +
              (camera::world_up * lift);
     moving = fabsf(forward) + fabsf(strafe);
@@ -381,19 +396,51 @@ struct avatar_rig {
         std::clamp(boom_target - delta, tune.boom_min, tune.boom_max);
   }
 
-  // Advance the frame: ease the boom toward its zoom target, swing the heading
-  // toward the look while the ball moves, derive the head's own velocity (so a
-  // zoom dolly tilts the head too, not just ball movement) into the eased
-  // drive/slide that lean the saucer, and spin the belly: travel-driven while
-  // moving, alternating direction while idle.
-  void update(float dt) {
+  // Advance the frame: ease the boom toward its zoom target, turn the heading
+  // and look while the ball moves (steering swings the heading toward the eye
+  // so the ball arcs that way; following eases the look onto the heading and
+  // the pitch to level so the view frames the travel), fly the head toward its
+  // seat at a bounded speed, derive the head's own velocity (so a zoom dolly
+  // tilts the head too) into the eased drive/slide that lean the saucer, and
+  // spin the belly: travel-driven while moving, alternating while idle.
+  void update(float dt, bool looking) {
     boom = boom +
            ((boom_target - boom) * (1.0F - expf(-tune.zoom_approach * dt)));
 
     if (moving > 0.0F) {
-      const radians delta =
-          radians_atan2(sin(facing.yaw - heading), cos(facing.yaw - heading));
-      heading = heading + (delta * (1.0F - expf(-tune.heading_approach * dt)));
+      if (looking) {
+        // Steer: the heading chases the eye, so the ball arcs around the head
+        // toward where you look, then drives that way once they line up.
+        const float rate = 1.0F - expf(-tune.heading_approach * dt);
+        const radians delta = radians_atan2(sin(facing.yaw - heading),
+            cos(facing.yaw - heading));
+        heading = heading + (delta * rate);
+      } else {
+        // Follow: the heading holds, so the ball keeps its course; the look
+        // eases gently onto the heading and the pitch to level, rotating the
+        // view to frame the travel without whipping.
+        const float rate = 1.0F - expf(-tune.follow_approach * dt);
+        const radians delta = radians_atan2(sin(heading - facing.yaw),
+            cos(heading - facing.yaw));
+        facing.yaw = facing.yaw + (delta * rate);
+        facing.pitch = facing.pitch * (1.0F - rate);
+      }
+    }
+
+    // Ease the head offset toward its seat at a bounded speed, so a heading
+    // swing or a boom dolly glides it rather than whipping it around the long
+    // boom. This caps the head's speed relative to the ball only; the ball's
+    // translation carries through `eye` untouched, so driving never lags the
+    // head out of range. The first frame just seats it.
+    const vec3 seat = head_seat_offset();
+    if (!head_primed) {
+      head_offset = seat;
+      head_primed = true;
+    } else {
+      const vec3 to = seat - head_offset;
+      const float dist = length(to);
+      const float step = tune.head_fly_speed * dt;
+      head_offset = (dist <= step) ? seat : head_offset + (to * (step / dist));
     }
 
     // The tilt and spin read the head's own velocity (the ball-follow, the
@@ -743,7 +790,7 @@ int main() {
       if (input.wheel != 0.0F) rig.zoom(input.dolly());
 
       // Ease the boom toward its zoom target and turn the saucer's belly spin.
-      rig.update(dt);
+      rig.update(dt, input.looking);
 
       // Skip all GPU work when the window has no client area (minimized, or
       // collapsed by the OS during a mixed-DPI cross-monitor drag).

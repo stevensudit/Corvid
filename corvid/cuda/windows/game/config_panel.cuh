@@ -355,7 +355,17 @@ inline void draw_movement_section(avatar_tuning& t, const avatar_tuning& d) {
   tuned_slider("zoom step", t.zoom_step, d.zoom_step, 0.1F, 5.0F,
       "How far the boom target moves per mouse-wheel notch.");
   tuned_slider("heading approach", t.heading_approach, d.heading_approach,
-      1.0F, 20.0F, "How fast the head swings to lead travel while moving.");
+      1.0F, 20.0F,
+      "Steer: how fast the heading chases the look, so the ball arcs toward "
+      "where you aim.");
+  tuned_slider("follow approach", t.follow_approach, d.follow_approach, 0.5F,
+      20.0F,
+      "Follow: how fast the view rotates to frame travel when the right "
+      "button is released.");
+  tuned_slider("head fly speed", t.head_fly_speed, d.head_fly_speed, 1.0F,
+      60.0F,
+      "Max speed the head flies toward its seat, so heading swings glide "
+      "instead of whipping it around the boom.");
   tuned_slider("motion approach", t.motion_approach, d.motion_approach, 1.0F,
       20.0F, "How fast the motion tilt and spin ramp up and fade.");
   ImGui::TreePop();

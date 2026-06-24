@@ -16,6 +16,7 @@
 // limitations under the License.
 #pragma once
 
+#include <cmath>
 #include <tuple>
 #include <utility>
 
@@ -132,14 +133,23 @@ struct fly_input {
   }
 
   // The camera-relative movement for this frame as (forward, sideways, up),
-  // each scaled by frame time.
+  // each scaled by frame time. The planar (forward, sideways) pair is capped
+  // to one speed, so a diagonal is no faster than a cardinal: holding both
+  // moves at standard speed in the direction between them. The vertical is
+  // separate.
   [[nodiscard]] std::tuple<float, float, float>
   movement(float dt, float speed_multiplier = 1.0F) const {
     const float speed = speed_multiplier * dt * (fast ? 3.0F : 1.0F);
-    const float forward_move =
-        (forward ? speed : 0.0F) - (back ? speed : 0.0F);
-    const float sideways_move = (right ? speed : 0.0F) - (left ? speed : 0.0F);
+    float forward_move = (forward ? speed : 0.0F) - (back ? speed : 0.0F);
+    float sideways_move = (right ? speed : 0.0F) - (left ? speed : 0.0F);
     const float upward_move = (up ? speed : 0.0F) - (down ? speed : 0.0F);
+    if (const float planar = std::hypot(forward_move, sideways_move);
+        planar > speed)
+    {
+      const float scale = speed / planar;
+      forward_move *= scale;
+      sideways_move *= scale;
+    }
     return {forward_move, sideways_move, upward_move};
   }
 
