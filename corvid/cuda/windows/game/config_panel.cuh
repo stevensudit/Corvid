@@ -132,10 +132,6 @@ inline void draw_avatar_section(avatar_tuning& t, const avatar_tuning& d) {
   tuned_slider("camera height", t.camera_height, d.camera_height, 0.0F, 2.0F,
       "Eye height above the head center (of the head radius); raises the "
       "viewpoint so the dome-heavy saucer reflects lower in the frame.");
-  tuned_slider("front offset", t.front_offset_deg, d.front_offset_deg, -180.0F,
-      180.0F,
-      "Debug: rotate the head's front (and the cockpit eye) off the camera "
-      "heading, to bring the back of the dome into the mirror.");
   tuned_slider("boom min", t.boom_min, d.boom_min, -5.0F, 0.0F,
       "Closest boom: head pushed in front of the ball (first person).");
   tuned_slider("boom max", t.boom_max, d.boom_max, 1.0F, 30.0F,
@@ -344,15 +340,6 @@ inline void draw_head_section(render_config& c, const render_config& dc) {
   tuned_slider("rim dot frequency", c.head.rim_dot_frequency,
       dc.head.rim_dot_frequency, 0.0F, 40.0F,
       "Number of dots around the rim-light ring.");
-  tuned_slider("jet base", c.head.jet_base, dc.head.jet_base, 0.0F, 1.0F,
-      "Baseline propulsion wash over the belly.");
-  tuned_slider("jet slope", c.head.jet_slope, dc.head.jet_slope, 0.0F, 2.0F,
-      "Extra propulsion wash concentrated at the rim.");
-  tuned_color("thrust color", c.head.thrust_color, dc.head.thrust_color,
-      "Propulsion glow color.");
-  tuned_slider("thrust strength", c.head.thrust_strength,
-      dc.head.thrust_strength, 0.0F, 5.0F,
-      "Propulsion glow brightness at full motion.");
   tuned_slider("dome specular", c.head.dome_specular_power,
       dc.head.dome_specular_power, 1.0F, 256.0F,
       "Highlight sharpness on the dome.", ImGuiSliderFlags_AlwaysClamp);
@@ -379,6 +366,16 @@ inline void draw_render_section(render_config& c, const render_config& dc) {
   ImGui::PushID("aa samples reset");
   if (ImGui::SmallButton("reset")) c.aa_samples = dc.aa_samples;
   ImGui::PopID();
+  ImGui::TreePop();
+}
+
+// Debug aids: rig-inspection knobs that are not part of the avatar feel.
+inline void draw_debug_section(avatar_tuning& t, const avatar_tuning& d) {
+  if (!ImGui::TreeNode("Debug")) return;
+  tuned_slider("front offset", t.front_offset_deg, d.front_offset_deg, -180.0F,
+      180.0F,
+      "Rotate the head's front (and the cockpit eye) off the camera heading, "
+      "to bring the back of the dome into the mirror.");
   ImGui::TreePop();
 }
 
@@ -423,6 +420,7 @@ inline void draw_config_panel(avatar_tuning& t, const avatar_tuning& d,
   draw_ball_section(c, dc);
   draw_head_section(c, dc);
   draw_render_section(c, dc);
+  draw_debug_section(t, d);
   ImGui::End();
 }
 

@@ -494,11 +494,9 @@ struct avatar_rig {
 
   [[nodiscard]] metal_ball ball() const { return {anchor, tune.ball_radius}; }
   [[nodiscard]] saucer_head head(const render_config::head_params& hp) const {
-    // The propulsion glow is currently unbound from motion (a retrofit
-    // target), so the head's thrust is held at zero. The front orients the
-    // cockpit eye; `front_offset_deg` rotates it off the camera heading about
-    // the saucer's up axis, a debug aid to inspect the back of the dome in the
-    // mirror.
+    // The front orients the cockpit eye; `front_offset_deg` rotates it off the
+    // camera heading about the saucer's up axis, a debug aid to inspect the
+    // back of the dome in the mirror.
     const vec3 up = saucer_up();
     vec3 front = frame().forward;
     if (tune.front_offset_deg != 0.0F) {
@@ -557,7 +555,7 @@ struct avatar_rig {
         (up * ((cos_e * cos_r) + (sin_e * sin_r))) +
         (e_fwd * ((sin_e * cos_r) - (cos_e * sin_r)));
 
-    return {eye(), up, front, tune.head_radius, spin, 0.0F, tune.body_height,
+    return {eye(), up, front, tune.head_radius, spin, tune.body_height,
         tune.dome_offset, tune.dome_radius, tune.dome_blend, tune.top_height,
         tune.rim_round, eye_counter_offset, eye_dir, antenna_dir,
         tune.antenna_length, tune.antenna_thickness, tune.antenna_ball,

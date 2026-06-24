@@ -262,8 +262,7 @@ namespace corvid::cuda {
   }
 
   // The belly: a painted disc (concentric rings * spinning spokes), the
-  // central flashlight hub, a ring of amber rim lights, and a propulsion glow
-  // that swells with motion.
+  // central flashlight hub, and a ring of amber rim lights.
   if (underside > 0.001F) {
     const float rings = 0.5F + (0.5F * cosf(rr * hp.ring_frequency));
     const float spokes = 0.5F + (0.5F * cosf(ang * hp.spoke_frequency));
@@ -276,12 +275,6 @@ namespace corvid::cuda {
     const float dots =
         powf(0.5F + (0.5F * cosf(ang * hp.rim_dot_frequency)), 8.0F);
     emissive = emissive + (hp.rim_color * (hp.rim_strength * ring * dots));
-
-    // Propulsion: a blue-white engine wash over the belly, strongest at the
-    // rim, that brightens as the saucer moves or zooms.
-    const float jets = hp.jet_base + (hp.jet_slope * ring);
-    emissive = emissive +
-               (hp.thrust_color * (head.thrust * hp.thrust_strength * jets));
 
     emissive = emissive * underside;
   }

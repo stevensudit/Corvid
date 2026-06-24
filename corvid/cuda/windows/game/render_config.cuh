@@ -135,12 +135,6 @@ struct render_config {
     float rim_strength = 2.2F;
     float rim_dot_frequency = 16.0F;
 
-    // Propulsion glow: a blue-white engine wash that swells with motion.
-    float jet_base = 0.4F;
-    float jet_slope = 0.6F;
-    vec3 thrust_color{0.308F, 0.358F, 1.06F};
-    float thrust_strength = 1.6F;
-
     // Specular highlight.
     float dome_specular_power = 150.0F; // sharper glint on the dome
     float belly_specular_power = 48.0F; // softer on the belly

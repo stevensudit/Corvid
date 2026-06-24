@@ -75,7 +75,6 @@ struct saucer_head {
   vec3 front;   // forward direction (unit); orients the cockpit eyes
   float radius; // disc radius
   float spin;   // belly-pattern rotation angle, radians
-  float thrust; // propulsion glow, 0 (idle) to 1 (full)
 
   // Shape, as fractions of `radius` so the saucer scales as one piece. The
   // defaults are the original literals; the tuning panel edits them live. A
