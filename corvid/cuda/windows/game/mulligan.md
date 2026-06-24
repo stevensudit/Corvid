@@ -211,3 +211,129 @@ later:
   played.
 - The explicit list of dead ends to retire, and the concrete config layout, are
   part of the stepwise plan rather than the model.
+
+## Stepwise plan
+
+The plan brings the code in line with the model above, in order, each phase
+buildable and verifiable on its own (compile with `scripts/ide_build.ps1
+notest_voxel_viewer.cu`, then run the viewer and check the reflection in the
+Body or the flat mirror, or the freeze-camera observer mode). Land each phase as
+its own commit. The current code lives in `avatar.cuh` (the `metal_ball` and
+`saucer_head` SDFs), the `avatar_rig` in `notest_voxel_viewer.cu` (the movement
+and camera logic), `avatar_tuning.cuh` and `render_config.cuh` (the config),
+`config_panel.cuh` (the panel), and `shade_head` in `scene_render.cuh` (the Head
+shader).
+
+### Prerequisites and what is gated on physics
+
+There is no physics yet: the rig moves the ball's anchor directly and the ball
+floats where left. The model's gravity-dependent rules (the Ball resting on the
+ground, not fitting through gaps narrower than its diameter, and the low-ceiling
+tunnel that auto-shifts the Head in front) all wait on a physics pass that does
+not exist. Those are called out as deferred where they come up. Everything else,
+which is the bulk and the stated primary goal of rationalizing the head rig,
+camera, and config, is doable now against the free-floating anchor.
+
+Two notes carried down from the model: the camera is already decoupled from the
+Saucer's decorative tilt (the camera direction is the free-look `facing`; the
+Saucer lean and the eye decal only affect the reflected drawing), so Model B's
+stabilization is partly automatic today, and the real work is the articulated
+gimbal with limits. And the overcompensation magnitude plus the
+Steering-while-Looking-down prominence are tuned by feel (see Deferred), so they
+land as panel knobs to dial in, not as fixed constants.
+
+### Phase 1: Retire the dead ends
+
+Remove the propulsion/underside glow, which never worked and is already inert
+(`avatar_rig::head` hardwires `thrust` to zero). Delete the `thrust` plumbing,
+the `jet_base`, `jet_slope`, `thrust_color`, and `thrust_strength` fields of
+`head_params`, the propulsion block in `shade_head`, and the matching panel
+rows. Decide `front_offset_deg` (a debug head-shake aid): keep it, but move it
+under a clearly labeled Debug group rather than the Avatar feel section. Verify:
+the build is clean and the reflected Head is unchanged (the glow was invisible at
+zero thrust).
+
+### Phase 2: Canonical config structure
+
+Reorganize `avatar_tuning` and `head_params` so every value lives under the part
+it belongs to, matching the model: Body (ball radius; later the motion hex
+grid), Saucer (disc shape `body_height` / `top_height` / `rim_round` /
+`dome_blend`, the helicopter tilts, and the belly paint, rim lights, hub, and
+spin), Dome (`dome_offset`, `dome_radius`, the hex tiling, the seam band, the
+canopy and dome albedo), Eye (placement, iris, the rest angle, the counter-tilt
+feel), Antenna (lengths and tip color, the offset from the Eye), and Movement
+(`move_speed`, the Dolly, the zoom, the approach rates, the field of view). This
+is a mechanical move of fields plus matching panel sections, with no behavior
+change.
+
+Split the panel sections as finely as is useful rather than holding to one
+section per part. A part with many knobs can break into named subsections under
+a shared prefix, for example "Saucer - Shape", "Saucer - Belly", and "Saucer -
+Tilt", or "Dome - Hex" and "Dome - Seam", so a long section becomes a few short,
+scannable ones. Use the prefix to keep related subsections adjacent and ordered.
+
+Verify: the build is clean, the panel shows the new grouping, and the visuals
+are identical.
+
+### Phase 3: The articulated Eye / Dome / Saucer gimbal
+
+The core of the rework. Replace the ad-hoc `saucer_up()` lean (`saucer_lean`)
+and the empirical eye placement (`eye_forward`, `eye_lean`, `eye_aim`) with the
+model's articulated rig: the rest pose (Eye 30 degrees above the equatorial
+plane, Antenna 90 degrees from it and so 60 degrees from the Eye); the Dome's
+vertical rotation aiming the Eye, with the documented limits (down until the
+Eye's edge meets the Saucer, up until it meets the north pole); the Saucer-tilts
+handoff past those limits, with its own tilt limits so it cannot flip; and
+unlimited Dome yaw. Verify: drive the gimbal through its range in the freeze
+camera and in the Body reflection, confirming the limits and the handoff read
+correctly.
+
+### Phase 4: Look / Steer / follow and release
+
+Gate the right mouse button: Look with no movement keys, Steer with them. Hold
+the Eye's pitch on release rather than easing back. With the right mouse not
+held, a moving Body is followed under helicopter mechanics; with it held, Look
+becomes Steer (the Eye stays under mouse control, the Saucer helicopter-tilts).
+Forward is the Eye heading projected onto the ground plane. This touches
+`fly_input` and the rig's `move` / `look` / `update`. Verify: the mode
+transitions behave as the Mode-transitions section describes.
+
+### Phase 5: Helicopter tilt and the counter-tilt split
+
+Replace the single `move_tilt` / `back_tilt` with three configurable angles,
+Forward, Backward, and Strafe Helicopter Tilt, each defaulting to 45 degrees.
+Split the counter-tilt into the stabilizing portion (real: it cancels the
+Saucer's tilt so the view stays level in follow and on the player's aim in
+Steer) and the overcompensation portion (visual only: rendered on the Dome and
+in the reflection, never factored into the camera aim), reworking `eye_counter`
+into the two. Verify: in the reflection the Saucer banks while the view stays
+level, with a mild extra wobble that does not move the aim.
+
+### Phase 6: Dolly as jockey-to-trailing
+
+Redefine the `boom` range to the model: the near extreme is the jockey position
+(above and slightly behind the Body), the far extreme is the trailing distance,
+and it never goes in front. Remove the negative-boom in-front / first-person
+path and the portrait detent in their current form. The low-ceiling tunnel that
+auto-shifts the Head in front is physics-gated, so leave a clear seam for it and
+defer. Verify: dollying runs between the jockey and trailing extremes, looking
+level forward from the jockey hides the Body, and looking down gives the profile
+view.
+
+### Phase 7: Belly spin and the Body motion hex grid
+
+Refine the belly spin to the model's rules (faster with speed, reverse when
+reversing, opposite directions on left versus right strafe, and a slow idle that
+periodically reverses); most of this exists in `update`, so the change is mainly
+the strafe direction. Add the faint hexagonal grid on the Ball that appears only
+while it moves, in `shade_ball`, sharing the Dome's tiling math. Verify: the
+belly spin tracks motion as described, and the Ball shows its rotation through
+the motion grid.
+
+### Closing note
+
+Phases 1 and 2 are pure cleanup and reorganization with no behavior change;
+phases 3 through 7 layer the new behavior on top, one verifiable change at a
+time. The feel-tuned items (overcompensation magnitude, the
+Steering-while-Looking-down prominence) ride on the phase 5 knobs and are dialed
+in by playing, not fixed here.
