@@ -141,9 +141,11 @@ struct saucer_head {
     return vec3{dot(q, ex), dot(q, up), dot(q, ez)};
   }
 
-  // Signed distance from `p` to the saucer surface, evaluated in the tilted
-  // local frame.
-  [[nodiscard]] __device__ float sdf(pos3 p) const {
+  // Signed distance from `p` to the saucer body alone, disc plus dome and no
+  // antenna, evaluated in the tilted local frame. Split out of `sdf` so the
+  // shader can tell whether the antenna or the body is the nearer surface at a
+  // hit and keep the antenna from bleeding through the body.
+  [[nodiscard]] __device__ float saucer_sdf(pos3 p) const {
     const vec3 ql = to_local(p);
     const float body =
         sd_ellipsoid(ql, vec3{radius, radius * body_height, radius});
@@ -157,7 +159,13 @@ struct saucer_head {
     const float clipped = op_smooth_intersect(body, cone, radius * rim_round);
     const float dome = sd_sphere(ql - vec3{0.0F, radius * dome_offset, 0.0F},
         radius * dome_radius);
-    const float saucer = op_smooth_union(clipped, dome, radius * dome_blend);
+    return op_smooth_union(clipped, dome, radius * dome_blend);
+  }
+
+  // Signed distance from `p` to the saucer surface, evaluated in the tilted
+  // local frame.
+  [[nodiscard]] __device__ float sdf(pos3 p) const {
+    const float saucer = saucer_sdf(p);
     if (antenna_length <= 0.0F) return saucer;
     // The antenna is a separate protrusion in world-relative coordinates (its
     // direction tilts with the gimbal, off the local frame), hard-unioned on.

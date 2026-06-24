@@ -319,6 +319,9 @@ struct avatar_rig {
   float moving = 0.0F;     // this frame's planar ball movement, set by `move`
   pos3 prev_eye{};         // last frame's head position, for the head velocity
   bool primed = false;     // whether `prev_eye` holds a real previous frame
+  bool frozen = false;     // observer freeze: camera pinned, head shown
+  pos3 frozen_cam{};       // the pinned camera position while `frozen`
+  basis frozen_frame{};    // the pinned camera look while `frozen`
   avatar_tuning
       tune{}; // live feel constants, read through by the methods below
 
@@ -456,18 +459,37 @@ struct avatar_rig {
     spin = spin + ((idle + (tune.spin_move_gain * drive)) * dt);
   }
 
-  // The view rays for the current pose, looking out from inside the head. The
-  // field of view's `tan(fov/2)` is cached in `tune` and recomputed only when
-  // the field of view is edited, so this stays a plain read.
+  // The camera position: the eye raised above the head's center by
+  // `camera_height` (of the head radius) so the camera looks out from up in
+  // the dome rather than the middle; otherwise the dome-heavy saucer reflects
+  // into the top of the frame. World up, not the tilted disc normal, so the
+  // viewpoint does not swim as the saucer banks.
+  [[nodiscard]] pos3 cam_pos() const {
+    return eye() +
+           (camera::world_up * (tune.camera_height * tune.head_radius));
+  }
+
+  // Enter or leave the observer freeze. On the off-to-on edge it pins the
+  // camera position and look; while on, `rays` holds both fixed, so the mouse
+  // and movement keys drive the avatar (turning and moving the ship in front
+  // of a fixed camera) rather than steering the view. The head is also drawn
+  // in the primary view; see `render_config::show_head`.
+  void set_frozen(bool on) {
+    if (on && !frozen) {
+      frozen_cam = cam_pos();
+      frozen_frame = frame();
+    }
+    frozen = on;
+  }
+
+  // The view rays for the current pose, looking out from inside the head, or
+  // from the pinned camera while the observer freeze holds (position and look
+  // both fixed, so the mouse turns the ship instead of the view). The field of
+  // view's `tan(fov/2)` is cached in `tune` and recomputed only when the field
+  // of view is edited, so this stays a plain read.
   [[nodiscard]] camera_rays rays() const {
-    // The eye sits above the head's center by `camera_height` (of the head
-    // radius) so the camera looks out from up in the dome rather than the
-    // middle; otherwise the dome-heavy saucer reflects into the top of the
-    // frame. World up, not the tilted disc normal, so the viewpoint does not
-    // swim as the saucer banks.
-    const pos3 cam =
-        eye() + (camera::world_up * (tune.camera_height * tune.head_radius));
-    return {cam, frame(), tune.tan_half_fov()};
+    if (frozen) return {frozen_cam, frozen_frame, tune.tan_half_fov()};
+    return {cam_pos(), frame(), tune.tan_half_fov()};
   }
 
   [[nodiscard]] metal_ball ball() const { return {anchor, tune.ball_radius}; }
@@ -493,35 +515,47 @@ struct avatar_rig {
     // overshoots for a livelier counter-swing.
     const float eye_counter_offset = -tune.eye_counter * drive;
 
-    // The cockpit eye's placement direction, computed here so the shader's eye
-    // decal and the antenna geometry share one source. It leans off the apex
-    // by `eye_forward` plus the look-pitch lean and the motion counter, blends
-    // toward the look by `eye_aim`, then clamps to the dome cap.
+    // The cockpit eye's placement direction, shared by the shader's eye decal
+    // and the antenna. It leans off the apex by `eye_forward` plus the
+    // look-pitch lean and a motion offset, blends toward the look by
+    // `eye_aim`, then clamps to the dome cap. A lambda, so the antenna can
+    // request the same placement with the motion offset zeroed (its rest
+    // reference).
     const vec3 e_fwd = normalize(front - (up * dot(front, up)));
-    const float lean = (hp.eye_lean * (-front.y)) + eye_counter_offset;
-    const vec3 c_lean = normalize(up + (e_fwd * (hp.eye_forward + lean)));
-    vec3 eye_dir = normalize(c_lean + ((front - c_lean) * hp.eye_aim));
     constexpr float min_up = 0.34F; // the dome cap, matching scene_render
-    const float up_dot = dot(eye_dir, up);
-    if (up_dot < min_up) {
-      const vec3 flat = eye_dir - (up * up_dot);
-      const float fl = sqrtf(dot(flat, flat));
-      if (fl > 1.0e-4F)
-        eye_dir =
-            (up * min_up) + ((flat / fl) * sqrtf(1.0F - (min_up * min_up)));
-    }
+    const auto place_eye = [&](float motion) {
+      const float lean = (hp.eye_lean * (-front.y)) + motion;
+      const vec3 c_lean = normalize(up + (e_fwd * (hp.eye_forward + lean)));
+      vec3 dir = normalize(c_lean + ((front - c_lean) * hp.eye_aim));
+      const float up_dot = dot(dir, up);
+      if (up_dot < min_up) {
+        const vec3 flat = dir - (up * up_dot);
+        const float fl = sqrtf(dot(flat, flat));
+        if (fl > 1.0e-4F)
+          dir =
+              (up * min_up) + ((flat / fl) * sqrtf(1.0F - (min_up * min_up)));
+      }
+      return dir;
+    };
+    const vec3 eye_dir = place_eye(eye_counter_offset);
 
-    // The antenna takes its angle directly from the eye: it stands at the apex
-    // and rotates by the eye's deviation from its rest lean, so it honors
-    // whatever moves the eye (lean, motion counter, aim, the cap) and the
-    // pole-to-equator spacing stays rigid. `eye_forward` is the rest lean's
-    // tangent; `eye_dir` gives the eye's current angle; the antenna sits at
-    // the difference, and the normalize absorbs the shared scale, so no trig.
+    // The antenna stands vertical out of the dome, along its up axis, when the
+    // ship is at rest, and leans only with the motion gimbal, not with the
+    // look. Measure the eye's deviation from its rest placement (the same
+    // placement with the motion offset zeroed, the look-lean and aim kept) and
+    // rotate `up` by it: at rest the two match and the antenna is `up`; the
+    // motion swing carries it the same way, so the dome still reads solid in
+    // motion. Keeping the look-lean inside the rest is what holds the antenna
+    // vertical as you look up and down, instead of tipping it with the eye.
+    // Unit since `eye_dir` and `eye_rest` both lie in the up/`e_fwd` plane.
+    const vec3 eye_rest = place_eye(0.0F);
+    const float cos_r = dot(eye_rest, up);
+    const float sin_r = dot(eye_rest, e_fwd);
     const float cos_e = dot(eye_dir, up);
     const float sin_e = dot(eye_dir, e_fwd);
-    const float cos_d = cos_e + (sin_e * hp.eye_forward);
-    const float sin_d = sin_e - (cos_e * hp.eye_forward);
-    const vec3 antenna_dir = normalize((up * cos_d) + (e_fwd * sin_d));
+    const vec3 antenna_dir =
+        (up * ((cos_e * cos_r) + (sin_e * sin_r))) +
+        (e_fwd * ((sin_e * cos_r) - (cos_e * sin_r)));
 
     return {eye(), up, front, tune.head_radius, spin, 0.0F, tune.body_height,
         tune.dome_offset, tune.dome_radius, tune.dome_blend, tune.top_height,
@@ -687,6 +721,12 @@ int main() {
     imgui_overlay imgui{win, presenter.device(), presenter.context()};
     bool show_config = false;
 
+    // Observer freeze (debug): pin the camera and reveal the saucer head,
+    // which is otherwise hidden from primary rays since the camera rides
+    // inside it. Toggled by a panel checkbox; the avatar stays drivable so it
+    // can be moved out in front of the pinned camera and watched.
+    bool freeze_camera = false;
+
     // Frame timing in nanoseconds: millisecond ticks quantize dt enough to
     // judder movement at high refresh rates (a 6.94 ms frame reads as 6 or 7).
     auto last_ns = SDL_GetTicksNS();
@@ -755,6 +795,13 @@ int main() {
         SDL_SetWindowTitle(win, title);
       }
 
+      // Apply the observer freeze: pin the camera (on the rising edge) and ask
+      // the kernel to draw the head, otherwise hidden from primary rays. The
+      // panel below toggles `freeze_camera`, so this reads it a frame late,
+      // imperceptible for a debug control and consistent within the frame.
+      rig.set_frozen(freeze_camera);
+      render_cfg.show_head = freeze_camera;
+
       const camera_rays rays = rig.rays();
       const metal_ball ball = rig.ball();
       const saucer_head head = rig.head(render_cfg.head);
@@ -777,7 +824,7 @@ int main() {
       imgui.begin_frame();
       if (show_config)
         draw_config_panel(rig.tune, tuning_defaults, render_cfg,
-            render_defaults);
+            render_defaults, freeze_camera);
 
       const int sync_interval = present_sync_interval(win);
 

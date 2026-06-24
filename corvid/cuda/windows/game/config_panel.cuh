@@ -387,12 +387,13 @@ inline void draw_render_section(render_config& c, const render_config& dc) {
 
 // Draw the live tuning panel: the avatar feel and saucer shape (editing `t`
 // against defaults `d`), and the shading config (editing `c` against `dc`).
-// "Reset all" restores everything; per-field descriptions are hover tooltips.
-// A modified field is tinted and gains an inline reset. The window opens
-// centered at a readable size (ImGui's .ini persistence is disabled, so this
-// default holds every run).
+// "Reset all" restores everything; the "freeze camera" checkbox toggles the
+// observer freeze (`freeze_camera`). Per-field descriptions are hover
+// tooltips. A modified field is tinted and gains an inline reset. The window
+// opens centered at a readable size (ImGui's .ini persistence is disabled, so
+// this default holds every run).
 inline void draw_config_panel(avatar_tuning& t, const avatar_tuning& d,
-    render_config& c, const render_config& dc) {
+    render_config& c, const render_config& dc, bool& freeze_camera) {
   const ImGuiViewport* vp = ImGui::GetMainViewport();
   ImGui::SetNextWindowPos(vp->GetCenter(), ImGuiCond_FirstUseEver,
       ImVec2(0.5F, 0.5F));
@@ -403,6 +404,13 @@ inline void draw_config_panel(avatar_tuning& t, const avatar_tuning& d,
     t = d;
     c = dc;
   }
+  ImGui::Checkbox("freeze camera", &freeze_camera);
+  ImGui::SetItemTooltip("%s",
+      "Observer mode: pin the camera in place and draw the saucer head, "
+      "normally hidden because the camera rides inside it. The mouse and "
+      "movement keys then turn and move the ship in front of the fixed "
+      "camera, "
+      "so you can inspect it from any side. Off rides the head again.");
   // The scene sun direction is global (sky glow, terrain, saucer), so it sits
   // above the per-section trees rather than inside one.
   tuned_vec3("sun direction", c.sun_direction, dc.sun_direction, -1.0F, 1.0F,

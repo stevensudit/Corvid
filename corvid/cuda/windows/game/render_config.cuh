@@ -102,8 +102,8 @@ struct render_config {
     // forward so the dome reads as a single eye. The iris spans two grid
     // cells, so its edge nests flush with the surrounding hex cells. Albedo
     // only, crisp, so it holds up small in the ball reflection.
-    float eye_forward = 1.5F; // lean toward the front (0 = at the apex)
-    float eye_lean = 0.432F;  // extra forward lean per unit of look-down
+    float eye_forward = 0.515F; // lean toward the front (0 = at the apex)
+    float eye_lean = 0.432F;    // extra forward lean per unit of look-down
     float eye_aim = 0.333F;  // 0..1 blend of the eye toward the look direction
     float eye_hub = 0.09F;   // central hub-circle radius
     int eye_spokes = 6;      // radial spokes inside the iris (try 3)
@@ -151,6 +151,12 @@ struct render_config {
   // the useful range. Runtime (not a `constexpr`) so the panel can change it;
   // the cost is the square of this.
   int aa_samples = 2;
+
+  // Observer freeze (debug): draw the saucer head in the primary view. Off by
+  // default, since the camera normally rides inside the head and so never sees
+  // it directly. The viewer sets this from the freeze-camera toggle, which
+  // also pins the camera so the avatar can be driven out in front and watched.
+  bool show_head = false;
 };
 
 #pragma endregion

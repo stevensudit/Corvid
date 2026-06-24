@@ -56,6 +56,11 @@ namespace corvid::cuda {
     out = (hp.ambient + (hp.sun * diffuse)) * hp.base_albedo; // lit steel rod
     return true;
   }
+  // The tip is the emissive green beacon, so only draw it where it is actually
+  // the nearest surface. A tip that has tilted behind or into the saucer would
+  // otherwise bleed its green onto the body skin in front of it, since the
+  // collar test alone does not know which surface the hit belongs to.
+  if (ball_d > head.saucer_sdf(hit_point)) return false;
   // The tip reads as a fast-spinning dish blurred into a beacon: an
   // axially-symmetric emissive glow about the antenna, with a hot core toward
   // the viewer and a bright band where the spinning rim sweeps.
@@ -358,10 +363,11 @@ shade_world_ray(const density_field& field, cudaTextureObject_t color,
 }
 
 // Composite the primary ray: the nearest of the ball, the terrain, and the
-// flat mirror, or the sky if it escapes them all. The saucer head is not
-// tested here: the camera rides inside it, so it never appears in the view
-// itself, only reflected in the ball (`shade_ball`) or the mirror
-// (`shade_world_ray`).
+// flat mirror, or the sky if it escapes them all. The saucer head is tested
+// only when `cfg.show_head` is set (the observer freeze): normally the camera
+// rides inside it, so it appears only reflected in the ball (`shade_ball`) or
+// the mirror (`shade_world_ray`), but the freeze pins the camera outside it
+// and reveals it here.
 [[nodiscard]] __device__ inline vec3
 shade_primary_ray(const density_field& field, cudaTextureObject_t color,
     const metal_ball& ball, const saucer_head& head, const flat_mirror& mirror,
@@ -369,8 +375,9 @@ shade_primary_ray(const density_field& field, cudaTextureObject_t color,
   const float t_terrain = field.raymarch(eye, ray_dir);
   const float t_ball = ball.intersect(eye, ray_dir);
   const float t_mirror = mirror.intersect(eye, ray_dir);
+  const float t_head = cfg.show_head ? head.raymarch(eye, ray_dir) : -1.0F;
   float best = 1.0e30F;
-  int kind = 0; // 0 sky, 1 terrain, 2 ball, 3 mirror
+  int kind = 0; // 0 sky, 1 terrain, 2 ball, 3 mirror, 4 head
   if (t_terrain >= 0.0F && t_terrain < best) {
     best = t_terrain;
     kind = 1;
@@ -383,6 +390,10 @@ shade_primary_ray(const density_field& field, cudaTextureObject_t color,
     best = t_mirror;
     kind = 3;
   }
+  if (t_head >= 0.0F && t_head < best) {
+    best = t_head;
+    kind = 4;
+  }
   if (kind == 2)
     return shade_ball(field, color, ball, head, cfg, eye + (ray_dir * best),
         ray_dir);
@@ -391,6 +402,7 @@ shade_primary_ray(const density_field& field, cudaTextureObject_t color,
     const vec3 refl = reflect(ray_dir, mirror.normal);
     return shade_world_ray(field, color, ball, head, cfg, hit, refl) * 0.9F;
   }
+  if (kind == 4) return shade_head(head, cfg, eye + (ray_dir * best), ray_dir);
   if (kind == 1)
     return shade_terrain_hit(field, color, cfg, eye + (ray_dir * best));
   return sky_color(cfg, ray_dir);
