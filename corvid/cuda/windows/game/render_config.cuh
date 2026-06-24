@@ -122,13 +122,9 @@ struct render_config {
     vec3 seam_color{0.0F, 0.0F, 0.0F}; // band color (hard black)
 
     // Cockpit eye: a pupil hub and radial spokes inside an opaque hexagonal
-    // iris on the front of the fixed dome, placed relative to the saucer's
-    // forward so the dome reads as a single eye. The iris spans two grid
-    // cells, so its edge nests flush with the surrounding hex cells. Albedo
-    // only, crisp, so it holds up small in the ball reflection.
-    float eye_forward = 0.515F; // lean toward the front (0 = at the apex)
-    float eye_lean = 0.432F;    // extra forward lean per unit of look-down
-    float eye_aim = 0.333F;  // 0..1 blend of the eye toward the look direction
+    // iris on the dome front, placed by the rig's look gimbal. The iris spans
+    // two grid cells, so its edge nests flush with the surrounding hex cells.
+    // Albedo only, crisp, so it holds up small in the ball reflection.
     float eye_hub = 0.09F;   // central hub-circle radius
     int eye_spokes = 6;      // radial spokes inside the iris (try 3)
     float eye_line = 0.018F; // frame, spoke, and hub line width

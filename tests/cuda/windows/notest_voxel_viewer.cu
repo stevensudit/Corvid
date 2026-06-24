@@ -353,26 +353,6 @@ struct avatar_rig {
     return anchor - (heading_fwd * boom) + (camera::world_up * rise);
   }
 
-  // The saucer's tilted up axis (disc normal). The saucer is rigidly mounted
-  // to the view and tilts as a body to aim its fixed camera: the disc normal
-  // is the view up leaned back along the look, so the belly faces outward.
-  // Pitch the look down and the whole saucer noses down with it, showing its
-  // profile. It also tilts in the direction the head is moving, like a
-  // helicopter: nose into forward or backward travel and bank toward a strafe,
-  // including a zoom dolly (which moves the head toward or away from the
-  // ball), scaled by `move_tilt`.
-  [[nodiscard]] vec3 saucer_up() const {
-    const basis b = frame();
-    const vec3 leaned = b.up - (b.forward * tune.saucer_lean);
-    const vec3 heading_fwd{cos(heading), 0.0F, sin(heading)};
-    const vec3 heading_right{-sin(heading), 0.0F, cos(heading)};
-    // Backward leans less than forward (reversing already faces the right
-    // way).
-    const float nose = drive >= 0.0F ? drive : drive * tune.back_tilt;
-    const vec3 tilt = (heading_fwd * nose) + (heading_right * slide);
-    return normalize(leaned + (tilt * tune.move_tilt));
-  }
-
   // Drive the anchor in the yaw-horizontal frame. Space/Ctrl still raise and
   // lower it directly, since there is no terrain following yet. Records the
   // planar movement so `update` knows when to swing the heading toward travel;
@@ -485,72 +465,70 @@ struct avatar_rig {
 
   [[nodiscard]] metal_ball ball() const { return {anchor, tune.ball_radius}; }
   [[nodiscard]] saucer_head head(const render_config::head_params& hp) const {
-    // The front orients the cockpit eye; `front_offset_deg` rotates it off the
-    // camera heading about the saucer's up axis, a debug aid to inspect the
-    // back of the dome in the mirror.
-    const vec3 up = saucer_up();
-    vec3 front = frame().forward;
+    // The articulated look gimbal. The camera looks freely along `facing`; the
+    // eye, dome, and saucer tilt computed here are only drawn (seen reflected
+    // in the ball), never the view itself. Everything is built in the look's
+    // vertical meridian: `f_h` is the look heading on the ground, `world_up`
+    // the vertical. `front_offset_deg` (animation rigging) swings the meridian
+    // off the look heading about the vertical, to bring the back of the dome
+    // into the mirror.
+    const vec3 up_w = camera::world_up;
+    vec3 f_h = ground_forward();
     if (tune.front_offset_deg != 0.0F) {
-      const float a = tune.front_offset_deg * radians::per_degree;
-      const float ca = cosf(a);
-      const float sa = sinf(a);
-      front = (front * ca) + (cross(up, front) * sa) +
-              (up * (dot(up, front) * (1.0F - ca)));
+      const radians a{tune.front_offset_deg * radians::per_degree};
+      const vec3 axis = normalize(cross(f_h, up_w)); // horizontal, off heading
+      f_h = normalize((f_h * cos(a)) - (axis * sin(a)));
     }
-    // The cockpit eye's motion gimbal: as forward/back travel noses the
-    // saucer, swing the eye the other way along the dome so the orb reads as a
-    // gimbal holding against the body tilt. `drive` is the same eased travel
-    // signal that leans the saucer, so the two stay in sync; a gain past unity
-    // overshoots for a livelier counter-swing.
-    const float eye_counter_offset = -tune.eye_counter * drive;
 
-    // The cockpit eye's placement direction, shared by the shader's eye decal
-    // and the antenna. It leans off the apex by `eye_forward` plus the
-    // look-pitch lean and a motion offset, blends toward the look by
-    // `eye_aim`, then clamps to the dome cap. A lambda, so the antenna can
-    // request the same placement with the motion offset zeroed (its rest
-    // reference).
-    const vec3 e_fwd = normalize(front - (up * dot(front, up)));
-    constexpr float min_up = 0.34F; // the dome cap, matching scene_render
-    const auto place_eye = [&](float motion) {
-      const float lean = (hp.eye_lean * (-front.y)) + motion;
-      const vec3 c_lean = normalize(up + (e_fwd * (hp.eye_forward + lean)));
-      vec3 dir = normalize(c_lean + ((front - c_lean) * hp.eye_aim));
-      const float up_dot = dot(dir, up);
-      if (up_dot < min_up) {
-        const vec3 flat = dir - (up * up_dot);
-        const float fl = sqrtf(dot(flat, flat));
-        if (fl > 1.0e-4F)
-          dir =
-              (up * min_up) + ((flat / fl) * sqrtf(1.0F - (min_up * min_up)));
-      }
-      return dir;
-    };
-    const vec3 eye_dir = place_eye(eye_counter_offset);
+    // The eye's angular half-extent on the dome, from the iris size alone (the
+    // iris apothem is three geodesic-cell apothems). The dome's rotation
+    // limits and the saucer's tilt limits both derive from it, so there are no
+    // knobs.
+    const radians eye_ang{
+        3.0F * geodesic_eye_cell_of(hp.dome_hex_freq).apothem};
+    constexpr radians rest = 30.0_deg; // eye sits this far up the dome at rest
+    constexpr radians pole = 90.0_deg; // straight up, the north pole
+    constexpr radians lead = 60.0_deg; // the antenna's fixed lead over the eye
+    const radians lift{tune.eye_lift_deg * radians::per_degree};
+    const radians dip_max{tune.dip_max_deg * radians::per_degree};
 
-    // The antenna stands vertical out of the dome, along its up axis, when the
-    // ship is at rest, and leans only with the motion gimbal, not with the
-    // look. Measure the eye's deviation from its rest placement (the same
-    // placement with the motion offset zeroed, the look-lean and aim kept) and
-    // rotate `up` by it: at rest the two match and the antenna is `up`; the
-    // motion swing carries it the same way, so the dome still reads solid in
-    // motion. Keeping the look-lean inside the rest is what holds the antenna
-    // vertical as you look up and down, instead of tipping it with the eye.
-    // Unit since `eye_dir` and `eye_rest` both lie in the up/`e_fwd` plane.
-    const vec3 eye_rest = place_eye(0.0F);
-    const float cos_r = dot(eye_rest, up);
-    const float sin_r = dot(eye_rest, e_fwd);
-    const float cos_e = dot(eye_dir, up);
-    const float sin_e = dot(eye_dir, e_fwd);
-    const vec3 antenna_dir =
-        (up * ((cos_e * cos_r) + (sin_e * sin_r))) +
-        (e_fwd * ((sin_e * cos_r) - (cos_e * sin_r)));
+    // The eye's travel on the dome, edge to edge. The dome sphere's equator is
+    // submerged in the disc, so the visible cap ends at the seam (`rr =
+    // dome_hex_extent - seam_offset`, whose dome elevation is `acos(rr /
+    // dome_radius)`). The lower limit keeps the eye's edge above that seam, so
+    // it never slides onto the saucer; the upper keeps its edge below the
+    // pole.
+    const float seam_cos =
+        fminf((hp.dome_hex_extent - hp.seam_offset) / tune.dome_radius, 1.0F);
+    const radians dome_max = pole - eye_ang;
+    const radians dome_min =
+        std::min(radians_acos(seam_cos) + eye_ang, dome_max);
 
-    return {eye(), up, front, tune.head_radius, spin, tune.disc_height,
+    // The eye aims `lift` above the look: the camera rides above the eye, so a
+    // level aim reads as looking low, and the lift restores eye contact in the
+    // mirror. It sits `rest` higher than its aim on the dome, so a level look
+    // rests the saucer dipped by `rest` (nosed down), showing the dome in
+    // profile from the jockey. The dome rotates the eye within its travel;
+    // past that the saucer takes over the dip, nosing up until the eye reaches
+    // straight up and down only as far as `dip_max`.
+    const radians aim = facing.pitch + lift;
+    const radians dome = std::clamp(aim + rest, dome_min, dome_max);
+    const radians tilt = std::clamp(aim - dome, -dip_max, eye_ang);
+    const radians eye_elev = dome + tilt; // the eye's world aim, = look + lift
+
+    // The three drawn vectors, all in the meridian: the disc normal (the
+    // saucer tilt), the eye direction, and the antenna direction a fixed
+    // `lead` ahead of the eye, so it leans forward with the resting dip.
+    const vec3 up = normalize((up_w * cos(tilt)) - (f_h * sin(tilt)));
+    const vec3 eye_dir = (f_h * cos(eye_elev)) + (up_w * sin(eye_elev));
+    const radians ant_elev = eye_elev + lead;
+    const vec3 antenna_dir = (f_h * cos(ant_elev)) + (up_w * sin(ant_elev));
+
+    return {eye(), up, f_h, tune.head_radius, spin, tune.disc_height,
         tune.dome_offset, tune.dome_radius, tune.dome_blend, tune.top_height,
-        tune.rim_round, eye_counter_offset, eye_dir, antenna_dir,
-        tune.antenna_length, tune.antenna_thickness, tune.antenna_ball,
-        tune.antenna_collar, tune.head_hit_cap};
+        tune.rim_round, 0.0F, eye_dir, antenna_dir, tune.antenna_length,
+        tune.antenna_thickness, tune.antenna_ball, tune.antenna_collar,
+        tune.head_hit_cap};
   }
 };
 

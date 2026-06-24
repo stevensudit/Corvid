@@ -189,13 +189,15 @@ Dolly while Steering.
 
 ### Mode transitions and release
 
-Releasing the right mouse button ends Look mode, and the Head holds its current
-pitch rather than easing back to the resting position. What happens next depends
-on whether the Body moves and whether the right mouse is held:
+Releasing the right mouse button ends Look mode. While the Body stays still, the
+Head holds its current pitch rather than easing back to the resting position.
+What happens when the Body moves depends on whether the right mouse is held:
 
 - Right mouse released, then the Body moves: there is no Look-to-Steer
   conversion. The Head follows the Body under helicopter mechanics (the Saucer
-  tilts from motion and the Eye counter-tilts like a steadycam).
+  tilts from motion and the Eye counter-tilts like a steadycam), and the look
+  eases back to frame the Body: the yaw recenters to the heading and the pitch
+  to level, so the view drifts to face the way the Body is driving.
 - Right mouse held while the Body moves: Look becomes Steer. The Saucer's tilt
   is controlled by helicopter mechanics, and the Eye stays under mouse control
   (within its rotation limits); the stabilizing counter-tilt still cancels the

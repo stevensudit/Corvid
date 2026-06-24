@@ -208,8 +208,8 @@ struct geodesic_eye_cell {
   float phase;   // grid rotation about the eye that makes the cell flat-top
 };
 
-[[nodiscard]] __device__ inline geodesic_eye_cell geodesic_eye_cell_of(
-    int freq) {
+[[nodiscard]] __host__ __device__ inline geodesic_eye_cell
+geodesic_eye_cell_of(int freq) {
   const vec3 v0{0.0F, 1.0F, 0.0F};
   const vec3 v1{0.8944272F, 0.4472136F, 0.0F};
   const vec3 v2{0.2763932F, 0.4472136F, 0.8506508F};

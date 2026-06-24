@@ -57,17 +57,20 @@ struct avatar_tuning {
   float spin_move_gain = -3.0F;  // spin gain from forward travel, signed
   float spin_idle_period = 6.0F; // seconds between idle spin reversals
 
-  // Saucer tilt: the lean toward the look and the motion-driven nose tilt.
-  float saucer_lean = 0.4F; // belly lean toward the look
-  float move_tilt = 1.75F;  // forward nose-down lean into travel at speed
-  float back_tilt = 0.5F;   // backward tilt as a fraction of the forward
+  // Saucer tilt: the look gimbal's max nose-down dip, plus the deferred
+  // motion-driven helicopter tilt.
+  float dip_max_deg = 65.0F; // max nose-down dip on a look down, degrees
+  float move_tilt = 1.75F;   // forward nose-down lean into travel at speed
+  float back_tilt = 0.5F;    // backward tilt as a fraction of the forward
 
   // Dome shape, as fractions of the head radius (see `saucer_head`).
   float dome_offset = 0.2F;  // dome center height / radius (lower = buried)
   float dome_radius = 0.46F; // dome sphere radius / radius
 
-  // Eye: the cockpit orb's counter-swing against the saucer's nose tilt.
-  float eye_counter = 1.75F; // orb counter-swing vs the motion nose tilt
+  // Eye: the look-gimbal lift (the eye aims this far above the look for eye
+  // contact) and the deferred motion counter-swing.
+  float eye_lift_deg = 15.0F; // degrees the eye aims above the look
+  float eye_counter = 1.75F;  // orb counter-swing vs the motion nose tilt
 
   // Antenna standing off the dome top (fractions of the head radius). It wags
   // with the eye's gimbal as an exaggerated tilt signal; `antenna_length` 0

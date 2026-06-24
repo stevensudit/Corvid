@@ -228,8 +228,9 @@ inline void draw_saucer_section(avatar_tuning& t, const avatar_tuning& d,
     ImGui::TreePop();
   }
   if (ImGui::TreeNode("Saucer - Tilt")) {
-    tuned_slider("saucer lean", t.saucer_lean, d.saucer_lean, 0.0F, 1.0F,
-        "How far the saucer tilts its belly toward the look direction.");
+    tuned_slider("max dip", t.dip_max_deg, d.dip_max_deg, 0.0F, 80.0F,
+        "Cap on the saucer's nose-down dip when looking down (degrees); the "
+        "eye tracks down until the dip reaches this, then holds.");
     tuned_slider("move tilt", t.move_tilt, d.move_tilt, 0.0F, 2.0F,
         "How far the saucer noses forward into travel at full speed.");
     tuned_slider("back tilt", t.back_tilt, d.back_tilt, 0.0F, 1.0F,
@@ -290,15 +291,10 @@ inline void draw_dome_section(avatar_tuning& t, const avatar_tuning& d,
 inline void draw_eye_section(avatar_tuning& t, const avatar_tuning& d,
     render_config& c, const render_config& dc) {
   if (!ImGui::TreeNode("Eye")) return;
-  tuned_slider("eye forward", c.head.eye_forward, dc.head.eye_forward, 0.0F,
-      3.0F, "How far the eye leans toward the front (0 = at the apex).");
-  tuned_slider("eye lean", c.head.eye_lean, dc.head.eye_lean, -3.0F, 3.0F,
-      "Extra forward lean added as you look down, so the eye leans down the "
-      "dome with the look (signed; stays nested on the dome).");
-  tuned_slider("eye aim", c.head.eye_aim, dc.head.eye_aim, 0.0F, 1.0F,
-      "Blend the eye toward your actual look direction, so looking at "
-      "something aims the eye toward it. Clamped to the dome cap, which tops "
-      "out near the horizon.");
+  tuned_slider("eye lift", t.eye_lift_deg, d.eye_lift_deg, 0.0F, 30.0F,
+      "Degrees the eye aims above the look so it makes eye contact: the "
+      "camera "
+      "rides above the eye, so a level aim reads as looking low.");
   tuned_slider("eye counter", t.eye_counter, d.eye_counter, -3.0F, 3.0F,
       "Swings the cockpit eye against the saucer's motion nose-tilt so the "
       "orb "
@@ -348,7 +344,7 @@ inline void draw_movement_section(avatar_tuning& t, const avatar_tuning& d) {
   tuned_slider("camera height", t.camera_height, d.camera_height, 0.0F, 2.0F,
       "Eye height above the head center (of the head radius); raises the "
       "viewpoint so the dome-heavy saucer reflects lower in the frame.");
-  tuned_slider("boom min", t.boom_min, d.boom_min, -5.0F, 0.0F,
+  tuned_slider("boom min", t.boom_min, d.boom_min, -5.0F, 5.0F,
       "Closest boom: head pushed in front of the ball (first person).");
   tuned_slider("boom max", t.boom_max, d.boom_max, 1.0F, 30.0F,
       "Farthest boom: head pulled back behind the ball (wide view).");
