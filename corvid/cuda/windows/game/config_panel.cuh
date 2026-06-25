@@ -183,6 +183,27 @@ inline void draw_saucer_section(avatar_tuning& t, const avatar_tuning& d,
         "Highlight sharpness on the belly.", ImGuiSliderFlags_AlwaysClamp);
     ImGui::TreePop();
   }
+  if (ImGui::TreeNode("Saucer - Top")) {
+    tuned_slider_int("port count", c.head.port_count, dc.head.port_count, 0,
+        32, "Number of portholes ringing the upper cone (0 removes them).");
+    tuned_slider("port center", c.head.port_center, dc.head.port_center, 0.0F,
+        1.0F, "Porthole ring radius (fraction of disc radius).");
+    tuned_slider("port radius", c.head.port_radius, dc.head.port_radius, 0.0F,
+        0.3F, "Porthole radius (fraction of disc radius).");
+    tuned_color("port color", c.head.port_color, dc.head.port_color,
+        "Dark porthole glass color.");
+    tuned_slider_int("panel count", c.head.panel_count, dc.head.panel_count, 0,
+        32,
+        "Number of radial panel grooves on the upper cone (0 removes "
+        "them).");
+    tuned_slider("panel line", c.head.panel_line, dc.head.panel_line, 0.0F,
+        0.05F,
+        "Half-width of the radial panel grooves (arc, fraction of radius).");
+    tuned_slider("panel strength", c.head.panel_strength,
+        dc.head.panel_strength, 0.0F, 1.0F,
+        "How much the panel grooves darken the hull.");
+    ImGui::TreePop();
+  }
   if (ImGui::TreeNode("Saucer - Belly")) {
     tuned_slider("ring frequency", c.head.ring_frequency,
         dc.head.ring_frequency, 0.0F, 60.0F,

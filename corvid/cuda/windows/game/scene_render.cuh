@@ -239,6 +239,41 @@ namespace corvid::cuda {
     }
   }
 
+  // The saucer's upper cone, dressed to a classic hull: a fixed ring of dark
+  // portholes and radial panel grooves. Both ride the saucer's local frame
+  // (no belly spin), and the hull is radially symmetric, so their fixed angle
+  // is invisible under the bank. Drawn on the up-facing disc only, never the
+  // dome (which carries its own grid) nor the belly.
+  if (!is_dome && upside > 0.001F) {
+    constexpr float aa = 0.01F;
+    constexpr float two_pi = 6.2831853F;
+    const float lx = ql.x / head.radius;
+    const float lz = ql.z / head.radius;
+    const float top_ang = atan2f(lz, lx); // fixed to the hull, no spin
+
+    // Dark portholes evenly spaced on a ring, each centered in its panel:
+    // snap to the nearest ring slot, then test the in-plane distance to it.
+    if (hp.port_count > 0) {
+      const float sector = two_pi / static_cast<float>(hp.port_count);
+      const float a0 = (rintf((top_ang / sector) - 0.5F) + 0.5F) * sector;
+      const float dx = lx - (hp.port_center * cosf(a0));
+      const float dz = lz - (hp.port_center * sinf(a0));
+      const float pd = sqrtf((dx * dx) + (dz * dz));
+      const float port = __saturatef((hp.port_radius - pd) / aa);
+      albedo = (albedo * (1.0F - port)) + (hp.port_color * port);
+    }
+
+    // Radial panel grooves: thin darkened seams at evenly spaced angles, the
+    // arc scaled by `rr` so each holds a constant width out to the rim.
+    if (hp.panel_count > 0) {
+      const auto panels = static_cast<float>(hp.panel_count);
+      const float phase = (top_ang * panels) / two_pi;
+      const float to_seam = fabsf(phase - rintf(phase)) * (two_pi / panels);
+      const float groove = __saturatef((hp.panel_line - (to_seam * rr)) / aa);
+      albedo = albedo * (1.0F - (groove * hp.panel_strength));
+    }
+  }
+
   // The belly: a painted disc (concentric rings * spinning spokes), the
   // central flashlight hub, and a ring of amber rim lights.
   if (underside > 0.001F) {

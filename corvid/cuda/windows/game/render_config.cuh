@@ -93,6 +93,19 @@ struct render_config {
     float rim_strength = 2.2F;
     float rim_dot_frequency = 16.0F;
 
+    // Saucer top: fixed decals dressing the bare upper cone for a classic
+    // hull look. A ring of dark portholes and a set of radial panel grooves,
+    // both placed in the saucer's local frame so they hold still on the hull
+    // (they do not spin with the belly). The hull is radially symmetric, so
+    // their fixed angle is invisible under the bank.
+    int port_count = 14;                  // portholes round the ring (0 off)
+    float port_center = 0.775F;           // ring radius / disc radius
+    float port_radius = 0.075F;           // porthole radius / disc radius
+    vec3 port_color{0.02F, 0.02F, 0.05F}; // dark porthole glass
+    int panel_count = 14;                 // radial panel grooves (0 off)
+    float panel_line = 0.01F;             // groove half-width (arc) / radius
+    float panel_strength = 0.4F;          // how much the grooves darken
+
     // Dome canopy tint, plus the dome cap's own steel albedo, kept separate
     // from `base_albedo` so the dome can be darkened to pop without dimming
     // the rest of the hull. Split at the same `rr` boundary as the hex grid
