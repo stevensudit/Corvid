@@ -247,15 +247,21 @@ namespace corvid::cuda {
   if (!is_dome && upside > 0.001F) {
     constexpr float aa = 0.01F;
     constexpr float two_pi = 6.2831853F;
-    const float lx = ql.x / head.radius;
-    const float lz = ql.z / head.radius;
-    const float top_ang = atan2f(lz, lx); // fixed to the hull, no spin
+    // Azimuth bolted to the hull's `front`, not `to_local`'s world-up frame,
+    // so these fixed decals hold still as the disc banks under dolly motion.
+    // Each decal subtracts its own phase to rotate where it rings the hull.
+    const float top_ang = head.hull_azimuth(hit_point);
 
-    // Dark portholes evenly spaced on a ring, each centered in its panel:
-    // snap to the nearest ring slot, then test the in-plane distance to it.
+    // Dark portholes evenly spaced on a ring, each centered in its panel: snap
+    // to the nearest ring slot, then test the in-plane distance to it. `rr` is
+    // frame-independent, so reconstruct the in-plane coordinates from it and
+    // the phased azimuth.
     if (hp.port_count > 0) {
+      const float pa = top_ang - hp.port_phase;
+      const float lx = rr * cosf(pa);
+      const float lz = rr * sinf(pa);
       const float sector = two_pi / static_cast<float>(hp.port_count);
-      const float a0 = (rintf((top_ang / sector) - 0.5F) + 0.5F) * sector;
+      const float a0 = (rintf((pa / sector) - 0.5F) + 0.5F) * sector;
       const float dx = lx - (hp.port_center * cosf(a0));
       const float dz = lz - (hp.port_center * sinf(a0));
       const float pd = sqrtf((dx * dx) + (dz * dz));
@@ -267,7 +273,7 @@ namespace corvid::cuda {
     // arc scaled by `rr` so each holds a constant width out to the rim.
     if (hp.panel_count > 0) {
       const auto panels = static_cast<float>(hp.panel_count);
-      const float phase = (top_ang * panels) / two_pi;
+      const float phase = ((top_ang - hp.panel_phase) * panels) / two_pi;
       const float to_seam = fabsf(phase - rintf(phase)) * (two_pi / panels);
       const float groove = __saturatef((hp.panel_line - (to_seam * rr)) / aa);
       albedo = albedo * (1.0F - (groove * hp.panel_strength));

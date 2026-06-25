@@ -102,9 +102,11 @@ struct render_config {
     float port_center = 0.775F;           // ring radius / disc radius
     float port_radius = 0.075F;           // porthole radius / disc radius
     vec3 port_color{0.02F, 0.02F, 0.05F}; // dark porthole glass
+    float port_phase = 0.224F;            // ring rotation about the axis, rad
     int panel_count = 14;                 // radial panel grooves (0 off)
     float panel_line = 0.01F;             // groove half-width (arc) / radius
     float panel_strength = 0.4F;          // how much the grooves darken
+    float panel_phase = 0.224F; // groove rotation about the axis, rad
 
     // Dome canopy tint, plus the dome cap's own steel albedo, kept separate
     // from `base_albedo` so the dome can be darkened to pop without dimming

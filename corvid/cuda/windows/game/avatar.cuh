@@ -136,6 +136,24 @@ struct saucer_head {
     return vec3{dot(q, ex), dot(q, up), dot(q, ez)};
   }
 
+  // Azimuth of `p` about the disc axis, measured from the hull's own `front`
+  // projected into the disc plane, so a decal placed by it stays bolted to the
+  // hull as the disc banks. `to_local` instead floats its azimuth on world up,
+  // which is fine for the spinning, radially symmetric belly but slides a
+  // fixed decal whenever the disc tilts. The fallback covers only the
+  // degenerate pose where `front` is parallel to the disc axis (a 90-degree
+  // pitch the rig never reaches).
+  [[nodiscard]] __device__ float hull_azimuth(pos3 p) const {
+    const vec3 q = p - center;
+    const vec3 fwd0 = front - (up * dot(front, up));
+    const float len = sqrtf(dot(fwd0, fwd0));
+    const vec3 fwd =
+        len > 1.0e-4F ? (fwd0 / len)
+                      : normalize(cross(up, vec3{1.0F, 0.0F, 0.0F}));
+    const vec3 right = cross(up, fwd);
+    return atan2f(dot(q, right), dot(q, fwd));
+  }
+
   // The disc body and the dome sphere distances that `saucer_sdf`
   // smooth-unions, in the tilted local frame. The shader compares them to tell
   // which surface a hit belongs to, so the dome decal draws only on the dome

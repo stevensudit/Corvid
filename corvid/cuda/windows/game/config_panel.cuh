@@ -192,6 +192,8 @@ inline void draw_saucer_section(avatar_tuning& t, const avatar_tuning& d,
         0.3F, "Porthole radius (fraction of disc radius).");
     tuned_color("port color", c.head.port_color, dc.head.port_color,
         "Dark porthole glass color.");
+    tuned_slider("port phase", c.head.port_phase, dc.head.port_phase, -3.15F,
+        3.15F, "Rotate the porthole ring about the hull axis, radians.");
     tuned_slider_int("panel count", c.head.panel_count, dc.head.panel_count, 0,
         32,
         "Number of radial panel grooves on the upper cone (0 removes "
@@ -202,6 +204,9 @@ inline void draw_saucer_section(avatar_tuning& t, const avatar_tuning& d,
     tuned_slider("panel strength", c.head.panel_strength,
         dc.head.panel_strength, 0.0F, 1.0F,
         "How much the panel grooves darken the hull.");
+    tuned_slider("panel phase", c.head.panel_phase, dc.head.panel_phase,
+        -3.15F, 3.15F,
+        "Rotate the panel grooves about the hull axis, radians.");
     ImGui::TreePop();
   }
   if (ImGui::TreeNode("Saucer - Belly")) {
