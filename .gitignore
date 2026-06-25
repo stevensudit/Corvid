@@ -53,6 +53,7 @@ tidy.log
 tests/.fetchcontent/
 tests/.fetchcontent-debug/
 tests/.local/
+*.log
 
 # Claude Code
 .claude/settings.local.json

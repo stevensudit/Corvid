@@ -117,7 +117,7 @@ struct render_config {
     // with the lit metal and specular removed) so the whole band reads true
     // black instead of washing out under the lighting; reads as a groove the
     // dome sits in, hinting it could separate.
-    float seam_offset = 0.017F;        // inner edge of seam
+    float seam_offset = -0.008F;       // inner edge of seam
     float seam_width = 0.024F;         // band width (solid, hard-edged)
     vec3 seam_color{0.0F, 0.0F, 0.0F}; // band color (hard black)
 

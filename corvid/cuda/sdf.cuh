@@ -31,14 +31,14 @@ namespace corvid::cuda {
 #pragma region Primitives
 
 // Distance from `p` to a sphere of radius `r` centered at the origin.
-[[nodiscard]] __device__ inline float sd_sphere(vec3 p, float r) {
+[[nodiscard]] __host__ __device__ inline float sd_sphere(vec3 p, float r) {
   return length(p) - r;
 }
 
 // Distance from `p` to an axis-aligned ellipsoid of radii `r` centered at the
 // origin. The result is a bounded approximation (exact distance to a general
 // ellipsoid has no closed form), accurate enough for sphere tracing.
-[[nodiscard]] __device__ inline float sd_ellipsoid(vec3 p, vec3 r) {
+[[nodiscard]] __host__ __device__ inline float sd_ellipsoid(vec3 p, vec3 r) {
   const vec3 pr{p.x / r.x, p.y / r.y, p.z / r.z};
   const float k0 = length(pr);
   if (k0 == 0.0F) return -fminf(r.x, fminf(r.y, r.z));
@@ -77,7 +77,7 @@ sd_capsule(vec3 p, vec3 a, vec3 b, float r) {
 // Negative below the apex inside the cone, positive outside; exact on the
 // lateral surface below the apex and a conservative underestimate above it, so
 // it is safe to sphere-trace and to intersect with a bounded solid.
-[[nodiscard]] __device__ inline float sd_cone(vec3 p, vec2 sin_cos) {
+[[nodiscard]] __host__ __device__ inline float sd_cone(vec3 p, vec2 sin_cos) {
   const float radial =
       sqrtf((p.x * p.x) + (p.z * p.z)); // distance from -y axis
   const float depth = -p.y;             // distance down the axis from the apex
@@ -112,7 +112,7 @@ op_smooth_union(float a, float b, float k) {
 // Intersection with a smooth blend of width `k` where the two surfaces meet,
 // the mirror of `op_smooth_union` for rounding an otherwise sharp intersection
 // edge. `k` must be positive.
-[[nodiscard]] __device__ inline float
+[[nodiscard]] __host__ __device__ inline float
 op_smooth_intersect(float a, float b, float k) {
   const float h = fmaxf(k - fabsf(a - b), 0.0F) / k;
   return fmaxf(a, b) + (h * h * k * 0.25F);

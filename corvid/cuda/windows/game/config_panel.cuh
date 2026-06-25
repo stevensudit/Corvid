@@ -231,10 +231,12 @@ inline void draw_saucer_section(avatar_tuning& t, const avatar_tuning& d,
     tuned_slider("max dip", t.dip_max_deg, d.dip_max_deg, 0.0F, 80.0F,
         "Cap on the saucer's nose-down dip when looking down (degrees); the "
         "eye tracks down until the dip reaches this, then holds.");
-    tuned_slider("move tilt", t.move_tilt, d.move_tilt, 0.0F, 2.0F,
-        "How far the saucer noses forward into travel at full speed.");
-    tuned_slider("back tilt", t.back_tilt, d.back_tilt, 0.0F, 1.0F,
-        "Backward tilt as a fraction of the forward tilt.");
+    tuned_slider("forward tilt", t.forward_tilt_deg, d.forward_tilt_deg, 0.0F,
+        80.0F, "Helicopter nose-down tilt at full forward travel (degrees).");
+    tuned_slider("backward tilt", t.backward_tilt_deg, d.backward_tilt_deg,
+        0.0F, 80.0F, "Helicopter tail-down tilt at full reverse (degrees).");
+    tuned_slider("strafe tilt", t.strafe_tilt_deg, d.strafe_tilt_deg, 0.0F,
+        80.0F, "Helicopter bank toward the strafe at full strafe (degrees).");
     ImGui::TreePop();
   }
 }
@@ -276,7 +278,7 @@ inline void draw_dome_section(avatar_tuning& t, const avatar_tuning& d,
     ImGui::TreePop();
   }
   if (ImGui::TreeNode("Dome - Seam")) {
-    tuned_slider("seam offset", c.head.seam_offset, dc.head.seam_offset, 0.0F,
+    tuned_slider("seam offset", c.head.seam_offset, dc.head.seam_offset, -0.3F,
         0.3F,
         "How far the black band's inner edge sits inside the hex cutoff.");
     tuned_slider("seam width", c.head.seam_width, dc.head.seam_width, 0.0F,
@@ -295,10 +297,12 @@ inline void draw_eye_section(avatar_tuning& t, const avatar_tuning& d,
       "Degrees the eye aims above the look so it makes eye contact: the "
       "camera "
       "rides above the eye, so a level aim reads as looking low.");
-  tuned_slider("eye counter", t.eye_counter, d.eye_counter, -3.0F, 3.0F,
-      "Swings the cockpit eye against the saucer's motion nose-tilt so the "
-      "orb "
-      "reads as a gimbal. Past 1 it overshoots; signed to flip direction.");
+  tuned_slider("stabilize", t.stabilize, d.stabilize, 0.0F, 1.0F,
+      "How much the dome cancels the disc's motion bank: 1 holds the eye and "
+      "grid level (a steadycam) while the disc banks; 0 lets them ride it.");
+  tuned_slider("overcomp", t.overcomp, d.overcomp, 0.0F, 0.5F,
+      "Extra dome tilt past level, opposite the bank, rendered for show only "
+      "(never in the camera aim).");
   tuned_slider("eye hub", c.head.eye_hub, dc.head.eye_hub, 0.0F, 0.25F,
       "Radius of the central hub circle inside the eye.");
   tuned_slider_int("eye spokes", c.head.eye_spokes, dc.head.eye_spokes, 0, 12,
@@ -362,10 +366,6 @@ inline void draw_movement_section(avatar_tuning& t, const avatar_tuning& d) {
       20.0F,
       "Follow: how fast the view rotates to frame travel when the right "
       "button is released.");
-  tuned_slider("head fly speed", t.head_fly_speed, d.head_fly_speed, 1.0F,
-      60.0F,
-      "Max speed the head flies toward its seat, so heading swings glide "
-      "instead of whipping it around the boom.");
   tuned_slider("motion approach", t.motion_approach, d.motion_approach, 1.0F,
       20.0F, "How fast the motion tilt and spin ramp up and fade.");
   ImGui::TreePop();
@@ -447,12 +447,14 @@ draw_animation_rigging_section(avatar_tuning& t, const avatar_tuning& d) {
 // Draw the live tuning panel: the avatar feel and saucer shape (editing `t`
 // against defaults `d`), and the shading config (editing `c` against `dc`).
 // "Reset all" restores everything; the "freeze camera" checkbox toggles the
-// observer freeze (`freeze_camera`). Per-field descriptions are hover
+// observer freeze (`freeze_camera`) and "lock position" the treadmill
+// (`lock_position`). Per-field descriptions are hover
 // tooltips. A modified field is tinted and gains an inline reset. The window
 // opens centered at a readable size (ImGui's .ini persistence is disabled, so
 // this default holds every run).
 inline void draw_config_panel(avatar_tuning& t, const avatar_tuning& d,
-    render_config& c, const render_config& dc, bool& freeze_camera) {
+    render_config& c, const render_config& dc, bool& freeze_camera,
+    bool& lock_position) {
   const ImGuiViewport* vp = ImGui::GetMainViewport();
   ImGui::SetNextWindowPos(vp->GetCenter(), ImGuiCond_FirstUseEver,
       ImVec2(0.5F, 0.5F));
@@ -470,6 +472,12 @@ inline void draw_config_panel(avatar_tuning& t, const avatar_tuning& d,
       "movement keys then turn and move the ship in front of the fixed "
       "camera, "
       "so you can inspect it from any side. Off rides the head again.");
+  ImGui::SameLine();
+  ImGui::Checkbox("lock position", &lock_position);
+  ImGui::SetItemTooltip("%s",
+      "Treadmill: hold the body in place (so the distance to the mirror stays "
+      "fixed) while the saucer still tilts and spins as if moving, so a "
+      "movement key animates it without changing where it is.");
   draw_body_section(t, d, c, dc);
   draw_head_section(t, d, c, dc);
   draw_saucer_section(t, d, c, dc);

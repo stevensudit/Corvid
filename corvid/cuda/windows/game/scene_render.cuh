@@ -124,93 +124,71 @@ namespace corvid::cuda {
   const float rr = sqrtf((ql.x * ql.x) + (ql.z * ql.z)) / head.radius;
   const float ang = atan2f(ql.z, ql.x) + head.spin;
 
-  // The dome cap takes its own base albedo, fully replacing `base_albedo` out
-  // to the hex grid's `rr` boundary, then fading to it just past, onto the
-  // cone, so the dome can be darkened to pop without dimming the saucer body.
-  const float dome_cap =
-      (facing_up > 0.0F)
-          ? __saturatef((hp.dome_hex_extent + 0.08F - rr) / 0.08F)
-          : 0.0F;
-  vec3 albedo =
-      (hp.base_albedo * (1.0F - dome_cap)) + (hp.dome_albedo * dome_cap);
+  // Classify the hit as the dome sphere or the disc body, by which of the two
+  // unioned components is nearer. The dome decal (canopy, grid, eye, seam) is
+  // drawn only on the sphere, tiled over the whole of it, so a dome rotation
+  // can never bare it or slide the eye onto the disc; the disc occludes the
+  // sphere's lower part for free.
+  const saucer_head::parts sp = head.parts_at(hit_point);
+  const bool is_dome = sp.dome < sp.disc;
+
+  // The dome takes its own cap albedo, the saucer body its own elsewhere.
+  vec3 albedo = is_dome ? hp.dome_albedo : hp.base_albedo;
   vec3 emissive{0.0F, 0.0F, 0.0F};
   float eye_cover = 0.0F; // how much an eye decal covers this point
 
   // The dome: a fixed cockpit, mechanical but calmer than the belly. A
-  // canopy-tinted metal shell carrying a single hexagonal porthole eye on its
-  // front: an opaque iris with a pupil hub and radial spokes at its center,
-  // inside a hex frame. The eye is placed relative to the saucer's forward,
-  // not the spinning belly frame, so the dome reads as an eye that holds
-  // still. Its colors are rendered as emissive (and the lit metal under it is
-  // removed), so a set color reads true rather than darkening to gray through
-  // the lighting and the dimmed reflection; the edges stay crisp so it holds
-  // up small.
-  if (upside > 0.001F) {
+  // canopy-tinted metal shell tiled with a geodesic hex grid over its whole
+  // sphere, carrying a single hexagonal porthole eye on its front: an opaque
+  // iris with a pupil hub and radial spokes inside a hex frame. The eye is
+  // placed in the dome's own (counter-rotated) frame, so it holds still on the
+  // dome and can never leave it. Its colors render as emissive (and the lit
+  // metal under it removed), so a set color reads true rather than darkening
+  // to gray; the edges stay crisp so it holds up small.
+  if (is_dome) {
     albedo = (albedo * (1.0F - upside)) + (hp.canopy * upside);
+    constexpr float aa = 0.012F;
 
-    // A hard black band masking the dome/cone joint: a solid top-hat with hard
-    // edges, its inner edge pulled `seam_offset` inside the hex grid's
-    // `dome_hex_extent` cutoff so it covers the specular-washed dome edge as
-    // well as the joint, spanning `seam_width`. Drawn like the eye, emissive
-    // with the lit metal and specular removed (via `eye_cover`), so the whole
-    // band reads true black; a soft-edged or partial band would let the
-    // specular leak back through wherever it is not fully opaque. Reads as a
-    // groove the dome sits in.
-    constexpr float seam_aa = 0.01F;
-    const float band_d = rr - (hp.dome_hex_extent - hp.seam_offset);
+    // A hard black groove where the dome meets the disc: a band the dome
+    // surface enters as it nears the disc (`sp.disc - sp.dome` shrinking to
+    // zero at the join), pulled `seam_offset` in from the very edge and
+    // `seam_width` thick. Drawn like the eye, emissive with the lit metal and
+    // specular removed (via `eye_cover`), so it reads true black, a groove the
+    // dome sits in.
+    const float seam_t = (sp.disc - sp.dome) / head.radius;
+    const float seam_d = seam_t - hp.seam_offset;
     const float band =
-        __saturatef(band_d / seam_aa) *
-        __saturatef((hp.seam_width - band_d) / seam_aa);
+        __saturatef(seam_d / aa) * __saturatef((hp.seam_width - seam_d) / aa);
     albedo = albedo * (1.0F - band);
     emissive = (emissive * (1.0F - band)) + (hp.seam_color * band);
     eye_cover = fmaxf(eye_cover, band);
 
-    // The cockpit eye, leaned toward the front off the apex: a pupil hub and
-    // radial spokes inside an opaque hexagonal iris that together read as an
-    // eye. The iris is two cells across, its flats flush with the surrounding
-    // ring's outer edge, so it nests cleanly in the dome grid. `aa` is a
-    // narrow ramp that keeps the edges crisp without aliasing.
-    constexpr float aa = 0.012F;
-    const vec3 e_up = head.up;
-    // The eye's placement direction is computed once on the host (so the
-    // antenna can share its exact angle) and passed in; see
-    // `camera_rig::head`.
+    // The eye and grid ride `dome_up`, the dome's own frame (it counter-
+    // rotates against the disc's motion bank). `c` is the eye center, passed
+    // from the host so the antenna shares its exact angle; the geodesic cell
+    // the eye nests on sizes the iris (its apothem) and, via its flat-top
+    // phase plus `dome_hex_phase`, rotates the grid about the eye.
+    const vec3 e_up = head.dome_up;
     const vec3 c = head.eye_dir;
-
-    // The geodesic cell the eye nests on, fixing the iris size and the grid
-    // orientation together: its apothem sizes the iris, and its phase rotates
-    // the grid about the eye so the cells sit flat-top under the iris.
-    // `dome_hex_phase` adds a manual nudge on top.
     const geodesic_eye_cell eye_cell = geodesic_eye_cell_of(hp.dome_hex_freq);
-
-    // Tangent frame at the eye center, shared by the grid and the iris so the
-    // two stay concentric.
     const vec3 th = normalize(cross(e_up, c));
     const vec3 tv = cross(c, th);
     const float grid_phase = eye_cell.phase + hp.dome_hex_phase;
     const vec3 eye_tan = (th * cosf(grid_phase)) + (tv * sinf(grid_phase));
 
-    // Locate the point by its direction from the dome's center, a position
-    // that is unique on the dome, rather than by its surface normal: the
-    // flattened body repeats the dome's up-and-forward normals, so a
-    // normal-placed decal would stamp twice (once on the dome, once on the
-    // body).
+    // Locate the point by its direction from the dome's center, unique on the
+    // sphere (a normal-placed decal would stamp twice, on the dome and on the
+    // body, which repeat normals).
     const pos3 dome_c =
         head.center + (e_up * (head.radius * head.dome_offset));
     const vec3 dd = normalize(hit_point - dome_c);
 
-    // A geodesic (Goldberg) hex grid over the whole dome cap: a
+    // The geodesic (Goldberg) hex grid over the whole dome sphere: a
     // frequency-`dome_hex_freq` icosahedron reoriented so one cell sits on the
-    // eye, with the cell's own flat-top phase (plus the `dome_hex_phase`
-    // nudge) rotating the grid about the eye to line its hexagons up with the
-    // iris. Read from `dd` in the head frame so it holds still, and only
-    // inside the sharp cutoff so the cone skips the icosahedron search.
-    const float grid_fade = __saturatef((hp.dome_hex_extent - rr) / aa);
-    if (grid_fade > 0.0F) {
-      const float edge = geodesic_grid_edge(dd, hp.dome_hex_freq, c, eye_tan);
-      const float facet = __saturatef((hp.dome_hex_line - edge) / aa);
-      albedo = albedo * (1.0F - (facet * grid_fade * hp.dome_hex_strength));
-    }
+    // eye, the cell's flat-top phase lining its hexagons up with the iris.
+    const float edge = geodesic_grid_edge(dd, hp.dome_hex_freq, c, eye_tan);
+    const float facet = __saturatef((hp.dome_hex_line - edge) / aa);
+    albedo = albedo * (1.0F - (facet * hp.dome_hex_strength));
 
     // The eye, on the front of the dome (toward the eye center `c`): an opaque
     // glass iris with a pupil hub and radial spokes at its center, ringed by a

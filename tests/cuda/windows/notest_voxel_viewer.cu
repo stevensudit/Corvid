@@ -14,6 +14,7 @@
 #include <cmath>
 #include <cstdint>
 #include <exception>
+#include <fstream> // TEMP: avatar eye/antenna invariant instrumentation
 #include <stdexcept>
 
 #include <cuda_runtime.h>
@@ -169,12 +170,15 @@ __global__ void voxel_kernel(cudaSurfaceObject_t out, resolution res,
   color = vec3{color.x / (1.0F + color.x), color.y / (1.0F + color.y),
       color.z / (1.0F + color.z)};
 
-  // A small crosshair at the screen center marks where a dig lands.
-  const float center_x = res.width * 0.5F;
-  const float center_y = res.height * 0.5F;
-  if ((fabsf(fx - center_x) < 6.0F && fabsf(fy - center_y) < 1.0F) ||
-      (fabsf(fy - center_y) < 6.0F && fabsf(fx - center_x) < 1.0F))
-    color = vec3{1.0F, 1.0F, 1.0F};
+  // A small crosshair at the screen center marks where a dig lands. (TEMP:
+  // disabled while testing the avatar at the mirror; restore with the debug
+  // instrumentation.)
+  //
+  // const float center_x = res.width * 0.5F;
+  // const float center_y = res.height * 0.5F;
+  // if ((fabsf(fx - center_x) < 6.0F && fabsf(fy - center_y) < 1.0F) ||
+  //     (fabsf(fy - center_y) < 6.0F && fabsf(fx - center_x) < 1.0F))
+  //   color = vec3{1.0F, 1.0F, 1.0F};
 
   const uchar4 pixel =
       make_uchar4(to_byte(color.x), to_byte(color.y), to_byte(color.z), 255);
@@ -295,6 +299,14 @@ __global__ void dig_kernel(cudaSurfaceObject_t surface, density_field field,
 #pragma endregion
 #pragma region Avatar
 
+// Rotate `v` about unit `axis` by `angle` (Rodrigues' rotation formula). Local
+// to the rig for now; promote to the vec math if a second caller appears.
+[[nodiscard]] vec3 rotate_about(vec3 v, vec3 axis, radians angle) {
+  const float c = cos(angle);
+  const float s = sin(angle);
+  return (v * c) + (cross(axis, v) * s) + (axis * (dot(axis, v) * (1.0F - c)));
+}
+
 // The player's avatar rig: the ball anchor the player drives and the saucer
 // head the camera rides inside. The camera is always the head, so the head is
 // never drawn in the view; you see it only reflected in the ball. A Warcraft-
@@ -328,8 +340,16 @@ struct avatar_rig {
   bool frozen = false;      // observer freeze: camera pinned, head shown
   pos3 frozen_cam{};        // the pinned camera position while `frozen`
   basis frozen_frame{};     // the pinned camera look while `frozen`
+  bool locked = false;      // treadmill: hold the body, animate as if moving
+  vec3 locked_step{};       // the step `move` withheld this frame while locked
   avatar_tuning
       tune{}; // live feel constants, read through by the methods below
+
+  // TEMP: eye/antenna invariant instrumentation. `head` writes the dome limits
+  // and the pre-clamp eye elevation over the banked disc (degrees) here so the
+  // frame loop can log them. Remove with the rest of the debug log.
+  mutable float dbg_dome_min = 0.0F;
+  mutable float dbg_dome_max = 0.0F;
 
   // The orthonormal view basis for the current facing.
   [[nodiscard]] basis frame() const {
@@ -376,8 +396,18 @@ struct avatar_rig {
   void move(float forward, float strafe, float lift) {
     const vec3 fwd{cos(heading), 0.0F, sin(heading)};
     const vec3 right{-sin(heading), 0.0F, cos(heading)};
-    anchor = anchor + (fwd * forward) + (right * strafe) +
-             (camera::world_up * lift);
+    const vec3 step =
+        (fwd * forward) + (right * strafe) + (camera::world_up * lift);
+    // The locked treadmill holds the body in place (so the distance to the
+    // mirror stays fixed for testing) but withholds the step for `update` to
+    // feed into the velocity, so the saucer still tilts and spins as if
+    // moving.
+    if (locked) {
+      locked_step = step;
+    } else {
+      anchor = anchor + step;
+      locked_step = vec3{};
+    }
     moving = fabsf(forward) + fabsf(strafe);
   }
 
@@ -427,11 +457,13 @@ struct avatar_rig {
       }
     }
 
-    // Ease the head offset toward its seat at a bounded speed, so a heading
-    // swing or a boom dolly glides it rather than whipping it around the long
-    // boom. This caps the head's speed relative to the ball only; the ball's
-    // translation carries through `eye` untouched, so driving never lags the
-    // head out of range. The first frame just seats it.
+    // Ease the head offset toward its seat, capped at the ball's own move
+    // speed: the head can never reposition around the ball faster than the
+    // ball itself travels, so a heading swing or boom dolly glides rather than
+    // whipping the camera around the boom. This caps the head's speed relative
+    // to the ball only; the ball's translation carries through `eye`
+    // untouched, so driving never lags the head out of range. First frame just
+    // seats it.
     const vec3 seat = head_seat_offset();
     if (!head_primed) {
       head_offset = seat;
@@ -439,7 +471,7 @@ struct avatar_rig {
     } else {
       const vec3 to = seat - head_offset;
       const float dist = length(to);
-      const float step = tune.head_fly_speed * dt;
+      const float step = tune.move_speed * dt;
       head_offset = (dist <= step) ? seat : head_offset + (to * (step / dist));
     }
 
@@ -450,7 +482,9 @@ struct avatar_rig {
     const float ramp = 1.0F - expf(-tune.motion_approach * dt);
     const pos3 here = eye();
     if (primed && dt > 0.0F) {
-      const vec3 vel = (here - prev_eye) * (1.0F / dt);
+      // Add the step the locked treadmill withheld, so a held body still reads
+      // as moving; `locked_step` is zero when not locked.
+      const vec3 vel = ((here - prev_eye) + locked_step) * (1.0F / dt);
       const vec3 heading_fwd{cos(heading), 0.0F, sin(heading)};
       const vec3 heading_right{-sin(heading), 0.0F, cos(heading)};
       const float drive_target =
@@ -539,17 +573,20 @@ struct avatar_rig {
     const radians lift{tune.eye_lift_deg * radians::per_degree};
     const radians dip_max{tune.dip_max_deg * radians::per_degree};
 
-    // The eye's travel on the dome, edge to edge. The dome sphere's equator is
-    // submerged in the disc, so the visible cap ends at the seam (`rr =
-    // dome_hex_extent - seam_offset`, whose dome elevation is `acos(rr /
-    // dome_radius)`). The lower limit keeps the eye's edge above that seam, so
-    // it never slides onto the saucer; the upper keeps its edge below the
-    // pole.
-    const float seam_cos =
-        fminf((hp.dome_hex_extent - hp.seam_offset) / tune.dome_radius, 1.0F);
+    // The eye's travel on the dome, edge to edge. The dome sphere's lower part
+    // is submerged in the disc, so the visible cap ends where the sphere
+    // emerges: the circle at the disc's top height on the sphere, whose dome
+    // elevation (asin of that height over the dome radius) is the seam. The
+    // lower limit keeps the eye's edge above it so the eye never dips out of
+    // sight behind the disc; the upper keeps its edge below the pole. Geometry
+    // only (disc_height, dome_offset, dome_radius), independent of the
+    // shader's seam decal, so retuning the seam never moves the eye limit.
+    const float seam_h = fmaxf(
+        fminf((tune.disc_height - tune.dome_offset) / tune.dome_radius, 1.0F),
+        -1.0F);
     const radians dome_max = pole - eye_ang;
     const radians dome_min =
-        std::min(radians_acos(seam_cos) + eye_ang, dome_max);
+        std::min(radians_asin(seam_h) + eye_ang, dome_max);
 
     // The eye aims `lift` above the look: the camera rides above the eye, so a
     // level aim reads as looking low, and the lift restores eye contact in the
@@ -563,19 +600,93 @@ struct avatar_rig {
     const radians tilt = std::clamp(aim - dome, -dip_max, eye_ang);
     const radians eye_elev = dome + tilt; // the eye's world aim, = look + lift
 
-    // The three drawn vectors, all in the meridian: the disc normal (the
-    // saucer tilt), the eye direction, and the antenna direction a fixed
-    // `lead` ahead of the eye, so it leans forward with the resting dip.
+    // The two drawn directions in the look meridian: the disc normal (the
+    // saucer tilt) and the eye direction. The antenna is built from the final
+    // eye below, after the motion-tilt cap, so it keeps its fixed lead
+    // exactly.
     const vec3 up = normalize((up_w * cos(tilt)) - (f_h * sin(tilt)));
     const vec3 eye_dir = (f_h * cos(eye_elev)) + (up_w * sin(eye_elev));
-    const radians ant_elev = eye_elev + lead;
-    const vec3 antenna_dir = (f_h * cos(ant_elev)) + (up_w * sin(ant_elev));
 
-    return {eye(), up, f_h, tune.head_radius, spin, tune.disc_height,
-        tune.dome_offset, tune.dome_radius, tune.dome_blend, tune.top_height,
-        tune.rim_round, 0.0F, eye_dir, antenna_dir, tune.antenna_length,
-        tune.antenna_thickness, tune.antenna_ball, tune.antenna_collar,
-        tune.head_hit_cap};
+    // Helicopter motion tilt: the disc banks with travel (the eased
+    // `drive`/`slide`, measured in the heading frame), on top of the look tilt
+    // and independent of it. Forward leans the top toward the heading (front
+    // dips), reverse leans it back, strafe banks it into the strafe, like a
+    // helicopter. The pitch is negated because a positive rotation about
+    // `h_right` tilts the normal away from the heading.
+    //
+    // The dome (eye, grid, antenna) counter-rotates against this by a factor
+    // of `1 - stabilize - overcomp`: at full stabilize it holds level (a
+    // steadycam) while the disc banks under it, and `overcomp` pushes it a
+    // touch past level, opposite the bank, for show. A rigid bank (`stabilize`
+    // 0, `overcomp` 0) lets the dome ride the disc.
+    const vec3 h_fwd{cos(heading), 0.0F, sin(heading)};
+    const vec3 h_right{-sin(heading), 0.0F, cos(heading)};
+    const radians pitch_m{
+        -drive *
+        (drive >= 0.0F ? tune.forward_tilt_deg : tune.backward_tilt_deg) *
+        radians::per_degree};
+    const radians roll_m{slide * tune.strafe_tilt_deg * radians::per_degree};
+
+    // Bank a direction by fraction `k` of the full motion tilt: pitch then
+    // roll, in the heading frame.
+    const auto bank_by = [&](vec3 v, float k) {
+      return rotate_about(rotate_about(v, h_right, pitch_m * k), h_fwd,
+          roll_m * k);
+    };
+    const float dome_factor = 1.0F - tune.stabilize - tune.overcomp;
+    const vec3 saucer_up = bank_by(up, 1.0F);
+    vec3 dome_up = bank_by(up, dome_factor);
+    vec3 eye_banked = bank_by(eye_dir, dome_factor);
+
+    // The saucer takes its full motion tilt, so reverse can raise its front
+    // past level and show the belly; the eye is then clamped onto the visible
+    // dome rather than the tilt being capped to keep it there. Holding the
+    // steadycam eye level lets a hard bank carry it past the dome's edge,
+    // where the disc rim would hide it, so clamp its elevation over the banked
+    // disc to [dome_min, dome_max] and rotate the whole dome (grid and antenna
+    // with it) back onto the cap. The eye then dips to the seam on reverse and
+    // rides to the pole on forward while the disc tilts fully under it.
+    // Measure the eye's elevation over the banked disc in the look meridian,
+    // so it climbs monotonically through the pole. `asin(dot)` instead peaks
+    // at 90 degrees and folds back, so a hard forward bank carrying the eye
+    // toward the saucer's pole toggled the clamp on and off and jerked the
+    // eye. `disc_fwd` is the in-disc forward, taken straight from the bank
+    // axis `h_right` so it can never collapse (projecting the heading onto the
+    // disc does, once a look-down plus a forward bank stand the disc on edge).
+    // `mer` is the meridian normal, the stable axis the clamp rotates the
+    // whole dome about.
+    const vec3 disc_fwd = normalize(cross(saucer_up, h_right));
+    const vec3 mer = normalize(cross(disc_fwd, saucer_up));
+    const radians eye_phi =
+        radians_atan2(dot(eye_banked, saucer_up), dot(eye_banked, disc_fwd));
+    // The motion clamp's lower bound sits below the look gimbal's `dome_min`,
+    // nearer the dome/disc seam, so the eye can dip further down the dome on a
+    // reverse bank (its iris edge entering the seam) rather than stopping a
+    // full iris above it. The look gimbal keeps the higher `dome_min` for
+    // framing.
+    const radians clamp_floor = radians_asin(seam_h) + (eye_ang * 0.5F);
+    const radians eye_clamped = std::clamp(eye_phi, clamp_floor, dome_max);
+    if (eye_clamped != eye_phi) {
+      const radians fix = eye_clamped - eye_phi;
+      dome_up = rotate_about(dome_up, mer, fix);
+      eye_banked = rotate_about(eye_banked, mer, fix);
+    }
+
+    // The antenna keeps its fixed `lead` over the eye, rotated toward the dome
+    // pole along their shared meridian, so the 60-degree offset stays exact
+    // through the bank and clamp.
+    const vec3 antenna_banked =
+        rotate_about(eye_banked, normalize(cross(eye_banked, dome_up)), lead);
+
+    // TEMP: surface the dome limits for the frame-loop debug log.
+    dbg_dome_min = dome_min.value / radians::per_degree;
+    dbg_dome_max = dome_max.value / radians::per_degree;
+
+    return {eye(), saucer_up, dome_up, f_h, tune.head_radius, spin,
+        tune.disc_height, tune.dome_offset, tune.dome_radius, tune.dome_blend,
+        tune.top_height, tune.rim_round, eye_banked, antenna_banked,
+        tune.antenna_length, tune.antenna_thickness, tune.antenna_ball,
+        tune.antenna_collar, tune.head_hit_cap};
   }
 };
 
@@ -705,12 +816,14 @@ int main() {
         cuda_kernel::ceil_div(dig_span, dig_block.y),
         cuda_kernel::ceil_div(dig_span, dig_block.z)};
 
-    // The avatar starts floating above the origin (no gravity yet), looking
-    // toward -z and slightly down, in a third-person view pulled back from the
-    // head. The mouse wheel zooms in toward first person; the right-drag
-    // orbits. The feel constants (field of view and the rest) default from
-    // `avatar_tuning`, edited live by the config panel.
-    avatar_rig rig{pos3{vec3{0.0F, 10.0F, 0.0F}},
+    // The avatar starts floating (no gravity yet), looking toward -z and
+    // slightly down, in a third-person view pulled back from the head. The
+    // mouse wheel zooms in toward first person; the right-drag orbits. The
+    // feel constants (field of view and the rest) default from
+    // `avatar_tuning`, edited live by the config panel. (TEMP: spawned right
+    // in front of the -z mirror to speed up antenna testing; restore z to 0
+    // with the debug instrumentation.)
+    avatar_rig rig{pos3{vec3{0.0F, 10.0F, oz + 8.0F}},
         orientation{-90.0_deg, -20.0_deg}, -90.0_deg, 7.0F, 7.0F};
     const avatar_tuning tuning_defaults{};
 
@@ -741,6 +854,11 @@ int main() {
     // can be moved out in front of the pinned camera and watched.
     bool freeze_camera = false;
 
+    // Treadmill (debug): hold the body in place while it still animates as if
+    // moving, so the saucer's motion tilt can be watched at a fixed distance
+    // from the mirror. Toggled by a panel checkbox.
+    bool lock_position = false;
+
     // Frame timing in nanoseconds: millisecond ticks quantize dt enough to
     // judder movement at high refresh rates (a 6.94 ms frame reads as 6 or 7).
     auto last_ns = SDL_GetTicksNS();
@@ -748,6 +866,14 @@ int main() {
     // Frame-time stats over a one-second window, shown in the title bar to
     // tell steady pacing apart from periodic spikes.
     frame_stats stats;
+
+    // TEMP: avatar eye/antenna invariant instrumentation. Logs the eye and
+    // antenna elevations (world and over the banked disc) plus the dome limits
+    // a few times a second so we can see which bound each symptom hits. Drive
+    // forward to watch the antenna, backward to watch the eye dip. Remove once
+    // the gimbal is settled.
+    std::ofstream dbg_log{"c:/code/Corvid/avatar_debug.log", std::ios::trunc};
+    float dbg_clock = 0.0F;
 
     while (true) {
       const auto action = pump_events([&](const sdl_event& ev) {
@@ -778,6 +904,10 @@ int main() {
       const auto [yaw, pitch] = input.look(dt);
       rig.look(yaw, pitch);
 
+      // The panel below toggles `lock_position`, read a frame late (harmless
+      // for a debug control); `move` then holds the body but still feeds the
+      // step to the tilt.
+      rig.locked = lock_position;
       const auto [fwd, strafe, lift] = input.movement(dt, rig.tune.move_speed);
       rig.move(fwd, strafe, lift);
 
@@ -820,6 +950,29 @@ int main() {
       const metal_ball ball = rig.ball();
       const saucer_head head = rig.head(render_cfg.head);
 
+      // TEMP: log the eye/antenna invariant state a few times a second. World
+      // elevation is the angle above the horizon; disc elevation is over the
+      // motion-banked disc, the frame the dome limits live in.
+      dbg_clock += dt;
+      if (dbg_log && dbg_clock >= 0.25F) {
+        dbg_clock = 0.0F;
+        const auto deg = [](float s) {
+          return radians_asin(fmaxf(fminf(s, 1.0F), -1.0F)).value /
+                 radians::per_degree;
+        };
+        const float eye_disc = deg(dot(head.eye_dir, head.up));
+        const float ant_disc = deg(dot(head.antenna_dir, head.up));
+        char line[256];
+        SDL_snprintf(line, sizeof(line),
+            "drive %+.2f slide %+.2f | saucer %5.1f | eye world %6.1f disc "
+            "%6.1f | ant world %6.1f disc %6.1f | dome [%.1f,%.1f]\n",
+            rig.drive, rig.slide, deg(head.up.y), deg(head.eye_dir.y),
+            eye_disc, deg(head.antenna_dir.y), ant_disc, rig.dbg_dome_min,
+            rig.dbg_dome_max);
+        dbg_log << line;
+        dbg_log.flush();
+      }
+
       // Carve the field at the crosshair while the left button is held. The
       // pick records the hit in device memory and the brush reads it there, so
       // the dig stays on the GPU; the next frame's march shows the hole.
@@ -838,7 +991,7 @@ int main() {
       imgui.begin_frame();
       if (show_config)
         draw_config_panel(rig.tune, tuning_defaults, render_cfg,
-            render_defaults, freeze_camera);
+            render_defaults, freeze_camera, lock_position);
 
       const int sync_interval = present_sync_interval(win);
 

@@ -72,6 +72,7 @@ struct metal_ball {
 struct saucer_head {
   pos3 center;
   vec3 up;      // disc normal (unit); the saucer banks by tilting this
+  vec3 dome_up; // dome decal normal (unit); counter-rotates against the bank
   vec3 front;   // forward direction (unit); orients the cockpit eyes
   float radius; // disc radius
   float spin;   // belly-pattern rotation angle, radians
@@ -96,11 +97,6 @@ struct saucer_head {
   // silhouette edge.
   float rim_round = 0.03F;
 
-  // Per-frame offset added to the cockpit eye's `eye_forward` lean, swinging
-  // the eye against the saucer's motion-driven nose tilt so the orb reads as a
-  // stabilized gimbal. Zero leaves the eye at its tuned placement.
-  float eye_counter_offset = 0.0F;
-
   // The cockpit eye's placement direction (unit), computed per frame in
   // `camera_rig::head` and shared by the shader's eye decal and the antenna.
   vec3 eye_dir{0.0F, 1.0F, 0.0F};
@@ -122,7 +118,7 @@ struct saucer_head {
   // The antenna rod's endpoints, relative to `center`: the base sits on the
   // dome top along `antenna_dir`, the tip one `antenna_length` further out.
   [[nodiscard]] __device__ vec3 antenna_base() const {
-    return (up * (radius * dome_offset)) +
+    return (dome_up * (radius * dome_offset)) +
            (antenna_dir * (radius * dome_radius));
   }
   [[nodiscard]] __device__ vec3 antenna_tip() const {
@@ -131,7 +127,7 @@ struct saucer_head {
 
   // Point `p` in the saucer's local frame: x and z span the disc, y runs along
   // `up`. The belly shading reads its polar coordinates from this.
-  [[nodiscard]] __device__ vec3 to_local(pos3 p) const {
+  [[nodiscard]] __host__ __device__ vec3 to_local(pos3 p) const {
     const vec3 q = p - center;
     const vec3 ref =
         fabsf(up.y) < 0.99F ? vec3{0.0F, 1.0F, 0.0F} : vec3{1.0F, 0.0F, 0.0F};
@@ -140,11 +136,15 @@ struct saucer_head {
     return vec3{dot(q, ex), dot(q, up), dot(q, ez)};
   }
 
-  // Signed distance from `p` to the saucer body alone, disc plus dome and no
-  // antenna, evaluated in the tilted local frame. Split out of `sdf` so the
-  // shader can tell whether the antenna or the body is the nearer surface at a
-  // hit and keep the antenna from bleeding through the body.
-  [[nodiscard]] __device__ float saucer_sdf(pos3 p) const {
+  // The disc body and the dome sphere distances that `saucer_sdf`
+  // smooth-unions, in the tilted local frame. The shader compares them to tell
+  // which surface a hit belongs to, so the dome decal draws only on the dome
+  // sphere (the disc occludes the rest) and the seam falls at their join.
+  struct parts {
+    float disc;
+    float dome;
+  };
+  [[nodiscard]] __host__ __device__ parts parts_at(pos3 p) const {
     const vec3 ql = to_local(p);
     const float body =
         sd_ellipsoid(ql, vec3{radius, radius * disc_height, radius});
@@ -156,9 +156,24 @@ struct saucer_head {
     const float cone = sd_cone(ql - vec3{0.0F, radius * top_height, 0.0F},
         vec2{inv, top_height * inv});
     const float clipped = op_smooth_intersect(body, cone, radius * rim_round);
-    const float dome = sd_sphere(ql - vec3{0.0F, radius * dome_offset, 0.0F},
+    // The dome sphere is centered along `dome_up`, the dome's own frame (it
+    // counter-rotates against the disc's motion bank, the steadycam), so the
+    // whole dome -- sphere, grid, eye, and antenna -- is one rigid piece. The
+    // shader's eye decal and `antenna_base` place themselves along `dome_up`
+    // too; the disc stays in the local (`up`) frame, so the two lean apart.
+    const vec3 pc = p - center;
+    const float dome = sd_sphere(pc - (dome_up * (radius * dome_offset)),
         radius * dome_radius);
-    return op_smooth_union(clipped, dome, radius * dome_blend);
+    return {clipped, dome};
+  }
+
+  // Signed distance from `p` to the saucer body alone, disc plus dome and no
+  // antenna, evaluated in the tilted local frame. Split out of `sdf` so the
+  // shader can tell whether the antenna or the body is the nearer surface at a
+  // hit and keep the antenna from bleeding through the body.
+  [[nodiscard]] __device__ float saucer_sdf(pos3 p) const {
+    const parts s = parts_at(p);
+    return op_smooth_union(s.disc, s.dome, radius * dome_blend);
   }
 
   // Signed distance from `p` to the saucer surface, evaluated in the tilted

@@ -57,20 +57,24 @@ struct avatar_tuning {
   float spin_move_gain = -3.0F;  // spin gain from forward travel, signed
   float spin_idle_period = 6.0F; // seconds between idle spin reversals
 
-  // Saucer tilt: the look gimbal's max nose-down dip, plus the deferred
-  // motion-driven helicopter tilt.
-  float dip_max_deg = 65.0F; // max nose-down dip on a look down, degrees
-  float move_tilt = 1.75F;   // forward nose-down lean into travel at speed
-  float back_tilt = 0.5F;    // backward tilt as a fraction of the forward
+  // Saucer tilt: the look gimbal's max nose-down dip, plus the helicopter
+  // motion tilt (the saucer banks with its own travel), one angle per
+  // direction at full speed.
+  float dip_max_deg = 65.0F;       // max nose-down dip on a look down, degrees
+  float forward_tilt_deg = 28.0F;  // nose-down tilt at full forward travel
+  float backward_tilt_deg = 62.0F; // tail-down tilt at full reverse travel
+  float strafe_tilt_deg = 55.0F;   // bank toward the strafe at full strafe
 
   // Dome shape, as fractions of the head radius (see `saucer_head`).
   float dome_offset = 0.2F;  // dome center height / radius (lower = buried)
   float dome_radius = 0.46F; // dome sphere radius / radius
 
   // Eye: the look-gimbal lift (the eye aims this far above the look for eye
-  // contact) and the deferred motion counter-swing.
+  // contact) and the steadycam counter-tilt that holds the dome level against
+  // the motion bank.
   float eye_lift_deg = 15.0F; // degrees the eye aims above the look
-  float eye_counter = 1.75F;  // orb counter-swing vs the motion nose tilt
+  float stabilize = 1.0F; // dome cancel of the motion bank (1 = hold level)
+  float overcomp = 0.15F; // extra dome tilt past level, opposite the bank
 
   // Antenna standing off the dome top (fractions of the head radius). It wags
   // with the eye's gimbal as an exaggerated tilt signal; `antenna_length` 0
@@ -91,7 +95,6 @@ struct avatar_tuning {
   float zoom_step = 1.0F;        // boom change per mouse-wheel notch
   float heading_approach = 8.0F; // steer heading-chase rate while moving
   float follow_approach = 3.0F;  // follow look-recenter rate (gentler)
-  float head_fly_speed = 30.0F;  // max head speed vs the ball, units/second
   float motion_approach = 5.0F;  // tilt/spin motion-signal ramp/fade rate
 
   // Animation rigging: rotate the head's front (and the cockpit eye) off the
