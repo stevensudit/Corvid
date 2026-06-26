@@ -69,6 +69,19 @@ struct render_config {
     float dim = 0.65F; // darkens the mirrored scene
     vec3 tint{0.82F, 0.86F, 0.95F};
     vec3 ambient_floor{0.0F, 0.0F, 0.0F}; // keeps the darkest reflections up
+
+    // Motion grid: an emissive flat hex wireframe wrapped onto the ball by the
+    // rolling-conveyor projection to show its rotation, flaring up only while
+    // it moves. `hex_freq` sets the cell density (cells per radian, low for
+    // large tiles), `hex_line` the seam half-width in radians, `hex_strength`
+    // the glow brightness. `grid_extent` is how far toward the axle (the
+    // ball's sides) the grid reaches before fading out the cells that shrink
+    // there: higher shows more, lower hides the shrink sooner.
+    int hex_freq = 2;
+    float hex_line = 0.006F;
+    float hex_strength = 1.0F;
+    vec3 hex_color{0.20F, 1.0F, 0.45F};
+    float grid_extent = 1.05F;
   } ball;
 
   // Saucer head shading (see `shade_head`).

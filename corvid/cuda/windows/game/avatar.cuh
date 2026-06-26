@@ -32,10 +32,25 @@ namespace corvid::cuda {
 
 // The metallic ball body: a single analytic sphere in world space. Because it
 // is one sphere, its ray hit is closed-form rather than sphere-traced, so the
-// primary ray can take the nearer of this and the marched terrain exactly.
+// primary ray can take the nearer of this and the marched terrain exactly. It
+// also carries the rolling motion grid's state, a roll axis and an accumulated
+// scroll phase plus a `glow` level, so `shade_ball` can wrap a flat hex grid
+// onto the surface that flows at the roll rate while the ball moves.
 struct metal_ball {
   pos3 center;
   float radius;
+
+  // The rolling motion grid (a flat hex grid aligned to the ball's travel, see
+  // `grid_uv`): `roll_axis` is the horizontal axis the ball rolls about
+  // (across the current motion), `roll_phase` the accumulated roll angle that
+  // scrolls the grid forward, `steer_phase` an accumulated sideways drift that
+  // fakes the turn while steering (both radians, wrapped to a grid period by
+  // the rig), and `glow` the eased intensity that fades the grid in while
+  // moving, out at rest.
+  vec3 roll_axis{0.0F, 0.0F, 1.0F};
+  float roll_phase = 0.0F;
+  float steer_phase = 0.0F;
+  float glow = 0.0F;
 
   // Distance along unit `dir` from `eye` to the nearest surface hit ahead of
   // the eye, or a negative value on a miss. The far root is returned when the
@@ -58,6 +73,36 @@ struct metal_ball {
   // Outward unit normal at surface point `p`.
   [[nodiscard]] __device__ vec3 normal(pos3 p) const {
     return normalize(p - center);
+  }
+
+  // The rolling motion grid's coordinates at surface normal `n`: a Mercator
+  // (conformal) cylindrical projection around `roll_axis`, which wraps a flat
+  // hex grid onto the ball keeping the cells the right shape rather than
+  // squishing them into slivers toward the poles. `u` is the angle around the
+  // roll axis minus the scroll `roll_phase`, so the grid flows at the roll
+  // rate. `v` is the conformal latitude `atanh(a)` along the roll axis
+  // (constant-`v` circles are the rolling circles, so a flat grid's edges
+  // along `v` stay parallel to the ground) plus `steer_phase`, the sideways
+  // turn fake. Near the equator `atanh(a)` ~ the latitude angle, so the
+  // equatorial cells match the simple cylindrical map; only the poles stretch.
+  // `axle` is the distance toward the roll-axis pole (zero at the equator, one
+  // at the ball's far sides), so the shader can fade out the cells that shrink
+  // toward that singular axle. The visible band, the back of the ball the
+  // trailing head sees, is the equator, where `axle` is zero.
+  struct grid_sample {
+    float u;
+    float v;
+    float axle;
+  };
+  [[nodiscard]] __device__ grid_sample grid_uv(vec3 n) const {
+    const vec3 world_up{0.0F, 1.0F, 0.0F};
+    const vec3 motion = cross(roll_axis, world_up); // the original motion dir
+    const float a = fminf(fmaxf(dot(n, roll_axis), -1.0F), 1.0F);
+    const float theta = atan2f(dot(n, motion), dot(n, world_up));
+    // Conformal latitude, clamped off the singular axle (where `axle` fades
+    // the grid out regardless).
+    const float lat = atanhf(fminf(fmaxf(a, -0.9999F), 0.9999F));
+    return {theta - roll_phase, lat + steer_phase, fabsf(a)};
   }
 };
 

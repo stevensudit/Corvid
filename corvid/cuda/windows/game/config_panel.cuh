@@ -130,6 +130,37 @@ inline void draw_body_section(avatar_tuning& t, const avatar_tuning& d,
   tuned_color("tint", c.ball.tint, dc.ball.tint, "Tints the ball reflection.");
   tuned_color("ambient floor", c.ball.ambient_floor, dc.ball.ambient_floor,
       "Keeps the darkest reflections from crushing to black.");
+  ImGui::SeparatorText("Motion grid");
+  tuned_slider_int("hex freq", c.ball.hex_freq, dc.ball.hex_freq, 1, 24,
+      "Hex cell density of the rolling motion grid (cells per radian).");
+  tuned_slider("hex line", c.ball.hex_line, dc.ball.hex_line, 0.0F, 0.1F,
+      "Half-width of the motion grid's glowing seams, radians.");
+  tuned_slider("hex glow", c.ball.hex_strength, dc.ball.hex_strength, 0.0F,
+      3.0F, "How brightly the motion grid wireframe glows.");
+  tuned_color("hex color", c.ball.hex_color, dc.ball.hex_color,
+      "Color of the motion grid wireframe.");
+  tuned_slider("grid move gain", t.ball_grid_move_gain, d.ball_grid_move_gain,
+      0.0F, 8.0F, "How hard the grid flares up with the ball's speed.");
+  tuned_slider("grid fade", t.ball_grid_fade, d.ball_grid_fade, 0.1F, 100.0F,
+      "How fast the grid fades back to dark when you stop moving.");
+  tuned_slider("grid scroll", t.ball_grid_roll_gain, d.ball_grid_roll_gain,
+      0.0F, 1.0F,
+      "Scrolls the grid as a fraction of the true roll rate at normal speed; "
+      "lower to stop motion flickering or wagon-wheeling.");
+  tuned_slider("grid scroll fast", t.ball_grid_roll_gain_fast,
+      d.ball_grid_roll_gain_fast, 0.0F, 1.0F,
+      "Same, but while sprinting (Shift), which travels 3x as fast.");
+  tuned_slider("grid extent", c.ball.grid_extent, dc.ball.grid_extent, 0.0F,
+      2.0F,
+      "How far toward the ball's sides the grid reaches before fading; raise "
+      "to show more, lower to hide the cells that shrink at the axle.");
+  tuned_slider("grid steer", t.ball_grid_steer_gain, d.ball_grid_steer_gain,
+      0.0F, 4.0F,
+      "Fakes the turn: drifts the grid sideways while steering, to sell it.");
+  tuned_slider("grid turn", t.ball_grid_turn_rate, d.ball_grid_turn_rate, 1.0F,
+      40.0F,
+      "How fast the grid swings to a new travel direction (strafe, reverse); "
+      "higher snaps, lower eases.");
   ImGui::TreePop();
 }
 

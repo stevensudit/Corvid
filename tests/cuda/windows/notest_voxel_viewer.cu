@@ -355,6 +355,11 @@ struct avatar_rig {
   basis frozen_frame{};     // the pinned camera look while `frozen`
   bool locked = false;      // treadmill: hold the body, animate as if moving
   vec3 locked_step{};       // the step `move` withheld this frame while locked
+  vec3 ball_roll_axis{0.0F, 0.0F,
+      1.0F};                     // motion grid roll axis, set by `move`
+  float ball_roll_phase = 0.0F;  // accumulated roll angle, scrolls the grid
+  float ball_steer_phase = 0.0F; // accumulated steer fake, drifts it sideways
+  float ball_glow = 0.0F;        // eased motion-grid intensity (0 at rest)
   avatar_tuning
       tune{}; // live feel constants, read through by the methods below
 
@@ -411,7 +416,7 @@ struct avatar_rig {
   // since there is no terrain following yet. Records the planar movement so
   // `update` knows the body is moving; the tilt and spin read the head's own
   // velocity, not this input.
-  void move(float forward, float strafe, float lift) {
+  void move(float forward, float strafe, float lift, bool fast, float dt) {
     const vec3 fwd{cos(heading), 0.0F, sin(heading)};
     const vec3 right{-sin(heading), 0.0F, cos(heading)};
     const vec3 step =
@@ -427,6 +432,40 @@ struct avatar_rig {
       locked_step = vec3{};
     }
     moving = fabsf(forward) + fabsf(strafe);
+
+    // Advance the rolling motion grid: aim its conveyor across this frame's
+    // travel and scroll it by the rolling-without-slipping angle (arc /
+    // radius). Driven by the planar step whether locked or not, so the
+    // treadmill rolls the grid in place like the saucer spins. The phase wraps
+    // to one grid period (an integer roll, so invisible at integer `hex_freq`)
+    // to stay precise over a long session.
+    const vec3 ground{step.x, 0.0F, step.z};
+    const float dist = length(ground);
+    if (dist > 1.0e-6F) {
+      // Ease the roll axis toward the new travel direction rather than
+      // snapping it, so changing the motion direction (adding a strafe,
+      // reversing) turns the grid quickly but smoothly instead of jumping. The
+      // rotation is about world up (both axes are horizontal); the sign turns
+      // the short way, and an exact reversal, where the cross degenerates,
+      // just picks a side.
+      const vec3 target = normalize(cross(camera::world_up, ground));
+      const float cosang =
+          fminf(fmaxf(dot(ball_roll_axis, target), -1.0F), 1.0F);
+      const float ang = acosf(cosang);
+      if (ang > 1.0e-5F) {
+        const float frac = 1.0F - expf(-tune.ball_grid_turn_rate * dt);
+        const float sy = cross(ball_roll_axis, target).y;
+        const float sgn = sy < 0.0F ? -1.0F : 1.0F;
+        ball_roll_axis = rotate_about(ball_roll_axis, camera::world_up,
+            radians{sgn * ang * frac});
+      }
+      // Sprinting travels three times as fast, so the scroll has its own gain
+      // to keep the faster roll readable rather than strobing.
+      const float gain =
+          fast ? tune.ball_grid_roll_gain_fast : tune.ball_grid_roll_gain;
+      ball_roll_phase =
+          fmodf(ball_roll_phase + ((dist / tune.ball_radius) * gain), 1.0F);
+    }
   }
 
   // Orbit the look by yaw/pitch deltas, clamping pitch shy of vertical.
@@ -463,6 +502,15 @@ struct avatar_rig {
         const radians delta = radians_atan2(sin(facing.yaw - heading),
             cos(facing.yaw - heading));
         heading = heading + (delta * rate);
+        // Fake the turn on the motion grid: the conveyor stays motion-aligned,
+        // so the arc is invisible under the tracking camera; drift the grid
+        // sideways by this frame's heading change. Wrap to the grid's sideways
+        // period (sqrt3 cells, an integer roll at integer `hex_freq`) so it
+        // stays precise without a visible jump.
+        ball_steer_phase = fmodf(
+            ball_steer_phase +
+                ((delta * rate).value * tune.ball_grid_steer_gain),
+            std::numbers::sqrt3_v<float>);
       } else {
         // Follow: the heading holds, so the ball keeps its course; the look
         // eases gently onto the heading and the pitch to level, rotating the
@@ -554,6 +602,21 @@ struct avatar_rig {
         sqrtf((drive_raw * drive_raw) + (slide_raw * slide_raw));
     blink_phase =
         fmodf(blink_phase + ((tune.blink_move_gain * move_mag) * dt), 1.0F);
+
+    // The ball's motion grid glow: gated on the direction keys (`moving` is
+    // this frame's drive/strafe step, so a head dolly or steer with no keys
+    // shows nothing) and scaled by the ball's own planar speed. It flares up
+    // at `motion_approach` and fades back to dark at its own `ball_grid_fade`
+    // rate when the keys release, so the hex wireframe shows only while
+    // rolling.
+    const float ball_speed = (dt > 0.0F) ? moving / dt : 0.0F;
+    const float glow_target =
+        fminf(1.0F, (ball_speed / tune.move_speed) * tune.ball_grid_move_gain);
+    const float glow_rate =
+        (glow_target > ball_glow) ? tune.motion_approach : tune.ball_grid_fade;
+    ball_glow =
+        ball_glow +
+        ((glow_target - ball_glow) * (1.0F - expf(-glow_rate * dt)));
   }
 
   // The camera position: the eye raised above the head's center by
@@ -589,7 +652,10 @@ struct avatar_rig {
     return {cam_pos(), frame(), tune.tan_half_fov()};
   }
 
-  [[nodiscard]] metal_ball ball() const { return {anchor, tune.ball_radius}; }
+  [[nodiscard]] metal_ball ball() const {
+    return {anchor, tune.ball_radius, ball_roll_axis, ball_roll_phase,
+        ball_steer_phase, ball_glow};
+  }
   [[nodiscard]] saucer_head head(const render_config::head_params& hp) const {
     // The articulated look gimbal. The camera looks freely along `facing`; the
     // eye, dome, and saucer tilt computed here are only drawn (seen reflected
@@ -1041,7 +1107,7 @@ int main() {
       // step to the tilt.
       rig.locked = lock_position;
       const auto [fwd, strafe, lift] = input.movement(dt, rig.tune.move_speed);
-      rig.move(fwd, strafe, lift);
+      rig.move(fwd, strafe, lift, input.fast, dt);
 
       // The mouse wheel aims the zoom between the trailing distance and the
       // jockey: an impulse, not a held velocity, so it is not scaled by frame

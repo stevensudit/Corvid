@@ -35,8 +35,27 @@ namespace corvid::cuda {
 // rig shipped with; a default-constructed instance is the baseline the panel
 // compares each edited field against.
 struct avatar_tuning {
-  // Body: the metal ball you drive.
+  // Body: the metal ball you drive. The motion grid's glow is gated on the
+  // direction keys and scaled by the ball's own planar speed:
+  // `ball_grid_move_gain` sets how hard it flares up (ramped at
+  // `motion_approach`), `ball_grid_fade` how fast it fades back to dark once
+  // the keys release. The roll gains scale the literal roll rate (which on a
+  // small ball scrolls many cells per second, fast enough to alias into
+  // flicker and strobe) down to a readable scroll: `ball_grid_roll_gain` at
+  // the regular speed and `ball_grid_roll_gain_fast` while sprinting (Shift),
+  // which travels three times as fast and so needs its own lower value to read
+  // as motion. `ball_grid_steer_gain` is a fake: the conveyor stays aligned to
+  // the motion, so a steer arc is invisible under the tracking camera, and
+  // this drifts the grid sideways by the heading change to sell the turn (0
+  // off). `ball_grid_turn_rate` is how fast the grid swings to a new travel
+  // direction (adding a strafe, reversing): higher snaps, lower eases.
   float ball_radius = 0.6F;
+  float ball_grid_move_gain = 2.0F;
+  float ball_grid_fade = 50.0F;
+  float ball_grid_roll_gain = 0.135F;
+  float ball_grid_roll_gain_fast = 0.071F;
+  float ball_grid_steer_gain = 2.0F;
+  float ball_grid_turn_rate = 6.0F;
 
   // Head: the overall saucer head size (the camera rides inside it).
   float head_radius = 0.45F;

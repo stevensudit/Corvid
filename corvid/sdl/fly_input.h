@@ -108,11 +108,27 @@ struct fly_input {
     case sdl_event_type::key_down:
     case sdl_event_type::key_up: {
       const auto key = ev.get_key();
+      // Last press wins on an opposing pair (forward/back, left/right):
+      // pressing one clears the other so a fresh press always takes over
+      // rather than canceling against a still-held opposite. Re-pressing the
+      // cleared key takes it back.
       switch (key.key) {
-      case sdl_keycode::w: forward = key.down; return true;
-      case sdl_keycode::s: back = key.down; return true;
-      case sdl_keycode::a: left = key.down; return true;
-      case sdl_keycode::d: right = key.down; return true;
+      case sdl_keycode::w:
+        forward = key.down;
+        if (key.down) back = false;
+        return true;
+      case sdl_keycode::s:
+        back = key.down;
+        if (key.down) forward = false;
+        return true;
+      case sdl_keycode::a:
+        left = key.down;
+        if (key.down) right = false;
+        return true;
+      case sdl_keycode::d:
+        right = key.down;
+        if (key.down) left = false;
+        return true;
       case sdl_keycode::space: up = key.down; return true;
       case sdl_keycode::lctrl: down = key.down; return true;
       case sdl_keycode::lshift: fast = key.down; return true;

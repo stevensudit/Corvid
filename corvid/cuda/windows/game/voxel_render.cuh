@@ -88,6 +88,38 @@ shade_terrain_hit(const density_field& field, cudaTextureObject_t color,
   return copysignf(sqrtf((x * x) + (y * y)), y);
 }
 
+// Distance from a 2D point into its cell of a flat-top hexagonal tiling: zero
+// on a cell border, growing to the apothem (0.5 here) at a center. Flat-top so
+// the two horizontal edges stay parallel to the ground when the grid is
+// wrapped onto the rolling ball. The tiling repeats over a `sqrt3` by `1` cell
+// holding two centers (the offset rows of a hex lattice); the nearer of the
+// two gives the cell, and the hexagon's three slab half-widths give the border
+// distance. A flat tiling of one orientation, unlike `geodesic_grid_edge`'s
+// whole-sphere Goldberg grid whose cells point every which way.
+[[nodiscard]] __device__ inline float hex_grid_edge(float x, float y) {
+  constexpr float sx = std::numbers::sqrt3_v<float>;         // column repeat
+  constexpr float sy = 1.0F;                                 // row repeat
+  constexpr float c30 = std::numbers::sqrt3_v<float> / 2.0F; // cos(30 deg)
+
+  // The two candidate centers: the base lattice and the half-cell-offset one.
+  const float ax = x - (sx * floorf((x / sx) + 0.5F));
+  const float ay = y - (sy * floorf((y / sy) + 0.5F));
+  const float xo = x - (0.5F * sx);
+  const float yo = y - (0.5F * sy);
+  const float bx = xo - (sx * floorf((xo / sx) + 0.5F));
+  const float by = yo - (sy * floorf((yo / sy) + 0.5F));
+  const bool a_near = ((ax * ax) + (ay * ay)) < ((bx * bx) + (by * by));
+  const float gx = a_near ? ax : bx;
+  const float gy = a_near ? ay : by;
+
+  // Flat-top hexagon support: the largest of the three slab projections, the
+  // apothem (0.5) minus it is the distance to the nearest border.
+  const float hr = fmaxf(fabsf(gy),
+      fmaxf(fabsf((c30 * gx) + (0.5F * gy)),
+          fabsf((-c30 * gx) + (0.5F * gy))));
+  return 0.5F - hr;
+}
+
 // Angular distance from unit direction `dir` to the nearest cell border of a
 // Goldberg geodesic hex grid: a vertex-up icosahedron with every face
 // subdivided into a frequency-`freq` triangular lattice, whose vertices are

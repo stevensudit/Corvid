@@ -391,7 +391,30 @@ shade_scene_ray(const density_field& field, cudaTextureObject_t color,
   const vec3 env = shade_scene_ray(field, color, head, cfg, hit_point,
       reflect(ray_dir, normal));
   if (cfg.debug_ball_raw) return env; // diagnose the black blob undimmed
-  return (env * cfg.ball.dim * cfg.ball.tint) + cfg.ball.ambient_floor;
+  vec3 col = (env * cfg.ball.dim * cfg.ball.tint) + cfg.ball.ambient_floor;
+
+  // The motion grid: an emissive flat hex wireframe wrapped onto the ball by
+  // the rolling-conveyor projection (`grid_uv`), so it stays flat and flows at
+  // the roll rate instead of wobbling like a whole-sphere geodesic grid. It
+  // flares up only while moving (`glow`) and fades toward the roll-axis poles,
+  // where the cells shrink: `grid_extent` is how far (in `axle`, the latitude
+  // sine) the grid reaches before that fade. The coordinates are scaled by
+  // `hex_freq` (cells per radian), so the line and aa widths convert back to
+  // radians by the same factor. The grid's flat-top axis is `u` (the rolling
+  // direction), so its edges run along `v`, parallel to the ground. Added over
+  // the mirror as glowing lines.
+  if (ball.glow > 0.001F) {
+    constexpr float aa = 0.02F;
+    constexpr float feather = 0.2F; // axle-fade softness
+    const auto scale = static_cast<float>(cfg.ball.hex_freq);
+    const metal_ball::grid_sample uv = ball.grid_uv(normal);
+    const float fade = __saturatef((cfg.ball.grid_extent - uv.axle) / feather);
+    const float edge = hex_grid_edge(uv.v * scale, uv.u * scale) / scale;
+    const float line = __saturatef((cfg.ball.hex_line - edge) / aa);
+    col = col + (cfg.ball.hex_color *
+                    (line * fade * cfg.ball.hex_strength * ball.glow));
+  }
+  return col;
 }
 
 // March one ray through the full world the flat mirror reflects: the nearest
