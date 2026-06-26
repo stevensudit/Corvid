@@ -15,7 +15,7 @@
 #include <cstdint>
 #include <cstdio>
 #include <exception>
-#include <fstream> // TEMP: avatar eye/antenna invariant instrumentation
+#include <fstream>
 #include <numbers>
 #include <print>
 #include <stdexcept>
@@ -194,15 +194,12 @@ __global__ void __launch_bounds__(256, 3) voxel_kernel(cudaSurfaceObject_t out,
   color = vec3{color.x / (1.0F + color.x), color.y / (1.0F + color.y),
       color.z / (1.0F + color.z)};
 
-  // A small crosshair at the screen center marks where a dig lands. (TEMP:
-  // disabled while testing the avatar at the mirror; restore with the debug
-  // instrumentation.)
-  //
-  // const float center_x = res.width * 0.5F;
-  // const float center_y = res.height * 0.5F;
-  // if ((fabsf(fx - center_x) < 6.0F && fabsf(fy - center_y) < 1.0F) ||
-  //     (fabsf(fy - center_y) < 6.0F && fabsf(fx - center_x) < 1.0F))
-  //   color = vec3{1.0F, 1.0F, 1.0F};
+  // A small crosshair at the screen center marks where a dig lands.
+  const float center_x = res.width * 0.5F;
+  const float center_y = res.height * 0.5F;
+  if ((fabsf(fx - center_x) < 6.0F && fabsf(fy - center_y) < 1.0F) ||
+      (fabsf(fy - center_y) < 6.0F && fabsf(fx - center_x) < 1.0F))
+    color = vec3{1.0F, 1.0F, 1.0F};
 
   const uchar4 pixel =
       make_uchar4(to_byte(color.x), to_byte(color.y), to_byte(color.z), 255);
@@ -377,12 +374,6 @@ struct avatar_rig {
   float ball_glow = 0.0F;        // eased motion-grid intensity (0 at rest)
   avatar_tuning
       tune{}; // live feel constants, read through by the methods below
-
-  // TEMP: eye/antenna invariant instrumentation. `head` writes the dome limits
-  // and the pre-clamp eye elevation over the banked disc (degrees) here so the
-  // frame loop can log them. Remove with the rest of the debug log.
-  mutable float dbg_dome_min = 0.0F;
-  mutable float dbg_dome_max = 0.0F;
 
   // The orthonormal view basis for the current facing.
   [[nodiscard]] basis frame() const {
@@ -804,10 +795,6 @@ struct avatar_rig {
     const vec3 antenna_banked =
         rotate_about(eye_banked, normalize(cross(eye_banked, dome_up)), lead);
 
-    // TEMP: surface the dome limits for the frame-loop debug log.
-    dbg_dome_min = dome_min.value / radians::per_degree;
-    dbg_dome_max = dome_max.value / radians::per_degree;
-
     // The disc nose in the banked disc plane: the look heading lifted into the
     // disc plane (perpendicular to the pre-bank `up`) and banked exactly like
     // the disc, so it stays unit and perpendicular to `saucer_up` even at a
@@ -989,14 +976,13 @@ void save_window_geometry(SDL_Window* win, const char* path) {
       .normal = vec3{0.0F, 0.0F, 1.0F}};
   generate_world(field, volume, materials, colors);
 
-  // A fixed pose, the viewer's spawn: a view that exercises the terrain march
-  // and the reflection shaders both. The march tunables come from the shipped
-  // defaults.
+  // A fixed pose, the viewer's default spawn (terrain toward the distant -z
+  // mirror). The march tunables come from the shipped defaults.
   render_config cfg;
   field.march_lipschitz = cfg.march.lipschitz;
   field.march_max_step_voxels = cfg.march.max_step_voxels;
   field.march_max_steps = cfg.march.max_steps;
-  avatar_rig rig{pos3{vec3{0.0F, 10.0F, oz + 8.0F}},
+  avatar_rig rig{pos3{vec3{0.0F, 10.0F, 0.0F}},
       orientation{90.0_deg, -20.0_deg}, 90.0_deg, 7.0F, 7.0F};
   rig.update(0.016F, false); // seat the head offset off its first frame
   const camera_rays rays = rig.rays();
@@ -1130,14 +1116,12 @@ int main(int argc, char** argv) {
         cuda_kernel::ceil_div(dig_span, dig_block.y),
         cuda_kernel::ceil_div(dig_span, dig_block.z)};
 
-    // The avatar starts floating (no gravity yet), looking toward -z and
-    // slightly down, in a trailing view pulled back from the head. The mouse
-    // wheel dollies in toward the jockey; the right-drag orbits. The
-    // feel constants (field of view and the rest) default from
-    // `avatar_tuning`, edited live by the config panel. (TEMP: spawned right
-    // in front of the -z mirror to speed up antenna testing; restore z to 0
-    // with the debug instrumentation.)
-    avatar_rig rig{pos3{vec3{0.0F, 10.0F, oz + 8.0F}},
+    // The avatar starts floating (no gravity yet) at the world center, looking
+    // toward -z and slightly down, in a trailing view pulled back from the
+    // head. The mouse wheel dollies in toward the jockey; the right-drag
+    // orbits. The feel constants (field of view and the rest) default from
+    // `avatar_tuning`, edited live by the config panel.
+    avatar_rig rig{pos3{vec3{0.0F, 10.0F, 0.0F}},
         orientation{90.0_deg, -20.0_deg}, 90.0_deg, 7.0F, 7.0F};
     const avatar_tuning tuning_defaults{};
 
@@ -1191,17 +1175,6 @@ int main(int argc, char** argv) {
     // shown next to the whole-frame ms so a slowdown can be pinned to the GPU
     // render or to the CPU-side per-frame work.
     float gpu_ms = 0.0F;
-
-    // TEMP: avatar eye/antenna invariant instrumentation. Logs the eye and
-    // antenna elevations (world and over the banked disc) plus the dome limits
-    // a few times a second so we can see which bound each symptom hits. Drive
-    // forward to watch the antenna, backward to watch the eye dip. Remove once
-    // the gimbal is settled.
-    // Opened lazily when "log avatar" is first enabled, so a default run does
-    // no file I/O and leaves no file behind.
-    std::ofstream dbg_log;
-    bool log_avatar = false;
-    float dbg_clock = 0.0F;
 
     while (true) {
       const auto action = pump_events([&](const sdl_event& ev) {
@@ -1285,32 +1258,6 @@ int main(int argc, char** argv) {
       const metal_ball ball = rig.ball();
       const saucer_head head = rig.head(render_cfg.head);
 
-      // TEMP: log the eye/antenna invariant state a few times a second when
-      // enabled. World elevation is the angle above the horizon; disc
-      // elevation is over the motion-banked disc, the frame the dome limits
-      // live in.
-      dbg_clock += dt;
-      if (log_avatar && dbg_clock >= 0.25F) {
-        dbg_clock = 0.0F;
-        if (!dbg_log.is_open())
-          dbg_log.open("c:/code/Corvid/avatar_debug.log", std::ios::trunc);
-        const auto deg = [](float s) {
-          return radians_asin(fmaxf(fminf(s, 1.0F), -1.0F)).value /
-                 radians::per_degree;
-        };
-        const float eye_disc = deg(dot(head.eye_dir, head.up));
-        const float ant_disc = deg(dot(head.antenna_dir, head.up));
-        char line[256];
-        SDL_snprintf(line, sizeof(line),
-            "drive %+.2f slide %+.2f | saucer %5.1f | eye world %6.1f disc "
-            "%6.1f | ant world %6.1f disc %6.1f | dome [%.1f,%.1f]\n",
-            rig.drive, rig.slide, deg(head.up.y), deg(head.eye_dir.y),
-            eye_disc, deg(head.antenna_dir.y), ant_disc, rig.dbg_dome_min,
-            rig.dbg_dome_max);
-        dbg_log << line;
-        dbg_log.flush();
-      }
-
       // Carve the field at the crosshair while the left button is held. The
       // pick records the hit in device memory and the brush reads it there, so
       // the dig stays on the GPU; the next frame's march shows the hole.
@@ -1329,8 +1276,7 @@ int main(int argc, char** argv) {
       imgui.begin_frame();
       if (show_config)
         draw_config_panel(rig.tune, tuning_defaults, render_cfg,
-            render_defaults, freeze_camera, lock_position, log_avatar,
-            uncap_fps);
+            render_defaults, freeze_camera, lock_position, uncap_fps);
 
       const int sync_interval = present_sync_interval(win, uncap_fps);
 

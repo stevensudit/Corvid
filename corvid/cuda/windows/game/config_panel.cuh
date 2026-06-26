@@ -583,14 +583,14 @@ draw_animation_rigging_section(avatar_tuning& t, const avatar_tuning& d) {
 // against defaults `d`), and the shading config (editing `c` against `dc`).
 // "Reset all" restores everything; the "freeze camera" checkbox toggles the
 // observer freeze (`freeze_camera`), "lock position" the treadmill
-// (`lock_position`), "log avatar" the debug gimbal log (`log_avatar`), and
-// "uncap fps" the benchmark vsync-off (`uncap_fps`). Per-field descriptions
-// are hover tooltips. A modified field is tinted and gains an inline reset.
+// (`lock_position`), and "uncap fps" the benchmark vsync-off (`uncap_fps`).
+// Per-field descriptions are hover tooltips. A modified field is tinted and
+// gains an inline reset.
 // The window opens centered at a readable size (ImGui's .ini persistence is
 // disabled, so this default holds every run).
 inline void draw_config_panel(avatar_tuning& t, const avatar_tuning& d,
     render_config& c, const render_config& dc, bool& freeze_camera,
-    bool& lock_position, bool& log_avatar, bool& uncap_fps) {
+    bool& lock_position, bool& uncap_fps) {
   const ImGuiViewport* vp = ImGui::GetMainViewport();
   ImGui::SetNextWindowPos(vp->GetCenter(), ImGuiCond_FirstUseEver,
       ImVec2(0.5F, 0.5F));
@@ -614,14 +614,6 @@ inline void draw_config_panel(avatar_tuning& t, const avatar_tuning& d,
       "Treadmill: hold the body in place (so the distance to the mirror stays "
       "fixed) while the saucer still tilts and spins as if moving, so a "
       "movement key animates it without changing where it is.");
-  ImGui::SameLine();
-  ImGui::Checkbox("log avatar", &log_avatar);
-  ImGui::SetItemTooltip("%s",
-      "Debug: append the eye and antenna gimbal invariants to "
-      "avatar_debug.log "
-      "a few times a second. Off by default, so it writes nothing and the "
-      "file "
-      "is created only once enabled.");
   ImGui::SameLine();
   ImGui::Checkbox("uncap fps", &uncap_fps);
   ImGui::SetItemTooltip("%s",
