@@ -88,8 +88,8 @@ struct avatar_tuning {
   float move_speed = 8.0F;       // planar move speed, units per second
   float head_height = 0.9F;      // head hover height over the ball
   float camera_height = 0.5F;    // eye height above head center, of the radius
-  float boom_min = 0.485F;       // pushed this far in front (FPS)
-  float boom_max = 14.0F;        // pulled this far back (wide)
+  float boom_min = 0.485F;       // jockey: this far behind, above the ball
+  float boom_max = 14.0F;        // trailing: pulled this far back (wide)
   float boom_rise = 0.35F;       // head rise per unit pulled back
   float zoom_approach = 8.0F;    // boom easing rate per second
   float zoom_step = 1.0F;        // boom change per mouse-wheel notch

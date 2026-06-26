@@ -8,8 +8,8 @@
 // in place (the next rung). The player is an avatar of a metallic ball and a
 // saucer head: WASD drives the ball (Space/Ctrl raise and lower it, Shift goes
 // faster), holding the right mouse button aims the eye (Look, or Steer while
-// driving), and the mouse wheel zooms the view from third person in to first
-// person through the head. Escape quits.
+// driving), and the mouse wheel dollies the head between its trailing distance
+// and the jockey (close above and behind the ball). Escape quits.
 
 #include <cmath>
 #include <cstdint>
@@ -319,10 +319,11 @@ __global__ void dig_kernel(cudaSurfaceObject_t surface, density_field field,
 // head the camera rides inside. The camera is always the head, so the head is
 // never drawn in the view; you see it only reflected in the ball. A Warcraft-
 // style zoom slides the head along the yaw-forward axis relative to the ball:
-// pulled back and raised for an over-the-shoulder third-person view, or pushed
-// in front of the ball for first person (the ball then behind you, visible
-// only on a free-look turn). WASD drives the ball along its heading and the
-// mouse wheel zooms. Holding the right button aims the eye: with no movement
+// pulled back and raised for an over-the-shoulder trailing view, or drawn in
+// to the jockey, close above and behind the ball, so a level look sees past it
+// and looking down gives its profile. The head never goes in front. WASD
+// drives the ball along its heading and the mouse wheel zooms. Holding the
+// right button aims the eye: with no movement
 // keys it is free Look; while driving it is Steer, the heading chasing the eye
 // so the ball arcs toward where you look. Releasing it Follows: the ball keeps
 // its heading and the view rotates to frame the travel. The head flies to its
@@ -332,7 +333,7 @@ struct avatar_rig {
   pos3 anchor;        // ball center, what the player drives
   orientation facing; // yaw/pitch look direction
   radians heading;    // yaw the head sits along; tracks the look while moving
-  float boom;         // head distance behind the ball; negative is in front
+  float boom;         // head distance behind the ball, jockey to trailing
   float
       boom_target; // where the wheel is taking the boom; `update` eases to it
   float spin = 0.0F;       // saucer belly rotation, advanced by `update`
@@ -376,15 +377,20 @@ struct avatar_rig {
   }
 
   // The head's seat offset from the ball: behind it along the heading by the
-  // boom (in front when negative) and raised by the rise. The heading, not the
-  // live look, seats the head, so free-look turns the camera without orbiting
-  // the head around the ball. The head's actual offset eases toward this
-  // (`update`), so the head translates with the ball one-to-one (never lagging
-  // the drive, however fast), while a heading swing or boom dolly glides the
-  // offset rather than snapping it around the long boom.
+  // boom and raised by the rise. The boom runs from the jockey (`boom_min`,
+  // above and slightly behind) to the trailing distance (`boom_max`) and never
+  // goes in front. The heading, not the live look, seats the head, so
+  // free-look turns the camera without orbiting the head around the ball. The
+  // head's actual offset eases toward this (`update`), so the head translates
+  // with the ball one-to-one (never lagging the drive, however fast), while a
+  // heading swing or boom dolly glides the offset rather than snapping it
+  // around the long boom.
+  //
+  // Physics seam (deferred): a low-ceiling tunnel will be the one exception
+  // that shifts the head in front, and only at the jockey. That waits on a
+  // physics pass; until then the boom is always behind.
   [[nodiscard]] vec3 head_seat_offset() const {
-    const float rise =
-        tune.head_height + ((boom > 0.0F ? boom : 0.0F) * tune.boom_rise);
+    const float rise = tune.head_height + (boom * tune.boom_rise);
     const vec3 heading_fwd{cos(heading), 0.0F, sin(heading)};
     return (camera::world_up * rise) - (heading_fwd * boom);
   }
@@ -427,7 +433,7 @@ struct avatar_rig {
   }
 
   // Aim the zoom: a positive delta (wheel up) targets a smaller boom, toward
-  // first person. The head only glides there in `update`, so it reads as the
+  // the jockey. The head only glides there in `update`, so it reads as the
   // saucer moving rather than snapping.
   void zoom(float delta) {
     boom_target =
@@ -871,8 +877,8 @@ int main() {
         cuda_kernel::ceil_div(dig_span, dig_block.z)};
 
     // The avatar starts floating (no gravity yet), looking toward -z and
-    // slightly down, in a third-person view pulled back from the head. The
-    // mouse wheel zooms in toward first person; the right-drag orbits. The
+    // slightly down, in a trailing view pulled back from the head. The mouse
+    // wheel dollies in toward the jockey; the right-drag orbits. The
     // feel constants (field of view and the rest) default from
     // `avatar_tuning`, edited live by the config panel. (TEMP: spawned right
     // in front of the -z mirror to speed up antenna testing; restore z to 0
@@ -973,10 +979,10 @@ int main() {
       const auto [fwd, strafe, lift] = input.movement(dt, rig.tune.move_speed);
       rig.move(fwd, strafe, lift);
 
-      // The mouse wheel aims the zoom between third and first person: an
-      // impulse, not a held velocity, so it is not scaled by frame time. The
-      // head then glides toward that target in `update`, so a zoom slides the
-      // saucer in or out rather than snapping. The per-notch step is
+      // The mouse wheel aims the zoom between the trailing distance and the
+      // jockey: an impulse, not a held velocity, so it is not scaled by frame
+      // time. The head then glides toward that target in `update`, so a zoom
+      // slides the saucer in or out rather than snapping. The per-notch step is
       // live-tuned, so sync it from the rig before consuming the wheel.
       input.scroll_step = rig.tune.zoom_step;
       if (input.wheel != 0.0F) rig.zoom(input.dolly());

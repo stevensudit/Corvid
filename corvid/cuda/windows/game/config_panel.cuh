@@ -374,8 +374,9 @@ inline void draw_movement_section(avatar_tuning& t, const avatar_tuning& d) {
   tuned_slider("camera height", t.camera_height, d.camera_height, 0.0F, 2.0F,
       "Eye height above the head center (of the head radius); raises the "
       "viewpoint so the dome-heavy saucer reflects lower in the frame.");
-  tuned_slider("boom min", t.boom_min, d.boom_min, -5.0F, 5.0F,
-      "Closest boom: head pushed in front of the ball (first person).");
+  tuned_slider("boom min", t.boom_min, d.boom_min, 0.0F, 5.0F,
+      "Closest boom: the jockey position, head above and slightly behind "
+      "the ball. Never in front.");
   tuned_slider("boom max", t.boom_max, d.boom_max, 1.0F, 30.0F,
       "Farthest boom: head pulled back behind the ball (wide view).");
   tuned_slider("boom rise", t.boom_rise, d.boom_rise, 0.0F, 1.0F,
