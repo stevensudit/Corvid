@@ -15,6 +15,7 @@
 #include <cstdint>
 #include <exception>
 #include <fstream> // TEMP: avatar eye/antenna invariant instrumentation
+#include <numbers>
 #include <stdexcept>
 
 #include <cuda_runtime.h>
@@ -336,15 +337,18 @@ struct avatar_rig {
   float boom;         // head distance behind the ball, jockey to trailing
   float
       boom_target; // where the wheel is taking the boom; `update` eases to it
-  float spin = 0.0F;       // saucer belly rotation, advanced by `update`
-  float drive = 0.0F;      // smoothed signed forward head speed (-1..1)
-  float slide = 0.0F;      // smoothed signed strafe head speed (-1..1)
-  float spin_clock = 0.0F; // time accumulator for the idle spin reversal
-  float idle_dir = 1.0F;   // smoothed idle spin direction (+/-1)
-  float moving = 0.0F;     // this frame's planar ball movement, set by `move`
-  pos3 prev_eye{};         // last frame's head position, for the head velocity
-  bool primed = false;     // whether `prev_eye` holds a real previous frame
-  vec3 head_offset{}; // eased head offset from the ball, flown to the seat
+  float spin = 0.0F;  // saucer belly rotation, advanced by `update`
+  float drive = 0.0F; // smoothed signed forward head speed, clamped (-1..1)
+  float slide = 0.0F; // smoothed signed strafe head speed, clamped (-1..1)
+  float drive_raw = 0.0F;   // forward head speed, unclamped (sprint past 1)
+  float slide_raw = 0.0F;   // strafe head speed, unclamped (sprint past 1)
+  float spin_clock = 0.0F;  // time accumulator for the idle spin reversal
+  float blink_phase = 0.0F; // antenna beacon blink phase, in cycles [0..1)
+  float idle_dir = 1.0F;    // smoothed idle spin direction (+/-1)
+  float moving = 0.0F;      // this frame's planar ball movement, set by `move`
+  pos3 prev_eye{};     // last frame's head position, for the head velocity
+  bool primed = false; // whether `prev_eye` holds a real previous frame
+  vec3 head_offset{};  // eased head offset from the ball, flown to the seat
   bool head_primed = false; // whether `head_offset` holds a real seated offset
   bool frozen = false;      // observer freeze: camera pinned, head shown
   pos3 frozen_cam{};        // the pinned camera position while `frozen`
@@ -501,28 +505,55 @@ struct avatar_rig {
       const vec3 vel = ((here - prev_eye) + locked_step) * (1.0F / dt);
       const vec3 heading_fwd{cos(heading), 0.0F, sin(heading)};
       const vec3 heading_right{-sin(heading), 0.0F, cos(heading)};
-      const float drive_target =
-          fmaxf(-1.0F, fminf(dot(vel, heading_fwd) / tune.move_speed, 1.0F));
-      const float slide_target =
-          fmaxf(-1.0F, fminf(dot(vel, heading_right) / tune.move_speed, 1.0F));
+      const float fwd_v = dot(vel, heading_fwd) / tune.move_speed;
+      const float side_v = dot(vel, heading_right) / tune.move_speed;
+      // `drive`/`slide` clamp to +/-1 because the tilt and color saturate at
+      // full move speed; `drive_raw`/`slide_raw` keep the unclamped signed
+      // speed (a sprint pushes them past 1) so the belly spin and the beacon
+      // blink track true speed.
+      const float drive_target = fmaxf(-1.0F, fminf(fwd_v, 1.0F));
+      const float slide_target = fmaxf(-1.0F, fminf(side_v, 1.0F));
       drive = drive + ((drive_target - drive) * ramp);
       slide = slide + ((slide_target - slide) * ramp);
+      drive_raw = drive_raw + ((fwd_v - drive_raw) * ramp);
+      slide_raw = slide_raw + ((side_v - slide_raw) * ramp);
     }
     prev_eye = here;
     primed = true;
 
+    // The Head's planar speed (forward and strafe), saturated to 1 at full
+    // move speed. It quiets the idle spin and, in `head`, gates the beacon's
+    // on/off blink off at rest and blends its moving versus idle color. The
+    // unclamped `move_mag` (which a sprint pushes past 1) sets the blink rate.
+    const float speed = fminf(1.0F, fabsf(drive) + fabsf(slide));
+
     // The belly spin: while moving it follows travel (faster ahead, reversing
-    // when backing up); while stationary it alternates direction every
-    // `spin_idle_period`, easing through each reversal, which reads livelier
-    // than a constant idle spin.
+    // when backing up; strafing spins it opposite ways left versus right) on
+    // the unclamped speed, so a sprint spins it faster too; while stationary
+    // it alternates direction every `spin_idle_period`, easing through each
+    // reversal, which reads livelier than a constant idle spin.
     spin_clock = spin_clock + dt;
     const float idle_target =
         fmodf(spin_clock, 2.0F * tune.spin_idle_period) < tune.spin_idle_period
             ? 1.0F
             : -1.0F;
     idle_dir = idle_dir + ((idle_target - idle_dir) * ramp);
-    const float idle = tune.spin_rate * idle_dir * (1.0F - fabsf(drive));
-    spin = spin + ((idle + (tune.spin_move_gain * drive)) * dt);
+    const float idle = tune.spin_rate * idle_dir * (1.0F - speed);
+    spin =
+        spin +
+        ((idle + (tune.spin_move_gain * drive_raw) +
+             (tune.spin_strafe_gain * slide_raw)) *
+            dt);
+
+    // The antenna beacon's on/off blink phase, in cycles: it advances at a
+    // rate scaled by the unclamped planar speed, so it does not pulse at rest
+    // and runs faster the quicker the Head travels, sprint included. `head`
+    // turns the phase into the 0..1 waveform; the wrap keeps the accumulator
+    // bounded.
+    const float move_mag =
+        sqrtf((drive_raw * drive_raw) + (slide_raw * slide_raw));
+    blink_phase =
+        fmodf(blink_phase + ((tune.blink_move_gain * move_mag) * dt), 1.0F);
   }
 
   // The camera position: the eye raised above the head's center by
@@ -696,11 +727,41 @@ struct avatar_rig {
     dbg_dome_min = dome_min.value / radians::per_degree;
     dbg_dome_max = dome_max.value / radians::per_degree;
 
-    return {eye(), saucer_up, dome_up, f_h, tune.head_radius, spin,
+    // The disc nose in the banked disc plane: the look heading lifted into the
+    // disc plane (perpendicular to the pre-bank `up`) and banked exactly like
+    // the disc, so it stays unit and perpendicular to `saucer_up` even at a
+    // full nose-down dip, where projecting the horizontal heading onto the
+    // disc would collapse. The hull decals anchor to it.
+    const vec3 disc_nose =
+        bank_by((f_h * cos(tilt)) + (up_w * sin(tilt)), 1.0F);
+
+    // The beacon animation handed to the shader: the blink waveform from the
+    // phase, how much the Head is backing up (reddens the beacon while
+    // moving), the planar speed (gates the on/off blink off at rest and blends
+    // the moving versus idle color), and the idle color selector tied to the
+    // belly idle spin so the beacon alternates in tune with it at rest.
+    // Strafing does not redden the beacon: only backing up is special.
+    constexpr float two_pi = 2.0F * std::numbers::pi_v<float>;
+    const float blink = 0.5F + (0.5F * sin(radians{blink_phase * two_pi}));
+    const float reversing = fmaxf(0.0F, -drive);
+    const float speed = fminf(1.0F, fabsf(drive) + fabsf(slide));
+
+    // The idle color selector: a cosine of the belly idle-spin period so the
+    // resting beacon shifts color smoothly in tune with it. `color_phase`
+    // shifts the color against the spin (0 in phase, 1 opposite); `fmodf`
+    // keeps the cosine's argument bounded.
+    const float cycle = 2.0F * tune.spin_idle_period;
+    const float frac = fmodf(spin_clock, cycle) / cycle;
+    const float idle_smooth =
+        cos(radians{(frac + (tune.color_phase * 0.5F)) * two_pi});
+    const float idle_mix = 0.5F - (0.5F * idle_smooth);
+
+    return {eye(), saucer_up, dome_up, disc_nose, tune.head_radius, spin,
         tune.disc_height, tune.dome_offset, tune.dome_radius, tune.dome_blend,
         tune.top_height, tune.rim_round, eye_banked, antenna_banked,
         tune.antenna_length, tune.antenna_thickness, tune.antenna_ball,
-        tune.antenna_collar, tune.head_hit_cap};
+        tune.antenna_collar, blink, reversing, speed, idle_mix,
+        tune.head_hit_cap};
   }
 };
 
@@ -982,8 +1043,8 @@ int main() {
       // The mouse wheel aims the zoom between the trailing distance and the
       // jockey: an impulse, not a held velocity, so it is not scaled by frame
       // time. The head then glides toward that target in `update`, so a zoom
-      // slides the saucer in or out rather than snapping. The per-notch step is
-      // live-tuned, so sync it from the rig before consuming the wheel.
+      // slides the saucer in or out rather than snapping. The per-notch step
+      // is live-tuned, so sync it from the rig before consuming the wheel.
       input.scroll_step = rig.tune.zoom_step;
       if (input.wheel != 0.0F) rig.zoom(input.dolly());
 

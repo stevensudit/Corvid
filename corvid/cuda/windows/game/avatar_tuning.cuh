@@ -51,19 +51,20 @@ struct avatar_tuning {
   // sharpens the far-mirror edge, too low reopens the dome/disc seam.
   float head_hit_cap = 0.002F;
 
-  // Saucer belly spin: the idle rate, the gain from forward travel, and the
-  // idle-reversal period.
+  // Saucer belly spin: the idle rate, the gains from forward travel and
+  // strafing, and the idle-reversal period.
   float spin_rate = -1.5F;       // idle belly spin, radians per second
   float spin_move_gain = -3.0F;  // spin gain from forward travel, signed
-  float spin_idle_period = 6.0F; // seconds between idle spin reversals
+  float spin_strafe_gain = 3.0F; // spin gain from strafing, signed
+  float spin_idle_period = 4.5F; // seconds between idle spin reversals
 
   // Saucer tilt: the look gimbal's max nose-down dip, plus the helicopter
   // motion tilt (the saucer banks with its own travel), one angle per
   // direction at full speed.
   float dip_max_deg = 65.0F;       // max nose-down dip on a look down, degrees
   float forward_tilt_deg = 28.0F;  // nose-down tilt at full forward travel
-  float backward_tilt_deg = 62.0F; // tail-down tilt at full reverse travel
-  float strafe_tilt_deg = 55.0F;   // bank toward the strafe at full strafe
+  float backward_tilt_deg = 28.0F; // tail-down tilt at full reverse travel
+  float strafe_tilt_deg = 28.0F;   // bank toward the strafe at full strafe
 
   // Dome shape, as fractions of the head radius (see `saucer_head`).
   float dome_offset = 0.2F;  // dome center height / radius (lower = buried)
@@ -79,10 +80,22 @@ struct avatar_tuning {
   // Antenna standing off the dome top (fractions of the head radius). It wags
   // with the eye's gimbal as an exaggerated tilt signal; `antenna_length` 0
   // disables it.
-  float antenna_length = 0.5F;      // rod length / radius
+  float antenna_length = 0.6F;      // rod length / radius
   float antenna_thickness = 0.004F; // rod radius / radius
   float antenna_ball = 0.044F;      // tip ball radius / radius
   float antenna_collar = 0.006F;    // base collar (the metal disc) / radius
+
+  // The antenna beacon's blink rate: scales with the Head's planar speed, so
+  // it does not pulse at rest and blinks faster the quicker it travels. In
+  // cycles (Hz); the colors and the on/off depth live in
+  // `render_config::head_params`.
+  float blink_move_gain = 2.0F; // blink rate per unit Head speed
+
+  // The resting beacon color smoothly tracks the belly idle spin (a cosine of
+  // its period). `color_phase` shifts the color against the spin: 0 in phase
+  // (pure color at each reversal), 1 in opposite phase; around 0.5 the color
+  // is pure mid-spin and neutral at the reversal.
+  float color_phase = 0.5F;
 
   // Movement: how the rig follows the body, dollies, zooms, and frames it.
   float move_speed = 8.0F;       // planar move speed, units per second

@@ -67,13 +67,14 @@ struct metal_ball {
 // The saucer head: a flying-saucer SDF that carries the viewpoint. A flat
 // ellipsoid body blended with a small dome on top, sized by one radius. Its
 // `up` axis (the disc normal) tilts so the saucer banks with the look, a
-// `front` axis orients the cockpit eyes, and a `spin` angle turns the belly
-// pattern. Unlike the ball it has no closed-form hit, so it is sphere-traced.
+// `front` axis (the disc nose, in the disc plane) anchors the fixed hull
+// decals, and a `spin` angle turns the belly pattern. Unlike the ball it has
+// no closed-form hit, so it is sphere-traced.
 struct saucer_head {
   pos3 center;
   vec3 up;      // disc normal (unit); the saucer banks by tilting this
   vec3 dome_up; // dome decal normal (unit); counter-rotates against the bank
-  vec3 front;   // forward direction (unit); orients the cockpit eyes
+  vec3 front;   // disc nose (unit, in the disc plane); anchors hull decals
   float radius; // disc radius
   float spin;   // belly-pattern rotation angle, radians
 
@@ -111,6 +112,18 @@ struct saucer_head {
   float antenna_ball = 0.0F;      // tip ball radius / radius
   float antenna_collar = 0.04F;   // base collar (shading detect) / radius
 
+  // Beacon animation, set per frame in `avatar_rig::head` and read by
+  // `shade_antenna`: `blink` is the 0..1 on/off blink waveform, `reversing` is
+  // how much the Head is backing up (0..1, reddens the beacon while moving),
+  // `motion` is the Head's planar speed (0..1, which gates the on/off blink
+  // off at rest and blends moving versus idle color), and `idle_mix` is the
+  // idle color selector (0..1) tied to the belly idle spin, so the beacon
+  // alternates in tune with it at rest.
+  float blink = 0.0F;
+  float reversing = 0.0F;
+  float motion = 0.0F;
+  float idle_mix = 0.0F;
+
   // Caps the silhouette hit tolerance (fraction of radius) so the far-mirror
   // reflection does not fatten into a dark halo; see `raymarch`.
   float hit_cap = 0.05F;
@@ -136,22 +149,17 @@ struct saucer_head {
     return vec3{dot(q, ex), dot(q, up), dot(q, ez)};
   }
 
-  // Azimuth of `p` about the disc axis, measured from the hull's own `front`
-  // projected into the disc plane, so a decal placed by it stays bolted to the
-  // hull as the disc banks. `to_local` instead floats its azimuth on world up,
-  // which is fine for the spinning, radially symmetric belly but slides a
-  // fixed decal whenever the disc tilts. The fallback covers only the
-  // degenerate pose where `front` is parallel to the disc axis (a 90-degree
-  // pitch the rig never reaches).
+  // Azimuth of `p` about the disc axis, measured from the hull's `front`, so a
+  // decal placed by it stays bolted to the hull as the disc banks and dips.
+  // `to_local` instead floats its azimuth on world up, which is fine for the
+  // spinning, radially symmetric belly but slides a fixed decal whenever the
+  // disc tilts. `front` is the disc nose, already a unit vector in the disc
+  // plane (perpendicular to `up`), so the frame stays continuous through a
+  // full nose-down dip with no projection to collapse.
   [[nodiscard]] __device__ float hull_azimuth(pos3 p) const {
     const vec3 q = p - center;
-    const vec3 fwd0 = front - (up * dot(front, up));
-    const float len = sqrtf(dot(fwd0, fwd0));
-    const vec3 fwd =
-        len > 1.0e-4F ? (fwd0 / len)
-                      : normalize(cross(up, vec3{1.0F, 0.0F, 0.0F}));
-    const vec3 right = cross(up, fwd);
-    return atan2f(dot(q, right), dot(q, fwd));
+    const vec3 right = cross(up, front);
+    return atan2f(dot(q, right), dot(q, front));
   }
 
   // The disc body and the dome sphere distances that `saucer_sdf`

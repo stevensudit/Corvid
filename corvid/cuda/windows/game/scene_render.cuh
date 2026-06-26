@@ -68,8 +68,21 @@ namespace corvid::cuda {
   const float facing = __saturatef(-dot(n, ray_dir));
   const float axial = dot(n, head.antenna_dir);
   const float rim = expf(-(axial * axial) * 8.0F);
-  out = hp.antenna_tip_color *
-        (0.4F + (0.9F * (facing * facing)) + (0.6F * rim));
+  const float glow = 0.4F + (0.9F * (facing * facing)) + (0.6F * rim);
+
+  // The two-tone beacon. While moving the color is direction-driven: the
+  // tip-color running light, reddening toward the alt color as the Head backs
+  // up. At rest it eases to the belly idle alternation (`idle_mix`), so the
+  // beacon alternates the two colors in tune with the idle belly spin;
+  // `motion` blends between the two regimes. The on/off portion dims the
+  // beacon toward dark on the blink wave by `blink_depth`, gated by `motion`
+  // so the resting alternation is a smooth color change with no pulsing.
+  const auto mix = [](vec3 a, vec3 b, float t) { return a + ((b - a) * t); };
+  const float select =
+      (head.idle_mix * (1.0F - head.motion)) + (head.reversing * head.motion);
+  const vec3 color = mix(hp.antenna_tip_color, hp.antenna_alt_color, select);
+  const float on = 1.0F - (hp.blink_depth * head.motion * (1.0F - head.blink));
+  out = color * (glow * on);
   return true;
 }
 
@@ -270,12 +283,16 @@ namespace corvid::cuda {
     }
 
     // Radial panel grooves: thin darkened seams at evenly spaced angles, the
-    // arc scaled by `rr` so each holds a constant width out to the rim.
+    // arc scaled by `rr` so each holds a constant width out to the rim. They
+    // stop at `rim_top` (fading out below it) so they cover only the flat top
+    // and leave the rounded shoulder to the rim running lights.
     if (hp.panel_count > 0) {
       const auto panels = static_cast<float>(hp.panel_count);
       const float phase = ((top_ang - hp.panel_phase) * panels) / two_pi;
       const float to_seam = fabsf(phase - rintf(phase)) * (two_pi / panels);
-      const float groove = __saturatef((hp.panel_line - (to_seam * rr)) / aa);
+      const float groove =
+          __saturatef((hp.panel_line - (to_seam * rr)) / aa) *
+          __saturatef((facing_up - hp.rim_top) / 0.05F);
       albedo = albedo * (1.0F - (groove * hp.panel_strength));
     }
   }
@@ -283,19 +300,48 @@ namespace corvid::cuda {
   // The belly: a painted disc (concentric rings * spinning spokes), the
   // central flashlight hub, and a ring of amber rim lights.
   if (underside > 0.001F) {
-    const float rings = 0.5F + (0.5F * cosf(rr * hp.ring_frequency));
-    const float spokes = 0.5F + (0.5F * cosf(ang * hp.spoke_frequency));
+    const float rings = 0.5F + (0.5F * cosf(rr * hp.ring_paint_frequency));
+    const float spokes = 0.5F + (0.5F * cosf(ang * hp.spoke_paint_frequency));
     albedo = albedo * (hp.paint_base + (hp.paint_range * rings * spokes));
 
     const float hub = __saturatef((hp.hub_radius - rr) / hp.hub_softness);
     emissive = emissive + (hp.hub_color * (hp.hub_strength * hub));
 
-    const float ring = expf(-powf((rr - hp.rim_center) * hp.rim_width, 2.0F));
+    const float ring =
+        expf(-powf((rr - hp.spoke_center) * hp.spoke_width, 2.0F));
     const float dots =
-        powf(0.5F + (0.5F * cosf(ang * hp.rim_dot_frequency)), 8.0F);
-    emissive = emissive + (hp.rim_color * (hp.rim_strength * ring * dots));
+        powf(0.5F + (0.5F * cosf(ang * hp.spoke_dot_frequency)), 8.0F);
+    emissive = emissive + (hp.spoke_color * (hp.spoke_strength * ring * dots));
 
     emissive = emissive * underside;
+  }
+
+  // Rim running lights: a ring of emissive segments set into the rounded
+  // shoulder where the top curves down to the brim (the darker edge above the
+  // brim), crisp at the top of that shoulder and fading downward, so they read
+  // as lights projecting down whose diffuse lower half still shows from above.
+  // `facing_up` (the normal's vertical component) is ~1 on the flat top, 0 at
+  // the brim boundary, negative on the belly: the band cuts hard just below
+  // `rim_top` (the crisp top edge, set where the flat top ends) and fades over
+  // `rim_width` down across the shoulder and brim onto the upper belly. The
+  // panel grooves stop at the same `rim_top` so the rim light owns this edge.
+  // Keying on the geometric normal (not the view angle) keeps a consistent
+  // width and covers the gap a thin equator ring leaves under shallow views.
+  // On the disc body only (not the dome). `seg` is the smooth cosine of the
+  // azimuth, so the `rim_count` segments fade between dark and lit, scaled
+  // into
+  // [`rim_floor`, 1]; `rim_spin_scale` turns them slower than the belly
+  // (subtracting part of `head.spin` from `ang`).
+  if (!is_dome) {
+    constexpr float aa = 0.03F; // top-edge crispness, in normal units
+    const float f = facing_up - hp.rim_top;
+    const float band =
+        __saturatef(-f / aa) * __saturatef(1.0F + (f / hp.rim_width));
+    const float rim_ang = ang - (head.spin * (1.0F - hp.rim_spin_scale));
+    const float wave =
+        0.5F + (0.5F * cosf(rim_ang * static_cast<float>(hp.rim_count)));
+    const float seg = hp.rim_floor + ((1.0F - hp.rim_floor) * wave);
+    emissive = emissive + (hp.rim_color * (hp.rim_strength * band * seg));
   }
 
   const vec3 half_v = normalize(light_dir - ray_dir);

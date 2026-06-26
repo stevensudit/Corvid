@@ -210,12 +210,12 @@ inline void draw_saucer_section(avatar_tuning& t, const avatar_tuning& d,
     ImGui::TreePop();
   }
   if (ImGui::TreeNode("Saucer - Belly")) {
-    tuned_slider("ring frequency", c.head.ring_frequency,
-        dc.head.ring_frequency, 0.0F, 60.0F,
-        "Concentric ring frequency on the belly.");
-    tuned_slider("spoke frequency", c.head.spoke_frequency,
-        dc.head.spoke_frequency, 0.0F, 40.0F,
-        "Radial spoke frequency on the belly.");
+    tuned_slider("ring paint freq", c.head.ring_paint_frequency,
+        dc.head.ring_paint_frequency, 0.0F, 60.0F,
+        "Concentric ring frequency on the belly paint.");
+    tuned_slider("spoke paint freq", c.head.spoke_paint_frequency,
+        dc.head.spoke_paint_frequency, 0.0F, 40.0F,
+        "Radial spoke frequency on the belly paint.");
     tuned_slider("paint base", c.head.paint_base, dc.head.paint_base, 0.0F,
         1.0F, "Darkest the belly paint dims to.");
     tuned_slider("paint range", c.head.paint_range, dc.head.paint_range, 0.0F,
@@ -228,17 +228,41 @@ inline void draw_saucer_section(avatar_tuning& t, const avatar_tuning& d,
         "Flashlight hub color.");
     tuned_slider("hub strength", c.head.hub_strength, dc.head.hub_strength,
         0.0F, 5.0F, "Flashlight hub brightness.");
-    tuned_slider("rim center", c.head.rim_center, dc.head.rim_center, 0.0F,
-        1.0F, "Radius of the amber rim-light ring.");
-    tuned_slider("rim width", c.head.rim_width, dc.head.rim_width, 1.0F, 40.0F,
-        "Higher makes the rim-light ring thinner.");
+    tuned_slider("spoke center", c.head.spoke_center, dc.head.spoke_center,
+        0.0F, 1.0F, "Radius of the amber belly spoke-light ring.");
+    tuned_slider("spoke width", c.head.spoke_width, dc.head.spoke_width, 1.0F,
+        40.0F, "Higher makes the belly spoke-light ring thinner.");
+    tuned_color("spoke color", c.head.spoke_color, dc.head.spoke_color,
+        "Belly spoke-light color.");
+    tuned_slider("spoke strength", c.head.spoke_strength,
+        dc.head.spoke_strength, 0.0F, 5.0F, "Belly spoke-light brightness.");
+    tuned_slider("spoke dot freq", c.head.spoke_dot_frequency,
+        dc.head.spoke_dot_frequency, 0.0F, 40.0F,
+        "Number of dots around the belly spoke-light ring.");
+    ImGui::TreePop();
+  }
+  if (ImGui::TreeNode("Saucer - Rim")) {
+    tuned_slider("rim top", c.head.rim_top, dc.head.rim_top, 0.0F, 1.0F,
+        "Crisp top edge of the rim lights, on the shoulder where the flat top "
+        "ends (normal's vertical value: 1 = flat top, 0 = brim). The panel "
+        "grooves stop here too.");
+    tuned_slider("rim width", c.head.rim_width, dc.head.rim_width, 0.1F, 2.0F,
+        "How far the rim lights fade downward from 'rim top' across the "
+        "shoulder and onto the belly (normal units).");
     tuned_color("rim color", c.head.rim_color, dc.head.rim_color,
-        "Rim-light color.");
+        "Rim running-light color.");
     tuned_slider("rim strength", c.head.rim_strength, dc.head.rim_strength,
-        0.0F, 5.0F, "Rim-light brightness.");
-    tuned_slider("rim dot frequency", c.head.rim_dot_frequency,
-        dc.head.rim_dot_frequency, 0.0F, 40.0F,
-        "Number of dots around the rim-light ring.");
+        0.0F, 5.0F, "Rim running-light brightness.");
+    tuned_slider_int("rim count", c.head.rim_count, dc.head.rim_count, 0, 48,
+        "Number of running lights around the ring.");
+    tuned_slider("rim floor", c.head.rim_floor, dc.head.rim_floor, 0.0F, 1.0F,
+        "Dark end of the fade between segments (0 = fades to black, 1 = "
+        "solid); "
+        "scales the pattern up rather than clipping it.");
+    tuned_slider("rim spin scale", c.head.rim_spin_scale,
+        dc.head.rim_spin_scale, 0.0F, 1.0F,
+        "Rim spin rate as a fraction of the belly spin (lower is calmer and "
+        "avoids the fast-spin strobe).");
     ImGui::TreePop();
   }
   if (ImGui::TreeNode("Saucer - Spin")) {
@@ -248,6 +272,10 @@ inline void draw_saucer_section(avatar_tuning& t, const avatar_tuning& d,
         6.0F,
         "How much forward travel adds to the spin (reverses when backing "
         "up).");
+    tuned_slider("spin strafe gain", t.spin_strafe_gain, d.spin_strafe_gain,
+        -6.0F, 6.0F,
+        "How much strafing adds to the spin (opposite ways left versus "
+        "right).");
     tuned_slider("spin idle period", t.spin_idle_period, d.spin_idle_period,
         0.5F, 10.0F, "Seconds between idle spin reversals while stationary.",
         ImGuiSliderFlags_AlwaysClamp);
@@ -360,7 +388,25 @@ inline void draw_antenna_section(avatar_tuning& t, const avatar_tuning& d,
       "hex tiling; the rod itself is unaffected.");
   tuned_color("antenna tip", c.head.antenna_tip_color,
       dc.head.antenna_tip_color,
-      "Glowing bead atop the antenna (emissive beacon).");
+      "Glowing bead atop the antenna (emissive beacon, the running light).");
+  tuned_color("beacon alt color", c.head.antenna_alt_color,
+      dc.head.antenna_alt_color,
+      "Second beacon color: shown when backing up, and alternated with the "
+      "tip "
+      "color (in tune with the idle belly spin) at rest.");
+  tuned_slider("blink depth", c.head.blink_depth, dc.head.blink_depth, 0.0F,
+      1.0F,
+      "On/off blink while moving: 0 holds the beacon lit, 1 blinks it fully "
+      "dark. Steady at rest.");
+  tuned_slider("blink move gain", t.blink_move_gain, d.blink_move_gain, 0.0F,
+      6.0F,
+      "Beacon blink rate per unit of Head speed (sprint included); no pulse "
+      "at "
+      "rest.");
+  tuned_slider("color phase", t.color_phase, d.color_phase, 0.0F, 1.0F,
+      "Resting color phase against the belly spin: 0 in phase (pure color at "
+      "each reversal), 1 opposite; ~0.5 is pure mid-spin, neutral at "
+      "reversal.");
   ImGui::TreePop();
 }
 

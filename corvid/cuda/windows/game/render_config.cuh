@@ -83,8 +83,8 @@ struct render_config {
     float specular_strength = 0.5F;
 
     // Belly paint: concentric rings times spinning spokes.
-    float ring_frequency = 26.0F;
-    float spoke_frequency = 12.0F;
+    float ring_paint_frequency = 26.0F;
+    float spoke_paint_frequency = 12.0F;
     float paint_base = 0.35F;  // darkest the paint dims the albedo to
     float paint_range = 0.65F; // added back where rings and spokes peak
 
@@ -94,12 +94,34 @@ struct render_config {
     vec3 hub_color{1.0F, 0.95F, 0.80F};
     float hub_strength = 2.5F;
 
-    // Belly amber rim lights: a ring of glowing dots near the edge.
-    float rim_center = 0.80F; // radius of the ring (fraction of disc radius)
-    float rim_width = 14.0F;  // higher = thinner ring
-    vec3 rim_color{1.0F, 0.50F, 0.12F};
-    float rim_strength = 2.2F;
-    float rim_dot_frequency = 16.0F;
+    // Belly amber spoke lights: a ring of glowing dots on the underside near
+    // the edge, turning with the belly paint.
+    float spoke_center = 0.80F; // radius of the ring (fraction of disc radius)
+    float spoke_width = 14.0F;  // higher = thinner ring
+    vec3 spoke_color{1.0F, 0.50F, 0.12F};
+    float spoke_strength = 2.2F;
+    float spoke_dot_frequency = 16.0F;
+
+    // Rim running lights: a ring of emissive segments set into the rounded
+    // shoulder where the top curves down to the brim, crisp at the top of that
+    // shoulder and fading downward, so they read as lights projecting down
+    // whose diffuse lower half still shows from above. `rim_top` is the crisp
+    // top edge, in normal units (the surface normal's vertical component: ~1
+    // on the flat top, 0 at the brim boundary, negative on the belly), set
+    // where the flat top ends; the panel grooves stop there too, leaving this
+    // edge to the rim light. `rim_width` is the downward fade distance from
+    // `rim_top`. `rim_count` segments fade smoothly between dark and lit
+    // around the ring
+    // (`rim_floor` raises the dark end, scaling the fade into [rim_floor, 1]
+    // without clipping it), turning with the belly at `rim_spin_scale` of its
+    // rate (slower reads calmer and avoids the fast-spin strobe).
+    float rim_top = 0.75F;  // the normal's vertical value there
+    float rim_width = 1.0F; // downward fade distance from `rim_top` (normal)
+    vec3 rim_color{0.465F, 0.475F, 0.630F};
+    float rim_strength = 0.4F;
+    int rim_count = 24;     // number of running lights around the ring
+    float rim_floor = 0.3F; // dark end of the segment fade (0 = full 0..1)
+    float rim_spin_scale = 0.5F; // rim spin rate / belly spin rate
 
     // Saucer top: fixed decals dressing the bare upper cone for a classic
     // hull look. A ring of dark portholes and a set of radial panel grooves,
@@ -156,8 +178,16 @@ struct render_config {
     vec3 eye_frame_color{0.62F, 0.62F, 0.62F}; // frame, spokes, hub ring
 
     // Antenna tip beacon: the ball atop the dome's antenna, drawn emissive so
-    // it reads as a light. The rod uses the bare-steel `base_albedo`.
+    // it reads as a light. The rod uses the bare-steel `base_albedo`. The
+    // beacon shows `antenna_tip_color` while moving forward or strafing and
+    // `antenna_alt_color` while backing up; at rest it alternates the two in
+    // tune with the belly's idle spin. `blink_depth` is the on/off portion
+    // while moving (see `avatar_tuning` for the rate): 0 holds it lit, 1
+    // blinks it fully dark; it is gated off at rest, so the resting
+    // alternation is a smooth color change with no pulsing.
     vec3 antenna_tip_color{0.469F, 1.0F, 0.1F}; // glowing bead (green beacon)
+    vec3 antenna_alt_color{1.0F, 0.08F, 0.04F}; // backing-up color (red)
+    float blink_depth = 0.7F;                   // on/off blink while moving
   } head;
 
   // Anti-alias samples per axis in `voxel_kernel`: 1 disables it, 2 to 3 is
