@@ -347,7 +347,7 @@ inline void draw_dome_section(avatar_tuning& t, const avatar_tuning& d,
 inline void draw_eye_section(avatar_tuning& t, const avatar_tuning& d,
     render_config& c, const render_config& dc) {
   if (!ImGui::TreeNode("Eye")) return;
-  tuned_slider("eye lift", t.eye_lift_deg, d.eye_lift_deg, 0.0F, 30.0F,
+  tuned_slider("eye lift", t.eye_lift_deg, d.eye_lift_deg, 0.0F, 60.0F,
       "Degrees the eye aims above the look so it makes eye contact: the "
       "camera "
       "rides above the eye, so a level aim reads as looking low.");
@@ -386,6 +386,10 @@ inline void draw_antenna_section(avatar_tuning& t, const avatar_tuning& d,
       0.05F,
       "Metal collar where the antenna meets the dome. Shrink to declutter the "
       "hex tiling; the rod itself is unaffected.");
+  tuned_slider("antenna lead", t.antenna_lead_deg, d.antenna_lead_deg, 15.0F,
+      75.0F,
+      "Antenna's angular lead over the eye toward the pole (deg): dials where "
+      "its base meets the hex grid (onto a node) and how vertical it stands.");
   tuned_color("antenna tip", c.head.antenna_tip_color,
       dc.head.antenna_tip_color,
       "Glowing bead atop the antenna (emissive beacon, the running light).");
@@ -407,6 +411,10 @@ inline void draw_antenna_section(avatar_tuning& t, const avatar_tuning& d,
       "Resting color phase against the belly spin: 0 in phase (pure color at "
       "each reversal), 1 opposite; ~0.5 is pure mid-spin, neutral at "
       "reversal.");
+  tuned_slider("color rate", t.color_spin_ratio, d.color_spin_ratio, 1.0F,
+      6.0F,
+      "Resting beacon color cycles per belly reversal. A small whole number "
+      "above 1; 1 locks it to the spin, which reads wrong.");
   ImGui::TreePop();
 }
 

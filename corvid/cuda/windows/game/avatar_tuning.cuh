@@ -73,7 +73,7 @@ struct avatar_tuning {
   // Eye: the look-gimbal lift (the eye aims this far above the look for eye
   // contact) and the steadycam counter-tilt that holds the dome level against
   // the motion bank.
-  float eye_lift_deg = 15.0F; // degrees the eye aims above the look
+  float eye_lift_deg = 25.0F; // degrees the eye aims above the look
   float stabilize = 1.0F; // dome cancel of the motion bank (1 = hold level)
   float overcomp = 0.15F; // extra dome tilt past level, opposite the bank
 
@@ -84,6 +84,11 @@ struct avatar_tuning {
   float antenna_thickness = 0.004F; // rod radius / radius
   float antenna_ball = 0.044F;      // tip ball radius / radius
   float antenna_collar = 0.006F;    // base collar (the metal disc) / radius
+
+  // The antenna's angular lead over the eye toward the dome pole, degrees:
+  // sets where its base meets the hex grid (dial it onto a node) and how
+  // vertical it stands.
+  float antenna_lead_deg = 55.26F;
 
   // The antenna beacon's blink rate: scales with the Head's planar speed, so
   // it does not pulse at rest and blinks faster the quicker it travels. In
@@ -96,6 +101,12 @@ struct avatar_tuning {
   // (pure color at each reversal), 1 in opposite phase; around 0.5 the color
   // is pure mid-spin and neutral at the reversal.
   float color_phase = 0.5F;
+
+  // Beacon color cycles per belly reversal cycle at rest, so the color tracks
+  // the spin at a chosen multiple of its rate instead of locked to it: 1 is
+  // identical (which reads wrong), a small whole number above 1 decouples them
+  // while staying in tune.
+  float color_spin_ratio = 3.0F;
 
   // Movement: how the rig follows the body, dollies, zooms, and frames it.
   float move_speed = 8.0F;       // planar move speed, units per second

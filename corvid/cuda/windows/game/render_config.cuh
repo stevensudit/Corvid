@@ -147,13 +147,16 @@ struct render_config {
 
     // Geodesic (Goldberg) hex grid on the dome cap: an icosahedron subdivided
     // to `dome_hex_freq` (near-uniform hexagons plus twelve pentagons),
-    // reoriented so a cell lands on the eye, `dome_hex_phase` rotating the
-    // grid about the eye to align its hexagons with the porthole.
+    // reoriented so a cell lands on the eye. `dome_hex_phase` adds a manual
+    // roll of the grid about the eye; it stays 0 so the grid reads level (its
+    // hexagons parallel to the ground) and the eye cell sits flush, the
+    // antenna instead being seated on a grid edge midpoint by the off-round
+    // `lead` constant in the rig.
     int dome_hex_freq = 9;           // icosahedron subdivision frequency
     float dome_hex_line = 0.01F;     // seam half-width, radians
     float dome_hex_strength = 3.25F; // how much the seams darken the dome
     float dome_hex_extent = 0.463F;  // rr out to which the grid covers
-    float dome_hex_phase = 0.0F;     // grid rotation about the eye, radians
+    float dome_hex_phase = 0.0F;     // manual grid roll about the eye, radians
 
     // A hard black band masking the dome/cone joint. A solid, hard-edged band
     // whose inner edge is pulled `seam_offset` inside the hex grid's

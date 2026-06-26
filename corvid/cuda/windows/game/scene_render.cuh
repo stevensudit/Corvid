@@ -210,8 +210,16 @@ namespace corvid::cuda {
     // half-width, so the frame's outer edge, not its centerline, lands flush
     // on the ring-cell seam instead of overrunning onto the neighbors.
     if (dot(dd, c) > 0.0F) {
-      const float ex = dot(dd, th);
-      const float ey = dot(dd, tv);
+      // The iris shares the grid's roll: rotate its tangent frame by
+      // `dome_hex_phase` so it tracks the cells. The grid carries the phase
+      // through `eye_tan`, so without this the iris lags the cells whenever
+      // the phase is nonzero.
+      const float cd = cosf(hp.dome_hex_phase);
+      const float sd = sinf(hp.dome_hex_phase);
+      const vec3 iris_th = (th * cd) + (tv * sd);
+      const vec3 iris_tv = (tv * cd) - (th * sd);
+      const float ex = dot(dd, iris_th);
+      const float ey = dot(dd, iris_tv);
       const float hexd =
           hexagon_sd(ex, ey, (3.0F * eye_cell.apothem) - hp.eye_line);
       if (hexd <= hp.eye_line + aa) { // inside the iris

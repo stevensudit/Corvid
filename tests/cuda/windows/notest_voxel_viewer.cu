@@ -614,7 +614,7 @@ struct avatar_rig {
         3.0F * geodesic_eye_cell_of(hp.dome_hex_freq).apothem};
     constexpr radians rest = 30.0_deg; // eye sits this far up the dome at rest
     constexpr radians pole = 90.0_deg; // straight up, the north pole
-    constexpr radians lead = 60.0_deg; // the antenna's fixed lead over the eye
+    const radians lead{tune.antenna_lead_deg * radians::per_degree};
     const radians lift{tune.eye_lift_deg * radians::per_degree};
     const radians dip_max{tune.dip_max_deg * radians::per_degree};
 
@@ -746,12 +746,15 @@ struct avatar_rig {
     const float reversing = fmaxf(0.0F, -drive);
     const float speed = fminf(1.0F, fabsf(drive) + fabsf(slide));
 
-    // The idle color selector: a cosine of the belly idle-spin period so the
-    // resting beacon shifts color smoothly in tune with it. `color_phase`
-    // shifts the color against the spin (0 in phase, 1 opposite); `fmodf`
-    // keeps the cosine's argument bounded.
+    // The idle color selector: a cosine over the beacon color cycle, the belly
+    // reversal cycle divided by `color_spin_ratio`, so the resting beacon
+    // shifts color in tune with the spin but at a chosen multiple of its rate
+    // (1 locks them identical, which reads wrong). `color_phase` shifts the
+    // color against the spin (0 in phase, 1 opposite); `fmodf` keeps the
+    // cosine's argument bounded.
     const float cycle = 2.0F * tune.spin_idle_period;
-    const float frac = fmodf(spin_clock, cycle) / cycle;
+    const float color_cycle = cycle / fmaxf(tune.color_spin_ratio, 0.01F);
+    const float frac = fmodf(spin_clock, color_cycle) / color_cycle;
     const float idle_smooth =
         cos(radians{(frac + (tune.color_phase * 0.5F)) * two_pi});
     const float idle_mix = 0.5F - (0.5F * idle_smooth);
