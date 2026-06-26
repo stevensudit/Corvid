@@ -56,6 +56,14 @@ struct render_config {
     vec3 sun{1.0F, 0.96F, 0.88F};
   } terrain;
 
+  // Terrain march tunables, copied onto the `density_field` each frame so the
+  // panel can tune the sphere-trace live. Defaults match `density_field`'s.
+  struct march_params {
+    float lipschitz = 2.0F;       // assumed max field slope; lower = faster
+    float max_step_voxels = 8.0F; // single-step cap, in voxels
+    int max_steps = 1024;         // work cap per ray
+  } march;
+
   // Metal ball reflection look (see `shade_ball`).
   struct ball_params {
     float dim = 0.65F; // darkens the mirrored scene

@@ -41,6 +41,16 @@ struct density_field {
   float voxel_size;
   cudaTextureObject_t tex;
 
+  // March tunables (defaults are the shipped constants; the viewer sets them
+  // live). `march_lipschitz` is the assumed maximum field slope used to size
+  // the sphere-trace steps: lower takes bigger steps (faster) but a dig wall
+  // steeper than it can be overshot. `march_max_step_voxels` caps a single
+  // step (in voxels) so a too-large jump cannot tunnel a thin wall.
+  // `march_max_steps` bounds the work per ray before it gives up as a miss.
+  float march_lipschitz = 2.0F;
+  float march_max_step_voxels = 8.0F;
+  int march_max_steps = 1024;
+
 #pragma endregion
 #pragma region Coordinates
 
@@ -107,11 +117,11 @@ struct density_field {
   // crossing, is accepted once within `hit_epsilon`. `lipschitz` must exceed
   // the field's steepest slope, or a dig wall steeper than it can be overshot.
   [[nodiscard]] __device__ float raymarch(pos3 eye, vec3 dir) const {
-    constexpr int max_steps = 1024;
+    const int max_steps = march_max_steps;
     constexpr int refine_steps = 6;
-    constexpr float lipschitz = 4.0F;
+    const float lipschitz = march_lipschitz;
     constexpr float hit_epsilon = 0.02F;
-    const float max_step = voxel_size * 8.0F;
+    const float max_step = voxel_size * march_max_step_voxels;
 
     // Clip to the world box (slab test). Voxel (0, 0, 0) is centered at
     // `origin`, so the box runs half a voxel past the first and last centers.

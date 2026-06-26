@@ -433,6 +433,25 @@ inline void draw_terrain_section(render_config& c, const render_config& dc) {
   ImGui::TreePop();
 }
 
+// Terrain march: the sphere-trace tunables, trading march speed against
+// robustness over steep dig walls.
+inline void draw_march_section(render_config& c, const render_config& dc) {
+  if (!ImGui::TreeNode("Terrain - March")) return;
+  tuned_slider("lipschitz", c.march.lipschitz, dc.march.lipschitz, 1.0F, 8.0F,
+      "Assumed max field slope used to size the sphere-trace steps. Lower "
+      "takes bigger steps (faster) but can overshoot a dig wall steeper than "
+      "it; the eroded terrain slope is only about 1.4.",
+      ImGuiSliderFlags_AlwaysClamp);
+  tuned_slider("max step", c.march.max_step_voxels, dc.march.max_step_voxels,
+      1.0F, 32.0F,
+      "Single-step cap in voxels: bounds how far one step can jump so a thin "
+      "wall cannot be tunneled.",
+      ImGuiSliderFlags_AlwaysClamp);
+  tuned_slider_int("max steps", c.march.max_steps, dc.march.max_steps, 64,
+      2048, "Maximum march steps per ray before it gives up as a miss.");
+  ImGui::TreePop();
+}
+
 // Kernel render options and the camera's field of view.
 inline void draw_render_section(avatar_tuning& t, const avatar_tuning& d,
     render_config& c, const render_config& dc) {
@@ -473,14 +492,14 @@ draw_animation_rigging_section(avatar_tuning& t, const avatar_tuning& d) {
 // Draw the live tuning panel: the avatar feel and saucer shape (editing `t`
 // against defaults `d`), and the shading config (editing `c` against `dc`).
 // "Reset all" restores everything; the "freeze camera" checkbox toggles the
-// observer freeze (`freeze_camera`) and "lock position" the treadmill
-// (`lock_position`). Per-field descriptions are hover
-// tooltips. A modified field is tinted and gains an inline reset. The window
-// opens centered at a readable size (ImGui's .ini persistence is disabled, so
-// this default holds every run).
+// observer freeze (`freeze_camera`), "lock position" the treadmill
+// (`lock_position`), and "log avatar" the debug gimbal log (`log_avatar`).
+// Per-field descriptions are hover tooltips. A modified field is tinted and
+// gains an inline reset. The window opens centered at a readable size (ImGui's
+// .ini persistence is disabled, so this default holds every run).
 inline void draw_config_panel(avatar_tuning& t, const avatar_tuning& d,
     render_config& c, const render_config& dc, bool& freeze_camera,
-    bool& lock_position) {
+    bool& lock_position, bool& log_avatar) {
   const ImGuiViewport* vp = ImGui::GetMainViewport();
   ImGui::SetNextWindowPos(vp->GetCenter(), ImGuiCond_FirstUseEver,
       ImVec2(0.5F, 0.5F));
@@ -504,6 +523,14 @@ inline void draw_config_panel(avatar_tuning& t, const avatar_tuning& d,
       "Treadmill: hold the body in place (so the distance to the mirror stays "
       "fixed) while the saucer still tilts and spins as if moving, so a "
       "movement key animates it without changing where it is.");
+  ImGui::SameLine();
+  ImGui::Checkbox("log avatar", &log_avatar);
+  ImGui::SetItemTooltip("%s",
+      "Debug: append the eye and antenna gimbal invariants to "
+      "avatar_debug.log "
+      "a few times a second. Off by default, so it writes nothing and the "
+      "file "
+      "is created only once enabled.");
   draw_body_section(t, d, c, dc);
   draw_head_section(t, d, c, dc);
   draw_saucer_section(t, d, c, dc);
@@ -513,6 +540,7 @@ inline void draw_config_panel(avatar_tuning& t, const avatar_tuning& d,
   draw_movement_section(t, d);
   draw_sky_section(c, dc);
   draw_terrain_section(c, dc);
+  draw_march_section(c, dc);
   draw_render_section(t, d, c, dc);
   draw_animation_rigging_section(t, d);
   ImGui::End();

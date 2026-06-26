@@ -135,9 +135,17 @@ __global__ void fill_kernel(cudaSurfaceObject_t density_surface,
 
 // Shade each pixel by supersampling and write the result. The texture is
 // `R8G8B8A8_UNORM`, so a `uchar4` of (r, g, b, a) maps straight to its bytes.
-__global__ void voxel_kernel(cudaSurfaceObject_t out, resolution res,
-    camera_rays cam, density_field field, cudaTextureObject_t color_tex,
-    metal_ball ball, saucer_head head, flat_mirror mirror, render_config cfg) {
+//
+// `__launch_bounds__` caps registers so more 256-thread blocks stay resident:
+// uncapped, the march wants 136 registers, leaving only one block per SM
+// (~17% occupancy) to hide texture-fetch latency, which roughly halves the
+// frame rate. Capping trades a little register spill for more resident blocks;
+// measured on the terrain view, 3 blocks (~80 registers, ~50% occupancy) is
+// the peak, past which the added spill outweighs the occupancy.
+__global__ void __launch_bounds__(256, 3) voxel_kernel(cudaSurfaceObject_t out,
+    resolution res, camera_rays cam, density_field field,
+    cudaTextureObject_t color_tex, metal_ball ball, saucer_head head,
+    flat_mirror mirror, render_config cfg) {
   const int px = cuda_kernel::x_index();
   const int py = cuda_kernel::y_index();
   const auto fx = static_cast<float>(px);
@@ -749,6 +757,46 @@ void generate_world(const density_field& field,
   return focused ? 1 : background_sync;
 }
 
+// Remember the window's monitor, size, and maximized state between runs, so it
+// reopens where it was left rather than at the default spot on the primary
+// display. Stored as one line "x y w h maximized" under the SDL pref path
+// (created on demand); `out` is left empty if the pref path is unavailable.
+void window_geometry_path(char* out, size_t out_size) {
+  out[0] = '\0';
+  char* pref = SDL_GetPrefPath("Corvid", "VoxelViewer");
+  if (!pref) return;
+  SDL_snprintf(out, out_size, "%swindow.txt", pref);
+  SDL_free(pref);
+}
+
+void restore_window_geometry(SDL_Window* win, const char* path) {
+  if (!path[0]) return;
+  std::ifstream in{path};
+  int x = 0;
+  int y = 0;
+  int w = 0;
+  int h = 0;
+  int maximized = 0;
+  if (!(in >> x >> y >> w >> h >> maximized)) return;
+  SDL_SetWindowSize(win, w, h);
+  SDL_SetWindowPosition(win, x, y);
+  if (maximized) SDL_MaximizeWindow(win);
+}
+
+void save_window_geometry(SDL_Window* win, const char* path) {
+  if (!path[0]) return;
+  const bool maximized = (SDL_GetWindowFlags(win) & SDL_WINDOW_MAXIMIZED) != 0;
+  int x = 0;
+  int y = 0;
+  int w = 0;
+  int h = 0;
+  SDL_GetWindowPosition(win, &x, &y);
+  SDL_GetWindowSize(win, &w, &h);
+  std::ofstream out{path, std::ios::trunc};
+  out << x << ' ' << y << ' ' << w << ' ' << h << ' ' << (maximized ? 1 : 0)
+      << '\n';
+}
+
 #pragma endregion
 
 } // namespace
@@ -761,6 +809,11 @@ int main() {
     sdl_window win{"Corvid Voxel Viewer", 1280, 720,
         sdl_window_flags::resizable};
     win.set_minimum_size(640, 480).or_throw();
+
+    // Reopen on the monitor and at the size left last run (see helpers above).
+    char geom_path[1024];
+    window_geometry_path(geom_path, sizeof(geom_path));
+    restore_window_geometry(win, geom_path);
 
     // The left mouse button, while held, digs at the crosshair.
     bool digging = false;
@@ -785,7 +838,8 @@ int main() {
         -0.5F * static_cast<float>(vol_extent.height - 1) * voxel_size;
     const float oz =
         -0.5F * static_cast<float>(vol_extent.depth - 1) * voxel_size;
-    const density_field field{vol_extent, pos3{vec3{ox, oy, oz}}, voxel_size,
+    // Not const: the live march tunables are copied onto it each frame.
+    density_field field{vol_extent, pos3{vec3{ox, oy, oz}}, voxel_size,
         volume.texture()};
 
     // A flat mirror wall along the -z border (which the avatar faces at
@@ -824,7 +878,7 @@ int main() {
     // in front of the -z mirror to speed up antenna testing; restore z to 0
     // with the debug instrumentation.)
     avatar_rig rig{pos3{vec3{0.0F, 10.0F, oz + 8.0F}},
-        orientation{-90.0_deg, -20.0_deg}, -90.0_deg, 7.0F, 7.0F};
+        orientation{90.0_deg, -20.0_deg}, 90.0_deg, 7.0F, 7.0F};
     const avatar_tuning tuning_defaults{};
 
     // The live shading config (sky, terrain, ball, head, anti-alias), edited
@@ -867,12 +921,20 @@ int main() {
     // tell steady pacing apart from periodic spikes.
     frame_stats stats;
 
+    // Last frame's GPU kernel time (ms), measured with a `cuda_timer` and
+    // shown next to the whole-frame ms so a slowdown can be pinned to the GPU
+    // render or to the CPU-side per-frame work.
+    float gpu_ms = 0.0F;
+
     // TEMP: avatar eye/antenna invariant instrumentation. Logs the eye and
     // antenna elevations (world and over the banked disc) plus the dome limits
     // a few times a second so we can see which bound each symptom hits. Drive
     // forward to watch the antenna, backward to watch the eye dip. Remove once
     // the gimbal is settled.
-    std::ofstream dbg_log{"c:/code/Corvid/avatar_debug.log", std::ios::trunc};
+    // Opened lazily when "log avatar" is first enabled, so a default run does
+    // no file I/O and leaves no file behind.
+    std::ofstream dbg_log;
+    bool log_avatar = false;
     float dbg_clock = 0.0F;
 
     while (true) {
@@ -932,10 +994,12 @@ int main() {
       // Fold this frame's wall-clock time into the stats; refresh the title
       // once a window passes a second.
       if (const auto report = stats.record(dt)) {
-        char title[128];
+        char title[160];
         SDL_snprintf(title, sizeof(title),
-            "Corvid Voxel Viewer - %.0f fps  %.1f/%.1f/%.1f ms (min/avg/max)",
-            report->fps, report->min_ms, report->avg_ms, report->max_ms);
+            "Corvid Voxel Viewer - %.0f fps  %.1f/%.1f/%.1f ms (min/avg/max)  "
+            "GPU %.1f ms",
+            report->fps, report->min_ms, report->avg_ms, report->max_ms,
+            gpu_ms);
         SDL_SetWindowTitle(win, title);
       }
 
@@ -946,16 +1010,24 @@ int main() {
       rig.set_frozen(freeze_camera);
       render_cfg.show_head = freeze_camera;
 
+      // Carry the live march tunables onto the field the kernel marches.
+      field.march_lipschitz = render_cfg.march.lipschitz;
+      field.march_max_step_voxels = render_cfg.march.max_step_voxels;
+      field.march_max_steps = render_cfg.march.max_steps;
+
       const camera_rays rays = rig.rays();
       const metal_ball ball = rig.ball();
       const saucer_head head = rig.head(render_cfg.head);
 
-      // TEMP: log the eye/antenna invariant state a few times a second. World
-      // elevation is the angle above the horizon; disc elevation is over the
-      // motion-banked disc, the frame the dome limits live in.
+      // TEMP: log the eye/antenna invariant state a few times a second when
+      // enabled. World elevation is the angle above the horizon; disc
+      // elevation is over the motion-banked disc, the frame the dome limits
+      // live in.
       dbg_clock += dt;
-      if (dbg_log && dbg_clock >= 0.25F) {
+      if (log_avatar && dbg_clock >= 0.25F) {
         dbg_clock = 0.0F;
+        if (!dbg_log.is_open())
+          dbg_log.open("c:/code/Corvid/avatar_debug.log", std::ios::trunc);
         const auto deg = [](float s) {
           return radians_asin(fmaxf(fminf(s, 1.0F), -1.0F)).value /
                  radians::per_degree;
@@ -991,7 +1063,7 @@ int main() {
       imgui.begin_frame();
       if (show_config)
         draw_config_panel(rig.tune, tuning_defaults, render_cfg,
-            render_defaults, freeze_camera, lock_position);
+            render_defaults, freeze_camera, lock_position, log_avatar);
 
       const int sync_interval = present_sync_interval(win);
 
@@ -1001,15 +1073,21 @@ int main() {
                 const dim3 grid_dim{cuda_kernel::ceil_div(w, block.x),
                     cuda_kernel::ceil_div(h, block.y)};
                 cuda_surface surf{array};
-                voxel_kernel<<<grid_dim, block>>>(surf,
-                    resolution{static_cast<float>(w), static_cast<float>(h)},
-                    rays, field, colors.texture(), ball, head, mirror,
-                    render_cfg);
+                // Time just the kernel so the title can show GPU ms against
+                // the whole-frame ms (GPU-bound vs CPU-bound).
+                {
+                  cuda_timer gpu_timer{gpu_ms};
+                  voxel_kernel<<<grid_dim, block>>>(surf,
+                      resolution{static_cast<float>(w), static_cast<float>(h)},
+                      rays, field, colors.texture(), ball, head, mirror,
+                      render_cfg);
+                }
                 cuda_timer::synchronize().or_throw();
               },
               [&] { imgui.render(presenter.back_buffer()); }, sync_interval)
           .or_throw();
     }
+    save_window_geometry(win, geom_path);
     return 0;
   }
   catch (const std::exception& e) {
