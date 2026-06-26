@@ -203,6 +203,10 @@ struct render_config {
   // it directly. The viewer sets this from the freeze-camera toggle, which
   // also pins the camera so the avatar can be driven out in front and watched.
   bool show_head = false;
+
+  // Debug: show the ball's reflection undimmed (`shade_ball`), to tell a real
+  // black artifact from the dark belly merely crushed by the dim factor.
+  bool debug_ball_raw = false;
 };
 
 #pragma endregion

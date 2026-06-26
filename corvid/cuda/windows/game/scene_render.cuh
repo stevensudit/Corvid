@@ -390,6 +390,7 @@ shade_scene_ray(const density_field& field, cudaTextureObject_t color,
   const vec3 normal = ball.normal(hit_point);
   const vec3 env = shade_scene_ray(field, color, head, cfg, hit_point,
       reflect(ray_dir, normal));
+  if (cfg.debug_ball_raw) return env; // diagnose the black blob undimmed
   return (env * cfg.ball.dim * cfg.ball.tint) + cfg.ball.ambient_floor;
 }
 

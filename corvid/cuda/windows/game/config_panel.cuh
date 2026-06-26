@@ -524,6 +524,10 @@ inline void draw_render_section(avatar_tuning& t, const avatar_tuning& d,
   if (tuned_slider("fov", fov, d.fov_deg(), 30.0F, 110.0F,
           "Vertical field of view, in degrees."))
     t.set_fov_deg(fov);
+  ImGui::Checkbox("debug raw ball", &c.debug_ball_raw);
+  ImGui::SetItemTooltip("%s",
+      "Show the ball reflection undimmed, to tell a real black artifact from "
+      "the dark belly crushed by the dim factor.");
   ImGui::TreePop();
 }
 
