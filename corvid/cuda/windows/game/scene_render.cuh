@@ -315,10 +315,12 @@ namespace corvid::cuda {
     const float hub = __saturatef((hp.hub_radius - rr) / hp.hub_softness);
     emissive = emissive + (hp.hub_color * (hp.hub_strength * hub));
 
-    const float ring =
-        expf(-powf((rr - hp.spoke_center) * hp.spoke_width, 2.0F));
-    const float dots =
-        powf(0.5F + (0.5F * cosf(ang * hp.spoke_dot_frequency)), 8.0F);
+    const float ring_d = (rr - hp.spoke_center) * hp.spoke_width;
+    const float ring = expf(-(ring_d * ring_d));
+    const float wave = 0.5F + (0.5F * cosf(ang * hp.spoke_dot_frequency));
+    const float wave2 = wave * wave;
+    const float wave4 = wave2 * wave2;
+    const float dots = wave4 * wave4; // wave^8
     emissive = emissive + (hp.spoke_color * (hp.spoke_strength * ring * dots));
 
     emissive = emissive * underside;

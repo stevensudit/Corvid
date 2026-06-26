@@ -13,10 +13,13 @@
 
 #include <cmath>
 #include <cstdint>
+#include <cstdio>
 #include <exception>
 #include <fstream> // TEMP: avatar eye/antenna invariant instrumentation
 #include <numbers>
+#include <print>
 #include <stdexcept>
+#include <string_view>
 
 #include <cuda_runtime.h>
 
@@ -41,6 +44,7 @@
 #include "corvid/cuda/windows/game/render_config.cuh"
 #include "corvid/cuda/windows/game/scene_render.cuh"
 #include "corvid/cuda/windows/imgui_overlay.h"
+#include "corvid/infra/scope_exit.h"
 #include "corvid/sdl/fly_input.h"
 #include "corvid/sdl/frame_loop.h"
 #include "corvid/sdl/frame_stats.h"
@@ -143,10 +147,21 @@ __global__ void fill_kernel(cudaSurfaceObject_t density_surface,
 // frame rate. Capping trades a little register spill for more resident blocks;
 // measured on the terrain view, 3 blocks (~80 registers, ~50% occupancy) is
 // the peak, past which the added spill outweighs the occupancy.
+//
+// The large scene params (`field`, `ball`, `head`, `mirror`, `cfg`) are
+// `__grid_constant__`: the shaders take them by const reference, and without
+// this the compiler copies each whole struct (`render_config` alone is ~520
+// bytes) into a per-thread local stack frame just to pass a pointer.
+// `__grid_constant__` binds the reference straight to the parameter in
+// constant memory, with no copy. `res` and `cam` are read directly here, not
+// passed by reference, so they need no annotation.
 __global__ void __launch_bounds__(256, 3) voxel_kernel(cudaSurfaceObject_t out,
-    resolution res, camera_rays cam, density_field field,
-    cudaTextureObject_t color_tex, metal_ball ball, saucer_head head,
-    flat_mirror mirror, render_config cfg) {
+    resolution res, camera_rays cam,
+    __grid_constant__ const density_field field, cudaTextureObject_t color_tex,
+    __grid_constant__ const metal_ball ball,
+    __grid_constant__ const saucer_head head,
+    __grid_constant__ const flat_mirror mirror,
+    __grid_constant__ const render_config cfg) {
   const int px = cuda_kernel::x_index();
   const int py = cuda_kernel::y_index();
   const auto fx = static_cast<float>(px);
@@ -886,11 +901,14 @@ void generate_world(const density_field& field,
 
 // One present per vsync while the window is the foreground (input-focused)
 // one, else one per 4 vsyncs so a backgrounded viewer idles without spinning
-// up the GPU fan.
-[[nodiscard]] int present_sync_interval(SDL_Window* win) {
+// up the GPU fan. `uncap` drops the foreground interval to 0 (present
+// uncapped) for benchmarking, effective only on a tearing-capable swapchain;
+// backgrounded still throttles so an idle viewer does not spin the GPU fan.
+[[nodiscard]] int present_sync_interval(SDL_Window* win, bool uncap) {
   constexpr int background_sync = 4;
   const bool focused = (SDL_GetWindowFlags(win) & SDL_WINDOW_INPUT_FOCUS) != 0;
-  return focused ? 1 : background_sync;
+  if (!focused) return background_sync;
+  return uncap ? 0 : 1;
 }
 
 // Remember the window's monitor, size, and maximized state between runs, so it
@@ -934,13 +952,119 @@ void save_window_geometry(SDL_Window* win, const char* path) {
 }
 
 #pragma endregion
+#pragma region Benchmark
+
+// Offline kernel benchmark: render `voxel_kernel` repeatedly into an
+// off-screen surface at a fixed pose and resolution, with no window, present,
+// or vsync, and report the per-launch GPU time (min/avg/max). The pure,
+// isolated signal for the small kernel changes the live, vsync-capped viewer
+// cannot resolve; the viewer's "uncap fps" toggle is the complementary in-situ
+// measurement. Selected by the `bench` argument.
+[[nodiscard]] int run_kernel_bench() {
+  constexpr int width = 2560; // a fixed 1440p frame, so runs compare directly
+  constexpr int height = 1440;
+  constexpr int warmup = 32; // settle clocks and caches before timing
+  constexpr int iters = 200;
+
+  // The same world the viewer builds (see `main`): the three grids filled once
+  // from the eroded terrain, and the -z mirror.
+  constexpr cudaExtent vol_extent{512, 128, 512};
+  constexpr float voxel_size = 0.5F;
+  cuda_volume<float> volume{vol_extent};
+  material_volume materials{vol_extent};
+  color_volume colors{vol_extent};
+  const float ox =
+      -0.5F * static_cast<float>(vol_extent.width - 1) * voxel_size;
+  const float oy =
+      -0.5F * static_cast<float>(vol_extent.height - 1) * voxel_size;
+  const float oz =
+      -0.5F * static_cast<float>(vol_extent.depth - 1) * voxel_size;
+  density_field field{vol_extent, pos3{vec3{ox, oy, oz}}, voxel_size,
+      volume.texture()};
+  const float world_x1 =
+      ox + (static_cast<float>(vol_extent.width - 1) * voxel_size);
+  const flat_mirror mirror{.plane_z = oz,
+      .lo = vec2{ox, oy},
+      .hi = vec2{world_x1, oy + 80.0F},
+      .normal = vec3{0.0F, 0.0F, 1.0F}};
+  generate_world(field, volume, materials, colors);
+
+  // A fixed pose, the viewer's spawn: a view that exercises the terrain march
+  // and the reflection shaders both. The march tunables come from the shipped
+  // defaults.
+  render_config cfg;
+  field.march_lipschitz = cfg.march.lipschitz;
+  field.march_max_step_voxels = cfg.march.max_step_voxels;
+  field.march_max_steps = cfg.march.max_steps;
+  avatar_rig rig{pos3{vec3{0.0F, 10.0F, oz + 8.0F}},
+      orientation{90.0_deg, -20.0_deg}, 90.0_deg, 7.0F, 7.0F};
+  rig.update(0.016F, false); // seat the head offset off its first frame
+  const camera_rays rays = rig.rays();
+  const metal_ball ball = rig.ball();
+  const saucer_head head = rig.head(cfg.head);
+
+  // The off-screen target the kernel writes through: an owned surface array,
+  // so the bench needs no D3D interop. Freed after the surface that borrows
+  // it.
+  cudaArray_t array{};
+  const cudaChannelFormatDesc fmt = cudaCreateChannelDesc<uchar4>();
+  cuda_last_status{
+      cudaMallocArray(&array, &fmt, width, height, cudaArraySurfaceLoadStore)}
+      .or_throw();
+  const scope_exit free_array{[&] { (void)cudaFreeArray(array); }};
+  cuda_surface surf{array};
+
+  const dim3 block{16, 16};
+  const dim3 grid{cuda_kernel::ceil_div(width, block.x),
+      cuda_kernel::ceil_div(height, block.y)};
+  const resolution res{static_cast<float>(width), static_cast<float>(height)};
+  const auto launch = [&] {
+    voxel_kernel<<<grid, block>>>(surf, res, rays, field, colors.texture(),
+        ball, head, mirror, cfg);
+  };
+
+  for (int i = 0; i < warmup; ++i) launch();
+  cuda_last_status{cudaDeviceSynchronize()}.or_throw();
+  cuda_last_status{cudaGetLastError()}.or_throw();
+
+  cuda_event start;
+  cuda_event stop;
+  float total = 0.0F;
+  float lo = 1.0e30F;
+  float hi = 0.0F;
+  for (int i = 0; i < iters; ++i) {
+    start.record().or_throw();
+    launch();
+    stop.record().or_throw();
+    stop.synchronize().or_throw();
+    float ms = 0.0F;
+    cuda_event::elapsed_ms(start, stop, ms).or_throw();
+    total += ms;
+    lo = fminf(lo, ms);
+    hi = fmaxf(hi, ms);
+  }
+
+  std::println("voxel_kernel  {}x{}  aa={}  {} iters", width, height,
+      cfg.aa_samples, iters);
+  std::println("  GPU ms/frame  min {:.3f}  avg {:.3f}  max {:.3f}", lo,
+      total / static_cast<float>(iters), hi);
+  return 0;
+}
+
+#pragma endregion
 
 } // namespace
 
 #pragma region Main loop
 
-int main() {
+// NOLINTBEGIN(readability-function-cognitive-complexity)
+int main(int argc, char** argv) {
   try {
+    // `bench`: run the offline kernel benchmark (no window) and exit. The pure
+    // signal for small kernel changes; the live "uncap fps" toggle is the
+    // in-situ measure for a chosen view.
+    if (argc > 1 && std::string_view{argv[1]} == "bench")
+      return run_kernel_bench();
     sdl_subsystem sdl;
     sdl_window win{"Corvid Voxel Viewer", 1280, 720,
         sdl_window_flags::resizable};
@@ -1048,6 +1172,12 @@ int main() {
     // moving, so the saucer's motion tilt can be watched at a fixed distance
     // from the mirror. Toggled by a panel checkbox.
     bool lock_position = false;
+
+    // Benchmark: drop the vsync cap (present with tearing) so the frame rate
+    // floats above the refresh rate and the title-bar FPS reads true GPU cost
+    // for the current view. Toggled by a panel checkbox; needs a tearing-
+    // capable swapchain, else it has no effect.
+    bool uncap_fps = false;
 
     // Frame timing in nanoseconds: millisecond ticks quantize dt enough to
     // judder movement at high refresh rates (a 6.94 ms frame reads as 6 or 7).
@@ -1199,9 +1329,10 @@ int main() {
       imgui.begin_frame();
       if (show_config)
         draw_config_panel(rig.tune, tuning_defaults, render_cfg,
-            render_defaults, freeze_camera, lock_position, log_avatar);
+            render_defaults, freeze_camera, lock_position, log_avatar,
+            uncap_fps);
 
-      const int sync_interval = present_sync_interval(win);
+      const int sync_interval = present_sync_interval(win, uncap_fps);
 
       presenter
           .render(
@@ -1232,5 +1363,6 @@ int main() {
     return 1;
   }
 }
+// NOLINTEND(readability-function-cognitive-complexity)
 
 #pragma endregion

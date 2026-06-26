@@ -583,13 +583,14 @@ draw_animation_rigging_section(avatar_tuning& t, const avatar_tuning& d) {
 // against defaults `d`), and the shading config (editing `c` against `dc`).
 // "Reset all" restores everything; the "freeze camera" checkbox toggles the
 // observer freeze (`freeze_camera`), "lock position" the treadmill
-// (`lock_position`), and "log avatar" the debug gimbal log (`log_avatar`).
-// Per-field descriptions are hover tooltips. A modified field is tinted and
-// gains an inline reset. The window opens centered at a readable size (ImGui's
-// .ini persistence is disabled, so this default holds every run).
+// (`lock_position`), "log avatar" the debug gimbal log (`log_avatar`), and
+// "uncap fps" the benchmark vsync-off (`uncap_fps`). Per-field descriptions
+// are hover tooltips. A modified field is tinted and gains an inline reset.
+// The window opens centered at a readable size (ImGui's .ini persistence is
+// disabled, so this default holds every run).
 inline void draw_config_panel(avatar_tuning& t, const avatar_tuning& d,
     render_config& c, const render_config& dc, bool& freeze_camera,
-    bool& lock_position, bool& log_avatar) {
+    bool& lock_position, bool& log_avatar, bool& uncap_fps) {
   const ImGuiViewport* vp = ImGui::GetMainViewport();
   ImGui::SetNextWindowPos(vp->GetCenter(), ImGuiCond_FirstUseEver,
       ImVec2(0.5F, 0.5F));
@@ -621,6 +622,13 @@ inline void draw_config_panel(avatar_tuning& t, const avatar_tuning& d,
       "a few times a second. Off by default, so it writes nothing and the "
       "file "
       "is created only once enabled.");
+  ImGui::SameLine();
+  ImGui::Checkbox("uncap fps", &uncap_fps);
+  ImGui::SetItemTooltip("%s",
+      "Benchmark: drop the vsync cap so the frame rate floats above the "
+      "refresh rate (the image tears). Lets the title-bar FPS read true GPU "
+      "cost for a specific view, e.g. dollied right up to the ball. Needs a "
+      "tearing-capable swapchain; otherwise it has no effect.");
   draw_body_section(t, d, c, dc);
   draw_head_section(t, d, c, dc);
   draw_saucer_section(t, d, c, dc);

@@ -566,6 +566,19 @@ if(CORVID_ENABLE_CUDA)
         # intact, so the runtime cost is negligible.
         string(APPEND CMAKE_CUDA_FLAGS " -std=c++23 -O3 -lineinfo")
     endif()
+    # Optional ptxas register/spill report (perf diagnostic), off by default so
+    # normal builds stay quiet. Configure with -DCORVID_CUDA_PTXAS_VERBOSE=ON to
+    # print each kernel's register count, stack frame, and spill load/store
+    # bytes during the .cu compile. clang forwards to ptxas through
+    # -Xcuda-ptxas; nvcc takes -Xptxas directly.
+    option(CORVID_CUDA_PTXAS_VERBOSE "Report CUDA register/spill usage" OFF)
+    if(CORVID_CUDA_PTXAS_VERBOSE)
+        if(WIN32)
+            string(APPEND CMAKE_CUDA_FLAGS " -Xcuda-ptxas -v")
+        else()
+            string(APPEND CMAKE_CUDA_FLAGS " -Xptxas -v")
+        endif()
+    endif()
     message(STATUS
         "CUDA enabled: ${CMAKE_CUDA_COMPILER} (arch ${CMAKE_CUDA_ARCHITECTURES})")
 endif()
