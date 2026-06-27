@@ -58,7 +58,7 @@ struct avatar_tuning {
   // direction (a strafe, a steer): higher snaps, lower eases.
   float ball_radius = 0.6F;
   float ball_grid_move_gain = 2.0F;
-  float ball_grid_fade = 500.0F;
+  float ball_grid_fade = 5.0F;
   float ball_grid_roll_gain = 0.1F;
   float ball_grid_roll_gain_fast_mult = 0.75F;
   float ball_grid_steer_gain = 2.0F;
@@ -149,10 +149,10 @@ struct avatar_tuning {
   // terrain.
   float gravity = 20.0F;   // downward acceleration, units per second squared
   float jump_speed = 8.0F; // upward launch velocity on a grounded jump
-  float accel_approach = 4.0F; // ground-velocity ramp toward the input target
-  float brake_approach = 2.0F; // ground-velocity decay toward rest (coasting)
-  float coast_min = 0.05F;     // speed below which a coast snaps to a stop
-  float ground_tol = 0.3F;     // contact band counted as grounded, world units
+  float accel_approach = 0.75F; // ground-velocity ramp toward the input target
+  float brake_approach = 4.25F; // ground-velocity decay toward rest (coasting)
+  float coast_min = 0.10F;      // speed below which a coast snaps to a stop
+  float ground_tol = 0.3F; // contact band counted as grounded, world units
 
   // Movement: how the rig follows the body, dollies, zooms, and frames it.
   float move_speed = 8.0F;       // planar move speed, units per second

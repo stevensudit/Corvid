@@ -142,7 +142,8 @@ inline void draw_body_section(avatar_tuning& t, const avatar_tuning& d,
   tuned_slider("grid move gain", t.ball_grid_move_gain, d.ball_grid_move_gain,
       0.0F, 8.0F, "How hard the grid flares up with the ball's speed.");
   tuned_slider("grid fade", t.ball_grid_fade, d.ball_grid_fade, 0.1F, 100.0F,
-      "How fast the grid fades back to dark when you stop moving.");
+      "How fast the grid fades back to dark when you release the keys; pair it "
+      "with grid move gain's flare-in rate (motion approach) to match.");
   tuned_slider("grid scroll", t.ball_grid_roll_gain, d.ball_grid_roll_gain,
       0.0F, 1.0F,
       "Scrolls the grid as a fraction of the true roll rate at normal speed; "

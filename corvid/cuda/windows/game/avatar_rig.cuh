@@ -83,6 +83,7 @@ struct avatar_rig {
   float blink_phase{}; // antenna beacon blink phase, in cycles [0..1)
   float idle_dir{1.0F}; // smoothed idle spin direction (+/-1)
   float moving{};       // this frame's planar ball movement, set by `move`
+  bool driving{};       // whether a movement key commanded the ball, set by `move`
   pos3 prev_eye{};      // last frame's head position, for the head velocity
   bool primed{};        // whether `prev_eye` holds a real previous frame
   vec3 head_offset{};   // eased head offset from the ball, flown to the seat
@@ -174,8 +175,7 @@ struct avatar_rig {
     // key/controller noise); the exact size is not critical, only that it is
     // tiny.
     constexpr float input_deadzone = 1.0e-4F;
-    const bool driving =
-        (fabsf(fwd_target) + fabsf(strafe_target)) > input_deadzone;
+    driving = (fabsf(fwd_target) + fabsf(strafe_target)) > input_deadzone;
     // Perfect traction on the ground: ease the actual velocity toward the
     // input (momentum).
     //
@@ -500,14 +500,17 @@ struct avatar_rig {
 
     // The ball's motion grid glow.
     //
-    // Gated on the direction keys (`moving` is this frame's drive/strafe step,
-    // so a head dolly or steer with no keys shows nothing) and scaled by the
-    // ball's own planar speed. It flares up at `motion_approach` and fades
-    // back to dark at its own `ball_grid_fade` rate when the keys release, so
-    // the hex wireframe shows only while rolling.
+    // Gated on `driving` (a movement key held this frame), so a head dolly or
+    // steer with no keys shows nothing, and releasing the keys drops the
+    // target to dark at once rather than trailing the ball's momentum coast.
+    // While driving it scales with the ball's own planar speed. It flares up
+    // at `motion_approach` and fades back at `ball_grid_fade`, so the two rates
+    // can be matched; the hex wireframe shows only while a key is held.
     const float ball_speed = (dt > 0.0F) ? moving / dt : 0.0F;
     const float glow_target =
-        fminf(1.0F, (ball_speed / tune.move_speed) * tune.ball_grid_move_gain);
+        driving ? fminf(1.0F,
+                      (ball_speed / tune.move_speed) * tune.ball_grid_move_gain)
+                : 0.0F;
     const float glow_rate =
         (glow_target > ball_glow) ? tune.motion_approach : tune.ball_grid_fade;
     ball_glow += (glow_target - ball_glow) * (1.0F - expf(-glow_rate * dt));
