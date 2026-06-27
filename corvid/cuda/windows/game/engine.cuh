@@ -144,7 +144,9 @@ private:
     // with the panel open otherwise still works.
     if (imgui_.wants_keyboard()) input_.release_keys();
 
-    // Smooth the look before moving so a strafe uses this frame's facing.
+    // Smooth the look before moving so a strafe uses this frame's facing. The
+    // filter tuning is live, so sync it from the rig before consuming the look.
+    input_.look_filter.set_params(rig_.tune.look_rest_ms, rig_.tune.look_beta);
     const auto [yaw, pitch] = input_.look(dt);
     rig_.look(yaw, pitch);
 
@@ -350,10 +352,12 @@ private:
   density_field field_{vol_extent_, pos3{vec3{ox_, oy_, oz_}}, voxel_size_,
       volume_.texture()};
 
-  // A flat mirror wall along the -z border (which the avatar faces at start),
+  // A flat mirror wall at the z midplane (cutting the world cube in half),
   // edge to edge in x and rising from the floor, so the saucer can be seen
   // undistorted, unlike in the convex ball. Fly up to it to preen.
-  const flat_mirror mirror_{.plane_z = oz_,
+  const flat_mirror mirror_{
+      .plane_z = oz_ + ((static_cast<float>(vol_extent_.depth) - 1.0F) * 0.5F *
+                           voxel_size_),
       .lo = vec2{ox_, oy_},
       .hi = vec2{world_x1_, oy_ + 80.0F},
       .normal = vec3{0.0F, 0.0F, 1.0F}};
@@ -457,12 +461,12 @@ private:
 #pragma region Window geometry
 
   // One present per vsync while the window is the foreground (input-focused)
-  // one, else one per 8 vsyncs so a backgrounded viewer idles without spinning
+  // one, else one per 4 vsyncs so a backgrounded viewer idles without spinning
   // up the GPU fan. `uncap` drops the foreground interval to 0 (present
   // uncapped) for benchmarking, effective only on a tearing-capable swapchain;
   // backgrounded still throttles so an idle viewer does not spin the GPU fan.
   [[nodiscard]] static int present_sync_interval(SDL_Window* win, bool uncap) {
-    constexpr int background_sync = 8;
+    constexpr int background_sync = 4;
     const bool focused =
         (SDL_GetWindowFlags(win) & SDL_WINDOW_INPUT_FOCUS) != 0;
     if (!focused) return background_sync;

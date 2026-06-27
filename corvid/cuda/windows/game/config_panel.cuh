@@ -504,6 +504,14 @@ inline void draw_movement_section(avatar_tuning& t, const avatar_tuning& d) {
       "button is released.");
   tuned_slider("motion approach", t.motion_approach, d.motion_approach, 1.0F,
       20.0F, "How fast the motion tilt and spin ramp up and fade.");
+  tuned_slider("look smooth", t.look_rest_ms, d.look_rest_ms, 1.0F, 200.0F,
+      "Mouse-look de-jitter: the One Euro Filter's at-rest smoothing time "
+      "constant in milliseconds. Higher is steadier at slow speeds but adds "
+      "lag.",
+      ImGuiSliderFlags_AlwaysClamp);
+  tuned_slider("look beta", t.look_beta, d.look_beta, 0.0F, 0.02F,
+      "How fast the look smoothing relaxes as the mouse speeds up, so a fast "
+      "flick stays responsive. 0 leaves it a plain fixed low-pass.");
   ImGui::TreePop();
 }
 

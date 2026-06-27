@@ -54,7 +54,7 @@ struct avatar_tuning {
   // direction (a strafe, a steer): higher snaps, lower eases.
   float ball_radius = 0.6F;
   float ball_grid_move_gain = 2.0F;
-  float ball_grid_fade = 50.0F;
+  float ball_grid_fade = 500.0F;
   float ball_grid_roll_gain = 0.135F;
   float ball_grid_roll_gain_fast = 0.071F;
   float ball_grid_steer_gain = 2.0F;
@@ -162,6 +162,13 @@ struct avatar_tuning {
   float heading_approach = 8.0F; // steer heading-chase rate while moving
   float follow_approach = 3.0F;  // follow look-recenter rate (gentler)
   float motion_approach = 5.0F;  // tilt/spin motion-signal ramp/fade rate
+
+  // Mouse-look de-jitter (the look's One Euro Filter): `look_rest_ms` is the
+  // at-rest smoothing time constant in milliseconds (higher is steadier but
+  // laggier), `look_beta` how fast that smoothing relaxes as the mouse speeds
+  // up (0 leaves it a plain fixed low-pass).
+  float look_rest_ms = 150.0F;
+  float look_beta = 0.001F;
 
   // Animation rigging: rotate the head's front (and the cockpit eye) off the
   // camera heading, in degrees. Mainly to animate the UFO shaking its head;

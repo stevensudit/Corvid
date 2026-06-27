@@ -37,6 +37,14 @@ public:
   explicit one_euro_filter(float rest_ms, float beta) noexcept
       : min_cutoff_{1000.0F / (two_pi * rest_ms)}, beta_{beta} {}
 
+  // Retune the filter in place, keeping any carried smoothing state so a live
+  // tuning change does not jolt the in-flight signal. `rest_ms` and `beta` are
+  // as the constructor.
+  void set_params(float rest_ms, float beta) noexcept {
+    min_cutoff_ = 1000.0F / (two_pi * rest_ms);
+    beta_ = beta;
+  }
+
   // Smooth one sample's (`dx`, `dy`) in place over the elapsed `dt` seconds.
   void smooth(float dt, float& dx, float& dy) noexcept {
     if (dt <= 0.0F) return;
