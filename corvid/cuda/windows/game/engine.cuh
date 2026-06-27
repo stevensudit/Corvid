@@ -145,7 +145,8 @@ private:
     if (imgui_.wants_keyboard()) input_.release_keys();
 
     // Smooth the look before moving so a strafe uses this frame's facing. The
-    // filter tuning is live, so sync it from the rig before consuming the look.
+    // filter tuning is live, so sync it from the rig before consuming the
+    // look.
     input_.look_filter.set_params(rig_.tune.look_rest_ms, rig_.tune.look_beta);
     const auto [yaw, pitch] = input_.look(dt);
     rig_.look(yaw, pitch);
@@ -155,7 +156,7 @@ private:
     // step to the tilt.
     rig_.locked = lock_position_;
     const auto [fwd, strafe] = input_.movement(rig_.tune.move_speed);
-    rig_.move(fwd, strafe, input_.fast, dt);
+    rig_.move(fwd, strafe, dt);
 
     // Gravity and ground contact. Read back the ground probe the previous
     // frame launched under the ball: one frame stale, but issued after that

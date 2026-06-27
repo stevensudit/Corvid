@@ -39,12 +39,16 @@ struct avatar_tuning {
   // direction keys and scaled by the ball's own planar speed:
   // `ball_grid_move_gain` sets how hard it flares up (ramped at
   // `motion_approach`), `ball_grid_fade` how fast it fades back to dark once
-  // the keys release. The roll gains scale the literal roll rate (which on a
+  // the keys release. The roll gain scales the literal roll rate (which on a
   // small ball scrolls many cells per second, fast enough to alias into
-  // flicker and strobe) down to a readable scroll: `ball_grid_roll_gain` at
-  // the regular speed and `ball_grid_roll_gain_fast` while sprinting (Shift),
-  // which travels three times as fast and so needs its own lower value to read
-  // as motion. `ball_grid_steer_gain` is a fake: the conveyor stays aligned to
+  // flicker and strobe) down to a readable scroll: `ball_grid_roll_gain` is
+  // the gain up to the cruise speed, and it eases toward
+  // `ball_grid_roll_gain * ball_grid_roll_gain_fast_mult` as the speed climbs
+  // to the sprint top (three times cruise), so the faster roll stays readable
+  // without strobing. Easing the gain with the speed instead of switching it
+  // on the Shift key keeps a sprint change from jolting the scroll (a 1/3
+  // multiple holds the rotation rate level across the sprint).
+  // `ball_grid_steer_gain` is a fake: the conveyor stays aligned to
   // the motion, so a steer arc is invisible under the tracking camera, and
   // this drifts the grid sideways by the heading change to sell the turn (0
   // off); `ball_grid_steer_cap` limits that drift (steer-phase per second) so
@@ -55,8 +59,8 @@ struct avatar_tuning {
   float ball_radius = 0.6F;
   float ball_grid_move_gain = 2.0F;
   float ball_grid_fade = 500.0F;
-  float ball_grid_roll_gain = 0.135F;
-  float ball_grid_roll_gain_fast = 0.071F;
+  float ball_grid_roll_gain = 0.1F;
+  float ball_grid_roll_gain_fast_mult = 0.75F;
   float ball_grid_steer_gain = 2.0F;
   float ball_grid_steer_cap = 2.0F;
   float ball_grid_turn_rate = 6.0F;

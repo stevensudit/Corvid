@@ -147,9 +147,13 @@ inline void draw_body_section(avatar_tuning& t, const avatar_tuning& d,
       0.0F, 1.0F,
       "Scrolls the grid as a fraction of the true roll rate at normal speed; "
       "lower to stop motion flickering or wagon-wheeling.");
-  tuned_slider("grid scroll fast", t.ball_grid_roll_gain_fast,
-      d.ball_grid_roll_gain_fast, 0.0F, 1.0F,
-      "Same, but while sprinting (Shift), which travels 3x as fast.");
+  tuned_slider("grid scroll fast x", t.ball_grid_roll_gain_fast_mult,
+      d.ball_grid_roll_gain_fast_mult, 0.0F, 1.0F,
+      "Multiple of grid scroll the gain eases to at the sprint top (3x cruise "
+      "speed); the gain slopes with speed rather than switching on Shift, so "
+      "a "
+      "sprint never jolts the grid. 1/3 holds the rotation rate level across "
+      "the sprint, higher reads faster.");
   tuned_slider("grid extent", c.ball.grid_extent, dc.ball.grid_extent, 0.0F,
       2.0F,
       "How far toward the ball's sides the grid reaches before fading; raise "

@@ -166,7 +166,7 @@ struct avatar_rig {
   // the air without the ball accelerating. The grid rolls with the wheels (the
   // actual travel on the ground, the commanded spin in the air), recorded as
   // `moving` for `update`.
-  void move(float fwd_target, float strafe_target, bool fast, float dt) {
+  void move(float fwd_target, float strafe_target, float dt) {
     const vec3 fwd{cos(heading), 0.0F, sin(heading)};
     const vec3 right{-sin(heading), 0.0F, cos(heading)};
     const vec3 target_vel = (fwd * fwd_target) + (right * strafe_target);
@@ -246,12 +246,25 @@ struct avatar_rig {
         ball_roll_axis = rotate_about(ball_roll_axis, camera::world_up,
             radians{sgn * ang * frac});
       }
-      // Sprinting travels three times as fast, so the scroll has its own gain
-      // to keep the faster roll readable rather than strobing. The scroll sign
-      // reverses when backing up, so the grid flows backward without the axis
-      // turning.
+      // The scroll gain eases with the ball's own speed instead of switching
+      // on the Shift key, so a sprint change never jolts the grid: a hard key
+      // flip would swap the gain in one frame while the momentum-eased speed
+      // it multiplies still lagged, spiking the scroll through the transition.
+      // The gain holds at `ball_grid_roll_gain` up to the cruise speed, then
+      // eases toward `ball_grid_roll_gain * ball_grid_roll_gain_fast_mult` as
+      // the speed climbs to the sprint top (three times cruise), keeping the
+      // faster roll readable rather than strobing. The scroll sign reverses
+      // when backing up, so the grid flows backward without the axis turning.
+      constexpr float sprint_speed_mult = 3.0F; // mirrors drive_input's sprint
+      const float speed = dist / dt;
+      const float cruise = tune.move_speed;
+      const float fast_frac = fminf(
+          fmaxf((speed - cruise) / ((sprint_speed_mult - 1.0F) * cruise),
+              0.0F),
+          1.0F);
       const float gain =
-          fast ? tune.ball_grid_roll_gain_fast : tune.ball_grid_roll_gain;
+          tune.ball_grid_roll_gain *
+          (1.0F + ((tune.ball_grid_roll_gain_fast_mult - 1.0F) * fast_frac));
       ball_roll_phase = fmodf(
           ball_roll_phase + (scroll_dir * (dist / tune.ball_radius) * gain),
           1.0F);
