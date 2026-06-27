@@ -170,7 +170,12 @@ struct avatar_rig {
     const vec3 fwd{cos(heading), 0.0F, sin(heading)};
     const vec3 right{-sin(heading), 0.0F, cos(heading)};
     const vec3 target_vel = (fwd * fwd_target) + (right * strafe_target);
-    const bool driving = (fabsf(fwd_target) + fabsf(strafe_target)) > 1.0e-4F;
+    // Below this the commanded speed counts as no input (a deadzone against
+    // key/controller noise); the exact size is not critical, only that it is
+    // tiny.
+    constexpr float input_deadzone = 1.0e-4F;
+    const bool driving =
+        (fabsf(fwd_target) + fabsf(strafe_target)) > input_deadzone;
     // Perfect traction on the ground: ease the actual velocity toward the
     // input (momentum).
     //
@@ -209,7 +214,10 @@ struct avatar_rig {
     const vec3 ground{wheel_vel.x * dt, 0.0F, wheel_vel.z * dt};
     const float dist = length(ground);
     moving = dist;
-    if (dist > 1.0e-6F) {
+    // Skip the grid update on a frame with essentially no travel (a treat-as-
+    // zero guard against numerical noise; the exact size is not critical).
+    constexpr float motion_epsilon = 1.0e-6F;
+    if (dist > motion_epsilon) {
       // The roll axis is a line, not a directed vector: rolling forward and
       // backward along one heading share it and differ only in spin direction,
       // like a tire reversing.
@@ -228,7 +236,10 @@ struct avatar_rig {
       const float cosang =
           fminf(fmaxf(dot(ball_roll_axis, target), -1.0F), 1.0F);
       const float ang = acosf(cosang);
-      if (ang > 1.0e-5F) {
+      // Only swing the axis when the turn is non-negligible: avoids churn and
+      // the near-zero-angle case (exact size not critical).
+      constexpr float angle_epsilon = 1.0e-5F;
+      if (ang > angle_epsilon) {
         const float frac = 1.0F - expf(-tune.ball_grid_turn_rate * dt);
         const float sy = cross(ball_roll_axis, target).y;
         const float sgn = sy < 0.0F ? -1.0F : 1.0F;

@@ -98,6 +98,11 @@ struct ground_probe {
   float surface_dist;
 };
 
+// A `surface_dist` magnitude meaning no surface is within reach: reported
+// (positive) in open air, and negated when buried in solid with no gradient to
+// climb. Far past any real voxel distance, so it never reads as contact.
+constexpr float no_contact = big_value;
+
 // Sample the live density field at the ball center and report the surface
 // normal and the signed distance to it, treating the density as an approximate
 // signed-distance field. The density gradient (central differences) gives the
@@ -120,14 +125,17 @@ ground_probe_kernel(density_field field, pos3 center, ground_probe* out) {
       field.sample_density(center + dy) - field.sample_density(center - dy),
       field.sample_density(center + dz) - field.sample_density(center - dz)};
   const float glen = length(g);
-  if (glen > 1.0e-6F) {
+  // A near-zero gradient is a flat region with no surface direction; below
+  // this, fall back to the no-gradient case (also guards the divide by glen).
+  constexpr float gradient_epsilon = 1.0e-6F;
+  if (glen > gradient_epsilon) {
     out->normal = g * (-1.0F / glen); // outward = -grad / |grad|
     out->surface_dist = -d * 2.0F * e / glen;
   } else {
     // A flat region with no gradient: deep solid pushes straight up, open air
     // reports no contact.
     out->normal = vec3{0.0F, 1.0F, 0.0F};
-    out->surface_dist = d > 0.0F ? -1.0e30F : 1.0e30F;
+    out->surface_dist = d > 0.0F ? -no_contact : no_contact;
   }
 }
 

@@ -121,7 +121,7 @@ namespace corvid::cuda {
   cuda_event start;
   cuda_event stop;
   float total = 0.0F;
-  float lo = 1.0e30F;
+  float lo = big_value;
   float hi = 0.0F;
   for (int i = 0; i < iters; ++i) {
     start.record().or_throw();

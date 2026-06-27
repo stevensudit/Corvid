@@ -17,6 +17,7 @@
 #pragma once
 
 #include <cmath>
+#include <limits>
 
 #include "./radians.cuh"
 
@@ -32,6 +33,13 @@
 // enclosing-namespace bitmask-enum operators from unqualified lookup here).
 
 namespace corvid::cuda {
+
+// A large finite sentinel: the biggest finite float, for seeding a running
+// minimum (the first real value always beats it) or marking a distance as off
+// the scale (no surface within reach). Deliberately finite, not infinity, so
+// it stays valid if a translation unit is later built with fast math (which
+// assumes no inf/NaN) and never yields a NaN under arithmetic.
+constexpr float big_value = std::numeric_limits<float>::max();
 
 #pragma region vec2
 

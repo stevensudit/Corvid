@@ -431,7 +431,7 @@ shade_world_ray(const density_field& field, cudaTextureObject_t color,
   const float t_terrain = field.raymarch(eye, ray_dir);
   const float t_ball = ball.intersect(eye, ray_dir);
   const float t_head = head.raymarch(eye, ray_dir);
-  float best = 1.0e30F;
+  float best = big_value;
   int kind = 0; // 0 sky, 1 terrain, 2 ball, 3 head
   if (t_terrain >= 0.0F && t_terrain < best) {
     best = t_terrain;
@@ -469,7 +469,7 @@ shade_primary_ray(const density_field& field, cudaTextureObject_t color,
   const float t_mirror =
       cfg.show_mirror ? mirror.intersect(eye, ray_dir) : -1.0F;
   const float t_head = cfg.show_head ? head.raymarch(eye, ray_dir) : -1.0F;
-  float best = 1.0e30F;
+  float best = big_value;
   int kind = 0; // 0 sky, 1 terrain, 2 ball, 3 mirror, 4 head
   if (t_terrain >= 0.0F && t_terrain < best) {
     best = t_terrain;
