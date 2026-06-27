@@ -6,10 +6,11 @@
 // backbuffer and presents. The frame stays on the GPU. Unlike the SDF viewer's
 // analytic scene, the geometry is sampled from the field, so it can be edited
 // in place (the next rung). The player is an avatar of a metallic ball and a
-// saucer head: WASD drives the ball (Space/Ctrl raise and lower it, Shift goes
-// faster), holding the right mouse button aims the eye (Look, or Steer while
-// driving), and the mouse wheel dollies the head between its trailing distance
-// and the jockey (close above and behind the ball). Escape quits.
+// saucer head: WASD drives the ball (Shift sprints, Space jumps), gravity
+// holds it on the terrain, holding the right mouse button aims the eye (Look,
+// or Steer while driving), and the mouse wheel dollies the head between its
+// trailing distance and the jockey (close above and behind the ball). Escape
+// quits.
 
 #include <cmath>
 #include <cstdint>
@@ -45,7 +46,7 @@
 #include "corvid/cuda/windows/game/scene_render.cuh"
 #include "corvid/cuda/windows/imgui_overlay.h"
 #include "corvid/infra/scope_exit.h"
-#include "corvid/sdl/fly_input.h"
+#include "corvid/sdl/drive_input.h"
 #include "corvid/sdl/frame_loop.h"
 #include "corvid/sdl/frame_stats.h"
 #include "corvid/sdl/sdl_event.h"
@@ -262,6 +263,51 @@ __global__ void dig_kernel(cudaSurfaceObject_t surface, density_field field,
 }
 
 #pragma endregion
+#pragma region Collision
+
+// What the ground probe reports under the ball, read back to the host to
+// settle the avatar onto the terrain: the outward surface normal at the ball
+// center and the signed distance from the center to the surface (positive when
+// the center is in air, negative when it has sunk into solid).
+struct ground_probe {
+  vec3 normal;
+  float surface_dist;
+};
+
+// Sample the live density field at the ball center and report the surface
+// normal and the signed distance to it, treating the density as an approximate
+// signed-distance field. The density gradient (central differences) gives the
+// outward normal and, with the density value, the perpendicular distance to
+// the zero crossing: a step `g` of `sample(+e) - sample(-e)` is about
+// `2 * e * grad`, so the distance is `-density / |grad| = -density * 2e /
+// |g|`. One thread; the host reads the result back a frame later to push the
+// ball out of the ground along the normal (see `avatar_rig::settle`). Because
+// it samples the same field the dig edits, a freshly dug hole drops the ball
+// into it.
+__global__ void
+ground_probe_kernel(density_field field, pos3 center, ground_probe* out) {
+  const float e = field.voxel_size;
+  const float d = field.sample_density(center);
+  const vec3 dx{e, 0.0F, 0.0F};
+  const vec3 dy{0.0F, e, 0.0F};
+  const vec3 dz{0.0F, 0.0F, e};
+  const vec3 g{
+      field.sample_density(center + dx) - field.sample_density(center - dx),
+      field.sample_density(center + dy) - field.sample_density(center - dy),
+      field.sample_density(center + dz) - field.sample_density(center - dz)};
+  const float glen = length(g);
+  if (glen > 1.0e-6F) {
+    out->normal = g * (-1.0F / glen); // outward = -grad / |grad|
+    out->surface_dist = -d * 2.0F * e / glen;
+  } else {
+    // A flat region with no gradient: deep solid pushes straight up, open air
+    // reports no contact.
+    out->normal = vec3{0.0F, 1.0F, 0.0F};
+    out->surface_dist = d > 0.0F ? -1.0e30F : 1.0e30F;
+  }
+}
+
+#pragma endregion
 #pragma region Input
 
 // Whether an event carries mouse or keyboard input, so an open config panel
@@ -307,8 +353,8 @@ __global__ void dig_kernel(cudaSurfaceObject_t surface, density_field field,
 // other events still reach the game handlers. Returns whether it consumed the
 // event, leaving Escape for the pump to toggle the panel.
 [[nodiscard]] bool handle_viewer_event(const sdl_event& ev,
-    imgui_overlay& imgui, bool show_config, fly_input& input, sdl_window& win,
-    bool& digging) {
+    imgui_overlay& imgui, bool show_config, drive_input& input,
+    sdl_window& win, bool& digging) {
   imgui.process_event(ev);
   if (show_config) {
     if (is_mouse_event(ev) && imgui.wants_mouse()) return true;
@@ -340,8 +386,11 @@ __global__ void dig_kernel(cudaSurfaceObject_t surface, density_field field,
 // keys it is free Look; while driving it is Steer, the heading chasing the eye
 // so the ball arcs toward where you look. Releasing it Follows: the ball keeps
 // its heading and the view rotates to frame the travel. The head flies to its
-// seat at a bounded speed, so it never snaps around the boom. No physics yet:
-// the anchor moves directly and the ball floats where it is left.
+// seat at a bounded speed, so it never snaps around the boom. The ball falls
+// under gravity and rests on the terrain: `move` drives it along the ground
+// and `settle` pulls it down, resolves the surface contact along the normal
+// (so it climbs slopes and slides off steep ones), and keeps it inside the
+// world box.
 struct avatar_rig {
   pos3 anchor;        // ball center, what the player drives
   orientation facing; // yaw/pitch look direction
@@ -349,6 +398,10 @@ struct avatar_rig {
   float boom;         // head distance behind the ball, jockey to trailing
   float
       boom_target; // where the wheel is taking the boom; `update` eases to it
+  vec3 ground_vel{};  // horizontal velocity, eased by `move` (momentum)
+  float vel_y = 0.0F; // vertical velocity, integrated by `settle` (gravity)
+  bool grounded =
+      false;          // whether the ball rested on the surface last `settle`
   float spin = 0.0F;  // saucer belly rotation, advanced by `update`
   float drive = 0.0F; // smoothed signed forward head speed, clamped (-1..1)
   float slide = 0.0F; // smoothed signed strafe head speed, clamped (-1..1)
@@ -415,18 +468,38 @@ struct avatar_rig {
   // ball's translation exactly and only a heading swing or boom dolly glides.
   [[nodiscard]] pos3 eye() const { return anchor + head_offset; }
 
-  // Drive the anchor along the ground in its own heading, so the ball keeps
-  // its course; steering swings the heading toward the look (see `update`), so
-  // the ball arcs that way. The heading is a flat ground bearing, so looking
-  // up never lifts the ball. Space/Ctrl still raise and lower it directly,
-  // since there is no terrain following yet. Records the planar movement so
-  // `update` knows the body is moving; the tilt and spin read the head's own
-  // velocity, not this input.
-  void move(float forward, float strafe, float lift, bool fast, float dt) {
+  // Drive the ball with momentum: ease its ground velocity toward the input's
+  // target velocity, then step the anchor by it. Accelerating toward a nonzero
+  // target carries the weight of getting the heavy ball going; releasing the
+  // keys brakes more gently toward zero, so the ball coasts and overshoots a
+  // stop rather than halting dead. `fwd_target` and `strafe_target` are the
+  // desired speed in the heading frame (already sprint-scaled and capped); the
+  // heading is a flat ground bearing (steering swings it in `update`, so the
+  // ball arcs), so looking up never lifts the ball, the vertical being
+  // gravity's in `settle`. Only the ground has traction: airborne the ball
+  // keeps its velocity (no air control) while the wheels still spin to the
+  // input, so the grid spins in the air without the ball accelerating. The
+  // grid rolls with the wheels (the actual travel on the ground, the commanded
+  // spin in the air), recorded as `moving` for `update`.
+  void move(float fwd_target, float strafe_target, bool fast, float dt) {
     const vec3 fwd{cos(heading), 0.0F, sin(heading)};
     const vec3 right{-sin(heading), 0.0F, cos(heading)};
-    const vec3 step =
-        (fwd * forward) + (right * strafe) + (camera::world_up * lift);
+    const vec3 target_vel = (fwd * fwd_target) + (right * strafe_target);
+    const bool driving = (fabsf(fwd_target) + fabsf(strafe_target)) > 1.0e-4F;
+    // Perfect traction on the ground: ease the actual velocity toward the
+    // input (momentum). Airborne there is no traction, so the ball keeps its
+    // velocity (ballistic, no air control); only the wheels respond, in the
+    // grid below.
+    if (grounded) {
+      const float rate = driving ? tune.accel_approach : tune.brake_approach;
+      ground_vel =
+          ground_vel + ((target_vel - ground_vel) * (1.0F - expf(-rate * dt)));
+      // Snap a coasting crawl to rest so the ball does not creep forever down
+      // the exponential tail.
+      if (!driving && length(ground_vel) < tune.coast_min) ground_vel = vec3{};
+    }
+
+    const vec3 step = ground_vel * dt;
     // The locked treadmill holds the body in place (so the distance to the
     // mirror stays fixed for testing) but withholds the step for `update` to
     // feed into the velocity, so the saucer still tilts and spins as if
@@ -437,24 +510,32 @@ struct avatar_rig {
       anchor = anchor + step;
       locked_step = vec3{};
     }
-    moving = fabsf(forward) + fabsf(strafe);
 
-    // Advance the rolling motion grid: aim its conveyor across this frame's
-    // travel and scroll it by the rolling-without-slipping angle (arc /
-    // radius). Driven by the planar step whether locked or not, so the
-    // treadmill rolls the grid in place like the saucer spins. The phase wraps
-    // to one grid period (an integer roll, so invisible at integer `hex_freq`)
-    // to stay precise over a long session.
-    const vec3 ground{step.x, 0.0F, step.z};
+    // Advance the rolling motion grid by the wheel travel: on the ground the
+    // actual step (perfect traction, no spin-out), in the air the commanded
+    // spin (so pressing a direction spins the grid without moving the ball).
+    // Scroll it by the rolling-without-slipping angle (arc / radius). The
+    // phase wraps to one grid period (an integer roll, so invisible at integer
+    // `hex_freq`) to stay precise over a long session.
+    const vec3 wheel_vel = grounded ? ground_vel : target_vel;
+    const vec3 ground{wheel_vel.x * dt, 0.0F, wheel_vel.z * dt};
     const float dist = length(ground);
+    moving = dist;
     if (dist > 1.0e-6F) {
-      // Ease the roll axis toward the new travel direction rather than
-      // snapping it, so changing the motion direction (adding a strafe,
-      // reversing) turns the grid quickly but smoothly instead of jumping. The
-      // rotation is about world up (both axes are horizontal); the sign turns
-      // the short way, and an exact reversal, where the cross degenerates,
-      // just picks a side.
-      const vec3 target = normalize(cross(camera::world_up, ground));
+      // The roll axis is a line, not a directed vector: rolling forward and
+      // backward along one heading share it and differ only in spin direction,
+      // like a tire reversing. So aim at whichever orientation of the travel's
+      // perpendicular is nearer the current axis and carry the sense in the
+      // scroll sign. A reversal (180 deg) then keeps the axis and just flips
+      // the scroll, instead of swiveling the axis through a half turn; a turn
+      // (a strafe, steering) eases the axis the short way at
+      // `ball_grid_turn_rate`.
+      vec3 target = normalize(cross(camera::world_up, ground));
+      float scroll_dir = 1.0F;
+      if (dot(ball_roll_axis, target) < 0.0F) {
+        target = -target;
+        scroll_dir = -1.0F;
+      }
       const float cosang =
           fminf(fmaxf(dot(ball_roll_axis, target), -1.0F), 1.0F);
       const float ang = acosf(cosang);
@@ -466,12 +547,66 @@ struct avatar_rig {
             radians{sgn * ang * frac});
       }
       // Sprinting travels three times as fast, so the scroll has its own gain
-      // to keep the faster roll readable rather than strobing.
+      // to keep the faster roll readable rather than strobing. The scroll sign
+      // reverses when backing up, so the grid flows backward without the axis
+      // turning.
       const float gain =
           fast ? tune.ball_grid_roll_gain_fast : tune.ball_grid_roll_gain;
-      ball_roll_phase =
-          fmodf(ball_roll_phase + ((dist / tune.ball_radius) * gain), 1.0F);
+      ball_roll_phase = fmodf(
+          ball_roll_phase + (scroll_dir * (dist / tune.ball_radius) * gain),
+          1.0F);
     }
+  }
+
+  // Apply gravity and rest the ball on the terrain, using the one-frame-stale
+  // ground probe sampled under the ball center.
+  //
+  // A grounded jump launches first; its upward velocity survives the contact
+  // resolve, which only cancels downward motion. Gravity then integrates the
+  // vertical velocity and drops the anchor. If the ball overlaps the surface,
+  // push its center out along the surface normal until it just rests (one
+  // radius off the surface): the normal tilts on a slope, so the push carries
+  // a sideways component that climbs gentle slopes and slides down steep ones.
+  // `grounded` (for jumping and traction) is then set from a contact band, not
+  // a knife-edge, so it holds steady instead of flickering as the resolve
+  // snaps the ball to rest. Finally clamp the anchor inside the world box (the
+  // fences) so it cannot roll off the edge of the soil.
+  void settle(const ground_probe& gp, bool jump, vec3 box_min, vec3 box_max,
+      float dt) {
+    // A grounded jump launches; the upward velocity survives the resolve
+    // (which only cancels downward motion) and the not-rising test below
+    // leaves it airborne.
+    if (jump && grounded) vel_y = tune.jump_speed;
+
+    vel_y -= tune.gravity * dt;
+    anchor = anchor + (camera::world_up * (vel_y * dt));
+
+    // Push the ball out only when it has actually sunk into the surface.
+    const float penetration = tune.ball_radius - gp.surface_dist;
+    if (penetration > 0.0F) {
+      anchor = anchor + (gp.normal * penetration);
+      vel_y = std::max(vel_y, 0.0F); // landed; stop falling
+    }
+
+    // Grounded when resting on or skimming just above the surface (within
+    // `ground_tol`) and not rising. The band keeps it steady (the resolve
+    // snaps the ball to exactly rest, so a strict penetration > 0 flickers
+    // frame to frame), so a jump fires reliably even while sprinting over the
+    // terrain's undulations. The not-rising guard rejects the frames right
+    // after a jump, where the one-frame-stale probe still reports the old rest
+    // height and would otherwise read as grounded.
+    grounded = penetration > -tune.ground_tol && vel_y <= 0.0F;
+
+    // Fences: clamp the ball one radius inside the world box on the ground
+    // plane. Kill the velocity into a wall it hits, keeping the component
+    // sliding along the wall, so momentum does not pin it to the edge.
+    const float r = tune.ball_radius;
+    const float cx = std::clamp(anchor.v.x, box_min.x + r, box_max.x - r);
+    const float cz = std::clamp(anchor.v.z, box_min.z + r, box_max.z - r);
+    if (cx != anchor.v.x) ground_vel.x = 0.0F;
+    if (cz != anchor.v.z) ground_vel.z = 0.0F;
+    anchor.v.x = cx;
+    anchor.v.z = cz;
   }
 
   // Orbit the look by yaw/pitch deltas, clamping pitch shy of vertical.
@@ -512,10 +647,17 @@ struct avatar_rig {
         // so the arc is invisible under the tracking camera; drift the grid
         // sideways by this frame's heading change. Wrap to the grid's sideways
         // period (sqrt3 cells, an integer roll at integer `hex_freq`) so it
-        // stays precise without a visible jump.
+        // stays precise without a visible jump. The drift is capped to
+        // `ball_grid_steer_cap` (steer-phase per second): a tight donut whips
+        // the heading fast enough that the raw drift would slide the grid
+        // faster than the eye reads it (a wagon-wheel strobe), so it saturates
+        // to a readable rate there while passing normal steering through
+        // untouched.
+        const float steer_step =
+            (delta * rate).value * tune.ball_grid_steer_gain;
+        const float steer_cap = tune.ball_grid_steer_cap * dt;
         ball_steer_phase = fmodf(
-            ball_steer_phase +
-                ((delta * rate).value * tune.ball_grid_steer_gain),
+            ball_steer_phase + fmaxf(-steer_cap, fminf(steer_step, steer_cap)),
             std::numbers::sqrt3_v<float>);
       } else {
         // Follow: the heading holds, so the ball keeps its course; the look
@@ -1098,6 +1240,17 @@ int main(int argc, char** argv) {
         .hi = vec2{world_x1, oy + 80.0F},
         .normal = vec3{0.0F, 0.0F, 1.0F}};
 
+    // The world box the ball is fenced inside (the same slab `raymarch` clips
+    // to: the field runs half a voxel past the first and last voxel centers).
+    // `settle` clamps the ball one radius inside this on the ground plane so
+    // it cannot roll off the edge of the soil.
+    const float half_voxel = 0.5F * voxel_size;
+    const vec3 world_min{ox - half_voxel, oy - half_voxel, oz - half_voxel};
+    const vec3 world_max{
+        ox + ((static_cast<float>(vol_extent.width) - 0.5F) * voxel_size),
+        oy + ((static_cast<float>(vol_extent.height) - 0.5F) * voxel_size),
+        oz + ((static_cast<float>(vol_extent.depth) - 0.5F) * voxel_size)};
+
     // Generate the world once into the three grids before the first frame.
     generate_world(field, volume, materials, colors);
 
@@ -1116,11 +1269,24 @@ int main(int argc, char** argv) {
         cuda_kernel::ceil_div(dig_span, dig_block.y),
         cuda_kernel::ceil_div(dig_span, dig_block.z)};
 
-    // The avatar starts floating (no gravity yet) at the world center, looking
-    // toward -z and slightly down, in a trailing view pulled back from the
-    // head. The mouse wheel dollies in toward the jockey; the right-drag
-    // orbits. The feel constants (field of view and the rest) default from
-    // `avatar_tuning`, edited live by the config panel.
+    // Ground-probe scratch: a one-element device buffer the
+    // `ground_probe_kernel` writes under the ball each frame (the surface
+    // normal and signed distance), read back to the host the next frame to
+    // settle the ball onto the terrain. `ground_state` starts as no-contact
+    // (far above), so the first frame just falls; `ground_primed` gates the
+    // readback until the first probe has been issued.
+    cuda_ptr<ground_probe> ground_target;
+    if (!ground_target)
+      throw std::runtime_error{"failed to allocate ground probe"};
+    ground_probe ground_state{.normal = vec3{0.0F, 1.0F, 0.0F},
+        .surface_dist = 1.0e30F};
+    bool ground_primed = false;
+
+    // The avatar starts above the world center, looking toward -z and slightly
+    // down, in a trailing view pulled back from the head; gravity drops it
+    // onto the terrain on the first frames. The mouse wheel dollies in toward
+    // the jockey; the right-drag orbits. The feel constants (field of view and
+    // the rest) default from `avatar_tuning`, edited live by the config panel.
     avatar_rig rig{pos3{vec3{0.0F, 10.0F, 0.0F}},
         orientation{90.0_deg, -20.0_deg}, 90.0_deg, 7.0F, 7.0F};
     const avatar_tuning tuning_defaults{};
@@ -1130,7 +1296,7 @@ int main(int argc, char** argv) {
     // is the baseline the panel compares against.
     render_config render_cfg;
     const render_config render_defaults{};
-    fly_input input;
+    drive_input input;
 
     const dim3 block{16, 16};
 
@@ -1209,8 +1375,21 @@ int main(int argc, char** argv) {
       // for a debug control); `move` then holds the body but still feeds the
       // step to the tilt.
       rig.locked = lock_position;
-      const auto [fwd, strafe, lift] = input.movement(dt, rig.tune.move_speed);
-      rig.move(fwd, strafe, lift, input.fast, dt);
+      const auto [fwd, strafe] = input.movement(rig.tune.move_speed);
+      rig.move(fwd, strafe, input.fast, dt);
+
+      // Gravity and ground contact. Read back the ground probe the previous
+      // frame launched under the ball: one frame stale, but issued after that
+      // frame's dig so it already reflects the edit, and ready with no stall
+      // since the present has since synced. `settle` then drops the ball,
+      // rests it on the surface, applies any jump, and fences it inside the
+      // box.
+      if (ground_primed)
+        cuda_last_status{
+            cudaMemcpy(&ground_state, ground_target.get(),
+                sizeof(ground_probe), cudaMemcpyDeviceToHost)}
+            .or_throw();
+      rig.settle(ground_state, input.take_jump(), world_min, world_max, dt);
 
       // The mouse wheel aims the zoom between the trailing distance and the
       // jockey: an impulse, not a held velocity, so it is not scaled by frame
@@ -1269,6 +1448,14 @@ int main(int argc, char** argv) {
         dig_kernel<<<dig_grid, dig_block>>>(volume.surface(), field,
             dig_target, dig_radius, dig_rate * dt);
       }
+
+      // Probe the ground under the ball for next frame's `settle`. Issued
+      // after the dig so it samples the freshly edited field (a hole the ball
+      // is standing over drops it in); the host reads it back at the top of
+      // the next frame. On the default stream this stays ordered after the dig
+      // and before the render, both of which only read the field.
+      ground_probe_kernel<<<1, 1>>>(field, rig.anchor, ground_target.get());
+      ground_primed = true;
 
       // Open the ImGui frame and build the panel. One `begin_frame` pairs with
       // the one `render` below, which runs even with no panel up, so the

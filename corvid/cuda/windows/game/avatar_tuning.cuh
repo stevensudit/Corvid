@@ -47,14 +47,18 @@ struct avatar_tuning {
   // as motion. `ball_grid_steer_gain` is a fake: the conveyor stays aligned to
   // the motion, so a steer arc is invisible under the tracking camera, and
   // this drifts the grid sideways by the heading change to sell the turn (0
-  // off). `ball_grid_turn_rate` is how fast the grid swings to a new travel
-  // direction (adding a strafe, reversing): higher snaps, lower eases.
+  // off); `ball_grid_steer_cap` limits that drift (steer-phase per second) so
+  // a tight donut, which whips the heading fast, saturates to a readable rate
+  // instead of strobing, while normal steering passes through.
+  // `ball_grid_turn_rate` is how fast the grid's travel axis eases to a new
+  // direction (a strafe, a steer): higher snaps, lower eases.
   float ball_radius = 0.6F;
   float ball_grid_move_gain = 2.0F;
   float ball_grid_fade = 50.0F;
   float ball_grid_roll_gain = 0.135F;
   float ball_grid_roll_gain_fast = 0.071F;
   float ball_grid_steer_gain = 2.0F;
+  float ball_grid_steer_cap = 2.0F;
   float ball_grid_turn_rate = 6.0F;
 
   // Head: the overall saucer head size (the camera rides inside it).
@@ -126,6 +130,25 @@ struct avatar_tuning {
   // identical (which reads wrong), a small whole number above 1 decouples them
   // while staying in tune.
   float color_spin_ratio = 3.0F;
+
+  // Physics: the ball falls under `gravity` and rests on the terrain (see
+  // `avatar_rig::settle`). `jump_speed` is the upward launch velocity Space
+  // gives when grounded; the jump height is `jump_speed^2 / (2 * gravity)`.
+  // Horizontal driving carries momentum (see `avatar_rig::move`): the ground
+  // velocity eases toward the input target at `accel_approach` and brakes
+  // toward rest at the gentler `brake_approach` when the keys release, so the
+  // ball coasts and overshoots a stop; below `coast_min` a coast snaps to rest
+  // rather than creeping forever down the exponential tail. `ground_tol` is
+  // the contact band: the ball counts as grounded (can jump, has traction)
+  // when resting on or skimming within this of the surface, so the flag stays
+  // steady and a jump fires reliably even while sprinting over undulating
+  // terrain.
+  float gravity = 20.0F;   // downward acceleration, units per second squared
+  float jump_speed = 8.0F; // upward launch velocity on a grounded jump
+  float accel_approach = 4.0F; // ground-velocity ramp toward the input target
+  float brake_approach = 2.0F; // ground-velocity decay toward rest (coasting)
+  float coast_min = 0.05F;     // speed below which a coast snaps to a stop
+  float ground_tol = 0.3F;     // contact band counted as grounded, world units
 
   // Movement: how the rig follows the body, dollies, zooms, and frames it.
   float move_speed = 8.0F;       // planar move speed, units per second

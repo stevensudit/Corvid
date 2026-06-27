@@ -157,10 +157,15 @@ inline void draw_body_section(avatar_tuning& t, const avatar_tuning& d,
   tuned_slider("grid steer", t.ball_grid_steer_gain, d.ball_grid_steer_gain,
       0.0F, 4.0F,
       "Fakes the turn: drifts the grid sideways while steering, to sell it.");
+  tuned_slider("grid steer cap", t.ball_grid_steer_cap, d.ball_grid_steer_cap,
+      0.0F, 30.0F,
+      "Limits the steer-fake drift (steer-phase per second) so a tight donut "
+      "saturates to a readable rate instead of strobing; raise until normal "
+      "steering feels under-sold, lower if a donut still flickers.");
   tuned_slider("grid turn", t.ball_grid_turn_rate, d.ball_grid_turn_rate, 1.0F,
       40.0F,
-      "How fast the grid swings to a new travel direction (strafe, reverse); "
-      "higher snaps, lower eases.");
+      "How fast the grid's travel axis eases to a new direction (a strafe, a "
+      "steer); higher snaps, lower eases.");
   ImGui::TreePop();
 }
 
@@ -454,6 +459,25 @@ inline void draw_movement_section(avatar_tuning& t, const avatar_tuning& d) {
   if (!ImGui::TreeNode("Movement")) return;
   tuned_slider("move speed", t.move_speed, d.move_speed, 1.0F, 30.0F,
       "Planar movement speed, world units per second.");
+  tuned_slider("gravity", t.gravity, d.gravity, 0.0F, 60.0F,
+      "Downward acceleration pulling the ball onto the terrain, units per "
+      "second squared.");
+  tuned_slider("jump speed", t.jump_speed, d.jump_speed, 0.0F, 20.0F,
+      "Upward launch velocity on a grounded jump (Space); height is "
+      "jump_speed^2 / (2 * gravity).");
+  tuned_slider("accel", t.accel_approach, d.accel_approach, 0.5F, 20.0F,
+      "How fast the ball ramps up to the input speed; lower feels heavier to "
+      "get going.");
+  tuned_slider("brake", t.brake_approach, d.brake_approach, 0.5F, 20.0F,
+      "How fast the ball bleeds off speed when you release the keys; lower "
+      "coasts farther and overshoots a stop.");
+  tuned_slider("coast min", t.coast_min, d.coast_min, 0.0F, 1.0F,
+      "Speed below which a coast snaps to a full stop instead of creeping.");
+  tuned_slider("ground tol", t.ground_tol, d.ground_tol, 0.0F, 1.0F,
+      "Contact band counted as grounded (world units): how far above the "
+      "surface the ball can skim and still jump and have traction. Higher "
+      "makes "
+      "jumping while running over bumps more forgiving.");
   tuned_slider("head height", t.head_height, d.head_height, 0.0F, 3.0F,
       "How high the saucer head hovers above the ball.");
   tuned_slider("camera height", t.camera_height, d.camera_height, 0.0F, 2.0F,
@@ -559,6 +583,12 @@ inline void draw_render_section(avatar_tuning& t, const avatar_tuning& d,
   ImGui::SetItemTooltip("%s",
       "Show the ball reflection undimmed, to tell a real black artifact from "
       "the dark belly crushed by the dim factor.");
+  ImGui::SameLine();
+  ImGui::Checkbox("show mirror", &c.show_mirror);
+  ImGui::SetItemTooltip("%s",
+      "Show the flat mirror wall along the world's -z edge. Off shows the "
+      "bare "
+      "terrain box.");
   ImGui::TreePop();
 }
 

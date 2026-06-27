@@ -466,7 +466,8 @@ shade_primary_ray(const density_field& field, cudaTextureObject_t color,
     const render_config& cfg, pos3 eye, vec3 ray_dir) {
   const float t_terrain = field.raymarch(eye, ray_dir);
   const float t_ball = ball.intersect(eye, ray_dir);
-  const float t_mirror = mirror.intersect(eye, ray_dir);
+  const float t_mirror =
+      cfg.show_mirror ? mirror.intersect(eye, ray_dir) : -1.0F;
   const float t_head = cfg.show_head ? head.raymarch(eye, ray_dir) : -1.0F;
   float best = 1.0e30F;
   int kind = 0; // 0 sky, 1 terrain, 2 ball, 3 mirror, 4 head

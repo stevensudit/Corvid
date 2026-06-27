@@ -220,6 +220,10 @@ struct render_config {
   // Debug: show the ball's reflection undimmed (`shade_ball`), to tell a real
   // black artifact from the dark belly merely crushed by the dim factor.
   bool debug_ball_raw = false;
+
+  // Whether the flat mirror wall is in the scene (`shade_primary_ray`). Off by
+  // default; the panel can show it for debugging.
+  bool show_mirror = false;
 };
 
 #pragma endregion

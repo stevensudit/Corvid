@@ -9,9 +9,12 @@ a short distance as the camera.
 Parts of this are built now and parts are still a forward-looking sketch. Built:
 the ball and the saucer-head as free SDFs, the head's diegetic camera, the
 Warcraft-style driving with its articulated look/steer gimbal, the helicopter
-tilt and the steadycam, the dolly, the saucer's cosmetic dressing, and the
-ball's dimmed reflection with its rolling motion grid (see "The head rig, as
-built" and "The saucer, as built"). Still a sketch: the dig/fill/drag beams, the
+tilt and the steadycam, the dolly, the gravity, horizontal momentum, and
+normal-based ground collision that keep the ball riding the terrain (fenced
+inside the world box, with a basic jump), the saucer's cosmetic dressing, and
+the ball's dimmed
+reflection with its rolling motion grid (see "The head rig, as built" and "The
+saucer, as built"). Still a sketch: the dig/fill/drag beams, the
 diegetic flashlight and glow, the holographic crosshair, the optics layer
 (mirrors, lenses), and the soil interactions that couple the avatar to the dirt
 physics. The dig brush still fires from the camera's center ray (see
@@ -317,9 +320,19 @@ alongside the belly poses.
 
 ## Still open
 
-- Rolling model: how much inertia, whether the ball is torque-driven (it spins
-  itself up) or impulse-driven, how much momentum a sprint carries before it can
-  stop, and how it climbs and handles terrain it has just dug.
+- Rolling model: gravity, normal-based ground collision (it climbs slopes and
+  slides off steep ones), horizontal momentum (the ground velocity eases up
+  under drive and coasts to a stop on release, so the ball gains and sheds
+  speed instead of starting and stopping dead), the world-box fences, and a
+  basic grounded jump are built. The ground is sampled by a one-thread probe at
+  the ball center each frame (density plus its gradient, read back a frame
+  later), treating the density field as an approximate SDF, so a freshly dug
+  hole drops the ball in. Still open: torque-versus-impulse refinement of the
+  momentum feel, the speed-coupled jump (distance scaling with speed, a
+  walk-jump speed boost), tuned climb-slope limits for walk versus run, and
+  robust multi-sample collision against tunnel walls and ceilings (the single
+  center probe rides a floor but does not yet feel a wall beside it or a roof
+  above).
 - Head states: the exact rest-versus-detach control, the size and shape of the
   detached flight range, whether the leash is hard (a wall) or soft (a pull back
   toward the ball), how much the ball's follow lags the head, and the
