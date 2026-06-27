@@ -289,6 +289,16 @@ struct avatar_rig {
   // roll off the edge of the soil.
   void settle(const ground_probe& gp, bool jump, vec3 box_min, vec3 box_max,
       float dt) {
+    // The treadmill pins the body for testing, so defeat gravity too: hold the
+    // anchor where it is rather than letting it sink and rest on the terrain,
+    // and keep it grounded so the rig still animates as a planted, rolling
+    // ball. The horizontal drive is already withheld in `move`.
+    if (locked) {
+      vel_y = 0.0F;
+      grounded = true;
+      return;
+    }
+
     // A grounded jump launches; the upward velocity survives the resolve
     // (which only cancels downward motion) and the not-rising test below
     // leaves it airborne.
