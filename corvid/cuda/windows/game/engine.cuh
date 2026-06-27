@@ -100,6 +100,7 @@ public:
     const saucer_head head = rig_.head(render_cfg_.head);
 
     dig(rays, dt);
+    crush_track();
     probe_ground();
     render_frame(rays, ball, head);
     return true;
@@ -221,6 +222,35 @@ private:
         dig_target_, dig_radius_, dig_rate_ * dt);
   }
 
+  // Wear a track into the dirt under the rolling ball: a shallow groove plus a
+  // dark stain at the ball's contact, both scaled by this frame's lateral roll
+  // (`moving`) so a parked or vertically settling ball leaves nothing and the
+  // single-pass depth does not depend on speed. Issued after the dig and
+  // before the ground probe, so the probe samples the groove and the ball
+  // settles into the track it just wore. A no-op when both halves are off, the
+  // ball is airborne, or it barely rolled.
+  void crush_track() {
+    const avatar_tuning& t = rig_.tune;
+    if (t.track_crush_strength <= 0.0F && t.track_darken_strength <= 0.0F)
+      return;
+    if (!rig_.grounded || rig_.moving <= track_move_epsilon_) return;
+
+    // The contact under the ball, where the groove forms; the brush falloff
+    // peaks here so it bites a bowl down into the surface.
+    const pos3 contact =
+        rig_.anchor - (camera::world_up * t.ball_radius);
+    const int span =
+        (2 * static_cast<int>(std::ceil(t.track_crush_radius / voxel_size_))) +
+        1;
+    const dim3 grid{cuda_kernel::ceil_div(span, dig_block_.x),
+        cuda_kernel::ceil_div(span, dig_block_.y),
+        cuda_kernel::ceil_div(span, dig_block_.z)};
+    crush_kernel<<<grid, dig_block_>>>(volume_.surface(), colors_.surface(),
+        field_, contact, t.track_crush_radius,
+        t.track_crush_strength * rig_.moving,
+        t.track_darken_strength * rig_.moving, t.track_darken_floor);
+  }
+
   // Probe the ground under the ball for next frame's `settle`. Issued after
   // the dig so it samples the freshly edited field (a hole the ball is
   // standing over drops it in); the host reads it back at the top of the next
@@ -318,6 +348,11 @@ private:
 
   static constexpr float dig_radius_ = 3.0F;
   static constexpr float dig_rate_ = 10.0F;
+
+  // Below this lateral roll (world units in a frame) the ball is treated as
+  // not moving, so it wears no track: guards against jitter and the vertical
+  // settle, which never enters `moving` anyway.
+  static constexpr float track_move_epsilon_ = 1.0e-4F;
 
 #pragma endregion
 #pragma region Window and input

@@ -167,6 +167,21 @@ inline void draw_body_section(avatar_tuning& t, const avatar_tuning& d,
       "Limits the steer-fake drift (steer-phase per second) so a tight donut "
       "saturates to a readable rate instead of strobing; raise until normal "
       "steering feels under-sold, lower if a donut still flickers.");
+  ImGui::SeparatorText("Tracks");
+  tuned_slider("track depth", t.track_crush_strength, d.track_crush_strength,
+      0.0F, 2.0F,
+      "Groove the rolling ball wears into the dirt per unit it rolls (world "
+      "units of depth); 0 disables the groove. Only lateral rolling crushes, "
+      "so a parked ball leaves nothing and speed does not change one pass; "
+      "back and forth wears it deeper.");
+  tuned_slider("track width", t.track_crush_radius, d.track_crush_radius, 0.1F,
+      1.5F, "Footprint radius of the track groove and stain, world units.");
+  tuned_slider("track stain", t.track_darken_strength, d.track_darken_strength,
+      0.0F, 2.0F,
+      "How fast the track darkens the dirt color per unit rolled, so it reads "
+      "as compacted dirt; 0 disables the stain.");
+  tuned_slider("track stain floor", t.track_darken_floor, d.track_darken_floor,
+      0.0F, 1.0F, "Darkest the stain reaches, so a track never goes black.");
   tuned_slider("grid turn", t.ball_grid_turn_rate, d.ball_grid_turn_rate, 1.0F,
       40.0F,
       "How fast the grid's travel axis eases to a new direction (a strafe, a "

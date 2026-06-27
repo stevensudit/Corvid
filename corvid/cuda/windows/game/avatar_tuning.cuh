@@ -59,11 +59,25 @@ struct avatar_tuning {
   float ball_radius = 0.6F;
   float ball_grid_move_gain = 2.0F;
   float ball_grid_fade = 5.0F;
-  float ball_grid_roll_gain = 0.1F;
+  float ball_grid_roll_gain = 0.125F;
   float ball_grid_roll_gain_fast_mult = 0.75F;
   float ball_grid_steer_gain = 2.0F;
   float ball_grid_steer_cap = 2.0F;
   float ball_grid_turn_rate = 6.0F;
+
+  // Tracks: a shallow groove and dark stain the heavy ball wears into the dirt
+  // as it rolls. Only lateral rolling crushes (the edit scales by the distance
+  // rolled, not time), so a parked ball settling straight down leaves nothing
+  // and speed does not change a single pass; rolling back and forth wears it
+  // deeper. `track_crush_strength` is the groove depth (density, world units)
+  // per unit rolled and `track_darken_strength` the color fade per unit
+  // rolled, each over a `track_crush_radius` footprint; either strength 0
+  // disables that half, and `track_darken_floor` is the darkest the stain
+  // reaches so it never goes black.
+  float track_crush_strength = 0.3F;
+  float track_crush_radius = 0.85F;
+  float track_darken_strength = 0.666F;
+  float track_darken_floor = 0.12F;
 
   // Head: the overall saucer head size (the camera rides inside it).
   float head_radius = 0.45F;

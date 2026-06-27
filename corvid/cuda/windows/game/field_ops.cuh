@@ -22,6 +22,7 @@
 
 #include "../../cuda_kernel.cuh"
 #include "../../density_field.cuh"
+#include "../../raycast.cuh"
 #include "../../vec.cuh"
 
 // Per-frame operations on the live density field.
@@ -84,6 +85,64 @@ __global__ void dig_kernel(cudaSurfaceObject_t surface, density_field field,
   surf3Dread(&density, surface, vx * static_cast<int>(sizeof(float)), vy, vz);
   density -= strength * (1.0F - (d / radius));
   surf3Dwrite(density, surface, vx * static_cast<int>(sizeof(float)), vy, vz);
+}
+
+// Wear a track into the dirt under the rolling ball: over a `radius` footprint
+// at `contact`, subtract `crush` from the density (lowering the surface into a
+// shallow groove) and fade the color toward dark by `darken` (a stain), both
+// with the same linear falloff as the dig. `crush` and `darken` are the
+// already-distance-scaled amounts for this frame: the caller multiplies each
+// by how far the ball rolled laterally, so a ball settling straight down from
+// compaction (no lateral roll) edits nothing and the single-pass depth does
+// not depend on speed; rolling back and forth wears it deeper. Either amount 0
+// skips that half. The stain never falls below `darken_floor` so a track does
+// not crush to black. A no-op outside the brush sphere or the field.
+__global__ void crush_kernel(cudaSurfaceObject_t density_surface,
+    cudaSurfaceObject_t color_surface, density_field field, pos3 contact,
+    float radius, float crush, float darken, float darken_floor) {
+  const int radius_voxels = static_cast<int>(ceilf(radius / field.voxel_size));
+  const int span = (2 * radius_voxels) + 1;
+  const int sx = cuda_kernel::x_index();
+  const int sy = cuda_kernel::y_index();
+  const int sz = cuda_kernel::z_index();
+  if (sx >= span || sy >= span || sz >= span) return;
+
+  const vec3 rel = field.to_voxel(contact);
+  const int vx = static_cast<int>(lroundf(rel.x)) + (sx - radius_voxels);
+  const int vy = static_cast<int>(lroundf(rel.y)) + (sy - radius_voxels);
+  const int vz = static_cast<int>(lroundf(rel.z)) + (sz - radius_voxels);
+  const int3 voxel = make_int3(vx, vy, vz);
+  if (!field.contains(voxel)) return;
+
+  const pos3 voxel_point = field.voxel_center(voxel);
+  const float d = distance(voxel_point, contact);
+  if (d > radius) return;
+  const float falloff = 1.0F - (d / radius);
+
+  if (crush > 0.0F) {
+    float density = 0.0F;
+    surf3Dread(&density, density_surface,
+        vx * static_cast<int>(sizeof(float)), vy, vz);
+    density -= crush * falloff;
+    surf3Dwrite(density, density_surface,
+        vx * static_cast<int>(sizeof(float)), vy, vz);
+  }
+
+  if (darken > 0.0F) {
+    uchar4 packed{};
+    surf3Dread(&packed, color_surface, vx * static_cast<int>(sizeof(uchar4)),
+        vy, vz);
+    const float fade = fmaxf(1.0F - (darken * falloff), 0.0F);
+    const float r =
+        fmaxf((static_cast<float>(packed.x) / 255.0F) * fade, darken_floor);
+    const float g =
+        fmaxf((static_cast<float>(packed.y) / 255.0F) * fade, darken_floor);
+    const float b =
+        fmaxf((static_cast<float>(packed.z) / 255.0F) * fade, darken_floor);
+    surf3Dwrite(
+        make_uchar4(to_unorm8(r), to_unorm8(g), to_unorm8(b), packed.w),
+        color_surface, vx * static_cast<int>(sizeof(uchar4)), vy, vz);
+  }
 }
 
 #pragma endregion
