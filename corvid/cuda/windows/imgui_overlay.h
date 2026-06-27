@@ -24,6 +24,8 @@
 #endif
 #include <d3d11.h>
 
+#include <utility>
+
 #include "imgui.h"
 #include "imgui_impl_dx11.h"
 #include "imgui_impl_sdl3.h"
@@ -44,12 +46,15 @@ namespace corvid::cuda {
 // presenter's copy and present (drive that through the presenter's overlay
 // overload). Each frame must pair one `begin_frame` with one `render`.
 //
-// Non-copyable and non-movable: it holds the single global ImGui context. The
-// device and context are borrowed, so the presenter that owns them must
-// outlive the overlay.
+// Non-copyable, but movable by transferring ownership of the single global
+// ImGui context: it stays single-instance, since only one overlay owns the
+// context at a time. The device and context are borrowed, so the presenter
+// that owns them must outlive the overlay.
 class imgui_overlay {
 public:
 #pragma region Construction
+
+  imgui_overlay() = default;
 
   explicit imgui_overlay(SDL_Window* window, ID3D11Device* device,
       ID3D11DeviceContext* context)
@@ -70,14 +75,20 @@ public:
 
   imgui_overlay(const imgui_overlay&) = delete;
   imgui_overlay& operator=(const imgui_overlay&) = delete;
-  imgui_overlay(imgui_overlay&&) = delete;
-  imgui_overlay& operator=(imgui_overlay&&) = delete;
 
-  ~imgui_overlay() {
-    ImGui_ImplDX11_Shutdown();
-    ImGui_ImplSDL3_Shutdown();
-    ImGui::DestroyContext();
+  imgui_overlay(imgui_overlay&& other) noexcept
+      : device_{std::exchange(other.device_, nullptr)},
+        context_{std::exchange(other.context_, nullptr)} {}
+  imgui_overlay& operator=(imgui_overlay&& other) noexcept {
+    if (this != &other) {
+      shutdown();
+      device_ = std::exchange(other.device_, nullptr);
+      context_ = std::exchange(other.context_, nullptr);
+    }
+    return *this;
   }
+
+  ~imgui_overlay() { shutdown(); }
 
 #pragma endregion
 #pragma region Frame
@@ -128,10 +139,27 @@ public:
   }
 
 #pragma endregion
+#pragma region Helpers
+private:
+  // Tear down the context and backends, once, if this overlay owns them. A
+  // non-null `device_` marks ownership, so a moved-from or default overlay
+  // (both null) tears nothing down.
+  void shutdown() {
+    if (!device_) return;
+    ImGui_ImplDX11_Shutdown();
+    ImGui_ImplSDL3_Shutdown();
+    ImGui::DestroyContext();
+    device_ = nullptr;
+    context_ = nullptr;
+  }
+
+#pragma endregion
 #pragma region Data members
 private:
-  ID3D11Device* device_;
-  ID3D11DeviceContext* context_;
+  // Borrowed device and context; a non-null `device_` also marks this overlay
+  // as the owner of the global ImGui context (see `shutdown`).
+  ID3D11Device* device_{};
+  ID3D11DeviceContext* context_{};
 
 #pragma endregion
 };

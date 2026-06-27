@@ -27,7 +27,7 @@
 
 namespace corvid::cuda {
 
-#pragma region cuda_d3d11_presenter
+#pragma region presenter
 
 // A presentation pipeline for CUDA-rendered frames: a D3D11 device, its
 // flip-model swapchain, and a grow-only render texture registered for CUDA
@@ -55,14 +55,24 @@ public:
 #pragma endregion
 #pragma region Construction
 
-  explicit cuda_d3d11_presenter(HWND hwnd) : swapchain_{device_, hwnd} {
-    ensure_target().or_throw();
-  }
+  // An unbound presenter: the D3D device is created, but no swapchain yet.
+  // Call `reset(hwnd)` to bind it to a window.
+  cuda_d3d11_presenter() = default;
+
+  explicit cuda_d3d11_presenter(HWND hwnd) { reset(hwnd).or_throw(); }
 
   cuda_d3d11_presenter(const cuda_d3d11_presenter&) = delete;
   cuda_d3d11_presenter& operator=(const cuda_d3d11_presenter&) = delete;
   cuda_d3d11_presenter(cuda_d3d11_presenter&&) = delete;
   cuda_d3d11_presenter& operator=(cuda_d3d11_presenter&&) = delete;
+
+  // Bind (or rebind) the presenter to a window: build the swapchain on the
+  // device and grow the render target to fit. Brings up a default-constructed
+  // presenter, or repoints an existing one at a new window.
+  [[nodiscard]] hr_status reset(HWND hwnd) {
+    if (hr_status st{swapchain_.reset(device_, hwnd)}; !st) return st;
+    return ensure_target();
+  }
 
 #pragma endregion
 #pragma region Accessors

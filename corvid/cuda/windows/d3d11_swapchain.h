@@ -71,6 +71,10 @@ class d3d11_swapchain {
 public:
 #pragma region Construction
 
+  // An empty swapchain holding no buffers; call `reset` to build it for a
+  // device and window.
+  d3d11_swapchain() = default;
+
   explicit d3d11_swapchain(const d3d11_device& device, HWND hwnd) {
     reset(device, hwnd).or_throw();
   }

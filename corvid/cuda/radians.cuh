@@ -58,6 +58,20 @@ struct radians {
     return {a.value / s};
   }
 
+  // Compound assignment, in terms of the binary operators above.
+  friend __host__ __device__ radians& operator+=(radians& a, radians b) {
+    return a = a + b;
+  }
+  friend __host__ __device__ radians& operator-=(radians& a, radians b) {
+    return a = a - b;
+  }
+  friend __host__ __device__ radians& operator*=(radians& a, float s) {
+    return a = a * s;
+  }
+  friend __host__ __device__ radians& operator/=(radians& a, float s) {
+    return a = a / s;
+  }
+
   // Ordering and equality, for clamping and comparison.
   friend __host__ __device__ bool operator==(radians a, radians b) = default;
   friend __host__ __device__ auto operator<=>(radians a, radians b) = default;
