@@ -168,6 +168,25 @@ struct avatar_tuning {
   float coast_min = 0.10F;      // speed below which a coast snaps to a stop
   float ground_tol = 0.3F; // contact band counted as grounded, world units
 
+  // The steepest slope the ball drives up: a contact tilted more than this off
+  // level is a wall, stopping the ball instead of letting it climb (a vertical
+  // face is the limit). Later this may key to the material for per-tier
+  // traction.
+  float max_climb_deg = 50.0F;
+
+  // How much the climb limit grows while running (Run): the ball can ride up
+  // steeper terrain and out of an equator-deep pit when sprinting, where a
+  // normal drive is stopped by the wall. 1 disables the boost.
+  float run_climb_mult = 1.6F;
+
+  // How much of each frame's collision penetration is corrected: a fraction,
+  // not the whole, so the resolve eases to rest instead of overshooting the
+  // one-frame-stale probe and limit-cycling (a jitter on a flat floor, a
+  // wall-to-wall slam in a slot narrower than the ball). Lower is calmer but
+  // sinks deeper into contact; near 1 brings the jitter back. The velocity
+  // stops are firm regardless, so a landing or a wall still stops hard.
+  float collision_damp = 0.35F;
+
   // Movement: how the rig follows the body, dollies, zooms, and frames it.
   float move_speed = 8.0F;       // planar move speed, units per second
   float head_height = 0.9F;      // head hover height over the ball

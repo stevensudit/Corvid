@@ -121,11 +121,11 @@ __global__ void crush_kernel(cudaSurfaceObject_t density_surface,
 
   if (crush > 0.0F) {
     float density = 0.0F;
-    surf3Dread(&density, density_surface,
-        vx * static_cast<int>(sizeof(float)), vy, vz);
+    surf3Dread(&density, density_surface, vx * static_cast<int>(sizeof(float)),
+        vy, vz);
     density -= crush * falloff;
-    surf3Dwrite(density, density_surface,
-        vx * static_cast<int>(sizeof(float)), vy, vz);
+    surf3Dwrite(density, density_surface, vx * static_cast<int>(sizeof(float)),
+        vy, vz);
   }
 
   if (darken > 0.0F) {
@@ -148,13 +148,24 @@ __global__ void crush_kernel(cudaSurfaceObject_t density_surface,
 #pragma endregion
 #pragma region Collision
 
-// What the ground probe reports under the ball, read back to the host to
-// settle the avatar onto the terrain: the outward surface normal at the ball
-// center and the signed distance from the center to the surface (positive when
-// the center is in air, negative when it has sunk into solid).
+// What the collision probe reports under the ball, read back to the host to
+// resolve the avatar against the terrain.
+//
+// `normal` and `surface_dist` are the nearest-surface contact at the ball
+// center (outward normal, signed distance, positive in air and negative when
+// sunk into solid): the floor, for gravity and the slope/climb test. `push`
+// lifts the ball out of a wall or ceiling the center sample misses (a
+// symmetric pit cancels in the center gradient, so the sides would clip
+// without it). `wall_normal` is the steepest horizontal face the ball presses
+// into (unit, or zero), for the velocity stop and the stain; `overhead` flags
+// a ceiling or too-short tunnel, the confined signal the camera will later
+// dolly on.
 struct ground_probe {
   vec3 normal;
   float surface_dist;
+  vec3 push;
+  vec3 wall_normal;
+  bool overhead;
 };
 
 // A `surface_dist` magnitude meaning no surface is within reach: reported
@@ -162,18 +173,25 @@ struct ground_probe {
 // climb. Far past any real voxel distance, so it never reads as contact.
 constexpr float no_contact = big_value;
 
-// Sample the live density field at the ball center and report the surface
-// normal and the signed distance to it, treating the density as an approximate
-// signed-distance field. The density gradient (central differences) gives the
-// outward normal and, with the density value, the perpendicular distance to
-// the zero crossing: a step `g` of `sample(+e) - sample(-e)` is about
-// `2 * e * grad`, so the distance is `-density / |grad| = -density * 2e /
-// |g|`. One thread; the host reads the result back a frame later to push the
-// ball out of the ground along the normal (see `avatar_rig::settle`). Because
-// it samples the same field the dig edits, a freshly dug hole drops the ball
-// into it.
-__global__ void
-ground_probe_kernel(density_field field, pos3 center, ground_probe* out) {
+// Resolve a sphere of `radius` at the ball `center` against the terrain for
+// one frame, sampling the live density field as an approximate signed-distance
+// field.
+//
+// The center gradient (central differences) gives the nearest-surface contact:
+// the outward normal and, with the density value, the perpendicular distance
+// to the zero crossing (a step `g` of `sample(+e) - sample(-e)` is about `2 *
+// e * grad`, so the distance is `-density * 2e / |g|`). That is the floor, for
+// gravity and the slope/climb test, as before.
+//
+// Then a fixed set of points on the ball surface catches the contacts the
+// center gradient cancels: a ring around the equator for walls and an upper
+// fan for ceilings. A sample inside solid (density above zero) is a
+// penetration of about that depth; push the ball out along the radial back
+// toward the center, summing all of them so the opposite faces of a snug pit
+// cancel to a stable rest. One thread; the host reads it back a frame later
+// (see `avatar_rig::settle`).
+__global__ void ground_probe_kernel(density_field field, pos3 center,
+    float radius, ground_probe* out) {
   const float e = field.voxel_size;
   const float d = field.sample_density(center);
   const vec3 dx{e, 0.0F, 0.0F};
@@ -196,6 +214,43 @@ ground_probe_kernel(density_field field, pos3 center, ground_probe* out) {
     out->normal = vec3{0.0F, 1.0F, 0.0F};
     out->surface_dist = d > 0.0F ? -no_contact : no_contact;
   }
+
+  // The surface probe directions: eight around the equator (walls), then the
+  // pole and an upper fan (ceilings and the mouth of a too-short tunnel).
+  constexpr float s = 0.70710678F;
+  const vec3 dirs[13] = {{1.0F, 0.0F, 0.0F}, {s, 0.0F, s}, {0.0F, 0.0F, 1.0F},
+      {-s, 0.0F, s}, {-1.0F, 0.0F, 0.0F}, {-s, 0.0F, -s}, {0.0F, 0.0F, -1.0F},
+      {s, 0.0F, -s}, {0.0F, 1.0F, 0.0F}, {s, s, 0.0F}, {0.0F, s, s},
+      {-s, s, 0.0F}, {0.0F, s, -s}};
+
+  // Sum every penetrating contact's radial push, rather than picking the
+  // single deepest one.
+  //
+  // The opposite faces of a snug pit then cancel to a stable centered rest,
+  // where the deepest-only resolve spins frame to frame (near- tied
+  // penetrations plus the one-frame-stale probe) and shivers the ball.
+  // `contact_tol` ignores resting contact so a seated ball does not push at
+  // all. The deepest horizontal contact also reports the wall normal, for the
+  // velocity stop and the stain.
+  constexpr float contact_tol = 0.05F; // rest contact does not push
+  vec3 push{0.0F, 0.0F, 0.0F};
+  vec3 wall_normal{0.0F, 0.0F, 0.0F};
+  float worst_wall = 0.0F;
+  bool overhead = false;
+  for (const vec3 u : dirs) {
+    const float dp = field.sample_density(center + (u * radius)) - contact_tol;
+    if (dp <= 0.0F) continue;
+    push = push + ((u * -1.0F) * dp); // out along the radial, back to center
+    if (u.y > 0.5F) {
+      overhead = true;
+    } else if (dp > worst_wall) {
+      worst_wall = dp;
+      wall_normal = u * -1.0F; // outward from the wall, toward the ball
+    }
+  }
+  out->push = push;
+  out->wall_normal = wall_normal;
+  out->overhead = overhead;
 }
 
 #pragma endregion

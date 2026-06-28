@@ -133,7 +133,14 @@ private:
     const auto now_ns = SDL_GetTicksNS();
     const auto dt = static_cast<float>(now_ns - last_ns_) / 1.0e9F;
     last_ns_ = now_ns;
-    return dt;
+    // Cap the step so a stalled frame does not integrate a huge dt. Dragging
+    // the title bar (Windows enters a modal move loop), a breakpoint, or an
+    // alt-tab freezes the loop for a long beat; without this, gravity over
+    // that gap flings the avatar far below the world in one step, where
+    // collision can never recover (the camera rides it down, so the screen
+    // goes to sky). The sim hitches by at most this instead.
+    constexpr float max_dt = 0.05F; // 50 ms; a long stall advances only this
+    return fminf(dt, max_dt);
   }
 
   // Advance the avatar from this frame's input: smooth the look, drive the
@@ -170,6 +177,7 @@ private:
               sizeof(ground_probe), cudaMemcpyDeviceToHost)}
           .or_throw();
     rig_.settle(ground_state_, input_.take_jump(), world_min_, world_max_, dt);
+    log_collision();
 
     // The mouse wheel aims the zoom between the trailing distance and the
     // jockey: an impulse, not a held velocity, so it is not scaled by frame
@@ -222,33 +230,97 @@ private:
         dig_target_, dig_radius_, dig_rate_ * dt);
   }
 
-  // Wear a track into the dirt under the rolling ball: a shallow groove plus a
-  // dark stain at the ball's contact, both scaled by this frame's lateral roll
-  // (`moving`) so a parked or vertically settling ball leaves nothing and the
-  // single-pass depth does not depend on speed. Issued after the dig and
-  // before the ground probe, so the probe samples the groove and the ball
-  // settles into the track it just wore. A no-op when both halves are off, the
-  // ball is airborne, or it barely rolled.
+  // Wear a track into the dirt under the rolling ball.
+  //
+  // A shallow groove plus a dark stain at the ball's contact, both scaled by
+  // this frame's lateral roll (`moving`) so a parked or vertically settling
+  // ball leaves nothing and the single-pass depth does not depend on speed.
+  // Issued after the dig and before the ground probe, so the probe samples the
+  // groove and the ball settles into the track it just wore. A no-op when both
+  // halves are off, the ball is airborne, or it barely rolled.
   void crush_track() {
     const avatar_tuning& t = rig_.tune;
-    if (t.track_crush_strength <= 0.0F && t.track_darken_strength <= 0.0F)
-      return;
-    if (!rig_.grounded || rig_.moving <= track_move_epsilon_) return;
+    const bool carve = t.track_crush_strength > 0.0F;
+    const bool stain = t.track_darken_strength > 0.0F;
+    if (!carve && !stain) return;
 
-    // The contact under the ball, where the groove forms; the brush falloff
-    // peaks here so it bites a bowl down into the surface.
-    const pos3 contact =
-        rig_.anchor - (camera::world_up * t.ball_radius);
+    // The rolling groove and stain on the floor, scaled by the lateral roll so
+    // a parked or vertically settling ball leaves nothing. The brush falloff
+    // peaks at the contact under the ball, so it bites a bowl down.
+    //
+    // Only the geometry groove gates on `driving` (a movement key held). The
+    // collision's own micro-jitter and any passive drift set `moving` too, and
+    // carving on that would deepen a bowl the ball then slides into, a
+    // feedback that drifts and shivers it. The stain has no geometry feedback,
+    // so it still follows any roll.
+    if (rig_.grounded && rig_.moving > track_move_epsilon_) {
+      const pos3 contact = rig_.anchor - (camera::world_up * t.ball_radius);
+      // Stop carving once the ball is buried to its equator (`walled`): the
+      // weight-dig sinks it only to the waist, then it can rev or hop but not
+      // bore itself a shaft. The stain still follows the roll.
+      const float carve_amt =
+          (rig_.driving && !rig_.walled)
+              ? t.track_crush_strength * rig_.moving
+              : 0.0F;
+      launch_crush(contact, t.track_crush_radius, carve_amt,
+          t.track_darken_strength * rig_.moving, t.track_darken_floor);
+    }
+
+    // The stain where the ball pushes into a wall, scaled by the travel the
+    // wall blocked (collision kills that travel, so `moving` cannot stand in
+    // for it). No carve: pushing into a wall stains it but does not dig, since
+    // the beam is the tool for boring in.
+    if (stain && rig_.wall_press > track_move_epsilon_) {
+      launch_crush(rig_.wall_contact, t.track_crush_radius, 0.0F,
+          t.track_darken_strength * rig_.wall_press, t.track_darken_floor);
+    }
+  }
+
+  // Launch the crush brush at `contact`: carve `crush` from the density and
+  // stain the color by `darken` over a `radius` footprint (see
+  // `crush_kernel`).
+  void launch_crush(pos3 contact, float radius, float crush, float darken,
+      float darken_floor) {
     const int span =
-        (2 * static_cast<int>(std::ceil(t.track_crush_radius / voxel_size_))) +
-        1;
+        (2 * static_cast<int>(std::ceil(radius / voxel_size_))) + 1;
     const dim3 grid{cuda_kernel::ceil_div(span, dig_block_.x),
         cuda_kernel::ceil_div(span, dig_block_.y),
         cuda_kernel::ceil_div(span, dig_block_.z)};
     crush_kernel<<<grid, dig_block_>>>(volume_.surface(), colors_.surface(),
-        field_, contact, t.track_crush_radius,
-        t.track_crush_strength * rig_.moving,
-        t.track_darken_strength * rig_.moving, t.track_darken_floor);
+        field_, contact, radius, crush, darken, darken_floor);
+  }
+
+  // Append this frame's settle state to the debug CSV while logging is on:
+  // position, vertical and ground velocity, the probe's normal, signed
+  // distance, push and wall normal, the penetration, and the grounded,
+  // overhead, moving, and driving flags. The stream opens (truncating) on the
+  // first logged frame and closes when logging is turned off, and each line is
+  // flushed so a capture survives a hard quit. Temp instrumentation for
+  // diagnosing settle jitter.
+  void log_collision() {
+    if (!log_collision_) {
+      if (collision_log_.is_open()) collision_log_.close();
+      return;
+    }
+    if (!collision_log_.is_open()) {
+      if (log_path_.empty()) return;
+      collision_log_.open(log_path_, std::ios::trunc);
+      collision_log_ << "t,ax,ay,az,vy,gvx,gvz,sdist,nx,ny,nz,pen,pushx,pushy,"
+                        "pushz,wnx,wny,wnz,over,gnd,mv,drv\n";
+    }
+    const ground_probe& g = ground_state_;
+    const float pen = rig_.tune.ball_radius - g.surface_dist;
+    collision_log_
+        << static_cast<double>(SDL_GetTicksNS()) / 1.0e9 << ','
+        << rig_.anchor.v.x << ',' << rig_.anchor.v.y << ',' << rig_.anchor.v.z
+        << ',' << rig_.vel_y << ',' << rig_.ground_vel.x << ','
+        << rig_.ground_vel.z << ',' << g.surface_dist << ',' << g.normal.x
+        << ',' << g.normal.y << ',' << g.normal.z << ',' << pen << ','
+        << g.push.x << ',' << g.push.y << ',' << g.push.z << ','
+        << g.wall_normal.x << ',' << g.wall_normal.y << ',' << g.wall_normal.z
+        << ',' << g.overhead << ',' << rig_.grounded << ',' << rig_.moving
+        << ',' << rig_.driving << '\n';
+    collision_log_.flush();
   }
 
   // Probe the ground under the ball for next frame's `settle`. Issued after
@@ -257,7 +329,8 @@ private:
   // frame. On the default stream this stays ordered after the dig and before
   // the render, both of which only read the field.
   void probe_ground() {
-    ground_probe_kernel<<<1, 1>>>(field_, rig_.anchor, ground_target_.get());
+    ground_probe_kernel<<<1, 1>>>(field_, rig_.anchor, rig_.tune.ball_radius,
+        ground_target_.get());
     ground_primed_ = true;
   }
 
@@ -272,7 +345,8 @@ private:
     imgui_.begin_frame();
     if (show_config_)
       draw_config_panel(rig_.tune, tuning_defaults_, render_cfg_,
-          render_defaults_, freeze_camera_, lock_position_, uncap_fps_);
+          render_defaults_, freeze_camera_, lock_position_, uncap_fps_,
+          log_collision_);
 
     const int sync_interval = present_sync_interval(win_, uncap_fps_);
 
@@ -484,6 +558,14 @@ private:
   // swapchain, else it has no effect.
   bool uncap_fps_ = false;
 
+  // Collision logging (debug): write a per-frame CSV of the ball's settle
+  // state to `log_path_` to diagnose jitter. Toggled by a panel checkbox; the
+  // stream opens (truncating) on the first logged frame and closes when
+  // toggled off. Temp instrumentation.
+  bool log_collision_ = false;
+  std::ofstream collision_log_;
+  std::string log_path_;
+
   // Frame timing in nanoseconds: millisecond ticks quantize dt enough to
   // judder movement at high refresh rates (a 6.94 ms frame reads as 6 or 7).
   Uint64 last_ns_ = 0;
@@ -520,6 +602,7 @@ private:
     if (!pref) return;
     // The pref path already ends in a separator, so just append the file name.
     geom_path_ = std::string{pref.get()} + "window.txt";
+    log_path_ = std::string{pref.get()} + "collision_log.csv";
   }
 
   void restore_window_geometry() {

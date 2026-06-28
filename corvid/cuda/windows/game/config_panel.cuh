@@ -142,7 +142,8 @@ inline void draw_body_section(avatar_tuning& t, const avatar_tuning& d,
   tuned_slider("grid move gain", t.ball_grid_move_gain, d.ball_grid_move_gain,
       0.0F, 8.0F, "How hard the grid flares up with the ball's speed.");
   tuned_slider("grid fade", t.ball_grid_fade, d.ball_grid_fade, 0.1F, 100.0F,
-      "How fast the grid fades back to dark when you release the keys; pair it "
+      "How fast the grid fades back to dark when you release the keys; pair "
+      "it "
       "with grid move gain's flare-in rate (motion approach) to match.");
   tuned_slider("grid scroll", t.ball_grid_roll_gain, d.ball_grid_roll_gain,
       0.0F, 1.0F,
@@ -496,8 +497,21 @@ inline void draw_movement_section(avatar_tuning& t, const avatar_tuning& d) {
   tuned_slider("ground tol", t.ground_tol, d.ground_tol, 0.0F, 1.0F,
       "Contact band counted as grounded (world units): how far above the "
       "surface the ball can skim and still jump and have traction. Higher "
-      "makes "
-      "jumping while running over bumps more forgiving.");
+      "makes jumping while running over bumps more forgiving.");
+  tuned_slider("max climb", t.max_climb_deg, d.max_climb_deg, 0.0F, 89.0F,
+      "Steepest slope (degrees) the ball drives up; steeper terrain is a wall "
+      "that stops it instead of letting it climb. The equator collision ring "
+      "caps the effective limit near 45 degrees regardless.");
+  tuned_slider("run climb x", t.run_climb_mult, d.run_climb_mult, 1.0F, 3.0F,
+      "How much the climb limit grows while running (Run): flooring it rides "
+      "the ball up steeper terrain and out of an equator-deep pit a normal "
+      "drive cannot. 1 disables the boost.");
+  tuned_slider("collision damp", t.collision_damp, d.collision_damp, 0.001F,
+      1.0F,
+      "Fraction of each frame's collision penetration that is corrected. "
+      "Lower eases to rest (calmer, but sinks deeper into contact); near 1 "
+      "brings  back the stale-probe jitter and the wall-to-wall slam in a "
+      "tight slot.");
   tuned_slider("head height", t.head_height, d.head_height, 0.0F, 3.0F,
       "How high the saucer head hovers above the ball.");
   tuned_slider("camera height", t.camera_height, d.camera_height, 0.0F, 2.0F,
@@ -648,7 +662,7 @@ draw_animation_rigging_section(avatar_tuning& t, const avatar_tuning& d) {
 // disabled, so this default holds every run).
 inline void draw_config_panel(avatar_tuning& t, const avatar_tuning& d,
     render_config& c, const render_config& dc, bool& freeze_camera,
-    bool& lock_position, bool& uncap_fps) {
+    bool& lock_position, bool& uncap_fps, bool& log_collision) {
   const ImGuiViewport* vp = ImGui::GetMainViewport();
   ImGui::SetNextWindowPos(vp->GetCenter(), ImGuiCond_FirstUseEver,
       ImVec2(0.5F, 0.5F));
@@ -679,6 +693,13 @@ inline void draw_config_panel(avatar_tuning& t, const avatar_tuning& d,
       "refresh rate (the image tears). Lets the title-bar FPS read true GPU "
       "cost for a specific view, e.g. dollied right up to the ball. Needs a "
       "tearing-capable swapchain; otherwise it has no effect.");
+  ImGui::SameLine();
+  ImGui::Checkbox("log collision", &log_collision);
+  ImGui::SetItemTooltip("%s",
+      "Debug: write a per-frame CSV of the ball's collision state (position, "
+      "velocity, probe normal/distance, push, wall normal, the grounded and "
+      "overhead flags) to collision_log.csv in the prefs folder, to diagnose "
+      "settle instability. Off closes the file.");
   draw_body_section(t, d, c, dc);
   draw_head_section(t, d, c, dc);
   draw_saucer_section(t, d, c, dc);
