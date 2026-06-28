@@ -55,7 +55,7 @@ struct metal_ball {
   // Distance along unit `dir` from `eye` to the nearest surface hit ahead of
   // the eye, or a negative value on a miss. The far root is returned when the
   // eye is inside the sphere, so the surface is still found from within.
-  [[nodiscard]] __device__ float intersect(pos3 eye, vec3 dir) const {
+  [[nodiscard]] __host__ __device__ float intersect(pos3 eye, vec3 dir) const {
     const vec3 oc = eye - center;
     const float b = dot(oc, dir);
     const float c = dot(oc, oc) - (radius * radius);

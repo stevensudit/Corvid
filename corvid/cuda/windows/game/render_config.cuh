@@ -193,6 +193,12 @@ struct render_config {
     vec3 eye_pupil{0.0F, 0.0F, 0.0F};          // hub center (the beam source)
     vec3 eye_frame_color{0.62F, 0.62F, 0.62F}; // frame, spokes, hub ring
 
+    // Pupil glow: the beam source lights up while the dig tool is projecting
+    // (`reticle.enabled`), so the ball reflection shows the eye charging.
+    // Added emissive over the pupil hub.
+    vec3 eye_glow_color{0.20F, 1.0F, 0.55F};
+    float eye_glow_strength = 2.5F; // 0 disables the pupil glow
+
     // Antenna tip beacon: the ball atop the dome's antenna, drawn emissive so
     // it reads as a light. The rod uses the bare-steel `base_albedo`. The
     // beacon shows `antenna_tip_color` while moving forward or strafing and
@@ -205,6 +211,35 @@ struct render_config {
     vec3 antenna_alt_color{1.0F, 0.08F, 0.04F}; // backing-up color (red)
     float blink_depth = 0.7F;                   // on/off blink while moving
   } head;
+
+  // The in-world dig reticle: a slowly spinning hexagon hologram laid on the
+  // terrain where the dig tool aims, oriented to the surface normal so it
+  // conforms to slopes (an outer ring marking the dig footprint and a smaller
+  // inner crosshair hex). The engine fills the per-frame state each frame from
+  // the aim pick; the rest are look tunables. See `apply_reticle`.
+  struct reticle_params {
+    // Per-frame state, written by the engine (not panel-tuned): whether the
+    // dig tool is on and the aim hit, the world hit point and its surface
+    // normal (the azimuth frame the hexagons spin in), and the rotation phase.
+    bool enabled = false;
+    pos3 center{};
+    vec3 normal{0.0F, 1.0F, 0.0F};
+    float spin = 0.0F;
+    // Hide the inner crosshair when the ball blocks the aim (the dig beam
+    // leaves the ball, so it cannot fire through itself); the engine sets it.
+    bool show_inner = true;
+
+    // Look tunables.
+    float spin_rate = 0.6F;     // hologram turn rate, radians per second
+    float outer_radius = 1.0F;  // outer hexagon apothem, world units
+    float outer_clip = 1.06F;   // circular clip on the outer hex, x apothem
+    float inner_radius = 0.11F; // inner crosshair hexagon apothem
+    float outer_line = 0.06F;   // outer ring half-thickness, world units
+    float inner_line = 0.015F;  // inner hex + spoke half-thickness (finer)
+    int inner_spokes = 3;       // crosshair spokes in the inner hex (0..6)
+    vec3 color{0.20F, 1.0F, 0.55F}; // hologram glow color
+    float strength = 1.0F;          // hologram glow brightness
+  } reticle;
 
   // Anti-alias samples per axis in `voxel_kernel`: 1 disables it, 2 to 3 is
   // the useful range. Runtime (not a `constexpr`) so the panel can change it;

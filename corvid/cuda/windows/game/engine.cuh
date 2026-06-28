@@ -82,7 +82,14 @@ public:
   [[nodiscard]] bool tick() {
     if (!handle_events()) return false;
     const float dt = frame_dt();
-    advance_avatar(dt);
+
+    // Freeze the simulation while another window holds focus (alt-tab): the dt
+    // cap alone still let gravity drift the buried ball downward across the
+    // gap. `frame_dt` already advanced the clock, so refocusing resumes at a
+    // normal step rather than one huge catch-up. The scene still renders
+    // (throttled) so the window does not go stale.
+    const bool active = focused();
+    if (active) advance_avatar(dt);
 
     // Skip all GPU work when the window has no client area (minimized, or
     // collapsed by the OS during a mixed-DPI cross-monitor drag).
@@ -99,11 +106,20 @@ public:
     const metal_ball ball = rig_.ball();
     const saucer_head head = rig_.head(render_cfg_.head);
 
-    dig(rays, dt);
-    crush_track();
-    probe_ground();
+    if (active) {
+      update_reticle(rays, ball, dt);
+      dig(dt);
+      crush_track();
+      probe_ground();
+    }
     render_frame(rays, ball, head);
     return true;
+  }
+
+  // Whether the window currently holds input focus. False while alt-tabbed
+  // away or minimized; the tick freezes the simulation when it is.
+  [[nodiscard]] bool focused() const {
+    return (SDL_GetWindowFlags(win_) & SDL_WINDOW_INPUT_FOCUS) != 0;
   }
 
 #pragma endregion
@@ -115,7 +131,7 @@ private:
   [[nodiscard]] bool handle_events() {
     const auto action = sdl::pump_events([&](const sdl::sdl_event& ev) {
       return handle_viewer_event(ev, imgui_, show_config_, input_, win_,
-          digging_);
+          digging_, active_tool_);
     });
     if (action == sdl::frame_action::quit) return false;
     if (action == sdl::frame_action::resize) presenter_.resize().or_throw();
@@ -217,15 +233,63 @@ private:
     field_.march_max_steps = render_cfg_.march.max_steps;
   }
 
-  // Carve the field at the crosshair while the dig button is held. The pick
-  // records the hit in device memory and the brush reads it there, so the dig
-  // stays on the GPU; the next frame's march shows the hole.
+  // Pick the aim point and update the in-world dig reticle.
   //
-  // The center ray still aims the dig; the cursor-driven in-world reticle that
-  // replaces it is the next step.
-  void dig(const camera_rays& rays, float dt) {
-    if (!digging_) return;
-    pick_kernel<<<1, 1>>>(field_, rays.eye, rays.frame.forward, dig_target_);
+  // The reticle (and digging) live only in look/steer mode, where the aim is
+  // the centered camera ray: targeting is centered, the free cursor never
+  // fights the view, and a centered target keeps the coming dig beam simple.
+  // Running (Shift) also hides it, to keep it out of the way at speed and make
+  // the player slow down to dig. When shown, cast the center ray into the
+  // field, record the hit point and surface normal into `dig_target_` for both
+  // the reticle and the brush, and read it back to drive the hologram. Also
+  // advances the reticle's slow spin.
+  void
+  update_reticle(const camera_rays& rays, const metal_ball& ball, float dt) {
+    constexpr float two_pi = 6.2831853F;
+    render_cfg_.reticle.spin = fmodf(
+        render_cfg_.reticle.spin + (render_cfg_.reticle.spin_rate * dt),
+        two_pi);
+
+    if (active_tool_ != active_tool::dig || !input_.looking || input_.fast) {
+      render_cfg_.reticle.enabled = false;
+      pick_state_.hit = false;
+      aim_through_ball_ = false;
+      return;
+    }
+
+    const vec3 aim = rays.frame.forward;
+    pick_kernel<<<1, 1>>>(field_, rays.eye, aim, dig_target_);
+    cuda_last_status{
+        cudaMemcpy(&pick_state_, dig_target_.get(), sizeof(dig_probe),
+            cudaMemcpyDeviceToHost)}
+        .or_throw();
+    render_cfg_.reticle.enabled = pick_state_.hit;
+
+    // The dig beam leaves the ball, so it cannot fire through the ball at a
+    // target the ball itself occludes. When the aim ray meets the ball nearer
+    // than the terrain, drop the inner crosshair and block the dig; the outer
+    // ring still shows the footprint, nudging the player to dolly to the
+    // jockey to dig ahead.
+    const float t_ball = ball.intersect(rays.eye, aim);
+    const float t_hit =
+        pick_state_.hit ? length(pick_state_.point - rays.eye) : big_value;
+    aim_through_ball_ = (t_ball >= 0.0F) && (t_ball < t_hit);
+    render_cfg_.reticle.show_inner = !aim_through_ball_;
+    if (pick_state_.hit) {
+      render_cfg_.reticle.center = pick_state_.point;
+      render_cfg_.reticle.normal = pick_state_.normal;
+    }
+  }
+
+  // Carve the field at the reticle while the dig tool is on and the left
+  // button is held. `update_reticle` already picked the aim point into
+  // `dig_target_` this frame, so the brush reads it straight from device
+  // memory; the next frame's march shows the hole. A no-op when the tool is
+  // off, the button is up, or the aim missed.
+  void dig(float dt) {
+    if (active_tool_ != active_tool::dig || !digging_ || !pick_state_.hit ||
+        aim_through_ball_)
+      return;
     dig_kernel<<<dig_grid_, dig_block_>>>(volume_.surface(), field_,
         dig_target_, dig_radius_, dig_rate_ * dt);
   }
@@ -439,8 +503,12 @@ private:
   sdl::drive_input input_;
   sdl::frame_stats stats_;
 
-  // The left mouse button, while held, digs at the crosshair.
+  // The left mouse button, while held, digs at the reticle.
   bool digging_ = false;
+
+  // The active tool, toggled by the number keys (1 = dig). `none` shows no
+  // reticle and disables the dig brush.
+  active_tool active_tool_ = active_tool::none;
 
 #pragma endregion
 #pragma region World grids
@@ -496,6 +564,16 @@ private:
   const dim3 dig_block_{8, 8, 8};
   int dig_span_ = 0; // cube edge in voxels, set in `init`
   dim3 dig_grid_{};  // launch grid for the brush cube, set in `init`
+
+  // The last aim pick read back from `dig_target_`: where the aim ray hit and
+  // the surface normal there, driving the reticle hologram and gating the dig
+  // brush. `hit` is false when the tool is off or the aim missed.
+  dig_probe pick_state_{};
+
+  // True when the aim ray meets the ball nearer than its terrain target: the
+  // dig beam leaves the ball, so it cannot fire through the ball. Blocks the
+  // dig and hides the inner crosshair while it holds.
+  bool aim_through_ball_ = false;
 
   // Ground-probe scratch.
   //

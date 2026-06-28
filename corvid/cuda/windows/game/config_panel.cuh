@@ -426,6 +426,13 @@ inline void draw_eye_section(avatar_tuning& t, const avatar_tuning& d,
       "Center hub (pupil) color; the beam source.");
   tuned_color("eye frame color", c.head.eye_frame_color,
       dc.head.eye_frame_color, "Frame and hub-ring color.");
+  tuned_color("eye glow color", c.head.eye_glow_color, dc.head.eye_glow_color,
+      "Color the pupil glows while the dig tool is projecting (seen in the "
+      "ball reflection).");
+  tuned_slider("eye glow", c.head.eye_glow_strength, dc.head.eye_glow_strength,
+      0.0F, 6.0F,
+      "How brightly the pupil charges up while the dig tool is projecting; 0 "
+      "disables the glow.");
   ImGui::TreePop();
 }
 
@@ -634,6 +641,40 @@ inline void draw_render_section(avatar_tuning& t, const avatar_tuning& d,
   ImGui::TreePop();
 }
 
+// Dig reticle: the in-world hologram marking where the dig tool aims (toggle
+// the tool with the 1 key).
+inline void draw_reticle_section(render_config& c, const render_config& dc) {
+  if (!ImGui::TreeNode("Dig reticle")) return;
+  tuned_slider("spin rate", c.reticle.spin_rate, dc.reticle.spin_rate, -3.0F,
+      3.0F, "How fast the hexagon hologram turns, radians per second.");
+  tuned_slider("outer radius", c.reticle.outer_radius, dc.reticle.outer_radius,
+      0.2F, 6.0F,
+      "Outer hexagon size (apothem), world units; roughly the dig footprint.");
+  tuned_slider("outer clip", c.reticle.outer_clip, dc.reticle.outer_clip, 0.9F,
+      1.16F,
+      "Circular clip on the outer hexagon (times the apothem): below 1.155 it "
+      "cuts the corners for a round-aperture look, at 1.155 it shows the full "
+      "hexagon.");
+  tuned_slider("inner radius", c.reticle.inner_radius, dc.reticle.inner_radius,
+      0.001F, 3.0F, "Inner crosshair hexagon size (apothem), world units.");
+  tuned_slider("outer line", c.reticle.outer_line, dc.reticle.outer_line,
+      0.01F, 0.5F, "Half-thickness of the bold outer ring, world units.");
+  tuned_slider("inner line", c.reticle.inner_line, dc.reticle.inner_line,
+      0.005F, 0.3F,
+      "Half-thickness of the fine inner crosshair and its spokes, world "
+      "units.");
+  tuned_color("color", c.reticle.color, dc.reticle.color,
+      "Hologram glow color.");
+  tuned_slider("glow", c.reticle.strength, dc.reticle.strength, 0.0F, 10.0F,
+      "Hologram glow brightness.");
+  tuned_slider_int("inner spokes", c.reticle.inner_spokes,
+      dc.reticle.inner_spokes, 0, 6,
+      "Crosshair spokes from the center to the inner hexagon vertices (0 "
+      "none, "
+      "3 alternating, 6 all).");
+  ImGui::TreePop();
+}
+
 // Animation rigging: knobs for posing and animating the head, also handy when
 // debugging.
 inline void
@@ -711,6 +752,7 @@ inline void draw_config_panel(avatar_tuning& t, const avatar_tuning& d,
   draw_terrain_section(c, dc);
   draw_march_section(c, dc);
   draw_render_section(t, d, c, dc);
+  draw_reticle_section(c, dc);
   draw_animation_rigging_section(t, d);
   ImGui::End();
 }

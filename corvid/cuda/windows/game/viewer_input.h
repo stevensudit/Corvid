@@ -16,6 +16,8 @@
 // limitations under the License.
 #pragma once
 
+#include <cstdint>
+
 #include "../imgui_overlay.h"
 #include "../../../sdl/drive_input.h"
 #include "../../../sdl/sdl_event.h"
@@ -48,6 +50,26 @@ namespace corvid::cuda {
   }
 }
 
+// The player's active tool, selected by the number keys. `none` is value 0
+// (no tool: no reticle, the dig brush disabled). More beams (fill, drag) will
+// take the next values as they are built.
+enum class active_tool : std::uint8_t { none, dig };
+
+// Fold the tool-select number keys into `tool`: 1 toggles the dig projection
+// (press to equip, press again to put it away). Auto-repeat is ignored so a
+// held key does not flutter the toggle. Returns whether it consumed the event.
+[[nodiscard]] inline bool
+handle_tool_select(const sdl::sdl_event& ev, active_tool& tool) {
+  if (ev.type() != sdl::sdl_event_type::key_down) return false;
+  const auto key = ev.get_key();
+  if (key.repeat) return false;
+  if (key.key == sdl::sdl_keycode::num1) {
+    tool = (tool == active_tool::dig) ? active_tool::none : active_tool::dig;
+    return true;
+  }
+  return false;
+}
+
 // Fold the left mouse button into the `digging` flag, for composing after
 // `handle_fly`. Returns whether it consumed the event.
 [[nodiscard]] inline bool handle_dig(const sdl::sdl_event& ev, bool& digging) {
@@ -75,13 +97,14 @@ namespace corvid::cuda {
 // leaving Escape for the pump to toggle the panel.
 [[nodiscard]] inline bool handle_viewer_event(const sdl::sdl_event& ev,
     imgui_overlay& imgui, bool show_config, sdl::drive_input& input,
-    sdl::sdl_window& win, bool& digging) {
+    sdl::sdl_window& win, bool& digging, active_tool& tool) {
   imgui.process_event(ev);
   if (show_config) {
     if (is_mouse_event(ev) && imgui.wants_mouse()) return true;
     if (is_keyboard_event(ev) && imgui.wants_keyboard()) return true;
   }
-  return input.handle(ev, win) || handle_dig(ev, digging);
+  return input.handle(ev, win) || handle_dig(ev, digging) ||
+         handle_tool_select(ev, tool);
 }
 
 #pragma endregion

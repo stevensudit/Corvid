@@ -78,6 +78,9 @@ __global__ void __launch_bounds__(256, 3) voxel_kernel(cudaSurfaceObject_t out,
   // supersampling cost.
   const int aa_samples = cfg.aa_samples;
   const float inv = 1.0F / static_cast<float>(aa_samples);
+  // World size of one pixel per unit distance, for the reticle's distance-
+  // aware anti-aliasing (it floors its edge softness to about a pixel).
+  const float px_scale = (cam.tan_half_fov * 2.0F) / res.height;
   vec3 color{};
   for (int sy = 0; sy < aa_samples; ++sy)
     for (int sx = 0; sx < aa_samples; ++sx) {
@@ -86,20 +89,13 @@ __global__ void __launch_bounds__(256, 3) voxel_kernel(cudaSurfaceObject_t out,
       const vec3 ray_dir =
           cam.ray_direction(pos2{vec2{fx + ox, fy + oy}}, res);
       color = color + shade_primary_ray(field, color_tex, ball, head, mirror,
-                          cfg, cam.eye, ray_dir);
+                          cfg, cam.eye, ray_dir, px_scale);
     }
   color = color * (inv * inv);
 
   // Reinhard tonemap so highlights roll off.
   color = vec3{color.x / (1.0F + color.x), color.y / (1.0F + color.y),
       color.z / (1.0F + color.z)};
-
-  // A small crosshair at the screen center marks where a dig lands.
-  const float center_x = res.width * 0.5F;
-  const float center_y = res.height * 0.5F;
-  if ((fabsf(fx - center_x) < 6.0F && fabsf(fy - center_y) < 1.0F) ||
-      (fabsf(fy - center_y) < 6.0F && fabsf(fx - center_x) < 1.0F))
-    color = vec3{1.0F, 1.0F, 1.0F};
 
   const uchar4 pixel =
       make_uchar4(to_byte(color.x), to_byte(color.y), to_byte(color.z), 255);

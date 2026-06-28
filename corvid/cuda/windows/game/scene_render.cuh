@@ -256,6 +256,13 @@ namespace corvid::cuda {
         albedo = albedo * (1.0F - cov);
         emissive = (emissive * (1.0F - cov)) + (col * cov);
         eye_cover = fmaxf(eye_cover, cov);
+
+        // The pupil charges up while the dig tool is projecting, so the ball
+        // reflection shows the eye as the beam source. Gated branchlessly on
+        // the uniform `enabled` flag to add no divergence.
+        const float glow =
+            hp.eye_glow_strength * static_cast<float>(cfg.reticle.enabled);
+        emissive = emissive + (hp.eye_glow_color * (glow * pupil));
       }
     }
   }
@@ -454,6 +461,101 @@ shade_world_ray(const density_field& field, cudaTextureObject_t color,
   return sky_color(cfg, ray_dir);
 }
 
+// Build a stable tangent frame for the reticle: an orthonormal pair spanning
+// the plane perpendicular to `normal`, used only to measure azimuth about the
+// pick point. Picks a reference axis well off the normal so the cross product
+// stays well-conditioned on near-vertical faces.
+__device__ inline void
+reticle_axes(vec3 normal, vec3& tangent, vec3& bitangent) {
+  const vec3 ref =
+      fabsf(normal.y) < 0.95F
+          ? vec3{0.0F, 1.0F, 0.0F}
+          : vec3{1.0F, 0.0F, 0.0F};
+  tangent = normalize(cross(ref, normal));
+  bitangent = cross(normal, tangent);
+}
+
+// Distance from a hexagon's center to its boundary at azimuth `angle`, for a
+// hexagon of apothem `apothem` (center to edge midpoint). The boundary radius
+// is `apothem / cos` of the angle folded into one 60-degree sector, running
+// from the apothem at an edge midpoint to `apothem / cos(30)` at a vertex.
+[[nodiscard]] __device__ inline float
+hex_edge_radius(float angle, float apothem) {
+  constexpr float sector = 1.04719755F; // pi/3
+  const float a = angle - (sector * rintf(angle / sector));
+  return apothem / cosf(a);
+}
+
+// Lay the dig reticle over a terrain hit: a hexagon hologram (a bold outer
+// ring sized to the dig footprint and a fine inner crosshair hex with optional
+// spokes, counter-rotating) marking the aim at `r.center`. Both rings use the
+// pick point's true 3D distance as their radius, so they hug a dug bowl
+// instead of smearing the way a flat tangent-plane decal does; the surface
+// normal only sets the azimuth frame the hexagons spin in. Painted as additive
+// glow on terrain, so the ball and head occlude it for free. The inner
+// crosshair drops out (and the outer dims) when the ball blocks the aim
+// (`show_inner`). A no-op when the tool is off (`enabled`).
+//
+// `px_scale` is the world size of one pixel per unit distance (2 tan(fov/2) /
+// height): the edge softness and line width are floored to about a pixel at
+// the hit, so the hologram holds a steady ~1px edge instead of razor-sharp
+// staircasing up close and sub-pixel line shimmer far off.
+[[nodiscard]] __device__ inline vec3
+apply_reticle(const render_config::reticle_params& r, pos3 eye, pos3 hit,
+    float px_scale, vec3 color) {
+  if (!r.enabled) return color;
+  const vec3 d = hit - r.center;
+  const float er = length(d); // 3D distance: the ring radius hugs the bowl
+
+  const float aa = fmaxf(length(hit - eye) * px_scale, 1.0e-4F);
+  const float oline = fmaxf(r.outer_line, aa); // outer ring, bold
+  // Cheap reject beyond the outer hexagon's farthest reach (a vertex).
+  if (er > (r.outer_radius * 1.1547F) + oline + aa) return color;
+
+  // Azimuth about the surface normal at the pick point; each ring spins it the
+  // opposite way (`spin` added for the outer, subtracted for the inner).
+  vec3 tangent{};
+  vec3 bitangent{};
+  reticle_axes(r.normal, tangent, bitangent);
+  const float ang = atan2f(dot(d, bitangent), dot(d, tangent));
+
+  // The outer hexagon, clipped to a circle: fade it out past `outer_clip`
+  // (times the apothem), cutting the hexagon's corners so it reads as a beam
+  // projected through a round aperture (the eye), not a bare hexagon.
+  float mask = __saturatef(
+      (oline - fabsf(er - hex_edge_radius(ang + r.spin, r.outer_radius))) /
+      aa);
+  mask *= __saturatef(((r.outer_clip * r.outer_radius) - er) / aa);
+  if (r.show_inner) {
+    const float iline = fmaxf(r.inner_line, aa); // inner crosshair, fine
+    const float ia = ang - r.spin;               // inner counter-rotates
+    mask = fmaxf(mask,
+        __saturatef(
+            (iline - fabsf(er - hex_edge_radius(ia, r.inner_radius))) / aa));
+
+    // Crosshair spokes from the center toward the inner hex vertices: a thin
+    // radial line wherever the azimuth lands near one of `inner_spokes` evenly
+    // spaced spokes, clipped to the vertex reach.
+    if (r.inner_spokes > 0) {
+      constexpr float two_pi = 6.2831853F;
+      const float reach = r.inner_radius * 1.1547F; // apothem -> vertex
+      const auto spokes = static_cast<float>(r.inner_spokes);
+      const float phase = (ia * spokes) / two_pi;
+      const float to_spoke = fabsf(phase - rintf(phase)) * (two_pi / spokes);
+      const float spoke =
+          __saturatef((iline - (er * sinf(to_spoke))) / aa) *
+          __saturatef((reach - er) / aa);
+      mask = fmaxf(mask, spoke);
+    }
+  }
+
+  // Dim the lone outer ring to half while the inner crosshair is dropped (the
+  // ball blocks the aim), so it reads as a no-dig hover rather than a live
+  // target.
+  const float dim = r.show_inner ? 1.0F : 0.5F;
+  return color + (r.color * (mask * r.strength * dim));
+}
+
 // Composite the primary ray: the nearest of the ball, the terrain, and the
 // flat mirror, or the sky if it escapes them all. The saucer head is tested
 // only when `cfg.show_head` is set (the observer freeze): normally the camera
@@ -463,7 +565,7 @@ shade_world_ray(const density_field& field, cudaTextureObject_t color,
 [[nodiscard]] __device__ inline vec3
 shade_primary_ray(const density_field& field, cudaTextureObject_t color,
     const metal_ball& ball, const saucer_head& head, const flat_mirror& mirror,
-    const render_config& cfg, pos3 eye, vec3 ray_dir) {
+    const render_config& cfg, pos3 eye, vec3 ray_dir, float px_scale) {
   const float t_terrain = field.raymarch(eye, ray_dir);
   const float t_ball = ball.intersect(eye, ray_dir);
   const float t_mirror =
@@ -496,8 +598,11 @@ shade_primary_ray(const density_field& field, cudaTextureObject_t color,
     return shade_world_ray(field, color, ball, head, cfg, hit, refl) * 0.9F;
   }
   if (kind == 4) return shade_head(head, cfg, eye + (ray_dir * best), ray_dir);
-  if (kind == 1)
-    return shade_terrain_hit(field, color, cfg, eye + (ray_dir * best));
+  if (kind == 1) {
+    const pos3 hit = eye + (ray_dir * best);
+    return apply_reticle(cfg.reticle, eye, hit, px_scale,
+        shade_terrain_hit(field, color, cfg, hit));
+  }
   return sky_color(cfg, ray_dir);
 }
 

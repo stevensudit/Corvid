@@ -73,7 +73,9 @@ struct avatar_rig {
   float boom_target{}; // where the wheel's taking the boom; `update` eases
   vec3 ground_vel{};   // horizontal velocity, eased by `move` (momentum)
   float vel_y{};       // vertical velocity, integrated by `settle` (gravity)
-  bool grounded{};     // if the ball grounded on the surface on `settle`
+  bool grounded{}; // in surface contact on `settle` (any steepness): the ball
+                   // can jump and has traction. Steepness gates climbing, not
+                   // this (see `can_climb`).
   bool walled{};   // a wall at the equator on `settle`: buried to the waist
   bool running{};  // sprinting (Run) this frame, set by `move`
   bool confined{}; // a ceiling overhead: in a too-short tunnel (for the dolly)
@@ -314,9 +316,10 @@ struct avatar_rig {
       return;
     }
 
-    // A grounded jump launches; the upward velocity survives the resolve
-    // (which only cancels downward motion) and the not-rising test below
-    // leaves it airborne.
+    // A grounded jump launches off any surface contact, however steep, so it
+    // always gets the ball out of a bad spot; the upward velocity survives the
+    // resolve (which only cancels downward motion) and the not-rising test
+    // below leaves it airborne.
     if (jump && grounded) vel_y = tune.jump_speed;
 
     vel_y -= tune.gravity * dt;
@@ -341,7 +344,6 @@ struct avatar_rig {
     const float damp = tune.collision_damp;
     const float climb_cos = cosf(tune.max_climb_deg * radians::per_degree);
     walled = length(gp.wall_normal) > 0.5F;
-    const bool floor_ish = gp.normal.y >= climb_cos;
     // Running raises the climbable steepness (`run_climb_mult`) and lets the
     // ball climb out even when walled, so flooring it rides out of an
     // equator-deep pit; a normal drive is stopped by the wall, leaving it to
@@ -351,28 +353,14 @@ struct avatar_rig {
     const bool can_climb =
         gp.normal.y >= (running ? run_cos : climb_cos) && (!walled || running);
     const float penetration = tune.ball_radius - gp.surface_dist;
-    if (penetration > 0.0F) {
-      if (can_climb) {
-        anchor += gp.normal * (penetration * damp);
-        vel_y = std::max(vel_y, 0.0F); // landed; stop falling
-      } else {
-        // Vertical support only (so a corner's floor still holds the ball up),
-        // plus a stop on the drive into the face.
-        if (const float up = gp.normal.y * penetration; up > 0.0F) {
-          anchor += camera::world_up * (up * damp);
-          vel_y = std::max(vel_y, 0.0F);
-        }
-        if (vec3 hn{gp.normal.x, 0.0F, gp.normal.z}; length(hn) > 1.0e-4F) {
-          hn = normalize(hn);
-          if (const float into = dot(ground_vel, hn); into < 0.0F)
-            ground_vel -= hn * into;
-        }
-      }
-    }
+    resolve_floor_contact(gp, can_climb, penetration, damp);
 
     // Grounded (can jump, has traction) when resting on or skimming just above
-    // a stand-on-able surface and not rising, even when walled in a pit, so a
-    // jump can still get out.
+    // any surface and not rising, however steep and even when walled in a pit,
+    // so a jump or a run can always get out. Steepness gates whether a drive
+    // climbs the face (`can_climb`), not whether the ball is grounded: pinning
+    // grounded to a stand-on-able slope left the ball stuck on a 50-to-80
+    // degree dig wall, unable to build the speed a run needs to climb out.
     //
     // The band keeps the flag steady (the resolve snaps the ball to exactly
     // rest, so a strict penetration > 0 flickers frame to frame), so a jump
@@ -380,7 +368,7 @@ struct avatar_rig {
     // not-rising guard rejects the frames right after a jump, where the stale
     // probe still reports the old rest height and would otherwise read as
     // grounded.
-    grounded = floor_ish && penetration > -tune.ground_tol && vel_y <= 0.0F;
+    grounded = penetration > -tune.ground_tol && vel_y <= 0.0F;
 
     // Lift the ball clear of a wall or ceiling the center sample missed (a pit
     // the ball sits in cancels in the center gradient, so its sides would clip
@@ -399,6 +387,35 @@ struct avatar_rig {
     confined = gp.overhead;
 
     fence(box_min, box_max);
+  }
+
+  // Resolve a floor penetration by pushing the ball out of the surface.
+  //
+  // On a stand-on-able face (`can_climb`) the push follows the tilted normal,
+  // so a sideways component climbs the slope; on a face too steep, or beside a
+  // wall, it lifts only vertically and kills the drive into the face, so the
+  // ball cannot ratchet itself up one corner-bump at a time. Damped per frame
+  // (`damp`) to ease toward rest rather than snap. A no-op with no
+  // penetration.
+  void resolve_floor_contact(const ground_probe& gp, bool can_climb,
+      float penetration, float damp) {
+    if (penetration <= 0.0F) return;
+    if (can_climb) {
+      anchor += gp.normal * (penetration * damp);
+      vel_y = std::max(vel_y, 0.0F); // landed; stop falling
+      return;
+    }
+    // Vertical support only (so a corner's floor still holds the ball up),
+    // plus a stop on the drive into the face.
+    if (const float up = gp.normal.y * penetration; up > 0.0F) {
+      anchor += camera::world_up * (up * damp);
+      vel_y = std::max(vel_y, 0.0F);
+    }
+    if (vec3 hn{gp.normal.x, 0.0F, gp.normal.z}; length(hn) > 1.0e-4F) {
+      hn = normalize(hn);
+      if (const float into = dot(ground_vel, hn); into < 0.0F)
+        ground_vel -= hn * into;
+    }
   }
 
   // Clamp the ball one radius inside the world box on all three axes, killing

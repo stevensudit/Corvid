@@ -35,20 +35,25 @@ namespace corvid::cuda {
 
 #pragma region Editing
 
-// Where a dig will land: the world point the center ray hit, and whether it
-// hit anything at all.
+// Where a dig will land: the world point the aim ray hit, the surface normal
+// there (for orienting the reticle hologram), and whether it hit at all.
 struct dig_probe {
   pos3 point;
+  vec3 normal;
   bool hit;
 };
 
-// Cast the center ray and record where it meets the surface, for the brush.
+// Cast the aim ray and record where it meets the surface and the normal there,
+// for the brush and the in-world reticle.
 __global__ void
 pick_kernel(density_field field, pos3 eye, vec3 dir, dig_probe* out) {
   const float dist = field.raymarch(eye, dir);
   out->hit = (dist >= 0.0F);
   // No need to set on miss, because we check for hit before reading the point.
-  if (out->hit) out->point = eye + (dir * dist);
+  if (out->hit) {
+    out->point = eye + (dir * dist);
+    out->normal = field.normal(out->point);
+  }
 }
 
 // Carve a spherical brush of `radius` around the picked point, subtracting
