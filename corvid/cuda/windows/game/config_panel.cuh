@@ -643,15 +643,20 @@ inline void draw_render_section(avatar_tuning& t, const avatar_tuning& d,
       "Show the flat mirror wall along the world's -z edge. Off shows the "
       "bare "
       "terrain box.");
+  ImGui::Checkbox("debug aa edges", &c.debug_aa_edges);
+  ImGui::SetItemTooltip("%s",
+      "Flat-tint the pixels the adaptive-AA resolve supersamples: red = "
+      "geometry silhouette, blue = target reticle. Pixels left shaded were "
+      "judged flat interiors. Verifies edge detection.");
   ImGui::TreePop();
 }
 
-// Dig reticle: the in-world hologram marking where the dig tool aims (toggle
-// the tool with the 1 key).
+// Target reticle: the in-world laser projection marking where the active tool
+// aims (toggle the dig tool with the 1 key).
 inline void draw_reticle_section(render_config& c, const render_config& dc) {
-  if (!ImGui::TreeNode("Dig reticle")) return;
+  if (!ImGui::TreeNode("Target reticle")) return;
   tuned_slider("spin rate", c.reticle.spin_rate, dc.reticle.spin_rate, -3.0F,
-      3.0F, "How fast the hexagon hologram turns, radians per second.");
+      3.0F, "How fast the hexagon reticle turns, radians per second.");
   tuned_slider("outer radius", c.reticle.outer_radius, dc.reticle.outer_radius,
       0.2F, 6.0F,
       "Outer hexagon size (apothem), world units; roughly the dig footprint.");
@@ -669,9 +674,9 @@ inline void draw_reticle_section(render_config& c, const render_config& dc) {
       "Half-thickness of the fine inner crosshair and its spokes, world "
       "units.");
   tuned_color("color", c.reticle.color, dc.reticle.color,
-      "Hologram glow color.");
+      "Reticle glow color.");
   tuned_slider("glow", c.reticle.strength, dc.reticle.strength, 0.0F, 10.0F,
-      "Hologram glow brightness.");
+      "Reticle glow brightness.");
   tuned_slider_int("inner spokes", c.reticle.inner_spokes,
       dc.reticle.inner_spokes, 0, 6,
       "Crosshair spokes from the center to the inner hexagon vertices (0 "

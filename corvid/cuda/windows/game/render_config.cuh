@@ -212,33 +212,43 @@ struct render_config {
     float blink_depth = 0.7F;                   // on/off blink while moving
   } head;
 
-  // The in-world dig reticle: a slowly spinning hexagon hologram laid on the
-  // terrain where the dig tool aims, oriented to the surface normal so it
-  // conforms to slopes (an outer ring marking the dig footprint and a smaller
-  // inner crosshair hex). The engine fills the per-frame state each frame from
-  // the aim pick; the rest are look tunables. See `apply_reticle`.
+  // The in-world target reticle: a slowly spinning hexagon laser-projected
+  // onto the terrain where the active tool aims (an outer ring marking the
+  // footprint and a smaller inner crosshair hex). It takes its radius from the
+  // pick point's 3D distance, so it hugs a dug bowl, and its azimuth from the
+  // camera's screen axes, so its roll holds steady across slopes and creases.
+  // The engine fills the per-frame state each frame from the aim pick; the
+  // rest are look tunables. See `apply_reticle`.
   struct reticle_params {
     // Per-frame state, written by the engine (not panel-tuned): whether the
-    // dig tool is on and the aim hit, the world hit point and its surface
-    // normal (the azimuth frame the hexagons spin in), and the rotation phase.
+    // dig tool is on and the aim hit, the world hit point, and the rotation
+    // phase.
+    //
+    // `view_right` / `view_up` are the camera's screen axes: the reticle
+    // measures its azimuth against them (not the surface normal), so its roll
+    // is steady as the aim sweeps across a terrain crease, where the normal
+    // jumps discontinuously and a normal-derived frame would snap the pattern.
+    // The radius still uses the 3D hit distance, so the ring keeps hugging the
+    // dug bowl.
     bool enabled = false;
     pos3 center{};
-    vec3 normal{0.0F, 1.0F, 0.0F};
+    vec3 view_right{1.0F, 0.0F, 0.0F};
+    vec3 view_up{0.0F, 1.0F, 0.0F};
     float spin = 0.0F;
     // Hide the inner crosshair when the ball blocks the aim (the dig beam
     // leaves the ball, so it cannot fire through itself); the engine sets it.
     bool show_inner = true;
 
     // Look tunables.
-    float spin_rate = 0.6F;     // hologram turn rate, radians per second
+    float spin_rate = 0.6F;     // reticle turn rate, radians per second
     float outer_radius = 1.0F;  // outer hexagon apothem, world units
     float outer_clip = 1.06F;   // circular clip on the outer hex, x apothem
     float inner_radius = 0.11F; // inner crosshair hexagon apothem
     float outer_line = 0.06F;   // outer ring half-thickness, world units
     float inner_line = 0.015F;  // inner hex + spoke half-thickness (finer)
     int inner_spokes = 3;       // crosshair spokes in the inner hex (0..6)
-    vec3 color{0.20F, 1.0F, 0.55F}; // hologram glow color
-    float strength = 1.0F;          // hologram glow brightness
+    vec3 color{0.20F, 1.0F, 0.55F}; // reticle glow color
+    float strength = 1.0F;          // reticle glow brightness
   } reticle;
 
   // Anti-alias samples per axis: 1 disables it, 2 to 3 is the useful range.
@@ -269,6 +279,12 @@ struct render_config {
   // Whether the flat mirror wall is in the scene (`shade_primary_ray`). Off by
   // default; the panel can show it for debugging.
   bool show_mirror = false;
+
+  // Debug: flat-tint the pixels the adaptive-AA resolve pass supersamples,
+  // instead of shading them, to verify edge detection. Geometry silhouettes
+  // show red, dig-reticle pixels blue. A pixel left at its prepass color was
+  // judged a flat interior and not supersampled.
+  bool debug_aa_edges = false;
 };
 
 #pragma endregion

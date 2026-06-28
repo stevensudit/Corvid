@@ -15,7 +15,7 @@ inside the world box, with a basic jump), the saucer's cosmetic dressing, and
 the ball's dimmed
 reflection with its rolling motion grid (see "The head rig, as built" and "The
 saucer, as built"). Still a sketch: the dig/fill/drag beams, the
-diegetic flashlight and glow, the holographic crosshair, the optics layer
+diegetic flashlight and glow, the laser-projected target reticle, the optics layer
 (mirrors, lenses), and the soil interactions that couple the avatar to the dirt
 physics. The dig brush still fires from the camera's center ray (see
 `voxel_world.md`), not yet from the ball through a reconciled crosshair.
@@ -52,7 +52,7 @@ split cleanly into a perceiver and an effector.
   has two states: it can REST on the ball (the BB-8 pose, the saucer riding atop
   the rolling body), or DETACH and fly within a limited range around the ball, a
   tethered drone. Beyond the camera, the head carries everything to do with
-  perceiving the world: the light and the holographic crosshair (both below).
+  perceiving the world: the light and the projected target reticle (both below).
 
 The division is the organizing rule: the head perceives, the ball acts.
 
@@ -279,20 +279,22 @@ refraction is real Snell bending or a cheap fake, whether mirrors are just
 reflective embedded materials or a distinct object, and how much puzzle content
 to build, are all open.
 
-## The crosshair is a hologram, not a UI element
+## The reticle is a laser projection, not a UI element
 
-The crosshair is not screen-space chrome painted over the frame. It is a
-holographic projection cast by the head into the world, one more diegetic element
-alongside the camera and the light, rendered as part of the scene.
+The target reticle is not screen-space chrome painted over the frame. It is a
+laser projection cast by the head onto the world surface, one more diegetic
+element alongside the camera and the light, rendered as part of the scene. A
+target reticle, not just a dig marker: it will change shape to read out the
+active operation (dig, move, fill).
 
 But what it marks is the BALL's aim, not the head's. The beams come from the ball
-(the effector), while the crosshair is projected by the head (the perceiver), so
+(the effector), while the reticle is projected by the head (the perceiver), so
 the two have to be reconciled: the player aims through the head's viewpoint, but
-the crosshair has to land where the ball's beam will actually reach. That is the
+the reticle has to land where the ball's beam will actually reach. That is the
 one hard constraint the head-perceives, ball-acts split forces. The naive
 screen-center crosshair (see the screen-space crosshair note in
 `voxel_world.md`) assumes the beam leaves the eye; here it leaves the ball, and
-the head projects a hologram that honestly shows where.
+the head projects a reticle that honestly shows where.
 
 ## Expressive poses (not built)
 

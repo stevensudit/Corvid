@@ -169,6 +169,34 @@ struct density_field {
     return -1.0F;
   }
 
+  // Snap a marched hit toward the true `density == 0` surface with one Newton
+  // step along the ray.
+  //
+  // A head-on `raymarch` bisects to a crisp crossing, but a grazing ray is
+  // accepted once within `hit_epsilon` without bisecting (it nears the surface
+  // without crossing), so its hit distance terraces along the sphere-trace
+  // steps. A decal placed by the hit's exact position, like the target
+  // reticle's 3D radius, inherits that terrace; this removes it. The step is
+  // clamped to a couple voxels so a near-tangent ray, where the gradient turns
+  // perpendicular to the ray and the unclamped step blows up, cannot jump the
+  // hit far across the surface (a tiny residual at that extreme grazing sliver
+  // is invisible next to the terrace it removes).
+  [[nodiscard]] __device__ pos3 refine_hit(pos3 hit, vec3 dir) const {
+    const float e = voxel_size;
+    const vec3 dx{e, 0.0F, 0.0F};
+    const vec3 dy{0.0F, e, 0.0F};
+    const vec3 dz{0.0F, 0.0F, e};
+    // Central-difference gradient (over `2e`); the `2e` folds into the step.
+    const vec3 grad{sample_density(hit + dx) - sample_density(hit - dx),
+        sample_density(hit + dy) - sample_density(hit - dy),
+        sample_density(hit + dz) - sample_density(hit - dz)};
+    const float gd = dot(grad, dir);
+    if (gd == 0.0F) return hit; // ray tangent to the field: nothing to snap to
+    const float limit = 2.0F * e;
+    const float step = (2.0F * e) * sample_density(hit) / gd;
+    return hit - (dir * fmaxf(fminf(step, limit), -limit));
+  }
+
 #pragma endregion
 };
 

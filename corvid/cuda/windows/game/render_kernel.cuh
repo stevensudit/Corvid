@@ -43,6 +43,15 @@ namespace corvid::cuda {
 // its `depth`. The resolve pass reads a pixel's own texel and its four
 // neighbors to decide whether the pixel straddles a silhouette and so needs
 // supersampling. Kept compact (8 bytes) so the neighbor gather is cheap.
+//
+// `kind` carries the hit kind in its low bits with a high "reticle edge" flag
+// bit: the prepass sets it on pixels the target reticle covers so the resolve
+// supersamples them too (the reticle's edges sit on flat same-kind terrain the
+// kind/depth test cannot see). The flag is masked off before the kind
+// comparison, so it never reads as a geometry edge by itself.
+inline constexpr int aa_reticle_edge_bit = 1 << 8;
+inline constexpr int aa_kind_mask = aa_reticle_edge_bit - 1;
+
 struct aa_texel {
   float depth;
   int kind;
@@ -108,7 +117,8 @@ __global__ void __launch_bounds__(256, 3) aa_prepass_kernel(
       cfg, cam.eye, ray_dir, px_scale);
 
   const int w = static_cast<int>(res.width);
-  gbuf[(py * w) + px] = aa_texel{s.depth, s.kind};
+  const int packed = s.kind | (s.reticle_edge ? aa_reticle_edge_bit : 0);
+  gbuf[(py * w) + px] = aa_texel{s.depth, packed};
   write_pixel(out, px, py, s.color);
 }
 
@@ -146,18 +156,43 @@ __global__ void __launch_bounds__(256, 3) aa_resolve_kernel(
   const aa_texel up = gbuf[(ym * w) + px];
   const aa_texel down = gbuf[(yp * w) + px];
 
-  bool edge =
-      me.kind != left.kind || me.kind != right.kind || me.kind != up.kind ||
-      me.kind != down.kind;
+  // The target reticle forces its own pixels to supersample (the kind/depth
+  // test is blind to it, since it paints flat same-kind terrain).
+  bool edge = (me.kind & aa_reticle_edge_bit) != 0;
+  // Geometry silhouette: the hit kind differs from a 4-neighbor (mask off the
+  // reticle flag first, so it does not read as a kind change by itself).
+  const int my_kind = me.kind & aa_kind_mask;
+  edge =
+      edge || my_kind != (left.kind & aa_kind_mask) ||
+      my_kind != (right.kind & aa_kind_mask) ||
+      my_kind != (up.kind & aa_kind_mask) ||
+      my_kind != (down.kind & aa_kind_mask);
   if (!edge) {
     // All four neighbors share this pixel's kind, so the depths are comparable
     // (a sky miss would have changed the kind). `me.depth` scales the
     // threshold so a distant ramp is judged in proportion to its range.
+    //
+    // The bend is grouped as a difference of slopes, `(me - lo) - (hi - me)`,
+    // not `2*me - lo - hi`: on a sky pixel the depth is the `big_value`
+    // sentinel, and `2 * big_value` overflows to inf, which trips the test and
+    // supersamples the whole sky. Grouped this way the sentinel cancels
+    // (`big - big = 0`) before any doubling.
     const float tol = cfg.aa_edge_depth * me.depth;
-    edge = fabsf((2.0F * me.depth) - left.depth - right.depth) > tol ||
-           fabsf((2.0F * me.depth) - up.depth - down.depth) > tol;
+    edge = fabsf((me.depth - left.depth) - (right.depth - me.depth)) > tol ||
+           fabsf((me.depth - up.depth) - (down.depth - me.depth)) > tol;
   }
   if (!edge) return; // keep the prepass center sample
+
+  // Edge-detection debug: flat-tint the supersampled pixels (blue = reticle,
+  // red = geometry) instead of shading them, so the marked pixels are visible.
+  // Blue, not green, so the reticle flag does not blend into the reticle's own
+  // green glow.
+  if (cfg.debug_aa_edges) {
+    const bool reticle = (me.kind & aa_reticle_edge_bit) != 0;
+    write_pixel(out, px, py,
+        reticle ? vec3{0.0F, 0.0F, 8.0F} : vec3{8.0F, 0.0F, 0.0F});
+    return;
+  }
 
   const int aa_samples = cfg.aa_samples;
   const float inv = 1.0F / static_cast<float>(aa_samples);

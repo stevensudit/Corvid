@@ -461,20 +461,6 @@ shade_world_ray(const density_field& field, cudaTextureObject_t color,
   return sky_color(cfg, ray_dir);
 }
 
-// Build a stable tangent frame for the reticle: an orthonormal pair spanning
-// the plane perpendicular to `normal`, used only to measure azimuth about the
-// pick point. Picks a reference axis well off the normal so the cross product
-// stays well-conditioned on near-vertical faces.
-__device__ inline void
-reticle_axes(vec3 normal, vec3& tangent, vec3& bitangent) {
-  const vec3 ref =
-      fabsf(normal.y) < 0.95F
-          ? vec3{0.0F, 1.0F, 0.0F}
-          : vec3{1.0F, 0.0F, 0.0F};
-  tangent = normalize(cross(ref, normal));
-  bitangent = cross(normal, tangent);
-}
-
 // Distance from a hexagon's center to its boundary at azimuth `angle`, for a
 // hexagon of apothem `apothem` (center to edge midpoint). The boundary radius
 // is `apothem / cos` of the angle folded into one 60-degree sector, running
@@ -486,26 +472,36 @@ hex_edge_radius(float angle, float apothem) {
   return apothem / cosf(a);
 }
 
-// Lay the dig reticle over a terrain hit: a hexagon hologram (a bold outer
-// ring sized to the dig footprint and a fine inner crosshair hex with optional
-// spokes, counter-rotating) marking the aim at `r.center`. Both rings use the
+// Lay the target reticle over a terrain hit: a laser-projected hexagon (a bold
+// outer ring sized to the dig footprint and a fine inner crosshair hex with
+// optional spokes, counter-rotating) marking the aim at `r.center`. Both rings
+// use the
 // pick point's true 3D distance as their radius, so they hug a dug bowl
-// instead of smearing the way a flat tangent-plane decal does; the surface
-// normal only sets the azimuth frame the hexagons spin in. Painted as additive
-// glow on terrain, so the ball and head occlude it for free. The inner
-// crosshair drops out (and the outer dims) when the ball blocks the aim
+// instead of smearing the way a flat tangent-plane decal does; the azimuth is
+// measured against the camera's screen axes (`r.view_right` / `r.view_up`), so
+// the roll holds steady where the surface normal would jump. Painted as
+// additive glow on terrain, so the ball and head occlude it for free. The
+// inner crosshair drops out (and the outer dims) when the ball blocks the aim
 // (`show_inner`). A no-op when the tool is off (`enabled`).
 //
 // `px_scale` is the world size of one pixel per unit distance (2 tan(fov/2) /
 // height): the edge softness and line width are floored to about a pixel at
-// the hit, so the hologram holds a steady ~1px edge instead of razor-sharp
+// the hit, so the reticle holds a steady ~1px edge instead of razor-sharp
 // staircasing up close and sub-pixel line shimmer far off.
-[[nodiscard]] __device__ inline vec3
-apply_reticle(const render_config::reticle_params& r, pos3 eye, pos3 hit,
-    float px_scale, vec3 color) {
+// `on_edge` reports whether this pixel carries any reticle coverage, so the
+// adaptive-AA resolve pass can supersample it: the reticle's thin edges are
+// painted on flat, same-depth terrain, so the geometry kind/depth test never
+// sees them, and its own analytic edge softens only a fronto-parallel surface
+// (it collapses to a hard, staircased edge where the ring grazes a curved cave
+// wall). Letting the resolve fan those pixels out gives them true multisample
+// edges at any viewing angle.
+[[nodiscard]] __device__ inline vec3 apply_reticle(
+    const render_config::reticle_params& r, const density_field& field,
+    pos3 eye, vec3 dir, pos3 hit, float px_scale, vec3 color, bool& on_edge) {
+  on_edge = false;
   if (!r.enabled) return color;
-  const vec3 d = hit - r.center;
-  const float er = length(d); // 3D distance: the ring radius hugs the bowl
+  vec3 d = hit - r.center;
+  float er = length(d); // 3D distance: the ring radius hugs the bowl
 
   // A regular hexagon's vertex sits at apothem / cos(30) = 2 / sqrt(3) times
   // its apothem; the rings are sized by apothem, so scale to reach a vertex.
@@ -515,15 +511,26 @@ apply_reticle(const render_config::reticle_params& r, pos3 eye, pos3 hit,
   constexpr float min_aa = 1.0e-4F;
   const float aa = fmaxf(length(hit - eye) * px_scale, min_aa);
   const float oline = fmaxf(r.outer_line, aa); // outer ring, bold
-  // Cheap reject beyond the outer hexagon's farthest reach (a vertex).
+  // Cheap reject beyond the outer hexagon's farthest reach (a vertex), on the
+  // raw hit (the snap below moves it only a sliver, well inside this margin).
   if (er > (r.outer_radius * apothem_to_vertex) + oline + aa) return color;
 
-  // Azimuth about the surface normal at the pick point; each ring spins it the
-  // opposite way (`spin` added for the outer, subtracted for the inner).
-  vec3 tangent{};
-  vec3 bitangent{};
-  reticle_axes(r.normal, tangent, bitangent);
-  const float ang = atan2f(dot(d, bitangent), dot(d, tangent));
+  // Snap the hit onto the true surface before the radius math. A grazing ray
+  // (the ring on a curved cave wall) is accepted within the march's tolerance
+  // without bisecting, so its hit distance terraces; `er` would inherit a
+  // coarse multi-pixel staircase no supersampling can soften. The snap removes
+  // it; only pixels that pass the reject above pay for it.
+  hit = field.refine_hit(hit, dir);
+  d = hit - r.center;
+  er = length(d);
+
+  // Azimuth measured against the camera's screen axes, not a surface tangent
+  // frame: the hit positions `d` stay continuous as the aim crosses a terrain
+  // crease, but the surface normal does not, so keying the roll on the normal
+  // snapped the pattern there. Screen-axis azimuth has no such discontinuity.
+  // Each ring spins the opposite way (`spin` added for the outer, subtracted
+  // for the inner).
+  const float ang = atan2f(dot(d, r.view_up), dot(d, r.view_right));
 
   // The outer hexagon, clipped to a circle: fade it out past `outer_clip`
   // (times the apothem), cutting the hexagon's corners so it reads as a beam
@@ -555,6 +562,11 @@ apply_reticle(const render_config::reticle_params& r, pos3 eye, pos3 hit,
     }
   }
 
+  // Any nonzero coverage marks this pixel for the resolve pass to supersample;
+  // the reticle is mostly thin lines, so this is a small pixel count.
+  constexpr float coverage_eps = 1.0e-3F;
+  on_edge = mask > coverage_eps;
+
   // Dim the lone outer ring to half while the inner crosshair is dropped (the
   // ball blocks the aim), so it reads as a no-dig hover rather than a live
   // target.
@@ -565,12 +577,15 @@ apply_reticle(const render_config::reticle_params& r, pos3 eye, pos3 hit,
 // A primary ray's shaded color plus the geometry the adaptive-AA pass keys on:
 // the nearest-hit `kind` and its `depth` (the ray parameter at the hit, or
 // `big_value` on a sky miss). The resolve pass compares these against the
-// neighbors to find the silhouettes worth supersampling. (`kind`: 0 sky, 1
-// terrain, 2 ball, 3 mirror, 4 head.)
+// neighbors to find the silhouettes worth supersampling. `reticle_edge` forces
+// that pixel to supersample regardless of the geometry, since the reticle's
+// edges sit on flat same-kind terrain the kind/depth test cannot see. (`kind`:
+// 0 sky, 1 terrain, 2 ball, 3 mirror, 4 head.)
 struct ray_sample {
   vec3 color;
   float depth;
   int kind;
+  bool reticle_edge;
 };
 
 // Composite the primary ray: the nearest of the ball, the terrain, and the
@@ -608,6 +623,7 @@ shade_primary_ray(const density_field& field, cudaTextureObject_t color,
     kind = 4;
   }
   vec3 col;
+  bool reticle_edge = false;
   if (kind == 2)
     col = shade_ball(field, color, ball, head, cfg, eye + (ray_dir * best),
         ray_dir);
@@ -619,11 +635,11 @@ shade_primary_ray(const density_field& field, cudaTextureObject_t color,
     col = shade_head(head, cfg, eye + (ray_dir * best), ray_dir);
   else if (kind == 1) {
     const pos3 hit = eye + (ray_dir * best);
-    col = apply_reticle(cfg.reticle, eye, hit, px_scale,
-        shade_terrain_hit(field, color, cfg, hit));
+    col = apply_reticle(cfg.reticle, field, eye, ray_dir, hit, px_scale,
+        shade_terrain_hit(field, color, cfg, hit), reticle_edge);
   } else
     col = sky_color(cfg, ray_dir);
-  return ray_sample{col, best, kind};
+  return ray_sample{col, best, kind, reticle_edge};
 }
 
 #pragma endregion

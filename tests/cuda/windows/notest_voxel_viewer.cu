@@ -21,11 +21,13 @@
 #include <exception>
 #include <string_view>
 
-// Load-bearing `imgui` reference. This viewer depends on Dear ImGui only
-// transitively (engine.cuh -> imgui_overlay.h -> imgui.h), but the CMake gate
-// in "tests/CMakeLists.txt" text-scans this source file for the literal
-// "imgui" to decide whether to fetch, link, and "-isystem" the library. Keep
-// this comment, or the build fails with "imgui.h file not found".
+// This comment is itself a load-bearing `imgui` reference.
+//
+// This viewer depends on Dear ImGui only transitively (engine.cuh ->
+// imgui_overlay.h -> imgui.h), but the CMake gate in "tests/CMakeLists.txt"
+// text-scans this source file for the literal "imgui" to decide whether to
+// fetch, link, and "-isystem" the library. Keep this comment, or the build
+// fails with "imgui.h file not found".
 #include "corvid/cuda/windows/game/engine.cuh"
 #include "corvid/cuda/windows/game/kernel_bench.cuh"
 

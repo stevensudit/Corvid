@@ -230,16 +230,16 @@ private:
     field_.march_max_steps = render_cfg_.march.max_steps;
   }
 
-  // Pick the aim point and update the in-world dig reticle.
+  // Pick the aim point and update the in-world target reticle.
   //
   // The reticle (and digging) live only in look/steer mode, where the aim is
   // the centered camera ray: targeting is centered, the free cursor never
   // fights the view, and a centered target keeps the coming dig beam simple.
   // Running (Shift) also hides it, to keep it out of the way at speed and make
   // the player slow down to dig. When shown, cast the center ray into the
-  // field, record the hit point and surface normal into `dig_target_` for both
-  // the reticle and the brush, and read it back to drive the hologram. Also
-  // advances the reticle's slow spin.
+  // field, record the hit point into `dig_target_` for both the reticle and
+  // the brush, and read it back to drive the reticle. Also advances its slow
+  // spin.
   void
   update_reticle(const camera_rays& rays, const metal_ball& ball, float dt) {
     render_cfg_.reticle.spin = fmodf(
@@ -270,7 +270,11 @@ private:
     render_cfg_.reticle.show_inner = !aim_through_ball_;
     if (pick_state_.hit) {
       render_cfg_.reticle.center = pick_state_.point;
-      render_cfg_.reticle.normal = pick_state_.normal;
+      // The reticle measures its azimuth against the camera's screen axes, so
+      // its roll stays steady across terrain creases (where the pick normal
+      // jumps); the pick normal is no longer used for the reticle.
+      render_cfg_.reticle.view_right = rays.frame.right;
+      render_cfg_.reticle.view_up = rays.frame.up;
     }
   }
 
@@ -573,9 +577,9 @@ private:
   int dig_span_ = 0; // cube edge in voxels, set in `init`
   dim3 dig_grid_{};  // launch grid for the brush cube, set in `init`
 
-  // The last aim pick read back from `dig_target_`: where the aim ray hit and
-  // the surface normal there, driving the reticle hologram and gating the dig
-  // brush. `hit` is false when the tool is off or the aim missed.
+  // The last aim pick read back from `dig_target_`: where the aim ray hit,
+  // driving the target reticle and gating the dig brush. `hit` is false when
+  // the tool is off or the aim missed.
   dig_probe pick_state_{};
 
   // True when the aim ray meets the ball nearer than its terrain target: the
