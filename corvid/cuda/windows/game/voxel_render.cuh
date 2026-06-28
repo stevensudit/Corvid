@@ -21,6 +21,7 @@
 
 #include <cuda_runtime.h>
 
+#include "../../../math/arithmetic.h"
 #include "../../density_field.cuh"
 #include "../../vec.cuh"
 #include "./render_config.cuh"
@@ -97,9 +98,9 @@ shade_terrain_hit(const density_field& field, cudaTextureObject_t color,
 // distance. A flat tiling of one orientation, unlike `geodesic_grid_edge`'s
 // whole-sphere Goldberg grid whose cells point every which way.
 [[nodiscard]] __device__ inline float hex_grid_edge(float x, float y) {
-  constexpr float sx = std::numbers::sqrt3_v<float>;         // column repeat
-  constexpr float sy = 1.0F;                                 // row repeat
-  constexpr float c30 = std::numbers::sqrt3_v<float> / 2.0F; // cos(30 deg)
+  constexpr float sx = std::numbers::sqrt3_v<float>; // column repeat
+  constexpr float sy = 1.0F;                         // row repeat
+  constexpr float c30 = cos_30_v<float>;
 
   // The two candidate centers: the base lattice and the half-cell-offset one.
   const float ax = x - (sx * floorf((x / sx) + 0.5F));

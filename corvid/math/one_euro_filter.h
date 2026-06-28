@@ -17,7 +17,8 @@
 #pragma once
 
 #include <cmath>
-#include <numbers>
+
+#include "arithmetic.h"
 
 namespace corvid { inline namespace math {
 
@@ -35,13 +36,13 @@ namespace corvid { inline namespace math {
 class one_euro_filter {
 public:
   explicit one_euro_filter(float rest_ms, float beta) noexcept
-      : min_cutoff_{1000.0F / (two_pi * rest_ms)}, beta_{beta} {}
+      : min_cutoff_{1000.0F / (two_pi_v<float> * rest_ms)}, beta_{beta} {}
 
   // Retune the filter in place, keeping any carried smoothing state so a live
   // tuning change does not jolt the in-flight signal. `rest_ms` and `beta` are
   // as the constructor.
   void set_params(float rest_ms, float beta) noexcept {
-    min_cutoff_ = 1000.0F / (two_pi * rest_ms);
+    min_cutoff_ = 1000.0F / (two_pi_v<float> * rest_ms);
     beta_ = beta;
   }
 
@@ -77,11 +78,10 @@ public:
 private:
   // First-order low-pass weight for a cutoff frequency (Hz) over `dt` seconds.
   [[nodiscard]] static float alpha(float cutoff, float dt) noexcept {
-    const float tau = 1.0F / (two_pi * cutoff);
+    const float tau = 1.0F / (two_pi_v<float> * cutoff);
     return 1.0F / (1.0F + (tau / dt));
   }
 
-  static constexpr float two_pi = std::numbers::pi_v<float> * 2.0F;
   // Fixed cutoff (Hz) for the speed low-pass, the One Euro default.
   static constexpr float speed_cutoff = 1.0F;
   float min_cutoff_;

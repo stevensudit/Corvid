@@ -25,6 +25,7 @@
 
 #include <cuda_runtime.h>
 
+#include "../../../math/arithmetic.h"
 #include "../../camera.cuh"
 #include "../../cuda_event.cuh"
 #include "../../cuda_kernel.cuh"
@@ -245,7 +246,7 @@ private:
   // advances the reticle's slow spin.
   void
   update_reticle(const camera_rays& rays, const metal_ball& ball, float dt) {
-    constexpr float two_pi = 6.2831853F;
+    constexpr float two_pi = two_pi_v<float>;
     render_cfg_.reticle.spin = fmodf(
         render_cfg_.reticle.spin + (render_cfg_.reticle.spin_rate * dt),
         two_pi);

@@ -17,10 +17,31 @@
 #pragma once
 #include <cassert>
 #include <concepts>
+#include <numbers>
 #include <type_traits>
 
 namespace corvid { inline namespace math { inline namespace arithmetic {
 
+#pragma region Constants
+
+// Mathematically meaningful constants that the standard's <numbers> does not
+// provide, in the same variable-template form as std::numbers. General math
+// only: a value tied to a particular domain (a hexagon's apothem-to-vertex
+// ratio, say) does not belong here even when it derives from one of these.
+
+// A full turn in radians, 2 pi.
+template<std::floating_point T>
+inline constexpr T two_pi_v = std::numbers::pi_v<T> * T{2};
+
+// A sixth of a turn in radians, pi / 3 (a 60-degree sector).
+template<std::floating_point T>
+inline constexpr T third_pi_v = std::numbers::pi_v<T> / T{3};
+
+// The cosine of 30 degrees, sqrt(3) / 2.
+template<std::floating_point T>
+inline constexpr T cos_30_v = std::numbers::sqrt3_v<T> / T{2};
+
+#pragma endregion
 #pragma region ceil_div
 
 // Ceiling of the integer division `n / d`: the count of `d`-sized buckets

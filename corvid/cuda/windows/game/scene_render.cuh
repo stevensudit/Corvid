@@ -20,6 +20,7 @@
 
 #include <cuda_runtime.h>
 
+#include "../../../math/arithmetic.h"
 #include "../../density_field.cuh"
 #include "../../mirror.cuh"
 #include "../../vec.cuh"
@@ -233,7 +234,7 @@ namespace corvid::cuda {
         // Radial spokes from the hub out to the frame. At `eye_spokes` = 6
         // they run to the hexagon's vertices; halving to 3 leaves alternating
         // spokes, an animation hook.
-        constexpr float two_pi = 6.2831853F;
+        constexpr float two_pi = two_pi_v<float>;
         const auto spokes = static_cast<float>(hp.eye_spokes);
         float spoke = 0.0F;
         if (hp.eye_spokes > 0 && er > hp.eye_hub) {
@@ -274,7 +275,7 @@ namespace corvid::cuda {
   // dome (which carries its own grid) nor the belly.
   if (!is_dome && upside > 0.001F) {
     constexpr float aa = 0.01F;
-    constexpr float two_pi = 6.2831853F;
+    constexpr float two_pi = two_pi_v<float>;
     // Azimuth bolted to the hull's `front`, not `to_local`'s world-up frame,
     // so these fixed decals hold still as the disc banks under dolly motion.
     // Each decal subtracts its own phase to rotate where it rings the hull.
@@ -481,7 +482,7 @@ reticle_axes(vec3 normal, vec3& tangent, vec3& bitangent) {
 // from the apothem at an edge midpoint to `apothem / cos(30)` at a vertex.
 [[nodiscard]] __device__ inline float
 hex_edge_radius(float angle, float apothem) {
-  constexpr float sector = 1.04719755F; // pi/3
+  constexpr float sector = third_pi_v<float>;
   const float a = angle - (sector * rintf(angle / sector));
   return apothem / cosf(a);
 }
@@ -507,10 +508,16 @@ apply_reticle(const render_config::reticle_params& r, pos3 eye, pos3 hit,
   const vec3 d = hit - r.center;
   const float er = length(d); // 3D distance: the ring radius hugs the bowl
 
-  const float aa = fmaxf(length(hit - eye) * px_scale, 1.0e-4F);
+  // A regular hexagon's vertex sits at apothem / cos(30) = 2 / sqrt(3) times
+  // its apothem; the rings are sized by apothem, so scale to reach a vertex.
+  constexpr float apothem_to_vertex = 1.0F / cos_30_v<float>;
+  // Floor the antialiasing width so it stays strictly positive when the hit is
+  // right at the eye (the divisions below would otherwise blow up).
+  constexpr float min_aa = 1.0e-4F;
+  const float aa = fmaxf(length(hit - eye) * px_scale, min_aa);
   const float oline = fmaxf(r.outer_line, aa); // outer ring, bold
   // Cheap reject beyond the outer hexagon's farthest reach (a vertex).
-  if (er > (r.outer_radius * 1.1547F) + oline + aa) return color;
+  if (er > (r.outer_radius * apothem_to_vertex) + oline + aa) return color;
 
   // Azimuth about the surface normal at the pick point; each ring spins it the
   // opposite way (`spin` added for the outer, subtracted for the inner).
@@ -537,8 +544,8 @@ apply_reticle(const render_config::reticle_params& r, pos3 eye, pos3 hit,
     // radial line wherever the azimuth lands near one of `inner_spokes` evenly
     // spaced spokes, clipped to the vertex reach.
     if (r.inner_spokes > 0) {
-      constexpr float two_pi = 6.2831853F;
-      const float reach = r.inner_radius * 1.1547F; // apothem -> vertex
+      constexpr float two_pi = two_pi_v<float>;
+      const float reach = r.inner_radius * apothem_to_vertex;
       const auto spokes = static_cast<float>(r.inner_spokes);
       const float phase = (ia * spokes) / two_pi;
       const float to_spoke = fabsf(phase - rintf(phase)) * (two_pi / spokes);

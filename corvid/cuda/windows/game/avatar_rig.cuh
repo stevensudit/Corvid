@@ -20,6 +20,7 @@
 #include <cmath>
 #include <numbers>
 
+#include "../../../math/arithmetic.h"
 #include "../../camera.cuh"
 #include "../../radians.cuh"
 #include "../../vec.cuh"
@@ -411,7 +412,10 @@ struct avatar_rig {
       anchor += camera::world_up * (up * damp);
       vel_y = std::max(vel_y, 0.0F);
     }
-    if (vec3 hn{gp.normal.x, 0.0F, gp.normal.z}; length(hn) > 1.0e-4F) {
+    constexpr float min_horizontal_normal = 1.0e-4F;
+    if (vec3 hn{gp.normal.x, 0.0F, gp.normal.z};
+        length(hn) > min_horizontal_normal)
+    {
       hn = normalize(hn);
       if (const float into = dot(ground_vel, hn); into < 0.0F)
         ground_vel -= hn * into;
@@ -826,7 +830,7 @@ struct avatar_rig {
     // color selector tied to the belly idle spin so the beacon alternates in
     // tune with it at rest. Strafing does not redden the beacon: only backing
     // up is special.
-    constexpr float two_pi = 2.0F * std::numbers::pi_v<float>;
+    constexpr float two_pi = two_pi_v<float>;
     const float blink = 0.5F + (0.5F * sin(radians{blink_phase * two_pi}));
     const float reversing = fmaxf(0.0F, -drive);
     const float speed = fminf(1.0F, fabsf(drive) + fabsf(slide));
