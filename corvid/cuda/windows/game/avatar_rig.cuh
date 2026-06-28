@@ -830,8 +830,7 @@ struct avatar_rig {
     // color selector tied to the belly idle spin so the beacon alternates in
     // tune with it at rest. Strafing does not redden the beacon: only backing
     // up is special.
-    constexpr float two_pi = two_pi_v<float>;
-    const float blink = 0.5F + (0.5F * sin(radians{blink_phase * two_pi}));
+    const float blink = 0.5F + (0.5F * sin(radians{blink_phase * two_pi_v<>}));
     const float reversing = fmaxf(0.0F, -drive);
     const float speed = fminf(1.0F, fabsf(drive) + fabsf(slide));
 
@@ -846,7 +845,7 @@ struct avatar_rig {
     const float color_cycle = cycle / fmaxf(tune.color_spin_ratio, 0.01F);
     const float frac = fmodf(spin_clock, color_cycle) / color_cycle;
     const float idle_smooth =
-        cos(radians{(frac + (tune.color_phase * 0.5F)) * two_pi});
+        cos(radians{(frac + (tune.color_phase * 0.5F)) * two_pi_v<>});
     const float idle_mix = 0.5F - (0.5F * idle_smooth);
 
     return {eye(), saucer_up, dome_up, disc_nose, tune.head_radius, spin,

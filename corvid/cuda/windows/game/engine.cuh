@@ -246,10 +246,9 @@ private:
   // advances the reticle's slow spin.
   void
   update_reticle(const camera_rays& rays, const metal_ball& ball, float dt) {
-    constexpr float two_pi = two_pi_v<float>;
     render_cfg_.reticle.spin = fmodf(
         render_cfg_.reticle.spin + (render_cfg_.reticle.spin_rate * dt),
-        two_pi);
+        two_pi_v<>);
 
     if (active_tool_ != active_tool::dig || !input_.looking || input_.fast) {
       render_cfg_.reticle.enabled = false;

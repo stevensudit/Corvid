@@ -100,7 +100,6 @@ shade_terrain_hit(const density_field& field, cudaTextureObject_t color,
 [[nodiscard]] __device__ inline float hex_grid_edge(float x, float y) {
   constexpr float sx = std::numbers::sqrt3_v<float>; // column repeat
   constexpr float sy = 1.0F;                         // row repeat
-  constexpr float c30 = cos_30_v<float>;
 
   // The two candidate centers: the base lattice and the half-cell-offset one.
   const float ax = x - (sx * floorf((x / sx) + 0.5F));
@@ -116,8 +115,8 @@ shade_terrain_hit(const density_field& field, cudaTextureObject_t color,
   // Flat-top hexagon support: the largest of the three slab projections, the
   // apothem (0.5) minus it is the distance to the nearest border.
   const float hr = fmaxf(fabsf(gy),
-      fmaxf(fabsf((c30 * gx) + (0.5F * gy)),
-          fabsf((-c30 * gx) + (0.5F * gy))));
+      fmaxf(fabsf((cos_30_v<> * gx) + (0.5F * gy)),
+          fabsf((-cos_30_v<> * gx) + (0.5F * gy))));
   return 0.5F - hr;
 }
 

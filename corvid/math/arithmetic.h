@@ -30,15 +30,11 @@ namespace corvid { inline namespace math { inline namespace arithmetic {
 // ratio, say) does not belong here even when it derives from one of these.
 
 // A full turn in radians, 2 pi.
-template<std::floating_point T>
+template<std::floating_point T = float>
 inline constexpr T two_pi_v = std::numbers::pi_v<T> * T{2};
 
-// A sixth of a turn in radians, pi / 3 (a 60-degree sector).
-template<std::floating_point T>
-inline constexpr T third_pi_v = std::numbers::pi_v<T> / T{3};
-
 // The cosine of 30 degrees, sqrt(3) / 2.
-template<std::floating_point T>
+template<std::floating_point T = float>
 inline constexpr T cos_30_v = std::numbers::sqrt3_v<T> / T{2};
 
 #pragma endregion

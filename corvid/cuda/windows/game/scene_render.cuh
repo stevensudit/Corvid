@@ -234,13 +234,12 @@ namespace corvid::cuda {
         // Radial spokes from the hub out to the frame. At `eye_spokes` = 6
         // they run to the hexagon's vertices; halving to 3 leaves alternating
         // spokes, an animation hook.
-        constexpr float two_pi = two_pi_v<float>;
         const auto spokes = static_cast<float>(hp.eye_spokes);
         float spoke = 0.0F;
         if (hp.eye_spokes > 0 && er > hp.eye_hub) {
-          const float spoke_phase = (atan2f(ey, ex) * spokes) / two_pi;
+          const float spoke_phase = (atan2f(ey, ex) * spokes) / two_pi_v<>;
           const float to_spoke =
-              fabsf(spoke_phase - rintf(spoke_phase)) * (two_pi / spokes);
+              fabsf(spoke_phase - rintf(spoke_phase)) * (two_pi_v<> / spokes);
           spoke = __saturatef((hp.eye_line - (er * sinf(to_spoke))) / aa);
         }
 
@@ -275,7 +274,6 @@ namespace corvid::cuda {
   // dome (which carries its own grid) nor the belly.
   if (!is_dome && upside > 0.001F) {
     constexpr float aa = 0.01F;
-    constexpr float two_pi = two_pi_v<float>;
     // Azimuth bolted to the hull's `front`, not `to_local`'s world-up frame,
     // so these fixed decals hold still as the disc banks under dolly motion.
     // Each decal subtracts its own phase to rotate where it rings the hull.
@@ -289,7 +287,7 @@ namespace corvid::cuda {
       const float pa = top_ang - hp.port_phase;
       const float lx = rr * cosf(pa);
       const float lz = rr * sinf(pa);
-      const float sector = two_pi / static_cast<float>(hp.port_count);
+      const float sector = two_pi_v<> / static_cast<float>(hp.port_count);
       const float a0 = (rintf((pa / sector) - 0.5F) + 0.5F) * sector;
       const float dx = lx - (hp.port_center * cosf(a0));
       const float dz = lz - (hp.port_center * sinf(a0));
@@ -304,8 +302,9 @@ namespace corvid::cuda {
     // and leave the rounded shoulder to the rim running lights.
     if (hp.panel_count > 0) {
       const auto panels = static_cast<float>(hp.panel_count);
-      const float phase = ((top_ang - hp.panel_phase) * panels) / two_pi;
-      const float to_seam = fabsf(phase - rintf(phase)) * (two_pi / panels);
+      const float phase = ((top_ang - hp.panel_phase) * panels) / two_pi_v<>;
+      const float to_seam =
+          fabsf(phase - rintf(phase)) * (two_pi_v<> / panels);
       const float groove =
           __saturatef((hp.panel_line - (to_seam * rr)) / aa) *
           __saturatef((facing_up - hp.rim_top) / 0.05F);
@@ -482,7 +481,7 @@ reticle_axes(vec3 normal, vec3& tangent, vec3& bitangent) {
 // from the apothem at an edge midpoint to `apothem / cos(30)` at a vertex.
 [[nodiscard]] __device__ inline float
 hex_edge_radius(float angle, float apothem) {
-  constexpr float sector = third_pi_v<float>;
+  constexpr float sector = (60_deg).value;
   const float a = angle - (sector * rintf(angle / sector));
   return apothem / cosf(a);
 }
@@ -510,7 +509,7 @@ apply_reticle(const render_config::reticle_params& r, pos3 eye, pos3 hit,
 
   // A regular hexagon's vertex sits at apothem / cos(30) = 2 / sqrt(3) times
   // its apothem; the rings are sized by apothem, so scale to reach a vertex.
-  constexpr float apothem_to_vertex = 1.0F / cos_30_v<float>;
+  constexpr float apothem_to_vertex = 1.0F / cos_30_v<>;
   // Floor the antialiasing width so it stays strictly positive when the hit is
   // right at the eye (the divisions below would otherwise blow up).
   constexpr float min_aa = 1.0e-4F;
