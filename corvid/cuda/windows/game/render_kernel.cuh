@@ -158,15 +158,19 @@ __global__ void __launch_bounds__(256, 3) aa_resolve_kernel(
 
   // The target reticle forces its own pixels to supersample (the kind/depth
   // test is blind to it, since it paints flat same-kind terrain).
-  bool edge = (me.kind & aa_reticle_edge_bit) != 0;
-  // Geometry silhouette: the hit kind differs from a 4-neighbor (mask off the
-  // reticle flag first, so it does not read as a kind change by itself).
   const int my_kind = me.kind & aa_kind_mask;
-  edge =
-      edge || my_kind != (left.kind & aa_kind_mask) ||
-      my_kind != (right.kind & aa_kind_mask) ||
-      my_kind != (up.kind & aa_kind_mask) ||
-      my_kind != (down.kind & aa_kind_mask);
+  // The reticle flag (bit 8) plus any 4-neighbor kind change (bits 0-7) folded
+  // into one OR-of-XORs: the two bit ranges do not overlap, so a nonzero
+  // result means "force supersample" (reticle pixel or geometry silhouette).
+  // Masking the reticle flag out of `my_kind` keeps it from reading as a kind
+  // change by itself.
+  const int edge_bits =
+      (me.kind & aa_reticle_edge_bit) |
+      (my_kind ^ (left.kind & aa_kind_mask)) |
+      (my_kind ^ (right.kind & aa_kind_mask)) |
+      (my_kind ^ (up.kind & aa_kind_mask)) |
+      (my_kind ^ (down.kind & aa_kind_mask));
+  bool edge = edge_bits != 0;
   if (!edge) {
     // All four neighbors share this pixel's kind, so the depths are comparable
     // (a sky miss would have changed the kind). `me.depth` scales the
