@@ -188,11 +188,7 @@ private:
     // frame's dig so it already reflects the edit, and ready with no stall
     // since the present has since synced. `settle` then drops the ball, rests
     // it on the surface, applies any jump, and fences it inside the box.
-    if (ground_primed_)
-      cuda_last_status{
-          cudaMemcpy(&ground_state_, ground_target_.get(),
-              sizeof(ground_probe), cudaMemcpyDeviceToHost)}
-          .or_throw();
+    if (ground_primed_) ground_target_.store(ground_state_).or_throw();
     rig_.settle(ground_state_, input_.take_jump(), world_min_, world_max_, dt);
     log_collision();
 
@@ -259,10 +255,7 @@ private:
 
     const vec3 aim = rays.frame.forward;
     pick_kernel<<<1, 1>>>(field_, rays.eye, aim, dig_target_);
-    cuda_last_status{
-        cudaMemcpy(&pick_state_, dig_target_.get(), sizeof(dig_probe),
-            cudaMemcpyDeviceToHost)}
-        .or_throw();
+    dig_target_.store(pick_state_).or_throw();
     render_cfg_.reticle.enabled = pick_state_.hit;
 
     // The dig beam leaves the ball, so it cannot fire through the ball at a
