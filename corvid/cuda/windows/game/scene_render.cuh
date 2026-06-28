@@ -30,11 +30,11 @@
 
 // The voxel viewer's game scene compositing: the player's avatar (the metallic
 // ball and the saucer head) and the flat mirror, composited per ray against
-// the terrain and sky from voxel_render.cuh. `shade_primary_ray` is the kernel
-// entry point. The ball and the mirror each cast a one-bounce reflection ray
-// that reveals the head, which the camera rides inside and so never appears in
-// the view directly. Game-specific, so it lives here rather than in the
-// generic voxel renderer.
+// the terrain and sky from voxel_render.cuh. `shade_primary_ray` is the
+// per-ray entry the render kernels call. The ball and the mirror each cast a
+// one-bounce reflection ray that reveals the head, which the camera rides
+// inside and so never appears in the view directly. Game-specific, so it lives
+// here rather than in the generic voxel renderer.
 
 namespace corvid::cuda {
 
@@ -562,13 +562,25 @@ apply_reticle(const render_config::reticle_params& r, pos3 eye, pos3 hit,
   return color + (r.color * (mask * r.strength * dim));
 }
 
+// A primary ray's shaded color plus the geometry the adaptive-AA pass keys on:
+// the nearest-hit `kind` and its `depth` (the ray parameter at the hit, or
+// `big_value` on a sky miss). The resolve pass compares these against the
+// neighbors to find the silhouettes worth supersampling. (`kind`: 0 sky, 1
+// terrain, 2 ball, 3 mirror, 4 head.)
+struct ray_sample {
+  vec3 color;
+  float depth;
+  int kind;
+};
+
 // Composite the primary ray: the nearest of the ball, the terrain, and the
 // flat mirror, or the sky if it escapes them all. The saucer head is tested
 // only when `cfg.show_head` is set (the observer freeze): normally the camera
 // rides inside it, so it appears only reflected in the ball (`shade_ball`) or
 // the mirror (`shade_world_ray`), but the freeze pins the camera outside it
-// and reveals it here.
-[[nodiscard]] __device__ inline vec3
+// and reveals it here. Returns the shaded color alongside the hit kind and
+// depth, so the adaptive-AA prepass can classify the pixel.
+[[nodiscard]] __device__ inline ray_sample
 shade_primary_ray(const density_field& field, cudaTextureObject_t color,
     const metal_ball& ball, const saucer_head& head, const flat_mirror& mirror,
     const render_config& cfg, pos3 eye, vec3 ray_dir, float px_scale) {
@@ -595,21 +607,23 @@ shade_primary_ray(const density_field& field, cudaTextureObject_t color,
     best = t_head;
     kind = 4;
   }
+  vec3 col;
   if (kind == 2)
-    return shade_ball(field, color, ball, head, cfg, eye + (ray_dir * best),
+    col = shade_ball(field, color, ball, head, cfg, eye + (ray_dir * best),
         ray_dir);
-  if (kind == 3) {
+  else if (kind == 3) {
     const pos3 hit = eye + (ray_dir * best);
     const vec3 refl = reflect(ray_dir, mirror.normal);
-    return shade_world_ray(field, color, ball, head, cfg, hit, refl) * 0.9F;
-  }
-  if (kind == 4) return shade_head(head, cfg, eye + (ray_dir * best), ray_dir);
-  if (kind == 1) {
+    col = shade_world_ray(field, color, ball, head, cfg, hit, refl) * 0.9F;
+  } else if (kind == 4)
+    col = shade_head(head, cfg, eye + (ray_dir * best), ray_dir);
+  else if (kind == 1) {
     const pos3 hit = eye + (ray_dir * best);
-    return apply_reticle(cfg.reticle, eye, hit, px_scale,
+    col = apply_reticle(cfg.reticle, eye, hit, px_scale,
         shade_terrain_hit(field, color, cfg, hit));
-  }
-  return sky_color(cfg, ray_dir);
+  } else
+    col = sky_color(cfg, ray_dir);
+  return ray_sample{col, best, kind};
 }
 
 #pragma endregion

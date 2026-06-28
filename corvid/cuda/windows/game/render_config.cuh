@@ -28,7 +28,7 @@ namespace corvid::cuda {
 // The shading "constants" the `shade_*` functions used to bake in as literals,
 // as a plain aggregate usable from host and device. The host keeps one live
 // instance plus a default-constructed baseline, the panel edits the live one,
-// and the frame passes it by value into `voxel_kernel`, which threads it
+// and the frame passes it by value into the render kernels, which thread it
 // through the shaders. The default member initializers are the values the
 // shaders shipped with.
 struct render_config {
@@ -241,10 +241,20 @@ struct render_config {
     float strength = 1.0F;          // hologram glow brightness
   } reticle;
 
-  // Anti-alias samples per axis in `voxel_kernel`: 1 disables it, 2 to 3 is
-  // the useful range. Runtime (not a `constexpr`) so the panel can change it;
-  // the cost is the square of this.
+  // Anti-alias samples per axis: 1 disables it, 2 to 3 is the useful range.
+  // Runtime (not a `constexpr`) so the panel can change it. The AA is
+  // adaptive: a cheap prepass shades one center sample per pixel, and only
+  // pixels on a silhouette fan out to the full `aa_samples` x `aa_samples`
+  // grid, so the squared cost is paid on edges, not flat interiors.
   int aa_samples = 2;
+
+  // Adaptive-AA edge threshold. A pixel is treated as a silhouette (and
+  // supersampled) when its nearest-hit kind differs from a 4-neighbor, or its
+  // depth bends by more than this fraction of its own depth across the
+  // neighbors (a second difference, so a smooth grazing ramp does not trip it,
+  // only a crease or a depth jump). Larger spends less on edges (faster, more
+  // residual aliasing on shallow creases); 0 supersamples every depth wrinkle.
+  float aa_edge_depth = 0.05F;
 
   // Observer freeze (debug): draw the saucer head in the primary view. Off by
   // default, since the camera normally rides inside the head and so never sees

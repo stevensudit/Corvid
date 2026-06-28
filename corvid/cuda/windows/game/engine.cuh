@@ -413,11 +413,12 @@ private:
               const dim3 grid_dim{cuda_kernel::ceil_div(w, block_.x),
                   cuda_kernel::ceil_div(h, block_.y)};
               cuda_surface surf{array};
-              // Time just the kernel so the title can show GPU ms against the
+              ensure_gbuffer(w, h);
+              // Time just the render so the title can show GPU ms against the
               // whole-frame ms (GPU-bound vs CPU-bound).
               {
                 cuda_timer gpu_timer{gpu_ms_};
-                voxel_kernel<<<grid_dim, block_>>>(surf,
+                render_scene(surf, aa_gbuf_.get(), grid_dim, block_,
                     resolution{static_cast<float>(w), static_cast<float>(h)},
                     rays, field_, colors_.texture(), ball, head, mirror_,
                     render_cfg_);
@@ -426,6 +427,20 @@ private:
             },
             [&] { imgui_.render(presenter_.back_buffer()); }, sync_interval)
         .or_throw();
+  }
+
+  // Grow the adaptive-AA prepass buffer to cover a `w` x `h` frame (one
+  // `aa_texel` per pixel). Grow-only, like the presenter's render target, so a
+  // resize down keeps the larger allocation and steady-state frames reuse it
+  // without reallocating. The prepass rewrites every texel each frame, so no
+  // stale data survives a resize.
+  void ensure_gbuffer(int w, int h) {
+    const size_t needed = static_cast<size_t>(w) * static_cast<size_t>(h);
+    if (needed <= aa_gbuf_count_) return;
+    aa_gbuf_ = cuda_ptr<aa_texel>{needed};
+    if (!aa_gbuf_)
+      throw std::runtime_error{"failed to allocate AA prepass buffer"};
+    aa_gbuf_count_ = needed;
   }
 
 #pragma endregion
@@ -602,6 +617,13 @@ private:
 #pragma region Presentation and debug toggles
 
   static constexpr dim3 block_{16, 16};
+
+  // The adaptive-AA prepass buffer: one `aa_texel` (hit kind and depth) per
+  // pixel, written by the prepass and read by the resolve pass to find the
+  // silhouettes worth supersampling. Grown to the render target's size by
+  // `ensure_gbuffer`; `aa_gbuf_count_` is its capacity in texels.
+  cuda_ptr<aa_texel> aa_gbuf_;
+  size_t aa_gbuf_count_ = 0;
 
   // The GPU presentation pipeline: default-constructed with the engine (a
   // device, no swapchain), then bound to the window in `init` once its

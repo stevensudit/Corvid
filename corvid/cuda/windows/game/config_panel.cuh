@@ -623,6 +623,11 @@ inline void draw_render_section(avatar_tuning& t, const avatar_tuning& d,
   ImGui::PushID("aa samples reset");
   if (ImGui::SmallButton("reset")) c.aa_samples = dc.aa_samples;
   ImGui::PopID();
+  tuned_slider("aa edge", c.aa_edge_depth, dc.aa_edge_depth, 0.0F, 0.5F,
+      "Adaptive-AA silhouette threshold: a pixel supersamples only where its "
+      "hit kind changes or its depth bends by more than this fraction of its "
+      "depth across the neighbors. Lower catches finer creases (slower); "
+      "higher restricts the cost to the strong edges.");
   // Field of view caches tan(fov/2), so route edits through the setter.
   float fov = t.fov_deg();
   if (tuned_slider("fov", fov, d.fov_deg(), 30.0F, 110.0F,

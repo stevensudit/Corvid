@@ -23,6 +23,7 @@
 #include "../../camera.cuh"
 #include "../../cuda_event.cuh"
 #include "../../cuda_kernel.cuh"
+#include "../../cuda_ptr.cuh"
 #include "../../cuda_status.cuh"
 #include "../../cuda_surface.cuh"
 #include "../../cuda_volume.cuh"
@@ -38,17 +39,19 @@
 #include "./render_kernel.cuh"
 #include "./world_gen.cuh"
 
-// The voxel viewer's offline kernel benchmark: render `voxel_kernel` at a
-// fixed pose with no window or vsync, for the pure GPU-time signal the live
-// viewer cannot resolve. Selected by the viewer's `bench` argument.
+// The voxel viewer's offline kernel benchmark: run the two-pass adaptive-AA
+// render (`render_scene`) at a fixed pose with no window or vsync, for the
+// pure GPU-time signal the live viewer cannot resolve. Selected by the
+// viewer's `bench` argument.
 
 namespace corvid::cuda {
 
 #pragma region Benchmark
 
-// Offline kernel benchmark: render `voxel_kernel` repeatedly into an
-// off-screen surface at a fixed pose and resolution, with no window, present,
-// or vsync, and report the per-launch GPU time (min/avg/max). The pure,
+// Offline kernel benchmark: run `render_scene` (the prepass plus the adaptive
+// resolve) repeatedly into an off-screen surface at a fixed pose and
+// resolution, with no window, present, or vsync, and report the per-launch GPU
+// time (min/avg/max). The pure,
 // isolated signal for the small kernel changes the live, vsync-capped viewer
 // cannot resolve; the viewer's "uncap fps" toggle is the complementary in-situ
 // measurement. Selected by the `bench` argument.
@@ -105,13 +108,18 @@ namespace corvid::cuda {
   const scope_exit free_array{[&] { (void)cudaFreeArray(array); }};
   cuda_surface surf{array};
 
+  // The adaptive-AA prepass buffer, one `aa_texel` per pixel (see
+  // `render_scene`).
+  cuda_ptr<aa_texel> gbuf{
+      static_cast<size_t>(width) * static_cast<size_t>(height)};
+
   const dim3 block{16, 16};
   const dim3 grid{cuda_kernel::ceil_div(width, block.x),
       cuda_kernel::ceil_div(height, block.y)};
   const resolution res{static_cast<float>(width), static_cast<float>(height)};
   const auto launch = [&] {
-    voxel_kernel<<<grid, block>>>(surf, res, rays, field, colors.texture(),
-        ball, head, mirror, cfg);
+    render_scene(surf, gbuf.get(), grid, block, res, rays, field,
+        colors.texture(), ball, head, mirror, cfg);
   };
 
   for (int i = 0; i < warmup; ++i) launch();
@@ -135,8 +143,8 @@ namespace corvid::cuda {
     hi = fmaxf(hi, ms);
   }
 
-  std::println("voxel_kernel  {}x{}  aa={}  {} iters", width, height,
-      cfg.aa_samples, iters);
+  std::println("voxel render (2-pass adaptive AA)  {}x{}  aa={}  {} iters",
+      width, height, cfg.aa_samples, iters);
   std::println("  GPU ms/frame  min {:.3f}  avg {:.3f}  max {:.3f}", lo,
       total / static_cast<float>(iters), hi);
   return 0;

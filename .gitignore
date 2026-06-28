@@ -39,6 +39,7 @@
 build/
 build-debug/
 build-tests/
+build-bench/
 CMakeFiles
 CMakeCache.txt
 .ninja_deps
