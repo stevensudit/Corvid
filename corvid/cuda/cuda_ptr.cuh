@@ -25,6 +25,7 @@
 
 #include <cuda_runtime.h>
 
+#include "../enums/sequence_enum.h"
 #include "./cuda_handle.cuh"
 #include "./cuda_status.cuh"
 
@@ -41,6 +42,28 @@
 
 namespace corvid::cuda {
 
+#pragma region memcpy_kind
+
+// Enum to wrap `cudaMemcpyKind`, naming which side of a transfer is host and
+// which is device.
+// NOLINTNEXTLINE(performance-enum-size)
+enum class memcpy_kind : std::underlying_type_t<cudaMemcpyKind> {
+  host_to_host = cudaMemcpyHostToHost,         // 0
+  host_to_device = cudaMemcpyHostToDevice,     // 1
+  device_to_host = cudaMemcpyDeviceToHost,     // 2
+  device_to_device = cudaMemcpyDeviceToDevice, // 3
+  inferred = cudaMemcpyDefault,                // 4
+};
+
+// Register `memcpy_kind` as a sequence enum so it gets enum<->string
+// conversion.
+consteval auto corvid_enum_spec(memcpy_kind*) {
+  return corvid::enums::sequence::make_sequence_enum_spec<memcpy_kind,
+      "host_to_host,host_to_device,device_to_host,device_to_device,"
+      "inferred">();
+}
+
+#pragma endregion
 #pragma region cuda_ptr
 
 // Owning, move-only RAII handle to an uninitialized block of `count` objects
@@ -72,7 +95,7 @@ public:
   [[nodiscard]] cuda_last_status store(T* host_ptr, size_t count = 0) const {
     if (count == 0) count = count_;
     assert(count <= count_ && "store array size exceeds allocated count");
-    return copy(host_ptr, this->get(), count, cudaMemcpyDeviceToHost);
+    return copy(host_ptr, this->get(), count, memcpy_kind::device_to_host);
   }
   [[nodiscard]] cuda_last_status store(std::span<T> host_span) const {
     return store(host_span.data(), host_span.size());
@@ -92,7 +115,7 @@ public:
   [[nodiscard]] cuda_last_status load(const T* host_ptr, size_t count = 0) {
     if (count == 0) count = count_;
     assert(count <= count_ && "load array size exceeds allocated count");
-    return copy(this->get(), host_ptr, count, cudaMemcpyHostToDevice);
+    return copy(this->get(), host_ptr, count, memcpy_kind::host_to_device);
   }
   [[nodiscard]] cuda_last_status load(std::span<const T> host_span) {
     return load(host_span.data(), host_span.size());
@@ -111,6 +134,15 @@ public:
 
 #pragma endregion
 #pragma region Helpers
+
+  // Copy `count` objects of type `T`, where `kind` identifies which parameter
+  // is host or device.
+  static cuda_last_status
+  copy(T* dest_ptr, const T* src_ptr, size_t count, memcpy_kind kind) {
+    return cuda_last_status{cudaMemcpy(dest_ptr, src_ptr, count * sizeof(T),
+        static_cast<cudaMemcpyKind>(kind))};
+  }
+
 private:
   // Allocate CUDA device memory for `count` objects of type `T`, and return a
   // pointer to the allocated memory. Returns `nullptr` on failure.
@@ -120,14 +152,6 @@ private:
     cuda_last_status status{cudaMalloc(&ptr, count * sizeof(T))};
     if (!status) return nullptr;
     return ptr;
-  }
-
-  // Copy `count` objects of type `T`, where `kind` identifies which parameter
-  // is host or device.
-  static cuda_last_status
-  copy(T* dest_ptr, const T* src_ptr, size_t count, cudaMemcpyKind kind) {
-    return cuda_last_status{
-        cudaMemcpy(dest_ptr, src_ptr, count * sizeof(T), kind)};
   }
 
 #pragma endregion

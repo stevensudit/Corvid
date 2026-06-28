@@ -17,6 +17,7 @@
 #pragma once
 
 // d3d11.h/dxgi1_2.h pull windows.h's min/max macros; keep them out.
+#include <type_traits>
 #ifndef NOMINMAX
 #define NOMINMAX
 #endif
@@ -36,7 +37,7 @@ namespace corvid::win32::d3d {
 
 // Bitmask wrapper for `D3D11_BIND_FLAG`.
 // NOLINTNEXTLINE(performance-enum-size)
-enum class d3d11_bind_flag : unsigned {
+enum class d3d11_bind_flag : std::underlying_type_t<D3D11_BIND_FLAG> {
   none = 0,
   vertex_buffer = D3D11_BIND_VERTEX_BUFFER,
   index_buffer = D3D11_BIND_INDEX_BUFFER,

@@ -27,7 +27,8 @@ namespace corvid::cuda {
 #pragma region cuda_device_attr
 
 // Wrapper for `cudaDeviceAttr`.
-enum class cuda_device_attr : std::uint8_t {
+// NOLINTNEXTLINE(performance-enum-size)
+enum class cuda_device_attr : std::underlying_type_t<cudaDeviceAttr> {
   max_threads_per_block = cudaDevAttrMaxThreadsPerBlock,               // 1
   max_block_dim_x = cudaDevAttrMaxBlockDimX,                           // 2
   max_block_dim_y = cudaDevAttrMaxBlockDimY,                           // 3

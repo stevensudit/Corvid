@@ -17,6 +17,7 @@
 #pragma once
 
 // d3d11.h pulls windows.h's min/max macros; keep them out.
+#include <type_traits>
 #ifndef NOMINMAX
 #define NOMINMAX
 #endif
@@ -42,7 +43,8 @@ namespace corvid::cuda {
 // `cudaGraphicsD3D11RegisterResource`.
 //
 // NOLINTNEXTLINE(performance-enum-size)
-enum class cuda_graphics_register_flags : unsigned {
+enum class cuda_graphics_register_flags : std::underlying_type_t<
+    cudaGraphicsRegisterFlags> {
   none = cudaGraphicsRegisterFlagsNone,
   read_only = cudaGraphicsRegisterFlagsReadOnly,
   write_discard = cudaGraphicsRegisterFlagsWriteDiscard,
