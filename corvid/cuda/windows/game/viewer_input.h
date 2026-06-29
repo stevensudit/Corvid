@@ -70,6 +70,21 @@ handle_tool_select(const sdl::sdl_event& ev, active_tool& tool) {
   return false;
 }
 
+// Fold the F key into the `flashlight` flag: press to toggle the headlamp on
+// or off. Auto-repeat is ignored so a held key does not flutter the toggle.
+// Returns whether it consumed the event.
+[[nodiscard]] inline bool
+handle_flashlight(const sdl::sdl_event& ev, bool& flashlight) {
+  if (ev.type() != sdl::sdl_event_type::key_down) return false;
+  const auto key = ev.get_key();
+  if (key.repeat) return false;
+  if (key.key == sdl::sdl_keycode::f) {
+    flashlight = !flashlight;
+    return true;
+  }
+  return false;
+}
+
 // Fold the left mouse button into the `digging` flag, for composing after
 // `handle_fly`. Returns whether it consumed the event.
 [[nodiscard]] inline bool handle_dig(const sdl::sdl_event& ev, bool& digging) {
@@ -97,14 +112,14 @@ handle_tool_select(const sdl::sdl_event& ev, active_tool& tool) {
 // leaving Escape for the pump to toggle the panel.
 [[nodiscard]] inline bool handle_viewer_event(const sdl::sdl_event& ev,
     imgui_overlay& imgui, bool show_config, sdl::drive_input& input,
-    sdl::sdl_window& win, bool& digging, active_tool& tool) {
+    sdl::sdl_window& win, bool& digging, active_tool& tool, bool& flashlight) {
   imgui.process_event(ev);
   if (show_config) {
     if (is_mouse_event(ev) && imgui.wants_mouse()) return true;
     if (is_keyboard_event(ev) && imgui.wants_keyboard()) return true;
   }
   return input.handle(ev, win) || handle_dig(ev, digging) ||
-         handle_tool_select(ev, tool);
+         handle_tool_select(ev, tool) || handle_flashlight(ev, flashlight);
 }
 
 #pragma endregion

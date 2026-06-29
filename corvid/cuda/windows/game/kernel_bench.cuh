@@ -113,13 +113,27 @@ namespace corvid::cuda {
   cuda_ptr<aa_texel> gbuf{
       static_cast<size_t>(width) * static_cast<size_t>(height)};
 
+  // The post-process buffers: the full-res linear HDR target the render
+  // writes, and the two half-res bloom ping-pong buffers the post pass blooms
+  // through before tone mapping into `surf`. Timing covers render plus post,
+  // the whole frame's GPU cost.
+  cuda_ptr<float4> hdr{
+      static_cast<size_t>(width) * static_cast<size_t>(height)};
+  const size_t half_count =
+      static_cast<size_t>(bloom_dim(width)) *
+      static_cast<size_t>(bloom_dim(height));
+  cuda_ptr<float4> bloom_a{half_count};
+  cuda_ptr<float4> bloom_b{half_count};
+
   const dim3 block{16, 16};
   const dim3 grid{cuda_kernel::ceil_div(width, block.x),
       cuda_kernel::ceil_div(height, block.y)};
   const resolution res{static_cast<float>(width), static_cast<float>(height)};
   const auto launch = [&] {
-    render_scene(surf, gbuf.get(), grid, block, res, rays, field,
+    render_scene(hdr.get(), gbuf.get(), grid, block, res, rays, field,
         colors.texture(), ball, head, mirror, cfg);
+    post_process(surf, hdr.get(), bloom_a.get(), bloom_b.get(), block, res,
+        cfg);
   };
 
   for (int i = 0; i < warmup; ++i) launch();

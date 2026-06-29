@@ -37,6 +37,11 @@ struct render_config {
   // the single value to animate if the sun ever moves across the sky.
   vec3 sun_direction{0.5F, 0.8F, 0.3F};
 
+  // Night: turn off the sun (its diffuse on the terrain and its glow in the
+  // sky) and dim the ambient to near dark, so there is darkness to test the
+  // flashlight against. The emissive lights and the flashlight are unaffected.
+  bool night = false;
+
   // Sky gradient and sun glow (see `sky_color`).
   struct sky_params {
     vec3 zenith{0.18F, 0.42F, 0.82F};    // color straight up
@@ -55,6 +60,44 @@ struct render_config {
     vec3 ambient{0.18F, 0.20F, 0.24F};
     vec3 sun{1.0F, 0.96F, 0.88F};
   } terrain;
+
+  // Flashlight: a headlamp riding the camera eye and pointing along the view,
+  // adding a soft cone of light to the terrain (toggled by the F key, handy at
+  // night or down a deep pit).
+  //
+  //  `origin` and `direction` are written each frame by the engine from the
+  //  camera; the rest are look tunables. The cone has a soft edge
+  //  (`cone_degrees` outer half-angle, `softness` the inner fraction)
+  // and a quadratic distance falloff out to `range`.
+  struct flashlight_params {
+    bool enabled = false;             // the F-key toggle (engine-driven)
+    pos3 origin{};                    // eye position, written per frame
+    vec3 direction{0.0F, 0.0F, 1.0F}; // view forward, written per frame
+    vec3 color{1.0F, 0.93F, 0.80F};
+    float intensity = 4.0F;
+    float range = 45.0F;          // reach in world units
+    float cone_degrees = 23.333F; // outer half-angle of the cone
+    float softness = 1.5F;        // inner cone = outer x (1 - softness)
+    // Penumbra of the ball's shadow on the terrain, as a fraction of the ball
+    // radius: the soft band the shadow fades across, so its edge reads (and
+    // peeks out from behind the ball that hides the hard umbra). 0 is a hard
+    // shadow.
+    float shadow_softness = 0.55F;
+    // Brightness of the emitter on the head (the eye's iris segments light up
+    // as the lamp source). HDR, so the ball's reflection of it blows out
+    // through bloom instead of reading as flat white.
+    float source_strength = 30.0F;
+    // The ball's glossy response to the beam: an HDR view-facing highlight so
+    // the chrome lights up and blows out (stable across poses, unlike the tiny
+    // reflection of the emitter). `gloss_power` sets the lobe breadth near the
+    // ball: keep it tight, a broad lobe saturates into a flat white disc.
+    float gloss_strength = 3.0F;
+    float gloss_power = 9.0F;
+    // How much the glossy spot spreads with distance, like the cone footprint:
+    // higher broadens the highlight (and the `fade` dims it) as the ball gets
+    // farther from the lamp. 0 holds a fixed-breadth specular spot.
+    float gloss_grow = 0.017F;
+  } flashlight;
 
   // Terrain march tunables, copied onto the `density_field` each frame so the
   // panel can tune the sphere-trace live. Defaults match `density_field`'s.
@@ -249,6 +292,10 @@ struct render_config {
     int inner_spokes = 3;       // crosshair spokes in the inner hex (0..6)
     vec3 color{0.20F, 1.0F, 0.55F}; // reticle glow color
     float strength = 1.0F;          // reticle glow brightness
+    // Max dig reach: when the aim hit is farther than this from the ball, drop
+    // the inner crosshair and block the dig, the same as when the ball blocks
+    // the aim, so digging stays a close-range action.
+    float max_dig_distance = 6.0F; // world units from the ball
   } reticle;
 
   // Anti-alias samples per axis: 1 disables it, 2 to 3 is the useful range.
@@ -285,6 +332,26 @@ struct render_config {
   // show red, dig-reticle pixels blue. A pixel left at its prepass color was
   // judged a flat interior and not supersampled.
   bool debug_aa_edges = false;
+
+  // Barrel distortion: how far the projection bends from the rectilinear
+  // pinhole (0) toward a full equidistant fisheye (1), see
+  // `camera_rays::ray_direction`. The center and vertical field of view are
+  // unchanged; the amount only bends the periphery in, so a small value gives
+  // a mild barrel without the full-fisheye pitch nausea.
+  float fisheye_amount = 0.0F;
+
+  // Bloom: the render writes linear HDR into an off-screen buffer, and the
+  // post pass blooms the brights (a soft-thresholded, blurred copy added back)
+  // before the Reinhard tonemap that lands the LDR frame. With `enabled` off,
+  // the post pass is a plain tonemap, identical to the per-pixel tonemap the
+  // render used to do inline.
+  struct bloom_params {
+    bool enabled = true;
+    float threshold = 0.37F; // luma at which a pixel starts to bloom
+    float knee = 0.6F;       // soft-threshold width below `threshold`
+    float intensity = 1.0F;  // how much of the bloom is added back
+    float sigma = 2.5F;      // Gaussian blur radius, half-res texels
+  } bloom;
 };
 
 #pragma endregion

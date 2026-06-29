@@ -69,3 +69,8 @@ out of it. The beam + cursor aim + the dig stain are what make a usable ramp.
   the teleport-to-jockey. But if we are already in jockey and colliding with the
   ceiling (expected while digging), a brief teleport/tunnel animation should bring
   the camera to in front of the ball.
+
+Playtest 2026-06-28 (deep pit): in jockey position the view almost never got
+occluded, even at the bottom of a deep pit, so the extra "camera in front of the
+ball" position above may be unnecessary; drop it unless a real occlusion case
+turns up. Auto-moving the Head to jockey position is still wanted, but can wait.

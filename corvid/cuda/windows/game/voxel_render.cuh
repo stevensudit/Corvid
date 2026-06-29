@@ -47,6 +47,9 @@ sky_color(const render_config& cfg, vec3 ray_dir) {
   const float t = powf(up, sky.gradient_bias);
   vec3 col = (sky.zenith * t) + (sky.horizon * (1.0F - t));
 
+  // Night: a dark sky with no sun, just a faint trace of the gradient.
+  if (cfg.night) return col * 0.03F;
+
   const vec3 sun_dir = normalize(cfg.sun_direction);
   const float s = fmaxf(dot(ray_dir, sun_dir), 0.0F);
   col = col +
@@ -55,11 +58,132 @@ sky_color(const render_config& cfg, vec3 ray_dir) {
   return col;
 }
 
+// A sphere that occludes the flashlight: the ball, so it casts a shadow on the
+// terrain instead of letting the beam pass through it. A non-positive `radius`
+// disables the test, which the reflection paths (the ball does not shadow what
+// it mirrors) pass by default.
+struct shadow_sphere {
+  pos3 center{};
+  float radius = -1.0F;
+};
+
+// The flashlight's spot factor at `hit_point`: the soft cone (0 outside it,
+// easing to 1 inside the inner half-angle), gated by the range and the
+// `shadow` occlusion of the segment to the lamp. Returns 0 when the lamp is
+// off, the point is out of cone or range, or the shadow sphere blocks it.
+// Writes the unit surface-to-lamp direction and the distance for the caller's
+// own falloff. Shared by the terrain light and the ball's glossy highlight.
+[[nodiscard]] __device__ inline float
+flashlight_spot(const render_config::flashlight_params& fl, pos3 hit_point,
+    shadow_sphere shadow, vec3& to_lamp_dir, float& dist) {
+  if (!fl.enabled) return 0.0F;
+  const vec3 to_lamp = fl.origin - hit_point;
+  dist = length(to_lamp);
+  if (dist < 1.0e-4F || dist > fl.range) return 0.0F;
+  to_lamp_dir = to_lamp * (1.0F / dist);
+
+  // Soft cone: full inside the inner half-angle, easing to zero at the outer.
+  constexpr float deg_to_rad = std::numbers::pi_v<float> / 180.0F;
+  const float cosang = dot(to_lamp_dir * -1.0F, normalize(fl.direction));
+  const float cos_outer = cosf(fl.cone_degrees * deg_to_rad);
+  const float cos_inner =
+      cosf(fl.cone_degrees * (1.0F - fl.softness) * deg_to_rad);
+  float cone = __saturatef((cosang - cos_outer) / (cos_inner - cos_outer));
+  cone = cone * cone * (3.0F - (2.0F * cone)); // smoothstep
+  if (cone <= 0.0F) return 0.0F;
+
+  // Shadow: an occluder sphere between the surface and the lamp blocks the
+  // beam, with a soft penumbra so the edge fades over a band (and so the
+  // shadow shows around the ball, which hides the hard umbra directly behind
+  // it). The test is on the ray's closest approach to the sphere center, not a
+  // hard hit: full shadow within the radius, easing to lit across
+  // `shadow_softness` x radius beyond it.
+  float shadow_factor = 1.0F;
+  if (shadow.radius > 0.0F) {
+    const vec3 oc = hit_point - shadow.center;
+    const float b = dot(oc, to_lamp_dir);
+    const float tc = -b; // closest-approach distance along the segment
+    if (tc > 1.0e-3F && tc < dist) {
+      const float d_perp = sqrtf(fmaxf(dot(oc, oc) - (b * b), 0.0F));
+      // The penumbra straddles the radius: full shadow within (radius -
+      // penumbra) and lit at (radius + penumbra), so the soft band both fans
+      // out past the ball and fans in to shrink the umbra, instead of leaving
+      // a hard full-size umbra with only an outer fringe.
+      const float penumbra =
+          fmaxf(shadow.radius * fl.shadow_softness, 1.0e-4F);
+      const float inner = fmaxf(shadow.radius - penumbra, 0.0F);
+      const float outer = shadow.radius + penumbra;
+      const float s = __saturatef((d_perp - inner) / (outer - inner));
+      shadow_factor =
+          s * s * (3.0F - (2.0F * s)); // smoothstep, 0 in the umbra
+    }
+  }
+  return cone * shadow_factor;
+}
+
+// The flashlight's contribution at a terrain point: the spot cone with a
+// quadratic distance falloff out to `range` and a Lambert term against the
+// surface `normal`, shadowed by `shadow`. Zero outside the beam.
+[[nodiscard]] __device__ inline vec3
+flashlight_terrain(const render_config::flashlight_params& fl, pos3 hit_point,
+    vec3 normal, vec3 albedo, shadow_sphere shadow) {
+  vec3 to_lamp_dir{};
+  float dist = 0.0F;
+  const float cone = flashlight_spot(fl, hit_point, shadow, to_lamp_dir, dist);
+  if (cone <= 0.0F) return vec3{};
+  const float fade = __saturatef(1.0F - (dist / fl.range));
+  const float ndotl = fmaxf(dot(normal, to_lamp_dir), 0.0F);
+  return albedo * (fl.color * (fl.intensity * cone * fade * fade * ndotl));
+}
+
+// The flashlight's glossy highlight on the chrome ball: a bright Blinn-Phong
+// lobe where the ball reflects the beam toward the viewer, so the chrome
+// lights up and blows out through bloom, holding steady across poses unlike
+// the small, jittery reflection of the emitter. `ray_dir` is the ray that
+// struck the ball (a primary ray, or a mirror's reflected ray). The half
+// vector of the surface-to-lamp and surface-to-viewer directions is used, not
+// just the view: for a primary ray the lamp sits at the eye so it reduces to a
+// view-facing lobe, but for a mirror's ray the lamp is elsewhere, so the half
+// vector keeps the highlight on the lit face instead of smearing it onto the
+// side the mirror happens to see. The ball does not self-shadow, so no
+// occluder is passed.
+[[nodiscard]] __device__ inline vec3
+flashlight_gloss(const render_config::flashlight_params& fl, pos3 hit_point,
+    vec3 normal, vec3 ray_dir) {
+  vec3 to_lamp_dir{};
+  float dist = 0.0F;
+  const float cone =
+      flashlight_spot(fl, hit_point, shadow_sphere{}, to_lamp_dir, dist);
+  if (cone <= 0.0F) return vec3{};
+  // No highlight on a face the lamp does not light (the far side a mirror
+  // sees).
+  if (dot(normal, to_lamp_dir) <= 0.0F) return vec3{};
+  const float fade = __saturatef(1.0F - (dist / fl.range));
+  const vec3 half_v = normalize(to_lamp_dir + (ray_dir * -1.0F));
+  // Spread the lobe with distance so the spot grows (and `fade` dims it) the
+  // way a cone footprint does; 0 grow holds a fixed-breadth spot. Floored so a
+  // far spot does not flatten the whole ball to white.
+  const float power =
+      fmaxf(fl.gloss_power / (1.0F + (fl.gloss_grow * dist)), 1.0F);
+  // Conserve the highlight's energy as it spreads: a broader (farther) lobe is
+  // dimmer in proportion (its integral over the ball scales as 1 / (power +
+  // 1)), so the spot fades as it grows, like a cone spreading the same light
+  // over more area, instead of staying full-bright and blowing out into a flat
+  // white disc when dollied out. Unity at the near breadth (`gloss_power`);
+  // brighter as the lobe tightens toward the ball, dimmer as it broadens away.
+  const float spread = (power + 1.0F) / (fl.gloss_power + 1.0F);
+  const float lobe = powf(fmaxf(dot(normal, half_v), 0.0F), power);
+  return fl.color * (fl.gloss_strength * spread * cone * fade * lobe);
+}
+
 // Lit terrain color at surface point `hit_point`, tinted by the smoothly
-// filtered color grid.
+// filtered color grid. At night the sun is off and the ambient is dimmed, so
+// the flashlight and emissives carry the scene. `shadow` is the ball occluding
+// the flashlight (the primary and mirror views pass it; the reflection paths
+// leave it at none).
 [[nodiscard]] __device__ inline vec3
 shade_terrain_hit(const density_field& field, cudaTextureObject_t color,
-    const render_config& cfg, pos3 hit_point) {
+    const render_config& cfg, pos3 hit_point, shadow_sphere shadow = {}) {
   const vec3 normal = field.normal(hit_point);
   const vec3 light_dir = normalize(cfg.sun_direction);
   const float diffuse = fmaxf(dot(normal, light_dir), 0.0F);
@@ -67,8 +191,16 @@ shade_terrain_hit(const density_field& field, cudaTextureObject_t color,
   // in the field's coordinates, so strata seams stay smooth like the density.
   const vec3 vf = field.to_voxel(hit_point);
   const auto c = tex3D<float4>(color, vf.x + 0.5F, vf.y + 0.5F, vf.z + 0.5F);
-  return vec3{c.x, c.y, c.z} *
-         (cfg.terrain.ambient + (cfg.terrain.sun * diffuse));
+  const vec3 albedo{c.x, c.y, c.z};
+
+  const float sun_on = cfg.night ? 0.0F : 1.0F;
+  const float ambient_scale = cfg.night ? 0.1F : 1.0F;
+  const vec3 lit =
+      albedo *
+      ((cfg.terrain.ambient * ambient_scale) +
+          (cfg.terrain.sun * (diffuse * sun_on)));
+  return lit +
+         flashlight_terrain(cfg.flashlight, hit_point, normal, albedo, shadow);
 }
 
 // Signed distance from 2D point (`x`, `y`) to a regular hexagon of radius `r`

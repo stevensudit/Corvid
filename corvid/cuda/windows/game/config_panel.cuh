@@ -633,6 +633,77 @@ inline void draw_render_section(avatar_tuning& t, const avatar_tuning& d,
   if (tuned_slider("fov", fov, d.fov_deg(), 30.0F, 110.0F,
           "Vertical field of view, in degrees."))
     t.set_fov_deg(fov);
+  tuned_slider("barrel", c.fisheye_amount, dc.fisheye_amount, 0.0F, 1.0F,
+      "Barrel distortion: 0 is the rectilinear pinhole, 1 a full equidistant "
+      "fisheye. A small amount bends the edges in for a wide-angle feel "
+      "without the full-fisheye pitch nausea.");
+
+  ImGui::SeparatorText("Bloom");
+  ImGui::Checkbox("bloom", &c.bloom.enabled);
+  ImGui::SetItemTooltip("%s",
+      "Bloom the brights: a soft-thresholded, blurred copy of the HDR render "
+      "added back before the tone map. Off is a plain tone map (identical "
+      "output to before bloom existed).");
+  tuned_slider("bloom threshold", c.bloom.threshold, dc.bloom.threshold, 0.0F,
+      4.0F,
+      "Luma at which a pixel starts to bloom. Lower blooms more of the scene; "
+      "raise it to restrict bloom to the hottest highlights.");
+  tuned_slider("bloom knee", c.bloom.knee, dc.bloom.knee, 0.0F, 1.0F,
+      "Soft-threshold width below the threshold: how gradually a pixel fades "
+      "into blooming as it brightens (0 is a hard cutoff).");
+  tuned_slider("bloom intensity", c.bloom.intensity, dc.bloom.intensity, 0.0F,
+      2.0F, "How much of the blurred bloom is added back over the image.");
+  tuned_slider("bloom radius", c.bloom.sigma, dc.bloom.sigma, 0.5F, 8.0F,
+      "Gaussian blur radius for the bloom, in half-resolution texels. Wider "
+      "spreads the glow farther.");
+  ImGui::Spacing();
+
+  ImGui::SeparatorText("Lighting");
+  ImGui::Checkbox("night", &c.night);
+  ImGui::SetItemTooltip("%s",
+      "Turn off the sun and darken the sky and ambient, as though it were "
+      "night, so there is darkness to test the flashlight against.");
+  ImGui::Text("flashlight (F): %s", c.flashlight.enabled ? "on" : "off");
+  tuned_color("flashlight color", c.flashlight.color, dc.flashlight.color,
+      "Flashlight beam color.");
+  tuned_slider("flashlight power", c.flashlight.intensity,
+      dc.flashlight.intensity, 0.0F, 12.0F, "Flashlight brightness.");
+  tuned_slider("flashlight range", c.flashlight.range, dc.flashlight.range,
+      5.0F, 120.0F, "How far the beam reaches, world units.");
+  tuned_slider("flashlight cone", c.flashlight.cone_degrees,
+      dc.flashlight.cone_degrees, 5.0F, 70.0F,
+      "Beam half-angle, degrees: how wide the cone opens.");
+  tuned_slider("flashlight softness", c.flashlight.softness,
+      dc.flashlight.softness, 0.0F, 5.0F,
+      "How soft the cone edge is: 0 is a hard circle, 1 fades from the "
+      "center.");
+  tuned_slider("flashlight shadow soft", c.flashlight.shadow_softness,
+      dc.flashlight.shadow_softness, 0.0F, 3.0F,
+      "Penumbra of the ball's shadow, as a fraction of the ball radius: wider "
+      "fades the shadow edge so it shows around the ball that hides the "
+      "umbra. "
+      "0 is a hard shadow.");
+  tuned_slider("flashlight source", c.flashlight.source_strength,
+      dc.flashlight.source_strength, 0.0F, 64.0F,
+      "Brightness of the lamp emitter on the head (the eye's iris segments): "
+      "the ball's reflection of it is the glint, so raise it until that blows "
+      "out through bloom.");
+  tuned_slider("flashlight gloss", c.flashlight.gloss_strength,
+      dc.flashlight.gloss_strength, 0.0F, 40.0F,
+      "Brightness of the ball's glossy catch of the beam: the broad highlight "
+      "that makes the chrome light up. Raise until it blows out.");
+  tuned_slider("flashlight gloss tight", c.flashlight.gloss_power,
+      dc.flashlight.gloss_power, 1.0F, 32.0F,
+      "Breadth of the ball's glossy catch near the ball: lower spreads it "
+      "over "
+      "the ball, higher tightens it to a smaller spot.");
+  tuned_slider("flashlight gloss grow", c.flashlight.gloss_grow,
+      dc.flashlight.gloss_grow, 0.0F, 0.5F,
+      "How much the glossy spot spreads (and dims) with distance, like a cone "
+      "footprint: 0 holds a fixed-breadth spot, higher grows it as the ball "
+      "gets farther.");
+  ImGui::Spacing();
+
   ImGui::Checkbox("debug raw ball", &c.debug_ball_raw);
   ImGui::SetItemTooltip("%s",
       "Show the ball reflection undimmed, to tell a real black artifact from "
@@ -682,6 +753,12 @@ inline void draw_reticle_section(render_config& c, const render_config& dc) {
       "Crosshair spokes from the center to the inner hexagon vertices (0 "
       "none, "
       "3 alternating, 6 all).");
+  tuned_slider("max dig distance", c.reticle.max_dig_distance,
+      dc.reticle.max_dig_distance, 2.0F, 64.0F,
+      "Max dig reach from the ball, world units: a target farther than this "
+      "drops the inner crosshair and blocks the dig, the same as when the "
+      "ball "
+      "occludes the aim.");
   ImGui::TreePop();
 }
 

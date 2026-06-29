@@ -223,7 +223,7 @@ struct avatar_tuning {
   }
 
 private:
-  float fov_deg_ = 60.0F; // vertical field of view, degrees
+  float fov_deg_ = 45.0F; // vertical field of view, degrees
   float tan_half_fov_ = tanf(60.0F * radians::per_degree * 0.5F);
 };
 

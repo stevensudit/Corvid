@@ -107,6 +107,12 @@ public:
     const metal_ball ball = rig_.ball();
     const saucer_head head = rig_.head(render_cfg_.head);
 
+    // The flashlight is a headlamp: it rides the eye and points along the
+    // view.
+    render_cfg_.flashlight.enabled = flashlight_on_;
+    render_cfg_.flashlight.origin = rays.eye;
+    render_cfg_.flashlight.direction = rays.frame.forward;
+
     if (active) {
       update_reticle(rays, ball, dt);
       dig(dt);
@@ -132,7 +138,7 @@ private:
   [[nodiscard]] bool handle_events() {
     const auto action = sdl::pump_events([&](const sdl::sdl_event& ev) {
       return handle_viewer_event(ev, imgui_, show_config_, input_, win_,
-          digging_, active_tool_);
+          digging_, active_tool_, flashlight_on_);
     });
     if (action == sdl::frame_action::quit) return false;
     if (action == sdl::frame_action::resize) presenter_.resize().or_throw();
@@ -249,7 +255,7 @@ private:
     if (active_tool_ != active_tool::dig || !input_.looking || input_.fast) {
       render_cfg_.reticle.enabled = false;
       pick_state_.hit = false;
-      aim_through_ball_ = false;
+      dig_blocked_ = false;
       return;
     }
 
@@ -258,16 +264,25 @@ private:
     dig_target_.store(pick_state_).or_throw();
     render_cfg_.reticle.enabled = pick_state_.hit;
 
-    // The dig beam leaves the ball, so it cannot fire through the ball at a
-    // target the ball itself occludes. When the aim ray meets the ball nearer
-    // than the terrain, drop the inner crosshair and block the dig; the outer
-    // ring still shows the footprint, nudging the player to dolly to the
-    // jockey to dig ahead.
+    // The dig is blocked when the ball occludes the aim or the target is out
+    // of range, both of which drop the inner crosshair and disable the brush;
+    // the outer ring still shows the footprint, nudging the player to dolly to
+    // the jockey or close in. The dig beam leaves the ball, so it cannot fire
+    // through the ball when the aim ray meets it nearer than the terrain; and
+    // digging is a close-range action, so a hit past `max_dig_distance` (from
+    // the eye) is also refused.
     const float t_ball = ball.intersect(rays.eye, aim);
     const float t_hit =
         pick_state_.hit ? length(pick_state_.point - rays.eye) : big_value;
-    aim_through_ball_ = (t_ball >= 0.0F) && (t_ball < t_hit);
-    render_cfg_.reticle.show_inner = !aim_through_ball_;
+    const bool aim_through_ball = (t_ball >= 0.0F) && (t_ball < t_hit);
+    // Range is measured from the ball (the digger), not the eye (the trailing
+    // camera), so the reach does not change as the camera dollies in and out.
+    const bool out_of_range =
+        pick_state_.hit &&
+        length(pick_state_.point - ball.center) >
+            render_cfg_.reticle.max_dig_distance;
+    dig_blocked_ = aim_through_ball || out_of_range;
+    render_cfg_.reticle.show_inner = !dig_blocked_;
     if (pick_state_.hit) {
       render_cfg_.reticle.center = pick_state_.point;
       // The reticle measures its azimuth against the camera's screen axes, so
@@ -285,7 +300,7 @@ private:
   // off, the button is up, or the aim missed.
   void dig(float dt) {
     if (active_tool_ != active_tool::dig || !digging_ || !pick_state_.hit ||
-        aim_through_ball_)
+        dig_blocked_)
       return;
     dig_kernel<<<dig_grid_, dig_block_>>>(volume_.surface(), field_,
         dig_target_, dig_radius_, dig_rate_ * dt);
@@ -418,14 +433,18 @@ private:
                   cuda_kernel::ceil_div(h, block_.y)};
               cuda_surface surf{array};
               ensure_gbuffer(w, h);
+              ensure_post_buffers(w, h);
+              const resolution res{static_cast<float>(w),
+                  static_cast<float>(h)};
               // Time just the render so the title can show GPU ms against the
               // whole-frame ms (GPU-bound vs CPU-bound).
               {
                 cuda_timer gpu_timer{gpu_ms_};
-                render_scene(surf, aa_gbuf_.get(), grid_dim, block_,
-                    resolution{static_cast<float>(w), static_cast<float>(h)},
+                render_scene(hdr_.get(), aa_gbuf_.get(), grid_dim, block_, res,
                     rays, field_, colors_.texture(), ball, head, mirror_,
                     render_cfg_);
+                post_process(surf, hdr_.get(), bloom_a_.get(), bloom_b_.get(),
+                    block_, res, render_cfg_);
               }
               cuda_timer::synchronize().or_throw();
             },
@@ -445,6 +464,23 @@ private:
     if (!aa_gbuf_)
       throw std::runtime_error{"failed to allocate AA prepass buffer"};
     aa_gbuf_count_ = needed;
+  }
+
+  // Grow the post-process buffers to a `w` x `h` frame: the full-res linear
+  // HDR target the render writes, and the two half-res bloom ping-pong
+  // buffers. Grow-only, like `ensure_gbuffer`; every pixel is rewritten each
+  // frame, so a resize down keeps the larger allocation with no stale data.
+  void ensure_post_buffers(int w, int h) {
+    const size_t needed = static_cast<size_t>(w) * static_cast<size_t>(h);
+    if (needed <= post_count_) return;
+    const size_t half =
+        static_cast<size_t>(bloom_dim(w)) * static_cast<size_t>(bloom_dim(h));
+    hdr_ = cuda_ptr<float4>{needed};
+    bloom_a_ = cuda_ptr<float4>{half};
+    bloom_b_ = cuda_ptr<float4>{half};
+    if (!hdr_ || !bloom_a_ || !bloom_b_)
+      throw std::runtime_error{"failed to allocate post-process buffers"};
+    post_count_ = needed;
   }
 
 #pragma endregion
@@ -522,6 +558,11 @@ private:
   // reticle and disables the dig brush.
   active_tool active_tool_ = active_tool::none;
 
+  // The flashlight headlamp, toggled by the F key. Copied into the render
+  // config each frame along with the camera eye and view direction, so the
+  // beam rides the camera.
+  bool flashlight_on_ = false;
+
 #pragma endregion
 #pragma region World grids
 
@@ -582,10 +623,11 @@ private:
   // the tool is off or the aim missed.
   dig_probe pick_state_{};
 
-  // True when the aim ray meets the ball nearer than its terrain target: the
-  // dig beam leaves the ball, so it cannot fire through the ball. Blocks the
-  // dig and hides the inner crosshair while it holds.
-  bool aim_through_ball_ = false;
+  // True when the dig is refused for this aim: the ball occludes the target
+  // (the dig beam leaves the ball, so it cannot fire through it) or the target
+  // is past `max_dig_distance`. Blocks the dig and hides the inner crosshair
+  // while it holds.
+  bool dig_blocked_ = false;
 
   // Ground-probe scratch.
   //
@@ -628,6 +670,16 @@ private:
   // `ensure_gbuffer`; `aa_gbuf_count_` is its capacity in texels.
   cuda_ptr<aa_texel> aa_gbuf_;
   size_t aa_gbuf_count_ = 0;
+
+  // The linear HDR render target (`hdr_`) the render kernels write, plus the
+  // two half-resolution bloom ping-pong buffers, all grown by
+  // `ensure_post_buffers`. The post pass blooms and tone maps `hdr_` into the
+  // interop surface. `post_count_` is `hdr_`'s capacity in pixels; the bloom
+  // buffers hold a quarter of that (half each axis).
+  cuda_ptr<float4> hdr_;
+  cuda_ptr<float4> bloom_a_;
+  cuda_ptr<float4> bloom_b_;
+  size_t post_count_ = 0;
 
   // The GPU presentation pipeline: default-constructed with the engine (a
   // device, no swapchain), then bound to the window in `init` once its

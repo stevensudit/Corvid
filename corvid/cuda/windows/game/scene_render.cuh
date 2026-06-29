@@ -122,7 +122,14 @@ namespace corvid::cuda {
   normal = head.normal(hit_point);
 
   const vec3 light_dir = normalize(cfg.sun_direction);
-  const float diffuse = fmaxf(dot(normal, light_dir), 0.0F);
+  // Night gates the sun (diffuse and specular) off and dims the ambient, so
+  // the head goes dark except its emissives and the flashlight source, instead
+  // of staying sun-lit in the mirror and the ball's reflection. The sun gate
+  // is baked into `diffuse`, so every consumer (the antenna rod, the hull)
+  // follows.
+  const float sun_on = cfg.night ? 0.0F : 1.0F;
+  const float ambient_scale = cfg.night ? 0.1F : 1.0F;
+  const float diffuse = fmaxf(dot(normal, light_dir), 0.0F) * sun_on;
 
   // The antenna stands proud of the dome (its tip wags with the eye's gimbal),
   // so classify and shade it before the dome/belly split.
@@ -263,6 +270,19 @@ namespace corvid::cuda {
         const float glow =
             hp.eye_glow_strength * static_cast<float>(cfg.reticle.enabled);
         emissive = emissive + (hp.eye_glow_color * (glow * pupil));
+
+        // The iris glass segments are the flashlight's emitter: the cells
+        // between the spokes light up into a ring around the pupil while the
+        // headlamp is on, so the head reads as the source and the ball's
+        // reflection of it becomes the glint. The frame and spokes stay as
+        // dark dividers (`1 - structure`) and the pupil stays the reticle's
+        // (`1 - pupil`); a solid lit ring reads and reflects far better than
+        // bright wires.
+        const float segment = inside * (1.0F - pupil) * (1.0F - structure);
+        const float lamp =
+            cfg.flashlight.source_strength *
+            static_cast<float>(cfg.flashlight.enabled);
+        emissive = emissive + (cfg.flashlight.color * (lamp * segment));
       }
     }
   }
@@ -365,8 +385,9 @@ namespace corvid::cuda {
   const float spec_power =
       (upside > underside) ? hp.dome_specular_power : hp.belly_specular_power;
   const float spec =
-      powf(fmaxf(dot(normal, half_v), 0.0F), spec_power) * (1.0F - eye_cover);
-  return (albedo * (hp.ambient + (hp.sun * diffuse))) +
+      powf(fmaxf(dot(normal, half_v), 0.0F), spec_power) * (1.0F - eye_cover) *
+      sun_on;
+  return (albedo * ((hp.ambient * ambient_scale) + (hp.sun * diffuse))) +
          (vec3{1.0F, 1.0F, 1.0F} * (spec * hp.specular_strength)) + emissive;
 }
 
@@ -423,6 +444,12 @@ shade_scene_ray(const density_field& field, cudaTextureObject_t color,
     col = col + (cfg.ball.hex_color *
                     (line * fade * cfg.ball.hex_strength * ball.glow));
   }
+
+  // The flashlight's glossy highlight: a broad, bright view-facing lobe where
+  // the beam strikes the ball, so the chrome catches the headlamp and blows
+  // out through bloom, steady across poses. The emitter's reflection in `env`
+  // above is the sharp sparkle on top of it.
+  col = col + flashlight_gloss(cfg.flashlight, hit_point, normal, ray_dir);
   return col;
 }
 
@@ -453,7 +480,8 @@ shade_world_ray(const density_field& field, cudaTextureObject_t color,
     kind = 3;
   }
   if (kind == 1)
-    return shade_terrain_hit(field, color, cfg, eye + (ray_dir * best));
+    return shade_terrain_hit(field, color, cfg, eye + (ray_dir * best),
+        shadow_sphere{ball.center, ball.radius});
   if (kind == 2)
     return shade_ball(field, color, ball, head, cfg, eye + (ray_dir * best),
         ray_dir);
@@ -567,11 +595,11 @@ hex_edge_radius(float angle, float apothem) {
   constexpr float coverage_eps = 1.0e-3F;
   on_edge = mask > coverage_eps;
 
-  // Dim the lone outer ring to half while the inner crosshair is dropped (the
-  // ball blocks the aim), so it reads as a no-dig hover rather than a live
-  // target.
-  const float dim = r.show_inner ? 1.0F : 0.5F;
-  return color + (r.color * (mask * r.strength * dim));
+  // The outer ring holds full strength even when the inner crosshair is
+  // dropped (ball-blocked or out of dig range): the half-dim no-dig cue
+  // clashed with the eye glow, and the missing crosshair already reads as
+  // no-dig.
+  return color + (r.color * (mask * r.strength));
 }
 
 // A primary ray's shaded color plus the geometry the adaptive-AA pass keys on:
@@ -636,7 +664,9 @@ shade_primary_ray(const density_field& field, cudaTextureObject_t color,
   else if (kind == 1) {
     const pos3 hit = eye + (ray_dir * best);
     col = apply_reticle(cfg.reticle, field, eye, ray_dir, hit, px_scale,
-        shade_terrain_hit(field, color, cfg, hit), reticle_edge);
+        shade_terrain_hit(field, color, cfg, hit,
+            shadow_sphere{ball.center, ball.radius}),
+        reticle_edge);
   } else
     col = sky_color(cfg, ray_dir);
   return ray_sample{col, best, kind, reticle_edge};

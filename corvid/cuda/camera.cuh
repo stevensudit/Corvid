@@ -67,15 +67,38 @@ struct camera_rays {
   // The vertical field of view is fixed at the camera's `fov_y`; only the
   // horizontal one scales with the aspect ratio, so a wider image shows more
   // to the sides rather than a stretched picture.
-  [[nodiscard]] __device__ vec3 ray_direction(pos2 pixel,
-      resolution res) const {
+  //
+  // `fisheye_amount` bends the projection from the default rectilinear
+  // (pinhole, 0) toward a full equidistant fisheye (1). Rectilinear grows the
+  // off-axis angle with the tangent of the screen radius (the edges stretch);
+  // equidistant grows it linearly with the radius (the edges bend in, a barrel
+  // look). The two agree at the center and at the vertical edge (radius 1), so
+  // the amount only bends the interior, and a small value gives a mild barrel.
+  [[nodiscard]] __device__ vec3 ray_direction(pos2 pixel, resolution res,
+      float fisheye_amount = 0.0F) const {
     const float aspect = res.width / res.height;
-    const float sx =
-        ((((2.0F * pixel.v.x) + 1.0F) / res.width) - 1.0F) * aspect *
-        tan_half_fov;
-    const float sy =
-        (1.0F - (((2.0F * pixel.v.y) + 1.0F) / res.height)) * tan_half_fov;
-    return normalize(frame.forward + (frame.right * sx) + (frame.up * sy));
+    // Normalized screen offsets, the vertical edge at +/-1, before the field
+    // of view scales them.
+    const float u =
+        ((((2.0F * pixel.v.x) + 1.0F) / res.width) - 1.0F) * aspect;
+    const float v = 1.0F - (((2.0F * pixel.v.y) + 1.0F) / res.height);
+    if (fisheye_amount <= 0.0F) {
+      const float sx = u * tan_half_fov;
+      const float sy = v * tan_half_fov;
+      return normalize(frame.forward + (frame.right * sx) + (frame.up * sy));
+    }
+    // Blend the off-axis angle from the rectilinear `atan(r * tan_half_fov)`
+    // toward the equidistant `r * (fov_y / 2)` (`atan(tan_half_fov)` is the
+    // vertical half-FOV), then rebuild the ray from that angle and the screen
+    // azimuth.
+    const float r = sqrtf((u * u) + (v * v));
+    if (r < 1.0e-6F) return frame.forward; // dead center, no azimuth
+    const float theta_rect = atanf(r * tan_half_fov);
+    const float theta_fish = r * atanf(tan_half_fov);
+    const float theta =
+        theta_rect + ((theta_fish - theta_rect) * fisheye_amount);
+    const vec3 screen_dir = ((frame.right * u) + (frame.up * v)) * (1.0F / r);
+    return (frame.forward * cosf(theta)) + (screen_dir * sinf(theta));
   }
 };
 
