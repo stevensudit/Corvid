@@ -16,11 +16,13 @@
 // limitations under the License.
 #pragma once
 
+#include <array>
 #include <cmath>
 #include <fstream>
 #include <memory>
 #include <optional>
 #include <stdexcept>
+#include <span>
 #include <string>
 
 #include <cuda_runtime.h>
@@ -40,6 +42,7 @@
 #include "../cuda_d3d11_presenter.cuh"
 #include "../imgui_overlay.h"
 #include "./avatar.cuh"
+#include "./avatar_body.cuh"
 #include "./avatar_rig.cuh"
 #include "./avatar_tuning.cuh"
 #include "./config_panel.cuh"
@@ -114,6 +117,10 @@ public:
     render_cfg_.flashlight.direction = rays.frame.forward;
 
     if (active) {
+      if (flatten_requested_) {
+        flatten_terrain();
+        flatten_requested_ = false;
+      }
       update_reticle(rays, ball, dt);
       dig(dt);
       crush_track();
@@ -186,16 +193,25 @@ private:
     // for a debug control); `move` then holds the body but still feeds the
     // step to the tilt.
     rig_.locked = lock_position_;
-    const auto [fwd, strafe] = input_.movement(rig_.tune.move_speed);
-    rig_.move(fwd, strafe, dt);
 
-    // Gravity and ground contact. Read back the ground probe the previous
-    // frame launched under the ball: one frame stale, but issued after that
-    // frame's dig so it already reflects the edit, and ready with no stall
-    // since the present has since synced. `settle` then drops the ball, rests
-    // it on the surface, applies any jump, and fences it inside the box.
+    // Read back the ground probe the previous frame launched under the ball:
+    // one frame stale, but issued after that frame's dig so it already
+    // reflects the edit, and ready with no stall since the present has since
+    // synced. Both physics paths settle against it.
     if (ground_primed_) ground_target_.store(ground_state_).or_throw();
-    rig_.settle(ground_state_, input_.take_jump(), world_min_, world_max_, dt);
+
+    // Drive the avatar: the new rigid body (the A/B) or the shipped rig. The
+    // body path owns the position and feeds the rig for rendering; the rig
+    // path is the original momentum `move` then gravity-and-contact `settle`.
+    if (use_body_physics_) {
+      advance_body(dt);
+    } else {
+      const auto [fwd, strafe] = input_.movement(rig_.tune.move_speed);
+      rig_.move(fwd, strafe, dt);
+      rig_.settle(ground_state_, input_.take_jump(), world_min_, world_max_,
+          dt);
+      body_primed_ = false; // reseed the body from the rig when it next runs
+    }
     log_collision();
 
     // The mouse wheel aims the zoom between the trailing distance and the
@@ -210,17 +226,100 @@ private:
     rig_.update(dt, input_.looking);
   }
 
+  // Drive the avatar with the rigid body (the A/B alternative to move +
+  // settle).
+  //
+  // The body owns its position and velocity; this builds its contact from the
+  // same one-frame-stale ground probe the rig uses, drives it from the input,
+  // applies the probe's wall and ceiling push (the single floor contact alone
+  // misses those), fences it in the world box, and reads its state back into
+  // the rig for the camera, head, and motion grid. The treadmill (lock
+  // position) is not supported on this path.
+  void advance_body(float dt) {
+    // Seed the body from the rig on the first body frame after a switch, so
+    // the handoff is seamless; the rig is kept in sync every body frame after.
+    if (!body_primed_) {
+      body_.center = rig_.anchor;
+      body_.velocity = rig_.ground_vel + (body_up * rig_.vel_y);
+      body_.angular_velocity = vec3{};
+      body_.grounded = rig_.grounded;
+      body_primed_ = true;
+    }
+    // Keep the collision radius matched to the drawn ball; the body's other
+    // constants are its own (tuned in the panel), not mirrored from the rig.
+    body_.params.radius = rig_.tune.ball_radius;
+
+    // The floor contact, from the stale probe (the same penetration band as
+    // the rig's grounded test).
+    const float pen = rig_.tune.ball_radius - ground_state_.surface_dist;
+    const body_contact contact{.touching = pen > -rig_.tune.ground_tol,
+        .normal = ground_state_.normal,
+        .penetration = pen};
+
+    // The drive command in world space: the input's heading-frame target as a
+    // fraction of the body's drive force (1 walking, up to 3 running).
+    const auto [fwd, strafe] = input_.movement();
+    const vec3 hfwd{cos(rig_.heading), 0.0F, sin(rig_.heading)};
+    const vec3 hright{-sin(rig_.heading), 0.0F, cos(rig_.heading)};
+    const vec3 drive = (hfwd * fwd) + (hright * strafe);
+    const bool driving = (fabsf(fwd) + fabsf(strafe)) > 1.0e-4F;
+
+    body_.advance(contact, drive, input_.take_jump(), dt);
+
+    // Lift out of a wall or ceiling the center floor contact missed, damped
+    // like the rig (the probe is stale and sparse), and stop the drive into a
+    // wall, recording it for the stain. `confined` is left for the camera.
+    body_.center += ground_state_.push * rig_.tune.collision_damp;
+    rig_.walled = length(ground_state_.wall_normal) > 0.5F;
+    rig_.confined = ground_state_.overhead;
+    rig_.wall_press = 0.0F;
+    if (rig_.walled)
+      if (const float into = dot(body_.velocity, ground_state_.wall_normal);
+          into < 0.0F)
+      {
+        body_.velocity -= ground_state_.wall_normal * into;
+        rig_.wall_press = -into * dt;
+        rig_.wall_contact =
+            body_.center - (ground_state_.wall_normal * rig_.tune.ball_radius);
+      }
+
+    fence_body();
+    rig_.drive_from_body(body_, driving, input_.fast, dt);
+  }
+
+  // Clamp the body one radius inside the world box, killing the velocity into
+  // a face it hits (the body has no world bounds of its own; the rig's `fence`
+  // does this on the shipped path).
+  void fence_body() {
+    const float r = body_.params.radius;
+    const float cx =
+        fminf(fmaxf(body_.center.v.x, world_min_.x + r), world_max_.x - r);
+    const float cy =
+        fminf(fmaxf(body_.center.v.y, world_min_.y + r), world_max_.y - r);
+    const float cz =
+        fminf(fmaxf(body_.center.v.z, world_min_.z + r), world_max_.z - r);
+    if (cx != body_.center.v.x) body_.velocity.x = 0.0F;
+    if (cy != body_.center.v.y) body_.velocity.y = 0.0F;
+    if (cz != body_.center.v.z) body_.velocity.z = 0.0F;
+    body_.center.v = vec3{cx, cy, cz};
+  }
+
   // Refresh the title bar's fps/ms readout once a stats window passes a
   // second.
   void update_title(float dt) {
     if (const auto report = stats_.record(dt)) {
-      char title[160];
-      SDL_snprintf(title, sizeof(title),
+      // Planar speed of the avatar (world units per second), the speedometer,
+      // and which physics path drove it, so the A/B reads at a glance.
+      const float speed = sqrtf(
+          (rig_.ground_vel.x * rig_.ground_vel.x) +
+          (rig_.ground_vel.z * rig_.ground_vel.z));
+      std::array<char, 192> title;
+      SDL_snprintf(title.data(), title.size(),
           "Corvid Voxel Viewer - %.0f fps  %.1f/%.1f/%.1f ms (min/avg/max)  "
-          "GPU %.1f ms",
-          report->fps, report->min_ms, report->avg_ms, report->max_ms,
-          gpu_ms_);
-      SDL_SetWindowTitle(win_, title);
+          "GPU %.1f ms  spd %.1f (%s)",
+          report->fps, report->min_ms, report->avg_ms, report->max_ms, gpu_ms_,
+          speed, use_body_physics_ ? "body" : "rig");
+      SDL_SetWindowTitle(win_, title.data());
     }
   }
 
@@ -410,6 +509,14 @@ private:
     ground_primed_ = true;
   }
 
+  // Flatten the whole world to a level plane at the ball's feet: a test track
+  // for measuring speeds. Triggered by the panel button
+  // (`flatten_requested_`); the dug shape is lost.
+  void flatten_terrain() {
+    flatten_world(field_, volume_, materials_, colors_,
+        rig_.anchor.v.y - rig_.tune.ball_radius);
+  }
+
   // Build the config panel, then render the scene and present. The voxel
   // kernel fills the interop target (timed on its own for the title's GPU ms),
   // and the ImGui overlay draws over the backbuffer before the present.
@@ -422,7 +529,8 @@ private:
     if (show_config_)
       draw_config_panel(rig_.tune, tuning_defaults_, render_cfg_,
           render_defaults_, freeze_camera_, lock_position_, uncap_fps_,
-          log_collision_);
+          log_collision_, use_body_physics_, body_.params, body_defaults_,
+          flatten_requested_, input_.run_multiplier);
 
     const int sync_interval = present_sync_interval(win_, uncap_fps_);
 
@@ -652,6 +760,20 @@ private:
   avatar_rig rig_{pos3{vec3{0.0F, 10.0F, 0.0F}},
       orientation{90.0_deg, -20.0_deg}, 90.0_deg, 7.0F, 7.0F};
   const avatar_tuning tuning_defaults_{};
+
+  // Keystone A: the rigid-body physics, an A/B alternative to the rig's eased
+  // move + settle, selected by `use_body_physics_` (a panel checkbox). The
+  // body owns its position and feeds the rig for rendering; `body_defaults_`
+  // is the panel's baseline, and `body_primed_` seeds the body from the rig
+  // the first frame it runs after a switch.
+  avatar_body body_;
+  const body_params body_defaults_{};
+  bool body_primed_ = false;
+  bool use_body_physics_ = false;
+
+  // One-shot: flatten the world to a level test track at the ball's feet, set
+  // by a panel button and consumed in `tick`.
+  bool flatten_requested_ = false;
 
   // The live shading config (sky, terrain, ball, head, anti-alias), edited by
   // the panel and passed to the kernel each frame; the defaults instance is

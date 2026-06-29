@@ -19,6 +19,7 @@
 #include "imgui.h"
 
 #include "../../vec.cuh"
+#include "./avatar_body.cuh"
 #include "./render_config.cuh"
 #include "./avatar_tuning.cuh"
 
@@ -556,6 +557,58 @@ inline void draw_movement_section(avatar_tuning& t, const avatar_tuning& d) {
   ImGui::TreePop();
 }
 
+// Body physics (A/B): the rigid body's constants, the keystone-A alternative
+// to the rig's eased move + settle (toggle "body physics" at the top). The
+// radius is shared with the drawn ball (in the Body section), so it is not
+// repeated here.
+inline void draw_body_physics_section(body_params& p, const body_params& d,
+    float& run_multiplier) {
+  if (!ImGui::TreeNode("Body physics (A/B)")) return;
+  tuned_slider("mass", p.mass, d.mass, 0.1F, 20.0F,
+      "Ball mass: sets the rotational inertia and the contact normal load. It "
+      "cancels out of the friction-angle threshold but scales how fast a "
+      "force "
+      "spins the ball up.");
+  tuned_slider("gravity", p.gravity, d.gravity, 0.0F, 60.0F,
+      "Downward acceleration on the body, units per second squared.");
+  tuned_slider("drive force", p.drive_force, d.drive_force, 0.0F, 200.0F,
+      "Peak traction force the player commands at full walk. Friction caps "
+      "what "
+      "reaches the ground, so a command past the budget skids instead of "
+      "accelerating.");
+  tuned_slider("run mult", run_multiplier, 3.0F, 1.0F, 6.0F,
+      "How many times the walk drive Run (Shift) commands; the run cruise is "
+      "this times the walk cruise, as long as friction leaves the bigger "
+      "drive "
+      "headroom below the traction ceiling. (An input mapping, shared with "
+      "the "
+      "old rig.)");
+  tuned_slider("friction", p.friction, d.friction, 0.0F, 10.0F,
+      "Contact friction coefficient (mu): the ball holds a slope up to "
+      "atan(mu) and slips above it, and mu bounds the drive before it skids. "
+      "Raise it above run mult * drive force / gravity so even Run sits below "
+      "the traction ceiling and reaches its full cruise instead of skidding.");
+  tuned_slider("drag", p.drag, d.drag, 0.0F, 4.0F,
+      "Quadratic resistance (force ~ speed^2) that sets the cruise speed: "
+      "terminal is sqrt(drive acceleration / this), so Run's bigger drive "
+      "settles higher super-linearly (the rolling-resistance offset lets a 3x "
+      "power ratio reach roughly a 3x speed ratio). 0 removes the cap.");
+  tuned_slider("jump speed", p.jump_speed, d.jump_speed, 0.0F, 30.0F,
+      "Launch speed on a grounded jump; height is jump_speed^2 / (2 * "
+      "gravity).");
+  tuned_slider("jump up", p.jump_up, d.jump_up, 0.0F, 1.0F,
+      "Jump direction: 1 launches straight up (propulsion, leaps regardless "
+      "of "
+      "the ground), 0 along the contact normal (pushes off the surface, up "
+      "and "
+      "out of a pit but backward off an uphill ramp). Blend to taste.");
+  tuned_slider("rolling resistance", p.rolling_resistance,
+      d.rolling_resistance, 0.0F, 30.0F,
+      "Constant coasting brake that brings a rolling ball fully to rest (drag "
+      "alone only asymptotes); 0 lets a perfect ball roll on forever.");
+  ImGui::TreePop();
+}
+
 // Sky gradient, sun direction, and sun glow.
 inline void draw_sky_section(render_config& c, const render_config& dc) {
   if (!ImGui::TreeNode("Sky")) return;
@@ -790,7 +843,9 @@ draw_animation_rigging_section(avatar_tuning& t, const avatar_tuning& d) {
 // disabled, so this default holds every run).
 inline void draw_config_panel(avatar_tuning& t, const avatar_tuning& d,
     render_config& c, const render_config& dc, bool& freeze_camera,
-    bool& lock_position, bool& uncap_fps, bool& log_collision) {
+    bool& lock_position, bool& uncap_fps, bool& log_collision,
+    bool& use_body_physics, body_params& bp, const body_params& bpd,
+    bool& flatten_requested, float& run_multiplier) {
   const ImGuiViewport* vp = ImGui::GetMainViewport();
   ImGui::SetNextWindowPos(vp->GetCenter(), ImGuiCond_FirstUseEver,
       ImVec2(0.5F, 0.5F));
@@ -801,6 +856,13 @@ inline void draw_config_panel(avatar_tuning& t, const avatar_tuning& d,
     t = d;
     c = dc;
   }
+  ImGui::SameLine();
+  if (ImGui::Button("Flatten terrain")) flatten_requested = true;
+  ImGui::SetItemTooltip("%s",
+      "Flatten the whole world to a level plane at the ball's feet: a test "
+      "track for measuring speeds. Overwrites the terrain, so the dug shape "
+      "is "
+      "lost.");
   ImGui::Checkbox("freeze camera", &freeze_camera);
   ImGui::SetItemTooltip("%s",
       "Observer mode: pin the camera in place and draw the saucer head, "
@@ -828,6 +890,13 @@ inline void draw_config_panel(avatar_tuning& t, const avatar_tuning& d,
       "velocity, probe normal/distance, push, wall normal, the grounded and "
       "overhead flags) to collision_log.csv in the prefs folder, to diagnose "
       "settle instability. Off closes the file.");
+  ImGui::Checkbox("body physics (A/B)", &use_body_physics);
+  ImGui::SetItemTooltip("%s",
+      "A/B: drive the avatar with the new rigid-body physics (avatar_body) "
+      "instead of the shipped move/settle rig, to compare the feel. Tune it "
+      "in "
+      "the 'Body physics (A/B)' section. The treadmill (lock position) is not "
+      "supported in body mode.");
   draw_body_section(t, d, c, dc);
   draw_head_section(t, d, c, dc);
   draw_saucer_section(t, d, c, dc);
@@ -835,6 +904,7 @@ inline void draw_config_panel(avatar_tuning& t, const avatar_tuning& d,
   draw_eye_section(t, d, c, dc);
   draw_antenna_section(t, d, c, dc);
   draw_movement_section(t, d);
+  draw_body_physics_section(bp, bpd, run_multiplier);
   draw_sky_section(c, dc);
   draw_terrain_section(c, dc);
   draw_march_section(c, dc);

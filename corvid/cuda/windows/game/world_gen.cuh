@@ -79,26 +79,21 @@ __global__ void erode_kernel(const float* src, float* dst, int width,
   dst[(iz * width) + ix] = h + delta;
 }
 
-// Fill the grids from the (eroded) heightfield: the geometry density (solid
-// below the surface, air above), the material tier by depth, and the color
-// seeded from that tier with per-cell brightness and tint variation, so a band
-// is not one flat color.
-__global__ void fill_kernel(cudaSurfaceObject_t density_surface,
+// Fill one voxel from the `surface_height` of its column: the geometry density
+// (solid below the surface, air above), the material tier by depth, and the
+// color seeded from that tier with per-cell brightness and tint variation, so
+// a band is not one flat color. Shared by the world-gen fill and the flatten
+// brush, which differ only in where the surface height comes from.
+__device__ inline void fill_voxel(cudaSurfaceObject_t density_surface,
     cudaSurfaceObject_t material_surface, cudaSurfaceObject_t color_surface,
-    const float* height, int height_width, density_field field) {
-  const int ix = cuda_kernel::x_index();
-  const int iy = cuda_kernel::y_index();
-  const int iz = cuda_kernel::z_index();
-  const int3 voxel = make_int3(ix, iy, iz);
-  if (!field.contains(voxel)) return;
-
+    const density_field& field, int3 voxel, float surface_height) {
   const vec3 w = field.voxel_center(voxel).v;
-  const float density = height[(iz * height_width) + ix] - w.y;
-  surf3Dwrite(density, density_surface, ix * static_cast<int>(sizeof(float)),
-      iy, iz);
+  const float density = surface_height - w.y;
+  surf3Dwrite(density, density_surface,
+      voxel.x * static_cast<int>(sizeof(float)), voxel.y, voxel.z);
   const uint16_t tier = strata::tier_for_depth(density);
-  surf3Dwrite(tier, material_surface, ix * static_cast<int>(sizeof(uint16_t)),
-      iy, iz);
+  surf3Dwrite(tier, material_surface,
+      voxel.x * static_cast<int>(sizeof(uint16_t)), voxel.y, voxel.z);
 
   // Vary brightness and tint with 3D fractal noise in world space, so the
   // filtered color mottles organically instead of revealing a grid.
@@ -112,7 +107,33 @@ __global__ void fill_kernel(cudaSurfaceObject_t density_surface,
   const vec3 tint{0.94F + (0.12F * warm), 1.0F, 1.06F - (0.12F * warm)};
   const vec3 c = base * shade * tint;
   surf3Dwrite(make_uchar4(to_unorm8(c.x), to_unorm8(c.y), to_unorm8(c.z), 255),
-      color_surface, ix * static_cast<int>(sizeof(uchar4)), iy, iz);
+      color_surface, voxel.x * static_cast<int>(sizeof(uchar4)), voxel.y,
+      voxel.z);
+}
+
+// Fill the grids from the (eroded) heightfield: each column's surface is its
+// heightfield sample.
+__global__ void fill_kernel(cudaSurfaceObject_t density_surface,
+    cudaSurfaceObject_t material_surface, cudaSurfaceObject_t color_surface,
+    const float* height, int height_width, density_field field) {
+  const int3 voxel = make_int3(cuda_kernel::x_index(), cuda_kernel::y_index(),
+      cuda_kernel::z_index());
+  if (!field.contains(voxel)) return;
+  fill_voxel(density_surface, material_surface, color_surface, field, voxel,
+      height[(voxel.z * height_width) + voxel.x]);
+}
+
+// Overwrite every voxel with a level surface at world height `flat_height`: a
+// flat test track for measuring speeds. The same per-voxel fill as world-gen
+// with a constant surface height, so the strata coloring stays correct.
+__global__ void flatten_kernel(cudaSurfaceObject_t density_surface,
+    cudaSurfaceObject_t material_surface, cudaSurfaceObject_t color_surface,
+    density_field field, float flat_height) {
+  const int3 voxel = make_int3(cuda_kernel::x_index(), cuda_kernel::y_index(),
+      cuda_kernel::z_index());
+  if (!field.contains(voxel)) return;
+  fill_voxel(density_surface, material_surface, color_surface, field, voxel,
+      flat_height);
 }
 
 #pragma endregion
@@ -162,6 +183,22 @@ inline void generate_world(const density_field& field,
       cuda_kernel::ceil_div(extent.depth, fill_block.z)};
   fill_kernel<<<fill_grid, fill_block>>>(volume.surface(), materials.surface(),
       colors.surface(), height_src, height_w, field);
+  cuda_last_status{cudaDeviceSynchronize()}.or_throw();
+}
+
+// Flatten the whole world to a level surface at `flat_height` (world units): a
+// test track for measuring speeds. Overwrites all three grids (the dug shape
+// is lost); synchronous, a one-shot user action.
+inline void flatten_world(const density_field& field,
+    const cuda_volume<float>& volume, const material_volume& materials,
+    const color_volume& colors, float flat_height) {
+  const cudaExtent extent = field.extent;
+  const dim3 block{8, 8, 8};
+  const dim3 grid{cuda_kernel::ceil_div(extent.width, block.x),
+      cuda_kernel::ceil_div(extent.height, block.y),
+      cuda_kernel::ceil_div(extent.depth, block.z)};
+  flatten_kernel<<<grid, block>>>(volume.surface(), materials.surface(),
+      colors.surface(), field, flat_height);
   cuda_last_status{cudaDeviceSynchronize()}.or_throw();
 }
 

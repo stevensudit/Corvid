@@ -25,6 +25,7 @@
 #include "../../radians.cuh"
 #include "../../vec.cuh"
 #include "./avatar.cuh"
+#include "./avatar_body.cuh"
 #include "./avatar_tuning.cuh"
 #include "./field_ops.cuh"
 #include "./render_config.cuh"
@@ -438,6 +439,33 @@ struct avatar_rig {
     anchor.v.x = cx;
     anchor.v.y = cy;
     anchor.v.z = cz;
+  }
+
+  // Pose the rig from the physical body for rendering.
+  //
+  // The alternate to `move` plus `settle`, used when the body physics is
+  // selected (the A/B): the `avatar_body` simulation owns the position,
+  // velocity, and spin, and this reads them into the rig's state so the head,
+  // camera, and the rolling motion grid follow it. `update` then animates from
+  // these exactly as on the shipped path. The wireframe scrolls at the body's
+  // true roll rate, its axis along the body's spin, so the spin the body
+  // carries drives the grid instead of the travel-derived fake.
+  void drive_from_body(const avatar_body& body, bool driving, bool running,
+      float dt) {
+    anchor = body.center;
+    ground_vel = vec3{body.velocity.x, 0.0F, body.velocity.z};
+    vel_y = body.velocity.y;
+    grounded = body.grounded;
+    this->driving = driving;
+    this->running = running;
+    const vec3 ground{ground_vel.x * dt, 0.0F, ground_vel.z * dt};
+    moving = length(ground);
+    wheel_spin = moving;
+    if (const float omega = length(body.angular_velocity); omega > 1.0e-6F) {
+      ball_roll_axis = normalize(body.angular_velocity);
+      ball_roll_phase = fmodf(
+          ball_roll_phase + (omega * dt * tune.ball_grid_roll_gain), 1.0F);
+    }
   }
 
 #pragma endregion

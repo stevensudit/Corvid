@@ -193,6 +193,13 @@ struct vec3 {
     return d - (n * (2.0F * dot(d, n)));
   }
 
+  // The component of `v` perpendicular to unit `n` (the vector rejection of
+  // `v` from `n`): `v` with its projection onto `n` removed, flattening it
+  // onto the plane through the origin with normal `n`.
+  [[nodiscard]] friend __host__ __device__ vec3 reject(vec3 v, vec3 n) {
+    return v - (n * dot(v, n));
+  }
+
   // Rotate `v` about unit `axis` by `angle` (Rodrigues' rotation formula).
   [[nodiscard]] friend __host__ __device__ vec3 rotate_about(vec3 v, vec3 axis,
       radians angle) {

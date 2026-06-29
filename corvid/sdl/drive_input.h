@@ -55,6 +55,9 @@ struct drive_input {
   // speed).
   float look_sensitivity = 0.0025F;
   float scroll_step = 1.0F;
+  // The speed multiple Run (Shift) commands over Walk; `movement` scales the
+  // target by it.
+  float run_multiplier = 5.0F;
   one_euro_filter look_filter{60.0F, 0.001F};
 
   // Whether mouse-look is active: held while the right button is down, which
@@ -164,7 +167,7 @@ struct drive_input {
   // momentum (see `avatar_rig::move`); there is no vertical, gravity owns it.
   [[nodiscard]] std::pair<float, float> movement(
       float speed_multiplier = 1.0F) const {
-    const float speed = speed_multiplier * (fast ? 3.0F : 1.0F);
+    const float speed = speed_multiplier * (fast ? run_multiplier : 1.0F);
     float forward_move = (forward ? speed : 0.0F) - (back ? speed : 0.0F);
     float sideways_move = (right ? speed : 0.0F) - (left ? speed : 0.0F);
     if (const float planar = std::hypot(forward_move, sideways_move);
