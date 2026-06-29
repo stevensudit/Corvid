@@ -61,10 +61,10 @@ namespace corvid::cuda {
 // frame the travel. The head flies to its seat at a bounded speed, so it never
 // snaps around the boom.
 //
-// The ball falls under gravity and rests on the terrain: `move` drives it
-// along the ground and `settle` pulls it down, resolves the surface contact
-// along the normal (so it climbs slopes and slides off steep ones), and keeps
-// it inside the world box.
+// The ball falls under gravity and rests on the terrain. The rigid-body
+// simulation (`avatar_body`, stepped by the engine) owns that motion; the rig
+// reads its result through `drive_from_body` for rendering, the head, and the
+// camera.
 struct avatar_rig {
 #pragma region State
 
@@ -73,13 +73,11 @@ struct avatar_rig {
   radians heading{};   // yaw the head sits along; tracks the look while moving
   float boom{};        // head distance behind the ball, jockey to trailing
   float boom_target{}; // where the wheel's taking the boom; `update` eases
-  vec3 ground_vel{};   // horizontal velocity, eased by `move` (momentum)
-  float vel_y{};       // vertical velocity, integrated by `settle` (gravity)
-  bool grounded{}; // in surface contact on `settle` (any steepness): the ball
-                   // can jump and has traction. Steepness gates climbing, not
-                   // this (see `can_climb`).
-  bool walled{};   // a wall at the equator on `settle`: buried to the waist
-  bool running{};  // sprinting (Run) this frame, set by `move`
+  vec3 ground_vel{};   // horizontal velocity, synced from the body
+  float vel_y{};       // vertical velocity, synced from the body
+  bool grounded{};     // on floor (can jump, has traction), synced from body
+  bool walled{};       // a wall at the equator (buried to the waist)
+  bool running{};      // sprinting (Run) this frame, synced from the body
   bool confined{}; // a ceiling overhead: in a too-short tunnel (for the dolly)
   pos3 wall_contact{};  // where the ball pressed a wall this frame, for stain
   float wall_press{};   // lateral travel a wall blocked this frame (0 if none)
@@ -91,19 +89,19 @@ struct avatar_rig {
   float spin_clock{};   // time accumulator for the idle spin reversal
   float blink_phase{};  // antenna beacon blink phase, in cycles [0..1)
   float idle_dir{1.0F}; // smoothed idle spin direction (+/-1)
-  float moving{};     // this frame's actual planar ball travel, set by `move`
-  float wheel_spin{}; // this frame's wheel roll (slips when stuck), by `move`
-  bool driving{};  // whether a movement key commanded the ball, set by `move`
-  pos3 prev_eye{}; // last frame's head position, for the head velocity
-  bool primed{};   // whether `prev_eye` holds a real previous frame
+  float moving{}; // this frame's planar ball travel, set by `drive_from_body`
+  float wheel_spin{};   // this frame's wheel roll, set by `drive_from_body`
+  bool driving{};       // whether a movement key commanded the ball this frame
+  pos3 prev_eye{};      // last frame's head position, for the head velocity
+  bool primed{};        // whether `prev_eye` holds a real previous frame
   vec3 head_offset{};   // eased head offset from the ball, flown to the seat
   bool head_primed{};   // whether `head_offset` holds a real seated offset
   bool frozen{};        // observer freeze: camera pinned, head shown
   pos3 frozen_cam{};    // the pinned camera position while `frozen`
   basis frozen_frame{}; // the pinned camera look while `frozen`
   bool locked{};        // treadmill: hold the body, animate as if moving
-  vec3 locked_step{};   // the step `move` withheld this frame while locked
-  vec3 ball_roll_axis{0.0F, 0.0F, 1.0F}; // set by `move`
+  vec3 locked_step{}; // the step withheld this frame while locked (treadmill)
+  vec3 ball_roll_axis{0.0F, 0.0F, 1.0F}; // set by `drive_from_body`
   float ball_roll_phase{};  // accumulated roll angle, scrolls the grid
   float ball_steer_phase{}; // accumulated steer fake, drifts it sideways
   float ball_glow{};        // eased motion-grid intensity (0 at rest)
@@ -158,298 +156,16 @@ struct avatar_rig {
   [[nodiscard]] pos3 eye() const { return anchor + head_offset; }
 
 #pragma endregion
-#pragma region Physics
-
-  // Drive the ball with momentum: ease its ground velocity toward the input's
-  // target velocity, then step the anchor by it.
-  //
-  // Accelerating toward a nonzero target carries the weight of getting the
-  // heavy ball going; releasing the keys brakes more gently toward zero, so
-  // the ball coasts and overshoots a stop rather than halting dead.
-  //
-  // `fwd_target` and `strafe_target` are the desired speed in the heading
-  // frame (already sprint-scaled and capped); the heading is a flat ground
-  // bearing (steering swings it in `update`, so the ball arcs), so looking up
-  // never lifts the ball, the vertical being gravity's in `settle`.
-  //
-  // Only the ground has traction: airborne the ball keeps its velocity (no air
-  // control) while the wheels still spin to the input, so the grid spins in
-  // the air without the ball accelerating. The grid rolls with the wheels (the
-  // actual travel on the ground, the commanded spin in the air), recorded as
-  // `moving` for `update`.
-  void move(float fwd_target, float strafe_target, float dt) {
-    const vec3 fwd{cos(heading), 0.0F, sin(heading)};
-    const vec3 right{-sin(heading), 0.0F, cos(heading)};
-    const vec3 target_vel = (fwd * fwd_target) + (right * strafe_target);
-    // Below this the commanded speed counts as no input (a deadzone against
-    // key/controller noise); the exact size is not critical, only that it is
-    // tiny.
-    constexpr float input_deadzone = 1.0e-4F;
-    driving = (fabsf(fwd_target) + fabsf(strafe_target)) > input_deadzone;
-    // Sprinting (Run) when the commanded speed is past cruise (the input
-    // triples it): `settle` then raises the climb limit so flooring it rides
-    // the ball out of a pit a normal drive cannot.
-    running = length(target_vel) > (1.5F * tune.move_speed);
-    // Perfect traction on the ground: ease the actual velocity toward the
-    // input (momentum).
-    //
-    // Airborne there is no traction, so the ball keeps its velocity
-    // (ballistic, no air control); only the wheels respond, in the grid below.
-    if (grounded) {
-      const float rate = driving ? tune.accel_approach : tune.brake_approach;
-      ground_vel += (target_vel - ground_vel) * (1.0F - expf(-rate * dt));
-      // Snap a coasting crawl to rest so the ball does not creep forever down
-      // the exponential tail.
-      if (!driving && length(ground_vel) < tune.coast_min) ground_vel = vec3{};
-    }
-
-    const vec3 step = ground_vel * dt;
-    // The locked treadmill holds the body in place (so the distance to the
-    // mirror stays fixed for testing) but withholds the step for `update` to
-    // feed into the velocity, so the saucer still tilts and spins as if
-    // moving.
-    if (locked) {
-      locked_step = step;
-    } else {
-      anchor += step;
-      locked_step = vec3{};
-    }
-
-    // Advance the rolling motion grid by the wheel travel.
-    //
-    // The wheels spin at the commanded rate whenever there is no traction:
-    // airborne, or driving but walled (stuck against a pit it cannot climb),
-    // so the grid still spins and lights in place. With traction they roll at
-    // the actual ground travel, so the grid does not slip during a normal
-    // drive.
-    //
-    // `wheel_spin` is that grid roll; `moving` is the actual ground travel,
-    // which the track reads so spinning in place wears nothing. Scroll by the
-    // rolling-without-slipping angle (arc / radius); the phase wraps to one
-    // grid period (an integer roll, invisible at integer `hex_freq`).
-    const bool no_traction = !grounded || (driving && walled);
-    const vec3 wheel_vel = no_traction ? target_vel : ground_vel;
-    const vec3 ground{wheel_vel.x * dt, 0.0F, wheel_vel.z * dt};
-    const float dist = length(ground);
-    wheel_spin = dist;
-    moving = length(vec3{ground_vel.x * dt, 0.0F, ground_vel.z * dt});
-    // Skip the grid update on a frame with essentially no travel (a treat-as-
-    // zero guard against numerical noise; the exact size is not critical).
-    constexpr float motion_epsilon = 1.0e-6F;
-    if (dist > motion_epsilon) {
-      // The roll axis is a line, not a directed vector: rolling forward and
-      // backward along one heading share it and differ only in spin direction,
-      // like a tire reversing.
-      //
-      // So aim at whichever orientation of the travel's perpendicular is
-      // nearer the current axis and carry the sense in the scroll sign. A
-      // reversal (180 deg) then keeps the axis and just flips the scroll,
-      // instead of swiveling the axis through a half turn; a turn (a strafe,
-      // steering) eases the axis the short way at `ball_grid_turn_rate`.
-      vec3 target = normalize(cross(camera::world_up, ground));
-      float scroll_dir = 1.0F;
-      if (dot(ball_roll_axis, target) < 0.0F) {
-        target = -target;
-        scroll_dir = -1.0F;
-      }
-      const float cosang =
-          fminf(fmaxf(dot(ball_roll_axis, target), -1.0F), 1.0F);
-      const float ang = acosf(cosang);
-      // Only swing the axis when the turn is non-negligible: avoids churn and
-      // the near-zero-angle case (exact size not critical).
-      constexpr float angle_epsilon = 1.0e-5F;
-      if (ang > angle_epsilon) {
-        const float frac = 1.0F - expf(-tune.ball_grid_turn_rate * dt);
-        const float sy = cross(ball_roll_axis, target).y;
-        const float sgn = sy < 0.0F ? -1.0F : 1.0F;
-        ball_roll_axis = rotate_about(ball_roll_axis, camera::world_up,
-            radians{sgn * ang * frac});
-      }
-      // The scroll gain eases with the ball's own speed instead of switching
-      // on the Shift key, so a sprint change never jolts the grid: a hard key
-      // flip would swap the gain in one frame while the momentum-eased speed
-      // it multiplies still lagged, spiking the scroll through the transition.
-      // The gain holds at `ball_grid_roll_gain` up to the cruise speed, then
-      // eases toward `ball_grid_roll_gain * ball_grid_roll_gain_fast_mult` as
-      // the speed climbs to the sprint top (three times cruise), keeping the
-      // faster roll readable rather than strobing. The scroll sign reverses
-      // when backing up, so the grid flows backward without the axis turning.
-      constexpr float sprint_speed_mult = 3.0F; // mirrors drive_input's sprint
-      const float speed = dist / dt;
-      const float cruise = tune.move_speed;
-      const float fast_frac = fminf(
-          fmaxf((speed - cruise) / ((sprint_speed_mult - 1.0F) * cruise),
-              0.0F),
-          1.0F);
-      const float gain =
-          tune.ball_grid_roll_gain *
-          (1.0F + ((tune.ball_grid_roll_gain_fast_mult - 1.0F) * fast_frac));
-      ball_roll_phase = fmodf(
-          ball_roll_phase + (scroll_dir * (dist / tune.ball_radius) * gain),
-          1.0F);
-    }
-  }
-
-  // Apply gravity and rest the ball on the terrain, using the one-frame-stale
-  // ground probe sampled under the ball center.
-  //
-  // A grounded jump launches first; its upward velocity survives the contact
-  // resolve, which only cancels downward motion. Gravity then integrates the
-  // vertical velocity and drops the anchor.
-  //
-  // If the ball overlaps the surface, push its center out along the surface
-  // normal until it just rests (one radius off the surface): the normal tilts
-  // on a slope, so the push carries a sideways component that climbs gentle
-  // slopes and slides down steep ones. `grounded` (for jumping and traction)
-  // is then set from a contact band, not a knife-edge, so it holds steady
-  // instead of flickering as the resolve snaps the ball to rest.
-  //
-  // Finally clamp the anchor inside the world box (the fences) so it cannot
-  // roll off the edge of the soil.
-  void settle(const ground_probe& gp, bool jump, vec3 box_min, vec3 box_max,
-      float dt) {
-    // The treadmill pins the body for testing, so defeat gravity too: hold the
-    // anchor where it is rather than letting it sink and rest on the terrain,
-    // and keep it grounded so the rig still animates as a planted, rolling
-    // ball. The horizontal drive is already withheld in `move`.
-    if (locked) {
-      vel_y = 0.0F;
-      grounded = true;
-      return;
-    }
-
-    // A grounded jump launches off any surface contact, however steep, so it
-    // always gets the ball out of a bad spot; the upward velocity survives the
-    // resolve (which only cancels downward motion) and the not-rising test
-    // below leaves it airborne.
-    if (jump && grounded) vel_y = tune.jump_speed;
-
-    vel_y -= tune.gravity * dt;
-    anchor += camera::world_up * (vel_y * dt);
-
-    // Resolve the floor contact.
-    //
-    // A surface flat enough to stand on (at most `max_climb_deg` off level)
-    // supports the ball; if it is also clear of a wall, the ball may climb it,
-    // the tilted normal carrying it up the slope. Beside a wall, or on a face
-    // too steep to climb, the ball is held up but not pushed up the face, and
-    // the drive into it is killed, so it cannot ratchet itself out of a pit
-    // one corner-bump at a time (a vertical wall is just the steep limit).
-    //
-    // The wall ring below resolves the horizontal overlap. The position
-    // corrections are damped (`collision_damp`): applied at a fraction per
-    // frame, they ease toward rest instead of fully resolving the
-    // one-frame-stale penetration, which overshoots and limit-cycles (a gentle
-    // bounce on a flat floor, a violent wall-to-wall slam in a slot narrower
-    // than the ball). The velocity stops stay firm, so a landing or a wall is
-    // still a hard stop.
-    const float damp = tune.collision_damp;
-    const float climb_cos = cosf(tune.max_climb_deg * radians::per_degree);
-    walled = length(gp.wall_normal) > 0.5F;
-    // Running raises the climbable steepness (`run_climb_mult`) and lets the
-    // ball climb out even when walled, so flooring it rides out of an
-    // equator-deep pit; a normal drive is stopped by the wall, leaving it to
-    // rev or hop.
-    const float run_cos =
-        cosf(tune.max_climb_deg * tune.run_climb_mult * radians::per_degree);
-    const bool can_climb =
-        gp.normal.y >= (running ? run_cos : climb_cos) && (!walled || running);
-    const float penetration = tune.ball_radius - gp.surface_dist;
-    resolve_floor_contact(gp, can_climb, penetration, damp);
-
-    // Grounded (can jump, has traction) when resting on or skimming just above
-    // any surface and not rising, however steep and even when walled in a pit,
-    // so a jump or a run can always get out. Steepness gates whether a drive
-    // climbs the face (`can_climb`), not whether the ball is grounded: pinning
-    // grounded to a stand-on-able slope left the ball stuck on a 50-to-80
-    // degree dig wall, unable to build the speed a run needs to climb out.
-    //
-    // The band keeps the flag steady (the resolve snaps the ball to exactly
-    // rest, so a strict penetration > 0 flickers frame to frame), so a jump
-    // fires reliably even while sprinting over the terrain's undulations. The
-    // not-rising guard rejects the frames right after a jump, where the stale
-    // probe still reports the old rest height and would otherwise read as
-    // grounded.
-    grounded = penetration > -tune.ground_tol && vel_y <= 0.0F;
-
-    // Lift the ball clear of a wall or ceiling the center sample missed (a pit
-    // the ball sits in cancels in the center gradient, so its sides would clip
-    // without this). Stop the drive into a wall, recording the travel it
-    // blocks for the stain; `confined` (a ceiling overhead) is left for the
-    // camera.
-    anchor += gp.push * damp;
-    wall_press = 0.0F;
-    if (length(gp.wall_normal) > 0.5F) {
-      if (const float into = dot(ground_vel, gp.wall_normal); into < 0.0F) {
-        ground_vel -= gp.wall_normal * into;
-        wall_press = -into * dt; // the lateral travel the wall blocked
-        wall_contact = anchor - (gp.wall_normal * tune.ball_radius);
-      }
-    }
-    confined = gp.overhead;
-
-    fence(box_min, box_max);
-  }
-
-  // Resolve a floor penetration by pushing the ball out of the surface.
-  //
-  // On a stand-on-able face (`can_climb`) the push follows the tilted normal,
-  // so a sideways component climbs the slope; on a face too steep, or beside a
-  // wall, it lifts only vertically and kills the drive into the face, so the
-  // ball cannot ratchet itself up one corner-bump at a time. Damped per frame
-  // (`damp`) to ease toward rest rather than snap. A no-op with no
-  // penetration.
-  void resolve_floor_contact(const ground_probe& gp, bool can_climb,
-      float penetration, float damp) {
-    if (penetration <= 0.0F) return;
-    if (can_climb) {
-      anchor += gp.normal * (penetration * damp);
-      vel_y = std::max(vel_y, 0.0F); // landed; stop falling
-      return;
-    }
-    // Vertical support only (so a corner's floor still holds the ball up),
-    // plus a stop on the drive into the face.
-    if (const float up = gp.normal.y * penetration; up > 0.0F) {
-      anchor += camera::world_up * (up * damp);
-      vel_y = std::max(vel_y, 0.0F);
-    }
-    constexpr float min_horizontal_normal = 1.0e-4F;
-    if (vec3 hn{gp.normal.x, 0.0F, gp.normal.z};
-        length(hn) > min_horizontal_normal)
-    {
-      hn = normalize(hn);
-      if (const float into = dot(ground_vel, hn); into < 0.0F)
-        ground_vel -= hn * into;
-    }
-  }
-
-  // Clamp the ball one radius inside the world box on all three axes, killing
-  // the velocity into a face it hits while keeping the component sliding along
-  // it, so momentum does not pin it to the edge. The vertical fence is the
-  // floor and ceiling of the world: the ball cannot fall out the bottom (a
-  // last resort if collision ever fails to catch it) or fly out the top.
-  void fence(vec3 box_min, vec3 box_max) {
-    const float r = tune.ball_radius;
-    const float cx = std::clamp(anchor.v.x, box_min.x + r, box_max.x - r);
-    const float cy = std::clamp(anchor.v.y, box_min.y + r, box_max.y - r);
-    const float cz = std::clamp(anchor.v.z, box_min.z + r, box_max.z - r);
-    if (cx != anchor.v.x) ground_vel.x = 0.0F;
-    if (cy != anchor.v.y) vel_y = 0.0F;
-    if (cz != anchor.v.z) ground_vel.z = 0.0F;
-    anchor.v.x = cx;
-    anchor.v.y = cy;
-    anchor.v.z = cz;
-  }
+#pragma region Body sync
 
   // Pose the rig from the physical body for rendering.
   //
-  // The alternate to `move` plus `settle`, used when the body physics is
-  // selected (the A/B): the `avatar_body` simulation owns the position,
-  // velocity, and spin, and this reads them into the rig's state so the head,
-  // camera, and the rolling motion grid follow it. `update` then animates from
-  // these exactly as on the shipped path. The wireframe scrolls at the body's
-  // true roll rate, its axis along the body's spin, so the spin the body
-  // carries drives the grid instead of the travel-derived fake.
+  // The `avatar_body` simulation owns the position, velocity, and spin; this
+  // reads them into the rig's state so the head, camera, and the rolling
+  // motion grid follow it, and `update` then animates from them. The wireframe
+  // scrolls at the body's true roll rate, its axis along the body's spin, so
+  // the spin the body carries drives the grid rather than a travel-derived
+  // fake.
   void drive_from_body(const avatar_body& body, bool driving, bool running,
       float dt) {
     anchor = body.center;
@@ -458,6 +174,10 @@ struct avatar_rig {
     grounded = body.grounded;
     this->driving = driving;
     this->running = running;
+    // The body actually moves, so there is no withheld treadmill step; the
+    // locked path (`advance_body_locked`) overrides this right after, so a
+    // held step never lingers into a normal drive.
+    locked_step = vec3{};
     const vec3 ground{ground_vel.x * dt, 0.0F, ground_vel.z * dt};
     moving = length(ground);
     wheel_spin = moving;

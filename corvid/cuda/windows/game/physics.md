@@ -26,9 +26,10 @@ means a body with mass and a contact with friction, so motion comes from forces.
 In optics it means a material with a reflectance and a transport with bounces,
 so the look comes from light. The tell is the same in both: a hand-picked
 constant or knob standing in for a physical quantity. A pair bracketing one
-quantity is the loudest version (`accel_approach` plus `brake_approach` for one
-drive against one friction; `max_climb_deg` plus `run_climb_mult` for one
-traction limit), but a lone eyeballed multiplier is the same smell (the mirror's
+quantity is the loudest version: the rig's `accel_approach`/`brake_approach`
+(one drive against one friction) and `max_climb_deg`/`run_climb_mult` (one
+traction limit) were exactly this, and keystone A collapsed both into a single
+friction contact. A lone eyeballed multiplier is the same smell (the mirror's
 flat `0.9`, the ball's `dim`/`tint`, the march's `lipschitz` fudge).
 
 Not every constant is a smell, though. One that styles a quantity that is itself
@@ -73,21 +74,30 @@ already correct (the arc, the head motion); a corner cut fakes a base that is no
 there (a friction contact, a reflectance, a distance field). The first is taste;
 the second is a debt.
 
-## As built (what exists in code now, uncommitted on windowes-cuda-102)
+## As built (what exists in code now)
 
 ### Mechanics
 
-- Drive + momentum (`avatar_rig::move`): `ground_vel` eased toward an input
-  target velocity by the `1 - exp(-rate*dt)` idiom, faster `accel_approach`
-  toward a held target, gentler `brake_approach` toward rest, snapped to zero
-  below `coast_min`. Eased only when `grounded` (traction); airborne the
-  velocity is preserved (ballistic, no air control).
-- Gravity + settle (`avatar_rig::settle`): `vel_y -= gravity*dt`, integrate,
-  then push the center out along the surface normal by the penetration, damped by
-  `collision_damp`. A jump sets `vel_y = jump_speed`. `grounded` is a contact
-  band; climbing is gated by slope steepness (`max_climb_deg`, raised by
-  `run_climb_mult` while running). `fence` clamps the ball one radius inside the
-  world box.
+- Rigid body (`avatar_body`): motion comes from forces. A drive force commands
+  traction at the contact, bounded by the friction budget (`mu * normal load`,
+  gravity's load only, floor-only); a quadratic drag sets the cruise speed
+  (`v = sqrt(drive_acceleration / drag)`) so a bigger drive settles higher
+  super-linearly, and a constant rolling resistance brakes a coast to rest.
+  Gravity integrates the vertical (semi-implicit Euler). On a floor the spin
+  couples to travel (rolling without slipping), airborne it is free (ballistic,
+  no air control). The body is host math, CUDA-free and unit-tested; the rig is
+  posed from it through `drive_from_body`.
+- Contact + settle (`avatar_body::resolve_contact`): the body takes a
+  `body_contact` (the seam) from the same stale center probe, widened to a
+  tolerance band (`ground_tol`). It pushes out of an overlap and cancels motion
+  into the surface only at real contact (`penetration >= 0`), so gravity seats
+  the ball on the surface instead of pinning it at the band's edge; the engine
+  then applies the probe's wall/ceiling push (`collision_damp`) and fences the
+  ball one radius inside the world box (`fence_body`). A jump is an impulse in a
+  `jump_up` blend of straight up and the contact normal, fired from a held
+  request when on a floor and not rising, so it lands on the next ground
+  contact. Slope behavior is the friction angle (`tan theta == mu`): the ball
+  holds below it and slides above, with no climb-angle cutoff.
 - Collision probe (`ground_probe_kernel`): one center sample for the floor
   normal (the density gradient) and a signed distance (density read as an
   approximate SDF, `-density*2e/|g|`); a fixed fan of 8 equator plus 5 upper
@@ -129,24 +139,18 @@ the second is a debt.
 
 ### Mechanics (movement, collision, terrain)
 
-M1. Momentum is velocity easing, not dynamics. `move` eases `ground_vel` toward a
-target speed with hand-tuned `accel_approach`/`brake_approach`; there is no mass,
-no drive force, no rolling resistance. The "weight of getting the heavy ball
-going" is an exponential rate constant, and the two knobs are the "size near +
-size far" anti-pattern. Correct base: a rigid ball with a mass, an applied drive
-force or torque, and rolling friction, so acceleration is `F/m` and braking is
-the same friction with the throttle off. (The deferred "torque-vs-impulse" feel
-work.)
+M1. RESOLVED (keystone A). Momentum is real dynamics now. `avatar_body` carries a
+mass and applies a drive force at the contact; acceleration is `F/m`, a quadratic
+drag sets the cruise speed, and a rolling resistance brakes the coast. The old
+velocity-easing (`accel_approach`/`brake_approach`, no mass, no drive force) is
+gone, knobs and all. (The "torque-vs-impulse" feel work is still deferred.)
 
-M2. Traction is a binary `grounded` flag, not a friction contact. Perfect grip on
-the ground and zero in the air, nothing between: no coefficient, no partial slip,
-no surface dependence. The same flag also picks the wireframe's spin source,
-commanded spin in the air and actual travel on the ground, switched hard at the
-contact (the roll itself, scrolling at arc over radius, is already correct; it is
-only this air-vs-ground switch that is faked). Correct base: a friction force at
-the contact bounded by `mu*N`; the ball slips when the demanded force exceeds it,
-and the wheel slip (today a display value, `wheel_spin` vs `moving`) becomes the
-real, continuous consequence of that switch.
+M2. RESOLVED (keystone A). Traction is a friction contact, not a binary flag. The
+drive is bounded by the friction budget (`mu * normal load`) and skids when it
+exceeds it; the ball's spin is real angular-velocity state, coupled to travel on
+a floor (rolling without slipping) and free in the air, so the air-vs-ground spin
+is a physical consequence rather than a switched flag. (The normal load is still
+gravity's alone, so traction stays floor-only, recorded as a v1 decision below.)
 
 M3. The density field is read as a signed-distance field it is not. The probe's
 `surface_dist = -density*2e/|g|` assumes a unit-gradient field, but the geometry
@@ -158,11 +162,11 @@ contact. (This is the mechanics face of the optics cut O4.)
 
 M4. Collision is a center sample plus a fixed 13-ray fan, not the ball as a
 volume. Thin features, sharp edges, and anything between the rays are missed
-(why tunnel walls and ceilings are deferred). `contact_tol` and `collision_damp`
+(why tunnel walls and ceilings are deferred). `ground_tol` and `collision_damp`
 are not modeling anything; they are compensation for the sparse sampling and the
-stale probe. The vertical `fence` is itself documented as "a last resort if
-collision ever fails to catch it." Correct base: a closest-point query over the
-overlapped region, or enough samples that the error is below a voxel.
+stale probe. The world-box `fence_body` is a backstop for when collision fails to
+catch the ball. Correct base: a closest-point query over the overlapped region,
+or enough samples that the error is below a voxel.
 
 M5. Collision lags one frame, and guards exist to hide it. The probe is launched
 after the dig and read back next frame to avoid a stall; the `ground_tol` band,
@@ -171,18 +175,16 @@ A defensible performance decision, but read it as lag-comp, not physics: a
 host-side collision against a local field mirror, or eating the stall for one
 tiny probe, removes the guards.
 
-M6. Climb is a hardcoded angle doubled by a key, not a friction result. Whether
-the ball climbs is `normal.y >= cos(max_climb_deg)`, widened by `run_climb_mult`
-while Run is held. Physically that is set by friction, drive force, and gravity,
-not a fixed angle and certainly not a Shift key. A deliberate gameplay knob that
-probably stays, but record it as a knob standing in for traction; with M1/M2 real
-it would just be "can the contact friction supply the demand."
+M6. RESOLVED (keystone A). Climb is the friction angle now, not a hardcoded
+angle. The ball holds on a slope up to `tan theta == mu` and slides above it,
+derived from the same friction budget that bounds the drive; the
+`max_climb_deg`/`run_climb_mult` knobs and the Run-key boost are gone. It is
+exactly "can the contact friction supply the demand," as M1/M2 promised.
 
-M7. Jump is a world-up velocity set that ignores the contact. `vel_y = jump_speed`
-always launches straight up regardless of the surface normal or state. Standard
-and fine, but the deferred wants (speed-coupled jump, a jump along the contact
-normal so a steep face kicks you off) both need the jump to read the contact.
-Minor.
+M7. Jump reads the contact now (keystone A). The impulse is a `jump_up` blend of
+straight up and the contact normal, so a steep face kicks the ball off, and a
+held request fires it on the next ground contact (on a floor and not rising)
+rather than on any frame. Still open: a speed-coupled jump. Minor.
 
 M8. Digging and the crush groove delete mass; nothing is conserved or displaced.
 `dig_kernel` lowers density and the soil vanishes; the crush groove deepens with
@@ -275,9 +277,10 @@ mistake the tonemap for exposure or the bloom for real glare.
 Four keystones, each collapsing a cluster, plus a set of display-side cuts that
 are decisions to ratify rather than work to do.
 
-- A. Make the ball a real rigid body with a mass and a friction contact. From it,
-  momentum (M1), traction, slip, and the air-vs-ground spin (M2), climbing (M6),
-  and a contact-aware jump (M7) all become derived quantities. The mechanics
+- A. DONE. The ball is a real rigid body with a mass and a friction contact
+  (`avatar_body`); momentum (M1), traction, slip, and the air-vs-ground spin
+  (M2), climbing (M6), and a contact-aware jump (M7) are now derived from it. The
+  rig keeps the camera and animation harness, posed from the body. The mechanics
   analogue of lighting's "give the light a source size."
 
 - B. Maintain the geometry grid as a true SDF, re-distanced after every edit.
@@ -304,19 +307,18 @@ lens (O7), and bloom plus tonemap (O8) are reasonable to keep, like the sanction
 fudges above. Ratify them as deliberate, and do not let a later "make it real"
 reflex treat them as bugs.
 
-Order: A first (most visible, stands alone); B next (it unlocks honest collision
-and an exact march at once); C and D after (the big terrain-physics and the
-material/transport builds), with the lighting pass alongside D. Tune taste on top
-once each base is right.
+Order: A is done. B is next (it unlocks honest collision and an exact march at
+once); C and D after (the big terrain-physics and the material/transport builds),
+with the lighting pass alongside D. Tune taste on top once each base is right.
 
-## Build approach (keystone A)
+## Build approach (keystone A, as built)
 
-Build the rigid body as a standalone `avatar_body`, not by bending `avatar_rig`
-in place. "Body" is the canonical name for the ball; the rig keeps the camera and
-animation harness (boom, head, eye, tilt, spin) and the sanctioned-fudge roll and
-steer, all of which read the body's outputs. Split `move`: the momentum,
-integration, and spin dynamics go to the body; the wireframe roll and steer drift
-stay in the rig.
+The rigid body was built as a standalone `avatar_body`, not by bending
+`avatar_rig` in place. "Body" is the canonical name for the ball; the rig keeps
+the camera and animation harness (boom, head, eye, tilt, spin) and the
+sanctioned-fudge roll and steer, all of which read the body's outputs. The split:
+the momentum, integration, and spin dynamics went to the body; the wireframe roll
+and steer drift stayed in the rig.
 
 The body is CUDA-free and host-testable. Contacts come in through a plain
 `contact` struct, the seam: the GPU probe fills it in the game, while synthetic
@@ -346,12 +348,11 @@ coefficient and slope), not by Walk versus Run: both grip on good ground, either
 skids on a steep or slick one.
 
 The body carries whatever constants it needs (mass, the solid-sphere inertia,
-friction, a drive force, gravity, jump). Some may surface in ImGui and some may
-not; we do not force the config UI to mirror the internal model. To compare feel,
-keep both paths runnable and add an A/B checkbox that switches the live avatar
-between the old rig mechanics and the new body (the treadmill and mirror are
-already there for watching it). Gut `avatar_rig`'s mechanics only once the body
-wins.
+friction, a drive force, gravity, jump). Some surface in ImGui and some do not;
+we do not force the config UI to mirror the internal model. An A/B checkbox
+compared the body against the old rig mechanics, with the treadmill and mirror
+for watching it; the body won, so `avatar_rig`'s mechanics (`move`/`settle`) are
+gone and it is now the camera/animation harness alone.
 
 Tests are a Catch2 `.cu` in the CUDA bucket, so the host/device math headers
 compile under one toolchain. Assert physical invariants against synthetic
@@ -362,7 +363,8 @@ slope, and rolling-without-slipping (`omega * r == v`).
 
 ## Status / next
 
-Building keystone A. The survey above is the agreed scope; B (a true contact from
-a maintained SDF) follows once the body is done, feeding it through the same
-contact seam. Scaffolding `avatar_body` and its first test now; the rest of the
-list is still survey only.
+Keystone A is built and is now the only avatar physics: `avatar_body` drives the
+live avatar and `avatar_rig`'s old `move`/`settle` mechanics have been removed
+(it is the camera and animation harness, posed from the body). B (a true contact
+from a maintained SDF) is next, fed through the same contact seam; M3, M4, M5 and
+the optics O4 all rest on it. C and D follow.

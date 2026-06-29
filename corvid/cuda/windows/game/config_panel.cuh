@@ -488,32 +488,10 @@ inline void draw_movement_section(avatar_tuning& t, const avatar_tuning& d) {
   if (!ImGui::TreeNode("Movement")) return;
   tuned_slider("move speed", t.move_speed, d.move_speed, 1.0F, 30.0F,
       "Planar movement speed, world units per second.");
-  tuned_slider("gravity", t.gravity, d.gravity, 0.0F, 60.0F,
-      "Downward acceleration pulling the ball onto the terrain, units per "
-      "second squared.");
-  tuned_slider("jump speed", t.jump_speed, d.jump_speed, 0.0F, 20.0F,
-      "Upward launch velocity on a grounded jump (Space); height is "
-      "jump_speed^2 / (2 * gravity).");
-  tuned_slider("accel", t.accel_approach, d.accel_approach, 0.5F, 20.0F,
-      "How fast the ball ramps up to the input speed; lower feels heavier to "
-      "get going.");
-  tuned_slider("brake", t.brake_approach, d.brake_approach, 0.5F, 20.0F,
-      "How fast the ball bleeds off speed when you release the keys; lower "
-      "coasts farther and overshoots a stop.");
-  tuned_slider("coast min", t.coast_min, d.coast_min, 0.0F, 1.0F,
-      "Speed below which a coast snaps to a full stop instead of creeping.");
   tuned_slider("ground tol", t.ground_tol, d.ground_tol, 0.0F, 1.0F,
       "Contact band counted as grounded (world units): how far above the "
       "surface the ball can skim and still jump and have traction. Higher "
       "makes jumping while running over bumps more forgiving.");
-  tuned_slider("max climb", t.max_climb_deg, d.max_climb_deg, 0.0F, 89.0F,
-      "Steepest slope (degrees) the ball drives up; steeper terrain is a wall "
-      "that stops it instead of letting it climb. The equator collision ring "
-      "caps the effective limit near 45 degrees regardless.");
-  tuned_slider("run climb x", t.run_climb_mult, d.run_climb_mult, 1.0F, 3.0F,
-      "How much the climb limit grows while running (Run): flooring it rides "
-      "the ball up steeper terrain and out of an equator-deep pit a normal "
-      "drive cannot. 1 disables the boost.");
   tuned_slider("collision damp", t.collision_damp, d.collision_damp, 0.001F,
       1.0F,
       "Fraction of each frame's collision penetration that is corrected. "
@@ -557,13 +535,11 @@ inline void draw_movement_section(avatar_tuning& t, const avatar_tuning& d) {
   ImGui::TreePop();
 }
 
-// Body physics (A/B): the rigid body's constants, the keystone-A alternative
-// to the rig's eased move + settle (toggle "body physics" at the top). The
-// radius is shared with the drawn ball (in the Body section), so it is not
-// repeated here.
+// Body physics: the rigid body's constants. The radius is shared with the
+// drawn ball (in the Body section), so it is not repeated here.
 inline void draw_body_physics_section(body_params& p, const body_params& d,
     float& run_multiplier) {
-  if (!ImGui::TreeNode("Body physics (A/B)")) return;
+  if (!ImGui::TreeNode("Body physics")) return;
   tuned_slider("mass", p.mass, d.mass, 0.1F, 20.0F,
       "Ball mass: sets the rotational inertia and the contact normal load. It "
       "cancels out of the friction-angle threshold but scales how fast a "
@@ -580,9 +556,8 @@ inline void draw_body_physics_section(body_params& p, const body_params& d,
       "How many times the walk drive Run (Shift) commands; the run cruise is "
       "this times the walk cruise, as long as friction leaves the bigger "
       "drive "
-      "headroom below the traction ceiling. (An input mapping, shared with "
-      "the "
-      "old rig.)");
+      "headroom below the traction ceiling. (An input mapping in drive_input, "
+      "not a body constant.)");
   tuned_slider("friction", p.friction, d.friction, 0.0F, 10.0F,
       "Contact friction coefficient (mu): the ball holds a slope up to "
       "atan(mu) and slips above it, and mu bounds the drive before it skids. "
@@ -843,9 +818,8 @@ draw_animation_rigging_section(avatar_tuning& t, const avatar_tuning& d) {
 // disabled, so this default holds every run).
 inline void draw_config_panel(avatar_tuning& t, const avatar_tuning& d,
     render_config& c, const render_config& dc, bool& freeze_camera,
-    bool& lock_position, bool& uncap_fps, bool& log_collision,
-    bool& use_body_physics, body_params& bp, const body_params& bpd,
-    bool& flatten_requested, float& run_multiplier) {
+    bool& lock_position, bool& uncap_fps, bool& log_collision, body_params& bp,
+    const body_params& bpd, bool& flatten_requested, float& run_multiplier) {
   const ImGuiViewport* vp = ImGui::GetMainViewport();
   ImGui::SetNextWindowPos(vp->GetCenter(), ImGuiCond_FirstUseEver,
       ImVec2(0.5F, 0.5F));
@@ -890,13 +864,6 @@ inline void draw_config_panel(avatar_tuning& t, const avatar_tuning& d,
       "velocity, probe normal/distance, push, wall normal, the grounded and "
       "overhead flags) to collision_log.csv in the prefs folder, to diagnose "
       "settle instability. Off closes the file.");
-  ImGui::Checkbox("body physics (A/B)", &use_body_physics);
-  ImGui::SetItemTooltip("%s",
-      "A/B: drive the avatar with the new rigid-body physics (avatar_body) "
-      "instead of the shipped move/settle rig, to compare the feel. Tune it "
-      "in "
-      "the 'Body physics (A/B)' section. The treadmill (lock position) is not "
-      "supported in body mode.");
   draw_body_section(t, d, c, dc);
   draw_head_section(t, d, c, dc);
   draw_saucer_section(t, d, c, dc);

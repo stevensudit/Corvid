@@ -149,35 +149,11 @@ struct avatar_tuning {
   // while staying in tune.
   float color_spin_ratio = 3.0F;
 
-  // Physics: the ball falls under `gravity` and rests on the terrain (see
-  // `avatar_rig::settle`). `jump_speed` is the upward launch velocity Space
-  // gives when grounded; the jump height is `jump_speed^2 / (2 * gravity)`.
-  // Horizontal driving carries momentum (see `avatar_rig::move`): the ground
-  // velocity eases toward the input target at `accel_approach` and brakes
-  // toward rest at the gentler `brake_approach` when the keys release, so the
-  // ball coasts and overshoots a stop; below `coast_min` a coast snaps to rest
-  // rather than creeping forever down the exponential tail. `ground_tol` is
-  // the contact band: the ball counts as grounded (can jump, has traction)
+  // The contact band: the ball counts as grounded (can jump, has traction)
   // when resting on or skimming within this of the surface, so the flag stays
   // steady and a jump fires reliably even while sprinting over undulating
-  // terrain.
-  float gravity = 20.0F;   // downward acceleration, units per second squared
-  float jump_speed = 8.0F; // upward launch velocity on a grounded jump
-  float accel_approach = 0.75F; // ground-velocity ramp toward the input target
-  float brake_approach = 4.25F; // ground-velocity decay toward rest (coasting)
-  float coast_min = 0.10F;      // speed below which a coast snaps to a stop
+  // terrain. The body (`avatar_body`) owns the rest of the ground physics.
   float ground_tol = 0.3F; // contact band counted as grounded, world units
-
-  // The steepest slope the ball drives up: a contact tilted more than this off
-  // level is a wall, stopping the ball instead of letting it climb (a vertical
-  // face is the limit). Later this may key to the material for per-tier
-  // traction.
-  float max_climb_deg = 50.0F;
-
-  // How much the climb limit grows while running (Run): the ball can ride up
-  // steeper terrain and out of an equator-deep pit when sprinting, where a
-  // normal drive is stopped by the wall. 1 disables the boost.
-  float run_climb_mult = 1.6F;
 
   // How much of each frame's collision penetration is corrected: a fraction,
   // not the whole, so the resolve eases to rest instead of overshooting the

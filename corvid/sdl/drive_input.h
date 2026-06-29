@@ -169,8 +169,8 @@ struct drive_input {
   // The target ground velocity for this frame as (forward, sideways) in the
   // heading frame, sprint-scaled and capped to one speed so a diagonal is no
   // faster than a cardinal: holding both aims at standard speed in the
-  // direction between them. The rig eases its own velocity toward this with
-  // momentum (see `avatar_rig::move`); there is no vertical, gravity owns it.
+  // direction between them. The caller commands the avatar's drive from this;
+  // there is no vertical, gravity owns it.
   [[nodiscard]] std::pair<float, float> movement(
       float speed_multiplier = 1.0F) const {
     const float speed = speed_multiplier * (fast ? run_multiplier : 1.0F);

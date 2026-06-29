@@ -198,8 +198,7 @@ constexpr float no_contact = big_value;
 // fan for ceilings. A sample inside solid (density above zero) is a
 // penetration of about that depth; push the ball out along the radial back
 // toward the center, summing all of them so the opposite faces of a snug pit
-// cancel to a stable rest. One thread; the host reads it back a frame later
-// (see `avatar_rig::settle`).
+// cancel to a stable rest. One thread; the host reads it back a frame later.
 __global__ void ground_probe_kernel(density_field field, pos3 center,
     float radius, ground_probe* out) {
   const float e = field.voxel_size;

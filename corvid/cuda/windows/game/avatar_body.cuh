@@ -241,7 +241,7 @@ private:
   // delivers only the budget (the rest is wheel-spin). Whatever budget the
   // drive leaves, static friction spends holding the downhill pull, so the
   // ball holds on a slope up to the friction angle (tan theta == mu) and
-  // slides above it, which is what the hardcoded `max_climb_deg` faked.
+  // slides above it, replacing the old hardcoded climb-angle cutoff.
   void drive_on_floor(const body_contact& contact, vec3 gravity, vec3 drive,
       float dt) {
     const float fric_max = params.max_traction(contact.normal_load(gravity));
