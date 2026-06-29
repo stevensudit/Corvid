@@ -746,7 +746,10 @@ private:
   // `ground_primed_` gates the readback until the first probe has been issued.
   cuda_ptr<ground_probe> ground_target_;
   ground_probe ground_state_{.normal = vec3{0.0F, 1.0F, 0.0F},
-      .surface_dist = no_contact};
+      .surface_dist = no_contact,
+      .push = {},
+      .wall_normal{},
+      .overhead{}};
   bool ground_primed_ = false;
 
 #pragma endregion

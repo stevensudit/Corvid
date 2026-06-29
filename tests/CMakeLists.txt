@@ -679,15 +679,21 @@ endmacro()
 # SDL wrapper tests), cuda/ only when CORVID_ENABLE_CUDA (handled in the CUDA
 # section). .cpp builds the CXX suite below; .cu is routed to the CUDA loop
 # further down. See crossplatform.md.
-file(GLOB PORTABLE_SOURCES "portable/*.cpp")
+#
+# Each source glob uses CONFIGURE_DEPENDS so Ninja re-checks the matched set at
+# build time and reconfigures only when a file is added or removed: a newly
+# added test is discovered automatically (no stale "unknown target" or missing
+# compile_commands entry), while an unchanged set still skips the reconfigure.
+# The CUDA globs further down do the same.
+file(GLOB PORTABLE_SOURCES CONFIGURE_DEPENDS "portable/*.cpp")
 set(SOURCES ${PORTABLE_SOURCES})
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
-    file(GLOB LINUX_SOURCES "linux/*.cpp")
+    file(GLOB LINUX_SOURCES CONFIGURE_DEPENDS "linux/*.cpp")
     list(APPEND SOURCES ${LINUX_SOURCES})
 endif()
 if(WIN32)
     # Windows-only plain-C++ tests (the SDL wrapper tests); no CUDA toolchain.
-    file(GLOB WINDOWS_SOURCES "windows/*.cpp")
+    file(GLOB WINDOWS_SOURCES CONFIGURE_DEPENDS "windows/*.cpp")
     list(APPEND SOURCES ${WINDOWS_SOURCES})
 endif()
 
@@ -830,11 +836,11 @@ if(CORVID_ENABLE_CUDA)
     elseif(TEST_NAME)
         set(CUDA_SOURCES "") # a .cpp single-file filter builds no .cu targets
     else()
-        file(GLOB CUDA_SOURCES "cuda/*.cu")
+        file(GLOB CUDA_SOURCES CONFIGURE_DEPENDS "cuda/*.cu")
         if(WIN32)
             # Windows-only CUDA cell: D3D/SDL3 targets that can't build on Linux
             # (see crossplatform.md s11). Globbed only here, under WIN32.
-            file(GLOB CUDA_WINDOWS_SOURCES "cuda/windows/*.cu")
+            file(GLOB CUDA_WINDOWS_SOURCES CONFIGURE_DEPENDS "cuda/windows/*.cu")
             list(APPEND CUDA_SOURCES ${CUDA_WINDOWS_SOURCES})
         endif()
     endif()

@@ -21,8 +21,10 @@ set -e
 # llvm-profdata/llvm-cov after tests pass; mutually exclusive with sanitizers
 # and tidy. Add "scan" to skip the build and run the Clang Static Analyzer
 # (`analyze-build`) against the compile_commands.json instead; mutually
-# exclusive with everything else. The default is clang with `libcxx`, no tidy,
-# no sanitizer, no coverage, no scan.
+# exclusive with everything else. Pass "reconfigure" to do a configure-only
+# full refresh of tests/build (regenerates compile_commands.json for clangd)
+# without building or running anything; also standalone. The default is clang
+# with `libcxx`, no tidy, no sanitizer, no coverage, no scan.
 #
 # CUDA: when nvcc and g++-15 are installed and the mode is plain (no sanitizer,
 # coverage, or scan), the *.cu sources in tests/ build alongside the *.cpp
@@ -45,10 +47,11 @@ use_tidy=false
 sanitizer=""
 use_coverage=false
 use_scan=false
+use_reconfigure=false
 test_name=""
 target_name=""
 
-usage="Usage: $0 [all | [testname.cpp|testname.cu] [clang|gcc] [libstdcpp|libcxx] [tidy] [asan|tsan|ubsan|msan] [coverage] [scan]]"
+usage="Usage: $0 [all | reconfigure | [testname.cpp|testname.cu] [clang|gcc] [libstdcpp|libcxx] [tidy] [asan|tsan|ubsan|msan] [coverage] [scan]]"
 
 # Enforce the core/utils band layering before any build (fast, static, and
 # build-independent). See corvid/deps.md.
@@ -89,7 +92,8 @@ if [[ $# -gt 0 && "$1" != "libstdcpp" && "$1" != "libcxx" \
       && "$1" != "clang" && "$1" != "gcc" \
       && "$1" != "tidy" && "$1" != "--tidy" \
       && "$1" != "asan" && "$1" != "tsan" && "$1" != "ubsan" \
-      && "$1" != "msan" && "$1" != "coverage" && "$1" != "scan" ]]; then
+      && "$1" != "msan" && "$1" != "coverage" && "$1" != "scan" \
+      && "$1" != "reconfigure" ]]; then
   if [[ "$1" == *.cpp || "$1" == *.cu ]]; then
     test_name="$1"
     target_name="${test_name%.*}"
@@ -120,6 +124,9 @@ for arg in "$@"; do
     scan)
       use_scan=true
       ;;
+    reconfigure)
+      use_reconfigure=true
+      ;;
     *)
       echo "$usage" >&2
       exit 1
@@ -148,6 +155,15 @@ fi
 if $use_scan; then
   if [[ -n "$sanitizer" ]] || $use_tidy || $use_coverage || [[ -n "$test_name" ]]; then
     echo "$0: 'scan' takes no other arguments (configure-only static analysis)" >&2
+    exit 1
+  fi
+fi
+
+# reconfigure is a configure-only full refresh of tests/build (for clangd's
+# compile_commands.json); it builds nothing and takes no other mode.
+if $use_reconfigure; then
+  if [[ -n "$sanitizer" ]] || $use_tidy || $use_coverage || $use_scan || [[ -n "$test_name" ]]; then
+    echo "$0: 'reconfigure' takes no other arguments (configure-only refresh)" >&2
     exit 1
   fi
 fi
@@ -300,6 +316,14 @@ else
 
   # Record the signature so the next matching single-file run can reuse this.
   echo "$configSig" >"$sigFile"
+fi
+
+# reconfigure stops here: the configure above already regenerated a full
+# compile_commands.json (no TEST_NAME filter), which is all clangd needs. No
+# build, no ctest.
+if $use_reconfigure; then
+  echo "Reconfigured $buildRoot; compile_commands.json refreshed for clangd."
+  exit 0
 fi
 
 # Scan mode: hand the compile database to the Clang Static Analyzer and
