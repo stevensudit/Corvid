@@ -148,15 +148,10 @@ inline void draw_body_section(avatar_tuning& t, const avatar_tuning& d,
       "with grid move gain's flare-in rate (motion approach) to match.");
   tuned_slider("grid scroll", t.ball_grid_roll_gain, d.ball_grid_roll_gain,
       0.0F, 1.0F,
-      "Scrolls the grid as a fraction of the true roll rate at normal speed; "
-      "lower to stop motion flickering or wagon-wheeling.");
-  tuned_slider("grid scroll fast x", t.ball_grid_roll_gain_fast_mult,
-      d.ball_grid_roll_gain_fast_mult, 0.0F, 1.0F,
-      "Multiple of grid scroll the gain eases to at the sprint top (3x cruise "
-      "speed); the gain slopes with speed rather than switching on Shift, so "
-      "a "
-      "sprint never jolts the grid. 1/3 holds the rotation rate level across "
-      "the sprint, higher reads faster.");
+      "Scrolls the grid as a fraction of the true roll rate; 1 paints it on "
+      "the rolling ball, lower slows it for taste. The shader motion-blurs "
+      "the "
+      "scroll, so a fast spin streaks instead of strobing.");
   tuned_slider("grid extent", c.ball.grid_extent, dc.ball.grid_extent, 0.0F,
       2.0F,
       "How far toward the ball's sides the grid reaches before fading; raise "
@@ -186,8 +181,9 @@ inline void draw_body_section(avatar_tuning& t, const avatar_tuning& d,
       0.0F, 1.0F, "Darkest the stain reaches, so a track never goes black.");
   tuned_slider("grid turn", t.ball_grid_turn_rate, d.ball_grid_turn_rate, 1.0F,
       40.0F,
-      "How fast the grid's travel axis eases to a new direction (a strafe, a "
-      "steer); higher snaps, lower eases.");
+      "Low-passes the grid's flow axis toward the spin direction; lower "
+      "suppresses the low-speed wobble (and lags real turns more), higher "
+      "follows turns faster (and lets more jitter through).");
   ImGui::TreePop();
 }
 

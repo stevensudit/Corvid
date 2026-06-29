@@ -103,6 +103,7 @@ struct avatar_rig {
   vec3 locked_step{}; // the step withheld this frame while locked (treadmill)
   vec3 ball_roll_axis{0.0F, 0.0F, 1.0F}; // set by `drive_from_body`
   float ball_roll_phase{};  // accumulated roll angle, scrolls the grid
+  float ball_roll_blur{};   // this frame's roll-phase sweep, the blur length
   float ball_steer_phase{}; // accumulated steer fake, drifts it sideways
   float ball_glow{};        // eased motion-grid intensity (0 at rest)
   avatar_tuning tune{};     // live feel constants
@@ -185,9 +186,24 @@ struct avatar_rig {
     // spins even when the ball is barely moving.
     wheel_spin = length(body.angular_velocity) * body.params.radius * dt;
     if (const float omega = length(body.angular_velocity); omega > 1.0e-6F) {
-      ball_roll_axis = normalize(body.angular_velocity);
-      ball_roll_phase = fmodf(
-          ball_roll_phase + (omega * dt * tune.ball_grid_roll_gain), 1.0F);
+      // Ease the grid's flow axis toward the spin direction rather than
+      // snapping to it, so the small frame-to-frame wander of the spin at low
+      // speed (course corrections, the stale probe) is low-passed into a
+      // steady flow instead of a visible wobble. `ball_grid_turn_rate` is the
+      // cutoff: higher follows a real turn faster, lower suppresses more of
+      // the jitter. Only the axis is eased; the scroll rate and phase still
+      // track the true spin. The length guard keeps the prior axis through a
+      // near-reversal, where easing across the flip would cross zero.
+      const vec3 target = body.angular_velocity * (1.0F / omega);
+      const float ease = 1.0F - expf(-tune.ball_grid_turn_rate * dt);
+      if (const vec3 axis =
+              ball_roll_axis + ((target - ball_roll_axis) * ease);
+          length(axis) > 1.0e-4F)
+        ball_roll_axis = normalize(axis);
+      ball_roll_blur = omega * dt * tune.ball_grid_roll_gain;
+      ball_roll_phase = fmodf(ball_roll_phase + ball_roll_blur, 1.0F);
+    } else {
+      ball_roll_blur = 0.0F;
     }
   }
 
@@ -418,7 +434,7 @@ struct avatar_rig {
 
   [[nodiscard]] metal_ball ball() const {
     return {anchor, tune.ball_radius, ball_roll_axis, ball_roll_phase,
-        ball_steer_phase, ball_glow};
+        ball_steer_phase, ball_glow, ball_roll_blur};
   }
 
   // The articulated look gimbal.

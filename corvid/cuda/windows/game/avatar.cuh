@@ -46,11 +46,14 @@ struct metal_ball {
   // scrolls the grid forward, `steer_phase` an accumulated sideways drift that
   // fakes the turn while steering (both radians, wrapped to a grid period by
   // the rig), and `glow` the eased intensity that fades the grid in while
-  // moving, out at rest.
+  // moving, out at rest. `roll_blur` is the roll-phase swept in one frame, the
+  // length of the directional motion blur the shader smears along the roll so
+  // a fast scroll reads as a streak rather than a strobe.
   vec3 roll_axis{0.0F, 0.0F, 1.0F};
   float roll_phase = 0.0F;
   float steer_phase = 0.0F;
   float glow = 0.0F;
+  float roll_blur = 0.0F;
 
   // Distance along unit `dir` from `eye` to the nearest surface hit ahead of
   // the eye, or a negative value on a miss. The far root is returned when the

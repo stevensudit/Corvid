@@ -436,11 +436,31 @@ shade_scene_ray(const density_field& field, cudaTextureObject_t color,
   if (ball.glow > 0.001F) {
     constexpr float aa = 0.02F;
     constexpr float feather = 0.2F; // axle-fade softness
+    constexpr int max_taps = 8;
     const auto scale = static_cast<float>(cfg.ball.hex_freq);
     const metal_ball::grid_sample uv = ball.grid_uv(normal);
     const float fade = __saturatef((cfg.ball.grid_extent - uv.axle) / feather);
-    const float edge = hex_grid_edge(uv.v * scale, uv.u * scale) / scale;
-    const float line = __saturatef((cfg.ball.hex_line - edge) / aa);
+
+    // Directional motion blur along the roll: average the line over the
+    // phase the grid sweeps this frame (`roll_blur`), so a fast scroll smears
+    // into a streak instead of strobing. The sweep is clamped to one cell
+    // period (`1 / hex_freq` in `u`), past which the average is the steady
+    // cell mean, so very fast spin settles to an even glow rather than a
+    // flicker. The tap count scales with the sweep, one when slow (no extra
+    // cost) and capped; it is uniform across the ball, so no warp divergence.
+    const float period = 1.0F / scale; // grid period along the roll (u)
+    const float sweep = fminf(ball.roll_blur, period);
+    const int want = static_cast<int>((sweep / aa) + 0.5F);
+    const int taps = want < 1 ? 1 : (want > max_taps ? max_taps : want);
+    float line = 0.0F;
+    for (int i = 0; i < taps; ++i) {
+      const float s = sweep * (((static_cast<float>(i) + 0.5F) / taps) - 0.5F);
+      const float edge =
+          hex_grid_edge(uv.v * scale, (uv.u + s) * scale) / scale;
+      line += __saturatef((cfg.ball.hex_line - edge) / aa);
+    }
+    line /= static_cast<float>(taps);
+
     col = col + (cfg.ball.hex_color *
                     (line * fade * cfg.ball.hex_strength * ball.glow));
   }

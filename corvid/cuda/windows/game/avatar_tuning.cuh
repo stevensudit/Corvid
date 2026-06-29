@@ -37,30 +37,34 @@ namespace corvid::cuda {
 struct avatar_tuning {
   // Body: the metal ball you drive. The motion grid's glow is gated on the
   // direction keys and scaled by the ball's own planar speed:
+  //
   // `ball_grid_move_gain` sets how hard it flares up (ramped at
-  // `motion_approach`), `ball_grid_fade` how fast it fades back to dark once
-  // the keys release. The roll gain scales the literal roll rate (which on a
-  // small ball scrolls many cells per second, fast enough to alias into
-  // flicker and strobe) down to a readable scroll: `ball_grid_roll_gain` is
-  // the gain up to the cruise speed, and it eases toward
-  // `ball_grid_roll_gain * ball_grid_roll_gain_fast_mult` as the speed climbs
-  // to the sprint top (three times cruise), so the faster roll stays readable
-  // without strobing. Easing the gain with the speed instead of switching it
-  // on the Shift key keeps a sprint change from jolting the scroll (a 1/3
-  // multiple holds the rotation rate level across the sprint).
-  // `ball_grid_steer_gain` is a fake: the conveyor stays aligned to
-  // the motion, so a steer arc is invisible under the tracking camera, and
-  // this drifts the grid sideways by the heading change to sell the turn (0
-  // off); `ball_grid_steer_cap` limits that drift (steer-phase per second) so
-  // a tight donut, which whips the heading fast, saturates to a readable rate
+  // `motion_approach`).
+  //
+  // `ball_grid_fade` how fast it fades back to dark once the keys release.
+  //
+  // `ball_grid_roll_gain` scrolls the grid as a fraction of the true roll
+  // rate; 1 paints it on the rolling ball (the principled value), lower slows
+  // it for taste. It no longer has to dodge strobing: the shader motion-blurs
+  // the scroll along the roll (`roll_blur`), so even a fast spin reads as a
+  // streak rather than a flicker.
+  //
+  // `ball_grid_steer_gain` is a fake: the conveyor stays aligned to the
+  // motion, so a steer arc is invisible under the tracking camera, and this
+  // drifts the grid sideways by the heading change to sell the turn (0 off).
+  //
+  // `ball_grid_steer_cap` limits that drift (steer-phase per second) so a
+  // tight donut, which whips the heading fast, saturates to a readable rate
   // instead of strobing, while normal steering passes through.
-  // `ball_grid_turn_rate` is how fast the grid's travel axis eases to a new
-  // direction (a strafe, a steer): higher snaps, lower eases.
+  //
+  // `ball_grid_turn_rate` low-passes the grid's flow axis toward the spin
+  // direction, so the small wander of the spin at low speed reads as a steady
+  // flow rather than a wobble: higher follows a real turn faster, lower
+  // suppresses more of the jitter.
   float ball_radius = 0.6F;
   float ball_grid_move_gain = 2.0F;
   float ball_grid_fade = 5.0F;
-  float ball_grid_roll_gain = 0.125F;
-  float ball_grid_roll_gain_fast_mult = 0.75F;
+  float ball_grid_roll_gain = 0.05F;
   float ball_grid_steer_gain = 2.0F;
   float ball_grid_steer_cap = 2.0F;
   float ball_grid_turn_rate = 6.0F;
