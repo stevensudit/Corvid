@@ -163,21 +163,22 @@ struct avatar_body {
     const vec3 gravity = body_up * -params.gravity;
     const bool floor = contact.is_floor();
 
-    // Capable of jumping: on a floor and not already rising off it.
-    //
-    // The not-rising guard matters because the one-frame-stale probe keeps
-    // `floor` true for a few frames while the ball climbs out of the contact
-    // band right after a hop, so without it a stray second trigger in that
-    // window (a fast double-tap, or a bouncing Space key) would re-launch the
-    // ball mid-rise into an endless arc. Same test as `grounded` below, on the
-    // incoming velocity.
-    const bool can_jump = floor && contact.into(velocity) >= -contact_eps;
+    // Jump-ready: on a floor and not rising off it (descending into the
+    // contact, or at rest on it, where the resolve holds it). `jump` is a held
+    // request, so a press while the ball is bouncing up waits for it to fall
+    // back to the next contact rather than firing in mid-air; that is what
+    // lets a hold hop off each landing and a tap jump once. A rising ball is
+    // either between hops or climbing out right after one (where the stale
+    // probe still reads `floor`), and a ball off the ground has no floor at
+    // all, so the not-rising sign alone guards both without a tuned velocity
+    // threshold.
+    const bool jump_ready = floor && contact.into(velocity) >= 0.0F;
 
     // A jump is an impulse in a blend of straight up and the contact normal
     // (`jump_up`): up uses the droid's propulsion to leap regardless of the
     // ground, the normal pushes off the surface (off a steep face, or up and
     // out of a pit).
-    if (jump && can_jump) {
+    if (jump && jump_ready) {
       const vec3 dir = normalize(
           (body_up * params.jump_up) +
           (contact.normal * (1.0F - params.jump_up)));
@@ -210,9 +211,23 @@ private:
   static constexpr float contact_eps = 1.0e-3F; // "resting, not rising" band
   static constexpr float tiny = 1.0e-6F;        // divide-by-length guard
 
-  // Push the ball out of any overlap and cancel motion into the surface (a
-  // dead stop, no bounce). Runs for floors and walls alike.
+  // Push the ball out of any overlap and, once it is in real contact, cancel
+  // motion into the surface (a dead stop, no bounce). Runs for floors and
+  // walls alike.
+  //
+  // The cancel fires only at actual contact (`penetration >= 0`), not across
+  // the whole `touching` span. The engine widens `touching` by a tolerance
+  // band (`ground_tol`) so the grounded flag stays steady over a stale, sparse
+  // probe, but that band must not push on a ball still hovering above the
+  // surface. Cancelling in the band pinned the ball at the band's top edge
+  // instead of letting it seat, and with a slightly tilted normal under
+  // sideways motion the cancel injected a small upward kick every frame there,
+  // pumping a limit cycle that lofted the ball clear of the band and strobed
+  // the ground contact. Returning while hovering lets gravity seat the ball at
+  // the surface (`penetration` ~ 0), where it rests steadily inside the band.
   void resolve_contact(const body_contact& contact) {
+    if (contact.penetration < 0.0F)
+      return; // hovering in the band: let it seat
     if (contact.penetration > 0.0F)
       center += contact.normal * contact.penetration;
     if (const float closing = contact.into(velocity); closing > 0.0F)

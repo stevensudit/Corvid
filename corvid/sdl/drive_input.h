@@ -35,9 +35,10 @@ namespace corvid::sdl {
 
 // The driving avatar's input state for a frame: which planar movement keys are
 // held, whether mouse-look is active, this frame's accumulated look delta and
-// wheel scroll, and a one-shot jump latched on the Space press. `handle` folds
-// SDL events into it; `look` and `dolly` clear their accumulators as they
-// consume them, and `take_jump` consumes the latched jump.
+// wheel scroll, and whether Space (`jump`) is held. `handle` folds SDL events
+// into it; `look` and `dolly` clear their accumulators as they consume them.
+// The body reads `jump` and decides when it fires (at the next ground
+// contact).
 struct drive_input {
   bool forward = false;
   bool back = false;
@@ -71,9 +72,11 @@ struct drive_input {
   float look_dy = 0.0F;
   float wheel = 0.0F;
 
-  // A jump latched on the Space key-down edge and held until `take_jump`
-  // consumes it, so a press is never missed between frames. Key auto-repeat is
-  // ignored, so holding Space does not re-latch within a single press.
+  // Whether Space is held this frame. The body fires the jump at the next
+  // ground contact (on a floor and not rising), so a tap jumps once and a hold
+  // hops off each landing. Held rather than edge-latched because the trigger
+  // is the contact, not the press: the request must survive across the
+  // airborne frames until the ball lands.
   bool jump = false;
 
   // Fold one event into this state.
@@ -81,7 +84,7 @@ struct drive_input {
   // The right button toggles `looking` and captures the cursor through `win`,
   // mouse motion accumulates the look delta while looking, the wheel
   // accumulates scroll, the movement keys set their held flags, and Space
-  // latches a jump.
+  // sets the held jump flag.
   //
   // Returns whether it consumed the event, for `||` composition: the movement
   // keys, Space, and the right button are consumed; other keys (such as
@@ -139,8 +142,11 @@ struct drive_input {
         if (key.down) left = false;
         return true;
       case sdl_keycode::space:
-        // Latch on the press edge only; the rig consumes it via `take_jump`.
-        if (key.down && !key.repeat) jump = true;
+        // Held state: true while Space is down. The body fires the jump at the
+        // next ground contact, so the request must persist across the airborne
+        // frames; auto-repeat events are redundant (already down) and
+        // harmless.
+        jump = key.down;
         return true;
       case sdl_keycode::lshift: fast = key.down; return true;
       default: return false;
@@ -151,8 +157,8 @@ struct drive_input {
     }
   }
 
-  // Force-release the held movement keys and the latched jump. Call this when
-  // a UI overlay takes the keyboard mid-hold: the matching key-up is delivered
+  // Force-release the held movement keys and the held jump. Call this when a
+  // UI overlay takes the keyboard mid-hold: the matching key-up is delivered
   // to the overlay, not to `handle`, so without this a held key would stick
   // and drive the avatar until it is pressed and released again.
   void release_keys() {
@@ -206,14 +212,6 @@ struct drive_input {
     const auto scaled_wheel = wheel * scroll_step;
     wheel = 0.0F;
     return scaled_wheel;
-  }
-
-  // Consume the latched jump: returns whether a jump was requested since the
-  // last call and clears it, so each Space press fires exactly one jump.
-  [[nodiscard]] bool take_jump() {
-    const bool jumped = jump;
-    jump = false;
-    return jumped;
   }
 };
 

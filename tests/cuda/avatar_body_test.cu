@@ -85,6 +85,34 @@ TEST_CASE("avatar_body is pushed out of an overlap",
   CHECK(b.grounded);
 }
 
+TEST_CASE("avatar_body seats a ball hovering within the ground tolerance",
+    "[cuda][physics][avatar_body]") {
+  // The engine reports `touching` across a tolerance band, so the contact can
+  // claim contact while the ball still hovers above the surface (a negative
+  // penetration). The body must let gravity seat such a ball on the surface,
+  // not pin it at the band's top edge (the bug that strobed the ground contact
+  // and ate jumps). Derive the contact from the ball each step, as the game
+  // does: a flat floor at world y = 0, the ball resting one radius above it.
+  avatar_body b;
+  b.params = test_params();
+  const float radius = b.params.radius;
+  constexpr float ground_tol = 0.3F;
+  b.center = pos3{vec3{0.0F, radius + 0.2F, 0.0F}}; // hovering 0.2 up, in band
+
+  const float dt = 0.001F;
+  for (int step = 0; step < 2000; ++step) {
+    const float pen = radius - b.center.v.y; // flat floor at y = 0, normal up
+    const body_contact floor{.touching = pen > -ground_tol,
+        .normal = up,
+        .penetration = pen};
+    b.advance(floor, vec3{}, false, dt);
+  }
+
+  // Seated on the surface (penetration ~ 0), not left hovering at 0.2.
+  CHECK(std::fabs(b.center.v.y - radius) < 0.01F);
+  CHECK(b.grounded);
+}
+
 TEST_CASE("avatar_body jump apex matches v^2 / 2g",
     "[cuda][physics][avatar_body]") {
   avatar_body b;
@@ -108,6 +136,33 @@ TEST_CASE("avatar_body jump apex matches v^2 / 2g",
 
   const float expected = (10.0F * 10.0F) / (2.0F * 10.0F); // jump^2 / 2g = 5
   CHECK(std::fabs((apex - start) - expected) < 0.1F);
+}
+
+TEST_CASE("avatar_body defers a held jump while rising to the next contact",
+    "[cuda][physics][avatar_body]") {
+  // `jump` is a held request, fired only on a floor and not rising. A ball
+  // bouncing up off the ground is rising, so the held jump must wait; when it
+  // falls back into the contact it fires. This is what makes a hold hop off
+  // each landing and rejects a jump in mid-air, with no tuned threshold.
+  avatar_body b;
+  b.params = test_params();
+  const body_contact floor{.touching = true,
+      .normal = up,
+      .penetration = 0.0F};
+  const float dt = 0.001F;
+
+  // Rising off the floor (mid-bounce), jump held: no launch, only gravity
+  // acts, even though the (stale) probe still reports the floor contact.
+  b.center = pos3{vec3{0.0F, 1.0F, 0.0F}};
+  b.velocity = vec3{0.0F, 3.0F, 0.0F};
+  b.advance(floor, vec3{}, true, dt);
+  CHECK(std::fabs(b.velocity.y - (3.0F - (10.0F * dt))) < 1e-4F);
+
+  // Falling back into the contact, jump still held: now it fires (jump_speed
+  // is 10, so the launch is well clear of the incoming fall).
+  b.velocity = vec3{0.0F, -1.0F, 0.0F};
+  b.advance(floor, vec3{}, true, dt);
+  CHECK(b.velocity.y > 5.0F);
 }
 
 TEST_CASE("avatar_body holds on a slope below the friction angle",

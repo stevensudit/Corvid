@@ -208,8 +208,7 @@ private:
     } else {
       const auto [fwd, strafe] = input_.movement(rig_.tune.move_speed);
       rig_.move(fwd, strafe, dt);
-      rig_.settle(ground_state_, input_.take_jump(), world_min_, world_max_,
-          dt);
+      rig_.settle(ground_state_, input_.jump, world_min_, world_max_, dt);
       body_primed_ = false; // reseed the body from the rig when it next runs
     }
     log_collision();
@@ -264,7 +263,7 @@ private:
     const vec3 drive = (hfwd * fwd) + (hright * strafe);
     const bool driving = (fabsf(fwd) + fabsf(strafe)) > 1.0e-4F;
 
-    body_.advance(contact, drive, input_.take_jump(), dt);
+    body_.advance(contact, drive, input_.jump, dt);
 
     // Lift out of a wall or ceiling the center floor contact missed, damped
     // like the rig (the probe is stale and sparse), and stop the drive into a
