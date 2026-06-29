@@ -450,11 +450,13 @@ shade_scene_ray(const density_field& field, cudaTextureObject_t color,
     // cost) and capped; it is uniform across the ball, so no warp divergence.
     const float period = 1.0F / scale; // grid period along the roll (u)
     const float sweep = fminf(ball.roll_blur, period);
-    const int want = static_cast<int>((sweep / aa) + 0.5F);
+    const int want = static_cast<int>(lroundf(sweep / aa));
     const int taps = want < 1 ? 1 : (want > max_taps ? max_taps : want);
     float line = 0.0F;
     for (int i = 0; i < taps; ++i) {
-      const float s = sweep * (((static_cast<float>(i) + 0.5F) / taps) - 0.5F);
+      const float s =
+          sweep *
+          (((static_cast<float>(i) + 0.5F) / static_cast<float>(taps)) - 0.5F);
       const float edge =
           hex_grid_edge(uv.v * scale, (uv.u + s) * scale) / scale;
       line += __saturatef((cfg.ball.hex_line - edge) / aa);
@@ -647,8 +649,17 @@ struct ray_sample {
 shade_primary_ray(const density_field& field, cudaTextureObject_t color,
     const metal_ball& ball, const saucer_head& head, const flat_mirror& mirror,
     const render_config& cfg, pos3 eye, vec3 ray_dir, float px_scale) {
-  const float t_terrain = field.raymarch(eye, ray_dir);
+  float t_terrain = field.raymarch(eye, ray_dir);
   const float t_ball = ball.intersect(eye, ray_dir);
+  // Tunnel-view sanity: at the jockey, let the ball draw through any terrain
+  // nearer than it, so a wall between the close camera and the ball does not
+  // bury it. Only the ball's own silhouette is punched through (terrain the
+  // ray would miss the ball stays put), so nothing reveals a cleared tunnel
+  // and the only edge is the ball's smooth outline. Render-only, so collision
+  // is unaffected.
+  if (cfg.jockey_clear && t_ball >= 0.0F && t_terrain >= 0.0F &&
+      t_terrain < t_ball)
+    t_terrain = -1.0F;
   const float t_mirror =
       cfg.show_mirror ? mirror.intersect(eye, ray_dir) : -1.0F;
   const float t_head = cfg.show_head ? head.raymarch(eye, ray_dir) : -1.0F;

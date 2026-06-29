@@ -327,6 +327,13 @@ struct render_config {
   // default; the panel can show it for debugging.
   bool show_mirror = false;
 
+  // Tunnel-view sanity: when the camera is at the jockey, let the ball draw
+  // through any terrain nearer than it, across its own silhouette only, so a
+  // wall between the close camera and the ball does not bury the view
+  // (`shade_primary_ray`). Render-only: the collision world is untouched. Set
+  // per frame by the viewer when the boom is at the jockey.
+  bool jockey_clear = false;
+
   // Debug: flat-tint the pixels the adaptive-AA resolve pass supersamples,
   // instead of shading them, to verify edge detection. Geometry silhouettes
   // show red, dig-reticle pixels blue. A pixel left at its prepass color was

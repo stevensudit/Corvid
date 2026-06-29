@@ -203,5 +203,64 @@ inline void flatten_world(const density_field& field,
 }
 
 #pragma endregion
+#pragma region Test fixtures
+
+// Carve a fan of straight cylindrical test tunnels into the geometry: `count`
+// bores side by side, each angled a further `angle_step` (radians) below
+// horizontal, all driving the same heading from a row of openings spaced
+// `spacing` apart starting at `row_origin`. A reproducible grade fixture for
+// measuring how the ball climbs and slips at a known angle. Subtracts from the
+// density only (the air it opens needs no material or color) as a CSG
+// difference (`min` against the bore's signed distance), so the field stays a
+// usable distance estimate near the new walls. Pairs with `flatten_world`:
+// flatten first, then carve.
+__global__ void dig_tunnels_kernel(cudaSurfaceObject_t density_surface,
+    density_field field, pos3 row_origin, vec3 bore_dir, vec3 row_dir,
+    float spacing, float radius, float bore_length, int count,
+    float angle_step) {
+  const int3 voxel = make_int3(cuda_kernel::x_index(), cuda_kernel::y_index(),
+      cuda_kernel::z_index());
+  if (!field.contains(voxel)) return;
+  const vec3 w = field.voxel_center(voxel).v;
+  constexpr vec3 up{0.0F, 1.0F, 0.0F};
+
+  // The nearest bore's signed distance (distance to the axis minus the radius,
+  // negative inside). Each bore is a segment from its opening down into the
+  // ground at its own grade.
+  float carve = 1.0e30F;
+  for (int i = 0; i < count; ++i) {
+    const float theta = static_cast<float>(i + 1) * angle_step;
+    const vec3 dir = (bore_dir * cosf(theta)) - (up * sinf(theta));
+    const vec3 start =
+        row_origin.v + (row_dir * (spacing * static_cast<float>(i)));
+    const float t = fminf(fmaxf(dot(w - start, dir), 0.0F), bore_length);
+    carve = fminf(carve, length(w - (start + (dir * t))) - radius);
+  }
+
+  float density = 0.0F;
+  surf3Dread(&density, density_surface,
+      voxel.x * static_cast<int>(sizeof(float)), voxel.y, voxel.z);
+  if (carve < density) // open air where the bore cuts into solid
+    surf3Dwrite(carve, density_surface,
+        voxel.x * static_cast<int>(sizeof(float)), voxel.y, voxel.z);
+}
+
+// Carve the test-tunnel fan (`dig_tunnels_kernel`) into the geometry density.
+// Synchronous, a one-shot user action; only the density grid changes.
+inline void dig_tunnels(const density_field& field,
+    const cuda_volume<float>& volume, pos3 row_origin, vec3 bore_dir,
+    vec3 row_dir, float spacing, float radius, float bore_length, int count,
+    float angle_step) {
+  const cudaExtent extent = field.extent;
+  const dim3 block{8, 8, 8};
+  const dim3 grid{cuda_kernel::ceil_div(extent.width, block.x),
+      cuda_kernel::ceil_div(extent.height, block.y),
+      cuda_kernel::ceil_div(extent.depth, block.z)};
+  dig_tunnels_kernel<<<grid, block>>>(volume.surface(), field, row_origin,
+      bore_dir, row_dir, spacing, radius, bore_length, count, angle_step);
+  cuda_last_status{cudaDeviceSynchronize()}.or_throw();
+}
+
+#pragma endregion
 
 } // namespace corvid::cuda

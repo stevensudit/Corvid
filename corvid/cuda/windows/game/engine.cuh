@@ -116,10 +116,19 @@ public:
     render_cfg_.flashlight.origin = rays.eye;
     render_cfg_.flashlight.direction = rays.frame.forward;
 
+    // Tunnel-view sanity: at the jockey, clear a bubble around the ball in the
+    // primary march so dirt between the close camera and the ball does not
+    // bury the view (`shade_primary_ray`). Render-only.
+    render_cfg_.jockey_clear = rig_.boom <= (rig_.tune.boom_min + 0.05F);
+
     if (active) {
       if (flatten_requested_) {
         flatten_terrain();
         flatten_requested_ = false;
+      }
+      if (tunnels_requested_) {
+        dig_test_tunnels();
+        tunnels_requested_ = false;
       }
       update_reticle(rays, ball, dt);
       dig(dt);
@@ -338,12 +347,15 @@ private:
       const float speed = sqrtf(
           (rig_.ground_vel.x * rig_.ground_vel.x) +
           (rig_.ground_vel.z * rig_.ground_vel.z));
-      std::array<char, 192> title;
+      // The aim's elevation above horizontal, so sighting up a tunnel reads
+      // its grade off the title bar.
+      const float aim_deg = rig_.facing.pitch.value / radians::per_degree;
+      std::array<char, 224> title;
       SDL_snprintf(title.data(), title.size(),
           "Corvid Voxel Viewer - %.0f fps  %.1f/%.1f/%.1f ms (min/avg/max)  "
-          "GPU %.1f ms  spd %.1f",
+          "GPU %.1f ms  spd %.1f  aim %+.0fdeg",
           report->fps, report->min_ms, report->avg_ms, report->max_ms, gpu_ms_,
-          speed);
+          speed, aim_deg);
       SDL_SetWindowTitle(win_, title.data());
     }
   }
@@ -542,6 +554,29 @@ private:
         rig_.anchor.v.y - rig_.tune.ball_radius);
   }
 
+  // Carve a row of nine straight test tunnels in front of the ball, each a
+  // further 10 degrees steeper (10 to 90), all boring the same heading from
+  // openings at the ball's foot level: a reproducible grade fixture for the
+  // climb/slip tests. Triggered by the panel button (`tunnels_requested_`);
+  // flatten first, since it cuts into whatever terrain is there.
+  void dig_test_tunnels() {
+    constexpr int count = 9;
+    constexpr float step = 10.0F * radians::per_degree;
+    constexpr float spacing = 5.0F; // between adjacent bore openings
+    constexpr float bore_length = 16.0F;
+    const float radius =
+        rig_.tune.ball_radius * 2.5F;  // clearance over the ball
+    const vec3 bore{1.0F, 0.0F, 0.0F}; // heading all bores share
+    const vec3 row{0.0F, 0.0F, 1.0F};  // openings spaced along z
+    const float surface_y = rig_.anchor.v.y - rig_.tune.ball_radius;
+    // The first opening, so the row centers on the ball and sits a little
+    // ahead of it along the bore.
+    const vec3 first{rig_.anchor.v.x + 3.0F, surface_y,
+        rig_.anchor.v.z - (0.5F * static_cast<float>(count - 1) * spacing)};
+    dig_tunnels(field_, volume_, pos3{first}, bore, row, spacing, radius,
+        bore_length, count, step);
+  }
+
   // Build the config panel, then render the scene and present. The voxel
   // kernel fills the interop target (timed on its own for the title's GPU ms),
   // and the ImGui overlay draws over the backbuffer before the present.
@@ -555,7 +590,7 @@ private:
       draw_config_panel(rig_.tune, tuning_defaults_, render_cfg_,
           render_defaults_, freeze_camera_, lock_position_, uncap_fps_,
           log_collision_, body_.params, body_defaults_, flatten_requested_,
-          input_.run_multiplier);
+          tunnels_requested_, input_.run_multiplier);
 
     const int sync_interval = present_sync_interval(win_, uncap_fps_);
 
@@ -799,6 +834,7 @@ private:
   // One-shot: flatten the world to a level test track at the ball's feet, set
   // by a panel button and consumed in `tick`.
   bool flatten_requested_ = false;
+  bool tunnels_requested_ = false;
 
   // The live shading config (sky, terrain, ball, head, anti-alias), edited by
   // the panel and passed to the kernel each frame; the defaults instance is

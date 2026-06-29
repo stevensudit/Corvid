@@ -548,7 +548,7 @@ inline void draw_body_physics_section(body_params& p, const body_params& d,
       "what "
       "reaches the ground, so a command past the budget skids instead of "
       "accelerating.");
-  tuned_slider("run mult", run_multiplier, 3.0F, 1.0F, 6.0F,
+  tuned_slider("run mult", run_multiplier, 5.0F, 1.0F, 6.0F,
       "How many times the walk drive Run (Shift) commands; the run cruise is "
       "this times the walk cruise, as long as friction leaves the bigger "
       "drive "
@@ -815,7 +815,8 @@ draw_animation_rigging_section(avatar_tuning& t, const avatar_tuning& d) {
 inline void draw_config_panel(avatar_tuning& t, const avatar_tuning& d,
     render_config& c, const render_config& dc, bool& freeze_camera,
     bool& lock_position, bool& uncap_fps, bool& log_collision, body_params& bp,
-    const body_params& bpd, bool& flatten_requested, float& run_multiplier) {
+    const body_params& bpd, bool& flatten_requested, bool& tunnels_requested,
+    float& run_multiplier) {
   const ImGuiViewport* vp = ImGui::GetMainViewport();
   ImGui::SetNextWindowPos(vp->GetCenter(), ImGuiCond_FirstUseEver,
       ImVec2(0.5F, 0.5F));
@@ -833,6 +834,12 @@ inline void draw_config_panel(avatar_tuning& t, const avatar_tuning& d,
       "track for measuring speeds. Overwrites the terrain, so the dug shape "
       "is "
       "lost.");
+  ImGui::SameLine();
+  if (ImGui::Button("Dig test tunnels")) tunnels_requested = true;
+  ImGui::SetItemTooltip("%s",
+      "Carve nine straight tunnels in front of the ball, 10 to 90 degrees in "
+      "10-degree steps, side by side along the same heading: a reproducible "
+      "grade fixture for the climb and slip tests. Flatten first.");
   ImGui::Checkbox("freeze camera", &freeze_camera);
   ImGui::SetItemTooltip("%s",
       "Observer mode: pin the camera in place and draw the saucer head, "
