@@ -32,11 +32,13 @@
 // ramps, and walls, and keystone B (a true distance field) later swaps a
 // better contact in without touching the dynamics here.
 //
-// The body owns angular velocity as real state, so "spinning the ball" and
-// "what the spin does" are distinct: a floor contact couples the spin to
-// travel (rolling without slipping), while airborne the spin is free of
-// translation. The drawn wireframe roll and the steer-tread fudge stay in
-// `avatar_rig`, reading this body's outputs.
+// The body owns angular velocity as a real wheel-spin DOF, so "spinning the
+// ball" and "what the spin does" are distinct. On a floor, the contact
+// friction couples the spin to travel, but only up to the friction budget: a
+// drive that outruns the budget (a steep dig wall, ice) spins the wheel faster
+// than the ball moves, real over-spin the tread reads as slip. Airborne, the
+// wheel revs free toward the command. The drawn wireframe roll and the
+// steer-tread fudge stay in `avatar_rig`, reading this body's outputs.
 
 namespace corvid::cuda {
 
@@ -78,6 +80,15 @@ struct body_params {
   // mass cancels, like `load` itself.
   [[nodiscard]] float max_traction(float load) const {
     return friction * load;
+  }
+
+  // How much faster the motor's free-wheel spin-up runs than the rolling
+  // spin-up for the same traction (1 + m r^2 / I; 7/2 for a solid sphere). It
+  // sets both how fast the wheel over-spins past rolling when the drive beats
+  // the friction budget and how fast contact friction kills that slip back, so
+  // the over-spin balances the budget through one shared coefficient.
+  [[nodiscard]] float spin_coupling() const {
+    return (inertia() + (mass * radius * radius)) / inertia();
   }
 };
 
@@ -188,17 +199,12 @@ struct avatar_body {
     velocity += gravity * dt;
 
     if (contact.touching) resolve_contact(contact);
-    if (floor) drive_on_floor(contact, gravity, drive, dt);
+    if (floor)
+      drive_on_floor(contact, gravity, drive, dt); // also spins the wheel
+    else
+      spin_in_air(drive, dt);
 
     center += velocity * dt;
-
-    // Rolling without slipping couples the spin to travel on a floor; airborne
-    // the spin is left as it was (ballistic, and the place commanded
-    // wheel-spin would live), which is the split the faked air-vs-ground flag
-    // stood in for.
-    if (floor)
-      angular_velocity =
-          cross(contact.normal, velocity) * (1.0F / params.radius);
 
     // Grounded (can jump, has traction) when resting on a floor and not rising
     // off it faster than the band.
@@ -247,7 +253,8 @@ private:
     const float fric_max = params.max_traction(contact.normal_load(gravity));
 
     const vec3 force = drive * params.drive_force;
-    vec3 drive_acc = contact.tangent(force) * (1.0F / params.mass);
+    const vec3 drive_cmd = contact.tangent(force) * (1.0F / params.mass);
+    vec3 drive_acc = drive_cmd;
     if (const float mag = length(drive_acc); mag > fric_max && mag > tiny)
       drive_acc = drive_acc * (fric_max / mag);
     velocity += drive_acc * dt;
@@ -280,6 +287,64 @@ private:
         velocity -= (vt * (1.0F / mag)) * brake;
       }
     }
+
+    // The wheel spin is coupled last, against the settled velocity.
+    spin_on_floor(contact, drive_cmd, fric_max, dt);
+  }
+
+  // Evolve the wheel-spin DOF on a floor.
+  //
+  // The wheel carries real angular velocity, coupled to the ground by the same
+  // friction budget that bounds the drive. The motor spins it up by the full
+  // (unclamped) command; the contact friction kills the slip, the wheel speed
+  // past the rolling speed, back toward rolling, bounded by the budget. A
+  // command within the budget is absorbed whole, so the wheel rolls (no slip);
+  // the excess of a command that beats the budget survives as real over-spin,
+  // the slip the tread shows.
+  //
+  // Drag caps the rev so a wheel spinning free against a wall does not run
+  // away. The spin reads `velocity` but never writes it: the excess angular
+  // momentum is lost to spin, which is exactly why the ball is stuck.
+  void spin_on_floor(const body_contact& contact, vec3 drive_cmd,
+      float fric_max, float dt) {
+    const float r = params.radius;
+    const float k = params.spin_coupling();
+    const vec3 omega_roll = cross(contact.normal, velocity) * (1.0F / r);
+    vec3 slip = angular_velocity - omega_roll;
+
+    // The motor spins the wheel up by the unclamped command.
+    slip += cross(contact.normal, drive_cmd) * (k * dt / r);
+
+    // Contact friction kills the slip toward zero, capped by the budget;
+    // static friction locks it at zero once the slip is spent.
+    if (const float kill = k * fric_max * dt / r, s = length(slip); s > kill)
+      slip = slip * ((s - kill) / s);
+    else
+      slip = vec3{};
+
+    // Quadratic drag caps the rev (reuses the translation drag).
+    if (params.drag > 0.0F)
+      if (const float s = length(slip); s > tiny)
+        slip = slip * (1.0F / (1.0F + (params.drag * s * r * dt)));
+
+    angular_velocity = omega_roll + slip;
+  }
+
+  // Rev the free wheel in the air toward the command, about the heading plane,
+  // so flooring it off the ground spins the tread up (the airborne face of
+  // slip); with no command it coasts. Drag caps the rev. On landing the gap
+  // between this spin and the new rolling rate shows as slip until the contact
+  // kills it.
+  void spin_in_air(vec3 drive, float dt) {
+    const float r = params.radius;
+    const vec3 force = drive * params.drive_force;
+    const vec3 drive_cmd = reject(force, body_up) * (1.0F / params.mass);
+    angular_velocity +=
+        cross(body_up, drive_cmd) * (params.spin_coupling() * dt / r);
+    if (params.drag > 0.0F)
+      if (const float s = length(angular_velocity); s > tiny)
+        angular_velocity =
+            angular_velocity * (1.0F / (1.0F + (params.drag * s * r * dt)));
   }
 
 #pragma endregion

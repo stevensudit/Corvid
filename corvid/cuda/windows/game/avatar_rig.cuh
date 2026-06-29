@@ -180,7 +180,10 @@ struct avatar_rig {
     locked_step = vec3{};
     const vec3 ground{ground_vel.x * dt, 0.0F, ground_vel.z * dt};
     moving = length(ground);
-    wheel_spin = moving;
+    // The wheel's own surface roll, not the ground travel: it over-spins past
+    // `moving` when the body slips (revving stuck), so the grid lights and
+    // spins even when the ball is barely moving.
+    wheel_spin = length(body.angular_velocity) * body.params.radius * dt;
     if (const float omega = length(body.angular_velocity); omega > 1.0e-6F) {
       ball_roll_axis = normalize(body.angular_velocity);
       ball_roll_phase = fmodf(

@@ -11,6 +11,19 @@ terrain/dirt design in voxel_world.md, and the tuning panel in tuning_panel.md.
 - The wireframe tread (motion grid) works as expected, including spinning/glowing
   in place while revving stuck.
 
+## Drive model: flight-assist (active control)
+
+The droid drives under active control, not as a passive sphere. With no input the
+tread actively brakes the ball to a stop (the deceleration glow is that brake at
+work) and holds station on a slope by spending traction uphill, up to the
+friction budget. The friction-angle slope-hold and the brake-to-rest are this
+active controller, not block-model fakes.
+
+- Flight-assist off (future): like the "airplane mode" toggle in Elite:
+  Dangerous, a button to disable the auto-brake so releasing the throttle keeps
+  the current velocity (coast/drift), e.g. to turn the head around while still
+  moving the same direction. Not built; record it as an option.
+
 ## Collision: known issues and next work
 
 - Alt-tab while in a hole shifts the view slightly. Not fatal like the old

@@ -200,8 +200,12 @@ TEST_CASE("avatar_body slides down a slope above the friction angle",
   CHECK(dot(normalize(b.velocity), downhill) > 0.9F);
 }
 
-TEST_CASE("avatar_body rolls without slipping on a floor",
+TEST_CASE("avatar_body spins a slipping ball up to rolling without slipping",
     "[cuda][physics][avatar_body]") {
+  // The wheel spin is real state, not a constraint re-clamped each frame: a
+  // ball given travel but no spin slips at first, and the contact friction
+  // spins the wheel up until it rolls without slipping (omega * r equals the
+  // surface speed, the spin axis perpendicular to both travel and the normal).
   avatar_body b;
   b.params = test_params();
   b.center = pos3{vec3{0.0F, 1.0F, 0.0F}};
@@ -209,16 +213,57 @@ TEST_CASE("avatar_body rolls without slipping on a floor",
   const body_contact floor{.touching = true,
       .normal = up,
       .penetration = 0.0F};
-  b.advance(floor, vec3{}, false, 0.01F);
+  for (int step = 0; step < 200; ++step)
+    b.advance(floor, vec3{}, false, 0.01F);
 
-  // omega * r equals the surface speed, with the spin axis perpendicular to
-  // both the travel and the contact normal (the rolling-without-slipping
-  // constraint).
   const float r = b.params.radius;
   const vec3 vt = b.velocity - (up * dot(b.velocity, up));
   CHECK(std::fabs((length(b.angular_velocity) * r) - length(vt)) < 1e-3F);
   CHECK(std::fabs(dot(b.angular_velocity, b.velocity)) < 1e-3F);
   CHECK(std::fabs(dot(b.angular_velocity, up)) < 1e-3F);
+}
+
+TEST_CASE("avatar_body over-spins the wheel when the drive beats the budget",
+    "[cuda][physics][avatar_body]") {
+  // Driving harder than the friction budget can transmit (friction 1, so the
+  // budget mu*g = 10 is below the 20 drive accel) skids: the ball still moves
+  // at the clamped traction, but the motor spins the wheel faster than the
+  // ground, the over-spin the tread reads as slip.
+  avatar_body b;
+  b.params = test_params();
+  b.center = pos3{vec3{0.0F, 1.0F, 0.0F}};
+  const body_contact floor{.touching = true,
+      .normal = up,
+      .penetration = 0.0F};
+  const vec3 drive{1.0F, 0.0F, 0.0F};
+  for (int step = 0; step < 100; ++step) b.advance(floor, drive, false, 0.01F);
+
+  const float r = b.params.radius;
+  const vec3 vt = b.velocity - (up * dot(b.velocity, up));
+  // The wheel surface speed outruns the ground speed: real slip.
+  CHECK((length(b.angular_velocity) * r) > (length(vt) + 1.0F));
+  // The over-spin is along the rolling axis (drive forward spins about -z).
+  CHECK(b.angular_velocity.z < 0.0F);
+}
+
+TEST_CASE("avatar_body revs the wheel in the air toward the command",
+    "[cuda][physics][avatar_body]") {
+  // Airborne there is no ground to roll on, so holding a direction revs the
+  // free wheel up (the airborne face of slip); with no command it coasts.
+  avatar_body b;
+  b.params = test_params();
+  b.center = pos3{vec3{0.0F, 100.0F, 0.0F}};
+  const body_contact air{};
+  const vec3 drive{1.0F, 0.0F, 0.0F};
+  for (int step = 0; step < 20; ++step) b.advance(air, drive, false, 0.01F);
+
+  CHECK(length(b.angular_velocity) > 1.0F); // spun up by the motor
+  CHECK(b.angular_velocity.z < 0.0F);       // about the heading's roll axis
+
+  // No command in the air: the spin coasts, unchanged.
+  const vec3 omega = b.angular_velocity;
+  b.advance(air, vec3{}, false, 0.01F);
+  CHECK(length(b.angular_velocity - omega) < 1e-6F);
 }
 
 TEST_CASE("avatar_body reaches a drag-limited terminal speed",
