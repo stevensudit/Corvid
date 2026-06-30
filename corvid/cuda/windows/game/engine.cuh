@@ -134,6 +134,7 @@ public:
       dig(dt);
       crush_track();
       probe_ground();
+      probe_boom();
     }
     render_frame(rays, ball, head);
     return true;
@@ -208,6 +209,11 @@ private:
     // reflects the edit, and ready with no stall since the present has since
     // synced. The body settles against it.
     if (ground_primed_) ground_target_.store(ground_state_).or_throw();
+
+    // Read back the boom probe the previous frame launched along the camera
+    // dolly axis, into the rig's `terrain_clear`. The rig clamps the boom to
+    // it, auto-merging the camera into the ball where the seat will not fit.
+    if (boom_primed_) boom_clear_.store(rig_.terrain_clear).or_throw();
 
     // Drive the avatar with the rigid body: it owns its position and velocity
     // and feeds the rig for rendering, the head, and the motion grid.
@@ -546,6 +552,15 @@ private:
     ground_primed_ = true;
   }
 
+  // Probe the terrain along the camera boom axis for next frame's auto-merge,
+  // issued after the dig like the ground probe so it sees the freshly edited
+  // field. The host reads it back next frame into the rig's `terrain_clear`.
+  void probe_boom() {
+    const auto [origin, dir] = rig_.boom_probe_ray();
+    boom_probe_kernel<<<1, 1>>>(field_, origin, dir, boom_clear_.get());
+    boom_primed_ = true;
+  }
+
   // Flatten the whole world to a level plane at the ball's feet: a test track
   // for measuring speeds. Triggered by the panel button
   // (`flatten_requested_`); the dug shape is lost.
@@ -665,6 +680,8 @@ private:
     if (!dig_target_) throw std::runtime_error{"failed to allocate dig probe"};
     if (!ground_target_)
       throw std::runtime_error{"failed to allocate ground probe"};
+    if (!boom_clear_)
+      throw std::runtime_error{"failed to allocate boom probe"};
 
     // The dig brush's launch dims, from its radius: a cube of voxels around
     // the picked point, the brush sphere clipped out of it in the kernel.
@@ -811,6 +828,16 @@ private:
       .wall_normal{},
       .overhead{}};
   bool ground_primed_ = false;
+
+  // Boom-probe scratch (auto-merge).
+  //
+  // A one-element device buffer the `boom_probe_kernel` writes each frame: how
+  // far the camera boom axis stays clear of terrain. Read back to the host the
+  // next frame into the rig's `terrain_clear`, which clamps the boom so a
+  // tunnel merges the camera into the ball. `boom_primed_` gates the readback
+  // until the first probe has been issued.
+  cuda_ptr<float> boom_clear_;
+  bool boom_primed_ = false;
 
 #pragma endregion
 #pragma region Avatar and config

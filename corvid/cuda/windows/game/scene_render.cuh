@@ -410,6 +410,48 @@ shade_scene_ray(const density_field& field, cudaTextureObject_t color,
   return shade_terrain_hit(field, color, cfg, eye + (ray_dir * t_terrain));
 }
 
+// The ball's motion-grid emissive at the surface point with outward `normal`.
+//
+// The rolling hex wireframe is wrapped on by the conveyor projection
+// (`grid_uv`), motion-blurred along the roll so a fast scroll streaks instead
+// of strobing, and faded toward the roll-axis poles where the cells shrink.
+// Scaled by the grid's glow, so it is dark at rest and flares while moving.
+// Shared by the outer mirror (`shade_ball`) and the inner porthole frame the
+// merged glass view shows from inside the ball (`shade_merged_glass`).
+//
+// `hex_freq` (cells per radian) scales the coordinates, so the line and aa
+// widths convert back to radians by the same factor. The flat-top axis is `u`
+// (the rolling direction), so the cell edges run along `v`, parallel to the
+// ground. The motion blur averages the line over the phase the grid sweeps
+// this frame (`roll_blur`), clamped to one cell period past which the average
+// is the steady cell mean (an even glow, not a flicker); the tap count scales
+// with the sweep, uniform across the ball so there is no warp divergence.
+[[nodiscard]] __device__ inline vec3 ball_grid_emissive(const metal_ball& ball,
+    const render_config& cfg, vec3 normal) {
+  if (ball.glow <= 0.001F) return vec3{};
+  constexpr float aa = 0.02F;
+  constexpr float feather = 0.2F; // axle-fade softness
+  constexpr int max_taps = 8;
+  const auto scale = static_cast<float>(cfg.ball.hex_freq);
+  const metal_ball::grid_sample uv = ball.grid_uv(normal);
+  const float fade = __saturatef((cfg.ball.grid_extent - uv.axle) / feather);
+  const float period = 1.0F / scale; // grid period along the roll (u)
+  const float sweep = fminf(ball.roll_blur, period);
+  const int want = static_cast<int>(lroundf(sweep / aa));
+  const int taps = want < 1 ? 1 : (want > max_taps ? max_taps : want);
+  float line = 0.0F;
+  for (int i = 0; i < taps; ++i) {
+    const float s =
+        sweep *
+        (((static_cast<float>(i) + 0.5F) / static_cast<float>(taps)) - 0.5F);
+    const float edge = hex_grid_edge(uv.v * scale, (uv.u + s) * scale) / scale;
+    line += __saturatef((cfg.ball.hex_line - edge) / aa);
+  }
+  line /= static_cast<float>(taps);
+  return cfg.ball.hex_color *
+         (line * fade * cfg.ball.hex_strength * ball.glow);
+}
+
 // Shade the metallic ball at surface point `hit_point`: bounce one reflection
 // ray into the scene (terrain, the saucer head, sky), then dim and tint it so
 // the ball reads as dark liquid metal rather than a blown-out chrome mirror,
@@ -424,48 +466,9 @@ shade_scene_ray(const density_field& field, cudaTextureObject_t color,
   vec3 col = (env * cfg.ball.dim * cfg.ball.tint) + cfg.ball.ambient_floor;
 
   // The motion grid: an emissive flat hex wireframe wrapped onto the ball by
-  // the rolling-conveyor projection (`grid_uv`), so it stays flat and flows at
-  // the roll rate instead of wobbling like a whole-sphere geodesic grid. It
-  // flares up only while moving (`glow`) and fades toward the roll-axis poles,
-  // where the cells shrink: `grid_extent` is how far (in `axle`, the latitude
-  // sine) the grid reaches before that fade. The coordinates are scaled by
-  // `hex_freq` (cells per radian), so the line and aa widths convert back to
-  // radians by the same factor. The grid's flat-top axis is `u` (the rolling
-  // direction), so its edges run along `v`, parallel to the ground. Added over
-  // the mirror as glowing lines.
-  if (ball.glow > 0.001F) {
-    constexpr float aa = 0.02F;
-    constexpr float feather = 0.2F; // axle-fade softness
-    constexpr int max_taps = 8;
-    const auto scale = static_cast<float>(cfg.ball.hex_freq);
-    const metal_ball::grid_sample uv = ball.grid_uv(normal);
-    const float fade = __saturatef((cfg.ball.grid_extent - uv.axle) / feather);
-
-    // Directional motion blur along the roll: average the line over the
-    // phase the grid sweeps this frame (`roll_blur`), so a fast scroll smears
-    // into a streak instead of strobing. The sweep is clamped to one cell
-    // period (`1 / hex_freq` in `u`), past which the average is the steady
-    // cell mean, so very fast spin settles to an even glow rather than a
-    // flicker. The tap count scales with the sweep, one when slow (no extra
-    // cost) and capped; it is uniform across the ball, so no warp divergence.
-    const float period = 1.0F / scale; // grid period along the roll (u)
-    const float sweep = fminf(ball.roll_blur, period);
-    const int want = static_cast<int>(lroundf(sweep / aa));
-    const int taps = want < 1 ? 1 : (want > max_taps ? max_taps : want);
-    float line = 0.0F;
-    for (int i = 0; i < taps; ++i) {
-      const float s =
-          sweep *
-          (((static_cast<float>(i) + 0.5F) / static_cast<float>(taps)) - 0.5F);
-      const float edge =
-          hex_grid_edge(uv.v * scale, (uv.u + s) * scale) / scale;
-      line += __saturatef((cfg.ball.hex_line - edge) / aa);
-    }
-    line /= static_cast<float>(taps);
-
-    col = col + (cfg.ball.hex_color *
-                    (line * fade * cfg.ball.hex_strength * ball.glow));
-  }
+  // the rolling-conveyor projection, flaring up only while moving, added over
+  // the mirror as glowing lines (see `ball_grid_emissive`).
+  col = col + ball_grid_emissive(ball, cfg, normal);
 
   // The flashlight's glossy highlight: a broad, bright view-facing lobe where
   // the beam strikes the ball, so the chrome catches the headlamp and blows
@@ -638,6 +641,102 @@ struct ray_sample {
   bool reticle_edge;
 };
 
+// Unpolarized Fresnel reflectance at an interface, for incidence cosine `cosi`
+// (>= 0, the angle to the normal on the incident side) and relative index
+// `eta` = n_incident / n_transmitted. The average of the s- and p-polarized
+// terms. Returns 1 on total internal reflection (`eta` > 1 past the critical
+// angle), to which it rises smoothly, so blending reflection against
+// refraction by this weight has no hard seam where the transmitted ray cuts
+// out.
+[[nodiscard]] __device__ inline float
+fresnel_reflectance(float cosi, float eta) {
+  const float sin_t2 = eta * eta * (1.0F - (cosi * cosi));
+  if (sin_t2 >= 1.0F) return 1.0F; // total internal reflection
+  const float cost = sqrtf(1.0F - sin_t2);
+  const float rs = ((eta * cosi) - cost) / ((eta * cosi) + cost);
+  const float rp = (cosi - (eta * cost)) / (cosi + (eta * cost));
+  return 0.5F * ((rs * rs) + (rp * rp));
+}
+
+// Shade a primary ray whose eye has dollied inside the ball, where the ball is
+// a glass lens rather than the opaque one-way mirror it stays from outside.
+// The ray refracts at the exit surface and continues into the world; the
+// forward (aim) ray meets the sphere at normal incidence so the center stays
+// clean while off-axis rays bend. Fresnel blends in the reflected internal
+// bounce, rising to a full mirror at the grazing rim (so there is no hard
+// refract/reflect seam to shimmer). The transmitted side shows only terrain
+// and sky; the reflected bounce shows the player's own saucer, the faint ghost
+// in the glass. Returns the world-hit depth (not the ball exit), so the
+// adaptive-AA resolve still supersamples silhouettes seen through the lens.
+[[nodiscard]] __device__ inline ray_sample
+shade_merged_glass(const density_field& field, cudaTextureObject_t color,
+    const metal_ball& ball, const saucer_head& head, const render_config& cfg,
+    pos3 eye, vec3 ray_dir) {
+  const float t_exit = ball.intersect(eye, ray_dir);
+  const pos3 exit = eye + (ray_dir * t_exit);
+  const vec3 n_out = ball.normal(exit);                // outward at the exit
+  const float cosi = fmaxf(dot(ray_dir, n_out), 0.0F); // exit incidence
+  const float refl_w = fresnel_reflectance(cosi, cfg.glass.ior);
+
+  // Shade the world (terrain or sky) along a ray leaving the glass at `exit`.
+  const auto march_world = [&](vec3 dir) {
+    const float tw = field.raymarch(exit, dir);
+    return (tw >= 0.0F)
+               ? shade_terrain_hit(field, color, cfg, exit + (dir * tw),
+                     shadow_sphere{ball.center, ball.radius})
+               : sky_color(cfg, dir);
+  };
+
+  // Transmitted (refracted) view. With dispersion on, each channel refracts at
+  // a slightly different index, so the off-axis bend splits R/G/B into lateral
+  // chromatic fringing; the base (green) ray sets the depth, and a channel
+  // that hits its own total internal reflection falls back to the green sample
+  // rather than going black.
+  vec3 trans{};
+  float world_depth = big_value;
+  if (refl_w < 1.0F) {
+    const vec3 dg = refract(ray_dir, -n_out, cfg.glass.ior);
+    const float twg = field.raymarch(exit, dg);
+    const vec3 green =
+        (twg >= 0.0F)
+            ? shade_terrain_hit(field, color, cfg, exit + (dg * twg),
+                  shadow_sphere{ball.center, ball.radius})
+            : sky_color(cfg, dg);
+    world_depth = (twg >= 0.0F) ? t_exit + twg : big_value;
+    if (const float disp = cfg.glass.dispersion; disp > 0.0F) {
+      const vec3 dr = refract(ray_dir, -n_out, cfg.glass.ior * (1.0F - disp));
+      const vec3 db = refract(ray_dir, -n_out, cfg.glass.ior * (1.0F + disp));
+      const float r = (dot(dr, dr) > 1.0e-8F) ? march_world(dr).x : green.x;
+      const float b = (dot(db, db) > 1.0e-8F) ? march_world(db).z : green.z;
+      trans = vec3{r, green.y, b};
+    } else {
+      trans = green;
+    }
+  }
+
+  // Reflected internal bounce: the player's own saucer, faintly mirrored in
+  // the glass. A miss falls to a dim interior, which doubles as the grazing
+  // rim going dark.
+  vec3 ghost{};
+  if (refl_w > 0.0F) {
+    const vec3 rd = reflect(ray_dir, n_out);
+    const float th = head.raymarch(exit, rd);
+    ghost = (th >= 0.0F) ? shade_head(head, cfg, exit + (rd * th), rd)
+                         : cfg.terrain.ambient;
+  }
+
+  vec3 col = (trans * (1.0F - refl_w)) + (ghost * (refl_w * cfg.glass.ghost));
+  // Faked corner vignette on top of the Fresnel falloff: darken toward the
+  // grazing rim, where the exit incidence cosine is small.
+  col = col * (1.0F - (cfg.glass.vignette * (1.0F - cosi)));
+  // The propulsion hex shell, seen from inside: the clean in-focus porthole
+  // frame on the surface the ray exits, scrolling as you move. Added crisp
+  // over the warped world beyond (after the vignette, so the frame stays
+  // bright at the rim), the same emissive grid the outer mirror shows.
+  col = col + ball_grid_emissive(ball, cfg, n_out);
+  return ray_sample{col, world_depth, 2, false};
+}
+
 // Composite the primary ray: the nearest of the ball, the terrain, and the
 // flat mirror, or the sky if it escapes them all. The saucer head is tested
 // only when `cfg.show_head` is set (the observer freeze): normally the camera
@@ -649,6 +748,13 @@ struct ray_sample {
 shade_primary_ray(const density_field& field, cudaTextureObject_t color,
     const metal_ball& ball, const saucer_head& head, const flat_mirror& mirror,
     const render_config& cfg, pos3 eye, vec3 ray_dir, float px_scale) {
+  // Merged glass view: when the eye has dollied inside the ball, it is a glass
+  // lens, not the opaque one-way mirror it stays from outside (see
+  // `shade_merged_glass`).
+  if (const vec3 oc = eye - ball.center;
+      dot(oc, oc) < ball.radius * ball.radius)
+    return shade_merged_glass(field, color, ball, head, cfg, eye, ray_dir);
+
   float t_terrain = field.raymarch(eye, ray_dir);
   const float t_ball = ball.intersect(eye, ray_dir);
   // Tunnel-view sanity: at the jockey, let the ball draw through any terrain

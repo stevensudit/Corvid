@@ -347,6 +347,32 @@ struct render_config {
   // a mild barrel without the full-fisheye pitch nausea.
   float fisheye_amount = 0.0F;
 
+  // Glass ball lens: when the camera dollies inside the ball (merged), the
+  // ball stops being an opaque mirror for the primary view and becomes a solid
+  // glass lens the ray refracts through to see the world
+  // (`shade_primary_ray`).
+  //
+  // The forward (aim) ray meets the sphere at normal incidence and stays
+  // clean; off-axis rays bend, the coma the merged viewpoint trades for always
+  // having somewhere valid to stand. From outside the ball is unchanged (still
+  // the opaque one-way mirror).
+  //
+  // The geometric tier (one ray per pixel): `ior` sets how hard the surface
+  // bends the view (and where the grazing rim hits total internal reflection).
+  // `dispersion` spreads the index per channel for lateral chromatic fringing
+  // (0 off; the three RGB rays then march separately, ~3x the cost). Fresnel
+  // (derived from `ior`) blends in the reflected internal bounce, rising from
+  // ~4% head-on to a full mirror at the grazing rim, which also removes the
+  // hard refract/reflect seam. `ghost` scales that reflected bounce (the faint
+  // image of the player's own saucer in the glass; 0 hides it). `vignette`
+  // darkens the corners toward the rim on top of the Fresnel falloff (0 off).
+  struct glass_params {
+    float ior = 1.347F;       // index of refraction of the ball glass
+    float dispersion = 0.04F; // per-channel index spread for chromatic (0 off)
+    float ghost = 2.0F;       // strength of the internal-bounce saucer ghost
+    float vignette = 3.0F;    // extra corner darkening toward the grazing rim
+  } glass;
+
   // Bloom: the render writes linear HDR into an off-screen buffer, and the
   // post pass blooms the brights (a soft-thresholded, blurred copy added back)
   // before the Reinhard tonemap that lands the LDR frame. With `enabled` off,

@@ -193,6 +193,18 @@ struct vec3 {
     return d - (n * (2.0F * dot(d, n)));
   }
 
+  // Refract incident direction `d` (unit) through a surface with unit normal
+  // `n` oriented against `d` (so `dot(d, n) < 0`), for the relative index
+  // `eta` = n_incident / n_transmitted. Returns the zero vector on total
+  // internal reflection, so the caller can fall back to `reflect`.
+  [[nodiscard]] friend __host__ __device__ vec3 refract(vec3 d, vec3 n,
+      float eta) {
+    const float ci = dot(d, n);
+    const float k = 1.0F - (eta * eta * (1.0F - (ci * ci)));
+    if (k < 0.0F) return vec3{};
+    return (d * eta) - (n * ((eta * ci) + sqrtf(k)));
+  }
+
   // The component of `v` perpendicular to unit `n` (the vector rejection of
   // `v` from `n`): `v` with its projection onto `n` removed, flattening it
   // onto the plane through the origin with normal `n`.

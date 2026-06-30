@@ -73,11 +73,12 @@ struct avatar_rig {
   radians heading{};   // yaw the head sits along; tracks the look while moving
   float boom{};        // head distance behind the ball, jockey to trailing
   float boom_target{}; // where the wheel's taking the boom; `update` eases
-  vec3 ground_vel{};   // horizontal velocity, synced from the body
-  float vel_y{};       // vertical velocity, synced from the body
-  bool grounded{};     // on floor (can jump, has traction), synced from body
-  bool walled{};       // a wall at the equator (buried to the waist)
-  bool running{};      // sprinting (Run) this frame, synced from the body
+  float terrain_clear = big_value; // clear distance along the boom axis
+  vec3 ground_vel{};               // horizontal velocity, synced from the body
+  float vel_y{};                   // vertical velocity, synced from the body
+  bool grounded{}; // on floor (can jump, has traction), synced from body
+  bool walled{};   // a wall at the equator (buried to the waist)
+  bool running{};  // sprinting (Run) this frame, synced from the body
   bool confined{}; // a ceiling overhead: in a too-short tunnel (for the dolly)
   pos3 wall_contact{};  // where the ball pressed a wall this frame, for stain
   float wall_press{};   // lateral travel a wall blocked this frame (0 if none)
@@ -156,6 +157,37 @@ struct avatar_rig {
   // translation exactly and only a heading swing or boom dolly glides.
   [[nodiscard]] pos3 eye() const { return anchor + head_offset; }
 
+  // The camera boom probe axis: a ray from the head's seat base (above the
+  // ball) out along the dolly direction, up by `boom_rise` and back along the
+  // heading.
+  //
+  // The engine raymarches the terrain along it once a frame; `terrain_clear`
+  // is how far it stays clear, which `boom_axis_limit` turns into the boom
+  // clamp that auto-merges the camera when the seat will not fit.
+  struct boom_axis {
+    pos3 origin;
+    vec3 dir; // unit
+  };
+  [[nodiscard]] boom_axis boom_probe_ray() const {
+    const vec3 heading_fwd{cos(heading), 0.0F, sin(heading)};
+    const vec3 d = (camera::world_up * tune.boom_rise) - heading_fwd;
+    return {anchor + (camera::world_up * tune.head_height), normalize(d)};
+  }
+
+  // The largest boom the terrain allows before the head seat enters dirt, in
+  // boom units, from the last `terrain_clear` probe (one frame stale).
+  //
+  // The seat advances `sqrt(1 + boom_rise^2)` world units per boom unit along
+  // the probe axis (the `boom_probe_ray` direction's length); back off by the
+  // head radius so the saucer keeps clear of the wall. 0 forces a full merge.
+  // `update` eases the boom toward the smaller of this and the player's zoom
+  // target, so the dolly clamps short in a tunnel and springs back out in the
+  // open.
+  [[nodiscard]] float boom_axis_limit() const {
+    const float dlen = sqrtf(1.0F + (tune.boom_rise * tune.boom_rise));
+    return fmaxf(0.0F, (terrain_clear - tune.head_radius) / dlen);
+  }
+
 #pragma endregion
 #pragma region Body sync
 
@@ -218,13 +250,14 @@ struct avatar_rig {
   }
 
   // Aim the zoom: a positive delta (wheel up) targets a smaller boom, toward
-  // the jockey.
+  // the jockey and, past it, into the ball (a merge).
   //
-  // The head only glides there in `update`, so it reads as the saucer moving
-  // rather than snapping.
+  // The target floors at 0, the fully merged eye, so wheeling in past the
+  // jockey (`boom_min`) glides the camera into the ball's glass-lens viewpoint
+  // (see `cam_pos`). The head only glides there in `update`, so it reads as
+  // the saucer moving rather than snapping.
   void zoom(float delta) {
-    boom_target =
-        std::clamp(boom_target - delta, tune.boom_min, tune.boom_max);
+    boom_target = std::clamp(boom_target - delta, 0.0F, tune.boom_max);
   }
 
 #pragma endregion
@@ -240,7 +273,31 @@ struct avatar_rig {
   // into the eased drive/slide that lean the saucer, and spin the belly:
   // travel-driven while moving, alternating while idle.
   void update(float dt, bool looking) {
+    // Auto-merge: the terrain ratchets the zoom target IN (a tunnel pulls the
+    // head into the ball when the seat will not fit) but never back out, so
+    // leaving the tunnel leaves you merged until you choose to dolly out, the
+    // distortion your cue to. A manual wheel-in always works (it only lowers
+    // the same target); a wheel-out in a tunnel is undone next frame, which is
+    // fine since there is no room to dolly into. The probe only ever lowers
+    // the target, so it cannot fight the head back out as the view angle
+    // shifts the one-frame-stale reading.
+    //
+    // The limit is floored to the wheel-notch grid, so crowding only ever
+    // lands the head on a slot the mouse wheel itself reaches, never a partial
+    // spot between them. The sole sub-jockey slot is 0 (full merge), so there
+    // is no resting partial merge: you are either at a trailing slot (outside)
+    // or all the way inside, and a hole tight enough to crowd past the closest
+    // slot merges you fully rather than parking the eye half in the glass.
+    const bool merged_before = merged();
+    const float step = fmaxf(tune.zoom_step, 0.01F);
+    boom_target =
+        std::min(boom_target, floorf(boom_axis_limit() / step) * step);
     boom += (boom_target - boom) * (1.0F - expf(-tune.zoom_approach * dt));
+
+    // Dollying back out of the body points the view down at the ball, so it
+    // reads as backing out of it and naturally looking right at it.
+    if (merged_before && !merged())
+      facing.pitch = radians{tune.merge_exit_pitch_deg * radians::per_degree};
 
     if (moving > 0.0F) {
       if (looking) {
@@ -391,6 +448,20 @@ struct avatar_rig {
 #pragma endregion
 #pragma region Camera
 
+  // The merge fraction: 0 when the boom sits at the jockey (`boom_min`) or
+  // further out (not merged), rising to 1 when the boom reaches 0 (the eye
+  // fully merged at the ball center). It runs opposite to `boom` itself, which
+  // is 0 at the merge and `boom_min` at the jockey; this is the normalized
+  // amount merged, not a position. `cam_pos` uses it to glide the eye from the
+  // jockey seat into the ball, the always-valid glass-lens viewpoint.
+  [[nodiscard]] float merge_t() const {
+    if (boom >= tune.boom_min || tune.boom_min <= 0.0F) return 0.0F;
+    return (tune.boom_min - boom) / tune.boom_min;
+  }
+
+  // Whether the eye has dollied inside the ball (the merged glass-lens view).
+  [[nodiscard]] bool merged() const { return merge_t() > 0.0F; }
+
   // The camera position.
   //
   // The eye raised above the head's center by `camera_height` (of the head
@@ -398,9 +469,25 @@ struct avatar_rig {
   // middle; otherwise the dome-heavy saucer reflects into the top of the
   // frame. World up, not the tilted disc normal, so the viewpoint does not
   // swim as the saucer banks.
+  //
+  // Merged (the boom dollied past the jockey), the eye instead glides to the
+  // off-center opening on the look axis, so the forward ray meets the glass at
+  // normal incidence and stays clean while the periphery refracts.
+  // `frame().forward` carries the pitch, so looking down sinks the eye toward
+  // the ball bottom while it stays inside. There is no stable partial merge
+  // (crowding snaps the boom to a wheel slot, see `update`), so the only
+  // resting merged state is fully inside, where the eye orbits well within the
+  // ball as you look; the blend below is only crossed transiently while
+  // dollying.
   [[nodiscard]] pos3 cam_pos() const {
-    return eye() +
-           (camera::world_up * (tune.camera_height * tune.head_radius));
+    const pos3 trailing =
+        eye() + (camera::world_up * (tune.camera_height * tune.head_radius));
+    const float m = merge_t();
+    if (m <= 0.0F) return trailing;
+    const pos3 inside =
+        anchor - (frame().forward * (tune.merge_eye_back * tune.ball_radius));
+    const float s = m * m * (3.0F - (2.0F * m)); // smoothstep the blend
+    return trailing + ((inside - trailing) * s);
   }
 
   // Enter or leave the observer freeze.

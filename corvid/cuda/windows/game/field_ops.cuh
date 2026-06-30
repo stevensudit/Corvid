@@ -262,6 +262,28 @@ __global__ void ground_probe_kernel(density_field field, pos3 center,
   out->overhead = overhead;
 }
 
+// Probe the terrain along the camera boom axis, for the auto-merge.
+//
+// The head's seat runs from the ball out along this ray (up by the boom rise,
+// back along the heading); the rig needs to know how far it stays clear so the
+// boom can be clamped short of dirt, gliding the camera into the ball (the
+// glass-lens viewpoint) when even the jockey seat will not fit, as in a
+// tunnel.
+//
+// Reports the clear distance from `origin` along unit `dir` to the first
+// solid, `no_contact` when the ray stays clear, or 0 when `origin` is already
+// buried (so the camera merges fully). One thread; the host reads it back a
+// frame later, like the ground probe.
+__global__ void
+boom_probe_kernel(density_field field, pos3 origin, vec3 dir, float* out) {
+  if (field.sample_density(origin) > 0.0F) {
+    *out = 0.0F; // the seat base is in solid: no room to dolly out
+    return;
+  }
+  const float t = field.raymarch(origin, dir);
+  *out = (t >= 0.0F) ? t : no_contact;
+}
+
 #pragma endregion
 
 } // namespace corvid::cuda

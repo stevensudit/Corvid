@@ -506,6 +506,23 @@ inline void draw_movement_section(avatar_tuning& t, const avatar_tuning& d) {
       "Farthest boom: head pulled back behind the ball (wide view).");
   tuned_slider("boom rise", t.boom_rise, d.boom_rise, 0.0F, 1.0F,
       "How much the head rises as the boom pulls back.");
+  tuned_slider("merge eye back", t.merge_eye_back, d.merge_eye_back, -0.9F,
+      0.9F,
+      "Dolly in past the jockey to merge the camera into the ball (the glass "
+      "lens view). When fully merged the eye sits this far along the look "
+      "from "
+      "the ball center, as a fraction of the ball radius: positive sits "
+      "behind "
+      "the center (saucer ahead of the eye), negative ahead of it (saucer "
+      "behind, dead center). 0 is dead center, a clear bubble; the magnitude "
+      "sets how much the periphery refracts.",
+      ImGuiSliderFlags_AlwaysClamp);
+  tuned_slider("merge exit pitch", t.merge_exit_pitch_deg,
+      d.merge_exit_pitch_deg, -89.0F, 0.0F,
+      "When you dolly back out of the body, the look snaps to this pitch "
+      "(degrees, down is negative) so you back out already looking down at "
+      "the "
+      "ball you just left.");
   tuned_slider("zoom approach", t.zoom_approach, d.zoom_approach, 1.0F, 20.0F,
       "How fast the boom eases toward the zoom target, per second.");
   tuned_slider("zoom step", t.zoom_step, d.zoom_step, 0.1F, 5.0F,
@@ -661,6 +678,28 @@ inline void draw_render_section(avatar_tuning& t, const avatar_tuning& d,
       "Barrel distortion: 0 is the rectilinear pinhole, 1 a full equidistant "
       "fisheye. A small amount bends the edges in for a wide-angle feel "
       "without the full-fisheye pitch nausea.");
+
+  ImGui::SeparatorText("Glass lens");
+  tuned_slider("glass ior", c.glass.ior, dc.glass.ior, 1.0F, 2.5F,
+      "Index of refraction of the ball when the camera is dollied inside it "
+      "(merged): 1 sees straight through, higher bends the off-center view "
+      "more and pulls the grazing rim into total internal reflection. From "
+      "outside the ball is unchanged.");
+  tuned_slider("glass dispersion", c.glass.dispersion, dc.glass.dispersion,
+      0.0F, 0.2F,
+      "Per-channel index spread for lateral chromatic fringing: 0 off, higher "
+      "splits R/G/B more where the view bends (the periphery). On, the three "
+      "color rays march separately, about 3x the merged-view cost.");
+  tuned_slider("glass ghost", c.glass.ghost, dc.glass.ghost, 0.0F, 4.0F,
+      "Strength of the internal-bounce reflection, the faint image of the "
+      "player's own saucer in the glass (and the bright grazing rim); 0 hides "
+      "it, leaving only the refracted view.");
+  tuned_slider("glass vignette", c.glass.vignette, dc.glass.vignette, 0.0F,
+      4.0F,
+      "Extra corner darkening toward the grazing rim, on top of the Fresnel "
+      "falloff: 0 off, 1 fades the rim to black at the very edge, higher "
+      "pulls "
+      "the dark band inward.");
 
   ImGui::SeparatorText("Bloom");
   ImGui::Checkbox("bloom", &c.bloom.enabled);

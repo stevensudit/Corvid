@@ -24,6 +24,71 @@ active controller, not block-model fakes.
   the current velocity (coast/drift), e.g. to turn the head around while still
   moving the same direction. Not built; record it as an option.
 
+## Camera in tunnels: auto-merge and the glass-lens view (decided 2026-06-29)
+
+The head and body are separate things: motion keys drive the body, the head only
+dollies and rotates around it. That works in the open but fails in cramped space,
+because no camera position that needs *air* (jockey, a "front jockey", a push-out
+to the nearest clear cell) survives the case where there is only room for the
+ball. So the premise changes: the ball only looks like metal; it is a reflective
+force-field the head can enter and reside within, and the one camera position
+that always exists is the ball's own center.
+
+Why this is the right pivot, not a workaround: every other viewpoint is
+conditional on air that may not exist; the ball center is the unique viewpoint
+with no failure mode, because the ball is what defines "there is room for the
+ball." The merged eye also sits in a guaranteed spherical pocket, so the
+buried-pinhole jump (a single eye point grazing a terrain surface flips hard
+between seeing out and seeing dirt as you pan) is gone by construction. And
+looking down from the center lets the reticle aim straight beneath the ball,
+which a trailing seat cannot, so descending-by-digging becomes natural.
+
+- **Auto-merge, not auto-jockey.** The boom becomes a 1-D slider clamped by the
+  terrain along its own axis, inner stop = the ball center (a full merge). Open
+  air slides freely to the trailing seat; a tunnel clamps it short; a ball-sized
+  pit clamps all the way in. One rule ("the head cannot dolly into dirt; its
+  innermost stop is the center") replaces auto-jockey and the camera push-out,
+  and needs only a short terrain query along the boom (one frame late, like the
+  ground probe). This supersedes the auto-jockey / teleport-to-jockey idea in the
+  pathing notes below.
+
+- **The ball is a real glass lens, not a dimmer tint.** From outside it stays an
+  opaque one-way mirror (the flat mirror and the ball's reflection in other
+  surfaces are unchanged). A primary ray whose eye is inside it refracts at the
+  surface and continues into the world. The eye is the head's off-center opening,
+  so the straight-ahead ray meets the sphere at normal incidence and stays clean
+  (the aim/dig axis), while everything off-axis is coma: radial comet-tails,
+  lateral chromatic fringing, a focus tilt. Functional ahead, degraded around, so
+  you can work merged but want out, with no artificial penalty. This is also the
+  refraction model `physics.md` lists as absent (O3).
+
+- **Build order: geometric first, aperture second.** GEOMETRIC tier (one ray per
+  pixel, accurate, tractable): Snell refraction at the surface (index `n`; model
+  it as a solid ball lens, where dead-center is clean), per-channel R/G/B for the
+  lateral chromatic, Fresnel dimming (~4% head-on, rising at grazing), one
+  internal bounce for the faint saucer ghost, a faked corner vignette. APERTURE
+  tier: the spherical-aberration blur, the coma comet-flares, and the focus
+  blur/tilt, which only an integration over the finite eye opening produces (real
+  multi-sample or a faked radial asymmetric blur), decided after seeing geometric.
+  The cost is affordable because FPS is highest in a tunnel, the same reason
+  expensive dig VFX is affordable there.
+
+- **From inside you still see the treads.** The propulsion-field hex shell is the
+  porthole frame, scrolling when you move, the clean in-focus thing at the
+  refraction boundary while the world beyond it warps. Flashlight and reticle work
+  from inside, refracted.
+
+- **Merged is a real tradeoff, on purpose.** Run is disabled while merged (as the
+  reticle already is while running), so merged is slower as well as distorted, a
+  reason to eject and a meaningful walk/run distinction. (The WoW failure is
+  walk/run with no reason ever to walk, so everyone runs and walking is
+  meaningless "RP-walking".)
+
+- **Exit and the deferred ritual.** Exit by dollying out as room allows; ejected
+  is the open-ground default, merged the cramped default, the dolly clamp doing
+  the switching. Deferred: whether to allow a full merge on open ground at all, an
+  MMB-to-enter, and an auto-eject after a few seconds of detecting room.
+
 ## Collision: known issues and next work
 
 - Alt-tab while in a hole shifts the view slightly. Not fatal like the old
@@ -75,6 +140,10 @@ out of it. The beam + cursor aim + the dig stain are what make a usable ramp.
   through a green-hex tunnel at high speed, passing through whatever is between.
 
 ### Relevance to pathing (line of sight)
+
+NOTE (2026-06-29): the auto-jockey / teleport-to-jockey solution below is
+SUPERSEDED by auto-merge (see "Camera in tunnels" above). The head retracts into
+the ball rather than seeking a clear seat, since a clear seat may not exist.
 
 - During digging, the Head can end up with no line of sight to the Body. The
   proposed solution is to trigger the teleport-to-jockey automatically.

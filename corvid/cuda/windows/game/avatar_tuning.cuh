@@ -168,12 +168,25 @@ struct avatar_tuning {
   float collision_damp = 0.35F;
 
   // Movement: how the rig follows the body, dollies, zooms, and frames it.
-  float move_speed = 8.0F;       // planar move speed, units per second
-  float head_height = 0.9F;      // head hover height over the ball
-  float camera_height = 0.5F;    // eye height above head center, of the radius
-  float boom_min = 0.485F;       // jockey: this far behind, above the ball
-  float boom_max = 14.0F;        // trailing: pulled this far back (wide)
-  float boom_rise = 0.35F;       // head rise per unit pulled back
+  float move_speed = 8.0F;    // planar move speed, units per second
+  float head_height = 0.9F;   // head hover height over the ball
+  float camera_height = 0.5F; // eye height above head center, of the radius
+  float boom_min = 0.485F;    // jockey: this far behind, above the ball
+  float boom_max = 14.0F;     // trailing: pulled this far back (wide)
+  float boom_rise = 0.35F;    // head rise per unit pulled back
+  // Merge: dollying the boom below `boom_min` toward 0 glides the eye into the
+  // ball (the glass-lens viewpoint, see `render_config::glass_params`). When
+  // fully merged the eye sits this far along the look from the ball center, as
+  // a fraction of the ball radius: positive sits behind the center (the saucer
+  // ahead of the eye), negative sits ahead of it (the saucer behind, dead
+  // center). Either way the forward ray is normal-incidence and stays clean;
+  // the magnitude sets how much the periphery refracts (nearer a surface bends
+  // harder). 0 is dead center, a clear bubble.
+  float merge_eye_back = -0.9F;
+  // Dollying back out of the body snaps the look to this pitch (degrees, down
+  // is negative), so you back out already looking down at the ball you just
+  // left rather than off at the horizon.
+  float merge_exit_pitch_deg = -55.0F;
   float zoom_approach = 8.0F;    // boom easing rate per second
   float zoom_step = 1.0F;        // boom change per mouse-wheel notch
   float heading_approach = 8.0F; // steer heading-chase rate while moving
