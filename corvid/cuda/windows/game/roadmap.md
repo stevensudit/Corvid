@@ -89,6 +89,12 @@ which a trailing seat cannot, so descending-by-digging becomes natural.
   the switching. Deferred: whether to allow a full merge on open ground at all, an
   MMB-to-enter, and an auto-eject after a few seconds of detecting room.
 
+- **Enter/exit VFX (active work).** The shading crosses hard from the opaque
+  mirror ball to the glass lens the instant the eye passes the surface, with no
+  cue. The merge is the head passing through the reflective force-field membrane,
+  so the crossing wants an effect that sells breaching the shell on the way in and
+  sealing it on the way out. Design under discussion before building.
+
 ## Collision: known issues and next work
 
 - Alt-tab while in a hole shifts the view slightly. Not fatal like the old
@@ -101,17 +107,23 @@ which a trailing seat cannot, so descending-by-digging becomes natural.
   does not cover. We expect to need an explicit rule that keeps the ball on top of
   a sub-ball gap instead of letting it descend into a space it cannot fit.
 
-## Mouse-cursor digging (the beam)
+## The dig beam (reticle and VFX)
 
-The beam (intentional dig, distinct from the weight-dig) needs:
+The in-world reticle is built: a centered-aim holographic target (a free-cursor
+path was tried and removed), now also drawn refracted from inside the merged glass
+ball. The remaining beam work:
 
-- Let the mouse cursor show where we are digging (an in-world reticle), instead of
-  the current center-ray aim.
-- Special effects for dirt being blasted off.
+- Dig VFX where the beam lands: dirt blasted off the impact.
 - Darken the dirt that remains, the same stain we apply when digging by weight.
+- Replace the flat glowing green pupil (the beam source on the head's eye) with a
+  real effect. Today it is a flat decal that just brightens; it wants animation or
+  volume so it reads as an emitter firing, not a painted dot.
+- A line-of-sight check from the body to the target. The dig rides the targeting
+  ray from the eye, so you can aim a pick past an obstacle the ball itself cannot
+  see through; the dig should refuse a target with no clear path from the ball.
 
-Motivation: without these, you can dig a deep pit but cannot shape a sloping tunnel
-out of it. The beam + cursor aim + the dig stain are what make a usable ramp.
+Motivation: without the VFX and stain, you can dig a deep pit but cannot shape a
+sloping tunnel out of it; the beam plus the dig stain are what make a usable ramp.
 
 ## World generation (future)
 

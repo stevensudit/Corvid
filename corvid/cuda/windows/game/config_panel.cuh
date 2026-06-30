@@ -517,12 +517,18 @@ inline void draw_movement_section(avatar_tuning& t, const avatar_tuning& d) {
       "behind, dead center). 0 is dead center, a clear bubble; the magnitude "
       "sets how much the periphery refracts.",
       ImGuiSliderFlags_AlwaysClamp);
-  tuned_slider("merge exit pitch", t.merge_exit_pitch_deg,
-      d.merge_exit_pitch_deg, -89.0F, 0.0F,
-      "When you dolly back out of the body, the look snaps to this pitch "
-      "(degrees, down is negative) so you back out already looking down at "
-      "the "
+  tuned_slider("merge pitch", t.merge_pitch_deg, d.merge_pitch_deg, -89.0F,
+      0.0F,
+      "Crossing the merge boundary either way snaps the look to this pitch "
+      "(degrees, down is negative): going in, the head looks down into the "
+      "ball "
+      "to catch the merge ripple; backing out, you leave looking down at the "
       "ball you just left.");
+  tuned_slider("merge slowmo", t.merge_slowmo, d.merge_slowmo, 0.05F, 1.0F,
+      "Tuning aid: slows the merge transition (the dolly through the merge "
+      "zone "
+      "and the ripple, in step) so the crossing can be studied. 1 is full "
+      "speed, lower slower; normal dollying is unaffected.");
   tuned_slider("zoom approach", t.zoom_approach, d.zoom_approach, 1.0F, 20.0F,
       "How fast the boom eases toward the zoom target, per second.");
   tuned_slider("zoom step", t.zoom_step, d.zoom_step, 0.1F, 5.0F,
@@ -700,6 +706,22 @@ inline void draw_render_section(avatar_tuning& t, const avatar_tuning& d,
       "falloff: 0 off, 1 fades the rim to black at the very edge, higher "
       "pulls "
       "the dark band inward.");
+
+  ImGui::SeparatorText("Merge ripple");
+  tuned_slider("ripple peak", c.ripple.peak, dc.ripple.peak, 0.0F, 0.2F,
+      "Max radial warp as the eye crosses the ball surface (merging in or "
+      "backing out): the force-field shockwave's strength. 0 disables it.");
+  tuned_slider("ripple rings", c.ripple.frequency, dc.ripple.frequency, 0.5F,
+      8.0F,
+      "How many concentric rings the shockwave shows across the "
+      "half-screen.");
+  tuned_slider("ripple time", c.ripple.duration, dc.ripple.duration, 0.1F,
+      2.0F, "How long the ripple plays out after the crossing, seconds.");
+  tuned_slider("ripple speed", c.ripple.ring_speed, dc.ripple.ring_speed, 0.0F,
+      40.0F,
+      "How fast the rings expand outward over the effect's life, phase "
+      "radians "
+      "per second.");
 
   ImGui::SeparatorText("Bloom");
   ImGui::Checkbox("bloom", &c.bloom.enabled);

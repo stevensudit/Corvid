@@ -73,6 +73,24 @@ produce.
 6. Night is hardcoded scales (ambient * 0.1, sky * 0.03, sun off). Minor; this is
    an acceptable finger-on-the-scale, but note it is not a real day/night model.
 
+7. The beam is a fixed circular pool regardless of range or grazing angle. A real
+   cone's footprint on a surface is an ellipse that grows with distance and
+   stretches as the beam rakes a face obliquely. Correct base: size and shape the
+   pool from the cone half-angle, the hit distance, and the surface normal, so it
+   elongates when aimed far or across an angled surface.
+
+8. The beam is one evenly-lit cone, but the emitter is not a disc: it is the iris,
+   six glass segments around a dark pupil and spokes. The real beam is six
+   overlapping sub-beams and should carry that structure (lobed edges, brighter
+   where the sub-beams overlap, gaps from the pupil and spokes), not a uniform
+   wash. Correct base: derive the beam from the iris emitter's actual shape rather
+   than a single circular cone.
+
+(Aiming the lamp at the ball stresses several of these at once: the genuine
+reflection is (3), the genuine shadow with a real umbra and penumbra is (1), and
+all of it reads worst at night, where the faked terms have no daylight to hide
+in.)
+
 ## The shape of the fix
 
 The keystone for 1-4 is the same: make the flashlight a real light with a

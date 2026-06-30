@@ -671,7 +671,7 @@ fresnel_reflectance(float cosi, float eta) {
 [[nodiscard]] __device__ inline ray_sample
 shade_merged_glass(const density_field& field, cudaTextureObject_t color,
     const metal_ball& ball, const saucer_head& head, const render_config& cfg,
-    pos3 eye, vec3 ray_dir) {
+    pos3 eye, vec3 ray_dir, float px_scale) {
   const float t_exit = ball.intersect(eye, ray_dir);
   const pos3 exit = eye + (ray_dir * t_exit);
   const vec3 n_out = ball.normal(exit);                // outward at the exit
@@ -694,6 +694,7 @@ shade_merged_glass(const density_field& field, cudaTextureObject_t color,
   // rather than going black.
   vec3 trans{};
   float world_depth = big_value;
+  bool reticle_edge = false;
   if (refl_w < 1.0F) {
     const vec3 dg = refract(ray_dir, -n_out, cfg.glass.ior);
     const float twg = field.raymarch(exit, dg);
@@ -712,6 +713,16 @@ shade_merged_glass(const density_field& field, cudaTextureObject_t color,
     } else {
       trans = green;
     }
+    // The in-world dig reticle, refracted with the terrain it marks: painted
+    // on the transmitted terrain along the base (green) refracted ray, so it
+    // bends through the lens with the bowl it sits in, the same additive glow
+    // the outside view lays on a direct terrain hit. Only where that ray
+    // struck terrain; a sky miss has nothing to project onto. The centered aim
+    // exits at normal incidence (the eye rides the look axis), so it stays put
+    // on the pick point while the periphery bends.
+    if (twg >= 0.0F)
+      trans = apply_reticle(cfg.reticle, field, eye, dg, exit + (dg * twg),
+          px_scale, trans, reticle_edge);
   }
 
   // Reflected internal bounce: the player's own saucer, faintly mirrored in
@@ -734,7 +745,7 @@ shade_merged_glass(const density_field& field, cudaTextureObject_t color,
   // over the warped world beyond (after the vignette, so the frame stays
   // bright at the rim), the same emissive grid the outer mirror shows.
   col = col + ball_grid_emissive(ball, cfg, n_out);
-  return ray_sample{col, world_depth, 2, false};
+  return ray_sample{col, world_depth, 2, reticle_edge};
 }
 
 // Composite the primary ray: the nearest of the ball, the terrain, and the
@@ -753,7 +764,8 @@ shade_primary_ray(const density_field& field, cudaTextureObject_t color,
   // `shade_merged_glass`).
   if (const vec3 oc = eye - ball.center;
       dot(oc, oc) < ball.radius * ball.radius)
-    return shade_merged_glass(field, color, ball, head, cfg, eye, ray_dir);
+    return shade_merged_glass(field, color, ball, head, cfg, eye, ray_dir,
+        px_scale);
 
   float t_terrain = field.raymarch(eye, ray_dir);
   const float t_ball = ball.intersect(eye, ray_dir);

@@ -373,6 +373,29 @@ struct render_config {
     float vignette = 3.0F;    // extra corner darkening toward the grazing rim
   } glass;
 
+  // Merge ripple: a one-shot force-field shockwave played as the camera eye
+  // crosses the ball surface (merging in or backing out), so the hard switch
+  // between the opaque mirror and the glass lens reads as breaching the shell
+  // rather than a cut.
+  //
+  // A radial wave warps the primary-ray sample about the screen center
+  // (`ripple_warp` in render_kernel.cuh): concentric rings that expand as
+  // `phase` advances and fade as `amplitude` decays to 0. The exact center has
+  // no offset, so the normal-incidence aim point holds still while the
+  // surround ripples.
+  //
+  // `amplitude` and `phase` are written each frame by the engine, which
+  // triggers the decaying shockwave on the crossing edge; the rest are look
+  // tunables.
+  struct ripple_params {
+    float amplitude = 0.0F;   // live radial warp strength this frame (0 = off)
+    float phase = 0.0F;       // live ring phase, advances as the rings expand
+    float peak = 0.05F;       // max radial displacement at the crossing
+    float frequency = 2.5F;   // rings across the half-screen
+    float duration = 0.75F;   // effect length, seconds
+    float ring_speed = 18.0F; // ring expansion rate, phase radians per second
+  } ripple;
+
   // Bloom: the render writes linear HDR into an off-screen buffer, and the
   // post pass blooms the brights (a soft-thresholded, blurred copy added back)
   // before the Reinhard tonemap that lands the LDR frame. With `enabled` off,

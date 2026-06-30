@@ -89,6 +89,28 @@ pixel_world_scale(const camera_rays& cam, resolution res) {
   return (cam.tan_half_fov * 2.0F) / res.height;
 }
 
+// Warp a pixel sample about the screen center for the merge ripple: a radial
+// shockwave that scales each pixel's offset from center in and out, the rings
+// expanding as `phase` advances and fading as `amplitude` decays to 0 (a no-op
+// at 0). The exact center has no offset, so the normal-incidence aim point
+// holds still while the surround ripples. Keyed in pixel space, so the rings
+// stay circular whatever the aspect ratio. Run on the same sample both render
+// passes feed `ray_direction`, so the warp is consistent across the AA prepass
+// and resolve.
+[[nodiscard]] __device__ inline pos2 ripple_warp(pos2 pixel, resolution res,
+    const render_config::ripple_params& rp) {
+  if (rp.amplitude <= 0.0F) return pixel;
+  const float cx = (res.width - 1.0F) * 0.5F;
+  const float cy = (res.height - 1.0F) * 0.5F;
+  const float dx = pixel.v.x - cx;
+  const float dy = pixel.v.y - cy;
+  const float r = sqrtf((dx * dx) + (dy * dy)) / (res.height * 0.5F);
+  const float disp =
+      rp.amplitude * sinf((r * rp.frequency * two_pi_v<>)-rp.phase);
+  const float scale = 1.0F + disp;
+  return pos2{vec2{cx + (dx * scale), cy + (dy * scale)}};
+}
+
 // `__launch_bounds__` caps registers on both render kernels so more 256-thread
 // blocks stay resident: uncapped, the march wants 136 registers, leaving only
 // one block per SM (~17% occupancy) to hide texture-fetch latency, which
@@ -123,8 +145,9 @@ __global__ void __launch_bounds__(256, 3) aa_prepass_kernel(float4* hdr,
   if (fx >= res.width || fy >= res.height) return;
 
   const float px_scale = pixel_world_scale(cam, res);
-  const vec3 ray_dir = cam.ray_direction(pos2{vec2{fx + 0.5F, fy + 0.5F}}, res,
-      cfg.fisheye_amount);
+  const pos2 sample =
+      ripple_warp(pos2{vec2{fx + 0.5F, fy + 0.5F}}, res, cfg.ripple);
+  const vec3 ray_dir = cam.ray_direction(sample, res, cfg.fisheye_amount);
   const ray_sample s = shade_primary_ray(field, color_tex, ball, head, mirror,
       cfg, cam.eye, ray_dir, px_scale);
 
@@ -218,8 +241,9 @@ __global__ void __launch_bounds__(256, 3) aa_resolve_kernel(float4* hdr,
     for (int sx = 0; sx < aa_samples; ++sx) {
       const float ox = (static_cast<float>(sx) + 0.5F) * inv;
       const float oy = (static_cast<float>(sy) + 0.5F) * inv;
-      const vec3 ray_dir = cam.ray_direction(pos2{vec2{fx + ox, fy + oy}}, res,
-          cfg.fisheye_amount);
+      const pos2 sample =
+          ripple_warp(pos2{vec2{fx + ox, fy + oy}}, res, cfg.ripple);
+      const vec3 ray_dir = cam.ray_direction(sample, res, cfg.fisheye_amount);
       color =
           color +
           shade_primary_ray(field, color_tex, ball, head, mirror, cfg, cam.eye,

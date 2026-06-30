@@ -131,6 +131,7 @@ public:
         tunnels_requested_ = false;
       }
       update_reticle(rays, ball, dt);
+      update_merge_ripple(rays, ball, dt);
       dig(dt);
       crush_track();
       probe_ground();
@@ -412,11 +413,16 @@ private:
     // the jockey or close in. The dig beam leaves the ball, so it cannot fire
     // through the ball when the aim ray meets it nearer than the terrain; and
     // digging is a close-range action, so a hit past `max_dig_distance` (from
-    // the eye) is also refused.
+    // the eye) is also refused. The block lifts once merged (the eye inside
+    // the glass lens), where the centered aim exits the ball at normal
+    // incidence and so fires straight through it.
+    const vec3 oc = rays.eye - ball.center;
+    const bool eye_in_ball = dot(oc, oc) < (ball.radius * ball.radius);
     const float t_ball = ball.intersect(rays.eye, aim);
     const float t_hit =
         pick_state_.hit ? length(pick_state_.point - rays.eye) : big_value;
-    const bool aim_through_ball = (t_ball >= 0.0F) && (t_ball < t_hit);
+    const bool aim_through_ball =
+        !eye_in_ball && (t_ball >= 0.0F) && (t_ball < t_hit);
     // Range is measured from the ball (the digger), not the eye (the trailing
     // camera), so the reach does not change as the camera dollies in and out.
     const bool out_of_range =
@@ -433,6 +439,35 @@ private:
       render_cfg_.reticle.view_right = rays.frame.right;
       render_cfg_.reticle.view_up = rays.frame.up;
     }
+  }
+
+  // Drive the merge ripple: a force-field shockwave played as the camera eye
+  // crosses the ball surface, merging in or backing out.
+  //
+  // Triggered on the inside/outside edge (the same test the renderer switches
+  // the glass lens on), it arms a timer that decays over `ripple.duration`,
+  // feeding the shader a fading `amplitude` and an expanding `phase`. The
+  // trigger is the crossing, not the resting position, so a merged eye parked
+  // just inside the surface leaves no standing ripple. Primed on the first
+  // call so the spawn pose does not fire one.
+  void update_merge_ripple(const camera_rays& rays, const metal_ball& ball,
+      float dt) {
+    const vec3 oc = rays.eye - ball.center;
+    const bool inside = dot(oc, oc) < (ball.radius * ball.radius);
+    if (ripple_primed_ && inside != eye_inside_prev_)
+      merge_ripple_timer_ = render_cfg_.ripple.duration;
+    eye_inside_prev_ = inside;
+    ripple_primed_ = true;
+
+    // Decay the timer, slowed by the merge tuning aid so the ripple stretches
+    // in step with the slowed dolly (1 leaves it at full speed).
+    const float slow = fmaxf(rig_.tune.merge_slowmo, 0.01F);
+    merge_ripple_timer_ = fmaxf(0.0F, merge_ripple_timer_ - (dt * slow));
+    const float dur = fmaxf(render_cfg_.ripple.duration, 1.0e-3F);
+    const float t = fminf(merge_ripple_timer_ / dur, 1.0F); // 1 at cross -> 0
+    render_cfg_.ripple.amplitude = render_cfg_.ripple.peak * t;
+    render_cfg_.ripple.phase =
+        (dur - merge_ripple_timer_) * render_cfg_.ripple.ring_speed;
   }
 
   // Carve the field at the reticle while the dig tool is on and the left
@@ -857,6 +892,16 @@ private:
   avatar_body body_;
   const body_params body_defaults_{};
   bool body_primed_ = false;
+
+  // Merge-ripple scratch: the force-field shockwave as the eye crosses the
+  // ball surface. `eye_inside_prev_` tracks the inside/outside state to catch
+  // the crossing edge, `ripple_primed_` skips the first frame so the spawn
+  // pose does not fire one, and `merge_ripple_timer_` is the decaying
+  // countdown the shader's `amplitude` and `phase` derive from. See
+  // `update_merge_ripple`.
+  bool eye_inside_prev_ = false;
+  bool ripple_primed_ = false;
+  float merge_ripple_timer_ = 0.0F;
 
   // One-shot: flatten the world to a level test track at the ball's feet, set
   // by a panel button and consumed in `tick`.

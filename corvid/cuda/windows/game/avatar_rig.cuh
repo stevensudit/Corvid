@@ -73,6 +73,8 @@ struct avatar_rig {
   radians heading{};   // yaw the head sits along; tracks the look while moving
   float boom{};        // head distance behind the ball, jockey to trailing
   float boom_target{}; // where the wheel's taking the boom; `update` eases
+  bool merged_target_prev{}; // last frame's merge-target state, for pitch snap
+  bool merge_tilt_locked{};  // hold the look at merge pitch through a crossing
   float terrain_clear = big_value; // clear distance along the boom axis
   vec3 ground_vel{};               // horizontal velocity, synced from the body
   float vel_y{};                   // vertical velocity, synced from the body
@@ -292,12 +294,32 @@ struct avatar_rig {
     const float step = fmaxf(tune.zoom_step, 0.01F);
     boom_target =
         std::min(boom_target, floorf(boom_axis_limit() / step) * step);
-    boom += (boom_target - boom) * (1.0F - expf(-tune.zoom_approach * dt));
 
-    // Dollying back out of the body points the view down at the ball, so it
-    // reads as backing out of it and naturally looking right at it.
-    if (merged_before && !merged())
-      facing.pitch = radians{tune.merge_exit_pitch_deg * radians::per_degree};
+    // The merge boundary crossing, keyed on the TARGET (set the instant the
+    // wheel commits) rather than the eased `boom`. The eye leaves the ball
+    // surface early in the dolly-out, well before `boom` clears `boom_min`, so
+    // a boom-based exit edge fires only once you are already out; the target
+    // edge fires as you commit, while the eye is still on the near side.
+    const bool merged_target = boom_target < tune.boom_min;
+
+    // Slow the dolly through the merge zone by `merge_slowmo` (a tuning aid; 1
+    // leaves it untouched), so the crossing and its ripple can be studied.
+    // Scoped to the merge (currently merged, or a target heading into it);
+    // normal jockey-to-trailing dollying is unaffected.
+    const bool in_merge_zone = merged_before || merged_target;
+    const float ease_dt = in_merge_zone ? (dt * tune.merge_slowmo) : dt;
+    boom +=
+        (boom_target - boom) * (1.0F - expf(-tune.zoom_approach * ease_dt));
+
+    // Engage the merge tilt lock on the boundary crossing (the target edge):
+    // it holds the look down at the ball through the whole transition (forced
+    // below, after the follow), so the camera frames the ball and its ripple
+    // both ways. The edge fires as the wheel commits, while the eye is still
+    // on the near side, so the lock lands before the crossing: going in the
+    // head looks down into the body to catch the ripple, backing out the same
+    // hold keeps the exit ripple in view.
+    if (merged_target != merged_target_prev) merge_tilt_locked = true;
+    merged_target_prev = merged_target;
 
     if (moving > 0.0F) {
       if (looking) {
@@ -336,6 +358,20 @@ struct avatar_rig {
         facing.yaw += delta * rate;
         facing.pitch *= (1.0F - rate);
       }
+    }
+
+    // Hold the locked merge tilt down through the crossing, overriding the
+    // follow's pitch ease (and any look drift) that would otherwise raise the
+    // snapped view back toward level mid-merge (plain only at a low
+    // `merge_slowmo`). Release once the transition settles: merged in, when
+    // the boom reaches its target (the ball center); backing out, when the
+    // boom clears the merge zone.
+    if (merge_tilt_locked) {
+      facing.pitch = radians{tune.merge_pitch_deg * radians::per_degree};
+      constexpr float settle_eps = 0.02F; // boom units from the merge target
+      const bool settled =
+          merged_target ? fabsf(boom - boom_target) < settle_eps : !merged();
+      if (settled) merge_tilt_locked = false;
     }
 
     // Ease the head offset toward its seat, capped at the ball's own move

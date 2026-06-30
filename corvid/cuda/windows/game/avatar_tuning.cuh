@@ -183,10 +183,16 @@ struct avatar_tuning {
   // the magnitude sets how much the periphery refracts (nearer a surface bends
   // harder). 0 is dead center, a clear bubble.
   float merge_eye_back = -0.9F;
-  // Dollying back out of the body snaps the look to this pitch (degrees, down
-  // is negative), so you back out already looking down at the ball you just
-  // left rather than off at the horizon.
-  float merge_exit_pitch_deg = -55.0F;
+  // Crossing the merge boundary (dollying into the body or back out of it)
+  // snaps the look to this pitch (degrees, down is negative), in one frame.
+  // Going in, the head looks down into the ball so the camera catches the
+  // merge ripple as it crosses; backing out, you leave already looking down at
+  // the ball rather than off at the horizon.
+  float merge_pitch_deg = -55.0F;
+  // Tuning aid: slows the merge transition (the dolly through the merge zone
+  // and the merge ripple, in step) by this factor, so the crossing can be
+  // studied. 1 is full speed, lower slower; normal dollying is unaffected.
+  float merge_slowmo = 1.0F;
   float zoom_approach = 8.0F;    // boom easing rate per second
   float zoom_step = 1.0F;        // boom change per mouse-wheel notch
   float heading_approach = 8.0F; // steer heading-chase rate while moving
