@@ -185,6 +185,18 @@ public:
 #pragma endregion
 #pragma region Helpers
 private:
+  // Build the D3D11 device on the GPU CUDA will use, so a texture registered
+  // for interop lives on the adapter the CUDA context runs on.
+  //
+  // On a hybrid-graphics machine the default adapter is the display iGPU,
+  // which has no CUDA device and cannot interop; `cuda_interop_adapter` picks
+  // the discrete GPU and makes it current for CUDA. A null adapter (none
+  // found) falls back to the default, surfacing the real CUDA error at
+  // registration.
+  static d3d11_device make_device() {
+    return d3d11_device{cuda_interop_adapter().get()};
+  }
+
   // Grow the capacity-sized render texture to fit the live size, recreating it
   // and re-registering with CUDA only when it must grow.
   //
@@ -217,7 +229,7 @@ private:
     render_texture_ = com_ptr<ID3D11Texture2D>{};
     cap_w_ = 0;
     cap_h_ = 0;
-    device_ = d3d11_device{};
+    device_ = make_device();
     swapchain_.reset(device_, swapchain_.hwnd()).or_throw();
     return ensure_target();
   }
@@ -225,7 +237,7 @@ private:
 #pragma endregion
 #pragma region Data members
 private:
-  d3d11_device device_;
+  d3d11_device device_{make_device()};
   d3d11_swapchain swapchain_;
   com_ptr<ID3D11Texture2D> render_texture_;
   cuda_d3d11_resource cuda_target_;

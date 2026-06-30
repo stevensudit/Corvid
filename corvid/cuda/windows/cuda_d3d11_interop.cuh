@@ -22,6 +22,7 @@
 #define NOMINMAX
 #endif
 #include <d3d11.h>
+#include <dxgi.h>
 
 #include <utility>
 
@@ -29,6 +30,8 @@
 
 #include "../../enums/bitmask_enum.h"
 #include "../cuda_status.cuh"
+#include "./hr_status.h"
+#include "./com_ptr.h"
 
 #include <cuda_d3d11_interop.h>
 
@@ -37,6 +40,48 @@
 
 namespace corvid::cuda {
 
+using namespace win32;
+
+#pragma region cuda_interop_adapter
+
+// Select the GPU that CUDA and D3D11 can share, make it CUDA's current device,
+// and return its DXGI adapter so a D3D11 device built on it can interop.
+//
+// CUDA-D3D11 interop requires the D3D11 device and the CUDA context to live on
+// one physical GPU. The default D3D adapter is the wrong one on a
+// hybrid-graphics (Optimus) laptop: the display is driven by an integrated GPU
+// that has no CUDA device, so a texture created there cannot be registered
+// with CUDA. Walk the DXGI adapters and pick the first that CUDA recognizes
+// (via `cudaD3D11GetDevice`), then make it current.
+//
+// Returns a null handle when no adapter hosts a CUDA device (no NVIDIA GPU or
+// driver). The caller then builds on the default adapter, which surfaces the
+// underlying CUDA error at registration rather than here.
+[[nodiscard]] inline com_ptr<IDXGIAdapter> cuda_interop_adapter() {
+  com_ptr<IDXGIFactory1> factory;
+  hr_status{CreateDXGIFactory1(IID_PPV_ARGS(factory.put()))}.or_throw();
+
+  com_ptr<IDXGIAdapter> found;
+  int cuda_device = 0;
+  for (UINT ndx = 0;; ++ndx) {
+    com_ptr<IDXGIAdapter> adapter;
+    if (factory->EnumAdapters(ndx, adapter.put()) == DXGI_ERROR_NOT_FOUND)
+      break;
+    if (cudaD3D11GetDevice(&cuda_device, adapter.get()) == cudaSuccess) {
+      found = std::move(adapter);
+      break;
+    }
+  }
+
+  // Probing a non-CUDA adapter (the iGPU) records a thread-wide error; consume
+  // it so a later status read can't mistake it for its own call's failure.
+  [[maybe_unused]] const cuda_last_status cleared{read_mode::consume};
+
+  if (found) cuda_last_status{cudaSetDevice(cuda_device)}.or_throw();
+  return found;
+}
+
+#pragma endregion
 #pragma region cuda_graphics_register_flags
 
 // Bitmask wrapper for `cudaGraphicsRegisterFlags`, the registration flags for

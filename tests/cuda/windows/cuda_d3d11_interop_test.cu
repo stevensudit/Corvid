@@ -1,9 +1,11 @@
-// Unit test for corvid::cuda::cuda_graphics_register_flags
-// (corvid/cuda/windows/cuda_d3d11_interop.cuh): exercises the bitmask-enum
-// registration wrapping `cudaGraphicsRegisterFlags`. Round-trips every named
-// flag, plus a combined value and an unknown name. Host-only: it launches no
-// kernel and touches no device memory.
+// Unit tests for corvid/cuda/windows/cuda_d3d11_interop.cuh. Two parts: the
+// `cuda_graphics_register_flags` bitmask-enum registration wrapping
+// `cudaGraphicsRegisterFlags` (round-tripping every named flag, plus a combined
+// value and an unknown name), and `cuda_interop_adapter`, which picks the DXGI
+// adapter that shares a GPU with CUDA. Neither launches a kernel or touches
+// device memory; the adapter test does require a CUDA-capable GPU.
 
+#include <cstring>
 #include <string_view>
 
 #include "corvid/cuda/windows/cuda_d3d11_interop.cuh"
@@ -55,4 +57,25 @@ TEST_CASE("cuda_graphics_register_flags combined and unknown",
   // An unknown name does not parse.
   cuda_graphics_register_flags unused{};
   CHECK_FALSE(convert_enum(unused, "not_a_flag"));
+}
+
+TEST_CASE("cuda_interop_adapter picks the CUDA device's adapter",
+    "[cuda][interop]") {
+  // These CUDA tests already target a discrete GPU, so an adapter must be
+  // found; a null result would mean no CUDA-capable adapter at all.
+  const auto adapter = corvid::cuda::cuda_interop_adapter();
+  REQUIRE(adapter);
+
+  // The call also made that GPU CUDA's current device. Its LUID must match the
+  // adapter's, which is exactly the invariant interop needs: D3D and CUDA on
+  // one physical GPU. CUDA reports the LUID in the same byte layout as DXGI.
+  int device = 0;
+  REQUIRE(cudaGetDevice(&device) == cudaSuccess);
+  cudaDeviceProp prop{};
+  REQUIRE(cudaGetDeviceProperties(&prop, device) == cudaSuccess);
+
+  DXGI_ADAPTER_DESC desc{};
+  REQUIRE(SUCCEEDED(adapter->GetDesc(&desc)));
+  CHECK(std::memcmp(&desc.AdapterLuid, prop.luid, sizeof(desc.AdapterLuid)) ==
+        0);
 }
