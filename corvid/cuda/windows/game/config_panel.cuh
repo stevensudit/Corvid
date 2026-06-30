@@ -519,11 +519,15 @@ inline void draw_movement_section(avatar_tuning& t, const avatar_tuning& d) {
       ImGuiSliderFlags_AlwaysClamp);
   tuned_slider("merge pitch", t.merge_pitch_deg, d.merge_pitch_deg, -89.0F,
       0.0F,
-      "Crossing the merge boundary either way snaps the look to this pitch "
+      "Crossing the merge boundary either way pivots the look to this pitch "
       "(degrees, down is negative): going in, the head looks down into the "
       "ball "
       "to catch the merge ripple; backing out, you leave looking down at the "
       "ball you just left.");
+  tuned_slider("merge pitch rate", t.merge_pitch_rate, d.merge_pitch_rate,
+      1.0F, 100.0F,
+      "How fast the look pivots to the merge pitch across the crossing, per "
+      "second. Higher is quicker; lower is a slower, more visible turn.");
   tuned_slider("merge slowmo", t.merge_slowmo, d.merge_slowmo, 0.05F, 1.0F,
       "Tuning aid: slows the merge transition (the dolly through the merge "
       "zone "

@@ -367,14 +367,21 @@ struct avatar_rig {
       }
     }
 
-    // Hold the locked merge tilt down through the crossing, overriding the
-    // follow's pitch ease (and any look drift) that would otherwise raise the
-    // snapped view back toward level mid-merge (plain only at a low
-    // `merge_slowmo`). Release once the transition settles: merged in, when
-    // the boom reaches its target (the ball center); backing out, when the
-    // boom clears the merge zone.
+    // Pivot the look down to the merge pitch through the crossing, overriding
+    // the follow's pitch ease (and any look drift) that would otherwise raise
+    // the view back toward level mid-merge.
+    //
+    // Rather than snapping in one frame, it eases rapidly toward the merge
+    // pitch so entering and leaving the body read as a deliberate turn to face
+    // the ball. Driven by `ease_dt`, so the study slow-mo slows the pivot in
+    // step with the dolly. Release once the transition settles: merged in,
+    // when the boom reaches its target (the ball center); backing out, when
+    // the boom clears the merge zone.
     if (merge_tilt_locked) {
-      facing.pitch = radians{tune.merge_pitch_deg * radians::per_degree};
+      const radians target{tune.merge_pitch_deg * radians::per_degree};
+      facing.pitch +=
+          (target - facing.pitch) *
+          (1.0F - expf(-tune.merge_pitch_rate * ease_dt));
       constexpr float settle_eps = 0.02F; // boom units from the merge target
       const bool settled =
           merged_target ? fabsf(boom - boom_target) < settle_eps : !merged();
