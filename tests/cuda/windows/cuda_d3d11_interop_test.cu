@@ -1,9 +1,9 @@
 // Unit tests for corvid/cuda/windows/cuda_d3d11_interop.cuh. Two parts: the
 // `cuda_graphics_register_flags` bitmask-enum registration wrapping
-// `cudaGraphicsRegisterFlags` (round-tripping every named flag, plus a combined
-// value and an unknown name), and `cuda_interop_adapter`, which picks the DXGI
-// adapter that shares a GPU with CUDA. Neither launches a kernel or touches
-// device memory; the adapter test does require a CUDA-capable GPU.
+// `cudaGraphicsRegisterFlags` (round-tripping every named flag, plus a
+// combined value and an unknown name), and `cuda_interop_adapter`, which picks
+// the DXGI adapter that shares a GPU with CUDA. Neither launches a kernel or
+// touches device memory; the adapter test does require a CUDA-capable GPU.
 
 #include <cstring>
 #include <string_view>

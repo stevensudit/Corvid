@@ -399,6 +399,7 @@ private:
       render_cfg_.reticle.enabled = false;
       pick_state_.hit = false;
       dig_blocked_ = false;
+      pick_smoothed_primed_ = false; // re-acquire snaps, does not slide
       return;
     }
 
@@ -432,12 +433,76 @@ private:
     dig_blocked_ = aim_through_ball || out_of_range;
     render_cfg_.reticle.show_inner = !dig_blocked_;
     if (pick_state_.hit) {
-      render_cfg_.reticle.center = pick_state_.point;
+      // Low-pass the reticle center with a One Euro adaptive ease rate: a
+      // distance-scaled floor that smooths hard when the aim is still, lifted
+      // by the pick's own speed so a deliberate sweep relaxes the smoothing
+      // and the marker tracks instead of lagging. The floor handles rest
+      // jitter (the look jitter is angular, so a near target moves the world
+      // pick slowly and the merged lens magnifies it, needing heavy smoothing;
+      // a far target sweeps fast and needs little), and the speed term cures
+      // the close-up lag, where a fixed floor could not tell a slow deliberate
+      // aim from slow jitter. The total is capped so a fast far sweep stays
+      // bounded.
+      //
+      // Snap on a true discontinuity in the raw pick (the aim crossing to a
+      // new surface, a large one-frame step), not on the eased center's lag.
+      // The lag is what the smoothing deliberately introduces, so snapping on
+      // it defeats the purpose; and close up, where the distance-scaled snap
+      // window is small but the smoothing lags the most, a lag-based snap
+      // fires every frame and the marker jumps. The snap window scales with
+      // distance too, so a fast look at range (a large but continuous step)
+      // does not trip it.
+      const float target_dist = length(pick_state_.point - rays.eye);
+      constexpr float pick_rate_per_dist = 6.0F; // ease rate per world unit
+      constexpr float pick_rate_max = 60.0F;     // ease rate ceiling
+      constexpr float pick_speed_cutoff = 6.0F;  // speed low-pass rate, ~1 Hz
+      constexpr float pick_snap_frac = 0.125F;   // snap past this x distance
+
+      // Pre-smooth the pick's world speed (the One Euro speed term), so the
+      // adaptive rate keys off the trend, not the noisy per-frame step. Zero
+      // until primed, when `prev_raw` is a real prior pick.
+      const float step =
+          pick_smoothed_primed_
+              ? length(pick_state_.point - pick_prev_raw_)
+              : 0.0F;
+      const float raw_speed = (dt > 0.0F) ? (step / dt) : 0.0F;
+      pick_speed_ +=
+          (raw_speed - pick_speed_) * (1.0F - expf(-pick_speed_cutoff * dt));
+
+      const float rest_rate = fminf(
+          fmaxf(pick_rate_per_dist * target_dist,
+              render_cfg_.reticle.pick_rest_rate),
+          pick_rate_max);
+      const float rate = fminf(
+          rest_rate + (render_cfg_.reticle.pick_beta * pick_speed_),
+          pick_rate_max);
+
+      bool snap = !pick_smoothed_primed_;
+      if (!snap) snap = step > (pick_snap_frac * target_dist);
+      if (snap) {
+        pick_smoothed_ = pick_state_.point;
+        pick_smoothed_primed_ = true;
+        pick_speed_ = 0.0F;
+      } else {
+        pick_smoothed_ =
+            pick_smoothed_ +
+            ((pick_state_.point - pick_smoothed_) * (1.0F - expf(-rate * dt)));
+      }
+      pick_prev_raw_ = pick_state_.point;
+      render_cfg_.reticle.center = pick_smoothed_;
       // The reticle measures its azimuth against the camera's screen axes, so
       // its roll stays steady across terrain creases (where the pick normal
       // jumps); the pick normal is no longer used for the reticle.
       render_cfg_.reticle.view_right = rays.frame.right;
       render_cfg_.reticle.view_up = rays.frame.up;
+
+      // Fit the local terrain curvature around the eased center so the lensed
+      // reticle conforms to a tunnel or bowl (see `apply_lensed_reticle`). Fit
+      // around the smoothed center, not the raw pick, so the tangent frame
+      // does not jitter; read it back this frame, like the pick.
+      fit_kernel<<<1, 1>>>(field_, pick_smoothed_,
+          render_cfg_.reticle.outer_radius, fit_target_.get());
+      fit_target_.store(render_cfg_.reticle.fit).or_throw();
     }
   }
 
@@ -713,6 +778,8 @@ private:
     restore_window_geometry();
 
     if (!dig_target_) throw std::runtime_error{"failed to allocate dig probe"};
+    if (!fit_target_)
+      throw std::runtime_error{"failed to allocate reticle fit"};
     if (!ground_target_)
       throw std::runtime_error{"failed to allocate ground probe"};
     if (!boom_clear_)
@@ -834,6 +901,12 @@ private:
   // host. The brush removes `dig_rate_` of density per second at its center,
   // falling off across a `dig_radius_` sphere.
   cuda_ptr<dig_probe> dig_target_;
+
+  // A one-element device buffer the `fit_kernel` writes each frame the reticle
+  // is up: the local terrain curvature around the aim, read back into
+  // `render_config::reticle.fit` so the lensed reticle conforms to a tunnel or
+  // bowl (see `apply_lensed_reticle`).
+  cuda_ptr<reticle_surface_fit> fit_target_;
   const dim3 dig_block_{8, 8, 8};
   int dig_span_ = 0; // cube edge in voxels, set in `init`
   dim3 dig_grid_{};  // launch grid for the brush cube, set in `init`
@@ -842,6 +915,17 @@ private:
   // driving the target reticle and gating the dig brush. `hit` is false when
   // the tool is off or the aim missed.
   dig_probe pick_state_{};
+
+  // Low-passed reticle center: the aim hit eased frame to frame so the marker
+  // does not jitter with the look (see `update_reticle`). `primed` snaps it on
+  // (re)acquisition instead of sliding in from a stale spot; `prev_raw` is
+  // last frame's raw pick, to detect the surface-crossing discontinuity that
+  // snaps. `speed` is the low-passed world speed of the pick, the One Euro
+  // term that relaxes the smoothing as the aim moves.
+  pos3 pick_smoothed_{};
+  pos3 pick_prev_raw_{};
+  float pick_speed_ = 0.0F;
+  bool pick_smoothed_primed_ = false;
 
   // True when the dig is refused for this aim: the ball occludes the target
   // (the dig beam leaves the ball, so it cannot fire through it) or the target

@@ -24,6 +24,7 @@
 #include "../../density_field.cuh"
 #include "../../raycast.cuh"
 #include "../../vec.cuh"
+#include "./render_config.cuh"
 
 // Per-frame operations on the live density field.
 //
@@ -59,6 +60,52 @@ pick_kernel(density_field field, pos3 eye, vec3 dir, dig_probe* out) {
     // wobble turns it a lot).
     out->point = field.refine_hit(eye + (dir * dist), dir);
   }
+}
+
+// Fit a smooth quadric to the terrain around the reticle's aim `center`, so
+// the in-world reticle conforms to a tunnel or bowl without riding the
+// per-pixel voxel facets (see `reticle_surface_fit` and
+// `apply_lensed_reticle`).
+//
+// Build a tangent frame at `center` from the surface normal, then sample the
+// surface height (a downward raymarch along the normal) at the four axis and
+// four diagonal points `radius` out, and take symmetric second differences for
+// the quadric's `a`, `b`, `c`. Sampling across the whole footprint low-passes
+// the voxel bumps while keeping the macro curvature; a sample that finds no
+// surface (a hole) contributes 0, biasing that direction flat. One thread; the
+// host reads it back like the pick.
+__global__ void fit_kernel(density_field field, pos3 center, float radius,
+    reticle_surface_fit* out) {
+  const vec3 n = field.normal(center);
+  // Tangent axes perpendicular to `n`, built off the world axis least aligned
+  // with it so the cross product never degenerates near vertical.
+  const vec3 ref =
+      (fabsf(n.y) < 0.9F) ? vec3{0.0F, 1.0F, 0.0F} : vec3{1.0F, 0.0F, 0.0F};
+  const vec3 u = normalize(cross(ref, n));
+  const vec3 v = cross(n, u);
+  out->u = u;
+  out->v = v;
+  out->n = n;
+
+  // Surface height along `n` at a tangent-plane offset (du, dv): drop a ray
+  // from above the footprint straight down the normal to the first solid,
+  // returning the height relative to `center` (0 if the column has no
+  // surface).
+  const auto height = [&](float du, float dv) -> float {
+    const float start = 2.0F * radius;
+    const pos3 above = center + (u * du) + (v * dv) + (n * start);
+    const float t = field.raymarch(above, n * -1.0F);
+    return (t >= 0.0F) ? (start - t) : 0.0F;
+  };
+
+  const float r = radius;
+  const float s = radius * 0.70710678F; // diagonals, also at distance `radius`
+  const float w0 = height(0.0F, 0.0F);
+  const float inv_r2 = 1.0F / (r * r);
+  out->a = (height(r, 0.0F) + height(-r, 0.0F) - (2.0F * w0)) * inv_r2;
+  out->c = (height(0.0F, r) + height(0.0F, -r) - (2.0F * w0)) * inv_r2;
+  out->b = (height(s, s) + height(-s, -s) - height(s, -s) - height(-s, s)) /
+           (4.0F * s * s);
 }
 
 // Carve a spherical brush of `radius` around the picked point, subtracting

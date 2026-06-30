@@ -113,6 +113,36 @@ TEST_CASE("avatar_body seats a ball hovering within the ground tolerance",
   CHECK(b.grounded);
 }
 
+TEST_CASE("avatar_body holds still when seated, no vertical sawtooth",
+    "[cuda][physics][avatar_body]") {
+  // The engine's floor probe is one frame stale, so it can report a settled
+  // ball a hair high (a small negative penetration) frame after frame. Without
+  // a resting support the body then sinks under gravity every frame and the
+  // next resolve reseats it, a vertical sawtooth the merged-glass lens
+  // magnifies into a shimmer. The body must instead hold still. Feed a fixed,
+  // slightly-hovering floor (penetration inside the seated band) and confirm
+  // the center does not drift or oscillate.
+  avatar_body b;
+  b.params = test_params();
+  const float radius = b.params.radius;
+  b.center = pos3{vec3{0.0F, radius, 0.0F}};
+  b.grounded = true;
+  const body_contact floor{.touching = true,
+      .normal = up,
+      .penetration = -0.005F}; // reported a hair high, within the seated band
+  const float dt = 1.0F / 120.0F;
+  float ymin = b.center.v.y;
+  float ymax = b.center.v.y;
+  for (int step = 0; step < 240; ++step) {
+    b.advance(floor, vec3{}, false, dt);
+    ymin = fminf(ymin, b.center.v.y);
+    ymax = fmaxf(ymax, b.center.v.y);
+  }
+
+  CHECK((ymax - ymin) < 1e-5F); // held steady: no sink, no sawtooth
+  CHECK(b.grounded);
+}
+
 TEST_CASE("avatar_body jump apex matches v^2 / 2g",
     "[cuda][physics][avatar_body]") {
   avatar_body b;

@@ -844,6 +844,17 @@ inline void draw_reticle_section(render_config& c, const render_config& dc) {
       "drops the inner crosshair and blocks the dig, the same as when the "
       "ball "
       "occludes the aim.");
+  tuned_slider("pick rest smooth", c.reticle.pick_rest_rate,
+      dc.reticle.pick_rest_rate, 0.5F, 30.0F,
+      "Reticle aim smoothing at rest: the at-rest ease rate floor. Lower "
+      "eases "
+      "harder, so the marker is steadier when the aim is still but lags "
+      "more.");
+  tuned_slider("pick beta", c.reticle.pick_beta, dc.reticle.pick_beta, 0.0F,
+      40.0F,
+      "How fast the reticle smoothing relaxes as the aim moves, so deliberate "
+      "aiming up close tracks instead of lagging. 0 leaves it the fixed "
+      "distance-scaled low-pass.");
   ImGui::TreePop();
 }
 

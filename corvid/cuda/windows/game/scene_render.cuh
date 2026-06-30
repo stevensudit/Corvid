@@ -525,22 +525,31 @@ hex_edge_radius(float angle, float apothem) {
   return apothem / cosf(a);
 }
 
-// Lay the target reticle over a terrain hit: a laser-projected hexagon (a bold
-// outer ring sized to the dig footprint and a fine inner crosshair hex with
-// optional spokes, counter-rotating) marking the aim at `r.center`. Both rings
-// use the
-// pick point's true 3D distance as their radius, so they hug a dug bowl
-// instead of smearing the way a flat tangent-plane decal does; the azimuth is
-// measured against the camera's screen axes (`r.view_right` / `r.view_up`), so
-// the roll holds steady where the surface normal would jump. Painted as
-// additive glow on terrain, so the ball and head occlude it for free. The
-// inner crosshair drops out (and the outer dims) when the ball blocks the aim
-// (`show_inner`). A no-op when the tool is off (`enabled`).
+// Lay the target reticle at the surface point `hit`: a laser-projected hexagon
+// (a bold outer ring sized to the dig footprint and a fine inner crosshair hex
+// with optional spokes, counter-rotating) marking the aim at `r.center`.
 //
-// `px_scale` is the world size of one pixel per unit distance (2 tan(fov/2) /
-// height): the edge softness and line width are floored to about a pixel at
-// the hit, so the reticle holds a steady ~1px edge instead of razor-sharp
-// staircasing up close and sub-pixel line shimmer far off.
+// The caller passes `hit` already snapped to the surface, the real terrain hit
+// from outside the ball or a low-passed one from inside (see
+// `apply_lensed_reticle`).
+//
+// Both rings use the pick point's true 3D distance as their radius, so they
+// hug a dug bowl instead of smearing the way a flat tangent-plane decal does;
+// the azimuth is measured against the camera's screen axes (`r.view_right` /
+// `r.view_up`), so the roll holds steady where the surface normal would jump.
+// Painted as additive glow on terrain, so the ball and head occlude it for
+// free. The inner crosshair drops out (and the outer dims) when the ball
+// blocks the aim (`show_inner`). A no-op when the tool is off (`enabled`).
+//
+// `aa_world` is the reticle's edge softness in world units, the screen
+// footprint of one pixel at the hit, so the ring holds a steady ~1px edge
+// instead of razor-sharp staircasing up close or sub-pixel line shimmer far
+// off. The caller measures it for the ray that actually reaches the hit: a
+// straight `eye`->`hit` estimate outside the ball, but the lensed footprint of
+// the refracted ray once the eye has merged inside, where the straight
+// estimate ignores the glass and the ring would otherwise staircase through
+// it.
+//
 // `on_edge` reports whether this pixel carries any reticle coverage, so the
 // adaptive-AA resolve pass can supersample it: the reticle's thin edges are
 // painted on flat, same-depth terrain, so the geometry kind/depth test never
@@ -548,34 +557,25 @@ hex_edge_radius(float angle, float apothem) {
 // (it collapses to a hard, staircased edge where the ring grazes a curved cave
 // wall). Letting the resolve fan those pixels out gives them true multisample
 // edges at any viewing angle.
-[[nodiscard]] __device__ inline vec3 apply_reticle(
-    const render_config::reticle_params& r, const density_field& field,
-    pos3 eye, vec3 dir, pos3 hit, float px_scale, vec3 color, bool& on_edge) {
+[[nodiscard]] __device__ inline vec3
+apply_reticle(const render_config::reticle_params& r, pos3 hit, float aa_world,
+    vec3 color, bool& on_edge) {
   on_edge = false;
   if (!r.enabled) return color;
-  vec3 d = hit - r.center;
-  float er = length(d); // 3D distance: the ring radius hugs the bowl
+  const vec3 d = hit - r.center;
+  const float er = length(d); // 3D distance: the ring radius hugs the bowl
 
   // A regular hexagon's vertex sits at apothem / cos(30) = 2 / sqrt(3) times
   // its apothem; the rings are sized by apothem, so scale to reach a vertex.
   constexpr float apothem_to_vertex = 1.0F / cos_30_v<>;
-  // Floor the antialiasing width so it stays strictly positive when the hit is
-  // right at the eye (the divisions below would otherwise blow up).
+  // Floor the antialiasing width so it stays strictly positive (the divisions
+  // below would blow up at a zero footprint).
   constexpr float min_aa = 1.0e-4F;
-  const float aa = fmaxf(length(hit - eye) * px_scale, min_aa);
+  const float aa = fmaxf(aa_world, min_aa);
   const float oline = fmaxf(r.outer_line, aa); // outer ring, bold
-  // Cheap reject beyond the outer hexagon's farthest reach (a vertex), on the
-  // raw hit (the snap below moves it only a sliver, well inside this margin).
+  // Cheap reject beyond the outer hexagon's farthest reach (a vertex); the
+  // caller already snapped `hit` to the surface, so `er` is final.
   if (er > (r.outer_radius * apothem_to_vertex) + oline + aa) return color;
-
-  // Snap the hit onto the true surface before the radius math. A grazing ray
-  // (the ring on a curved cave wall) is accepted within the march's tolerance
-  // without bisecting, so its hit distance terraces; `er` would inherit a
-  // coarse multi-pixel staircase no supersampling can soften. The snap removes
-  // it; only pixels that pass the reject above pay for it.
-  hit = field.refine_hit(hit, dir);
-  d = hit - r.center;
-  er = length(d);
 
   // Azimuth measured against the camera's screen axes, not a surface tangent
   // frame: the hit positions `d` stay continuous as the aim crosses a terrain
@@ -595,22 +595,22 @@ hex_edge_radius(float angle, float apothem) {
   if (r.show_inner) {
     const float iline = fmaxf(r.inner_line, aa); // inner crosshair, fine
     const float ia = ang - r.spin;               // inner counter-rotates
-    mask = fmaxf(mask,
-        __saturatef(
-            (iline - fabsf(er - hex_edge_radius(ia, r.inner_radius))) / aa));
+    const float edge = hex_edge_radius(ia, r.inner_radius);
+    mask = fmaxf(mask, __saturatef((iline - fabsf(er - edge)) / aa));
 
-    // Crosshair spokes from the center toward the inner hex vertices: a thin
-    // radial line wherever the azimuth lands near one of `inner_spokes` evenly
-    // spaced spokes, clipped to the vertex reach.
+    // Crosshair spokes from the center to the inner hex: a thin radial line
+    // wherever the azimuth lands near one of `inner_spokes` evenly spaced
+    // spokes, clipped to the hexagon boundary in that direction (`edge`, not
+    // the constant vertex reach) so the spoke stops flush with the hex instead
+    // of poking out past its flat sides.
     if (r.inner_spokes > 0) {
       constexpr float two_pi = two_pi_v<float>;
-      const float reach = r.inner_radius * apothem_to_vertex;
       const auto spokes = static_cast<float>(r.inner_spokes);
       const float phase = (ia * spokes) / two_pi;
       const float to_spoke = fabsf(phase - rintf(phase)) * (two_pi / spokes);
       const float spoke =
           __saturatef((iline - (er * sinf(to_spoke))) / aa) *
-          __saturatef((reach - er) / aa);
+          __saturatef((edge - er) / aa);
       mask = fmaxf(mask, spoke);
     }
   }
@@ -658,6 +658,97 @@ fresnel_reflectance(float cosi, float eta) {
   return 0.5F * ((rs * rs) + (rp * rp));
 }
 
+// Lay the dig reticle onto the lensed terrain the merged glass view shows,
+// along the base refracted ray `dg` that left `exit` and struck terrain at
+// distance `twg`. Returns `base` (the caller's color at this pixel) with the
+// reticle's additive glow composited in, and sets `reticle_edge` where the
+// ring has coverage so the adaptive-AA resolve supersamples it. Split out of
+// `shade_merged_glass` to keep its branching in check.
+//
+// The reticle bends through the lens with the bowl it sits in, the same
+// additive glow the outside view lays on a direct terrain hit. The centered
+// aim exits at normal incidence (the eye rides the look axis), so it stays put
+// on the pick point while the periphery bends.
+//
+// The ring radius comes from a smooth surface fitted to the terrain near the
+// aim, not the per-pixel terrain hit: that hit rides the trilinear voxel
+// facets, so its radius frizzes at voxel scale and crawls with any lens motion
+// (the spinning ring then sweeps that fixed noise into a shimmer). The fit
+// (`reticle_surface_fit`) is a tangent frame plus a quadric height, so the
+// ring follows a tunnel or bowl while ignoring the bumps and degrades to a
+// flat plane on open ground.
+//
+// The edge softness is the lensed footprint: the refracted bundle's spread
+// perpendicular to the ray (finite-difference the hit for a one-pixel
+// primary-ray step along two screen tangents, the wider wins, reusing `twg` so
+// it costs two ball intersects and no march, carrying the lens magnification)
+// divided by the surface-grazing cosine, since a ring raking a sloped bowl
+// covers `1/cos` more surface per pixel. Clamped to the ring radius so a
+// near-tangent rake blurs the ring away, and gated to the ring's vicinity so
+// the rest of the lensed terrain skips the work.
+[[nodiscard]] __device__ inline vec3
+apply_lensed_reticle(const metal_ball& ball, const render_config& cfg,
+    pos3 eye, vec3 ray_dir, pos3 exit, vec3 dg, float twg, float px_scale,
+    vec3 base, bool& reticle_edge) {
+  constexpr float reticle_reach = (1.0F / cos_30_v<>)+2.0F;
+  if (!cfg.reticle.enabled ||
+      length((exit + (dg * twg)) - cfg.reticle.center) >=
+          cfg.reticle.outer_radius * reticle_reach)
+    return base;
+  const pos3 hit_g = exit + (dg * twg);
+  // Take the ring radius from a smooth surface fitted to the terrain near the
+  // aim, not the per-pixel terrain hit: that hit rides the trilinear voxel
+  // facets, so its radius frizzes at voxel scale and crawls with any lens
+  // motion. The fit (`reticle_surface_fit`, computed once per frame) is a
+  // tangent frame at the pick plus a quadric height, so it follows a tunnel or
+  // bowl while ignoring the bumps, and degrades to the bare plane on flat
+  // ground.
+  const reticle_surface_fit& fit = cfg.reticle.fit;
+  const float denom = dot(dg, fit.n);
+  if (fabsf(denom) < 1.0e-3F) return base; // ray skims the plane: no radius
+  // Intersect the tangent plane through the pick, then lift that hit onto the
+  // fitted quadric. No "plane behind the exit" guard: a ball resting with
+  // slight terrain penetration exits its buried bottom cap below the plane
+  // when looking straight down, so `t_plane` goes negative; that backward
+  // intersection still resolves to ~the center (a tiny radius), filling the
+  // buried-cap disc instead of leaving a hole, and a genuinely distant one
+  // self-rejects via the radius reach in `apply_reticle`.
+  const float t_plane = dot(cfg.reticle.center - exit, fit.n) / denom;
+  const pos3 hit_p = exit + (dg * t_plane); // on the tangent plane at center
+  // Lift onto the quadric: take the in-plane offset's (u, v), add the surface
+  // height there, and report the conforming 3D radius while keeping the
+  // in-plane direction (so the screen-axis azimuth is unchanged). On a curve
+  // the radius grows faster than the planar distance, so the ring pulls in to
+  // hug the bowl.
+  const vec3 dp = hit_p - cfg.reticle.center;
+  const float pu = dot(dp, fit.u);
+  const float pv = dot(dp, fit.v);
+  const float wq =
+      0.5F *
+      ((fit.a * pu * pu) + (2.0F * fit.b * pu * pv) + (fit.c * pv * pv));
+  const float r_planar = sqrtf((pu * pu) + (pv * pv));
+  const float er = sqrtf((r_planar * r_planar) + (wq * wq));
+  const float scale = (r_planar > 1.0e-4F) ? (er / r_planar) : 0.0F;
+  const pos3 hit_s = cfg.reticle.center + (dp * scale);
+  const auto refr_hit = [&](vec3 rd) {
+    const float te = ball.intersect(eye, rd);
+    const pos3 ex = eye + (rd * te);
+    return ex + (refract(rd, -ball.normal(ex), cfg.glass.ior) * twg);
+  };
+  const vec3 ref_ax =
+      (fabsf(ray_dir.x) < 0.9F)
+          ? vec3{1.0F, 0.0F, 0.0F}
+          : vec3{0.0F, 1.0F, 0.0F};
+  const vec3 ta = normalize(cross(ray_dir, ref_ax));
+  const vec3 tb = cross(ray_dir, ta);
+  const float spread = fmaxf(
+      length(refr_hit(normalize(ray_dir + (ta * px_scale))) - hit_g),
+      length(refr_hit(normalize(ray_dir + (tb * px_scale))) - hit_g));
+  const float graze = fmaxf(fabsf(denom), 0.1F); // grazing on the smooth plane
+  const float fp = fminf(cfg.reticle.outer_radius, spread / graze);
+  return apply_reticle(cfg.reticle, hit_s, fp, base, reticle_edge);
+}
+
 // Shade a primary ray whose eye has dollied inside the ball, where the ball is
 // a glass lens rather than the opaque one-way mirror it stays from outside.
 // The ray refracts at the exit surface and continues into the world; the
@@ -695,9 +786,11 @@ shade_merged_glass(const density_field& field, cudaTextureObject_t color,
   vec3 trans{};
   float world_depth = big_value;
   bool reticle_edge = false;
+  vec3 dg{};
+  float twg = -1.0F;
   if (refl_w < 1.0F) {
-    const vec3 dg = refract(ray_dir, -n_out, cfg.glass.ior);
-    const float twg = field.raymarch(exit, dg);
+    dg = refract(ray_dir, -n_out, cfg.glass.ior);
+    twg = field.raymarch(exit, dg);
     const vec3 green =
         (twg >= 0.0F)
             ? shade_terrain_hit(field, color, cfg, exit + (dg * twg),
@@ -713,16 +806,6 @@ shade_merged_glass(const density_field& field, cudaTextureObject_t color,
     } else {
       trans = green;
     }
-    // The in-world dig reticle, refracted with the terrain it marks: painted
-    // on the transmitted terrain along the base (green) refracted ray, so it
-    // bends through the lens with the bowl it sits in, the same additive glow
-    // the outside view lays on a direct terrain hit. Only where that ray
-    // struck terrain; a sky miss has nothing to project onto. The centered aim
-    // exits at normal incidence (the eye rides the look axis), so it stays put
-    // on the pick point while the periphery bends.
-    if (twg >= 0.0F)
-      trans = apply_reticle(cfg.reticle, field, eye, dg, exit + (dg * twg),
-          px_scale, trans, reticle_edge);
   }
 
   // Reflected internal bounce: the player's own saucer, faintly mirrored in
@@ -737,6 +820,17 @@ shade_merged_glass(const density_field& field, cudaTextureObject_t color,
   }
 
   vec3 col = (trans * (1.0F - refl_w)) + (ghost * (refl_w * cfg.glass.ghost));
+  // Composite the in-world dig reticle on top of the Fresnel blend, not into
+  // the transmitted side: the reflected head ghost grows over the center as
+  // the pitch nears straight down (the reflected ray points back up the look
+  // axis, at the head sitting atop the ball), and folding the reticle into
+  // `trans` let that ghost wash out the aim marker. Painted where the base
+  // refracted ray struck terrain (a sky miss has nothing to project onto), and
+  // before the vignette so the grazing rim still dims it with the rest of the
+  // lensed view. See `apply_lensed_reticle`.
+  if (twg >= 0.0F)
+    col = apply_lensed_reticle(ball, cfg, eye, ray_dir, exit, dg, twg,
+        px_scale, col, reticle_edge);
   // Faked corner vignette on top of the Fresnel falloff: darken toward the
   // grazing rim, where the exit incidence cosine is small.
   col = col * (1.0F - (cfg.glass.vignette * (1.0F - cosi)));
@@ -812,7 +906,10 @@ shade_primary_ray(const density_field& field, cudaTextureObject_t color,
     col = shade_head(head, cfg, eye + (ray_dir * best), ray_dir);
   else if (kind == 1) {
     const pos3 hit = eye + (ray_dir * best);
-    col = apply_reticle(cfg.reticle, field, eye, ray_dir, hit, px_scale,
+    // Snap onto the true surface for the reticle radius (outside the lens the
+    // real terrain hit is stable enough; only the merged view low-passes it).
+    const pos3 snapped = field.refine_hit(hit, ray_dir);
+    col = apply_reticle(cfg.reticle, snapped, length(snapped - eye) * px_scale,
         shade_terrain_hit(field, color, cfg, hit,
             shadow_sphere{ball.center, ball.radius}),
         reticle_edge);

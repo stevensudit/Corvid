@@ -204,6 +204,25 @@ struct avatar_body {
     else
       spin_in_air(drive, dt);
 
+    // Resting support. The engine's floor probe is one frame stale, so a
+    // settled ball sinks a hair under gravity each frame and the next frame's
+    // resolve reseats it, a small vertical sawtooth: invisible outside, but
+    // the merged glass lens magnifies it into a shimmer.
+    //
+    // When the ball is essentially seated on a floor and not moving sideways,
+    // cancel the into-floor velocity gravity just added, so the contact
+    // supports it statically with no sink.
+    //
+    // Gated two ways. The seated band (`seat_band`) leaves a ball still
+    // falling from higher up to seat under gravity as before. Near-zero planar
+    // speed keeps this in-band cancel from firing the tilted-normal upward
+    // kick that sideways motion drove (see `resolve_contact`); a moving ball
+    // still bobs, but its motion hides it.
+    if (floor && contact.penetration > -seat_band &&
+        length(contact.tangent(velocity)) < rest_speed)
+      if (const float closing = contact.into(velocity); closing > 0.0F)
+        velocity += contact.normal * closing;
+
     center += velocity * dt;
 
     // Grounded (can jump, has traction) when resting on a floor and not rising
@@ -216,6 +235,11 @@ struct avatar_body {
 private:
   static constexpr float contact_eps = 1.0e-3F; // "resting, not rising" band
   static constexpr float tiny = 1.0e-6F;        // divide-by-length guard
+  // Resting support (see `advance`): the seated penetration band the support
+  // holds the ball in, and the planar speed below which a floor contact counts
+  // as at rest.
+  static constexpr float seat_band = 0.008F;
+  static constexpr float rest_speed = 0.5F;
 
   // Push the ball out of any overlap and, once it is in real contact, cancel
   // motion into the surface (a dead stop, no bounce). Runs for floors and

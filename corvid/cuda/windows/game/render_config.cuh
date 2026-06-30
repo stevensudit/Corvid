@@ -25,6 +25,24 @@ namespace corvid::cuda {
 
 #pragma region render_config
 
+// A smooth local fit of the terrain around the dig reticle's aim point.
+//
+// An orthonormal tangent frame at the pick (`u`, `v` along the surface, `n`
+// the normal) plus the quadric `w(u, v) = 0.5*(a*u^2 + 2*b*u*v + c*v^2)`, the
+// surface's height above that tangent plane. Fitted once per frame from a few
+// terrain samples spanning the reticle footprint (`fit_kernel`), so the
+// reticle conforms to a tunnel or bowl without riding the per-pixel voxel
+// facets; flat ground leaves `a = b = c = 0` (the bare plane). See
+// `apply_lensed_reticle`.
+struct reticle_surface_fit {
+  vec3 u{1.0F, 0.0F, 0.0F};
+  vec3 v{0.0F, 0.0F, 1.0F};
+  vec3 n{0.0F, 1.0F, 0.0F};
+  float a = 0.0F;
+  float b = 0.0F;
+  float c = 0.0F;
+};
+
 // The shading "constants" the `shade_*` functions used to bake in as literals,
 // as a plain aggregate usable from host and device. The host keeps one live
 // instance plus a default-constructed baseline, the panel edits the live one,
@@ -278,6 +296,9 @@ struct render_config {
     vec3 view_right{1.0F, 0.0F, 0.0F};
     vec3 view_up{0.0F, 1.0F, 0.0F};
     float spin = 0.0F;
+    // The local terrain curvature around `center`, fit each frame so the
+    // reticle conforms to a tunnel or bowl (see `reticle_surface_fit`).
+    reticle_surface_fit fit;
     // Hide the inner crosshair when the ball blocks the aim (the dig beam
     // leaves the ball, so it cannot fire through itself); the engine sets it.
     bool show_inner = true;
@@ -296,6 +317,16 @@ struct render_config {
     // the inner crosshair and block the dig, the same as when the ball blocks
     // the aim, so digging stays a close-range action.
     float max_dig_distance = 6.0F; // world units from the ball
+
+    // One Euro aim smoothing for the reticle center.
+    //
+    // `pick_rest_rate` is the at-rest ease rate floor (lower eases harder:
+    // steadier when the aim is still, but laggier); `pick_beta` lifts that
+    // rate with the pick's speed, so a deliberate sweep relaxes the smoothing
+    // and the marker tracks instead of lagging (0 leaves it the fixed
+    // distance-scaled low-pass).
+    float pick_rest_rate = 3.0F; // at-rest ease rate floor, per second
+    float pick_beta = 8.0F;      // speed-relax coefficient, per world unit
   } reticle;
 
   // Anti-alias samples per axis: 1 disables it, 2 to 3 is the useful range.

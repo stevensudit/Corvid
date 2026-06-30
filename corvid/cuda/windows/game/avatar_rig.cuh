@@ -119,7 +119,14 @@ struct avatar_rig {
     const float cos_pitch = cos(facing.pitch);
     const vec3 forward{cos(facing.yaw) * cos_pitch, sin(facing.pitch),
         sin(facing.yaw) * cos_pitch};
-    const vec3 right = normalize(cross(forward, camera::world_up));
+    // The right axis is horizontal and a function of yaw alone, so the basis
+    // stays well-defined looking straight up or down.
+    //
+    // There, `cross(forward, world_up)` vanishes and normalizing it is
+    // ill-conditioned: a tiny look wobble swings the whole basis and flickers
+    // the view. Away from the poles, this is exactly that cross product
+    // normalized.
+    const vec3 right{-sin(facing.yaw), 0.0F, cos(facing.yaw)};
     return {forward, right, cross(right, forward)};
   }
 

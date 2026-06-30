@@ -124,8 +124,9 @@ public:
   // basis and to move vertically, but the camera can look in any direction.
   static constexpr vec3 world_up{0.0F, 1.0F, 0.0F};
 
-  // The pitch is clamped to just shy of straight up or down so the view basis
-  // stays well-defined.
+  // The pitch is clamped to just shy of straight up or down, so the look never
+  // tips past vertical. The view basis itself is robust at the poles now (see
+  // `view_basis`), so this is only a look limit, not a basis requirement.
   static constexpr radians max_pitch{89.0_deg};
 
 #pragma endregion
@@ -139,7 +140,7 @@ public:
 #pragma region Control
 
   // Turn by the given yaw and pitch deltas. Pitch is clamped just shy of
-  // straight up or down so the view basis stays well-defined.
+  // straight up or down so the look never tips past vertical.
   void look(orientation delta) {
     orientation_.yaw = orientation_.yaw + delta.yaw;
     orientation_.pitch =
@@ -171,7 +172,10 @@ public:
     const float cos_pitch = cos(orientation_.pitch);
     const vec3 forward{cos(orientation_.yaw) * cos_pitch,
         sin(orientation_.pitch), sin(orientation_.yaw) * cos_pitch};
-    const vec3 right = normalize(cross(forward, world_up));
+    // Right is horizontal and yaw-only, so the basis holds up looking straight
+    // up or down, where `cross(forward, world_up)` vanishes and its normalize
+    // is ill-conditioned. This is that cross product away from the poles.
+    const vec3 right{-sin(orientation_.yaw), 0.0F, cos(orientation_.yaw)};
     return {forward, right, cross(right, forward)};
   }
 
