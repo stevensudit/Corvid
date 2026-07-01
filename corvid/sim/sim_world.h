@@ -1323,7 +1323,8 @@ private:
     const float c = (dx * dx) + (dy * dy);
 
     // Degenerate: target and bullet at the same speed. Linear in `t`.
-    if (std::abs(a) < 1e-4F) return (b < -1e-4F) ? (-c / b) : nan;
+    constexpr float coeff_eps = 1e-4F;
+    if (std::abs(a) < coeff_eps) return (b < -coeff_eps) ? (-c / b) : nan;
 
     const float disc = (b * b) - (4.F * a * c);
     if (disc < 0.F) return nan; // No real solution.

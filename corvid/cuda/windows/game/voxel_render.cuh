@@ -79,7 +79,10 @@ flashlight_spot(const render_config::flashlight_params& fl, pos3 hit_point,
   if (!fl.enabled) return 0.0F;
   const vec3 to_lamp = fl.origin - hit_point;
   dist = length(to_lamp);
-  if (dist < 1.0e-4F || dist > fl.range) return 0.0F;
+  // Below this the lamp sits on the lit point; skip to avoid a zero-length
+  // direction (and the divide-by-zero normalizing it).
+  constexpr float min_light_dist = 1.0e-4F;
+  if (dist < min_light_dist || dist > fl.range) return 0.0F;
   to_lamp_dir = to_lamp * (1.0F / dist);
 
   // Soft cone: full inside the inner half-angle, easing to zero at the outer.
@@ -109,8 +112,11 @@ flashlight_spot(const render_config::flashlight_params& fl, pos3 hit_point,
       // penumbra) and lit at (radius + penumbra), so the soft band both fans
       // out past the ball and fans in to shrink the umbra, instead of leaving
       // a hard full-size umbra with only an outer fringe.
+      // Floor so the penumbra (and the smoothstep divisor below) stays
+      // positive when `shadow_softness` is zero.
+      constexpr float denom_floor = 1.0e-4F;
       const float penumbra =
-          fmaxf(shadow.radius * fl.shadow_softness, 1.0e-4F);
+          fmaxf(shadow.radius * fl.shadow_softness, denom_floor);
       const float inner = fmaxf(shadow.radius - penumbra, 0.0F);
       const float outer = shadow.radius + penumbra;
       const float s = __saturatef((d_perp - inner) / (outer - inner));

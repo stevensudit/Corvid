@@ -309,13 +309,18 @@ __global__ void bloom_prefilter_kernel(const float4* hdr, float4* bloom,
   // Soft-threshold knee (the Call of Duty / Unity curve): isolate the energy
   // above `threshold` without a hard cutoff, so a pixel hovering at the
   // threshold fades in instead of popping.
-  const float luma = dot(avg, vec3{0.2126F, 0.7152F, 0.0722F});
-  const float knee = fmaxf(cfg.bloom.threshold * cfg.bloom.knee, 1.0e-4F);
+  // Rec. 709 (BT.709 / sRGB primaries) luma weights.
+  constexpr vec3 rec709_luma{0.2126F, 0.7152F, 0.0722F};
+  const float luma = dot(avg, rec709_luma);
+  // Floor for the divisors below, so a zero denominator can't blow the
+  // quotient up to Inf/NaN.
+  constexpr float denom_floor = 1.0e-4F;
+  const float knee = fmaxf(cfg.bloom.threshold * cfg.bloom.knee, denom_floor);
   float soft =
       __saturatef((luma - cfg.bloom.threshold + knee) / (2.0F * knee));
   soft = soft * soft * knee * 2.0F; // quadratic ramp across the knee
   const float over = fmaxf(soft, luma - cfg.bloom.threshold);
-  const float weight = over / fmaxf(luma, 1.0e-4F);
+  const float weight = over / fmaxf(luma, denom_floor);
 
   bloom[(by * hw) + bx] =
       make_float4(avg.x * weight, avg.y * weight, avg.z * weight, 1.0F);

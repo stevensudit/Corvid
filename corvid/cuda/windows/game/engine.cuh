@@ -269,7 +269,10 @@ private:
     const vec3 hfwd{cos(rig_.heading), 0.0F, sin(rig_.heading)};
     const vec3 hright{-sin(rig_.heading), 0.0F, cos(rig_.heading)};
     const vec3 drive = (hfwd * fwd) + (hright * strafe);
-    const bool driving = (fabsf(fwd) + fabsf(strafe)) > 1.0e-4F;
+    // Below this the stick is effectively centered; treat it as no input so a
+    // resting stick does not read as driving.
+    constexpr float input_deadband = 1.0e-4F;
+    const bool driving = (fabsf(fwd) + fabsf(strafe)) > input_deadband;
 
     // Treadmill (lock position): hold the body in front of the mirror, but let
     // its velocity and spin keep evolving under the drive so every

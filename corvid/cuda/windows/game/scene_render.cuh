@@ -17,6 +17,7 @@
 #pragma once
 
 #include <cmath>
+#include <cstdint>
 
 #include <cuda_runtime.h>
 
@@ -39,6 +40,13 @@
 namespace corvid::cuda {
 
 #pragma region Avatar and scene compositing
+
+// Floor for divisors throughout this file, so `x / d` cannot blow up to
+// Inf/NaN when a denominator collapses toward zero. Deliberately coarse (well
+// above float epsilon): small enough to stay inert in the normal range of
+// these quantities, and most quotients that use it are `__saturatef` clamped
+// anyway.
+constexpr float denom_floor = 1.0e-4F;
 
 // Shade an antenna hit: report whether `hit_point` lands on the dome's antenna
 // and, if so, write its color to `out`. The ball tip is an emissive beacon;
@@ -89,11 +97,27 @@ namespace corvid::cuda {
 
 // A cheap integer lattice hash for the value noise below, 0..1 (no slow,
 // artifact-prone sin-based hashing). Handles negative lattice coordinates.
+//
+// The per-axis multipliers are large distinct constants so the axes do not
+// alias: `prime_x`/`prime_y` are xxHash's PRIME32_5 and PRIME32_4, and
+// `prime_z` is a third large odd constant decorrelating the z axis. `lcg_mul`
+// is the classic ANSI C `rand()` multiplier, reused as the mix step of a
+// Murmur-style xorshift-multiply finalizer. The math is unsigned so the
+// wraparound is well-defined and the shifts are logical.
 [[nodiscard]] __device__ inline float lattice_hash(int ix, int iy, int iz) {
-  int h = (ix * 374761393) + (iy * 668265263) + (iz * 1274126177);
-  h = (h ^ (h >> 13)) * 1103515245;
+  constexpr uint32_t prime_x = 374761393U;
+  constexpr uint32_t prime_y = 668265263U;
+  constexpr uint32_t prime_z = 1274126177U;
+  constexpr uint32_t lcg_mul = 1103515245U;
+  constexpr uint32_t low16_mask = 0xffffU;
+  constexpr float hash_norm = 1.0F / 65535.0F;
+  uint32_t h =
+      (static_cast<uint32_t>(ix) * prime_x) +
+      (static_cast<uint32_t>(iy) * prime_y) +
+      (static_cast<uint32_t>(iz) * prime_z);
+  h = (h ^ (h >> 13)) * lcg_mul;
   h = h ^ (h >> 16);
-  return static_cast<float>(h & 0xffff) * (1.0F / 65535.0F);
+  return static_cast<float>(h & low16_mask) * hash_norm;
 }
 
 // Smooth 3D value noise: trilinear interpolation over the hashed lattice with
@@ -148,12 +172,12 @@ cone_sample(const render_config::head_params& hp,
     float cone_len, float base_r, float tip_r) {
   if (s < 0.0F || s > cone_len)
     return vec3{0.0F, 0.0F, 0.0F}; // behind the eye or past the tip: no cone
-  const float frac = s / fmaxf(cone_len, 1e-4F); // 0 apex .. 1 tip
+  const float frac = s / fmaxf(cone_len, denom_floor); // 0 apex .. 1 tip
   // A frustum between two circles: the small pupil ring (`base_r`) at the eye
   // and the outer reticle's footprint (`tip_r`) at the target. The base is the
   // pupil size, independent of the tip, so widening the tip to match the aim
   // does not blow the origin up with it.
-  const float cone_r = fmaxf(base_r + ((tip_r - base_r) * frac), 1e-4F);
+  const float cone_r = fmaxf(base_r + ((tip_r - base_r) * frac), denom_floor);
   const float rn = dperp / cone_r; // 0 axis .. 1 cone surface
   if (rn > 2.0F) return vec3{0.0F, 0.0F, 0.0F};
   const float along = expf(-(frac * frac) * 2.0F); // brightest at the apex
@@ -310,8 +334,15 @@ cone_sample(const render_config::head_params& hp,
   // every sample by a full step maps the sample set onto itself.
   constexpr int steps = 12;
   const float dt = (t_hi - t_lo) / static_cast<float>(steps);
-  const float hash =
-      sinf(dot(ray_dir, vec3{12.9898F, 78.233F, 37.719F})) * 43758.5453F;
+  // `hash` is the sine-scramble part of the canonical GLSL
+  // `fract(sin(dot(dir, freq)) * amp)` pseudo-random one-liner; the `fract`
+  // folds into `jitter` below, after the time phase is added.
+  // `sin_hash_freq` and `sin_hash_amp` are its widely copied arbitrary
+  // constants, carrying no meaning beyond spreading nearby ray directions
+  // apart.
+  constexpr vec3 sin_hash_freq{12.9898F, 78.233F, 37.719F};
+  constexpr float sin_hash_amp = 43758.5453F;
+  const float hash = sinf(dot(ray_dir, sin_hash_freq)) * sin_hash_amp;
   const float phase = hash + (r.eye_glow_time * hp.eye_glow_boil);
   const float jitter = phase - floorf(phase);
   // How sharply the cone fades as it meets the ground plane at the aim, when
@@ -374,7 +405,8 @@ cone_sample(const render_config::head_params& hp,
   // normalized around, so the mid-range level is about unchanged.
   constexpr float glow_ref_dist = 4.0F;
   const float falloff =
-      (glow_ref_dist * glow_ref_dist) / fmaxf(cone_len * target_dist, 1e-4F) *
+      (glow_ref_dist * glow_ref_dist) /
+      fmaxf(cone_len * target_dist, denom_floor) *
       expf(-hp.eye_glow_extinction * target_dist);
   return accum * (dt * scatter * falloff);
 }
@@ -395,7 +427,7 @@ pupil_emitter(const render_config::head_params& hp,
     const render_config::reticle_params& r, float er, float pupil, float ex,
     float ey) {
   if (!r.enabled) return vec3{0.0F, 0.0F, 0.0F};
-  const float rr = __saturatef(er / fmaxf(hp.eye_hub, 1e-4F));
+  const float rr = __saturatef(er / fmaxf(hp.eye_hub, denom_floor));
   vec3 glow = hp.eye_glow_color * (pupil * rr * hp.eye_glow_strength);
   if (r.show_inner) {
     const float center = pupil * (1.0F - (rr * rr));
@@ -407,7 +439,7 @@ pupil_emitter(const render_config::head_params& hp,
     // over.
     const float apothem = hp.eye_pupil_hex * hp.eye_hub;
     const float hole = __saturatef(
-        hexagon_sd(ex, ey, apothem) / fmaxf(0.2F * apothem, 1e-4F));
+        hexagon_sd(ex, ey, apothem) / fmaxf(0.2F * apothem, denom_floor));
     glow = glow * hole;
   }
   return glow;
@@ -434,7 +466,7 @@ eye_glare_halo(const render_config::head_params& hp,
   const float d = dot(dd, c);
   if (d <= 0.0F) return vec3{0.0F, 0.0F, 0.0F}; // behind the eye's hemisphere
   const float er = sqrtf(fmaxf(1.0F - (d * d), 0.0F));
-  const float inner = __saturatef(er / fmaxf(hp.eye_hub, 1e-4F));
+  const float inner = __saturatef(er / fmaxf(hp.eye_hub, denom_floor));
   const float out =
       fmaxf(er - hp.eye_hub, 0.0F) / fmaxf(hp.eye_glare_spread, 1e-3F);
   float glow = inner * expf(-(out * out));
@@ -443,7 +475,8 @@ eye_glare_halo(const render_config::head_params& hp,
   // has no hard edges to need a hex), matching the pupil hex closely enough.
   if (!r.show_inner && hp.eye_pupil_hex > 0.0F) {
     const float core = hp.eye_pupil_hex * hp.eye_hub;
-    glow = glow * __saturatef((er - core) / fmaxf(0.2F * hp.eye_hub, 1e-4F));
+    glow = glow *
+           __saturatef((er - core) / fmaxf(0.2F * hp.eye_hub, denom_floor));
   }
   return hp.eye_glow_color * (glow * gain);
 }
@@ -1145,7 +1178,7 @@ apply_lensed_reticle(const metal_ball& ball, const render_config& cfg,
       ((fit.a * pu * pu) + (2.0F * fit.b * pu * pv) + (fit.c * pv * pv));
   const float r_planar = sqrtf((pu * pu) + (pv * pv));
   const float er = sqrtf((r_planar * r_planar) + (wq * wq));
-  const float scale = (r_planar > 1.0e-4F) ? (er / r_planar) : 0.0F;
+  const float scale = (r_planar > denom_floor) ? (er / r_planar) : 0.0F;
   const pos3 hit_s = cfg.reticle.center + (dp * scale);
   const auto refr_hit = [&](vec3 rd) {
     const float te = ball.intersect(eye, rd);

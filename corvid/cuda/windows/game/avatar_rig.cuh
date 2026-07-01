@@ -237,9 +237,11 @@ struct avatar_rig {
       // near-reversal, where easing across the flip would cross zero.
       const vec3 target = body.angular_velocity * (1.0F / omega);
       const float ease = 1.0F - expf(-tune.ball_grid_turn_rate * dt);
+      // Length below which the eased axis is treated as degenerate.
+      constexpr float min_axis_len = 1.0e-4F;
       if (const vec3 axis =
               ball_roll_axis + ((target - ball_roll_axis) * ease);
-          length(axis) > 1.0e-4F)
+          length(axis) > min_axis_len)
         ball_roll_axis = normalize(axis);
       ball_roll_blur = omega * dt * tune.ball_grid_roll_gain;
       ball_roll_phase = fmodf(ball_roll_phase + ball_roll_blur, 1.0F);
