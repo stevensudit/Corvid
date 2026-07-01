@@ -152,7 +152,7 @@ __global__ void __launch_bounds__(256, 3) aa_prepass_kernel(float4* hdr,
       cfg, cam.eye, ray_dir, px_scale);
 
   const int w = static_cast<int>(res.width);
-  const int packed = s.kind | (s.reticle_edge ? aa_reticle_edge_bit : 0);
+  const int packed = *s.kind | (s.reticle_edge ? aa_reticle_edge_bit : 0);
   gbuf[(py * w) + px] = aa_texel{s.depth, packed};
   store_hdr(hdr, (py * w) + px, s.color);
 }

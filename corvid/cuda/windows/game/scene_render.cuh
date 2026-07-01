@@ -21,6 +21,7 @@
 
 #include <cuda_runtime.h>
 
+#include "../../../enums/sequence_enum.h"
 #include "../../../math/arithmetic.h"
 #include "../../density_field.cuh"
 #include "../../mirror.cuh"
@@ -47,6 +48,18 @@ namespace corvid::cuda {
 // these quantities, and most quotients that use it are `__saturatef` clamped
 // anyway.
 constexpr float denom_floor = 1.0e-4F;
+
+// The nearest-hit surface a ray lands on. `sky` is 0, the miss default;
+// `mirror` is last because only the primary ray produces it (a reflection
+// never nests another mirror), so the shared kinds stay contiguous. Packs into
+// aa_texel's low bits below `aa_reticle_edge_bit`. Registered as a sequence
+// enum for `operator*` value access.
+enum class hit_kind : std::uint8_t { sky, terrain, ball, head, mirror };
+
+consteval auto corvid_enum_spec(hit_kind*) {
+  return corvid::enums::sequence::make_sequence_enum_spec<hit_kind,
+      "sky,terrain,ball,head,mirror">();
+}
 
 // Shade an antenna hit: report whether `hit_point` lands on the dome's antenna
 // and, if so, write its color to `out`. The ball tip is an emissive beacon;
@@ -921,21 +934,21 @@ shade_world_ray(const density_field& field, cudaTextureObject_t color,
   const float t_ball = ball.intersect(eye, ray_dir);
   const float t_head = head.raymarch(eye, ray_dir);
   float best = big_value;
-  int kind = 0; // 0 sky, 1 terrain, 2 ball, 3 head
+  hit_kind kind = hit_kind::sky;
   if (t_terrain >= 0.0F && t_terrain < best) {
     best = t_terrain;
-    kind = 1;
+    kind = hit_kind::terrain;
   }
   if (t_ball >= 0.0F && t_ball < best) {
     best = t_ball;
-    kind = 2;
+    kind = hit_kind::ball;
   }
   if (t_head >= 0.0F && t_head < best) {
     best = t_head;
-    kind = 3;
+    kind = hit_kind::head;
   }
   vec3 col;
-  if (kind == 1) {
+  if (kind == hit_kind::terrain) {
     // The dig reticle is a world-space decal at `reticle.center`, so the
     // mirror shows it on the terrain it reflects, matching the primary ray.
     // `px_scale` times the full reflected path length (`origin_dist` to the
@@ -946,10 +959,10 @@ shade_world_ray(const density_field& field, cudaTextureObject_t color,
         shade_terrain_hit(field, color, cfg, hit,
             shadow_sphere{ball.center, ball.radius}),
         reticle_edge);
-  } else if (kind == 2)
+  } else if (kind == hit_kind::ball)
     col = shade_ball(field, color, ball, head, cfg, eye + (ray_dir * best),
         ray_dir);
-  else if (kind == 3)
+  else if (kind == hit_kind::head)
     col = shade_head(head, cfg, eye + (ray_dir * best), ray_dir);
   else
     col = sky_color(cfg, ray_dir);
@@ -1087,12 +1100,11 @@ apply_reticle(const render_config::reticle_params& r, pos3 hit, float aa_world,
 // `big_value` on a sky miss). The resolve pass compares these against the
 // neighbors to find the silhouettes worth supersampling. `reticle_edge` forces
 // that pixel to supersample regardless of the geometry, since the reticle's
-// edges sit on flat same-kind terrain the kind/depth test cannot see. (`kind`:
-// 0 sky, 1 terrain, 2 ball, 3 mirror, 4 head.)
+// edges sit on flat same-kind terrain the kind/depth test cannot see.
 struct ray_sample {
   vec3 color;
   float depth;
-  int kind;
+  hit_kind kind;
   bool reticle_edge;
 };
 
@@ -1312,7 +1324,7 @@ shade_merged_glass(const density_field& field, cudaTextureObject_t color,
   // over the warped world beyond (after the vignette, so the frame stays
   // bright at the rim), the same emissive grid the outer mirror shows.
   col += ball_grid_emissive(ball, cfg, n_out);
-  return ray_sample{col, world_depth, 2, reticle_edge};
+  return ray_sample{col, world_depth, hit_kind::ball, reticle_edge};
 }
 
 // Composite the primary ray: the nearest of the ball, the terrain, and the
@@ -1349,29 +1361,29 @@ shade_primary_ray(const density_field& field, cudaTextureObject_t color,
       cfg.show_mirror ? mirror.intersect(eye, ray_dir) : -1.0F;
   const float t_head = cfg.show_head ? head.raymarch(eye, ray_dir) : -1.0F;
   float best = big_value;
-  int kind = 0; // 0 sky, 1 terrain, 2 ball, 3 mirror, 4 head
+  hit_kind kind = hit_kind::sky;
   if (t_terrain >= 0.0F && t_terrain < best) {
     best = t_terrain;
-    kind = 1;
+    kind = hit_kind::terrain;
   }
   if (t_ball >= 0.0F && t_ball < best) {
     best = t_ball;
-    kind = 2;
+    kind = hit_kind::ball;
   }
   if (t_mirror >= 0.0F && t_mirror < best) {
     best = t_mirror;
-    kind = 3;
+    kind = hit_kind::mirror;
   }
   if (t_head >= 0.0F && t_head < best) {
     best = t_head;
-    kind = 4;
+    kind = hit_kind::head;
   }
   vec3 col;
   bool reticle_edge = false;
-  if (kind == 2)
+  if (kind == hit_kind::ball)
     col = shade_ball(field, color, ball, head, cfg, eye + (ray_dir * best),
         ray_dir);
-  else if (kind == 3) {
+  else if (kind == hit_kind::mirror) {
     const pos3 hit = eye + (ray_dir * best);
     const vec3 refl = reflect(ray_dir, mirror.normal);
     // `best` is the camera-to-mirror distance, passed as the reflected ray's
@@ -1380,9 +1392,9 @@ shade_primary_ray(const density_field& field, cudaTextureObject_t color,
     col = shade_world_ray(field, color, ball, head, cfg, hit, refl, px_scale,
               best, reticle_edge) *
           0.9F;
-  } else if (kind == 4)
+  } else if (kind == hit_kind::head)
     col = shade_head(head, cfg, eye + (ray_dir * best), ray_dir);
-  else if (kind == 1) {
+  else if (kind == hit_kind::terrain) {
     const pos3 hit = eye + (ray_dir * best);
     // Snap onto the true surface for the reticle radius (outside the lens the
     // real terrain hit is stable enough; only the merged view low-passes it).
