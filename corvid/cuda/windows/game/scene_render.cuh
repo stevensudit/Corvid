@@ -277,7 +277,10 @@ cone_sample(const render_config::head_params& hp,
   const pos3 apex = head.eye_point();
   const vec3 to_target = r.center - apex;
   const float target_d2 = dot(to_target, to_target);
-  if (target_d2 < 1e-6F) return vec3{0.0F, 0.0F, 0.0F};
+  // Squared eye-to-target distance below which the aim is degenerate; guards
+  // the sqrt and `1 / target_dist` below.
+  constexpr float min_target_d2 = 1.0e-6F;
+  if (target_d2 < min_target_d2) return vec3{0.0F, 0.0F, 0.0F};
   const float target_dist = sqrtf(target_d2);
   const vec3 axis = to_target * (1.0F / target_dist); // beam dir, unit
   // Size the cone to the actual aim geometry so it stays a natural cone at any
@@ -315,7 +318,10 @@ cone_sample(const render_config::head_params& hp,
   // A frame around the axis for the speckle azimuth, held stable frame to
   // frame so the grain rotates cleanly rather than jittering.
   vec3 u = cross(axis, vec3{0.0F, 1.0F, 0.0F});
-  if (dot(u, u) < 1e-6F) u = cross(axis, vec3{1.0F, 0.0F, 0.0F});
+  // Squared basis length below which the axis is parallel to up; fall back to
+  // the x axis for the cross.
+  constexpr float min_basis_len2 = 1.0e-6F;
+  if (dot(u, u) < min_basis_len2) u = cross(axis, vec3{1.0F, 0.0F, 0.0F});
   u = normalize(u);
   const vec3 v = cross(axis, u);
 
@@ -1178,7 +1184,7 @@ apply_lensed_reticle(const metal_ball& ball, const render_config& cfg,
       ((fit.a * pu * pu) + (2.0F * fit.b * pu * pv) + (fit.c * pv * pv));
   const float r_planar = sqrtf((pu * pu) + (pv * pv));
   const float er = sqrtf((r_planar * r_planar) + (wq * wq));
-  const float scale = (r_planar > denom_floor) ? (er / r_planar) : 0.0F;
+  const float scale = (r_planar > 1.0e-4F) ? (er / r_planar) : 0.0F;
   const pos3 hit_s = cfg.reticle.center + (dp * scale);
   const auto refr_hit = [&](vec3 rd) {
     const float te = ball.intersect(eye, rd);

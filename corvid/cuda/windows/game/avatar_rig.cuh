@@ -226,7 +226,10 @@ struct avatar_rig {
     // `moving` when the body slips (revving stuck), so the grid lights and
     // spins even when the ball is barely moving.
     wheel_spin = length(body.angular_velocity) * body.params.radius * dt;
-    if (const float omega = length(body.angular_velocity); omega > 1.0e-6F) {
+    // Spin magnitude below which the body is treated as not turning; also
+    // guards the `1 / omega` normalize below.
+    constexpr float min_omega = 1.0e-6F;
+    if (const float omega = length(body.angular_velocity); omega > min_omega) {
       // Ease the grid's flow axis toward the spin direction rather than
       // snapping to it, so the small frame-to-frame wander of the spin at low
       // speed (course corrections, the stale probe) is low-passed into a

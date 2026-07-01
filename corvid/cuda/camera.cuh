@@ -92,7 +92,9 @@ struct camera_rays {
     // vertical half-FOV), then rebuild the ray from that angle and the screen
     // azimuth.
     const float r = sqrtf((u * u) + (v * v));
-    if (r < 1.0e-6F) return frame.forward; // dead center, no azimuth
+    // Screen radius below which the azimuth is undefined.
+    constexpr float min_screen_r = 1.0e-6F;
+    if (r < min_screen_r) return frame.forward; // dead center, no azimuth
     const float theta_rect = atanf(r * tan_half_fov);
     const float theta_fish = r * atanf(tan_half_fov);
     const float theta =
