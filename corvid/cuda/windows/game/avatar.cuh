@@ -198,8 +198,7 @@ struct saucer_head {
   // `up`. The belly shading reads its polar coordinates from this.
   [[nodiscard]] __host__ __device__ vec3 to_local(pos3 p) const {
     const vec3 q = p - center;
-    const vec3 ref =
-        fabsf(up.y) < 0.99F ? vec3{0.0F, 1.0F, 0.0F} : vec3{1.0F, 0.0F, 0.0F};
+    const vec3 ref = fabsf(up.y) < 0.99F ? vec3::up : vec3::right;
     const vec3 ex = normalize(cross(ref, up));
     const vec3 ez = cross(up, ex);
     return vec3{dot(q, ex), dot(q, up), dot(q, ez)};

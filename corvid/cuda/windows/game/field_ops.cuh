@@ -79,8 +79,7 @@ __global__ void fit_kernel(density_field field, pos3 center, float radius,
   const vec3 n = field.normal(center);
   // Tangent axes perpendicular to `n`, built off the world axis least aligned
   // with it so the cross product never degenerates near vertical.
-  const vec3 ref =
-      (fabsf(n.y) < 0.9F) ? vec3{0.0F, 1.0F, 0.0F} : vec3{1.0F, 0.0F, 0.0F};
+  const vec3 ref = (fabsf(n.y) < 0.9F) ? vec3::up : vec3::right;
   const vec3 u = normalize(cross(ref, n));
   const vec3 v = cross(n, u);
   out->u = u;
@@ -267,7 +266,7 @@ __global__ void ground_probe_kernel(density_field field, pos3 center,
   } else {
     // A flat region with no gradient: deep solid pushes straight up, open air
     // reports no contact.
-    out->normal = vec3{0.0F, 1.0F, 0.0F};
+    out->normal = vec3::up;
     out->surface_dist = d > 0.0F ? -no_contact : no_contact;
   }
 

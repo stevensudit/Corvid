@@ -81,7 +81,7 @@ namespace corvid::cuda {
   const flat_mirror mirror{.plane_z = oz,
       .lo = vec2{ox, oy},
       .hi = vec2{world_x1, oy + 80.0F},
-      .normal = vec3{0.0F, 0.0F, 1.0F}};
+      .normal = vec3::back};
   generate_world(field, volume, materials, colors);
 
   // A fixed pose, the viewer's default spawn (terrain toward the distant -z

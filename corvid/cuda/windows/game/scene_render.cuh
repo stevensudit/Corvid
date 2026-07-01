@@ -184,7 +184,7 @@ cone_sample(const render_config::head_params& hp,
     const render_config::reticle_params& r, float s, float dperp, float az,
     float cone_len, float base_r, float tip_r) {
   if (s < 0.0F || s > cone_len)
-    return vec3{0.0F, 0.0F, 0.0F}; // behind the eye or past the tip: no cone
+    return vec3{}; // behind the eye or past the tip: no cone
   const float frac = s / fmaxf(cone_len, denom_floor); // 0 apex .. 1 tip
   // A frustum between two circles: the small pupil ring (`base_r`) at the eye
   // and the outer reticle's footprint (`tip_r`) at the target. The base is the
@@ -192,7 +192,7 @@ cone_sample(const render_config::head_params& hp,
   // does not blow the origin up with it.
   const float cone_r = fmaxf(base_r + ((tip_r - base_r) * frac), denom_floor);
   const float rn = dperp / cone_r; // 0 axis .. 1 cone surface
-  if (rn > 2.0F) return vec3{0.0F, 0.0F, 0.0F};
+  if (rn > 2.0F) return vec3{};
   const float along = expf(-(frac * frac) * 2.0F); // brightest at the apex
   // Fade the far end over a short stretch instead of a hard perpendicular
   // cull, so the tip does not read as a flat disc cut across the beam, but
@@ -285,7 +285,7 @@ cone_sample(const render_config::head_params& hp,
 [[nodiscard]] __device__ inline vec3 eye_cone_glow(const render_config& cfg,
     const saucer_head& head, pos3 eye, vec3 ray_dir, float max_t) {
   const render_config::reticle_params& r = cfg.reticle;
-  if (!r.enabled) return vec3{0.0F, 0.0F, 0.0F};
+  if (!r.enabled) return vec3{};
   const render_config::head_params& hp = cfg.head;
   const pos3 apex = head.eye_point();
   const vec3 to_target = r.center - apex;
@@ -293,7 +293,7 @@ cone_sample(const render_config::head_params& hp,
   // Squared eye-to-target distance below which the aim is degenerate; guards
   // the sqrt and `1 / target_dist` below.
   constexpr float min_target_d2 = 1.0e-6F;
-  if (target_d2 < min_target_d2) return vec3{0.0F, 0.0F, 0.0F};
+  if (target_d2 < min_target_d2) return vec3{};
   const float target_dist = sqrtf(target_d2);
   const vec3 axis = to_target * (1.0F / target_dist); // beam dir, unit
   // Size the cone to the actual aim geometry so it stays a natural cone at any
@@ -322,19 +322,19 @@ cone_sample(const render_config::head_params& hp,
   const vec3 oc = eye - apex;
   const float boc = dot(oc, ray_dir);
   const float disc = (boc * boc) - (dot(oc, oc) - radius2);
-  if (disc < 0.0F) return vec3{0.0F, 0.0F, 0.0F}; // misses the bounding sphere
+  if (disc < 0.0F) return vec3{}; // misses the bounding sphere
   const float sq = sqrtf(disc);
   const float t_lo = fmaxf(-boc - sq, 0.0F);
   const float t_hi = fminf(-boc + sq, max_t);
-  if (t_hi <= t_lo) return vec3{0.0F, 0.0F, 0.0F};
+  if (t_hi <= t_lo) return vec3{};
 
   // A frame around the axis for the speckle azimuth, held stable frame to
   // frame so the grain rotates cleanly rather than jittering.
-  vec3 u = cross(axis, vec3{0.0F, 1.0F, 0.0F});
+  vec3 u = cross(axis, vec3::up);
   // Squared basis length below which the axis is parallel to up; fall back to
   // the x axis for the cross.
   constexpr float min_basis_len2 = 1.0e-6F;
-  if (dot(u, u) < min_basis_len2) u = cross(axis, vec3{1.0F, 0.0F, 0.0F});
+  if (dot(u, u) < min_basis_len2) u = cross(axis, vec3::right);
   u = normalize(u);
   const vec3 v = cross(axis, u);
 
@@ -445,7 +445,7 @@ cone_sample(const render_config::head_params& hp,
 pupil_emitter(const render_config::head_params& hp,
     const render_config::reticle_params& r, float er, float pupil, float ex,
     float ey) {
-  if (!r.enabled) return vec3{0.0F, 0.0F, 0.0F};
+  if (!r.enabled) return vec3{};
   const float rr = __saturatef(er / fmaxf(hp.eye_hub, denom_floor));
   vec3 glow = hp.eye_glow_color * (pupil * rr * hp.eye_glow_strength);
   if (r.show_inner) {
@@ -479,11 +479,11 @@ pupil_emitter(const render_config::head_params& hp,
 [[nodiscard]] __device__ inline vec3
 eye_glare_halo(const render_config::head_params& hp,
     const render_config::reticle_params& r, vec3 dd, vec3 c) {
-  if (!r.enabled) return vec3{0.0F, 0.0F, 0.0F};
+  if (!r.enabled) return vec3{};
   const float gain = r.show_inner ? hp.eye_glare_lock_gain : hp.eye_glare_gain;
-  if (gain <= 0.0F) return vec3{0.0F, 0.0F, 0.0F};
+  if (gain <= 0.0F) return vec3{};
   const float d = dot(dd, c);
-  if (d <= 0.0F) return vec3{0.0F, 0.0F, 0.0F}; // behind the eye's hemisphere
+  if (d <= 0.0F) return vec3{}; // behind the eye's hemisphere
   const float er = sqrtf(fmaxf(1.0F - (d * d), 0.0F));
   const float inner = __saturatef(er / fmaxf(hp.eye_hub, denom_floor));
   const float out =
@@ -1202,10 +1202,7 @@ apply_lensed_reticle(const metal_ball& ball, const render_config& cfg,
     const pos3 ex = eye + (rd * te);
     return ex + (refract(rd, -ball.normal(ex), cfg.glass.ior) * twg);
   };
-  const vec3 ref_ax =
-      (fabsf(ray_dir.x) < 0.9F)
-          ? vec3{1.0F, 0.0F, 0.0F}
-          : vec3{0.0F, 1.0F, 0.0F};
+  const vec3 ref_ax = (fabsf(ray_dir.x) < 0.9F) ? vec3::right : vec3::up;
   const vec3 ta = normalize(cross(ray_dir, ref_ax));
   const vec3 tb = cross(ray_dir, ta);
   const float spread = fmaxf(

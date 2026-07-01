@@ -122,6 +122,12 @@ struct vec3 {
   float y;
   float z;
 
+  // World-axis unit vectors, for a y-up, -z-forward convention: `+x` is
+  // `right`, `+y` is `up`, `+z` is `back`. `forward` (`-z`) is omitted until
+  // something needs it. Defined out of class (a static member cannot name its
+  // own incomplete type in an in-class initializer).
+  static const vec3 right, up, back;
+
   friend __host__ __device__ vec3 operator+(vec3 a, vec3 b) {
     return {a.x + b.x, a.y + b.y, a.z + b.z};
   }
@@ -221,6 +227,10 @@ struct vec3 {
            (axis * (dot(axis, v) * (1.0F - c)));
   }
 };
+
+inline constexpr vec3 vec3::right{1.0F, 0.0F, 0.0F};
+inline constexpr vec3 vec3::up{0.0F, 1.0F, 0.0F};
+inline constexpr vec3 vec3::back{0.0F, 0.0F, 1.0F};
 
 #pragma endregion
 #pragma region pos2

@@ -911,7 +911,7 @@ private:
                            voxel_size_),
       .lo = vec2{ox_, oy_},
       .hi = vec2{world_x1_, oy_ + 80.0F},
-      .normal = vec3{0.0F, 0.0F, 1.0F}};
+      .normal = vec3::back};
 
   // The world box the ball is fenced inside (the same slab `raymarch` clips
   // to: the field runs half a voxel past the first and last voxel centers).
@@ -974,7 +974,7 @@ private:
   // starts as no-contact (far above), so the first frame just falls;
   // `ground_primed_` gates the readback until the first probe has been issued.
   cuda_ptr<ground_probe> ground_target_;
-  ground_probe ground_state_{.normal = vec3{0.0F, 1.0F, 0.0F},
+  ground_probe ground_state_{.normal = vec3::up,
       .surface_dist = no_contact,
       .push = {},
       .wall_normal{},
