@@ -272,6 +272,15 @@ struct avatar_rig {
 #pragma endregion
 #pragma region Animation
 
+  // Tilt the camera to `tune.hold_pitch_deg` (a look-down at the ball) while
+  // `tune.hold_pitch` is set and hold it there, so the view stays steady for
+  // tuning. A set angle, not the current pitch: the reason to hold is that the
+  // pitch cannot be set steady by hand first. Yaw and movement are untouched.
+  void apply_pitch_hold() {
+    if (!tune.hold_pitch) return;
+    facing.pitch = radians{tune.hold_pitch_deg * radians::per_degree};
+  }
+
   // Advance the frame.
   //
   // Ease the boom toward its zoom target, turn the heading and look while the
@@ -387,6 +396,10 @@ struct avatar_rig {
           merged_target ? fabsf(boom - boom_target) < settle_eps : !merged();
       if (settled) merge_tilt_locked = false;
     }
+
+    // Hold the camera at a fixed look-down for tuning when the panel toggle is
+    // set, the final word on pitch this frame.
+    apply_pitch_hold();
 
     // Ease the head offset toward its seat, capped at the ball's own move
     // speed.

@@ -254,11 +254,106 @@ struct render_config {
     vec3 eye_pupil{0.0F, 0.0F, 0.0F};          // hub center (the beam source)
     vec3 eye_frame_color{0.62F, 0.62F, 0.62F}; // frame, spokes, hub ring
 
-    // Pupil glow: the beam source lights up while the dig tool is projecting
-    // (`reticle.enabled`), so the ball reflection shows the eye charging.
-    // Added emissive over the pupil hub.
+    // Eye-cone glow: while the dig tool is projecting (`reticle.enabled`) the
+    // eye casts a speckled green haze cone into the air along the aim, a
+    // volume that floats in front of the dome rather than a decal glued to it
+    // (see `eye_cone_glow`). Shown on the freeze view's primary ray and in the
+    // ball's reflection of the saucer.
+    //
+    // The laser is green everywhere; white is only what the HDR tonemap reads
+    // at the very brightest peak (each channel saturating to one), so the air
+    // and any reflection stay green while the source blows out to white. The
+    // air cone is faint scatter only, no bright core: the beam's brightness
+    // lives at its source, the pupil, whose locked center runs at
+    // `eye_glow_peak_gain` (intense green, peak reads white; see
+    // `pupil_emitter`).
+    //
+    // The cone's apex is the eye. It is sized to the live aim geometry so it
+    // stays a natural cone at any range: `eye_glow_length` is its reach as a
+    // fraction of the eye-to-target distance (1 reaches the target), and
+    // `eye_glow_radius` is the tip radius as a fraction of the outer reticle's
+    // world size at the target (`reticle.outer_radius`). Brightest near the
+    // apex, tinted `eye_glow_color` x `eye_glow_strength`. The speckle
+    // (`eye_glow_speckle` amount, `eye_glow_speckle_freq` cell count) swirls
+    // and drifts in sync with the reticle's spin. A down-beam dead zone
+    // suppresses the cone where you look along it (there it degenerates into a
+    // flat end-on disc); it reads only in profile and reflection.
+    // `eye_glow_backscatter` lifts that dead-zone floor if any down-beam haze
+    // is wanted.
     vec3 eye_glow_color{0.20F, 1.0F, 0.55F};
-    float eye_glow_strength = 2.5F; // 0 disables the pupil glow
+    float eye_glow_strength = 4.0F; // green haze brightness (0 disables)
+    float eye_glow_length = 1.2F;   // reach, fraction of eye->target distance
+    float eye_glow_radius = 0.65F;  // tip radius, fraction of reticle size
+    float eye_glow_peak_gain = 18.0F; // pupil center peak (green, blows white)
+    float eye_glow_speckle = 0.5F;    // smoke-texture depth (0 smooth)
+    int eye_glow_speckle_freq = 16;   // smoke grain scale (higher = finer)
+    float eye_glow_spin = 5.0F;       // swirl rate, radians per second
+    float eye_glow_backscatter = 0.1F; // down-beam floor (faint but visible)
+    // Speckle boil rate: keep the cone's speckle alive when the camera holds
+    // still. The visible speckle is the jittered march (a per-ray offset of
+    // the sample depths, decorrelated pixel to pixel), which freezes when the
+    // camera stops and the ray directions stop changing; the smoke texture is
+    // only the slower wisp under it. `eye_glow_boil` advances that jitter
+    // phase over time (cycles per second) so it keeps boiling in place; 0
+    // freezes it between camera moves (see `eye_cone_glow`).
+    float eye_glow_boil = 4.0F;
+    // Dust extinction: optional Beer-Lambert dimming with the target's
+    // distance
+    // (`exp(-extinction * target_dist)`), on top of the always-on geometric
+    // falloff that already makes a farther aim dimmer (see `eye_cone_glow`,
+    // the distance response). 0 is clear air (geometric falloff only).
+    // Monotonic for any value, so aiming farther never brightens the glow.
+    float eye_glow_extinction = 0.0F;
+    // Merged view only: brightness of the pupil's near-field veiling glow,
+    // seen from inside looking out along your own aim (green, peak reads
+    // white; see `shade_merged_glass`). 0 disables. Separate from the outside
+    // air cone, whose down-aim backscatter would dim to a ring at the source.
+    float eye_glow_merged_gain = 1.5F;
+    // Radial edge feather: fades the cone's shell to zero as it nears the
+    // `rn == 2` radial cull, over a band that widens inward as this grows, so
+    // the disc's outer edge is soft instead of the hard circle the plain cull
+    // makes. Ease-out shaped (`1 - q^3`), so it holds the middle bright and
+    // fades only near the rim rather than dimming the whole disc. Stays inside
+    // the cull, so the march bounds are unchanged. 0 keeps the hard edge.
+    float eye_glow_edge_soft = 2.0F;
+    // Counter-rotating inner core, shown only while the aim is locked
+    // (`show_inner`, the inner crosshair on). The inner reticle counter-spins
+    // the outer, so full mode gives the cone a faint inner swirl turning the
+    // other way, textured by a second smoke field at the opposite azimuth. It
+    // busies the too-even outer swirl and makes locked read distinct from the
+    // outer-only rim state. 0 keeps the plain hollow shell (rim and locked
+    // look the same); higher makes the counter-core brighter and busier.
+    float eye_glow_counter = 1.0F;
+    // Debug: render only the eye-cone glow (the rest of the scene black), so
+    // its shape and edge can be read in isolation from the terrain, ball, and
+    // reticle.
+    bool eye_glow_solo = false;
+
+    // Reticle glare: while the dig tool projects (`reticle.enabled`), the
+    // pupil's ring of laser light blooms outward, a soft green glow sourced at
+    // the pupil (never the iris, which is the white flashlight source), so
+    // looking at the eye -- directly, in the ball, or in the flat mirror --
+    // reads as laser glare (see `eye_glare_halo`). A real surface emissive
+    // every ray path catches. The glow rises from a dark center to the hub rim
+    // (so the pupil stays a dark hole until locked) and fades outward, an
+    // extension of the pupil ring into the air. Green, so the HDR peak reads
+    // white while the skirts stay green: crank the gain for a blinding bloom,
+    // drop to 0 to disable. `eye_glare_gain` is the glow while merely
+    // projecting (ring only, not locked); `eye_glare_lock_gain` while locked
+    // on a target
+    // (`show_inner`), so the lit and locked glare tune apart.
+    // `eye_glare_spread` is how far it reaches out past the pupil hub rim
+    // (same units as `eye_hub`).
+    float eye_glare_gain = 3.0F;      // lit (not locked) glow brightness
+    float eye_glare_lock_gain = 8.0F; // locked glow brightness
+    float eye_glare_spread = 0.15F;   // reach past the hub rim (eye_hub units)
+    // Dark pupil center while merely projecting (not locked): a crisp dark
+    // hexagon punched out of the pupil center (and a matching round core out
+    // of the glare, which has no hard edges to need a hex), so the unlit inner
+    // reads as a distinct hole instead of a soft dip the bloom washes over.
+    // Its apothem is this fraction of `eye_hub`. Once locked, the white-hot
+    // center fills it. 0 disables the hole (the plain radial pupil).
+    float eye_pupil_hex = 1.0F;
 
     // Antenna tip beacon: the ball atop the dome's antenna, drawn emissive so
     // it reads as a light. The rod uses the bare-steel `base_albedo`. The
@@ -296,9 +391,25 @@ struct render_config {
     vec3 view_right{1.0F, 0.0F, 0.0F};
     vec3 view_up{0.0F, 1.0F, 0.0F};
     float spin = 0.0F;
+    // The eye-cone glow's own swirl phase, advanced by the engine at
+    // `head_params::eye_glow_spin` (decoupled from this reticle's spin so the
+    // cone can swirl visibly while the ground reticle turns slowly).
+    float eye_glow_phase = 0.0F;
+    // A monotonic clock (seconds since start) for the cone's speckle drift,
+    // advanced by the engine. Separate from the wrapping swirl phase because
+    // the drift scrolls the noise linearly: a wrap would jump the pattern (a
+    // lighthouse flash), so this is not wrapped. Float precision holds over
+    // any real session.
+    float eye_glow_time = 0.0F;
     // The local terrain curvature around `center`, fit each frame so the
     // reticle conforms to a tunnel or bowl (see `reticle_surface_fit`).
     reticle_surface_fit fit;
+    // Whether `center` is a real terrain pick (so `fit` is valid and on the
+    // ground), as opposed to an in-air aim (sky miss, or the force-beam debug
+    // pointing ahead). The eye-cone glow clips to the ground plane only when
+    // this is set (see `eye_cone_glow`); otherwise there is no ground to clip
+    // to. The engine sets it from the pick.
+    bool grounded = false;
     // Hide the inner crosshair when the ball blocks the aim (the dig beam
     // leaves the ball, so it cannot fire through itself); the engine sets it.
     bool show_inner = true;
@@ -313,10 +424,16 @@ struct render_config {
     int inner_spokes = 3;       // crosshair spokes in the inner hex (0..6)
     vec3 color{0.20F, 1.0F, 0.55F}; // reticle glow color
     float strength = 1.0F;          // reticle glow brightness
+    // Extra brightness on the inner crosshair only (multiplies `strength` for
+    // the inner hex and its spokes, not the outer ring). Raise it to blow the
+    // locked crosshair toward white through the HDR tonemap, so it reads over
+    // the eye-cone's counter-rotating core (see `eye_glow_counter`) instead of
+    // washing out. 1 keeps the inner at the outer's brightness.
+    float inner_gain = 6.0F;
     // Max dig reach: when the aim hit is farther than this from the ball, drop
     // the inner crosshair and block the dig, the same as when the ball blocks
     // the aim, so digging stays a close-range action.
-    float max_dig_distance = 6.0F; // world units from the ball
+    float max_dig_distance = 10.0F; // world units from the ball
 
     // One Euro aim smoothing for the reticle center.
     //

@@ -394,8 +394,20 @@ private:
     render_cfg_.reticle.spin = fmodf(
         render_cfg_.reticle.spin + (render_cfg_.reticle.spin_rate * dt),
         two_pi_v<>);
+    // The eye-cone glow swirls on its own phase, advanced independently of the
+    // reticle spin so it moves visibly while the ground reticle turns slowly
+    // (see `cone_sample`).
+    render_cfg_.reticle.eye_glow_phase = fmodf(
+        render_cfg_.reticle.eye_glow_phase +
+            (render_cfg_.head.eye_glow_spin * dt),
+        two_pi_v<>);
+    // A monotonic clock for the cone's speckle drift: not wrapped, because the
+    // drift scrolls the noise linearly and a wrap would jump the pattern.
+    render_cfg_.reticle.eye_glow_time += dt;
 
-    if (active_tool_ != active_tool::dig || !input_.looking || input_.fast) {
+    const bool tool_on =
+        active_tool_ == active_tool::dig && input_.looking && !input_.fast;
+    if (!tool_on && rig_.tune.force_beam == 0) {
       render_cfg_.reticle.enabled = false;
       pick_state_.hit = false;
       dig_blocked_ = false;
@@ -407,6 +419,10 @@ private:
     pick_kernel<<<1, 1>>>(field_, rays.eye, aim, dig_target_);
     dig_target_.store(pick_state_).or_throw();
     render_cfg_.reticle.enabled = pick_state_.hit;
+    // The aim is on the ground only when it is a real terrain pick, so the
+    // cone knows whether its far end has a ground plane to clip to
+    // (`eye_cone_glow`); a force-beam with no pick (below) leaves this false.
+    render_cfg_.reticle.grounded = pick_state_.hit;
 
     // The dig is blocked when the ball occludes the aim or the target is out
     // of range, both of which drop the inner crosshair and disable the brush;
@@ -503,6 +519,20 @@ private:
       fit_kernel<<<1, 1>>>(field_, pick_smoothed_,
           render_cfg_.reticle.outer_radius, fit_target_.get());
       fit_target_.store(render_cfg_.reticle.fit).or_throw();
+    }
+
+    // Force-beam (debug): show the cone even with no valid aim, for tuning.
+    // Rim (1) forces just the outer reticle and cone shell; full (2) adds the
+    // inner reticle and the beam core. Fire at the pick when there is one,
+    // else straight ahead.
+    if (rig_.tune.force_beam > 0) {
+      render_cfg_.reticle.enabled = true;
+      render_cfg_.reticle.show_inner = (rig_.tune.force_beam == 2);
+      if (!pick_state_.hit) {
+        constexpr float forced_reach = 3.0F; // world units ahead of the eye
+        render_cfg_.reticle.center =
+            rays.eye + (rays.frame.forward * forced_reach);
+      }
     }
   }
 

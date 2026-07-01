@@ -186,6 +186,14 @@ struct saucer_head {
     return antenna_base() + (antenna_dir * (radius * antenna_length));
   }
 
+  // World position of the cockpit eye on the dome front: the dome sphere
+  // center along `dome_up`, plus its radius along the eye direction. This is
+  // the dig beam's emitter point (see `eye_cone_glow`).
+  [[nodiscard]] __device__ pos3 eye_point() const {
+    return center + (dome_up * (radius * dome_offset)) +
+           (eye_dir * (radius * dome_radius));
+  }
+
   // Point `p` in the saucer's local frame: x and z span the disc, y runs along
   // `up`. The belly shading reads its polar coordinates from this.
   [[nodiscard]] __host__ __device__ vec3 to_local(pos3 p) const {

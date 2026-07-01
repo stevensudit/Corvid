@@ -427,9 +427,130 @@ inline void draw_eye_section(avatar_tuning& t, const avatar_tuning& d,
       "Color the pupil glows while the dig tool is projecting (seen in the "
       "ball reflection).");
   tuned_slider("eye glow", c.head.eye_glow_strength, dc.head.eye_glow_strength,
-      0.0F, 6.0F,
-      "How brightly the pupil charges up while the dig tool is projecting; 0 "
-      "disables the glow.");
+      0.0F, 12.0F,
+      "Green brightness of the firing eye's dig-beam cone; 0 disables it. "
+      "HDR, "
+      "so it blooms.");
+  tuned_slider("eye glow length", c.head.eye_glow_length,
+      dc.head.eye_glow_length, 0.0F, 1.2F,
+      "How far the cone reaches from the eye toward the aim, as a fraction of "
+      "the eye-to-target distance (1 reaches the target). Scales with range, "
+      "so "
+      "the cone stays natural at any distance.");
+  tuned_slider("eye glow radius", c.head.eye_glow_radius,
+      dc.head.eye_glow_radius, 0.0F, 1.5F,
+      "Cone tip radius as a fraction of the outer reticle's size at the "
+      "target, "
+      "so the cone opens to match the aim footprint at any range; the base at "
+      "the eye is a fraction of this (the green ring around the pupil).");
+  tuned_slider("eye glow peak gain", c.head.eye_glow_peak_gain,
+      dc.head.eye_glow_peak_gain, 0.0F, 40.0F,
+      "Brightness of the pupil's locked center (intense green, not white): "
+      "high enough that the HDR tonemap blows the peak out to white while the "
+      "skirts and reflections stay green.");
+  tuned_slider("eye glow speckle", c.head.eye_glow_speckle,
+      dc.head.eye_glow_speckle, 0.0F, 1.0F,
+      "Smoke-texture depth on the cone (3D turbulence); 0 is a smooth cone, "
+      "higher is wispier.");
+  tuned_slider_int("eye glow speckle freq", c.head.eye_glow_speckle_freq,
+      dc.head.eye_glow_speckle_freq, 4, 48,
+      "Smoke grain scale: higher is finer, smaller wisps; lower is broad, "
+      "billowy fog.");
+  tuned_slider("eye glow spin", c.head.eye_glow_spin, dc.head.eye_glow_spin,
+      0.0F, 20.0F,
+      "How fast the speckle swirls (azimuthal rotation), radians per second. "
+      "This rigidly rotates the pattern; on its own it barely animates the "
+      "grain. 0 holds it still.");
+  tuned_slider("eye glow boil", c.head.eye_glow_boil, dc.head.eye_glow_boil,
+      0.0F, 4.0F,
+      "Keeps the speckle alive when the camera holds still. The speckle is "
+      "the "
+      "jittered march (a per-ray sample offset), which freezes when you stop "
+      "moving; this advances its phase over time (cycles per second) so it "
+      "boils in place instead. 0 freezes it between camera moves.");
+  tuned_slider("eye glow extinction", c.head.eye_glow_extinction,
+      dc.head.eye_glow_extinction, 0.0F, 0.5F,
+      "Optional dust in the air: dims the glow with the TARGET's distance "
+      "(Beer-Lambert), on top of the built-in geometric falloff that already "
+      "makes a farther aim dimmer. 0 is clear air. Aiming farther never "
+      "brightens the glow at any value.");
+  tuned_slider("eye glow backscatter", c.head.eye_glow_backscatter,
+      dc.head.eye_glow_backscatter, 0.0F, 1.0F,
+      "Floor of the down-beam dead zone: how bright the cone is where you "
+      "look "
+      "along your own beam (0 fully suppresses it, since there the cone reads "
+      "as a flat end-on disc). It ramps to full across the beam (profile) and "
+      "toward it (its reflection in the ball). 1 makes it uniform.");
+  tuned_slider("eye glow merged", c.head.eye_glow_merged_gain,
+      dc.head.eye_glow_merged_gain, 0.0F, 10.0F,
+      "Merged view only: brightness of the pupil's near-field glow seen from "
+      "inside looking out along your aim (green toward the aim, brighter once "
+      "locked). 0 disables. Separate from the outside air cone.");
+  tuned_slider("eye glow edge soft", c.head.eye_glow_edge_soft,
+      dc.head.eye_glow_edge_soft, 0.0F, 4.0F,
+      "Radial feather on the cone's outer edge: 0 is the original hard cull "
+      "(which bloom shows as a crisp circle), higher softens it. Ease-out "
+      "shaped, so it holds the disc's middle bright and fades only near the "
+      "rim; it feathers inside the cull, so it never grows the glow or "
+      "aliases.");
+  tuned_slider("eye glow counter", c.head.eye_glow_counter,
+      dc.head.eye_glow_counter, 0.0F, 3.0F,
+      "Counter-rotating inner core, shown only while locked (inner crosshair "
+      "on). The inner reticle counter-spins the outer, so this gives the cone "
+      "a faint inner swirl turning the other way, busying the too-even outer "
+      "swirl and making locked read distinct from the outer-only rim. 0 keeps "
+      "the plain hollow shell (rim and locked look the same).");
+  ImGui::Checkbox("eye glow solo (debug)", &c.head.eye_glow_solo);
+  ImGui::SetItemTooltip("%s",
+      "Debug: render only the eye-cone glow, the rest of the scene black, so "
+      "its shape and edge can be seen in isolation from terrain, ball, and "
+      "reticle.");
+  ImGui::SeparatorText("Reticle glare");
+  tuned_slider("eye glare gain", c.head.eye_glare_gain, dc.head.eye_glare_gain,
+      0.0F, 20.0F,
+      "Green glow blooming outward from the pupil (never the iris) while "
+      "merely "
+      "projecting (ring only, not locked), seen directly and in every "
+      "reflection. Green, so the HDR peak reads white: crank it for a "
+      "blinding "
+      "bloom, 0 disables. Dark at the pupil center, so the hole stays dark "
+      "until locked.");
+  tuned_slider("eye glare lock gain", c.head.eye_glare_lock_gain,
+      dc.head.eye_glare_lock_gain, 0.0F, 20.0F,
+      "Same pupil glow while locked on a target (show_inner). Set apart from "
+      "'eye glare gain' so the lit and locked glare differ (e.g. subtle while "
+      "just projecting, blinding once you actually target).");
+  tuned_slider("eye glare spread", c.head.eye_glare_spread,
+      dc.head.eye_glare_spread, 0.0F, 1.0F,
+      "How far the pupil glow reaches out past the hub rim (same units as the "
+      "eye hub). Larger blooms the laser light farther from the pupil.");
+  tuned_slider("eye pupil hex", c.head.eye_pupil_hex, dc.head.eye_pupil_hex,
+      0.0F, 5.0F,
+      "Dark pupil center while merely projecting (not locked): a crisp dark "
+      "hex "
+      "punched out of the pupil (and a matching round core out of the glare) "
+      "so "
+      "the unlit inner reads as a distinct hole, not a soft dip the bloom "
+      "washes over. Apothem as a fraction of the eye hub; once locked the "
+      "white-hot center fills it. 0 disables the hole.");
+  ImGui::SeparatorText("Convenience");
+  ImGui::Checkbox("hold pitch", &t.hold_pitch);
+  ImGui::SetItemTooltip("%s",
+      "Tilt the camera to the hold-pitch angle below and hold it there, so "
+      "the "
+      "view holds steady while you tune; you can still yaw and move. Uncheck "
+      "to "
+      "release.");
+  tuned_slider("hold pitch deg", t.hold_pitch_deg, d.hold_pitch_deg, -89.0F,
+      0.0F,
+      "The look-down angle Hold Pitch tilts to (degrees, down is negative): "
+      "around -55 frames the eye, -81 the inner reticle glow.");
+  ImGui::Combo("force beam", &t.force_beam, "off\0rim\0full\0");
+  ImGui::SetItemTooltip("%s",
+      "Force the dig beam on without aiming, to watch and tune the eye-cone "
+      "glow. off leaves it to the aim; rim forces just the outer reticle and "
+      "cone shell (no beam core); full adds the inner reticle and the beam "
+      "core. Fires at the aim hit if there is one, else straight ahead.");
   ImGui::TreePop();
 }
 
@@ -837,6 +958,12 @@ inline void draw_reticle_section(render_config& c, const render_config& dc) {
       "Reticle glow color.");
   tuned_slider("glow", c.reticle.strength, dc.reticle.strength, 0.0F, 10.0F,
       "Reticle glow brightness.");
+  tuned_slider("inner gain", c.reticle.inner_gain, dc.reticle.inner_gain, 0.0F,
+      10.0F,
+      "Extra brightness on the inner crosshair only (x the outer glow). Raise "
+      "to blow the locked crosshair toward white so it reads over the "
+      "eye-cone's counter-rotating core instead of washing out. 1 matches the "
+      "outer.");
   tuned_slider_int("inner spokes", c.reticle.inner_spokes,
       dc.reticle.inner_spokes, 0, 6,
       "Crosshair spokes from the center to the inner hexagon vertices (0 "

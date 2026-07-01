@@ -210,6 +210,22 @@ struct avatar_tuning {
   float look_rest_ms = 150.0F;
   float look_beta = 0.001F;
 
+  // Convenience (debug): tilt the camera to `hold_pitch_deg` (a look-down at
+  // the ball) and hold it there while `hold_pitch` is set, so the view holds
+  // steady while tuning. Yaw and movement still work. A set angle, not the
+  // current pitch, since the reason to hold is that the pitch cannot be set
+  // steady by hand first (e.g. -55 frames the eye, -81 the inner reticle
+  // glow).
+  bool hold_pitch = false;
+  float hold_pitch_deg = -55.0F;
+
+  // Convenience (debug): force the dig beam on even without aiming, so the
+  // eye-cone glow can be watched and tuned. 0 off (leave it to the aim), 1 rim
+  // (the outer reticle and cone shell, no beam core), 2 full (adds the inner
+  // reticle and the white beam core). Fires at the aim hit when there is one,
+  // else straight ahead.
+  int force_beam = 0;
+
   // Animation rigging: rotate the head's front (and the cockpit eye) off the
   // camera heading, in degrees. Mainly to animate the UFO shaking its head;
   // also handy when debugging to bring the back of the dome into the mirror.
