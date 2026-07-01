@@ -352,7 +352,7 @@ __global__ void bloom_blur_kernel(const float4* src, float4* dst,
     const int sx = min(max(x + (k * dx), 0), hw - 1);
     const int sy = min(max(y + (k * dy), 0), hh - 1);
     const float4 s = src[(sy * hw) + sx];
-    sum = sum + (vec3{s.x, s.y, s.z} * w);
+    sum += vec3{s.x, s.y, s.z} * w;
     wsum += w;
   }
   const float inv = 1.0F / wsum;
@@ -400,7 +400,7 @@ __global__ void composite_kernel(const float4* hdr, const float4* bloom,
   if (use_bloom) {
     const vec3 b = sample_bloom(bloom, static_cast<int>(half.width),
         static_cast<int>(half.height), px, py);
-    color = color + (b * cfg.bloom.intensity);
+    color += b * cfg.bloom.intensity;
   }
   write_surface(out, px, py, reinhard_tonemap(color));
 }

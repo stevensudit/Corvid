@@ -296,7 +296,7 @@ __global__ void ground_probe_kernel(density_field field, pos3 center,
   for (const vec3 u : dirs) {
     const float dp = field.sample_density(center + (u * radius)) - contact_tol;
     if (dp <= 0.0F) continue;
-    push = push + ((u * -1.0F) * dp); // out along the radial, back to center
+    push += (u * -1.0F) * dp; // out along the radial, back to center
     if (u.y > 0.5F) {
       overhead = true;
     } else if (dp > worst_wall) {

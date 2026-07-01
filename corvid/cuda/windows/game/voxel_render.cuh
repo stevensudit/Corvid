@@ -52,9 +52,8 @@ sky_color(const render_config& cfg, vec3 ray_dir) {
 
   const vec3 sun_dir = normalize(cfg.sun_direction);
   const float s = fmaxf(dot(ray_dir, sun_dir), 0.0F);
-  col = col +
-        (sky.halo_color * (sky.halo_strength * powf(s, sky.halo_exponent)));
-  col = col + (sky.core_color * powf(s, sky.core_exponent));
+  col += sky.halo_color * (sky.halo_strength * powf(s, sky.halo_exponent));
+  col += sky.core_color * powf(s, sky.core_exponent);
   return col;
 }
 

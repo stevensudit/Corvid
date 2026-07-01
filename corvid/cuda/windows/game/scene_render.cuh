@@ -244,7 +244,7 @@ cone_sample(const render_config::head_params& hp,
     const float cgrain =
         fmaxf(1.0F + (hp.eye_glow_speckle * ((2.0F * ctex) - 1.0F)), 0.0F);
     const float core = expf(-(rn * rn) * 2.0F);
-    radial = radial + (hp.eye_glow_counter * core * cgrain);
+    radial += hp.eye_glow_counter * core * cgrain;
   }
   return hp.eye_glow_color * (radial * along * reach * hp.eye_glow_strength);
 }
@@ -369,8 +369,8 @@ cone_sample(const render_config::head_params& hp,
     // reticle's surface instead of ending on a disc in mid-air. Only when the
     // aim is a real terrain pick: otherwise there is no valid ground plane.
     if (r.grounded)
-      c = c * __saturatef(dot(sp - r.center, r.fit.n) / ground_band);
-    accum = accum + c;
+      c *= __saturatef(dot(sp - r.center, r.fit.n) / ground_band);
+    accum += c;
   }
 
   // Single-scatter phase with a down-beam dead zone. Looking along your own
@@ -437,7 +437,7 @@ pupil_emitter(const render_config::head_params& hp,
   vec3 glow = hp.eye_glow_color * (pupil * rr * hp.eye_glow_strength);
   if (r.show_inner) {
     const float center = pupil * (1.0F - (rr * rr));
-    glow = glow + (hp.eye_glow_color * (center * hp.eye_glow_peak_gain));
+    glow += hp.eye_glow_color * (center * hp.eye_glow_peak_gain);
   } else if (hp.eye_pupil_hex > 0.0F) {
     // Not locked: punch a crisp dark hexagon out of the pupil center (aligned
     // with the iris hex, since `ex`/`ey` are the iris frame) so the unlit
@@ -446,7 +446,7 @@ pupil_emitter(const render_config::head_params& hp,
     const float apothem = hp.eye_pupil_hex * hp.eye_hub;
     const float hole = __saturatef(
         hexagon_sd(ex, ey, apothem) / fmaxf(0.2F * apothem, denom_floor));
-    glow = glow * hole;
+    glow *= hole;
   }
   return glow;
 }
@@ -481,8 +481,7 @@ eye_glare_halo(const render_config::head_params& hp,
   // has no hard edges to need a hex), matching the pupil hex closely enough.
   if (!r.show_inner && hp.eye_pupil_hex > 0.0F) {
     const float core = hp.eye_pupil_hex * hp.eye_hub;
-    glow = glow *
-           __saturatef((er - core) / fmaxf(0.2F * hp.eye_hub, denom_floor));
+    glow *= __saturatef((er - core) / fmaxf(0.2F * hp.eye_hub, denom_floor));
   }
   return hp.eye_glow_color * (glow * gain);
 }
@@ -580,7 +579,7 @@ eye_glare_halo(const render_config::head_params& hp,
     const float seam_d = seam_t - hp.seam_offset;
     const float band =
         __saturatef(seam_d / aa) * __saturatef((hp.seam_width - seam_d) / aa);
-    albedo = albedo * (1.0F - band);
+    albedo *= (1.0F - band);
     emissive = (emissive * (1.0F - band)) + (hp.seam_color * band);
     eye_cover = fmaxf(eye_cover, band);
 
@@ -609,7 +608,7 @@ eye_glare_halo(const render_config::head_params& hp,
     // eye, the cell's flat-top phase lining its hexagons up with the iris.
     const float edge = geodesic_grid_edge(dd, hp.dome_hex_freq, c, eye_tan);
     const float facet = __saturatef((hp.dome_hex_line - edge) / aa);
-    albedo = albedo * (1.0F - (facet * hp.dome_hex_strength));
+    albedo *= (1.0F - (facet * hp.dome_hex_strength));
 
     // The eye, on the front of the dome (toward the eye center `c`): an opaque
     // glass iris with a pupil hub and radial spokes at its center, ringed by a
@@ -660,7 +659,7 @@ eye_glare_halo(const render_config::head_params& hp,
         // The eye reads at its set color (white stays white): drop the lit
         // metal under it and add the color as emissive rather than albedo.
         const float cov = fmaxf(inside, frame);
-        albedo = albedo * (1.0F - cov);
+        albedo *= (1.0F - cov);
         emissive = (emissive * (1.0F - cov)) + (col * cov);
         eye_cover = fmaxf(eye_cover, cov);
 
@@ -675,7 +674,7 @@ eye_glare_halo(const render_config::head_params& hp,
         const float lamp =
             cfg.flashlight.source_strength *
             static_cast<float>(cfg.flashlight.enabled);
-        emissive = emissive + (cfg.flashlight.color * (lamp * segment));
+        emissive += cfg.flashlight.color * (lamp * segment);
 
         // The pupil is the beam's emitter when the dig tool is projecting: a
         // green ring, white-hot at the center only while the aim is locked, a
@@ -728,7 +727,7 @@ eye_glare_halo(const render_config::head_params& hp,
       const float groove =
           __saturatef((hp.panel_line - (to_seam * rr)) / aa) *
           __saturatef((facing_up - hp.rim_top) / 0.05F);
-      albedo = albedo * (1.0F - (groove * hp.panel_strength));
+      albedo *= (1.0F - (groove * hp.panel_strength));
     }
   }
 
@@ -737,10 +736,10 @@ eye_glare_halo(const render_config::head_params& hp,
   if (underside > 0.001F) {
     const float rings = 0.5F + (0.5F * cosf(rr * hp.ring_paint_frequency));
     const float spokes = 0.5F + (0.5F * cosf(ang * hp.spoke_paint_frequency));
-    albedo = albedo * (hp.paint_base + (hp.paint_range * rings * spokes));
+    albedo *= (hp.paint_base + (hp.paint_range * rings * spokes));
 
     const float hub = __saturatef((hp.hub_radius - rr) / hp.hub_softness);
-    emissive = emissive + (hp.hub_color * (hp.hub_strength * hub));
+    emissive += hp.hub_color * (hp.hub_strength * hub);
 
     const float ring_d = (rr - hp.spoke_center) * hp.spoke_width;
     const float ring = expf(-(ring_d * ring_d));
@@ -748,9 +747,9 @@ eye_glare_halo(const render_config::head_params& hp,
     const float wave2 = wave * wave;
     const float wave4 = wave2 * wave2;
     const float dots = wave4 * wave4; // wave^8
-    emissive = emissive + (hp.spoke_color * (hp.spoke_strength * ring * dots));
+    emissive += hp.spoke_color * (hp.spoke_strength * ring * dots);
 
-    emissive = emissive * underside;
+    emissive *= underside;
   }
 
   // Rim running lights: a ring of emissive segments set into the rounded
@@ -778,7 +777,7 @@ eye_glare_halo(const render_config::head_params& hp,
     const float wave =
         0.5F + (0.5F * cosf(rim_ang * static_cast<float>(hp.rim_count)));
     const float seg = hp.rim_floor + ((1.0F - hp.rim_floor) * wave);
-    emissive = emissive + (hp.rim_color * (hp.rim_strength * band * seg));
+    emissive += hp.rim_color * (hp.rim_strength * band * seg);
   }
 
   // Reticle glare: the pupil's laser light blooms outward onto the whole head,
@@ -891,13 +890,13 @@ shade_scene_ray(const density_field& field, cudaTextureObject_t color,
   // The motion grid: an emissive flat hex wireframe wrapped onto the ball by
   // the rolling-conveyor projection, flaring up only while moving, added over
   // the mirror as glowing lines (see `ball_grid_emissive`).
-  col = col + ball_grid_emissive(ball, cfg, normal);
+  col += ball_grid_emissive(ball, cfg, normal);
 
   // The flashlight's glossy highlight: a broad, bright view-facing lobe where
   // the beam strikes the ball, so the chrome catches the headlamp and blows
   // out through bloom, steady across poses. The emitter's reflection in `env`
   // above is the sharp sparkle on top of it.
-  col = col + flashlight_gloss(cfg.flashlight, hit_point, normal, ray_dir);
+  col += flashlight_gloss(cfg.flashlight, hit_point, normal, ray_dir);
   return col;
 }
 
@@ -1302,17 +1301,17 @@ shade_merged_glass(const density_field& field, cudaTextureObject_t color,
     const float a2 = align * align;
     const float focus = a2 * a2 * a2; // tight glow around the aim direction
     const float lit = cfg.reticle.show_inner ? 1.0F : 0.4F;
-    col = col + (cfg.head.eye_glow_color *
-                    (focus * lit * cfg.head.eye_glow_merged_gain));
+    col += cfg.head.eye_glow_color *
+           (focus * lit * cfg.head.eye_glow_merged_gain);
   }
   // Faked corner vignette on top of the Fresnel falloff: darken toward the
   // grazing rim, where the exit incidence cosine is small.
-  col = col * (1.0F - (cfg.glass.vignette * (1.0F - cosi)));
+  col *= (1.0F - (cfg.glass.vignette * (1.0F - cosi)));
   // The propulsion hex shell, seen from inside: the clean in-focus porthole
   // frame on the surface the ray exits, scrolling as you move. Added crisp
   // over the warped world beyond (after the vignette, so the frame stays
   // bright at the rim), the same emissive grid the outer mirror shows.
-  col = col + ball_grid_emissive(ball, cfg, n_out);
+  col += ball_grid_emissive(ball, cfg, n_out);
   return ray_sample{col, world_depth, 2, reticle_edge};
 }
 

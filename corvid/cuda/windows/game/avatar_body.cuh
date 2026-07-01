@@ -280,7 +280,7 @@ private:
     const vec3 drive_cmd = contact.tangent(force) * (1.0F / params.mass);
     vec3 drive_acc = drive_cmd;
     if (const float mag = length(drive_acc); mag > fric_max && mag > tiny)
-      drive_acc = drive_acc * (fric_max / mag);
+      drive_acc *= fric_max / mag;
     velocity += drive_acc * dt;
 
     const vec3 down = contact.tangent(gravity); // downhill acceleration
@@ -342,14 +342,14 @@ private:
     // Contact friction kills the slip toward zero, capped by the budget;
     // static friction locks it at zero once the slip is spent.
     if (const float kill = k * fric_max * dt / r, s = length(slip); s > kill)
-      slip = slip * ((s - kill) / s);
+      slip *= (s - kill) / s;
     else
       slip = vec3{};
 
     // Quadratic drag caps the rev (reuses the translation drag).
     if (params.drag > 0.0F)
       if (const float s = length(slip); s > tiny)
-        slip = slip * (1.0F / (1.0F + (params.drag * s * r * dt)));
+        slip *= 1.0F / (1.0F + (params.drag * s * r * dt));
 
     angular_velocity = omega_roll + slip;
   }

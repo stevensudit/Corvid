@@ -144,7 +144,7 @@ public:
   // Turn by the given yaw and pitch deltas. Pitch is clamped just shy of
   // straight up or down so the look never tips past vertical.
   void look(orientation delta) {
-    orientation_.yaw = orientation_.yaw + delta.yaw;
+    orientation_.yaw += delta.yaw;
     orientation_.pitch =
         std::clamp(orientation_.pitch + delta.pitch, -max_pitch, max_pitch);
   }
