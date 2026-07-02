@@ -104,7 +104,8 @@ struct metal_ball {
     const float theta = atan2f(dot(n, motion), dot(n, world_up));
     // Conformal latitude, clamped off the singular axle (where `axle` fades
     // the grid out regardless).
-    const float lat = atanhf(fminf(fmaxf(a, -0.9999F), 0.9999F));
+    constexpr float atanh_clamp = 0.9999F; // keep off atanh's +/-1 singularity
+    const float lat = atanhf(fminf(fmaxf(a, -atanh_clamp), atanh_clamp));
     return {theta - roll_phase, lat + steer_phase, fabsf(a)};
   }
 };
@@ -198,7 +199,10 @@ struct saucer_head {
   // `up`. The belly shading reads its polar coordinates from this.
   [[nodiscard]] __host__ __device__ vec3 to_local(pos3 p) const {
     const vec3 q = p - center;
-    const vec3 ref = fabsf(up.y) < 0.99F ? vec3::up : vec3::right;
+    // `up.y` is the cosine to world-vertical; above this `up` is too near
+    // vertical for world up to be a stable cross reference, so use `right`.
+    constexpr float near_vertical_cos = 0.99F;
+    const vec3 ref = fabsf(up.y) < near_vertical_cos ? vec3::up : vec3::right;
     const vec3 ex = normalize(cross(ref, up));
     const vec3 ez = cross(up, ex);
     return vec3{dot(q, ex), dot(q, up), dot(q, ez)};

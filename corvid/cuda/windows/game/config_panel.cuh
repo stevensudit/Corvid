@@ -33,6 +33,10 @@ namespace corvid::cuda {
 
 #pragma region Widgets
 
+// Amber text tint marking a field edited away from its default (paired with
+// the inline reset), so a changed value stands out.
+constexpr ImU32 modified_tint = IM_COL32(255, 220, 80, 255);
+
 // Draw one labeled float slider for `v` over the range [`lo`, `hi`], with
 // `tip` shown on hover. When `v` differs from its default `def`, the row is
 // tinted and gains an inline reset button, so a changed value is easy to spot
@@ -45,8 +49,7 @@ namespace corvid::cuda {
 inline bool tuned_slider(const char* label, float& v, float def, float lo,
     float hi, const char* tip, ImGuiSliderFlags flags = 0) {
   const bool modified = v != def;
-  if (modified)
-    ImGui::PushStyleColor(ImGuiCol_Text, IM_COL32(255, 220, 80, 255));
+  if (modified) ImGui::PushStyleColor(ImGuiCol_Text, modified_tint);
   bool changed = ImGui::SliderFloat(label, &v, lo, hi, "%.3f", flags);
   ImGui::SetItemTooltip("%s", tip);
   if (modified) {
@@ -67,8 +70,7 @@ inline bool tuned_slider(const char* label, float& v, float def, float lo,
 inline void tuned_slider_int(const char* label, int& v, int def, int lo,
     int hi, const char* tip) {
   const bool modified = v != def;
-  if (modified)
-    ImGui::PushStyleColor(ImGuiCol_Text, IM_COL32(255, 220, 80, 255));
+  if (modified) ImGui::PushStyleColor(ImGuiCol_Text, modified_tint);
   ImGui::SliderInt(label, &v, lo, hi, "%d", ImGuiSliderFlags_AlwaysClamp);
   ImGui::SetItemTooltip("%s", tip);
   if (modified) {
@@ -86,8 +88,7 @@ inline void tuned_slider_int(const char* label, int& v, int def, int lo,
 inline void
 tuned_color(const char* label, vec3& v, vec3 def, const char* tip) {
   const bool modified = v.x != def.x || v.y != def.y || v.z != def.z;
-  if (modified)
-    ImGui::PushStyleColor(ImGuiCol_Text, IM_COL32(255, 220, 80, 255));
+  if (modified) ImGui::PushStyleColor(ImGuiCol_Text, modified_tint);
   ImGui::ColorEdit3(label, &v.x, ImGuiColorEditFlags_Float);
   ImGui::SetItemTooltip("%s", tip);
   if (modified) {
@@ -104,8 +105,7 @@ tuned_color(const char* label, vec3& v, vec3 def, const char* tip) {
 inline void tuned_vec3(const char* label, vec3& v, vec3 def, float lo,
     float hi, const char* tip) {
   const bool modified = v.x != def.x || v.y != def.y || v.z != def.z;
-  if (modified)
-    ImGui::PushStyleColor(ImGuiCol_Text, IM_COL32(255, 220, 80, 255));
+  if (modified) ImGui::PushStyleColor(ImGuiCol_Text, modified_tint);
   ImGui::SliderFloat3(label, &v.x, lo, hi);
   ImGui::SetItemTooltip("%s", tip);
   if (modified) {

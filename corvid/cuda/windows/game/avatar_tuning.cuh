@@ -243,7 +243,10 @@ struct avatar_tuning {
 
 private:
   float fov_deg_ = 45.0F; // vertical field of view, degrees
-  float tan_half_fov_ = tanf(60.0F * radians::per_degree * 0.5F);
+  // Cached from `fov_deg_` (declared above, so already initialized) rather
+  // than a repeated literal, so the field and its tangent can never drift
+  // apart.
+  float tan_half_fov_ = tanf(fov_deg_ * radians::per_degree * 0.5F);
 };
 
 #pragma endregion

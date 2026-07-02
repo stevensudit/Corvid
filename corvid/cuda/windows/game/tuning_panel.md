@@ -172,7 +172,7 @@ struct avatar_tuning {
   float heading_approach = 8.0F;
   float thrust_full = 12.0F, thrust_approach = 5.0F;
   float move_speed = 8.0F;   // was the 8.0F literal in main's input.movement
-  float fov_deg = 60.0F;     // rays() recomputes tan(fov/2) so it can be live
+  float fov_deg = 45.0F;     // cached tan(fov/2), refreshed on edit
 };
 ```
 
@@ -262,8 +262,8 @@ must-have; this is gravy.
   one.
 - Making the AA sample count a runtime loop bound (rather than `constexpr`) costs
   a little, but the loop is tiny; fine for a tunable.
-- `fov_deg` live means `rays()` recomputes `tan(fov/2)` per frame instead of once
-  at construction; trivial.
+- `fov_deg` is live via a cached `tan(fov/2)` that `set_fov_deg` refreshes on
+  each edit, so `rays()` reads the cache instead of recomputing per frame.
 - clangd lags on cross-`.cuh` edits all session; trust `ide_build`, not the
   squiggles (a known gotcha for this cell).
 

@@ -17,6 +17,7 @@
 #pragma once
 
 #include <cmath>
+#include <numbers>
 
 #include <cuda_runtime.h>
 
@@ -33,6 +34,10 @@
 // hole shows up in collision the next frame.
 
 namespace corvid::cuda {
+
+// 1/sqrt2 (= sin/cos 45 deg): the 45-degree diagonal component, so diagonal
+// samples and ring directions land at the same distance as axial ones.
+constexpr float inv_sqrt2 = std::numbers::sqrt2_v<float> / 2.0F;
 
 #pragma region Editing
 
@@ -98,7 +103,7 @@ __global__ void fit_kernel(density_field field, pos3 center, float radius,
   };
 
   const float r = radius;
-  const float s = radius * 0.70710678F; // diagonals, also at distance `radius`
+  const float s = radius * inv_sqrt2; // diagonals, also at distance `radius`
   const float w0 = height(0.0F, 0.0F);
   const float inv_r2 = 1.0F / (r * r);
   out->a = (height(r, 0.0F) + height(-r, 0.0F) - (2.0F * w0)) * inv_r2;
@@ -272,7 +277,7 @@ __global__ void ground_probe_kernel(density_field field, pos3 center,
 
   // The surface probe directions: eight around the equator (walls), then the
   // pole and an upper fan (ceilings and the mouth of a too-short tunnel).
-  constexpr float s = 0.70710678F;
+  constexpr float s = inv_sqrt2;
   const vec3 dirs[13] = {{1.0F, 0.0F, 0.0F}, {s, 0.0F, s}, {0.0F, 0.0F, 1.0F},
       {-s, 0.0F, s}, {-1.0F, 0.0F, 0.0F}, {-s, 0.0F, -s}, {0.0F, 0.0F, -1.0F},
       {s, 0.0F, -s}, {0.0F, 1.0F, 0.0F}, {s, s, 0.0F}, {0.0F, s, s},

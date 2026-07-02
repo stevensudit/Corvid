@@ -166,7 +166,8 @@ template<scene_policy Scene>
 
 // Convert a linear color channel in [0, 1] to a gamma-encoded byte.
 [[nodiscard]] __device__ inline unsigned char to_byte(float c) {
-  const float g = powf(fminf(fmaxf(c, 0.0F), 1.0F), 1.0F / 2.2F);
+  constexpr float gamma = 2.2F; // display gamma (sRGB approximation)
+  const float g = powf(fminf(fmaxf(c, 0.0F), 1.0F), 1.0F / gamma);
   return static_cast<unsigned char>(lroundf(g * 255.0F));
 }
 

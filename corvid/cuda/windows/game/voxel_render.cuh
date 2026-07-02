@@ -274,15 +274,26 @@ shade_terrain_hit(const density_field& field, cudaTextureObject_t color,
 // sub-pixel in the reflected dome.
 [[nodiscard]] __device__ inline float
 geodesic_grid_edge(vec3 dir, int freq, vec3 eye_dir, vec3 eye_tan) {
-  const vec3 vtx[12] = {{0.0F, 1.0F, 0.0F}, {0.8944272F, 0.4472136F, 0.0F},
-      {0.2763932F, 0.4472136F, 0.8506508F},
-      {-0.7236068F, 0.4472136F, 0.5257311F},
-      {-0.7236068F, 0.4472136F, -0.5257311F},
-      {0.2763932F, 0.4472136F, -0.8506508F},
-      {0.7236068F, -0.4472136F, 0.5257311F},
-      {-0.2763932F, -0.4472136F, 0.8506508F}, {-0.8944272F, -0.4472136F, 0.0F},
-      {-0.2763932F, -0.4472136F, -0.8506508F},
-      {0.7236068F, -0.4472136F, -0.5257311F}, {0.0F, -1.0F, 0.0F}};
+  // The 12 unit icosahedron vertices, pole-aligned: two poles and two pentagon
+  // rings at latitude +/-atan(1/2). All coordinates derive from the golden
+  // ratio (sqrt5 = 2*phi - 1): ring latitude +/-1/sqrt5, ring radius 2/sqrt5,
+  // and each pentagon vertex is that radius times cos/sin of a multiple of 36
+  // deg. The cos factors are closed-form in phi; the sin factors need a sqrt
+  // (not constexpr here), so the two canonical icosphere constants stay as
+  // documented literals.
+  constexpr float phi = std::numbers::phi_v<float>;
+  constexpr float ring_y =
+      1.0F / ((2.0F * phi) - 1.0F);       // 1/sqrt5, ring latitude
+  constexpr float ring_r = 2.0F * ring_y; // 2/sqrt5, ring radius
+  constexpr float rx72 = ring_r * ((phi - 1.0F) / 2.0F); // 2/sqrt5 * cos72
+  constexpr float rx36 = ring_r * (phi / 2.0F);          // 2/sqrt5 * cos36
+  constexpr float rz72 = 0.8506508F;                     // 2/sqrt5 * sin72
+  constexpr float rz36 = 0.5257311F;                     // 2/sqrt5 * sin36
+  const vec3 vtx[12] = {{0.0F, 1.0F, 0.0F}, {ring_r, ring_y, 0.0F},
+      {rx72, ring_y, rz72}, {-rx36, ring_y, rz36}, {-rx36, ring_y, -rz36},
+      {rx72, ring_y, -rz72}, {rx36, -ring_y, rz36}, {-rx72, -ring_y, rz72},
+      {-ring_r, -ring_y, 0.0F}, {-rx72, -ring_y, -rz72},
+      {rx36, -ring_y, -rz36}, {0.0F, -1.0F, 0.0F}};
   const int face[20][3] = {{0, 1, 2}, {0, 2, 3}, {0, 3, 4}, {0, 4, 5},
       {0, 5, 1}, {1, 2, 6}, {2, 3, 7}, {3, 4, 8}, {4, 5, 9}, {5, 1, 10},
       {1, 6, 10}, {2, 7, 6}, {3, 8, 7}, {4, 9, 8}, {5, 10, 9}, {11, 6, 7},
@@ -424,7 +435,7 @@ geodesic_eye_cell_of(int freq) {
   // min); off the centroid the cell is a slightly irregular hexagon, and the
   // mean centers the iris so the near and far edges split the mismatch
   // symmetrically instead of three sitting flush and three gapping.
-  constexpr float half_pi = 1.5707963F;
+  constexpr float half_pi = std::numbers::pi_v<float> / 2.0F;
   return {0.5F * (angle_sum / 6.0F), half_pi - atan2f(q, p)};
 }
 
