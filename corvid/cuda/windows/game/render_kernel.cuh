@@ -76,8 +76,13 @@ __device__ inline void store_hdr(float4* hdr, int idx, vec3 color) {
 // its bytes.
 __device__ inline void
 write_surface(cudaSurfaceObject_t out, int px, int py, vec3 c) {
+  // Ordered dither of ~1 step so a smooth dark gradient (the night sky) does
+  // not band into visible steps at 8-bit output (see `dither_offset`). One
+  // offset per pixel across the three channels, so the noise reads as
+  // luminance grain rather than colored speckle.
+  const float d = dither_offset(px, py);
   const uchar4 pixel =
-      make_uchar4(to_byte(c.x), to_byte(c.y), to_byte(c.z), 255);
+      make_uchar4(to_byte(c.x, d), to_byte(c.y, d), to_byte(c.z, d), 255);
   surf2Dwrite(pixel, out, px * static_cast<int>(sizeof(uchar4)), py);
 }
 

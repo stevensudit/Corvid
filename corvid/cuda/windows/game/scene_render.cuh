@@ -430,6 +430,150 @@ cone_sample(const render_config::head_params& hp,
   return accum * (dt * scatter * falloff);
 }
 
+// Additive in-air glow of the headlamp flashlight: a warm speckled cone of
+// scattered light cast from the iris along the view, made visible in dusty
+// air (the beam you see down a dark pit), with its far end conforming to the
+// terrain it lands on. Air scatter only; the light landing on surfaces is the
+// separate `flashlight_terrain`.
+//
+// The radial profile is the inverse of the eye's dig-beam cone: a bright
+// hotspot core with a dimmer spill filling out to the `cone_degrees` edge (a
+// reflector beam), where the eye cone is a hollow shell around a dark axis.
+//
+// Like the eye cone it suppresses the down-beam view: the lamp is head-mounted
+// (the iris sits just outside the pupil camera), so the primary view looks
+// straight down the beam, where the volume degenerates into a flat end-on
+// disc. That view is held to the `air_backscatter` floor, so the cone reads as
+// a cone only in reflections and side angles, while the primary view is left
+// to the elliptical ground pool (`flashlight_terrain`).
+//
+// Integrated by the same bounded, jittered volumetric march as the eye cone
+// (bounding sphere, boil-advanced march jitter, growth-cancelled monotonic
+// distance falloff), so the shape stays a real cone from any angle and
+// throwing it farther never brightens it. `max_t` clips it to the nearest hit
+// so terrain in front occludes it. Shown on the primary ray, the ball's
+// reflection, and the flat mirror, so every view that sees the lamp sees its
+// cone.
+[[nodiscard]] __device__ inline vec3 flashlight_cone(const render_config& cfg,
+    const saucer_head& head, pos3 eye, vec3 ray_dir, float max_t) {
+  const render_config::flashlight_params& fl = cfg.flashlight;
+  if (!fl.enabled || fl.air_strength <= 0.0F) return vec3{};
+  const pos3 apex = head.eye_point();
+
+  // Aim along the current view forward (already look-smoothed by the One Euro
+  // filter), NOT toward the low-passed target, so the cone tracks the camera
+  // as it pans instead of lagging behind its own extra smoothing. The smoothed
+  // target still sets the reach (its projection onto the axis) and the far-end
+  // ground clip; those change slowly and would only pop, not lag, so smoothing
+  // them costs nothing perceptible.
+  const vec3 axis = normalize(fl.direction);
+  const float beam_dist = fmaxf(dot(fl.target - apex, axis), denom_floor);
+  const float cone_len = fmaxf(fl.air_reach * beam_dist, denom_floor);
+
+  // The cone widens from a small lens mouth (`air_base`) at the iris to the
+  // `cone_degrees` half-angle, matching the surface spot's outer boundary.
+  constexpr float deg_to_rad = std::numbers::pi_v<float> / 180.0F;
+  const float tan_half = tanf(fl.cone_degrees * deg_to_rad);
+  const float base_r = fmaxf(fl.air_base * head.radius, denom_floor);
+  const float tip_r = base_r + (cone_len * tan_half);
+
+  // Bound the march to the cone's bounding sphere around the apex (so the
+  // t-range stays finite for a ray perpendicular to the axis) and clip it to
+  // the nearest hit.
+  const float radius2 = (cone_len * cone_len) + (tip_r * tip_r);
+  const vec3 oc = eye - apex;
+  const float boc = dot(oc, ray_dir);
+  const float disc = (boc * boc) - (dot(oc, oc) - radius2);
+  if (disc < 0.0F) return vec3{};
+  const float sq = sqrtf(disc);
+  const float t_lo = fmaxf(-boc - sq, 0.0F);
+  const float t_hi = fminf(-boc + sq, max_t);
+  if (t_hi <= t_lo) return vec3{};
+
+  // A frame around the axis for the dusty-texture azimuth.
+  vec3 u = cross(axis, vec3::up);
+  constexpr float min_basis_len2 = 1.0e-6F;
+  if (dot(u, u) < min_basis_len2) u = cross(axis, vec3::right);
+  u = normalize(u);
+  const vec3 v = cross(axis, u);
+
+  // Boil-advanced march jitter, decorrelated per ray so the discrete samples
+  // dissolve into fine grain the bloom smooths (the eye cone's lesson).
+  constexpr int steps = 12;
+  const float dt = (t_hi - t_lo) / static_cast<float>(steps);
+  constexpr vec3 sin_hash_freq{12.9898F, 78.233F, 37.719F};
+  constexpr float sin_hash_amp = 43758.5453F;
+  const float hash = sinf(dot(ray_dir, sin_hash_freq)) * sin_hash_amp;
+  const float phase = hash + (fl.air_time * fl.air_boil);
+  const float jitter = phase - floorf(phase);
+
+  const float ground_band = fmaxf(0.15F * tip_r, 0.02F);
+  const float f = 0.4F * static_cast<float>(fl.air_speckle_freq);
+  vec3 accum{};
+  for (int i = 0; i < steps; ++i) {
+    const float t = t_lo + ((static_cast<float>(i) + jitter) * dt);
+    const pos3 sp = eye + (ray_dir * t);
+    const vec3 rel = sp - apex;
+    const float s = dot(rel, axis);
+    if (s < 0.0F || s > cone_len) continue; // behind the iris or past the tip
+    const vec3 radial = rel - (axis * s);
+    const float dperp = length(radial);
+    const float cone_r = base_r + (s * tan_half);
+    const float rn = dperp / fmaxf(cone_r, denom_floor); // 0 axis .. 1 edge
+    if (rn > 1.0F) continue;
+
+    // Bright hotspot core plus a dimmer spill that fades to zero at the rim
+    // (`1 - rn^2`), so the cone edge is soft without a separate feather.
+    const float hot = expf(-(rn * rn) * fl.hotspot_power);
+    const float spill = 1.0F - (rn * rn);
+    float radial_b = (fl.hotspot_gain * hot) + spill;
+
+    // Dusty texture, a milder version of the laser speckle.
+    const float az = atan2f(dot(radial, v), dot(radial, u));
+    const float tex =
+        turbulence3(dperp * cosf(az) * f, dperp * sinf(az) * f, s * f * 0.4F);
+    radial_b *= fmaxf(1.0F + (fl.air_speckle * ((2.0F * tex) - 1.0F)), 0.0F);
+
+    // Brightest near the lens, where the beam is concentrated, easing along
+    // the throw as it fans out (the far light lands on the surface instead).
+    const float frac = s / cone_len;
+    vec3 c = fl.color * (radial_b * expf(-(frac * frac)));
+
+    // Conform the far end to the terrain it lands on: fade samples below the
+    // fitted ground plane, so the cone ends on the surface instead of a flat
+    // mid-air disc. Weighted by `ground_weight` so it eases in as the beam
+    // finds terrain and out toward an unclipped reach when it finds sky.
+    if (fl.ground_weight > 0.0F) {
+      const float clip =
+          __saturatef(dot(sp - fl.target, fl.target_normal) / ground_band);
+      c *= 1.0F - (fl.ground_weight * (1.0F - clip));
+    }
+    accum += c;
+  }
+
+  // Down-beam suppression: the head-mounted lamp sits at the iris just outside
+  // the pupil camera, so the primary view looks straight down the beam, where
+  // the volume degenerates into a flat end-on disc. Hold the scatter at the
+  // `air_backscatter` floor across that down-beam cone and only let it rise as
+  // the view crosses the beam (`toward` near 0) or faces it (a reflection),
+  // so the cone reads as a cone there and the primary view is left to the
+  // ground pool.
+  const float toward = -dot(ray_dir, axis); // -1 down-beam .. +1 toward view
+  const float lit = __saturatef((toward + 0.5F) / 1.5F);
+  const float scatter =
+      fl.air_backscatter + ((1.0F - fl.air_backscatter) * lit);
+
+  // Monotonic distance response (the eye cone's construction): cancel the
+  // march-length growth by dividing by the cone length, then an inherent
+  // 1 / beam_dist aperture spread and optional dust, so a farther throw only
+  // ever dims the air glow. `ref_dist` pivots the mid-range brightness.
+  constexpr float ref_dist = 4.0F;
+  const float falloff =
+      (ref_dist * ref_dist) / fmaxf(cone_len * beam_dist, denom_floor) *
+      expf(-fl.air_extinction * beam_dist);
+  return accum * (dt * fl.air_strength * scatter * falloff);
+}
+
 // The pupil emissive when the dig tool is projecting (`reticle.enabled`):
 // green filling the pupil disc, brightest at its rim so it reads as a ring
 // around a dark hole, with an intense green center filling the hole only while
@@ -840,9 +984,11 @@ shade_scene_ray(const density_field& field, cudaTextureObject_t color,
     col = shade_terrain_hit(field, color, cfg, eye + (ray_dir * t_terrain));
     hit_t = t_terrain;
   }
-  // The eye's dig-beam cone floats in the air near the head, so the ball's
-  // reflection of the saucer shows it too (`eye_cone_glow`).
-  return col + eye_cone_glow(cfg, head, eye, ray_dir, hit_t);
+  // The eye's dig-beam cone and the headlamp's air cone both float in the air
+  // near the head, so the ball's reflection of the saucer shows them too
+  // (`eye_cone_glow`, `flashlight_cone`).
+  return col + eye_cone_glow(cfg, head, eye, ray_dir, hit_t) +
+         flashlight_cone(cfg, head, eye, ray_dir, hit_t);
 }
 
 // The ball's motion-grid emissive at the surface point with outward `normal`.
@@ -971,8 +1117,10 @@ shade_world_ray(const density_field& field, cudaTextureObject_t color,
   // ray and the ball reflection (`eye_cone_glow`). `best` is `big_value` on a
   // sky miss, so an unoccluded cone still integrates. Without this the mirror
   // dropped the haze, which both reads as fake and defeats using the mirror to
-  // inspect the effect from angles the camera cannot reach.
-  return col + eye_cone_glow(cfg, head, eye, ray_dir, best);
+  // inspect the effect from angles the camera cannot reach. The headlamp's air
+  // cone rides along the same way (`flashlight_cone`).
+  return col + eye_cone_glow(cfg, head, eye, ray_dir, best) +
+         flashlight_cone(cfg, head, eye, ray_dir, best);
 }
 
 // Distance from a hexagon's center to its boundary at azimuth `angle`, for a
@@ -1409,7 +1557,11 @@ shade_primary_ray(const density_field& field, cudaTextureObject_t color,
   // whole scene with just the cone, so its shape and edge can be read in
   // isolation instead of guessed at against terrain, ball, and reticle.
   const vec3 cone = eye_cone_glow(cfg, head, eye, ray_dir, best);
-  col = cfg.head.eye_glow_solo ? cone : (col + cone);
+  // The headlamp's warm air cone (`flashlight_cone`), added except in the
+  // eye-cone solo debug, which isolates the green laser haze.
+  col = cfg.head.eye_glow_solo
+            ? cone
+            : (col + cone + flashlight_cone(cfg, head, eye, ray_dir, best));
   return ray_sample{col, best, kind, reticle_edge};
 }
 

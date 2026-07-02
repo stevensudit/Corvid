@@ -115,6 +115,56 @@ struct render_config {
     // higher broadens the highlight (and the `fade` dims it) as the ball gets
     // farther from the lamp. 0 holds a fixed-breadth specular spot.
     float gloss_grow = 0.017F;
+
+    // Air cone: the beam made visible in dusty air, a warm hotspot core with a
+    // softer spill corona scattered along the throw, like a real flashlight
+    // down a dark pit (see `flashlight_cone`). Distinct from the eye's green
+    // laser haze, which is a hollow shell around a dark axis: this is
+    // bright-center, and emitted from the iris rather than the pupil.
+    //
+    // The cone emits from the iris along the beam and its far end conforms to
+    // the terrain it lands on. `air_strength` is the scatter brightness (0
+    // disables the air cone, leaving the surface lighting alone). `air_reach`
+    // is the drawn length as a fraction of the beam's throw to that landing
+    // point (1 reaches it). `air_base` is the cone's radius at the lens (the
+    // small bright mouth it fans out from), a fraction of the head radius.
+    // `hotspot_power` sets how tight the bright core is (higher = a sharper
+    // hotspot) and `hotspot_gain` how much brighter the core is than the
+    // spill. `air_speckle` (amount) and `air_speckle_freq` (grain scale) add a
+    // dusty texture, kept alive when the camera holds still by the `air_boil`
+    // march-jitter clock (cycles per second). `air_extinction` is optional
+    // Beer-Lambert dimming with the throw distance (0 is clear air; the
+    // geometric falloff is always on).
+    //
+    // `air_backscatter` is how visible the cone stays viewed straight down the
+    // beam: the lamp is head-mounted (the iris just outside the pupil camera),
+    // so the primary view looks down its own beam, where the volume would read
+    // as a flat end-on disc. Low hides that disc and leaves the primary view
+    // to the elliptical ground pool, while reflections and side angles still
+    // show the full cone (0 fully hides the down-beam view, 1 leaves it at
+    // full brightness).
+    float air_strength = 0.6F;
+    float air_reach = 1.0F;
+    float air_base = 0.15F;
+    float hotspot_power = 6.0F;
+    float hotspot_gain = 3.0F;
+    float air_speckle = 0.3F;
+    int air_speckle_freq = 10;
+    float air_boil = 2.5F;
+    float air_extinction = 0.0F;
+    float air_backscatter = 0.05F;
+
+    // Per-frame air-cone state, written by the engine from a pick down the
+    // beam, all low-passed so the cone does not flicker as the aim sweeps:
+    // where it lands (`target`), the surface normal there (to conform the far
+    // end), and `ground_weight`, how much the far end rests on real terrain (1
+    // a solid hit, easing to 0 when the beam finds only sky, where there is no
+    // ground plane to clip to and the cone runs out to `range`). `air_time` is
+    // a monotonic clock for the speckle boil.
+    pos3 target{};
+    vec3 target_normal{0.0F, 1.0F, 0.0F};
+    float ground_weight = 0.0F;
+    float air_time = 0.0F;
   } flashlight;
 
   // Terrain march tunables, copied onto the `density_field` each frame so the

@@ -41,10 +41,13 @@ constexpr float inv_sqrt2 = std::numbers::sqrt2_v<float> / 2.0F;
 
 #pragma region Editing
 
-// Where a dig will land: the world point the aim ray hit, and whether it hit
-// at all.
+// Where a dig will land: the world point the aim ray hit, the surface normal
+// there, and whether it hit at all. The normal is unused by the dig brush; it
+// conforms the flashlight air cone's far end to the terrain
+// (`flashlight_cone`).
 struct dig_probe {
   pos3 point;
+  vec3 normal;
   bool hit;
 };
 
@@ -64,6 +67,7 @@ pick_kernel(density_field field, pos3 eye, vec3 dir, dig_probe* out) {
     // crosshair's azimuth (its `d = hit - center` is short, so a small center
     // wobble turns it a lot).
     out->point = field.refine_hit(eye + (dir * dist), dir);
+    out->normal = field.normal(out->point);
   }
 }
 

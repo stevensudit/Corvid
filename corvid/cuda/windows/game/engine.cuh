@@ -131,6 +131,7 @@ public:
         tunnels_requested_ = false;
       }
       update_reticle(rays, ball, dt);
+      update_flashlight(rays, dt);
       update_merge_ripple(rays, ball, dt);
       dig(dt);
       crush_track();
@@ -380,6 +381,51 @@ private:
     field_.march_lipschitz = render_cfg_.march.lipschitz;
     field_.march_max_step_voxels = render_cfg_.march.max_step_voxels;
     field_.march_max_steps = render_cfg_.march.max_steps;
+  }
+
+  // Pick where the headlamp beam lands and advance the air cone's boil clock,
+  // so its far end conforms to the terrain (`flashlight_cone`). The lamp aims
+  // along the same centered forward ray as the dig, from the eye; the pick
+  // fires only while the lamp is on. On a sky miss (or lamp off) the cone has
+  // no ground plane to clip to, so `grounded` clears and it casts to `range`.
+  void update_flashlight(const camera_rays& rays, float dt) {
+    render_config::flashlight_params& fl = render_cfg_.flashlight;
+    fl.air_time += dt;
+    if (!flashlight_on_) {
+      fl.ground_weight = 0.0F;
+      flashlight_primed_ = false; // re-acquire snaps, does not slide in
+      return;
+    }
+    pick_kernel<<<1, 1>>>(field_, rays.eye, rays.frame.forward,
+        flashlight_probe_);
+    dig_probe pick{};
+    flashlight_probe_.store(pick).or_throw();
+
+    // The raw aim: the hit point, or a far point down the beam on a miss (so
+    // the cone runs out to `range` with no ground to clip against).
+    const pos3 raw_target =
+        pick.hit ? pick.point : rays.eye + (rays.frame.forward * fl.range);
+    const vec3 raw_normal =
+        pick.hit ? pick.normal : (rays.frame.forward * -1.0F);
+    const float raw_ground = pick.hit ? 1.0F : 0.0F;
+
+    // Low-pass all of it so the cone does not flicker as the aim sweeps across
+    // terrain facets or flips in and out of a grazing miss (the raw pick
+    // jumps; the reticle smooths its own pick the same way). Snap on
+    // (re)acquisition rather than sliding in from a stale spot.
+    if (!flashlight_primed_) {
+      fl.target = raw_target;
+      fl.target_normal = raw_normal;
+      fl.ground_weight = raw_ground;
+      flashlight_primed_ = true;
+    } else {
+      constexpr float ease_rate = 8.0F; // per second
+      const float k = 1.0F - expf(-ease_rate * dt);
+      fl.target = fl.target + ((raw_target - fl.target) * k);
+      fl.target_normal =
+          normalize(fl.target_normal + ((raw_normal - fl.target_normal) * k));
+      fl.ground_weight += (raw_ground - fl.ground_weight) * k;
+    }
   }
 
   // Pick the aim point and update the in-world target reticle.
@@ -811,6 +857,8 @@ private:
     restore_window_geometry();
 
     if (!dig_target_) throw std::runtime_error{"failed to allocate dig probe"};
+    if (!flashlight_probe_)
+      throw std::runtime_error{"failed to allocate flashlight probe"};
     if (!fit_target_)
       throw std::runtime_error{"failed to allocate reticle fit"};
     if (!ground_target_)
@@ -883,6 +931,12 @@ private:
   // beam rides the camera.
   bool flashlight_on_ = false;
 
+  // Whether the low-passed flashlight air-cone aim (`update_flashlight`) holds
+  // a real prior pick: false snaps the eased target on (re)acquisition instead
+  // of sliding in from a stale spot, like the reticle's
+  // `pick_smoothed_primed_`.
+  bool flashlight_primed_ = false;
+
 #pragma endregion
 #pragma region World grids
 
@@ -934,6 +988,12 @@ private:
   // host. The brush removes `dig_rate_` of density per second at its center,
   // falling off across a `dig_radius_` sphere.
   cuda_ptr<dig_probe> dig_target_;
+
+  // A one-element device buffer for the flashlight's own aim pick down the
+  // headlamp beam, so its air cone's far end can conform to the terrain it
+  // lands on (`flashlight_cone`). Separate from `dig_target_` because the lamp
+  // (F) and the dig tool (RMB) toggle independently.
+  cuda_ptr<dig_probe> flashlight_probe_;
 
   // A one-element device buffer the `fit_kernel` writes each frame the reticle
   // is up: the local terrain curvature around the aim, read back into

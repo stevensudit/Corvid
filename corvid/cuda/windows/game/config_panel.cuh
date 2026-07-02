@@ -912,6 +912,49 @@ inline void draw_render_section(avatar_tuning& t, const avatar_tuning& d,
       "How much the glossy spot spreads (and dims) with distance, like a cone "
       "footprint: 0 holds a fixed-breadth spot, higher grows it as the ball "
       "gets farther.");
+  tuned_slider("flashlight air", c.flashlight.air_strength,
+      dc.flashlight.air_strength, 0.0F, 3.0F,
+      "Brightness of the visible beam in dusty air, 0 hides it and leaves "
+      "just "
+      "the surface lighting: a warm hotspot core with a softer spill, far end "
+      "conforming to the terrain it lands on.");
+  tuned_slider("flashlight air reach", c.flashlight.air_reach,
+      dc.flashlight.air_reach, 0.2F, 1.5F,
+      "Drawn length of the air cone as a fraction of the beam's throw to "
+      "where "
+      "it lands: 1 reaches the lit pool.");
+  tuned_slider("flashlight air base", c.flashlight.air_base,
+      dc.flashlight.air_base, 0.02F, 0.6F,
+      "Radius of the cone at the lens, a fraction of the head radius: the "
+      "small bright mouth the beam fans out from.");
+  tuned_slider("flashlight hotspot", c.flashlight.hotspot_power,
+      dc.flashlight.hotspot_power, 1.0F, 24.0F,
+      "Tightness of the bright central hotspot: higher focuses it to a "
+      "sharper "
+      "core, lower spreads it toward an even cone.");
+  tuned_slider("flashlight hotspot gain", c.flashlight.hotspot_gain,
+      dc.flashlight.hotspot_gain, 0.0F, 8.0F,
+      "How much brighter the hotspot core is than the surrounding spill.");
+  tuned_slider("flashlight air speckle", c.flashlight.air_speckle,
+      dc.flashlight.air_speckle, 0.0F, 1.0F,
+      "Dusty texture depth in the air cone: 0 is a smooth beam.");
+  tuned_slider_int("flashlight air speckle freq",
+      c.flashlight.air_speckle_freq, dc.flashlight.air_speckle_freq, 4, 32,
+      "Grain scale of the dusty texture: higher is finer.");
+  tuned_slider("flashlight air boil", c.flashlight.air_boil,
+      dc.flashlight.air_boil, 0.0F, 8.0F,
+      "How fast the dusty speckle boils when the camera holds still, cycles "
+      "per second: 0 freezes it.");
+  tuned_slider("flashlight air dust", c.flashlight.air_extinction,
+      dc.flashlight.air_extinction, 0.0F, 0.5F,
+      "Optional dimming of the air cone with throw distance (Beer-Lambert): 0 "
+      "is clear air.");
+  tuned_slider("flashlight air down-beam", c.flashlight.air_backscatter,
+      dc.flashlight.air_backscatter, 0.0F, 1.0F,
+      "How visible the cone is looking straight down the beam (the "
+      "head-mounted primary view): low hides the end-on disc and leaves that "
+      "view to the ground pool, while reflections and side angles still show "
+      "the full cone. 0 fully hides it down-beam.");
   ImGui::Spacing();
 
   ImGui::Checkbox("debug raw ball", &c.debug_ball_raw);
