@@ -105,16 +105,17 @@ struct render_config {
     // as the lamp source). HDR, so the ball's reflection of it blows out
     // through bloom instead of reading as flat white.
     float source_strength = 30.0F;
-    // The ball's glossy response to the beam: an HDR view-facing highlight so
-    // the chrome lights up and blows out (stable across poses, unlike the tiny
-    // reflection of the emitter). `gloss_power` sets the lobe breadth near the
-    // ball: keep it tight, a broad lobe saturates into a flat white disc.
-    float gloss_strength = 3.0F;
-    float gloss_power = 9.0F;
-    // How much the glossy spot spreads with distance, like the cone footprint:
-    // higher broadens the highlight (and the `fade` dims it) as the ball gets
-    // farther from the lamp. 0 holds a fixed-breadth specular spot.
-    float gloss_grow = 0.017F;
+
+    // The lamp's glare halo on the head: the bright iris emitter's white glow
+    // bloomed outward across the head (see `flashlight_glare_halo`), the white
+    // sibling of the reticle's `eye_glare_halo`. It gives the emitter apparent
+    // size, so the ball's reflection of the lamp reads as a broad bright glint
+    // instead of a thin ring the bloom washes to a dim gray smear (intensity
+    // alone cannot fix a too-small source, only size can). `glare_gain` is its
+    // brightness (0 disables it, back to the raw iris ring); `glare_spread` is
+    // how far it reaches out past the iris hub rim, in `eye_hub` units.
+    float glare_gain = 12.0F;
+    float glare_spread = 0.2F;
 
     // Air cone: the beam made visible in dusty air, a warm hotspot core with a
     // softer spill corona scattered along the throw, like a real flashlight
@@ -520,6 +521,12 @@ struct render_config {
   // Debug: show the ball's reflection undimmed (`shade_ball`), to tell a real
   // black artifact from the dark belly merely crushed by the dim factor.
   bool debug_ball_raw = false;
+
+  // Debug: paint the flashlight glare halo in bright magenta at its true
+  // footprint, independent of `glare_gain` (`flashlight_glare_halo`), so its
+  // location and size read against the scene. Nothing else emits magenta, so
+  // toggling it on and off isolates exactly where the halo lands.
+  bool debug_glare_halo = false;
 
   // Whether the flat mirror wall is in the scene (`shade_primary_ray`). Off by
   // default; the panel can show it for debugging.

@@ -124,8 +124,8 @@ the second is a debt.
   multiplies it by `0.9`; the ball reflects the world one bounce and applies
   `dim`/`tint` plus an `ambient_floor`. Neither reflects itself; no recursion.
 - Materials: terrain is Lambert diffuse plus flat ambient (`shade_terrain_hit`);
-  the ball is the dimmed reflection plus a faked gloss lobe; no Fresnel, no
-  roughness, no transmission.
+  the ball is the dimmed reflection (its flashlight glint the reflected
+  emissive iris); no Fresnel, no roughness, no transmission.
 - Sky (`sky_color`): a zenith-to-horizon gradient plus a `powf` sun halo and
   core; night is the gradient times `0.03`.
 - Camera (`camera_rays::ray_direction`): a pinhole, with a `fisheye_amount` knob
@@ -216,8 +216,8 @@ reflected color by a constant `0.9`, the ball by `dim`/`tint` plus an
 than blown-out chrome"). No Fresnel (reflectance rising at grazing angles), no
 spectral metal tint as reflectance, no roughness. Correct base: a real
 reflectance, Fresnel-weighted, the metal's tint as its F0, a roughness that blurs
-the reflection, so the look is the material's, derived. (`lighting.md` item 3
-covers the faked gloss lobe sitting on top of this.)
+the reflection, so the look is the material's, derived. (The faked gloss lobe
+that once sat on top of this is gone; see `lighting.md` item 3.)
 
 O2. One bounce is the ceiling; there is no inter-reflection. Every reflective path
 is a single bounce that then shades against terrain/head/sky only: the mirror

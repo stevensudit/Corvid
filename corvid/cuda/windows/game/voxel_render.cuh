@@ -71,7 +71,7 @@ struct shadow_sphere {
 // `shadow` occlusion of the segment to the lamp. Returns 0 when the lamp is
 // off, the point is out of cone or range, or the shadow sphere blocks it.
 // Writes the unit surface-to-lamp direction and the distance for the caller's
-// own falloff. Shared by the terrain light and the ball's glossy highlight.
+// own falloff. Used by the terrain light (`flashlight_terrain`).
 [[nodiscard]] __device__ inline float
 flashlight_spot(const render_config::flashlight_params& fl, pos3 hit_point,
     shadow_sphere shadow, vec3& to_lamp_dir, float& dist) {
@@ -139,46 +139,6 @@ flashlight_terrain(const render_config::flashlight_params& fl, pos3 hit_point,
   const float fade = __saturatef(1.0F - (dist / fl.range));
   const float ndotl = fmaxf(dot(normal, to_lamp_dir), 0.0F);
   return albedo * (fl.color * (fl.intensity * cone * fade * fade * ndotl));
-}
-
-// The flashlight's glossy highlight on the chrome ball: a bright Blinn-Phong
-// lobe where the ball reflects the beam toward the viewer, so the chrome
-// lights up and blows out through bloom, holding steady across poses unlike
-// the small, jittery reflection of the emitter. `ray_dir` is the ray that
-// struck the ball (a primary ray, or a mirror's reflected ray). The half
-// vector of the surface-to-lamp and surface-to-viewer directions is used, not
-// just the view: for a primary ray the lamp sits at the eye so it reduces to a
-// view-facing lobe, but for a mirror's ray the lamp is elsewhere, so the half
-// vector keeps the highlight on the lit face instead of smearing it onto the
-// side the mirror happens to see. The ball does not self-shadow, so no
-// occluder is passed.
-[[nodiscard]] __device__ inline vec3
-flashlight_gloss(const render_config::flashlight_params& fl, pos3 hit_point,
-    vec3 normal, vec3 ray_dir) {
-  vec3 to_lamp_dir{};
-  float dist = 0.0F;
-  const float cone =
-      flashlight_spot(fl, hit_point, shadow_sphere{}, to_lamp_dir, dist);
-  if (cone <= 0.0F) return vec3{};
-  // No highlight on a face the lamp does not light (the far side a mirror
-  // sees).
-  if (dot(normal, to_lamp_dir) <= 0.0F) return vec3{};
-  const float fade = __saturatef(1.0F - (dist / fl.range));
-  const vec3 half_v = normalize(to_lamp_dir + (ray_dir * -1.0F));
-  // Spread the lobe with distance so the spot grows (and `fade` dims it) the
-  // way a cone footprint does; 0 grow holds a fixed-breadth spot. Floored so a
-  // far spot does not flatten the whole ball to white.
-  const float power =
-      fmaxf(fl.gloss_power / (1.0F + (fl.gloss_grow * dist)), 1.0F);
-  // Conserve the highlight's energy as it spreads: a broader (farther) lobe is
-  // dimmer in proportion (its integral over the ball scales as 1 / (power +
-  // 1)), so the spot fades as it grows, like a cone spreading the same light
-  // over more area, instead of staying full-bright and blowing out into a flat
-  // white disc when dollied out. Unity at the near breadth (`gloss_power`);
-  // brighter as the lobe tightens toward the ball, dimmer as it broadens away.
-  const float spread = (power + 1.0F) / (fl.gloss_power + 1.0F);
-  const float lobe = powf(fmaxf(dot(normal, half_v), 0.0F), power);
-  return fl.color * (fl.gloss_strength * spread * cone * fade * lobe);
 }
 
 // Lit terrain color at surface point `hit_point`, tinted by the smoothly

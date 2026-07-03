@@ -643,6 +643,37 @@ eye_glare_halo(const render_config::head_params& hp,
   return hp.eye_glow_color * (glow * gain);
 }
 
+// The flashlight's glare halo on the head: the bright iris emitter's white
+// glow blooming outward across the head, the lamp's sibling of the reticle's
+// `eye_glare_halo` (green, pupil-sourced) above. A real surface emissive every
+// ray path catches, so the ball's reflection of the lamp is a broad bright
+// glint where the raw iris ring alone reflects too small to survive the bloom.
+// `dd` and `c` are unit, so `sqrt(1 - dot^2)` is the radial distance from the
+// eye center as `sin(angle)`, in the same `eye_hub` units as the iris. The
+// glow is a solid bright disc filling the iris out to the `eye_hub` rim,
+// fading outward over `glare_spread`, so its reflected image is a bright
+// centered catch rather than a dark-centered ring.
+[[nodiscard]] __device__ inline vec3
+flashlight_glare_halo(const render_config::head_params& hp,
+    const render_config::flashlight_params& fl, vec3 dd, vec3 c, bool debug) {
+  if (!fl.enabled) return vec3{};
+  if (!debug && fl.glare_gain <= 0.0F) return vec3{};
+  const float d = dot(dd, c);
+  if (d <= 0.0F) return vec3{}; // behind the eye's hemisphere
+  const float er = sqrtf(fmaxf(1.0F - (d * d), 0.0F));
+  // Bright across the whole iris disc (`out` is 0 within the hub rim, so
+  // `glow` is 1 there), not a dark-centered ring, so the center where the eye
+  // is viewed carries the glint and `glare_gain` brightens it; a Gaussian
+  // skirt blooms past the rim over `glare_spread`.
+  const float out =
+      fmaxf(er - hp.eye_hub, 0.0F) / fmaxf(fl.glare_spread, 1e-3F);
+  const float glow = expf(-(out * out));
+  // Debug: paint the footprint bright magenta at fixed brightness (no
+  // `glare_gain`), so its true location and size read against the scene.
+  if (debug) return vec3{8.0F, 0.0F, 8.0F} * glow;
+  return fl.color * (glow * fl.glare_gain);
+}
+
 // Shade the saucer head at surface point `hit_point`: a fixed cockpit dome
 // carrying a single hexagonal porthole eye on its front, and a distinctive
 // spinning belly on the underside, painted with rings and spokes and carrying
@@ -937,17 +968,23 @@ eye_glare_halo(const render_config::head_params& hp,
     emissive += hp.rim_color * (hp.rim_strength * band * seg);
   }
 
-  // Reticle glare: the pupil's laser light blooms outward onto the whole head,
-  // dome or disc. Measured from the eye direction (`head.eye_dir`) at the dome
-  // center, so it falls off naturally with distance from the pupil rather than
-  // clipping at the dome/disc seam, and reaches the saucer body when it
-  // spreads far. See `eye_glare_halo`.
+  // Eye glares: the pupil's reticle laser (green) and the iris flashlight
+  // (white) each bloom outward onto the whole head, dome or disc. Measured
+  // from the eye direction (`head.eye_dir`) at the dome center, so they fall
+  // off with distance from the eye rather than clipping at the dome/disc seam,
+  // and reach the saucer body when they spread far. Both are real surface
+  // emissives the ball's reflection carries. See `eye_glare_halo` and
+  // `flashlight_glare_halo`.
   {
     const pos3 dome_c =
         head.center + (head.dome_up * (head.radius * head.dome_offset));
     const vec3 pupil_dir = normalize(hit_point - dome_c);
     emissive =
         emissive + eye_glare_halo(hp, cfg.reticle, pupil_dir, head.eye_dir);
+    emissive =
+        emissive +
+        flashlight_glare_halo(hp, cfg.flashlight, pupil_dir, head.eye_dir,
+            cfg.debug_glare_halo);
   }
 
   const vec3 half_v = normalize(light_dir - ray_dir);
@@ -1051,11 +1088,10 @@ shade_scene_ray(const density_field& field, cudaTextureObject_t color,
   // the mirror as glowing lines (see `ball_grid_emissive`).
   col += ball_grid_emissive(ball, cfg, normal);
 
-  // The flashlight's glossy highlight: a broad, bright view-facing lobe where
-  // the beam strikes the ball, so the chrome catches the headlamp and blows
-  // out through bloom, steady across poses. The emitter's reflection in `env`
-  // above is the sharp sparkle on top of it.
-  col += flashlight_gloss(cfg.flashlight, hit_point, normal, ray_dir);
+  // The ball's flashlight glint is the real reflection of the emissive iris,
+  // carried in `env` above (the head's iris segments emit while the lamp is
+  // on), not a painted specular lobe. Tune its brightness with the emitter's
+  // `flashlight.source_strength`.
   return col;
 }
 

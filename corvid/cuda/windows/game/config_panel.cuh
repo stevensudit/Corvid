@@ -898,20 +898,18 @@ inline void draw_render_section(avatar_tuning& t, const avatar_tuning& d,
       "Brightness of the lamp emitter on the head (the eye's iris segments): "
       "the ball's reflection of it is the glint, so raise it until that blows "
       "out through bloom.");
-  tuned_slider("flashlight gloss", c.flashlight.gloss_strength,
-      dc.flashlight.gloss_strength, 0.0F, 40.0F,
-      "Brightness of the ball's glossy catch of the beam: the broad highlight "
-      "that makes the chrome light up. Raise until it blows out.");
-  tuned_slider("flashlight gloss tight", c.flashlight.gloss_power,
-      dc.flashlight.gloss_power, 1.0F, 32.0F,
-      "Breadth of the ball's glossy catch near the ball: lower spreads it "
-      "over "
-      "the ball, higher tightens it to a smaller spot.");
-  tuned_slider("flashlight gloss grow", c.flashlight.gloss_grow,
-      dc.flashlight.gloss_grow, 0.0F, 0.5F,
-      "How much the glossy spot spreads (and dims) with distance, like a cone "
-      "footprint: 0 holds a fixed-breadth spot, higher grows it as the ball "
-      "gets farther.");
+  tuned_slider("flashlight glare", c.flashlight.glare_gain,
+      dc.flashlight.glare_gain, 0.0F, 40.0F,
+      "Brightness of the lamp's glare halo: the iris emitter's white glow "
+      "bloomed outward across the head, which the ball reflects as a broad "
+      "bright glint. Raise until the reflected lamp reads bright; 0 disables "
+      "it, "
+      "leaving the raw iris ring (which the bloom washes to a dim gray "
+      "smear).");
+  tuned_slider("flashlight glare spread", c.flashlight.glare_spread,
+      dc.flashlight.glare_spread, 0.0F, 1.0F,
+      "How far the lamp's glare halo reaches out past the iris hub rim (same "
+      "units as the eye hub). Larger spreads the glow wider across the head.");
   tuned_slider("flashlight air", c.flashlight.air_strength,
       dc.flashlight.air_strength, 0.0F, 3.0F,
       "Brightness of the visible beam in dusty air, 0 hides it and leaves "
@@ -961,6 +959,11 @@ inline void draw_render_section(avatar_tuning& t, const avatar_tuning& d,
   ImGui::SetItemTooltip("%s",
       "Show the ball reflection undimmed, to tell a real black artifact from "
       "the dark belly crushed by the dim factor.");
+  ImGui::Checkbox("debug glare halo", &c.debug_glare_halo);
+  ImGui::SetItemTooltip("%s",
+      "Paint the flashlight glare halo bright magenta at its true footprint "
+      "(ignores glare gain), so you can see exactly where and how big it is "
+      "against the scene. Toggle on and off to isolate the halo.");
   ImGui::SameLine();
   ImGui::Checkbox("show mirror", &c.show_mirror);
   ImGui::SetItemTooltip("%s",

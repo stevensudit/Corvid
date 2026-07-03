@@ -25,9 +25,9 @@ produce.
   - `flashlight_spot`: soft cone (`cone_degrees`/`softness`) + range `fade` +
     ball shadow.
   - `flashlight_terrain`: cone * fade^2 * Lambert, ball-shadowed.
-  - `flashlight_gloss`: a Blinn-Phong half-vector lobe on the ball (energy-
-    conserving spread so a broader spot dims), with an N.L gate so a mirror does
-    not glare the far side.
+  - The ball's flashlight glint is the real reflection of the emissive iris
+    (see Iris-as-source below); the faked Blinn-Phong gloss lobe that once sat
+    on top of it is gone (glare step, see items 2 and 3).
 - Iris-as-source: the head eye's glass segments emit `source_strength` while the
   lamp is on (scene_render.cuh `shade_head`), so the ball's reflection of the
   head carries the real glint.
@@ -43,18 +43,15 @@ produce.
    penumbra then fall out of (source size, occluder = ball, the two distances).
    Softness stops being a knob.
 
-2. Gloss spot size uses two knobs, `gloss_power` (near breadth) + `gloss_grow`
-   (spread with distance). This is the "size near + size far" anti-pattern.
-   Correct base: a specular highlight's breadth is the light's apparent angular
-   size (source size / distance), one physical quantity, from the same source
-   size as (1). (The brightness-vs-distance was already made correct this session
-   via energy conservation; the size is still faked.)
+2. RESOLVED (glare step). The faked gloss lobe and its `gloss_power`/`gloss_grow`
+   "size near + size far" knobs are gone. The glint is the ball's real
+   reflection of the emissive iris, so its breadth is the emitter's apparent
+   angular size (source size / distance) for free, not a hand-tuned lobe.
 
-3. The gloss lobe duplicates the iris reflection. We have the real thing (the
-   ball reflecting the emissive iris) but judged it too small/jittery, so we
-   added a fake Blinn-Phong lobe on top. Correct base: make the source big and
-   bright enough (a sized emitter) that its real reflection IS the highlight; the
-   lobe, if kept at all, is an artistic layer on that base, not the base.
+3. RESOLVED (glare step). The duplicate Blinn-Phong lobe is removed; the real
+   reflection of the emissive iris IS the highlight, its brightness the
+   emitter's `source_strength` (HDR, so it blows out through bloom). Any later
+   sparkle-stabilizing fudge goes on top of this real base, in a realistic form.
 
 4. The flashlight is a set of per-surface fakes (`flashlight_terrain` +
    `flashlight_gloss`), not one light the whole scene evaluates. So the flat
@@ -104,6 +101,10 @@ base is right.
 
 ## Status / next
 
-Survey only. No code yet on the correctness pass. Resume by reviewing this list
-with the user, turning it into an ordered to-do, then building the sized-light
-base first.
+Ordered as shape -> glare -> shadow. Step 1 (shape: the visible flashlight air
+cone) shipped. Step 2 (glare) is done here: the faked ball gloss lobe is ripped
+out and the glint is now the ball's real reflection of the emissive iris (items
+2 and 3 resolved). Next is shadow (item 1): give the flashlight a physical
+source size so the umbra and penumbra fall out of geometry, retiring the
+`shadow_softness` knob. That same source size then feeds the light-entity
+promotion (item 4) and, separately, the reticle world-decal (item 5).
