@@ -39,6 +39,7 @@
 build/
 build-debug/
 build-tests/
+build-bench/
 CMakeFiles
 CMakeCache.txt
 .ninja_deps
@@ -53,6 +54,7 @@ tidy.log
 tests/.fetchcontent/
 tests/.fetchcontent-debug/
 tests/.local/
+*.log
 
 # Claude Code
 .claude/settings.local.json

@@ -27,9 +27,19 @@ namespace corvid::cuda::terrain {
 
 #pragma region Noise
 
+// Sine-hash constants for hash2/hash3: the canonical GLSL
+// `fract(sin(dot(p, freq)) * amp)` pseudo-random recipe. Arbitrary,
+// widely-copied values with no meaning beyond scrambling nearby lattice points
+// apart (a different constant set than scene_render.cuh's sine-hash, same
+// family).
+constexpr float hash_kx = 127.1F;
+constexpr float hash_ky = 311.7F;
+constexpr float hash_kz = 74.7F;
+constexpr float hash_amp = 43758.547F;
+
 // Hash of a lattice point to a pseudo-random value in [0, 1).
 [[nodiscard]] __device__ inline float hash2(float x, float y) {
-  const float h = sinf((x * 127.1F) + (y * 311.7F)) * 43758.547F;
+  const float h = sinf((x * hash_kx) + (y * hash_ky)) * hash_amp;
   return h - floorf(h);
 }
 
@@ -83,7 +93,8 @@ namespace corvid::cuda::terrain {
 
 // Hash of a 3D lattice point to a pseudo-random value in [0, 1).
 [[nodiscard]] __device__ inline float hash3(float x, float y, float z) {
-  const float h = sinf((x * 127.1F) + (y * 311.7F) + (z * 74.7F)) * 43758.547F;
+  const float h =
+      sinf((x * hash_kx) + (y * hash_ky) + (z * hash_kz)) * hash_amp;
   return h - floorf(h);
 }
 
@@ -148,9 +159,14 @@ value_noise_3d(float x, float y, float z) {
   constexpr float roll_amp = 7.0F;     // rolling-hill height
 
   // Displace the sample point by a low-frequency noise (domain warping).
+  // Offsets that decorrelate the z-warp noise lookup from the x-warp;
+  // arbitrary, just far enough apart that the two do not track each other.
+  constexpr float warp_offset_x = 4.7F;
+  constexpr float warp_offset_z = 2.1F;
   const float wx = fbm(x * warp_scale, z * warp_scale) - 0.5F;
   const float wz =
-      fbm((x * warp_scale) + 4.7F, (z * warp_scale) + 2.1F) - 0.5F;
+      fbm((x * warp_scale) + warp_offset_x, (z * warp_scale) + warp_offset_z) -
+      0.5F;
   const float sx = (x + (warp * wx)) * scale;
   const float sz = (z + (warp * wz)) * scale;
 

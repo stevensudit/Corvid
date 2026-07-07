@@ -35,26 +35,201 @@ namespace corvid::cuda {
 // rig shipped with; a default-constructed instance is the baseline the panel
 // compares each edited field against.
 struct avatar_tuning {
+  // Body: the metal ball you drive. The motion grid's glow is gated on the
+  // direction keys and scaled by the ball's own planar speed:
+  //
+  // `ball_grid_move_gain` sets how hard it flares up (ramped at
+  // `motion_approach`).
+  //
+  // `ball_grid_fade` how fast it fades back to dark once the keys release.
+  //
+  // `ball_grid_roll_gain` scrolls the grid as a fraction of the true roll
+  // rate; 1 paints it on the rolling ball (the principled value), lower slows
+  // it for taste. It no longer has to dodge strobing: the shader motion-blurs
+  // the scroll along the roll (`roll_blur`), so even a fast spin reads as a
+  // streak rather than a flicker.
+  //
+  // `ball_grid_steer_gain` is a fake: the conveyor stays aligned to the
+  // motion, so a steer arc is invisible under the tracking camera, and this
+  // drifts the grid sideways by the heading change to sell the turn (0 off).
+  //
+  // `ball_grid_steer_cap` limits that drift (steer-phase per second) so a
+  // tight donut, which whips the heading fast, saturates to a readable rate
+  // instead of strobing, while normal steering passes through.
+  //
+  // `ball_grid_turn_rate` low-passes the grid's flow axis toward the spin
+  // direction, so the small wander of the spin at low speed reads as a steady
+  // flow rather than a wobble: higher follows a real turn faster, lower
+  // suppresses more of the jitter.
   float ball_radius = 0.6F;
-  float head_radius = 0.45F;
-  float head_height = 0.9F;      // head hover height over the ball
-  float boom_min = -1.5F;        // pushed this far in front (FPS)
-  float boom_max = 14.0F;        // pulled this far back (wide)
-  float boom_rise = 0.35F;       // head rise per unit pulled back
-  float zoom_approach = 8.0F;    // boom easing rate per second
-  float spin_rate = 0.6F;        // belly spin, radians per second
-  float saucer_lean = 0.4F;      // belly lean toward the look
-  float heading_approach = 8.0F; // heading swing rate while moving
-  float thrust_full = 12.0F;     // speed that reads as full thrust
-  float thrust_approach = 5.0F;  // thrust glow ramp/fade rate
-  float move_speed = 8.0F;       // planar move speed, units per second
+  float ball_grid_move_gain = 2.0F;
+  float ball_grid_fade = 5.0F;
+  float ball_grid_roll_gain = 0.05F;
+  float ball_grid_steer_gain = 2.0F;
+  float ball_grid_steer_cap = 2.0F;
+  float ball_grid_turn_rate = 6.0F;
 
-  // Saucer head shape, as fractions of the head radius (see `saucer_head`).
-  float body_height = 0.32F; // disc half-height / radius (smaller = flatter)
-  float dome_offset =
-      0.221F; // dome center height / radius (lower = more buried)
-  float dome_radius = 0.55F; // dome sphere radius / radius
-  float dome_blend = 0.1F;   // dome/disc smooth-union width / radius
+  // Tracks: a shallow groove and dark stain the heavy ball wears into the dirt
+  // as it rolls. Only lateral rolling crushes (the edit scales by the distance
+  // rolled, not time), so a parked ball settling straight down leaves nothing
+  // and speed does not change a single pass; rolling back and forth wears it
+  // deeper. `track_crush_strength` is the groove depth (density, world units)
+  // per unit rolled and `track_darken_strength` the color fade per unit
+  // rolled, each over a `track_crush_radius` footprint; either strength 0
+  // disables that half, and `track_darken_floor` is the darkest the stain
+  // reaches so it never goes black.
+  float track_crush_strength = 0.3F;
+  float track_crush_radius = 0.85F;
+  float track_darken_strength = 0.666F;
+  float track_darken_floor = 0.12F;
+
+  // Head: the overall saucer head size (the camera rides inside it).
+  float head_radius = 0.45F;
+
+  // Saucer shape, as fractions of the head radius (see `saucer_head`).
+  float disc_height = 0.32F; // disc half-height / radius (smaller = flatter)
+  float top_height = 0.47F;  // top-cone apex height / radius (< disc = a cone)
+  float rim_round = 0.03F;   // brim smooth-intersection rounding / radius
+  float dome_blend = 0.005F; // dome/disc smooth-union width / radius
+
+  // Caps the head's silhouette hit tolerance (fraction of radius): lower
+  // sharpens the far-mirror edge, too low reopens the dome/disc seam.
+  float head_hit_cap = 0.002F;
+
+  // Saucer belly spin: the idle rate, the gains from forward travel and
+  // strafing, and the idle-reversal period.
+  float spin_rate = -1.5F;       // idle belly spin, radians per second
+  float spin_move_gain = -3.0F;  // spin gain from forward travel, signed
+  float spin_strafe_gain = 3.0F; // spin gain from strafing, signed
+  float spin_idle_period = 4.5F; // seconds between idle spin reversals
+
+  // Saucer tilt: the look gimbal's max nose-down dip, plus the helicopter
+  // motion tilt (the saucer banks with its own travel), one angle per
+  // direction at full speed.
+  float dip_max_deg = 65.0F;       // max nose-down dip on a look down, degrees
+  float forward_tilt_deg = 28.0F;  // nose-down tilt at full forward travel
+  float backward_tilt_deg = 28.0F; // tail-down tilt at full reverse travel
+  float strafe_tilt_deg = 28.0F;   // bank toward the strafe at full strafe
+
+  // Dome shape, as fractions of the head radius (see `saucer_head`).
+  float dome_offset = 0.2F;  // dome center height / radius (lower = buried)
+  float dome_radius = 0.46F; // dome sphere radius / radius
+
+  // Eye: the look-gimbal lift (the eye aims this far above the look for eye
+  // contact) and the steadycam counter-tilt that holds the dome level against
+  // the motion bank.
+  float eye_lift_deg = 25.0F; // degrees the eye aims above the look
+  float stabilize = 1.0F; // dome cancel of the motion bank (1 = hold level)
+  float overcomp = 0.15F; // extra dome tilt past level, opposite the bank
+
+  // Antenna standing off the dome top (fractions of the head radius). It wags
+  // with the eye's gimbal as an exaggerated tilt signal; `antenna_length` 0
+  // disables it.
+  float antenna_length = 0.6F;      // rod length / radius
+  float antenna_thickness = 0.004F; // rod radius / radius
+  float antenna_ball = 0.044F;      // tip ball radius / radius
+  float antenna_collar = 0.006F;    // base collar (the metal disc) / radius
+
+  // The antenna's angular lead over the eye toward the dome pole, degrees:
+  // sets where its base meets the hex grid (dial it onto a node) and how
+  // vertical it stands.
+  float antenna_lead_deg = 55.26F;
+
+  // The antenna beacon's blink rate: scales with the Head's planar speed, so
+  // it does not pulse at rest and blinks faster the quicker it travels. In
+  // cycles (Hz); the colors and the on/off depth live in
+  // `render_config::head_params`.
+  float blink_move_gain = 2.0F; // blink rate per unit Head speed
+
+  // The resting beacon color smoothly tracks the belly idle spin (a cosine of
+  // its period). `color_phase` shifts the color against the spin: 0 in phase
+  // (pure color at each reversal), 1 in opposite phase; around 0.5 the color
+  // is pure mid-spin and neutral at the reversal.
+  float color_phase = 0.5F;
+
+  // Beacon color cycles per belly reversal cycle at rest, so the color tracks
+  // the spin at a chosen multiple of its rate instead of locked to it: 1 is
+  // identical (which reads wrong), a small whole number above 1 decouples them
+  // while staying in tune.
+  float color_spin_ratio = 3.0F;
+
+  // The contact band: the ball counts as grounded (can jump, has traction)
+  // when resting on or skimming within this of the surface, so the flag stays
+  // steady and a jump fires reliably even while sprinting over undulating
+  // terrain. The body (`avatar_body`) owns the rest of the ground physics.
+  float ground_tol = 0.3F; // contact band counted as grounded, world units
+
+  // How much of each frame's collision penetration is corrected: a fraction,
+  // not the whole, so the resolve eases to rest instead of overshooting the
+  // one-frame-stale probe and limit-cycling (a jitter on a flat floor, a
+  // wall-to-wall slam in a slot narrower than the ball). Lower is calmer but
+  // sinks deeper into contact; near 1 brings the jitter back. The velocity
+  // stops are firm regardless, so a landing or a wall still stops hard.
+  float collision_damp = 0.35F;
+
+  // Movement: how the rig follows the body, dollies, zooms, and frames it.
+  float move_speed = 8.0F;    // planar move speed, units per second
+  float head_height = 0.9F;   // head hover height over the ball
+  float camera_height = 0.5F; // eye height above head center, of the radius
+  float boom_min = 0.485F;    // jockey: this far behind, above the ball
+  float boom_max = 14.0F;     // trailing: pulled this far back (wide)
+  float boom_rise = 0.35F;    // head rise per unit pulled back
+  // Merge: dollying the boom below `boom_min` toward 0 glides the eye into the
+  // ball (the glass-lens viewpoint, see `render_config::glass_params`). When
+  // fully merged the eye sits this far along the look from the ball center, as
+  // a fraction of the ball radius: positive sits behind the center (the saucer
+  // ahead of the eye), negative sits ahead of it (the saucer behind, dead
+  // center). Either way the forward ray is normal-incidence and stays clean;
+  // the magnitude sets how much the periphery refracts (nearer a surface bends
+  // harder). 0 is dead center, a clear bubble.
+  float merge_eye_back = -0.9F;
+  // Crossing the merge boundary (dollying into the body or back out of it)
+  // pivots the look to this pitch (degrees, down is negative). Going in, the
+  // head looks down into the ball so the camera catches the merge ripple as it
+  // crosses; backing out, you leave already looking down at the ball rather
+  // than off at the horizon.
+  float merge_pitch_deg = -55.0F;
+  // How fast the look pivots to `merge_pitch_deg` across the crossing, per
+  // second (exponential ease). High enough to read as a quick deliberate turn,
+  // not an instant snap.
+  float merge_pitch_rate = 60.0F;
+  // Tuning aid: slows the merge transition (the dolly through the merge zone
+  // and the merge ripple, in step) by this factor, so the crossing can be
+  // studied. 1 is full speed, lower slower; normal dollying is unaffected.
+  float merge_slowmo = 1.0F;
+  float zoom_approach = 8.0F;    // boom easing rate per second
+  float zoom_step = 1.0F;        // boom change per mouse-wheel notch
+  float heading_approach = 8.0F; // steer heading-chase rate while moving
+  float follow_approach = 3.0F;  // follow look-recenter rate (gentler)
+  float motion_approach = 5.0F;  // tilt/spin motion-signal ramp/fade rate
+
+  // Mouse-look de-jitter (the look's One Euro Filter): `look_rest_ms` is the
+  // at-rest smoothing time constant in milliseconds (higher is steadier but
+  // laggier), `look_beta` how fast that smoothing relaxes as the mouse speeds
+  // up (0 leaves it a plain fixed low-pass).
+  float look_rest_ms = 150.0F;
+  float look_beta = 0.001F;
+
+  // Convenience (debug): tilt the camera to `hold_pitch_deg` (a look-down at
+  // the ball) and hold it there while `hold_pitch` is set, so the view holds
+  // steady while tuning. Yaw and movement still work. A set angle, not the
+  // current pitch, since the reason to hold is that the pitch cannot be set
+  // steady by hand first (e.g. -55 frames the eye, -81 the inner reticle
+  // glow).
+  bool hold_pitch = false;
+  float hold_pitch_deg = -55.0F;
+
+  // Convenience (debug): force the dig beam on even without aiming, so the
+  // eye-cone glow can be watched and tuned. 0 off (leave it to the aim), 1 rim
+  // (the outer reticle and cone shell, no beam core), 2 full (adds the inner
+  // reticle and the white beam core). Fires at the aim hit when there is one,
+  // else straight ahead.
+  int force_beam = 0;
+
+  // Animation rigging: rotate the head's front (and the cockpit eye) off the
+  // camera heading, in degrees. Mainly to animate the UFO shaking its head;
+  // also handy when debugging to bring the back of the dome into the mirror.
+  float front_offset_deg = 0.0F;
 
   // Field of view is stored with its derived tan(fov/2), so the per-frame ray
   // setup reads the cached tangent instead of recomputing it. Edit it through
@@ -67,8 +242,11 @@ struct avatar_tuning {
   }
 
 private:
-  float fov_deg_ = 60.0F; // vertical field of view, degrees
-  float tan_half_fov_ = tanf(60.0F * radians::per_degree * 0.5F);
+  float fov_deg_ = 45.0F; // vertical field of view, degrees
+  // Cached from `fov_deg_` (declared above, so already initialized) rather
+  // than a repeated literal, so the field and its tangent can never drift
+  // apart.
+  float tan_half_fov_ = tanf(fov_deg_ * radians::per_degree * 0.5F);
 };
 
 #pragma endregion

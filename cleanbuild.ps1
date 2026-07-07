@@ -18,6 +18,8 @@
 #
 # Usage (args combine in any order):
 #   ./cleanbuild.ps1                     clang++, portable + CUDA suite, ctest
+#   ./cleanbuild.ps1 reconfigure         configure-only full refresh of tests/build
+#                                        (regenerates compile_commands.json for clangd)
 #   ./cleanbuild.ps1 strings_test.cpp    build and run just that one test
 #   ./cleanbuild.ps1 cuda_status_test.cu build and run just that one CUDA test
 #   ./cleanbuild.ps1 cl                  portable suite via MSVC cl (no CUDA)
@@ -45,6 +47,7 @@ $compiler = 'clang'
 $sanitizer = ''
 $cudacheck = $false
 $tidy = $false
+$reconfigure = $false
 foreach ($a in $Rest) {
   switch -Regex ($a) {
     '\.(cpp|cu)$' { $testName = $a }
@@ -53,7 +56,8 @@ foreach ($a in $Rest) {
     '^asan$' { $sanitizer = $a }
     '^cudacheck$' { $cudacheck = $true }
     '^(tidy|--tidy)$' { $tidy = $true }
-    default { throw "Unrecognized argument '$a' (expected <name>_test.cpp, <name>_test.cu, clang|cl, asan, tidy, or cudacheck)" }
+    '^reconfigure$' { $reconfigure = $true }
+    default { throw "Unrecognized argument '$a' (expected <name>_test.cpp, <name>_test.cu, clang|cl, asan, tidy, cudacheck, or reconfigure)" }
   }
 }
 if ($sanitizer -and $compiler -eq 'cl') {
@@ -72,6 +76,11 @@ if ($tidy -and $compiler -eq 'cl') {
 }
 if ($tidy -and ($sanitizer -or $cudacheck)) {
   throw 'tidy is exclusive with asan/cudacheck (separate analysis passes).'
+}
+# reconfigure is a configure-only full refresh of tests/build (for clangd's
+# compile_commands.json); it builds nothing and takes no other mode.
+if ($reconfigure -and ($testName -or $sanitizer -or $cudacheck -or $tidy -or ($compiler -eq 'cl'))) {
+  throw 'reconfigure is a standalone configure-only refresh; it takes no test name, compiler, or analysis mode.'
 }
 
 # Resolve the compiler. clang++ uses the full LLVM path; cl rides the dev-shell
@@ -156,7 +165,7 @@ if ($tidy) {
     '-DCMAKE_CXX_FLAGS_RELEASE=-O2')
 }
 $cfg += $cudaArgs
-$mode = if ($tidy) { 'tidy' } elseif ($cudacheck) { 'cudacheck' } elseif ($sanitizer) { $sanitizer } else { 'plain' }
+$mode = if ($reconfigure) { 'reconfigure' } elseif ($tidy) { 'tidy' } elseif ($cudacheck) { 'cudacheck' } elseif ($sanitizer) { $sanitizer } else { 'plain' }
 $cfgLabel = if ($tidy) { 'Release, asserts-live' } else { 'Release' }
 Write-Host "Compiler: $compiler   Mode: $mode ($cfgLabel)$(if ($testName) { "   Test: $testName" })"
 
@@ -185,6 +194,14 @@ if ($reuse) {
   if ($LASTEXITCODE) { throw "configure failed ($LASTEXITCODE)" }
   # Record the signature so the next matching single-file run can reuse this.
   Set-Content -Path $sigFile -Value $configSig
+}
+
+# reconfigure stops here: the configure above already regenerated a full
+# compile_commands.json (no TEST_NAME filter), which is all clangd needs. No
+# build, no ctest.
+if ($reconfigure) {
+  Write-Host "Reconfigured $bldDir; compile_commands.json refreshed for clangd."
+  exit 0
 }
 
 # The .cu test stems cudacheck will sanitize: one if a .cu was named, else all

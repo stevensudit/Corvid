@@ -40,13 +40,25 @@ class d3d11_device {
 public:
 #pragma region Construction
 
-  d3d11_device() {
+  // Create a device on the default hardware adapter.
+  d3d11_device() : d3d11_device{nullptr} {}
+
+  // Create a device on a specific adapter, or on the default hardware adapter
+  // when `adapter` is null.
+  //
+  // D3D requires the driver type to be UNKNOWN when an explicit adapter is
+  // given and HARDWARE when it is not. Choosing the adapter pins the device to
+  // a particular GPU, e.g. to match another API's device on a multi-GPU or
+  // hybrid-graphics machine.
+  explicit d3d11_device(IDXGIAdapter* adapter) {
     const D3D_FEATURE_LEVEL levels[]{D3D_FEATURE_LEVEL_11_1,
         D3D_FEATURE_LEVEL_11_0};
+    const D3D_DRIVER_TYPE driver_type =
+        adapter ? D3D_DRIVER_TYPE_UNKNOWN : D3D_DRIVER_TYPE_HARDWARE;
     hr_status{
-        D3D11CreateDevice(nullptr, D3D_DRIVER_TYPE_HARDWARE, nullptr, 0,
-            levels, std::size(levels), D3D11_SDK_VERSION, device_.put(),
-            nullptr, context_.put())}
+        D3D11CreateDevice(adapter, driver_type, nullptr, 0, levels,
+            std::size(levels), D3D11_SDK_VERSION, device_.put(), nullptr,
+            context_.put())}
         .or_throw();
   }
 

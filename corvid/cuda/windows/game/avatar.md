@@ -6,11 +6,21 @@ spacesuit), the player is a small robot along the lines of Star Wars' BB-8: a
 ball body that rolls, and a head that can either ride the ball or detach and fly
 a short distance as the camera.
 
-This is a forward-looking sketch, recorded to iterate on. Nothing here is built.
-Today the viewer drives a free-flying camera (`camera` / `camera_rays` in
-`camera.cuh`) with no embodied avatar at all; the dig brush fires from the camera
-(see `voxel_world.md`). The droid replaces that free camera with a body the
-camera is attached to.
+Parts of this are built now and parts are still a forward-looking sketch. Built:
+the ball and the saucer-head as free SDFs, the head's diegetic camera, the
+Warcraft-style driving with its articulated look/steer gimbal, the helicopter
+tilt and the steadycam, the dolly with its one-way auto-merge into the ball,
+real rigid-body ball physics (`avatar_body`: force-based drive against a
+traction budget, quadratic drag, contact-normal jump; it replaced the old
+velocity-easing movement and its gravity/momentum/collision rig), the dig beam
+with its laser-projected target reticle, the diegetic flashlight with its
+glare and air-cone glow, the optics layer (the flat mirror wall and the merged
+glass-lens view), the saucer's cosmetic dressing, and the ball's dimmed
+reflection with its rolling motion grid (see "The head rig, as built" and "The
+saucer, as built"). Still a sketch: the fill/drag beams, the head detaching to
+fly on its own, and the soil interactions that couple the avatar to the dirt
+physics. The dig still fires from the eye's centered forward ray; a
+body-to-target line-of-sight gate is on the roadmap.
 
 ## Why a droid, not a human
 
@@ -44,7 +54,7 @@ split cleanly into a perceiver and an effector.
   has two states: it can REST on the ball (the BB-8 pose, the saucer riding atop
   the rolling body), or DETACH and fly within a limited range around the ball, a
   tethered drone. Beyond the camera, the head carries everything to do with
-  perceiving the world: the light and the holographic crosshair (both below).
+  perceiving the world: the light and the projected target reticle (both below).
 
 The division is the organizing rule: the head perceives, the ball acts.
 
@@ -128,6 +138,76 @@ takes a moment of back-rotation to bleed off, the same inertia the ball is built
 around (see Two bodies). That small cost at speed is a feature, the weight of a
 heavy ball, not friction to file away.
 
+## The head rig, as built
+
+The head is a camera on an articulated rig, kept decoupled from the saucer's
+decorative motion: the camera looks freely along its own heading, while the Eye,
+Dome, and Saucer tilts the rig computes are only drawn (seen in the ball's
+reflection), never fed back into where the camera points. So the saucer can bank
+and the eye can wag without the view swimming.
+
+LOOK AND STEER. Holding the right mouse button aims the eye. With no movement
+keys it is Look: the eye turns and, since it is the camera, the view turns with
+it; the Dome yaws a full circle freely, and vertical aim rotates the Dome to
+point the eye up or down from its resting tilt. With movement keys held it is
+Steer: the heading chases the eye, so the ball arcs toward where you look.
+Forward is always the eye's heading flattened to the ground, so looking up while
+driving never lifts the ball. Releasing the button Follows: the heading holds and
+the view eases back to frame the travel, yaw recentering to the heading and pitch
+to level.
+
+THE EYE / DOME / SAUCER GIMBAL. Vertical aim is handed off in stages. The Dome
+rotates the eye within its own travel: down only until the eye's edge nears the
+saucer, up only until it nears the north pole. Past those limits the Saucer takes
+over the tilt, nosing up or down within its own limits so it can never flip. The
+Antenna keeps a fixed offset above the eye along their shared meridian, so it
+leans with the eye through the whole range. The rest angle, the limits, and the
+offset derive from the eye's size on the dome rather than from free knobs; the
+live values live in `avatar_tuning` and the panel.
+
+HELICOPTER TILT AND THE STEADYCAM. Independent of Look/Steer, the Saucer banks
+with its own translational motion, helicopter-style: nose down moving forward,
+tail down in reverse, rolled into a strafe, each angle configurable. Whenever it
+banks from motion (a follow or a dolly), the Dome counter-rotates like a
+steadycam: a stabilizing portion exactly cancels the bank so the view, or the
+Steer aim, holds level, plus a small overcompensation past level that is drawn
+for show and never enters the camera aim. The counter-rotation turns the whole
+Dome, so the eye and antenna ride it together.
+
+THE DOLLY. Until a free-fly mode exists, the head's only independent translation
+is the dolly: the mouse wheel slides it along the heading between the jockey
+(close above and behind the ball, so a level look clears the ball and a look-down
+gives its profile) and a trailing distance well behind. It never comes in front,
+the one planned exception being a low-ceiling tunnel nudging it ahead from the
+jockey, deferred to the physics pass. The head eases to a new boom rather than
+snapping, and its offset is capped to the ball's own speed, so a dolly or a
+heading swing glides instead of whipping the camera around the boom, while the
+ball's translation carries through untouched so driving never lags the head out
+of range.
+
+## The saucer, as built
+
+The head earns its shape in the ball's reflection (and in the flat mirror you can
+fly up to), so it is dressed to read as a classic flying saucer at a glance and
+small. All of this is cosmetic and lives in `shade_head`; the gimbal that aims
+the eye and antenna is the rig above.
+
+- The DOME is a hex-tiled cockpit cap: a geodesic (Goldberg) grid over the whole
+  sphere with one cell seated on the eye. It carries a single hexagonal porthole
+  EYE (an opaque iris with a pupil hub and radial spokes) on its front, and an
+  ANTENNA standing off the top with an emissive beacon tip. The beacon animates
+  with motion: a running-light color while moving, reddening when backing up,
+  blinking faster the quicker it travels, and at rest alternating colors in tune
+  with the belly's idle spin.
+- The SAUCER body is a flattened cone over a rounded disc, smooth-unioned to the
+  dome and rounded at the brim. Its upper hull wears a fixed ring of dark
+  portholes and radial panel grooves; the rounded shoulder above the brim carries
+  a ring of emissive rim running lights.
+- The BELLY is a painted spinning disc, concentric rings times radial spokes,
+  with a central flashlight hub and a ring of amber spoke lights. The spin reads
+  the head's motion (faster with speed, reversing in reverse, opposite ways on a
+  left versus right strafe) and at rest drifts one way, then slowly reverses.
+
 ## Light is diegetic too
 
 The head also carries the light, so illumination is as embodied as the view.
@@ -169,11 +249,12 @@ black, and one bounce is enough; the ball need not reflect its own reflection.
 
 READING THE SPIN. A perfect mirror hides rotation: a featureless reflective
 sphere spinning in place looks the same frame to frame, and this ball is on
-screen almost all the time, so it has to show its motion. Overlay a faint
-pattern fixed in the ball's surface frame (a marbling, flecks, a band) that
-turns with the body, breaking the mirror just enough to make spin and roll
-legible. It is cheap, a lookup in surface space under the dimmed reflection, and
-it doubles as the dial the velocity tint rides on.
+screen almost all the time, so it has to show its motion. As built, a faint
+hexagonal wireframe is wrapped onto the ball by a rolling-conveyor (Mercator)
+projection, flowing at the roll rate and fading in only while the ball moves, so
+the rotation reads without the wobble a whole-sphere grid would give. It is
+cheap, a surface-space evaluation under the dimmed reflection, and the same
+channel can carry the velocity tint when that lands.
 
 THE FLASHLIGHT AND GLOW (from Light is diegetic too) are the lighting half of
 the same machinery: the flashlight is the head's directional light along the
@@ -200,26 +281,61 @@ refraction is real Snell bending or a cheap fake, whether mirrors are just
 reflective embedded materials or a distinct object, and how much puzzle content
 to build, are all open.
 
-## The crosshair is a hologram, not a UI element
+## The reticle is a laser projection, not a UI element
 
-The crosshair is not screen-space chrome painted over the frame. It is a
-holographic projection cast by the head into the world, one more diegetic element
-alongside the camera and the light, rendered as part of the scene.
+The target reticle is not screen-space chrome painted over the frame. It is a
+laser projection cast by the head onto the world surface, one more diegetic
+element alongside the camera and the light, rendered as part of the scene. A
+target reticle, not just a dig marker: it will change shape to read out the
+active operation (dig, move, fill).
 
 But what it marks is the BALL's aim, not the head's. The beams come from the ball
-(the effector), while the crosshair is projected by the head (the perceiver), so
+(the effector), while the reticle is projected by the head (the perceiver), so
 the two have to be reconciled: the player aims through the head's viewpoint, but
-the crosshair has to land where the ball's beam will actually reach. That is the
+the reticle has to land where the ball's beam will actually reach. That is the
 one hard constraint the head-perceives, ball-acts split forces. The naive
 screen-center crosshair (see the screen-space crosshair note in
 `voxel_world.md`) assumes the beam leaves the eye; here it leaves the ball, and
-the head projects a hologram that honestly shows where.
+the head projects a reticle that honestly shows where.
+
+## Expressive poses (not built)
+
+The saucer's belly already exposes shape knobs that read as expression, not just
+decoration: the central hub is a pupil that can dilate (hub radius), the rim
+lights stretch from dots into radial dashes (rim width) and from a broken ring
+into a solid circle (rim dot frequency), and any of it can shift color. Driven
+statically they are tuning; driven over time they are animation. The plan is to
+capture a few named poses as short interpolation sequences over these
+`render_config` fields and trigger them off events: a pupil-narrow plus a color
+flash on the dig button, a calm idle blink, an alert ring on low charge. The
+shading already supports it; what is missing is a small sequencer that eases the
+fields toward a target pose and back. Belly first (it is the busy expressive
+face); the cockpit dome stays comparatively still.
+
+The head itself can act, too, not just its painted face. Two rig knobs that exist
+today turn out to read as gestures: rotating the cockpit eye forward and back off
+the dome apex (the `eye_lift_deg` lean) reads as a NOD, and yawing the head's
+front off the camera heading (the `front_offset_deg` rotation, originally a debug
+aid for inspecting the back of the dome) reads as a head SHAKE. Both rotate the dome's
+decoration in place without moving the body, so they animate cleanly through the
+same ease-to-a-pose sequencer: a yes-nod on accept, a no-shake on a refused
+action, a curious tilt. Cheap and disproportionately charming, so worth wiring in
+alongside the belly poses.
 
 ## Still open
 
-- Rolling model: how much inertia, whether the ball is torque-driven (it spins
-  itself up) or impulse-driven, how much momentum a sprint carries before it can
-  stop, and how it climbs and handles terrain it has just dug.
+- Rolling model: built as a real rigid body (`avatar_body.cuh`): motion comes
+  from forces (drive against a friction traction budget, gravity, exact
+  quadratic drag), so momentum, coasting, hold-versus-slide on a slope (the
+  friction angle), the contact-normal jump, and wheel-spin slip all fall out
+  of the physics instead of tuned easing knobs; the world-box fences remain.
+  The ground is sampled by a multi-ray probe fan around the ball each frame
+  (read back a frame later) that reports the floor contact plus wall and
+  ceiling pushes the engine applies, treating the density field as an
+  approximate SDF, so a freshly dug hole drops the ball in. Still open:
+  collision against gaps and ledges smaller than the probe fan resolves, and
+  the true distance field (keystone B in `physics.md`) that would replace the
+  approximate contact.
 - Head states: the exact rest-versus-detach control, the size and shape of the
   detached flight range, whether the leash is hard (a wall) or soft (a pull back
   toward the ball), how much the ball's follow lags the head, and the
@@ -237,11 +353,6 @@ the head projects a hologram that honestly shows where.
 - Whether the ball collides with and is moved by collapsing terrain, which would
   connect the avatar directly to the dirt physics rather than treating it as a
   separate camera rig.
-- Ball reflectivity tuning: the dim factor, the ambient floor, the
-  acceleration-to-tint mapping (how blue a hard launch, how red a hard stop),
-  and the spin pattern's look and density.
-- The head's SDF: the exact saucer-plus-dome form and rim, and confirming it is
-  excluded from primary rays but present in reflection rays.
 - Optics scope: whether to build mirrors, lenses, and a transparent-ball mode at
   all, the secondary-ray bounce cap, and how large a puzzle layer, if any, to
   grow on the exploration.

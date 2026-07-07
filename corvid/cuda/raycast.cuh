@@ -166,8 +166,44 @@ template<scene_policy Scene>
 
 // Convert a linear color channel in [0, 1] to a gamma-encoded byte.
 [[nodiscard]] __device__ inline unsigned char to_byte(float c) {
-  const float g = powf(fminf(fmaxf(c, 0.0F), 1.0F), 1.0F / 2.2F);
+  constexpr float gamma = 2.2F; // display gamma (sRGB approximation)
+  const float g = powf(fminf(fmaxf(c, 0.0F), 1.0F), 1.0F / gamma);
   return static_cast<unsigned char>(lroundf(g * 255.0F));
+}
+
+// A screen-space ordered-dither offset in [-0.5, 0.5) of one 8-bit step, from
+// Jimenez's interleaved gradient noise (a cheap, texture-free ordered
+// pattern).
+//
+// Added to a channel before it rounds to a byte so a smooth dark gradient (the
+// night sky) dissolves its 8-bit banding into imperceptible noise instead of
+// stepping. Static in screen space, so it breaks the bands without shimmering
+// frame to frame.
+[[nodiscard]] __device__ inline float dither_offset(int px, int py) {
+  // The two per-pixel weights and the scale are the arbitrary magic constants
+  // of Jimenez's interleaved gradient noise, carrying no meaning beyond
+  // producing its even low-discrepancy pattern (like the sine-hash constants a
+  // white-noise dither would use). `frac(scale * frac(dot(weights, pixel)))`
+  // gives noise in [0, 1); the final subtraction centers it on zero.
+  constexpr float ign_weight_x = 0.06711056F;
+  constexpr float ign_weight_y = 0.00583715F;
+  constexpr float ign_scale = 52.9829189F;
+  constexpr float half_step = 0.5F; // center [0, 1) noise on [-0.5, 0.5)
+  const float base =
+      (ign_weight_x * static_cast<float>(px)) +
+      (ign_weight_y * static_cast<float>(py));
+  const float m = ign_scale * (base - floorf(base));
+  return (m - floorf(m)) - half_step;
+}
+
+// Convert a linear color channel in [0, 1] to a gamma-encoded byte, jittered
+// by `dither` (a fraction of one step, see `dither_offset`) before rounding,
+// so a smooth gradient does not band at 8-bit.
+[[nodiscard]] __device__ inline unsigned char to_byte(float c, float dither) {
+  constexpr float gamma = 2.2F; // display gamma (sRGB approximation)
+  const float g = powf(fminf(fmaxf(c, 0.0F), 1.0F), 1.0F / gamma);
+  const long v = lroundf((g * 255.0F) + dither);
+  return static_cast<unsigned char>(v < 0 ? 0 : (v > 255 ? 255 : v));
 }
 
 // Convert a linear color channel in [0, 1] to an 8-bit unorm (no gamma), for

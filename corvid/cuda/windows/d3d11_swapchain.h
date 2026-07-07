@@ -22,6 +22,9 @@
 #endif
 #include <d3d11.h>
 #include <dxgi1_2.h>
+#include <dxgi1_5.h>
+
+#include <type_traits>
 
 #include "../../enums/bitmask_enum.h"
 #include "../../meta/crossplatform.h"
@@ -35,7 +38,7 @@ namespace corvid::win32::d3d {
 
 // Bitmask wrapper for `D3D11_BIND_FLAG`.
 // NOLINTNEXTLINE(performance-enum-size)
-enum class d3d11_bind_flag : unsigned {
+enum class d3d11_bind_flag : std::underlying_type_t<D3D11_BIND_FLAG> {
   none = 0,
   vertex_buffer = D3D11_BIND_VERTEX_BUFFER,
   index_buffer = D3D11_BIND_INDEX_BUFFER,
@@ -70,6 +73,10 @@ class d3d11_swapchain {
 public:
 #pragma region Construction
 
+  // An empty swapchain holding no buffers; call `reset` to build it for a
+  // device and window.
+  d3d11_swapchain() = default;
+
   explicit d3d11_swapchain(const d3d11_device& device, HWND hwnd) {
     reset(device, hwnd).or_throw();
   }
@@ -89,6 +96,12 @@ public:
     device_ = device.device();
     context_ = device.context();
     hwnd_ = hwnd;
+    // Tearing (flip-model uncapped present) is opt-in: query it once and, when
+    // present, create the swapchain with the flag so a later `present(0)` can
+    // run without the refresh-rate cap. Without it, a flip-model swapchain
+    // stays locked to vblank even at sync interval 0.
+    const com_ptr<IDXGIFactory2> factory = device.make_factory();
+    tearing_ = supports_tearing(factory.get());
     const DXGI_SWAP_CHAIN_DESC1 desc{
         .Width = 0,
         .Height = 0,
@@ -100,10 +113,10 @@ public:
         .Scaling = DXGI_SCALING_STRETCH,
         .SwapEffect = DXGI_SWAP_EFFECT_FLIP_DISCARD,
         .AlphaMode = DXGI_ALPHA_MODE_IGNORE,
-        .Flags = 0,
+        .Flags = swap_chain_flags(),
     };
-    if (hr_status st{device.make_factory()->CreateSwapChainForHwnd(device_,
-            hwnd, &desc, nullptr, nullptr, swapchain_.put())};
+    if (hr_status st{factory->CreateSwapChainForHwnd(device_, hwnd, &desc,
+            nullptr, nullptr, swapchain_.put())};
         !st)
       return st;
     if (hr_status st{acquire_back_buffer()}; !st) return st;
@@ -200,9 +213,15 @@ public:
   }
 
   // Present the backbuffer. `sync_interval` is the number of vertical blanks
-  // to wait for; 0 presents uncapped.
+  // to wait for; 0 presents uncapped. The tearing present flag is paired with
+  // sync interval 0 and tearing support, since DXGI rejects it otherwise; only
+  // then does an uncapped present actually run past the refresh rate.
   [[nodiscard]] hr_status present(int sync_interval = 1) {
-    return hr_status{swapchain_->Present(sync_interval, 0)};
+    const UINT flags =
+        (sync_interval == 0 && tearing_)
+            ? static_cast<UINT>(DXGI_PRESENT_ALLOW_TEARING)
+            : 0U;
+    return hr_status{swapchain_->Present(sync_interval, flags)};
   }
 
   // Whether a status from `present` or `resize` signals a lost device, which
@@ -229,8 +248,8 @@ public:
       return hr_status{S_FALSE}; // unchanged
 
     back_buffer_.reset();
-    if (hr_status st{
-            swapchain_->ResizeBuffers(0, 0, 0, DXGI_FORMAT_UNKNOWN, 0)};
+    if (hr_status st{swapchain_->ResizeBuffers(0, 0, 0, DXGI_FORMAT_UNKNOWN,
+            swap_chain_flags())};
         !st)
       return st;
     return acquire_back_buffer();
@@ -261,6 +280,27 @@ private:
     return st;
   }
 
+  // The swapchain creation/resize flags: the tearing flag when supported, kept
+  // in one place so creation and every `ResizeBuffers` stay consistent (DXGI
+  // requires the resize to preserve the original flags).
+  [[nodiscard]] UINT swap_chain_flags() const noexcept {
+    return tearing_ ? static_cast<UINT>(DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING)
+                    : 0U;
+  }
+
+  // Whether the DXGI factory supports flip-model tearing. Needs IDXGIFactory5
+  // (DXGI 1.5+); false on older runtimes or adapters that lack it.
+  [[nodiscard]] static bool supports_tearing(IDXGIFactory2* factory) {
+    com_ptr<IDXGIFactory5> factory5;
+    if (FAILED(factory->QueryInterface(IID_PPV_ARGS(factory5.put()))))
+      return false;
+    BOOL allowed = FALSE;
+    if (FAILED(factory5->CheckFeatureSupport(
+            DXGI_FEATURE_PRESENT_ALLOW_TEARING, &allowed, sizeof(allowed))))
+      return false;
+    return allowed != FALSE;
+  }
+
 #pragma endregion
 #pragma region Data members
 private:
@@ -273,6 +313,7 @@ private:
   UINT buffer_height_{};
   UINT window_width_{};
   UINT window_height_{};
+  bool tearing_{};
 
 #pragma endregion
 };

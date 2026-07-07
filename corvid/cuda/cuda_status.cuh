@@ -18,6 +18,7 @@
 
 #include <cstdint>
 #include <stdexcept>
+#include <type_traits>
 
 #include <cuda_runtime.h>
 
@@ -36,7 +37,8 @@ using corvid::enums::bool_enums::read_mode;
 #pragma region cuda_status
 
 // Enum to wrap `cudaError`.
-enum class cuda_status : std::uint16_t {
+// NOLINTNEXTLINE(performance-enum-size)
+enum class cuda_status : std::underlying_type_t<cudaError_t> {
   success = cudaSuccess,                                               // 0
   invalid_value = cudaErrorInvalidValue,                               // 1
   memory_allocation = cudaErrorMemoryAllocation,                       // 2

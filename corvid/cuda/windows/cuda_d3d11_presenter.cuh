@@ -27,7 +27,7 @@
 
 namespace corvid::cuda {
 
-#pragma region cuda_d3d11_presenter
+#pragma region presenter
 
 // A presentation pipeline for CUDA-rendered frames: a D3D11 device, its
 // flip-model swapchain, and a grow-only render texture registered for CUDA
@@ -55,14 +55,24 @@ public:
 #pragma endregion
 #pragma region Construction
 
-  explicit cuda_d3d11_presenter(HWND hwnd) : swapchain_{device_, hwnd} {
-    ensure_target().or_throw();
-  }
+  // An unbound presenter: the D3D device is created, but no swapchain yet.
+  // Call `reset(hwnd)` to bind it to a window.
+  cuda_d3d11_presenter() = default;
+
+  explicit cuda_d3d11_presenter(HWND hwnd) { reset(hwnd).or_throw(); }
 
   cuda_d3d11_presenter(const cuda_d3d11_presenter&) = delete;
   cuda_d3d11_presenter& operator=(const cuda_d3d11_presenter&) = delete;
   cuda_d3d11_presenter(cuda_d3d11_presenter&&) = delete;
   cuda_d3d11_presenter& operator=(cuda_d3d11_presenter&&) = delete;
+
+  // Bind (or rebind) the presenter to a window: build the swapchain on the
+  // device and grow the render target to fit. Brings up a default-constructed
+  // presenter, or repoints an existing one at a new window.
+  [[nodiscard]] hr_status reset(HWND hwnd) {
+    if (hr_status st{swapchain_.reset(device_, hwnd)}; !st) return st;
+    return ensure_target();
+  }
 
 #pragma endregion
 #pragma region Accessors
@@ -175,6 +185,18 @@ public:
 #pragma endregion
 #pragma region Helpers
 private:
+  // Build the D3D11 device on the GPU CUDA will use, so a texture registered
+  // for interop lives on the adapter the CUDA context runs on.
+  //
+  // On a hybrid-graphics machine the default adapter is the display iGPU,
+  // which has no CUDA device and cannot interop; `cuda_interop_adapter` picks
+  // the discrete GPU and makes it current for CUDA. A null adapter (none
+  // found) falls back to the default, surfacing the real CUDA error at
+  // registration.
+  static d3d11_device make_device() {
+    return d3d11_device{cuda_interop_adapter().get()};
+  }
+
   // Grow the capacity-sized render texture to fit the live size, recreating it
   // and re-registering with CUDA only when it must grow.
   //
@@ -207,7 +229,7 @@ private:
     render_texture_ = com_ptr<ID3D11Texture2D>{};
     cap_w_ = 0;
     cap_h_ = 0;
-    device_ = d3d11_device{};
+    device_ = make_device();
     swapchain_.reset(device_, swapchain_.hwnd()).or_throw();
     return ensure_target();
   }
@@ -215,7 +237,7 @@ private:
 #pragma endregion
 #pragma region Data members
 private:
-  d3d11_device device_;
+  d3d11_device device_{make_device()};
   d3d11_swapchain swapchain_;
   com_ptr<ID3D11Texture2D> render_texture_;
   cuda_d3d11_resource cuda_target_;

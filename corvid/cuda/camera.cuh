@@ -67,15 +67,41 @@ struct camera_rays {
   // The vertical field of view is fixed at the camera's `fov_y`; only the
   // horizontal one scales with the aspect ratio, so a wider image shows more
   // to the sides rather than a stretched picture.
-  [[nodiscard]] __device__ vec3 ray_direction(pos2 pixel,
-      resolution res) const {
+  //
+  // `fisheye_amount` bends the projection from the default rectilinear
+  // (pinhole, 0) toward a full equidistant fisheye (1). Rectilinear grows the
+  // off-axis angle with the tangent of the screen radius (the edges stretch);
+  // equidistant grows it linearly with the radius (the edges bend in, a barrel
+  // look). The two agree at the center and at the vertical edge (radius 1)
+  // and diverge increasingly past it (the horizontal edges and corners of a
+  // wide image), so a small value gives a mild barrel.
+  [[nodiscard]] __device__ vec3 ray_direction(pos2 pixel, resolution res,
+      float fisheye_amount = 0.0F) const {
     const float aspect = res.width / res.height;
-    const float sx =
-        ((((2.0F * pixel.v.x) + 1.0F) / res.width) - 1.0F) * aspect *
-        tan_half_fov;
-    const float sy =
-        (1.0F - (((2.0F * pixel.v.y) + 1.0F) / res.height)) * tan_half_fov;
-    return normalize(frame.forward + (frame.right * sx) + (frame.up * sy));
+    // Normalized screen offsets, the vertical edge at +/-1, before the field
+    // of view scales them.
+    const float u =
+        ((((2.0F * pixel.v.x) + 1.0F) / res.width) - 1.0F) * aspect;
+    const float v = 1.0F - (((2.0F * pixel.v.y) + 1.0F) / res.height);
+    if (fisheye_amount <= 0.0F) {
+      const float sx = u * tan_half_fov;
+      const float sy = v * tan_half_fov;
+      return normalize(frame.forward + (frame.right * sx) + (frame.up * sy));
+    }
+    // Blend the off-axis angle from the rectilinear `atan(r * tan_half_fov)`
+    // toward the equidistant `r * (fov_y / 2)` (`atan(tan_half_fov)` is the
+    // vertical half-FOV), then rebuild the ray from that angle and the screen
+    // azimuth.
+    const float r = sqrtf((u * u) + (v * v));
+    // Screen radius below which the azimuth is undefined.
+    constexpr float min_screen_r = 1.0e-6F;
+    if (r < min_screen_r) return frame.forward; // dead center, no azimuth
+    const float theta_rect = atanf(r * tan_half_fov);
+    const float theta_fish = r * atanf(tan_half_fov);
+    const float theta =
+        theta_rect + ((theta_fish - theta_rect) * fisheye_amount);
+    const vec3 screen_dir = ((frame.right * u) + (frame.up * v)) * (1.0F / r);
+    return (frame.forward * cosf(theta)) + (screen_dir * sinf(theta));
   }
 };
 
@@ -101,8 +127,9 @@ public:
   // basis and to move vertically, but the camera can look in any direction.
   static constexpr vec3 world_up{0.0F, 1.0F, 0.0F};
 
-  // The pitch is clamped to just shy of straight up or down so the view basis
-  // stays well-defined.
+  // The pitch is clamped to just shy of straight up or down, so the look never
+  // tips past vertical. The view basis itself is robust at the poles now (see
+  // `view_basis`), so this is only a look limit, not a basis requirement.
   static constexpr radians max_pitch{89.0_deg};
 
 #pragma endregion
@@ -116,9 +143,9 @@ public:
 #pragma region Control
 
   // Turn by the given yaw and pitch deltas. Pitch is clamped just shy of
-  // straight up or down so the view basis stays well-defined.
+  // straight up or down so the look never tips past vertical.
   void look(orientation delta) {
-    orientation_.yaw = orientation_.yaw + delta.yaw;
+    orientation_.yaw += delta.yaw;
     orientation_.pitch =
         std::clamp(orientation_.pitch + delta.pitch, -max_pitch, max_pitch);
   }
@@ -148,7 +175,10 @@ public:
     const float cos_pitch = cos(orientation_.pitch);
     const vec3 forward{cos(orientation_.yaw) * cos_pitch,
         sin(orientation_.pitch), sin(orientation_.yaw) * cos_pitch};
-    const vec3 right = normalize(cross(forward, world_up));
+    // Right is horizontal and yaw-only, so the basis holds up looking straight
+    // up or down, where `cross(forward, world_up)` vanishes and its normalize
+    // is ill-conditioned. This is that cross product away from the poles.
+    const vec3 right{-sin(orientation_.yaw), 0.0F, cos(orientation_.yaw)};
     return {forward, right, cross(right, forward)};
   }
 

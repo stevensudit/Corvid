@@ -16,6 +16,7 @@
 // limitations under the License.
 #pragma once
 #include <stdexcept>
+#include <type_traits>
 #include <utility>
 
 #include <cuda_runtime.h>
@@ -31,7 +32,8 @@ namespace corvid::cuda {
 #pragma region cublas_status
 
 // Enum to wrap `cublasStatus_t`.
-enum class cublas_status : std::uint8_t {
+// NOLINTNEXTLINE(performance-enum-size)
+enum class cublas_status : std::underlying_type_t<cublasStatus_t> {
   success = CUBLAS_STATUS_SUCCESS,
   not_initialized = CUBLAS_STATUS_NOT_INITIALIZED,
   alloc_failed = CUBLAS_STATUS_ALLOC_FAILED,
@@ -48,7 +50,8 @@ enum class cublas_status : std::uint8_t {
 #pragma region Operation
 
 // Wrapper for `cublasOperation_t`.
-enum class cublas_operation : std::uint8_t {
+// NOLINTNEXTLINE(performance-enum-size)
+enum class cublas_operation : std::underlying_type_t<cublasOperation_t> {
   none = CUBLAS_OP_N,
   transpose = CUBLAS_OP_T,
   conjugate_transpose = CUBLAS_OP_C

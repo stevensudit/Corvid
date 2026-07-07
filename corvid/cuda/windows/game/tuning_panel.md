@@ -1,10 +1,12 @@
 # Live tuning panel (Dear ImGui) for the CUDA voxel viewer
 
-A plan to integrate Dear ImGui into `tests/cuda/windows/notest_voxel_viewer.cu`
-so that Escape brings up a config panel that edits the avatar and shading
-"constants" at runtime, with no recompile. This is the tuning side quest for the
-voxel digger (see `avatar.md`, `voxel_world.md`). NOTHING here is built yet; this
-is the design recorded so a fresh session can execute it.
+A plan to integrate Dear ImGui into the CUDA voxel viewer so that Escape
+brings up a config panel that edits the avatar and shading "constants" at
+runtime, with no recompile. This is the tuning side quest for the voxel digger
+(see `avatar.md`, `voxel_world.md`). HISTORICAL: this design is now fully
+built (`config_panel.cuh`, `imgui_overlay.h`, `avatar_tuning.cuh`,
+`render_config.cuh`); the doc is kept as the rationale record, and file paths
+below reflect the pre-`game/` layout.
 
 ## Why
 
@@ -172,7 +174,7 @@ struct avatar_tuning {
   float heading_approach = 8.0F;
   float thrust_full = 12.0F, thrust_approach = 5.0F;
   float move_speed = 8.0F;   // was the 8.0F literal in main's input.movement
-  float fov_deg = 60.0F;     // rays() recomputes tan(fov/2) so it can be live
+  float fov_deg = 45.0F;     // cached tan(fov/2), refreshed on edit
 };
 ```
 
@@ -262,8 +264,8 @@ must-have; this is gravy.
   one.
 - Making the AA sample count a runtime loop bound (rather than `constexpr`) costs
   a little, but the loop is tiny; fine for a tunable.
-- `fov_deg` live means `rays()` recomputes `tan(fov/2)` per frame instead of once
-  at construction; trivial.
+- `fov_deg` is live via a cached `tan(fov/2)` that `set_fov_deg` refreshes on
+  each edit, so `rays()` reads the cache instead of recomputing per frame.
 - clangd lags on cross-`.cuh` edits all session; trust `ide_build`, not the
   squiggles (a known gotcha for this cell).
 

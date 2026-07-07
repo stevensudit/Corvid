@@ -41,6 +41,16 @@ struct density_field {
   float voxel_size;
   cudaTextureObject_t tex;
 
+  // March tunables (defaults are the shipped constants; the viewer sets them
+  // live). `march_lipschitz` is the assumed maximum field slope used to size
+  // the sphere-trace steps: lower takes bigger steps (faster) but a dig wall
+  // steeper than it can be overshot. `march_max_step_voxels` caps a single
+  // step (in voxels) so a too-large jump cannot tunnel a thin wall.
+  // `march_max_steps` bounds the work per ray before it gives up as a miss.
+  float march_lipschitz = 2.0F;
+  float march_max_step_voxels = 8.0F;
+  int march_max_steps = 1024;
+
 #pragma endregion
 #pragma region Coordinates
 
@@ -107,11 +117,11 @@ struct density_field {
   // crossing, is accepted once within `hit_epsilon`. `lipschitz` must exceed
   // the field's steepest slope, or a dig wall steeper than it can be overshot.
   [[nodiscard]] __device__ float raymarch(pos3 eye, vec3 dir) const {
-    constexpr int max_steps = 1024;
+    const int max_steps = march_max_steps;
     constexpr int refine_steps = 6;
-    constexpr float lipschitz = 4.0F;
+    const float lipschitz = march_lipschitz;
     constexpr float hit_epsilon = 0.02F;
-    const float max_step = voxel_size * 8.0F;
+    const float max_step = voxel_size * march_max_step_voxels;
 
     // Clip to the world box (slab test). Voxel (0, 0, 0) is centered at
     // `origin`, so the box runs half a voxel past the first and last centers.
@@ -157,6 +167,34 @@ struct density_field {
       if (dist > exit) break;
     }
     return -1.0F;
+  }
+
+  // Snap a marched hit toward the true `density == 0` surface with one Newton
+  // step along the ray.
+  //
+  // A head-on `raymarch` bisects to a crisp crossing, but a grazing ray is
+  // accepted once within `hit_epsilon` without bisecting (it nears the surface
+  // without crossing), so its hit distance terraces along the sphere-trace
+  // steps. A decal placed by the hit's exact position, like the target
+  // reticle's 3D radius, inherits that terrace; this removes it. The step is
+  // clamped to a couple voxels so a near-tangent ray, where the gradient turns
+  // perpendicular to the ray and the unclamped step blows up, cannot jump the
+  // hit far across the surface (a tiny residual at that extreme grazing sliver
+  // is invisible next to the terrace it removes).
+  [[nodiscard]] __device__ pos3 refine_hit(pos3 hit, vec3 dir) const {
+    const float e = voxel_size;
+    const vec3 dx{e, 0.0F, 0.0F};
+    const vec3 dy{0.0F, e, 0.0F};
+    const vec3 dz{0.0F, 0.0F, e};
+    // Central-difference gradient (over `2e`); the `2e` folds into the step.
+    const vec3 grad{sample_density(hit + dx) - sample_density(hit - dx),
+        sample_density(hit + dy) - sample_density(hit - dy),
+        sample_density(hit + dz) - sample_density(hit - dz)};
+    const float gd = dot(grad, dir);
+    if (gd == 0.0F) return hit; // ray tangent to the field: nothing to snap to
+    const float limit = 2.0F * e;
+    const float step = (2.0F * e) * sample_density(hit) / gd;
+    return hit - (dir * fmaxf(fminf(step, limit), -limit));
   }
 
 #pragma endregion

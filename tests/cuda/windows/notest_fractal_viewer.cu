@@ -52,13 +52,14 @@ __global__ void mandelbrot_kernel(cudaSurfaceObject_t surface, int width,
   const double cx = center_x + (nx * view_width);
   const double cy = center_y + (ny * view_height);
 
+  constexpr double escape_radius_sq = 4.0; // bailout |z| > 2
   double zx = 0.0;
   double zy = 0.0;
   int iter = 0;
   for (; iter < max_iter; ++iter) {
     const double zx2 = zx * zx;
     const double zy2 = zy * zy;
-    if (zx2 + zy2 > 4.0) break;
+    if (zx2 + zy2 > escape_radius_sq) break;
     zy = (2.0 * zx * zy) + cy;
     zx = (zx2 - zy2) + cx;
   }
@@ -67,14 +68,18 @@ __global__ void mandelbrot_kernel(cudaSurfaceObject_t surface, int width,
   if (iter == max_iter) {
     pixel = make_uchar4(0, 0, 0, 255); // inside the set
   } else {
-    // Smooth Bernstein-polynomial palette over the escape fraction.
+    // Smooth Bernstein-polynomial palette over the escape fraction. The
+    // coefficients are tuned so R/G/B peak at different escape depths.
     const float t = static_cast<float>(iter) / static_cast<float>(max_iter);
-    const auto r =
-        static_cast<unsigned char>(9.0F * (1.0F - t) * t * t * t * 255.0F);
+    constexpr float palette_r = 9.0F;
+    constexpr float palette_g = 15.0F;
+    constexpr float palette_b = 8.5F;
+    const auto r = static_cast<unsigned char>(
+        palette_r * (1.0F - t) * t * t * t * 255.0F);
     const auto g = static_cast<unsigned char>(
-        15.0F * (1.0F - t) * (1.0F - t) * t * t * 255.0F);
+        palette_g * (1.0F - t) * (1.0F - t) * t * t * 255.0F);
     const auto b = static_cast<unsigned char>(
-        8.5F * (1.0F - t) * (1.0F - t) * (1.0F - t) * t * 255.0F);
+        palette_b * (1.0F - t) * (1.0F - t) * (1.0F - t) * t * 255.0F);
     pixel = make_uchar4(r, g, b, 255);
   }
   surf2Dwrite(pixel, surface, px * static_cast<int>(sizeof(uchar4)), py);
@@ -99,7 +104,8 @@ struct fractal_view {
     // point under the cursor fixed.
     const auto wheel = ev.get_wheel();
     const double upp = view.view_height / fheight;
-    const double factor = std::pow(0.9, wheel.y);
+    constexpr double zoom_step = 0.9; // view height per wheel notch (10% in)
+    const double factor = std::pow(zoom_step, wheel.y);
     view.center_x += (wheel.mouse_x - (fwidth / 2.0)) * upp * (1.0 - factor);
     view.center_y += (wheel.mouse_y - (fheight / 2.0)) * upp * (1.0 - factor);
     view.view_height *= factor;
@@ -202,8 +208,12 @@ int main() {
       // Scale the iteration cap with zoom depth (~200 more per 2x), so detail
       // tracks the zoom instead of saturating at a fixed count. Clamped to
       // keep a deep zoom from stalling the fp64 kernel.
+      constexpr double base_iter = 256.0;
+      constexpr double iter_per_octave = 200.0;
+      constexpr double max_iter_cap = 8000.0;
       const auto max_iter = static_cast<int>(std::clamp(
-          256.0 + (200.0 * std::log2(2.5 / view.view_height)), 256.0, 8000.0));
+          base_iter + (iter_per_octave * std::log2(2.5 / view.view_height)),
+          base_iter, max_iter_cap));
 
       presenter
           .render([&](cudaArray_t array, int w, int h) {
