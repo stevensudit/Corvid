@@ -36,14 +36,22 @@ namespace corvid::cuda {
 // world from there.
 struct flat_mirror {
   float plane_z;
-  vec2 lo;     // (x, y) min corner of the rectangle
-  vec2 hi;     // (x, y) max corner
-  vec3 normal; // unit, faces the scene (+z for a wall on the -z border)
+  vec2 lo; // (x, y) min corner of the rectangle
+  vec2 hi; // (x, y) max corner
+
+  // Unit, +z or -z only: which side is the front face. The plane itself is
+  // z-locked by the representation (`plane_z` plus an (x, y) rectangle), so
+  // this is a facing flag, not a free orientation, and `intersect` divides by
+  // `dir.z` directly.
+  vec3 normal;
 
   // Distance along unit `dir` from `eye` to the mirror within its rectangle,
   // or a negative value on a miss.
   //
   // Only the front face is hit: a ray approaching from the `normal` side.
+  // That gate also rejects `denom == 0` (a ray parallel to the plane), so the
+  // `dir.z` division below cannot divide by zero for the ±z normals the type
+  // admits.
   [[nodiscard]] __device__ float intersect(pos3 eye, vec3 dir) const {
     const float denom = dot(dir, normal);
     if (denom >= 0.0F) return -1.0F; // parallel, or hitting the back
