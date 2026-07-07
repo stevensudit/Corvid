@@ -18,6 +18,7 @@
 
 #include <cstdint>
 #include <stdexcept>
+#include <type_traits>
 
 #include <cuda_runtime.h>
 
