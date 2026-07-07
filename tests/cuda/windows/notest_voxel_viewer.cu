@@ -1,7 +1,7 @@
 // CUDA-driven voxel ray marcher (Windows-only CUDA cell, crossplatform.md
 // section 11), the second 3D rung after the SDF raymarch viewer. A density
-// field lives in VRAM as a 3D texture; a kernel fixed-step marches it per
-// pixel to the first solid voxel, shades it, and writes the result into the
+// field lives in VRAM as a 3D texture; a kernel sphere-traces it per pixel
+// to the first solid voxel, shades it, and writes the result into the
 // interop texture through `cudaGraphicsD3D11*`; D3D copies it to the
 // backbuffer and presents. The frame stays on the GPU. Unlike the SDF viewer's
 // analytic scene, the geometry is sampled from the field, so it can be edited
@@ -10,7 +10,7 @@
 // holds it on the terrain, holding the right mouse button aims the eye (Look,
 // or Steer while driving), and the mouse wheel dollies the head between its
 // trailing distance and the jockey (close above and behind the ball). Escape
-// quits.
+// opens the tuning panel; closing the window quits.
 //
 // This file is just the entry point: `main` parses the command line and runs
 // either the engine (game/engine.cuh) or the offline benchmark

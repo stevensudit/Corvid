@@ -23,9 +23,9 @@
 // The avatar's physical body: a rigid ball that rolls on terrain under
 // gravity, driven by a traction force at its contact.
 //
-// This is  a real rigid body whose motion comes from forces, replacing the
-// velocity-easing rig the game ships today. It is host math with no CUDA
-// dependency, so it can be unit-tested on its own.
+// This is a real rigid body whose motion comes from forces; it replaced the
+// old velocity-easing rig and is the avatar's sole physics. It is host math
+// with no CUDA dependency, so it can be unit-tested on its own.
 //
 // The terrain reaches it only through `body_contact`, the seam: the game fills
 // that from the GPU ground probe, the tests fill it from synthetic floors,

@@ -72,8 +72,9 @@ struct camera_rays {
   // (pinhole, 0) toward a full equidistant fisheye (1). Rectilinear grows the
   // off-axis angle with the tangent of the screen radius (the edges stretch);
   // equidistant grows it linearly with the radius (the edges bend in, a barrel
-  // look). The two agree at the center and at the vertical edge (radius 1), so
-  // the amount only bends the interior, and a small value gives a mild barrel.
+  // look). The two agree at the center and at the vertical edge (radius 1)
+  // and diverge increasingly past it (the horizontal edges and corners of a
+  // wide image), so a small value gives a mild barrel.
   [[nodiscard]] __device__ vec3 ray_direction(pos2 pixel, resolution res,
       float fisheye_amount = 0.0F) const {
     const float aspect = res.width / res.height;

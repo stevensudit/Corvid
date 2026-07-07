@@ -338,12 +338,12 @@ cone_sample(const render_config::head_params& hp,
   u = normalize(u);
   const vec3 v = cross(axis, u);
 
-  // March the in-span segment, integrating the emission so a near-axial ray
-  // accumulates the bright core into a blown streak. The per-step position is
-  // jittered by a hash of the ray direction so the 12 discrete samples land at
-  // different depths pixel to pixel: seen end-on, each step otherwise deposits
-  // a ring at its own radius and the fixed offsets stack those into concentric
-  // bands, which this dissolves into fine grain the bloom smooths away.
+  // March the in-span segment, integrating the shell's scatter. The per-step
+  // position is jittered by a hash of the ray direction so the 12 discrete
+  // samples land at different depths pixel to pixel: seen end-on, each step
+  // otherwise deposits a ring at its own radius and the fixed offsets stack
+  // those into concentric bands, which this dissolves into fine grain the
+  // bloom smooths away.
   //
   // That per-ray grain IS the cone's visible speckle (the smoke texture is the
   // slower wisp under it), so it freezes when the camera holds still and the
@@ -387,7 +387,7 @@ cone_sample(const render_config::head_params& hp,
   }
 
   // Single-scatter phase with a down-beam dead zone. Looking along your own
-  // beam (`toward` near -1) the backscatter toward you is near zero -- and
+  // beam (`toward` near -1) the backscatter toward you is near zero, and
   // that is exactly the view where the volumetric cone degenerates into a flat
   // end-on disc, ringed by the discrete march bands. So the phase is held at
   // the floor across that whole down-beam cone and only ramps up as the view
@@ -1501,8 +1501,10 @@ shade_merged_glass(const density_field& field, cudaTextureObject_t color,
            (focus * lit * cfg.head.eye_glow_merged_gain);
   }
   // Faked corner vignette on top of the Fresnel falloff: darken toward the
-  // grazing rim, where the exit incidence cosine is small.
-  col *= (1.0F - (cfg.glass.vignette * (1.0F - cosi)));
+  // grazing rim, where the exit incidence cosine is small. Floored at zero:
+  // past the rim the strength-scaled term exceeds 1, and an unclamped factor
+  // would go negative and flip the lensed color's sign.
+  col *= fmaxf(1.0F - (cfg.glass.vignette * (1.0F - cosi)), 0.0F);
   // The propulsion hex shell, seen from inside: the clean in-focus porthole
   // frame on the surface the ray exits, scrolling as you move. Added crisp
   // over the warped world beyond (after the vignette, so the frame stays

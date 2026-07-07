@@ -62,7 +62,8 @@ namespace corvid::cuda {
   constexpr int iters = 200;
 
   // The same world the viewer builds (see `engine`): the three grids filled
-  // once from the eroded terrain, and the -z mirror.
+  // once from the eroded terrain, plus a mirror wall at the world's -z edge
+  // (unlike the engine, which centers its mirror on the z midplane).
   constexpr cudaExtent vol_extent{512, 128, 512};
   constexpr float voxel_size = 0.5F;
   cuda_volume<float> volume{vol_extent};
@@ -84,8 +85,9 @@ namespace corvid::cuda {
       .normal = vec3::back};
   generate_world(field, volume, materials, colors);
 
-  // A fixed pose, the viewer's default spawn (terrain toward the distant -z
-  // mirror). The march tunables come from the shipped defaults.
+  // A fixed pose, the viewer's default spawn: above the world center, facing
+  // +z and slightly down across the terrain, with the mirror behind the view.
+  // The march tunables come from the shipped defaults.
   render_config cfg;
   field.march_lipschitz = cfg.march.lipschitz;
   field.march_max_step_voxels = cfg.march.max_step_voxels;

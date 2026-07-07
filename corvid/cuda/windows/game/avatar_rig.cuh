@@ -46,7 +46,7 @@ namespace corvid::cuda {
 // head the camera rides inside.
 //
 // The camera is always the head, so the head is never drawn in the view; you
-// see it only reflected in the ball. A Warcraft- style zoom slides the head
+// see it only reflected in the ball. A Warcraft-style zoom slides the head
 // along the yaw-forward axis relative to the ball: pulled back and raised for
 // an over-the-shoulder trailing view, or drawn in to the jockey, close above
 // and behind the ball, so a level look sees past it and looking down gives its

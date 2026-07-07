@@ -17,13 +17,13 @@
 #pragma once
 
 // d3d11.h pulls windows.h's min/max macros; keep them out.
-#include <type_traits>
 #ifndef NOMINMAX
 #define NOMINMAX
 #endif
 #include <d3d11.h>
 #include <dxgi.h>
 
+#include <type_traits>
 #include <utility>
 
 #include <cuda_runtime.h>
@@ -40,7 +40,9 @@
 
 namespace corvid::cuda {
 
-using namespace win32;
+template<typename T>
+using com_ptr = win32::com_ptr<T>;
+using hr_status = win32::hr_status;
 
 #pragma region cuda_interop_adapter
 

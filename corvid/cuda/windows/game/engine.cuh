@@ -269,7 +269,8 @@ private:
         .penetration = pen};
 
     // The drive command in world space: the input's heading-frame target as a
-    // fraction of the body's drive force (1 walking, up to 3 running).
+    // fraction of the body's drive force (1 walking, `run_multiplier` when
+    // Shift runs).
     const auto [fwd, strafe] = input_.movement();
     const vec3 hfwd{cos(rig_.heading), 0.0F, sin(rig_.heading)};
     const vec3 hright{-sin(rig_.heading), 0.0F, cos(rig_.heading)};
@@ -1112,7 +1113,7 @@ private:
 #pragma endregion
 #pragma region Avatar and config
 
-  // The avatar starts above the world center, looking toward -z and slightly
+  // The avatar starts above the world center, looking toward +z and slightly
   // down, in a trailing view pulled back from the head; gravity drops it onto
   // the terrain on the first frames. The mouse wheel dollies in toward the
   // jockey; the right-drag orbits. The feel constants default from

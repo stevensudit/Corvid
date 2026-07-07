@@ -148,7 +148,7 @@ struct saucer_head {
   float rim_round = 0.03F;
 
   // The cockpit eye's placement direction (unit), computed per frame in
-  // `camera_rig::head` and shared by the shader's eye decal and the antenna.
+  // `avatar_rig::head` and shared by the shader's eye decal and the antenna.
   vec3 eye_dir{0.0F, 1.0F, 0.0F};
 
   // Antenna: a thin rod with a ball tip standing off the dome top along
@@ -243,7 +243,7 @@ struct saucer_head {
     const float clipped = op_smooth_intersect(body, cone, radius * rim_round);
     // The dome sphere is centered along `dome_up`, the dome's own frame (it
     // counter-rotates against the disc's motion bank, the steadycam), so the
-    // whole dome -- sphere, grid, eye, and antenna -- is one rigid piece. The
+    // whole dome (sphere, grid, eye, and antenna) is one rigid piece. The
     // shader's eye decal and `antenna_base` place themselves along `dome_up`
     // too; the disc stays in the local (`up`) frame, so the two lean apart.
     const vec3 pc = p - center;

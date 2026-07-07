@@ -15,7 +15,7 @@ pair of knobs bracketing a physical quantity (a "size near" and a "size far", a
 free "softness") is the tell that we are hand-faking what geometry should
 produce.
 
-## As built (what exists in code now, all uncommitted on windowes-cuda-102)
+## As built (what exists in code now, on branch windowes-cuda-102)
 
 - Post: HDR `float4` buffer -> bloom (prefilter + separable blur) -> Reinhard
   tonemap, in render_kernel.cuh. Barrel/fisheye blend in camera.cuh
@@ -65,19 +65,21 @@ produce.
    extended Reinhard); without one every bright source compresses into gray
    and no emitter setting can fix it.
 
-4. The flashlight is a set of per-surface fakes (`flashlight_terrain` +
-   `flashlight_gloss`), not one light the whole scene evaluates. So the flat
+4. The flashlight is a set of per-surface terms (`flashlight_terrain` on
+   terrain, the glare halo on the head), not one light the whole scene
+   evaluates. So the flat
    mirror shows lit ground (the real terrain it reflects) but cannot re-reflect
    the beam, and the ball's catch in the mirror is a view-dependent fake (the
    crescent that "doesn't match"). Correct base: one spot-light entity (position,
    direction, cone, source size) that terrain, ball, head, AND mirror reflections
    all sample, so a mirror can bounce it.
 
-5. The reticle is painted only on the primary terrain (`apply_reticle` in
-   `shade_primary_ray`). It is not in the world, so the mirror shows none of it
-   and the ball occludes the outer ring without reflecting it (the hand-wave that
-   fails at night). Correct base: a projected world-space mark at the pick point
-   that any ray path (primary, ball reflection, mirror) samples.
+5. The reticle is painted per ray path rather than sampled from the world:
+   the primary terrain and the flat mirror's reflected terrain both apply it
+   (`apply_reticle` in `shade_primary_ray` and `shade_world_ray`), but the
+   ball's reflection does not, so the ball occludes the outer ring without
+   reflecting it (the hand-wave that fails at night). Correct base: a
+   projected world-space mark at the pick point that every ray path samples.
 
 6. Night is flat scales (`night_ambient` on terrain/head ambient, `night_sky`
    on the sky gradient, sun off), now knobs rather than hardcoded. Still not a

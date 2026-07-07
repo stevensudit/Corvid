@@ -337,7 +337,9 @@ __global__ void bloom_prefilter_kernel(const float4* hdr, float4* bloom,
   const float knee = fmaxf(cfg.bloom.threshold * cfg.bloom.knee, denom_floor);
   float soft =
       __saturatef((luma - cfg.bloom.threshold + knee) / (2.0F * knee));
-  soft = soft * soft * knee * 2.0F; // quadratic ramp across the knee
+  // Quadratic ramp across the knee, joining the linear branch tangentially at
+  // its top (`soft` = 1 gives `knee` = `luma - threshold`, slope 1).
+  soft = soft * soft * knee;
   const float over = fmaxf(soft, luma - cfg.bloom.threshold);
   const float weight = over / fmaxf(luma, denom_floor);
 

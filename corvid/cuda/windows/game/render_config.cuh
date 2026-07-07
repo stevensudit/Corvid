@@ -107,7 +107,10 @@ struct render_config {
     float intensity = 0.2F;
     float range = 45.0F;        // reach in world units
     float cone_degrees = 30.0F; // outer half-angle of the cone
-    float softness = 1.5F;      // inner cone = outer x (1 - softness)
+    // Inner cone = outer x (1 - softness), clamped to [0, 1]: 0 is a hard
+    // edge, 1 fades from the center. (The shipped 1.5 behaved as 0.5: the
+    // shader folds a negative inner angle back through the even cosine.)
+    float softness = 0.5F;
     // Penumbra of the ball's shadow on the terrain, as a fraction of the ball
     // radius: the soft band the shadow fades across, so its edge reads (and
     // peeks out from behind the ball that hides the hard umbra). 0 is a hard
@@ -275,8 +278,8 @@ struct render_config {
 
     // Dome canopy tint, plus the dome cap's own steel albedo, kept separate
     // from `base_albedo` so the dome can be darkened to pop without dimming
-    // the rest of the hull. Split at the same `rr` boundary as the hex grid
-    // (`dome_hex_extent`).
+    // the rest of the hull. The tint blends over `dome_albedo` by how upward
+    // the surface faces, strongest at the crown.
     vec3 canopy{0.16F, 0.20F, 0.28F};
     vec3 dome_albedo{0.0F, 0.0F, 0.0F};
 
@@ -290,13 +293,13 @@ struct render_config {
     int dome_hex_freq = 9;           // icosahedron subdivision frequency
     float dome_hex_line = 0.01F;     // seam half-width, radians
     float dome_hex_strength = 3.25F; // how much the seams darken the dome
-    float dome_hex_extent = 0.463F;  // rr out to which the grid covers
     float dome_hex_phase = 0.0F;     // manual grid roll about the eye, radians
 
     // A hard black band masking the dome/cone joint. A solid, hard-edged band
-    // whose inner edge is pulled `seam_offset` inside the hex grid's
-    // `dome_hex_extent` cutoff (to cover the specular-washed dome edge just
-    // inside it) and which spans `seam_width`. Drawn like the eye (emissive,
+    // keyed on the dome surface's approach to the disc (the gap between the
+    // two SDFs), its inner edge pulled `seam_offset` in from the join (to
+    // cover the specular-washed dome edge just
+    // inside it) and spanning `seam_width`. Drawn like the eye (emissive,
     // with the lit metal and specular removed) so the whole band reads true
     // black instead of washing out under the lighting; reads as a groove the
     // dome sits in, hinting it could separate.
@@ -393,7 +396,7 @@ struct render_config {
     // Reticle glare: while the dig tool projects (`reticle.enabled`), the
     // pupil's ring of laser light blooms outward, a soft green glow sourced at
     // the pupil (never the iris, which is the white flashlight source), so
-    // looking at the eye -- directly, in the ball, or in the flat mirror --
+    // looking at the eye (directly, in the ball, or in the flat mirror)
     // reads as laser glare (see `eye_glare_halo`). A real surface emissive
     // every ray path catches. The glow rises from a dark center to the hub rim
     // (so the pupil stays a dark hole until locked) and fades outward, an

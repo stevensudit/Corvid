@@ -1,10 +1,12 @@
 # Live tuning panel (Dear ImGui) for the CUDA voxel viewer
 
-A plan to integrate Dear ImGui into `tests/cuda/windows/notest_voxel_viewer.cu`
-so that Escape brings up a config panel that edits the avatar and shading
-"constants" at runtime, with no recompile. This is the tuning side quest for the
-voxel digger (see `avatar.md`, `voxel_world.md`). NOTHING here is built yet; this
-is the design recorded so a fresh session can execute it.
+A plan to integrate Dear ImGui into the CUDA voxel viewer so that Escape
+brings up a config panel that edits the avatar and shading "constants" at
+runtime, with no recompile. This is the tuning side quest for the voxel digger
+(see `avatar.md`, `voxel_world.md`). HISTORICAL: this design is now fully
+built (`config_panel.cuh`, `imgui_overlay.h`, `avatar_tuning.cuh`,
+`render_config.cuh`); the doc is kept as the rationale record, and file paths
+below reflect the pre-`game/` layout.
 
 ## Why
 

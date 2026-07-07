@@ -27,7 +27,7 @@
 // `avatar_tuning` and `render_config` in place against a default-constructed
 // baseline, with a modified field tinted and given an inline reset. Specific
 // to the voxel viewer but kept out of the .cu so it stays kernels plus host
-// glue plus main. See corvid/cuda/tuning_panel.md.
+// glue plus main. See tuning_panel.md beside this header.
 
 namespace corvid::cuda {
 
@@ -377,8 +377,6 @@ inline void draw_dome_section(avatar_tuning& t, const avatar_tuning& d,
     tuned_slider("hex strength", c.head.dome_hex_strength,
         dc.head.dome_hex_strength, 0.0F, 5.0F,
         "How much the hex-grid seams darken the dome.");
-    tuned_slider("hex extent", c.head.dome_hex_extent, dc.head.dome_hex_extent,
-        0.0F, 1.0F, "Radius (rr) out to which the hex grid covers the dome.");
     tuned_slider("hex phase", c.head.dome_hex_phase, dc.head.dome_hex_phase,
         -3.15F, 3.15F,
         "Rotate the grid about the eye to align its hexagons with the "
@@ -870,8 +868,8 @@ inline void draw_render_section(avatar_tuning& t, const avatar_tuning& d,
       "HDR value that tone maps to display white: at or above it a pixel "
       "saturates to true white, so a bright source and its bloom blow out "
       "like an overexposed camera instead of compressing into gray. Lower "
-      "sears sooner (try 4-8); 0 is the classic Reinhard curve, where white "
-      "is unreachable.");
+      "sears sooner; 0 is the classic Reinhard curve, where white is "
+      "unreachable.");
   ImGui::Spacing();
 
   ImGui::SeparatorText("Auto-exposure");
@@ -937,7 +935,7 @@ inline void draw_render_section(avatar_tuning& t, const avatar_tuning& d,
       dc.flashlight.cone_degrees, 5.0F, 70.0F,
       "Beam half-angle, degrees: how wide the cone opens.");
   tuned_slider("flashlight softness", c.flashlight.softness,
-      dc.flashlight.softness, 0.0F, 5.0F,
+      dc.flashlight.softness, 0.0F, 1.0F,
       "How soft the cone edge is: 0 is a hard circle, 1 fades from the "
       "center.");
   tuned_slider("flashlight shadow soft", c.flashlight.shadow_softness,

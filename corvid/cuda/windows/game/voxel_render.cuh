@@ -87,10 +87,15 @@ flashlight_spot(const render_config::flashlight_params& fl, pos3 hit_point,
   // Soft cone: full inside the inner half-angle, easing to zero at the outer.
   constexpr float deg_to_rad = std::numbers::pi_v<float> / 180.0F;
   const float cosang = dot(to_lamp_dir * -1.0F, normalize(fl.direction));
+  // The inner fraction is clamped to [0, 1]: values outside it would invert
+  // the cone (the cosine is even, so a negative inner angle folds back), and
+  // the divisor is floored against `cos_inner == cos_outer` at softness 0.
+  constexpr float cone_denom_floor = 1.0e-4F;
   const float cos_outer = cosf(fl.cone_degrees * deg_to_rad);
   const float cos_inner =
-      cosf(fl.cone_degrees * (1.0F - fl.softness) * deg_to_rad);
-  float cone = __saturatef((cosang - cos_outer) / (cos_inner - cos_outer));
+      cosf(fl.cone_degrees * __saturatef(1.0F - fl.softness) * deg_to_rad);
+  float cone = __saturatef(
+      (cosang - cos_outer) / fmaxf(cos_inner - cos_outer, cone_denom_floor));
   cone = cone * cone * (3.0F - (2.0F * cone)); // smoothstep
   if (cone <= 0.0F) return 0.0F;
 
@@ -350,6 +355,10 @@ struct geodesic_eye_cell {
 
 [[nodiscard]] __host__ __device__ inline geodesic_eye_cell
 geodesic_eye_cell_of(int freq) {
+  // The apex and two adjacent vertices of the same unit icosahedron
+  // `geodesic_grid_edge` derives from `phi`: the upper ring sits at height
+  // `1/sqrt(5)` with radius `2/sqrt(5)`, and `v2` is `v1` swung one 72-degree
+  // azimuth step; precomputed here as literals.
   const vec3 v0{0.0F, 1.0F, 0.0F};
   const vec3 v1{0.8944272F, 0.4472136F, 0.0F};
   const vec3 v2{0.2763932F, 0.4472136F, 0.8506508F};

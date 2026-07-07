@@ -9,16 +9,18 @@ a short distance as the camera.
 Parts of this are built now and parts are still a forward-looking sketch. Built:
 the ball and the saucer-head as free SDFs, the head's diegetic camera, the
 Warcraft-style driving with its articulated look/steer gimbal, the helicopter
-tilt and the steadycam, the dolly, the gravity, horizontal momentum, and
-normal-based ground collision that keep the ball riding the terrain (fenced
-inside the world box, with a basic jump), the saucer's cosmetic dressing, and
-the ball's dimmed
+tilt and the steadycam, the dolly with its one-way auto-merge into the ball,
+real rigid-body ball physics (`avatar_body`: force-based drive against a
+traction budget, quadratic drag, contact-normal jump; it replaced the old
+velocity-easing movement and its gravity/momentum/collision rig), the dig beam
+with its laser-projected target reticle, the diegetic flashlight with its
+glare and air-cone glow, the optics layer (the flat mirror wall and the merged
+glass-lens view), the saucer's cosmetic dressing, and the ball's dimmed
 reflection with its rolling motion grid (see "The head rig, as built" and "The
-saucer, as built"). Still a sketch: the dig/fill/drag beams, the
-diegetic flashlight and glow, the laser-projected target reticle, the optics layer
-(mirrors, lenses), and the soil interactions that couple the avatar to the dirt
-physics. The dig brush still fires from the camera's center ray (see
-`voxel_world.md`), not yet from the ball through a reconciled crosshair.
+saucer, as built"). Still a sketch: the fill/drag beams, the head detaching to
+fly on its own, and the soil interactions that couple the avatar to the dirt
+physics. The dig still fires from the eye's centered forward ray; a
+body-to-target line-of-sight gate is on the roadmap.
 
 ## Why a droid, not a human
 
@@ -312,9 +314,9 @@ face); the cockpit dome stays comparatively still.
 
 The head itself can act, too, not just its painted face. Two rig knobs that exist
 today turn out to read as gestures: rotating the cockpit eye forward and back off
-the dome apex (the `eye_forward` lean) reads as a NOD, and yawing the head's front
-off the camera heading (the `front_offset` rotation, originally a debug aid for
-inspecting the back of the dome) reads as a head SHAKE. Both rotate the dome's
+the dome apex (the `eye_lift_deg` lean) reads as a NOD, and yawing the head's
+front off the camera heading (the `front_offset_deg` rotation, originally a debug
+aid for inspecting the back of the dome) reads as a head SHAKE. Both rotate the dome's
 decoration in place without moving the body, so they animate cleanly through the
 same ease-to-a-pose sequencer: a yes-nod on accept, a no-shake on a refused
 action, a curious tilt. Cheap and disproportionately charming, so worth wiring in
@@ -322,19 +324,18 @@ alongside the belly poses.
 
 ## Still open
 
-- Rolling model: gravity, normal-based ground collision (it climbs slopes and
-  slides off steep ones), horizontal momentum (the ground velocity eases up
-  under drive and coasts to a stop on release, so the ball gains and sheds
-  speed instead of starting and stopping dead), the world-box fences, and a
-  basic grounded jump are built. The ground is sampled by a one-thread probe at
-  the ball center each frame (density plus its gradient, read back a frame
-  later), treating the density field as an approximate SDF, so a freshly dug
-  hole drops the ball in. Still open: torque-versus-impulse refinement of the
-  momentum feel, the speed-coupled jump (distance scaling with speed, a
-  walk-jump speed boost), tuned climb-slope limits for walk versus run, and
-  robust multi-sample collision against tunnel walls and ceilings (the single
-  center probe rides a floor but does not yet feel a wall beside it or a roof
-  above).
+- Rolling model: built as a real rigid body (`avatar_body.cuh`): motion comes
+  from forces (drive against a friction traction budget, gravity, exact
+  quadratic drag), so momentum, coasting, hold-versus-slide on a slope (the
+  friction angle), the contact-normal jump, and wheel-spin slip all fall out
+  of the physics instead of tuned easing knobs; the world-box fences remain.
+  The ground is sampled by a multi-ray probe fan around the ball each frame
+  (read back a frame later) that reports the floor contact plus wall and
+  ceiling pushes the engine applies, treating the density field as an
+  approximate SDF, so a freshly dug hole drops the ball in. Still open:
+  collision against gaps and ledges smaller than the probe fan resolves, and
+  the true distance field (keystone B in `physics.md`) that would replace the
+  approximate contact.
 - Head states: the exact rest-versus-detach control, the size and shape of the
   detached flight range, whether the leash is hard (a wall) or soft (a pull back
   toward the ball), how much the ball's follow lags the head, and the

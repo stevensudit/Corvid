@@ -4,11 +4,13 @@ How the voxel digger renders analytic SDF objects (a placed prop, a reflective
 sphere) in the same world as editable voxel terrain, and how digging, material
 hardness, and object collision reduce to one comparison.
 
-This is a forward-looking design. Today the viewer has an editable density field
-(`density_field` in `density_field.cuh`), a fixed-step ray march
-(`density_field::raymarch`), and a spherical dig brush (`dig_kernel` in
-`tests/cuda/windows/notest_voxel_viewer.cu`). The second (material) grid, the
-strata, the objects, and the physics below are not built yet.
+This is a forward-looking design, partially built. Today the viewer has an
+editable density field (`density_field` in `density_field.cuh`), a sphere-trace
+march (`density_field::raymarch`), and a spherical dig brush (`dig_kernel` in
+`game/field_ops.cuh`). The material grid and the color grid exist and are
+filled by strata at world-gen (`world_gen.cuh`), though nothing reads the
+material tiers until the dig gate; the objects and the physics below are not
+built yet.
 
 ## Scope: coexistence, not CSG
 
@@ -118,8 +120,9 @@ geometry grid only says where the solid is.
      voxel-resolution silhouette.
    - Soil: shade with `density_field::normal` (the geometry gradient) and the
      color of the hardness tier.
-3. The crosshair stays a screen-space overlay in the kernel, applied after
-   shading.
+3. The aim marker is the dig reticle, a world-space decal projected onto the
+   terrain at the pick point (`apply_reticle`); the old screen-space crosshair
+   overlay is gone.
 
 The material read is one point fetch per ray, at the hit. The hot march loop
 touches only the geometry texture.

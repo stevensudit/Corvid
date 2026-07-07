@@ -17,13 +17,14 @@
 #pragma once
 
 // d3d11.h/dxgi1_2.h pull windows.h's min/max macros; keep them out.
-#include <type_traits>
 #ifndef NOMINMAX
 #define NOMINMAX
 #endif
 #include <d3d11.h>
 #include <dxgi1_2.h>
 #include <dxgi1_5.h>
+
+#include <type_traits>
 
 #include "../../enums/bitmask_enum.h"
 #include "../../meta/crossplatform.h"

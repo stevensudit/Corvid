@@ -86,7 +86,7 @@ handle_flashlight(const sdl::sdl_event& ev, bool& flashlight) {
 }
 
 // Fold the left mouse button into the `digging` flag, for composing after
-// `handle_fly`. Returns whether it consumed the event.
+// `drive_input::handle`. Returns whether it consumed the event.
 [[nodiscard]] inline bool handle_dig(const sdl::sdl_event& ev, bool& digging) {
   switch (ev.type()) {
   case sdl::sdl_event_type::mouse_button_down:

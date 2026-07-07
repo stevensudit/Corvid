@@ -137,7 +137,7 @@ public:
 
   // Copy `count` objects of type `T`, where `kind` identifies which parameter
   // is host or device.
-  static cuda_last_status
+  [[nodiscard]] static cuda_last_status
   copy(T* dest_ptr, const T* src_ptr, size_t count, memcpy_kind kind) {
     return cuda_last_status{cudaMemcpy(dest_ptr, src_ptr, count * sizeof(T),
         static_cast<cudaMemcpyKind>(kind))};
@@ -146,7 +146,7 @@ public:
 private:
   // Allocate CUDA device memory for `count` objects of type `T`, and return a
   // pointer to the allocated memory. Returns `nullptr` on failure.
-  static T* allocate(size_t count) {
+  [[nodiscard]] static T* allocate(size_t count) {
     if (count > std::numeric_limits<size_t>::max() / sizeof(T)) return nullptr;
     T* ptr = nullptr;
     cuda_last_status status{cudaMalloc(&ptr, count * sizeof(T))};
