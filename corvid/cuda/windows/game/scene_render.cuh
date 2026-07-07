@@ -440,12 +440,13 @@ cone_sample(const render_config::head_params& hp,
 // hotspot core with a dimmer spill filling out to the `cone_degrees` edge (a
 // reflector beam), where the eye cone is a hollow shell around a dark axis.
 //
-// Like the eye cone it suppresses the down-beam view: the lamp is head-mounted
-// (the iris sits just outside the pupil camera), so the primary view looks
-// straight down the beam, where the volume degenerates into a flat end-on
-// disc. That view is held to the `air_backscatter` floor, so the cone reads as
-// a cone only in reflections and side angles, while the primary view is left
-// to the elliptical ground pool (`flashlight_terrain`).
+// The scatter is anisotropic (a Henyey-Greenstein phase, `air_aniso`): dust
+// throws light mostly forward, so a view facing the lamp catches the
+// oncoming-headlight glare while the head-mounted primary view, looking
+// straight down its own beam, sees only the weaker backscatter. That keeps
+// the down-beam veil below the lit pool for a physical reason. It replaces a
+// hand-picked down-beam floor, a view-dependent fake that also hid the beam
+// from the exposure meter, leaving night adaptation deaf to the lamp.
 //
 // Integrated by the same bounded, jittered volumetric march as the eye cone
 // (bounding sphere, boil-advanced march jitter, growth-cancelled monotonic
@@ -454,10 +455,16 @@ cone_sample(const render_config::head_params& hp,
 // so terrain in front occludes it. Shown on the primary ray, the ball's
 // reflection, and the flat mirror, so every view that sees the lamp sees its
 // cone.
+//
+// The scatter scales with the lamp's `intensity` (times `air_strength`, the
+// dust/scatter coefficient), as real scatter does: a dimmer lamp casts a
+// dimmer beam glow, not just a dimmer ground pool. It originally did not, so
+// turning the lamp down left the beam glowing at full tuned brightness.
 [[nodiscard]] __device__ inline vec3 flashlight_cone(const render_config& cfg,
     const saucer_head& head, pos3 eye, vec3 ray_dir, float max_t) {
   const render_config::flashlight_params& fl = cfg.flashlight;
-  if (!fl.enabled || fl.air_strength <= 0.0F) return vec3{};
+  if (!fl.enabled || fl.air_strength <= 0.0F || fl.intensity <= 0.0F)
+    return vec3{};
   const pos3 apex = head.eye_point();
 
   // Aim along the current view forward (already look-smoothed by the One Euro
@@ -551,17 +558,21 @@ cone_sample(const render_config::head_params& hp,
     accum += c;
   }
 
-  // Down-beam suppression: the head-mounted lamp sits at the iris just outside
-  // the pupil camera, so the primary view looks straight down the beam, where
-  // the volume degenerates into a flat end-on disc. Hold the scatter at the
-  // `air_backscatter` floor across that down-beam cone and only let it rise as
-  // the view crosses the beam (`toward` near 0) or faces it (a reflection),
-  // so the cone reads as a cone there and the primary view is left to the
-  // ground pool.
-  const float toward = -dot(ray_dir, axis); // -1 down-beam .. +1 toward view
-  const float lit = __saturatef((toward + 0.5F) / 1.5F);
+  // Henyey-Greenstein phase for the dust, relative to isotropic (so
+  // `air_strength` keeps its meaning at `air_aniso` 0). `toward` is the
+  // cosine of the scattering angle, taking the beam axis as the incident
+  // light direction (near enough for a narrow cone, and constant along the
+  // straight view ray, so one factor covers every sample). At `air_aniso`
+  // 0.6 a view facing the lamp runs about 10x isotropic (the
+  // oncoming-headlight glare), broadside about 0.4x, and the down-beam
+  // primary view about 0.16x: genuine backscatter, dimmer than the pool the
+  // beam lights but bright enough that the exposure meter sees the lamp.
+  const float toward = -dot(ray_dir, axis); // cos: -1 down-beam, +1 facing
+  const float aniso = fl.air_aniso;
+  const float ph_denom = 1.0F + (aniso * aniso) - (2.0F * aniso * toward);
   const float scatter =
-      fl.air_backscatter + ((1.0F - fl.air_backscatter) * lit);
+      (1.0F - (aniso * aniso)) /
+      fmaxf(ph_denom * sqrtf(ph_denom), denom_floor);
 
   // Monotonic distance response (the eye cone's construction): cancel the
   // march-length growth by dividing by the cone length, then an inherent
@@ -571,7 +582,7 @@ cone_sample(const render_config::head_params& hp,
   const float falloff =
       (ref_dist * ref_dist) / fmaxf(cone_len * beam_dist, denom_floor) *
       expf(-fl.air_extinction * beam_dist);
-  return accum * (dt * fl.air_strength * scatter * falloff);
+  return accum * (dt * fl.intensity * fl.air_strength * scatter * falloff);
 }
 
 // The pupil emissive when the dig tool is projecting (`reticle.enabled`):
@@ -643,35 +654,36 @@ eye_glare_halo(const render_config::head_params& hp,
   return hp.eye_glow_color * (glow * gain);
 }
 
-// The flashlight's glare halo on the head: the bright iris emitter's white
-// glow blooming outward across the head, the lamp's sibling of the reticle's
-// `eye_glare_halo` (green, pupil-sourced) above. A real surface emissive every
-// ray path catches, so the ball's reflection of the lamp is a broad bright
-// glint where the raw iris ring alone reflects too small to survive the bloom.
+// The flashlight's glare halo on the head: the lamp's white glow at the iris,
+// the sibling of the reticle's `eye_glare_halo` (green, pupil-sourced) above,
+// and the lamp's sole visual on the head. A real surface emissive every ray
+// path catches, so the ball's reflection of it is the glint; a bare iris-ring
+// emissive reflects too small to survive the bloom, so the halo supplies the
+// apparent size. The brightness is `intensity` times `glare_gain` (the
+// emitter gain per unit lamp power), the same photometric rule as the air
+// cone: dimming the lamp dims its glint. It originally used `glare_gain`
+// alone, so a turned-down lamp kept a full-power glint and bloom.
+//
 // `dd` and `c` are unit, so `sqrt(1 - dot^2)` is the radial distance from the
 // eye center as `sin(angle)`, in the same `eye_hub` units as the iris. The
-// glow is a solid bright disc filling the iris out to the `eye_hub` rim,
-// fading outward over `glare_spread`, so its reflected image is a bright
-// centered catch rather than a dark-centered ring.
+// glow is a solid bright disc filling the iris out to the `eye_hub` rim with a
+// Gaussian skirt past it, so its reflected image is a bright centered catch
+// rather than a dark-centered ring.
 [[nodiscard]] __device__ inline vec3
 flashlight_glare_halo(const render_config::head_params& hp,
-    const render_config::flashlight_params& fl, vec3 dd, vec3 c, bool debug) {
-  if (!fl.enabled) return vec3{};
-  if (!debug && fl.glare_gain <= 0.0F) return vec3{};
+    const render_config::flashlight_params& fl, vec3 dd, vec3 c) {
+  if (!fl.enabled || fl.intensity <= 0.0F || fl.glare_gain <= 0.0F)
+    return vec3{};
   const float d = dot(dd, c);
   if (d <= 0.0F) return vec3{}; // behind the eye's hemisphere
   const float er = sqrtf(fmaxf(1.0F - (d * d), 0.0F));
-  // Bright across the whole iris disc (`out` is 0 within the hub rim, so
-  // `glow` is 1 there), not a dark-centered ring, so the center where the eye
-  // is viewed carries the glint and `glare_gain` brightens it; a Gaussian
-  // skirt blooms past the rim over `glare_spread`.
+  // The skirt width past the hub rim (`glare_spread`) is the apparent size of
+  // the source past the iris; floored so a zeroed slider cannot divide by
+  // zero.
   const float out =
       fmaxf(er - hp.eye_hub, 0.0F) / fmaxf(fl.glare_spread, 1e-3F);
   const float glow = expf(-(out * out));
-  // Debug: paint the footprint bright magenta at fixed brightness (no
-  // `glare_gain`), so its true location and size read against the scene.
-  if (debug) return vec3{8.0F, 0.0F, 8.0F} * glow;
-  return fl.color * (glow * fl.glare_gain);
+  return fl.color * (glow * (fl.intensity * fl.glare_gain));
 }
 
 // Shade the saucer head at surface point `hit_point`: a fixed cockpit dome
@@ -715,7 +727,7 @@ flashlight_glare_halo(const render_config::head_params& hp,
   // is baked into `diffuse`, so every consumer (the antenna rod, the hull)
   // follows.
   const float sun_on = cfg.night ? 0.0F : 1.0F;
-  const float ambient_scale = cfg.night ? 0.1F : 1.0F;
+  const float ambient_scale = cfg.night ? cfg.night_ambient : 1.0F;
   const float diffuse = fmaxf(dot(normal, light_dir), 0.0F) * sun_on;
 
   // The antenna stands proud of the dome (its tip wags with the eye's gimbal),
@@ -851,18 +863,10 @@ flashlight_glare_halo(const render_config::head_params& hp,
         emissive = (emissive * (1.0F - cov)) + (col * cov);
         eye_cover = fmaxf(eye_cover, cov);
 
-        // The iris glass segments are the flashlight's emitter: the cells
-        // between the spokes light up into a ring around the pupil while the
-        // headlamp is on, so the head reads as the source and the ball's
-        // reflection of it becomes the glint. The frame and spokes stay as
-        // dark dividers (`1 - structure`) and the pupil stays the reticle's
-        // (`1 - pupil`); a solid lit ring reads and reflects far better than
-        // bright wires.
-        const float segment = inside * (1.0F - pupil) * (1.0F - structure);
-        const float lamp =
-            cfg.flashlight.source_strength *
-            static_cast<float>(cfg.flashlight.enabled);
-        emissive += cfg.flashlight.color * (lamp * segment);
+        // The lamp's glow on the head is `flashlight_glare_halo` (added over
+        // the whole head below), not a per-segment iris emissive: the halo
+        // saturates the eye region to white whenever the lamp is on, so a
+        // separate lit-ring term here was invisible under it and was removed.
 
         // The pupil is the beam's emitter when the dig tool is projecting: a
         // green ring, white-hot at the center only while the aim is locked, a
@@ -983,8 +987,7 @@ flashlight_glare_halo(const render_config::head_params& hp,
         emissive + eye_glare_halo(hp, cfg.reticle, pupil_dir, head.eye_dir);
     emissive =
         emissive +
-        flashlight_glare_halo(hp, cfg.flashlight, pupil_dir, head.eye_dir,
-            cfg.debug_glare_halo);
+        flashlight_glare_halo(hp, cfg.flashlight, pupil_dir, head.eye_dir);
   }
 
   const vec3 half_v = normalize(light_dir - ray_dir);
@@ -1088,10 +1091,10 @@ shade_scene_ray(const density_field& field, cudaTextureObject_t color,
   // the mirror as glowing lines (see `ball_grid_emissive`).
   col += ball_grid_emissive(ball, cfg, normal);
 
-  // The ball's flashlight glint is the real reflection of the emissive iris,
-  // carried in `env` above (the head's iris segments emit while the lamp is
-  // on), not a painted specular lobe. Tune its brightness with the emitter's
-  // `flashlight.source_strength`.
+  // The ball's flashlight glint is the real reflection of the head's glare
+  // halo (`flashlight_glare_halo`, lit while the lamp is on), carried in `env`
+  // above, not a painted specular lobe. Tune its brightness with
+  // `flashlight.glare_gain`.
   return col;
 }
 

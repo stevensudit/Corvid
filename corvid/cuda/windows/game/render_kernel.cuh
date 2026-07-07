@@ -57,11 +57,24 @@ struct aa_texel {
   int kind;
 };
 
-// Reinhard tone map: roll each linear channel off into [0, 1) so highlights
+// Reinhard tone map: roll each linear channel off into [0, 1] so highlights
 // compress smoothly instead of clipping. Applied once in the composite, after
 // bloom is added, since bloom works in the linear HDR domain.
-[[nodiscard]] __device__ inline vec3 reinhard_tonemap(vec3 c) {
-  return vec3{c.x / (1.0F + c.x), c.y / (1.0F + c.y), c.z / (1.0F + c.z)};
+//
+// `white` is the extended-Reinhard white point: the linear HDR value that maps
+// to display white. At or above it a channel saturates to 1, so a bright
+// source can blow out to true white like an overexposed camera; the curve
+// reaches 1 smoothly (a shallow slope, not a clip) and midtones barely move.
+// 0 disables it, leaving the classic `c / (1 + c)`, which only approaches
+// white asymptotically and so can never fully blow out.
+[[nodiscard]] __device__ inline float reinhard_channel(float c, float white) {
+  if (white <= 0.0F) return c / (1.0F + c);
+  return __saturatef(c * (1.0F + (c / (white * white))) / (1.0F + c));
+}
+
+[[nodiscard]] __device__ inline vec3 reinhard_tonemap(vec3 c, float white) {
+  return vec3{reinhard_channel(c.x, white), reinhard_channel(c.y, white),
+      reinhard_channel(c.z, white)};
 }
 
 // Store a linear HDR color into the off-screen render buffer at `idx`
@@ -283,6 +296,9 @@ inline void render_scene(float4* hdr, aa_texel* gbuf, dim3 grid, dim3 block,
 // Rounded up, so the half buffers cover the frame when a dimension is odd.
 [[nodiscard]] inline int bloom_dim(int full) { return (full + 1) / 2; }
 
+// Rec. 709 (BT.709 / sRGB primaries) luma weights.
+inline constexpr vec3 rec709_luma{0.2126F, 0.7152F, 0.0722F};
+
 // Half-resolution luma of a 2x2 HDR block, soft-thresholded so only the
 // brights bloom. Reads the four full-res texels under output texel (`bx`,
 // `by`), averages them (a box downsample that also damps single-pixel
@@ -314,8 +330,6 @@ __global__ void bloom_prefilter_kernel(const float4* hdr, float4* bloom,
   // Soft-threshold knee (the Call of Duty / Unity curve): isolate the energy
   // above `threshold` without a hard cutoff, so a pixel hovering at the
   // threshold fades in instead of popping.
-  // Rec. 709 (BT.709 / sRGB primaries) luma weights.
-  constexpr vec3 rec709_luma{0.2126F, 0.7152F, 0.0722F};
   const float luma = dot(avg, rec709_luma);
   // Floor for the divisors below, so a zero denominator can't blow the
   // quotient up to Inf/NaN.
@@ -407,7 +421,11 @@ __global__ void composite_kernel(const float4* hdr, const float4* bloom,
         static_cast<int>(half.height), px, py);
     color += b * cfg.bloom.intensity;
   }
-  write_surface(out, px, py, reinhard_tonemap(color));
+  // Display exposure (the auto-exposure `value`, 1 when off), applied after
+  // the bloom add (the lens scatters scene light before the sensor exposes
+  // it) and before the tone map.
+  color = color * cfg.exposure.value;
+  write_surface(out, px, py, reinhard_tonemap(color, cfg.tonemap_white));
 }
 
 // Post-process the linear HDR render into the LDR surface: bloom the brights
@@ -437,6 +455,108 @@ inline void post_process(cudaSurfaceObject_t out, const float4* hdr,
   bloom_blur_kernel<<<half_grid, block>>>(bloom_b, bloom_a, half, 0, 1, cfg);
   composite_kernel<<<full_grid, block>>>(hdr, bloom_a, out, res, half, true,
       cfg);
+}
+
+// Auto-exposure measurement.
+//
+// Accumulate center-weighted linear luma over a sparse sample grid of the HDR
+// frame, one thread per sample, block-reduced in shared memory with one
+// atomicAdd per block into `sums` ({weighted luma, weight}, which the host
+// zeroes each frame). The host divides the two for the metered mean luminance.
+//
+// The meter is the arithmetic mean of linear luminance, not the photographic
+// log-average: adaptation responds to the total flux reaching the eye, so a
+// searing source in view (the lamp, its glint in the ball) must pull the mean
+// up and stop the exposure down, the bodycam glare blind. The log-average was
+// tried first and failed exactly there: it discounts a small bright outlier
+// to nearly nothing and lets near-black pixels crush the average, so staring
+// into the lamp left the night exposure at max while framing the dark ball in
+// daylight threw it wide open.
+//
+// The mean is center-weighted (`center_bias`): the eye adapts to where it
+// looks and a bodycam meters the middle of its view, so the lamp pool stared
+// at pulls the exposure down even when the surrounding frame is black (and
+// switching the lamp off then leaves you night-blind until the exposure
+// re-adapts). A uniform whole-frame mean let a small bright pool hide among
+// the dark pixels, pinning the night exposure at max with the lamp on. The
+// weight is exp(-bias * r^2), `r` normalized to 0 at the frame center and 1
+// at the corners; bias 0 is the uniform mean.
+//
+// The meter reads the composited pre-tonemap image (HDR plus the upsampled
+// bloom, matching `composite_kernel`), not the raw render. Bloom is the
+// engine's veiling-glare model, and the veil is how a small searing source
+// blinds: the glare's geometric image can be nearly a point (the convex ball
+// shrinks the whole reflected lamp to a dot), so metering the raw render
+// barely saw it at any center bias, while the bloomed blob is the light that
+// actually fills the view. The block is 16x16 to match the fixed
+// shared-memory reduction below (`measure_exposure` owns the launch).
+inline constexpr int exposure_stride = 8; // sample every Nth pixel per axis
+
+__global__ void exposure_measure_kernel(const float4* hdr, const float4* bloom,
+    resolution full, resolution half, bool use_bloom, float bloom_intensity,
+    float center_bias, float* sums) {
+  const int w = static_cast<int>(full.width);
+  const int h = static_cast<int>(full.height);
+  const int px = cuda_kernel::x_index() * exposure_stride;
+  const int py = cuda_kernel::y_index() * exposure_stride;
+  float lum = 0.0F;
+  float wgt = 0.0F;
+  if (px < w && py < h) {
+    const float4 c = hdr[(py * w) + px];
+    vec3 color{c.x, c.y, c.z};
+    if (use_bloom) {
+      color +=
+          sample_bloom(bloom, static_cast<int>(half.width),
+              static_cast<int>(half.height), px, py) *
+          bloom_intensity;
+    }
+    const auto fw = static_cast<float>(w);
+    const auto fh = static_cast<float>(h);
+    const float dx = ((2.0F * static_cast<float>(px)) - fw) / fw;
+    const float dy = ((2.0F * static_cast<float>(py)) - fh) / fh;
+    const float r2 = 0.5F * ((dx * dx) + (dy * dy));
+    wgt = expf(-center_bias * r2);
+    lum = wgt * dot(color, rec709_luma);
+  }
+  // Out-of-frame threads contribute 0 to both sums, which leaves the metered
+  // mean unchanged.
+  __shared__ float sl[256];
+  __shared__ float sw[256];
+  const int tid = static_cast<int>((threadIdx.y * blockDim.x) + threadIdx.x);
+  sl[tid] = lum;
+  sw[tid] = wgt;
+  __syncthreads();
+  for (int s = 128; s > 0; s >>= 1) {
+    if (tid < s) {
+      sl[tid] += sl[tid + s];
+      sw[tid] += sw[tid + s];
+    }
+    __syncthreads();
+  }
+  if (tid == 0) {
+    atomicAdd(&sums[0], sl[0]);
+    atomicAdd(&sums[1], sw[0]);
+  }
+}
+
+// Launch the auto-exposure measurement over the frame the composite shows
+// (HDR plus bloom, see `exposure_measure_kernel`), accumulating into `sums`
+// ({weighted luma, weight}), which the host must have zeroed. `bloom` is the
+// blurred half-res buffer the composite reads (not read when bloom is off).
+// The block is fixed at 16x16 to match the kernel's shared-memory reduction.
+inline void measure_exposure(const float4* hdr, const float4* bloom,
+    resolution res, const render_config& cfg, float* sums) {
+  const int w = static_cast<int>(res.width);
+  const int h = static_cast<int>(res.height);
+  const int sw = (w + exposure_stride - 1) / exposure_stride;
+  const int sh = (h + exposure_stride - 1) / exposure_stride;
+  const resolution half{static_cast<float>(bloom_dim(w)),
+      static_cast<float>(bloom_dim(h))};
+  const dim3 block{16, 16};
+  const dim3 grid{cuda_kernel::ceil_div(sw, block.x),
+      cuda_kernel::ceil_div(sh, block.y)};
+  exposure_measure_kernel<<<grid, block>>>(hdr, bloom, res, half,
+      cfg.bloom.enabled, cfg.bloom.intensity, cfg.exposure.center_bias, sums);
 }
 
 #pragma endregion

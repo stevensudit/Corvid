@@ -267,10 +267,14 @@ for an optic; record it.
 
 O8. Bloom and Reinhard tonemap are display fakes, not a camera response. Bloom
 blurs the brights to fake lens/sensor scatter (not a measured point-spread
-function); `reinhard_tonemap` is `c/(1+c)` per channel, an arbitrary roll-off
-with no white point that can shift hue as one channel saturates. Reasonable
-display-side choices that likely stay, but taste curves, not physics: do not
-mistake the tonemap for exposure or the bloom for real glare.
+function); `reinhard_tonemap` is per-channel Reinhard, which can shift hue as
+one channel saturates. The original `c/(1+c)` had no white point, so nothing
+could ever reach display white and every bright source compressed into gray;
+the glare step added an extended-Reinhard white point (`tonemap_white`), so a
+bright enough pixel saturates to true white and the blown-out region grows
+with source brightness, like an overexposed camera. Still reasonable
+display-side taste curves, not physics: do not mistake the tonemap for
+exposure or the bloom for real glare.
 
 ## The shape of the fix (the keystones)
 

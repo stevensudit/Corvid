@@ -25,12 +25,20 @@ produce.
   - `flashlight_spot`: soft cone (`cone_degrees`/`softness`) + range `fade` +
     ball shadow.
   - `flashlight_terrain`: cone * fade^2 * Lambert, ball-shadowed.
+  - `flashlight_cone` (scene_render.cuh): the visible in-air beam, scatter
+    scaled by `intensity * air_strength` and shaped by a Henyey-Greenstein
+    phase (`air_aniso`), so the down-beam primary view sees true (weaker)
+    backscatter. Replaced the hand-picked `air_backscatter` down-beam floor,
+    a view-dependent fake that also hid the beam from the exposure meter.
   - The ball's flashlight glint is the real reflection of the emissive iris
     (see Iris-as-source below); the faked Blinn-Phong gloss lobe that once sat
     on top of it is gone (glare step, see items 2 and 3).
-- Iris-as-source: the head eye's glass segments emit `source_strength` while the
-  lamp is on (scene_render.cuh `shade_head`), so the ball's reflection of the
-  head carries the real glint.
+- Iris-as-source: while the lamp is on the head carries a white glare halo at
+  the iris (`flashlight_glare_halo` in scene_render.cuh, brightness
+  `intensity * glare_gain`, so the glint dims with the lamp like every other
+  lamp term), so the ball's reflection of the head carries the real glint.
+  The halo is the lamp's sole visual on the head: a per-segment iris emissive
+  (`source_strength`) existed but was invisible under the halo and was removed.
 - Night: `cfg.night` gates the sun (diffuse + specular off) and dims ambient on
   terrain and head, and darkens the sky.
 - Knobs threaded through `render_config::flashlight_params` + the panel.
@@ -49,9 +57,13 @@ produce.
    angular size (source size / distance) for free, not a hand-tuned lobe.
 
 3. RESOLVED (glare step). The duplicate Blinn-Phong lobe is removed; the real
-   reflection of the emissive iris IS the highlight, its brightness the
-   emitter's `source_strength` (HDR, so it blows out through bloom). Any later
-   sparkle-stabilizing fudge goes on top of this real base, in a realistic form.
+   reflection of the iris glare halo IS the highlight, its brightness
+   `intensity * glare_gain` (HDR, so it blows out through bloom). Two lessons from getting
+   here: the convex ball shrinks any head emitter to a point, so the glint is
+   small by geometry and its "feel bright" comes from the bloom, and the bloom
+   only reads bright once the tonemap has a white point (`tonemap_white`,
+   extended Reinhard); without one every bright source compresses into gray
+   and no emitter setting can fix it.
 
 4. The flashlight is a set of per-surface fakes (`flashlight_terrain` +
    `flashlight_gloss`), not one light the whole scene evaluates. So the flat
@@ -67,8 +79,15 @@ produce.
    fails at night). Correct base: a projected world-space mark at the pick point
    that any ray path (primary, ball reflection, mirror) samples.
 
-6. Night is hardcoded scales (ambient * 0.1, sky * 0.03, sun off). Minor; this is
-   an acceptable finger-on-the-scale, but note it is not a real day/night model.
+6. Night is flat scales (`night_ambient` on terrain/head ambient, `night_sky`
+   on the sky gradient, sun off), now knobs rather than hardcoded. Still not a
+   real day/night model, but the tuning rationale flipped when auto-exposure
+   arrived: the old values were high enough for night to be self-visible at the
+   fixed exposure, which double-counts once adaptation exists (the AE brightens
+   the too-bright night into overcast gray). With AE owning dark adaptation,
+   crush these so a no-light night sits near black even fully adapted, like a
+   real moonless night below the eye's adaptation floor; the faint remainder is
+   what dark adaptation slowly reveals after a blinding.
 
 7. The beam is a fixed circular pool regardless of range or grazing angle. A real
    cone's footprint on a surface is an ellipse that grows with distance and

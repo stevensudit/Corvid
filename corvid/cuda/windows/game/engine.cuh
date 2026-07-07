@@ -121,6 +121,10 @@ public:
     // bury the view (`shade_primary_ray`). Render-only.
     render_cfg_.jockey_clear = rig_.boom <= (rig_.tune.boom_min + 0.05F);
 
+    // Auto-exposure: ease the display exposure toward last frame's measured
+    // scene brightness. Runs even unfocused, since the scene still renders.
+    update_exposure(dt);
+
     if (active) {
       if (flatten_requested_) {
         flatten_terrain();
@@ -740,6 +744,40 @@ private:
     boom_primed_ = true;
   }
 
+  // Auto-exposure: ease the display exposure toward the scene's measured
+  // brightness, the eye's pupil adaptation (see
+  // `render_config::exposure_params`).
+  //
+  // Reads back the luminance sum the render accumulated last frame (a frame
+  // late, like the ground probe), eases `value` toward `key / average`
+  // clamped to the adaptation limits, and zeroes the sum for the measure
+  // `render_frame` launches after the post pass. The ease runs in stops
+  // (log2), so adaptation covers equal exposure ratios in equal time; its lag
+  // is the bodycam blind on a light transition.
+  void update_exposure(float dt) {
+    auto& ex = render_cfg_.exposure;
+    if (!ex.enabled) {
+      ex.value = 1.0F;
+      exposure_primed_ = false;
+      return;
+    }
+    if (exposure_primed_) {
+      float sums[2]{};
+      exposure_sums_.store(sums).or_throw();
+      const float avg = sums[0] / fmaxf(sums[1], 1.0e-3F);
+      const float target = fminf(
+          fmaxf(ex.key / fmaxf(avg, 1.0e-4F), ex.min_value), ex.max_value);
+      // Faster toward a brighter scene (the exposure falling) than a darker
+      // one, like the eye.
+      const float rate = target < ex.value ? ex.adapt_bright : ex.adapt_dark;
+      const float k = 1.0F - expf(-rate * dt);
+      ex.value =
+          exp2f(log2f(ex.value) + ((log2f(target) - log2f(ex.value)) * k));
+    }
+    constexpr float zeros[2]{};
+    exposure_sums_.load(zeros).or_throw();
+  }
+
   // Flatten the whole world to a level plane at the ball's feet: a test track
   // for measuring speeds. Triggered by the panel button
   // (`flatten_requested_`); the dug shape is lost.
@@ -808,6 +846,14 @@ private:
                 post_process(surf, hdr_.get(), bloom_a_.get(), bloom_b_.get(),
                     block_, res, render_cfg_);
               }
+              // Auto-exposure measure: accumulate this frame's
+              // center-weighted luminance sums from the HDR buffer, read back
+              // at the top of the next frame (`update_exposure`).
+              if (render_cfg_.exposure.enabled) {
+                measure_exposure(hdr_.get(), bloom_a_.get(), res, render_cfg_,
+                    exposure_sums_.get());
+                exposure_primed_ = true;
+              }
               cuda_timer::synchronize().or_throw();
             },
             [&] { imgui_.render(presenter_.back_buffer()); }, sync_interval)
@@ -865,6 +911,8 @@ private:
       throw std::runtime_error{"failed to allocate ground probe"};
     if (!boom_clear_)
       throw std::runtime_error{"failed to allocate boom probe"};
+    if (!exposure_sums_)
+      throw std::runtime_error{"failed to allocate exposure sums"};
 
     // The dig brush's launch dims, from its radius: a cube of voxels around
     // the picked point, the brush sphere clipped out of it in the kernel.
@@ -1050,6 +1098,16 @@ private:
   // until the first probe has been issued.
   cuda_ptr<float> boom_clear_;
   bool boom_primed_ = false;
+
+  // Auto-exposure scratch.
+  //
+  // A two-float device buffer accumulating the frame's center-weighted
+  // luminance sums ({weighted luma, weight}, `exposure_measure_kernel`),
+  // zeroed before the render and read back the next frame, a frame late like
+  // the ground probe; the metered mean is their quotient. `exposure_primed_`
+  // gates the readback until the first measure has been issued.
+  cuda_ptr<float> exposure_sums_{2};
+  bool exposure_primed_ = false;
 
 #pragma endregion
 #pragma region Avatar and config

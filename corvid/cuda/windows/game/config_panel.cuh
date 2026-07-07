@@ -866,6 +866,50 @@ inline void draw_render_section(avatar_tuning& t, const avatar_tuning& d,
   tuned_slider("bloom radius", c.bloom.sigma, dc.bloom.sigma, 0.5F, 8.0F,
       "Gaussian blur radius for the bloom, in half-resolution texels. Wider "
       "spreads the glow farther.");
+  tuned_slider("tonemap white", c.tonemap_white, dc.tonemap_white, 0.0F, 16.0F,
+      "HDR value that tone maps to display white: at or above it a pixel "
+      "saturates to true white, so a bright source and its bloom blow out "
+      "like an overexposed camera instead of compressing into gray. Lower "
+      "sears sooner (try 4-8); 0 is the classic Reinhard curve, where white "
+      "is unreachable.");
+  ImGui::Spacing();
+
+  ImGui::SeparatorText("Auto-exposure");
+  ImGui::Checkbox("auto exposure", &c.exposure.enabled);
+  ImGui::SetItemTooltip("%s",
+      "Adapt the display exposure to the scene's brightness, like the eye's "
+      "pupil or a bodycam's auto-exposure: the flashlight sears at night but "
+      "barely registers by day, and the adaptation lag blinds momentarily on "
+      "a light transition. Off holds the fixed exposure.");
+  ImGui::SameLine();
+  ImGui::Text("now: %.2fx", c.exposure.value);
+  tuned_slider("exposure key", c.exposure.key, dc.exposure.key, 0.02F, 1.0F,
+      "Mid-gray target the scene's average luminance is mapped to: the "
+      "exposure-compensation dial. Higher exposes the whole scene brighter.");
+  tuned_slider("exposure center bias", c.exposure.center_bias,
+      dc.exposure.center_bias, 0.0F, 16.0F,
+      "How strongly the meter favors the center of the view, like a camera's "
+      "center-weighted metering (the eye adapts to where it looks): 0 meters "
+      "the whole frame evenly; higher lets a bright pool or lamp you stare at "
+      "pull the exposure down even when the surroundings are dark.");
+  tuned_slider("exposure adapt bright", c.exposure.adapt_bright,
+      dc.exposure.adapt_bright, 0.0F, 10.0F,
+      "How fast the exposure adapts to a brighter scene, per second. The lag "
+      "is the white-out when stepping into daylight.");
+  tuned_slider("exposure adapt dark", c.exposure.adapt_dark,
+      dc.exposure.adapt_dark, 0.0F, 10.0F,
+      "How fast the exposure adapts to a darker scene, per second. Slower "
+      "than adapt-bright reads eye-like: the black-out lingers entering a "
+      "tunnel.");
+  tuned_slider("exposure min", c.exposure.min_value, dc.exposure.min_value,
+      0.05F, 1.0F,
+      "Exposure floor: how far it can stop down in a bright scene. 1 never "
+      "darkens below the fixed exposure.");
+  tuned_slider("exposure max", c.exposure.max_value, dc.exposure.max_value,
+      1.0F, 16.0F,
+      "Exposure ceiling: how far it can open up in the dark. Bounds "
+      "adaptation, so night stays dark instead of auto-brightening to "
+      "daylight.");
   ImGui::Spacing();
 
   ImGui::SeparatorText("Lighting");
@@ -873,6 +917,15 @@ inline void draw_render_section(avatar_tuning& t, const avatar_tuning& d,
   ImGui::SetItemTooltip("%s",
       "Turn off the sun and darken the sky and ambient, as though it were "
       "night, so there is darkness to test the flashlight against.");
+  tuned_slider("night ambient", c.night_ambient, dc.night_ambient, 0.0F, 0.2F,
+      "Ambient scale on terrain and head while night is on. It shipped high "
+      "enough for night to be self-visible at fixed exposure; with auto "
+      "exposure adapting to the dark, crush it so a no-light night reads "
+      "near black even fully adapted.");
+  tuned_slider("night sky", c.night_sky, dc.night_sky, 0.0F, 0.06F,
+      "Sky gradient scale while night is on: the faint horizon glow that "
+      "dark adaptation slowly reveals. Crush toward 0 for a cave-black "
+      "overcast night.");
   ImGui::Text("flashlight (F): %s", c.flashlight.enabled ? "on" : "off");
   tuned_color("flashlight color", c.flashlight.color, dc.flashlight.color,
       "Flashlight beam color.");
@@ -893,29 +946,23 @@ inline void draw_render_section(avatar_tuning& t, const avatar_tuning& d,
       "fades the shadow edge so it shows around the ball that hides the "
       "umbra. "
       "0 is a hard shadow.");
-  tuned_slider("flashlight source", c.flashlight.source_strength,
-      dc.flashlight.source_strength, 0.0F, 64.0F,
-      "Brightness of the lamp emitter on the head (the eye's iris segments): "
-      "the ball's reflection of it is the glint, so raise it until that blows "
-      "out through bloom.");
   tuned_slider("flashlight glare", c.flashlight.glare_gain,
-      dc.flashlight.glare_gain, 0.0F, 40.0F,
-      "Brightness of the lamp's glare halo: the iris emitter's white glow "
-      "bloomed outward across the head, which the ball reflects as a broad "
-      "bright glint. Raise until the reflected lamp reads bright; 0 disables "
-      "it, "
-      "leaving the raw iris ring (which the bloom washes to a dim gray "
-      "smear).");
+      dc.flashlight.glare_gain, 0.0F, 200.0F,
+      "Brightness of the lamp's glare halo at the iris, per unit of "
+      "flashlight power (the glint tracks the lamp's brightness): the ball "
+      "reflects it as the glint. Raise until the reflected lamp reads "
+      "bright; 0 turns the lamp's head glow off entirely.");
   tuned_slider("flashlight glare spread", c.flashlight.glare_spread,
-      dc.flashlight.glare_spread, 0.0F, 1.0F,
-      "How far the lamp's glare halo reaches out past the iris hub rim (same "
-      "units as the eye hub). Larger spreads the glow wider across the head.");
+      dc.flashlight.glare_spread, 0.0F, 0.5F,
+      "Skirt width of the glare halo past the iris rim (eye hub units): the "
+      "apparent size of the lamp source. Smaller keeps the glow tight to the "
+      "iris; larger spreads it across the head.");
   tuned_slider("flashlight air", c.flashlight.air_strength,
-      dc.flashlight.air_strength, 0.0F, 3.0F,
-      "Brightness of the visible beam in dusty air, 0 hides it and leaves "
-      "just "
-      "the surface lighting: a warm hotspot core with a softer spill, far end "
-      "conforming to the terrain it lands on.");
+      dc.flashlight.air_strength, 0.0F, 30.0F,
+      "Scatter coefficient of the visible beam in dusty air, per unit of "
+      "flashlight power (the glow tracks the lamp's brightness); 0 hides it "
+      "and leaves just the surface lighting: a warm hotspot core with a "
+      "softer spill, far end conforming to the terrain it lands on.");
   tuned_slider("flashlight air reach", c.flashlight.air_reach,
       dc.flashlight.air_reach, 0.2F, 1.5F,
       "Drawn length of the air cone as a fraction of the beam's throw to "
@@ -947,23 +994,18 @@ inline void draw_render_section(avatar_tuning& t, const avatar_tuning& d,
       dc.flashlight.air_extinction, 0.0F, 0.5F,
       "Optional dimming of the air cone with throw distance (Beer-Lambert): 0 "
       "is clear air.");
-  tuned_slider("flashlight air down-beam", c.flashlight.air_backscatter,
-      dc.flashlight.air_backscatter, 0.0F, 1.0F,
-      "How visible the cone is looking straight down the beam (the "
-      "head-mounted primary view): low hides the end-on disc and leaves that "
-      "view to the ground pool, while reflections and side angles still show "
-      "the full cone. 0 fully hides it down-beam.");
+  tuned_slider("flashlight air aniso", c.flashlight.air_aniso,
+      dc.flashlight.air_aniso, 0.0F, 0.9F,
+      "Forward-scattering anisotropy of the beam's dust (Henyey-Greenstein): "
+      "0 glows evenly from every angle; higher throws the glow forward, "
+      "dimming the straight-down-the-beam primary view toward pure "
+      "backscatter and brightening views that face the lamp.");
   ImGui::Spacing();
 
   ImGui::Checkbox("debug raw ball", &c.debug_ball_raw);
   ImGui::SetItemTooltip("%s",
       "Show the ball reflection undimmed, to tell a real black artifact from "
       "the dark belly crushed by the dim factor.");
-  ImGui::Checkbox("debug glare halo", &c.debug_glare_halo);
-  ImGui::SetItemTooltip("%s",
-      "Paint the flashlight glare halo bright magenta at its true footprint "
-      "(ignores glare gain), so you can see exactly where and how big it is "
-      "against the scene. Toggle on and off to isolate the halo.");
   ImGui::SameLine();
   ImGui::Checkbox("show mirror", &c.show_mirror);
   ImGui::SetItemTooltip("%s",

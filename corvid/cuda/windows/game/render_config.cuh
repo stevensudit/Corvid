@@ -60,6 +60,18 @@ struct render_config {
   // flashlight against. The emissive lights and the flashlight are unaffected.
   bool night = false;
 
+  // How dark night actually is.
+  //
+  // Scales on the ambient (terrain and head) and the sky gradient while
+  // `night` is on. They shipped tuned to keep the night scene self-visible at
+  // the old fixed exposure; with auto-exposure owning dark adaptation, crush
+  // them so a no-light night reads near black even fully adapted, the way a
+  // real moonless night sits below what any adaptation can recover, and the
+  // faint remainder is what dark adaptation slowly reveals after the lamp
+  // blinds you.
+  float night_ambient = 0.1F; // ambient scale on terrain and head
+  float night_sky = 0.03F;    // sky gradient scale
+
   // Sky gradient and sun glow (see `sky_color`).
   struct sky_params {
     vec3 zenith{0.18F, 0.42F, 0.82F};    // color straight up
@@ -92,30 +104,27 @@ struct render_config {
     pos3 origin{};                    // eye position, written per frame
     vec3 direction{0.0F, 0.0F, 1.0F}; // view forward, written per frame
     vec3 color{1.0F, 0.93F, 0.80F};
-    float intensity = 4.0F;
-    float range = 45.0F;          // reach in world units
-    float cone_degrees = 23.333F; // outer half-angle of the cone
-    float softness = 1.5F;        // inner cone = outer x (1 - softness)
+    float intensity = 0.2F;
+    float range = 45.0F;        // reach in world units
+    float cone_degrees = 30.0F; // outer half-angle of the cone
+    float softness = 1.5F;      // inner cone = outer x (1 - softness)
     // Penumbra of the ball's shadow on the terrain, as a fraction of the ball
     // radius: the soft band the shadow fades across, so its edge reads (and
     // peeks out from behind the ball that hides the hard umbra). 0 is a hard
     // shadow.
     float shadow_softness = 0.55F;
-    // Brightness of the emitter on the head (the eye's iris segments light up
-    // as the lamp source). HDR, so the ball's reflection of it blows out
-    // through bloom instead of reading as flat white.
-    float source_strength = 30.0F;
-
-    // The lamp's glare halo on the head: the bright iris emitter's white glow
-    // bloomed outward across the head (see `flashlight_glare_halo`), the white
-    // sibling of the reticle's `eye_glare_halo`. It gives the emitter apparent
-    // size, so the ball's reflection of the lamp reads as a broad bright glint
-    // instead of a thin ring the bloom washes to a dim gray smear (intensity
-    // alone cannot fix a too-small source, only size can). `glare_gain` is its
-    // brightness (0 disables it, back to the raw iris ring); `glare_spread` is
-    // how far it reaches out past the iris hub rim, in `eye_hub` units.
-    float glare_gain = 12.0F;
-    float glare_spread = 0.2F;
+    // The lamp's glare halo at the iris, its sole visual on the head (see
+    // `flashlight_glare_halo`).
+    //
+    // The white sibling of the reticle's `eye_glare_halo`, a bright disc over
+    // the iris whose reflection in the ball is the glint. HDR, so it blows out
+    // through bloom. `glare_gain` is its brightness per unit lamp power (the
+    // halo scales with `intensity`, like the air cone, so dimming the lamp
+    // dims its glint); 0 turns the lamp's head glow off. `glare_spread` is the
+    // skirt width past the iris hub rim (`eye_hub` units), the apparent size
+    // of the source: smaller keeps the glow tight to the iris.
+    float glare_gain = 60.0F;
+    float glare_spread = 0.1F;
 
     // Air cone: the beam made visible in dusty air, a warm hotspot core with a
     // softer spill corona scattered along the throw, like a real flashlight
@@ -124,8 +133,10 @@ struct render_config {
     // bright-center, and emitted from the iris rather than the pupil.
     //
     // The cone emits from the iris along the beam and its far end conforms to
-    // the terrain it lands on. `air_strength` is the scatter brightness (0
-    // disables the air cone, leaving the surface lighting alone). `air_reach`
+    // the terrain it lands on. `air_strength` is the scatter coefficient per
+    // unit lamp power (the glow scales with `intensity`, as real scatter
+    // does; 0 disables the air cone, leaving the surface lighting alone).
+    // `air_reach`
     // is the drawn length as a fraction of the beam's throw to that landing
     // point (1 reaches it). `air_base` is the cone's radius at the lens (the
     // small bright mouth it fans out from), a fraction of the head radius.
@@ -137,14 +148,13 @@ struct render_config {
     // Beer-Lambert dimming with the throw distance (0 is clear air; the
     // geometric falloff is always on).
     //
-    // `air_backscatter` is how visible the cone stays viewed straight down the
-    // beam: the lamp is head-mounted (the iris just outside the pupil camera),
-    // so the primary view looks down its own beam, where the volume would read
-    // as a flat end-on disc. Low hides that disc and leaves the primary view
-    // to the elliptical ground pool, while reflections and side angles still
-    // show the full cone (0 fully hides the down-beam view, 1 leaves it at
-    // full brightness).
-    float air_strength = 0.6F;
+    // `air_aniso` is the Henyey-Greenstein anisotropy of the dust scatter: 0
+    // glows evenly from every angle; higher throws more of the light forward,
+    // brightening views that face the lamp and dimming the down-beam
+    // (head-mounted primary) view toward pure backscatter. Real dust is
+    // strongly forward-scattering, which is why a flashlight beam reads faint
+    // from behind the lamp yet glares at whatever it points at.
+    float air_strength = 10.0F;
     float air_reach = 1.0F;
     float air_base = 0.15F;
     float hotspot_power = 6.0F;
@@ -153,7 +163,7 @@ struct render_config {
     int air_speckle_freq = 10;
     float air_boil = 2.5F;
     float air_extinction = 0.0F;
-    float air_backscatter = 0.05F;
+    float air_aniso = 0.6F;
 
     // Per-frame air-cone state, written by the engine from a pick down the
     // beam, all low-passed so the cone does not flicker as the aim sweeps:
@@ -522,12 +532,6 @@ struct render_config {
   // black artifact from the dark belly merely crushed by the dim factor.
   bool debug_ball_raw = false;
 
-  // Debug: paint the flashlight glare halo in bright magenta at its true
-  // footprint, independent of `glare_gain` (`flashlight_glare_halo`), so its
-  // location and size read against the scene. Nothing else emits magenta, so
-  // toggling it on and off isolates exactly where the halo lands.
-  bool debug_glare_halo = false;
-
   // Whether the flat mirror wall is in the scene (`shade_primary_ray`). Off by
   // default; the panel can show it for debugging.
   bool show_mirror = false;
@@ -613,6 +617,44 @@ struct render_config {
     float intensity = 1.0F;  // how much of the bloom is added back
     float sigma = 2.5F;      // Gaussian blur radius, half-res texels
   } bloom;
+
+  // Tone map white point (extended Reinhard, see `reinhard_tonemap`): the
+  // linear HDR value that maps to display white. At or above it a pixel
+  // saturates to true white, so a bright source (and its bloom) blows out like
+  // an overexposed camera instead of compressing into gray; midtones barely
+  // move, and the blown-out region grows naturally with source brightness. 0
+  // disables it, leaving the classic Reinhard curve, where white is
+  // unreachable.
+  float tonemap_white = 1.25F;
+
+  // Auto-exposure: adapt the display exposure to the scene's brightness, the
+  // way the eye's pupil or a bodycam's auto-exposure does, so brightness
+  // reads relative to adaptation: the flashlight sears at night but barely
+  // registers by day, and a pit stays dark-adapted even at noon.
+  //
+  // The engine measures the frame's mean luminance (a sparse reduction over
+  // the composited frame, render plus bloom, read back a frame late like the
+  // ground probe; the center-weighted arithmetic mean, so a searing source or
+  // lit pool stared at pulls the exposure down and even a point-sized glare
+  // counts through its bloom, see `exposure_measure_kernel`), eases `value`
+  // toward `key / average`, and clamps it to [`min_value`, `max_value`], so
+  // adaptation has limits: night stays night instead of auto-brightening to
+  // daylight. The ease runs in stops (log2) with asymmetric rates, faster
+  // toward bright than dark like the eye, and the adaptation lag is the
+  // bodycam transition blind: stepping into daylight overshoots white and
+  // settles, into a tunnel overshoots black. The composite multiplies the HDR
+  // color by `value` before the tone map, so `tonemap_white` stays a fixed
+  // taste constant and exposure is the moving part.
+  struct exposure_params {
+    bool enabled = false;      // off holds `value` at 1 (the fixed exposure)
+    float key = 0.62F;         // mid-gray the average luminance maps to
+    float center_bias = 8.0F;  // meter center weighting (0 = uniform mean)
+    float adapt_bright = 3.0F; // ease rate toward a brighter scene (1/s)
+    float adapt_dark = 0.01F;  // ease rate toward a darker scene (1/s)
+    float min_value = 0.25F;   // exposure floor (bright day clamps here)
+    float max_value = 14.0F;   // exposure ceiling (dark night clamps here)
+    float value = 1.0F;        // engine-written per frame, the live exposure
+  } exposure;
 };
 
 #pragma endregion

@@ -48,7 +48,7 @@ sky_color(const render_config& cfg, vec3 ray_dir) {
   vec3 col = (sky.zenith * t) + (sky.horizon * (1.0F - t));
 
   // Night: a dark sky with no sun, just a faint trace of the gradient.
-  if (cfg.night) return col * 0.03F;
+  if (cfg.night) return col * cfg.night_sky;
 
   const vec3 sun_dir = normalize(cfg.sun_direction);
   const float s = fmaxf(dot(ray_dir, sun_dir), 0.0F);
@@ -159,7 +159,7 @@ shade_terrain_hit(const density_field& field, cudaTextureObject_t color,
   const vec3 albedo{c.x, c.y, c.z};
 
   const float sun_on = cfg.night ? 0.0F : 1.0F;
-  const float ambient_scale = cfg.night ? 0.1F : 1.0F;
+  const float ambient_scale = cfg.night ? cfg.night_ambient : 1.0F;
   const vec3 lit =
       albedo *
       ((cfg.terrain.ambient * ambient_scale) +
