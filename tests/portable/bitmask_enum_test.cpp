@@ -793,7 +793,7 @@ TEST_CASE("SafeWhite", "[BitMaskTest]") {
 }
 #pragma endregion
 
-template<strings::fixed_string W>
+template<meta::fixed_string W>
 consteval auto cvbfbn() {
   return bitmask::details::calc_valid_bits_from_bit_names<W>();
 }
@@ -817,7 +817,7 @@ TEST_CASE("EnumCalcBitNames", "[BitMaskTest]") {
 }
 #pragma endregion
 
-template<strings::fixed_string W>
+template<meta::fixed_string W>
 consteval auto cvbfvn() {
   return bitmask::details::calc_valid_bits_from_value_names<W>();
 }

@@ -557,7 +557,7 @@ struct bitmask_enum_names_spec
 // Do not put a leading comma in the name list.
 //
 // Whitespace is trimmed. An empty string or hyphen means invalid.
-template<strings::fixed_string bit_names>
+template<meta::fixed_string bit_names>
 consteval uint64_t calc_valid_bits_from_bit_names() {
   static_assert(!strings::trim(bit_names.view(), " -").starts_with(","));
   constexpr auto name_array = strings::fixed_split_trim<bit_names, " -">();
@@ -582,7 +582,7 @@ consteval uint64_t calc_valid_bits_from_bit_names() {
 // defines the valid bits.
 //
 /// Whitespace is trimmed.
-template<strings::fixed_string bit_names>
+template<meta::fixed_string bit_names>
 consteval uint64_t calc_valid_bits_from_value_names() {
   static_assert(bit_names.view().contains(','));
   constexpr auto name_array = strings::fixed_split_trim<bit_names, " -">();
@@ -627,7 +627,7 @@ consteval auto make_bitmask_enum_spec() {
 //
 // Prints the matching name for the value as a combination of bit names.
 // Any bits, valid or otherwise, that are not named are printed in hex.
-template<ScopedEnum E, strings::fixed_string bit_names,
+template<ScopedEnum E, meta::fixed_string bit_names,
     wrapclip bitclip = wrapclip{}>
 consteval auto make_bitmask_enum_spec() {
   constexpr auto name_array = strings::fixed_split_trim<bit_names, " -">();
@@ -659,7 +659,7 @@ consteval auto make_bitmask_enum_spec() {
 //
 // Prints the matching name for the value. Any residual value is printed in
 // hex, in combination with the known part of the value, if any.
-template<ScopedEnum E, strings::fixed_string bit_names,
+template<ScopedEnum E, meta::fixed_string bit_names,
     wrapclip bitclip = wrapclip{}>
 [[nodiscard]] consteval auto make_bitmask_enum_values_spec() {
   constexpr auto name_array = strings::fixed_split<bit_names>();

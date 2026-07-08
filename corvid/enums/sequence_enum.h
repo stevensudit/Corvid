@@ -695,7 +695,7 @@ struct segmented_names {
 // independently null-terminated span in place. The packed names are views into
 // this buffer, which is held as a template parameter and so has static
 // storage.
-template<strings::fixed_string names>
+template<meta::fixed_string names>
 [[nodiscard]] consteval auto make_nulled() {
   return strings::fixed_replaced<strings::fixed_replaced<names, '|', '\0'>(),
       ',', '\0'>();
@@ -713,8 +713,8 @@ template<strings::fixed_string names>
 // two-value gap costs about as much as the empty names while a new segment
 // also pays for its start value and the '|'. `min` and `max` are derived from
 // them. The packed names are views into `Nulled`.
-template<strings::fixed_string names, std::integral U, size_t NameCount,
-    size_t SegCount, strings::fixed_string Nulled = make_nulled<names>()>
+template<meta::fixed_string names, std::integral U, size_t NameCount,
+    size_t SegCount, meta::fixed_string Nulled = make_nulled<names>()>
 [[nodiscard]] consteval auto parse_segmented_names() {
   segmented_names<U, NameCount, SegCount> name_segments{};
   constexpr auto whole = names.view();
@@ -889,9 +889,8 @@ struct sequence_enum_names_spec
 // passed.
 //
 // Set `wrapseq` to `wrapclip::limit` to enable wrapping.
-template<ScopedEnum E, strings::fixed_string names,
-    wrapclip wrapseq = wrapclip{}, E minseq = E{},
-    strings::fixed_string Nulled = details::make_nulled<names>()>
+template<ScopedEnum E, meta::fixed_string names, wrapclip wrapseq = wrapclip{},
+    E minseq = E{}, meta::fixed_string Nulled = details::make_nulled<names>()>
 [[nodiscard]] consteval auto make_sequence_enum_spec() {
   using U = std::underlying_type_t<E>;
   constexpr auto whole = names.view();

@@ -16,16 +16,27 @@
 // limitations under the License.
 #pragma once
 #include <concepts>
+#include <cstddef>
 #include <format>
 #include <ostream>
 #include <string_view>
 #include <type_traits>
 
-#include "../meta.h"
-#include "cstring_view.h"
-#include "../meta/formatting.h"
+#include "concepts.h"
+#include "formatting.h"
 
-namespace corvid::strings { inline namespace fixed {
+// Not included by meta.h: like formatting.h, this header stays out of the
+// umbrella to keep <format> and <ostream> out of every TU. Include it
+// directly.
+
+// Forward declaration so `cview()` can name the return type without pulling
+// in the strings band. Using `cview()` requires including cstring_view.h.
+namespace corvid { inline namespace cstringview {
+template<typename T>
+class basic_cstring_view;
+}} // namespace corvid::cstringview
+
+namespace corvid { inline namespace meta { inline namespace fixed {
 
 #pragma region basic_fixed_string
 
@@ -120,7 +131,8 @@ struct basic_fixed_string {
     return view();
   }
 
-  // A fixed string is necessarily terminated.
+  // A fixed string is necessarily terminated. Only declared here; callers
+  // must include cstring_view.h.
   [[nodiscard]] constexpr basic_cstring_view<std::basic_string_view<char_t>>
   cview() const {
     return basic_cstring_view<std::basic_string_view<char_t>>{do_not_use,
@@ -195,14 +207,14 @@ using fixed_string = basic_fixed_string<char, N>;
 
 #pragma endregion
 
-}} // namespace corvid::strings::fixed
+}}} // namespace corvid::meta::fixed
 
 // NOLINTBEGIN(bugprone-std-namespace-modification)
 template<corvid::CharType CharT, std::size_t N>
 constexpr std::range_format
-    std::format_kind<corvid::strings::basic_fixed_string<CharT, N>> =
+    std::format_kind<corvid::meta::basic_fixed_string<CharT, N>> =
         std::range_format::disabled;
 template<corvid::CharType CharT, std::size_t N>
-struct std::formatter<corvid::strings::basic_fixed_string<CharT, N>, CharT>
+struct std::formatter<corvid::meta::basic_fixed_string<CharT, N>, CharT>
     : corvid::forwarding_formatter<std::basic_string_view<CharT>, CharT> {};
 // NOLINTEND(bugprone-std-namespace-modification)

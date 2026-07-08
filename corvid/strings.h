@@ -17,7 +17,6 @@
 #pragma once
 #include "strings/strings_shared.h"
 #include "strings/cstring_view.h"
-#include "strings/fixed_string.h"
 #include "strings/fixed_string_utils.h"
 #include "strings/cases.h"
 #include "strings/locating.h"

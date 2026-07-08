@@ -17,7 +17,7 @@
 #pragma once
 #include "strings_shared.h"
 #include "trimming.h"
-#include "fixed_string.h"
+#include "../meta/fixed_string.h"
 
 namespace corvid::strings { inline namespace fixed {
 
@@ -30,8 +30,8 @@ namespace corvid::strings { inline namespace fixed {
 // characters to trim from each piece; pass "" to disable trimming. `D` is a
 // set of delimiter characters, not a multi-character token. The delimiter must
 // be non-empty, as enforced below.
-template<strings::fixed_string W, strings::fixed_string D = ",",
-    strings::fixed_string WS = "">
+template<meta::fixed_string W, meta::fixed_string D = ",",
+    meta::fixed_string WS = "">
 consteval auto fixed_split() {
   constexpr auto whole = W.view();
   constexpr auto delim = D.view();
@@ -61,8 +61,8 @@ consteval auto fixed_split() {
 // by specified whitespace.
 //
 // Splits `W` using delimiter characters, trimming pieces with the `WS` set.
-template<strings::fixed_string W, strings::fixed_string WS = " ",
-    strings::fixed_string D = ",">
+template<meta::fixed_string W, meta::fixed_string WS = " ",
+    meta::fixed_string D = ",">
 consteval auto fixed_split_trim() {
   return fixed_split<W, D, WS>();
 }
@@ -73,13 +73,13 @@ consteval auto fixed_split_trim() {
 // Return a copy of `W` with every occurrence of `F` replaced by `T`. The
 // length is unchanged, so this is handy for swapping a delimiter, such as
 // turning a comma-delimited list into a null-delimited one.
-template<strings::fixed_string W, char F, char T>
+template<meta::fixed_string W, char F, char T>
 consteval auto fixed_replaced() {
   constexpr std::size_t n = W.size();
   char buf[n + 1]{};
   for (std::size_t ndx = 0; ndx != n; ++ndx)
     buf[ndx] = W[ndx] == F ? T : W[ndx];
-  return strings::basic_fixed_string{buf,
+  return meta::basic_fixed_string{buf,
       std::integral_constant<std::size_t, n>{}};
 }
 
