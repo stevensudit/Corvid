@@ -891,6 +891,28 @@ TEST_CASE("ExtractEnum", "[BitMaskTest]") {
     CHECK(sv.empty());
     CHECK(e == (rgb::red + rgb::green));
 
+    // Hex numbers parse with a "0x" prefix, so the printed residual form
+    // round-trips.
+    sv = "0x2";
+    CHECK(extract_enum(e, sv));
+    CHECK(sv.empty());
+    CHECK(e == rgb::green);
+
+    sv = "red + 0x40";
+    CHECK(extract_enum(e, sv));
+    CHECK(sv.empty());
+    CHECK(e == rgb(0x44));
+
+    auto hex = enum_as_string(rgb(7 + 0x40));
+    sv = hex;
+    CHECK(sv == "red + green + blue + 0x40");
+    CHECK(extract_enum(e, sv));
+    CHECK(e == rgb(7 + 0x40));
+
+    // A bare "0x" is not a number.
+    sv = "0x";
+    CHECK_FALSE(extract_enum(e, sv));
+
     sv = "";
     CHECK_FALSE(extract_enum(e, sv));
     sv = " + ";
@@ -907,6 +929,48 @@ TEST_CASE("ExtractEnum", "[BitMaskTest]") {
 }
 #pragma endregion
 
+// Signed underlying type with the high bit valid. The mask is zero-extended
+// through the unsigned underlying type at registration, so it stays clean even
+// though `max_value` is negative.
+enum class i8_bits : std::int8_t {};
+consteval auto corvid_enum_spec(i8_bits*) {
+  return make_bitmask_enum_spec<i8_bits, "a,b,c,d,e,f,g,h">();
+}
+
+// Same, registered by value with a negative maximum.
+enum class i8_all : std::int8_t { all = -1 };
+consteval auto corvid_enum_spec(i8_all*) {
+  return make_bitmask_enum_spec<i8_all, i8_all::all>();
+}
+
+#pragma region SignedHighBit
+
+TEST_CASE("SignedHighBit", "[BitMaskTest]") {
+  if (true) {
+    static_assert(valid_bits_v<i8_bits> == 0xff);
+    static_assert(valid_bits_v<i8_all> == 0xff);
+    CHECK(bits_length<i8_bits>() == 8);
+    CHECK(range_length<i8_bits>() == 256);
+    CHECK(max_value<i8_bits>() == i8_bits{-1});
+    CHECK(flip(i8_bits{}) == i8_bits{-1});
+    CHECK(*make_at<i8_bits>(8) == int8_t{-128});
+    CHECK(range_length<i8_all>() == 256);
+    CHECK(max_value<i8_all>() == i8_all::all);
+  }
+  if (true) {
+    using namespace strings;
+    CHECK(enum_as_string(i8_bits(0x80)) == "a");
+    CHECK(enum_as_string(i8_bits(-1)) == "a + b + c + d + e + f + g + h");
+    CHECK(enum_as_string(i8_all(5)) == "0x05");
+
+    i8_bits e{};
+    std::string_view sv = "a + h";
+    CHECK(extract_enum(e, sv));
+    CHECK(e == i8_bits(0x81));
+  }
+}
+
+#pragma endregion
 #pragma region HoleyOps
 
 TEST_CASE("HoleyOps", "[BitMaskTest]") {

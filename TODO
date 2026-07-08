@@ -171,3 +171,27 @@ Tooling improvements.
 10. Similarly, integrate CTrack for a different approach to timing.
 11. Install `rr`, for replay debugging
 
+-----
+
+Project ideas (2026-07-07). Larger arcs, not single fixes. Ordered roughly by appeal.
+
+P1. WebTransport over HTTP/3. The QUIC/HTTP/3 stack (proto/quic/roadmap.md) is done through a live HTTP/3 GET over the router, and quic_conn_handlers already wires on_recv_datagram / on_ack_datagram / on_lost_datagram with no consumer. WebTransport is the layer that consumes them: extended CONNECT, session negotiation (SETTINGS_WT_*), capsule protocol, session-scoped streams and datagrams. Same wrapping discipline as the ngtcp2/nghttp3 work. Payoff: Chrome speaks WebTransport natively, so the demo is a browser talking to our server with no JS library.
+
+P2. Revive CorvidSim on WebTransport. The tower-defense sim (sim/roadmap.md) has its combat loop stubbed behind `#if 0` (damage, kills, cooldowns, economy). Swap its WebSocket transport for WebTransport datagrams (unreliable state deltas) plus streams (reliable control). Natural second act to P1; also exercises the ECS.
+
+P3. QUIC connection migration + CID rotation. The one [planned] transport milestone in proto/quic/roadmap.md: NEW_CONNECTION_ID / RETIRE_CONNECTION_ID, path validation tokens, stateless reset, 4-tuple migration. Exercises the router's multi-key sessions under load, and forces the deferred interop test against `curl --http3` (which in turn forces the client cert-verification decision).
+
+P4. Native-Windows networking substrate. proto/ is Linux-only (epoll, io_uring), but ngtcp2/nghttp3/OpenSSL are portable; only the datagram substrate is not. An IOCP / overlapped-UDP backend behind the existing iou_dgram_router plugin seam would let QUIC (and P1) run natively on Windows.
+
+P5. corvid_assert / contract-violation framework: item 32 above. Unblocks the commented-out precondition tests and dovetails with error-handling-policy.md category 2.
+
+P6. Fuzzing: tooling item 3 above. Corvid is unusually fuzz-rich; harness candidates are json_parser, http_head_codec, the WebSocket frame parser, terminated_text_parser, base64, utf8_checker, and QUIC packet/CID parsing.
+
+P7. Bitmask-enum round 2: items 18c (binary printer), 18d (string-to-bitmask parser with a compile-time sorted name map), and 18f (some()/all() comparators) above, as one project.
+
+P8. Formatter forwarding helper. strings/roadmap.md stage 2 is paused on exactly this: a CRTP base or generator that turns "inherit and forward to the underlying type's formatter" into a one-line declaration, plus factoring the format_kind-disabling pattern. Then knock out the deferred tail (enum_variant, os_file, ...).
+
+P9. ECS scene graph. ecs/roadmap.md next-steps item 1 is already designed: scene_graph of scene_node objects holding generation-checked entity handles, JIT pruning of stale nodes, cascading deletion, optional tree-authoritative lifetime. First consumer could be P2.
+
+P10. PID auto-tuner: item 22 above. Self-contained and numerically fun; thematically adjacent to the game's flight-assist brake controller.
+

@@ -14,7 +14,9 @@ lives in `tests/` only; there is no root one. Build output lands in
 ## Commands
 
 ```sh
-./cleanbuild.sh                  # clean build + run all tests (libc++)
+./cleanbuild.sh                  # build + run all tests (libc++); incremental
+                                 # when the configuration is unchanged
+./cleanbuild.sh clean            # force a wipe + full recompile
 ./cleanbuild.sh libstdcpp        # use libstdc++
 ./cleanbuild.sh tidy             # also run clang-tidy
 ./cleanbuild.sh asan             # build + run with ASAN + UBSAN

@@ -76,18 +76,25 @@ constexpr inline auto enum_spec_v = base_enum_spec<std::byte>();
 
 namespace details {
 
-// Enum lookup helper to handle the case of numeric values, expecting empty
-// inputs.
+// Enum lookup helper to handle the case of numeric values, expecting
+// non-empty input.
 template<StdEnum E>
-[[nodiscard]] bool lookup_helper(E& v, std::string_view sv) {
+[[nodiscard]] constexpr bool lookup_helper(E& v, std::string_view sv) {
   // Input must be an integer. Caller checks for empty.
   assert(!sv.empty());
   char first = sv.front();
   if ((first < '0' || first > '9') && first != '-') return false;
 
+  // A "0x" or "0X" prefix selects hex, matching the printed residual form.
+  int base = 10;
+  if (sv.size() > 2 && sv[0] == '0' && (sv[1] == 'x' || sv[1] == 'X')) {
+    base = 16;
+    sv.remove_prefix(2);
+  }
+
   // Convert to enum value of integer.
   std::underlying_type_t<E> t;
-  auto [ptr, ec] = std::from_chars(sv.data(), sv.data() + sv.size(), t);
+  auto [ptr, ec] = std::from_chars(sv.data(), sv.data() + sv.size(), t, base);
   if (ec != std::errc{} || ptr != sv.data() + sv.size()) return false;
   v = static_cast<E>(t);
   return true;
@@ -96,7 +103,7 @@ template<StdEnum E>
 // Enum lookup helper to handle the case of numeric values, handling empty
 // inputs.
 template<StdEnum E>
-[[nodiscard]] bool lookup_helper_wrapper(E& v, std::string_view sv) {
+[[nodiscard]] constexpr bool lookup_helper_wrapper(E& v, std::string_view sv) {
   if (sv.empty()) return false;
   if (lookup_helper(v, sv)) return true;
   return false;

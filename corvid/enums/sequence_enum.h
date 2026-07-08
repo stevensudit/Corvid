@@ -16,6 +16,7 @@
 // limitations under the License.
 #pragma once
 #include <algorithm>
+#include <cassert>
 #include <string>
 #include <string_view>
 #include <stdexcept>
@@ -83,6 +84,17 @@ struct sequence_enum_spec
 template<typename E>
 concept SequentialEnum = (registry::enum_spec_v<E>.seq_valid_v);
 
+// Concept for a sequential enum registered with a name list.
+//
+// Only the names form of `make_sequence_enum_spec` provides the name
+// machinery, so `enum_name`, `enum_named_value`, and the name lookup functions
+// require this; a value-form registration is sequential but nameless.
+template<typename E>
+concept NamedSequentialEnum =
+    SequentialEnum<E> && requires(std::string_view sv) {
+      registry::enum_spec_v<E>.intern_name(sv);
+    };
+
 #pragma endregion
 #pragma region internal
 
@@ -92,7 +104,7 @@ inline namespace internal {
 template<typename E>
 constexpr auto seq_max_v = registry::enum_spec_v<E>.seq_max_v;
 
-// Minimum value (inclusive). Must be less than `seq_max_v`.
+// Minimum value (inclusive). Must be at most `seq_max_v`.
 template<typename E>
 constexpr auto seq_min_v = registry::enum_spec_v<E>.seq_min_v;
 
@@ -109,15 +121,24 @@ constexpr auto seq_max_num_v = as_underlying(seq_max_v<E>);
 template<typename E>
 constexpr auto seq_min_num_v = as_underlying(seq_min_v<E>);
 
-// Number of distinct values in range.
-// Wraps to 0 if it's the full range of the underlying type.
+// Number of distinct values in range, as a `uint64_t`.
+//
+// The subtraction of the widened values is exact for any underlying type and
+// signedness, so the count is always correct, with one exception: a range
+// spanning the full 64-bit underlying type wraps the count to 0, because the
+// true count (2^64) does not fit.
 template<typename E>
-constexpr auto seq_size_v = seq_max_num_v<E> - seq_min_num_v<E> + 1;
+constexpr auto seq_size_v =
+    static_cast<uint64_t>(seq_max_num_v<E>) -
+    static_cast<uint64_t>(seq_min_num_v<E>) + 1;
 
-// Whether wrapping is really needed. We don't need to wrap when the range
-// exactly fits the underlying type, because of modulo math.
+// Whether wrapping requires any work. A range spanning the entire underlying
+// type wraps by itself, because conversion to the type is modular.
 template<typename E>
-constexpr bool seq_actually_need_wrap_v = (seq_size_v<E> != 0);
+constexpr bool seq_actually_need_wrap_v =
+    seq_min_num_v<E> !=
+        std::numeric_limits<std::underlying_type_t<E>>::min() ||
+    seq_max_num_v<E> != std::numeric_limits<std::underlying_type_t<E>>::max();
 
 // Whether wrapping is really enabled. It's enabled only when we are asked to
 // wrap and actually need to.
@@ -125,19 +146,27 @@ template<typename E>
 constexpr bool seq_actually_wrap_v =
     seq_actually_need_wrap_v<E> && seq_wrap_v<E>;
 
-// Clip by modding to size when `mode` is `wrapclip::limit`.
-template<SequentialEnum E, wrapclip mode = wrapclip::limit>
-[[nodiscard]] constexpr auto clip(std::underlying_type_t<E> u) {
-  if constexpr (mode == wrapclip::limit && seq_actually_need_wrap_v<E>)
-    return u % seq_size_v<E>;
-  else
-    return u;
-}
-
-// Clip if wrapping enabled.
+// The nonnegative residue of `r` modulo the sequence size.
+//
+// A negative `r` is folded exactly: its magnitude is computed in unsigned
+// arithmetic (safe even for the type's minimum) and reflected around the size,
+// so the result is always in `[0, size)` and adding it is equivalent to adding
+// `r`.
 template<SequentialEnum E>
-[[nodiscard]] constexpr auto clip_if_wrap(std::underlying_type_t<E> u) {
-  return clip<E, seq_actually_wrap_v<E> ? wrapclip::limit : wrapclip::none>(u);
+[[nodiscard]] constexpr uint64_t
+seq_residue(std::underlying_type_t<E> r) noexcept {
+  static_assert(seq_actually_need_wrap_v<E>);
+  constexpr auto size = seq_size_v<E>;
+  auto mag = static_cast<uint64_t>(r);
+  bool neg{};
+  if constexpr (std::is_signed_v<decltype(r)>) {
+    if (r < 0) {
+      neg = true;
+      mag = 0 - mag;
+    }
+  }
+  const auto rem = mag % size;
+  return neg && rem ? size - rem : rem;
 }
 
 } // namespace internal
@@ -147,34 +176,38 @@ template<SequentialEnum E>
 
 // Cast integer value from underlying type to sequence, wrapping to keep it in
 // range.
-template<SequentialEnum E, wrapclip mode = wrapclip::limit>
+template<SequentialEnum E>
 [[nodiscard]] constexpr E make_safely(std::underlying_type_t<E> u) noexcept {
   // Wrapping is only meaningful if the underlying type is not a perfect fit.
   if constexpr (seq_actually_need_wrap_v<E>) {
+    using U = decltype(u);
     constexpr auto lo = seq_min_num_v<E>;
     constexpr auto hi = seq_max_num_v<E>;
     static_assert(lo <= hi);
-    using U = decltype(u);
+    constexpr auto size = seq_size_v<E>;
+    constexpr auto lo64 = static_cast<uint64_t>(lo);
+    constexpr auto hi64 = static_cast<uint64_t>(hi);
+    const auto u64 = static_cast<uint64_t>(u);
 
-    // Underflow is only possible if it starts above the underlying min.
-    if constexpr (lo != std::numeric_limits<U>::min()) {
-      if (u < lo) return E(hi + clip<E, mode>(u - lo + 1));
-    }
+    // Below the range: count down from `hi`, so `lo - 1` maps to `hi`.
+    if (u < lo)
+      return static_cast<E>(static_cast<U>(hi64 - ((lo64 - u64 - 1) % size)));
 
-    // Overflow is only possible if it ends below the underlying max.
-    if constexpr (hi != std::numeric_limits<U>::max()) {
-      if (u > hi) return E(lo + clip<E, mode>(u - hi - 1));
-    }
+    // Above the range: count up from `lo`, so `hi + 1` maps to `lo`.
+    if (u > hi)
+      return static_cast<E>(static_cast<U>(lo64 + ((u64 - hi64 - 1) % size)));
   }
   return static_cast<E>(u);
 }
 
-// Cast integer value from underlying type to sequence. When `wrapclip::limit`,
-// wraps value to ensure safety.
-template<SequentialEnum E, wrapclip mode = wrapclip::limit>
+// Cast integer value from underlying type to sequence.
+//
+// Wrapping is governed by the registration: only an `E` registered with
+// `wrapclip::limit` wraps. To wrap unconditionally, call `make_safely`.
+template<SequentialEnum E>
 [[nodiscard]] constexpr E make(std::underlying_type_t<E> u) noexcept {
   if constexpr (seq_actually_wrap_v<E>)
-    return make_safely<E, mode>(u);
+    return make_safely<E>(u);
   else
     return static_cast<E>(u);
 }
@@ -207,13 +240,25 @@ template<SequentialEnum E>
 
 // Only heterogeneous addition and subtraction operations are supported.
 //
-// When `wrapclip::limit`, all results are modulo the sequence size. Otherwise,
-// they are undefined when they exceed the range.
+// When registered with `wrapclip::limit`, all results are exact modulo the
+// sequence size, for any operand values, including ranges that hug the
+// extremes of the underlying type. Otherwise, they are undefined when they
+// exceed the range.
 template<SequentialEnum E>
 [[nodiscard]] constexpr E
 operator+(E l, std::underlying_type_t<E> r) noexcept {
-  return make<E, wrapclip::none>(
-      static_cast<std::underlying_type_t<E>>(*l + clip_if_wrap<E>(r)));
+  using U = std::underlying_type_t<E>;
+  if constexpr (seq_actually_wrap_v<E>) {
+    constexpr auto lo = static_cast<uint64_t>(seq_min_num_v<E>);
+    constexpr auto size = seq_size_v<E>;
+    const auto off = static_cast<uint64_t>(*l) - lo;
+    const auto radd = seq_residue<E>(r);
+    // Modular add of two offsets in `[0, size)`, phrased to avoid overflow.
+    const auto noff = (radd >= size - off) ? radd - (size - off) : off + radd;
+    return static_cast<E>(static_cast<U>(lo + noff));
+  } else {
+    return static_cast<E>(static_cast<U>(*l + r));
+  }
 }
 
 template<SequentialEnum E>
@@ -232,7 +277,7 @@ constexpr E& operator++(E& l) noexcept {
   if constexpr (seq_actually_wrap_v<E>)
     if (l == seq_max_v<E>) return l = seq_min_v<E>;
 
-  return l = E(l + 1);
+  return l = E(*l + 1);
 }
 
 template<SequentialEnum E>
@@ -248,8 +293,19 @@ template<SequentialEnum E>
 template<SequentialEnum E>
 [[nodiscard]] constexpr E
 operator-(E l, std::underlying_type_t<E> r) noexcept {
-  return make<E, wrapclip::none>(
-      static_cast<std::underlying_type_t<E>>(*l - clip_if_wrap<E>(r)));
+  using U = std::underlying_type_t<E>;
+  if constexpr (seq_actually_wrap_v<E>) {
+    constexpr auto lo = static_cast<uint64_t>(seq_min_num_v<E>);
+    constexpr auto size = seq_size_v<E>;
+    const auto off = static_cast<uint64_t>(*l) - lo;
+    const auto rsub = seq_residue<E>(r);
+    // Modular subtract of two offsets in `[0, size)`, phrased to avoid
+    // overflow.
+    const auto noff = (off >= rsub) ? off - rsub : size - (rsub - off);
+    return static_cast<E>(static_cast<U>(lo + noff));
+  } else {
+    return static_cast<E>(static_cast<U>(*l - r));
+  }
 }
 
 template<SequentialEnum E>
@@ -303,8 +359,11 @@ template<std::integral T>
 #pragma region range_length
 
 // Length of range: the count of values in `[min, max]`, including any unnamed
-// gaps. Returns 0 when the range spans the full underlying type and the count
-// wraps, matching the bitmask `range_length`.
+// gaps.
+//
+// Follows `seq_size_v`: exact for every range and signedness, except that a
+// range spanning the full 64-bit underlying type returns 0 (matching the
+// bitmask `range_length` convention), because the true count does not fit.
 template<SequentialEnum E>
 [[nodiscard]] constexpr auto range_length() noexcept {
   return static_cast<size_t>(seq_size_v<E>);
@@ -315,15 +374,15 @@ template<SequentialEnum E>
 
 // Look up the canonical name for value, or an empty view if it has none.
 // Requires `E` to be registered with a name list.
-template<SequentialEnum E>
+template<NamedSequentialEnum E>
 [[nodiscard]] constexpr cstring_view enum_as_view(E v) noexcept {
-  return registry::enum_spec_v<std::decay_t<E>>.find_name_by_enum(v);
+  return registry::enum_spec_v<E>.find_name_by_enum(v);
 }
 
 // Map a candidate name to the registry's own copy of it (interning), or an
 // empty view if it is not a registered name. Names only; never interprets
 // numeric text. Requires `E` to be registered with a name list.
-template<SequentialEnum E>
+template<NamedSequentialEnum E>
 [[nodiscard]] constexpr cstring_view
 enum_intern_name(std::string_view sv) noexcept {
   return registry::enum_spec_v<E>.intern_name(sv);
@@ -332,7 +391,7 @@ enum_intern_name(std::string_view sv) noexcept {
 // Linear search of a sequence enum's names for an exact match, returning the
 // enum, or nullopt. Names only; never interprets numeric text. Requires `E` to
 // be registered with a name list.
-template<SequentialEnum E>
+template<NamedSequentialEnum E>
 [[nodiscard]] constexpr std::optional<E>
 enum_find_by_name(std::string_view sv) noexcept {
   return registry::enum_spec_v<E>.find_enum_by_name(sv);
@@ -364,9 +423,9 @@ enum_find_by_name(std::string_view sv) noexcept {
 //
 //  void paint(color_name c) { ... }
 //
-//  paint{"red"};      // OK
-//  paint{"reed"};     // Compile error: not a registered name
-//  paint{color::red}; // OK
+//  paint("red");      // OK
+//  paint("reed");     // Compile error: not a registered name
+//  paint(color::red); // OK
 //
 //  consteval color_name operator""_color(const char* s, std::size_t n) {
 //    return color_name{s, n};
@@ -374,7 +433,7 @@ enum_find_by_name(std::string_view sv) noexcept {
 //
 //  auto c = "red"_color;  // OK
 //  auto d = "reed"_color; // Compile error: not a registered name
-template<SequentialEnum E>
+template<NamedSequentialEnum E>
 class enum_name: public string_view_wrapper<enum_name<E>> {
   using base = string_view_wrapper<enum_name<E>>;
   using base::operator->;
@@ -457,7 +516,7 @@ public:
 
   // Find enum at runtime. Can fail if `force` was used, hence the
   // `or_default`.
-  [[nodiscard]] E find_enum(E or_default = E{}) const noexcept {
+  [[nodiscard]] constexpr E find_enum(E or_default = E{}) const noexcept {
     return enum_find_by_name<E>(as_view()).value_or(or_default);
   }
 
@@ -478,7 +537,7 @@ protected:
 // resolved at compile time by the same constructors. Use it where a call site
 // needs the validated name and its enum together (e.g. to skip a runtime
 // name->enum lookup), without adding a field to the bare string view.
-template<SequentialEnum E>
+template<NamedSequentialEnum E>
 class enum_named_value: enum_name<E> {
   using force_tag = enum_name<E>::force_tag;
 
@@ -508,12 +567,12 @@ public:
   // throws.
   static constexpr auto intern(std::string_view sv, E e) {
     if (const auto self = try_intern(sv, e); self) return *self;
-    throw std::invalid_argument("enum has no registered name to intern");
+    throw std::invalid_argument("not a registered name for this enum");
   }
 
   // Intern at runtime.
   //
-  // If `sv` does not  match a name, throws.
+  // If `sv` does not match a name, throws.
   static constexpr auto intern(std::string_view sv) {
     if (const auto self = try_intern(sv); self) return *self;
     throw std::invalid_argument("not a registered name for this enum");
@@ -524,7 +583,7 @@ public:
   // If `e` does not have a name, throws.
   static constexpr auto intern(E e) {
     if (const auto self = try_intern(e); self) return *self;
-    throw std::invalid_argument("enum has no registered name to intern");
+    throw std::invalid_argument("not a registered name for this enum");
   }
 
   // Attempt to intern `sv` and `e` at runtime.
@@ -532,7 +591,7 @@ public:
   // If `e` does not have a name, or if `sv` is nonempty and does not match it,
   // fails so that the caller can use the `force`.
   static constexpr std::optional<enum_named_value<E>>
-  try_intern([[maybe_unused]] std::string_view sv, E e) {
+  try_intern(std::string_view sv, E e) {
     const auto self = try_intern(e);
     if (!self) return std::nullopt;
     if (!sv.empty() && sv != *self) return std::nullopt;
@@ -550,7 +609,7 @@ public:
 
   // Attempt to intern `sv`. If `sv` does not match a name, fails.
   static constexpr std::optional<enum_named_value<E>> try_intern(
-      [[maybe_unused]] std::string_view sv) {
+      std::string_view sv) {
     const auto value = enum_find_by_name<E>(sv);
     if (!value) return std::nullopt;
     const auto name = enum_as_view(*value);
@@ -570,7 +629,7 @@ public:
   // The caller vouches for the bytes and their lifetime, and the result of
   // calls with equal contents do not necessarily share storage.
   //
-  //  Note: There is no `try_force` (or `triforce`), only do `force`.
+  // Note: There is no `try_force` (or `triforce`), only do `force`.
   static constexpr auto force(std::string_view sv, E e) {
     if (sv.empty())
       throw std::invalid_argument("empty string is not a valid name");
@@ -689,6 +748,17 @@ template<strings::fixed_string names, std::integral U, size_t NameCount,
       if (field_end == seg_end) break;
       field = field_end + 1;
     }
+
+    // Reject a segment whose last value would pass the top of the underlying
+    // type, which the unsigned `max` arithmetic below would otherwise wrap
+    // silently. Compared exactly in unsigned space, so an oversized `length`
+    // cannot truncate its way past the check.
+    using UU = std::make_unsigned_t<U>;
+    if (length - 1 >
+        static_cast<uint64_t>(
+            static_cast<UU>(std::numeric_limits<U>::max()) -
+            static_cast<UU>(start)))
+      throw std::invalid_argument("segment overflows underlying type");
 
     name_segments.segments[segment_ndx] = enum_segment<U>{start, length};
     if (segment_ndx == 0) name_segments.min = start;

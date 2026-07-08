@@ -15,13 +15,14 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 #pragma once
+#include <cassert>
+
 #include "enums_shared.h"
 #include "../strings/fixed_string_utils.h"
 #include "../strings/targeting.h"
 #include "../strings/conversion.h"
 #include "../strings/delimiting.h"
 #include "../strings/splitting.h"
-#include "../containers/core/opt_find.h"
 #include "enum_registry.h"
 #include "scoped_enum.h"
 
@@ -30,9 +31,9 @@ inline namespace enums { namespace bitmask {
 
 #pragma region bitmask spec
 
-// A bitmask enum is a scoped enum (aka `enum class`) whose values are
-// made of bits that can be independently referenced. It satisfies the
-// BitmaskType named requirements, as defined by
+// A bitmask enum is a scoped enum (aka `enum class`) whose values are made of
+// bits that can be independently referenced. It satisfies the BitmaskType
+// named requirements, as defined by
 // https://en.cppreference.com/w/cpp/named_req/BitmaskType, while providing
 // some additional functionality.
 
@@ -99,7 +100,7 @@ inline namespace internal {
 
 // valid_bits_v
 //
-// The valid bits of the enum, as mask..
+// The valid bits of the enum, as mask.
 template<typename E>
 constexpr auto valid_bits_v = registry::enum_spec_v<E>.valid_bits_v;
 
@@ -154,7 +155,7 @@ template<BitmaskEnum E>
 }
 
 template<BitmaskEnum E>
-constexpr const E& operator|=(E& l, E r) noexcept {
+constexpr E& operator|=(E& l, E r) noexcept {
   return l = l | r;
 }
 
@@ -167,7 +168,7 @@ template<BitmaskEnum E>
 }
 
 template<BitmaskEnum E>
-constexpr const E& operator&=(E& l, E r) noexcept {
+constexpr E& operator&=(E& l, E r) noexcept {
   return l = l & r;
 }
 
@@ -180,7 +181,7 @@ template<BitmaskEnum E>
 }
 
 template<BitmaskEnum E>
-constexpr const E& operator^=(E& l, E r) noexcept {
+constexpr E& operator^=(E& l, E r) noexcept {
   return l = l ^ r;
 }
 
@@ -208,7 +209,7 @@ template<BitmaskEnum E>
 }
 
 template<BitmaskEnum E>
-constexpr const E& operator+=(E& l, E r) noexcept {
+constexpr E& operator+=(E& l, E r) noexcept {
   return l = l + r;
 }
 
@@ -221,7 +222,7 @@ template<BitmaskEnum E>
 }
 
 template<BitmaskEnum E>
-constexpr const E& operator-=(E& l, E r) noexcept {
+constexpr E& operator-=(E& l, E r) noexcept {
   return l = l - r;
 }
 
@@ -271,12 +272,12 @@ template<std::integral T>
 // This is the number of distinct values that are valid, if and only if valid
 // bits are contiguous.
 //
-// Note: If `max_value_v` is the same as the maximum value of `size_t`, returns
-// 0, which is confusing but technically correct, which is the best kind of
-// correct.
+// Note: A mask spanning all 64 bits wraps the count to 0, because the true
+// count (2^64) does not fit. This is confusing but technically correct, which
+// is the best kind of correct.
 template<BitmaskEnum E>
 [[nodiscard]] constexpr auto range_length() noexcept {
-  return to_integer<size_t>(max_value<E>()) + 1;
+  return static_cast<size_t>(valid_bits_v<E>) + 1;
 }
 
 #pragma endregion
@@ -303,6 +304,7 @@ template<BitmaskEnum E>
 // Note: `ndx` is 1-based, so `make_at(1)` sets the least significant bit.
 template<BitmaskEnum E>
 [[nodiscard]] constexpr E make_at(size_t ndx) noexcept {
+  assert(ndx >= 1 && ndx <= sizeof(std::underlying_type_t<E>) * 8);
   return make<E>(std::underlying_type_t<E>{1} << (ndx - 1));
 }
 
@@ -411,7 +413,7 @@ template<BitmaskEnum E>
 namespace details {
 // Helper function to append bitmask to target, using bit names.
 template<ScopedEnum E, size_t N>
-auto& do_bit_append(AppendTarget auto& target, E v,
+constexpr auto& do_bit_append(AppendTarget auto& target, E v,
     const std::array<std::string_view, N>& names) {
   static constexpr strings::delim plus(" + ");
   bool first{true};
@@ -436,7 +438,7 @@ auto& do_bit_append(AppendTarget auto& target, E v,
 
 // Helper function to append bitmask to target, using value names.
 template<ScopedEnum E, size_t N>
-auto& do_value_append(AppendTarget auto& target, E v,
+constexpr auto& do_value_append(AppendTarget auto& target, E v,
     const std::array<std::string_view, N>& names) {
   static constexpr strings::delim plus(" + ");
   constexpr size_t all_valid_bits = valid_bits_v<E>;
@@ -486,12 +488,15 @@ auto& do_value_append(AppendTarget auto& target, E v,
 template<ScopedEnum E, wrapclip bitclip = wrapclip{}, E validbits = E{},
     std::size_t N = 0>
 struct bitmask_enum_names_spec
-    : public bitmask_enum_spec<E, meta::as_underlying(validbits), bitclip> {
+    : public bitmask_enum_spec<E,
+          static_cast<std::make_unsigned_t<std::underlying_type_t<E>>>(
+              validbits),
+          bitclip> {
   constexpr bitmask_enum_names_spec(
       const std::array<std::string_view, N>& name_list)
       : names(name_list) {}
 
-  [[nodiscard]] auto& append(AppendTarget auto& target, E v) const {
+  [[nodiscard]] constexpr auto& append(AppendTarget auto& target, E v) const {
     if constexpr (N == bits_length<E>())
       return details::do_bit_append(target, v, names);
     else if constexpr (N)
@@ -501,10 +506,11 @@ struct bitmask_enum_names_spec
   }
 
   // Look up a bitmask value from `sv`. A bitmask may be given as one or more
-  // names or numbers joined by '+' (e.g. "red + blue"); each piece is looked
-  // up and the results are OR'd together. Every piece must be non-empty, so a
-  // leading, trailing, or doubled '+' is rejected. On success, sets `v` and
-  // returns true; on failure, returns false without setting `v`.
+  // names or numbers (decimal, or hex with a "0x" prefix) joined by '+' (e.g.
+  // "red + blue"); each piece is looked up and the results are OR'd together.
+  // Every piece must be non-empty, so a leading, trailing, or doubled '+' is
+  // rejected. On success, sets `v` and returns true; on failure, returns false
+  // without setting `v`.
   [[nodiscard]] bool lookup(E& v, std::string_view sv) const {
     E result{};
     E piece_value{};
@@ -550,7 +556,7 @@ struct bitmask_enum_names_spec
 // with the msb. For each non-empty name, sets the corresponding bit as valid.
 // Do not put a leading comma in the name list.
 //
-/// Whitespace is trimmed. An empty string or hyphen means invalid.
+// Whitespace is trimmed. An empty string or hyphen means invalid.
 template<strings::fixed_string bit_names>
 consteval uint64_t calc_valid_bits_from_bit_names() {
   static_assert(!strings::trim(bit_names.view(), " -").starts_with(","));
@@ -578,7 +584,7 @@ consteval uint64_t calc_valid_bits_from_bit_names() {
 /// Whitespace is trimmed.
 template<strings::fixed_string bit_names>
 consteval uint64_t calc_valid_bits_from_value_names() {
-  static_assert(contains(bit_names.view(), ','));
+  static_assert(bit_names.view().contains(','));
   constexpr auto name_array = strings::fixed_split_trim<bit_names, " -">();
   static_assert(name_array.size() <= 64,
       "value names list exceeds maximum of 64 values");
@@ -594,14 +600,13 @@ consteval uint64_t calc_valid_bits_from_value_names() {
 #pragma region make spec
 
 // Make an `enum_spec_v` from its valid bits, marking `E` as a bitmask enum.
-// If the enum has named value that is the maximum, pass that in for validbits.
-// Otherwise, specify the number explicitly.
+// If the enum has a named value that is the maximum, pass that in for
+// `validbits`. Otherwise, cast the number to `E` explicitly.
 //
 // Set `bitclip` to `wrapclip::limit` to enable clipping.
 //
 // The numerical value is printed in hex.
-template<ScopedEnum E, IntegerOrEnum auto validbits = 0,
-    wrapclip bitclip = wrapclip{}>
+template<ScopedEnum E, E validbits = E{}, wrapclip bitclip = wrapclip{}>
 consteval auto make_bitmask_enum_spec() {
   return details::bitmask_enum_names_spec<E, bitclip, validbits, 0>{
       std::array<std::string_view, 0>{}};
@@ -631,8 +636,8 @@ consteval auto make_bitmask_enum_spec() {
   constexpr auto name_count = name_array.size();
   constexpr auto valid_bits =
       details::calc_valid_bits_from_bit_names<bit_names>();
-  return details::bitmask_enum_names_spec<E, bitclip, E{valid_bits},
-      name_count>{filtered_names};
+  return details::bitmask_enum_names_spec<E, bitclip,
+      static_cast<E>(valid_bits), name_count>{filtered_names};
 }
 
 // Make a `enum_spec_v` from a list of value names, marking `E` as a bitmask
@@ -663,8 +668,10 @@ template<ScopedEnum E, strings::fixed_string bit_names,
   constexpr auto name_count = name_array.size();
   constexpr auto valid_bits =
       details::calc_valid_bits_from_value_names<bit_names>();
-  return details::bitmask_enum_names_spec<E, bitclip, E{valid_bits},
-      name_count>{trimmed_names};
+  static_assert(name_count > valid_bits,
+      "value names must cover every valid bit combination");
+  return details::bitmask_enum_names_spec<E, bitclip,
+      static_cast<E>(valid_bits), name_count>{trimmed_names};
 }
 
 #pragma endregion

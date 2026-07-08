@@ -127,12 +127,16 @@ Linux (`./cleanbuild.sh`) is unchanged. The full menu (libc++/libstdc++,
 asan/tsan/ubsan/msan, scan, coverage, single-file) is documented in the
 build-and-test skill.
 
-Windows (`./cleanbuild.ps1`) does a fresh Release configure, build, and ctest:
+Windows (`./cleanbuild.ps1`) does a Release configure, build, and ctest,
+incrementally when the configuration is unchanged (`clean` forces a fresh
+configure and full recompile):
 
 - `./cleanbuild.ps1`: clang++, portable suite plus CUDA (when the toolkit and a
   GPU are present).
-- `./cleanbuild.ps1 <name>_test.cpp` or `<name>_test.cu`: one test (via
-  `-DTEST_NAME=`). A `.cu` needs the default clang++ in a plain mode.
+- `./cleanbuild.ps1 <name>_test.cpp` or `<name>_test.cu`: one test (built via
+  `--target`, run via a ctest filter; the configure itself is never filtered,
+  so single-test and full runs share one configuration and object cache). A
+  `.cu` needs the default clang++ in a plain mode.
 - `./cleanbuild.ps1 cl`: portable suite via MSVC cl (no CUDA; see section 3).
 - `./cleanbuild.ps1 asan`: ASAN (which carries UBSAN), clang++ only.
 - `./cleanbuild.ps1 tidy`: run clang-tidy (`USE_CLANG_TIDY=ON`) during the build,
@@ -148,8 +152,9 @@ one), configures Ninja with the chosen compiler, builds with `-k 0`, and runs
 ctest. CUDA auto-enables when `nvcc` is on PATH and the mode is the default
 clang++ plain one: it passes `CORVID_ENABLE_CUDA=ON`, `CMAKE_CUDA_COMPILER`
 pointing at `clang++`, and an explicit `CMAKE_CUDA_ARCHITECTURES` from
-`nvidia-smi`. It uses `cmake --fresh` rather than wiping `tests/build`, because
-clangd holds an open handle on `compile_commands.json` there. The other Linux
+`nvidia-smi`. When it does reconfigure, it uses `cmake --fresh` rather than
+wiping `tests/build`, because clangd holds an open handle on
+`compile_commands.json` there. The other Linux
 cleanbuild modes (libc++/libstdc++ choice, msan/tsan, analyze-build scan,
 llvm-cov coverage, compiler-rt/lld swaps) have no MSVC analog and are absent.
 

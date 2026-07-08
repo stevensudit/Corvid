@@ -97,7 +97,7 @@ TEST_CASE("cuda_device_attr anchors wrap the matching CUDA constants",
     "[cuda][enums]") {
   for (const auto& c : attr_cases) {
     CAPTURE(c.name);
-    const int underlying = *c.value; // underlying value
+    const auto underlying = static_cast<int>(c.value); // underlying value
     CHECK(underlying == c.code);
     CHECK(enum_as_string(c.value) == c.name); // enum -> string
     cuda_device_attr parsed{};

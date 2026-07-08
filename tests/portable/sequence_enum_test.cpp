@@ -172,6 +172,20 @@ consteval auto corvid_enum_spec(eu64_large*) {
       wrapclip::limit, eu64_large{UINT64_C(10000000000000000000)}>();
 }
 
+// Range of 120 to 127. Tests wrapping on a range hugging the top of int8_t.
+enum class e120_127 : int8_t {};
+consteval auto corvid_enum_spec(e120_127*) {
+  return make_sequence_enum_spec<e120_127, e120_127{127}, e120_127{120},
+      wrapclip::limit>();
+}
+
+// Range of 248 to 255. Tests wrapping on a range hugging the top of uint8_t.
+enum class eu248_255 : uint8_t {};
+consteval auto corvid_enum_spec(eu248_255*) {
+  return make_sequence_enum_spec<eu248_255, eu248_255{255}, eu248_255{248},
+      wrapclip::limit>();
+}
+
 #pragma region MakeSafely
 
 TEST_CASE("MakeSafely", "[SequentialEnumTest]") {
@@ -416,6 +430,86 @@ TEST_CASE("SafeOps", "[SequentialEnumTest]") {
 }
 
 #pragma endregion
+#pragma region WrapExtremes
+
+// Regression tests: the wrap reduction used to alias when the distance from
+// the range overflowed the underlying type, and wrap arithmetic used to alias
+// on ranges hugging the extremes of the underlying type.
+TEST_CASE("WrapExtremes", "[SequentialEnumTest]") {
+  // Inputs far outside a nonzero-min range.
+  if (true) {
+    CHECK(make_safely<e10_13>(int8_t{-128}) == e10_13{12});
+    CHECK(make_safely<e10_13>(int8_t{-119}) == e10_13{13});
+    CHECK(make_safely<eneg3_3>(int8_t{127}) == eneg3_3{1});
+    CHECK(make<eu64_large>(UINT64_C(0)) ==
+          eu64_large{UINT64_C(10000000000000000002)});
+    CHECK(make<eu64_large>(UINT64_C(5)) ==
+          eu64_large{UINT64_C(10000000000000000001)});
+    CHECK(make<e64_large>(std::numeric_limits<int64_t>::min()) ==
+          e64_large{1000000000000});
+    CHECK(make<e64_large>(std::numeric_limits<int64_t>::max()) ==
+          e64_large{1000000000000});
+  }
+  // Arithmetic on a range hugging the top of int8_t.
+  if (true) {
+    auto e = e120_127{127};
+    CHECK(e + 7 == e120_127{126});
+    CHECK(e + 127 == e120_127{126});
+    CHECK(e - 7 == e120_127{120});
+    CHECK(e120_127{120} - 7 == e120_127{121});
+    CHECK(e120_127{120} + int8_t{-7} == e120_127{121});
+    CHECK(e120_127{120} + int8_t{-128} == e120_127{120});
+    ++e;
+    CHECK(e == e120_127{120});
+    --e;
+    CHECK(e == e120_127{127});
+  }
+  // Arithmetic on a range hugging the top of uint8_t.
+  if (true) {
+    CHECK(eu248_255{255} + 3 == eu248_255{250});
+    CHECK(eu248_255{255} + 255 == eu248_255{254});
+    CHECK(eu248_255{248} - 1 == eu248_255{255});
+    CHECK(make<eu248_255>(uint8_t{0}) == eu248_255{248});
+    CHECK(make<eu248_255>(uint8_t{5}) == eu248_255{253});
+  }
+  // The range count is exact even for full-type ranges.
+  if (true) {
+    CHECK(range_length<e0_255>() == 256);
+    CHECK(range_length<eneg128_127>() == 256);
+  }
+}
+
+#pragma endregion
+
+#pragma region NamedConcept
+
+// `NamedSequentialEnum` refines `SequentialEnum` to enums registered with a
+// name list, gating `enum_name`, `enum_named_value`, and the name lookups.
+//
+// Verified by instantiating `enum_name<e0_255>{"a"}`: before the concept, it
+// died inside the library ("no member named 'intern_name' in
+// 'sequence_enum_spec<e0_255, ...>'" at the `enum_intern_name` body, with the
+// user's line buried in the instantiation notes, plus a follow-on "call to
+// consteval function is not a constant expression"). With the concept, the
+// one error lands on the user's line: "constraints not satisfied for class
+// template 'enum_name' [with E = e0_255] ... because 'e0_255' does not
+// satisfy 'NamedSequentialEnum'".
+TEST_CASE("NamedConcept", "[SequentialEnumTest]") {
+  // Registered with names: sequential and named.
+  static_assert(SequentialEnum<e0_3>);
+  static_assert(NamedSequentialEnum<e0_3>);
+  static_assert(NamedSequentialEnum<tiger_pick>);
+
+  // Registered via the nameless value form: sequential but not named.
+  static_assert(SequentialEnum<e0_255>);
+  static_assert(!NamedSequentialEnum<e0_255>);
+
+  // Unregistered scoped enums are neither.
+  static_assert(!SequentialEnum<new_enum>);
+  static_assert(!NamedSequentialEnum<new_enum>);
+}
+
+#pragma endregion
 
 enum class tiger_nochoice : std::uint8_t { tiger };
 consteval auto corvid_enum_spec(tiger_nochoice*) {
@@ -570,6 +664,12 @@ TEST_CASE("ExtractEnum", "[SequentialEnumTest]") {
     CHECK(extract_enum(e, sv));
     CHECK(sv.empty());
     CHECK(e == tiger_pick::eeny);
+
+    // Hex numbers parse with a "0x" prefix.
+    sv = "0x3";
+    CHECK(extract_enum(e, sv));
+    CHECK(sv.empty());
+    CHECK(e == tiger_pick::moe);
 
     sv = "eeny";
     CHECK(extract_enum(e, sv));
