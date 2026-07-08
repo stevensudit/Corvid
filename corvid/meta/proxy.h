@@ -87,36 +87,38 @@ consteval auto operator""_method() noexcept {
 // `method_key<K>` from a method argument. This also leaves the door open for
 // bindings that overload on the full method (signature included) if per-name
 // overload sets are ever supported.
+namespace details {
+
+// Shared base for the four `method` flavors (`const` crossed with
+// `noexcept`): the qualification flags and result type, which are the only
+// things that vary. Also supplies the `method_key` base.
+template<fixed_string Name, bool Const, bool Noexcept, typename R>
+struct method_base: method_key<Name> {
+  static constexpr bool const_v = Const;
+  static constexpr bool noexcept_v = Noexcept;
+  using result_t = R;
+};
+
+} // namespace details
+
 template<fixed_string Name, typename Sig>
 struct method;
 
 template<fixed_string Name, typename R, typename... Args>
-struct method<Name, R(Args...)>: method_key<Name> {
-  static constexpr bool const_v = false;
-  static constexpr bool noexcept_v = false;
-  using result_t = R;
+struct method<Name, R(Args...)>: details::method_base<Name, false, false, R> {
 };
 
 template<fixed_string Name, typename R, typename... Args>
-struct method<Name, R(Args...) const>: method_key<Name> {
-  static constexpr bool const_v = true;
-  static constexpr bool noexcept_v = false;
-  using result_t = R;
-};
+struct method<Name, R(Args...) const>
+    : details::method_base<Name, true, false, R> {};
 
 template<fixed_string Name, typename R, typename... Args>
-struct method<Name, R(Args...) noexcept>: method_key<Name> {
-  static constexpr bool const_v = false;
-  static constexpr bool noexcept_v = true;
-  using result_t = R;
-};
+struct method<Name, R(Args...) noexcept>
+    : details::method_base<Name, false, true, R> {};
 
 template<fixed_string Name, typename R, typename... Args>
-struct method<Name, R(Args...) const noexcept>: method_key<Name> {
-  static constexpr bool const_v = true;
-  static constexpr bool noexcept_v = true;
-  using result_t = R;
-};
+struct method<Name, R(Args...) const noexcept>
+    : details::method_base<Name, true, true, R> {};
 
 #pragma endregion
 #pragma region Facade
@@ -487,11 +489,11 @@ private:
 // interchangeably, and allows views of views.
 template<Facade F>
 struct proxy_impl<F, proxy_view<F>> {
-  template<fixed_string K, typename... As>
+  template<fixed_string K, typename... Args>
   static constexpr decltype(auto)
-  on(method_key<K>, const proxy_view<F>& view, As&&... args) noexcept(
-      noexcept(view.template call<K>(std::forward<As>(args)...))) {
-    return view.template call<K>(std::forward<As>(args)...);
+  on(method_key<K>, const proxy_view<F>& view, Args&&... args) noexcept(
+      noexcept(view.template call<K>(std::forward<Args>(args)...))) {
+    return view.template call<K>(std::forward<Args>(args)...);
   }
 };
 
