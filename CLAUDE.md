@@ -16,7 +16,7 @@ When a function can fail, prefer returning a status over `void`. See [error-hand
 
 ## Build System
 
-Build and run one test with `./cleanbuild.sh/.ps1 <name>_test.cpp` (the common case; the arg is the test source filename), or `./cleanbuild.sh/.ps1` for a clean build of the whole suite. Never hand-run cmake/ninja in `tests/build/` (stale dir breaks FetchContent). Run `./format_all.sh/.ps1` before committing. See the `build-and-test` skill for the full menu (libstdc++, clang-tidy, sanitizers, MSAN setup) and the Catch2 test-writing conventions.
+Build and run one test with `./cleanbuild.sh/.ps1 <name>_test.cpp` (the common case; the arg is the test source filename), or `./cleanbuild.sh/.ps1` for the whole suite (incremental when the configuration is unchanged; add `clean` to force a full rebuild). Never hand-run cmake/ninja in `tests/build/` (stale dir breaks FetchContent). Run `./format_all.sh/.ps1` before committing. See the `build-and-test` skill for the full menu (libstdc++, clang-tidy, sanitizers, MSAN setup) and the Catch2 test-writing conventions.
 
 ## Code Style
 

@@ -17,6 +17,8 @@ set -e
 # is clang-only. Add "tidy" to run clang-tidy during the
 # build. Add a sanitizer mode ("asan" [which includes ubsan], "tsan", "ubsan",
 # or "msan") to instrument the build with the corresponding LLVM sanitizer.
+# The build is incremental when the configuration is unchanged; add "clean" to
+# force a wipe, fresh configure, and full recompile.
 # Add "coverage" to build with source-based coverage instrumentation and run
 # llvm-profdata/llvm-cov after tests pass; mutually exclusive with sanitizers
 # and tidy. Add "scan" to skip the build and run the Clang Static Analyzer
@@ -48,10 +50,11 @@ sanitizer=""
 use_coverage=false
 use_scan=false
 use_reconfigure=false
+use_clean=false
 test_name=""
 target_name=""
 
-usage="Usage: $0 [all | reconfigure | [testname.cpp|testname.cu] [clang|gcc] [libstdcpp|libcxx] [tidy] [asan|tsan|ubsan|msan] [coverage] [scan]]"
+usage="Usage: $0 [all | reconfigure | [testname.cpp|testname.cu] [clang|gcc] [libstdcpp|libcxx] [clean] [tidy] [asan|tsan|ubsan|msan] [coverage] [scan]]"
 
 # Enforce the core/utils band layering before any build (fast, static, and
 # build-independent). See corvid/deps.md.
@@ -93,7 +96,7 @@ if [[ $# -gt 0 && "$1" != "libstdcpp" && "$1" != "libcxx" \
       && "$1" != "tidy" && "$1" != "--tidy" \
       && "$1" != "asan" && "$1" != "tsan" && "$1" != "ubsan" \
       && "$1" != "msan" && "$1" != "coverage" && "$1" != "scan" \
-      && "$1" != "reconfigure" ]]; then
+      && "$1" != "clean" && "$1" != "reconfigure" ]]; then
   if [[ "$1" == *.cpp || "$1" == *.cu ]]; then
     test_name="$1"
     target_name="${test_name%.*}"
@@ -127,6 +130,9 @@ for arg in "$@"; do
     reconfigure)
       use_reconfigure=true
       ;;
+    clean)
+      use_clean=true
+      ;;
     *)
       echo "$usage" >&2
       exit 1
@@ -153,7 +159,7 @@ fi
 # the analyzer on every TU itself, so combining with anything that affects
 # the build (sanitizers, tidy, coverage, single-test filter) is meaningless.
 if $use_scan; then
-  if [[ -n "$sanitizer" ]] || $use_tidy || $use_coverage || [[ -n "$test_name" ]]; then
+  if [[ -n "$sanitizer" ]] || $use_tidy || $use_coverage || $use_clean || [[ -n "$test_name" ]]; then
     echo "$0: 'scan' takes no other arguments (configure-only static analysis)" >&2
     exit 1
   fi
@@ -162,7 +168,7 @@ fi
 # reconfigure is a configure-only full refresh of tests/build (for clangd's
 # compile_commands.json); it builds nothing and takes no other mode.
 if $use_reconfigure; then
-  if [[ -n "$sanitizer" ]] || $use_tidy || $use_coverage || $use_scan || [[ -n "$test_name" ]]; then
+  if [[ -n "$sanitizer" ]] || $use_tidy || $use_coverage || $use_scan || $use_clean || [[ -n "$test_name" ]]; then
     echo "$0: 'reconfigure' takes no other arguments (configure-only refresh)" >&2
     exit 1
   fi
@@ -235,10 +241,21 @@ else
   TIDY_OPTION=""
 fi
 
+# A named test scopes the build (--target) and the run (ctest -R), not the
+# configure: the full configure is a strict superset (TEST_NAME only prunes
+# targets), so leaving it out of the configure args lets single-test and
+# full-suite runs share one signature and one object cache, and keeps
+# compile_commands.json complete for clangd. Validate the filename here so a
+# typo gets a clear error rather than ninja's "unknown target".
 if [[ -n "$test_name" ]]; then
-  TEST_NAME_OPTION="-DTEST_NAME=$test_name"
-else
-  TEST_NAME_OPTION=""
+  found=false
+  for bucket in portable linux cuda; do
+    [[ -f "tests/$bucket/$test_name" ]] && found=true
+  done
+  if ! $found; then
+    echo "$0: test source '$test_name' not found under tests/{portable,linux,cuda}/" >&2
+    exit 1
+  fi
 fi
 
 if [[ -n "$sanitizer" ]]; then
@@ -276,27 +293,39 @@ buildRoot="tests/build"
 buildDir="$buildRoot/release_bin"
 sigFile="$buildRoot/.cleanbuild-config"
 
-# Signature of everything that determines the CMake configuration. When a
-# single-file build is requested and the existing build dir already carries a
-# matching signature, the configuration cannot have changed, so we skip the
-# wipe and the cold reconfigure (~19s of nvcc/find_package probing that would
-# only reproduce identical build files) and rebuild just the one target. A full
-# build, a changed option, a different file, or a first run all fall through to
-# the clean path. Editing CMakeLists.txt still reconfigures: `cmake --build`
-# re-runs CMake itself when the lists file is newer than the cache.
-configSig="$LIBSTD_OPTION|$TIDY_OPTION|$TEST_NAME_OPTION|$SAN_OPTION|$COV_OPTION|$CUDA_OPTION|$NDEBUG_OPTION|CC=$CC|CXX=$CXX"
+# Signature of everything that determines the CMake configuration. When the
+# existing build dir already carries a matching signature, the configuration
+# cannot have changed, so we skip the wipe and the cold reconfigure (~19s of
+# nvcc/find_package probing that would only reproduce identical build files)
+# and let ninja rebuild incrementally. A changed option, a first run, or an
+# explicit "clean" falls through to the wipe-and-reconfigure path. Some modes
+# always take that path: tidy because clang-tidy runs as part of compilation,
+# so an incremental no-op build would analyze nothing and report a falsely
+# clean summary; msan because the ignorelist affects codegen but is not a
+# ninja dependency, so an incremental build would keep stale objects after an
+# ignorelist edit (CCACHE_EXTRAFILES only fixes ccache hits on recompiles, not
+# skipped recompiles); scan and reconfigure because they are configure-only.
+# Editing CMakeLists.txt still reconfigures: `cmake --build` re-runs CMake
+# itself when the lists file is newer than the cache.
+configSig="$LIBSTD_OPTION|$TIDY_OPTION|$SAN_OPTION|$COV_OPTION|$CUDA_OPTION|$NDEBUG_OPTION|CC=$CC|CXX=$CXX"
 
 reuse=false
-if [[ -n "$test_name" ]] && ! $use_scan &&
+if ! $use_clean && ! $use_tidy && ! $use_scan && ! $use_reconfigure &&
+  [[ "$sanitizer" != "msan" ]] &&
   [[ -f "$sigFile" && "$(cat "$sigFile")" == "$configSig" ]]; then
   reuse=true
 fi
 
 if $reuse; then
-  echo "Reusing configured build dir for $test_name (config unchanged); skipping wipe and reconfigure."
-  # "Clean" still means a fresh executable: drop just this target's binary so
-  # it relinks, leaving the cached objects and configuration in place.
-  rm -f "$buildDir/$target_name"
+  if [[ -n "$test_name" ]]; then
+    echo "Reusing configured build dir for $test_name (config unchanged); skipping wipe and reconfigure."
+    # A named test still gets a fresh executable: drop just this target's
+    # binary so it relinks, leaving the cached objects and configuration in
+    # place.
+    rm -f "$buildDir/$target_name"
+  else
+    echo "Reusing configured build dir (config unchanged); incremental build."
+  fi
 else
   # Clean any stray artifacts from a legacy in-source build at the repo root.
   rm -f CMakeCache.txt cmake_install.cmake ClangExeProject.sln build.ninja
@@ -312,15 +341,14 @@ else
   mkdir -p "$buildRoot" "$buildDir"
 
   # Run cmake to configure the project with Ninja and the selected compiler.
-  cmake -S tests -B "$buildRoot" -G "Ninja" $LIBSTD_OPTION $TIDY_OPTION $TEST_NAME_OPTION $SAN_OPTION $COV_OPTION $CUDA_OPTION $NDEBUG_OPTION
+  cmake -S tests -B "$buildRoot" -G "Ninja" $LIBSTD_OPTION $TIDY_OPTION $SAN_OPTION $COV_OPTION $CUDA_OPTION $NDEBUG_OPTION
 
   # Record the signature so the next matching single-file run can reuse this.
   echo "$configSig" >"$sigFile"
 fi
 
 # reconfigure stops here: the configure above already regenerated a full
-# compile_commands.json (no TEST_NAME filter), which is all clangd needs. No
-# build, no ctest.
+# compile_commands.json, which is all clangd needs. No build, no ctest.
 if $use_reconfigure; then
   echo "Reconfigured $buildRoot; compile_commands.json refreshed for clangd."
   exit 0
@@ -372,7 +400,7 @@ if $use_scan; then
   exit 0
 fi
 
-# Run the build (this will compile everything from scratch)
+# Run the build: everything from scratch after a wipe, incremental on reuse.
 if $use_tidy; then
   tidyLogFile="$(pwd)/$buildRoot/tidy.log"
   if [[ -n "$target_name" ]]; then
@@ -403,6 +431,11 @@ if [[ -z "${CTEST_PARALLEL_LEVEL:-}" ]]; then
 fi
 if [[ -z "$sanitizer" ]]; then
   ctest_args+=(--stop-on-failure)
+fi
+# A named test runs alone: the unfiltered configure registers every test, so
+# scope ctest to the one target.
+if [[ -n "$target_name" ]]; then
+  ctest_args+=(-R "^${target_name}$")
 fi
 
 # Coverage: each test process writes its own raw profile to
@@ -485,15 +518,21 @@ if $use_coverage; then
 
   # Collect every test binary (skip notest_* since they don't run). Pass the
   # first as the positional binary and the rest via -object= so llvm-cov sees
-  # all counters.
-  shopt -s nullglob
+  # all counters. A named test scopes the report to its own binary: on a
+  # reused tree, binaries from earlier runs may exist but ran nothing, and
+  # their zero counters would dilute the report.
   bins=()
-  for f in "$buildDir"/*; do
-    base="$(basename "$f")"
-    [[ "$base" == notest_* ]] && continue
-    [[ -x "$f" && -f "$f" ]] && bins+=("$f")
-  done
-  shopt -u nullglob
+  if [[ -n "$target_name" ]]; then
+    bins=("$buildDir/$target_name")
+  else
+    shopt -s nullglob
+    for f in "$buildDir"/*; do
+      base="$(basename "$f")"
+      [[ "$base" == notest_* ]] && continue
+      [[ -x "$f" && -f "$f" ]] && bins+=("$f")
+    done
+    shopt -u nullglob
+  fi
   if [[ ${#bins[@]} -eq 0 ]]; then
     echo "No test binaries found in $buildDir/" >&2
     exit 1

@@ -1,6 +1,8 @@
 # cleanbuild.ps1 - Windows build driver for the portable and CUDA test
-# buckets. Mirrors cleanbuild.sh's role on Linux: configure a fresh, optimized
-# (release) build against the MSVC STL and run ctest. Like the Linux clang/gcc
+# buckets. Mirrors cleanbuild.sh's role on Linux: configure an optimized
+# (release) build against the MSVC STL and run ctest. The build is incremental
+# when the configuration is unchanged; pass `clean` to force a fresh configure
+# and full recompile. Like the Linux clang/gcc
 # split, the compiler is selectable: clang++ (default) or MSVC cl. clang++ uses
 # a GNU-style driver targeting the MSVC ABI (the same driver as Linux clang),
 # and is also what compiles the CUDA bucket. ASAN is supported under clang++,
@@ -18,6 +20,8 @@
 #
 # Usage (args combine in any order):
 #   ./cleanbuild.ps1                     clang++, portable + CUDA suite, ctest
+#                                        (incremental when config is unchanged)
+#   ./cleanbuild.ps1 clean               force a fresh configure + full recompile
 #   ./cleanbuild.ps1 reconfigure         configure-only full refresh of tests/build
 #                                        (regenerates compile_commands.json for clangd)
 #   ./cleanbuild.ps1 strings_test.cpp    build and run just that one test
@@ -41,13 +45,15 @@ $clangXx = "$llvmRoot/bin/clang++.exe"
 
 # Parse args: a *.cpp or *.cu name selects one test; clang|cl picks the
 # compiler; asan picks the sanitizer; tidy runs clang-tidy during the build;
-# cudacheck runs the CUDA tests under compute-sanitizer (the device analog of asan).
+# cudacheck runs the CUDA tests under compute-sanitizer (the device analog of
+# asan); clean forces a fresh configure and full recompile.
 $testName = ''
 $compiler = 'clang'
 $sanitizer = ''
 $cudacheck = $false
 $tidy = $false
 $reconfigure = $false
+$clean = $false
 foreach ($a in $Rest) {
   switch -Regex ($a) {
     '\.(cpp|cu)$' { $testName = $a }
@@ -57,7 +63,8 @@ foreach ($a in $Rest) {
     '^cudacheck$' { $cudacheck = $true }
     '^(tidy|--tidy)$' { $tidy = $true }
     '^reconfigure$' { $reconfigure = $true }
-    default { throw "Unrecognized argument '$a' (expected <name>_test.cpp, <name>_test.cu, clang|cl, asan, tidy, cudacheck, or reconfigure)" }
+    '^clean$' { $clean = $true }
+    default { throw "Unrecognized argument '$a' (expected <name>_test.cpp, <name>_test.cu, clang|cl, asan, tidy, cudacheck, clean, or reconfigure)" }
   }
 }
 if ($sanitizer -and $compiler -eq 'cl') {
@@ -79,7 +86,7 @@ if ($tidy -and ($sanitizer -or $cudacheck)) {
 }
 # reconfigure is a configure-only full refresh of tests/build (for clangd's
 # compile_commands.json); it builds nothing and takes no other mode.
-if ($reconfigure -and ($testName -or $sanitizer -or $cudacheck -or $tidy -or ($compiler -eq 'cl'))) {
+if ($reconfigure -and ($testName -or $sanitizer -or $cudacheck -or $tidy -or $clean -or ($compiler -eq 'cl'))) {
   throw 'reconfigure is a standalone configure-only refresh; it takes no test name, compiler, or analysis mode.'
 }
 
@@ -137,6 +144,21 @@ if ($cudacheck -and -not $cudaArgs) {
   throw 'cudacheck needs the CUDA toolkit (nvcc + a GPU) in the default clang++ build.'
 }
 
+# A named test scopes the build (--target) and the run (ctest -R), not the
+# configure: the full configure is a strict superset (TEST_NAME only prunes
+# targets), so leaving it out of the configure args lets single-test and
+# full-suite runs share one signature and one object cache, and keeps
+# compile_commands.json complete for clangd. Validate the filename here so a
+# typo gets a clear error rather than ninja's "unknown target".
+$stem = ''
+if ($testName) {
+  $buckets = @('portable', 'windows', 'cuda', 'cuda/windows')
+  if (-not ($buckets | Where-Object { Test-Path (Join-Path $srcDir "$_/$testName") })) {
+    throw "test source '$testName' not found under tests/ ($($buckets -join ', '))"
+  }
+  $stem = [IO.Path]::GetFileNameWithoutExtension($testName)
+}
+
 # Configure fresh. `cmake --fresh` clears the cache and CMakeFiles/ and
 # reconfigures in place WITHOUT deleting tests/build - on Windows clangd keeps an
 # open handle to compile_commands.json, which would block a directory wipe (a
@@ -147,7 +169,6 @@ if ($cudacheck -and -not $cudaArgs) {
 # path).
 $cfg = @('--fresh', '-S', $srcDir, '-B', $bldDir, '-G', 'Ninja',
   "-DCMAKE_CXX_COMPILER=$cxx", '-DCMAKE_BUILD_TYPE=Release')
-if ($testName) { $cfg += "-DTEST_NAME=$testName" }
 if ($sanitizer) { $cfg += "-DSANITIZER=$sanitizer" }
 if ($tidy) {
   $clangTidy = "$llvmRoot/bin/clang-tidy.exe"
@@ -170,25 +191,32 @@ $cfgLabel = if ($tidy) { 'Release, asserts-live' } else { 'Release' }
 Write-Host "Compiler: $compiler   Mode: $mode ($cfgLabel)$(if ($testName) { "   Test: $testName" })"
 
 # Signature of everything that determines the configuration (the configure args
-# themselves). When a single-file build is requested and the build dir already
-# carries a matching signature, the configuration cannot have changed, so skip
-# the cold reconfigure (the ~20s of nvcc/find_package probing that would only
-# reproduce identical build files) and rebuild just that target. A full build, a
-# changed option, a different file, or a first run all fall through to configure.
+# themselves). When the build dir already carries a matching signature, the
+# configuration cannot have changed, so skip the cold reconfigure (the ~20s of
+# nvcc/find_package probing that would only reproduce identical build files)
+# and let ninja rebuild incrementally. A changed option, a first run, or an
+# explicit `clean` falls through to the fresh configure, which wipes
+# CMakeFiles/ (where ninja keeps every object file) and so recompiles
+# everything. tidy always takes the fresh path: clang-tidy runs as part of
+# compilation, so an incremental no-op build would analyze nothing and report
+# a falsely clean summary. reconfigure always configures (that is its job).
 # Editing CMakeLists.txt still reconfigures: `cmake --build` re-runs CMake when
 # the lists file is newer than the cache. Mirrors cleanbuild.sh.
 $sigFile = Join-Path $bldDir '.cleanbuild-config'
 $configSig = ($cfg -join '|')
-$reuse = $testName -and (Test-Path $sigFile) -and
+$reuse = -not ($clean -or $tidy -or $reconfigure) -and (Test-Path $sigFile) -and
   (Test-Path (Join-Path $bldDir 'CMakeCache.txt')) -and
   ((Get-Content $sigFile -Raw).Trim() -eq $configSig)
 
 if ($reuse) {
-  Write-Host "Reusing configured build dir for $testName (config unchanged); skipping reconfigure."
-  # "Clean" still means a fresh executable: drop just this target's binary so it
-  # relinks, leaving the cached objects and configuration in place.
-  $stem = [IO.Path]::GetFileNameWithoutExtension($testName)
-  Remove-Item (Join-Path $bldDir "release_bin/$stem.exe") -Force -ErrorAction SilentlyContinue
+  if ($testName) {
+    Write-Host "Reusing configured build dir for $testName (config unchanged); skipping reconfigure."
+    # A named test still gets a fresh executable: drop just this target's binary
+    # so it relinks, leaving the cached objects and configuration in place.
+    Remove-Item (Join-Path $bldDir "release_bin/$stem.exe") -Force -ErrorAction SilentlyContinue
+  } else {
+    Write-Host 'Reusing configured build dir (config unchanged); incremental build.'
+  }
 } else {
   cmake @cfg
   if ($LASTEXITCODE) { throw "configure failed ($LASTEXITCODE)" }
@@ -197,8 +225,7 @@ if ($reuse) {
 }
 
 # reconfigure stops here: the configure above already regenerated a full
-# compile_commands.json (no TEST_NAME filter), which is all clangd needs. No
-# build, no ctest.
+# compile_commands.json, which is all clangd needs. No build, no ctest.
 if ($reconfigure) {
   Write-Host "Reconfigured $bldDir; compile_commands.json refreshed for clangd."
   exit 0
@@ -217,19 +244,21 @@ if ($cudacheck) {
   }
 }
 
-# Build, keep-going so all failures surface in one pass. cudacheck (without a
-# single named test) builds only the cuda targets. tidy tees the build output to
-# a log (clang-tidy warnings stream during compilation) and does NOT throw on a
-# nonzero result: a .clang-tidy WarningsAsErrors fails the build, but we still
-# want to reach the summary, and a real compile break surfaces via ctest below.
+# Build, keep-going so all failures surface in one pass. A named test builds
+# only its target; cudacheck (without a single named test) builds only the cuda
+# targets. tidy tees the build output to a log (clang-tidy warnings stream
+# during compilation) and does NOT throw on a nonzero result: a .clang-tidy
+# WarningsAsErrors fails the build, but we still want to reach the summary, and
+# a real compile break surfaces via ctest below.
 $tidyLog = Join-Path $bldDir 'tidy.log'
+$tgtArgs = if ($testName) { @('--target', $stem) } else { @() }
 if ($tidy) {
-  cmake --build $bldDir -- -k 0 2>&1 | Tee-Object $tidyLog
+  cmake --build $bldDir @tgtArgs -- -k 0 2>&1 | Tee-Object $tidyLog
 } elseif ($cudacheck -and -not $testName) {
   cmake --build $bldDir --target $cudaTests -- -k 0
   if ($LASTEXITCODE) { throw "build failed ($LASTEXITCODE)" }
 } else {
-  cmake --build $bldDir -- -k 0
+  cmake --build $bldDir @tgtArgs -- -k 0
   if ($LASTEXITCODE) { throw "build failed ($LASTEXITCODE)" }
 }
 
@@ -244,9 +273,17 @@ if ($tidy -and $cudaArgs) {
   $db = Join-Path $bldDir 'compile_commands.json'
   $cuSources = @((Get-Content $db -Raw | ConvertFrom-Json) |
     Where-Object { $_.file -like '*.cu' } | ForEach-Object { $_.file } | Sort-Object -Unique)
-  Write-Host "Running clang-tidy on $($cuSources.Count) CUDA source(s) (the build launcher skips .cu)..."
-  foreach ($src in $cuSources) {
-    & $clangTidy -p $bldDir --quiet $src 2>&1 | Add-Content $tidyLog
+  # A named test scopes this pass too: just that file for a .cu, none for a
+  # .cpp (the compile DB always lists every .cu now that the configure is
+  # unfiltered).
+  if ($testName) {
+    $cuSources = @($cuSources | Where-Object { [IO.Path]::GetFileName($_) -eq $testName })
+  }
+  if ($cuSources.Count) {
+    Write-Host "Running clang-tidy on $($cuSources.Count) CUDA source(s) (the build launcher skips .cu)..."
+    foreach ($src in $cuSources) {
+      & $clangTidy -p $bldDir --quiet $src 2>&1 | Add-Content $tidyLog
+    }
   }
 }
 
@@ -311,7 +348,6 @@ if ($cudacheck) {
 # notest_* sources opt out of CTest, so a build-everything run skips them (the
 # point of the prefix). But an explicit single-file request means "build AND run
 # this one", so run the binary directly, mirroring cleanbuild.sh.
-$stem = if ($testName) { [IO.Path]::GetFileNameWithoutExtension($testName) } else { '' }
 if ($stem -like 'notest_*') {
   $bin = Join-Path $bldDir "release_bin/$stem.exe"
   if (Test-Path $bin) {
@@ -323,7 +359,11 @@ if ($stem -like 'notest_*') {
     $ctestRc = 1
   }
 } else {
-  ctest --test-dir $bldDir --output-on-failure
+  # A named test runs alone: the unfiltered configure registers every test, so
+  # scope ctest to the one target.
+  $ctestArgs = @('--test-dir', $bldDir, '--output-on-failure')
+  if ($stem) { $ctestArgs += @('-R', "^$stem$") }
+  ctest @ctestArgs
   $ctestRc = $LASTEXITCODE
 }
 
