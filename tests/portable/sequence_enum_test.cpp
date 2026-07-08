@@ -172,6 +172,20 @@ consteval auto corvid_enum_spec(eu64_large*) {
       wrapclip::limit, eu64_large{UINT64_C(10000000000000000000)}>();
 }
 
+// Range of 120 to 127. Tests wrapping on a range hugging the top of int8_t.
+enum class e120_127 : int8_t {};
+consteval auto corvid_enum_spec(e120_127*) {
+  return make_sequence_enum_spec<e120_127, e120_127{127}, e120_127{120},
+      wrapclip::limit>();
+}
+
+// Range of 248 to 255. Tests wrapping on a range hugging the top of uint8_t.
+enum class eu248_255 : uint8_t {};
+consteval auto corvid_enum_spec(eu248_255*) {
+  return make_sequence_enum_spec<eu248_255, eu248_255{255}, eu248_255{248},
+      wrapclip::limit>();
+}
+
 #pragma region MakeSafely
 
 TEST_CASE("MakeSafely", "[SequentialEnumTest]") {
@@ -412,6 +426,56 @@ TEST_CASE("SafeOps", "[SequentialEnumTest]") {
     CHECK(*e == 0);
     e -= 4 * 4;
     CHECK(*e == 0);
+  }
+}
+
+#pragma endregion
+#pragma region WrapExtremes
+
+// Regression tests: the wrap reduction used to alias when the distance from
+// the range overflowed the underlying type, and wrap arithmetic used to alias
+// on ranges hugging the extremes of the underlying type.
+TEST_CASE("WrapExtremes", "[SequentialEnumTest]") {
+  // Inputs far outside a nonzero-min range.
+  if (true) {
+    CHECK(make_safely<e10_13>(int8_t{-128}) == e10_13{12});
+    CHECK(make_safely<e10_13>(int8_t{-119}) == e10_13{13});
+    CHECK(make_safely<eneg3_3>(int8_t{127}) == eneg3_3{1});
+    CHECK(make<eu64_large>(UINT64_C(0)) ==
+          eu64_large{UINT64_C(10000000000000000002)});
+    CHECK(make<eu64_large>(UINT64_C(5)) ==
+          eu64_large{UINT64_C(10000000000000000001)});
+    CHECK(make<e64_large>(std::numeric_limits<int64_t>::min()) ==
+          e64_large{1000000000000});
+    CHECK(make<e64_large>(std::numeric_limits<int64_t>::max()) ==
+          e64_large{1000000000000});
+  }
+  // Arithmetic on a range hugging the top of int8_t.
+  if (true) {
+    auto e = e120_127{127};
+    CHECK(e + 7 == e120_127{126});
+    CHECK(e + 127 == e120_127{126});
+    CHECK(e - 7 == e120_127{120});
+    CHECK(e120_127{120} - 7 == e120_127{121});
+    CHECK(e120_127{120} + int8_t{-7} == e120_127{121});
+    CHECK(e120_127{120} + int8_t{-128} == e120_127{120});
+    ++e;
+    CHECK(e == e120_127{120});
+    --e;
+    CHECK(e == e120_127{127});
+  }
+  // Arithmetic on a range hugging the top of uint8_t.
+  if (true) {
+    CHECK(eu248_255{255} + 3 == eu248_255{250});
+    CHECK(eu248_255{255} + 255 == eu248_255{254});
+    CHECK(eu248_255{248} - 1 == eu248_255{255});
+    CHECK(make<eu248_255>(uint8_t{0}) == eu248_255{248});
+    CHECK(make<eu248_255>(uint8_t{5}) == eu248_255{253});
+  }
+  // The range count is exact even for full-type ranges.
+  if (true) {
+    CHECK(range_length<e0_255>() == 256);
+    CHECK(range_length<eneg128_127>() == 256);
   }
 }
 
