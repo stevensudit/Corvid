@@ -38,8 +38,8 @@ struct gunslinger
           prox::method<"shots", int&()>> {};             //
 
 // This base class for proxy_impl<gunslinger, T> would not normally be
-// necessary, but it's used for `sheriff`. It also wouldn't need `prox::method`
-// to be fully specified.
+// necessary, but it's used for `sheriff`. It also wouldn't need
+// `prox::method_key` to be scoped to its namespace.
 template<typename T>
 struct proxy_impl_gunslinger {
   static int on(prox::method_key<"fire">, T& t, int rounds) {
@@ -52,8 +52,10 @@ struct proxy_impl_gunslinger {
   static int& on(prox::method_key<"shots">, T& t) { return t.shots(); }
 };
 
-// Boilerplate impl for `gunslinger`: written once by the facade author,
-// generic over any registered type whose member names line up.
+// Boilerplate impl for `gunslinger`.
+//
+// Written once by the facade author, generic over any registered type whose
+// member names line up.
 //
 // Again, it would normally contain the guts of what's been moved to
 // `proxy_impl_gunslinger`.
@@ -61,7 +63,7 @@ template<typename T>
 requires prox::ProxyRegistered<gunslinger, T>
 struct prox::proxy_impl<gunslinger, T>: proxy_impl_gunslinger<T> {};
 
-// A type whose method names line up with the facade; conforms by
+// A type whose method names line up with the facade. Conforms by
 // registration through the boilerplate impl.
 struct lawman {
   int fire(int rounds) {
@@ -78,12 +80,15 @@ struct lawman {
   int rounds_fired{};
 };
 
-// Registration for `lawman`: pure opt-in, one hook, no bindings.
+// Registration for `lawman`. Pure opt-in, one hook, no bindings.
 consteval auto corvid_proxy_spec(gunslinger*, lawman*) {
   return prox::make_proxy_spec<gunslinger, lawman>();
 }
 
 // Exactly like a lawman, but with a different name. Works automatically.
+// Note that, if this subclass were more significant, it would run into
+// problems caused by the lack of a virtual destructor in the base. However,
+// combining `virtual` and `proxy` is a code smell.
 struct deputy: public lawman {
   // NOLINTNEXTLINE(bugprone-derived-method-shadowing-base-method)
   [[nodiscard]] std::string describe() const {
@@ -92,7 +97,7 @@ struct deputy: public lawman {
   }
 };
 
-// A type with the right shape but the wrong names; conforms through an
+// A type with the right shape but the wrong names. Conforms through an
 // explicit impl, with no registration.
 struct robber {
   int shoot(int rounds) {
@@ -169,7 +174,7 @@ struct cowboy {
   int count{};
 };
 
-// A facade with noexcept methods: conformance requires the bindings
+// A facade with noexcept methods. Conformance requires the bindings
 // themselves to be noexcept.
 struct hair_trigger
     : prox::facade<                                //
@@ -251,7 +256,7 @@ consteval auto corvid_proxy_spec(lockbox*, strongbox<Pad>*) {
   return prox::make_proxy_spec<lockbox, strongbox<Pad>>();
 }
 
-// One size fits the inline buffer exactly; the other forces the heap path.
+// One size fits the inline buffer exactly, the other forces the heap path.
 using small_box = strongbox<4>;
 using big_box = strongbox<64>;
 static_assert(sizeof(small_box) <= proxy<lockbox>::sbo_size);
@@ -273,7 +278,7 @@ static_assert(!std::derived_from<prox::method<"fire", int(int)>,
 // UDL: `"name"_method` is a `prox::method_key<"name">`.
 static_assert(std::same_as<decltype("fire"_method), prox::method_key<"fire">>);
 
-// Registration state: lawman is registered, robber conforms without
+// Registration state. Lawman is registered, robber conforms without
 // registration, cowboy neither registers nor conforms.
 static_assert(prox::ProxyRegistered<gunslinger, lawman>);
 static_assert(prox::ProxyRegistered<gunslinger, deputy>);
@@ -283,7 +288,7 @@ static_assert(!prox::ProxyRegistered<gunslinger, cowboy>);
 static_assert(std::same_as<decltype(prox::proxy_spec_v<gunslinger, lawman>),
     const prox::proxy_spec<gunslinger, lawman>>);
 
-// Conformance: boilerplate via registration, explicit impl directly, and
+// Conformance. Boilerplate via registration, explicit impl directly, and
 // matching names alone are NOT enough.
 //
 // Diagnostics on record (clang 22, captured 2026-07-08). Constructing
@@ -336,7 +341,7 @@ static_assert(std::assignable_from<proxy_view<gunslinger>&,
 static_assert(!std::copy_constructible<proxy<gunslinger>>);
 static_assert(std::movable<proxy<gunslinger>>);
 
-// Deep const: non-const facade methods are not callable on a const handle,
+// Deep const. The non-const facade methods are not callable on a const handle,
 // and never exist on a `const_proxy_view` at all. The probes go through a
 // concept so the negative case is a constraint failure rather than a hard
 // error (a requires-expression outside a template does not get SFINAE).
@@ -355,7 +360,7 @@ static_assert(!CanFire<const_proxy_view<gunslinger>>);
 static_assert(!CanFire<const const_proxy_view<gunslinger>>);
 static_assert(CanDescribe<const_proxy_view<gunslinger>>);
 
-// Const-view conversion rules: a target loses mutability implicitly, never
+// Const-view conversion rules. A target loses mutability implicitly, never
 // regains it. A const target binds only to the const view.
 static_assert(
     std::convertible_to<proxy_view<gunslinger>, const_proxy_view<gunslinger>>);
@@ -366,14 +371,13 @@ static_assert(
 static_assert(!std::constructible_from<proxy_view<gunslinger>, const lawman&>);
 
 // An all-const facade is the one case where a const view satisfies the
-// invariant; a mixed facade correctly fails it (the mutable methods are not
+// invariant. A mixed facade correctly fails it (the mutable methods are not
 // dispatchable, so conformance is impossible; Rust's `&dyn` analog).
 struct census: prox::facade<prox::method<"describe", std::string() const>> {};
 
-// Conformance here is a deliberate one-off full specialization: the
-// boilerplate and registration tiers are already exercised by `gunslinger`
-// and `lockbox`, and `census` exists only to serve the const-view
-// assertions.
+// Conformance here is a deliberate one-off full specialization. The
+// boilerplate and registration tiers are already exercised by `gunslinger` and
+// `lockbox`, and `census` exists only to serve the const-view assertions.
 template<>
 struct prox::proxy_impl<census, lawman> {
   static std::string on(method_key<"describe">, const lawman& l) {
@@ -385,7 +389,7 @@ static_assert(Proxiable<const_proxy_view<census>, census>);
 static_assert(!Proxiable<const_proxy_view<gunslinger>, gunslinger>);
 
 // The call-site vocabulary is exported to `corvid::meta`, so this file uses
-// the unqualified spellings throughout; only authoring (facades, impls,
+// the unqualified spellings throughout. Only authoring (facades, impls,
 // registration) needs `prox::`. These confirm both spellings name the same
 // entity.
 static_assert(std::same_as<proxy<gunslinger>, prox::proxy<gunslinger>>);
@@ -447,7 +451,8 @@ TEST_CASE("Heterogeneous dispatch", "[proxy]") {
   std::vector<proxy_view<gunslinger>> gang{l, r};
 
   std::string roll_call;
-  // Mutable references: "fire" no longer dispatches through a const view.
+  // Mutable references. The "fire" method no longer dispatches through a const
+  // view.
   for (auto& pv : gang) {
     pv.call<"fire">(2);
     roll_call += pv.call<"describe">();
@@ -457,7 +462,7 @@ TEST_CASE("Heterogeneous dispatch", "[proxy]") {
   CHECK(l.rounds_fired == 2);
   CHECK(r.fired == 2);
 
-  // Copies are shallow: both views alias the same target.
+  // Copies are shallow, so both views alias the same target.
   auto pv2 = gang[0];
   pv2.call<"fire">(1);
   CHECK(l.rounds_fired == 3);
@@ -475,7 +480,7 @@ TEST_CASE("Views rebind by assignment", "[proxy]") {
 }
 
 TEST_CASE("Const view", "[proxy]") {
-  // A const target binds directly; only const methods exist on this view.
+  // A const target binds directly. Only const methods exist on this view.
   const lawman cl{};
   const_proxy_view<gunslinger> cv{cl};
   CHECK(cv.call<"describe">() == "lawman"s);
@@ -493,7 +498,7 @@ TEST_CASE("Const view", "[proxy]") {
   cv = cv2;
   CHECK(cv.call<"describe">() == "lawman"s);
 
-  // All-const facades keep the invariant: generic code constrained on the
+  // All-const facades keep the invariant. Generic code constrained on the
   // facade accepts the concrete const target and the const view alike.
   auto describe_it = [](const Proxiable<census> auto& t) {
     const_proxy_view<census> v{t};
@@ -505,7 +510,7 @@ TEST_CASE("Const view", "[proxy]") {
 }
 
 TEST_CASE("Generic code accepts concrete and erased alike", "[proxy]") {
-  // Facade-constrained generic code: erase, then call. `Proxiable` is the
+  // Facade-constrained generic code. Erase, then call. `Proxiable` is the
   // trait bound for the static-dispatch half.
   auto fire_twice = [](Proxiable<gunslinger> auto& g) {
     auto pv = make_proxy_view<gunslinger>(g);
@@ -566,14 +571,15 @@ TEST_CASE("Owning proxy, heap target", "[proxy]") {
     CHECK(stats.constructed == 1);
     CHECK(p.call<"add">(7) == 7);
 
-    // Heap targets move by pointer steal: no target activity at all.
+    // Heap targets move by pointer steal, so there's no target activity at
+    // all.
     auto q = std::move(p);
     CHECK(stats.moves == 0);
     CHECK(stats.constructed == 1);
     CHECK(stats.destroyed == 0);
     CHECK(q.call<"gold">() == 7);
 
-    // Move assignment over a live target destroys the old target first.
+    // Move assignment over a live target destroys the old target.
     q = make_proxy<lockbox, big_box>(stats);
     CHECK(stats.constructed == 2);
     CHECK(stats.destroyed == 1);
@@ -583,7 +589,7 @@ TEST_CASE("Owning proxy, heap target", "[proxy]") {
 }
 
 TEST_CASE("Owning proxy is deep-const", "[proxy]") {
-  // Only const-qualified facade methods dispatch through a const proxy; the
+  // Only const-qualified facade methods dispatch through a const proxy. The
   // negative half is covered by the `CanFire` static_asserts above.
   const auto p = make_proxy<gunslinger, lawman>();
   CHECK(p.call<"describe">() == "lawman"s);

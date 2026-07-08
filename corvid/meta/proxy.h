@@ -79,7 +79,7 @@ consteval auto operator""_method() noexcept {
 // The signature fixes the erased ABI; a binding may return the declared result
 // type or anything convertible to it.
 //
-// A `noexcept` qualifier is likewise honored: conformance then requires the
+// A `noexcept` qualifier is likewise honored. Conformance then requires the
 // binding itself to be noexcept-invocable, and the erased call (`call` through
 // a handle) is itself `noexcept`.
 //
@@ -91,8 +91,10 @@ consteval auto operator""_method() noexcept {
 namespace details {
 
 // Shared base for the four `method` flavors (`const` crossed with
-// `noexcept`): the qualification flags and result type, which are the only
-// things that vary. Also supplies the `method_key` base.
+// `noexcept`).
+//
+// It carries the qualification flags and the result type, which are the only
+// things that vary, and supplies the `method_key` base.
 template<fixed_string Name, bool Const, bool Noexcept, typename R>
 struct method_base: method_key<Name> {
   static constexpr bool const_v = Const;
@@ -310,7 +312,7 @@ struct method_traits<method<Name, R(Args...) const noexcept>>
 // A target is stored inline when it fits the buffer, is no more aligned than
 // `std::max_align_t`, and is nothrow-move-constructible (a proxy move
 // relocates an inline target, and proxy moves are unconditionally
-// `noexcept`); anything else lives in a unique-owned heap allocation.
+// `noexcept`). Anything else lives in a unique-owned heap allocation.
 inline constexpr std::size_t sbo_size = 2 * sizeof(void*);
 
 template<typename T>
@@ -318,10 +320,10 @@ constexpr inline bool sbo_eligible_v =
     sizeof(T) <= sbo_size && alignof(T) <= alignof(std::max_align_t) &&
     std::is_nothrow_move_constructible_v<T>;
 
-// Housekeeping thunks for the owning `proxy`: the analog of Rust's drop glue.
+// Housekeeping thunks for the owning `proxy`, the analog of Rust's drop glue.
 //
-// `sbo_relocate` move-constructs `*from` into `to` and destroys the source;
-// the heap path has none because a heap target moves by pointer steal.
+// `sbo_relocate` move-constructs `*from` into `to` and destroys the source.
+// The heap path has none because a heap target moves by pointer steal.
 template<typename T>
 void sbo_destroy(void* target) noexcept {
   static_cast<T*>(target)->~T();
@@ -362,7 +364,7 @@ struct vtable_builder<facade<Ms...>> {
   }
 
   // Qualification of the method named `K`. Both are `false` when no method
-  // has that name; rejecting an unknown name is `index_of`'s job.
+  // has that name, since rejecting an unknown name is `index_of`'s job.
   template<fixed_string K>
   static consteval bool is_const() noexcept {
     constexpr std::array<bool, sizeof...(Ms)> flags{Ms::const_v...};
@@ -386,9 +388,9 @@ struct vtable_builder<facade<Ms...>> {
     return {method_traits<Ms>::template make_thunk<F, T>()...};
   }
 
-  // Owning dispatch table: the facade methods plus housekeeping slots. A null
-  // `relocate` marks a heap-stored target, which moves by pointer steal
-  // rather than relocation.
+  // Owning dispatch table, carrying housekeeping slots alongside the facade
+  // methods. A null `relocate` marks a heap-stored target, which moves by
+  // pointer steal rather than relocation.
   struct owning_vtable_t {
     vtable_t methods;
     void (*destroy)(void*) noexcept;
@@ -444,7 +446,7 @@ namespace details {
 // differ only in the constness of the erased target pointer.
 //
 // The `call` here serves const-qualified methods, the only dispatch a const
-// handle allows; `proxy_view` layers the unrestricted non-const overload on
+// handle allows. `proxy_view` layers the unrestricted non-const overload on
 // top.
 template<Facade F, bool Const>
 class view_base {
@@ -452,9 +454,11 @@ public:
   using facade_t = F;
 
   // Call the const-qualified facade method named `K`, forwarding `args`
-  // through the erased signature. The call is `noexcept` when the method is.
-  // Not `[[nodiscard]]`: discardability belongs to the facade method, not
-  // the dispatcher (the `std::invoke` precedent).
+  // through the erased signature.
+  //
+  // The call is `noexcept` when the method is. It is not `[[nodiscard]]`,
+  // because discardability belongs to the facade method rather than the
+  // dispatcher (the `std::invoke` precedent).
   template<fixed_string K, typename... Args>
   requires(vtbuild_t<F>::template is_const<K>())
   // NOLINTNEXTLINE(modernize-use-nodiscard)
@@ -488,9 +492,9 @@ class const_proxy_view;
 // Two pointers: the target and the per-(facade, type) dispatch table. The
 // target must outlive the view.
 //
-// Deep-const as an instance: only const-qualified facade methods dispatch
+// Deep-const as an instance, so only const-qualified facade methods dispatch
 // through a `const proxy_view`. Because views are freely copyable, that is a
-// guardrail rather than a guarantee: copying a `const proxy_view` yields a
+// guardrail rather than a guarantee. Copying a `const proxy_view` yields a
 // mutable view onto the same target, much as a `T* const` pointer copies to
 // a plain `T*`. Code that means read-only access should use
 // `const_proxy_view`, where constness is part of the type and survives
@@ -503,7 +507,7 @@ class proxy_view: public details::view_base<F, false> {
 public:
   // Converting constructor from an lvalue target. Intentionally implicit, like
   // `string_view` from `string`. Rvalues do not bind, so construction from a
-  // temporary is rejected at compile time; const targets take a
+  // temporary is rejected at compile time. Const targets take a
   // `const_proxy_view`.
   template<typename T>
   requires(
@@ -514,7 +518,7 @@ public:
   // Call the facade method named `K`, forwarding `args` through the erased
   // signature. The call is `noexcept` when the method is.
   //
-  // This overload dispatches every method; the inherited const overload,
+  // This overload dispatches every method. The inherited const overload,
   // re-exposed by the using-declaration, is constrained to const-qualified
   // methods, mirroring the owning proxy's deep const.
   template<fixed_string K, typename... Args>
@@ -560,7 +564,7 @@ struct proxy_impl<F, proxy_view<F>> {
 // `const_iterator` to `proxy_view`'s `iterator`.
 //
 // Constness is part of the type, so unlike a `const proxy_view` it survives
-// copying: a const view only ever copies or converts to another const view.
+// copying. A const view only ever copies or converts to another const view.
 // It binds const and mutable targets alike, and dispatches only the
 // const-qualified facade methods, sharing the mutable view's per-(facade,
 // type) dispatch table (the non-const slots are simply unreachable). The
@@ -571,7 +575,7 @@ class const_proxy_view: public details::view_base<F, true> {
 
 public:
   // Converting constructor from an lvalue target, const or not. Intentionally
-  // implicit; rvalues do not bind.
+  // implicit. Rvalues do not bind.
   template<typename T>
   requires(
       Proxiable<std::remove_const_t<T>, F> &&
@@ -581,18 +585,18 @@ public:
       : base{std::addressof(target),
             &details::vtable_for<F, std::remove_const_t<T>>} {}
 
-  // Converting constructor from the mutable view: dropping mutability is
-  // implicit and safe, like `T*` to `const T*`. There is no path back.
+  // Converting constructor from the mutable view. Dropping mutability is
+  // implicit and safe, like `T*` to `const T*`, and there is no path back.
   constexpr explicit(false)
       const_proxy_view(const proxy_view<F>& view) noexcept
       : base{view.target_, view.vtable_} {}
 
-  // `call` is inherited: the base's const-method dispatch is the entire
+  // `call` is inherited. The base's const-method dispatch is the entire
   // interface, since the mutable methods do not exist on this view.
 };
 
 // Library-provided binding so that a const view satisfies its own facade
-// where that is possible: it dispatches only const methods, so the invariant
+// where that is possible. It dispatches only const methods, so the invariant
 // holds exactly for all-const facades.
 //
 // The `on` is itself constrained to const methods so that a mixed facade
@@ -632,14 +636,15 @@ requires Proxiable<T, F>
 //
 // Move-only. Small targets (at most `sbo_size` bytes, at most
 // `std::max_align_t` alignment, nothrow-move-constructible) are stored
-// inline; anything else lives in a unique-owned heap allocation. The owning
+// inline. Anything else lives in a unique-owned heap allocation. The owning
 // dispatch table carries destroy and relocate slots alongside the facade
 // methods, so destruction and moves work without knowing the target type.
 //
-// Unlike the shallow-const view, the proxy owns its target and is deep-const:
-// only const-qualified facade methods dispatch through a const proxy.
+// The proxy is deep-const, so only const-qualified facade methods dispatch
+// through a const proxy. Being move-only, it cannot be copied out of that
+// constness the way a view can.
 //
-// A default-constructed or moved-from proxy is empty: destructible,
+// A default-constructed or moved-from proxy is empty. It is destructible,
 // assignable, and testable via `operator bool`, but calling through it is
 // undefined behavior.
 template<Facade F>
@@ -650,7 +655,7 @@ class proxy {
 public:
   using facade_t = F;
 
-  // Inline storage capacity in bytes; see the class comment for the other
+  // Inline storage capacity in bytes. See the class comment for the other
   // inline-eligibility conditions.
   static constexpr std::size_t sbo_size = details::sbo_size;
 
@@ -673,8 +678,8 @@ public:
   }
 
   // Move construction and assignment leave the source empty. Inline targets
-  // relocate through the table's move slot; heap targets move by pointer
-  // steal.
+  // relocate through the table's move slot, while heap targets move by
+  // pointer steal.
   proxy(proxy&& other) noexcept { do_adopt(other); }
 
   proxy& operator=(proxy&& other) noexcept {
@@ -688,12 +693,13 @@ public:
   ~proxy() { do_reset(); }
 
   // Call the facade method named `K`, forwarding `args` through the erased
-  // signature. The call is `noexcept` when the method is.
+  // signature.
   //
-  // The const overload is constrained to const-qualified methods: deep const,
-  // enforced at overload resolution so the rejection is visible to `requires`
-  // probes as well. Not `[[nodiscard]]`: discardability belongs to the facade
-  // method, not the dispatcher (the `std::invoke` precedent).
+  // The call is `noexcept` when the method is. The const overload is
+  // constrained to const-qualified methods, enforcing deep const at overload
+  // resolution so the rejection is visible to `requires` probes as well. It
+  // is not `[[nodiscard]]`, because discardability belongs to the facade
+  // method rather than the dispatcher (the `std::invoke` precedent).
   template<fixed_string K, typename... Args>
   decltype(auto)
   call(Args&&... args) noexcept(vtbuild_t::template is_noexcept<K>()) {
@@ -763,8 +769,8 @@ private:
 // like the view.
 //
 // Calls forward through the proxy, with conditional `noexcept`. The const
-// overload serves const-qualified methods, matching the proxy's deep const;
-// the non-const overload serves the rest.
+// overload serves const-qualified methods, matching the proxy's deep const,
+// and the non-const overload serves the rest.
 template<Facade F>
 struct proxy_impl<F, proxy<F>> {
   template<fixed_string K, typename... Args>
@@ -803,8 +809,8 @@ requires Proxiable<T, F>
 // Consuming an erased handle is ordinary type usage, as in
 // `do_stuff(proxy_view<foo_like>)`, so these names belong in the wider
 // namespace. The authoring vocabulary (`facade`, `method`, `proxy_impl`, and
-// the registration machinery) stays inside `prox`: those names are too
-// generic to export, and facade and impl authors are already working in that
+// the registration machinery) stays inside `prox`, since those names are too
+// generic to export and facade and impl authors are already working in that
 // domain.
 using prox::const_proxy_view;
 using prox::make_proxy;

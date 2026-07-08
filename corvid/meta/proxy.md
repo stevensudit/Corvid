@@ -231,7 +231,7 @@ through `call<>` and the same dispatch table.
   stores a pointer to the resulting per-`(F, T)` `static constexpr` table.
   Same cost model as a vtable call, and as Rust `dyn`: the table pointer
   moves out of the object and into the (fat) handle.
-- Method signatures come in four flavors: `const` crossed with `noexcept`.
+- Method signatures come in four flavors, `const` crossed with `noexcept`.
   For a `noexcept` method, conformance additionally requires the binding
   itself to be noexcept-invocable, the thunk pointer type carries
   `noexcept`, and `call` through either handle is itself conditionally
@@ -241,29 +241,30 @@ through `call<>` and the same dispatch table.
 - The owning table carries housekeeping slots (destroy, relocate/move) in
   addition to the facade methods, the analog of Rust's drop glue.
   `proxy_view` carries none, which is why the view is built first.
-- Const is handled on two axes. Every handle is deep-const as an instance:
-  only const-qualified methods dispatch through a const handle, enforced by a
-  constraint on the const `call` overload. For the copyable views this is a
-  guardrail, not a guarantee (copying a `const proxy_view` yields a mutable
-  view, like copying a `T* const` to a `T*`); the guarantee lives in
-  `const_proxy_view`, the `&dyn` to `proxy_view`'s `&mut dyn`, where
-  constness is part of the type. It binds const and mutable targets alike,
-  converts implicitly from `proxy_view` with no path back, and dispatches
-  only const methods while sharing the mutable view's per-(facade, type)
-  dispatch table (the non-const slots are simply unreachable, so no
-  const-sliced table or index remapping is needed). The two views share
-  storage and the const-method `call` through `details::view_base<F,
-  Const>`; the mutable view layers the unrestricted non-const overload on
-  top and re-exposes the inherited one with a using-declaration.
+- Const is handled on two axes. Every handle is deep-const as an instance,
+  meaning only const-qualified methods dispatch through a const handle,
+  enforced by a constraint on the const `call` overload. For the copyable
+  views this is a guardrail, not a guarantee (copying a `const proxy_view`
+  yields a mutable view, like copying a `T* const` to a `T*`). The guarantee
+  lives in `const_proxy_view`, the `&dyn` to `proxy_view`'s `&mut dyn`,
+  where constness is part of the type. It binds const and mutable targets
+  alike, converts implicitly from `proxy_view` with no path back, and
+  dispatches only const methods while sharing the mutable view's
+  per-(facade, type) dispatch table (the non-const slots are simply
+  unreachable, so no const-sliced table or index remapping is needed). The
+  two views share storage and the const-method `call` through
+  `details::view_base<F, Const>`. The mutable view layers the unrestricted
+  non-const overload on top and re-exposes the inherited one with a
+  using-declaration.
 - Invariant: `proxy<F>` and `proxy_view<F>` themselves satisfy
   `proxiable<_, F>`, so generic code constrained on the facade accepts
   concrete and erased arguments interchangeably (Rust: `dyn Trait`
   implements `Trait`). Implemented as library-provided `proxy_impl`
   bindings whose `on` forwards through `call` with conditional `noexcept`
-  (so the invariant survives noexcept methods); the deep-const handles'
+  (so the invariant survives noexcept methods). The deep-const handles'
   bindings have const and non-const overloads to match. For
   `const_proxy_view` the invariant holds exactly for all-const facades (as
-  with Rust `&dyn`, whose `&mut self` methods are uncallable); its binding's
+  with Rust `&dyn`, whose `&mut self` methods are uncallable). Its binding's
   `on` is constrained to const methods so a mixed facade fails conformance
   cleanly at overload resolution rather than erroring during return type
   deduction.
@@ -327,20 +328,20 @@ architecture.
    keyword (`pv.template call<"fire">(1)`), a real ergonomic wart the `api`
    mixin would hide; ammunition for the sugar pin.
 2. DONE. Owning `proxy` with SBO, plus `make_proxy` (sugar over an
-   `std::in_place_type_t` constructor). Move-only, and deep-const: only
+   `std::in_place_type_t` constructor). Move-only, and deep-const, so only
    const-qualified methods dispatch through a const proxy, enforced by a
    constraint on the const `call` overload so the rejection is visible to
-   `requires` probes (a body `static_assert` would not be; and a
+   `requires` probes (a body `static_assert` would not be, and a
    requires-expression outside a template gets no SFINAE, so the negative
    test needed a concept wrapper). Storage is a two-pointer inline buffer
    for targets that fit, are no more aligned than `std::max_align_t`, and
-   are nothrow-move-constructible; anything else is a unique-owned heap
+   are nothrow-move-constructible. Anything else is a unique-owned heap
    allocation. The owning dispatch table extends the view's with destroy
-   and relocate slots; a null relocate slot marks the heap path, which
+   and relocate slots. A null relocate slot marks the heap path, which
    moves by pointer steal with no target activity. Default-constructed and
-   moved-from proxies are empty (`operator bool`); calling through one is
-   undefined behavior. Also in this phase: `noexcept` method flavors, the
-   self-conformance invariant, deep-const `proxy_view`, and
+   moved-from proxies are empty (`operator bool`), and calling through one
+   is undefined behavior. Also in this phase: `noexcept` method flavors,
+   the self-conformance invariant, deep-const `proxy_view`, and
    `const_proxy_view`, all described under Mechanism.
    Verified: lifetime-counting fixtures balancing construct/destroy/move
    on both the SBO and heap paths, move-assignment over a live target,
@@ -358,7 +359,7 @@ NOT inline: `facade`, `method`, and `key` are too generic to dump into
 `corvid`. The call-site vocabulary (`proxy`, `proxy_view`,
 `const_proxy_view`, `make_proxy`, `make_proxy_view`, `Proxiable`) is
 exported into `corvid::meta` by using-declarations, so consuming code spells
-`proxy_view<foo_like>` unqualified; only authoring (facades, impls,
+`proxy_view<foo_like>` unqualified. Only authoring (facades, impls,
 registration) needs `prox::`, the domain those authors already work in.
 Promote to a `corvid/proxy/` family only if it sprawls. Tests:
 `tests/portable/proxy_test.cpp`. `method` derives from its `key`
@@ -400,6 +401,6 @@ dispatch, allocator plumbing, RTTI, per-name overload sets.
 - The member-call sugar pin: the `api` mixin is the leading candidate
   (judged plausible); confirm once real call sites exist.
 
-The const flavor of views was an open question until phase 2: resolved as
-the `&T` vs `&mut T` split (`const_proxy_view` alongside a deep-const
-`proxy_view`), described under Mechanism.
+The const flavor of views was an open question until phase 2. It was
+resolved as the `&T` vs `&mut T` split (`const_proxy_view` alongside a
+deep-const `proxy_view`), described under Mechanism.
