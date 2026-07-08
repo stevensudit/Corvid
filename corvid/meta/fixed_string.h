@@ -25,10 +25,6 @@
 #include "concepts.h"
 #include "formatting.h"
 
-// Not included by meta.h: like formatting.h, this header stays out of the
-// umbrella to keep <format> and <ostream> out of every TU. Include it
-// directly.
-
 // Forward declaration so `cview()` can name the return type without pulling
 // in the strings band. Using `cview()` requires including cstring_view.h.
 namespace corvid { inline namespace cstringview {
