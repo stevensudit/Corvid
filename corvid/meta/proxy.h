@@ -139,6 +139,22 @@ struct method<Name, R(Args...) const noexcept>
 // Because identity is this named type rather than the method list, same-named
 // methods in unrelated facades cannot cross-contaminate. This is also why we
 // inherit from `facade` instead of just aliasing it.
+//
+// The facade body is also where the optional member-call sugar is authored: a
+// nested `api` type holding one deducing-this forwarder per method, which
+// every handle of the facade inherits. For example:
+//
+//    struct animal : facade<method<"speak", void() const>> {
+//      struct api {
+//        void speak(this const auto& self) {
+//          self.template call<"speak">();
+//        }
+//      };
+//    };
+//
+// With that in place, `handle.speak()` is sugar for `handle.call<"speak">()`,
+// dispatching through the same table. See "proxy.md" for the design and its
+// limits.
 template<typename... Methods>
 struct facade {};
 
@@ -154,6 +170,33 @@ auto probe(const facade<Ms...>&) -> facade<Ms...>;
 // Concept for a type derived from a single `facade` base.
 template<typename F>
 concept Facade = requires(const F& f) { details::probe(f); };
+
+namespace details {
+
+// Stand-in api base for facades that define no member-call sugar.
+struct no_api {};
+
+// Sugar base for handles of facade `F`.
+//
+// Yields the facade's nested `api` when it defines one, and the empty stand-in
+// otherwise. The selection has to be lazy (a specialization rather than a
+// `std::conditional_t`), because naming `F::api` when it does not exist is
+// ill-formed.
+template<typename F>
+struct api_base {
+  using type = no_api;
+};
+
+template<typename F>
+requires(requires { typename F::api; })
+struct api_base<F> {
+  using type = F::api;
+};
+
+template<typename F>
+using api_base_t = api_base<F>::type;
+
+} // namespace details
 
 #pragma endregion
 #pragma region Registration and binding
@@ -448,8 +491,11 @@ namespace details {
 // The `call` here serves const-qualified methods, the only dispatch a const
 // handle allows. `proxy_view` layers the unrestricted non-const overload on
 // top.
+//
+// This is also where the views pick up the facade's `api` base, keeping each
+// view a single-inheritance chain.
 template<Facade F, bool Const>
-class view_base {
+class view_base: public api_base_t<F> {
 public:
   using facade_t = F;
 
@@ -499,6 +545,9 @@ class const_proxy_view;
 // a plain `T*`. Code that means read-only access should use
 // `const_proxy_view`, where constness is part of the type and survives
 // copying.
+//
+// When the facade defines a nested `api`, the view inherits it, so the
+// member-call sugar forwarders dispatch alongside `call`.
 template<Facade F>
 class proxy_view: public details::view_base<F, false> {
   using base = details::view_base<F, false>;
@@ -569,6 +618,10 @@ struct proxy_impl<F, proxy_view<F>> {
 // const-qualified facade methods, sharing the mutable view's per-(facade,
 // type) dispatch table (the non-const slots are simply unreachable). The
 // target must outlive the view.
+//
+// When the facade defines a nested `api`, the view inherits it. Only the const
+// forwarders are callable; a mutable forwarder fails inside its `call` if
+// used.
 template<Facade F>
 class const_proxy_view: public details::view_base<F, true> {
   using base = details::view_base<F, true>;
@@ -647,8 +700,11 @@ requires Proxiable<T, F>
 // A default-constructed or moved-from proxy is empty. It is destructible,
 // assignable, and testable via `operator bool`, but calling through it is
 // undefined behavior.
+//
+// When the facade defines a nested `api`, the proxy inherits it, so the
+// member-call sugar forwarders dispatch alongside `call`.
 template<Facade F>
-class proxy {
+class proxy: public details::api_base_t<F> {
   using vtbuild_t = details::vtbuild_t<F>;
   using owning_vtable_t = vtbuild_t::owning_vtable_t;
 

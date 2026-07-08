@@ -1,8 +1,8 @@
 # Proxy design
 
 Status: phases 1 and 2 built and tested ([proxy.h](proxy.h),
-[proxy_test.cpp](../../tests/portable/proxy_test.cpp)); phase 3
-pending. Plan for `corvid/meta/proxy.h`, a
+[proxy_test.cpp](../../tests/portable/proxy_test.cpp)); phase 3 in
+progress: the `api` mixin is built and tested, `extends<Base>` is pending. Plan for `corvid/meta/proxy.h`, a
 registration-based runtime-polymorphism ("proxy") system: type-erased handles
 over an interface definition, without inheritance, vtable pointers in the
 target type, or macros.
@@ -157,12 +157,13 @@ specialization. It overlaps in purpose with the spec-carried member-pointer
 binding sketched under Future; the two can coexist. Exercised by `sheriff`
 in the test.
 
-### Member-call sugar (pinned, leading candidate)
+### Member-call sugar (the `api` mixin, built)
 
 `p->fire(3)` spelling cannot be minted by a C++23 library without macros.
-The leading candidate is an optional hand-written `api` mixin on the facade,
-one forwarding line per method, using deducing `this`; `proxy<F>` and
-`proxy_view<F>` inherit `F::api` when present:
+The answer is an optional hand-written `api` mixin on the facade, one
+forwarding line per method, using deducing `this`; all three handles
+(`proxy<F>`, `proxy_view<F>`, `const_proxy_view<F>`) inherit `F::api` when
+present:
 
 ```cpp
 struct gunslinger : facade<method<"fire", void(int)>,
@@ -186,6 +187,32 @@ parses as chained relational operators). A nearby legal family exists via a
 string-literal UDL operator template producing a key object,
 `p("fire"_k, 3)` or `p["fire"_k](3)`; recorded as alternates in case the
 mixin disappoints.
+
+Mechanics of the built form: `details::api_base_t<F>` yields `F::api` when
+the facade defines one and an empty `no_api` stand-in otherwise. The
+selection is a lazy specialization rather than a `std::conditional_t`,
+because naming `F::api` when it does not exist is ill-formed. The views pick
+the base up through their shared `details::view_base`, keeping each view a
+single-inheritance chain; the owning `proxy`, which has no other base,
+inherits it directly. Deducing `this` still sees the complete handle type
+regardless of where in the hierarchy the forwarders sit. The mixin is
+stateless, so empty-base optimization keeps the views at two pointers.
+
+Caveats, all on the facade author's side of the contract:
+
+- Forwarders should declare concrete return types, not `decltype(auto)`: a
+  deduced return type forces body instantiation during mere overload
+  resolution, which turns misuse into errors in contexts that only probe.
+- Plain forwarders are unconstrained declarations, so deep const is enforced
+  inside the forwarder's `call` (a clear hard error at the point of use)
+  rather than at overload resolution. A `requires` probe of the sugar on a
+  const handle therefore succeeds where the same probe of `call<>` fails. A
+  facade author who wants probe-visible sugar can add a trailing
+  requires-clause repeating the `call` expression.
+- The `noexcept` qualifier does not propagate through an unmarked forwarder;
+  the author marks the forwarders of noexcept methods `noexcept` themselves
+  (see `hair_trigger` in the test). Nothing checks the forwarders against
+  the method flavors; the sugar is by-hand by design.
 
 Hosting the `api` inside `proxy_impl` (grouping the sugar next to the `on`
 bindings) was considered and rejected. The erased handle knows only `F`, so
@@ -349,10 +376,17 @@ architecture.
    noexcept conformance both ways (a binding lacking `noexcept` fails the
    facade), `noexcept(call)` propagation, and heterogeneous ownership in a
    container.
-3. `api` mixin support and `extends<Base>` composition, including
-   `proxy<derived>` -> `proxy_view<base>` conversion (Rust trait
-   upcasting). Verify: mixin call parity with `call<>`, upcast dispatch
-   correctness.
+3. IN PROGRESS. The `api` mixin is DONE: `details::api_base_t<F>` selects
+   the facade's nested `api` (lazy specialization, empty `no_api` stand-in),
+   and all three handles inherit it. Verified: forwarder parity with
+   `call<>` through the mutable view, the const view, and the owning proxy
+   (const and mutable), reference returns through the sugar, no
+   dependent-name `template` keyword needed in generic code, `noexcept`
+   propagation when the facade author marks the forwarders, and empty-base
+   optimization keeping the views at two pointers. See the caveats under
+   "Member-call sugar". Remaining: `extends<Base>` composition, including
+   `proxy<derived>` -> `proxy_view<base>` conversion (Rust trait upcasting).
+   Verify: upcast dispatch correctness.
 
 Header: `corvid/meta/proxy.h`, namespace `corvid::meta::prox`, deliberately
 NOT inline: `facade`, `method`, and `key` are too generic to dump into
@@ -398,8 +432,9 @@ dispatch, allocator plumbing, RTTI, per-name overload sets.
 
 ## Open questions
 
-- The member-call sugar pin: the `api` mixin is the leading candidate
-  (judged plausible); confirm once real call sites exist.
+- The member-call sugar pin was resolved in favor of the `api` mixin, now
+  built. Confirm the ergonomics (including the constraint-visibility caveat)
+  once real call sites exist outside the test.
 
 The const flavor of views was an open question until phase 2. It was
 resolved as the `&T` vs `&mut T` split (`const_proxy_view` alongside a

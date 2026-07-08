@@ -30,12 +30,28 @@ using namespace corvid::meta::prox::literals;
 
 // The facade under test: mixes value returns, a const method, a void
 // mutator, and a reference return.
+//
+// The nested `api` is the optional member-call sugar: one deducing-this
+// forwarder per method, inherited by every handle of this facade. A const
+// method's forwarder takes `self` by const reference, mirroring the erased
+// signature.
 struct gunslinger
     : prox::facade<                                      //
           prox::method<"fire", int(int)>,                //
           prox::method<"describe", std::string() const>, //
           prox::method<"reload", void()>,                //
-          prox::method<"shots", int&()>> {};             //
+          prox::method<"shots", int&()>> {               //
+  struct api {
+    int fire(this auto&& self, int rounds) {
+      return self.template call<"fire">(rounds);
+    }
+    std::string describe(this const auto& self) {
+      return self.template call<"describe">();
+    }
+    void reload(this auto&& self) { self.template call<"reload">(); }
+    int& shots(this auto&& self) { return self.template call<"shots">(); }
+  };
+};
 
 // This base class for proxy_impl<gunslinger, T> would not normally be
 // necessary, but it's used for `sheriff`. It also wouldn't need
@@ -176,10 +192,23 @@ struct cowboy {
 
 // A facade with noexcept methods. Conformance requires the bindings
 // themselves to be noexcept.
+//
+// The api forwarders are marked `noexcept` so the sugar carries the qualifier
+// the way `call` does. This is on the facade author; nothing checks the
+// forwarders against the method flavors.
 struct hair_trigger
     : prox::facade<                                //
           prox::method<"fire", int(int) noexcept>, //
-          prox::method<"jams", bool() const noexcept>> {};
+          prox::method<"jams", bool() const noexcept>> {
+  struct api {
+    int fire(this auto&& self, int rounds) noexcept {
+      return self.template call<"fire">(rounds);
+    }
+    bool jams(this const auto& self) noexcept {
+      return self.template call<"jams">();
+    }
+  };
+};
 
 // Bindings marked noexcept: conforms. The target's own methods need not be
 // noexcept; the binding is the terminate boundary.
@@ -398,6 +427,16 @@ static_assert(
 static_assert(std::same_as<const_proxy_view<gunslinger>,
     prox::const_proxy_view<gunslinger>>);
 
+// The api mixin is stateless, so empty-base optimization keeps the views at
+// two pointers, with or without one (`lockbox` defines no `api`).
+static_assert(sizeof(proxy_view<gunslinger>) == 2 * sizeof(void*));
+static_assert(sizeof(const_proxy_view<gunslinger>) == 2 * sizeof(void*));
+static_assert(sizeof(proxy_view<lockbox>) == 2 * sizeof(void*));
+
+// The sugar carries `noexcept` when the facade author marks the forwarders.
+static_assert(noexcept(std::declval<proxy_view<hair_trigger>&>().fire(1)));
+static_assert(!noexcept(std::declval<proxy_view<gunslinger>&>().fire(1)));
+
 // NOLINTBEGIN(readability-function-cognitive-complexity)
 
 TEST_CASE("Boilerplate impl through registration", "[proxy]") {
@@ -607,6 +646,48 @@ TEST_CASE("Noexcept facade methods", "[proxy]") {
   const auto& cp = p;
   CHECK(!cp.call<"jams">());
   static_assert(noexcept(cp.call<"jams">()));
+}
+
+TEST_CASE("Member-call sugar via the api mixin", "[proxy]") {
+  lawman l;
+  proxy_view<gunslinger> pv{l};
+
+  // The forwarders are sugar over `call`: same slots, same dispatch table,
+  // interchangeable mid-stream.
+  CHECK(pv.fire(3) == 3);
+  CHECK(pv.call<"fire">(2) == 5);
+  CHECK(pv.describe() == "lawman"s);
+
+  // Reference return through the sugar.
+  pv.shots() = 42;
+  CHECK(l.rounds_fired == 42);
+  pv.reload();
+  CHECK(l.rounds_fired == 0);
+
+  // In a template context the sugar needs no dependent-name `template`
+  // keyword, unlike spelling `call` directly.
+  auto fire_once = [](Proxiable<gunslinger> auto& g) {
+    auto v = make_proxy_view<gunslinger>(g);
+    return v.fire(1);
+  };
+  CHECK(fire_once(l) == 1);
+
+  // The owning proxy inherits the same api. Deep const holds: only the
+  // const forwarder dispatches through a const proxy.
+  auto p = make_proxy<gunslinger, robber>();
+  CHECK(p.fire(6) == 6);
+  const auto& cp = p;
+  CHECK(cp.describe() == "robber"s);
+
+  // The const view exposes the const forwarders.
+  const lawman cl{};
+  const_proxy_view<gunslinger> cv{cl};
+  CHECK(cv.describe() == "lawman"s);
+
+  // Noexcept forwarders, propagation confirmed by the static_asserts above.
+  proxy_view<hair_trigger> ht{l};
+  CHECK(ht.fire(2) == 3);
+  CHECK(!ht.jams());
 }
 
 TEST_CASE("Heterogeneous ownership", "[proxy]") {
