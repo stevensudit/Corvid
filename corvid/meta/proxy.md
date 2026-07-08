@@ -109,6 +109,53 @@ The string NTTP rides on the existing
 compile time to an index into the facade's method list; no runtime name
 lookup exists anywhere.
 
+### Partial override of the boilerplate
+
+When a type's names line up except for one method, a full custom impl
+re-spells every binding just to change one. The facade author can enable a
+cheaper middle tier by factoring the boilerplate's bindings into a plain,
+inheritable class template, with the partial specialization deriving from
+it. A near-conforming type then writes a full specialization that inherits
+the factored class, re-exposes its `on` overloads with a using-declaration,
+and declares only the divergent binding:
+
+```cpp
+// Facade author: factor the bindings so they are inheritable.
+template<typename T>
+struct proxy_impl_gunslinger {
+  static void on(method_key<"fire">, T& t, int rounds) { t.fire(rounds); }
+  static bool on(method_key<"reload">, T& t) { return t.reload(); }
+};
+
+template<typename T>
+requires ProxyRegistered<gunslinger, T>
+struct proxy_impl<gunslinger, T>: proxy_impl_gunslinger<T> {};
+
+// `sheriff` lines up except that `fire` is spelled `shoot`.
+template<>
+struct proxy_impl<gunslinger, sheriff>: proxy_impl_gunslinger<sheriff> {
+  using proxy_impl_gunslinger<sheriff>::on;
+  static void on(method_key<"fire">, sheriff& s, int rounds) {
+    s.shoot(rounds);
+  }
+};
+```
+
+Mechanics: a derived `on` with the identical parameter list excludes the
+inherited one from the set the using-declaration introduces, so the
+override wins with no ambiguity. The using-declaration is load-bearing:
+without it, the derived `on` hides all the inherited overloads and
+conformance fails on the rest. The hidden base binding is never
+instantiated (class-template members instantiate only on use), so its body
+naming the absent member is harmless. As with any full specialization, no
+registration is involved.
+
+The trade is that the tier exists only if the facade author exposes the
+bindings as a named class rather than writing them inline in the partial
+specialization. It overlaps in purpose with the spec-carried member-pointer
+binding sketched under Future; the two can coexist. Exercised by `sheriff`
+in the test.
+
 ### Member-call sugar (pinned, leading candidate)
 
 `p->fire(3)` spelling cannot be minted by a C++23 library without macros.
@@ -230,7 +277,8 @@ architecture.
    `static_assert` tests, const-qualified methods (`std::string() const`
    dispatching on `const T&`), reference returns, call-through correctness,
    heterogeneous containers, view-of-view flattening in `make_proxy_view`,
-   assignment rebinding, and the `"name"_method` UDL (a literal operator
+   assignment rebinding, partial override of a factored boilerplate
+   (`sheriff`), and the `"name"_method` UDL (a literal operator
    template in `prox::literals`, inline since `prox` itself is not).
    Both interesting compile errors are captured as comments in the test:
    non-conformance walks the constraint chain down to `all_bound_v`; an
@@ -282,7 +330,9 @@ dispatch, allocator plumbing, RTTI, per-name overload sets.
   spec that holds `&robber::shoot, &robber::rearm`, bound positionally to
   the facade's methods. Member pointers are spellable at compile time where
   member names are not, so this is a one-line middle tier for
-  name-mismatched types that avoids a full custom impl.
+  name-mismatched types that avoids a full custom impl. Overlaps in purpose
+  with the partial-override pattern above, which needs no new machinery but
+  does need the facade author's cooperation.
 - Shared ownership tier, backed by `std::shared_ptr<void>`. The control
   block already type-erases the destroyer, so a shared-backed proxy needs
   no destroy slot in the dispatch table, is copyable for free, and gets a

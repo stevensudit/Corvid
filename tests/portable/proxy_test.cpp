@@ -35,20 +35,29 @@ struct gunslinger
           prox::method<"reload", void()>,                //
           prox::method<"shots", int&()>> {};             //
 
-// Boilerplate impl for `gunslinger`: written once by the facade author,
-// generic over any registered type whose member names line up.
+// This base class for proxy_impl<gunslinger, T> would not normally be
+// necessary, but it's used for `sheriff`. It also wouldn't need `prox::method`
+// to be fully specified.
 template<typename T>
-requires prox::ProxyRegistered<gunslinger, T>
-struct prox::proxy_impl<gunslinger, T> {
-  static int on(method_key<"fire">, T& t, int rounds) {
+struct proxy_impl_gunslinger {
+  static int on(prox::method_key<"fire">, T& t, int rounds) {
     return t.fire(rounds);
   }
-  static std::string on(method_key<"describe">, const T& t) {
+  static std::string on(prox::method_key<"describe">, const T& t) {
     return t.describe();
   }
-  static void on(method_key<"reload">, T& t) { t.reload(); }
-  static int& on(method_key<"shots">, T& t) { return t.shots(); }
+  static void on(prox::method_key<"reload">, T& t) { t.reload(); }
+  static int& on(prox::method_key<"shots">, T& t) { return t.shots(); }
 };
+
+// Boilerplate impl for `gunslinger`: written once by the facade author,
+// generic over any registered type whose member names line up.
+//
+// Again, it would normally contain the guts of what's been moved to
+// `proxy_impl_gunslinger`.
+template<typename T>
+requires prox::ProxyRegistered<gunslinger, T>
+struct prox::proxy_impl<gunslinger, T>: proxy_impl_gunslinger<T> {};
 
 // A type whose method names line up with the facade; conforms by
 // registration through the boilerplate impl.
@@ -71,6 +80,14 @@ struct lawman {
 consteval auto corvid_proxy_spec(gunslinger*, lawman*) {
   return prox::make_proxy_spec<gunslinger, lawman>();
 }
+
+// Exactly like a lawman, but with a different name. Works automatically.
+struct deputy: public lawman {
+  [[nodiscard]] std::string describe() const {
+    (void)this;
+    return "deputy";
+  }
+};
 
 // A type with the right shape but the wrong names; conforms through an
 // explicit impl, with no registration.
@@ -102,6 +119,34 @@ struct prox::proxy_impl<gunslinger, robber> {
   }
   static void on(method_key<"reload">, robber& r) { r.rearm(); }
   static int& on(method_key<"shots">, robber& r) { return r.fired; }
+};
+
+// A type whose method names line up, with one exception: `shoot` instead of
+// `fire`. Uses a full specialization that inherits and overrides the
+// boilerplate impl.
+struct sheriff {
+  int shoot(int rounds) {
+    rounds_fired += rounds;
+    return rounds_fired;
+  }
+  [[nodiscard]] std::string describe() const {
+    (void)this;
+    return "sheriff";
+  }
+  void reload() { rounds_fired = 0; }
+  int& shots() { return rounds_fired; }
+
+  int rounds_fired{};
+};
+
+// Custom impl for `sheriff`: inherits the boilerplate and overrides the
+// one method whose name differs.
+template<>
+struct prox::proxy_impl<gunslinger, sheriff>: proxy_impl_gunslinger<sheriff> {
+  using proxy_impl_gunslinger<sheriff>::on;
+  static int on(method_key<"fire">, sheriff& s, int rounds) {
+    return s.shoot(rounds);
+  }
 };
 
 // A type whose method names line up but which never opts in. Nominal
@@ -140,7 +185,9 @@ static_assert(std::same_as<decltype("fire"_method), prox::method_key<"fire">>);
 // Registration state: lawman is registered, robber conforms without
 // registration, cowboy neither registers nor conforms.
 static_assert(prox::ProxyRegistered<gunslinger, lawman>);
+static_assert(prox::ProxyRegistered<gunslinger, deputy>);
 static_assert(!prox::ProxyRegistered<gunslinger, robber>);
+static_assert(!prox::ProxyRegistered<gunslinger, sheriff>);
 static_assert(!prox::ProxyRegistered<gunslinger, cowboy>);
 static_assert(std::same_as<decltype(prox::proxy_spec_v<gunslinger, lawman>),
     const prox::proxy_spec<gunslinger, lawman>>);
@@ -162,6 +209,7 @@ static_assert(std::same_as<decltype(prox::proxy_spec_v<gunslinger, lawman>),
 // also removes the noise.
 static_assert(prox::Proxiable<lawman, gunslinger>);
 static_assert(prox::Proxiable<robber, gunslinger>);
+static_assert(prox::Proxiable<sheriff, gunslinger>);
 static_assert(!prox::Proxiable<cowboy, gunslinger>);
 static_assert(!prox::Proxiable<int, gunslinger>);
 
@@ -203,6 +251,21 @@ TEST_CASE("Custom impl without registration", "[proxy]") {
 
   pv.call<"reload">();
   CHECK(r.fired == 0);
+}
+
+TEST_CASE("Partially-overridden boilerplate impl", "[proxy]") {
+  sheriff s;
+  prox::proxy_view<gunslinger> pv{s};
+
+  // The overriding binding: "fire" routes to `shoot`.
+  CHECK(pv.call<"fire">(4) == 4);
+  CHECK(s.rounds_fired == 4);
+
+  // The inherited boilerplate bindings still serve the rest.
+  CHECK(pv.call<"describe">() == "sheriff"s);
+  CHECK(pv.call<"shots">() == 4);
+  pv.call<"reload">();
+  CHECK(s.rounds_fired == 0);
 }
 
 TEST_CASE("Heterogeneous dispatch", "[proxy]") {

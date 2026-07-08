@@ -143,6 +143,14 @@ concept Facade = requires(const F& f) { details::probe(f); };
 // An explicit full specialization for one type outranks the boilerplate and
 // needs no registration.
 //
+// A facade author who factors the boilerplate bindings into a plain
+// inheritable class (with the partial specialization deriving from it) also
+// enables partial overrides: a type whose names line up except for one method
+// writes a full specialization that inherits that class, re-exposes its `on`
+// overloads with a using-declaration, and declares only the divergent
+// binding. See "proxy.md" for the mechanics and "proxy_test.cpp" for an
+// example in `proxy_impl_gunslinger`.
+//
 // For example, given `struct animal : facade<method<"speak", void() const>>`:
 //
 //    // Facade author's boilerplate, written once, serving any registered
