@@ -481,6 +481,36 @@ TEST_CASE("WrapExtremes", "[SequentialEnumTest]") {
 
 #pragma endregion
 
+#pragma region NamedConcept
+
+// `NamedSequentialEnum` refines `SequentialEnum` to enums registered with a
+// name list, gating `enum_name`, `enum_named_value`, and the name lookups.
+//
+// Verified by instantiating `enum_name<e0_255>{"a"}`: before the concept, it
+// died inside the library ("no member named 'intern_name' in
+// 'sequence_enum_spec<e0_255, ...>'" at the `enum_intern_name` body, with the
+// user's line buried in the instantiation notes, plus a follow-on "call to
+// consteval function is not a constant expression"). With the concept, the
+// one error lands on the user's line: "constraints not satisfied for class
+// template 'enum_name' [with E = e0_255] ... because 'e0_255' does not
+// satisfy 'NamedSequentialEnum'".
+TEST_CASE("NamedConcept", "[SequentialEnumTest]") {
+  // Registered with names: sequential and named.
+  static_assert(SequentialEnum<e0_3>);
+  static_assert(NamedSequentialEnum<e0_3>);
+  static_assert(NamedSequentialEnum<tiger_pick>);
+
+  // Registered via the nameless value form: sequential but not named.
+  static_assert(SequentialEnum<e0_255>);
+  static_assert(!NamedSequentialEnum<e0_255>);
+
+  // Unregistered scoped enums are neither.
+  static_assert(!SequentialEnum<new_enum>);
+  static_assert(!NamedSequentialEnum<new_enum>);
+}
+
+#pragma endregion
+
 enum class tiger_nochoice : std::uint8_t { tiger };
 consteval auto corvid_enum_spec(tiger_nochoice*) {
   return make_sequence_enum_spec<tiger_nochoice, tiger_nochoice{}>();
