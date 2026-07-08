@@ -437,21 +437,35 @@ concept Proxiable =
 #pragma endregion
 #pragma region proxy_view
 
-// Non-owning erased handle over any `Proxiable` target: Rust's `&dyn Trait`,
-// ngcpp's `proxy_view`.
+// Forward declaration so the mutable view can befriend the const flavor.
+template<Facade F>
+class const_proxy_view;
+
+// Non-owning erased handle over any `Proxiable` target: Rust's `&mut dyn
+// Trait`, ngcpp's `proxy_view`.
 //
-// Two pointers: the target and the per-(facade, type) dispatch table. Copyable
-// and shallow-const like other views: `call` is const and dispatches const and
-// non-const facade methods alike. The target must outlive the view.
+// Two pointers: the target and the per-(facade, type) dispatch table. The
+// target must outlive the view.
+//
+// Deep-const as an instance: only const-qualified facade methods dispatch
+// through a `const proxy_view`. Because views are freely copyable, that is a
+// guardrail rather than a guarantee: copying a `const proxy_view` yields a
+// mutable view onto the same target, much as a `T* const` pointer copies to
+// a plain `T*`. Code that means read-only access should use
+// `const_proxy_view`, where constness is part of the type and survives
+// copying.
 template<Facade F>
 class proxy_view {
+  using vtbuild_t = details::vtbuild_t<F>;
+  using vtable_t = vtbuild_t::vtable_t;
+
 public:
   using facade_t = F;
 
   // Converting constructor from an lvalue target. Intentionally implicit, like
   // `string_view` from `string`. Rvalues do not bind, so construction from a
-  // temporary is rejected at compile time; const targets are rejected until a
-  // const view flavor exists.
+  // temporary is rejected at compile time; const targets take a
+  // `const_proxy_view`.
   template<typename T>
   requires(Proxiable<T, F> && !std::is_const_v<T> &&
               !std::same_as<T, proxy_view>)
@@ -461,9 +475,20 @@ public:
   // Call the facade method named `K`, forwarding `args` through the erased
   // signature. The call is `noexcept` when the method is.
   //
-  // Not `[[nodiscard]]`: discardability belongs to the facade method, not the
-  // dispatcher (the `std::invoke` precedent).
+  // The const overload is constrained to const-qualified methods, mirroring
+  // the owning proxy's deep const. Not `[[nodiscard]]`: discardability
+  // belongs to the facade method, not the dispatcher (the `std::invoke`
+  // precedent).
   template<fixed_string K, typename... Args>
+  constexpr decltype(auto)
+  call(Args&&... args) noexcept(vtbuild_t::template is_noexcept<K>()) {
+    constexpr auto ndx = vtbuild_t::template index_of<K>();
+    static_assert(ndx != vtbuild_t::count_v, "no matching signature");
+    return std::get<ndx>(*vtable_)(target_, std::forward<Args>(args)...);
+  }
+
+  template<fixed_string K, typename... Args>
+  requires(details::vtbuild_t<F>::template is_const<K>())
   // NOLINTNEXTLINE(modernize-use-nodiscard)
   constexpr decltype(auto) call(Args&&... args) const
       noexcept(vtbuild_t::template is_noexcept<K>()) {
@@ -473,8 +498,7 @@ public:
   }
 
 private:
-  using vtbuild_t = details::vtbuild_t<F>;
-  using vtable_t = vtbuild_t::vtable_t;
+  friend const_proxy_view<F>;
 
   void* target_;
   const vtable_t* vtable_;
@@ -484,14 +508,90 @@ private:
 // in Rust, where `dyn Trait` implements `Trait`).
 //
 // Calls forward through the wrapped view, with conditional `noexcept` so the
-// invariant also holds for facades with noexcept methods. This makes
-// facade-constrained generic code accept concrete and erased arguments
-// interchangeably, and allows views of views.
+// invariant also holds for facades with noexcept methods. The const overload
+// serves const-qualified methods, matching the view's instance-level deep
+// const. This makes facade-constrained generic code accept concrete and
+// erased arguments interchangeably, and allows views of views.
 template<Facade F>
 struct proxy_impl<F, proxy_view<F>> {
   template<fixed_string K, typename... Args>
   static constexpr decltype(auto)
+  on(method_key<K>, proxy_view<F>& view, Args&&... args) noexcept(
+      noexcept(view.template call<K>(std::forward<Args>(args)...))) {
+    return view.template call<K>(std::forward<Args>(args)...);
+  }
+  template<fixed_string K, typename... Args>
+  static constexpr decltype(auto)
   on(method_key<K>, const proxy_view<F>& view, Args&&... args) noexcept(
+      noexcept(view.template call<K>(std::forward<Args>(args)...))) {
+    return view.template call<K>(std::forward<Args>(args)...);
+  }
+};
+
+// Non-owning read-only erased handle: Rust's `&dyn Trait`, the
+// `const_iterator` to `proxy_view`'s `iterator`.
+//
+// Constness is part of the type, so unlike a `const proxy_view` it survives
+// copying: a const view only ever copies or converts to another const view.
+// It binds const and mutable targets alike, and dispatches only the
+// const-qualified facade methods, sharing the mutable view's per-(facade,
+// type) dispatch table (the non-const slots are simply unreachable). The
+// target must outlive the view.
+template<Facade F>
+class const_proxy_view {
+  using vtbuild_t = details::vtbuild_t<F>;
+  using vtable_t = vtbuild_t::vtable_t;
+
+public:
+  using facade_t = F;
+
+  // Converting constructor from an lvalue target, const or not. Intentionally
+  // implicit; rvalues do not bind.
+  template<typename T>
+  requires(Proxiable<std::remove_const_t<T>, F> &&
+              !std::same_as<std::remove_const_t<T>, const_proxy_view> &&
+              !std::same_as<std::remove_const_t<T>, proxy_view<F>>)
+  constexpr explicit(false) const_proxy_view(T& target) noexcept
+      : target_{std::addressof(target)},
+        vtable_{&details::vtable_for<F, std::remove_const_t<T>>} {}
+
+  // Converting constructor from the mutable view: dropping mutability is
+  // implicit and safe, like `T*` to `const T*`. There is no path back.
+  constexpr explicit(false)
+      const_proxy_view(const proxy_view<F>& view) noexcept
+      : target_{view.target_}, vtable_{view.vtable_} {}
+
+  // Call the facade method named `K`, which must be const-qualified; the
+  // mutable methods do not exist on this view. The call is `noexcept` when
+  // the method is. Not `[[nodiscard]]`, as on the other handles.
+  template<fixed_string K, typename... Args>
+  requires(details::vtbuild_t<F>::template is_const<K>())
+  // NOLINTNEXTLINE(modernize-use-nodiscard)
+  constexpr decltype(auto) call(Args&&... args) const
+      noexcept(vtbuild_t::template is_noexcept<K>()) {
+    constexpr auto ndx = vtbuild_t::template index_of<K>();
+    static_assert(ndx != vtbuild_t::count_v, "no matching signature");
+    return std::get<ndx>(*vtable_)(target_, std::forward<Args>(args)...);
+  }
+
+private:
+  const void* target_;
+  const vtable_t* vtable_;
+};
+
+// Library-provided binding so that a const view satisfies its own facade
+// where that is possible: it dispatches only const methods, so the invariant
+// holds exactly for all-const facades.
+//
+// The `on` is itself constrained to const methods so that a mixed facade
+// fails conformance cleanly at overload resolution, rather than erroring
+// during return type deduction of a forwarder whose `call` cannot compile.
+template<Facade F>
+struct proxy_impl<F, const_proxy_view<F>> {
+  template<fixed_string K, typename... Args>
+  requires(details::vtbuild_t<F>::template is_const<K>())
+  static constexpr decltype(auto)
+  on(method_key<K>, const const_proxy_view<F>& view, Args&&... args) noexcept(
       noexcept(view.template call<K>(std::forward<Args>(args)...))) {
     return view.template call<K>(std::forward<Args>(args)...);
   }

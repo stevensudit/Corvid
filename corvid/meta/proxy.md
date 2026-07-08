@@ -31,7 +31,8 @@ buffer plus dispatch pointer).
 | Corvid                        | ngcpp/proxy              | Rust                 |
 | ----------------------------- | ------------------------ | -------------------- |
 | `proxy<F>`                    | `pro::proxy<F>`          | `Box<dyn T>`         |
-| `proxy_view<F>`               | `pro::proxy_view<F>`     | `&dyn T`             |
+| `proxy_view<F>`               | `pro::proxy_view<F>`     | `&mut dyn T`         |
+| `const_proxy_view<F>`         | (none)                   | `&dyn T`             |
 | `facade`                      | facade (`facade_builder`)| `trait`              |
 | `method<"fire", void(int)>`   | dispatch + convention    | trait method         |
 | `proxy_impl<F, T>`            | (none; structural)       | `impl Trait for Type`|
@@ -240,13 +241,29 @@ through `call<>` and the same dispatch table.
 - The owning table carries housekeeping slots (destroy, relocate/move) in
   addition to the facade methods, the analog of Rust's drop glue.
   `proxy_view` carries none, which is why the view is built first.
+- Const is handled on two axes. Every handle is deep-const as an instance:
+  only const-qualified methods dispatch through a const handle, enforced by a
+  constraint on the const `call` overload. For the copyable views this is a
+  guardrail, not a guarantee (copying a `const proxy_view` yields a mutable
+  view, like copying a `T* const` to a `T*`); the guarantee lives in
+  `const_proxy_view`, the `&dyn` to `proxy_view`'s `&mut dyn`, where
+  constness is part of the type. It binds const and mutable targets alike,
+  converts implicitly from `proxy_view` with no path back, and dispatches
+  only const methods while sharing the mutable view's per-(facade, type)
+  dispatch table (the non-const slots are simply unreachable, so no
+  const-sliced table or index remapping is needed).
 - Invariant: `proxy<F>` and `proxy_view<F>` themselves satisfy
   `proxiable<_, F>`, so generic code constrained on the facade accepts
   concrete and erased arguments interchangeably (Rust: `dyn Trait`
   implements `Trait`). Implemented as library-provided `proxy_impl`
   bindings whose `on` forwards through `call` with conditional `noexcept`
-  (so the invariant survives noexcept methods); the owning proxy's binding
-  has const and non-const overloads to respect its deep const.
+  (so the invariant survives noexcept methods); the deep-const handles'
+  bindings have const and non-const overloads to match. For
+  `const_proxy_view` the invariant holds exactly for all-const facades (as
+  with Rust `&dyn`, whose `&mut self` methods are uncallable); its binding's
+  `on` is constrained to const methods so a mixed facade fails conformance
+  cleanly at overload resolution rather than erroring during return type
+  deduction.
 
 ## Alternative considered: virtual-model erasure
 
@@ -319,8 +336,9 @@ architecture.
    and relocate slots; a null relocate slot marks the heap path, which
    moves by pointer steal with no target activity. Default-constructed and
    moved-from proxies are empty (`operator bool`); calling through one is
-   undefined behavior. Also in this phase: `noexcept` method flavors and
-   the self-conformance invariant, both described under Mechanism.
+   undefined behavior. Also in this phase: `noexcept` method flavors, the
+   self-conformance invariant, deep-const `proxy_view`, and
+   `const_proxy_view`, all described under Mechanism.
    Verified: lifetime-counting fixtures balancing construct/destroy/move
    on both the SBO and heap paths, move-assignment over a live target,
    emptiness after move, deep-const positive and negative probes,
@@ -373,7 +391,7 @@ dispatch, allocator plumbing, RTTI, per-name overload sets.
 
 - The member-call sugar pin: the `api` mixin is the leading candidate
   (judged plausible); confirm once real call sites exist.
-- Const flavor of views: whether `proxy_view<F>` needs a distinct
-  const-view type (the `&T` vs `&mut T` split) or const-qualified methods
-  suffice. The owning proxy answered its half of the question (deep const,
-  in phase 2); the view remains shallow-const pending this.
+
+The const flavor of views was an open question until phase 2: resolved as
+the `&T` vs `&mut T` split (`const_proxy_view` alongside a deep-const
+`proxy_view`), described under Mechanism.

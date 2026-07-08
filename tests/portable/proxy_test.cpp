@@ -315,10 +315,10 @@ static_assert(prox::Proxiable<lawman, hair_trigger>);
 static_assert(!prox::Proxiable<robber, hair_trigger>);
 
 // The erased call carries the method's noexcept.
-static_assert(noexcept(
-    std::declval<const prox::proxy_view<hair_trigger>&>().call<"fire">(1)));
-static_assert(!noexcept(
-    std::declval<const prox::proxy_view<gunslinger>&>().call<"fire">(1)));
+static_assert(
+    noexcept(std::declval<prox::proxy_view<hair_trigger>&>().call<"fire">(1)));
+static_assert(
+    !noexcept(std::declval<prox::proxy_view<gunslinger>&>().call<"fire">(1)));
 
 // Both handles satisfy their own facade, including facades with noexcept
 // methods.
@@ -336,8 +336,8 @@ static_assert(std::assignable_from<prox::proxy_view<gunslinger>&,
 static_assert(!std::copy_constructible<prox::proxy<gunslinger>>);
 static_assert(std::movable<prox::proxy<gunslinger>>);
 
-// Deep const: non-const facade methods are not callable on a const proxy,
-// but const ones are. The view stays shallow-const. The probes go through a
+// Deep const: non-const facade methods are not callable on a const handle,
+// and never exist on a `const_proxy_view` at all. The probes go through a
 // concept so the negative case is a constraint failure rather than a hard
 // error (a requires-expression outside a template does not get SFINAE).
 template<typename P>
@@ -348,7 +348,39 @@ concept CanDescribe = requires(P& p) { p.template call<"describe">(); };
 static_assert(CanFire<prox::proxy<gunslinger>>);
 static_assert(!CanFire<const prox::proxy<gunslinger>>);
 static_assert(CanDescribe<const prox::proxy<gunslinger>>);
-static_assert(CanFire<const prox::proxy_view<gunslinger>>);
+static_assert(CanFire<prox::proxy_view<gunslinger>>);
+static_assert(!CanFire<const prox::proxy_view<gunslinger>>);
+static_assert(CanDescribe<const prox::proxy_view<gunslinger>>);
+static_assert(!CanFire<prox::const_proxy_view<gunslinger>>);
+static_assert(!CanFire<const prox::const_proxy_view<gunslinger>>);
+static_assert(CanDescribe<prox::const_proxy_view<gunslinger>>);
+
+// Const-view conversion rules: a target loses mutability implicitly, never
+// regains it. A const target binds only to the const view.
+static_assert(std::convertible_to<prox::proxy_view<gunslinger>,
+    prox::const_proxy_view<gunslinger>>);
+static_assert(!std::constructible_from<prox::proxy_view<gunslinger>,
+    prox::const_proxy_view<gunslinger>&>);
+static_assert(std::constructible_from<prox::const_proxy_view<gunslinger>,
+    const lawman&>);
+static_assert(
+    !std::constructible_from<prox::proxy_view<gunslinger>, const lawman&>);
+
+// An all-const facade is the one case where a const view satisfies the
+// invariant; a mixed facade correctly fails it (the mutable methods are not
+// dispatchable, so conformance is impossible; Rust's `&dyn` analog).
+struct census: prox::facade<prox::method<"describe", std::string() const>> {};
+
+template<>
+struct prox::proxy_impl<census, lawman> {
+  static std::string on(method_key<"describe">, const lawman& l) {
+    return l.describe();
+  }
+};
+
+static_assert(prox::Proxiable<prox::const_proxy_view<census>, census>);
+static_assert(
+    !prox::Proxiable<prox::const_proxy_view<gunslinger>, gunslinger>);
 
 // NOLINTBEGIN(readability-function-cognitive-complexity)
 
@@ -403,7 +435,8 @@ TEST_CASE("Heterogeneous dispatch", "[proxy]") {
   std::vector<prox::proxy_view<gunslinger>> gang{l, r};
 
   std::string roll_call;
-  for (const auto& pv : gang) {
+  // Mutable references: "fire" no longer dispatches through a const view.
+  for (auto& pv : gang) {
     pv.call<"fire">(2);
     roll_call += pv.call<"describe">();
     roll_call += ' ';
@@ -427,6 +460,36 @@ TEST_CASE("Views rebind by assignment", "[proxy]") {
   // Assignment rebinds both the target and the dispatch table.
   pv = prox::proxy_view<gunslinger>{r};
   CHECK(pv.call<"describe">() == "robber"s);
+}
+
+TEST_CASE("Const view", "[proxy]") {
+  // A const target binds directly; only const methods exist on this view.
+  const lawman cl{};
+  prox::const_proxy_view<gunslinger> cv{cl};
+  CHECK(cv.call<"describe">() == "lawman"s);
+
+  // A const instance of the mutable view enforces the same restriction.
+  lawman l;
+  const prox::proxy_view<gunslinger> cpv{l};
+  CHECK(cpv.call<"describe">() == "lawman"s);
+
+  // The mutable view converts implicitly, and const views rebind by
+  // assignment like any view.
+  prox::proxy_view<gunslinger> pv{l};
+  prox::const_proxy_view<gunslinger> cv2{pv};
+  CHECK(cv2.call<"describe">() == "lawman"s);
+  cv = cv2;
+  CHECK(cv.call<"describe">() == "lawman"s);
+
+  // All-const facades keep the invariant: generic code constrained on the
+  // facade accepts the concrete const target and the const view alike.
+  auto describe_it = [](const prox::Proxiable<census> auto& t) {
+    prox::const_proxy_view<census> v{t};
+    return v.template call<"describe">();
+  };
+  CHECK(describe_it(cl) == "lawman"s);
+  prox::const_proxy_view<census> census_view{cl};
+  CHECK(describe_it(census_view) == "lawman"s);
 }
 
 TEST_CASE("Generic code accepts concrete and erased alike", "[proxy]") {
