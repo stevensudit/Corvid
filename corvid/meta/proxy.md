@@ -251,7 +251,10 @@ through `call<>` and the same dispatch table.
   converts implicitly from `proxy_view` with no path back, and dispatches
   only const methods while sharing the mutable view's per-(facade, type)
   dispatch table (the non-const slots are simply unreachable, so no
-  const-sliced table or index remapping is needed).
+  const-sliced table or index remapping is needed). The two views share
+  storage and the const-method `call` through `details::view_base<F,
+  Const>`; the mutable view layers the unrestricted non-const overload on
+  top and re-exposes the inherited one with a using-declaration.
 - Invariant: `proxy<F>` and `proxy_view<F>` themselves satisfy
   `proxiable<_, F>`, so generic code constrained on the facade accepts
   concrete and erased arguments interchangeably (Rust: `dyn Trait`
@@ -352,7 +355,12 @@ architecture.
 
 Header: `corvid/meta/proxy.h`, namespace `corvid::meta::prox`, deliberately
 NOT inline: `facade`, `method`, and `key` are too generic to dump into
-`corvid`. Promote to a `corvid/proxy/` family only if it sprawls. Tests:
+`corvid`. The call-site vocabulary (`proxy`, `proxy_view`,
+`const_proxy_view`, `make_proxy`, `make_proxy_view`, `Proxiable`) is
+exported into `corvid::meta` by using-declarations, so consuming code spells
+`proxy_view<foo_like>` unqualified; only authoring (facades, impls,
+registration) needs `prox::`, the domain those authors already work in.
+Promote to a `corvid/proxy/` family only if it sprawls. Tests:
 `tests/portable/proxy_test.cpp`. `method` derives from its `key`
 (subsumption: a method tag is usable anywhere its key is; also the hook for
 overloading bindings on the full method if per-name overload sets ever

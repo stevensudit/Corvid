@@ -36,7 +36,8 @@
 // an explicit `proxy_impl` specialization or by registering the pair to a
 // facade author's boilerplate impl, in the same spirit as registered enums.
 // See "proxy.md" for the design.
-namespace corvid { inline namespace meta { namespace prox {
+namespace corvid { inline namespace meta {
+namespace prox {
 
 #pragma region Method and key
 
@@ -437,6 +438,46 @@ concept Proxiable =
 #pragma endregion
 #pragma region proxy_view
 
+namespace details {
+
+// Storage and const-method dispatch shared by the two view flavors, which
+// differ only in the constness of the erased target pointer.
+//
+// The `call` here serves const-qualified methods, the only dispatch a const
+// handle allows; `proxy_view` layers the unrestricted non-const overload on
+// top.
+template<Facade F, bool Const>
+class view_base {
+public:
+  using facade_t = F;
+
+  // Call the const-qualified facade method named `K`, forwarding `args`
+  // through the erased signature. The call is `noexcept` when the method is.
+  // Not `[[nodiscard]]`: discardability belongs to the facade method, not
+  // the dispatcher (the `std::invoke` precedent).
+  template<fixed_string K, typename... Args>
+  requires(vtbuild_t<F>::template is_const<K>())
+  // NOLINTNEXTLINE(modernize-use-nodiscard)
+  constexpr decltype(auto) call(Args&&... args) const
+      noexcept(vtbuild_t<F>::template is_noexcept<K>()) {
+    constexpr auto ndx = vtbuild_t<F>::template index_of<K>();
+    static_assert(ndx != vtbuild_t<F>::count_v, "no matching signature");
+    return std::get<ndx>(*vtable_)(target_, std::forward<Args>(args)...);
+  }
+
+protected:
+  using vtable_t = vtbuild_t<F>::vtable_t;
+  using target_ptr_t = std::conditional_t<Const, const void*, void*>;
+
+  constexpr view_base(target_ptr_t target, const vtable_t* vtable) noexcept
+      : target_{target}, vtable_{vtable} {}
+
+  target_ptr_t target_;
+  const vtable_t* vtable_;
+};
+
+} // namespace details
+
 // Forward declaration so the mutable view can befriend the const flavor.
 template<Facade F>
 class const_proxy_view;
@@ -455,53 +496,40 @@ class const_proxy_view;
 // `const_proxy_view`, where constness is part of the type and survives
 // copying.
 template<Facade F>
-class proxy_view {
+class proxy_view: public details::view_base<F, false> {
+  using base = details::view_base<F, false>;
   using vtbuild_t = details::vtbuild_t<F>;
-  using vtable_t = vtbuild_t::vtable_t;
 
 public:
-  using facade_t = F;
-
   // Converting constructor from an lvalue target. Intentionally implicit, like
   // `string_view` from `string`. Rvalues do not bind, so construction from a
   // temporary is rejected at compile time; const targets take a
   // `const_proxy_view`.
   template<typename T>
-  requires(Proxiable<T, F> && !std::is_const_v<T> &&
-              !std::same_as<T, proxy_view>)
+  requires(
+      Proxiable<T, F> && !std::is_const_v<T> && !std::same_as<T, proxy_view>)
   constexpr explicit(false) proxy_view(T& target) noexcept
-      : target_{std::addressof(target)}, vtable_{&details::vtable_for<F, T>} {}
+      : base{std::addressof(target), &details::vtable_for<F, T>} {}
 
   // Call the facade method named `K`, forwarding `args` through the erased
   // signature. The call is `noexcept` when the method is.
   //
-  // The const overload is constrained to const-qualified methods, mirroring
-  // the owning proxy's deep const. Not `[[nodiscard]]`: discardability
-  // belongs to the facade method, not the dispatcher (the `std::invoke`
-  // precedent).
+  // This overload dispatches every method; the inherited const overload,
+  // re-exposed by the using-declaration, is constrained to const-qualified
+  // methods, mirroring the owning proxy's deep const.
   template<fixed_string K, typename... Args>
   constexpr decltype(auto)
   call(Args&&... args) noexcept(vtbuild_t::template is_noexcept<K>()) {
     constexpr auto ndx = vtbuild_t::template index_of<K>();
     static_assert(ndx != vtbuild_t::count_v, "no matching signature");
-    return std::get<ndx>(*vtable_)(target_, std::forward<Args>(args)...);
+    return std::get<ndx>(
+        *this->vtable_)(this->target_, std::forward<Args>(args)...);
   }
 
-  template<fixed_string K, typename... Args>
-  requires(details::vtbuild_t<F>::template is_const<K>())
-  // NOLINTNEXTLINE(modernize-use-nodiscard)
-  constexpr decltype(auto) call(Args&&... args) const
-      noexcept(vtbuild_t::template is_noexcept<K>()) {
-    constexpr auto ndx = vtbuild_t::template index_of<K>();
-    static_assert(ndx != vtbuild_t::count_v, "no matching signature");
-    return std::get<ndx>(*vtable_)(target_, std::forward<Args>(args)...);
-  }
+  using base::call;
 
 private:
   friend const_proxy_view<F>;
-
-  void* target_;
-  const vtable_t* vtable_;
 };
 
 // Library-provided binding so that a view itself satisfies its own facade (as
@@ -538,45 +566,29 @@ struct proxy_impl<F, proxy_view<F>> {
 // type) dispatch table (the non-const slots are simply unreachable). The
 // target must outlive the view.
 template<Facade F>
-class const_proxy_view {
-  using vtbuild_t = details::vtbuild_t<F>;
-  using vtable_t = vtbuild_t::vtable_t;
+class const_proxy_view: public details::view_base<F, true> {
+  using base = details::view_base<F, true>;
 
 public:
-  using facade_t = F;
-
   // Converting constructor from an lvalue target, const or not. Intentionally
   // implicit; rvalues do not bind.
   template<typename T>
-  requires(Proxiable<std::remove_const_t<T>, F> &&
-              !std::same_as<std::remove_const_t<T>, const_proxy_view> &&
-              !std::same_as<std::remove_const_t<T>, proxy_view<F>>)
+  requires(
+      Proxiable<std::remove_const_t<T>, F> &&
+      !std::same_as<std::remove_const_t<T>, const_proxy_view> &&
+      !std::same_as<std::remove_const_t<T>, proxy_view<F>>)
   constexpr explicit(false) const_proxy_view(T& target) noexcept
-      : target_{std::addressof(target)},
-        vtable_{&details::vtable_for<F, std::remove_const_t<T>>} {}
+      : base{std::addressof(target),
+            &details::vtable_for<F, std::remove_const_t<T>>} {}
 
   // Converting constructor from the mutable view: dropping mutability is
   // implicit and safe, like `T*` to `const T*`. There is no path back.
   constexpr explicit(false)
       const_proxy_view(const proxy_view<F>& view) noexcept
-      : target_{view.target_}, vtable_{view.vtable_} {}
+      : base{view.target_, view.vtable_} {}
 
-  // Call the facade method named `K`, which must be const-qualified; the
-  // mutable methods do not exist on this view. The call is `noexcept` when
-  // the method is. Not `[[nodiscard]]`, as on the other handles.
-  template<fixed_string K, typename... Args>
-  requires(details::vtbuild_t<F>::template is_const<K>())
-  // NOLINTNEXTLINE(modernize-use-nodiscard)
-  constexpr decltype(auto) call(Args&&... args) const
-      noexcept(vtbuild_t::template is_noexcept<K>()) {
-    constexpr auto ndx = vtbuild_t::template index_of<K>();
-    static_assert(ndx != vtbuild_t::count_v, "no matching signature");
-    return std::get<ndx>(*vtable_)(target_, std::forward<Args>(args)...);
-  }
-
-private:
-  const void* target_;
-  const vtable_t* vtable_;
+  // `call` is inherited: the base's const-method dispatch is the entire
+  // interface, since the mutable methods do not exist on this view.
 };
 
 // Library-provided binding so that a const view satisfies its own facade
@@ -782,4 +794,25 @@ requires Proxiable<T, F>
 
 #pragma endregion
 
-}}} // namespace corvid::meta::prox
+} // namespace prox
+
+#pragma region Exports
+
+// Call-site vocabulary, exported to `corvid::meta`.
+//
+// Consuming an erased handle is ordinary type usage, as in
+// `do_stuff(proxy_view<foo_like>)`, so these names belong in the wider
+// namespace. The authoring vocabulary (`facade`, `method`, `proxy_impl`, and
+// the registration machinery) stays inside `prox`: those names are too
+// generic to export, and facade and impl authors are already working in that
+// domain.
+using prox::const_proxy_view;
+using prox::make_proxy;
+using prox::make_proxy_view;
+using prox::proxy;
+using prox::Proxiable;
+using prox::proxy_view;
+
+#pragma endregion
+
+}} // namespace corvid::meta
