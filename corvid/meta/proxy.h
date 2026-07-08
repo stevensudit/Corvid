@@ -16,9 +16,11 @@
 // limitations under the License.
 #pragma once
 #include <array>
+#include <cassert>
 #include <concepts>
 #include <cstddef>
 #include <memory>
+#include <new>
 #include <tuple>
 #include <type_traits>
 #include <utility>
@@ -76,6 +78,10 @@ consteval auto operator""_method() noexcept {
 // The signature fixes the erased ABI; a binding may return the declared result
 // type or anything convertible to it.
 //
+// A `noexcept` qualifier is likewise honored: conformance then requires the
+// binding itself to be noexcept-invocable, and the erased call (`call` through
+// a handle) is itself `noexcept`.
+//
 // A method derives from its `method_key`, so a method tag is usable anywhere
 // its key is, including `on` overload selection and deduction of
 // `method_key<K>` from a method argument. This also leaves the door open for
@@ -87,12 +93,28 @@ struct method;
 template<fixed_string Name, typename R, typename... Args>
 struct method<Name, R(Args...)>: method_key<Name> {
   static constexpr bool const_v = false;
+  static constexpr bool noexcept_v = false;
   using result_t = R;
 };
 
 template<fixed_string Name, typename R, typename... Args>
 struct method<Name, R(Args...) const>: method_key<Name> {
   static constexpr bool const_v = true;
+  static constexpr bool noexcept_v = false;
+  using result_t = R;
+};
+
+template<fixed_string Name, typename R, typename... Args>
+struct method<Name, R(Args...) noexcept>: method_key<Name> {
+  static constexpr bool const_v = false;
+  static constexpr bool noexcept_v = true;
+  using result_t = R;
+};
+
+template<fixed_string Name, typename R, typename... Args>
+struct method<Name, R(Args...) const noexcept>: method_key<Name> {
+  static constexpr bool const_v = true;
+  static constexpr bool noexcept_v = true;
   using result_t = R;
 };
 
@@ -222,52 +244,97 @@ constexpr inline auto proxy_spec_v =
 
 namespace details {
 
-// Per-method dispatch machinery, split on the const qualification of the
-// erased signature: the thunk pointer type, the compile-time check that a
-// `proxy_impl` binding exists, and the thunk itself, which is where the
-// concrete type is seen for the last time before erasure.
+// Per-method dispatch machinery, shared by the four erased-signature flavors
+// (`const` crossed with `noexcept`).
+//
+// Contains the thunk pointer type, the compile-time check that a `proxy_impl`
+// binding exists, and the thunk itself, which is where the concrete type is
+// seen for the last time before erasure.
+//
+// A const method sees the target as `const T&` and erases it as `const
+// void*`. A noexcept method additionally requires the binding to be
+// noexcept-invocable, and its thunk pointer type carries `noexcept` through
+// the erased ABI.
+template<fixed_string Name, bool Const, bool Noexcept, typename R,
+    typename... Args>
+struct method_traits_base {
+  template<typename T>
+  using target_t = std::conditional_t<Const, const T, T>;
+  using erased_ptr_t = std::conditional_t<Const, const void*, void*>;
+  using thunk_ptr_t = R (*)(erased_ptr_t, Args...) noexcept(Noexcept);
+
+  template<typename F, typename T>
+  static constexpr bool bound_v = requires(target_t<T>& t, Args... args) {
+    {
+      proxy_impl<F, T>::on(method_key<Name>{}, t, std::forward<Args>(args)...)
+    } -> std::convertible_to<R>;
+  } && (!Noexcept || requires(target_t<T>& t, Args... args) {
+    {
+      proxy_impl<F, T>::on(method_key<Name>{}, t, std::forward<Args>(args)...)
+    } noexcept;
+  });
+
+  template<typename F, typename T>
+  static consteval thunk_ptr_t make_thunk() noexcept {
+    return [](erased_ptr_t target, Args... args) noexcept(Noexcept) -> R {
+      return proxy_impl<F, T>::on(method_key<Name>{},
+          *static_cast<target_t<T>*>(target), std::forward<Args>(args)...);
+    };
+  }
+};
+
 template<typename M>
 struct method_traits;
 
 template<fixed_string Name, typename R, typename... Args>
-struct method_traits<method<Name, R(Args...)>> {
-  using thunk_ptr_t = R (*)(void*, Args...);
-
-  template<typename F, typename T>
-  static constexpr bool bound_v = requires(T& t, Args... args) {
-    {
-      proxy_impl<F, T>::on(method_key<Name>{}, t, std::forward<Args>(args)...)
-    } -> std::convertible_to<R>;
-  };
-
-  template<typename F, typename T>
-  static consteval thunk_ptr_t make_thunk() noexcept {
-    return [](void* target, Args... args) -> R {
-      return proxy_impl<F, T>::on(method_key<Name>{}, *static_cast<T*>(target),
-          std::forward<Args>(args)...);
-    };
-  }
-};
+struct method_traits<method<Name, R(Args...)>>
+    : method_traits_base<Name, false, false, R, Args...> {};
 
 template<fixed_string Name, typename R, typename... Args>
-struct method_traits<method<Name, R(Args...) const>> {
-  using thunk_ptr_t = R (*)(const void*, Args...);
+struct method_traits<method<Name, R(Args...) const>>
+    : method_traits_base<Name, true, false, R, Args...> {};
 
-  template<typename F, typename T>
-  static constexpr bool bound_v = requires(const T& t, Args... args) {
-    {
-      proxy_impl<F, T>::on(method_key<Name>{}, t, std::forward<Args>(args)...)
-    } -> std::convertible_to<R>;
-  };
+template<fixed_string Name, typename R, typename... Args>
+struct method_traits<method<Name, R(Args...) noexcept>>
+    : method_traits_base<Name, false, true, R, Args...> {};
 
-  template<typename F, typename T>
-  static consteval thunk_ptr_t make_thunk() noexcept {
-    return [](const void* target, Args... args) -> R {
-      return proxy_impl<F, T>::on(method_key<Name>{},
-          *static_cast<const T*>(target), std::forward<Args>(args)...);
-    };
-  }
-};
+template<fixed_string Name, typename R, typename... Args>
+struct method_traits<method<Name, R(Args...) const noexcept>>
+    : method_traits_base<Name, true, true, R, Args...> {};
+
+// Inline (SBO) storage parameters for the owning `proxy`.
+//
+// A target is stored inline when it fits the buffer, is no more aligned than
+// `std::max_align_t`, and is nothrow-move-constructible (a proxy move
+// relocates an inline target, and proxy moves are unconditionally
+// `noexcept`); anything else lives in a unique-owned heap allocation.
+inline constexpr std::size_t sbo_size = 2 * sizeof(void*);
+
+template<typename T>
+constexpr inline bool sbo_eligible_v =
+    sizeof(T) <= sbo_size && alignof(T) <= alignof(std::max_align_t) &&
+    std::is_nothrow_move_constructible_v<T>;
+
+// Housekeeping thunks for the owning `proxy`: the analog of Rust's drop glue.
+//
+// `sbo_relocate` move-constructs `*from` into `to` and destroys the source;
+// the heap path has none because a heap target moves by pointer steal.
+template<typename T>
+void sbo_destroy(void* target) noexcept {
+  static_cast<T*>(target)->~T();
+}
+
+template<typename T>
+void heap_destroy(void* target) noexcept {
+  delete static_cast<T*>(target);
+}
+
+template<typename T>
+void sbo_relocate(void* from, void* to) noexcept {
+  auto* source = static_cast<T*>(from);
+  ::new (to) T(std::move(*source));
+  source->~T();
+}
 
 // Facade-wide dispatch machinery, specialized on the `facade` base to get at
 // the method pack: method count, name-to-slot lookup, the dispatch table type,
@@ -291,6 +358,22 @@ struct vtable_builder<facade<Ms...>> {
     return count_v;
   }
 
+  // Qualification of the method named `K`. Both are `false` when no method
+  // has that name; rejecting an unknown name is `index_of`'s job.
+  template<fixed_string K>
+  static consteval bool is_const() noexcept {
+    constexpr std::array<bool, sizeof...(Ms)> flags{Ms::const_v...};
+    constexpr auto ndx = index_of<K>();
+    return ndx != count_v && flags[ndx];
+  }
+
+  template<fixed_string K>
+  static consteval bool is_noexcept() noexcept {
+    constexpr std::array<bool, sizeof...(Ms)> flags{Ms::noexcept_v...};
+    constexpr auto ndx = index_of<K>();
+    return ndx != count_v && flags[ndx];
+  }
+
   template<typename F, typename T>
   static constexpr bool all_bound_v =
       (method_traits<Ms>::template bound_v<F, T> && ...);
@@ -298,6 +381,23 @@ struct vtable_builder<facade<Ms...>> {
   template<typename F, typename T>
   static consteval vtable_t make_vtable() noexcept {
     return {method_traits<Ms>::template make_thunk<F, T>()...};
+  }
+
+  // Owning dispatch table: the facade methods plus housekeeping slots. A null
+  // `relocate` marks a heap-stored target, which moves by pointer steal
+  // rather than relocation.
+  struct owning_vtable_t {
+    vtable_t methods;
+    void (*destroy)(void*) noexcept;
+    void (*relocate)(void*, void*) noexcept;
+  };
+
+  template<typename F, typename T>
+  static consteval owning_vtable_t make_owning_vtable() noexcept {
+    if constexpr (sbo_eligible_v<T>)
+      return {make_vtable<F, T>(), &sbo_destroy<T>, &sbo_relocate<T>};
+    else
+      return {make_vtable<F, T>(), &heap_destroy<T>, nullptr};
   }
 };
 
@@ -310,6 +410,11 @@ using vtbuild_t = vtable_builder<decltype(probe(std::declval<const F&>()))>;
 // handle, like Rust's `&dyn`).
 template<Facade F, typename T>
 constexpr inline auto vtable_for = vtbuild_t<F>::template make_vtable<F, T>();
+
+// Per-(facade, type) owning dispatch table instance, for `proxy`.
+template<Facade F, typename T>
+constexpr inline auto owning_vtable_for =
+    vtbuild_t<F>::template make_owning_vtable<F, T>();
 
 } // namespace details
 
@@ -352,18 +457,22 @@ public:
       : target_{std::addressof(target)}, vtable_{&details::vtable_for<F, T>} {}
 
   // Call the facade method named `K`, forwarding `args` through the erased
-  // signature.
+  // signature. The call is `noexcept` when the method is.
+  //
+  // Not `[[nodiscard]]`: discardability belongs to the facade method, not the
+  // dispatcher (the `std::invoke` precedent).
   template<fixed_string K, typename... Args>
-  constexpr decltype(auto) call(Args&&... args) const {
+  // NOLINTNEXTLINE(modernize-use-nodiscard)
+  constexpr decltype(auto) call(Args&&... args) const
+      noexcept(vtbuild_t::template is_noexcept<K>()) {
     constexpr auto ndx = vtbuild_t::template index_of<K>();
-    static_assert(ndx != vtbuild_t::count_v,
-        "facade has no method with this name");
+    static_assert(ndx != vtbuild_t::count_v, "no matching signature");
     return std::get<ndx>(*vtable_)(target_, std::forward<Args>(args)...);
   }
 
 private:
   using vtbuild_t = details::vtbuild_t<F>;
-  using vtable_t = typename vtbuild_t::vtable_t;
+  using vtable_t = vtbuild_t::vtable_t;
 
   void* target_;
   const vtable_t* vtable_;
@@ -372,14 +481,16 @@ private:
 // Library-provided binding so that a view itself satisfies its own facade (as
 // in Rust, where `dyn Trait` implements `Trait`).
 //
-// Calls forward through the wrapped view. This makes facade-constrained
-// generic code accept concrete and erased arguments interchangeably, and
-// allows views of views.
+// Calls forward through the wrapped view, with conditional `noexcept` so the
+// invariant also holds for facades with noexcept methods. This makes
+// facade-constrained generic code accept concrete and erased arguments
+// interchangeably, and allows views of views.
 template<Facade F>
 struct proxy_impl<F, proxy_view<F>> {
   template<fixed_string K, typename... As>
   static constexpr decltype(auto)
-  on(method_key<K>, const proxy_view<F>& view, As&&... args) {
+  on(method_key<K>, const proxy_view<F>& view, As&&... args) noexcept(
+      noexcept(view.template call<K>(std::forward<As>(args)...))) {
     return view.template call<K>(std::forward<As>(args)...);
   }
 };
@@ -397,6 +508,174 @@ requires Proxiable<T, F>
     return target;
   else
     return proxy_view<F>{target};
+}
+
+#pragma endregion
+#pragma region proxy
+
+// Owning erased handle over any `Proxiable` target: Rust's `Box<dyn Trait>`,
+// ngcpp's `proxy`.
+//
+// Move-only. Small targets (at most `sbo_size` bytes, at most
+// `std::max_align_t` alignment, nothrow-move-constructible) are stored
+// inline; anything else lives in a unique-owned heap allocation. The owning
+// dispatch table carries destroy and relocate slots alongside the facade
+// methods, so destruction and moves work without knowing the target type.
+//
+// Unlike the shallow-const view, the proxy owns its target and is deep-const:
+// only const-qualified facade methods dispatch through a const proxy.
+//
+// A default-constructed or moved-from proxy is empty: destructible,
+// assignable, and testable via `operator bool`, but calling through it is
+// undefined behavior.
+template<Facade F>
+class proxy {
+  using vtbuild_t = details::vtbuild_t<F>;
+  using owning_vtable_t = vtbuild_t::owning_vtable_t;
+
+public:
+  using facade_t = F;
+
+  // Inline storage capacity in bytes; see the class comment for the other
+  // inline-eligibility conditions.
+  static constexpr std::size_t sbo_size = details::sbo_size;
+
+  // An empty proxy holds no target.
+  proxy() = default;
+
+  proxy(const proxy&) = delete;
+  proxy& operator=(const proxy&) = delete;
+
+  // Construct an owning proxy holding a `T` built in place from `args`.
+  // Usually spelled through `make_proxy`.
+  template<typename T, typename... Args>
+  requires(Proxiable<T, F> && std::constructible_from<T, Args...>)
+  explicit proxy(std::in_place_type_t<T>, Args&&... args)
+      : vtable_{&details::owning_vtable_for<F, T>} {
+    if constexpr (details::sbo_eligible_v<T>)
+      ::new (static_cast<void*>(storage_.buf)) T(std::forward<Args>(args)...);
+    else
+      storage_.ptr = new T(std::forward<Args>(args)...);
+  }
+
+  // Move construction and assignment leave the source empty. Inline targets
+  // relocate through the table's move slot; heap targets move by pointer
+  // steal.
+  proxy(proxy&& other) noexcept { do_adopt(other); }
+
+  proxy& operator=(proxy&& other) noexcept {
+    if (this != &other) {
+      do_reset();
+      do_adopt(other);
+    }
+    return *this;
+  }
+
+  ~proxy() { do_reset(); }
+
+  // Call the facade method named `K`, forwarding `args` through the erased
+  // signature. The call is `noexcept` when the method is.
+  //
+  // The const overload is constrained to const-qualified methods: deep const,
+  // enforced at overload resolution so the rejection is visible to `requires`
+  // probes as well. Not `[[nodiscard]]`: discardability belongs to the facade
+  // method, not the dispatcher (the `std::invoke` precedent).
+  template<fixed_string K, typename... Args>
+  decltype(auto)
+  call(Args&&... args) noexcept(vtbuild_t::template is_noexcept<K>()) {
+    constexpr auto ndx = vtbuild_t::template index_of<K>();
+    static_assert(ndx != vtbuild_t::count_v, "no matching signature");
+    return std::get<ndx>(
+        vtable_->methods)(target(), std::forward<Args>(args)...);
+  }
+
+  template<fixed_string K, typename... Args>
+  requires(details::vtbuild_t<F>::template is_const<K>())
+  // NOLINTNEXTLINE(modernize-use-nodiscard)
+  decltype(auto) call(Args&&... args) const
+      noexcept(vtbuild_t::template is_noexcept<K>()) {
+    constexpr auto ndx = vtbuild_t::template index_of<K>();
+    static_assert(ndx != vtbuild_t::count_v, "no matching signature");
+    return std::get<ndx>(
+        vtable_->methods)(target(), std::forward<Args>(args)...);
+  }
+
+  // An empty proxy (default-constructed or moved-from) holds no target.
+  [[nodiscard]] explicit operator bool() const noexcept { return vtable_; }
+
+private:
+  union storage_t {
+    alignas(std::max_align_t) std::byte buf[sbo_size];
+    void* ptr;
+  };
+
+  // Target address, inline or heap. Meaningless when empty.
+  [[nodiscard]] void* target() noexcept {
+    assert(vtable_);
+    return vtable_->relocate ? static_cast<void*>(storage_.buf) : storage_.ptr;
+  }
+  [[nodiscard]] const void* target() const noexcept {
+    assert(vtable_);
+    return vtable_->relocate
+               ? static_cast<const void*>(storage_.buf)
+               : storage_.ptr;
+  }
+
+  // Destroy the target, if any, leaving the proxy empty.
+  void do_reset() noexcept {
+    if (!vtable_) return;
+    vtable_->destroy(target());
+    vtable_ = nullptr;
+  }
+
+  // Take over `other`'s target, leaving `other` empty. Assumes `*this` holds
+  // no target (freshly constructed or just reset). Note that we don't need to
+  // clear `buf` or `ptr` on `other.storage_` because `other.vtable_` defines
+  // whether it's empty.
+  void do_adopt(proxy& other) noexcept {
+    vtable_ = std::exchange(other.vtable_, nullptr);
+    if (!vtable_) return;
+    if (vtable_->relocate)
+      vtable_->relocate(other.storage_.buf, storage_.buf);
+    else
+      storage_.ptr = other.storage_.ptr;
+  }
+
+  storage_t storage_;
+  const owning_vtable_t* vtable_{};
+};
+
+// Library-provided binding so that an owning proxy satisfies its own facade,
+// like the view.
+//
+// Calls forward through the proxy, with conditional `noexcept`. The const
+// overload serves const-qualified methods, matching the proxy's deep const;
+// the non-const overload serves the rest.
+template<Facade F>
+struct proxy_impl<F, proxy<F>> {
+  template<fixed_string K, typename... Args>
+  static decltype(auto)
+  on(method_key<K>, proxy<F>& p, Args&&... args) noexcept(
+      noexcept(p.template call<K>(std::forward<Args>(args)...))) {
+    return p.template call<K>(std::forward<Args>(args)...);
+  }
+  template<fixed_string K, typename... Args>
+  static decltype(auto)
+  on(method_key<K>, const proxy<F>& p, Args&&... args) noexcept(
+      noexcept(p.template call<K>(std::forward<Args>(args)...))) {
+    return p.template call<K>(std::forward<Args>(args)...);
+  }
+};
+
+// Make an owning proxy of facade `F` holding a `T` constructed in place from
+// `args`.
+//
+// To move an existing object in, pass it as the constructor argument:
+// `make_proxy<F, T>(std::move(obj))`.
+template<Facade F, typename T, typename... Args>
+requires Proxiable<T, F>
+[[nodiscard]] proxy<F> make_proxy(Args&&... args) {
+  return proxy<F>{std::in_place_type<T>, std::forward<Args>(args)...};
 }
 
 #pragma endregion

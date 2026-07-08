@@ -1,7 +1,7 @@
 # Proxy design
 
-Status: phase 1 built and tested ([proxy.h](proxy.h),
-[proxy_test.cpp](../../tests/portable/proxy_test.cpp)); phases 2 and 3
+Status: phases 1 and 2 built and tested ([proxy.h](proxy.h),
+[proxy_test.cpp](../../tests/portable/proxy_test.cpp)); phase 3
 pending. Plan for `corvid/meta/proxy.h`, a
 registration-based runtime-polymorphism ("proxy") system: type-erased handles
 over an interface definition, without inheritance, vtable pointers in the
@@ -230,13 +230,23 @@ through `call<>` and the same dispatch table.
   stores a pointer to the resulting per-`(F, T)` `static constexpr` table.
   Same cost model as a vtable call, and as Rust `dyn`: the table pointer
   moves out of the object and into the (fat) handle.
+- Method signatures come in four flavors: `const` crossed with `noexcept`.
+  For a `noexcept` method, conformance additionally requires the binding
+  itself to be noexcept-invocable, the thunk pointer type carries
+  `noexcept`, and `call` through either handle is itself conditionally
+  noexcept. Supported in the MVP rather than deferred because the qualifier
+  is baked into the erased ABI (the thunk pointer types), where a retrofit
+  would be a break.
 - The owning table carries housekeeping slots (destroy, relocate/move) in
   addition to the facade methods, the analog of Rust's drop glue.
   `proxy_view` carries none, which is why the view is built first.
 - Invariant: `proxy<F>` and `proxy_view<F>` themselves satisfy
   `proxiable<_, F>`, so generic code constrained on the facade accepts
   concrete and erased arguments interchangeably (Rust: `dyn Trait`
-  implements `Trait`).
+  implements `Trait`). Implemented as library-provided `proxy_impl`
+  bindings whose `on` forwards through `call` with conditional `noexcept`
+  (so the invariant survives noexcept methods); the owning proxy's binding
+  has const and non-const overloads to respect its deep const.
 
 ## Alternative considered: virtual-model erasure
 
@@ -296,9 +306,27 @@ architecture.
    Also, in template contexts `call` needs the dependent-name `template`
    keyword (`pv.template call<"fire">(1)`), a real ergonomic wart the `api`
    mixin would hide; ammunition for the sugar pin.
-2. Owning `proxy` with SBO, plus `make_proxy`. Move-only by default.
-   Verify: lifetime-counting fixtures (construct/destroy/move balance),
-   with both the SBO and heap paths exercised.
+2. DONE. Owning `proxy` with SBO, plus `make_proxy` (sugar over an
+   `std::in_place_type_t` constructor). Move-only, and deep-const: only
+   const-qualified methods dispatch through a const proxy, enforced by a
+   constraint on the const `call` overload so the rejection is visible to
+   `requires` probes (a body `static_assert` would not be; and a
+   requires-expression outside a template gets no SFINAE, so the negative
+   test needed a concept wrapper). Storage is a two-pointer inline buffer
+   for targets that fit, are no more aligned than `std::max_align_t`, and
+   are nothrow-move-constructible; anything else is a unique-owned heap
+   allocation. The owning dispatch table extends the view's with destroy
+   and relocate slots; a null relocate slot marks the heap path, which
+   moves by pointer steal with no target activity. Default-constructed and
+   moved-from proxies are empty (`operator bool`); calling through one is
+   undefined behavior. Also in this phase: `noexcept` method flavors and
+   the self-conformance invariant, both described under Mechanism.
+   Verified: lifetime-counting fixtures balancing construct/destroy/move
+   on both the SBO and heap paths, move-assignment over a live target,
+   emptiness after move, deep-const positive and negative probes,
+   noexcept conformance both ways (a binding lacking `noexcept` fails the
+   facade), `noexcept(call)` propagation, and heterogeneous ownership in a
+   container.
 3. `api` mixin support and `extends<Base>` composition, including
    `proxy<derived>` -> `proxy_view<base>` conversion (Rust trait
    upcasting). Verify: mixin call parity with `call<>`, upcast dispatch
@@ -345,7 +373,7 @@ dispatch, allocator plumbing, RTTI, per-name overload sets.
 
 - The member-call sugar pin: the `api` mixin is the leading candidate
   (judged plausible); confirm once real call sites exist.
-- `noexcept` qualification on `method` signatures: MVP or defer.
 - Const flavor of views: whether `proxy_view<F>` needs a distinct
   const-view type (the `&T` vs `&mut T` split) or const-qualified methods
-  suffice.
+  suffice. The owning proxy answered its half of the question (deep const,
+  in phase 2); the view remains shallow-const pending this.
