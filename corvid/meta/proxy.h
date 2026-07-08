@@ -120,13 +120,13 @@ namespace details {
 // Probe for the unique public `facade` base of `F`. Declared only; used in
 // unevaluated contexts.
 template<typename... Ms>
-auto facade_probe(const facade<Ms...>&) -> facade<Ms...>;
+auto probe(const facade<Ms...>&) -> facade<Ms...>;
 
 } // namespace details
 
 // Concept for a type derived from a single `facade` base.
 template<typename F>
-concept Facade = requires(const F& f) { details::facade_probe(f); };
+concept Facade = requires(const F& f) { details::probe(f); };
 
 #pragma endregion
 #pragma region Registration and binding
@@ -188,12 +188,10 @@ template<typename F, typename T>
 //
 // To register a pair, declare a `corvid_proxy_spec(F*, T*)` overload returning
 // `make_proxy_spec<F, T>()`, in the namespace of either the facade or the
-// type; it is found here by ADL. The library never defines this function:
-// declaring an overload IS the act of registration. The `corvid_` prefix
-// marks it as a cross-namespace protocol name, the same convention as
-// `corvid_enum_spec`; a plain verb like `register_proxy` would risk collision
-// in user namespaces and would not read as a Corvid hook. The pointer
-// parameters are never dereferenced; they only carry the types.
+// type; it is found here by ADL.
+//
+// The library never defines this function: declaring an overload IS the act of
+// registration.
 //
 // Registration gates a facade author's boilerplate impl; an explicit
 // `proxy_impl` specialization does not need it.
@@ -202,9 +200,10 @@ concept ProxyRegistered = requires {
   corvid_proxy_spec(static_cast<F*>(nullptr), static_cast<T*>(nullptr));
 };
 
-// Central access point for the registered spec, mirroring `enum_spec_v`. Each
-// specialization deduces its own type, so richer spec types can be introduced
-// later without touching existing registrations.
+// Central access point for the registered spec, mirroring `enum_spec_v`.
+//
+// Each specialization deduces its own type, so richer spec types can be
+// introduced later without touching existing registrations.
 template<typename F, typename T>
 requires ProxyRegistered<F, T>
 constexpr inline auto proxy_spec_v =
@@ -296,8 +295,7 @@ struct vtable_builder<facade<Ms...>> {
 
 // Facade-wide machinery for the derived facade type `F`.
 template<Facade F>
-using vtbuild_t =
-    vtable_builder<decltype(facade_probe(std::declval<const F&>()))>;
+using vtbuild_t = vtable_builder<decltype(probe(std::declval<const F&>()))>;
 
 // Per-(facade, type) dispatch table instance. The handle stores a pointer to
 // this; the table pointer lives in the handle, not in the target (a fat
