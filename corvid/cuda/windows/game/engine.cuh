@@ -70,6 +70,9 @@ namespace corvid::cuda {
 
 #pragma region engine
 
+// Members are grouped by subsystem, not by size; the padding is immaterial
+// for a class instantiated exactly once.
+// NOLINTNEXTLINE(clang-analyzer-optin.performance.Padding)
 class engine {
 public:
   engine() { init(); }
@@ -1259,19 +1262,26 @@ private:
     if (maximized) SDL_MaximizeWindow(win_);
   }
 
-  void save_window_geometry() {
-    if (geom_path_.empty()) return;
-    const bool maximized =
-        (SDL_GetWindowFlags(win_) & SDL_WINDOW_MAXIMIZED) != 0;
-    int x = 0;
-    int y = 0;
-    int w = 0;
-    int h = 0;
-    SDL_GetWindowPosition(win_, &x, &y);
-    SDL_GetWindowSize(win_, &w, &h);
-    std::ofstream out{geom_path_, std::ios::trunc};
-    out << x << ' ' << y << ' ' << w << ' ' << h << ' ' << (maximized ? 1 : 0)
-        << '\n';
+  void save_window_geometry() noexcept {
+    try {
+      if (geom_path_.empty()) return;
+      const bool maximized =
+          (SDL_GetWindowFlags(win_) & SDL_WINDOW_MAXIMIZED) != 0;
+      int x = 0;
+      int y = 0;
+      int w = 0;
+      int h = 0;
+      SDL_GetWindowPosition(win_, &x, &y);
+      SDL_GetWindowSize(win_, &w, &h);
+      std::ofstream out{geom_path_, std::ios::trunc};
+      out << x << ' ' << y << ' ' << w << ' ' << h << ' '
+          << (maximized ? 1 : 0) << '\n';
+    }
+    // NOLINTNEXTLINE(bugprone-empty-catch)
+    catch (const std::exception&) {
+      // Ignore any error writing the file, since this is just a convenience
+      // for the user and not critical to the title's function.
+    }
   }
 
 #pragma endregion

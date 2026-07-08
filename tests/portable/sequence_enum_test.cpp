@@ -665,6 +665,12 @@ TEST_CASE("ExtractEnum", "[SequentialEnumTest]") {
     CHECK(sv.empty());
     CHECK(e == tiger_pick::eeny);
 
+    // Hex numbers parse with a "0x" prefix.
+    sv = "0x3";
+    CHECK(extract_enum(e, sv));
+    CHECK(sv.empty());
+    CHECK(e == tiger_pick::moe);
+
     sv = "eeny";
     CHECK(extract_enum(e, sv));
     CHECK(sv.empty());
