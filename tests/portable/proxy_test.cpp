@@ -155,10 +155,11 @@ static_assert(std::same_as<decltype(prox::proxy_spec_v<gunslinger, lawman>),
 // satisfied [with T = cowboy] ... because 'Proxiable<cowboy, gunslinger>'
 // evaluated to false ... because
 // 'details::info_t<gunslinger>::all_bound_v<gunslinger, cowboy>' evaluated
-// to false". Calling `pv.call<"missing">()` emits exactly one error:
-// "static assertion failed ... facade has no method with this name" (the
-// `if constexpr` in `call` discards the dispatch on that path, so the
-// assert is not followed by `std::get` index noise).
+// to false". Calling `pv.call<"missing">()` fires the static_assert
+// "facade has no method with this name", followed by `std::get` index-noise
+// errors; the follow-on noise is accepted (a guarding `if constexpr` was
+// tried and dropped as a simplification), since fixing the obvious message
+// also removes the noise.
 static_assert(prox::Proxiable<lawman, gunslinger>);
 static_assert(prox::Proxiable<robber, gunslinger>);
 static_assert(!prox::Proxiable<cowboy, gunslinger>);
@@ -166,6 +167,11 @@ static_assert(!prox::Proxiable<int, gunslinger>);
 
 // A view satisfies its own facade.
 static_assert(prox::Proxiable<prox::proxy_view<gunslinger>, gunslinger>);
+
+// Views are value-semantic: copyable and rebindable by assignment. The table
+// member is pointer-to-const, not a const member, so assignment stays viable.
+static_assert(std::assignable_from<prox::proxy_view<gunslinger>&,
+    const prox::proxy_view<gunslinger>&>);
 
 // NOLINTBEGIN(readability-function-cognitive-complexity)
 
@@ -218,6 +224,17 @@ TEST_CASE("Heterogeneous dispatch", "[proxy]") {
   auto pv2 = gang[0];
   pv2.call<"fire">(1);
   CHECK(l.rounds_fired == 3);
+}
+
+TEST_CASE("Views rebind by assignment", "[proxy]") {
+  lawman l;
+  robber r;
+  prox::proxy_view<gunslinger> pv{l};
+  CHECK(pv.call<"describe">() == "lawman"s);
+
+  // Assignment rebinds both the target and the dispatch table.
+  pv = prox::proxy_view<gunslinger>{r};
+  CHECK(pv.call<"describe">() == "robber"s);
 }
 
 TEST_CASE("Generic code accepts concrete and erased alike", "[proxy]") {

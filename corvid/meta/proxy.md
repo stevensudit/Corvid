@@ -37,6 +37,7 @@ buffer plus dispatch pointer).
 | `proxy_impl<F, T>`            | (none; structural)       | `impl Trait for Type`|
 | `corvid_proxy_spec(F*, T*)`   | (none)                   | empty `impl` block   |
 | `make_proxy_spec<F, T>()`     | (none)                   | (spec payload)       |
+| `"name"_method` UDL           | (none)                   | (none)               |
 | `Proxiable<T, F>`             | `proxiable<P, F>`        | `T: Trait` bound     |
 | `make_proxy<F, T>(...)`       | `make_proxy`             | `Box::new`           |
 | `make_proxy_view<F>(t)`       | `make_proxy_view`        | `&x as &dyn T`       |
@@ -77,10 +78,10 @@ struct gunslinger : facade<method<"fire", void(int)>,
 // hook name, overloaded on the method key; a fixed name is what keeps the
 // mechanism spellable without macros.
 template<typename T>
-requires proxy_registered<gunslinger, T>
+requires ProxyRegistered<gunslinger, T>
 struct proxy_impl<gunslinger, T> {
-  static void on(key<"fire">, T& t, int rounds) { t.fire(rounds); }
-  static bool on(key<"reload">, T& t) { return t.reload(); }
+  static void on(method_key<"fire">, T& t, int rounds) { t.fire(rounds); }
+  static bool on(method_key<"reload">, T& t) { return t.reload(); }
 };
 
 // Conforming a type whose methods line up: pure registration. The ADL
@@ -93,8 +94,10 @@ consteval auto corvid_proxy_spec(gunslinger*, lawman*) {
 // Conforming a type whose methods do not line up: write the impl.
 template<>
 struct proxy_impl<gunslinger, robber> {
-  static void on(key<"fire">, robber& r, int rounds) { r.shoot(rounds); }
-  static bool on(key<"reload">, robber& r) { return r.rearm(); }
+  static void on(method_key<"fire">, robber& r, int rounds) {
+    r.shoot(rounds);
+  }
+  static bool on(method_key<"reload">, robber& r) { return r.rearm(); }
 };
 
 proxy<gunslinger> p = make_proxy<gunslinger, lawman>(/*ctor args*/);
@@ -152,7 +155,7 @@ through `call<>` and the same dispatch table.
 ## Mechanism
 
 - `proxiable<T, F>` is a concept synthesized from the facade definition: for
-  every `method` of `F`, `proxy_impl<F, T>::on(key<...>, T&, args...)` is
+  every `method` of `F`, `proxy_impl<F, T>::on(method_key<...>, T&, ...)` is
   invocable and returns the right type. Concepts gate (the converting
   constructor, static-dispatch template bounds); they cannot generate, since
   C++ has no introspection over requires-expressions. The facade is the
@@ -221,17 +224,23 @@ architecture.
 
 ## Phases
 
-1. DONE. Facade, `method`, `key`, `Proxiable`, and `proxy_view`. The view
-   first, because with no lifetime slots the dispatch-table synthesis is
-   exercised in isolation. Verified: positive and negative conformance
+1. DONE. Facade, `method`, `method_key`, `Proxiable`, and `proxy_view`. The
+   view first, because with no lifetime slots the dispatch-table synthesis
+   is exercised in isolation. Verified: positive and negative conformance
    `static_assert` tests, const-qualified methods (`std::string() const`
    dispatching on `const T&`), reference returns, call-through correctness,
-   heterogeneous containers, view-of-view flattening in `make_proxy_view`.
+   heterogeneous containers, view-of-view flattening in `make_proxy_view`,
+   assignment rebinding, and the `"name"_method` UDL (a literal operator
+   template in `prox::literals`, inline since `prox` itself is not).
    Both interesting compile errors are captured as comments in the test:
-   non-conformance walks the constraint chain down to `all_bound_v`, and an
-   unknown method name emits exactly one `static_assert` (an `if constexpr`
-   in `call` discards the dispatch on that path, suppressing follow-on
-   `std::get` noise). Notes from the build: `fixed_string.h` originally
+   non-conformance walks the constraint chain down to `all_bound_v`; an
+   unknown method name fires the `static_assert` followed by `std::get`
+   index noise, accepted deliberately (a guarding `if constexpr` was tried
+   and dropped as a simplification: fixing the obvious message removes the
+   noise). Compile-time-only machinery is `consteval`, not `constexpr`;
+   only genuinely runtime-callable paths (`call`, the converting
+   constructor, `make_proxy_view`) are `constexpr`. Notes from the build:
+   `fixed_string.h` originally
    lived in the strings band, which inverted the layering; it was moved to
    `corvid/meta/` (2026-07-08) and joined the `meta.h` umbrella. proxy.h
    stays out of the umbrella to limit include weight (the formatting.h

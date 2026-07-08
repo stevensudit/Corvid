@@ -344,9 +344,7 @@ public:
       : target_{std::addressof(target)}, vtable_{&details::vtable_for<F, T>} {}
 
   // Call the facade method named `K`, forwarding `args` through the erased
-  // signature. Fails to compile when no method has that name; the `if
-  // constexpr` discards the dispatch on that path so the `static_assert` is
-  // the only error emitted.
+  // signature.
   template<fixed_string K, typename... Args>
   constexpr decltype(auto) call(Args&&... args) const {
     constexpr auto ndx = vtbuild_t::template index_of<K>();
