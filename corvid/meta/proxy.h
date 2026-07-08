@@ -46,9 +46,25 @@ namespace corvid { inline namespace meta { namespace prox {
 // canonically names a method, given that a library cannot mint a member with a
 // caller-chosen name.
 template<fixed_string Name>
-struct key {
+struct method_key {
   static constexpr auto name_v = Name;
 };
+
+inline namespace literals {
+
+// UDL for method keys: `"name"_method` is a `method_key<"name">`.
+//
+// This must be a literal operator template: the literal itself binds as the
+// `fixed_string` template argument, which is what lets it reach NTTP
+// position. The ordinary `(const char*, size_t)` form cannot work, because
+// function parameters are runtime values, never constant expressions, even
+// under `consteval`.
+template<fixed_string Name>
+consteval auto operator""_method() noexcept {
+  return method_key<Name>{};
+}
+
+} // namespace literals
 
 // Method descriptor: a name plus the erased signature.
 //
@@ -60,22 +76,22 @@ struct key {
 // The signature fixes the erased ABI; a binding may return the declared result
 // type or anything convertible to it.
 //
-// A method derives from its `key`, so a method tag is usable anywhere its key
-// is, including `on` overload selection and deduction of `key<K>` from a
-// method argument. This also leaves the door open for bindings that overload
-// on the full method (signature included) if per-name overload sets are ever
-// supported.
+// A method derives from its `method_key`, so a method tag is usable anywhere
+// its key is, including `on` overload selection and deduction of
+// `method_key<K>` from a method argument. This also leaves the door open for
+// bindings that overload on the full method (signature included) if per-name
+// overload sets are ever supported.
 template<fixed_string Name, typename Sig>
 struct method;
 
 template<fixed_string Name, typename R, typename... Args>
-struct method<Name, R(Args...)>: key<Name> {
+struct method<Name, R(Args...)>: method_key<Name> {
   static constexpr bool const_v = false;
   using result_t = R;
 };
 
 template<fixed_string Name, typename R, typename... Args>
-struct method<Name, R(Args...) const>: key<Name> {
+struct method<Name, R(Args...) const>: method_key<Name> {
   static constexpr bool const_v = true;
   using result_t = R;
 };
@@ -134,7 +150,7 @@ concept Facade = requires(const F& f) { details::facade_probe(f); };
 //    template<typename T>
 //    requires ProxyRegistered<animal, T>
 //    struct proxy_impl<animal, T> {
-//      static void on(key<"speak">, const T& t) { t.speak(); }
+//      static void on(method_key<"speak">, const T& t) { t.speak(); }
 //    };
 //
 //    // Conforming `dog`, whose names line up: pure registration.
@@ -145,7 +161,7 @@ concept Facade = requires(const F& f) { details::facade_probe(f); };
 //    // Conforming `cat`, whose names differ: a custom impl, not registration.
 //    template<>
 //    struct proxy_impl<animal, cat> {
-//      static void on(key<"speak">, const cat& c) { c.meow(); }
+//      static void on(method_key<"speak">, const cat& c) { c.meow(); }
 //    };
 template<typename F, typename T>
 struct proxy_impl;
@@ -213,14 +229,14 @@ struct method_traits<method<Name, R(Args...)>> {
   template<typename F, typename T>
   static constexpr bool bound_v = requires(T& t, Args... args) {
     {
-      proxy_impl<F, T>::on(key<Name>{}, t, std::forward<Args>(args)...)
+      proxy_impl<F, T>::on(method_key<Name>{}, t, std::forward<Args>(args)...)
     } -> std::convertible_to<R>;
   };
 
   template<typename F, typename T>
   static consteval thunk_ptr_t make_thunk() noexcept {
     return [](void* target, Args... args) -> R {
-      return proxy_impl<F, T>::on(key<Name>{}, *static_cast<T*>(target),
+      return proxy_impl<F, T>::on(method_key<Name>{}, *static_cast<T*>(target),
           std::forward<Args>(args)...);
     };
   }
@@ -233,15 +249,15 @@ struct method_traits<method<Name, R(Args...) const>> {
   template<typename F, typename T>
   static constexpr bool bound_v = requires(const T& t, Args... args) {
     {
-      proxy_impl<F, T>::on(key<Name>{}, t, std::forward<Args>(args)...)
+      proxy_impl<F, T>::on(method_key<Name>{}, t, std::forward<Args>(args)...)
     } -> std::convertible_to<R>;
   };
 
   template<typename F, typename T>
   static consteval thunk_ptr_t make_thunk() noexcept {
     return [](const void* target, Args... args) -> R {
-      return proxy_impl<F, T>::on(key<Name>{}, *static_cast<const T*>(target),
-          std::forward<Args>(args)...);
+      return proxy_impl<F, T>::on(method_key<Name>{},
+          *static_cast<const T*>(target), std::forward<Args>(args)...);
     };
   }
 };
@@ -359,7 +375,7 @@ template<Facade F>
 struct proxy_impl<F, proxy_view<F>> {
   template<fixed_string K, typename... As>
   static constexpr decltype(auto)
-  on(key<K>, const proxy_view<F>& view, As&&... args) {
+  on(method_key<K>, const proxy_view<F>& view, As&&... args) {
     return view.template call<K>(std::forward<As>(args)...);
   }
 };

@@ -25,6 +25,7 @@
 using namespace std::literals;
 using namespace corvid;
 using namespace corvid::meta::prox;
+using namespace corvid::meta::prox::literals;
 
 // The facade under test: mixes value returns, a const method, a void
 // mutator, and a reference return.
@@ -94,10 +95,14 @@ namespace corvid {
 template<typename T>
 requires ProxyRegistered<gunslinger, T>
 struct proxy_impl<gunslinger, T> {
-  static int on(key<"fire">, T& t, int rounds) { return t.fire(rounds); }
-  static std::string on(key<"describe">, const T& t) { return t.describe(); }
-  static void on(key<"reload">, T& t) { t.reload(); }
-  static int& on(key<"shots">, T& t) { return t.shots(); }
+  static int on(method_key<"fire">, T& t, int rounds) {
+    return t.fire(rounds);
+  }
+  static std::string on(method_key<"describe">, const T& t) {
+    return t.describe();
+  }
+  static void on(method_key<"reload">, T& t) { t.reload(); }
+  static int& on(method_key<"shots">, T& t) { return t.shots(); }
 };
 
 // Custom impl for `robber`: a full specialization outranks the boilerplate
@@ -105,12 +110,14 @@ struct proxy_impl<gunslinger, T> {
 // "shots" to a data member.
 template<>
 struct proxy_impl<gunslinger, robber> {
-  static int on(key<"fire">, robber& r, int rounds) { return r.shoot(rounds); }
-  static std::string on(key<"describe">, const robber& r) {
+  static int on(method_key<"fire">, robber& r, int rounds) {
+    return r.shoot(rounds);
+  }
+  static std::string on(method_key<"describe">, const robber& r) {
     return r.description();
   }
-  static void on(key<"reload">, robber& r) { r.rearm(); }
-  static int& on(key<"shots">, robber& r) { return r.fired; }
+  static void on(method_key<"reload">, robber& r) { r.rearm(); }
+  static int& on(method_key<"shots">, robber& r) { return r.fired; }
 };
 
 } // namespace corvid
@@ -121,10 +128,14 @@ static_assert(!Facade<lawman>);
 static_assert(!Facade<int>);
 
 // A method is-a key: usable anywhere its key is.
-static_assert(std::derived_from<method<"fire", int(int)>, key<"fire">>);
+static_assert(std::derived_from<method<"fire", int(int)>, method_key<"fire">>);
 static_assert(std::derived_from<method<"describe", std::string() const>,
-    key<"describe">>);
-static_assert(!std::derived_from<method<"fire", int(int)>, key<"reload">>);
+    method_key<"describe">>);
+static_assert(
+    !std::derived_from<method<"fire", int(int)>, method_key<"reload">>);
+
+// UDL: `"name"_method` is a `method_key<"name">`.
+static_assert(std::same_as<decltype("fire"_method), method_key<"fire">>);
 
 // Registration state: lawman is registered, robber conforms without
 // registration, cowboy neither registers nor conforms.
@@ -229,7 +240,7 @@ TEST_CASE("Generic code accepts concrete and erased alike", "[proxy]") {
 
   // The library-provided view impl is also usable directly.
   CHECK(prox::proxy_impl<gunslinger, proxy_view<gunslinger>>::on(
-            key<"describe">{}, pv) == "lawman"s);
+            "describe"_method, pv) == "lawman"s);
 }
 
 // NOLINTEND(readability-function-cognitive-complexity)
