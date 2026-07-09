@@ -85,9 +85,10 @@ struct gunslinger : facade<method<"fire", void(int)>,
                        method<"reload", bool()>> {
   // Written once by the facade author. `on` is the fixed hook name,
   // overloaded on the method key; a fixed name is what keeps the mechanism
-  // spellable without macros.
+  // spellable without macros. Inheriting `impl_base` is optional sugar,
+  // supplying the `method_key` alias so the bindings spell it unqualified.
   template<typename T>
-  struct boilerplate {
+  struct boilerplate : impl_base {
     static void on(method_key<"fire">, T& t, int rounds) { t.fire(rounds); }
     static bool on(method_key<"reload">, T& t) { return t.reload(); }
   };
@@ -104,7 +105,7 @@ consteval auto corvid_proxy_spec(gunslinger*, lawman*) {
 // the impl, here local to the hook itself, so the whole conformance is one
 // self-contained declaration.
 consteval auto corvid_proxy_spec(gunslinger*, robber*) {
-  struct as_gunslinger {
+  struct as_gunslinger : impl_base {
     static void on(method_key<"fire">, robber& r, int rounds) {
       r.shoot(rounds);
     }
@@ -150,6 +151,13 @@ members and member templates, which bindings do not need). Nested in the
 type it serves, the impl additionally reaches the type's private members
 (`turncoat` in the test). Namespace scope works too, but buys nothing over
 the other placements.
+
+Whatever its placement, a binding class may inherit `prox::impl_base`, an
+otherwise-empty base whose one member is a `method_key` alias, so the
+bindings spell the key unqualified (base-class members participate in
+unqualified lookup where namespace-scope names do not; a literally empty
+base would change nothing). It is optional, and a binding class that
+inherits a boilerplate already has it through that base.
 
 The string NTTP rides on the existing
 [fixed_string.h](fixed_string.h). `call<"fire">` resolves at
@@ -363,15 +371,18 @@ made reflexive and argument-flipped), which registers a type for the derived
 facade and every facade it extends in one declaration:
 
 ```cpp
-template<prox::InChainOf<texas_ranger> F>
-consteval auto corvid_proxy_spec(F*, ranger*) {
-  return prox::make_proxy_spec<F, ranger>();
+template<prox::InChainOf<ranger> F>
+consteval auto corvid_proxy_spec(F*, texas_ranger*) {
+  return prox::make_proxy_spec<F, texas_ranger>();
 }
 ```
 
 The hook collapses only the opt-in ceremony; the bindings stay per facade.
 Chain registration is always semantically safe, because conformance to the
-derived facade requires base conformance anyway. A base level that needs a
+derived facade requires base conformance anyway. The anchor facade names the
+outermost level the type conforms to, so a type conforming only partway up a
+chain anchors mid-chain and is registered for that level and everything
+below (`constable` in the test). A base level that needs a
 carried impl (its names diverge at that level only) takes its own plain hook
 alongside the chain hook; overload resolution prefers the non-template hook
 for that level, and the carried impl outranks the boilerplate. A
@@ -599,7 +610,11 @@ architecture.
    "User-facing shape"; precedence pinned by `turncoat` in the test),
    dropped the unregistered full-specialization tier in their favor, and
    restyled the tests to prefer the `api` sugar over `call<>` wherever a
-   facade defines one.
+   facade defines one. A second pass added `impl_base` (the unqualified
+   `method_key` spelling in binding classes), made both views
+   default-constructible as empty with `operator bool`, matching the owning
+   proxy, and pinned mid-chain anchoring of chain hooks (`constable` in the
+   test).
 
 Header: `corvid/meta/proxy.h`, namespace `corvid::meta::prox`, deliberately
 NOT inline: `facade`, `method`, and `key` are too generic to dump into

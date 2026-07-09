@@ -165,7 +165,7 @@ struct method<Name, R(Args...) const noexcept>
 //        }
 //      };
 //      template<typename T>
-//      struct boilerplate {
+//      struct boilerplate : prox_impl {
 //        static int on(method_key<"speak">, const T& t) {
 //          return t.speak();
 //        }
@@ -204,9 +204,12 @@ concept Facade = requires(const F& f) { details::probe(f); };
 //
 // The derived facade's effective method list is the flattening of its bases'
 // lists, in declaration order, followed by its own; handles of the derived
-// facade dispatch inherited and own methods alike. Names must be unique
-// across the flattened list, so a facade cannot redeclare (or override) an
-// inherited method, and diamond composition is rejected.
+// facade dispatch inherited and own methods alike.
+//
+// Names must be unique across the flattened list, so for now a facade cannot
+// redeclare (or override) an inherited method, and diamond composition is
+// rejected. Both are limits of the current implementation rather than the
+// model, with relaxation paths recorded under Future in "proxy.md".
 //
 // Conformance is per facade, as with Rust supertraits: a type conforms to
 // `pet` by binding `pet`'s own methods through `proxy_impl<pet, T>` and
@@ -250,6 +253,20 @@ using api_base_t = api_base<F>::type;
 
 #pragma endregion
 #pragma region Registration and binding
+
+// Convenience base for binding classes: a facade's `boilerplate`, or a
+// registration-carried impl.
+//
+// Its sole member is a `method_key` alias, which lets a binding class spell
+// its `on` parameters without qualification: base-class members participate
+// in unqualified lookup, where the enclosing namespace's names do not.
+// Inheriting it is optional, and a binding class that inherits a boilerplate
+// already has it through that base. It also serves as documentation of what
+// the class is for.
+struct prox_impl {
+  template<fixed_string Name>
+  using method_key = prox::method_key<Name>;
+};
 
 // Binding point between a facade and a concrete type (Rust's `impl Trait for
 // Type`).
@@ -295,9 +312,10 @@ using api_base_t = api_base<F>::type;
 
 //    // Facade author's boilerplate, written once, serving any registered
 //    // type whose member names line up. The `api` is omitted here for
-//    //  brevity.
+//    // brevity. Inheriting `prox_impl` supplies the unqualified `method_key`
+//    // spelling.
 //    struct animal : facade<method<"speak", void() const>> {
-//    template<typename T> struct boilerplate {
+//      template<typename T> struct boilerplate : prox_impl {
 //        static void on(method_key<"speak">, const T& t) { t.speak(); }
 //      };
 //    };
@@ -310,7 +328,7 @@ using api_base_t = api_base<F>::type;
 //    // Conforming `cat`, whose names differ: the registration carries the
 //    // impl, here local to the hook itself.
 //    consteval auto corvid_proxy_spec(animal*, cat*) {
-//      struct as_animal {
+//      struct as_animal : prox_impl {
 //        static void on(method_key<"speak">, const cat& c) { c.meow(); }
 //      };
 //      return make_proxy_spec<animal, cat, as_animal>();
@@ -722,8 +740,9 @@ struct vtable_builder_impl<std::tuple<Ms...>, std::tuple<Bs...>> {
     std::tuple<const typename vtbuild_t<Bs>::vtable_t*...> bases;
   };
 
-  // Whether this facade transitively extends facade `B`. Strict: false when
-  // `B` is this facade itself.
+  // Whether this facade transitively extends facade `B`. Strict: the search
+  // covers the bases and their bases, never this facade itself, so a
+  // self-match is false.
   template<typename B>
   static consteval bool extends_facade() noexcept {
     return (
@@ -1068,7 +1087,7 @@ template<Facade F>
 }
 
 #pragma endregion
-#pragma region proxy_view
+#pragma region Views
 
 namespace details {
 
@@ -1103,15 +1122,23 @@ public:
         vtable_->thunks)(target_, std::forward<Args>(args)...);
   }
 
+  // An empty view (default-constructed) holds no target. It is testable and
+  // rebindable by assignment, but calling through it is undefined behavior,
+  // exactly as with an empty proxy.
+  [[nodiscard]] constexpr explicit operator bool() const noexcept {
+    return vtable_;
+  }
+
 protected:
   using vtable_t = vtbuild_t<F>::vtable_t;
   using target_ptr_t = std::conditional_t<Const, const void*, void*>;
 
+  constexpr view_base() noexcept = default;
   constexpr view_base(target_ptr_t target, const vtable_t* vtable) noexcept
       : target_{target}, vtable_{vtable} {}
 
-  target_ptr_t target_;
-  const vtable_t* vtable_;
+  target_ptr_t target_{};
+  const vtable_t* vtable_{};
 };
 
 } // namespace details
@@ -1135,6 +1162,10 @@ protected:
 // `const_proxy_view`, where constness is part of the type and survives
 // copying.
 //
+// A default-constructed view is empty, like a default-constructed proxy:
+// testable via `operator bool` and rebindable by assignment, but calling
+// through it is undefined behavior.
+//
 // When the facade defines a nested `api`, the view inherits it, so the
 // member-call sugar forwarders dispatch alongside `call`.
 template<Facade F>
@@ -1143,6 +1174,9 @@ class proxy_view: public details::view_base<F, false> {
   using vtbuild_t = details::vtbuild_t<F>;
 
 public:
+  // An empty view holds no target; see the class comment.
+  proxy_view() = default;
+
   // Converting constructor from an lvalue target.
   //
   // Intentionally implicit, like `string_view` from `string`. Rvalues do not
@@ -1241,6 +1275,9 @@ struct proxy_impl<F, proxy_view<D>> {
 // type) dispatch table (the non-const slots are simply unreachable). The
 // target must outlive the view.
 //
+// A default-constructed view is empty: testable via `operator bool` and
+// rebindable by assignment, but calling through it is undefined behavior.
+//
 // When the facade defines a nested `api`, the view inherits it. Only the const
 // forwarders are callable; a mutable forwarder fails inside its `call` if
 // used.
@@ -1249,6 +1286,9 @@ class const_proxy_view: public details::view_base<F, true> {
   using base = details::view_base<F, true>;
 
 public:
+  // An empty view holds no target; see the class comment.
+  const_proxy_view() = default;
+
   // Converting constructor from an lvalue target, const or not.
   //
   // Intentionally implicit. Rvalues do not bind. Handles of `F`, or of a
@@ -1547,6 +1587,7 @@ using prox::make_proxy_view;
 using prox::proxy;
 using prox::Proxiable;
 using prox::proxy_view;
+using prox::prox_impl;
 
 #pragma endregion
 
