@@ -206,10 +206,11 @@ concept Facade = requires(const F& f) { details::probe(f); };
 // lists, in declaration order, followed by its own; handles of the derived
 // facade dispatch inherited and own methods alike.
 //
-// Names must be unique across the flattened list, so for now a facade cannot
-// redeclare (or override) an inherited method, and diamond composition is
-// rejected. Both are limits of the current implementation rather than the
-// model, with relaxation paths recorded under Future in "proxy.md".
+// Names must be unique across the flattened list. A facade cannot redeclare
+// (or override) an inherited method, which is by design, because facades carry
+// no implementations and there is nothing to override. Diamond composition is
+// also rejected, but that is a limit of the current implementation rather than
+// the model, with the dedup path recorded under Future in "proxy.md".
 //
 // Conformance is per facade, as with Rust supertraits: a type conforms to
 // `pet` by binding `pet`'s own methods through `proxy_impl<pet, T>` and

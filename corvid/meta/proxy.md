@@ -352,9 +352,11 @@ The derived facade's effective method list is the flattening of its bases'
 lists, in declaration order, followed by its own, and every handle of the
 derived facade dispatches inherited and own methods alike. Names must be
 unique across the flattened list, enforced by a `static_assert` detonator at
-first use of the facade's machinery: a facade cannot redeclare (or override)
-an inherited method, and diamonds are rejected. Both restrictions have
-relaxation paths recorded under Future.
+first use of the facade's machinery. A facade cannot redeclare (or override)
+an inherited method, which is by design, because facades carry no
+implementations and there is nothing to override. Diamonds are rejected as a
+limit of the current implementation, with the dedup path recorded under
+Future.
 
 Conformance is per facade, as with Rust supertraits: `Proxiable<T, marshal>`
 requires `marshal`'s own methods bound through `proxy_impl<marshal, T>` plus
@@ -665,40 +667,60 @@ dispatch, allocator plumbing, RTTI, per-name overload sets.
   (RTTI-adjacent, a non-goal), the same permanence as Rust's
   `Box<dyn Derived>` -> `Box<dyn Base>`, and part of why ngcpp gates upward
   conversion behind an explicit opt-in flag.
-- Diamond composition: wanted, deferred. The semantic half is already
-  collapsed, because per-facade conformance yields one `proxy_impl<Base, T>`
-  no matter how many paths reach `Base` (the same effect as Rust's
-  coherence rule). The blocker is mechanical: flattening duplicates the
-  shared ancestor's methods, tripping the unique-name check. The fix is
-  deduplicating repeated ancestor facades during flattening; the shared
-  ancestor's table pointer is the same object along every path.
-- Per-name overload sets via distinct keys sharing an `api` spelling:
-  `method<"foo-0", void()>` and `method<"foo-1", void(int)>` with two `foo`
-  forwarders overloading on the arguments, the same move as C++ name
-  mangling. Nothing in the machinery forbids it today, and on inspection
-  `validate_api` is compatible (it drives each key's slot independently; the
-  boilerplate's natural-name call resolves against the `api` overload set,
-  and convertibility drift in the selection still fails the strict probe),
-  but it is unsupported until a test exercises it. ngcpp supports overloads
-  natively by listing several signatures in one convention.
-- Facade-qualified method names: keys are opaque strings, so a
-  "gunslinger::shoot" spelling convention is available at any time. Making
-  it meaningful (unqualified lookup that searches own methods then bases,
-  with the qualified spelling as the collision-breaker) would relax the
-  unique-name rule from a definition-time error to a call-site ambiguity,
-  which is Rust's model (same-named methods across traits, disambiguated by
-  fully-qualified syntax). Upcasting already provides the other
-  disambiguation route, since a `proxy_view<gunslinger>` only sees the base
-  list. The qualifier itself is best deferred to C++26 reflection, where
-  `identifier_of` recovers the facade type's own name with no extra
-  spelling; a `name<"gunslinger">` facade-list entry (parallel to `extends`)
-  is the pre-reflection fallback shape, at the cost of naming the facade a
-  third time.
-- Overriding an inherited method in a derived facade conflicts with the
-  upcast-consistency invariant (a derived handle and an upcast base handle
-  would disagree about one method), so if it ever happens it has to be
-  shadowing plus qualified access, not a binding-level override. Recorded as
-  a tension to resolve, not a plan.
+- Facade-qualified method names and sibling collisions: SCOPED, pending
+  review before implementation. Every method's formal name is qualified by
+  its facade, "gunslinger::shoot", so qualified keys are unique by
+  construction. The qualifier source is a `name<"gunslinger">` facade-list
+  entry (parallel to `extends`), with a new definition-time detonator
+  requiring facade names to be unique across a composition graph. C++26
+  reflection (`identifier_of`) later deletes the extra spelling without
+  changing the model. The unqualified-name rules below all follow from one
+  structural fact: handles are type-erased, so visibility and ambiguity are
+  facade-level decisions, and whether the concrete type happens to serve
+  two colliding slots from one member is invisible at the call site.
+  - Chain redeclaration (a derived facade redeclaring an inherited name)
+    stays a definition-time error. Facades carry no implementations, so
+    there is nothing to override, and dispatch already reaches the
+    concrete type's binding through any handle. This closes the override
+    tension formerly recorded here. The shadowing-plus-qualified-access
+    escape hatch answered a question no one asks.
+  - Sibling collision with distinct signatures (facade `C` extends `A` and
+    `B`, both declaring `shoot` with different arguments): merged into an
+    overload set, mirroring `using A::shoot; using B::shoot;` in plain
+    C++. Unqualified `call<"shoot">` resolves by argument match over all
+    visible candidates, taking an exact match first, else a unique viable
+    candidate, else failing with an error naming the qualified
+    alternatives. The `api` sugar needs one documented convention: the
+    derived facade's `api` spells a using-declaration per base to merge
+    the forwarders, because C++ member lookup finds sibling-base names
+    ambiguous before overload resolution ever runs.
+  - Sibling collision with the same signature: unqualified use is a
+    call-site error, while the method stays reachable through the
+    qualified key or an upcast view. The sugar agrees at no cost, since
+    same-signature forwarders merged by the using-declarations form an
+    overload set that C++ diagnoses lazily, only at an actual unqualified
+    call. This matches Rust, where cross-trait collisions are legal until
+    an unqualified call and fully-qualified syntax then disambiguates.
+  - Diamond composition: collapses automatically, and better than C++,
+    whose diamond ambiguity comes from duplicated base subobjects. Proxies
+    have no subobjects, and conformance is per facade-type pair, so
+    exactly one `proxy_impl<D, T>` exists no matter how many paths reach
+    `D` (the effect of Rust's coherence rule). The remaining work is
+    mechanical: flattening dedups repeated ancestors by facade identity
+    (the same facade reached twice contributes the same methods, one slot
+    each, the same table pointer along every path), reserving the
+    ambiguity error for distinct facades colliding on an unqualified name.
+- Per-name overload sets within a single facade, via distinct keys sharing
+  an `api` spelling: `method<"foo-0", void()>` and
+  `method<"foo-1", void(int)>` with two `foo` forwarders overloading on the
+  arguments, the same move as C++ name mangling. (Cross-facade collisions
+  no longer need this, since qualification gives them distinct keys
+  naturally.) Nothing in the machinery forbids it today, and on inspection
+  `validate_api` is compatible (it drives each key's slot independently;
+  the boilerplate's natural-name call resolves against the `api` overload
+  set, and convertibility drift in the selection still fails the strict
+  probe), but it is unsupported until a test exercises it. ngcpp supports
+  overloads natively by listing several signatures in one convention.
 
 ## Open questions
 
