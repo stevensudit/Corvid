@@ -31,10 +31,22 @@ using namespace corvid::meta::prox::literals;
 // The facade under test: mixes value returns, a const method, a void
 // mutator, and a reference return.
 //
-// The nested `api` is the optional member-call sugar: one deducing-this
-// forwarder per method, inherited by every handle of this facade. A const
-// method's forwarder takes `self` by const reference, mirroring the erased
-// signature.
+// The nested `api` is the (technically optional) member-call sugar, mapping
+// regular C++ methods over the facade's methods. It has one deducing-this
+// forwarder per method, and a const method's forwarder takes `self` by const
+// reference, mirroring the erased signature. The API is inherited by every
+// handle of this facade: the `proxy`, `proxy_view`, and `const_proxy_view`.
+//
+// The nested `boilerplate` is the facade author's impl, mapping the regular
+// methods of a class to the facade's method list. In essence, it's the reverse
+// of the API. It's written once and generic over any registered type whose
+// member names line up. Being an ordinary inheritable class, it is also the
+// base for partial overrides (see `sheriff`). It is used when a class is
+// registered for a facade, but can be partially or fully overridden.
+//
+// With reflection, both the API and boilerplate will be generated
+// automatically from the facade method list. For now, let your AI do it for
+// you.
 struct gunslinger
     : prox::facade<                                      //
           prox::method<"fire", int(int)>,                //
@@ -51,36 +63,22 @@ struct gunslinger
     void reload(this auto&& self) { self.template call<"reload">(); }
     int& shots(this auto&& self) { return self.template call<"shots">(); }
   };
+  template<typename T>
+  struct boilerplate {
+    static int on(prox::method_key<"fire">, T& t, int rounds) {
+      return t.fire(rounds);
+    }
+    static std::string on(prox::method_key<"describe">, const T& t) {
+      return t.describe();
+    }
+    static void on(prox::method_key<"reload">, T& t) { t.reload(); }
+    static int& on(prox::method_key<"shots">, T& t) { return t.shots(); }
+  };
 };
-
-// This base class for proxy_impl<gunslinger, T> would not normally be
-// necessary, but it's used for `sheriff`. It also wouldn't need
-// `prox::method_key` to be scoped to its namespace.
-template<typename T>
-struct proxy_impl_gunslinger {
-  static int on(prox::method_key<"fire">, T& t, int rounds) {
-    return t.fire(rounds);
-  }
-  static std::string on(prox::method_key<"describe">, const T& t) {
-    return t.describe();
-  }
-  static void on(prox::method_key<"reload">, T& t) { t.reload(); }
-  static int& on(prox::method_key<"shots">, T& t) { return t.shots(); }
-};
-
-// Boilerplate impl for `gunslinger`.
-//
-// Written once by the facade author, generic over any registered type whose
-// member names line up.
-//
-// Again, it would normally contain the guts of what's been moved to
-// `proxy_impl_gunslinger`.
-template<typename T>
-requires prox::ProxyRegistered<gunslinger, T>
-struct prox::proxy_impl<gunslinger, T>: proxy_impl_gunslinger<T> {};
 
 // A type whose method names line up with the facade. Conforms by
-// registration through the boilerplate impl.
+// registration through the boilerplate impl. This is the simple case of a type
+// designed to be a `gunslinger`, and probably the motivating case.
 struct lawman {
   int fire(int rounds) {
     rounds_fired += rounds;
@@ -106,10 +104,18 @@ consteval auto corvid_proxy_spec(gunslinger*, lawman*) {
   return prox::make_proxy_spec<gunslinger, lawman>();
 }
 
-// Exactly like a lawman, but with a different name. Works automatically.
-// Note that, if this subclass were more significant, it would run into
-// problems caused by the lack of a virtual destructor in the base. However,
-// combining `virtual` and `proxy` is a code smell.
+// A `deputy` is exactly like a lawman, but with a different name. Works
+// automatically, without explicit registration, because a `deputy` is-a
+// `lawman`.
+//
+// Note that, even though `describe` is not virtual, calling it through a
+// `lawman` proxy invokes the `deputy`'s override. In contrast, calling it
+// through a `lawman` reference would invoke the `lawman`'s own method. This
+// illustrates how proxies function as a sort of replacement for virtual.
+//
+// Having said that, if this class owned resources, then you would need to make
+// the parent's destructor virtual, for correctness. This is true even though
+// combining virtual and proxy is otherwise a code smell.
 struct deputy: public lawman {
   // NOLINTNEXTLINE(bugprone-derived-method-shadowing-base-method)
   [[nodiscard]] std::string describe() const {
@@ -118,8 +124,14 @@ struct deputy: public lawman {
   }
 };
 
-// A type with the right shape but the wrong names. Conforms through an
-// explicit impl, with no registration.
+// `robber` is a type with the right shape but the wrong names.
+//
+// Conforms by carrying its impl in the registration, via the three-type
+// `make_proxy_spec`. The binding class is local to the hook, making the whole
+// conformance one self-contained declaration, which also works for a type you
+// do not own. Nesting the impl in the type instead (see `turncoat`)
+// additionally grants access to its private members. You could also
+// forward-declare and friend the impl.
 struct robber {
   int shoot(int rounds) {
     fired += rounds;
@@ -134,25 +146,26 @@ struct robber {
   int fired{};
 };
 
-// Custom impl for `robber`.
-//
-// A full specialization outranks the boilerplate and needs no registration.
 // Note the name adaptation, including binding "shots" to a data member.
-template<>
-struct prox::proxy_impl<gunslinger, robber> {
-  static int on(method_key<"fire">, robber& r, int rounds) {
-    return r.shoot(rounds);
-  }
-  static std::string on(method_key<"describe">, const robber& r) {
-    return r.description();
-  }
-  static void on(method_key<"reload">, robber& r) { r.rearm(); }
-  static int& on(method_key<"shots">, robber& r) { return r.fired; }
-};
+consteval auto corvid_proxy_spec(gunslinger*, robber*) {
+  struct as_gunslinger {
+    static int on(prox::method_key<"fire">, robber& r, int rounds) {
+      return r.shoot(rounds);
+    }
+    static std::string on(prox::method_key<"describe">, const robber& r) {
+      return r.description();
+    }
+    static void on(prox::method_key<"reload">, robber& r) { r.rearm(); }
+    static int& on(prox::method_key<"shots">, robber& r) { return r.fired; }
+  };
+  return prox::make_proxy_spec<gunslinger, robber, as_gunslinger>();
+}
 
-// A type whose method names line up, with one exception: `shoot` instead of
-// `fire`. Uses a full specialization that inherits and overrides the
-// boilerplate impl.
+// `sheriff` is a type whose method names line up, with one exception: `shoot`
+// instead of `fire`.
+//
+// Its registration carries an impl that inherits the facade's boilerplate,
+// re-exposes its `on` overloads, and overrides only the divergent binding.
 struct sheriff {
   int shoot(int rounds) {
     rounds_fired += rounds;
@@ -168,18 +181,48 @@ struct sheriff {
   int rounds_fired{};
 };
 
-// Custom impl for `sheriff`: inherits the boilerplate and overrides the
-// one method whose name differs.
-template<>
-struct prox::proxy_impl<gunslinger, sheriff>: proxy_impl_gunslinger<sheriff> {
-  using proxy_impl_gunslinger<sheriff>::on;
-  static int on(method_key<"fire">, sheriff& s, int rounds) {
-    return s.shoot(rounds);
+// Note how `using on` brings in the `sheriff`'s boilerplate.
+consteval auto corvid_proxy_spec(gunslinger*, sheriff*) {
+  struct as_gunslinger: gunslinger::boilerplate<sheriff> {
+    using gunslinger::boilerplate<sheriff>::on;
+    static int on(prox::method_key<"fire">, sheriff& s, int rounds) {
+      return s.shoot(rounds);
+    }
+  };
+  return prox::make_proxy_spec<gunslinger, sheriff, as_gunslinger>();
+}
+
+// `turncoat` could be registered as a `gunslinger` without any extra work,
+// but is used to demonstrate two features. First, the `as_gunslinger` is
+// inside the class instead of local to the `corvid_proxy_spec` call, which
+// grants it access to the type's private members. Second, we replace the call
+// to `describe` with a custom value.
+struct turncoat {
+  int fire(int rounds) { return rounds_fired += rounds; }
+  [[nodiscard]] std::string describe() const {
+    (void)this;
+    return "turncoat";
   }
+  void reload() { rounds_fired = 0; }
+  int& shots() { return rounds_fired; }
+
+  int rounds_fired{};
+
+  struct as_gunslinger: gunslinger::boilerplate<turncoat> {
+    using gunslinger::boilerplate<turncoat>::on;
+    static std::string on(prox::method_key<"describe">, const turncoat&) {
+      return "undercover";
+    }
+  };
 };
 
-// A type whose method names line up but which never opts in. Nominal
-// conformance means this must NOT be proxiable.
+consteval auto corvid_proxy_spec(gunslinger*, turncoat*) {
+  return prox::make_proxy_spec<gunslinger, turncoat,
+      turncoat::as_gunslinger>();
+}
+
+// `cowboy` is a type whose method names line up but which never opts in.
+// Nominal conformance means this must NOT be proxiable.
 struct cowboy {
   int fire(int rounds) {
     (void)this;
@@ -199,9 +242,8 @@ struct cowboy {
 // themselves to be noexcept.
 //
 // The `api` forwarders are marked `noexcept` so the sugar carries the
-// qualifier
-// the way `call` does. This is on the facade author; nothing checks the
-// forwarders against the method flavors.
+// qualifier the way `call` does. This is on the facade author; nothing checks
+// the forwarders against the method flavors.
 struct hair_trigger
     : prox::facade<                                //
           prox::method<"fire", int(int) noexcept>, //
@@ -214,18 +256,19 @@ struct hair_trigger
       return self.template call<"jams">();
     }
   };
-};
 
-// Boilerplate impl for `hair_trigger`, with bindings marked noexcept as
-// conformance requires. The targets' own methods need not be noexcept; the
-// binding is the terminate boundary.
-template<typename T>
-requires prox::ProxyRegistered<hair_trigger, T>
-struct prox::proxy_impl<hair_trigger, T> {
-  static int on(method_key<"fire">, T& t, int rounds) noexcept {
-    return t.fire(rounds);
-  }
-  static bool on(method_key<"jams">, const T& t) noexcept { return t.jams(); }
+  // The boilerplate's bindings are marked noexcept, as conformance requires.
+  // The targets' own methods need not be noexcept; the binding is the
+  // terminate boundary.
+  template<typename T>
+  struct boilerplate {
+    static int on(prox::method_key<"fire">, T& t, int rounds) noexcept {
+      return t.fire(rounds);
+    }
+    static bool on(prox::method_key<"jams">, const T& t) noexcept {
+      return t.jams();
+    }
+  };
 };
 
 // Registration for `lawman`, which conforms through the boilerplate.
@@ -233,18 +276,21 @@ consteval auto corvid_proxy_spec(hair_trigger*, lawman*) {
   return prox::make_proxy_spec<hair_trigger, lawman>();
 }
 
-// Bindings not marked noexcept: must NOT conform, even though the shapes
-// otherwise line up.
-template<>
-struct prox::proxy_impl<hair_trigger, robber> {
-  static int on(method_key<"fire">, robber& r, int rounds) {
-    return r.shoot(rounds);
-  }
-  static bool on(method_key<"jams">, const robber&) { return false; }
-};
+// Carried bindings not marked noexcept: must NOT conform, even though the
+// shapes otherwise line up. Registration is the act of opting in, not proof
+// of conformance.
+consteval auto corvid_proxy_spec(hair_trigger*, robber*) {
+  struct as_hair_trigger {
+    static int on(prox::method_key<"fire">, robber& r, int rounds) {
+      return r.shoot(rounds);
+    }
+    static bool on(prox::method_key<"jams">, const robber&) { return false; }
+  };
+  return prox::make_proxy_spec<hair_trigger, robber, as_hair_trigger>();
+}
 
-// A facade whose `api` deliberately deviates from the method list: the
-// forwarder widens the parameter as a convenience, which registration-time
+// `mortar` is a facade whose `api` deliberately deviates from the method list:
+// the forwarder widens the parameter as a convenience, which registration-time
 // validation would reject. Its registrations opt out with `api_check::off`.
 struct mortar: prox::facade<prox::method<"lob", int(int)>> {
   struct api {
@@ -252,13 +298,13 @@ struct mortar: prox::facade<prox::method<"lob", int(int)>> {
       return self.template call<"lob">(shells);
     }
   };
-};
 
-// Boilerplate impl for `mortar`.
-template<typename T>
-requires prox::ProxyRegistered<mortar, T>
-struct prox::proxy_impl<mortar, T> {
-  static int on(method_key<"lob">, T& t, int shells) { return t.lob(shells); }
+  template<typename T>
+  struct boilerplate {
+    static int on(prox::method_key<"lob">, T& t, int shells) {
+      return t.lob(shells);
+    }
+  };
 };
 
 // A conforming type. The registration passes `api_check::off`, so the
@@ -273,6 +319,102 @@ consteval auto corvid_proxy_spec(mortar*, howitzer*) {
   return prox::make_proxy_spec<mortar, howitzer, prox::api_check::off>();
 }
 
+// `marshal` is a composed facade, effectively inheriting from `gunslinger` by
+// extending it with an arrest method (Rust supertrait). Its `api` inherits the
+// base facade's, adding only the new forwarder; deducing `this` sees the
+// complete handle either way, so the inherited forwarders dispatch through the
+// derived handle's flattened table.
+//
+// The boilerplate covers only the facade's own methods. The inherited
+// `gunslinger` methods bind through `proxy_impl<gunslinger, T>`, which is
+// what keeps an upcast view and a directly-built one identical.
+struct marshal
+    : prox::facade<                            //
+          prox::extends<gunslinger>,           //
+          prox::method<"arrest", bool(int)>> { //
+  struct api: gunslinger::api {
+    bool arrest(this auto&& self, int outlaws) {
+      return self.template call<"arrest">(outlaws);
+    }
+  };
+  template<typename T>
+  struct boilerplate {
+    static bool on(prox::method_key<"arrest">, T& t, int outlaws) {
+      return t.arrest(outlaws);
+    }
+  };
+};
+
+// `texas_ranger` is a second composition level: `gunslinger` -> `marshal` ->
+// `texas_ranger`.
+struct texas_ranger
+    : prox::facade<                             //
+          prox::extends<marshal>,               //
+          prox::method<"track", int() const>> { //
+  struct api: marshal::api {
+    int track(this const auto& self) { return self.template call<"track">(); }
+  };
+  template<typename T>
+  struct boilerplate {
+    static int on(prox::method_key<"track">, const T& t) { return t.track(); }
+  };
+};
+
+// `ranger` is a type conforming to the whole `texas_ranger` chain. Conformance
+// is per facade, but one chain hook below registers every level.
+struct ranger {
+  int fire(int rounds) { return rounds_fired += rounds; }
+  [[nodiscard]] std::string describe() const {
+    (void)this;
+    return "ranger";
+  }
+  void reload() { rounds_fired = 0; }
+  int& shots() { return rounds_fired; }
+  bool arrest(int outlaws) {
+    arrested += outlaws;
+    return true;
+  }
+  [[nodiscard]] int track() const { return arrested; }
+
+  int rounds_fired{};
+  int arrested{};
+};
+
+// One chain hook registers `ranger` for `texas_ranger` and every facade it
+// extends. The bindings stay per facade (each inherited method still binds
+// through its declaring facade's impl); the hook only collapses the opt-in
+// ceremony.
+template<prox::InChainOf<texas_ranger> F>
+consteval auto corvid_proxy_spec(F*, ranger*) {
+  return prox::make_proxy_spec<F, ranger>();
+}
+
+// A `vigilante` is `gunslinger`-shaped, but deliberately registered for
+// `marshal` alone (a plain per-facade hook rather than a chain one): an
+// incomplete registration, so this must NOT be proxiable as a marshal at all,
+// and the failure is loud at first use. Pins the per-facade conformance rule.
+struct vigilante {
+  int fire(int rounds) { return rounds_fired += rounds; }
+  [[nodiscard]] std::string describe() const {
+    (void)this;
+    return "vigilante";
+  }
+  void reload() { rounds_fired = 0; }
+  int& shots() { return rounds_fired; }
+  bool arrest(int outlaws) {
+    (void)this;
+    return outlaws > 0;
+  }
+
+  int rounds_fired{};
+};
+
+// This is bad, actually. For it to work, it would need to use the `InChainOf`
+// technique.
+consteval auto corvid_proxy_spec(marshal*, vigilante*) {
+  return prox::make_proxy_spec<marshal, vigilante>();
+}
+
 // Lifetime accounting shared by the owning-proxy targets.
 struct life_stats {
   int constructed{};
@@ -280,9 +422,9 @@ struct life_stats {
   int moves{};
 };
 
-// Move-only lifetime-counting target. `Pad` scales the footprint so one
-// instantiation fits the proxy's inline buffer and another forces the heap
-// path.
+// `strongbox` is a move-only lifetime-counting target. `Pad` scales the
+// footprint so one instantiation fits the proxy's inline buffer and another
+// forces the heap path.
 template<std::size_t Pad>
 struct strongbox {
   explicit strongbox(life_stats& stats) noexcept : stats_{&stats} {
@@ -306,15 +448,24 @@ struct strongbox {
   std::byte pad_[Pad]{};
 };
 
-// The facade for the lifetime tests.
+// The facade for the lifetime tests. For testing purposes, we're not providing
+// an `api`, or including the `boilerplate` inside the facade.
 struct lockbox
     : prox::facade<                      //
           prox::method<"add", int(int)>, //
           prox::method<"gold", int() const>> {};
 
-// Boilerplate impl for `lockbox`.
+// Boilerplate impl for `lockbox`, in the namespace-scope spelling: a
+// `proxy_impl` partial specialization gated on `ProxyRegistered`.
+//
+// Still supported and equivalent; the other facades in this file host theirs
+// nested (see `gunslinger`). The `SpecCarriesImpl` exclusion keeps a
+// registration-carried impl winning over this boilerplate, which the nested
+// form gets from the library automatically; without it, partial ordering
+// would prefer this specialization.
 template<typename T>
-requires prox::ProxyRegistered<lockbox, T>
+requires(
+    prox::ProxyRegistered<lockbox, T> && !prox::SpecCarriesImpl<lockbox, T>)
 struct prox::proxy_impl<lockbox, T> {
   static int on(method_key<"add">, T& t, int nuggets) {
     return t.add(nuggets);
@@ -350,36 +501,45 @@ static_assert(!std::derived_from<prox::method<"fire", int(int)>,
 // UDL: `"name"_method` is a `prox::method_key<"name">`.
 static_assert(std::same_as<decltype("fire"_method), prox::method_key<"fire">>);
 
-// Registration state. Lawman is registered, robber conforms without
-// registration, cowboy neither registers nor conforms.
+// Registration state. Every conforming type is registered; cowboy neither
+// registers nor conforms.
 static_assert(prox::ProxyRegistered<gunslinger, lawman>);
 static_assert(prox::ProxyRegistered<gunslinger, deputy>);
-static_assert(!prox::ProxyRegistered<gunslinger, robber>);
-static_assert(!prox::ProxyRegistered<gunslinger, sheriff>);
+static_assert(prox::ProxyRegistered<gunslinger, robber>);
+static_assert(prox::ProxyRegistered<gunslinger, sheriff>);
 static_assert(!prox::ProxyRegistered<gunslinger, cowboy>);
 static_assert(std::same_as<decltype(prox::proxy_spec_v<gunslinger, lawman>),
     const prox::proxy_spec<gunslinger, lawman>>);
 
-// Conformance. Boilerplate via registration, explicit impl directly, and
+// Conformance. Boilerplate or carried impl, always via registration;
 // matching names alone are NOT enough.
 //
-// Diagnostics on record (clang 22, captured 2026-07-08). Constructing
-// `proxy_view<gunslinger>` from an unregistered `cowboy` emits exactly one
-// error: "no matching constructor for initialization of
-// 'proxy_view<gunslinger>' ... candidate template ignored: constraints not
-// satisfied [with T = cowboy] ... because 'Proxiable<cowboy, gunslinger>'
-// evaluated to false ... because
-// 'details::info_t<gunslinger>::all_bound_v<gunslinger, cowboy>' evaluated
-// to false". Calling `pv.call<"missing">()` fires the static_assert
-// "facade has no method with this name", followed by `std::get` index-noise
-// errors; the follow-on noise is accepted (a guarding `if constexpr` was
-// tried and dropped as a simplification), since fixing the obvious message
-// also removes the noise.
+// Diagnostics on record (clang 22, re-captured 2026-07-08 after the
+// composition refactor). Constructing `proxy_view<gunslinger>` from an
+// unregistered `cowboy` emits exactly one error: "no matching constructor
+// for initialization of 'proxy_view<gunslinger>' ... candidate template
+// ignored: constraints not satisfied [with T = cowboy] ... because
+// 'Proxiable<cowboy, gunslinger>' evaluated to false ... because
+// 'details::vtbuild_t<gunslinger>::all_bound_v<gunslinger, cowboy>'
+// evaluated to false", plus two "could not match" notes for the dedicated
+// upcasting and proxy-viewing constructors. Calling `pv.call<"missing">()`
+// fires the static_assert "facade has no method with this name", followed by
+// `std::get` index-noise errors; the follow-on noise is accepted (a guarding
+// `if constexpr` was tried and dropped as a simplification), since fixing
+// the obvious message also removes the noise.
 static_assert(Proxiable<lawman, gunslinger>);
 static_assert(Proxiable<robber, gunslinger>);
 static_assert(Proxiable<sheriff, gunslinger>);
 static_assert(!Proxiable<cowboy, gunslinger>);
 static_assert(!Proxiable<int, gunslinger>);
+
+// The concept reports exactly the carried registrations: boilerplate-only
+// registrations like lawman's carry nothing.
+static_assert(Proxiable<turncoat, gunslinger>);
+static_assert(prox::SpecCarriesImpl<gunslinger, robber>);
+static_assert(prox::SpecCarriesImpl<gunslinger, sheriff>);
+static_assert(prox::SpecCarriesImpl<gunslinger, turncoat>);
+static_assert(!prox::SpecCarriesImpl<gunslinger, lawman>);
 
 // Noexcept qualification is part of the method flavor.
 static_assert(!prox::method<"fire", int(int)>::noexcept_v);
@@ -442,23 +602,93 @@ static_assert(
     std::constructible_from<const_proxy_view<gunslinger>, const lawman&>);
 static_assert(!std::constructible_from<proxy_view<gunslinger>, const lawman&>);
 
-// An all-const facade is the one case where a const view satisfies the
-// invariant. A mixed facade correctly fails it (the mutable methods are not
-// dispatchable, so conformance is impossible; Rust's `&dyn` analog).
+// `census` is an all-const facade. This is the only case where a const view
+// satisfies the invariant for the facade as a whole. A mixed facade correctly
+// fails it (the mutable methods are not dispatchable, so conformance is
+// impossible; Rust's `&dyn` analog).
 struct census: prox::facade<prox::method<"describe", std::string() const>> {};
 
-// Conformance here is a deliberate one-off full specialization. The
-// boilerplate and registration tiers are already exercised by `gunslinger` and
-// `lockbox`, and `census` exists only to serve the const-view assertions.
-template<>
-struct prox::proxy_impl<census, lawman> {
-  static std::string on(method_key<"describe">, const lawman& l) {
-    return l.describe();
-  }
-};
+// Conformance here is a one-off carried impl: `census` exists only to serve
+// the const-view assertions, so it defines no boilerplate at all.
+consteval auto corvid_proxy_spec(census*, lawman*) {
+  struct as_census {
+    static std::string on(prox::method_key<"describe">, const lawman& l) {
+      return l.describe();
+    }
+  };
+  return prox::make_proxy_spec<census, lawman, as_census>();
+}
 
 static_assert(Proxiable<const_proxy_view<census>, census>);
 static_assert(!Proxiable<const_proxy_view<gunslinger>, gunslinger>);
+
+// Composition. A composed facade flattens its bases' methods ahead of its
+// own; `Extends` is transitive and strict.
+static_assert(prox::Facade<marshal>);
+static_assert(prox::Extends<marshal, gunslinger>);
+static_assert(prox::Extends<texas_ranger, marshal>);
+static_assert(prox::Extends<texas_ranger, gunslinger>);
+static_assert(!prox::Extends<gunslinger, marshal>);
+static_assert(!prox::Extends<marshal, marshal>);
+
+// Conformance is per facade in the chain. Registering the derived facade
+// alone is not enough (Rust's separate `impl Base for T`), and conforming to
+// the base says nothing about the derived facade.
+//
+// Diagnostics on record (clang 22, captured 2026-07-08). Constructing
+// `proxy_view<marshal>` from `vigilante` emits one error with the same
+// constraint walk as the `cowboy` case, ending at
+// 'details::vtbuild_t<marshal>::all_bound_v<marshal, vigilante>' evaluated
+// to false"; the walk does not name the missing base facade. Redeclaring an
+// inherited name (`facade<extends<gunslinger>, method<"fire", int(int)>>`)
+// detonates at first use of the facade's machinery: "static assertion failed
+// ... 'unique_method_names<...>()': method names must be unique across the
+// facade and its extends bases", with the flattened list, duplicate
+// included, spelled out in the requirement, followed by one follow-on
+// "no type named 'vtable_t'" noise error.
+static_assert(Proxiable<ranger, gunslinger>);
+static_assert(Proxiable<ranger, marshal>);
+static_assert(Proxiable<ranger, texas_ranger>);
+static_assert(!Proxiable<vigilante, marshal>);
+static_assert(!Proxiable<vigilante, gunslinger>);
+static_assert(!Proxiable<lawman, marshal>);
+
+// The chain hook registers every level of the chain, and nothing else.
+static_assert(prox::ProxyRegistered<texas_ranger, ranger>);
+static_assert(prox::ProxyRegistered<marshal, ranger>);
+static_assert(prox::ProxyRegistered<gunslinger, ranger>);
+static_assert(!prox::ProxyRegistered<hair_trigger, ranger>);
+
+// Handles of a derived facade satisfy the base facade too (Rust: a `dyn
+// Derived` meets a `Base` bound).
+static_assert(Proxiable<proxy_view<marshal>, gunslinger>);
+static_assert(Proxiable<proxy_view<texas_ranger>, marshal>);
+static_assert(Proxiable<proxy<texas_ranger>, gunslinger>);
+
+// Upcast conversions exist in exactly the safe directions: no downcasts, no
+// regaining mutability, and no views of temporary proxies.
+static_assert(
+    std::convertible_to<proxy_view<marshal>, proxy_view<gunslinger>>);
+static_assert(
+    std::convertible_to<proxy_view<texas_ranger>, proxy_view<gunslinger>>);
+static_assert(std::convertible_to<const_proxy_view<texas_ranger>,
+    const_proxy_view<gunslinger>>);
+static_assert(
+    std::convertible_to<proxy_view<marshal>, const_proxy_view<gunslinger>>);
+static_assert(
+    !std::convertible_to<proxy_view<gunslinger>, proxy_view<marshal>>);
+static_assert(!std::constructible_from<proxy_view<gunslinger>,
+    const_proxy_view<marshal>&>);
+static_assert(std::convertible_to<proxy<marshal>&, proxy_view<marshal>>);
+static_assert(std::convertible_to<proxy<marshal>&, proxy_view<gunslinger>>);
+static_assert(
+    std::convertible_to<proxy<marshal>&, const_proxy_view<gunslinger>>);
+static_assert(
+    std::convertible_to<const proxy<marshal>&, const_proxy_view<gunslinger>>);
+static_assert(
+    !std::constructible_from<proxy_view<gunslinger>, const proxy<marshal>&>);
+static_assert(
+    !std::constructible_from<proxy_view<gunslinger>, proxy<gunslinger>>);
 
 // The call-site vocabulary is exported to `corvid::meta`, so this file uses
 // the unqualified spellings throughout. Only authoring (facades, impls,
@@ -475,6 +705,7 @@ static_assert(std::same_as<const_proxy_view<gunslinger>,
 static_assert(sizeof(proxy_view<gunslinger>) == 2 * sizeof(void*));
 static_assert(sizeof(const_proxy_view<gunslinger>) == 2 * sizeof(void*));
 static_assert(sizeof(proxy_view<lockbox>) == 2 * sizeof(void*));
+static_assert(sizeof(proxy_view<texas_ranger>) == 2 * sizeof(void*));
 
 // The sugar carries `noexcept` when the facade author marks the forwarders.
 static_assert(noexcept(std::declval<proxy_view<hair_trigger>&>().fire(1)));
@@ -502,12 +733,22 @@ static_assert(!noexcept(std::declval<proxy_view<gunslinger>&>().fire(1)));
 static_assert(prox::validate_api<gunslinger>());
 static_assert(prox::validate_api<hair_trigger>());
 
+// For a composed facade, the same chain also validates the inherited
+// forwarders (brought in here by deriving the `api` from the base facade's)
+// against the flattened method list.
+static_assert(prox::validate_api<marshal>());
+static_assert(prox::validate_api<texas_ranger>());
+
 // NOLINTBEGIN(readability-function-cognitive-complexity)
 
 TEST_CASE("Boilerplate impl through registration", "[proxy]") {
   lawman l;
   proxy_view<gunslinger> pv{l};
 
+  // This case deliberately exercises the core `call<>` spelling end to end.
+  // Real call sites prefer the `api` sugar, which the rest of this file uses
+  // wherever a facade defines one; "Member-call sugar" below pins the
+  // equivalence of the two spellings.
   CHECK(pv.call<"fire">(3) == 3);
   CHECK(pv.call<"fire">(2) == 5);
   CHECK(l.rounds_fired == 5);
@@ -521,16 +762,17 @@ TEST_CASE("Boilerplate impl through registration", "[proxy]") {
   CHECK(l.rounds_fired == 0);
 }
 
-TEST_CASE("Custom impl without registration", "[proxy]") {
+TEST_CASE("Registration-carried impl", "[proxy]") {
+  // `robber` conforms through the impl its registration names.
   robber r;
   proxy_view<gunslinger> pv{r};
 
-  CHECK(pv.call<"fire">(6) == 6);
+  CHECK(pv.fire(6) == 6);
   CHECK(r.fired == 6);
-  CHECK(pv.call<"describe">() == "robber"s);
-  CHECK(pv.call<"shots">() == 6);
+  CHECK(pv.describe() == "robber"s);
+  CHECK(pv.shots() == 6);
 
-  pv.call<"reload">();
+  pv.reload();
   CHECK(r.fired == 0);
 }
 
@@ -539,14 +781,25 @@ TEST_CASE("Partially-overridden boilerplate impl", "[proxy]") {
   proxy_view<gunslinger> pv{s};
 
   // The overriding binding: "fire" routes to `shoot`.
-  CHECK(pv.call<"fire">(4) == 4);
+  CHECK(pv.fire(4) == 4);
   CHECK(s.rounds_fired == 4);
 
   // The inherited boilerplate bindings still serve the rest.
-  CHECK(pv.call<"describe">() == "sheriff"s);
-  CHECK(pv.call<"shots">() == 4);
-  pv.call<"reload">();
+  CHECK(pv.describe() == "sheriff"s);
+  CHECK(pv.shots() == 4);
+  pv.reload();
   CHECK(s.rounds_fired == 0);
+}
+
+TEST_CASE("Carried impl outranks the boilerplate", "[proxy]") {
+  // `turncoat`'s names line up, so the boilerplate would serve it, but its
+  // registration carries an impl overriding one binding. The rest still
+  // dispatch through the inherited boilerplate bindings.
+  turncoat t;
+  proxy_view<gunslinger> tv{t};
+  CHECK(tv.fire(2) == 2);
+  CHECK(t.rounds_fired == 2);
+  CHECK(tv.describe() == "undercover"s);
 }
 
 TEST_CASE("Heterogeneous dispatch", "[proxy]") {
@@ -558,8 +811,8 @@ TEST_CASE("Heterogeneous dispatch", "[proxy]") {
   // Mutable references. The "fire" method no longer dispatches through a const
   // view.
   for (auto& pv : gang) {
-    pv.call<"fire">(2);
-    roll_call += pv.call<"describe">();
+    pv.fire(2);
+    roll_call += pv.describe();
     roll_call += ' ';
   }
   CHECK(roll_call == "lawman robber "s);
@@ -568,7 +821,7 @@ TEST_CASE("Heterogeneous dispatch", "[proxy]") {
 
   // Copies are shallow, so both views alias the same target.
   auto pv2 = gang[0];
-  pv2.call<"fire">(1);
+  pv2.fire(1);
   CHECK(l.rounds_fired == 3);
 }
 
@@ -576,34 +829,36 @@ TEST_CASE("Views rebind by assignment", "[proxy]") {
   lawman l;
   robber r;
   proxy_view<gunslinger> pv{l};
-  CHECK(pv.call<"describe">() == "lawman"s);
+  CHECK(pv.describe() == "lawman"s);
 
   // Assignment rebinds both the target and the dispatch table.
   pv = proxy_view<gunslinger>{r};
-  CHECK(pv.call<"describe">() == "robber"s);
+  CHECK(pv.describe() == "robber"s);
 }
 
 TEST_CASE("Const view", "[proxy]") {
   // A const target binds directly. Only const methods exist on this view.
   const lawman cl{};
   const_proxy_view<gunslinger> cv{cl};
-  CHECK(cv.call<"describe">() == "lawman"s);
+  CHECK(cv.describe() == "lawman"s);
 
   // A const instance of the mutable view enforces the same restriction.
   lawman l;
   const proxy_view<gunslinger> cpv{l};
-  CHECK(cpv.call<"describe">() == "lawman"s);
+  CHECK(cpv.describe() == "lawman"s);
 
   // The mutable view converts implicitly, and const views rebind by
   // assignment like any view.
   proxy_view<gunslinger> pv{l};
   const_proxy_view<gunslinger> cv2{pv};
-  CHECK(cv2.call<"describe">() == "lawman"s);
+  CHECK(cv2.describe() == "lawman"s);
   cv = cv2;
-  CHECK(cv.call<"describe">() == "lawman"s);
+  CHECK(cv.describe() == "lawman"s);
 
   // All-const facades keep the invariant. Generic code constrained on the
   // facade accepts the concrete const target and the const view alike.
+  // `census` defines no `api`, so `call<>` is its real spelling (and needs
+  // the dependent-name `template` keyword in this generic context).
   auto describe_it = [](const Proxiable<census> auto& t) {
     const_proxy_view<census> v{t};
     return v.template call<"describe">();
@@ -618,9 +873,8 @@ TEST_CASE("Generic code accepts concrete and erased alike", "[proxy]") {
   // trait bound for the static-dispatch half.
   auto fire_twice = [](Proxiable<gunslinger> auto& g) {
     auto pv = make_proxy_view<gunslinger>(g);
-    // In a template context the view's type is dependent, hence `template`.
-    pv.template call<"fire">(1);
-    return pv.template call<"fire">(1);
+    pv.fire(1);
+    return pv.fire(1);
   };
 
   lawman l;
@@ -696,20 +950,22 @@ TEST_CASE("Owning proxy is deep-const", "[proxy]") {
   // Only const-qualified facade methods dispatch through a const proxy. The
   // negative half is covered by the `CanFire` static_asserts above.
   const auto p = make_proxy<gunslinger, lawman>();
-  CHECK(p.call<"describe">() == "lawman"s);
+  CHECK(p.describe() == "lawman"s);
 }
 
 TEST_CASE("Noexcept facade methods", "[proxy]") {
   lawman l;
   proxy_view<hair_trigger> pv{l};
-  CHECK(pv.call<"fire">(2) == 2);
-  CHECK(!pv.call<"jams">());
+  CHECK(pv.fire(2) == 2);
+  CHECK(!pv.jams());
 
+  // The `call<>` asserts pin the erased call's own noexcept; the sugar's is
+  // pinned at file scope.
   auto p = make_proxy<hair_trigger, lawman>();
-  CHECK(p.call<"fire">(4) == 4);
+  CHECK(p.fire(4) == 4);
   static_assert(noexcept(p.call<"fire">(4)));
   const auto& cp = p;
-  CHECK(!cp.call<"jams">());
+  CHECK(!cp.jams());
   static_assert(noexcept(cp.call<"jams">()));
 }
 
@@ -761,6 +1017,99 @@ TEST_CASE("Member-call sugar via the api mixin", "[proxy]") {
   CHECK(mv.lob(3) == 3);
 }
 
+TEST_CASE("Facade composition", "[proxy]") {
+  ranger r;
+  proxy_view<marshal> mv{r};
+
+  // Inherited and own methods dispatch through the same flattened table,
+  // through the inherited and own `api` forwarders alike.
+  CHECK(mv.fire(2) == 2);
+  CHECK(mv.describe() == "ranger"s);
+  CHECK(mv.arrest(1));
+  CHECK(r.arrested == 1);
+
+  // The core spelling hits the same slot, inherited or not.
+  CHECK(mv.call<"fire">(1) == 3);
+  CHECK(mv.call<"arrest">(2));
+  CHECK(r.arrested == 3);
+
+  // Two composition levels down, same story.
+  proxy_view<texas_ranger> tv{r};
+  CHECK(tv.track() == 3);
+  CHECK(tv.fire(1) == 4);
+  CHECK(tv.arrest(1));
+  CHECK(tv.track() == 4);
+
+  // An owning proxy of a composed facade dispatches the whole chain too.
+  auto p = make_proxy<texas_ranger, ranger>();
+  CHECK(p.fire(5) == 5);
+  CHECK(p.arrest(1));
+  CHECK(p.track() == 1);
+}
+
+TEST_CASE("Upcasting views", "[proxy]") {
+  ranger r;
+  proxy_view<texas_ranger> tv{r};
+
+  // Upcast to the immediate base and to the root. Every view aliases the
+  // same target, so mutations are visible through all of them.
+  proxy_view<marshal> mv = tv;
+  proxy_view<gunslinger> gv = tv;
+  CHECK(gv.fire(2) == 2);
+  CHECK(mv.fire(1) == 3);
+  CHECK(r.rounds_fired == 3);
+  CHECK(mv.arrest(1));
+  CHECK(gv.describe() == "ranger"s);
+
+  // An upcast view is indistinguishable from a directly-built one.
+  proxy_view<gunslinger> direct{r};
+  CHECK(&direct.shots() == &gv.shots());
+
+  // Upcasts rebind by assignment like any view.
+  lawman l;
+  gv = proxy_view<gunslinger>{l};
+  CHECK(gv.describe() == "lawman"s);
+  gv = mv;
+  CHECK(gv.describe() == "ranger"s);
+
+  // Const upcasts: from the mutable view, and from a const view of a const
+  // target.
+  const_proxy_view<gunslinger> cgv = tv;
+  CHECK(cgv.describe() == "ranger"s);
+  const ranger cr{};
+  const_proxy_view<texas_ranger> ctv{cr};
+  const_proxy_view<gunslinger> cgv2 = ctv;
+  CHECK(cgv2.describe() == "ranger"s);
+}
+
+TEST_CASE("Viewing an owning proxy", "[proxy]") {
+  auto p = make_proxy<texas_ranger, ranger>();
+
+  // The view re-points at the stored target rather than wrapping the handle,
+  // so it aliases the proxy's state, same facade or upcast.
+  proxy_view<texas_ranger> tv = p;
+  proxy_view<gunslinger> gv = p;
+  CHECK(tv.fire(2) == 2);
+  CHECK(gv.shots() == 2);
+  gv.reload();
+  CHECK(p.shots() == 0);
+
+  // A const proxy yields only the const view.
+  const auto& cp = p;
+  const_proxy_view<gunslinger> cgv = cp;
+  CHECK(cgv.describe() == "ranger"s);
+
+  // Facade-constrained generic code accepts the derived handles under the
+  // base bound (cross-facade self-conformance), and `make_proxy_view`
+  // re-points rather than wrapping.
+  auto fire_once = [](Proxiable<gunslinger> auto& g) {
+    auto v = make_proxy_view<gunslinger>(g);
+    return v.fire(1);
+  };
+  CHECK(fire_once(p) == 1);
+  CHECK(fire_once(tv) == 2);
+}
+
 TEST_CASE("Heterogeneous ownership", "[proxy]") {
   std::vector<proxy<gunslinger>> gang;
   gang.push_back(make_proxy<gunslinger, lawman>());
@@ -768,8 +1117,8 @@ TEST_CASE("Heterogeneous ownership", "[proxy]") {
 
   std::string roll_call;
   for (auto& p : gang) {
-    p.call<"fire">(2);
-    roll_call += p.call<"describe">();
+    p.fire(2);
+    roll_call += p.describe();
     roll_call += ' ';
   }
   CHECK(roll_call == "lawman robber "s);
