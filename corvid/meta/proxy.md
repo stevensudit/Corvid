@@ -578,7 +578,7 @@ architecture.
    noexcept conformance both ways (a binding lacking `noexcept` fails the
    facade), `noexcept(call)` propagation, and heterogeneous ownership in a
    container.
-3. IN PROGRESS. The `api` mixin is DONE: `details::api_base_t<F>` selects
+3. DONE. The `api` mixin is DONE: `details::api_base_t<F>` selects
    the facade's nested `api` (lazy specialization, empty `no_api` stand-in),
    and all three handles inherit it. Verified: forwarder parity with
    `call<>` through the mutable view, the const view, and the owning proxy
@@ -610,7 +610,7 @@ architecture.
    "User-facing shape"; precedence pinned by `turncoat` in the test),
    dropped the unregistered full-specialization tier in their favor, and
    restyled the tests to prefer the `api` sugar over `call<>` wherever a
-   facade defines one. A second pass added `impl_base` (the unqualified
+   facade defines one. A second pass added `proxy_impl` (the unqualified
    `method_key` spelling in binding classes), made both views
    default-constructible as empty with `operator bool`, matching the owning
    proxy, and pinned mid-chain anchoring of chain hooks (`constable` in the
@@ -702,9 +702,9 @@ dispatch, allocator plumbing, RTTI, per-name overload sets.
 
 ## Open questions
 
-- The member-call sugar pin was resolved in favor of the `api` mixin, now
-  built. Confirm the ergonomics (including the constraint-visibility caveat)
-  once real call sites exist outside the test.
+The member-call sugar pin was an open question until phase 3. It was
+resolved in favor of the `api` mixin, and the test code exercising it
+confirmed the ergonomics.
 
 The const flavor of views was an open question until phase 2. It was
 resolved as the `&T` vs `&mut T` split (`const_proxy_view` alongside a
