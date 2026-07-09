@@ -19,6 +19,8 @@
 #include <cassert>
 #include <concepts>
 #include <cstddef>
+#include <cstdint>
+#include <exception>
 #include <memory>
 #include <new>
 #include <tuple>
@@ -173,7 +175,7 @@ concept Facade = requires(const F& f) { details::probe(f); };
 
 namespace details {
 
-// Stand-in api base for facades that define no member-call sugar.
+// Stand-in API base for facades that define no member-call sugar.
 struct no_api {};
 
 // Sugar base for handles of facade `F`.
@@ -253,12 +255,48 @@ struct proxy_impl;
 template<typename F, typename T>
 struct proxy_spec {};
 
+namespace details {
+
+// Forward declaration; defined under "API validation".
+template<Facade F>
+struct api_probe;
+
+} // namespace details
+
+// Forward declaration; defined under "API validation".
+template<Facade F>
+[[nodiscard]] consteval bool validate_api() noexcept;
+
+// Whether registering a pair also validates the facade's `api` (see
+// `validate_api`). A facade whose `api` deliberately deviates from the method
+// list (say, a widening convenience signature), should register with
+// `api_check::off`.
+enum class api_check : std::uint8_t { off, on };
+
 // Make the registration spec for a (facade, type) pair.
 //
 // Call this from a `corvid_proxy_spec` overload, just as
 // `make_sequence_enum_spec` is returned from `corvid_enum_spec`.
-template<typename F, typename T>
+//
+// When the facade defines an `api`, registration is also the moment that `api`
+// is validated against the method list (see `validate_api`), because the
+// boilerplate impl the registration exists to unlock must be visible here,
+// along with the facade and its `api`. Correctness is opt-out rather than
+// opt-in: pass `api_check::off` to skip. A registration hook that is itself a
+// template defers the check to its own instantiation.
+template<typename F, typename T, api_check Check = api_check::on>
 [[nodiscard]] consteval proxy_spec<F, T> make_proxy_spec() noexcept {
+  if constexpr (Check == api_check::on && Facade<F> &&
+                requires { typename F::api; })
+  {
+    constexpr bool has_boilerplate = requires {
+      sizeof(proxy_impl<F, details::api_probe<F>>);
+    };
+    static_assert(has_boilerplate,
+        "validating the api needs the facade's boilerplate impl visible at "
+        "the registration; pass api_check::off to skip");
+    if constexpr (has_boilerplate) (void)validate_api<F>();
+  }
   return {};
 }
 
@@ -269,7 +307,8 @@ template<typename F, typename T>
 // type; it is found here by ADL.
 //
 // The library never defines this function: declaring an overload IS the act of
-// registration.
+// registration. The single exception is the overload the library provides for
+// its own API-validation probe; see `validate_api`.
 //
 // Registration gates a facade author's boilerplate impl; an explicit
 // `proxy_impl` specialization does not need it.
@@ -310,6 +349,11 @@ struct method_traits_base {
   using target_t = std::conditional_t<Const, const T, T>;
   using erased_ptr_t = std::conditional_t<Const, const void*, void*>;
   using thunk_ptr_t = R (*)(erased_ptr_t, Args...) noexcept(Noexcept);
+
+  // Parameter list normalized for exact-match probing: top-level cv and
+  // references stripped from each parameter, so value-category spelling is
+  // ignored but a merely-convertible type does not match.
+  using norm_args_t = std::tuple<std::remove_cvref_t<Args>...>;
 
   template<typename F, typename T>
   static constexpr bool bound_v = requires(target_t<T>& t, Args... args) {
@@ -422,6 +466,39 @@ struct vtable_builder<facade<Ms...>> {
     return ndx != count_v && flags[ndx];
   }
 
+  // Declared result type of the method named `K`, or `void` when no method has
+  // that name. The permissive fallback keeps return-type substitution in the
+  // `api_probe` from hard-erroring before its constraint can reject the
+  // unknown name.
+  template<fixed_string K>
+  static consteval auto do_result_of() noexcept {
+    constexpr auto ndx = index_of<K>();
+    if constexpr (ndx != count_v) {
+      using m_t = std::tuple_element_t<ndx, std::tuple<Ms...>>;
+      return std::type_identity<typename m_t::result_t>{};
+    } else {
+      return std::type_identity<void>{};
+    }
+  }
+
+  template<fixed_string K>
+  using result_of_t = decltype(do_result_of<K>())::type;
+
+  // Whether `Args` match the declared parameters of the method named `K`
+  // exactly after normalization, rather than by convertibility. False for an
+  // unknown name. This is the `api_probe`'s strictness.
+  template<fixed_string K, typename... Args>
+  static consteval bool exact_args() noexcept {
+    constexpr auto ndx = index_of<K>();
+    if constexpr (ndx != count_v) {
+      using m_t = std::tuple_element_t<ndx, std::tuple<Ms...>>;
+      return std::same_as<std::tuple<std::remove_cvref_t<Args>...>,
+          typename method_traits<m_t>::norm_args_t>;
+    } else {
+      return false;
+    }
+  }
+
   template<typename F, typename T>
   static constexpr bool all_bound_v =
       (method_traits<Ms>::template bound_v<F, T> && ...);
@@ -479,6 +556,111 @@ constexpr inline auto owning_vtable_for =
 template<typename T, typename F>
 concept Proxiable =
     Facade<F> && details::vtbuild_t<F>::template all_bound_v<F, T>;
+
+#pragma endregion
+#pragma region API validation
+
+namespace details {
+
+// Exact-conversion carrier for the `api_probe`'s strict `call`.
+//
+// The conversion operator is a template constrained to exactly `R`. Deduction
+// runs against the target type, which in a forwarder's `return` statement is
+// the forwarder's declared result type, so a declared type that is merely
+// convertible to `R` leaves no viable conversion and fails to compile. Probe
+// machinery is only ever type-checked, never executed.
+template<typename R>
+struct strict_result {
+  template<typename U>
+  requires std::same_as<U, R>
+  operator U() {
+    std::terminate();
+  }
+};
+
+// Result type of the probe's strict `call`: `strict_result` for object types,
+// `void` for `void`, and references passed through unchanged.
+//
+// A conversion operator cannot distinguish binding a reference from copying
+// out of one, so reference results cannot be exactness-checked; a forwarder
+// that decays a declared reference result to a value goes undetected here.
+template<typename R>
+using strict_return_t = std::conditional_t<std::is_void_v<R>, void,
+    std::conditional_t<std::is_reference_v<R>, R, strict_result<R>>>;
+
+// Synthetic dispatch target for `validate_api`.
+//
+// It inherits the facade's `api` and exposes a deliberately strict `call`.
+// Argument types must match the method's declared parameters exactly (per
+// `exact_args`), and the result converts only to exactly the declared result
+// type. Never constructed or executed; it exists to be type-checked.
+template<Facade F>
+struct api_probe: api_base_t<F> {
+  template<fixed_string K, typename... Args>
+  requires(vtbuild_t<F>::template exact_args<K, Args...>())
+  strict_return_t<typename vtbuild_t<F>::template result_of_t<K>>
+  call(Args&&...) {
+    std::terminate();
+  }
+
+  template<fixed_string K, typename... Args>
+  requires(vtbuild_t<F>::template is_const<K>() &&
+           vtbuild_t<F>::template exact_args<K, Args...>())
+  // NOLINTNEXTLINE(modernize-use-nodiscard): mirrors `call`, never executed.
+  strict_return_t<typename vtbuild_t<F>::template result_of_t<K>>
+  call(Args&&...) const {
+    std::terminate();
+  }
+};
+
+// Probe registration, covering every facade. This is the single
+// `corvid_proxy_spec` overload the library itself provides; it is what admits
+// the probe to a facade author's registration-gated boilerplate impl. It must
+// opt out of validation: a validating registration would recurse into itself
+// through the boilerplate-visibility check, whose `ProxyRegistered` probe
+// deduces this hook's return type.
+template<Facade F>
+consteval auto corvid_proxy_spec(F*, api_probe<F>*) noexcept {
+  return make_proxy_spec<F, api_probe<F>, api_check::off>();
+}
+
+} // namespace details
+
+// Validate a facade's `api` against its method list, spelling neither the
+// names nor the signatures again.
+//
+// This runs automatically from `make_proxy_spec` at every registration of an
+// `api`-bearing facade, unless the registration opts out with
+// `api_check::off`.
+// The standalone spelling, `static_assert(validate_api<my_facade>());`,
+// remains for a facade author to assert at the definition site, before any
+// registration exists.
+//
+// It works by dispatching
+// the facade author's boilerplate impl at a probe target that inherits the
+// `api`, chaining thunk -> boilerplate `on` -> `api` forwarder -> strict probe
+// `call`. The chain is anchored to the facade's exact declared types at both
+// ends, so convertibility drift anywhere in the middle, in the `api` or in the
+// boilerplate itself, fails to compile with the error pointing at the drifting
+// line.
+//
+// Caught: a missing or misspelled forwarder, wrong arity, wrong const flavor
+// of `self`, a parameter or declared result type that is merely convertible to
+// the facade's (including the silently-truncating kind), and a forwarder body
+// dispatching a key with a different signature. Not caught: a missing
+// `noexcept` on a forwarder, by-value versus by-reference parameter spellings,
+// reference-to-value decay of a declared result, and a body dispatching the
+// wrong key with an identical signature.
+//
+// Failures are hard compile errors rather than a `false` return, and the
+// facade must have a boilerplate `proxy_impl` partial specialization gated on
+// `ProxyRegistered` for the chain to exist.
+template<Facade F>
+[[nodiscard]] consteval bool validate_api() noexcept {
+  const auto vt = details::vtable_for<F, details::api_probe<F>>;
+  (void)vt;
+  return true;
+}
 
 #pragma endregion
 #pragma region proxy_view

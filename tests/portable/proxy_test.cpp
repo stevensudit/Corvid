@@ -92,6 +92,11 @@ struct lawman {
   }
   void reload() { rounds_fired = 0; }
   int& shots() { return rounds_fired; }
+  // For `hair_trigger`.
+  [[nodiscard]] bool jams() const {
+    (void)this;
+    return false;
+  }
 
   int rounds_fired{};
 };
@@ -193,7 +198,8 @@ struct cowboy {
 // A facade with noexcept methods. Conformance requires the bindings
 // themselves to be noexcept.
 //
-// The api forwarders are marked `noexcept` so the sugar carries the qualifier
+// The `api` forwarders are marked `noexcept` so the sugar carries the
+// qualifier
 // the way `call` does. This is on the facade author; nothing checks the
 // forwarders against the method flavors.
 struct hair_trigger
@@ -210,15 +216,22 @@ struct hair_trigger
   };
 };
 
-// Bindings marked noexcept: conforms. The target's own methods need not be
-// noexcept; the binding is the terminate boundary.
-template<>
-struct prox::proxy_impl<hair_trigger, lawman> {
-  static int on(method_key<"fire">, lawman& l, int rounds) noexcept {
-    return l.fire(rounds);
+// Boilerplate impl for `hair_trigger`, with bindings marked noexcept as
+// conformance requires. The targets' own methods need not be noexcept; the
+// binding is the terminate boundary.
+template<typename T>
+requires prox::ProxyRegistered<hair_trigger, T>
+struct prox::proxy_impl<hair_trigger, T> {
+  static int on(method_key<"fire">, T& t, int rounds) noexcept {
+    return t.fire(rounds);
   }
-  static bool on(method_key<"jams">, const lawman&) noexcept { return false; }
+  static bool on(method_key<"jams">, const T& t) noexcept { return t.jams(); }
 };
+
+// Registration for `lawman`, which conforms through the boilerplate.
+consteval auto corvid_proxy_spec(hair_trigger*, lawman*) {
+  return prox::make_proxy_spec<hair_trigger, lawman>();
+}
 
 // Bindings not marked noexcept: must NOT conform, even though the shapes
 // otherwise line up.
@@ -229,6 +242,36 @@ struct prox::proxy_impl<hair_trigger, robber> {
   }
   static bool on(method_key<"jams">, const robber&) { return false; }
 };
+
+// A facade whose `api` deliberately deviates from the method list: the
+// forwarder widens the parameter as a convenience, which registration-time
+// validation would reject. Its registrations opt out with `api_check::off`.
+struct mortar: prox::facade<prox::method<"lob", int(int)>> {
+  struct api {
+    int lob(this auto&& self, long long shells) {
+      return self.template call<"lob">(shells);
+    }
+  };
+};
+
+// Boilerplate impl for `mortar`.
+template<typename T>
+requires prox::ProxyRegistered<mortar, T>
+struct prox::proxy_impl<mortar, T> {
+  static int on(method_key<"lob">, T& t, int shells) { return t.lob(shells); }
+};
+
+// A conforming type. The registration passes `api_check::off`, so the
+// deviating `api` is accepted as written.
+struct howitzer {
+  int lob(int shells) { return fired += shells; }
+
+  int fired{};
+};
+
+consteval auto corvid_proxy_spec(mortar*, howitzer*) {
+  return prox::make_proxy_spec<mortar, howitzer, prox::api_check::off>();
+}
 
 // Lifetime accounting shared by the owning-proxy targets.
 struct life_stats {
@@ -427,7 +470,7 @@ static_assert(
 static_assert(std::same_as<const_proxy_view<gunslinger>,
     prox::const_proxy_view<gunslinger>>);
 
-// The api mixin is stateless, so empty-base optimization keeps the views at
+// The `api` mixin is stateless, so empty-base optimization keeps the views at
 // two pointers, with or without one (`lockbox` defines no `api`).
 static_assert(sizeof(proxy_view<gunslinger>) == 2 * sizeof(void*));
 static_assert(sizeof(const_proxy_view<gunslinger>) == 2 * sizeof(void*));
@@ -436,6 +479,28 @@ static_assert(sizeof(proxy_view<lockbox>) == 2 * sizeof(void*));
 // The sugar carries `noexcept` when the facade author marks the forwarders.
 static_assert(noexcept(std::declval<proxy_view<hair_trigger>&>().fire(1)));
 static_assert(!noexcept(std::declval<proxy_view<gunslinger>&>().fire(1)));
+
+// The `api` is validated automatically at registration: `make_proxy_spec`
+// plays the boilerplate impl (which invokes members by natural name) against
+// the `api` (which declares those members), exactly type-checked at both
+// ends.
+// `mortar` above deviates deliberately and opts out with `api_check::off`.
+// The standalone asserts below exercise the public spelling, which a facade
+// author can place before any registration exists; here they are redundant
+// with the registrations.
+//
+// Diagnostics on record (clang 22, captured 2026-07-08). Drifting the
+// `api`'s
+// `fire` parameter from `int` to `long long`, with these standalone asserts
+// removed, fails through `lawman`'s registration alone, at the forwarder's
+// own line: "no matching member function for call to 'call' ... candidate
+// template ignored: constraints not satisfied [with K = ... \"fire\", Args =
+// <long long &>] ... because 'vtbuild_t<gunslinger>::template exact_args<...
+// \"fire\", long long &>()' evaluated to false". Before the check existed,
+// the same drift compiled silently, with the sugar truncating wide arguments
+// at the thunk boundary.
+static_assert(prox::validate_api<gunslinger>());
+static_assert(prox::validate_api<hair_trigger>());
 
 // NOLINTBEGIN(readability-function-cognitive-complexity)
 
@@ -672,7 +737,7 @@ TEST_CASE("Member-call sugar via the api mixin", "[proxy]") {
   };
   CHECK(fire_once(l) == 1);
 
-  // The owning proxy inherits the same api. Deep const holds: only the
+  // The owning proxy inherits the same `api`. Deep const holds: only the
   // const forwarder dispatches through a const proxy.
   auto p = make_proxy<gunslinger, robber>();
   CHECK(p.fire(6) == 6);
@@ -688,6 +753,12 @@ TEST_CASE("Member-call sugar via the api mixin", "[proxy]") {
   proxy_view<hair_trigger> ht{l};
   CHECK(ht.fire(2) == 3);
   CHECK(!ht.jams());
+
+  // A deliberately deviating `api`, registered with `api_check::off`: the
+  // widening forwarder still dispatches through the same table.
+  howitzer h;
+  proxy_view<mortar> mv{h};
+  CHECK(mv.lob(3) == 3);
 }
 
 TEST_CASE("Heterogeneous ownership", "[proxy]") {

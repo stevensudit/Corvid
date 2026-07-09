@@ -2,7 +2,8 @@
 
 Status: phases 1 and 2 built and tested ([proxy.h](proxy.h),
 [proxy_test.cpp](../../tests/portable/proxy_test.cpp)); phase 3 in
-progress: the `api` mixin is built and tested, `extends<Base>` is pending. Plan for `corvid/meta/proxy.h`, a
+progress: the `api` mixin and its `validate_api` drift check are built and
+tested, `extends<Base>` is pending. Plan for `corvid/meta/proxy.h`, a
 registration-based runtime-polymorphism ("proxy") system: type-erased handles
 over an interface definition, without inheritance, vtable pointers in the
 target type, or macros.
@@ -214,6 +215,10 @@ Caveats, all on the facade author's side of the contract:
   (see `hair_trigger` in the test). Nothing checks the forwarders against
   the method flavors; the sugar is by-hand by design.
 
+The silent-drift half of the risk (a hand-written forwarder whose types are
+merely convertible to the facade's, which compiles and truncates) is closed
+by `validate_api`, below.
+
 Hosting the `api` inside `proxy_impl` (grouping the sugar next to the `on`
 bindings) was considered and rejected. The erased handle knows only `F`, so
 its sugar base must be nameable from `F` alone, while `proxy_impl` is keyed
@@ -223,9 +228,71 @@ the impl's contract. Ownership also differs: impls have two authors (facade
 author's boilerplate, third parties' custom impls), while the `api` is
 facade-authored and singular; per-impl copies could drift into inconsistent
 sugar for one interface. The facade body keeps "one facade, one sugar"
-structural. The api duplicates only the name spelling (the third of the
+structural. The `api` duplicates only the name spelling (the third of the
 three-spellings-per-method floor), never the bindings: its methods forward
 through `call<>` and the same dispatch table.
+
+### API validation (`validate_api`, built)
+
+The `api` is verified against the facade's method list while spelling
+neither the names nor the signatures again, and correctness is opt-out
+rather than opt-in: `make_proxy_spec` runs the check at every registration
+of an `api`-bearing facade. Registration is the right moment because it is
+the first time all three artifacts are necessarily in view: the concrete
+type motivates the facade, the facade carries the `api`, and the
+boilerplate impl (which the registration exists to unlock) must already be
+visible. A facade whose `api` deliberately deviates (say, a widening
+convenience signature)
+registers with `api_check::off`; a registration hook that is itself a
+template defers the check to its own instantiation. The standalone
+spelling, `static_assert(prox::validate_api<F>());`, remains for a facade
+author to assert at the definition site, before any registration exists.
+Handles themselves perform no check: embedding one there would make a
+handle's validity depend on which impl headers a TU happens to include, and
+would detonate in arbitrary consumer code for what is the facade author's
+bug.
+
+The insight is that two independent hand-written respellings of the
+name-to-key binding already exist: the boilerplate impl invokes members by
+natural name (`t.fire(rounds)`), and the `api` declares members with those
+names. The check plays them against each other. `validate_api` instantiates
+the dispatch table for a library-internal probe type (`details::api_probe`)
+that inherits `F::api` and exposes a deliberately strict `call`: argument
+types must match the facade's declared parameters exactly (after stripping
+cv and references, so value-category spelling is ignored but a
+merely-convertible type is rejected), and the result is a `strict_result`
+that converts only to exactly the declared result type. The chain, thunk ->
+boilerplate `on` -> `api` forwarder -> strict `call`, is anchored to the
+facade's exact types at both ends, so convertibility drift anywhere in the
+middle fails to compile with the error pointing at the drifting line. It
+validates the boilerplate as much as the `api`; real conforming types never
+would, since real calls convert legally. The probe is the one type the
+library registers itself (a generic `corvid_proxy_spec` overload in
+`details`), which is what admits it to the registration-gated boilerplate;
+that registration passes `api_check::off`, since a validating one would
+recurse into itself through the boilerplate-visibility check.
+
+Caught: a missing or misspelled forwarder, wrong arity, wrong const flavor
+of `self`, a parameter or declared result type that is merely convertible
+to the facade's (including the silently-truncating kind), and a forwarder
+body dispatching a key with a different signature. Not caught: a missing
+`noexcept` on a forwarder (degrades `noexcept(p.fire(1))`, not behavior);
+by-value versus by-reference parameter spellings (an extra copy, not a
+bug); reference-to-value decay of a declared result (a conversion operator
+cannot distinguish binding a reference from copying out of one); and a body
+dispatching the wrong key with an identical signature, which no shape check
+can see. Closing that last hole would take a behavioral probe (record which
+key each forwarder dispatches and compare) or C++26 reflection, which
+deletes the whole problem by generating the `api` from the facade.
+
+Two structural limits: failures are hard compile errors rather than a
+`false` (a fully generic `FulfillsApi<H, F>` concept is impossible in
+C++23, since no mechanism turns a `fixed_string` into an identifier to
+probe `h.fire(...)`), and the facade must have a boilerplate `proxy_impl`
+partial gated on `ProxyRegistered` for the chain to exist, since that impl
+is the only artifact that invokes the members by name. A registration that
+cannot see such a boilerplate fails a friendly `static_assert` that names
+the opt-out.
 
 ## Mechanism
 
@@ -384,7 +451,14 @@ architecture.
    dependent-name `template` keyword needed in generic code, `noexcept`
    propagation when the facade author marks the forwarders, and empty-base
    optimization keeping the views at two pointers. See the caveats under
-   "Member-call sugar". Remaining: `extends<Base>` composition, including
+   "Member-call sugar". The `validate_api` drift check is also DONE (see
+   "API validation") and runs automatically at registration via
+   `make_proxy_spec`, with `api_check::off` as the opt-out (exercised by
+   `mortar`/`howitzer` in the test); verified empirically that an
+   `int`-to-`long long` parameter drift in a forwarder compiled silently
+   before the check existed and now fails through `lawman`'s registration
+   alone, at the forwarder's own line, with the diagnostic on record in the
+   test. Remaining: `extends<Base>` composition, including
    `proxy<derived>` -> `proxy_view<base>` conversion (Rust trait upcasting).
    Verify: upcast dispatch correctness.
 
