@@ -442,14 +442,20 @@ extends, each base's boilerplate drives the inherited forwarders at the
 derived probe, and the whole flattened list is checked at the derived
 facade's registration.
 
-An `api` diamond needs two touches from the composing facade's author. The
-shared ancestor's forwarder names arrive through both base `api`s, so plain
-member lookup is ambiguous until one using-declaration per shared method
-pulls in a path (either one; they forward identically). And because the two
-empty ancestor-`api` subobjects are the same type, the ABI must give them
-distinct addresses, so the handle picks up one padding word that empty-base
-optimization cannot remove; an author who cares can inherit one base's `api`
-only and redeclare the other's own forwarders.
+An `api` diamond is best built along one path: inherit the heavier chain's
+`api` and redeclare the lighter siblings' own forwarders (the test's
+`posse_leader` inherits `marshal::api` and redeclares `bounty_hunter`'s one
+forwarder). Inheriting every base `api` also works, but costs one
+using-declaration per shared-ancestor method, because the ancestor's
+forwarder names arrive through both bases and plain member lookup is
+ambiguous until a using-declaration pulls in a path, plus one padding word
+in every handle, because the two empty ancestor-`api` subobjects are the
+same type and the ABI must give them distinct addresses, which empty-base
+optimization cannot remove. There is no automatic merge available before
+reflection: using-declarations cannot be pack-expanded over arbitrary names
+(the `overloaded` trick works only for a known name like `operator()`), and
+virtual inheritance would put a vbptr in every handle, costing more than it
+saves.
 
 ### Facade names and sibling collisions (`name`, built)
 

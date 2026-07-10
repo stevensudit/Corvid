@@ -51,6 +51,30 @@
 // implicitly to handles of any facade theirs extends (Rust trait upcasting).
 //
 // See "proxy.md" for the design.
+//
+// Template parameter conventions, used consistently throughout this header:
+//
+// - `F`: the facade being dispatched, bound, or validated.
+// - `B`: a base facade, one that `F` or `D` extends.
+// - `D`: a derived facade, one that extends `F` or `B`.
+// - `G`: a second facade, where two vary independently.
+// - `T`: the concrete target type behind a handle.
+// - `E`: one entry of a facade's list; `Es` is the whole pack (`name`,
+//     `extends`, and `method` entries).
+// - `Bs`: a facade's direct-base facades.
+// - `M`: a `method` descriptor; `Ms` is a pack of them.
+// - `S`: a flattened dispatch slot; `Ss` is a pack of them.
+// - `Owner`: the facade that declared a slot's method.
+// - `Name`: a declared name, a facade's or a method's, as a `fixed_string`.
+// - `OwnName`: the name of the facade being built.
+// - `Key`: a `call` lookup key: a method name, optionally facade-qualified.
+//      Distinct from `Name` because a key can be qualified; a name never is.
+// - `Sig`: a method's erased signature.
+// - `R`: a method's declared result type.
+// - `Args`: a method's declared parameters, or the arguments a call site
+//      passes; `CallArgs` where the two meet and need distinguishing.
+// - `Impl`: a registration-carried binding class.
+// - `Check`: an `api_check` value.
 namespace corvid { inline namespace meta {
 namespace prox {
 
@@ -100,7 +124,7 @@ consteval auto operator""_method() noexcept {
 //
 // A method derives from its `method_key`, so a method tag is usable anywhere
 // its key is, including `on` overload selection and deduction of
-// `method_key<K>` from a method argument. This also leaves the door open for
+// `method_key<Key>` from a method argument. This also leaves the door open for
 // bindings that overload on the full method (signature included) if per-name
 // overload sets are ever supported.
 namespace details {
@@ -982,12 +1006,12 @@ struct vtable_builder_impl<std::tuple<Ss...>, std::tuple<Bs...>, OwnName> {
       return vtbuild_t<typename S::owner_t>::name_v;
   }
 
-  // Whether slot `S` answers to key `K`. An unqualified key matches the
+  // Whether slot `S` answers to `Key`. An unqualified key matches the
   // method name alone; a qualified key ("facade::method") also requires the
   // qualifying facade's name.
-  template<typename S, fixed_string K>
+  template<typename S, fixed_string Key>
   static consteval bool slot_matches() noexcept {
-    constexpr std::string_view k = K.view();
+    constexpr std::string_view k = Key.view();
     constexpr auto pos = k.find("::");
     constexpr auto qual =
         pos == std::string_view::npos ? std::string_view{} : k.substr(0, pos);
@@ -999,7 +1023,48 @@ struct vtable_builder_impl<std::tuple<Ss...>, std::tuple<Bs...>, OwnName> {
     return owner.view() == qual;
   }
 
-  // Resolve key `K`, called with `CallArgs`, to a slot index, or to `none_v`
+  // Per-slot flags over the whole list: the candidates answering to `Key`
+  // (const-qualified only, when dispatching through a const handle), and the
+  // slots whose declared parameters match `CallArgs` exactly or are viable
+  // through ordinary conversions.
+  template<fixed_string Key, bool ConstOnly>
+  static consteval std::array<bool, count_v> candidates() noexcept {
+    return {(slot_matches<Ss, Key>() && (!ConstOnly || Ss::const_v))...};
+  }
+
+  template<typename... CallArgs>
+  static consteval std::array<bool, count_v> exact_flags() noexcept {
+    return {method_traits<typename Ss::method_t>::template exact_v<
+        CallArgs...>...};
+  }
+
+  template<typename... CallArgs>
+  static consteval std::array<bool, count_v> viable_flags() noexcept {
+    return {method_traits<typename Ss::method_t>::template viable_v<
+        CallArgs...>...};
+  }
+
+  // Narrow flag set `a` by flag set `b`, elementwise.
+  static consteval std::array<bool, count_v> both(std::array<bool, count_v> a,
+      const std::array<bool, count_v>& b) noexcept {
+    for (std::size_t ndx = 0; ndx != count_v; ++ndx) a[ndx] = a[ndx] && b[ndx];
+    return a;
+  }
+
+  // Count of set flags, plus the last set index (`none_v` when none are).
+  static consteval std::pair<std::size_t, std::size_t> tally(
+      const std::array<bool, count_v>& flags) noexcept {
+    std::size_t cnt{};
+    std::size_t at{none_v};
+    for (std::size_t ndx = 0; ndx != count_v; ++ndx)
+      if (flags[ndx]) {
+        ++cnt;
+        at = ndx;
+      }
+    return {cnt, at};
+  }
+
+  // Resolve `Key`, called with `CallArgs`, to a slot index, or to `none_v`
   // or `ambiguous_v`.
   //
   // A qualified key names its slot outright. An unqualified key with a
@@ -1010,83 +1075,56 @@ struct vtable_builder_impl<std::tuple<Ss...>, std::tuple<Bs...>, OwnName> {
   // anything else is ambiguous and needs the qualified spelling. `ConstOnly`
   // restricts the candidates to const-qualified methods, for dispatch
   // through const handles.
-  template<fixed_string K, bool ConstOnly, typename... CallArgs>
+  template<fixed_string Key, bool ConstOnly, typename... CallArgs>
   static consteval std::size_t resolve() noexcept {
-    constexpr std::array<bool, count_v> cand{
-        (slot_matches<Ss, K>() && (!ConstOnly || Ss::const_v))...};
-    constexpr std::array<bool, count_v> exact{method_traits<
-        typename Ss::method_t>::template exact_v<CallArgs...>...};
-    constexpr std::array<bool, count_v> viable{method_traits<
-        typename Ss::method_t>::template viable_v<CallArgs...>...};
-    std::size_t cnt{};
-    std::size_t at{none_v};
-    for (std::size_t ndx = 0; ndx != count_v; ++ndx)
-      if (cand[ndx]) {
-        ++cnt;
-        at = ndx;
-      }
+    constexpr auto cand = candidates<Key, ConstOnly>();
+    const auto [cnt, at] = tally(cand);
     if (cnt < 2) return cnt ? at : none_v;
-    cnt = 0;
-    for (std::size_t ndx = 0; ndx != count_v; ++ndx)
-      if (cand[ndx] && exact[ndx]) {
-        ++cnt;
-        at = ndx;
-      }
-    if (cnt == 1) return at;
-    if (cnt > 1) return ambiguous_v;
-    for (std::size_t ndx = 0; ndx != count_v; ++ndx)
-      if (cand[ndx] && viable[ndx]) {
-        ++cnt;
-        at = ndx;
-      }
-    if (cnt == 1) return at;
-    return cnt ? ambiguous_v : none_v;
+    const auto [exact_cnt, exact_at] =
+        tally(both(cand, exact_flags<CallArgs...>()));
+    if (exact_cnt == 1) return exact_at;
+    if (exact_cnt > 1) return ambiguous_v;
+    const auto [viable_cnt, viable_at] =
+        tally(both(cand, viable_flags<CallArgs...>()));
+    if (viable_cnt == 1) return viable_at;
+    return viable_cnt ? ambiguous_v : none_v;
   }
 
-  // Resolve key `K` to the unique candidate whose declared parameters match
+  // Resolve `Key` to the unique candidate whose declared parameters match
   // `CallArgs` exactly. This is the validation probe's strictness: a
   // merely-viable signature does not count.
-  template<fixed_string K, bool ConstOnly, typename... CallArgs>
+  template<fixed_string Key, bool ConstOnly, typename... CallArgs>
   static consteval std::size_t resolve_exact() noexcept {
-    constexpr std::array<bool, count_v> cand{
-        (slot_matches<Ss, K>() && (!ConstOnly || Ss::const_v))...};
-    constexpr std::array<bool, count_v> exact{method_traits<
-        typename Ss::method_t>::template exact_v<CallArgs...>...};
-    std::size_t cnt{};
-    std::size_t at{none_v};
-    for (std::size_t ndx = 0; ndx != count_v; ++ndx)
-      if (cand[ndx] && exact[ndx]) {
-        ++cnt;
-        at = ndx;
-      }
+    const auto [cnt, at] =
+        tally(both(candidates<Key, ConstOnly>(), exact_flags<CallArgs...>()));
     if (cnt == 1) return at;
     return cnt ? ambiguous_v : none_v;
   }
 
-  // Whether any method answering to `K` is const-qualified: the gate on
-  // dispatching `K` through a const handle. False for an unknown key, since
+  // Whether any method answering to `Key` is const-qualified: the gate on
+  // dispatching `Key` through a const handle. False for an unknown key, since
   // rejecting one is `resolve`'s job.
-  template<fixed_string K>
+  template<fixed_string Key>
   static consteval bool is_const() noexcept {
-    return ((slot_matches<Ss, K>() && Ss::const_v) || ...);
+    return ((slot_matches<Ss, Key>() && Ss::const_v) || ...);
   }
 
-  // Whether the call `K` resolves to, with `CallArgs`, dispatches a noexcept
+  // Whether the call `Key` resolves to, with `CallArgs`, dispatches a noexcept
   // method. False when the call does not resolve.
-  template<fixed_string K, bool ConstOnly, typename... CallArgs>
+  template<fixed_string Key, bool ConstOnly, typename... CallArgs>
   static consteval bool is_noexcept() noexcept {
     constexpr std::array<bool, count_v> flags{Ss::noexcept_v...};
-    constexpr auto ndx = resolve<K, ConstOnly, CallArgs...>();
+    constexpr auto ndx = resolve<Key, ConstOnly, CallArgs...>();
     return ndx < count_v && flags[ndx];
   }
 
-  // Declared result type of the exact-match candidate for `K`, or `void`
+  // Declared result type of the exact-match candidate for `Key`, or `void`
   // when there is none. The permissive fallback keeps return-type
   // substitution in the `api_probe` from hard-erroring before its constraint
   // can reject the key.
-  template<fixed_string K, bool ConstOnly, typename... CallArgs>
+  template<fixed_string Key, bool ConstOnly, typename... CallArgs>
   static consteval auto do_result_of() noexcept {
-    constexpr auto ndx = resolve_exact<K, ConstOnly, CallArgs...>();
+    constexpr auto ndx = resolve_exact<Key, ConstOnly, CallArgs...>();
     if constexpr (ndx < count_v) {
       using s_t = std::tuple_element_t<ndx, std::tuple<Ss...>>;
       return std::type_identity<typename s_t::result_t>{};
@@ -1095,16 +1133,16 @@ struct vtable_builder_impl<std::tuple<Ss...>, std::tuple<Bs...>, OwnName> {
     }
   }
 
-  template<fixed_string K, bool ConstOnly, typename... CallArgs>
+  template<fixed_string Key, bool ConstOnly, typename... CallArgs>
   using result_of_t =
-      decltype(do_result_of<K, ConstOnly, CallArgs...>())::type;
+      decltype(do_result_of<Key, ConstOnly, CallArgs...>())::type;
 
   // Whether `Args` match the declared parameters of exactly one candidate
-  // for `K`, after normalization, rather than by convertibility. False for
+  // for `Key`, after normalization, rather than by convertibility. False for
   // an unknown key. This is the `api_probe`'s constraint.
-  template<fixed_string K, bool ConstOnly, typename... Args>
+  template<fixed_string Key, bool ConstOnly, typename... Args>
   static consteval bool exact_args() noexcept {
-    return resolve_exact<K, ConstOnly, Args...>() < count_v;
+    return resolve_exact<Key, ConstOnly, Args...>() < count_v;
   }
 };
 
@@ -1168,6 +1206,23 @@ upcast_vtable(const typename vtbuild_t<D>::vtable_t* vt) noexcept
     return upcast_vtable<B, typename vtbuild_t<D>::template base_t<ndx>>(
         std::get<ndx>(vt->bases));
   }
+}
+
+// Shared body of every handle's `call`: resolve `Key` against facade `F`'s
+// slot list, surface the user-facing errors, and invoke the thunk on the
+// erased target. `ConstOnly` marks dispatch through a const handle.
+template<Facade F, bool ConstOnly, fixed_string Key, typename ErasedPtr,
+    typename... Args>
+constexpr decltype(auto)
+dispatch(const typename vtbuild_t<F>::thunks_t& tks, ErasedPtr target,
+    Args&&... args) noexcept(vtbuild_t<F>::template is_noexcept<Key, ConstOnly,
+    Args...>()) {
+  constexpr auto ndx =
+      vtbuild_t<F>::template resolve<Key, ConstOnly, Args...>();
+  static_assert(ndx != vtbuild_t<F>::none_v, "no matching signature");
+  static_assert(ndx != vtbuild_t<F>::ambiguous_v,
+      "ambiguous method name; qualify the key with the facade name");
+  return std::get<ndx>(tks)(target, std::forward<Args>(args)...);
 }
 
 } // namespace details
@@ -1259,15 +1314,15 @@ consteval bool is_handle_for() noexcept {
     return std::same_as<G, F> || Extends<G, F>;
 }
 
-// Key `K` qualified by facade `F`'s name.
+// `Key` qualified by facade `F`'s name.
 //
-// The library's self-conformance bindings forward through this spelling: `K`
+// The library's self-conformance bindings forward through this spelling: `Key`
 // there is always one of `F`'s own method names, so the qualified key stays
 // unambiguous on a derived handle even when the derived facade's flattened
-// list collides on `K`.
-template<Facade F, fixed_string K>
+// list collides on `Key`.
+template<Facade F, fixed_string Key>
 consteval auto qualified_key() noexcept {
-  return vtbuild_t<F>::name_v + fixed_string{"::"} + K;
+  return vtbuild_t<F>::name_v + fixed_string{"::"} + Key;
 }
 
 } // namespace details
@@ -1311,19 +1366,19 @@ using strict_return_t = std::conditional_t<std::is_void_v<R>, void,
 // type. Never constructed or executed; it exists to be type-checked.
 template<Facade F>
 struct api_probe: api_base_t<F> {
-  template<fixed_string K, typename... Args>
-  requires(vtbuild_t<F>::template exact_args<K, false, Args...>())
+  template<fixed_string Key, typename... Args>
+  requires(vtbuild_t<F>::template exact_args<Key, false, Args...>())
   strict_return_t<
-      typename vtbuild_t<F>::template result_of_t<K, false, Args...>>
+      typename vtbuild_t<F>::template result_of_t<Key, false, Args...>>
   call(Args&&...) {
     std::terminate();
   }
 
-  template<fixed_string K, typename... Args>
-  requires(vtbuild_t<F>::template exact_args<K, true, Args...>())
+  template<fixed_string Key, typename... Args>
+  requires(vtbuild_t<F>::template exact_args<Key, true, Args...>())
   // NOLINTNEXTLINE(modernize-use-nodiscard): mirrors `call`, never executed.
   strict_return_t<
-      typename vtbuild_t<F>::template result_of_t<K, true, Args...>>
+      typename vtbuild_t<F>::template result_of_t<Key, true, Args...>>
   call(Args&&...) const {
     std::terminate();
   }
@@ -1415,23 +1470,19 @@ class view_base: public api_base_t<F> {
 public:
   using facade_t = F;
 
-  // Call the const-qualified facade method named `K`, forwarding `args`
+  // Call the const-qualified facade method named `Key`, forwarding `args`
   // through the erased signature.
   //
   // The call is `noexcept` when the method is. It is not `[[nodiscard]]`,
   // because discardability belongs to the facade method rather than the
   // dispatcher (the `std::invoke` precedent).
-  template<fixed_string K, typename... Args>
-  requires(vtbuild_t<F>::template is_const<K>())
+  template<fixed_string Key, typename... Args>
+  requires(vtbuild_t<F>::template is_const<Key>())
   // NOLINTNEXTLINE(modernize-use-nodiscard)
   constexpr decltype(auto) call(Args&&... args) const
-      noexcept(vtbuild_t<F>::template is_noexcept<K, true, Args...>()) {
-    constexpr auto ndx = vtbuild_t<F>::template resolve<K, true, Args...>();
-    static_assert(ndx != vtbuild_t<F>::none_v, "no matching signature");
-    static_assert(ndx != vtbuild_t<F>::ambiguous_v,
-        "ambiguous method name; qualify the key with the facade name");
-    return std::get<ndx>(
-        vtable_->thunks)(target_, std::forward<Args>(args)...);
+      noexcept(vtbuild_t<F>::template is_noexcept<Key, true, Args...>()) {
+    return dispatch<F, true, Key>(vtable_->thunks, target_,
+        std::forward<Args>(args)...);
   }
 
   // An empty view (default-constructed) holds no target. It is testable and
@@ -1526,21 +1577,17 @@ public:
   explicit(false) proxy_view(proxy<D>& p) noexcept
       : base{p.target(), details::upcast_vtable<F, D>(&p.vtable_->vt)} {}
 
-  // Call the facade method named `K`, forwarding `args` through the erased
+  // Call the facade method named `Key`, forwarding `args` through the erased
   // signature. The call is `noexcept` when the method is.
   //
   // This overload dispatches every method. The inherited const overload,
   // re-exposed by the using-declaration, is constrained to const-qualified
   // methods, mirroring the owning proxy's deep const.
-  template<fixed_string K, typename... Args>
+  template<fixed_string Key, typename... Args>
   constexpr decltype(auto) call(Args&&... args) noexcept(
-      vtbuild_t::template is_noexcept<K, false, Args...>()) {
-    constexpr auto ndx = vtbuild_t::template resolve<K, false, Args...>();
-    static_assert(ndx != vtbuild_t::none_v, "no matching signature");
-    static_assert(ndx != vtbuild_t::ambiguous_v,
-        "ambiguous method name; qualify the key with the facade name");
-    return std::get<ndx>(
-        this->vtable_->thunks)(this->target_, std::forward<Args>(args)...);
+      vtbuild_t::template is_noexcept<Key, false, Args...>()) {
+    return details::dispatch<F, false, Key>(this->vtable_->thunks,
+        this->target_, std::forward<Args>(args)...);
   }
 
   using base::call;
@@ -1566,21 +1613,21 @@ template<Facade F, Facade D>
 requires(std::same_as<D, F> || Extends<D, F>)
 struct proxy_impl<F, proxy_view<D>> {
   // The qualified spelling keeps the forwarded key unambiguous when `D`'s
-  // flattened list collides on `K`; see `qualified_key`.
-  template<fixed_string K, typename... Args>
+  // flattened list collides on `Key`; see `qualified_key`.
+  template<fixed_string Key, typename... Args>
   static constexpr decltype(auto)
-  on(method_key<K>, proxy_view<D>& view, Args&&... args) noexcept(
-      noexcept(view.template call<details::qualified_key<F, K>()>(
+  on(method_key<Key>, proxy_view<D>& view, Args&&... args) noexcept(
+      noexcept(view.template call<details::qualified_key<F, Key>()>(
           std::forward<Args>(args)...))) {
-    return view.template call<details::qualified_key<F, K>()>(
+    return view.template call<details::qualified_key<F, Key>()>(
         std::forward<Args>(args)...);
   }
-  template<fixed_string K, typename... Args>
+  template<fixed_string Key, typename... Args>
   static constexpr decltype(auto)
-  on(method_key<K>, const proxy_view<D>& view, Args&&... args) noexcept(
-      noexcept(view.template call<details::qualified_key<F, K>()>(
+  on(method_key<Key>, const proxy_view<D>& view, Args&&... args) noexcept(
+      noexcept(view.template call<details::qualified_key<F, Key>()>(
           std::forward<Args>(args)...))) {
-    return view.template call<details::qualified_key<F, K>()>(
+    return view.template call<details::qualified_key<F, Key>()>(
         std::forward<Args>(args)...);
   }
 };
@@ -1677,13 +1724,13 @@ private:
 template<Facade F, Facade D>
 requires(std::same_as<D, F> || Extends<D, F>)
 struct proxy_impl<F, const_proxy_view<D>> {
-  template<fixed_string K, typename... Args>
-  requires(details::vtbuild_t<F>::template is_const<K>())
-  static constexpr decltype(auto)
-  on(method_key<K>, const const_proxy_view<D>& view, Args&&... args) noexcept(
-      noexcept(view.template call<details::qualified_key<F, K>()>(
-          std::forward<Args>(args)...))) {
-    return view.template call<details::qualified_key<F, K>()>(
+  template<fixed_string Key, typename... Args>
+  requires(details::vtbuild_t<F>::template is_const<Key>())
+  static constexpr decltype(auto) on(method_key<Key>,
+      const const_proxy_view<D>& view, Args&&... args) noexcept(noexcept(view
+          .template call<details::qualified_key<F, Key>()>(
+              std::forward<Args>(args)...))) {
+    return view.template call<details::qualified_key<F, Key>()>(
         std::forward<Args>(args)...);
   }
 };
@@ -1777,7 +1824,7 @@ public:
 
   ~proxy() { do_reset(); }
 
-  // Call the facade method named `K`, forwarding `args` through the erased
+  // Call the facade method named `Key`, forwarding `args` through the erased
   // signature.
   //
   // The call is `noexcept` when the method is. The const overload is
@@ -1785,28 +1832,20 @@ public:
   // resolution so the rejection is visible to `requires` probes as well. It
   // is not `[[nodiscard]]`, because discardability belongs to the facade
   // method rather than the dispatcher (the `std::invoke` precedent).
-  template<fixed_string K, typename... Args>
+  template<fixed_string Key, typename... Args>
   decltype(auto) call(Args&&... args) noexcept(
-      vtbuild_t::template is_noexcept<K, false, Args...>()) {
-    constexpr auto ndx = vtbuild_t::template resolve<K, false, Args...>();
-    static_assert(ndx != vtbuild_t::none_v, "no matching signature");
-    static_assert(ndx != vtbuild_t::ambiguous_v,
-        "ambiguous method name; qualify the key with the facade name");
-    return std::get<ndx>(
-        vtable_->vt.thunks)(target(), std::forward<Args>(args)...);
+      vtbuild_t::template is_noexcept<Key, false, Args...>()) {
+    return details::dispatch<F, false, Key>(vtable_->vt.thunks, target(),
+        std::forward<Args>(args)...);
   }
 
-  template<fixed_string K, typename... Args>
-  requires(details::vtbuild_t<F>::template is_const<K>())
+  template<fixed_string Key, typename... Args>
+  requires(details::vtbuild_t<F>::template is_const<Key>())
   // NOLINTNEXTLINE(modernize-use-nodiscard)
   decltype(auto) call(Args&&... args) const
-      noexcept(vtbuild_t::template is_noexcept<K, true, Args...>()) {
-    constexpr auto ndx = vtbuild_t::template resolve<K, true, Args...>();
-    static_assert(ndx != vtbuild_t::none_v, "no matching signature");
-    static_assert(ndx != vtbuild_t::ambiguous_v,
-        "ambiguous method name; qualify the key with the facade name");
-    return std::get<ndx>(
-        vtable_->vt.thunks)(target(), std::forward<Args>(args)...);
+      noexcept(vtbuild_t::template is_noexcept<Key, true, Args...>()) {
+    return details::dispatch<F, true, Key>(vtable_->vt.thunks, target(),
+        std::forward<Args>(args)...);
   }
 
   // An empty proxy (default-constructed or moved-from) holds no target.
@@ -1869,20 +1908,20 @@ template<Facade F, Facade D>
 requires(std::same_as<D, F> || Extends<D, F>)
 struct proxy_impl<F, proxy<D>> {
   // Qualified forwarding, as with the view bindings; see `qualified_key`.
-  template<fixed_string K, typename... Args>
+  template<fixed_string Key, typename... Args>
   static decltype(auto)
-  on(method_key<K>, proxy<D>& p, Args&&... args) noexcept(
-      noexcept(p.template call<details::qualified_key<F, K>()>(
+  on(method_key<Key>, proxy<D>& p, Args&&... args) noexcept(
+      noexcept(p.template call<details::qualified_key<F, Key>()>(
           std::forward<Args>(args)...))) {
-    return p.template call<details::qualified_key<F, K>()>(
+    return p.template call<details::qualified_key<F, Key>()>(
         std::forward<Args>(args)...);
   }
-  template<fixed_string K, typename... Args>
+  template<fixed_string Key, typename... Args>
   static decltype(auto)
-  on(method_key<K>, const proxy<D>& p, Args&&... args) noexcept(
-      noexcept(p.template call<details::qualified_key<F, K>()>(
+  on(method_key<Key>, const proxy<D>& p, Args&&... args) noexcept(
+      noexcept(p.template call<details::qualified_key<F, Key>()>(
           std::forward<Args>(args)...))) {
-    return p.template call<details::qualified_key<F, K>()>(
+    return p.template call<details::qualified_key<F, Key>()>(
         std::forward<Args>(args)...);
   }
 };

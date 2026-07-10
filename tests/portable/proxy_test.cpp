@@ -476,18 +476,26 @@ struct bounty_hunter
 // and only one `proxy_impl<gunslinger, T>` exists no matter the path (unlike a
 // C++ non-virtual diamond, which has duplicated subobjects).
 //
-// The `api` diamond does need the facade author's help: both base `api`s
-// inherit `gunslinger::api`, so the shared ancestor's forwarder names are
-// ambiguous by ordinary C++ member lookup until a using-declaration pulls in
-// one path. One line per shared-ancestor method, through either base.
+// The `api` diamond does need the facade author's help, and the recommended
+// shape is to build it along ONE path: inherit the heavier chain and
+// redeclare the lighter siblings' own forwarders. Inheriting every base
+// `api` also works, but costs a using-declaration per shared-ancestor
+// method (two subobjects of the same empty `api` type make plain member
+// lookup ambiguous until a using-declaration pulls in one path) plus one
+// padding word in every handle (same-type subobjects need distinct
+// addresses, which empty-base optimization cannot paper over). There is no
+// automatic merge to reach for: using-declarations cannot be pack-expanded
+// over arbitrary names before reflection, and virtual inheritance would put
+// a vbptr in every handle.
 struct posse_leader
     : prox::facade<prox::name<"posse_leader">, //
           prox::extends<marshal>,              //
           prox::extends<bounty_hunter>,        //
           prox::method<"rally", void()>> {     //
-  struct api: marshal::api, bounty_hunter::api {
-    using marshal::api::fire, marshal::api::describe, marshal::api::reload,
-        marshal::api::shots;
+  struct api: marshal::api {
+    int claim(this auto&& self, int bounties) {
+      return self.template call<"claim">(bounties);
+    }
     void rally(this auto&& self) { self.template call<"rally">(); }
   };
   template<typename T>
@@ -551,7 +559,7 @@ struct camera
 // resolution ever runs.
 //
 // For `fire`, whose signatures differ, the using-declarations merge the
-// forwarders into a working overload set;. For `reload`, whose signatures
+// forwarders into a working overload set. For `reload`, whose signatures
 // match, the merged set is ambiguous at any unqualified call, lazily, which is
 // the pinned model: the qualified key or an upcast disambiguates. There's no
 // point injecting either `reload` with using declarations.
@@ -612,17 +620,18 @@ struct photographer {
 // validation (see the facade comment), and the rest ride the boilerplates.
 template<prox::InChainOf<war_correspondent> F>
 consteval auto corvid_proxy_spec(F*, photographer*) {
-  if constexpr (std::same_as<F, camera>) {
-    struct as_camera: camera::boilerplate<photographer> {
-      using camera::boilerplate<photographer>::on;
-      static void on(method_key<"reload">, photographer& p) { p.wind(); }
-    };
-    return prox::make_proxy_spec<F, photographer, as_camera>();
-  } else if constexpr (std::same_as<F, war_correspondent>) {
-    return prox::make_proxy_spec<F, photographer, prox::api_check::off>();
-  } else {
-    return prox::make_proxy_spec<F, photographer>();
-  }
+  struct as_camera: camera::boilerplate<photographer> {
+    using camera::boilerplate<photographer>::on;
+    static void on(method_key<"reload">, photographer& p) { p.wind(); }
+  };
+  constexpr auto check =
+      std::same_as<F, war_correspondent>
+          ? prox::api_check::off
+          : prox::api_check::on;
+  if constexpr (std::same_as<F, camera>)
+    return prox::make_proxy_spec<F, photographer, as_camera, check>();
+  else
+    return prox::make_proxy_spec<F, photographer, check>();
 }
 
 // Lifetime accounting shared by the owning-proxy targets.
@@ -916,12 +925,11 @@ static_assert(Proxiable<trail_boss, bounty_hunter>);
 static_assert(Proxiable<trail_boss, gunslinger>);
 static_assert(prox::validate_api<posse_leader>());
 
-// The `api` diamond has one honest cost: the two empty `gunslinger::api`
-// subobjects are the same type, so the ABI must give them distinct
-// addresses, and the handle picks up a padding word that empty-base
-// optimization cannot remove. An author who cares can avoid it by
-// inheriting one path only and redeclaring the other base's own forwarders.
-static_assert(sizeof(proxy_view<posse_leader>) == 3 * sizeof(void*));
+// The single-path `api` keeps the diamond handle at two pointers. (When it
+// briefly inherited both base `api`s, the two same-type empty
+// `gunslinger::api` subobjects needed distinct addresses and the handle
+// measured three pointers; see the facade comment.)
+static_assert(sizeof(proxy_view<posse_leader>) == 2 * sizeof(void*));
 
 // Sibling collisions. The composition is legal outright (every facade
 // carries a name, so the qualified spelling is always available),
