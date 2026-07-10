@@ -81,14 +81,15 @@ the two styles cannot collide).
 
 ```cpp
 // The facade: the interface definition, carrying its own boilerplate.
-struct gunslinger : facade<method<"fire", void(int)>,
+struct gunslinger : facade<name<"gunslinger">,
+                       method<"fire", void(int)>,
                        method<"reload", bool()>> {
   // Written once by the facade author. `on` is the fixed hook name,
   // overloaded on the method key; a fixed name is what keeps the mechanism
-  // spellable without macros. Inheriting `impl_base` is optional sugar,
+  // spellable without macros. Inheriting `prox_impl` is optional sugar,
   // supplying the `method_key` alias so the bindings spell it unqualified.
   template<typename T>
-  struct boilerplate : impl_base {
+  struct boilerplate : prox_impl {
     static void on(method_key<"fire">, T& t, int rounds) { t.fire(rounds); }
     static bool on(method_key<"reload">, T& t) { return t.reload(); }
   };
@@ -209,7 +210,8 @@ forwarding line per method, using deducing `this`; all three handles
 present:
 
 ```cpp
-struct gunslinger : facade<method<"fire", void(int)>,
+struct gunslinger : facade<name<"gunslinger">,
+                       method<"fire", void(int)>,
                        method<"reload", bool()>> {
   struct api {
     void fire(this auto&& self, int n) { self.template call<"fire">(n); }
@@ -344,19 +346,27 @@ A facade extends others by listing `extends<Base>` entries alongside its
 methods, conventionally first:
 
 ```cpp
-struct marshal : facade<extends<gunslinger>,
+struct marshal : facade<name<"marshal">, extends<gunslinger>,
                      method<"arrest", bool(int)>> {};
 ```
 
 The derived facade's effective method list is the flattening of its bases'
 lists, in declaration order, followed by its own, and every handle of the
-derived facade dispatches inherited and own methods alike. Names must be
-unique across the flattened list, enforced by a `static_assert` detonator at
-first use of the facade's machinery. A facade cannot redeclare (or override)
-an inherited method, which is by design, because facades carry no
-implementations and there is nothing to override. Diamonds are rejected as a
-limit of the current implementation, with the dedup path recorded under
-Future.
+derived facade dispatches inherited and own methods alike. Flattening keeps
+each method's declaring facade (a slot is a method plus its owner), which is
+what the collision rules, qualified keys, and diamond dedup below all read.
+
+A method name may not recur within one extends chain, enforced by a
+`static_assert` detonator at first use of the facade's machinery: a facade
+cannot declare a name twice or redeclare (or override) an inherited one,
+which is by design, because facades carry no implementations and there is
+nothing to override. Unrelated sibling bases MAY collide on a method name
+(see "Facade names and sibling collisions"). Diamonds are supported: a
+shared ancestor reached through more than one path
+dedups to a single set of slots by facade identity, and since conformance is
+per facade there is only one `proxy_impl<Ancestor, T>` to reach no matter
+the path (the effect of Rust's coherence rule), so the collapse is virtual
+inheritance semantics with no opt-in and no duplicated subobjects.
 
 Conformance is per facade, as with Rust supertraits: `Proxiable<T, marshal>`
 requires `marshal`'s own methods bound through `proxy_impl<marshal, T>` plus
@@ -393,11 +403,13 @@ hooks; it produces a type that is not proxiable at the derived facade at
 all, failing loudly at first use (exercised by `vigilante` in the test).
 
 The dispatch table of a composed facade carries the flattened thunks (bases'
-first), with the inherited entries copied verbatim from each base's table,
-plus the address of each direct base's table for the same target type. An
-inherited call is therefore the same single indexed load as an own one, and
-upcasting is reading an embedded pointer (walked transitively for
-grandparents), which is Rust's dyn-upcast vtable layout. ngcpp reaches the
+first), each built through its slot's declaring facade (identical to the
+thunk in that base's own table), plus the address of each direct base's
+table for the same target type. An inherited call is therefore the same
+single indexed load as an own one, and upcasting is reading an embedded
+pointer (walked transitively for grandparents), which is Rust's dyn-upcast
+vtable layout. In a diamond, the shared ancestor's table pointer is the same
+object along every path, so upcast routes cannot disagree. ngcpp reaches the
 same user-visible feature differently: upward conversion is opt-in per
 composition (`add_facade<F, true>`) and works as a dispatched conversion,
 where the per-type thunk manufactures the target handle.
@@ -429,6 +441,73 @@ through composition: the probe of a facade registers for every facade it
 extends, each base's boilerplate drives the inherited forwarders at the
 derived probe, and the whole flattened list is checked at the derived
 facade's registration.
+
+An `api` diamond needs two touches from the composing facade's author. The
+shared ancestor's forwarder names arrive through both base `api`s, so plain
+member lookup is ambiguous until one using-declaration per shared method
+pulls in a path (either one; they forward identically). And because the two
+empty ancestor-`api` subobjects are the same type, the ABI must give them
+distinct addresses, so the handle picks up one padding word that empty-base
+optimization cannot remove; an author who cares can inherit one base's `api`
+only and redeclare the other's own forwarders.
+
+### Facade names and sibling collisions (`name`, built)
+
+Every facade carries a formal name through a `name` entry, listed
+conventionally first:
+
+```cpp
+struct camera : facade<name<"camera">,
+                    method<"fire", std::string() const>,
+                    method<"reload", void()>> {};
+```
+
+Every method then answers to its facade-qualified name as well as its plain
+one: a `call` key containing "::" matches the declaring facade's name plus
+the method name, so `call<"camera::fire">()` names its slot outright, even
+through a derived handle. The entry is required, exactly once per facade,
+enforced by a detonator at first use of the facade's machinery. It was
+briefly optional; requiring it was the user's call, and the right one: a
+downstream composer cannot add a name to a facade it does not own, so an
+optional name would foreclose legal collisions in every composition that
+ever included an unnamed facade, the per-facade overhead is one short entry,
+and mandatory names delete every nameless special case from the machinery
+(the sibling-collisions-need-names detonator, the empty-name skips in
+matching and uniqueness checking, and `qualified_key`'s fallback branch all
+went away). Facade names must be unique within a composition (a detonator
+enforces it), and C++26 reflection is expected to supply the name from the
+facade type itself, retiring the entry.
+
+Names are what make sibling collisions legal outright: two unrelated bases
+declaring the same method name may always be composed, because the qualified
+spelling is always available as the disambiguator. The rules all follow from
+one structural fact, that handles are type-erased, so visibility and
+ambiguity are facade-level decisions, and whether the concrete type happens
+to serve two colliding slots from one member is invisible at the call site:
+
+- Distinct signatures form an overload set. An unqualified call resolves the
+  way C++ would after `using A::f; using B::f;`: a unique exact signature
+  match wins, else a unique viable candidate, else a `static_assert` naming
+  the ambiguity. The `api` convention is one using-declaration per base,
+  because C++ member lookup finds sibling-base names ambiguous before
+  overload resolution ever runs; with the using-declarations in place the
+  forwarders form the same overload set.
+- A same-signature collision is a lazy call-site error, through `call<>` (a
+  `static_assert`) and through the sugar (an ambiguous overload set) alike.
+  The slots stay reachable through their qualified keys and through upcast
+  handles, where each level's list has no collision. Per-facade conformance
+  means the two slots can carry genuinely different bindings for the same
+  concrete type (the test's `photographer` reloads its gun at the
+  `gunslinger` level and winds its film at the `camera` level).
+- A same-signature collision also blocks `validate_api` for the composed
+  facade, because boilerplates drive the probe by natural name, exactly the
+  spelling the collision makes ambiguous. Such a facade registers with
+  `api_check::off`; the base levels validate normally.
+
+The library's self-conformance bindings (`proxy_impl<B, handle<D>>`) forward
+through the qualified spelling of `B`'s method names, so a derived handle
+keeps satisfying a base-facade bound even when the derived list collides on
+the method's plain name.
 
 ## Mechanism
 
@@ -612,11 +691,37 @@ architecture.
    "User-facing shape"; precedence pinned by `turncoat` in the test),
    dropped the unregistered full-specialization tier in their favor, and
    restyled the tests to prefer the `api` sugar over `call<>` wherever a
-   facade defines one. A second pass added `proxy_impl` (the unqualified
+   facade defines one. A second pass added `prox_impl` (the unqualified
    `method_key` spelling in binding classes), made both views
    default-constructible as empty with `operator bool`, matching the owning
    proxy, and pinned mid-chain anchoring of chain hooks (`constable` in the
    test).
+
+4. DONE. Facade-qualified method names, sibling collisions, and diamond
+   composition (described under "Composition" and "Facade names and sibling
+   collisions"). Built as: flattening reworked onto provenance-carrying
+   slots (a method plus its declaring facade) with dedup by facade
+   identity; the `name<"...">` entry, required exactly once per facade
+   (initially optional; made mandatory on review, which deleted the
+   nameless special cases) plus the unique-within-composition detonator;
+   the strict unique-name detonator replaced by the collision rules (chain
+   redeclaration stays an error, sibling collisions freely legal, facade
+   names unique);
+   `call<>` resolution reworked to qualified-aware candidate sets with
+   exact-then-unique-viable argument matching and a distinct "ambiguous"
+   static_assert; and the validation probe made argument-aware to match.
+   Verified: diamond dispatch and upcast-path identity
+   (`posse_leader`/`trail_boss` in the test), qualified keys through plain,
+   derived, const, and owning handles, the overload set and the
+   same-signature collision (`war_correspondent`/`photographer`), deep
+   const for qualified keys, and re-captured diagnostics for all three
+   detonators plus the ambiguity assert. Discoveries along the way: the
+   library self-conformance bindings must forward through qualified keys,
+   since a plain key forwarded through a derived view is ambiguous under a
+   collision; an `api` diamond costs one padding word (same-type empty
+   subobjects need distinct addresses) plus one using-declaration per
+   shared method; and a same-signature collision blocks `validate_api` for
+   the composed facade, which registers with `api_check::off`.
 
 Header: `corvid/meta/proxy.h`, namespace `corvid::meta::prox`, deliberately
 NOT inline: `facade`, `method`, and `key` are too generic to dump into
@@ -667,49 +772,6 @@ dispatch, allocator plumbing, RTTI, per-name overload sets.
   (RTTI-adjacent, a non-goal), the same permanence as Rust's
   `Box<dyn Derived>` -> `Box<dyn Base>`, and part of why ngcpp gates upward
   conversion behind an explicit opt-in flag.
-- Facade-qualified method names and sibling collisions: SCOPED, pending
-  review before implementation. Every method's formal name is qualified by
-  its facade, "gunslinger::shoot", so qualified keys are unique by
-  construction. The qualifier source is a `name<"gunslinger">` facade-list
-  entry (parallel to `extends`), with a new definition-time detonator
-  requiring facade names to be unique across a composition graph. C++26
-  reflection (`identifier_of`) later deletes the extra spelling without
-  changing the model. The unqualified-name rules below all follow from one
-  structural fact: handles are type-erased, so visibility and ambiguity are
-  facade-level decisions, and whether the concrete type happens to serve
-  two colliding slots from one member is invisible at the call site.
-  - Chain redeclaration (a derived facade redeclaring an inherited name)
-    stays a definition-time error. Facades carry no implementations, so
-    there is nothing to override, and dispatch already reaches the
-    concrete type's binding through any handle. This closes the override
-    tension formerly recorded here. The shadowing-plus-qualified-access
-    escape hatch answered a question no one asks.
-  - Sibling collision with distinct signatures (facade `C` extends `A` and
-    `B`, both declaring `shoot` with different arguments): merged into an
-    overload set, mirroring `using A::shoot; using B::shoot;` in plain
-    C++. Unqualified `call<"shoot">` resolves by argument match over all
-    visible candidates, taking an exact match first, else a unique viable
-    candidate, else failing with an error naming the qualified
-    alternatives. The `api` sugar needs one documented convention: the
-    derived facade's `api` spells a using-declaration per base to merge
-    the forwarders, because C++ member lookup finds sibling-base names
-    ambiguous before overload resolution ever runs.
-  - Sibling collision with the same signature: unqualified use is a
-    call-site error, while the method stays reachable through the
-    qualified key or an upcast view. The sugar agrees at no cost, since
-    same-signature forwarders merged by the using-declarations form an
-    overload set that C++ diagnoses lazily, only at an actual unqualified
-    call. This matches Rust, where cross-trait collisions are legal until
-    an unqualified call and fully-qualified syntax then disambiguates.
-  - Diamond composition: collapses automatically, and better than C++,
-    whose diamond ambiguity comes from duplicated base subobjects. Proxies
-    have no subobjects, and conformance is per facade-type pair, so
-    exactly one `proxy_impl<D, T>` exists no matter how many paths reach
-    `D` (the effect of Rust's coherence rule). The remaining work is
-    mechanical: flattening dedups repeated ancestors by facade identity
-    (the same facade reached twice contributes the same methods, one slot
-    each, the same table pointer along every path), reserving the
-    ambiguity error for distinct facades colliding on an unqualified name.
 - Per-name overload sets within a single facade, via distinct keys sharing
   an `api` spelling: `method<"foo-0", void()>` and
   `method<"foo-1", void(int)>` with two `foo` forwarders overloading on the

@@ -50,7 +50,7 @@ using namespace corvid::meta::prox::literals;
 // automatically from the facade method list. For now, let your AI do it for
 // you.
 struct gunslinger
-    : prox::facade<                                      //
+    : prox::facade<prox::name<"gunslinger">,             //
           prox::method<"fire", int(int)>,                //
           prox::method<"describe", std::string() const>, //
           prox::method<"reload", void()>,                //
@@ -246,8 +246,12 @@ struct cowboy {
 // The `api` forwarders are marked `noexcept` so the sugar carries the
 // qualifier the way `call` does. This is on the facade author; nothing checks
 // the forwarders against the method flavors.
+//
+// The boilerplate's bindings are marked noexcept, as conformance requires. The
+// targets' own methods need not be noexcept; the binding is the terminate
+// boundary.
 struct hair_trigger
-    : prox::facade<                                //
+    : prox::facade<prox::name<"hair_trigger">,     //
           prox::method<"fire", int(int) noexcept>, //
           prox::method<"jams", bool() const noexcept>> {
   struct api {
@@ -258,10 +262,6 @@ struct hair_trigger
       return self.template call<"jams">();
     }
   };
-
-  // The boilerplate's bindings are marked noexcept, as conformance requires.
-  // The targets' own methods need not be noexcept; the binding is the
-  // terminate boundary.
   template<typename T>
   struct boilerplate: prox_impl {
     static int on(method_key<"fire">, T& t, int rounds) noexcept {
@@ -294,13 +294,14 @@ consteval auto corvid_proxy_spec(hair_trigger*, robber*) {
 // `mortar` is a facade whose `api` deliberately deviates from the method list:
 // the forwarder widens the parameter as a convenience, which registration-time
 // validation would reject. Its registrations opt out with `api_check::off`.
-struct mortar: prox::facade<prox::method<"lob", int(int)>> {
+struct mortar
+    : prox::facade<prox::name<"mortar">, //
+          prox::method<"lob", int(int)>> {
   struct api {
     int lob(this auto&& self, long long shells) {
       return self.template call<"lob">(shells);
     }
   };
-
   template<typename T>
   struct boilerplate: prox_impl {
     static int on(method_key<"lob">, T& t, int shells) {
@@ -322,16 +323,17 @@ consteval auto corvid_proxy_spec(mortar*, howitzer*) {
 }
 
 // `marshal` is a composed facade, effectively inheriting from `gunslinger` by
-// extending it with an arrest method (Rust supertrait). Its `api` inherits the
-// base facade's, adding only the new forwarder; deducing `this` sees the
-// complete handle either way, so the inherited forwarders dispatch through the
-// derived handle's flattened table.
+// extending it with an arrest method (Rust supertrait).
+//
+// Its `api` inherits the base facade's, adding only the new forwarder;
+// deducing `this` sees the complete handle either way, so the inherited
+// forwarders dispatch through the derived handle's flattened table.
 //
 // The boilerplate covers only the facade's own methods. The inherited
 // `gunslinger` methods bind through `proxy_impl<gunslinger, T>`, which is
 // what keeps an upcast view and a directly-built one identical.
 struct marshal
-    : prox::facade<                            //
+    : prox::facade<prox::name<"marshal">,      //
           prox::extends<gunslinger>,           //
           prox::method<"arrest", bool(int)>> { //
   struct api: gunslinger::api {
@@ -350,7 +352,7 @@ struct marshal
 // `ranger` is a second composition level: `gunslinger` -> `marshal` ->
 // `ranger`.
 struct ranger
-    : prox::facade<                             //
+    : prox::facade<prox::name<"ranger">,        //
           prox::extends<marshal>,               //
           prox::method<"track", int() const>> { //
   struct api: marshal::api {
@@ -383,9 +385,10 @@ struct texas_ranger {
 };
 
 // One chain hook registers `texas_ranger` for `ranger` and every facade it
-// extends. The bindings stay per facade (each inherited method still binds
-// through its declaring facade's impl); the hook only collapses the opt-in
-// ceremony.
+// extends.
+//
+// The bindings stay per facade (each inherited method still binds through its
+// declaring facade's impl); the hook only collapses the opt-in ceremony.
 template<prox::InChainOf<ranger> F>
 consteval auto corvid_proxy_spec(F*, texas_ranger*) {
   return prox::make_proxy_spec<F, texas_ranger>();
@@ -418,9 +421,11 @@ consteval auto corvid_proxy_spec(F*, constable*) {
 }
 
 // A `vigilante` is `gunslinger`-shaped, but deliberately registered for
-// `marshal` alone (a plain per-facade hook rather than a chain one): an
-// incomplete registration, so this must NOT be proxiable as a marshal at all,
-// and the failure is loud at first use. Pins the per-facade conformance rule.
+// `marshal` alone (a plain per-facade hook rather than a chain one).
+//
+// This is an incomplete registration, so it must NOT be proxiable as a marshal
+// at all, and the failure is loud at first use. Pins the per-facade
+// conformance rule. That's what you get for breaking the law: error messages.
 struct vigilante {
   int fire(int rounds) { return rounds_fired += rounds; }
   [[nodiscard]] std::string describe() const {
@@ -441,6 +446,183 @@ struct vigilante {
 // technique, as `constable` does.
 consteval auto corvid_proxy_spec(marshal*, vigilante*) {
   return prox::make_proxy_spec<marshal, vigilante>();
+}
+
+// `bounty_hunter` is a sibling of `marshal`: a second facade extending
+// `gunslinger`, setting up the diamond below.
+struct bounty_hunter
+    : prox::facade<prox::name<"bounty_hunter">, //
+          prox::extends<gunslinger>,            //
+          prox::method<"claim", int(int)>> {    //
+  struct api: gunslinger::api {
+    int claim(this auto&& self, int bounties) {
+      return self.template call<"claim">(bounties);
+    }
+  };
+  template<typename T>
+  struct boilerplate: prox_impl {
+    static int on(method_key<"claim">, T& t, int bounties) {
+      return t.claim(bounties);
+    }
+  };
+};
+
+// `posse_leader` is a diamond: it extends `marshal` and `bounty_hunter`,
+// which both extend `gunslinger`.
+//
+// Flattening dedups the shared ancestor by facade identity, so `gunslinger`'s
+// methods occupy one slot each and both upcast paths reach the same base
+// table; there is no ambiguity to resolve, because conformance is per facade
+// and only one `proxy_impl<gunslinger, T>` exists no matter the path (unlike a
+// C++ non-virtual diamond, which has duplicated subobjects).
+//
+// The `api` diamond does need the facade author's help: both base `api`s
+// inherit `gunslinger::api`, so the shared ancestor's forwarder names are
+// ambiguous by ordinary C++ member lookup until a using-declaration pulls in
+// one path. One line per shared-ancestor method, through either base.
+struct posse_leader
+    : prox::facade<prox::name<"posse_leader">, //
+          prox::extends<marshal>,              //
+          prox::extends<bounty_hunter>,        //
+          prox::method<"rally", void()>> {     //
+  struct api: marshal::api, bounty_hunter::api {
+    using marshal::api::fire, marshal::api::describe, marshal::api::reload,
+        marshal::api::shots;
+    void rally(this auto&& self) { self.template call<"rally">(); }
+  };
+  template<typename T>
+  struct boilerplate: prox_impl {
+    static void on(method_key<"rally">, T& t) { t.rally(); }
+  };
+};
+
+// `trail_boss` conforms to the whole diamond, registered by one chain hook.
+struct trail_boss {
+  int fire(int rounds) { return rounds_fired += rounds; }
+  [[nodiscard]] std::string describe() const {
+    (void)this;
+    return "trail_boss";
+  }
+  void reload() { rounds_fired = 0; }
+  int& shots() { return rounds_fired; }
+  bool arrest(int outlaws) {
+    arrested += outlaws;
+    return true;
+  }
+  int claim(int bounties) { return claimed += bounties; }
+  void rally() { ++rallies; }
+
+  int rounds_fired{};
+  int arrested{};
+  int claimed{};
+  int rallies{};
+};
+
+template<prox::InChainOf<posse_leader> F>
+consteval auto corvid_proxy_spec(F*, trail_boss*) {
+  return prox::make_proxy_spec<F, trail_boss>();
+}
+
+// `camera` is an unrelated facade that deliberately collides with
+// `gunslinger` on two method names: `fire`, with a different signature (an
+// overload set once composed), and `reload`, with the same signature
+// (reachable only through the qualified key or an upcast, once composed).
+struct camera
+    : prox::facade<prox::name<"camera">,             //
+          prox::method<"fire", std::string() const>, //
+          prox::method<"reload", void()>> {          //
+  struct api {
+    std::string fire(this const auto& self) {
+      return self.template call<"fire">();
+    }
+    void reload(this auto&& self) { self.template call<"reload">(); }
+  };
+  template<typename T>
+  struct boilerplate: prox_impl {
+    static std::string on(method_key<"fire">, const T& t) { return t.fire(); }
+    static void on(method_key<"reload">, T& t) { t.reload(); }
+  };
+};
+
+// `war_correspondent` composes the colliding siblings.
+//
+// The `api` convention for a collision is one using-declaration per base,
+// because C++ member lookup finds sibling-base names ambiguous before overload
+// resolution ever runs.
+//
+// For `fire`, whose signatures differ, the using-declarations merge the
+// forwarders into a working overload set;. For `reload`, whose signatures
+// match, the merged set is ambiguous at any unqualified call, lazily, which is
+// the pinned model: the qualified key or an upcast disambiguates. There's no
+// point injecting either `reload` with using declarations.
+//
+// The same-signature collision also makes the natural-name spelling
+// ambiguous inside the validation probe, so this facade's registrations
+// pass `api_check::off`; the base levels still validate normally.
+struct war_correspondent
+    : prox::facade<prox::name<"correspondent">, //
+          prox::extends<gunslinger>,            //
+          prox::extends<camera>,                //
+          prox::method<"byline", std::string() const>> {
+  struct api: gunslinger::api, camera::api {
+    using gunslinger::api::fire, camera::api::fire;
+    std::string byline(this const auto& self) {
+      return self.template call<"byline">();
+    }
+  };
+  template<typename T>
+  struct boilerplate: prox_impl {
+    static std::string on(method_key<"byline">, const T& t) {
+      return t.byline();
+    }
+  };
+};
+
+// `photographer` conforms to the whole composition.
+//
+//  One class serves both `fire` methods with an ordinary member overload set,
+//  while the same-name same-signature `reload` collision demonstrates
+//  per-facade bindings: the gunslinger level reloads the gun through the
+//  boilerplate, and the camera level carries an impl that winds the film
+//  instead.
+struct photographer {
+  int fire(int rounds) { return rounds_fired += rounds; }
+  [[nodiscard]] std::string fire() const {
+    (void)this;
+    return "click";
+  }
+  [[nodiscard]] std::string describe() const {
+    (void)this;
+    return "photographer";
+  }
+  void reload() { rounds_fired = 0; }
+  int& shots() { return rounds_fired; }
+  void wind() { ++film_wound; }
+  [[nodiscard]] std::string byline() const {
+    (void)this;
+    return "photo credit";
+  }
+
+  int rounds_fired{};
+  int film_wound{};
+};
+
+// One chain hook covers the composition, varying by level: the camera level
+// carries the film-winding impl, the composed level opts out of api
+// validation (see the facade comment), and the rest ride the boilerplates.
+template<prox::InChainOf<war_correspondent> F>
+consteval auto corvid_proxy_spec(F*, photographer*) {
+  if constexpr (std::same_as<F, camera>) {
+    struct as_camera: camera::boilerplate<photographer> {
+      using camera::boilerplate<photographer>::on;
+      static void on(method_key<"reload">, photographer& p) { p.wind(); }
+    };
+    return prox::make_proxy_spec<F, photographer, as_camera>();
+  } else if constexpr (std::same_as<F, war_correspondent>) {
+    return prox::make_proxy_spec<F, photographer, prox::api_check::off>();
+  } else {
+    return prox::make_proxy_spec<F, photographer>();
+  }
 }
 
 // Lifetime accounting shared by the owning-proxy targets.
@@ -479,8 +661,8 @@ struct strongbox {
 // The facade for the lifetime tests. For testing purposes, we're not providing
 // an `api`, or including the `boilerplate` inside the facade.
 struct lockbox
-    : prox::facade<                      //
-          prox::method<"add", int(int)>, //
+    : prox::facade<prox::name<"lockbox">, //
+          prox::method<"add", int(int)>,  //
           prox::method<"gold", int() const>> {};
 
 // Boilerplate impl for `lockbox`, in the namespace-scope spelling: a
@@ -615,6 +797,18 @@ concept CanFire = requires(P& p) { p.template call<"fire">(1); };
 template<typename P>
 concept CanDescribe = requires(P& p) { p.template call<"describe">(); };
 
+// Qualified keys resolve through the same machinery, so they obey the same
+// deep-const gating, including through a derived facade's handle.
+template<typename P>
+concept CanFireQualified = requires(P& p) {
+  p.template call<"gunslinger::fire">(1);
+};
+
+static_assert(CanFireQualified<proxy_view<gunslinger>>);
+static_assert(!CanFireQualified<const proxy_view<gunslinger>>);
+static_assert(CanFireQualified<proxy_view<ranger>>);
+static_assert(CanFireQualified<proxy<gunslinger>>);
+
 static_assert(CanFire<proxy<gunslinger>>);
 static_assert(!CanFire<const proxy<gunslinger>>);
 static_assert(CanDescribe<const proxy<gunslinger>>);
@@ -635,11 +829,14 @@ static_assert(
     std::constructible_from<const_proxy_view<gunslinger>, const lawman&>);
 static_assert(!std::constructible_from<proxy_view<gunslinger>, const lawman&>);
 
-// `census` is an all-const facade. This is the only case where a const view
-// satisfies the invariant for the facade as a whole. A mixed facade correctly
-// fails it (the mutable methods are not dispatchable, so conformance is
-// impossible; Rust's `&dyn` analog).
-struct census: prox::facade<prox::method<"describe", std::string() const>> {};
+// `census` is an all-const facade.
+//
+// This is the only case where a const view satisfies the invariant for the
+// facade as a whole. A mixed facade correctly fails it (the mutable methods
+// are not dispatchable, so conformance is impossible; Rust's `&dyn` analog).
+struct census
+    : prox::facade<prox::name<"census">,
+          prox::method<"describe", std::string() const>> {};
 
 // Conformance here is a one-off carried impl: `census` exists only to serve
 // the const-view assertions, so it defines no boilerplate at all.
@@ -669,17 +866,21 @@ static_assert(!prox::Extends<marshal, marshal>);
 // alone is not enough (Rust's separate `impl Base for T`), and conforming to
 // the base says nothing about the derived facade.
 //
-// Diagnostics on record (clang 22, captured 2026-07-08). Constructing
+// Diagnostics on record (clang 22, captured 2026-07-08, detonator halves
+// re-captured 2026-07-09 after the collision-rules rework). Constructing
 // `proxy_view<marshal>` from `vigilante` emits one error with the same
 // constraint walk as the `cowboy` case, ending at
 // 'details::vtbuild_t<marshal>::all_bound_v<marshal, vigilante>' evaluated
 // to false"; the walk does not name the missing base facade. Redeclaring an
 // inherited name (`facade<extends<gunslinger>, method<"fire", int(int)>>`)
-// detonates at first use of the facade's machinery: "static assertion failed
-// ... 'unique_method_names<...>()': method names must be unique across the
-// facade and its extends bases", with the flattened list, duplicate
-// included, spelled out in the requirement, followed by one follow-on
-// "no type named 'vtable_t'" noise error.
+// detonates at first use of the facade's machinery: "static assertion
+// failed ... 'no_chain_collision_against<...>()': a facade cannot declare a
+// method name twice or redeclare an inherited one", with the flattened slot
+// list, duplicate and declaring facades included, spelled out in the
+// requirement, followed by one follow-on "no type named 'vtable_t'" noise
+// error. (Before the rework, the same shape failed 'unique_method_names'
+// with "method names must be unique across the facade and its extends
+// bases".)
 static_assert(Proxiable<texas_ranger, gunslinger>);
 static_assert(Proxiable<texas_ranger, marshal>);
 static_assert(Proxiable<texas_ranger, ranger>);
@@ -701,6 +902,68 @@ static_assert(!prox::ProxyRegistered<ranger, constable>);
 static_assert(Proxiable<constable, marshal>);
 static_assert(Proxiable<constable, gunslinger>);
 static_assert(!Proxiable<constable, ranger>);
+
+// Diamond composition. The shared ancestor's methods flatten to one slot
+// each (dedup by facade identity), so the diamond is legal, `Extends` holds
+// through both paths, and the whole shape validates. Before dedup, this
+// detonated on the duplicate-name check.
+static_assert(prox::Extends<posse_leader, marshal>);
+static_assert(prox::Extends<posse_leader, bounty_hunter>);
+static_assert(prox::Extends<posse_leader, gunslinger>);
+static_assert(Proxiable<trail_boss, posse_leader>);
+static_assert(Proxiable<trail_boss, marshal>);
+static_assert(Proxiable<trail_boss, bounty_hunter>);
+static_assert(Proxiable<trail_boss, gunslinger>);
+static_assert(prox::validate_api<posse_leader>());
+
+// The `api` diamond has one honest cost: the two empty `gunslinger::api`
+// subobjects are the same type, so the ABI must give them distinct
+// addresses, and the handle picks up a padding word that empty-base
+// optimization cannot remove. An author who cares can avoid it by
+// inheriting one path only and redeclaring the other base's own forwarders.
+static_assert(sizeof(proxy_view<posse_leader>) == 3 * sizeof(void*));
+
+// Sibling collisions. The composition is legal outright (every facade
+// carries a name, so the qualified spelling is always available),
+// conformance stays per facade (including the deliberately different
+// `reload` bindings), and the base levels still validate their own `api`s.
+//
+// Diagnostics on record (clang 22, captured 2026-07-09). Omitting the
+// `name` entry from a facade detonates at first use of its machinery, as a
+// single clean error with the fold spelled out over the entries: "static
+// assertion failed due to requirement '0 + entry_name<method<...>,
+// ...>::is_name_v == 1': every facade must carry exactly one name entry".
+// Composing two facades whose name<> entries match (`copycat` claiming
+// name<"gunslinger">) detonates even without a method collision:
+// "static assertion failed ... 'owner_names_unique_against<...>()': facade
+// names must be unique within a composition", spelling the slot list, with
+// declaring facades, in the requirement, followed by the usual single "no
+// type named 'vtable_t'" noise error.
+static_assert(prox::Extends<war_correspondent, gunslinger>);
+static_assert(prox::Extends<war_correspondent, camera>);
+static_assert(Proxiable<photographer, war_correspondent>);
+static_assert(Proxiable<photographer, camera>);
+static_assert(Proxiable<photographer, gunslinger>);
+static_assert(prox::SpecCarriesImpl<camera, photographer>);
+static_assert(!prox::SpecCarriesImpl<gunslinger, photographer>);
+static_assert(prox::validate_api<camera>());
+
+// The same-signature collision is a lazy call-site error through the sugar:
+// the merged `reload` forwarders are an ambiguous overload set on the
+// composed handle, while each base handle keeps its own working forwarder.
+//
+// The unqualified core spelling is the same lazy error, via static_assert
+// rather than overload resolution, so it cannot be probed by a concept.
+// Diagnostic on record instead (clang 22, captured 2026-07-09):
+// `wc.call<"reload">()` fires "static assertion failed due to requirement
+// 'ndx != ...::ambiguous_v': ambiguous method name; qualify the key with
+// the facade name", followed by the accepted "tuple index out of bounds"
+// noise, matching the unknown-name case.
+template<typename P>
+concept CanReloadSugar = requires(P& p) { p.reload(); };
+static_assert(CanReloadSugar<proxy_view<gunslinger>>);
+static_assert(CanReloadSugar<proxy_view<camera>>);
+static_assert(!CanReloadSugar<proxy_view<war_correspondent>>);
 
 // Handles of a derived facade satisfy the base facade too (Rust: a `dyn
 // Derived` meets a `Base` bound).
@@ -1073,6 +1336,55 @@ TEST_CASE("Member-call sugar via the api mixin", "[proxy]") {
   CHECK(mv.lob(3) == 3);
 }
 
+TEST_CASE("Facade-qualified method keys", "[proxy]") {
+  lawman l;
+  proxy_view<gunslinger> pv{l};
+  int n{};
+
+  // A named facade's methods answer to their qualified spelling as well as
+  // the plain one: same slot, same dispatch table, interchangeable.
+  CHECK(pv.call<"gunslinger::fire">(3) == (n += 3));
+  CHECK(pv.call<"fire">(3) == (n += 3));
+  CHECK(pv.fire(3) == (n += 3));
+  CHECK(pv.call<"gunslinger::describe">() == "lawman"s);
+  CHECK(pv.call<"describe">() == "lawman"s);
+  CHECK(pv.describe() == "lawman"s);
+  pv.call<"gunslinger::reload">();
+  pv.call<"reload">();
+  pv.reload();
+  CHECK(l.rounds_fired == 0);
+
+  // Every method keeps its declaring facade's qualifier through a derived
+  // handle: each level of the chain contributes its own prefix.
+  texas_ranger tr;
+  proxy_view<ranger> rv{tr};
+  n = 0;
+  CHECK(rv.call<"gunslinger::fire">(2) == (n += 2));
+  CHECK(rv.call<"fire">(2) == (n += 2));
+  CHECK(rv.fire(2) == (n += 2));
+  CHECK(rv.call<"gunslinger::describe">() == "texas_ranger"s);
+  CHECK(rv.call<"describe">() == "texas_ranger"s);
+  CHECK(rv.describe() == "texas_ranger"s);
+  CHECK(rv.call<"marshal::arrest">(1));
+  CHECK(rv.call<"arrest">(1));
+  CHECK(rv.arrest(1));
+  CHECK(rv.call<"ranger::track">() == 3);
+  CHECK(rv.call<"track">() == 3);
+  CHECK(rv.track() == 3);
+
+  // Qualified keys through the const view and the owning proxy.
+  const lawman cl{};
+  const_proxy_view<gunslinger> cv{cl};
+  CHECK(cv.call<"gunslinger::describe">() == "lawman"s);
+  CHECK(cv.call<"describe">() == "lawman"s);
+  CHECK(cv.describe() == "lawman"s);
+  auto p = make_proxy<gunslinger, robber>();
+  n = 0;
+  CHECK(p.call<"gunslinger::fire">(6) == (n += 6));
+  CHECK(p.call<"fire">(6) == (n += 6));
+  CHECK(p.fire(6) == (n += 6));
+}
+
 TEST_CASE("Facade composition", "[proxy]") {
   texas_ranger tr;
   proxy_view<marshal> mv{tr};
@@ -1109,6 +1421,84 @@ TEST_CASE("Facade composition", "[proxy]") {
   CHECK(c.arrested == 2);
   proxy_view<gunslinger> cgv = cmv;
   CHECK(cgv.describe() == "constable"s);
+}
+
+TEST_CASE("Sibling method collisions", "[proxy]") {
+  photographer ph;
+  proxy_view<war_correspondent> wc{ph};
+
+  // Different signatures merge into a working overload set, through the api
+  // sugar (one using-declaration per base) and through unqualified `call<>`
+  // alike: the arguments pick the slot, exactly as `using A::f; using
+  // B::f;` would in plain C++.
+  CHECK(wc.fire(3) == 3);
+  CHECK(wc.fire() == "click"s);
+  CHECK(wc.call<"fire">(2) == 5);
+  CHECK(wc.call<"fire">() == "click"s);
+
+  // The qualified spelling always works, collision or not.
+  CHECK(wc.call<"gunslinger::fire">(1) == 6);
+  CHECK(wc.call<"camera::fire">() == "click"s);
+  CHECK(wc.call<"correspondent::byline">() == "photo credit"s);
+
+  // The same-signature collision is reachable through qualified keys. The
+  // two slots carry genuinely different bindings for the same concrete
+  // type: the gun reloads at the gunslinger level, the film winds at the
+  // camera level. (The unqualified spellings are the pinned lazy call-site
+  // errors; the sugar half is the `CanReloadSugar` static_asserts.)
+  wc.call<"gunslinger::reload">();
+  CHECK(ph.rounds_fired == 0);
+  wc.call<"camera::reload">();
+  CHECK(ph.film_wound == 1);
+  // Note that `wc.reload();` would be ambigous and fail at compile time.
+  // In contrast, `ph.reload();` is unambiguous and works, because
+  // `photographer` uses that name for the `gunslinger` binding.
+
+  // An upcast handle sees only its own level's list, so each name is
+  // unambiguous again.
+  proxy_view<camera> cam = wc;
+  cam.reload();
+  CHECK(ph.film_wound == 2);
+  CHECK(cam.fire() == "click"s);
+  proxy_view<gunslinger> gun = wc;
+  gun.fire(4);
+  gun.reload();
+  CHECK(ph.rounds_fired == 0);
+  CHECK(ph.film_wound == 2);
+}
+
+TEST_CASE("Diamond composition", "[proxy]") {
+  trail_boss tb;
+  proxy_view<posse_leader> plv{tb};
+
+  // Every level dispatches through the flattened table: the shared
+  // ancestor's methods (one slot each), both mid-level facades', and the
+  // diamond's own.
+  CHECK(plv.fire(2) == 2);
+  CHECK(plv.describe() == "trail_boss"s);
+  CHECK(plv.arrest(1));
+  CHECK(plv.claim(3) == 3);
+  plv.rally();
+  CHECK(tb.rallies == 1);
+
+  // Upcasting to the shared ancestor through either mid-level path, or
+  // directly, lands on the same target and the same base table.
+  proxy_view<marshal> mv = plv;
+  proxy_view<bounty_hunter> bv = plv;
+  proxy_view<gunslinger> via_marshal = mv;
+  proxy_view<gunslinger> via_bounty = bv;
+  proxy_view<gunslinger> direct = plv;
+  CHECK(&via_marshal.shots() == &via_bounty.shots());
+  CHECK(&via_marshal.shots() == &direct.shots());
+  CHECK(via_bounty.fire(1) == 3);
+  CHECK(tb.rounds_fired == 3);
+
+  // An owning proxy of the diamond dispatches the whole shape too.
+  auto p = make_proxy<posse_leader, trail_boss>();
+  CHECK(p.fire(4) == 4);
+  CHECK(p.claim(2) == 2);
+  CHECK(p.arrest(1));
+  p.rally();
 }
 
 TEST_CASE("Upcasting views", "[proxy]") {
