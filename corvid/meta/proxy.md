@@ -94,10 +94,10 @@ struct gunslinger : facade<name<"gunslinger">,
                        method<"reload", bool()>> {
   // Written once by the facade author. `on` is the fixed hook name,
   // overloaded on the method key; a fixed name is what keeps the mechanism
-  // spellable without macros. Inheriting `prox_impl` is optional sugar,
+  // spellable without macros. Inheriting `proxy_impl_base` is optional sugar,
   // supplying the `method_key` alias so the bindings spell it unqualified.
   template<typename T>
-  struct boilerplate : prox_impl {
+  struct boilerplate : proxy_impl_base {
     static void on(method_key<"fire">, T& t, int rounds) { t.fire(rounds); }
     static bool on(method_key<"reload">, T& t) { return t.reload(); }
   };
@@ -114,7 +114,7 @@ consteval auto corvid_proxy_spec(gunslinger*, lawman*) {
 // the impl, here local to the hook itself, so the whole conformance is one
 // self-contained declaration.
 consteval auto corvid_proxy_spec(gunslinger*, robber*) {
-  struct as_gunslinger : impl_base {
+  struct as_gunslinger : proxy_impl_base {
     static void on(method_key<"fire">, robber& r, int rounds) {
       r.shoot(rounds);
     }
@@ -158,10 +158,12 @@ a consteval function is implicitly inline, so the local type is
 ODR-consistent across translation units (local classes do forgo static data
 members and member templates, which bindings do not need). Nested in the
 type it serves, the impl additionally reaches the type's private members
-(`turncoat` in the test). Namespace scope works too, but buys nothing over
-the other placements.
+(`turncoat` in the test). Namespace scope works too, and a namespace-scope
+binding class that the type forward-declares and befriends reaches private
+members without nesting.
 
-Whatever its placement, a binding class may inherit `prox::impl_base`, an
+Whatever its placement, a binding class may inherit `prox::proxy_impl_base`,
+an
 otherwise-empty base whose one member is a `method_key` alias, so the
 bindings spell the key unqualified (base-class members participate in
 unqualified lookup where namespace-scope names do not; a literally empty
@@ -601,9 +603,9 @@ owning a copy. Cloning is deliberately a named method rather than a copy
 constructor: an unconditional copy constructor would satisfy
 `std::copyable` for every proxy while failing at runtime for uncloneable
 targets, turning a concept-probed guarantee into a lie (the `std::function`
-trap, institutionalized). Cloning an empty proxy yields an empty one;
-cloning an uncloneable target is a precondition violation, like calling
-through an empty proxy.
+trap, institutionalized). Cloning an empty proxy yields an empty one, and so
+does cloning an uncloneable target; `can_clone()` is the up-front check that
+tells those apart.
 
 ### std smart-pointer interop
 
@@ -882,7 +884,7 @@ architecture.
    "User-facing shape"; precedence pinned by `turncoat` in the test),
    dropped the unregistered full-specialization tier in their favor, and
    restyled the tests to prefer the `api` sugar over `call<>` wherever a
-   facade defines one. A second pass added `prox_impl` (the unqualified
+   facade defines one. A second pass added `proxy_impl_base` (the unqualified
    `method_key` spelling in binding classes), made both views
    default-constructible as empty with `operator bool`, matching the owning
    proxy, and pinned mid-chain anchoring of chain hooks (`constable` in the

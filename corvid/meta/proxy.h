@@ -86,9 +86,7 @@ namespace prox {
 
 #pragma region Method and key
 
-// `method_key`.
-//
-// A tag carrying a method name as a compile-time string.
+// `method_key`: a tag carrying a method name as a compile-time string.
 //
 // `proxy_impl` bindings overload their `on` hook on it; it is how code
 // canonically names a method, given that a library cannot mint a member with a
@@ -1282,27 +1280,24 @@ struct vtable_builder_impl<std::tuple<Ss...>, std::tuple<Bs...>, OwnName> {
     return owner.view() == qual;
   }
 
-  // `candidates`: per-slot flags over the whole list, containing the
-  // candidates answering to `Key` (const-qualified only, when dispatching
-  // through a const handle), and the slots whose declared parameters match
-  // `CallArgs` exactly or are viable through ordinary conversions.
+  // `candidates`: per-slot flags over the whole list, marking the slots that
+  // answer to `Key` (const-qualified only, when dispatching through a const
+  // handle).
   template<fixed_string Key, bool ConstOnly>
   static consteval std::array<bool, count_v> candidates() noexcept {
     return {(slot_matches<Ss, Key>() && (!ConstOnly || Ss::const_v))...};
   }
 
-  // `exact_flags`, `viable_flags`: per-slot flags over the whole list,
-  // containing the slots whose declared parameters match `CallArgs` exactly or
-  // are viable through ordinary conversions.
+  // `exact_flags`, `viable_flags`: per-slot flags over the whole list, marking
+  // the slots whose declared parameters match `CallArgs` exactly (after
+  // normalization) or are viable through the ordinary conversions a call
+  // performs.
   template<typename... CallArgs>
   static consteval std::array<bool, count_v> exact_flags() noexcept {
     return {method_traits<typename Ss::method_t>::template exact_v<
         CallArgs...>...};
   }
 
-  // `exact_flags`, `viable_flags`: per-slot flags over the whole list,
-  // containing the slots whose declared parameters match `CallArgs` exactly or
-  // are viable through ordinary conversions.
   template<typename... CallArgs>
   static consteval std::array<bool, count_v> viable_flags() noexcept {
     return {method_traits<typename Ss::method_t>::template viable_v<
@@ -1463,10 +1458,12 @@ struct vtable_builder<facade<Es...>>
   using ancestors_t = dedup_slots_t<decltype(std::tuple_cat(
       std::declval<typename entry_traits<Es>::chain_t>()...))>;
 
-  // `owning_vtable_t`: owning dispatch table, carrying housekeeping slots
-  // alongside the facade methods, plus the address of each direct base's
-  // owning table for the same target type, which is what makes owning upcasts
-  // a pointer read (mirroring `vtable_t::bases`).
+  // `owning_vtable_t`: owning dispatch table.
+  //
+  // Carries housekeeping slots alongside the facade methods, plus the address
+  // of each direct base's owning table for the same birth, target type, and
+  // storage mode, which is what makes owning upcasts a pointer read (mirroring
+  // `vtable_t::bases`).
   //
   // A null `relocate` marks a heap-stored target, which moves by pointer
   // steal rather than relocation. A null `copy` marks a target that is not
@@ -1501,9 +1498,9 @@ struct vtable_builder<facade<Es...>>
     owning_bases_t bases;
   };
 
-  // `owning_bases_t`: owning-table pointers of the direct bases, for the same
-  // born family, target, and mode, built over the direct-base pack (carried by
-  // the tuple pointer parameter, as in `make_ancestor_table`).
+  // `make_owning_bases`: owning-table pointers of the direct bases, for the
+  // same born family, target, and mode, built over the direct-base pack
+  // (carried by the tuple pointer parameter, as in `make_ancestor_table`).
   //
   // Deliberately a member rather than an `entry_traits` hook, and with a
   // spelled-out return type: an entry's helper is shared by every facade
@@ -1619,8 +1616,9 @@ dispatch(const typename vtbuild_t<F>::thunks_t& tks, ErasedPtr target,
 // Satisfied when a usable `proxy_impl<F, T>` binding exists for every method
 // of `F`.
 //
-// An explicit specialization satisfies it directly; a facade author's
-// boilerplate satisfies it exactly when the pair is registered.
+// Both binding routes, the facade's boilerplate and the registration-carried
+// impl, are registration-gated, so the concept is satisfied exactly when the
+// pair is registered with a usable binding.
 //
 // This is the gate on proxy construction and doubles as the trait bound for
 // static-dispatch templates.
@@ -1628,7 +1626,7 @@ template<typename T, typename F>
 concept Proxiable =
     Facade<F> && details::vtbuild_t<F>::template all_bound_v<F, T>;
 
-// `Extends` concept for  when facade `D` (transitively) extends facade `B`
+// `Extends`: concept for when facade `D` (transitively) extends facade `B`
 // through `extends` composition entries.
 //
 // Strict: false when `D` is `B` itself. Constraints that mean "B or anything
@@ -1638,7 +1636,7 @@ concept Extends =
     Facade<D> && Facade<B> &&
     details::vtbuild_t<D>::template extends_facade<B>();
 
-// `InChainOf` concept for when facade `B` is `D` itself or a facade `D`
+// `InChainOf`: concept for when facade `B` is `D` itself or a facade `D`
 // (transitively) extends.
 //
 // This is `Extends` made reflexive and argument-flipped, so it can constrain
@@ -1698,7 +1696,8 @@ struct handle_facade<shared_proxy<F>> {
 };
 
 // `is_handle_for`: whether `T` is a proxy handle whose facade is `F` or
-// extends the set the dedicated viewing and upcasting constructors serve.
+// extends it, the set served by the dedicated viewing and upcasting
+// constructors.
 //
 // The generic erased-target constructors exclude it, so re-pointing at such a
 // handle's target always wins over wrapping the handle itself as a target.
@@ -1938,7 +1937,7 @@ class proxy_view: public details::view_base<F, false> {
   using vtbuild_t = details::vtbuild_t<F>;
 
 public:
-  // `proxy_view`: An empty view holds no target; see the class comment.
+  // `proxy_view`: an empty view holds no target; see the class comment.
   proxy_view() = default;
 
   // `proxy_view`: converting constructor from an lvalue target.
@@ -1978,7 +1977,7 @@ public:
   explicit(false) proxy_view(proxy<D, P>& p) noexcept
       : base{p.target(), details::upcast_vtable<F, D>(&p.vtable_->vt)} {}
 
-  // `proxy_view`: viewing constructor from a shared `proxy` of `F`, or of a
+  // `proxy_view`: viewing constructor from a `shared_proxy` of `F`, or of a
   // facade that extends it, under the same rules as viewing an owning `proxy`;
   // the target must outlive the view, meaning at least one shared owner must.
   template<Facade D>
@@ -2107,8 +2106,8 @@ public:
       const_proxy_view(const proxy_view<D>& view) noexcept
       : base{view.target_, details::upcast_vtable<F, D>(view.vtable_)} {}
 
-  // `const_proxy_view`: viewing constructor from an owning proxy of `F`, or of
-  // a facade that extends it.
+  // `const_proxy_view`: viewing constructor from an owning `proxy` of `F`, or
+  // of a facade that extends it.
   //
   // Intentionally implicit, and lvalue-only. The proxy must be non-empty and
   // must outlive the view. Mutable and const proxies alike yield the const
@@ -2118,14 +2117,14 @@ public:
   explicit(false) const_proxy_view(const proxy<D, P>& p) noexcept
       : base{p.target(), details::upcast_vtable<F, D>(&p.vtable_->vt)} {}
 
-  // `const_proxy_view`: viewing constructor from a shared proxy of `F`, or of
-  // a facade that extends it; see the owning-proxy constructor above.
+  // `const_proxy_view`: viewing constructor from a `shared_proxy` of `F`, or
+  // of a facade that extends it; see the owning-proxy constructor above.
   template<Facade D>
   requires(std::same_as<D, F> || Extends<D, F>)
   explicit(false) const_proxy_view(const shared_proxy<D>& p) noexcept
       : base{p.target(), details::upcast_vtable<F, D>(p.vtable_)} {}
 
-  // No need for a `using` because`call` is inherited. The base's const-method
+  // No need for a `using` because `call` is inherited. The base's const-method
   // dispatch is the entire interface, since the mutable methods do not exist
   // on this view.
 
@@ -2366,9 +2365,9 @@ public:
   // no target.
   [[nodiscard]] explicit operator bool() const noexcept { return vtable_; }
 
-  // `can_clone`: whether `clone` is callable, meaning that the target is
-  // copy-constructible, or there is no target at all (an empty proxy clones to
-  // an empty proxy).
+  // `can_clone`: whether `clone` would produce a faithful copy, meaning that
+  // the target is copy-constructible, or there is no target at all (an empty
+  // proxy clones to an empty proxy).
   //
   // The answer is a runtime property of the erased target, not of the proxy
   // type; a container of proxies can mix cloneable and uncloneable targets.
@@ -2406,10 +2405,11 @@ public:
   // `clone`: clone the `proxy`, creating a new instance with the same policy,
   // owning a copy of the target made through the table's copy slot.
   //
-  // Requires `can_clone()`; cloning a proxy over a non-copyable target is a
-  // precondition violation, like calling through an empty proxy. The copy
-  // itself can throw (the target's copy constructor, or the allocation), in
-  // which case nothing leaks and no clone is produced.
+  // Cloning an empty proxy yields an empty one, and so does cloning a proxy
+  // whose target is not copy-constructible; `can_clone` is the up-front check
+  // that tells those apart. The copy itself can throw (the target's copy
+  // constructor, or the allocation), in which case nothing leaks and no clone
+  // is produced.
   //
   // This is deliberately a named method rather than a copy constructor: an
   // unconditional copy constructor would satisfy `std::copyable` for every
@@ -2691,10 +2691,19 @@ requires Proxiable<T, F>
 // backed by a `std::shared_ptr<void>`.
 //
 // Copyable, and a copy shares the one target rather than cloning it; the
-// target dies with its last owner. The control block already type-erases
-// destruction, so no owning table is needed: the handle is the shared
-// pointer plus the same per-(facade, type) dispatch table the views use.
-// There is no inline-storage mode, so the target's address is always stable.
+// target dies with its last owner.
+//
+// Storing the pointer as `shared_ptr<void>` does not lose destruction: a
+// `shared_ptr`'s deleter lives in its control block, fixed when the first
+// owner was created, and converting a `shared_ptr<T>` to `shared_ptr<void>`
+// hands over that control block untouched, so the target is still destroyed as
+// a `T`. (Adoption from an owning `proxy` has no typed pointer to start from;
+// it supplies the owning table's destroy thunk as the deleter instead.)
+//
+// The control block therefore type-erases destruction on its own, which is why
+// no owning table is needed: the handle is the shared pointer plus the same
+// per-(facade, type) dispatch table the views use. There is no inline-storage
+// mode, so the target's address is always stable.
 //
 // Ownership interoperates with `std`: construct from a `std::shared_ptr<T>`
 // (sharing with any outside holders) or a `std::unique_ptr<T>` (which
@@ -2724,8 +2733,8 @@ public:
   // `shared_proxy`: adopting constructor from shared ownership of a concrete
   // target. A null pointer yields an empty handle.
   //
-  //  Usually spelled through `make_shared_proxy`; there is deliberately no
-  //  raw-pointer constructor.
+  // Usually spelled through `make_shared_proxy`; there is deliberately no
+  // raw-pointer constructor.
   template<typename T>
   requires Proxiable<T, F>
   explicit shared_proxy(std::shared_ptr<T> target) noexcept
@@ -2741,8 +2750,8 @@ public:
   explicit shared_proxy(std::unique_ptr<T> target)
       : shared_proxy{std::shared_ptr<T>{std::move(target)}} {}
 
-  // `shared_proxy`: adopting constructor from an owning proxy of `F`, or of a
-  // facade that extends it.
+  // `shared_proxy`: adopting constructor from an owning `proxy` of `F`, or of
+  // a facade that extends it.
   //
   // The unique ownership becomes shared (Rust: `Box<dyn T>` into `Rc<dyn T>`),
   // consuming the source.
@@ -2779,9 +2788,9 @@ public:
     vtable_ = &ovt->vt;
   }
 
-  // `shared_proxy`: upcasting converting constructors from a shared proxy of a
-  // facade that extends `F`, sharing (copy) or transferring (move) ownership.
-  // Intentionally implicit, like every handle upcast.
+  // `shared_proxy`: upcasting converting constructors from a `shared_proxy`
+  // of a facade that extends `F`, sharing (copy) or transferring (move)
+  // ownership. Intentionally implicit, like every handle upcast.
   template<Facade D>
   requires Extends<D, F>
   explicit(false) shared_proxy(const shared_proxy<D>& other) noexcept
@@ -2887,12 +2896,12 @@ class weak_proxy {
   using vtable_t = details::vtbuild_t<F>::vtable_t;
 
 public:
-  // `weak_proxy`:an empty weak proxy observes nothing; `lock` yields an empty
-  // handle.
+  // `weak_proxy`: an empty weak proxy observes nothing; `lock` yields an
+  // empty handle.
   weak_proxy() = default;
 
-  // `weak_proxy`: observe a shared proxy of `F`, or of a facade that extends
-  // it (the upcast happens here, so `lock` is cheap).
+  // `weak_proxy`: observe a `shared_proxy` of `F`, or of a facade that
+  // extends it (the upcast happens here, so `lock` is cheap).
   //
   // Intentionally implicit.
   template<Facade D>
@@ -2901,8 +2910,9 @@ public:
       : target_{p.target_},
         vtable_{p ? details::upcast_vtable<F, D>(p.vtable_) : nullptr} {}
 
-  // `weak_proxy`: upcasting converting constructors from a weak proxy of a
-  // facade that extends `F`, by copy or by move, mirroring the shared proxy's.
+  // `weak_proxy`: upcasting converting constructors from a `weak_proxy` of a
+  // facade that extends `F`, by copy or by move, mirroring the
+  // `shared_proxy`'s.
   //
   // Intentionally implicit, like every handle upcast. An expired source
   // upcasts like a live one, still observing the same target; expiry stays
