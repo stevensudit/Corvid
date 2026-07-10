@@ -67,8 +67,9 @@
 // - `M`: a `method` descriptor; `Ms` is a pack of them.
 // - `S`: a flattened dispatch slot; `Ss` is a pack of them.
 // - `Owner`: the facade that declared a slot's method.
-// - `Born`: the facade a proxy's target was constructed as, keying its
-//      owning tables and the birth ancestry `try_downcast` searches.
+// - `Born`: the facade a handle's target was constructed as, keying its
+//      owning and view tables and the birth ancestries `try_downcast`
+//      searches.
 // - `Name`: a declared name, a facade's or a method's, as a `fixed_string`.
 // - `OwnName`: the name of the facade being built.
 // - `Key`: a `call` lookup key: a method name, optionally facade-qualified.
@@ -846,14 +847,23 @@ struct vtable_builder;
 template<Facade F>
 using vtbuild_t = vtable_builder<decltype(probe(std::declval<const F&>()))>;
 
-// `vtable_for`: per-(facade, type) dispatch table instance.
+// `vtable_for`: per-(facade, type, born facade) dispatch table instance.
 //
 // The handle stores a pointer to this; the table pointer lives in the handle,
 // not in the target (a fat handle, like Rust's `&dyn`). A composed facade's
 // table also embeds the address of each direct base's instance for the same
-// target type, which is what makes upcasting a pointer read.
-template<Facade F, typename T>
-constexpr inline auto vtable_for = vtbuild_t<F>::template make_vtable<F, T>();
+// target type and birth, which is what makes upcasting a pointer read.
+//
+// `Born` plays the same role as on the owning tables: it defaults to the
+// facade itself, which is the birth of every directly built view, and stays
+// out of the table's type; a view lent from an owning handle points at the
+// born family its owner's table embeds, so the owner's birth carries over
+// without the handle doing anything. The type is spelled explicitly for the
+// same reason as `owning_vtable_for`: the born family's tables and its
+// ancestry reference each other by address.
+template<Facade F, typename T, Facade Born = F>
+constexpr inline vtbuild_t<F>::vtable_t vtable_for =
+    vtbuild_t<F>::template make_vtable<F, T, Born>();
 
 // `owning_vtable_for`: per-(facade, born facade, type, storage mode) owning
 // dispatch table instance, for `proxy`.
@@ -879,8 +889,9 @@ constexpr inline vtbuild_t<F>::owning_vtable_t owning_vtable_for =
 
 // `ancestor_entry`: one entry of a birth ancestry.
 //
-// Contains a facade's identity tag and that facade's owning table for the same
-// birth, target type, and storage mode.
+// Contains a facade's identity tag and that facade's table for the same birth
+// and target: an owning table in an owning ancestry (which is also per
+// storage mode), a view table in a view ancestry.
 struct ancestor_entry {
   const void* tag;
   const void* table;
@@ -889,15 +900,16 @@ struct ancestor_entry {
 // `ancestry_t`: type-erased view of a birth ancestry, the facade the target
 // was born as plus every facade it transitively extends.
 //
-// Every owning table points at its born family's ancestry; the underlying
-// tables are the per-(born facade, type, mode) statics below.
+// Every table points at its born family's ancestry of its own kind: owning
+// tables at an owning ancestry, view tables at a view ancestry; the
+// underlying tables are the statics below.
 struct ancestry_t {
   const ancestor_entry* entries;
   std::size_t count;
 };
 
-// `find_ancestor`: the owning table of the ancestry member whose tag is `tag`,
-// or null when the facade is not in the ancestry.
+// `find_ancestor`: the table of the ancestry member whose tag is `tag`, or
+// null when the facade is not in the ancestry.
 //
 // This is `try_downcast`'s runtime search; the tag match is what proves the
 // cast sound, so the caller can cast the table back to the matched facade's
@@ -937,6 +949,34 @@ template<Facade Born, typename T, bool Sbo>
 constexpr inline ancestry_t ancestry_for{
     ancestor_table_for<Born, T, Sbo>.data(),
     ancestor_table_for<Born, T, Sbo>.size()};
+
+// `make_view_ancestor_table`: build the view-table ancestor table for a
+// target born as (Born, T), mirroring `make_ancestor_table`.
+//
+// A parallel family over the view tables, rather than entries into the
+// owning tables: a view's downcast only ever needs dispatch, and routing it
+// through owning tables would drag their destroy, relocate, and copy thunks
+// into code that never owns anything.
+template<Facade Born, typename T, Facade... As>
+consteval std::array<ancestor_entry, 1 + sizeof...(As)>
+make_view_ancestor_table(std::tuple<As...>*) noexcept {
+  return {{{&facade_tag_v<Born>, &vtable_for<Born, T, Born>},
+      {&facade_tag_v<As>, &vtable_for<As, T, Born>}...}};
+}
+
+template<Facade Born, typename T>
+constexpr inline auto view_ancestor_table_for =
+    make_view_ancestor_table<Born, T>(
+        static_cast<vtbuild_t<Born>::ancestors_t*>(nullptr));
+
+// `view_ancestry_for`: the birth ancestry for a view over a target born as
+// (Born, T), the object every view table of that born family points at.
+//
+// There is no storage-mode axis here; a view has no storage.
+template<Facade Born, typename T>
+constexpr inline ancestry_t view_ancestry_for{
+    view_ancestor_table_for<Born, T>.data(),
+    view_ancestor_table_for<Born, T>.size()};
 
 // `slot`: flattened dispatch slot, containing one facade method plus the
 // facade that declared it.
@@ -1103,11 +1143,6 @@ struct entry_traits {
 
   template<typename F, typename T>
   static constexpr bool bound_v = method_traits<M>::template bound_v<F, T>;
-
-  template<typename T>
-  static consteval std::tuple<> base_vtables() noexcept {
-    return {};
-  }
 };
 
 template<Facade B>
@@ -1121,11 +1156,6 @@ struct entry_traits<extends<B>> {
 
   template<typename F, typename T>
   static constexpr bool bound_v = vtbuild_t<B>::template all_bound_v<B, T>;
-
-  template<typename T>
-  static consteval auto base_vtables() noexcept {
-    return std::tuple{&vtable_for<B, T>};
-  }
 };
 
 template<fixed_string Name>
@@ -1137,11 +1167,6 @@ struct entry_traits<name<Name>> {
 
   template<typename F, typename T>
   static constexpr bool bound_v = true;
-
-  template<typename T>
-  static consteval std::tuple<> base_vtables() noexcept {
-    return {};
-  }
 };
 
 // `entry_name`: facade name carried by one entry of a facade's list, empty for
@@ -1222,8 +1247,14 @@ struct vtable_builder_impl<std::tuple<Ss...>, std::tuple<Bs...>, OwnName> {
   // Dispatch always uses the flattened thunks, so an inherited call costs the
   // same single indexed load as an own one; the base pointers exist for
   // upcasting to follow (Rust's embedded supertrait vtables).
+  //
+  // `ancestry` names the born family's view ancestry (see
+  // `view_ancestry_for`), which is what `try_downcast` on the views and on
+  // `shared_proxy` searches; it is the table's only slot beyond dispatch, so
+  // views still carry no lifetime machinery.
   struct vtable_t {
     thunks_t thunks;
+    const ancestry_t* ancestry;
     std::tuple<const typename vtbuild_t<Bs>::vtable_t*...> bases;
   };
 
@@ -1439,11 +1470,26 @@ struct vtable_builder<facade<Es...>>
   static constexpr bool all_bound_v =
       (entry_traits<Es>::template bound_v<F, T> && ...);
 
-  // `make_vtable`: build the dispatch table for target `T` of facade `F`.
-  template<typename F, typename T>
+  // `make_view_bases`: view-table pointers of the direct bases, for the same
+  // born family and target, built over the direct-base pack (carried by the
+  // tuple pointer parameter, as in `make_ancestor_table`).
+  //
+  // A member with a spelled-out return type for the same reason as
+  // `make_owning_bases`: the view ancestry's back-references reach a
+  // sibling's table build mid-instantiation in a diamond, which the shared
+  // per-entry hook this replaced could not survive.
+  template<typename T, typename Born, typename... Bs2>
+  static consteval std::tuple<const typename vtbuild_t<Bs2>::vtable_t*...>
+  make_view_bases(std::tuple<Bs2...>*) noexcept {
+    return {&vtable_for<Bs2, T, Born>...};
+  }
+
+  // `make_vtable`: build the dispatch table for target `T` of facade `F`, born
+  // as facade `Born`.
+  template<typename F, typename T, typename Born>
   static consteval vtable_t make_vtable() noexcept {
-    return {impl_t::template make_thunks<F, T>(),
-        std::tuple_cat(entry_traits<Es>::template base_vtables<T>()...)};
+    return {impl_t::template make_thunks<F, T>(), &view_ancestry_for<Born, T>,
+        make_view_bases<T, Born>(static_cast<bases_of_t<Es...>*>(nullptr))};
   }
 
   // `owning_bases_t`: direct-base owning-table pointers, mirroring
@@ -1521,9 +1567,16 @@ struct vtable_builder<facade<Es...>>
   // The mode is decided at proxy construction from the handle's policy, so it
   // is part of the table's identity rather than a property of the type alone;
   // the birth is decided there too, as the facade under construction.
+  //
+  // The embedded `vt` is a copy of the standalone view-table instance rather
+  // than a second `make_vtable` call: both spellings would share one function
+  // specialization, and the view ancestry's back-references re-enter it while
+  // it is mid-instantiation from here, the same diamond hazard as
+  // `make_owning_bases`. Reading the completed variable keeps `make_vtable`
+  // entered from exactly one place, its own `vtable_for`.
   template<typename F, typename Born, typename T, bool Sbo>
   static consteval owning_vtable_t make_owning_vtable() noexcept {
-    owning_vtable_t ovt{make_vtable<F, T>(), nullptr, nullptr, nullptr,
+    owning_vtable_t ovt{vtable_for<F, T, Born>, nullptr, nullptr, nullptr,
         nullptr, nullptr, &type_tag_v<T>, nullptr, nullptr, sizeof(T),
         alignof(T), &ancestry_for<Born, T, Sbo>,
         make_owning_bases<Born, T, Sbo>(
@@ -1909,8 +1962,8 @@ protected:
 // `proxy_view` is a non-owning erased handle over any `Proxiable` target:
 // Rust's `&mut dyn Trait`, ngcpp's `proxy_view`.
 //
-// Two pointers: the target and the per-(facade, type) dispatch table. The
-// target must outlive the view.
+// Two pointers: the target and the per-(facade, type, born facade) dispatch
+// table. The target must outlive the view.
 //
 // A view also converts implicitly from any handle of a facade that extends
 // `F` (Rust trait upcasting), and from an lvalue owning `proxy`, re-pointing
@@ -2002,7 +2055,36 @@ public:
 
   using base::call;
 
+  // `try_downcast`: attempt a view of `D`, a facade extending `F`, over a
+  // target that may have been upcast away from it.
+  //
+  // The view table remembers the facade the target was born as: the view's
+  // own facade for a view built directly over a target, and the owning
+  // handle's birth for a view lent from a `proxy` or `shared_proxy`, so a
+  // lent view recovers exactly what its owner could. On success the result
+  // is a new view over the same target; the source is copied from, never
+  // consumed, which is why this is const where the owning flavor is an
+  // rvalue method. On failure, including an empty source, the result is
+  // empty. Like copying, this escapes the instance-level deep-const
+  // guardrail; the guarantee tier is `const_proxy_view`, whose downcast
+  // stays const.
+  template<Facade D>
+  requires Extends<D, F>
+  [[nodiscard]] constexpr proxy_view<D> try_downcast() const noexcept {
+    if (!this->vtable_) return {};
+    const auto* table = details::find_ancestor(*this->vtable_->ancestry,
+        &details::facade_tag_v<D>);
+    if (!table) return {};
+    return proxy_view<D>{this->target_,
+        static_cast<const details::vtbuild_t<D>::vtable_t*>(table)};
+  }
+
 private:
+  // `proxy_view`: for `try_downcast`, whose target and table are already
+  // resolved.
+  constexpr proxy_view(void* target, const base::vtable_t* vtable) noexcept
+      : base{target, vtable} {}
+
   template<Facade G>
   friend class proxy_view;
   template<Facade G>
@@ -2048,9 +2130,9 @@ struct proxy_impl<F, proxy_view<D>> {
 // Constness is part of the type, so unlike a `const proxy_view` it survives
 // copying. A const view only ever copies or converts to another const view.
 // It binds const and mutable targets alike, and dispatches only the
-// const-qualified facade methods, sharing the mutable view's per-(facade,
-// type) dispatch table (the non-const slots are simply unreachable). The
-// target must outlive the view.
+// const-qualified facade methods, sharing the mutable view's dispatch table
+// (the non-const slots are simply unreachable). The target must outlive the
+// view.
 //
 // A default-constructed view is empty: testable via `operator bool` and
 // rebindable by assignment, but calling through it is undefined behavior.
@@ -2128,7 +2210,30 @@ public:
   // dispatch is the entire interface, since the mutable methods do not exist
   // on this view.
 
+  // `try_downcast`: attempt a const view of `D`, a facade extending `F`, over
+  // a target that may have been upcast away from it; see
+  // `proxy_view::try_downcast`.
+  //
+  // The result is another const view, so downcasting never reopens
+  // mutability.
+  template<Facade D>
+  requires Extends<D, F>
+  [[nodiscard]] constexpr const_proxy_view<D> try_downcast() const noexcept {
+    if (!this->vtable_) return {};
+    const auto* table = details::find_ancestor(*this->vtable_->ancestry,
+        &details::facade_tag_v<D>);
+    if (!table) return {};
+    return const_proxy_view<D>{this->target_,
+        static_cast<const details::vtbuild_t<D>::vtable_t*>(table)};
+  }
+
 private:
+  // `const_proxy_view`: for `try_downcast`, whose target and table are already
+  // resolved.
+  constexpr const_proxy_view(const void* target,
+      const base::vtable_t* vtable) noexcept
+      : base{target, vtable} {}
+
   template<Facade G>
   friend class const_proxy_view;
 };
@@ -2702,8 +2807,8 @@ requires Proxiable<T, F>
 //
 // The control block therefore type-erases destruction on its own, which is why
 // no owning table is needed: the handle is the shared pointer plus the same
-// per-(facade, type) dispatch table the views use. There is no inline-storage
-// mode, so the target's address is always stable.
+// dispatch table the views use, born-keyed the same way. There is no
+// inline-storage mode, so the target's address is always stable.
 //
 // Ownership interoperates with `std`: construct from a `std::shared_ptr<T>`
 // (sharing with any outside holders) or a `std::unique_ptr<T>` (which
@@ -2831,6 +2936,33 @@ public:
     return static_cast<bool>(target_);
   }
 
+  // `try_downcast`: attempt to recover a `shared_proxy` of `D`, a facade
+  // extending `F`, from a handle that may have been upcast away from it.
+  //
+  // The table remembers the facade the target was born as, exactly as with
+  // the owning proxy (see `proxy::try_downcast`), including a birth adopted
+  // from a consumed `proxy`. Because shared ownership is copyable, the
+  // lvalue flavor shares: on success the result is another owner of the one
+  // target and the source keeps its own share. The rvalue flavor transfers
+  // instead, consuming the source only on success. On failure, including an
+  // empty source, the result is empty and the source is untouched.
+  template<Facade D>
+  requires Extends<D, F>
+  [[nodiscard]] shared_proxy<D> try_downcast() const& noexcept {
+    const auto* table = do_find_downcast<D>();
+    if (!table) return {};
+    return shared_proxy<D>{target_, table};
+  }
+  template<Facade D>
+  requires Extends<D, F>
+  [[nodiscard]] shared_proxy<D> try_downcast() && noexcept {
+    const auto* table = do_find_downcast<D>();
+    if (!table) return {};
+    shared_proxy<D> result{std::move(target_), table};
+    vtable_ = nullptr;
+    return result;
+  }
+
 private:
   // `target`: the target address; meaningless when empty.
   [[nodiscard]] void* target() noexcept {
@@ -2842,9 +2974,19 @@ private:
     return target_.get();
   }
 
-  // `shared_proxy`: for `weak_proxy::lock`, whose vtable pointer is already
-  // upcast; an expired weak pointer arrives here null, yielding an empty
-  // handle.
+  // `do_find_downcast`: `D`'s view table from the birth ancestry, or null when
+  // the handle is empty or was not born as `D` or a facade extending it.
+  template<Facade D>
+  [[nodiscard]] const details::vtbuild_t<D>::vtable_t*
+  do_find_downcast() const noexcept {
+    if (!vtable_) return nullptr;
+    return static_cast<const details::vtbuild_t<D>::vtable_t*>(
+        details::find_ancestor(*vtable_->ancestry, &details::facade_tag_v<D>));
+  }
+
+  // `shared_proxy`: for `weak_proxy::lock` and `try_downcast`, whose vtable
+  // pointer is already resolved; a null target (an expired weak pointer)
+  // yields an empty handle.
   shared_proxy(std::shared_ptr<void> target, const vtable_t* vtable) noexcept
       : target_{std::move(target)}, vtable_{vtable} {}
 

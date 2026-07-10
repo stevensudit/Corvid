@@ -1113,10 +1113,11 @@ static_assert(!std::is_nothrow_constructible_v<
 static_assert(std::is_nothrow_constructible_v<
     proxy<lockbox, policies::sbo_only>, proxy<lockbox, policies::sbo_only>&&>);
 
-// Downcasting exists on every owning proxy, priced in the tables rather
-// than the handle, and only toward a facade that strictly extends the
-// proxy's own; whether the birth ancestry actually contains the target
-// facade is `try_downcast`'s runtime answer.
+// Downcasting exists on every owning proxy, both views, and the shared
+// proxy, priced in the tables rather than the handle, and only toward a
+// facade that strictly extends the handle's own; whether the birth ancestry
+// actually contains the target facade is `try_downcast`'s runtime answer. A
+// weak proxy deliberately has none: access goes through `lock()`.
 template<typename P, typename D>
 concept CanTryDowncast = requires(P p) {
   std::move(p).template try_downcast<D>();
@@ -1125,6 +1126,12 @@ static_assert(CanTryDowncast<proxy<gunslinger>, ranger>);
 static_assert(CanTryDowncast<proxy<gunslinger, policies::heap_only>, ranger>);
 static_assert(!CanTryDowncast<proxy<gunslinger>, lockbox>);
 static_assert(!CanTryDowncast<proxy<gunslinger>, gunslinger>);
+static_assert(CanTryDowncast<proxy_view<gunslinger>, ranger>);
+static_assert(CanTryDowncast<const_proxy_view<gunslinger>, ranger>);
+static_assert(CanTryDowncast<shared_proxy<gunslinger>, ranger>);
+static_assert(!CanTryDowncast<weak_proxy<gunslinger>, ranger>);
+static_assert(!CanTryDowncast<proxy_view<gunslinger>, gunslinger>);
+static_assert(!CanTryDowncast<shared_proxy<gunslinger>, lockbox>);
 
 // The shared proxy is copyable, where the unique-owning proxy is not; it
 // upcasts by copy, satisfies base-facade bounds like every handle, and stays
@@ -2058,13 +2065,128 @@ TEST_CASE("Downcast lifetimes", "[proxy]") {
   CHECK(unbox_stats.destroyed == unbox_stats.constructed);
 }
 
+TEST_CASE("Downcasting views", "[proxy]") {
+  // A view built directly over a target is born as its own facade: the
+  // upcast is undoable, and the result is a new view over the same target.
+  // The source is copied from, never consumed, so it stays usable; that is
+  // why the view flavor is const where the owning one is an rvalue method.
+  texas_ranger tex;
+  proxy_view<marshal> vm = tex;
+  proxy_view<gunslinger> vg = vm;
+  vg.fire(3);
+  auto back = vg.try_downcast<marshal>();
+  REQUIRE(back);
+  CHECK(back.arrest(2));
+  CHECK(tex.arrested == 2);
+  CHECK(vg.shots() == 3);
+
+  // The birth is the view's facade, so a downcast past it fails even though
+  // the type conforms further up; failure yields an empty view.
+  CHECK(!vg.try_downcast<ranger>());
+
+  // A view lent from an owning proxy inherits the owner's birth: this
+  // gunslinger view recovers the full ranger, which the directly built view
+  // above could not.
+  auto pr = make_proxy<ranger, texas_ranger>();
+  pr.arrest(4);
+  proxy_view<gunslinger> lent = pr;
+  auto vr = lent.try_downcast<ranger>();
+  REQUIRE(vr);
+  CHECK(vr.track() == 4);
+
+  // A view lent from a shared proxy inherits its birth the same way.
+  auto sp = make_shared_proxy<marshal, texas_ranger>();
+  proxy_view<gunslinger> vs = sp;
+  CHECK(vs.try_downcast<marshal>());
+  CHECK(!vs.try_downcast<ranger>());
+
+  // The const view downcasts to another const view, so mutability never
+  // reopens.
+  const_proxy_view<gunslinger> cg = vm;
+  auto cm = cg.try_downcast<marshal>();
+  REQUIRE(cm);
+  CHECK(cm.describe() == "texas_ranger"s);
+
+  // Through a diamond, a view of the common base sidecasts to either
+  // sibling.
+  trail_boss boss;
+  proxy_view<posse_leader> vp = boss;
+  proxy_view<gunslinger> vgun = vp;
+  auto vb = vgun.try_downcast<bounty_hunter>();
+  REQUIRE(vb);
+  CHECK(vb.claim(1) == 1);
+  auto vm2 = vgun.try_downcast<marshal>();
+  REQUIRE(vm2);
+  CHECK(vm2.arrest(1));
+
+  // An empty view downcasts to an empty view.
+  proxy_view<gunslinger> unbound;
+  CHECK(!unbound.try_downcast<marshal>());
+}
+
+TEST_CASE("Downcasting a shared_proxy", "[proxy]") {
+  // The lvalue flavor shares: the result is another owner of the one
+  // target, and the source keeps its own share, so the target outlives any
+  // subset of its owners.
+  life_stats stats;
+  if (true) {
+    auto sv = make_shared_proxy<vault, small_box>(stats);
+    sv.call<"add">(5);
+    shared_proxy<lockbox> sl = sv;
+    auto back = sl.try_downcast<vault>();
+    REQUIRE(back);
+    CHECK(back.call<"gold">() == 5);
+    back.call<"add">(1);
+    CHECK(sl.call<"gold">() == 6);
+    REQUIRE(sl);
+    sv = {};
+    sl = {};
+    CHECK(stats.destroyed == 0);
+    CHECK(back.call<"gold">() == 6);
+    CHECK(stats.constructed == 1);
+  }
+  CHECK(stats.destroyed == stats.constructed);
+
+  // The rvalue flavor transfers, consuming the source only on success: a
+  // cast past the birth fails and keeps the source whole.
+  shared_proxy<gunslinger> sg{make_proxy<marshal, texas_ranger>()};
+  auto too_deep = std::move(sg).try_downcast<ranger>();
+  CHECK(!too_deep);
+  REQUIRE(sg); // NOLINT(bugprone-use-after-move): kept whole on failure.
+  // NOLINTNEXTLINE(bugprone-use-after-move): the failed cast kept it whole.
+  auto back_down = std::move(sg).try_downcast<marshal>();
+  REQUIRE(back_down);
+  CHECK(!sg); // NOLINT(bugprone-use-after-move): probing moved-from state.
+  CHECK(back_down.arrest(2));
+
+  // A birth adopted from a consumed proxy carries over: born a ranger as a
+  // unique proxy, still a ranger after becoming shared.
+  auto pr = make_proxy<ranger, texas_ranger>();
+  pr.fire(3);
+  shared_proxy<gunslinger> shared_gun{std::move(pr)};
+  auto sr = shared_gun.try_downcast<ranger>();
+  REQUIRE(sr);
+  CHECK(sr.shots() == 3);
+  REQUIRE(shared_gun);
+  CHECK(shared_gun.shots() == 3);
+
+  // An empty handle downcasts to an empty handle.
+  shared_proxy<gunslinger> nobody;
+  CHECK(!nobody.try_downcast<marshal>());
+}
+
 TEST_CASE("Cloning", "[proxy]") {
   // Cloneability is a runtime property of the erased target: `strongbox` is
-  // move-only, so its proxy answers no. An empty proxy clones to an empty
-  // proxy.
+  // move-only, so its proxy answers no. Cloning it anyway is graceful: the
+  // clone is empty, no copy is attempted, and the source is untouched. An
+  // empty proxy clones to an empty proxy.
   life_stats box_stats;
-  const auto locked = make_proxy<lockbox, small_box>(box_stats);
+  auto locked = make_proxy<lockbox, small_box>(box_stats);
+  locked.call<"add">(5);
   CHECK(!locked.can_clone());
+  CHECK(!locked.clone());
+  CHECK(box_stats.copies == 0);
+  CHECK(locked.call<"gold">() == 5);
   proxy<lockbox> nothing;
   CHECK(nothing.can_clone());
   CHECK(!nothing.clone());

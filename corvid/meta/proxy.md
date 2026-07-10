@@ -1,11 +1,12 @@
 # Proxy design
 
-Status: phases 1 through 5 built and tested ([proxy.h](proxy.h),
+Status: phases 1 through 6 built and tested ([proxy.h](proxy.h),
 [proxy_test.cpp](../../tests/portable/proxy_test.cpp)): the `api` mixin, its
 `validate_api` drift check, `extends<Base>` composition with upcasting,
-facade-qualified names with sibling collisions and diamonds, and the
+facade-qualified names with sibling collisions and diamonds, the
 ownership round (storage policies, owning upcast, cloning, `unique_ptr`
-interop, vtable-carried downcasting, and the shared/weak tier).
+interop, vtable-carried downcasting, and the shared/weak tier), and
+downcasting extended to the views and `shared_proxy`.
 Plan for `corvid/meta/proxy.h`, a
 registration-based runtime-polymorphism ("proxy") system: type-erased handles
 over an interface definition, without inheritance, vtable pointers in the
@@ -661,6 +662,27 @@ common base can sidecast to either sibling, since both are in the birth
 ancestry. This is the RTTI the library otherwise does without, reinvented
 on the reinvented vtable.
 
+Downcasting spans the views and the shared tier the same way. The view
+tables took the same born key, defaulting to the facade itself, which is
+the birth of every directly built view and keeps the plain spellings
+untouched, and grew exactly one slot: a pointer to a parallel view
+ancestry whose entries reference view tables rather than owning ones, so
+view-only code never instantiates destroy, relocate, or copy thunks. The
+owning table's embedded view table is built with the owner's birth, and a
+view lent from a `proxy` or `shared_proxy` points into that born family,
+so a lent view recovers exactly what its owner could, while a directly
+built view is born as its own facade.
+
+On the copyable handles the operation is non-consuming. `try_downcast` on
+a view is const and returns a new view over the same target (escaping the
+instance-level deep-const guardrail exactly as copying does;
+`const_proxy_view` downcasts only to another const view, so the guarantee
+tier stays closed). `shared_proxy` has an lvalue flavor that shares,
+minting another owner of the one target, and an rvalue flavor that
+transfers, consuming the source only on success; a birth adopted from a
+consumed `proxy` carries over. `weak_proxy` deliberately has no downcast,
+as it has no dispatch: `lock()` first.
+
 ### Shared and weak ownership
 
 `shared_proxy<F>` is Rust's `Rc<dyn Trait>`: a `std::shared_ptr<void>` plus
@@ -673,7 +695,9 @@ their typed view of the same object) or `std::unique_ptr<T>`, or via
 `make_shared_proxy<F, T>(...)` (target and control block in one
 allocation). Handles upcast implicitly by copy or move; views lend from a
 shared proxy exactly as from an owning one. Deep const is the same guardrail
-it is on the views: copying escapes it. ngcpp built this bespoke
+it is on the views: copying escapes it. Upcasts are undoable through
+`try_downcast`, in a sharing lvalue flavor and a transferring rvalue one
+(see "Downcasting"). ngcpp built this bespoke
 (`make_proxy_shared`, compact internal refcounts) to beat `shared_ptr`
 overhead; reusing std is our accepted trade.
 
@@ -742,8 +766,9 @@ upcasts as well as a live one; expiry stays `lock()`'s business.
   the heap mode), copy (null marking an uncloneable target), a type identity
   tag for typed extraction, the birth ancestry for `try_downcast`, and the
   direct bases' owning tables for the
-  owning upcast. `proxy_view` carries none of this, which is why the view
-  was built first.
+  owning upcast. The view table carries none of the lifetime machinery,
+  which is why the view was built first; its one slot beyond dispatch is
+  the view-ancestry pointer for its own `try_downcast`.
 - Const is handled on two axes. Every handle is deep-const as an instance,
   meaning only const-qualified methods dispatch through a const handle,
   enforced by a constraint on the const `call` overload. For the copyable
@@ -937,7 +962,9 @@ architecture.
    target activity, the throwing un-box leaving its source intact, the
    noexcept partition of the converting constructor, inline and heap
    clones with
-   independence and lifetime balance, `unique_ptr` round-trips preserving
+   independence and lifetime balance, the graceful empty clone of an
+   uncloneable target with the source intact, `unique_ptr` round-trips
+   preserving
    the exact allocation, typed extraction rejecting the wrong type,
    downcasts down a chain, past the birth level (failing with the source
    intact), sideways across a diamond, through storage-mode changes
@@ -956,6 +983,29 @@ architecture.
    sibling's table build, which a deduced return type cannot survive; and an
    `sbo_only` violation detonates as a single clean `static_assert` at
    construction (diagnostic on record in the test).
+6. DONE. Downcasting for the views and `shared_proxy` (described under
+   "Downcasting"): the born key on the view tables, defaulted to the facade
+   so plain spellings were untouched; the parallel view-ancestry family;
+   birth inheritance through the owning table's embedded view table; const
+   non-consuming `try_downcast` on both views; the sharing and transferring
+   flavors on `shared_proxy`; `weak_proxy` stays downcast-free. Verified:
+   view downcast dispatch and target identity, the birth limit on directly
+   built views, lent views recovering the owner's birth from a `proxy` and
+   from a `shared_proxy`, the const view downcasting only to a const view,
+   diamond sidecasts through a view, shared copy-downcasts leaving two
+   owners on one target with balanced lifetimes, the transferring flavor
+   consuming only on success, birth surviving unique-into-shared adoption,
+   empty handles, and the concept probes (views and shared positive,
+   `weak_proxy` negative). Notes from the build: the per-entry view-bases
+   hook was replaced by a per-builder `make_view_bases` with a spelled-out
+   return type, the owning round's diamond re-entrancy rule applied
+   preemptively; and the owning table's embedded view table had to become a
+   copy of the standalone born-keyed instance, because initializing it with
+   a second `make_vtable` call would share one function specialization
+   between two variables, and the view ancestry's back-references re-enter
+   it while it is mid-instantiation (the same hazard, one level up:
+   functions must be entered from exactly one variable, where addresses of
+   mid-instantiation variables are fine).
 
 Header: `corvid/meta/proxy.h`, namespace `corvid::meta::prox`, deliberately
 NOT inline: `facade`, `method`, and `key` are too generic to dump into
@@ -1000,12 +1050,6 @@ were later built in phase 5.
   `std::copyable` with no runtime condition (the shape of ngcpp's
   `support_copy`). `clone()`/`can_clone()` cover the need at runtime, so
   this waits for a use case that wants the compile-time guarantee.
-- Downcasting for `shared_proxy` and the views. The vtable-carried birth
-  generalizes: their tables would take the same born key and ancestry hook.
-  Open decision before building: ancestry entries referencing owning tables
-  would drag destroy-thunk instantiation into view-only code, so a parallel
-  ancestry family over view tables is probably wanted. Deferred as the
-  follow-up to the owning-proxy redesign.
 - Per-name overload sets within a single facade, via distinct keys sharing
   an `api` spelling: `method<"foo-0", void()>` and
   `method<"foo-1", void(int)>` with two `foo` forwarders overloading on the
