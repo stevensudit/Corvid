@@ -1,8 +1,11 @@
 # Proxy design
 
-Status: phases 1 through 3 built and tested ([proxy.h](proxy.h),
+Status: phases 1 through 5 built and tested ([proxy.h](proxy.h),
 [proxy_test.cpp](../../tests/portable/proxy_test.cpp)): the `api` mixin, its
-`validate_api` drift check, and `extends<Base>` composition with upcasting.
+`validate_api` drift check, `extends<Base>` composition with upcasting,
+facade-qualified names with sibling collisions and diamonds, and the
+ownership round (storage policies, owning upcast, cloning, `unique_ptr`
+interop, vtable-carried downcasting, and the shared/weak tier).
 Plan for `corvid/meta/proxy.h`, a
 registration-based runtime-polymorphism ("proxy") system: type-erased handles
 over an interface definition, without inheritance, vtable pointers in the
@@ -44,6 +47,11 @@ buffer plus dispatch pointer).
 | `make_proxy<F, T>(...)`       | `make_proxy`             | `Box::new`           |
 | `make_proxy_view<F>(t)`       | `make_proxy_view`        | `&x as &dyn T`       |
 | `extends<Base>`               | `add_facade`             | supertrait           |
+| `proxy_policy`                | facade-level constraints | (none)               |
+| `clone()` / `can_clone()`     | copyability constraint   | (dyn-clone idiom)    |
+| `try_downcast<D>()`           | (none)                   | (`dyn Any` adjacent) |
+| `shared_proxy<F>`             | `make_proxy_shared`      | `Rc<dyn T>`          |
+| `weak_proxy<F>`               | (its weak counterpart)   | `Weak<dyn T>`        |
 | (internal) dispatch table     | meta                     | vtable + drop glue   |
 
 Naming notes:
@@ -515,6 +523,179 @@ through the qualified spelling of `B`'s method names, so a derived handle
 keeps satisfying a base-facade bound even when the derived list collides on
 the method's plain name.
 
+## Ownership and storage (built)
+
+Views give all the type-erasure anyone could ask for; a proxy's added value
+is ownership, so ownership is where the knobs are. Every knob lives on the
+handle rather than the facade: registration is per (facade, type) and knows
+nothing about any particular handle's storage, so one facade serves proxies
+of every policy, shared proxies, and views simultaneously, and the checks
+fire at proxy construction, the first moment the policy meets the concrete
+type. (No facade-level knob has yet justified itself; the spec's additive
+design means one can be added later without touching existing
+registrations.)
+
+### Storage policies
+
+`proxy<F, Policy>` takes a `proxy_policy` NTTP whose default reproduces the
+baseline handle: a two-pointer inline buffer at `std::max_align_t`
+alignment, heap fallback. The `fixed_function` lesson is that the default
+SBO is sometimes a little too small, so `sbo_size` and `sbo_align` are
+settable, growing only (a target eligible for the default buffer stays
+eligible for every buffer). `alloc` picks the strategy: `sbo_or_heap` (the
+default), `sbo_only` (an ineligible target is a clean `static_assert` at
+construction), or `heap_only` (every target's address is stable, and the
+handle drops its buffer to become two words, like a view). The chosen mode
+is baked into the owning table's identity: tables are per (facade, birth
+facade, type, mode), and the mode discriminates the storage union at
+runtime through the `relocate` slot (the birth key serves downcasting,
+below).
+
+Proxies of different facades and policies interconvert as rvalues through
+one converting constructor, and the source's policy never forecloses a
+conversion: what matters is whether the destination can accommodate the
+target that actually arrives, decided per target at adoption time. An
+inline arrival relocates into the buffer when it fits (the check is purely
+compile-time when the destination's buffer dominates the source's, which
+covers every same-policy move) and otherwise re-boxes onto the heap; a heap
+arrival moves by pointer steal, or un-boxes into an `sbo_only` proxy's
+buffer, the erased target's size and alignment being checked against the
+buffer through the owning table. Exactly the conversions that might change
+the storage mode can throw: the re-boxing allocation, or
+`std::length_error` when an erased target cannot be stored inline and the
+policy forbids the heap (a real error path rather than a precondition,
+since the caller cannot inspect an erased target's size). A throw happens
+before anything moves, leaving the source intact. The static probe
+`can_adopt(source)` answers up front whether a conversion would be
+accommodated, advertising that adoption is not always possible and letting
+a caller sidestep the throw; it is a property of the destination type
+against the source's runtime target, so it needs no destination instance,
+and only an `sbo_only` destination can ever answer no. The mode-changing thunks
+and the other-mode table cross-links live in the owning tables
+(`sbo_to_heap`/`heap_to_sbo`), whose two modes reference each other by
+address.
+
+### Owning upcast
+
+An rvalue `proxy<D>` converts implicitly to `proxy<B>` for any facade `D`
+extends (Rust: `Box<dyn Derived>` to `Box<dyn Base>`). The move transfers
+the target, by relocation or pointer steal exactly as in a same-facade move,
+and leaves the source empty. The mechanism mirrors the views': the owning
+table embeds each direct base's owning table for the same birth, target,
+and mode, and `upcast_owning_vtable` walks the same compile-time-resolved
+route as `upcast_vtable`. The conversion is one-way as a conversion, but
+unlike Rust's own permanent `Box` upcast it can be undone through
+`try_downcast` (below), since the tables remember the birth facade. One
+consequence of the birth key: an upcast proxy's table pointer is a
+different static object from a directly built base proxy's, with identical
+dispatch, so the two are behaviorally indistinguishable rather than
+pointer-identical.
+
+### Cloning
+
+The owning table carries a `copy` slot, null for a target that is not
+copy-constructible. `can_clone()` reports it at runtime, since cloneability
+is a property of the erased target rather than the proxy type (a container
+of proxies can mix), and `clone()` returns a new proxy of the same policy
+owning a copy. Cloning is deliberately a named method rather than a copy
+constructor: an unconditional copy constructor would satisfy
+`std::copyable` for every proxy while failing at runtime for uncloneable
+targets, turning a concept-probed guarantee into a lie (the `std::function`
+trap, institutionalized). Cloning an empty proxy yields an empty one;
+cloning an uncloneable target is a precondition violation, like calling
+through an empty proxy.
+
+### std smart-pointer interop
+
+Ownership enters and leaves a proxy only by way of `std::unique_ptr`; raw
+pointers are never adopted and never exposed. `proxy<F>` constructs from a
+`std::unique_ptr<T>` (also spelled `make_proxy<F>(std::move(up))`), adopting
+the allocation as-is onto the heap path, so nothing is copied or moved and
+the address stays stable; an `sbo_only` proxy instead un-boxes the target
+into its buffer, the fit being a compile-time fact here since the type is
+concrete. `extract<T>()` is the inverse: it verifies `T`
+against the owning table's type tag at runtime (the address of a per-type
+static; on a mismatch or an empty proxy the result is null and the proxy is
+untouched), hands a heap allocation over as-is, and moves an inline target
+onto the heap first. A `unique_ptr`
+converts to `shared_ptr`, so this also buys the shared tier's interop.
+
+### Downcasting (vtable-carried RTTI)
+
+Every owning proxy remembers the facade its target was born as, priced in
+the tables rather than the handle: instances are many and tables are few,
+cold, and deduplicated statics, so the born identity is baked into the
+owning table's key, per (facade, birth facade, type, mode), instead of
+renting a pointer in every handle. Every pointer a table embeds (the
+direct-base tables, the other-mode sibling, the birth ancestry) stays
+within the same born family, so construction over a concrete target lands
+on the birth-keyed family and every conversion stays in it, with no birth
+carrying anywhere in the handles. The table type stays per facade; the
+birth key only selects which static object is pointed at, so handle layout
+is untouched. (An earlier design carried the birth as an opt-in
+policy-gated pointer in the handle; the vtable-carried form replaced it,
+deleting the policy knob, the extra word, and the unknown-birth case at
+once.)
+
+Each table points at a birth ancestry: a static per-(birth facade, type,
+mode) table of {facade identity tag, owning table} covering the birth
+facade and every facade it transitively extends, diamond-deduped. Each
+storage mode has its own ancestry over its own tables, and a mode-changing
+adoption switches to the table's other-mode sibling, so the tables an
+ancestry hands out always match the target's current home.
+
+The birth is the facade the proxy was constructed as, not the concrete
+type's full conformance: a `texas_ranger` created through
+`make_proxy<marshal, texas_ranger>` downcasts back to `marshal` but never
+to `ranger`, even though the type conforms.
+
+`std::move(p).try_downcast<D>()`, constrained to `D` extending the current
+facade, searches the ancestry at runtime by tag. On success the target
+moves into a `proxy<D>` whose table carries the same birth, so casts keep
+working in both directions; on failure, including an empty source, the
+result is empty and the source is untouched, which is why the operation is
+a method on an rvalue rather than a conversion. Through a diamond, the
+common base can sidecast to either sibling, since both are in the birth
+ancestry. This is the RTTI the library otherwise does without, reinvented
+on the reinvented vtable.
+
+### Shared and weak ownership
+
+`shared_proxy<F>` is Rust's `Rc<dyn Trait>`: a `std::shared_ptr<void>` plus
+the same per-(facade, type) dispatch table the views use. The control block
+already type-erases destruction, so no owning table is needed; there is no
+inline mode, so the target's address is always stable; and the handle is
+copyable for free, a copy sharing the one target rather than cloning it. It
+constructs from `std::shared_ptr<T>` (sharing with outside holders, who keep
+their typed view of the same object) or `std::unique_ptr<T>`, or via
+`make_shared_proxy<F, T>(...)` (target and control block in one
+allocation). Handles upcast implicitly by copy or move; views lend from a
+shared proxy exactly as from an owning one. Deep const is the same guardrail
+it is on the views: copying escapes it. ngcpp built this bespoke
+(`make_proxy_shared`, compact internal refcounts) to beat `shared_ptr`
+overhead; reusing std is our accepted trade.
+
+Unique ownership converts into shared, consuming the proxy: a heap-stored
+target is adopted with its allocation intact, the owning table's destroy
+slot becoming the control block's deleter, and an inline target moves onto
+the heap first. On a control-block allocation failure the target is
+destroyed rather than leaked and the source is left empty, `shared_ptr`'s
+own contract for its deleter-taking constructors, a weaker guarantee than
+proxy-to-proxy conversions. The reverse conversion deliberately does not
+exist, statically: unique ownership cannot be recovered from a shared
+target, even at a use count of one, without racing the other owners, which
+is also why `std::shared_ptr` has no `release`. Likewise, nothing but a
+`shared_proxy` converts to a `weak_proxy`, since there is no shared
+ownership to observe.
+
+`weak_proxy<F>` observes without owning, via `std::weak_ptr<void>`. It
+deliberately carries no dispatch: access always goes through `lock()`, which
+returns a `shared_proxy` (empty when every owner is gone), so there is no
+way to call through a target that might be dying. `expired()` is the usual
+advisory answer. Weak proxies upcast among themselves like every other
+handle, by copy or by move and without locking, so an expired observation
+upcasts as well as a live one; expiry stays `lock()`'s business.
+
 ## Mechanism
 
 - `proxiable<T, F>` is a concept synthesized from the facade definition: for
@@ -554,9 +735,13 @@ the method's plain name.
   noexcept. Supported in the MVP rather than deferred because the qualifier
   is baked into the erased ABI (the thunk pointer types), where a retrofit
   would be a break.
-- The owning table carries housekeeping slots (destroy, relocate/move) in
-  addition to the facade methods, the analog of Rust's drop glue.
-  `proxy_view` carries none, which is why the view is built first.
+- The owning table carries housekeeping slots in addition to the facade
+  methods, the analog of Rust's drop glue: destroy, relocate (null marking
+  the heap mode), copy (null marking an uncloneable target), a type identity
+  tag for typed extraction, the birth ancestry for `try_downcast`, and the
+  direct bases' owning tables for the
+  owning upcast. `proxy_view` carries none of this, which is why the view
+  was built first.
 - Const is handled on two axes. Every handle is deep-const as an instance,
   meaning only const-qualified methods dispatch through a const handle,
   enforced by a constraint on the const `call` overload. For the copyable
@@ -729,10 +914,53 @@ architecture.
    shared method; and a same-signature collision blocks `validate_api` for
    the composed facade, which registers with `api_check::off`.
 
+5. DONE. The ownership round (described under "Ownership and storage"): the
+   owning table's final shape (copy slot, type tag, size and alignment,
+   birth ancestry, embedded base owning tables, and the mode-changing
+   thunks with other-mode cross-links), the owning upcast, `proxy_policy`
+   (SBO size and alignment, `sbo_only`/`heap_only`) with
+   accommodate-what-arrives conversions (relocate, re-box, steal, or
+   un-box, decided per target at adoption) with the `can_adopt` up-front
+   probe, `clone`/`can_clone`,
+   `std::unique_ptr` adoption and
+   `extract<T>()`, `try_downcast`, `shared_proxy`/`weak_proxy` with
+   `make_shared_proxy`, and one-way unique-into-shared adoption. Downcasting
+   was first built as an opt-in `downcast` policy flavor carrying a birth
+   pointer in the handle, then redesigned onto the vtable-carried birth key
+   (see "Downcasting"), which deleted the knob, the handle word, and the
+   unknown-birth case. Verified: upcast dispatch and lifetime balance on
+   both storage paths, diamond upcast, policy sizing (a `heap_only` proxy
+   is two words), every direction of
+   cross-policy conversion including the mode changes with their exact
+   target activity, the throwing un-box leaving its source intact, the
+   noexcept partition of the converting constructor, inline and heap
+   clones with
+   independence and lifetime balance, `unique_ptr` round-trips preserving
+   the exact allocation, typed extraction rejecting the wrong type,
+   downcasts down a chain, past the birth level (failing with the source
+   intact), sideways across a diamond, through storage-mode changes
+   via the per-mode ancestries, and of a target born mid-chain (the birth
+   is the construction facade, not the type's potential), shared copies
+   sharing one
+   target, weak observation across owner death, and interop with outside
+   `shared_ptr` holders. Notes from the build: the analyzer cannot see
+   that the table's `relocate` slot discriminates the storage union, so
+   those reads carry targeted suppressions; the born family's static
+   tables and ancestries reference each other by address,
+   which demands a spelled-out variable type, since `auto` deduction would
+   be circular; the owning-bases tuple is built by a per-facade builder
+   member with a spelled-out return type, because a shared per-entry helper
+   is re-entered mid-instantiation when a diamond's ancestry reaches a
+   sibling's table build, which a deduced return type cannot survive; and an
+   `sbo_only` violation detonates as a single clean `static_assert` at
+   construction (diagnostic on record in the test).
+
 Header: `corvid/meta/proxy.h`, namespace `corvid::meta::prox`, deliberately
 NOT inline: `facade`, `method`, and `key` are too generic to dump into
 `corvid`. The call-site vocabulary (`proxy`, `proxy_view`,
-`const_proxy_view`, `make_proxy`, `make_proxy_view`, `Proxiable`) is
+`const_proxy_view`, `shared_proxy`, `weak_proxy`, `proxy_policy`,
+`proxy_alloc`, `make_proxy`, `make_proxy_view`, `make_shared_proxy`,
+`Proxiable`) is
 exported into `corvid::meta` by using-declarations, so consuming code spells
 `proxy_view<foo_like>` unqualified. Only authoring (facades, impls,
 registration) needs `prox::`, the domain those authors already work in.
@@ -744,8 +972,10 @@ happen).
 
 ## Non-goals (MVP)
 
-Copyability opt-in, shared/weak ownership, operator dispatch, conversion
-dispatch, allocator plumbing, RTTI, per-name overload sets.
+Operator dispatch, conversion dispatch, allocator plumbing, RTTI (beyond
+the facade-level `try_downcast`), per-name overload sets.
+Copyability and shared/weak ownership were non-goals here originally and
+were later built in phase 5.
 
 ## Future
 
@@ -763,21 +993,17 @@ dispatch, allocator plumbing, RTTI, per-name overload sets.
   name-mismatched types that avoids a full custom impl. Overlaps in purpose
   with the partial-override pattern above, which needs no new machinery but
   does need the facade author's cooperation.
-- Shared ownership tier, backed by `std::shared_ptr<void>`. The control
-  block already type-erases the destroyer, so a shared-backed proxy needs
-  no destroy slot in the dispatch table, is copyable for free, and gets a
-  `weak_proxy` nearly free via `std::weak_ptr`. ngcpp built this bespoke
-  (`make_proxy_shared`, compact internal refcounts) to beat `shared_ptr`
-  overhead; reusing std is our accepted trade. The plain heap fallback in
-  phase 2 stays unique-owned (destroy slot, move-only, cheaper).
-- Owning upcast, `proxy<D>` -> `proxy<B>`: wanted, deferred. Needs the
-  base's owning table (destroy and relocate slots) reachable for an erased
-  target, either embedded like the view tables or via ngcpp's
-  dispatched-conversion approach. The conversion is one-way: the D-ness of
-  the stored target is unrecoverable without a downcast mechanism
-  (RTTI-adjacent, a non-goal), the same permanence as Rust's
-  `Box<dyn Derived>` -> `Box<dyn Base>`, and part of why ngcpp gates upward
-  conversion behind an explicit opt-in flag.
+- A guaranteed-copyable proxy flavor: a policy whose construction
+  constrains targets to copyable types, making the handle itself satisfy
+  `std::copyable` with no runtime condition (the shape of ngcpp's
+  `support_copy`). `clone()`/`can_clone()` cover the need at runtime, so
+  this waits for a use case that wants the compile-time guarantee.
+- Downcasting for `shared_proxy` and the views. The vtable-carried birth
+  generalizes: their tables would take the same born key and ancestry hook.
+  Open decision before building: ancestry entries referencing owning tables
+  would drag destroy-thunk instantiation into view-only code, so a parallel
+  ancestry family over view tables is probably wanted. Deferred as the
+  follow-up to the owning-proxy redesign.
 - Per-name overload sets within a single facade, via distinct keys sharing
   an `api` spelling: `method<"foo-0", void()>` and
   `method<"foo-1", void(int)>` with two `foo` forwarders overloading on the

@@ -17,6 +17,8 @@
 
 #include <concepts>
 #include <cstddef>
+#include <memory>
+#include <stdexcept>
 #include <string>
 #include <utility>
 #include <vector>
@@ -43,7 +45,7 @@ using namespace corvid::meta::prox::literals;
 // member names line up. Being an ordinary inheritable class, it is also the
 // base for partial overrides (see `sheriff`). It is used when a class is
 // registered for a facade, but can be partially or fully overridden.
-// Inheriting `prox_impl` is optional sugar: it carries the `method_key`
+// Inheriting `proxy_impl_base` is optional sugar: it carries the `method_key`
 // alias, so the bindings spell it unqualified.
 //
 // With reflection, both the API and boilerplate will be generated
@@ -66,7 +68,7 @@ struct gunslinger
     int& shots(this auto&& self) { return self.template call<"shots">(); }
   };
   template<typename T>
-  struct boilerplate: prox_impl {
+  struct boilerplate: proxy_impl_base {
     static int on(method_key<"fire">, T& t, int rounds) {
       return t.fire(rounds);
     }
@@ -150,7 +152,7 @@ struct robber {
 
 // Note the name adaptation, including binding "shots" to a data member.
 consteval auto corvid_proxy_spec(gunslinger*, robber*) {
-  struct as_gunslinger: prox_impl {
+  struct as_gunslinger: proxy_impl_base {
     static int on(method_key<"fire">, robber& r, int rounds) {
       return r.shoot(rounds);
     }
@@ -263,7 +265,7 @@ struct hair_trigger
     }
   };
   template<typename T>
-  struct boilerplate: prox_impl {
+  struct boilerplate: proxy_impl_base {
     static int on(method_key<"fire">, T& t, int rounds) noexcept {
       return t.fire(rounds);
     }
@@ -282,7 +284,7 @@ consteval auto corvid_proxy_spec(hair_trigger*, lawman*) {
 // shapes otherwise line up. Registration is the act of opting in, not proof
 // of conformance.
 consteval auto corvid_proxy_spec(hair_trigger*, robber*) {
-  struct as_hair_trigger: prox_impl {
+  struct as_hair_trigger: proxy_impl_base {
     static int on(method_key<"fire">, robber& r, int rounds) {
       return r.shoot(rounds);
     }
@@ -303,7 +305,7 @@ struct mortar
     }
   };
   template<typename T>
-  struct boilerplate: prox_impl {
+  struct boilerplate: proxy_impl_base {
     static int on(method_key<"lob">, T& t, int shells) {
       return t.lob(shells);
     }
@@ -342,7 +344,7 @@ struct marshal
     }
   };
   template<typename T>
-  struct boilerplate: prox_impl {
+  struct boilerplate: proxy_impl_base {
     static bool on(method_key<"arrest">, T& t, int outlaws) {
       return t.arrest(outlaws);
     }
@@ -359,7 +361,7 @@ struct ranger
     int track(this const auto& self) { return self.template call<"track">(); }
   };
   template<typename T>
-  struct boilerplate: prox_impl {
+  struct boilerplate: proxy_impl_base {
     static int on(method_key<"track">, const T& t) { return t.track(); }
   };
 };
@@ -460,7 +462,7 @@ struct bounty_hunter
     }
   };
   template<typename T>
-  struct boilerplate: prox_impl {
+  struct boilerplate: proxy_impl_base {
     static int on(method_key<"claim">, T& t, int bounties) {
       return t.claim(bounties);
     }
@@ -499,7 +501,7 @@ struct posse_leader
     void rally(this auto&& self) { self.template call<"rally">(); }
   };
   template<typename T>
-  struct boilerplate: prox_impl {
+  struct boilerplate: proxy_impl_base {
     static void on(method_key<"rally">, T& t) { t.rally(); }
   };
 };
@@ -546,7 +548,7 @@ struct camera
     void reload(this auto&& self) { self.template call<"reload">(); }
   };
   template<typename T>
-  struct boilerplate: prox_impl {
+  struct boilerplate: proxy_impl_base {
     static std::string on(method_key<"fire">, const T& t) { return t.fire(); }
     static void on(method_key<"reload">, T& t) { t.reload(); }
   };
@@ -579,7 +581,7 @@ struct war_correspondent
     }
   };
   template<typename T>
-  struct boilerplate: prox_impl {
+  struct boilerplate: proxy_impl_base {
     static std::string on(method_key<"byline">, const T& t) {
       return t.byline();
     }
@@ -639,6 +641,7 @@ struct life_stats {
   int constructed{};
   int destroyed{};
   int moves{};
+  int copies{};
 };
 
 // `strongbox` is a move-only lifetime-counting target. `Pad` scales the
@@ -692,10 +695,50 @@ struct prox::proxy_impl<lockbox, T> {
   static int on(method_key<"gold">, const T& t) { return t.gold(); }
 };
 
-// Registration for every `strongbox` size, via a template hook.
+// `coffer` is `strongbox`'s copyable sibling, for the clone tests.
 template<std::size_t Pad>
-consteval auto corvid_proxy_spec(lockbox*, strongbox<Pad>*) {
-  return prox::make_proxy_spec<lockbox, strongbox<Pad>>();
+struct coffer {
+  explicit coffer(life_stats& stats) noexcept : stats_{&stats} {
+    ++stats_->constructed;
+  }
+  coffer(const coffer& other) noexcept
+      : stats_{other.stats_}, gold_{other.gold_} {
+    ++stats_->constructed;
+    ++stats_->copies;
+  }
+  coffer(coffer&& other) noexcept : stats_{other.stats_}, gold_{other.gold_} {
+    ++stats_->constructed;
+    ++stats_->moves;
+  }
+  coffer& operator=(const coffer&) = delete;
+  coffer& operator=(coffer&&) = delete;
+  ~coffer() { ++stats_->destroyed; }
+
+  int add(int nuggets) { return gold_ += nuggets; }
+  [[nodiscard]] int gold() const { return gold_; }
+
+  life_stats* stats_{};
+  int gold_{};
+  std::byte pad_[Pad]{};
+};
+
+// `vault` composes `lockbox` without adding methods of its own: a pure
+// aggregation level. The owning-upcast lifetime tests move targets through
+// it.
+struct vault
+    : prox::facade<prox::name<"vault">, //
+          prox::extends<lockbox>> {};
+
+// Registration for every `strongbox` and `coffer` size, via chain hooks
+// covering `vault` and `lockbox` alike.
+template<prox::InChainOf<vault> F, std::size_t Pad>
+consteval auto corvid_proxy_spec(F*, strongbox<Pad>*) {
+  return prox::make_proxy_spec<F, strongbox<Pad>>();
+}
+
+template<prox::InChainOf<vault> F, std::size_t Pad>
+consteval auto corvid_proxy_spec(F*, coffer<Pad>*) {
+  return prox::make_proxy_spec<F, coffer<Pad>>();
 }
 
 // One size fits the inline buffer exactly, the other forces the heap path.
@@ -703,6 +746,16 @@ using small_box = strongbox<4>;
 using big_box = strongbox<64>;
 static_assert(sizeof(small_box) <= proxy<lockbox>::sbo_size);
 static_assert(sizeof(big_box) > proxy<lockbox>::sbo_size);
+using small_coffer = coffer<4>;
+using big_coffer = coffer<64>;
+
+// Storage policies the tests exercise, against the default's two-pointer
+// buffer with heap fallback.
+namespace policies {
+constexpr proxy_policy big_sbo{.sbo_size = 96};
+constexpr proxy_policy sbo_only{.alloc = proxy_alloc::sbo_only};
+constexpr proxy_policy heap_only{.alloc = proxy_alloc::heap_only};
+} // namespace policies
 
 // Facade detection.
 static_assert(prox::Facade<gunslinger>);
@@ -850,7 +903,7 @@ struct census
 // Conformance here is a one-off carried impl: `census` exists only to serve
 // the const-view assertions, so it defines no boilerplate at all.
 consteval auto corvid_proxy_spec(census*, lawman*) {
-  struct as_census: prox_impl {
+  struct as_census: proxy_impl_base {
     static std::string on(method_key<"describe">, const lawman& l) {
       return l.describe();
     }
@@ -1002,6 +1055,110 @@ static_assert(
     !std::constructible_from<proxy_view<gunslinger>, const proxy<marshal>&>);
 static_assert(
     !std::constructible_from<proxy_view<gunslinger>, proxy<gunslinger>>);
+
+// Owning upcast: an rvalue proxy converts to a proxy of any facade its
+// facade extends, one or more levels up. Downcasts, lvalue sources, const
+// sources, and unrelated facades do not convert.
+static_assert(std::convertible_to<proxy<ranger>&&, proxy<marshal>>);
+static_assert(std::convertible_to<proxy<ranger>&&, proxy<gunslinger>>);
+static_assert(std::constructible_from<proxy<gunslinger>, proxy<marshal>&&>);
+static_assert(!std::constructible_from<proxy<ranger>, proxy<marshal>&&>);
+static_assert(!std::constructible_from<proxy<marshal>, proxy<ranger>&>);
+static_assert(!std::constructible_from<proxy<marshal>, const proxy<ranger>&&>);
+static_assert(!std::constructible_from<proxy<gunslinger>, proxy<lockbox>&&>);
+static_assert(Proxiable<small_box, vault>);
+static_assert(prox::Extends<vault, lockbox>);
+
+// Storage policies size the handle: a `heap_only` proxy carries no buffer,
+// so it is two words like a view, and a bigger buffer grows the handle.
+static_assert(
+    sizeof(proxy<lockbox, policies::heap_only>) == 2 * sizeof(void*));
+static_assert(
+    sizeof(proxy<lockbox, policies::big_sbo>) > sizeof(proxy<lockbox>));
+static_assert(proxy<lockbox, policies::big_sbo>::sbo_size == 96);
+
+// Policies never foreclose an rvalue conversion: the destination
+// accommodates whatever target arrives, changing its storage mode when its
+// own policy demands. Exactly the conversions that might change the mode
+// (or fail to, under sbo_only) are not noexcept; everything else, including
+// every same-policy move, is.
+static_assert(std::constructible_from<proxy<lockbox, policies::big_sbo>,
+    proxy<lockbox>&&>);
+static_assert(std::constructible_from<proxy<lockbox>,
+    proxy<lockbox, policies::big_sbo>&&>);
+static_assert(std::constructible_from<proxy<lockbox>,
+    proxy<lockbox, policies::heap_only>&&>);
+static_assert(std::constructible_from<proxy<lockbox, policies::heap_only>,
+    proxy<lockbox>&&>);
+static_assert(std::constructible_from<proxy<lockbox>,
+    proxy<lockbox, policies::sbo_only>&&>);
+static_assert(std::constructible_from<proxy<lockbox, policies::sbo_only>,
+    proxy<lockbox>&&>);
+static_assert(std::constructible_from<proxy<lockbox, policies::sbo_only>,
+    proxy<lockbox, policies::heap_only>&&>);
+static_assert(std::constructible_from<proxy<lockbox, policies::big_sbo>,
+    proxy<vault>&&>);
+static_assert(std::is_nothrow_constructible_v<proxy<lockbox>, proxy<vault>&&>);
+static_assert(std::is_nothrow_constructible_v<
+    proxy<lockbox, policies::big_sbo>, proxy<lockbox>&&>);
+static_assert(!std::is_nothrow_constructible_v<proxy<lockbox>,
+    proxy<lockbox, policies::big_sbo>&&>);
+static_assert(!std::is_nothrow_constructible_v<
+    proxy<lockbox, policies::heap_only>, proxy<lockbox>&&>);
+static_assert(
+    std::is_nothrow_constructible_v<proxy<lockbox, policies::heap_only>,
+        proxy<lockbox, policies::heap_only>&&>);
+static_assert(!std::is_nothrow_constructible_v<
+    proxy<lockbox, policies::sbo_only>, proxy<lockbox>&&>);
+static_assert(std::is_nothrow_constructible_v<
+    proxy<lockbox, policies::sbo_only>, proxy<lockbox, policies::sbo_only>&&>);
+
+// Downcasting exists on every owning proxy, priced in the tables rather
+// than the handle, and only toward a facade that strictly extends the
+// proxy's own; whether the birth ancestry actually contains the target
+// facade is `try_downcast`'s runtime answer.
+template<typename P, typename D>
+concept CanTryDowncast = requires(P p) {
+  std::move(p).template try_downcast<D>();
+};
+static_assert(CanTryDowncast<proxy<gunslinger>, ranger>);
+static_assert(CanTryDowncast<proxy<gunslinger, policies::heap_only>, ranger>);
+static_assert(!CanTryDowncast<proxy<gunslinger>, lockbox>);
+static_assert(!CanTryDowncast<proxy<gunslinger>, gunslinger>);
+
+// The shared proxy is copyable, where the unique-owning proxy is not; it
+// upcasts by copy, satisfies base-facade bounds like every handle, and stays
+// deep-const as an instance.
+static_assert(std::copyable<shared_proxy<gunslinger>>);
+static_assert(
+    std::convertible_to<shared_proxy<ranger>, shared_proxy<gunslinger>>);
+static_assert(
+    !std::constructible_from<shared_proxy<ranger>, shared_proxy<gunslinger>>);
+static_assert(Proxiable<shared_proxy<ranger>, gunslinger>);
+static_assert(CanFire<shared_proxy<gunslinger>>);
+static_assert(!CanFire<const shared_proxy<gunslinger>>);
+static_assert(CanDescribe<const shared_proxy<gunslinger>>);
+
+// Ownership converts one way: an rvalue proxy becomes shared, but shared
+// ownership cannot become unique again (there is no race-free way to
+// recover it, which is also why `std::shared_ptr` has no release), and a
+// weak proxy only ever observes a shared one.
+static_assert(
+    std::constructible_from<shared_proxy<gunslinger>, proxy<ranger>&&>);
+static_assert(
+    !std::constructible_from<shared_proxy<gunslinger>, proxy<ranger>&>);
+static_assert(
+    !std::constructible_from<proxy<gunslinger>, shared_proxy<gunslinger>&&>);
+static_assert(
+    !std::constructible_from<proxy<gunslinger>, shared_proxy<ranger>&&>);
+static_assert(
+    !std::constructible_from<weak_proxy<gunslinger>, proxy<gunslinger>&&>);
+
+// Weak proxies upcast among themselves, like every other handle; downcasts
+// do not exist.
+static_assert(std::convertible_to<weak_proxy<ranger>, weak_proxy<gunslinger>>);
+static_assert(
+    !std::constructible_from<weak_proxy<ranger>, weak_proxy<gunslinger>&&>);
 
 // The call-site vocabulary is exported to `corvid::meta`, so this file uses
 // the unqualified spellings throughout. Only authoring (facades, impls,
@@ -1584,6 +1741,508 @@ TEST_CASE("Heterogeneous ownership", "[proxy]") {
     roll_call += ' ';
   }
   CHECK(roll_call == "lawman robber "s);
+}
+
+TEST_CASE("Owning upcast", "[proxy]") {
+  // Moving a derived-facade proxy into a base-facade one transfers the
+  // target: same object, narrowed interface, source left empty.
+  auto pr = make_proxy<ranger, texas_ranger>();
+  pr.fire(3);
+  CHECK(pr.arrest(2));
+  proxy<marshal> pm = std::move(pr);
+  CHECK(!pr); // NOLINT(bugprone-use-after-move): probing moved-from state.
+  REQUIRE(pm);
+  CHECK(pm.shots() == 3);
+  CHECK(pm.arrest(1));
+
+  // A second hop reaches the grandparent; a single hop from `ranger` would
+  // work just as well.
+  proxy<gunslinger> pg = std::move(pm);
+  CHECK(!pm); // NOLINT(bugprone-use-after-move): probing moved-from state.
+  CHECK(pg.describe() == "texas_ranger"s);
+  CHECK(pg.shots() == 3);
+
+  // Upcast assignment goes through the same conversion.
+  auto fresh = make_proxy<ranger, texas_ranger>();
+  pg = std::move(fresh);
+  CHECK(pg.shots() == 0);
+
+  // An empty source yields an empty proxy.
+  proxy<ranger> empty_ranger;
+  proxy<gunslinger> pe = std::move(empty_ranger);
+  CHECK(!pe);
+}
+
+TEST_CASE("Owning upcast through a diamond", "[proxy]") {
+  // Both diamond paths reach the shared ancestor, and dispatch through the
+  // upcast proxies agrees with the derived one.
+  auto pl = make_proxy<posse_leader, trail_boss>();
+  pl.fire(2);
+  CHECK(pl.claim(1) == 1);
+  proxy<bounty_hunter> pb = std::move(pl);
+  CHECK(pb.shots() == 2);
+  CHECK(pb.claim(1) == 2);
+  proxy<gunslinger> pg = std::move(pb);
+  CHECK(pg.shots() == 2);
+  CHECK(pg.describe() == "trail_boss"s);
+}
+
+TEST_CASE("Owning upcast lifetimes", "[proxy]") {
+  life_stats stats;
+  if (true) {
+    // An inline target relocates, one move like any proxy move.
+    auto pv = make_proxy<vault, small_box>(stats);
+    CHECK(pv.call<"add">(5) == 5);
+    proxy<lockbox> pl = std::move(pv);
+    CHECK(stats.moves == 1);
+    CHECK(stats.constructed == 2);
+    CHECK(stats.destroyed == 1);
+    CHECK(pl.call<"gold">() == 5);
+  }
+  CHECK(stats.destroyed == stats.constructed);
+
+  life_stats heap_stats;
+  if (true) {
+    // A heap target moves by pointer steal, with no target activity.
+    auto pv = make_proxy<vault, big_box>(heap_stats);
+    CHECK(pv.call<"add">(7) == 7);
+    proxy<lockbox> pl = std::move(pv);
+    CHECK(heap_stats.moves == 0);
+    CHECK(heap_stats.constructed == 1);
+    CHECK(heap_stats.destroyed == 0);
+    CHECK(pl.call<"gold">() == 7);
+  }
+  CHECK(heap_stats.destroyed == heap_stats.constructed);
+}
+
+// Diagnostics on record: constructing an sbo_only proxy over an ineligible
+// target, e.g. `make_proxy<lockbox, big_box, policies::sbo_only>(stats)`,
+// fires a single clean error from the in-place constructor: "static
+// assertion failed due to requirement 'corvid::prox::proxy_policy{16, 8,
+// 1}.alloc != corvid::prox::proxy_alloc::sbo_only ||
+// details::sbo_fits(corvid::prox::proxy_policy{16, 8, 1})': the target is
+// not eligible for an sbo_only proxy's inline buffer".
+TEST_CASE("Storage policies", "[proxy]") {
+  // A buffer sized for `big_box` stores it inline, so moves relocate instead
+  // of stealing a heap pointer.
+  static_assert(sizeof(big_box) <= policies::big_sbo.sbo_size);
+  life_stats stats;
+  if (true) {
+    auto p = make_proxy<lockbox, big_box, policies::big_sbo>(stats);
+    CHECK(p.call<"add">(3) == 3);
+    auto q = std::move(p);
+    CHECK(stats.moves == 1);
+    CHECK(q.call<"gold">() == 3);
+  }
+  CHECK(stats.destroyed == stats.constructed);
+
+  // A heap_only proxy keeps even an SBO-eligible target on the heap, so its
+  // address is stable and moves steal the pointer.
+  life_stats heap_stats;
+  if (true) {
+    auto p = make_proxy<lockbox, small_box, policies::heap_only>(heap_stats);
+    CHECK(p.call<"add">(4) == 4);
+    auto q = std::move(p);
+    CHECK(heap_stats.moves == 0);
+    CHECK(heap_stats.constructed == 1);
+
+    // Converting to the default policy hands the heap target over intact.
+    proxy<lockbox> r = std::move(q);
+    CHECK(heap_stats.moves == 0);
+    CHECK(r.call<"gold">() == 4);
+  }
+  CHECK(heap_stats.destroyed == heap_stats.constructed);
+
+  // An sbo_only proxy accepts an eligible target; converting it into a
+  // default-policy proxy of a base facade upcasts and relocates in one move.
+  life_stats sbo_stats;
+  if (true) {
+    auto p = make_proxy<vault, small_box, policies::sbo_only>(sbo_stats);
+    CHECK(p.call<"add">(5) == 5);
+    proxy<lockbox> r = std::move(p);
+    CHECK(sbo_stats.moves == 1);
+    CHECK(r.call<"gold">() == 5);
+  }
+  CHECK(sbo_stats.destroyed == sbo_stats.constructed);
+
+  // An inline target arriving at a heap_only proxy re-boxes onto the heap
+  // (one move, upcasting in the same conversion); moves from then on are
+  // pointer steals.
+  life_stats rebox_stats;
+  if (true) {
+    auto p = make_proxy<vault, small_box>(rebox_stats);
+    CHECK(p.call<"add">(8) == 8);
+    proxy<lockbox, policies::heap_only> h = std::move(p);
+    CHECK(!p); // NOLINT(bugprone-use-after-move): probing moved-from state.
+    CHECK(rebox_stats.moves == 1);
+    CHECK(rebox_stats.constructed == 2);
+    CHECK(rebox_stats.destroyed == 1);
+    CHECK(h.call<"gold">() == 8);
+    auto h2 = std::move(h);
+    CHECK(rebox_stats.moves == 1);
+    CHECK(h2.call<"gold">() == 8);
+  }
+  CHECK(rebox_stats.destroyed == rebox_stats.constructed);
+
+  // Adoption accommodates per target, not per policy: from the same
+  // big-buffer source, an oversized inline target re-boxes onto the
+  // destination's heap while a small one relocates into its buffer and
+  // stays inline.
+  life_stats shrink_stats;
+  if (true) {
+    auto p = make_proxy<lockbox, big_box, policies::big_sbo>(shrink_stats);
+    p.call<"add">(2);
+    proxy<lockbox> d = std::move(p);
+    CHECK(shrink_stats.moves == 1);
+    CHECK(d.call<"gold">() == 2);
+    auto d2 = std::move(d);
+    CHECK(shrink_stats.moves == 1);
+    CHECK(d2.call<"gold">() == 2);
+  }
+  CHECK(shrink_stats.destroyed == shrink_stats.constructed);
+  life_stats fit_stats;
+  if (true) {
+    auto p = make_proxy<lockbox, small_box, policies::big_sbo>(fit_stats);
+    p.call<"add">(3);
+    proxy<lockbox> d = std::move(p);
+    CHECK(fit_stats.moves == 1);
+    auto d2 = std::move(d);
+    CHECK(fit_stats.moves == 2);
+    CHECK(d2.call<"gold">() == 3);
+  }
+  CHECK(fit_stats.destroyed == fit_stats.constructed);
+
+  // A heap target un-boxes into an sbo_only proxy's buffer when it fits,
+  // and throws when it cannot, leaving the source intact. `can_adopt`
+  // answers up front, so the throw is avoidable; only an sbo_only
+  // destination can ever refuse, and an empty source is always adoptable.
+  life_stats unbox_stats;
+  if (true) {
+    using sbo_proxy = proxy<lockbox, policies::sbo_only>;
+    auto p = make_proxy<lockbox, small_box, policies::heap_only>(unbox_stats);
+    p.call<"add">(4);
+    CHECK(sbo_proxy::can_adopt(p));
+    sbo_proxy s = std::move(p);
+    CHECK(unbox_stats.moves == 1);
+    CHECK(s.call<"gold">() == 4);
+    auto s2 = std::move(s);
+    CHECK(unbox_stats.moves == 2);
+    CHECK(s2.call<"gold">() == 4);
+
+    auto big = make_proxy<lockbox, big_box, policies::heap_only>(unbox_stats);
+    big.call<"add">(6);
+    CHECK(!sbo_proxy::can_adopt(big));
+    CHECK(proxy<lockbox>::can_adopt(big));
+    proxy<lockbox, policies::heap_only> no_target;
+    CHECK(sbo_proxy::can_adopt(no_target));
+    CHECK_THROWS_AS(sbo_proxy{std::move(big)}, std::length_error);
+    REQUIRE(big); // NOLINT(bugprone-use-after-move): kept whole on failure.
+    CHECK(big.call<"gold">() == 6);
+  }
+  CHECK(unbox_stats.destroyed == unbox_stats.constructed);
+}
+
+TEST_CASE("Downcasting a proxy", "[proxy]") {
+  // Every owning proxy remembers the facade its target was born as (in the
+  // owning table, not the handle), so an upcast can be undone, one level at
+  // a time or straight back down.
+  auto pr = make_proxy<ranger, texas_ranger>();
+  pr.fire(3);
+  proxy<gunslinger> pg = std::move(pr);
+  CHECK(pg.shots() == 3);
+  auto pm = std::move(pg).try_downcast<marshal>();
+  REQUIRE(pm);
+  CHECK(!pg); // NOLINT(bugprone-use-after-move): probing moved-from state.
+  CHECK(pm.arrest(2));
+  auto pr2 = std::move(pm).try_downcast<ranger>();
+  REQUIRE(pr2);
+  CHECK(!pm); // NOLINT(bugprone-use-after-move): probing moved-from state.
+  CHECK(pr2.track() == 2);
+  CHECK(pr2.shots() == 3);
+
+  // A downcast below the birth facade fails, and failure does not consume
+  // the source; the matching cast then succeeds. An empty source fails.
+  auto pc = make_proxy<marshal, constable>();
+  proxy<gunslinger> pg2 = std::move(pc);
+  auto too_deep = std::move(pg2).try_downcast<ranger>();
+  CHECK(!too_deep);
+  REQUIRE(pg2); // NOLINT(bugprone-use-after-move): kept whole on failure.
+  // NOLINTNEXTLINE(bugprone-use-after-move): the failed cast kept it whole.
+  auto pm2 = std::move(pg2).try_downcast<marshal>();
+  REQUIRE(pm2);
+  CHECK(pm2.arrest(1));
+  proxy<gunslinger> unborn;
+  auto still_empty = std::move(unborn).try_downcast<marshal>();
+  CHECK(!still_empty);
+
+  // Through a diamond, the common base can sidecast to either sibling.
+  auto pl = make_proxy<posse_leader, trail_boss>();
+  pl.fire(2);
+  proxy<gunslinger> pgun = std::move(pl);
+  auto pb = std::move(pgun).try_downcast<bounty_hunter>();
+  REQUIRE(pb);
+  CHECK(pb.claim(1) == 1);
+  CHECK(pb.shots() == 2);
+
+  // The birth is the facade the proxy was constructed as, not the concrete
+  // type's full conformance: a texas_ranger born mid-chain downcasts back
+  // to its birth facade but never past it, even though the type conforms
+  // further up.
+  auto born_mid = make_proxy<marshal, texas_ranger>();
+  proxy<gunslinger> pg3 = std::move(born_mid);
+  auto not_ranger = std::move(pg3).try_downcast<ranger>();
+  CHECK(!not_ranger);
+  REQUIRE(pg3); // NOLINT(bugprone-use-after-move): kept whole on failure.
+  // NOLINTNEXTLINE(bugprone-use-after-move): the failed cast kept it whole.
+  auto back_to_birth = std::move(pg3).try_downcast<marshal>();
+  REQUIRE(back_to_birth);
+  CHECK(back_to_birth.describe() == "texas_ranger"s);
+}
+
+TEST_CASE("Downcast lifetimes", "[proxy]") {
+  // The inline target relocates on each cast; everything balances.
+  life_stats stats;
+  if (true) {
+    auto pv = make_proxy<vault, small_box>(stats);
+    pv.call<"add">(4);
+    proxy<lockbox> pl = std::move(pv);
+    CHECK(stats.moves == 1);
+    auto back = std::move(pl).try_downcast<vault>();
+    REQUIRE(back);
+    CHECK(stats.moves == 2);
+    CHECK(back.call<"gold">() == 4);
+  }
+  CHECK(stats.destroyed == stats.constructed);
+
+  // The heap target's allocation is handed through untouched.
+  life_stats heap_stats;
+  if (true) {
+    auto pv = make_proxy<vault, big_box>(heap_stats);
+    pv.call<"add">(6);
+    proxy<lockbox> pl = std::move(pv);
+    auto back = std::move(pl).try_downcast<vault>();
+    REQUIRE(back);
+    CHECK(heap_stats.moves == 0);
+    CHECK(heap_stats.constructed == 1);
+    CHECK(back.call<"gold">() == 6);
+  }
+  CHECK(heap_stats.destroyed == heap_stats.constructed);
+
+  // Mode changes keep the birth memory usable: a mode-changing adoption
+  // lands on the table's other-mode sibling, which carries its own mode's
+  // ancestry. Re-boxing into heap_only, then downcasting (a steal);
+  // un-boxing into sbo_only, then downcasting (a relocation).
+  life_stats rebox_stats;
+  if (true) {
+    auto pv = make_proxy<vault, small_box>(rebox_stats);
+    pv.call<"add">(7);
+    proxy<lockbox, policies::heap_only> pl = std::move(pv);
+    CHECK(rebox_stats.moves == 1);
+    auto back = std::move(pl).try_downcast<vault>();
+    REQUIRE(back);
+    CHECK(rebox_stats.moves == 1);
+    CHECK(back.call<"gold">() == 7);
+  }
+  CHECK(rebox_stats.destroyed == rebox_stats.constructed);
+  life_stats unbox_stats;
+  if (true) {
+    auto pv = make_proxy<vault, small_box, policies::heap_only>(unbox_stats);
+    pv.call<"add">(9);
+    proxy<lockbox, policies::sbo_only> pl = std::move(pv);
+    CHECK(unbox_stats.moves == 1);
+    auto back = std::move(pl).try_downcast<vault>();
+    REQUIRE(back);
+    CHECK(unbox_stats.moves == 2);
+    CHECK(back.call<"gold">() == 9);
+  }
+  CHECK(unbox_stats.destroyed == unbox_stats.constructed);
+}
+
+TEST_CASE("Cloning", "[proxy]") {
+  // Cloneability is a runtime property of the erased target: `strongbox` is
+  // move-only, so its proxy answers no. An empty proxy clones to an empty
+  // proxy.
+  life_stats box_stats;
+  const auto locked = make_proxy<lockbox, small_box>(box_stats);
+  CHECK(!locked.can_clone());
+  proxy<lockbox> nothing;
+  CHECK(nothing.can_clone());
+  CHECK(!nothing.clone());
+
+  // Inline path: the clone copy-constructs into its own buffer, and the two
+  // targets are independent.
+  life_stats stats;
+  if (true) {
+    auto p = make_proxy<lockbox, small_coffer>(stats);
+    CHECK(p.can_clone());
+    p.call<"add">(9);
+    const auto q = p.clone();
+    CHECK(stats.copies == 1);
+    CHECK(q.call<"gold">() == 9);
+    p.call<"add">(1);
+    CHECK(p.call<"gold">() == 10);
+    CHECK(q.call<"gold">() == 9);
+  }
+  CHECK(stats.destroyed == stats.constructed);
+
+  // Heap path: the clone allocates its own copy. Cloning is const-clean, so
+  // a const proxy clones too (into a mutable clone, like copying a const
+  // value).
+  life_stats heap_stats;
+  if (true) {
+    const auto p = make_proxy<lockbox, big_coffer>(heap_stats);
+    auto q = p.clone();
+    CHECK(heap_stats.copies == 1);
+    CHECK(q.call<"add">(2) == 2);
+    CHECK(p.call<"gold">() == 0);
+  }
+  CHECK(heap_stats.destroyed == heap_stats.constructed);
+}
+
+TEST_CASE("unique_ptr interop", "[proxy]") {
+  life_stats stats;
+  if (true) {
+    // Moving a unique_ptr in adopts the allocation: no copy, no move, and
+    // the target's address stays stable even though it would fit inline.
+    auto up = std::make_unique<small_coffer>(stats);
+    const auto* address = up.get();
+    auto p = make_proxy<lockbox>(std::move(up));
+    CHECK(!up); // NOLINT(bugprone-use-after-move): probing moved-from state.
+    CHECK(stats.constructed == 1);
+    CHECK(stats.moves == 0);
+    CHECK(p.call<"add">(6) == 6);
+
+    // Moving the target out hands the exact allocation back.
+    auto out = p.extract<small_coffer>();
+    REQUIRE(out);
+    CHECK(!p);
+    CHECK(out.get() == address);
+    CHECK(out->gold() == 6);
+    CHECK(stats.moves == 0);
+  }
+  CHECK(stats.destroyed == stats.constructed);
+
+  life_stats sbo_stats;
+  if (true) {
+    // Extraction verifies the type at runtime: the wrong type comes back
+    // null and leaves the proxy intact. An inline target moves onto the
+    // heap; an empty proxy has nothing to extract.
+    auto p = make_proxy<lockbox, small_coffer>(sbo_stats);
+    p.call<"add">(3);
+    CHECK(!p.extract<big_coffer>());
+    CHECK(p);
+    auto out = p.extract<small_coffer>();
+    REQUIRE(out);
+    CHECK(!p);
+    CHECK(out->gold() == 3);
+    CHECK(sbo_stats.moves == 1);
+    CHECK(!p.extract<small_coffer>());
+  }
+  CHECK(sbo_stats.destroyed == sbo_stats.constructed);
+
+  // An sbo_only proxy un-boxes an adopted unique_ptr at construction, where
+  // the concrete type makes the fit a compile-time fact.
+  life_stats unbox_stats;
+  if (true) {
+    auto up = std::make_unique<small_coffer>(unbox_stats);
+    up->add(5);
+    auto p = make_proxy<lockbox, policies::sbo_only>(std::move(up));
+    CHECK(unbox_stats.moves == 1);
+    CHECK(p.call<"gold">() == 5);
+  }
+  CHECK(unbox_stats.destroyed == unbox_stats.constructed);
+}
+
+TEST_CASE("Shared ownership", "[proxy]") {
+  life_stats stats;
+  weak_proxy<lockbox> wk;
+  weak_proxy<vault> wexpired;
+  CHECK(!wk.lock());
+  if (true) {
+    auto sv = make_shared_proxy<vault, small_coffer>(stats);
+    REQUIRE(sv);
+    CHECK(sv.call<"add">(5) == 5);
+
+    // A copy, here upcasting as it goes, shares the one target rather than
+    // cloning it, and mutations are visible through every handle.
+    shared_proxy<lockbox> sl = sv;
+    CHECK(stats.constructed == 1);
+    CHECK(sl.call<"add">(1) == 6);
+    CHECK(sv.call<"gold">() == 6);
+
+    // Views lend from a shared proxy exactly as from an owning one.
+    proxy_view<lockbox> v = sv;
+    CHECK(v.call<"gold">() == 6);
+    const_proxy_view<lockbox> cv = std::as_const(sv);
+    CHECK(cv.call<"gold">() == 6);
+
+    // A weak proxy observes without owning; locking regains a shared owner.
+    wk = sv;
+    CHECK(!wk.expired());
+    auto locked = wk.lock();
+    REQUIRE(locked);
+    CHECK(locked.call<"gold">() == 6);
+
+    // Weak proxies also upcast among themselves, without locking.
+    weak_proxy<vault> wv = sv;
+    weak_proxy<lockbox> wl = wv;
+    auto relocked = wl.lock();
+    REQUIRE(relocked);
+    CHECK(relocked.call<"gold">() == 6);
+    wexpired = wv;
+  }
+  // Every owner is gone, so the target is too, exactly once, and the weak
+  // proxy answers accordingly.
+  CHECK(stats.constructed == 1);
+  CHECK(stats.destroyed == stats.constructed);
+  CHECK(wk.expired());
+  CHECK(!wk.lock());
+
+  // An expired weak proxy upcasts too (here by move), still observing the
+  // dead target; expiry stays lock's business.
+  weak_proxy<lockbox> from_expired = std::move(wexpired);
+  CHECK(from_expired.expired());
+  CHECK(!from_expired.lock());
+}
+
+TEST_CASE("Shared ownership interop with std", "[proxy]") {
+  // A unique_ptr converts into shared ownership on the way in.
+  auto up = std::make_unique<lawman>();
+  shared_proxy<gunslinger> sg{std::move(up)};
+  CHECK(sg.fire(2) == 2);
+
+  // Sharing with an outside shared_ptr keeps the object somewhere canonical:
+  // the typed holder and the erased handle see the same target.
+  auto sr = std::make_shared<robber>();
+  shared_proxy<gunslinger> sg2{sr};
+  CHECK(sg2.fire(3) == 3);
+  CHECK(sr->fired == 3);
+  sr->rearm();
+  CHECK(sg2.shots() == 0);
+
+  // An owning proxy converts into shared ownership, consuming the source: a
+  // heap target keeps its allocation (the owning table's destroy slot
+  // becomes the control block's deleter), an inline target moves onto the
+  // heap first, and either can upcast on the way.
+  life_stats stats;
+  if (true) {
+    auto heap_owner = make_proxy<vault, big_box>(stats);
+    heap_owner.call<"add">(4);
+    shared_proxy<lockbox> shared_heap{std::move(heap_owner)};
+    CHECK(!heap_owner); // NOLINT(bugprone-use-after-move): probing.
+    CHECK(stats.moves == 0);
+    CHECK(shared_heap.call<"gold">() == 4);
+    auto another = shared_heap;
+    CHECK(stats.constructed == 1);
+    CHECK(another.call<"gold">() == 4);
+
+    auto inline_owner = make_proxy<lockbox, small_box>(stats);
+    inline_owner.call<"add">(2);
+    shared_proxy<lockbox> shared_inline{std::move(inline_owner)};
+    CHECK(stats.moves == 1);
+    CHECK(shared_inline.call<"gold">() == 2);
+  }
+  CHECK(stats.destroyed == stats.constructed);
 }
 
 // NOLINTEND(readability-function-cognitive-complexity)
