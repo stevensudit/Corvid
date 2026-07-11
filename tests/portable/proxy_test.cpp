@@ -636,6 +636,107 @@ consteval auto corvid_proxy_spec(F*, photographer*) {
     return prox::make_proxy_spec<F, photographer, check>();
 }
 
+// `arsenal` exercises per-name overload sets within one facade: `issue`
+// overloads on arity, `aim` on argument type, and `count` is the const pair
+// (a mutable accessor and a read-only query sharing the name, like a
+// container's `front`).
+//
+// The bindings overload naturally: the boilerplate's `on`s share one
+// `method_key` and differ in the trailing parameters, or in the constness
+// of the target for the const pair. The `api` follows the standard member
+// idiom, with the const pair split across `this auto&&` and
+// `this const auto&` forwarders, so overload resolution picks the const
+// flavor for const handles exactly as it would for a real member pair. The
+// registration validates the `api` by default, pinning that `validate_api`
+// drives each overload independently.
+struct arsenal
+    : prox::facade<prox::name<"arsenal">,       //
+          prox::method<"issue", int(int)>,      //
+          prox::method<"issue", int()>,         //
+          prox::method<"aim", int(int)>,        //
+          prox::method<"aim", int(double)>,     //
+          prox::method<"count", int&()>,        //
+          prox::method<"count", int() const>> { //
+  struct api {
+    int issue(this auto&& self, int rifles) {
+      return self.template call<"issue">(rifles);
+    }
+    int issue(this auto&& self) { return self.template call<"issue">(); }
+    int aim(this auto&& self, int paces) {
+      return self.template call<"aim">(paces);
+    }
+    int aim(this auto&& self, double radians) {
+      return self.template call<"aim">(radians);
+    }
+    // The mutable accessor's forwarder repeats its call in a trailing
+    // requires-clause (the documented api caveat, load-bearing here): a
+    // `const_proxy_view` is a mutable object whose deep const lives in the
+    // type, so object constness alone would send it to this overload, and
+    // the constraint routes it to the const forwarder instead.
+    int& count(this auto&& self)
+    requires(requires {
+      { self.template call<"count">() } -> std::same_as<int&>;
+    })
+    {
+      return self.template call<"count">();
+    }
+    int count(this const auto& self) { return self.template call<"count">(); }
+  };
+  template<typename T>
+  struct boilerplate: proxy_impl_base {
+    static int on(method_key<"issue">, T& t, int rifles) {
+      return t.issue(rifles);
+    }
+    static int on(method_key<"issue">, T& t) { return t.issue(); }
+    static int on(method_key<"aim">, T& t, int paces) { return t.aim(paces); }
+    static int on(method_key<"aim">, T& t, double radians) {
+      return t.aim(radians);
+    }
+    static int& on(method_key<"count">, T& t) { return t.count(); }
+    static int on(method_key<"count">, const T& t) { return t.count(); }
+  };
+};
+
+// `armory` extends `arsenal`, inheriting the overload sets whole.
+struct armory
+    : prox::facade<prox::name<"armory">,  //
+          prox::extends<arsenal>,         //
+          prox::method<"lock", void()>> { //
+  struct api: arsenal::api {
+    void lock(this auto&& self) { self.template call<"lock">(); }
+  };
+  template<typename T>
+  struct boilerplate: proxy_impl_base {
+    static void on(method_key<"lock">, T& t) { t.lock(); }
+  };
+};
+
+// `quartermaster` conforms with naturally overloaded members, including the
+// const pair.
+struct quartermaster {
+  int issue(int rifles) { return stock_ -= rifles; }
+  int issue() { return issue(1); }
+  int aim(int paces) {
+    (void)this;
+    return paces;
+  }
+  int aim(double radians) {
+    (void)this;
+    return static_cast<int>(radians * 100);
+  }
+  int& count() { return stock_; }
+  [[nodiscard]] int count() const { return stock_; }
+  void lock() { ++locked_; }
+
+  int stock_{20};
+  int locked_{};
+};
+
+template<prox::InChainOf<armory> F>
+consteval auto corvid_proxy_spec(F*, quartermaster*) {
+  return prox::make_proxy_spec<F, quartermaster>();
+}
+
 // Lifetime accounting shared by the owning-proxy targets.
 struct life_stats {
   int constructed{};
@@ -936,13 +1037,15 @@ static_assert(!prox::Extends<marshal, marshal>);
 // to false"; the walk does not name the missing base facade. Redeclaring an
 // inherited name (`facade<extends<gunslinger>, method<"fire", int(int)>>`)
 // detonates at first use of the facade's machinery: "static assertion
-// failed ... 'no_chain_collision_against<...>()': a facade cannot declare a
-// method name twice or redeclare an inherited one", with the flattened slot
-// list, duplicate and declaring facades included, spelled out in the
-// requirement, followed by one follow-on "no type named 'vtable_t'" noise
-// error. (Before the rework, the same shape failed 'unique_method_names'
-// with "method names must be unique across the facade and its extends
-// bases".)
+// failed ... 'no_chain_collision_against<...>()': a method name may recur
+// within one facade only as overloads differing in arguments or constness,
+// and never across an extends chain", with the flattened slot list,
+// duplicate and declaring facades included, spelled out in the requirement,
+// followed by one follow-on "no type named 'vtable_t'" noise error. (Before
+// per-name overloads the message read "a facade cannot declare a method
+// name twice or redeclare an inherited one"; before the collision-rules
+// rework, the same shape failed 'unique_method_names' with "method names
+// must be unique across the facade and its extends bases".)
 static_assert(Proxiable<texas_ranger, gunslinger>);
 static_assert(Proxiable<texas_ranger, marshal>);
 static_assert(Proxiable<texas_ranger, ranger>);
@@ -1015,16 +1118,76 @@ static_assert(prox::validate_api<camera>());
 //
 // The unqualified core spelling is the same lazy error, via static_assert
 // rather than overload resolution, so it cannot be probed by a concept.
-// Diagnostic on record instead (clang 22, captured 2026-07-09):
-// `wc.call<"reload">()` fires "static assertion failed due to requirement
-// 'ndx != ...::ambiguous_v': ambiguous method name; qualify the key with
-// the facade name", followed by the accepted "tuple index out of bounds"
-// noise, matching the unknown-name case.
+// Diagnostic on record instead (clang 22, captured 2026-07-09, message
+// re-worded 2026-07-10 when per-name overloads made the qualify-the-key
+// advice insufficient on its own): `wc.call<"reload">()` fires "static
+// assertion failed due to requirement 'ndx != ...::ambiguous_v': ambiguous
+// method call; qualify the key with the facade name, or match one
+// overload's arguments exactly", followed by the accepted "tuple index out
+// of bounds" noise, matching the unknown-name case.
 template<typename P>
 concept CanReloadSugar = requires(P& p) { p.reload(); };
 static_assert(CanReloadSugar<proxy_view<gunslinger>>);
 static_assert(CanReloadSugar<proxy_view<camera>>);
 static_assert(!CanReloadSugar<proxy_view<war_correspondent>>);
+
+// Per-name overload sets within one facade (`arsenal`). Legal when each
+// same-name pair differs in arguments or constness; overloading on the
+// result type or on `noexcept` alone stays a collision, and redeclaring an
+// inherited name stays an error, whatever its signature (the chain rules
+// are untouched). Registration validates the overloaded `api` by default.
+//
+// Diagnostics on record (clang 22, captured 2026-07-10). A pair differing
+// only in the result type (`method<"x", int()>` plus `method<"x", long()>`)
+// detonates at first use of the facade's machinery: "static assertion
+// failed ... 'no_chain_collision_against<...>()': a method name may recur
+// within one facade only as overloads differing in arguments or constness,
+// and never across an extends chain", both slots spelled out in the
+// requirement, followed by the usual single "no type named 'vtable_t'"
+// noise error. A pair differing only in `noexcept` fires the same assert.
+static_assert(Proxiable<quartermaster, arsenal>);
+static_assert(Proxiable<quartermaster, armory>);
+static_assert(prox::validate_api<arsenal>());
+static_assert(prox::validate_api<armory>());
+
+// Self-conformance holds through overload sets: the library bindings
+// forward through qualified keys, which narrow the candidates to one
+// facade's and then resolve by arguments like any overloaded call.
+static_assert(Proxiable<proxy_view<arsenal>, arsenal>);
+static_assert(Proxiable<proxy_view<armory>, arsenal>);
+static_assert(Proxiable<proxy<armory>, arsenal>);
+
+// The const pair's result types pin the object-parameter preference: a
+// mutable handle resolves `count` to the mutable accessor, and const
+// handles to the read-only query.
+static_assert(std::same_as<
+    decltype(std::declval<proxy_view<arsenal>&>().call<"count">()), int&>);
+static_assert(std::same_as<
+    decltype(std::declval<const proxy_view<arsenal>&>().call<"count">()),
+    int>);
+static_assert(std::same_as<
+    decltype(std::declval<const_proxy_view<arsenal>&>().call<"count">()),
+    int>);
+
+// At the sugar level the forwarders are a plain C++ overload set, so an
+// argument both `aim`s can only convert to (a `long`) is a probeable
+// ambiguity; the unqualified core spelling is the same lazy error via
+// static_assert (diagnostic below). A `short` shows the documented
+// divergence: real overload resolution promotes it into the int forwarder,
+// while the core model's viable tier does not rank conversions (see
+// `resolve`), so `call<"aim">(short{})` is the ambiguity static_assert.
+//
+// Diagnostic on record (clang 22, captured 2026-07-10): `v.call<"aim">(1L)`
+// fires "static assertion failed due to requirement 'ndx !=
+// ...::ambiguous_v': ambiguous method call; qualify the key with the facade
+// name, or match one overload's arguments exactly", followed by the
+// accepted "tuple index out of bounds" noise.
+template<typename P, typename A>
+concept CanAimSugar = requires(P& p, A a) { p.aim(a); };
+static_assert(CanAimSugar<proxy_view<arsenal>, int>);
+static_assert(CanAimSugar<proxy_view<arsenal>, double>);
+static_assert(CanAimSugar<proxy_view<arsenal>, short>);
+static_assert(!CanAimSugar<proxy_view<arsenal>, long>);
 
 // Handles of a derived facade satisfy the base facade too (Rust: a `dyn
 // Derived` meets a `Base` bound).
@@ -1637,6 +1800,45 @@ TEST_CASE("Sibling method collisions", "[proxy]") {
   gun.reload();
   CHECK(ph.rounds_fired == 0);
   CHECK(ph.film_wound == 2);
+}
+
+TEST_CASE("Per-name overloads", "[proxy]") {
+  quartermaster q;
+  proxy_view<arsenal> v = q;
+
+  // Arity overloads resolve by argument count, through the sugar and the
+  // core spelling alike.
+  CHECK(v.issue(2) == 18);
+  CHECK(v.issue() == 17);
+  CHECK(v.call<"issue">(2) == 15);
+  CHECK(v.call<"issue">() == 14);
+
+  // Type overloads resolve by exact argument match.
+  CHECK(v.aim(3) == 3);
+  CHECK(v.aim(0.5) == 50);
+  CHECK(v.call<"aim">(7) == 7);
+  CHECK(v.call<"aim">(0.25) == 25);
+
+  // The const pair: a mutable handle prefers the non-const member, so the
+  // accessor writes through; const handles dispatch the read-only query.
+  v.count() = 30;
+  CHECK(q.stock_ == 30);
+  CHECK(std::as_const(v).count() == 30);
+  const_proxy_view<arsenal> cv = v;
+  CHECK(cv.count() == 30);
+
+  // The overload sets survive extends flattening and the qualified
+  // spelling, on owning and shared handles alike.
+  auto p = make_proxy<armory, quartermaster>();
+  CHECK(p.issue(4) == 16);
+  p.count() = 8;
+  CHECK(std::as_const(p).count() == 8);
+  CHECK(p.call<"arsenal::issue">() == 7);
+  p.lock();
+
+  auto sp = make_shared_proxy<arsenal, quartermaster>();
+  CHECK(sp.issue() == 19);
+  CHECK(sp.count() == 19);
 }
 
 TEST_CASE("Diamond composition", "[proxy]") {

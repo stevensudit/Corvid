@@ -1095,14 +1095,31 @@ consteval bool same_chain_owners() noexcept {
            vtbuild_t<o2_t>::template extends_facade<o1_t>();
 }
 
+// `legal_overload_pair`: whether two same-name slots declared by the same
+// facade form a legal overload pair: distinct normalized argument lists, or
+// the same arguments with different constness (the const-pair idiom, a
+// mutable accessor and a read-only query sharing a name).
+//
+// The C++ member rules apply: the result type and `noexcept` do not
+// overload, so a pair distinguished by nothing else is a collision.
+template<typename S1, typename S2>
+consteval bool legal_overload_pair() noexcept {
+  using args1_t = method_traits<typename S1::method_t>::norm_args_t;
+  using args2_t = method_traits<typename S2::method_t>::norm_args_t;
+  return !std::same_as<args1_t, args2_t> || S1::const_v != S2::const_v;
+}
+
 // `no_chain_collision_against`, `owner_names_unique_against`: the two
 // collision detonators, each pitting slot `S1` against the whole list.
 // Post-dedup, a repeated slot type is only ever the self-pairing, so same-type
 // pairs are skipped.
 //
-// A method name may not recur within one extends chain (a doubled declaration,
-// or a derived facade redeclaring an inherited name, which is rejected by
-// design: facades carry no implementations, so there is nothing to override).
+// Within one declaring facade, a recurring method name is an overload set,
+// legal when every pair differs in arguments or constness (see
+// `legal_overload_pair`). Across an extends chain a name may not recur at
+// all: a derived facade cannot redeclare (or overload, or override) an
+// inherited name, by design, because facades carry no implementations and
+// there is nothing to override.
 //
 // Unrelated sibling facades may collide on a method name freely, since every
 // facade is named and the qualified spelling is always available as the route
@@ -1111,9 +1128,12 @@ consteval bool same_chain_owners() noexcept {
 // collide.
 template<typename S1, typename... Ss>
 consteval bool no_chain_collision_against() noexcept {
-  return ((std::same_as<S1, Ss> || S1::name_v != Ss::name_v ||
-              !same_chain_owners<S1, Ss>()) &&
-          ...);
+  return (
+      (std::same_as<S1, Ss> || S1::name_v != Ss::name_v ||
+          (std::same_as<typename S1::owner_t, typename Ss::owner_t>
+                  ? legal_overload_pair<S1, Ss>()
+                  : !same_chain_owners<S1, Ss>())) &&
+      ...);
 }
 
 template<fixed_string OwnName, typename S1, typename... Ss>
@@ -1210,8 +1230,8 @@ struct vtable_builder_impl;
 template<typename... Ss, typename... Bs, fixed_string OwnName>
 struct vtable_builder_impl<std::tuple<Ss...>, std::tuple<Bs...>, OwnName> {
   static_assert((no_chain_collision_against<Ss, Ss...>() && ...),
-      "a facade cannot declare a method name twice or redeclare an inherited "
-      "one");
+      "a method name may recur within one facade only as overloads differing "
+      "in arguments or constness, and never across an extends chain");
   static_assert((owner_names_unique_against<OwnName, Ss, Ss...>() && ...),
       "facade names must be unique within a composition");
 
@@ -1356,41 +1376,82 @@ struct vtable_builder_impl<std::tuple<Ss...>, std::tuple<Bs...>, OwnName> {
     return {cnt, at};
   }
 
+  // `nonconst_flags`: per-slot flags marking the non-const methods, the
+  // tiebreak preference for dispatch through a mutable handle.
+  static consteval std::array<bool, count_v> nonconst_flags() noexcept {
+    return {!Ss::const_v...};
+  }
+
+  // `tally_preferring_nonconst`: tally `flags`, breaking a tie in favor of a
+  // unique non-const candidate.
+  //
+  // This is C++ overload resolution's object-parameter preference, applied
+  // as a tiebreak: through a mutable handle (`ConstOnly` false), a name
+  // overloaded on constness alone resolves to its non-const member, as a
+  // call on a non-const object would. Through a const handle the candidate
+  // set was already const-filtered, so there is nothing to prefer. The
+  // preference is uniform across a candidate set, so a sibling collision
+  // differing only in constness resolves the same way, matching the stated
+  // using-merge model.
+  template<bool ConstOnly>
+  static consteval std::pair<std::size_t, std::size_t>
+  tally_preferring_nonconst(const std::array<bool, count_v>& flags) noexcept {
+    const auto whole = tally(flags);
+    if constexpr (!ConstOnly) {
+      if (whole.first > 1) {
+        const auto preferred = tally(both(flags, nonconst_flags()));
+        if (preferred.first == 1) return preferred;
+      }
+    }
+    return whole;
+  }
+
   // `resolve`: resolve `Key`, called with `CallArgs`, to a slot index, or to
   // `none_v` or `ambiguous_v`.
   //
-  // A qualified key names its slot outright. An unqualified key with a
-  // single candidate resolves to it unconditionally, so a call with
-  // unsuitable arguments still fails directly at the thunk. An unqualified
-  // key over a sibling overload set resolves the way a C++ call would: a
-  // unique exact signature match wins, else a unique viable candidate, and
-  // anything else is ambiguous and needs the qualified spelling. `ConstOnly`
-  // restricts the candidates to const-qualified methods, for dispatch
-  // through const handles.
+  // An unqualified key with a single candidate resolves to it
+  // unconditionally, so a call with unsuitable arguments still fails
+  // directly at the thunk; a qualified key narrows the candidates to one
+  // facade's before the same rules run. A key over an overload set (per-name
+  // overloads within a facade, or a sibling collision) resolves the way a
+  // C++ call would after a using-merge: a unique exact signature match
+  // wins, else a unique viable candidate, with constness as the tiebreak
+  // within each tier (see `tally_preferring_nonconst`), and anything else
+  // is ambiguous. `ConstOnly` restricts the candidates to const-qualified
+  // methods, for dispatch through const handles.
+  //
+  // The two tiers plus the tiebreak are deliberately not full C++
+  // implicit-conversion ranking: within the viable tier no candidate
+  // outranks another by conversion quality (a promotion does not beat a
+  // conversion), and an exact argument match on a const method outranks the
+  // object-parameter preference where real member overloading would weigh
+  // them together. Arguments first, constness second, predictably.
   template<fixed_string Key, bool ConstOnly, typename... CallArgs>
   static consteval std::size_t resolve() noexcept {
     constexpr auto cand = candidates<Key, ConstOnly>();
     const auto [cnt, at] = tally(cand);
     if (cnt < 2) return cnt ? at : none_v;
-    const auto [exact_cnt, exact_at] =
-        tally(both(cand, exact_flags<CallArgs...>()));
+    const auto [exact_cnt, exact_at] = tally_preferring_nonconst<ConstOnly>(
+        both(cand, exact_flags<CallArgs...>()));
     if (exact_cnt == 1) return exact_at;
     if (exact_cnt > 1) return ambiguous_v;
-    const auto [viable_cnt, viable_at] =
-        tally(both(cand, viable_flags<CallArgs...>()));
+    const auto [viable_cnt, viable_at] = tally_preferring_nonconst<ConstOnly>(
+        both(cand, viable_flags<CallArgs...>()));
     if (viable_cnt == 1) return viable_at;
     return viable_cnt ? ambiguous_v : none_v;
   }
 
   // `resolve_exact`: resolve `Key` to the unique candidate whose declared
-  // parameters match `CallArgs` exactly.
+  // parameters match `CallArgs` exactly, with the same constness tiebreak as
+  // `resolve`.
   //
   // This is the validation probe's strictness: a merely-viable signature does
-  // not count.
+  // not count. The tiebreak is what lets the probe's mutable strict call
+  // single out the non-const member of a const pair.
   template<fixed_string Key, bool ConstOnly, typename... CallArgs>
   static consteval std::size_t resolve_exact() noexcept {
-    const auto [cnt, at] =
-        tally(both(candidates<Key, ConstOnly>(), exact_flags<CallArgs...>()));
+    const auto [cnt, at] = tally_preferring_nonconst<ConstOnly>(
+        both(candidates<Key, ConstOnly>(), exact_flags<CallArgs...>()));
     if (cnt == 1) return at;
     return cnt ? ambiguous_v : none_v;
   }
@@ -1655,7 +1716,8 @@ dispatch(const typename vtbuild_t<F>::thunks_t& tks, ErasedPtr target,
       vtbuild_t<F>::template resolve<Key, ConstOnly, Args...>();
   static_assert(ndx != vtbuild_t<F>::none_v, "no matching signature");
   static_assert(ndx != vtbuild_t<F>::ambiguous_v,
-      "ambiguous method name; qualify the key with the facade name");
+      "ambiguous method call; qualify the key with the facade name, or match "
+      "one overload's arguments exactly");
   return std::get<ndx>(tks)(target, std::forward<Args>(args)...);
 }
 

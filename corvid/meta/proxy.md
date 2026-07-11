@@ -5,8 +5,9 @@ Status: phases 1 through 6 built and tested ([proxy.h](proxy.h),
 `validate_api` drift check, `extends<Base>` composition with upcasting,
 facade-qualified names with sibling collisions and diamonds, the
 ownership round (storage policies, owning upcast, cloning, `unique_ptr`
-interop, vtable-carried downcasting, and the shared/weak tier), and
-downcasting extended to the views and `shared_proxy`.
+interop, vtable-carried downcasting, and the shared/weak tier), downcasting
+extended to the views and `shared_proxy`, and per-name overload sets within
+a facade.
 Plan for `corvid/meta/proxy.h`, a
 registration-based runtime-polymorphism ("proxy") system: type-erased handles
 over an interface definition, without inheritance, vtable pointers in the
@@ -62,8 +63,9 @@ Naming notes:
 - `facade` over `trait`: matches ngcpp, and "trait(s)" is irreversibly
   loaded in C++ (`std::char_traits`, type traits).
 - `method` collapses ngcpp's dispatch (the what) and convention (the
-  signature) into one entity; we do not support overload sets per name in
-  the MVP.
+  signature) into one entity; a per-name overload set is spelled by listing
+  the name repeatedly (ngcpp instead lists several signatures in one
+  convention).
 - Nominal identity lives at the facade level: `proxy_impl<F, T>` is keyed on
   the pair, so declaring `method<"draw", ...>` inline in two unrelated
   facades cannot cross-contaminate. Conforming to a `weapon` facade says
@@ -367,12 +369,13 @@ derived facade dispatches inherited and own methods alike. Flattening keeps
 each method's declaring facade (a slot is a method plus its owner), which is
 what the collision rules, qualified keys, and diamond dedup below all read.
 
-A method name may not recur within one extends chain, enforced by a
-`static_assert` detonator at first use of the facade's machinery: a facade
-cannot declare a name twice or redeclare (or override) an inherited one,
-which is by design, because facades carry no implementations and there is
-nothing to override. Unrelated sibling bases MAY collide on a method name
-(see "Facade names and sibling collisions"). Diamonds are supported: a
+A method name may recur within one facade only as an overload set (see
+"Per-name overload sets"), and never elsewhere in an extends chain,
+enforced by a `static_assert` detonator at first use of the facade's
+machinery: a derived facade cannot redeclare (or overload, or override) an
+inherited name, which is by design, because facades carry no
+implementations and there is nothing to override. Unrelated sibling bases
+MAY collide on a method name (see "Facade names and sibling collisions"). Diamonds are supported: a
 shared ancestor reached through more than one path
 dedups to a single set of slots by facade identity, and since conformance is
 per facade there is only one `proxy_impl<Ancestor, T>` to reach no matter
@@ -525,6 +528,57 @@ The library's self-conformance bindings (`proxy_impl<B, handle<D>>`) forward
 through the qualified spelling of `B`'s method names, so a derived handle
 keeps satisfying a base-facade bound even when the derived list collides on
 the method's plain name.
+
+### Per-name overload sets (built)
+
+A facade may declare one method name several times, forming an overload
+set: `method<"issue", int(int)>` alongside `method<"issue", int()>`. A
+same-name pair must differ in its argument lists or in constness; the C++
+member rules apply, so the result type and `noexcept` do not overload, and
+a pair distinguished by nothing else stays a collision. The chain rules are
+untouched (a derived facade cannot redeclare, overload, or override an
+inherited name), and sibling collisions keep their own rules above.
+
+An unqualified call resolves over the whole candidate set the way a C++
+call would after a using-merge: a unique exact argument match wins, else a
+unique viable candidate, with C++'s object-parameter preference applied as
+a tiebreak within each tier, so a mutable handle resolves a const pair
+(`method<"count", int&()>` with `method<"count", int() const>`) to its
+non-const member while const handles and `const_proxy_view` dispatch the
+const one. The tiebreak is uniform over a candidate set, so a sibling
+collision differing only in constness resolves the same way. Qualified
+keys narrow the candidates to one facade's and then resolve identically,
+which is also how the library's self-conformance bindings keep working
+over overloaded names.
+
+The two tiers plus the tiebreak are deliberately not full C++
+implicit-conversion ranking. Within the viable tier no candidate outranks
+another by conversion quality (a promotion does not beat a conversion:
+`call<"aim">(short{})` over `aim(int)`/`aim(double)` is ambiguous where
+real overload resolution would promote), and an exact argument match on a
+const method outranks the object-parameter preference where real member
+overloading would weigh the two together. Arguments first, constness
+second, predictably; the `api` sugar, being a genuine C++ overload set,
+follows the full rules, and the two models agree everywhere except these
+edges.
+
+Bindings overload naturally, sharing one `method_key` and differing in the
+trailing parameters, or in target constness for a const pair:
+`static int on(method_key<"issue">, T& t, int n)` beside
+`static int on(method_key<"issue">, T& t)`. The `api` forwarders are plain
+overloads too, with one wrinkle for the const pair: the mutable member's
+forwarder must repeat its call in a trailing requires-clause (the caveat
+under "Member-call sugar" made load-bearing), because a `const_proxy_view`
+is a mutable object whose deep const lives in the type, and object
+constness alone would select the mutable forwarder for it. `validate_api`
+drives each overload's slot independently, so overloaded facades validate
+at registration like any other; the only machinery it needed was the
+constness tiebreak reaching `resolve_exact`, which is how the probe's
+mutable strict call singles out the non-const member of a const pair.
+
+An earlier sketch of this feature used mangled keys (`method<"foo-0", ...>`
+and `method<"foo-1", ...>` sharing one `api` spelling). That remains
+expressible, but same-name declarations subsume it.
 
 ## Ownership and storage (built)
 
@@ -1006,6 +1060,29 @@ architecture.
    it while it is mid-instantiation (the same hazard, one level up:
    functions must be entered from exactly one variable, where addresses of
    mid-instantiation variables are fine).
+7. DONE. Per-name overload sets within a single facade (described under
+   "Per-name overload sets"): the chain-collision detonator relaxed so
+   same-owner same-name slots are legal when they differ in arguments or
+   constness (`legal_overload_pair`), and resolution gained C++'s
+   object-parameter preference as a tiebreak within each tier
+   (`tally_preferring_nonconst`, reaching `resolve` and `resolve_exact`
+   alike, the latter being what lets the validation probe single out the
+   members of a const pair). Verified: arity and argument-type overloads
+   through the sugar and `call<>`, the const pair's result types through
+   mutable, const, and `const_proxy_view` handles, overload sets inherited
+   through `extends` and reached through qualified keys, owning and shared
+   dispatch, self-conformance over overloaded names, sugar-level ambiguity
+   probes with the core-model divergence pinned (a `short` promotes at the
+   sugar, stays ambiguous in the viable tier), `api` validation of an
+   overloaded facade at a default-checked registration, and re-captured
+   diagnostics for the detonator and the ambiguity assert. Notes from the
+   build: the const-pair `api` convention requires the mutable forwarder to
+   carry a trailing requires-clause repeating its call, because a
+   `const_proxy_view` is a mutable object whose deep const lives in the
+   type, so object constness alone would route it to the mutable forwarder;
+   and the ambiguity static_assert's advice was reworded ("qualify the key
+   with the facade name, or match one overload's arguments exactly"), since
+   qualification alone cannot split a within-facade overload set.
 
 Header: `corvid/meta/proxy.h`, namespace `corvid::meta::prox`, deliberately
 NOT inline: `facade`, `method`, and `key` are too generic to dump into
@@ -1025,9 +1102,7 @@ happen).
 ## Non-goals (MVP)
 
 Operator dispatch, conversion dispatch, allocator plumbing, RTTI (beyond
-the facade-level `try_downcast`), per-name overload sets.
-Copyability and shared/weak ownership were non-goals here originally and
-were later built in phase 5.
+the facade-level `try_downcast`).
 
 ## Future
 
@@ -1050,17 +1125,6 @@ were later built in phase 5.
   `std::copyable` with no runtime condition (the shape of ngcpp's
   `support_copy`). `clone()`/`can_clone()` cover the need at runtime, so
   this waits for a use case that wants the compile-time guarantee.
-- Per-name overload sets within a single facade, via distinct keys sharing
-  an `api` spelling: `method<"foo-0", void()>` and
-  `method<"foo-1", void(int)>` with two `foo` forwarders overloading on the
-  arguments, the same move as C++ name mangling. (Cross-facade collisions
-  no longer need this, since qualification gives them distinct keys
-  naturally.) Nothing in the machinery forbids it today, and on inspection
-  `validate_api` is compatible (it drives each key's slot independently;
-  the boilerplate's natural-name call resolves against the `api` overload
-  set, and convertibility drift in the selection still fails the strict
-  probe), but it is unsupported until a test exercises it. ngcpp supports
-  overloads natively by listing several signatures in one convention.
 
 ## Open questions
 
