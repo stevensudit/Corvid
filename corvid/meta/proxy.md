@@ -4,6 +4,26 @@
 through proxies, which are type-erased handles over an interface definition.
 They work without inheritance, vtable pointers in the target type, or macros.
 
+The contrast with the traditional mechanism, an abstract base class with
+virtual methods, is one of coupling. A virtual interface is intrusive: a
+type opts in at definition time by inheriting, so it must know every
+interface it will ever serve, carries a vtable pointer in every object,
+and cannot be a type you do not own, a plain aggregate, or an `int`.
+
+A facade points the other way. The interface is declared on the consumer's
+side, and any type whose methods line up conforms through one
+registration line, after the fact and without modification; one type can
+serve any number of facades, and the dispatch machinery lives in the
+handle, so targets stay plain.
+
+Because the handles are ordinary values rather than base-class pointers,
+they also offer what pointer-based polymorphism structurally cannot:
+inline storage under a policy, deep const (a const handle dispatches only
+const methods, which no const smart pointer propagates), and view, owning,
+shared, and weak flavors with explicit conversion rules.
+
+---
+
 This document is the completed system's reference and retrospective. It is
 a tutorial tour of the user-facing surface, the decisions made along the
 way and what they cost, and the lessons from the build. Every feature is
@@ -34,6 +54,40 @@ Second, in the interim, `prox::codegen`
 ([proxy_codegen.h](proxy_codegen.h)) writes them for you. It handles all
 the tricky details and edge cases: noexcept propagation, const pairs, the
 using-declaration merges, and diamonds.
+
+## Contents
+
+- [Lineage and positioning](#lineage-and-positioning)
+- [Naming map](#naming-map)
+- [User-facing shape](#user-facing-shape)
+  - [Partial override of the boilerplate](#partial-override-of-the-boilerplate)
+  - [Member-call sugar (the `api` mixin)](#member-call-sugar-the-api-mixin)
+  - [API validation (`validate_api`)](#api-validation-validate_api)
+  - [Codegen (`prox::codegen`)](#codegen-proxcodegen)
+  - [Composition (`extends`)](#composition-extends)
+  - [Facade names and sibling collisions (`name`)](#facade-names-and-sibling-collisions-name)
+  - [Per-name overload sets](#per-name-overload-sets)
+- [The handle family](#the-handle-family)
+- [Ownership and storage](#ownership-and-storage)
+  - [Storage policies](#storage-policies)
+  - [Owning upcast](#owning-upcast)
+  - [Cloning](#cloning)
+  - [std smart-pointer interop](#std-smart-pointer-interop)
+  - [Downcasting (vtable-carried RTTI)](#downcasting-vtable-carried-rtti)
+  - [Shared and weak ownership](#shared-and-weak-ownership)
+- [Mechanism](#mechanism)
+- [Tables and thunks](#tables-and-thunks)
+  - [The thunk](#the-thunk)
+  - [The dispatch table](#the-dispatch-table)
+  - [A call, step by step](#a-call-step-by-step)
+  - [The owning table](#the-owning-table)
+- [Alternative considered: virtual-model erasure](#alternative-considered-virtual-model-erasure)
+- [Assessment](#assessment)
+- [Build retrospective](#build-retrospective)
+- [Placement](#placement)
+- [Test fixture map](#test-fixture-map)
+- [Non-goals](#non-goals)
+- [Future work](#future-work)
 
 ## Lineage and positioning
 
@@ -1134,7 +1188,7 @@ and a view lent from a `proxy` or `shared_proxy` points into that born
 family. A lent view therefore recovers exactly what its owner could, while
 a directly built view is born as its own facade.
 
-On the copyable handles the operation is non-consuming. `try_downcast` on
+On the copyable handles, the operation is non-consuming. `try_downcast` on
 a view is const and returns a new view over the same target. (This escapes
 the instance-level deep-const guardrail exactly as copying does;
 `const_proxy_view` downcasts only to another const view, so the guarantee
@@ -1163,8 +1217,16 @@ through `try_downcast`, in a sharing lvalue flavor and a transferring
 rvalue one (see "Downcasting").
 
 ngcpp built this tier bespoke (`make_proxy_shared`, compact internal
-refcounts) to beat `shared_ptr` overhead. Reusing std is our accepted
-trade.
+refcounts) to beat `shared_ptr` overhead. This library reuses std, and
+that is a different tradeoff rather than a concession. The classic
+`shared_ptr` cost, a second allocation for the control block, does not
+apply on the primary path, because `make_shared_proxy` funnels through
+`std::make_shared`. And the reuse is precisely what makes the tier
+interoperable: a `shared_proxy` shares ownership with outside
+`shared_ptr<T>` and `weak_ptr<T>` holders, under the thread-safe counting
+semantics C++ code already assumes. What is conceded is minor: the std
+control block is larger than a minimal refcount, and its counts are
+atomic whether or not the sharing crosses threads.
 
 Unique ownership converts into shared, consuming the proxy. A heap-stored
 target is adopted with its allocation intact, the owning table's destroy
@@ -1222,7 +1284,8 @@ business.
   (`+[](void* p, args...) { return proxy_impl<F, T>::on(...); }`) and
   stores a pointer to the resulting per-`(F, T)` `static constexpr` table.
   Same cost model as a vtable call, and as Rust `dyn`: the table pointer
-  moves out of the object and into the (fat) handle.
+  moves out of the object and into the (fat) handle. The full walk of
+  this machinery is under "Tables and thunks".
 - Method signatures come in four flavors, `const` crossed with `noexcept`.
   For a `noexcept` method, conformance additionally requires the binding
   itself to be noexcept-invocable, the thunk pointer type carries
@@ -1265,6 +1328,193 @@ business.
   binding's `on` is constrained to const methods, so a mixed facade fails
   conformance cleanly at overload resolution rather than erroring during
   return type deduction.
+
+## Tables and thunks
+
+The bullets above say what the tables achieve; this section walks the
+machinery itself. The examples use the `constable` fixture, a
+marshal-shaped type registered for `marshal` and the `gunslinger` it
+extends.
+
+### The thunk
+
+All of the type erasure funnels through one artifact. A thunk is an
+ordinary function pointer, minted by `make_thunk` per (declaring facade,
+target type, method) as a captureless lambda:
+
+```cpp
+[](void* target, Args... args) noexcept(Noexcept) -> R {
+  return proxy_impl<F, T>::on(method_key<Name>{},
+      *static_cast<T*>(target), std::forward<Args>(args)...);
+}
+```
+
+(For a const method, the erased pointer is `const void*` and the cast
+target is `const T`.) Three facts about this lambda do all the work:
+
+- The cast from `void*` back to `T` happens here and only here. Nothing
+  downstream of a thunk sees an erased pointer, and nothing upstream
+  knows the target type.
+- The binding is reached by the `proxy_impl<F, T>::on` spelling, so the
+  thunk is where registration-based conformance is spent. For an
+  inherited slot, `slot_thunk` substitutes the declaring facade for `F`,
+  so the method binds through `proxy_impl<Base, T>` no matter which
+  level's table carries it. That is how per-facade conformance survives
+  flattening, and it has a pleasant corollary: a derived table's
+  inherited entries and the base's own table hold literally the same
+  pointer values, because they name the same specialization.
+- `noexcept` is part of the pointer type
+  (`R (*)(void*, Args...) noexcept`), so the qualifier is baked into the
+  erased ABI rather than promised in a comment.
+
+A thunk has no state, and nothing in the dispatch path is per object.
+Every instance of the same (facade, type) pair shares the same static
+table of the same thunks.
+
+### The dispatch table
+
+`vtable_t`, the table behind the views (and embedded in the owning
+table), has three parts:
+
+- `thunks`: a `std::tuple` holding one thunk pointer per flattened slot,
+  bases' methods first, then own. It is a tuple rather than an array
+  because each signature (and `noexcept` flavor) is its own pointer type.
+- `ancestry`: a pointer to the born family's birth ancestry, the flat
+  array `try_downcast` searches.
+- `bases`: one pointer per direct base facade, to that base's table for
+  the same target and birth. This is what makes upcasting a pointer read.
+
+Each table is a `static constexpr` variable, `vtable_for<F, T, Born>`,
+so it lives in read-only storage and is shared by every handle over that
+combination. The handle itself is two words, a target pointer and a
+table pointer: the fat-handle layout, with the table pointer moved out
+of the object (where a virtual base would put it) and into the handle.
+
+For a `proxy_view<marshal>` over a `constable`:
+
+```mermaid
+flowchart LR
+    subgraph H["proxy_view of marshal (two words)"]
+        TP["target_: void* to the constable"]
+        VP["vtable_: table pointer"]
+    end
+    subgraph MT["marshal table for constable"]
+        MK["thunks: fire, describe, reload, shots, arrest"]
+        MB["bases: gunslinger's table"]
+        MA["ancestry"]
+    end
+    subgraph GT["gunslinger table for constable, born marshal"]
+        GK["thunks: fire, describe, reload, shots"]
+        GA["ancestry"]
+    end
+    subgraph AN["view ancestry for (marshal, constable)"]
+        A0["tag of marshal -> marshal's table"]
+        A1["tag of gunslinger -> gunslinger's table"]
+    end
+    VP --> MT
+    MB --> GT
+    MA --> AN
+    GA --> AN
+    A0 -.-> MT
+    A1 -.-> GT
+```
+
+Upcasting `proxy_view<marshal>` to `proxy_view<gunslinger>` re-points the
+handle at the embedded base table (`upcast_vtable` resolves the route at
+compile time and follows one `bases` pointer per composition level); the
+target pointer does not change. The ancestry is the reverse map: an
+array of (facade tag, table) pairs covering the birth facade and every
+facade it extends, where a tag is the address of an empty per-facade
+static, the library's no-RTTI identity. `try_downcast` is a linear scan
+of that array comparing tag addresses, and the matched entry hands back
+the right table, already keyed to the same birth.
+
+### A call, step by step
+
+Method names do not exist at runtime. `resolve` turns the key (plus the
+argument types, through the `rank_set` probe when the name is
+overloaded) into a slot index entirely at compile time, and `dispatch`
+spends it as a `std::get` on the thunk tuple:
+
+```mermaid
+flowchart TB
+    subgraph CT["resolved at compile time"]
+        A["pv.arrest(2), the api forwarder"] --> B["call keyed arrest"]
+        B --> C["resolve: key and argument types to slot index 4"]
+    end
+    subgraph RT["executed at runtime"]
+        D["load thunk 4 from the table"] --> E["thunk casts the void* back to constable&"]
+        E --> F["proxy_impl on(arrest key, t, 2)"]
+        F --> G["t.arrest(2)"]
+    end
+    C --> D
+```
+
+The runtime residue is one indexed load from a cold static table plus an
+indirect call, the same shape as a virtual call. Everything above the
+line (name lookup, overload ranking, constness checks, the ambiguity and
+no-match detonators) burned no cycles.
+
+### The owning table
+
+`proxy` needs lifetime machinery the views never touch, so its table,
+`owning_vtable_t`, wraps a copy of the dispatch table (`vt`, which is
+also what a lent view points at, carrying the owner's birth over) and
+adds housekeeping slots, the analog of Rust's drop glue. Null encodes
+absent capability throughout:
+
+- `destroy`, `relocate`, `copy`: destruction, buffer-to-buffer move
+  (null marks a heap-mode table, whose target moves by pointer steal),
+  and cloning (null marks an uncopyable target, which is what
+  `can_clone` reads).
+- `to_heap` + `heap_table`, `to_sbo` + `sbo_table`: the mode-changing
+  pairs. Each mode's table points across at its sibling of the other
+  mode, so an adopting proxy can re-box an inline arrival or un-box a
+  heap one and land on the right table (`sbo_table` is null for a target
+  that can never live inline, lacking a nothrow move).
+- `type_tag`, `size`, `align`: the target's no-RTTI identity (the
+  address of a per-type static) and footprint, which is how `extract<T>`
+  verifies its type and how `can_adopt` checks an erased arrival against
+  a buffer.
+- `ancestry` and `bases`: as on the dispatch table, but over owning
+  tables, and per storage mode, so a downcast or upcast lands on a table
+  whose lifetime thunks match where the target actually lives.
+
+```mermaid
+flowchart LR
+    subgraph P["proxy of marshal"]
+        SB["storage_: inline buffer or heap pointer"]
+        VP2["vtable_: owning table pointer"]
+    end
+    subgraph OS["inline-mode owning table"]
+        V1["vt: embedded dispatch table"]
+        L1["destroy, relocate, copy"]
+        X1["to_heap + heap sibling"]
+        I1["type_tag, size, align"]
+        N1["ancestry (inline), bases"]
+    end
+    subgraph OH["heap-mode owning table"]
+        V2["vt: embedded dispatch table"]
+        L2["destroy, copy (relocate null)"]
+        X2["to_sbo + inline sibling"]
+        N2["ancestry (heap), bases"]
+    end
+    VP2 --> OS
+    X1 -.-> OH
+    X2 -.-> OS
+```
+
+Tables are keyed by (facade, born facade, target type, storage mode).
+Instances are many and tables are few, cold, and deduplicated, which is
+why the birth identity lives here rather than costing the handle a word:
+every embedded pointer (bases, mode siblings, ancestry entries) stays
+within one born family, so upcasts, mode changes, and downcasts preserve
+the birth without the handle carrying anything.
+
+All of these statics initialize at compile time and reference each other
+by address, which is what the consteval identity rules in the
+retrospective are about: builders entered from exactly one variable,
+spelled-out types where deduction would be circular or re-entrant.
 
 ## Alternative considered: virtual-model erasure
 
@@ -1352,9 +1602,11 @@ What it costs:
 - The consteval table graph is fragile to extend. The identity rules it
   taught (see the retrospective) are documented, but nothing enforces
   them, and the failure mode is an inscrutable mid-instantiation error.
-- `shared_proxy` accepts `std::shared_ptr`'s control-block overhead where
-  ngcpp built bespoke compact refcounts; the repayment is free interop
-  with outside `shared_ptr` and `weak_ptr` holders.
+- `shared_proxy` rides `std::shared_ptr` where ngcpp built bespoke
+  compact refcounts. The residual cost is small (`make_shared_proxy`
+  already puts target and control block in one allocation, leaving the
+  block's size and always-atomic counts), and the repayment is full
+  interop with outside `shared_ptr` and `weak_ptr` holders.
 - The analyzer cannot see that the owning table's `relocate` slot
   discriminates the storage union, so those reads carry targeted
   suppressions.
