@@ -2971,6 +2971,26 @@ TEST_CASE("Codegen", "[proxy]") {
   oss.str({});
   prox::codegen<posse_leader>(oss);
   CHECK(oss.str() == posse_leader_golden);
+
+  // A heaviest base with no `api` (`lockbox`, supported but not recommended)
+  // is not inherited: the generated `api` spells every flattened forwarder
+  // itself. The `boilerplate` stays empty because `vault` adds no methods of
+  // its own.
+  constexpr std::string_view vault_golden = R"(  struct api {
+    int add(this auto&& self, int arg_1) {
+      return self.template call<"add">(arg_1);
+    }
+    int gold(this const auto& self) {
+      return self.template call<"gold">();
+    }
+  };
+  template<typename T>
+  struct boilerplate: proxy_impl_base {
+  };
+)";
+  oss.str({});
+  prox::codegen<vault>(oss);
+  CHECK(oss.str() == vault_golden);
 }
 
 // NOLINTEND(readability-function-cognitive-complexity)

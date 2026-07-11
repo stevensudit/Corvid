@@ -121,13 +121,21 @@ consteval std::size_t heaviest_base() noexcept {
 
 // `codegen_path_t`: the base facade whose `api` the generated one inherits,
 // or `void` for a facade with no bases.
+//
+// A heaviest base that defines no `api` (supported, not recommended) also
+// yields `void`: there is nothing to inherit, so the generated `api` spells
+// every flattened forwarder itself.
 template<Facade F>
 consteval auto do_codegen_path() noexcept {
   if constexpr (vtbuild_t<F>::base_count_v == 0)
     return std::type_identity<void>{};
-  else
-    return std::type_identity<
-        typename vtbuild_t<F>::template base_t<heaviest_base<F>()>>{};
+  else {
+    using heavy_t = vtbuild_t<F>::template base_t<heaviest_base<F>()>;
+    if constexpr (requires { typename heavy_t::api; })
+      return std::type_identity<heavy_t>{};
+    else
+      return std::type_identity<void>{};
+  }
 }
 template<Facade F>
 using codegen_path_t = decltype(do_codegen_path<F>())::type;
@@ -215,7 +223,9 @@ void emit_boilerplate_slot(std::ostream& os, std::size_t next) {
 // methods and for any inherited methods that path does not cover, adds the
 // using-declarations that merge names those forwarders would otherwise
 // hide, marks noexcept forwarders, and carries the const-pair
-// requires-clause. The `boilerplate` covers the facade's own methods. This
+// requires-clause. When the heaviest base defines no `api` (supported, not
+// recommended), nothing is inherited and every flattened method gets its
+// own forwarder. The `boilerplate` covers the facade's own methods. This
 // is the closest thing to reflection available today; when C++26 reflection
 // lands, it deletes the paste step.
 //
