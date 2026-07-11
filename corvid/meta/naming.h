@@ -74,7 +74,11 @@ std::string friendly_type_name() {
   replace("__cxx11::", "");
   replace("(anonymous namespace)::", "");
   replace("`anonymous namespace'::", "");
-  replace("> >", ">>");
+  // Collapse spaced closing brackets to a fixpoint: one pass cannot see the
+  // pair a replacement just created ("> > >" needs two). A blanket "> " to
+  // ">" replacement would handle any depth in one pass but is wrong, because
+  // that spelling also occurs before east const ("std::vector<int> const*").
+  while (r.contains("> >")) replace("> >", ">>");
   replace(", ", ",");
   replace(
       "std::basic_string<char,std::char_traits<char>,"

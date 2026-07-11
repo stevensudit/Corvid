@@ -488,6 +488,25 @@ TEST_CASE("TypeName", "[MetaTest]") {
 
   // Value-based overload matches type-based version
   CHECK(type_name<T>() == type_name(T{}));
+
+  // Friendly names collapse spaced closing brackets at any nesting depth,
+  // not just pairs.
+  CHECK(friendly_type_name<std::vector<std::vector<std::vector<int>>>>() ==
+        "std::vector<std::vector<std::vector<int, std::allocator<int>>, "
+        "std::allocator<std::vector<int, std::allocator<int>>>>, "
+        "std::allocator<std::vector<std::vector<int, std::allocator<int>>, "
+        "std::allocator<std::vector<int, std::allocator<int>>>>>>");
+
+  // An incomplete collapse used to leave a space that broke the
+  // `std::string` contraction for nested strings.
+  CHECK(friendly_type_name<std::vector<std::string>>() ==
+        "std::vector<std::string, std::allocator<std::string>>");
+
+  // The space before east const is not bracket spacing and must survive the
+  // collapse. (The tail spelling is platform-dependent, so no exact golden.)
+  const auto ptr = friendly_type_name<const std::vector<int>*>();
+  CHECK(ptr.contains("> const"));
+  CHECK_FALSE(ptr.contains("> >"));
 }
 
 #pragma endregion
