@@ -724,8 +724,9 @@ struct method_traits_base {
   // exactly after normalization, and whether they are merely viable through
   // the ordinary conversions a call performs.
   //
-  // Exactness is the validation probe's strictness; viability is overload-set
-  // resolution's fallback.
+  // Exactness is the validation probe's strictness; viability is how
+  // `resolve` tells an ambiguous call from an unmatched one when the ranking
+  // probe rejects it.
   template<typename... CallArgs>
   static constexpr bool exact_v =
       std::same_as<std::tuple<std::remove_cvref_t<CallArgs>...>, norm_args_t>;
@@ -1241,6 +1242,49 @@ template<typename... Es>
 using bases_of_t = decltype(std::tuple_cat(
     std::declval<typename entry_traits<Es>::bases_t>()...));
 
+// `rank_poison`: parameter type nothing converts to, making a probe overload
+// permanently non-viable.
+//
+// It stands in for the slots outside a key's candidate set, so a `rank_set`
+// can span the whole slot list positionally.
+struct rank_poison {
+  rank_poison() = delete;
+};
+
+// `rank_probe`: one synthetic overload standing in for the candidate slot at
+// index `Ndx` during overload ranking.
+//
+// The call operator's parameters are the slot's declared parameter list and
+// its constness mirrors the method's, so the implicit object parameter
+// participates exactly as it would in a real member overload set. The result
+// type carries the slot index out of a resolved call expression. Probes are
+// only ever named in unevaluated contexts, so the operators need no
+// definitions.
+template<std::size_t Ndx, bool Const, typename ArgsTuple>
+struct rank_probe;
+
+template<std::size_t Ndx, typename... Args>
+struct rank_probe<Ndx, false, std::tuple<Args...>> {
+  std::integral_constant<std::size_t, Ndx> operator()(Args...);
+};
+
+template<std::size_t Ndx, typename... Args>
+struct rank_probe<Ndx, true, std::tuple<Args...>> {
+  std::integral_constant<std::size_t, Ndx> operator()(Args...) const;
+};
+
+// `rank_set`: the synthetic overload set `resolve` hands to the compiler.
+//
+// A real call expression against it runs genuine C++ overload resolution
+// over the candidates, promotions, conversion ranks, and object-parameter
+// weighing included, which is what keeps `call<>` and the `api` forwarders
+// in exact agreement. A same-signature candidate pair merges legally and
+// stays ambiguous at the call, matching the sibling-collision semantics.
+template<typename... Probes>
+struct rank_set: Probes... {
+  using Probes::operator()...;
+};
+
 // `vtable_builder_impl`: the flattened core of the builder, over the full slot
 // list `Ss` (bases' methods first, in declaration order, then own, deduped),
 // the direct-base facades `Bs`, and the facade's own name `OwnName`.
@@ -1269,6 +1313,10 @@ struct vtable_builder_impl<std::tuple<Ss...>, std::tuple<Bs...>, OwnName> {
   // `base_t`: direct-base facade at index `Ndx`.
   template<std::size_t Ndx>
   using base_t = std::tuple_element_t<Ndx, std::tuple<Bs...>>;
+
+  // `slot_t`: flattened slot at index `Ndx`.
+  template<std::size_t Ndx>
+  using slot_t = std::tuple_element_t<Ndx, std::tuple<Ss...>>;
 
   using thunks_t = std::tuple<
       typename method_traits<typename Ss::method_t>::thunk_ptr_t...>;
@@ -1397,7 +1445,7 @@ struct vtable_builder_impl<std::tuple<Ss...>, std::tuple<Bs...>, OwnName> {
   }
 
   // `nonconst_flags`: per-slot flags marking the non-const methods, the
-  // tiebreak preference for dispatch through a mutable handle.
+  // tiebreak preference for `resolve_exact` through a mutable strict call.
   static consteval std::array<bool, count_v> nonconst_flags() noexcept {
     return {!Ss::const_v...};
   }
@@ -1406,13 +1454,11 @@ struct vtable_builder_impl<std::tuple<Ss...>, std::tuple<Bs...>, OwnName> {
   // unique non-const candidate.
   //
   // This is C++ overload resolution's object-parameter preference, applied
-  // as a tiebreak: through a mutable handle (`ConstOnly` false), a name
-  // overloaded on constness alone resolves to its non-const member, as a
-  // call on a non-const object would. Through a const handle the candidate
-  // set was already const-filtered, so there is nothing to prefer. The
-  // preference is uniform across a candidate set, so a sibling collision
-  // differing only in constness resolves the same way, matching the stated
-  // using-merge model.
+  // as a tiebreak for `resolve_exact`, whose exact-match filter cannot see
+  // the object parameter: through a mutable call (`ConstOnly` false), a
+  // const pair resolves to its non-const member, as a call on a non-const
+  // object would. `resolve` needs no such tiebreak, because the compiler
+  // weighs the object parameter itself during ranking.
   template<bool ConstOnly>
   static consteval std::pair<std::size_t, std::size_t>
   tally_preferring_nonconst(const std::array<bool, count_v>& flags) noexcept {
@@ -1426,44 +1472,61 @@ struct vtable_builder_impl<std::tuple<Ss...>, std::tuple<Bs...>, OwnName> {
     return whole;
   }
 
+  // `make_rank_set`: build the `rank_set` type for `Key`'s candidates.
+  //
+  // The set spans the whole slot list positionally; a non-candidate slot
+  // contributes a `rank_poison` overload no call can select, so the winning
+  // index needs no translation.
+  template<fixed_string Key, bool ConstOnly, std::size_t... Ndx>
+  static consteval auto make_rank_set(std::index_sequence<Ndx...>) noexcept {
+    return std::type_identity<
+        rank_set<std::conditional_t<candidates<Key, ConstOnly>()[Ndx],
+            rank_probe<Ndx, slot_t<Ndx>::const_v,
+                typename slot_t<Ndx>::method_t::args_t>,
+            rank_probe<Ndx, false, std::tuple<rank_poison>>>...>>{};
+  }
+
   // `resolve`: resolve `Key`, called with `CallArgs`, to a slot index, or to
   // `none_v` or `ambiguous_v`.
   //
   // An unqualified key with a single candidate resolves to it
   // unconditionally, so a call with unsuitable arguments still fails
   // directly at the thunk; a qualified key narrows the candidates to one
-  // facade's before the same rules run. A key over an overload set (per-name
-  // overloads within a facade, or a sibling collision) resolves the way a
-  // C++ call would after a using-merge: a unique exact signature match
-  // wins, else a unique viable candidate, with constness as the tiebreak
-  // within each tier (see `tally_preferring_nonconst`), and anything else
-  // is ambiguous. `ConstOnly` restricts the candidates to const-qualified
-  // methods, for dispatch through const handles.
+  // facade's before the same rules run. `ConstOnly` restricts the
+  // candidates to const-qualified methods, for dispatch through const
+  // handles.
   //
-  // The two tiers plus the tiebreak are deliberately not full C++
-  // implicit-conversion ranking: within the viable tier no candidate
-  // outranks another by conversion quality (a promotion does not beat a
-  // conversion), and an exact argument match on a const method outranks the
-  // object-parameter preference where real member overloading would weigh
-  // them together. Arguments first, constness second, predictably.
+  // A key over an overload set (per-name overloads within a facade, or a
+  // sibling collision) is ranked by the compiler rather than by a
+  // reimplementation of its rules: the candidates become a synthetic
+  // overload set (`make_rank_set`) and a real call expression against
+  // `CallArgs` picks the winner, whose result type carries the slot index.
+  // Dispatch therefore agrees with the `api` forwarders everywhere,
+  // promotions, conversion ranks, and the object-parameter weighing
+  // included. An ill-formed ranking call is classified by per-slot
+  // viability: some viable candidate means the call is ambiguous, none
+  // means nothing matched.
   template<fixed_string Key, bool ConstOnly, typename... CallArgs>
   static consteval std::size_t resolve() noexcept {
     constexpr auto cand = candidates<Key, ConstOnly>();
     const auto [cnt, at] = tally(cand);
     if (cnt < 2) return cnt ? at : none_v;
-    const auto [exact_cnt, exact_at] = tally_preferring_nonconst<ConstOnly>(
-        both(cand, exact_flags<CallArgs...>()));
-    if (exact_cnt == 1) return exact_at;
-    if (exact_cnt > 1) return ambiguous_v;
-    const auto [viable_cnt, viable_at] = tally_preferring_nonconst<ConstOnly>(
-        both(cand, viable_flags<CallArgs...>()));
-    if (viable_cnt == 1) return viable_at;
-    return viable_cnt ? ambiguous_v : none_v;
+    using set_t = decltype(make_rank_set<Key, ConstOnly>(
+        std::make_index_sequence<count_v>{}))::type;
+    using probe_t = std::conditional_t<ConstOnly, const set_t, set_t>;
+    if constexpr (requires(probe_t& p) { p(std::declval<CallArgs>()...); })
+      return decltype(std::declval<probe_t&>()(
+          std::declval<CallArgs>()...))::value;
+    else
+      return tally(both(cand, viable_flags<CallArgs...>())).first
+                 ? ambiguous_v
+                 : none_v;
   }
 
   // `resolve_exact`: resolve `Key` to the unique candidate whose declared
-  // parameters match `CallArgs` exactly, with the same constness tiebreak as
-  // `resolve`.
+  // parameters match `CallArgs` exactly, with a constness tiebreak standing
+  // in for the object-parameter weighing that `resolve` gets from the
+  // compiler.
   //
   // This is the validation probe's strictness: a merely-viable signature does
   // not count. The tiebreak is what lets the probe's mutable strict call

@@ -713,9 +713,9 @@ type happens to serve two colliding slots from one member is invisible at
 the call site.
 
 - Distinct signatures form an overload set. An unqualified call resolves
-  the way C++ would after `using A::f; using B::f;`: a unique exact
-  signature match wins, else a unique viable candidate, else a
-  `static_assert` naming the ambiguity. The `api` convention is one
+  exactly the way C++ would after `using A::f; using B::f;`, because the
+  ranking is the compiler's own (see "Per-name overload sets"), with a
+  `static_assert` naming an ambiguity. The `api` convention is one
   using-declaration per base, because C++ member lookup finds sibling-base
   names ambiguous before overload resolution ever runs; with the
   using-declarations in place the forwarders form the same overload set.
@@ -761,44 +761,52 @@ Unlike C++, where a derived class's `foo(int)` silently hides the base's
 merges automatically. An upcast handle sees only its own level's
 overloads.
 
-An unqualified call resolves over the whole candidate set the way a C++
-call would after a using-merge: a unique exact argument match wins, else a
-unique viable candidate. C++'s object-parameter preference applies as a
-tiebreak within each tier, so a mutable handle resolves a const pair
-(`method<"count", int&()>` with `method<"count", int() const>`) to its
-non-const member, while const handles and `const_proxy_view` dispatch the
-const one. The tiebreak is uniform over a candidate set, so a sibling
-collision differing only in constness resolves the same way.
+An unqualified call resolves over the whole candidate set exactly the way
+a C++ call would after a using-merge, because the ranking is the
+compiler's own. `resolve` synthesizes an overload set from the candidates
+(one call operator per slot, taking the slot's declared parameters, its
+constness mirroring the method's, its result type carrying the slot
+index) and reads the winner out of a real call expression. Promotions,
+conversion ranks, and the object-parameter weighing all apply: a mutable
+handle resolves a const pair (`method<"count", int&()>` with
+`method<"count", int() const>`) to its non-const member, while const
+handles and `const_proxy_view` dispatch the const one, and
+`call<"aim">(short{})` over `aim(int)`/`aim(double)` promotes into the
+int overload. A call the ranking rejects is classified by per-candidate
+viability: some viable candidate is the ambiguity error, none is the
+no-match error.
 
 Qualified keys narrow the candidates to one facade's and then resolve
 identically. That is also how the library's self-conformance bindings keep
 working over overloaded names.
 
-The two tiers plus the tiebreak are deliberately not full C++
-implicit-conversion ranking, and the divergences are pinned. Within the
-viable tier, no candidate outranks another by conversion quality: a
-promotion does not beat a conversion, so `call<"aim">(short{})` over
-`aim(int)`/`aim(double)` is ambiguous where real overload resolution would
-promote. And an exact argument match on a const method outranks the
-object-parameter preference, where real member overloading would weigh the
-two together.
+The probe is the `overloaded` trick pointed at dispatch: `operator()` is
+the known name using-declarations can pack-expand over, and even a
+same-signature candidate pair (the legal sibling collision) merges into
+the set legally and stays a lazy call-site ambiguity. The set spans the
+flattened slot list positionally, with each non-candidate slot
+contributing an overload whose parameter nothing converts to, so the
+winning index needs no translation.
 
-The motivation is feasibility, not a taste for smaller rulebooks.
-Exactness and viability are the only call predicates the language exposes
-to a metaprogram: exactness is type equality after stripping cv and
-references, viability is `std::is_invocable_v`, and no trait orders one
-conversion sequence against another. Ranking within the viable tier would
-mean hand-rolling the standard's conversion-sequence ordering (promotion
-tables, arithmetic ranks, user-defined conversions), a replica whose
-natural failure mode is silent drift from the compiler in corners nobody
-pinned. A coarse model whose few divergences are pinned by tests beats a
-faithful-looking one that quietly disagrees.
+The two spellings therefore cannot disagree: the `api` forwarders are a
+genuine C++ overload set, and `call<>` asks the compiler to rank the same
+candidates under the same rules.
 
-Arguments first, constness second, predictably. The `api` sugar follows
-the full rules regardless of what the library might prefer, because its
-forwarders are ordinary member functions, and opting them out of
-conversion ranking would mean rejecting a `short` argument where `int` is
-declared. The two models agree everywhere except these edges.
+It was not always so. The first build shipped a two-tier approximation (a
+unique exact match wins, else a unique viable candidate, with constness
+as a tiebreak), because exactness and viability are the only predicates
+the language answers directly (type equality after stripping cv and
+references, and `std::is_invocable_v`); no trait orders one conversion
+sequence against another, and hand-rolling the standard's ordering would
+have been a replica that drifts silently from the compiler. The
+approximation's divergences were pinned by tests (a promotion did not
+beat a conversion, and an exact argument match on a const method
+outranked the object-parameter preference) and looked defensible, since
+the `api` path never reached them. Once the conscripted-compiler probe
+was shown viable, the approximation was deleted rather than defended. The
+deliberate remainder is `resolve_exact`, the validation probe's
+strictness, which keeps a constness tiebreak precisely because its
+exact-match filter cannot see the object parameter.
 
 Bindings overload naturally, sharing one `method_key` and differing in the
 trailing parameters, or in target constness for a const pair:
@@ -825,18 +833,17 @@ const pair. It also catches a forgotten using-declaration, because the
 probe drives the base slots by natural name through the base boilerplate,
 where the hidden forwarders fail to resolve.
 
-How much the coarse rules matter depends on the calling tier, and through
-`api`, the norm, they are unreachable. A conforming forwarder's parameters
-are its slot's exact declared types, so full conversion ranking runs once,
-at forwarder selection, and the body forwards arguments that already have
-those types. The inner `call<>` lands in the exact tier on precisely the
-slot the forwarder spells, and the viable tier, the coarse part, never
-runs. The pinned divergences above face only direct `call<>` callers.
+Agreement between the spellings is doubly assured on the `api` path. A
+conforming forwarder's parameters are its slot's exact declared types, so
+conversion ranking runs once, at forwarder selection, and the body
+forwards arguments that already have those types; the inner `call<>`
+resolves them to precisely the slot the forwarder spells, an exact match
+no other candidate can outrank.
 
 That pinning is only as strong as the forwarder's signature. A
 hand-written forwarder whose parameter types drift from the slot's (say,
 `long` where the slot declares `int`) reopens the gap: the inner call
-misses the exact tier and the coarse viable tier decides. This is exactly
+re-ranks over the drifted types and can land elsewhere. This is exactly
 the drift `validate_api` catches, by anchoring the probe chain to the
 facade's declared types at both ends, so a merely-convertible parameter or
 result type in a forwarder fails at registration. The blind spot is a
@@ -1336,9 +1343,6 @@ What it costs:
   and collisions and cross-level overloads need using-declarations.
   `prox::codegen` writes all of these correctly, and `validate_api` checks
   most of what could drift, but the edges exist.
-- `call<>` resolution is deliberately not full implicit-conversion
-  ranking: two pinned divergences from the sugar's genuine C++ overload
-  resolution, described under "Per-name overload sets".
 - Failure surfaces are `static_assert` detonators, deliberately lazy at
   first use, so an error can appear far from the mistake (a bad facade
   detonates at first machinery use; a forgotten using-declaration in an
@@ -1386,7 +1390,10 @@ already pinned.
    transferring downcast flavors on `shared_proxy`.
 7. Per-name overload sets, first within a facade, then extended across
    extends levels once "different functions sharing a spelling" was
-   accepted as the model.
+   accepted as the model. Resolution first shipped as a two-tier
+   approximation of overload ranking with pinned divergences; a later
+   round replaced it with the conscripted-compiler probe (`rank_set`),
+   deleting the divergences.
 8. Codegen and never-a-value facades: `facade`'s deleted default
    constructor and `prox::codegen`, pinned by golden masters.
 

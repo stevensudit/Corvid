@@ -1260,16 +1260,16 @@ static_assert(std::same_as<
 // At the sugar level the forwarders are a plain C++ overload set, so an
 // argument both `aim`s can only convert to (a `long`) is a probeable
 // ambiguity; the unqualified core spelling is the same lazy error via
-// static_assert (diagnostic below). A `short` shows the documented
-// divergence: real overload resolution promotes it into the int forwarder,
-// while the core model's viable tier does not rank conversions (see
-// `resolve`), so `call<"aim">(short{})` is the ambiguity static_assert.
+// static_assert (diagnostic below). A `short` promotes into the int
+// overload through both spellings alike, because `resolve` hands ranking to
+// the compiler; the runtime checks live in "Per-name overloads".
 //
-// Diagnostic on record (clang 22, captured 2026-07-10): `v.call<"aim">(1L)`
-// fires "static assertion failed due to requirement 'ndx !=
-// ...::ambiguous_v': ambiguous method call; qualify the key with the facade
-// name, or match one overload's arguments exactly", followed by the
-// accepted "tuple index out of bounds" noise.
+// Diagnostic on record (clang 22, captured 2026-07-10, re-verified
+// unchanged 2026-07-11 after ranking moved to the compiler):
+// `v.call<"aim">(1L)` fires "static assertion failed due to requirement
+// 'ndx != ...::ambiguous_v': ambiguous method call; qualify the key with
+// the facade name, or match one overload's arguments exactly", followed by
+// the accepted "tuple index out of bounds" noise.
 template<typename P, typename A>
 concept CanAimSugar = requires(P& p, A a) { p.aim(a); };
 static_assert(CanAimSugar<proxy_view<arsenal>, int>);
@@ -1974,6 +1974,15 @@ TEST_CASE("Per-name overloads", "[proxy]") {
   CHECK(v.aim(0.5) == 50);
   CHECK(v.call<"aim">(7) == 7);
   CHECK(v.call<"aim">(0.25) == 25);
+
+  // Ranking is the compiler's own, so promotions rank through the core
+  // spelling exactly as through the sugar: a short promotes into the int
+  // overload and a float into the double one, where mere convertibility (a
+  // long) stays the ambiguity error.
+  CHECK(v.aim(short{9}) == 9);
+  CHECK(v.call<"aim">(short{9}) == 9);
+  CHECK(v.aim(0.5F) == 50);
+  CHECK(v.call<"aim">(0.5F) == 50);
 
   // The const pair: a mutable handle prefers the non-const member, so the
   // accessor writes through; const handles dispatch the read-only query.
