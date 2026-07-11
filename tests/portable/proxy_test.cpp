@@ -492,12 +492,13 @@ struct bounty_hunter
 // redeclare the lighter siblings' own forwarders. Inheriting every base
 // `api` also works, but costs a using-declaration per shared-ancestor
 // method (two subobjects of the same empty `api` type make plain member
-// lookup ambiguous until a using-declaration pulls in one path) plus one
-// padding word in every handle (same-type subobjects need distinct
-// addresses, which empty-base optimization cannot paper over). There is no
-// automatic merge to reach for: using-declarations cannot be pack-expanded
-// over arbitrary names before reflection, and virtual inheritance would put
-// a vbptr in every handle.
+// lookup ambiguous until a using-declaration pulls in one path) plus, under
+// the MS ABI, one padding word in every handle (same-type subobjects need
+// distinct addresses; Itanium hides the second inside the data members, MS
+// never overlaps empty bases with members). There is no automatic merge to
+// reach for: using-declarations cannot be pack-expanded over arbitrary
+// names before reflection, and virtual inheritance would put a vbptr in
+// every handle.
 struct posse_leader
     : prox::facade<prox::name<"posse_leader">, //
           prox::extends<marshal>,              //

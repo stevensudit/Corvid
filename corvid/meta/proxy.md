@@ -652,10 +652,15 @@ one forwarder.)
 Inheriting every base `api` also works, but costs two things. It needs one
 using-declaration per shared-ancestor method, because the ancestor's
 forwarder names arrive through both bases, and plain member lookup is
-ambiguous until a using-declaration pulls in a path. It also pads every
-handle by one word, because the two empty ancestor-`api` subobjects are
-the same type, and the ABI must give them distinct addresses, which
-empty-base optimization cannot remove.
+ambiguous until a using-declaration pulls in a path. It can also pad the
+handle by one word: the two empty ancestor-`api` subobjects are the same
+type, so the language requires them to have distinct addresses that
+empty-base optimization cannot merge.
+
+The Itanium ABI satisfies that by hiding the second subobject inside the
+first pointer's bytes, so the handle stays two words on Linux; the MS ABI
+never overlaps empty bases with data members, so the handle grows to three
+words there (measured under this project's Windows build).
 
 There is no automatic merge available before reflection.
 Using-declarations cannot be pack-expanded over arbitrary names (the
@@ -1258,7 +1263,7 @@ What worked:
   opened.
 - The handles stay lean: views are two pointers, a `heap_only` proxy is
   two words, and the `api` mixin is stateless, so the sugar costs no
-  storage anywhere (except the diamond padding word noted under
+  storage anywhere (except the MS-ABI diamond padding word noted under
   "Composition").
 - Composition reached the full trait-object feature set (implicit upcasts,
   birth-keyed downcasts, per-facade conformance with its coherence-like
