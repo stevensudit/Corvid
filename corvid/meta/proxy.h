@@ -33,9 +33,9 @@
 
 // Registration-based runtime polymorphism ("proxy") system.
 //
-// Type-erased handles (`proxy`, `proxy_view`, `const_proxy_view`) over an
-// interface definition (a facade), without inheritance, vtable pointers in the
-// target type, or macros.
+// Type-erased handles (`proxy`, `proxy_view`, `const_proxy_view`,
+// `shared_proxy`, `weak_proxy`) over an interface definition (a facade),
+// without inheritance, vtable pointers in the target type, or macros.
 //
 // Opting a class into a facade does not require modifying it, so you can
 // retrofit a facade onto an existing type (even one in `std`), or have
@@ -53,7 +53,7 @@
 // implicitly to handles of any facade theirs extends (Rust trait upcasting).
 //
 // See "proxy.md" for the design.
-//
+
 // Template parameter conventions, used consistently throughout this header:
 //
 // - `F`: the facade being dispatched, bound, or validated.
@@ -135,10 +135,9 @@ struct method_base: method_key<Name> {
 
 // `method`: Method descriptor, a name plus the erased signature.
 //
-// The signature is spelled like a member function's definition, using the same
-// syntax that `std::function` takes. So, for example, it would look like
-// `std::string(int)`. Or, for `const this`, it would be `std::string(int)
-// const`.
+// The signature is spelled like a member function's definition. So, for
+// example, it would look like `std::string(int)`. Or, for `const this`, it
+// would be `std::string(int) const`.
 //
 // The signature fixes the erased ABI; a binding may return the declared result
 // type or anything convertible to it.
@@ -268,7 +267,9 @@ concept Facade = requires(const F& f) { details::probe(f); };
 // legal when every pair differs in arguments or constness, whether the
 // declarations share a facade or span levels. A same-signature recurrence is
 // rejected eagerly, because that would be redeclaration (or overriding), and
-// facades carry no implementations, so there is nothing to override.
+// facades carry no implementations, so there is nothing to override. The
+// degenerate case, the identical method listed twice, collapses to a single
+// slot instead of erroring (see `dedup_slots`).
 //
 // Unrelated sibling bases MAY collide on a method name: distinct signatures
 // form an overload set that unqualified calls resolve by argument, and a
@@ -347,10 +348,11 @@ using api_base_t = api_base<F>::type;
 // `proxy_policy`), and on the heap otherwise.
 //
 // `sbo_only` forbids the heap path: constructing a proxy over an ineligible
-// target is a compile error, and a heap target arriving through a
-// converting move is un-boxed into the buffer, throwing `std::length_error`
-// if it does not fit (the one runtime failure, since an erased target's size
-// cannot be checked statically).
+// target is a compile error. An erased target arriving through a converting
+// move must end up in the buffer (a heap arrival is un-boxed into it), and the
+// adoption throws `std::length_error` when the target does not fit or cannot
+// move inline at all, the one runtime failure, since an erased arrival cannot
+// be checked statically.
 //
 // `heap_only` forbids the inline path, so every target has a stable heap
 // address, and the proxy carries no inline buffer at all; an inline target
@@ -372,7 +374,7 @@ enum class proxy_alloc : std::uint8_t {
 // A target is stored inline when it fits `sbo_size` and `sbo_align` and is
 // nothrow-move-constructible (a proxy move relocates an inline target, and
 // proxy moves are unconditionally `noexcept`). The exception is when the
-// source is on the heap and the target allows heap storage, in which case only
+// source is on the heap and the policy allows heap storage, in which case only
 // the pointer is moved.
 //
 // Policies are checked at proxy construction, not at registration.
@@ -1076,11 +1078,12 @@ consteval std::size_t first_index_of_type() noexcept {
 // `dedup_slots`: remove duplicate slot types, keeping first occurrences in
 // order.
 //
-// A slot type recurs exactly when the same ancestor facade is reached
-// through more than one composition path, so this is what collapses a
-// diamond to a single set of slots. Per-facade conformance already yields
-// one `proxy_impl<Ancestor, T>` regardless of path (the effect of Rust's
-// coherence rule); dedup makes the flattened table agree.
+// A slot type recurs when the same ancestor facade is reached through more
+// than one composition path, so this is what collapses a diamond to a single
+// set of slots; it also swallows the degenerate case of one facade listing the
+// identical method twice. Per-facade conformance already yields one
+// `proxy_impl<Ancestor, T>` regardless of path (the effect of Rust's coherence
+// rule); dedup makes the flattened table agree.
 template<typename Slots>
 struct dedup_slots;
 template<typename... Ss>
@@ -1157,9 +1160,10 @@ consteval bool legal_overload_pair() noexcept {
 // `legal_overload_pair`), whether the declarations share a facade or span
 // levels: a base's `foo()` and a derived facade's `foo(int)` are different
 // functions that happen to share a spelling, exactly as within one facade.
-// A same-signature recurrence stays an error, since that is redeclaration
-// (or overriding), and facades carry no implementations, so there is
-// nothing to override.
+// A same-signature recurrence stays an error, since that is redeclaration (or
+// overriding), and facades carry no implementations, so there is nothing to
+// override. The identical declaration listed twice is the exception: dedup
+// collapses it to one slot before this check sees it.
 //
 // Unrelated sibling facades may collide on a method name freely, including
 // on the full signature, since every facade is named and the qualified
@@ -2804,7 +2808,7 @@ private:
   //
   // The active union member is keyed by the table's `relocate` slot (null
   // means heap), an invariant every write site maintains but the static
-  // analyzer cannot see, so the union reads here and in `do_adopt` and
+  // analyzer cannot see, so the union reads here and in `do_take_heap` and
   // `try_downcast` suppress its uninitialized-value checks.
   [[nodiscard]] void* target() noexcept {
     assert(vtable_);
