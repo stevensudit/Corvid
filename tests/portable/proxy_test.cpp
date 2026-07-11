@@ -1941,7 +1941,7 @@ TEST_CASE("Sibling method collisions", "[proxy]") {
   CHECK(ph.rounds_fired == 0);
   wc.call<"camera::reload">();
   CHECK(ph.film_wound == 1);
-  // Note that `wc.reload();` would be ambigous and fail at compile time.
+  // Note that `wc.reload();` would be ambiguous and fail at compile time.
   // In contrast, `ph.reload();` is unambiguous and works, because
   // `photographer` uses that name for the `gunslinger` binding.
 
