@@ -1960,8 +1960,10 @@ consteval auto corvid_proxy_spec(F*, api_probe<G>*) noexcept {
 // the facade's (including the silently-truncating kind), and a forwarder body
 // dispatching a key with a different signature. Not caught: a missing
 // `noexcept` on a forwarder, by-value versus by-reference parameter spellings,
-// reference-to-value decay of a declared result, and a body dispatching the
-// wrong key with an identical signature.
+// reference-to-value decay of a declared result, a body dispatching the
+// wrong key with an identical signature, and a missing overload forwarder
+// whose probe call a same-name sibling forwarder absorbs by conversion,
+// landing exactly on the sibling's slot.
 //
 // Limitation: a composed facade whose flattened list collides on a
 // same-signature method name cannot validate, because the boilerplates drive

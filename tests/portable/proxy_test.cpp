@@ -763,6 +763,49 @@ consteval auto corvid_proxy_spec(F*, quartermaster*) {
   return prox::make_proxy_spec<F, quartermaster>();
 }
 
+// `assayer` pins the blind spot in `validate_api` over overload sets, the
+// overload analog of the wrong-key-same-signature hole: its hand-written
+// `api` omits the `weigh(int)` forwarder, so an int-argument sugar call is
+// absorbed by the `weigh(long)` forwarder through a conversion and
+// dispatches the sibling slot. The probe cannot see the omission, because
+// the absorbed call lands exactly on the sibling slot in arguments and
+// result, so the validating registration compiles anyway.
+struct assayer
+    : prox::facade<prox::name<"assayer">,     //
+          prox::method<"weigh", int(int)>,    //
+          prox::method<"weigh", int(long)>> { //
+  struct api {
+    int weigh(this auto&& self, long grains) {
+      return self.template call<"weigh">(grains);
+    }
+  };
+  template<typename T>
+  struct boilerplate: proxy_impl_base {
+    static int on(method_key<"weigh">, T& t, int nuggets) {
+      return t.weigh(nuggets);
+    }
+    static int on(method_key<"weigh">, T& t, long grains) {
+      return t.weigh(grains);
+    }
+  };
+};
+
+// `prospector` tells the two `weigh` overloads apart by sign.
+struct prospector {
+  int weigh(int nuggets) {
+    (void)this;
+    return nuggets;
+  }
+  int weigh(long grains) {
+    (void)this;
+    return -static_cast<int>(grains);
+  }
+};
+
+consteval auto corvid_proxy_spec(assayer*, prospector*) {
+  return prox::make_proxy_spec<assayer, prospector>();
+}
+
 // Lifetime accounting shared by the owning-proxy targets.
 struct life_stats {
   int constructed{};
@@ -1962,6 +2005,25 @@ TEST_CASE("Per-name overloads", "[proxy]") {
   auto sp = make_shared_proxy<arsenal, quartermaster>();
   CHECK(sp.issue() == 19);
   CHECK(sp.count() == 19);
+}
+
+TEST_CASE("Overload absorption blind spot", "[proxy]") {
+  // The registration validates and this assert passes despite the missing
+  // `weigh(int)` forwarder, because the probe's int-slot call is absorbed by
+  // the long forwarder and lands exactly on the sibling slot.
+  static_assert(prox::validate_api<assayer>());
+
+  prospector p;
+  proxy_view<assayer> v = p;
+
+  // The core spelling reaches both slots by exact match.
+  CHECK(v.call<"weigh">(5) == 5);
+  CHECK(v.call<"weigh">(5L) == -5);
+
+  // The sugar has only the long forwarder to select, so an int argument
+  // converts and dispatches the sibling slot: the misrouting the blind spot
+  // hides, observed live.
+  CHECK(v.weigh(5) == -5);
 }
 
 TEST_CASE("Diamond composition", "[proxy]") {

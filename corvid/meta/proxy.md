@@ -464,6 +464,10 @@ Not caught:
   cannot distinguish binding a reference from copying out of one)
 - a body dispatching the wrong key with an identical signature, which no
   shape check can see
+- a missing overload forwarder whose probe call a same-name sibling
+  forwarder absorbs by conversion, landing exactly on the sibling's slot
+  (the overload analog of the wrong-key hole; the `assayer` fixture pins
+  it)
 
 Closing that last hole would take a behavioral probe (record which key
 each forwarder dispatches and compare) or C++26 reflection, which deletes
@@ -684,12 +688,12 @@ plain one. A `call` key containing "::" matches the declaring facade's
 name plus the method name, so `call<"camera::fire">()` names its slot
 outright, even through a derived handle.
 
-The entry is required, exactly once per facade, enforced by a detonator at
-first use of the facade's machinery. It was briefly optional; requiring it
-proved right, for three reasons. A downstream composer cannot add a name
-to a facade it does not own, so an optional name would foreclose legal
-collisions in every composition that ever included an unnamed facade. The
-per-facade overhead is one short entry. And mandatory names deleted every
+The `name` entry is required, exactly once per facade, enforced by a
+detonator at first use of the facade's machinery. It was briefly optional;
+requiring it proved right, for three reasons. A downstream composer cannot
+add a name to a facade it does not own, so an optional name would foreclose
+legal collisions in every composition that ever included an unnamed facade.
+The per-facade overhead is one short entry. And mandatory names deleted every
 nameless special case from the machinery: the
 sibling-collisions-need-names detonator, the empty-name skips in matching
 and uniqueness checking, and `qualified_key`'s fallback branch all went
@@ -779,9 +783,22 @@ promote. And an exact argument match on a const method outranks the
 object-parameter preference, where real member overloading would weigh the
 two together.
 
-Arguments first, constness second, predictably. The `api` sugar, being a
-genuine C++ overload set, follows the full rules, and the two models agree
-everywhere except these edges.
+The motivation is feasibility, not a taste for smaller rulebooks.
+Exactness and viability are the only call predicates the language exposes
+to a metaprogram: exactness is type equality after stripping cv and
+references, viability is `std::is_invocable_v`, and no trait orders one
+conversion sequence against another. Ranking within the viable tier would
+mean hand-rolling the standard's conversion-sequence ordering (promotion
+tables, arithmetic ranks, user-defined conversions), a replica whose
+natural failure mode is silent drift from the compiler in corners nobody
+pinned. A coarse model whose few divergences are pinned by tests beats a
+faithful-looking one that quietly disagrees.
+
+Arguments first, constness second, predictably. The `api` sugar follows
+the full rules regardless of what the library might prefer, because its
+forwarders are ordinary member functions, and opting them out of
+conversion ranking would mean rejecting a `short` argument where `int` is
+declared. The two models agree everywhere except these edges.
 
 Bindings overload naturally, sharing one `method_key` and differing in the
 trailing parameters, or in target constness for a const pair:
@@ -807,6 +824,41 @@ the probe's mutable strict call singles out the non-const member of a
 const pair. It also catches a forgotten using-declaration, because the
 probe drives the base slots by natural name through the base boilerplate,
 where the hidden forwarders fail to resolve.
+
+How much the coarse rules matter depends on the calling tier, and through
+`api`, the norm, they are unreachable. A conforming forwarder's parameters
+are its slot's exact declared types, so full conversion ranking runs once,
+at forwarder selection, and the body forwards arguments that already have
+those types. The inner `call<>` lands in the exact tier on precisely the
+slot the forwarder spells, and the viable tier, the coarse part, never
+runs. The pinned divergences above face only direct `call<>` callers.
+
+That pinning is only as strong as the forwarder's signature. A
+hand-written forwarder whose parameter types drift from the slot's (say,
+`long` where the slot declares `int`) reopens the gap: the inner call
+misses the exact tier and the coarse viable tier decides. This is exactly
+the drift `validate_api` catches, by anchoring the probe chain to the
+facade's declared types at both ends, so a merely-convertible parameter or
+result type in a forwarder fails at registration. The blind spot is a
+drift whose arguments and result both land exactly on a same-name sibling
+slot, where the strict probe matches the sibling and passes; that is the
+overload analog of the wrong-key-same-signature hole already on the
+not-caught list. The `assayer` fixture pins it live: an `api` missing its
+`weigh(int)` forwarder validates green, and an int-argument sugar call is
+absorbed by the `weigh(long)` forwarder and dispatches the sibling slot.
+
+The object parameter is the one axis a parameter list cannot pin, and it
+produced the one real routing bug of this shape: object constness alone
+would select a const pair's mutable forwarder for a `const_proxy_view`,
+whose deep const lives in the type rather than on the object. The
+trailing requires-clause above is the fix, making the mutable forwarder
+non-viable whenever its own inner call would not resolve.
+
+`prox::codegen` closes the loop by construction. The forwarder signature,
+the inner `call<>` arguments, the requires-clause, and the name-merging
+using-declarations are all generated from the same slot metadata, so the
+forwarder C++ selects and the slot `call<>` dispatches cannot disagree.
+Hand-edited output still has `validate_api` behind it.
 
 An earlier sketch of this feature used mangled keys (`method<"foo-0", ...>`
 and `method<"foo-1", ...>` sharing one `api` spelling). That remains
@@ -1418,7 +1470,8 @@ the `war_correspondent` sibling collision). The `arsenal` chain carries
 the per-name overload sets. The `lockbox` chain carries the ownership and
 lifetime tests. The solo facades pin one feature each (`hair_trigger`:
 noexcept flavors; `mortar`: the `api_check::off` opt-out; `census`: the
-all-const invariant).
+all-const invariant; `assayer`: the overload-absorption blind spot in
+`validate_api`).
 
 The facades, with extends edges pointing from the derived facade to its
 base:
@@ -1441,6 +1494,7 @@ flowchart BT
     hair_trigger["hair_trigger: fire, jams (noexcept)"]
     mortar["mortar: lob (api deviates; api_check off)"]
     census["census: describe (all const)"]
+    assayer["assayer: weigh x2 (api misses one forwarder)"]
 ```
 
 The conforming types, each attached to the facade its registration anchors
@@ -1461,6 +1515,7 @@ flowchart LR
     trail_boss -.->|chain hook| posse_leader
     photographer -.->|"chain hook + carried camera impl"| war_correspondent
     quartermaster -.->|chain hook| armory
+    prospector -.->|boilerplate| assayer
     strongbox -.->|chain hook| vault
     coffer -.->|chain hook| vault
 ```
