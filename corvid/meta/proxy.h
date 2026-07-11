@@ -2015,6 +2015,7 @@ public:
   // NOLINTNEXTLINE(modernize-use-nodiscard)
   constexpr decltype(auto) call(Args&&... args) const
       noexcept(vtbuild_t<F>::template is_noexcept<Key, true, Args...>()) {
+    assert(vtable_);
     return dispatch<F, true, Key>(vtable_->thunks, target_,
         std::forward<Args>(args)...);
   }
@@ -2094,23 +2095,26 @@ public:
   // Intentionally implicit, like derived-to-base pointer conversion: the
   // target carries over unchanged and the dispatch table narrows to `F`'s by
   // following the embedded base-table pointers, so the upcast view dispatches
-  // exactly what a directly-built `F` view of the target would.
+  // exactly what a directly-built `F` view of the target would. An empty view
+  // upcasts to an empty view.
   template<Facade D>
   requires Extends<D, F>
   constexpr explicit(false) proxy_view(const proxy_view<D>& view) noexcept
-      : base{view.target_, details::upcast_vtable<F, D>(view.vtable_)} {}
+      : base{view.target_,
+            view ? details::upcast_vtable<F, D>(view.vtable_) : nullptr} {}
 
   // `proxy_view`: viewing constructor from an owning `proxy` of `F`, or of a
   // facade that extends it.
   //
   // Intentionally implicit, and lvalue-only, so a view cannot be left dangling
-  // by a temporary `proxy`. The `proxy` must be non-empty and must outlive the
-  // view. A const `proxy` takes a `const_proxy_view` instead, preserving deep
-  // const.
+  // by a temporary `proxy`. An empty `proxy` lends an empty view; otherwise
+  // the `proxy` must outlive the view. A const `proxy` takes a
+  // `const_proxy_view` instead, preserving deep const.
   template<Facade D, proxy_policy P>
   requires(std::same_as<D, F> || Extends<D, F>)
   explicit(false) proxy_view(proxy<D, P>& p) noexcept
-      : base{p.target(), details::upcast_vtable<F, D>(&p.vtable_->vt)} {}
+      : base{p ? p.target() : nullptr,
+            p ? details::upcast_vtable<F, D>(&p.vtable_->vt) : nullptr} {}
 
   // `proxy_view`: viewing constructor from a `shared_proxy` of `F`, or of a
   // facade that extends it, under the same rules as viewing an owning `proxy`;
@@ -2118,7 +2122,8 @@ public:
   template<Facade D>
   requires(std::same_as<D, F> || Extends<D, F>)
   explicit(false) proxy_view(shared_proxy<D>& p) noexcept
-      : base{p.target(), details::upcast_vtable<F, D>(p.vtable_)} {}
+      : base{p ? p.target() : nullptr,
+            p ? details::upcast_vtable<F, D>(p.vtable_) : nullptr} {}
 
   // `call`: call the facade method named `Key`, forwarding `args` through the
   // erased signature.
@@ -2131,6 +2136,7 @@ public:
   template<fixed_string Key, typename... Args>
   constexpr decltype(auto) call(Args&&... args) noexcept(
       vtbuild_t::template is_noexcept<Key, false, Args...>()) {
+    assert(this->vtable_);
     return details::dispatch<F, false, Key>(this->vtable_->thunks,
         this->target_, std::forward<Args>(args)...);
   }
@@ -2259,7 +2265,8 @@ public:
   requires Extends<D, F>
   constexpr explicit(false)
       const_proxy_view(const const_proxy_view<D>& view) noexcept
-      : base{view.target_, details::upcast_vtable<F, D>(view.vtable_)} {}
+      : base{view.target_,
+            view ? details::upcast_vtable<F, D>(view.vtable_) : nullptr} {}
 
   // `const_proxy_view`: upcasting constructor from the mutable view of a
   // facade that extends `F`, dropping mutability and upcasting in one implicit
@@ -2268,25 +2275,28 @@ public:
   requires Extends<D, F>
   constexpr explicit(false)
       const_proxy_view(const proxy_view<D>& view) noexcept
-      : base{view.target_, details::upcast_vtable<F, D>(view.vtable_)} {}
+      : base{view.target_,
+            view ? details::upcast_vtable<F, D>(view.vtable_) : nullptr} {}
 
   // `const_proxy_view`: viewing constructor from an owning `proxy` of `F`, or
   // of a facade that extends it.
   //
-  // Intentionally implicit, and lvalue-only. The proxy must be non-empty and
-  // must outlive the view. Mutable and const proxies alike yield the const
-  // view; there is no path back to mutability.
+  // Intentionally implicit, and lvalue-only. An empty `proxy` lends an empty
+  // view; otherwise the `proxy` must outlive the view. Mutable and const
+  // proxies alike yield the const view; there is no path back to mutability.
   template<Facade D, proxy_policy P>
   requires(std::same_as<D, F> || Extends<D, F>)
   explicit(false) const_proxy_view(const proxy<D, P>& p) noexcept
-      : base{p.target(), details::upcast_vtable<F, D>(&p.vtable_->vt)} {}
+      : base{p ? p.target() : nullptr,
+            p ? details::upcast_vtable<F, D>(&p.vtable_->vt) : nullptr} {}
 
   // `const_proxy_view`: viewing constructor from a `shared_proxy` of `F`, or
   // of a facade that extends it; see the owning-proxy constructor above.
   template<Facade D>
   requires(std::same_as<D, F> || Extends<D, F>)
   explicit(false) const_proxy_view(const shared_proxy<D>& p) noexcept
-      : base{p.target(), details::upcast_vtable<F, D>(p.vtable_)} {}
+      : base{p ? p.target() : nullptr,
+            p ? details::upcast_vtable<F, D>(p.vtable_) : nullptr} {}
 
   // No need for a `using` because `call` is inherited. The base's const-method
   // dispatch is the entire interface, since the mutable methods do not exist

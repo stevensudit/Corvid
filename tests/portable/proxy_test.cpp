@@ -32,6 +32,13 @@ using namespace std::literals;
 using namespace corvid;
 using namespace corvid::meta::prox::literals;
 
+// The fixtures below form one western-themed world, reused across the feature
+// tiers.
+//
+// The "Test fixture map" section of corvid/meta/proxy.md diagrams the whole
+// hierarchy: every facade with its `extends` edges, plus the facade each
+// conforming type registers under and the registration route it takes.
+
 // The facade under test: mixes value returns, a const method, a void
 // mutator, and a reference return.
 //
@@ -1583,6 +1590,48 @@ TEST_CASE("Const view", "[proxy]") {
   CHECK(describe_it(cl) == "lawman"s);
   const_proxy_view<census> census_view{cl};
   CHECK(describe_it(census_view) == "lawman"s);
+}
+
+TEST_CASE("Empty handles propagate emptiness", "[proxy]") {
+  // Lending from an empty proxy yields an empty view, exactly as copying an
+  // empty view does; only calling through the result is undefined behavior.
+  // The same holds when the lend upcasts.
+  proxy<marshal> pm;
+  proxy_view<marshal> pv = pm;
+  CHECK(!pv);
+  const_proxy_view<marshal> cv = pm;
+  CHECK(!cv);
+  const proxy<marshal>& cpm = pm;
+  const_proxy_view<marshal> ccv = cpm;
+  CHECK(!ccv);
+  proxy_view<gunslinger> pvb = pm;
+  CHECK(!pvb);
+  const_proxy_view<gunslinger> cvb = pm;
+  CHECK(!cvb);
+  CHECK(!make_proxy_view<gunslinger>(pm));
+
+  // View-to-view upcasts of empty views yield empty views, along every
+  // route: mutable to mutable, const to const, and mutable to const, both
+  // same-facade and upcasting.
+  proxy_view<marshal> evm;
+  proxy_view<gunslinger> evb = evm;
+  CHECK(!evb);
+  const_proxy_view<marshal> ecm;
+  const_proxy_view<gunslinger> ecb = ecm;
+  CHECK(!ecb);
+  const_proxy_view<gunslinger> ecb2 = evm;
+  CHECK(!ecb2);
+  const_proxy_view<marshal> ecm2 = evm;
+  CHECK(!ecm2);
+
+  // Lending from an empty shared_proxy propagates the same way.
+  shared_proxy<marshal> sm;
+  proxy_view<marshal> svm = sm;
+  CHECK(!svm);
+  proxy_view<gunslinger> svb = sm;
+  CHECK(!svb);
+  const_proxy_view<gunslinger> scb = sm;
+  CHECK(!scb);
 }
 
 TEST_CASE("Generic code accepts concrete and erased alike", "[proxy]") {
