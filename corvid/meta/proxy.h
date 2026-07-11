@@ -215,8 +215,8 @@ struct method<Name, R(Args...) const noexcept>
 //      };
 //      template<typename T>
 //      struct boilerplate : proxy_impl_base {
-//        static int on(method_key<"speak">, const T& t) {
-//          return t.speak();
+//        static void on(method_key<"speak">, const T& t) {
+//          t.speak();
 //        }
 //      };
 //    };
