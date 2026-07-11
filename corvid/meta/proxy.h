@@ -530,8 +530,17 @@ struct proxy_impl;
 // (see `SpecCarriesImpl`). Because each hook's return type is deduced
 // independently, richer spec types can be added later without touching
 // existing registrations.
+//
+// The spec re-exposes its pair as `facade_t` and `target_t`, which
+// `ProxyRegistered` verifies against the queried pair: the facade exactly, the
+// target as the queried type or a public base of it (the conversion that lets
+// a base-class hook serve every derived type). A hook whose spec names an
+// unrelated pair (a copy-paste slip) therefore fails registration instead of
+// silently registering the pair it was found for.
 template<typename F, typename T, typename Impl = void>
 struct proxy_spec {
+  using facade_t = F;
+  using target_t = T;
   using impl_t = Impl;
 };
 
@@ -609,6 +618,16 @@ template<typename F, typename T, typename Impl,
   return {};
 }
 
+namespace details {
+
+// `registered_spec_t`: return type of the pair's registration hook, found by
+// ADL exactly as `ProxyRegistered` finds it.
+template<typename F, typename T>
+using registered_spec_t = decltype(corvid_proxy_spec(static_cast<F*>(nullptr),
+    static_cast<T*>(nullptr)));
+
+} // namespace details
+
 // `ProxyRegistered`: concept for a (facade, type) pair being registered.
 //
 // To register a pair, declare a `corvid_proxy_spec(F*, T*)` overload returning
@@ -624,9 +643,20 @@ template<typename F, typename T, typename Impl,
 //
 // Registration is the sole act of conformance: it unlocks the facade's
 // boilerplate, or carries the pair's impl itself.
+//
+// The hook's returned spec must agree with the queried pair: the facade
+// exactly, and the target as the queried type or a public base of it, which is
+// the same derived-to-base conversion that lets a base type's hook register
+// every type derived from it. A hook returning `make_proxy_spec` for an
+// unrelated pair (a copy-paste slip) fails this concept rather than silently
+// registering the pair it was found for.
 template<typename F, typename T>
 concept ProxyRegistered = requires {
   corvid_proxy_spec(static_cast<F*>(nullptr), static_cast<T*>(nullptr));
+  requires std::same_as<typename details::registered_spec_t<F, T>::facade_t,
+      F>;
+  requires std::derived_from<T,
+      typename details::registered_spec_t<F, T>::target_t>;
 };
 
 // `SpecCarriesImpl`: concept for a (facade, type) pair whose registration
@@ -646,15 +676,13 @@ concept ProxyRegistered = requires {
 template<typename F, typename T>
 concept SpecCarriesImpl =
     ProxyRegistered<F, T> &&
-    !std::is_void_v<typename decltype(corvid_proxy_spec(
-        static_cast<F*>(nullptr), static_cast<T*>(nullptr)))::impl_t>;
+    !std::is_void_v<typename details::registered_spec_t<F, T>::impl_t>;
 
 namespace details {
 
 // `registered_impl_t`: impl type carried by the pair's registration.
 template<typename F, typename T>
-using registered_impl_t = decltype(corvid_proxy_spec(static_cast<F*>(nullptr),
-    static_cast<T*>(nullptr)))::impl_t;
+using registered_impl_t = registered_spec_t<F, T>::impl_t;
 
 } // namespace details
 

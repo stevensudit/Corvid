@@ -302,6 +302,36 @@ consteval auto corvid_proxy_spec(hair_trigger*, robber*) {
   return prox::make_proxy_spec<hair_trigger, robber, as_hair_trigger>();
 }
 
+// `drifter` conforms to `gunslinger` by name, but its hooks return specs
+// naming the wrong pair, one the wrong target and one the wrong facade.
+// Neither counts as registration: the spec must name the pair the hook is
+// keyed on, so a copy-paste slip blocks conformance instead of silently
+// registering.
+struct drifter {
+  int fire(int rounds) {
+    (void)this;
+    return rounds;
+  }
+  [[nodiscard]] std::string describe() const {
+    (void)this;
+    return "drifter";
+  }
+  void reload() {}
+  int& shots() { return count; }
+
+  int count{};
+};
+
+consteval auto corvid_proxy_spec(gunslinger*, drifter*) {
+  // Wrong target: the spec names cowboy.
+  return prox::make_proxy_spec<gunslinger, cowboy>();
+}
+
+consteval auto corvid_proxy_spec(hair_trigger*, drifter*) {
+  // Wrong facade: the spec names gunslinger.
+  return prox::make_proxy_spec<gunslinger, drifter>();
+}
+
 // `mortar` is a facade whose `api` deliberately deviates from the method list:
 // the forwarder widens the parameter as a convenience, which registration-time
 // validation would reject. Its registrations opt out with `api_check::off`.
@@ -952,6 +982,12 @@ static_assert(prox::ProxyRegistered<gunslinger, sheriff>);
 static_assert(!prox::ProxyRegistered<gunslinger, cowboy>);
 static_assert(std::same_as<decltype(prox::proxy_spec_v<gunslinger, lawman>),
     const prox::proxy_spec<gunslinger, lawman>>);
+
+// A hook whose spec names a different pair is not a registration for the
+// pair the hook is keyed on, despite drifter's names lining up.
+static_assert(!prox::ProxyRegistered<gunslinger, drifter>);
+static_assert(!prox::ProxyRegistered<hair_trigger, drifter>);
+static_assert(!Proxiable<drifter, gunslinger>);
 
 // Conformance. Boilerplate or carried impl, always via registration;
 // matching names alone are NOT enough.
