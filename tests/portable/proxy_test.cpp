@@ -18,12 +18,14 @@
 #include <concepts>
 #include <cstddef>
 #include <memory>
+#include <sstream>
 #include <stdexcept>
 #include <string>
 #include <utility>
 #include <vector>
 
 #include "corvid/meta/proxy.h"
+#include "corvid/meta/proxy_codegen.h"
 #include "catch2_main.h"
 
 using namespace std::literals;
@@ -1064,6 +1066,21 @@ static_assert(!prox::Extends<marshal, marshal>);
 // or redeclare an inherited one"; before the collision-rules rework, the
 // same shape failed 'unique_method_names' with "method names must be
 // unique across the facade and its extends bases".)
+// A facade is never a value: the deleted default constructor on `facade`
+// propagates, so declaring a `gunslinger` where a handle over one was meant
+// fails at the declaration. Handles stay constructible as always.
+//
+// Diagnostic on record (clang 22, captured 2026-07-10): `gunslinger g;`
+// fails with a single error, "call to implicitly-deleted default
+// constructor of 'gunslinger'", with notes walking to the cause ("default
+// constructor of 'gunslinger' is implicitly deleted because base class
+// 'prox::facade<...>' has a deleted default constructor" and "'facade' has
+// been explicitly marked deleted here").
+static_assert(!std::is_default_constructible_v<gunslinger>);
+static_assert(!std::is_default_constructible_v<posse_leader>);
+static_assert(std::is_default_constructible_v<proxy<gunslinger>>);
+static_assert(std::is_default_constructible_v<proxy_view<gunslinger>>);
+
 static_assert(Proxiable<texas_ranger, gunslinger>);
 static_assert(Proxiable<texas_ranger, marshal>);
 static_assert(Proxiable<texas_ranger, ranger>);
@@ -2623,6 +2640,207 @@ TEST_CASE("Shared ownership interop with std", "[proxy]") {
     CHECK(shared_inline.call<"gold">() == 2);
   }
   CHECK(stats.destroyed == stats.constructed);
+}
+
+TEST_CASE("Codegen", "[proxy]") {
+  // `prox::codegen<F>(os)` writes the canonical `api` and `boilerplate` for
+  // pasting into the facade body. The goldens pin every generated shape:
+  // value, void, and reference returns; const and noexcept flavors; overload
+  // sets; the const pair's trailing requires-clause; base `api` inheritance
+  // with the using-declarations that un-hide inherited names; redeclared
+  // forwarders for methods the inherited path does not cover (the
+  // single-path diamond shape); and the facade-wide `arg_N` numbering, one
+  // sequence spanning all methods (covered slots consume numbers, hence the
+  // gaps), so a rename after pasting hits the `api` and `boilerplate`
+  // together.
+  std::ostringstream oss;
+
+  // The plain facade: every return shape, a const method, one parameter.
+  constexpr std::string_view gunslinger_golden = R"(  struct api {
+    int fire(this auto&& self, int arg_1) {
+      return self.template call<"fire">(arg_1);
+    }
+    std::string describe(this const auto& self) {
+      return self.template call<"describe">();
+    }
+    void reload(this auto&& self) {
+      self.template call<"reload">();
+    }
+    int& shots(this auto&& self) {
+      return self.template call<"shots">();
+    }
+  };
+  template<typename T>
+  struct boilerplate: proxy_impl_base {
+    static int on(method_key<"fire">, T& t, int arg_1) {
+      return t.fire(arg_1);
+    }
+    static std::string on(method_key<"describe">, const T& t) {
+      return t.describe();
+    }
+    static void on(method_key<"reload">, T& t) {
+      t.reload();
+    }
+    static int& on(method_key<"shots">, T& t) {
+      return t.shots();
+    }
+  };
+)";
+  prox::codegen<gunslinger>(oss);
+  CHECK(oss.str() == gunslinger_golden);
+
+  // Noexcept flavors mark the forwarders and the bindings alike.
+  constexpr std::string_view hair_trigger_golden = R"(  struct api {
+    int fire(this auto&& self, int arg_1) noexcept {
+      return self.template call<"fire">(arg_1);
+    }
+    bool jams(this const auto& self) noexcept {
+      return self.template call<"jams">();
+    }
+  };
+  template<typename T>
+  struct boilerplate: proxy_impl_base {
+    static int on(method_key<"fire">, T& t, int arg_1) noexcept {
+      return t.fire(arg_1);
+    }
+    static bool on(method_key<"jams">, const T& t) noexcept {
+      return t.jams();
+    }
+  };
+)";
+  oss.str({});
+  prox::codegen<hair_trigger>(oss);
+  CHECK(oss.str() == hair_trigger_golden);
+
+  // Overload sets, including the const pair with its requires-clause.
+  constexpr std::string_view arsenal_golden = R"(  struct api {
+    int issue(this auto&& self, int arg_1) {
+      return self.template call<"issue">(arg_1);
+    }
+    int issue(this auto&& self) {
+      return self.template call<"issue">();
+    }
+    int aim(this auto&& self, int arg_2) {
+      return self.template call<"aim">(arg_2);
+    }
+    int aim(this auto&& self, double arg_3) {
+      return self.template call<"aim">(arg_3);
+    }
+    int& count(this auto&& self)
+    requires(requires {
+      { self.template call<"count">() } -> std::same_as<int&>;
+    })
+    {
+      return self.template call<"count">();
+    }
+    int count(this const auto& self) {
+      return self.template call<"count">();
+    }
+  };
+  template<typename T>
+  struct boilerplate: proxy_impl_base {
+    static int on(method_key<"issue">, T& t, int arg_1) {
+      return t.issue(arg_1);
+    }
+    static int on(method_key<"issue">, T& t) {
+      return t.issue();
+    }
+    static int on(method_key<"aim">, T& t, int arg_2) {
+      return t.aim(arg_2);
+    }
+    static int on(method_key<"aim">, T& t, double arg_3) {
+      return t.aim(arg_3);
+    }
+    static int& on(method_key<"count">, T& t) {
+      return t.count();
+    }
+    static int on(method_key<"count">, const T& t) {
+      return t.count();
+    }
+  };
+)";
+  oss.str({});
+  prox::codegen<arsenal>(oss);
+  CHECK(oss.str() == arsenal_golden);
+
+  // Extends with a cross-level overload: the base api is inherited by its
+  // C++ type name, the hidden inherited name is merged back with a using,
+  // and the numbering continues past the covered base slots.
+  constexpr std::string_view armory_golden = R"(  struct api: arsenal::api {
+    using arsenal::api::issue;
+    int issue(this auto&& self, int arg_4, int arg_5) {
+      return self.template call<"issue">(arg_4, arg_5);
+    }
+    void lock(this auto&& self) {
+      self.template call<"lock">();
+    }
+  };
+  template<typename T>
+  struct boilerplate: proxy_impl_base {
+    static int on(method_key<"issue">, T& t, int arg_4, int arg_5) {
+      return t.issue(arg_4, arg_5);
+    }
+    static void on(method_key<"lock">, T& t) {
+      t.lock();
+    }
+  };
+)";
+  oss.str({});
+  prox::codegen<armory>(oss);
+  CHECK(oss.str() == armory_golden);
+
+  // Two unrelated bases: the heavier one is inherited, the lighter one's
+  // methods are redeclared, and collided names get their usings. Note the
+  // base spelled by TYPE name (`gunslinger`), where a formal-name spelling
+  // would also have worked here but breaks for facades like
+  // `war_correspondent` itself, whose formal name is "correspondent".
+  constexpr std::string_view war_correspondent_golden =
+      R"(  struct api: gunslinger::api {
+    using gunslinger::api::fire;
+    using gunslinger::api::reload;
+    std::string fire(this const auto& self) {
+      return self.template call<"fire">();
+    }
+    void reload(this auto&& self) {
+      self.template call<"reload">();
+    }
+    std::string byline(this const auto& self) {
+      return self.template call<"byline">();
+    }
+  };
+  template<typename T>
+  struct boilerplate: proxy_impl_base {
+    static std::string on(method_key<"byline">, const T& t) {
+      return t.byline();
+    }
+  };
+)";
+  oss.str({});
+  prox::codegen<war_correspondent>(oss);
+  CHECK(oss.str() == war_correspondent_golden);
+
+  // The diamond, generated in the recommended single-path shape: inherit
+  // the heavier chain, redeclare the lighter sibling's own method. This
+  // matches the hand-written `posse_leader` api exactly.
+  constexpr std::string_view posse_leader_golden =
+      R"(  struct api: marshal::api {
+    int claim(this auto&& self, int arg_3) {
+      return self.template call<"claim">(arg_3);
+    }
+    void rally(this auto&& self) {
+      self.template call<"rally">();
+    }
+  };
+  template<typename T>
+  struct boilerplate: proxy_impl_base {
+    static void on(method_key<"rally">, T& t) {
+      t.rally();
+    }
+  };
+)";
+  oss.str({});
+  prox::codegen<posse_leader>(oss);
+  CHECK(oss.str() == posse_leader_golden);
 }
 
 // NOLINTEND(readability-function-cognitive-complexity)

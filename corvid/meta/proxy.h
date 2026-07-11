@@ -147,27 +147,38 @@ struct method_base: method_key<Name> {
 //
 // A method derives from its `method_key`, so a method tag is usable anywhere
 // its key is, including `on` overload selection and deduction of
-// `method_key<Key>` from a method argument. This also leaves the door open for
-// bindings that overload on the full method (signature included) if per-name
-// overload sets are ever supported.
+// `method_key<Key>` from a method argument. This also leaves the door open
+// for bindings that overload on the full method (signature included);
+// per-name overload sets themselves are supported by listing the name
+// repeatedly, and the bindings overload on the trailing parameters.
+//
+// Each specialization exposes `args_t`, the declared parameter list, for
+// introspection (`codegen` walks it).
 template<fixed_string Name, typename Sig>
 struct method;
 
 template<fixed_string Name, typename R, typename... Args>
 struct method<Name, R(Args...)>: details::method_base<Name, false, false, R> {
+  using args_t = std::tuple<Args...>;
 };
 
 template<fixed_string Name, typename R, typename... Args>
 struct method<Name, R(Args...) const>
-    : details::method_base<Name, true, false, R> {};
+    : details::method_base<Name, true, false, R> {
+  using args_t = std::tuple<Args...>;
+};
 
 template<fixed_string Name, typename R, typename... Args>
 struct method<Name, R(Args...) noexcept>
-    : details::method_base<Name, false, true, R> {};
+    : details::method_base<Name, false, true, R> {
+  using args_t = std::tuple<Args...>;
+};
 
 template<fixed_string Name, typename R, typename... Args>
 struct method<Name, R(Args...) const noexcept>
-    : details::method_base<Name, true, true, R> {};
+    : details::method_base<Name, true, true, R> {
+  using args_t = std::tuple<Args...>;
+};
 
 #pragma endregion
 #pragma region Facade
@@ -213,8 +224,16 @@ struct method<Name, R(Args...) const noexcept>
 //
 // The facade body is also the normal home of the boilerplate impl; see also
 // `proxy_impl`.
+//
+// A facade is an interface descriptor, never a value: declare a handle over
+// it (`proxy<F>`, `proxy_view<F>`, ...) rather than an instance of it. The
+// deleted default constructor propagates to derived facades, so a stray
+// `gunslinger g;` fails at the declaration instead of compiling into a
+// useless empty object.
 template<typename... Methods>
-struct facade {};
+struct facade {
+  facade() = delete;
+};
 
 namespace details {
 

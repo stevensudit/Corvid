@@ -50,5 +50,45 @@ std::string type_name(T&&) {
   return type_name<T>();
 }
 
+// Extract a type name cleaned up for humans (and generated code).
+//
+// Builds on `type_name`, stripping elaborated-type keywords (MSVC spells
+// them), inline-namespace segments, and anonymous-namespace prefixes,
+// normalizing spacing, collapsing the expanded `std::string` spelling, and
+// spelling top-level const in the leading position. Best-effort, like
+// `type_name`; this band cannot use the string utilities, so the edits are
+// hand-rolled.
+template<typename T>
+std::string friendly_type_name() {
+  using TR = std::remove_reference_t<T>;
+  std::string r = type_name<std::remove_cv_t<TR>>();
+  auto replace = [&r](std::string_view what, std::string_view with) {
+    for (std::size_t pos{}; (pos = r.find(what, pos)) != std::string::npos;
+        pos += with.size())
+      r.replace(pos, what.size(), with);
+  };
+  replace("class ", "");
+  replace("struct ", "");
+  replace("enum ", "");
+  replace("__1::", "");
+  replace("__cxx11::", "");
+  replace("(anonymous namespace)::", "");
+  replace("`anonymous namespace'::", "");
+  replace("> >", ">>");
+  replace(", ", ",");
+  replace(
+      "std::basic_string<char,std::char_traits<char>,"
+      "std::allocator<char>>",
+      "std::string");
+  replace(",", ", ");
+  if (std::is_volatile_v<TR>) r = "volatile " + r;
+  if (std::is_const_v<TR>) r = "const " + r;
+  if (std::is_lvalue_reference_v<T>)
+    r += "&";
+  else if (std::is_rvalue_reference_v<T>)
+    r += "&&";
+  return r;
+}
+
 #pragma endregion
 }}} // namespace corvid::meta::naming

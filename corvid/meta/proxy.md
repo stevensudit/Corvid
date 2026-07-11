@@ -6,8 +6,9 @@ Status: phases 1 through 6 built and tested ([proxy.h](proxy.h),
 facade-qualified names with sibling collisions and diamonds, the
 ownership round (storage policies, owning upcast, cloning, `unique_ptr`
 interop, vtable-carried downcasting, and the shared/weak tier), downcasting
-extended to the views and `shared_proxy`, and per-name overload sets within
-a facade.
+extended to the views and `shared_proxy`, per-name overload sets within a
+facade and across extends levels, and `codegen` (generated `api` and
+boilerplate source, with facades made non-constructible).
 Plan for `corvid/meta/proxy.h`, a
 registration-based runtime-polymorphism ("proxy") system: type-erased handles
 over an interface definition, without inheritance, vtable pointers in the
@@ -352,6 +353,40 @@ artifact that invokes the members by name. A registration that cannot see
 such a boilerplate fails a friendly `static_assert` that names the opt-out;
 a nested boilerplate is visible wherever the facade is, so only the
 namespace-scope spelling can trip it.
+
+### Codegen (`prox::codegen`, built)
+
+`prox::codegen<F>(os)` writes the canonical `api` and `boilerplate` for a
+facade to a stream, ready to paste into the facade body: define the facade's
+method list, add the one-liner to a scratch `main`, paste the output, delete
+the one-liner. It lives in its own header,
+[proxy_codegen.h](proxy_codegen.h), so `proxy.h` stays free of streams and
+RTTI. This is the closest thing to reflection available today; the real
+value is that it spells the conventions' edge cases correctly every time:
+`noexcept` propagated onto forwarders and bindings (a plain binding for a
+noexcept method fails conformance), `this const auto&` for const methods,
+the const pair's trailing requires-clause, overload sets sharing one
+`method_key`, base `api` inheritance with the using-declarations that merge
+the names a new forwarder would otherwise hide, redeclared forwarders for
+methods the inherited path does not cover, and the single-path diamond
+shape (inherit the heaviest chain's `api`, redeclare the rest).
+
+Method signatures carry no parameter names, so codegen mints them:
+one `arg_N` sequence spanning the whole facade, deliberately arbitrary and
+unique across the output, so renaming a parameter after pasting is a single
+search-and-replace that hits the `api` forwarder and the `boilerplate`
+binding together. Base facades are spelled by their demangled C++ type
+names (`naming::friendly_type_name`), not their formal `name<>` entries,
+which need not match (`war_correspondent`'s formal name is
+"correspondent"); type spellings are the demangler's, best-effort
+normalized, and may want touch-up after pasting. Tested against golden
+masters covering each shape above; the generated `posse_leader` and
+`armory` bodies match the hand-written fixtures exactly, modulo the minted
+parameter names.
+
+Relatedly, a facade is never a value: `facade`'s default constructor is
+deleted and propagates to derived facades, so a stray `gunslinger g;`,
+where a handle was meant, fails at the declaration.
 
 ### Composition (`extends`, built)
 
@@ -1117,6 +1152,25 @@ architecture.
    arguments or constness") and for a forgotten api using-declaration,
    which fails at the validating registration inside the base boilerplate's
    natural-name calls.
+8. DONE. Codegen and never-a-value facades (described under "Codegen").
+   `facade`'s default constructor deleted (diagnostic on record: a single
+   clean error at the stray declaration, with notes walking to the deleted
+   base constructor); `method` grew `args_t` for introspection;
+   `naming::friendly_type_name` added (demangled names normalized: MSVC
+   elaborated-type keywords, inline-namespace segments, the expanded
+   `std::string` spelling, west-const); `prox::codegen<F>(os)` in the new
+   [proxy_codegen.h](proxy_codegen.h). Verified: golden masters for the
+   plain facade, noexcept flavors, overload sets with the const-pair
+   requires-clause, extends with the cross-level using and gap-preserving
+   parameter numbering, two-base composition with sibling usings and
+   redeclared forwarders, and the single-path diamond; the generated
+   `posse_leader` and `armory` bodies match the hand-written fixtures.
+   Notes from the build: emission walks the flattened slot tuple with a
+   per-slot compile-time branch, membership against the inherited path is
+   by (declaring facade, method) pair rather than slot type, since a base's
+   own slots retag when flattened; and parameter numbering spans the whole
+   flattened list, so covered slots consume numbers, keeping the `api` and
+   `boilerplate` spellings of one parameter identical.
 
 Header: `corvid/meta/proxy.h`, namespace `corvid::meta::prox`, deliberately
 NOT inline: `facade`, `method`, and `key` are too generic to dump into
@@ -1143,7 +1197,8 @@ the facade-level `try_downcast`).
 - C++26 reflection plus annotations (P2996/P3394) enables deriving the
   boilerplate impl itself from the facade's method list, removing even the
   facade author's forwarding lines. Registration-first is what makes this
-  additive rather than a rewrite.
+  additive rather than a rewrite. Until then, `prox::codegen` generates the
+  same artifacts as source to paste; reflection deletes the paste step.
 - `std::formatter` bridge once the formatter forwarding helper exists (see
   [../strings/roadmap.md](../strings/roadmap.md) stage 2); the ngcpp analog
   is `skills::format`.
