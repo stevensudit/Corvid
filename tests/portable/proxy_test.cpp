@@ -2569,6 +2569,15 @@ TEST_CASE("Downcasting a shared_proxy", "[proxy]") {
   // An empty handle downcasts to an empty handle.
   shared_proxy<gunslinger> nobody;
   CHECK(!nobody.try_downcast<marshal>());
+
+  // A moved-from handle is empty too, and downcasts to empty, even though
+  // it keeps a stale table pointer internally.
+  auto sm = make_shared_proxy<marshal, texas_ranger>();
+  shared_proxy<gunslinger> upcast_away{std::move(sm)};
+  REQUIRE(upcast_away);
+  CHECK(!sm); // NOLINT(bugprone-use-after-move): probing moved-from state.
+  // NOLINTNEXTLINE(bugprone-use-after-move): probing moved-from state.
+  CHECK(!sm.try_downcast<ranger>());
 }
 
 TEST_CASE("Cloning", "[proxy]") {

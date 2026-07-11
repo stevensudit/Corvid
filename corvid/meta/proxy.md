@@ -1013,6 +1013,16 @@ Emptiness propagates along every handle-to-handle edge: an empty source
 produces an empty result, whether lending, upcasting, adopting, or
 downcasting. Only calling through an empty handle violates the contract.
 
+Lent views carry the standard limitations of views. A view lent from an
+owning `proxy` is tied to the proxy's contents, not just its lifetime:
+ownership is exclusive, so removing or replacing the target (moving the
+proxy from, assigning over it, `extract`) invalidates the view, destroying
+an inline target in place and handing a heap target to an owner the view
+cannot track, and use after that is undefined behavior. A view lent from a
+`shared_proxy` follows the underlying object instead: the view never joins
+the ownership, but any owner keeps it valid, and code that must guarantee
+survival holds a `shared_proxy` copy rather than a view.
+
 ## Ownership and storage
 
 Views give all the type-erasure anyone could ask for. A proxy's added
