@@ -264,10 +264,11 @@ concept Facade = requires(const F& f) { details::probe(f); };
 // lists, in declaration order, followed by its own; handles of the derived
 // facade dispatch inherited and own methods alike.
 //
-// A method name may not recur within one extends chain: a facade cannot
-// declare a name twice or redeclare (or override) an inherited one, which is
-// by design, because facades carry no implementations and there is nothing to
-// override.
+// Within one extends chain, a recurring method name forms an overload set,
+// legal when every pair differs in arguments or constness, whether the
+// declarations share a facade or span levels. A same-signature recurrence is
+// rejected eagerly, because that would be redeclaration (or overriding), and
+// facades carry no implementations, so there is nothing to override.
 //
 // Unrelated sibling bases MAY collide on a method name: distinct signatures
 // form an overload set that unqualified calls resolve by argument, and a
