@@ -1791,9 +1791,64 @@ conformance.
 
 ## Non-goals
 
-Operator dispatch, conversion dispatch, allocator plumbing, RTTI (beyond
-the facade-level `try_downcast`). All were scoped out at the start and
-never turned out to be missed.
+Operator dispatch, conversion dispatch, allocator plumbing, and RTTI
+beyond the facade-level `try_downcast` were scoped out at the start and
+never turned out to be missed. All four exist in ngcpp, so each is a
+deliberate divergence rather than an oversight, and they share a shape:
+each would buy a spelling at the call site, not a capability, because
+the binding layer already reaches everything involved.
+
+Operator dispatch would let the handle spell the target's operators
+(`p(x)`, `p1 == p2`; ngcpp's `operator_dispatch`). Everything here is
+keyed by a `fixed_string` name, and operators have no identifier to key,
+but only the blessed convention is missing. A binding can reach a
+target's operator today (`on(method_key<"invoke">, T& t, int x)` may
+return `t(x)`), and the `api` is an ordinary class, so a hand-written
+`operator()` forwarder works, though outside the name-driven tooling
+(`prox::codegen` mints only named forwarders, and `validate_api` drives
+the probe by natural name, so an operator-only `api` registers with
+`api_check::off`). Named methods also dodge a real ambiguity: handles
+have operators of their own, and `p1 == p2` should not have to choose
+between comparing handles and comparing targets.
+
+Conversion dispatch would let the handle convert to another type by
+delegating to the target (ngcpp's `conversion_dispatch`); here a facade
+cannot declare `operator T()`, and the spelling is a named method
+(`to_string()`). This one was dodged rather than deferred. The handle
+family already carries a delicate web of converting constructors
+(upcasts, lending, adoption), all with settled rules, and
+target-delegated conversions would join that overload-resolution
+surface, for a feature whose named replacement is clearer at the call
+site rather than merely equivalent.
+
+Allocator plumbing would thread a user allocator through the owning tier
+(ngcpp's `allocate_proxy`): allocate the target through it, remember it,
+free through it, use it for clones and re-boxing. The heap mode here is
+plain `new`/`delete`, and an allocator would infect the whole
+owning-table ABI. `destroy`, `copy`, `to_heap`, and `to_sbo` would all
+need to reach it, meaning per-instance storage or per-allocator table
+families, plus an allocator-compatibility axis on every adoption. The
+allocation story runs through policy instead: hot targets live inline
+under SBO, `sbo_only` outlaws the heap outright, `make_shared_proxy`
+already gets the one-allocation layout, and a target that must live in
+an arena can stay there and be viewed, since views do not own.
+
+RTTI is capped at two narrow identities, both address compares of empty
+statics: `type_tag_v<T>` lets `extract<T>` verify the exact concrete
+type it names, and `facade_tag_v` plus the birth ancestry lets
+`try_downcast` recover the born facade chain. Scoped out is everything
+open-ended: `typeid` access, type names, `dynamic_cast`-style queries
+against arbitrary types (ngcpp's `proxy_typeid`). The two probes cover
+the legitimate questions, and anything broader invites switch-on-type
+code, the anti-pattern erasure exists to remove. The cap also keeps
+`proxy.h` free of `<typeinfo>` (the RTTI demangling lives only in
+`proxy_codegen.h`, a dev-time tool in its own header for exactly this
+reason).
+
+That the four were never missed is less about restraint than
+redundancy: operators and conversions were always reachable through
+bindings under a name, allocation policy is handled by storage policy
+and views, and identity is handled by the two tags.
 
 ## Future work
 
