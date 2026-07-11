@@ -697,16 +697,31 @@ struct arsenal
   };
 };
 
-// `armory` extends `arsenal`, inheriting the overload sets whole.
+// `armory` extends `arsenal`, inheriting the overload sets whole, and
+// overloads the inherited `issue` across the level boundary with a
+// two-argument flavor: different functions sharing a spelling, exactly as
+// within one facade.
 struct armory
-    : prox::facade<prox::name<"armory">,  //
-          prox::extends<arsenal>,         //
-          prox::method<"lock", void()>> { //
+    : prox::facade<prox::name<"armory">,        //
+          prox::extends<arsenal>,               //
+          prox::method<"issue", int(int, int)>, //
+          prox::method<"lock", void()>> {       //
   struct api: arsenal::api {
+    // The new forwarder hides the inherited `issue` forwarders until the
+    // using-declaration merges them, the same convention as sibling
+    // collisions; forgetting it is caught by `validate_api` at
+    // registration (diagnostic on record at the conformance asserts).
+    using arsenal::api::issue;
+    int issue(this auto&& self, int rifles, int crates) {
+      return self.template call<"issue">(rifles, crates);
+    }
     void lock(this auto&& self) { self.template call<"lock">(); }
   };
   template<typename T>
   struct boilerplate: proxy_impl_base {
+    static int on(method_key<"issue">, T& t, int rifles, int crates) {
+      return t.issue(rifles, crates);
+    }
     static void on(method_key<"lock">, T& t) { t.lock(); }
   };
 };
@@ -716,6 +731,7 @@ struct armory
 struct quartermaster {
   int issue(int rifles) { return stock_ -= rifles; }
   int issue() { return issue(1); }
+  int issue(int rifles, int crates) { return stock_ -= rifles * crates; }
   int aim(int paces) {
     (void)this;
     return paces;
@@ -1035,17 +1051,19 @@ static_assert(!prox::Extends<marshal, marshal>);
 // constraint walk as the `cowboy` case, ending at
 // 'details::vtbuild_t<marshal>::all_bound_v<marshal, vigilante>' evaluated
 // to false"; the walk does not name the missing base facade. Redeclaring an
-// inherited name (`facade<extends<gunslinger>, method<"fire", int(int)>>`)
+// inherited name with the same signature
+// (`facade<extends<gunslinger>, method<"fire", int(int)>>`)
 // detonates at first use of the facade's machinery: "static assertion
 // failed ... 'no_chain_collision_against<...>()': a method name may recur
-// within one facade only as overloads differing in arguments or constness,
-// and never across an extends chain", with the flattened slot list,
-// duplicate and declaring facades included, spelled out in the requirement,
-// followed by one follow-on "no type named 'vtable_t'" noise error. (Before
-// per-name overloads the message read "a facade cannot declare a method
-// name twice or redeclare an inherited one"; before the collision-rules
-// rework, the same shape failed 'unique_method_names' with "method names
-// must be unique across the facade and its extends bases".)
+// within one extends chain only as overloads differing in arguments or
+// constness", with the flattened slot list, duplicate and declaring facades
+// included, spelled out in the requirement, followed by one follow-on "no
+// type named 'vtable_t'" noise error. (A different signature is a legal
+// cross-level overload since the chain relaxation; before per-name
+// overloads the message read "a facade cannot declare a method name twice
+// or redeclare an inherited one"; before the collision-rules rework, the
+// same shape failed 'unique_method_names' with "method names must be
+// unique across the facade and its extends bases".)
 static_assert(Proxiable<texas_ranger, gunslinger>);
 static_assert(Proxiable<texas_ranger, marshal>);
 static_assert(Proxiable<texas_ranger, ranger>);
@@ -1131,20 +1149,22 @@ static_assert(CanReloadSugar<proxy_view<gunslinger>>);
 static_assert(CanReloadSugar<proxy_view<camera>>);
 static_assert(!CanReloadSugar<proxy_view<war_correspondent>>);
 
-// Per-name overload sets within one facade (`arsenal`). Legal when each
-// same-name pair differs in arguments or constness; overloading on the
-// result type or on `noexcept` alone stays a collision, and redeclaring an
-// inherited name stays an error, whatever its signature (the chain rules
-// are untouched). Registration validates the overloaded `api` by default.
+// Per-name overload sets (`arsenal`, and `armory` across the level
+// boundary). Legal when each same-name pair differs in arguments or
+// constness, whether the declarations share a facade or span an extends
+// chain; overloading on the result type or on `noexcept` alone stays a
+// collision, and a same-signature recurrence in a chain stays an error
+// (that is redeclaration). Registration validates the overloaded `api` by
+// default.
 //
 // Diagnostics on record (clang 22, captured 2026-07-10). A pair differing
 // only in the result type (`method<"x", int()>` plus `method<"x", long()>`)
 // detonates at first use of the facade's machinery: "static assertion
 // failed ... 'no_chain_collision_against<...>()': a method name may recur
-// within one facade only as overloads differing in arguments or constness,
-// and never across an extends chain", both slots spelled out in the
-// requirement, followed by the usual single "no type named 'vtable_t'"
-// noise error. A pair differing only in `noexcept` fires the same assert.
+// within one extends chain only as overloads differing in arguments or
+// constness", both slots spelled out in the requirement, followed by the
+// usual single "no type named 'vtable_t'" noise error. A pair differing
+// only in `noexcept` fires the same assert.
 static_assert(Proxiable<quartermaster, arsenal>);
 static_assert(Proxiable<quartermaster, armory>);
 static_assert(prox::validate_api<arsenal>());
@@ -1188,6 +1208,32 @@ static_assert(CanAimSugar<proxy_view<arsenal>, int>);
 static_assert(CanAimSugar<proxy_view<arsenal>, double>);
 static_assert(CanAimSugar<proxy_view<arsenal>, short>);
 static_assert(!CanAimSugar<proxy_view<arsenal>, long>);
+
+// Cross-level overloads: `armory`'s two-argument `issue` joins the
+// inherited pair on derived handles, and an upcast handle sees only the
+// base's set. In the `api`, the derived forwarder hides the inherited ones
+// until a using-declaration merges them (see the `armory` fixture), the
+// same convention as sibling collisions, and forgetting it is caught: the
+// validation probe drives the base slots by natural name through the base
+// boilerplate, where the hidden forwarders fail to resolve.
+//
+// Diagnostics on record (clang 22, captured 2026-07-10). Removing the
+// `using arsenal::api::issue;` from `armory::api` fails at the validating
+// registration with "no matching member function for call to 'issue'" at
+// `t.issue(rifles)` and `t.issue()` in `arsenal::boilerplate` (the
+// candidate note names the two-argument `armory` forwarder: "requires 2
+// non-object arguments, but 1 was provided"); any sugar call sites using
+// the hidden overloads fail the same way. Before the chain relaxation,
+// declaring `armory`'s `issue(int, int)` at all detonated with the
+// phase-7 message ("a method name may recur within one facade only as
+// overloads differing in arguments or constness, and never across an
+// extends chain").
+template<typename P, typename... As>
+concept CanIssueSugar = requires(P& p, As... as) { p.issue(as...); };
+static_assert(CanIssueSugar<proxy_view<armory>>);
+static_assert(CanIssueSugar<proxy_view<armory>, int>);
+static_assert(CanIssueSugar<proxy_view<armory>, int, int>);
+static_assert(!CanIssueSugar<proxy_view<arsenal>, int, int>);
 
 // Handles of a derived facade satisfy the base facade too (Rust: a `dyn
 // Derived` meets a `Base` bound).
@@ -1835,6 +1881,16 @@ TEST_CASE("Per-name overloads", "[proxy]") {
   CHECK(std::as_const(p).count() == 8);
   CHECK(p.call<"arsenal::issue">() == 7);
   p.lock();
+
+  // Overloads span levels: `armory`'s own two-argument `issue` dispatches
+  // alongside the inherited pair, by argument count unqualified and through
+  // each level's qualified spelling; an upcast handle sees only the base's
+  // set (the sugar probe is the `CanIssueSugar` static_asserts).
+  CHECK(p.issue(2, 3) == 1);
+  CHECK(p.call<"armory::issue">(1, 1) == 0);
+  CHECK(p.call<"arsenal::issue">(10) == -10);
+  proxy_view<arsenal> base_view = p;
+  CHECK(base_view.issue() == -11);
 
   auto sp = make_shared_proxy<arsenal, quartermaster>();
   CHECK(sp.issue() == 19);

@@ -369,13 +369,14 @@ derived facade dispatches inherited and own methods alike. Flattening keeps
 each method's declaring facade (a slot is a method plus its owner), which is
 what the collision rules, qualified keys, and diamond dedup below all read.
 
-A method name may recur within one facade only as an overload set (see
-"Per-name overload sets"), and never elsewhere in an extends chain,
-enforced by a `static_assert` detonator at first use of the facade's
-machinery: a derived facade cannot redeclare (or overload, or override) an
-inherited name, which is by design, because facades carry no
-implementations and there is nothing to override. Unrelated sibling bases
-MAY collide on a method name (see "Facade names and sibling collisions"). Diamonds are supported: a
+A method name may recur within one extends chain only as an overload set
+(see "Per-name overload sets"): a derived facade may overload an inherited
+name with a different signature, but a same-signature recurrence is
+rejected by a `static_assert` detonator at first use of the facade's
+machinery, because that is redeclaration (or overriding), and facades carry
+no implementations, so there is nothing to override. Unrelated sibling
+bases MAY collide on a method name (see "Facade names and sibling
+collisions"). Diamonds are supported: a
 shared ancestor reached through more than one path
 dedups to a single set of slots by facade identity, and since conformance is
 per facade there is only one `proxy_impl<Ancestor, T>` to reach no matter
@@ -535,9 +536,21 @@ A facade may declare one method name several times, forming an overload
 set: `method<"issue", int(int)>` alongside `method<"issue", int()>`. A
 same-name pair must differ in its argument lists or in constness; the C++
 member rules apply, so the result type and `noexcept` do not overload, and
-a pair distinguished by nothing else stays a collision. The chain rules are
-untouched (a derived facade cannot redeclare, overload, or override an
-inherited name), and sibling collisions keep their own rules above.
+a pair distinguished by nothing else stays a collision.
+
+Overloads span extends levels under the same rule: a derived facade may add
+`issue(int, int)` to a base's `issue` pair, since a base's `foo()` and a
+derived `foo(int)` are different functions that happen to share a spelling,
+exactly as within one facade (what C++'s mangling hides). A same-signature
+recurrence in a chain stays an error, because that is redeclaration, and
+there is nothing to override. Sibling collisions keep their own rules
+above, including the legal same-signature collision; the asymmetry is
+deliberate, since sibling composers cannot coordinate names and
+qualification bails them out, while a chain author can see the base, so a
+chain duplicate is rejected eagerly. Unlike C++, where a derived class's
+`foo(int)` silently hides the base's `foo()` until a using-declaration
+merges them, the erased candidate set merges automatically; an upcast
+handle sees only its own level's overloads.
 
 An unqualified call resolves over the whole candidate set the way a C++
 call would after a using-merge: a unique exact argument match wins, else a
@@ -570,11 +583,18 @@ overloads too, with one wrinkle for the const pair: the mutable member's
 forwarder must repeat its call in a trailing requires-clause (the caveat
 under "Member-call sugar" made load-bearing), because a `const_proxy_view`
 is a mutable object whose deep const lives in the type, and object
-constness alone would select the mutable forwarder for it. `validate_api`
-drives each overload's slot independently, so overloaded facades validate
-at registration like any other; the only machinery it needed was the
+constness alone would select the mutable forwarder for it. The C++ hiding
+that the dispatch layer escapes does surface in a cross-level `api`: a
+derived forwarder overloading an inherited name hides the base's forwarders
+until a using-declaration merges them (`using arsenal::api::issue;`), the
+same convention as sibling collisions. `validate_api` drives each
+overload's slot independently, so overloaded facades validate at
+registration like any other; the only machinery it needed was the
 constness tiebreak reaching `resolve_exact`, which is how the probe's
-mutable strict call singles out the non-const member of a const pair.
+mutable strict call singles out the non-const member of a const pair. It
+also catches a forgotten using-declaration, because the probe drives the
+base slots by natural name through the base boilerplate, where the hidden
+forwarders fail to resolve.
 
 An earlier sketch of this feature used mangled keys (`method<"foo-0", ...>`
 and `method<"foo-1", ...>` sharing one `api` spelling). That remains
@@ -1082,7 +1102,21 @@ architecture.
    type, so object constness alone would route it to the mutable forwarder;
    and the ambiguity static_assert's advice was reworded ("qualify the key
    with the facade name, or match one overload's arguments exactly"), since
-   qualification alone cannot split a within-facade overload set.
+   qualification alone cannot split a within-facade overload set. A
+   follow-up round extended overloads across extends levels: once same-name
+   distinct-signature declarations are admitted as different functions,
+   the level boundary stops mattering, so the detonator simplified to one
+   rule (same chain -> must be a legal overload pair) and resolution needed
+   no changes at all, the flattened candidate set already carrying
+   owner-distinct same-name slots from the sibling machinery. Verified:
+   cross-level dispatch by argument count, upcast narrowing to the base's
+   set, both levels' qualified spellings, the `api` using-merge convention
+   (`armory` overloading `arsenal`'s `issue`), and captured diagnostics for
+   the same-signature redeclaration (still an error, message now "a method
+   name may recur within one extends chain only as overloads differing in
+   arguments or constness") and for a forgotten api using-declaration,
+   which fails at the validating registration inside the base boilerplate's
+   natural-name calls.
 
 Header: `corvid/meta/proxy.h`, namespace `corvid::meta::prox`, deliberately
 NOT inline: `facade`, `method`, and `key` are too generic to dump into

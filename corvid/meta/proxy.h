@@ -1095,10 +1095,10 @@ consteval bool same_chain_owners() noexcept {
            vtbuild_t<o2_t>::template extends_facade<o1_t>();
 }
 
-// `legal_overload_pair`: whether two same-name slots declared by the same
-// facade form a legal overload pair: distinct normalized argument lists, or
-// the same arguments with different constness (the const-pair idiom, a
-// mutable accessor and a read-only query sharing a name).
+// `legal_overload_pair`: whether two same-name slots form a legal overload
+// pair: distinct normalized argument lists, or the same arguments with
+// different constness (the const-pair idiom, a mutable accessor and a
+// read-only query sharing a name).
 //
 // The C++ member rules apply: the result type and `noexcept` do not
 // overload, so a pair distinguished by nothing else is a collision.
@@ -1114,26 +1114,27 @@ consteval bool legal_overload_pair() noexcept {
 // Post-dedup, a repeated slot type is only ever the self-pairing, so same-type
 // pairs are skipped.
 //
-// Within one declaring facade, a recurring method name is an overload set,
+// Within one extends chain, a recurring method name is an overload set,
 // legal when every pair differs in arguments or constness (see
-// `legal_overload_pair`). Across an extends chain a name may not recur at
-// all: a derived facade cannot redeclare (or overload, or override) an
-// inherited name, by design, because facades carry no implementations and
-// there is nothing to override.
+// `legal_overload_pair`), whether the declarations share a facade or span
+// levels: a base's `foo()` and a derived facade's `foo(int)` are different
+// functions that happen to share a spelling, exactly as within one facade.
+// A same-signature recurrence stays an error, since that is redeclaration
+// (or overriding), and facades carry no implementations, so there is
+// nothing to override.
 //
-// Unrelated sibling facades may collide on a method name freely, since every
-// facade is named and the qualified spelling is always available as the route
-// to a collided slot that the arguments cannot single out. Facade names must
+// Unrelated sibling facades may collide on a method name freely, including
+// on the full signature, since every facade is named and the qualified
+// spelling is always available as the route to a collided slot that the
+// arguments cannot single out; chain authors can see the base, so a chain's
+// same-signature recurrence is rejected eagerly instead. Facade names must
 // be unique within the composition, or qualified keys could themselves
 // collide.
 template<typename S1, typename... Ss>
 consteval bool no_chain_collision_against() noexcept {
-  return (
-      (std::same_as<S1, Ss> || S1::name_v != Ss::name_v ||
-          (std::same_as<typename S1::owner_t, typename Ss::owner_t>
-                  ? legal_overload_pair<S1, Ss>()
-                  : !same_chain_owners<S1, Ss>())) &&
-      ...);
+  return ((std::same_as<S1, Ss> || S1::name_v != Ss::name_v ||
+              !same_chain_owners<S1, Ss>() || legal_overload_pair<S1, Ss>()) &&
+          ...);
 }
 
 template<fixed_string OwnName, typename S1, typename... Ss>
@@ -1230,8 +1231,8 @@ struct vtable_builder_impl;
 template<typename... Ss, typename... Bs, fixed_string OwnName>
 struct vtable_builder_impl<std::tuple<Ss...>, std::tuple<Bs...>, OwnName> {
   static_assert((no_chain_collision_against<Ss, Ss...>() && ...),
-      "a method name may recur within one facade only as overloads differing "
-      "in arguments or constness, and never across an extends chain");
+      "a method name may recur within one extends chain only as overloads "
+      "differing in arguments or constness");
   static_assert((owner_names_unique_against<OwnName, Ss, Ss...>() && ...),
       "facade names must be unique within a composition");
 
