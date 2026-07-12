@@ -1675,6 +1675,10 @@ struct vtable_builder<facade<Es...>>
   // Own methods bind through `proxy_impl<F, T>`; inherited ones recurse into
   // their declaring facade, so conforming to a composed facade requires
   // conforming to each of its bases.
+  //
+  // This is binding-existence only, vacuously true when the facade contributes
+  // no methods; the per-pair opt-in that keeps vacuity from conforming lives
+  // in `Proxiable`.
   template<typename F, typename T>
   static constexpr bool all_bound_v =
       (entry_traits<Es>::template bound_v<F, T> && ...);
@@ -1878,21 +1882,6 @@ dispatch(const typename vtbuild_t<F>::thunks_t& tks, ErasedPtr target,
 #pragma endregion
 #pragma region Proxiable
 
-// `Proxiable`: concept for when `T` can back facade `F`.
-//
-// Satisfied when a usable `proxy_impl<F, T>` binding exists for every method
-// of `F`.
-//
-// Both binding routes, the facade's boilerplate and the registration-carried
-// impl, are registration-gated, so the concept is satisfied exactly when the
-// pair is registered with a usable binding.
-//
-// This is the gate on proxy construction and doubles as the trait bound for
-// static-dispatch templates.
-template<typename T, typename F>
-concept Proxiable =
-    Facade<F> && details::vtbuild_t<F>::template all_bound_v<F, T>;
-
 // `Extends`: concept for when facade `D` (transitively) extends facade `B`
 // through `extends` composition entries.
 //
@@ -1989,6 +1978,24 @@ consteval auto qualified_key() noexcept {
 }
 
 } // namespace details
+
+// `Proxiable`: concept for when `T` can back facade `F`.
+//
+// Satisfied when a usable `proxy_impl<F, T>` binding exists for every method
+// of `F`, and the pair itself has opted in: it is registered, or `T` is a
+// proxy handle of `F` or of a facade extending it (the library's
+// self-conformance bindings).
+//
+// The explicit opt-in term is what keeps a facade with no own methods, a
+// name-only marker or a pure aggregation level, from being backed by every
+// type in the program: binding-existence alone is vacuously true there.
+//
+// This is the gate on proxy construction and doubles as the trait bound for
+// static-dispatch templates.
+template<typename T, typename F>
+concept Proxiable =
+    Facade<F> && details::vtbuild_t<F>::template all_bound_v<F, T> &&
+    (ProxyRegistered<F, T> || details::is_handle_for<T, F>());
 
 #pragma endregion
 #pragma region API validation

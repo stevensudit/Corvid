@@ -1270,9 +1270,13 @@ business.
   converting constructor, static-dispatch template bounds); they cannot
   generate, since C++ has no introspection over requires-expressions. The
   facade is the source of truth and the concept is derived from it, never
-  the reverse. Both binding routes are registration-gated, so the concept
-  is satisfied exactly when the pair is registered with a usable binding
-  (the facade's boilerplate or a carried impl).
+  the reverse. Both binding routes are registration-gated, and the concept
+  carries an explicit opt-in term besides: the pair must be registered, or
+  `T` must be a proxy handle of `F`'s chain (the self-conformance
+  bindings). The explicit term is what keeps a facade whose method list
+  gives the bindings nothing to prove (a name-only marker, or an
+  aggregation level adding no methods) from being backed by every type in
+  the program.
 - The registration slot mirrors the enum registry idiom. An ADL-found
   `corvid_proxy_spec(F*, T*)` hook returns a spec object created by
   `make_proxy_spec<F, T>()` (as `make_sequence_enum_spec` is returned from

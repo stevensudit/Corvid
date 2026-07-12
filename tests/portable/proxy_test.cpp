@@ -941,6 +941,29 @@ consteval auto corvid_proxy_spec(F*, coffer<Pad>*) {
   return prox::make_proxy_spec<F, coffer<Pad>>();
 }
 
+// `tin` conforms to `lockbox` and registers for it alone, pinning that
+// conformance to a base does not leak upward into `vault`, the aggregation
+// level above it, whose method list adds nothing to check.
+struct tin {
+  int add(int nuggets) { return gold_ += nuggets; }
+  [[nodiscard]] int gold() const { return gold_; }
+
+  int gold_{};
+};
+
+consteval auto corvid_proxy_spec(lockbox*, tin*) {
+  return prox::make_proxy_spec<lockbox, tin>();
+}
+
+// `keepsake` is a name-only marker facade: no methods, so binding-existence
+// is vacuously true for every type, and conformance rides on registration
+// alone.
+struct keepsake: prox::facade<prox::name<"keepsake">> {};
+
+consteval auto corvid_proxy_spec(keepsake*, tin*) {
+  return prox::make_proxy_spec<keepsake, tin>();
+}
+
 // One size fits the inline buffer exactly, the other forces the heap path.
 using small_box = strongbox<4>;
 using big_box = strongbox<64>;
@@ -988,6 +1011,22 @@ static_assert(std::same_as<decltype(prox::proxy_spec_v<gunslinger, lawman>),
 static_assert(!prox::ProxyRegistered<gunslinger, drifter>);
 static_assert(!prox::ProxyRegistered<hair_trigger, drifter>);
 static_assert(!Proxiable<drifter, gunslinger>);
+
+// Conformance requires the pair's own opt-in even when the facade adds no
+// methods for bindings to prove it. `tin` conforms to `lockbox` but never
+// registered for `vault`, so the aggregation level does not come along for
+// free; `keepsake` has no methods at all and conforms exactly where
+// registered. Handles stay self-conformant with no registration, including
+// at the aggregation level.
+static_assert(Proxiable<tin, lockbox>);
+static_assert(!prox::ProxyRegistered<vault, tin>);
+static_assert(!Proxiable<tin, vault>);
+static_assert(Proxiable<small_box, vault>); // the chain hook covers vault
+static_assert(Proxiable<tin, keepsake>);
+static_assert(!Proxiable<small_box, keepsake>);
+static_assert(!Proxiable<int, keepsake>);
+static_assert(Proxiable<proxy_view<vault>, lockbox>);
+static_assert(Proxiable<proxy_view<vault>, vault>);
 
 // Conformance. Boilerplate or carried impl, always via registration;
 // matching names alone are NOT enough.
