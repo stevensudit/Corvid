@@ -123,7 +123,7 @@ underlying `view()` for dynamic-width debug on a known non-null wrapper.
 
 `basic_fixed_string` cannot be null, so its formatter is pure delegation with
 no debug branch. Define it at the bottom of
-[fixed_string.h](fixed_string.h): call the value's `view()` and
+[fixed_string.h](../meta/fixed_string.h): call the value's `view()` and
 forward to `std::formatter<std::basic_string_view<Char>, Char>`.
 
 #### containers
@@ -149,7 +149,7 @@ Done / covered:
 Strings:
 
 - [x] `fixed_string` (`basic_fixed_string`,
-  [fixed_string.h](fixed_string.h)): own formatter forwarding
+  [fixed_string.h](../meta/fixed_string.h)): own formatter forwarding
   `view()`, per the `fixed_string` section above. Not a wrapper child, cannot be
   null; like the wrappers it exposes `begin`/`end`, so it also sets
   `format_kind = disabled`. Tested in `fixed_string_test.cpp`.

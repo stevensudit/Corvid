@@ -19,7 +19,8 @@
 #include <sstream>
 #include <vector>
 
-#include "corvid/strings/fixed_string.h"
+#include "corvid/meta/fixed_string.h"
+#include "corvid/strings/cstring_view.h"
 #include "corvid/strings/fixed_string_utils.h"
 #include "catch2_main.h"
 
@@ -29,17 +30,17 @@ using namespace corvid::literals;
 
 // NOLINTBEGIN(readability-function-cognitive-complexity)
 
-template<strings::fixed_string W>
+template<meta::fixed_string W>
 constexpr std::string_view GetFixedString() {
   return W;
 }
 
-template<strings::fixed_string W>
+template<meta::fixed_string W>
 constexpr std::string_view GetSecondString() {
   return strings::fixed_split<W>()[1];
 }
 
-template<strings::fixed_string W>
+template<meta::fixed_string W>
 constexpr cstring_view GetFixedCString() {
   return W.cview();
 }
@@ -50,7 +51,7 @@ consteval auto test_split() { return GetSecondString<"abc,def">(); }
 
 consteval auto test_cstr() { return GetFixedCString<"abc">(); }
 
-template<strings::fixed_string D>
+template<meta::fixed_string D>
 consteval bool CanSplit() {
   if constexpr (D.view().size() == 0) {
     return false;
@@ -96,29 +97,29 @@ TEST_CASE("General", "[FixedStringTest]") {
 
 TEST_CASE("Constructors", "[FixedStringTest]") {
   SECTION("fixed_string is the char alias") {
-    STATIC_REQUIRE(std::is_same_v<strings::fixed_string<3>,
-        strings::basic_fixed_string<char, 3>>);
+    STATIC_REQUIRE(std::is_same_v<meta::fixed_string<3>,
+        meta::basic_fixed_string<char, 3>>);
   }
 
   SECTION("literal ctor deduces CharT and length") {
-    constexpr strings::basic_fixed_string fs{"abc"};
+    constexpr meta::basic_fixed_string fs{"abc"};
     STATIC_REQUIRE(std::is_same_v<std::remove_const_t<decltype(fs)>,
-        strings::basic_fixed_string<char, 3>>);
+        meta::basic_fixed_string<char, 3>>);
     STATIC_REQUIRE(fs.view() == "abc"sv);
     CHECK(fs.view() == "abc"sv);
     CHECK(fs.c_str() == "abc"sv);
   }
 
   SECTION("literal ctor generalizes over CharT") {
-    constexpr strings::basic_fixed_string fs{L"hello"};
+    constexpr meta::basic_fixed_string fs{L"hello"};
     STATIC_REQUIRE(std::is_same_v<std::remove_const_t<decltype(fs)>,
-        strings::basic_fixed_string<wchar_t, 5>>);
+        meta::basic_fixed_string<wchar_t, 5>>);
     CHECK(fs.view() == L"hello"sv);
   }
 
   SECTION("pointer ctor with size tag") {
     constexpr const char* p = "abcdef";
-    constexpr strings::basic_fixed_string<char, 3> fs{p,
+    constexpr meta::basic_fixed_string<char, 3> fs{p,
         std::integral_constant<std::size_t, 3>{}};
     STATIC_REQUIRE(fs.view() == "abc"sv);
     CHECK(fs.view() == "abc"sv);
@@ -126,23 +127,23 @@ TEST_CASE("Constructors", "[FixedStringTest]") {
 
   SECTION("pointer ctor deduces CharT and length") {
     constexpr const char* p = "abcdef";
-    constexpr strings::basic_fixed_string fs{p,
+    constexpr meta::basic_fixed_string fs{p,
         std::integral_constant<std::size_t, 3>{}};
     STATIC_REQUIRE(std::is_same_v<std::remove_const_t<decltype(fs)>,
-        strings::basic_fixed_string<char, 3>>);
+        meta::basic_fixed_string<char, 3>>);
     STATIC_REQUIRE(fs.view() == "abc"sv);
   }
 
   SECTION("character pack ctor") {
-    constexpr strings::basic_fixed_string<char, 3> fs{'a', 'b', 'c'};
+    constexpr meta::basic_fixed_string<char, 3> fs{'a', 'b', 'c'};
     STATIC_REQUIRE(fs.view() == "abc"sv);
     CHECK(fs.view() == "abc"sv);
   }
 
   SECTION("character pack ctor deduces CharT and length") {
-    constexpr strings::basic_fixed_string fs{'a', 'b', 'c'};
+    constexpr meta::basic_fixed_string fs{'a', 'b', 'c'};
     STATIC_REQUIRE(std::is_same_v<std::remove_const_t<decltype(fs)>,
-        strings::basic_fixed_string<char, 3>>);
+        meta::basic_fixed_string<char, 3>>);
     STATIC_REQUIRE(fs.view() == "abc"sv);
   }
 }
@@ -152,7 +153,7 @@ TEST_CASE("Constructors", "[FixedStringTest]") {
 
 TEST_CASE("Accessors", "[FixedStringTest]") {
   SECTION("size, data, and indexing") {
-    constexpr strings::basic_fixed_string fs{"abc"};
+    constexpr meta::basic_fixed_string fs{"abc"};
     STATIC_REQUIRE(!fs.empty());
     STATIC_REQUIRE(fs.size() == 3);
     STATIC_REQUIRE(fs.data() == fs.c_str());
@@ -162,13 +163,13 @@ TEST_CASE("Accessors", "[FixedStringTest]") {
   }
 
   SECTION("empty") {
-    constexpr strings::basic_fixed_string fs{""};
+    constexpr meta::basic_fixed_string fs{""};
     STATIC_REQUIRE(fs.empty());
     STATIC_REQUIRE(fs.size() == 0);
   }
 
   SECTION("iteration spans the value, not the terminator") {
-    constexpr strings::basic_fixed_string fs{"abc"};
+    constexpr meta::basic_fixed_string fs{"abc"};
     STATIC_REQUIRE(fs.end() - fs.begin() == 3);
     STATIC_REQUIRE(fs.begin() == fs.cbegin());
     STATIC_REQUIRE(fs.end() == fs.cend());
@@ -182,40 +183,37 @@ TEST_CASE("Accessors", "[FixedStringTest]") {
 TEST_CASE("Operations", "[FixedStringTest]") {
   SECTION("concatenation grows the length") {
     constexpr auto fs =
-        strings::basic_fixed_string{"ab"} + strings::basic_fixed_string{"cde"};
+        meta::basic_fixed_string{"ab"} + meta::basic_fixed_string{"cde"};
     STATIC_REQUIRE(std::is_same_v<std::remove_const_t<decltype(fs)>,
-        strings::basic_fixed_string<char, 5>>);
+        meta::basic_fixed_string<char, 5>>);
     STATIC_REQUIRE(fs.view() == "abcde"sv);
     CHECK(fs.view() == "abcde"sv);
   }
 
   SECTION("equality, same length") {
     STATIC_REQUIRE(
-        strings::basic_fixed_string{"abc"} ==
-        strings::basic_fixed_string{"abc"});
+        meta::basic_fixed_string{"abc"} == meta::basic_fixed_string{"abc"});
     STATIC_REQUIRE(
-        strings::basic_fixed_string{"abc"} !=
-        strings::basic_fixed_string{"abd"});
+        meta::basic_fixed_string{"abc"} != meta::basic_fixed_string{"abd"});
   }
 
   SECTION("equality, different length is never equal") {
     STATIC_REQUIRE(
-        strings::basic_fixed_string{"abc"} !=
-        strings::basic_fixed_string{"abcd"});
+        meta::basic_fixed_string{"abc"} != meta::basic_fixed_string{"abcd"});
   }
 
   SECTION("ordering") {
     STATIC_REQUIRE(
-        (strings::basic_fixed_string{"abc"} <=>
-            strings::basic_fixed_string{"abd"}) < 0);
+        (meta::basic_fixed_string{"abc"} <=> meta::basic_fixed_string{"abd"}) <
+        0);
     STATIC_REQUIRE(
-        (strings::basic_fixed_string{"abc"} <=>
-            strings::basic_fixed_string{"ab"}) > 0);
+        (meta::basic_fixed_string{"abc"} <=> meta::basic_fixed_string{"ab"}) >
+        0);
   }
 
   SECTION("stream insertion") {
     std::ostringstream os;
-    os << strings::basic_fixed_string{"abc"};
+    os << meta::basic_fixed_string{"abc"};
     CHECK(os.str() == "abc");
   }
 }
@@ -227,7 +225,7 @@ TEST_CASE("fixed_replaced", "[FixedStringTest]") {
   SECTION("swaps every occurrence, preserving length") {
     constexpr auto r = strings::fixed_replaced<"a,b,c", ',', '|'>();
     STATIC_REQUIRE(std::is_same_v<std::remove_const_t<decltype(r)>,
-        strings::basic_fixed_string<char, 5>>);
+        meta::basic_fixed_string<char, 5>>);
     STATIC_REQUIRE(r.view() == "a|b|c"sv);
   }
 
@@ -248,7 +246,7 @@ TEST_CASE("fixed_replaced", "[FixedStringTest]") {
 #pragma region Formatting
 
 TEST_CASE("Fixed string formats like its view", "[FixedStringTest]") {
-  static constexpr strings::basic_fixed_string fs{"hi"};
+  static constexpr meta::basic_fixed_string fs{"hi"};
   CHECK(std::format("{}", fs) == "hi");
   CHECK(std::format("{:?}", fs) == R"("hi")");
   CHECK(std::format("{:>5}", fs) == "   hi");
@@ -256,7 +254,7 @@ TEST_CASE("Fixed string formats like its view", "[FixedStringTest]") {
   // and the range formatter quotes it.
   CHECK(std::format("{}", std::vector{fs, fs}) == R"(["hi", "hi"])");
 
-  static constexpr strings::basic_fixed_string wfs{L"hi"};
+  static constexpr meta::basic_fixed_string wfs{L"hi"};
   CHECK(std::format(L"{}", wfs) == L"hi");
 }
 

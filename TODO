@@ -12,7 +12,7 @@
    i. controllers/sopdt_plant.h: soptd_plant
    j. controllers/pid_controller.h: pid_controller
    k. strings/delimiting.h: delim
-   l. strings/fixed_string.h: fixed_string
+   l. meta/fixed_string.h: fixed_string
    m. strings/locating.h: location, pos_range
    n. strings/splitting.h: piece_generator
 
