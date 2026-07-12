@@ -268,8 +268,8 @@ concept Facade = requires(const F& f) { details::probe(f); };
 // declarations share a facade or span levels. A same-signature recurrence is
 // rejected eagerly, because that would be redeclaration (or overriding), and
 // facades carry no implementations, so there is nothing to override. The
-// degenerate case, the identical method listed twice, collapses to a single
-// slot instead of erroring (see `dedup_slots`).
+// degenerate case, the identical entry listed twice, is rejected as a
+// duplicate entry.
 //
 // Unrelated sibling bases MAY collide on a method name: distinct signatures
 // form an overload set that unqualified calls resolve by argument, and a
@@ -1108,10 +1108,10 @@ consteval std::size_t first_index_of_type() noexcept {
 //
 // A slot type recurs when the same ancestor facade is reached through more
 // than one composition path, so this is what collapses a diamond to a single
-// set of slots; it also swallows the degenerate case of one facade listing the
-// identical method twice. Per-facade conformance already yields one
-// `proxy_impl<Ancestor, T>` regardless of path (the effect of Rust's coherence
-// rule); dedup makes the flattened table agree.
+// set of slots (a literal duplicate entry would also collapse here, but
+// `entry_listed_once` rejects it instead). Per-facade conformance already
+// yields one `proxy_impl<Ancestor, T>` regardless of path (the effect of
+// Rust's coherence rule); dedup makes the flattened table agree.
 template<typename Slots>
 struct dedup_slots;
 template<typename... Ss>
@@ -1190,8 +1190,8 @@ consteval bool legal_overload_pair() noexcept {
 // functions that happen to share a spelling, exactly as within one facade.
 // A same-signature recurrence stays an error, since that is redeclaration (or
 // overriding), and facades carry no implementations, so there is nothing to
-// override. The identical declaration listed twice is the exception: dedup
-// collapses it to one slot before this check sees it.
+// override. A literal duplicate entry never reaches this check: dedup
+// collapses it away, and `entry_listed_once` rejects it instead.
 //
 // Unrelated sibling facades may collide on a method name freely, including
 // on the full signature, since every facade is named and the qualified
@@ -1272,6 +1272,19 @@ struct entry_name<name<Name>> {
   static constexpr auto name_v = Name;
   static constexpr bool is_name_v = true;
 };
+
+// `entry_listed_once`: whether entry `E` appears exactly once in the facade's
+// declaration list.
+//
+// A literal duplicate entry, the identical `method` or `extends` spelled
+// twice, is a copy-paste slip with no meaning: dedup would silently collapse
+// the duplicate's slots, so the entry list is checked before flattening can
+// hide it. A diamond is different, two DISTINCT entries whose chains share an
+// ancestor, and stays legal.
+template<typename E, typename... Es>
+consteval bool entry_listed_once() noexcept {
+  return (0 + ... + std::same_as<E, Es>) == 1;
+}
 
 // `facade_name_of_v`: name of a facade with entries `Es`.
 //
@@ -1649,6 +1662,8 @@ struct vtable_builder<facade<Es...>>
           facade_name_of_v<Es...>> {
   static_assert((0 + ... + entry_name<Es>::is_name_v) == 1,
       "every facade must carry exactly one name entry");
+  static_assert((entry_listed_once<Es, Es...>() && ...),
+      "a facade may not list the identical method or extends entry twice");
 
   using impl_t = vtable_builder_impl<flat_slots_of_t<Es...>, bases_of_t<Es...>,
       facade_name_of_v<Es...>>;

@@ -1153,6 +1153,17 @@ static_assert(!prox::Extends<marshal, marshal>);
 // or redeclare an inherited one"; before the collision-rules rework, the
 // same shape failed 'unique_method_names' with "method names must be
 // unique across the facade and its extends bases".)
+//
+// Listing the identical entry twice, whether a `method` or an `extends`,
+// detonates at first use of the facade's machinery (diagnostic on record,
+// clang 22, captured 2026-07-11): "static assertion failed ...
+// 'entry_listed_once<...>()': a facade may not list the identical method or
+// extends entry twice", with the duplicated entry spelled out in the
+// requirement and no follow-on noise. Dedup would otherwise collapse the
+// duplicate silently; a diamond's two DISTINCT `extends` entries sharing an
+// ancestor stay legal, as does an explicit re-extension alongside a path that
+// already covers it.
+//
 // A facade is never a value: the deleted default constructor on `facade`
 // propagates, so declaring a `gunslinger` where a handle over one was meant
 // fails at the declaration. Handles stay constructible as always.
