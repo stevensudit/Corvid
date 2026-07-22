@@ -15,11 +15,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 #pragma once
-#include <atomic>
 #include <cassert>
 #include <chrono>
+#include <cstddef>
 #include <cstdint>
 
+#include "relaxed_atomic.h"
 #include "scope_exit.h"
 
 namespace corvid { inline namespace infra {
@@ -29,9 +30,9 @@ namespace corvid { inline namespace infra {
 // Indirection over `Clock`. Provides a single point where production reads the
 // wall-clock and tests can install a fake.
 //
-// Static-only; the class exists to namespace the clock state and the
-// replaceable `now` entry point. Atomic ops use relaxed ordering on the read
-// path (single-threaded fairness isn't needed because the value being loaded
+// Static-only. The class exists to namespace the clock state and the
+// replaceable `now` entry point. The clock state lives in `relaxed_atomic
+// instances (no cross-thread ordering is needed because the value being loaded
 // is just a function pointer or `time_point` that updates rarely).
 //
 // The `size_t` template parameter is just to give each instantiation a unique
@@ -48,6 +49,7 @@ public:
 
   using time_point_t = clock_t::time_point;
   using duration_t = clock_t::duration;
+  // MSVC rejects dependent noexcept in a function pointer alias.
 #if defined(_MSC_VER) && !defined(__clang__)
   using now_fnt = time_point_t (*)();
 #else
@@ -64,25 +66,23 @@ public:
   // is needed, call this instead of `clock_t::now` directly, which is where it
   // points to by default. Tests can replace it via `set_now_fn`.
   [[nodiscard]] static time_point_t now() noexcept(noexcept(Clock::now())) {
-    return now_fn_.load(std::memory_order::relaxed)();
+    return (*now_fn_)();
   }
 
   // Install a custom clock function.
-  static void set_now_fn(now_fnt fn) noexcept {
-    now_fn_.store(fn, std::memory_order::relaxed);
-  }
+  static void set_now_fn(now_fnt fn) noexcept { now_fn_ = fn; }
 
   // Convenience RAII scope guard for tests that install a fake clock. Resets
-  // the clock on scope exit.
+  // the fake value to the epoch on entry, so no state leaks in from an earlier
+  // scope, and restores the real clock on scope exit.
   [[nodiscard]] static auto fake_now_scope() noexcept {
+    set_fake_now(time_point_t{});
     set_now_fn(fake_now_cb);
     return scope_exit{[]() noexcept { set_now_fn(&clock_t::now); }};
   }
 
   // Set the value returned by the fake clock.
-  static void set_fake_now(time_point_t tp) noexcept {
-    fake_now_.store(tp, std::memory_order::relaxed);
-  }
+  static void set_fake_now(time_point_t tp) noexcept { fake_now_ = tp; }
 
 #pragma endregion
 #pragma region Conversions
@@ -102,21 +102,23 @@ public:
   [[nodiscard]] static time_point_t from_nanoseconds(int64_t ns) noexcept {
     // Map UINT64_MAX sentinel to our max.
     if (ns < 0) return time_point_t::max();
-    return time_point_t(std::chrono::nanoseconds(ns));
+    // Round up to the clock's native tick, since a nanosecond count has no
+    // implicit conversion to a coarser duration. `ceil` keeps deadlines safe,
+    // at worst one tick late and never early.
+    return time_point_t{
+        std::chrono::ceil<duration_t>(std::chrono::nanoseconds(ns))};
   }
 
 #pragma endregion
 #pragma region Helpers
 private:
-  static time_point_t fake_now_cb() noexcept {
-    return fake_now_.load(std::memory_order::relaxed);
-  }
+  static time_point_t fake_now_cb() noexcept { return *fake_now_; }
 
 #pragma endregion
 #pragma region Data members
 
-  inline static std::atomic<time_point_t> fake_now_{};
-  inline static std::atomic<now_fnt> now_fn_{&clock_t::now};
+  inline static relaxed_atomic<time_point_t> fake_now_;
+  inline static relaxed_atomic<now_fnt> now_fn_{&clock_t::now};
 
 #pragma endregion
 };

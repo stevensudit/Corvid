@@ -206,5 +206,44 @@ TEST_CASE("Basic", "[ScopeSuccess]") {
   }
 }
 #pragma endregion
+#pragma region ThrowingConstruction
+
+namespace {
+// Callable whose copy constructor throws, exercising a guard whose
+// construction fails.
+struct throwing_copy_fn {
+  int& calls;
+  explicit throwing_copy_fn(int& c) noexcept : calls{c} {}
+  throwing_copy_fn(const throwing_copy_fn& other) : calls{other.calls} {
+    throw std::runtime_error("copy failed");
+  }
+  void operator()() const noexcept { ++calls; }
+};
+} // namespace
+
+TEST_CASE("Throwing construction", "[ScopeExit][ScopeFail][ScopeSuccess]") {
+  // Matching `std::experimental`, when storing the callable throws,
+  // `scope_exit` and `scope_fail` still invoke it, so the cleanup is not lost.
+  // `scope_success` does not, since the scope did not succeed.
+  if (true) {
+    int calls = 0;
+    throwing_copy_fn fn{calls};
+    CHECK_THROWS_AS(scope_exit{fn}, std::runtime_error);
+    CHECK(calls == 1);
+  }
+  if (true) {
+    int calls = 0;
+    throwing_copy_fn fn{calls};
+    CHECK_THROWS_AS(scope_fail{fn}, std::runtime_error);
+    CHECK(calls == 1);
+  }
+  if (true) {
+    int calls = 0;
+    throwing_copy_fn fn{calls};
+    CHECK_THROWS_AS(scope_success{fn}, std::runtime_error);
+    CHECK(calls == 0);
+  }
+}
+#pragma endregion
 
 // NOLINTEND(readability-function-cognitive-complexity)

@@ -49,8 +49,9 @@ namespace corvid { inline namespace infra {
 // deliberately declared `noexcept(false)` and whose failure is a normal,
 // recoverable error the immediate caller should handle: a commit- or
 // flush-on-close object, say. There the firewall logs and rethrows when it is
-// safe (no outer exception is unwinding), degrading to a logged terminate
-// only mid-unwind.
+// safe to do so, meaning no outer exception is unwinding. Mid-unwind,
+// `try_or_log` swallows the exception and returns `on_throw`, while
+// `try_or_terminate` degrades to a logged terminate.
 
 #pragma region rethrow_policy
 

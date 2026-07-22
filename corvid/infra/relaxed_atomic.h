@@ -100,7 +100,7 @@ public:
   }
 
   // Relaxed exchange. Sets to `desired`, and returns the previous value.
-  value_type exchange(value_type desired,
+  [[nodiscard]] value_type exchange(value_type desired,
       std::memory_order order = std::memory_order::relaxed) noexcept {
     return value_.exchange(desired, order);
   }
@@ -109,14 +109,15 @@ public:
   // `desired` if equal, and returns a success flag. On failure, `expected` is
   // updated with the current value. Which is a bit misleading, because it's no
   // longer expected, it's unexpected.
-  bool compare_exchange(value_type& expected, value_type desired,
+  [[nodiscard]] bool compare_exchange(value_type& expected, value_type desired,
       std::memory_order order = std::memory_order::relaxed) noexcept {
     return value_.compare_exchange_strong(expected, desired, order);
   }
 
   // Weak relaxed compare-and-exchange. May fail spuriously, so should be
   // retried in a loop. Otherwise the same semantics as `compare_exchange`.
-  bool try_compare_exchange(value_type& expected, value_type desired,
+  [[nodiscard]] bool try_compare_exchange(value_type& expected,
+      value_type desired,
       std::memory_order order = std::memory_order::relaxed) noexcept {
     return value_.compare_exchange_weak(expected, desired, order);
   }

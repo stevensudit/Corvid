@@ -28,6 +28,16 @@ using namespace corvid;
 namespace {
 // File-scope counter for the captureless lambda passed to `set_now_fn`.
 int custom_now_calls = 0;
+
+// A clock with a coarser-than-nanosecond tick, pinning the rounding in
+// `from_nanoseconds` for clocks whose duration cannot represent every
+// nanosecond count (`system_clock` on MSVC and libc++, for example).
+struct coarse_clock {
+  using duration = std::chrono::milliseconds;
+  using time_point = std::chrono::time_point<coarse_clock>;
+  static time_point now() noexcept { return time_point{}; }
+};
+using coarse_now_clock = now_clock<coarse_clock, 100>;
 } // namespace
 
 TEST_CASE("set_now_fn installs a custom function", "[infra][clocks]") {
@@ -61,6 +71,13 @@ TEST_CASE("fake_now_scope installs the fake-clock callback for its lifetime",
   // Leaving the scope restored the real clock, so reads no longer return the
   // last faked value.
   CHECK(steady_now_clock::now() != steady_now_clock::time_point_t{5678ms});
+
+  // A new scope starts from the epoch rather than inheriting the previous
+  // scope's value.
+  {
+    auto guard = steady_now_clock::fake_now_scope();
+    CHECK(steady_now_clock::now() == steady_now_clock::time_point_t{});
+  }
 }
 
 TEST_CASE("steady_clock and system_clock keep independent fake state",
@@ -124,6 +141,22 @@ TEST_CASE("from_nanoseconds(int64_t) treats negatives as max",
         steady_now_clock::time_point_t::max());
   CHECK(steady_now_clock::from_nanoseconds(int64_t{-9999}) ==
         steady_now_clock::time_point_t::max());
+}
+
+TEST_CASE("from_nanoseconds rounds up for clocks with a coarser tick",
+    "[infra][clocks]") {
+  // Deadline-safe conversion, so a partial tick rounds up, never early.
+  CHECK(coarse_now_clock::from_nanoseconds(int64_t{1}) ==
+        coarse_now_clock::time_point_t{1ms});
+  CHECK(coarse_now_clock::from_nanoseconds(int64_t{1'000'001}) ==
+        coarse_now_clock::time_point_t{2ms});
+  // An exact tick converts unchanged.
+  CHECK(coarse_now_clock::from_nanoseconds(int64_t{0}) ==
+        coarse_now_clock::time_point_t{});
+  CHECK(coarse_now_clock::from_nanoseconds(int64_t{1'000'000}) ==
+        coarse_now_clock::time_point_t{1ms});
+  CHECK(coarse_now_clock::as_nanoseconds(
+            coarse_now_clock::time_point_t{5ms}) == 5'000'000U);
 }
 
 TEST_CASE("utc_clock supports fake injection", "[infra][clocks]") {

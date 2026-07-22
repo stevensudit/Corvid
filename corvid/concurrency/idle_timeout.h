@@ -123,7 +123,7 @@ public:
     if (d == duration_t{}) return;
     auto expected = *active_;
     if (expected == duration_t{}) return;
-    active_.compare_exchange(expected, d);
+    (void)active_.compare_exchange(expected, d);
   }
 
   // Postpone the expiration after progress. Safe to call in any mode.
@@ -208,7 +208,7 @@ public:
   // If expiration was not fatal, you must reset it. Idempotent.
   void reset_expiration() noexcept {
     cancel_action_t* expected = nullptr;
-    on_idle_once_.compare_exchange(expected, &on_idle_);
+    (void)on_idle_once_.compare_exchange(expected, &on_idle_);
   }
 
 #pragma endregion

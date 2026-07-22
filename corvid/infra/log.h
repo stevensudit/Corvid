@@ -202,7 +202,7 @@ private:
   }
 
   // Sample output:
-  // 2026-05-29T22:26:27Z [wheel(42)] [I file.cpp:42] message
+  // 2026-05-29T22:26:27.123Z [wheel(42)] [I file.cpp:42] message
   bool write_line(log_level lvl, const std::source_location& loc,
       std::string_view body) {
     static constexpr std::string_view k_level_initials = "TDIWE";
@@ -295,7 +295,7 @@ public:
     singleton().fatal(msg, args...);
   }
 
-  [[noreturn]] static void terminate() { singleton().terminate(); }
+  [[noreturn]] static void terminate() noexcept { singleton().terminate(); }
 
 #pragma endregion
 };
