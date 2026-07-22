@@ -897,15 +897,20 @@ void heap_to_sbo(void* from, void* to) noexcept {
 //
 // The owning table carries it, so typed operations on an erased target can
 // verify the type at runtime.
+//
+// Deliberately non-const: the address is the identity, and identical
+// read-only data is fair game for linker identical-COMDAT folding (MSVC
+// /OPT:ICF), which could merge the tags and with them the identities.
+// Writable data is never folded.
 template<typename T>
-constexpr inline std::byte type_tag_v{};
+inline std::byte type_tag_v{};
 
 // `facade_tag_v`: facade identity tag, the facade analog of `type_tag_v`.
 //
 // Birth-ancestry entries carry it, so `try_downcast` can match a facade at
-// runtime.
+// runtime. Non-const for the same linker-folding reason.
 template<Facade F>
-constexpr inline std::byte facade_tag_v{};
+inline std::byte facade_tag_v{};
 
 // `vtable_builder`: facade-wide dispatch machinery, specialized on the
 // `facade` base to get at the entry pack.

@@ -30,7 +30,10 @@ enum class extract_field : bool { value, key_value };
 #pragma endregion
 #pragma region Element access
 
-// References value from container element, based on `field`
+// References value from container element, based on `field`.
+//
+// The result is a true lvalue reference, so ranges with proxy references
+// (such as `std::vector<bool>`) are unsupported and fail to compile.
 template<auto field = extract_field::value>
 [[nodiscard]] constexpr auto& element_value(auto&& e) {
   if constexpr (StdPair<decltype(e)> && field == extract_field::value)
@@ -71,9 +74,9 @@ template<auto field = extract_field::value>
 // `std::map`, it points to the `pair.second`, not the `pair`, unless `field`
 // is `extract_field::key_value`.
 //
-// Note: Uses -1 as sentinel for "not found". While this technically requires
-// a signed integer type, in practice the usage pattern (string find
-// operations) ensures this is always the case.
+// Note: Uses -1 as sentinel for "not found". An unsigned index works just as
+// well: the comparison converts -1 to the unsigned type's maximum, which is
+// exactly the `npos` convention of string find operations.
 template<auto field = extract_field::value>
 [[nodiscard]] constexpr auto it_to_ptr(auto& c, Integer auto ndx) {
   return ndx != -1 ? &container_element_v<field>(&c[ndx]) : nullptr;

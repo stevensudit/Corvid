@@ -228,6 +228,18 @@ TEST_CASE("WidePadded", "[parsed_spec]") {
   CHECK(deflt == L"   ef");
 }
 
+TEST_CASE("WideNonAscii", "[parsed_spec]") {
+  // A negative narrow code unit zero-extends when widened: 0xE9 becomes
+  // U+00E9, not 0xFFE9.
+  using wps = parsed_spec<wchar_t>;
+  std::wstring out;
+  wps::write_sv(std::back_inserter(out), "caf\xe9"sv);
+  CHECK(out == L"caf\xe9");
+  out.clear();
+  wps::write_repeat(std::back_inserter(out), '\xe9', 2);
+  CHECK(out == L"\xe9\xe9");
+}
+
 #pragma endregion
 #pragma region spec_parser
 
@@ -478,10 +490,25 @@ TEST_CASE("CustomMarker", "[nullable_formatter]") {
 TEST_CASE("Empty", "[nullable_formatter]") {
   using empty_text = nbox<std::string_view, null_formatting::empty>;
   CHECK(std::format("{}", empty_text{}) == "");
-  // An empty field still honors width, via the inherited formatter.
+  // An empty field still honors width, fill, and alignment.
   CHECK(std::format("{:4}", empty_text{}) == "    ");
+  CHECK(std::format("{:*^4}", empty_text{}) == "****");
   std::string_view sv = "hi";
   CHECK(std::format("{}", empty_text{&sv}) == "hi");
+
+  // Dynamic width is honored for the empty field, and a present value still
+  // reads the same argument.
+  CHECK(std::format("{:{}}", empty_text{}, 4) == "    ");
+  CHECK(std::format("{:{}}", empty_text{&sv}, 4) == "hi  ");
+
+  // A non-string underlying renders genuinely empty too; `empty` does not
+  // mean "format a default-constructed value", and the underlying type need
+  // not even be default-constructible.
+  using empty_num = nbox<int, null_formatting::empty>;
+  CHECK(std::format("{}", empty_num{}) == "");
+  CHECK(std::format("{:4}", empty_num{}) == "    ");
+  int n = 5;
+  CHECK(std::format("{:4}", empty_num{&n}) == "   5");
 }
 
 TEST_CASE("DebugVsPlain", "[nullable_formatter]") {
@@ -491,13 +518,12 @@ TEST_CASE("DebugVsPlain", "[nullable_formatter]") {
   CHECK(std::format("{}", mixed{}) == "");
   CHECK(std::format("{:?}", mixed{}) == "(null)");
 
-  // The reverse selection. Empty mode formats a default-constructed underlying
-  // value through the base, so an empty string under the debug spec renders
-  // quoted.
+  // The reverse selection: a null under the debug spec renders a genuinely
+  // empty field, not a quoted empty string.
   using mixed2 = nbox<std::string_view, null_formatting::sentinel,
       null_formatting::empty>;
   CHECK(std::format("{}", mixed2{}) == "(null)");
-  CHECK(std::format("{:?}", mixed2{}) == "\"\"");
+  CHECK(std::format("{:?}", mixed2{}) == "");
 }
 
 #pragma endregion

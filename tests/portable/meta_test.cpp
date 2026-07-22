@@ -528,6 +528,22 @@ TEST_CASE("TypeName", "[MetaTest]") {
   const auto ptr = friendly_type_name<const std::vector<int>*>();
   CHECK(ptr.contains("> const"));
   CHECK_FALSE(ptr.contains("> >"));
+
+  // Top-level cv on a pointer is spelled trailing: a leading const would
+  // name a different type (pointer-to-const). Pointer spacing is
+  // platform-dependent, so predicates rather than goldens.
+  const auto cptr = friendly_type_name<int* const>();
+  CHECK(cptr.ends_with(" const"));
+  CHECK_FALSE(cptr.starts_with("const"));
+  CHECK_FALSE(cptr.contains("__ptr64"));
+  const auto cvptr = friendly_type_name<const int* const>();
+  CHECK(cvptr.ends_with(" const"));
+  CHECK_FALSE(cvptr.starts_with("const"));
+
+  // MSVC calling-convention annotations are stripped; the commas are
+  // normalized on every platform.
+  CHECK(
+      friendly_type_name<void (*)(int, double)>() == "void (*)(int, double)");
 }
 
 #pragma endregion
