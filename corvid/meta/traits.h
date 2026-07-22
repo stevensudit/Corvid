@@ -162,8 +162,8 @@ constexpr bool is_span_compatible_impl() {
 }
 
 // Determine whether span `T` is compatible with element type `V` in a
-// const-safe way. When `V` isn't const, the span's element type can be const
-// or non-const. When `V` is const, the span's element type must be const.
+// const-safe way. When `V` is const, the span's element type can be const or
+// non-const. When `V` isn't const, the span's element type must be non-const.
 template<typename T, typename V>
 constexpr bool is_span_compatible_v = is_span_compatible_impl<T, V>();
 

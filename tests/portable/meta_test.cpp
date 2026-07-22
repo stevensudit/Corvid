@@ -336,6 +336,27 @@ TEST_CASE("SpanConstness", "[MetaTest]") {
 }
 
 #pragma endregion
+#pragma region CharArray
+
+TEST_CASE("CharArray", "[MetaTest]") {
+  CHECK(CharArray<char[5]>);
+  CHECK(CharArray<const char[5]>);
+  CHECK(CharArray<char (&)[5]>);
+  CHECK(CharArray<const char (&)[5]>);
+  CHECK_FALSE(CharArray<char*>);
+  CHECK_FALSE(CharArray<int[5]>);
+}
+
+#pragma endregion
+#pragma region NullPtr
+
+TEST_CASE("NullPtr", "[MetaTest]") {
+  CHECK(NullPtr<std::nullptr_t>);
+  CHECK(NullPtr<const std::nullptr_t&>);
+  CHECK_FALSE(NullPtr<void*>);
+}
+
+#pragma endregion
 #pragma region FunctionVoidReturn
 
 TEST_CASE("FunctionVoidReturn", "[MetaTest]") {
@@ -896,6 +917,19 @@ TEST_CASE("Args", "[FixedFunction]") {
   fixed_function<64, int(int, int)> add{[](int x, int y) { return x + y; }};
   CHECK(add(3, 4) == 7);
   CHECK(add(10, -3) == 7);
+}
+
+#pragma endregion
+#pragma region FixedFunction_DiscardedReturn
+
+TEST_CASE("DiscardedReturn", "[FixedFunction]") {
+  // A value-returning callable stored under a void signature has its result
+  // discarded, matching `std::function`.
+  int calls{};
+  fixed_function<64, void(int)> f{[&calls](int n) { return calls += n; }};
+  f(2);
+  f(3);
+  CHECK(calls == 5);
 }
 
 #pragma endregion

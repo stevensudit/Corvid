@@ -145,7 +145,9 @@ struct method_base: method_key<Name> {
 //
 // A `noexcept` qualifier is likewise honored. Conformance then requires the
 // binding itself to be noexcept-invocable, and the erased call (`call` through
-// a handle) is itself `noexcept`.
+// a handle) is itself `noexcept` whenever the argument conversions cannot
+// throw; the conversions belong to the caller, exactly as with the `api`
+// forwarders, so a throwing one propagates from either spelling.
 //
 // A method derives from its `method_key`, so a method tag is usable anywhere
 // its key is, including `on` overload selection and deduction of
@@ -551,6 +553,10 @@ namespace details {
 template<Facade F>
 struct api_probe;
 
+// Forward declaration; defined under "API validation".
+template<Facade F>
+[[nodiscard]] consteval bool base_boilerplates_visible() noexcept;
+
 } // namespace details
 
 // Forward declaration; defined under "API validation".
@@ -581,7 +587,16 @@ consteval void maybe_validate_api() noexcept {
     static_assert(has_boilerplate,
         "validating the api needs the facade's boilerplate impl visible at "
         "the registration; pass api_check::off to skip");
-    if constexpr (has_boilerplate) (void)validate_api<F>();
+    // A composed facade's probe also runs through each base facade's
+    // boilerplate, so their absence is diagnosed here rather than as a hard
+    // error deep inside the table build.
+    constexpr bool has_base_boilerplates = base_boilerplates_visible<F>();
+    static_assert(has_base_boilerplates,
+        "validating the api of a composed facade needs every base facade's "
+        "boilerplate impl visible at the registration; pass api_check::off "
+        "to skip");
+    if constexpr (has_boilerplate && has_base_boilerplates)
+      (void)validate_api<F>();
   }
 }
 
@@ -656,8 +671,12 @@ concept ProxyRegistered = requires {
   corvid_proxy_spec(static_cast<F*>(nullptr), static_cast<T*>(nullptr));
   requires std::same_as<typename details::registered_spec_t<F, T>::facade_t,
       F>;
-  requires std::derived_from<T,
-      typename details::registered_spec_t<F, T>::target_t>;
+  // The same-type term is spelled separately because `derived_from` holds
+  // only between classes, and a target may be a non-class type.
+  requires std::same_as<T,
+               typename details::registered_spec_t<F, T>::target_t> ||
+               std::derived_from<T,
+                   typename details::registered_spec_t<F, T>::target_t>;
 };
 
 // `SpecCarriesImpl`: concept for a (facade, type) pair whose registration
@@ -1306,6 +1325,22 @@ template<typename... Es>
 using bases_of_t = decltype(std::tuple_cat(
     std::declval<typename entry_traits<Es>::bases_t>()...));
 
+// `nothrow_args_v`: whether each declared parameter in the `Params` tuple is
+// nothrow-constructible from the corresponding call argument.
+//
+// This is the argument-conversion half of a dispatch's `noexcept`. The
+// conversions run in the caller's position, outside the thunk, so when one
+// can throw the erased call must not be `noexcept`, letting the exception
+// propagate exactly as it does from an `api` forwarder's parameter
+// initialization.
+template<typename Params, typename... CallArgs>
+constexpr inline bool nothrow_args_v = false;
+
+template<typename... Ps, typename... CallArgs>
+requires(sizeof...(Ps) == sizeof...(CallArgs))
+constexpr inline bool nothrow_args_v<std::tuple<Ps...>, CallArgs...> =
+    (std::is_nothrow_constructible_v<Ps, CallArgs> && ...);
+
 // `rank_poison`: parameter type nothing converts to, making a probe overload
 // permanently non-viable.
 //
@@ -1619,14 +1654,25 @@ struct vtable_builder_impl<std::tuple<Ss...>, std::tuple<Bs...>, OwnName> {
   }
 
   // `is_noexcept`: whether the call `Key` resolves to, with `CallArgs`,
-  // dispatches a noexcept method.
+  // dispatches a noexcept method through nothrow argument conversions.
+  //
+  // The conversion term keeps the two spellings in agreement. An `api`
+  // forwarder converts its arguments in the caller, outside its own
+  // `noexcept`, so a throwing conversion propagates; the erased call
+  // converts at the thunk invocation, inside the dispatcher, so the
+  // dispatcher may be `noexcept` only when those conversions cannot throw.
   //
   // False when the call does not resolve.
   template<fixed_string Key, bool ConstOnly, typename... CallArgs>
   static consteval bool is_noexcept() noexcept {
     constexpr std::array<bool, count_v> flags{Ss::noexcept_v...};
     constexpr auto ndx = resolve<Key, ConstOnly, CallArgs...>();
-    return ndx < count_v && flags[ndx];
+    if constexpr (ndx < count_v)
+      return flags[ndx] &&
+             nothrow_args_v<typename slot_t<ndx>::method_t::args_t,
+                 CallArgs...>;
+    else
+      return false;
   }
 
   // `do_result_of`: declared result type of the exact-match candidate for
@@ -2138,6 +2184,29 @@ template<Facade F>
   return true;
 }
 
+namespace details {
+
+// `base_boilerplates_visible`: whether every facade in `F`'s extends chain
+// has a boilerplate impl visible to drive `F`'s api probe.
+//
+// This is the registration-time guard for the base half of the requirement
+// stated above: `validate_api` runs the probe through each base's
+// boilerplate, so a missing one must be caught before the table build turns
+// it into an incomplete-type hard error. The tuple pointer parameter carries
+// `vtbuild_t<F>::ancestors_t` in deducible position.
+template<Facade F, Facade... Bs>
+consteval bool do_base_boilerplates_visible(std::tuple<Bs...>*) noexcept {
+  return (... && requires { sizeof(proxy_impl<Bs, api_probe<F>>); });
+}
+
+template<Facade F>
+[[nodiscard]] consteval bool base_boilerplates_visible() noexcept {
+  return do_base_boilerplates_visible<F>(
+      static_cast<vtbuild_t<F>::ancestors_t*>(nullptr));
+}
+
+} // namespace details
+
 #pragma endregion
 #pragma region Views
 
@@ -2160,9 +2229,10 @@ public:
   // `call`: call the const-qualified facade method named `Key`, forwarding
   // `args` through the erased signature.
   //
-  // The call is `noexcept` when the method is. It is not `[[nodiscard]]`,
-  // because discardability belongs to the facade method rather than the
-  // dispatcher (the `std::invoke` precedent).
+  // The call is `noexcept` when the method is and the argument conversions
+  // cannot throw (they are the caller's, as with the `api` forwarders). It is
+  // not `[[nodiscard]]`, because discardability belongs to the facade method
+  // rather than the dispatcher (the `std::invoke` precedent).
   template<fixed_string Key, typename... Args>
   requires(vtbuild_t<F>::template is_const<Key>())
   // NOLINTNEXTLINE(modernize-use-nodiscard)
@@ -2298,7 +2368,8 @@ public:
   // `call`: call the facade method named `Key`, forwarding `args` through the
   // erased signature.
   //
-  // The call is `noexcept` when the method is.
+  // The call is `noexcept` when the method is and the argument conversions
+  // cannot throw (they are the caller's, as with the `api` forwarders).
   //
   // This overload dispatches every method. The inherited const overload,
   // re-exposed by the using-declaration, is constrained to const-qualified
@@ -2697,11 +2768,13 @@ public:
   // `call`: call the facade method named `Key`, forwarding `args` through the
   // erased signature.
   //
-  // The call is `noexcept` when the method is. The const overload is
-  // constrained to const-qualified methods, enforcing deep const at overload
-  // resolution so the rejection is visible to `requires` probes as well. It
-  // is not `[[nodiscard]]`, because discardability belongs to the facade
-  // method rather than the dispatcher (the `std::invoke` precedent).
+  // The call is `noexcept` when the method is and the argument conversions
+  // cannot throw (they are the caller's, as with the `api` forwarders). The
+  // const overload is constrained to const-qualified methods, enforcing deep
+  // const at overload resolution so the rejection is visible to `requires`
+  // probes as well. It is not `[[nodiscard]]`, because discardability belongs
+  // to the facade method rather than the dispatcher (the `std::invoke`
+  // precedent).
   template<fixed_string Key, typename... Args>
   decltype(auto) call(Args&&... args) noexcept(
       vtbuild_t::template is_noexcept<Key, false, Args...>()) {

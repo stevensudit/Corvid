@@ -242,8 +242,13 @@ struct spec_parser: parsed_spec<CharT> {
   constexpr std::size_t parse(std::basic_string_view<CharT> spec) {
     std::size_t ndx = 0;
     const std::size_t cnt = spec.size();
-    // [fill] align
-    if (cnt >= 2 && is_align(spec[1])) {
+    // [fill] align. The fill may be any character except `{` or `}`; without
+    // that exclusion, an empty spec followed by a literal align character
+    // (`"{:}<"`) would misread the closing brace as a fill and consume past
+    // the field.
+    if (cnt >= 2 && is_align(spec[1]) && spec[0] != CharT('{') &&
+        spec[0] != CharT('}'))
+    {
       base::fill = spec[0];
       base::alignment = to_alignment(spec[1]);
       ndx = 2;

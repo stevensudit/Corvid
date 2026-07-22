@@ -333,6 +333,14 @@ TEST_CASE("ParseSpec", "[spec_parser]") {
     CHECK(p.debug);
   }
   {
+    // A literal align character right after the field must not turn the
+    // closing brace into a fill character.
+    sp p;
+    CHECK(p.parse("}<-- note") == 0);
+    CHECK(p.fill == ' ');
+    CHECK(p.alignment == sp::aligned::left);
+  }
+  {
     sp p;
     CHECK(p.parse("*^+#010.3Lf}") == 11);
     CHECK(p.fill == '*');
@@ -509,6 +517,10 @@ TEST_CASE("SelfRendering", "[self_rendering_formatter]") {
   // The `?` spec routes to debug_format_to.
   CHECK(std::format("{:?}", greeter{"bob"}) == "<bob>");
 
+  // A literal align character right after the field stays literal; the
+  // closing brace is never a fill.
+  CHECK(std::format("{:}<-- note", greeter{"x"}) == "hi x<-- note");
+
   // Wide formatting drives the buffer path with already-wide content.
   CHECK(std::format(L"{:>8}", greeter{"x"}) == L"    hi x");
   CHECK(std::format(L"{:.2}", greeter{"x"}) == L"hi");
@@ -524,6 +536,8 @@ TEST_CASE("FormatToSpec", "[self_rendering_formatter]") {
   CHECK(std::format("{:6.2}", dashes{}) == "--    ");
   // Dynamic width arrives already resolved.
   CHECK(std::format("{:{}}", dashes{}, 6) == "----  ");
+  // A literal align character after the field stays literal.
+  CHECK(std::format("{}^2", dashes{}) == "----^2");
 }
 
 #pragma endregion

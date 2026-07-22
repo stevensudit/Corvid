@@ -120,7 +120,7 @@ concept IntegerOrEnum = Integer<T> || StdEnum<T>;
 
 // `T` must be nullptr_t.
 template<typename T>
-concept NullPtr = SameAs<T, std::nullptr_t>;
+concept NullPtr = SameAs<std::nullptr_t, T>;
 
 // `T` must be a char.
 template<typename T>
@@ -142,7 +142,7 @@ concept CharPtr = SameAs<char*, std::remove_cvref_t<T>>;
 template<typename T>
 concept CharArray =
     std::is_array_v<std::remove_cvref_t<T>> &&
-    SameAs<char, std::remove_extent_t<T>>;
+    SameAs<char, std::remove_extent_t<std::remove_cvref_t<T>>>;
 
 #pragma endregion
 #pragma region String views
@@ -230,8 +230,8 @@ template<typename T>
 concept StdArray = is_std_array_v<std::remove_cvref_t<T>>;
 
 // `T` must be a `std::span` compatible with `V` in a const-safe way. When `V`
-// is non-const, the span's element type can be either const or non-const. When
-// `V` is const, the span's element type must also be const.
+// is const, the span's element type can be either const or non-const. When `V`
+// is non-const, the span's element type must also be non-const.
 template<typename T, typename V>
 concept Span = is_span_compatible_v<T, V>;
 

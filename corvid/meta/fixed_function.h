@@ -150,12 +150,14 @@ private:
   using lifespan_fn_t = void (*)(void*, void*) noexcept;
 
   // Invoke through a downcast pointer to the stored callable. Uses
-  // `std::invoke` so member function pointers and data member pointers work
-  // alongside lambdas, free functions, and functors.
+  // `std::invoke_r` so member function pointers and data member pointers work
+  // alongside lambdas, free functions, and functors, and so a value returned
+  // by the callable is discarded when `RP` is void rather than making the
+  // `return` ill-formed.
   template<class F>
   static RP invoke_impl(void* p, ARGS... args) {
     assert(p);
-    return std::invoke(*static_cast<F*>(p), std::forward<ARGS>(args)...);
+    return std::invoke_r<RP>(*static_cast<F*>(p), std::forward<ARGS>(args)...);
   }
 
   // Default invoke implementation for empty state. Always throws.
