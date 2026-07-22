@@ -38,10 +38,10 @@
 #include <exception>
 #include <format>
 #include <iostream>
-#include <mutex>
 #include <source_location>
 #include <string>
 #include <string_view>
+#include <syncstream>
 #include <type_traits>
 #include <utility>
 
@@ -82,10 +82,13 @@ struct format_with_loc {
 #pragma endregion
 #pragma region logger
 
-// Owns a level threshold and a reference to an output stream, and serializes
-// writes to that stream. Construct your own instance for a per-subsystem log
-// (optionally pointed at a different stream), or use the singleton via the
-// `log` static API below.
+// Owns a level threshold and a reference to an output stream. Construct your
+// own instance for a per-subsystem log (optionally pointed at a different
+// stream), or use the singleton via the `log` static API below.
+//
+// Each line goes out through a `std::osyncstream`, whose atomicity is keyed on
+// the target stream's buffer, so concurrent writers to the same stream never
+// interleave mid-line, even across separate `logger` instances.
 //
 // The stream is held by reference, so the caller owns its lifetime; the
 // default is `std::cerr`, whose lifetime spans the program.
@@ -114,14 +117,8 @@ public:
   [[nodiscard]] log_level threshold() const noexcept { return threshold_; }
   void set_threshold(log_level lvl) noexcept { threshold_ = lvl; }
 
-  [[nodiscard]] std::ostream& stream() const noexcept {
-    std::scoped_lock lock{mutex_};
-    return *out_;
-  }
-  void set_stream(std::ostream& out) noexcept {
-    std::scoped_lock lock{mutex_};
-    out_ = &out;
-  }
+  [[nodiscard]] std::ostream& stream() const noexcept { return **out_; }
+  void set_stream(std::ostream& out) noexcept { out_ = &out; }
 
   [[nodiscard]] bool enabled(log_level lvl) const noexcept {
     return lvl >= threshold_;
@@ -172,12 +169,10 @@ public:
 
   // NOLINTNEXTLINE(bugprone-exception-escape): a throw only reaches terminate
   [[noreturn]] void terminate() noexcept {
-    std::scoped_lock lock{mutex_};
-    (*out_) << "Terminating due to previous fatal log message.\n"
-            << std::flush;
+    if (auto sync = std::osyncstream{**out_}; true)
+      sync << "Terminating due to previous fatal log message.\n" << std::flush;
     std::terminate();
   }
-
 #pragma endregion
 #pragma region Helpers
 private:
@@ -230,30 +225,27 @@ private:
     static constexpr std::string_view k_level_initials = "TDIWE";
     const auto now = std::chrono::time_point_cast<std::chrono::milliseconds>(
         system_now_clock::now());
-    // Build everything but the body into a stack buffer before locking, so the
-    // lock only spans the stream writes (no heap-allocating timestamp format
-    // inside it). 256 bytes covers the fixed-width timestamp, the <=15-char
+    // Build everything but the body into a stack buffer. `format_to_n` stops
+    // at the buffer end, so a long path truncates the prefix rather than
+    // overflowing. 256 bytes covers the fixed-width timestamp, the <=15-char
     // thread name and tid, the level, and a full file path with line.
-    // `format_to_n` stops at the buffer end, so a long path truncates the
-    // prefix rather than overflowing.
     std::array<char, 256> prefix;
     auto res = std::format_to_n(prefix.data(), prefix.size(),
         "{:%FT%T}Z [{}] [{} {}:{}] ", now, thread_label(),
         k_level_initials[static_cast<size_t>(lvl)], loc.file_name(),
         loc.line());
     const auto prefix_len = res.out - prefix.data();
-    std::scoped_lock lock{mutex_};
-    out_->write(prefix.data(), static_cast<std::streamsize>(prefix_len));
-    out_->write(body.data(), static_cast<std::streamsize>(body.size()));
-    out_->put('\n');
+    std::osyncstream sync{**out_};
+    sync.write(prefix.data(), static_cast<std::streamsize>(prefix_len));
+    sync.write(body.data(), static_cast<std::streamsize>(body.size()));
+    sync.put('\n');
     return true;
   }
 
 #pragma endregion
 #pragma region Data members
 
-  std::ostream* out_{&std::cerr};
-  mutable std::mutex mutex_;
+  relaxed_atomic<std::ostream*> out_{&std::cerr};
   relaxed_atomic<log_level> threshold_{log_level::info};
 
 #pragma endregion

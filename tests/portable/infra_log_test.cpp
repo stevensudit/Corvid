@@ -210,6 +210,33 @@ TEST_CASE("logger thread label reflects the thread name", "[infra][log]") {
   CHECK_FALSE(sink2.str().contains("abcdefghijklmnopqrstuvwxyz"));
 }
 
+TEST_CASE("loggers sharing a stream do not interleave lines", "[infra][log]") {
+  // Two independent loggers, one shared stream: `osyncstream` keys atomicity
+  // on the stream's buffer, so every line must arrive whole.
+  std::stringstream sink;
+  logger lg_a{sink};
+  logger lg_b{sink};
+  const std::string aa(120, 'a');
+  const std::string bb(120, 'b');
+  constexpr int n_lines = 200;
+  std::thread ta{[&] {
+    for (int ndx = 0; ndx < n_lines; ++ndx) lg_a.info("{}", aa);
+  }};
+  std::thread tb{[&] {
+    for (int ndx = 0; ndx < n_lines; ++ndx) lg_b.info("{}", bb);
+  }};
+  ta.join();
+  tb.join();
+
+  int cnt = 0;
+  std::string line;
+  while (std::getline(sink, line)) {
+    ++cnt;
+    CHECK((line.ends_with(aa) || line.ends_with(bb)));
+  }
+  CHECK(cnt == 2 * n_lines);
+}
+
 TEST_CASE("try_or_log swallows and substitutes failure_value",
     "[infra][exception]") {
   std::stringstream sink;
