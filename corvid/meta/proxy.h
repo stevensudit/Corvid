@@ -29,6 +29,7 @@
 #include <type_traits>
 #include <utility>
 
+#include "crossplatform.h"
 #include "fixed_string.h"
 
 // Registration-based runtime polymorphism ("proxy") system.
@@ -1577,6 +1578,10 @@ struct vtable_builder_impl<std::tuple<Ss...>, std::tuple<Bs...>, OwnName> {
     using set_t = decltype(make_rank_set<Key, ConstOnly>(
         std::make_index_sequence<count_v>{}))::type;
     using probe_t = std::conditional_t<ConstOnly, const set_t, set_t>;
+    // cl C4244: narrowing here is the ranked overload's own argument
+    // conversion, chosen by design.
+    PRAGMA_DIAG(push)
+    PRAGMA_MSVC_IGNORED(4244)
     if constexpr (requires(probe_t& p) { p(std::declval<CallArgs>()...); })
       return decltype(std::declval<probe_t&>()(
           std::declval<CallArgs>()...))::value;
@@ -1584,6 +1589,7 @@ struct vtable_builder_impl<std::tuple<Ss...>, std::tuple<Bs...>, OwnName> {
       return tally(both(cand, viable_flags<CallArgs...>())).first
                  ? ambiguous_v
                  : none_v;
+    PRAGMA_DIAG(pop)
   }
 
   // `resolve_exact`: resolve `Key` to the unique candidate whose declared
@@ -1874,7 +1880,12 @@ dispatch(const typename vtbuild_t<F>::thunks_t& tks, ErasedPtr target,
   static_assert(ndx != vtbuild_t<F>::ambiguous_v,
       "ambiguous method call; qualify the key with the facade name, or match "
       "one overload's arguments exactly");
+  // cl C4244: narrowing here is the ranked overload's own argument
+  // conversion, chosen by design.
+  PRAGMA_DIAG(push)
+  PRAGMA_MSVC_IGNORED(4244)
   return std::get<ndx>(tks)(target, std::forward<Args>(args)...);
+  PRAGMA_DIAG(pop)
 }
 
 } // namespace details

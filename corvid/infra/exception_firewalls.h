@@ -94,13 +94,17 @@ void do_log_exception(const format_with_loc<const char*, const char*>& msg,
 // feed the deduced return type. A `void`-returning `fn` is treated as
 // returning `T{true}` on success, giving the usual true-on-success,
 // false-on-throw shape without a trailing `return true;` in the lambda.
-// TODO: Use https://github.com/jeremy-rifkin/cpptrace for richer traces.
+// TODO: Use https://github.com/jeremy-rifkin/cpptrace for richer traces and to
+// replace the mangled `typeid` exception names with demangled ones.
 // TODO: Consider catch `const char*`.
 template<rethrow_policy policy = rethrow_policy::never, std::invocable F,
     typename T = bool>
 [[nodiscard]] auto try_or_log(F&& fn, T on_throw = false,
     format_with_loc<const char*, const char*> msg =
         "exception {}: {}") noexcept(policy == rethrow_policy::never) {
+  static_assert(std::is_void_v<std::invoke_result_t<F>> ||
+                    std::is_same_v<std::decay_t<std::invoke_result_t<F>>, T>,
+      "try_or_log requires fn to return T or void");
   try {
     // `T{true}` stays inside the discarded branch: it is only required to
     // compile for `void` callables, so value-returning uses can pick a `T` (a

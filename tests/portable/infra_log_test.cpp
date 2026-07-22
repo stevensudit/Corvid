@@ -194,6 +194,18 @@ TEST_CASE("logger thread label reflects the thread name", "[infra][log]") {
   }};
   t.join();
   CHECK(sink.str().contains("-wheel("));
+
+  // A long name truncates to 15 characters on both platforms.
+  std::stringstream sink2;
+  logger lg2{sink2};
+  std::thread t2{[&] {
+    corvid::concurrency::jthread_stoppable_sleep::set_thread_name(
+        "abcdefghijklmnopqrstuvwxyz");
+    lg2.info("named long");
+  }};
+  t2.join();
+  CHECK(sink2.str().contains("-abcdefghij"));
+  CHECK_FALSE(sink2.str().contains("abcdefghijklmnopqrstuvwxyz"));
 }
 
 TEST_CASE("try_or_log swallows and returns on_throw by default",

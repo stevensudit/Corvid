@@ -16,7 +16,13 @@
 // limitations under the License.
 #pragma once
 #ifdef _WIN32
-// windows.h pulls in min/max macros; keep them out.
+// windows.h pulls in min/max macros, and its non-lean corners pollute further
+// (rpc declares a global `handle_t` typedef, ole defines `interface`); keep
+// them out. Note that `near` and `far` are defined as macros regardless, so
+// those names are unusable in any code this header reaches.
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
 #ifndef NOMINMAX
 #define NOMINMAX
 #endif
@@ -185,9 +191,10 @@ private:
 
   // Returns the calling thread's `name(tid)` label, computed once per thread
   // and cached in thread-local storage. The name falls back to "thread" when
-  // unnamed. On Windows it is the description set via `SetThreadDescription`,
+  // unnamed, and caps at 15 characters. On Windows it is the description set
+  // via `SetThreadDescription`, truncated to that cap (which POSIX imposes)
   // with non-ASCII characters folded to '?'; on POSIX it is the `pthread`
-  // name, at most 16 bytes including the null terminator.
+  // name.
   static const std::string& thread_label() {
     thread_local const std::string label = [] {
 #ifdef _WIN32
@@ -196,8 +203,8 @@ private:
       if (SUCCEEDED(GetThreadDescription(GetCurrentThread(), &desc))) {
         if (desc && *desc) {
           name.clear();
-          for (const wchar_t* p = desc; *p; ++p)
-            name.push_back(*p < 0x80 ? static_cast<char>(*p) : '?');
+          for (const auto c : std::wstring_view{desc}.substr(0, 15))
+            name.push_back(c < 0x80 ? static_cast<char>(c) : '?');
         }
         LocalFree(desc);
       }

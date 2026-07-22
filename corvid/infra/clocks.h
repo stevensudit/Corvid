@@ -96,6 +96,13 @@ public:
   [[nodiscard]] static uint64_t as_nanoseconds(time_point_t tp) noexcept {
     assert(tp >= time_point_t{});
     if (tp == time_point_t::max()) return UINT64_MAX;
+    // On a clock with a coarser tick, a near-max count would overflow the
+    // conversion to nanoseconds, so saturate everything unrepresentable to
+    // `INT64_MAX`, the largest genuine count. Unlike the `UINT64_MAX` infinity
+    // sentinel, it converts back to a finite time point.
+    constexpr auto max_convertible = std::chrono::duration_cast<duration_t>(
+        std::chrono::nanoseconds::max());
+    if (tp.time_since_epoch() > max_convertible) return INT64_MAX;
     return std::chrono::duration_cast<std::chrono::nanoseconds>(
         tp.time_since_epoch())
         .count();

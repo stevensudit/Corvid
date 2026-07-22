@@ -1228,10 +1228,11 @@ consteval auto corvid_enum_spec(seg_basic*) {
 }
 
 // Segmented enum that keeps a small gap inside a segment as a placeholder
-// ('-') and a larger gap between segments.
-enum class seg_inner : int { p = 3, r = 5, s = 6, far = 20 };
+// ('-') and a larger gap between segments. The last enumerator is not named
+// "far" because windows.h defines that as a legacy macro.
+enum class seg_inner : int { p = 3, r = 5, s = 6, deep = 20 };
 consteval auto corvid_enum_spec(seg_inner*) {
-  return make_sequence_enum_spec<seg_inner, "3,p,,r,s|20,far">();
+  return make_sequence_enum_spec<seg_inner, "3,p,,r,s|20,deep">();
 }
 
 // Segmented enum with a negative start, exercising signed underlying math.
@@ -1292,11 +1293,11 @@ TEST_CASE("Segmented", "[SequentialEnumTest]") {
     CHECK(enum_as_string(seg_inner(4)) == "4"); // in-segment placeholder
     CHECK(enum_as_string(seg_inner::r) == "r");
     CHECK(enum_as_string(seg_inner::s) == "s");
-    CHECK(enum_as_string(seg_inner::far) == "far");
+    CHECK(enum_as_string(seg_inner::deep) == "deep");
     CHECK(enum_as_string(seg_inner(10)) == "10"); // between segments
 
     CHECK(*enum_find_by_name<seg_inner>("p") == seg_inner::p);
-    CHECK(*enum_find_by_name<seg_inner>("far") == seg_inner::far);
+    CHECK(*enum_find_by_name<seg_inner>("deep") == seg_inner::deep);
     CHECK(!enum_find_by_name<seg_inner>("-")); // placeholder is not a name
   }
 

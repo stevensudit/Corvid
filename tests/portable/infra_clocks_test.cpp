@@ -166,6 +166,23 @@ TEST_CASE("from_nanoseconds rounds up for clocks with a coarser tick",
             coarse_now_clock::time_point_t{5ms}) == 5'000'000U);
 }
 
+TEST_CASE("as_nanoseconds saturates for clocks with a coarser tick",
+    "[infra][clocks]") {
+  // The largest millisecond count convertible to int64 nanoseconds. One tick
+  // past it saturates to INT64_MAX instead of overflowing, staying distinct
+  // from the UINT64_MAX infinity sentinel.
+  constexpr auto max_ms = std::chrono::milliseconds{9'223'372'036'854LL};
+  CHECK(coarse_now_clock::as_nanoseconds(coarse_now_clock::time_point_t{
+            max_ms}) == 9'223'372'036'854'000'000ULL);
+  CHECK(coarse_now_clock::as_nanoseconds(coarse_now_clock::time_point_t{
+            max_ms + std::chrono::milliseconds{1}}) == uint64_t{INT64_MAX});
+
+  // Unlike the sentinel, the saturated value converts back to a finite time
+  // point.
+  CHECK(coarse_now_clock::from_nanoseconds(uint64_t{INT64_MAX}) !=
+        coarse_now_clock::time_point_t::max());
+}
+
 TEST_CASE("utc_clock supports fake injection", "[infra][clocks]") {
   auto guard = utc_now_clock::fake_now_scope();
   utc_now_clock::set_fake_now(utc_now_clock::time_point_t{42ms});
