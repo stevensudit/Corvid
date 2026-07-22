@@ -94,9 +94,13 @@ public:
   scope_guard& operator=(const scope_guard&) = delete;
   scope_guard& operator=(scope_guard&&) = delete;
 
+  // Matching `std::experimental`, moving requires a nothrow move or a copy,
+  // so `move_if_noexcept` always has a usable source.
   scope_guard(scope_guard&& other) noexcept(
       std::is_nothrow_move_constructible_v<EF> ||
       std::is_nothrow_copy_constructible_v<EF>)
+  requires(std::is_nothrow_move_constructible_v<EF> ||
+              std::is_copy_constructible_v<EF>)
       : exit_function_(std::move_if_noexcept(other.exit_function_)),
         active_(std::exchange(other.active_, false)),
         uncaught_on_entry_(other.uncaught_on_entry_) {}

@@ -26,9 +26,11 @@
 
 using corvid::infra::log;
 using corvid::infra::log_level;
+using corvid::infra::log_policy;
 using corvid::infra::logger;
 using corvid::infra::rethrow_policy;
 using corvid::infra::try_or_log;
+using corvid::infra::try_or_terminate;
 
 // Move-only formattable payload, pinning that log arguments are forwarded
 // rather than copied.
@@ -208,7 +210,7 @@ TEST_CASE("logger thread label reflects the thread name", "[infra][log]") {
   CHECK_FALSE(sink2.str().contains("abcdefghijklmnopqrstuvwxyz"));
 }
 
-TEST_CASE("try_or_log swallows and returns on_throw by default",
+TEST_CASE("try_or_log swallows and substitutes failure_value",
     "[infra][exception]") {
   std::stringstream sink;
   log::singleton().set_stream(sink);
@@ -219,13 +221,68 @@ TEST_CASE("try_or_log swallows and returns on_throw by default",
       try_or_log([]() -> int { throw std::runtime_error("boom"); }, 42) == 42);
   CHECK(try_or_log([] { return 7; }, 0) == 7);
 
-  // A void lambda reports success as `true` and a throw as `on_throw`.
+  // A void lambda maps success and throw onto `success_value` and
+  // `failure_value`, which default to `true` and `false`.
   CHECK(try_or_log([] {}) == true);
   CHECK(
       try_or_log([]() -> void { throw std::runtime_error("boom"); }) == false);
+  CHECK(try_or_log([] {}, 5, -1) == 5);
+  CHECK(try_or_log([]() -> void { throw std::runtime_error("boom"); }, 5,
+            -1) == -1);
 
   log::singleton().set_stream(std::cerr);
   CHECK(sink.str().contains("boom"));
+}
+
+TEST_CASE("try_or_log logs a returned failure value only when asked",
+    "[infra][exception]") {
+  // Under the default `on_throw` policy, a callable returning its
+  // `failure_value` is passed through silently.
+  std::stringstream sink;
+  log::singleton().set_stream(sink);
+  CHECK(try_or_log([] { return 0; }) == 0);
+  CHECK(sink.str().empty());
+
+  // Under `on_failure_value` (or `on_either_error`), the same return logs.
+  CHECK(try_or_log<log_policy::on_failure_value>([] { return 0; }) == 0);
+  log::singleton().set_stream(std::cerr);
+  CHECK(sink.str().contains("returned failure value"));
+}
+
+TEST_CASE("try_or_log under log_policy::never swallows silently",
+    "[infra][exception]") {
+  std::stringstream sink;
+  log::singleton().set_stream(sink);
+  CHECK(try_or_log<log_policy::never>([]() -> int {
+    throw std::runtime_error("quiet");
+  }) == 0);
+  log::singleton().set_stream(std::cerr);
+  CHECK(sink.str().empty());
+}
+
+TEST_CASE("try_or_log throw-only policy needs no equality operator",
+    "[infra][exception]") {
+  // The `failure_value` comparison only happens when the policy logs it, so a
+  // result type without `==` still works under the default policy.
+  struct no_eq {
+    int val;
+  };
+  CHECK(try_or_log([] { return no_eq{7}; }, no_eq{0}).val == 7);
+  CHECK(try_or_log([]() -> no_eq { throw std::runtime_error("boom"); },
+            no_eq{-1})
+            .val == -1);
+}
+
+TEST_CASE("try_or_terminate returns the non-failure result",
+    "[infra][exception]") {
+  // Only the success path is testable in-process; the terminate paths would
+  // end the test run.
+  std::stringstream sink;
+  log::singleton().set_stream(sink);
+  CHECK(try_or_terminate([] { return 7; }) == 7);
+  CHECK(try_or_terminate([] { return std::string{"ok"}; }) == "ok");
+  log::singleton().set_stream(std::cerr);
+  CHECK(sink.str().empty());
 }
 
 // AddressSanitizer on Windows (clang-cl plus the VCRUNTIME exception runtime)
@@ -247,9 +304,10 @@ TEST_CASE("try_or_log with attempt rethrows when not unwinding",
   std::stringstream sink;
   log::singleton().set_stream(sink);
 
-  CHECK_THROWS_AS(try_or_log<rethrow_policy::attempt>([]() -> bool {
-    throw std::runtime_error("rethrown");
-  }),
+  CHECK_THROWS_AS(
+      (try_or_log<log_policy::on_throw, rethrow_policy::attempt>([]() -> bool {
+        throw std::runtime_error("rethrown");
+      })),
       std::runtime_error);
 
   log::singleton().set_stream(std::cerr);
@@ -263,14 +321,14 @@ TEST_CASE("try_or_log with attempt swallows mid-unwind",
   log::singleton().set_stream(sink);
 
   // A destructor invoked while `outer` unwinds calls `try_or_log<attempt>`,
-  // whose `fn` throws. Because `std::uncaught_exceptions` is nonzero, it
-  // must not rethrow (that would terminate); it logs and returns `on_throw`,
+  // whose `fn` throws. Because `std::uncaught_exceptions` is nonzero, it must
+  // not rethrow (that would terminate); it logs and returns `failure_value`,
   // so the destructor completes and `outer` keeps propagating.
   bool swallowed = false;
   struct guard {
     bool& swallowed;
     ~guard() noexcept(false) {
-      swallowed = try_or_log<rethrow_policy::attempt>(
+      swallowed = try_or_log<log_policy::on_throw, rethrow_policy::attempt>(
           []() -> bool { throw std::runtime_error("inner"); }, true);
     }
   };
