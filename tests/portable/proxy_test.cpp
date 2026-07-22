@@ -1750,6 +1750,9 @@ TEST_CASE("Non-class target", "[proxy]") {
   int cash = 7;
   proxy_view<till> pv{cash};
   CHECK(pv.call<"amount">() == 7);
+  // The store is read back through the view's erased pointer, which the
+  // analyzer cannot see through.
+  // NOLINTNEXTLINE(clang-analyzer-deadcode.DeadStores)
   cash = 9;
   CHECK(pv.call<"amount">() == 9);
 }
