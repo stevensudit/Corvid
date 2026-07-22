@@ -78,7 +78,10 @@ public:
   // scope, and restores the real clock on scope exit.
   //
   // Nested scopes for the same clock do not compose (the inner exit would
-  // restore the real clock out from under the outer scope).
+  // restore the real clock out from under the outer scope), and acquisition is
+  // deliberately not synchronized: faking a clock is a single-threaded test
+  // affair, and concurrent scopes on one clock could not work regardless,
+  // since they would fight over the same fake state.
   [[nodiscard]] static auto fake_now_scope() {
     if (*now_fn_ == now_fnt{&fake_now_cb})
       throw std::logic_error{"fake_now_scope is already active on this clock"};
