@@ -19,11 +19,23 @@
 
 #include "catch2_main.h"
 
+#include <functional>
 #include <memory>
 #include <stdexcept>
 #include <utility>
 
 using namespace corvid;
+
+// The exit and fail kinds call their source directly if storing it throws, so
+// a source that merely converts to the stored callable (a null `std::function`
+// here) is constrained away for them; the success kind never makes that call
+// and still accepts it.
+static_assert(!std::is_constructible_v<scope_exit<std::function<void()>>,
+    std::nullptr_t>);
+static_assert(!std::is_constructible_v<scope_fail<std::function<void()>>,
+    std::nullptr_t>);
+static_assert(std::is_constructible_v<scope_success<std::function<void()>>,
+    std::nullptr_t>);
 
 // NOLINTBEGIN(readability-function-cognitive-complexity)
 

@@ -76,10 +76,13 @@ public:
   // Matching `std::experimental`, if storing the callable throws, `scope_exit`
   // and `scope_fail` invoke `fn` before the exception propagates, so the
   // cleanup is not lost. `scope_success` does not, since the scope has not
-  // succeeded.
+  // succeeded. Because those kinds call `fn` directly, their source must
+  // itself be invocable as an lvalue, not merely convertible to `EF`.
   template<typename Fn>
-  requires(!std::is_same_v<std::remove_cvref_t<Fn>, scope_guard> &&
-           std::is_constructible_v<EF, Fn>)
+  requires(
+      !std::is_same_v<std::remove_cvref_t<Fn>, scope_guard> &&
+      std::is_constructible_v<EF, Fn> &&
+      (Kind == scope_kind::success || std::is_invocable_v<Fn&>))
   explicit scope_guard(Fn&& fn) noexcept(
       std::is_nothrow_constructible_v<EF, Fn>) try
       : exit_function_(do_source<Fn>(fn)) {
