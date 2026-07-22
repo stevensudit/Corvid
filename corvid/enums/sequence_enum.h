@@ -186,11 +186,11 @@ template<SequentialEnum E>
     constexpr auto hi = seq_max_num_v<E>;
     static_assert(lo <= hi);
     constexpr auto size = seq_size_v<E>;
-    // NOLINTNEXTLINE(bugprone-signed-char-misuse): intentional sign extension
+    // NOLINTBEGIN(bugprone-signed-char-misuse): intentional sign extension
     constexpr auto lo64 = static_cast<uint64_t>(lo);
     constexpr auto hi64 = static_cast<uint64_t>(hi);
-    // NOLINTNEXTLINE(bugprone-signed-char-misuse): intentional sign extension
     const auto u64 = static_cast<uint64_t>(u);
+    // NOLINTEND(bugprone-signed-char-misuse)
 
     // Below the range: count down from `hi`, so `lo - 1` maps to `hi`.
     if (u < lo)
