@@ -15,6 +15,13 @@ CompileFlags:
 If:
   PathMatch: [.*\.cpp, .*\.cc, .*\.cxx, .*\.hpp, .*\.hh, .*\.hxx, .*\.h]
 CompileFlags:
+  # A header has no entry of its own in compile_commands.json, so it inherits
+  # the command of whatever parent TU clangd picks. When that parent is a
+  # `.cu` file (as `arithmetic.h` is, reached through the CUDA game headers),
+  # the inherited nvcc command carries nvcc-only flags that clangd's embedded
+  # clang rejects as "unknown argument". Strip them here too. This is a no-op
+  # for real `.cpp`/`.cc` TUs, whose own commands never carry these flags.
+  Remove: [-forward-unknown-to-host-compiler, -ccbin=*, -arch=*]
   Add: [-xc++, -std=c++23, -stdlib=libc++, -fexperimental-library, -D_LIBCPP_NO_ABI_TAG, -Wall, -Wextra, -Werror, -Wno-unused-variable]
 
 ---

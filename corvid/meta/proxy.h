@@ -1450,6 +1450,7 @@ struct vtable_builder_impl<std::tuple<Ss...>, std::tuple<Bs...>, OwnName> {
   // An unqualified key matches the method name alone; a qualified key
   // ("facade::method") also requires the qualifying facade's name.
   template<typename S, fixed_string Key>
+  // NOLINTNEXTLINE(bugprone-exception-escape): consteval, compile-time only
   static consteval bool slot_matches() noexcept {
     constexpr std::string_view k = Key.view();
     constexpr auto pos = k.find("::");

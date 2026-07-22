@@ -198,6 +198,7 @@ requires(
     (!details::has_logs_bit(logging, log_policy::on_failure_value) ||
         std::equality_comparable<std::decay_t<std::invoke_result_t<F>>>))
 [[nodiscard]] auto
+// NOLINTNEXTLINE(bugprone-exception-escape): never policy swallows all throws
 try_or_log(F&& fn, std::decay_t<std::invoke_result_t<F>> failure_value = {},
     format_with_loc<const char*, const char*> msg =
         "exception {}: {}") noexcept(rethrow == rethrow_policy::never) {
@@ -241,8 +242,9 @@ template<log_policy logging = log_policy::on_either_error,
     rethrow_policy rethrow = rethrow_policy::never, std::invocable F>
 requires(!std::is_void_v<std::invoke_result_t<F>> &&
          std::equality_comparable<std::decay_t<std::invoke_result_t<F>>>)
+// NOLINTNEXTLINE(bugprone-exception-escape): never policy swallows all throws
 [[nodiscard]] auto try_or_terminate(F&& fn,
-    std::decay_t<std::invoke_result_t<F>> failure_value = {},
+    const std::decay_t<std::invoke_result_t<F>>& failure_value = {},
     format_with_loc<const char*, const char*> msg =
         "exception {}: {}") noexcept(rethrow == rethrow_policy::never) {
   auto result =
