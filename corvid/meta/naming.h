@@ -56,8 +56,9 @@ std::string type_name(T&&) {
 // and calling-convention annotations (MSVC spells all of these),
 // inline-namespace segments, and anonymous-namespace prefixes, normalizing
 // spacing, collapsing the expanded `std::string` spelling, and restoring
-// top-level cv in the leading position, except trailing on a pointer, where
-// a leading const would name a different type. Best-effort, like
+// top-level cv in the leading position, except trailing on a pointer
+// (member pointers included), where a leading const would name a different
+// type. Best-effort, like
 // `type_name`; this band cannot use the string utilities, so the edits are
 // hand-rolled.
 template<typename T>
@@ -89,7 +90,7 @@ std::string friendly_type_name() {
       "std::allocator<char>>",
       "std::string");
   replace(",", ", ");
-  if (std::is_pointer_v<TR>) {
+  if (std::is_pointer_v<TR> || std::is_member_pointer_v<TR>) {
     if (std::is_const_v<TR>) r += " const";
     if (std::is_volatile_v<TR>) r += " volatile";
   } else {

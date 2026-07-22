@@ -462,6 +462,19 @@ TEST_CASE("DynamicWidthSentinel", "[nullable_formatter]") {
   CHECK(std::format("{:{}}", nbox<int>{&n}, 6) == "    42");
 }
 
+TEST_CASE("DynamicWidthNotAnInteger", "[nullable_formatter]") {
+  // A character-typed dynamic width is integral but not a standard integer
+  // type, [format.string.std]; the null and present paths reject it alike.
+  nbox<int> nb{};
+  int n = 42;
+  nbox<int> pb{&n};
+  char w = 'x';
+  CHECK_THROWS_AS(std::vformat("{:{}}", std::make_format_args(nb, w)),
+      std::format_error);
+  CHECK_THROWS_AS(std::vformat("{:{}}", std::make_format_args(pb, w)),
+      std::format_error);
+}
+
 TEST_CASE("PrecisionSentinel", "[nullable_formatter]") {
   // Precision caps the sentinel just as the base caps a present value, so a
   // null cell stays within a precision-bounded column. The base must accept

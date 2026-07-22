@@ -123,10 +123,19 @@ namespace details {
 // `method_base`: shared base for the four `method` flavors (`const` crossed
 // with `noexcept`).
 //
+// `name_is_unqualified`: whether `s` avoids the `"::"` separator, which
+// qualified keys reserve for splitting the facade name from the method name.
+[[nodiscard]] consteval bool name_is_unqualified(std::string_view s) noexcept {
+  return !s.contains("::");
+}
+
 // It carries the qualification flags and the result type, which are the only
 // things that vary, and supplies the `method_key` base.
 template<fixed_string Name, bool Const, bool Noexcept, typename R>
 struct method_base: method_key<Name> {
+  static_assert(name_is_unqualified(Name.view()),
+      "method names may not contain \"::\"; it is reserved for qualifying a "
+      "key with the facade name");
   static constexpr bool const_v = Const;
   static constexpr bool noexcept_v = Noexcept;
   using result_t = R;
@@ -311,9 +320,16 @@ struct extends {};
 // declaring facade's name plus the method name. The qualified spelling is
 // what disambiguates sibling collisions, two `extends` bases declaring the
 // same method name. Facade names must be unique within a composition, and
-// would ideally be globally unique.
+// would ideally be globally unique, though not by namespace-style
+// qualification: `"::"` is reserved for splitting a qualified key, so
+// neither facade nor method names may contain it (enforced here and in
+// `method`).
 template<fixed_string Name>
-struct name {};
+struct name {
+  static_assert(details::name_is_unqualified(Name.view()),
+      "facade names may not contain \"::\"; it is reserved for qualifying a "
+      "key with the facade name");
+};
 
 namespace details {
 

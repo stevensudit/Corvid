@@ -211,13 +211,19 @@ struct spec_parser: parsed_spec<CharT> {
 
     // Resolve a dynamic width or precision: arg `id` as a non-negative
     // integer.
+    //
+    // Per [format.string.std], the arg must be of standard signed or
+    // unsigned integer type, so `bool` and the character types (integral,
+    // but not integers) are rejected just as the std formatters reject them.
     template<typename FormatContext>
     static constexpr std::size_t
     get_dynamic_num(FormatContext& ctx, std::size_t id) {
       return std::visit_format_arg(
           [](auto value) -> std::size_t {
             using T = std::remove_cvref_t<decltype(value)>;
-            if constexpr (std::is_integral_v<T> && !std::is_same_v<T, bool>) {
+            if constexpr (std::is_integral_v<T> && !std::is_same_v<T, bool> &&
+                          !CharType<T>)
+            {
               if constexpr (std::is_signed_v<T>)
                 if (value < 0) throw std::format_error("negative arg");
               return static_cast<std::size_t>(value);
@@ -419,6 +425,11 @@ struct forwarding_formatter: std::formatter<U, CharT> {
 // text, give the deriving formatter a default constructor that delegates to
 // the marker constructor, e.g. a `file_handle` formatter: `constexpr
 // formatter() : nullable_formatter<int, CharT>{"closed"} {}`.
+//
+// `U`'s formatter must follow the standard spec grammar: the auto-id path
+// parses the spec with this library's own std-grammar parser and re-presents
+// it to the base with explicit ids, so a custom grammar could be
+// mis-terminated or claim different arg ids.
 template<typename U, CharType CharT,
     null_formatting PlainNull = null_formatting::sentinel,
     null_formatting DebugNull = null_formatting::sentinel>

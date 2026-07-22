@@ -539,6 +539,10 @@ TEST_CASE("TypeName", "[MetaTest]") {
   const auto cvptr = friendly_type_name<const int* const>();
   CHECK(cvptr.ends_with(" const"));
   CHECK_FALSE(cvptr.starts_with("const"));
+  // Member pointers get the trailing spelling too.
+  const auto mptr = friendly_type_name<int Foo::* const>();
+  CHECK(mptr.ends_with(" const"));
+  CHECK_FALSE(mptr.starts_with("const"));
 
   // MSVC calling-convention annotations are stripped; the commas are
   // normalized on every platform.
