@@ -19,6 +19,7 @@
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
+#include <stdexcept>
 
 #include "relaxed_atomic.h"
 #include "scope_exit.h"
@@ -31,7 +32,7 @@ namespace corvid { inline namespace infra {
 // wall-clock and tests can install a fake.
 //
 // Static-only. The class exists to namespace the clock state and the
-// replaceable `now` entry point. The clock state lives in `relaxed_atomic
+// replaceable `now` entry point. The clock state lives in `relaxed_atomic`
 // instances (no cross-thread ordering is needed because the value being loaded
 // is just a function pointer or `time_point` that updates rarely).
 //
@@ -75,7 +76,12 @@ public:
   // Convenience RAII scope guard for tests that install a fake clock. Resets
   // the fake value to the epoch on entry, so no state leaks in from an earlier
   // scope, and restores the real clock on scope exit.
-  [[nodiscard]] static auto fake_now_scope() noexcept {
+  //
+  // Nested scopes for the same clock do not compose (the inner exit would
+  // restore the real clock out from under the outer scope).
+  [[nodiscard]] static auto fake_now_scope() {
+    if (*now_fn_ == now_fnt{&fake_now_cb})
+      throw std::logic_error{"fake_now_scope is already active on this clock"};
     set_fake_now(time_point_t{});
     set_now_fn(fake_now_cb);
     return scope_exit{[]() noexcept { set_now_fn(&clock_t::now); }};

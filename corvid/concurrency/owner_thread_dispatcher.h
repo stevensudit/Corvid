@@ -145,7 +145,6 @@ public:
             "was created on"};
       (void)shutdown();
       current_loop_ = nullptr;
-      return true;
     });
   }
 

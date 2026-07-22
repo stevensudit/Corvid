@@ -169,6 +169,11 @@ TEST_CASE("try_or_log swallows and returns on_throw by default",
       try_or_log([]() -> int { throw std::runtime_error("boom"); }, 42) == 42);
   CHECK(try_or_log([] { return 7; }, 0) == 7);
 
+  // A void lambda reports success as `true` and a throw as `on_throw`.
+  CHECK(try_or_log([] {}) == true);
+  CHECK(
+      try_or_log([]() -> void { throw std::runtime_error("boom"); }) == false);
+
   log::singleton().set_stream(std::cerr);
   CHECK(sink.str().contains("boom"));
 }

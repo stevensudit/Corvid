@@ -192,10 +192,7 @@ public:
   }
 
   ~own_ptr() {
-    try_or_terminate([&] {
-      do_delete();
-      return true;
-    });
+    try_or_terminate([&] { do_delete(); });
   }
 
   own_ptr(own_ptr&) = delete;

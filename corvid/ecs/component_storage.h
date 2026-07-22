@@ -106,7 +106,7 @@ public:
 
   component_storage(component_storage&&) noexcept = default;
   ~component_storage() {
-    try_or_terminate([&] { return clear() || true; });
+    try_or_terminate([&] { clear(); });
   }
 
   component_storage& operator=(component_storage&& other) noexcept {

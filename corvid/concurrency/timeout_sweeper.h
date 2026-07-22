@@ -122,7 +122,7 @@ public:
   // once.
   ~timeout_sweeper() {
     closing_ = true;
-    try_or_terminate([&] { return tick(time_point_t::max()) || true; });
+    try_or_terminate([&] { tick(time_point_t::max()); });
   }
 
 #pragma endregion

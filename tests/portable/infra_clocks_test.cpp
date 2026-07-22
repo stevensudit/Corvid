@@ -21,6 +21,7 @@
 
 #include <chrono>
 #include <cstdint>
+#include <stdexcept>
 
 using namespace std::chrono_literals;
 using namespace corvid;
@@ -77,7 +78,13 @@ TEST_CASE("fake_now_scope installs the fake-clock callback for its lifetime",
   {
     auto guard = steady_now_clock::fake_now_scope();
     CHECK(steady_now_clock::now() == steady_now_clock::time_point_t{});
+
+    // Nested scopes on the same clock do not compose, so they throw.
+    CHECK_THROWS_AS(steady_now_clock::fake_now_scope(), std::logic_error);
   }
+
+  // With the scope gone, a fresh one is fine again.
+  CHECK_NOTHROW(steady_now_clock::fake_now_scope());
 }
 
 TEST_CASE("steady_clock and system_clock keep independent fake state",

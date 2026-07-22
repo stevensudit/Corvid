@@ -849,8 +849,6 @@ private:
 
       if (RAND_bytes(dest, static_cast<int>(destlen)) != 1)
         log::fatal("on_rand: RAND_bytes failed");
-
-      return true;
     });
   }
 
@@ -1140,7 +1138,6 @@ private:
       try_or_terminate([] {
         const int rv = ngtcp2_crypto_ossl_init();
         if (rv != 0) log::fatal("ngtcp2_crypto_ossl_init failed (rv={})", rv);
-        return true;
       });
       return true;
     }();

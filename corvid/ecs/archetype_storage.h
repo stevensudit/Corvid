@@ -129,7 +129,7 @@ public:
   archetype_storage(archetype_storage&&) noexcept = default;
 
   ~archetype_storage() {
-    try_or_terminate([&] { return clear() || true; });
+    try_or_terminate([&] { clear(); });
   }
 
   archetype_storage& operator=(const archetype_storage&) = delete;

@@ -60,7 +60,8 @@ The `concurrency` module provides thread-safety primitives.
 - `jthread_stoppable_sleep` -- interruptible deadline sleep for `std::jthread`;
   workaround for the missing stop-token overload of
   `std::condition_variable_any::wait_until` in libc++.
-- `relaxed_atomic<T>` -- thin wrapper around `std::atomic<T>` whose implicit
+- `relaxed_atomic<T>` (in `corvid/infra/relaxed_atomic.h`, used heavily
+  here) -- thin wrapper around `std::atomic<T>` whose implicit
   conversion and assignment operator both use relaxed memory ordering. Use
   `operator->()` to access the underlying `std::atomic<T>` for stronger
   ordering when needed. Named aliases (`relaxed_atomic_bool`,

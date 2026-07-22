@@ -191,7 +191,7 @@ using relaxed_atomic_char16_t = relaxed_atomic<char16_t>;
 using relaxed_atomic_char32_t = relaxed_atomic<char32_t>;
 using relaxed_atomic_wchar_t = relaxed_atomic<wchar_t>;
 
-// Fixed-width types (optional -- provided when the underlying typedef exists).
+// Fixed-width types (optional: provided when the underlying typedef exists).
 using relaxed_atomic_int8_t = relaxed_atomic<std::int8_t>;
 using relaxed_atomic_uint8_t = relaxed_atomic<std::uint8_t>;
 using relaxed_atomic_int16_t = relaxed_atomic<std::int16_t>;
@@ -221,7 +221,7 @@ using relaxed_atomic_uint_fast32_t = relaxed_atomic<std::uint_fast32_t>;
 using relaxed_atomic_int_fast64_t = relaxed_atomic<std::int_fast64_t>;
 using relaxed_atomic_uint_fast64_t = relaxed_atomic<std::uint_fast64_t>;
 
-// Pointer-sized and other platform types (optional -- provided when the
+// Pointer-sized and other platform types (optional: provided when the
 // underlying typedef exists).
 using relaxed_atomic_intptr_t = relaxed_atomic<std::intptr_t>;
 using relaxed_atomic_uintptr_t = relaxed_atomic<std::uintptr_t>;

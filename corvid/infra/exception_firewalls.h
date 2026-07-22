@@ -18,6 +18,7 @@
 #include <cassert>
 #include <concepts>
 #include <exception>
+#include <type_traits>
 #include <typeinfo>
 #include <utility>
 
@@ -90,6 +91,11 @@ void do_log_exception(const format_with_loc<const char*, const char*>& msg,
 
 // Run `fn` inside a try block as a noexcept firewall: returns `fn()` on
 // no-throw, or `on_throw` (defaulting to `false`) if it threw.
+//
+// A `fn` that returns a value must return `T`, since both it and `on_throw`
+// feed the deduced return type. A `void`-returning `fn` is treated as
+// returning `T{true}` on success, giving the usual true-on-success,
+// false-on-throw shape without a trailing `return true;` in the lambda.
 // TODO: Use https://github.com/jeremy-rifkin/cpptrace for richer traces.
 // TODO: Consider catch `const char*`.
 template<rethrow_policy policy = rethrow_policy::never, std::invocable F,
@@ -98,7 +104,13 @@ template<rethrow_policy policy = rethrow_policy::never, std::invocable F,
     format_with_loc<const char*, const char*> msg =
         "exception {}: {}") noexcept(policy == rethrow_policy::never) {
   try {
-    return std::forward<F>(fn)();
+    auto result = T{true};
+    if constexpr (std::is_void_v<std::invoke_result_t<F>>) {
+      std::forward<F>(fn)();
+    } else {
+      result = std::forward<F>(fn)();
+    }
+    return result;
   }
   catch (const std::exception& e) {
     details::do_log_exception<policy>(msg, typeid(e).name(), e.what());
@@ -109,10 +121,12 @@ template<rethrow_policy policy = rethrow_policy::never, std::invocable F,
   return on_throw;
 }
 
-// Like `try_or_log`, but terminates the process on throw instead of returning
-// a value. This is ideal for destructors.
+// Like `try_or_log`, but terminates the process on throw or `fn` failing,
+// instead of returning a value. This is ideal for destructors.
 //
-// The lambda must return `true` on success.
+// The `fn` lambda can signal failure by throwing or returning `false`. A
+// `void` lambda can only signal failure by throwing, and is probably a code
+// smell.
 template<rethrow_policy policy = rethrow_policy::never, std::invocable F>
 void try_or_terminate(F&& fn,
     format_with_loc<const char*, const char*> msg =

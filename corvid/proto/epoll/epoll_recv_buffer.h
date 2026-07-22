@@ -305,7 +305,6 @@ public:
   ~epoll_recv_buffer_view() noexcept {
     try_or_terminate([&] {
       if (buf_) resume_cb_(new_buffer_size_, last_seen_end_);
-      return true;
     });
   }
 

@@ -135,7 +135,7 @@ public:
   component_scene& operator=(component_scene&&) = delete;
 
   ~component_scene() {
-    try_or_terminate([&] { return clear() || true; });
+    try_or_terminate([&] { clear(); });
   }
 
 #pragma endregion

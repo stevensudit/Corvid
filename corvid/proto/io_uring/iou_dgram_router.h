@@ -514,7 +514,6 @@ public:
   ~iou_dgram_router_handle() noexcept {
     try_or_terminate([&] {
       if (router_) (void)router_->close();
-      return true;
     });
   }
 

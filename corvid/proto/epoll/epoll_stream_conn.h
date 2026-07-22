@@ -1237,10 +1237,10 @@ public:
   // call `close` before the instance is destructed.
   ~epoll_stream_conn_ptr_with() {
     try_or_terminate([&] {
-      if (!conn_ || conn_->no_hangup_on_destruct_) return true;
-      return conn_->loop_.execute_or_post([p = std::move(conn_)] {
+      if (!conn_ || conn_->no_hangup_on_destruct_) return;
+      conn_->loop_.execute_or_post([p = std::move(conn_)] {
         return p->do_hangup();
-      }) || true;
+      });
     });
   }
 

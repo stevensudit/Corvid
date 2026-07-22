@@ -190,10 +190,9 @@ public:
 
     ~add_guard() {
       try_or_terminate([&] {
-        if (saved_size_ == *id_t::invalid) return true;
+        if (saved_size_ == *id_t::invalid) return;
         owner_->ids_.resize(saved_size_);
         owner_->do_resize_storage(saved_size_);
-        return true;
       });
     }
 
