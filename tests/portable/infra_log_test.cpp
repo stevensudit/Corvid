@@ -230,8 +230,12 @@ TEST_CASE("try_or_log swallows and substitutes failure_value",
   CHECK(try_or_log([]() -> void { throw std::runtime_error("boom"); }, 5,
             -1) == -1);
 
+  // A thrown C string is caught and its text logged.
+  CHECK(try_or_log([]() -> bool { throw "c-string boom"; }) == false);
+
   log::singleton().set_stream(std::cerr);
   CHECK(sink.str().contains("boom"));
+  CHECK(sink.str().contains("c-string boom"));
 }
 
 TEST_CASE("try_or_log logs a returned failure value only when asked",
