@@ -102,7 +102,7 @@ enum class rethrow_policy : bool { never = false, attempt = true };
 namespace details {
 
 // Test whether `policy` includes `bit`.
-consteval bool logs(log_policy policy, log_policy bit) {
+consteval bool has_logs_bit(log_policy policy, log_policy bit) {
   return (std::to_underlying(policy) & std::to_underlying(bit)) != 0;
 }
 
@@ -130,7 +130,7 @@ template<log_policy logging, rethrow_policy rethrow>
 void do_caught(const format_with_loc<const char*, const char*>& msg,
     const char* type_name,
     const char* what) noexcept(rethrow == rethrow_policy::never) {
-  if constexpr (logs(logging, log_policy::on_throw))
+  if constexpr (has_logs_bit(logging, log_policy::on_throw))
     do_log_error(msg, type_name, what);
   if constexpr (rethrow == rethrow_policy::attempt)
     if (std::uncaught_exceptions() == 0) throw;
@@ -189,10 +189,14 @@ try_or_log(F&& fn, R success_value = true, R failure_value = false,
 // did.
 //
 // When `logging` includes `on_failure_value`, a result equal to
-// `failure_value` is also logged.
+// `failure_value` is also logged. Only that policy requires the result type
+// to be equality comparable, and the constraint enforces exactly that.
 template<log_policy logging = log_policy::on_throw,
     rethrow_policy rethrow = rethrow_policy::never, std::invocable F>
-requires(!std::is_void_v<std::invoke_result_t<F>>)
+requires(
+    !std::is_void_v<std::invoke_result_t<F>> &&
+    (!details::has_logs_bit(logging, log_policy::on_failure_value) ||
+        std::equality_comparable<std::decay_t<std::invoke_result_t<F>>>))
 [[nodiscard]] auto
 try_or_log(F&& fn, std::decay_t<std::invoke_result_t<F>> failure_value = {},
     format_with_loc<const char*, const char*> msg =
@@ -200,7 +204,8 @@ try_or_log(F&& fn, std::decay_t<std::invoke_result_t<F>> failure_value = {},
   return details::do_firewall<logging, rethrow>(
       [&] {
         auto result = std::forward<F>(fn)();
-        if constexpr (details::logs(logging, log_policy::on_failure_value))
+        if constexpr (details::has_logs_bit(logging,
+                          log_policy::on_failure_value))
           if (result == failure_value)
             details::do_log_error(msg, "<none>", "returned failure value");
         return result;
@@ -229,10 +234,13 @@ void try_or_terminate(F&& fn,
 // success, returns the result.
 //
 // `logging` defaults to `on_either_error` so that a log entry precedes the
-// terminate no matter which failure mode triggered it.
+// terminate no matter which failure mode triggered it. The terminate decision
+// compares against `failure_value`, so the result type must be equality
+// comparable.
 template<log_policy logging = log_policy::on_either_error,
     rethrow_policy rethrow = rethrow_policy::never, std::invocable F>
-requires(!std::is_void_v<std::invoke_result_t<F>>)
+requires(!std::is_void_v<std::invoke_result_t<F>> &&
+         std::equality_comparable<std::decay_t<std::invoke_result_t<F>>>)
 [[nodiscard]] auto try_or_terminate(F&& fn,
     std::decay_t<std::invoke_result_t<F>> failure_value = {},
     format_with_loc<const char*, const char*> msg =

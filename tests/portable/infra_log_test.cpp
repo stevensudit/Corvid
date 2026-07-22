@@ -291,6 +291,17 @@ TEST_CASE("try_or_log under log_policy::never swallows silently",
   CHECK(sink.str().empty());
 }
 
+// Probes for whether the value-returning firewalls accept a callable
+// returning `T`, pinning the equality-comparable constraints. (A
+// requires-expression is only SFINAE-tolerant inside a templated entity, so
+// the probes live in concepts rather than inline in the test.)
+template<typename T>
+concept failure_loggable = requires(T (*fn)()) {
+  try_or_log<log_policy::on_failure_value>(fn);
+};
+template<typename T>
+concept value_terminable = requires(T (*fn)()) { try_or_terminate(fn); };
+
 TEST_CASE("try_or_log throw-only policy needs no equality operator",
     "[infra][exception]") {
   // The `failure_value` comparison only happens when the policy logs it, so a
@@ -302,6 +313,13 @@ TEST_CASE("try_or_log throw-only policy needs no equality operator",
   CHECK(try_or_log([]() -> no_eq { throw std::runtime_error("boom"); },
             no_eq{-1})
             .val == -1);
+
+  // When `==` would actually be needed, the overloads are constrained away
+  // rather than failing inside the body.
+  static_assert(failure_loggable<int>);
+  static_assert(!failure_loggable<no_eq>);
+  static_assert(value_terminable<int>);
+  static_assert(!value_terminable<no_eq>);
 }
 
 TEST_CASE("try_or_terminate returns the non-failure result",
