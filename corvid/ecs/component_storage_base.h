@@ -231,7 +231,6 @@ public:
       try_or_terminate([&] {
         owner_->ids_.resize(saved_size_);
         owner_->do_resize_storage(saved_size_);
-        return true;
       });
     }
 

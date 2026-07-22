@@ -134,7 +134,7 @@ public:
     borrowed& operator=(const borrowed&) = delete;
 
     ~borrowed() {
-      try_or_terminate([&] { return reset() || true; });
+      try_or_terminate([&] { reset(); });
     }
 
     // Returns the slot to the pool immediately; handle becomes empty.
@@ -341,7 +341,7 @@ public:
   object_pool& operator=(object_pool&&) = delete;
 
   ~object_pool() {
-    try_or_terminate([&] { return shutdown() || true; });
+    try_or_terminate([&] { (void)shutdown(); });
   }
 
 #pragma endregion

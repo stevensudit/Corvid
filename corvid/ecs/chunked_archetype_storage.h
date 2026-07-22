@@ -138,7 +138,7 @@ public:
   chunked_archetype_storage(chunked_archetype_storage&&) noexcept = default;
 
   ~chunked_archetype_storage() {
-    try_or_terminate([&] { return clear() || true; });
+    try_or_terminate([&] { clear(); });
   }
 
   chunked_archetype_storage& operator=(

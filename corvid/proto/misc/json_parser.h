@@ -1166,10 +1166,7 @@ class json_writer {
     scoped_writer& operator=(scoped_writer&&) = delete;
 
     constexpr ~scoped_writer() {
-      try_or_terminate([&] {
-        end_(*writer_);
-        return true;
-      });
+      try_or_terminate([&] { end_(*writer_); });
     }
 
     [[nodiscard]] constexpr json_writer* operator->() noexcept {

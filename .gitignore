@@ -37,6 +37,7 @@
 
 # CMake
 build/
+build-cl/
 build-debug/
 build-tests/
 build-bench/

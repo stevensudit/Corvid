@@ -24,9 +24,13 @@
 #include <utility>
 #include <vector>
 
+#include "corvid/meta/crossplatform.h"
 #include "corvid/meta/proxy.h"
 #include "corvid/meta/proxy_codegen.h"
 #include "catch2_main.h"
+
+// cl C4702: instantiation-specific unreachable-code noise in facade dispatch.
+PRAGMA_MSVC_IGNORED(4702)
 
 using namespace std::literals;
 using namespace corvid;

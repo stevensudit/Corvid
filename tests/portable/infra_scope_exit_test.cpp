@@ -19,11 +19,23 @@
 
 #include "catch2_main.h"
 
+#include <functional>
 #include <memory>
 #include <stdexcept>
 #include <utility>
 
 using namespace corvid;
+
+// The exit and fail kinds call their source directly if storing it throws, so
+// a source that merely converts to the stored callable (a null `std::function`
+// here) is constrained away for them; the success kind never makes that call
+// and still accepts it.
+static_assert(!std::is_constructible_v<scope_exit<std::function<void()>>,
+    std::nullptr_t>);
+static_assert(!std::is_constructible_v<scope_fail<std::function<void()>>,
+    std::nullptr_t>);
+static_assert(std::is_constructible_v<scope_success<std::function<void()>>,
+    std::nullptr_t>);
 
 // NOLINTBEGIN(readability-function-cognitive-complexity)
 
@@ -203,6 +215,45 @@ TEST_CASE("Basic", "[ScopeSuccess]") {
       scope_success guard{[] { throw std::runtime_error("flush failed"); }};
     };
     CHECK_THROWS_AS(fire(), std::runtime_error);
+  }
+}
+#pragma endregion
+#pragma region ThrowingConstruction
+
+namespace {
+// Callable whose copy constructor throws, exercising a guard whose
+// construction fails.
+struct throwing_copy_fn {
+  int& calls;
+  explicit throwing_copy_fn(int& c) noexcept : calls{c} {}
+  throwing_copy_fn(const throwing_copy_fn& other) : calls{other.calls} {
+    throw std::runtime_error("copy failed");
+  }
+  void operator()() const noexcept { ++calls; }
+};
+} // namespace
+
+TEST_CASE("Throwing construction", "[ScopeExit][ScopeFail][ScopeSuccess]") {
+  // Matching `std::experimental`, when storing the callable throws,
+  // `scope_exit` and `scope_fail` still invoke it, so the cleanup is not lost.
+  // `scope_success` does not, since the scope did not succeed.
+  if (true) {
+    int calls = 0;
+    throwing_copy_fn fn{calls};
+    CHECK_THROWS_AS(scope_exit{fn}, std::runtime_error);
+    CHECK(calls == 1);
+  }
+  if (true) {
+    int calls = 0;
+    throwing_copy_fn fn{calls};
+    CHECK_THROWS_AS(scope_fail{fn}, std::runtime_error);
+    CHECK(calls == 1);
+  }
+  if (true) {
+    int calls = 0;
+    throwing_copy_fn fn{calls};
+    CHECK_THROWS_AS(scope_success{fn}, std::runtime_error);
+    CHECK(calls == 0);
   }
 }
 #pragma endregion

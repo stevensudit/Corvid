@@ -883,7 +883,6 @@ private:
         log::fatal("on_rand: destlen {} exceeds int max", destlen);
       if (RAND_bytes(dest, static_cast<int>(destlen)) != 1)
         log::fatal("on_rand: RAND_bytes failed");
-      return true;
     });
   }
 

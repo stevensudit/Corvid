@@ -26,7 +26,8 @@
 #                                        (regenerates compile_commands.json for clangd)
 #   ./cleanbuild.ps1 strings_test.cpp    build and run just that one test
 #   ./cleanbuild.ps1 cuda_status_test.cu build and run just that one CUDA test
-#   ./cleanbuild.ps1 cl                  portable suite via MSVC cl (no CUDA)
+#   ./cleanbuild.ps1 cl                  portable suite via MSVC cl (no CUDA;
+#                                        builds in tests/build-cl)
 #   ./cleanbuild.ps1 asan                ASAN (+UBSAN) build + ctest (clang++ only)
 #   ./cleanbuild.ps1 tidy                run clang-tidy during the build, then a
 #                                        warning summary (clang++ only)
@@ -92,11 +93,17 @@ if ($reconfigure -and ($testName -or $sanitizer -or $cudacheck -or $tidy -or $cl
 
 # Resolve the compiler. clang++ uses the full LLVM path; cl rides the dev-shell
 # PATH set up below.
+#
+# cl gets its own build tree: sharing tests/build would let every clang<->cl
+# swap rewrite compile_commands.json out from under clangd (which reads
+# tests/build) and thrash the ninja object cache with fresh reconfigures, since
+# the compiler is part of the configure signature.
 if ($compiler -eq 'clang') {
   if (-not (Test-Path $clangXx)) { throw "clang++ not found at $clangXx" }
   $cxx = $clangXx
 } else {
   $cxx = 'cl'
+  $bldDir = Join-Path $repo 'tests/build-cl'
 }
 
 # Bring in the MSVC environment (INCLUDE/LIB, and cl/link on PATH) unless we are

@@ -102,7 +102,7 @@ public:
 
   mono_archetype_storage(mono_archetype_storage&&) noexcept = default;
   ~mono_archetype_storage() {
-    try_or_terminate([&] { return clear() || true; });
+    try_or_terminate([&] { clear(); });
   }
 
   mono_archetype_storage& operator=(mono_archetype_storage&& other) noexcept {

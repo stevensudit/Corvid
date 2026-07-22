@@ -23,7 +23,19 @@
 #include <string>
 #include <atomic>
 #include <thread>
-#ifndef _WIN32
+
+// We support both Windows and POSIX.
+#ifdef _WIN32
+// windows.h pulls in min/max macros, and its non-lean corners pollute further
+// (see corvid/infra/log.h); keep them out.
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+#else
 #include <pthread.h>
 #endif
 
@@ -68,16 +80,17 @@ public:
   }
 
   static void set_thread_name(std::string_view name) {
-#ifdef _WIN32
-    // Thread naming is dropped on Windows (SetThreadDescription needs a wide
-    // string; the label is debug-only). No-op, keeping the call site.
-    (void)name;
-#else
     static std::atomic_int thread_count;
     const int n = ++thread_count;
     std::string label = std::to_string(n);
     label += '-';
     label += name;
+#ifdef _WIN32
+    // `SetThreadDescription` takes a wide string; the name is ASCII in
+    // practice, so widening character by character is enough.
+    const std::wstring wide{label.begin(), label.end()};
+    (void)::SetThreadDescription(::GetCurrentThread(), wide.c_str());
+#else
     if (label.size() > 15) label.resize(15);
     (void)::pthread_setname_np(::pthread_self(), label.c_str());
 #endif

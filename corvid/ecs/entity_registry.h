@@ -770,7 +770,7 @@ public:
     }
 
     ~handle_owner() {
-      try_or_terminate([&] { return reset() || true; });
+      try_or_terminate([&] { reset(); });
     }
 
     // Get the owned ID.

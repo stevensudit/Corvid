@@ -9,7 +9,9 @@ Corvid builds and runs its tests through `./cleanbuild.sh`, and formats through
 `./format_all.sh`. Never hand-run cmake or ninja in `tests/build/`: that
 directory goes stale and breaks the FetchContent generator. `CMakeLists.txt`
 lives in `tests/` only; there is no root one. Build output lands in
-`tests/build/`.
+`tests/build/`, except that the Windows `cl` compiler mode builds in
+`tests/build-cl/` so it never rewrites clangd's `compile_commands.json` in
+`tests/build/` or thrashes the clang object cache.
 
 ## Commands
 

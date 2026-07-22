@@ -15,19 +15,38 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#define EXCEPTION_FIREWALLS_NO_ASSERT 1
-
 #include "corvid/infra.h"
 #include "catch2_main.h"
 
+#include "corvid/concurrency/jthread_stoppable_sleep.h"
+
 #include <sstream>
 #include <stdexcept>
+#include <thread>
 
 using corvid::infra::log;
 using corvid::infra::log_level;
+using corvid::infra::log_policy;
 using corvid::infra::logger;
 using corvid::infra::rethrow_policy;
 using corvid::infra::try_or_log;
+using corvid::infra::try_or_terminate;
+
+// Move-only formattable payload, pinning that log arguments are forwarded
+// rather than copied.
+struct move_only_arg {
+  std::string text;
+  explicit move_only_arg(std::string text) noexcept : text{std::move(text)} {}
+  move_only_arg(move_only_arg&&) = default;
+  move_only_arg(const move_only_arg&) = delete;
+};
+
+template<>
+struct std::formatter<move_only_arg>: std::formatter<std::string_view> {
+  auto format(const move_only_arg& m, std::format_context& ctx) const {
+    return std::formatter<std::string_view>::format(m.text, ctx);
+  }
+};
 
 // NOLINTBEGIN(readability-function-cognitive-complexity)
 
@@ -158,7 +177,67 @@ TEST_CASE("log static facade forwards to its singleton", "[infra][log]") {
   CHECK(out.contains("static trace x=7"));
 }
 
-TEST_CASE("try_or_log swallows and returns on_throw by default",
+TEST_CASE("log forwards arguments without copying", "[infra][log]") {
+  std::stringstream sink;
+  logger lg{sink};
+  lg.info("payload {}", move_only_arg{"zap"});
+  CHECK(sink.str().contains("payload zap"));
+}
+
+TEST_CASE("logger thread label reflects the thread name", "[infra][log]") {
+  // Run on a fresh thread, since the label caches per thread and this one is
+  // already labeled. `set_thread_name` prefixes a serial number, so match on
+  // the suffix.
+  std::stringstream sink;
+  logger lg{sink};
+  std::thread t{[&] {
+    corvid::concurrency::jthread_stoppable_sleep::set_thread_name("wheel");
+    lg.info("named");
+  }};
+  t.join();
+  CHECK(sink.str().contains("-wheel("));
+
+  // A long name truncates to 15 characters on both platforms.
+  std::stringstream sink2;
+  logger lg2{sink2};
+  std::thread t2{[&] {
+    corvid::concurrency::jthread_stoppable_sleep::set_thread_name(
+        "abcdefghijklmnopqrstuvwxyz");
+    lg2.info("named long");
+  }};
+  t2.join();
+  CHECK(sink2.str().contains("-abcdefghij"));
+  CHECK_FALSE(sink2.str().contains("abcdefghijklmnopqrstuvwxyz"));
+}
+
+TEST_CASE("loggers sharing a stream do not interleave lines", "[infra][log]") {
+  // Two independent loggers, one shared stream: `osyncstream` keys atomicity
+  // on the stream's buffer, so every line must arrive whole.
+  std::stringstream sink;
+  logger lg_a{sink};
+  logger lg_b{sink};
+  const std::string aa(120, 'a');
+  const std::string bb(120, 'b');
+  constexpr int n_lines = 200;
+  std::thread ta{[&] {
+    for (int ndx = 0; ndx < n_lines; ++ndx) lg_a.info("{}", aa);
+  }};
+  std::thread tb{[&] {
+    for (int ndx = 0; ndx < n_lines; ++ndx) lg_b.info("{}", bb);
+  }};
+  ta.join();
+  tb.join();
+
+  int cnt = 0;
+  std::string line;
+  while (std::getline(sink, line)) {
+    ++cnt;
+    CHECK((line.ends_with(aa) || line.ends_with(bb)));
+  }
+  CHECK(cnt == 2 * n_lines);
+}
+
+TEST_CASE("try_or_log swallows and substitutes failure_value",
     "[infra][exception]") {
   std::stringstream sink;
   log::singleton().set_stream(sink);
@@ -169,8 +248,90 @@ TEST_CASE("try_or_log swallows and returns on_throw by default",
       try_or_log([]() -> int { throw std::runtime_error("boom"); }, 42) == 42);
   CHECK(try_or_log([] { return 7; }, 0) == 7);
 
+  // A void lambda maps success and throw onto `success_value` and
+  // `failure_value`, which default to `true` and `false`.
+  CHECK(try_or_log([] {}) == true);
+  CHECK(
+      try_or_log([]() -> void { throw std::runtime_error("boom"); }) == false);
+  CHECK(try_or_log([] {}, 5, -1) == 5);
+  CHECK(try_or_log([]() -> void { throw std::runtime_error("boom"); }, 5,
+            -1) == -1);
+
+  // A thrown C string is caught and its text logged.
+  CHECK(try_or_log([]() -> bool { throw "c-string boom"; }) == false);
+
   log::singleton().set_stream(std::cerr);
   CHECK(sink.str().contains("boom"));
+  CHECK(sink.str().contains("c-string boom"));
+}
+
+TEST_CASE("try_or_log logs a returned failure value only when asked",
+    "[infra][exception]") {
+  // Under the default `on_throw` policy, a callable returning its
+  // `failure_value` is passed through silently.
+  std::stringstream sink;
+  log::singleton().set_stream(sink);
+  CHECK(try_or_log([] { return 0; }) == 0);
+  CHECK(sink.str().empty());
+
+  // Under `on_failure_value` (or `on_either_error`), the same return logs.
+  CHECK(try_or_log<log_policy::on_failure_value>([] { return 0; }) == 0);
+  log::singleton().set_stream(std::cerr);
+  CHECK(sink.str().contains("returned failure value"));
+}
+
+TEST_CASE("try_or_log under log_policy::never swallows silently",
+    "[infra][exception]") {
+  std::stringstream sink;
+  log::singleton().set_stream(sink);
+  CHECK(try_or_log<log_policy::never>([]() -> int {
+    throw std::runtime_error("quiet");
+  }) == 0);
+  log::singleton().set_stream(std::cerr);
+  CHECK(sink.str().empty());
+}
+
+// Probes for whether the value-returning firewalls accept a callable
+// returning `T`, pinning the equality-comparable constraints. (A
+// requires-expression is only SFINAE-tolerant inside a templated entity, so
+// the probes live in concepts rather than inline in the test.)
+template<typename T>
+concept failure_loggable = requires(T (*fn)()) {
+  try_or_log<log_policy::on_failure_value>(fn);
+};
+template<typename T>
+concept value_terminable = requires(T (*fn)()) { try_or_terminate(fn); };
+
+TEST_CASE("try_or_log throw-only policy needs no equality operator",
+    "[infra][exception]") {
+  // The `failure_value` comparison only happens when the policy logs it, so a
+  // result type without `==` still works under the default policy.
+  struct no_eq {
+    int val;
+  };
+  CHECK(try_or_log([] { return no_eq{7}; }, no_eq{0}).val == 7);
+  CHECK(try_or_log([]() -> no_eq { throw std::runtime_error("boom"); },
+            no_eq{-1})
+            .val == -1);
+
+  // When `==` would actually be needed, the overloads are constrained away
+  // rather than failing inside the body.
+  static_assert(failure_loggable<int>);
+  static_assert(!failure_loggable<no_eq>);
+  static_assert(value_terminable<int>);
+  static_assert(!value_terminable<no_eq>);
+}
+
+TEST_CASE("try_or_terminate returns the non-failure result",
+    "[infra][exception]") {
+  // Only the success path is testable in-process; the terminate paths would
+  // end the test run.
+  std::stringstream sink;
+  log::singleton().set_stream(sink);
+  CHECK(try_or_terminate([] { return 7; }) == 7);
+  CHECK(try_or_terminate([] { return std::string{"ok"}; }) == "ok");
+  log::singleton().set_stream(std::cerr);
+  CHECK(sink.str().empty());
 }
 
 // AddressSanitizer on Windows (clang-cl plus the VCRUNTIME exception runtime)
@@ -192,9 +353,10 @@ TEST_CASE("try_or_log with attempt rethrows when not unwinding",
   std::stringstream sink;
   log::singleton().set_stream(sink);
 
-  CHECK_THROWS_AS(try_or_log<rethrow_policy::attempt>([]() -> bool {
-    throw std::runtime_error("rethrown");
-  }),
+  CHECK_THROWS_AS(
+      (try_or_log<log_policy::on_throw, rethrow_policy::attempt>([]() -> bool {
+        throw std::runtime_error("rethrown");
+      })),
       std::runtime_error);
 
   log::singleton().set_stream(std::cerr);
@@ -208,14 +370,14 @@ TEST_CASE("try_or_log with attempt swallows mid-unwind",
   log::singleton().set_stream(sink);
 
   // A destructor invoked while `outer` unwinds calls `try_or_log<attempt>`,
-  // whose `fn` throws. Because `std::uncaught_exceptions` is nonzero, it
-  // must not rethrow (that would terminate); it logs and returns `on_throw`,
+  // whose `fn` throws. Because `std::uncaught_exceptions` is nonzero, it must
+  // not rethrow (that would terminate); it logs and returns `failure_value`,
   // so the destructor completes and `outer` keeps propagating.
   bool swallowed = false;
   struct guard {
     bool& swallowed;
     ~guard() noexcept(false) {
-      swallowed = try_or_log<rethrow_policy::attempt>(
+      swallowed = try_or_log<log_policy::on_throw, rethrow_policy::attempt>(
           []() -> bool { throw std::runtime_error("inner"); }, true);
     }
   };

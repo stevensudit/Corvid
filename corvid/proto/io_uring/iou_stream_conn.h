@@ -75,14 +75,14 @@ public:
   ~iou_recv_view() {
     try_or_terminate([&] {
       // View was moved from or stop_receiving consumed.
-      if (!resume_) return true;
+      if (!resume_) return;
       if (!buf_.payload_view().empty() && buf_.active_span().empty())
         throw std::logic_error{
             "iou_recv_view with unconsumed payload cannot be reused"};
 
       // Normal re-arm path. The returned `posted_fn` is empty here.
       assert(buf_.result()); // not deactivated.
-      return resume_(std::move(buf_)) || true;
+      (void)resume_(std::move(buf_));
     });
   }
 

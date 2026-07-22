@@ -15,7 +15,19 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 #pragma once
-#ifndef _WIN32
+#ifdef _WIN32
+// windows.h pulls in min/max macros, and its non-lean corners pollute further
+// (rpc declares a global `handle_t` typedef, ole defines `interface`); keep
+// them out. Note that `near` and `far` are defined as macros regardless, so
+// those names are unusable in any code this header reaches.
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+#else
 #include <pthread.h>
 #include <sys/syscall.h>
 #include <unistd.h>
@@ -26,11 +38,10 @@
 #include <exception>
 #include <format>
 #include <iostream>
-#include <mutex>
 #include <source_location>
 #include <string>
 #include <string_view>
-#include <thread>
+#include <syncstream>
 #include <type_traits>
 #include <utility>
 
@@ -71,13 +82,19 @@ struct format_with_loc {
 #pragma endregion
 #pragma region logger
 
-// Owns a level threshold and a reference to an output stream, and serializes
-// writes to that stream. Construct your own instance for a per-subsystem log
-// (optionally pointed at a different stream), or use the singleton via the
-// `log` static API below.
+// Owns a level threshold and a reference to an output stream. Construct your
+// own instance for a per-subsystem log (optionally pointed at a different
+// stream), or use the singleton via the `log` static API below.
+//
+// Each line goes out through a `std::osyncstream`, whose atomicity is keyed on
+// the target stream's buffer, so concurrent writers to the same stream never
+// interleave mid-line, even across separate `logger` instances.
 //
 // The stream is held by reference, so the caller owns its lifetime; the
-// default is `std::cerr`, whose lifetime spans the program.
+// default is `std::cerr`, whose lifetime spans the program. `set_stream` is a
+// pointer swap, not a rendezvous: a write already in flight may still land on
+// the old stream, so retire a replaced stream only after no thread can still
+// be logging to it.
 //
 // Output format: `YYYY-MM-DDTHH:MM:SS.sssZ [name(tid)] [L file:line]
 // message\n` where `name(tid)` is the calling thread's name and ID, and `L`
@@ -103,14 +120,8 @@ public:
   [[nodiscard]] log_level threshold() const noexcept { return threshold_; }
   void set_threshold(log_level lvl) noexcept { threshold_ = lvl; }
 
-  [[nodiscard]] std::ostream& stream() const noexcept {
-    std::scoped_lock lock{mutex_};
-    return *out_;
-  }
-  void set_stream(std::ostream& out) noexcept {
-    std::scoped_lock lock{mutex_};
-    out_ = &out;
-  }
+  [[nodiscard]] std::ostream& stream() const noexcept { return **out_; }
+  void set_stream(std::ostream& out) noexcept { out_ = &out; }
 
   [[nodiscard]] bool enabled(log_level lvl) const noexcept {
     return lvl >= threshold_;
@@ -123,70 +134,79 @@ public:
 
   template<typename... Args>
   bool trace(const format_with_loc<std::type_identity_t<Args>...>& msg,
-      Args... args) {
-    return emit(log_level::trace, msg, args...);
+      Args&&... args) {
+    return emit(log_level::trace, msg, std::forward<Args>(args)...);
   }
 
   template<typename... Args>
   bool debug(const format_with_loc<std::type_identity_t<Args>...>& msg,
-      Args... args) {
-    return emit(log_level::debug, msg, args...);
+      Args&&... args) {
+    return emit(log_level::debug, msg, std::forward<Args>(args)...);
   }
 
   template<typename... Args>
   bool info(const format_with_loc<std::type_identity_t<Args>...>& msg,
-      Args... args) {
-    return emit(log_level::info, msg, args...);
+      Args&&... args) {
+    return emit(log_level::info, msg, std::forward<Args>(args)...);
   }
 
   template<typename... Args>
   bool warn(const format_with_loc<std::type_identity_t<Args>...>& msg,
-      Args... args) {
-    return emit(log_level::warn, msg, args...);
+      Args&&... args) {
+    return emit(log_level::warn, msg, std::forward<Args>(args)...);
   }
 
   template<typename... Args>
   bool error(const format_with_loc<std::type_identity_t<Args>...>& msg,
-      Args... args) {
-    return emit(log_level::error, msg, args...);
+      Args&&... args) {
+    return emit(log_level::error, msg, std::forward<Args>(args)...);
   }
 
   template<typename... Args>
   [[noreturn]] void
   fatal(const format_with_loc<std::type_identity_t<Args>...>& msg,
-      Args... args) {
-    emit(log_level::error, msg, args...);
+      Args&&... args) {
+    emit(log_level::error, msg, std::forward<Args>(args)...);
     terminate();
   }
 
   // NOLINTNEXTLINE(bugprone-exception-escape): a throw only reaches terminate
   [[noreturn]] void terminate() noexcept {
-    std::scoped_lock lock{mutex_};
-    (*out_) << "Terminating due to previous fatal log message.\n"
-            << std::flush;
+    if (auto sync = std::osyncstream{**out_}; true)
+      sync << "Terminating due to previous fatal log message.\n" << std::flush;
     std::terminate();
   }
-
 #pragma endregion
 #pragma region Helpers
 private:
   template<typename... Args>
-  bool emit(log_level lvl, const format_with_loc<Args...>& msg, Args... args) {
+  bool
+  emit(log_level lvl, const format_with_loc<Args...>& msg, Args&&... args) {
     if (!enabled(lvl)) return false;
-    // `args` are lvalues in this body; `std::format`'s `Args&&` would deduce
-    // them as `T&` and reject `msg.fmt` (typed without refs). Cast to xvalue
-    // so deduction collapses to the value type.
-    auto body = std::format(msg.fmt, std::move(args)...);
+    auto body = std::format(msg.fmt, std::forward<Args>(args)...);
     return write_line(lvl, msg.loc, body) && false;
   }
 
   // Returns the calling thread's `name(tid)` label, computed once per thread
   // and cached in thread-local storage. The name falls back to "thread" when
-  // unnamed; it is at most 16 bytes including the null terminator.
+  // unnamed, and caps at 15 characters. On Windows it is the description set
+  // via `SetThreadDescription`, truncated to that cap (which POSIX imposes)
+  // with non-ASCII characters folded to '?'; on POSIX it is the `pthread`
+  // name.
   static const std::string& thread_label() {
     thread_local const std::string label = [] {
 #ifdef _WIN32
-      return std::format("thread({})", std::this_thread::get_id());
+      std::string name{"thread"};
+      wchar_t* desc{};
+      if (SUCCEEDED(GetThreadDescription(GetCurrentThread(), &desc))) {
+        if (desc && *desc) {
+          name.clear();
+          for (const auto c : std::wstring_view{desc}.substr(0, 15))
+            name.push_back(c < 0x80 ? static_cast<char>(c) : '?');
+        }
+        LocalFree(desc);
+      }
+      return name + '(' + std::to_string(GetCurrentThreadId()) + ')';
 #else
       std::array<char, 16> name{};
       const char* thread_name =
@@ -202,36 +222,33 @@ private:
   }
 
   // Sample output:
-  // 2026-05-29T22:26:27Z [wheel(42)] [I file.cpp:42] message
+  // 2026-05-29T22:26:27.123Z [wheel(42)] [I file.cpp:42] message
   bool write_line(log_level lvl, const std::source_location& loc,
       std::string_view body) {
     static constexpr std::string_view k_level_initials = "TDIWE";
     const auto now = std::chrono::time_point_cast<std::chrono::milliseconds>(
         system_now_clock::now());
-    // Build everything but the body into a stack buffer before locking, so the
-    // lock only spans the stream writes (no heap-allocating timestamp format
-    // inside it). 256 bytes covers the fixed-width timestamp, the <=15-char
+    // Build everything but the body into a stack buffer. `format_to_n` stops
+    // at the buffer end, so a long path truncates the prefix rather than
+    // overflowing. 256 bytes covers the fixed-width timestamp, the <=15-char
     // thread name and tid, the level, and a full file path with line.
-    // `format_to_n` stops at the buffer end, so a long path truncates the
-    // prefix rather than overflowing.
     std::array<char, 256> prefix;
     auto res = std::format_to_n(prefix.data(), prefix.size(),
         "{:%FT%T}Z [{}] [{} {}:{}] ", now, thread_label(),
         k_level_initials[static_cast<size_t>(lvl)], loc.file_name(),
         loc.line());
     const auto prefix_len = res.out - prefix.data();
-    std::scoped_lock lock{mutex_};
-    out_->write(prefix.data(), static_cast<std::streamsize>(prefix_len));
-    out_->write(body.data(), static_cast<std::streamsize>(body.size()));
-    out_->put('\n');
+    std::osyncstream sync{**out_};
+    sync.write(prefix.data(), static_cast<std::streamsize>(prefix_len));
+    sync.write(body.data(), static_cast<std::streamsize>(body.size()));
+    sync.put('\n');
     return true;
   }
 
 #pragma endregion
 #pragma region Data members
 
-  std::ostream* out_{&std::cerr};
-  mutable std::mutex mutex_;
+  relaxed_atomic<std::ostream*> out_{&std::cerr};
   relaxed_atomic<log_level> threshold_{log_level::info};
 
 #pragma endregion
@@ -260,42 +277,42 @@ public:
 
   template<typename... Args>
   static bool trace(const format_with_loc<std::type_identity_t<Args>...>& msg,
-      Args... args) {
-    return singleton().trace(msg, args...);
+      Args&&... args) {
+    return singleton().trace(msg, std::forward<Args>(args)...);
   }
 
   template<typename... Args>
   static bool debug(const format_with_loc<std::type_identity_t<Args>...>& msg,
-      Args... args) {
-    return singleton().debug(msg, args...);
+      Args&&... args) {
+    return singleton().debug(msg, std::forward<Args>(args)...);
   }
 
   template<typename... Args>
   static bool info(const format_with_loc<std::type_identity_t<Args>...>& msg,
-      Args... args) {
-    return singleton().info(msg, args...);
+      Args&&... args) {
+    return singleton().info(msg, std::forward<Args>(args)...);
   }
 
   template<typename... Args>
   static bool warn(const format_with_loc<std::type_identity_t<Args>...>& msg,
-      Args... args) {
-    return singleton().warn(msg, args...);
+      Args&&... args) {
+    return singleton().warn(msg, std::forward<Args>(args)...);
   }
 
   template<typename... Args>
   static bool error(const format_with_loc<std::type_identity_t<Args>...>& msg,
-      Args... args) {
-    return singleton().error(msg, args...);
+      Args&&... args) {
+    return singleton().error(msg, std::forward<Args>(args)...);
   }
 
   template<typename... Args>
   [[noreturn]] static void
   fatal(const format_with_loc<std::type_identity_t<Args>...>& msg,
-      Args... args) {
-    singleton().fatal(msg, args...);
+      Args&&... args) {
+    singleton().fatal(msg, std::forward<Args>(args)...);
   }
 
-  [[noreturn]] static void terminate() { singleton().terminate(); }
+  [[noreturn]] static void terminate() noexcept { singleton().terminate(); }
 
 #pragma endregion
 };

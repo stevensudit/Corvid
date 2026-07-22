@@ -360,14 +360,13 @@ public:
         routes_.clear();
         loop_.reset();
         runner_.reset();
-        return true;
+        return;
       }
       if (loop_) {
         listener_ = {};
         routes_.clear();
         (void)loop_->post_and_wait([] { return true; });
       }
-      return true;
     });
   }
 #pragma endregion

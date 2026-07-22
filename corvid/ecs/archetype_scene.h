@@ -153,7 +153,9 @@ public:
   archetype_scene& operator=(archetype_scene&&) = delete;
 
   ~archetype_scene() {
-    try_or_terminate([&] { return clear() || true; });
+    // Deliberately ignore `clear`'s result: a false return is not fatal here,
+    // only a throw is.
+    try_or_terminate([&] { (void)clear(); });
   }
 
 #pragma endregion

@@ -27,7 +27,7 @@ namespace corvid { inline namespace infra { inline namespace relaxed_atomicns {
 #pragma region relaxed_atomic
 
 // Thin wrapper around `std::atomic<T>`, providing only implicit conversion to
-// `T` and assignment from `T` while using relaxed memory ordering.  All other
+// `T` and assignment from `T` while using relaxed memory ordering. All other
 // `std::atomic<T>` operations are accessed using `operator->`.
 //
 // Intended for values where adjacent loads and stores need no ordering
@@ -100,7 +100,7 @@ public:
   }
 
   // Relaxed exchange. Sets to `desired`, and returns the previous value.
-  value_type exchange(value_type desired,
+  [[nodiscard]] value_type exchange(value_type desired,
       std::memory_order order = std::memory_order::relaxed) noexcept {
     return value_.exchange(desired, order);
   }
@@ -109,14 +109,15 @@ public:
   // `desired` if equal, and returns a success flag. On failure, `expected` is
   // updated with the current value. Which is a bit misleading, because it's no
   // longer expected, it's unexpected.
-  bool compare_exchange(value_type& expected, value_type desired,
+  [[nodiscard]] bool compare_exchange(value_type& expected, value_type desired,
       std::memory_order order = std::memory_order::relaxed) noexcept {
     return value_.compare_exchange_strong(expected, desired, order);
   }
 
   // Weak relaxed compare-and-exchange. May fail spuriously, so should be
   // retried in a loop. Otherwise the same semantics as `compare_exchange`.
-  bool try_compare_exchange(value_type& expected, value_type desired,
+  [[nodiscard]] bool try_compare_exchange(value_type& expected,
+      value_type desired,
       std::memory_order order = std::memory_order::relaxed) noexcept {
     return value_.compare_exchange_weak(expected, desired, order);
   }
@@ -185,12 +186,12 @@ using relaxed_atomic_long = relaxed_atomic<long>;
 using relaxed_atomic_ulong = relaxed_atomic<unsigned long>;
 using relaxed_atomic_llong = relaxed_atomic<long long>;
 using relaxed_atomic_ullong = relaxed_atomic<unsigned long long>;
-using relaxed_atomic_char8_t = relaxed_atomic<char8_t>; // C++20
+using relaxed_atomic_char8_t = relaxed_atomic<char8_t>;
 using relaxed_atomic_char16_t = relaxed_atomic<char16_t>;
 using relaxed_atomic_char32_t = relaxed_atomic<char32_t>;
 using relaxed_atomic_wchar_t = relaxed_atomic<wchar_t>;
 
-// Fixed-width types (optional -- provided when the underlying typedef exists).
+// Fixed-width types.
 using relaxed_atomic_int8_t = relaxed_atomic<std::int8_t>;
 using relaxed_atomic_uint8_t = relaxed_atomic<std::uint8_t>;
 using relaxed_atomic_int16_t = relaxed_atomic<std::int16_t>;
@@ -220,8 +221,7 @@ using relaxed_atomic_uint_fast32_t = relaxed_atomic<std::uint_fast32_t>;
 using relaxed_atomic_int_fast64_t = relaxed_atomic<std::int_fast64_t>;
 using relaxed_atomic_uint_fast64_t = relaxed_atomic<std::uint_fast64_t>;
 
-// Pointer-sized and other platform types (optional -- provided when the
-// underlying typedef exists).
+// Pointer-sized and other platform types.
 using relaxed_atomic_intptr_t = relaxed_atomic<std::intptr_t>;
 using relaxed_atomic_uintptr_t = relaxed_atomic<std::uintptr_t>;
 using relaxed_atomic_size_t = relaxed_atomic<std::size_t>;

@@ -31,9 +31,10 @@ namespace corvid { inline namespace infra {
 // (`scope_exit`), only on an exceptional exit (`scope_fail`), or only on a
 // normal exit (`scope_success`).
 //
-//  These are placeholders for the `std::experimental::scope_exit`,
-//  `std::experimental::scope_fail`, and `std::experimental::scope_success`,
-//  which are not only experimental, but currently unavailable in libcpp.
+// These are placeholders for the `std::experimental::scope_exit`,
+// `std::experimental::scope_fail`, and `std::experimental::scope_success`
+// classes, which are not only experimental, but currently unavailable in
+// libc++.
 //
 // https://en.cppreference.com/cpp/experimental/scope_success.
 
@@ -49,9 +50,11 @@ enum class scope_kind : std::uint8_t { exit, fail, success };
 #pragma region scope_guard
 
 // Combined implementation for the three scope guards, parameterized on the
-// exit-function type `EF` and the policy `Kind`. The public names (scope_exit,
-// scope_fail, scope_success) are thin derived classes that pin `Kind`, so all
-// of the policy-dependent logic lives here in one place.
+// exit-function type `EF` and the policy `Kind`.
+//
+// The public names (scope_exit, scope_fail, scope_success) are thin derived
+// classes that pin `Kind`, so all of the policy-dependent logic lives here in
+// one place.
 template<typename EF, scope_kind Kind>
 class scope_guard {
 #pragma region Policy
@@ -68,23 +71,39 @@ class scope_guard {
 #pragma endregion
 #pragma region Construction
 public:
+  // Construct from a callable.
+  //
+  // Matching `std::experimental`, if storing the callable throws, `scope_exit`
+  // and `scope_fail` invoke `fn` before the exception propagates, so the
+  // cleanup is not lost. `scope_success` does not, since the scope has not
+  // succeeded. Because those kinds call `fn` directly, their source must
+  // itself be invocable as an lvalue, not merely convertible to `EF`.
   template<typename Fn>
-  requires(!std::is_same_v<std::remove_cvref_t<Fn>, scope_guard> &&
-           std::is_constructible_v<EF, Fn>)
+  requires(
+      !std::is_same_v<std::remove_cvref_t<Fn>, scope_guard> &&
+      std::is_constructible_v<EF, Fn> &&
+      (Kind == scope_kind::success || std::is_invocable_v<Fn&>))
   explicit scope_guard(Fn&& fn) noexcept(
-      std::is_nothrow_constructible_v<EF, Fn>)
-      : exit_function_(std::forward<Fn>(fn)) {
+      std::is_nothrow_constructible_v<EF, Fn>) try
+      : exit_function_(do_source<Fn>(fn)) {
     if constexpr (counts_exceptions_v)
       uncaught_on_entry_ = std::uncaught_exceptions();
+  }
+  catch (...) {
+    if constexpr (Kind != scope_kind::success) fn();
   }
 
   scope_guard(const scope_guard&) = delete;
   scope_guard& operator=(const scope_guard&) = delete;
   scope_guard& operator=(scope_guard&&) = delete;
 
+  // Matching `std::experimental`, moving requires a nothrow move or a copy,
+  // so `move_if_noexcept` always has a usable source.
   scope_guard(scope_guard&& other) noexcept(
       std::is_nothrow_move_constructible_v<EF> ||
       std::is_nothrow_copy_constructible_v<EF>)
+  requires(std::is_nothrow_move_constructible_v<EF> ||
+              std::is_copy_constructible_v<EF>)
       : exit_function_(std::move_if_noexcept(other.exit_function_)),
         active_(std::exchange(other.active_, false)),
         uncaught_on_entry_(other.uncaught_on_entry_) {}
@@ -115,8 +134,24 @@ public:
   void release() noexcept { active_ = false; }
 
 #pragma endregion
-#pragma region Data members
+#pragma region Helpers
 private:
+  // Pick the initializer for `exit_function_`. Forward `fn` when that
+  // construction cannot throw, or when there is no lvalue alternative, and
+  // otherwise pass the lvalue, so that a throwing copy leaves `fn` intact for
+  // the constructor's catch block to invoke.
+  template<typename Fn>
+  static constexpr decltype(auto) do_source(Fn& fn) noexcept {
+    if constexpr (std::is_nothrow_constructible_v<EF, Fn> ||
+                  !std::is_constructible_v<EF, Fn&>)
+      return std::forward<Fn>(fn);
+    else
+      return fn;
+  }
+
+#pragma endregion
+#pragma region Data members
+
   EF exit_function_;
   bool active_{true};
   CORVID_NO_UNIQUE_ADDRESS exception_count_t uncaught_on_entry_;

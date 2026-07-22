@@ -148,19 +148,15 @@ private:
   // protocol.
   [[nodiscard]] static std::string to_alpn_wire(
       std::string_view proto) noexcept {
-    auto s = try_or_log(
-        [&] {
-          std::string s;
-          if (proto.empty() || proto.size() > 255)
-            throw std::length_error("ALPN protocol name must be 1-255 bytes");
-          s.reserve(proto.size() + 1);
-          s.push_back(static_cast<char>(proto.size()));
-          s.append(proto);
-          return s;
-        },
-        std::string{});
-    if (s.empty()) log::terminate();
-    return s;
+    return try_or_terminate([&] {
+      std::string s;
+      if (proto.empty() || proto.size() > 255)
+        throw std::length_error("ALPN protocol name must be 1-255 bytes");
+      s.reserve(proto.size() + 1);
+      s.push_back(static_cast<char>(proto.size()));
+      s.append(proto);
+      return s;
+    });
   }
 
   ssl_ctx_ptr ctx_;
