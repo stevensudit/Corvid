@@ -96,7 +96,14 @@ public:
 #pragma endregion
 #pragma region Conversions
 
+  // Convert time point to epoch nanoseconds.
+  //
+  // The nanosecond conversions require a nanosecond-or-coarser tick: on a
+  // finer one, casting `nanoseconds::max` here would overflow at compile time,
+  // and `ceil` in `from_nanoseconds` would overflow at runtime.
   [[nodiscard]] static uint64_t as_nanoseconds(time_point_t tp) noexcept {
+    static_assert(duration_t{1} >= std::chrono::nanoseconds{1},
+        "as_nanoseconds requires a nanosecond-or-coarser clock");
     assert(tp >= time_point_t{});
     if (tp == time_point_t::max()) return UINT64_MAX;
     // On a clock with a coarser tick, a near-max count would overflow the
@@ -116,6 +123,8 @@ public:
   }
 
   [[nodiscard]] static time_point_t from_nanoseconds(int64_t ns) noexcept {
+    static_assert(duration_t{1} >= std::chrono::nanoseconds{1},
+        "from_nanoseconds requires a nanosecond-or-coarser clock");
     // Map UINT64_MAX sentinel to our max.
     if (ns < 0) return time_point_t::max();
     // Round up to the clock's native tick, since a nanosecond count has no
