@@ -246,7 +246,8 @@ struct gunslinger : facade<name<"gunslinger">,
 // The `lawman` supports both of the functions that the facade expects, spelled
 // exactly as expected. Therefore, conforming it is pure registration. The ADL
 // hook mirrors `corvid_enum_spec`; declare it in the namespace of either
-// the facade or the type.
+// the facade or the type. One or the other, never both: duplicate hooks
+// make the ADL call ambiguous, and the pair then reads as unregistered.
 consteval auto corvid_proxy_spec(gunslinger*, lawman*) {
   return make_proxy_spec<gunslinger, lawman>();
 }
@@ -1346,8 +1347,9 @@ business.
   concrete and erased arguments interchangeably (Rust: `dyn Trait`
   implements `Trait`). Implemented as library-provided `proxy_impl`
   bindings whose `on` forwards through `call` with conditional `noexcept`
-  (so the invariant survives noexcept methods). The deep-const handles'
-  bindings have const and non-const overloads to match. For
+  (so the invariant survives noexcept methods). A single deduced-handle
+  binding serves const and mutable handles alike, with deep const enforced
+  by the handle's own `call` overloads. For
   `const_proxy_view` the invariant holds exactly for all-const facades (as
   with Rust `&dyn`, whose `&mut self` methods are uncallable). Its
   binding's `on` is constrained to const methods, so a mixed facade fails

@@ -1837,6 +1837,18 @@ TEST_CASE("Const view", "[proxy]") {
   const_proxy_view<gunslinger> cv{cl};
   CHECK(cv.describe() == "lawman"s);
 
+  // A temporary owner must not lend a const view: the viewing constructors
+  // bind const references, so rvalue sources are explicitly deleted. Lvalue
+  // owners still convert.
+  static_assert(!std::is_constructible_v<const_proxy_view<gunslinger>,
+      proxy<gunslinger>>);
+  static_assert(!std::is_constructible_v<const_proxy_view<gunslinger>,
+      shared_proxy<gunslinger>>);
+  static_assert(std::is_constructible_v<const_proxy_view<gunslinger>,
+      proxy<gunslinger>&>);
+  static_assert(std::is_constructible_v<const_proxy_view<gunslinger>,
+      shared_proxy<gunslinger>&>);
+
   // A const instance of the mutable view enforces the same restriction.
   lawman l;
   const proxy_view<gunslinger> cpv{l};

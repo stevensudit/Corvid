@@ -29,6 +29,13 @@ namespace corvid { inline namespace meta {
 template<size_t SZ, class Sig>
 class fixed_function;
 
+// Determine whether `T` is a `fixed_function`.
+template<typename T>
+constexpr inline bool is_fixed_function_v = false;
+
+template<size_t SZ, class Sig>
+constexpr inline bool is_fixed_function_v<fixed_function<SZ, Sig>> = true;
+
 #pragma region fixed_function
 
 // `fixed_function<SZ, RP(ARGS...)>` is a move-only, zero-allocation
@@ -78,6 +85,12 @@ public:
                       std::is_reference_v<std::invoke_result_t<FD, ARGS...>>,
         "fixed_function: callable returns a prvalue but RP is a reference "
         "type; every call would produce a dangling reference");
+
+    // A differently-sized sibling is stored as an ordinary callable, but,
+    // matching `std::function`, wrapping an empty one produces an empty
+    // function rather than a truthy shell that throws when called.
+    if constexpr (is_fixed_function_v<FD>)
+      if (!fn) return;
 
     // The `MoveConsumable` concept ensures that `FN` is an rvalue reference
     // type, so the following clang-tidy warning does not apply.

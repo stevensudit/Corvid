@@ -120,19 +120,20 @@ consteval auto operator""_method() noexcept {
 
 namespace details {
 
-// `method_base`: shared base for the four `method` flavors (`const` crossed
-// with `noexcept`).
-//
 // `name_is_unqualified`: whether `s` avoids the `"::"` separator, which
 // qualified keys reserve for splitting the facade name from the method name.
 [[nodiscard]] consteval bool name_is_unqualified(std::string_view s) noexcept {
   return !s.contains("::");
 }
 
+// `method_base`: shared base for the four `method` flavors (`const` crossed
+// with `noexcept`).
+//
 // It carries the qualification flags and the result type, which are the only
 // things that vary, and supplies the `method_key` base.
 template<fixed_string Name, bool Const, bool Noexcept, typename R>
 struct method_base: method_key<Name> {
+  static_assert(!Name.empty(), "method names may not be empty");
   static_assert(name_is_unqualified(Name.view()),
       "method names may not contain \"::\"; it is reserved for qualifying a "
       "key with the facade name");
@@ -326,6 +327,9 @@ struct extends {};
 // `method`).
 template<fixed_string Name>
 struct name {
+  static_assert(!Name.empty(),
+      "facade names may not be empty; an empty qualifier would match any "
+      "facade");
   static_assert(details::name_is_unqualified(Name.view()),
       "facade names may not contain \"::\"; it is reserved for qualifying a "
       "key with the facade name");
@@ -664,7 +668,9 @@ using registered_spec_t = decltype(corvid_proxy_spec(static_cast<F*>(nullptr),
 //
 // To register a pair, declare a `corvid_proxy_spec(F*, T*)` overload returning
 // `make_proxy_spec<F, T>()`, in the namespace of either the facade or the
-// type; it is found here by ADL.
+// type; it is found here by ADL. One namespace or the other, never both:
+// duplicate hooks make the ADL call ambiguous, and the pair then reads as
+// unregistered here rather than as a diagnosed duplicate.
 //
 // To register a type for a composed facade and its whole chain, one
 // constrained template hook serves every level; see `InChainOf`.
@@ -2545,13 +2551,24 @@ public:
       : base{p ? p.target() : nullptr,
             p ? details::upcast_vtable<F, D>(&p.vtable_->vt) : nullptr} {}
 
+  // A temporary owner must not lend a view: without this deletion, the const
+  // reference above would bind an rvalue and dangle.
+  template<Facade D, proxy_policy P>
+  requires(std::same_as<D, F> || Extends<D, F>)
+  const_proxy_view(const proxy<D, P>&&) = delete;
+
   // `const_proxy_view`: viewing constructor from a `shared_proxy` of `F`, or
-  // of a facade that extends it; see the owning-proxy constructor above.
+  // of a facade that extends it; see the owning-proxy constructor above,
+  // including the temporary-owner deletion.
   template<Facade D>
   requires(std::same_as<D, F> || Extends<D, F>)
   explicit(false) const_proxy_view(const shared_proxy<D>& p) noexcept
       : base{p ? p.target() : nullptr,
             p ? details::upcast_vtable<F, D>(p.vtable_) : nullptr} {}
+
+  template<Facade D>
+  requires(std::same_as<D, F> || Extends<D, F>)
+  const_proxy_view(const shared_proxy<D>&&) = delete;
 
   // No need for a `using` because `call` is inherited. The base's const-method
   // dispatch is the entire interface, since the mutable methods do not exist
@@ -3089,9 +3106,9 @@ private:
 // `proxy_impl`: library-provided binding so that an owning `proxy` satisfies
 // its own facade and every facade that facade extends, like the view.
 //
-// Calls forward through the proxy, with conditional `noexcept`. The const
-// overload serves const-qualified methods, matching the proxy's deep const,
-// and the non-const overload serves the rest.
+// Calls forward through the proxy, with conditional `noexcept`, through a
+// single deduced-handle binding that serves const and mutable proxies alike;
+// deep const is enforced by the proxy's own `call` overloads.
 template<Facade F, Facade D, proxy_policy P>
 requires(std::same_as<D, F> || Extends<D, F>)
 struct proxy_impl<F, proxy<D, P>> {

@@ -953,6 +953,24 @@ TEST_CASE("DiscardedReturn", "[FixedFunction]") {
 }
 
 #pragma endregion
+#pragma region FixedFunction_WrapAcrossSizes
+
+TEST_CASE("WrapAcrossSizes", "[FixedFunction]") {
+  // A differently-sized sibling stores as an ordinary callable, but,
+  // matching `std::function`, wrapping an empty one produces an empty
+  // function rather than a truthy shell that throws when called.
+  fixed_function<64, int()> small{[] { return 7; }};
+  fixed_function<96, int()> big{std::move(small)};
+  CHECK(static_cast<bool>(big));
+  CHECK(big() == 7);
+
+  fixed_function<64, int()> empty_small;
+  fixed_function<96, int()> empty_big{std::move(empty_small)};
+  CHECK_FALSE(static_cast<bool>(empty_big));
+  CHECK_THROWS_AS(empty_big(), std::bad_function_call);
+}
+
+#pragma endregion
 #pragma region FixedFunction_Bool
 
 TEST_CASE("Bool", "[FixedFunction]") {
