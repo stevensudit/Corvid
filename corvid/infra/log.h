@@ -91,7 +91,10 @@ struct format_with_loc {
 // interleave mid-line, even across separate `logger` instances.
 //
 // The stream is held by reference, so the caller owns its lifetime; the
-// default is `std::cerr`, whose lifetime spans the program.
+// default is `std::cerr`, whose lifetime spans the program. `set_stream` is a
+// pointer swap, not a rendezvous: a write already in flight may still land on
+// the old stream, so retire a replaced stream only after no thread can still
+// be logging to it.
 //
 // Output format: `YYYY-MM-DDTHH:MM:SS.sssZ [name(tid)] [L file:line]
 // message\n` where `name(tid)` is the calling thread's name and ID, and `L`
