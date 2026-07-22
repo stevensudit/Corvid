@@ -15,7 +15,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 #pragma once
-#include <cassert>
 #include <concepts>
 #include <exception>
 #include <type_traits>
@@ -71,14 +70,13 @@ void do_log_exception(const format_with_loc<const char*, const char*>& msg,
     const char* type_name,
     const char* what) noexcept(policy == rethrow_policy::never) {
   try {
-    log::error(msg, type_name, what);
+    // Pass prvalue copies so `Args` deduce as the value types `msg` was
+    // declared with.
+    log::error(msg, auto{type_name}, auto{what});
   }
   catch (...) {
     log::terminate();
   }
-#ifndef EXCEPTION_FIREWALLS_NO_ASSERT
-  assert("Logged exception" && false);
-#endif
   if constexpr (policy == rethrow_policy::attempt)
     if (std::uncaught_exceptions() == 0) throw;
 }
@@ -104,13 +102,15 @@ template<rethrow_policy policy = rethrow_policy::never, std::invocable F,
     format_with_loc<const char*, const char*> msg =
         "exception {}: {}") noexcept(policy == rethrow_policy::never) {
   try {
-    auto result = T{true};
+    // `T{true}` stays inside the discarded branch: it is only required to
+    // compile for `void` callables, so value-returning uses can pick a `T` (a
+    // `time_point`, say) that has no conversion from `true`.
     if constexpr (std::is_void_v<std::invoke_result_t<F>>) {
       std::forward<F>(fn)();
+      return T{true};
     } else {
-      result = std::forward<F>(fn)();
+      return std::forward<F>(fn)();
     }
-    return result;
   }
   catch (const std::exception& e) {
     details::do_log_exception<policy>(msg, typeid(e).name(), e.what());

@@ -15,7 +15,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 #pragma once
-#ifndef _WIN32
+#ifdef _WIN32
+// windows.h pulls in min/max macros; keep them out.
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+#else
 #include <pthread.h>
 #include <sys/syscall.h>
 #include <unistd.h>
@@ -30,7 +36,6 @@
 #include <source_location>
 #include <string>
 #include <string_view>
-#include <thread>
 #include <type_traits>
 #include <utility>
 
@@ -123,39 +128,39 @@ public:
 
   template<typename... Args>
   bool trace(const format_with_loc<std::type_identity_t<Args>...>& msg,
-      Args... args) {
-    return emit(log_level::trace, msg, args...);
+      Args&&... args) {
+    return emit(log_level::trace, msg, std::forward<Args>(args)...);
   }
 
   template<typename... Args>
   bool debug(const format_with_loc<std::type_identity_t<Args>...>& msg,
-      Args... args) {
-    return emit(log_level::debug, msg, args...);
+      Args&&... args) {
+    return emit(log_level::debug, msg, std::forward<Args>(args)...);
   }
 
   template<typename... Args>
   bool info(const format_with_loc<std::type_identity_t<Args>...>& msg,
-      Args... args) {
-    return emit(log_level::info, msg, args...);
+      Args&&... args) {
+    return emit(log_level::info, msg, std::forward<Args>(args)...);
   }
 
   template<typename... Args>
   bool warn(const format_with_loc<std::type_identity_t<Args>...>& msg,
-      Args... args) {
-    return emit(log_level::warn, msg, args...);
+      Args&&... args) {
+    return emit(log_level::warn, msg, std::forward<Args>(args)...);
   }
 
   template<typename... Args>
   bool error(const format_with_loc<std::type_identity_t<Args>...>& msg,
-      Args... args) {
-    return emit(log_level::error, msg, args...);
+      Args&&... args) {
+    return emit(log_level::error, msg, std::forward<Args>(args)...);
   }
 
   template<typename... Args>
   [[noreturn]] void
   fatal(const format_with_loc<std::type_identity_t<Args>...>& msg,
-      Args... args) {
-    emit(log_level::error, msg, args...);
+      Args&&... args) {
+    emit(log_level::error, msg, std::forward<Args>(args)...);
     terminate();
   }
 
@@ -171,22 +176,32 @@ public:
 #pragma region Helpers
 private:
   template<typename... Args>
-  bool emit(log_level lvl, const format_with_loc<Args...>& msg, Args... args) {
+  bool
+  emit(log_level lvl, const format_with_loc<Args...>& msg, Args&&... args) {
     if (!enabled(lvl)) return false;
-    // `args` are lvalues in this body; `std::format`'s `Args&&` would deduce
-    // them as `T&` and reject `msg.fmt` (typed without refs). Cast to xvalue
-    // so deduction collapses to the value type.
-    auto body = std::format(msg.fmt, std::move(args)...);
+    auto body = std::format(msg.fmt, std::forward<Args>(args)...);
     return write_line(lvl, msg.loc, body) && false;
   }
 
   // Returns the calling thread's `name(tid)` label, computed once per thread
   // and cached in thread-local storage. The name falls back to "thread" when
-  // unnamed; it is at most 16 bytes including the null terminator.
+  // unnamed. On Windows it is the description set via `SetThreadDescription`,
+  // with non-ASCII characters folded to '?'; on POSIX it is the `pthread`
+  // name, at most 16 bytes including the null terminator.
   static const std::string& thread_label() {
     thread_local const std::string label = [] {
 #ifdef _WIN32
-      return std::format("thread({})", std::this_thread::get_id());
+      std::string name{"thread"};
+      wchar_t* desc{};
+      if (SUCCEEDED(GetThreadDescription(GetCurrentThread(), &desc))) {
+        if (desc && *desc) {
+          name.clear();
+          for (const wchar_t* p = desc; *p; ++p)
+            name.push_back(*p < 0x80 ? static_cast<char>(*p) : '?');
+        }
+        LocalFree(desc);
+      }
+      return name + '(' + std::to_string(GetCurrentThreadId()) + ')';
 #else
       std::array<char, 16> name{};
       const char* thread_name =
@@ -260,39 +275,39 @@ public:
 
   template<typename... Args>
   static bool trace(const format_with_loc<std::type_identity_t<Args>...>& msg,
-      Args... args) {
-    return singleton().trace(msg, args...);
+      Args&&... args) {
+    return singleton().trace(msg, std::forward<Args>(args)...);
   }
 
   template<typename... Args>
   static bool debug(const format_with_loc<std::type_identity_t<Args>...>& msg,
-      Args... args) {
-    return singleton().debug(msg, args...);
+      Args&&... args) {
+    return singleton().debug(msg, std::forward<Args>(args)...);
   }
 
   template<typename... Args>
   static bool info(const format_with_loc<std::type_identity_t<Args>...>& msg,
-      Args... args) {
-    return singleton().info(msg, args...);
+      Args&&... args) {
+    return singleton().info(msg, std::forward<Args>(args)...);
   }
 
   template<typename... Args>
   static bool warn(const format_with_loc<std::type_identity_t<Args>...>& msg,
-      Args... args) {
-    return singleton().warn(msg, args...);
+      Args&&... args) {
+    return singleton().warn(msg, std::forward<Args>(args)...);
   }
 
   template<typename... Args>
   static bool error(const format_with_loc<std::type_identity_t<Args>...>& msg,
-      Args... args) {
-    return singleton().error(msg, args...);
+      Args&&... args) {
+    return singleton().error(msg, std::forward<Args>(args)...);
   }
 
   template<typename... Args>
   [[noreturn]] static void
   fatal(const format_with_loc<std::type_identity_t<Args>...>& msg,
-      Args... args) {
-    singleton().fatal(msg, args...);
+      Args&&... args) {
+    singleton().fatal(msg, std::forward<Args>(args)...);
   }
 
   [[noreturn]] static void terminate() noexcept { singleton().terminate(); }

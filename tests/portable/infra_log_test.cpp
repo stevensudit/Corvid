@@ -15,19 +15,36 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#define EXCEPTION_FIREWALLS_NO_ASSERT 1
-
 #include "corvid/infra.h"
 #include "catch2_main.h"
 
+#include "corvid/concurrency/jthread_stoppable_sleep.h"
+
 #include <sstream>
 #include <stdexcept>
+#include <thread>
 
 using corvid::infra::log;
 using corvid::infra::log_level;
 using corvid::infra::logger;
 using corvid::infra::rethrow_policy;
 using corvid::infra::try_or_log;
+
+// Move-only formattable payload, pinning that log arguments are forwarded
+// rather than copied.
+struct move_only_arg {
+  std::string text;
+  explicit move_only_arg(std::string text) noexcept : text{std::move(text)} {}
+  move_only_arg(move_only_arg&&) = default;
+  move_only_arg(const move_only_arg&) = delete;
+};
+
+template<>
+struct std::formatter<move_only_arg>: std::formatter<std::string_view> {
+  auto format(const move_only_arg& m, std::format_context& ctx) const {
+    return std::formatter<std::string_view>::format(m.text, ctx);
+  }
+};
 
 // NOLINTBEGIN(readability-function-cognitive-complexity)
 
@@ -156,6 +173,27 @@ TEST_CASE("log static facade forwards to its singleton", "[infra][log]") {
   auto out = captured.str();
   CHECK(out.contains("[T "));
   CHECK(out.contains("static trace x=7"));
+}
+
+TEST_CASE("log forwards arguments without copying", "[infra][log]") {
+  std::stringstream sink;
+  logger lg{sink};
+  lg.info("payload {}", move_only_arg{"zap"});
+  CHECK(sink.str().contains("payload zap"));
+}
+
+TEST_CASE("logger thread label reflects the thread name", "[infra][log]") {
+  // Run on a fresh thread, since the label caches per thread and this one is
+  // already labeled. `set_thread_name` prefixes a serial number, so match on
+  // the suffix.
+  std::stringstream sink;
+  logger lg{sink};
+  std::thread t{[&] {
+    corvid::concurrency::jthread_stoppable_sleep::set_thread_name("wheel");
+    lg.info("named");
+  }};
+  t.join();
+  CHECK(sink.str().contains("-wheel("));
 }
 
 TEST_CASE("try_or_log swallows and returns on_throw by default",

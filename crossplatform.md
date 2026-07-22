@@ -27,6 +27,13 @@ native Windows. The Linux-only networking stack (epoll, io_uring, QUIC, HTTP/3)
 is never expected to compile on Windows; it is excluded from the Windows build,
 not ported. No IOCP port is planned.
 
+There is no macOS support, and none is planned, because the maintainer has no
+machine capable of running macOS and Apple does not permit running it in a VM
+on Windows. Untested support would be worse than none. Code may therefore
+assume the platform is either Linux or Windows, and the POSIX side is free to
+use Linux-only facilities (the logger's thread ID comes from `SYS_gettid`, for
+example) without providing Darwin alternatives.
+
 ## 2. Source buckets
 
 Five buckets, selected by platform at configure time:
