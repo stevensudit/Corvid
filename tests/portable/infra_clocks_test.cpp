@@ -41,6 +41,8 @@ struct coarse_clock {
 using coarse_now_clock = now_clock<coarse_clock, 100>;
 } // namespace
 
+// NOLINTBEGIN(readability-function-cognitive-complexity)
+
 TEST_CASE("set_now_fn installs a custom function", "[infra][clocks]") {
   custom_now_calls = 0;
   const auto sentinel =
@@ -234,3 +236,5 @@ TEST_CASE("libc++ experimental tzdb / utc_now_clock are available",
   const auto utc = std::chrono::utc_clock::now();
   CHECK(utc.time_since_epoch().count() > 0);
 }
+
+// NOLINTEND(readability-function-cognitive-complexity)

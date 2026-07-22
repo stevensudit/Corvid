@@ -22,6 +22,7 @@
 #include <typeinfo>
 #include <utility>
 
+#include "../meta/crossplatform.h"
 #include "log.h"
 
 namespace corvid { inline namespace infra {
@@ -44,26 +45,27 @@ namespace corvid { inline namespace infra {
 // `failure_value` only for a throw.
 //
 // Reach for `try_or_terminate` when the boundary has no way to report failure.
-
+//
 // The motivating case is the destructor, which is implicitly `noexcept` and
-// therefore already calls `std::terminate` if there's a throw inside it. The
+// therefore already calls `std::terminate` if a throw escapes it. The
 // firewall ensures that the exception is logged.
 //
 // It also makes the no-throw guarantee true in fact, which resolves the
 // legitimate `bugprone-exception-escape` warning clang-tidy would otherwise
 // emit for a destructor whose body can throw.
 //
-// When the callable returns `failure_value`, this also leads to logging and
-// termination, allowing you to escalate a failed cleanup to a fatality.
+// When a value-returning callable returns `failure_value`, this also leads to
+// logging and termination, allowing you to escalate a failed cleanup to a
+// fatality.
 //
 // There are two settings that are passed in as defaulted template parameters.
 //
 // The `log_policy` template parameter determines which failure modes get
 // logged: a thrown exception, a returned `failure_value`, either, or neither.
-
-// The `rethrow_policy` template parameter determines whether it will rethrow
-// the exception after logging it.
-
+//
+// The `rethrow_policy` template parameter determines whether it will attempt
+// to rethrow the exception after logging it.
+//
 // This `rethrow_policy::attempt` option is for the rare boundary that is
 // deliberately declared `noexcept(false)` and whose failure is a normal,
 // recoverable error the immediate caller should handle: a commit- or
@@ -124,7 +126,6 @@ inline void do_log_error(const format_with_loc<const char*, const char*>& msg,
 // Handle an exception caught by a firewall: log it when `logging` includes
 // `on_throw`, and rethrow it when `rethrow` is `attempt` and no outer
 // exception is unwinding.
-//
 template<log_policy logging, rethrow_policy rethrow>
 void do_caught(const format_with_loc<const char*, const char*>& msg,
     const char* type_name,
@@ -135,6 +136,27 @@ void do_caught(const format_with_loc<const char*, const char*>& msg,
     if (std::uncaught_exceptions() == 0) throw;
 }
 
+// Shared try/catch skeleton for the firewalls, containing the catch blocks.
+template<log_policy logging, rethrow_policy rethrow, std::invocable Body,
+    typename R>
+auto do_firewall(Body&& body, R failure_value,
+    const format_with_loc<const char*, const char*>&
+        msg) noexcept(rethrow == rethrow_policy::never) {
+  try {
+    return std::forward<Body>(body)();
+  }
+  catch (const std::exception& e) {
+    do_caught<logging, rethrow>(msg, typeid(e).name(), e.what());
+  }
+  catch (const char* s) {
+    do_caught<logging, rethrow>(msg, "const char*", s);
+  }
+  catch (...) {
+    do_caught<logging, rethrow>(msg, "<unknown>", "unknown exception");
+  }
+  return failure_value;
+}
+
 } // namespace details
 
 #pragma endregion
@@ -142,7 +164,9 @@ void do_caught(const format_with_loc<const char*, const char*>& msg,
 
 // Run a `void` callable inside a try block as a noexcept firewall.
 //
-// Rreturns `success_value` if it didn't throw, or `failure_value` if it did.
+// Returns `success_value` if it didn't throw, or `failure_value` if it did.
+PRAGMA_DIAG(push)
+PRAGMA_MSVC_IGNORED(4702)
 template<log_policy logging = log_policy::on_throw,
     rethrow_policy rethrow = rethrow_policy::never, std::invocable F,
     typename R = bool>
@@ -151,18 +175,12 @@ requires std::is_void_v<std::invoke_result_t<F>>
 try_or_log(F&& fn, R success_value = true, R failure_value = false,
     format_with_loc<const char*, const char*> msg =
         "exception {}: {}") noexcept(rethrow == rethrow_policy::never) {
-  try {
-    std::forward<F>(fn)();
-    return success_value;
-  }
-  catch (const std::exception& e) {
-    details::do_caught<logging, rethrow>(msg, typeid(e).name(), e.what());
-  }
-  catch (...) {
-    details::do_caught<logging, rethrow>(msg, "<unknown>",
-        "unknown exception");
-  }
-  return failure_value;
+  return details::do_firewall<logging, rethrow>(
+      [&]() -> R {
+        std::forward<F>(fn)();
+        return success_value;
+      },
+      failure_value, msg);
 }
 
 // Run a value-returning callable inside a try block as a noexcept firewall.
@@ -179,22 +197,17 @@ requires(!std::is_void_v<std::invoke_result_t<F>>)
 try_or_log(F&& fn, std::decay_t<std::invoke_result_t<F>> failure_value = {},
     format_with_loc<const char*, const char*> msg =
         "exception {}: {}") noexcept(rethrow == rethrow_policy::never) {
-  try {
-    auto result = std::forward<F>(fn)();
-    if constexpr (details::logs(logging, log_policy::on_failure_value))
-      if (result == failure_value)
-        details::do_log_error(msg, "<none>", "returned failure value");
-    return result;
-  }
-  catch (const std::exception& e) {
-    details::do_caught<logging, rethrow>(msg, typeid(e).name(), e.what());
-  }
-  catch (...) {
-    details::do_caught<logging, rethrow>(msg, "<unknown>",
-        "unknown exception");
-  }
-  return failure_value;
+  return details::do_firewall<logging, rethrow>(
+      [&] {
+        auto result = std::forward<F>(fn)();
+        if constexpr (details::logs(logging, log_policy::on_failure_value))
+          if (result == failure_value)
+            details::do_log_error(msg, "<none>", "returned failure value");
+        return result;
+      },
+      failure_value, msg);
 }
+PRAGMA_DIAG(pop)
 
 #pragma endregion
 #pragma region try_or_terminate
