@@ -131,7 +131,7 @@ struct basic_fixed_string {
   // A fixed string is necessarily terminated. Only declared here; callers must
   // include cstring_view.h.
   [[nodiscard]] constexpr basic_cstring_view<std::basic_string_view<char_t>>
-  cview() const noexcept {
+  cview() const noexcept { // NOLINT(bugprone-exception-escape)
     return basic_cstring_view<std::basic_string_view<char_t>>{do_not_use,
         N + 1};
   }
