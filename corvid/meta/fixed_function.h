@@ -164,13 +164,26 @@ public:
   // Move assignment from a same-signature sibling of another size, under the
   // same transplant-and-fit rules as the converting move constructor.
   //
-  // The temporary makes a throwing fit check leave both sides intact.
+  // A downsizing move checks fit with a pre-flight size query, throwing
+  // before either side is touched, so a refusal leaves both intact. Nothing
+  // can alter the payload between the query and the transplant, so this is as
+  // sound as the constructor's in-thunk check, and it costs one indirect call
+  // instead of an extra move.
   template<size_t SZ2>
   requires(SZ2 != SZ)
   fixed_function& operator=(fixed_function<SZ2, RP(ARGS...)>&& other) noexcept(
       fixed_function<SZ2, RP(ARGS...)>::storage_size <= storage_size) {
-    fixed_function tmp{std::move(other)};
-    *this = std::move(tmp);
+    using other_t = fixed_function<SZ2, RP(ARGS...)>;
+    if constexpr (other_t::storage_size > storage_size) {
+      if (other.lifespan_ &&
+          other.lifespan_(nullptr, nullptr, 0) > storage_size)
+        throw std::length_error{
+            "fixed_function: payload too large for the destination buffer"};
+    }
+    if (lifespan_) lifespan_(storage_, nullptr, 0);
+    invoke_ = std::exchange(other.invoke_, &other_t::default_invoke_impl);
+    lifespan_ = std::exchange(other.lifespan_, nullptr);
+    if (lifespan_) lifespan_(other.storage_, storage_, storage_size);
     return *this;
   }
 

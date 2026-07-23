@@ -1010,6 +1010,14 @@ TEST_CASE("MoveAcrossSizes", "[FixedFunction]") {
   fixed_function<64, int()> donor{[] { return 5; }};
   target = std::move(donor);
   CHECK(target() == 5);
+
+  // The assignment transplants the payload directly, relocating it exactly
+  // once rather than staging it through a temporary.
+  fixed_function<64, int()> counted{mover{&moves}};
+  const int before = moves;
+  target = std::move(counted);
+  CHECK(moves == before + 1);
+  CHECK(target() == 42);
 }
 
 #pragma endregion
