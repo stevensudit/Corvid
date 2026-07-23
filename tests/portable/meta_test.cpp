@@ -864,21 +864,25 @@ TEST_CASE("DestroySource", "[AddressForwarder]") {
 
 #pragma endregion
 
-// Derived type with a custom move constructor that uses `as_base_move`.
+// Derived type with a custom move constructor that explicitly moves the base
+// subobject. The cast, rather than `std::move`, both says exactly that and
+// keeps the later `o.value` read honest: the base move touches no derived
+// members.
 struct Trackable2: public address_forwarder<Trackable2> {
   int value{};
   explicit Trackable2(int v) : value{v} {}
   Trackable2(Trackable2&& o) noexcept
-      : address_forwarder{o.as_base_move()}, value{o.value} {}
+      : address_forwarder{static_cast<address_forwarder&&>(o)},
+        value{o.value} {}
   Trackable2& operator=(Trackable2&&) = default;
   friend std::ostream& operator<<(std::ostream& os, const Trackable2& t) {
     return os << "Trackable2{" << t.value << "}";
   }
 };
 
-#pragma region AddressForwarder_AsBaseMove
+#pragma region AddressForwarder_CustomMoveCtor
 
-TEST_CASE("AsBaseMove", "[AddressForwarder]") {
+TEST_CASE("CustomMoveCtor", "[AddressForwarder]") {
   Trackable2* ptr{};
   Trackable2 a{8};
   ptr = &a;

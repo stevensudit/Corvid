@@ -99,9 +99,10 @@ protected:
   // NOLINTEND(bugprone-crtp-constructor-accessibility)
 
   // Update registered address to point at the current location.
-  void update_registered() {
+  address_forwarder& update_registered() {
     if (forwarding_address_)
       *forwarding_address_ = static_cast<Derived*>(this);
+    return *this;
   }
 
 public:
