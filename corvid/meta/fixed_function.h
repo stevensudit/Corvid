@@ -50,11 +50,23 @@ constexpr inline bool is_fixed_function_v<fixed_function<SZ, Sig>> = true;
 //
 // If either constraint is violated, a `static_assert` fires with a clear
 // message. Unlike `std::function`, no dynamic allocation is ever performed.
+//
+// A same-signature sibling of another size moves by transplanting the stored
+// callable rather than nesting the wrapper: guaranteed to succeed when the
+// source buffer is no larger than the destination's, and fit-checked at
+// runtime otherwise, where a payload too big for the destination throws
+// `std::length_error` and leaves the source intact. `size()` reports the
+// stored payload's byte size.
 template<size_t SZ, class RP, class... ARGS>
 class fixed_function<SZ, RP(ARGS...)> {
   static constexpr size_t pointer_pair_size = 2 * sizeof(void*);
   static_assert(SZ > pointer_pair_size,
       "fixed_function: SZ must be greater than 2*sizeof(void*)");
+
+  // Siblings transplant across sizes, which needs access to the erased
+  // state.
+  template<size_t, class>
+  friend class fixed_function;
 
 public:
   static constexpr size_t storage_size = SZ - pointer_pair_size;
@@ -66,6 +78,7 @@ public:
   fixed_function& operator=(const fixed_function&) = delete;
 
   // Move-construct from any callable whose signature matches `RP(ARGS...)`.
+  //
   // The functor is move-constructed into internal storage.
   template<MoveConsumable FN>
   requires std::is_invocable_r_v<RP, std::decay_t<FN>, ARGS...>
@@ -86,9 +99,11 @@ public:
         "fixed_function: callable returns a prvalue but RP is a reference "
         "type; every call would produce a dangling reference");
 
-    // A differently-sized sibling is stored as an ordinary callable, but,
-    // matching `std::function`, wrapping an empty one produces an empty
-    // function rather than a truthy shell that throws when called.
+    // An `fn` that is a `fixed_function` and lands here has a different
+    // signature (a same-signature sibling takes the transplanting constructor
+    // instead) and is stored as an ordinary callable, but, matching
+    // `std::function`, wrapping an empty one produces an empty function rather
+    // than a truthy shell that throws when called.
     if constexpr (is_fixed_function_v<FD>)
       if (!fn) return;
 
@@ -104,29 +119,71 @@ public:
   fixed_function(fixed_function&& other) noexcept
       : invoke_{std::exchange(other.invoke_, &default_invoke_impl)},
         lifespan_{std::exchange(other.lifespan_, nullptr)} {
-    if (lifespan_) lifespan_(other.storage_, storage_);
+    if (lifespan_) lifespan_(other.storage_, storage_, storage_size);
+  }
+
+  // Move from a same-signature sibling of another size, transplanting the
+  // stored callable rather than nesting the wrapper.
+  //
+  // The thunks depend only on the signature and the stored type, never on the
+  // buffer size, so the source's pointers serve directly.
+  //
+  // The payload is guaranteed to fit when the source buffer is no larger
+  // than ours. A downsizing move instead has its fit checked inside the
+  // lifespan thunk, atomically with the move, and a payload too big for this
+  // buffer throws `std::length_error`, leaving the source intact.
+  template<size_t SZ2>
+  requires(SZ2 != SZ)
+  fixed_function(fixed_function<SZ2, RP(ARGS...)>&& other) noexcept(
+      fixed_function<SZ2, RP(ARGS...)>::storage_size <= storage_size) {
+    using other_t = fixed_function<SZ2, RP(ARGS...)>;
+    [[maybe_unused]] const bool refused =
+        other.lifespan_ &&
+        other.lifespan_(other.storage_, storage_, storage_size) == 0;
+    // A refusal is only reachable when downsizing; the guard keeps the
+    // guaranteed-fit instantiation genuinely non-throwing.
+    if constexpr (other_t::storage_size > storage_size) {
+      if (refused)
+        throw std::length_error{
+            "fixed_function: payload too large for the destination buffer"};
+    }
+    invoke_ = std::exchange(other.invoke_, &other_t::default_invoke_impl);
+    lifespan_ = std::exchange(other.lifespan_, nullptr);
   }
 
   // Move assignment, leaves RHS empty.
   fixed_function& operator=(fixed_function&& other) noexcept {
     if (this == &other) return *this;
-    if (lifespan_) lifespan_(storage_, nullptr);
+    if (lifespan_) lifespan_(storage_, nullptr, 0);
     invoke_ = std::exchange(other.invoke_, &default_invoke_impl);
     lifespan_ = std::exchange(other.lifespan_, nullptr);
-    if (lifespan_) lifespan_(other.storage_, storage_);
+    if (lifespan_) lifespan_(other.storage_, storage_, storage_size);
+    return *this;
+  }
+
+  // Move assignment from a same-signature sibling of another size, under the
+  // same transplant-and-fit rules as the converting move constructor.
+  //
+  // The temporary makes a throwing fit check leave both sides intact.
+  template<size_t SZ2>
+  requires(SZ2 != SZ)
+  fixed_function& operator=(fixed_function<SZ2, RP(ARGS...)>&& other) noexcept(
+      fixed_function<SZ2, RP(ARGS...)>::storage_size <= storage_size) {
+    fixed_function tmp{std::move(other)};
+    *this = std::move(tmp);
     return *this;
   }
 
   // Assign nullptr to make the instance empty.
   fixed_function& operator=(std::nullptr_t) noexcept {
-    if (lifespan_) lifespan_(storage_, nullptr);
+    if (lifespan_) lifespan_(storage_, nullptr, 0);
     invoke_ = &default_invoke_impl;
     lifespan_ = nullptr;
     return *this;
   }
 
   ~fixed_function() noexcept {
-    if (lifespan_) lifespan_(storage_, nullptr);
+    if (lifespan_) lifespan_(storage_, nullptr, 0);
   }
 
   void swap(fixed_function& other) noexcept {
@@ -154,13 +211,18 @@ public:
   [[nodiscard]] explicit operator bool() const noexcept { return lifespan_; }
   [[nodiscard]] bool operator!() const noexcept { return !lifespan_; }
 
+  // Size of the stored callable's payload in bytes, or 0 when empty.
+  [[nodiscard]] std::size_t size() const noexcept {
+    return lifespan_ ? lifespan_(nullptr, nullptr, 0) : 0;
+  }
+
 #pragma endregion
 #pragma region Implementation
 private:
   // Type erasure function pointer types for invocation and lifespan
   // management.
   using invoke_fn_t = RP (*)(void*, ARGS...);
-  using lifespan_fn_t = void (*)(void*, void*) noexcept;
+  using lifespan_fn_t = std::size_t (*)(void*, void*, std::size_t) noexcept;
 
   // Invoke through a downcast pointer to the stored callable. Uses
   // `std::invoke_r` so member function pointers and data member pointers work
@@ -179,14 +241,33 @@ private:
     throw std::bad_function_call();
   }
 
-  // When `from` and `to` are both non-null: move-constructs `*from` into `to`.
-  // Destructs the object at `from`, regardless.
+  // Implementation of `lifespan_`.
+  //
+  // Provides move, destruct, and size.
+  //
+  // When `from` and `to` are distinct and both non-null: move-constructs
+  // `*from` into `to` and destructs the object at `from`, but only when the
+  // payload fits `to_size`. A move that does not fit does nothing and
+  // returns 0, so the caller can refuse with both objects intact.
+  //
+  // When `from` is not null and `to` is null: destructs the object at `from`,
+  // ignoring `to_size`.
+  //
+  // When `from == to` (canonically both null), this is a pure size query: no
+  // move, no destruct. Returns the payload size in every non-refusal case.
   template<class F>
-  static void manage_impl(void* from, void* to) noexcept {
-    assert(from);
-    auto* f = static_cast<F*>(from);
-    if (to) new (to) F{std::move(*f)};
-    f->~F();
+  static std::size_t
+  manage_impl(void* from, void* to, std::size_t to_size) noexcept {
+    if (to != from) {
+      assert(from);
+      auto* f = static_cast<F*>(from);
+      if (to) {
+        if (to_size < sizeof(F)) return 0;
+        new (to) F{std::move(*f)};
+      }
+      f->~F();
+    }
+    return sizeof(F);
   }
 
 #pragma endregion

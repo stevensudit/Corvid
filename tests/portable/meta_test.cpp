@@ -953,21 +953,81 @@ TEST_CASE("DiscardedReturn", "[FixedFunction]") {
 }
 
 #pragma endregion
-#pragma region FixedFunction_WrapAcrossSizes
+#pragma region FixedFunction_MoveAcrossSizes
 
-TEST_CASE("WrapAcrossSizes", "[FixedFunction]") {
-  // A differently-sized sibling stores as an ordinary callable, but,
-  // matching `std::function`, wrapping an empty one produces an empty
-  // function rather than a truthy shell that throws when called.
-  fixed_function<64, int()> small{[] { return 7; }};
+TEST_CASE("MoveAcrossSizes", "[FixedFunction]") {
+  // A same-signature sibling of another size transplants the stored
+  // callable: one relocation of the payload, not a nested wrapper.
+  int moves{};
+  struct mover {
+    int* cnt;
+    explicit mover(int* n) : cnt{n} {}
+    mover(mover&& o) noexcept : cnt{o.cnt} { ++*cnt; }
+    int operator()() const { return 42; }
+  };
+  fixed_function<64, int()> small{mover{&moves}};
+  CHECK(small.size() == sizeof(mover));
+  const int base = moves;
   fixed_function<96, int()> big{std::move(small)};
-  CHECK(static_cast<bool>(big));
-  CHECK(big() == 7);
+  CHECK(moves == base + 1);
+  CHECK(big() == 42);
+  CHECK_FALSE(static_cast<bool>(small));
+  CHECK(small.size() == 0);
+  CHECK(big.size() == sizeof(mover));
 
+  // Moving an empty sibling yields empty.
   fixed_function<64, int()> empty_small;
   fixed_function<96, int()> empty_big{std::move(empty_small)};
   CHECK_FALSE(static_cast<bool>(empty_big));
-  CHECK_THROWS_AS(empty_big(), std::bad_function_call);
+
+  // Downsizing checks the payload at runtime: this one fits.
+  fixed_function<96, int()> roomy{mover{&moves}};
+  fixed_function<64, int()> back{std::move(roomy)};
+  CHECK(back() == 42);
+
+  // A payload too large for the destination throws, leaving the source
+  // whole.
+  fixed_function<96, int()> fat{[pad = std::array<std::byte, 64>{}] {
+    return static_cast<int>(pad.size());
+  }};
+  CHECK(fat.size() > fixed_function<64, int()>::storage_size);
+  CHECK_THROWS_AS((fixed_function<64, int()>{std::move(fat)}),
+      std::length_error);
+  // NOLINTNEXTLINE(bugprone-use-after-move): kept whole on failure.
+  REQUIRE(static_cast<bool>(fat));
+  CHECK(fat() == 64);
+
+  // A refused downsizing assignment leaves both sides whole.
+  fixed_function<64, int()> keeper{[] { return 3; }};
+  // NOLINTNEXTLINE(bugprone-use-after-move): the failed move kept it whole.
+  CHECK_THROWS_AS(keeper = std::move(fat), std::length_error);
+  CHECK(keeper() == 3);
+  // NOLINTNEXTLINE(bugprone-use-after-move): kept whole on failure.
+  CHECK(fat() == 64);
+
+  // Converting move assignment follows the same rules.
+  fixed_function<96, int()> target{[] { return 0; }};
+  fixed_function<64, int()> donor{[] { return 5; }};
+  target = std::move(donor);
+  CHECK(target() == 5);
+}
+
+#pragma endregion
+#pragma region FixedFunction_WrapAcrossSignatures
+
+TEST_CASE("WrapAcrossSignatures", "[FixedFunction]") {
+  // A different-signature fixed_function stores as an ordinary callable,
+  // but, matching `std::function`, wrapping an empty one produces an empty
+  // function rather than a truthy shell that throws when called.
+  fixed_function<64, int(int)> inner{[](int n) { return n * 2; }};
+  fixed_function<96, int(short)> outer{std::move(inner)};
+  CHECK(static_cast<bool>(outer));
+  CHECK(outer(short{4}) == 8);
+
+  fixed_function<64, int(int)> empty_inner;
+  fixed_function<96, int(short)> empty_outer{std::move(empty_inner)};
+  CHECK_FALSE(static_cast<bool>(empty_outer));
+  CHECK_THROWS_AS(empty_outer(short{1}), std::bad_function_call);
 }
 
 #pragma endregion
