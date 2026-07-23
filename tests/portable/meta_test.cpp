@@ -773,7 +773,7 @@ static_assert(!AddressForwarder<int>);
 
 TEST_CASE("Basic", "[AddressForwarder]") {
   Trackable t{42};
-  CHECK(t.forwarding_address_ptr(Trackable::raw_forwarding::allow) == nullptr);
+  CHECK(t.forwarding_address_ptr(Trackable::raw::allow) == nullptr);
 }
 
 #pragma endregion
@@ -784,7 +784,7 @@ TEST_CASE("Track", "[AddressForwarder]") {
   {
     Trackable t{7};
     ptr = &t; // set initial value manually
-    t.forwarding_address_ptr(Trackable::raw_forwarding::allow) =
+    t.forwarding_address_ptr(Trackable::raw::allow) =
         &ptr; // register for future updates
     CHECK(ptr == &t);
   }
@@ -799,14 +799,14 @@ TEST_CASE("MoveConstruct", "[AddressForwarder]") {
   Trackable* ptr{};
   Trackable a{1};
   ptr = &a;
-  a.forwarding_address_ptr(Trackable::raw_forwarding::allow) = &ptr;
+  a.forwarding_address_ptr(Trackable::raw::allow) = &ptr;
   CHECK(ptr == &a);
 
   Trackable b{std::move(a)};
   // Move construction updates `ptr` to the new location.
   CHECK(ptr == &b);
   // Source no longer holds the forwarding address slot.
-  CHECK(a.forwarding_address_ptr(Trackable::raw_forwarding::allow) == nullptr);
+  CHECK(a.forwarding_address_ptr(Trackable::raw::allow) == nullptr);
 }
 
 #pragma endregion
@@ -816,17 +816,17 @@ TEST_CASE("MoveAssign", "[AddressForwarder]") {
   Trackable* ptr{};
   Trackable a{2};
   ptr = &a;
-  a.forwarding_address_ptr(Trackable::raw_forwarding::allow) = &ptr;
+  a.forwarding_address_ptr(Trackable::raw::allow) = &ptr;
   CHECK(ptr == &a);
 
   Trackable b{99};
   b = std::move(a);
   CHECK(ptr == &b);
-  CHECK(a.forwarding_address_ptr(Trackable::raw_forwarding::allow) == nullptr);
+  CHECK(a.forwarding_address_ptr(Trackable::raw::allow) == nullptr);
 
   // Clearing the forwarding address on `b` stops future tracking, but does
   // not touch the external `ptr` variable itself.
-  b.forwarding_address_ptr(Trackable::raw_forwarding::allow) = nullptr;
+  b.forwarding_address_ptr(Trackable::raw::allow) = nullptr;
   CHECK(ptr == &b);
 }
 
@@ -834,7 +834,7 @@ TEST_CASE("SelfAssign", "[AddressForwarder]") {
   Trackable* ptr{};
   Trackable a{3};
   ptr = &a;
-  a.forwarding_address_ptr(Trackable::raw_forwarding::allow) = &ptr;
+  a.forwarding_address_ptr(Trackable::raw::allow) = &ptr;
 
   // Self-assignment must not corrupt state.
   PRAGMA_DIAG(push)
@@ -854,12 +854,12 @@ TEST_CASE("DestroySource", "[AddressForwarder]") {
   {
     Trackable a{5};
     ptr = &a;
-    a.forwarding_address_ptr(Trackable::raw_forwarding::allow) = &ptr;
+    a.forwarding_address_ptr(Trackable::raw::allow) = &ptr;
     b = std::move(a);
     // `a` no longer owns the slot; destroying it must not null `ptr`.
   }
   CHECK(ptr == &b);
-  b.forwarding_address_ptr(Trackable::raw_forwarding::allow) = nullptr;
+  b.forwarding_address_ptr(Trackable::raw::allow) = nullptr;
 }
 
 #pragma endregion
@@ -886,13 +886,12 @@ TEST_CASE("CustomMoveCtor", "[AddressForwarder]") {
   Trackable2* ptr{};
   Trackable2 a{8};
   ptr = &a;
-  a.forwarding_address_ptr(Trackable2::raw_forwarding::allow) = &ptr;
+  a.forwarding_address_ptr(Trackable2::raw::allow) = &ptr;
   CHECK(ptr == &a);
 
   Trackable2 b{std::move(a)};
   CHECK(ptr == &b);
-  CHECK(
-      a.forwarding_address_ptr(Trackable2::raw_forwarding::allow) == nullptr);
+  CHECK(a.forwarding_address_ptr(Trackable2::raw::allow) == nullptr);
 }
 
 #pragma endregion
@@ -903,7 +902,7 @@ TEST_CASE("BoundFunction", "[AddressForwarder]") {
   // a pointer registered before the move chain tracks it to its final home.
   Trackable* ptr{};
   Trackable t{99};
-  t.forwarding_address_ptr(Trackable::raw_forwarding::allow) = &ptr;
+  t.forwarding_address_ptr(Trackable::raw::allow) = &ptr;
   // ptr is still null here; each move in the chain below will update it.
 
   std::function<int()> fn = [t = std::move(t)]() mutable { return t.value; };
@@ -919,7 +918,7 @@ TEST_CASE("BoundFunction", "[AddressForwarder]") {
 
   // Clear forwarding so fn's destructor does not write through the soon-to-be
   // dangling &ptr.
-  ptr->forwarding_address_ptr(Trackable::raw_forwarding::allow) = nullptr;
+  ptr->forwarding_address_ptr(Trackable::raw::allow) = nullptr;
 }
 
 #pragma endregion
@@ -955,11 +954,9 @@ TEST_CASE("ForwardedAddress", "[AddressForwarder]") {
     Trackable t{3};
     if (true) {
       forwarded_address fa{t};
-      CHECK(t.forwarding_address_ptr(Trackable::raw_forwarding::allow) !=
-            nullptr);
+      CHECK(t.forwarding_address_ptr(Trackable::raw::allow) != nullptr);
     }
-    CHECK(
-        t.forwarding_address_ptr(Trackable::raw_forwarding::allow) == nullptr);
+    CHECK(t.forwarding_address_ptr(Trackable::raw::allow) == nullptr);
     Trackable u{std::move(t)};
     CHECK(u.value == 3);
   }
@@ -986,8 +983,7 @@ TEST_CASE("ForwardedAddress", "[AddressForwarder]") {
     CHECK(fb.get() == &t);
     // NOLINTNEXTLINE(bugprone-use-after-move): moved-from state is the point.
     CHECK_FALSE(static_cast<bool>(fa));
-    CHECK(
-        u.forwarding_address_ptr(Trackable::raw_forwarding::allow) == nullptr);
+    CHECK(u.forwarding_address_ptr(Trackable::raw::allow) == nullptr);
   }
 
   // Reset unregisters and goes null.
@@ -996,8 +992,7 @@ TEST_CASE("ForwardedAddress", "[AddressForwarder]") {
     forwarded_address fa{t};
     fa.reset();
     CHECK_FALSE(static_cast<bool>(fa));
-    CHECK(
-        t.forwarding_address_ptr(Trackable::raw_forwarding::allow) == nullptr);
+    CHECK(t.forwarding_address_ptr(Trackable::raw::allow) == nullptr);
   }
 
   // Last one wins: a newer handle displaces the older, which reads null.

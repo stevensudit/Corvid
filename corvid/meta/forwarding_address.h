@@ -30,24 +30,20 @@ namespace corvid { inline namespace meta {
 // of visibility, such as by being captured into a lambda.
 //
 // A child instance maintains a non-owning `Derived**` that is updated on each
-// move of that instance to track its new location.
+// move of that instance, so as to track its new location.
 //
 // While it can technically be used on its own, it is intended for use with the
-// matching `forwarded_address` RAII handle, below. This object registers
-// itself on construction, unregisters on destruction, and reads as null once
-// the `forwarded_address` dies, so neither side can dangle. Note that there is
-// mutual awareness, but no ownership.
+// matching `forwarded_address` RAII handle, below.
 template<typename Derived>
 class address_forwarder {
 public:
   // Tag required for direct access. This could have been made private, but the
   // back door has been left open in case it's needed.
-  enum class raw_forwarding : std::uint8_t { allow };
+  enum class raw : std::uint8_t { allow };
 
 #pragma region Accessors
 
-  // Access to the current forwarding address, or null when the handle has died
-  // or been displaced.
+  // Access to the current forwarding address, which may be null.
   [[nodiscard]] Derived** forwarding_address_ptr() const noexcept {
     return forwarding_address_;
   }
@@ -58,15 +54,15 @@ public:
   // `nullptr` to stop tracking.
   //
   // Prefer `forwarded_address`, which manages the registration safely.
-  [[nodiscard]] Derived**& forwarding_address_ptr(raw_forwarding) noexcept {
+  [[nodiscard]] Derived**& forwarding_address_ptr(raw) noexcept {
     return forwarding_address_;
   }
 
 #pragma endregion
 #pragma region Construction
 
-  // The clang-tidy warning is generally good advice, but following it would
-  // block compilation, so maybe it's not so good here.
+  // The clang-tidy warning is the good advice that you just can't take,
+  // because it would ironically block compilation.
   //
   // NOLINTBEGIN(bugprone-crtp-constructor-accessibility)
 
@@ -82,7 +78,7 @@ protected:
   // Move assign, but forward the address.
   address_forwarder& operator=(address_forwarder&& o) noexcept {
     if (this == &o) return *this;
-    forward_address_reset(raw_forwarding::allow,
+    forward_address_reset(raw::allow,
         std::exchange(o.forwarding_address_, nullptr));
     return update_registered();
   }
@@ -98,7 +94,8 @@ protected:
   }
   // NOLINTEND(bugprone-crtp-constructor-accessibility)
 
-  // Update registered address to point at the current location.
+  // Update registered address to point it at the current location of this
+  // instance.
   address_forwarder& update_registered() {
     if (forwarding_address_)
       *forwarding_address_ = static_cast<Derived*>(this);
@@ -109,17 +106,16 @@ public:
   ~address_forwarder() { forward_address_reset(); }
 
   // Unregister from the handle, if any, and go null.
-  // The awkward name is to prevent shadowing.
+  // The awkward name is to avoid shadowing.
   void forward_address_reset() noexcept {
-    forward_address_reset(raw_forwarding::allow, nullptr);
+    forward_address_reset(raw::allow, nullptr);
   }
 
-  // Unregister from the handle, if any, and switch to new forwarding address.
-  // The awkward name is to prevent shadowing.
+  // Unregister from the handle, if any, and switch to the new forwarding
+  // address. The awkward name is to avoid shadowing.
   //
   // Prefer `forwarded_address`, which manages the registration safely.
-  void forward_address_reset(raw_forwarding,
-      Derived** forwarding_address) noexcept {
+  void forward_address_reset(raw, Derived** forwarding_address) noexcept {
     if (forwarding_address_) *forwarding_address_ = nullptr;
     forwarding_address_ = forwarding_address;
   }
@@ -142,16 +138,15 @@ concept AddressForwarder = std::derived_from<std::remove_cvref_t<T>,
 #pragma endregion
 #pragma region forwarded_address
 
-// RAII handle that tracks an `address_forwarder` across moves.
+// RAII handle that tracks an `address_forwarder` across moves, bringing mutual
+// awareness but no ownership.
 //
 // Construction registers the handle with the forwarder. The forwarder's moves
 // then update the handle to point at the current location of the forwarder,
 // and the forwarder's destruction nulls the handle.
 //
 // Destroying, resetting, or reassigning the handle unregisters it. The two
-// ends repair each other, so neither can dangle; this is the safe front door
-// to address forwarding, with the raw `forwarding_address_ptr` protocol behind
-// it for whatever a scoped handle cannot express.
+// ends repair each other, so neither can dangle.
 //
 // Registration is exclusive, and the last one wins: constructing a handle
 // for an already-tracked forwarder displaces the previous handle, which reads
@@ -165,8 +160,9 @@ concept AddressForwarder = std::derived_from<std::remove_cvref_t<T>,
 //   CHECK(fa.get() == &f);
 //   Foo g{std::move(f)};
 //   CHECK(fa.get() == &g);
-//  // f dies; fa goes null.
-template<AddressForwarder Derived>
+//  // fa unregisters itself on destruction, but if `g` destructs first, `fa`
+//  // goes null instead of dangling.
+template<AddressForwarder Forwarder>
 class forwarded_address {
 public:
 #pragma region Construction
@@ -174,7 +170,7 @@ public:
   forwarded_address() = default;
 
   // Register with `forwarder`, displacing any previous handle.
-  explicit forwarded_address(Derived& forwarder) noexcept
+  explicit forwarded_address(Forwarder& forwarder) noexcept
       : forwarder_{&forwarder} {
     update_registration();
   }
@@ -182,7 +178,8 @@ public:
   forwarded_address(const forwarded_address&) = delete;
   forwarded_address& operator=(const forwarded_address&) = delete;
 
-  // Move re-registers the tracking at the new location, leaving RHS null.
+  // Move re-registers the tracking to the new instance, leaving the original
+  // one null.
   forwarded_address(forwarded_address&& o) noexcept
       : forwarder_{std::exchange(o.forwarder_, nullptr)} {
     update_registration();
@@ -200,7 +197,7 @@ public:
   // Unregister from the target, if any, and go null.
   void reset() noexcept {
     if (forwarder_)
-      forwarder_->forward_address_reset(Derived::raw_forwarding::allow,
+      forwarder_->forward_address_reset(Forwarder::raw_forwarding::allow,
           nullptr);
   }
 
@@ -210,22 +207,27 @@ public:
   // The forwarder's current address, or null when the forwarder has died, the
   // handle was displaced by a newer one, or the handle was reset or moved
   // from.
-  [[nodiscard]] Derived* get() const noexcept { return forwarder_; }
-  [[nodiscard]] Derived* operator->() const noexcept { return forwarder_; }
-  [[nodiscard]] Derived& operator*() const noexcept { return *forwarder_; }
+  [[nodiscard]] Forwarder* get() const noexcept { return forwarder_; }
+  [[nodiscard]] Forwarder* operator->() const noexcept { return forwarder_; }
+  [[nodiscard]] Forwarder& operator*() const noexcept { return *forwarder_; }
   [[nodiscard]] explicit operator bool() const noexcept { return forwarder_; }
 
 #pragma endregion
 #pragma region Data members
 private:
-  Derived* forwarder_{};
+  Forwarder* forwarder_{};
 
+  // Update the forwarder's registration to point at this handle, if any.
+  //
+  // False positive: `forwarder_` is not actually moved-from.
+  // NOLINTNEXTBEGIN(clang-analyzer-cplusplus.Move)
   forwarded_address& update_registration() {
     if (forwarder_)
-      forwarder_->forward_address_reset(Derived::raw_forwarding::allow,
+      forwarder_->forward_address_reset(Forwarder::raw_forwarding::allow,
           &forwarder_);
     return *this;
   }
+  // NOLINTEND(clang-analyzer-cplusplus.Move)
 
 #pragma endregion
 };
