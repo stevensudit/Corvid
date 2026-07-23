@@ -23,6 +23,7 @@
 
 #include "meta_shared.h"
 #include "concepts.h"
+#include "memory.h"
 
 namespace corvid { inline namespace meta {
 
@@ -36,43 +37,62 @@ constexpr inline bool is_fixed_function_v = false;
 template<size_t SZ, class Sig>
 constexpr inline bool is_fixed_function_v<fixed_function<SZ, Sig>> = true;
 
-// Determine whether `T` is a `std::function`.
+// Determine whether `T` is a `std::function` or `std::move_only_function`.
 template<typename T>
-constexpr inline bool is_std_function_v = false;
+constexpr inline bool is_std_function_wrapper_v = false;
 
 template<class Sig>
-constexpr inline bool is_std_function_v<std::function<Sig>> = true;
+constexpr inline bool is_std_function_wrapper_v<std::function<Sig>> = true;
+
+// libc++ has not yet shipped `std::move_only_function`, hence the guard.
+#ifdef __cpp_lib_move_only_function
+template<class Sig>
+constexpr inline bool is_std_function_wrapper_v<std::move_only_function<Sig>> =
+    true;
+#endif
 
 #pragma region fixed_function
 
 // `fixed_function<SZ, RP(ARGS...)>` is a move-only, zero-allocation
-// type-erased callable.
+// type-erased callable: like `std::move_only_function`, but with a fixed
+// inline storage size `SZ` and no dynamic allocation.
 //
-// This is similar in principle to the proposed `stdext::inplace_function`, but
-// a bit more specific.
+// This is also similar in principle to the proposed
+// `stdext::inplace_function`, but a bit more specific.
 //
-// `SZ` is the total instance size in bytes (although padding is possible). The
-// stored functor must fit within `SZ - 2*sizeof(void*)` bytes and have
-// alignment <= `alignof(std::max_align_t)`.
+// `SZ` is the total instance size in bytes. The stored functor must fit
+// within `SZ - 2*sizeof(void*)` bytes and have alignment <=
+// `alignof(std::max_align_t)`. If it doesn't fit, the constructor throws
+// `std::length_error`.
 //
-// If either constraint is violated, a `static_assert` fires with a clear
-// message. Unlike `std::function`, no dynamic allocation is ever performed by
-// `fixed_function` itself. The one exception is by proxy: a `std::function`
-// stored through the explicit wrapping constructor may allocate on its own
-// behalf. More broadly, we can't stop a functor from allocating internally,
-// but the `fixed_function` wrapper itself never does.
+// `SZ` must be a multiple of the storage alignment,
+// `alignof(std::max_align_t)` because a smaller value would occupy the padded
+// size anyway and waste the difference. Instead of hardcoding a number that
+// might only be valid on a particular platform, you should pass the size
+// through `padded_size` to get a conforming value.
 //
-// A same-signature sibling of another size moves by transplanting the stored
-// callable rather than nesting the wrapper: guaranteed to succeed when the
-// source buffer is no larger than the destination's, and fit-checked at
-// runtime otherwise, where a payload too big for the destination throws
-// `std::length_error` and leaves the source intact. `size()` reports the
-// stored payload's byte size.
+// Unlike `std::function`, no dynamic allocation is ever performed by
+// `fixed_function` itself. However, we can't stop a functor from allocating
+// internally and we do support explicit conversion from `std::function` and
+// `std::move_only_function` (although only at a performance penalty), and both
+// of these are capable of dynamic allocation.
+//
+// `fixed_function` instances that differ only in `SZ` can be freely assigned,
+// so long as the source fits in the target. A downsizing assignment that would
+// not fit throws `std::length_error` and leaves both sides intact. A same-size
+// or upsizing assignment always succeeds, transplanting the stored callable
+// rather than nesting the wrapper.
+//
+// `size` reports the stored payload's byte size and can be checked against
+// `capacity` before assignment.
 template<size_t SZ, class RP, class... ARGS>
 class fixed_function<SZ, RP(ARGS...)> {
   static constexpr size_t pointer_pair_size = 2 * sizeof(void*);
   static_assert(SZ > pointer_pair_size,
       "fixed_function: SZ must be greater than 2*sizeof(void*)");
+  static_assert(SZ == padded_size(SZ),
+      "fixed_function: SZ that is not a multiple of the storage alignment "
+      "would waste the difference as padding; pass it through padded_size");
 
   // Siblings transplant across sizes, which needs access to the erased
   // state.
@@ -90,12 +110,12 @@ public:
 
   // Move-construct from any callable whose signature matches `RP(ARGS...)`.
   //
-  // The functor is move-constructed into internal storage. A `std::function`
-  // is deliberately excluded here; wrapping one takes the explicit
-  // constructor below.
+  // The functor is move-constructed into internal storage. The std
+  // polymorphic function wrappers are deliberately excluded here; wrapping
+  // one takes the explicit constructor below.
   template<MoveConsumable FN>
   requires(std::is_invocable_r_v<RP, std::decay_t<FN>, ARGS...> &&
-           !is_std_function_v<std::decay_t<FN>>)
+           !is_std_function_wrapper_v<std::decay_t<FN>>)
   fixed_function(FN&& fn) {
     using FD = std::decay_t<FN>;
 
@@ -113,22 +133,32 @@ public:
     do_store<FD>(std::move(fn));
   }
 
-  // Explicitly wrap a `std::function` whose signature is compatible with
+  // Explicitly wrap a std polymorphic function wrapper, `std::function` or
+  // `std::move_only_function`, whose signature is compatible with
   // `RP(ARGS...)`.
   //
   // This is the escape hatch for a payload too large for the inline buffer:
-  // `std::function` keeps the oversized functor on its own heap allocation,
-  // and only its small shell must fit inline. The costs are why the wrap is
+  // the wrapper keeps the oversized functor on its own heap allocation, and
+  // only its small shell must fit inline. The costs are why the wrap is
   // explicit: every call double-indirects, and the shell may allocate
   // dynamically, which is an exception to the zero-allocation guarantee.
   //
-  // Matching `std::function`, wrapping an empty one produces an empty
+  // Invocability is checked against an lvalue wrapper because that is how
+  // the stored one is invoked. For a ref-qualified `std::move_only_function`
+  // signature, this admits `int() &` and rejects `int() &&`.
+  //
+  // Like `std::function`, wrapping an empty wrapper produces an empty
   // function rather than a truthy shell that throws when called.
-  template<class Sig2>
-  requires std::is_invocable_r_v<RP, std::function<Sig2>, ARGS...>
-  explicit fixed_function(std::function<Sig2>&& fn) {
+  template<MoveConsumable FN>
+  requires(is_std_function_wrapper_v<std::decay_t<FN>> &&
+           std::is_invocable_r_v<RP, std::decay_t<FN>&, ARGS...>)
+  explicit fixed_function(FN&& fn) {
+    using FD = std::decay_t<FN>;
     if (!fn) return;
-    do_store<std::function<Sig2>>(std::move(fn));
+    // The `MoveConsumable` concept ensures that `FN` is an rvalue reference
+    // type, so the following clang-tidy warning does not apply.
+    // NOLINTNEXTLINE(bugprone-move-forwarding-reference)
+    do_store<FD>(std::move(fn));
   }
 
   // Move constructor, leaves RHS empty.
@@ -244,6 +274,9 @@ public:
   [[nodiscard]] std::size_t size() const noexcept {
     return lifespan_ ? lifespan_(nullptr, nullptr, 0) : 0;
   }
+
+  // Capacity of the inline storage in bytes.
+  [[nodiscard]] std::size_t capacity() const noexcept { return storage_size; }
 
 #pragma endregion
 #pragma region Implementation

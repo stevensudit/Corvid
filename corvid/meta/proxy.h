@@ -31,6 +31,7 @@
 
 #include "crossplatform.h"
 #include "fixed_string.h"
+#include "memory.h"
 
 // Registration-based runtime polymorphism ("proxy") system.
 //
@@ -393,6 +394,12 @@ enum class proxy_alloc : std::uint8_t {
 // `std::max_align_t` alignment, falling back to the heap. A facade whose
 // typical targets are a little too big for the default buffer can be handled
 // with a larger `sbo_size`.
+//
+// The `sbo_size` must be a multiple of `sbo_align` (except when `heap_only`)
+// because a smaller value would occupy the padded size anyway and waste the
+// difference. Instead of hardcoding a number that might only be valid on a
+// particular platform, you should pass the size through `padded_size` to get a
+// conforming value.
 //
 // A target is stored inline when it fits `sbo_size` and `sbo_align` and is
 // nothrow-move-constructible (a proxy move relocates an inline target, and
@@ -2696,6 +2703,11 @@ class proxy: public details::api_base_t<F> {
       "sbo_size and sbo_align may not shrink below their defaults");
   static_assert(std::has_single_bit(Policy.sbo_align),
       "sbo_align must be a power of two");
+  static_assert(
+      Policy.alloc == proxy_alloc::heap_only ||
+          Policy.sbo_size == padded_size(Policy.sbo_size, Policy.sbo_align),
+      "sbo_size that is not a multiple of sbo_align would waste the "
+      "difference as padding; pass it through padded_size");
 
 public:
   using facade_t = F;

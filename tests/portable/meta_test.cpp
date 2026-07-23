@@ -923,6 +923,26 @@ static_assert(sizeof(fixed_function<64, int()>) == 64);
 static_assert(sizeof(fixed_function<32, void(int, double)>) == 32);
 static_assert(sizeof(fixed_function<128, int(int, int)>) == 128);
 
+// `padded_size` rounds a size up to its alignment, turning would-be padding
+// into usable storage.
+static_assert(padded_size(1) == alignof(std::max_align_t));
+static_assert(
+    padded_size(alignof(std::max_align_t)) == alignof(std::max_align_t));
+static_assert(
+    padded_size(alignof(std::max_align_t) + 1) ==
+    2 * alignof(std::max_align_t));
+static_assert(padded_size(17, 8) == 24);
+static_assert(padded_size(24, 8) == 24);
+
+// `fixed_function` requires a conforming `SZ` outright: a lesser one would
+// occupy the padded size anyway and waste the difference. `padded_size`
+// output is always accepted, and `sizeof` then matches `SZ` exactly.
+static_assert(
+    sizeof(fixed_function<padded_size(17), int()>) == padded_size(17));
+#ifdef NOT_SUPPOSED_TO_COMPILE
+static_assert(sizeof(fixed_function<17, int()>) > 0);
+#endif
+
 #pragma region FixedFunction_Basic
 
 TEST_CASE("Basic", "[FixedFunction]") {
@@ -1070,6 +1090,31 @@ TEST_CASE("WrapStdFunction", "[FixedFunction]") {
   fixed_function<128, int(short)> h{
       std::function<int(int)>{[](int n) { return n * 3; }}};
   CHECK(h(short{7}) == 21);
+
+#ifdef __cpp_lib_move_only_function
+  // `std::move_only_function` gets the same treatment, and unlike
+  // `std::function` it can carry a move-only payload.
+  static_assert(std::is_constructible_v<ff, std::move_only_function<int()>&&>);
+  static_assert(!std::is_convertible_v<std::move_only_function<int()>&&, ff>);
+  ff m{std::move_only_function<int()>{[p = std::make_unique<int>(7)] {
+    return *p;
+  }}};
+  CHECK(m() == 7);
+  CHECK(m.size() == sizeof(std::move_only_function<int()>));
+
+  // Wrapping an empty one produces an empty function here too, which is an
+  // upgrade: calling it throws where the empty wrapper's own call would be
+  // undefined behavior.
+  ff me{std::move_only_function<int()>{}};
+  CHECK_FALSE(static_cast<bool>(me));
+
+  // Ref-qualified signatures follow the lvalue-invocation rule: `&` works,
+  // `&&` is rejected.
+  static_assert(
+      std::is_constructible_v<ff, std::move_only_function<int() &>&&>);
+  static_assert(
+      !std::is_constructible_v<ff, std::move_only_function<int() &&>&&>);
+#endif
 
   // Matching `std::function`, wrapping an empty one produces an empty
   // function rather than a truthy shell that throws when called.
