@@ -82,7 +82,7 @@ protected:
   // Move assign, but forward the address.
   address_forwarder& operator=(address_forwarder&& o) noexcept {
     if (this == &o) return *this;
-    reset(raw_forwarding::allow,
+    forward_address_reset(raw_forwarding::allow,
         std::exchange(o.forwarding_address_, nullptr));
     return update_registered();
   }
@@ -106,15 +106,20 @@ protected:
   }
 
 public:
-  ~address_forwarder() { reset(); }
+  ~address_forwarder() { forward_address_reset(); }
 
   // Unregister from the handle, if any, and go null.
-  void reset() noexcept { reset(raw_forwarding::allow, nullptr); }
+  // The awkward name is to prevent shadowing.
+  void forward_address_reset() noexcept {
+    forward_address_reset(raw_forwarding::allow, nullptr);
+  }
 
   // Unregister from the handle, if any, and switch to new forwarding address.
+  // The awkward name is to prevent shadowing.
   //
   // Prefer `forwarded_address`, which manages the registration safely.
-  void reset(raw_forwarding, Derived** forwarding_address) noexcept {
+  void forward_address_reset(raw_forwarding,
+      Derived** forwarding_address) noexcept {
     if (forwarding_address_) *forwarding_address_ = nullptr;
     forwarding_address_ = forwarding_address;
   }
@@ -194,7 +199,9 @@ public:
 
   // Unregister from the target, if any, and go null.
   void reset() noexcept {
-    if (forwarder_) forwarder_->reset(Derived::raw_forwarding::allow, nullptr);
+    if (forwarder_)
+      forwarder_->forward_address_reset(Derived::raw_forwarding::allow,
+          nullptr);
   }
 
 #pragma endregion
@@ -215,7 +222,8 @@ private:
 
   forwarded_address& update_registration() {
     if (forwarder_)
-      forwarder_->reset(Derived::raw_forwarding::allow, &forwarder_);
+      forwarder_->forward_address_reset(Derived::raw_forwarding::allow,
+          &forwarder_);
     return *this;
   }
 

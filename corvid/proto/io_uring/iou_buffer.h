@@ -99,18 +99,20 @@ inline void msan_unpoison_kernel_write([[maybe_unused]] const void* p,
 class iou_buffer: public address_forwarder<iou_buffer> {
 #pragma region Construction
 public:
+  using base_t = address_forwarder<iou_buffer>;
   using span_t = buffer_pool_base::span_t;
   using const_span_t = buffer_pool_base::const_span_t;
   using block_type = ::corvid::proto::iouring::block_type;
   using pool_ptr_t = std::shared_ptr<buffer_pool_base>;
+
   static constexpr uint64_t seek_current = static_cast<uint64_t>(-1);
 
   iou_buffer() = default;
   ~iou_buffer() { do_reset(); }
 
   iou_buffer(iou_buffer&& o) noexcept
-      : address_forwarder<iou_buffer>(std::move(o.as_base_move())),
-        pool_{std::move(o.pool_)}, full_span_{std::exchange(o.full_span_, {})},
+      : base_t(static_cast<base_t&&>(o)), pool_{std::move(o.pool_)},
+        full_span_{std::exchange(o.full_span_, {})},
         payload_span_{std::exchange(o.payload_span_, {})},
         active_span_{std::exchange(o.active_span_, {})},
         buf_index_{std::exchange(o.buf_index_, {})},
@@ -124,7 +126,7 @@ public:
   iou_buffer& operator=(iou_buffer&& o) noexcept {
     if (this != &o) {
       reset();
-      address_forwarder<iou_buffer>::operator=(std::move(o.as_base_move()));
+      base_t::operator=(static_cast<base_t&&>(o));
       pool_ = std::move(o.pool_);
       full_span_ = std::exchange(o.full_span_, {});
       payload_span_ = std::exchange(o.payload_span_, {});

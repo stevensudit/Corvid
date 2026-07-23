@@ -639,18 +639,14 @@ public:
       if (!af.when.ts.is_valid())
         return {tokenize(completion_fn{std::move(cb)}), nullptr};
     }
-    af_t* af_ptr{};
-    // Establish the forwarding link before the move below; the move ctor sees
-    // the link and updates `*af_ptr` to the new location. Analyzer flags this
-    // as use-after-move because the caller passes `std::move(...)`, but `af`
-    // is a forwarding reference; no move has happened until the next stmt.
-    // NOLINTNEXTLINE(clang-analyzer-cplusplus.Move)
-    af.forwarding_address_ptr(af_t::raw_forwarding::allow) = &af_ptr;
+    // Register with `af` before the move below; the handle tracks it into the
+    // closure, ending up at its final home inside the tokenized
+    // `completion_fn`. On scope exit it unregisters, so the moved-to object
+    // never dangles on it.
+    forwarded_address fa{af};
     const auto cbtoken =
         tokenize(wrap_completion_fn(std::move(cb), std::move(af)));
-    if (af_ptr)
-      af_ptr->forwarding_address_ptr(af_t::raw_forwarding::allow) = nullptr;
-    return {cbtoken, af_ptr};
+    return {cbtoken, fa.get()};
   }
 
 #pragma endregion
