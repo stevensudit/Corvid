@@ -36,6 +36,13 @@ constexpr inline bool is_fixed_function_v = false;
 template<size_t SZ, class Sig>
 constexpr inline bool is_fixed_function_v<fixed_function<SZ, Sig>> = true;
 
+// Determine whether `T` is a `std::function`.
+template<typename T>
+constexpr inline bool is_std_function_v = false;
+
+template<class Sig>
+constexpr inline bool is_std_function_v<std::function<Sig>> = true;
+
 #pragma region fixed_function
 
 // `fixed_function<SZ, RP(ARGS...)>` is a move-only, zero-allocation
@@ -49,7 +56,11 @@ constexpr inline bool is_fixed_function_v<fixed_function<SZ, Sig>> = true;
 // alignment <= `alignof(std::max_align_t)`.
 //
 // If either constraint is violated, a `static_assert` fires with a clear
-// message. Unlike `std::function`, no dynamic allocation is ever performed.
+// message. Unlike `std::function`, no dynamic allocation is ever performed by
+// `fixed_function` itself. The one exception is by proxy: a `std::function`
+// stored through the explicit wrapping constructor may allocate on its own
+// behalf. More broadly, we can't stop a functor from allocating internally,
+// but the `fixed_function` wrapper itself never does.
 //
 // A same-signature sibling of another size moves by transplanting the stored
 // callable rather than nesting the wrapper: guaranteed to succeed when the
@@ -79,25 +90,14 @@ public:
 
   // Move-construct from any callable whose signature matches `RP(ARGS...)`.
   //
-  // The functor is move-constructed into internal storage.
+  // The functor is move-constructed into internal storage. A `std::function`
+  // is deliberately excluded here; wrapping one takes the explicit
+  // constructor below.
   template<MoveConsumable FN>
-  requires std::is_invocable_r_v<RP, std::decay_t<FN>, ARGS...>
+  requires(std::is_invocable_r_v<RP, std::decay_t<FN>, ARGS...> &&
+           !is_std_function_v<std::decay_t<FN>>)
   fixed_function(FN&& fn) {
     using FD = std::decay_t<FN>;
-    static_assert(sizeof(FD) <= storage_size,
-        "fixed_function: functor too large for storage");
-    static_assert(alignof(FD) <= alignof(std::max_align_t),
-        "fixed_function: functor alignment exceeds max_align_t");
-    static_assert(std::is_nothrow_move_constructible_v<FD>,
-        "fixed_function: functor move constructor may throw; inline storage "
-        "relocates the functor, so its move must be noexcept");
-    static_assert(std::is_nothrow_destructible_v<FD>,
-        "fixed_function: functor destructor may throw; inline storage "
-        "destroys the functor, so its destructor must be noexcept");
-    static_assert(!std::is_reference_v<RP> ||
-                      std::is_reference_v<std::invoke_result_t<FD, ARGS...>>,
-        "fixed_function: callable returns a prvalue but RP is a reference "
-        "type; every call would produce a dangling reference");
 
     // An `fn` that is a `fixed_function` and lands here has a different
     // signature (a same-signature sibling takes the transplanting constructor
@@ -110,9 +110,25 @@ public:
     // The `MoveConsumable` concept ensures that `FN` is an rvalue reference
     // type, so the following clang-tidy warning does not apply.
     // NOLINTNEXTLINE(bugprone-move-forwarding-reference)
-    new (storage_) FD{std::move(fn)};
-    invoke_ = &invoke_impl<FD>;
-    lifespan_ = &manage_impl<FD>;
+    do_store<FD>(std::move(fn));
+  }
+
+  // Explicitly wrap a `std::function` whose signature is compatible with
+  // `RP(ARGS...)`.
+  //
+  // This is the escape hatch for a payload too large for the inline buffer:
+  // `std::function` keeps the oversized functor on its own heap allocation,
+  // and only its small shell must fit inline. The costs are why the wrap is
+  // explicit: every call double-indirects, and the shell may allocate
+  // dynamically, which is an exception to the zero-allocation guarantee.
+  //
+  // Matching `std::function`, wrapping an empty one produces an empty
+  // function rather than a truthy shell that throws when called.
+  template<class Sig2>
+  requires std::is_invocable_r_v<RP, std::function<Sig2>, ARGS...>
+  explicit fixed_function(std::function<Sig2>&& fn) {
+    if (!fn) return;
+    do_store<std::function<Sig2>>(std::move(fn));
   }
 
   // Move constructor, leaves RHS empty.
@@ -236,6 +252,36 @@ private:
   // management.
   using invoke_fn_t = RP (*)(void*, ARGS...);
   using lifespan_fn_t = std::size_t (*)(void*, void*, std::size_t) noexcept;
+
+  // Move `fn` into inline storage and publish its thunks.
+  //
+  // `FD` is the stored type, already decayed and always passed explicitly,
+  // so the parameter is a plain rvalue reference despite its forwarding
+  // spelling, and `std::forward` below is equivalent to `std::move`. The
+  // caller handles any empty-wrapper special case before calling.
+  template<class FD>
+  void do_store(FD&& fn) {
+    static_assert(!std::is_reference_v<FD>,
+        "fixed_function: do_store requires the decayed stored type");
+    static_assert(sizeof(FD) <= storage_size,
+        "fixed_function: functor too large for storage");
+    static_assert(alignof(FD) <= alignof(std::max_align_t),
+        "fixed_function: functor alignment exceeds max_align_t");
+    static_assert(std::is_nothrow_move_constructible_v<FD>,
+        "fixed_function: functor move constructor may throw; inline storage "
+        "relocates the functor, so its move must be noexcept");
+    static_assert(std::is_nothrow_destructible_v<FD>,
+        "fixed_function: functor destructor may throw; inline storage "
+        "destroys the functor, so its destructor must be noexcept");
+    static_assert(!std::is_reference_v<RP> ||
+                      std::is_reference_v<std::invoke_result_t<FD, ARGS...>>,
+        "fixed_function: callable returns a prvalue but RP is a reference "
+        "type; every call would produce a dangling reference");
+
+    new (storage_) FD{std::forward<FD>(fn)};
+    invoke_ = &invoke_impl<FD>;
+    lifespan_ = &manage_impl<FD>;
+  }
 
   // Invoke through a downcast pointer to the stored callable. Uses
   // `std::invoke_r` so member function pointers and data member pointers work

@@ -1039,6 +1039,46 @@ TEST_CASE("WrapAcrossSignatures", "[FixedFunction]") {
 }
 
 #pragma endregion
+#pragma region FixedFunction_WrapStdFunction
+
+TEST_CASE("WrapStdFunction", "[FixedFunction]") {
+  using ff = fixed_function<128, int()>;
+
+  // Wrapping a `std::function` is the explicit escape hatch: the shell
+  // stores inline while its payload may live on the heap, at the cost of
+  // double indirection. No implicit conversion, and no moving from lvalues.
+  static_assert(std::is_constructible_v<ff, std::function<int()>&&>);
+  static_assert(!std::is_convertible_v<std::function<int()>&&, ff>);
+  static_assert(!std::is_constructible_v<ff, std::function<int()>&>);
+
+  // The shell stores inline and calls through.
+  ff f{std::function<int()>{[] { return 12; }}};
+  CHECK(f() == 12);
+  CHECK(f.size() == sizeof(std::function<int()>));
+
+  // A functor too large to store directly fits once `std::function` holds
+  // it on the heap.
+  auto big = [pad = std::array<std::byte, 256>{}] {
+    return static_cast<int>(pad.size());
+  };
+  static_assert(sizeof(big) > ff::storage_size);
+  ff g{std::function<int()>{std::move(big)}};
+  CHECK(g() == 256);
+
+  // A compatible cross-signature `std::function` goes through the same
+  // explicit door.
+  fixed_function<128, int(short)> h{
+      std::function<int(int)>{[](int n) { return n * 3; }}};
+  CHECK(h(short{7}) == 21);
+
+  // Matching `std::function`, wrapping an empty one produces an empty
+  // function rather than a truthy shell that throws when called.
+  ff e{std::function<int()>{}};
+  CHECK_FALSE(static_cast<bool>(e));
+  CHECK(e.size() == 0);
+}
+
+#pragma endregion
 #pragma region FixedFunction_Bool
 
 TEST_CASE("Bool", "[FixedFunction]") {
