@@ -17,7 +17,6 @@
 #pragma once
 #include <concepts>
 #include <cstdint>
-#include <exception>
 #include <stdexcept>
 #include <type_traits>
 #include <utility>
@@ -96,7 +95,7 @@ protected:
 
   // Update registered address to point it at the current location of this
   // instance.
-  address_forwarder& update_registered() {
+  address_forwarder& update_registered() noexcept {
     if (forwarding_address_)
       *forwarding_address_ = static_cast<Derived*>(this);
     return *this;
@@ -220,7 +219,7 @@ private:
   //
   // False positive: `forwarder_` is not actually moved-from.
   // NOLINTBEGIN(clang-analyzer-cplusplus.Move)
-  forwarded_address& update_registration() {
+  forwarded_address& update_registration() noexcept {
     if (forwarder_)
       forwarder_->forward_address_reset(Forwarder::raw::allow, &forwarder_);
     return *this;

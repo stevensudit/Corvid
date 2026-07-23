@@ -17,7 +17,7 @@
 #pragma once
 #include <concepts>
 #include <cstddef>
-#include <iosfwd>
+#include <ostream>
 #include <ranges>
 #include <span>
 #include <string>

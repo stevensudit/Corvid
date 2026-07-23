@@ -76,9 +76,11 @@ template<auto field = extract_field::value>
 // `std::map`, it points to the `pair.second`, not the `pair`, unless `field`
 // is `extract_field::key_value`.
 //
-// Note: Uses -1 as sentinel for "not found". An unsigned index works just as
-// well: the comparison converts -1 to the unsigned type's maximum, which is
-// exactly the `npos` convention of string find operations.
+// Note: Uses -1 as sentinel for "not found". An unsigned index at least as
+// wide as `int` works just as well: the comparison converts -1 to the
+// unsigned type's maximum, which is exactly the `npos` convention of string
+// find operations. A narrower unsigned type instead promotes to `int`, so its
+// maximum never equals -1 and is treated as a valid index.
 template<auto field = extract_field::value>
 [[nodiscard]] constexpr auto it_to_ptr(auto& c, Integer auto ndx) {
   return ndx != -1 ? &container_element_v<field>(&c[ndx]) : nullptr;
