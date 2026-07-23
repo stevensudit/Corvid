@@ -37,20 +37,6 @@ constexpr inline bool is_fixed_function_v = false;
 template<size_t SZ, class Sig>
 constexpr inline bool is_fixed_function_v<fixed_function<SZ, Sig>> = true;
 
-// Determine whether `T` is a `std::function` or `std::move_only_function`.
-template<typename T>
-constexpr inline bool is_std_function_wrapper_v = false;
-
-template<class Sig>
-constexpr inline bool is_std_function_wrapper_v<std::function<Sig>> = true;
-
-// libc++ has not yet shipped `std::move_only_function`, hence the guard.
-#ifdef __cpp_lib_move_only_function
-template<class Sig>
-constexpr inline bool is_std_function_wrapper_v<std::move_only_function<Sig>> =
-    true;
-#endif
-
 #pragma region fixed_function
 
 // `fixed_function<SZ, RP(ARGS...)>` is a move-only, zero-allocation

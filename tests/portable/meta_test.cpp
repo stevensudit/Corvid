@@ -1069,6 +1069,15 @@ TEST_CASE("WrapAcrossSignatures", "[FixedFunction]") {
 TEST_CASE("WrapStdFunction", "[FixedFunction]") {
   using ff = fixed_function<128, int()>;
 
+  // The wrapper-detection trait lives in traits.h and sees through neither
+  // cvref nor inheritance: it matches the std wrappers themselves.
+  static_assert(is_std_function_wrapper_v<std::function<int()>>);
+  static_assert(!is_std_function_wrapper_v<int (*)()>);
+  static_assert(!is_std_function_wrapper_v<ff>);
+#ifdef __cpp_lib_move_only_function
+  static_assert(is_std_function_wrapper_v<std::move_only_function<int()>>);
+#endif
+
   // Wrapping a `std::function` is the explicit escape hatch: the shell
   // stores inline while its payload may live on the heap, at the cost of
   // double indirection. No implicit conversion, and no moving from lvalues.
