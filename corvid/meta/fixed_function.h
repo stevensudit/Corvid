@@ -94,6 +94,8 @@ public:
   fixed_function(const fixed_function&) = delete;
   fixed_function& operator=(const fixed_function&) = delete;
 
+  explicit fixed_function(std::nullptr_t) noexcept {}
+
   // Move-construct from any callable whose signature matches `RP(ARGS...)`.
   //
   // The functor is move-constructed into internal storage. The std
@@ -102,7 +104,7 @@ public:
   template<MoveConsumable FN>
   requires(std::is_invocable_r_v<RP, std::decay_t<FN>, ARGS...> &&
            !is_std_function_wrapper_v<std::decay_t<FN>>)
-  fixed_function(FN&& fn) {
+  fixed_function(FN&& fn) noexcept {
     using FD = std::decay_t<FN>;
 
     // An `fn` that is a `fixed_function` and lands here has a different
@@ -138,7 +140,7 @@ public:
   template<MoveConsumable FN>
   requires(is_std_function_wrapper_v<std::decay_t<FN>> &&
            std::is_invocable_r_v<RP, std::decay_t<FN>&, ARGS...>)
-  explicit fixed_function(FN&& fn) {
+  explicit fixed_function(FN&& fn) noexcept {
     using FD = std::decay_t<FN>;
     if (!fn) return;
     // The `MoveConsumable` concept ensures that `FN` is an rvalue reference
@@ -279,7 +281,7 @@ private:
   // spelling, and `std::forward` below is equivalent to `std::move`. The
   // caller handles any empty-wrapper special case before calling.
   template<class FD>
-  void do_store(FD&& fn) {
+  void do_store(FD&& fn) noexcept {
     static_assert(!std::is_reference_v<FD>,
         "fixed_function: do_store requires the decayed stored type");
     static_assert(sizeof(FD) <= storage_size,

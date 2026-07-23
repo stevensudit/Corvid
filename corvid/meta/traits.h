@@ -182,7 +182,7 @@ constexpr bool is_span_v = details::is_span_impl_v<std::remove_cvref_t<T>>;
 
 // Helper for span compatibility check.
 template<typename T, typename V>
-constexpr bool is_span_compatible_impl() {
+constexpr bool is_span_compatible_impl() noexcept {
   if constexpr (is_span_v<T>) {
     return std::same_as<std::remove_cv_t<V>,
                std::remove_cv_t<typename T::element_type>> &&

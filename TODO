@@ -153,6 +153,11 @@
    b. Cross-cutting: new macro + handler + a build flag, then sweep `assert` -> `corvid_assert`. Expose the checked mode as a CMake preset through cleanbuild.sh/ps1.
    c. Origin: the interval(min, max) max-ending precondition; interval_test currently comments out the asserting constructions because they abort.
 
+33. Repo-wide `noexcept` audit. corvid/meta and corvid/infra were swept for missing `noexcept` (2026-07-23), applying error-handling-policy.md: category-1 functions (genuinely cannot throw, transitively) get marked, narrow-contract functions are generally left unmarked per the Lakos preference, and anything transitively throwing stays unmarked. The rest of the library (concurrency, containers, controllers, ecs, enums, filesys, lang, math, proto, sdl, sim, strings) has not been checked and is likely inconsistent the same way. Notes for the sweep:
+   a. Apply the policy's classification, not a blanket "mark whatever cannot throw"; item 32's checked-assert mode depends on category-2 functions NOT being `noexcept`.
+   b. A throw path that is provably dead behind a class invariant still qualifies for `noexcept`: if the invariant is ever violated, throw-to-terminate is the policy-blessed outcome for detected bad state (precedent: `basic_fixed_string::cview`).
+   c. Sibling asymmetry is the highest-signal search: one overload or handle flavor marked while its all-nothrow twin is not (precedent: `proxy::try_downcast() &&`).
+
 
 -----
 

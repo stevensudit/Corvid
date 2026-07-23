@@ -37,7 +37,7 @@ enum class extract_field : bool { value, key_value };
 // The result is a true lvalue reference, so ranges with proxy references
 // (such as `std::vector<bool>`) are unsupported and fail to compile.
 template<auto field = extract_field::value>
-[[nodiscard]] constexpr auto& element_value(auto&& e) {
+[[nodiscard]] constexpr auto& element_value(auto&& e) noexcept {
   if constexpr (StdPair<decltype(e)> && field == extract_field::value)
     return e.second;
   else

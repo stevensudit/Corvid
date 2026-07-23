@@ -98,7 +98,7 @@ struct parsed_spec {
   // Calculate the left and right padding counts for `content_width` in a field
   // of `total_width`, based on `alignment`.
   static constexpr std::pair<size_t, size_t> calc_padding(aligned alignment,
-      std::size_t content_width, std::size_t total_width) {
+      std::size_t content_width, std::size_t total_width) noexcept {
     std::size_t lead = 0;
     std::size_t trail = 0;
     if (total_width > content_width) {
@@ -142,15 +142,15 @@ struct spec_parser: parsed_spec<CharT> {
     // Read an arg value from `spec` at `ndx`, returning an index past the
     // consumed text.
     [[nodiscard]] constexpr std::size_t
-    parse(std::basic_string_view<CharT> spec, std::size_t ndx) {
+    parse(std::basic_string_view<CharT> spec, std::size_t ndx) noexcept {
       *this = make_from_parse(spec, ndx);
       return ndx;
     }
 
     // Read an arg value (a width or precision) at `ndx`, advancing it. A
     // `{...}` is dynamic: empty is auto, digits are a manual arg id.
-    [[nodiscard]] static constexpr arg_value_t
-    make_from_parse(std::basic_string_view<CharT> spec, std::size_t& ndx) {
+    [[nodiscard]] static constexpr arg_value_t make_from_parse(
+        std::basic_string_view<CharT> spec, std::size_t& ndx) noexcept {
       const std::size_t n = spec.size();
       if (ndx < n && spec[ndx] == CharT('{')) {
         ++ndx;
@@ -179,20 +179,21 @@ struct spec_parser: parsed_spec<CharT> {
                  : arg_value_t{arg_kind::none, 0};
     }
 
-    [[nodiscard]] constexpr bool is_dynamic() const {
+    [[nodiscard]] constexpr bool is_dynamic() const noexcept {
       return kind == arg_kind::automatic || kind == arg_kind::manual;
     }
 
-    [[nodiscard]] constexpr bool is_automatic() const {
+    [[nodiscard]] constexpr bool is_automatic() const noexcept {
       return kind == arg_kind::automatic;
     }
 
-    [[nodiscard]] constexpr std::optional<size_t> get_fixed() const {
+    [[nodiscard]] constexpr std::optional<size_t> get_fixed() const noexcept {
       if (kind != arg_kind::fixed) return std::nullopt;
       return value;
     }
 
-    [[nodiscard]] constexpr std::optional<size_t> get_automatic() const {
+    [[nodiscard]] constexpr std::optional<size_t>
+    get_automatic() const noexcept {
       if (kind != arg_kind::automatic) return std::nullopt;
       return value;
     }
@@ -244,7 +245,7 @@ struct spec_parser: parsed_spec<CharT> {
 #pragma region Operations
 
   // Whether any width or precision is dynamic.
-  [[nodiscard]] constexpr bool is_dynamic() const {
+  [[nodiscard]] constexpr bool is_dynamic() const noexcept {
     return width_arg.is_dynamic() || precision_arg.is_dynamic();
   }
 
@@ -266,7 +267,7 @@ struct spec_parser: parsed_spec<CharT> {
   // Parse the standard format spec into this instance, stopping at the closing
   // `}` (as there may be more after it). Returns the count of code units
   // consumed, which is the offset of that `}`.
-  constexpr std::size_t parse(std::basic_string_view<CharT> spec) {
+  constexpr std::size_t parse(std::basic_string_view<CharT> spec) noexcept {
     std::size_t ndx = 0;
     const std::size_t cnt = spec.size();
     // [fill] align. The fill may be any character except `{` or `}`; without
@@ -354,11 +355,11 @@ struct spec_parser: parsed_spec<CharT> {
 #pragma endregion
 #pragma region Helpers
 private:
-  static constexpr bool is_align(CharT c) {
+  static constexpr bool is_align(CharT c) noexcept {
     return c == CharT('<') || c == CharT('>') || c == CharT('^');
   }
 
-  static constexpr aligned to_alignment(CharT c) {
+  static constexpr aligned to_alignment(CharT c) noexcept {
     if (c == CharT('>')) return aligned::right;
     if (c == CharT('^')) return aligned::center;
     return aligned::left;

@@ -2765,7 +2765,7 @@ public:
   // constructor.
   template<typename T>
   requires Proxiable<T, F>
-  explicit proxy(std::unique_ptr<T> target) {
+  explicit proxy(std::unique_ptr<T> target) noexcept {
     if (!target) return;
     if constexpr (Policy.alloc == proxy_alloc::sbo_only) {
       static_assert(details::sbo_fits<T>(Policy),
@@ -2956,7 +2956,7 @@ public:
   // this is spelled as a method on an rvalue rather than a conversion.
   template<Facade D>
   requires Extends<D, F>
-  [[nodiscard]] proxy<D, Policy> try_downcast() && {
+  [[nodiscard]] proxy<D, Policy> try_downcast() && noexcept {
     proxy<D, Policy> result;
     if (!vtable_) return result;
     const auto* table =
@@ -3153,7 +3153,7 @@ requires Proxiable<T, F>
 // already owned by a `std::unique_ptr`; see the adopting constructor.
 template<Facade F, proxy_policy Policy = proxy_policy{}, typename T>
 requires Proxiable<T, F>
-[[nodiscard]] proxy<F, Policy> make_proxy(std::unique_ptr<T> target) {
+[[nodiscard]] proxy<F, Policy> make_proxy(std::unique_ptr<T> target) noexcept {
   return proxy<F, Policy>{std::move(target)};
 }
 

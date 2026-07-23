@@ -119,18 +119,19 @@ struct basic_fixed_string {
 #pragma endregion
 #pragma region Conversions
 
-  [[nodiscard]] constexpr std::basic_string_view<CharT> view() const {
+  [[nodiscard]] constexpr std::basic_string_view<CharT> view() const noexcept {
     // NOLINTNEXTLINE(bugprone-string-constructor)
     return {do_not_use, N};
   }
-  [[nodiscard]] constexpr operator std::basic_string_view<CharT>() const {
+  [[nodiscard]] constexpr
+  operator std::basic_string_view<CharT>() const noexcept {
     return view();
   }
 
-  // A fixed string is necessarily terminated. Only declared here; callers
-  // must include cstring_view.h.
+  // A fixed string is necessarily terminated. Only declared here; callers must
+  // include cstring_view.h.
   [[nodiscard]] constexpr basic_cstring_view<std::basic_string_view<char_t>>
-  cview() const {
+  cview() const noexcept {
     return basic_cstring_view<std::basic_string_view<char_t>>{do_not_use,
         N + 1};
   }
@@ -151,19 +152,19 @@ struct basic_fixed_string {
   }
 
   [[nodiscard]] constexpr bool operator==(
-      const basic_fixed_string& other) const {
+      const basic_fixed_string& other) const noexcept {
     return view() == other.view();
   }
   template<std::size_t N2>
   [[nodiscard]] friend constexpr bool operator==(const basic_fixed_string& lhs,
-      const basic_fixed_string<CharT, N2>& rhs) {
+      const basic_fixed_string<CharT, N2>& rhs) noexcept {
     return lhs.view() == rhs.view();
   }
 
   template<std::size_t N2>
   [[nodiscard]] friend constexpr auto
   operator<=>(const basic_fixed_string& lhs,
-      const basic_fixed_string<CharT, N2>& rhs) {
+      const basic_fixed_string<CharT, N2>& rhs) noexcept {
     return lhs.view() <=> rhs.view();
   }
 

@@ -1052,9 +1052,19 @@ static_assert(sizeof(fixed_function<17, int()>) > 0);
 
 #pragma region FixedFunction_Basic
 
+// The `nullptr` constructor is explicit, unlike the std wrappers'.
+static_assert(
+    std::is_constructible_v<fixed_function<64, int()>, std::nullptr_t>);
+static_assert(
+    !std::is_convertible_v<std::nullptr_t, fixed_function<64, int()>>);
+
 TEST_CASE("Basic", "[FixedFunction]") {
   fixed_function<64, int()> f{[] { return 42; }};
   CHECK(f() == 42);
+
+  // Constructing from `nullptr` yields an empty function, like assigning it.
+  fixed_function<64, int()> fnull{nullptr};
+  CHECK_FALSE(static_cast<bool>(fnull));
 }
 
 #pragma endregion
