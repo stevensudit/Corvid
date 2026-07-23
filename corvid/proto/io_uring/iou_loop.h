@@ -645,10 +645,11 @@ public:
     // as use-after-move because the caller passes `std::move(...)`, but `af`
     // is a forwarding reference; no move has happened until the next stmt.
     // NOLINTNEXTLINE(clang-analyzer-cplusplus.Move)
-    af.forwarding_address() = &af_ptr;
+    af.forwarding_address_ptr(af_t::raw_forwarding::allow) = &af_ptr;
     const auto cbtoken =
         tokenize(wrap_completion_fn(std::move(cb), std::move(af)));
-    if (af_ptr) af_ptr->forwarding_address() = nullptr;
+    if (af_ptr)
+      af_ptr->forwarding_address_ptr(af_t::raw_forwarding::allow) = nullptr;
     return {cbtoken, af_ptr};
   }
 
