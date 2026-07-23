@@ -62,11 +62,10 @@ constexpr inline bool is_std_function_wrapper_v<std::move_only_function<Sig>> =
 //
 // `SZ` is the total instance size in bytes. The stored functor must fit
 // within `SZ - 2*sizeof(void*)` bytes and have alignment <=
-// `alignof(std::max_align_t)`. If it doesn't fit, the constructor throws
-// `std::length_error`.
+// `alignof(std::max_align_t)`. If it doesn't fit, a `static_assert` fires.
 //
 // `SZ` must be a multiple of the storage alignment,
-// `alignof(std::max_align_t)` because a smaller value would occupy the padded
+// `alignof(std::max_align_t)`, because a smaller value would occupy the padded
 // size anyway and waste the difference. Instead of hardcoding a number that
 // might only be valid on a particular platform, you should pass the size
 // through `padded_size` to get a conforming value.

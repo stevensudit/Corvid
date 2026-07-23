@@ -1055,7 +1055,10 @@ through one is undefined behavior.
 The policy has three knobs. The `fixed_function` lesson is that the
 default SBO is sometimes a little too small, so `sbo_size` and `sbo_align`
 are settable, growing only (a target eligible for the default buffer stays
-eligible for every buffer). `alloc` picks the strategy: `sbo_or_heap` (the
+eligible for every buffer). The `sbo_size` must be a multiple of
+`sbo_align`, since anything less would occupy the padded size anyway and
+waste the difference; `padded_size` computes a conforming value from a
+byte budget. `alloc` picks the strategy: `sbo_or_heap` (the
 default), `sbo_only` (an ineligible target is a clean `static_assert` at
 construction), or `heap_only` (every target's address is stable, and the
 handle drops its buffer to become two words, like a view).

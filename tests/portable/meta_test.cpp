@@ -987,6 +987,8 @@ TEST_CASE("MoveAcrossSizes", "[FixedFunction]") {
   };
   fixed_function<64, int()> small{mover{&moves}};
   CHECK(small.size() == sizeof(mover));
+  CHECK(small.capacity() == fixed_function<64, int()>::storage_size);
+  CHECK(small.size() <= small.capacity());
   const int base = moves;
   fixed_function<96, int()> big{std::move(small)};
   CHECK(moves == base + 1);
@@ -1017,8 +1019,11 @@ TEST_CASE("MoveAcrossSizes", "[FixedFunction]") {
   REQUIRE(static_cast<bool>(fat));
   CHECK(fat() == 64);
 
-  // A refused downsizing assignment leaves both sides whole.
+  // A refused downsizing assignment leaves both sides whole. Checking
+  // `size` against `capacity` up front predicts the refusal.
   fixed_function<64, int()> keeper{[] { return 3; }};
+  // NOLINTNEXTLINE(bugprone-use-after-move): kept whole on failure.
+  CHECK(fat.size() > keeper.capacity());
   // NOLINTNEXTLINE(bugprone-use-after-move): the failed move kept it whole.
   CHECK_THROWS_AS(keeper = std::move(fat), std::length_error);
   CHECK(keeper() == 3);
