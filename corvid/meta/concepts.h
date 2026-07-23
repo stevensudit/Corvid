@@ -15,7 +15,17 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 #pragma once
-#include "meta_shared.h"
+#include <concepts>
+#include <cstddef>
+#include <iosfwd>
+#include <ranges>
+#include <span>
+#include <string>
+#include <string_view>
+#include <type_traits>
+#include <utility>
+#include <variant>
+
 #include "traits.h"
 
 namespace corvid { inline namespace meta { inline namespace concepts {

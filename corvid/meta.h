@@ -15,7 +15,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 #pragma once
-#include "meta/meta_shared.h"
 #include "meta/crossplatform.h"
 #include "meta/traits.h"
 #include "meta/concepts.h"

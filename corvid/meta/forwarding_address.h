@@ -197,8 +197,7 @@ public:
   // Unregister from the target, if any, and go null.
   void reset() noexcept {
     if (forwarder_)
-      forwarder_->forward_address_reset(Forwarder::raw::allow,
-          nullptr);
+      forwarder_->forward_address_reset(Forwarder::raw::allow, nullptr);
   }
 
 #pragma endregion
@@ -223,8 +222,7 @@ private:
   // NOLINTBEGIN(clang-analyzer-cplusplus.Move)
   forwarded_address& update_registration() {
     if (forwarder_)
-      forwarder_->forward_address_reset(Forwarder::raw::allow,
-          &forwarder_);
+      forwarder_->forward_address_reset(Forwarder::raw::allow, &forwarder_);
     return *this;
   }
   // NOLINTEND(clang-analyzer-cplusplus.Move)

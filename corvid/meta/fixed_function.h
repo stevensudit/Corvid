@@ -20,8 +20,9 @@
 #include <functional>
 #include <new>
 #include <stdexcept>
+#include <type_traits>
+#include <utility>
 
-#include "meta_shared.h"
 #include "concepts.h"
 #include "memory.h"
 

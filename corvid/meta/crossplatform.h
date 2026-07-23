@@ -15,7 +15,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 #pragma once
-#include "meta_shared.h"
 
 namespace corvid { inline namespace meta { inline namespace crossplatform {
 

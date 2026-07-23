@@ -15,9 +15,17 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 #pragma once
+#include <array>
+#include <concepts>
+#include <cstddef>
+#include <functional>
+#include <initializer_list>
+#include <span>
 #include <string_view>
-
-#include "meta_shared.h"
+#include <tuple>
+#include <type_traits>
+#include <utility>
+#include <variant>
 
 namespace corvid { inline namespace meta { inline namespace traits {
 

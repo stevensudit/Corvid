@@ -15,7 +15,18 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 #pragma once
-#include "meta_shared.h"
+#include <cstddef>
+#include <cstdlib>
+#include <memory>
+#include <string>
+#include <string_view>
+#include <type_traits>
+#include <typeinfo>
+
+// For demangling in `type_name`.
+#ifndef _MSC_VER
+#include <cxxabi.h>
+#endif
 
 namespace corvid { inline namespace meta { inline namespace naming {
 

@@ -15,9 +15,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 #pragma once
+#include <iterator>
 #include <ranges>
+#include <type_traits>
+#include <utility>
 
-#include "meta_shared.h"
 #include "concepts.h"
 
 namespace corvid { inline namespace meta { inline namespace containers {
