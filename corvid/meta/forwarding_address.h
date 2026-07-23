@@ -197,7 +197,7 @@ public:
   // Unregister from the target, if any, and go null.
   void reset() noexcept {
     if (forwarder_)
-      forwarder_->forward_address_reset(Forwarder::raw_forwarding::allow,
+      forwarder_->forward_address_reset(Forwarder::raw::allow,
           nullptr);
   }
 
@@ -220,10 +220,10 @@ private:
   // Update the forwarder's registration to point at this handle, if any.
   //
   // False positive: `forwarder_` is not actually moved-from.
-  // NOLINTNEXTBEGIN(clang-analyzer-cplusplus.Move)
+  // NOLINTBEGIN(clang-analyzer-cplusplus.Move)
   forwarded_address& update_registration() {
     if (forwarder_)
-      forwarder_->forward_address_reset(Forwarder::raw_forwarding::allow,
+      forwarder_->forward_address_reset(Forwarder::raw::allow,
           &forwarder_);
     return *this;
   }
