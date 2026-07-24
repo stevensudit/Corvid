@@ -1010,12 +1010,14 @@ using small_coffer = coffer<4>;
 using big_coffer = coffer<64>;
 
 // Storage policies the tests exercise, against the default's two-pointer
-// buffer with heap fallback.
+// buffer with heap fallback. Buffer sizes go through `padded_size`, as the
+// policy requires, so they conform on any platform alignment.
 namespace policies {
-constexpr proxy_policy big_sbo{.sbo_size = 96};
+constexpr proxy_policy big_sbo{.sbo_size = padded_size(96)};
 constexpr proxy_policy sbo_only{.alloc = proxy_alloc::sbo_only};
 constexpr proxy_policy heap_only{.alloc = proxy_alloc::heap_only};
-constexpr proxy_policy big_align{.sbo_size = 96,
+constexpr proxy_policy big_align{
+    .sbo_size = padded_size(96, 2 * alignof(std::max_align_t)),
     .sbo_align = 2 * alignof(std::max_align_t)};
 } // namespace policies
 
@@ -1563,7 +1565,8 @@ static_assert(
     sizeof(proxy<lockbox, policies::heap_only>) == 2 * sizeof(void*));
 static_assert(
     sizeof(proxy<lockbox, policies::big_sbo>) > sizeof(proxy<lockbox>));
-static_assert(proxy<lockbox, policies::big_sbo>::sbo_size == 96);
+static_assert(
+    proxy<lockbox, policies::big_sbo>::sbo_size == policies::big_sbo.sbo_size);
 
 // Policies never foreclose an rvalue conversion: the destination
 // accommodates whatever target arrives, changing its storage mode when its
