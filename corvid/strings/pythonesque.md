@@ -64,7 +64,22 @@ input for further analysis, not a commitment to build any particular item.
   deliberately out.
 - `rsplit` and `maxsplit`: split from the right, and split-at-most-N. The
   `piece_generator` doc explicitly names "limit how many pieces" as a
-  motivating use case, but nothing shipped does it.
+  motivating use case, but nothing shipped does it. DONE: `rextract_piece`,
+  `rmore_pieces`, `rsplit`, `split_n`, and `rsplit_n` in
+  [splitting.h](splitting.h), with `rfind_in` added to `basic_delim`.
+  Rulings: Corvid's `rsplit` genuinely iterates from the right, returning
+  parts in right-to-left encounter order (exactly `split` reversed, an
+  invariant pinned in tests); Python's `rsplit` is not that (it only charges
+  its split limit from the right and still presents left-to-right). Full
+  Python parity is nonetheless mechanical: unbounded Python `rsplit` is
+  simply `split`, and bounded Python `rsplit(sep, n)` is `rsplit_n` with the
+  vector reversed (also pinned in tests). `maxsplit` is the separate
+  `split_n` / `rsplit_n` pair rather than a defaulted parameter on `split`;
+  at most `n` splits, and the final part is the untouched remainder (for
+  `rsplit_n`, that remainder is the head). The `piece_generator` machinery is
+  considered experimental
+  (heavy, no known callers), so the limiting battery went on `split` proper
+  rather than into a generator example.
 - `translate` / `maketrans`: table-driven per-character mapping and deletion,
   with `tr(1)` semantics. `substitute` handles paired from-to lists; a
   256-entry table version is both faster for that shape and covers

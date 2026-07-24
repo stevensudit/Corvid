@@ -79,7 +79,7 @@ split(const S& whole_in, basic_delim<char_type_of_t<S>> d = {}) {
   using C = char_type_of_t<S>;
   using result_t =
       std::conditional_t<std::is_void_v<R>, std::basic_string_view<C>, R>;
-  std::basic_string_view<C> whole{as_view(whole_in)};
+  auto whole{as_view(whole_in)};
   std::vector<result_t> parts;
   std::basic_string_view<C> part;
   for (bool more = !whole.empty(); more;) {
@@ -104,6 +104,182 @@ template<typename R = void, CharType C>
   static_assert(!std::is_trivially_copyable_v<result_t>,
       "R must be an owning string type");
   return split<result_t>(std::basic_string_view<C>(whole), d);
+}
+
+// Split at most `n` times by delimiters and return parts in vector.
+//
+// As the bounded variant of `split`, it performs up to `n` splits, so the
+// vector holds at most `n + 1` parts, and the final part is the untouched
+// remainder, delimiters intact. With a large enough `n`, it is equivalent to
+// `split`.
+//
+// The vector element type `R` effectively defaults to a
+// `std::basic_string_view` of `whole`'s own code unit; specify `R` as an
+// owning string type (e.g. `std::string`) to make deep copies.
+template<typename R = void, StringViewLike S>
+[[nodiscard]] constexpr auto
+split_n(const S& whole_in, size_t n, basic_delim<char_type_of_t<S>> d = {}) {
+  using C = char_type_of_t<S>;
+  using result_t =
+      std::conditional_t<std::is_void_v<R>, std::basic_string_view<C>, R>;
+  auto whole{as_view(whole_in)};
+  std::vector<result_t> parts;
+  std::basic_string_view<C> part;
+  for (bool more = !whole.empty(); more;) {
+    if (n == 0) {
+      parts.emplace_back(whole);
+      break;
+    }
+    --n;
+    more = more_pieces(part, whole, d);
+    parts.emplace_back(part);
+  }
+  return parts;
+}
+
+// Split a temporary string at most `n` times, returning deep copies of parts
+// in a vector.
+//
+// The vector element type `R` effectively defaults to an owning string of
+// `whole`'s code unit, since views into the temporary would dangle.
+template<typename R = void, CharType C>
+[[nodiscard]] constexpr auto split_n(std::basic_string<C>&& whole, size_t n,
+    std::type_identity_t<basic_delim<C>> d = {}) {
+  using result_t =
+      std::conditional_t<std::is_void_v<R>, std::basic_string<C>, R>;
+  // A trivially copyable `R` is a non-owning view, which would dangle into
+  // the temporary; this overload exists precisely to prevent that.
+  static_assert(!std::is_trivially_copyable_v<result_t>,
+      "R must be an owning string type");
+  return split_n<result_t>(std::basic_string_view<C>(whole), n, d);
+}
+
+#pragma endregion
+#pragma region RSplit
+
+// The r-prefixed functions mirror the plain ones from the right: pieces come
+// off the tail, so a full `rsplit` returns the parts in right-to-left
+// encounter order, exactly the reverse of `split`.
+//
+// Python parity, for reference: an unbounded Python `rsplit` is simply
+// `split`, and a bounded Python `rsplit(sep, n)` is `rsplit_n` with the
+// resulting vector reversed.
+
+// Extract last delimited piece destructively from `whole`.
+//
+// The return type `R` effectively defaults to a `std::basic_string_view` of
+// `whole`'s own code unit; specify `R` as an owning string type (e.g.
+// `std::string`) to make a deep copy.
+template<typename R = void, CharType C>
+[[nodiscard]] constexpr auto rextract_piece(std::basic_string_view<C>& whole,
+    std::type_identity_t<basic_delim<C>> d = {}) {
+  using result_t =
+      std::conditional_t<std::is_void_v<R>, std::basic_string_view<C>, R>;
+  const auto pos = d.rfind_in(whole);
+  const auto part = whole.substr(pos == npos ? 0 : pos + 1);
+  whole.remove_suffix(part.size() + (pos == npos ? 0 : 1));
+  return result_t{part};
+}
+
+// Extract last delimited piece into `part`, removing it from `whole`.
+//
+// Returns true so long as there's more work to do.
+// Pass an owning string type as `part` to make a deep copy.
+template<typename R, CharType C>
+[[nodiscard]] constexpr bool
+rmore_pieces(R& part, std::basic_string_view<C>& whole,
+    std::type_identity_t<basic_delim<C>> d = {}) {
+  auto all = whole.size();
+  part = rextract_piece<R>(whole, d);
+  return part.size() != all;
+}
+
+// Split all pieces from the right and return parts in vector.
+//
+// Returns exactly the reverse of `split`: same parts, right-to-left encounter
+// order, empty parts included. The vector element type `R` effectively
+// defaults to a `std::basic_string_view` of `whole`'s own code unit; specify
+// `R` as an owning string type (e.g. `std::string`) to make deep copies.
+template<typename R = void, StringViewLike S>
+[[nodiscard]] constexpr auto
+rsplit(const S& whole_in, basic_delim<char_type_of_t<S>> d = {}) {
+  using C = char_type_of_t<S>;
+  using result_t =
+      std::conditional_t<std::is_void_v<R>, std::basic_string_view<C>, R>;
+  auto whole{as_view(whole_in)};
+  std::vector<result_t> parts;
+  std::basic_string_view<C> part;
+  for (bool more = !whole.empty(); more;) {
+    more = rmore_pieces(part, whole, d);
+    parts.emplace_back(part);
+  }
+  return parts;
+}
+
+// Split a temporary string from the right, returning deep copies of parts in a
+// vector.
+//
+// The vector element type `R` effectively defaults to an owning string of
+// `whole`'s code unit, since views into the temporary would dangle.
+template<typename R = void, CharType C>
+[[nodiscard]] constexpr auto rsplit(std::basic_string<C>&& whole,
+    std::type_identity_t<basic_delim<C>> d = {}) {
+  using result_t =
+      std::conditional_t<std::is_void_v<R>, std::basic_string<C>, R>;
+  // A trivially copyable `R` is a non-owning view, which would dangle into
+  // the temporary; this overload exists precisely to prevent that.
+  static_assert(!std::is_trivially_copyable_v<result_t>,
+      "R must be an owning string type");
+  return rsplit<result_t>(std::basic_string_view<C>(whole), d);
+}
+
+// Split at most `n` times from the right and return parts in vector.
+//
+// As the bounded variant of `rsplit`, it performs up to `n` splits off the
+// tail, so the vector holds at most `n + 1` parts, and the final part is the
+// untouched remainder (the head), delimiters intact. With a large enough `n`,
+// it is equivalent to `rsplit`; reversed, it matches Python `rsplit` with
+// `maxsplit`.
+//
+// The vector element type `R` effectively defaults to a
+// `std::basic_string_view` of `whole`'s own code unit; specify `R` as an
+// owning string type (e.g. `std::string`) to make deep copies.
+template<typename R = void, StringViewLike S>
+[[nodiscard]] constexpr auto
+rsplit_n(const S& whole_in, size_t n, basic_delim<char_type_of_t<S>> d = {}) {
+  using C = char_type_of_t<S>;
+  using result_t =
+      std::conditional_t<std::is_void_v<R>, std::basic_string_view<C>, R>;
+  auto whole{as_view(whole_in)};
+  std::vector<result_t> parts;
+  std::basic_string_view<C> part;
+  for (bool more = !whole.empty(); more;) {
+    if (n == 0) {
+      parts.emplace_back(whole);
+      break;
+    }
+    --n;
+    more = rmore_pieces(part, whole, d);
+    parts.emplace_back(part);
+  }
+  return parts;
+}
+
+// Split a temporary string at most `n` times from the right, returning deep
+// copies of parts in a vector.
+//
+// The vector element type `R` effectively defaults to an owning string of
+// `whole`'s code unit, since views into the temporary would dangle.
+template<typename R = void, CharType C>
+[[nodiscard]] constexpr auto rsplit_n(std::basic_string<C>&& whole, size_t n,
+    std::type_identity_t<basic_delim<C>> d = {}) {
+  using result_t =
+      std::conditional_t<std::is_void_v<R>, std::basic_string<C>, R>;
+  // A trivially copyable `R` is a non-owning view, which would dangle into
+  // the temporary; this overload exists precisely to prevent that.
+  static_assert(!std::is_trivially_copyable_v<result_t>,
+      "R must be an owning string type");
+  return rsplit_n<result_t>(std::basic_string_view<C>(whole), n, d);
 }
 
 #pragma endregion
@@ -370,7 +546,7 @@ split_lines(const S& whole_in, line_ends ends = line_ends::discard) {
   using C = char_type_of_t<S>;
   using result_t =
       std::conditional_t<std::is_void_v<R>, std::basic_string_view<C>, R>;
-  std::basic_string_view<C> whole{as_view(whole_in)};
+  auto whole{as_view(whole_in)};
   std::vector<result_t> lines;
   std::basic_string_view<C> line;
   while (more_lines(line, whole, ends)) lines.emplace_back(line);

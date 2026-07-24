@@ -15,6 +15,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#include <algorithm>
 #include <cstdint>
 #include <format>
 #include <limits>
@@ -148,6 +149,86 @@ TEST_CASE("Split", "[StringUtilsTest]") {
 #pragma endregion
 
 // Test split_gen.
+#pragma region SplitN
+
+TEST_CASE("SplitN", "[StringUtilsTest]") {
+  using V = std::vector<std::string_view>;
+  // At most n splits; the final part is the untouched remainder.
+  if (true) {
+    CHECK(strings::split_n("a,b,c,d", 2, ",") == V{"a", "b", "c,d"});
+    CHECK(strings::split_n("a,b,c,d", 1, ",") == V{"a", "b,c,d"});
+    CHECK(strings::split_n("a,b,c,d", 0, ",") == V{"a,b,c,d"});
+    CHECK(strings::split_n("a,,b", 1, ",") == V{"a", ",b"});
+    CHECK(strings::split_n("a,", 1, ",") == V{"a", ""});
+  }
+  // With enough splits, equivalent to split; empty input yields no parts.
+  if (true) {
+    CHECK(strings::split_n("a,b", 5, ",") == strings::split("a,b", ","));
+    CHECK(strings::split_n("", 3, ",") == V{});
+    CHECK(strings::split_n("a b c", 1) == V{"a", "b c"});
+  }
+  // A temporary string yields owning copies.
+  if (true) {
+    CHECK(strings::split_n(std::string{"a b c"}, 1) ==
+          std::vector<std::string>{"a", "b c"});
+  }
+}
+
+#pragma endregion
+#pragma region RSplit
+
+TEST_CASE("RSplit", "[StringUtilsTest]") {
+  using V = std::vector<std::string_view>;
+  // rextract_piece peels the last piece and its delimiter off the tail.
+  if (true) {
+    auto whole = "k1=k2=v"sv;
+    CHECK(strings::rextract_piece(whole, "=") == "v");
+    CHECK(whole == "k1=k2");
+    CHECK(strings::rextract_piece(whole, "=") == "k2");
+    CHECK(strings::rextract_piece(whole, "=") == "k1");
+    CHECK(whole.empty());
+    CHECK(strings::rextract_piece(whole, "=") == "");
+  }
+  // rsplit returns the parts in right-to-left encounter order.
+  if (true) {
+    CHECK(strings::rsplit("a b c") == V{"c", "b", "a"});
+    CHECK(strings::rsplit(" a") == V{"a", ""});
+    CHECK(strings::rsplit("a ") == V{"", "a"});
+    CHECK(strings::rsplit("") == V{});
+    CHECK(strings::rsplit("abc") == V{"abc"});
+  }
+  // rsplit_n bounds the splits from the right; the remainder (the head)
+  // comes last, delimiters intact.
+  if (true) {
+    CHECK(strings::rsplit_n("a,b,c,d", 2, ",") == V{"d", "c", "a,b"});
+    CHECK(strings::rsplit_n("a,b,c,d", 1, ",") == V{"d", "a,b,c"});
+    CHECK(strings::rsplit_n("a,b,c,d", 0, ",") == V{"a,b,c,d"});
+    CHECK(strings::rsplit_n(",a", 1, ",") == V{"a", ""});
+    CHECK(strings::rsplit_n("a,b", 5, ",") == strings::rsplit("a,b", ","));
+    CHECK(strings::rsplit_n("", 3, ",") == V{});
+  }
+  // Reversed, rsplit_n matches Python rsplit with maxsplit.
+  if (true) {
+    auto parts = strings::rsplit_n("a,b,c,d", 2, ",");
+    std::ranges::reverse(parts);
+    CHECK(parts == V{"a,b", "c", "d"});
+  }
+  // Pin the invariant: rsplit is exactly split reversed, empties included.
+  if (true) {
+    for (const auto s : {"x,,y,"sv, ",x"sv, "x"sv, ",,"sv, "a,b,c"sv}) {
+      auto fwd = strings::split(s, ",");
+      std::ranges::reverse(fwd);
+      CHECK(strings::rsplit(s, ",") == fwd);
+    }
+  }
+  // A temporary string yields owning copies.
+  if (true) {
+    CHECK(strings::rsplit(std::string{"a b"}) ==
+          std::vector<std::string>{"b", "a"});
+  }
+}
+
+#pragma endregion
 #pragma region SplitPg
 
 TEST_CASE("SplitPg", "[StringUtilsTest]") {

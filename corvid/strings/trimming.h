@@ -38,8 +38,7 @@ template<StringViewLike S,
     typename R = std::basic_string_view<char_type_of_t<S>>>
 [[nodiscard]] constexpr auto
 trim_left(const S& whole, basic_delim<char_type_of_t<S>> ws = {}) {
-  using C = char_type_of_t<S>;
-  const std::basic_string_view<C> sv{as_view(whole)};
+  const auto sv{as_view(whole)};
   auto pos = ws.find_not_in(sv);
   // On all whitespace, return an empty view anchored in `sv`, not a null
   // view, matching `trim_right`.
@@ -53,8 +52,7 @@ template<StringViewLike S,
     typename R = std::basic_string_view<char_type_of_t<S>>>
 [[nodiscard]] constexpr auto
 trim_right(const S& whole, basic_delim<char_type_of_t<S>> ws = {}) {
-  using C = char_type_of_t<S>;
-  const std::basic_string_view<C> sv{as_view(whole)};
+  const auto sv{as_view(whole)};
   auto pos = ws.find_last_not_in(sv);
   return R{sv.substr(0, pos + 1)};
 }
@@ -82,7 +80,7 @@ constexpr void trim(Cont& wholes, basic_delim<Char> ws = {}) {
 // Trim whitespace on left in place.
 template<typename C>
 void trim_left(std::basic_string<C>& whole, basic_delim<C> ws = {}) {
-  const std::basic_string_view<C> sv{whole};
+  const auto sv{as_view(whole)};
   auto pos = ws.find_not_in(sv);
   if (pos == sv.npos)
     whole.clear();
@@ -93,7 +91,7 @@ void trim_left(std::basic_string<C>& whole, basic_delim<C> ws = {}) {
 // Trim whitespace on right in place.
 template<typename C>
 void trim_right(std::basic_string<C>& whole, basic_delim<C> ws = {}) {
-  const std::basic_string_view<C> sv{whole};
+  const auto sv{as_view(whole)};
   auto pos = ws.find_last_not_in(sv);
   if (pos == sv.npos)
     whole.clear();
@@ -104,7 +102,7 @@ void trim_right(std::basic_string<C>& whole, basic_delim<C> ws = {}) {
 // Trim whitespace in place.
 template<typename C>
 void trim(std::basic_string<C>& whole, basic_delim<C> ws = {}) {
-  const std::basic_string_view<C> sv{whole};
+  const auto sv{as_view(whole)};
   auto left = ws.find_not_in(sv);
   if (left == sv.npos) {
     whole.clear();
@@ -131,7 +129,7 @@ template<StringViewLike S,
     typename R = std::basic_string_view<char_type_of_t<S>>>
 [[nodiscard]] constexpr auto
 trim_prefix(const S& whole, std::basic_string_view<char_type_of_t<S>> prefix) {
-  auto sv = as_view(whole);
+  auto sv{as_view(whole)};
   if (sv.starts_with(prefix)) sv.remove_prefix(prefix.size());
   return R{sv};
 }
@@ -141,7 +139,7 @@ template<StringViewLike S,
     typename R = std::basic_string_view<char_type_of_t<S>>>
 [[nodiscard]] constexpr auto
 trim_suffix(const S& whole, std::basic_string_view<char_type_of_t<S>> suffix) {
-  auto sv = as_view(whole);
+  auto sv{as_view(whole)};
   if (sv.ends_with(suffix)) sv.remove_suffix(suffix.size());
   return R{sv};
 }
@@ -168,8 +166,7 @@ template<StringViewLike S,
 [[nodiscard]] constexpr auto trim_braces(const S& whole,
     basic_delim<char_type_of_t<S>> braces =
         bracket_delim<char_type_of_t<S>>()) {
-  using C = char_type_of_t<S>;
-  std::basic_string_view<C> sv{as_view(whole)};
+  auto sv{as_view(whole)};
   auto front = braces.front();
   auto back = braces.back();
   if (sv.size() > 1 && sv.front() == front && sv.back() == back) {
@@ -185,7 +182,7 @@ template<StringViewLike S>
     basic_delim<char_type_of_t<S>> braces =
         bracket_delim<char_type_of_t<S>>()) {
   using C = char_type_of_t<S>;
-  const std::basic_string_view<C> sv{as_view(whole)};
+  const auto sv{as_view(whole)};
   std::basic_string<C> target;
   target.reserve(sv.size() + 2);
   target.push_back(braces.front());
