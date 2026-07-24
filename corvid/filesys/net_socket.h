@@ -600,7 +600,7 @@ public:
     // NOLINTEND(clang-analyzer-unix.StdCLibraryFunctions,clang-analyzer-unix.BlockInCriticalSection)
     if (n == 0) return false;
 
-    no_zero::trim_to(data, offset + (n > 0 ? static_cast<size_t>(n) : 0));
+    no_zero{data}.trim_to(offset + (n > 0 ? static_cast<size_t>(n) : 0));
     if (n < 0) return !os_file::is_hard_error();
     return true;
   }
@@ -668,7 +668,7 @@ public:
       }
       const size_t old_size = buf.size();
       if (old_size >= max_size) break;
-      no_zero::resize_to(buf, std::min(old_size + 4096, max_size));
+      no_zero{buf}.resize_to(std::min(old_size + 4096, max_size));
       if (!recv_at(buf, old_size) || buf.size() == old_size) break;
     }
     buf.clear();
@@ -682,7 +682,7 @@ public:
   [[nodiscard]] bool
   recv_sync_chunk(std::string& buf, size_t max_bytes = 4096) const {
     if (!buf.empty()) return true;
-    if (!recv(no_zero::enlarge_to(buf, max_bytes))) {
+    if (!recv(*no_zero{buf}.enlarge_to(max_bytes))) {
       buf.clear();
       return false;
     }
@@ -702,7 +702,7 @@ public:
         bytes_read += buf.size())
     {
       const size_t chunk = std::min<size_t>(4096, max_bytes - bytes_read);
-      if (!recv(no_zero::resize_to(buf, chunk))) return !buf.empty();
+      if (!recv(*no_zero{buf}.resize_to(chunk))) return !buf.empty();
       if (buf.empty()) return false;
     }
     return false;

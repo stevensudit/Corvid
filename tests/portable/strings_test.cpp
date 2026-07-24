@@ -1918,7 +1918,7 @@ TEST_CASE("NoZero", "[StringUtilsTest]") {
   // Ensure that the small values we use below are within SSO capacity.
   CHECK((sso_cap) > (10u));
 
-  using namespace corvid::strings::no_zero_funcs;
+  using corvid::strings::no_zero;
 
   // `resize_to`: size matches the requested value exactly; capacity covers it.
   // Shrinking via `resize_to` does NOT reduce capacity: important for the
@@ -1927,41 +1927,41 @@ TEST_CASE("NoZero", "[StringUtilsTest]") {
     std::string s;
 
     // Zero.
-    no_zero::resize_to(s, 0);
+    no_zero{s}.resize_to(0);
     CHECK(s.size() == 0u);
 
     // Tiny (SSO range).
-    no_zero::resize_to(s, 2);
+    no_zero{s}.resize_to(2);
     CHECK(s.size() == 2u);
     CHECK(s.capacity() >= 2u);
 
-    no_zero::resize_to(s, 4);
+    no_zero{s}.resize_to(4);
     CHECK(s.size() == 4u);
     CHECK(s.capacity() >= 4u);
 
     // Shrink within SSO: capacity must not change.
     auto cap = s.capacity();
-    no_zero::resize_to(s, 2);
+    no_zero{s}.resize_to(2);
     CHECK(s.size() == 2u);
     CHECK(s.capacity() == cap);
 
     // Small (heap range).
-    no_zero::resize_to(s, 50);
+    no_zero{s}.resize_to(50);
     CHECK(s.size() == 50u);
     CHECK(s.capacity() >= 50u);
 
-    no_zero::resize_to(s, 100);
+    no_zero{s}.resize_to(100);
     CHECK(s.size() == 100u);
     CHECK(s.capacity() >= 100u);
 
     // Shrink on heap: capacity must not change.
     cap = s.capacity();
-    no_zero::resize_to(s, 50);
+    no_zero{s}.resize_to(50);
     CHECK(s.size() == 50u);
     CHECK(s.capacity() == cap);
 
     // Same size (no-op).
-    no_zero::resize_to(s, 50);
+    no_zero{s}.resize_to(50);
     CHECK(s.size() == 50u);
     CHECK(s.capacity() == cap);
   }
@@ -1971,14 +1971,14 @@ TEST_CASE("NoZero", "[StringUtilsTest]") {
   if (true) {
     // On an empty string: size expands to the SSO capacity.
     std::string s;
-    no_zero::enlarge_to_cap(s);
+    no_zero{s}.enlarge_to_cap();
     CHECK(s.size() == sso_cap);
     CHECK(s.size() == s.capacity());
 
     // On a heap-allocated string: fills out to the full allocated capacity.
-    no_zero::resize_to(s, 50);
+    no_zero{s}.resize_to(50);
     auto cap = s.capacity();
-    no_zero::enlarge_to_cap(s);
+    no_zero{s}.enlarge_to_cap();
     CHECK(s.size() == cap);
     CHECK(s.size() == s.capacity());
   }
@@ -1987,60 +1987,60 @@ TEST_CASE("NoZero", "[StringUtilsTest]") {
   // never changes capacity.
   if (true) {
     static_assert(requires(std::string& value) {
-      no_zero::trim_to(value, int{1});
+      no_zero{value}.trim_to(int{1});
     });
     static_assert(requires(std::string& value) {
-      no_zero::trim_to(value, unsigned{1});
+      no_zero{value}.trim_to(unsigned{1});
     });
     static_assert(requires(std::string& value) {
-      no_zero::trim_to(value, int16_t{-1});
+      no_zero{value}.trim_to(int16_t{-1});
     });
 
     std::string s;
 
-    no_zero::resize_to(s, 50);
+    no_zero{s}.resize_to(50);
     auto cap = s.capacity();
 
     // Shrink within current size.
-    no_zero::trim_to(s, 20);
+    no_zero{s}.trim_to(20);
     CHECK(s.size() == 20u);
     CHECK(s.capacity() == cap);
 
     // Same size is a no-op.
-    no_zero::trim_to(s, 20);
+    no_zero{s}.trim_to(20);
     CHECK(s.size() == 20u);
     CHECK(s.capacity() == cap);
 
     // Larger size request must not enlarge.
-    no_zero::trim_to(s, 40);
+    no_zero{s}.trim_to(40);
     CHECK(s.size() == 20u);
     CHECK(s.capacity() == cap);
 
     // Trimming to zero works and still preserves capacity.
-    no_zero::trim_to(s, 0);
+    no_zero{s}.trim_to(0);
     CHECK(s.size() == 0u);
     CHECK(s.capacity() == cap);
 
     // Negative signed values clamp to zero.
-    no_zero::resize_to(s, 30);
-    no_zero::trim_to(s, -1);
+    no_zero{s}.resize_to(30);
+    no_zero{s}.trim_to(-1);
     CHECK(s.size() == 0u);
     CHECK(s.capacity() == cap);
 
     // Positive signed values trim normally after the signed check.
-    no_zero::resize_to(s, 30);
-    no_zero::trim_to(s, int16_t{6});
+    no_zero{s}.resize_to(30);
+    no_zero{s}.trim_to(int16_t{6});
     CHECK(s.size() == 6u);
     CHECK(s.capacity() == cap);
 
     // Any integer type is accepted, including unsigned non-size_t.
-    no_zero::resize_to(s, 30);
-    no_zero::trim_to(s, 7u);
+    no_zero{s}.resize_to(30);
+    no_zero{s}.trim_to(7u);
     CHECK(s.size() == 7u);
     CHECK(s.capacity() == cap);
 
     // Returns a reference to the same string.
-    CHECK(&no_zero::trim_to(s, 10) == &s);
+    CHECK(&*no_zero{s}.trim_to(10) == &s);
     CHECK(s.size() == 7u);
     CHECK(s.capacity() == cap);
   }
@@ -2051,7 +2051,7 @@ TEST_CASE("NoZero", "[StringUtilsTest]") {
     // Tiny request on an empty string: fits in SSO, so size expands to the
     // full SSO capacity.
     std::string s;
-    no_zero::enlarge_to(s, 3);
+    no_zero{s}.enlarge_to(3);
     CHECK(s.size() >= 3u);
     CHECK(s.size() == sso_cap);
     CHECK(s.size() == s.capacity());
@@ -2059,29 +2059,29 @@ TEST_CASE("NoZero", "[StringUtilsTest]") {
     // Another tiny request within current capacity: no reallocation, size
     // stays at the full current capacity.
     auto cap_before = s.capacity();
-    no_zero::enlarge_to(s, 2);
+    no_zero{s}.enlarge_to(2);
     CHECK(s.size() == cap_before);
     CHECK(s.capacity() == cap_before);
 
     // Small request beyond current capacity: reallocates, then fills capacity.
-    no_zero::enlarge_to(s, 50);
+    no_zero{s}.enlarge_to(50);
     CHECK(s.size() >= 50u);
     CHECK(s.size() == s.capacity());
 
     // Request within the new capacity: no reallocation.
     cap_before = s.capacity();
-    no_zero::enlarge_to(s, 50);
+    no_zero{s}.enlarge_to(50);
     CHECK(s.size() == cap_before);
     CHECK(s.capacity() == cap_before);
 
     // Large request well beyond current capacity: reallocates and fills.
     auto large = s.capacity() * 4;
-    no_zero::enlarge_to(s, large);
+    no_zero{s}.enlarge_to(large);
     CHECK(s.size() >= large);
     CHECK(s.size() == s.capacity());
 
     // Returns a reference to the same string.
-    CHECK(&no_zero::enlarge_to(s, 4) == &s);
+    CHECK(&*no_zero{s}.enlarge_to(4) == &s);
   }
 
   // `clear_out`: releases the heap buffer (capacity drops to SSO level) and
@@ -2089,23 +2089,23 @@ TEST_CASE("NoZero", "[StringUtilsTest]") {
   if (true) {
     // Heap-allocated string: buffer is released.
     std::string s;
-    no_zero::enlarge_to(s, 100);
+    no_zero{s}.enlarge_to(100);
     CHECK(s.capacity() >= 100u);
-    no_zero::clear_out(s);
+    no_zero{s}.clear_out();
     CHECK(s.size() == 0u);
     CHECK((s.capacity()) < (100u));
     CHECK(s.capacity() >= sso_cap);
 
     // SSO-sized string: capacity is unchanged (nothing to release).
     std::string t;
-    no_zero::resize_to(t, 4);
+    no_zero{t}.resize_to(4);
     auto cap = t.capacity();
-    no_zero::clear_out(t);
+    no_zero{t}.clear_out();
     CHECK(t.size() == 0u);
     CHECK(t.capacity() == cap);
 
     // Returns a reference to the same string.
-    CHECK(&no_zero::clear_out(s) == &s);
+    CHECK(&*no_zero{s}.clear_out() == &s);
   }
 
   // `rightsize_to`: when capacity is within [minimum_size, maximum_size],
@@ -2115,31 +2115,45 @@ TEST_CASE("NoZero", "[StringUtilsTest]") {
   if (true) {
     // Tiny: SSO capacity within bounds -> enlarge_to path.
     std::string s;
-    no_zero::rightsize_to(s, 3, 100);
+    no_zero{s}.rightsize_to(3, 100);
     CHECK(s.size() >= 3u);
     CHECK(s.size() == s.capacity());
 
     // Tiny: SSO capacity above maximum -> shrink to minimum_size.
     std::string t;
-    no_zero::resize_to(t, 4); // capacity == sso_cap
-    no_zero::rightsize_to(t, 2, sso_cap - 1);
+    no_zero{t}.resize_to(4); // capacity == sso_cap
+    no_zero{t}.rightsize_to(2, sso_cap - 1);
     CHECK(t.size() == 2u);
 
     // Small: capacity within bounds -> enlarge_to path.
     std::string u;
-    no_zero::rightsize_to(u, 50, 500);
+    no_zero{u}.rightsize_to(50, 500);
     CHECK(u.size() >= 50u);
     CHECK(u.size() == u.capacity());
 
     // Small: capacity above maximum -> shrinks to minimum_size.
-    no_zero::enlarge_to(u, 200);
+    no_zero{u}.enlarge_to(200);
     CHECK(u.capacity() >= 200u);
-    no_zero::rightsize_to(u, 50, 100);
+    no_zero{u}.rightsize_to(50, 100);
     CHECK(u.size() == 50u);
     CHECK((u.capacity()) < (200u));
 
     // Returns a reference to the same string.
-    CHECK(&no_zero::rightsize_to(u, 50, 500) == &u);
+    CHECK(&*no_zero{u}.rightsize_to(50, 500) == &u);
+  }
+
+  // The wrapper is code-unit generic, methods chain, and the arrow reaches
+  // the wrapped string.
+  if (true) {
+    std::wstring w;
+    no_zero{w}.enlarge_to(50);
+    CHECK(w.size() >= 50u);
+    CHECK(w.size() == w.capacity());
+    CHECK(no_zero{w}.trim_to(3)->size() == 3u);
+
+    std::u16string u16;
+    CHECK(&*no_zero{u16}.resize_to(20).clear_out() == &u16);
+    CHECK(u16.size() == 0u);
   }
 }
 

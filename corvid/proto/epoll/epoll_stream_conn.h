@@ -45,7 +45,7 @@
 
 namespace corvid { inline namespace proto {
 
-using namespace corvid::strings::no_zero_funcs;
+using corvid::strings::no_zero;
 using namespace corvid::strings::any_strings_types;
 
 // Forward declaration for `epoll_stream_conn_handlers`.
@@ -876,7 +876,7 @@ private:
     if (!recv_buf_.buffer.empty()) return;
     const size_t configured = recv_buf_.min_capacity;
     const size_t actual =
-        no_zero::enlarge_to(recv_buf_.buffer, configured).size();
+        no_zero{recv_buf_.buffer}.enlarge_to(configured)->size();
     auto expected = configured;
     recv_buf_.min_capacity->compare_exchange_strong(expected, actual,
         std::memory_order::relaxed, std::memory_order::relaxed);
@@ -904,7 +904,7 @@ private:
     const size_t old_end = recv_buf_.end.load(std::memory_order::relaxed);
     if (!sock().recv_at(recv_buf_.buffer, old_end)) {
       const bool hard_error = recv_buf_.buffer.size() == old_end;
-      no_zero::enlarge_to_cap(recv_buf_.buffer);
+      no_zero{recv_buf_.buffer}.enlarge_to_cap();
       if (hard_error) return do_close_now(close_mode::forceful) && false;
 
       // EOF.
@@ -916,7 +916,7 @@ private:
     // `recv_at` trimmed `buffer` to `old_end + n`. Update `end` atomically so
     // any live async parser can see the new bytes, then restore the invariant.
     recv_buf_.end.store(recv_buf_.buffer.size(), std::memory_order::release);
-    no_zero::enlarge_to_cap(recv_buf_.buffer);
+    no_zero{recv_buf_.buffer}.enlarge_to_cap();
 
     // If a view is already live, the in-flight parser will observe the new
     // bytes on its next `active_view` call; skip dispatching a second
@@ -1141,14 +1141,14 @@ private:
       // Hard error: buffer trimmed to 0 by `recv_at`. EOF: buffer left at
       // full capacity (non-empty).
       const bool hard_error = recv_buf_.buffer.empty();
-      no_zero::enlarge_to_cap(recv_buf_.buffer);
+      no_zero{recv_buf_.buffer}.enlarge_to_cap();
       if (hard_error) return do_close_now(close_mode::forceful) && false;
       // Peer sent FIN: complete the close.
       return do_close_now();
     }
     // Data received (or `EAGAIN`): discard and wait for the next `EPOLLIN`.
     recv_buf_.end.store(0, std::memory_order::relaxed);
-    no_zero::enlarge_to_cap(recv_buf_.buffer);
+    no_zero{recv_buf_.buffer}.enlarge_to_cap();
     return true;
   }
 

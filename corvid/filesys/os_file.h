@@ -35,7 +35,7 @@
 
 namespace corvid { inline namespace filesys {
 
-using namespace corvid::strings::no_zero_funcs;
+using corvid::strings::no_zero;
 
 #pragma region msg_flags
 
@@ -510,8 +510,8 @@ public:
   }
 
   // Read up to `data.size()` bytes from the file into `data`. Use
-  // `no_zero::enlarge_to_cap` or `no_zero::enlarge_to` to get the desired
-  // size.
+  // `no_zero{data}.enlarge_to_cap()` or `no_zero{data}.enlarge_to(n)` to get
+  // the desired size.
   //
   // On success, resizes `data` to the number of bytes read and returns true. A
   // "soft" failure (e.g., EAGAIN) is treated as success with zero bytes read.
@@ -528,7 +528,7 @@ public:
     if (n == 0) return false;
 
     // Update `data` to the size actually read.
-    no_zero::trim_to(data, n);
+    no_zero{data}.trim_to(n);
 
     // If retriable, treat as a success with nothing read, while a hard error
     // is a failure with `data` cleared.
@@ -549,7 +549,7 @@ public:
 
   // Read exactly `data.size()` bytes into `data`, retrying after partial
   // reads and soft errors (e.g., `EINTR`). Size `data` with `data.resize(n)`
-  // or `no_zero::enlarge_to(data, n)` before calling.
+  // or `no_zero{data}.enlarge_to(n)` before calling.
   //
   // Returns true only when all bytes have been read. On EOF before
   // completion, trims `data` to the bytes received and returns false. On hard
@@ -562,7 +562,7 @@ public:
       const ssize_t n = ::read(handle_, data.data() + offset, target - offset);
       // On EOF, trim to bytes received and fail.
       if (n == 0) {
-        no_zero::trim_to(data, offset);
+        no_zero{data}.trim_to(offset);
         return false;
       }
       // On hard error, clear `data` and fail.

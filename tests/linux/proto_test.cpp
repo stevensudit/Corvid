@@ -1122,7 +1122,7 @@ TEST_CASE("DefaultOnError", "[IoLoop]") {
 // Fills active region [b..e) with `ch` so moves can be verified.
 static void setup_rb(epoll_recv_buffer& rb, size_t cap, size_t b, size_t e,
     char ch = 'X') {
-  no_zero::enlarge_to(rb.buffer, cap);
+  no_zero{rb.buffer}.enlarge_to(cap);
   rb.min_capacity = rb.buffer.capacity();
   if (b < e) std::fill(rb.buffer.data() + b, rb.buffer.data() + e, ch);
   rb.begin.store(b, std::memory_order::relaxed);
@@ -1441,7 +1441,7 @@ TEST_CASE("TryTakeFull_StealAllocation", "[RecvBufferView]") {
 
   // Give `out` a large allocation to steal.
   std::string out;
-  no_zero::enlarge_to(out, 512);
+  no_zero{out}.enlarge_to(512);
   const size_t big_cap = out.capacity();
   CHECK(big_cap >= 512U);
 
@@ -1569,7 +1569,7 @@ TEST_CASE("PeerClose", "[StreamConn]") {
   CHECK(conn->send(std::string{"still-open"}));
   CHECK(loop->run_once(0) >= 0);
   std::string buf;
-  no_zero::enlarge_to(buf, 32);
+  no_zero{buf}.enlarge_to(32);
   REQUIRE(b.read(buf));
   CHECK(buf == "still-open");
 
@@ -1652,7 +1652,7 @@ TEST_CASE("Send", "[StreamConn]") {
 
   // Data written by enqueue() is now in the kernel buffer.
   std::string buf;
-  no_zero::enlarge_to(buf, 16);
+  no_zero{buf}.enlarge_to(16);
   REQUIRE(b.read(buf));
   CHECK(buf.size() == 5U);
   CHECK(buf == "world");
@@ -1716,10 +1716,10 @@ TEST_CASE("DrainAfterBufferedSend", "[StreamConn]") {
   std::string tmp;
   while (received.size() < payload.size()) {
     CHECK(loop->run_once(0) >= 0);
-    no_zero::enlarge_to(tmp, 4096);
+    no_zero{tmp}.enlarge_to(4096);
     while (b.read(tmp) && !tmp.empty()) {
       received.append(tmp);
-      no_zero::enlarge_to(tmp, 4096);
+      no_zero{tmp}.enlarge_to(4096);
     }
   }
 
@@ -1754,7 +1754,7 @@ TEST_CASE("DrainAfterImmediateSend", "[StreamConn]") {
   CHECK(drain_count == 2);       // second drain after send queue empties
 
   std::string received;
-  no_zero::enlarge_to(received, 16);
+  no_zero{received}.enlarge_to(16);
   REQUIRE(b.read(received));
   CHECK(received == "hello");
 }
@@ -1785,7 +1785,7 @@ TEST_CASE("SendRejectsOnlyEmptyBuffers", "[StreamConn]") {
   CHECK(drain_count == 2);
 
   std::string received;
-  no_zero::enlarge_to(received, 16);
+  no_zero{received}.enlarge_to(16);
   REQUIRE(b.read(received));
   CHECK(received == "hello");
 }
@@ -1809,7 +1809,7 @@ TEST_CASE("SendMultipleBuffers", "[StreamConn]") {
   CHECK(loop->run_once(0) >= 0); // enqueue_send() -> immediate flush
 
   std::string received;
-  no_zero::enlarge_to(received, 32);
+  no_zero{received}.enlarge_to(32);
   REQUIRE(b.read(received));
   CHECK(received == "hello world");
 }
@@ -1873,7 +1873,7 @@ TEST_CASE("ShutdownRead", "[StreamConn]") {
   CHECK(loop->run_once(0) >= 0);
 
   std::string buf;
-  no_zero::enlarge_to(buf, 32);
+  no_zero{buf}.enlarge_to(32);
   REQUIRE(b.read(buf));
   CHECK(buf == "outbound");
   CHECK(data_count == 0);
@@ -1931,10 +1931,10 @@ TEST_CASE("GracefulClose", "[StreamConn]") {
   std::string tmp;
   while (!closed) {
     CHECK(loop->run_once(0) >= 0);
-    no_zero::enlarge_to(tmp, 4096);
+    no_zero{tmp}.enlarge_to(4096);
     while (b.read(tmp) && !tmp.empty()) {
       received.append(tmp);
-      no_zero::enlarge_to(tmp, 4096);
+      no_zero{tmp}.enlarge_to(4096);
     }
   }
 
@@ -1974,17 +1974,17 @@ TEST_CASE("CloseThenDestructStaysGraceful", "[StreamConn]") {
   std::string tmp;
   for (int i = 0; i < 512 && !closed; ++i) {
     CHECK(loop->run_once(0) >= 0);
-    no_zero::enlarge_to(tmp, 4096);
+    no_zero{tmp}.enlarge_to(4096);
     while (b.read(tmp) && !tmp.empty()) {
       received.append(tmp);
-      no_zero::enlarge_to(tmp, 4096);
+      no_zero{tmp}.enlarge_to(4096);
     }
   }
 
   CHECK(closed);
   CHECK(received.size() == payload.size());
   CHECK(received == payload);
-  no_zero::enlarge_to(tmp, 1);
+  no_zero{tmp}.enlarge_to(1);
   CHECK_FALSE(b.read(tmp));
 }
 
@@ -2135,10 +2135,10 @@ TEST_CASE("DestructorHangsUp", "[StreamConn]") {
 
   std::string received;
   std::string tmp;
-  no_zero::enlarge_to(tmp, 4096);
+  no_zero{tmp}.enlarge_to(4096);
   while (b.read(tmp) && !tmp.empty()) {
     received.append(tmp);
-    no_zero::enlarge_to(tmp, 4096);
+    no_zero{tmp}.enlarge_to(4096);
   }
 
   CHECK(closed);
@@ -2361,7 +2361,7 @@ TEST_CASE("AcceptClone_Nullptr", "[StreamConnWithState]") {
   REQUIRE(client.is_open());
   REQUIRE(client.connect(server_ep).value_or(false));
   std::string buf;
-  no_zero::enlarge_to(buf, 64);
+  no_zero{buf}.enlarge_to(64);
   // recv returns false on EOF; buf is left unchanged (non-empty after the
   // pre-grow above).
   CHECK_FALSE(client.recv(buf));
