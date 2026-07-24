@@ -145,7 +145,9 @@ concept AddressForwarder = std::derived_from<std::remove_cvref_t<T>,
 // and the forwarder's destruction nulls the handle.
 //
 // Destroying, resetting, or reassigning the handle unregisters it. The two
-// ends repair each other, so neither can dangle.
+// ends repair each other, so neither can dangle, provided every registration
+// change goes through a handle; a raw write to the slot while a handle is live
+// voids the guarantee.
 //
 // Registration is exclusive, and the last one wins: constructing a handle
 // for an already-tracked forwarder displaces the previous handle, which reads
