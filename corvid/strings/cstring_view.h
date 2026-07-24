@@ -16,7 +16,6 @@
 // limitations under the License.
 #pragma once
 #include <cstdlib>
-#include <iostream>
 #include <string>
 #include <string_view>
 #include <optional>
@@ -124,7 +123,7 @@ public:
   constexpr basic_cstring_view(std::nullptr_t) noexcept {}
   constexpr basic_cstring_view(std::nullopt_t) noexcept {}
 
-  constexpr basic_cstring_view(const std::string& s) noexcept
+  constexpr basic_cstring_view(const std::basic_string<char_t>& s) noexcept
       : base{view_t{s}} {}
   // Allows `nullptr`.
   constexpr basic_cstring_view(const char_t* psz) : base{psz} {}
@@ -138,15 +137,17 @@ public:
   constexpr explicit basic_cstring_view(const char_t* ps, size_type len)
       : base{from_sv(base::from_ptr(ps, len))} {}
   template<std::contiguous_iterator It, std::sized_sentinel_for<It> End>
-  requires std::same_as<std::iter_value_t<It>, char> &&
+  requires std::same_as<std::iter_value_t<It>, char_t> &&
            (!std::convertible_to<End, size_type>)
   constexpr explicit basic_cstring_view(It first, End last)
       : basic_cstring_view{std::to_address(first), size_type(last - first)} {}
 
-  // Optional as null.
+  // Optional as null. Explicit exactly when construction from `U` itself
+  // would be, since a risky payload stays risky inside an `optional`.
   template<typename U>
   requires std::is_constructible_v<view_t, U>
-  constexpr basic_cstring_view(const std::optional<U>& opt)
+  constexpr explicit(!std::is_convertible_v<const U&, basic_cstring_view>)
+      basic_cstring_view(const std::optional<U>& opt)
       : basic_cstring_view{opt.has_value() ? basic_cstring_view{*opt}
                                            : basic_cstring_view{}} {}
 
@@ -247,7 +248,7 @@ consteval u32cstring_view operator""_u32csv(unsigned long long zero_only) {
 }
 
 // Environment.
-cstring_view operator""_env(const char* ps, std::size_t) noexcept {
+inline cstring_view operator""_env(const char* ps, std::size_t) noexcept {
   PRAGMA_DIAG(push)
   PRAGMA_IGNORED("-Wdeprecated-declarations")
   PRAGMA_MSVC_IGNORED(4996)

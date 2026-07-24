@@ -17,6 +17,7 @@
 
 #include <cstdint>
 #include <format>
+#include <limits>
 #include <map>
 #include <set>
 #include <type_traits>
@@ -205,6 +206,9 @@ TEST_CASE("SplitPg", "[StringUtilsTest]") {
         [](std::string_view s) { return s; }};
     CHECK(strings::split(pg) == std::vector<std::string_view>{"a", "b", "c"});
   }
+  // The generator-based split is usable in constant evaluation, now that
+  // more_pieces and reset are constexpr like their callers.
+  static_assert(strings::split_gen("a b"sv).size() == 2U);
 }
 
 #pragma endregion
@@ -282,6 +286,16 @@ TEST_CASE("Case", "[StringUtilsTest]") {
   // automatically, since they convert to a `std::basic_string_view`.
   CHECK(strings::as_upper("abc"_czsv) == "ABC");
   CHECK(strings::ci_equal("Hi"_optsv, "hi"));
+
+  // The hex helpers are constexpr, so parse_hex4 can be constant-evaluated.
+  static_assert(strings::is_hex_digit('f'));
+  static_assert(strings::is_hex_digit(u'A'));
+  static_assert(!strings::is_hex_digit('g'));
+  static_assert(strings::hex_digit_value('F') == 15);
+  static_assert(strings::parse_hex4("beef"sv, 0).value() == 0xbeefU);
+  // Regression: a huge pos used to wrap the bounds check and read out of
+  // bounds.
+  static_assert(!strings::parse_hex4("beef"sv, npos).has_value());
 }
 
 #pragma endregion
@@ -439,6 +453,12 @@ TEST_CASE("Locate", "[StringUtilsTest]") {
     CHECK(strings::locate_not(s, "b") == 0U);
     CHECK(strings::locate_not("aaaaaa"sv, "a") == npos);
     CHECK(strings::locate_not("aaaaaa"sv, "aa") == npos);
+    // Regression: an empty value matches everywhere, so a non-match is never
+    // found. These used to loop forever.
+    CHECK(strings::locate_not("abc"sv, ""sv) == npos);
+    CHECK(strings::locate_not(""sv, ""sv) == npos);
+    CHECK(strings::rlocate_not("abc"sv, ""sv) == npos);
+    CHECK(strings::rlocate_not(""sv, ""sv) == npos);
     size_t pos{};
     CHECK(strings::located_not(pos, s, 'a') == true);
     CHECK(pos == 4U);
@@ -712,6 +732,10 @@ TEST_CASE("Locate", "[StringUtilsTest]") {
     CHECK(strings::count_located(s, s0) == 0U);
     CHECK(strings::count_located(s, {""sv}) == 24U);
     CHECK(strings::count_located(s, {""}) == 24U);
+
+    // count_located is constexpr, like the locate family it wraps.
+    static_assert(strings::count_located("abcabc"sv, 'a') == 2U);
+    static_assert(strings::count_located("abcabc"sv, "abc"sv) == 2U);
   }
 }
 
@@ -991,6 +1015,20 @@ TEST_CASE("Substitute", "[StringUtilsTest]") {
     s = std::string{sv};
     CHECK(strings::substitute(s, {""sv}, {""sv}) == 7U);
     CHECK(s == "abcdef");
+  }
+  if (true) {
+    // Regression: with an empty `to`, the multi-value overload used to skip
+    // a character after each replacement, missing adjacent matches that the
+    // single-value overload catches.
+    auto s = std::string{"abab"};
+    CHECK(strings::substitute(s, "ab"sv, ""sv) == 2U);
+    CHECK(s == "");
+    s = std::string{"abab"};
+    CHECK(strings::substitute(s, {"ab"sv}, {""sv}) == 2U);
+    CHECK(s == "");
+    s = std::string{"xababy"};
+    CHECK(strings::substitute(s, {"ab"sv}, {""sv}) == 2U);
+    CHECK(s == "xy");
   }
 }
 
@@ -1321,6 +1359,19 @@ TEST_CASE("Trim", "[StringUtilsTest]") {
     strings::trim(s);
     CHECK(s == "abc");
   }
+  if (true) {
+    // Regression: an all-whitespace trim_left (and trim) used to return a
+    // null view; it now returns an empty view anchored in the input,
+    // matching trim_right.
+    constexpr auto sp = "  "sv;
+    CHECK(strings::trim_left(sp).data() == sp.data() + sp.size());
+    CHECK(strings::trim_right(sp).data() == sp.data());
+    CHECK(strings::trim(sp).data() != nullptr);
+    CHECK(strings::trim(""sv).data() != nullptr);
+    // So a trimmed non-null empty still splits as one empty piece.
+    CHECK(strings::split_gen(strings::trim(sp)) ==
+          std::vector<std::string_view>{""});
+  }
 }
 
 #pragma endregion
@@ -1505,6 +1556,27 @@ TEST_CASE("AppendNum", "[StringUtilsTest]") {
         ("1.00004p+16"));
     CHECK(strings::num_as_string<std::chars_format::general>(
               double(65536.25)) == "65536.25");
+  }
+  if (true) {
+    // Regression: a signed value in prefixed hex used to garble the output
+    // ("0x000000-1"); it now renders as the unsigned two's-complement bit
+    // pattern.
+    CHECK(strings::num_as_string<16>(int8_t{-1}) == "0xff");
+    CHECK(strings::num_as_string<16>(int32_t{-1}) == "0xffffffff");
+    CHECK(strings::num_as_string<16>(int32_t{16}) == "0x00000010");
+    CHECK(strings::num_as_string<16>(std::numeric_limits<int64_t>::min()) ==
+          "0x8000000000000000");
+    // Regression: the worst-case integer rendering (a sign plus 64 binary
+    // digits) used to overflow the buffer and silently append nothing.
+    CHECK(strings::num_as_string<2>(std::numeric_limits<int64_t>::min()) ==
+          "-1" + std::string(63, '0'));
+    // Regression: fixed-format output longer than 64 characters used to
+    // silently append nothing.
+    const auto big = strings::num_as_string<std::chars_format::fixed>(1e300);
+    CHECK(big.size() == 301U);
+    CHECK(big.starts_with("1"));
+    CHECK((strings::num_as_string<std::chars_format::fixed, 100>(1.5)) ==
+          "1.5" + std::string(99, '0'));
   }
 }
 
@@ -2052,6 +2124,14 @@ TEST_CASE("TokenParser", "[StringUtilsTest]") {
   ctoken = token_parser::next_terminated(',', input);
   REQUIRE_FALSE(ctoken.has_value());
   CHECK(input == "three");
+
+  // Regression: an empty separator used to return an empty token without
+  // consuming anything, an infinite-loop trap; it now consumes the whole
+  // input as one token, matching extract_piece.
+  input = "abc";
+  CHECK(token_parser::next_delimited("", input) == "abc");
+  CHECK(input.empty());
+  CHECK(token_parser::next_delimited("", input) == "");
 }
 
 #pragma endregion

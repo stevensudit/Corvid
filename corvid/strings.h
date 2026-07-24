@@ -37,4 +37,4 @@
 // The way to do that is to import just `corvid` and then reference symbols
 // through the `strings` namespace, such as `strings::trim("a ")`. You can also
 // choose to import the inline namespace for that group of symbols, such as
-// `corvid::trimming`.
+// `corvid::strings::trimming`.

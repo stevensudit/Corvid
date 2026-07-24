@@ -89,6 +89,10 @@ template<typename R = void, CharType C>
     std::type_identity_t<basic_delim<C>> d = {}) {
   using result_t =
       std::conditional_t<std::is_void_v<R>, std::basic_string<C>, R>;
+  // A trivially copyable `R` is a non-owning view, which would dangle into
+  // the temporary; this overload exists precisely to prevent that.
+  static_assert(!std::is_trivially_copyable_v<result_t>,
+      "R must be an owning string type");
   return split<result_t>(std::basic_string_view<C>(whole), d);
 }
 
@@ -117,7 +121,7 @@ concept PieceGenerator = requires(T t,
   typename T::char_t;
   requires std::is_move_constructible_v<T>;
   { T{s} };
-  { t.more_pieces(s) };
+  { t.more_pieces(s) } -> std::convertible_to<bool>;
 };
 
 #pragma endregion
@@ -189,7 +193,7 @@ struct basic_piece_generator {
   // good idea, especially if you have state that needs to be cleared in
   // between calls. The return allows passing `piece_generator.reset(x)` to the
   // `split` function.
-  auto& reset(view_t new_whole) {
+  constexpr auto& reset(view_t new_whole) {
     whole = new_whole;
     return *this;
   }
@@ -201,8 +205,8 @@ struct basic_piece_generator {
   //
   // Fills `part` with the next piece from `whole` and returns `true`. On
   // failure, such as when there's nothing left to parse, returns `false`.
-  [[nodiscard]] static bool more_pieces(view_t& part, opt_view_t& whole,
-      const DelimFinder<Char> auto& finder,
+  [[nodiscard]] static constexpr bool more_pieces(view_t& part,
+      opt_view_t& whole, const DelimFinder<Char> auto& finder,
       const PieceFilter<Char> auto& filter) {
     for (;;) {
       if (whole.null()) return false;
@@ -220,7 +224,7 @@ struct basic_piece_generator {
 
   // Fills `part` with the next piece and returns `true`. On failure, such as
   // when there's nothing left to parse, returns `false`.
-  [[nodiscard]] bool more_pieces(view_t& part) {
+  [[nodiscard]] constexpr bool more_pieces(view_t& part) {
     return more_pieces(part, whole, finder, filter);
   }
 

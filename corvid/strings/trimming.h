@@ -36,8 +36,9 @@ trim_left(const S& whole, basic_delim<char_type_of_t<S>> ws = {}) {
   using C = char_type_of_t<S>;
   const std::basic_string_view<C> sv{as_view(whole)};
   auto pos = ws.find_not_in(sv);
-  std::basic_string_view<C> part;
-  if (pos != part.npos) part = sv.substr(pos);
+  // On all whitespace, return an empty view anchored in `sv`, not a null
+  // view, matching `trim_right`.
+  const auto part = pos != sv.npos ? sv.substr(pos) : sv.substr(sv.size());
   return R{part};
 }
 

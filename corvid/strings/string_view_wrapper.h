@@ -118,8 +118,9 @@ public:
     return sv_.copy(dest, count, pos);
   }
 
+  // Not `noexcept`: the position-taking overloads throw `std::out_of_range`.
   template<typename... Args>
-  [[nodiscard]] constexpr auto compare(Args&&... args) const noexcept {
+  [[nodiscard]] constexpr auto compare(Args&&... args) const {
     return sv_.compare(std::forward<Args>(args)...);
   }
   template<typename... Args>
@@ -147,6 +148,18 @@ public:
   [[nodiscard]] constexpr auto
   find_last_not_of(Args&&... args) const noexcept {
     return sv_.find_last_not_of(std::forward<Args>(args)...);
+  }
+  template<typename... Args>
+  [[nodiscard]] constexpr auto starts_with(Args&&... args) const noexcept {
+    return sv_.starts_with(std::forward<Args>(args)...);
+  }
+  template<typename... Args>
+  [[nodiscard]] constexpr auto ends_with(Args&&... args) const noexcept {
+    return sv_.ends_with(std::forward<Args>(args)...);
+  }
+  template<typename... Args>
+  [[nodiscard]] constexpr auto contains(Args&&... args) const noexcept {
+    return sv_.contains(std::forward<Args>(args)...);
   }
 
 #pragma endregion
@@ -179,12 +192,21 @@ public:
   // invariants carry through `value`, `operator*`, and `operator->`. As with
   // `std::optional`, `value` throws `std::bad_optional_access` when `null`,
   // while `operator*` and `operator->` are undefined when `null` (asserted in
-  // debug builds).
-  [[nodiscard]] constexpr const child_t& value() const {
+  // debug builds). On an rvalue wrapper, `value` and `operator*` return the
+  // child by value so the result cannot dangle.
+  [[nodiscard]] constexpr const child_t& value() const& {
     if (null()) throw std::bad_optional_access{};
     return as_child();
   }
-  [[nodiscard]] constexpr const child_t& operator*() const noexcept {
+  [[nodiscard]] constexpr child_t value() && {
+    if (null()) throw std::bad_optional_access{};
+    return as_child();
+  }
+  [[nodiscard]] constexpr const child_t& operator*() const& noexcept {
+    assert(!null());
+    return as_child();
+  }
+  [[nodiscard]] constexpr child_t operator*() && noexcept {
     assert(!null());
     return as_child();
   }

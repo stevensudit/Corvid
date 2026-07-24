@@ -55,16 +55,16 @@ template<CharType C>
 }
 
 template<CharType C>
-[[nodiscard]] inline bool is_lc_hex_alpha(C ch) noexcept {
+[[nodiscard]] constexpr bool is_lc_hex_alpha(C ch) noexcept {
   return (ch >= C('a') && ch <= C('f'));
 }
 
 template<CharType C>
-[[nodiscard]] inline bool is_uc_hex_alpha(C ch) noexcept {
+[[nodiscard]] constexpr bool is_uc_hex_alpha(C ch) noexcept {
   return (ch >= C('A') && ch <= C('F'));
 }
 
-[[nodiscard]] inline bool is_hex_digit(CharType auto ch) noexcept {
+[[nodiscard]] constexpr bool is_hex_digit(CharType auto ch) noexcept {
   return is_digit(ch) || is_lc_hex_alpha(ch) || is_uc_hex_alpha(ch);
 }
 

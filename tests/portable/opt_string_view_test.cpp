@@ -19,6 +19,8 @@
 #include <map>
 #include <set>
 #include <span>
+#include <type_traits>
+#include <utility>
 
 #include "corvid/strings/opt_string_view.h"
 #include "corvid/meta.h"
@@ -284,6 +286,16 @@ TEST_CASE("Optional", "[OptStringViewTest]") {
     osv = opt;
     CHECK(osv == "test");
   }
+  // On an rvalue wrapper, value() and operator*() return the child by value,
+  // so the result cannot dangle.
+  static_assert(
+      std::is_same_v<decltype(std::declval<const opt_string_view&>().value()),
+          const opt_string_view&>);
+  static_assert(std::is_same_v<
+      decltype(std::declval<opt_string_view&&>().value()), opt_string_view>);
+  static_assert(std::is_same_v<decltype(*std::declval<opt_string_view&&>()),
+      opt_string_view>);
+  CHECK(opt_string_view{"abc"sv}.value() == "abc");
 }
 
 #pragma endregion
