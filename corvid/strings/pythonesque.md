@@ -117,7 +117,14 @@ input for further analysis, not a commitment to build any particular item.
   and `resize_and_overwrite` remains available as a local change if a
   profile ever demands it.
 - `expandtabs`: tab-to-column-stop expansion. Niche, but it has no std
-  equivalent at all.
+  equivalent at all. DONE: `expand_tabs` in [indenting.h](indenting.h), a new
+  header scoped to indentation and column layout, intended to also host
+  `dedent` and friends when the `textwrap` items land. Python semantics: a tab
+  advances to the next multiple of `tab_size` (default 8), the column resets
+  after `\n` or `\r`, and a `tab_size` of zero deletes tabs. Naming ruling:
+  plain `expand_tabs` rather than an `as_*` form, since there is no in-place
+  `to_*` counterpart to distinguish it from (the length changes, so in-place
+  makes no sense).
 
 ## Missing, module-sized (Python stdlib beyond `str`)
 

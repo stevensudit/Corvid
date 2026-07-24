@@ -25,6 +25,7 @@
 #include "strings/streaming.h"
 #include "strings/trimming.h"
 #include "strings/splitting.h"
+#include "strings/indenting.h"
 #include "strings/string_partition.h"
 #include "strings/token_parser.h"
 #include "strings/conversion.h"

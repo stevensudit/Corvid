@@ -16,6 +16,7 @@
 // limitations under the License.
 
 #include <algorithm>
+#include <compare>
 #include <cstdint>
 #include <format>
 #include <limits>
@@ -540,7 +541,7 @@ TEST_CASE("CaseStrings", "[StringUtilsTest]") {
     CHECK(strings::ci_compare(u"AB"sv, u"ab"sv) ==
           std::weak_ordering::equivalent);
     // Contrast with the case-sensitive ordering, where 'B' < 'a' in ASCII.
-    CHECK(("Banana"sv <=> "apple"sv) < 0);
+    CHECK(std::is_lt("Banana"sv <=> "apple"sv));
   }
   // Swap, capitalize, and title-case, on copies and in place.
   if (true) {
@@ -1755,6 +1756,44 @@ TEST_CASE("TrimAffixes", "[StringUtilsTest]") {
     constexpr auto sp = "ab"sv;
     CHECK(strings::trim_prefix(sp, "a").data() == sp.data() + 1);
     CHECK(strings::trim_suffix(sp, "b").data() == sp.data());
+  }
+}
+
+#pragma endregion
+#pragma region ExpandTabs
+
+TEST_CASE("ExpandTabs", "[StringUtilsTest]") {
+  // A tab advances to the next multiple of tab_size, so the space count
+  // depends on the column it falls in.
+  if (true) {
+    CHECK(strings::expand_tabs("\t") == "        ");
+    CHECK(strings::expand_tabs("a\tb") == "a       b");
+    CHECK(strings::expand_tabs("ab\tc") == "ab      c");
+    // A tab landing exactly on a stop advances a full tab_size.
+    CHECK(strings::expand_tabs("12345678\tx") == "12345678        x");
+    CHECK(strings::expand_tabs("\t\t") == std::string(16, ' '));
+    // The Python docs example, both at the default and at 4.
+    CHECK(strings::expand_tabs("01\t012\t0123\t01234") ==
+          "01      012     0123    01234");
+    CHECK(strings::expand_tabs("01\t012\t0123\t01234", 4) ==
+          "01  012 0123    01234");
+  }
+  // The column resets after a newline or carriage return.
+  if (true) {
+    CHECK(strings::expand_tabs("ab\n\tc") == "ab\n        c");
+    CHECK(strings::expand_tabs("ab\r\tc") == "ab\r        c");
+    CHECK(strings::expand_tabs("ab\r\n\tc") == "ab\r\n        c");
+  }
+  // Degenerate tab sizes: 1 makes every tab a single space, 0 deletes tabs.
+  if (true) {
+    CHECK(strings::expand_tabs("a\t\tb", 1) == "a  b");
+    CHECK(strings::expand_tabs("a\tb\tc", 0) == "abc");
+  }
+  // Tab-free input passes through, and any code unit works.
+  if (true) {
+    CHECK(strings::expand_tabs("") == "");
+    CHECK(strings::expand_tabs("no tabs here") == "no tabs here");
+    CHECK(strings::expand_tabs(u"a\tb", 4) == u"a   b");
   }
 }
 
