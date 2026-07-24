@@ -336,6 +336,27 @@ TEST_CASE("SpanConstness", "[MetaTest]") {
 }
 
 #pragma endregion
+#pragma region CharArray
+
+TEST_CASE("CharArray", "[MetaTest]") {
+  CHECK(CharArray<char[5]>);
+  CHECK(CharArray<const char[5]>);
+  CHECK(CharArray<char (&)[5]>);
+  CHECK(CharArray<const char (&)[5]>);
+  CHECK_FALSE(CharArray<char*>);
+  CHECK_FALSE(CharArray<int[5]>);
+}
+
+#pragma endregion
+#pragma region NullPtr
+
+TEST_CASE("NullPtr", "[MetaTest]") {
+  CHECK(NullPtr<std::nullptr_t>);
+  CHECK(NullPtr<const std::nullptr_t&>);
+  CHECK_FALSE(NullPtr<void*>);
+}
+
+#pragma endregion
 #pragma region FunctionVoidReturn
 
 TEST_CASE("FunctionVoidReturn", "[MetaTest]") {
@@ -507,6 +528,26 @@ TEST_CASE("TypeName", "[MetaTest]") {
   const auto ptr = friendly_type_name<const std::vector<int>*>();
   CHECK(ptr.contains("> const"));
   CHECK_FALSE(ptr.contains("> >"));
+
+  // Top-level cv on a pointer is spelled trailing: a leading const would
+  // name a different type (pointer-to-const). Pointer spacing is
+  // platform-dependent, so predicates rather than goldens.
+  const auto cptr = friendly_type_name<int* const>();
+  CHECK(cptr.ends_with(" const"));
+  CHECK_FALSE(cptr.starts_with("const"));
+  CHECK_FALSE(cptr.contains("__ptr64"));
+  const auto cvptr = friendly_type_name<const int* const>();
+  CHECK(cvptr.ends_with(" const"));
+  CHECK_FALSE(cvptr.starts_with("const"));
+  // Member pointers get the trailing spelling too.
+  const auto mptr = friendly_type_name<int Foo::* const>();
+  CHECK(mptr.ends_with(" const"));
+  CHECK_FALSE(mptr.starts_with("const"));
+
+  // MSVC calling-convention annotations are stripped; the commas are
+  // normalized on every platform.
+  CHECK(
+      friendly_type_name<void (*)(int, double)>() == "void (*)(int, double)");
 }
 
 #pragma endregion
@@ -732,7 +773,7 @@ static_assert(!AddressForwarder<int>);
 
 TEST_CASE("Basic", "[AddressForwarder]") {
   Trackable t{42};
-  CHECK(t.forwarding_address() == nullptr);
+  CHECK(t.forwarding_address_ptr(Trackable::raw::allow) == nullptr);
 }
 
 #pragma endregion
@@ -742,8 +783,9 @@ TEST_CASE("Track", "[AddressForwarder]") {
   Trackable* ptr{};
   {
     Trackable t{7};
-    ptr = &t;                      // set initial value manually
-    t.forwarding_address() = &ptr; // register for future updates
+    ptr = &t; // set initial value manually
+    t.forwarding_address_ptr(Trackable::raw::allow) =
+        &ptr; // register for future updates
     CHECK(ptr == &t);
   }
   // Destruction writes nullptr through the registered pointer.
@@ -757,14 +799,14 @@ TEST_CASE("MoveConstruct", "[AddressForwarder]") {
   Trackable* ptr{};
   Trackable a{1};
   ptr = &a;
-  a.forwarding_address() = &ptr;
+  a.forwarding_address_ptr(Trackable::raw::allow) = &ptr;
   CHECK(ptr == &a);
 
   Trackable b{std::move(a)};
   // Move construction updates `ptr` to the new location.
   CHECK(ptr == &b);
   // Source no longer holds the forwarding address slot.
-  CHECK(a.forwarding_address() == nullptr);
+  CHECK(a.forwarding_address_ptr(Trackable::raw::allow) == nullptr);
 }
 
 #pragma endregion
@@ -774,17 +816,17 @@ TEST_CASE("MoveAssign", "[AddressForwarder]") {
   Trackable* ptr{};
   Trackable a{2};
   ptr = &a;
-  a.forwarding_address() = &ptr;
+  a.forwarding_address_ptr(Trackable::raw::allow) = &ptr;
   CHECK(ptr == &a);
 
   Trackable b{99};
   b = std::move(a);
   CHECK(ptr == &b);
-  CHECK(a.forwarding_address() == nullptr);
+  CHECK(a.forwarding_address_ptr(Trackable::raw::allow) == nullptr);
 
   // Clearing the forwarding address on `b` stops future tracking, but does
   // not touch the external `ptr` variable itself.
-  b.forwarding_address() = nullptr;
+  b.forwarding_address_ptr(Trackable::raw::allow) = nullptr;
   CHECK(ptr == &b);
 }
 
@@ -792,7 +834,7 @@ TEST_CASE("SelfAssign", "[AddressForwarder]") {
   Trackable* ptr{};
   Trackable a{3};
   ptr = &a;
-  a.forwarding_address() = &ptr;
+  a.forwarding_address_ptr(Trackable::raw::allow) = &ptr;
 
   // Self-assignment must not corrupt state.
   PRAGMA_DIAG(push)
@@ -812,40 +854,44 @@ TEST_CASE("DestroySource", "[AddressForwarder]") {
   {
     Trackable a{5};
     ptr = &a;
-    a.forwarding_address() = &ptr;
+    a.forwarding_address_ptr(Trackable::raw::allow) = &ptr;
     b = std::move(a);
     // `a` no longer owns the slot; destroying it must not null `ptr`.
   }
   CHECK(ptr == &b);
-  b.forwarding_address() = nullptr;
+  b.forwarding_address_ptr(Trackable::raw::allow) = nullptr;
 }
 
 #pragma endregion
 
-// Derived type with a custom move constructor that uses `as_base_move`.
+// Derived type with a custom move constructor that explicitly moves the base
+// subobject. The cast, rather than `std::move`, both says exactly that and
+// keeps the later `o.value` read honest: the base move touches no derived
+// members.
 struct Trackable2: public address_forwarder<Trackable2> {
   int value{};
   explicit Trackable2(int v) : value{v} {}
   Trackable2(Trackable2&& o) noexcept
-      : address_forwarder{o.as_base_move()}, value{o.value} {}
+      : address_forwarder{static_cast<address_forwarder&&>(o)},
+        value{o.value} {}
   Trackable2& operator=(Trackable2&&) = default;
   friend std::ostream& operator<<(std::ostream& os, const Trackable2& t) {
     return os << "Trackable2{" << t.value << "}";
   }
 };
 
-#pragma region AddressForwarder_AsBaseMove
+#pragma region AddressForwarder_CustomMoveCtor
 
-TEST_CASE("AsBaseMove", "[AddressForwarder]") {
+TEST_CASE("CustomMoveCtor", "[AddressForwarder]") {
   Trackable2* ptr{};
   Trackable2 a{8};
   ptr = &a;
-  a.forwarding_address() = &ptr;
+  a.forwarding_address_ptr(Trackable2::raw::allow) = &ptr;
   CHECK(ptr == &a);
 
   Trackable2 b{std::move(a)};
   CHECK(ptr == &b);
-  CHECK(a.forwarding_address() == nullptr);
+  CHECK(a.forwarding_address_ptr(Trackable2::raw::allow) == nullptr);
 }
 
 #pragma endregion
@@ -856,7 +902,7 @@ TEST_CASE("BoundFunction", "[AddressForwarder]") {
   // a pointer registered before the move chain tracks it to its final home.
   Trackable* ptr{};
   Trackable t{99};
-  t.forwarding_address() = &ptr;
+  t.forwarding_address_ptr(Trackable::raw::allow) = &ptr;
   // ptr is still null here; each move in the chain below will update it.
 
   std::function<int()> fn = [t = std::move(t)]() mutable { return t.value; };
@@ -872,7 +918,109 @@ TEST_CASE("BoundFunction", "[AddressForwarder]") {
 
   // Clear forwarding so fn's destructor does not write through the soon-to-be
   // dangling &ptr.
-  ptr->forwarding_address() = nullptr;
+  ptr->forwarding_address_ptr(Trackable::raw::allow) = nullptr;
+}
+
+#pragma endregion
+#pragma region AddressForwarder_ForwardedAddress
+
+TEST_CASE("ForwardedAddress", "[AddressForwarder]") {
+  // Registration, pointer-like access, and tracking across target moves.
+  if (true) {
+    Trackable a{1};
+    forwarded_address fa{a};
+    REQUIRE(static_cast<bool>(fa));
+    CHECK(fa.get() == &a);
+    CHECK(fa->value == 1);
+    CHECK((*fa).value == 1);
+    Trackable b{std::move(a)};
+    CHECK(fa.get() == &b);
+  }
+
+  // A dying target nulls its handle instead of leaving it dangling.
+  if (true) {
+    auto t = std::make_unique<Trackable>(2);
+    forwarded_address fa{*t};
+    CHECK(fa.get() == t.get());
+    t.reset();
+    CHECK_FALSE(static_cast<bool>(fa));
+    // Resetting a null handle is a harmless no-op.
+    fa.reset();
+    CHECK_FALSE(static_cast<bool>(fa));
+  }
+
+  // A dying handle unregisters, so the target may move or die freely.
+  if (true) {
+    Trackable t{3};
+    if (true) {
+      forwarded_address fa{t};
+      CHECK(t.forwarding_address_ptr(Trackable::raw::allow) != nullptr);
+    }
+    CHECK(t.forwarding_address_ptr(Trackable::raw::allow) == nullptr);
+    Trackable u{std::move(t)};
+    CHECK(u.value == 3);
+  }
+
+  // Moving the handle re-registers it at its new address; RHS goes null.
+  if (true) {
+    Trackable t{4};
+    forwarded_address fa{t};
+    forwarded_address fb{std::move(fa)};
+    // NOLINTNEXTLINE(bugprone-use-after-move): moved-from state is the point.
+    CHECK_FALSE(static_cast<bool>(fa));
+    CHECK(fb.get() == &t);
+    Trackable u{std::move(t)};
+    CHECK(fb.get() == &u);
+  }
+
+  // Move assignment unregisters from the old target and adopts the new one.
+  if (true) {
+    Trackable t{5};
+    Trackable u{6};
+    forwarded_address fa{t};
+    forwarded_address fb{u};
+    fb = std::move(fa);
+    CHECK(fb.get() == &t);
+    // NOLINTNEXTLINE(bugprone-use-after-move): moved-from state is the point.
+    CHECK_FALSE(static_cast<bool>(fa));
+    CHECK(u.forwarding_address_ptr(Trackable::raw::allow) == nullptr);
+  }
+
+  // Reset unregisters and goes null.
+  if (true) {
+    Trackable t{7};
+    forwarded_address fa{t};
+    fa.reset();
+    CHECK_FALSE(static_cast<bool>(fa));
+    CHECK(t.forwarding_address_ptr(Trackable::raw::allow) == nullptr);
+  }
+
+  // Last one wins: a newer handle displaces the older, which reads null.
+  if (true) {
+    Trackable t{8};
+    forwarded_address first{t};
+    forwarded_address second{t};
+    CHECK_FALSE(static_cast<bool>(first));
+    CHECK(second.get() == &t);
+    Trackable u{std::move(t)};
+    CHECK(second.get() == &u);
+  }
+}
+
+TEST_CASE("ForwardedAddressBoundFunction", "[AddressForwarder]") {
+  // The bound-function scenario with no manual disarm: the handle follows
+  // the payload into the closure, and either side may safely die first.
+  Trackable t{99};
+  forwarded_address fa{t};
+  if (true) {
+    std::function<int()> fn = [t = std::move(t)]() mutable { return t.value; };
+    REQUIRE(static_cast<bool>(fa));
+    CHECK(fa->value == 99);
+    fa->value = 42;
+    CHECK(fn() == 42);
+  }
+  // The closure died; the handle went null on its own.
+  CHECK_FALSE(static_cast<bool>(fa));
 }
 
 #pragma endregion
@@ -882,11 +1030,41 @@ static_assert(sizeof(fixed_function<64, int()>) == 64);
 static_assert(sizeof(fixed_function<32, void(int, double)>) == 32);
 static_assert(sizeof(fixed_function<128, int(int, int)>) == 128);
 
+// `padded_size` rounds a size up to its alignment, turning would-be padding
+// into usable storage.
+static_assert(padded_size(1) == alignof(std::max_align_t));
+static_assert(
+    padded_size(alignof(std::max_align_t)) == alignof(std::max_align_t));
+static_assert(
+    padded_size(alignof(std::max_align_t) + 1) ==
+    2 * alignof(std::max_align_t));
+static_assert(padded_size(17, 8) == 24);
+static_assert(padded_size(24, 8) == 24);
+
+// `fixed_function` requires a conforming `SZ` outright: a lesser one would
+// occupy the padded size anyway and waste the difference. `padded_size`
+// output is always accepted, and `sizeof` then matches `SZ` exactly.
+static_assert(
+    sizeof(fixed_function<padded_size(17), int()>) == padded_size(17));
+#ifdef NOT_SUPPOSED_TO_COMPILE
+static_assert(sizeof(fixed_function<17, int()>) > 0);
+#endif
+
 #pragma region FixedFunction_Basic
+
+// The `nullptr` constructor is explicit, unlike the std wrappers'.
+static_assert(
+    std::is_constructible_v<fixed_function<64, int()>, std::nullptr_t>);
+static_assert(
+    !std::is_convertible_v<std::nullptr_t, fixed_function<64, int()>>);
 
 TEST_CASE("Basic", "[FixedFunction]") {
   fixed_function<64, int()> f{[] { return 42; }};
   CHECK(f() == 42);
+
+  // Constructing from `nullptr` yields an empty function, like assigning it.
+  fixed_function<64, int()> fnull{nullptr};
+  CHECK_FALSE(static_cast<bool>(fnull));
 }
 
 #pragma endregion
@@ -896,6 +1074,184 @@ TEST_CASE("Args", "[FixedFunction]") {
   fixed_function<64, int(int, int)> add{[](int x, int y) { return x + y; }};
   CHECK(add(3, 4) == 7);
   CHECK(add(10, -3) == 7);
+}
+
+#pragma endregion
+#pragma region FixedFunction_DiscardedReturn
+
+TEST_CASE("DiscardedReturn", "[FixedFunction]") {
+  // A value-returning callable stored under a void signature has its result
+  // discarded, matching `std::function`.
+  int calls{};
+  fixed_function<64, void(int)> f{[&calls](int n) { return calls += n; }};
+  f(2);
+  f(3);
+  CHECK(calls == 5);
+}
+
+#pragma endregion
+#pragma region FixedFunction_MoveAcrossSizes
+
+TEST_CASE("MoveAcrossSizes", "[FixedFunction]") {
+  // A same-signature sibling of another size transplants the stored
+  // callable: one relocation of the payload, not a nested wrapper.
+  int moves{};
+  struct mover {
+    int* cnt;
+    explicit mover(int* n) : cnt{n} {}
+    mover(mover&& o) noexcept : cnt{o.cnt} { ++*cnt; }
+    int operator()() const { return 42; }
+  };
+  fixed_function<64, int()> small{mover{&moves}};
+  CHECK(small.size() == sizeof(mover));
+  CHECK(small.capacity() == fixed_function<64, int()>::storage_size);
+  CHECK(small.size() <= small.capacity());
+  const int base = moves;
+  fixed_function<96, int()> big{std::move(small)};
+  CHECK(moves == base + 1);
+  CHECK(big() == 42);
+  CHECK_FALSE(static_cast<bool>(small));
+  CHECK(small.size() == 0);
+  CHECK(big.size() == sizeof(mover));
+
+  // Moving an empty sibling yields empty.
+  fixed_function<64, int()> empty_small;
+  fixed_function<96, int()> empty_big{std::move(empty_small)};
+  CHECK_FALSE(static_cast<bool>(empty_big));
+
+  // Downsizing checks the payload at runtime: this one fits.
+  fixed_function<96, int()> roomy{mover{&moves}};
+  fixed_function<64, int()> back{std::move(roomy)};
+  CHECK(back() == 42);
+
+  // A payload too large for the destination throws, leaving the source
+  // whole.
+  fixed_function<96, int()> fat{[pad = std::array<std::byte, 64>{}] {
+    return static_cast<int>(pad.size());
+  }};
+  CHECK(fat.size() > fixed_function<64, int()>::storage_size);
+  CHECK_THROWS_AS((fixed_function<64, int()>{std::move(fat)}),
+      std::length_error);
+  // NOLINTNEXTLINE(bugprone-use-after-move): kept whole on failure.
+  REQUIRE(static_cast<bool>(fat));
+  CHECK(fat() == 64);
+
+  // A refused downsizing assignment leaves both sides whole. Checking
+  // `size` against `capacity` up front predicts the refusal.
+  fixed_function<64, int()> keeper{[] { return 3; }};
+  // NOLINTNEXTLINE(bugprone-use-after-move): kept whole on failure.
+  CHECK(fat.size() > keeper.capacity());
+  // NOLINTNEXTLINE(bugprone-use-after-move): the failed move kept it whole.
+  CHECK_THROWS_AS(keeper = std::move(fat), std::length_error);
+  CHECK(keeper() == 3);
+  // NOLINTNEXTLINE(bugprone-use-after-move): kept whole on failure.
+  CHECK(fat() == 64);
+
+  // Converting move assignment follows the same rules.
+  fixed_function<96, int()> target{[] { return 0; }};
+  fixed_function<64, int()> donor{[] { return 5; }};
+  target = std::move(donor);
+  CHECK(target() == 5);
+
+  // The assignment transplants the payload directly, relocating it exactly
+  // once rather than staging it through a temporary.
+  fixed_function<64, int()> counted{mover{&moves}};
+  const int before = moves;
+  target = std::move(counted);
+  CHECK(moves == before + 1);
+  CHECK(target() == 42);
+}
+
+#pragma endregion
+#pragma region FixedFunction_WrapAcrossSignatures
+
+TEST_CASE("WrapAcrossSignatures", "[FixedFunction]") {
+  // A different-signature fixed_function stores as an ordinary callable,
+  // but, matching `std::function`, wrapping an empty one produces an empty
+  // function rather than a truthy shell that throws when called.
+  fixed_function<64, int(int)> inner{[](int n) { return n * 2; }};
+  fixed_function<96, int(short)> outer{std::move(inner)};
+  CHECK(static_cast<bool>(outer));
+  CHECK(outer(short{4}) == 8);
+
+  fixed_function<64, int(int)> empty_inner;
+  fixed_function<96, int(short)> empty_outer{std::move(empty_inner)};
+  CHECK_FALSE(static_cast<bool>(empty_outer));
+  CHECK_THROWS_AS(empty_outer(short{1}), std::bad_function_call);
+}
+
+#pragma endregion
+#pragma region FixedFunction_WrapStdFunction
+
+TEST_CASE("WrapStdFunction", "[FixedFunction]") {
+  using ff = fixed_function<128, int()>;
+
+  // The wrapper-detection trait lives in traits.h and sees through neither
+  // cvref nor inheritance: it matches the std wrappers themselves.
+  static_assert(is_std_function_wrapper_v<std::function<int()>>);
+  static_assert(!is_std_function_wrapper_v<int (*)()>);
+  static_assert(!is_std_function_wrapper_v<ff>);
+#ifdef __cpp_lib_move_only_function
+  static_assert(is_std_function_wrapper_v<std::move_only_function<int()>>);
+#endif
+
+  // Wrapping a `std::function` is the explicit escape hatch: the shell
+  // stores inline while its payload may live on the heap, at the cost of
+  // double indirection. No implicit conversion, and no moving from lvalues.
+  static_assert(std::is_constructible_v<ff, std::function<int()>&&>);
+  static_assert(!std::is_convertible_v<std::function<int()>&&, ff>);
+  static_assert(!std::is_constructible_v<ff, std::function<int()>&>);
+
+  // The shell stores inline and calls through.
+  ff f{std::function<int()>{[] { return 12; }}};
+  CHECK(f() == 12);
+  CHECK(f.size() == sizeof(std::function<int()>));
+
+  // A functor too large to store directly fits once `std::function` holds
+  // it on the heap.
+  auto big = [pad = std::array<std::byte, 256>{}] {
+    return static_cast<int>(pad.size());
+  };
+  static_assert(sizeof(big) > ff::storage_size);
+  ff g{std::function<int()>{std::move(big)}};
+  CHECK(g() == 256);
+
+  // A compatible cross-signature `std::function` goes through the same
+  // explicit door.
+  fixed_function<128, int(short)> h{
+      std::function<int(int)>{[](int n) { return n * 3; }}};
+  CHECK(h(short{7}) == 21);
+
+#ifdef __cpp_lib_move_only_function
+  // `std::move_only_function` gets the same treatment, and unlike
+  // `std::function` it can carry a move-only payload.
+  static_assert(std::is_constructible_v<ff, std::move_only_function<int()>&&>);
+  static_assert(!std::is_convertible_v<std::move_only_function<int()>&&, ff>);
+  ff m{std::move_only_function<int()>{[p = std::make_unique<int>(7)] {
+    return *p;
+  }}};
+  CHECK(m() == 7);
+  CHECK(m.size() == sizeof(std::move_only_function<int()>));
+
+  // Wrapping an empty one produces an empty function here too, which is an
+  // upgrade: calling it throws where the empty wrapper's own call would be
+  // undefined behavior.
+  ff me{std::move_only_function<int()>{}};
+  CHECK_FALSE(static_cast<bool>(me));
+
+  // Ref-qualified signatures follow the lvalue-invocation rule: `&` works,
+  // `&&` is rejected.
+  static_assert(
+      std::is_constructible_v<ff, std::move_only_function<int() &>&&>);
+  static_assert(
+      !std::is_constructible_v<ff, std::move_only_function<int() &&>&&>);
+#endif
+
+  // Matching `std::function`, wrapping an empty one produces an empty
+  // function rather than a truthy shell that throws when called.
+  ff e{std::function<int()>{}};
+  CHECK_FALSE(static_cast<bool>(e));
+  CHECK(e.size() == 0);
 }
 
 #pragma endregion

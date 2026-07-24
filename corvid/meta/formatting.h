@@ -53,12 +53,19 @@ struct parsed_spec {
 #pragma endregion
 #pragma region Operations
 
+  // Widen code unit `c` to `CharT`, going through the unsigned counterpart
+  // so a negative code unit (a non-ASCII `char`) zero-extends instead of
+  // sign-extending.
+  template<CharType InCharT>
+  [[nodiscard]] static constexpr CharT widen(InCharT c) noexcept {
+    return static_cast<CharT>(static_cast<std::make_unsigned_t<InCharT>>(c));
+  }
+
   // Write character `c`, `count` times.
   template<CharType InCharT, typename OutIt>
   static constexpr OutIt
   write_repeat(OutIt out, InCharT c, std::size_t count) {
-    for (std::size_t i = 0; i < count; ++i)
-      *out++ = static_cast<CharT>(static_cast<wchar_t>(c));
+    for (std::size_t i = 0; i < count; ++i) *out++ = widen(c);
     return out;
   }
 
@@ -66,8 +73,7 @@ struct parsed_spec {
   template<CharType InCharT, typename OutIt>
   static constexpr OutIt
   write_sv(OutIt out, std::basic_string_view<InCharT> sv) {
-    for (const auto c : sv)
-      *out++ = static_cast<CharT>(static_cast<wchar_t>(c));
+    for (const auto c : sv) *out++ = widen(c);
     return out;
   }
 
@@ -92,7 +98,7 @@ struct parsed_spec {
   // Calculate the left and right padding counts for `content_width` in a field
   // of `total_width`, based on `alignment`.
   static constexpr std::pair<size_t, size_t> calc_padding(aligned alignment,
-      std::size_t content_width, std::size_t total_width) {
+      std::size_t content_width, std::size_t total_width) noexcept {
     std::size_t lead = 0;
     std::size_t trail = 0;
     if (total_width > content_width) {
@@ -136,15 +142,15 @@ struct spec_parser: parsed_spec<CharT> {
     // Read an arg value from `spec` at `ndx`, returning an index past the
     // consumed text.
     [[nodiscard]] constexpr std::size_t
-    parse(std::basic_string_view<CharT> spec, std::size_t ndx) {
+    parse(std::basic_string_view<CharT> spec, std::size_t ndx) noexcept {
       *this = make_from_parse(spec, ndx);
       return ndx;
     }
 
     // Read an arg value (a width or precision) at `ndx`, advancing it. A
     // `{...}` is dynamic: empty is auto, digits are a manual arg id.
-    [[nodiscard]] static constexpr arg_value_t
-    make_from_parse(std::basic_string_view<CharT> spec, std::size_t& ndx) {
+    [[nodiscard]] static constexpr arg_value_t make_from_parse(
+        std::basic_string_view<CharT> spec, std::size_t& ndx) noexcept {
       const std::size_t n = spec.size();
       if (ndx < n && spec[ndx] == CharT('{')) {
         ++ndx;
@@ -173,20 +179,21 @@ struct spec_parser: parsed_spec<CharT> {
                  : arg_value_t{arg_kind::none, 0};
     }
 
-    [[nodiscard]] constexpr bool is_dynamic() const {
+    [[nodiscard]] constexpr bool is_dynamic() const noexcept {
       return kind == arg_kind::automatic || kind == arg_kind::manual;
     }
 
-    [[nodiscard]] constexpr bool is_automatic() const {
+    [[nodiscard]] constexpr bool is_automatic() const noexcept {
       return kind == arg_kind::automatic;
     }
 
-    [[nodiscard]] constexpr std::optional<size_t> get_fixed() const {
+    [[nodiscard]] constexpr std::optional<size_t> get_fixed() const noexcept {
       if (kind != arg_kind::fixed) return std::nullopt;
       return value;
     }
 
-    [[nodiscard]] constexpr std::optional<size_t> get_automatic() const {
+    [[nodiscard]] constexpr std::optional<size_t>
+    get_automatic() const noexcept {
       if (kind != arg_kind::automatic) return std::nullopt;
       return value;
     }
@@ -205,13 +212,19 @@ struct spec_parser: parsed_spec<CharT> {
 
     // Resolve a dynamic width or precision: arg `id` as a non-negative
     // integer.
+    //
+    // Per [format.string.std], the arg must be of standard signed or
+    // unsigned integer type, so `bool` and the character types (integral,
+    // but not integers) are rejected just as the std formatters reject them.
     template<typename FormatContext>
     static constexpr std::size_t
     get_dynamic_num(FormatContext& ctx, std::size_t id) {
       return std::visit_format_arg(
           [](auto value) -> std::size_t {
             using T = std::remove_cvref_t<decltype(value)>;
-            if constexpr (std::is_integral_v<T> && !std::is_same_v<T, bool>) {
+            if constexpr (std::is_integral_v<T> && !std::is_same_v<T, bool> &&
+                          !CharType<T>)
+            {
               if constexpr (std::is_signed_v<T>)
                 if (value < 0) throw std::format_error("negative arg");
               return static_cast<std::size_t>(value);
@@ -232,18 +245,38 @@ struct spec_parser: parsed_spec<CharT> {
 #pragma region Operations
 
   // Whether any width or precision is dynamic.
-  [[nodiscard]] constexpr bool is_dynamic() const {
+  [[nodiscard]] constexpr bool is_dynamic() const noexcept {
     return width_arg.is_dynamic() || precision_arg.is_dynamic();
+  }
+
+  // Resolve the effective width at format time: the dynamic arg's value when
+  // the width is dynamic, otherwise the fixed value.
+  template<typename FormatContext>
+  [[nodiscard]] constexpr std::size_t resolve_width(FormatContext& ctx) const {
+    return width_arg.is_dynamic() ? width_arg.get_dynamic(ctx) : base::width;
+  }
+
+  // Resolve the effective precision at format time, likewise.
+  template<typename FormatContext>
+  [[nodiscard]] constexpr std::optional<std::size_t>
+  resolve_precision(FormatContext& ctx) const {
+    if (precision_arg.is_dynamic()) return precision_arg.get_dynamic(ctx);
+    return base::precision;
   }
 
   // Parse the standard format spec into this instance, stopping at the closing
   // `}` (as there may be more after it). Returns the count of code units
   // consumed, which is the offset of that `}`.
-  constexpr std::size_t parse(std::basic_string_view<CharT> spec) {
+  constexpr std::size_t parse(std::basic_string_view<CharT> spec) noexcept {
     std::size_t ndx = 0;
     const std::size_t cnt = spec.size();
-    // [fill] align
-    if (cnt >= 2 && is_align(spec[1])) {
+    // [fill] align. The fill may be any character except `{` or `}`; without
+    // that exclusion, an empty spec followed by a literal align character
+    // (`"{:}<"`) would misread the closing brace as a fill and consume past
+    // the field.
+    if (cnt >= 2 && is_align(spec[1]) && spec[0] != CharT('{') &&
+        spec[0] != CharT('}'))
+    {
       base::fill = spec[0];
       base::alignment = to_alignment(spec[1]);
       ndx = 2;
@@ -322,11 +355,11 @@ struct spec_parser: parsed_spec<CharT> {
 #pragma endregion
 #pragma region Helpers
 private:
-  static constexpr bool is_align(CharT c) {
+  static constexpr bool is_align(CharT c) noexcept {
     return c == CharT('<') || c == CharT('>') || c == CharT('^');
   }
 
-  static constexpr aligned to_alignment(CharT c) {
+  static constexpr aligned to_alignment(CharT c) noexcept {
     if (c == CharT('>')) return aligned::right;
     if (c == CharT('^')) return aligned::center;
     return aligned::left;
@@ -393,6 +426,11 @@ struct forwarding_formatter: std::formatter<U, CharT> {
 // text, give the deriving formatter a default constructor that delegates to
 // the marker constructor, e.g. a `file_handle` formatter: `constexpr
 // formatter() : nullable_formatter<int, CharT>{"closed"} {}`.
+//
+// `U`'s formatter must follow the standard spec grammar: the auto-id path
+// parses the spec with this library's own std-grammar parser and re-presents
+// it to the base with explicit ids, so a custom grammar could be
+// mis-terminated or claim different arg ids.
 template<typename U, CharType CharT,
     null_formatting PlainNull = null_formatting::sentinel,
     null_formatting DebugNull = null_formatting::sentinel>
@@ -428,20 +466,15 @@ struct nullable_formatter: std::formatter<U, CharT> {
     const auto spec_text = std::basic_string_view<CharT>{begin, ctx.end()};
     const auto consumed = spec_.parse(spec_text);
 
-    // The sentinel resolves its own dynamic width, so when it will be shown we
-    // must learn the arg id. A manual `{n}` is in the text (and the base reads
-    // it directly), but an auto `{}` has no id there: claim it from the
-    // context and re-present the spec to the base with explicit ids. Otherwise
-    // the base parses the real spec.
-    const bool is_sentinel_shown =
-        spec_.debug ? DebugNull == null_formatting::sentinel
-                    : PlainNull == null_formatting::sentinel;
+    // A null renders through our own padding in either mode, and that padding
+    // resolves its own dynamic width, so we must learn the arg id. A manual
+    // `{n}` is in the text (and the base reads it directly), but an auto `{}`
+    // has no id there: claim it from the context and re-present the spec to
+    // the base with explicit ids, so the base reads the same args for a
+    // present value. Otherwise the base parses the real spec.
     const bool is_any_auto =
         spec_.width_arg.is_automatic() || spec_.precision_arg.is_automatic();
-
-    // When showing the sentinel using automatic width or precision, claim the
-    // id and rewrite the spec to make it explicit for the base.
-    if (is_sentinel_shown && is_any_auto) {
+    if (is_any_auto) {
       spec_.width_arg.claim_next_automatic(ctx);
       spec_.precision_arg.claim_next_automatic(ctx);
       const auto synthetic = spec_.rewrite_spec_as_explicit(
@@ -462,19 +495,17 @@ struct nullable_formatter: std::formatter<U, CharT> {
     // When underlying value is present, just pass it through.
     if (w) return base::format(*w, ctx);
 
-    // A null shows the sentinel or an empty field per the spec mode. The
-    // sentinel is padded by our own fill/align/width so the base's debug
-    // quoting is bypassed; an empty field goes through the inherited formatter
-    // so a dynamic width is still honored.
+    // A null shows the sentinel or an empty field per the spec mode. Both are
+    // rendered by our own fill/align/width padding, bypassing the base and
+    // its debug quoting, and both honor dynamic width and precision.
     if constexpr (PlainNull == null_formatting::sentinel &&
                   DebugNull == null_formatting::sentinel)
     {
-      return pad_sentinel(ctx);
+      return pad_content(ctx, marker_);
     } else {
       const null_formatting mode = spec_.debug ? DebugNull : PlainNull;
-      return mode == null_formatting::sentinel
-                 ? pad_sentinel(ctx)
-                 : base::format(U{}, ctx);
+      return pad_content(ctx,
+          mode == null_formatting::sentinel ? marker_ : std::string_view{});
     }
   }
 
@@ -482,25 +513,9 @@ struct nullable_formatter: std::formatter<U, CharT> {
 #pragma region Helpers
 private:
   template<typename FormatContext>
-  [[nodiscard]] auto get_width(FormatContext& ctx) const {
-    return spec_.width_arg.is_dynamic()
-               ? spec_.width_arg.get_dynamic(ctx)
-               : spec_.width;
-  }
-
-  template<typename FormatContext>
-  [[nodiscard]] std::optional<std::size_t>
-  get_precision(FormatContext& ctx) const {
-    if (spec_.precision_arg.is_dynamic())
-      return spec_.precision_arg.get_dynamic(ctx);
-    return spec_.precision;
-  }
-
-  template<typename FormatContext>
-  auto pad_sentinel(FormatContext& ctx) const {
-    const std::size_t field_width = get_width(ctx);
-    std::string_view content = marker_;
-    if (const auto prec = get_precision(ctx))
+  auto pad_content(FormatContext& ctx, std::string_view content) const {
+    const std::size_t field_width = spec_.resolve_width(ctx);
+    if (const auto prec = spec_.resolve_precision(ctx))
       content = content.substr(0, *prec);
     return spec_.write_padded(ctx.out(), content, field_width);
   }
@@ -550,14 +565,8 @@ struct self_rendering_formatter {
 
   template<typename T, typename FormatContext>
   auto format(const T& obj, FormatContext& ctx) const {
-    auto width =
-        spec_.width_arg.is_dynamic()
-            ? spec_.width_arg.get_dynamic(ctx)
-            : spec_.width;
-    const auto prec =
-        spec_.precision_arg.is_dynamic()
-            ? spec_.precision_arg.get_dynamic(ctx)
-            : spec_.precision;
+    const auto width = spec_.resolve_width(ctx);
+    const auto prec = spec_.resolve_precision(ctx);
 
     // When available, use `format_to_spec` for maximum flexibility.
     if constexpr (requires { obj.format_to_spec(spec_, ctx.out()); }) {

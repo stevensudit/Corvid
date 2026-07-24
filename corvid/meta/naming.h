@@ -15,7 +15,18 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 #pragma once
-#include "meta_shared.h"
+#include <cstddef>
+#include <cstdlib>
+#include <memory>
+#include <string>
+#include <string_view>
+#include <type_traits>
+#include <typeinfo>
+
+// For demangling in `type_name`.
+#ifndef _MSC_VER
+#include <cxxabi.h>
+#endif
 
 namespace corvid { inline namespace meta { inline namespace naming {
 
@@ -33,7 +44,7 @@ std::string type_name() {
 #else
       nullptr,
 #endif
-      [](void* ptr) { free(ptr); });
+      [](void* ptr) { std::free(ptr); });
   std::string r = own ? own.get() : typeid(TR).name();
   if (std::is_const_v<TR>) r += " const";
   if (std::is_volatile_v<TR>) r += " volatile";
@@ -52,10 +63,13 @@ std::string type_name(T&&) {
 
 // Extract a type name cleaned up for humans (and generated code).
 //
-// Builds on `type_name`, stripping elaborated-type keywords (MSVC spells
-// them), inline-namespace segments, and anonymous-namespace prefixes,
-// normalizing spacing, collapsing the expanded `std::string` spelling, and
-// spelling top-level const in the leading position. Best-effort, like
+// Builds on `type_name`, stripping elaborated-type keywords, pointer-width
+// and calling-convention annotations (MSVC spells all of these),
+// inline-namespace segments, and anonymous-namespace prefixes, normalizing
+// spacing, collapsing the expanded `std::string` spelling, and restoring
+// top-level cv in the leading position, except trailing on a pointer
+// (member pointers included), where a leading const would name a different
+// type. Best-effort, like
 // `type_name`; this band cannot use the string utilities, so the edits are
 // hand-rolled.
 template<typename T>
@@ -74,6 +88,8 @@ std::string friendly_type_name() {
   replace("__cxx11::", "");
   replace("(anonymous namespace)::", "");
   replace("`anonymous namespace'::", "");
+  replace(" __ptr64", "");
+  replace("__cdecl", "");
   // Collapse spaced closing brackets to a fixpoint: one pass cannot see the
   // pair a replacement just created ("> > >" needs two). A blanket "> " to
   // ">" replacement would handle any depth in one pass but is wrong, because
@@ -85,8 +101,13 @@ std::string friendly_type_name() {
       "std::allocator<char>>",
       "std::string");
   replace(",", ", ");
-  if (std::is_volatile_v<TR>) r = "volatile " + r;
-  if (std::is_const_v<TR>) r = "const " + r;
+  if (std::is_pointer_v<TR> || std::is_member_pointer_v<TR>) {
+    if (std::is_const_v<TR>) r += " const";
+    if (std::is_volatile_v<TR>) r += " volatile";
+  } else {
+    if (std::is_volatile_v<TR>) r = "volatile " + r;
+    if (std::is_const_v<TR>) r = "const " + r;
+  }
   if (std::is_lvalue_reference_v<T>)
     r += "&";
   else if (std::is_rvalue_reference_v<T>)

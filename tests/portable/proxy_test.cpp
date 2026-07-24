@@ -306,6 +306,39 @@ consteval auto corvid_proxy_spec(hair_trigger*, robber*) {
   return prox::make_proxy_spec<hair_trigger, robber, as_hair_trigger>();
 }
 
+// `town_crier` pins the conversion half of the erased call's `noexcept`: the
+// method is noexcept, but a call-site argument needing a throwing conversion
+// (a literal into `std::string`) makes the call expression non-noexcept, in
+// both spellings alike.
+struct town_crier
+    : prox::facade<prox::name<"town_crier">, //
+          prox::method<"cry", void(std::string) noexcept>> {
+  struct api {
+    // The by-value parameter is moved, but only in a dependent call the
+    // check cannot see.
+    // NOLINTNEXTLINE(performance-unnecessary-value-param)
+    void cry(this auto&& self, std::string words) noexcept {
+      self.template call<"cry">(std::move(words));
+    }
+  };
+  template<typename T>
+  struct boilerplate: proxy_impl_base {
+    // NOLINTNEXTLINE(performance-unnecessary-value-param)
+    static void on(method_key<"cry">, T& t, std::string words) noexcept {
+      t.cry(std::move(words));
+    }
+  };
+};
+
+struct crier {
+  void cry(std::string words) noexcept { last = std::move(words); }
+  std::string last;
+};
+
+consteval auto corvid_proxy_spec(town_crier*, crier*) {
+  return prox::make_proxy_spec<town_crier, crier>();
+}
+
 // `drifter` conforms to `gunslinger` by name, but its hooks return specs
 // naming the wrong pair, one the wrong target and one the wrong facade.
 // Neither counts as registration: the spec must name the pair the hook is
@@ -977,12 +1010,102 @@ using small_coffer = coffer<4>;
 using big_coffer = coffer<64>;
 
 // Storage policies the tests exercise, against the default's two-pointer
-// buffer with heap fallback.
+// buffer with heap fallback. Buffer sizes go through `padded_size`, as the
+// policy requires, so they conform on any platform alignment.
 namespace policies {
-constexpr proxy_policy big_sbo{.sbo_size = 96};
+constexpr proxy_policy big_sbo{.sbo_size = padded_size(96)};
 constexpr proxy_policy sbo_only{.alloc = proxy_alloc::sbo_only};
 constexpr proxy_policy heap_only{.alloc = proxy_alloc::heap_only};
+constexpr proxy_policy big_align{
+    .sbo_size = padded_size(96, 2 * alignof(std::max_align_t)),
+    .sbo_align = 2 * alignof(std::max_align_t)};
 } // namespace policies
+
+// `ingot` is `strongbox`'s over-aligned sibling: its alignment exceeds the
+// default `sbo_align`, so only a policy that raises the alignment knob may
+// store it inline, no matter how roomy the buffer is.
+struct alignas(2 * alignof(std::max_align_t)) ingot {
+  explicit ingot(life_stats& stats) noexcept : stats_{&stats} {
+    ++stats_->constructed;
+  }
+  ingot(ingot&& other) noexcept : stats_{other.stats_}, gold_{other.gold_} {
+    ++stats_->constructed;
+    ++stats_->moves;
+  }
+  ingot(const ingot&) = delete;
+  ingot& operator=(const ingot&) = delete;
+  ingot& operator=(ingot&&) = delete;
+  ~ingot() { ++stats_->destroyed; }
+
+  int add(int nuggets) { return gold_ += nuggets; }
+  [[nodiscard]] int gold() const { return gold_; }
+
+  life_stats* stats_{};
+  int gold_{};
+};
+
+consteval auto corvid_proxy_spec(lockbox*, ingot*) {
+  return prox::make_proxy_spec<lockbox, ingot>();
+}
+
+// Alignment, not size, is what keeps `ingot` out of the roomy default-aligned
+// buffer.
+static_assert(alignof(ingot) > proxy_policy{}.sbo_align);
+static_assert(sizeof(ingot) <= policies::big_sbo.sbo_size);
+static_assert(alignof(ingot) <= policies::big_align.sbo_align);
+
+// `cursed_coffer` copies like `coffer` until poisoned, after which its copy
+// constructor throws. It pins clone's exception-safety contract.
+struct cursed_coffer {
+  explicit cursed_coffer(life_stats& stats, const bool& poison) noexcept
+      : stats_{&stats}, poison_{&poison} {
+    ++stats_->constructed;
+  }
+  cursed_coffer(const cursed_coffer& other)
+      : stats_{other.stats_}, poison_{other.poison_}, gold_{other.gold_} {
+    if (*poison_) throw std::runtime_error{"cursed"};
+    ++stats_->constructed;
+    ++stats_->copies;
+  }
+  cursed_coffer(cursed_coffer&& other) noexcept
+      : stats_{other.stats_}, poison_{other.poison_}, gold_{other.gold_} {
+    ++stats_->constructed;
+    ++stats_->moves;
+  }
+  cursed_coffer& operator=(const cursed_coffer&) = delete;
+  cursed_coffer& operator=(cursed_coffer&&) = delete;
+  ~cursed_coffer() { ++stats_->destroyed; }
+
+  int add(int nuggets) { return gold_ += nuggets; }
+  [[nodiscard]] int gold() const { return gold_; }
+
+  life_stats* stats_{};
+  const bool* poison_{};
+  int gold_{};
+};
+
+consteval auto corvid_proxy_spec(lockbox*, cursed_coffer*) {
+  return prox::make_proxy_spec<lockbox, cursed_coffer>();
+}
+
+// `till` erases a non-class target: the registration's spec-agreement term
+// must accept the same-type case for a scalar, which `derived_from` alone
+// cannot see. The carried impl serves the pair, since an `int` has no members
+// for a boilerplate to bind.
+struct till: prox::facade<prox::name<"till">, //
+                 prox::method<"amount", int() const>> {};
+
+consteval auto corvid_proxy_spec(till*, int*) {
+  struct as_till: proxy_impl_base {
+    static int on(method_key<"amount">, const int& t) { return t; }
+  };
+  return prox::make_proxy_spec<till, int, as_till>();
+}
+
+static_assert(prox::ProxyRegistered<till, int>);
+static_assert(Proxiable<int, till>);
+static_assert(!prox::ProxyRegistered<till, long>);
+static_assert(!Proxiable<long, till>);
 
 // Facade detection.
 static_assert(prox::Facade<gunslinger>);
@@ -1442,7 +1565,8 @@ static_assert(
     sizeof(proxy<lockbox, policies::heap_only>) == 2 * sizeof(void*));
 static_assert(
     sizeof(proxy<lockbox, policies::big_sbo>) > sizeof(proxy<lockbox>));
-static_assert(proxy<lockbox, policies::big_sbo>::sbo_size == 96);
+static_assert(
+    proxy<lockbox, policies::big_sbo>::sbo_size == policies::big_sbo.sbo_size);
 
 // Policies never foreclose an rvalue conversion: the destination
 // accommodates whatever target arrives, changing its storage mode when its
@@ -1620,6 +1744,22 @@ TEST_CASE("Registration-carried impl", "[proxy]") {
   CHECK(r.fired == 0);
 }
 
+TEST_CASE("Non-class target", "[proxy]") {
+  // An `int` conforms to `till` through the carried impl: a scalar target
+  // erases like any other, owned or viewed.
+  auto p = make_proxy<till, int>(42);
+  CHECK(p.call<"amount">() == 42);
+
+  int cash = 7;
+  proxy_view<till> pv{cash};
+  CHECK(pv.call<"amount">() == 7);
+  // The store is read back through the view's erased pointer, which the
+  // analyzer cannot see through.
+  // NOLINTNEXTLINE(clang-analyzer-deadcode.DeadStores)
+  cash = 9;
+  CHECK(pv.call<"amount">() == 9);
+}
+
 TEST_CASE("Partially-overridden boilerplate impl", "[proxy]") {
   sheriff s;
   proxy_view<gunslinger> pv{s};
@@ -1699,6 +1839,18 @@ TEST_CASE("Const view", "[proxy]") {
   const lawman cl{};
   const_proxy_view<gunslinger> cv{cl};
   CHECK(cv.describe() == "lawman"s);
+
+  // A temporary owner must not lend a const view: the viewing constructors
+  // bind const references, so rvalue sources are explicitly deleted. Lvalue
+  // owners still convert.
+  static_assert(!std::is_constructible_v<const_proxy_view<gunslinger>,
+      proxy<gunslinger>>);
+  static_assert(!std::is_constructible_v<const_proxy_view<gunslinger>,
+      shared_proxy<gunslinger>>);
+  static_assert(std::is_constructible_v<const_proxy_view<gunslinger>,
+      proxy<gunslinger>&>);
+  static_assert(std::is_constructible_v<const_proxy_view<gunslinger>,
+      shared_proxy<gunslinger>&>);
 
   // A const instance of the mutable view enforces the same restriction.
   lawman l;
@@ -1867,6 +2019,22 @@ TEST_CASE("Noexcept facade methods", "[proxy]") {
   const auto& cp = p;
   CHECK(!cp.jams());
   static_assert(noexcept(cp.call<"jams">()));
+
+  // The conversion half: the argument conversions are the caller's, so a
+  // noexcept method called with an argument whose conversion can throw is
+  // not noexcept, in either spelling. Moving in the declared type converts
+  // by nothrow move, so both spellings are noexcept.
+  crier c;
+  proxy_view<town_crier> tv{c};
+  tv.cry("oyez");
+  CHECK(c.last == "oyez");
+  std::string words{"oyez"};
+  static_assert(!noexcept(tv.call<"cry">("oyez")));
+  static_assert(!noexcept(tv.cry("oyez")));
+  static_assert(noexcept(tv.call<"cry">(std::move(words))));
+  static_assert(noexcept(tv.cry(std::move(words))));
+  tv.cry(std::move(words));
+  CHECK(c.last == "oyez");
 }
 
 TEST_CASE("Member-call sugar via the api mixin", "[proxy]") {
@@ -2714,6 +2882,76 @@ TEST_CASE("Cloning", "[proxy]") {
     CHECK(p.call<"gold">() == 0);
   }
   CHECK(heap_stats.destroyed == heap_stats.constructed);
+}
+
+TEST_CASE("Over-aligned targets", "[proxy]") {
+  // Alignment is enforced independently of size. Under the default
+  // `sbo_align`, an over-aligned target goes to the heap even when the
+  // buffer is roomy enough; raising `sbo_align` brings it inline.
+  life_stats heap_stats;
+  if (true) {
+    auto p = make_proxy<lockbox, ingot, policies::big_sbo>(heap_stats);
+    p.call<"add">(7);
+    auto q = std::move(p);
+    // A heap target moves by pointer, without relocating the ingot.
+    CHECK(heap_stats.moves == 0);
+    CHECK(q.call<"gold">() == 7);
+  }
+  CHECK(heap_stats.destroyed == heap_stats.constructed);
+
+  life_stats inline_stats;
+  if (true) {
+    auto p = make_proxy<lockbox, ingot, policies::big_align>(inline_stats);
+    p.call<"add">(8);
+    auto q = std::move(p);
+    // An inline target relocates on proxy move.
+    CHECK(inline_stats.moves == 1);
+    CHECK(q.call<"gold">() == 8);
+
+    // An sbo_only destination cannot align it and refuses up front; the
+    // default policy re-boxes the inline arrival to the heap.
+    using sbo_proxy = proxy<lockbox, policies::sbo_only>;
+    CHECK(!sbo_proxy::can_adopt(q));
+    proxy<lockbox> d = std::move(q);
+    CHECK(inline_stats.moves == 2);
+    CHECK(d.call<"gold">() == 8);
+
+    // Un-boxing a heap ingot into the sbo_only buffer fails the same way,
+    // throwing and leaving the source whole.
+    CHECK(!sbo_proxy::can_adopt(d));
+    CHECK_THROWS_AS(sbo_proxy{std::move(d)}, std::length_error);
+    REQUIRE(d); // NOLINT(bugprone-use-after-move): kept whole on failure.
+    CHECK(d.call<"gold">() == 8);
+  }
+  CHECK(inline_stats.destroyed == inline_stats.constructed);
+}
+
+TEST_CASE("Clone exception safety", "[proxy]") {
+  // When the target's copy throws, `clone` propagates it, produces no clone,
+  // leaks nothing, and leaves the source untouched. The inline and heap
+  // paths each clean up their own half-built destination.
+  life_stats stats;
+  bool poison = false;
+  if (true) {
+    auto p =
+        make_proxy<lockbox, cursed_coffer, policies::big_sbo>(stats, poison);
+    p.call<"add">(3);
+    const auto q = p.clone();
+    CHECK(stats.copies == 1);
+
+    poison = true;
+    CHECK(p.can_clone());
+    CHECK_THROWS_AS(p.clone(), std::runtime_error);
+    CHECK(p.call<"gold">() == 3);
+    CHECK(stats.copies == 1);
+
+    auto h =
+        make_proxy<lockbox, cursed_coffer, policies::heap_only>(stats, poison);
+    h.call<"add">(4);
+    CHECK_THROWS_AS(h.clone(), std::runtime_error);
+    CHECK(h.call<"gold">() == 4);
+  }
+  CHECK(stats.destroyed == stats.constructed);
 }
 
 TEST_CASE("unique_ptr interop", "[proxy]") {

@@ -31,6 +31,7 @@
 
 #include "crossplatform.h"
 #include "fixed_string.h"
+#include "memory.h"
 
 // Registration-based runtime polymorphism ("proxy") system.
 //
@@ -120,6 +121,12 @@ consteval auto operator""_method() noexcept {
 
 namespace details {
 
+// `name_is_unqualified`: whether `s` avoids the `"::"` separator, which
+// qualified keys reserve for splitting the facade name from the method name.
+[[nodiscard]] consteval bool name_is_unqualified(std::string_view s) noexcept {
+  return !s.contains("::");
+}
+
 // `method_base`: shared base for the four `method` flavors (`const` crossed
 // with `noexcept`).
 //
@@ -127,6 +134,10 @@ namespace details {
 // things that vary, and supplies the `method_key` base.
 template<fixed_string Name, bool Const, bool Noexcept, typename R>
 struct method_base: method_key<Name> {
+  static_assert(!Name.empty(), "method names may not be empty");
+  static_assert(name_is_unqualified(Name.view()),
+      "method names may not contain \"::\"; it is reserved for qualifying a "
+      "key with the facade name");
   static constexpr bool const_v = Const;
   static constexpr bool noexcept_v = Noexcept;
   using result_t = R;
@@ -145,7 +156,9 @@ struct method_base: method_key<Name> {
 //
 // A `noexcept` qualifier is likewise honored. Conformance then requires the
 // binding itself to be noexcept-invocable, and the erased call (`call` through
-// a handle) is itself `noexcept`.
+// a handle) is itself `noexcept` whenever the argument conversions cannot
+// throw; the conversions belong to the caller, exactly as with the `api`
+// forwarders, so a throwing one propagates from either spelling.
 //
 // A method derives from its `method_key`, so a method tag is usable anywhere
 // its key is, including `on` overload selection and deduction of
@@ -309,9 +322,19 @@ struct extends {};
 // declaring facade's name plus the method name. The qualified spelling is
 // what disambiguates sibling collisions, two `extends` bases declaring the
 // same method name. Facade names must be unique within a composition, and
-// would ideally be globally unique.
+// would ideally be globally unique, though not by namespace-style
+// qualification: `"::"` is reserved for splitting a qualified key, so
+// neither facade nor method names may contain it (enforced here and in
+// `method`).
 template<fixed_string Name>
-struct name {};
+struct name {
+  static_assert(!Name.empty(),
+      "facade names may not be empty; an empty qualifier would match any "
+      "facade");
+  static_assert(details::name_is_unqualified(Name.view()),
+      "facade names may not contain \"::\"; it is reserved for qualifying a "
+      "key with the facade name");
+};
 
 namespace details {
 
@@ -371,6 +394,12 @@ enum class proxy_alloc : std::uint8_t {
 // `std::max_align_t` alignment, falling back to the heap. A facade whose
 // typical targets are a little too big for the default buffer can be handled
 // with a larger `sbo_size`.
+//
+// The `sbo_size` must be a multiple of `sbo_align` (except when `heap_only`)
+// because a smaller value would occupy the padded size anyway and waste the
+// difference. Instead of hardcoding a number that might only be valid on a
+// particular platform, you should pass the size through `padded_size` to get a
+// conforming value.
 //
 // A target is stored inline when it fits `sbo_size` and `sbo_align` and is
 // nothrow-move-constructible (a proxy move relocates an inline target, and
@@ -551,6 +580,10 @@ namespace details {
 template<Facade F>
 struct api_probe;
 
+// Forward declaration; defined under "API validation".
+template<Facade F>
+[[nodiscard]] consteval bool base_boilerplates_visible() noexcept;
+
 } // namespace details
 
 // Forward declaration; defined under "API validation".
@@ -581,7 +614,16 @@ consteval void maybe_validate_api() noexcept {
     static_assert(has_boilerplate,
         "validating the api needs the facade's boilerplate impl visible at "
         "the registration; pass api_check::off to skip");
-    if constexpr (has_boilerplate) (void)validate_api<F>();
+    // A composed facade's probe also runs through each base facade's
+    // boilerplate, so their absence is diagnosed here rather than as a hard
+    // error deep inside the table build.
+    constexpr bool has_base_boilerplates = base_boilerplates_visible<F>();
+    static_assert(has_base_boilerplates,
+        "validating the api of a composed facade needs every base facade's "
+        "boilerplate impl visible at the registration; pass api_check::off "
+        "to skip");
+    if constexpr (has_boilerplate && has_base_boilerplates)
+      (void)validate_api<F>();
   }
 }
 
@@ -633,7 +675,9 @@ using registered_spec_t = decltype(corvid_proxy_spec(static_cast<F*>(nullptr),
 //
 // To register a pair, declare a `corvid_proxy_spec(F*, T*)` overload returning
 // `make_proxy_spec<F, T>()`, in the namespace of either the facade or the
-// type; it is found here by ADL.
+// type; it is found here by ADL. One namespace or the other, never both:
+// duplicate hooks make the ADL call ambiguous, and the pair then reads as
+// unregistered here rather than as a diagnosed duplicate.
 //
 // To register a type for a composed facade and its whole chain, one
 // constrained template hook serves every level; see `InChainOf`.
@@ -656,8 +700,12 @@ concept ProxyRegistered = requires {
   corvid_proxy_spec(static_cast<F*>(nullptr), static_cast<T*>(nullptr));
   requires std::same_as<typename details::registered_spec_t<F, T>::facade_t,
       F>;
-  requires std::derived_from<T,
-      typename details::registered_spec_t<F, T>::target_t>;
+  // The same-type term is spelled separately because `derived_from` holds
+  // only between classes, and a target may be a non-class type.
+  requires std::same_as<T,
+               typename details::registered_spec_t<F, T>::target_t> ||
+               std::derived_from<T,
+                   typename details::registered_spec_t<F, T>::target_t>;
 };
 
 // `SpecCarriesImpl`: concept for a (facade, type) pair whose registration
@@ -878,15 +926,20 @@ void heap_to_sbo(void* from, void* to) noexcept {
 //
 // The owning table carries it, so typed operations on an erased target can
 // verify the type at runtime.
+//
+// Deliberately non-const: the address is the identity, and identical
+// read-only data is fair game for linker identical-COMDAT folding (MSVC
+// /OPT:ICF), which could merge the tags and with them the identities.
+// Writable data is never folded.
 template<typename T>
-constexpr inline std::byte type_tag_v{};
+inline std::byte type_tag_v{};
 
 // `facade_tag_v`: facade identity tag, the facade analog of `type_tag_v`.
 //
 // Birth-ancestry entries carry it, so `try_downcast` can match a facade at
-// runtime.
+// runtime. Non-const for the same linker-folding reason.
 template<Facade F>
-constexpr inline std::byte facade_tag_v{};
+inline std::byte facade_tag_v{};
 
 // `vtable_builder`: facade-wide dispatch machinery, specialized on the
 // `facade` base to get at the entry pack.
@@ -1306,6 +1359,22 @@ template<typename... Es>
 using bases_of_t = decltype(std::tuple_cat(
     std::declval<typename entry_traits<Es>::bases_t>()...));
 
+// `nothrow_args_v`: whether each declared parameter in the `Params` tuple is
+// nothrow-constructible from the corresponding call argument.
+//
+// This is the argument-conversion half of a dispatch's `noexcept`. The
+// conversions run in the caller's position, outside the thunk, so when one
+// can throw the erased call must not be `noexcept`, letting the exception
+// propagate exactly as it does from an `api` forwarder's parameter
+// initialization.
+template<typename Params, typename... CallArgs>
+constexpr inline bool nothrow_args_v = false;
+
+template<typename... Ps, typename... CallArgs>
+requires(sizeof...(Ps) == sizeof...(CallArgs))
+constexpr inline bool nothrow_args_v<std::tuple<Ps...>, CallArgs...> =
+    (std::is_nothrow_constructible_v<Ps, CallArgs> && ...);
+
 // `rank_poison`: parameter type nothing converts to, making a probe overload
 // permanently non-viable.
 //
@@ -1619,14 +1688,25 @@ struct vtable_builder_impl<std::tuple<Ss...>, std::tuple<Bs...>, OwnName> {
   }
 
   // `is_noexcept`: whether the call `Key` resolves to, with `CallArgs`,
-  // dispatches a noexcept method.
+  // dispatches a noexcept method through nothrow argument conversions.
+  //
+  // The conversion term keeps the two spellings in agreement. An `api`
+  // forwarder converts its arguments in the caller, outside its own
+  // `noexcept`, so a throwing conversion propagates; the erased call
+  // converts at the thunk invocation, inside the dispatcher, so the
+  // dispatcher may be `noexcept` only when those conversions cannot throw.
   //
   // False when the call does not resolve.
   template<fixed_string Key, bool ConstOnly, typename... CallArgs>
   static consteval bool is_noexcept() noexcept {
     constexpr std::array<bool, count_v> flags{Ss::noexcept_v...};
     constexpr auto ndx = resolve<Key, ConstOnly, CallArgs...>();
-    return ndx < count_v && flags[ndx];
+    if constexpr (ndx < count_v)
+      return flags[ndx] &&
+             nothrow_args_v<typename slot_t<ndx>::method_t::args_t,
+                 CallArgs...>;
+    else
+      return false;
   }
 
   // `do_result_of`: declared result type of the exact-match candidate for
@@ -2138,6 +2218,29 @@ template<Facade F>
   return true;
 }
 
+namespace details {
+
+// `base_boilerplates_visible`: whether every facade in `F`'s extends chain
+// has a boilerplate impl visible to drive `F`'s api probe.
+//
+// This is the registration-time guard for the base half of the requirement
+// stated above: `validate_api` runs the probe through each base's
+// boilerplate, so a missing one must be caught before the table build turns
+// it into an incomplete-type hard error. The tuple pointer parameter carries
+// `vtbuild_t<F>::ancestors_t` in deducible position.
+template<Facade F, Facade... Bs>
+consteval bool do_base_boilerplates_visible(std::tuple<Bs...>*) noexcept {
+  return (... && requires { sizeof(proxy_impl<Bs, api_probe<F>>); });
+}
+
+template<Facade F>
+[[nodiscard]] consteval bool base_boilerplates_visible() noexcept {
+  return do_base_boilerplates_visible<F>(
+      static_cast<vtbuild_t<F>::ancestors_t*>(nullptr));
+}
+
+} // namespace details
+
 #pragma endregion
 #pragma region Views
 
@@ -2160,9 +2263,10 @@ public:
   // `call`: call the const-qualified facade method named `Key`, forwarding
   // `args` through the erased signature.
   //
-  // The call is `noexcept` when the method is. It is not `[[nodiscard]]`,
-  // because discardability belongs to the facade method rather than the
-  // dispatcher (the `std::invoke` precedent).
+  // The call is `noexcept` when the method is and the argument conversions
+  // cannot throw (they are the caller's, as with the `api` forwarders). It is
+  // not `[[nodiscard]]`, because discardability belongs to the facade method
+  // rather than the dispatcher (the `std::invoke` precedent).
   template<fixed_string Key, typename... Args>
   requires(vtbuild_t<F>::template is_const<Key>())
   // NOLINTNEXTLINE(modernize-use-nodiscard)
@@ -2298,7 +2402,8 @@ public:
   // `call`: call the facade method named `Key`, forwarding `args` through the
   // erased signature.
   //
-  // The call is `noexcept` when the method is.
+  // The call is `noexcept` when the method is and the argument conversions
+  // cannot throw (they are the caller's, as with the `api` forwarders).
   //
   // This overload dispatches every method. The inherited const overload,
   // re-exposed by the using-declaration, is constrained to const-qualified
@@ -2453,13 +2558,24 @@ public:
       : base{p ? p.target() : nullptr,
             p ? details::upcast_vtable<F, D>(&p.vtable_->vt) : nullptr} {}
 
+  // A temporary owner must not lend a view: without this deletion, the const
+  // reference above would bind an rvalue and dangle.
+  template<Facade D, proxy_policy P>
+  requires(std::same_as<D, F> || Extends<D, F>)
+  const_proxy_view(const proxy<D, P>&&) = delete;
+
   // `const_proxy_view`: viewing constructor from a `shared_proxy` of `F`, or
-  // of a facade that extends it; see the owning-proxy constructor above.
+  // of a facade that extends it; see the owning-proxy constructor above,
+  // including the temporary-owner deletion.
   template<Facade D>
   requires(std::same_as<D, F> || Extends<D, F>)
   explicit(false) const_proxy_view(const shared_proxy<D>& p) noexcept
       : base{p ? p.target() : nullptr,
             p ? details::upcast_vtable<F, D>(p.vtable_) : nullptr} {}
+
+  template<Facade D>
+  requires(std::same_as<D, F> || Extends<D, F>)
+  const_proxy_view(const shared_proxy<D>&&) = delete;
 
   // No need for a `using` because `call` is inherited. The base's const-method
   // dispatch is the entire interface, since the mutable methods do not exist
@@ -2587,6 +2703,11 @@ class proxy: public details::api_base_t<F> {
       "sbo_size and sbo_align may not shrink below their defaults");
   static_assert(std::has_single_bit(Policy.sbo_align),
       "sbo_align must be a power of two");
+  static_assert(
+      Policy.alloc == proxy_alloc::heap_only ||
+          Policy.sbo_size == padded_size(Policy.sbo_size, Policy.sbo_align),
+      "sbo_size that is not a multiple of sbo_align would waste the "
+      "difference as padding; pass it through padded_size");
 
 public:
   using facade_t = F;
@@ -2644,7 +2765,7 @@ public:
   // constructor.
   template<typename T>
   requires Proxiable<T, F>
-  explicit proxy(std::unique_ptr<T> target) {
+  explicit proxy(std::unique_ptr<T> target) noexcept {
     if (!target) return;
     if constexpr (Policy.alloc == proxy_alloc::sbo_only) {
       static_assert(details::sbo_fits<T>(Policy),
@@ -2697,11 +2818,13 @@ public:
   // `call`: call the facade method named `Key`, forwarding `args` through the
   // erased signature.
   //
-  // The call is `noexcept` when the method is. The const overload is
-  // constrained to const-qualified methods, enforcing deep const at overload
-  // resolution so the rejection is visible to `requires` probes as well. It
-  // is not `[[nodiscard]]`, because discardability belongs to the facade
-  // method rather than the dispatcher (the `std::invoke` precedent).
+  // The call is `noexcept` when the method is and the argument conversions
+  // cannot throw (they are the caller's, as with the `api` forwarders). The
+  // const overload is constrained to const-qualified methods, enforcing deep
+  // const at overload resolution so the rejection is visible to `requires`
+  // probes as well. It is not `[[nodiscard]]`, because discardability belongs
+  // to the facade method rather than the dispatcher (the `std::invoke`
+  // precedent).
   template<fixed_string Key, typename... Args>
   decltype(auto) call(Args&&... args) noexcept(
       vtbuild_t::template is_noexcept<Key, false, Args...>()) {
@@ -2833,7 +2956,7 @@ public:
   // this is spelled as a method on an rvalue rather than a conversion.
   template<Facade D>
   requires Extends<D, F>
-  [[nodiscard]] proxy<D, Policy> try_downcast() && {
+  [[nodiscard]] proxy<D, Policy> try_downcast() && noexcept {
     proxy<D, Policy> result;
     if (!vtable_) return result;
     const auto* table =
@@ -2995,9 +3118,9 @@ private:
 // `proxy_impl`: library-provided binding so that an owning `proxy` satisfies
 // its own facade and every facade that facade extends, like the view.
 //
-// Calls forward through the proxy, with conditional `noexcept`. The const
-// overload serves const-qualified methods, matching the proxy's deep const,
-// and the non-const overload serves the rest.
+// Calls forward through the proxy, with conditional `noexcept`, through a
+// single deduced-handle binding that serves const and mutable proxies alike;
+// deep const is enforced by the proxy's own `call` overloads.
 template<Facade F, Facade D, proxy_policy P>
 requires(std::same_as<D, F> || Extends<D, F>)
 struct proxy_impl<F, proxy<D, P>> {
@@ -3030,7 +3153,7 @@ requires Proxiable<T, F>
 // already owned by a `std::unique_ptr`; see the adopting constructor.
 template<Facade F, proxy_policy Policy = proxy_policy{}, typename T>
 requires Proxiable<T, F>
-[[nodiscard]] proxy<F, Policy> make_proxy(std::unique_ptr<T> target) {
+[[nodiscard]] proxy<F, Policy> make_proxy(std::unique_ptr<T> target) noexcept {
   return proxy<F, Policy>{std::move(target)};
 }
 

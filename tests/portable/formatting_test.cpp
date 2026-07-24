@@ -228,6 +228,18 @@ TEST_CASE("WidePadded", "[parsed_spec]") {
   CHECK(deflt == L"   ef");
 }
 
+TEST_CASE("WideNonAscii", "[parsed_spec]") {
+  // A negative narrow code unit zero-extends when widened: 0xE9 becomes
+  // U+00E9, not 0xFFE9.
+  using wps = parsed_spec<wchar_t>;
+  std::wstring out;
+  wps::write_sv(std::back_inserter(out), "caf\xe9"sv);
+  CHECK(out == L"caf\xe9");
+  out.clear();
+  wps::write_repeat(std::back_inserter(out), '\xe9', 2);
+  CHECK(out == L"\xe9\xe9");
+}
+
 #pragma endregion
 #pragma region spec_parser
 
@@ -331,6 +343,14 @@ TEST_CASE("ParseSpec", "[spec_parser]") {
     p.parse("?}");
     CHECK(p.type == '?');
     CHECK(p.debug);
+  }
+  {
+    // A literal align character right after the field must not turn the
+    // closing brace into a fill character.
+    sp p;
+    CHECK(p.parse("}<-- note") == 0);
+    CHECK(p.fill == ' ');
+    CHECK(p.alignment == sp::aligned::left);
   }
   {
     sp p;
@@ -442,6 +462,19 @@ TEST_CASE("DynamicWidthSentinel", "[nullable_formatter]") {
   CHECK(std::format("{:{}}", nbox<int>{&n}, 6) == "    42");
 }
 
+TEST_CASE("DynamicWidthNotAnInteger", "[nullable_formatter]") {
+  // A character-typed dynamic width is integral but not a standard integer
+  // type, [format.string.std]; the null and present paths reject it alike.
+  nbox<int> nb{};
+  int n = 42;
+  nbox<int> pb{&n};
+  char w = 'x';
+  CHECK_THROWS_AS(std::vformat("{:{}}", std::make_format_args(nb, w)),
+      std::format_error);
+  CHECK_THROWS_AS(std::vformat("{:{}}", std::make_format_args(pb, w)),
+      std::format_error);
+}
+
 TEST_CASE("PrecisionSentinel", "[nullable_formatter]") {
   // Precision caps the sentinel just as the base caps a present value, so a
   // null cell stays within a precision-bounded column. The base must accept
@@ -470,10 +503,25 @@ TEST_CASE("CustomMarker", "[nullable_formatter]") {
 TEST_CASE("Empty", "[nullable_formatter]") {
   using empty_text = nbox<std::string_view, null_formatting::empty>;
   CHECK(std::format("{}", empty_text{}) == "");
-  // An empty field still honors width, via the inherited formatter.
+  // An empty field still honors width, fill, and alignment.
   CHECK(std::format("{:4}", empty_text{}) == "    ");
+  CHECK(std::format("{:*^4}", empty_text{}) == "****");
   std::string_view sv = "hi";
   CHECK(std::format("{}", empty_text{&sv}) == "hi");
+
+  // Dynamic width is honored for the empty field, and a present value still
+  // reads the same argument.
+  CHECK(std::format("{:{}}", empty_text{}, 4) == "    ");
+  CHECK(std::format("{:{}}", empty_text{&sv}, 4) == "hi  ");
+
+  // A non-string underlying renders genuinely empty too; `empty` does not
+  // mean "format a default-constructed value", and the underlying type need
+  // not even be default-constructible.
+  using empty_num = nbox<int, null_formatting::empty>;
+  CHECK(std::format("{}", empty_num{}) == "");
+  CHECK(std::format("{:4}", empty_num{}) == "    ");
+  int n = 5;
+  CHECK(std::format("{:4}", empty_num{&n}) == "   5");
 }
 
 TEST_CASE("DebugVsPlain", "[nullable_formatter]") {
@@ -483,13 +531,12 @@ TEST_CASE("DebugVsPlain", "[nullable_formatter]") {
   CHECK(std::format("{}", mixed{}) == "");
   CHECK(std::format("{:?}", mixed{}) == "(null)");
 
-  // The reverse selection. Empty mode formats a default-constructed underlying
-  // value through the base, so an empty string under the debug spec renders
-  // quoted.
+  // The reverse selection: a null under the debug spec renders a genuinely
+  // empty field, not a quoted empty string.
   using mixed2 = nbox<std::string_view, null_formatting::sentinel,
       null_formatting::empty>;
   CHECK(std::format("{}", mixed2{}) == "(null)");
-  CHECK(std::format("{:?}", mixed2{}) == "\"\"");
+  CHECK(std::format("{:?}", mixed2{}) == "");
 }
 
 #pragma endregion
@@ -509,6 +556,10 @@ TEST_CASE("SelfRendering", "[self_rendering_formatter]") {
   // The `?` spec routes to debug_format_to.
   CHECK(std::format("{:?}", greeter{"bob"}) == "<bob>");
 
+  // A literal align character right after the field stays literal; the
+  // closing brace is never a fill.
+  CHECK(std::format("{:}<-- note", greeter{"x"}) == "hi x<-- note");
+
   // Wide formatting drives the buffer path with already-wide content.
   CHECK(std::format(L"{:>8}", greeter{"x"}) == L"    hi x");
   CHECK(std::format(L"{:.2}", greeter{"x"}) == L"hi");
@@ -524,6 +575,8 @@ TEST_CASE("FormatToSpec", "[self_rendering_formatter]") {
   CHECK(std::format("{:6.2}", dashes{}) == "--    ");
   // Dynamic width arrives already resolved.
   CHECK(std::format("{:{}}", dashes{}, 6) == "----  ");
+  // A literal align character after the field stays literal.
+  CHECK(std::format("{}^2", dashes{}) == "----^2");
 }
 
 #pragma endregion

@@ -15,7 +15,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 #pragma once
-#include "meta_shared.h"
+#include <cstdint>
+#include <limits>
+#include <type_traits>
+#include <utility>
+
 #include "concepts.h"
 #include "crossplatform.h"
 
@@ -60,11 +64,6 @@ PRAGMA_CLANG_DIAG(pop);
 
 #pragma endregion
 #pragma region Bit math
-
-// Note:
-// std::popcount() gives us how many bits are set.
-// std::bit_width() gives us how many bits are required to represent the
-// value.
 
 // Compile-time pow2.
 [[nodiscard]] constexpr uint64_t pow2(uint64_t n) noexcept {

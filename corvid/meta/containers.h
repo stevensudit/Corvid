@@ -15,9 +15,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 #pragma once
+#include <iterator>
 #include <ranges>
+#include <type_traits>
+#include <utility>
 
-#include "meta_shared.h"
 #include "concepts.h"
 
 namespace corvid { inline namespace meta { inline namespace containers {
@@ -30,9 +32,12 @@ enum class extract_field : bool { value, key_value };
 #pragma endregion
 #pragma region Element access
 
-// References value from container element, based on `field`
+// References value from container element, based on `field`.
+//
+// The result is a true lvalue reference, so ranges with proxy references
+// (such as `std::vector<bool>`) are unsupported and fail to compile.
 template<auto field = extract_field::value>
-[[nodiscard]] constexpr auto& element_value(auto&& e) {
+[[nodiscard]] constexpr auto& element_value(auto&& e) noexcept {
   if constexpr (StdPair<decltype(e)> && field == extract_field::value)
     return e.second;
   else
@@ -71,9 +76,11 @@ template<auto field = extract_field::value>
 // `std::map`, it points to the `pair.second`, not the `pair`, unless `field`
 // is `extract_field::key_value`.
 //
-// Note: Uses -1 as sentinel for "not found". While this technically requires
-// a signed integer type, in practice the usage pattern (string find
-// operations) ensures this is always the case.
+// Note: Uses -1 as sentinel for "not found". An unsigned index at least as
+// wide as `int` works just as well: the comparison converts -1 to the
+// unsigned type's maximum, which is exactly the `npos` convention of string
+// find operations. A narrower unsigned type instead promotes to `int`, so its
+// maximum never equals -1 and is treated as a valid index.
 template<auto field = extract_field::value>
 [[nodiscard]] constexpr auto it_to_ptr(auto& c, Integer auto ndx) {
   return ndx != -1 ? &container_element_v<field>(&c[ndx]) : nullptr;

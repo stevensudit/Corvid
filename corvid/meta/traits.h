@@ -15,9 +15,17 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 #pragma once
+#include <array>
+#include <concepts>
+#include <cstddef>
+#include <functional>
+#include <initializer_list>
+#include <span>
 #include <string_view>
-
-#include "meta_shared.h"
+#include <tuple>
+#include <type_traits>
+#include <utility>
+#include <variant>
 
 namespace corvid { inline namespace meta { inline namespace traits {
 
@@ -117,6 +125,30 @@ constexpr bool is_pair_convertible_v<T> =
     is_pair_convertible_v<std::remove_cvref_t<T>>;
 
 #pragma endregion
+#pragma region Callables
+
+// Determine whether `T` is a `std::function`.
+template<typename T>
+constexpr bool is_std_function_v = is_specialization_of_v<T, std::function>;
+
+// Determine whether `T` is a `std::move_only_function`. Always false when the
+// standard library does not provide the type (libc++ has not yet shipped it).
+#ifdef __cpp_lib_move_only_function
+template<typename T>
+constexpr bool is_std_move_only_function_v =
+    is_specialization_of_v<T, std::move_only_function>;
+#else
+template<typename T>
+constexpr bool is_std_move_only_function_v = false;
+#endif
+
+// Determine whether `T` is a std polymorphic function wrapper: either of the
+// above.
+template<typename T>
+constexpr bool is_std_function_wrapper_v =
+    is_std_function_v<T> || is_std_move_only_function_v<T>;
+
+#pragma endregion
 #pragma region Sequences
 
 // Determine whether `T` is a `std::array`.
@@ -150,7 +182,7 @@ constexpr bool is_span_v = details::is_span_impl_v<std::remove_cvref_t<T>>;
 
 // Helper for span compatibility check.
 template<typename T, typename V>
-constexpr bool is_span_compatible_impl() {
+constexpr bool is_span_compatible_impl() noexcept {
   if constexpr (is_span_v<T>) {
     return std::same_as<std::remove_cv_t<V>,
                std::remove_cv_t<typename T::element_type>> &&
@@ -162,8 +194,8 @@ constexpr bool is_span_compatible_impl() {
 }
 
 // Determine whether span `T` is compatible with element type `V` in a
-// const-safe way. When `V` isn't const, the span's element type can be const
-// or non-const. When `V` is const, the span's element type must be const.
+// const-safe way. When `V` is const, the span's element type can be const or
+// non-const. When `V` isn't const, the span's element type must be non-const.
 template<typename T, typename V>
 constexpr bool is_span_compatible_v = is_span_compatible_impl<T, V>();
 

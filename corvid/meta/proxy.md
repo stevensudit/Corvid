@@ -246,7 +246,8 @@ struct gunslinger : facade<name<"gunslinger">,
 // The `lawman` supports both of the functions that the facade expects, spelled
 // exactly as expected. Therefore, conforming it is pure registration. The ADL
 // hook mirrors `corvid_enum_spec`; declare it in the namespace of either
-// the facade or the type.
+// the facade or the type. One or the other, never both: duplicate hooks
+// make the ADL call ambiguous, and the pair then reads as unregistered.
 consteval auto corvid_proxy_spec(gunslinger*, lawman*) {
   return make_proxy_spec<gunslinger, lawman>();
 }
@@ -844,7 +845,12 @@ winning index needs no translation.
 
 The two spellings therefore cannot disagree: the `api` forwarders are a
 genuine C++ overload set, and `call<>` asks the compiler to rank the same
-candidates under the same rules.
+candidates under the same rules. The agreement extends past slot
+selection to exception behavior: the erased call's `noexcept` also
+requires the argument conversions to be nothrow, so a throwing conversion
+into a `noexcept` method propagates from `call<>` just as it does from a
+forwarder, where the conversion runs in the caller before the `noexcept`
+body is entered.
 
 It was not always so. The first build shipped a two-tier approximation (a
 unique exact match wins, else a unique viable candidate, with constness
@@ -1049,7 +1055,10 @@ through one is undefined behavior.
 The policy has three knobs. The `fixed_function` lesson is that the
 default SBO is sometimes a little too small, so `sbo_size` and `sbo_align`
 are settable, growing only (a target eligible for the default buffer stays
-eligible for every buffer). `alloc` picks the strategy: `sbo_or_heap` (the
+eligible for every buffer). The `sbo_size` must be a multiple of
+`sbo_align`, since anything less would occupy the padded size anyway and
+waste the difference; `padded_size` computes a conforming value from a
+byte budget. `alloc` picks the strategy: `sbo_or_heap` (the
 default), `sbo_only` (an ineligible target is a clean `static_assert` at
 construction), or `heap_only` (every target's address is stable, and the
 handle drops its buffer to become two words, like a view).
@@ -1304,9 +1313,15 @@ business.
   For a `noexcept` method, conformance additionally requires the binding
   itself to be noexcept-invocable, the thunk pointer type carries
   `noexcept`, and `call` through either handle is itself conditionally
-  noexcept. Supported from the first round rather than deferred, because
-  the qualifier is baked into the erased ABI (the thunk pointer types),
-  where a retrofit would have been a break.
+  noexcept. The condition covers the argument conversions as well as the
+  method flavor: converting the call-site arguments to the declared
+  parameter types is the caller's work, so a conversion that can throw
+  (say, materializing a `std::string` from a literal) makes the erased
+  call non-noexcept and the exception propagates, exactly as it does from
+  an `api` forwarder's parameter initialization. Supported from the first
+  round rather than deferred, because the qualifier is baked into the
+  erased ABI (the thunk pointer types), where a retrofit would have been a
+  break.
 - The owning table carries housekeeping slots in addition to the facade
   methods, the analog of Rust's drop glue: destroy, relocate (null marking
   the heap mode), copy (null marking an uncloneable target), a type
@@ -1335,8 +1350,9 @@ business.
   concrete and erased arguments interchangeably (Rust: `dyn Trait`
   implements `Trait`). Implemented as library-provided `proxy_impl`
   bindings whose `on` forwards through `call` with conditional `noexcept`
-  (so the invariant survives noexcept methods). The deep-const handles'
-  bindings have const and non-const overloads to match. For
+  (so the invariant survives noexcept methods). A single deduced-handle
+  binding serves const and mutable handles alike, with deep const enforced
+  by the handle's own `call` overloads. For
   `const_proxy_view` the invariant holds exactly for all-const facades (as
   with Rust `&dyn`, whose `&mut self` methods are uncallable). Its
   binding's `on` is constrained to const methods, so a mixed facade fails
@@ -1744,7 +1760,7 @@ the per-name overload sets. The `lockbox` chain carries the ownership and
 lifetime tests. The solo facades pin one feature each (`hair_trigger`:
 noexcept flavors; `mortar`: the `api_check::off` opt-out; `census`: the
 all-const invariant; `assayer`: the overload-absorption blind spot in
-`validate_api`).
+`validate_api`; `till`: a non-class (`int`) target).
 
 The facades, with extends edges pointing from the derived facade to its
 base:
@@ -1768,6 +1784,7 @@ flowchart BT
     mortar["mortar: lob (api deviates; api_check off)"]
     census["census: describe (all const)"]
     assayer["assayer: weigh x2 (api misses one forwarder)"]
+    till["till: amount (non-class target)"]
 ```
 
 The conforming types, each attached to the facade its registration anchors
@@ -1791,6 +1808,9 @@ flowchart LR
     prospector -.->|boilerplate| assayer
     strongbox -.->|chain hook| vault
     coffer -.->|chain hook| vault
+    ingot -.->|boilerplate| lockbox
+    cursed_coffer -.->|boilerplate| lockbox
+    int -.->|carried impl| till
 ```
 
 Three fixtures are deliberately missing from the conformance edges.
