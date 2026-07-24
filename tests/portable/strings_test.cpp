@@ -1084,6 +1084,26 @@ TEST_CASE("Substitute", "[StringUtilsTest]") {
     CHECK(strings::substitute(s, {"ab"sv}, {""sv}) == 2U);
     CHECK(s == "xy");
   }
+  if (true) {
+    // Substitution honors a nonzero starting pos; the prefix stays intact.
+    auto s = std::string{"ababab"};
+    CHECK(strings::substitute(s, "ab"sv, "x"sv, 2) == 2U);
+    CHECK(s == "abxx");
+    s = std::string{"ababab"};
+    CHECK(strings::substitute(s, {"ab"sv}, {"xyz"sv}, 2) == 2U);
+    CHECK(s == "abxyzxyz");
+    // Growing substitution handles adjacent matches.
+    s = std::string{"abab"};
+    CHECK(strings::substitute(s, "ab"sv, "xyz"sv) == 2U);
+    CHECK(s == "xyzxyz");
+    // Pythonic insertion honors pos too.
+    s = std::string{"abc"};
+    CHECK(strings::substitute(s, ""sv, "x"sv, 1) == 3U);
+    CHECK(s == "axbxcx");
+    s = std::string{"abc"};
+    CHECK(strings::substitute(s, {""sv}, {"x"sv}, 1) == 3U);
+    CHECK(s == "axbxcx");
+  }
 }
 
 #pragma endregion
@@ -1200,6 +1220,15 @@ TEST_CASE("Excise", "[StringUtilsTest]") {
     s = std::string{sv};
     CHECK(strings::excise(s, {""sv, "c"sv}) == 6U);
     CHECK(s == "");
+  }
+  if (true) {
+    // Excision honors a nonzero starting pos; the prefix stays intact.
+    auto s = std::string{"aXaXa"};
+    CHECK(strings::excise(s, 'a', 1) == 2U);
+    CHECK(s == "aXX");
+    s = std::string{"abcabcabc"};
+    CHECK(strings::excise(s, "abc"sv, 3) == 2U);
+    CHECK(s == "abc");
   }
 }
 
