@@ -212,6 +212,84 @@ TEST_CASE("SplitPg", "[StringUtilsTest]") {
 }
 
 #pragma endregion
+#pragma region SplitLines
+
+TEST_CASE("SplitLines", "[StringUtilsTest]") {
+  using V = std::vector<std::string_view>;
+  // Any of the universal line breaks splits, and "\r\n" counts as one.
+  if (true) {
+    CHECK(strings::split_lines("a\nb"sv) == V{"a", "b"});
+    CHECK(strings::split_lines("a\rb"sv) == V{"a", "b"});
+    CHECK(strings::split_lines("a\r\nb"sv) == V{"a", "b"});
+    CHECK(strings::split_lines("abc"sv) == V{"abc"});
+  }
+  // A trailing line break adds no empty line, but interior ones are kept.
+  if (true) {
+    CHECK(strings::split_lines("a\n"sv) == V{"a"});
+    CHECK(strings::split_lines("a\r\n"sv) == V{"a"});
+    CHECK(strings::split_lines(""sv) == V{});
+    CHECK(strings::split_lines("\n"sv) == V{""});
+    CHECK(strings::split_lines("\r\n"sv) == V{""});
+    CHECK(strings::split_lines("\n\n"sv) == V{"", ""});
+    CHECK(strings::split_lines("a\r\n\nb\r"sv) == V{"a", "", "b"});
+    CHECK(strings::split_lines("\r\r\n"sv) == V{"", ""});
+  }
+  // Passing line_ends::keep retains each line's own break, Python
+  // keepends-style.
+  if (true) {
+    using LE = strings::line_ends;
+    CHECK(strings::split_lines("a\r\nb\n"sv, LE::keep) == V{"a\r\n", "b\n"});
+    CHECK(strings::split_lines("a\n\nb"sv, LE::keep) == V{"a\n", "\n", "b"});
+    CHECK(strings::split_lines("abc"sv, LE::keep) == V{"abc"});
+    CHECK(strings::split_lines("\n"sv, LE::keep) == V{"\n"});
+  }
+  // extract_line peels one line at a time, consuming the break either way.
+  if (true) {
+    auto whole = "a\r\nb\nc"sv;
+    CHECK(strings::extract_line(whole) == "a");
+    CHECK(whole == "b\nc");
+    CHECK(strings::extract_line(whole, strings::line_ends::keep) == "b\n");
+    CHECK(strings::extract_line(whole) == "c");
+    CHECK(whole.empty());
+    // Empty remainder yields an empty line, which is why callers check whole
+    // first, or use more_lines.
+    CHECK(strings::extract_line(whole) == "");
+  }
+  // more_lines drives the loop, returning false at exhaustion with the line
+  // untouched.
+  if (true) {
+    auto whole = "a\r\nb"sv;
+    std::string_view line;
+    CHECK(strings::more_lines(line, whole));
+    CHECK(line == "a");
+    CHECK(strings::more_lines(line, whole, strings::line_ends::keep));
+    CHECK(line == "b");
+    CHECK_FALSE(strings::more_lines(line, whole));
+    CHECK(line == "b");
+  }
+  // Any code unit works, and a temporary string yields owning copies.
+  if (true) {
+    CHECK(strings::split_lines(u"a\r\nb"sv) ==
+          std::vector<std::u16string_view>{u"a", u"b"});
+    CHECK(strings::split_lines(std::string{"a\nb"}) ==
+          std::vector<std::string>{"a", "b"});
+    CHECK(
+        strings::split_lines(std::string{"a\nb"}, strings::line_ends::keep) ==
+        std::vector<std::string>{"a\n", "b"});
+  }
+  // The finder also plugs into the piece generator, where standard split
+  // semantics apply instead: a trailing line break yields a trailing empty
+  // piece.
+  if (true) {
+    strings::basic_piece_generator pg{"a\r\nb\n"sv,
+        strings::line_delim_finder<char>{},
+        strings::default_piece_filter<char>{}};
+    CHECK(strings::split(pg) == V{"a", "b", ""});
+  }
+  static_assert(strings::split_lines("a\r\nb"sv).size() == 2U);
+}
+
+#pragma endregion
 
 // Test splitting over a wide code unit.
 #pragma region WideSplit

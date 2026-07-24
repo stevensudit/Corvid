@@ -46,7 +46,22 @@ input for further analysis, not a commitment to build any particular item.
 - `splitlines`: universal-newline splitting. A delim set of `{'\r', '\n'}`
   gets `\r\n` wrong (it emits an empty piece), so this genuinely needs its own
   finder. It would also be a nice shipped example of a custom `DelimFinder`
-  for `piece_generator`.
+  for `piece_generator`. DONE: `extract_line`, `more_lines`, `split_lines`,
+  and `line_delim_finder` in [splitting.h](splitting.h). `extract_line` is
+  the destructive one-at-a-time primitive, modeled on `extract_piece`;
+  `more_lines` wraps it in the fill-and-report loop driver, following the
+  `basic_piece_generator::more_pieces` contract (true with a line, false at
+  exhaustion) rather than the free `more_pieces` one, whose
+  final-piece-with-false protocol would emit the trailing empty line;
+  `split_lines` is a loop over `more_lines`. The finder is
+  `DelimFinder`-conformant and plugs into `basic_piece_generator`. `split_lines` does not route through
+  the generator because the Python rule that a trailing line break adds no
+  trailing empty line cannot be expressed by a generator finder or filter
+  (neither can tell final-empty from interior-empty). Python's `keepends` is
+  the `line_ends::keep` / `discard` two-value enum, defined locally because
+  the strings band cannot depend on `bool_enums.h`. ASCII scope: the exotic Python line
+  breaks (`\v`, `\f`, `\x1c` through `\x1e`, `\x85`, `\u2028`, `\u2029`) are
+  deliberately out.
 - `rsplit` and `maxsplit`: split from the right, and split-at-most-N. The
   `piece_generator` doc explicitly names "limit how many pieces" as a
   motivating use case, but nothing shipped does it.

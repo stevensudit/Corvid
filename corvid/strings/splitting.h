@@ -17,6 +17,7 @@
 #pragma once
 
 #include <algorithm>
+#include <array>
 #include <concepts>
 #include <optional>
 #include <string>
@@ -284,6 +285,113 @@ template<typename R = void, PieceGenerator PG>
 // For alternative design choices when solving a similar problem, compare
 // with:
 // https://github.com/abseil/abseil-cpp/blob/master/absl/strings/internal/str_split_internal.h
+
+#pragma endregion
+#pragma region split_lines
+
+// Whether to keep each line's terminating line break as part of the returned
+// line or discard it. The equivalent of Python's `keepends`.
+enum class line_ends : bool { discard = false, keep = true };
+
+// Line-break delimiter finder: treats "\r\n", "\r", and "\n" as single line
+// breaks.
+//
+// Usable with `basic_piece_generator`, where standard split semantics apply,
+// so a trailing line break yields a trailing empty piece; `split_lines`
+// instead drops it.
+template<CharType Char>
+struct line_delim_finder {
+  constexpr std::pair<size_t, size_t> operator()(
+      std::basic_string_view<Char> s) const {
+    constexpr std::array line_breaks{Char('\r'), Char('\n')};
+    const auto pos = s.find_first_of(
+        std::basic_string_view<Char>{line_breaks.data(), line_breaks.size()});
+    if (pos == npos) return {npos, npos};
+    auto next = pos + 1;
+    if (s[pos] == Char('\r') && next < s.size() && s[next] == Char('\n'))
+      ++next;
+    return {pos, next};
+  }
+};
+
+// Extract next line destructively from `whole`.
+//
+// A line break is "\r\n", "\r", or "\n", and ends the line; `line_ends::keep`
+// retains it as part of the returned line, while the default discards it.
+// Either way, it is consumed from `whole`. The last line needs no break, and
+// an empty `whole` yields an empty line, so check `whole` before calling, or
+// let `more_lines` do it for you.
+//
+// The return type `R` effectively defaults to a `std::basic_string_view` of
+// `whole`'s own code unit; specify `R` as an owning string type (e.g.
+// `std::string`) to make a deep copy.
+template<typename R = void, CharType C>
+[[nodiscard]] constexpr auto extract_line(std::basic_string_view<C>& whole,
+    line_ends ends = line_ends::discard) {
+  using result_t =
+      std::conditional_t<std::is_void_v<R>, std::basic_string_view<C>, R>;
+  const auto [pos, next] = line_delim_finder<C>{}(whole);
+  const auto found = pos != npos;
+  const auto end =
+      !found ? whole.size()
+      : ends == line_ends::keep
+          ? next
+          : pos;
+  const auto line = whole.substr(0, end);
+  whole.remove_prefix(found ? next : whole.size());
+  return result_t{line};
+}
+
+// Extract next line into `line`, removing it (and its break) from `whole`.
+//
+// Returns true when a line was extracted; returns false when `whole` is
+// exhausted, leaving `line` untouched. Pass an owning string type as `line` to
+// make a deep copy.
+template<typename R, CharType C>
+[[nodiscard]] constexpr bool more_lines(R& line,
+    std::basic_string_view<C>& whole, line_ends ends = line_ends::discard) {
+  if (whole.empty()) return false;
+  line = extract_line<R>(whole, ends);
+  return true;
+}
+
+// Split into lines on universal line breaks and return them in a vector.
+//
+// A line break is "\r\n", "\r", or "\n"; pass `line_ends::keep` to retain each
+// line's break. Matching Python `str.splitlines` (and unlike `split`), a
+// trailing line break does not produce a trailing empty line, and an empty
+// input produces no lines; interior empty lines are kept. The vector element
+// type `R` effectively defaults to a `std::basic_string_view` of `whole`'s own
+// code unit; specify `R` as an owning string type (e.g. `std::string`) to make
+// deep copies.
+template<typename R = void, StringViewLike S>
+[[nodiscard]] constexpr auto
+split_lines(const S& whole_in, line_ends ends = line_ends::discard) {
+  using C = char_type_of_t<S>;
+  using result_t =
+      std::conditional_t<std::is_void_v<R>, std::basic_string_view<C>, R>;
+  std::basic_string_view<C> whole{as_view(whole_in)};
+  std::vector<result_t> lines;
+  std::basic_string_view<C> line;
+  while (more_lines(line, whole, ends)) lines.emplace_back(line);
+  return lines;
+}
+
+// Split lines of a temporary string, returning deep copies in a vector.
+//
+// The vector element type `R` effectively defaults to an owning string of
+// `whole`'s code unit, since views into the temporary would dangle.
+template<typename R = void, CharType C>
+[[nodiscard]] constexpr auto split_lines(std::basic_string<C>&& whole,
+    line_ends ends = line_ends::discard) {
+  using result_t =
+      std::conditional_t<std::is_void_v<R>, std::basic_string<C>, R>;
+  // A trivially copyable `R` is a non-owning view, which would dangle into
+  // the temporary; this overload exists precisely to prevent that.
+  static_assert(!std::is_trivially_copyable_v<result_t>,
+      "R must be an owning string type");
+  return split_lines<result_t>(std::basic_string_view<C>(whole), ends);
+}
 
 #pragma endregion
 
