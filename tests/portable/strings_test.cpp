@@ -512,6 +512,19 @@ TEST_CASE("CaseStrings", "[StringUtilsTest]") {
     CHECK_FALSE(strings::is_upper("ABc"));
     CHECK(strings::is_digit(u"123"sv));
   }
+  // The is_python_* predicates ignore non-letters, Python islower and isupper
+  // style: at least one letter and none of the opposite case.
+  if (true) {
+    CHECK(strings::is_python_lower("abc0"));
+    CHECK_FALSE(strings::is_lower("abc0"));
+    CHECK_FALSE(strings::is_python_lower("aA"));
+    CHECK_FALSE(strings::is_python_lower("0"));
+    CHECK_FALSE(strings::is_python_lower(""));
+    CHECK(strings::is_python_upper("ABC-0"));
+    CHECK_FALSE(strings::is_python_upper("ABc"));
+    CHECK_FALSE(strings::is_python_upper("123"));
+    CHECK(strings::is_python_lower(u"abc 123"sv));
+  }
   // ci_compare orders as if lowercased, as a weak ordering: case-insensitive
   // equals are equivalent, not equal.
   if (true) {

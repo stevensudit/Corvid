@@ -93,10 +93,8 @@ template<CharType C>
 // true, while `is_lower("abc0")` here is false because '0' fails the character
 // predicate. Beware that `!is_upper(s)` does not reproduce the Python
 // semantics either: it is also true for mixed-case strings like "aA" and for
-// letterless strings. Python's `islower` amounts to "contains at least one
-// letter and no uppercase letters"; if you truly need that, combine
-// `std::ranges::any_of` on `is_alpha` with `std::ranges::none_of` on
-// `is_upper`.
+// letterless strings. The Python rule is available by name as
+// `is_python_lower` and `is_python_upper`.
 
 template<StringViewLike S>
 [[nodiscard]] constexpr bool is_lower(const S& s) noexcept {
@@ -154,6 +152,35 @@ template<StringViewLike S>
   });
 }
 
+// The Python-rule case predicates.
+//
+// Each is true when the string contains at least one letter and none of the
+// opposite case, ignoring non-alphabetical characters exactly as Python
+// `islower` and `isupper` do.
+//
+// So `is_python_lower("abc0")` is true, unlike `is_lower("abc0")`, while empty
+// and letterless strings are false for both.
+
+template<StringViewLike S>
+[[nodiscard]] constexpr bool is_python_lower(const S& s) noexcept {
+  bool has_letter = false;
+  for (const auto c : as_view(s)) {
+    if (is_upper(c)) return false;
+    if (is_lower(c)) has_letter = true;
+  }
+  return has_letter;
+}
+
+template<StringViewLike S>
+[[nodiscard]] constexpr bool is_python_upper(const S& s) noexcept {
+  bool has_letter = false;
+  for (const auto c : as_view(s)) {
+    if (is_lower(c)) return false;
+    if (is_upper(c)) has_letter = true;
+  }
+  return has_letter;
+}
+
 #pragma endregion
 #pragma region Case change
 
@@ -196,7 +223,7 @@ constexpr void to_lower(Range auto& r) noexcept {
 
 // Return as lowercase.
 //
-// Accepts any string-like argument and yields a std::basic_string` of its
+// Accepts any string-like argument and yields a `std::basic_string` of its
 // code-unit type.
 template<StringViewLike S>
 [[nodiscard]] constexpr auto as_lower(const S& s) {

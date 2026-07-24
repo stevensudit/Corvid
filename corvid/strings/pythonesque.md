@@ -93,7 +93,10 @@ input for further analysis, not a commitment to build any particular item.
   (the six ASCII whitespace characters), `StringViewLike` overloads of all
   seven predicates (true when non-empty and every code unit passes; ruling:
   unlike Python `islower` / `isupper`, uncased characters are not ignored),
-  and the case transforms as in-place `to_*` / value-returning `as_*` pairs:
+  The Python ignore-uncased rule is also available by name:
+  `is_python_lower` / `is_python_upper` (at least one letter, none of the
+  opposite case; single pass with early out). Also included are the case
+  transforms as in-place `to_*` / value-returning `as_*` pairs:
   `to_swapped` with `as_swapped` (which also has a per-character overload),
   `to_capitalized` with `as_capitalized`, and `to_titled` with `as_titled`.
   Naming ruling: `to_*` is reserved for in-place mutation and `as_*` for
