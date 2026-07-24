@@ -15,7 +15,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 #pragma once
-#include "../strings/strings_shared.h"
+#include <optional>
+#include <ostream>
+#include <string>
+#include <string_view>
+#include <type_traits>
+
+#include "../meta/concepts.h"
 #include "../strings/trimming.h"
 #include "../strings/splitting.h"
 #include "../strings/conversion.h"

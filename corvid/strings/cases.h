@@ -15,7 +15,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 #pragma once
-#include "strings_shared.h"
+#include <string>
+
+#include "../meta/concepts.h"
+#include "string_literals.h"
 
 namespace corvid::strings { inline namespace cases {
 

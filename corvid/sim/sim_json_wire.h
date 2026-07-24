@@ -16,6 +16,7 @@
 // limitations under the License.
 #pragma once
 
+#include <charconv>
 #include <cstdint>
 #include <limits>
 #include <string>

@@ -16,9 +16,10 @@
 // limitations under the License.
 #pragma once
 #include <optional>
+#include <string_view>
 
 #include "../meta/concepts.h"
-#include "strings_shared.h"
+#include "string_literals.h"
 
 namespace corvid::strings { inline namespace parsers {
 

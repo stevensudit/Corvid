@@ -15,9 +15,14 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 #pragma once
-#include "strings_shared.h"
+#include <string>
+#include <string_view>
+#include <type_traits>
+
 #include "../meta/concepts.h"
+#include "../meta/containers.h"
 #include "delimiting.h"
+#include "string_literals.h"
 
 namespace corvid::strings { inline namespace trimming {
 

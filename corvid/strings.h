@@ -15,7 +15,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 #pragma once
-#include "strings/strings_shared.h"
+#include "strings/string_literals.h"
 #include "strings/cstring_view.h"
 #include "strings/fixed_string_utils.h"
 #include "strings/cases.h"

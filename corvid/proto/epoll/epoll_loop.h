@@ -16,6 +16,7 @@
 // limitations under the License.
 #pragma once
 #include <atomic>
+#include <cassert>
 #include <chrono>
 #include <cerrno>
 #include <cstdint>

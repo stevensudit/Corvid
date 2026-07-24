@@ -16,11 +16,20 @@
 // limitations under the License.
 #pragma once
 
+#include <algorithm>
+#include <concepts>
+#include <optional>
+#include <string>
+#include <string_view>
+#include <type_traits>
+#include <utility>
+#include <vector>
+
 #include "../meta/concepts.h"
 #include "../meta/crossplatform.h"
-#include "strings_shared.h"
 #include "delimiting.h"
 #include "opt_string_view.h"
+#include "string_literals.h"
 
 namespace corvid::strings { inline namespace splitting {
 

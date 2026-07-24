@@ -15,14 +15,23 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 #pragma once
+#include <array>
+#include <charconv>
+#include <concepts>
 #include <cstdint>
 #include <limits>
+#include <optional>
 #include <span>
+#include <sstream>
+#include <string>
+#include <string_view>
+#include <system_error>
 #include <type_traits>
 
-#include "strings_shared.h"
+#include "../meta/concepts.h"
 #include "cases.h"
 #include "charconv_wrapper.h"
+#include "string_literals.h"
 #include "trimming.h"
 
 namespace corvid::strings { inline namespace conversion {

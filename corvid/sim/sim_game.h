@@ -15,13 +15,17 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 #pragma once
+#include <cassert>
 #include <charconv>
 #include <cstdint>
+#include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <map>
 #include <optional>
 #include <sstream>
+#include <stdexcept>
+#include <vector>
 #include <sys/types.h>
 
 #include <algorithm>

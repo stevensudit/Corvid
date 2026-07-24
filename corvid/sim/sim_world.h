@@ -17,10 +17,12 @@
 #pragma once
 
 #include <algorithm>
+#include <cassert>
 #include <cmath>
 #include <cstdint>
 #include <limits>
 #include <numbers>
+#include <optional>
 #include <stdexcept>
 #include <string>
 #include <string_view>

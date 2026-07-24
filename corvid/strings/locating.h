@@ -15,10 +15,23 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 #pragma once
-#include "strings_shared.h"
-
+#include <algorithm>
 #include <array>
+#include <cassert>
+#include <cstdint>
 #include <cstring>
+#include <initializer_list>
+#include <iterator>
+#include <ranges>
+#include <span>
+#include <string>
+#include <string_view>
+#include <type_traits>
+#include <utility>
+#include <vector>
+
+#include "../meta/concepts.h"
+#include "string_literals.h"
 
 // Search and replace, except `search`, `find`, `replace`, and `erase` are all
 // symbols in the `std` namespace. We had to substitute `locate`, `substitute`,
@@ -151,7 +164,7 @@ struct pos_range {
 
 // To get `npos`, `nloc`, `npos_choice`, and `nloc_value`, use:
 //  using namespace corvid::literals;
-// Note: `npos` is defined in string_base.h
+// Note: `npos` is defined in string_literals.h
 inline namespace literals {
 
 constexpr location nloc{npos, npos};

@@ -15,6 +15,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 #pragma once
+#include <optional>
 #include <sys/epoll.h>
 
 #include "os_file.h"

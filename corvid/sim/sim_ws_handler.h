@@ -22,6 +22,8 @@
 #include <cstdint>
 #include <iostream>
 #include <memory>
+#include <optional>
+#include <stdexcept>
 
 #include "../proto/epoll/epoll_http_websocket_transaction.h"
 #include "../strings/any_strings.h"

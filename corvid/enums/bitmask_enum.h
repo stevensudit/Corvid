@@ -18,6 +18,8 @@
 #include <cassert>
 
 #include "enums_shared.h"
+#include "../meta/concepts.h"
+#include "../meta/enums.h"
 #include "../strings/fixed_string_utils.h"
 #include "../strings/targeting.h"
 #include "../strings/conversion.h"

@@ -53,5 +53,5 @@ This is a C++ library, so we minimize how much raw C surfaces in calling code: w
 
 ## Non-Obvious Locations
 
-- `npos` / base string position types: `corvid/strings/string_base.h`
+- `npos` / base string position types: `corvid/strings/string_literals.h`
 - `npos_choice`: `corvid/strings/locating.h`

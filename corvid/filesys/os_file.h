@@ -16,8 +16,10 @@
 // limitations under the License.
 #pragma once
 #include <algorithm>
+#include <cassert>
 #include <cerrno>
 #include <cstdint>
+#include <optional>
 #include <linux/fscrypt.h>
 #include <utility>
 #include <csignal>

@@ -15,9 +15,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 #pragma once
+#include <cstddef>
+#include <ostream>
+#include <string>
+#include <string_view>
 #include <type_traits>
 
-#include "strings_shared.h"
+#include "../meta/concepts.h"
 
 namespace corvid::strings { inline namespace targeting {
 

@@ -23,6 +23,8 @@
 #include <optional>
 
 #include "enums_shared.h"
+#include "../meta/concepts.h"
+#include "../meta/enums.h"
 #include "../strings/fixed_string_utils.h"
 #include "../strings/string_view_wrapper.h"
 #include "../strings/cstring_view.h"

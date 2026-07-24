@@ -16,6 +16,8 @@
 // limitations under the License.
 #pragma once
 #include "enums_shared.h"
+#include "../meta/concepts.h"
+#include "../meta/enums.h"
 #include "../strings/targeting.h"
 
 // Note: This does not need to be directly included by the user because it's

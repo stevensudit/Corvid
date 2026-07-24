@@ -15,10 +15,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 #pragma once
+#include <concepts>
 #include <string>
+#include <utility>
 #include <variant>
 #include <vector>
-#include "strings_shared.h"
 
 namespace corvid::strings { inline namespace any_strings_types {
 
