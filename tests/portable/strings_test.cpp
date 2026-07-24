@@ -862,6 +862,60 @@ TEST_CASE("LocateEdges", "[StringUtilsTest]") {
 }
 
 #pragma endregion
+#pragma region LocateUtilities
+
+TEST_CASE("LocateUtilities", "[StringUtilsTest]") {
+  using location = corvid::strings::location;
+  using pos_range = corvid::strings::pos_range;
+  constexpr auto s = "abxcdef"sv;
+  const auto vals = std::array{"ab"sv, "cd"sv};
+
+  // as_pos_range spans the located value.
+  auto loc = strings::locate(s, vals);
+  CHECK(loc == location{0U, 0U});
+  CHECK(strings::as_pos_range(s, vals, loc) == pos_range{0U, 2U});
+  loc = strings::locate(s, vals, 1);
+  CHECK(loc == location{3U, 1U});
+  CHECK(strings::as_pos_range(s, vals, loc) == pos_range{3U, 5U});
+
+  // Not-found yields npos_range, as does a locate_not-style location whose
+  // pos_value indexes no value (regression: that used to read out of
+  // bounds).
+  CHECK(strings::as_pos_range(s, vals, nloc) == npos_range);
+  CHECK(
+      strings::as_pos_range(s, vals, location{1U, vals.size()}) == npos_range);
+
+  // An empty value located at end-of-string is a real match (regression:
+  // it used to misreport as npos_range).
+  const auto ve = std::array{"q"sv, ""sv};
+  loc = strings::locate(s, ve, s.size());
+  CHECK(loc == location{s.size(), 1U});
+  CHECK(strings::as_pos_range(s, ve, loc) == pos_range{s.size(), s.size()});
+
+  // The single-position overload.
+  CHECK(
+      strings::as_pos_range(s, strings::locate(s, 'x')) == pos_range{2U, 3U});
+  CHECK(strings::as_pos_range(s, npos) == npos_range);
+
+  // min_value_size, including elements that merely convert to a view
+  // (regression: `const char*` elements used to fail to compile).
+  CHECK(
+      strings::min_value_size(std::span<const std::string_view>{vals}) == 2U);
+  const auto mixed = std::array{"abc"sv, "d"sv};
+  CHECK(
+      strings::min_value_size(std::span<const std::string_view>{mixed}) == 1U);
+  const auto raw = std::array{"abc", "de"};
+  CHECK(strings::min_value_size(std::span<const char* const>{raw}) == 2U);
+  CHECK(strings::min_value_size(std::span<const std::string_view>{}) == 0U);
+
+  // The location overload of from_npos.
+  CHECK(strings::from_npos(s, location{s.size(), 0U}) == nloc);
+  CHECK(strings::from_npos(s, location{2U, 0U}) == location{2U, 0U});
+  CHECK((strings::from_npos<strings::npos_choice::size>(s,
+            location{s.size(), 2U})) == location{s.size(), 2U});
+}
+
+#pragma endregion
 #pragma region Substitute
 
 TEST_CASE("Substitute", "[StringUtilsTest]") {

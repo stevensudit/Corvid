@@ -142,6 +142,8 @@ struct location {
 struct pos_range {
   position begin{};
   position end{};
+
+  constexpr auto operator<=>(const pos_range&) const noexcept = default;
 };
 
 #pragma endregion
@@ -204,22 +206,6 @@ from_npos(const std::string_view& s, location loc) noexcept {
 }
 
 #pragma endregion
-#pragma region as_pos_range
-
-// Utility to return `pos_range`.
-[[nodiscard]] constexpr pos_range
-as_pos_range(const std::string_view& s, position pos) noexcept {
-  if (pos >= s.size()) return npos_range;
-  return {pos, pos + 1};
-}
-// Same, but for location.
-[[nodiscard]] constexpr pos_range as_pos_range(const std::string_view& s,
-    const auto& values, location loc) noexcept {
-  if (loc.pos >= s.size()) return npos_range;
-  return {loc.pos, loc.pos + value_size(values[loc.pos_value])};
-}
-
-#pragma endregion
 #pragma region value_size
 
 // Size of a single value, regardless of type.
@@ -233,13 +219,39 @@ as_pos_range(const std::string_view& s, position pos) noexcept {
 #pragma endregion
 #pragma region min_value_size
 
-// Smallest size of a list of values. If no values, returns 0.
+// Smallest size of a list of values. If no values, returns 0. Sizes go
+// through `value_size` so elements that merely convert to a view (e.g.
+// `const char*`) work.
 [[nodiscard]] constexpr size_t min_value_size(
     const StringViewConvertibleSpan auto& values) noexcept {
-  auto smallest = std::ranges::min_element(values,
-      [](const auto& a, const auto& b) { return a.size() < b.size(); });
-  if (smallest != values.end()) return smallest->size();
+  auto smallest =
+      std::ranges::min_element(values, [](const auto& a, const auto& b) {
+        return value_size(a) < value_size(b);
+      });
+  if (smallest != values.end()) return value_size(*smallest);
   return 0;
+}
+
+#pragma endregion
+#pragma region as_pos_range
+
+// Utility to return `pos_range`.
+[[nodiscard]] constexpr pos_range
+as_pos_range(const std::string_view& s, position pos) noexcept {
+  if (pos >= s.size()) return npos_range;
+  return {pos, pos + 1};
+}
+
+// Same, but for a `location` from a multi-value `locate`. Yields
+// `npos_range` when nothing was located, including for a
+// `locate_not`-style result, whose `pos_value` indexes no value. An empty
+// value located at end-of-string is a real match, yielding an empty range
+// there.
+[[nodiscard]] constexpr pos_range as_pos_range(const std::string_view& s,
+    const auto& values, location loc) noexcept {
+  if (loc.pos > s.size() || loc.pos_value >= std::size(values))
+    return npos_range;
+  return {loc.pos, loc.pos + value_size(values[loc.pos_value])};
 }
 
 #pragma endregion
@@ -364,6 +376,8 @@ template<npos_choice npv = npos_choice::npos>
 template<npos_choice npv = npos_choice::npos>
 [[nodiscard]] constexpr position locate_not_string(std::string_view s,
     std::string_view value, position pos = 0) {
+  // An empty value matches everywhere, so a non-match is never found.
+  if (value.empty()) return from_npos<npv>(s, s.size());
   for (auto v = std::string_view{value}; pos < s.size(); pos += v.size())
     if (s.substr(pos, v.size()) != v) break;
 
@@ -382,6 +396,8 @@ template<npos_choice npv = npos_choice::npos>
 [[nodiscard]] constexpr position rlocate_not_string(std::string_view s,
     std::string_view value, position pos = npos) {
   auto v = std::string_view{value};
+  // An empty value matches everywhere, so a non-match is never found.
+  if (v.empty()) return from_npos<npv>(s, s.size());
   if (v.size() > s.size()) return 0;
 
   auto last = s.size() - v.size();
@@ -847,7 +863,7 @@ constexpr bool rlocated(location& loc, std::string_view s, auto&& values) {
 #pragma region count_located
 
 // Return count of instances of a `value` in `s`, starting at `pos`.
-[[nodiscard]] size_t
+[[nodiscard]] constexpr size_t
 count_located(std::string_view s, auto&& value, position pos = 0) {
   size_t cnt{};
   using R = decltype(locate(s, value, pos));
@@ -860,12 +876,12 @@ count_located(std::string_view s, auto&& value, position pos = 0) {
   return cnt;
 }
 
-[[nodiscard]] size_t count_located(std::string_view s,
+[[nodiscard]] constexpr size_t count_located(std::string_view s,
     std::initializer_list<char> values, position pos = 0) {
   return count_located(s, std::span<const char>{values.begin(), values.end()},
       pos);
 }
-[[nodiscard]] size_t count_located(std::string_view s,
+[[nodiscard]] constexpr size_t count_located(std::string_view s,
     std::initializer_list<std::string_view> values, position pos = 0) {
   return count_located(s,
       std::span<const std::string_view>{values.begin(), values.end()}, pos);
@@ -900,8 +916,12 @@ size_t substitute(std::string& s, const SingleLocateValue auto& from,
 #pragma endregion
 #pragma region Multiple chars
 
+// The multi-value overloads treat `from` and `to` as parallel arrays: a match
+// of `from[i]` is replaced with `to[i]`, so `to` must be at least as long as
+// `from`.
 inline size_t substitute(std::string& s, std::span<const char> from,
     std::span<const char> to, position pos = 0) {
+  assert(from.size() <= to.size());
   size_t cnt{};
   for (location loc{pos, 0}; located(loc, std::string_view{s}, from);
       ++cnt, ++loc.pos)
@@ -920,12 +940,16 @@ inline size_t substitute(std::string& s, std::initializer_list<char> from,
 inline size_t substitute(std::string& s,
     std::span<const std::string_view> from,
     std::span<const std::string_view> to, position pos = 0) {
+  assert(from.size() <= to.size());
   size_t cnt{};
   for (location loc{pos, 0}; located(loc, std::string_view{s}, from); ++cnt) {
     size_t from_size = from[loc.pos_value].size();
     s.replace(loc.pos, from_size, to[loc.pos_value]);
-    size_t to_size = to[loc.pos_value].size() + (from_size ? 0 : 1);
-    loc.pos += std::max(to_size, size_t{1});
+    // Resume right after the replacement. An empty `from` gets a +1 so the
+    // Pythonic insertion advances; an empty `to` gets no extra skip because
+    // the next match may be adjacent, and termination is assured by the
+    // string shrinking.
+    loc.pos += to[loc.pos_value].size() + (from_size ? 0 : 1);
   }
   return cnt;
 }
@@ -1031,7 +1055,7 @@ inline size_t excise(std::string& s, std::span<const std::string_view> from,
   while (read < s.size()) {
     bool matched = false;
     for (const auto& fv : from) {
-      if (fv.size() && read + fv.size() <= s.size() &&
+      if (read + fv.size() <= s.size() &&
           std::memcmp(data + read, fv.data(), fv.size()) == 0)
       {
         read += fv.size();
