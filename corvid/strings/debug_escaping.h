@@ -24,11 +24,12 @@ namespace corvid::strings { inline namespace targeting {
 
 // Append target that writes the C++ "debug" escaped form of its char input
 // (per [format.string.escaped], the rules behind the `?` format spec) into an
-// output iterator, widening each emitted unit to `DestChar`. It does NOT add
-// the surrounding quotes; the caller emits those around it. This lets the
-// char-based append machinery stream text straight into a `std::format`
-// context with no intermediate string, while staying consistent with how std
-// quotes the strings beside it in the same range or map.
+// output iterator, widening each emitted unit to `DestChar`.
+//
+// It does NOT add the surrounding quotes; the caller emits those around it.
+// This lets the char-based append machinery stream text straight into a
+// `std::format` context with no intermediate string, while staying consistent
+// with how std quotes the strings beside it in the same range or map.
 //
 // The escaping matches the standard over the 7-bit ASCII range that inputs
 // occupy: `\t`, `\n`, `\r`, `\"`, `\\`, and `\u{hex}` for other control units

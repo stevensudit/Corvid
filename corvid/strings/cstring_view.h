@@ -125,6 +125,7 @@ public:
 
   constexpr basic_cstring_view(const std::basic_string<char_t>& s) noexcept
       : base{view_t{s}} {}
+
   // Allows `nullptr`.
   constexpr basic_cstring_view(const char_t* psz) : base{psz} {}
 

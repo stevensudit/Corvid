@@ -41,14 +41,15 @@ class appender;
 
 // Append target that forwards output to an output iterator, converting each
 // `SrcChar` input unit to the destination unit `DestChar` (which defaults to
-// `SrcChar`, a plain passthrough). This lets the append machinery (enum names,
-// numbers, delimiters, quoted strings) write straight into a `std::format`
-// context's output iterator, with no intermediate string. The conversion is
-// per code unit: an identity copy when the units match, and a value-preserving
-// widen when `SrcChar` is narrower (e.g. char names into a wide context). It
-// does not decode multibyte encodings; real transcoding (such as UTF-8 to
-// UTF-16) is out of scope. The `out` iterator is live and is advanced in place
-// as appends occur.
+// `SrcChar`, a plain passthrough).
+//
+// This lets the append machinery (enum names, numbers, delimiters, quoted
+// strings) write straight into a `std::format` context's output iterator, with
+// no intermediate string. The conversion is per code unit: an identity copy
+// when the units match, and a value-preserving widen when `SrcChar` is
+// narrower (e.g. char names into a wide context). It does not decode multibyte
+// encodings; real transcoding (such as UTF-8 to UTF-16) is out of scope. The
+// `out` iterator is live and is advanced in place as appends occur.
 template<typename It, CharType SrcChar, CharType DestChar = SrcChar>
 struct output_iterator_appendable {
   using append_char_type = SrcChar;
@@ -56,10 +57,11 @@ struct output_iterator_appendable {
 };
 
 // Base class with shared functionality, using C++23 deducing this for static
-// polymorphism in place of the CRTP idiom. The `this auto&& self` parameter
-// deduces the actual derived type, so the base dispatches to derived hooks
-// (`append_sv`/`append_ch`) and returns the correct type without a recurring
-// template parameter or `static_cast`.
+// polymorphism in place of the CRTP idiom.
+//
+// The `this auto&& self` parameter deduces the actual derived type, so the
+// base dispatches to derived hooks (`append_sv`/`append_ch`) and returns the
+// correct type without a recurring template parameter or `static_cast`.
 template<typename T, typename C>
 class appender_base {
 #pragma region Types
@@ -76,7 +78,7 @@ public:
 #pragma region Appending
 
   // Deducing this: `self` deduces to the actual derived type (appender<T>).
-  // All append overloads forward to append_sv or append_ch in the derived.
+  // All append overloads forward to `append_sv` or `append_ch` in the derived.
   constexpr auto& append(this auto&& self, view_t sv) {
     return self.append_sv(sv);
   }
@@ -124,8 +126,7 @@ public:
 #pragma region Appending
 private:
   friend base;
-  // Not constexpr: `std::basic_ostream` write/put are never constant
-  // evaluable, unlike the string and output-iterator specializations.
+
   auto& append_sv(std::basic_string_view<char_t> sv) {
     target_.write(sv.data(), sv.size());
     return *this;
