@@ -294,6 +294,57 @@ only non-test consumers were migrated off it first:
 escaping helpers were the one piece worth keeping, and they moved into
 `json_parser` rather than surviving as a shared utility.
 
+### 4. enable_format wrappers (done)
+
+`enable_format` in [enable_format.h](enable_format.h) is a family of format
+wrappers: a primary template with constrained specializations, each composing
+a value that `std::format` cannot take directly and pairing with a
+`std::formatter` on the wrapper. Two are provided.
+
+The keyed-collection wrapper (over `std::map`, `std::unordered_map`, and
+their multi variants) looks keys up at format time:
+
+    std::format("{0:city}: {0:temperature:.2f}", enable_format{rec});
+
+This is the analog of Python's `format_map`, and it goes further: the key
+itself can be dynamic (`{0:{1}}` reads the key from another string-like arg),
+which neither Python nor {fmt} supports, and it needs no
+`dynamic_format_arg_store`-style setup, just one lookup per field.
+
+The variant wrapper makes `std::variant` formattable, applying the whole spec
+to the active alternative: `std::format("{:.2f}", enable_format{v})`.
+Specializing `std::formatter` for `std::variant` itself would be illegal
+({fmt} formats variants natively, but only because it owns its namespace), so
+the wrapper technique applies just as it does for the keyed collections.
+
+Mechanics: the keyed spec grammar is `key`, or `{n}` / `{}` for a dynamic
+key, optionally followed by `:` and a nested spec applied to the looked-up
+value through the synthetic parse-context technique from
+`nullable_formatter`, shared as the `format_with_spec` helper. The
+dynamic-key arg resolves through `arg_value_t::get_dynamic_str`, the
+string-returning sibling added next to `get_dynamic_num` in
+[../meta/formatting.h](../meta/formatting.h). A `std::variant` mapped type
+routes through the variant wrapper. Multi-keyed collections format the whole
+equal range through the std range formatter, even for one hit, since
+presentation follows the container type; variant values are wrapped per
+element via `views::transform`, so multi and variant combine freely, and the
+variant wrapper propagates `set_debug_format` so string alternatives quote
+inside ranges the way plain strings do. A missing key throws
+`std::format_error` unless the wrapper was constructed with a stand-in value,
+which is coerced to the mapped type (so it lands in a variant naturally) and
+reported as if found; missing-key handling thus lives entirely in the
+wrapper, mirroring Python's `format_map(defaultdict(...))` idiom.
+
+Known limits, documented in the header: compile-time checking stops at the
+wrapper grammar, since keys and value types are runtime facts; automatic `{}`
+ids inside the nested spec would renumber from zero (manual ids work); keys
+cannot contain `:` or `}` or start with `{`; and a bare `{0}` with no key is
+an error rather than a whole-map rendering, which is a plausible future
+extension. Key lookup also does not reach through a variant: a variant
+holding a map formats whole, through the std map formatter, so to look up by
+key, extract the map with `std::get` and wrap that (behavior pinned in the
+test).
+
 ## Deferred / decided against
 
 - Exact JSON escaping is out of scope for the format submodule entirely;

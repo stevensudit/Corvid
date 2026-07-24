@@ -164,9 +164,18 @@ input for further analysis, not a commitment to build any particular item.
   indentation problem. `wrap`, `fill`, `indent`, and `shorten`
   (truncate-with-ellipsis) round it out. Probably the highest
   value-per-effort item on this list.
+- `format_map`: named-field substitution from a runtime mapping. DONE, and
+  beyond Python: the `enable_format` wrapper in [enable_format.h](enable_format.h)
+  makes any keyed collection formattable with per-field key lookup
+  (`{0:city}`), nested value specs (`{0:temperature:.2f}`), runtime-selected
+  keys (`{0:{1}}`), variant values, and an opt-in stand-in for missing keys.
+  A companion `enable_format` specialization makes `std::variant` itself
+  formattable. Full design notes in [roadmap.md](roadmap.md) stage 4.
 - `string.Template`: `$name` substitution from a map, with a
   `safe_substitute` mode. Small, self-contained, and a common real need for
-  config expansion and message templating.
+  config expansion and message templating. Much of this is now subsumed by
+  the `enable_format` wrapper above; what remains distinct is the `$name`
+  syntax embedded in plain text rather than a format string.
 - `fnmatch`: shell wildcard matching (`*`, `?`, `[abc]`). A small state
   machine with no dependencies, frequently reinvented.
 - `shlex` / `csv`-style quote-aware splitting: a shipped quote-respecting

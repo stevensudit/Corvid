@@ -216,6 +216,28 @@ struct spec_parser: parsed_spec<CharT> {
           },
           ctx.arg(id));
     }
+
+    // Resolve a dynamic string, such as a lookup key: arg `id` as a view of
+    // its text.
+    //
+    // The arg store keeps string-like args as a `basic_string_view` or a
+    // pointer, so the view aliases the caller's arg, not a copy. Non-string
+    // args, including custom types (which arrive as opaque handles), are
+    // rejected.
+    template<typename FormatContext>
+    static constexpr std::basic_string_view<CharT>
+    get_dynamic_str(FormatContext& ctx, std::size_t id) {
+      return std::visit_format_arg(
+          [](auto value) -> std::basic_string_view<CharT> {
+            using T = std::remove_cvref_t<decltype(value)>;
+            if constexpr (std::is_same_v<T, std::basic_string_view<CharT>> ||
+                          std::is_same_v<T, const CharT*>)
+              return value;
+            else
+              throw std::format_error("arg is not a string");
+          },
+          ctx.arg(id));
+    }
   };
 
 #pragma endregion

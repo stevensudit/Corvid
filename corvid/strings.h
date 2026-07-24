@@ -31,6 +31,7 @@
 #include "strings/token_parser.h"
 #include "strings/conversion.h"
 #include "strings/no_zero.h"
+#include "strings/enable_format.h"
 #include "strings/any_strings.h"
 
 // Recommendation: While you can import the entire `corvid::strings` namespace,
