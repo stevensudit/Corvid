@@ -30,12 +30,19 @@ input for further analysis, not a commitment to build any particular item.
   but it is destructive and collapses "no separator found" into the last-token
   case. DONE: `string_partition` and `string_rpartition` in
   [string_partition.h](string_partition.h), sharing a `string_partition_base`
-  that holds the three views.
+  that holds the three views. Ruling: these parameterize on the code unit,
+  not on the view type, matching the rest of the band; view-templating was
+  considered and rejected (it admits owning or exotic view types that would
+  silently break the anchoring contract, while custom traits are already
+  erased at the `as_view` boundary).
 - `removeprefix` / `removesuffix`: strip-if-present. The std only has the
   unconditional count-based `remove_prefix`, so everyone writes the
-  `starts_with` plus `substr` dance by hand. Would sit naturally in
-  [trimming.h](trimming.h) next to `trim_braces`, which is already in this
-  family.
+  `starts_with` plus `substr` dance by hand. DONE: `trim_prefix` and
+  `trim_suffix` in [trimming.h](trimming.h), named for Go's
+  `strings.TrimPrefix` / `TrimSuffix`, which made the same
+  exact-affix-once-if-present versus repeated-set-trim distinction; the
+  Python names would collide conceptually with the std's count-based
+  `remove_prefix`.
 - `splitlines`: universal-newline splitting. A delim set of `{'\r', '\n'}`
   gets `\r\n` wrong (it emits an empty piece), so this genuinely needs its own
   finder. It would also be a nice shipped example of a custom `DelimFinder`

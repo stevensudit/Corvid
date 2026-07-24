@@ -116,6 +116,37 @@ void trim(std::basic_string<C>& whole, basic_delim<C> ws = {}) {
 }
 
 #pragma endregion
+#pragma region Affixes
+
+// For the affix trims, the second argument is a single exact string, removed
+// at most once, and only when present; otherwise the input is returned
+// unchanged.
+//
+// Modeled on Python `str.removeprefix` and `str.removesuffix`. As with the
+// trims above, the return type `R` defaults to a view of the haystack; pass an
+// owning string type to get a copy.
+
+// Trim off `prefix`, returning part.
+template<StringViewLike S,
+    typename R = std::basic_string_view<char_type_of_t<S>>>
+[[nodiscard]] constexpr auto
+trim_prefix(const S& whole, std::basic_string_view<char_type_of_t<S>> prefix) {
+  auto sv = as_view(whole);
+  if (sv.starts_with(prefix)) sv.remove_prefix(prefix.size());
+  return R{sv};
+}
+
+// Trim off `suffix`, returning part.
+template<StringViewLike S,
+    typename R = std::basic_string_view<char_type_of_t<S>>>
+[[nodiscard]] constexpr auto
+trim_suffix(const S& whole, std::basic_string_view<char_type_of_t<S>> suffix) {
+  auto sv = as_view(whole);
+  if (sv.ends_with(suffix)) sv.remove_suffix(suffix.size());
+  return R{sv};
+}
+
+#pragma endregion
 #pragma region Braces
 
 // Backing storage for the default square-bracket brace pair, per code unit.

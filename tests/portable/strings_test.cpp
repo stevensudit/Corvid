@@ -1458,6 +1458,41 @@ TEST_CASE("Trim", "[StringUtilsTest]") {
 }
 
 #pragma endregion
+#pragma region TrimAffixes
+
+TEST_CASE("TrimAffixes", "[StringUtilsTest]") {
+  if (true) {
+    CHECK(strings::trim_prefix("foo.bar", "foo.") == "bar");
+    CHECK(strings::trim_prefix("foo.bar", "bar") == "foo.bar");
+    CHECK(strings::trim_prefix("foo", "foobar") == "foo");
+    CHECK(strings::trim_prefix("foo", "") == "foo");
+    CHECK(strings::trim_prefix("foo", "foo") == "");
+    CHECK(strings::trim_prefix("", "foo") == "");
+    // Removed at most once, unlike the set-based trims.
+    CHECK(strings::trim_prefix("aab", "a") == "ab");
+  }
+  if (true) {
+    CHECK(strings::trim_suffix("archive.tar.gz", ".gz") == "archive.tar");
+    CHECK(strings::trim_suffix("archive.tar", ".gz") == "archive.tar");
+    CHECK(strings::trim_suffix("gz", ".gz") == "gz");
+    CHECK(strings::trim_suffix("x", "") == "x");
+    CHECK(strings::trim_suffix("x", "x") == "");
+    CHECK(strings::trim_suffix("baa", "a") == "ba");
+  }
+  // Any code unit works.
+  if (true) {
+    CHECK(strings::trim_prefix(u"..xy", u"..") == u"xy");
+    CHECK(strings::trim_suffix(L"xy..", L"..") == L"xy");
+  }
+  // The returned view stays anchored in the input.
+  if (true) {
+    constexpr auto sp = "ab"sv;
+    CHECK(strings::trim_prefix(sp, "a").data() == sp.data() + 1);
+    CHECK(strings::trim_suffix(sp, "b").data() == sp.data());
+  }
+}
+
+#pragma endregion
 #pragma region AddBraces
 
 TEST_CASE("AddBraces", "[StringUtilsTest]") {
