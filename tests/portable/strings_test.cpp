@@ -454,8 +454,8 @@ TEST_CASE("Case", "[StringUtilsTest]") {
   CHECK(a == "ABCDEFGHIJ"sv);
 
   // Wide code units: same ASCII semantics on any character type.
-  CHECK(strings::to_upper(u'a') == u'A');
-  CHECK(strings::to_lower(U'Z') == U'z');
+  CHECK(strings::as_upper(u'a') == u'A');
+  CHECK(strings::as_lower(U'Z') == U'z');
   CHECK(strings::is_digit(u'7'));
   CHECK(strings::is_alpha(U'q'));
   CHECK_FALSE(strings::is_upper(char16_t{0xe9})); // U+00E9, not ASCII
@@ -512,11 +512,28 @@ TEST_CASE("CaseStrings", "[StringUtilsTest]") {
     CHECK_FALSE(strings::is_upper("ABc"));
     CHECK(strings::is_digit(u"123"sv));
   }
+  // ci_compare orders as if lowercased, as a weak ordering: case-insensitive
+  // equals are equivalent, not equal.
+  if (true) {
+    CHECK(strings::ci_compare("apple", "APPLE") ==
+          std::weak_ordering::equivalent);
+    CHECK(strings::ci_compare("apple", "banana") == std::weak_ordering::less);
+    CHECK(
+        strings::ci_compare("Banana", "apple") == std::weak_ordering::greater);
+    CHECK(strings::ci_compare("app", "apple") == std::weak_ordering::less);
+    CHECK(strings::ci_compare("apple", "app") == std::weak_ordering::greater);
+    CHECK(strings::ci_compare("", "") == std::weak_ordering::equivalent);
+    CHECK(strings::ci_compare("", "a") == std::weak_ordering::less);
+    CHECK(strings::ci_compare(u"AB"sv, u"ab"sv) ==
+          std::weak_ordering::equivalent);
+    // Contrast with the case-sensitive ordering, where 'B' < 'a' in ASCII.
+    CHECK(("Banana"sv <=> "apple"sv) < 0);
+  }
   // Swap, capitalize, and title-case, on copies and in place.
   if (true) {
-    CHECK(strings::to_swapped('a') == 'A');
-    CHECK(strings::to_swapped('A') == 'a');
-    CHECK(strings::to_swapped('1') == '1');
+    CHECK(strings::as_swapped('a') == 'A');
+    CHECK(strings::as_swapped('A') == 'a');
+    CHECK(strings::as_swapped('1') == '1');
     CHECK(strings::as_swapped("Hello, World!") == "hELLO, wORLD!");
     CHECK(strings::as_capitalized("hello WORLD") == "Hello world");
     CHECK(strings::as_capitalized("") == "");

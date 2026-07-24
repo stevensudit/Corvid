@@ -16,6 +16,7 @@
 // limitations under the License.
 #pragma once
 #include <algorithm>
+#include <compare>
 #include <string>
 
 #include "../meta/concepts.h"
@@ -26,8 +27,8 @@ namespace corvid::strings { inline namespace cases {
 // Cases
 //
 // ASCII letter-case utilities: character predicates, case conversion, and
-// case-insensitive comparison. The per-character predicates and `to_upper`/
-// `to_lower` work on any code-unit type; the semantics stay deliberately
+// case-insensitive comparison. The per-character predicates and `as_upper`/
+// `as_lower` work on any code-unit type; the semantics stay deliberately
 // ASCII-only and locale-independent, so only the 26 Latin letters are ever
 // affected, whatever the encoding. This sidesteps the localization and Unicode
 // complications (and the cost) of the `std::ctype` and `std::toupper`/
@@ -156,20 +157,23 @@ template<StringViewLike S>
 #pragma endregion
 #pragma region Case change
 
-// Convert to uppercase.
+// Return `c` as uppercase.
+//
 // Avoids `std::toupper` because it's locale-dependent and slow.
 template<CharType C>
-[[nodiscard]] constexpr C to_upper(C c) noexcept {
+[[nodiscard]] constexpr C as_upper(C c) noexcept {
   return is_lower(c) ? static_cast<C>(c - (C('a') - C('A'))) : c;
 }
 
 // Convert to uppercase in place.
 constexpr void to_upper(Range auto& r) noexcept {
-  for (auto& ch : r) ch = to_upper(ch);
+  for (auto& ch : r) ch = as_upper(ch);
 }
 
-// Return as uppercase. Accepts any string-like argument and yields a
-// `std::basic_string` of its code-unit type.
+// Return as uppercase.
+//
+// Accepts any string-like argument and yields a `std::basic_string` of its
+// code-unit type.
 template<StringViewLike S>
 [[nodiscard]] constexpr auto as_upper(const S& s) {
   std::basic_string<char_type_of_t<S>> r{as_view(s)};
@@ -177,20 +181,23 @@ template<StringViewLike S>
   return r;
 }
 
-// Convert to lowercase.
+// Return `c` as lowercase.
+//
 // Avoids `std::tolower` because it's locale-dependent and slow.
 template<CharType C>
-[[nodiscard]] constexpr C to_lower(C c) noexcept {
+[[nodiscard]] constexpr C as_lower(C c) noexcept {
   return is_upper(c) ? static_cast<C>(c + (C('a') - C('A'))) : c;
 }
 
 // Convert to lowercase in place.
 constexpr void to_lower(Range auto& r) noexcept {
-  for (auto& ch : r) ch = to_lower(ch);
+  for (auto& ch : r) ch = as_lower(ch);
 }
 
-// Return as lowercase. Accepts any string-like argument and yields a
-// `std::basic_string` of its code-unit type.
+// Return as lowercase.
+//
+// Accepts any string-like argument and yields a std::basic_string` of its
+// code-unit type.
 template<StringViewLike S>
 [[nodiscard]] constexpr auto as_lower(const S& s) {
   std::basic_string<char_type_of_t<S>> r{as_view(s)};
@@ -198,22 +205,26 @@ template<StringViewLike S>
   return r;
 }
 
-// Swap the case of `c`, Python swapcase-style: lowercase becomes uppercase,
-// uppercase becomes lowercase, everything else passes through.
+// Return `c` with its case swapped, Python swapcase-style.
+//
+// Lowercase becomes uppercase, uppercase becomes lowercase, everything else
+// passes through.
 template<CharType C>
-[[nodiscard]] constexpr C to_swapped(C c) noexcept {
-  if (is_lower(c)) return to_upper(c);
-  if (is_upper(c)) return to_lower(c);
+[[nodiscard]] constexpr C as_swapped(C c) noexcept {
+  if (is_lower(c)) return as_upper(c);
+  if (is_upper(c)) return as_lower(c);
   return c;
 }
 
 // Swap case in place.
 constexpr void to_swapped(Range auto& r) noexcept {
-  for (auto& ch : r) ch = to_swapped(ch);
+  for (auto& ch : r) ch = as_swapped(ch);
 }
 
-// Return with case swapped. Accepts any string-like argument and yields a
-// `std::basic_string` of its code-unit type.
+// Return with case swapped.
+//
+// Accepts any string-like argument and yields a `std::basic_string` of its
+// code-unit type.
 template<StringViewLike S>
 [[nodiscard]] constexpr auto as_swapped(const S& s) {
   std::basic_string<char_type_of_t<S>> r{as_view(s)};
@@ -221,18 +232,21 @@ template<StringViewLike S>
   return r;
 }
 
-// Capitalize in place, Python capitalize-style: uppercase the first code unit
-// and lowercase the rest.
+// Capitalize in place, Python capitalize-style.
+//
+// Uppercases the first code unit and lowercases the rest.
 constexpr void to_capitalized(Range auto& r) noexcept {
   bool first = true;
   for (auto& ch : r) {
-    ch = first ? to_upper(ch) : to_lower(ch);
+    ch = first ? as_upper(ch) : as_lower(ch);
     first = false;
   }
 }
 
-// Return as capitalized. Accepts any string-like argument and yields a
-// `std::basic_string` of its code-unit type.
+// Return as capitalized.
+//
+// Accepts any string-like argument and yields a `std::basic_string` of its
+// code-unit type.
 template<StringViewLike S>
 [[nodiscard]] constexpr auto as_capitalized(const S& s) {
   std::basic_string<char_type_of_t<S>> r{as_view(s)};
@@ -240,21 +254,25 @@ template<StringViewLike S>
   return r;
 }
 
-// Title-case in place, Python title-style: uppercase each letter that follows
-// a non-letter (or starts the string), lowercase the other letters.
+// Title-case in place, Python title-style.
+//
+// Uppercase each letter that follows a non-letter (or starts the string),
+// lowercase the other letters.
 //
 // The Python quirk comes along: any non-letter starts a new word, so "they're"
 // becomes "They'Re" and "3rd" becomes "3Rd".
 constexpr void to_titled(Range auto& r) noexcept {
   bool prev_alpha = false;
   for (auto& ch : r) {
-    if (is_alpha(ch)) ch = prev_alpha ? to_lower(ch) : to_upper(ch);
+    if (is_alpha(ch)) ch = prev_alpha ? as_lower(ch) : as_upper(ch);
     prev_alpha = is_alpha(ch);
   }
 }
 
-// Return as title-cased. Accepts any string-like argument and yields a
-// `std::basic_string` of its code-unit type.
+// Return as title-cased.
+//
+// Accepts any string-like argument and yields a `std::basic_string` of its
+// code-unit type.
 template<StringViewLike S>
 [[nodiscard]] constexpr auto as_titled(const S& s) {
   std::basic_string<char_type_of_t<S>> r{as_view(s)};
@@ -263,12 +281,13 @@ template<StringViewLike S>
 }
 
 #pragma endregion
-#pragma region ci_equal
+#pragma region Case-insensitive comparison
 
-// Compare case-insensitively. In many cases, it is better to store `as_lower`
-// versions and compare those, particularly if one of the values is checked
-// against repeatedly. Both arguments must be string-like with the same
-// code-unit type.
+// Compare case-insensitively.
+//
+// In many cases, it is better to store `as_lower` versions and compare those,
+// particularly if one of the values is checked against repeatedly. Both
+// arguments must be string-like with the same code-unit type.
 template<StringViewLike A, StringViewLike B>
 requires std::same_as<char_type_of_t<A>, char_type_of_t<B>>
 [[nodiscard]] constexpr bool ci_equal(const A& a, const B& b) noexcept {
@@ -276,8 +295,27 @@ requires std::same_as<char_type_of_t<A>, char_type_of_t<B>>
   const auto rhs = as_view(b);
   if (lhs.size() != rhs.size()) return false;
   for (size_t i = 0; i < lhs.size(); ++i)
-    if (to_lower(lhs[i]) != to_lower(rhs[i])) return false;
+    if (as_lower(lhs[i]) != as_lower(rhs[i])) return false;
   return true;
+}
+
+// Compare case-insensitively, ordering as if both sides were lowercased.
+//
+// See above about using `as_lower` instead.
+template<StringViewLike A, StringViewLike B>
+requires std::same_as<char_type_of_t<A>, char_type_of_t<B>>
+[[nodiscard]] constexpr std::weak_ordering
+ci_compare(const A& a, const B& b) noexcept {
+  const auto lhs = as_view(a);
+  const auto rhs = as_view(b);
+  const auto n = std::min(lhs.size(), rhs.size());
+  for (size_t i = 0; i < n; ++i) {
+    const auto l = as_lower(lhs[i]);
+    const auto r = as_lower(rhs[i]);
+    if (l != r)
+      return l < r ? std::weak_ordering::less : std::weak_ordering::greater;
+  }
+  return lhs.size() <=> rhs.size();
 }
 
 #pragma endregion

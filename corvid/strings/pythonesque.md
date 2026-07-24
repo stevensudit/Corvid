@@ -93,16 +93,26 @@ input for further analysis, not a commitment to build any particular item.
   (the six ASCII whitespace characters), `StringViewLike` overloads of all
   seven predicates (true when non-empty and every code unit passes; ruling:
   unlike Python `islower` / `isupper`, uncased characters are not ignored),
-  and the case transforms in the established `to_` / `as_` pairs:
-  `to_swapped` (per-character and in-place) with `as_swapped`,
+  and the case transforms as in-place `to_*` / value-returning `as_*` pairs:
+  `to_swapped` with `as_swapped` (which also has a per-character overload),
   `to_capitalized` with `as_capitalized`, and `to_titled` with `as_titled`.
+  Naming ruling: `to_*` is reserved for in-place mutation and `as_*` for
+  returning the converted value, so the preexisting per-character `to_upper`
+  and `to_lower` were renamed to `as_upper` / `as_lower` (matching
+  `as_hex_lc_digit`), with the range forms keeping their `to_*` names.
   `as_titled` keeps the Python `title` quirk (any non-letter starts a new
   word, so "they're" becomes "They'Re"), documented in the header. Companion
   ruling: the split and trim default delimiter stays a lone space (speed and
   simplicity), but [splitting.h](splitting.h) now names the full set as the
   `whitespace` / `wwhitespace` view pair, for Python-style whitespace
   splitting or trimming; a test pins the pair to `is_space` exactly so they
-  cannot drift.
+  cannot drift. Companion addition beyond Python parity: `ci_compare`, the
+  ordering counterpart to `ci_equal`, returning `std::weak_ordering` (equal
+  ignoring case is equivalent, not equal). Companion ruling: the `as_*`
+  transforms deliberately stay two-pass (copy, then the in-place `to_*`);
+  fusing would only save the memcpy-class copy while breaking the layering,
+  and `resize_and_overwrite` remains available as a local change if a
+  profile ever demands it.
 - `expandtabs`: tab-to-column-stop expansion. Niche, but it has no std
   equivalent at all.
 
