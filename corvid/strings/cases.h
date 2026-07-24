@@ -15,6 +15,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 #pragma once
+#include <algorithm>
 #include <string>
 
 #include "../meta/concepts.h"
@@ -71,6 +72,87 @@ template<CharType C>
   return is_digit(ch) || is_lc_hex_alpha(ch) || is_uc_hex_alpha(ch);
 }
 
+// Whether `c` is ASCII whitespace: space, tab, or one of the newline,
+// vertical-tab, form-feed, and carriage-return controls.
+template<CharType C>
+[[nodiscard]] constexpr bool is_space(C c) noexcept {
+  return c == C(' ') || c == C('\t') || c == C('\n') || c == C('\v') ||
+         c == C('\f') || c == C('\r');
+}
+
+#pragma endregion
+#pragma region String predicates
+
+// The string overloads of the character predicates: each is true when the
+// string is non-empty and every code unit satisfies the corresponding
+// character predicate.
+//
+// For the case predicates, this deviates from Python deliberately. Python's
+// `islower` and `isupper` ignore uncased characters, so `"abc0".islower()` is
+// true, while `is_lower("abc0")` here is false because '0' fails the character
+// predicate. Beware that `!is_upper(s)` does not reproduce the Python
+// semantics either: it is also true for mixed-case strings like "aA" and for
+// letterless strings. Python's `islower` amounts to "contains at least one
+// letter and no uppercase letters"; if you truly need that, combine
+// `std::ranges::any_of` on `is_alpha` with `std::ranges::none_of` on
+// `is_upper`.
+
+template<StringViewLike S>
+[[nodiscard]] constexpr bool is_lower(const S& s) noexcept {
+  const auto sv{as_view(s)};
+  return !sv.empty() && std::ranges::all_of(sv, [](CharType auto c) {
+    return is_lower(c);
+  });
+}
+
+template<StringViewLike S>
+[[nodiscard]] constexpr bool is_upper(const S& s) noexcept {
+  const auto sv{as_view(s)};
+  return !sv.empty() && std::ranges::all_of(sv, [](CharType auto c) {
+    return is_upper(c);
+  });
+}
+
+template<StringViewLike S>
+[[nodiscard]] constexpr bool is_alpha(const S& s) noexcept {
+  const auto sv{as_view(s)};
+  return !sv.empty() && std::ranges::all_of(sv, [](CharType auto c) {
+    return is_alpha(c);
+  });
+}
+
+template<StringViewLike S>
+[[nodiscard]] constexpr bool is_digit(const S& s) noexcept {
+  const auto sv{as_view(s)};
+  return !sv.empty() && std::ranges::all_of(sv, [](CharType auto c) {
+    return is_digit(c);
+  });
+}
+
+template<StringViewLike S>
+[[nodiscard]] constexpr bool is_alnum(const S& s) noexcept {
+  const auto sv{as_view(s)};
+  return !sv.empty() && std::ranges::all_of(sv, [](CharType auto c) {
+    return is_alnum(c);
+  });
+}
+
+template<StringViewLike S>
+[[nodiscard]] constexpr bool is_hex_digit(const S& s) noexcept {
+  const auto sv{as_view(s)};
+  return !sv.empty() && std::ranges::all_of(sv, [](CharType auto c) {
+    return is_hex_digit(c);
+  });
+}
+
+template<StringViewLike S>
+[[nodiscard]] constexpr bool is_space(const S& s) noexcept {
+  const auto sv{as_view(s)};
+  return !sv.empty() && std::ranges::all_of(sv, [](CharType auto c) {
+    return is_space(c);
+  });
+}
+
 #pragma endregion
 #pragma region Case change
 
@@ -113,6 +195,70 @@ template<StringViewLike S>
 [[nodiscard]] constexpr auto as_lower(const S& s) {
   std::basic_string<char_type_of_t<S>> r{as_view(s)};
   to_lower(r);
+  return r;
+}
+
+// Swap the case of `c`, Python swapcase-style: lowercase becomes uppercase,
+// uppercase becomes lowercase, everything else passes through.
+template<CharType C>
+[[nodiscard]] constexpr C to_swapped(C c) noexcept {
+  if (is_lower(c)) return to_upper(c);
+  if (is_upper(c)) return to_lower(c);
+  return c;
+}
+
+// Swap case in place.
+constexpr void to_swapped(Range auto& r) noexcept {
+  for (auto& ch : r) ch = to_swapped(ch);
+}
+
+// Return with case swapped. Accepts any string-like argument and yields a
+// `std::basic_string` of its code-unit type.
+template<StringViewLike S>
+[[nodiscard]] constexpr auto as_swapped(const S& s) {
+  std::basic_string<char_type_of_t<S>> r{as_view(s)};
+  to_swapped(r);
+  return r;
+}
+
+// Capitalize in place, Python capitalize-style: uppercase the first code unit
+// and lowercase the rest.
+constexpr void to_capitalized(Range auto& r) noexcept {
+  bool first = true;
+  for (auto& ch : r) {
+    ch = first ? to_upper(ch) : to_lower(ch);
+    first = false;
+  }
+}
+
+// Return as capitalized. Accepts any string-like argument and yields a
+// `std::basic_string` of its code-unit type.
+template<StringViewLike S>
+[[nodiscard]] constexpr auto as_capitalized(const S& s) {
+  std::basic_string<char_type_of_t<S>> r{as_view(s)};
+  to_capitalized(r);
+  return r;
+}
+
+// Title-case in place, Python title-style: uppercase each letter that follows
+// a non-letter (or starts the string), lowercase the other letters.
+//
+// The Python quirk comes along: any non-letter starts a new word, so "they're"
+// becomes "They'Re" and "3rd" becomes "3Rd".
+constexpr void to_titled(Range auto& r) noexcept {
+  bool prev_alpha = false;
+  for (auto& ch : r) {
+    if (is_alpha(ch)) ch = prev_alpha ? to_lower(ch) : to_upper(ch);
+    prev_alpha = is_alpha(ch);
+  }
+}
+
+// Return as title-cased. Accepts any string-like argument and yields a
+// `std::basic_string` of its code-unit type.
+template<StringViewLike S>
+[[nodiscard]] constexpr auto as_titled(const S& s) {
+  std::basic_string<char_type_of_t<S>> r{as_view(s)};
+  to_titled(r);
   return r;
 }
 

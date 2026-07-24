@@ -39,6 +39,15 @@ namespace corvid::strings { inline namespace splitting {
 // For all split functions, `delim` defaults to " " and can be specified as any
 // set of characters.
 
+// The full ASCII whitespace set (exactly the characters `is_space` in
+// "cases.h" accepts), narrow and wide.
+//
+// The default delimiter stays a lone space for speed and simplicity; pass one
+// of these instead to split on Python-style whitespace. The trim functions
+// default the same way and accept these the same way.
+inline constexpr std::string_view whitespace{" \t\n\v\f\r"};
+inline constexpr std::wstring_view wwhitespace{L" \t\n\v\f\r"};
+
 // Extract next delimited piece destructively from `whole`.
 //
 // The return type `R` effectively defaults to a `std::basic_string_view` of

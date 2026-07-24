@@ -149,6 +149,35 @@ TEST_CASE("Split", "[StringUtilsTest]") {
 #pragma endregion
 
 // Test split_gen.
+#pragma region WhitespaceDelim
+
+TEST_CASE("WhitespaceDelim", "[StringUtilsTest]") {
+  using V = std::vector<std::string_view>;
+  // The named set splits on all ASCII whitespace, not just the default lone
+  // space.
+  if (true) {
+    CHECK(strings::split("a b\tc\nd") == V{"a", "b\tc\nd"});
+    CHECK(strings::split("a b\tc\nd", strings::whitespace) ==
+          V{"a", "b", "c", "d"});
+    CHECK(strings::split(L"a b\tc", strings::wwhitespace) ==
+          std::vector<std::wstring_view>{L"a", L"b", L"c"});
+    CHECK(strings::trim("\t a \r\n", strings::whitespace) == "a");
+  }
+  // Pin the set to is_space exactly, so the two cannot drift apart.
+  if (true) {
+    CHECK(strings::is_space(strings::whitespace));
+    CHECK(strings::whitespace.size() == 6U);
+    for (int i = 0; i < 256; ++i) {
+      const auto c = static_cast<char>(i);
+      CHECK(strings::is_space(c) ==
+            (strings::whitespace.find(c) != strings::npos));
+    }
+    CHECK(strings::is_space(strings::wwhitespace));
+    CHECK(strings::wwhitespace.size() == strings::whitespace.size());
+  }
+}
+
+#pragma endregion
 #pragma region SplitN
 
 TEST_CASE("SplitN", "[StringUtilsTest]") {
@@ -460,6 +489,54 @@ TEST_CASE("Case", "[StringUtilsTest]") {
 #pragma endregion
 
 // Test basic_delim over a wide code unit.
+#pragma region CaseStrings
+
+TEST_CASE("CaseStrings", "[StringUtilsTest]") {
+  // The string overloads require non-empty and all code units passing.
+  if (true) {
+    CHECK(strings::is_digit("123"));
+    CHECK_FALSE(strings::is_digit("12a"));
+    CHECK_FALSE(strings::is_digit(""));
+    CHECK(strings::is_alpha("abc"));
+    CHECK_FALSE(strings::is_alpha("ab1"));
+    CHECK(strings::is_alnum("ab1"));
+    CHECK_FALSE(strings::is_alnum("ab 1"));
+    CHECK(strings::is_hex_digit("1aF"));
+    CHECK_FALSE(strings::is_hex_digit("1aG"));
+    CHECK(strings::is_space(" \t\r\n\v\f"));
+    CHECK_FALSE(strings::is_space(" x "));
+    CHECK(strings::is_lower("abc"));
+    // Unlike Python islower, uncased characters are not ignored.
+    CHECK_FALSE(strings::is_lower("abc1"));
+    CHECK(strings::is_upper("ABC"));
+    CHECK_FALSE(strings::is_upper("ABc"));
+    CHECK(strings::is_digit(u"123"sv));
+  }
+  // Swap, capitalize, and title-case, on copies and in place.
+  if (true) {
+    CHECK(strings::to_swapped('a') == 'A');
+    CHECK(strings::to_swapped('A') == 'a');
+    CHECK(strings::to_swapped('1') == '1');
+    CHECK(strings::as_swapped("Hello, World!") == "hELLO, wORLD!");
+    CHECK(strings::as_capitalized("hello WORLD") == "Hello world");
+    CHECK(strings::as_capitalized("") == "");
+    CHECK(strings::as_titled("hello world") == "Hello World");
+    CHECK(strings::as_titled("HELLO WORLD") == "Hello World");
+    // The Python title quirk: any non-letter starts a new word.
+    CHECK(strings::as_titled("they're") == "They'Re");
+    CHECK(strings::as_titled("3rd place") == "3Rd Place");
+    std::string s{"aBc"};
+    strings::to_swapped(s);
+    CHECK(s == "AbC");
+    strings::to_capitalized(s);
+    CHECK(s == "Abc");
+    s = "a b";
+    strings::to_titled(s);
+    CHECK(s == "A B");
+  }
+}
+
+#pragma endregion
 #pragma region WideDelim
 
 TEST_CASE("WideDelim", "[StringUtilsTest]") {

@@ -83,12 +83,26 @@ input for further analysis, not a commitment to build any particular item.
 - `translate` / `maketrans`: table-driven per-character mapping and deletion,
   with `tr(1)` semantics. `substitute` handles paired from-to lists; a
   256-entry table version is both faster for that shape and covers
-  delete-sets.
+  delete-sets. DECLINED: not wanted; `substitute` and `excise` already cover
+  the practical shapes, and a translation table has no known caller.
 - `capitalize` / `title` / `swapcase`, plus whole-string predicates
   (`isdigit`, `isalpha`, `isspace`, `isupper` over a string):
   [cases.h](cases.h) has the per-character predicates and upper/lower
   conversion only. All are trivial in the established ASCII-only style. A
-  per-character `is_space` is itself missing.
+  per-character `is_space` is itself missing. DONE: per-character `is_space`
+  (the six ASCII whitespace characters), `StringViewLike` overloads of all
+  seven predicates (true when non-empty and every code unit passes; ruling:
+  unlike Python `islower` / `isupper`, uncased characters are not ignored),
+  and the case transforms in the established `to_` / `as_` pairs:
+  `to_swapped` (per-character and in-place) with `as_swapped`,
+  `to_capitalized` with `as_capitalized`, and `to_titled` with `as_titled`.
+  `as_titled` keeps the Python `title` quirk (any non-letter starts a new
+  word, so "they're" becomes "They'Re"), documented in the header. Companion
+  ruling: the split and trim default delimiter stays a lone space (speed and
+  simplicity), but [splitting.h](splitting.h) now names the full set as the
+  `whitespace` / `wwhitespace` view pair, for Python-style whitespace
+  splitting or trimming; a test pins the pair to `is_space` exactly so they
+  cannot drift.
 - `expandtabs`: tab-to-column-stop expansion. Niche, but it has no std
   equivalent at all.
 
