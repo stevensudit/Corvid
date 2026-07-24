@@ -31,7 +31,7 @@
 
 #include "crossplatform.h"
 #include "fixed_string.h"
-#include "memory.h"
+#include "padding.h"
 
 // Registration-based runtime polymorphism ("proxy") system.
 //

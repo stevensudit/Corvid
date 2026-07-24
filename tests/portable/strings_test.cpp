@@ -1834,6 +1834,47 @@ TEST_CASE("ExpandTabs", "[StringUtilsTest]") {
 }
 
 #pragma endregion
+#pragma region Justification
+
+TEST_CASE("Justification", "[StringUtilsTest]") {
+  // `ljust` and `rjust` name where the content goes; the fill lands opposite.
+  if (true) {
+    CHECK(strings::ljust("ab", 5) == "ab   ");
+    CHECK(strings::rjust("ab", 5) == "   ab");
+    CHECK(strings::ljust("ab", 5, '*') == "ab***");
+    CHECK(strings::rjust("ab", 5, '*') == "***ab");
+    // Already wide enough: an unpadded copy.
+    CHECK(strings::ljust("abc", 2) == "abc");
+    CHECK(strings::rjust("abc", 3) == "abc");
+    CHECK(strings::ljust("", 3) == "   ");
+  }
+  // `center` puts odd padding on the right, as `std::format`'s `^` does;
+  // Python `center` would give "  ab " for width 5.
+  if (true) {
+    CHECK(strings::center("ab", 4) == " ab ");
+    CHECK(strings::center("ab", 5) == " ab  ");
+    CHECK(strings::center("a", 4, '.') == ".a..");
+    CHECK(strings::center("abc", 2) == "abc");
+    CHECK(strings::center("", 2) == "  ");
+  }
+  // `zfill` zero-fills after any leading sign.
+  if (true) {
+    CHECK(strings::zfill("42", 5) == "00042");
+    CHECK(strings::zfill("-42", 5) == "-0042");
+    CHECK(strings::zfill("+3.14", 7) == "+003.14");
+    CHECK(strings::zfill("abc", 5) == "00abc");
+    CHECK(strings::zfill("", 3) == "000");
+    CHECK(strings::zfill("-", 2) == "-0");
+    CHECK(strings::zfill("12345", 3) == "12345");
+  }
+  // Any code unit works.
+  if (true) {
+    CHECK(strings::rjust(u"ab"sv, 4) == u"  ab");
+    CHECK(strings::center(L"ab", 4, L'-') == L"-ab-");
+  }
+}
+
+#pragma endregion
 #pragma region AddBraces
 
 TEST_CASE("AddBraces", "[StringUtilsTest]") {

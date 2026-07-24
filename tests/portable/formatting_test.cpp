@@ -122,18 +122,19 @@ namespace {
 using cps = parsed_spec<char>;
 using align = cps::aligned;
 
-// `calc_padding` is constexpr; verify the split for each alignment, the
-// odd-pad bias toward the trailing side, and the no-room case.
-static_assert(cps::calc_padding(align::left, 3, 10).first == 0);
-static_assert(cps::calc_padding(align::left, 3, 10).second == 7);
-static_assert(cps::calc_padding(align::right, 3, 10).first == 7);
-static_assert(cps::calc_padding(align::right, 3, 10).second == 0);
-static_assert(cps::calc_padding(align::center, 3, 10).first == 3);
-static_assert(cps::calc_padding(align::center, 3, 10).second == 4);
-static_assert(cps::calc_padding(align::center, 4, 10).first == 3);
-static_assert(cps::calc_padding(align::center, 4, 10).second == 3);
-static_assert(cps::calc_padding(align::right, 5, 3).first == 0);
-static_assert(cps::calc_padding(align::right, 5, 3).second == 0);
+// `calc_padding` (now free, in meta/padding.h) is constexpr; verify the split
+// for each alignment, the odd-pad bias toward the trailing side, and the
+// no-room case.
+static_assert(calc_padding(align::left, 3, 10).first == 0);
+static_assert(calc_padding(align::left, 3, 10).second == 7);
+static_assert(calc_padding(align::right, 3, 10).first == 7);
+static_assert(calc_padding(align::right, 3, 10).second == 0);
+static_assert(calc_padding(align::center, 3, 10).first == 3);
+static_assert(calc_padding(align::center, 3, 10).second == 4);
+static_assert(calc_padding(align::center, 4, 10).first == 3);
+static_assert(calc_padding(align::center, 4, 10).second == 3);
+static_assert(calc_padding(align::right, 5, 3).first == 0);
+static_assert(calc_padding(align::right, 5, 3).second == 0);
 
 using sp = spec_parser<char>;
 using avt = sp::arg_value_t;

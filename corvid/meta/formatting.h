@@ -23,6 +23,7 @@
 #include <type_traits>
 
 #include "concepts.h"
+#include "padding.h"
 
 // Reusable `std::formatter` bases for the recurring shapes in this library:
 // forwarding a wrapper to its underlying value's formatter, the same with a
@@ -35,7 +36,7 @@ namespace corvid { inline namespace meta { inline namespace formatting {
 // Parsed format spec, with formatting-related helpers.
 template<CharType CharT>
 struct parsed_spec {
-  enum class aligned : std::uint8_t { left, right, center };
+  using aligned = corvid::meta::aligned;
 
 #pragma region Fields
 
@@ -93,24 +94,6 @@ struct parsed_spec {
     out = write_sv(out, content);
     out = write_repeat(out, fill, trail);
     return out;
-  }
-
-  // Calculate the left and right padding counts for `content_width` in a field
-  // of `total_width`, based on `alignment`.
-  static constexpr std::pair<size_t, size_t> calc_padding(aligned alignment,
-      std::size_t content_width, std::size_t total_width) noexcept {
-    std::size_t lead = 0;
-    std::size_t trail = 0;
-    if (total_width > content_width) {
-      const std::size_t pad = total_width - content_width;
-      lead =
-          alignment == aligned::right ? pad
-          : alignment == aligned::center
-              ? pad / 2
-              : 0;
-      trail = pad - lead;
-    }
-    return {lead, trail};
   }
 
 #pragma endregion

@@ -11,7 +11,8 @@ input for further analysis, not a commitment to build any particular item.
   `ends_with`, and `contains` since C++20/23, forwarded by
   [string_view_wrapper.h](string_view_wrapper.h).
 - `center` / `ljust` / `rjust` / `zfill`: `std::format` fill, align, and width
-  (`{:^10}`, `{:0>8}`) subsume all four.
+  (`{:^10}`, `{:0>8}`) subsume all four for formatting, but the direct
+  functions were later ruled worth shipping anyway; see the DONE entry below.
 - `join`: deliberately retired with `concat_join`. `std::format("{:n}", range)`
   and `std::views::join_with` cover it, per [roadmap.md](roadmap.md). An eager
   `join(range, delim) -> std::string` one-liner remains a mild ergonomic gap,
@@ -131,6 +132,21 @@ input for further analysis, not a commitment to build any particular item.
   One divergence noted in the header: Python `isascii` is true for the empty
   string, but the band's non-empty rule applies uniformly. `isidentifier` was
   not included (Python-specific rules, no caller).
+- `ljust` / `rjust` / `center` / `zfill` as direct functions, promoted from
+  the "Already covered" tier by ruling. DONE: [justification.h](justification.h),
+  keeping the Python names because they are well known and more intuitive than
+  the pad-side alternatives considered (`ljust` -> `rpad` and so on); a single
+  universal padder taking an alignment was also considered and rejected. The
+  names describe where the content goes, not the padding. `zfill` is
+  sign-aware, exactly as in Python. One divergence, documented in the header:
+  `center` places odd padding on the right, matching `std::format`'s `^` and
+  `calc_padding`, while Python picks the side from the parities of the width
+  and margin. Companion refactor: `calc_padding` and its `aligned` enum moved
+  from `parsed_spec` in [../meta/formatting.h](../meta/formatting.h) to the
+  new [../meta/padding.h](../meta/padding.h), which also absorbed
+  `padded_size` from the now-deleted meta/memory.h (both are padding, of
+  memory and of text); `justification.h` builds on it, since strings may
+  depend on meta but not the reverse.
 - `expandtabs`: tab-to-column-stop expansion. Niche, but it has no std
   equivalent at all. DONE: `expand_tabs` in [indenting.h](indenting.h), a new
   header scoped to indentation and column layout, intended to also host
