@@ -22,6 +22,12 @@ input for further analysis, not a commitment to build any particular item.
 - `strip(chars)`: `trim` with a delim set in [trimming.h](trimming.h).
 - `count`: `count_located` in [locating.h](locating.h).
 - `replace`: `substitute` and `excise` in [locating.h](locating.h).
+- `isdecimal` / `isdigit` / `isnumeric`: the trio only diverges outside ASCII
+  (decimal characters, plus superscript-style digits, plus anything with a
+  numeric value, respectively, each a superset of the last). Within ASCII all
+  three collapse to '0' through '9', which is exactly `is_digit` in
+  [cases.h](cases.h), so under the ASCII-only policy there is no gap and no
+  reason to ship three names.
 
 ## Missing, and natural fits for the existing files (ASCII scope, small)
 
@@ -116,6 +122,15 @@ input for further analysis, not a commitment to build any particular item.
   fusing would only save the memcpy-class copy while breaking the layering,
   and `resize_and_overwrite` remains available as a local change if a
   profile ever demands it.
+- `isascii` / `isprintable` / `istitle`: predicates the first survey pass
+  missed. DONE: in [cases.h](cases.h), per-character `is_ascii` (0 through
+  0x7f) and `is_printable` (space through tilde) with the standard string
+  overloads, plus the string-only `is_title`, which follows the `as_titled`
+  word rule (quirk included), matching Python `istitle` exactly within ASCII;
+  `is_title(as_titled(s))` holds whenever `s` has a letter, pinned in tests.
+  One divergence noted in the header: Python `isascii` is true for the empty
+  string, but the band's non-empty rule applies uniformly. `isidentifier` was
+  not included (Python-specific rules, no caller).
 - `expandtabs`: tab-to-column-stop expansion. Niche, but it has no std
   equivalent at all. DONE: `expand_tabs` in [indenting.h](indenting.h), a new
   header scoped to indentation and column layout, intended to also host

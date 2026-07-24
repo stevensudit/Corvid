@@ -18,6 +18,7 @@
 #include <algorithm>
 #include <compare>
 #include <string>
+#include <type_traits>
 
 #include "../meta/concepts.h"
 #include "string_literals.h"
@@ -50,6 +51,11 @@ template<CharType C>
   return is_lower(c) || is_upper(c);
 }
 
+// Whether `c` is a decimal digit, meaning '0' through '9' only.
+//
+// Not the Python `isdigit`, which also admits non-ASCII digits like
+// superscripts; within ASCII, Python's `isdecimal`, `isdigit`, and `isnumeric`
+// all collapse to this.
 template<CharType C>
 [[nodiscard]] constexpr bool is_digit(C c) noexcept {
   return c >= C('0') && c <= C('9');
@@ -81,6 +87,19 @@ template<CharType C>
          c == C('\f') || c == C('\r');
 }
 
+// Whether `c` is in the ASCII range, 0 through 0x7f.
+template<CharType C>
+[[nodiscard]] constexpr bool is_ascii(C c) noexcept {
+  return static_cast<std::make_unsigned_t<C>>(c) <= 0x7f;
+}
+
+// Whether `c` is a printable ASCII character, space (0x20) through tilde
+// (0x7e).
+template<CharType C>
+[[nodiscard]] constexpr bool is_printable(C c) noexcept {
+  return c >= C(' ') && c <= C('~');
+}
+
 #pragma endregion
 #pragma region String predicates
 
@@ -95,6 +114,8 @@ template<CharType C>
 // semantics either: it is also true for mixed-case strings like "aA" and for
 // letterless strings. The Python rule is available by name as
 // `is_python_lower` and `is_python_upper`.
+//
+// See also: `is_ascii`, below.
 
 template<StringViewLike S>
 [[nodiscard]] constexpr bool is_lower(const S& s) noexcept {
@@ -152,6 +173,24 @@ template<StringViewLike S>
   });
 }
 
+// Unlike Python's `isascii`, which is true for the empty string, this
+// predicate follows the non-empty rule like the others.
+template<StringViewLike S>
+[[nodiscard]] constexpr bool is_ascii(const S& s) noexcept {
+  const auto sv{as_view(s)};
+  return !sv.empty() && std::ranges::all_of(sv, [](CharType auto c) {
+    return is_ascii(c);
+  });
+}
+
+template<StringViewLike S>
+[[nodiscard]] constexpr bool is_printable(const S& s) noexcept {
+  const auto sv{as_view(s)};
+  return !sv.empty() && std::ranges::all_of(sv, [](CharType auto c) {
+    return is_printable(c);
+  });
+}
+
 // The Python-rule case predicates.
 //
 // Each is true when the string contains at least one letter and none of the
@@ -177,6 +216,26 @@ template<StringViewLike S>
   for (const auto c : as_view(s)) {
     if (is_lower(c)) return false;
     if (is_upper(c)) has_letter = true;
+  }
+  return has_letter;
+}
+
+// Whether `s` is title-cased, Python `istitle`-style.
+//
+// True when the string contains at least one letter, every letter starting a
+// word (following a non-letter, or the string start) is uppercase, and every
+// other letter is lowercase. Words break exactly as in `as_titled`, quirk
+// included, so `is_title(as_titled(s))` holds whenever `s` has a letter.
+template<StringViewLike S>
+[[nodiscard]] constexpr bool is_title(const S& s) noexcept {
+  bool prev_alpha = false;
+  bool has_letter = false;
+  for (const auto c : as_view(s)) {
+    if (is_alpha(c)) {
+      if (prev_alpha ? is_upper(c) : is_lower(c)) return false;
+      has_letter = true;
+    }
+    prev_alpha = is_alpha(c);
   }
   return has_letter;
 }

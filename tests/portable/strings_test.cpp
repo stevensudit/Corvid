@@ -460,6 +460,15 @@ TEST_CASE("Case", "[StringUtilsTest]") {
   CHECK(strings::is_digit(u'7'));
   CHECK(strings::is_alpha(U'q'));
   CHECK_FALSE(strings::is_upper(char16_t{0xe9})); // U+00E9, not ASCII
+  CHECK(strings::is_ascii('a'));
+  CHECK(strings::is_ascii('\x7f'));
+  CHECK_FALSE(strings::is_ascii(static_cast<char>(0x80)));
+  CHECK_FALSE(strings::is_ascii(char16_t{0xe9}));
+  CHECK(strings::is_printable(' '));
+  CHECK(strings::is_printable('~'));
+  CHECK_FALSE(strings::is_printable('\t'));
+  CHECK_FALSE(strings::is_printable('\x7f'));
+  CHECK_FALSE(strings::is_printable(static_cast<char>(0x80)));
   auto w = u"abcXYZ"s;
   strings::to_upper(w);
   CHECK(w == u"ABCXYZ");
@@ -512,6 +521,32 @@ TEST_CASE("CaseStrings", "[StringUtilsTest]") {
     CHECK(strings::is_upper("ABC"));
     CHECK_FALSE(strings::is_upper("ABc"));
     CHECK(strings::is_digit(u"123"sv));
+    CHECK(strings::is_ascii("plain text\r\n"));
+    CHECK_FALSE(strings::is_ascii("caf\xc3\xa9"));
+    // Unlike Python isascii, empty is false, as for all these predicates.
+    CHECK_FALSE(strings::is_ascii(""));
+    CHECK(strings::is_printable("plain text~"));
+    CHECK_FALSE(strings::is_printable("tab\there"));
+    CHECK_FALSE(strings::is_printable(""));
+  }
+  // is_title follows the as_titled word rule, Python istitle-style: at least
+  // one letter, uppercase exactly at word starts.
+  if (true) {
+    CHECK(strings::is_title("Hello World"));
+    CHECK(strings::is_title("A"));
+    CHECK_FALSE(strings::is_title("hello world"));
+    CHECK_FALSE(strings::is_title("HELLO"));
+    CHECK_FALSE(strings::is_title("Hello world"));
+    CHECK_FALSE(strings::is_title("3rd"));
+    CHECK_FALSE(strings::is_title(""));
+    CHECK_FALSE(strings::is_title("123"));
+    // The quirk carries over: any non-letter starts a new word.
+    CHECK(strings::is_title("They'Re"));
+    CHECK(strings::is_title("3Rd Place"));
+    CHECK_FALSE(strings::is_title("They're"));
+    // The invariant with as_titled, quirk included.
+    CHECK(strings::is_title(strings::as_titled("mIxEd uP, they're 3rd")));
+    CHECK(strings::is_title(u"Wide Words"sv));
   }
   // The is_python_* predicates ignore non-letters, Python islower and isupper
   // style: at least one letter and none of the opposite case.
