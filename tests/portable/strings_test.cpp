@@ -237,7 +237,7 @@ TEST_CASE("RSplit", "[StringUtilsTest]") {
     CHECK(strings::rsplit_n("a,b", 5, ",") == strings::rsplit("a,b", ","));
     CHECK(strings::rsplit_n("", 3, ",") == V{});
   }
-  // Reversed, rsplit_n matches Python rsplit with maxsplit.
+  // Reversed, `rsplit_n` matches Python `rsplit` with `maxsplit`.
   if (true) {
     auto parts = strings::rsplit_n("a,b,c,d", 2, ",");
     std::ranges::reverse(parts);
@@ -516,20 +516,21 @@ TEST_CASE("CaseStrings", "[StringUtilsTest]") {
     CHECK(strings::is_space(" \t\r\n\v\f"));
     CHECK_FALSE(strings::is_space(" x "));
     CHECK(strings::is_lower("abc"));
-    // Unlike Python islower, uncased characters are not ignored.
+    // Unlike Python `islower`, uncased characters are not ignored.
     CHECK_FALSE(strings::is_lower("abc1"));
     CHECK(strings::is_upper("ABC"));
     CHECK_FALSE(strings::is_upper("ABc"));
     CHECK(strings::is_digit(u"123"sv));
     CHECK(strings::is_ascii("plain text\r\n"));
     CHECK_FALSE(strings::is_ascii("caf\xc3\xa9"));
-    // Unlike Python isascii, empty is false, as for all these predicates.
+    // Unlike Python `isascii`, empty is false, as for all these predicates.
     CHECK_FALSE(strings::is_ascii(""));
     CHECK(strings::is_printable("plain text~"));
     CHECK_FALSE(strings::is_printable("tab\there"));
     CHECK_FALSE(strings::is_printable(""));
   }
-  // is_title follows the as_titled word rule, Python istitle-style: at least
+  // `is_title` follows the `as_titled` word rule, Python `istitle`-style: at
+  // least
   // one letter, uppercase exactly at word starts.
   if (true) {
     CHECK(strings::is_title("Hello World"));
@@ -548,8 +549,8 @@ TEST_CASE("CaseStrings", "[StringUtilsTest]") {
     CHECK(strings::is_title(strings::as_titled("mIxEd uP, they're 3rd")));
     CHECK(strings::is_title(u"Wide Words"sv));
   }
-  // The is_python_* predicates ignore non-letters, Python islower and isupper
-  // style: at least one letter and none of the opposite case.
+  // The `is_python_*` predicates ignore non-letters, Python `islower` and
+  // `isupper` style: at least one letter and none of the opposite case.
   if (true) {
     CHECK(strings::is_python_lower("abc0"));
     CHECK_FALSE(strings::is_lower("abc0"));
@@ -588,7 +589,7 @@ TEST_CASE("CaseStrings", "[StringUtilsTest]") {
     CHECK(strings::as_capitalized("") == "");
     CHECK(strings::as_titled("hello world") == "Hello World");
     CHECK(strings::as_titled("HELLO WORLD") == "Hello World");
-    // The Python title quirk: any non-letter starts a new word.
+    // The Python `title` quirk: any non-letter starts a new word.
     CHECK(strings::as_titled("they're") == "They'Re");
     CHECK(strings::as_titled("3rd place") == "3Rd Place");
     std::string s{"aBc"};

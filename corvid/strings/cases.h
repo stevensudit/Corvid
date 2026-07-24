@@ -291,7 +291,7 @@ template<StringViewLike S>
   return r;
 }
 
-// Return `c` with its case swapped, Python swapcase-style.
+// Return `c` with its case swapped, Python `swapcase`-style.
 //
 // Lowercase becomes uppercase, uppercase becomes lowercase, everything else
 // passes through.
@@ -318,7 +318,7 @@ template<StringViewLike S>
   return r;
 }
 
-// Capitalize in place, Python capitalize-style.
+// Capitalize in place, Python `capitalize`-style.
 //
 // Uppercases the first code unit and lowercases the rest.
 constexpr void to_capitalized(Range auto& r) noexcept {
@@ -340,7 +340,7 @@ template<StringViewLike S>
   return r;
 }
 
-// Title-case in place, Python title-style.
+// Title-case in place, Python `title`-style.
 //
 // Uppercase each letter that follows a non-letter (or starts the string),
 // lowercase the other letters.
