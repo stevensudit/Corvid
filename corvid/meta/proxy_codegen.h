@@ -52,7 +52,7 @@ template<typename... Ss>
 consteval std::array<size_t, sizeof...(Ss)>
 codegen_starts(std::tuple<Ss...>*) noexcept {
   std::array<size_t, sizeof...(Ss)> starts{};
-  size_t next{1};
+  size_t next = 1;
   size_t ndx{};
   ((starts[ndx++] = next,
        next += std::tuple_size_v<typename Ss::method_t::args_t>),

@@ -133,7 +133,7 @@ struct spec_parser: parsed_spec<CharT> {
     // `{...}` is dynamic: empty is auto, digits are a manual arg id.
     [[nodiscard]] static constexpr arg_value_t
     make_from_parse(std::basic_string_view<CharT> spec, size_t& ndx) noexcept {
-      const size_t n = spec.size();
+      const auto n = spec.size();
       if (ndx < n && spec[ndx] == CharT('{')) {
         ++ndx;
         size_t id{};
@@ -271,7 +271,7 @@ struct spec_parser: parsed_spec<CharT> {
   // consumed, which is the offset of that `}`.
   constexpr size_t parse(std::basic_string_view<CharT> spec) noexcept {
     size_t ndx{};
-    const size_t cnt = spec.size();
+    const auto cnt = spec.size();
     // [fill] align. The fill may be any character except `{` or `}`; without
     // that exclusion, an empty spec followed by a literal align character
     // (`"{:}<"`) would misread the closing brace as a fill and consume past
@@ -482,8 +482,7 @@ struct nullable_formatter: std::formatter<U, CharT> {
       const auto synthetic = spec_.rewrite_spec_as_explicit(
           std::basic_string_view<CharT>{begin, begin + consumed});
 
-      std::basic_format_parse_context<CharT> sctx(synthetic);
-      base::parse(sctx);
+      base::parse(std::basic_format_parse_context<CharT>{synthetic});
       return begin + consumed;
     }
     return base::parse(ctx);
@@ -505,7 +504,7 @@ struct nullable_formatter: std::formatter<U, CharT> {
     {
       return pad_content(ctx, marker_);
     } else {
-      const null_formatting mode = spec_.debug ? DebugNull : PlainNull;
+      const auto mode = spec_.debug ? DebugNull : PlainNull;
       return pad_content(ctx,
           mode == null_formatting::sentinel ? marker_ : std::string_view{});
     }
@@ -516,7 +515,7 @@ struct nullable_formatter: std::formatter<U, CharT> {
 private:
   template<typename FormatContext>
   auto pad_content(FormatContext& ctx, std::string_view content) const {
-    const size_t field_width = spec_.resolve_width(ctx);
+    const auto field_width = spec_.resolve_width(ctx);
     if (const auto prec = spec_.resolve_precision(ctx))
       content = content.substr(0, *prec);
     return spec_.write_padded(ctx.out(), content, field_width);
@@ -572,7 +571,7 @@ struct self_rendering_formatter {
 
     // When available, use `format_to_spec` for maximum flexibility.
     if constexpr (requires { obj.format_to_spec(spec_, ctx.out()); }) {
-      parsed_spec<CharT> resolved = spec_;
+      parsed_spec<CharT> resolved{spec_};
       resolved.width = width;
       resolved.precision = prec;
 
@@ -583,7 +582,7 @@ struct self_rendering_formatter {
         std::basic_string<CharT> buffer;
         (void)format_to_it(obj, std::back_inserter(buffer));
 
-        std::basic_string_view<CharT> content = buffer;
+        std::basic_string_view<CharT> content{buffer};
         if (prec) content = content.substr(0, *prec);
         return spec_.write_padded(ctx.out(), content, width);
       }

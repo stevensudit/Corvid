@@ -29,6 +29,18 @@ Four forms, each with one meaning:
   type is fixed (below).
 - Deliberate narrowing is spelled with an explicit cast, never by falling back
   to `=` to duck the brace error.
+- **Ruling: `bool` from a boolean expression.** A boolean expression
+  initializes a spelled-out `bool`: `const bool ok = p && p->is_good();`.
+  The RHS of a bool is typically coercions (a pointer used bool-like) and
+  comparisons, with nothing spelled `bool` anywhere in it, so `auto` hides
+  the one fact that matters; braces add nothing, because a boolean
+  expression cannot narrow. Parenthesize comparisons:
+  `const bool ws = (a != b);`, `p && (count() == 0)`. The parens group the
+  comparison with its own operands; without them, `x = y != z` makes the
+  reader stop and reparse. They belong to the comparison, not the
+  initializer: `&&` does not look like an assignment, so a bare conjunction
+  takes none. Whether this is a special case of some deeper rule is
+  unsettled; for now it is scoped to `bool`.
 
 ## `auto` with `=`
 
@@ -39,6 +51,13 @@ Four forms, each with one meaning:
   `std::initializer_list` is actually wanted, which is rare. `auto x{5};`
   (an `int`) and `auto y = {5};` (an `initializer_list<int>`) mean different
   things; avoid both spellings entirely.
+- Spelling the type instead of `auto` for a non-literal initializer is
+  justified only by a particular reason to emphasize the type, and then a
+  brace form carries it, since `=` stays reserved for literals.
+- A temporary copy whose type must track the source is `auto`:
+  `auto tmp = std::move(*this);` in a `swap`, not
+  `fixed_function tmp{std::move(*this)};`, which repeats a type that could
+  never legitimately differ.
 
 ## Braces
 
@@ -53,6 +72,11 @@ Braces express "this object takes on these values", and they reject narrowing.
   - **Rule:** Do not brace-init a class whose default constructor already
     initializes it safely: `std::string s;`, not `std::string s{};`
     (clang-tidy flags it). Generic code is exempt, since `T` may be scalar.
+  - **Rule:** The empty state of a pointer is value-init, `ptr_t p{};`,
+    never `= nullptr`. The `nullptr` literal should be rare in general:
+    pointers are tested as bools (`if (p)`, never `p != nullptr`), and the
+    literal appears only where a null is explicitly passed, returned, or
+    assigned as a reset.
 - **Narrowing firewall:** when the initializer's type may differ from the
   target's, braces turn a silent conversion into a compile error:
   `int x{calculate_total()};`. If that return type later changes to a wider

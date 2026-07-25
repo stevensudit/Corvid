@@ -455,8 +455,8 @@ inline_fit_guaranteed(proxy_policy to, proxy_policy from) noexcept {
 // allocation, or nowhere at all to put it under `sbo_only`), or a heap arrival
 // that must un-box into an `sbo_only` buffer it might not fit.
 consteval bool adopt_may_throw(proxy_policy to, proxy_policy from) noexcept {
-  const bool from_sbo = from.alloc != proxy_alloc::heap_only;
-  const bool from_heap = from.alloc != proxy_alloc::sbo_only;
+  const bool from_sbo = (from.alloc != proxy_alloc::heap_only);
+  const bool from_heap = (from.alloc != proxy_alloc::sbo_only);
   return (from_sbo && !inline_fit_guaranteed(to, from)) ||
          (from_heap && to.alloc == proxy_alloc::sbo_only);
 }
@@ -3064,8 +3064,8 @@ private:
       vtable_ = vt;
     } else {
       const bool inline_ok =
-          Policy.alloc != proxy_alloc::heap_only && vt->size <= buf_size &&
-          vt->align <= buf_align;
+          (Policy.alloc != proxy_alloc::heap_only) && (vt->size <= buf_size) &&
+          (vt->align <= buf_align);
       if (inline_ok) {
         vt->relocate(other.storage_.buf, storage_.buf);
         vtable_ = vt;
@@ -3075,8 +3075,8 @@ private:
         storage_.ptr = vt->to_heap(other.storage_.buf);
         vtable_ = vt->heap_table;
       } else {
-        throw std::length_error(
-            "the target cannot be stored in an sbo_only proxy's buffer");
+        throw std::length_error{
+            "the target cannot be stored in an sbo_only proxy's buffer"};
       }
     }
   }
@@ -3094,8 +3094,8 @@ private:
       vtable_ = vt;
     } else {
       if (!vt->to_sbo || vt->size > buf_size || vt->align > buf_align)
-        throw std::length_error(
-            "the target cannot be stored in an sbo_only proxy's buffer");
+        throw std::length_error{
+            "the target cannot be stored in an sbo_only proxy's buffer"};
       // NOLINTNEXTLINE(clang-analyzer-core.CallAndMessage): see target
       vt->to_sbo(other.storage_.ptr, storage_.buf);
       vtable_ = vt->sbo_table;
@@ -3247,8 +3247,8 @@ public:
     const auto* src = source.vtable_;
     if (!src) return;
     const auto* ovt = details::upcast_owning_vtable<F, D>(src);
-    void* ptr = nullptr;
-    void (*destroy)(void*) noexcept = nullptr;
+    void* ptr{};
+    void (*destroy)(void*) noexcept {};
     if (src->relocate) {
       ptr = ovt->to_heap(source.storage_.buf);
       destroy = ovt->heap_table->destroy;

@@ -173,7 +173,7 @@ public:
     using other_t = fixed_function<SZ2, RP(ARGS...)>;
     [[maybe_unused]] const bool refused =
         other.lifespan_ &&
-        other.lifespan_(other.storage_, storage_, storage_size) == 0;
+        (other.lifespan_(other.storage_, storage_, storage_size) == 0);
     // A refusal is only reachable when downsizing; the guard keeps the
     // guaranteed-fit instantiation genuinely non-throwing.
     if constexpr (other_t::storage_size > storage_size) {
@@ -234,7 +234,7 @@ public:
   }
 
   void swap(fixed_function& other) noexcept {
-    fixed_function tmp{std::move(*this)};
+    auto tmp = std::move(*this);
     *this = std::move(other);
     other = std::move(tmp);
   }
@@ -299,7 +299,7 @@ private:
         "fixed_function: callable returns a prvalue but RP is a reference "
         "type; every call would produce a dangling reference");
 
-    new (storage_) FD{std::forward<FD>(fn)};
+    new (storage_) FD(std::forward<FD>(fn));
     invoke_ = &invoke_impl<FD>;
     lifespan_ = &manage_impl<FD>;
   }
@@ -342,7 +342,7 @@ private:
       auto* f = static_cast<F*>(from);
       if (to) {
         if (to_size < sizeof(F)) return 0;
-        new (to) F{std::move(*f)};
+        new (to) F(std::move(*f));
       }
       f->~F();
     }

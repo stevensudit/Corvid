@@ -38,14 +38,14 @@ namespace corvid { inline namespace meta { inline namespace naming {
 template<typename T>
 std::string type_name() {
   using TR = std::remove_reference_t<T>;
-  std::unique_ptr<char, void (*)(void*)> own(
+  std::unique_ptr<char, decltype(&std::free)> own{
 #ifndef _MSC_VER
       abi::__cxa_demangle(typeid(TR).name(), nullptr, nullptr, nullptr),
 #else
       nullptr,
 #endif
-      [](void* ptr) { std::free(ptr); });
-  std::string r = own ? own.get() : typeid(TR).name();
+      std::free};
+  std::string r{own ? own.get() : typeid(TR).name()};
   if (std::is_const_v<TR>) r += " const";
   if (std::is_volatile_v<TR>) r += " volatile";
   if (std::is_lvalue_reference_v<T>)
@@ -75,7 +75,7 @@ std::string type_name(T&&) {
 template<typename T>
 std::string friendly_type_name() {
   using TR = std::remove_reference_t<T>;
-  std::string r = type_name<std::remove_cv_t<TR>>();
+  auto r = type_name<std::remove_cv_t<TR>>();
   auto replace = [&r](std::string_view what, std::string_view with) {
     for (size_t pos = 0; (pos = r.find(what, pos)) != std::string::npos;
         pos += with.size())
