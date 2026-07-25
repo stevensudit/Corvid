@@ -89,8 +89,8 @@ concept UniqueKeyedCollection =
 template<CharType CharT>
 [[nodiscard]] constexpr size_t
 calc_nested_spec_size(std::basic_string_view<CharT> spec) noexcept {
-  size_t ndx = 0;
-  size_t depth = 0;
+  size_t ndx{};
+  size_t depth{};
   const size_t cnt = spec.size();
   while (ndx < cnt) {
     if (spec[ndx] == CharT('{')) {
@@ -281,8 +281,8 @@ private:
 public:
   constexpr auto parse(std::basic_format_parse_context<CharT>& ctx) {
     const auto spec = view_t{ctx.begin(), ctx.end()};
-    const std::size_t cnt = spec.size();
-    std::size_t ndx = 0;
+    const size_t cnt = spec.size();
+    size_t ndx{};
     // Key: dynamic `{n}` / `{}`, or literal text up to ':' or '}'.
     if (ndx < cnt && spec[ndx] == CharT('{')) {
       key_arg_ = arg_value_t::make_from_parse(spec, ndx);
@@ -291,7 +291,7 @@ public:
       else
         ctx.check_arg_id(key_arg_.value);
     } else {
-      const std::size_t start = ndx;
+      const size_t start = ndx;
       while (ndx < cnt && spec[ndx] != CharT(':') && spec[ndx] != CharT('}'))
         ++ndx;
       key_ = spec.substr(start, ndx - start);
@@ -299,7 +299,7 @@ public:
     }
     // Optional nested spec for the looked-up value.
     if (ndx < cnt && spec[ndx] == CharT(':')) {
-      const std::size_t start = ++ndx;
+      const size_t start = ++ndx;
       ndx += corvid::strings::calc_nested_spec_size(spec.substr(start));
       value_spec_ = spec.substr(start, ndx - start);
     }

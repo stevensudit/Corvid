@@ -15,6 +15,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 #pragma once
+#include <array>
 #include <string>
 #include <string_view>
 #include <type_traits>
@@ -68,8 +69,9 @@ trim(const S& whole, basic_delim<char_type_of_t<S>> ws = {}) {
 // Trim each container element in place. Like the scalar overloads, the
 // delimiter defaults to a single space of the elements' code unit, deduced
 // from the element value type (the mapped value for map-like containers).
-template<Container Cont, CharType Char = char_type_of_t<element_value_t<Cont>>>
-constexpr void trim(Cont& wholes, basic_delim<Char> ws = {}) {
+template<Container Cont,
+    CharType CharT = char_type_of_t<element_value_t<Cont>>>
+constexpr void trim(Cont& wholes, basic_delim<CharT> ws = {}) {
   for (auto& item : wholes) {
     auto& part = element_value(item);
     using P = std::remove_cvref_t<decltype(part)>;
@@ -147,15 +149,11 @@ trim_suffix(const S& whole, std::basic_string_view<char_type_of_t<S>> suffix) {
 #pragma endregion
 #pragma region Braces
 
-// Backing storage for the default square-bracket brace pair, per code unit.
-template<CharType Char>
-inline constexpr Char square_braces[] = {Char('['), Char(']')};
-
 // The default brace pair ("[]") for the given code unit.
-template<CharType Char>
-[[nodiscard]] constexpr basic_delim<Char> bracket_delim() noexcept {
-  return basic_delim<Char>{
-      std::basic_string_view<Char>{square_braces<Char>, 2}};
+template<CharType CharT>
+[[nodiscard]] constexpr basic_delim<CharT> bracket_delim() noexcept {
+  static constexpr auto square_braces = std::array{CharT('['), CharT(']')};
+  return basic_delim<CharT>{std::basic_string_view<CharT>{square_braces}};
 }
 
 // For braces, the delimiter is interpreted as a pair of characters.

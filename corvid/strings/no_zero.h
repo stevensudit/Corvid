@@ -37,9 +37,9 @@ namespace corvid::strings { inline namespace nozerostruct {
 //
 // Note that, quite intentionally, the contents of the string buffer are
 // indeterminate after any of these calls.
-template<CharType Char>
+template<CharType CharT>
 struct no_zero {
-  using string_t = std::basic_string<Char>;
+  using string_t = std::basic_string<CharT>;
 
   constexpr explicit no_zero(string_t& s) noexcept : s_{s} {}
 
@@ -58,8 +58,8 @@ struct no_zero {
   // which is wasteful. Instead, use `enlarge_to` to avoid this. It also
   // doesn't get rid of unwanted capacity, as `rightsize_to` does. Nor is it
   // ideal for trimming after filling, as `trim_to` is.
-  constexpr auto& resize_to(std::size_t new_size) {
-    s_.resize_and_overwrite(new_size, [new_size](Char*, std::size_t) noexcept {
+  constexpr auto& resize_to(size_t new_size) {
+    s_.resize_and_overwrite(new_size, [new_size](CharT*, size_t) noexcept {
       return new_size;
     });
     return *this;
@@ -73,7 +73,7 @@ struct no_zero {
     if constexpr (std::signed_integral<decltype(new_size)>) {
       if (new_size < 0) new_size = 0;
     }
-    const auto cast_size = static_cast<std::size_t>(new_size);
+    const auto cast_size = static_cast<size_t>(new_size);
     if (cast_size < s_.size()) resize_to(cast_size);
     return *this;
   }

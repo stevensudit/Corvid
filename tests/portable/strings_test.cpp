@@ -1834,6 +1834,182 @@ TEST_CASE("ExpandTabs", "[StringUtilsTest]") {
 }
 
 #pragma endregion
+#pragma region Textwrap
+
+TEST_CASE("Textwrap", "[StringUtilsTest]") {
+  namespace textwrap = strings::textwrap;
+  using V = std::vector<std::string>;
+
+  // The module is constexpr end to end: results can be computed and compared
+  // entirely at compile time, so long as the allocation stays transient.
+  static_assert(
+      textwrap::dedent("    hello\n      world\n") == "hello\n  world\n");
+  static_assert(textwrap::indent("a\nb", "> ") == "> a\n> b");
+  static_assert(
+      textwrap::wrap("one two three", {.width = 7}) ==
+      std::vector<std::string>{"one two", "three"});
+  static_assert(
+      textwrap::fill("one two three", {.width = 8}) == "one two\nthree");
+  static_assert(textwrap::shorten("one  two", 20) == "one two");
+
+  // Dedent removes the margin common to all content lines.
+  if (true) {
+    CHECK(textwrap::dedent("    hello\n      world\n") == "hello\n  world\n");
+    CHECK(textwrap::dedent("\tabc\n\tdef") == "abc\ndef");
+    // The shortest indent bounds the margin.
+    CHECK(textwrap::dedent("    less\n  least\n      most") ==
+          "  less\nleast\n    most");
+    // Tabs and spaces are distinct, so a mixed margin does not match.
+    CHECK(textwrap::dedent("  a\n\tb") == "  a\n\tb");
+  }
+  // Whitespace-only lines neither count toward the margin nor keep their
+  // whitespace.
+  if (true) {
+    CHECK(textwrap::dedent("  a\n   \n  b") == "a\n\nb");
+    CHECK(textwrap::dedent("  a\n\n  b") == "a\n\nb");
+    CHECK(textwrap::dedent("   ") == "");
+  }
+  // Degenerate inputs pass through.
+  if (true) {
+    CHECK(textwrap::dedent("") == "");
+    CHECK(textwrap::dedent("abc") == "abc");
+  }
+  // The raw-string-literal use case that motivates it.
+  if (true) {
+    constexpr auto usage = R"(
+      usage: frob [-x] file...
+        -x  enable X mode)";
+    CHECK(textwrap::dedent(usage) ==
+          "\nusage: frob [-x] file...\n  -x  enable X mode");
+  }
+  // The consteval overload dedents a literal at compile time, returning a
+  // zero-terminated view of a static constant and leaving nothing for
+  // runtime.
+  if (true) {
+    constexpr auto usage = textwrap::dedent<R"(
+      usage: frob [-x] file...
+        -x  enable X mode)">();
+    static_assert(
+        usage.view() == "\nusage: frob [-x] file...\n  -x  enable X mode");
+    CHECK(usage == "\nusage: frob [-x] file...\n  -x  enable X mode");
+    CHECK(usage.c_str()[usage.size()] == '\0');
+    // The backing storage is the `dedented` fixed_string constant.
+    static_assert(usage.view().data() ==
+                  textwrap::dedented<R"(
+      usage: frob [-x] file...
+        -x  enable X mode)">.data());
+    // Any code unit, and the empty-margin and all-whitespace edges, work the
+    // same as at runtime.
+    constexpr auto wide = textwrap::dedent<L"  a\n  b">();
+    static_assert(wide.view() == L"a\nb");
+    static_assert(textwrap::dedent<"abc">().view() == "abc");
+    static_assert(textwrap::dedent<"   ">().empty());
+  }
+  // Divergence from Python: line breaks are universal, so a blank CRLF line
+  // is blank; Python sees its '\r' as content and gives up on the margin.
+  if (true) { CHECK(textwrap::dedent("  a\r\n\r\n  b") == "a\r\n\r\nb"); }
+
+  // Indent prefixes lines with content; blank and whitespace-only lines pass
+  // through untouched.
+  if (true) {
+    CHECK(textwrap::indent("a\nb", "> ") == "> a\n> b");
+    CHECK(textwrap::indent("a\n\nb\n", "> ") == "> a\n\n> b\n");
+    CHECK(textwrap::indent("a\n  \nb", "> ") == "> a\n  \n> b");
+    CHECK(textwrap::indent("one\ntwo", "  ") == "  one\n  two");
+    CHECK(textwrap::indent("a\r\nb", "> ") == "> a\r\n> b");
+  }
+  // The predicate overload decides per line, seeing each line's break.
+  if (true) {
+    CHECK(textwrap::indent("a\n\nb", "> ", [](std::string_view) {
+      return true;
+    }) == "> a\n> \n> b");
+  }
+
+  // Wrap packs words greedily. All expectations here were generated from
+  // CPython 3.12 with break_on_hyphens and fix_sentence_endings off, the
+  // configuration this implementation matches.
+  if (true) {
+    const auto dog = "The quick brown fox jumped over the lazy dog"sv;
+    CHECK(textwrap::wrap(dog) == V{std::string{dog}});
+    CHECK(textwrap::wrap(dog, {.width = 10}) ==
+          V{"The quick", "brown fox", "jumped", "over the", "lazy dog"});
+    CHECK(textwrap::wrap(dog, {.width = 15}) ==
+          V{"The quick brown", "fox jumped over", "the lazy dog"});
+    CHECK(textwrap::fill(dog, {.width = 10}) ==
+          "The quick\nbrown fox\njumped\nover the\nlazy dog");
+  }
+  // Overlong words break at the width, or get a line to themselves.
+  if (true) {
+    CHECK(textwrap::wrap("aaaaaaaaaab", {.width = 3}) ==
+          V{"aaa", "aaa", "aaa", "ab"});
+    CHECK(textwrap::wrap("aaaaaaaaaab",
+              {.width = 3, .break_long_words = false}) == V{"aaaaaaaaaab"});
+    // Without Python's break_on_hyphens, hyphenated words are no different.
+    CHECK(textwrap::wrap("foo-bar baz", {.width = 6}) == V{"foo-ba", "r baz"});
+  }
+  // Indents count toward the width.
+  if (true) {
+    CHECK(
+        textwrap::wrap("hello world",
+            {.width = 8, .initial_indent = "* ", .subsequent_indent = "  "}) ==
+        V{"* hello", "  world"});
+  }
+  // The whitespace knobs: keeping it, keeping line breaks, and tab handling.
+  if (true) {
+    CHECK(textwrap::wrap("a  b", {.width = 3, .drop_whitespace = false}) ==
+          V{"a  ", "b"});
+    CHECK(textwrap::wrap("a\nb", {.width = 10, .replace_whitespace = false}) ==
+          V{"a\nb"});
+    CHECK(textwrap::wrap("a\tb", {.width = 20}) == V{"a       b"});
+    CHECK(textwrap::wrap("a\tb", {.width = 20, .expand_tabs = false}) ==
+          V{"a b"});
+    CHECK(textwrap::wrap("a\tb", {.width = 20, .tab_size = 4}) == V{"a   b"});
+  }
+  // Leading whitespace survives on the first line when content follows it;
+  // whitespace-only input yields no lines at all.
+  if (true) {
+    CHECK(textwrap::wrap("  hello", {.width = 10}) == V{"  hello"});
+    CHECK(textwrap::wrap("   ", {.width = 10}).empty());
+    CHECK(textwrap::wrap("", {.width = 10}).empty());
+  }
+  // max_lines truncates, marking the cut with the placeholder.
+  if (true) {
+    const auto q = "Hello there, how are you this fine day?"sv;
+    CHECK(
+        textwrap::wrap(q, {.width = 15, .max_lines = 1}) == V{"Hello [...]"});
+    CHECK(textwrap::wrap(q, {.width = 15, .max_lines = 2}) ==
+          V{"Hello there,", "how are [...]"});
+    CHECK(textwrap::wrap(q, {.width = 15, .max_lines = 3}) ==
+          V{"Hello there,", "how are you", "this fine day?"});
+    // Divergence from Python, which raises when the placeholder cannot fit:
+    // here it is emitted anyway, overflowing the width.
+    CHECK(textwrap::wrap("word", {.width = 4, .max_lines = 1}) == V{"word"});
+    CHECK(textwrap::wrap("word another", {.width = 4, .max_lines = 1}) ==
+          V{"[...]"});
+  }
+
+  // Shorten collapses whitespace and truncates to a single line.
+  if (true) {
+    CHECK(textwrap::shorten("Hello  world!", 12) == "Hello world!");
+    CHECK(textwrap::shorten("Hello  world!", 11) == "Hello [...]");
+    CHECK(textwrap::shorten("Hello, world!", 10, "...") == "Hello,...");
+    CHECK(textwrap::shorten("Hello, world!", 5, "...") == "...");
+    CHECK(textwrap::shorten("  leading and trailing   ", 100) ==
+          "leading and trailing");
+    CHECK(textwrap::shorten("one two three", 8) == "[...]");
+  }
+
+  // Any code unit works.
+  if (true) {
+    CHECK(textwrap::dedent(u"  a\n  b") == u"a\nb");
+    CHECK(textwrap::indent(L"a\nb", L"> ") == L"> a\n> b");
+    CHECK(textwrap::wrap(u"one two three", {.width = 7}) ==
+          std::vector<std::u16string>{u"one two", u"three"});
+    CHECK(textwrap::shorten(L"one  two", 20) == L"one two");
+  }
+}
+
+#pragma endregion
 #pragma region Justification
 
 TEST_CASE("Justification", "[StringUtilsTest]") {

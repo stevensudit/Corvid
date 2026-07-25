@@ -44,11 +44,12 @@ sequence enum prints by name, a registered bitmask enum prints as its
 underlying value.
 
 No intermediate string: the formatter wraps `ctx.out()` in
-`output_iterator_appendable<It, SrcChar, DestChar>` (added to
+`output_iterator_appendable<It, SrcCharT, DestCharT>` (added to
 [targeting.h](targeting.h), wired into the `AppendTarget`
 concepts in [../../meta/concepts.h](../meta/concepts.h)). It is an append
-target generic in its input code unit `SrcChar` (matched by the concepts via an
-`append_char_type` member), converting each unit to `DestChar` on the way out:
+target generic in its input code unit `SrcCharT` (matched by the concepts via
+an `append_char_type` member), converting each unit to `DestCharT` on the way
+out:
 identity when the units match, a value-preserving widen when narrower. The enum
 case is `char` in, `CharT` out; a later wide-content formatter (quoted strings)
 can be `CharT` in, `CharT` out. Real multibyte transcoding (UTF-8 to UTF-16) is
@@ -90,13 +91,13 @@ provides directly.
 #### string_view_wrapper children
 
 `opt_string_view`, `cstring_view`, and `enum_name` all derive from
-`string_view_wrapper<Child, Char>`, and the base forwards `begin` and `end`, so
+`string_view_wrapper<Child, CharT>`, and the base forwards `begin` and `end`, so
 today they are ranges of `char`: `std::format("{}", ov)` is claimed by the std
 range formatter and prints `['h', 'e', ...]`. A single concept-constrained
-`std::formatter<Child, Char>` matching the wrapper children fixes this for all
+`std::formatter<Child, CharT>` matching the wrapper children fixes this for all
 of them at once.
 
-It inherits `std::formatter<std::basic_string_view<Char>, Char>` to reuse the
+It inherits `std::formatter<std::basic_string_view<CharT>, CharT>` to reuse the
 full spec grammar (fill, align, width, precision, `?`), and in `format()`
 converts the wrapper to its `string_view` and delegates. Regular `{}` is pure
 delegation. The one addition: in `{:?}` debug mode a null wrapper (null is
@@ -124,7 +125,7 @@ underlying `view()` for dynamic-width debug on a known non-null wrapper.
 `basic_fixed_string` cannot be null, so its formatter is pure delegation with
 no debug branch. Define it at the bottom of
 [fixed_string.h](../meta/fixed_string.h): call the value's `view()` and
-forward to `std::formatter<std::basic_string_view<Char>, Char>`.
+forward to `std::formatter<std::basic_string_view<CharT>, CharT>`.
 
 #### containers
 

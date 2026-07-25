@@ -400,10 +400,10 @@ circular_buffer(std::vector<T>&) -> circular_buffer<T>;
 template<typename T, typename SZ>
 circular_buffer(std::vector<T>&, SZ) -> circular_buffer<T>;
 
-template<typename T, std::size_t N>
+template<typename T, size_t N>
 circular_buffer(std::array<T, N>&) -> circular_buffer<T>;
 
-template<typename T, std::size_t N, typename SZ>
+template<typename T, size_t N, typename SZ>
 circular_buffer(std::array<T, N>&, SZ) -> circular_buffer<T>;
 
 #pragma endregion

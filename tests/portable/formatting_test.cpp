@@ -141,7 +141,7 @@ using avt = sp::arg_value_t;
 
 // `make_from_parse` classifies a width/precision argument; it is constexpr.
 constexpr avt parse_arg(std::string_view s) {
-  std::size_t ndx = 0;
+  size_t ndx = 0;
   return avt::make_from_parse(s, ndx);
 }
 static_assert(parse_arg("10").kind == sp::arg_kind::fixed);
@@ -183,7 +183,7 @@ TEST_CASE("WritePrimitives", "[parsed_spec]") {
 }
 
 TEST_CASE("WritePadded", "[parsed_spec]") {
-  auto render = [](align a, char fill, std::size_t w, std::string_view c) {
+  auto render = [](align a, char fill, size_t w, std::string_view c) {
     cps spec;
     spec.alignment = a;
     spec.fill = fill;

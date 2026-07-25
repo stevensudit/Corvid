@@ -168,7 +168,7 @@ public:
   [[nodiscard]] bool set_recv_buf_size(size_t size) {
     if (size == 0) return false;
     recv_buf_.min_capacity =
-        std::min(size, std::numeric_limits<std::size_t>::max() / 2);
+        std::min(size, std::numeric_limits<size_t>::max() / 2);
     return true;
   }
 
@@ -366,7 +366,7 @@ public:
         listening_{connection == connection_role::server},
         shutdown_{shutdown} {
     recv_buf_.min_capacity =
-        std::min(rbs, std::numeric_limits<std::size_t>::max() / 2);
+        std::min(rbs, std::numeric_limits<size_t>::max() / 2);
     // Listening sockets have no writable data path.
     if (listening_) write_shut_ = true;
   }

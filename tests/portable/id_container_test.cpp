@@ -367,7 +367,7 @@ TEST_CASE("Iteration", "[IdContainer]") {
   // Empty container yields empty range.
   if (true) {
     container_t c;
-    std::size_t count{};
+    size_t count{};
     for ([[maybe_unused]] auto v : c) ++count;
     CHECK(count == 0U);
   }

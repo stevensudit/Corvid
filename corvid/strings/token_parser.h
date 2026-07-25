@@ -26,12 +26,12 @@ namespace corvid::strings { inline namespace parsers {
 #pragma region basic_token_parser
 
 // Separator-based token parse.
-template<CharType Char = char>
+template<CharType CharT = char>
 class basic_token_parser {
 public:
 #pragma region Member types
 
-  using char_t = Char;
+  using char_t = CharT;
   using view_t = std::basic_string_view<char_t>;
 
 #pragma endregion

@@ -27,7 +27,7 @@ using namespace std::literals;
 
 // A `position` is a `size_t` that represents a location within a string, with
 // `npos` as the logical equivalent of the string's size.
-using position = std::size_t;
+using position = size_t;
 
 // To get `npos`, use:
 //  using namespace corvid::strings::literals;

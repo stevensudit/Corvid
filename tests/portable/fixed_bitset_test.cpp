@@ -47,7 +47,7 @@ TEST_CASE("Empty", "[FixedBitset]") {
   // Iterating an empty bitset yields no elements.
   if (true) {
     fixed_bitset<64> b;
-    std::vector<std::size_t> bits;
+    std::vector<size_t> bits;
     for (auto idx : b) bits.push_back(idx);
     CHECK(bits.empty());
   }
@@ -80,11 +80,11 @@ TEST_CASE("SetClearTest", "[FixedBitset]") {
   // Set/reset all 64 bits.
   if (true) {
     fixed_bitset<64> b;
-    for (std::size_t i = 0; i < 64; ++i) b.set(i);
+    for (size_t i = 0; i < 64; ++i) b.set(i);
     CHECK(b.all());
     CHECK(b.count() == 64U);
 
-    for (std::size_t i = 0; i < 64; ++i) b.reset(i);
+    for (size_t i = 0; i < 64; ++i) b.reset(i);
     CHECK(b.none());
   }
 
@@ -149,7 +149,7 @@ TEST_CASE("Subscript", "[FixedBitset]") {
     CHECK_FALSE(cb[63]);
 
     // Must agree with test() at every position.
-    for (std::size_t i = 0; i < 64; ++i) CHECK(cb[i] == b.test(i));
+    for (size_t i = 0; i < 64; ++i) CHECK(cb[i] == b.test(i));
   }
 
   // Non-const overload: returns a reference proxy; writes go through.
@@ -187,7 +187,7 @@ TEST_CASE("Popcount", "[FixedBitset]") {
   // all() only returns true when every bit is set.
   if (true) {
     fixed_bitset<64> b;
-    for (std::size_t i = 0; i < 63; ++i) b.set(i);
+    for (size_t i = 0; i < 63; ++i) b.set(i);
     CHECK_FALSE(b.all());
     b.set(63);
     CHECK(b.all());
@@ -335,14 +335,14 @@ TEST_CASE("WordType", "[FixedBitset]") {
     CHECK_FALSE(b.test(1));
     CHECK(b.count() == 2U);
 
-    std::vector<std::size_t> bits;
+    std::vector<size_t> bits;
     for (auto idx : b) bits.push_back(idx);
     CHECK(bits.size() == 2U);
     CHECK(bits[0] == 0U);
     CHECK(bits[1] == 7U);
 
     // all() requires all 8 bits set.
-    for (std::size_t i = 0; i < 8; ++i) b.set(i);
+    for (size_t i = 0; i < 8; ++i) b.set(i);
     CHECK(b.all());
     b.reset(3);
     CHECK_FALSE(b.all());
@@ -358,7 +358,7 @@ TEST_CASE("WordType", "[FixedBitset]") {
     b.set(23); // word 2, bit 7
     CHECK(b.count() == 3U);
 
-    std::vector<std::size_t> bits;
+    std::vector<size_t> bits;
     for (auto idx : b) bits.push_back(idx);
     CHECK(bits.size() == 3U);
     CHECK(bits[0] == 0U);
@@ -401,7 +401,7 @@ TEST_CASE("WordType", "[FixedBitset]") {
     CHECK_FALSE(b.test(16));
     CHECK(b.count() == 2U);
 
-    for (std::size_t i = 0; i < 32; ++i) b.set(i);
+    for (size_t i = 0; i < 32; ++i) b.set(i);
     CHECK(b.all());
   }
 
@@ -845,7 +845,7 @@ TEST_CASE("Complement", "[FixedBitset]") {
   // ~all-ones is empty.
   if (true) {
     fixed_bitset<64> full;
-    for (std::size_t i = 0; i < 64; ++i) full.set(i);
+    for (size_t i = 0; i < 64; ++i) full.set(i);
     CHECK((~full).none());
   }
 
@@ -908,7 +908,7 @@ TEST_CASE("CountBits", "[FixedBitset]") {
   // All set -> 0 trailing zeros.
   if (true) {
     fixed_bitset<64> b;
-    for (std::size_t i = 0; i < 64; ++i) b.set(i);
+    for (size_t i = 0; i < 64; ++i) b.set(i);
     CHECK(b.countr_zero() == 0U);
   }
   // Multi-word: only bit 64 set -> 64 trailing zeros.
@@ -934,25 +934,25 @@ TEST_CASE("CountBits", "[FixedBitset]") {
   // Bits 0-4 set, bit 5 clear -> 5.
   if (true) {
     fixed_bitset<64> b;
-    for (std::size_t i = 0; i < 5; ++i) b.set(i);
+    for (size_t i = 0; i < 5; ++i) b.set(i);
     CHECK(b.countr_one() == 5U);
   }
   // All set -> 64.
   if (true) {
     fixed_bitset<64> b;
-    for (std::size_t i = 0; i < 64; ++i) b.set(i);
+    for (size_t i = 0; i < 64; ++i) b.set(i);
     CHECK(b.countr_one() == 64U);
   }
   // Multi-word: bits 0-63 set, bit 64 clear -> 64.
   if (true) {
     fixed_bitset<128> b;
-    for (std::size_t i = 0; i < 64; ++i) b.set(i);
+    for (size_t i = 0; i < 64; ++i) b.set(i);
     CHECK(b.countr_one() == 64U);
   }
   // Multi-word: bits 0-64 set -> 65.
   if (true) {
     fixed_bitset<128> b;
-    for (std::size_t i = 0; i <= 64; ++i) b.set(i);
+    for (size_t i = 0; i <= 64; ++i) b.set(i);
     CHECK(b.countr_one() == 65U);
   }
 
@@ -984,7 +984,7 @@ TEST_CASE("CountBits", "[FixedBitset]") {
   // All set -> 0 leading zeros.
   if (true) {
     fixed_bitset<64> b;
-    for (std::size_t i = 0; i < 64; ++i) b.set(i);
+    for (size_t i = 0; i < 64; ++i) b.set(i);
     CHECK(b.countl_zero() == 0U);
   }
   // Multi-word 128-bit: only bit 64 set -> 63 leading zeros.
@@ -1022,13 +1022,13 @@ TEST_CASE("CountBits", "[FixedBitset]") {
   // All set -> 64.
   if (true) {
     fixed_bitset<64> b;
-    for (std::size_t i = 0; i < 64; ++i) b.set(i);
+    for (size_t i = 0; i < 64; ++i) b.set(i);
     CHECK(b.countl_one() == 64U);
   }
   // Multi-word 128-bit: bits 64-127 set, word 0 empty -> 64.
   if (true) {
     fixed_bitset<128> b;
-    for (std::size_t i = 64; i < 128; ++i) b.set(i);
+    for (size_t i = 64; i < 128; ++i) b.set(i);
     CHECK(b.countl_one() == 64U);
   }
 
@@ -1077,7 +1077,7 @@ TEST_CASE("HasSingleBit", "[FixedBitset]") {
 
   // Each individual bit -> true.
   if (true) {
-    for (std::size_t i = 0; i < 64; ++i) {
+    for (size_t i = 0; i < 64; ++i) {
       fixed_bitset<64> b;
       b.set(i);
       CHECK(b.has_single_bit());
@@ -1108,7 +1108,7 @@ TEST_CASE("HasSingleBit", "[FixedBitset]") {
   // All set -> false.
   if (true) {
     fixed_bitset<64> b;
-    for (std::size_t i = 0; i < 64; ++i) b.set(i);
+    for (size_t i = 0; i < 64; ++i) b.set(i);
     CHECK_FALSE(b.has_single_bit());
   }
 }
@@ -1121,7 +1121,7 @@ TEST_CASE("Iteration", "[FixedBitset]") {
   if (true) {
     fixed_bitset<64> b;
     b.set(17);
-    std::vector<std::size_t> bits;
+    std::vector<size_t> bits;
     for (auto idx : b) bits.push_back(idx);
     CHECK(bits.size() == 1U);
     CHECK(bits[0] == 17U);
@@ -1131,7 +1131,7 @@ TEST_CASE("Iteration", "[FixedBitset]") {
   if (true) {
     fixed_bitset<64> b;
     b.set(0).set(7).set(31).set(63);
-    std::vector<std::size_t> bits;
+    std::vector<size_t> bits;
     for (auto idx : b) bits.push_back(idx);
     CHECK(bits.size() == 4U);
     CHECK(bits[0] == 0U);
@@ -1144,7 +1144,7 @@ TEST_CASE("Iteration", "[FixedBitset]") {
   if (true) {
     fixed_bitset<64> b;
     b.set(5).set(15).set(25);
-    std::size_t count = 0;
+    size_t count = 0;
     for ([[maybe_unused]] auto idx : b) ++count;
     CHECK(count == b.count());
   }
@@ -1181,7 +1181,7 @@ TEST_CASE("MultiWord", "[FixedBitset]") {
     b.set(127); // word 1, bit 63
     CHECK(b.count() == 4U);
 
-    std::vector<std::size_t> bits;
+    std::vector<size_t> bits;
     for (auto idx : b) bits.push_back(idx);
     CHECK(bits.size() == 4U);
     CHECK(bits[0] == 0U);
@@ -1217,7 +1217,7 @@ TEST_CASE("MultiWord", "[FixedBitset]") {
   if (true) {
     fixed_bitset<128> b;
     b.set(100); // only in word 1
-    std::vector<std::size_t> bits;
+    std::vector<size_t> bits;
     for (auto idx : b) bits.push_back(idx);
     CHECK(bits.size() == 1U);
     CHECK(bits[0] == 100U);
@@ -1226,7 +1226,7 @@ TEST_CASE("MultiWord", "[FixedBitset]") {
   // Reset clears all words.
   if (true) {
     fixed_bitset<128> b;
-    for (std::size_t i = 0; i < 128; ++i) b.set(i);
+    for (size_t i = 0; i < 128; ++i) b.set(i);
     CHECK(b.all());
     b.reset();
     CHECK(b.none());
@@ -1235,7 +1235,7 @@ TEST_CASE("MultiWord", "[FixedBitset]") {
   // all() requires every word to be full.
   if (true) {
     fixed_bitset<128> b;
-    for (std::size_t i = 0; i < 128; ++i) b.set(i);
+    for (size_t i = 0; i < 128; ++i) b.set(i);
     CHECK(b.all());
     b.reset(64);
     CHECK_FALSE(b.all());
@@ -1508,7 +1508,7 @@ TEST_CASE("Ordering", "[FixedBitset]") {
   if (true) {
     fixed_bitset<128> w0bit, w1full;
     w0bit.set(0);
-    for (std::size_t i = 64; i < 128; ++i) w1full.set(i);
+    for (size_t i = 64; i < 128; ++i) w1full.set(i);
     // w0bit: words_ = {1, 0}; w1full: words_ = {0, ~0ull}
     // words_[0]: 1 > 0, so w0bit > w1full
     CHECK(w0bit > w1full);

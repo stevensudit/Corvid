@@ -241,7 +241,7 @@ using header_name_and_enum = enums::sequence::enum_named_value<qpack_token>;
 
 namespace http3_literals {
 // HTTP/3 Header field literal.
-consteval header_name operator""_header(const char* s, std::size_t n) {
+consteval header_name operator""_header(const char* s, size_t n) {
   return header_name{s, n};
 }
 
@@ -255,7 +255,7 @@ consteval header_name operator""_header(const char* s, std::size_t n) {
 using method_name = enums::sequence::enum_name<http3_method>;
 
 namespace http3_literals {
-consteval method_name operator""_method(const char* s, std::size_t n) {
+consteval method_name operator""_method(const char* s, size_t n) {
   return method_name{s, n};
 }
 } // namespace http3_literals

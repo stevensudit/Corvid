@@ -21,12 +21,14 @@
 #include "../meta/concepts.h"
 #include "string_literals.h"
 
-namespace corvid::strings { inline namespace indenting {
+namespace corvid::strings { inline namespace tab_expansion {
 
-// Indenting
+// Expand tabs
 //
-// Indentation and column-layout utilities. Like the rest of the band, these
-// work on any code-unit type, with deliberately ASCII-only semantics.
+// The counterpart of Python's `str.expandtabs`. Like the rest of the band, it
+// works on any code-unit type, with deliberately ASCII-only semantics.
+//
+// For related functionality, see "textwrap.h".
 
 #pragma region Expand tabs
 
@@ -61,4 +63,4 @@ template<StringViewLike S>
 
 #pragma endregion
 
-}} // namespace corvid::strings::indenting
+}} // namespace corvid::strings::tab_expansion

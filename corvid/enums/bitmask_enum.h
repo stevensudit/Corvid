@@ -488,7 +488,7 @@ constexpr auto& do_value_append(AppendTarget auto& target, E v,
 // the bits or the values. Use `make_bitmask_enum_spec` or
 // `make_bitmask_enum_names_spec`, respectively, to construct.
 template<ScopedEnum E, wrapclip bitclip = wrapclip{}, E validbits = E{},
-    std::size_t N = 0>
+    size_t N = 0>
 struct bitmask_enum_names_spec
     : public bitmask_enum_spec<E,
           static_cast<std::make_unsigned_t<std::underlying_type_t<E>>>(

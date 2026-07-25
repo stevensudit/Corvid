@@ -813,7 +813,7 @@ private:
 // alternate "#" representation) instead of the bits. Disabling its range
 // format leaves the bitset formatter below as the only match.
 // NOLINTBEGIN(bugprone-std-namespace-modification)
-template<std::size_t N, typename POS, typename TAG, std::size_t FW>
+template<size_t N, typename POS, typename TAG, size_t FW>
 constexpr std::range_format
     std::format_kind<corvid::container::fixed_bitset<N, POS, TAG, FW>> =
         std::range_format::disabled;
@@ -837,7 +837,7 @@ constexpr std::range_format
 //
 // There is no fill, align, width, or precision, since streaming has no
 // rendered length up front.
-template<std::size_t N, typename POS, typename TAG, std::size_t FW>
+template<size_t N, typename POS, typename TAG, size_t FW>
 // NOLINTNEXTLINE(bugprone-std-namespace-modification)
 struct std::formatter<corvid::container::fixed_bitset<N, POS, TAG, FW>, char> {
   constexpr auto parse(auto& ctx) {
@@ -872,7 +872,7 @@ struct std::formatter<corvid::container::fixed_bitset<N, POS, TAG, FW>, char> {
         first = false;
         // The index is numeric, so emit it as a number rather than through
         // `POS`'s formatter; a scoped-enum `POS` then needs no enum formatter.
-        out = std::format_to(out, "{}", static_cast<std::size_t>(pos));
+        out = std::format_to(out, "{}", static_cast<size_t>(pos));
       }
       *out++ = ']';
       break;
@@ -880,12 +880,12 @@ struct std::formatter<corvid::container::fixed_bitset<N, POS, TAG, FW>, char> {
     case mode::hex: {
       constexpr int digits = 2 * sizeof(typename bitset_t::word_t);
       const auto& words = bs.array();
-      for (std::size_t wi = words.size(); wi-- > 0;)
+      for (size_t wi = words.size(); wi-- > 0;)
         out = std::format_to(out, "{:0{}x}", words[wi], digits);
       break;
     }
     case mode::binary:
-      for (std::size_t i = N; i-- > 0;)
+      for (size_t i = N; i-- > 0;)
         *out++ = bs[static_cast<POS>(i)] ? '1' : '0';
       break;
     }

@@ -46,7 +46,7 @@ namespace corvid { inline namespace meta { inline namespace fixed {
 // As of C++23/26, it's still needed, but there are proposals to add a
 // `std::fixed_string` to the standard, which would make this class redundant.
 // See https://www.open-std.org/jtc1/sc22/wg21/docs/papers/2024/p3094r0.html
-template<CharType CharT, std::size_t N>
+template<CharType CharT, size_t N>
 struct basic_fixed_string {
 #pragma region Types
 
@@ -58,7 +58,7 @@ struct basic_fixed_string {
   using const_reference = const char_t&;
   using const_iterator = const char_t*;
   using iterator = const_iterator;
-  using size_type = std::size_t;
+  using size_type = size_t;
   using difference_type = std::ptrdiff_t;
 
 #pragma endregion
@@ -74,7 +74,7 @@ struct basic_fixed_string {
   // Construct from a pointer when there is no array to bind to, with `N`
   // carried as a compile-time tag.
   constexpr basic_fixed_string(const char_t* ptr,
-      std::integral_constant<std::size_t, N>) noexcept {
+      std::integral_constant<size_t, N>) noexcept {
     for (size_t ndx = 0; ndx != N; ++ndx) do_not_use[ndx] = ptr[ndx];
   }
 
@@ -82,7 +82,7 @@ struct basic_fixed_string {
   template<std::convertible_to<CharT>... Rest>
   requires(1 + sizeof...(Rest) == N)
   constexpr explicit basic_fixed_string(char_t first, Rest... rest) noexcept {
-    size_t ndx = 0;
+    size_t ndx{};
     do_not_use[ndx++] = first;
     ((do_not_use[ndx++] = static_cast<CharT>(rest)), ...);
   }
@@ -90,7 +90,7 @@ struct basic_fixed_string {
 #pragma endregion
 #pragma region Accessors
 
-  [[nodiscard]] constexpr bool empty() const noexcept { return N == 0; }
+  [[nodiscard]] constexpr bool empty() const noexcept { return !N; }
   [[nodiscard]] constexpr size_type size() const noexcept { return N; }
   [[nodiscard]] constexpr const_pointer data() const noexcept {
     return do_not_use;
@@ -140,7 +140,7 @@ struct basic_fixed_string {
 #pragma region Operations
 
   // Concatenation. The result length is the sum of the operand lengths.
-  template<std::size_t N2>
+  template<size_t N2>
   [[nodiscard]] constexpr friend basic_fixed_string<CharT, N + N2>
   operator+(const basic_fixed_string& lhs,
       const basic_fixed_string<CharT, N2>& rhs) noexcept {
@@ -148,20 +148,20 @@ struct basic_fixed_string {
     for (size_t ndx = 0; ndx != N; ++ndx) buf[ndx] = lhs.do_not_use[ndx];
     for (size_t ndx = 0; ndx != N2; ++ndx) buf[N + ndx] = rhs.do_not_use[ndx];
     return basic_fixed_string<CharT, N + N2>{buf,
-        std::integral_constant<std::size_t, N + N2>{}};
+        std::integral_constant<size_t, N + N2>{}};
   }
 
   [[nodiscard]] constexpr bool operator==(
       const basic_fixed_string& other) const noexcept {
     return view() == other.view();
   }
-  template<std::size_t N2>
+  template<size_t N2>
   [[nodiscard]] friend constexpr bool operator==(const basic_fixed_string& lhs,
       const basic_fixed_string<CharT, N2>& rhs) noexcept {
     return lhs.view() == rhs.view();
   }
 
-  template<std::size_t N2>
+  template<size_t N2>
   [[nodiscard]] friend constexpr auto
   operator<=>(const basic_fixed_string& lhs,
       const basic_fixed_string<CharT, N2>& rhs) noexcept {
@@ -185,12 +185,12 @@ struct basic_fixed_string {
 };
 
 // Deduction guide for basic_fixed_string from string literal.
-template<CharType CharT, std::size_t N>
+template<CharType CharT, size_t N>
 basic_fixed_string(CharT const (&)[N]) -> basic_fixed_string<CharT, N - 1>;
 
 // Deduction guide for the pointer-plus-size-tag constructor.
-template<CharType CharT, std::size_t N>
-basic_fixed_string(const CharT*, std::integral_constant<std::size_t, N>)
+template<CharType CharT, size_t N>
+basic_fixed_string(const CharT*, std::integral_constant<size_t, N>)
     -> basic_fixed_string<CharT, N>;
 
 // Deduction guide for the character-pack constructor.
@@ -199,7 +199,7 @@ basic_fixed_string(CharT, Rest...)
     -> basic_fixed_string<CharT, 1 + sizeof...(Rest)>;
 
 // The common case: a fixed string of `char`.
-template<std::size_t N>
+template<size_t N>
 using fixed_string = basic_fixed_string<char, N>;
 
 #pragma endregion
@@ -207,11 +207,11 @@ using fixed_string = basic_fixed_string<char, N>;
 }}} // namespace corvid::meta::fixed
 
 // NOLINTBEGIN(bugprone-std-namespace-modification)
-template<corvid::CharType CharT, std::size_t N>
+template<corvid::CharType CharT, size_t N>
 constexpr std::range_format
     std::format_kind<corvid::meta::basic_fixed_string<CharT, N>> =
         std::range_format::disabled;
-template<corvid::CharType CharT, std::size_t N>
+template<corvid::CharType CharT, size_t N>
 struct std::formatter<corvid::meta::basic_fixed_string<CharT, N>, CharT>
     : corvid::forwarding_formatter<std::basic_string_view<CharT>, CharT> {};
 // NOLINTEND(bugprone-std-namespace-modification)

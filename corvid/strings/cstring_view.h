@@ -208,21 +208,19 @@ namespace literals {
 #pragma region UDL
 
 // basic_cstring_view literals.
-consteval cstring_view operator""_czsv(const char* ps, std::size_t n) {
+consteval cstring_view operator""_czsv(const char* ps, size_t n) {
   return cstring_view{std::string_view{ps, n + 1}};
 }
-consteval wcstring_view operator""_wczsv(const wchar_t* ps, std::size_t n) {
+consteval wcstring_view operator""_wczsv(const wchar_t* ps, size_t n) {
   return wcstring_view{std::wstring_view{ps, n + 1}};
 }
-consteval u8cstring_view operator""_u8csv(const char8_t* ps, std::size_t n) {
+consteval u8cstring_view operator""_u8csv(const char8_t* ps, size_t n) {
   return u8cstring_view{std::u8string_view{ps, n + 1}};
 }
-consteval u16cstring_view
-operator""_u16csv(const char16_t* ps, std::size_t n) {
+consteval u16cstring_view operator""_u16csv(const char16_t* ps, size_t n) {
   return u16cstring_view{std::u16string_view{ps, n + 1}};
 }
-consteval u32cstring_view
-operator""_u32csv(const char32_t* ps, std::size_t n) {
+consteval u32cstring_view operator""_u32csv(const char32_t* ps, size_t n) {
   return u32cstring_view{std::u32string_view{ps, n + 1}};
 }
 
@@ -249,7 +247,7 @@ consteval u32cstring_view operator""_u32csv(unsigned long long zero_only) {
 }
 
 // Environment.
-inline cstring_view operator""_env(const char* ps, std::size_t) noexcept {
+inline cstring_view operator""_env(const char* ps, size_t) noexcept {
   PRAGMA_DIAG(push)
   PRAGMA_IGNORED("-Wdeprecated-declarations")
   PRAGMA_MSVC_IGNORED(4996)

@@ -148,9 +148,12 @@ input for further analysis, not a commitment to build any particular item.
   memory and of text); `justification.h` builds on it, since strings may
   depend on meta but not the reverse.
 - `expandtabs`: tab-to-column-stop expansion. Niche, but it has no std
-  equivalent at all. DONE: `expand_tabs` in [indenting.h](indenting.h), a new
-  header scoped to indentation and column layout, intended to also host
-  `dedent` and friends when the `textwrap` items land. Python semantics: a tab
+  equivalent at all. DONE: `expand_tabs` in [expand_tabs.h](expand_tabs.h),
+  originally named indenting.h and renamed when the `textwrap` items landed:
+  `expandtabs` is a `str` method while `textwrap` is a separate module, so
+  housing them together would be odd. Each header's lede points at the other.
+  The inline namespace is `tab_expansion`, since naming it `expand_tabs`
+  would make the qualified function name ambiguous. Python semantics: a tab
   advances to the next multiple of `tab_size` (default 8), the column resets
   after `\n` or `\r`, and a `tab_size` of zero deletes tabs. Naming ruling:
   plain `expand_tabs` rather than an `as_*` form, since there is no in-place
@@ -162,8 +165,56 @@ input for further analysis, not a commitment to build any particular item.
 - `textwrap`: `dedent` is the standout, since it is what makes multi-line raw
   string literals usable, and C++ raw strings have exactly the same
   indentation problem. `wrap`, `fill`, `indent`, and `shorten`
-  (truncate-with-ellipsis) round it out. Probably the highest
-  value-per-effort item on this list.
+  (truncate-with-ellipsis) round it out. DONE: [textwrap.h](textwrap.h) ships
+  all five. Rulings: the functions live in the non-inline `textwrap`
+  namespace, since names as broad as `wrap` and `fill` must stay qualified (a
+  `struct textwrap` full of statics was the considered alternative), and the
+  `TextWrapper` class is replaced by the `wrap_options` aggregate, taken by
+  `wrap` / `fill` / `shorten` and designed for designated initializers
+  (`{.width = 40}`), with every member defaulting to Python's default. Two
+  knobs are deliberately omitted: `fix_sentence_endings` (an English-specific
+  heuristic Python itself defaults to off) and `break_on_hyphens` (English
+  hyphenation rules encoded in a regex). Otherwise `wrap` faithfully ports
+  CPython's `TextWrapper._wrap_chunks`, including the fiddly `max_lines`
+  placeholder endgame, and the tests pin expectations generated from CPython
+  3.12 running with those two knobs off. Divergences, each documented in the
+  header: `dedent` recognizes universal line breaks where Python's is
+  "\n"-only (a blank CRLF line zeroes Python's margin); nothing raises, so a
+  zero `width` degrades to one code unit of content per line and an
+  unfittable placeholder is emitted anyway, where Python throws `ValueError`;
+  `max_lines` is zero-means-unlimited rather than `None`; `tabsize` is
+  spelled `tab_size`. `indent` matches Python exactly (universal line breaks
+  on both sides), with the default predicate prefixing only lines that have
+  non-whitespace content. Polish round: `wrap` was decomposed into
+  `details::` helpers (`munge_whitespace`, `chunk_runs`, `take_line`,
+  `truncate_line`, `emit_line`) after clang-tidy flagged its cognitive
+  complexity; every function is constexpr and the tests pin compile-time
+  evaluation with `static_assert` (results can be computed and compared in
+  constant evaluation, though a `std::string` result cannot escape into a
+  constexpr variable); each function's comment shows an input/output example.
+  Compiler gotcha uncovered by those asserts: cl miscomputes a ternary of
+  `std::basic_string` prvalues in constant evaluation (silent wrong value at
+  compile time, correct at runtime), so `munge_whitespace` spells it as
+  if/else, with a one-line workaround comment. Beyond Python: a consteval
+  `dedent` overload takes the literal as a `fixed_string` template argument
+  and returns a dedented `fixed_string` constant (two passes over the
+  runtime implementation: one for the size, one to fill), so an indented raw
+  string literal costs nothing at runtime; the header lede presents it as
+  the preferred form. Second round, per user: the dedent machinery avoids
+  `std::string` entirely (shared `details::` helpers `dedent_margin`,
+  `dedent_size`, and `dedent_fill` work on views and a caller buffer; the
+  runtime overload is now size-then-fill over the same helpers, so the two
+  forms cannot drift), and the consteval overload returns a `cstring_view`
+  into the `dedented` inline `fixed_string` variable template, giving static
+  storage deduplicated across translation units plus a zero-terminated
+  `c_str` for C interfaces. QoI round: `dedent_fill` takes an exactly-sized
+  `std::span` (via `type_identity_t`, so a string converts at the call site)
+  and asserts it lands on the span's end; the runtime overload sizes its
+  result through `no_zero` rather than zero-filling first. A consteval
+  `indent` counterpart was considered and rejected: static indentation is
+  directly expressible in the literal itself (`dedent` preserves per-line
+  indent beyond the common margin), so unlike `dedent` it has no
+  source-formatting problem to solve.
 - `format_map`: named-field substitution from a runtime mapping. DONE, and
   beyond Python: the `enable_format` wrapper in [enable_format.h](enable_format.h)
   makes any keyed collection formattable with per-field key lookup
@@ -204,6 +255,7 @@ input for further analysis, not a commitment to build any particular item.
 
 ## Priority read
 
-`removeprefix` / `removesuffix`, `partition`, and `dedent` are the three that
-callers would likely miss first. `splitlines` and a quote-aware splitter
-would exercise machinery that already exists.
+The three that callers would likely miss first (`removeprefix` /
+`removesuffix`, `partition`, `dedent`) have all shipped, as have `splitlines`
+and the rest of `textwrap`. Of what remains, a quote-aware splitter would
+exercise machinery that already exists.

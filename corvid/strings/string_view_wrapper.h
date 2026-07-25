@@ -63,12 +63,12 @@ namespace corvid { inline namespace stringviewwrapper {
 // - Operations that reslice the view (`substr`, `remove_prefix`,
 // `remove_suffix`) are not universally safe (they break `enum_name`, and
 //   suffix removal breaks `cstring_view`), so they belong in the children.
-template<typename Child, CharType Char = char>
+template<typename Child, CharType CharT = char>
 class string_view_wrapper {
 #pragma region Types
 public:
   using child_t = Child;
-  using char_t = Char;
+  using char_t = CharT;
   using view_t = std::basic_string_view<char_t>;
 
   using traits_type = view_t::traits_type;

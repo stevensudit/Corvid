@@ -40,16 +40,16 @@ struct parsed_spec {
 
 #pragma region Fields
 
-  std::size_t width = 0;
-  std::optional<std::size_t> precision; // Meaningful for numerics.
-  bool debug = false; // May be set externally by `set_debug_format`.
-  CharT fill = CharT(' ');
-  aligned alignment = aligned::left;
-  char sign = '-';        // `-` default, `+` always, ` ` space for positive.
-  bool alternate = false; // `#`
-  bool zero_pad = false;
-  bool has_locale = false;
-  CharT type = CharT(0); // Debug is '?'.
+  size_t width{};
+  std::optional<size_t> precision; // Meaningful for numerics.
+  bool debug{}; // May be set externally by `set_debug_format`.
+  CharT fill{CharT(' ')};
+  aligned alignment{aligned::left};
+  char sign{'-'};   // `-` default, `+` always, ` ` space for positive.
+  bool alternate{}; // `#`
+  bool zero_pad{};
+  bool has_locale{};
+  CharT type{}; // Debug is '?'.
 
 #pragma endregion
 #pragma region Operations
@@ -64,9 +64,8 @@ struct parsed_spec {
 
   // Write character `c`, `count` times.
   template<CharType InCharT, typename OutIt>
-  static constexpr OutIt
-  write_repeat(OutIt out, InCharT c, std::size_t count) {
-    for (std::size_t i = 0; i < count; ++i) *out++ = widen(c);
+  static constexpr OutIt write_repeat(OutIt out, InCharT c, size_t count) {
+    for (size_t i = 0; i < count; ++i) *out++ = widen(c);
     return out;
   }
 
@@ -88,7 +87,7 @@ struct parsed_spec {
   // Write `content` with padding, overriding width.
   template<CharType InCharT, typename OutIt>
   [[nodiscard]] constexpr OutIt write_padded(OutIt out,
-      std::basic_string_view<InCharT> content, std::size_t field_width) const {
+      std::basic_string_view<InCharT> content, size_t field_width) const {
     auto [lead, trail] = calc_padding(alignment, content.size(), field_width);
     out = write_repeat(out, fill, lead);
     out = write_sv(out, content);
@@ -119,43 +118,42 @@ struct spec_parser: parsed_spec<CharT> {
   // the fixed value, the manual arg id, or the auto arg id once claimed from
   // the parse context.
   struct arg_value_t {
-    arg_kind kind = arg_kind::none;
-    std::size_t value = 0;
+    arg_kind kind{arg_kind::none};
+    size_t value{};
 
     // Read an arg value from `spec` at `ndx`, returning an index past the
     // consumed text.
-    [[nodiscard]] constexpr std::size_t
-    parse(std::basic_string_view<CharT> spec, std::size_t ndx) noexcept {
+    [[nodiscard]] constexpr size_t
+    parse(std::basic_string_view<CharT> spec, size_t ndx) noexcept {
       *this = make_from_parse(spec, ndx);
       return ndx;
     }
 
     // Read an arg value (a width or precision) at `ndx`, advancing it. A
     // `{...}` is dynamic: empty is auto, digits are a manual arg id.
-    [[nodiscard]] static constexpr arg_value_t make_from_parse(
-        std::basic_string_view<CharT> spec, std::size_t& ndx) noexcept {
-      const std::size_t n = spec.size();
+    [[nodiscard]] static constexpr arg_value_t
+    make_from_parse(std::basic_string_view<CharT> spec, size_t& ndx) noexcept {
+      const size_t n = spec.size();
       if (ndx < n && spec[ndx] == CharT('{')) {
         ++ndx;
-        std::size_t id = 0;
-        bool has_id = false;
+        size_t id{};
+        bool has_id{};
         for (; ndx < n && spec[ndx] >= CharT('0') && spec[ndx] <= CharT('9');
             ++ndx)
         {
-          id = (id * 10) + static_cast<std::size_t>(spec[ndx] - CharT('0'));
+          id = (id * 10) + static_cast<size_t>(spec[ndx] - CharT('0'));
           has_id = true;
         }
         if (ndx < n && spec[ndx] == CharT('}')) ++ndx;
         return has_id ? arg_value_t{arg_kind::manual, id}
                       : arg_value_t{arg_kind::automatic, 0};
       }
-      std::size_t value = 0;
-      bool any = false;
+      size_t value{};
+      bool any{};
       for (; ndx < n && spec[ndx] >= CharT('0') && spec[ndx] <= CharT('9');
           ++ndx)
       {
-        value =
-            (value * 10) + static_cast<std::size_t>(spec[ndx] - CharT('0'));
+        value = (value * 10) + static_cast<size_t>(spec[ndx] - CharT('0'));
         any = true;
       }
       return any ? arg_value_t{arg_kind::fixed, value}
@@ -188,7 +186,7 @@ struct spec_parser: parsed_spec<CharT> {
     }
 
     template<typename FormatContext>
-    [[nodiscard]] constexpr std::size_t get_dynamic(FormatContext& ctx) const {
+    [[nodiscard]] constexpr size_t get_dynamic(FormatContext& ctx) const {
       if (!is_dynamic()) return 0;
       return get_dynamic_num(ctx, value);
     }
@@ -200,17 +198,16 @@ struct spec_parser: parsed_spec<CharT> {
     // unsigned integer type, so `bool` and the character types (integral,
     // but not integers) are rejected just as the std formatters reject them.
     template<typename FormatContext>
-    static constexpr std::size_t
-    get_dynamic_num(FormatContext& ctx, std::size_t id) {
+    static constexpr size_t get_dynamic_num(FormatContext& ctx, size_t id) {
       return std::visit_format_arg(
-          [](auto value) -> std::size_t {
+          [](auto value) -> size_t {
             using T = std::remove_cvref_t<decltype(value)>;
             if constexpr (std::is_integral_v<T> && !std::is_same_v<T, bool> &&
                           !CharType<T>)
             {
               if constexpr (std::is_signed_v<T>)
                 if (value < 0) throw std::format_error("negative arg");
-              return static_cast<std::size_t>(value);
+              return static_cast<size_t>(value);
             } else
               throw std::format_error("arg is not an integer");
           },
@@ -226,7 +223,7 @@ struct spec_parser: parsed_spec<CharT> {
     // rejected.
     template<typename FormatContext>
     static constexpr std::basic_string_view<CharT>
-    get_dynamic_str(FormatContext& ctx, std::size_t id) {
+    get_dynamic_str(FormatContext& ctx, size_t id) {
       return std::visit_format_arg(
           [](auto value) -> std::basic_string_view<CharT> {
             using T = std::remove_cvref_t<decltype(value)>;
@@ -257,13 +254,13 @@ struct spec_parser: parsed_spec<CharT> {
   // Resolve the effective width at format time: the dynamic arg's value when
   // the width is dynamic, otherwise the fixed value.
   template<typename FormatContext>
-  [[nodiscard]] constexpr std::size_t resolve_width(FormatContext& ctx) const {
+  [[nodiscard]] constexpr size_t resolve_width(FormatContext& ctx) const {
     return width_arg.is_dynamic() ? width_arg.get_dynamic(ctx) : base::width;
   }
 
   // Resolve the effective precision at format time, likewise.
   template<typename FormatContext>
-  [[nodiscard]] constexpr std::optional<std::size_t>
+  [[nodiscard]] constexpr std::optional<size_t>
   resolve_precision(FormatContext& ctx) const {
     if (precision_arg.is_dynamic()) return precision_arg.get_dynamic(ctx);
     return base::precision;
@@ -272,9 +269,9 @@ struct spec_parser: parsed_spec<CharT> {
   // Parse the standard format spec into this instance, stopping at the closing
   // `}` (as there may be more after it). Returns the count of code units
   // consumed, which is the offset of that `}`.
-  constexpr std::size_t parse(std::basic_string_view<CharT> spec) noexcept {
-    std::size_t ndx = 0;
-    const std::size_t cnt = spec.size();
+  constexpr size_t parse(std::basic_string_view<CharT> spec) noexcept {
+    size_t ndx{};
+    const size_t cnt = spec.size();
     // [fill] align. The fill may be any character except `{` or `}`; without
     // that exclusion, an empty spec followed by a literal align character
     // (`"{:}<"`) would misread the closing brace as a fill and consume past
@@ -340,15 +337,15 @@ struct spec_parser: parsed_spec<CharT> {
   // auto, as a format string cannot mix auto and manual indexing.
   [[nodiscard]] std::basic_string<CharT> rewrite_spec_as_explicit(
       std::basic_string_view<CharT> spec) const {
-    std::array<std::size_t, 2> ids{};
-    std::size_t got = 0;
+    std::array<size_t, 2> ids{};
+    size_t got{};
     if (const auto id = width_arg.get_automatic()) ids[got++] = *id;
     if (const auto id = precision_arg.get_automatic()) ids[got++] = *id;
 
     std::basic_string<CharT> out;
     out.reserve(spec.size() + (got * 4));
-    std::size_t next = 0;
-    for (std::size_t i = 0; i < spec.size(); ++i) {
+    size_t next{};
+    for (size_t i = 0; i < spec.size(); ++i) {
       out.push_back(spec[i]);
       if (spec[i] == CharT('{') && i + 1 < spec.size() &&
           spec[i + 1] == CharT('}'))
@@ -371,9 +368,9 @@ private:
   }
 
   // Append `v` as decimal digits, widened to `CharT`.
-  static void append_decimal(std::basic_string<CharT>& out, std::size_t v) {
+  static void append_decimal(std::basic_string<CharT>& out, size_t v) {
     CharT buf[20];
-    std::size_t len = 0;
+    size_t len{};
     do {
       buf[len++] = static_cast<CharT>(CharT('0') + (v % 10));
       v /= 10;
@@ -519,7 +516,7 @@ struct nullable_formatter: std::formatter<U, CharT> {
 private:
   template<typename FormatContext>
   auto pad_content(FormatContext& ctx, std::string_view content) const {
-    const std::size_t field_width = spec_.resolve_width(ctx);
+    const size_t field_width = spec_.resolve_width(ctx);
     if (const auto prec = spec_.resolve_precision(ctx))
       content = content.substr(0, *prec);
     return spec_.write_padded(ctx.out(), content, field_width);

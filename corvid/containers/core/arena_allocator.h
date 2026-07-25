@@ -177,7 +177,7 @@ class arena_allocator {
 
 public:
   using value_type = T;
-  using size_type = std::size_t;
+  using size_type = size_t;
   using difference_type = std::ptrdiff_t;
   using propagate_on_container_move_assignment = std::true_type;
 
@@ -196,14 +196,14 @@ public:
 
   // Allocates a block of memory suitable for an array of `n` objects of type
   // `T`, using the scoped `extensible_arena`.
-  [[nodiscard]] constexpr T* allocate(std::size_t n) {
+  [[nodiscard]] constexpr T* allocate(size_t n) {
     return static_cast<T*>(
         extensible_arena::allocate(n * sizeof(T), alignof(T)));
   }
 
   // NOLINTEND(bugprone-sizeof-expression)
 
-  constexpr void deallocate(T*, std::size_t) {}
+  constexpr void deallocate(T*, size_t) {}
 
 #pragma endregion
 };

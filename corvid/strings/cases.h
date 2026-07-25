@@ -37,14 +37,14 @@ namespace corvid::strings { inline namespace cases {
 
 #pragma region Character predicates
 
-template<CharType C>
-[[nodiscard]] constexpr bool is_lower(C c) noexcept {
-  return c >= C('a') && c <= C('z');
+template<CharType CharT>
+[[nodiscard]] constexpr bool is_lower(CharT c) noexcept {
+  return c >= CharT('a') && c <= CharT('z');
 }
 
-template<CharType C>
-[[nodiscard]] constexpr bool is_upper(C c) noexcept {
-  return c >= C('A') && c <= C('Z');
+template<CharType CharT>
+[[nodiscard]] constexpr bool is_upper(CharT c) noexcept {
+  return c >= CharT('A') && c <= CharT('Z');
 }
 
 [[nodiscard]] constexpr bool is_alpha(CharType auto c) noexcept {
@@ -56,23 +56,23 @@ template<CharType C>
 // Not the Python `isdigit`, which also admits non-ASCII digits like
 // superscripts; within ASCII, Python's `isdecimal`, `isdigit`, and `isnumeric`
 // all collapse to this.
-template<CharType C>
-[[nodiscard]] constexpr bool is_digit(C c) noexcept {
-  return c >= C('0') && c <= C('9');
+template<CharType CharT>
+[[nodiscard]] constexpr bool is_digit(CharT c) noexcept {
+  return c >= CharT('0') && c <= CharT('9');
 }
 
 [[nodiscard]] constexpr bool is_alnum(CharType auto c) noexcept {
   return is_alpha(c) || is_digit(c);
 }
 
-template<CharType C>
-[[nodiscard]] constexpr bool is_lc_hex_alpha(C ch) noexcept {
-  return (ch >= C('a') && ch <= C('f'));
+template<CharType CharT>
+[[nodiscard]] constexpr bool is_lc_hex_alpha(CharT ch) noexcept {
+  return (ch >= CharT('a') && ch <= CharT('f'));
 }
 
-template<CharType C>
-[[nodiscard]] constexpr bool is_uc_hex_alpha(C ch) noexcept {
-  return (ch >= C('A') && ch <= C('F'));
+template<CharType CharT>
+[[nodiscard]] constexpr bool is_uc_hex_alpha(CharT ch) noexcept {
+  return (ch >= CharT('A') && ch <= CharT('F'));
 }
 
 [[nodiscard]] constexpr bool is_hex_digit(CharType auto ch) noexcept {
@@ -81,23 +81,23 @@ template<CharType C>
 
 // Whether `c` is ASCII whitespace: space, tab, or one of the newline,
 // vertical-tab, form-feed, and carriage-return controls.
-template<CharType C>
-[[nodiscard]] constexpr bool is_space(C c) noexcept {
-  return c == C(' ') || c == C('\t') || c == C('\n') || c == C('\v') ||
-         c == C('\f') || c == C('\r');
+template<CharType CharT>
+[[nodiscard]] constexpr bool is_space(CharT c) noexcept {
+  return c == CharT(' ') || c == CharT('\t') || c == CharT('\n') ||
+         c == CharT('\v') || c == CharT('\f') || c == CharT('\r');
 }
 
 // Whether `c` is in the ASCII range, 0 through 0x7f.
-template<CharType C>
-[[nodiscard]] constexpr bool is_ascii(C c) noexcept {
-  return static_cast<std::make_unsigned_t<C>>(c) <= 0x7f;
+template<CharType CharT>
+[[nodiscard]] constexpr bool is_ascii(CharT c) noexcept {
+  return static_cast<std::make_unsigned_t<CharT>>(c) <= 0x7f;
 }
 
 // Whether `c` is a printable ASCII character, space (0x20) through tilde
 // (0x7e).
-template<CharType C>
-[[nodiscard]] constexpr bool is_printable(C c) noexcept {
-  return c >= C(' ') && c <= C('~');
+template<CharType CharT>
+[[nodiscard]] constexpr bool is_printable(CharT c) noexcept {
+  return c >= CharT(' ') && c <= CharT('~');
 }
 
 #pragma endregion
@@ -246,9 +246,9 @@ template<StringViewLike S>
 // Return `c` as uppercase.
 //
 // Avoids `std::toupper` because it's locale-dependent and slow.
-template<CharType C>
-[[nodiscard]] constexpr C as_upper(C c) noexcept {
-  return is_lower(c) ? static_cast<C>(c - (C('a') - C('A'))) : c;
+template<CharType CharT>
+[[nodiscard]] constexpr CharT as_upper(CharT c) noexcept {
+  return is_lower(c) ? static_cast<CharT>(c - (CharT('a') - CharT('A'))) : c;
 }
 
 // Convert to uppercase in place.
@@ -270,9 +270,9 @@ template<StringViewLike S>
 // Return `c` as lowercase.
 //
 // Avoids `std::tolower` because it's locale-dependent and slow.
-template<CharType C>
-[[nodiscard]] constexpr C as_lower(C c) noexcept {
-  return is_upper(c) ? static_cast<C>(c + (C('a') - C('A'))) : c;
+template<CharType CharT>
+[[nodiscard]] constexpr CharT as_lower(CharT c) noexcept {
+  return is_upper(c) ? static_cast<CharT>(c + (CharT('a') - CharT('A'))) : c;
 }
 
 // Convert to lowercase in place.
@@ -295,8 +295,8 @@ template<StringViewLike S>
 //
 // Lowercase becomes uppercase, uppercase becomes lowercase, everything else
 // passes through.
-template<CharType C>
-[[nodiscard]] constexpr C as_swapped(C c) noexcept {
+template<CharType CharT>
+[[nodiscard]] constexpr CharT as_swapped(CharT c) noexcept {
   if (is_lower(c)) return as_upper(c);
   if (is_upper(c)) return as_lower(c);
   return c;

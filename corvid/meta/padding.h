@@ -53,8 +53,8 @@ enum class aligned : std::uint8_t { left, right, center };
 // the extra unit goes to the trailing side, matching `std::format`'s `^`.
 [[nodiscard]] constexpr std::pair<size_t, size_t> calc_padding(
     aligned alignment, size_t content_width, size_t total_width) noexcept {
-  size_t lead = 0;
-  size_t trail = 0;
+  size_t lead{};
+  size_t trail{};
   if (total_width > content_width) {
     const size_t pad = total_width - content_width;
     lead =

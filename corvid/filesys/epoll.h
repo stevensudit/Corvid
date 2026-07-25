@@ -101,7 +101,7 @@ public:
   // Wait overload for a fixed-size array: `maxevents` is deduced from `N`.
   //
   // See other `wait` overload for more.
-  template<std::size_t N>
+  template<size_t N>
   [[nodiscard]] std::optional<int>
   wait(epoll_event (&events)[N], int timeout_ms) const noexcept {
     return wait(events, static_cast<int>(N), timeout_ms);

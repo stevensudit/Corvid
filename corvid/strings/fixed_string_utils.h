@@ -81,12 +81,10 @@ consteval auto fixed_split_trim() {
 // turning a comma-delimited list into a null-delimited one.
 template<meta::fixed_string W, char F, char T>
 consteval auto fixed_replaced() {
-  constexpr std::size_t n = W.size();
+  constexpr size_t n = W.size();
   char buf[n + 1]{};
-  for (std::size_t ndx = 0; ndx != n; ++ndx)
-    buf[ndx] = W[ndx] == F ? T : W[ndx];
-  return meta::basic_fixed_string{buf,
-      std::integral_constant<std::size_t, n>{}};
+  for (size_t ndx = 0; ndx != n; ++ndx) buf[ndx] = W[ndx] == F ? T : W[ndx];
+  return meta::basic_fixed_string{buf, std::integral_constant<size_t, n>{}};
 }
 
 #pragma endregion

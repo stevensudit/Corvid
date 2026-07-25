@@ -254,7 +254,7 @@ struct SegmentedPath: private SimWorldBounds {
     sp.segments.reserve(p.joints.size() - 1);
     float cumulative{};
 
-    for (std::size_t i = 0; i + 1 < p.joints.size(); ++i) {
+    for (size_t i = 0; i + 1 < p.joints.size(); ++i) {
       const Position& front = p.joints[i].pos;
       const Position& back = p.joints[i + 1].pos;
       assert(isInBounds(front));
@@ -764,7 +764,7 @@ public:
   [[nodiscard]] WorldTick currentTick() const { return tick_; }
 
   // Total number of entities in all storages (does not count staged entities).
-  [[nodiscard]] std::size_t size() const { return scene_.size(); }
+  [[nodiscard]] size_t size() const { return scene_.size(); }
 
   // Whether any invader entities are currently active (i.e. not yet
   // tombstoned). Call after `resolveEscapees` and `resolveKills` so that

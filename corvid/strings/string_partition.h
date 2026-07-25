@@ -33,12 +33,12 @@ namespace corvid::strings { inline namespace partitioning {
 // it; they remain valid only as long as the underlying string does. Since a
 // found `sep` is never empty, `!sep.empty()` distinguishes found from
 // not-found.
-template<CharType Char = char>
+template<CharType CharT = char>
 struct string_partition_base {
 #pragma region Member types
 
-  using char_t = Char;
-  using view_t = std::basic_string_view<Char>;
+  using char_t = CharT;
+  using view_t = std::basic_string_view<CharT>;
 
 #pragma endregion
 #pragma region Data members
@@ -73,9 +73,9 @@ protected:
 // other two views are empty but still anchored in the input, at its end. An
 // empty separator is never found, matching `token_parser`; Python raises
 // instead, but that is not our way.
-template<CharType Char = char>
-struct string_partition: string_partition_base<Char> {
-  using base = string_partition_base<Char>;
+template<CharType CharT = char>
+struct string_partition: string_partition_base<CharT> {
+  using base = string_partition_base<CharT>;
   using view_t = base::view_t;
 
   // Partition `whole` around the first occurrence of `separator`.
@@ -104,9 +104,9 @@ string_partition(const S&, const T&) -> string_partition<char_type_of_t<S>>;
 // semantics. When the separator is not found, all of the input lands in
 // `tail`, and the other two views are empty but still anchored in the input,
 // at its start.
-template<CharType Char = char>
-struct string_rpartition: string_partition_base<Char> {
-  using base = string_partition_base<Char>;
+template<CharType CharT = char>
+struct string_rpartition: string_partition_base<CharT> {
+  using base = string_partition_base<CharT>;
   using view_t = base::view_t;
 
   // Partition `whole` around the last occurrence of `separator`.

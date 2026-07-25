@@ -73,10 +73,10 @@ inline namespace optstringview {
 // `tagged_string_view` alias names the tagged form. Conversion the other way
 // (to `std::string_view`) stays implicit for both, as does comparison against
 // any view.
-template<typename Tag = void, CharType Char = char>
+template<typename Tag = void, CharType CharT = char>
 class basic_opt_string_view final
-    : public string_view_wrapper<basic_opt_string_view<Tag, Char>, Char> {
-  using base = string_view_wrapper<basic_opt_string_view<Tag, Char>, Char>;
+    : public string_view_wrapper<basic_opt_string_view<Tag, CharT>, CharT> {
+  using base = string_view_wrapper<basic_opt_string_view<Tag, CharT>, CharT>;
 
   // A tagged view forces string-like conversions to be explicit; the untagged
   // default leaves them implicit.
@@ -90,7 +90,7 @@ public:
   using size_type = base::size_type;
   using base::npos;
 
-  using string_t = std::basic_string<Char>;
+  using string_t = std::basic_string<CharT>;
 
 #pragma endregion
 #pragma region Construction
@@ -162,8 +162,8 @@ using opt_wstring_view = basic_opt_string_view<void, wchar_t>;
 
 // Tagged: distinct `Tag` types are distinct, non-interconverting view types,
 // and construction from a raw view is explicit.
-template<typename Tag, CharType Char = char>
-using tagged_string_view = basic_opt_string_view<Tag, Char>;
+template<typename Tag, CharType CharT = char>
+using tagged_string_view = basic_opt_string_view<Tag, CharT>;
 
 #pragma endregion
 #pragma endregion
@@ -175,8 +175,7 @@ namespace literals {
 #pragma region UDL
 
 // opt_string_view literal.
-consteval opt_string_view
-operator""_optsv(const char* ps, std::size_t n) noexcept {
+consteval opt_string_view operator""_optsv(const char* ps, size_t n) noexcept {
   return opt_string_view{ps, n};
 }
 

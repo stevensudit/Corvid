@@ -884,7 +884,7 @@ struct life_stats {
 // `strongbox` is a move-only lifetime-counting target. `Pad` scales the
 // footprint so one instantiation fits the proxy's inline buffer and another
 // forces the heap path.
-template<std::size_t Pad>
+template<size_t Pad>
 struct strongbox {
   explicit strongbox(life_stats& stats) noexcept : stats_{&stats} {
     ++stats_->constructed;
@@ -933,7 +933,7 @@ struct prox::proxy_impl<lockbox, T> {
 };
 
 // `coffer` is `strongbox`'s copyable sibling, for the clone tests.
-template<std::size_t Pad>
+template<size_t Pad>
 struct coffer {
   explicit coffer(life_stats& stats) noexcept : stats_{&stats} {
     ++stats_->constructed;
@@ -968,12 +968,12 @@ struct vault
 
 // Registration for every `strongbox` and `coffer` size, via chain hooks
 // covering `vault` and `lockbox` alike.
-template<prox::InChainOf<vault> F, std::size_t Pad>
+template<prox::InChainOf<vault> F, size_t Pad>
 consteval auto corvid_proxy_spec(F*, strongbox<Pad>*) {
   return prox::make_proxy_spec<F, strongbox<Pad>>();
 }
 
-template<prox::InChainOf<vault> F, std::size_t Pad>
+template<prox::InChainOf<vault> F, size_t Pad>
 consteval auto corvid_proxy_spec(F*, coffer<Pad>*) {
   return prox::make_proxy_spec<F, coffer<Pad>>();
 }
