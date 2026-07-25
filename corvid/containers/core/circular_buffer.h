@@ -67,7 +67,7 @@ public:
   template<typename U>
   explicit circular_buffer(U&& u) noexcept
   requires std::convertible_to<U, std::span<T>>
-      : range_(std::forward<U>(u)), back_(last_index()) {
+      : range_(std::forward<U>(u)), back_{last_index()} {
     assert(range_.size() > 0);
     assert(range_.size() <= std::numeric_limits<size_type>::max());
   }
@@ -75,8 +75,8 @@ public:
   // Construct, with an initial size, from container.
   template<typename U>
   explicit circular_buffer(U&& u, size_type size) noexcept
-      : range_(std::forward<U>(u)), back_(size ? size - 1 : last_index()),
-        size_(size) {
+      : range_(std::forward<U>(u)), back_{size ? size - 1 : last_index()},
+        size_{size} {
     assert(range_.size() > 0);
     assert(range_.size() <= std::numeric_limits<size_type>::max());
     assert(size <= capacity());
@@ -105,9 +105,9 @@ public:
   }
   template<class... Args>
   auto& emplace_front(Args&&... args) noexcept(
-      noexcept(*data() = value_type{std::forward<Args>(args)...})) {
+      noexcept(*data() = value_type(std::forward<Args>(args)...))) {
     adjust_size_for_front();
-    return (add_front() = value_type{std::forward<Args>(args)...});
+    return (add_front() = value_type(std::forward<Args>(args)...));
   }
 
   // Try to push the value to the front of the buffer. Returns pointer to the
@@ -126,10 +126,10 @@ public:
   }
   template<class... Args>
   [[nodiscard]] auto* try_emplace_front(Args&&... args) noexcept(
-      noexcept(*data() = value_type{std::forward<Args>(args)...})) {
+      noexcept(*data() = value_type(std::forward<Args>(args)...))) {
     if (full()) return pointer{};
     ++size_;
-    return &(add_front() = value_type{std::forward<Args>(args)...});
+    return &(add_front() = value_type(std::forward<Args>(args)...));
   }
 
   // Push the value to the back of the buffer, overwriting the frontmost
@@ -146,9 +146,9 @@ public:
   }
   template<class... Args>
   auto& emplace_back(Args&&... args) noexcept(
-      noexcept(*data() = value_type{std::forward<Args>(args)...})) {
+      noexcept(*data() = value_type(std::forward<Args>(args)...))) {
     adjust_size_for_back();
-    return (add_back() = value_type{std::forward<Args>(args)...});
+    return (add_back() = value_type(std::forward<Args>(args)...));
   }
 
   // Try to push the value to the back of the buffer. Returns pointer to the
@@ -167,10 +167,10 @@ public:
   }
   template<class... Args>
   [[nodiscard]] auto* try_emplace_back(Args&&... args) noexcept(
-      noexcept(*data() = value_type{std::forward<Args>(args)...})) {
+      noexcept(*data() = value_type(std::forward<Args>(args)...))) {
     if (full()) return pointer{};
     ++size_;
-    return &(add_back() = value_type{std::forward<Args>(args)...});
+    return &(add_back() = value_type(std::forward<Args>(args)...));
   }
 
   // Remove front or back element, returning a reference to it. Must not be
@@ -225,14 +225,14 @@ public:
 #pragma endregion
 #pragma region Iterators
 
-  [[nodiscard]] auto begin() const noexcept { return iterator_t(*this, 0); }
-  [[nodiscard]] auto begin() noexcept { return iterator_t(*this, 0); }
-  [[nodiscard]] auto cbegin() const noexcept { return iterator_t(*this, 0); }
+  [[nodiscard]] auto begin() const noexcept { return iterator_t{*this, 0}; }
+  [[nodiscard]] auto begin() noexcept { return iterator_t{*this, 0}; }
+  [[nodiscard]] auto cbegin() const noexcept { return iterator_t{*this, 0}; }
 
-  [[nodiscard]] auto end() const noexcept { return iterator_t(*this, size()); }
-  [[nodiscard]] auto end() noexcept { return iterator_t(*this, size()); }
+  [[nodiscard]] auto end() const noexcept { return iterator_t{*this, size()}; }
+  [[nodiscard]] auto end() noexcept { return iterator_t{*this, size()}; }
   [[nodiscard]] auto cend() const noexcept {
-    return iterator_t(*this, size());
+    return iterator_t{*this, size()};
   }
 
 #pragma endregion
@@ -255,7 +255,7 @@ private:
 
     iterator_t() noexcept = default;
     iterator_t(CB& buf, size_type index) noexcept
-        : buf_(&buf), index_(index) {}
+        : buf_{&buf}, index_{index} {}
 
     [[nodiscard]] reference operator*() const { return buf_->at(index_); }
     [[nodiscard]] pointer operator->() const { return &(buf_->at(index_)); }
@@ -339,7 +339,7 @@ private:
     return (front_ + offset) % capacity();
   }
   [[nodiscard]] size_type index_at_checked(size_type offset) const {
-    if (offset >= size_) throw std::out_of_range("index out of range");
+    if (offset >= size_) throw std::out_of_range{"index out of range"};
     return (front_ + offset) % capacity();
   }
 

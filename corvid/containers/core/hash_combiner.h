@@ -43,7 +43,7 @@ public:
 #pragma region Construction
 
   constexpr hash_combiner() noexcept = default;
-  constexpr explicit hash_combiner(size_t seed) noexcept : seed_(seed) {}
+  constexpr explicit hash_combiner(size_t seed) noexcept : seed_{seed} {}
 
 #pragma endregion
 #pragma region Accessors
@@ -79,7 +79,7 @@ public:
 #pragma endregion
 #pragma region Data members
 private:
-  size_t seed_ = 0;
+  size_t seed_{};
 
 #pragma endregion
 };

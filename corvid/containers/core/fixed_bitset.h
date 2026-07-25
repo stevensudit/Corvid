@@ -137,7 +137,7 @@ public:
 
     // Begin: scans forward from word 0 to find the first set bit.
     constexpr explicit iterator(const fixed_bitset& bs) noexcept
-        : bs_(&bs), word_ndx_(0) {
+        : bs_{&bs}, word_ndx_{0} {
       advance_to_next_set_word();
     }
 
@@ -175,9 +175,9 @@ public:
     }
 
   private:
-    const fixed_bitset* bs_{nullptr};
+    const fixed_bitset* bs_{};
     size_t word_ndx_{word_count_v}; // `word_count_v` signals "end"
-    word_t current_word_{0};
+    word_t current_word_{};
 
     // Scan forward from `word_ndx_` until a non-zero word or all words are
     // exhausted.
@@ -232,11 +232,11 @@ public:
 
   private:
     fixed_bitset& bitset_;
-    const size_t ndx_{0};
+    const size_t ndx_{};
 
     // Only constructed by `fixed_bitset::operator[]`.
     explicit constexpr reference(fixed_bitset& bitset, size_t ndx) noexcept
-        : bitset_(bitset), ndx_(ndx) {}
+        : bitset_{bitset}, ndx_{ndx} {}
 
     friend class fixed_bitset;
   };
@@ -249,7 +249,7 @@ public:
   constexpr fixed_bitset(fixed_bitset&&) noexcept = default;
   constexpr explicit fixed_bitset(
       const std::array<word_t, word_count_v>& words) noexcept
-      : words_(words) {
+      : words_{words} {
     if constexpr (top_padding_bits_ != 0)
       words_[word_count_v - 1] &= top_word_mask_;
   }
@@ -393,14 +393,14 @@ public:
       return *this;
     }
 
-    const size_t word_shift = shift / bits_per_word_v;
-    const size_t bit_shift = shift % bits_per_word_v;
+    const auto word_shift = shift / bits_per_word_v;
+    const auto bit_shift = shift % bits_per_word_v;
 
     if (bit_shift == 0) {
       for (size_t ndx = word_count_v; ndx-- > word_shift;)
         words_[ndx] = words_[ndx - word_shift];
     } else {
-      const size_t rshift = bits_per_word_v - bit_shift;
+      const auto rshift = bits_per_word_v - bit_shift;
       for (size_t ndx = word_count_v; ndx-- > word_shift + 1;)
         words_[ndx] = static_cast<word_t>(
             (words_[ndx - word_shift] << bit_shift) |
@@ -428,15 +428,15 @@ public:
       return *this;
     }
 
-    const size_t word_shift = shift / bits_per_word_v;
-    const size_t bit_shift = shift % bits_per_word_v;
-    const size_t limit = word_count_v - word_shift;
+    const auto word_shift = shift / bits_per_word_v;
+    const auto bit_shift = shift % bits_per_word_v;
+    const auto limit = word_count_v - word_shift;
 
     if (bit_shift == 0) {
       for (size_t ndx = 0; ndx < limit; ++ndx)
         words_[ndx] = words_[ndx + word_shift];
     } else {
-      const size_t lshift = bits_per_word_v - bit_shift;
+      const auto lshift = bits_per_word_v - bit_shift;
       for (size_t ndx = 0; ndx + 1 < limit; ++ndx)
         words_[ndx] = static_cast<word_t>(
             (words_[ndx + word_shift] >> bit_shift) |
@@ -465,20 +465,20 @@ public:
       return *this;
     }
 
-    const size_t word_shift = shift / bits_per_word_v;
-    const size_t bit_shift = shift % bits_per_word_v;
+    const auto word_shift = shift / bits_per_word_v;
+    const auto bit_shift = shift % bits_per_word_v;
     std::array<word_t, word_count_v> out{};
 
     if (bit_shift == 0) {
-      size_t src = (word_count_v - word_shift) % word_count_v;
+      auto src = (word_count_v - word_shift) % word_count_v;
       for (size_t ndx = 0; ndx < word_count_v; ++ndx) {
         out[ndx] = words_[src];
         if (++src == word_count_v) src = 0;
       }
     } else {
-      const size_t rshift = bits_per_word_v - bit_shift;
-      size_t src = (word_count_v - word_shift) % word_count_v;
-      size_t prev = (src == 0) ? (word_count_v - 1) : (src - 1);
+      const auto rshift = bits_per_word_v - bit_shift;
+      auto src = (word_count_v - word_shift) % word_count_v;
+      auto prev = (src == 0) ? (word_count_v - 1) : (src - 1);
 
       for (size_t ndx = 0; ndx < word_count_v; ++ndx) {
         out[ndx] = static_cast<word_t>(
@@ -502,20 +502,20 @@ public:
       return *this;
     }
 
-    const size_t word_shift = shift / bits_per_word_v;
-    const size_t bit_shift = shift % bits_per_word_v;
+    const auto word_shift = shift / bits_per_word_v;
+    const auto bit_shift = shift % bits_per_word_v;
     std::array<word_t, word_count_v> out{};
 
     if (bit_shift == 0) {
-      size_t src = word_shift;
+      auto src = word_shift;
       for (size_t ndx = 0; ndx < word_count_v; ++ndx) {
         out[ndx] = words_[src];
         if (++src == word_count_v) src = 0;
       }
     } else {
-      const size_t lshift = bits_per_word_v - bit_shift;
-      size_t src = word_shift;
-      size_t next = src + 1;
+      const auto lshift = bits_per_word_v - bit_shift;
+      auto src = word_shift;
+      auto next = src + 1;
       if (next == word_count_v) next = 0;
 
       for (size_t ndx = 0; ndx < word_count_v; ++ndx) {
@@ -618,7 +618,7 @@ public:
     if (top)
       return as_pos(static_cast<size_t>(
           std::countl_zero(static_cast<word_t>(top << top_padding_bits_))));
-    size_t accum = top_word_valid_bits_;
+    auto accum = top_word_valid_bits_;
     for (size_t ndx = word_count_v - 1; ndx > 0; --ndx) {
       const auto w = words_[ndx - 1];
       if (w) return as_pos(accum + static_cast<size_t>(std::countl_zero(w)));
@@ -635,7 +635,7 @@ public:
     if (top != top_word_mask_)
       return as_pos(static_cast<size_t>(std::countl_zero(static_cast<word_t>(
           static_cast<word_t>(~top) << top_padding_bits_))));
-    size_t accum = top_word_valid_bits_;
+    auto accum = top_word_valid_bits_;
     for (size_t ndx = word_count_v - 1; ndx > 0; --ndx) {
       const auto w = words_[ndx - 1];
       if (w != all_ones_v)
@@ -850,8 +850,8 @@ struct std::formatter<corvid::container::fixed_bitset<N, POS, TAG, FW>, char> {
       ++it;
     }
     if (it != ctx.end() && *it != '}')
-      throw std::format_error(
-          "fixed_bitset format spec accepts only '#' or '?'");
+      throw std::format_error{
+          "fixed_bitset format spec accepts only '#' or '?'"};
     return it;
   }
 
@@ -878,7 +878,7 @@ struct std::formatter<corvid::container::fixed_bitset<N, POS, TAG, FW>, char> {
       break;
     }
     case mode::hex: {
-      constexpr int digits = 2 * sizeof(typename bitset_t::word_t);
+      constexpr int digits{2 * sizeof(typename bitset_t::word_t)};
       const auto& words = bs.array();
       for (size_t wi = words.size(); wi-- > 0;)
         out = std::format_to(out, "{:0{}x}", words[wi], digits);

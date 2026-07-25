@@ -129,7 +129,7 @@ public:
     // try to copy it. This will no longer be necessary once
     // `std::move_only_function` becomes available.
     borrowed(const borrowed&) {
-      throw std::logic_error("object_pool::borrowed is not copyable");
+      throw std::logic_error{"object_pool::borrowed is not copyable"};
     }
     borrowed& operator=(const borrowed&) = delete;
 
@@ -353,7 +353,7 @@ public:
     // We do not increment the generation until return, but we do set the
     // high bit to indicate that it's borrowed.
     T* item{};
-    if (std::scoped_lock pool_lock{pool_mutex_}; true) {
+    if (std::scoped_lock pool_lock(pool_mutex_); true) {
       if (free_top_ == 0) return {};
       auto ndx = free_list_[--free_top_];
       item = &slots_[ndx];
@@ -361,7 +361,7 @@ public:
       assert(!impossible);
     }
     if constexpr (!IsNoOpCb<BorrowCb>) {
-      std::scoped_lock func_lock{func_mutex_};
+      std::scoped_lock func_lock(func_mutex_);
       borrow_cb_(*item);
     }
     return {this, item};
@@ -422,7 +422,7 @@ public:
   // `return_cb` must be idempotent and safe to invoke on a default-
   // constructed `T`.
   [[nodiscard]] bool shutdown() noexcept {
-    std::scoped_lock both_lock{pool_mutex_, func_mutex_};
+    std::scoped_lock both_lock(pool_mutex_, func_mutex_);
     if (shut_down_) return false;
     shut_down_ = true;
     for (size_t ndx = 0; ndx < N; ++ndx) {
@@ -458,10 +458,10 @@ private:
 
   void return_slot(index_t ndx) noexcept {
     if constexpr (!IsNoOpCb<ReturnCb>) {
-      std::scoped_lock func_lock{func_mutex_};
+      std::scoped_lock func_lock(func_mutex_);
       return_cb_(slots_[ndx]);
     }
-    std::scoped_lock pool_lock{pool_mutex_};
+    std::scoped_lock pool_lock(pool_mutex_);
     if (shut_down_) return;
     (void)release_slot_gen(ndx);
     free_list_[free_top_++] = ndx;

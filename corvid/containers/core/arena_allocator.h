@@ -63,7 +63,7 @@ class extensible_arena final {
 
   // Points to the head owned by the active container. Use
   // `extensible_arena::scope` to install whenever an allocation is needed.
-  thread_local static inline pointer* tls_head_;
+  thread_local static inline pointer* tls_head_{};
 
   [[nodiscard]] static auto& get_head() {
     assert(tls_head_);
@@ -74,7 +74,7 @@ class extensible_arena final {
     size_t capacity_{};
     size_t size_{};
     pointer next_;
-    std::byte data_[1];
+    std::byte data_[1]{};
 
     // Helper function to calculate the total size needed for a list_node with
     // a given capacity. The minus 1 is because the list_node struct already
@@ -158,7 +158,7 @@ public:
     ~scope() noexcept { tls_head_ = old_head; }
 
   private:
-    pointer* old_head;
+    pointer* old_head{};
   };
   PRAGMA_GCC_DIAG(pop)
 
@@ -247,7 +247,7 @@ static_assert(
 // "leak" the object.
 template<typename T, class... Args>
 [[nodiscard]] T* arena_new(Args&&... args) {
-  arena_allocator<T> a{};
+  arena_allocator<T> a;
   auto p = arena_allocator_traits<T>::allocate(a, 1);
   arena_allocator_traits<T>::construct(a, p, std::forward<Args>(args)...);
   return p;
@@ -256,14 +256,14 @@ template<typename T, class... Args>
 // Construct a new object of type `T` using the `arena` parameter.
 template<typename T, class... Args>
 [[nodiscard]] T& arena_construct(extensible_arena& arena, Args&&... args) {
-  extensible_arena::scope s{arena};
+  extensible_arena::scope s(arena);
   return *arena_new<T>(std::forward<Args>(args)...);
 }
 
 // Invoke callback within scope of `arena`.
 template<typename F>
 decltype(auto) arena_scope(extensible_arena& arena, F&& f) {
-  extensible_arena::scope s{arena};
+  extensible_arena::scope s(arena);
   return std::forward<F>(f)();
 }
 

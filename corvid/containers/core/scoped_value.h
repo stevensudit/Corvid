@@ -55,7 +55,7 @@ public:
   // duration.
   explicit scoped_value(T& target, T new_value) noexcept(
       std::is_nothrow_move_constructible_v<T>)
-      : target_(&target), old_value_(std::move(new_value)) {
+      : target_{&target}, old_value_{std::move(new_value)} {
     do_swap();
   }
 
@@ -64,7 +64,7 @@ public:
   scoped_value(const scoped_value&) = delete;
   scoped_value(scoped_value&& other) noexcept(
       std::is_nothrow_move_constructible_v<T>)
-      : target_(other.target_), old_value_(std::move(other.old_value_)) {
+      : target_{other.target_}, old_value_{std::move(other.old_value_)} {
     other.release();
   }
   scoped_value& operator=(const scoped_value&) = delete;

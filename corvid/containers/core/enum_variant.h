@@ -256,7 +256,7 @@ public:
   // default-constructible. Note that, being implicit, this lets you assign an
   // `enum_type` to an `enum_variant`.
   consteval enum_variant(enum_type e)
-      : value_(construct(static_cast<size_t>(e))) {}
+      : value_{construct(static_cast<size_t>(e))} {}
 
   // Conversion constructor, where `T` is one of the types in `Ts...`.
   template<typename T>

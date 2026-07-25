@@ -382,7 +382,7 @@ public:
     auto iv = get(value, attestation);
     if (iv || sync.is_disabled()) return iv;
 
-    extensible_arena::scope s{arena_};
+    extensible_arena::scope s(arena_);
     const auto id = static_cast<id_t>(*min_id_ + lookup_by_id_.size());
     auto& found_value = lookup_by_id_.emplace_back(std::forward<U>(value));
     lookup_by_value_.emplace(key_t{found_value}, id);
@@ -414,7 +414,7 @@ public:
   requires Viewable<T, U>
   [[nodiscard]] const value_t& operator[](U&& value) const {
     auto iv = get(std::forward<U>(value));
-    if (!iv) throw std::out_of_range("value not found");
+    if (!iv) throw std::out_of_range{"value not found"};
     return iv.value();
   }
 
@@ -425,7 +425,7 @@ public:
   requires Viewable<T, U>
   [[nodiscard]] const value_t& operator[](U&& value) {
     auto iv = intern(std::forward<U>(value));
-    if (!iv) throw std::out_of_range("value not found");
+    if (!iv) throw std::out_of_range{"value not found"};
     return iv.value();
   }
 
@@ -514,7 +514,7 @@ struct std::formatter<corvid::container::intern::interned_value<T, ID>, CharT>
       debug_ = true;
       ++it;
       if (it != ctx.end() && *it != CharT('}'))
-        throw std::format_error("interned_value debug spec accepts only '?'");
+        throw std::format_error{"interned_value debug spec accepts only '?'"};
       return it;
     }
     return base::parse(ctx);
@@ -536,5 +536,5 @@ struct std::formatter<corvid::container::intern::interned_value<T, ID>, CharT>
   }
 
 private:
-  bool debug_{false};
+  bool debug_{};
 };

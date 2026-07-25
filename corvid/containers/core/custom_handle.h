@@ -104,7 +104,7 @@ public:
 
   custom_handle(element_type element)
       : resource_{static_cast<resource_id_type>(element)} {}
-  custom_handle(resource_id_type resource) : resource_(resource) {}
+  custom_handle(resource_id_type resource) : resource_{resource} {}
 
 #pragma endregion
 #pragma region Assignment
@@ -163,7 +163,7 @@ public:
 
   // Note: Mutable because a const pointer to a mutable resource allows mutable
   // access and this is just as true for resource ID's.
-  mutable resource_id_type resource_ = null_v;
+  mutable resource_id_type resource_{null_v};
 
 #pragma endregion
 };

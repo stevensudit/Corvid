@@ -50,12 +50,12 @@ public:
 #pragma region Construction
 
   enum_vector() = default;
-  explicit enum_vector(size_type count, const T& value = T(),
-      const Allocator& alloc = Allocator())
+  explicit enum_vector(size_type count, const T& value = T{},
+      const Allocator& alloc = Allocator{})
       : data_(count, value, alloc) {}
   explicit enum_vector(const Allocator& alloc) : data_(alloc) {}
   enum_vector(std::initializer_list<T> init,
-      const Allocator& alloc = Allocator())
+      const Allocator& alloc = Allocator{})
       : data_(init, alloc) {}
 
 #pragma endregion
@@ -138,7 +138,7 @@ public:
 #pragma endregion
 #pragma region Data members
 private:
-  std::vector<T, Allocator> data_{};
+  std::vector<T, Allocator> data_;
 
 #pragma endregion
 };

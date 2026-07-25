@@ -81,7 +81,7 @@ public:
   requires(std::is_constructible_v<T, U &&>)
   constexpr explicit strong_type(U&& value) noexcept(
       std::is_nothrow_constructible_v<T, U&&>)
-      : value_{std::forward<U>(value)} {}
+      : value_(std::forward<U>(value)) {}
 
 #pragma endregion
 #pragma region assignment
@@ -737,7 +737,7 @@ public:
 #pragma endregion
 
 private:
-  T value_;
+  T value_{};
 };
 
 // Output stream operator (requires that the underlying type supports

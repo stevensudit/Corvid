@@ -135,7 +135,7 @@ public:
     }
 
   private:
-    U u_;
+    U u_{};
   };
 
 #pragma endregion
@@ -428,7 +428,7 @@ struct std::formatter<corvid::interval<V, U>, char> {
       ++it;
     }
     if (it != ctx.end() && *it != '}')
-      throw std::format_error("interval format spec accepts only '?'");
+      throw std::format_error{"interval format spec accepts only '?'"};
     return it;
   }
 
@@ -438,7 +438,7 @@ struct std::formatter<corvid::interval<V, U>, char> {
     if (debug_) {
       // Raw half-open [begin, end) in the underlying integers. The unary plus
       // promotes a char-like `U` so it prints as a number, not a character.
-      const std::pair<U, U> p = iv;
+      const std::pair<U, U> p{iv};
       return std::format_to(out, "[{}, {})", +p.first, +p.second);
     }
     if (iv.invalid()) return std::format_to(out, "[invalid]");
@@ -447,7 +447,7 @@ struct std::formatter<corvid::interval<V, U>, char> {
   }
 
 private:
-  bool debug_{false};
+  bool debug_{};
 };
 
 #pragma endregion
