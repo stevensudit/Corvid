@@ -411,7 +411,9 @@ template<npos_choice npv = npos_choice::npos>
   auto v = std::string_view{value};
   // An empty value matches everywhere, so a non-match is never found.
   if (v.empty()) return from_npos<npv>(s, s.size());
-  if (v.size() > s.size()) return 0;
+  // A too-long value mismatches at 0 when that position exists; on an empty
+  // string there is no position to report, so `from_npos` yields not-found.
+  if (v.size() > s.size()) return from_npos<npv>(s, 0);
 
   auto last = s.size() - v.size();
   if (pos == npos || pos > last) pos = last;

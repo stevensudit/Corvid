@@ -783,7 +783,7 @@ TEST_CASE("Locate", "[StringUtilsTest]") {
     CHECK(strings::rlocate_not("aaaaaa"sv, "aa") == npos);
     CHECK(strings::rlocate_not("abcde"sv, "de") == 1U);
     CHECK(strings::rlocate_not("abc"sv, "abcdef"sv) == 0U);
-    CHECK(strings::rlocate_not(""sv, "abcdef"sv) == 0U);
+    CHECK(strings::rlocate_not(""sv, "abcdef"sv) == npos);
     pos = s.size();
     CHECK(strings::rlocated_not(pos, s, 'a') == true);
     CHECK(pos == 4U);
