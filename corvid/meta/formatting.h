@@ -43,9 +43,9 @@ struct parsed_spec {
   size_t width{};
   std::optional<size_t> precision; // Meaningful for numerics.
   bool debug{}; // May be set externally by `set_debug_format`.
-  CharT fill{CharT(' ')};
-  aligned alignment{aligned::left};
-  char sign{'-'};   // `-` default, `+` always, ` ` space for positive.
+  CharT fill = CharT(' ');
+  aligned alignment = aligned::left;
+  char sign = '-';  // `-` default, `+` always, ` ` space for positive.
   bool alternate{}; // `#`
   bool zero_pad{};
   bool has_locale{};
@@ -118,7 +118,7 @@ struct spec_parser: parsed_spec<CharT> {
   // the fixed value, the manual arg id, or the auto arg id once claimed from
   // the parse context.
   struct arg_value_t {
-    arg_kind kind{arg_kind::none};
+    arg_kind kind = arg_kind::none;
     size_t value{};
 
     // Read an arg value from `spec` at `ndx`, returning an index past the
@@ -527,7 +527,7 @@ private:
 #pragma endregion
 #pragma region Data members
 
-  std::string_view marker_{"(null)"};
+  std::string_view marker_ = "(null)";
   spec_parser<CharT> spec_;
 
 #pragma endregion

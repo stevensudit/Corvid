@@ -412,9 +412,9 @@ enum class proxy_alloc : std::uint8_t {
 // handle's storage. One facade can serve proxies of different policies, and
 // views, simultaneously.
 struct proxy_policy {
-  size_t sbo_size{2 * sizeof(void*)};
-  size_t sbo_align{alignof(std::max_align_t)};
-  proxy_alloc alloc{proxy_alloc::sbo_or_heap};
+  size_t sbo_size = 2 * sizeof(void*);
+  size_t sbo_align = alignof(std::max_align_t);
+  proxy_alloc alloc = proxy_alloc::sbo_or_heap;
 
   friend constexpr bool
   operator==(const proxy_policy&, const proxy_policy&) = default;

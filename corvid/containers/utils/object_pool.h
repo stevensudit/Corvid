@@ -306,7 +306,7 @@ public:
     // Order is important for packing. The index could be 8 bits while the
     // generation is always 32 when present.
     CORVID_NO_UNIQUE_ADDRESS gen_t gen_{};
-    index_t ndx_{npos};
+    index_t ndx_ = npos;
   };
 
   friend class token;
@@ -537,7 +537,7 @@ private:
   // Order of members is important for alignment.
   alignas(T) std::array<T, N> slots_{};
   std::array<index_t, N> free_list_{};
-  size_t free_top_{N};
+  size_t free_top_ = N;
   bool shut_down_{};
   mutable std::mutex pool_mutex_;
   mutable std::mutex func_mutex_;

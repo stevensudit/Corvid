@@ -155,6 +155,16 @@ Braces express "this object takes on these values", and they reject narrowing.
 - NSDMIs do have an `=` form, and they follow the local-variable rules:
   `int width_ = 1024;` is fine even when a constructor spells the same member
   `width_{width}`.
+- **Ruling:** An NSDMI default whose value is the point takes the `=` form
+  when the initializer cannot narrow:
+  `size_t word_ndx_ = word_count_v;` (an end sentinel),
+  `index_t ndx_ = npos;`, `resource_id_type resource_ = null_v;`. This is
+  the no-narrow rule applied to members: braces could add no check, and
+  `= value` reads as the default it is. Value-init `{}` stays the spelling
+  for the empty state, and braces stay for conversions worth checking and
+  for value-like class construction. A meaningful zero is spelled, not
+  blanked: a begin iterator's `word_ndx_{0}` is a range endpoint pairing
+  with its bound, where `{}` would falsely claim "nothing yet".
 - **Ruling:** A member of scalar, enum, pointer, or similar raw type carries
   an NSDMI even when every constructor initializes it: `E enum_{};`.
   Consistency (a compiler-provided constructor initializes it too), safety

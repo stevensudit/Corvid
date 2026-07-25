@@ -176,7 +176,7 @@ public:
 
   private:
     const fixed_bitset* bs_{};
-    size_t word_ndx_{word_count_v}; // `word_count_v` signals "end"
+    size_t word_ndx_ = word_count_v; // `word_count_v` signals "end"
     word_t current_word_{};
 
     // Scan forward from `word_ndx_` until a non-zero word or all words are
@@ -894,7 +894,7 @@ struct std::formatter<corvid::container::fixed_bitset<N, POS, TAG, FW>, char> {
 
 private:
   enum class mode : std::uint8_t { binary, index, hex };
-  mode mode_{mode::binary};
+  mode mode_ = mode::binary;
 };
 
 #pragma endregion
