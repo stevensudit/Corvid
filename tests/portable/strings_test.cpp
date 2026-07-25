@@ -1153,6 +1153,14 @@ TEST_CASE("LocateEdges", "[StringUtilsTest]") {
     CHECK(strings::rlocate(s, {"ab", "cd"}) == location{12U, 1U});
     CHECK(strings::rlocate(s, {"cd", "ab"}) == location{12U, 0U});
     CHECK(strings::rlocate(s, {"xy", "zz"}) == nloc);
+    // An empty value matches everywhere, end of string included, mirroring
+    // the forward direction.
+    CHECK(strings::rlocate(s, "") == s.size());
+    CHECK(strings::rlocate(s, "", 5U) == 5U);
+    CHECK(strings::rlocate(s, {"xy", ""}) == location{s.size(), 1U});
+    CHECK(strings::rlocate(s, {"xy", ""}, 5U) == location{5U, 1U});
+    CHECK(strings::rlocate(""sv, "") == 0U);
+    CHECK(strings::rlocate(""sv, {"xy", ""}) == location{0U, 1U});
   }
   // Confirm the correctness of infinite loops.
   if (true) {

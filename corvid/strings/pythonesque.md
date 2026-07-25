@@ -99,7 +99,7 @@ input for further analysis, not a commitment to build any particular item.
   per-character `is_space` is itself missing. DONE: per-character `is_space`
   (the six ASCII whitespace characters), `StringViewLike` overloads of all
   seven predicates (true when non-empty and every code unit passes; ruling:
-  unlike Python `islower` / `isupper`, uncased characters are not ignored),
+  unlike Python `islower` / `isupper`, uncased characters are not ignored).
   The Python ignore-uncased rule is also available by name:
   `is_python_lower` / `is_python_upper` (at least one letter, none of the
   opposite case; single pass with early out). Also included are the case

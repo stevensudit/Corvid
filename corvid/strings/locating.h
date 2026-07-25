@@ -561,8 +561,9 @@ template<npos_choice npv = npos_choice::npos>
 template<npos_choice npv = npos_choice::npos>
 [[nodiscard]] constexpr location rlocate_any_string(std::string_view s,
     const StringViewConvertibleSpan auto& values, position pos = npos) {
-  if (s.empty()) return as_nloc<npv>(s, values);
-  if (pos >= s.size()) pos = s.size() - 1;
+  // The cap exists for the early break below; `rfind` clamps on its own, and
+  // an empty value matches at `size()`, exactly as in the forward direction.
+  pos = std::min(pos, s.size());
   location best = nloc;
   for (position pos_value = 0; pos_value < values.size(); ++pos_value) {
     const std::string_view value{values[pos_value]};
