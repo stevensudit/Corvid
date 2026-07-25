@@ -531,6 +531,14 @@ TEST_CASE("CaseStrings", "[StringUtilsTest]") {
     CHECK_FALSE(strings::is_printable("tab\there"));
     CHECK_FALSE(strings::is_printable(""));
   }
+  // Being objects, the predicates pass directly into algorithms and range
+  // adaptors.
+  if (true) {
+    CHECK(std::ranges::all_of("123"sv, strings::is_digit));
+    CHECK(std::ranges::none_of("abc"sv, strings::is_digit));
+    auto digits = "a1b2c3"sv | std::views::filter(strings::is_digit);
+    CHECK(std::string{digits.begin(), digits.end()} == "123");
+  }
   // `is_title` follows the `as_titled` word rule, Python `istitle`-style: at
   // least
   // one letter, uppercase exactly at word starts.

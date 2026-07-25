@@ -336,25 +336,13 @@ private:
     return true;
   }
 
-  [[nodiscard]] static constexpr bool is_hex_digit(char c) noexcept {
-    return (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') ||
-           (c >= 'A' && c <= 'F');
-  }
-
-  [[nodiscard]] static constexpr uint16_t hex_value(char c) noexcept {
-    return c >= '0' && c <= '9' ? uint16_t(c - '0')
-           : c >= 'a' && c <= 'f'
-               ? uint16_t(c - 'a' + 10)
-               : uint16_t(c - 'A' + 10);
-  }
-
   [[nodiscard]] static constexpr std::optional<uint16_t>
   do_parse_group(std::string_view s, size_t& pos) noexcept {
-    if (pos >= s.size() || !is_hex_digit(s[pos])) return std::nullopt;
+    if (pos >= s.size() || !strings::is_hex_digit(s[pos])) return std::nullopt;
     uint16_t value = 0;
     size_t digits = 0;
-    while (pos < s.size() && is_hex_digit(s[pos])) {
-      value = uint16_t((value << 4) | hex_value(s[pos]));
+    while (pos < s.size() && strings::is_hex_digit(s[pos])) {
+      value = uint16_t((value << 4) | strings::hex_digit_value(s[pos]));
       ++pos;
       ++digits;
       if (digits > 4) return std::nullopt;

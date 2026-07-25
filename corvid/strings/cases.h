@@ -35,161 +35,152 @@ namespace corvid::strings { inline namespace cases {
 // complications (and the cost) of the `std::ctype` and `std::toupper`/
 // `std::tolower` facilities.
 
-#pragma region Character predicates
+#pragma region Predicates
 
-template<CharType CharT>
-[[nodiscard]] constexpr bool is_lower(CharT c) noexcept {
-  return c >= CharT('a') && c <= CharT('z');
-}
-
-template<CharType CharT>
-[[nodiscard]] constexpr bool is_upper(CharT c) noexcept {
-  return c >= CharT('A') && c <= CharT('Z');
-}
-
-[[nodiscard]] constexpr bool is_alpha(CharType auto c) noexcept {
-  return is_lower(c) || is_upper(c);
-}
-
-// Whether `c` is a decimal digit, meaning '0' through '9' only.
+// Character-classification predicates.
 //
-// Not the Python `isdigit`, which also admits non-ASCII digits like
-// superscripts; within ASCII, Python's `isdecimal`, `isdigit`, and `isnumeric`
-// all collapse to this.
-template<CharType CharT>
-[[nodiscard]] constexpr bool is_digit(CharT c) noexcept {
-  return c >= CharT('0') && c <= CharT('9');
-}
+// Each `is_*` name here is a constexpr predicate object with two forms: pass
+// a code unit to test it directly, or pass anything string-like to test that
+// the string is non-empty and every code unit passes. Because the names are
+// objects rather than overload sets, they can also be passed directly to
+// algorithms and range adaptors, e.g. `std::views::filter(is_digit)`.
+//
+// For the case predicates, the string form deviates from Python deliberately.
+// Python's `islower` and `isupper` ignore uncased characters, so
+// `"abc0".islower()` is true, while `is_lower("abc0")` here is false because
+// '0' fails the character predicate. Beware that `!is_upper(s)` does not
+// reproduce the Python semantics either: it is also true for mixed-case
+// strings like "aA" and for letterless strings. The Python rule is available
+// by name as `is_python_lower` and `is_python_upper`.
 
-[[nodiscard]] constexpr bool is_alnum(CharType auto c) noexcept {
-  return is_alpha(c) || is_digit(c);
-}
-
+// Whether `ch` is a lowercase hex letter, 'a' through 'f'.
 template<CharType CharT>
 [[nodiscard]] constexpr bool is_lc_hex_alpha(CharT ch) noexcept {
   return (ch >= CharT('a') && ch <= CharT('f'));
 }
 
+// Whether `ch` is an uppercase hex letter, 'A' through 'F'.
 template<CharType CharT>
 [[nodiscard]] constexpr bool is_uc_hex_alpha(CharT ch) noexcept {
   return (ch >= CharT('A') && ch <= CharT('F'));
 }
 
-[[nodiscard]] constexpr bool is_hex_digit(CharType auto ch) noexcept {
-  return is_digit(ch) || is_lc_hex_alpha(ch) || is_uc_hex_alpha(ch);
-}
+namespace details {
 
-// Whether `c` is ASCII whitespace: space, tab, or one of the newline,
-// vertical-tab, form-feed, and carriage-return controls.
-template<CharType CharT>
-[[nodiscard]] constexpr bool is_space(CharT c) noexcept {
-  return c == CharT(' ') || c == CharT('\t') || c == CharT('\n') ||
-         c == CharT('\v') || c == CharT('\f') || c == CharT('\r');
-}
-
-// Whether `c` is in the ASCII range, 0 through 0x7f.
-template<CharType CharT>
-[[nodiscard]] constexpr bool is_ascii(CharT c) noexcept {
-  return static_cast<std::make_unsigned_t<CharT>>(c) <= 0x7f;
-}
-
-// Whether `c` is a printable ASCII character, space (0x20) through tilde
-// (0x7e).
-template<CharType CharT>
-[[nodiscard]] constexpr bool is_printable(CharT c) noexcept {
-  return c >= CharT(' ') && c <= CharT('~');
-}
-
-#pragma endregion
-#pragma region String predicates
-
-// The string overloads of the character predicates: each is true when the
-// string is non-empty and every code unit satisfies the corresponding
-// character predicate.
+// Extend a per-code-unit predicate to whole strings.
 //
-// For the case predicates, this deviates from Python deliberately. Python's
-// `islower` and `isupper` ignore uncased characters, so `"abc0".islower()` is
-// true, while `is_lower("abc0")` here is false because '0' fails the character
-// predicate. Beware that `!is_upper(s)` does not reproduce the Python
-// semantics either: it is also true for mixed-case strings like "aA" and for
-// letterless strings. The Python rule is available by name as
-// `is_python_lower` and `is_python_upper`.
+// The code-unit form applies `CharPred` directly; the string form is true
+// when the string is non-empty and every code unit passes.
+template<typename CharPred>
+struct code_unit_pred {
+  [[nodiscard]] constexpr bool operator()(CharType auto c) const noexcept {
+    return CharPred{}(c);
+  }
+  template<StringViewLike S>
+  [[nodiscard]] constexpr bool operator()(const S& s) const noexcept {
+    const auto sv{as_view(s)};
+    return !sv.empty() && std::ranges::all_of(sv, CharPred{});
+  }
+};
+
+struct lower_char {
+  [[nodiscard]] constexpr bool operator()(CharType auto c) const noexcept {
+    using C = decltype(c);
+    return c >= C('a') && c <= C('z');
+  }
+};
+
+struct upper_char {
+  [[nodiscard]] constexpr bool operator()(CharType auto c) const noexcept {
+    using C = decltype(c);
+    return c >= C('A') && c <= C('Z');
+  }
+};
+
+struct alpha_char {
+  [[nodiscard]] constexpr bool operator()(CharType auto c) const noexcept {
+    return lower_char{}(c) || upper_char{}(c);
+  }
+};
+
+struct digit_char {
+  [[nodiscard]] constexpr bool operator()(CharType auto c) const noexcept {
+    using C = decltype(c);
+    return c >= C('0') && c <= C('9');
+  }
+};
+
+struct alnum_char {
+  [[nodiscard]] constexpr bool operator()(CharType auto c) const noexcept {
+    return alpha_char{}(c) || digit_char{}(c);
+  }
+};
+
+struct hex_digit_char {
+  [[nodiscard]] constexpr bool operator()(CharType auto c) const noexcept {
+    return digit_char{}(c) || is_lc_hex_alpha(c) || is_uc_hex_alpha(c);
+  }
+};
+
+struct space_char {
+  [[nodiscard]] constexpr bool operator()(CharType auto c) const noexcept {
+    using C = decltype(c);
+    return c == C(' ') || c == C('\t') || c == C('\n') || c == C('\v') ||
+           c == C('\f') || c == C('\r');
+  }
+};
+
+struct ascii_char {
+  [[nodiscard]] constexpr bool operator()(CharType auto c) const noexcept {
+    return static_cast<std::make_unsigned_t<decltype(c)>>(c) <= 0x7f;
+  }
+};
+
+struct printable_char {
+  [[nodiscard]] constexpr bool operator()(CharType auto c) const noexcept {
+    using C = decltype(c);
+    return c >= C(' ') && c <= C('~');
+  }
+};
+
+} // namespace details
+
+// Whether lowercase: 'a' through 'z'.
+inline constexpr details::code_unit_pred<details::lower_char> is_lower{};
+
+// Whether uppercase: 'A' through 'Z'.
+inline constexpr details::code_unit_pred<details::upper_char> is_upper{};
+
+// Whether a Latin letter.
+inline constexpr details::code_unit_pred<details::alpha_char> is_alpha{};
+
+// Whether a decimal digit, meaning '0' through '9' only.
 //
-// See also: `is_ascii`, below.
+// Not the Python `isdigit`, which also admits non-ASCII digits like
+// superscripts; within ASCII, Python's `isdecimal`, `isdigit`, and `isnumeric`
+// all collapse to this.
+inline constexpr details::code_unit_pred<details::digit_char> is_digit{};
 
-template<StringViewLike S>
-[[nodiscard]] constexpr bool is_lower(const S& s) noexcept {
-  const auto sv{as_view(s)};
-  return !sv.empty() && std::ranges::all_of(sv, [](CharType auto c) {
-    return is_lower(c);
-  });
-}
+// Whether a Latin letter or decimal digit.
+inline constexpr details::code_unit_pred<details::alnum_char> is_alnum{};
 
-template<StringViewLike S>
-[[nodiscard]] constexpr bool is_upper(const S& s) noexcept {
-  const auto sv{as_view(s)};
-  return !sv.empty() && std::ranges::all_of(sv, [](CharType auto c) {
-    return is_upper(c);
-  });
-}
+// Whether a hex digit, in either case.
+inline constexpr details::code_unit_pred<details::hex_digit_char>
+    is_hex_digit{};
 
-template<StringViewLike S>
-[[nodiscard]] constexpr bool is_alpha(const S& s) noexcept {
-  const auto sv{as_view(s)};
-  return !sv.empty() && std::ranges::all_of(sv, [](CharType auto c) {
-    return is_alpha(c);
-  });
-}
+// Whether ASCII whitespace: space, tab, or one of the newline, vertical-tab,
+// form-feed, and carriage-return controls.
+inline constexpr details::code_unit_pred<details::space_char> is_space{};
 
-template<StringViewLike S>
-[[nodiscard]] constexpr bool is_digit(const S& s) noexcept {
-  const auto sv{as_view(s)};
-  return !sv.empty() && std::ranges::all_of(sv, [](CharType auto c) {
-    return is_digit(c);
-  });
-}
+// Whether in the ASCII range, 0 through 0x7f.
+//
+// Unlike Python's `isascii`, which is true for the empty string, the string
+// form follows the non-empty rule like the others.
+inline constexpr details::code_unit_pred<details::ascii_char> is_ascii{};
 
-template<StringViewLike S>
-[[nodiscard]] constexpr bool is_alnum(const S& s) noexcept {
-  const auto sv{as_view(s)};
-  return !sv.empty() && std::ranges::all_of(sv, [](CharType auto c) {
-    return is_alnum(c);
-  });
-}
-
-template<StringViewLike S>
-[[nodiscard]] constexpr bool is_hex_digit(const S& s) noexcept {
-  const auto sv{as_view(s)};
-  return !sv.empty() && std::ranges::all_of(sv, [](CharType auto c) {
-    return is_hex_digit(c);
-  });
-}
-
-template<StringViewLike S>
-[[nodiscard]] constexpr bool is_space(const S& s) noexcept {
-  const auto sv{as_view(s)};
-  return !sv.empty() && std::ranges::all_of(sv, [](CharType auto c) {
-    return is_space(c);
-  });
-}
-
-// Unlike Python's `isascii`, which is true for the empty string, this
-// predicate follows the non-empty rule like the others.
-template<StringViewLike S>
-[[nodiscard]] constexpr bool is_ascii(const S& s) noexcept {
-  const auto sv{as_view(s)};
-  return !sv.empty() && std::ranges::all_of(sv, [](CharType auto c) {
-    return is_ascii(c);
-  });
-}
-
-template<StringViewLike S>
-[[nodiscard]] constexpr bool is_printable(const S& s) noexcept {
-  const auto sv{as_view(s)};
-  return !sv.empty() && std::ranges::all_of(sv, [](CharType auto c) {
-    return is_printable(c);
-  });
-}
+// Whether a printable ASCII character, space (0x20) through tilde (0x7e).
+inline constexpr details::code_unit_pred<details::printable_char>
+    is_printable{};
 
 // The Python-rule case predicates.
 //

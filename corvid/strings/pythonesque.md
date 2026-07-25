@@ -122,7 +122,15 @@ input for further analysis, not a commitment to build any particular item.
   transforms deliberately stay two-pass (copy, then the in-place `to_*`);
   fusing would only save the memcpy-class copy while breaking the layering,
   and `resize_and_overwrite` remains available as a local change if a
-  profile ever demands it.
+  profile ever demands it. Later ruling: the nine dual-form predicates
+  (`is_lower` through `is_printable`) were rebuilt as constexpr predicate
+  objects (`details::code_unit_pred` over per-character functor structs),
+  eliminating the nine duplicated string-overload bodies and making the names
+  directly passable to algorithms and range adaptors
+  (`std::views::filter(is_digit)`), which is pinned in tests. Call syntax is
+  unchanged; `is_lc_hex_alpha` / `is_uc_hex_alpha` stay plain per-character
+  functions, and the string-only `is_python_*` / `is_title` stay function
+  templates.
 - `isascii` / `isprintable` / `istitle`: predicates the first survey pass
   missed. DONE: in [cases.h](cases.h), per-character `is_ascii` (0 through
   0x7f) and `is_printable` (space through tilde) with the standard string
