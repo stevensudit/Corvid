@@ -131,7 +131,7 @@ public:
     // implicit conversion to a coarser duration. `ceil` keeps deadlines safe,
     // at worst one tick late and never early.
     return time_point_t{
-        std::chrono::ceil<duration_t>(std::chrono::nanoseconds(ns))};
+        std::chrono::ceil<duration_t>(std::chrono::nanoseconds{ns})};
   }
 
 #pragma endregion

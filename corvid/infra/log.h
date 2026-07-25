@@ -194,7 +194,7 @@ private:
   // with non-ASCII characters folded to '?'; on POSIX it is the `pthread`
   // name.
   static const std::string& thread_label() {
-    thread_local const std::string label = [] {
+    thread_local const auto label = [] -> std::string {
 #ifdef _WIN32
       std::string name{"thread"};
       wchar_t* desc{};

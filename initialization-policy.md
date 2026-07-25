@@ -39,8 +39,18 @@ Four forms, each with one meaning:
   comparison with its own operands; without them, `x = y != z` makes the
   reader stop and reparse. They belong to the comparison, not the
   initializer: `&&` does not look like an assignment, so a bare conjunction
-  takes none. Whether this is a special case of some deeper rule is
-  unsettled; for now it is scoped to `bool`.
+  takes none. This began as a scoped exception; the ruling below names the
+  deeper rule it instantiates.
+- **Ruling: spelled types where braces could add nothing.**
+  `Type x = expr;` extends beyond literals when both of these hold: the
+  spelled type states a fact the initializer does not make evident, and
+  braces could add no machine check because the initializer cannot narrow.
+  The bool case is one instance. Another is a pointer pinned by an invariant
+  rather than tracking: `const char* p = ok ? name.data() : "thread";`,
+  where `p` must point at what `name` wraps no matter how the initializer
+  drifts, and a pointer initializer cannot narrow. When either condition
+  fails, the base rules stand: `auto` when the type should track, braces
+  when the conversion or narrowing check has value.
 
 ## `auto` with `=`
 
@@ -58,6 +68,15 @@ Four forms, each with one meaning:
   `auto tmp = std::move(*this);` in a `swap`, not
   `fixed_function tmp{std::move(*this)};`, which repeats a type that could
   never legitimately differ.
+- **Ruling: long lambda initializers spell their return type.** A lambda
+  initializer long enough that its result type is not apparent at the
+  declaration (an immediately invoked one, say, with platform branches)
+  keeps `auto` on the left and carries an explicit trailing return type:
+  `[] -> std::string { ... }`. The fact goes where the value is produced,
+  and the compiler checks every `return` statement, each branch at its own
+  site, against the declared type; spelling the left-hand type instead
+  checks only the one conversion of the already-deduced result, at the
+  bottom.
 
 ## Braces
 
