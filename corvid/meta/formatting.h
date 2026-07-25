@@ -43,7 +43,7 @@ struct parsed_spec {
   size_t width{};
   std::optional<size_t> precision; // Meaningful for numerics.
   bool debug{}; // May be set externally by `set_debug_format`.
-  CharT fill = CharT(' ');
+  CharT fill{' '};
   aligned alignment = aligned::left;
   char sign = '-';  // `-` default, `+` always, ` ` space for positive.
   bool alternate{}; // `#`
@@ -134,26 +134,26 @@ struct spec_parser: parsed_spec<CharT> {
     [[nodiscard]] static constexpr arg_value_t
     make_from_parse(std::basic_string_view<CharT> spec, size_t& ndx) noexcept {
       const auto n = spec.size();
-      if (ndx < n && spec[ndx] == CharT('{')) {
+      if (ndx < n && spec[ndx] == CharT{'{'}) {
         ++ndx;
         size_t id{};
         bool has_id{};
-        for (; ndx < n && spec[ndx] >= CharT('0') && spec[ndx] <= CharT('9');
+        for (; ndx < n && spec[ndx] >= CharT{'0'} && spec[ndx] <= CharT{'9'};
             ++ndx)
         {
-          id = (id * 10) + static_cast<size_t>(spec[ndx] - CharT('0'));
+          id = (id * 10) + static_cast<size_t>(spec[ndx] - CharT{'0'});
           has_id = true;
         }
-        if (ndx < n && spec[ndx] == CharT('}')) ++ndx;
+        if (ndx < n && spec[ndx] == CharT{'}'}) ++ndx;
         return has_id ? arg_value_t{arg_kind::manual, id}
                       : arg_value_t{arg_kind::automatic, 0};
       }
       size_t value{};
       bool any{};
-      for (; ndx < n && spec[ndx] >= CharT('0') && spec[ndx] <= CharT('9');
+      for (; ndx < n && spec[ndx] >= CharT{'0'} && spec[ndx] <= CharT{'9'};
           ++ndx)
       {
-        value = (value * 10) + static_cast<size_t>(spec[ndx] - CharT('0'));
+        value = (value * 10) + static_cast<size_t>(spec[ndx] - CharT{'0'});
         any = true;
       }
       return any ? arg_value_t{arg_kind::fixed, value}
@@ -276,8 +276,8 @@ struct spec_parser: parsed_spec<CharT> {
     // that exclusion, an empty spec followed by a literal align character
     // (`"{:}<"`) would misread the closing brace as a fill and consume past
     // the field.
-    if (cnt >= 2 && is_align(spec[1]) && spec[0] != CharT('{') &&
-        spec[0] != CharT('}'))
+    if (cnt >= 2 && is_align(spec[1]) && spec[0] != CharT{'{'} &&
+        spec[0] != CharT{'}'})
     {
       base::fill = spec[0];
       base::alignment = to_alignment(spec[1]);
@@ -288,19 +288,19 @@ struct spec_parser: parsed_spec<CharT> {
     }
     // sign
     if (ndx < cnt &&
-        (spec[ndx] == CharT('+') || spec[ndx] == CharT('-') ||
-            spec[ndx] == CharT(' ')))
+        (spec[ndx] == CharT{'+'} || spec[ndx] == CharT{'-'} ||
+            spec[ndx] == CharT{' '}))
     {
       base::sign = static_cast<char>(spec[ndx]);
       ++ndx;
     }
     // `#` alternate
-    if (ndx < cnt && spec[ndx] == CharT('#')) {
+    if (ndx < cnt && spec[ndx] == CharT{'#'}) {
       base::alternate = true;
       ++ndx;
     }
     // `0` zero-pad
-    if (ndx < cnt && spec[ndx] == CharT('0')) {
+    if (ndx < cnt && spec[ndx] == CharT{'0'}) {
       base::zero_pad = true;
       ++ndx;
     }
@@ -308,23 +308,23 @@ struct spec_parser: parsed_spec<CharT> {
     ndx = width_arg.parse(spec, ndx);
     if (const auto fixed = width_arg.get_fixed()) base::width = *fixed;
     // `.` precision
-    if (ndx < cnt && spec[ndx] == CharT('.')) {
+    if (ndx < cnt && spec[ndx] == CharT{'.'}) {
       ++ndx;
       ndx = precision_arg.parse(spec, ndx);
       base::precision = precision_arg.get_fixed();
     }
     // `L` locale
-    if (ndx < cnt && spec[ndx] == CharT('L')) {
+    if (ndx < cnt && spec[ndx] == CharT{'L'}) {
       base::has_locale = true;
       ++ndx;
     }
     // type: the one remaining char before the closing `}`, if any
-    if (ndx < cnt && spec[ndx] != CharT('}')) {
+    if (ndx < cnt && spec[ndx] != CharT{'}'}) {
       base::type = spec[ndx];
       ++ndx;
     }
     // The `?` type is debug.
-    if (base::type == CharT('?')) base::debug = true;
+    if (base::type == CharT{'?'}) base::debug = true;
 
     return ndx;
   }
@@ -347,8 +347,8 @@ struct spec_parser: parsed_spec<CharT> {
     size_t next{};
     for (size_t i = 0; i < spec.size(); ++i) {
       out.push_back(spec[i]);
-      if (spec[i] == CharT('{') && i + 1 < spec.size() &&
-          spec[i + 1] == CharT('}'))
+      if (spec[i] == CharT{'{'} && i + 1 < spec.size() &&
+          spec[i + 1] == CharT{'}'})
         append_decimal(out, ids[next++]);
     }
     return out;
@@ -358,12 +358,12 @@ struct spec_parser: parsed_spec<CharT> {
 #pragma region Helpers
 private:
   static constexpr bool is_align(CharT c) noexcept {
-    return c == CharT('<') || c == CharT('>') || c == CharT('^');
+    return c == CharT{'<'} || c == CharT{'>'} || c == CharT{'^'};
   }
 
   static constexpr aligned to_alignment(CharT c) noexcept {
-    if (c == CharT('>')) return aligned::right;
-    if (c == CharT('^')) return aligned::center;
+    if (c == CharT{'>'}) return aligned::right;
+    if (c == CharT{'^'}) return aligned::center;
     return aligned::left;
   }
 
@@ -374,7 +374,7 @@ private:
     CharT buf[20];
     size_t len{};
     do {
-      buf[len++] = static_cast<CharT>(CharT('0') + (v % 10));
+      buf[len++] = static_cast<CharT>(CharT{'0'} + (v % 10));
       v /= 10;
     } while (v != 0);
     while (len != 0) out.push_back(buf[--len]);

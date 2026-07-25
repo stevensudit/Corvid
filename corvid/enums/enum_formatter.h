@@ -137,11 +137,11 @@ private:
       append_enum(target, e);
       return target.out;
     }
-    *out++ = RenderCharT('"');
+    *out++ = RenderCharT{'"'};
     debug_escaping_appendable<OutIt, RenderCharT> target{out};
     append_enum(target, e);
     out = target.out;
-    *out++ = RenderCharT('"');
+    *out++ = RenderCharT{'"'};
     return out;
   }
 
@@ -158,7 +158,7 @@ private:
   constexpr void validate_spec() const {
     if (spec_.sign != '-' || spec_.alternate || spec_.zero_pad ||
         spec_.has_locale ||
-        (spec_.type != CharT(0) && spec_.type != CharT('?')))
+        (spec_.type != CharT{} && spec_.type != CharT{'?'}))
       throw std::format_error{
           "enum format spec accepts only fill and align, "
           "width, precision, and '?'"};

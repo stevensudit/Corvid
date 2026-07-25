@@ -23,6 +23,12 @@ Four forms, each with one meaning:
 - Loop counters follow from this: `for (int i = 0; i <= 5; ++i)`. The initial
   value is a range endpoint that pairs with the bound; `int i{}` would hide
   half the range.
+- A single literal where the value is the point takes `=` even into a
+  string-like type: `std::string_view marker_ = "(null)";`. Braces would
+  add no check there (no narrowing applies, no `initializer_list` hazard),
+  so requiring them would be uniformity without a payoff. Braces return the
+  moment the initializer is non-literal or multi-argument, where the
+  conversion or the components are the point.
 - **Rule:** For a non-literal initializer, do not write `int x = y;`. The
   initializer's type can drift silently under `=`. Pick a side instead:
   `auto x = y;` when `x` should track `y`'s type, or a brace form when `x`'s
@@ -119,6 +125,19 @@ Braces express "this object takes on these values", and they reject narrowing.
   legitimately force a `static_cast`; that visibility is the point.
 - **Aggregate and designated initialization:** `Point p{4, 6};`,
   `fill(str, {.left = '(', .right = ')'});`.
+- **Ruling: anonymous values use braces, not functional casts.** A temporary
+  built from a single value is `CharT{'{'}`, `index_t{0}`, never the
+  functional cast `CharT('{')`: the cast spelling has `static_cast`
+  semantics, silently permitting narrowing while dressed as construction,
+  and the brace form performs the same construction checked (a constant
+  that fits still compiles). A member initialized to such a value
+  constructs directly, `CharT fill{' '};`, rather than building a temporary
+  just to assign it. A genuine conversion is spelled `static_cast<T>(x)`,
+  which names its intent. Carve-out: the enum operators' terse
+  enum-from-underlying casts (`E(*l | *r)`) stay as functional casts; they
+  are real casts whose brace form would not compile against promoted
+  arithmetic, and spelling `static_cast` at every operator would bury the
+  logic.
 - **Value-like construction:** classes whose constructor conceptually just
   takes on the given value use braces, and this composes with `explicit`
   strong-type constructors: `Port p{80};`. `std::string` and

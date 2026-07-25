@@ -510,10 +510,10 @@ struct std::formatter<corvid::container::intern::interned_value<T, ID>, CharT>
   // takes no further spec; a plain spec is forwarded to the value's grammar.
   constexpr auto parse(auto& ctx) {
     auto it = ctx.begin();
-    if (it != ctx.end() && *it == CharT('?')) {
+    if (it != ctx.end() && *it == CharT{'?'}) {
       debug_ = true;
       ++it;
-      if (it != ctx.end() && *it != CharT('}'))
+      if (it != ctx.end() && *it != CharT{'}'})
         throw std::format_error{"interned_value debug spec accepts only '?'"};
       return it;
     }
