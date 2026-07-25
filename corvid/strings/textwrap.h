@@ -44,8 +44,9 @@ namespace corvid::strings { namespace textwrap {
 //
 // In Python these are scoped under the module, so they have rather broad
 // names. As a result, we chose to place it in a `textwrap` namespace that is
-// not implicit and the caller is expected to reference them as
-// `strings::textwrap::dedent`, `strings::textwrap::wrap`, and so on.
+// not inline. The intended way to use it is through a namespace alias, as in
+// `namespace textwrap = corvid::strings::textwrap;`, after which calls read
+// as they do in Python: `textwrap::dedent`, `textwrap::wrap`, and so on.
 //
 // For related functionality, see "expand_tabs.h".
 //

@@ -21,8 +21,10 @@
 #include <format>
 #include <limits>
 #include <map>
+#include <ranges>
 #include <set>
 #include <type_traits>
+#include <vector>
 
 #include "corvid/strings.h"
 #include "corvid/enums.h"
@@ -2006,6 +2008,146 @@ TEST_CASE("Textwrap", "[StringUtilsTest]") {
     CHECK(textwrap::wrap(u"one two three", {.width = 7}) ==
           std::vector<std::u16string>{u"one two", u"three"});
     CHECK(textwrap::shorten(L"one  two", 20) == L"one two");
+  }
+}
+
+#pragma endregion
+#pragma region Fnmatch
+
+TEST_CASE("Fnmatch", "[StringUtilsTest]") {
+  namespace fnmatch = strings::fnmatch;
+
+  // Everything matches at compile time.
+  static_assert(fnmatch::fnmatch("Notes.TXT", "*.txt"));
+  static_assert(fnmatch::fnmatchcase("data_07.csv", "data_[0-9][0-9].csv"));
+  static_assert(!fnmatch::fnmatchcase("Notes.TXT", "*.txt"));
+
+  // Literals and anchoring. Expectations here and below are pinned against
+  // CPython `fnmatch.fnmatchcase` (3.12 and 3.14 agree on every case).
+  if (true) {
+    CHECK(fnmatch::fnmatchcase("abc", "abc"));
+    CHECK_FALSE(fnmatch::fnmatchcase("abc", "abd"));
+    CHECK(fnmatch::fnmatchcase("", ""));
+    CHECK_FALSE(fnmatch::fnmatchcase("a", ""));
+    CHECK_FALSE(fnmatch::fnmatchcase("abc", "ab"));
+    CHECK_FALSE(fnmatch::fnmatchcase("ab", "abc"));
+  }
+  // Star.
+  if (true) {
+    CHECK(fnmatch::fnmatchcase("", "*"));
+    CHECK(fnmatch::fnmatchcase("abc", "*"));
+    CHECK(fnmatch::fnmatchcase("abc", "a*"));
+    CHECK(fnmatch::fnmatchcase("abc", "*c"));
+    CHECK(fnmatch::fnmatchcase("abc", "a*c"));
+    CHECK(fnmatch::fnmatchcase("abc", "a*b*c"));
+    CHECK(fnmatch::fnmatchcase("aXbYc", "a*b*c"));
+    CHECK_FALSE(fnmatch::fnmatchcase("abc", "a*d"));
+    CHECK_FALSE(fnmatch::fnmatchcase("aa", "a*a*a"));
+    // Backtracking: the first "bc" run must be released for the second.
+    CHECK(fnmatch::fnmatchcase("abcbcd", "a*bcd"));
+    CHECK(fnmatch::fnmatchcase("mississippi", "m*issip*"));
+    // Repeated stars collapse.
+    CHECK(fnmatch::fnmatchcase("", "**"));
+    CHECK(fnmatch::fnmatchcase("abc", "a**c"));
+    // String matching, not path globbing: `*` crosses separators, and
+    // newlines are ordinary code units.
+    CHECK(fnmatch::fnmatchcase("a/b.txt", "*.txt"));
+    CHECK(fnmatch::fnmatchcase("a\nb", "a*b"));
+  }
+  // Question mark.
+  if (true) {
+    CHECK_FALSE(fnmatch::fnmatchcase("", "?"));
+    CHECK(fnmatch::fnmatchcase("abc", "a?c"));
+    CHECK(fnmatch::fnmatchcase("abc", "???"));
+    CHECK_FALSE(fnmatch::fnmatchcase("abc", "??"));
+    CHECK_FALSE(fnmatch::fnmatchcase("abc", "????"));
+    CHECK(fnmatch::fnmatchcase("a/b", "a?b"));
+    CHECK(fnmatch::fnmatchcase("a\nb", "a?b"));
+  }
+  // Bracket sets.
+  if (true) {
+    CHECK(fnmatch::fnmatchcase("abc", "a[b]c"));
+    CHECK(fnmatch::fnmatchcase("adc", "a[bd]c"));
+    CHECK_FALSE(fnmatch::fnmatchcase("acc", "a[bd]c"));
+    CHECK_FALSE(fnmatch::fnmatchcase("abc", "a[!b]c"));
+    CHECK(fnmatch::fnmatchcase("adc", "a[!b]c"));
+    CHECK(fnmatch::fnmatchcase("abc", "a[a-c]c"));
+    CHECK_FALSE(fnmatch::fnmatchcase("adc", "a[a-c]c"));
+    // `*` and `?` are literal inside a set.
+    CHECK(fnmatch::fnmatchcase("*", "[*]"));
+    CHECK_FALSE(fnmatch::fnmatchcase("a", "[*]"));
+    CHECK(fnmatch::fnmatchcase("?", "[?]"));
+    CHECK_FALSE(fnmatch::fnmatchcase("a", "[?]"));
+    // Multiple ranges, and a `-` that is a member rather than a range.
+    CHECK(fnmatch::fnmatchcase("b", "[a-cx-z]"));
+    CHECK(fnmatch::fnmatchcase("y", "[a-cx-z]"));
+    CHECK_FALSE(fnmatch::fnmatchcase("e", "[a-cx-z]"));
+    CHECK(fnmatch::fnmatchcase("-", "[a-c-z]"));
+    CHECK(fnmatch::fnmatchcase("z", "[a-c-z]"));
+    CHECK_FALSE(fnmatch::fnmatchcase("m", "[a-c-z]"));
+  }
+  // Bracket-set edge cases, all matching CPython.
+  if (true) {
+    // A `]` first in the set is a literal member.
+    CHECK(fnmatch::fnmatchcase("]", "[]]"));
+    CHECK_FALSE(fnmatch::fnmatchcase("a", "[]]"));
+    CHECK_FALSE(fnmatch::fnmatchcase("]", "[!]]"));
+    CHECK(fnmatch::fnmatchcase("a", "[!]]"));
+    // An unterminated `[` is a literal, as is everything after it.
+    CHECK(fnmatch::fnmatchcase("[", "["));
+    CHECK_FALSE(fnmatch::fnmatchcase("a", "["));
+    CHECK(fnmatch::fnmatchcase("a[b", "a[b"));
+    CHECK(fnmatch::fnmatchcase("[!", "[!"));
+    CHECK(fnmatch::fnmatchcase("[!]", "[!]"));
+    CHECK_FALSE(fnmatch::fnmatchcase("!", "[!]"));
+    // A `-` first or last in the set is a literal member.
+    CHECK(fnmatch::fnmatchcase("-", "[-a]"));
+    CHECK(fnmatch::fnmatchcase("a", "[-a]"));
+    CHECK_FALSE(fnmatch::fnmatchcase("b", "[-a]"));
+    CHECK(fnmatch::fnmatchcase("-", "[a-]"));
+    CHECK(fnmatch::fnmatchcase("a", "[a-]"));
+    CHECK_FALSE(fnmatch::fnmatchcase("b", "[a-]"));
+    // A reversed range is empty.
+    CHECK_FALSE(fnmatch::fnmatchcase("a", "[z-a]"));
+    CHECK_FALSE(fnmatch::fnmatchcase("z", "[z-a]"));
+    CHECK(fnmatch::fnmatchcase("m", "[!z-a]"));
+    // No escape character: a backslash is an ordinary code unit.
+    CHECK(fnmatch::fnmatchcase("\\", "\\"));
+    CHECK(fnmatch::fnmatchcase("\\a", "\\a"));
+    CHECK(fnmatch::fnmatchcase("\\", "[\\]"));
+    CHECK_FALSE(fnmatch::fnmatchcase("x", "[\\]"));
+  }
+  // `fnmatch` folds ASCII case on both sides, including range endpoints;
+  // `fnmatchcase` does not.
+  if (true) {
+    CHECK(fnmatch::fnmatch("ABC", "abc"));
+    CHECK(fnmatch::fnmatch("abc", "ABC"));
+    CHECK(fnmatch::fnmatch("ABC", "[a-z][a-z][a-z]"));
+    CHECK(fnmatch::fnmatch("abc", "[A-Z]bc"));
+    CHECK_FALSE(fnmatch::fnmatchcase("ABC", "abc"));
+    CHECK_FALSE(fnmatch::fnmatchcase("ABC", "[a-z][a-z][a-z]"));
+    // Unlike Python on Windows, no path-separator rewrite ever happens.
+    CHECK_FALSE(fnmatch::fnmatch("a/b", "a\\b"));
+  }
+  // Any code unit works, and so does any string-like argument.
+  if (true) {
+    CHECK(fnmatch::fnmatch(L"README.MD", L"readme.??"));
+    CHECK(fnmatch::fnmatchcase(u"data.csv", u"*.csv"));
+    CHECK(fnmatch::fnmatch(std::string{"Notes.TXT"}, "*.txt"));
+  }
+  // `filter` and `filterfalse` are lazy views over the name range. Both are
+  // pinned against CPython 3.14, which is where `filterfalse` was added.
+  if (true) {
+    const std::vector<std::string> names{"a.cpp", "b.h", "C.CPP", "d.txt"};
+    const auto matched =
+        fnmatch::filter(names, "*.cpp") | std::ranges::to<std::vector>();
+    CHECK(matched == std::vector<std::string>{"a.cpp", "C.CPP"});
+    const auto rest =
+        fnmatch::filterfalse(names, "*.cpp") | std::ranges::to<std::vector>();
+    CHECK(rest == std::vector<std::string>{"b.h", "d.txt"});
+    // Composes with further adaptors.
+    CHECK(std::ranges::distance(
+              fnmatch::filter(names, "*.cpp") | std::views::take(1)) == 1);
   }
 }
 

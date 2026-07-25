@@ -222,13 +222,42 @@ input for further analysis, not a commitment to build any particular item.
   keys (`{0:{1}}`), variant values, and an opt-in stand-in for missing keys.
   A companion `enable_format` specialization makes `std::variant` itself
   formattable. Full design notes in [roadmap.md](roadmap.md) stage 4.
-- `string.Template`: `$name` substitution from a map, with a
-  `safe_substitute` mode. Small, self-contained, and a common real need for
-  config expansion and message templating. Much of this is now subsumed by
-  the `enable_format` wrapper above; what remains distinct is the `$name`
-  syntax embedded in plain text rather than a format string.
 - `fnmatch`: shell wildcard matching (`*`, `?`, `[abc]`). A small state
-  machine with no dependencies, frequently reinvented.
+  machine with no dependencies, frequently reinvented. DONE:
+  [fnmatch.h](fnmatch.h) ships `fnmatch` (ASCII case folded), `fnmatchcase`
+  (exact), `filter`, and `filterfalse` (Python itself only added the last in
+  3.14), in a non-inline `fnmatch` namespace per the `textwrap` precedent.
+  The matcher is the classic iterative star-backtracking walk over views: no
+  translation to a regex, no allocation, fully constexpr, code-unit generic.
+  The wildcard language is pinned against CPython in the tests (3.12 and
+  3.14 agree on every case; `filter` and `filterfalse` were pinned against
+  3.14, where the latter was added),
+  bracket-set edge cases included (`[]]`, `[!]]`, an unterminated `[` as a
+  literal, a leading or trailing `-` as a member, reversed ranges as empty,
+  no escape character). Nothing in std compares: `std::filesystem` iterates
+  directories but has no pattern language, and `std::regex` is a different
+  and slower tool. One deliberate divergence, documented in the header:
+  Python's `fnmatch` case rule is OS-dependent via `os.path.normcase` (which
+  on Windows also rewrites `/` to `\`), while ours is deterministic
+  everywhere, with `fnmatch` folding ASCII case and never touching
+  separators. `filter` / `filterfalse` return lazy `std::views::filter`
+  pipelines that compose with other range adaptors. `translate` was not
+  ported, since it returns a regex string and so presumes the engine the
+  survey declines to build on.
+- `PurePath.match` / `full_match`: glob's path-aware matching logic with the
+  file access removed, planned as the item right after `fnmatch` finalizes.
+  Wildcards do not cross separators; matching is per component over the
+  `fnmatch` kernel. Rulings on record: ship both `match` (a relative pattern
+  matches a trailing run of components, right-anchored; `**` is not special
+  and degrades to `*`) and `full_match` (whole path, with a working `**`, per
+  Python 3.13); the case rule is the same deterministic folded/exact pair as
+  `fnmatch`, not the flavour-dependent Python rule; it goes in its own
+  `pure_path.h`, not `fnmatch.h`. Layering ruling: including `<filesystem>`
+  from the strings band is fine, since the rule is about not referencing
+  Corvid's filesys band, not about std headers; `std::filesystem::path`
+  already covers the lexical `PurePath` surface without I/O, so the gap is
+  only the matching. If filesys later wraps `<filesystem>` and `pure_path.h`
+  would be cleaner over that wrapper, the header can move up a band then.
 - `shlex` / `csv`-style quote-aware splitting: a shipped quote-respecting
   `DelimFinder` / `PieceFilter` pair. The splitting machinery was explicitly
   designed for this ("use an internal buffer to unescape"), but no battery is
@@ -243,6 +272,21 @@ input for further analysis, not a commitment to build any particular item.
 
 ## Missing for lack of demand (not excluded by policy)
 
+- `string.Template`: `$name` substitution from a map, with a
+  `safe_substitute` mode. Demoted from the module-sized list by ruling: the
+  substitution machinery is subsumed by the `enable_format` wrapper (named
+  lookup from a keyed collection, runtime-selected keys, a stand-in for
+  missing keys), and what remains distinct is narrow. `$name` placeholders
+  live in plain text, so literal braces need no doubling, and
+  `safe_substitute` leaves an unknown placeholder verbatim for a later pass.
+  That serves templates authored outside the source (config files,
+  user-supplied messages), and no such consumer has shown up.
+- `glob`: filesystem-walking wildcard expansion, considered when `fnmatch`
+  shipped. Ruling: out of the strings band, since it mixes walking the
+  filesystem with filtering; if it ever lands, it is a filesys-band battery
+  layered on the `fnmatch` kernel, to revisit if filesys becomes
+  cross-platform rather than a Linux wrapper. The pure matching piece was
+  promoted to the module-sized list as the `PurePath.match` item.
 - Everything Unicode: `casefold`, `unicodedata` normalization, `encode` /
   `decode`, UTF-8 validation and transcoding. This is the single biggest
   divergence from Python, whose `str` is Unicode-native. Nothing rules it
@@ -256,6 +300,7 @@ input for further analysis, not a commitment to build any particular item.
 ## Priority read
 
 The three that callers would likely miss first (`removeprefix` /
-`removesuffix`, `partition`, `dedent`) have all shipped, as have `splitlines`
-and the rest of `textwrap`. Of what remains, a quote-aware splitter would
-exercise machinery that already exists.
+`removesuffix`, `partition`, `dedent`) have all shipped, as have `splitlines`,
+the rest of `textwrap`, and `fnmatch`. Next by ruling is the `PurePath.match`
+/ `full_match` pair, once `fnmatch` finalizes. Of what remains after that, a
+quote-aware splitter would exercise machinery that already exists.
