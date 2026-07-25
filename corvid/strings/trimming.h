@@ -43,7 +43,7 @@ trim_left(const S& whole, basic_delim<char_type_of_t<S>> ws = {}) {
   auto pos = ws.find_not_in(sv);
   // On all whitespace, return an empty view anchored in `sv`, not a null
   // view, matching `trim_right`.
-  const auto part = pos != sv.npos ? sv.substr(pos) : sv.substr(sv.size());
+  const auto part = (pos != sv.npos) ? sv.substr(pos) : sv.substr(sv.size());
   return R{part};
 }
 

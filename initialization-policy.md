@@ -47,6 +47,13 @@ Four forms, each with one meaning:
   initializer: `&&` does not look like an assignment, so a bare conjunction
   takes none. This began as a scoped exception; the ruling below names the
   deeper rule it instantiates.
+- **Ruling: ternary predicates containing comparisons take parens.** When
+  the predicate of a `?:` contains a comparison operator, parenthesize the
+  predicate as a whole: `(sizeof(C) == 1) ? a : b`,
+  `(pos != npos) ? pos : end`. Same motivation as the comparison parens
+  above: without them, the comparison and the `?` blur together and the
+  reader stops to reparse. A predicate with no comparison in it (a bool, a
+  call, a bare conjunction of those) takes none.
 - **Ruling: spelled types where braces could add nothing.**
   `Type x = expr;` extends beyond literals when both of these hold: the
   spelled type states a fact the initializer does not make evident, and

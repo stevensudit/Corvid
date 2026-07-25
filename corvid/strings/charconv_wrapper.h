@@ -87,8 +87,8 @@ template<CharType CharT>
 // above 9, matching `std::to_chars`.
 template<CharType CharT>
 [[nodiscard]] constexpr CharT to_digit_char(int d) noexcept {
-  return d < 10 ? static_cast<CharT>(CharT{'0'} + d)
-                : static_cast<CharT>(CharT{'a'} + (d - 10));
+  return (d < 10) ? static_cast<CharT>(CharT{'0'} + d)
+                  : static_cast<CharT>(CharT{'a'} + (d - 10));
 }
 
 #pragma endregion

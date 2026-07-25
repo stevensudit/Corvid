@@ -418,7 +418,7 @@ template<npos_choice npv = npos_choice::npos>
   auto last = s.size() - v.size();
   if (pos == npos || pos > last) pos = last;
 
-  for (;; pos = (pos > v.size() ? pos - v.size() : 0)) {
+  for (;; pos = (pos > v.size()) ? pos - v.size() : 0) {
     if (s.substr(pos, v.size()) != v) break;
     if (pos == 0) {
       pos = npos;

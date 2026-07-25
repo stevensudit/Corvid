@@ -187,8 +187,8 @@ rextract_piece(std::basic_string_view<CharT>& whole,
   using result_t =
       std::conditional_t<std::is_void_v<R>, std::basic_string_view<CharT>, R>;
   const auto pos = d.rfind_in(whole);
-  const auto part = whole.substr(pos == npos ? 0 : pos + 1);
-  whole.remove_suffix(part.size() + (pos == npos ? 0 : 1));
+  const auto part = whole.substr((pos == npos) ? 0 : pos + 1);
+  whole.remove_suffix(part.size() + ((pos == npos) ? 0 : 1));
   return result_t{part};
 }
 
@@ -520,10 +520,7 @@ template<typename R = void, CharType CharT>
   const auto [pos, next] = line_delim_finder<CharT>{}(whole);
   const bool found = (pos != npos);
   const auto end =
-      !found ? whole.size()
-      : ends == line_ends::keep
-          ? next
-          : pos;
+      !found ? whole.size() : ((ends == line_ends::keep) ? next : pos);
   const auto line = whole.substr(0, end);
   whole.remove_prefix(found ? next : whole.size());
   return result_t{line};

@@ -399,7 +399,7 @@ take_line(std::vector<std::basic_string_view<CharT>>& chunks, size_t& next,
   // An overlong chunk: break it at the width or grant it a line to itself.
   if (next < chunks.size() && chunks[next].size() > width) {
     if (options.break_long_words) {
-      const auto space_left = width < 1 ? 1 : width - cur_len;
+      const auto space_left = (width < 1) ? 1 : width - cur_len;
       cur.push_back(chunks[next].substr(0, space_left));
       chunks[next].remove_prefix(space_left);
       cur_len += cur.back().size();
@@ -481,7 +481,7 @@ wrap(const S& s, const wrap_options<char_type_of_t<S>>& options = {}) {
     const auto line_indent =
         lines.empty() ? options.initial_indent : options.subsequent_indent;
     const auto width =
-        options.width > line_indent.size()
+        (options.width > line_indent.size())
             ? options.width - line_indent.size()
             : 0;
     auto [cur, cur_len] =

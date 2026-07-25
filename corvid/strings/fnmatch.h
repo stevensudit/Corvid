@@ -84,7 +84,7 @@ locate_class_end(std::basic_string_view<CharT> pat, size_t pos) noexcept {
   if (ndx < pat.size() && pat[ndx] == CharT{'!'}) ++ndx;
   if (ndx < pat.size() && pat[ndx] == CharT{']'}) ++ndx;
   while (ndx < pat.size() && pat[ndx] != CharT{']'}) ++ndx;
-  return ndx < pat.size() ? ndx : npos;
+  return (ndx < pat.size()) ? ndx : npos;
 }
 
 // Match pattern code unit `pc` against name code unit `nc`, folding ASCII

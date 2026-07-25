@@ -390,7 +390,7 @@ ci_compare(const A& a, const B& b) noexcept {
     const auto l = as_lower(lhs[i]);
     const auto r = as_lower(rhs[i]);
     if (l != r)
-      return l < r ? std::weak_ordering::less : std::weak_ordering::greater;
+      return (l < r) ? std::weak_ordering::less : std::weak_ordering::greater;
   }
   return lhs.size() <=> rhs.size();
 }

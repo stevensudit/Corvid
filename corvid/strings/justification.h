@@ -41,7 +41,7 @@ template<StringViewLike S>
     char_type_of_t<S> fill = char_type_of_t<S>{' '}) {
   using C = char_type_of_t<S>;
   const auto sv = as_view(s);
-  const auto pad = width > sv.size() ? width - sv.size() : 0;
+  const auto pad = (width > sv.size()) ? width - sv.size() : 0;
   std::basic_string<C> r;
   r.reserve(sv.size() + pad);
   r.append(sv);
@@ -55,7 +55,7 @@ template<StringViewLike S>
     char_type_of_t<S> fill = char_type_of_t<S>{' '}) {
   using C = char_type_of_t<S>;
   const auto sv = as_view(s);
-  const auto pad = width > sv.size() ? width - sv.size() : 0;
+  const auto pad = (width > sv.size()) ? width - sv.size() : 0;
   std::basic_string<C> r;
   r.reserve(sv.size() + pad);
   r.append(pad, fill);
@@ -94,7 +94,7 @@ template<StringViewLike S>
   const auto sv = as_view(s);
   const bool has_sign =
       !sv.empty() && (sv.front() == C{'+'} || sv.front() == C{'-'});
-  const auto pad = width > sv.size() ? width - sv.size() : 0;
+  const auto pad = (width > sv.size()) ? width - sv.size() : 0;
   std::basic_string<C> r;
   r.reserve(sv.size() + pad);
   if (has_sign) r.push_back(sv.front());
