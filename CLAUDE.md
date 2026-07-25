@@ -25,7 +25,7 @@ Build and run one test with `./cleanbuild.sh/.ps1 <name>_test.cpp` (the common c
 - Don't pre-wrap comments. Write each paragraph as a single logical line and let clang-format reflow it (`ReflowComments: true`, `ColumnLimit: 79`). Use a blank `//` line between paragraphs in multi-paragraph comments. Note that clang-format will not reflow across structural boundaries (e.g., comments adjacent to `#pragma region` lines), so an occasional manual wrap there is fine.
 - No trailing-underscore private methods. Prefix with `do_` instead: public `close()`, private `do_close()`.
 - This is C++23: don't write redundant `typename`. In a type-only context (a `using` alias, a return type, a trailing return, etc.) a dependent qualified name needs no `typename`, e.g. `using view_t = base::view_t;`, not `typename base::view_t`. clang-tidy flags the extra one as `readability-redundant-typename`.
-- Prefer uniform initialization: `int i{4};`, `: option_{option}`. Don't use `{}` for variables with a default constructor (clang-tidy flags it); do use it for `int`/`bool`/etc.
+- Initialization syntax is semantic; see [initialization-policy.md](initialization-policy.md) for the full policy. Short form: `Type x = 5;` for literals only; `auto x = expr;` otherwise (add a `static_cast` to convert); braces for value-init (`int n{};`), narrowing checks (`int x{calc()};`), aggregates, and value-like construction (`Port p{80};`); parens for operational construction (`Connection c(host, port);`) and forwarded packs in generic code (`T(std::forward<Args>(args)...)`).
 - Use `std::chrono` literal suffixes (`1s`, `500ms`, `100us`) over explicit constructors. Library headers already pull in `using namespace std::chrono_literals;`; add it in test files as needed.
 - "Token" is reserved for things that are literally named tokens (e.g., `completion_token`). Don't use the word loosely in comments or docs to mean "handle," "callback," "view," "ticket," "marker," etc.; pick the precise word or describe the thing.
 - Lambda init-captures: keep the name the same as the bound variable. Prefer `[data = std::move(data)]` over `[d = std::move(data)]`. The lambda body reads as if the variable kept its identity, which it morally did.
@@ -53,5 +53,5 @@ This is a C++ library, so we minimize how much raw C surfaces in calling code: w
 
 ## Non-Obvious Locations
 
-- `npos` / base string position types: `corvid/strings/string_base.h`
+- `npos` / base string position types: `corvid/strings/string_literals.h`
 - `npos_choice`: `corvid/strings/locating.h`

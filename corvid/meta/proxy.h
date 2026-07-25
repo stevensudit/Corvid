@@ -31,7 +31,7 @@
 
 #include "crossplatform.h"
 #include "fixed_string.h"
-#include "memory.h"
+#include "padding.h"
 
 // Registration-based runtime polymorphism ("proxy") system.
 //
@@ -412,8 +412,8 @@ enum class proxy_alloc : std::uint8_t {
 // handle's storage. One facade can serve proxies of different policies, and
 // views, simultaneously.
 struct proxy_policy {
-  std::size_t sbo_size{2 * sizeof(void*)};
-  std::size_t sbo_align{alignof(std::max_align_t)};
+  size_t sbo_size{2 * sizeof(void*)};
+  size_t sbo_align{alignof(std::max_align_t)};
   proxy_alloc alloc{proxy_alloc::sbo_or_heap};
 
   friend constexpr bool
@@ -1012,7 +1012,7 @@ struct ancestor_entry {
 // underlying tables are the statics below.
 struct ancestry_t {
   const ancestor_entry* entries;
-  std::size_t count;
+  size_t count;
 };
 
 // `find_ancestor`: the table of the ancestry member whose tag is `tag`, or
@@ -1023,7 +1023,7 @@ struct ancestry_t {
 // type.
 [[nodiscard]] constexpr const void*
 find_ancestor(const ancestry_t& ancestry, const void* tag) noexcept {
-  for (std::size_t ndx = 0; ndx != ancestry.count; ++ndx)
+  for (size_t ndx = 0; ndx != ancestry.count; ++ndx)
     if (ancestry.entries[ndx].tag == tag) return ancestry.entries[ndx].table;
   return nullptr;
 }
@@ -1150,9 +1150,9 @@ using retag_slots_t = retag_slots<B, Slots>::type;
 // `first_index_of_type`: first position of type `S` in `Ss`, for dedup's
 // first-occurrence test.
 template<typename S, typename... Ss>
-consteval std::size_t first_index_of_type() noexcept {
+consteval size_t first_index_of_type() noexcept {
   constexpr std::array<bool, sizeof...(Ss)> matches{std::same_as<S, Ss>...};
-  for (std::size_t ndx = 0; ndx != matches.size(); ++ndx)
+  for (size_t ndx = 0; ndx != matches.size(); ++ndx)
     if (matches[ndx]) return ndx;
   return sizeof...(Ss);
 }
@@ -1170,7 +1170,7 @@ template<typename Slots>
 struct dedup_slots;
 template<typename... Ss>
 struct dedup_slots<std::tuple<Ss...>> {
-  template<std::size_t... Ndx>
+  template<size_t... Ndx>
   static auto keep(std::index_sequence<Ndx...>) -> decltype(std::tuple_cat(
       std::declval<std::conditional_t<first_index_of_type<Ss, Ss...>() == Ndx,
           std::tuple<Ss>, std::tuple<>>>()...));
@@ -1393,17 +1393,17 @@ struct rank_poison {
 // type carries the slot index out of a resolved call expression. Probes are
 // only ever named in unevaluated contexts, so the operators need no
 // definitions.
-template<std::size_t Ndx, bool Const, typename ArgsTuple>
+template<size_t Ndx, bool Const, typename ArgsTuple>
 struct rank_probe;
 
-template<std::size_t Ndx, typename... Args>
+template<size_t Ndx, typename... Args>
 struct rank_probe<Ndx, false, std::tuple<Args...>> {
-  std::integral_constant<std::size_t, Ndx> operator()(Args...);
+  std::integral_constant<size_t, Ndx> operator()(Args...);
 };
 
-template<std::size_t Ndx, typename... Args>
+template<size_t Ndx, typename... Args>
 struct rank_probe<Ndx, true, std::tuple<Args...>> {
-  std::integral_constant<std::size_t, Ndx> operator()(Args...) const;
+  std::integral_constant<size_t, Ndx> operator()(Args...) const;
 };
 
 // `rank_set`: the synthetic overload set `resolve` hands to the compiler.
@@ -1434,21 +1434,21 @@ struct vtable_builder_impl<std::tuple<Ss...>, std::tuple<Bs...>, OwnName> {
 
   using flat_slots_t = std::tuple<Ss...>;
   static constexpr auto name_v = OwnName;
-  static constexpr std::size_t count_v = sizeof...(Ss);
-  static constexpr std::size_t base_count_v = sizeof...(Bs);
+  static constexpr size_t count_v = sizeof...(Ss);
+  static constexpr size_t base_count_v = sizeof...(Bs);
 
   // `none_v`, `ambiguous_v`: flag results of `resolve`, outside the valid
   // index range: no slot answers to the key, or more than one does and the
   // arguments do not single one out.
-  static constexpr std::size_t none_v = count_v;
-  static constexpr std::size_t ambiguous_v = count_v + 1;
+  static constexpr size_t none_v = count_v;
+  static constexpr size_t ambiguous_v = count_v + 1;
 
   // `base_t`: direct-base facade at index `Ndx`.
-  template<std::size_t Ndx>
+  template<size_t Ndx>
   using base_t = std::tuple_element_t<Ndx, std::tuple<Bs...>>;
 
   // `slot_t`: flattened slot at index `Ndx`.
-  template<std::size_t Ndx>
+  template<size_t Ndx>
   using slot_t = std::tuple_element_t<Ndx, std::tuple<Ss...>>;
 
   using thunks_t = std::tuple<
@@ -1493,11 +1493,11 @@ struct vtable_builder_impl<std::tuple<Ss...>, std::tuple<Bs...>, OwnName> {
   // `base_count_v` when there is none. This is the route `upcast_vtable`
   // descends.
   template<typename B>
-  static consteval std::size_t base_route() noexcept {
+  static consteval size_t base_route() noexcept {
     constexpr std::array<bool, sizeof...(Bs)> matches{(
         std::same_as<B, Bs> ||
         vtbuild_t<Bs>::template extends_facade<B>())...};
-    for (std::size_t ndx = 0; ndx != matches.size(); ++ndx)
+    for (size_t ndx = 0; ndx != matches.size(); ++ndx)
       if (matches[ndx]) return ndx;
     return base_count_v;
   }
@@ -1560,17 +1560,17 @@ struct vtable_builder_impl<std::tuple<Ss...>, std::tuple<Bs...>, OwnName> {
   // `both`: narrow flag set `a` by flag set `b`, elementwise.
   static consteval std::array<bool, count_v> both(std::array<bool, count_v> a,
       const std::array<bool, count_v>& b) noexcept {
-    for (std::size_t ndx = 0; ndx != count_v; ++ndx) a[ndx] = a[ndx] && b[ndx];
+    for (size_t ndx = 0; ndx != count_v; ++ndx) a[ndx] = a[ndx] && b[ndx];
     return a;
   }
 
   // `tally`: count of set flags, plus the last set index (`none_v` when none
   // are).
-  static consteval std::pair<std::size_t, std::size_t> tally(
+  static consteval std::pair<size_t, size_t> tally(
       const std::array<bool, count_v>& flags) noexcept {
-    std::size_t cnt{};
-    std::size_t at{none_v};
-    for (std::size_t ndx = 0; ndx != count_v; ++ndx)
+    size_t cnt{};
+    size_t at{none_v};
+    for (size_t ndx = 0; ndx != count_v; ++ndx)
       if (flags[ndx]) {
         ++cnt;
         at = ndx;
@@ -1594,7 +1594,7 @@ struct vtable_builder_impl<std::tuple<Ss...>, std::tuple<Bs...>, OwnName> {
   // object would. `resolve` needs no such tiebreak, because the compiler
   // weighs the object parameter itself during ranking.
   template<bool ConstOnly>
-  static consteval std::pair<std::size_t, std::size_t>
+  static consteval std::pair<size_t, size_t>
   tally_preferring_nonconst(const std::array<bool, count_v>& flags) noexcept {
     const auto whole = tally(flags);
     if constexpr (!ConstOnly) {
@@ -1611,7 +1611,7 @@ struct vtable_builder_impl<std::tuple<Ss...>, std::tuple<Bs...>, OwnName> {
   // The set spans the whole slot list positionally; a non-candidate slot
   // contributes a `rank_poison` overload no call can select, so the winning
   // index needs no translation.
-  template<fixed_string Key, bool ConstOnly, std::size_t... Ndx>
+  template<fixed_string Key, bool ConstOnly, size_t... Ndx>
   static consteval auto make_rank_set(std::index_sequence<Ndx...>) noexcept {
     return std::type_identity<
         rank_set<std::conditional_t<candidates<Key, ConstOnly>()[Ndx],
@@ -1641,7 +1641,7 @@ struct vtable_builder_impl<std::tuple<Ss...>, std::tuple<Bs...>, OwnName> {
   // viability: some viable candidate means the call is ambiguous, none
   // means nothing matched.
   template<fixed_string Key, bool ConstOnly, typename... CallArgs>
-  static consteval std::size_t resolve() noexcept {
+  static consteval size_t resolve() noexcept {
     constexpr auto cand = candidates<Key, ConstOnly>();
     const auto [cnt, at] = tally(cand);
     if (cnt < 2) return cnt ? at : none_v;
@@ -1671,7 +1671,7 @@ struct vtable_builder_impl<std::tuple<Ss...>, std::tuple<Bs...>, OwnName> {
   // not count. The tiebreak is what lets the probe's mutable strict call
   // single out the non-const member of a const pair.
   template<fixed_string Key, bool ConstOnly, typename... CallArgs>
-  static consteval std::size_t resolve_exact() noexcept {
+  static consteval size_t resolve_exact() noexcept {
     const auto [cnt, at] = tally_preferring_nonconst<ConstOnly>(
         both(candidates<Key, ConstOnly>(), exact_flags<CallArgs...>()));
     if (cnt == 1) return at;
@@ -1838,8 +1838,8 @@ struct vtable_builder<facade<Es...>>
     const void* type_tag;
     const owning_vtable_t* heap_table;
     const owning_vtable_t* sbo_table;
-    std::size_t size;
-    std::size_t align;
+    size_t size;
+    size_t align;
     const ancestry_t* ancestry;
     owning_bases_t bases;
   };
@@ -2716,7 +2716,7 @@ public:
   // never uses).
   //
   // See `proxy_policy` for the inline-eligibility conditions.
-  static constexpr std::size_t sbo_size = Policy.sbo_size;
+  static constexpr size_t sbo_size = Policy.sbo_size;
 
   // `proxy`: an empty proxy holds no target.
   proxy() = default;
@@ -2976,9 +2976,9 @@ public:
 private:
   // `buf_size`, `buf_align`: a `heap_only` proxy shrinks the buffer to the
   // pointer it overlays, so the whole handle is two words, like a view.
-  static constexpr std::size_t buf_size =
+  static constexpr size_t buf_size =
       Policy.alloc == proxy_alloc::heap_only ? sizeof(void*) : Policy.sbo_size;
-  static constexpr std::size_t buf_align =
+  static constexpr size_t buf_align =
       Policy.alloc == proxy_alloc::heap_only
           ? alignof(void*)
           : Policy.sbo_align;

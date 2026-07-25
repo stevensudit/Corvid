@@ -16,11 +16,21 @@
 // limitations under the License.
 #pragma once
 
+#include <algorithm>
+#include <array>
+#include <concepts>
+#include <optional>
+#include <string>
+#include <string_view>
+#include <type_traits>
+#include <utility>
+#include <vector>
+
 #include "../meta/concepts.h"
 #include "../meta/crossplatform.h"
-#include "strings_shared.h"
 #include "delimiting.h"
 #include "opt_string_view.h"
+#include "string_literals.h"
 
 namespace corvid::strings { inline namespace splitting {
 
@@ -29,16 +39,26 @@ namespace corvid::strings { inline namespace splitting {
 // For all split functions, `delim` defaults to " " and can be specified as any
 // set of characters.
 
+// The full ASCII whitespace set (exactly the characters `is_space` in
+// "cases.h" accepts), narrow and wide.
+//
+// The default delimiter stays a lone space for speed and simplicity; pass one
+// of these instead to split on Python-style whitespace. The trim functions
+// default the same way and accept these the same way.
+inline constexpr std::string_view whitespace{" \t\n\v\f\r"};
+inline constexpr std::wstring_view wwhitespace{L" \t\n\v\f\r"};
+
 // Extract next delimited piece destructively from `whole`.
 //
 // The return type `R` effectively defaults to a `std::basic_string_view` of
 // `whole`'s own code unit; specify `R` as an owning string type (e.g.
 // `std::string`) to make a deep copy.
-template<typename R = void, CharType C>
-[[nodiscard]] constexpr auto extract_piece(std::basic_string_view<C>& whole,
-    std::type_identity_t<basic_delim<C>> d = {}) {
+template<typename R = void, CharType CharT>
+[[nodiscard]] constexpr auto
+extract_piece(std::basic_string_view<CharT>& whole,
+    std::type_identity_t<basic_delim<CharT>> d = {}) {
   using result_t =
-      std::conditional_t<std::is_void_v<R>, std::basic_string_view<C>, R>;
+      std::conditional_t<std::is_void_v<R>, std::basic_string_view<CharT>, R>;
   auto pos = std::min(whole.size(), d.find_in(whole));
   auto part = whole.substr(0, pos);
   whole.remove_prefix(std::min(whole.size(), pos + 1));
@@ -49,10 +69,10 @@ template<typename R = void, CharType C>
 //
 // Returns true so long as there's more work to do.
 // Pass an owning string type as `part` to make a deep copy.
-template<typename R, CharType C>
+template<typename R, CharType CharT>
 [[nodiscard]] constexpr bool
-more_pieces(R& part, std::basic_string_view<C>& whole,
-    std::type_identity_t<basic_delim<C>> d = {}) {
+more_pieces(R& part, std::basic_string_view<CharT>& whole,
+    std::type_identity_t<basic_delim<CharT>> d = {}) {
   auto all = whole.size();
   part = extract_piece<R>(whole, d);
   return part.size() != all;
@@ -69,7 +89,7 @@ split(const S& whole_in, basic_delim<char_type_of_t<S>> d = {}) {
   using C = char_type_of_t<S>;
   using result_t =
       std::conditional_t<std::is_void_v<R>, std::basic_string_view<C>, R>;
-  std::basic_string_view<C> whole{as_view(whole_in)};
+  auto whole{as_view(whole_in)};
   std::vector<result_t> parts;
   std::basic_string_view<C> part;
   for (bool more = !whole.empty(); more;) {
@@ -84,12 +104,193 @@ split(const S& whole_in, basic_delim<char_type_of_t<S>> d = {}) {
 //
 // The vector element type `R` effectively defaults to an owning string of
 // `whole`'s code unit, since views into the temporary would dangle.
-template<typename R = void, CharType C>
-[[nodiscard]] constexpr auto split(std::basic_string<C>&& whole,
-    std::type_identity_t<basic_delim<C>> d = {}) {
+template<typename R = void, CharType CharT>
+[[nodiscard]] constexpr auto split(std::basic_string<CharT>&& whole,
+    std::type_identity_t<basic_delim<CharT>> d = {}) {
   using result_t =
-      std::conditional_t<std::is_void_v<R>, std::basic_string<C>, R>;
-  return split<result_t>(std::basic_string_view<C>(whole), d);
+      std::conditional_t<std::is_void_v<R>, std::basic_string<CharT>, R>;
+  // A trivially copyable `R` is a non-owning view, which would dangle into
+  // the temporary; this overload exists precisely to prevent that.
+  static_assert(!std::is_trivially_copyable_v<result_t>,
+      "R must be an owning string type");
+  return split<result_t>(std::basic_string_view<CharT>(whole), d);
+}
+
+// Split at most `n` times by delimiters and return parts in vector.
+//
+// As the bounded variant of `split`, it performs up to `n` splits, so the
+// vector holds at most `n + 1` parts, and the final part is the untouched
+// remainder, delimiters intact. With a large enough `n`, it is equivalent to
+// `split`.
+//
+// The vector element type `R` effectively defaults to a
+// `std::basic_string_view` of `whole`'s own code unit; specify `R` as an
+// owning string type (e.g. `std::string`) to make deep copies.
+template<typename R = void, StringViewLike S>
+[[nodiscard]] constexpr auto
+split_n(const S& whole_in, size_t n, basic_delim<char_type_of_t<S>> d = {}) {
+  using C = char_type_of_t<S>;
+  using result_t =
+      std::conditional_t<std::is_void_v<R>, std::basic_string_view<C>, R>;
+  auto whole{as_view(whole_in)};
+  std::vector<result_t> parts;
+  std::basic_string_view<C> part;
+  for (bool more = !whole.empty(); more;) {
+    if (n == 0) {
+      parts.emplace_back(whole);
+      break;
+    }
+    --n;
+    more = more_pieces(part, whole, d);
+    parts.emplace_back(part);
+  }
+  return parts;
+}
+
+// Split a temporary string at most `n` times, returning deep copies of parts
+// in a vector.
+//
+// The vector element type `R` effectively defaults to an owning string of
+// `whole`'s code unit, since views into the temporary would dangle.
+template<typename R = void, CharType CharT>
+[[nodiscard]] constexpr auto split_n(std::basic_string<CharT>&& whole,
+    size_t n, std::type_identity_t<basic_delim<CharT>> d = {}) {
+  using result_t =
+      std::conditional_t<std::is_void_v<R>, std::basic_string<CharT>, R>;
+  // A trivially copyable `R` is a non-owning view, which would dangle into
+  // the temporary; this overload exists precisely to prevent that.
+  static_assert(!std::is_trivially_copyable_v<result_t>,
+      "R must be an owning string type");
+  return split_n<result_t>(std::basic_string_view<CharT>(whole), n, d);
+}
+
+#pragma endregion
+#pragma region RSplit
+
+// The r-prefixed functions mirror the plain ones from the right: pieces come
+// off the tail, so a full `rsplit` returns the parts in right-to-left
+// encounter order, exactly the reverse of `split`.
+//
+// Python parity, for reference: an unbounded Python `rsplit` is simply
+// `split`, and a bounded Python `rsplit(sep, n)` is `rsplit_n` with the
+// resulting vector reversed.
+
+// Extract last delimited piece destructively from `whole`.
+//
+// The return type `R` effectively defaults to a `std::basic_string_view` of
+// `whole`'s own code unit; specify `R` as an owning string type (e.g.
+// `std::string`) to make a deep copy.
+template<typename R = void, CharType CharT>
+[[nodiscard]] constexpr auto
+rextract_piece(std::basic_string_view<CharT>& whole,
+    std::type_identity_t<basic_delim<CharT>> d = {}) {
+  using result_t =
+      std::conditional_t<std::is_void_v<R>, std::basic_string_view<CharT>, R>;
+  const auto pos = d.rfind_in(whole);
+  const auto part = whole.substr(pos == npos ? 0 : pos + 1);
+  whole.remove_suffix(part.size() + (pos == npos ? 0 : 1));
+  return result_t{part};
+}
+
+// Extract last delimited piece into `part`, removing it from `whole`.
+//
+// Returns true so long as there's more work to do.
+// Pass an owning string type as `part` to make a deep copy.
+template<typename R, CharType CharT>
+[[nodiscard]] constexpr bool
+rmore_pieces(R& part, std::basic_string_view<CharT>& whole,
+    std::type_identity_t<basic_delim<CharT>> d = {}) {
+  auto all = whole.size();
+  part = rextract_piece<R>(whole, d);
+  return part.size() != all;
+}
+
+// Split all pieces from the right and return parts in vector.
+//
+// Returns exactly the reverse of `split`: same parts, right-to-left encounter
+// order, empty parts included. The vector element type `R` effectively
+// defaults to a `std::basic_string_view` of `whole`'s own code unit; specify
+// `R` as an owning string type (e.g. `std::string`) to make deep copies.
+template<typename R = void, StringViewLike S>
+[[nodiscard]] constexpr auto
+rsplit(const S& whole_in, basic_delim<char_type_of_t<S>> d = {}) {
+  using C = char_type_of_t<S>;
+  using result_t =
+      std::conditional_t<std::is_void_v<R>, std::basic_string_view<C>, R>;
+  auto whole{as_view(whole_in)};
+  std::vector<result_t> parts;
+  std::basic_string_view<C> part;
+  for (bool more = !whole.empty(); more;) {
+    more = rmore_pieces(part, whole, d);
+    parts.emplace_back(part);
+  }
+  return parts;
+}
+
+// Split a temporary string from the right, returning deep copies of parts in a
+// vector.
+//
+// The vector element type `R` effectively defaults to an owning string of
+// `whole`'s code unit, since views into the temporary would dangle.
+template<typename R = void, CharType CharT>
+[[nodiscard]] constexpr auto rsplit(std::basic_string<CharT>&& whole,
+    std::type_identity_t<basic_delim<CharT>> d = {}) {
+  using result_t =
+      std::conditional_t<std::is_void_v<R>, std::basic_string<CharT>, R>;
+  // A trivially copyable `R` is a non-owning view, which would dangle into
+  // the temporary; this overload exists precisely to prevent that.
+  static_assert(!std::is_trivially_copyable_v<result_t>,
+      "R must be an owning string type");
+  return rsplit<result_t>(std::basic_string_view<CharT>(whole), d);
+}
+
+// Split at most `n` times from the right and return parts in vector.
+//
+// As the bounded variant of `rsplit`, it performs up to `n` splits off the
+// tail, so the vector holds at most `n + 1` parts, and the final part is the
+// untouched remainder (the head), delimiters intact. With a large enough `n`,
+// it is equivalent to `rsplit`; reversed, it matches Python `rsplit` with
+// `maxsplit`.
+//
+// The vector element type `R` effectively defaults to a
+// `std::basic_string_view` of `whole`'s own code unit; specify `R` as an
+// owning string type (e.g. `std::string`) to make deep copies.
+template<typename R = void, StringViewLike S>
+[[nodiscard]] constexpr auto
+rsplit_n(const S& whole_in, size_t n, basic_delim<char_type_of_t<S>> d = {}) {
+  using C = char_type_of_t<S>;
+  using result_t =
+      std::conditional_t<std::is_void_v<R>, std::basic_string_view<C>, R>;
+  auto whole{as_view(whole_in)};
+  std::vector<result_t> parts;
+  std::basic_string_view<C> part;
+  for (bool more = !whole.empty(); more;) {
+    if (n == 0) {
+      parts.emplace_back(whole);
+      break;
+    }
+    --n;
+    more = rmore_pieces(part, whole, d);
+    parts.emplace_back(part);
+  }
+  return parts;
+}
+
+// Split a temporary string at most `n` times from the right, returning deep
+// copies of parts in a vector.
+//
+// The vector element type `R` effectively defaults to an owning string of
+// `whole`'s code unit, since views into the temporary would dangle.
+template<typename R = void, CharType CharT>
+[[nodiscard]] constexpr auto rsplit_n(std::basic_string<CharT>&& whole,
+    size_t n, std::type_identity_t<basic_delim<CharT>> d = {}) {
+  using result_t =
+      std::conditional_t<std::is_void_v<R>, std::basic_string<CharT>, R>;
+  // A trivially copyable `R` is a non-owning view, which would dangle into
+  // the temporary; this overload exists precisely to prevent that.
+  static_assert(!std::is_trivially_copyable_v<result_t>,
+      "R must be an owning string type");
+  return rsplit_n<result_t>(std::basic_string_view<CharT>(whole), n, d);
 }
 
 #pragma endregion
@@ -117,7 +318,7 @@ concept PieceGenerator = requires(T t,
   typename T::char_t;
   requires std::is_move_constructible_v<T>;
   { T{s} };
-  { t.more_pieces(s) };
+  { t.more_pieces(s) } -> std::convertible_to<bool>;
 };
 
 #pragma endregion
@@ -128,35 +329,35 @@ concept PieceGenerator = requires(T t,
 // there's no need for a `pos` parameter. Returns a pair of positions for the
 // start and end of the delimiter; if not found, the first is `npos` and the
 // second is unused.
-template<typename F, typename Char>
+template<typename F, typename CharT>
 concept DelimFinder =
-    std::invocable<F, std::basic_string_view<Char>> &&
-    std::convertible_to<std::invoke_result_t<F, std::basic_string_view<Char>>,
+    std::invocable<F, std::basic_string_view<CharT>> &&
+    std::convertible_to<std::invoke_result_t<F, std::basic_string_view<CharT>>,
         std::pair<size_t, size_t>>;
 
 // Filters a candidate piece. Returns a `null` value to skip it. Can strip
 // padding, or even use an internal buffer to unescape.
-template<typename F, typename Char>
+template<typename F, typename CharT>
 concept PieceFilter =
-    std::invocable<F, std::basic_string_view<Char>> &&
-    std::convertible_to<std::invoke_result_t<F, std::basic_string_view<Char>>,
-        basic_opt_string_view<void, Char>>;
+    std::invocable<F, std::basic_string_view<CharT>> &&
+    std::convertible_to<std::invoke_result_t<F, std::basic_string_view<CharT>>,
+        basic_opt_string_view<void, CharT>>;
 
 // Default delimiter finder: splits on a single space.
-template<CharType Char>
+template<CharType CharT>
 struct default_delim_finder {
   constexpr std::pair<size_t, size_t> operator()(
-      std::basic_string_view<Char> s) const {
-    auto pos = s.find(Char(' '));
+      std::basic_string_view<CharT> s) const {
+    auto pos = s.find(CharT(' '));
     return {pos, pos + 1};
   }
 };
 
 // Default piece filter: passes every piece through unchanged.
-template<CharType Char>
+template<CharType CharT>
 struct default_piece_filter {
-  constexpr basic_opt_string_view<void, Char> operator()(
-      std::basic_string_view<Char> s) const {
+  constexpr basic_opt_string_view<void, CharT> operator()(
+      std::basic_string_view<CharT> s) const {
     return s;
   }
 };
@@ -171,16 +372,16 @@ struct default_piece_filter {
 //
 // Treats input as `basic_opt_string_view`, returning a piece when `empty` but
 // not `null`. The end state is `null`.
-template<CharType Char = char,
-    DelimFinder<Char> Finder = default_delim_finder<Char>,
-    PieceFilter<Char> Filter = default_piece_filter<Char>>
+template<CharType CharT = char,
+    DelimFinder<CharT> Finder = default_delim_finder<CharT>,
+    PieceFilter<CharT> Filter = default_piece_filter<CharT>>
 struct basic_piece_generator {
 #pragma region Member types
 
   // The code unit and its view / optional-view types.
-  using char_t = Char;
-  using view_t = std::basic_string_view<Char>;
-  using opt_view_t = basic_opt_string_view<void, Char>;
+  using char_t = CharT;
+  using view_t = std::basic_string_view<CharT>;
+  using opt_view_t = basic_opt_string_view<void, CharT>;
 
 #pragma endregion
 #pragma region Reset
@@ -189,7 +390,7 @@ struct basic_piece_generator {
   // good idea, especially if you have state that needs to be cleared in
   // between calls. The return allows passing `piece_generator.reset(x)` to the
   // `split` function.
-  auto& reset(view_t new_whole) {
+  constexpr auto& reset(view_t new_whole) {
     whole = new_whole;
     return *this;
   }
@@ -201,9 +402,9 @@ struct basic_piece_generator {
   //
   // Fills `part` with the next piece from `whole` and returns `true`. On
   // failure, such as when there's nothing left to parse, returns `false`.
-  [[nodiscard]] static bool more_pieces(view_t& part, opt_view_t& whole,
-      const DelimFinder<Char> auto& finder,
-      const PieceFilter<Char> auto& filter) {
+  [[nodiscard]] static constexpr bool more_pieces(view_t& part,
+      opt_view_t& whole, const DelimFinder<CharT> auto& finder,
+      const PieceFilter<CharT> auto& filter) {
     for (;;) {
       if (whole.null()) return false;
       const auto [pos, next] = std::pair<size_t, size_t>(finder(whole));
@@ -220,7 +421,7 @@ struct basic_piece_generator {
 
   // Fills `part` with the next piece and returns `true`. On failure, such as
   // when there's nothing left to parse, returns `false`.
-  [[nodiscard]] bool more_pieces(view_t& part) {
+  [[nodiscard]] constexpr bool more_pieces(view_t& part) {
     return more_pieces(part, whole, finder, filter);
   }
 
@@ -238,12 +439,12 @@ struct basic_piece_generator {
 using piece_generator = basic_piece_generator<char>;
 
 // Deduce the code unit and the callable types from the constructor arguments.
-template<CharType Char>
-basic_piece_generator(std::basic_string_view<Char>)
-    -> basic_piece_generator<Char>;
-template<CharType Char, DelimFinder<Char> Finder, PieceFilter<Char> Filter>
-basic_piece_generator(std::basic_string_view<Char>, Finder, Filter)
-    -> basic_piece_generator<Char, Finder, Filter>;
+template<CharType CharT>
+basic_piece_generator(std::basic_string_view<CharT>)
+    -> basic_piece_generator<CharT>;
+template<CharType CharT, DelimFinder<CharT> Finder, PieceFilter<CharT> Filter>
+basic_piece_generator(std::basic_string_view<CharT>, Finder, Filter)
+    -> basic_piece_generator<CharT, Finder, Filter>;
 
 #pragma endregion
 #pragma region split_gen
@@ -271,6 +472,114 @@ template<typename R = void, PieceGenerator PG>
 // For alternative design choices when solving a similar problem, compare
 // with:
 // https://github.com/abseil/abseil-cpp/blob/master/absl/strings/internal/str_split_internal.h
+
+#pragma endregion
+#pragma region split_lines
+
+// Whether to keep each line's terminating line break as part of the returned
+// line or discard it. The equivalent of Python's `keepends`.
+enum class line_ends : bool { discard = false, keep = true };
+
+// Line-break delimiter finder: treats "\r\n", "\r", and "\n" as single line
+// breaks.
+//
+// Usable with `basic_piece_generator`, where standard split semantics apply,
+// so a trailing line break yields a trailing empty piece; `split_lines`
+// instead drops it.
+template<CharType CharT>
+struct line_delim_finder {
+  constexpr std::pair<size_t, size_t> operator()(
+      std::basic_string_view<CharT> s) const {
+    constexpr std::array line_breaks{CharT('\r'), CharT('\n')};
+    const auto pos = s.find_first_of(
+        std::basic_string_view<CharT>{line_breaks.data(), line_breaks.size()});
+    if (pos == npos) return {npos, npos};
+    auto next = pos + 1;
+    if (s[pos] == CharT('\r') && next < s.size() && s[next] == CharT('\n'))
+      ++next;
+    return {pos, next};
+  }
+};
+
+// Extract next line destructively from `whole`.
+//
+// A line break is "\r\n", "\r", or "\n", and ends the line; `line_ends::keep`
+// retains it as part of the returned line, while the default discards it.
+// Either way, it is consumed from `whole`. The last line needs no break, and
+// an empty `whole` yields an empty line, so check `whole` before calling, or
+// let `more_lines` do it for you.
+//
+// The return type `R` effectively defaults to a `std::basic_string_view` of
+// `whole`'s own code unit; specify `R` as an owning string type (e.g.
+// `std::string`) to make a deep copy.
+template<typename R = void, CharType CharT>
+[[nodiscard]] constexpr auto extract_line(std::basic_string_view<CharT>& whole,
+    line_ends ends = line_ends::discard) {
+  using result_t =
+      std::conditional_t<std::is_void_v<R>, std::basic_string_view<CharT>, R>;
+  const auto [pos, next] = line_delim_finder<CharT>{}(whole);
+  const auto found = pos != npos;
+  const auto end =
+      !found ? whole.size()
+      : ends == line_ends::keep
+          ? next
+          : pos;
+  const auto line = whole.substr(0, end);
+  whole.remove_prefix(found ? next : whole.size());
+  return result_t{line};
+}
+
+// Extract next line into `line`, removing it (and its break) from `whole`.
+//
+// Returns true when a line was extracted; returns false when `whole` is
+// exhausted, leaving `line` untouched. Pass an owning string type as `line` to
+// make a deep copy.
+template<typename R, CharType CharT>
+[[nodiscard]] constexpr bool
+more_lines(R& line, std::basic_string_view<CharT>& whole,
+    line_ends ends = line_ends::discard) {
+  if (whole.empty()) return false;
+  line = extract_line<R>(whole, ends);
+  return true;
+}
+
+// Split into lines on universal line breaks and return them in a vector.
+//
+// A line break is "\r\n", "\r", or "\n"; pass `line_ends::keep` to retain each
+// line's break. Matching Python `str.splitlines` (and unlike `split`), a
+// trailing line break does not produce a trailing empty line, and an empty
+// input produces no lines; interior empty lines are kept. The vector element
+// type `R` effectively defaults to a `std::basic_string_view` of `whole`'s own
+// code unit; specify `R` as an owning string type (e.g. `std::string`) to make
+// deep copies.
+template<typename R = void, StringViewLike S>
+[[nodiscard]] constexpr auto
+split_lines(const S& whole_in, line_ends ends = line_ends::discard) {
+  using C = char_type_of_t<S>;
+  using result_t =
+      std::conditional_t<std::is_void_v<R>, std::basic_string_view<C>, R>;
+  auto whole{as_view(whole_in)};
+  std::vector<result_t> lines;
+  std::basic_string_view<C> line;
+  while (more_lines(line, whole, ends)) lines.emplace_back(line);
+  return lines;
+}
+
+// Split lines of a temporary string, returning deep copies in a vector.
+//
+// The vector element type `R` effectively defaults to an owning string of
+// `whole`'s code unit, since views into the temporary would dangle.
+template<typename R = void, CharType CharT>
+[[nodiscard]] constexpr auto split_lines(std::basic_string<CharT>&& whole,
+    line_ends ends = line_ends::discard) {
+  using result_t =
+      std::conditional_t<std::is_void_v<R>, std::basic_string<CharT>, R>;
+  // A trivially copyable `R` is a non-owning view, which would dangle into
+  // the temporary; this overload exists precisely to prevent that.
+  static_assert(!std::is_trivially_copyable_v<result_t>,
+      "R must be an owning string type");
+  return split_lines<result_t>(std::basic_string_view<CharT>(whole), ends);
+}
 
 #pragma endregion
 

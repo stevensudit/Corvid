@@ -120,7 +120,7 @@ TEST_CASE("Constructors", "[FixedStringTest]") {
   SECTION("pointer ctor with size tag") {
     constexpr const char* p = "abcdef";
     constexpr meta::basic_fixed_string<char, 3> fs{p,
-        std::integral_constant<std::size_t, 3>{}};
+        std::integral_constant<size_t, 3>{}};
     STATIC_REQUIRE(fs.view() == "abc"sv);
     CHECK(fs.view() == "abc"sv);
   }
@@ -128,7 +128,7 @@ TEST_CASE("Constructors", "[FixedStringTest]") {
   SECTION("pointer ctor deduces CharT and length") {
     constexpr const char* p = "abcdef";
     constexpr meta::basic_fixed_string fs{p,
-        std::integral_constant<std::size_t, 3>{}};
+        std::integral_constant<size_t, 3>{}};
     STATIC_REQUIRE(std::is_same_v<std::remove_const_t<decltype(fs)>,
         meta::basic_fixed_string<char, 3>>);
     STATIC_REQUIRE(fs.view() == "abc"sv);

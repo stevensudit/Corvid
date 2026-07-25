@@ -48,7 +48,7 @@ concept HasVisitMemberTemplate = requires(const T& t, const V& v) {
 
 // Variant size, which works on `enum_variant` and `std::variant`.
 template<typename T>
-constexpr std::size_t variant_size_v =
+constexpr size_t variant_size_v =
     std::variant_size_v<underlying_variant_type_t<T>>;
 
 // Return the variant, which is either the parameter or its underlying value.
@@ -62,7 +62,7 @@ constexpr decltype(auto) extract_variant(T&& v) {
 }
 
 // Variant index, which works on `enum_variant` and `std::variant`.
-template<std::size_t I, typename Variant>
+template<size_t I, typename Variant>
 constexpr decltype(auto) variant_get(Variant&& v) {
   return std::get<I>(extract_variant(std::forward<Variant>(v)));
 }
@@ -86,8 +86,8 @@ template<auto V>
 inline constexpr in_place_enum_t<V> in_place_enum{};
 
 // C++26 promises `std::index_constant`.
-template<std::size_t N>
-using index_constant = std::integral_constant<std::size_t, N>;
+template<size_t N>
+using index_constant = std::integral_constant<size_t, N>;
 
 #pragma endregion
 #pragma region callback wrappers
@@ -142,7 +142,7 @@ overloaded_callbacks(Lambdas...) -> overloaded_callbacks<Lambdas...>;
 // You can only use it with the member `visit`.
 template<typename... Lambdas>
 struct indexed_callbacks {
-  constexpr static std::size_t size_v = sizeof...(Lambdas);
+  constexpr static size_t size_v = sizeof...(Lambdas);
 
   // The tuple stores lambdas corresponding to each index of the variant.
   std::tuple<Lambdas...> callbacks;
@@ -153,7 +153,7 @@ struct indexed_callbacks {
   // Call the Ith lambda with the argument. This uses the `callbacks` member,
   // which is filled in automatically from the constructor. (Note the use of a
   // tag type to pass the index.)
-  template<std::size_t I, typename Arg>
+  template<size_t I, typename Arg>
   constexpr decltype(auto) operator()(index_constant<I>, Arg&& arg) const {
     return std::get<I>(callbacks)(std::forward<Arg>(arg));
   }
@@ -175,8 +175,7 @@ struct indexed_callbacks {
   static constexpr decltype(auto) visit(Callback&& cb, Variant&& v) {
     // Default the return type to the common one.
     using IndexSeq = std::make_index_sequence<variant_size_v<Variant>>;
-    return [&]<std::size_t... Is>(
-               std::index_sequence<Is...>) -> decltype(auto) {
+    return [&]<size_t... Is>(std::index_sequence<Is...>) -> decltype(auto) {
       using Ret = std::common_type_t<decltype(cb(index_constant<Is>{},
           variant_get<Is>(std::forward<Variant>(v))))...>;
       // Now that we've deduced the return type, we specify it.
@@ -187,7 +186,7 @@ struct indexed_callbacks {
   static constexpr R visit(Callback&& cb, Variant&& v) {
     // Define an immediately invoked lambda to expand the index sequence.
     using IndexSeq = std::make_index_sequence<variant_size_v<Variant>>;
-    return [&]<std::size_t... Is>(std::index_sequence<Is...>) -> R {
+    return [&]<size_t... Is>(std::index_sequence<Is...>) -> R {
       // Define a function pointer type that takes the variant and callback,
       // and returns the common type. This effectively erases the types of the
       // callbacks.
@@ -227,7 +226,7 @@ public:
   using underlying_type = std::variant<Ts...>;
   using enum_type = E;
   static constexpr enum_type variant_npos = static_cast<enum_type>(-1);
-  static constexpr std::size_t variant_size = sizeof...(Ts);
+  static constexpr size_t variant_size = sizeof...(Ts);
 
 #pragma region Construction
 
@@ -257,7 +256,7 @@ public:
   // default-constructible. Note that, being implicit, this lets you assign an
   // `enum_type` to an `enum_variant`.
   consteval enum_variant(enum_type e)
-      : value_(construct(static_cast<std::size_t>(e))) {}
+      : value_(construct(static_cast<size_t>(e))) {}
 
   // Conversion constructor, where `T` is one of the types in `Ts...`.
   template<typename T>
@@ -289,10 +288,10 @@ public:
   template<auto V, typename... Args>
   constexpr explicit enum_variant(in_place_enum_t<V>,
       Args&&... args) noexcept(std::is_nothrow_constructible_v<underlying_type,
-      std::in_place_index_t<static_cast<std::size_t>(V)>, Args&&...>)
+      std::in_place_index_t<static_cast<size_t>(V)>, Args&&...>)
   requires std::is_constructible_v<underlying_type,
-      std::in_place_index_t<static_cast<std::size_t>(V)>, Args&&...>
-      : value_{std::in_place_index<static_cast<std::size_t>(V)>,
+      std::in_place_index_t<static_cast<size_t>(V)>, Args&&...>
+      : value_{std::in_place_index<static_cast<size_t>(V)>,
             std::forward<Args>(args)...} {}
 
   // Emplace constructor by enum index with an initializer list. Consider using
@@ -301,16 +300,16 @@ public:
   constexpr explicit enum_variant(in_place_enum_t<V>,
       std::initializer_list<U> il, Args&&... args)
   requires std::is_constructible_v<underlying_type,
-      std::in_place_index_t<static_cast<std::size_t>(V)>,
-      std::initializer_list<U>, Args&&...>
-      : value_{std::in_place_index<static_cast<std::size_t>(V)>, il,
+      std::in_place_index_t<static_cast<size_t>(V)>, std::initializer_list<U>,
+      Args&&...>
+      : value_{std::in_place_index<static_cast<size_t>(V)>, il,
             std::forward<Args>(args)...} {}
 
   // Make on `enum_type`, with arguments. Avoids the `in_place_enum` hack.
   template<enum_type I, typename... Args>
   [[nodiscard]] static constexpr enum_variant make(
       Args&&... args) noexcept(std::is_nothrow_constructible_v<underlying_type,
-      std::in_place_index_t<static_cast<std::size_t>(I)>, Args&&...>) {
+      std::in_place_index_t<static_cast<size_t>(I)>, Args&&...>) {
     return enum_variant(in_place_enum<I>, std::forward<Args>(args)...);
   }
 
@@ -318,8 +317,8 @@ public:
   template<enum_type I, typename U, typename... Args>
   [[nodiscard]] static constexpr enum_variant make(std::initializer_list<U> il,
       Args&&... args) noexcept(std::is_nothrow_constructible_v<underlying_type,
-      std::in_place_index_t<static_cast<std::size_t>(I)>,
-      std::initializer_list<U>, Args&&...>) {
+      std::in_place_index_t<static_cast<size_t>(I)>, std::initializer_list<U>,
+      Args&&...>) {
     return enum_variant(in_place_enum<I>, il, std::forward<Args>(args)...);
   }
 
@@ -383,7 +382,7 @@ public:
   constexpr enum_variant& operator=(enum_type e) noexcept
   requires std::is_default_constructible_v<underlying_type>
   {
-    assign_index(static_cast<std::size_t>(e));
+    assign_index(static_cast<size_t>(e));
     return *this;
   }
 
@@ -410,19 +409,19 @@ public:
   // Emplace a value of type `T` by enum index.
   template<enum_type I, typename... Args>
   requires std::is_constructible_v<underlying_type,
-      std::in_place_index_t<static_cast<std::size_t>(I)>, Args&&...>
+      std::in_place_index_t<static_cast<size_t>(I)>, Args&&...>
   constexpr auto& emplace(Args&&... args) {
-    return value_.template emplace<static_cast<std::size_t>(I)>(
+    return value_.template emplace<static_cast<size_t>(I)>(
         std::forward<Args>(args)...);
   }
 
   // Emplace a value of type `T` by enum index with an initializer list.
   template<enum_type I, typename U, typename... Args>
   requires std::is_constructible_v<underlying_type,
-      std::in_place_index_t<static_cast<std::size_t>(I)>,
-      std::initializer_list<U>, Args&&...>
+      std::in_place_index_t<static_cast<size_t>(I)>, std::initializer_list<U>,
+      Args&&...>
   constexpr auto& emplace(std::initializer_list<U> il, Args&&... args) {
-    return value_.template emplace<static_cast<std::size_t>(I)>(il,
+    return value_.template emplace<static_cast<size_t>(I)>(il,
         std::forward<Args>(args)...);
   }
 
@@ -462,14 +461,13 @@ public:
   // Get the value by enum index, or throw if it does not hold that type.
   template<enum_type I, typename Self>
   [[nodiscard]] constexpr decltype(auto) get(this Self&& self) {
-    return std::get<static_cast<std::size_t>(I)>(
-        std::forward<Self>(self).value_);
+    return std::get<static_cast<size_t>(I)>(std::forward<Self>(self).value_);
   }
 
   // Get the value by enum index, or null.
   template<enum_type I, typename Self>
   [[nodiscard]] constexpr auto* get_if(this Self&& self) noexcept {
-    return std::get_if<static_cast<std::size_t>(I)>(
+    return std::get_if<static_cast<size_t>(I)>(
         &std::forward<Self>(self).value_);
   }
 
@@ -544,8 +542,8 @@ private:
   underlying_type value_;
 
   // Used by consteval constructor.
-  template<std::size_t I = 0>
-  static consteval underlying_type construct(std::size_t idx) {
+  template<size_t I = 0>
+  static consteval underlying_type construct(size_t idx) {
     if constexpr (I < sizeof...(Ts)) {
       if (idx == I) {
         return underlying_type(std::in_place_index<I>);
@@ -558,8 +556,8 @@ private:
   }
 
   // Runtime equivalent of `construct` used by the enum assignment operator.
-  template<std::size_t I = 0>
-  constexpr void assign_index(std::size_t idx) {
+  template<size_t I = 0>
+  constexpr void assign_index(size_t idx) {
     if constexpr (I < sizeof...(Ts)) {
       if (idx == I) {
         value_.template emplace<I>();
@@ -576,7 +574,7 @@ namespace std {
 template<corvid::meta::concepts::ScopedEnum E, typename... Ts>
 struct hash<corvid::container::rust_like::enum_variant<E, Ts...>> {
   using argument_type = corvid::container::rust_like::enum_variant<E, Ts...>;
-  using result_type = std::size_t;
+  using result_type = size_t;
 
   [[nodiscard]] constexpr result_type operator()(
       const argument_type& v) const noexcept {

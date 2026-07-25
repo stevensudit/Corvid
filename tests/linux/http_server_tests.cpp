@@ -422,7 +422,7 @@ TEST_CASE("IdleTimeout", "[HttpServer]") {
   // The server's idle-timeout path force-closes the connection (RST, not
   // FIN), so any `recv` failure within the watchdog window counts as a pass.
   std::string buf;
-  no_zero::enlarge_to(buf, 4096);
+  no_zero{buf}.enlarge_to(4096);
   CHECK_FALSE(client.recv(buf));
 }
 #pragma endregion

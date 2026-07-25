@@ -158,7 +158,7 @@ namespace details {
 template<typename... Ts>
 constexpr bool is_std_array_impl_v = false;
 
-template<typename T, std::size_t N>
+template<typename T, size_t N>
 constexpr bool is_std_array_impl_v<std::array<T, N>> = true;
 } // namespace details
 
@@ -173,7 +173,7 @@ namespace details {
 template<typename... Ts>
 constexpr bool is_span_impl_v = false;
 
-template<typename T, std::size_t N>
+template<typename T, size_t N>
 constexpr bool is_span_impl_v<std::span<T, N>> = true;
 } // namespace details
 

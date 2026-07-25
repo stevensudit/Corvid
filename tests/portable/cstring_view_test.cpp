@@ -280,6 +280,34 @@ TEST_CASE("Construction", "[CStringViewTest]") {
   }
 }
 
+TEST_CASE("WideConstruction", "[CStringViewTest]") {
+  // Regression: construction from the matching basic_string was hardcoded to
+  // std::string, so wide instantiations fell through to the throwing
+  // string_view constructor.
+  if (true) {
+    const std::wstring ws{L"abc"};
+    wcstring_view wv{ws};
+    CHECK(wv.size() == 3U);
+    CHECK(wv.c_str()[3] == L'\0');
+    const std::wstring wempty;
+    wcstring_view wev{wempty};
+    CHECK(wev.empty());
+    CHECK_FALSE(wev.null());
+    const std::u16string u16s{u"xy"};
+    u16cstring_view u16v{u16s};
+    CHECK(u16v.size() == 2U);
+  }
+  // Regression: the iterator-pair constructor was constrained on `char`, so
+  // it did not exist for wide instantiations.
+  if (true) {
+    std::span<const wchar_t> r{L"abc"};
+    wcstring_view v(r.begin(), r.end());
+    CHECK_FALSE(v.empty());
+    CHECK(v.size() == 3U);
+    CHECK(r.size() == 4U);
+  }
+}
+
 #pragma endregion
 #pragma region Optional
 
@@ -293,6 +321,30 @@ TEST_CASE("Optional", "[CStringViewTest]") {
     CHECK(csv == "test");
     // * cstring_view bad{std::optional<int>{}};
   }
+  // The optional constructor is explicit exactly when construction from the
+  // payload type itself would be, so a risky view payload no longer converts
+  // implicitly.
+  static_assert(
+      std::is_convertible_v<std::optional<std::string>, cstring_view>);
+  static_assert(
+      std::is_constructible_v<cstring_view, std::optional<std::string_view>>);
+  static_assert(
+      !std::is_convertible_v<std::optional<std::string_view>, cstring_view>);
+}
+
+TEST_CASE("SearchPassthrough", "[CStringViewTest]") {
+  const auto v = "abcdef"_czsv;
+  CHECK(v.starts_with("abc"));
+  CHECK_FALSE(v.starts_with("bcd"));
+  CHECK(v.ends_with("def"));
+  CHECK(v.ends_with('f'));
+  CHECK(v.contains("cde"));
+  CHECK_FALSE(v.contains("xyz"));
+
+  // compare is not noexcept: the position-taking overloads throw a catchable
+  // std::out_of_range instead of terminating.
+  CHECK(v.compare("abcdef"sv) == 0);
+  CHECK_THROWS_AS(v.compare(v.size() + 1, 1, "x"sv), std::out_of_range);
 }
 
 #pragma endregion

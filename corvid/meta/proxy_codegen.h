@@ -49,11 +49,11 @@ namespace details {
 // generated `api` does not spell (one an inherited base `api` covers) still
 // consumes numbers, which is harmless; the names are arbitrary by design.
 template<typename... Ss>
-consteval std::array<std::size_t, sizeof...(Ss)>
+consteval std::array<size_t, sizeof...(Ss)>
 codegen_starts(std::tuple<Ss...>*) noexcept {
-  std::array<std::size_t, sizeof...(Ss)> starts{};
-  std::size_t next = 1;
-  std::size_t ndx = 0;
+  std::array<size_t, sizeof...(Ss)> starts{};
+  size_t next{1};
+  size_t ndx{};
   ((starts[ndx++] = next,
        next += std::tuple_size_v<typename Ss::method_t::args_t>),
       ...);
@@ -107,13 +107,13 @@ consteval bool has_const_twin(std::tuple<Ss...>*) noexcept {
 //
 // This is the single-path diamond shape the `api` documentation recommends.
 template<Facade F>
-consteval std::size_t heaviest_base() noexcept {
-  return []<std::size_t... Ndxs>(std::index_sequence<Ndxs...>) {
-    constexpr std::array<std::size_t, sizeof...(Ndxs)> sizes{
+consteval size_t heaviest_base() noexcept {
+  return []<size_t... Ndxs>(std::index_sequence<Ndxs...>) {
+    constexpr std::array<size_t, sizeof...(Ndxs)> sizes{
         std::tuple_size_v<typename vtbuild_t<
             typename vtbuild_t<F>::template base_t<Ndxs>>::flat_slots_t>...};
-    std::size_t best = 0;
-    for (std::size_t ndx = 1; ndx != sizes.size(); ++ndx)
+    size_t best{};
+    for (size_t ndx = 1; ndx != sizes.size(); ++ndx)
       if (sizes[ndx] > sizes[best]) best = ndx;
     return best;
   }(std::make_index_sequence<vtbuild_t<F>::base_count_v>{});
@@ -155,20 +155,20 @@ consteval bool api_emits() noexcept {
 // `emit_params`: emit `, T arg_N` for each declared parameter, numbering
 // from `next`.
 template<typename... Args>
-void emit_params(std::ostream& os, std::size_t next, std::tuple<Args...>*) {
+void emit_params(std::ostream& os, size_t next, std::tuple<Args...>*) {
   ((os << ", " << friendly_type_name<Args>() << " arg_" << next++), ...);
 }
 
 // `emit_args`: emit `arg_N, arg_N+1, ...`, numbering from `next`.
 template<typename... Args>
-void emit_args(std::ostream& os, std::size_t next, std::tuple<Args...>*) {
-  for (std::size_t ndx = 0; ndx != sizeof...(Args); ++ndx)
+void emit_args(std::ostream& os, size_t next, std::tuple<Args...>*) {
+  for (size_t ndx = 0; ndx != sizeof...(Args); ++ndx)
     os << (ndx ? ", " : "") << "arg_" << next + ndx;
 }
 
 // `emit_api_slot`: one `api` forwarder for slot `S` of facade `F`.
 template<Facade F, typename S>
-void emit_api_slot(std::ostream& os, std::size_t next) {
+void emit_api_slot(std::ostream& os, size_t next) {
   using result_t = S::result_t;
   constexpr auto* args = static_cast<S::method_t::args_t*>(nullptr);
   const auto name = S::name_v.view();
@@ -197,7 +197,7 @@ void emit_api_slot(std::ostream& os, std::size_t next) {
 
 // `emit_boilerplate_slot`: one `boilerplate` binding for slot `S`.
 template<typename S>
-void emit_boilerplate_slot(std::ostream& os, std::size_t next) {
+void emit_boilerplate_slot(std::ostream& os, size_t next) {
   using result_t = S::result_t;
   constexpr auto* args = static_cast<S::method_t::args_t*>(nullptr);
   const auto name = S::name_v.view();
@@ -246,7 +246,7 @@ void codegen(std::ostream& os) {
   constexpr auto starts = details::codegen_starts(slots);
   constexpr auto count = std::tuple_size_v<slots_t>;
   const auto walk = [&]<typename Fn>(Fn&& fn) {
-    [&]<std::size_t... Ndxs>(std::index_sequence<Ndxs...>) {
+    [&]<size_t... Ndxs>(std::index_sequence<Ndxs...>) {
       (fn.template operator()<std::tuple_element_t<Ndxs, slots_t>>(
            starts[Ndxs]),
           ...);
@@ -264,7 +264,7 @@ void codegen(std::ostream& os) {
     // A forwarder hides every inherited overload of its name until a
     // using-declaration merges them back in.
     std::vector<std::string_view> merged;
-    walk([&]<typename S>(std::size_t) {
+    walk([&]<typename S>(size_t) {
       constexpr auto* path_slots =
           static_cast<details::vtbuild_t<path_t>::flat_slots_t*>(nullptr);
       if constexpr (details::api_emits<S, path_t>() &&
@@ -278,14 +278,14 @@ void codegen(std::ostream& os) {
     for (const auto name : merged)
       os << "    using " << path_name << "::api::" << name << ";\n";
   }
-  walk([&]<typename S>(std::size_t next) {
+  walk([&]<typename S>(size_t next) {
     if constexpr (details::api_emits<S, path_t>())
       details::emit_api_slot<F, S>(os, next);
   });
   os << "  };\n";
 
   os << "  template<typename T>\n  struct boilerplate: proxy_impl_base {\n";
-  walk([&]<typename S>(std::size_t next) {
+  walk([&]<typename S>(size_t next) {
     if constexpr (std::is_void_v<typename S::owner_t>)
       details::emit_boilerplate_slot<S>(os, next);
   });

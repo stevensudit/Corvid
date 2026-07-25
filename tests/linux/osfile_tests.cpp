@@ -170,12 +170,12 @@ TEST_CASE("WriteRead", "[OsFile]") {
   CHECK(msg.empty());
 
   std::string buf;
-  no_zero::enlarge_to(buf, 16);
+  no_zero{buf}.enlarge_to(16);
   CHECK(reader.read(buf));
   CHECK(buf == "hello");
 
   // An empty non-blocking read is a soft failure: success with no bytes read.
-  no_zero::enlarge_to(buf, 16);
+  no_zero{buf}.enlarge_to(16);
   CHECK(reader.read(buf));
   CHECK(buf.empty());
   CHECK(errno == EAGAIN);

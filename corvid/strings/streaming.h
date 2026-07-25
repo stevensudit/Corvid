@@ -15,7 +15,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 #pragma once
-#include "strings_shared.h"
+#include <iostream>
+#include <ostream>
+#include <streambuf>
+
+#include "../meta/concepts.h"
 #include "delimiting.h"
 
 namespace corvid::strings { inline namespace streaming {

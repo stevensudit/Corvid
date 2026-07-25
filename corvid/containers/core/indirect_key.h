@@ -38,7 +38,7 @@ struct indirect_hash_key {
   struct hash_equal_to {
     using is_transparent = void;
 
-    [[nodiscard]] constexpr std::size_t operator()(
+    [[nodiscard]] constexpr size_t operator()(
         const indirect_hash_key& ik) const noexcept {
       return H{}(ik.key);
     }

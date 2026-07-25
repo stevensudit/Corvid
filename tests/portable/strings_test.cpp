@@ -15,11 +15,16 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#include <algorithm>
+#include <compare>
 #include <cstdint>
 #include <format>
+#include <limits>
 #include <map>
+#include <ranges>
 #include <set>
 #include <type_traits>
+#include <vector>
 
 #include "corvid/strings.h"
 #include "corvid/enums.h"
@@ -147,6 +152,115 @@ TEST_CASE("Split", "[StringUtilsTest]") {
 #pragma endregion
 
 // Test split_gen.
+#pragma region WhitespaceDelim
+
+TEST_CASE("WhitespaceDelim", "[StringUtilsTest]") {
+  using V = std::vector<std::string_view>;
+  // The named set splits on all ASCII whitespace, not just the default lone
+  // space.
+  if (true) {
+    CHECK(strings::split("a b\tc\nd") == V{"a", "b\tc\nd"});
+    CHECK(strings::split("a b\tc\nd", strings::whitespace) ==
+          V{"a", "b", "c", "d"});
+    CHECK(strings::split(L"a b\tc", strings::wwhitespace) ==
+          std::vector<std::wstring_view>{L"a", L"b", L"c"});
+    CHECK(strings::trim("\t a \r\n", strings::whitespace) == "a");
+  }
+  // Pin the set to is_space exactly, so the two cannot drift apart.
+  if (true) {
+    CHECK(strings::is_space(strings::whitespace));
+    CHECK(strings::whitespace.size() == 6U);
+    for (int i = 0; i < 256; ++i) {
+      const auto c = static_cast<char>(i);
+      CHECK(strings::is_space(c) ==
+            (strings::whitespace.find(c) != strings::npos));
+    }
+    CHECK(strings::is_space(strings::wwhitespace));
+    CHECK(strings::wwhitespace.size() == strings::whitespace.size());
+  }
+}
+
+#pragma endregion
+#pragma region SplitN
+
+TEST_CASE("SplitN", "[StringUtilsTest]") {
+  using V = std::vector<std::string_view>;
+  // At most n splits; the final part is the untouched remainder.
+  if (true) {
+    CHECK(strings::split_n("a,b,c,d", 2, ",") == V{"a", "b", "c,d"});
+    CHECK(strings::split_n("a,b,c,d", 1, ",") == V{"a", "b,c,d"});
+    CHECK(strings::split_n("a,b,c,d", 0, ",") == V{"a,b,c,d"});
+    CHECK(strings::split_n("a,,b", 1, ",") == V{"a", ",b"});
+    CHECK(strings::split_n("a,", 1, ",") == V{"a", ""});
+  }
+  // With enough splits, equivalent to split; empty input yields no parts.
+  if (true) {
+    CHECK(strings::split_n("a,b", 5, ",") == strings::split("a,b", ","));
+    CHECK(strings::split_n("", 3, ",") == V{});
+    CHECK(strings::split_n("a b c", 1) == V{"a", "b c"});
+  }
+  // A temporary string yields owning copies.
+  if (true) {
+    CHECK(strings::split_n(std::string{"a b c"}, 1) ==
+          std::vector<std::string>{"a", "b c"});
+  }
+}
+
+#pragma endregion
+#pragma region RSplit
+
+TEST_CASE("RSplit", "[StringUtilsTest]") {
+  using V = std::vector<std::string_view>;
+  // rextract_piece peels the last piece and its delimiter off the tail.
+  if (true) {
+    auto whole = "k1=k2=v"sv;
+    CHECK(strings::rextract_piece(whole, "=") == "v");
+    CHECK(whole == "k1=k2");
+    CHECK(strings::rextract_piece(whole, "=") == "k2");
+    CHECK(strings::rextract_piece(whole, "=") == "k1");
+    CHECK(whole.empty());
+    CHECK(strings::rextract_piece(whole, "=") == "");
+  }
+  // rsplit returns the parts in right-to-left encounter order.
+  if (true) {
+    CHECK(strings::rsplit("a b c") == V{"c", "b", "a"});
+    CHECK(strings::rsplit(" a") == V{"a", ""});
+    CHECK(strings::rsplit("a ") == V{"", "a"});
+    CHECK(strings::rsplit("") == V{});
+    CHECK(strings::rsplit("abc") == V{"abc"});
+  }
+  // rsplit_n bounds the splits from the right; the remainder (the head)
+  // comes last, delimiters intact.
+  if (true) {
+    CHECK(strings::rsplit_n("a,b,c,d", 2, ",") == V{"d", "c", "a,b"});
+    CHECK(strings::rsplit_n("a,b,c,d", 1, ",") == V{"d", "a,b,c"});
+    CHECK(strings::rsplit_n("a,b,c,d", 0, ",") == V{"a,b,c,d"});
+    CHECK(strings::rsplit_n(",a", 1, ",") == V{"a", ""});
+    CHECK(strings::rsplit_n("a,b", 5, ",") == strings::rsplit("a,b", ","));
+    CHECK(strings::rsplit_n("", 3, ",") == V{});
+  }
+  // Reversed, `rsplit_n` matches Python `rsplit` with `maxsplit`.
+  if (true) {
+    auto parts = strings::rsplit_n("a,b,c,d", 2, ",");
+    std::ranges::reverse(parts);
+    CHECK(parts == V{"a,b", "c", "d"});
+  }
+  // Pin the invariant: rsplit is exactly split reversed, empties included.
+  if (true) {
+    for (const auto s : {"x,,y,"sv, ",x"sv, "x"sv, ",,"sv, "a,b,c"sv}) {
+      auto fwd = strings::split(s, ",");
+      std::ranges::reverse(fwd);
+      CHECK(strings::rsplit(s, ",") == fwd);
+    }
+  }
+  // A temporary string yields owning copies.
+  if (true) {
+    CHECK(strings::rsplit(std::string{"a b"}) ==
+          std::vector<std::string>{"b", "a"});
+  }
+}
+
+#pragma endregion
 #pragma region SplitPg
 
 TEST_CASE("SplitPg", "[StringUtilsTest]") {
@@ -205,6 +319,87 @@ TEST_CASE("SplitPg", "[StringUtilsTest]") {
         [](std::string_view s) { return s; }};
     CHECK(strings::split(pg) == std::vector<std::string_view>{"a", "b", "c"});
   }
+  // The generator-based split is usable in constant evaluation, now that
+  // more_pieces and reset are constexpr like their callers.
+  static_assert(strings::split_gen("a b"sv).size() == 2U);
+}
+
+#pragma endregion
+#pragma region SplitLines
+
+TEST_CASE("SplitLines", "[StringUtilsTest]") {
+  using V = std::vector<std::string_view>;
+  // Any of the universal line breaks splits, and "\r\n" counts as one.
+  if (true) {
+    CHECK(strings::split_lines("a\nb"sv) == V{"a", "b"});
+    CHECK(strings::split_lines("a\rb"sv) == V{"a", "b"});
+    CHECK(strings::split_lines("a\r\nb"sv) == V{"a", "b"});
+    CHECK(strings::split_lines("abc"sv) == V{"abc"});
+  }
+  // A trailing line break adds no empty line, but interior ones are kept.
+  if (true) {
+    CHECK(strings::split_lines("a\n"sv) == V{"a"});
+    CHECK(strings::split_lines("a\r\n"sv) == V{"a"});
+    CHECK(strings::split_lines(""sv) == V{});
+    CHECK(strings::split_lines("\n"sv) == V{""});
+    CHECK(strings::split_lines("\r\n"sv) == V{""});
+    CHECK(strings::split_lines("\n\n"sv) == V{"", ""});
+    CHECK(strings::split_lines("a\r\n\nb\r"sv) == V{"a", "", "b"});
+    CHECK(strings::split_lines("\r\r\n"sv) == V{"", ""});
+  }
+  // Passing line_ends::keep retains each line's own break, Python
+  // keepends-style.
+  if (true) {
+    using LE = strings::line_ends;
+    CHECK(strings::split_lines("a\r\nb\n"sv, LE::keep) == V{"a\r\n", "b\n"});
+    CHECK(strings::split_lines("a\n\nb"sv, LE::keep) == V{"a\n", "\n", "b"});
+    CHECK(strings::split_lines("abc"sv, LE::keep) == V{"abc"});
+    CHECK(strings::split_lines("\n"sv, LE::keep) == V{"\n"});
+  }
+  // extract_line peels one line at a time, consuming the break either way.
+  if (true) {
+    auto whole = "a\r\nb\nc"sv;
+    CHECK(strings::extract_line(whole) == "a");
+    CHECK(whole == "b\nc");
+    CHECK(strings::extract_line(whole, strings::line_ends::keep) == "b\n");
+    CHECK(strings::extract_line(whole) == "c");
+    CHECK(whole.empty());
+    // Empty remainder yields an empty line, which is why callers check whole
+    // first, or use more_lines.
+    CHECK(strings::extract_line(whole) == "");
+  }
+  // more_lines drives the loop, returning false at exhaustion with the line
+  // untouched.
+  if (true) {
+    auto whole = "a\r\nb"sv;
+    std::string_view line;
+    CHECK(strings::more_lines(line, whole));
+    CHECK(line == "a");
+    CHECK(strings::more_lines(line, whole, strings::line_ends::keep));
+    CHECK(line == "b");
+    CHECK_FALSE(strings::more_lines(line, whole));
+    CHECK(line == "b");
+  }
+  // Any code unit works, and a temporary string yields owning copies.
+  if (true) {
+    CHECK(strings::split_lines(u"a\r\nb"sv) ==
+          std::vector<std::u16string_view>{u"a", u"b"});
+    CHECK(strings::split_lines(std::string{"a\nb"}) ==
+          std::vector<std::string>{"a", "b"});
+    CHECK(
+        strings::split_lines(std::string{"a\nb"}, strings::line_ends::keep) ==
+        std::vector<std::string>{"a\n", "b"});
+  }
+  // The finder also plugs into the piece generator, where standard split
+  // semantics apply instead: a trailing line break yields a trailing empty
+  // piece.
+  if (true) {
+    strings::basic_piece_generator pg{"a\r\nb\n"sv,
+        strings::line_delim_finder<char>{},
+        strings::default_piece_filter<char>{}};
+    CHECK(strings::split(pg) == V{"a", "b", ""});
+  }
+  static_assert(strings::split_lines("a\r\nb"sv).size() == 2U);
 }
 
 #pragma endregion
@@ -262,11 +457,20 @@ TEST_CASE("Case", "[StringUtilsTest]") {
   CHECK(a == "ABCDEFGHIJ"sv);
 
   // Wide code units: same ASCII semantics on any character type.
-  CHECK(strings::to_upper(u'a') == u'A');
-  CHECK(strings::to_lower(U'Z') == U'z');
+  CHECK(strings::as_upper(u'a') == u'A');
+  CHECK(strings::as_lower(U'Z') == U'z');
   CHECK(strings::is_digit(u'7'));
   CHECK(strings::is_alpha(U'q'));
   CHECK_FALSE(strings::is_upper(char16_t{0xe9})); // U+00E9, not ASCII
+  CHECK(strings::is_ascii('a'));
+  CHECK(strings::is_ascii('\x7f'));
+  CHECK_FALSE(strings::is_ascii(static_cast<char>(0x80)));
+  CHECK_FALSE(strings::is_ascii(char16_t{0xe9}));
+  CHECK(strings::is_printable(' '));
+  CHECK(strings::is_printable('~'));
+  CHECK_FALSE(strings::is_printable('\t'));
+  CHECK_FALSE(strings::is_printable('\x7f'));
+  CHECK_FALSE(strings::is_printable(static_cast<char>(0x80)));
   auto w = u"abcXYZ"s;
   strings::to_upper(w);
   CHECK(w == u"ABCXYZ");
@@ -282,11 +486,134 @@ TEST_CASE("Case", "[StringUtilsTest]") {
   // automatically, since they convert to a `std::basic_string_view`.
   CHECK(strings::as_upper("abc"_czsv) == "ABC");
   CHECK(strings::ci_equal("Hi"_optsv, "hi"));
+
+  // The hex helpers are constexpr, so parse_hex4 can be constant-evaluated.
+  static_assert(strings::is_hex_digit('f'));
+  static_assert(strings::is_hex_digit(u'A'));
+  static_assert(!strings::is_hex_digit('g'));
+  static_assert(strings::hex_digit_value('F') == 15);
+  static_assert(strings::parse_hex4("beef"sv, 0).value() == 0xbeefU);
+  // Regression: a huge pos used to wrap the bounds check and read out of
+  // bounds.
+  static_assert(!strings::parse_hex4("beef"sv, npos).has_value());
 }
 
 #pragma endregion
 
 // Test basic_delim over a wide code unit.
+#pragma region CaseStrings
+
+TEST_CASE("CaseStrings", "[StringUtilsTest]") {
+  // The string overloads require non-empty and all code units passing.
+  if (true) {
+    CHECK(strings::is_digit("123"));
+    CHECK_FALSE(strings::is_digit("12a"));
+    CHECK_FALSE(strings::is_digit(""));
+    CHECK(strings::is_alpha("abc"));
+    CHECK_FALSE(strings::is_alpha("ab1"));
+    CHECK(strings::is_alnum("ab1"));
+    CHECK_FALSE(strings::is_alnum("ab 1"));
+    CHECK(strings::is_hex_digit("1aF"));
+    CHECK_FALSE(strings::is_hex_digit("1aG"));
+    CHECK(strings::is_space(" \t\r\n\v\f"));
+    CHECK_FALSE(strings::is_space(" x "));
+    CHECK(strings::is_lower("abc"));
+    // Unlike Python `islower`, uncased characters are not ignored.
+    CHECK_FALSE(strings::is_lower("abc1"));
+    CHECK(strings::is_upper("ABC"));
+    CHECK_FALSE(strings::is_upper("ABc"));
+    CHECK(strings::is_digit(u"123"sv));
+    CHECK(strings::is_ascii("plain text\r\n"));
+    CHECK_FALSE(strings::is_ascii("caf\xc3\xa9"));
+    // Unlike Python `isascii`, empty is false, as for all these predicates.
+    CHECK_FALSE(strings::is_ascii(""));
+    CHECK(strings::is_printable("plain text~"));
+    CHECK_FALSE(strings::is_printable("tab\there"));
+    CHECK_FALSE(strings::is_printable(""));
+  }
+  // Being objects, the predicates pass directly into algorithms and range
+  // adaptors.
+  if (true) {
+    CHECK(std::ranges::all_of("123"sv, strings::is_digit));
+    CHECK(std::ranges::none_of("abc"sv, strings::is_digit));
+    auto digits = "a1b2c3"sv | std::views::filter(strings::is_digit);
+    CHECK(std::string{digits.begin(), digits.end()} == "123");
+  }
+  // `is_title` follows the `as_titled` word rule, Python `istitle`-style: at
+  // least
+  // one letter, uppercase exactly at word starts.
+  if (true) {
+    CHECK(strings::is_title("Hello World"));
+    CHECK(strings::is_title("A"));
+    CHECK_FALSE(strings::is_title("hello world"));
+    CHECK_FALSE(strings::is_title("HELLO"));
+    CHECK_FALSE(strings::is_title("Hello world"));
+    CHECK_FALSE(strings::is_title("3rd"));
+    CHECK_FALSE(strings::is_title(""));
+    CHECK_FALSE(strings::is_title("123"));
+    // The quirk carries over: any non-letter starts a new word.
+    CHECK(strings::is_title("They'Re"));
+    CHECK(strings::is_title("3Rd Place"));
+    CHECK_FALSE(strings::is_title("They're"));
+    // The invariant with as_titled, quirk included.
+    CHECK(strings::is_title(strings::as_titled("mIxEd uP, they're 3rd")));
+    CHECK(strings::is_title(u"Wide Words"sv));
+  }
+  // The `is_python_*` predicates ignore non-letters, Python `islower` and
+  // `isupper` style: at least one letter and none of the opposite case.
+  if (true) {
+    CHECK(strings::is_python_lower("abc0"));
+    CHECK_FALSE(strings::is_lower("abc0"));
+    CHECK_FALSE(strings::is_python_lower("aA"));
+    CHECK_FALSE(strings::is_python_lower("0"));
+    CHECK_FALSE(strings::is_python_lower(""));
+    CHECK(strings::is_python_upper("ABC-0"));
+    CHECK_FALSE(strings::is_python_upper("ABc"));
+    CHECK_FALSE(strings::is_python_upper("123"));
+    CHECK(strings::is_python_lower(u"abc 123"sv));
+  }
+  // ci_compare orders as if lowercased, as a weak ordering: case-insensitive
+  // equals are equivalent, not equal.
+  if (true) {
+    CHECK(strings::ci_compare("apple", "APPLE") ==
+          std::weak_ordering::equivalent);
+    CHECK(strings::ci_compare("apple", "banana") == std::weak_ordering::less);
+    CHECK(
+        strings::ci_compare("Banana", "apple") == std::weak_ordering::greater);
+    CHECK(strings::ci_compare("app", "apple") == std::weak_ordering::less);
+    CHECK(strings::ci_compare("apple", "app") == std::weak_ordering::greater);
+    CHECK(strings::ci_compare("", "") == std::weak_ordering::equivalent);
+    CHECK(strings::ci_compare("", "a") == std::weak_ordering::less);
+    CHECK(strings::ci_compare(u"AB"sv, u"ab"sv) ==
+          std::weak_ordering::equivalent);
+    // Contrast with the case-sensitive ordering, where 'B' < 'a' in ASCII.
+    CHECK(std::is_lt("Banana"sv <=> "apple"sv));
+  }
+  // Swap, capitalize, and title-case, on copies and in place.
+  if (true) {
+    CHECK(strings::as_swapped('a') == 'A');
+    CHECK(strings::as_swapped('A') == 'a');
+    CHECK(strings::as_swapped('1') == '1');
+    CHECK(strings::as_swapped("Hello, World!") == "hELLO, wORLD!");
+    CHECK(strings::as_capitalized("hello WORLD") == "Hello world");
+    CHECK(strings::as_capitalized("") == "");
+    CHECK(strings::as_titled("hello world") == "Hello World");
+    CHECK(strings::as_titled("HELLO WORLD") == "Hello World");
+    // The Python `title` quirk: any non-letter starts a new word.
+    CHECK(strings::as_titled("they're") == "They'Re");
+    CHECK(strings::as_titled("3rd place") == "3Rd Place");
+    std::string s{"aBc"};
+    strings::to_swapped(s);
+    CHECK(s == "AbC");
+    strings::to_capitalized(s);
+    CHECK(s == "Abc");
+    s = "a b";
+    strings::to_titled(s);
+    CHECK(s == "A B");
+  }
+}
+
+#pragma endregion
 #pragma region WideDelim
 
 TEST_CASE("WideDelim", "[StringUtilsTest]") {
@@ -439,6 +766,12 @@ TEST_CASE("Locate", "[StringUtilsTest]") {
     CHECK(strings::locate_not(s, "b") == 0U);
     CHECK(strings::locate_not("aaaaaa"sv, "a") == npos);
     CHECK(strings::locate_not("aaaaaa"sv, "aa") == npos);
+    // Regression: an empty value matches everywhere, so a non-match is never
+    // found. These used to loop forever.
+    CHECK(strings::locate_not("abc"sv, ""sv) == npos);
+    CHECK(strings::locate_not(""sv, ""sv) == npos);
+    CHECK(strings::rlocate_not("abc"sv, ""sv) == npos);
+    CHECK(strings::rlocate_not(""sv, ""sv) == npos);
     size_t pos{};
     CHECK(strings::located_not(pos, s, 'a') == true);
     CHECK(pos == 4U);
@@ -458,7 +791,7 @@ TEST_CASE("Locate", "[StringUtilsTest]") {
     CHECK(strings::rlocate_not("aaaaaa"sv, "aa") == npos);
     CHECK(strings::rlocate_not("abcde"sv, "de") == 1U);
     CHECK(strings::rlocate_not("abc"sv, "abcdef"sv) == 0U);
-    CHECK(strings::rlocate_not(""sv, "abcdef"sv) == 0U);
+    CHECK(strings::rlocate_not(""sv, "abcdef"sv) == npos);
     pos = s.size();
     CHECK(strings::rlocated_not(pos, s, 'a') == true);
     CHECK(pos == 4U);
@@ -712,6 +1045,10 @@ TEST_CASE("Locate", "[StringUtilsTest]") {
     CHECK(strings::count_located(s, s0) == 0U);
     CHECK(strings::count_located(s, {""sv}) == 24U);
     CHECK(strings::count_located(s, {""}) == 24U);
+
+    // count_located is constexpr, like the locate family it wraps.
+    static_assert(strings::count_located("abcabc"sv, 'a') == 2U);
+    static_assert(strings::count_located("abcabc"sv, "abc"sv) == 2U);
   }
 }
 
@@ -824,6 +1161,14 @@ TEST_CASE("LocateEdges", "[StringUtilsTest]") {
     CHECK(strings::rlocate(s, {"ab", "cd"}) == location{12U, 1U});
     CHECK(strings::rlocate(s, {"cd", "ab"}) == location{12U, 0U});
     CHECK(strings::rlocate(s, {"xy", "zz"}) == nloc);
+    // An empty value matches everywhere, end of string included, mirroring
+    // the forward direction.
+    CHECK(strings::rlocate(s, "") == s.size());
+    CHECK(strings::rlocate(s, "", 5U) == 5U);
+    CHECK(strings::rlocate(s, {"xy", ""}) == location{s.size(), 1U});
+    CHECK(strings::rlocate(s, {"xy", ""}, 5U) == location{5U, 1U});
+    CHECK(strings::rlocate(""sv, "") == 0U);
+    CHECK(strings::rlocate(""sv, {"xy", ""}) == location{0U, 1U});
   }
   // Confirm the correctness of infinite loops.
   if (true) {
@@ -835,6 +1180,60 @@ TEST_CASE("LocateEdges", "[StringUtilsTest]") {
     CHECK(strings::locate(s, {""sv, ""sv}) == location{0U, 0U});
     CHECK(strings::locate(s, std::array<std::string_view, 0>{}) == nloc);
   }
+}
+
+#pragma endregion
+#pragma region LocateUtilities
+
+TEST_CASE("LocateUtilities", "[StringUtilsTest]") {
+  using location = corvid::strings::location;
+  using pos_range = corvid::strings::pos_range;
+  constexpr auto s = "abxcdef"sv;
+  const auto vals = std::array{"ab"sv, "cd"sv};
+
+  // as_pos_range spans the located value.
+  auto loc = strings::locate(s, vals);
+  CHECK(loc == location{0U, 0U});
+  CHECK(strings::as_pos_range(s, vals, loc) == pos_range{0U, 2U});
+  loc = strings::locate(s, vals, 1);
+  CHECK(loc == location{3U, 1U});
+  CHECK(strings::as_pos_range(s, vals, loc) == pos_range{3U, 5U});
+
+  // Not-found yields npos_range, as does a locate_not-style location whose
+  // pos_value indexes no value (regression: that used to read out of
+  // bounds).
+  CHECK(strings::as_pos_range(s, vals, nloc) == npos_range);
+  CHECK(
+      strings::as_pos_range(s, vals, location{1U, vals.size()}) == npos_range);
+
+  // An empty value located at end-of-string is a real match (regression:
+  // it used to misreport as npos_range).
+  const auto ve = std::array{"q"sv, ""sv};
+  loc = strings::locate(s, ve, s.size());
+  CHECK(loc == location{s.size(), 1U});
+  CHECK(strings::as_pos_range(s, ve, loc) == pos_range{s.size(), s.size()});
+
+  // The single-position overload.
+  CHECK(
+      strings::as_pos_range(s, strings::locate(s, 'x')) == pos_range{2U, 3U});
+  CHECK(strings::as_pos_range(s, npos) == npos_range);
+
+  // min_value_size, including elements that merely convert to a view
+  // (regression: `const char*` elements used to fail to compile).
+  CHECK(
+      strings::min_value_size(std::span<const std::string_view>{vals}) == 2U);
+  const auto mixed = std::array{"abc"sv, "d"sv};
+  CHECK(
+      strings::min_value_size(std::span<const std::string_view>{mixed}) == 1U);
+  const auto raw = std::array{"abc", "de"};
+  CHECK(strings::min_value_size(std::span<const char* const>{raw}) == 2U);
+  CHECK(strings::min_value_size(std::span<const std::string_view>{}) == 0U);
+
+  // The location overload of from_npos.
+  CHECK(strings::from_npos(s, location{s.size(), 0U}) == nloc);
+  CHECK(strings::from_npos(s, location{2U, 0U}) == location{2U, 0U});
+  CHECK((strings::from_npos<strings::npos_choice::size>(s,
+            location{s.size(), 2U})) == location{s.size(), 2U});
 }
 
 #pragma endregion
@@ -992,6 +1391,40 @@ TEST_CASE("Substitute", "[StringUtilsTest]") {
     CHECK(strings::substitute(s, {""sv}, {""sv}) == 7U);
     CHECK(s == "abcdef");
   }
+  if (true) {
+    // Regression: with an empty `to`, the multi-value overload used to skip
+    // a character after each replacement, missing adjacent matches that the
+    // single-value overload catches.
+    auto s = std::string{"abab"};
+    CHECK(strings::substitute(s, "ab"sv, ""sv) == 2U);
+    CHECK(s == "");
+    s = std::string{"abab"};
+    CHECK(strings::substitute(s, {"ab"sv}, {""sv}) == 2U);
+    CHECK(s == "");
+    s = std::string{"xababy"};
+    CHECK(strings::substitute(s, {"ab"sv}, {""sv}) == 2U);
+    CHECK(s == "xy");
+  }
+  if (true) {
+    // Substitution honors a nonzero starting pos; the prefix stays intact.
+    auto s = std::string{"ababab"};
+    CHECK(strings::substitute(s, "ab"sv, "x"sv, 2) == 2U);
+    CHECK(s == "abxx");
+    s = std::string{"ababab"};
+    CHECK(strings::substitute(s, {"ab"sv}, {"xyz"sv}, 2) == 2U);
+    CHECK(s == "abxyzxyz");
+    // Growing substitution handles adjacent matches.
+    s = std::string{"abab"};
+    CHECK(strings::substitute(s, "ab"sv, "xyz"sv) == 2U);
+    CHECK(s == "xyzxyz");
+    // Pythonic insertion honors pos too.
+    s = std::string{"abc"};
+    CHECK(strings::substitute(s, ""sv, "x"sv, 1) == 3U);
+    CHECK(s == "axbxcx");
+    s = std::string{"abc"};
+    CHECK(strings::substitute(s, {""sv}, {"x"sv}, 1) == 3U);
+    CHECK(s == "axbxcx");
+  }
 }
 
 #pragma endregion
@@ -1108,6 +1541,15 @@ TEST_CASE("Excise", "[StringUtilsTest]") {
     s = std::string{sv};
     CHECK(strings::excise(s, {""sv, "c"sv}) == 6U);
     CHECK(s == "");
+  }
+  if (true) {
+    // Excision honors a nonzero starting pos; the prefix stays intact.
+    auto s = std::string{"aXaXa"};
+    CHECK(strings::excise(s, 'a', 1) == 2U);
+    CHECK(s == "aXX");
+    s = std::string{"abcabcabc"};
+    CHECK(strings::excise(s, "abc"sv, 3) == 2U);
+    CHECK(s == "abc");
   }
 }
 
@@ -1321,6 +1763,602 @@ TEST_CASE("Trim", "[StringUtilsTest]") {
     strings::trim(s);
     CHECK(s == "abc");
   }
+  if (true) {
+    // Regression: an all-whitespace trim_left (and trim) used to return a
+    // null view; it now returns an empty view anchored in the input,
+    // matching trim_right.
+    constexpr auto sp = "  "sv;
+    CHECK(strings::trim_left(sp).data() == sp.data() + sp.size());
+    CHECK(strings::trim_right(sp).data() == sp.data());
+    CHECK(strings::trim(sp).data() != nullptr);
+    CHECK(strings::trim(""sv).data() != nullptr);
+    // So a trimmed non-null empty still splits as one empty piece.
+    CHECK(strings::split_gen(strings::trim(sp)) ==
+          std::vector<std::string_view>{""});
+  }
+}
+
+#pragma endregion
+#pragma region TrimAffixes
+
+TEST_CASE("TrimAffixes", "[StringUtilsTest]") {
+  if (true) {
+    CHECK(strings::trim_prefix("foo.bar", "foo.") == "bar");
+    CHECK(strings::trim_prefix("foo.bar", "bar") == "foo.bar");
+    CHECK(strings::trim_prefix("foo", "foobar") == "foo");
+    CHECK(strings::trim_prefix("foo", "") == "foo");
+    CHECK(strings::trim_prefix("foo", "foo") == "");
+    CHECK(strings::trim_prefix("", "foo") == "");
+    // Removed at most once, unlike the set-based trims.
+    CHECK(strings::trim_prefix("aab", "a") == "ab");
+  }
+  if (true) {
+    CHECK(strings::trim_suffix("archive.tar.gz", ".gz") == "archive.tar");
+    CHECK(strings::trim_suffix("archive.tar", ".gz") == "archive.tar");
+    CHECK(strings::trim_suffix("gz", ".gz") == "gz");
+    CHECK(strings::trim_suffix("x", "") == "x");
+    CHECK(strings::trim_suffix("x", "x") == "");
+    CHECK(strings::trim_suffix("baa", "a") == "ba");
+  }
+  // Any code unit works.
+  if (true) {
+    CHECK(strings::trim_prefix(u"..xy", u"..") == u"xy");
+    CHECK(strings::trim_suffix(L"xy..", L"..") == L"xy");
+  }
+  // The returned view stays anchored in the input.
+  if (true) {
+    constexpr auto sp = "ab"sv;
+    CHECK(strings::trim_prefix(sp, "a").data() == sp.data() + 1);
+    CHECK(strings::trim_suffix(sp, "b").data() == sp.data());
+  }
+}
+
+#pragma endregion
+#pragma region ExpandTabs
+
+TEST_CASE("ExpandTabs", "[StringUtilsTest]") {
+  // A tab advances to the next multiple of tab_size, so the space count
+  // depends on the column it falls in.
+  if (true) {
+    CHECK(strings::expand_tabs("\t") == "        ");
+    CHECK(strings::expand_tabs("a\tb") == "a       b");
+    CHECK(strings::expand_tabs("ab\tc") == "ab      c");
+    // A tab landing exactly on a stop advances a full tab_size.
+    CHECK(strings::expand_tabs("12345678\tx") == "12345678        x");
+    CHECK(strings::expand_tabs("\t\t") == std::string(16, ' '));
+    // The Python docs example, both at the default and at 4.
+    CHECK(strings::expand_tabs("01\t012\t0123\t01234") ==
+          "01      012     0123    01234");
+    CHECK(strings::expand_tabs("01\t012\t0123\t01234", 4) ==
+          "01  012 0123    01234");
+  }
+  // The column resets after a newline or carriage return.
+  if (true) {
+    CHECK(strings::expand_tabs("ab\n\tc") == "ab\n        c");
+    CHECK(strings::expand_tabs("ab\r\tc") == "ab\r        c");
+    CHECK(strings::expand_tabs("ab\r\n\tc") == "ab\r\n        c");
+  }
+  // Degenerate tab sizes: 1 makes every tab a single space, 0 deletes tabs.
+  if (true) {
+    CHECK(strings::expand_tabs("a\t\tb", 1) == "a  b");
+    CHECK(strings::expand_tabs("a\tb\tc", 0) == "abc");
+  }
+  // Tab-free input passes through, and any code unit works.
+  if (true) {
+    CHECK(strings::expand_tabs("") == "");
+    CHECK(strings::expand_tabs("no tabs here") == "no tabs here");
+    CHECK(strings::expand_tabs(u"a\tb", 4) == u"a   b");
+  }
+}
+
+#pragma endregion
+#pragma region Textwrap
+
+TEST_CASE("Textwrap", "[StringUtilsTest]") {
+  namespace textwrap = strings::textwrap;
+  using V = std::vector<std::string>;
+
+  // The module is constexpr end to end: results can be computed and compared
+  // entirely at compile time, so long as the allocation stays transient.
+  static_assert(
+      textwrap::dedent("    hello\n      world\n") == "hello\n  world\n");
+  static_assert(textwrap::indent("a\nb", "> ") == "> a\n> b");
+  static_assert(
+      textwrap::wrap("one two three", {.width = 7}) ==
+      std::vector<std::string>{"one two", "three"});
+  static_assert(
+      textwrap::fill("one two three", {.width = 8}) == "one two\nthree");
+  static_assert(textwrap::shorten("one  two", 20) == "one two");
+
+  // Dedent removes the margin common to all content lines.
+  if (true) {
+    CHECK(textwrap::dedent("    hello\n      world\n") == "hello\n  world\n");
+    CHECK(textwrap::dedent("\tabc\n\tdef") == "abc\ndef");
+    // The shortest indent bounds the margin.
+    CHECK(textwrap::dedent("    less\n  least\n      most") ==
+          "  less\nleast\n    most");
+    // Tabs and spaces are distinct, so a mixed margin does not match.
+    CHECK(textwrap::dedent("  a\n\tb") == "  a\n\tb");
+  }
+  // Whitespace-only lines neither count toward the margin nor keep their
+  // whitespace.
+  if (true) {
+    CHECK(textwrap::dedent("  a\n   \n  b") == "a\n\nb");
+    CHECK(textwrap::dedent("  a\n\n  b") == "a\n\nb");
+    CHECK(textwrap::dedent("   ") == "");
+  }
+  // Degenerate inputs pass through.
+  if (true) {
+    CHECK(textwrap::dedent("") == "");
+    CHECK(textwrap::dedent("abc") == "abc");
+  }
+  // The raw-string-literal use case that motivates it.
+  if (true) {
+    constexpr auto usage = R"(
+      usage: frob [-x] file...
+        -x  enable X mode)";
+    CHECK(textwrap::dedent(usage) ==
+          "\nusage: frob [-x] file...\n  -x  enable X mode");
+  }
+  // The consteval overload dedents a literal at compile time, returning a
+  // zero-terminated view of a static constant and leaving nothing for
+  // runtime.
+  if (true) {
+    constexpr auto usage = textwrap::dedent<R"(
+      usage: frob [-x] file...
+        -x  enable X mode)">();
+    static_assert(
+        usage.view() == "\nusage: frob [-x] file...\n  -x  enable X mode");
+    CHECK(usage == "\nusage: frob [-x] file...\n  -x  enable X mode");
+    CHECK(usage.c_str()[usage.size()] == '\0');
+    // The backing storage is the `dedented` fixed_string constant.
+    static_assert(usage.view().data() ==
+                  textwrap::dedented<R"(
+      usage: frob [-x] file...
+        -x  enable X mode)">.data());
+    // Any code unit, and the empty-margin and all-whitespace edges, work the
+    // same as at runtime.
+    constexpr auto wide = textwrap::dedent<L"  a\n  b">();
+    static_assert(wide.view() == L"a\nb");
+    static_assert(textwrap::dedent<"abc">().view() == "abc");
+    static_assert(textwrap::dedent<"   ">().empty());
+  }
+  // Divergence from Python: line breaks are universal, so a blank CRLF line
+  // is blank; Python sees its '\r' as content and gives up on the margin.
+  if (true) { CHECK(textwrap::dedent("  a\r\n\r\n  b") == "a\r\n\r\nb"); }
+
+  // Indent prefixes lines with content; blank and whitespace-only lines pass
+  // through untouched.
+  if (true) {
+    CHECK(textwrap::indent("a\nb", "> ") == "> a\n> b");
+    CHECK(textwrap::indent("a\n\nb\n", "> ") == "> a\n\n> b\n");
+    CHECK(textwrap::indent("a\n  \nb", "> ") == "> a\n  \n> b");
+    CHECK(textwrap::indent("one\ntwo", "  ") == "  one\n  two");
+    CHECK(textwrap::indent("a\r\nb", "> ") == "> a\r\n> b");
+  }
+  // The predicate overload decides per line, seeing each line's break.
+  if (true) {
+    CHECK(textwrap::indent("a\n\nb", "> ", [](std::string_view) {
+      return true;
+    }) == "> a\n> \n> b");
+  }
+
+  // Wrap packs words greedily. All expectations here were generated from
+  // CPython 3.12 with break_on_hyphens and fix_sentence_endings off, the
+  // configuration this implementation matches.
+  if (true) {
+    const auto dog = "The quick brown fox jumped over the lazy dog"sv;
+    CHECK(textwrap::wrap(dog) == V{std::string{dog}});
+    CHECK(textwrap::wrap(dog, {.width = 10}) ==
+          V{"The quick", "brown fox", "jumped", "over the", "lazy dog"});
+    CHECK(textwrap::wrap(dog, {.width = 15}) ==
+          V{"The quick brown", "fox jumped over", "the lazy dog"});
+    CHECK(textwrap::fill(dog, {.width = 10}) ==
+          "The quick\nbrown fox\njumped\nover the\nlazy dog");
+  }
+  // Overlong words break at the width, or get a line to themselves.
+  if (true) {
+    CHECK(textwrap::wrap("aaaaaaaaaab", {.width = 3}) ==
+          V{"aaa", "aaa", "aaa", "ab"});
+    CHECK(textwrap::wrap("aaaaaaaaaab",
+              {.width = 3, .break_long_words = false}) == V{"aaaaaaaaaab"});
+    // Without Python's break_on_hyphens, hyphenated words are no different.
+    CHECK(textwrap::wrap("foo-bar baz", {.width = 6}) == V{"foo-ba", "r baz"});
+  }
+  // Indents count toward the width.
+  if (true) {
+    CHECK(
+        textwrap::wrap("hello world",
+            {.width = 8, .initial_indent = "* ", .subsequent_indent = "  "}) ==
+        V{"* hello", "  world"});
+  }
+  // The whitespace knobs: keeping it, keeping line breaks, and tab handling.
+  if (true) {
+    CHECK(textwrap::wrap("a  b", {.width = 3, .drop_whitespace = false}) ==
+          V{"a  ", "b"});
+    CHECK(textwrap::wrap("a\nb", {.width = 10, .replace_whitespace = false}) ==
+          V{"a\nb"});
+    CHECK(textwrap::wrap("a\tb", {.width = 20}) == V{"a       b"});
+    CHECK(textwrap::wrap("a\tb", {.width = 20, .expand_tabs = false}) ==
+          V{"a b"});
+    CHECK(textwrap::wrap("a\tb", {.width = 20, .tab_size = 4}) == V{"a   b"});
+  }
+  // Leading whitespace survives on the first line when content follows it;
+  // whitespace-only input yields no lines at all.
+  if (true) {
+    CHECK(textwrap::wrap("  hello", {.width = 10}) == V{"  hello"});
+    CHECK(textwrap::wrap("   ", {.width = 10}).empty());
+    CHECK(textwrap::wrap("", {.width = 10}).empty());
+  }
+  // max_lines truncates, marking the cut with the placeholder.
+  if (true) {
+    const auto q = "Hello there, how are you this fine day?"sv;
+    CHECK(
+        textwrap::wrap(q, {.width = 15, .max_lines = 1}) == V{"Hello [...]"});
+    CHECK(textwrap::wrap(q, {.width = 15, .max_lines = 2}) ==
+          V{"Hello there,", "how are [...]"});
+    CHECK(textwrap::wrap(q, {.width = 15, .max_lines = 3}) ==
+          V{"Hello there,", "how are you", "this fine day?"});
+    // Divergence from Python, which raises when the placeholder cannot fit:
+    // here it is emitted anyway, overflowing the width.
+    CHECK(textwrap::wrap("word", {.width = 4, .max_lines = 1}) == V{"word"});
+    CHECK(textwrap::wrap("word another", {.width = 4, .max_lines = 1}) ==
+          V{"[...]"});
+  }
+
+  // Shorten collapses whitespace and truncates to a single line.
+  if (true) {
+    CHECK(textwrap::shorten("Hello  world!", 12) == "Hello world!");
+    CHECK(textwrap::shorten("Hello  world!", 11) == "Hello [...]");
+    CHECK(textwrap::shorten("Hello, world!", 10, "...") == "Hello,...");
+    CHECK(textwrap::shorten("Hello, world!", 5, "...") == "...");
+    CHECK(textwrap::shorten("  leading and trailing   ", 100) ==
+          "leading and trailing");
+    CHECK(textwrap::shorten("one two three", 8) == "[...]");
+  }
+
+  // Any code unit works.
+  if (true) {
+    CHECK(textwrap::dedent(u"  a\n  b") == u"a\nb");
+    CHECK(textwrap::indent(L"a\nb", L"> ") == L"> a\n> b");
+    CHECK(textwrap::wrap(u"one two three", {.width = 7}) ==
+          std::vector<std::u16string>{u"one two", u"three"});
+    CHECK(textwrap::shorten(L"one  two", 20) == L"one two");
+  }
+}
+
+#pragma endregion
+#pragma region Fnmatch
+
+TEST_CASE("Fnmatch", "[StringUtilsTest]") {
+  namespace fnmatch = strings::fnmatch;
+
+  // Everything matches at compile time.
+  static_assert(fnmatch::fnmatch("Notes.TXT", "*.txt"));
+  static_assert(fnmatch::fnmatchcase("data_07.csv", "data_[0-9][0-9].csv"));
+  static_assert(!fnmatch::fnmatchcase("Notes.TXT", "*.txt"));
+
+  // Literals and anchoring. Expectations here and below are pinned against
+  // CPython `fnmatch.fnmatchcase` (3.12 and 3.14 agree on every case).
+  if (true) {
+    CHECK(fnmatch::fnmatchcase("abc", "abc"));
+    CHECK_FALSE(fnmatch::fnmatchcase("abc", "abd"));
+    CHECK(fnmatch::fnmatchcase("", ""));
+    CHECK_FALSE(fnmatch::fnmatchcase("a", ""));
+    CHECK_FALSE(fnmatch::fnmatchcase("abc", "ab"));
+    CHECK_FALSE(fnmatch::fnmatchcase("ab", "abc"));
+  }
+  // Star.
+  if (true) {
+    CHECK(fnmatch::fnmatchcase("", "*"));
+    CHECK(fnmatch::fnmatchcase("abc", "*"));
+    CHECK(fnmatch::fnmatchcase("abc", "a*"));
+    CHECK(fnmatch::fnmatchcase("abc", "*c"));
+    CHECK(fnmatch::fnmatchcase("abc", "a*c"));
+    CHECK(fnmatch::fnmatchcase("abc", "a*b*c"));
+    CHECK(fnmatch::fnmatchcase("aXbYc", "a*b*c"));
+    CHECK_FALSE(fnmatch::fnmatchcase("abc", "a*d"));
+    CHECK_FALSE(fnmatch::fnmatchcase("aa", "a*a*a"));
+    // Backtracking: the first "bc" run must be released for the second.
+    CHECK(fnmatch::fnmatchcase("abcbcd", "a*bcd"));
+    CHECK(fnmatch::fnmatchcase("mississippi", "m*issip*"));
+    // Repeated stars collapse.
+    CHECK(fnmatch::fnmatchcase("", "**"));
+    CHECK(fnmatch::fnmatchcase("abc", "a**c"));
+    // String matching, not path globbing: `*` crosses separators, and
+    // newlines are ordinary code units.
+    CHECK(fnmatch::fnmatchcase("a/b.txt", "*.txt"));
+    CHECK(fnmatch::fnmatchcase("a\nb", "a*b"));
+  }
+  // Question mark.
+  if (true) {
+    CHECK_FALSE(fnmatch::fnmatchcase("", "?"));
+    CHECK(fnmatch::fnmatchcase("abc", "a?c"));
+    CHECK(fnmatch::fnmatchcase("abc", "???"));
+    CHECK_FALSE(fnmatch::fnmatchcase("abc", "??"));
+    CHECK_FALSE(fnmatch::fnmatchcase("abc", "????"));
+    CHECK(fnmatch::fnmatchcase("a/b", "a?b"));
+    CHECK(fnmatch::fnmatchcase("a\nb", "a?b"));
+  }
+  // Bracket sets.
+  if (true) {
+    CHECK(fnmatch::fnmatchcase("abc", "a[b]c"));
+    CHECK(fnmatch::fnmatchcase("adc", "a[bd]c"));
+    CHECK_FALSE(fnmatch::fnmatchcase("acc", "a[bd]c"));
+    CHECK_FALSE(fnmatch::fnmatchcase("abc", "a[!b]c"));
+    CHECK(fnmatch::fnmatchcase("adc", "a[!b]c"));
+    CHECK(fnmatch::fnmatchcase("abc", "a[a-c]c"));
+    CHECK_FALSE(fnmatch::fnmatchcase("adc", "a[a-c]c"));
+    // `*` and `?` are literal inside a set.
+    CHECK(fnmatch::fnmatchcase("*", "[*]"));
+    CHECK_FALSE(fnmatch::fnmatchcase("a", "[*]"));
+    CHECK(fnmatch::fnmatchcase("?", "[?]"));
+    CHECK_FALSE(fnmatch::fnmatchcase("a", "[?]"));
+    // Multiple ranges, and a `-` that is a member rather than a range.
+    CHECK(fnmatch::fnmatchcase("b", "[a-cx-z]"));
+    CHECK(fnmatch::fnmatchcase("y", "[a-cx-z]"));
+    CHECK_FALSE(fnmatch::fnmatchcase("e", "[a-cx-z]"));
+    CHECK(fnmatch::fnmatchcase("-", "[a-c-z]"));
+    CHECK(fnmatch::fnmatchcase("z", "[a-c-z]"));
+    CHECK_FALSE(fnmatch::fnmatchcase("m", "[a-c-z]"));
+  }
+  // Bracket-set edge cases, all matching CPython.
+  if (true) {
+    // A `]` first in the set is a literal member.
+    CHECK(fnmatch::fnmatchcase("]", "[]]"));
+    CHECK_FALSE(fnmatch::fnmatchcase("a", "[]]"));
+    CHECK_FALSE(fnmatch::fnmatchcase("]", "[!]]"));
+    CHECK(fnmatch::fnmatchcase("a", "[!]]"));
+    // An unterminated `[` is a literal, as is everything after it.
+    CHECK(fnmatch::fnmatchcase("[", "["));
+    CHECK_FALSE(fnmatch::fnmatchcase("a", "["));
+    CHECK(fnmatch::fnmatchcase("a[b", "a[b"));
+    CHECK(fnmatch::fnmatchcase("[!", "[!"));
+    CHECK(fnmatch::fnmatchcase("[!]", "[!]"));
+    CHECK_FALSE(fnmatch::fnmatchcase("!", "[!]"));
+    // A `-` first or last in the set is a literal member.
+    CHECK(fnmatch::fnmatchcase("-", "[-a]"));
+    CHECK(fnmatch::fnmatchcase("a", "[-a]"));
+    CHECK_FALSE(fnmatch::fnmatchcase("b", "[-a]"));
+    CHECK(fnmatch::fnmatchcase("-", "[a-]"));
+    CHECK(fnmatch::fnmatchcase("a", "[a-]"));
+    CHECK_FALSE(fnmatch::fnmatchcase("b", "[a-]"));
+    // A reversed range is empty.
+    CHECK_FALSE(fnmatch::fnmatchcase("a", "[z-a]"));
+    CHECK_FALSE(fnmatch::fnmatchcase("z", "[z-a]"));
+    CHECK(fnmatch::fnmatchcase("m", "[!z-a]"));
+    // No escape character: a backslash is an ordinary code unit.
+    CHECK(fnmatch::fnmatchcase("\\", "\\"));
+    CHECK(fnmatch::fnmatchcase("\\a", "\\a"));
+    CHECK(fnmatch::fnmatchcase("\\", "[\\]"));
+    CHECK_FALSE(fnmatch::fnmatchcase("x", "[\\]"));
+  }
+  // `fnmatch` folds ASCII case on both sides, including range endpoints;
+  // `fnmatchcase` does not.
+  if (true) {
+    CHECK(fnmatch::fnmatch("ABC", "abc"));
+    CHECK(fnmatch::fnmatch("abc", "ABC"));
+    CHECK(fnmatch::fnmatch("ABC", "[a-z][a-z][a-z]"));
+    CHECK(fnmatch::fnmatch("abc", "[A-Z]bc"));
+    CHECK_FALSE(fnmatch::fnmatchcase("ABC", "abc"));
+    CHECK_FALSE(fnmatch::fnmatchcase("ABC", "[a-z][a-z][a-z]"));
+    // Unlike Python on Windows, no path-separator rewrite ever happens.
+    CHECK_FALSE(fnmatch::fnmatch("a/b", "a\\b"));
+  }
+  // Any code unit works, and so does any string-like argument.
+  if (true) {
+    CHECK(fnmatch::fnmatch(L"README.MD", L"readme.??"));
+    CHECK(fnmatch::fnmatchcase(u"data.csv", u"*.csv"));
+    CHECK(fnmatch::fnmatch(std::string{"Notes.TXT"}, "*.txt"));
+  }
+  // `filter` and `filterfalse` are lazy views over the name range. Both are
+  // pinned against CPython 3.14, which is where `filterfalse` was added.
+  if (true) {
+    const std::vector<std::string> names{"a.cpp", "b.h", "C.CPP", "d.txt"};
+    const auto matched =
+        fnmatch::filter(names, "*.cpp") | std::ranges::to<std::vector>();
+    CHECK(matched == std::vector<std::string>{"a.cpp", "C.CPP"});
+    const auto rest =
+        fnmatch::filterfalse(names, "*.cpp") | std::ranges::to<std::vector>();
+    CHECK(rest == std::vector<std::string>{"b.h", "d.txt"});
+    // Composes with further adaptors.
+    CHECK(std::ranges::distance(
+              fnmatch::filter(names, "*.cpp") | std::views::take(1)) == 1);
+  }
+}
+
+#pragma endregion
+#pragma region PurePath
+
+TEST_CASE("PurePath", "[StringUtilsTest]") {
+  namespace pure_path = strings::pure_path;
+
+  // `match` right-anchors a relative pattern. Expectations here and below
+  // are pinned against CPython 3.14 `PurePosixPath` (which is
+  // case-sensitive, hence via the `_case` variants).
+  if (true) {
+    CHECK(pure_path::match_case("a/b/c.py", "c.py"));
+    CHECK(pure_path::match_case("a/b/c.py", "*.py"));
+    CHECK(pure_path::match_case("a/b/c.py", "b/*.py"));
+    CHECK(pure_path::match_case("a/b/c.py", "a/b/c.py"));
+    CHECK_FALSE(pure_path::match_case("a/b/c.py", "a/*.py"));
+    CHECK_FALSE(pure_path::match_case("a/b/c.py", "x/c.py"));
+    CHECK(pure_path::match_case("/a/b/c.py", "b/*.py"));
+    CHECK(pure_path::match_case("/a/b/c.py", "a/b/c.py"));
+    // A pattern longer than the path cannot match.
+    CHECK_FALSE(pure_path::match_case("c.py", "b/c.py"));
+    CHECK_FALSE(pure_path::match_case("c.py", "*/c.py"));
+  }
+  // An anchored pattern must cover the whole path.
+  if (true) {
+    CHECK(pure_path::match_case("/a/b/c.py", "/a/b/c.py"));
+    CHECK(pure_path::match_case("/a", "/a"));
+    CHECK_FALSE(pure_path::match_case("/a/b/c.py", "/*.py"));
+    CHECK(pure_path::match_case("/a/b/c.py", "/*/*/*.py"));
+    CHECK_FALSE(pure_path::match_case("/a/b/c.py", "/**/*.py"));
+    CHECK_FALSE(pure_path::match_case("a/b/c.py", "/a/b/c.py"));
+  }
+  // Wildcards never match a bare root, and never cross separators.
+  if (true) {
+    CHECK_FALSE(pure_path::match_case("/a/b", "*/a/b"));
+    CHECK_FALSE(pure_path::match_case("/a/b", "?/a/b"));
+    CHECK_FALSE(pure_path::match_case("/a/b", "[/]/a/b"));
+    CHECK_FALSE(pure_path::match_case("a/b", "a*b"));
+    CHECK_FALSE(pure_path::match_case("a/b", "a?b"));
+    CHECK(pure_path::match_case("ab", "a*b"));
+  }
+  // In `match`, `**` degrades to `*`: one component, not a run.
+  if (true) {
+    CHECK(pure_path::match_case("a/b/c.py", "**/*.py"));
+    CHECK(pure_path::match_case("a/b/c.py", "**/**/*.py"));
+    CHECK(pure_path::match_case("a/b/c.py", "a/**/c.py"));
+    CHECK_FALSE(pure_path::match_case("a/x/b/c.py", "a/**/c.py"));
+  }
+  // "." components, duplicate separators, and a trailing separator all
+  // normalize away, while ".." stays literal, on both sides.
+  if (true) {
+    CHECK(pure_path::match_case("./a/b", "a/b"));
+    CHECK(pure_path::match_case("a/./b", "a/b"));
+    CHECK(pure_path::match_case("a//b", "a/b"));
+    CHECK(pure_path::match_case("a/b/", "a/b"));
+    CHECK(pure_path::match_case("a/b", "./a/b"));
+    CHECK(pure_path::match_case("a/b", "a//b"));
+    CHECK(pure_path::match_case("a/b", "a/b/"));
+    CHECK(pure_path::match_case("../a", "../a"));
+    CHECK(pure_path::match_case("../a", "*/a"));
+    CHECK(pure_path::match_case("a/../b", "a/../b"));
+    CHECK_FALSE(pure_path::match_case("b", "a/../b"));
+  }
+  // Bare root and dot, and the no-raise divergence: an empty pattern (or
+  // "."), which Python rejects with `ValueError`, matches nothing here.
+  if (true) {
+    CHECK(pure_path::match_case("/", "/"));
+    CHECK_FALSE(pure_path::match_case(".", "*"));
+    CHECK(pure_path::match_case("a", "*"));
+    CHECK_FALSE(pure_path::match_case("a", ""));
+    CHECK_FALSE(pure_path::match_case("a", "."));
+    CHECK_FALSE(pure_path::full_match_case("a", ""));
+    CHECK_FALSE(pure_path::full_match_case("a", "."));
+  }
+  // `full_match` covers the whole path.
+  if (true) {
+    CHECK_FALSE(pure_path::full_match_case("a/b/c.py", "c.py"));
+    CHECK_FALSE(pure_path::full_match_case("a/b/c.py", "*.py"));
+    CHECK_FALSE(pure_path::full_match_case("a/b/c.py", "b/*.py"));
+    CHECK(pure_path::full_match_case("a/b/c.py", "a/b/c.py"));
+    CHECK(pure_path::full_match_case("a/b/c.py", "a/*/c.py"));
+    CHECK(pure_path::full_match_case("a/b/c.py", "*/*/*.py"));
+    CHECK(pure_path::full_match_case("/a/b", "/a/b"));
+    CHECK_FALSE(pure_path::full_match_case("/a/b", "a/b"));
+    CHECK_FALSE(pure_path::full_match_case("a/b", "/a/b"));
+    CHECK_FALSE(pure_path::full_match_case("/a", "*/a"));
+    CHECK_FALSE(pure_path::full_match_case("/a", "[/]/a"));
+  }
+  // A `**` component matches any run of components; embedded, it degrades
+  // to `*`.
+  if (true) {
+    CHECK(pure_path::full_match_case("a/b/c.py", "**/*.py"));
+    CHECK(pure_path::full_match_case("a/b/c.py", "a/**/c.py"));
+    CHECK(pure_path::full_match_case("a/c.py", "a/**/c.py"));
+    CHECK(pure_path::full_match_case("a/b/x/c.py", "a/**/c.py"));
+    CHECK(pure_path::full_match_case("a/b/c.py", "a/**"));
+    CHECK(pure_path::full_match_case("a/b/c.py", "**"));
+    CHECK(pure_path::full_match_case("a/b/c.py", "**/c.py"));
+    CHECK(pure_path::full_match_case("a/b/c.py", "**/b/c.py"));
+    CHECK(pure_path::full_match_case("a", "**"));
+    CHECK(pure_path::full_match_case(".", "**"));
+    CHECK(pure_path::full_match_case("../a", "**/a"));
+    CHECK(pure_path::full_match_case("a/../b", "a/*/b"));
+    CHECK(pure_path::full_match_case("a/b", "a**/b"));
+    CHECK_FALSE(pure_path::full_match_case("a/b", "**b"));
+  }
+  // The root subtleties, exactly as CPython has them: `**` absorbs a root
+  // only together with at least one real component, except that a bare `**`
+  // matches everything.
+  if (true) {
+    CHECK(pure_path::full_match_case("/a/b", "**"));
+    CHECK(pure_path::full_match_case("/", "**"));
+    CHECK(pure_path::full_match_case("/a/b", "**/b"));
+    CHECK_FALSE(pure_path::full_match_case("/a/b", "**/a/b"));
+    CHECK_FALSE(pure_path::full_match_case("/a", "**/a"));
+    CHECK(pure_path::full_match_case("a", "**/a"));
+    CHECK(pure_path::full_match_case("/a/b", "/**"));
+    CHECK(pure_path::full_match_case("/a/b", "/**/b"));
+    CHECK(pure_path::full_match_case("/a/b", "/**/a/b"));
+    CHECK(pure_path::full_match_case("/a/b", "/a/**"));
+    CHECK(pure_path::full_match_case("/", "/**"));
+    CHECK_FALSE(pure_path::full_match_case("a/b", "/**/a/b"));
+  }
+  // The folded variants, and wide path arguments.
+  if (true) {
+    CHECK(pure_path::match("A/B/C.PY", "c.py"));
+    CHECK(pure_path::full_match("SRC/a.h", "src/*.[Hh]"));
+    CHECK_FALSE(pure_path::match_case("A/B/C.PY", "c.py"));
+    CHECK(pure_path::match(L"a/b/c.py", L"b/*.py"));
+  }
+#ifdef _WIN32
+  // Drive-letter grammar: the host's path grammar does the parsing, so
+  // these only hold on Windows. Pinned against `PureWindowsPath` (which
+  // folds case, hence the unfolded variants).
+  if (true) {
+    CHECK(pure_path::match("C:/x/y", "c:/x/y"));
+    CHECK_FALSE(pure_path::match("C:/x/y", "*.py"));
+    CHECK(pure_path::match("C:/x/y.py", "*.PY"));
+    CHECK(pure_path::match("C:/x/y", "x/y"));
+    CHECK(pure_path::match_case("C:x", "C:x"));
+    CHECK(pure_path::match_case("C:x", "x"));
+    CHECK(pure_path::full_match("C:/x/y", "C:/**"));
+    CHECK(pure_path::full_match("C:/x/y", "C:/x/**"));
+    CHECK(pure_path::full_match("C:/x/y", "**"));
+    CHECK_FALSE(pure_path::full_match("C:/x/y", "D:/**"));
+    // A drive-plus-root pair falls to `**` on its own; a lone drive only
+    // along with a real component.
+    CHECK(pure_path::full_match_case("C:/x", "**/x"));
+    CHECK_FALSE(pure_path::full_match_case("C:x", "**/x"));
+    CHECK(pure_path::full_match_case("C:x/y", "**/y"));
+  }
+#endif
+}
+
+#pragma endregion
+#pragma region Justification
+
+TEST_CASE("Justification", "[StringUtilsTest]") {
+  // `ljust` and `rjust` name where the content goes; the fill lands opposite.
+  if (true) {
+    CHECK(strings::ljust("ab", 5) == "ab   ");
+    CHECK(strings::rjust("ab", 5) == "   ab");
+    CHECK(strings::ljust("ab", 5, '*') == "ab***");
+    CHECK(strings::rjust("ab", 5, '*') == "***ab");
+    // Already wide enough: an unpadded copy.
+    CHECK(strings::ljust("abc", 2) == "abc");
+    CHECK(strings::rjust("abc", 3) == "abc");
+    CHECK(strings::ljust("", 3) == "   ");
+  }
+  // `center` puts odd padding on the right, as `std::format`'s `^` does;
+  // Python `center` would give "  ab " for width 5.
+  if (true) {
+    CHECK(strings::center("ab", 4) == " ab ");
+    CHECK(strings::center("ab", 5) == " ab  ");
+    CHECK(strings::center("a", 4, '.') == ".a..");
+    CHECK(strings::center("abc", 2) == "abc");
+    CHECK(strings::center("", 2) == "  ");
+  }
+  // `zfill` zero-fills after any leading sign.
+  if (true) {
+    CHECK(strings::zfill("42", 5) == "00042");
+    CHECK(strings::zfill("-42", 5) == "-0042");
+    CHECK(strings::zfill("+3.14", 7) == "+003.14");
+    CHECK(strings::zfill("abc", 5) == "00abc");
+    CHECK(strings::zfill("", 3) == "000");
+    CHECK(strings::zfill("-", 2) == "-0");
+    CHECK(strings::zfill("12345", 3) == "12345");
+  }
+  // Any code unit works.
+  if (true) {
+    CHECK(strings::rjust(u"ab"sv, 4) == u"  ab");
+    CHECK(strings::center(L"ab", 4, L'-') == L"-ab-");
+  }
 }
 
 #pragma endregion
@@ -1505,6 +2543,27 @@ TEST_CASE("AppendNum", "[StringUtilsTest]") {
         ("1.00004p+16"));
     CHECK(strings::num_as_string<std::chars_format::general>(
               double(65536.25)) == "65536.25");
+  }
+  if (true) {
+    // Regression: a signed value in prefixed hex used to garble the output
+    // ("0x000000-1"); it now renders as the unsigned two's-complement bit
+    // pattern.
+    CHECK(strings::num_as_string<16>(int8_t{-1}) == "0xff");
+    CHECK(strings::num_as_string<16>(int32_t{-1}) == "0xffffffff");
+    CHECK(strings::num_as_string<16>(int32_t{16}) == "0x00000010");
+    CHECK(strings::num_as_string<16>(std::numeric_limits<int64_t>::min()) ==
+          "0x8000000000000000");
+    // Regression: the worst-case integer rendering (a sign plus 64 binary
+    // digits) used to overflow the buffer and silently append nothing.
+    CHECK(strings::num_as_string<2>(std::numeric_limits<int64_t>::min()) ==
+          "-1" + std::string(63, '0'));
+    // Regression: fixed-format output longer than 64 characters used to
+    // silently append nothing.
+    const auto big = strings::num_as_string<std::chars_format::fixed>(1e300);
+    CHECK(big.size() == 301U);
+    CHECK(big.starts_with("1"));
+    CHECK((strings::num_as_string<std::chars_format::fixed, 100>(1.5)) ==
+          "1.5" + std::string(99, '0'));
   }
 }
 
@@ -1763,7 +2822,7 @@ TEST_CASE("NoZero", "[StringUtilsTest]") {
   // Ensure that the small values we use below are within SSO capacity.
   CHECK((sso_cap) > (10u));
 
-  using namespace corvid::strings::no_zero_funcs;
+  using corvid::strings::no_zero;
 
   // `resize_to`: size matches the requested value exactly; capacity covers it.
   // Shrinking via `resize_to` does NOT reduce capacity: important for the
@@ -1772,41 +2831,41 @@ TEST_CASE("NoZero", "[StringUtilsTest]") {
     std::string s;
 
     // Zero.
-    no_zero::resize_to(s, 0);
+    no_zero{s}.resize_to(0);
     CHECK(s.size() == 0u);
 
     // Tiny (SSO range).
-    no_zero::resize_to(s, 2);
+    no_zero{s}.resize_to(2);
     CHECK(s.size() == 2u);
     CHECK(s.capacity() >= 2u);
 
-    no_zero::resize_to(s, 4);
+    no_zero{s}.resize_to(4);
     CHECK(s.size() == 4u);
     CHECK(s.capacity() >= 4u);
 
     // Shrink within SSO: capacity must not change.
     auto cap = s.capacity();
-    no_zero::resize_to(s, 2);
+    no_zero{s}.resize_to(2);
     CHECK(s.size() == 2u);
     CHECK(s.capacity() == cap);
 
     // Small (heap range).
-    no_zero::resize_to(s, 50);
+    no_zero{s}.resize_to(50);
     CHECK(s.size() == 50u);
     CHECK(s.capacity() >= 50u);
 
-    no_zero::resize_to(s, 100);
+    no_zero{s}.resize_to(100);
     CHECK(s.size() == 100u);
     CHECK(s.capacity() >= 100u);
 
     // Shrink on heap: capacity must not change.
     cap = s.capacity();
-    no_zero::resize_to(s, 50);
+    no_zero{s}.resize_to(50);
     CHECK(s.size() == 50u);
     CHECK(s.capacity() == cap);
 
     // Same size (no-op).
-    no_zero::resize_to(s, 50);
+    no_zero{s}.resize_to(50);
     CHECK(s.size() == 50u);
     CHECK(s.capacity() == cap);
   }
@@ -1816,14 +2875,14 @@ TEST_CASE("NoZero", "[StringUtilsTest]") {
   if (true) {
     // On an empty string: size expands to the SSO capacity.
     std::string s;
-    no_zero::enlarge_to_cap(s);
+    no_zero{s}.enlarge_to_cap();
     CHECK(s.size() == sso_cap);
     CHECK(s.size() == s.capacity());
 
     // On a heap-allocated string: fills out to the full allocated capacity.
-    no_zero::resize_to(s, 50);
+    no_zero{s}.resize_to(50);
     auto cap = s.capacity();
-    no_zero::enlarge_to_cap(s);
+    no_zero{s}.enlarge_to_cap();
     CHECK(s.size() == cap);
     CHECK(s.size() == s.capacity());
   }
@@ -1832,60 +2891,60 @@ TEST_CASE("NoZero", "[StringUtilsTest]") {
   // never changes capacity.
   if (true) {
     static_assert(requires(std::string& value) {
-      no_zero::trim_to(value, int{1});
+      no_zero{value}.trim_to(int{1});
     });
     static_assert(requires(std::string& value) {
-      no_zero::trim_to(value, unsigned{1});
+      no_zero{value}.trim_to(unsigned{1});
     });
     static_assert(requires(std::string& value) {
-      no_zero::trim_to(value, int16_t{-1});
+      no_zero{value}.trim_to(int16_t{-1});
     });
 
     std::string s;
 
-    no_zero::resize_to(s, 50);
+    no_zero{s}.resize_to(50);
     auto cap = s.capacity();
 
     // Shrink within current size.
-    no_zero::trim_to(s, 20);
+    no_zero{s}.trim_to(20);
     CHECK(s.size() == 20u);
     CHECK(s.capacity() == cap);
 
     // Same size is a no-op.
-    no_zero::trim_to(s, 20);
+    no_zero{s}.trim_to(20);
     CHECK(s.size() == 20u);
     CHECK(s.capacity() == cap);
 
     // Larger size request must not enlarge.
-    no_zero::trim_to(s, 40);
+    no_zero{s}.trim_to(40);
     CHECK(s.size() == 20u);
     CHECK(s.capacity() == cap);
 
     // Trimming to zero works and still preserves capacity.
-    no_zero::trim_to(s, 0);
+    no_zero{s}.trim_to(0);
     CHECK(s.size() == 0u);
     CHECK(s.capacity() == cap);
 
     // Negative signed values clamp to zero.
-    no_zero::resize_to(s, 30);
-    no_zero::trim_to(s, -1);
+    no_zero{s}.resize_to(30);
+    no_zero{s}.trim_to(-1);
     CHECK(s.size() == 0u);
     CHECK(s.capacity() == cap);
 
     // Positive signed values trim normally after the signed check.
-    no_zero::resize_to(s, 30);
-    no_zero::trim_to(s, int16_t{6});
+    no_zero{s}.resize_to(30);
+    no_zero{s}.trim_to(int16_t{6});
     CHECK(s.size() == 6u);
     CHECK(s.capacity() == cap);
 
     // Any integer type is accepted, including unsigned non-size_t.
-    no_zero::resize_to(s, 30);
-    no_zero::trim_to(s, 7u);
+    no_zero{s}.resize_to(30);
+    no_zero{s}.trim_to(7u);
     CHECK(s.size() == 7u);
     CHECK(s.capacity() == cap);
 
     // Returns a reference to the same string.
-    CHECK(&no_zero::trim_to(s, 10) == &s);
+    CHECK(&*no_zero{s}.trim_to(10) == &s);
     CHECK(s.size() == 7u);
     CHECK(s.capacity() == cap);
   }
@@ -1896,7 +2955,7 @@ TEST_CASE("NoZero", "[StringUtilsTest]") {
     // Tiny request on an empty string: fits in SSO, so size expands to the
     // full SSO capacity.
     std::string s;
-    no_zero::enlarge_to(s, 3);
+    no_zero{s}.enlarge_to(3);
     CHECK(s.size() >= 3u);
     CHECK(s.size() == sso_cap);
     CHECK(s.size() == s.capacity());
@@ -1904,29 +2963,29 @@ TEST_CASE("NoZero", "[StringUtilsTest]") {
     // Another tiny request within current capacity: no reallocation, size
     // stays at the full current capacity.
     auto cap_before = s.capacity();
-    no_zero::enlarge_to(s, 2);
+    no_zero{s}.enlarge_to(2);
     CHECK(s.size() == cap_before);
     CHECK(s.capacity() == cap_before);
 
     // Small request beyond current capacity: reallocates, then fills capacity.
-    no_zero::enlarge_to(s, 50);
+    no_zero{s}.enlarge_to(50);
     CHECK(s.size() >= 50u);
     CHECK(s.size() == s.capacity());
 
     // Request within the new capacity: no reallocation.
     cap_before = s.capacity();
-    no_zero::enlarge_to(s, 50);
+    no_zero{s}.enlarge_to(50);
     CHECK(s.size() == cap_before);
     CHECK(s.capacity() == cap_before);
 
     // Large request well beyond current capacity: reallocates and fills.
     auto large = s.capacity() * 4;
-    no_zero::enlarge_to(s, large);
+    no_zero{s}.enlarge_to(large);
     CHECK(s.size() >= large);
     CHECK(s.size() == s.capacity());
 
     // Returns a reference to the same string.
-    CHECK(&no_zero::enlarge_to(s, 4) == &s);
+    CHECK(&*no_zero{s}.enlarge_to(4) == &s);
   }
 
   // `clear_out`: releases the heap buffer (capacity drops to SSO level) and
@@ -1934,23 +2993,23 @@ TEST_CASE("NoZero", "[StringUtilsTest]") {
   if (true) {
     // Heap-allocated string: buffer is released.
     std::string s;
-    no_zero::enlarge_to(s, 100);
+    no_zero{s}.enlarge_to(100);
     CHECK(s.capacity() >= 100u);
-    no_zero::clear_out(s);
+    no_zero{s}.clear_out();
     CHECK(s.size() == 0u);
     CHECK((s.capacity()) < (100u));
     CHECK(s.capacity() >= sso_cap);
 
     // SSO-sized string: capacity is unchanged (nothing to release).
     std::string t;
-    no_zero::resize_to(t, 4);
+    no_zero{t}.resize_to(4);
     auto cap = t.capacity();
-    no_zero::clear_out(t);
+    no_zero{t}.clear_out();
     CHECK(t.size() == 0u);
     CHECK(t.capacity() == cap);
 
     // Returns a reference to the same string.
-    CHECK(&no_zero::clear_out(s) == &s);
+    CHECK(&*no_zero{s}.clear_out() == &s);
   }
 
   // `rightsize_to`: when capacity is within [minimum_size, maximum_size],
@@ -1960,31 +3019,45 @@ TEST_CASE("NoZero", "[StringUtilsTest]") {
   if (true) {
     // Tiny: SSO capacity within bounds -> enlarge_to path.
     std::string s;
-    no_zero::rightsize_to(s, 3, 100);
+    no_zero{s}.rightsize_to(3, 100);
     CHECK(s.size() >= 3u);
     CHECK(s.size() == s.capacity());
 
     // Tiny: SSO capacity above maximum -> shrink to minimum_size.
     std::string t;
-    no_zero::resize_to(t, 4); // capacity == sso_cap
-    no_zero::rightsize_to(t, 2, sso_cap - 1);
+    no_zero{t}.resize_to(4); // capacity == sso_cap
+    no_zero{t}.rightsize_to(2, sso_cap - 1);
     CHECK(t.size() == 2u);
 
     // Small: capacity within bounds -> enlarge_to path.
     std::string u;
-    no_zero::rightsize_to(u, 50, 500);
+    no_zero{u}.rightsize_to(50, 500);
     CHECK(u.size() >= 50u);
     CHECK(u.size() == u.capacity());
 
     // Small: capacity above maximum -> shrinks to minimum_size.
-    no_zero::enlarge_to(u, 200);
+    no_zero{u}.enlarge_to(200);
     CHECK(u.capacity() >= 200u);
-    no_zero::rightsize_to(u, 50, 100);
+    no_zero{u}.rightsize_to(50, 100);
     CHECK(u.size() == 50u);
     CHECK((u.capacity()) < (200u));
 
     // Returns a reference to the same string.
-    CHECK(&no_zero::rightsize_to(u, 50, 500) == &u);
+    CHECK(&*no_zero{u}.rightsize_to(50, 500) == &u);
+  }
+
+  // The wrapper is code-unit generic, methods chain, and the arrow reaches
+  // the wrapped string.
+  if (true) {
+    std::wstring w;
+    no_zero{w}.enlarge_to(50);
+    CHECK(w.size() >= 50u);
+    CHECK(w.size() == w.capacity());
+    CHECK(no_zero{w}.trim_to(3)->size() == 3u);
+
+    std::u16string u16;
+    CHECK(&*no_zero{u16}.resize_to(20).clear_out() == &u16);
+    CHECK(u16.size() == 0u);
   }
 }
 
@@ -2052,6 +3125,14 @@ TEST_CASE("TokenParser", "[StringUtilsTest]") {
   ctoken = token_parser::next_terminated(',', input);
   REQUIRE_FALSE(ctoken.has_value());
   CHECK(input == "three");
+
+  // Regression: an empty separator used to return an empty token without
+  // consuming anything, an infinite-loop trap; it now consumes the whole
+  // input as one token, matching extract_piece.
+  input = "abc";
+  CHECK(token_parser::next_delimited("", input) == "abc");
+  CHECK(input.empty());
+  CHECK(token_parser::next_delimited("", input) == "");
 }
 
 #pragma endregion

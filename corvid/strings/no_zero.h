@@ -15,98 +15,115 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 #pragma once
-#include "strings_shared.h"
+#include <concepts>
+#include <cstddef>
+#include <string>
 
-namespace corvid::strings { inline namespace no_zero_funcs {
+#include "../meta/concepts.h"
 
-// Support for resizing strings without zero-initialization.
-//
-// C++23 provides `std::string::resize_and_overwrite`, but it's awkward to use
-// directly and doesn't have the semantics needed for buffer use.
-//
-// Note that, quite intentionally, the contents of the string buffer are
-// indeterminate after any of these calls.
-namespace no_zero {
+namespace corvid::strings { inline namespace nozerostruct {
 
 #pragma region no_zero
 
-// Clear out string, actually releasing the buffer. Capacity drops to
-// whatever the small string optimization allows.
-constexpr auto& clear_out(std::string& s) {
-  s.clear();
-  s.shrink_to_fit();
-  return s;
-}
-
-// Direct wrapper of `resize_and_overwrite`, hiding the lambda away. This is
-// probably not the function you want to call.
+// Resizer of strings without zero-initialization.
 //
-// On enlargement, this still copies the old contents to the new buffer, which
-// is wasteful. Instead, use `enlarge_to` to avoid this. It also doesn't get
-// rid of unwanted capacity, as `rightsize_to` does. Nor is it ideal for
-// trimming after filling, as `trim_to` is.
-constexpr auto& resize_to(std::string& s, std::size_t new_size) {
-  s.resize_and_overwrite(new_size, [new_size](char*, std::size_t) noexcept {
-    return new_size;
-  });
-  return s;
-}
+// C++23 provides `std::string::resize_and_overwrite`, but it's awkward to use
+// directly and doesn't have the semantics needed for buffer use. This wraps a
+// reference to the string, of any code unit, and exposes the buffer-friendly
+// operations as chainable methods. Like `appender`, dereference to get the
+// wrapped string back, as in:
+//
+//   recv(*no_zero{buf}.enlarge_to(max_bytes));
+//
+// Note that, quite intentionally, the contents of the string buffer are
+// indeterminate after any of these calls.
+template<CharType CharT>
+struct no_zero {
+  using string_t = std::basic_string<CharT>;
 
-// Trims size down to `new_size`, but cannot enlarge and does not affect
-// capacity. This is the function to call after filling a buffer partially.
-// Note that it handles the case of negative signed values by clamping them to
-// zero.
-constexpr auto& trim_to(std::string& s, std::integral auto new_size) {
-  if constexpr (std::signed_integral<decltype(new_size)>) {
-    if (new_size < 0) new_size = 0;
+  constexpr explicit no_zero(string_t& s) noexcept : s_{s} {}
+
+  // Clear out the string, actually releasing the buffer. Capacity drops to
+  // whatever the small string optimization allows.
+  constexpr auto& clear_out() {
+    s_.clear();
+    s_.shrink_to_fit();
+    return *this;
   }
-  const auto cast_size = static_cast<std::size_t>(new_size);
-  if (cast_size < s.size()) resize_to(s, cast_size);
-  return s;
-}
 
-// Resize up to the current capacity.
-constexpr auto& enlarge_to_cap(std::string& s) {
-  return resize_to(s, s.capacity());
-}
+  // Direct wrapper of `resize_and_overwrite`, hiding the lambda away. This is
+  // probably not the method you want to call.
+  //
+  // On enlargement, this still copies the old contents to the new buffer,
+  // which is wasteful. Instead, use `enlarge_to` to avoid this. It also
+  // doesn't get rid of unwanted capacity, as `rightsize_to` does. Nor is it
+  // ideal for trimming after filling, as `trim_to` is.
+  constexpr auto& resize_to(size_t new_size) {
+    s_.resize_and_overwrite(new_size, [new_size](CharT*, size_t) noexcept {
+      return new_size;
+    });
+    return *this;
+  }
 
-// Enlarge string to make room for at least `minimum_size` characters.
-// Does not copy old string contents. Does not reduce capacity.
-constexpr auto& enlarge_to(std::string& s, size_t minimum_size) {
-  // If we can satisfy the requirement using the current buffer, expand size
-  // to match its capacity.
-  if (minimum_size <= s.capacity()) return enlarge_to_cap(s);
+  // Trim size down to `new_size`, but cannot enlarge and does not affect
+  // capacity. This is the method to call after filling a buffer partially.
+  // Note that it handles the case of negative signed values by clamping them
+  // to zero.
+  constexpr auto& trim_to(std::integral auto new_size) {
+    if constexpr (std::signed_integral<decltype(new_size)>) {
+      if (new_size < 0) new_size = 0;
+    }
+    const auto cast_size = static_cast<size_t>(new_size);
+    if (cast_size < s_.size()) resize_to(cast_size);
+    return *this;
+  }
 
-  // Since we're going to need to enlarge, we don't want to preserve the old
-  // contents.
-  resize_to(clear_out(s), minimum_size);
+  // Resize up to the current capacity.
+  constexpr auto& enlarge_to_cap() { return resize_to(s_.capacity()); }
 
-  // If there's slack, use all of the available capacity.
-  if (s.capacity() > minimum_size) enlarge_to_cap(s);
+  // Enlarge string to make room for at least `minimum_size` characters.
+  // Does not copy old string contents. Does not reduce capacity.
+  constexpr auto& enlarge_to(size_t minimum_size) {
+    // If we can satisfy the requirement using the current buffer, expand size
+    // to match its capacity.
+    if (minimum_size <= s_.capacity()) return enlarge_to_cap();
 
-  return s;
-}
+    // Since we're going to need to enlarge, we don't want to preserve the old
+    // contents.
+    clear_out().resize_to(minimum_size);
 
-// Right-size string to be between `minimum_size` and `maximum_size`,
-// inclusive. This allows the string to grow above `minimum_size`, but puts a
-// limit on how bloated it can get.
-//
-// Note: `maximum_size` must be substantially larger than `minimum_size`,
-// otherwise the capacity for `minimum_size` could exceed `maximum_size`,
-// leading to churn. Typically, `maximum_size` should be at least 2x
-// `minimum_size`.
-constexpr auto&
-rightsize_to(std::string& s, size_t minimum_size, size_t maximum_size) {
-  // If current capacity exceeds `maximum_size`, shrink to fit and then
-  // resize to `minimum_size`.
-  if (s.capacity() > maximum_size)
-    return resize_to(clear_out(s), minimum_size);
+    // If there's slack, use all of the available capacity.
+    if (s_.capacity() > minimum_size) enlarge_to_cap();
 
-  // Otherwise, use `enlarge_to`.
-  return enlarge_to(s, minimum_size);
-}
+    return *this;
+  }
+
+  // Right-size string to be between `minimum_size` and `maximum_size`,
+  // inclusive. This allows the string to grow above `minimum_size`, but puts
+  // a limit on how bloated it can get.
+  //
+  // Note: `maximum_size` must be substantially larger than `minimum_size`,
+  // otherwise the capacity for `minimum_size` could exceed `maximum_size`,
+  // leading to churn. Typically, `maximum_size` should be at least 2x
+  // `minimum_size`.
+  constexpr auto& rightsize_to(size_t minimum_size, size_t maximum_size) {
+    // If current capacity exceeds `maximum_size`, shrink to fit and then
+    // resize to `minimum_size`.
+    if (s_.capacity() > maximum_size)
+      return clear_out().resize_to(minimum_size);
+
+    // Otherwise, use `enlarge_to`.
+    return enlarge_to(minimum_size);
+  }
+
+  // The wrapped string.
+  [[nodiscard]] constexpr string_t& operator*() const noexcept { return s_; }
+  [[nodiscard]] constexpr string_t* operator->() const noexcept { return &s_; }
+
+private:
+  string_t& s_;
+};
 
 #pragma endregion
 
-} // namespace no_zero
-}} // namespace corvid::strings::no_zero_funcs
+}} // namespace corvid::strings::nozerostruct

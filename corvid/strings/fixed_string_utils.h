@@ -15,9 +15,15 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 #pragma once
-#include "strings_shared.h"
-#include "trimming.h"
+#include <algorithm>
+#include <array>
+#include <cassert>
+#include <cstddef>
+#include <string_view>
+
 #include "../meta/fixed_string.h"
+#include "string_literals.h"
+#include "trimming.h"
 
 namespace corvid::strings { inline namespace fixed {
 
@@ -75,12 +81,10 @@ consteval auto fixed_split_trim() {
 // turning a comma-delimited list into a null-delimited one.
 template<meta::fixed_string W, char F, char T>
 consteval auto fixed_replaced() {
-  constexpr std::size_t n = W.size();
+  constexpr size_t n = W.size();
   char buf[n + 1]{};
-  for (std::size_t ndx = 0; ndx != n; ++ndx)
-    buf[ndx] = W[ndx] == F ? T : W[ndx];
-  return meta::basic_fixed_string{buf,
-      std::integral_constant<std::size_t, n>{}};
+  for (size_t ndx = 0; ndx != n; ++ndx) buf[ndx] = W[ndx] == F ? T : W[ndx];
+  return meta::basic_fixed_string{buf, std::integral_constant<size_t, n>{}};
 }
 
 #pragma endregion

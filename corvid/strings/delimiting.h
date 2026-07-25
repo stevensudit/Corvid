@@ -15,8 +15,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 #pragma once
+#include "../meta/concepts.h"
 #include "string_view_wrapper.h"
-#include "strings_shared.h"
 #include "targeting.h"
 
 namespace corvid::strings { inline namespace delimiting {
@@ -60,6 +60,11 @@ struct basic_delim: public string_view_wrapper<basic_delim<CharT>, CharT> {
   [[nodiscard]] constexpr auto find_in(view_t whole) const {
     if (this->size() == 1) return whole.find(this->front());
     return whole.find_first_of(*this);
+  }
+
+  [[nodiscard]] constexpr auto rfind_in(view_t whole) const {
+    if (this->size() == 1) return whole.rfind(this->front());
+    return whole.find_last_of(*this);
   }
 
   [[nodiscard]] constexpr auto find_not_in(view_t whole) const {

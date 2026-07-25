@@ -171,8 +171,8 @@ int_to_chars(CharT* first, CharT* last, T value, int base = 10) noexcept {
     mag = static_cast<U>(mag / ubase);
   } while (mag != 0);
 
-  const std::size_t total = static_cast<std::size_t>(n) + (negative ? 1U : 0U);
-  if (static_cast<std::size_t>(last - first) < total)
+  const size_t total = static_cast<size_t>(n) + (negative ? 1U : 0U);
+  if (static_cast<size_t>(last - first) < total)
     return {last, std::errc::value_too_large};
 
   CharT* out = first;
@@ -187,7 +187,7 @@ int_to_chars(CharT* first, CharT* last, T value, int base = 10) noexcept {
 // Scratch size for transcoding floating-point text between `char` and a wider
 // code unit. Ample for any `general`- or `scientific`-format double or long
 // double.
-inline constexpr std::size_t float_buffer_size = 128;
+inline constexpr size_t float_buffer_size = 128;
 
 // Upper bound on `precision` for `float_to_chars`, leaving room for the sign,
 // leading digit, radix point, and exponent within `float_buffer_size`. A
@@ -215,7 +215,7 @@ float_from_chars(const CharT* first, const CharT* last, T& value,
     return {first + (r.ptr - f), r.ec};
   } else {
     char buf[float_buffer_size];
-    std::size_t n = 0;
+    size_t n = 0;
     for (const CharT* p = first; p != last && n < float_buffer_size; ++p) {
       const auto u = static_cast<std::make_unsigned_t<CharT>>(*p);
       if (u > 0x7F) break;
@@ -256,11 +256,11 @@ template<CharType CharT, std::floating_point T>
             : std::to_chars(buf, buf + float_buffer_size, value, fmt,
                   precision);
     if (r.ec != std::errc{}) return {first, r.ec};
-    const auto n = static_cast<std::size_t>(r.ptr - buf);
-    if (static_cast<std::size_t>(last - first) < n)
+    const auto n = static_cast<size_t>(r.ptr - buf);
+    if (static_cast<size_t>(last - first) < n)
       return {last, std::errc::value_too_large};
     CharT* out = first;
-    for (std::size_t i = 0; i < n; ++i)
+    for (size_t i = 0; i < n; ++i)
       *out++ = static_cast<CharT>(static_cast<unsigned char>(buf[i]));
     return {out, std::errc{}};
   }

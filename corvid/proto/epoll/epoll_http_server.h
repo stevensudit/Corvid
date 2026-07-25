@@ -16,10 +16,13 @@
 // limitations under the License.
 #pragma once
 #include <atomic>
+#include <cassert>
 #include <compare>
+#include <functional>
 #include <cstdint>
 #include <memory>
 #include <optional>
+#include <stdexcept>
 #include <string>
 #include <string_view>
 #include <unordered_map>

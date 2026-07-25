@@ -16,21 +16,22 @@
 // limitations under the License.
 #pragma once
 #include <optional>
+#include <string_view>
 
 #include "../meta/concepts.h"
-#include "strings_shared.h"
+#include "string_literals.h"
 
 namespace corvid::strings { inline namespace parsers {
 
 #pragma region basic_token_parser
 
 // Separator-based token parse.
-template<CharType Char = char>
+template<CharType CharT = char>
 class basic_token_parser {
 public:
 #pragma region Member types
 
-  using char_t = Char;
+  using char_t = CharT;
   using view_t = std::basic_string_view<char_t>;
 
 #pragma endregion
@@ -50,17 +51,18 @@ public:
   // the delimiter), and consuming it (and the delimiter) from `text`.
   //
   // As this is a delimiter, not a terminator, the last token is returned when
-  // no more delimiters are found. An empty view is returned under two
-  // conditions. First, when `text` contains just a delimiter; that delimiter
-  // is consumed. Second, when `text` is empty.
+  // no more delimiters are found. An empty view is returned for the empty
+  // token before a leading delimiter or between adjacent delimiters, and when
+  // `text` is empty. An empty `separator` is never a delimiter, so the whole
+  // input is consumed as one token.
   //
   // Similar to `extract_piece`.
   [[nodiscard]] static view_t next_delimited(view_t separator, view_t& text) {
     // If no input, nothing to parse.
-    if (text.empty() || separator.empty()) return {};
+    if (text.empty()) return {};
 
-    // If delimiter not found, consume the rest of the input.
-    const auto pos = text.find(separator);
+    // If delimiter is empty or not found, consume the rest of the input.
+    const auto pos = separator.empty() ? npos : text.find(separator);
     if (pos == npos) {
       const auto token = text;
       text = {};

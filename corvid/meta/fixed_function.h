@@ -24,7 +24,7 @@
 #include <utility>
 
 #include "concepts.h"
-#include "memory.h"
+#include "padding.h"
 
 namespace corvid { inline namespace meta {
 
@@ -259,12 +259,12 @@ public:
   [[nodiscard]] bool operator!() const noexcept { return !lifespan_; }
 
   // Size of the stored callable's payload in bytes, or 0 when empty.
-  [[nodiscard]] std::size_t size() const noexcept {
+  [[nodiscard]] size_t size() const noexcept {
     return lifespan_ ? lifespan_(nullptr, nullptr, 0) : 0;
   }
 
   // Capacity of the inline storage in bytes.
-  [[nodiscard]] std::size_t capacity() const noexcept { return storage_size; }
+  [[nodiscard]] size_t capacity() const noexcept { return storage_size; }
 
 #pragma endregion
 #pragma region Implementation
@@ -272,7 +272,7 @@ private:
   // Type erasure function pointer types for invocation and lifespan
   // management.
   using invoke_fn_t = RP (*)(void*, ARGS...);
-  using lifespan_fn_t = std::size_t (*)(void*, void*, std::size_t) noexcept;
+  using lifespan_fn_t = size_t (*)(void*, void*, size_t) noexcept;
 
   // Move `fn` into inline storage and publish its thunks.
   //
@@ -336,8 +336,7 @@ private:
   // When `from == to` (canonically both null), this is a pure size query: no
   // move, no destruct. Returns the payload size in every non-refusal case.
   template<class F>
-  static std::size_t
-  manage_impl(void* from, void* to, std::size_t to_size) noexcept {
+  static size_t manage_impl(void* from, void* to, size_t to_size) noexcept {
     if (to != from) {
       assert(from);
       auto* f = static_cast<F*>(from);

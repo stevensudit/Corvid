@@ -95,9 +95,9 @@ struct std::formatter<E, CharT> {
 
   template<typename FormatContext>
   auto format(E e, FormatContext& ctx) const {
-    std::size_t width = spec_.width;
+    size_t width = spec_.width;
     if (spec_.width_arg.is_dynamic()) width = spec_.width_arg.get_dynamic(ctx);
-    std::optional<std::size_t> prec = spec_.precision;
+    std::optional<size_t> prec = spec_.precision;
     if (spec_.precision_arg.is_dynamic())
       prec = spec_.precision_arg.get_dynamic(ctx);
 
@@ -148,7 +148,7 @@ private:
   // Trim `content` to precision and pad it to width, widening to `CharT`.
   template<typename OutIt>
   OutIt write_field(OutIt out, std::string_view content,
-      std::optional<std::size_t> prec, std::size_t width) const {
+      std::optional<size_t> prec, size_t width) const {
     if (prec) content = content.substr(0, *prec);
     return spec_.write_padded(out, content, width);
   }

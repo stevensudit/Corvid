@@ -15,15 +15,20 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 #pragma once
+#include <cstddef>
+#include <string>
 #include <string_view>
 
-#include "../meta.h"
+#include "../meta/concepts.h"
 
 namespace corvid::strings {
 
+// Import the std literals (`""s`, `""sv`, and so on) for the whole band.
+using namespace std::literals;
+
 // A `position` is a `size_t` that represents a location within a string, with
 // `npos` as the logical equivalent of the string's size.
-using position = std::size_t;
+using position = size_t;
 
 // To get `npos`, use:
 //  using namespace corvid::strings::literals;

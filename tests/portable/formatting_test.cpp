@@ -122,25 +122,26 @@ namespace {
 using cps = parsed_spec<char>;
 using align = cps::aligned;
 
-// `calc_padding` is constexpr; verify the split for each alignment, the
-// odd-pad bias toward the trailing side, and the no-room case.
-static_assert(cps::calc_padding(align::left, 3, 10).first == 0);
-static_assert(cps::calc_padding(align::left, 3, 10).second == 7);
-static_assert(cps::calc_padding(align::right, 3, 10).first == 7);
-static_assert(cps::calc_padding(align::right, 3, 10).second == 0);
-static_assert(cps::calc_padding(align::center, 3, 10).first == 3);
-static_assert(cps::calc_padding(align::center, 3, 10).second == 4);
-static_assert(cps::calc_padding(align::center, 4, 10).first == 3);
-static_assert(cps::calc_padding(align::center, 4, 10).second == 3);
-static_assert(cps::calc_padding(align::right, 5, 3).first == 0);
-static_assert(cps::calc_padding(align::right, 5, 3).second == 0);
+// `calc_padding` (now free, in meta/padding.h) is constexpr; verify the split
+// for each alignment, the odd-pad bias toward the trailing side, and the
+// no-room case.
+static_assert(calc_padding(align::left, 3, 10).first == 0);
+static_assert(calc_padding(align::left, 3, 10).second == 7);
+static_assert(calc_padding(align::right, 3, 10).first == 7);
+static_assert(calc_padding(align::right, 3, 10).second == 0);
+static_assert(calc_padding(align::center, 3, 10).first == 3);
+static_assert(calc_padding(align::center, 3, 10).second == 4);
+static_assert(calc_padding(align::center, 4, 10).first == 3);
+static_assert(calc_padding(align::center, 4, 10).second == 3);
+static_assert(calc_padding(align::right, 5, 3).first == 0);
+static_assert(calc_padding(align::right, 5, 3).second == 0);
 
 using sp = spec_parser<char>;
 using avt = sp::arg_value_t;
 
 // `make_from_parse` classifies a width/precision argument; it is constexpr.
 constexpr avt parse_arg(std::string_view s) {
-  std::size_t ndx = 0;
+  size_t ndx = 0;
   return avt::make_from_parse(s, ndx);
 }
 static_assert(parse_arg("10").kind == sp::arg_kind::fixed);
@@ -182,7 +183,7 @@ TEST_CASE("WritePrimitives", "[parsed_spec]") {
 }
 
 TEST_CASE("WritePadded", "[parsed_spec]") {
-  auto render = [](align a, char fill, std::size_t w, std::string_view c) {
+  auto render = [](align a, char fill, size_t w, std::string_view c) {
     cps spec;
     spec.alignment = a;
     spec.fill = fill;

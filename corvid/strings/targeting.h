@@ -15,9 +15,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 #pragma once
+#include <cstddef>
+#include <ostream>
+#include <string>
+#include <string_view>
 #include <type_traits>
 
-#include "strings_shared.h"
+#include "../meta/concepts.h"
 
 namespace corvid::strings { inline namespace targeting {
 
@@ -40,26 +44,28 @@ template<typename T>
 class appender;
 
 // Append target that forwards output to an output iterator, converting each
-// `SrcChar` input unit to the destination unit `DestChar` (which defaults to
-// `SrcChar`, a plain passthrough). This lets the append machinery (enum names,
-// numbers, delimiters, quoted strings) write straight into a `std::format`
-// context's output iterator, with no intermediate string. The conversion is
-// per code unit: an identity copy when the units match, and a value-preserving
-// widen when `SrcChar` is narrower (e.g. char names into a wide context). It
-// does not decode multibyte encodings; real transcoding (such as UTF-8 to
-// UTF-16) is out of scope. The `out` iterator is live and is advanced in place
-// as appends occur.
-template<typename It, CharType SrcChar, CharType DestChar = SrcChar>
+// `SrcCharT` input unit to the destination unit `DestCharT` (which defaults to
+// `SrcCharT`, a plain passthrough).
+//
+// This lets the append machinery (enum names, numbers, delimiters, quoted
+// strings) write straight into a `std::format` context's output iterator, with
+// no intermediate string. The conversion is per code unit: an identity copy
+// when the units match, and a value-preserving widen when `SrcCharT` is
+// narrower (e.g. char names into a wide context). It does not decode multibyte
+// encodings; real transcoding (such as UTF-8 to UTF-16) is out of scope. The
+// `out` iterator is live and is advanced in place as appends occur.
+template<typename It, CharType SrcCharT, CharType DestCharT = SrcCharT>
 struct output_iterator_appendable {
-  using append_char_type = SrcChar;
+  using append_char_type = SrcCharT;
   It out;
 };
 
 // Base class with shared functionality, using C++23 deducing this for static
-// polymorphism in place of the CRTP idiom. The `this auto&& self` parameter
-// deduces the actual derived type, so the base dispatches to derived hooks
-// (`append_sv`/`append_ch`) and returns the correct type without a recurring
-// template parameter or `static_cast`.
+// polymorphism in place of the CRTP idiom.
+//
+// The `this auto&& self` parameter deduces the actual derived type, so the
+// base dispatches to derived hooks (`append_sv`/`append_ch`) and returns the
+// correct type without a recurring template parameter or `static_cast`.
 template<typename T, typename C>
 class appender_base {
 #pragma region Types
@@ -76,7 +82,7 @@ public:
 #pragma region Appending
 
   // Deducing this: `self` deduces to the actual derived type (appender<T>).
-  // All append overloads forward to append_sv or append_ch in the derived.
+  // All append overloads forward to `append_sv` or `append_ch` in the derived.
   constexpr auto& append(this auto&& self, view_t sv) {
     return self.append_sv(sv);
   }
@@ -124,8 +130,7 @@ public:
 #pragma region Appending
 private:
   friend base;
-  // Not constexpr: `std::basic_ostream` write/put are never constant
-  // evaluable, unlike the string and output-iterator specializations.
+
   auto& append_sv(std::basic_string_view<char_t> sv) {
     target_.write(sv.data(), sv.size());
     return *this;
@@ -174,13 +179,13 @@ private:
 #pragma endregion
 };
 
-// `output_iterator_appendable` specialization: `SrcChar` in, `DestChar` out.
-template<typename It, CharType SrcChar, CharType DestChar>
-class appender<output_iterator_appendable<It, SrcChar, DestChar>> final
-    : public appender_base<output_iterator_appendable<It, SrcChar, DestChar>,
-          SrcChar> {
-  using target_t = output_iterator_appendable<It, SrcChar, DestChar>;
-  using base = appender_base<target_t, SrcChar>;
+// `output_iterator_appendable` specialization: `SrcCharT` in, `DestCharT` out.
+template<typename It, CharType SrcCharT, CharType DestCharT>
+class appender<output_iterator_appendable<It, SrcCharT, DestCharT>> final
+    : public appender_base<output_iterator_appendable<It, SrcCharT, DestCharT>,
+          SrcCharT> {
+  using target_t = output_iterator_appendable<It, SrcCharT, DestCharT>;
+  using base = appender_base<target_t, SrcCharT>;
   using base::target_;
 
 #pragma region Construction
@@ -194,16 +199,16 @@ private:
   // Per-unit conversion: identity when the units match, otherwise a widen
   // through the unsigned value, so a high byte maps to its code point rather
   // than sign-extending.
-  static constexpr DestChar to_dest(SrcChar unit) {
-    return static_cast<DestChar>(
-        static_cast<std::make_unsigned_t<SrcChar>>(unit));
+  static constexpr DestCharT to_dest(SrcCharT unit) {
+    return static_cast<DestCharT>(
+        static_cast<std::make_unsigned_t<SrcCharT>>(unit));
   }
-  constexpr auto& append_sv(std::basic_string_view<SrcChar> sv) {
-    for (const SrcChar unit : sv) *target_.out++ = to_dest(unit);
+  constexpr auto& append_sv(std::basic_string_view<SrcCharT> sv) {
+    for (const SrcCharT unit : sv) *target_.out++ = to_dest(unit);
     return *this;
   }
-  constexpr auto& append_ch(size_t len, SrcChar unit) {
-    const DestChar dest = to_dest(unit);
+  constexpr auto& append_ch(size_t len, SrcCharT unit) {
+    const DestCharT dest = to_dest(unit);
     while (len--) *target_.out++ = dest;
     return *this;
   }

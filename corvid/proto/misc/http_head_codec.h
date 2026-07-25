@@ -370,7 +370,7 @@ public:
       }
 
       char old = c;
-      c = capitalize ? strings::to_upper(c) : strings::to_lower(c);
+      c = capitalize ? strings::as_upper(c) : strings::as_lower(c);
 
       if (c != old) changed = true;
       capitalize = false;

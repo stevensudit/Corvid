@@ -44,11 +44,12 @@ sequence enum prints by name, a registered bitmask enum prints as its
 underlying value.
 
 No intermediate string: the formatter wraps `ctx.out()` in
-`output_iterator_appendable<It, SrcChar, DestChar>` (added to
+`output_iterator_appendable<It, SrcCharT, DestCharT>` (added to
 [targeting.h](targeting.h), wired into the `AppendTarget`
 concepts in [../../meta/concepts.h](../meta/concepts.h)). It is an append
-target generic in its input code unit `SrcChar` (matched by the concepts via an
-`append_char_type` member), converting each unit to `DestChar` on the way out:
+target generic in its input code unit `SrcCharT` (matched by the concepts via
+an `append_char_type` member), converting each unit to `DestCharT` on the way
+out:
 identity when the units match, a value-preserving widen when narrower. The enum
 case is `char` in, `CharT` out; a later wide-content formatter (quoted strings)
 can be `CharT` in, `CharT` out. Real multibyte transcoding (UTF-8 to UTF-16) is
@@ -90,13 +91,13 @@ provides directly.
 #### string_view_wrapper children
 
 `opt_string_view`, `cstring_view`, and `enum_name` all derive from
-`string_view_wrapper<Child, Char>`, and the base forwards `begin` and `end`, so
+`string_view_wrapper<Child, CharT>`, and the base forwards `begin` and `end`, so
 today they are ranges of `char`: `std::format("{}", ov)` is claimed by the std
 range formatter and prints `['h', 'e', ...]`. A single concept-constrained
-`std::formatter<Child, Char>` matching the wrapper children fixes this for all
+`std::formatter<Child, CharT>` matching the wrapper children fixes this for all
 of them at once.
 
-It inherits `std::formatter<std::basic_string_view<Char>, Char>` to reuse the
+It inherits `std::formatter<std::basic_string_view<CharT>, CharT>` to reuse the
 full spec grammar (fill, align, width, precision, `?`), and in `format()`
 converts the wrapper to its `string_view` and delegates. Regular `{}` is pure
 delegation. The one addition: in `{:?}` debug mode a null wrapper (null is
@@ -124,7 +125,7 @@ underlying `view()` for dynamic-width debug on a known non-null wrapper.
 `basic_fixed_string` cannot be null, so its formatter is pure delegation with
 no debug branch. Define it at the bottom of
 [fixed_string.h](../meta/fixed_string.h): call the value's `view()` and
-forward to `std::formatter<std::basic_string_view<Char>, Char>`.
+forward to `std::formatter<std::basic_string_view<CharT>, CharT>`.
 
 #### containers
 
@@ -293,6 +294,57 @@ only non-test consumers were migrated off it first:
 `interval` carried only a stale leftover include, which was dropped. The
 escaping helpers were the one piece worth keeping, and they moved into
 `json_parser` rather than surviving as a shared utility.
+
+### 4. enable_format wrappers (done)
+
+`enable_format` in [enable_format.h](enable_format.h) is a family of format
+wrappers: a primary template with constrained specializations, each composing
+a value that `std::format` cannot take directly and pairing with a
+`std::formatter` on the wrapper. Two are provided.
+
+The keyed-collection wrapper (over `std::map`, `std::unordered_map`, and
+their multi variants) looks keys up at format time:
+
+    std::format("{0:city}: {0:temperature:.2f}", enable_format{rec});
+
+This is the analog of Python's `format_map`, and it goes further: the key
+itself can be dynamic (`{0:{1}}` reads the key from another string-like arg),
+which neither Python nor {fmt} supports, and it needs no
+`dynamic_format_arg_store`-style setup, just one lookup per field.
+
+The variant wrapper makes `std::variant` formattable, applying the whole spec
+to the active alternative: `std::format("{:.2f}", enable_format{v})`.
+Specializing `std::formatter` for `std::variant` itself would be illegal
+({fmt} formats variants natively, but only because it owns its namespace), so
+the wrapper technique applies just as it does for the keyed collections.
+
+Mechanics: the keyed spec grammar is `key`, or `{n}` / `{}` for a dynamic
+key, optionally followed by `:` and a nested spec applied to the looked-up
+value through the synthetic parse-context technique from
+`nullable_formatter`, shared as the `format_with_spec` helper. The
+dynamic-key arg resolves through `arg_value_t::get_dynamic_str`, the
+string-returning sibling added next to `get_dynamic_num` in
+[../meta/formatting.h](../meta/formatting.h). A `std::variant` mapped type
+routes through the variant wrapper. Multi-keyed collections format the whole
+equal range through the std range formatter, even for one hit, since
+presentation follows the container type; variant values are wrapped per
+element via `views::transform`, so multi and variant combine freely, and the
+variant wrapper propagates `set_debug_format` so string alternatives quote
+inside ranges the way plain strings do. A missing key throws
+`std::format_error` unless the wrapper was constructed with a stand-in value,
+which is coerced to the mapped type (so it lands in a variant naturally) and
+reported as if found; missing-key handling thus lives entirely in the
+wrapper, mirroring Python's `format_map(defaultdict(...))` idiom.
+
+Known limits, documented in the header: compile-time checking stops at the
+wrapper grammar, since keys and value types are runtime facts; automatic `{}`
+ids inside the nested spec would renumber from zero (manual ids work); keys
+cannot contain `:` or `}` or start with `{`; and a bare `{0}` with no key is
+an error rather than a whole-map rendering, which is a plausible future
+extension. Key lookup also does not reach through a variant: a variant
+holding a map formats whole, through the std map formatter, so to look up by
+key, extract the map with `std::get` and wrap that (behavior pinned in the
+test).
 
 ## Deferred / decided against
 

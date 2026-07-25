@@ -878,7 +878,7 @@ inline auto format_args(Args&&... args) {
 template<typename T>
 std::string list_variant_types() {
   std::ostringstream oss;
-  [&]<std::size_t... Is>(std::index_sequence<Is...>) {
+  [&]<size_t... Is>(std::index_sequence<Is...>) {
     ((oss << typeid(std::variant_alternative_t<Is, T>).name() << "\n"), ...);
   }(std::make_index_sequence<std::variant_size_v<T>>{});
   return oss.str();

@@ -15,10 +15,23 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 #pragma once
-#include "strings_shared.h"
-
+#include <algorithm>
 #include <array>
+#include <cassert>
+#include <cstdint>
 #include <cstring>
+#include <initializer_list>
+#include <iterator>
+#include <ranges>
+#include <span>
+#include <string>
+#include <string_view>
+#include <type_traits>
+#include <utility>
+#include <vector>
+
+#include "../meta/concepts.h"
+#include "string_literals.h"
 
 // Search and replace, except `search`, `find`, `replace`, and `erase` are all
 // symbols in the `std` namespace. We had to substitute `locate`, `substitute`,
@@ -142,6 +155,8 @@ struct location {
 struct pos_range {
   position begin{};
   position end{};
+
+  constexpr auto operator<=>(const pos_range&) const noexcept = default;
 };
 
 #pragma endregion
@@ -149,7 +164,7 @@ struct pos_range {
 
 // To get `npos`, `nloc`, `npos_choice`, and `nloc_value`, use:
 //  using namespace corvid::literals;
-// Note: `npos` is defined in string_base.h
+// Note: `npos` is defined in string_literals.h
 inline namespace literals {
 
 constexpr location nloc{npos, npos};
@@ -204,22 +219,6 @@ from_npos(const std::string_view& s, location loc) noexcept {
 }
 
 #pragma endregion
-#pragma region as_pos_range
-
-// Utility to return `pos_range`.
-[[nodiscard]] constexpr pos_range
-as_pos_range(const std::string_view& s, position pos) noexcept {
-  if (pos >= s.size()) return npos_range;
-  return {pos, pos + 1};
-}
-// Same, but for location.
-[[nodiscard]] constexpr pos_range as_pos_range(const std::string_view& s,
-    const auto& values, location loc) noexcept {
-  if (loc.pos >= s.size()) return npos_range;
-  return {loc.pos, loc.pos + value_size(values[loc.pos_value])};
-}
-
-#pragma endregion
 #pragma region value_size
 
 // Size of a single value, regardless of type.
@@ -233,13 +232,39 @@ as_pos_range(const std::string_view& s, position pos) noexcept {
 #pragma endregion
 #pragma region min_value_size
 
-// Smallest size of a list of values. If no values, returns 0.
+// Smallest size of a list of values. If no values, returns 0. Sizes go
+// through `value_size` so elements that merely convert to a view (e.g.
+// `const char*`) work.
 [[nodiscard]] constexpr size_t min_value_size(
     const StringViewConvertibleSpan auto& values) noexcept {
-  auto smallest = std::ranges::min_element(values,
-      [](const auto& a, const auto& b) { return a.size() < b.size(); });
-  if (smallest != values.end()) return smallest->size();
+  auto smallest =
+      std::ranges::min_element(values, [](const auto& a, const auto& b) {
+        return value_size(a) < value_size(b);
+      });
+  if (smallest != values.end()) return value_size(*smallest);
   return 0;
+}
+
+#pragma endregion
+#pragma region as_pos_range
+
+// Utility to return `pos_range`.
+[[nodiscard]] constexpr pos_range
+as_pos_range(const std::string_view& s, position pos) noexcept {
+  if (pos >= s.size()) return npos_range;
+  return {pos, pos + 1};
+}
+
+// Same, but for a `location` from a multi-value `locate`. Yields
+// `npos_range` when nothing was located, including for a
+// `locate_not`-style result, whose `pos_value` indexes no value. An empty
+// value located at end-of-string is a real match, yielding an empty range
+// there.
+[[nodiscard]] constexpr pos_range as_pos_range(const std::string_view& s,
+    const auto& values, location loc) noexcept {
+  if (loc.pos > s.size() || loc.pos_value >= std::size(values))
+    return npos_range;
+  return {loc.pos, loc.pos + value_size(values[loc.pos_value])};
 }
 
 #pragma endregion
@@ -364,6 +389,8 @@ template<npos_choice npv = npos_choice::npos>
 template<npos_choice npv = npos_choice::npos>
 [[nodiscard]] constexpr position locate_not_string(std::string_view s,
     std::string_view value, position pos = 0) {
+  // An empty value matches everywhere, so a non-match is never found.
+  if (value.empty()) return from_npos<npv>(s, s.size());
   for (auto v = std::string_view{value}; pos < s.size(); pos += v.size())
     if (s.substr(pos, v.size()) != v) break;
 
@@ -382,7 +409,11 @@ template<npos_choice npv = npos_choice::npos>
 [[nodiscard]] constexpr position rlocate_not_string(std::string_view s,
     std::string_view value, position pos = npos) {
   auto v = std::string_view{value};
-  if (v.size() > s.size()) return 0;
+  // An empty value matches everywhere, so a non-match is never found.
+  if (v.empty()) return from_npos<npv>(s, s.size());
+  // A too-long value mismatches at 0 when that position exists; on an empty
+  // string there is no position to report, so `from_npos` yields not-found.
+  if (v.size() > s.size()) return from_npos<npv>(s, 0);
 
   auto last = s.size() - v.size();
   if (pos == npos || pos > last) pos = last;
@@ -415,13 +446,17 @@ template<npos_choice npv = npos_choice::npos>
 // Usage:
 //   auto [pos, pos_value] = locate(s, {'a', 'b', 'c'});
 
+// These delegate the scan to the `std::string_view` `find_*_of` family,
+// which implementations optimize, and then derive `pos_value` from the
+// located character.
+
 // Locate any of the chars.
 template<npos_choice npv = npos_choice::npos>
 [[nodiscard]] constexpr location locate_any_char(std::string_view s,
     const ConstCharSpan auto& values, position pos = 0) noexcept {
-  for (; pos < s.size(); ++pos)
-    for (position pos_value = 0; pos_value < values.size(); ++pos_value)
-      if (s[pos] == values[pos_value]) return {pos, pos_value};
+  const std::string_view vsv{values.data(), values.size()};
+  if (const auto p = s.find_first_of(vsv, pos); p != npos)
+    return {p, vsv.find(s[p])};
   return as_nloc<npv>(s, values);
 }
 
@@ -429,12 +464,9 @@ template<npos_choice npv = npos_choice::npos>
 template<npos_choice npv = npos_choice::npos>
 [[nodiscard]] constexpr location locate_none_char(std::string_view s,
     const ConstCharSpan auto& values, position pos = 0) noexcept {
-  for (; pos < s.size(); ++pos) {
-    position pos_value = 0;
-    for (; pos_value < values.size(); ++pos_value)
-      if (s[pos] == values[pos_value]) break;
-    if (pos_value == values.size()) return {pos, pos_value};
-  }
+  const std::string_view vsv{values.data(), values.size()};
+  if (const auto p = s.find_first_not_of(vsv, pos); p != npos)
+    return {p, values.size()};
   return as_nloc<npv>(s, values);
 }
 
@@ -445,11 +477,9 @@ template<npos_choice npv = npos_choice::npos>
 template<npos_choice npv = npos_choice::npos>
 [[nodiscard]] constexpr location rlocate_any_char(std::string_view s,
     const ConstCharSpan auto& values, position pos = npos) noexcept {
-  if (s.empty()) return as_nloc<npv>(s, values);
-  if (pos >= s.size()) pos = s.size() - 1;
-  for (++pos; pos-- > 0;)
-    for (position pos_value = 0; pos_value < values.size(); ++pos_value)
-      if (s[pos] == values[pos_value]) return {pos, pos_value};
+  const std::string_view vsv{values.data(), values.size()};
+  if (const auto p = s.find_last_of(vsv, pos); p != npos)
+    return {p, vsv.find(s[p])};
   return as_nloc<npv>(s, values);
 }
 
@@ -457,14 +487,9 @@ template<npos_choice npv = npos_choice::npos>
 template<npos_choice npv = npos_choice::npos>
 [[nodiscard]] constexpr location rlocate_none_char(std::string_view s,
     const ConstCharSpan auto& values, position pos = npos) noexcept {
-  if (s.empty()) return as_nloc<npv>(s, values);
-  if (pos >= s.size()) pos = s.size() - 1;
-  for (++pos; pos-- > 0;) {
-    position pos_value = 0;
-    for (; pos_value < values.size(); ++pos_value)
-      if (s[pos] == values[pos_value]) break;
-    if (pos_value == values.size()) return {pos, pos_value};
-  }
+  const std::string_view vsv{values.data(), values.size()};
+  if (const auto p = s.find_last_not_of(vsv, pos); p != npos)
+    return {p, values.size()};
   return as_nloc<npv>(s, values);
 }
 
@@ -488,14 +513,22 @@ template<npos_choice npv = npos_choice::npos>
 //   auto [pos, pos_value] = locate(s, {"abc", "def", "ghi"});
 
 // Locate any of the strings.
+//
+// One optimized `find` per value, keeping the earliest hit; on a tie, the
+// lowest value index wins because later equal positions do not displace it.
+// This also converts each value exactly once, which matters when the
+// elements are `const char*`.
 template<npos_choice npv = npos_choice::npos>
-[[nodiscard]] constexpr struct location locate_any_string(std::string_view s,
+[[nodiscard]] constexpr location locate_any_string(std::string_view s,
     const StringViewConvertibleSpan auto& values, position pos = 0) {
-  for (; pos <= s.size(); ++pos)
-    for (position pos_value = 0; pos_value < values.size(); ++pos_value) {
-      std::string_view value{values[pos_value]};
-      if (s.substr(pos, value.size()) == value) return {pos, pos_value};
-    }
+  location best = nloc;
+  for (position pos_value = 0; pos_value < values.size(); ++pos_value) {
+    const std::string_view value{values[pos_value]};
+    if (const auto p = s.find(value, pos); p < best.pos) best = {p, pos_value};
+    // A hit at the starting pos cannot be beaten.
+    if (best.pos == pos) break;
+  }
+  if (best.pos != npos) return best;
   return as_nloc<npv>(s, values);
 }
 
@@ -522,16 +555,24 @@ template<npos_choice npv = npos_choice::npos>
 //
 // Same as above, but locate the last instance. Subtract 1, not the value
 // size, from the returned pos to locate the previous instance.
+//
+// One optimized `rfind` per value, keeping the latest hit; ties go to the
+// lowest value index, as above.
 template<npos_choice npv = npos_choice::npos>
-[[nodiscard]] constexpr struct location rlocate_any_string(std::string_view s,
+[[nodiscard]] constexpr location rlocate_any_string(std::string_view s,
     const StringViewConvertibleSpan auto& values, position pos = npos) {
-  if (s.empty()) return as_nloc<npv>(s, values);
-  if (pos >= s.size()) pos = s.size() - 1;
-  for (++pos; pos-- > 0;)
-    for (position pos_value = 0; pos_value < values.size(); ++pos_value) {
-      std::string_view value{values[pos_value]};
-      if (s.substr(pos, value.size()) == value) return {pos, pos_value};
-    }
+  // The cap exists for the early break below; `rfind` clamps on its own, and
+  // an empty value matches at `size()`, exactly as in the forward direction.
+  pos = std::min(pos, s.size());
+  location best = nloc;
+  for (position pos_value = 0; pos_value < values.size(); ++pos_value) {
+    const std::string_view value{values[pos_value]};
+    const auto p = s.rfind(value, pos);
+    if (p != npos && (best.pos == npos || p > best.pos)) best = {p, pos_value};
+    // A hit at the starting pos cannot be beaten.
+    if (best.pos == pos) break;
+  }
+  if (best.pos != npos) return best;
   return as_nloc<npv>(s, values);
 }
 
@@ -847,7 +888,7 @@ constexpr bool rlocated(location& loc, std::string_view s, auto&& values) {
 #pragma region count_located
 
 // Return count of instances of a `value` in `s`, starting at `pos`.
-[[nodiscard]] size_t
+[[nodiscard]] constexpr size_t
 count_located(std::string_view s, auto&& value, position pos = 0) {
   size_t cnt{};
   using R = decltype(locate(s, value, pos));
@@ -860,12 +901,12 @@ count_located(std::string_view s, auto&& value, position pos = 0) {
   return cnt;
 }
 
-[[nodiscard]] size_t count_located(std::string_view s,
+[[nodiscard]] constexpr size_t count_located(std::string_view s,
     std::initializer_list<char> values, position pos = 0) {
   return count_located(s, std::span<const char>{values.begin(), values.end()},
       pos);
 }
-[[nodiscard]] size_t count_located(std::string_view s,
+[[nodiscard]] constexpr size_t count_located(std::string_view s,
     std::initializer_list<std::string_view> values, position pos = 0) {
   return count_located(s,
       std::span<const std::string_view>{values.begin(), values.end()}, pos);
@@ -887,12 +928,49 @@ size_t substitute(std::string& s, const SingleLocateValue auto& from,
     for (; located(pos, s, from); ++cnt, ++pos) s[pos] = to;
   } else {
     static_assert(!Char<decltype(to)>, "from/to must match");
-    auto from_sv = std::string_view{from};
-    auto to_sv = std::string_view{to};
-    size_t from_size = from_sv.size();
-    size_t to_size = to_sv.size() + (from_size ? 0 : 1);
-    for (; located(pos, s, from_sv); ++cnt, pos += to_size)
-      s.replace(pos, from_size, to_sv);
+    const std::string_view from_sv{from};
+    const std::string_view to_sv{to};
+    const std::string_view sv{s};
+    const size_t from_size = from_sv.size();
+    // Pythonic insertion for an empty `from`: `to` goes around each
+    // character.
+    if (from_size == 0) {
+      if (pos > sv.size()) return cnt;
+      std::string result;
+      result.reserve(sv.size() + ((sv.size() - pos + 1) * to_sv.size()));
+      result.append(sv, 0, pos);
+      for (auto p = pos; p < sv.size(); ++p, ++cnt) {
+        result.append(to_sv);
+        result.push_back(sv[p]);
+      }
+      result.append(to_sv);
+      ++cnt;
+      s = std::move(result);
+      return cnt;
+    }
+    // Same size overwrites in place: no shifting, no allocation.
+    if (from_size == to_sv.size()) {
+      for (; located(pos, s, from_sv); ++cnt, pos += from_size)
+        s.replace(pos, from_size, to_sv);
+      return cnt;
+    }
+    // Different sizes rebuild into a new string in one linear pass, since
+    // repeated `replace` would shift the tail on every match. No match, no
+    // allocation.
+    auto next = sv.find(from_sv, pos);
+    if (next == npos) return cnt;
+    std::string result;
+    result.reserve(sv.size());
+    size_t copied = 0;
+    do {
+      result.append(sv, copied, next - copied);
+      result.append(to_sv);
+      ++cnt;
+      copied = next + from_size;
+      next = sv.find(from_sv, copied);
+    } while (next != npos);
+    result.append(sv, copied, npos);
+    s = std::move(result);
   }
   return cnt;
 }
@@ -900,8 +978,12 @@ size_t substitute(std::string& s, const SingleLocateValue auto& from,
 #pragma endregion
 #pragma region Multiple chars
 
+// The multi-value overloads treat `from` and `to` as parallel arrays: a match
+// of `from[i]` is replaced with `to[i]`, so `to` must be at least as long as
+// `from`.
 inline size_t substitute(std::string& s, std::span<const char> from,
     std::span<const char> to, position pos = 0) {
+  assert(from.size() <= to.size());
   size_t cnt{};
   for (location loc{pos, 0}; located(loc, std::string_view{s}, from);
       ++cnt, ++loc.pos)
@@ -917,16 +999,39 @@ inline size_t substitute(std::string& s, std::initializer_list<char> from,
 #pragma endregion
 #pragma region Multiple strings
 
+// Rebuilds into a new string in one linear pass, since repeated `replace`
+// would shift the tail on every match. No match, no allocation.
 inline size_t substitute(std::string& s,
     std::span<const std::string_view> from,
     std::span<const std::string_view> to, position pos = 0) {
+  assert(from.size() <= to.size());
   size_t cnt{};
-  for (location loc{pos, 0}; located(loc, std::string_view{s}, from); ++cnt) {
-    size_t from_size = from[loc.pos_value].size();
-    s.replace(loc.pos, from_size, to[loc.pos_value]);
-    size_t to_size = to[loc.pos_value].size() + (from_size ? 0 : 1);
-    loc.pos += std::max(to_size, size_t{1});
+  const std::string_view sv{s};
+  auto loc = locate(sv, from, pos);
+  if (loc.pos == npos) return cnt;
+  std::string result;
+  result.reserve(sv.size());
+  size_t copied = 0;
+  while (loc.pos != npos) {
+    result.append(sv, copied, loc.pos - copied);
+    result.append(to[loc.pos_value]);
+    ++cnt;
+    if (const auto from_size = from[loc.pos_value].size(); from_size) {
+      copied = loc.pos + from_size;
+    } else {
+      // Pythonic insertion: an empty match consumes nothing, so carry one
+      // character to guarantee progress; at end-of-string, we are done.
+      if (loc.pos >= sv.size()) {
+        copied = loc.pos;
+        break;
+      }
+      result.push_back(sv[loc.pos]);
+      copied = loc.pos + 1;
+    }
+    loc = locate(sv, from, copied);
   }
+  result.append(sv, copied, npos);
+  s = std::move(result);
   return cnt;
 }
 inline size_t substitute(std::string& s,
@@ -961,28 +1066,6 @@ substituted(std::string s, const auto& from, const auto& to) {
 #pragma endregion
 #pragma region excise
 
-#pragma region Single value
-
-// Excise all instances of `from` in `s`, returning count of
-// excisions. An empty `from` clears the string.
-size_t
-excise(std::string& s, const SingleLocateValue auto& from, position pos = 0) {
-  size_t cnt{};
-  if constexpr (Char<decltype(from)>) {
-    for (; located(pos, s, from); ++cnt) s.erase(pos, 1);
-  } else {
-    auto from_sv = std::string_view{from};
-    if (from_sv.empty()) {
-      cnt = s.size();
-      s.clear();
-      return cnt;
-    }
-    for (; located(pos, s, from_sv); ++cnt) s.erase(pos, from_sv.size());
-  }
-  return cnt;
-}
-
-#pragma endregion
 #pragma region Multiple chars
 
 inline size_t
@@ -1031,7 +1114,7 @@ inline size_t excise(std::string& s, std::span<const std::string_view> from,
   while (read < s.size()) {
     bool matched = false;
     for (const auto& fv : from) {
-      if (fv.size() && read + fv.size() <= s.size() &&
+      if (read + fv.size() <= s.size() &&
           std::memcmp(data + read, fv.data(), fv.size()) == 0)
       {
         read += fv.size();
@@ -1048,6 +1131,29 @@ inline size_t excise(std::string& s, std::span<const std::string_view> from,
 inline size_t excise(std::string& s,
     std::initializer_list<std::string_view> from, position pos = 0) {
   return excise(s, std::span<const std::string_view>{from}, pos);
+}
+
+#pragma endregion
+#pragma region Single value
+
+// Excise all instances of `from` in `s`, returning count of
+// excisions. An empty `from` clears the string.
+//
+// Declared after the span overloads it delegates to, which compact in a
+// single linear pass; erasing per match would shift the tail every time.
+size_t
+excise(std::string& s, const SingleLocateValue auto& from, position pos = 0) {
+  if constexpr (Char<decltype(from)>) {
+    return excise(s, std::span<const char>{&from, 1}, pos);
+  } else {
+    const std::string_view from_sv{from};
+    if (from_sv.empty()) {
+      const auto cnt = s.size();
+      s.clear();
+      return cnt;
+    }
+    return excise(s, std::span<const std::string_view>{&from_sv, 1}, pos);
+  }
 }
 
 #pragma endregion

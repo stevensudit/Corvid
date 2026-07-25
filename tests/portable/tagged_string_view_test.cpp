@@ -42,10 +42,10 @@ using alpha = tagged_string_view<alpha_tag>;
 using beta = tagged_string_view<beta_tag>;
 
 // UDLs that build each tagged type straight from a string literal.
-consteval alpha operator""_alpha(const char* s, std::size_t n) {
+consteval alpha operator""_alpha(const char* s, size_t n) {
   return alpha{std::string_view{s, n}};
 }
-consteval beta operator""_beta(const char* s, std::size_t n) {
+consteval beta operator""_beta(const char* s, size_t n) {
   return beta{std::string_view{s, n}};
 }
 } // namespace

@@ -117,8 +117,8 @@ public:
   [[nodiscard]] static constexpr std::optional<ipv6_addr> parse(
       std::string_view s) {
     word_array groups{};
-    std::size_t group_count = 0;
-    std::size_t double_colon = 8;
+    size_t group_count = 0;
+    size_t double_colon = 8;
 
     if (!do_parse_groups_loop(s, groups, group_count, double_colon))
       return std::nullopt;
@@ -178,13 +178,13 @@ public:
   // Format using lowercase hex with RFC 5952-style zero-run compression.
   [[nodiscard]] constexpr std::string to_string() const {
     auto groups = words();
-    std::size_t best_start = 8;
-    std::size_t best_len = 0;
-    std::size_t cur_start = 0;
-    std::size_t cur_len = 0;
+    size_t best_start = 8;
+    size_t best_len = 0;
+    size_t cur_start = 0;
+    size_t cur_len = 0;
 
     // Figure out how many empty groups to skip before we start.
-    for (std::size_t ndx = 0; ndx < 8; ++ndx) {
+    for (size_t ndx = 0; ndx < 8; ++ndx) {
       if (groups[ndx] == 0) {
         if (cur_len == 0) cur_start = ndx;
         ++cur_len;
@@ -204,7 +204,7 @@ public:
 
     std::string out;
     out.reserve(39); // Max length of an IPv6 address string.
-    for (std::size_t ndx = 0; ndx < 8; ++ndx) {
+    for (size_t ndx = 0; ndx < 8; ++ndx) {
       if (ndx == best_start) {
         out += "::";
         ndx += best_len - 1;
@@ -233,7 +233,7 @@ private:
   // `group_count > 6` or the token is not a valid IPv4 address.
   [[nodiscard]] static constexpr bool
   do_append_ipv4_groups(std::string_view token, word_array& groups,
-      std::size_t& group_count) noexcept {
+      size_t& group_count) noexcept {
     if (group_count > 6) return false;
     const auto ipv4 = ipv4_addr::parse(token);
     if (!ipv4) return false;
@@ -249,8 +249,8 @@ private:
   // `double_colon`. Returns false if "::" is malformed or a second "::"
   // appears.
   [[nodiscard]] static constexpr bool
-  do_advance_double_colon(std::string_view s, std::size_t& pos,
-      std::size_t group_count, std::size_t& double_colon) noexcept {
+  do_advance_double_colon(std::string_view s, size_t& pos, size_t group_count,
+      size_t& double_colon) noexcept {
     if (pos + 1 >= s.size() || s[pos + 1] != ':' || double_colon != 8)
       return false;
     double_colon = group_count;
@@ -262,8 +262,8 @@ private:
   // on error (bad char, second "::", trailing ':'), `false` when the string
   // is exhausted (caller should break), `true` to continue parsing groups.
   [[nodiscard]] static constexpr std::optional<bool>
-  do_consume_separator(std::string_view s, std::size_t& pos,
-      std::size_t group_count, std::size_t& double_colon) noexcept {
+  do_consume_separator(std::string_view s, size_t& pos, size_t group_count,
+      size_t& double_colon) noexcept {
     if (pos == s.size()) return false;
     if (s[pos] != ':') return std::nullopt;
     if (pos + 1 < s.size() && s[pos + 1] == ':') {
@@ -281,8 +281,8 @@ private:
   // append it to `groups`, then consume the following separator. Returns
   // `nullopt` on error, `false` when parsing is complete, `true` to continue.
   [[nodiscard]] static constexpr std::optional<bool>
-  parse_one_item(std::string_view s, std::size_t& pos, word_array& groups,
-      std::size_t& group_count, std::size_t& double_colon) {
+  parse_one_item(std::string_view s, size_t& pos, word_array& groups,
+      size_t& group_count, size_t& double_colon) {
     if (group_count == 8) return std::nullopt;
     auto token_end = pos;
     while (token_end < s.size() && s[token_end] != ':') ++token_end;
@@ -304,10 +304,9 @@ private:
   // point in `double_colon` (value 8 means no "::" was seen). Returns false
   // on any syntax error.
   [[nodiscard]] static constexpr bool do_parse_groups_loop(std::string_view s,
-      word_array& groups, std::size_t& group_count,
-      std::size_t& double_colon) {
+      word_array& groups, size_t& group_count, size_t& double_colon) {
     if (s.empty()) return false;
-    std::size_t pos = 0;
+    size_t pos = 0;
     while (pos < s.size()) {
       if (s[pos] == ':') {
         if (!do_advance_double_colon(s, pos, group_count, double_colon))
@@ -327,35 +326,23 @@ private:
   // place. `double_colon` is the insertion index, or 8 if no "::" was seen.
   // Returns false if the total group count is inconsistent.
   [[nodiscard]] static constexpr bool do_finalize_groups(word_array& groups,
-      std::size_t group_count, std::size_t double_colon) noexcept {
+      size_t group_count, size_t double_colon) noexcept {
     if (double_colon == 8) return group_count == 8;
     if (group_count == 8) return false;
     const auto zeros = 8 - group_count;
-    for (std::size_t i = group_count; i > double_colon; --i)
+    for (size_t i = group_count; i > double_colon; --i)
       groups[i + zeros - 1] = groups[i - 1];
-    for (std::size_t i = 0; i < zeros; ++i) groups[double_colon + i] = 0;
+    for (size_t i = 0; i < zeros; ++i) groups[double_colon + i] = 0;
     return true;
   }
 
-  [[nodiscard]] static constexpr bool is_hex_digit(char c) noexcept {
-    return (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') ||
-           (c >= 'A' && c <= 'F');
-  }
-
-  [[nodiscard]] static constexpr uint16_t hex_value(char c) noexcept {
-    return c >= '0' && c <= '9' ? uint16_t(c - '0')
-           : c >= 'a' && c <= 'f'
-               ? uint16_t(c - 'a' + 10)
-               : uint16_t(c - 'A' + 10);
-  }
-
   [[nodiscard]] static constexpr std::optional<uint16_t>
-  do_parse_group(std::string_view s, std::size_t& pos) noexcept {
-    if (pos >= s.size() || !is_hex_digit(s[pos])) return std::nullopt;
+  do_parse_group(std::string_view s, size_t& pos) noexcept {
+    if (pos >= s.size() || !strings::is_hex_digit(s[pos])) return std::nullopt;
     uint16_t value = 0;
-    std::size_t digits = 0;
-    while (pos < s.size() && is_hex_digit(s[pos])) {
-      value = uint16_t((value << 4) | hex_value(s[pos]));
+    size_t digits = 0;
+    while (pos < s.size() && strings::is_hex_digit(s[pos])) {
+      value = uint16_t((value << 4) | strings::hex_digit_value(s[pos]));
       ++pos;
       ++digits;
       if (digits > 4) return std::nullopt;
@@ -373,7 +360,7 @@ private:
         uint8_t(groups[7] >> 8), uint8_t(groups[7])};
   }
 
-  [[nodiscard]] constexpr uint16_t word_at(std::size_t i) const noexcept {
+  [[nodiscard]] constexpr uint16_t word_at(size_t i) const noexcept {
     return uint16_t((uint16_t(bytes_[2 * i]) << 8) | bytes_[(2 * i) + 1]);
   }
 

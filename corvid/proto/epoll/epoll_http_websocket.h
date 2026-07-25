@@ -17,6 +17,7 @@
 #pragma once
 #include <array>
 #include <bit>
+#include <cassert>
 #include <cstdint>
 #include <cstring>
 #include <functional>
@@ -461,7 +462,7 @@ public:
     const size_t header_len =
         ws_frame_wrapper::header_length_for(payload_len, mask.has_value());
     frame.reserve(header_len + payload_len);
-    no_zero::resize_to(frame, header_len);
+    no_zero{frame}.resize_to(header_len);
     return build(frame.data(), frame_control, payload_len, mask);
   }
 
@@ -478,7 +479,7 @@ public:
     auto hdr = build(frame, frame_control, payload.size(), mask);
 
     // Expand to full frame size, then copy and optionally mask the payload.
-    no_zero::resize_to(frame, hdr.total_length());
+    no_zero{frame}.resize_to(hdr.total_length());
     if (!hdr.mask_payload_copy(frame, payload)) frame.clear();
     return frame;
   }
@@ -963,7 +964,7 @@ private:
     // Append the unmasked payload to `message_`.
     if (!payload.empty()) {
       const size_t old_size = message_.size();
-      no_zero::resize_to(message_, old_size + payload.size());
+      no_zero{message_}.resize_to(old_size + payload.size());
       if (!hdr.mask_payload_copy(message_.data() + old_size, payload))
         return hangup();
     }
@@ -1005,7 +1006,7 @@ private:
 
     // Unmask the payload before inspection.
     if (hdr.is_masked() && !payload.empty()) {
-      no_zero::resize_to(control_frame_payload_, payload.size());
+      no_zero{control_frame_payload_}.resize_to(payload.size());
       (void)hdr.mask_payload_copy(control_frame_payload_.data(), payload);
       payload = control_frame_payload_;
     }

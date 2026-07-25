@@ -16,6 +16,8 @@
 // limitations under the License.
 #pragma once
 #include "enums_shared.h"
+#include "../meta/concepts.h"
+#include "../meta/enums.h"
 #include "enum_registry.h"
 #include "../strings/conversion.h"
 

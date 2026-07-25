@@ -23,6 +23,8 @@
 #include <optional>
 
 #include "enums_shared.h"
+#include "../meta/concepts.h"
+#include "../meta/enums.h"
 #include "../strings/fixed_string_utils.h"
 #include "../strings/string_view_wrapper.h"
 #include "../strings/cstring_view.h"
@@ -430,7 +432,7 @@ enum_find_by_name(std::string_view sv) noexcept {
 //  paint("reed");     // Compile error: not a registered name
 //  paint(color::red); // OK
 //
-//  consteval color_name operator""_color(const char* s, std::size_t n) {
+//  consteval color_name operator""_color(const char* s, size_t n) {
 //    return color_name{s, n};
 //  }
 //

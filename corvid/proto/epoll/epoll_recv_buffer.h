@@ -30,7 +30,7 @@
 
 namespace corvid { inline namespace proto {
 
-using namespace corvid::strings::no_zero_funcs;
+using corvid::strings::no_zero;
 
 #pragma region epoll_recv_buffer
 // Persistent flat receive buffer owned by a connection. The framework
@@ -91,7 +91,7 @@ struct epoll_recv_buffer {
   void resize(size_t capacity) {
     assert(!reads_enabled);
     assert(!view_active);
-    no_zero::enlarge_to(buffer, capacity);
+    no_zero{buffer}.enlarge_to(capacity);
     begin.store(0, std::memory_order::relaxed);
     end.store(0, std::memory_order::relaxed);
   }
@@ -165,7 +165,7 @@ struct epoll_recv_buffer {
     if (new_size != current) {
       // Resize: always move active bytes to the front of the new buffer.
       std::string new_buf;
-      no_zero::enlarge_to_cap(no_zero::resize_to(new_buf, new_size));
+      no_zero{new_buf}.resize_to(new_size).enlarge_to_cap();
       if (active_len > 0)
         std::memcpy(new_buf.data(), buffer.data() + b, active_len);
       buffer = std::move(new_buf);
@@ -385,7 +385,7 @@ public:
     buf_->buffer.swap(out);
     view = {out.data() + b, e - b};
     buf_->buffer.clear();
-    no_zero::enlarge_to_cap(buf_->buffer);
+    no_zero{buf_->buffer}.enlarge_to_cap();
     const size_t new_cap = buf_->buffer.size();
     buf_->begin.store(0, std::memory_order::relaxed);
     buf_->end.store(0, std::memory_order::relaxed);

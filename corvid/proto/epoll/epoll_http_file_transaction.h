@@ -84,7 +84,7 @@ public:
 #pragma region Accessors
 
   // Number of cached entries (including aliases such as "/").
-  [[nodiscard]] std::size_t size() const noexcept { return map_.size(); }
+  [[nodiscard]] size_t size() const noexcept { return map_.size(); }
 
   // Look up `url`. Returns a pointer into the cache (valid for the lifetime
   // of this object), or null if not found.

@@ -24,27 +24,29 @@ namespace corvid::strings { inline namespace targeting {
 
 // Append target that writes the C++ "debug" escaped form of its char input
 // (per [format.string.escaped], the rules behind the `?` format spec) into an
-// output iterator, widening each emitted unit to `DestChar`. It does NOT add
-// the surrounding quotes; the caller emits those around it. This lets the
-// char-based append machinery stream text straight into a `std::format`
-// context with no intermediate string, while staying consistent with how std
-// quotes the strings beside it in the same range or map.
+// output iterator, widening each emitted unit to `DestCharT`.
+//
+// It does NOT add the surrounding quotes; the caller emits those around it.
+// This lets the char-based append machinery stream text straight into a
+// `std::format` context with no intermediate string, while staying consistent
+// with how std quotes the strings beside it in the same range or map.
 //
 // The escaping matches the standard over the 7-bit ASCII range that inputs
 // occupy: `\t`, `\n`, `\r`, `\"`, `\\`, and `\u{hex}` for other control units
 // and DEL. There is no multibyte decoding; bytes at or above 0x80 are emitted
 // as `\u{hex}` of the byte value.
-template<typename It, CharType DestChar>
+template<typename It, CharType DestCharT>
 struct debug_escaping_appendable {
   using append_char_type = char;
   It out;
 };
 
-// `debug_escaping_appendable` specialization: char in, escaped `DestChar` out.
-template<typename It, CharType DestChar>
-class appender<debug_escaping_appendable<It, DestChar>> final
-    : public appender_base<debug_escaping_appendable<It, DestChar>, char> {
-  using target_t = debug_escaping_appendable<It, DestChar>;
+// `debug_escaping_appendable` specialization: char in, escaped `DestCharT`
+// out.
+template<typename It, CharType DestCharT>
+class appender<debug_escaping_appendable<It, DestCharT>> final
+    : public appender_base<debug_escaping_appendable<It, DestCharT>, char> {
+  using target_t = debug_escaping_appendable<It, DestCharT>;
   using base = appender_base<target_t, char>;
   using self_t = appender<target_t>;
   using base::target_;
@@ -58,9 +60,9 @@ public:
 private:
   friend base;
 
-  // Widen one already-escaped ASCII unit to DestChar and write it.
+  // Widen one already-escaped ASCII unit to `DestCharT` and write it.
   self_t& emit(char c) {
-    *target_.out++ = static_cast<DestChar>(static_cast<unsigned char>(c));
+    *target_.out++ = static_cast<DestCharT>(static_cast<unsigned char>(c));
     return *this;
   }
   self_t& operator()(char c) { return emit(c); }

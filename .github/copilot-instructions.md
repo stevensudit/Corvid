@@ -51,4 +51,4 @@
 ## Specific Notes
 - The project uses C++23 standard
 - Prefer libc++ (Clang's standard library) over libstdc++
-- Base string types position and npos are defined in corvid/strings/string_base.h, while npos_choice is defined in corvid/strings/locating.h
+- Base string types position and npos are defined in corvid/strings/string_literals.h, while npos_choice is defined in corvid/strings/locating.h
