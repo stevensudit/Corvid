@@ -96,8 +96,8 @@ public:
 #pragma region Data members
 
 private:
-  std::ostream* from_;
-  std::streambuf* rdbuf_;
+  std::ostream* from_{};
+  std::streambuf* rdbuf_{};
 
 #pragma endregion
 };

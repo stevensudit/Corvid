@@ -91,11 +91,11 @@ template<CharType CharT>
 calc_nested_spec_size(std::basic_string_view<CharT> spec) noexcept {
   size_t ndx{};
   size_t depth{};
-  const size_t cnt = spec.size();
+  const auto cnt = spec.size();
   while (ndx < cnt) {
-    if (spec[ndx] == CharT('{')) {
+    if (spec[ndx] == CharT{'{'}) {
       ++depth;
-    } else if (spec[ndx] == CharT('}')) {
+    } else if (spec[ndx] == CharT{'}'}) {
       if (depth == 0) break;
       --depth;
     }
@@ -212,14 +212,14 @@ private:
     if constexpr (requires { map_.find(key); })
       return map_.find(key);
     else
-      return map_.find(key_type(key));
+      return map_.find(key_type{key});
   }
 
   [[nodiscard]] constexpr auto do_equal_range(view_t key) const {
     if constexpr (requires { map_.equal_range(key); })
       return map_.equal_range(key);
     else
-      return map_.equal_range(key_type(key));
+      return map_.equal_range(key_type{key});
   }
 
   const M& map_;
@@ -281,36 +281,36 @@ private:
 public:
   constexpr auto parse(std::basic_format_parse_context<CharT>& ctx) {
     const auto spec = view_t{ctx.begin(), ctx.end()};
-    const size_t cnt = spec.size();
+    const auto cnt = spec.size();
     size_t ndx{};
     // Key: dynamic `{n}` / `{}`, or literal text up to ':' or '}'.
-    if (ndx < cnt && spec[ndx] == CharT('{')) {
+    if (ndx < cnt && spec[ndx] == CharT{'{'}) {
       key_arg_ = arg_value_t::make_from_parse(spec, ndx);
       if (key_arg_.is_automatic())
         key_arg_.claim_next_automatic(ctx);
       else
         ctx.check_arg_id(key_arg_.value);
     } else {
-      const size_t start = ndx;
-      while (ndx < cnt && spec[ndx] != CharT(':') && spec[ndx] != CharT('}'))
+      const auto start = ndx;
+      while (ndx < cnt && spec[ndx] != CharT{':'} && spec[ndx] != CharT{'}'})
         ++ndx;
       key_ = spec.substr(start, ndx - start);
       if (key_.empty()) throw std::format_error{"enable_format: key required"};
     }
     // Optional nested spec for the looked-up value.
-    if (ndx < cnt && spec[ndx] == CharT(':')) {
-      const size_t start = ++ndx;
+    if (ndx < cnt && spec[ndx] == CharT{':'}) {
+      const auto start = ++ndx;
       ndx += corvid::strings::calc_nested_spec_size(spec.substr(start));
       value_spec_ = spec.substr(start, ndx - start);
     }
-    if (ndx >= cnt || spec[ndx] != CharT('}'))
+    if (ndx >= cnt || spec[ndx] != CharT{'}'})
       throw std::format_error{"enable_format: unterminated spec"};
     return ctx.begin() + ndx;
   }
 
   template<typename FormatContext>
   auto format(const wrapper_t& w, FormatContext& ctx) const {
-    const view_t key =
+    const auto key =
         key_arg_.is_dynamic()
             ? arg_value_t::get_dynamic_str(ctx, key_arg_.value)
             : key_;

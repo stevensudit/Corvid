@@ -82,8 +82,8 @@ using component_view = std::basic_string_view<path_char>;
 
 // Whether `comp` is the recursive wildcard: exactly "**".
 [[nodiscard]] constexpr bool is_double_star(component_view comp) noexcept {
-  return comp.size() == 2 && comp.front() == path_char('*') &&
-         comp.back() == path_char('*');
+  return comp.size() == 2 && comp.front() == path_char{'*'} &&
+         comp.back() == path_char{'*'};
 }
 
 // Parse `p` into its matchable components, in the generic format (so
@@ -95,7 +95,7 @@ using component_view = std::basic_string_view<path_char>;
   std::vector<component> parts;
   for (const auto& elem : p) {
     auto comp = elem.generic_string<path_char>();
-    if (comp.empty() || (comp.size() == 1 && comp.front() == path_char('.')))
+    if (comp.empty() || (comp.size() == 1 && comp.front() == path_char{'.'}))
       continue;
     parts.push_back(std::move(comp));
   }

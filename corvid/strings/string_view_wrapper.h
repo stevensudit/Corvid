@@ -288,7 +288,7 @@ protected:
 #pragma endregion
 #pragma region Data members
 
-  view_t sv_{};
+  view_t sv_;
 
 #pragma endregion
 #pragma region Helpers

@@ -25,7 +25,7 @@ namespace corvid::strings { inline namespace delimiting {
 
 // Storage backing the default single-space delimiter, one per code unit.
 template<CharType CharT>
-inline constexpr CharT delim_space = CharT(' ');
+inline constexpr CharT delim_space{' '};
 
 // Delimiter wrapper.
 //

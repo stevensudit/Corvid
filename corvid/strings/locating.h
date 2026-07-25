@@ -521,7 +521,7 @@ template<npos_choice npv = npos_choice::npos>
 template<npos_choice npv = npos_choice::npos>
 [[nodiscard]] constexpr location locate_any_string(std::string_view s,
     const StringViewConvertibleSpan auto& values, position pos = 0) {
-  location best = nloc;
+  auto best = nloc;
   for (position pos_value = 0; pos_value < values.size(); ++pos_value) {
     const std::string_view value{values[pos_value]};
     if (const auto p = s.find(value, pos); p < best.pos) best = {p, pos_value};
@@ -564,7 +564,7 @@ template<npos_choice npv = npos_choice::npos>
   // The cap exists for the early break below; `rfind` clamps on its own, and
   // an empty value matches at `size()`, exactly as in the forward direction.
   pos = std::min(pos, s.size());
-  location best = nloc;
+  auto best = nloc;
   for (position pos_value = 0; pos_value < values.size(); ++pos_value) {
     const std::string_view value{values[pos_value]};
     const auto p = s.rfind(value, pos);
@@ -931,7 +931,7 @@ size_t substitute(std::string& s, const SingleLocateValue auto& from,
     const std::string_view from_sv{from};
     const std::string_view to_sv{to};
     const std::string_view sv{s};
-    const size_t from_size = from_sv.size();
+    const auto from_size = from_sv.size();
     // Pythonic insertion for an empty `from`: `to` goes around each
     // character.
     if (from_size == 0) {
@@ -1079,7 +1079,7 @@ excise(std::string& s, std::span<const char> from, position pos = 0) {
   auto* data = s.data();
   auto write = pos;
   for (auto read = pos; read < s.size(); ++read) {
-    unsigned char ch = data[read];
+    const auto ch = static_cast<unsigned char>(data[read]);
     if (!del[ch])
       data[write++] = static_cast<char>(ch);
     else

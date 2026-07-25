@@ -56,13 +56,13 @@ namespace corvid::strings { inline namespace cases {
 // Whether `ch` is a lowercase hex letter, 'a' through 'f'.
 template<CharType CharT>
 [[nodiscard]] constexpr bool is_lc_hex_alpha(CharT ch) noexcept {
-  return (ch >= CharT('a') && ch <= CharT('f'));
+  return (ch >= CharT{'a'} && ch <= CharT{'f'});
 }
 
 // Whether `ch` is an uppercase hex letter, 'A' through 'F'.
 template<CharType CharT>
 [[nodiscard]] constexpr bool is_uc_hex_alpha(CharT ch) noexcept {
-  return (ch >= CharT('A') && ch <= CharT('F'));
+  return (ch >= CharT{'A'} && ch <= CharT{'F'});
 }
 
 namespace details {
@@ -78,7 +78,7 @@ struct code_unit_pred {
   }
   template<StringViewLike S>
   [[nodiscard]] constexpr bool operator()(const S& s) const noexcept {
-    const auto sv{as_view(s)};
+    const auto sv = as_view(s);
     return !sv.empty() && std::ranges::all_of(sv, CharPred{});
   }
 };
@@ -86,14 +86,14 @@ struct code_unit_pred {
 struct lower_char {
   [[nodiscard]] constexpr bool operator()(CharType auto c) const noexcept {
     using C = decltype(c);
-    return c >= C('a') && c <= C('z');
+    return c >= C{'a'} && c <= C{'z'};
   }
 };
 
 struct upper_char {
   [[nodiscard]] constexpr bool operator()(CharType auto c) const noexcept {
     using C = decltype(c);
-    return c >= C('A') && c <= C('Z');
+    return c >= C{'A'} && c <= C{'Z'};
   }
 };
 
@@ -106,7 +106,7 @@ struct alpha_char {
 struct digit_char {
   [[nodiscard]] constexpr bool operator()(CharType auto c) const noexcept {
     using C = decltype(c);
-    return c >= C('0') && c <= C('9');
+    return c >= C{'0'} && c <= C{'9'};
   }
 };
 
@@ -125,8 +125,8 @@ struct hex_digit_char {
 struct space_char {
   [[nodiscard]] constexpr bool operator()(CharType auto c) const noexcept {
     using C = decltype(c);
-    return c == C(' ') || c == C('\t') || c == C('\n') || c == C('\v') ||
-           c == C('\f') || c == C('\r');
+    return c == C{' '} || c == C{'\t'} || c == C{'\n'} || c == C{'\v'} ||
+           c == C{'\f'} || c == C{'\r'};
   }
 };
 
@@ -139,7 +139,7 @@ struct ascii_char {
 struct printable_char {
   [[nodiscard]] constexpr bool operator()(CharType auto c) const noexcept {
     using C = decltype(c);
-    return c >= C(' ') && c <= C('~');
+    return c >= C{' '} && c <= C{'~'};
   }
 };
 
@@ -239,7 +239,7 @@ template<StringViewLike S>
 // Avoids `std::toupper` because it's locale-dependent and slow.
 template<CharType CharT>
 [[nodiscard]] constexpr CharT as_upper(CharT c) noexcept {
-  return is_lower(c) ? static_cast<CharT>(c - (CharT('a') - CharT('A'))) : c;
+  return is_lower(c) ? static_cast<CharT>(c - (CharT{'a'} - CharT{'A'})) : c;
 }
 
 // Convert to uppercase in place.
@@ -263,7 +263,7 @@ template<StringViewLike S>
 // Avoids `std::tolower` because it's locale-dependent and slow.
 template<CharType CharT>
 [[nodiscard]] constexpr CharT as_lower(CharT c) noexcept {
-  return is_upper(c) ? static_cast<CharT>(c + (CharT('a') - CharT('A'))) : c;
+  return is_upper(c) ? static_cast<CharT>(c + (CharT{'a'} - CharT{'A'})) : c;
 }
 
 // Convert to lowercase in place.

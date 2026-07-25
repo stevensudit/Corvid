@@ -38,10 +38,10 @@ namespace corvid::strings { inline namespace justification {
 // Return `s` left-justified in a field of `width`, Python `ljust`-style.
 template<StringViewLike S>
 [[nodiscard]] constexpr auto ljust(const S& s, size_t width,
-    char_type_of_t<S> fill = char_type_of_t<S>(' ')) {
+    char_type_of_t<S> fill = char_type_of_t<S>{' '}) {
   using C = char_type_of_t<S>;
-  const auto sv{as_view(s)};
-  const size_t pad = width > sv.size() ? width - sv.size() : 0;
+  const auto sv = as_view(s);
+  const auto pad = width > sv.size() ? width - sv.size() : 0;
   std::basic_string<C> r;
   r.reserve(sv.size() + pad);
   r.append(sv);
@@ -52,10 +52,10 @@ template<StringViewLike S>
 // Return `s` right-justified in a field of `width`, Python `rjust`-style.
 template<StringViewLike S>
 [[nodiscard]] constexpr auto rjust(const S& s, size_t width,
-    char_type_of_t<S> fill = char_type_of_t<S>(' ')) {
+    char_type_of_t<S> fill = char_type_of_t<S>{' '}) {
   using C = char_type_of_t<S>;
-  const auto sv{as_view(s)};
-  const size_t pad = width > sv.size() ? width - sv.size() : 0;
+  const auto sv = as_view(s);
+  const auto pad = width > sv.size() ? width - sv.size() : 0;
   std::basic_string<C> r;
   r.reserve(sv.size() + pad);
   r.append(pad, fill);
@@ -71,9 +71,9 @@ template<StringViewLike S>
 // so `center("ab", 5)` is " ab  " here but "  ab " in Python.
 template<StringViewLike S>
 [[nodiscard]] constexpr auto center(const S& s, size_t width,
-    char_type_of_t<S> fill = char_type_of_t<S>(' ')) {
+    char_type_of_t<S> fill = char_type_of_t<S>{' '}) {
   using C = char_type_of_t<S>;
-  const auto sv{as_view(s)};
+  const auto sv = as_view(s);
   const auto [lead, trail] = calc_padding(aligned::center, sv.size(), width);
   std::basic_string<C> r;
   r.reserve(sv.size() + lead + trail);
@@ -91,14 +91,14 @@ template<StringViewLike S>
 template<StringViewLike S>
 [[nodiscard]] constexpr auto zfill(const S& s, size_t width) {
   using C = char_type_of_t<S>;
-  const auto sv{as_view(s)};
+  const auto sv = as_view(s);
   const bool has_sign =
-      !sv.empty() && (sv.front() == C('+') || sv.front() == C('-'));
-  const size_t pad = width > sv.size() ? width - sv.size() : 0;
+      !sv.empty() && (sv.front() == C{'+'} || sv.front() == C{'-'});
+  const auto pad = width > sv.size() ? width - sv.size() : 0;
   std::basic_string<C> r;
   r.reserve(sv.size() + pad);
   if (has_sign) r.push_back(sv.front());
-  r.append(pad, C('0'));
+  r.append(pad, C{'0'});
   r.append(sv.substr(has_sign ? 1 : 0));
   return r;
 }

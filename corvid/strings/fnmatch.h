@@ -81,9 +81,9 @@ template<CharType CharT>
 [[nodiscard]] constexpr size_t
 locate_class_end(std::basic_string_view<CharT> pat, size_t pos) noexcept {
   auto ndx = pos + 1;
-  if (ndx < pat.size() && pat[ndx] == CharT('!')) ++ndx;
-  if (ndx < pat.size() && pat[ndx] == CharT(']')) ++ndx;
-  while (ndx < pat.size() && pat[ndx] != CharT(']')) ++ndx;
+  if (ndx < pat.size() && pat[ndx] == CharT{'!'}) ++ndx;
+  if (ndx < pat.size() && pat[ndx] == CharT{']'}) ++ndx;
+  while (ndx < pat.size() && pat[ndx] != CharT{']'}) ++ndx;
   return ndx < pat.size() ? ndx : npos;
 }
 
@@ -106,7 +106,7 @@ template<CharType CharT>
 [[nodiscard]] constexpr bool is_class_member(
     std::basic_string_view<CharT> content, CharT c, bool fold) noexcept {
   bool negated{};
-  if (!content.empty() && content.front() == CharT('!')) {
+  if (!content.empty() && content.front() == CharT{'!'}) {
     negated = true;
     content.remove_prefix(1);
   }
@@ -115,7 +115,7 @@ template<CharType CharT>
   for (size_t ndx{}; ndx < content.size();) {
     auto lo = content[ndx];
     auto hi = lo;
-    if (ndx + 2 < content.size() && content[ndx + 1] == CharT('-')) {
+    if (ndx + 2 < content.size() && content[ndx + 1] == CharT{'-'}) {
       hi = content[ndx + 2];
       ndx += 3;
     } else {
@@ -147,12 +147,12 @@ template<CharType CharT>
   while (name_ndx < name.size()) {
     if (pat_ndx < pat.size()) {
       const auto pc = pat[pat_ndx];
-      if (pc == CharT('*')) {
+      if (pc == CharT{'*'}) {
         star_pat = ++pat_ndx;
         star_name = name_ndx;
         continue;
       }
-      if (pc == CharT('?')) {
+      if (pc == CharT{'?'}) {
         ++pat_ndx;
         ++name_ndx;
         continue;
@@ -162,7 +162,7 @@ template<CharType CharT>
       auto next_pat = pat_ndx + 1;
       bool hit{};
       const auto cls_end =
-          pc == CharT('[') ? locate_class_end(pat, pat_ndx) : npos;
+          (pc == CharT{'['}) ? locate_class_end(pat, pat_ndx) : npos;
       if (cls_end != npos) {
         hit = is_class_member(pat.substr(pat_ndx + 1, cls_end - pat_ndx - 1),
             name[name_ndx], fold);
@@ -180,7 +180,7 @@ template<CharType CharT>
     pat_ndx = star_pat;
     name_ndx = ++star_name;
   }
-  while (pat_ndx < pat.size() && pat[pat_ndx] == CharT('*')) ++pat_ndx;
+  while (pat_ndx < pat.size() && pat[pat_ndx] == CharT{'*'}) ++pat_ndx;
   return pat_ndx == pat.size();
 }
 

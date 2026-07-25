@@ -208,7 +208,7 @@ private:
     return *this;
   }
   constexpr auto& append_ch(size_t len, SrcCharT unit) {
-    const DestCharT dest = to_dest(unit);
+    const auto dest = to_dest(unit);
     while (len--) *target_.out++ = dest;
     return *this;
   }

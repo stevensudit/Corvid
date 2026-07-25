@@ -181,7 +181,7 @@ consteval opt_string_view operator""_optsv(const char* ps, size_t n) noexcept {
 
 // Null literal; must pass 0.
 consteval opt_string_view operator""_optsv(unsigned long long zero_only) {
-  if (zero_only) throw std::out_of_range("opt_string_view not zero");
+  if (zero_only) throw std::out_of_range{"opt_string_view not zero"};
   return opt_string_view{};
 }
 

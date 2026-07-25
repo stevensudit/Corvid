@@ -45,8 +45,8 @@ namespace corvid::strings { inline namespace splitting {
 // The default delimiter stays a lone space for speed and simplicity; pass one
 // of these instead to split on Python-style whitespace. The trim functions
 // default the same way and accept these the same way.
-inline constexpr std::string_view whitespace{" \t\n\v\f\r"};
-inline constexpr std::wstring_view wwhitespace{L" \t\n\v\f\r"};
+inline constexpr std::string_view whitespace = " \t\n\v\f\r";
+inline constexpr std::wstring_view wwhitespace = L" \t\n\v\f\r";
 
 // Extract next delimited piece destructively from `whole`.
 //
@@ -89,7 +89,7 @@ split(const S& whole_in, basic_delim<char_type_of_t<S>> d = {}) {
   using C = char_type_of_t<S>;
   using result_t =
       std::conditional_t<std::is_void_v<R>, std::basic_string_view<C>, R>;
-  auto whole{as_view(whole_in)};
+  auto whole = as_view(whole_in);
   std::vector<result_t> parts;
   std::basic_string_view<C> part;
   for (bool more = !whole.empty(); more;) {
@@ -113,7 +113,7 @@ template<typename R = void, CharType CharT>
   // the temporary; this overload exists precisely to prevent that.
   static_assert(!std::is_trivially_copyable_v<result_t>,
       "R must be an owning string type");
-  return split<result_t>(std::basic_string_view<CharT>(whole), d);
+  return split<result_t>(std::basic_string_view<CharT>{whole}, d);
 }
 
 // Split at most `n` times by delimiters and return parts in vector.
@@ -132,7 +132,7 @@ split_n(const S& whole_in, size_t n, basic_delim<char_type_of_t<S>> d = {}) {
   using C = char_type_of_t<S>;
   using result_t =
       std::conditional_t<std::is_void_v<R>, std::basic_string_view<C>, R>;
-  auto whole{as_view(whole_in)};
+  auto whole = as_view(whole_in);
   std::vector<result_t> parts;
   std::basic_string_view<C> part;
   for (bool more = !whole.empty(); more;) {
@@ -161,7 +161,7 @@ template<typename R = void, CharType CharT>
   // the temporary; this overload exists precisely to prevent that.
   static_assert(!std::is_trivially_copyable_v<result_t>,
       "R must be an owning string type");
-  return split_n<result_t>(std::basic_string_view<CharT>(whole), n, d);
+  return split_n<result_t>(std::basic_string_view<CharT>{whole}, n, d);
 }
 
 #pragma endregion
@@ -217,7 +217,7 @@ rsplit(const S& whole_in, basic_delim<char_type_of_t<S>> d = {}) {
   using C = char_type_of_t<S>;
   using result_t =
       std::conditional_t<std::is_void_v<R>, std::basic_string_view<C>, R>;
-  auto whole{as_view(whole_in)};
+  auto whole = as_view(whole_in);
   std::vector<result_t> parts;
   std::basic_string_view<C> part;
   for (bool more = !whole.empty(); more;) {
@@ -241,7 +241,7 @@ template<typename R = void, CharType CharT>
   // the temporary; this overload exists precisely to prevent that.
   static_assert(!std::is_trivially_copyable_v<result_t>,
       "R must be an owning string type");
-  return rsplit<result_t>(std::basic_string_view<CharT>(whole), d);
+  return rsplit<result_t>(std::basic_string_view<CharT>{whole}, d);
 }
 
 // Split at most `n` times from the right and return parts in vector.
@@ -261,7 +261,7 @@ rsplit_n(const S& whole_in, size_t n, basic_delim<char_type_of_t<S>> d = {}) {
   using C = char_type_of_t<S>;
   using result_t =
       std::conditional_t<std::is_void_v<R>, std::basic_string_view<C>, R>;
-  auto whole{as_view(whole_in)};
+  auto whole = as_view(whole_in);
   std::vector<result_t> parts;
   std::basic_string_view<C> part;
   for (bool more = !whole.empty(); more;) {
@@ -290,7 +290,7 @@ template<typename R = void, CharType CharT>
   // the temporary; this overload exists precisely to prevent that.
   static_assert(!std::is_trivially_copyable_v<result_t>,
       "R must be an owning string type");
-  return rsplit_n<result_t>(std::basic_string_view<CharT>(whole), n, d);
+  return rsplit_n<result_t>(std::basic_string_view<CharT>{whole}, n, d);
 }
 
 #pragma endregion
@@ -348,7 +348,7 @@ template<CharType CharT>
 struct default_delim_finder {
   constexpr std::pair<size_t, size_t> operator()(
       std::basic_string_view<CharT> s) const {
-    auto pos = s.find(CharT(' '));
+    auto pos = s.find(CharT{' '});
     return {pos, pos + 1};
   }
 };
@@ -407,8 +407,8 @@ struct basic_piece_generator {
       const PieceFilter<CharT> auto& filter) {
     for (;;) {
       if (whole.null()) return false;
-      const auto [pos, next] = std::pair<size_t, size_t>(finder(whole));
-      const opt_view_t opt_part = filter(whole.substr(0, pos));
+      const auto [pos, next] = finder(whole);
+      const opt_view_t opt_part{filter(whole.substr(0, pos))};
       if (pos == npos)
         whole = std::nullopt;
       else
@@ -490,12 +490,12 @@ template<CharType CharT>
 struct line_delim_finder {
   constexpr std::pair<size_t, size_t> operator()(
       std::basic_string_view<CharT> s) const {
-    constexpr std::array line_breaks{CharT('\r'), CharT('\n')};
+    constexpr std::array line_breaks{CharT{'\r'}, CharT{'\n'}};
     const auto pos = s.find_first_of(
         std::basic_string_view<CharT>{line_breaks.data(), line_breaks.size()});
     if (pos == npos) return {npos, npos};
     auto next = pos + 1;
-    if (s[pos] == CharT('\r') && next < s.size() && s[next] == CharT('\n'))
+    if (s[pos] == CharT{'\r'} && next < s.size() && s[next] == CharT{'\n'})
       ++next;
     return {pos, next};
   }
@@ -518,7 +518,7 @@ template<typename R = void, CharType CharT>
   using result_t =
       std::conditional_t<std::is_void_v<R>, std::basic_string_view<CharT>, R>;
   const auto [pos, next] = line_delim_finder<CharT>{}(whole);
-  const auto found = pos != npos;
+  const bool found = (pos != npos);
   const auto end =
       !found ? whole.size()
       : ends == line_ends::keep
@@ -558,7 +558,7 @@ split_lines(const S& whole_in, line_ends ends = line_ends::discard) {
   using C = char_type_of_t<S>;
   using result_t =
       std::conditional_t<std::is_void_v<R>, std::basic_string_view<C>, R>;
-  auto whole{as_view(whole_in)};
+  auto whole = as_view(whole_in);
   std::vector<result_t> lines;
   std::basic_string_view<C> line;
   while (more_lines(line, whole, ends)) lines.emplace_back(line);
@@ -578,7 +578,7 @@ template<typename R = void, CharType CharT>
   // the temporary; this overload exists precisely to prevent that.
   static_assert(!std::is_trivially_copyable_v<result_t>,
       "R must be an owning string type");
-  return split_lines<result_t>(std::basic_string_view<CharT>(whole), ends);
+  return split_lines<result_t>(std::basic_string_view<CharT>{whole}, ends);
 }
 
 #pragma endregion
