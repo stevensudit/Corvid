@@ -28,6 +28,7 @@
 #include "strings/expand_tabs.h"
 #include "strings/textwrap.h"
 #include "strings/fnmatch.h"
+#include "strings/pure_path.h"
 #include "strings/justification.h"
 #include "strings/string_partition.h"
 #include "strings/token_parser.h"
@@ -45,7 +46,7 @@
 // choose to import the inline namespace for that group of symbols, such as
 // `corvid::strings::trimming`.
 //
-// The module-style namespaces, `textwrap` and `fnmatch`, are deliberately not
-// inline. Bring one in with a namespace alias, such as
+// The module-style namespaces, `textwrap`, `fnmatch`, and `pure_path`, are
+// deliberately not inline. Bring one in with a namespace alias, such as
 // `namespace textwrap = corvid::strings::textwrap;`, and calls then read as
 // they do in Python: `textwrap::dedent`, `fnmatch::filter`, and so on.

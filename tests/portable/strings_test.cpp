@@ -2152,6 +2152,159 @@ TEST_CASE("Fnmatch", "[StringUtilsTest]") {
 }
 
 #pragma endregion
+#pragma region PurePath
+
+TEST_CASE("PurePath", "[StringUtilsTest]") {
+  namespace pure_path = strings::pure_path;
+
+  // `match` right-anchors a relative pattern. Expectations here and below
+  // are pinned against CPython 3.14 `PurePosixPath` (which is
+  // case-sensitive, hence via the `_case` variants).
+  if (true) {
+    CHECK(pure_path::match_case("a/b/c.py", "c.py"));
+    CHECK(pure_path::match_case("a/b/c.py", "*.py"));
+    CHECK(pure_path::match_case("a/b/c.py", "b/*.py"));
+    CHECK(pure_path::match_case("a/b/c.py", "a/b/c.py"));
+    CHECK_FALSE(pure_path::match_case("a/b/c.py", "a/*.py"));
+    CHECK_FALSE(pure_path::match_case("a/b/c.py", "x/c.py"));
+    CHECK(pure_path::match_case("/a/b/c.py", "b/*.py"));
+    CHECK(pure_path::match_case("/a/b/c.py", "a/b/c.py"));
+    // A pattern longer than the path cannot match.
+    CHECK_FALSE(pure_path::match_case("c.py", "b/c.py"));
+    CHECK_FALSE(pure_path::match_case("c.py", "*/c.py"));
+  }
+  // An anchored pattern must cover the whole path.
+  if (true) {
+    CHECK(pure_path::match_case("/a/b/c.py", "/a/b/c.py"));
+    CHECK(pure_path::match_case("/a", "/a"));
+    CHECK_FALSE(pure_path::match_case("/a/b/c.py", "/*.py"));
+    CHECK(pure_path::match_case("/a/b/c.py", "/*/*/*.py"));
+    CHECK_FALSE(pure_path::match_case("/a/b/c.py", "/**/*.py"));
+    CHECK_FALSE(pure_path::match_case("a/b/c.py", "/a/b/c.py"));
+  }
+  // Wildcards never match a bare root, and never cross separators.
+  if (true) {
+    CHECK_FALSE(pure_path::match_case("/a/b", "*/a/b"));
+    CHECK_FALSE(pure_path::match_case("/a/b", "?/a/b"));
+    CHECK_FALSE(pure_path::match_case("/a/b", "[/]/a/b"));
+    CHECK_FALSE(pure_path::match_case("a/b", "a*b"));
+    CHECK_FALSE(pure_path::match_case("a/b", "a?b"));
+    CHECK(pure_path::match_case("ab", "a*b"));
+  }
+  // In `match`, `**` degrades to `*`: one component, not a run.
+  if (true) {
+    CHECK(pure_path::match_case("a/b/c.py", "**/*.py"));
+    CHECK(pure_path::match_case("a/b/c.py", "**/**/*.py"));
+    CHECK(pure_path::match_case("a/b/c.py", "a/**/c.py"));
+    CHECK_FALSE(pure_path::match_case("a/x/b/c.py", "a/**/c.py"));
+  }
+  // "." components, duplicate separators, and a trailing separator all
+  // normalize away, while ".." stays literal, on both sides.
+  if (true) {
+    CHECK(pure_path::match_case("./a/b", "a/b"));
+    CHECK(pure_path::match_case("a/./b", "a/b"));
+    CHECK(pure_path::match_case("a//b", "a/b"));
+    CHECK(pure_path::match_case("a/b/", "a/b"));
+    CHECK(pure_path::match_case("a/b", "./a/b"));
+    CHECK(pure_path::match_case("a/b", "a//b"));
+    CHECK(pure_path::match_case("a/b", "a/b/"));
+    CHECK(pure_path::match_case("../a", "../a"));
+    CHECK(pure_path::match_case("../a", "*/a"));
+    CHECK(pure_path::match_case("a/../b", "a/../b"));
+    CHECK_FALSE(pure_path::match_case("b", "a/../b"));
+  }
+  // Bare root and dot, and the no-raise divergence: an empty pattern (or
+  // "."), which Python rejects with `ValueError`, matches nothing here.
+  if (true) {
+    CHECK(pure_path::match_case("/", "/"));
+    CHECK_FALSE(pure_path::match_case(".", "*"));
+    CHECK(pure_path::match_case("a", "*"));
+    CHECK_FALSE(pure_path::match_case("a", ""));
+    CHECK_FALSE(pure_path::match_case("a", "."));
+    CHECK_FALSE(pure_path::full_match_case("a", ""));
+    CHECK_FALSE(pure_path::full_match_case("a", "."));
+  }
+  // `full_match` covers the whole path.
+  if (true) {
+    CHECK_FALSE(pure_path::full_match_case("a/b/c.py", "c.py"));
+    CHECK_FALSE(pure_path::full_match_case("a/b/c.py", "*.py"));
+    CHECK_FALSE(pure_path::full_match_case("a/b/c.py", "b/*.py"));
+    CHECK(pure_path::full_match_case("a/b/c.py", "a/b/c.py"));
+    CHECK(pure_path::full_match_case("a/b/c.py", "a/*/c.py"));
+    CHECK(pure_path::full_match_case("a/b/c.py", "*/*/*.py"));
+    CHECK(pure_path::full_match_case("/a/b", "/a/b"));
+    CHECK_FALSE(pure_path::full_match_case("/a/b", "a/b"));
+    CHECK_FALSE(pure_path::full_match_case("a/b", "/a/b"));
+    CHECK_FALSE(pure_path::full_match_case("/a", "*/a"));
+    CHECK_FALSE(pure_path::full_match_case("/a", "[/]/a"));
+  }
+  // A `**` component matches any run of components; embedded, it degrades
+  // to `*`.
+  if (true) {
+    CHECK(pure_path::full_match_case("a/b/c.py", "**/*.py"));
+    CHECK(pure_path::full_match_case("a/b/c.py", "a/**/c.py"));
+    CHECK(pure_path::full_match_case("a/c.py", "a/**/c.py"));
+    CHECK(pure_path::full_match_case("a/b/x/c.py", "a/**/c.py"));
+    CHECK(pure_path::full_match_case("a/b/c.py", "a/**"));
+    CHECK(pure_path::full_match_case("a/b/c.py", "**"));
+    CHECK(pure_path::full_match_case("a/b/c.py", "**/c.py"));
+    CHECK(pure_path::full_match_case("a/b/c.py", "**/b/c.py"));
+    CHECK(pure_path::full_match_case("a", "**"));
+    CHECK(pure_path::full_match_case(".", "**"));
+    CHECK(pure_path::full_match_case("../a", "**/a"));
+    CHECK(pure_path::full_match_case("a/../b", "a/*/b"));
+    CHECK(pure_path::full_match_case("a/b", "a**/b"));
+    CHECK_FALSE(pure_path::full_match_case("a/b", "**b"));
+  }
+  // The root subtleties, exactly as CPython has them: `**` absorbs a root
+  // only together with at least one real component, except that a bare `**`
+  // matches everything.
+  if (true) {
+    CHECK(pure_path::full_match_case("/a/b", "**"));
+    CHECK(pure_path::full_match_case("/", "**"));
+    CHECK(pure_path::full_match_case("/a/b", "**/b"));
+    CHECK_FALSE(pure_path::full_match_case("/a/b", "**/a/b"));
+    CHECK_FALSE(pure_path::full_match_case("/a", "**/a"));
+    CHECK(pure_path::full_match_case("a", "**/a"));
+    CHECK(pure_path::full_match_case("/a/b", "/**"));
+    CHECK(pure_path::full_match_case("/a/b", "/**/b"));
+    CHECK(pure_path::full_match_case("/a/b", "/**/a/b"));
+    CHECK(pure_path::full_match_case("/a/b", "/a/**"));
+    CHECK(pure_path::full_match_case("/", "/**"));
+    CHECK_FALSE(pure_path::full_match_case("a/b", "/**/a/b"));
+  }
+  // The folded variants, and wide path arguments.
+  if (true) {
+    CHECK(pure_path::match("A/B/C.PY", "c.py"));
+    CHECK(pure_path::full_match("SRC/a.h", "src/*.[Hh]"));
+    CHECK_FALSE(pure_path::match_case("A/B/C.PY", "c.py"));
+    CHECK(pure_path::match(L"a/b/c.py", L"b/*.py"));
+  }
+#ifdef _WIN32
+  // Drive-letter grammar: the host's path grammar does the parsing, so
+  // these only hold on Windows. Pinned against `PureWindowsPath` (which
+  // folds case, hence the unfolded variants).
+  if (true) {
+    CHECK(pure_path::match("C:/x/y", "c:/x/y"));
+    CHECK_FALSE(pure_path::match("C:/x/y", "*.py"));
+    CHECK(pure_path::match("C:/x/y.py", "*.PY"));
+    CHECK(pure_path::match("C:/x/y", "x/y"));
+    CHECK(pure_path::match_case("C:x", "C:x"));
+    CHECK(pure_path::match_case("C:x", "x"));
+    CHECK(pure_path::full_match("C:/x/y", "C:/**"));
+    CHECK(pure_path::full_match("C:/x/y", "C:/x/**"));
+    CHECK(pure_path::full_match("C:/x/y", "**"));
+    CHECK_FALSE(pure_path::full_match("C:/x/y", "D:/**"));
+    // A drive-plus-root pair falls to `**` on its own; a lone drive only
+    // along with a real component.
+    CHECK(pure_path::full_match_case("C:/x", "**/x"));
+    CHECK_FALSE(pure_path::full_match_case("C:x", "**/x"));
+    CHECK(pure_path::full_match_case("C:x/y", "**/y"));
+  }
+#endif
+}
+
+#pragma endregion
 #pragma region Justification
 
 TEST_CASE("Justification", "[StringUtilsTest]") {

@@ -245,19 +245,33 @@ input for further analysis, not a commitment to build any particular item.
   ported, since it returns a regex string and so presumes the engine the
   survey declines to build on.
 - `PurePath.match` / `full_match`: glob's path-aware matching logic with the
-  file access removed, planned as the item right after `fnmatch` finalizes.
-  Wildcards do not cross separators; matching is per component over the
-  `fnmatch` kernel. Rulings on record: ship both `match` (a relative pattern
-  matches a trailing run of components, right-anchored; `**` is not special
-  and degrades to `*`) and `full_match` (whole path, with a working `**`, per
-  Python 3.13); the case rule is the same deterministic folded/exact pair as
-  `fnmatch`, not the flavour-dependent Python rule; it goes in its own
-  `pure_path.h`, not `fnmatch.h`. Layering ruling: including `<filesystem>`
-  from the strings band is fine, since the rule is about not referencing
-  Corvid's filesys band, not about std headers; `std::filesystem::path`
-  already covers the lexical `PurePath` surface without I/O, so the gap is
-  only the matching. If filesys later wraps `<filesystem>` and `pure_path.h`
-  would be cleaner over that wrapper, the header can move up a band then.
+  file access removed. Wildcards do not cross separators; matching is per
+  component over the `fnmatch` kernel. DONE: [pure_path.h](pure_path.h)
+  ships `match` (a relative pattern matches a trailing run of components,
+  right-anchored; an anchored one must cover the whole path; `**` is not
+  special and degrades to `*`) and `full_match` (whole path, with a `**`
+  component matching any run, per Python 3.13+), each with a `_case` exact
+  variant per the deterministic-case ruling, in a non-inline `pure_path`
+  namespace. `std::filesystem::path` does the part it is good for, parsing
+  under the host's path grammar (components taken in generic format, with
+  "." and trailing-empty components dropped to mirror `PurePath`); the
+  component walk is the `fnmatch` star-backtracking algorithm lifted from
+  code units to components. Everything is pinned against CPython 3.14,
+  including the root subtleties, which fall out of CPython's regex-over-
+  string implementation but are reproduced here in component terms: a
+  wildcard never matches a bare root, and a leading `**` in a relative
+  pattern absorbs an anchor only together with what follows (a full
+  drive-plus-root pair on its own, a lone root or lone drive only along
+  with at least one real component); embedded `**` degrades to `*` exactly
+  as 3.14 does. Divergence, same shape as elsewhere: nothing raises, so an
+  empty pattern (or "."), which Python rejects with `ValueError`, matches
+  nothing. Layering ruling on record: including `<filesystem>` from the
+  strings band is fine, since the layering rule is about not referencing
+  Corvid's filesys band, not std headers; if filesys later wraps
+  `<filesystem>` and `pure_path.h` would be cleaner over that wrapper, the
+  header can move up a band then. Drive-letter tests are Windows-only (the
+  host grammar is the parser); the rest of the pins are grammar-neutral and
+  hold on both platforms.
 - `shlex` / `csv`-style quote-aware splitting: a shipped quote-respecting
   `DelimFinder` / `PieceFilter` pair. The splitting machinery was explicitly
   designed for this ("use an internal buffer to unescape"), but no battery is
@@ -301,6 +315,6 @@ input for further analysis, not a commitment to build any particular item.
 
 The three that callers would likely miss first (`removeprefix` /
 `removesuffix`, `partition`, `dedent`) have all shipped, as have `splitlines`,
-the rest of `textwrap`, and `fnmatch`. Next by ruling is the `PurePath.match`
-/ `full_match` pair, once `fnmatch` finalizes. Of what remains after that, a
-quote-aware splitter would exercise machinery that already exists.
+the rest of `textwrap`, `fnmatch`, and the `PurePath.match` / `full_match`
+pair. Of what remains, a quote-aware splitter would exercise machinery that
+already exists.

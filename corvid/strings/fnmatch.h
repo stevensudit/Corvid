@@ -51,7 +51,8 @@ namespace corvid::strings { namespace fnmatch {
 //
 // The whole name must match (anchoring at both ends is implicit), and this is
 // string matching, not path globbing: `*` and `?` cross path separators and
-// newlines like any other code unit.
+// newlines like any other code unit. For path-aware matching, where
+// wildcards stop at separators, see "pure_path.h".
 //
 // One deliberate divergence: Python's `fnmatch` inherits its case rule (and a
 // slash-to-backslash rewrite) from the host OS via `os.path.normcase`. Here
