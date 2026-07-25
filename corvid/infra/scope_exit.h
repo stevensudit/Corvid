@@ -154,7 +154,7 @@ private:
 
   EF exit_function_;
   bool active_{true};
-  CORVID_NO_UNIQUE_ADDRESS exception_count_t uncaught_on_entry_;
+  CORVID_NO_UNIQUE_ADDRESS exception_count_t uncaught_on_entry_{};
 
 #pragma endregion
 };

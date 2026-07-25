@@ -3102,6 +3102,9 @@ private:
     }
   }
 
+  // Deliberately no initializer: emptiness and the active member are keyed by
+  // `vtable_` (see `target`), and zeroing the buffer on every construction
+  // would be pure waste.
   storage_t storage_;
   const owning_vtable_t* vtable_{};
 

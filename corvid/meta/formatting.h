@@ -206,10 +206,10 @@ struct spec_parser: parsed_spec<CharT> {
                           !CharType<T>)
             {
               if constexpr (std::is_signed_v<T>)
-                if (value < 0) throw std::format_error("negative arg");
+                if (value < 0) throw std::format_error{"negative arg"};
               return static_cast<size_t>(value);
             } else
-              throw std::format_error("arg is not an integer");
+              throw std::format_error{"arg is not an integer"};
           },
           ctx.arg(id));
     }
@@ -231,7 +231,7 @@ struct spec_parser: parsed_spec<CharT> {
                           std::is_same_v<T, const CharT*>)
               return value;
             else
-              throw std::format_error("arg is not a string");
+              throw std::format_error{"arg is not a string"};
           },
           ctx.arg(id));
     }
@@ -369,6 +369,8 @@ private:
 
   // Append `v` as decimal digits, widened to `CharT`.
   static void append_decimal(std::basic_string<CharT>& out, size_t v) {
+    // Deliberately uninitialized: filled and read entirely within this
+    // function, and only the written cells are read.
     CharT buf[20];
     size_t len{};
     do {
@@ -482,7 +484,8 @@ struct nullable_formatter: std::formatter<U, CharT> {
       const auto synthetic = spec_.rewrite_spec_as_explicit(
           std::basic_string_view<CharT>{begin, begin + consumed});
 
-      base::parse(std::basic_format_parse_context<CharT>{synthetic});
+      std::basic_format_parse_context<CharT> sctx{synthetic};
+      base::parse(sctx);
       return begin + consumed;
     }
     return base::parse(ctx);

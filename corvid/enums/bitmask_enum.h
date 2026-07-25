@@ -417,8 +417,8 @@ namespace details {
 template<ScopedEnum E, size_t N>
 constexpr auto& do_bit_append(AppendTarget auto& target, E v,
     const std::array<std::string_view, N>& names) {
-  static constexpr strings::delim plus(" + ");
-  bool first{true};
+  static constexpr strings::delim plus{" + "};
+  bool first = true;
 
   for (size_t ndx = N; ndx != 0; --ndx) {
     auto mask = make_at<E>(ndx);
@@ -496,7 +496,7 @@ struct bitmask_enum_names_spec
           bitclip> {
   constexpr bitmask_enum_names_spec(
       const std::array<std::string_view, N>& name_list)
-      : names(name_list) {}
+      : names{name_list} {}
 
   [[nodiscard]] constexpr auto& append(AppendTarget auto& target, E v) const {
     if constexpr (N == bits_length<E>())
@@ -522,7 +522,7 @@ struct bitmask_enum_names_spec
       auto piece = strings::extract_piece(sv, "+");
       // A '+' was consumed when `extract_piece` removed more than the piece
       // itself, which means another piece must follow.
-      more = sv.size() + piece.size() < before;
+      more = (sv.size() + piece.size() < before);
       if (!lookup_one(piece_value, strings::trim(piece))) return false;
       // Use operator syntax to avoid ADL issues.
       corvid::enums::bitmask::operator|=(result, piece_value);
@@ -565,10 +565,10 @@ consteval uint64_t calc_valid_bits_from_bit_names() {
   constexpr auto name_array = strings::fixed_split_trim<bit_names, " -">();
   static_assert(name_array.size() <= 64,
       "bit names list exceeds maximum of 64 bits");
-  uint64_t valid_bits = 0;
+  uint64_t valid_bits{};
   uint64_t pow2 = 1;
 
-  for (int i = name_array.size() - 1; i >= 0; --i) {
+  for (int i{name_array.size() - 1}; i >= 0; --i) {
     if (!name_array[i].empty()) valid_bits |= pow2;
     // Not UB: left shift of unsigned is defined as (E1 * 2^E2) mod 2^N, so the
     // final shift when pow2 == (1ULL << 63) yields 0. UB only occurs when the
@@ -590,7 +590,7 @@ consteval uint64_t calc_valid_bits_from_value_names() {
   constexpr auto name_array = strings::fixed_split_trim<bit_names, " -">();
   static_assert(name_array.size() <= 64,
       "value names list exceeds maximum of 64 values");
-  uint64_t valid_bits = 0;
+  uint64_t valid_bits{};
   for (size_t i = 1; i < name_array.size(); ++i) {
     if (!name_array[i].empty()) valid_bits |= i;
   }

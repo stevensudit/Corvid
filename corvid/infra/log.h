@@ -232,6 +232,8 @@ private:
     // at the buffer end, so a long path truncates the prefix rather than
     // overflowing. 256 bytes covers the fixed-width timestamp, the <=15-char
     // thread name and tid, the level, and a full file path with line.
+    // Deliberately uninitialized: only the bytes `format_to_n` writes are
+    // read, and this runs per log line.
     std::array<char, 256> prefix;
     auto res = std::format_to_n(prefix.data(), prefix.size(),
         "{:%FT%T}Z [{}] [{} {}:{}] ", now, thread_label(),

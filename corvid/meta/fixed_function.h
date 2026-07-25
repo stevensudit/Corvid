@@ -354,6 +354,8 @@ private:
 
   invoke_fn_t invoke_{&default_invoke_impl};
   lifespan_fn_t lifespan_{};
+  // Deliberately no initializer: occupancy is keyed by `lifespan_`, and
+  // zeroing the buffer on every construction would be pure waste.
   alignas(std::max_align_t) std::byte storage_[storage_size];
 
 #pragma endregion

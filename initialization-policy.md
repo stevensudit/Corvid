@@ -57,6 +57,10 @@ Four forms, each with one meaning:
 - `auto x = y;` when the type should track the initializer.
   `auto x = static_cast<size_t>(n);` when converting; the cast names the
   destination type. `auto x = size_t{5};` is fine for a typed literal.
+- Lean toward `const` on locals as the default posture:
+  `const auto first = sv.front();` over `auto first = sv.front();` when the
+  value never changes. Not a requirement everywhere, just the side to err
+  on.
 - **Rule:** No braces on the right-hand side of `auto x = ...;` unless a
   `std::initializer_list` is actually wanted, which is rare. `auto x{5};`
   (an `int`) and `auto y = {5};` (an `initializer_list<int>`) mean different
@@ -81,6 +85,18 @@ Four forms, each with one meaning:
 ## Braces
 
 Braces express "this object takes on these values", and they reject narrowing.
+
+- **Rule: every variable gets an initializer.** An uninitialized declaration
+  is permitted only as a considered choice, and then a comment must say so;
+  without the comment it reads as an oversight. The canonical qualifying
+  case is a buffer filled and read entirely within the function, with only
+  the written cells ever read. A single-value target handed to another
+  function (a `from_chars`-style out-param) does not qualify: clearing a
+  word is dirt cheap and the compiler drops a store it can prove dead, so
+  `E e{};` costs nothing. A sized destination buffer handed to a pure
+  writer sits in between and is judged by cost: the log prefix buffer keeps
+  its non-init, with a comment, because zeroing 256 bytes per log line is
+  real and the optimizer cannot prove it dead.
 
 - **Value-initialization (empty state):** `int n{};`, `ptr_t p{};`,
   `some_enum e{};`. The point is that the object starts empty or zero, not
@@ -139,6 +155,15 @@ Braces express "this object takes on these values", and they reject narrowing.
 - NSDMIs do have an `=` form, and they follow the local-variable rules:
   `int width_ = 1024;` is fine even when a constructor spells the same member
   `width_{width}`.
+- **Ruling:** A member of scalar, enum, pointer, or similar raw type carries
+  an NSDMI even when every constructor initializes it: `E enum_{};`.
+  Consistency (a compiler-provided constructor initializes it too), safety
+  (a future constructor cannot silently leave it), and zero cost (a
+  constructor's init-list entry overrides the NSDMI, so there is no double
+  store). The class-type carve-out stands (`std::string s;`), a generic
+  member type that need not be default-constructible cannot comply, and a
+  storage buffer whose non-init is the point (an SBO buffer keyed by a
+  discriminant) is the commented exception, judged by cost as with locals.
 
 ## Generic code
 

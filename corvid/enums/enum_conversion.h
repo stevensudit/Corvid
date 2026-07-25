@@ -123,7 +123,7 @@ constexpr bool extract_enum(StdEnum auto& e, std::string_view& sv) {
 // On failure, returns optional without value and leaves string view unchanged.
 template<StdEnum E>
 constexpr std::optional<E> extract_enum(std::string_view& sv) {
-  E e;
+  E e{};
   return extract_enum(e, sv) ? std::make_optional(e) : std::nullopt;
 }
 
@@ -135,7 +135,7 @@ constexpr std::optional<E> extract_enum(std::string_view& sv) {
 // On failure, returns optional without value.
 template<StdEnum E>
 constexpr std::optional<E> parse_enum(std::string_view sv) {
-  E e;
+  E e{};
   return extract_enum(e, sv) && sv.empty()
              ? std::make_optional(e)
              : std::nullopt;
@@ -149,7 +149,7 @@ constexpr std::optional<E> parse_enum(std::string_view sv) {
 // On failure, returns `default_value`.
 template<StdEnum E>
 constexpr E parse_enum(std::string_view sv, E default_value) {
-  E e;
+  E e{};
   return (extract_enum(e, sv) && sv.empty()) ? e : default_value;
 }
 
