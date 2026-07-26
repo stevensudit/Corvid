@@ -481,8 +481,9 @@ struct nullable_formatter: std::formatter<U, CharT> {
     if (is_any_auto) {
       spec_.width_arg.claim_next_automatic(ctx);
       spec_.precision_arg.claim_next_automatic(ctx);
-      const auto synthetic = spec_.rewrite_spec_as_explicit(
+      auto synthetic = spec_.rewrite_spec_as_explicit(
           std::basic_string_view<CharT>{begin, begin + consumed});
+      synthetic.push_back(CharT{'}'});
 
       std::basic_format_parse_context<CharT> sctx{synthetic};
       base::parse(sctx);

@@ -529,8 +529,9 @@ struct std::formatter<corvid::container::intern::interned_value<T, ID>, CharT>
     const std::pair<const T&, id_print_t> pr{iv.value(),
         +corvid::as_underlying(iv.id())};
     std::formatter<std::pair<const T&, id_print_t>, CharT> pair_formatter;
-    std::basic_format_parse_context<CharT> pctx{
-        std::basic_string_view<CharT>{}};
+    // Close the synthetic spec.
+    static constexpr CharT closer[]{CharT{'}'}, CharT{}};
+    std::basic_format_parse_context<CharT> pctx{closer};
     pair_formatter.parse(pctx);
     return pair_formatter.format(pr, ctx);
   }
