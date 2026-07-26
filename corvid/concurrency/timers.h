@@ -199,7 +199,7 @@ public:
   // The user can choose to cancel after a certain number of callback
   // invocations. This is more reliable than trying to set the expiration time
   // to an exact multiple of the repeat interval.
-  std::atomic_size_t invocation_count{0};
+  std::atomic_size_t invocation_count;
 
   // Tombstone. Setting this prevents the event from firing again.
   tombstone canceled;

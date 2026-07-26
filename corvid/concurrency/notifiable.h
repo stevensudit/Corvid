@@ -41,10 +41,12 @@ concept relaxed_atomic_like = requires {
   typename T::value_type;
 } && T::is_relaxed_atomic::value;
 
-// Helper: the "plain" value type for `notifiable<T>`. For a non-atomic `T`
-// this is `T` itself; for `std::atomic<U>` or `relaxed_atomic<U>` it is `U`.
-// Implemented as partial specializations rather than `std::conditional_t` to
-// avoid eagerly instantiating `typename T::value_type` for non-atomic types.
+// Helper: the "plain" value type for `notifiable<T>`.
+//
+// For a non-atomic `T` this is `T` itself; for `std::atomic<U>` or
+// `relaxed_atomic<U>` it is `U`. Implemented as partial specializations rather
+// than `std::conditional_t` to avoid eagerly instantiating `typename
+// T::value_type` for non-atomic types.
 template<typename T>
 struct notifiable_result {
   using type = T;
@@ -144,7 +146,7 @@ public:
   // `notify_all` is called even if the move assignment throws, so waiters are
   // never left stuck.
   void notify(value_t val) {
-    auto on_exit = scope_exit{[&]() noexcept { cv_.notify_all(); }};
+    scope_exit on_exit{[&]() noexcept { cv_.notify_all(); }};
     std::scoped_lock lock{mutex_};
     value_ = std::move(val);
   }
@@ -155,7 +157,7 @@ public:
   // the change is single-consumer (though note that there is no guarantee that
   // the waiter will be woken before the value changes again).
   void notify_one(value_t val) {
-    auto on_exit = scope_exit{[&]() noexcept { cv_.notify_one(); }};
+    scope_exit on_exit{[&]() noexcept { cv_.notify_one(); }};
     std::scoped_lock lock{mutex_};
     value_ = std::move(val);
   }
@@ -168,7 +170,7 @@ public:
   // `notify_all` is called even if `modify_value` throws, so waiters are never
   // left stuck.
   void modify_and_notify(std::invocable<T&> auto modify_value) {
-    auto on_exit = scope_exit{[&]() noexcept { cv_.notify_all(); }};
+    scope_exit on_exit{[&]() noexcept { cv_.notify_all(); }};
     std::scoped_lock lock{mutex_};
     modify_value(value_);
   }
@@ -179,7 +181,7 @@ public:
   // waiter or the change is single-consumer (though note that there is no
   // guarantee that the waiter will be woken before the value changes again).
   void modify_and_notify_one(std::invocable<T&> auto modify_value) {
-    auto on_exit = scope_exit{[&]() noexcept { cv_.notify_one(); }};
+    scope_exit on_exit{[&]() noexcept { cv_.notify_one(); }};
     std::scoped_lock lock{mutex_};
     modify_value(value_);
   }

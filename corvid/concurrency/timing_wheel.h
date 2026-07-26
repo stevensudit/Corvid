@@ -102,10 +102,10 @@ public:
 #pragma region Constants
 
   // Default slot count covers ~60s at 100ms per slot.
-  static constexpr size_t default_slot_count{600};
+  static constexpr size_t default_slot_count = 600;
 
   // Default resolution: one 100ms slot per tick.
-  static constexpr duration_t default_tick_interval{100ms};
+  static constexpr duration_t default_tick_interval = 100ms;
 
 #pragma endregion
 #pragma region Construction
@@ -120,8 +120,10 @@ public:
   explicit timing_wheel(size_t slot_count = default_slot_count,
       duration_t tick_interval = default_tick_interval,
       time_point_t start_time = std::chrono::steady_clock::now())
-      : slots_(slot_count), tick_interval_(tick_interval),
-        last_tick_(start_time) {
+      // `slots_` takes parens: braces would select the `initializer_list`
+      // constructor and make one element instead of `slot_count` of them.
+      : slots_(slot_count), tick_interval_{tick_interval},
+        last_tick_{start_time} {
     if (slot_count < 2)
       throw std::invalid_argument{"timing_wheel: slot_count must be >= 2"};
     if (tick_interval_ < 500'000ns)

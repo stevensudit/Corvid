@@ -271,16 +271,16 @@ protected:
     assert(is_loop_thread());
 
     // Atomically swap between the double-buffered queues.
-    post_queue_t* pending;
+    post_queue_t* pending{};
     if (std::scoped_lock lock{post_mutex_}; true) {
       pending = active_queue_;
       if (!pending) return 0; // shutdown has been called.
-      post_queue_t* other =
+      auto* other =
           (pending == &post_queues_[0]) ? &post_queues_[1] : &post_queues_[0];
       active_queue_ = other;
     }
 
-    size_t count = pending->size();
+    const auto count = pending->size();
 
     // Note that this method is marked `noexcept`, so if any callback throws,
     // we crash. This is because we have no reasonable alternative.

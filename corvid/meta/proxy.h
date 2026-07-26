@@ -1318,7 +1318,7 @@ struct entry_traits<name<Name>> {
 // every other entry kind.
 template<typename E>
 struct entry_name {
-  static constexpr fixed_string name_v{""};
+  static constexpr fixed_string name_v = "";
   static constexpr bool is_name_v = false;
 };
 template<fixed_string Name>

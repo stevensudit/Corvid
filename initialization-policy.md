@@ -23,12 +23,22 @@ Four forms, each with one meaning:
 - Loop counters follow from this: `for (int i = 0; i <= 5; ++i)`. The initial
   value is a range endpoint that pairs with the bound; `int i{}` would hide
   half the range.
-- A single literal where the value is the point takes `=` even into a
-  string-like type: `std::string_view marker_ = "(null)";`. Braces would
-  add no check there (no narrowing applies, no `initializer_list` hazard),
-  so requiring them would be uniformity without a payoff. Braces return the
-  moment the initializer is non-literal or multi-argument, where the
-  conversion or the components are the point.
+- A single literal where the value is the point takes `=` into a class type
+  the literal converts to implicitly:
+  `std::string_view marker_ = "(null)";`,
+  `duration_t tick_interval = 100ms;`. A string-like target is the common
+  example, not a carve-out. What licenses `=` is that the target's
+  converting constructor is implicit, so braces could add no check (the
+  constructor already gatekeeps the conversion, and no `initializer_list`
+  hazard applies), and requiring them would be uniformity without a payoff.
+  Chrono is the clearest case: a lossy conversion such as `seconds` from
+  `100ms` fails to compile under either spelling, because the constructor
+  itself refuses it. When the conversion instead needs the target's
+  `explicit` constructor, `=` does not compile at all and braces are
+  required, as in `duration_t tick_interval{100}`, where a bare number is
+  not a duration, and `Port p{80}`. That is value-like construction, below.
+  Braces likewise return the moment the initializer is non-literal or
+  multi-argument, where the conversion or the components are the point.
 - **Rule:** For a non-literal initializer, do not write `int x = y;`. The
   initializer's type can drift silently under `=`. Pick a side instead:
   `auto x = y;` when `x` should track `y`'s type, or a brace form when `x`'s
@@ -214,6 +224,10 @@ Braces express "this object takes on these values", and they reject narrowing.
   member type that need not be default-constructible cannot comply, and a
   storage buffer whose non-init is the point (an SBO buffer keyed by a
   discriminant) is the commented exception, judged by cost as with locals.
+  A class type that merely looks scalar is not a raw type for this purpose:
+  `std::chrono::time_point` and `std::atomic<T>` both already initialize
+  themselves, so they take the carve-out and stay bare. Adding `{}` there is
+  redundant, and clang-tidy's `readability-redundant-member-init` says so.
 
 ## Generic code
 

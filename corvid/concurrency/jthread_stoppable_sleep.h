@@ -81,8 +81,8 @@ public:
 
   static void set_thread_name(std::string_view name) {
     static std::atomic_int thread_count;
-    const int n = ++thread_count;
-    std::string label = std::to_string(n);
+    const auto n = ++thread_count;
+    auto label = std::to_string(n);
     label += '-';
     label += name;
 #ifdef _WIN32

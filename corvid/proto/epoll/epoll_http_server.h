@@ -854,8 +854,8 @@ private:
   epoll_loop_ptr loop_;
   std::optional<timing_wheel_runner> wheel_runner_;
   timing_wheel_ptr wheel_;
-  duration_t read_timeout_{30s};
-  duration_t write_timeout_{5s};
+  duration_t read_timeout_ = 30s;
+  duration_t write_timeout_ = 5s;
   conn_ptr_t listener_;
   route_map_t routes_;
 #pragma endregion

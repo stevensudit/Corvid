@@ -335,8 +335,8 @@ private:
   std::string pending_response_;
   bool upgraded_{};
 
-  duration_t ping_interval_{30s};
-  duration_t pong_timeout_{10s};
+  duration_t ping_interval_ = 30s;
+  duration_t pong_timeout_ = 10s;
   std::atomic_uint64_t ping_interval_seq_;
   std::atomic_uint64_t pong_wait_seq_;
 

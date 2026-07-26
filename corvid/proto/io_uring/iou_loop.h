@@ -240,8 +240,8 @@ public:
 
   // Timeouts. (io_uring-specific)
   using duration_t = std::chrono::nanoseconds;
-  static constexpr duration_t default_run_once_timeout{10ms};
-  static constexpr duration_t default_post_and_wait_poll_interval{100ms};
+  static constexpr duration_t default_run_once_timeout = 10ms;
+  static constexpr duration_t default_post_and_wait_poll_interval = 100ms;
   static constexpr size_t default_max_pending_sqes{RING_SIZE / 4};
 
   // Expiration. (`timeout_sweeper`-specific)

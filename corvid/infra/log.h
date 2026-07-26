@@ -196,7 +196,7 @@ private:
   static const std::string& thread_label() {
     thread_local const auto label = [] -> std::string {
 #ifdef _WIN32
-      std::string name{"thread"};
+      std::string name = "thread";
       wchar_t* desc{};
       if (SUCCEEDED(GetThreadDescription(GetCurrentThread(), &desc))) {
         if (desc && *desc) {
