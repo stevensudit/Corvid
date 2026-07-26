@@ -969,7 +969,7 @@ size_t substitute(std::string& s, const SingleLocateValue auto& from,
       copied = next + from_size;
       next = sv.find(from_sv, copied);
     } while (next != npos);
-    result.append(sv, copied, npos);
+    result.append(sv, copied);
     s = std::move(result);
   }
   return cnt;
@@ -1030,7 +1030,7 @@ inline size_t substitute(std::string& s,
     }
     loc = locate(sv, from, copied);
   }
-  result.append(sv, copied, npos);
+  result.append(sv, copied);
   s = std::move(result);
   return cnt;
 }
