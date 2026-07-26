@@ -66,7 +66,7 @@ template<auto field = extract_field::value>
 [[nodiscard]] constexpr auto it_to_ptr(auto& c, Dereferenceable auto&& it) {
   // Enable ADL to find appropriate end() for custom container types.
   using namespace std;
-  return it != end(c) ? &container_element_v<field>(it) : nullptr;
+  return (it != end(c)) ? &container_element_v<field>(it) : nullptr;
 }
 
 // Extract pointer from the container and index. Handles case of iterator
@@ -83,7 +83,7 @@ template<auto field = extract_field::value>
 // maximum never equals -1 and is treated as a valid index.
 template<auto field = extract_field::value>
 [[nodiscard]] constexpr auto it_to_ptr(auto& c, Integer auto ndx) {
-  return ndx != -1 ? &container_element_v<field>(&c[ndx]) : nullptr;
+  return (ndx != -1) ? &container_element_v<field>(&c[ndx]) : nullptr;
 }
 
 #pragma endregion

@@ -509,7 +509,7 @@ struct nullable_formatter: std::formatter<U, CharT> {
     } else {
       const auto mode = spec_.debug ? DebugNull : PlainNull;
       return pad_content(ctx,
-          mode == null_formatting::sentinel ? marker_ : std::string_view{});
+          (mode == null_formatting::sentinel) ? marker_ : std::string_view{});
     }
   }
 

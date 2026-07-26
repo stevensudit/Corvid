@@ -96,10 +96,10 @@ private:
   // largest power of 2 that evenly divides `bit_count_v`, from {64, 32, 16,
   // 8}.
   static constexpr size_t word_bits_v =
-      forced_word_v != 0      ? forced_word_v
-      : bit_count_v % 64 == 0 ? 64U
-      : bit_count_v % 32 == 0 ? 32U
-      : bit_count_v % 16 == 0
+      (forced_word_v != 0)      ? forced_word_v
+      : (bit_count_v % 64 == 0) ? 64U
+      : (bit_count_v % 32 == 0) ? 32U
+      : (bit_count_v % 16 == 0)
           ? 16U
           : 8U;
 

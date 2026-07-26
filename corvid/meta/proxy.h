@@ -1524,9 +1524,8 @@ struct vtable_builder_impl<std::tuple<Ss...>, std::tuple<Bs...>, OwnName> {
     constexpr std::string_view k = Key.view();
     constexpr auto pos = k.find("::");
     constexpr auto qual =
-        pos == std::string_view::npos ? std::string_view{} : k.substr(0, pos);
-    constexpr auto base =
-        pos == std::string_view::npos ? k : k.substr(pos + 2);
+        (pos == k.npos) ? std::string_view{} : k.substr(0, pos);
+    constexpr auto base = (pos == k.npos) ? k : k.substr(pos + 2);
     if (S::name_v.view() != base) return false;
     if (qual.empty()) return true;
     constexpr auto owner = owner_name<S>();
@@ -2977,9 +2976,11 @@ private:
   // `buf_size`, `buf_align`: a `heap_only` proxy shrinks the buffer to the
   // pointer it overlays, so the whole handle is two words, like a view.
   static constexpr size_t buf_size =
-      Policy.alloc == proxy_alloc::heap_only ? sizeof(void*) : Policy.sbo_size;
+      (Policy.alloc == proxy_alloc::heap_only)
+          ? sizeof(void*)
+          : Policy.sbo_size;
   static constexpr size_t buf_align =
-      Policy.alloc == proxy_alloc::heap_only
+      (Policy.alloc == proxy_alloc::heap_only)
           ? alignof(void*)
           : Policy.sbo_align;
 

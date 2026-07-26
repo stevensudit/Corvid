@@ -202,7 +202,7 @@ private:
         if (desc && *desc) {
           name.clear();
           for (const auto c : std::wstring_view{desc}.substr(0, 15))
-            name.push_back(c < 0x80 ? static_cast<char>(c) : '?');
+            name.push_back((c < 0x80) ? static_cast<char>(c) : '?');
         }
         LocalFree(desc);
       }

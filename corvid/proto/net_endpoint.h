@@ -459,8 +459,7 @@ private:
     // IPv6.
     if (s[0] == '[') {
       const auto close = s.find(']');
-      if (close == std::string_view::npos || close + 1 >= s.size() ||
-          s[close + 1] != ':')
+      if (close == s.npos || close + 1 >= s.size() || s[close + 1] != ':')
         return {};
 
       const auto addr = ipv6_addr::parse(s.substr(1, close - 1));
@@ -471,7 +470,7 @@ private:
 
     // IPv4.
     const auto colon = s.rfind(':');
-    if (colon == std::string_view::npos) return {};
+    if (colon == s.npos) return {};
     if (s.find(':') != colon) return {};
 
     const auto addr = ipv4_addr::parse(s.substr(0, colon));
