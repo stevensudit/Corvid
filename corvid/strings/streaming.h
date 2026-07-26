@@ -17,10 +17,8 @@
 #pragma once
 #include <iostream>
 #include <ostream>
-#include <streambuf>
 
 #include "../meta/concepts.h"
-#include "../infra/exception_firewalls.h"
 #include "delimiting.h"
 
 namespace corvid::strings { inline namespace streaming {
@@ -71,39 +69,6 @@ constexpr auto& report_if(bool emit, const OStreamable auto&... parts) {
 constexpr auto& report_with(delim d, const OStreamable auto&... parts) {
   return stream_out_with(std::cerr, d, parts...) << std::endl;
 }
-
-#pragma endregion
-#pragma region ostream_redirector
-
-// Redirect a `std::ostream`, `from`, to a different one, `to`, during its
-// lifespan.
-class ostream_redirector final {
-public:
-#pragma region Construction
-
-  explicit ostream_redirector(std::ostream& from, std::ostream& to)
-      : from_{&from}, rdbuf_{from.rdbuf()} {
-    from.rdbuf(to.rdbuf());
-  }
-
-  ostream_redirector(const ostream_redirector&) = delete;
-  ostream_redirector& operator=(const ostream_redirector&) = delete;
-  ostream_redirector(ostream_redirector&&) = delete;
-  ostream_redirector& operator=(ostream_redirector&&) = delete;
-
-  ~ostream_redirector() noexcept {
-    try_or_terminate([&] { from_->rdbuf(rdbuf_); });
-  }
-
-#pragma endregion
-#pragma region Data members
-
-private:
-  std::ostream* from_{};
-  std::streambuf* rdbuf_{};
-
-#pragma endregion
-};
 
 #pragma endregion
 
