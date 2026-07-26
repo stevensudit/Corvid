@@ -167,7 +167,7 @@ public:
 
   // Return current capacity (minimum across all component vectors and IDs).
   [[nodiscard]] size_type capacity() const noexcept {
-    size_t min_cap = ids_.capacity();
+    auto min_cap = ids_.capacity();
     std::apply(
         [&](const auto&... vecs) {
           ((min_cap = std::min(min_cap, vecs.capacity())), ...);
@@ -292,7 +292,7 @@ private:
 #pragma region Data members
 private:
   // SoA storage: a tuple of vectors, one per component type.
-  std::tuple<component_vector_t<Cs>...> components_{};
+  std::tuple<component_vector_t<Cs>...> components_;
 
 #pragma endregion
 };

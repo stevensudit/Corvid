@@ -198,7 +198,7 @@ public:
     }
 
   private:
-    id_t id_{id_t::invalid};
+    id_t id_ = id_t::invalid;
     CORVID_NO_UNIQUE_ADDRESS gen_t gen_{*id_t::invalid};
 
     explicit handle_t(id_t id, size_type gen) : id_{id}, gen_{gen} {}
@@ -215,8 +215,8 @@ public:
   // A `store_id` identifies the storage an entity resides in, and `ndx` is the
   // index within that storage.
   struct location_t {
-    store_id_t store_id{store_id_t::invalid};
-    size_type ndx{*id_t::invalid};
+    store_id_t store_id = store_id_t::invalid;
+    size_type ndx = *id_t::invalid;
   };
 
 #pragma endregion
@@ -251,8 +251,6 @@ public:
   // *id_t::invalid (all ones), which is not a valid entity index.
   class location_record {
   public:
-    constexpr location_record(const location_record& other) noexcept = default;
-
     [[nodiscard]] size_type ndx() const noexcept { return ndx_; }
 
     [[nodiscard]] location_t get_underlying() const noexcept
@@ -318,7 +316,7 @@ public:
         *store_id_t::invalid};
     CORVID_NO_UNIQUE_ADDRESS maybe_t<store_id_set_t, is_component_v>
         store_ids_;
-    size_type ndx_{*id_t::invalid};
+    size_type ndx_ = *id_t::invalid;
 
     constexpr location_record(location_t location = location_t{}) noexcept {
       set(location);
@@ -342,7 +340,7 @@ public:
   struct record_t {
     // Entity location; active fields within `location_record` depend on
     // `OWN_COUNT`.
-    location_record location{};
+    location_record location;
 
     // Generation counter for this entity.
     CORVID_NO_UNIQUE_ADDRESS gen_t gen{};
@@ -416,7 +414,7 @@ public:
       const metadata_t& metadata = {}) {
     if (location.store_id == store_id_t::invalid)
       location.store_id = store_id_t{};
-    const id_t id = alloc_id();
+    const auto id = alloc_id();
     if (id == id_t::invalid) return id_t::invalid;
     auto& rec = records_[id];
     rec.location.reset(location);
@@ -599,14 +597,14 @@ public:
   // Access metadata by ID, with bounds checking (but no generation checking).
   [[nodiscard]]
   auto& at(this auto& self, id_t id) {
-    if (!self.is_valid(id)) throw std::out_of_range("id out of range");
+    if (!self.is_valid(id)) throw std::out_of_range{"id out of range"};
     return self.records_[id].metadata;
   }
 
   // Access metadata by handle, with bounds and generation checking.
   [[nodiscard]]
   auto& at(this auto& self, handle_t handle) {
-    if (!self.is_valid(handle)) throw std::invalid_argument("invalid handle");
+    if (!self.is_valid(handle)) throw std::invalid_argument{"invalid handle"};
     return std::forward<decltype(self)>(self).at(handle.id_);
   }
 
@@ -715,7 +713,7 @@ public:
     if (prefill == allocation_policy::eager && new_cap > records_.size()) {
       const auto old_size = records_.size();
       records_.resize(new_cap);
-      for (size_type i = old_size; i < new_cap; ++i) push_free(id_t{i});
+      for (auto i = old_size; i < new_cap; ++i) push_free(id_t{i});
     }
   }
 
@@ -803,7 +801,7 @@ public:
 
   private:
     entity_registry* registry_{};
-    handle_t handle_{};
+    handle_t handle_;
   };
 
   // Create a new owner for a newly created entity. (Archetype mode only.)
@@ -878,7 +876,7 @@ private:
 
   // Trim trailing dead records from records_ and rebuild the free list.
   void trim_dead_tail() {
-    size_type new_size = records_.size();
+    auto new_size = records_.size();
     while (new_size > 0 && !is_alive(id_t{new_size - 1})) --new_size;
     if (new_size < records_.size()) {
       records_.resize(new_size);
@@ -907,9 +905,9 @@ private:
   void rebuild_free_list() {
     free_head_ = id_t::invalid;
     if constexpr (is_fifo_v) free_tail_ = id_t::invalid;
-    const size_type n = records_.size();
+    const auto n = records_.size();
     for (size_type i = 0; i < n; ++i) {
-      const id_t id = id_t{i};
+      const id_t id{i};
       if (is_alive(id)) continue;
       push_free(id);
     }
@@ -949,7 +947,7 @@ private:
   // appended there, maximizing the interval before reuse.
   // LIFO: `free_tail_` is absent; new IDs are pushed onto `free_head_`,
   // giving stack (most-recently freed-first) reuse order.
-  id_t free_head_{id_t::invalid};
+  id_t free_head_ = id_t::invalid;
   CORVID_NO_UNIQUE_ADDRESS maybe_t<id_t, is_fifo_v> free_tail_{id_t::invalid};
 
 #pragma endregion

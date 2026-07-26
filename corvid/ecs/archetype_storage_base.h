@@ -335,7 +335,7 @@ public:
     }
 
   private:
-    mutable value_type row_{};
+    mutable value_type row_;
 
     explicit row_iterator(base_owner_t& owner, size_type ndx)
         : row_{owner, ndx} {}
@@ -474,11 +474,11 @@ public:
   // Access the row for entity `id` with bounds checking. Throws
   // `std::out_of_range` if the entity is not in this storage.
   [[nodiscard]] row_lens at(id_t id) {
-    if (!contains(id)) throw std::out_of_range("entity not in this storage");
+    if (!contains(id)) throw std::out_of_range{"entity not in this storage"};
     return row_lens{*this, registry_->get_location(id).ndx};
   }
   [[nodiscard]] row_view at(id_t id) const {
-    if (!contains(id)) throw std::out_of_range("entity not in this storage");
+    if (!contains(id)) throw std::out_of_range{"entity not in this storage"};
     return row_view{*this, registry_->get_location(id).ndx};
   }
 
@@ -487,14 +487,14 @@ public:
   // entity is not in this storage.
   [[nodiscard]] row_lens at(handle_t handle) {
     if (!contains(handle))
-      throw std::invalid_argument(
-          "invalid handle or entity not in this storage");
+      throw std::invalid_argument{
+          "invalid handle or entity not in this storage"};
     return (*this)[handle.id()];
   }
   [[nodiscard]] row_view at(handle_t handle) const {
     if (!contains(handle))
-      throw std::invalid_argument(
-          "invalid handle or entity not in this storage");
+      throw std::invalid_argument{
+          "invalid handle or entity not in this storage"};
     return (*this)[handle.id()];
   }
 
@@ -550,7 +550,7 @@ protected:
       : registry_{&registry}, store_id_{store_id}, limit_{limit},
         ids_{id_allocator_t{registry.get_allocator()}} {
     if (store_id == store_id_t::invalid || store_id == store_id_t{})
-      throw std::invalid_argument("store_id must be a valid non-zero value");
+      throw std::invalid_argument{"store_id must be a valid non-zero value"};
   }
 
   archetype_storage_base& operator=(archetype_storage_base&& other) noexcept {
@@ -590,10 +590,10 @@ protected:
 #pragma region Data members
 
   // Data members shared by all derived classes.
-  registry_t* registry_{nullptr};
-  store_id_t store_id_{store_id_t::invalid};
-  size_type limit_{*id_t::invalid};
-  id_vector_t ids_{};
+  registry_t* registry_{};
+  store_id_t store_id_ = store_id_t::invalid;
+  size_type limit_ = *id_t::invalid;
+  id_vector_t ids_;
 
   // Grant `archetype_scene_base` (and through it, `archetype_scene<>`) access
   // to `do_drop_all`.
@@ -641,8 +641,8 @@ private:
   size_type do_remove_erase_if_component(auto pred, store_id_t new_store_id) {
     static_assert(std::is_invocable_r_v<bool, decltype(pred), const C&, id_t>,
         "pred must be callable as (const C& comp, id_t id) -> bool");
-    size_type cnt = 0;
-    for (size_type ndx{}; ndx < ids_.size();) {
+    size_type cnt{};
+    for (size_type ndx = 0; ndx < ids_.size();) {
       const auto& comp = derived().template do_get_component<C>(ndx);
       if (pred(comp, ids_[ndx])) {
         const auto removed_id = ids_[ndx];
@@ -658,9 +658,9 @@ private:
   size_type do_remove_erase_if(auto pred, store_id_t new_store_id) {
     static_assert(std::is_invocable_r_v<bool, decltype(pred), const row_view&>,
         "pred must be callable as (const row_view& row) -> bool");
-    size_type cnt = 0;
+    size_type cnt{};
     row_view row{*this, {}};
-    for (size_type ndx{}; ndx < ids_.size();) {
+    for (size_type ndx = 0; ndx < ids_.size();) {
       row.ndx_ = ndx;
       if (pred(row)) {
         const auto removed_id = ids_[ndx];

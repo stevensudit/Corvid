@@ -149,7 +149,7 @@ public:
     }
 
   private:
-    id_t id_{id_t::invalid};
+    id_t id_ = id_t::invalid;
     CORVID_NO_UNIQUE_ADDRESS maybe_t<size_type, is_versioned_v> gen_{};
 
     friend class stable_ids<T, ID, GEN, REUSE_ORDER, ALLOCATOR>;
@@ -357,7 +357,7 @@ public:
   // Erase all elements matching predicate. Returns count erased.
   size_type erase_if(auto pred) {
     size_type cnt{};
-    for (size_type ndx{}; ndx < data_.size();) {
+    for (size_type ndx = 0; ndx < data_.size();) {
       if (pred(data_[ndx])) {
         ++cnt;
         do_erase(ndx);
@@ -389,7 +389,7 @@ public:
       // outstanding handles. Free entries already had their gen bumped on
       // erase.
       if constexpr (is_versioned_v) {
-        for (size_type i{}; i < live_size; ++i) ++reverse_[i].h_.gen_;
+        for (size_type i = 0; i < live_size; ++i) ++reverse_[i].h_.gen_;
       }
       // Maintain FIFO free list.
       if constexpr (is_fifo_v) rebuild_fifo_list();
@@ -416,7 +416,7 @@ public:
       // Rebuild the free-list tail in-place. An ID is live iff its index
       // points into the live range and reverse_ confirms the match. Freed IDs
       // are placed into the tail; live entries are left untouched.
-      size_type free_pos = live_size;
+      auto free_pos = static_cast<size_type>(live_size);
       for (id_t id{}; *id < new_size; ++id) {
         const auto ndx = indexes_[id];
         if (ndx < live_size && reverse_[ndx].h_.id_ == id) continue;
@@ -470,7 +470,7 @@ public:
     if (data_.empty()) return id_t::invalid;
 
     id_t max_id{};
-    for (size_type ndx{}; ndx < data_.size(); ++ndx) {
+    for (size_type ndx = 0; ndx < data_.size(); ++ndx) {
       const auto id = reverse_[ndx].h_.id_;
       if (id > max_id) max_id = id;
     }
@@ -504,14 +504,14 @@ public:
 
   // Access element by ID, with bounds checking.
   [[nodiscard]] decltype(auto) at(this auto& self, id_t id) {
-    if (!self.is_valid(id)) throw std::out_of_range("id out of range");
+    if (!self.is_valid(id)) throw std::out_of_range{"id out of range"};
     const auto ndx = self.indexes_[id];
     return std::forward<decltype(self)>(self).data_[ndx];
   }
 
   // Access element by handle, with bounds and generation checking.
   [[nodiscard]] decltype(auto) at(this auto& self, handle_t handle) {
-    if (!self.is_valid(handle)) throw std::invalid_argument("invalid handle");
+    if (!self.is_valid(handle)) throw std::invalid_argument{"invalid handle"};
     return std::forward<decltype(self)>(self).at(handle.id_);
   }
 
@@ -584,7 +584,7 @@ private:
     }
 
     if (throw_on_insert_failure_ == on_failure::raise)
-      throw std::out_of_range("stable_ids: exceeded id limit");
+      throw std::out_of_range{"stable_ids: exceeded id limit"};
     return id_t::invalid;
   }
 
@@ -697,11 +697,11 @@ private:
   CORVID_NO_UNIQUE_ADDRESS maybe_t<id_t, is_fifo_v> fifo_tail_{id_t::invalid};
 
   // Allowed ID values are below this limit.
-  id_t id_limit_{id_t::invalid};
+  id_t id_limit_ = id_t::invalid;
 
   // Whether to throw on insert failure as opposed to returning
   // `id_t::invalid`.
-  on_failure throw_on_insert_failure_{on_failure::raise};
+  on_failure throw_on_insert_failure_ = on_failure::raise;
 
   // Data structure:
   // `data_` is always sized to the number of elements currently stored.

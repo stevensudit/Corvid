@@ -94,7 +94,7 @@ indent_of(std::basic_string_view<CharT> line) noexcept {
 // by every content line of `sv`.
 template<CharType CharT>
 [[nodiscard]] constexpr size_t
-dedent_margin(std::basic_string_view<CharT> sv) noexcept {
+dedent_margin(std::basic_string_view<CharT> sv) {
   std::basic_string_view<CharT> margin;
   bool found{};
   auto whole = sv;
@@ -119,7 +119,7 @@ dedent_margin(std::basic_string_view<CharT> sv) noexcept {
 // Return the length of `sv`'s dedented form, given its `margin` length.
 template<CharType CharT>
 [[nodiscard]] constexpr size_t
-dedent_size(std::basic_string_view<CharT> sv, size_t margin) noexcept {
+dedent_size(std::basic_string_view<CharT> sv, size_t margin) {
   size_t cnt{};
   auto whole = sv;
   std::basic_string_view<CharT> line;
@@ -140,7 +140,7 @@ dedent_size(std::basic_string_view<CharT> sv, size_t margin) noexcept {
 // caller sizes `out_span` exactly, via `dedent_size`; this is asserted.
 template<CharType CharT>
 constexpr void dedent_fill(std::basic_string_view<CharT> sv, size_t margin,
-    std::span<std::type_identity_t<CharT>> out_span) noexcept {
+    std::span<std::type_identity_t<CharT>> out_span) {
   auto out = out_span.data();
   auto whole = sv;
   std::basic_string_view<CharT> line;

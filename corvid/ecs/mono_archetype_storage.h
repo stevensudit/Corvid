@@ -194,8 +194,8 @@ public:
   // count erased.
   // Predicate shape: `(const component_t& comp, id_t id) -> bool`.
   size_type erase_if(auto pred) {
-    size_type cnt = 0;
-    for (size_type ndx{}; ndx < components_.size();) {
+    size_type cnt{};
+    for (size_type ndx = 0; ndx < components_.size();) {
       if (pred(components_[ndx], ids_[ndx])) {
         const auto removed_id = ids_[ndx];
         do_swap_and_pop(ndx);
@@ -251,13 +251,13 @@ public:
 
   // Mutable access by entity ID, with checking.
   [[nodiscard]] component_t& at(id_t id) {
-    if (!contains(id)) throw std::out_of_range("entity not in this storage");
+    if (!contains(id)) throw std::out_of_range{"entity not in this storage"};
     return components_[registry_->get_location(id).ndx];
   }
 
   // Const access by entity ID, with checking.
   [[nodiscard]] row_view at(id_t id) const {
-    if (!contains(id)) throw std::out_of_range("entity not in this storage");
+    if (!contains(id)) throw std::out_of_range{"entity not in this storage"};
     const auto ndx = registry_->get_location(id).ndx;
     return {components_[ndx], ids_[ndx]};
   }
@@ -265,15 +265,15 @@ public:
   // Access component by handle, with checking.
   [[nodiscard]] component_t& at(handle_t handle) {
     if (!contains(handle))
-      throw std::invalid_argument(
-          "invalid handle or entity not in this storage");
+      throw std::invalid_argument{
+          "invalid handle or entity not in this storage"};
     return (*this)[handle.id()];
   }
 
   [[nodiscard]] row_view at(handle_t handle) const {
     if (!contains(handle))
-      throw std::invalid_argument(
-          "invalid handle or entity not in this storage");
+      throw std::invalid_argument{
+          "invalid handle or entity not in this storage"};
     return (*this)[handle.id()];
   }
 

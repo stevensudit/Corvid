@@ -297,7 +297,7 @@ private:
 #pragma region Data members
 private:
   // AoSoA storage: one chunk per K entities, each chunk a tuple of arrays.
-  chunk_vector_t chunks_{};
+  chunk_vector_t chunks_;
 
 #pragma endregion
 };

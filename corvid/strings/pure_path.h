@@ -110,7 +110,7 @@ using component_view = std::basic_string_view<path_char>;
 
 // Match one component pair through `fnmatch`.
 [[nodiscard]] inline bool
-match_component(component_view name, component_view pat, bool fold) noexcept {
+match_component(component_view name, component_view pat, bool fold) {
   return fold ? fnmatch::fnmatch(name, pat) : fnmatch::fnmatchcase(name, pat);
 }
 

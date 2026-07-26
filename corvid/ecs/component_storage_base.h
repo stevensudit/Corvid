@@ -266,7 +266,7 @@ protected:
       : registry_{&registry}, store_id_{store_id}, limit_{limit},
         ids_{id_allocator_t{registry.get_allocator()}} {
     if (store_id == store_id_t::invalid || store_id == store_id_t{})
-      throw std::invalid_argument("store_id must be a valid non-zero value");
+      throw std::invalid_argument{"store_id must be a valid non-zero value"};
   }
 
   component_storage_base& operator=(component_storage_base&& other) noexcept {
@@ -307,10 +307,10 @@ protected:
 #pragma region Data members
 
   // Data members.
-  registry_t* registry_{nullptr};
-  store_id_t store_id_{store_id_t::invalid};
-  size_type limit_{*id_t::invalid};
-  id_vector_t ids_{};
+  registry_t* registry_{};
+  store_id_t store_id_ = store_id_t::invalid;
+  size_type limit_ = *id_t::invalid;
+  id_vector_t ids_;
   index_t reverse_index_{};
 
   // Grant `component_scene_base` (and through it, `component_scene<>`) access
