@@ -236,7 +236,7 @@ public:
     [[nodiscard]] uint64_t as_int() const noexcept
     requires allows_int_conversion
     {
-      auto i = uint64_t{ndx_};
+      uint64_t i{ndx_};
       if constexpr (is_versioned_v) i |= (uint64_t{gen_} << 32);
       return i;
     }

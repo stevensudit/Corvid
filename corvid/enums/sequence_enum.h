@@ -914,7 +914,7 @@ template<ScopedEnum E, meta::fixed_string names, wrapclip wrapseq = wrapclip{},
       if (field_end == whole.size()) break;
       field = field_end + 1;
     }
-    constexpr auto maxseq = E{as_underlying(minseq) + name_count - 1};
+    constexpr E maxseq{as_underlying(minseq) + name_count - 1};
     constexpr std::array<details::enum_segment<U>, 1> segments{
         {{as_underlying(minseq), name_count}}};
     return details::sequence_enum_names_spec<E, maxseq, minseq, wrapseq,

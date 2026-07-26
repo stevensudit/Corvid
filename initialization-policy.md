@@ -69,7 +69,21 @@ Four forms, each with one meaning:
 
 - `auto x = y;` when the type should track the initializer.
   `auto x = static_cast<size_t>(n);` when converting; the cast names the
-  destination type. `auto x = size_t{5};` is fine for a typed literal.
+  destination type.
+- **Ruling: construct directly when the initializer is only a construction.**
+  When the initializer is nothing but a construction of a spellable type,
+  declare directly: `view_t spec{ctx.begin(), ctx.end()};`, not
+  `auto spec = view_t{...};`. The `auto =` form adds ceremony without
+  information: `auto` is for initializers whose type the reader should not
+  have to restate (calls, casts, moves), not for restating one already
+  written on the right. CTAD counts as spelling the type:
+  `std::array line_breaks{CharT{'\r'}, CharT{'\n'}};`. A default
+  construction composes with the class-default rule and loses its braces
+  too: `hash_combiner combiner;`, not `auto combiner = hash_combiner{};`.
+  A typed literal follows as `size_t x = 5;` under the literal rule, not
+  `auto x = size_t{5};`. Exempt: structured bindings, whose syntax forces
+  `auto`, and a variable template whose specializations vary the type
+  (`enum_spec_v`), where the `auto` is the point.
 - Lean toward `const` on locals as the default posture:
   `const auto first = sv.front();` over `auto first = sv.front();` when the
   value never changes. Not a requirement everywhere, just the side to err

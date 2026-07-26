@@ -280,7 +280,7 @@ private:
 
 public:
   constexpr auto parse(std::basic_format_parse_context<CharT>& ctx) {
-    const auto spec = view_t{ctx.begin(), ctx.end()};
+    const view_t spec{ctx.begin(), ctx.end()};
     const auto cnt = spec.size();
     size_t ndx{};
     // Key: dynamic `{n}` / `{}`, or literal text up to ':' or '}'.
@@ -366,7 +366,7 @@ struct std::formatter<corvid::strings::enable_format<std::variant<Ts...>>,
   constexpr void set_debug_format() noexcept { debug_ = true; }
 
   constexpr auto parse(std::basic_format_parse_context<CharT>& ctx) {
-    const auto spec = std::basic_string_view<CharT>{ctx.begin(), ctx.end()};
+    const std::basic_string_view<CharT> spec{ctx.begin(), ctx.end()};
     const auto cnt = corvid::strings::calc_nested_spec_size(spec);
     spec_ = spec.substr(0, cnt);
     return ctx.begin() + cnt;

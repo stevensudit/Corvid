@@ -467,7 +467,7 @@ struct nullable_formatter: std::formatter<U, CharT> {
     if consteval { return base::parse(ctx); }
 
     const auto begin = ctx.begin();
-    const auto spec_text = std::basic_string_view<CharT>{begin, ctx.end()};
+    const std::basic_string_view<CharT> spec_text{begin, ctx.end()};
     const auto consumed = spec_.parse(spec_text);
 
     // A null renders through our own padding in either mode, and that padding

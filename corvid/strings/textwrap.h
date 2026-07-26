@@ -266,8 +266,8 @@ indent(const S& s, std::basic_string_view<char_type_of_t<S>> prefix) {
 
 // The default `wrap_options` truncation marker, " [...]", per code unit.
 template<CharType CharT>
-inline constexpr auto default_placeholder_chars = std::array{CharT{' '},
-    CharT{'['}, CharT{'.'}, CharT{'.'}, CharT{'.'}, CharT{']'}};
+inline constexpr std::array default_placeholder_chars{CharT{' '}, CharT{'['},
+    CharT{'.'}, CharT{'.'}, CharT{'.'}, CharT{']'}};
 template<CharType CharT>
 inline constexpr std::basic_string_view<CharT> default_placeholder{
     default_placeholder_chars<CharT>};

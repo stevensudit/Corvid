@@ -89,7 +89,7 @@ class extensible_arena final {
       // The new operator is used to allocate raw memory, and then placement
       // new is used to construct a new list_node object in that memory.
       auto buffer_for_placement = new char[calculate_total_size(capacity)];
-      auto node = pointer{new (buffer_for_placement) list_node{}};
+      pointer node{new (buffer_for_placement) list_node{}};
       node->capacity_ = capacity;
       return node;
     }

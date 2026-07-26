@@ -95,7 +95,7 @@ private:
 template<typename... Ts>
 [[nodiscard]] constexpr size_t combined_hash(const Ts&... values) noexcept(
     (noexcept(std::hash<Ts>{}(values)) && ...)) {
-  auto combiner = hash_combiner{};
+  hash_combiner combiner;
   combiner.combine_all(values...);
   return combiner.value();
 }

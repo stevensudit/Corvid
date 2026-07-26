@@ -134,7 +134,7 @@ constexpr auto& append_num(AnyAppendTarget auto& target, Integer auto num) {
     return append_num<base, width, pad>(target,
         static_cast<std::make_unsigned_t<T>>(num));
   } else {
-    auto a = appender{target};
+    appender a{target};
     using C = decltype(a)::view_t::value_type;
     // Worst case: `int64_t` min in base 2 is a sign plus 64 digits.
     // Deliberately uninitialized: only the written cells are ever read.
@@ -145,7 +145,7 @@ constexpr auto& append_num(AnyAppendTarget auto& target, Integer auto num) {
     // Apply padding and prefix.
     if constexpr ((width && pad) || base == 16) {
       auto w = width;
-      auto p = C{pad};
+      C p{pad};
       if constexpr (base == 16 && !width) {
         a.append(C{'0'}).append(C{'x'});
         p = C{'0'};

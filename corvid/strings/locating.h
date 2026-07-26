@@ -391,7 +391,7 @@ template<npos_choice npv = npos_choice::npos>
     std::string_view value, position pos = 0) {
   // An empty value matches everywhere, so a non-match is never found.
   if (value.empty()) return from_npos<npv>(s, s.size());
-  for (auto v = std::string_view{value}; pos < s.size(); pos += v.size())
+  for (auto v = value; pos < s.size(); pos += v.size())
     if (s.substr(pos, v.size()) != v) break;
 
   return from_npos<npv>(s, pos);
@@ -408,7 +408,7 @@ template<npos_choice npv = npos_choice::npos>
 template<npos_choice npv = npos_choice::npos>
 [[nodiscard]] constexpr position rlocate_not_string(std::string_view s,
     std::string_view value, position pos = npos) {
-  auto v = std::string_view{value};
+  auto v = value;
   // An empty value matches everywhere, so a non-match is never found.
   if (v.empty()) return from_npos<npv>(s, s.size());
   // A too-long value mismatches at 0 when that position exists; on an empty

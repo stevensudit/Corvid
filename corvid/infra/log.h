@@ -172,7 +172,7 @@ public:
 
   // NOLINTNEXTLINE(bugprone-exception-escape): a throw only reaches terminate
   [[noreturn]] void terminate() noexcept {
-    if (auto sync = std::osyncstream{**out_}; true)
+    if (std::osyncstream sync{**out_}; true)
       sync << "Terminating due to previous fatal log message.\n" << std::flush;
     std::terminate();
   }
