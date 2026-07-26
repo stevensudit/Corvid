@@ -364,10 +364,7 @@ public:
   static constexpr handle_t invalid_handle = os_file::invalid_file_handle;
 
   net_socket() noexcept = default;
-  explicit net_socket(address_family domain, socket_type type,
-      protocol_type protocol) noexcept
-      : os_file(::socket(*domain, *type, *protocol)) {}
-  explicit net_socket(os_file&& file) noexcept : os_file(std::move(file)) {}
+  explicit net_socket(os_file&& file) noexcept : os_file{std::move(file)} {}
 
   net_socket(net_socket&&) noexcept = default;
   net_socket(const net_socket&) = delete;
@@ -473,7 +470,7 @@ public:
     auto combined_type = *type | *socket_type::cloexec;
     if (exec == execution::nonblocking)
       combined_type |= *socket_type::nonblock;
-    int fds[2];
+    int fds[2]{};
     if (::socketpair(*domain, combined_type, 0, fds) == 0)
       return {net_socket{os_file{fds[0]}}, net_socket{os_file{fds[1]}}};
     return {};
@@ -513,7 +510,7 @@ public:
   get_raw_option(int level, int optname) const noexcept {
     assert(is_open());
     T value{};
-    socklen_t len = sizeof(T);
+    socklen_t len{sizeof(T)};
     if (::getsockopt(handle(), level, optname, reinterpret_cast<char*>(&value),
             &len) != 0)
       return std::nullopt;
@@ -597,12 +594,12 @@ public:
     // it tags this `recv` as blocking-in-a-lock. We don't call `recv` while
     // holding any actual lock.
     // NOLINTBEGIN(clang-analyzer-unix.StdCLibraryFunctions,clang-analyzer-unix.BlockInCriticalSection)
-    const ssize_t n =
+    const auto n =
         ::recv(handle(), data.data() + offset, data.size() - offset, *flags);
     // NOLINTEND(clang-analyzer-unix.StdCLibraryFunctions,clang-analyzer-unix.BlockInCriticalSection)
     if (n == 0) return false;
 
-    no_zero{data}.trim_to(offset + (n > 0 ? static_cast<size_t>(n) : 0));
+    no_zero{data}.trim_to(offset + ((n > 0) ? static_cast<size_t>(n) : 0));
     if (n < 0) return !os_file::is_hard_error();
     return true;
   }
@@ -646,8 +643,8 @@ public:
   // error (hard or soft) that prevents a determination (e.g., `EAGAIN`,
   // `EBADF`).
   [[nodiscard]] std::optional<bool> peek_eof() const noexcept {
-    char byte;
-    const ssize_t n = recv(&byte, 1, msg_flags::peek | msg_flags::dontwait);
+    char byte{};
+    const auto n = recv(&byte, 1, msg_flags::peek | msg_flags::dontwait);
     if (n == 0) return true;
     if (n > 0) return false;
     return std::nullopt;
@@ -664,11 +661,11 @@ public:
     for (;;) {
       if (const auto pos = buf.find(delim); pos != std::string::npos) {
         const auto end = pos + delim.size();
-        std::string out = buf.substr(0, end);
+        auto out = buf.substr(0, end);
         buf.erase(0, end);
         return out;
       }
-      const size_t old_size = buf.size();
+      const auto old_size = buf.size();
       if (old_size >= max_size) break;
       no_zero{buf}.resize_to(std::min(old_size + 4096, max_size));
       if (!recv_at(buf, old_size) || buf.size() == old_size) break;
@@ -703,7 +700,7 @@ public:
     for (size_t bytes_read = 0; bytes_read < max_bytes;
         bytes_read += buf.size())
     {
-      const size_t chunk = std::min<size_t>(4096, max_bytes - bytes_read);
+      const auto chunk = std::min<size_t>(4096, max_bytes - bytes_read);
       if (!recv(*no_zero{buf}.resize_to(chunk))) return !buf.empty();
       if (buf.empty()) return false;
     }
@@ -720,7 +717,7 @@ public:
   [[nodiscard]] bool send(std::string_view& data) const noexcept {
     if (data.empty()) return true;
 
-    const ssize_t n = send(data.data(), data.size());
+    const auto n = send(data.data(), data.size());
     if (n <= 0) return !os_file::is_hard_error();
 
     data.remove_prefix(static_cast<size_t>(n));
@@ -809,8 +806,8 @@ public:
   accept() noexcept {
     assert(is_open());
     sockaddr_storage addr{};
-    socklen_t len = sizeof(addr);
-    const int fd = ::accept4(handle(), reinterpret_cast<sockaddr*>(&addr),
+    socklen_t len{sizeof(addr)};
+    const auto fd = ::accept4(handle(), reinterpret_cast<sockaddr*>(&addr),
         &len, *socket_type::nonblock_cloexec);
     if (fd < 0) return std::nullopt;
     return std::pair{net_socket{os_file{fd}}, addr};
@@ -821,14 +818,14 @@ public:
 private:
   [[nodiscard]] static net_socket do_create(address_family domain,
       execution exec, message_style style) noexcept {
-    socket_type type =
+    auto type =
         (style == message_style::stream)
             ? socket_type::stream
             : socket_type::datagram;
     type = socket_type{*type | *socket_type::cloexec};
     if (exec == execution::nonblocking)
       type = socket_type{*type | *socket_type::nonblock};
-    return net_socket{domain, type, protocol_type{0}};
+    return net_socket{os_file{::socket(*domain, *type, *protocol_type{0})}};
   }
 
 #pragma endregion

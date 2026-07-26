@@ -189,12 +189,23 @@ Braces express "this object takes on these values", and they reject narrowing.
   `Image i(filename);` (it loads a file). Note that mixing the two modes in
   one overload set, a value-like constructor alongside an operational one, is
   itself a code smell. A class with only operational constructors is fine
-  (`std::ofstream`); when the modes coexist, the operational one is a good
-  candidate for a named factory (`Image::load_file(filename)`), which says
-  the work is loading a file rather than, say, initializing an image whose
-  pixels spell out that text. The style is supposed to flush out bad code,
-  not hide it. When a case is genuinely on the fence, ask for a ruling
-  rather than guessing; rulings accrete here.
+  (`std::ofstream`); when the modes coexist, see the ruling below. The style
+  is supposed to flush out bad code, not hide it. When a case is genuinely on
+  the fence, ask for a ruling rather than guessing; rulings accrete here.
+- **Ruling: a mixed overload set resolves to a factory.** When a class can be
+  constructed both on a value it merely holds (an already-open file
+  descriptor) and on the parameters for producing that value (a filename it
+  opens to get one), the operational constructor moves to a named factory:
+  `epoll::create(flags)`, never a public `epoll(flags)`. The factory does the
+  work and hands the result to the value-like constructor,
+  `return epoll{os_file{::epoll_create1(flags)}};`, which leaves every
+  remaining constructor about ownership and therefore braced. The named
+  factory also documents the alternate path, where the constructor spelling
+  hid it: `Image::load_file(filename)` says the work is loading a file,
+  rather than initializing an image whose pixels spell out that text. This
+  does not retire the paren rule, which still marks any operational
+  construction that remains; it says that in a mixed overload set the right
+  fix is to stop having one.
 
 ## Member initialization
 

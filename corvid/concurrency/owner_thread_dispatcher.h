@@ -295,7 +295,7 @@ private:
 
 #pragma region Data members
 private:
-  event_fd wake_fd_{0};
+  event_fd wake_fd_{event_fd::create()};
   mutable std::mutex post_mutex_;
   post_queue_t post_queues_[2];
   relaxed_atomic<post_queue_t*> active_queue_{&post_queues_[0]};
