@@ -86,13 +86,13 @@ public:
 #pragma endregion
 #pragma region Data members
 private:
-  const double K_;
-  const double tau1_;
-  const double tau2_;
-  const double L_;
-  const double dt_;
-  double x1_ = 0.0;
-  double x2_ = 0.0;
+  const double K_{};
+  const double tau1_{};
+  const double tau2_{};
+  const double L_{};
+  const double dt_{};
+  double x1_{};
+  double x2_{};
   std::vector<double> delay_buffer_;
 
 #pragma endregion
