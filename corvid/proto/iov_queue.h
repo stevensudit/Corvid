@@ -109,7 +109,7 @@ public:
   // to learn the exact byte count to `consume`.
   [[nodiscard]] static uint64_t iov_byte_count(
       std::span<const iovec> iov) noexcept {
-    uint64_t n = 0;
+    uint64_t n{};
     for (const auto& e : iov) n += e.iov_len;
     return n;
   }
@@ -158,7 +158,7 @@ public:
     assert(reclaimed_ + n <= appended_);
     reclaimed_ += n;
     if (used_ < reclaimed_) {
-      const uint64_t pull = reclaimed_ - used_;
+      const auto pull = reclaimed_ - used_;
       used_ = reclaimed_;
       advance(unused_index_, unused_offset_, pull, [](chunk_t&) noexcept {});
     }
@@ -180,12 +180,11 @@ public:
   [[nodiscard]] std::span<const byte_t>
   harvest_bytes(chunk_t& out, size_t at = 0) noexcept {
     assert(at <= out.size());
-    const uint64_t want =
-        std::min<uint64_t>(used_ - reclaimed_, out.size() - at);
-    uint64_t written = 0;
+    const auto want = std::min<uint64_t>(used_ - reclaimed_, out.size() - at);
+    uint64_t written{};
     while (written < want) {
       auto& chunk = chunks_[retained_index_];
-      const uint64_t take =
+      const auto take =
           std::min<uint64_t>(chunk.size() - retained_offset_, want - written);
       std::memcpy(out.data() + at + written, chunk.data() + retained_offset_,
           take);
@@ -212,9 +211,9 @@ public:
       out = chunk_t{};
       return {};
     }
-    const uint64_t good_start = retained_offset_;
+    const auto good_start = retained_offset_;
     out = std::move(chunks_[retained_index_]);
-    const uint64_t good = out.size() - good_start;
+    const auto good = out.size() - good_start;
     reclaimed_ += good;
     ++retained_index_;
     retained_offset_ = 0;
@@ -235,7 +234,7 @@ public:
       chunks_.shrink_to_fit();
       // The dropped slots held `reclaimed - retained_offset` bytes; the rest
       // of `reclaimed` stays as the front buffer's already-reclaimed prefix.
-      const uint64_t dropped = reclaimed_ - retained_offset_;
+      const auto dropped = reclaimed_ - retained_offset_;
       appended_ -= dropped;
       used_ -= dropped;
       reclaimed_ -= dropped;
@@ -251,7 +250,7 @@ public:
   // zero. (`harvest_chunk` and `retire` empty their buffers, so recycling
   // those contributes no room.)
   bool recycle() noexcept {
-    uint64_t recycled = 0;
+    uint64_t recycled{};
     for (size_t ndx = 0; ndx < retained_index_; ++ndx)
       recycled += chunks_[ndx].size();
     std::rotate(chunks_.begin(),
@@ -332,7 +331,7 @@ private:
     while (n > 0) {
       assert(index < chunks_.size());
       auto& chunk = chunks_[index];
-      const uint64_t avail = chunk.size() - offset;
+      const auto avail = chunk.size() - offset;
       if (n < avail) {
         offset += n;
         return;

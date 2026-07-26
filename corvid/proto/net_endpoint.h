@@ -148,7 +148,7 @@ public:
   // On failure, result is `empty`.
   explicit net_endpoint(const net_socket& sock) noexcept {
     sockaddr_storage addr{};
-    socklen_t len = sizeof(addr);
+    socklen_t len{sizeof(addr)};
     auto* ptr = reinterpret_cast<sockaddr*>(&addr);
     if (::getsockname(sock.handle(), ptr, &len) == 0) assign(*ptr, len);
   }
@@ -157,7 +157,7 @@ public:
   // is `empty`.
   [[nodiscard]] static net_endpoint peer_of(const net_socket& sock) noexcept {
     sockaddr_storage addr{};
-    socklen_t len = sizeof(addr);
+    socklen_t len{sizeof(addr)};
     auto* ptr = reinterpret_cast<sockaddr*>(&addr);
     if (::getpeername(sock.handle(), ptr, &len) == 0)
       return net_endpoint{*ptr, len};
@@ -306,7 +306,8 @@ public:
       const auto display = name.substr(0, null_pos);
       const auto npos = std::string_view::npos;
       const bool has_more =
-          null_pos != npos && name.find_first_not_of('\0', null_pos) != npos;
+          (null_pos != npos) &&
+          (name.find_first_not_of('\0', null_pos) != npos);
       return std::format("unix:@{}{}", display, has_more ? " (+)" : "");
     }
     if (is_uds()) return std::format("unix:{}", uds_path());
@@ -415,7 +416,7 @@ private:
 
   [[nodiscard]] static constexpr std::optional<uint16_t> do_parse_port(
       std::string_view s) noexcept {
-    uint32_t port = 0;
+    uint32_t port{};
     const auto [ptr, ec] =
         std::from_chars(s.data(), s.data() + s.size(), port);
     if (ec != std::errc{} || ptr != s.data() + s.size() || port > 65535U)

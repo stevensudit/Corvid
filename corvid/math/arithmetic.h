@@ -17,6 +17,8 @@
 #pragma once
 #include <cassert>
 #include <concepts>
+#include <cstddef>
+#include <cstdint>
 #include <numbers>
 #include <type_traits>
 
@@ -68,6 +70,29 @@ template<std::integral T, std::integral U>
 round_up_to_multiple(T n, U m) noexcept {
   using R = std::common_type_t<T, U>;
   return ceil_div(n, m) * static_cast<R>(m);
+}
+
+#pragma endregion
+#pragma region extract_byte
+
+// Byte `Ndx` of `v`, counting from the least significant: `Ndx == 0` is the
+// low byte, `Ndx == 1` the one above it, and so on up to the width of `T`.
+//
+//    extract_byte<3>(addr), extract_byte<2>(addr), extract_byte<1>(addr),
+//        extract_byte<0>(addr)
+//
+// Unsigned only, because the byte decomposition of a negative value depends
+// on its representation rather than on its value. Asking for a byte wider
+// than `T` is a compile error rather than a zero: the index is fixed at the
+// call site, so a byte that cannot be there is a mistake in the caller, not a
+// value worth reporting.
+template<size_t Ndx = 0>
+[[nodiscard]] constexpr uint8_t
+extract_byte(std::unsigned_integral auto v) noexcept {
+  // NOLINTNEXTLINE(bugprone-sizeof-expression): the width is the real bound.
+  static_assert(Ndx < sizeof(decltype(v)),
+      "extract_byte index exceeds the type's width");
+  return static_cast<uint8_t>(v >> (Ndx * 8));
 }
 
 #pragma endregion

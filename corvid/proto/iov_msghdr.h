@@ -287,8 +287,8 @@ private:
     if (!last_op_.transferred) return true;
 
     // Map to actual index.
-    size_t actual_index = first_index_ + last_op_.index;
-    size_t offset = last_op_.offset;
+    const auto actual_index = first_index_ + last_op_.index;
+    const auto offset = last_op_.offset;
 
     // Disarm.
     last_op_ = {};
@@ -319,13 +319,13 @@ private:
   // stores the result back into `last_op_`. The index may point one past the
   // last segment when the transfer ends exactly on a segment boundary.
   [[nodiscard]] bool do_update_results() noexcept {
-    const size_t transferred = last_op_.transferred;
+    const auto transferred = last_op_.transferred;
     if (transferred > size()) return do_set_fail();
     if (transferred == 0) return do_set_last(0, 0, 0);
 
-    size_t remaining = transferred;
+    auto remaining = transferred;
     for (size_t index = first_index_; index < segments_.size(); ++index) {
-      const size_t available = segments_[index].iov_len;
+      const auto available = segments_[index].iov_len;
 
       // If the remaining offset falls within the current segment, store the
       // index and offset within it.
@@ -363,7 +363,7 @@ private:
   std::vector<iovec> segments_;
   size_t first_index_{};
   size_t size_{};
-  op_results last_op_{};
+  op_results last_op_;
 
 #pragma endregion
 };

@@ -101,3 +101,36 @@ TEST_CASE("RoundUpConstexpr", "[MathTest]") {
   static_assert(round_up_to_multiple(1, 256) == 256);
   static_assert(round_up_to_multiple(4096, 256) == 4096);
 }
+
+TEST_CASE("ExtractByte", "[MathTest]") {
+  // Index 0 is the low byte, counting up from there.
+  CHECK(extract_byte<0>(std::uint16_t{0x2001}) == 0x01);
+  CHECK(extract_byte<1>(std::uint16_t{0x2001}) == 0x20);
+  CHECK(extract_byte<0>(std::uint16_t{}) == 0);
+  CHECK(extract_byte<1>(std::uint16_t{}) == 0);
+}
+
+TEST_CASE("ExtractByteAddressesEveryByte", "[MathTest]") {
+  // Every byte of a wider value is reachable by its own index, most
+  // significant last.
+  constexpr auto addr = std::uint32_t{0xc0a80101};
+  CHECK(extract_byte<3>(addr) == 0xc0);
+  CHECK(extract_byte<2>(addr) == 0xa8);
+  CHECK(extract_byte<1>(addr) == 0x01);
+  CHECK(extract_byte<0>(addr) == 0x01);
+  CHECK(extract_byte<7>(std::uint64_t{0xfedc'ba98'7654'3210}) == 0xfe);
+  CHECK(extract_byte<0>(std::uint8_t{0x42}) == 0x42);
+}
+
+TEST_CASE("ExtractByteConstexpr", "[MathTest]") {
+  // Usable in constant expressions.
+  static_assert(extract_byte<1>(std::uint16_t{0xbeef}) == 0xbe);
+  static_assert(extract_byte<0>(std::uint16_t{0xbeef}) == 0xef);
+}
+
+#ifdef NOT_SUPPOSED_TO_COMPILE
+TEST_CASE("ExtractByteOutOfRange", "[MathTest]") {
+  // A byte the type does not have is a compile error, not a zero.
+  CHECK(extract_byte<2>(std::uint16_t{0x2001}) == 0);
+}
+#endif

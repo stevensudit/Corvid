@@ -50,16 +50,16 @@ struct dns_resolver {
     hints.ai_socktype = SOCK_STREAM;
 
     std::vector<net_endpoint> endpoints;
-    addrinfo* res = nullptr;
+    addrinfo* res{};
     if (::getaddrinfo(host.c_str(), std::to_string(port).c_str(), &hints,
             &res) != 0)
       return endpoints;
 
-    const auto info = std::unique_ptr<addrinfo, decltype(&::freeaddrinfo)>{res,
+    const std::unique_ptr<addrinfo, decltype(&::freeaddrinfo)> info{res,
         ::freeaddrinfo};
     res = nullptr;
 
-    for (const addrinfo* ai = info.get(); ai && endpoints.size() < max_results;
+    for (const auto* ai = info.get(); ai && endpoints.size() < max_results;
         ai = ai->ai_next)
     {
       endpoints.emplace_back(*ai->ai_addr, ai->ai_addrlen);
