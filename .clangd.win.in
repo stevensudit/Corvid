@@ -40,13 +40,19 @@ CompileFlags:
 # -Werror` already on that command through. clang-tidy findings were never
 # affected: clangd routes those around `-w`.
 #
-# The `-Wno-*` entries below cover diagnostics that only a standalone header
-# parse produces. A header analyzed on its own has no caller, so anything the
-# rest of the program would use looks unused.
+# Only one `-Wno-*` proves necessary. Opening all 219 corvid headers through
+# clangd with `-w` gone yields exactly two warnings, and just one of them is an
+# artifact of the standalone parse: a header analyzed on its own has no caller,
+# so a constant it defines for the rest of the program looks unused (`vec.cuh`'s
+# `big_value`, used across the game headers). Resist padding this list
+# speculatively, since every entry here is a real diagnostic the editor stops
+# showing. `unused-const-variable` rather than the broader `unused-variable`
+# that the Linux template uses, so a genuinely unused local still gets flagged.
 If:
   PathMatch: [corvid/.*]
 CompileFlags:
   Remove: [-w]
+  Add: [-Wno-unused-const-variable]
 
 ---
 Diagnostics:

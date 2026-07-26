@@ -21,7 +21,12 @@ CompileFlags:
   # the inherited nvcc command carries nvcc-only flags that clangd's embedded
   # clang rejects as "unknown argument". Strip them here too. This is a no-op
   # for real `.cpp`/`.cc` TUs, whose own commands never carry these flags.
-  Remove: [-forward-unknown-to-host-compiler, -ccbin=*, -arch=*]
+  # `-w` is stripped for the same reason: a vendored dependency built with
+  # warnings off must not silence the editor for one of our headers that
+  # inherits its command. Currently insurance here, since ImGui is a
+  # Windows-only target, but it costs nothing and the Windows side was blind
+  # for exactly this reason.
+  Remove: [-forward-unknown-to-host-compiler, -ccbin=*, -arch=*, -w]
   Add: [-xc++, -std=c++23, -stdlib=libc++, -fexperimental-library, -D_LIBCPP_NO_ABI_TAG, -Wall, -Wextra, -Werror, -Wno-unused-variable]
 
 ---
