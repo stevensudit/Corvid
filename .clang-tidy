@@ -30,5 +30,8 @@ Checks: >
   -readability-inconsistent-ifelse-braces,
   misc-unused-parameters
 WarningsAsErrors: ''
-HeaderFilterRegex: 'corvid/.*'
+# Both separators: on Windows a header reached through a relative include comes
+# out as `...\corvid\strings/streaming.h`, which `corvid/.*` never matches, so
+# the whole library went unanalyzed there.
+HeaderFilterRegex: 'corvid[/\\].*'
 FormatStyle: file

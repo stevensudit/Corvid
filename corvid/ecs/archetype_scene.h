@@ -616,13 +616,14 @@ public:
     using result_t = std::tuple<
         std::conditional_t<std::is_const_v<Self>, const Cs*, Cs*>...>;
 
-    const result_t missing{
+    // Default to missing.
+    result_t found{
         static_cast<std::conditional_t<std::is_const_v<Self>, const Cs*, Cs*>>(
             nullptr)...};
-    if (!self.registry_.is_valid(id)) return missing;
+    if (!self.registry_.is_valid(id)) return found;
 
     auto loc = self.registry_.get_location(id);
-    auto found = missing;
+
     [&]<size_t... Is>(std::index_sequence<Is...>) {
       (
           [&](auto& storage) {
@@ -658,13 +659,14 @@ public:
     using result_t = std::tuple<
         std::conditional_t<std::is_const_v<Self>, const Cs*, Cs*>...>;
 
-    const result_t missing{
+    // Default to missing.
+    result_t found{
         static_cast<std::conditional_t<std::is_const_v<Self>, const Cs*, Cs*>>(
             nullptr)...};
-    if (!self.registry_.is_valid(id)) return missing;
+    if (!self.registry_.is_valid(id)) return found;
 
     auto loc = self.registry_.get_location(id);
-    auto found = missing;
+
     [&]<size_t... Is>(std::index_sequence<Is...>) {
       (
           [&](auto& storage) {

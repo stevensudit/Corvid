@@ -20,6 +20,7 @@
 #include <streambuf>
 
 #include "../meta/concepts.h"
+#include "../infra/exception_firewalls.h"
 #include "delimiting.h"
 
 namespace corvid::strings { inline namespace streaming {
@@ -90,7 +91,9 @@ public:
   ostream_redirector(ostream_redirector&&) = delete;
   ostream_redirector& operator=(ostream_redirector&&) = delete;
 
-  ~ostream_redirector() noexcept { from_->rdbuf(rdbuf_); }
+  ~ostream_redirector() noexcept {
+    try_or_terminate([&] { from_->rdbuf(rdbuf_); });
+  }
 
 #pragma endregion
 #pragma region Data members
