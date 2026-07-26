@@ -570,6 +570,8 @@ private:
 }}} // namespace corvid::container::rust_like
 
 // Hash support.
+//
+// NOLINTBEGIN(bugprone-std-namespace-modification)
 namespace std {
 template<corvid::meta::concepts::ScopedEnum E, typename... Ts>
 struct hash<corvid::container::rust_like::enum_variant<E, Ts...>> {
@@ -583,3 +585,4 @@ struct hash<corvid::container::rust_like::enum_variant<E, Ts...>> {
   }
 };
 } // namespace std
+// NOLINTEND(bugprone-std-namespace-modification)

@@ -760,6 +760,8 @@ operator>>(std::istream& is, strong_type<T, TAG>& obj) {
 }} // namespace corvid::strongtypes
 
 // Support hash for wrapper, if supported for underlying type.
+//
+// NOLINTBEGIN(bugprone-std-namespace-modification).
 namespace std {
 template<typename T, typename TAG>
 struct hash<corvid::strongtypes::strong_type<T, TAG>>
@@ -779,3 +781,4 @@ template<typename T, typename TAG, corvid::CharType CharT>
 requires std::formattable<T, CharT>
 struct std::formatter<corvid::strong_type<T, TAG>, CharT>
     : corvid::forwarding_formatter<T, CharT> {};
+// NOLINTEND(bugprone-std-namespace-modification)

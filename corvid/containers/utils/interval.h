@@ -397,6 +397,8 @@ concept Interval = is_specialization_of_v<T, interval>;
 #pragma endregion
 }} // namespace corvid::intervals
 
+// NOLINTBEGIN(bugprone-std-namespace-modification).
+
 #pragma region format_kind
 
 // `interval` is iterable, so without this the std range formatter would
@@ -451,3 +453,4 @@ private:
 };
 
 #pragma endregion
+// NOLINTEND(bugprone-std-namespace-modification)

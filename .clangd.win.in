@@ -32,6 +32,23 @@ CompileFlags:
   Add: [@CORVID_CLANGD_CUDA_FLAGS@]
 
 ---
+# Our own headers. A header has no entry of its own in compile_commands.json, so
+# clangd parses it with the command of whatever proxy TU it picks, and here that
+# is imgui.cpp, which the build compiles with `-w` (see `corvid_require_imgui` in
+# tests/CMakeLists.txt). Inheriting that `-w` silenced every compiler warning in
+# every corvid header in the editor, so drop it and let the `-Wall -Wextra
+# -Werror` already on that command through. clang-tidy findings were never
+# affected: clangd routes those around `-w`.
+#
+# The `-Wno-*` entries below cover diagnostics that only a standalone header
+# parse produces. A header analyzed on its own has no caller, so anything the
+# rest of the program would use looks unused.
+If:
+  PathMatch: [corvid/.*]
+CompileFlags:
+  Remove: [-w]
+
+---
 Diagnostics:
   UnusedIncludes: None
   MissingIncludes: None

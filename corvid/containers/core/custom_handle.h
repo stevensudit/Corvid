@@ -172,8 +172,10 @@ public:
 
 }} // namespace corvid::custhandle
 
+// NOLINTBEGIN(bugprone-std-namespace-modification)
 template<typename TAG, typename T, typename TPtr, TPtr N,
     corvid::CharType CharT>
 requires std::formattable<T, CharT>
 struct std::formatter<corvid::custhandle::custom_handle<TAG, T, TPtr, N>,
     CharT>: corvid::nullable_formatter<T, CharT> {};
+// NOLINTEND(bugprone-std-namespace-modification)

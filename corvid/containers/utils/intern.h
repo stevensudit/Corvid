@@ -496,6 +496,8 @@ interned_value<T, ID>::interned_value(intern_table<T, ID, TR>& table,
 // spec grammar. Debug `{:?}` instead renders the `(value, id)` pair, with the
 // id as its numeric underlying. Both modes read the value, so an empty
 // `interned_value` is a precondition violation, exactly as it is for `value`.
+//
+// NOLINTBEGIN(bugprone-std-namespace-modification).
 template<typename T, corvid::sequence::SequentialEnum ID,
     corvid::CharType CharT>
 requires std::formattable<T, CharT>
@@ -539,3 +541,4 @@ struct std::formatter<corvid::container::intern::interned_value<T, ID>, CharT>
 private:
   bool debug_{};
 };
+// NOLINTEND(bugprone-std-namespace-modification)

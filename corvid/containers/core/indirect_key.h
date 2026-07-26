@@ -118,6 +118,7 @@ struct indirect_map_key {
 
 }}} // namespace corvid::container::indirect_key
 
+// NOLINTBEGIN(bugprone-std-namespace-modification).
 template<typename T, typename H, typename E>
 struct std::hash<corvid::indirect_hash_key<T, H, E>>
     : corvid::indirect_hash_key<T, H, E>::hash_equal_to {};
@@ -139,3 +140,4 @@ template<typename T, typename C, typename CharT>
 requires std::formattable<T, CharT>
 struct std::formatter<corvid::indirect_map_key<T, C>, CharT>
     : corvid::forwarding_formatter<T, CharT> {};
+// NOLINTEND(bugprone-std-namespace-modification)
