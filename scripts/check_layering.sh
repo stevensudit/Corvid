@@ -15,6 +15,10 @@
 # `corvid/infra.h`, and `corvid/math.h` umbrellas are the exception: they
 # aggregate the foundation, so they map to `meta`/`infra`/`math` and stay cheap
 # to depend on.
+#
+# The band map and allow-list below are mirrored clause for clause in
+# check_layering.ps1 (the native-Windows counterpart); a change to one belongs
+# in the other (and in corvid/deps.md).
 set -uo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"

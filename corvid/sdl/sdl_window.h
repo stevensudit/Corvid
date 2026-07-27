@@ -132,7 +132,7 @@ private:
 #pragma endregion
 #pragma region Data members
 private:
-  SDL_Window* window_;
+  SDL_Window* window_{};
 
 #pragma endregion
 };

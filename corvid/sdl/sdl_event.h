@@ -603,9 +603,9 @@ consteval auto corvid_enum_spec(sdl_mouse_button*) {
 // Cleaned payload of a display event. `data1`/`data2` are event-specific; see
 // the `SDL_EVENT_DISPLAY_*` documentation.
 struct sdl_display_event {
-  sdl_display_id_type display_id;
-  Sint32 data1;
-  Sint32 data2;
+  sdl_display_id_type display_id{};
+  Sint32 data1{};
+  Sint32 data2{};
 };
 
 // Payload of a window event.
@@ -613,9 +613,9 @@ struct sdl_display_event {
 // `data1`/`data2` are event-specific; for `window_pixel_size_changed` they are
 // the new width and height in pixels.
 struct sdl_window_event {
-  sdl_window_id_type window_id;
-  Sint32 data1;
-  Sint32 data2;
+  sdl_window_id_type window_id{};
+  Sint32 data1{};
+  Sint32 data2{};
 };
 
 // Payload of a mouse-wheel event.
@@ -623,10 +623,10 @@ struct sdl_window_event {
 //  `x`/`y` are the scroll deltas; mouse_x`/`mouse_y` are the cursor position
 //  when it fired.
 struct sdl_wheel_event {
-  float x;
-  float y;
-  float mouse_x;
-  float mouse_y;
+  float x{};
+  float y{};
+  float mouse_x{};
+  float mouse_y{};
 };
 
 // Payload of a mouse-motion event.
@@ -635,11 +635,11 @@ struct sdl_wheel_event {
 // previous event; `left_held` is whether the left button was down during the
 // motion.
 struct sdl_motion_event {
-  float x;
-  float y;
-  float xrel;
-  float yrel;
-  bool left_held;
+  float x{};
+  float y{};
+  float xrel{};
+  float yrel{};
+  bool left_held{};
 };
 
 // Payload of a mouse-button event.
@@ -647,10 +647,10 @@ struct sdl_motion_event {
 // `button` is which button changed; `down` is true on a press and false on a
 // release; `x`/`y` are the cursor position when it fired.
 struct sdl_button_event {
-  sdl_mouse_button button;
-  bool down;
-  float x;
-  float y;
+  sdl_mouse_button button{};
+  bool down{};
+  float x{};
+  float y{};
 };
 
 // Payload of a keyboard event.
@@ -658,9 +658,9 @@ struct sdl_button_event {
 // `key` is the virtual key; `down` is true on a press and false on a release;
 // `repeat` marks an auto-repeat press.
 struct sdl_key_event {
-  sdl_keycode key;
-  bool down;
-  bool repeat;
+  sdl_keycode key{};
+  bool down{};
+  bool repeat{};
 };
 
 // Union-aware wrapper for an `SDL_Event`.
@@ -688,6 +688,9 @@ public:
   // Pull the next event from SDL's queue, wrapped. Call only on the main
   // thread.
   [[nodiscard]] static sdl_event poll() noexcept {
+    // Deliberately uninitialized: SDL_PollEvent either fills the whole union
+    // or leaves it untouched and unread, and zeroing 128 bytes on every poll
+    // of a per-frame drain loop is not free.
     SDL_Event event;
     if (!SDL_PollEvent(&event)) return {};
     return sdl_event{event};

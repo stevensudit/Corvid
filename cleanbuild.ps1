@@ -44,6 +44,11 @@ $bldDir = Join-Path $repo 'tests/build'
 $llvmRoot = 'C:/Program Files/LLVM'
 $clangXx = "$llvmRoot/bin/clang++.exe"
 
+# Enforce the core/utils band layering before any build (fast, static, and
+# build-independent), mirroring cleanbuild.sh. See corvid/deps.md.
+& (Join-Path $repo 'scripts/check_layering.ps1')
+if ($LASTEXITCODE) { exit $LASTEXITCODE }
+
 # Parse args: a *.cpp or *.cu name selects one test; clang|cl picks the
 # compiler; asan picks the sanitizer; tidy runs clang-tidy during the build;
 # cudacheck runs the CUDA tests under compute-sanitizer (the device analog of

@@ -184,6 +184,15 @@ Braces express "this object takes on these values", and they reject narrowing.
     `notifiable<std::atomic_bool> started;`, not `started{false}`. Restating
     a value the type already supplies is noise, and it contradicts the
     empty-state spelling used everywhere else.
+  - **Ruling: a `bool` whose default means "not yet" is empty state.** A
+    held-input flag, a "have we seen one" latch, and anything else whose
+    `false` says nothing has happened yet takes `{}`: `bool looking{};`,
+    `bool jump{};`, not `= false`. The spelled literal stays for a bool
+    whose value is genuinely the point, which in practice is nearly always
+    `= true`: `bool active_ = true;`, `bool validate_utf8 = true;`. This is
+    the same line accumulators draw against loop counters, one step up in
+    abstraction. It does not revive the redundant `{false}` spelling, which
+    remains wrong either way.
   - **Rule:** The empty state of a pointer is value-init, `ptr_t p{};`,
     never `= nullptr`. The `nullptr` literal should be rare in general:
     pointers are tested as bools (`if (p)`, never `p != nullptr`), and the

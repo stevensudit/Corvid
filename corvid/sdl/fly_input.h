@@ -38,13 +38,13 @@ namespace corvid::sdl {
 // wheel scroll. `handle` folds SDL events into it; `look` and `dolly` clear
 // their accumulators as they consume them.
 struct fly_input {
-  bool forward = false;
-  bool back = false;
-  bool left = false;
-  bool right = false;
-  bool up = false;
-  bool down = false;
-  bool fast = false;
+  bool forward{};
+  bool back{};
+  bool left{};
+  bool right{};
+  bool up{};
+  bool down{};
+  bool fast{};
 
   // Look and scroll tuning, with defaults a viewer may override.
   // `look_sensitivity` scales raw mouse counts to radians; `scroll_step` is
@@ -60,14 +60,14 @@ struct fly_input {
 
   // Whether mouse-look is active: held while the right button is down, which
   // captures the cursor. Persists across frames.
-  bool looking = false;
+  bool looking{};
 
   // This frame's accumulated mouse-look delta (raw counts, gated on `looking`)
   // and wheel scroll, gathered by `handle` and cleared by `look` and `dolly`
   // as they consume them.
-  float look_dx = 0.0F;
-  float look_dy = 0.0F;
-  float wheel = 0.0F;
+  float look_dx{};
+  float look_dy{};
+  float wheel{};
 
   // Fold one event into this state.
   //
@@ -155,14 +155,14 @@ struct fly_input {
   // separate.
   [[nodiscard]] std::tuple<float, float, float>
   movement(float dt, float speed_multiplier = 1.0F) const {
-    const float speed = speed_multiplier * dt * (fast ? 3.0F : 1.0F);
-    float forward_move = (forward ? speed : 0.0F) - (back ? speed : 0.0F);
-    float sideways_move = (right ? speed : 0.0F) - (left ? speed : 0.0F);
-    const float upward_move = (up ? speed : 0.0F) - (down ? speed : 0.0F);
-    if (const float planar = std::hypot(forward_move, sideways_move);
+    const auto speed = speed_multiplier * dt * (fast ? 3.0F : 1.0F);
+    auto forward_move = (forward ? speed : 0.0F) - (back ? speed : 0.0F);
+    auto sideways_move = (right ? speed : 0.0F) - (left ? speed : 0.0F);
+    const auto upward_move = (up ? speed : 0.0F) - (down ? speed : 0.0F);
+    if (const auto planar = std::hypot(forward_move, sideways_move);
         planar > speed)
     {
-      const float scale = speed / planar;
+      const auto scale = speed / planar;
       forward_move *= scale;
       sideways_move *= scale;
     }

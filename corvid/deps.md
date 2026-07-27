@@ -4,7 +4,8 @@ This records how Corvid's header modules are layered and how that layering is
 enforced. Each top-level directory under `corvid/`, plus the `core`/`utils`
 subdivision of `containers`, is a *band*: a cohesive group of headers that sits
 at one level of the dependency graph. The bands form a DAG, enforced by
-`scripts/check_layering.sh`.
+`scripts/check_layering.sh` (and its Windows counterpart,
+`scripts/check_layering.ps1`).
 
 At file granularity the library is a DAG (it compiles). The bands exist to make
 the *folder* boundaries honest about that layering, so a layer violation becomes
@@ -171,13 +172,16 @@ umbrellas exist for consumers (tests, apps) and for the apex bands, which is why
 are cheap to depend on. The lint rejects every other subsystem umbrella from a
 non-apex band.
 
-## Enforcement: scripts/check_layering.sh
+## Enforcement: scripts/check_layering.sh, scripts/check_layering.ps1
 
 For each header under `corvid/`, the script resolves each local `#include` to a
 target, maps source and target to a band by folder path, and checks the edge
 against the allow-list. It is wired into `cleanbuild.sh` (it runs first, before
 any build, since it is static and build-independent) and is runnable on its own
-for CI.
+for CI. The PowerShell counterpart is the same check for a native-Windows
+checkout, wired into `cleanbuild.ps1` the same way; its band map and allow-list
+mirror the shell version clause for clause, so a change to the table below
+belongs in all three places.
 
 Allow-list (a band may always include its own siblings; `meta` and `math` are
 universally dependable destinations, though `meta` alone is a permitted source
