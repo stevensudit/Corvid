@@ -96,5 +96,30 @@ extract_byte(std::unsigned_integral auto v) noexcept {
 }
 
 #pragma endregion
+#pragma region combine_bytes
+
+// Assemble an `R` from its bytes, least significant first: the first argument
+// becomes the low byte, the second the one above it, and so on.
+//
+//    combine_bytes<uint16_t>(octets[1], octets[0])
+//
+// Each argument contributes only its low byte, which makes this the inverse
+// of `extract_byte`. The count must match the width of `R` exactly, so a
+// partial value spells out its zero bytes: leaving one off is then a mistake
+// the compiler catches rather than a silent zero-fill.
+template<std::unsigned_integral R = uint64_t>
+[[nodiscard]] constexpr R
+combine_bytes(std::unsigned_integral auto... bytes) noexcept {
+  static_assert(sizeof...(bytes) == sizeof(R),
+      "combine_bytes takes exactly one argument per byte of the type");
+  R result{};
+  size_t shift{};
+  ((result = static_cast<R>(result | (R{extract_byte(bytes)} << shift)),
+       shift += 8),
+      ...);
+  return result;
+}
+
+#pragma endregion
 
 }}} // namespace corvid::math::arithmetic
