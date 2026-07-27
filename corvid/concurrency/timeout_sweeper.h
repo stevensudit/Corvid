@@ -131,7 +131,7 @@ public:
   // Discard all registered entries without invoking their callbacks.
   // Thread-safe.
   void clear() noexcept {
-    std::scoped_lock lock{mutex_};
+    std::scoped_lock lock(mutex_);
     heap_.clear();
   }
 
@@ -139,7 +139,7 @@ public:
   // Thread-safe.  Returns `false` if the sweeper is closing; in which case
   // `callback` is dropped on the floor.
   bool schedule(time_point_t expire, callback_t callback) {
-    std::scoped_lock lock{mutex_};
+    std::scoped_lock lock(mutex_);
     if (closing_) return false;
     heap_.push_back({expire, std::move(callback)});
     std::push_heap(heap_.begin(), heap_.end());
@@ -159,7 +159,7 @@ public:
       callback_t callback;
       time_point_t expire;
 
-      if (std::scoped_lock lock{mutex_}; true) {
+      if (std::scoped_lock lock(mutex_); true) {
         // Stop when the heap is empty or the next entry hasn't expired yet.
         if (heap_.empty()) return true;
         if (heap_.front().expire > now) return true;
@@ -177,7 +177,7 @@ public:
       // Short-circuit the rearm path during shutdown so the drain terminates.
       if (next == time_point_t{} || closing_) continue;
 
-      std::scoped_lock lock{mutex_};
+      std::scoped_lock lock(mutex_);
       heap_.push_back({next, std::move(callback)});
       std::push_heap(heap_.begin(), heap_.end());
     }
@@ -188,13 +188,13 @@ public:
 
   // Number of registered entries.
   [[nodiscard]] size_t size() const noexcept {
-    std::scoped_lock lock{mutex_};
+    std::scoped_lock lock(mutex_);
     return heap_.size();
   }
 
   // True when no entries are registered.
   [[nodiscard]] bool empty() const noexcept {
-    std::scoped_lock lock{mutex_};
+    std::scoped_lock lock(mutex_);
     return heap_.empty();
   }
 

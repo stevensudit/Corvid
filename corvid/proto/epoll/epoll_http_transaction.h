@@ -118,7 +118,7 @@ struct epoll_http_transaction
   // Initialized by `epoll_http_server` from the `Connection` request header;
   // override before `handle_drain` returns `release` to force a close or
   // keep-open regardless of what the client requested.
-  after_response close_after{after_response::keep_alive};
+  after_response close_after = after_response::keep_alive;
 
   // Optional callbacks. Set by route factories or direct users.
   data_fn on_data;

@@ -159,7 +159,7 @@ public:
     delay = std::max(delay, tick_interval_);
     const auto ticks_ahead = static_cast<size_t>(delay / tick_interval_);
 
-    std::scoped_lock lock{mutex_};
+    std::scoped_lock lock(mutex_);
     const auto target = (current_slot_ + ticks_ahead) % slots_.size();
     slots_[target].push_back(std::move(callback));
     return true;
@@ -186,7 +186,7 @@ public:
     slots_t ready_events;
 
     {
-      std::scoped_lock lock{mutex_};
+      std::scoped_lock lock(mutex_);
 
       // Guard against clock going backward or redundant calls.
       if (now <= last_tick_) return;
@@ -227,7 +227,7 @@ public:
   // Return the time at which the next slot will open. Used by
   // `timing_wheel_runner` to compute the sleep deadline.
   [[nodiscard]] time_point_t next_tick_time() const {
-    std::scoped_lock lock{mutex_};
+    std::scoped_lock lock(mutex_);
     return last_tick_ + tick_interval_;
   }
 
@@ -309,7 +309,7 @@ private:
 
     // Kill the wheel's tombstone immediately when a stop is requested, so
     // any in-progress `tick` bails at the next callback boundary.
-    std::stop_callback on_stop{st, [this] { (void)wheel_->stop(); }};
+    std::stop_callback on_stop(st, [this] { (void)wheel_->stop(); });
     jthread_stoppable_sleep sleep;
     while (!sleep.until(st, wheel_->next_tick_time()))
       wheel_->tick(std::chrono::steady_clock::now());

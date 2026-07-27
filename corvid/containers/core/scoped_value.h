@@ -32,7 +32,7 @@ inline namespace value_scoping {
 //  void foo() {
 //     int x = 1;
 //     {
-//       scoped_value sv{x, 2}; // x is now 2
+//       scoped_value sv(x, 2); // x is now 2
 //       // do work with x == 2
 //     } // x is automatically restored to 1 here
 //     // do work with x == 1

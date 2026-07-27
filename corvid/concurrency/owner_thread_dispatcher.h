@@ -130,7 +130,7 @@ public:
   // Force shutdown of resources. Idempotent.
   [[nodiscard]] bool shutdown() {
     if (current_loop_ != this) return false;
-    std::scoped_lock lock{post_mutex_};
+    std::scoped_lock lock(post_mutex_);
     if (!active_queue_.exchange(nullptr)) return false;
     post_queues_[0].clear();
     post_queues_[1].clear();
@@ -167,7 +167,7 @@ public:
   [[nodiscard]] bool post(posted_fn&& cbpost) {
     bool was_empty{};
     // In the steady state, this does not require reallocation.
-    if (std::scoped_lock lock{post_mutex_}; true) {
+    if (std::scoped_lock lock(post_mutex_); true) {
       auto active_queue_ptr = *active_queue_;
       if (!active_queue_ptr) return false;
       auto& active_queue = *active_queue_ptr;
@@ -247,7 +247,7 @@ public:
   // vectors grow by doubling and never shrink, so in the steady state, there
   // should be no allocations.
   [[nodiscard]] size_t queue_high_watermark() const noexcept {
-    std::scoped_lock lock{post_mutex_};
+    std::scoped_lock lock(post_mutex_);
     return std::max(post_queues_[0].capacity(), post_queues_[1].capacity());
   }
 
@@ -272,7 +272,7 @@ protected:
 
     // Atomically swap between the double-buffered queues.
     post_queue_t* pending{};
-    if (std::scoped_lock lock{post_mutex_}; true) {
+    if (std::scoped_lock lock(post_mutex_); true) {
       pending = active_queue_;
       if (!pending) return 0; // shutdown has been called.
       auto* other =

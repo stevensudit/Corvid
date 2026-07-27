@@ -45,6 +45,16 @@ Four forms, each with one meaning:
   type is fixed (below).
 - Deliberate narrowing is spelled with an explicit cast, never by falling back
   to `=` to duck the brace error.
+- **Ruling: fix the literals when signedness is what blocks braces.** When a
+  brace form fails only because a literal initializer is signed and the target
+  is not, suffix the literals (`4U`, or `UL` when that is not enough) rather
+  than retreating to `=` or reaching for a cast:
+  `const size_t mask_len{is_mask ? 4U : 0U};`. The brace error was pointing at
+  a real signed/unsigned mismatch in the source, and the fix belongs where the
+  mismatch is. The ternary is also what puts this line under the brace rule at
+  all. A bare literal initializer takes `=`, because a constant that provably
+  fits is exempt from the narrowing check, so there the check can never fire
+  and braces would add nothing.
 - **Ruling: `bool` from a boolean expression.** A boolean expression
   initializes a spelled-out `bool`: `const bool ok = p && p->is_good();`.
   The RHS of a bool is typically coercions (a pointer used bool-like) and
@@ -182,6 +192,12 @@ Braces express "this object takes on these values", and they reject narrowing.
   `Connection c(host, port, options);` (it connects),
   `std::unique_lock lk(m);` (it locks; retaining the pointer is incidental),
   `std::ifstream f(path);` (it opens).
+- **Ruling: every RAII scoping object takes parens.** `std::scoped_lock`,
+  `std::unique_lock`, `std::lock_guard`, `std::stop_callback`, `scoped_value`,
+  and `scope_exit` all qualify. The category is the guard itself, not a
+  per-constructor audit of whether a given constructor does work. `scope_exit`
+  merely stores its callable and still takes parens, because the object exists
+  for its side effect rather than to hold a value.
 - **Rule:** Use parens when braces would select an unintended
   `std::initializer_list` overload: `std::vector<int> v(10);` is ten
   value-initialized elements; `std::vector<int> v{10};` is one element.

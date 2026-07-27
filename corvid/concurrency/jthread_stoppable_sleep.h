@@ -72,8 +72,8 @@ public:
   template<typename Clock, typename Duration>
   [[nodiscard]] bool until(std::stop_token st,
       const std::chrono::time_point<Clock, Duration>& deadline) {
-    std::stop_callback on_stop{st, [this] { cv_.notify_all(); }};
-    std::unique_lock lock{mutex_};
+    std::stop_callback on_stop(st, [this] { cv_.notify_all(); });
+    std::unique_lock lock(mutex_);
     return cv_.wait_until(lock, deadline, [&st] {
       return st.stop_requested();
     });

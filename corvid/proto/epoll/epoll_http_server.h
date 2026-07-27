@@ -98,15 +98,15 @@ struct transparent_hash_equal_host_path {
   using is_transparent = void;
 
   [[nodiscard]] size_t operator()(const auto& value) const noexcept {
-    auto view = static_cast<host_path>(value);
+    const auto view = static_cast<host_path>(value);
     return corvid::hash_combiners::combined_hash(view.hostname,
         view.base_path);
   }
 
   [[nodiscard]] constexpr bool
   operator()(const auto& lhs, const auto& rhs) const noexcept {
-    auto lhs_view = static_cast<host_path>(lhs);
-    auto rhs_view = static_cast<host_path>(rhs);
+    const auto lhs_view = static_cast<host_path>(lhs);
+    const auto rhs_view = static_cast<host_path>(rhs);
     return lhs_view == rhs_view;
   }
 };
@@ -171,7 +171,7 @@ class epoll_http_server
 
     request_head req; // populated across request_line / header_lines
 
-    http_phase phase{http_phase::request_line}; // state machine
+    http_phase phase = http_phase::request_line; // state machine
 
     uint8_t leading_crlf_count{}; // bare CRLFs skipped before request line
 
@@ -328,7 +328,7 @@ public:
 #pragma endregion
 #pragma region Construction
 
-  epoll_http_server(allow) {};
+  epoll_http_server(allow) {}
 
   // Drop our listener and route handlers before the implicit member
   // destruction proceeds. Both capture `weak_ptr<epoll_http_server>`; if their
@@ -377,13 +377,13 @@ public:
 private:
   // Actual payload for timeouts.
   [[nodiscard]] static bool timeout_hangup(const timer_fuse_t& fuse) {
-    auto c = fuse.get_if_armed();
+    const auto c = fuse.get_if_armed();
     if (!c) return true;
     // Use `weak_loop` rather than `loop` because this callback runs on the
     // timing-wheel thread. The connection may still be alive (since `c` holds
     // a `std::shared_ptr` to it) but the loop may have already been destroyed,
     // making `loop` a dangling-reference dereference.
-    auto loop = c->weak_loop().lock();
+    const auto loop = c->weak_loop().lock();
     if (!loop) return true;
     return loop->post([fuse]() -> bool {
       if (auto c = fuse.get_if_armed()) return c->hangup();
@@ -429,7 +429,7 @@ private:
     if (state.parser_state) return true;
     state.parser_state = terminated_text_parser::state{"\r\n", 8192};
     state.send_cb = [this, &conn](any_strings&& bufs) -> bool {
-      bool is_hangup = std::holds_alternative<std::monostate>(bufs);
+      const bool is_hangup = std::holds_alternative<std::monostate>(bufs);
       if (is_hangup || !arm_write_timeout(conn) ||
           !conn.send_any(std::move(bufs)))
       {
@@ -507,8 +507,7 @@ private:
   [[nodiscard]] after_response dispatch_transaction(epoll_stream_conn& conn,
       epoll_recv_buffer_view& view) const {
     auto& state = conn_t::from(conn).state();
-    const after_response keep_alive =
-        state.req.options.keep_alive(state.req.version);
+    const auto keep_alive = state.req.options.keep_alive(state.req.version);
 
     // HTTP/1.1 requires a `Host` header.
     if (state.req.version == http_version::http_1_1 &&
@@ -520,20 +519,19 @@ private:
     // component of the request target path, ignoring any query or fragment
     // suffix (e.g., "/api" from "/api/v2?x=1#y", "/api/", or "/api"; and
     // "/" from "/").
-    auto host_opt = state.req.headers.get("Host");
-    std::string_view hostname = host_opt ? *host_opt : std::string_view{};
-    std::string_view base_path = route_base_path(state.req.target);
+    const auto host_opt = state.req.headers.get("Host");
+    const auto hostname = host_opt ? *host_opt : std::string_view{};
+    const auto base_path = route_base_path(state.req.target);
 
-    const epoll_http_transaction_factory* factory =
-        find_route({hostname, base_path});
+    const auto* factory = find_route({hostname, base_path});
     if (!factory)
       return send_error_response(conn, keep_alive, state.req.version,
           http_status_code::NOT_FOUND, "Not Found");
 
     // Call transaction factory with the request head.
     // Don't trust the factory to move the request head out of the state.
-    const http_version req_version = state.req.version;
-    auto tx = (*factory)(std::move(state.req));
+    const auto req_version = state.req.version;
+    const auto tx = (*factory)(std::move(state.req));
     state.req.clear();
 
     // Enqueue transaction into pipeline.
@@ -550,7 +548,7 @@ private:
     // whatever body bytes are already in the receive buffer. `view` is
     // passed by reference so the outer parsing loop in `handle_data` can
     // continue after this call (allowing pipelining).
-    const stream_claim sc = tx->handle_data(view);
+    const auto sc = tx->handle_data(view);
 
     // Release means that the transaction no longer needs the input stream. The
     // reason is that there is no more body to consume (perhaps because there
@@ -582,7 +580,7 @@ private:
     // Avoid reentrancy when `conn.send` drains synchronously.
     auto& state = conn_t::from(conn).state();
     if (state.draining_) return true;
-    scoped_value guard{state.draining_, true};
+    scoped_value guard(state.draining_, true);
 
     // If no active writer, nothing to do.
     auto* writer = state.pipeline.get_writer().get();
@@ -782,7 +780,7 @@ private:
 
     // Deliver the full available buffer to the transaction; it controls
     // how much it consumes via `epoll_recv_buffer_view`.
-    const stream_claim sc = reader->handle_data(view);
+    const auto sc = reader->handle_data(view);
 
     // If the transaction has released the input stream, we transition back to
     // `request_line` phase to parse the next request.
@@ -849,7 +847,7 @@ private:
   // Maximum bare CRLFs to skip before the request line (RFC 9112 §2.2).
   static constexpr uint8_t max_leading_crls{8};
 
-  relaxed_atomic_bool configured_{false};
+  relaxed_atomic_bool configured_;
   std::optional<epoll_loop_runner> runner_;
   epoll_loop_ptr loop_;
   std::optional<timing_wheel_runner> wheel_runner_;

@@ -168,7 +168,7 @@ public:
   // and payload into it.
   static size_t
   header_length_for(size_t payload_len, bool is_mask = false) noexcept {
-    size_t mask_len = is_mask ? 4 : 0;
+    const size_t mask_len{is_mask ? 4U : 0U};
     if (payload_len < 126) return 2 + mask_len;
     if (payload_len <= 0xFFFF) return 4 + mask_len;
     return 10 + mask_len;
@@ -229,7 +229,7 @@ public:
   // If the header is complete, then it can be parsed. If it's incomplete, then
   // `header_length` is the estimated number of bytes needed to complete it.
   [[nodiscard]] bool is_complete() noexcept {
-    const size_t buffer_length = header_length_;
+    const auto buffer_length = header_length_;
     if (buffer_length >= 14) return true; // max header size is 14 bytes
 
     // Must have at least the frame control byte and first length byte.
@@ -460,7 +460,7 @@ public:
       size_t payload_len, std::optional<uint32_t> mask)
   requires mutable_v
   {
-    const size_t header_len =
+    const auto header_len =
         ws_frame_wrapper::header_length_for(payload_len, mask.has_value());
     frame.reserve(header_len + payload_len);
     no_zero{frame}.resize_to(header_len);
@@ -493,7 +493,7 @@ public:
       std::string_view client_key) {
     if (client_key.empty()) return {};
     if (base_64::decode(client_key).size() != 16) return {};
-    const std::string input = std::string{client_key} + std::string{ws_guid};
+    const auto input = std::string{client_key} + std::string{ws_guid};
     return encode_digest(sha_1::digest(input));
   }
 
@@ -587,14 +587,14 @@ public:
   // opcode, but the final one sees the FIN bit as well.
   //
   // Note: This is a configuration option, so set it at the start.
-  bool deliver_fragments{false};
+  bool deliver_fragments = false;
 
   // When true, incoming text frames are validated as UTF-8. If invalid, the
   // connection is closed with a 1007 close frame. Even when false, we do check
   // the close frame reason, since it's a one-time cost.
   //
   // Note: This is a configuration option, so set it at the start.
-  bool validate_utf8{true};
+  bool validate_utf8 = true;
 #pragma endregion
 #pragma region Construction
 
@@ -614,10 +614,10 @@ public:
   // oversized frame, etc.); the caller should treat false as a cue to close
   // the connection.
   [[nodiscard]] bool feed(epoll_recv_buffer_view& view) {
-    std::string_view data = view.active_view();
+    auto data = view.active_view();
 
     // Consume all complete frames.
-    size_t needed = feed(data);
+    const auto needed = feed(data);
     view.update_active_view(data);
     if (needed == insatiable) return false;
 
@@ -647,7 +647,7 @@ public:
       if (!hdr.parse()) return fail_insatiable(1002, "Malformed frame header");
 
       // Now that we know the entire frame size, demand that exact amount.
-      const size_t total = hdr.total_length();
+      const auto total = hdr.total_length();
       if (data.size() < total) {
         if (total > max_frame_size)
           return fail_insatiable(1009, "Frame size exceeds limit");
@@ -655,7 +655,7 @@ public:
       }
 
       // Extract and process payload of frame.
-      bool processed = handle_payload(hdr);
+      const bool processed = handle_payload(hdr);
       if (!processed) return insatiable;
 
       data.remove_prefix(total);
@@ -745,8 +745,8 @@ public:
   // the peer to reply to only the most recent ping).
   [[nodiscard]] bool send_ping() {
     pending_pong_ = ++ping_seq_;
-    const uint32_t be_ping_seq = hton32(ping_seq_);
-    char payload[sizeof(be_ping_seq)];
+    const auto be_ping_seq = hton32(ping_seq_);
+    char payload[sizeof(be_ping_seq)]{};
     std::memcpy(payload, &be_ping_seq, sizeof(be_ping_seq));
     return send_frame(ws_frame_control::fin | ws_frame_control::ping,
         {payload, sizeof(payload)});
@@ -756,7 +756,7 @@ public:
   // usable for unsolicited keepalive pongs.
   [[nodiscard]] bool send_pong(std::string_view payload = {}) {
     // Always allow sending a pong, even after we've sent a close frame.
-    scoped_value guard{sent_close_, false};
+    scoped_value guard(sent_close_, false);
     return send_frame(ws_frame_control::fin | ws_frame_control::pong, payload);
   }
 
@@ -792,8 +792,7 @@ public:
       send_in_fragment_ = !bitmask::has(frame_control, ws_frame_control::fin);
     std::optional<uint32_t> mask;
     if (!is_server_) mask.emplace(generate_random());
-    std::string frame =
-        ws_frame_lens::serialize_frame(frame_control, payload, mask);
+    auto frame = ws_frame_lens::serialize_frame(frame_control, payload, mask);
     return send_frame(std::move(frame));
   }
 
@@ -864,9 +863,9 @@ public:
 #pragma region Internals
 private:
   [[nodiscard]] static std::string generate_client_key() {
-    std::array<uint8_t, 16> raw_bytes;
+    std::array<uint8_t, 16> raw_bytes{};
     for (size_t i = 0; i < 4; ++i) {
-      uint32_t val = generate_random();
+      const auto val = generate_random();
       std::memcpy(&raw_bytes[i * 4], &val, 4);
     }
     return base_64::encode(raw_bytes);
@@ -878,7 +877,7 @@ private:
 
     // Decode close code and reason first, regardless of other state.
     uint16_t code{};
-    std::string_view reason{};
+    std::string_view reason;
     if (payload.size() >= 2) {
       std::memcpy(&code, payload.data(), sizeof(code));
       code = ntoh16(code);
@@ -931,7 +930,7 @@ private:
 
   // Accumulate and dispatch a data frame.
   [[nodiscard]] bool handle_data_frame(ws_frame_view& hdr) {
-    auto payload = hdr.payload_view();
+    const auto payload = hdr.payload_view();
     const auto opcode = hdr.opcode();
     const auto is_fin = hdr.is_final();
 
@@ -964,7 +963,7 @@ private:
 
     // Append the unmasked payload to `message_`.
     if (!payload.empty()) {
-      const size_t old_size = message_.size();
+      const auto old_size = message_.size();
       no_zero{message_}.resize_to(old_size + payload.size());
       if (!hdr.mask_payload_copy(message_.data() + old_size, payload))
         return hangup();
@@ -972,7 +971,7 @@ private:
 
     // Determine the data opcode for this frame. Continuation frames carry
     // `ws_frame_control::continuation`, so use the message opcode instead.
-    ws_frame_control data_opcode = in_fragment ? message_opcode_ : opcode;
+    auto data_opcode = in_fragment ? message_opcode_ : opcode;
 
     // When delivering fragments, mark FIN.
     if (is_fin && deliver_fragments) data_opcode |= ws_frame_control::fin;
@@ -993,7 +992,7 @@ private:
 
     // Dispatch the payload. Explicitly clear `message_` in case the callback
     // doesn't move it out.
-    bool success = dispatch_message(std::move(message_), data_opcode);
+    const bool success = dispatch_message(std::move(message_), data_opcode);
     message_.clear();
     return success;
   }
@@ -1107,14 +1106,14 @@ private:
 
   // Whether we've received a close frame, which means we should stop
   // listening.
-  bool received_close_{false};
+  bool received_close_{};
 
   // Whether we've sent a close frame, which means we should stop sending.
-  bool sent_close_{false};
+  bool sent_close_{};
 
   // True while we are mid-fragmented-send: a data frame without FIN has been
   // sent but the matching final fragment has not yet been sent.
-  bool send_in_fragment_{false};
+  bool send_in_fragment_{};
 
   // Auto-incrementing counter for outgoing pings. Each call to `send_ping`
   // increments this and stores the new value in `pending_ping_`.
