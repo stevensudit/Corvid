@@ -211,10 +211,7 @@ combine_bytes(std::unsigned_integral auto... bytes) noexcept {
         "combine_bytes takes exactly one argument per byte of the type");
   result_t result{};
   size_t shift{};
-  ((result = static_cast<result_t>(
-        result | (result_t{extract_byte(bytes)} << shift)),
-       shift += 8),
-      ...);
+  ((result |= result_t{extract_byte(bytes)} << shift, shift += 8), ...);
   return result;
 }
 

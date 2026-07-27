@@ -31,6 +31,7 @@
 
 #include "../../containers/core/scoped_value.h"
 #include "../../enums.h"
+#include "../../math/arithmetic.h"
 #include "../misc/base-64.h"
 #include "endian.h"
 #include "../misc/sha-1.h"
@@ -685,8 +686,8 @@ public:
     if (code != 0 || !reason.empty()) {
       assert(utf8_checker::is_valid(reason));
       payload.reserve(2 + reason.size());
-      payload.push_back(static_cast<char>(code >> 8));
-      payload.push_back(static_cast<char>(code & 0xFF));
+      payload.push_back(static_cast<char>(extract_byte<1>(code)));
+      payload.push_back(static_cast<char>(extract_byte<0>(code)));
       payload.append(reason);
     }
 

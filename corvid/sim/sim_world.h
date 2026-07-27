@@ -30,6 +30,7 @@
 
 #include "../containers/core/transparent.h"
 #include "../containers/core/opt_find.h"
+#include "../math/arithmetic.h"
 
 #include "../ecs.h"
 
@@ -1497,7 +1498,7 @@ private:
   }
 
   [[nodiscard]] static constexpr bool isVisibleColor(uint32_t color) noexcept {
-    return (color & 0xFFU) != 0U;
+    return extract_byte<0>(color) != 0;
   }
 
   [[nodiscard]] static constexpr uint32_t
