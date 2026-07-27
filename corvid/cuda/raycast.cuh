@@ -54,7 +54,7 @@ soft_shadow(pos3 p, vec3 light_dir, float hardness) {
   float result = 1.0F;
   float dist = 0.02F;
   for (int step = 0; step < limit; ++step) {
-    const float surf_dist = Sdf(p + (light_dir * dist));
+    const auto surf_dist = Sdf(p + (light_dir * dist));
     if (surf_dist < 0.001F) return 0.0F;
 
     result = fminf(result, (hardness * surf_dist) / dist);
@@ -81,11 +81,11 @@ template<float Sdf(pos3)>
   constexpr float weight_falloff = 0.7F;
   constexpr float strength = 3.0F;
 
-  float occlusion = 0.0F;
+  float occlusion{};
   float weight = 1.0F;
-  float offset = min_offset;
+  auto offset = min_offset;
   for (int step = 0; step < ao_samples; ++step) {
-    const float surf_dist = Sdf(p + (normal * offset));
+    const auto surf_dist = Sdf(p + (normal * offset));
     occlusion += (offset - surf_dist) * weight;
     weight *= weight_falloff;
     offset += offset_step;
@@ -129,9 +129,9 @@ template<scene_policy Scene>
   constexpr float far_dist = 50.0F;
   constexpr float min_eps = 0.001F;
   float dist = 0.0F;
-  bool hit = false;
+  bool hit{};
   for (int step = 0; step < max_steps; ++step) {
-    const float surf_dist = Scene::sdf(eye + (ray_dir * dist));
+    const auto surf_dist = Scene::sdf(eye + (ray_dir * dist));
     if (surf_dist < fmaxf(min_eps, pixel_eps * dist)) {
       hit = true;
       break;
@@ -140,13 +140,13 @@ template<scene_policy Scene>
     if (dist > far_dist) break;
   }
 
-  vec3 color;
+  vec3 color{};
   if (hit) {
     const pos3 hit_point = eye + (ray_dir * dist);
     const vec3 normal = surface_normal<Scene::sdf>(hit_point);
-    const float diffuse = fmaxf(dot(normal, light_dir), 0.0F);
-    const float shadow = soft_shadow<Scene::sdf>(hit_point, light_dir, 16.0F);
-    const float occlusion = ambient_occlusion<Scene::sdf>(hit_point, normal);
+    const auto diffuse = fmaxf(dot(normal, light_dir), 0.0F);
+    const auto shadow = soft_shadow<Scene::sdf>(hit_point, light_dir, 16.0F);
+    const auto occlusion = ambient_occlusion<Scene::sdf>(hit_point, normal);
 
     const vec3 ambient{0.12F, 0.14F, 0.18F};
     const vec3 sun{1.0F, 0.97F, 0.90F};
@@ -167,7 +167,7 @@ template<scene_policy Scene>
 // Convert a linear color channel in [0, 1] to a gamma-encoded byte.
 [[nodiscard]] __device__ inline unsigned char to_byte(float c) {
   constexpr float gamma = 2.2F; // display gamma (sRGB approximation)
-  const float g = powf(fminf(fmaxf(c, 0.0F), 1.0F), 1.0F / gamma);
+  const auto g = powf(fminf(fmaxf(c, 0.0F), 1.0F), 1.0F / gamma);
   return static_cast<unsigned char>(lroundf(g * 255.0F));
 }
 
@@ -189,10 +189,10 @@ template<scene_policy Scene>
   constexpr float ign_weight_y = 0.00583715F;
   constexpr float ign_scale = 52.9829189F;
   constexpr float half_step = 0.5F; // center [0, 1) noise on [-0.5, 0.5)
-  const float base =
+  const auto base =
       (ign_weight_x * static_cast<float>(px)) +
       (ign_weight_y * static_cast<float>(py));
-  const float m = ign_scale * (base - floorf(base));
+  const auto m = ign_scale * (base - floorf(base));
   return (m - floorf(m)) - half_step;
 }
 
@@ -201,9 +201,9 @@ template<scene_policy Scene>
 // so a smooth gradient does not band at 8-bit.
 [[nodiscard]] __device__ inline unsigned char to_byte(float c, float dither) {
   constexpr float gamma = 2.2F; // display gamma (sRGB approximation)
-  const float g = powf(fminf(fmaxf(c, 0.0F), 1.0F), 1.0F / gamma);
-  const long v = lroundf((g * 255.0F) + dither);
-  return static_cast<unsigned char>(v < 0 ? 0 : (v > 255 ? 255 : v));
+  const auto g = powf(fminf(fmaxf(c, 0.0F), 1.0F), 1.0F / gamma);
+  const auto v = lroundf((g * 255.0F) + dither);
+  return static_cast<unsigned char>((v < 0) ? 0 : ((v > 255) ? 255 : v));
 }
 
 // Convert a linear color channel in [0, 1] to an 8-bit unorm (no gamma), for

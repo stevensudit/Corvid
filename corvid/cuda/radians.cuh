@@ -33,7 +33,7 @@ namespace corvid::cuda {
 // The operators and trig are hidden friends, found by argument-dependent
 // lookup, so they add nothing at namespace scope.
 struct radians {
-  float value;
+  float value{};
 
   static constexpr float per_degree = std::numbers::pi_v<float> / 180.0F;
 

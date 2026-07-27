@@ -587,7 +587,7 @@ public:
   // opcode, but the final one sees the FIN bit as well.
   //
   // Note: This is a configuration option, so set it at the start.
-  bool deliver_fragments = false;
+  bool deliver_fragments{};
 
   // When true, incoming text frames are validated as UTF-8. If invalid, the
   // connection is closed with a 1007 close frame. Even when false, we do check

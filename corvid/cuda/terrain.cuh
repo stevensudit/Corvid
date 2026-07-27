@@ -39,31 +39,31 @@ constexpr float hash_amp = 43758.547F;
 
 // Hash of a lattice point to a pseudo-random value in [0, 1).
 [[nodiscard]] __device__ inline float hash2(float x, float y) {
-  const float h = sinf((x * hash_kx) + (y * hash_ky)) * hash_amp;
+  const auto h = sinf((x * hash_kx) + (y * hash_ky)) * hash_amp;
   return h - floorf(h);
 }
 
 // Smooth value noise over the integer lattice, in [0, 1).
 [[nodiscard]] __device__ inline float value_noise(float x, float y) {
-  const float xi = floorf(x);
-  const float yi = floorf(y);
-  const float xf = x - xi;
-  const float yf = y - yi;
+  const auto xi = floorf(x);
+  const auto yi = floorf(y);
+  const auto xf = x - xi;
+  const auto yf = y - yi;
   // Smoothstep weights, so the lattice cells blend without creases.
-  const float u = xf * xf * (3.0F - (2.0F * xf));
-  const float v = yf * yf * (3.0F - (2.0F * yf));
-  const float a = hash2(xi, yi);
-  const float b = hash2(xi + 1.0F, yi);
-  const float c = hash2(xi, yi + 1.0F);
-  const float d = hash2(xi + 1.0F, yi + 1.0F);
-  const float ab = a + (u * (b - a));
-  const float cd = c + (u * (d - c));
+  const auto u = xf * xf * (3.0F - (2.0F * xf));
+  const auto v = yf * yf * (3.0F - (2.0F * yf));
+  const auto a = hash2(xi, yi);
+  const auto b = hash2(xi + 1.0F, yi);
+  const auto c = hash2(xi, yi + 1.0F);
+  const auto d = hash2(xi + 1.0F, yi + 1.0F);
+  const auto ab = a + (u * (b - a));
+  const auto cd = c + (u * (d - c));
   return ab + (v * (cd - ab));
 }
 
 // Fractal value noise: octaves at halving amplitude and doubling frequency.
 [[nodiscard]] __device__ inline float fbm(float x, float y) {
-  float sum = 0.0F;
+  float sum{};
   float amplitude = 0.5F;
   float frequency = 1.0F;
   for (int octave = 0; octave < 4; ++octave) {
@@ -78,12 +78,12 @@ constexpr float hash_amp = 43758.547F;
 // peaks along sharp crests (ridgelines and dune spines) rather than rounded
 // bumps. In [0, ~1).
 [[nodiscard]] __device__ inline float ridged(float x, float y) {
-  float sum = 0.0F;
+  float sum{};
   float amplitude = 0.5F;
   float frequency = 1.0F;
   for (int octave = 0; octave < 4; ++octave) {
-    const float n = value_noise(x * frequency, y * frequency);
-    const float r = 1.0F - fabsf((2.0F * n) - 1.0F);
+    const auto n = value_noise(x * frequency, y * frequency);
+    const auto r = 1.0F - fabsf((2.0F * n) - 1.0F);
     sum += amplitude * r * r;
     amplitude *= 0.5F;
     frequency *= 2.0F;
@@ -93,7 +93,7 @@ constexpr float hash_amp = 43758.547F;
 
 // Hash of a 3D lattice point to a pseudo-random value in [0, 1).
 [[nodiscard]] __device__ inline float hash3(float x, float y, float z) {
-  const float h =
+  const auto h =
       sinf((x * hash_kx) + (y * hash_ky) + (z * hash_kz)) * hash_amp;
   return h - floorf(h);
 }
@@ -101,36 +101,36 @@ constexpr float hash_amp = 43758.547F;
 // Smooth 3D value noise over the integer lattice, in [0, 1).
 [[nodiscard]] __device__ inline float
 value_noise_3d(float x, float y, float z) {
-  const float xi = floorf(x);
-  const float yi = floorf(y);
-  const float zi = floorf(z);
-  const float xf = x - xi;
-  const float yf = y - yi;
-  const float zf = z - zi;
+  const auto xi = floorf(x);
+  const auto yi = floorf(y);
+  const auto zi = floorf(z);
+  const auto xf = x - xi;
+  const auto yf = y - yi;
+  const auto zf = z - zi;
   // Smoothstep weights, so the lattice cells blend without creases.
-  const float u = xf * xf * (3.0F - (2.0F * xf));
-  const float v = yf * yf * (3.0F - (2.0F * yf));
-  const float w = zf * zf * (3.0F - (2.0F * zf));
-  const float c000 = hash3(xi, yi, zi);
-  const float c100 = hash3(xi + 1.0F, yi, zi);
-  const float c010 = hash3(xi, yi + 1.0F, zi);
-  const float c110 = hash3(xi + 1.0F, yi + 1.0F, zi);
-  const float c001 = hash3(xi, yi, zi + 1.0F);
-  const float c101 = hash3(xi + 1.0F, yi, zi + 1.0F);
-  const float c011 = hash3(xi, yi + 1.0F, zi + 1.0F);
-  const float c111 = hash3(xi + 1.0F, yi + 1.0F, zi + 1.0F);
-  const float x00 = c000 + (u * (c100 - c000));
-  const float x10 = c010 + (u * (c110 - c010));
-  const float x01 = c001 + (u * (c101 - c001));
-  const float x11 = c011 + (u * (c111 - c011));
-  const float y0 = x00 + (v * (x10 - x00));
-  const float y1 = x01 + (v * (x11 - x01));
+  const auto u = xf * xf * (3.0F - (2.0F * xf));
+  const auto v = yf * yf * (3.0F - (2.0F * yf));
+  const auto w = zf * zf * (3.0F - (2.0F * zf));
+  const auto c000 = hash3(xi, yi, zi);
+  const auto c100 = hash3(xi + 1.0F, yi, zi);
+  const auto c010 = hash3(xi, yi + 1.0F, zi);
+  const auto c110 = hash3(xi + 1.0F, yi + 1.0F, zi);
+  const auto c001 = hash3(xi, yi, zi + 1.0F);
+  const auto c101 = hash3(xi + 1.0F, yi, zi + 1.0F);
+  const auto c011 = hash3(xi, yi + 1.0F, zi + 1.0F);
+  const auto c111 = hash3(xi + 1.0F, yi + 1.0F, zi + 1.0F);
+  const auto x00 = c000 + (u * (c100 - c000));
+  const auto x10 = c010 + (u * (c110 - c010));
+  const auto x01 = c001 + (u * (c101 - c001));
+  const auto x11 = c011 + (u * (c111 - c011));
+  const auto y0 = x00 + (v * (x10 - x00));
+  const auto y1 = x01 + (v * (x11 - x01));
   return y0 + (w * (y1 - y0));
 }
 
 // Fractal 3D value noise: octaves at halving amplitude and doubling frequency.
 [[nodiscard]] __device__ inline float fbm_3d(float x, float y, float z) {
-  float sum = 0.0F;
+  float sum{};
   float amplitude = 0.5F;
   float frequency = 1.0F;
   for (int octave = 0; octave < 3; ++octave) {
@@ -163,12 +163,12 @@ value_noise_3d(float x, float y, float z) {
   // arbitrary, just far enough apart that the two do not track each other.
   constexpr float warp_offset_x = 4.7F;
   constexpr float warp_offset_z = 2.1F;
-  const float wx = fbm(x * warp_scale, z * warp_scale) - 0.5F;
-  const float wz =
+  const auto wx = fbm(x * warp_scale, z * warp_scale) - 0.5F;
+  const auto wz =
       fbm((x * warp_scale) + warp_offset_x, (z * warp_scale) + warp_offset_z) -
       0.5F;
-  const float sx = (x + (warp * wx)) * scale;
-  const float sz = (z + (warp * wz)) * scale;
+  const auto sx = (x + (warp * wx)) * scale;
+  const auto sz = (z + (warp * wz)) * scale;
 
   return base + (dune_amp * ridged(sx, sz)) + (roll_amp * fbm(sx, sz));
 }
@@ -181,7 +181,7 @@ value_noise_3d(float x, float y, float z) {
 // fraction of the excess. Symmetric, so a neighbor pair conserves material.
 [[nodiscard]] __device__ inline float
 talus_flow(float h, float hn, float max_step, float rate) {
-  const float diff = h - hn;
+  const auto diff = h - hn;
   if (diff > max_step) return -rate * (diff - max_step);
   if (diff < -max_step) return rate * ((-diff) - max_step);
   return 0.0F;

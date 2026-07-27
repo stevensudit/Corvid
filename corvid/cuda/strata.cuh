@@ -46,7 +46,7 @@ namespace corvid::cuda::strata {
       {0.50F, 0.30F, 0.24F}, // clay
       {0.46F, 0.47F, 0.50F}, // rock
   };
-  return palette[tier < 4 ? tier : 3];
+  return palette[(tier < 4) ? tier : 3];
 }
 
 #pragma endregion

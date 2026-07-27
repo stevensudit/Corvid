@@ -148,7 +148,7 @@ private:
   // pointer to the allocated memory. Returns `nullptr` on failure.
   [[nodiscard]] static T* allocate(size_t count) {
     if (count > std::numeric_limits<size_t>::max() / sizeof(T)) return nullptr;
-    T* ptr = nullptr;
+    T* ptr{};
     cuda_last_status status{cudaMalloc(&ptr, count * sizeof(T))};
     if (!status) return nullptr;
     return ptr;
@@ -157,7 +157,7 @@ private:
 #pragma endregion
 #pragma region Data members
 private:
-  size_t count_;
+  size_t count_{};
 
 #pragma endregion
 };

@@ -243,7 +243,7 @@ public:
 #pragma region Construction
 
   explicit cuda_device(int device_id = get_current_device_id())
-      : device_id(device_id) {}
+      : device_id{device_id} {}
 
 #pragma endregion
 #pragma region Accessors
@@ -254,18 +254,18 @@ public:
 #pragma region Operations
 
   [[nodiscard]] int get_attribute(cuda_device_attr attr) const {
-    int value;
+    int value{};
     cuda_last_status status{cudaDeviceGetAttribute(&value,
         static_cast<cudaDeviceAttr>(attr), device_id)};
     if (!status)
-      throw std::runtime_error("Failed to get CUDA device attribute");
+      throw std::runtime_error{"Failed to get CUDA device attribute"};
     return value;
   }
 
   static size_t get_device_count() {
-    int count;
+    int count{};
     cuda_last_status status{cudaGetDeviceCount(&count)};
-    if (!status) throw std::runtime_error("Failed to get CUDA device count");
+    if (!status) throw std::runtime_error{"Failed to get CUDA device count"};
     return static_cast<size_t>(count);
   }
 
@@ -273,9 +273,9 @@ public:
 #pragma region Helpers
 private:
   static int get_current_device_id() {
-    int device_id;
+    int device_id{};
     cuda_last_status status{cudaGetDevice(&device_id)};
-    if (!status) throw std::runtime_error("Failed to get current CUDA device");
+    if (!status) throw std::runtime_error{"Failed to get current CUDA device"};
     return device_id;
   }
 

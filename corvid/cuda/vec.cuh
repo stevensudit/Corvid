@@ -45,8 +45,8 @@ constexpr float big_value = std::numeric_limits<float>::max();
 
 // A two-component float vector, usable from host and device code.
 struct vec2 {
-  float x;
-  float y;
+  float x{};
+  float y{};
 
   friend __host__ __device__ vec2 operator+(vec2 a, vec2 b) {
     return {a.x + b.x, a.y + b.y};
@@ -108,8 +108,8 @@ struct vec2 {
   // Unit vector along `a`. A zero-length `a` returns the zero vector rather
   // than dividing by zero, so a degenerate input stays finite instead of NaN.
   [[nodiscard]] friend __host__ __device__ vec2 normalize(vec2 a) {
-    const float len = length(a);
-    return len > 0.0F ? a / len : a;
+    const auto len = length(a);
+    return (len > 0.0F) ? a / len : a;
   }
 };
 
@@ -118,9 +118,9 @@ struct vec2 {
 
 // A three-component float vector, usable from host and device code.
 struct vec3 {
-  float x;
-  float y;
-  float z;
+  float x{};
+  float y{};
+  float z{};
 
   // World-axis unit vectors, for a y-up, -z-forward convention: `+x` is
   // `right`, `+y` is `up`, `+z` is `back`. `forward` (`-z`) is omitted until
@@ -190,8 +190,8 @@ struct vec3 {
   // Unit vector along `a`. A zero-length `a` returns the zero vector rather
   // than dividing by zero, so a degenerate input stays finite instead of NaN.
   [[nodiscard]] friend __host__ __device__ vec3 normalize(vec3 a) {
-    const float len = length(a);
-    return len > 0.0F ? a / len : a;
+    const auto len = length(a);
+    return (len > 0.0F) ? a / len : a;
   }
 
   // Reflect incident direction `d` about unit normal `n`.
@@ -205,8 +205,8 @@ struct vec3 {
   // internal reflection, so the caller can fall back to `reflect`.
   [[nodiscard]] friend __host__ __device__ vec3 refract(vec3 d, vec3 n,
       float eta) {
-    const float ci = dot(d, n);
-    const float k = 1.0F - (eta * eta * (1.0F - (ci * ci)));
+    const auto ci = dot(d, n);
+    const auto k = 1.0F - (eta * eta * (1.0F - (ci * ci)));
     if (k < 0.0F) return vec3{};
     return (d * eta) - (n * ((eta * ci) + sqrtf(k)));
   }
@@ -221,8 +221,8 @@ struct vec3 {
   // Rotate `v` about unit `axis` by `angle` (Rodrigues' rotation formula).
   [[nodiscard]] friend __host__ __device__ vec3 rotate_about(vec3 v, vec3 axis,
       radians angle) {
-    const float c = cos(angle);
-    const float s = sin(angle);
+    const auto c = cos(angle);
+    const auto s = sin(angle);
     return (v * c) + (cross(axis, v) * s) +
            (axis * (dot(axis, v) * (1.0F - c)));
   }

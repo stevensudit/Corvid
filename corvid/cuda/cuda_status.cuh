@@ -288,7 +288,7 @@ public:
 #pragma region Helpers
 
   [[nodiscard]] static cudaError_t read(read_mode mode) {
-    return mode == read_mode::peek
+    return (mode == read_mode::peek)
                ? cudaPeekAtLastError()
                : cudaGetLastError();
   }
@@ -300,7 +300,7 @@ public:
 #pragma endregion
 #pragma region Data members
 private:
-  cuda_status value_;
+  cuda_status value_{};
 
 #pragma endregion
 };

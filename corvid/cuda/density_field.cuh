@@ -36,10 +36,10 @@ namespace corvid::cuda {
 struct density_field {
 #pragma region Data members
 
-  cudaExtent extent;
+  cudaExtent extent{};
   pos3 origin;
-  float voxel_size;
-  cudaTextureObject_t tex;
+  float voxel_size{};
+  cudaTextureObject_t tex{};
 
   // March tunables (defaults are the shipped constants; the viewer sets them
   // live). `march_lipschitz` is the assumed maximum field slope used to size
@@ -70,9 +70,9 @@ struct density_field {
 
   // Whether the voxel at index `idx` is inside the field.
   [[nodiscard]] __device__ bool contains(int3 idx) const {
-    const int w = static_cast<int>(extent.width);
-    const int h = static_cast<int>(extent.height);
-    const int d = static_cast<int>(extent.depth);
+    const auto w = static_cast<int>(extent.width);
+    const auto h = static_cast<int>(extent.height);
+    const auto d = static_cast<int>(extent.depth);
     return idx.x >= 0 && idx.x < w && idx.y >= 0 && idx.y < h && idx.z >= 0 &&
            idx.z < d;
   }
@@ -91,13 +91,13 @@ struct density_field {
   // differences. Density rises into the solid, so the outward normal opposes
   // the gradient.
   [[nodiscard]] __device__ vec3 normal(pos3 p) const {
-    const float e = voxel_size;
+    const auto e = voxel_size;
     const vec3 dx{e, 0.0F, 0.0F};
     const vec3 dy{0.0F, e, 0.0F};
     const vec3 dz{0.0F, 0.0F, e};
-    const float gx = sample_density(p + dx) - sample_density(p - dx);
-    const float gy = sample_density(p + dy) - sample_density(p - dy);
-    const float gz = sample_density(p + dz) - sample_density(p - dz);
+    const auto gx = sample_density(p + dx) - sample_density(p - dx);
+    const auto gy = sample_density(p + dy) - sample_density(p - dy);
+    const auto gz = sample_density(p + dz) - sample_density(p - dz);
     return normalize(vec3{-gx, -gy, -gz});
   }
 
@@ -117,42 +117,42 @@ struct density_field {
   // crossing, is accepted once within `hit_epsilon`. `lipschitz` must exceed
   // the field's steepest slope, or a dig wall steeper than it can be overshot.
   [[nodiscard]] __device__ float raymarch(pos3 eye, vec3 dir) const {
-    const int max_steps = march_max_steps;
+    const auto max_steps = march_max_steps;
     constexpr int refine_steps = 6;
-    const float lipschitz = march_lipschitz;
+    const auto lipschitz = march_lipschitz;
     constexpr float hit_epsilon = 0.02F;
-    const float max_step = voxel_size * march_max_step_voxels;
+    const auto max_step = voxel_size * march_max_step_voxels;
 
     // Clip to the world box (slab test). Voxel (0, 0, 0) is centered at
     // `origin`, so the box runs half a voxel past the first and last centers.
-    const float half = 0.5F * voxel_size;
+    const auto half = 0.5F * voxel_size;
     const vec3 bmin{origin.v.x - half, origin.v.y - half, origin.v.z - half};
     const vec3 bmax{
         origin.v.x + ((static_cast<float>(extent.width) - 0.5F) * voxel_size),
         origin.v.y + ((static_cast<float>(extent.height) - 0.5F) * voxel_size),
         origin.v.z + ((static_cast<float>(extent.depth) - 0.5F) * voxel_size)};
     const vec3 inv{1.0F / dir.x, 1.0F / dir.y, 1.0F / dir.z};
-    const float tx0 = (bmin.x - eye.v.x) * inv.x;
-    const float tx1 = (bmax.x - eye.v.x) * inv.x;
-    const float ty0 = (bmin.y - eye.v.y) * inv.y;
-    const float ty1 = (bmax.y - eye.v.y) * inv.y;
-    const float tz0 = (bmin.z - eye.v.z) * inv.z;
-    const float tz1 = (bmax.z - eye.v.z) * inv.z;
-    const float enter = fmaxf(fmaxf(fminf(tx0, tx1), fminf(ty0, ty1)),
+    const auto tx0 = (bmin.x - eye.v.x) * inv.x;
+    const auto tx1 = (bmax.x - eye.v.x) * inv.x;
+    const auto ty0 = (bmin.y - eye.v.y) * inv.y;
+    const auto ty1 = (bmax.y - eye.v.y) * inv.y;
+    const auto tz0 = (bmin.z - eye.v.z) * inv.z;
+    const auto tz1 = (bmax.z - eye.v.z) * inv.z;
+    const auto enter = fmaxf(fmaxf(fminf(tx0, tx1), fminf(ty0, ty1)),
         fmaxf(fminf(tz0, tz1), 0.0F));
-    const float exit =
+    const auto exit =
         fminf(fminf(fmaxf(tx0, tx1), fmaxf(ty0, ty1)), fmaxf(tz0, tz1));
     if (exit < enter) return -1.0F;
 
-    float prev = enter;
-    float dist = enter;
+    auto prev = enter;
+    auto dist = enter;
     for (int step = 0; step < max_steps; ++step) {
-      const float density = sample_density(eye + (dir * dist));
+      const auto density = sample_density(eye + (dir * dist));
       if (density >= 0.0F) {
-        float lo = prev;
-        float hi = dist;
+        auto lo = prev;
+        auto hi = dist;
         for (int refine = 0; refine < refine_steps; ++refine) {
-          const float mid = 0.5F * (lo + hi);
+          const auto mid = 0.5F * (lo + hi);
           if (sample_density(eye + (dir * mid)) >= 0.0F)
             hi = mid;
           else
@@ -160,7 +160,7 @@ struct density_field {
         }
         return hi;
       }
-      const float safe = -density / lipschitz;
+      const auto safe = -density / lipschitz;
       if (safe < hit_epsilon) return dist;
       prev = dist;
       dist += fminf(safe, max_step);
@@ -182,7 +182,7 @@ struct density_field {
   // hit far across the surface (a tiny residual at that extreme grazing sliver
   // is invisible next to the terrace it removes).
   [[nodiscard]] __device__ pos3 refine_hit(pos3 hit, vec3 dir) const {
-    const float e = voxel_size;
+    const auto e = voxel_size;
     const vec3 dx{e, 0.0F, 0.0F};
     const vec3 dy{0.0F, e, 0.0F};
     const vec3 dz{0.0F, 0.0F, e};
@@ -190,10 +190,10 @@ struct density_field {
     const vec3 grad{sample_density(hit + dx) - sample_density(hit - dx),
         sample_density(hit + dy) - sample_density(hit - dy),
         sample_density(hit + dz) - sample_density(hit - dz)};
-    const float gd = dot(grad, dir);
+    const auto gd = dot(grad, dir);
     if (gd == 0.0F) return hit; // ray tangent to the field: nothing to snap to
-    const float limit = 2.0F * e;
-    const float step = (2.0F * e) * sample_density(hit) / gd;
+    const auto limit = 2.0F * e;
+    const auto step = (2.0F * e) * sample_density(hit) / gd;
     return hit - (dir * fmaxf(fminf(step, limit), -limit));
   }
 
