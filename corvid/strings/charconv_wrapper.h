@@ -100,9 +100,9 @@ requires(!std::same_as<T, bool>)
 [[nodiscard]] constexpr from_chars_result<CharT> int_from_chars(
     const CharT* first, const CharT* last, T& value, int base = 10) noexcept {
   using U = std::make_unsigned_t<T>;
-  const auto* p = first;
+  const CharT* p = first;
 
-  bool negative = false;
+  bool negative{};
   if constexpr (std::is_signed_v<T>)
     if (p != last && *p == CharT{'-'}) {
       negative = true;
@@ -117,8 +117,8 @@ requires(!std::same_as<T, bool>)
 
   const auto ubase = static_cast<U>(base);
   U acc{};
-  bool any = false;
-  bool overflow = false;
+  bool any{};
+  bool overflow{};
   for (; p != last; ++p) {
     const auto d = digit_value(*p);
     if (d < 0 || d >= base) break;
@@ -150,7 +150,7 @@ requires(!std::same_as<T, bool>)
 [[nodiscard]] constexpr to_chars_result<CharT>
 int_to_chars(CharT* first, CharT* last, T value, int base = 10) noexcept {
   using U = std::make_unsigned_t<T>;
-  bool negative = false;
+  bool negative{};
   // U is make_unsigned_t<T>: for a signed value this is a same-width
   // reinterpret to its two's-complement bit pattern, not a widening, so the
   // sign cannot extend.
@@ -218,7 +218,7 @@ float_from_chars(const CharT* first, const CharT* last, T& value,
     // Deliberately uninitialized: only the written cells are ever read.
     char buf[float_buffer_size];
     size_t n{};
-    for (const auto* p = first; p != last && n < float_buffer_size; ++p) {
+    for (const CharT* p = first; p != last && n < float_buffer_size; ++p) {
       const auto u = static_cast<std::make_unsigned_t<CharT>>(*p);
       if (u > 0x7F) break;
       buf[n++] = static_cast<char>(u);

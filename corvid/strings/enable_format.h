@@ -396,5 +396,5 @@ struct std::formatter<corvid::strings::enable_format<std::variant<Ts...>>,
 
 private:
   std::basic_string_view<CharT> spec_tail_;
-  bool debug_ = false;
+  bool debug_{};
 };

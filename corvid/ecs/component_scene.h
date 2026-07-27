@@ -348,7 +348,7 @@ public:
       // storage bit. For multi-match component types: require exactly one of
       // the union of matching storage bits (skip if zero or more than one).
       bool match = true;
-      bool ambiguous = false;
+      bool ambiguous{};
       auto check_one = [&]<typename C>() {
         constexpr size_t nc = component_match_count_v<C, STORES...>;
         if constexpr (nc > 1) {

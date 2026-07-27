@@ -193,7 +193,7 @@ inline constexpr details::code_unit_pred<details::printable_char>
 
 template<StringViewLike S>
 [[nodiscard]] constexpr bool is_python_lower(const S& s) noexcept {
-  bool has_letter = false;
+  bool has_letter{};
   for (const auto c : as_view(s)) {
     if (is_upper(c)) return false;
     if (is_lower(c)) has_letter = true;
@@ -203,7 +203,7 @@ template<StringViewLike S>
 
 template<StringViewLike S>
 [[nodiscard]] constexpr bool is_python_upper(const S& s) noexcept {
-  bool has_letter = false;
+  bool has_letter{};
   for (const auto c : as_view(s)) {
     if (is_lower(c)) return false;
     if (is_upper(c)) has_letter = true;
@@ -219,8 +219,8 @@ template<StringViewLike S>
 // included, so `is_title(as_titled(s))` holds whenever `s` has a letter.
 template<StringViewLike S>
 [[nodiscard]] constexpr bool is_title(const S& s) noexcept {
-  bool prev_alpha = false;
-  bool has_letter = false;
+  bool prev_alpha{};
+  bool has_letter{};
   for (const auto c : as_view(s)) {
     if (is_alpha(c)) {
       if (prev_alpha ? is_upper(c) : is_lower(c)) return false;
@@ -339,7 +339,7 @@ template<StringViewLike S>
 // The Python quirk comes along: any non-letter starts a new word, so "they're"
 // becomes "They'Re" and "3rd" becomes "3Rd".
 constexpr void to_titled(Range auto& r) noexcept {
-  bool prev_alpha = false;
+  bool prev_alpha{};
   for (auto& ch : r) {
     if (is_alpha(ch)) ch = prev_alpha ? as_lower(ch) : as_upper(ch);
     prev_alpha = is_alpha(ch);

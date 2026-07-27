@@ -537,7 +537,7 @@ template<npos_choice npv = npos_choice::npos>
 [[nodiscard]] constexpr location locate_none_string(std::string_view s,
     const StringViewConvertibleSpan auto& values, position pos = 0) {
   for (; pos < s.size(); ++pos) {
-    bool matched = false;
+    bool matched{};
     position pos_value = 0;
     for (; pos_value < values.size(); ++pos_value) {
       std::string_view value{values[pos_value]};
@@ -583,7 +583,7 @@ template<npos_choice npv = npos_choice::npos>
   if (s.empty()) return as_nloc<npv>(s, values);
   if (pos >= s.size()) pos = s.size() - 1;
   for (++pos; pos-- > 0;) {
-    bool matched = false;
+    bool matched{};
     position pos_value = 0;
     for (; pos_value < values.size(); ++pos_value) {
       std::string_view value{values[pos_value]};
@@ -1112,7 +1112,7 @@ inline size_t excise(std::string& s, std::span<const std::string_view> from,
   auto write = pos;
   auto read = pos;
   while (read < s.size()) {
-    bool matched = false;
+    bool matched{};
     for (const auto& fv : from) {
       if (read + fv.size() <= s.size() &&
           std::memcmp(data + read, fv.data(), fv.size()) == 0)

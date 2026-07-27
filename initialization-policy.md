@@ -90,6 +90,12 @@ Four forms, each with one meaning:
 - `auto x = y;` when the type should track the initializer.
   `auto x = static_cast<size_t>(n);` when converting; the cast names the
   destination type.
+- **Ruling: `auto` must not hide a character type.** A pointer or cursor into
+  a character buffer spells its type: `const char* base = buf.data() + b;`,
+  `const CharT* p = first;`, never `const auto*`. We are not trying to track
+  the character type there, and `auto` only obscures it. The cast form above
+  still applies when the destination is named on the right, as in
+  `const auto* f = reinterpret_cast<const char*>(first);`.
 - **Ruling: construct directly when the initializer is only a construction.**
   When the initializer is nothing but a construction of a spellable type,
   declare directly: `view_t spec{ctx.begin(), ctx.end()};`, not
@@ -154,6 +160,13 @@ Braces express "this object takes on these values", and they reject narrowing.
   - **Rule:** Do not brace-init a class whose default constructor already
     initializes it safely: `std::string s;`, not `std::string s{};`
     (clang-tidy flags it). Generic code is exempt, since `T` may be scalar.
+  - **Ruling:** This reaches past the value-init spelling to any redundant
+    default. A member whose default constructor already yields the wanted
+    value takes no initializer at all, even when that constructor is
+    `explicit` with a defaulted argument: write
+    `notifiable<std::atomic_bool> started;`, not `started{false}`. Restating
+    a value the type already supplies is noise, and it contradicts the
+    empty-state spelling used everywhere else.
   - **Rule:** The empty state of a pointer is value-init, `ptr_t p{};`,
     never `= nullptr`. The `nullptr` literal should be rare in general:
     pointers are tested as bools (`if (p)`, never `p != nullptr`), and the

@@ -360,7 +360,7 @@ public:
         (field_name.find_first_not_of(http_headers::valid_field_name_chars) !=
             std::string_view::npos))
       return std::nullopt;
-    bool changed = false;
+    bool changed{};
     bool capitalize = true;
     for (char& c : field_name) {
       // Capitalize the first character following the hyphen.
