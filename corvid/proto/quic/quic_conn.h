@@ -395,7 +395,7 @@ public:
     }
 
     // 3. Wrap the SSL in the shim's per-conn context.
-    ngtcp2_crypto_ossl_ctx* raw_oc = nullptr;
+    ngtcp2_crypto_ossl_ctx* raw_oc{};
     if (ngtcp2_crypto_ossl_ctx_new(&raw_oc, ssl.get()) != 0) return;
     ossl_ctx_ptr ossl_ctx{raw_oc};
 
@@ -474,12 +474,12 @@ public:
       params.original_dcid_present = 1;
     }
 
-    ngtcp2_conn* raw_conn = nullptr;
+    ngtcp2_conn* raw_conn{};
     const auto& cbs =
         (role_ == connection_role::server)
             ? server_callbacks
             : client_callbacks;
-    const int rv =
+    const auto rv =
         (role_ == connection_role::server)
             ? ngtcp2_conn_server_new(&raw_conn, dcid.pointer(), scid.pointer(),
                   &path_storage_.path, NGTCP2_PROTO_VER_V1, &cbs, &settings,
@@ -573,7 +573,7 @@ public:
   // leads to various callbacks being invoked.
   [[nodiscard]] quic_status read_pkt(std::span<const uint8_t> pkt,
       time_point_t now = steady_now_clock::now()) noexcept {
-    const int rv = ngtcp2_conn_read_pkt(conn_.get(), &path_storage_.path,
+    const auto rv = ngtcp2_conn_read_pkt(conn_.get(), &path_storage_.path,
         nullptr, pkt.data(), pkt.size(),
         steady_now_clock::as_nanoseconds(now));
     return static_cast<quic_status>(rv);
@@ -603,9 +603,9 @@ public:
       time_point_t now = steady_now_clock::now()) noexcept {
     auto tail = buf.tail_span();
     if (tail.empty()) return quic_status::ok;
-    const ngtcp2_ssize rv = ngtcp2_conn_write_pkt(conn_.get(),
-        &path_storage_.path, nullptr, reinterpret_cast<uint8_t*>(tail.data()),
-        tail.size(), steady_now_clock::as_nanoseconds(now));
+    const auto rv = ngtcp2_conn_write_pkt(conn_.get(), &path_storage_.path,
+        nullptr, reinterpret_cast<uint8_t*>(tail.data()), tail.size(),
+        steady_now_clock::as_nanoseconds(now));
     if (rv < 0) return static_cast<quic_status>(rv);
     if (rv > 0)
       (void)buf.update_payload({tail.data(), static_cast<size_t>(rv)});
@@ -671,9 +671,9 @@ public:
     auto tail = buf.tail_span();
     if (tail.empty()) return quic_status::ok;
     ngtcp2_ssize pdatalen{-1};
-    const ngtcp2_ssize rv = ngtcp2_conn_writev_stream(conn_.get(),
-        &path_storage_.path, nullptr, reinterpret_cast<uint8_t*>(tail.data()),
-        tail.size(), &pdatalen, *flags, *stream_id,
+    const auto rv = ngtcp2_conn_writev_stream(conn_.get(), &path_storage_.path,
+        nullptr, reinterpret_cast<uint8_t*>(tail.data()), tail.size(),
+        &pdatalen, *flags, *stream_id,
         reinterpret_cast<const ngtcp2_vec*>(iov.data()), iov.size(),
         steady_now_clock::as_nanoseconds(now));
     auto status = quic_status::ok;
@@ -701,7 +701,7 @@ public:
     else
       ngtcp2_ccerr_set_transport_error(&ccerr, pending_close_.error_code,
           reason.data(), reason.size());
-    const ngtcp2_ssize rv = ngtcp2_conn_write_connection_close(conn_.get(),
+    const auto rv = ngtcp2_conn_write_connection_close(conn_.get(),
         &path_storage_.path, nullptr, reinterpret_cast<uint8_t*>(tail.data()),
         tail.size(), &ccerr, steady_now_clock::as_nanoseconds(now));
     if (rv < 0) return static_cast<quic_status>(rv);
@@ -722,7 +722,7 @@ public:
       quic_stream_id& stream_id) noexcept {
     assert(stream_id == quic_stream_id::none);
     int64_t raw{};
-    const int rv = ngtcp2_conn_open_bidi_stream(conn_.get(), &raw, nullptr);
+    const auto rv = ngtcp2_conn_open_bidi_stream(conn_.get(), &raw, nullptr);
     if (rv != 0) return static_cast<quic_status>(rv);
     stream_id = static_cast<quic_stream_id>(raw);
     return quic_status::ok;
@@ -737,7 +737,7 @@ public:
       quic_stream_id& stream_id) noexcept {
     assert(stream_id == quic_stream_id::none);
     int64_t raw{};
-    const int rv = ngtcp2_conn_open_uni_stream(conn_.get(), &raw, nullptr);
+    const auto rv = ngtcp2_conn_open_uni_stream(conn_.get(), &raw, nullptr);
     if (rv != 0) return static_cast<quic_status>(rv);
     stream_id = static_cast<quic_stream_id>(raw);
     return quic_status::ok;
@@ -1137,7 +1137,7 @@ private:
   static void ensure_crypto_init() noexcept {
     [[maybe_unused]] static const int once = [] {
       try_or_terminate([] {
-        const int rv = ngtcp2_crypto_ossl_init();
+        const auto rv = ngtcp2_crypto_ossl_init();
         if (rv != 0) log::fatal("ngtcp2_crypto_ossl_init failed (rv={})", rv);
       });
       return true;

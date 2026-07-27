@@ -136,8 +136,8 @@ struct http3_settings {
 // `resume_stream`.
 struct body_vecs {
   std::span<const iovec> iov;
-  bool eof{false};
-  bool block{false};
+  bool eof{};
+  bool block{};
 };
 
 #pragma endregion
@@ -433,7 +433,7 @@ public:
     // TODO: Consider enabling `h3_datagram` here.
     nghttp3_conn* raw{};
     role_ = role;
-    const int rv =
+    const auto rv =
         (role == connection_role::server)
             ? nghttp3_conn_server_new(&raw, &callbacks, &settings, nullptr,
                   this)
@@ -541,8 +541,8 @@ public:
       std::span<const uint8_t> data, stream_chunk chunk_fin,
       size_t& consumed) {
     consumed = 0;
-    const nghttp3_ssize rv = nghttp3_conn_read_stream(conn_.get(),
-        from(stream_id), data.data(), data.size(), *chunk_fin);
+    const auto rv = nghttp3_conn_read_stream(conn_.get(), from(stream_id),
+        data.data(), data.size(), *chunk_fin);
     if (rv < 0)
       return log_error("nghttp3_conn_read_stream", static_cast<int>(rv));
     consumed = static_cast<size_t>(rv);
@@ -590,8 +590,8 @@ public:
     // `iovec` and `nghttp3_vec` are layout-compatible (pointer + length); the
     // cast confines the nghttp3 spelling to this C call, matching how
     // `quic_conn::writev_stream` reinterprets `iovec` as `ngtcp2_vec`.
-    const nghttp3_ssize rv = nghttp3_conn_writev_stream(conn_.get(), &raw_id,
-        &raw_fin, reinterpret_cast<nghttp3_vec*>(vecs_.data()), vecs_.size());
+    const auto rv = nghttp3_conn_writev_stream(conn_.get(), &raw_id, &raw_fin,
+        reinterpret_cast<nghttp3_vec*>(vecs_.data()), vecs_.size());
     if (rv < 0)
       return log_error("nghttp3_conn_writev_stream", static_cast<int>(rv));
     stream_id = make_stream_id(raw_id);
@@ -932,7 +932,7 @@ private:
 
   // Translate a 0-or-negative nghttp3 status into `bool`, logging on error.
   [[nodiscard]] static bool ok(const char* what, int rv) {
-    return rv == 0 ? true : log_error(what, rv);
+    return (rv == 0) ? true : log_error(what, rv);
   }
 
   // The nghttp3 callback table. Identical for both roles (only the `_new`

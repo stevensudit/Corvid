@@ -330,7 +330,7 @@ public:
   template<std::same_as<std::string> S>
   size_t set_value(header_name_and_enum key, S&& value,
       nv_flags flags = nv_flags::none) {
-    size_t ndx = find_next(key, 0);
+    const auto ndx = find_next(key, 0);
     // NOLINTBEGIN(bugprone-move-forwarding-reference)
     if (ndx == npos) return add(key, std::move(value), flags);
     auto& field = fields_[ndx];
@@ -344,7 +344,7 @@ public:
   auto find(this auto& self, header_name_and_enum key) noexcept
       -> decltype(self.fields_.data()) {
     const auto ndx = self.find_next(key, 0);
-    return ndx != npos ? &self.fields_[ndx] : nullptr;
+    return (ndx != npos) ? &self.fields_[ndx] : nullptr;
   }
 
   // Find the unique field with the given name or token, or `nullptr` if none

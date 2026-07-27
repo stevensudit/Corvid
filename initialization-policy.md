@@ -217,32 +217,46 @@ Braces express "this object takes on these values", and they reject narrowing.
 
 ## Parens: operational construction
 
-- **Rule:** Use parens when the constructor performs active logic on its
-  arguments rather than the object simply taking on the values:
-  `Connection c(host, port, options);` (it connects),
-  `std::unique_lock lk(m);` (it locks; retaining the pointer is incidental),
-  `std::ifstream f(path);` (it opens).
+- **Rule: the test is identity.** Are the constructor's arguments part of
+  what the object IS, or instructions for producing it? Part of it takes
+  braces; instructions take parens. `Connection c(host, port, options);`
+  connects, `std::ifstream f(path);` opens, and afterward neither the host
+  nor the path is anything the object holds. Contrast `Port p{80};` and
+  `Image blank{1024, 1024};`, where the arguments are the object's value and
+  the allocation is mechanism, exactly as with `std::string` and
+  `std::unique_ptr` above.
+- Retrievability is a useful symptom of identity, since identity is usually
+  exposed, so a `get`-style accessor often marks the braces case. It stays a
+  symptom, though, never the test. `std::unique_lock` hands its mutex back
+  via `mutex()` for `condition_variable` interop and still takes parens,
+  because a held lock, not the mutex, is what the object is.
 - **Ruling: every RAII scoping object takes parens.** `std::scoped_lock`,
   `std::unique_lock`, `std::lock_guard`, `std::stop_callback`, `scoped_value`,
-  and `scope_exit` all qualify. The category is the guard itself, not a
-  per-constructor audit of whether a given constructor does work. `scope_exit`
-  merely stores its callable and still takes parens, because the object exists
-  for its side effect rather than to hold a value.
+  and `scope_exit`. This is a corollary of the identity test, not a separate
+  rule: a guard's identity is the bracketed region, and its arguments only say
+  which region. You cannot describe what a `scope_exit` is without naming the
+  scope, and its lambda never enters that sentence, so it takes parens even
+  though its constructor merely stores. Read the category off the guard, not
+  off a per-constructor audit of whether that constructor does work.
   - **Bound:** an owning value type is not a scoping object, even though it is
-    equally RAII. A scope guard brackets a region and owns nothing; a smart
-    pointer holds a value. `std::unique_ptr` and `epoll_stream_conn_ptr_with`
-    are therefore value-like and take braces, per the value-like construction
-    rule above, no matter how much work the constructor does to acquire what
-    they hold.
+    equally RAII. A smart pointer's identity IS the thing it holds, so
+    `std::unique_ptr` and `epoll_stream_conn_ptr_with` take braces, no matter
+    how much work the constructor does to acquire it.
 - **Rule:** Use parens when braces would select an unintended
   `std::initializer_list` overload: `std::vector<int> v(10);` is ten
-  value-initialized elements; `std::vector<int> v{10};` is one element.
-- The line takes judgment at the edges: `Image blank{1024, 1024};` but
-  `Image i(filename);` (it loads a file). Note that mixing the two modes in
-  one overload set, a value-like constructor alongside an operational one, is
-  itself a code smell. A class with only operational constructors is fine
-  (`std::ofstream`); when the modes coexist, see the ruling below. The style
-  is supposed to flush out bad code, not hide it. When a case is genuinely on
+  value-initialized elements; `std::vector<int> v{10};` is one element. This
+  overrides the identity test and is not evidence about it. By identity,
+  `std::vector<T> v(10)` is value-like, and the count is even retrievable as
+  `size()`; it takes parens only because braces resolve elsewhere. Do not
+  cite it as precedent for a size-like argument taking parens.
+  `Image blank{1024, 1024};` keeps braces because `Image` has no
+  `initializer_list` constructor to collide with.
+- When the identity test is genuinely ambiguous, the ambiguity is itself the
+  finding, because it means the constructor is doing two jobs. `Image` is
+  unsettling for exactly that reason: a real one would have both a dimensions
+  constructor and a load-a-file constructor, which the ruling below resolves.
+  A class with only operational constructors is fine (`std::ofstream`). The
+  style is supposed to flush out bad code, not hide it. When a case stays on
   the fence, ask for a ruling rather than guessing; rulings accrete here.
 - **Ruling: a mixed overload set resolves to a factory.** When a class can be
   constructed both on a value it merely holds (an already-open file
@@ -254,7 +268,10 @@ Braces express "this object takes on these values", and they reject narrowing.
   remaining constructor about ownership and therefore braced. The named
   factory also documents the alternate path, where the constructor spelling
   hid it: `Image::load_file(filename)` says the work is loading a file,
-  rather than initializing an image whose pixels spell out that text. This
+  rather than initializing an image whose pixels spell out that text. Note
+  that neither reading of `Image(std::string)` would have earned braces. A
+  string is not part of an image's identity either way, so the ambiguity is
+  a sign the constructor is the wrong shape, not a case to adjudicate. This
   does not retire the paren rule, which still marks any operational
   construction that remains; it says that in a mixed overload set the right
   fix is to stop having one.

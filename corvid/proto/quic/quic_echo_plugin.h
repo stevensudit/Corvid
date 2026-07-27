@@ -133,7 +133,7 @@ public:
       quic_stream_id sid = quic_stream_id::none;
       std::span<const iovec> iov;
       write_stream_flags flags = write_stream_flags::none;
-      send_queue_t* qp = nullptr;
+      send_queue_t* qp{};
       for (auto& [id, q] : queues_) {
         if (q.size() == 0 && q.state() == write_stream_flags::none) continue;
         sid = id;

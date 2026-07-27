@@ -176,10 +176,10 @@ public:
   [[nodiscard]] std::strong_ordering operator<=>(
       const quic_cid& other) const noexcept {
     if (auto c = cid_.datalen <=> other.cid_.datalen; c != 0) return c;
-    const int r = std::memcmp(cid_.data, other.cid_.data, cid_.datalen);
-    return r < 0   ? std::strong_ordering::less
-           : r > 0 ? std::strong_ordering::greater
-                   : std::strong_ordering::equal;
+    const auto r = std::memcmp(cid_.data, other.cid_.data, cid_.datalen);
+    return (r < 0)   ? std::strong_ordering::less
+           : (r > 0) ? std::strong_ordering::greater
+                     : std::strong_ordering::equal;
   }
 
 private:

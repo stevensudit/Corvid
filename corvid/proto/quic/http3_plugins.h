@@ -587,7 +587,7 @@ public:
       h3_error_code app_error_code, void* stream_user_data) override {
     auto* stream = to_stream(stream_user_data);
     if (!stream) stream = find_stream(stream_id);
-    bool ok{true};
+    bool ok = true;
     if (stream) ok = stream->on_close(app_error_code);
     streams_.erase(stream_id);
     return ok;
@@ -831,7 +831,7 @@ private:
   quic_session_io& io_;
   http3_conn h3_;
   std::optional<http3_settings> peer_settings_;
-  bool streams_bound_{false};
+  bool streams_bound_{};
   std::unordered_map<quic_stream_id, std::unique_ptr<http3_stream>> streams_;
 
 #pragma endregion
