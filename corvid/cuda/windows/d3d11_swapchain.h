@@ -100,7 +100,7 @@ public:
     // present, create the swapchain with the flag so a later `present(0)` can
     // run without the refresh-rate cap. Without it, a flip-model swapchain
     // stays locked to vblank even at sync interval 0.
-    const com_ptr<IDXGIFactory2> factory = device.make_factory();
+    const auto factory = device.make_factory();
     tearing_ = supports_tearing(factory.get());
     const DXGI_SWAP_CHAIN_DESC1 desc{
         .Width = 0,
@@ -172,7 +172,7 @@ public:
   // avoids reallocating on every resize.
   [[nodiscard]] com_ptr<ID3D11Texture2D>
   create_texture(UINT width, UINT height, d3d11_bind_flag bind_flags) const {
-    D3D11_TEXTURE2D_DESC desc = back_buffer_desc();
+    auto desc = back_buffer_desc();
     desc.Width = width;
     desc.Height = height;
     desc.BindFlags = *bind_flags;
@@ -294,11 +294,11 @@ private:
     com_ptr<IDXGIFactory5> factory5;
     if (FAILED(factory->QueryInterface(IID_PPV_ARGS(factory5.put()))))
       return false;
-    BOOL allowed = FALSE;
+    BOOL allowed{};
     if (FAILED(factory5->CheckFeatureSupport(
             DXGI_FEATURE_PRESENT_ALLOW_TEARING, &allowed, sizeof(allowed))))
       return false;
-    return allowed != FALSE;
+    return !!allowed;
   }
 
 #pragma endregion

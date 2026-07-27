@@ -203,8 +203,8 @@ private:
   // Never shrinks, so an ordinary resize neither reallocates nor re-registers
   // it.
   hr_status ensure_target() {
-    const UINT need_w = round_up_to_multiple(buffer_width(), capacity_quantum);
-    const UINT need_h =
+    const auto need_w = round_up_to_multiple(buffer_width(), capacity_quantum);
+    const auto need_h =
         round_up_to_multiple(buffer_height(), capacity_quantum);
     if (render_texture_ && need_w <= cap_w_ && need_h <= cap_h_)
       return hr_status{S_FALSE};

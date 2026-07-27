@@ -64,7 +64,7 @@ using hr_status = win32::hr_status;
   hr_status{CreateDXGIFactory1(IID_PPV_ARGS(factory.put()))}.or_throw();
 
   com_ptr<IDXGIAdapter> found;
-  int cuda_device = 0;
+  int cuda_device{};
   for (UINT ndx = 0;; ++ndx) {
     com_ptr<IDXGIAdapter> adapter;
     if (factory->EnumAdapters(ndx, adapter.put()) == DXGI_ERROR_NOT_FOUND)
@@ -207,7 +207,7 @@ public:
 #pragma endregion
 #pragma region Data members
 private:
-  cudaGraphicsResource* resource_;
+  cudaGraphicsResource* resource_{};
 
 #pragma endregion
 };
