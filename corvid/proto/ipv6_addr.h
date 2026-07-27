@@ -235,10 +235,8 @@ private:
     const auto ipv4 = ipv4_addr::parse(token);
     if (!ipv4) return false;
     const auto octets = ipv4->octets();
-    groups[group_count++] =
-        static_cast<uint16_t>((uint16_t{octets[0]} << 8) | octets[1]);
-    groups[group_count++] =
-        static_cast<uint16_t>((uint16_t{octets[2]} << 8) | octets[3]);
+    groups[group_count++] = combine_bytes(octets[1], octets[0]);
+    groups[group_count++] = combine_bytes(octets[3], octets[2]);
     return true;
   }
 
@@ -361,8 +359,7 @@ private:
   }
 
   [[nodiscard]] constexpr uint16_t word_at(size_t i) const noexcept {
-    return static_cast<uint16_t>(
-        (uint16_t{bytes_[2 * i]} << 8) | bytes_[(2 * i) + 1]);
+    return combine_bytes(bytes_[(2 * i) + 1], bytes_[2 * i]);
   }
 
   static constexpr void do_append_hex_group(std::string& out, uint16_t value) {

@@ -29,6 +29,7 @@
 #include <utility>
 #include <vector>
 
+#include "../../strings/string_literals.h"
 #include "../../infra/exception_firewalls.h"
 #include "../../meta/crossplatform.h"
 #include "../../enums/bool_enums.h"
@@ -40,10 +41,9 @@
 // Strict JSON parser, non-owning value views, and compact JSON writer.
 namespace corvid { inline namespace proto { inline namespace json {
 using namespace strings::cases;
+using namespace strings::literals;
 using namespace strings::conversion;
 using namespace corvid::enums::bool_enums;
-
-size_t npos = std::string_view::npos;
 
 #pragma region json_kind
 
@@ -885,8 +885,9 @@ constexpr void append_float(Target& target, Number value,
     return;
   }
 
+  // Deliberately uninitialized: only the written cells are ever read.
   char buffer[128];
-  std::to_chars_result result;
+  std::to_chars_result result{};
   if (precision >= 0)
     result =
         std::to_chars(buffer, buffer + sizeof(buffer), value, fmt, precision);

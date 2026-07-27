@@ -134,3 +134,89 @@ TEST_CASE("ExtractByteOutOfRange", "[MathTest]") {
   CHECK(extract_byte<2>(std::uint16_t{0x2001}) == 0);
 }
 #endif
+
+TEST_CASE("CombineBytes", "[MathTest]") {
+  // Least significant first, so the first argument is the low byte.
+  CHECK(combine_bytes<std::uint16_t>(std::uint8_t{0x01}, std::uint8_t{0x20}) ==
+        0x2001);
+  CHECK(combine_bytes<std::uint32_t>(std::uint8_t{0x01}, std::uint8_t{0x01},
+            std::uint8_t{0xa8}, std::uint8_t{0xc0}) == 0xc0a80101);
+}
+
+TEST_CASE("CombineBytesRoundTrips", "[MathTest]") {
+  // The inverse of `extract_byte`.
+  constexpr auto addr = std::uint32_t{0xc0a80101};
+  CHECK(combine_bytes<std::uint32_t>(extract_byte<0>(addr),
+            extract_byte<1>(addr), extract_byte<2>(addr),
+            extract_byte<3>(addr)) == addr);
+}
+
+TEST_CASE("CombineBytesSpellsItsZeros", "[MathTest]") {
+  // Every byte is supplied, so a mostly-empty value states the zeros rather
+  // than leaving them off.
+  constexpr std::uint8_t z{};
+  CHECK(combine_bytes<std::uint32_t>(std::uint8_t{0xff}, z, z, z) == 0xff);
+  CHECK(
+      combine_bytes<std::uint32_t>(z, z, z, std::uint8_t{0xff}) == 0xff000000);
+}
+
+TEST_CASE("CombineBytesUsesOnlyTheLowByte", "[MathTest]") {
+  // A wider argument contributes its low byte and nothing else.
+  CHECK(combine_bytes<std::uint16_t>(std::uint16_t{0xbeef}, std::uint8_t{}) ==
+        0x00ef);
+}
+
+TEST_CASE("CombineBytesDeducesItsWidth", "[MathTest]") {
+  // With no type named, the byte count picks the result type.
+  constexpr std::uint8_t z{};
+  static_assert(std::is_same_v<decltype(combine_bytes(z)), std::uint8_t>);
+  static_assert(std::is_same_v<decltype(combine_bytes(z, z)), std::uint16_t>);
+  static_assert(
+      std::is_same_v<decltype(combine_bytes(z, z, z, z)), std::uint32_t>);
+  static_assert(std::is_same_v<decltype(combine_bytes(z, z, z, z, z, z, z, z)),
+      std::uint64_t>);
+
+  CHECK(combine_bytes(std::uint8_t{0x01}, std::uint8_t{0x20}) == 0x2001);
+  CHECK(combine_bytes(std::uint8_t{0x10}, z, z, z, z, z, z,
+            std::uint8_t{0xfe}) == 0xfe00'0000'0000'0010);
+}
+
+#ifdef __SIZEOF_INT128__
+TEST_CASE("ExtractAndCombine128", "[MathTest]") {
+  // Where the compiler has a 128-bit type, the pair reaches it too. Note that
+  // libstdc++ outside GNU mode does not report `__uint128_t` as integral, so
+  // this rests on the library-independent `UnsignedWord`.
+  constexpr std::uint8_t z{};
+  const auto v = combine_bytes(std::uint8_t{0x10}, z, z, z, z, z, z, z, z, z,
+      z, z, z, z, z, std::uint8_t{0xfe});
+  static_assert(std::is_same_v<decltype(v), const __uint128_t>);
+  CHECK(extract_byte<0>(v) == 0x10);
+  CHECK(extract_byte<15>(v) == 0xfe);
+  CHECK(extract_byte<7>(v) == 0);
+}
+#endif
+
+TEST_CASE("CombineBytesDeducedMatchesSpelled", "[MathTest]") {
+  // Naming the type is allowed and must agree with the count.
+  constexpr std::uint8_t lo{0xef};
+  constexpr std::uint8_t hi{0xbe};
+  CHECK(combine_bytes<std::uint16_t>(lo, hi) == combine_bytes(lo, hi));
+}
+
+TEST_CASE("CombineBytesConstexpr", "[MathTest]") {
+  // Usable in constant expressions.
+  static_assert(
+      combine_bytes<std::uint16_t>(std::uint8_t{0xef}, std::uint8_t{0xbe}) ==
+      0xbeef);
+}
+
+#ifdef NOT_SUPPOSED_TO_COMPILE
+TEST_CASE("CombineBytesWrongCount", "[MathTest]") {
+  // A named type must match the count exactly, in both directions.
+  CHECK(combine_bytes<std::uint16_t>(std::uint8_t{1}, std::uint8_t{2},
+            std::uint8_t{3}) == 0);
+  CHECK(combine_bytes<std::uint32_t>(std::uint8_t{1}) == 0);
+  // Deducing needs a count some standard width matches.
+  CHECK(combine_bytes(std::uint8_t{1}, std::uint8_t{2}, std::uint8_t{3}) == 0);
+}
+#endif

@@ -21,6 +21,8 @@
 #include <string>
 #include <string_view>
 
+#include "../../math/arithmetic.h"
+
 namespace corvid { inline namespace proto {
 
 #pragma region sha_1
@@ -50,7 +52,7 @@ struct sha_1 {
     h = {0x67452301U, 0xEFCDAB89U, 0x98BADCFEU, 0x10325476U, 0xC3D2E1F0U};
 
     // Pre-process into 512-bit blocks with the RFC 3174 padding rules.
-    const uint64_t bit_len = static_cast<uint64_t>(msg.size()) * 8U;
+    const auto bit_len = static_cast<uint64_t>(msg.size()) * 8U;
     std::string padded{msg};
     padded.push_back('\x80');
     while (padded.size() % 64 != 56) padded.push_back('\0');
@@ -58,28 +60,22 @@ struct sha_1 {
       padded.push_back(static_cast<char>((bit_len >> (i * 8)) & 0xFF));
 
     for (size_t off = 0; off < padded.size(); off += 64) {
+      // Deliberately uninitialized: only the written cells are ever read, and
+      // zeroing 320 bytes per block is not free.
       uint32_t w[80];
-      for (size_t i = 0; i < 16; ++i) {
-        w[i] =
-            (static_cast<uint32_t>(static_cast<uint8_t>(padded[off + (i * 4)]))
-                << 24) |
-            (static_cast<uint32_t>(
-                 static_cast<uint8_t>(padded[off + (i * 4) + 1]))
-                << 16) |
-            (static_cast<uint32_t>(
-                 static_cast<uint8_t>(padded[off + (i * 4) + 2]))
-                << 8) |
-            (static_cast<uint32_t>(
-                static_cast<uint8_t>(padded[off + (i * 4) + 3])));
-      }
+      for (size_t i = 0; i < 16; ++i)
+        w[i] = combine_bytes(static_cast<uint8_t>(padded[off + (i * 4) + 3]),
+            static_cast<uint8_t>(padded[off + (i * 4) + 2]),
+            static_cast<uint8_t>(padded[off + (i * 4) + 1]),
+            static_cast<uint8_t>(padded[off + (i * 4)]));
       for (int i = 16; i < 80; ++i)
         w[i] = rol(w[i - 3] ^ w[i - 8] ^ w[i - 14] ^ w[i - 16], 1);
 
-      uint32_t a = h[0];
-      uint32_t b = h[1];
-      uint32_t c = h[2];
-      uint32_t d = h[3];
-      uint32_t e = h[4];
+      auto a = h[0];
+      auto b = h[1];
+      auto c = h[2];
+      auto d = h[3];
+      auto e = h[4];
       for (int i = 0; i < 80; ++i) {
         uint32_t f{};
         uint32_t k{};
@@ -96,7 +92,7 @@ struct sha_1 {
           f = b ^ c ^ d;
           k = 0xCA62C1D6U;
         }
-        const uint32_t tmp = rol(a, 5) + f + e + k + w[i];
+        const auto tmp = rol(a, 5) + f + e + k + w[i];
         e = d;
         d = c;
         c = rol(b, 30);
@@ -114,10 +110,10 @@ struct sha_1 {
   [[nodiscard]] static bytes_t bytes(const digest_t& h) noexcept {
     bytes_t raw{};
     for (size_t i = 0; i < 5; ++i) {
-      raw[i * 4] = static_cast<uint8_t>(h[i] >> 24);
-      raw[(i * 4) + 1] = static_cast<uint8_t>(h[i] >> 16);
-      raw[(i * 4) + 2] = static_cast<uint8_t>(h[i] >> 8);
-      raw[(i * 4) + 3] = static_cast<uint8_t>(h[i]);
+      raw[i * 4] = extract_byte<3>(h[i]);
+      raw[(i * 4) + 1] = extract_byte<2>(h[i]);
+      raw[(i * 4) + 2] = extract_byte<1>(h[i]);
+      raw[(i * 4) + 3] = extract_byte<0>(h[i]);
     }
     return raw;
   }

@@ -360,8 +360,8 @@ public:
         (field_name.find_first_not_of(http_headers::valid_field_name_chars) !=
             std::string_view::npos))
       return std::nullopt;
-    bool changed{false};
-    bool capitalize{true};
+    bool changed = false;
+    bool capitalize = true;
     for (char& c : field_name) {
       // Capitalize the first character following the hyphen.
       if (c == '-') {
@@ -369,7 +369,7 @@ public:
         continue;
       }
 
-      char old = c;
+      const auto old = c;
       c = capitalize ? strings::as_upper(c) : strings::as_lower(c);
 
       if (c != old) changed = true;
@@ -381,7 +381,7 @@ public:
 
   // Utility function to confirm that a field name is normalized.
   [[nodiscard]] static bool is_normalized(std::string_view field_name) {
-    std::string normalized_field_name{std::string{field_name}};
+    std::string normalized_field_name{field_name};
     return normalize(normalized_field_name) == std::optional{false};
   }
 
@@ -597,7 +597,7 @@ struct http_options {
 
   // Populate all fields by parsing `headers`. Call after headers are parsed.
   void extract(http_headers& headers) {
-    bool has_upgrade = do_extract_connection(headers);
+    const bool has_upgrade = do_extract_connection(headers);
     do_extract_content_length(headers);
     do_extract_content_type(headers);
     do_extract_transfer_encoding(headers);
@@ -632,7 +632,7 @@ struct http_options {
       http_version version) const noexcept {
     if (version == http_version::http_0_9) return after_response::close;
     if (connection) return *connection;
-    return version == http_version::http_1_1
+    return (version == http_version::http_1_1)
                ? after_response::keep_alive
                : after_response::close;
   }
@@ -697,7 +697,7 @@ private:
       if (val.empty()) continue;
       const auto encodings = strings::split(val, ",");
       if (encodings.empty()) continue;
-      auto v = strings::trim(encodings.back());
+      const auto v = strings::trim(encodings.back());
       if (v.empty()) continue;
       t = v;
     }
@@ -712,7 +712,7 @@ private:
     std::string t;
     for (const auto& val : headers.get_values("Upgrade")) {
       for (auto token : strings::split(val, ",")) {
-        auto v = strings::trim(token);
+        const auto v = strings::trim(token);
         if (v.empty()) continue;
         t = v;
         strings::to_lower(t);
@@ -937,7 +937,7 @@ struct response_head: head_base {
 
     result += enum_as_string(version);
     result += ' ';
-    result += std::to_string(static_cast<int>(status_code));
+    result += std::to_string(*status_code);
     result += ' ';
     result += reason;
     result += "\r\n";

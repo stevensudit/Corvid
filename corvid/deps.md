@@ -17,7 +17,7 @@ points to below.
 
 ```text
 L0  meta              corvid/meta/, corvid/meta.h    Foundation: std + internal only.
-    math              corvid/math/, corvid/math.h    Foundation: abstract math, std only.
+    math              corvid/math/, corvid/math.h    Abstract math; rests on meta.
 L1  infra             corvid/infra/                  scope_exit, relaxed_atomic, firewalls, ostream_redirector.
     strings           corvid/strings/                Enum-free string utilities.
     containers/core   corvid/containers/core/        Enum-free container utilities.
@@ -37,9 +37,19 @@ allow-list below captures that order precisely.
 The apex bands (`ecs`, `proto`, `lang`, `sim`) may depend on any lower band.
 `controllers` is a leaf parallel to the tree: it has no cross-folder edges.
 
-`math` is a second std-only foundation alongside `meta`. Because it includes
-nothing from corvid, it can never form a cycle, so any band may depend on it
-(it is universally dependable, like `meta`).
+`math` sits alongside `meta` at the foundation and is universally dependable
+in the same way: any band may depend on it. It is not quite as low, though,
+because it rests on `meta`. It has to: math code needs the compiler-feature
+glue in `meta/crossplatform.h` to stay portable (`CORVID_HAS_INT128` gates the
+128-bit helpers in `arithmetic.h`), and it is natural for math functions to
+constrain themselves with the concepts and traits that `meta` already defines.
+
+That one edge is what makes `meta` the sole bottom of the graph. Since both
+bands are universally dependable as destinations, the DAG holds only so long
+as `meta` depends on nothing but itself, so the lint rejects `meta` as a
+source outright, exactly as it does `controllers`. Were `meta` ever to reach
+into `math`, the two would form a cycle that the destination rules alone would
+happily admit.
 
 ## The core/utils split
 
@@ -117,6 +127,7 @@ The spine, with transitively-implied edges omitted for readability:
 ```mermaid
 graph TD
     meta[meta]
+    math[math]
     infra[infra]
     strings[strings]
     containers_core["containers/core"]
@@ -127,6 +138,7 @@ graph TD
     apex["ecs, proto, lang, sim<br/>(apex: any lower band)"]
     controllers["controllers<br/>(standalone: std only)"]
 
+    math --> meta
     infra --> meta
     strings --> meta
     containers_core --> infra
@@ -168,12 +180,13 @@ any build, since it is static and build-independent) and is runnable on its own
 for CI.
 
 Allow-list (a band may always include its own siblings; `meta` and `math` are
-universal foundations; apex bands may include any lower band; `controllers`
+universally dependable destinations, though `meta` alone is a permitted source
+of nothing but itself; apex bands may include any lower band; `controllers`
 includes std only):
 
 ```text
 meta             -> (std only)
-math             -> (std only)
+math             -> meta
 infra            -> meta
 strings          -> meta
 containers/core  -> meta, infra, math

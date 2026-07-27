@@ -49,12 +49,14 @@ public:
     if (state_ == validation::failed) return state_;
 
     for (unsigned char byte : input) {
-      if (remaining_ == 0 ? !consume_lead_byte(byte)
-                          : !consume_continuation(byte))
-        return state_;
+      const bool consumed =
+          (remaining_ == 0)
+              ? consume_lead_byte(byte)
+              : consume_continuation(byte);
+      if (!consumed) return state_;
     }
 
-    state_ = remaining_ == 0 ? validation::complete : validation::incomplete;
+    state_ = (remaining_ == 0) ? validation::complete : validation::incomplete;
     return state_;
   }
 

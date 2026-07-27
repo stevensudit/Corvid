@@ -59,6 +59,10 @@ allowed() {
   # controllers is a standalone leaf (std only): no cross-band edges, not
   # even the otherwise-universal meta. Reject before the meta shortcut.
   case "$src" in controllers) return 1 ;; esac
+  # meta is the bottom of the graph: std and its own siblings only. Rejecting
+  # it as a source is what keeps the two universally-dependable destinations
+  # below from admitting a meta <-> math cycle.
+  case "$src" in meta) return 1 ;; esac
   # Apex bands may depend on anything lower (including umbrellas).
   case "$src" in ecs | proto | lang | sim) return 0 ;; esac
   # meta is the universal foundation.

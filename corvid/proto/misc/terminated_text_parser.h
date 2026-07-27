@@ -150,8 +150,10 @@ public:
     // split sentinel.
     const size_t backup{slen - 1};
     // Adjusted scan position for this call.
-    const size_t resume{
-        state_.bytes_scanned_ > backup ? state_.bytes_scanned_ - backup : 0};
+    const size_t resume =
+        (state_.bytes_scanned_ > backup)
+            ? state_.bytes_scanned_ - backup
+            : 0ULL;
 
     // Search for sentinel.
     const auto pos = input.find(state_.sentinel_, resume);
