@@ -566,7 +566,7 @@ public:
   using pong_fn = std::function<bool(epoll_http_websocket&)>;
 
   // Sanity check limit on frame size, whether a fragment or complete.
-  static constexpr size_t max_frame_size{size_t{16} * 1024 * 1024};
+  static constexpr size_t max_frame_size{16UL * 1024 * 1024};
 
   // Error value for feed(std::string_view&).
   static constexpr size_t insatiable = std::numeric_limits<size_t>::max();

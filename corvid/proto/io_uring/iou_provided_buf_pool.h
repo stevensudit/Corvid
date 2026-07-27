@@ -72,14 +72,14 @@ public:
 
     if (buf_count_ == 0) return;
     if (!std::has_single_bit(buf_count_))
-      throw std::invalid_argument("buf_count must be a power of two");
+      throw std::invalid_argument{"buf_count must be a power of two"};
     if (slab_size % hugepage_size != 0)
-      throw std::invalid_argument(
-          "slab_size must be a multiple of hugepage_size");
+      throw std::invalid_argument{
+          "slab_size must be a multiple of hugepage_size"};
     if (buf_count_ >
         static_cast<size_t>(std::numeric_limits<unsigned short>::max()) + 1ULL)
-      throw std::invalid_argument(
-          "buf_count exceeds io_uring 16-bit bid range");
+      throw std::invalid_argument{
+          "buf_count exceeds io_uring 16-bit bid range"};
 
     // Try a hugepage-backed mapping first; fall back to anonymous with
     // hugepage advice. Over-allocate by one `hugepage_size` to guarantee
@@ -90,19 +90,19 @@ public:
             mmap_mask::populate),
         -1, 0));
     if (base_ == MAP_FAILED) {
-      const size_t reserve = slab_size_ + hugepage_size;
+      const auto reserve = slab_size_ + hugepage_size;
       auto* raw_ptr = reinterpret_cast<std::byte*>(::mmap(nullptr, reserve,
           *(mmap_prot::read | mmap_prot::write),
           *(mmap_mask::map_private | mmap_mask::anonymous), -1, 0));
       if (raw_ptr == MAP_FAILED)
-        throw std::system_error(errno, std::system_category(), "mmap");
-      const size_t prefix =
+        throw std::system_error{errno, std::system_category(), "mmap"};
+      const auto prefix =
           (hugepage_size -
               (reinterpret_cast<uintptr_t>(raw_ptr) % hugepage_size)) %
           hugepage_size;
       base_ = raw_ptr + prefix;
       if (prefix > 0) ::munmap(raw_ptr, prefix);
-      const size_t suffix = reserve - prefix - slab_size_;
+      const auto suffix = reserve - prefix - slab_size_;
       if (suffix > 0) ::munmap(base_ + slab_size_, suffix);
       (void)::madvise(base_, slab_size_, *mmap_advice::hugepage);
     }
@@ -175,7 +175,7 @@ public:
     // Enqueue all buffer slots into the kernel ring. The kernel will select
     // and fill them on `IOSQE_BUFFER_SELECT` SQEs, and replenish them when we
     // return them in `return_buffer`.
-    const int mask = static_cast<int>(buf_count_) - 1;
+    const auto mask = static_cast<int>(buf_count_) - 1;
     for (size_t i = 0; i < buf_count_; ++i) {
       buf_ring_.add(base_ + (i * buf_size_), static_cast<unsigned>(buf_size_),
           static_cast<unsigned short>(i), mask, static_cast<int>(i));
@@ -232,7 +232,7 @@ public:
     if (!base_ || !buf_ring_) return {};
     if (!bitmask::has(cqe_flags, iou_cqe_flags::buffer))
       return buffer::make_synthetic({}, {}, res);
-    const size_t bid = get_buffer_id(cqe_flags);
+    const auto bid = get_buffer_id(cqe_flags);
     if (bid >= buf_count_) return {};
     span_t span{base_ + (bid * buf_size_), buf_size_};
 
@@ -266,9 +266,9 @@ private:
     auto* d = dispatcher_.load(std::memory_order::acquire);
     if (!d) return false;
     assert(buf_ring_ && buf_size_ > 0);
-    const size_t bid = (s.data() - base_) / buf_size_;
+    const auto bid = (s.data() - base_) / buf_size_;
     assert(bid < buf_count_);
-    const int mask = static_cast<int>(buf_count_) - 1;
+    const auto mask = static_cast<int>(buf_count_) - 1;
 
     (void)d->execute_or_post_with_retry([this, s, bid, mask] {
       buf_ring_.add(s.data(), buf_size_, static_cast<unsigned short>(bid),

@@ -233,7 +233,7 @@ public:
 
   // The bound local address. Safe from any thread.
   [[nodiscard]] const net_endpoint& local_endpoint() noexcept {
-    std::scoped_lock lock{endpoint_mutex_};
+    std::scoped_lock lock(endpoint_mutex_);
     if (local_.empty()) local_ = net_endpoint{sock_};
     return local_;
   }
@@ -474,8 +474,8 @@ private:
 
   // Recv state. `intended` is the user's preference; `active` may be forced
   // down to single by buffer pressure.
-  shot_type recv_intended_shot_{shot_type::single};
-  shot_type recv_active_shot_{shot_type::single};
+  shot_type recv_intended_shot_ = shot_type::single;
+  shot_type recv_active_shot_ = shot_type::single;
   relaxed_atomic_bool is_reading_;
   completion_token recv_token_;
 

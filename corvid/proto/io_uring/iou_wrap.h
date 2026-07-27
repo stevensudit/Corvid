@@ -173,7 +173,7 @@ public:
   constexpr iou_timespec() noexcept : ts_{.tv_sec = -1, .tv_nsec = -1} {}
 
   // Conversion from raw.
-  constexpr explicit iou_timespec(const raw_timespec& ts) noexcept : ts_(ts) {}
+  constexpr explicit iou_timespec(const raw_timespec& ts) noexcept : ts_{ts} {}
 
   // Copy.
   constexpr iou_timespec(const iou_timespec& other) noexcept = default;
@@ -279,7 +279,7 @@ public:
   }
 
 private:
-  raw_timespec ts_;
+  raw_timespec ts_{};
 };
 
 #pragma endregion
@@ -325,7 +325,7 @@ public:
   }
 
 private:
-  raw_itimerspec ts_;
+  raw_itimerspec ts_{};
 };
 
 #pragma endregion
@@ -355,9 +355,9 @@ struct combined_endpoint {
 // `errno` value.
 class iou_res {
 public:
-  iou_res() noexcept : res_(0) {}
-  explicit iou_res(int res) : res_(res) {}
-  explicit iou_res(errno_code err) : res_(-*err) {}
+  iou_res() noexcept = default;
+  explicit iou_res(int res) : res_{res} {}
+  explicit iou_res(errno_code err) : res_{-*err} {}
 
   [[nodiscard]] operator bool() const noexcept { return ok(); }
   [[nodiscard]] bool operator!() const noexcept { return !ok(); }
@@ -382,12 +382,12 @@ public:
 
   void throw_if_error(const std::string& context, int r = 0) const {
     if (ok(r)) return;
-    throw std::system_error(*err(), std::system_category(),
-        "io_uring error in " + context);
+    throw std::system_error{*err(), std::system_category(),
+        "io_uring error in " + context};
   }
 
 private:
-  int res_;
+  int res_{};
 };
 #pragma endregion
 #pragma region iou_sqe
@@ -402,7 +402,7 @@ public:
   using ptr_t = io_uring_sqe*;
 
   iou_sqe() = default;
-  explicit iou_sqe(ptr_t sqe) : sqe_(sqe) {}
+  explicit iou_sqe(ptr_t sqe) : sqe_{sqe} {}
 
   [[nodiscard]] operator bool() const noexcept { return ok(); }
   [[nodiscard]] bool operator!() const noexcept { return !ok(); }
@@ -648,7 +648,7 @@ public:
   using ptr_t = io_uring_cqe*;
 
   iou_cqe() = default;
-  explicit iou_cqe(ptr_t cqe) : cqe_(cqe) {}
+  explicit iou_cqe(ptr_t cqe) : cqe_{cqe} {}
 
   [[nodiscard]] operator bool() const noexcept { return ok(); }
   [[nodiscard]] bool operator!() const noexcept { return !ok(); }
@@ -725,7 +725,7 @@ public:
 
 private:
   ptr_t out_{};
-  msghdr* msgh_;
+  msghdr* msgh_{};
   iou_res res_;
 };
 
@@ -744,8 +744,8 @@ public:
   explicit iou_ring(size_t ring_size = 256, iou_setup_flags flags = {}) {
     iou_res res{io_uring_queue_init(ring_size, &ring_, *flags)};
     if (res) return;
-    throw std::system_error(*res.err(), std::system_category(),
-        "io_uring_queue_init");
+    throw std::system_error{*res.err(), std::system_category(),
+        "io_uring_queue_init"};
   }
 
   iou_ring(const iou_ring&) = delete;
@@ -781,8 +781,8 @@ public:
   // one CQE. Returns the number of CQEs processed.
   [[nodiscard]] size_t for_each_cqe(auto&& fn, size_t limit = max_size) {
     size_t count{};
-    iou_cqe::ptr_t cqe;
-    unsigned head;
+    iou_cqe::ptr_t cqe{};
+    unsigned head{};
     io_uring_for_each_cqe(&ring_, head, cqe) {
       if (limit-- == 0) break;
       (void)fn(iou_cqe{cqe});
@@ -797,7 +797,7 @@ public:
   // cannot run indefinitely.
   [[nodiscard]] size_t
   for_each_snapshotted_cqe(auto&& fn, size_t limit = max_size) {
-    size_t pending = io_uring_cq_ready(&ring_);
+    const size_t pending{io_uring_cq_ready(&ring_)};
     return for_each_cqe(std::forward<decltype(fn)>(fn),
         std::min(pending, limit));
   }

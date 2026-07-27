@@ -45,6 +45,23 @@ Four forms, each with one meaning:
   type is fixed (below).
 - Deliberate narrowing is spelled with an explicit cast, never by falling back
   to `=` to duck the brace error.
+- **Ruling: a named constant takes the same narrowing test as anything else,
+  and `constexpr` does not exempt it.** `static constexpr size_t
+  max_events = 64;` keeps `=` because a bare literal is the point, and
+  `static constexpr size_t read_throttle_size = slab_size * 3 / 4;` keeps it
+  because the expression is already `size_t`. When the initializer's type
+  differs from the declared type, braces do the coercion:
+  `static constexpr size_t hugepage_size{2UL * 1024 * 1024};`. Braces coerce
+  the RESULT, which is a separate matter from the width the arithmetic is
+  performed in. When the initializer is a multiplication whose result widens,
+  the first operand must still carry the wide type via a suffix, as in
+  `2UL * 1024 * 1024`. That is not redundant type-restating. It stops the
+  product from overflowing in the narrow type before the widening ever
+  happens, and clang-tidy enforces it via
+  `bugprone-implicit-widening-of-multiplication-result`. Note also that
+  `constexpr` weakens the narrowing check without removing it. A constant
+  that fits is exempt, so braces reject only a value out of range for the
+  target, such as a computed constant that went negative.
 - **Ruling: fix the literals when signedness is what blocks braces.** When a
   brace form fails only because a literal initializer is signed and the target
   is not, suffix the literals (`4U`, or `UL` when that is not enough) rather
@@ -211,6 +228,12 @@ Braces express "this object takes on these values", and they reject narrowing.
   per-constructor audit of whether a given constructor does work. `scope_exit`
   merely stores its callable and still takes parens, because the object exists
   for its side effect rather than to hold a value.
+  - **Bound:** an owning value type is not a scoping object, even though it is
+    equally RAII. A scope guard brackets a region and owns nothing; a smart
+    pointer holds a value. `std::unique_ptr` and `epoll_stream_conn_ptr_with`
+    are therefore value-like and take braces, per the value-like construction
+    rule above, no matter how much work the constructor does to acquire what
+    they hold.
 - **Rule:** Use parens when braces would select an unintended
   `std::initializer_list` overload: `std::vector<int> v(10);` is ten
   value-initialized elements; `std::vector<int> v{10};` is one element.

@@ -410,7 +410,7 @@ public:
   size_t run() {
     stop_.store(false, std::memory_order::relaxed);
     running_.notify(true);
-    scope_exit on_exit{[&] { running_.notify(false); }};
+    scope_exit on_exit([&] { running_.notify(false); });
     arm_wake_poll_multishot();
 
     iou_timespec timeout{default_run_once_timeout};
@@ -439,7 +439,7 @@ public:
 
     // Dispatch snapshotted SQEs.
     size_t dispatched{};
-    size_t total = ring_.for_each_snapshotted_cqe([&](iou_cqe cqe) {
+    const auto total = ring_.for_each_snapshotted_cqe([&](iou_cqe cqe) {
       if (do_dispatch(cqe)) ++dispatched;
       return true;
     });
@@ -1519,7 +1519,7 @@ private:
       if (cbtoken && is_released(cbtoken)) return true;
 
       // Check availability up front and only assert on each.
-      bool use_timeout = timeout && timeout->ts.is_valid();
+      const bool use_timeout = timeout && timeout->ts.is_valid();
       size_t sqe_needed = use_timeout ? 2 : 1;
       if (!ring_.enough_sqe_available(sqe_needed)) return false;
 
@@ -1790,7 +1790,7 @@ public:
     }
     std::shared_ptr<loop_t> loop;
     std::exception_ptr startup_error;
-    if (std::scoped_lock lock{state_->startup_mutex}; true) {
+    if (std::scoped_lock lock(state_->startup_mutex); true) {
       loop = state_->loop;
       startup_error = state_->startup_error;
     }
@@ -1866,8 +1866,8 @@ private:
     const block_size tcp_provided_buf_size;
     std::mutex startup_mutex;
     std::exception_ptr startup_error;
-    notifiable<std::atomic_bool> started{false};
-    notifiable<std::atomic_bool> finished{false};
+    notifiable<std::atomic_bool> started;
+    notifiable<std::atomic_bool> finished;
     std::shared_ptr<loop_t> loop;
   };
 
@@ -1879,7 +1879,7 @@ private:
           loop_t::default_max_pending_sqes, state->udp_provided_size,
           state->udp_provided_buf_size, state->tcp_provided_size,
           state->tcp_provided_buf_size);
-      if (std::scoped_lock lock{state->startup_mutex}; true)
+      if (std::scoped_lock lock(state->startup_mutex); true)
         state->loop = loop;
       state->started.notify(true);
 
@@ -1888,7 +1888,7 @@ private:
       // `loop` by value (not `state`) so it is self-contained and runs
       // the same regardless of which thread triggers the stop.
       {
-        std::stop_callback on_stop{st, [loop] { loop->stop(); }};
+        std::stop_callback on_stop(st, [loop] { loop->stop(); });
         loop->run();
       }
 
@@ -1921,11 +1921,11 @@ private:
       if (state->loop.use_count() != 1)
         log::fatal("Impossible loop use count: {}", state->loop.use_count());
 
-      if (std::scoped_lock lock{state->startup_mutex}; true)
+      if (std::scoped_lock lock(state->startup_mutex); true)
         state->loop.reset();
     }
     catch (...) {
-      if (std::scoped_lock lock{state->startup_mutex}; true)
+      if (std::scoped_lock lock(state->startup_mutex); true)
         state->startup_error = std::current_exception();
       state->started.notify(true);
     }
