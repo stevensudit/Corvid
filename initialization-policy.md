@@ -91,7 +91,15 @@ things apart, and the names are at fault.
   the type leaves nothing to say, so `static constexpr auto contact_eps =
   1.0e-3F;` and `constexpr auto max_steps = 256;`. A mutable local reads
   the same way, so `auto twg = -1.0F;`: the value is the point and the
-  type is obvious, which are not in tension.
+  type is obvious, which are not in tension. What makes a type obvious is
+  not restricted to a suffix: `true` and `false` name `bool` as plainly as
+  `F` names `float`, so a flag whose value is the point is
+  `auto first = true;`. Note that this rule settles only which type to
+  write, never whether to spell the value at all, which the zeroish rule
+  below settles first and usually answers with `{}`. So `bool found{};`
+  remains better than `auto found = false;` in most cases; the latter is
+  not wrong, and is what to reach for when spelling the `false` out earns
+  its keep, as when it pairs with a neighboring declaration.
   - **An expression initializer follows the same test.** `constexpr auto
     kz = std::numbers::inv_sqrt3_v<float>;` and `constexpr auto per_degree
     = std::numbers::pi_v<float> / 180.0F;`: the expression already produces

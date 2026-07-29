@@ -230,7 +230,7 @@ struct avatar_rig {
     // The body actually moves, so there is no withheld treadmill step; the
     // locked path (`advance_body_locked`) overrides this right after, so a
     // held step never lingers into a normal drive.
-    locked_step = vec3{};
+    locked_step = {};
     const vec3 ground{ground_vel.x * dt, 0.0F, ground_vel.z * dt};
     moving = length(ground);
     // The wheel's own surface roll, not the ground travel: it over-spins past

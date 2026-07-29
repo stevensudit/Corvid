@@ -214,7 +214,7 @@ private:
     cap_h_ = std::max(cap_h_, need_h);
 
     // unregister before releasing texture
-    cuda_target_ = cuda_d3d11_resource{};
+    cuda_target_ = {};
     render_texture_ = swapchain_.create_texture(cap_w_, cap_h_,
         d3d11_bind_flag::shader_resource);
     if (!render_texture_) return hr_status{E_FAIL};
@@ -226,8 +226,8 @@ private:
   // Rebuild every GPU object after a lost device: a fresh device, the
   // swapchain rebound to it, and the render target recreated.
   hr_status recover_device() {
-    cuda_target_ = cuda_d3d11_resource{};
-    render_texture_ = com_ptr<ID3D11Texture2D>{};
+    cuda_target_ = {};
+    render_texture_ = {};
     cap_w_ = 0;
     cap_h_ = 0;
     device_ = make_device();

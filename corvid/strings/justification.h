@@ -92,7 +92,7 @@ template<StringViewLike S>
 [[nodiscard]] constexpr auto zfill(const S& s, size_t width) {
   using C = char_type_of_t<S>;
   const auto sv = as_view(s);
-  const bool has_sign =
+  const auto has_sign =
       !sv.empty() && (sv.front() == C{'+'} || sv.front() == C{'-'});
   const auto pad = (width > sv.size()) ? width - sv.size() : 0;
   std::basic_string<C> r;

@@ -256,7 +256,7 @@ private:
     if (!body_primed_) {
       body_.center = rig_.anchor;
       body_.velocity = rig_.ground_vel + (body_up * rig_.vel_y);
-      body_.angular_velocity = vec3{};
+      body_.angular_velocity = {};
       body_.grounded = rig_.grounded;
       body_primed_ = true;
     }
@@ -369,6 +369,7 @@ private:
       // The aim's elevation above horizontal, so sighting up a tunnel reads
       // its grade off the title bar.
       const auto aim_deg = rig_.facing.pitch.value / radians::per_degree;
+      // Deliberately uninitialized: only the written cells are ever read.
       std::array<char, 224> title;
       SDL_snprintf(title.data(), title.size(),
           "Corvid Voxel Viewer - %.0f fps  %.1f/%.1f/%.1f ms (min/avg/max)  "

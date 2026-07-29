@@ -347,7 +347,7 @@ public:
       // Per-selector presence check. For unique selectors: require the single
       // storage bit. For multi-match component types: require exactly one of
       // the union of matching storage bits (skip if zero or more than one).
-      bool match = true;
+      auto match = true;
       bool ambiguous{};
       auto check_one = [&]<typename C>() {
         constexpr size_t nc = component_match_count_v<C, STORES...>;

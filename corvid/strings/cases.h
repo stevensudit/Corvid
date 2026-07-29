@@ -313,10 +313,10 @@ template<StringViewLike S>
 //
 // Uppercases the first code unit and lowercases the rest.
 constexpr void to_capitalized(Range auto& r) noexcept {
-  bool first = true;
+  auto is_first = true;
   for (auto& ch : r) {
-    ch = first ? as_upper(ch) : as_lower(ch);
-    first = false;
+    ch = is_first ? as_upper(ch) : as_lower(ch);
+    is_first = false;
   }
 }
 

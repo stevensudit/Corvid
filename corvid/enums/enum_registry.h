@@ -88,7 +88,7 @@ template<StdEnum E>
   if ((first < '0' || first > '9') && first != '-') return false;
 
   // A "0x" or "0X" prefix selects hex, matching the printed residual form.
-  int base = 10;
+  auto base = 10;
   if (sv.size() > 2 && sv[0] == '0' && (sv[1] == 'x' || sv[1] == 'X')) {
     base = 16;
     sv.remove_prefix(2);

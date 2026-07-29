@@ -476,7 +476,7 @@ struct nullable_formatter: std::formatter<U, CharT> {
     // has no id there: claim it from the context and re-present the spec to
     // the base with explicit ids, so the base reads the same args for a
     // present value. Otherwise the base parses the real spec.
-    const bool is_any_auto =
+    const auto is_any_auto =
         spec_.width_arg.is_automatic() || spec_.precision_arg.is_automatic();
     if (is_any_auto) {
       spec_.width_arg.claim_next_automatic(ctx);

@@ -419,7 +419,7 @@ template<ScopedEnum E, size_t N>
 constexpr auto& do_bit_append(AppendTarget auto& target, E v,
     const std::array<std::string_view, N>& names) {
   static constexpr strings::delim plus = " + ";
-  bool first = true;
+  auto first = true;
 
   for (size_t ndx = N; ndx != 0; --ndx) {
     auto mask = make_at<E>(ndx);

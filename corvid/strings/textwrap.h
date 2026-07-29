@@ -359,7 +359,7 @@ template<CharType CharT>
 [[nodiscard]] constexpr auto chunk_runs(std::basic_string_view<CharT> tv) {
   std::vector<std::basic_string_view<CharT>> chunks;
   for (size_t pos = 0; pos < tv.size();) {
-    const bool ws = is_space(tv[pos]);
+    const auto ws = is_space(tv[pos]);
     auto end = pos + 1;
     while (end < tv.size() && is_space(tv[end]) == ws) ++end;
     chunks.push_back(tv.substr(pos, end - pos));
@@ -490,7 +490,7 @@ wrap(const S& s, const wrap_options<char_type_of_t<S>>& options = {}) {
     // Emit the line, unless it is the last that `max_lines` allows and more
     // content remains, in which case the placeholder takes over.
     const auto remaining = chunks.size() - next;
-    const bool fits_last =
+    const auto fits_last =
         ((remaining == 0) ||
             (options.drop_whitespace && (remaining == 1) &&
                 details::is_ws_chunk(chunks[next]))) &&
@@ -524,7 +524,7 @@ fill(const S& s, const wrap_options<char_type_of_t<S>>& options = {}) {
   size_t total{lines.empty() ? 0 : lines.size() - 1};
   for (const auto& line : lines) total += line.size();
   r.reserve(total);
-  bool first = true;
+  auto first = true;
   for (const auto& line : lines) {
     if (!first) r.push_back(C{'\n'});
     r.append(line);

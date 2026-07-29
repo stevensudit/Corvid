@@ -863,7 +863,7 @@ struct std::formatter<corvid::container::fixed_bitset<N, POS, TAG, FW>, char> {
     switch (mode_) {
     case mode::index: {
       *out++ = '[';
-      bool first = true;
+      auto first = true;
       for (const POS pos : bs) {
         if (!first) {
           *out++ = ',';

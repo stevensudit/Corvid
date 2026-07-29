@@ -455,8 +455,8 @@ inline_fit_guaranteed(proxy_policy to, proxy_policy from) noexcept {
 // allocation, or nowhere at all to put it under `sbo_only`), or a heap arrival
 // that must un-box into an `sbo_only` buffer it might not fit.
 consteval bool adopt_may_throw(proxy_policy to, proxy_policy from) noexcept {
-  const bool from_sbo = (from.alloc != proxy_alloc::heap_only);
-  const bool from_heap = (from.alloc != proxy_alloc::sbo_only);
+  const auto from_sbo = (from.alloc != proxy_alloc::heap_only);
+  const auto from_heap = (from.alloc != proxy_alloc::sbo_only);
   return (from_sbo && !inline_fit_guaranteed(to, from)) ||
          (from_heap && to.alloc == proxy_alloc::sbo_only);
 }
@@ -3064,7 +3064,7 @@ private:
       vt->relocate(other.storage_.buf, storage_.buf);
       vtable_ = vt;
     } else {
-      const bool inline_ok =
+      const auto inline_ok =
           (Policy.alloc != proxy_alloc::heap_only) && (vt->size <= buf_size) &&
           (vt->align <= buf_align);
       if (inline_ok) {

@@ -536,7 +536,7 @@ public:
   template<typename... Cs>
   void for_each(this auto& self, auto&& fn) {
     [&]<size_t... Is>(std::index_sequence<Is...>) {
-      bool cont = true;
+      auto cont = true;
       (
           [&](auto& storage) {
             if constexpr (has_all_components_v<

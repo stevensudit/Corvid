@@ -147,7 +147,7 @@ public:
   // schedule.
   [[nodiscard]] bool start() {
     const auto now_time = steady_now_clock::now();
-    const bool was_stopped = (*deadline_ <= now_time);
+    const auto was_stopped = (*deadline_ <= now_time);
     const auto configured_snapshot = *configured_;
     if (configured_snapshot == duration_t{}) return false;
     active_ = configured_snapshot;
@@ -169,10 +169,10 @@ public:
   // Fails if `configured_timeout` is zero or it can't schedule.
   [[nodiscard]] bool pause() {
     const auto now_time = steady_now_clock::now();
-    const bool was_stopped = (*deadline_ <= now_time);
+    const auto was_stopped = (*deadline_ <= now_time);
     const auto configured_snapshot = *configured_;
     if (configured_snapshot == duration_t{}) return false;
-    bool succeeded = true;
+    auto succeeded = true;
     if (was_stopped) {
       // From `mode::stopped`: bootstrap. Schedule a near-future fire so the
       // clipping cycle starts, then revert to the sentinel.

@@ -345,7 +345,7 @@ private:
         slip_len > kill)
       slip *= (slip_len - kill) / slip_len;
     else
-      slip = vec3{};
+      slip = {};
 
     // Quadratic drag caps the rev (reuses the translation drag).
     if (params.drag > 0.0F)
