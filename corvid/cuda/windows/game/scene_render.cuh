@@ -754,7 +754,7 @@ flashlight_glare_halo(const render_config::head_params& hp,
 
   // The dome takes its own cap albedo, the saucer body its own elsewhere.
   auto albedo = is_dome ? hp.dome_albedo : hp.base_albedo;
-  vec3 emissive{0.0F, 0.0F, 0.0F};
+  vec3 emissive;
   float eye_cover{}; // how much an eye decal covers this point
 
   // The dome: a fixed cockpit, mechanical but calmer than the belly. A

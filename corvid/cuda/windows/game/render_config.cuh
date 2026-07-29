@@ -38,9 +38,9 @@ struct reticle_surface_fit {
   vec3 u{1.0F, 0.0F, 0.0F};
   vec3 v{0.0F, 0.0F, 1.0F};
   vec3 n{0.0F, 1.0F, 0.0F};
-  float a = 0.0F;
-  float b = 0.0F;
-  float c = 0.0F;
+  float a{};
+  float b{};
+  float c{};
 };
 
 // The shading "constants" the `shade_*` functions used to bake in as literals,
@@ -58,7 +58,7 @@ struct render_config {
   // Night: turn off the sun (its diffuse on the terrain and its glow in the
   // sky) and dim the ambient to near dark, so there is darkness to test the
   // flashlight against. The emissive lights and the flashlight are unaffected.
-  bool night = false;
+  bool night{};
 
   // How dark night actually is.
   //
@@ -100,7 +100,7 @@ struct render_config {
   //  (`cone_degrees` outer half-angle, `softness` the inner fraction)
   // and a quadratic distance falloff out to `range`.
   struct flashlight_params {
-    bool enabled = false;             // the F-key toggle (engine-driven)
+    bool enabled{};                   // the F-key toggle (engine-driven)
     pos3 origin{};                    // eye position, written per frame
     vec3 direction{0.0F, 0.0F, 1.0F}; // view forward, written per frame
     vec3 color{1.0F, 0.93F, 0.80F};
@@ -165,7 +165,7 @@ struct render_config {
     float air_speckle = 0.3F;
     int air_speckle_freq = 10;
     float air_boil = 2.5F;
-    float air_extinction = 0.0F;
+    float air_extinction{};
     float air_aniso = 0.6F;
 
     // Per-frame air-cone state, written by the engine from a pick down the
@@ -177,8 +177,8 @@ struct render_config {
     // a monotonic clock for the speckle boil.
     pos3 target{};
     vec3 target_normal{0.0F, 1.0F, 0.0F};
-    float ground_weight = 0.0F;
-    float air_time = 0.0F;
+    float ground_weight{};
+    float air_time{};
   } flashlight;
 
   // Terrain march tunables, copied onto the `density_field` each frame so the
@@ -193,7 +193,7 @@ struct render_config {
   struct ball_params {
     float dim = 0.65F; // darkens the mirrored scene
     vec3 tint{0.82F, 0.86F, 0.95F};
-    vec3 ambient_floor{0.0F, 0.0F, 0.0F}; // keeps the darkest reflections up
+    vec3 ambient_floor{}; // keeps the darkest reflections up
 
     // Motion grid: an emissive flat hex wireframe wrapped onto the ball by the
     // rolling-conveyor projection to show its rotation, flaring up only while
@@ -281,7 +281,7 @@ struct render_config {
     // the rest of the hull. The tint blends over `dome_albedo` by how upward
     // the surface faces, strongest at the crown.
     vec3 canopy{0.16F, 0.20F, 0.28F};
-    vec3 dome_albedo{0.0F, 0.0F, 0.0F};
+    vec3 dome_albedo{};
 
     // Geodesic (Goldberg) hex grid on the dome cap: an icosahedron subdivided
     // to `dome_hex_freq` (near-uniform hexagons plus twelve pentagons),
@@ -293,7 +293,7 @@ struct render_config {
     int dome_hex_freq = 9;           // icosahedron subdivision frequency
     float dome_hex_line = 0.01F;     // seam half-width, radians
     float dome_hex_strength = 3.25F; // how much the seams darken the dome
-    float dome_hex_phase = 0.0F;     // manual grid roll about the eye, radians
+    float dome_hex_phase{};          // manual grid roll about the eye, radians
 
     // A hard black band masking the dome/cone joint. A solid, hard-edged band
     // keyed on the dome surface's approach to the disc (the gap between the
@@ -303,9 +303,9 @@ struct render_config {
     // with the lit metal and specular removed) so the whole band reads true
     // black instead of washing out under the lighting; reads as a groove the
     // dome sits in, hinting it could separate.
-    float seam_offset = -0.008F;       // inner edge of seam
-    float seam_width = 0.024F;         // band width (solid, hard-edged)
-    vec3 seam_color{0.0F, 0.0F, 0.0F}; // band color (hard black)
+    float seam_offset = -0.008F; // inner edge of seam
+    float seam_width = 0.024F;   // band width (solid, hard-edged)
+    vec3 seam_color{};           // band color (hard black)
 
     // Cockpit eye: a pupil hub and radial spokes inside an opaque hexagonal
     // iris on the dome front, placed by the rig's look gimbal. The iris spans
@@ -315,7 +315,7 @@ struct render_config {
     int eye_spokes = 6;      // radial spokes inside the iris (try 3)
     float eye_line = 0.018F; // frame, spoke, and hub line width
     vec3 eye_glass{0.003F, 0.016F, 0.049F};    // iris
-    vec3 eye_pupil{0.0F, 0.0F, 0.0F};          // hub center (the beam source)
+    vec3 eye_pupil{};                          // hub center (the beam source)
     vec3 eye_frame_color{0.62F, 0.62F, 0.62F}; // frame, spokes, hub ring
 
     // Eye-cone glow: while the dig tool is projecting (`reticle.enabled`) the
@@ -367,7 +367,7 @@ struct render_config {
     // falloff that already makes a farther aim dimmer (see `eye_cone_glow`,
     // the distance response). 0 is clear air (geometric falloff only).
     // Monotonic for any value, so aiming farther never brightens the glow.
-    float eye_glow_extinction = 0.0F;
+    float eye_glow_extinction{};
     // Merged view only: brightness of the pupil's near-field veiling glow,
     // seen from inside looking out along your own aim (green, peak reads
     // white; see `shade_merged_glass`). 0 disables. Separate from the outside
@@ -391,7 +391,7 @@ struct render_config {
     // Debug: render only the eye-cone glow (the rest of the scene black), so
     // its shape and edge can be read in isolation from the terrain, ball, and
     // reticle.
-    bool eye_glow_solo = false;
+    bool eye_glow_solo{};
 
     // Reticle glare: while the dig tool projects (`reticle.enabled`), the
     // pupil's ring of laser light blooms outward, a soft green glow sourced at
@@ -450,21 +450,21 @@ struct render_config {
     // jumps discontinuously and a normal-derived frame would snap the pattern.
     // The radius still uses the 3D hit distance, so the ring keeps hugging the
     // dug bowl.
-    bool enabled = false;
+    bool enabled{};
     pos3 center{};
     vec3 view_right{1.0F, 0.0F, 0.0F};
     vec3 view_up{0.0F, 1.0F, 0.0F};
-    float spin = 0.0F;
+    float spin{};
     // The eye-cone glow's own swirl phase, advanced by the engine at
     // `head_params::eye_glow_spin` (decoupled from this reticle's spin so the
     // cone can swirl visibly while the ground reticle turns slowly).
-    float eye_glow_phase = 0.0F;
+    float eye_glow_phase{};
     // A monotonic clock (seconds since start) for the cone's speckle drift,
     // advanced by the engine. Separate from the wrapping swirl phase because
     // the drift scrolls the noise linearly: a wrap would jump the pattern (a
     // lighthouse flash), so this is not wrapped. Float precision holds over
     // any real session.
-    float eye_glow_time = 0.0F;
+    float eye_glow_time{};
     // The local terrain curvature around `center`, fit each frame so the
     // reticle conforms to a tunnel or bowl (see `reticle_surface_fit`).
     reticle_surface_fit fit;
@@ -473,7 +473,7 @@ struct render_config {
     // pointing ahead). The eye-cone glow clips to the ground plane only when
     // this is set (see `eye_cone_glow`); otherwise there is no ground to clip
     // to. The engine sets it from the pick.
-    bool grounded = false;
+    bool grounded{};
     // Hide the inner crosshair when the ball blocks the aim (the dig beam
     // leaves the ball, so it cannot fire through itself); the engine sets it.
     bool show_inner = true;
@@ -529,35 +529,35 @@ struct render_config {
   // default, since the camera normally rides inside the head and so never sees
   // it directly. The viewer sets this from the freeze-camera toggle, which
   // also pins the camera so the avatar can be driven out in front and watched.
-  bool show_head = false;
+  bool show_head{};
 
   // Debug: show the ball's reflection undimmed (`shade_ball`), to tell a real
   // black artifact from the dark belly merely crushed by the dim factor.
-  bool debug_ball_raw = false;
+  bool debug_ball_raw{};
 
   // Whether the flat mirror wall is in the scene (`shade_primary_ray`). Off by
   // default; the panel can show it for debugging.
-  bool show_mirror = false;
+  bool show_mirror{};
 
   // Tunnel-view sanity: when the camera is at the jockey, let the ball draw
   // through any terrain nearer than it, across its own silhouette only, so a
   // wall between the close camera and the ball does not bury the view
   // (`shade_primary_ray`). Render-only: the collision world is untouched. Set
   // per frame by the viewer when the boom is at the jockey.
-  bool jockey_clear = false;
+  bool jockey_clear{};
 
   // Debug: flat-tint the pixels the adaptive-AA resolve pass supersamples,
   // instead of shading them, to verify edge detection. Geometry silhouettes
   // show red, dig-reticle pixels blue. A pixel left at its prepass color was
   // judged a flat interior and not supersampled.
-  bool debug_aa_edges = false;
+  bool debug_aa_edges{};
 
   // Barrel distortion: how far the projection bends from the rectilinear
   // pinhole (0) toward a full equidistant fisheye (1), see
   // `camera_rays::ray_direction`. The center and vertical field of view are
   // unchanged; the amount only bends the periphery in, so a small value gives
   // a mild barrel without the full-fisheye pitch nausea.
-  float fisheye_amount = 0.0F;
+  float fisheye_amount{};
 
   // Glass ball lens: when the camera dollies inside the ball (merged), the
   // ball stops being an opaque mirror for the primary view and becomes a solid
@@ -600,8 +600,8 @@ struct render_config {
   // triggers the decaying shockwave on the crossing edge; the rest are look
   // tunables.
   struct ripple_params {
-    float amplitude = 0.0F;   // live radial warp strength this frame (0 = off)
-    float phase = 0.0F;       // live ring phase, advances as the rings expand
+    float amplitude{};        // live radial warp strength this frame (0 = off)
+    float phase{};            // live ring phase, advances as the rings expand
     float peak = 0.05F;       // max radial displacement at the crossing
     float frequency = 2.5F;   // rings across the half-screen
     float duration = 0.75F;   // effect length, seconds
@@ -649,7 +649,7 @@ struct render_config {
   // color by `value` before the tone map, so `tonemap_white` stays a fixed
   // taste constant and exposure is the moving part.
   struct exposure_params {
-    bool enabled = false;      // off holds `value` at 1 (the fixed exposure)
+    bool enabled{};            // off holds `value` at 1 (the fixed exposure)
     float key = 0.62F;         // mid-gray the average luminance maps to
     float center_bias = 8.0F;  // meter center weighting (0 = uniform mean)
     float adapt_bright = 3.0F; // ease rate toward a brighter scene (1/s)
