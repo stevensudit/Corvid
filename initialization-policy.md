@@ -107,6 +107,18 @@ things apart, and the names are at fault.
     decides is whether the initializer's own type differs, not whether it
     is a literal. Check the whole chain before assuming, since one widening
     operand makes the spelled type load-bearing again.
+    - **Obvious means obvious to a reader, not merely guaranteed by the
+      language.** A requires-expression yields `bool` by definition, and
+      `static constexpr bool bound_v = requires(...) { ... };` still spells
+      it, because the feature is new enough that its type is not yet
+      blatant on sight. A name that forwards to another trait is the same
+      case: `bound_v = method_traits<M>::template bound_v<F, T>` and
+      `all_bound_v = (entry_traits<Es>::template bound_v<F, T> && ...)`
+      keep `bool`, since confirming it means going to look. Contrast the
+      literal in the same file, `static constexpr auto bound_v = true;`,
+      where nothing has to be looked up. This one is expected to age: as a
+      feature becomes familiar its type becomes obvious, and the ruling
+      should be revisited rather than treated as settled.
   - **When the literal's type is the thing that does not match, fix the
     literal.** `auto half = 0.5F;`, never `float half = 0.5;`. The
     mismatched form is a silent double-to-float narrowing dressed as a

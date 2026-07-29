@@ -1311,7 +1311,7 @@ struct entry_traits<name<Name>> {
   using chain_t = std::tuple<>;
 
   template<typename F, typename T>
-  static constexpr bool bound_v = true;
+  static constexpr auto bound_v = true;
 };
 
 // `entry_name`: facade name carried by one entry of a facade's list, empty for
@@ -1319,12 +1319,12 @@ struct entry_traits<name<Name>> {
 template<typename E>
 struct entry_name {
   static constexpr fixed_string name_v = "";
-  static constexpr bool is_name_v = false;
+  static constexpr bool is_name_v{};
 };
 template<fixed_string Name>
 struct entry_name<name<Name>> {
   static constexpr auto name_v = Name;
-  static constexpr bool is_name_v = true;
+  static constexpr auto is_name_v = true;
 };
 
 // `entry_listed_once`: whether entry `E` appears exactly once in the facade's
