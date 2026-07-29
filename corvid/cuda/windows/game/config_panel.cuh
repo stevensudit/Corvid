@@ -35,7 +35,7 @@ namespace corvid::cuda {
 
 // Amber text tint marking a field edited away from its default (paired with
 // the inline reset), so a changed value stands out.
-constexpr ImU32 modified_tint = IM_COL32(255, 220, 80, 255);
+constexpr ImU32 modified_tint{IM_COL32(255, 220, 80, 255)};
 
 // Draw one labeled float slider for `v` over the range [`lo`, `hi`], with
 // `tip` shown on hover. When `v` differs from its default `def`, the row is
@@ -799,7 +799,7 @@ inline void draw_render_section(avatar_tuning& t, const avatar_tuning& d,
       "depth across the neighbors. Lower catches finer creases (slower); "
       "higher restricts the cost to the strong edges.");
   // Field of view caches tan(fov/2), so route edits through the setter.
-  float fov = t.fov_deg();
+  auto fov = t.fov_deg();
   if (tuned_slider("fov", fov, d.fov_deg(), 30.0F, 110.0F,
           "Vertical field of view, in degrees."))
     t.set_fov_deg(fov);
@@ -1106,10 +1106,10 @@ inline void draw_config_panel(avatar_tuning& t, const avatar_tuning& d,
     bool& lock_position, bool& uncap_fps, bool& log_collision, body_params& bp,
     const body_params& bpd, bool& flatten_requested, bool& tunnels_requested,
     float& run_multiplier) {
-  const ImGuiViewport* vp = ImGui::GetMainViewport();
+  const auto* vp = ImGui::GetMainViewport();
   ImGui::SetNextWindowPos(vp->GetCenter(), ImGuiCond_FirstUseEver,
-      ImVec2(0.5F, 0.5F));
-  ImGui::SetNextWindowSize(ImVec2(780.0F, vp->WorkSize.y * 0.8F),
+      ImVec2{0.5F, 0.5F});
+  ImGui::SetNextWindowSize(ImVec2{780.0F, vp->WorkSize.y * 0.8F},
       ImGuiCond_FirstUseEver);
   ImGui::Begin("Tuning");
   if (ImGui::Button("Reset all")) {

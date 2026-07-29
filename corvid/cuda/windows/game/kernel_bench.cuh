@@ -69,15 +69,15 @@ namespace corvid::cuda {
   cuda_volume<float> volume{vol_extent};
   material_volume materials{vol_extent};
   color_volume colors{vol_extent};
-  const float ox =
+  const auto ox =
       -0.5F * static_cast<float>(vol_extent.width - 1) * voxel_size;
-  const float oy =
+  const auto oy =
       -0.5F * static_cast<float>(vol_extent.height - 1) * voxel_size;
-  const float oz =
+  const auto oz =
       -0.5F * static_cast<float>(vol_extent.depth - 1) * voxel_size;
   density_field field{vol_extent, pos3{vec3{ox, oy, oz}}, voxel_size,
       volume.texture()};
-  const float world_x1 =
+  const auto world_x1 =
       ox + (static_cast<float>(vol_extent.width - 1) * voxel_size);
   const flat_mirror mirror{.plane_z = oz,
       .lo = vec2{ox, oy},
@@ -95,19 +95,19 @@ namespace corvid::cuda {
   avatar_rig rig{pos3{vec3{0.0F, 10.0F, 0.0F}},
       orientation{90.0_deg, -20.0_deg}, 90.0_deg, 7.0F, 7.0F};
   rig.update(0.016F, false); // seat the head offset off its first frame
-  const camera_rays rays = rig.rays();
-  const metal_ball ball = rig.ball();
-  const saucer_head head = rig.head(cfg.head);
+  const auto rays = rig.rays();
+  const auto ball = rig.ball();
+  const auto head = rig.head(cfg.head);
 
   // The off-screen target the kernel writes through: an owned surface array,
   // so the bench needs no D3D interop. Freed after the surface that borrows
   // it.
   cudaArray_t array{};
-  const cudaChannelFormatDesc fmt = cudaCreateChannelDesc<uchar4>();
+  const auto fmt = cudaCreateChannelDesc<uchar4>();
   cuda_last_status{
       cudaMallocArray(&array, &fmt, width, height, cudaArraySurfaceLoadStore)}
       .or_throw();
-  const scope_exit free_array{[&] { (void)cudaFreeArray(array); }};
+  const scope_exit free_array([&] { (void)cudaFreeArray(array); });
   cuda_surface surf{array};
 
   // The adaptive-AA prepass buffer, one `aa_texel` per pixel (see
@@ -121,7 +121,7 @@ namespace corvid::cuda {
   // the whole frame's GPU cost.
   cuda_ptr<float4> hdr{
       static_cast<size_t>(width) * static_cast<size_t>(height)};
-  const size_t half_count =
+  const auto half_count =
       static_cast<size_t>(bloom_dim(width)) *
       static_cast<size_t>(bloom_dim(height));
   cuda_ptr<float4> bloom_a{half_count};
@@ -144,15 +144,15 @@ namespace corvid::cuda {
 
   cuda_event start;
   cuda_event stop;
-  float total = 0.0F;
-  float lo = big_value;
-  float hi = 0.0F;
+  float total{};
+  auto lo = big_value;
+  float hi{};
   for (int i = 0; i < iters; ++i) {
     start.record().or_throw();
     launch();
     stop.record().or_throw();
     stop.synchronize().or_throw();
-    float ms = 0.0F;
+    float ms{};
     cuda_event::elapsed_ms(start, stop, ms).or_throw();
     total += ms;
     lo = fminf(lo, ms);

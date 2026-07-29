@@ -49,11 +49,11 @@ using color_volume = cuda_volume<uchar4, cudaReadModeNormalizedFloat>;
 // per (x, z) column, laid out row-major in z.
 __global__ void init_height_kernel(float* height, int width, int depth,
     pos3 origin, float voxel_size) {
-  const int ix = cuda_kernel::x_index();
-  const int iz = cuda_kernel::y_index();
+  const auto ix = cuda_kernel::x_index();
+  const auto iz = cuda_kernel::y_index();
   if (ix >= width || iz >= depth) return;
-  const float wx = origin.v.x + (static_cast<float>(ix) * voxel_size);
-  const float wz = origin.v.z + (static_cast<float>(iz) * voxel_size);
+  const auto wx = origin.v.x + (static_cast<float>(ix) * voxel_size);
+  const auto wz = origin.v.z + (static_cast<float>(iz) * voxel_size);
   height[(iz * width) + ix] = terrain::height(wx, wz);
 }
 
@@ -63,15 +63,15 @@ __global__ void init_height_kernel(float* height, int width, int depth,
 // `src`, writes `dst`; the caller ping-pongs them.
 __global__ void erode_kernel(const float* src, float* dst, int width,
     int depth, float max_step, float rate) {
-  const int ix = cuda_kernel::x_index();
-  const int iz = cuda_kernel::y_index();
+  const auto ix = cuda_kernel::x_index();
+  const auto iz = cuda_kernel::y_index();
   if (ix >= width || iz >= depth) return;
-  const int xm = ix > 0 ? ix - 1 : 0;
-  const int xp = ix < width - 1 ? ix + 1 : width - 1;
-  const int zm = iz > 0 ? iz - 1 : 0;
-  const int zp = iz < depth - 1 ? iz + 1 : depth - 1;
-  const float h = src[(iz * width) + ix];
-  float delta = 0.0F;
+  const auto xm = (ix > 0) ? ix - 1 : 0;
+  const auto xp = (ix < width - 1) ? ix + 1 : width - 1;
+  const auto zm = (iz > 0) ? iz - 1 : 0;
+  const auto zp = (iz < depth - 1) ? iz + 1 : depth - 1;
+  const auto h = src[(iz * width) + ix];
+  float delta{};
   delta += terrain::talus_flow(h, src[(iz * width) + xm], max_step, rate);
   delta += terrain::talus_flow(h, src[(iz * width) + xp], max_step, rate);
   delta += terrain::talus_flow(h, src[(zm * width) + ix], max_step, rate);
@@ -87,25 +87,25 @@ __global__ void erode_kernel(const float* src, float* dst, int width,
 __device__ inline void fill_voxel(cudaSurfaceObject_t density_surface,
     cudaSurfaceObject_t material_surface, cudaSurfaceObject_t color_surface,
     const density_field& field, int3 voxel, float surface_height) {
-  const vec3 w = field.voxel_center(voxel).v;
-  const float density = surface_height - w.y;
+  const auto w = field.voxel_center(voxel).v;
+  const auto density = surface_height - w.y;
   surf3Dwrite(density, density_surface,
       voxel.x * static_cast<int>(sizeof(float)), voxel.y, voxel.z);
-  const uint16_t tier = strata::tier_for_depth(density);
+  const uint16_t tier{strata::tier_for_depth(density)};
   surf3Dwrite(tier, material_surface,
       voxel.x * static_cast<int>(sizeof(uint16_t)), voxel.y, voxel.z);
 
   // Vary brightness and tint with 3D fractal noise in world space, so the
   // filtered color mottles organically instead of revealing a grid.
-  const vec3 base = strata::tier_color(tier);
+  const auto base = strata::tier_color(tier);
   constexpr auto noise_scale = 0.15F;
-  const float n =
+  const auto n =
       terrain::fbm_3d(w.x * noise_scale, w.y * noise_scale, w.z * noise_scale);
-  const float warm = terrain::fbm_3d((w.x + 100.0F) * noise_scale,
+  const auto warm = terrain::fbm_3d((w.x + 100.0F) * noise_scale,
       w.y * noise_scale, w.z * noise_scale);
-  const float shade = 0.78F + (0.50F * n);
+  const auto shade = 0.78F + (0.50F * n);
   const vec3 tint{0.94F + (0.12F * warm), 1.0F, 1.06F - (0.12F * warm)};
-  const vec3 c = base * shade * tint;
+  const auto c = base * shade * tint;
   surf3Dwrite(make_uchar4(to_unorm8(c.x), to_unorm8(c.y), to_unorm8(c.z), 255),
       color_surface, voxel.x * static_cast<int>(sizeof(uchar4)), voxel.y,
       voxel.z);
@@ -116,7 +116,7 @@ __device__ inline void fill_voxel(cudaSurfaceObject_t density_surface,
 __global__ void fill_kernel(cudaSurfaceObject_t density_surface,
     cudaSurfaceObject_t material_surface, cudaSurfaceObject_t color_surface,
     const float* height, int height_width, density_field field) {
-  const int3 voxel = make_int3(cuda_kernel::x_index(), cuda_kernel::y_index(),
+  const auto voxel = make_int3(cuda_kernel::x_index(), cuda_kernel::y_index(),
       cuda_kernel::z_index());
   if (!field.contains(voxel)) return;
   fill_voxel(density_surface, material_surface, color_surface, field, voxel,
@@ -129,7 +129,7 @@ __global__ void fill_kernel(cudaSurfaceObject_t density_surface,
 __global__ void flatten_kernel(cudaSurfaceObject_t density_surface,
     cudaSurfaceObject_t material_surface, cudaSurfaceObject_t color_surface,
     density_field field, float flat_height) {
-  const int3 voxel = make_int3(cuda_kernel::x_index(), cuda_kernel::y_index(),
+  const auto voxel = make_int3(cuda_kernel::x_index(), cuda_kernel::y_index(),
       cuda_kernel::z_index());
   if (!field.contains(voxel)) return;
   fill_voxel(density_surface, material_surface, color_surface, field, voxel,
@@ -146,9 +146,9 @@ __global__ void flatten_kernel(cudaSurfaceObject_t density_surface,
 inline void generate_world(const density_field& field,
     const cuda_volume<float>& volume, const material_volume& materials,
     const color_volume& colors) {
-  const cudaExtent extent = field.extent;
-  const int height_w = static_cast<int>(extent.width);
-  const int height_d = static_cast<int>(extent.depth);
+  const auto extent = field.extent;
+  const auto height_w = static_cast<int>(extent.width);
+  const auto height_d = static_cast<int>(extent.depth);
 
   // Build the heightfield and slump it to the soil's angle of repose, so
   // world-gen leaves no face steeper than `repose_slope` (no sharp corners to
@@ -166,12 +166,12 @@ inline void generate_world(const density_field& field,
       cuda_kernel::ceil_div(extent.depth, height_block.y)};
   init_height_kernel<<<height_grid, height_block>>>(height_a.get(), height_w,
       height_d, field.origin, field.voxel_size);
-  float* height_src = height_a.get();
-  float* height_dst = height_b.get();
+  auto* height_src = height_a.get();
+  auto* height_dst = height_b.get();
   for (int pass = 0; pass < erode_passes; ++pass) {
     erode_kernel<<<height_grid, height_block>>>(height_src, height_dst,
         height_w, height_d, repose_slope * field.voxel_size, erode_rate);
-    float* const tmp = height_src;
+    auto* const tmp = height_src;
     height_src = height_dst;
     height_dst = tmp;
   }
@@ -192,7 +192,7 @@ inline void generate_world(const density_field& field,
 inline void flatten_world(const density_field& field,
     const cuda_volume<float>& volume, const material_volume& materials,
     const color_volume& colors, float flat_height) {
-  const cudaExtent extent = field.extent;
+  const auto extent = field.extent;
   const dim3 block{8, 8, 8};
   const dim3 grid{cuda_kernel::ceil_div(extent.width, block.x),
       cuda_kernel::ceil_div(extent.height, block.y),
@@ -218,26 +218,26 @@ __global__ void dig_tunnels_kernel(cudaSurfaceObject_t density_surface,
     density_field field, pos3 row_origin, vec3 bore_dir, vec3 row_dir,
     float spacing, float radius, float bore_length, int count,
     float angle_step) {
-  const int3 voxel = make_int3(cuda_kernel::x_index(), cuda_kernel::y_index(),
+  const auto voxel = make_int3(cuda_kernel::x_index(), cuda_kernel::y_index(),
       cuda_kernel::z_index());
   if (!field.contains(voxel)) return;
-  const vec3 w = field.voxel_center(voxel).v;
+  const auto w = field.voxel_center(voxel).v;
   constexpr vec3 up{0.0F, 1.0F, 0.0F};
 
   // The nearest bore's signed distance (distance to the axis minus the radius,
   // negative inside). Each bore is a segment from its opening down into the
   // ground at its own grade.
-  float carve = 1.0e30F;
+  auto carve = 1.0e30F;
   for (int i = 0; i < count; ++i) {
-    const float theta = static_cast<float>(i + 1) * angle_step;
-    const vec3 dir = (bore_dir * cosf(theta)) - (up * sinf(theta));
-    const vec3 start =
+    const auto theta = static_cast<float>(i + 1) * angle_step;
+    const auto dir = (bore_dir * cosf(theta)) - (up * sinf(theta));
+    const auto start =
         row_origin.v + (row_dir * (spacing * static_cast<float>(i)));
-    const float t = fminf(fmaxf(dot(w - start, dir), 0.0F), bore_length);
+    const auto t = fminf(fmaxf(dot(w - start, dir), 0.0F), bore_length);
     carve = fminf(carve, length(w - (start + (dir * t))) - radius);
   }
 
-  float density = 0.0F;
+  float density{};
   surf3Dread(&density, density_surface,
       voxel.x * static_cast<int>(sizeof(float)), voxel.y, voxel.z);
   if (carve < density) // open air where the bore cuts into solid
@@ -251,7 +251,7 @@ inline void dig_tunnels(const density_field& field,
     const cuda_volume<float>& volume, pos3 row_origin, vec3 bore_dir,
     vec3 row_dir, float spacing, float radius, float bore_length, int count,
     float angle_step) {
-  const cudaExtent extent = field.extent;
+  const auto extent = field.extent;
   const dim3 block{8, 8, 8};
   const dim3 grid{cuda_kernel::ceil_div(extent.width, block.x),
       cuda_kernel::ceil_div(extent.height, block.y),

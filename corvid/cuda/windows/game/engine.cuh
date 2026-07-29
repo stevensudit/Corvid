@@ -122,7 +122,7 @@ public:
     // Tunnel-view sanity: at the jockey, clear a bubble around the ball in the
     // primary march so dirt between the close camera and the ball does not
     // bury the view (`shade_primary_ray`). Render-only.
-    render_cfg_.jockey_clear = rig_.boom <= (rig_.tune.boom_min + 0.05F);
+    render_cfg_.jockey_clear = (rig_.boom <= (rig_.tune.boom_min + 0.05F));
 
     // Auto-exposure: ease the display exposure toward last frame's measured
     // scene brightness. Runs even unfocused, since the scene still renders.
@@ -297,11 +297,11 @@ private:
     // like the rig (the probe is stale and sparse), and stop the drive into a
     // wall, recording it for the stain. `confined` is left for the camera.
     body_.center += ground_state_.push * rig_.tune.collision_damp;
-    rig_.walled = length(ground_state_.wall_normal) > 0.5F;
+    rig_.walled = (length(ground_state_.wall_normal) > 0.5F);
     rig_.confined = ground_state_.overhead;
     rig_.wall_press = 0.0F;
     if (rig_.walled)
-      if (const float into = dot(body_.velocity, ground_state_.wall_normal);
+      if (const auto into = dot(body_.velocity, ground_state_.wall_normal);
           into < 0.0F)
       {
         body_.velocity -= ground_state_.wall_normal * into;
@@ -332,7 +332,7 @@ private:
     const body_contact flat{.touching = true,
         .normal = body_up,
         .penetration = 0.0F};
-    const pos3 held = body_.center;
+    const auto held = body_.center;
     body_.advance(flat, drive, false, dt);
     body_.center = held;
     body_.velocity.y = 0.0F;
@@ -363,12 +363,12 @@ private:
   void update_title(float dt) {
     if (const auto report = stats_.record(dt)) {
       // Planar speed of the avatar (world units per second), the speedometer.
-      const float speed = sqrtf(
+      const auto speed = sqrtf(
           (rig_.ground_vel.x * rig_.ground_vel.x) +
           (rig_.ground_vel.z * rig_.ground_vel.z));
       // The aim's elevation above horizontal, so sighting up a tunnel reads
       // its grade off the title bar.
-      const float aim_deg = rig_.facing.pitch.value / radians::per_degree;
+      const auto aim_deg = rig_.facing.pitch.value / radians::per_degree;
       std::array<char, 224> title;
       SDL_snprintf(title.data(), title.size(),
           "Corvid Voxel Viewer - %.0f fps  %.1f/%.1f/%.1f ms (min/avg/max)  "
@@ -769,12 +769,12 @@ private:
     if (exposure_primed_) {
       float sums[2]{};
       exposure_sums_.store(sums).or_throw();
-      const float avg = sums[0] / fmaxf(sums[1], 1.0e-3F);
-      const float target = fminf(
+      const auto avg = sums[0] / fmaxf(sums[1], 1.0e-3F);
+      const auto target = fminf(
           fmaxf(ex.key / fmaxf(avg, 1.0e-4F), ex.min_value), ex.max_value);
       // Faster toward a brighter scene (the exposure falling) than a darker
       // one, like the eye.
-      const float rate = target < ex.value ? ex.adapt_bright : ex.adapt_dark;
+      const auto rate = (target < ex.value) ? ex.adapt_bright : ex.adapt_dark;
       const auto blend = 1.0F - expf(-rate * dt);
       ex.value =
           exp2f(log2f(ex.value) + ((log2f(target) - log2f(ex.value)) * blend));
@@ -805,7 +805,7 @@ private:
         rig_.tune.ball_radius * 2.5F;  // clearance over the ball
     const vec3 bore{1.0F, 0.0F, 0.0F}; // heading all bores share
     const vec3 row{0.0F, 0.0F, 1.0F};  // openings spaced along z
-    const float surface_y = rig_.anchor.v.y - rig_.tune.ball_radius;
+    const auto surface_y = rig_.anchor.v.y - rig_.tune.ball_radius;
     // The first opening, so the row centers on the ball and sits a little
     // ahead of it along the bore.
     const vec3 first{rig_.anchor.v.x + 3.0F, surface_y,
@@ -829,7 +829,7 @@ private:
           log_collision_, body_.params, body_defaults_, flatten_requested_,
           tunnels_requested_, input_.run_multiplier);
 
-    const int sync_interval = present_sync_interval(win_, uncap_fps_);
+    const auto sync_interval = present_sync_interval(win_, uncap_fps_);
 
     presenter_
         .render(
@@ -844,7 +844,7 @@ private:
               // Time just the render so the title can show GPU ms against the
               // whole-frame ms (GPU-bound vs CPU-bound).
               {
-                cuda_timer gpu_timer{gpu_ms_};
+                cuda_timer gpu_timer(gpu_ms_);
                 render_scene(hdr_.get(), aa_gbuf_.get(), grid_dim, block_, res,
                     rays, field_, colors_.texture(), ball, head, mirror_,
                     render_cfg_);
@@ -871,7 +871,7 @@ private:
   // without reallocating. The prepass rewrites every texel each frame, so no
   // stale data survives a resize.
   void ensure_gbuffer(int w, int h) {
-    const size_t needed = static_cast<size_t>(w) * static_cast<size_t>(h);
+    const auto needed = static_cast<size_t>(w) * static_cast<size_t>(h);
     if (needed <= aa_gbuf_count_) return;
     aa_gbuf_ = cuda_ptr<aa_texel>{needed};
     if (!aa_gbuf_)
@@ -977,7 +977,7 @@ private:
 
   // The active tool, toggled by the number keys (1 = dig). `none` shows no
   // reticle and disables the dig brush.
-  active_tool active_tool_ = active_tool::none;
+  active_tool active_tool_{};
 
   // The flashlight headlamp, toggled by the F key. Copied into the render
   // config each frame along with the camera eye and view direction, so the
@@ -1212,7 +1212,7 @@ private:
 
   // Frame timing in nanoseconds: millisecond ticks quantize dt enough to
   // judder movement at high refresh rates (a 6.94 ms frame reads as 6 or 7).
-  Uint64 last_ns_ = 0;
+  Uint64 last_ns_{};
 
   // Last frame's GPU kernel time (ms), measured with a `cuda_timer` and shown
   // next to the whole-frame ms so a slowdown can be pinned to the GPU render
@@ -1230,7 +1230,7 @@ private:
   [[nodiscard]] static int present_sync_interval(SDL_Window* win, bool uncap) {
     constexpr auto background_sync = 4;
     const auto focused =
-        (SDL_GetWindowFlags(win) & SDL_WINDOW_INPUT_FOCUS) != 0;
+        ((SDL_GetWindowFlags(win) & SDL_WINDOW_INPUT_FOCUS) != 0);
     if (!focused) return background_sync;
     return uncap ? 0 : 1;
   }
@@ -1251,7 +1251,7 @@ private:
 
   void restore_window_geometry() {
     if (geom_path_.empty()) return;
-    std::ifstream in{geom_path_};
+    std::ifstream in(geom_path_);
     int x{};
     int y{};
     int w{};
@@ -1267,14 +1267,14 @@ private:
     try {
       if (geom_path_.empty()) return;
       const auto maximized =
-          (SDL_GetWindowFlags(win_) & SDL_WINDOW_MAXIMIZED) != 0;
+          ((SDL_GetWindowFlags(win_) & SDL_WINDOW_MAXIMIZED) != 0);
       int x{};
       int y{};
       int w{};
       int h{};
       SDL_GetWindowPosition(win_, &x, &y);
       SDL_GetWindowSize(win_, &w, &h);
-      std::ofstream out{geom_path_, std::ios::trunc};
+      std::ofstream out(geom_path_, std::ios::trunc);
       out << x << ' ' << y << ' ' << w << ' ' << h << ' '
           << (maximized ? 1 : 0) << '\n';
     }
