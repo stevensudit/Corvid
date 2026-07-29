@@ -54,7 +54,7 @@ std::vector<uint8_t> as_vec(std::span<const uint8_t> s) {
 // count written (capped at the available room across the unused iovecs).
 size_t fill(iov_queue<>& q, std::span<const uint8_t> src) {
   auto iov = q.unused();
-  size_t written = 0;
+  size_t written{};
   for (const auto& e : iov) {
     if (written >= src.size()) break;
     const size_t take = std::min(e.iov_len, src.size() - written);
@@ -199,7 +199,7 @@ TEST_CASE("budget-capped unused with exact consume", "[iov_queue]") {
   for (uint8_t i = 1; i <= 20; ++i) CHECK(q.append(bytes({i})));
   CHECK(q.appended() == 20);
 
-  constexpr size_t budget = 16;
+  constexpr size_t budget{16};
   const auto all = q.unused();
   CHECK(all.size() == 20);
   const auto capped = all.first(std::min(all.size(), budget));

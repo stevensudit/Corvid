@@ -98,7 +98,7 @@ __device__ inline void fill_voxel(cudaSurfaceObject_t density_surface,
   // Vary brightness and tint with 3D fractal noise in world space, so the
   // filtered color mottles organically instead of revealing a grid.
   const vec3 base = strata::tier_color(tier);
-  constexpr float noise_scale = 0.15F;
+  constexpr auto noise_scale = 0.15F;
   const float n =
       terrain::fbm_3d(w.x * noise_scale, w.y * noise_scale, w.z * noise_scale);
   const float warm = terrain::fbm_3d((w.x + 100.0F) * noise_scale,
@@ -154,9 +154,9 @@ inline void generate_world(const density_field& field,
   // world-gen leaves no face steeper than `repose_slope` (no sharp corners to
   // alias). Each thermal-erosion pass sheds material off columns standing too
   // tall over a neighbor; a few dozen passes settle every slope.
-  constexpr float repose_slope = 0.7F; // tangent, about 35 degrees
-  constexpr float erode_rate = 0.15F;
-  constexpr int erode_passes = 80;
+  constexpr auto repose_slope = 0.7F; // tangent, about 35 degrees
+  constexpr auto erode_rate = 0.15F;
+  constexpr auto erode_passes = 80;
   cuda_ptr<float> height_a{static_cast<size_t>(height_w) * height_d};
   cuda_ptr<float> height_b{static_cast<size_t>(height_w) * height_d};
   if (!height_a || !height_b)

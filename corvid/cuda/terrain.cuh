@@ -32,10 +32,10 @@ namespace corvid::cuda::terrain {
 // widely-copied values with no meaning beyond scrambling nearby lattice points
 // apart (a different constant set than scene_render.cuh's sine-hash, same
 // family).
-constexpr float hash_kx = 127.1F;
-constexpr float hash_ky = 311.7F;
-constexpr float hash_kz = 74.7F;
-constexpr float hash_amp = 43758.547F;
+constexpr auto hash_kx = 127.1F;
+constexpr auto hash_ky = 311.7F;
+constexpr auto hash_kz = 74.7F;
+constexpr auto hash_amp = 43758.547F;
 
 // Hash of a lattice point to a pseudo-random value in [0, 1).
 [[nodiscard]] __device__ inline float hash2(float x, float y) {
@@ -64,8 +64,8 @@ constexpr float hash_amp = 43758.547F;
 // Fractal value noise: octaves at halving amplitude and doubling frequency.
 [[nodiscard]] __device__ inline float fbm(float x, float y) {
   float sum{};
-  float amplitude = 0.5F;
-  float frequency = 1.0F;
+  auto amplitude = 0.5F;
+  auto frequency = 1.0F;
   for (int octave = 0; octave < 4; ++octave) {
     sum += amplitude * value_noise(x * frequency, y * frequency);
     amplitude *= 0.5F;
@@ -79,8 +79,8 @@ constexpr float hash_amp = 43758.547F;
 // bumps. In [0, ~1).
 [[nodiscard]] __device__ inline float ridged(float x, float y) {
   float sum{};
-  float amplitude = 0.5F;
-  float frequency = 1.0F;
+  auto amplitude = 0.5F;
+  auto frequency = 1.0F;
   for (int octave = 0; octave < 4; ++octave) {
     const auto n = value_noise(x * frequency, y * frequency);
     const auto r = 1.0F - fabsf((2.0F * n) - 1.0F);
@@ -131,8 +131,8 @@ value_noise_3d(float x, float y, float z) {
 // Fractal 3D value noise: octaves at halving amplitude and doubling frequency.
 [[nodiscard]] __device__ inline float fbm_3d(float x, float y, float z) {
   float sum{};
-  float amplitude = 0.5F;
-  float frequency = 1.0F;
+  auto amplitude = 0.5F;
+  auto frequency = 1.0F;
   for (int octave = 0; octave < 3; ++octave) {
     sum += amplitude *
            value_noise_3d(x * frequency, y * frequency, z * frequency);
@@ -151,18 +151,18 @@ value_noise_3d(float x, float y, float z) {
 // rolling fbm base. Steep crests are expected to be slumped to a stable angle
 // by a later erosion pass.
 [[nodiscard]] __device__ inline float height(float x, float z) {
-  constexpr float base = -3.0F;
-  constexpr float scale = 0.035F;      // feature scale (larger = broader)
-  constexpr float warp_scale = 0.015F; // frequency of the warp noise
-  constexpr float warp = 15.0F;        // warp displacement, world units
-  constexpr float dune_amp = 8.0F;     // ridged crest height
-  constexpr float roll_amp = 7.0F;     // rolling-hill height
+  constexpr auto base = -3.0F;
+  constexpr auto scale = 0.035F;      // feature scale (larger = broader)
+  constexpr auto warp_scale = 0.015F; // frequency of the warp noise
+  constexpr auto warp = 15.0F;        // warp displacement, world units
+  constexpr auto dune_amp = 8.0F;     // ridged crest height
+  constexpr auto roll_amp = 7.0F;     // rolling-hill height
 
   // Displace the sample point by a low-frequency noise (domain warping).
   // Offsets that decorrelate the z-warp noise lookup from the x-warp;
   // arbitrary, just far enough apart that the two do not track each other.
-  constexpr float warp_offset_x = 4.7F;
-  constexpr float warp_offset_z = 2.1F;
+  constexpr auto warp_offset_x = 4.7F;
+  constexpr auto warp_offset_z = 2.1F;
   const auto wx = fbm(x * warp_scale, z * warp_scale) - 0.5F;
   const auto wz =
       fbm((x * warp_scale) + warp_offset_x, (z * warp_scale) + warp_offset_z) -

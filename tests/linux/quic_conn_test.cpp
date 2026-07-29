@@ -718,7 +718,7 @@ TEST_CASE(
   auto stream_buf = iouring::iou_buffer::make_synthetic_write(
       {stream_backing.data(), stream_backing.size()});
 
-  uint64_t accepted = 0;
+  uint64_t accepted{};
   const auto status = client.writev_stream(sid, iovs, stream_buf, accepted,
       write_stream_flags::more, now_tp());
 

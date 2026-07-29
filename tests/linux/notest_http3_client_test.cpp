@@ -108,7 +108,7 @@ std::unique_ptr<http3_client_stream> make_request(http3_method method,
     stream->request_headers().set_value("content-type", "text/plain");
     stream->request_headers().set_value("content-length",
         std::to_string(body.size()));
-    constexpr size_t piece = 8;
+    constexpr size_t piece{8};
     for (size_t off = 0; off < body.size(); off += piece) {
       const size_t len = std::min(piece, body.size() - off);
       stream->send_queue().append(std::vector<uint8_t>(

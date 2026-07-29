@@ -83,7 +83,7 @@ private:
   }
 
   // Fixed cutoff (Hz) for the speed low-pass, the One Euro default.
-  static constexpr float speed_cutoff = 1.0F;
+  static constexpr auto speed_cutoff = 1.0F;
   float min_cutoff_{};
   float beta_{};
   float speed_{};

@@ -768,7 +768,7 @@ TEST_CASE("ResolveEscapeesVisitsEscapedEnemy", "[SimWorld]") {
   (void)w.next();
   CHECK(w.size() == 1U);
 
-  size_t resolved = 0;
+  size_t resolved{};
   (void)w.resolveEscapees(
       [&](SimWorld::EntityId id, const Position& pos, const Pathing& pf) {
         ++resolved;
@@ -805,7 +805,7 @@ TEST_CASE("ResolveEscapeesCanLeaveEnemyAlive", "[SimWorld]") {
 
   (void)w.next();
 
-  size_t resolved = 0;
+  size_t resolved{};
   (void)w.resolveEscapees(
       [&](SimWorld::EntityId id, const Position&, const Pathing&) {
         ++resolved;
@@ -1232,10 +1232,10 @@ TEST_CASE("ExtractFullIncludesPathsAndState", "[SimGame]") {
   SimGame game;
   (void)game.loadMap();
 
-  size_t path_points = 0;
-  size_t upserts = 0;
-  size_t erased = 0;
-  size_t currentWave = 99;
+  size_t path_points{};
+  size_t upserts{};
+  size_t erased{};
+  size_t currentWave{99};
   WaveTick waveTick{99};
   uint16_t lives = -1;
   uint16_t resources = -1;
@@ -1387,7 +1387,7 @@ TEST_CASE("BuildWorldDeltaJsonShapeAndFormatting", "[SimJson]") {
 
   const auto upserts = obj.get_array("upserts");
   REQUIRE(upserts);
-  size_t count = 0;
+  size_t count{};
   for (const auto item : upserts) {
     const auto entry = item.as_object();
     REQUIRE(entry);
@@ -1459,7 +1459,7 @@ TEST_CASE("BuildWorldDeltaIncludesFlashVisualEffects", "[SimJson]") {
 
   const auto upserts = obj.get_array("upserts");
   REQUIRE(upserts);
-  size_t count = 0;
+  size_t count{};
   for (const auto item : upserts) {
     const auto entry = item.as_object();
     REQUIRE(entry);
@@ -1525,7 +1525,7 @@ TEST_CASE("BuildWorldSnapshotJsonShape", "[SimJson]") {
   REQUIRE(map_design);
   const auto paths = map_design.get_array("paths");
   REQUIRE(paths);
-  size_t path_points = 0;
+  size_t path_points{};
   for (const auto point : paths) {
     const auto entry = point.as_object();
     REQUIRE(entry);

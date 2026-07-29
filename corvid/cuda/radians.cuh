@@ -35,7 +35,7 @@ namespace corvid::cuda {
 struct radians {
   float value{};
 
-  static constexpr float per_degree = std::numbers::pi_v<float> / 180.0F;
+  static constexpr auto per_degree = std::numbers::pi_v<float> / 180.0F;
 
   // Angles form an additive group: they add, subtract, negate, and scale by a
   // plain factor. There is deliberately no `radians * radians`.

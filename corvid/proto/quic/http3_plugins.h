@@ -422,7 +422,7 @@ public:
         bitmask::has(flags, quic_stream_data_flags::fin)
             ? stream_chunk::fin
             : stream_chunk::more;
-    size_t consumed = 0;
+    size_t consumed{};
     if (!h3_.read_stream(stream_id, data, chunk, consumed)) return false;
     return credit_flow_control(stream_id, consumed);
   }
@@ -617,7 +617,7 @@ public:
 
       auto out = io_.borrow_send_buffer();
       if (!out) return true;
-      uint64_t accepted = 0;
+      uint64_t accepted{};
       const auto status =
           io_.conn().writev_stream(stream_id, vecs, out, accepted, flags, now);
       // Draining/closing is a connection-level state: ngtcp2 will emit nothing

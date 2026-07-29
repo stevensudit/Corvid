@@ -159,7 +159,7 @@ class epoll_stream_conn: public epoll_io_conn {
 #pragma region Accessors
 public:
   // Default receive-buffer capacity per connection, in bytes.
-  static constexpr size_t default_recv_buf_size = 16384;
+  static constexpr size_t default_recv_buf_size{16384};
 
   // True if the connection has not yet been closed.
   [[nodiscard]] bool is_open() const noexcept { return open_; }

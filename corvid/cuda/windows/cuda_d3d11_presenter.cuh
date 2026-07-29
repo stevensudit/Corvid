@@ -70,7 +70,8 @@ public:
   // device and grow the render target to fit. Brings up a default-constructed
   // presenter, or repoints an existing one at a new window.
   [[nodiscard]] hr_status reset(HWND hwnd) {
-    if (hr_status st{swapchain_.reset(device_, hwnd)}; !st) return st;
+    if (hr_status status{swapchain_.reset(device_, hwnd)}; !status)
+      return status;
     return ensure_target();
   }
 
@@ -133,10 +134,10 @@ public:
   // Returns a success status (`S_FALSE` when the size was unchanged), or a
   // genuine failure for the caller to handle.
   [[nodiscard]] hr_status resize() {
-    auto st = swapchain_.resize();
-    if (d3d11_swapchain::is_device_lost(st)) return recover_device();
-    if (st && !st.is_false()) st = ensure_target();
-    return st;
+    auto status = swapchain_.resize();
+    if (d3d11_swapchain::is_device_lost(status)) return recover_device();
+    if (status && !status.is_false()) status = ensure_target();
+    return status;
   }
 
   // Copy the render target into the backbuffer and present it.
@@ -156,9 +157,9 @@ public:
   present(std::invocable auto&& overlay, int sync_interval = 1) {
     swapchain_.fill_back_buffer(render_texture_);
     overlay();
-    auto st = swapchain_.present(sync_interval);
-    if (d3d11_swapchain::is_device_lost(st)) st = recover_device();
-    return st;
+    auto status = swapchain_.present(sync_interval);
+    if (d3d11_swapchain::is_device_lost(status)) status = recover_device();
+    return status;
   }
 
   // Map the render target, hand its `cudaArray` and live size to `draw`, then

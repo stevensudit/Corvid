@@ -604,8 +604,8 @@ TEST_CASE("CoalesceChain", "[IouBufPool]") {
   // all 32 large blocks.
   if (true) {
     auto pool = iou_buf_pool::create();
-    constexpr size_t TOTAL_SMALLS = 512;
-    constexpr size_t TOTAL_LARGE = 32;
+    constexpr size_t TOTAL_SMALLS{512};
+    constexpr size_t TOTAL_LARGE{32};
     std::array<iou_buf_pool::buffer, TOTAL_SMALLS> bufs;
     for (size_t i = 0; i < TOTAL_SMALLS; ++i) {
       bufs[i] = pool->borrow_writer(block_size::kb004);
@@ -670,8 +670,8 @@ TEST_CASE("UpdateRecvmsgValid", "[IouBufPool]") {
     REQUIRE(buf);
 
     constexpr std::string_view data{"hello-recvmsg"};
-    constexpr uint32_t peer_ip = 0x7f000001; // 127.0.0.1
-    constexpr uint16_t peer_port = 54321;
+    constexpr uint32_t peer_ip{0x7f000001}; // 127.0.0.1
+    constexpr uint16_t peer_port{54321};
 
     // Write io_uring_recvmsg_out header + peer sockaddr_in + payload at the
     // start of the buffer's active region.

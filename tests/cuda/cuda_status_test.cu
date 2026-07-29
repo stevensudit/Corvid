@@ -28,7 +28,7 @@ struct status_case {
 // Spot checks across the sparse blocks, including the two values straddling a
 // gap that were corrected during authoring (invalid_texture_binding = 19,
 // invalid_channel_descriptor = 20) and both range endpoints.
-constexpr status_case status_cases[] = {
+constexpr status_case status_cases[]{
     {cuda_status::success, 0, "success"},
     {cuda_status::invalid_value, 1, "invalid_value"},
     {cuda_status::version_translation, 10, "version_translation"},

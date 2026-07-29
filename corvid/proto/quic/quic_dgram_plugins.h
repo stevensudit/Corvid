@@ -83,7 +83,7 @@ public:
     for (;;) {
       auto out = io_.borrow_send_buffer();
       if (!out) return true;
-      uint64_t accepted = 0;
+      uint64_t accepted{};
       const auto status = io_.conn().writev_stream(quic_stream_id::none, {},
           out, accepted, write_stream_flags::none, now);
       // Draining/closing is a connection-level state, so give up.

@@ -73,7 +73,7 @@ TEST_CASE("ParseNestedViewsAndLookup", "[JsonParser]") {
   const auto arr = obj.get_array("a/b");
   REQUIRE(arr);
 
-  size_t count = 0;
+  size_t count{};
   for (const auto item : arr) {
     if (count == 0) {
       const auto item_value = item.as_number<int>();
@@ -251,7 +251,7 @@ TEST_CASE("FormatsFloatsAndRoundTrips", "[JsonWriter]") {
 
   const auto items = obj.get_array("items");
   REQUIRE(items);
-  size_t count = 0;
+  size_t count{};
   for (const auto item : items) {
     if (count == 2) {
       const auto nested = item.as_object();

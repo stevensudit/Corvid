@@ -256,8 +256,8 @@ struct SegmentedPath: private SimWorldBounds {
     float cumulative{};
 
     for (size_t i = 0; i + 1 < p.joints.size(); ++i) {
-      const Position& front = p.joints[i].pos;
-      const Position& back = p.joints[i + 1].pos;
+      const auto& front = p.joints[i].pos;
+      const auto& back = p.joints[i + 1].pos;
       assert(isInBounds(front));
       assert(isInBounds(back));
 

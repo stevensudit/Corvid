@@ -161,7 +161,7 @@ TEST_CASE("ReconstructPayload", "[IouProvidedBufPool]") {
     REQUIRE(pool->register_with(ring));
 
     // Simulate the kernel writing "hello world" into slot 2.
-    const size_t bid = 2;
+    const size_t bid{2};
     auto* slot = reinterpret_cast<char*>(pool->buf_data(bid));
     REQUIRE(slot != nullptr);
     const auto expected("hello world"sv);
@@ -262,7 +262,7 @@ TEST_CASE("ReturnReplenishes", "[IouProvidedBufPool]") {
     iou_ring ring;
     REQUIRE(pool->register_with(ring));
 
-    const size_t bid = 1;
+    const size_t bid{1};
     const auto flags = iou_cqe_flags{
         static_cast<uint32_t>(IORING_CQE_F_BUFFER | (bid << 16U))};
 

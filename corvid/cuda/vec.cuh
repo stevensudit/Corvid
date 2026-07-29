@@ -39,7 +39,7 @@ namespace corvid::cuda {
 // the scale (no surface within reach). Deliberately finite, not infinity, so
 // it stays valid if a translation unit is later built with fast math (which
 // assumes no inf/NaN) and never yields a NaN under arithmetic.
-constexpr float big_value = std::numeric_limits<float>::max();
+constexpr auto big_value = std::numeric_limits<float>::max();
 
 #pragma region vec2
 

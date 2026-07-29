@@ -56,16 +56,16 @@ namespace corvid::cuda {
 // cannot resolve; the viewer's "uncap fps" toggle is the complementary in-situ
 // measurement. Selected by the `bench` argument.
 [[nodiscard]] inline int run_kernel_bench() {
-  constexpr int width = 2560; // a fixed 1440p frame, so runs compare directly
-  constexpr int height = 1440;
-  constexpr int warmup = 32; // settle clocks and caches before timing
-  constexpr int iters = 200;
+  constexpr auto width = 2560; // a fixed 1440p frame, so runs compare directly
+  constexpr auto height = 1440;
+  constexpr auto warmup = 32; // settle clocks and caches before timing
+  constexpr auto iters = 200;
 
   // The same world the viewer builds (see `engine`): the three grids filled
   // once from the eroded terrain, plus a mirror wall at the world's -z edge
   // (unlike the engine, which centers its mirror on the z midplane).
   constexpr cudaExtent vol_extent{512, 128, 512};
-  constexpr float voxel_size = 0.5F;
+  constexpr auto voxel_size = 0.5F;
   cuda_volume<float> volume{vol_extent};
   material_volume materials{vol_extent};
   color_volume colors{vol_extent};

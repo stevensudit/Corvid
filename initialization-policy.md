@@ -16,6 +16,28 @@ Four forms, each with one meaning:
 | `int x{expr};` etc.      | Value-init, narrowing check, aggregate, value    |
 | `Connection c(a, b);`    | Operational construction (active logic)          |
 
+Two independent questions live in every declaration, and most disputes here
+come of arguing one on the other's terms. What stands on the left, `auto` or
+a spelled type, is settled by the principle below. What joins it to the
+right, `=` or `{}` or `()`, is settled by the four forms above.
+
+**Names carry meaning; types carry constraint.** Saying what a variable
+means is the name's job, so `auto` is right whenever the name does that
+job. The type's job is to bound what may be in the variable and to pick the
+representation, which `auto` does not interfere with: in
+`auto on_error = settings.on_error;`, the name says what it is for and
+`failure_policy` says it must be `log`, `terminate`, or `ignore`. It
+follows that a spelled type is worth writing only when it constrains
+(a narrowing check, a conversion, a category the reader holds) and not
+merely when it labels. It also follows that an unclear `auto` is usually a
+naming defect, not a missing type: `auto floor = ...` reads badly because
+`floor` is a noun, and `on_floor` fixes it without the type's help. Booleans
+in particular should read as English predicates, with `is`, `was`, `can`,
+or `did` either spelled or implied, as `jump_ready` implies "jump is
+ready". Where a type is being asked to explain what the name should have
+said, the code is relying on `float x` here and `bool x` there to tell two
+things apart, and the names are at fault.
+
 ## `=` with a spelled-out type: literals only
 
 - **Rule:** `Type x = expr;` is reserved for literal initializers where the
@@ -62,6 +84,63 @@ Four forms, each with one meaning:
   `constexpr` weakens the narrowing check without removing it. A constant
   that fits is exempt, so braces reject only a value out of range for the
   target, such as a computed constant that went negative.
+- **Ruling: a literal-initialized declaration spells its type only when
+  that type differs from the literal's own.** The declared type is worth
+  writing when it is converting and not when it merely labels, which is
+  the governing principle applied to literals. A suffix that already pins
+  the type leaves nothing to say, so `static constexpr auto contact_eps =
+  1.0e-3F;` and `constexpr auto max_steps = 256;`. A mutable local reads
+  the same way, so `auto twg = -1.0F;`: the value is the point and the
+  type is obvious, which are not in tension.
+  - **An expression initializer follows the same test.** `constexpr auto
+    kz = std::numbers::inv_sqrt3_v<float>;` and `constexpr auto per_degree
+    = std::numbers::pi_v<float> / 180.0F;`: the expression already produces
+    `float` and names it, so the declared type converts nothing. What
+    decides is whether the initializer's own type differs, not whether it
+    is a literal. Check the whole chain before assuming, since one widening
+    operand makes the spelled type load-bearing again.
+  - **When the literal's type is the thing that does not match, fix the
+    literal.** `auto half = 0.5F;`, never `float half = 0.5;`. The
+    mismatched form is a silent double-to-float narrowing dressed as a
+    declaration, and suffixing the literal removes the conversion instead
+    of spelling a type to absorb it. Same move as the `4U` ruling above:
+    when a literal's type blocks the form you want, the literal is what is
+    wrong.
+  - **A non-static data member stays spelled, because the language leaves
+    it no choice.** `auto` is not a valid declarator for a member, so an
+    NSDMI keeps its type however obvious the literal is:
+    `float disc_height = 0.32F;`. This is not an exception anyone chose,
+    and it is the reason a struct's members and a function's locals will
+    disagree about the identical literal, `float gravity = 20.0F;` beside
+    `auto shadow_factor = 1.0F;`. Reading that as an inconsistency to
+    clean up is the mistake; the member has only one spelling available.
+  - **Fixed-width and role types always stay spelled**: `uintN_t`,
+    `size_t`, `ptrdiff_t`. Fixing the literal is not available here, since
+    the language has no suffix that names a fixed width, so the declared
+    type is the only place the fact can be written. Beyond that, whether a
+    given literal happens to match one is an accident of its magnitude
+    that a reader would have to compute.
+    `static constexpr uint32_t all_mask = 0xffffffff;` would in fact
+    survive `auto`, because a hex literal too large for `int` lands on
+    `unsigned int`; one digit shorter it would not, since `0xff` is plain
+    `int` and `auto` would lose both the width and the signedness. Two
+    adjacent lines of identical shape with opposite answers is not a rule
+    anyone applies correctly at reading speed. `size_t` earns it twice
+    over, being `unsigned long long` on LLP64 and `unsigned long` on LP64,
+    so it names a role whose representation is the platform's to pick.
+  - **Fixed-width and role types also take braces, even for a bare
+    literal.** The fact that forces the type to be spelled, that the
+    literal cannot express the target's width, is the same fact that stops
+    a reader from checking the fit, so the check belongs to the compiler:
+    `constexpr uint32_t prime_x{374761393U};`. This is not decoration.
+    `constexpr uint32_t x = 5000000000U;` compiles silently under
+    `-Wall -Wextra -Werror` and stores 705032704, where the brace form is a
+    hard error that names the value. Idiomatic wraparound is the exception
+    and keeps `=`: `static constexpr size_t npos = -1;` is the traditional
+    shorthand for the target's maximum, and a negative literal against an
+    unsigned target is obvious rather than subtle, so there is nothing
+    there for a check to catch. Ordinary types are untouched by this,
+    since an `int` or `float` literal already carries the target's type.
 - **Ruling: fix the literals when signedness is what blocks braces.** When a
   brace form fails only because a literal initializer is signed and the target
   is not, suffix the literals (`4U`, or `UL` when that is not enough) rather
@@ -69,21 +148,36 @@ Four forms, each with one meaning:
   `const size_t mask_len{is_mask ? 4U : 0U};`. The brace error was pointing at
   a real signed/unsigned mismatch in the source, and the fix belongs where the
   mismatch is. The ternary is also what puts this line under the brace rule at
-  all. A bare literal initializer takes `=`, because a constant that provably
-  fits is exempt from the narrowing check, so there the check can never fire
-  and braces would add nothing.
-- **Ruling: `bool` from a boolean expression.** A boolean expression
-  initializes a spelled-out `bool`: `const bool ok = p && p->is_good();`.
-  The RHS of a bool is typically coercions (a pointer used bool-like) and
-  comparisons, with nothing spelled `bool` anywhere in it, so `auto` hides
-  the one fact that matters; braces add nothing, because a boolean
-  expression cannot narrow. Parenthesize comparisons:
-  `const bool ws = (a != b);`, `p && (count() == 0)`. The parens group the
-  comparison with its own operands; without them, `x = y != z` makes the
-  reader stop and reparse. They belong to the comparison, not the
-  initializer: `&&` does not look like an assignment, so a bare conjunction
-  takes none. This began as a scoped exception; the ruling below names the
-  deeper rule it instantiates.
+  all. A bare literal initializer takes `=` when the target is an ordinary
+  type, where the literal already carries that type and so the check could
+  never fire. That reasoning does not reach a fixed-width or role type: there
+  the constant's fit turns on a width the literal knows nothing about, and the
+  check fires for real. Those take braces, per the bullet above.
+- **Ruling: an initializer that is already `bool` takes `auto`; spelling
+  `bool` marks a conversion.** A comparison, a `&&` or `||`, a `!`, and a
+  predicate call all yield `bool` by definition, so `auto` deduces exactly
+  `bool` and the spelled type restates what the initializer already says:
+  `const auto floor = contact.is_floor();`,
+  `const auto ok = p && p->is_good();`, `const auto ws = (a != b);`. The
+  spelled `bool` is reserved for an initializer that is NOT bool and is
+  being converted to one, where `auto` would deduce something else
+  entirely: `const bool ok = p;` on a pointer, `const bool any = flags &
+  mask;` on an integer. That is the same reason
+  `auto x = static_cast<size_t>(n);` names its destination. Prefer
+  restructuring over the conversion where it reads better (`p != nullptr`
+  is banned, but a predicate call rarely is).
+  - Parenthesize comparisons either way:
+    `const auto ws = (a != b);`, `p && (count() == 0)`. The parens group
+    the comparison with its own operands; without them, `x = y != z` makes
+    the reader stop and reparse. They belong to the comparison, not the
+    initializer, so a bare conjunction takes none.
+  - This supersedes the earlier reading, which spelled `bool` for any
+    boolean expression on the grounds that "nothing is spelled `bool`
+    anywhere in it". That is true of the operands and false of the
+    operator: `&&` and `==` are as plainly bool-valued as a function
+    named `is_floor`. Applied across the repo the narrower rule left the
+    spelled form with no instances at all, since every site was already
+    bool-valued.
 - **Ruling: ternary predicates containing comparisons take parens.** When
   the predicate of a `?:` contains a comparison operator, parenthesize the
   predicate as a whole: `(sizeof(C) == 1) ? a : b`,
@@ -107,12 +201,28 @@ Four forms, each with one meaning:
 - `auto x = y;` when the type should track the initializer.
   `auto x = static_cast<size_t>(n);` when converting; the cast names the
   destination type.
-- **Ruling: `auto` must not hide a character type.** A pointer or cursor into
-  a character buffer spells its type: `const char* base = buf.data() + b;`,
-  `const CharT* p = first;`, never `const auto*`. We are not trying to track
-  the character type there, and `auto` only obscures it. The cast form above
-  still applies when the destination is named on the right, as in
-  `const auto* f = reinterpret_cast<const char*>(first);`.
+- **Ruling: a reference binding takes `auto&`, all the more so.**
+  `auto& io = get_io();`, not `ImGuiIO& io = get_io();`. This is the same
+  rule as for values, with a stronger case behind it: a copy merely takes
+  its type from the call, and is thereafter its own object, whereas a
+  reference stays bound to that call's result for its whole lifetime.
+  Spelling the type by hand there is a second place to be wrong about one
+  fact. The character-type ruling below still overrides it.
+- **Ruling: a character cursor spells its type, because `auto*` files it
+  under the wrong category.** `const char* base = buf.data() + b;`,
+  `const CharT* p = first;`, never `const auto*`. The reason is not that
+  `auto` hides the type, which the principle above would not care about.
+  It is that a reader holds "character pointer" as its own category, a
+  string or a cursor into text, while `auto*` asserts pointer-ness as the
+  salient fact. Pointer-ness is the incidental part here, an accident of C
+  history: `std::string` is not called `string_ptr` and has no pointer
+  semantics, and a newer language would spell the same thing `char[]`. So
+  `auto*` sends the reader to the wrong drawer. It stays right where the
+  thing really is a pointer to an object, as in `auto* rtv = get_rtv();`.
+  Plain `const auto base = ...` is not wrong, since it claims nothing about
+  pointers at all, but it is not better either, so there is little call for
+  it. The cast form still applies when the destination is named on the
+  right: `const auto* f = reinterpret_cast<const char*>(first);`.
 - **Ruling: construct directly when the initializer is only a construction.**
   When the initializer is nothing but a construction of a spellable type,
   declare directly: `view_t spec{ctx.begin(), ctx.end()};`, not
@@ -174,6 +284,24 @@ Braces express "this object takes on these values", and they reject narrowing.
   `size_t total{};` starts at the additive identity, "nothing yet", which is
   what distinguishes it from a loop counter whose 0 is a range endpoint. In
   generic code `T t{};` is correct regardless of whether `T` is scalar.
+  - **Ruling: `{}` is the spelling for the zeroish default; a spelled value
+    is for a value that is not the zeroish default.** There is no useful
+    distinction between "this is initialized" and "this is initialized to
+    the zero value", because the zero value is the only thing `{}` can
+    produce and we always know what it is: `0`, a null pointer, an `empty()`
+    string or vector, `false`. In every case `if (!x)` holds right after.
+    So `bool ready{};` and `bool ready = false;` say exactly the same
+    thing, and the shorter one wins. What a spelled value can say that
+    `{}` cannot is a value that is NOT zeroish: `bool live_ = true;`,
+    `int width_ = 1024;`, `index_t ndx_ = npos;`. A sentinel that happens
+    to equal the zero value is therefore just `{}`. The one carve-out is a
+    zero that pairs with a visible bound, `for (int i = 0; i <= 5; ++i)`,
+    where hiding it would show half a range; that is about the pair, not
+    about the zero. Sibling declarations can pair the same way: `auto p =
+    1.0F; auto q = 0.0F;` for the two components of one tangent-frame
+    coordinate keeps them legible as a pair, where blanking only `q`
+    would split them. `float q{};` stays the canonical spelling, and this
+    permits the other, so do not go looking for pairs to spell out.
   - **Rule:** Do not brace-init a class whose default constructor already
     initializes it safely: `std::string s;`, not `std::string s{};`
     (clang-tidy flags it). Generic code is exempt, since `T` may be scalar.
@@ -193,6 +321,17 @@ Braces express "this object takes on these values", and they reject narrowing.
     the same line accumulators draw against loop counters, one step up in
     abstraction. It does not revive the redundant `{false}` spelling, which
     remains wrong either way.
+  - **Ruling: in an aggregate that any call site initializes partially,
+    every NSDMI is load-bearing.** Do not strip a member's initializer as
+    redundant there, not even when the member's own type has gained
+    initializers of its own and now initializes itself. A designated
+    initializer may omit only fields that HAVE a default member
+    initializer, and a positional one that stops short trips
+    `-Wmissing-field-initializers`, so removing one breaks every partial
+    call site at once. This overrides the redundant-default ruling above:
+    in that shape the initializer is part of the type's interface, not
+    noise. Learned three separate times, on `textwrap`'s `wrap_options`,
+    on `epoll_stream_conn_handlers`, and on `avatar_rig`.
   - **Rule:** The empty state of a pointer is value-init, `ptr_t p{};`,
     never `= nullptr`. The `nullptr` literal should be rare in general:
     pointers are tested as bools (`if (p)`, never `p != nullptr`), and the

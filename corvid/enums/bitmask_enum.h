@@ -567,7 +567,7 @@ consteval uint64_t calc_valid_bits_from_bit_names() {
   static_assert(name_array.size() <= 64,
       "bit names list exceeds maximum of 64 bits");
   uint64_t valid_bits{};
-  uint64_t pow2 = 1;
+  uint64_t pow2{1};
 
   for (int i{name_array.size() - 1}; i >= 0; --i) {
     if (!name_array[i].empty()) valid_bits |= pow2;

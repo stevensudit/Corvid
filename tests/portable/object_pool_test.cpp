@@ -161,7 +161,7 @@ TEST_CASE("MoveHandle", "[ObjectPool]") {
 TEST_CASE("MultipleSlots", "[ObjectPool]") {
   // All slots can be borrowed and individually returned.
   if (true) {
-    constexpr size_t cap = 8;
+    constexpr size_t cap{8};
     object_pool<int, cap> pool;
 
     std::array<std::optional<object_pool<int, cap>::borrowed>, cap> handles;

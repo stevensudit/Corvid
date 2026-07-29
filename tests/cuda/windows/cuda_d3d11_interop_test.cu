@@ -22,7 +22,7 @@ struct flag_case {
   std::string_view name;
 };
 
-constexpr flag_case flag_cases[] = {
+constexpr flag_case flag_cases[]{
     {cuda_graphics_register_flags::read_only, "read_only"},
     {cuda_graphics_register_flags::write_discard, "write_discard"},
     {cuda_graphics_register_flags::surface_load_store, "surface_load_store"},

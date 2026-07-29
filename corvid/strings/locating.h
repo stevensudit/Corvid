@@ -961,7 +961,7 @@ size_t substitute(std::string& s, const SingleLocateValue auto& from,
     if (next == npos) return cnt;
     std::string result;
     result.reserve(sv.size());
-    size_t copied = 0;
+    size_t copied{};
     do {
       result.append(sv, copied, next - copied);
       result.append(to_sv);
@@ -1011,7 +1011,7 @@ inline size_t substitute(std::string& s,
   if (loc.pos == npos) return cnt;
   std::string result;
   result.reserve(sv.size());
-  size_t copied = 0;
+  size_t copied{};
   while (loc.pos != npos) {
     result.append(sv, copied, loc.pos - copied);
     result.append(to[loc.pos_value]);

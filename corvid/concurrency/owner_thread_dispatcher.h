@@ -310,7 +310,7 @@ private:
 // NOLINTEND(bugprone-move-forwarding-reference)
 
 namespace default_fixed_function {
-inline static constexpr size_t capacity = 384;
+inline static constexpr size_t capacity{384};
 } // namespace default_fixed_function
 
 #pragma endregion

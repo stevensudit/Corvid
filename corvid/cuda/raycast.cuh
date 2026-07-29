@@ -34,7 +34,7 @@ namespace corvid::cuda {
 // by central differences.
 template<float Sdf(pos3)>
 [[nodiscard]] __device__ vec3 surface_normal(pos3 p) {
-  static constexpr float eps = 0.0005F;
+  static constexpr auto eps = 0.0005F;
   static constexpr vec3 dx{eps, 0.0F, 0.0F};
   static constexpr vec3 dy{0.0F, eps, 0.0F};
   static constexpr vec3 dz{0.0F, 0.0F, eps};
@@ -49,10 +49,10 @@ template<float Sdf(pos3)>
 [[nodiscard]] __device__ float
 soft_shadow(pos3 p, vec3 light_dir, float hardness) {
   // Heuristic max steps to reach the light; more is softer but slower.
-  static constexpr int limit = 48;
+  static constexpr auto limit = 48;
 
-  float result = 1.0F;
-  float dist = 0.02F;
+  auto result = 1.0F;
+  auto dist = 0.02F;
   for (int step = 0; step < limit; ++step) {
     const auto surf_dist = Sdf(p + (light_dir * dist));
     if (surf_dist < 0.001F) return 0.0F;
@@ -69,20 +69,20 @@ soft_shadow(pos3 p, vec3 light_dir, float hardness) {
 template<float Sdf(pos3)>
 [[nodiscard]] __device__ float ambient_occlusion(pos3 p, vec3 normal) {
   // Heuristic number of ambient occlusion samples; more is darker but slower.
-  constexpr int ao_samples = 5;
+  constexpr auto ao_samples = 5;
 
   // Samples march outward from the surface, starting at `min_offset` and
   // stepping by `offset_step` (together spanning `offset_span`); nearer ones
   // weigh more, and `strength` scales the result.
-  constexpr float min_offset = 0.01F;
-  constexpr float offset_span = 0.12F;
-  constexpr float offset_step =
+  constexpr auto min_offset = 0.01F;
+  constexpr auto offset_span = 0.12F;
+  constexpr auto offset_step =
       offset_span / static_cast<float>(ao_samples - 1);
-  constexpr float weight_falloff = 0.7F;
-  constexpr float strength = 3.0F;
+  constexpr auto weight_falloff = 0.7F;
+  constexpr auto strength = 3.0F;
 
   float occlusion{};
-  float weight = 1.0F;
+  auto weight = 1.0F;
   auto offset = min_offset;
   for (int step = 0; step < ao_samples; ++step) {
     const auto surf_dist = Sdf(p + (normal * offset));
@@ -125,10 +125,10 @@ template<scene_policy Scene>
   // through to sky (which bent the horizon near silhouettes and left a
   // sky-colored fringe). Near surfaces keep the tight `min_eps`, so
   // silhouettes stay sharp.
-  constexpr int max_steps = 256;
-  constexpr float far_dist = 50.0F;
-  constexpr float min_eps = 0.001F;
-  float dist = 0.0F;
+  constexpr auto max_steps = 256;
+  constexpr auto far_dist = 50.0F;
+  constexpr auto min_eps = 0.001F;
+  float dist{};
   bool hit{};
   for (int step = 0; step < max_steps; ++step) {
     const auto surf_dist = Scene::sdf(eye + (ray_dir * dist));
@@ -140,7 +140,7 @@ template<scene_policy Scene>
     if (dist > far_dist) break;
   }
 
-  vec3 color{};
+  vec3 color;
   if (hit) {
     const pos3 hit_point = eye + (ray_dir * dist);
     const vec3 normal = surface_normal<Scene::sdf>(hit_point);
@@ -166,7 +166,7 @@ template<scene_policy Scene>
 
 // Convert a linear color channel in [0, 1] to a gamma-encoded byte.
 [[nodiscard]] __device__ inline unsigned char to_byte(float c) {
-  constexpr float gamma = 2.2F; // display gamma (sRGB approximation)
+  constexpr auto gamma = 2.2F; // display gamma (sRGB approximation)
   const auto g = powf(fminf(fmaxf(c, 0.0F), 1.0F), 1.0F / gamma);
   return static_cast<unsigned char>(lroundf(g * 255.0F));
 }
@@ -185,10 +185,10 @@ template<scene_policy Scene>
   // producing its even low-discrepancy pattern (like the sine-hash constants a
   // white-noise dither would use). `frac(scale * frac(dot(weights, pixel)))`
   // gives noise in [0, 1); the final subtraction centers it on zero.
-  constexpr float ign_weight_x = 0.06711056F;
-  constexpr float ign_weight_y = 0.00583715F;
-  constexpr float ign_scale = 52.9829189F;
-  constexpr float half_step = 0.5F; // center [0, 1) noise on [-0.5, 0.5)
+  constexpr auto ign_weight_x = 0.06711056F;
+  constexpr auto ign_weight_y = 0.00583715F;
+  constexpr auto ign_scale = 52.9829189F;
+  constexpr auto half_step = 0.5F; // center [0, 1) noise on [-0.5, 0.5)
   const auto base =
       (ign_weight_x * static_cast<float>(px)) +
       (ign_weight_y * static_cast<float>(py));
@@ -200,7 +200,7 @@ template<scene_policy Scene>
 // by `dither` (a fraction of one step, see `dither_offset`) before rounding,
 // so a smooth gradient does not band at 8-bit.
 [[nodiscard]] __device__ inline unsigned char to_byte(float c, float dither) {
-  constexpr float gamma = 2.2F; // display gamma (sRGB approximation)
+  constexpr auto gamma = 2.2F; // display gamma (sRGB approximation)
   const auto g = powf(fminf(fmaxf(c, 0.0F), 1.0F), 1.0F / gamma);
   const auto v = lroundf((g * 255.0F) + dither);
   return static_cast<unsigned char>((v < 0) ? 0 : ((v > 255) ? 255 : v));

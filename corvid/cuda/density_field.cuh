@@ -118,9 +118,9 @@ struct density_field {
   // the field's steepest slope, or a dig wall steeper than it can be overshot.
   [[nodiscard]] __device__ float raymarch(pos3 eye, vec3 dir) const {
     const auto max_steps = march_max_steps;
-    constexpr int refine_steps = 6;
+    constexpr auto refine_steps = 6;
     const auto lipschitz = march_lipschitz;
-    constexpr float hit_epsilon = 0.02F;
+    constexpr auto hit_epsilon = 0.02F;
     const auto max_step = voxel_size * march_max_step_voxels;
 
     // Clip to the world box (slab test). Voxel (0, 0, 0) is centered at

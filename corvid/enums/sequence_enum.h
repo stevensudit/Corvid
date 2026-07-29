@@ -806,7 +806,7 @@ struct sequence_enum_names_spec
   // packed names.
   [[nodiscard]] constexpr cstring_view find_name_by_enum(E v) const noexcept {
     const auto n = as_underlying(v);
-    size_t offset = 0;
+    size_t offset{};
     for (const auto& seg : segments) {
       if (n < seg.start) break;
       const auto intra = static_cast<size_t>(n - seg.start);
@@ -829,7 +829,7 @@ struct sequence_enum_names_spec
   [[nodiscard]] constexpr std::optional<E> find_enum_by_name(
       std::string_view sv) const noexcept {
     if (sv.empty()) return {};
-    size_t offset = 0;
+    size_t offset{};
     for (const auto& seg : segments) {
       for (size_t ndx = 0; ndx != seg.length; ++ndx)
         if (names[offset + ndx] == sv)
@@ -906,8 +906,8 @@ template<ScopedEnum E, meta::fixed_string names, wrapclip wrapseq = wrapclip{},
         static_cast<size_t>(std::ranges::count(whole, ',')) + 1;
     std::array<cstring_view, name_count> packed{};
     const char* base = Nulled.data();
-    size_t name_ndx = 0;
-    size_t field = 0;
+    size_t name_ndx{};
+    size_t field{};
     while (true) {
       const auto field_end = std::min(whole.find(',', field), whole.size());
       packed[name_ndx++] = cstring_view{base + field, field_end - field + 1};

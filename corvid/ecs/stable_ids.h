@@ -133,9 +133,9 @@ public:
     }
 
     [[nodiscard]] auto operator<=>(const handle_t& other) const noexcept {
-      auto cmp = id_ <=> other.id_;
+      auto cmp = (id_ <=> other.id_);
       if constexpr (is_versioned_v)
-        if (cmp == 0) cmp = gen_ <=> other.gen_;
+        if (cmp == 0) cmp = (gen_ <=> other.gen_);
       return cmp;
     }
 

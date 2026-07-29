@@ -42,16 +42,16 @@ namespace corvid::cuda {
 // sits where the ground is lit.
 [[nodiscard]] __device__ inline vec3
 sky_color(const render_config& cfg, vec3 ray_dir) {
-  const render_config::sky_params& sky = cfg.sky;
-  const float up = fmaxf(ray_dir.y, 0.0F);
-  const float t = powf(up, sky.gradient_bias);
-  vec3 col = (sky.zenith * t) + (sky.horizon * (1.0F - t));
+  const auto& sky = cfg.sky;
+  const auto up = fmaxf(ray_dir.y, 0.0F);
+  const auto t = powf(up, sky.gradient_bias);
+  auto col = (sky.zenith * t) + (sky.horizon * (1.0F - t));
 
   // Night: a dark sky with no sun, just a faint trace of the gradient.
   if (cfg.night) return col * cfg.night_sky;
 
-  const vec3 sun_dir = normalize(cfg.sun_direction);
-  const float s = fmaxf(dot(ray_dir, sun_dir), 0.0F);
+  const auto sun_dir = normalize(cfg.sun_direction);
+  const auto s = fmaxf(dot(ray_dir, sun_dir), 0.0F);
   col += sky.halo_color * (sky.halo_strength * powf(s, sky.halo_exponent));
   col += sky.core_color * powf(s, sky.core_exponent);
   return col;
@@ -76,25 +76,25 @@ struct shadow_sphere {
 flashlight_spot(const render_config::flashlight_params& fl, pos3 hit_point,
     shadow_sphere shadow, vec3& to_lamp_dir, float& dist) {
   if (!fl.enabled) return 0.0F;
-  const vec3 to_lamp = fl.origin - hit_point;
+  const auto to_lamp = fl.origin - hit_point;
   dist = length(to_lamp);
   // Below this the lamp sits on the lit point; skip to avoid a zero-length
   // direction (and the divide-by-zero normalizing it).
-  constexpr float min_light_dist = 1.0e-4F;
+  constexpr auto min_light_dist = 1.0e-4F;
   if (dist < min_light_dist || dist > fl.range) return 0.0F;
   to_lamp_dir = to_lamp * (1.0F / dist);
 
   // Soft cone: full inside the inner half-angle, easing to zero at the outer.
-  constexpr float deg_to_rad = std::numbers::pi_v<float> / 180.0F;
-  const float cosang = dot(to_lamp_dir * -1.0F, normalize(fl.direction));
+  constexpr auto deg_to_rad = std::numbers::pi_v<float> / 180.0F;
+  const auto cosang = dot(to_lamp_dir * -1.0F, normalize(fl.direction));
   // The inner fraction is clamped to [0, 1]: values outside it would invert
   // the cone (the cosine is even, so a negative inner angle folds back), and
   // the divisor is floored against `cos_inner == cos_outer` at softness 0.
-  constexpr float cone_denom_floor = 1.0e-4F;
-  const float cos_outer = cosf(fl.cone_degrees * deg_to_rad);
-  const float cos_inner =
+  constexpr auto cone_denom_floor = 1.0e-4F;
+  const auto cos_outer = cosf(fl.cone_degrees * deg_to_rad);
+  const auto cos_inner =
       cosf(fl.cone_degrees * __saturatef(1.0F - fl.softness) * deg_to_rad);
-  float cone = __saturatef(
+  auto cone = __saturatef(
       (cosang - cos_outer) / fmaxf(cos_inner - cos_outer, cone_denom_floor));
   cone = cone * cone * (3.0F - (2.0F * cone)); // smoothstep
   if (cone <= 0.0F) return 0.0F;
@@ -105,25 +105,29 @@ flashlight_spot(const render_config::flashlight_params& fl, pos3 hit_point,
   // it). The test is on the ray's closest approach to the sphere center, not a
   // hard hit: full shadow within the radius, easing to lit across
   // `shadow_softness` x radius beyond it.
-  float shadow_factor = 1.0F;
+  auto shadow_factor = 1.0F;
   if (shadow.radius > 0.0F) {
-    const vec3 oc = hit_point - shadow.center;
-    const float b = dot(oc, to_lamp_dir);
-    const float tc = -b; // closest-approach distance along the segment
-    if (tc > 1.0e-3F && tc < dist) {
-      const float d_perp = sqrtf(fmaxf(dot(oc, oc) - (b * b), 0.0F));
+    const auto oc = hit_point - shadow.center;
+    const auto b = dot(oc, to_lamp_dir);
+    const auto tc = -b; // closest-approach distance along the segment
+    // The closest approach has to fall ahead of the shaded point: at or behind
+    // it the sphere is not between that point and the lamp, so it shadows
+    // nothing.
+    constexpr auto min_approach = 1.0e-3F;
+    if (tc > min_approach && tc < dist) {
+      const auto d_perp = sqrtf(fmaxf(dot(oc, oc) - (b * b), 0.0F));
       // The penumbra straddles the radius: full shadow within (radius -
       // penumbra) and lit at (radius + penumbra), so the soft band both fans
       // out past the ball and fans in to shrink the umbra, instead of leaving
       // a hard full-size umbra with only an outer fringe.
       // Floor so the penumbra (and the smoothstep divisor below) stays
       // positive when `shadow_softness` is zero.
-      constexpr float denom_floor = 1.0e-4F;
-      const float penumbra =
+      constexpr auto denom_floor = 1.0e-4F;
+      const auto penumbra =
           fmaxf(shadow.radius * fl.shadow_softness, denom_floor);
-      const float inner = fmaxf(shadow.radius - penumbra, 0.0F);
-      const float outer = shadow.radius + penumbra;
-      const float s = __saturatef((d_perp - inner) / (outer - inner));
+      const auto inner = fmaxf(shadow.radius - penumbra, 0.0F);
+      const auto outer = shadow.radius + penumbra;
+      const auto s = __saturatef((d_perp - inner) / (outer - inner));
       shadow_factor =
           s * s * (3.0F - (2.0F * s)); // smoothstep, 0 in the umbra
     }
@@ -137,12 +141,12 @@ flashlight_spot(const render_config::flashlight_params& fl, pos3 hit_point,
 [[nodiscard]] __device__ inline vec3
 flashlight_terrain(const render_config::flashlight_params& fl, pos3 hit_point,
     vec3 normal, vec3 albedo, shadow_sphere shadow) {
-  vec3 to_lamp_dir{};
-  float dist = 0.0F;
-  const float cone = flashlight_spot(fl, hit_point, shadow, to_lamp_dir, dist);
+  vec3 to_lamp_dir;
+  float dist{};
+  const auto cone = flashlight_spot(fl, hit_point, shadow, to_lamp_dir, dist);
   if (cone <= 0.0F) return vec3{};
-  const float fade = __saturatef(1.0F - (dist / fl.range));
-  const float ndotl = fmaxf(dot(normal, to_lamp_dir), 0.0F);
+  const auto fade = __saturatef(1.0F - (dist / fl.range));
+  const auto ndotl = fmaxf(dot(normal, to_lamp_dir), 0.0F);
   return albedo * (fl.color * (fl.intensity * cone * fade * fade * ndotl));
 }
 
@@ -154,18 +158,18 @@ flashlight_terrain(const render_config::flashlight_params& fl, pos3 hit_point,
 [[nodiscard]] __device__ inline vec3
 shade_terrain_hit(const density_field& field, cudaTextureObject_t color,
     const render_config& cfg, pos3 hit_point, shadow_sphere shadow = {}) {
-  const vec3 normal = field.normal(hit_point);
-  const vec3 light_dir = normalize(cfg.sun_direction);
-  const float diffuse = fmaxf(dot(normal, light_dir), 0.0F);
+  const auto normal = field.normal(hit_point);
+  const auto light_dir = normalize(cfg.sun_direction);
+  const auto diffuse = fmaxf(dot(normal, light_dir), 0.0F);
   // Albedo from the linearly filtered color grid: one hardware-filtered fetch
   // in the field's coordinates, so strata seams stay smooth like the density.
-  const vec3 vf = field.to_voxel(hit_point);
+  const auto vf = field.to_voxel(hit_point);
   const auto c = tex3D<float4>(color, vf.x + 0.5F, vf.y + 0.5F, vf.z + 0.5F);
   const vec3 albedo{c.x, c.y, c.z};
 
-  const float sun_on = cfg.night ? 0.0F : 1.0F;
-  const float ambient_scale = cfg.night ? cfg.night_ambient : 1.0F;
-  const vec3 lit =
+  const auto sun_on = cfg.night ? 0.0F : 1.0F;
+  const auto ambient_scale = cfg.night ? cfg.night_ambient : 1.0F;
+  const auto lit =
       albedo *
       ((cfg.terrain.ambient * ambient_scale) +
           (cfg.terrain.sun * (diffuse * sun_on)));
@@ -177,13 +181,13 @@ shade_terrain_hit(const density_field& field, cudaTextureObject_t color,
 // (the apothem, its flat-to-flat half-width), negative inside. Inigo Quilez's
 // hexagon SDF, used to stamp the cockpit eyes as crisp shapes.
 [[nodiscard]] __device__ inline float hexagon_sd(float x, float y, float r) {
-  constexpr float kx = -std::numbers::sqrt3_v<float> / 2.0F; // -cos(30 deg)
-  constexpr float ky = 0.5F;                                 // +sin(30 deg)
-  constexpr float kz = std::numbers::inv_sqrt3_v<float>;     // +tan(30 deg)
+  constexpr auto kx = -std::numbers::sqrt3_v<float> / 2.0F; // -cos(30 deg)
+  constexpr auto ky = 0.5F;                                 // +sin(30 deg)
+  constexpr auto kz = std::numbers::inv_sqrt3_v<float>;     // +tan(30 deg)
 
   x = fabsf(x);
   y = fabsf(y);
-  const float m = 2.0F * fminf((kx * x) + (ky * y), 0.0F);
+  const auto m = 2.0F * fminf((kx * x) + (ky * y), 0.0F);
   x -= m * kx;
   y -= m * ky;
   x -= fminf(fmaxf(x, -kz * r), kz * r);
@@ -200,23 +204,23 @@ shade_terrain_hit(const density_field& field, cudaTextureObject_t color,
 // distance. A flat tiling of one orientation, unlike `geodesic_grid_edge`'s
 // whole-sphere Goldberg grid whose cells point every which way.
 [[nodiscard]] __device__ inline float hex_grid_edge(float x, float y) {
-  constexpr float sx = std::numbers::sqrt3_v<float>; // column repeat
-  constexpr float sy = 1.0F;                         // row repeat
+  constexpr auto sx = std::numbers::sqrt3_v<float>; // column repeat
+  constexpr auto sy = 1.0F;                         // row repeat
 
   // The two candidate centers: the base lattice and the half-cell-offset one.
-  const float ax = x - (sx * floorf((x / sx) + 0.5F));
-  const float ay = y - (sy * floorf((y / sy) + 0.5F));
-  const float xo = x - (0.5F * sx);
-  const float yo = y - (0.5F * sy);
-  const float bx = xo - (sx * floorf((xo / sx) + 0.5F));
-  const float by = yo - (sy * floorf((yo / sy) + 0.5F));
-  const bool a_near = ((ax * ax) + (ay * ay)) < ((bx * bx) + (by * by));
-  const float gx = a_near ? ax : bx;
-  const float gy = a_near ? ay : by;
+  const auto ax = x - (sx * floorf((x / sx) + 0.5F));
+  const auto ay = y - (sy * floorf((y / sy) + 0.5F));
+  const auto xo = x - (0.5F * sx);
+  const auto yo = y - (0.5F * sy);
+  const auto bx = xo - (sx * floorf((xo / sx) + 0.5F));
+  const auto by = yo - (sy * floorf((yo / sy) + 0.5F));
+  const auto a_near = (((ax * ax) + (ay * ay)) < ((bx * bx) + (by * by)));
+  const auto gx = a_near ? ax : bx;
+  const auto gy = a_near ? ay : by;
 
   // Flat-top hexagon support: the largest of the three slab projections, the
   // apothem (0.5) minus it is the distance to the nearest border.
-  const float hr = fmaxf(fabsf(gy),
+  const auto hr = fmaxf(fabsf(gy),
       fmaxf(fabsf((cos_30_v<> * gx) + (0.5F * gy)),
           fabsf((-cos_30_v<> * gx) + (0.5F * gy))));
   return 0.5F - hr;
@@ -246,96 +250,96 @@ geodesic_grid_edge(vec3 dir, int freq, vec3 eye_dir, vec3 eye_tan) {
   // deg. The cos factors are closed-form in phi; the sin factors need a sqrt
   // (not constexpr here), so the two canonical icosphere constants stay as
   // documented literals.
-  constexpr float phi = std::numbers::phi_v<float>;
-  constexpr float ring_y =
-      1.0F / ((2.0F * phi) - 1.0F);       // 1/sqrt5, ring latitude
-  constexpr float ring_r = 2.0F * ring_y; // 2/sqrt5, ring radius
-  constexpr float rx72 = ring_r * ((phi - 1.0F) / 2.0F); // 2/sqrt5 * cos72
-  constexpr float rx36 = ring_r * (phi / 2.0F);          // 2/sqrt5 * cos36
-  constexpr float rz72 = 0.8506508F;                     // 2/sqrt5 * sin72
-  constexpr float rz36 = 0.5257311F;                     // 2/sqrt5 * sin36
-  const vec3 vtx[12] = {{0.0F, 1.0F, 0.0F}, {ring_r, ring_y, 0.0F},
+  constexpr auto phi = std::numbers::phi_v<float>;
+  constexpr auto ring_y =
+      1.0F / ((2.0F * phi) - 1.0F);      // 1/sqrt5, ring latitude
+  constexpr auto ring_r = 2.0F * ring_y; // 2/sqrt5, ring radius
+  constexpr auto rx72 = ring_r * ((phi - 1.0F) / 2.0F); // 2/sqrt5 * cos72
+  constexpr auto rx36 = ring_r * (phi / 2.0F);          // 2/sqrt5 * cos36
+  constexpr auto rz72 = 0.8506508F;                     // 2/sqrt5 * sin72
+  constexpr auto rz36 = 0.5257311F;                     // 2/sqrt5 * sin36
+  const vec3 vtx[12]{{0.0F, 1.0F, 0.0F}, {ring_r, ring_y, 0.0F},
       {rx72, ring_y, rz72}, {-rx36, ring_y, rz36}, {-rx36, ring_y, -rz36},
       {rx72, ring_y, -rz72}, {rx36, -ring_y, rz36}, {-rx72, -ring_y, rz72},
       {-ring_r, -ring_y, 0.0F}, {-rx72, -ring_y, -rz72},
       {rx36, -ring_y, -rz36}, {0.0F, -1.0F, 0.0F}};
-  const int face[20][3] = {{0, 1, 2}, {0, 2, 3}, {0, 3, 4}, {0, 4, 5},
-      {0, 5, 1}, {1, 2, 6}, {2, 3, 7}, {3, 4, 8}, {4, 5, 9}, {5, 1, 10},
-      {1, 6, 10}, {2, 7, 6}, {3, 8, 7}, {4, 9, 8}, {5, 10, 9}, {11, 6, 7},
-      {11, 7, 8}, {11, 8, 9}, {11, 9, 10}, {11, 10, 6}};
+  const int face[20][3]{{0, 1, 2}, {0, 2, 3}, {0, 3, 4}, {0, 4, 5}, {0, 5, 1},
+      {1, 2, 6}, {2, 3, 7}, {3, 4, 8}, {4, 5, 9}, {5, 1, 10}, {1, 6, 10},
+      {2, 7, 6}, {3, 8, 7}, {4, 9, 8}, {5, 10, 9}, {11, 6, 7}, {11, 7, 8},
+      {11, 8, 9}, {11, 9, 10}, {11, 10, 6}};
 
   // Re-express `dir` in the icosahedron frame so the geodesic vertex nearest
   // face 0's centroid sits at `eye_dir`, with `eye_tan` (a unit vector
   // perpendicular to `eye_dir`) fixing the rotation about it. That nests the
   // cockpit eye in a cell rather than letting the fixed grid fall where it
   // may.
-  const int n = static_cast<int>(lroundf(static_cast<float>(freq) / 3.0F));
-  const vec3 usel = normalize(
+  const auto n = static_cast<int>(lroundf(static_cast<float>(freq) / 3.0F));
+  const auto usel = normalize(
       (vtx[0] * static_cast<float>(n)) + (vtx[1] * static_cast<float>(n)) +
       (vtx[2] * static_cast<float>(freq - (2 * n))));
-  const vec3 utan = normalize(vtx[0] - (usel * dot(vtx[0], usel)));
-  const vec3 ubi = cross(usel, utan);
-  const vec3 ebi = cross(eye_dir, eye_tan);
+  const auto utan = normalize(vtx[0] - (usel * dot(vtx[0], usel)));
+  const auto ubi = cross(usel, utan);
+  const auto ebi = cross(eye_dir, eye_tan);
   dir = (usel * dot(dir, eye_dir)) + (utan * dot(dir, eye_tan)) +
         (ubi * dot(dir, ebi));
 
-  int best = 0;
-  float best_dot = -3.0F;
+  int best{};
+  auto best_dot = -3.0F;
   for (int f = 0; f < 20; ++f) {
-    const vec3 sum = vtx[face[f][0]] + vtx[face[f][1]] + vtx[face[f][2]];
-    const float d = dot(dir, sum);
+    const auto sum = vtx[face[f][0]] + vtx[face[f][1]] + vtx[face[f][2]];
+    const auto d = dot(dir, sum);
     if (d > best_dot) {
       best_dot = d;
       best = f;
     }
   }
-  const vec3 a = vtx[face[best][0]];
-  const vec3 b = vtx[face[best][1]];
-  const vec3 c = vtx[face[best][2]];
+  const auto a = vtx[face[best][0]];
+  const auto b = vtx[face[best][1]];
+  const auto c = vtx[face[best][2]];
 
   // Gnomonic projection onto the face plane, then barycentric coordinates.
-  const vec3 nrm = cross(b - a, c - a);
-  const vec3 p = dir * (dot(a, nrm) / dot(dir, nrm));
-  const vec3 e0 = b - a;
-  const vec3 e1 = c - a;
-  const vec3 e2 = p - a;
-  const float d00 = dot(e0, e0);
-  const float d01 = dot(e0, e1);
-  const float d11 = dot(e1, e1);
-  const float den = (d00 * d11) - (d01 * d01);
-  const float wb = ((d11 * dot(e2, e0)) - (d01 * dot(e2, e1))) / den;
-  const float wc = ((d00 * dot(e2, e1)) - (d01 * dot(e2, e0))) / den;
-  const float wa = 1.0F - wb - wc;
+  const auto nrm = cross(b - a, c - a);
+  const auto p = dir * (dot(a, nrm) / dot(dir, nrm));
+  const auto e0 = b - a;
+  const auto e1 = c - a;
+  const auto e2 = p - a;
+  const auto d00 = dot(e0, e0);
+  const auto d01 = dot(e0, e1);
+  const auto d11 = dot(e1, e1);
+  const auto den = (d00 * d11) - (d01 * d01);
+  const auto wb = ((d11 * dot(e2, e0)) - (d01 * dot(e2, e1))) / den;
+  const auto wc = ((d00 * dot(e2, e1)) - (d01 * dot(e2, e0))) / den;
+  const auto wa = 1.0F - wb - wc;
 
   // The triangular-lattice cell containing the point, scaled by the frequency:
   // its three integer corners are the candidate geodesic vertices.
   const auto fm = static_cast<float>(freq);
-  const float la = wa * fm;
-  const float lb = wb * fm;
-  const float lc = wc * fm;
-  const float ga = floorf(la);
-  const float gb = floorf(lb);
-  const float gc = floorf(lc);
+  const auto la = wa * fm;
+  const auto lb = wb * fm;
+  const auto lc = wc * fm;
+  const auto ga = floorf(la);
+  const auto gb = floorf(lb);
+  const auto gc = floorf(lc);
   // The three floored remainders sum to 1 (an upward sub-triangle) or 2 (a
   // downward one); split at 1.5.
-  const int sub = ((la - ga) + (lb - gb) + (lc - gc)) < 1.5F ? 0 : 1;
+  const auto sub = (((la - ga) + (lb - gb) + (lc - gc)) < 1.5F) ? 0 : 1;
   // Corner offsets for the upward (sub == 0) and downward sub-triangle.
-  const int off[2][3][3] = {{{1, 0, 0}, {0, 1, 0}, {0, 0, 1}},
+  const int off[2][3][3]{{{1, 0, 0}, {0, 1, 0}, {0, 0, 1}},
       {{0, 1, 1}, {1, 0, 1}, {1, 1, 0}}};
-  float t[3] = {0.0F, 0.0F, 0.0F};
-  for (int n = 0; n < 3; ++n) {
-    const vec3 corner =
-        (a * (ga + static_cast<float>(off[sub][n][0]))) +
-        (b * (gb + static_cast<float>(off[sub][n][1]))) +
-        (c * (gc + static_cast<float>(off[sub][n][2])));
-    t[n] = dot(dir, normalize(corner));
+  float t[3]{};
+  for (int ndx = 0; ndx < 3; ++ndx) {
+    const auto corner =
+        (a * (ga + static_cast<float>(off[sub][ndx][0]))) +
+        (b * (gb + static_cast<float>(off[sub][ndx][1]))) +
+        (c * (gc + static_cast<float>(off[sub][ndx][2])));
+    t[ndx] = dot(dir, normalize(corner));
   }
 
   // The border is the angular half-gap between the nearest two corners (the
   // two largest dots).
-  const float hi = fmaxf(t[0], fmaxf(t[1], t[2]));
-  const float lo = fminf(t[0], fminf(t[1], t[2]));
-  const float mid = (t[0] + t[1] + t[2]) - hi - lo;
+  const auto hi = fmaxf(t[0], fmaxf(t[1], t[2]));
+  const auto lo = fminf(t[0], fminf(t[1], t[2]));
+  const auto mid = (t[0] + t[1] + t[2]) - hi - lo;
   return 0.5F * (acosf(fminf(mid, 1.0F)) - acosf(fminf(hi, 1.0F)));
 }
 
@@ -362,32 +366,32 @@ geodesic_eye_cell_of(int freq) {
   const vec3 v0{0.0F, 1.0F, 0.0F};
   const vec3 v1{0.8944272F, 0.4472136F, 0.0F};
   const vec3 v2{0.2763932F, 0.4472136F, 0.8506508F};
-  const int n = static_cast<int>(lroundf(static_cast<float>(freq) / 3.0F));
-  const int bi = n;
-  const int bj = n;
-  const int bk = freq - (2 * n);
-  const vec3 cell = normalize(
+  const auto n = static_cast<int>(lroundf(static_cast<float>(freq) / 3.0F));
+  const auto bi = n;
+  const auto bj = n;
+  const auto bk = freq - (2 * n);
+  const auto cell = normalize(
       (v0 * static_cast<float>(bi)) + (v1 * static_cast<float>(bj)) +
       (v2 * static_cast<float>(bk)));
 
   // The lattice tangent frame `geodesic_grid_edge` builds at this cell.
-  const vec3 utan = normalize(v0 - (cell * dot(v0, cell)));
-  const vec3 ubi = cross(cell, utan);
+  const auto utan = normalize(v0 - (cell * dot(v0, cell)));
+  const auto ubi = cross(cell, utan);
 
   // Scan the six neighbor lattice points: sum their angles for the mean
   // apothem, and keep the nearest (in the tangent frame) for the phase.
-  const int off[6][3] = {{1, -1, 0}, {-1, 1, 0}, {1, 0, -1}, {-1, 0, 1},
+  const int off[6][3]{{1, -1, 0}, {-1, 1, 0}, {1, 0, -1}, {-1, 0, 1},
       {0, 1, -1}, {0, -1, 1}};
-  float best = -1.0F;
-  float p = 1.0F;
-  float q = 0.0F;
-  float angle_sum = 0.0F;
+  auto best = -1.0F;
+  auto p = 1.0F;
+  auto q = 0.0F;
+  float angle_sum{};
   for (const auto& o : off) {
-    const vec3 nb = normalize(
+    const auto nb = normalize(
         (v0 * static_cast<float>(bi + o[0])) +
         (v1 * static_cast<float>(bj + o[1])) +
         (v2 * static_cast<float>(bk + o[2])));
-    const float d = dot(cell, nb);
+    const auto d = dot(cell, nb);
     angle_sum += acosf(fminf(d, 1.0F));
     if (d > best) {
       best = d;
@@ -404,7 +408,7 @@ geodesic_eye_cell_of(int freq) {
   // min); off the centroid the cell is a slightly irregular hexagon, and the
   // mean centers the iris so the near and far edges split the mismatch
   // symmetrically instead of three sitting flush and three gapping.
-  constexpr float half_pi = std::numbers::pi_v<float> / 2.0F;
+  constexpr auto half_pi = std::numbers::pi_v<float> / 2.0F;
   return {0.5F * (angle_sum / 6.0F), half_pi - atan2f(q, p)};
 }
 

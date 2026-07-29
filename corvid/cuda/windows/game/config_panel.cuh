@@ -48,9 +48,9 @@ constexpr ImU32 modified_tint = IM_COL32(255, 220, 80, 255);
 // it.
 inline bool tuned_slider(const char* label, float& v, float def, float lo,
     float hi, const char* tip, ImGuiSliderFlags flags = 0) {
-  const bool modified = v != def;
+  const auto modified = (v != def);
   if (modified) ImGui::PushStyleColor(ImGuiCol_Text, modified_tint);
-  bool changed = ImGui::SliderFloat(label, &v, lo, hi, "%.3f", flags);
+  auto changed = ImGui::SliderFloat(label, &v, lo, hi, "%.3f", flags);
   ImGui::SetItemTooltip("%s", tip);
   if (modified) {
     ImGui::PopStyleColor();
@@ -69,7 +69,7 @@ inline bool tuned_slider(const char* label, float& v, float def, float lo,
 // small counts (window panes, eyes) where a fractional value is meaningless.
 inline void tuned_slider_int(const char* label, int& v, int def, int lo,
     int hi, const char* tip) {
-  const bool modified = v != def;
+  const auto modified = (v != def);
   if (modified) ImGui::PushStyleColor(ImGuiCol_Text, modified_tint);
   ImGui::SliderInt(label, &v, lo, hi, "%d", ImGuiSliderFlags_AlwaysClamp);
   ImGui::SetItemTooltip("%s", tip);
@@ -87,7 +87,7 @@ inline void tuned_slider_int(const char* label, int& v, int def, int lo,
 // so the values read straight back as a `vec3{r, g, b}` in the code.
 inline void
 tuned_color(const char* label, vec3& v, vec3 def, const char* tip) {
-  const bool modified = v.x != def.x || v.y != def.y || v.z != def.z;
+  const auto modified = (v.x != def.x) || (v.y != def.y) || (v.z != def.z);
   if (modified) ImGui::PushStyleColor(ImGuiCol_Text, modified_tint);
   ImGui::ColorEdit3(label, &v.x, ImGuiColorEditFlags_Float);
   ImGui::SetItemTooltip("%s", tip);
@@ -104,7 +104,7 @@ tuned_color(const char* label, vec3& v, vec3 def, const char* tip) {
 // each component over [`lo`, `hi`].
 inline void tuned_vec3(const char* label, vec3& v, vec3 def, float lo,
     float hi, const char* tip) {
-  const bool modified = v.x != def.x || v.y != def.y || v.z != def.z;
+  const auto modified = (v.x != def.x) || (v.y != def.y) || (v.z != def.z);
   if (modified) ImGui::PushStyleColor(ImGuiCol_Text, modified_tint);
   ImGui::SliderFloat3(label, &v.x, lo, hi);
   ImGui::SetItemTooltip("%s", tip);

@@ -1144,7 +1144,7 @@ TEST_CASE("Iteration", "[FixedBitset]") {
   if (true) {
     fixed_bitset<64> b;
     b.set(5).set(15).set(25);
-    size_t count = 0;
+    size_t count{};
     for ([[maybe_unused]] auto idx : b) ++count;
     CHECK(count == b.count());
   }
@@ -1625,7 +1625,7 @@ TEST_CASE("Constexpr", "[FixedBitset]") {
   constexpr size_t iter_count = []() {
     fixed_bitset<64> r;
     r.set(10).set(20).set(30);
-    size_t n = 0;
+    size_t n{};
     for ([[maybe_unused]] auto p : r) ++n;
     return n;
   }();

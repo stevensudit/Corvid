@@ -1543,7 +1543,7 @@ TEST_CASE("EraseIfPredicate", "[EntityRegistry]") {
     r.erase(id_t{1});
     r.erase(id_t{3});
     // 2 live, 2 dead. Predicate should be called exactly twice.
-    size_t call_count = 0;
+    size_t call_count{};
     auto cnt = r.erase_if([&](auto, auto& rec) {
       ++call_count;
       return rec.metadata > 20;

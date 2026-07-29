@@ -1157,7 +1157,7 @@ TEST_CASE("RecvMsgBufferMultiTruncated", "[IouLoop]") {
         });
     CHECK(recv_token.is_valid());
 
-    constexpr size_t datagram_size = 8192;
+    constexpr size_t datagram_size{8192};
     const std::vector<std::byte> big(datagram_size, std::byte{'X'});
     CHECK(loop->post_and_wait([&] {
       auto send_buf = loop->borrow_write_buffer(block_size::kb008);
@@ -1360,7 +1360,7 @@ TEST_CASE("CompletionFnSizeProbe", "[IouLoop]") {
   const size_t sz_raw_buf =
       sizeof(raw_buf) + sizeof(iou_loop::buffer) + overhead;
 
-  const size_t all[] = {sz_direct_fn, sz_raw_bt, sz_raw_bewt, sz_raw_buf};
+  const size_t all[]{sz_direct_fn, sz_raw_bt, sz_raw_bewt, sz_raw_buf};
   const size_t max_sz = *std::ranges::max_element(all);
   CHECK(max_sz == 400U);
 // Sounds like SZ = 384 works.

@@ -147,7 +147,7 @@ TEST_CASE("sdl_keycode string round-trip", "[sdl][event][enums]") {
     std::string_view name;
   };
   // Exhaustive: every registered keycode round-trips value, code, and name.
-  constexpr keycode_case cases[] = {
+  constexpr keycode_case cases[]{
       {sdl_keycode::unknown, 0U, "unknown"},
       {sdl_keycode::backspace, 8U, "backspace"},
       {sdl_keycode::tab, 9U, "tab"},

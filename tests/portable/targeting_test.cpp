@@ -48,7 +48,7 @@ TEST_CASE("AppenderString", "[targeting]") {
   }
   SECTION("two-arg pointer append") {
     std::u16string s;
-    const char16_t buf[] = {u'h', u'i', u'!'};
+    const char16_t buf[]{u'h', u'i', u'!'};
     appender{s}.append(buf, 2);
     CHECK(s == u"hi");
   }

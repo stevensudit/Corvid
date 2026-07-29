@@ -47,7 +47,7 @@ namespace corvid::cuda {
 // above float epsilon): small enough to stay inert in the normal range of
 // these quantities, and most quotients that use it are `__saturatef` clamped
 // anyway.
-constexpr float denom_floor = 1.0e-4F;
+constexpr auto denom_floor = 1.0e-4F;
 
 // The nearest-hit surface a ray lands on. `sky` is 0, the miss default;
 // `mirror` is last because only the primary ray produces it (a reflection
@@ -68,10 +68,10 @@ consteval auto corvid_enum_spec(hit_kind*) {
     const render_config::head_params& hp, pos3 hit_point, vec3 ray_dir,
     float diffuse, vec3& out) {
   if (head.antenna_length <= 0.0F) return false;
-  const vec3 pc = hit_point - head.center;
-  const vec3 tip = head.antenna_tip();
-  const float ball_d = sd_sphere(pc - tip, head.radius * head.antenna_ball);
-  const float rod_d = sd_capsule(pc, head.antenna_base(), tip,
+  const auto pc = hit_point - head.center;
+  const auto tip = head.antenna_tip();
+  const auto ball_d = sd_sphere(pc - tip, head.radius * head.antenna_ball);
+  const auto rod_d = sd_capsule(pc, head.antenna_base(), tip,
       head.radius * head.antenna_thickness);
   if (fminf(rod_d, ball_d) >= head.radius * head.antenna_collar) return false;
   if (ball_d > rod_d) {
@@ -86,11 +86,11 @@ consteval auto corvid_enum_spec(hit_kind*) {
   // The tip reads as a fast-spinning dish blurred into a beacon: an
   // axially-symmetric emissive glow about the antenna, with a hot core toward
   // the viewer and a bright band where the spinning rim sweeps.
-  const vec3 n = normalize(pc - tip);
-  const float facing = __saturatef(-dot(n, ray_dir));
-  const float axial = dot(n, head.antenna_dir);
-  const float rim = expf(-(axial * axial) * 8.0F);
-  const float glow = 0.4F + (0.9F * (facing * facing)) + (0.6F * rim);
+  const auto n = normalize(pc - tip);
+  const auto facing = __saturatef(-dot(n, ray_dir));
+  const auto axial = dot(n, head.antenna_dir);
+  const auto rim = expf(-(axial * axial) * 8.0F);
+  const auto glow = 0.4F + (0.9F * (facing * facing)) + (0.6F * rim);
 
   // The two-tone beacon. While moving the color is direction-driven: the
   // tip-color running light, reddening toward the alt color as the Head backs
@@ -100,10 +100,10 @@ consteval auto corvid_enum_spec(hit_kind*) {
   // beacon toward dark on the blink wave by `blink_depth`, gated by `motion`
   // so the resting alternation is a smooth color change with no pulsing.
   const auto mix = [](vec3 a, vec3 b, float t) { return a + ((b - a) * t); };
-  const float select =
+  const auto select =
       (head.idle_mix * (1.0F - head.motion)) + (head.reversing * head.motion);
-  const vec3 color = mix(hp.antenna_tip_color, hp.antenna_alt_color, select);
-  const float on = 1.0F - (hp.blink_depth * head.motion * (1.0F - head.blink));
+  const auto color = mix(hp.antenna_tip_color, hp.antenna_alt_color, select);
+  const auto on = 1.0F - (hp.blink_depth * head.motion * (1.0F - head.blink));
   out = color * (glow * on);
   return true;
 }
@@ -118,16 +118,16 @@ consteval auto corvid_enum_spec(hit_kind*) {
 // Murmur-style xorshift-multiply finalizer. The math is unsigned so the
 // wraparound is well-defined and the shifts are logical.
 [[nodiscard]] __device__ inline float lattice_hash(int ix, int iy, int iz) {
-  constexpr uint32_t prime_x = 374761393U;
-  constexpr uint32_t prime_y = 668265263U;
-  constexpr uint32_t prime_z = 1274126177U;
-  constexpr uint32_t lcg_mul = 1103515245U;
-  constexpr uint32_t low16_mask = 0xffffU;
-  constexpr float hash_norm = 1.0F / 65535.0F;
-  uint32_t h =
+  constexpr uint32_t prime_x{374761393U};
+  constexpr uint32_t prime_y{668265263U};
+  constexpr uint32_t prime_z{1274126177U};
+  constexpr uint32_t lcg_mul{1103515245U};
+  constexpr uint32_t low16_mask{0xffffU};
+  constexpr auto hash_norm = 1.0F / 65535.0F;
+  uint32_t h{
       (static_cast<uint32_t>(ix) * prime_x) +
       (static_cast<uint32_t>(iy) * prime_y) +
-      (static_cast<uint32_t>(iz) * prime_z);
+      (static_cast<uint32_t>(iz) * prime_z)};
   h = (h ^ (h >> 13)) * lcg_mul;
   h = h ^ (h >> 16);
   return static_cast<float>(h & low16_mask) * hash_norm;
@@ -138,32 +138,32 @@ consteval auto corvid_enum_spec(hit_kind*) {
 // eye cone samples, so the beam reads as turbulent haze rather than the
 // regular spokes a grating gives.
 [[nodiscard]] __device__ inline float value_noise3(float x, float y, float z) {
-  const float px = floorf(x);
-  const float py = floorf(y);
-  const float pz = floorf(z);
-  const int ix = static_cast<int>(px);
-  const int iy = static_cast<int>(py);
-  const int iz = static_cast<int>(pz);
-  const float fx = x - px;
-  const float fy = y - py;
-  const float fz = z - pz;
-  const float ux = fx * fx * (3.0F - (2.0F * fx));
-  const float uy = fy * fy * (3.0F - (2.0F * fy));
-  const float uz = fz * fz * (3.0F - (2.0F * fz));
-  const float c000 = lattice_hash(ix, iy, iz);
-  const float c100 = lattice_hash(ix + 1, iy, iz);
-  const float c010 = lattice_hash(ix, iy + 1, iz);
-  const float c110 = lattice_hash(ix + 1, iy + 1, iz);
-  const float c001 = lattice_hash(ix, iy, iz + 1);
-  const float c101 = lattice_hash(ix + 1, iy, iz + 1);
-  const float c011 = lattice_hash(ix, iy + 1, iz + 1);
-  const float c111 = lattice_hash(ix + 1, iy + 1, iz + 1);
-  const float x00 = c000 + ((c100 - c000) * ux);
-  const float x10 = c010 + ((c110 - c010) * ux);
-  const float x01 = c001 + ((c101 - c001) * ux);
-  const float x11 = c011 + ((c111 - c011) * ux);
-  const float y0 = x00 + ((x10 - x00) * uy);
-  const float y1 = x01 + ((x11 - x01) * uy);
+  const auto px = floorf(x);
+  const auto py = floorf(y);
+  const auto pz = floorf(z);
+  const auto ix = static_cast<int>(px);
+  const auto iy = static_cast<int>(py);
+  const auto iz = static_cast<int>(pz);
+  const auto fx = x - px;
+  const auto fy = y - py;
+  const auto fz = z - pz;
+  const auto ux = fx * fx * (3.0F - (2.0F * fx));
+  const auto uy = fy * fy * (3.0F - (2.0F * fy));
+  const auto uz = fz * fz * (3.0F - (2.0F * fz));
+  const auto c000 = lattice_hash(ix, iy, iz);
+  const auto c100 = lattice_hash(ix + 1, iy, iz);
+  const auto c010 = lattice_hash(ix, iy + 1, iz);
+  const auto c110 = lattice_hash(ix + 1, iy + 1, iz);
+  const auto c001 = lattice_hash(ix, iy, iz + 1);
+  const auto c101 = lattice_hash(ix + 1, iy, iz + 1);
+  const auto c011 = lattice_hash(ix, iy + 1, iz + 1);
+  const auto c111 = lattice_hash(ix + 1, iy + 1, iz + 1);
+  const auto x00 = c000 + ((c100 - c000) * ux);
+  const auto x10 = c010 + ((c110 - c010) * ux);
+  const auto x01 = c001 + ((c101 - c001) * ux);
+  const auto x11 = c011 + ((c111 - c011) * ux);
+  const auto y0 = x00 + ((x10 - x00) * uy);
+  const auto y1 = x01 + ((x11 - x01) * uy);
   return y0 + ((y1 - y0) * uz);
 }
 
@@ -185,20 +185,20 @@ cone_sample(const render_config::head_params& hp,
     float cone_len, float base_r, float tip_r) {
   if (s < 0.0F || s > cone_len)
     return vec3{}; // behind the eye or past the tip: no cone
-  const float frac = s / fmaxf(cone_len, denom_floor); // 0 apex .. 1 tip
+  const auto frac = s / fmaxf(cone_len, denom_floor); // 0 apex .. 1 tip
   // A frustum between two circles: the small pupil ring (`base_r`) at the eye
   // and the outer reticle's footprint (`tip_r`) at the target. The base is the
   // pupil size, independent of the tip, so widening the tip to match the aim
   // does not blow the origin up with it.
-  const float cone_r = fmaxf(base_r + ((tip_r - base_r) * frac), denom_floor);
-  const float rn = dperp / cone_r; // 0 axis .. 1 cone surface
+  const auto cone_r = fmaxf(base_r + ((tip_r - base_r) * frac), denom_floor);
+  const auto rn = dperp / cone_r; // 0 axis .. 1 cone surface
   if (rn > 2.0F) return vec3{};
-  const float along = expf(-(frac * frac) * 2.0F); // brightest at the apex
+  const auto along = expf(-(frac * frac) * 2.0F); // brightest at the apex
   // Fade the far end over a short stretch instead of a hard perpendicular
   // cull, so the tip does not read as a flat disc cut across the beam, but
   // keep the band small so it barely shortens the reach (the ground clip in
   // `eye_cone_glow` conforms the lower side to the terrain).
-  const float reach =
+  const auto reach =
       __saturatef((cone_len - s) / fmaxf(0.05F * cone_len, 1e-3F));
 
   // Diaphanous smoke texture: 3D turbulence sampled in a world-fixed
@@ -208,13 +208,13 @@ cone_sample(const render_config::head_params& hp,
   // only; the fine speckle the eye actually reads is the jittered march in
   // `eye_cone_glow` (which is what boils), not this smoke, so this stays a
   // plain world-fixed sample.
-  const float az_rot = az - r.eye_glow_phase;
-  const float f = 0.4F * static_cast<float>(hp.eye_glow_speckle_freq);
-  const float nx = dperp * cosf(az_rot) * f;
-  const float ny = dperp * sinf(az_rot) * f;
-  const float nz = s * f * 0.4F;
-  const float tex = turbulence3(nx, ny, nz);
-  const float grain =
+  const auto az_rot = az - r.eye_glow_phase;
+  const auto f = 0.4F * static_cast<float>(hp.eye_glow_speckle_freq);
+  const auto nx = dperp * cosf(az_rot) * f;
+  const auto ny = dperp * sinf(az_rot) * f;
+  const auto nz = s * f * 0.4F;
+  const auto tex = turbulence3(nx, ny, nz);
+  const auto grain =
       fmaxf(1.0F + (hp.eye_glow_speckle * ((2.0F * tex) - 1.0F)), 0.0F);
 
   // The green haze is a sheath: a ring around a dark axis (so the base reads
@@ -223,7 +223,7 @@ cone_sample(const render_config::head_params& hp,
   // brightness lives at its source (the pupil, `pupil_emitter`) and its target
   // (the hit), not floating in the air, so there is no bright core here to
   // project onto the reticle or integrate into a ring down the aim.
-  float shell = rn * expf(-(rn * rn)); // ring, dark axis
+  auto shell = rn * expf(-(rn * rn)); // ring, dark axis
   // Feather the shell to zero over a band that widens inward from the `rn ==
   // 2` cull as `eye_glow_edge_soft` grows, so the disc's outer edge fades
   // instead of ending on the hard circle the plain cut makes (bloom shows that
@@ -234,7 +234,7 @@ cone_sample(const render_config::head_params& hp,
   // inside `rn <= 2`, so the march bounds are unchanged. 0 keeps the hard
   // edge.
   if (hp.eye_glow_edge_soft > 0.0F) {
-    const float q = __saturatef(
+    const auto q = __saturatef(
         (rn - (2.0F - hp.eye_glow_edge_soft)) / hp.eye_glow_edge_soft);
     shell *= 1.0F - (q * q * q);
   }
@@ -249,14 +249,14 @@ cone_sample(const render_config::head_params& hp,
   // hollow shell is dark, so it fills as a soft inner core rather than a hard
   // one; the backscatter dead zone keeps it from reading as a bright disc down
   // the aim. `eye_glow_counter` is its strength (0 leaves the plain shell).
-  float radial = shell * grain;
+  auto radial = shell * grain;
   if (r.show_inner && hp.eye_glow_counter > 0.0F) {
-    const float caz = az + r.eye_glow_phase;
-    const float ctex = turbulence3((dperp * cosf(caz) * f) + 31.0F,
+    const auto caz = az + r.eye_glow_phase;
+    const auto ctex = turbulence3((dperp * cosf(caz) * f) + 31.0F,
         (dperp * sinf(caz) * f) + 17.0F, nz + 5.0F);
-    const float cgrain =
+    const auto cgrain =
         fmaxf(1.0F + (hp.eye_glow_speckle * ((2.0F * ctex) - 1.0F)), 0.0F);
-    const float core = expf(-(rn * rn) * 2.0F);
+    const auto core = expf(-(rn * rn) * 2.0F);
     radial += hp.eye_glow_counter * core * cgrain;
   }
   return hp.eye_glow_color * (radial * along * reach * hp.eye_glow_strength);
@@ -284,18 +284,18 @@ cone_sample(const render_config::head_params& hp,
 // Clipped to the ray's nearest hit (`max_t`) so terrain in front occludes it.
 [[nodiscard]] __device__ inline vec3 eye_cone_glow(const render_config& cfg,
     const saucer_head& head, pos3 eye, vec3 ray_dir, float max_t) {
-  const render_config::reticle_params& r = cfg.reticle;
+  const auto& r = cfg.reticle;
   if (!r.enabled) return vec3{};
-  const render_config::head_params& hp = cfg.head;
-  const pos3 apex = head.eye_point();
-  const vec3 to_target = r.center - apex;
-  const float target_d2 = dot(to_target, to_target);
+  const auto& hp = cfg.head;
+  const auto apex = head.eye_point();
+  const auto to_target = r.center - apex;
+  const auto target_d2 = dot(to_target, to_target);
   // Squared eye-to-target distance below which the aim is degenerate; guards
   // the sqrt and `1 / target_dist` below.
-  constexpr float min_target_d2 = 1.0e-6F;
+  constexpr auto min_target_d2 = 1.0e-6F;
   if (target_d2 < min_target_d2) return vec3{};
-  const float target_dist = sqrtf(target_d2);
-  const vec3 axis = to_target * (1.0F / target_dist); // beam dir, unit
+  const auto target_dist = sqrtf(target_d2);
+  const auto axis = to_target * (1.0F / target_dist); // beam dir, unit
   // Size the cone to the actual aim geometry so it stays a natural cone at any
   // range: a frustum between the pupil ring at the eye and the outer reticle's
   // footprint at the target. The base radius is the pupil (`eye_hub` scaled to
@@ -304,10 +304,10 @@ cone_sample(const render_config::head_params& hp,
   // the target; `eye_glow_length` is the reach as a fraction of the
   // eye-to-target distance, so the drawn tip radius is the base plus that
   // fraction of the way to the full reticle footprint.
-  const float base_r = hp.eye_hub * head.radius;
-  const float full_tip_r = hp.eye_glow_radius * r.outer_radius;
-  const float cone_len = hp.eye_glow_length * target_dist;
-  const float tip_r = base_r + ((full_tip_r - base_r) * hp.eye_glow_length);
+  const auto base_r = hp.eye_hub * head.radius;
+  const auto full_tip_r = hp.eye_glow_radius * r.outer_radius;
+  const auto cone_len = hp.eye_glow_length * target_dist;
+  const auto tip_r = base_r + ((full_tip_r - base_r) * hp.eye_glow_length);
 
   // Bound the march to the cone's bounding sphere around the apex, so the
   // t-range is always finite (a ray perpendicular to the axis would otherwise
@@ -316,27 +316,27 @@ cone_sample(const render_config::head_params& hp,
   // where `cone_sample` fades to nothing (the `eye_glow_edge_soft` feather
   // stays inside that, so it does not change these bounds); its per-sample
   // axial cull keeps the glow inside the cone proper.
-  const float span = fmaxf(base_r, tip_r);
-  const float radius2 =
+  const auto span = fmaxf(base_r, tip_r);
+  const auto radius2 =
       (cone_len * cone_len) + (4.0F * span * span); // R^2 to rn == 2
-  const vec3 oc = eye - apex;
-  const float boc = dot(oc, ray_dir);
-  const float disc = (boc * boc) - (dot(oc, oc) - radius2);
+  const auto oc = eye - apex;
+  const auto boc = dot(oc, ray_dir);
+  const auto disc = (boc * boc) - (dot(oc, oc) - radius2);
   if (disc < 0.0F) return vec3{}; // misses the bounding sphere
-  const float sq = sqrtf(disc);
-  const float t_lo = fmaxf(-boc - sq, 0.0F);
-  const float t_hi = fminf(-boc + sq, max_t);
+  const auto sq = sqrtf(disc);
+  const auto t_lo = fmaxf(-boc - sq, 0.0F);
+  const auto t_hi = fminf(-boc + sq, max_t);
   if (t_hi <= t_lo) return vec3{};
 
   // A frame around the axis for the speckle azimuth, held stable frame to
   // frame so the grain rotates cleanly rather than jittering.
-  vec3 u = cross(axis, vec3::up);
+  auto u = cross(axis, vec3::up);
   // Squared basis length below which the axis is parallel to up; fall back to
   // the x axis for the cross.
-  constexpr float min_basis_len2 = 1.0e-6F;
+  constexpr auto min_basis_len2 = 1.0e-6F;
   if (dot(u, u) < min_basis_len2) u = cross(axis, vec3::right);
   u = normalize(u);
-  const vec3 v = cross(axis, u);
+  const auto v = cross(axis, u);
 
   // March the in-span segment, integrating the shell's scatter. The per-step
   // position is jittered by a hash of the ray direction so the 12 discrete
@@ -351,8 +351,8 @@ cone_sample(const render_config::head_params& hp,
   // `eye_glow_time` to keep the speckle boiling in place at `eye_glow_boil`
   // cycles per second (0 freezes it). The wrap at 1 is seamless: shifting
   // every sample by a full step maps the sample set onto itself.
-  constexpr int steps = 12;
-  const float dt = (t_hi - t_lo) / static_cast<float>(steps);
+  constexpr auto steps = 12;
+  const auto dt = (t_hi - t_lo) / static_cast<float>(steps);
   // `hash` is the sine-scramble part of the canonical GLSL
   // `fract(sin(dot(dir, freq)) * amp)` pseudo-random one-liner; the `fract`
   // folds into `jitter` below, after the time phase is added.
@@ -360,23 +360,23 @@ cone_sample(const render_config::head_params& hp,
   // constants, carrying no meaning beyond spreading nearby ray directions
   // apart.
   constexpr vec3 sin_hash_freq{12.9898F, 78.233F, 37.719F};
-  constexpr float sin_hash_amp = 43758.5453F;
-  const float hash = sinf(dot(ray_dir, sin_hash_freq)) * sin_hash_amp;
-  const float phase = hash + (r.eye_glow_time * hp.eye_glow_boil);
-  const float jitter = phase - floorf(phase);
+  constexpr auto sin_hash_amp = 43758.5453F;
+  const auto hash = sinf(dot(ray_dir, sin_hash_freq)) * sin_hash_amp;
+  const auto phase = hash + (r.eye_glow_time * hp.eye_glow_boil);
+  const auto jitter = phase - floorf(phase);
   // How sharply the cone fades as it meets the ground plane at the aim, when
   // the aim is a real terrain pick (`grounded`); a small band so the contact
   // reads about as crisp as the reticle it sits under.
-  const float ground_band = fmaxf(0.15F * full_tip_r, 0.02F);
-  vec3 accum{};
+  const auto ground_band = fmaxf(0.15F * full_tip_r, 0.02F);
+  vec3 accum;
   for (int i = 0; i < steps; ++i) {
-    const float t = t_lo + ((static_cast<float>(i) + jitter) * dt);
-    const pos3 sp = eye + (ray_dir * t);
-    const vec3 rel = sp - apex;
-    const float s = dot(rel, axis);
-    const vec3 radial = rel - (axis * s);
-    const float az = atan2f(dot(radial, v), dot(radial, u));
-    vec3 c =
+    const auto t = t_lo + ((static_cast<float>(i) + jitter) * dt);
+    const auto sp = eye + (ray_dir * t);
+    const auto rel = sp - apex;
+    const auto s = dot(rel, axis);
+    const auto radial = rel - (axis * s);
+    const auto az = atan2f(dot(radial, v), dot(radial, u));
+    auto c =
         cone_sample(hp, r, s, length(radial), az, cone_len, base_r, tip_r);
     // Clip the far end to the ground the aim sits on, so it conforms to the
     // reticle's surface instead of ending on a disc in mid-air. Only when the
@@ -398,10 +398,10 @@ cone_sample(const render_config::head_params& hp,
   // faint but visible straight on, so the laser reads as bright enough to
   // backscatter toward you; the jitter and edge feather keep it from looking
   // like a hard-edged disc there).
-  const float toward = -dot(ray_dir, axis); // -1 down-beam .. +1 toward view
-  const float lit =
+  const auto toward = -dot(ray_dir, axis); // -1 down-beam .. +1 toward view
+  const auto lit =
       __saturatef((toward + 0.5F) / 1.5F); // 0 across the dead zone
-  const float scatter =
+  const auto scatter =
       hp.eye_glow_backscatter + ((1.0F - hp.eye_glow_backscatter) * lit);
   // Distance response, monotonic by construction so aiming farther ALWAYS dims
   // the glow, with no distance where it brightens and no knob to tune for
@@ -422,8 +422,8 @@ cone_sample(const render_config::head_params& hp,
   // top (0 is clear air). Both factors only decrease, so the result stays
   // monotonic. `glow_ref_dist` sets the pivot distance the brightness is
   // normalized around, so the mid-range level is about unchanged.
-  constexpr float glow_ref_dist = 4.0F;
-  const float falloff =
+  constexpr auto glow_ref_dist = 4.0F;
+  const auto falloff =
       (glow_ref_dist * glow_ref_dist) /
       fmaxf(cone_len * target_dist, denom_floor) *
       expf(-hp.eye_glow_extinction * target_dist);
@@ -462,10 +462,10 @@ cone_sample(const render_config::head_params& hp,
 // turning the lamp down left the beam glowing at full tuned brightness.
 [[nodiscard]] __device__ inline vec3 flashlight_cone(const render_config& cfg,
     const saucer_head& head, pos3 eye, vec3 ray_dir, float max_t) {
-  const render_config::flashlight_params& fl = cfg.flashlight;
+  const auto& fl = cfg.flashlight;
   if (!fl.enabled || fl.air_strength <= 0.0F || fl.intensity <= 0.0F)
     return vec3{};
-  const pos3 apex = head.eye_point();
+  const auto apex = head.eye_point();
 
   // Aim along the current view forward (already look-smoothed by the One Euro
   // filter), NOT toward the low-passed target, so the cone tracks the camera
@@ -473,85 +473,85 @@ cone_sample(const render_config::head_params& hp,
   // target still sets the reach (its projection onto the axis) and the far-end
   // ground clip; those change slowly and would only pop, not lag, so smoothing
   // them costs nothing perceptible.
-  const vec3 axis = normalize(fl.direction);
-  const float beam_dist = fmaxf(dot(fl.target - apex, axis), denom_floor);
-  const float cone_len = fmaxf(fl.air_reach * beam_dist, denom_floor);
+  const auto axis = normalize(fl.direction);
+  const auto beam_dist = fmaxf(dot(fl.target - apex, axis), denom_floor);
+  const auto cone_len = fmaxf(fl.air_reach * beam_dist, denom_floor);
 
   // The cone widens from a small lens mouth (`air_base`) at the iris to the
   // `cone_degrees` half-angle, matching the surface spot's outer boundary.
-  constexpr float deg_to_rad = std::numbers::pi_v<float> / 180.0F;
-  const float tan_half = tanf(fl.cone_degrees * deg_to_rad);
-  const float base_r = fmaxf(fl.air_base * head.radius, denom_floor);
-  const float tip_r = base_r + (cone_len * tan_half);
+  constexpr auto deg_to_rad = std::numbers::pi_v<float> / 180.0F;
+  const auto tan_half = tanf(fl.cone_degrees * deg_to_rad);
+  const auto base_r = fmaxf(fl.air_base * head.radius, denom_floor);
+  const auto tip_r = base_r + (cone_len * tan_half);
 
   // Bound the march to the cone's bounding sphere around the apex (so the
   // t-range stays finite for a ray perpendicular to the axis) and clip it to
   // the nearest hit.
-  const float radius2 = (cone_len * cone_len) + (tip_r * tip_r);
-  const vec3 oc = eye - apex;
-  const float boc = dot(oc, ray_dir);
-  const float disc = (boc * boc) - (dot(oc, oc) - radius2);
+  const auto radius2 = (cone_len * cone_len) + (tip_r * tip_r);
+  const auto oc = eye - apex;
+  const auto boc = dot(oc, ray_dir);
+  const auto disc = (boc * boc) - (dot(oc, oc) - radius2);
   if (disc < 0.0F) return vec3{};
-  const float sq = sqrtf(disc);
-  const float t_lo = fmaxf(-boc - sq, 0.0F);
-  const float t_hi = fminf(-boc + sq, max_t);
+  const auto sq = sqrtf(disc);
+  const auto t_lo = fmaxf(-boc - sq, 0.0F);
+  const auto t_hi = fminf(-boc + sq, max_t);
   if (t_hi <= t_lo) return vec3{};
 
   // A frame around the axis for the dusty-texture azimuth.
-  vec3 u = cross(axis, vec3::up);
-  constexpr float min_basis_len2 = 1.0e-6F;
+  auto u = cross(axis, vec3::up);
+  constexpr auto min_basis_len2 = 1.0e-6F;
   if (dot(u, u) < min_basis_len2) u = cross(axis, vec3::right);
   u = normalize(u);
-  const vec3 v = cross(axis, u);
+  const auto v = cross(axis, u);
 
   // Boil-advanced march jitter, decorrelated per ray so the discrete samples
   // dissolve into fine grain the bloom smooths (the eye cone's lesson).
-  constexpr int steps = 12;
-  const float dt = (t_hi - t_lo) / static_cast<float>(steps);
+  constexpr auto steps = 12;
+  const auto dt = (t_hi - t_lo) / static_cast<float>(steps);
   constexpr vec3 sin_hash_freq{12.9898F, 78.233F, 37.719F};
-  constexpr float sin_hash_amp = 43758.5453F;
-  const float hash = sinf(dot(ray_dir, sin_hash_freq)) * sin_hash_amp;
-  const float phase = hash + (fl.air_time * fl.air_boil);
-  const float jitter = phase - floorf(phase);
+  constexpr auto sin_hash_amp = 43758.5453F;
+  const auto hash = sinf(dot(ray_dir, sin_hash_freq)) * sin_hash_amp;
+  const auto phase = hash + (fl.air_time * fl.air_boil);
+  const auto jitter = phase - floorf(phase);
 
-  const float ground_band = fmaxf(0.15F * tip_r, 0.02F);
-  const float f = 0.4F * static_cast<float>(fl.air_speckle_freq);
-  vec3 accum{};
+  const auto ground_band = fmaxf(0.15F * tip_r, 0.02F);
+  const auto f = 0.4F * static_cast<float>(fl.air_speckle_freq);
+  vec3 accum;
   for (int i = 0; i < steps; ++i) {
-    const float t = t_lo + ((static_cast<float>(i) + jitter) * dt);
-    const pos3 sp = eye + (ray_dir * t);
-    const vec3 rel = sp - apex;
-    const float s = dot(rel, axis);
+    const auto t = t_lo + ((static_cast<float>(i) + jitter) * dt);
+    const auto sp = eye + (ray_dir * t);
+    const auto rel = sp - apex;
+    const auto s = dot(rel, axis);
     if (s < 0.0F || s > cone_len) continue; // behind the iris or past the tip
-    const vec3 radial = rel - (axis * s);
-    const float dperp = length(radial);
-    const float cone_r = base_r + (s * tan_half);
-    const float rn = dperp / fmaxf(cone_r, denom_floor); // 0 axis .. 1 edge
+    const auto radial = rel - (axis * s);
+    const auto dperp = length(radial);
+    const auto cone_r = base_r + (s * tan_half);
+    const auto rn = dperp / fmaxf(cone_r, denom_floor); // 0 axis .. 1 edge
     if (rn > 1.0F) continue;
 
     // Bright hotspot core plus a dimmer spill that fades to zero at the rim
     // (`1 - rn^2`), so the cone edge is soft without a separate feather.
-    const float hot = expf(-(rn * rn) * fl.hotspot_power);
-    const float spill = 1.0F - (rn * rn);
-    float radial_b = (fl.hotspot_gain * hot) + spill;
+    const auto hot = expf(-(rn * rn) * fl.hotspot_power);
+    const auto spill = 1.0F - (rn * rn);
+    auto radial_b = (fl.hotspot_gain * hot) + spill;
 
     // Dusty texture, a milder version of the laser speckle.
-    const float az = atan2f(dot(radial, v), dot(radial, u));
-    const float tex =
+    const auto az = atan2f(dot(radial, v), dot(radial, u));
+    const auto tex =
         turbulence3(dperp * cosf(az) * f, dperp * sinf(az) * f, s * f * 0.4F);
     radial_b *= fmaxf(1.0F + (fl.air_speckle * ((2.0F * tex) - 1.0F)), 0.0F);
 
     // Brightest near the lens, where the beam is concentrated, easing along
     // the throw as it fans out (the far light lands on the surface instead).
-    const float frac = s / cone_len;
-    vec3 c = fl.color * (radial_b * expf(-(frac * frac)));
+    const auto frac = s / cone_len;
+    auto c = fl.color * (radial_b * expf(-(frac * frac)));
 
     // Conform the far end to the terrain it lands on: fade samples below the
     // fitted ground plane, so the cone ends on the surface instead of a flat
     // mid-air disc. Weighted by `ground_weight` so it eases in as the beam
     // finds terrain and out toward an unclipped reach when it finds sky.
     if (fl.ground_weight > 0.0F) {
-      const float clip =
+      const auto clip =
           __saturatef(dot(sp - fl.target, fl.target_normal) / ground_band);
       c *= 1.0F - (fl.ground_weight * (1.0F - clip));
     }
@@ -567,10 +567,10 @@ cone_sample(const render_config::head_params& hp,
   // oncoming-headlight glare), broadside about 0.4x, and the down-beam
   // primary view about 0.16x: genuine backscatter, dimmer than the pool the
   // beam lights but bright enough that the exposure meter sees the lamp.
-  const float toward = -dot(ray_dir, axis); // cos: -1 down-beam, +1 facing
-  const float aniso = fl.air_aniso;
-  const float ph_denom = 1.0F + (aniso * aniso) - (2.0F * aniso * toward);
-  const float scatter =
+  const auto toward = -dot(ray_dir, axis); // cos: -1 down-beam, +1 facing
+  const auto aniso = fl.air_aniso;
+  const auto ph_denom = 1.0F + (aniso * aniso) - (2.0F * aniso * toward);
+  const auto scatter =
       (1.0F - (aniso * aniso)) /
       fmaxf(ph_denom * sqrtf(ph_denom), denom_floor);
 
@@ -578,8 +578,8 @@ cone_sample(const render_config::head_params& hp,
   // march-length growth by dividing by the cone length, then an inherent
   // 1 / beam_dist aperture spread and optional dust, so a farther throw only
   // ever dims the air glow. `ref_dist` pivots the mid-range brightness.
-  constexpr float ref_dist = 4.0F;
-  const float falloff =
+  constexpr auto ref_dist = 4.0F;
+  const auto falloff =
       (ref_dist * ref_dist) / fmaxf(cone_len * beam_dist, denom_floor) *
       expf(-fl.air_extinction * beam_dist);
   return accum * (dt * fl.intensity * fl.air_strength * scatter * falloff);
@@ -601,18 +601,18 @@ pupil_emitter(const render_config::head_params& hp,
     const render_config::reticle_params& r, float er, float pupil, float ex,
     float ey) {
   if (!r.enabled) return vec3{};
-  const float rr = __saturatef(er / fmaxf(hp.eye_hub, denom_floor));
-  vec3 glow = hp.eye_glow_color * (pupil * rr * hp.eye_glow_strength);
+  const auto rr = __saturatef(er / fmaxf(hp.eye_hub, denom_floor));
+  auto glow = hp.eye_glow_color * (pupil * rr * hp.eye_glow_strength);
   if (r.show_inner) {
-    const float center = pupil * (1.0F - (rr * rr));
+    const auto center = pupil * (1.0F - (rr * rr));
     glow += hp.eye_glow_color * (center * hp.eye_glow_peak_gain);
   } else if (hp.eye_pupil_hex > 0.0F) {
     // Not locked: punch a crisp dark hexagon out of the pupil center (aligned
     // with the iris hex, since `ex`/`ey` are the iris frame) so the unlit
     // inner reads as a distinct hole, not the soft radial dip the bloom washes
     // over.
-    const float apothem = hp.eye_pupil_hex * hp.eye_hub;
-    const float hole = __saturatef(
+    const auto apothem = hp.eye_pupil_hex * hp.eye_hub;
+    const auto hole = __saturatef(
         hexagon_sd(ex, ey, apothem) / fmaxf(0.2F * apothem, denom_floor));
     glow *= hole;
   }
@@ -635,20 +635,20 @@ pupil_emitter(const render_config::head_params& hp,
 eye_glare_halo(const render_config::head_params& hp,
     const render_config::reticle_params& r, vec3 dd, vec3 c) {
   if (!r.enabled) return vec3{};
-  const float gain = r.show_inner ? hp.eye_glare_lock_gain : hp.eye_glare_gain;
+  const auto gain = r.show_inner ? hp.eye_glare_lock_gain : hp.eye_glare_gain;
   if (gain <= 0.0F) return vec3{};
-  const float d = dot(dd, c);
+  const auto d = dot(dd, c);
   if (d <= 0.0F) return vec3{}; // behind the eye's hemisphere
-  const float er = sqrtf(fmaxf(1.0F - (d * d), 0.0F));
-  const float inner = __saturatef(er / fmaxf(hp.eye_hub, denom_floor));
-  const float out =
+  const auto er = sqrtf(fmaxf(1.0F - (d * d), 0.0F));
+  const auto inner = __saturatef(er / fmaxf(hp.eye_hub, denom_floor));
+  const auto out =
       fmaxf(er - hp.eye_hub, 0.0F) / fmaxf(hp.eye_glare_spread, 1e-3F);
-  float glow = inner * expf(-(out * out));
+  auto glow = inner * expf(-(out * out));
   // Not locked: punch the same dark center out of the glare that the pupil
   // carves, so the bloom does not wash the hole back in. Round here (the glare
   // has no hard edges to need a hex), matching the pupil hex closely enough.
   if (!r.show_inner && hp.eye_pupil_hex > 0.0F) {
-    const float core = hp.eye_pupil_hex * hp.eye_hub;
+    const auto core = hp.eye_pupil_hex * hp.eye_hub;
     glow *= __saturatef((er - core) / fmaxf(0.2F * hp.eye_hub, denom_floor));
   }
   return hp.eye_glow_color * (glow * gain);
@@ -674,15 +674,15 @@ flashlight_glare_halo(const render_config::head_params& hp,
     const render_config::flashlight_params& fl, vec3 dd, vec3 c) {
   if (!fl.enabled || fl.intensity <= 0.0F || fl.glare_gain <= 0.0F)
     return vec3{};
-  const float d = dot(dd, c);
+  const auto d = dot(dd, c);
   if (d <= 0.0F) return vec3{}; // behind the eye's hemisphere
-  const float er = sqrtf(fmaxf(1.0F - (d * d), 0.0F));
+  const auto er = sqrtf(fmaxf(1.0F - (d * d), 0.0F));
   // The skirt width past the hub rim (`glare_spread`) is the apparent size of
   // the source past the iris; floored so a zeroed slider cannot divide by
   // zero.
-  const float out =
+  const auto out =
       fmaxf(er - hp.eye_hub, 0.0F) / fmaxf(fl.glare_spread, 1e-3F);
-  const float glow = expf(-(out * out));
+  const auto glow = expf(-(out * out));
   return fl.color * (glow * (fl.intensity * fl.glare_gain));
 }
 
@@ -694,7 +694,7 @@ flashlight_glare_halo(const render_config::head_params& hp,
 // never by a primary ray.
 [[nodiscard]] __device__ inline vec3 shade_head(const saucer_head& head,
     const render_config& cfg, pos3 hit_point, vec3 ray_dir) {
-  const render_config::head_params& hp = cfg.head;
+  const auto& hp = cfg.head;
 
   // Snap the marched hit onto the true surface before deriving anything from
   // its position.
@@ -714,35 +714,35 @@ flashlight_glare_halo(const render_config::head_params& hp,
   // projection, slides the point across the surface and echoes the decal just
   // outside itself at angles. A tiny residual at the extreme grazing sliver is
   // invisible next to that echo.
-  vec3 normal = head.normal(hit_point);
-  const float ndotd = dot(normal, ray_dir);
+  auto normal = head.normal(hit_point);
+  const auto ndotd = dot(normal, ray_dir);
   hit_point =
       hit_point - (ray_dir * (head.sdf(hit_point) / fminf(ndotd, -0.4F)));
   normal = head.normal(hit_point);
 
-  const vec3 light_dir = normalize(cfg.sun_direction);
+  const auto light_dir = normalize(cfg.sun_direction);
   // Night gates the sun (diffuse and specular) off and dims the ambient, so
   // the head goes dark except its emissives and the flashlight source, instead
   // of staying sun-lit in the mirror and the ball's reflection. The sun gate
   // is baked into `diffuse`, so every consumer (the antenna rod, the hull)
   // follows.
-  const float sun_on = cfg.night ? 0.0F : 1.0F;
-  const float ambient_scale = cfg.night ? cfg.night_ambient : 1.0F;
-  const float diffuse = fmaxf(dot(normal, light_dir), 0.0F) * sun_on;
+  const auto sun_on = cfg.night ? 0.0F : 1.0F;
+  const auto ambient_scale = cfg.night ? cfg.night_ambient : 1.0F;
+  const auto diffuse = fmaxf(dot(normal, light_dir), 0.0F) * sun_on;
 
   // The antenna stands proud of the dome (its tip wags with the eye's gimbal),
   // so classify and shade it before the dome/belly split.
-  vec3 antenna_color{};
+  vec3 antenna_color;
   if (shade_antenna(head, hp, hit_point, ray_dir, diffuse, antenna_color))
     return antenna_color;
 
-  const float facing_up = dot(normal, head.up);
-  const float upside = fmaxf(facing_up, 0.0F);     // the dome
-  const float underside = fmaxf(-facing_up, 0.0F); // the belly
+  const auto facing_up = dot(normal, head.up);
+  const auto upside = fmaxf(facing_up, 0.0F);     // the dome
+  const auto underside = fmaxf(-facing_up, 0.0F); // the belly
 
-  const vec3 ql = head.to_local(hit_point);
-  const float rr = sqrtf((ql.x * ql.x) + (ql.z * ql.z)) / head.radius;
-  const float ang = atan2f(ql.z, ql.x) + head.spin;
+  const auto ql = head.to_local(hit_point);
+  const auto rr = sqrtf((ql.x * ql.x) + (ql.z * ql.z)) / head.radius;
+  const auto ang = atan2f(ql.z, ql.x) + head.spin;
 
   // Classify the hit as the dome sphere or the disc body, by which of the two
   // unioned components is nearer. The dome decal (canopy, grid, eye, seam) is
@@ -750,12 +750,12 @@ flashlight_glare_halo(const render_config::head_params& hp,
   // can never bare it or slide the eye onto the disc; the disc occludes the
   // sphere's lower part for free.
   const saucer_head::parts sp = head.parts_at(hit_point);
-  const bool is_dome = sp.dome < sp.disc;
+  const auto is_dome = (sp.dome < sp.disc);
 
   // The dome takes its own cap albedo, the saucer body its own elsewhere.
-  vec3 albedo = is_dome ? hp.dome_albedo : hp.base_albedo;
+  auto albedo = is_dome ? hp.dome_albedo : hp.base_albedo;
   vec3 emissive{0.0F, 0.0F, 0.0F};
-  float eye_cover = 0.0F; // how much an eye decal covers this point
+  float eye_cover{}; // how much an eye decal covers this point
 
   // The dome: a fixed cockpit, mechanical but calmer than the belly. A
   // canopy-tinted metal shell tiled with a geodesic hex grid over its whole
@@ -767,7 +767,7 @@ flashlight_glare_halo(const render_config::head_params& hp,
   // to gray; the edges stay crisp so it holds up small.
   if (is_dome) {
     albedo = (albedo * (1.0F - upside)) + (hp.canopy * upside);
-    constexpr float aa = 0.012F;
+    constexpr auto aa = 0.012F;
 
     // A hard black groove where the dome meets the disc: a band the dome
     // surface enters as it nears the disc (`sp.disc - sp.dome` shrinking to
@@ -775,9 +775,9 @@ flashlight_glare_halo(const render_config::head_params& hp,
     // `seam_width` thick. Drawn like the eye, emissive with the lit metal and
     // specular removed (via `eye_cover`), so it reads true black, a groove the
     // dome sits in.
-    const float seam_t = (sp.disc - sp.dome) / head.radius;
-    const float seam_d = seam_t - hp.seam_offset;
-    const float band =
+    const auto seam_t = (sp.disc - sp.dome) / head.radius;
+    const auto seam_d = seam_t - hp.seam_offset;
+    const auto band =
         __saturatef(seam_d / aa) * __saturatef((hp.seam_width - seam_d) / aa);
     albedo *= (1.0F - band);
     emissive = (emissive * (1.0F - band)) + (hp.seam_color * band);
@@ -788,26 +788,26 @@ flashlight_glare_halo(const render_config::head_params& hp,
     // from the host so the antenna shares its exact angle; the geodesic cell
     // the eye nests on sizes the iris (its apothem) and, via its flat-top
     // phase plus `dome_hex_phase`, rotates the grid about the eye.
-    const vec3 e_up = head.dome_up;
-    const vec3 c = head.eye_dir;
+    const auto e_up = head.dome_up;
+    const auto c = head.eye_dir;
     const geodesic_eye_cell eye_cell = geodesic_eye_cell_of(hp.dome_hex_freq);
-    const vec3 th = normalize(cross(e_up, c));
-    const vec3 tv = cross(c, th);
-    const float grid_phase = eye_cell.phase + hp.dome_hex_phase;
-    const vec3 eye_tan = (th * cosf(grid_phase)) + (tv * sinf(grid_phase));
+    const auto th = normalize(cross(e_up, c));
+    const auto tv = cross(c, th);
+    const auto grid_phase = eye_cell.phase + hp.dome_hex_phase;
+    const auto eye_tan = (th * cosf(grid_phase)) + (tv * sinf(grid_phase));
 
     // Locate the point by its direction from the dome's center, unique on the
     // sphere (a normal-placed decal would stamp twice, on the dome and on the
     // body, which repeat normals).
-    const pos3 dome_c =
+    const auto dome_c =
         head.center + (e_up * (head.radius * head.dome_offset));
-    const vec3 dd = normalize(hit_point - dome_c);
+    const auto dd = normalize(hit_point - dome_c);
 
     // The geodesic (Goldberg) hex grid over the whole dome sphere: a
     // frequency-`dome_hex_freq` icosahedron reoriented so one cell sits on the
     // eye, the cell's flat-top phase lining its hexagons up with the iris.
-    const float edge = geodesic_grid_edge(dd, hp.dome_hex_freq, c, eye_tan);
-    const float facet = __saturatef((hp.dome_hex_line - edge) / aa);
+    const auto edge = geodesic_grid_edge(dd, hp.dome_hex_freq, c, eye_tan);
+    const auto facet = __saturatef((hp.dome_hex_line - edge) / aa);
     albedo *= (1.0F - (facet * hp.dome_hex_strength));
 
     // The eye, on the front of the dome (toward the eye center `c`): an opaque
@@ -821,44 +821,44 @@ flashlight_glare_halo(const render_config::head_params& hp,
       // `dome_hex_phase` so it tracks the cells. The grid carries the phase
       // through `eye_tan`, so without this the iris lags the cells whenever
       // the phase is nonzero.
-      const float cd = cosf(hp.dome_hex_phase);
-      const float sd = sinf(hp.dome_hex_phase);
-      const vec3 iris_th = (th * cd) + (tv * sd);
-      const vec3 iris_tv = (tv * cd) - (th * sd);
-      const float ex = dot(dd, iris_th);
-      const float ey = dot(dd, iris_tv);
-      const float hexd =
+      const auto cd = cosf(hp.dome_hex_phase);
+      const auto sd = sinf(hp.dome_hex_phase);
+      const auto iris_th = (th * cd) + (tv * sd);
+      const auto iris_tv = (tv * cd) - (th * sd);
+      const auto ex = dot(dd, iris_th);
+      const auto ey = dot(dd, iris_tv);
+      const auto hexd =
           hexagon_sd(ex, ey, (3.0F * eye_cell.apothem) - hp.eye_line);
       if (hexd <= hp.eye_line + aa) { // inside the iris
-        const float er = sqrtf((ex * ex) + (ey * ey));
-        const float inside = __saturatef(-hexd / aa);
-        const float frame = __saturatef((hp.eye_line - fabsf(hexd)) / aa);
-        const float hub =
+        const auto er = sqrtf((ex * ex) + (ey * ey));
+        const auto inside = __saturatef(-hexd / aa);
+        const auto frame = __saturatef((hp.eye_line - fabsf(hexd)) / aa);
+        const auto hub =
             __saturatef((hp.eye_line - fabsf(er - hp.eye_hub)) / aa);
-        const float pupil = inside * __saturatef((hp.eye_hub - er) / aa);
+        const auto pupil = inside * __saturatef((hp.eye_hub - er) / aa);
 
         // Radial spokes from the hub out to the frame. At `eye_spokes` = 6
         // they run to the hexagon's vertices; halving to 3 leaves alternating
         // spokes, an animation hook.
         const auto spokes = static_cast<float>(hp.eye_spokes);
-        float spoke = 0.0F;
+        float spoke{};
         if (hp.eye_spokes > 0 && er > hp.eye_hub) {
-          const float spoke_phase = (atan2f(ey, ex) * spokes) / two_pi_v<>;
-          const float to_spoke =
+          const auto spoke_phase = (atan2f(ey, ex) * spokes) / two_pi_v<>;
+          const auto to_spoke =
               fabsf(spoke_phase - rintf(spoke_phase)) * (two_pi_v<> / spokes);
           spoke = __saturatef((hp.eye_line - (er * sinf(to_spoke))) / aa);
         }
 
         // Opaque glass iris, then the pupil hub, then the bright frame,
         // spokes, and hub ring over it.
-        vec3 col = hp.eye_glass;
+        auto col = hp.eye_glass;
         col = (col * (1.0F - pupil)) + (hp.eye_pupil * pupil);
-        const float structure = fmaxf(frame, inside * fmaxf(hub, spoke));
+        const auto structure = fmaxf(frame, inside * fmaxf(hub, spoke));
         col = (col * (1.0F - structure)) + (hp.eye_frame_color * structure);
 
         // The eye reads at its set color (white stays white): drop the lit
         // metal under it and add the color as emissive rather than albedo.
-        const float cov = fmaxf(inside, frame);
+        const auto cov = fmaxf(inside, frame);
         albedo *= (1.0F - cov);
         emissive = (emissive * (1.0F - cov)) + (col * cov);
         eye_cover = fmaxf(eye_cover, cov);
@@ -884,26 +884,26 @@ flashlight_glare_halo(const render_config::head_params& hp,
   // is invisible under the bank. Drawn on the up-facing disc only, never the
   // dome (which carries its own grid) nor the belly.
   if (!is_dome && upside > 0.001F) {
-    constexpr float aa = 0.01F;
+    constexpr auto aa = 0.01F;
     // Azimuth bolted to the hull's `front`, not `to_local`'s world-up frame,
     // so these fixed decals hold still as the disc banks under dolly motion.
     // Each decal subtracts its own phase to rotate where it rings the hull.
-    const float top_ang = head.hull_azimuth(hit_point);
+    const auto top_ang = head.hull_azimuth(hit_point);
 
     // Dark portholes evenly spaced on a ring, each centered in its panel: snap
     // to the nearest ring slot, then test the in-plane distance to it. `rr` is
     // frame-independent, so reconstruct the in-plane coordinates from it and
     // the phased azimuth.
     if (hp.port_count > 0) {
-      const float pa = top_ang - hp.port_phase;
-      const float lx = rr * cosf(pa);
-      const float lz = rr * sinf(pa);
-      const float sector = two_pi_v<> / static_cast<float>(hp.port_count);
-      const float a0 = (rintf((pa / sector) - 0.5F) + 0.5F) * sector;
-      const float dx = lx - (hp.port_center * cosf(a0));
-      const float dz = lz - (hp.port_center * sinf(a0));
-      const float pd = sqrtf((dx * dx) + (dz * dz));
-      const float port = __saturatef((hp.port_radius - pd) / aa);
+      const auto pa = top_ang - hp.port_phase;
+      const auto lx = rr * cosf(pa);
+      const auto lz = rr * sinf(pa);
+      const auto sector = two_pi_v<> / static_cast<float>(hp.port_count);
+      const auto a0 = (rintf((pa / sector) - 0.5F) + 0.5F) * sector;
+      const auto dx = lx - (hp.port_center * cosf(a0));
+      const auto dz = lz - (hp.port_center * sinf(a0));
+      const auto pd = sqrtf((dx * dx) + (dz * dz));
+      const auto port = __saturatef((hp.port_radius - pd) / aa);
       albedo = (albedo * (1.0F - port)) + (hp.port_color * port);
     }
 
@@ -913,10 +913,9 @@ flashlight_glare_halo(const render_config::head_params& hp,
     // and leave the rounded shoulder to the rim running lights.
     if (hp.panel_count > 0) {
       const auto panels = static_cast<float>(hp.panel_count);
-      const float phase = ((top_ang - hp.panel_phase) * panels) / two_pi_v<>;
-      const float to_seam =
-          fabsf(phase - rintf(phase)) * (two_pi_v<> / panels);
-      const float groove =
+      const auto phase = ((top_ang - hp.panel_phase) * panels) / two_pi_v<>;
+      const auto to_seam = fabsf(phase - rintf(phase)) * (two_pi_v<> / panels);
+      const auto groove =
           __saturatef((hp.panel_line - (to_seam * rr)) / aa) *
           __saturatef((facing_up - hp.rim_top) / 0.05F);
       albedo *= (1.0F - (groove * hp.panel_strength));
@@ -926,19 +925,19 @@ flashlight_glare_halo(const render_config::head_params& hp,
   // The belly: a painted disc (concentric rings * spinning spokes), the
   // central flashlight hub, and a ring of amber rim lights.
   if (underside > 0.001F) {
-    const float rings = 0.5F + (0.5F * cosf(rr * hp.ring_paint_frequency));
-    const float spokes = 0.5F + (0.5F * cosf(ang * hp.spoke_paint_frequency));
+    const auto rings = 0.5F + (0.5F * cosf(rr * hp.ring_paint_frequency));
+    const auto spokes = 0.5F + (0.5F * cosf(ang * hp.spoke_paint_frequency));
     albedo *= (hp.paint_base + (hp.paint_range * rings * spokes));
 
-    const float hub = __saturatef((hp.hub_radius - rr) / hp.hub_softness);
+    const auto hub = __saturatef((hp.hub_radius - rr) / hp.hub_softness);
     emissive += hp.hub_color * (hp.hub_strength * hub);
 
-    const float ring_d = (rr - hp.spoke_center) * hp.spoke_width;
-    const float ring = expf(-(ring_d * ring_d));
-    const float wave = 0.5F + (0.5F * cosf(ang * hp.spoke_dot_frequency));
-    const float wave2 = wave * wave;
-    const float wave4 = wave2 * wave2;
-    const float dots = wave4 * wave4; // wave^8
+    const auto ring_d = (rr - hp.spoke_center) * hp.spoke_width;
+    const auto ring = expf(-(ring_d * ring_d));
+    const auto wave = 0.5F + (0.5F * cosf(ang * hp.spoke_dot_frequency));
+    const auto wave2 = wave * wave;
+    const auto wave4 = wave2 * wave2;
+    const auto dots = wave4 * wave4; // wave^8
     emissive += hp.spoke_color * (hp.spoke_strength * ring * dots);
 
     emissive *= underside;
@@ -961,14 +960,14 @@ flashlight_glare_halo(const render_config::head_params& hp,
   // [`rim_floor`, 1]; `rim_spin_scale` turns them slower than the belly
   // (subtracting part of `head.spin` from `ang`).
   if (!is_dome) {
-    constexpr float aa = 0.03F; // top-edge crispness, in normal units
-    const float f = facing_up - hp.rim_top;
-    const float band =
+    constexpr auto aa = 0.03F; // top-edge crispness, in normal units
+    const auto f = facing_up - hp.rim_top;
+    const auto band =
         __saturatef(-f / aa) * __saturatef(1.0F + (f / hp.rim_width));
-    const float rim_ang = ang - (head.spin * (1.0F - hp.rim_spin_scale));
-    const float wave =
+    const auto rim_ang = ang - (head.spin * (1.0F - hp.rim_spin_scale));
+    const auto wave =
         0.5F + (0.5F * cosf(rim_ang * static_cast<float>(hp.rim_count)));
-    const float seg = hp.rim_floor + ((1.0F - hp.rim_floor) * wave);
+    const auto seg = hp.rim_floor + ((1.0F - hp.rim_floor) * wave);
     emissive += hp.rim_color * (hp.rim_strength * band * seg);
   }
 
@@ -980,9 +979,9 @@ flashlight_glare_halo(const render_config::head_params& hp,
   // emissives the ball's reflection carries. See `eye_glare_halo` and
   // `flashlight_glare_halo`.
   {
-    const pos3 dome_c =
+    const auto dome_c =
         head.center + (head.dome_up * (head.radius * head.dome_offset));
-    const vec3 pupil_dir = normalize(hit_point - dome_c);
+    const auto pupil_dir = normalize(hit_point - dome_c);
     emissive =
         emissive + eye_glare_halo(hp, cfg.reticle, pupil_dir, head.eye_dir);
     emissive =
@@ -990,10 +989,10 @@ flashlight_glare_halo(const render_config::head_params& hp,
         flashlight_glare_halo(hp, cfg.flashlight, pupil_dir, head.eye_dir);
   }
 
-  const vec3 half_v = normalize(light_dir - ray_dir);
-  const float spec_power =
+  const auto half_v = normalize(light_dir - ray_dir);
+  const auto spec_power =
       (upside > underside) ? hp.dome_specular_power : hp.belly_specular_power;
-  const float spec =
+  const auto spec =
       powf(fmaxf(dot(normal, half_v), 0.0F), spec_power) * (1.0F - eye_cover) *
       sun_on;
   return (albedo * ((hp.ambient * ambient_scale) + (hp.sun * diffuse))) +
@@ -1009,12 +1008,12 @@ flashlight_glare_halo(const render_config::head_params& hp,
 shade_scene_ray(const density_field& field, cudaTextureObject_t color,
     const saucer_head& head, const render_config& cfg, pos3 eye,
     vec3 ray_dir) {
-  const float t_terrain = field.raymarch(eye, ray_dir);
-  const float t_head = head.raymarch(eye, ray_dir);
-  const bool head_nearer =
-      t_head >= 0.0F && (t_terrain < 0.0F || t_head < t_terrain);
+  const auto t_terrain = field.raymarch(eye, ray_dir);
+  const auto t_head = head.raymarch(eye, ray_dir);
+  const auto head_nearer =
+      (t_head >= 0.0F) && ((t_terrain < 0.0F) || (t_head < t_terrain));
   vec3 col;
-  float hit_t = big_value;
+  auto hit_t = big_value;
   if (head_nearer) {
     col = shade_head(head, cfg, eye + (ray_dir * t_head), ray_dir);
     hit_t = t_head;
@@ -1050,22 +1049,22 @@ shade_scene_ray(const density_field& field, cudaTextureObject_t color,
 [[nodiscard]] __device__ inline vec3 ball_grid_emissive(const metal_ball& ball,
     const render_config& cfg, vec3 normal) {
   if (ball.glow <= 0.001F) return vec3{};
-  constexpr float aa = 0.02F;
-  constexpr float feather = 0.2F; // axle-fade softness
-  constexpr int max_taps = 8;
+  constexpr auto aa = 0.02F;
+  constexpr auto feather = 0.2F; // axle-fade softness
+  constexpr auto max_taps = 8;
   const auto scale = static_cast<float>(cfg.ball.hex_freq);
   const metal_ball::grid_sample uv = ball.grid_uv(normal);
-  const float fade = __saturatef((cfg.ball.grid_extent - uv.axle) / feather);
-  const float period = 1.0F / scale; // grid period along the roll (u)
-  const float sweep = fminf(ball.roll_blur, period);
-  const int want = static_cast<int>(lroundf(sweep / aa));
-  const int taps = want < 1 ? 1 : (want > max_taps ? max_taps : want);
-  float line = 0.0F;
+  const auto fade = __saturatef((cfg.ball.grid_extent - uv.axle) / feather);
+  const auto period = 1.0F / scale; // grid period along the roll (u)
+  const auto sweep = fminf(ball.roll_blur, period);
+  const auto want = static_cast<int>(lroundf(sweep / aa));
+  const auto taps = (want < 1) ? 1 : ((want > max_taps) ? max_taps : want);
+  float line{};
   for (int i = 0; i < taps; ++i) {
-    const float s =
+    const auto s =
         sweep *
         (((static_cast<float>(i) + 0.5F) / static_cast<float>(taps)) - 0.5F);
-    const float edge = hex_grid_edge(uv.v * scale, (uv.u + s) * scale) / scale;
+    const auto edge = hex_grid_edge(uv.v * scale, (uv.u + s) * scale) / scale;
     line += __saturatef((cfg.ball.hex_line - edge) / aa);
   }
   line /= static_cast<float>(taps);
@@ -1080,11 +1079,11 @@ shade_scene_ray(const density_field& field, cudaTextureObject_t color,
 [[nodiscard]] __device__ inline vec3 shade_ball(const density_field& field,
     cudaTextureObject_t color, const metal_ball& ball, const saucer_head& head,
     const render_config& cfg, pos3 hit_point, vec3 ray_dir) {
-  const vec3 normal = ball.normal(hit_point);
-  const vec3 env = shade_scene_ray(field, color, head, cfg, hit_point,
+  const auto normal = ball.normal(hit_point);
+  const auto env = shade_scene_ray(field, color, head, cfg, hit_point,
       reflect(ray_dir, normal));
   if (cfg.debug_ball_raw) return env; // diagnose the black blob undimmed
-  vec3 col = (env * cfg.ball.dim * cfg.ball.tint) + cfg.ball.ambient_floor;
+  auto col = (env * cfg.ball.dim * cfg.ball.tint) + cfg.ball.ambient_floor;
 
   // The motion grid: an emissive flat hex wireframe wrapped onto the ball by
   // the rolling-conveyor projection, flaring up only while moving, added over
@@ -1115,11 +1114,11 @@ shade_world_ray(const density_field& field, cudaTextureObject_t color,
     const metal_ball& ball, const saucer_head& head, const render_config& cfg,
     pos3 eye, vec3 ray_dir, float px_scale, float origin_dist,
     bool& reticle_edge) {
-  const float t_terrain = field.raymarch(eye, ray_dir);
-  const float t_ball = ball.intersect(eye, ray_dir);
-  const float t_head = head.raymarch(eye, ray_dir);
-  float best = big_value;
-  hit_kind kind = hit_kind::sky;
+  const auto t_terrain = field.raymarch(eye, ray_dir);
+  const auto t_ball = ball.intersect(eye, ray_dir);
+  const auto t_head = head.raymarch(eye, ray_dir);
+  auto best = big_value;
+  auto kind = hit_kind::sky;
   if (t_terrain >= 0.0F && t_terrain < best) {
     best = t_terrain;
     kind = hit_kind::terrain;
@@ -1138,8 +1137,8 @@ shade_world_ray(const density_field& field, cudaTextureObject_t color,
     // mirror shows it on the terrain it reflects, matching the primary ray.
     // `px_scale` times the full reflected path length (`origin_dist` to the
     // mirror plus `best` on to the terrain) sets its antialiasing footprint.
-    const pos3 hit = eye + (ray_dir * best);
-    const pos3 snapped = field.refine_hit(hit, ray_dir);
+    const auto hit = eye + (ray_dir * best);
+    const auto snapped = field.refine_hit(hit, ray_dir);
     col = apply_reticle(cfg.reticle, snapped, (origin_dist + best) * px_scale,
         shade_terrain_hit(field, color, cfg, hit,
             shadow_sphere{ball.center, ball.radius}),
@@ -1168,8 +1167,8 @@ shade_world_ray(const density_field& field, cudaTextureObject_t color,
 // from the apothem at an edge midpoint to `apothem / cos(30)` at a vertex.
 [[nodiscard]] __device__ inline float
 hex_edge_radius(float angle, float apothem) {
-  constexpr float sector = (60_deg).value;
-  const float a = angle - (sector * rintf(angle / sector));
+  constexpr auto sector = (60_deg).value;
+  const auto a = angle - (sector * rintf(angle / sector));
   return apothem / cosf(a);
 }
 
@@ -1210,17 +1209,17 @@ apply_reticle(const render_config::reticle_params& r, pos3 hit, float aa_world,
     vec3 color, bool& on_edge) {
   on_edge = false;
   if (!r.enabled) return color;
-  const vec3 d = hit - r.center;
-  const float er = length(d); // 3D distance: the ring radius hugs the bowl
+  const auto d = hit - r.center;
+  const auto er = length(d); // 3D distance: the ring radius hugs the bowl
 
   // A regular hexagon's vertex sits at apothem / cos(30) = 2 / sqrt(3) times
   // its apothem; the rings are sized by apothem, so scale to reach a vertex.
-  constexpr float apothem_to_vertex = 1.0F / cos_30_v<>;
+  constexpr auto apothem_to_vertex = 1.0F / cos_30_v<>;
   // Floor the antialiasing width so it stays strictly positive (the divisions
   // below would blow up at a zero footprint).
-  constexpr float min_aa = 1.0e-4F;
-  const float aa = fmaxf(aa_world, min_aa);
-  const float oline = fmaxf(r.outer_line, aa); // outer ring, bold
+  constexpr auto min_aa = 1.0e-4F;
+  const auto aa = fmaxf(aa_world, min_aa);
+  const auto oline = fmaxf(r.outer_line, aa); // outer ring, bold
   // Cheap reject beyond the outer hexagon's farthest reach (a vertex); the
   // caller already snapped `hit` to the surface, so `er` is final.
   if (er > (r.outer_radius * apothem_to_vertex) + oline + aa) return color;
@@ -1231,12 +1230,12 @@ apply_reticle(const render_config::reticle_params& r, pos3 hit, float aa_world,
   // snapped the pattern there. Screen-axis azimuth has no such discontinuity.
   // Each ring spins the opposite way (`spin` added for the outer, subtracted
   // for the inner).
-  const float ang = atan2f(dot(d, r.view_up), dot(d, r.view_right));
+  const auto ang = atan2f(dot(d, r.view_up), dot(d, r.view_right));
 
   // The outer hexagon, clipped to a circle: fade it out past `outer_clip`
   // (times the apothem), cutting the hexagon's corners so it reads as a beam
   // projected through a round aperture (the eye), not a bare hexagon.
-  float mask = __saturatef(
+  auto mask = __saturatef(
       (oline - fabsf(er - hex_edge_radius(ang + r.spin, r.outer_radius))) /
       aa);
   mask *= __saturatef(((r.outer_clip * r.outer_radius) - er) / aa);
@@ -1245,11 +1244,11 @@ apply_reticle(const render_config::reticle_params& r, pos3 hit, float aa_world,
   // carry its own brightness (`inner_gain`): blown toward white, the locked
   // crosshair reads over the eye-cone's counter-rotating core instead of
   // washing out.
-  float inner = 0.0F;
+  float inner{};
   if (r.show_inner) {
-    const float iline = fmaxf(r.inner_line, aa); // inner crosshair, fine
-    const float ia = ang - r.spin;               // inner counter-rotates
-    const float edge = hex_edge_radius(ia, r.inner_radius);
+    const auto iline = fmaxf(r.inner_line, aa); // inner crosshair, fine
+    const auto ia = ang - r.spin;               // inner counter-rotates
+    const auto edge = hex_edge_radius(ia, r.inner_radius);
     inner = __saturatef((iline - fabsf(er - edge)) / aa);
 
     // Crosshair spokes from the center to the inner hex: a thin radial line
@@ -1258,11 +1257,11 @@ apply_reticle(const render_config::reticle_params& r, pos3 hit, float aa_world,
     // the constant vertex reach) so the spoke stops flush with the hex instead
     // of poking out past its flat sides.
     if (r.inner_spokes > 0) {
-      constexpr float two_pi = two_pi_v<float>;
+      constexpr auto two_pi = two_pi_v<float>;
       const auto spokes = static_cast<float>(r.inner_spokes);
-      const float phase = (ia * spokes) / two_pi;
-      const float to_spoke = fabsf(phase - rintf(phase)) * (two_pi / spokes);
-      const float spoke =
+      const auto phase = (ia * spokes) / two_pi;
+      const auto to_spoke = fabsf(phase - rintf(phase)) * (two_pi / spokes);
+      const auto spoke =
           __saturatef((iline - (er * sinf(to_spoke))) / aa) *
           __saturatef((edge - er) / aa);
       inner = fmaxf(inner, spoke);
@@ -1271,7 +1270,7 @@ apply_reticle(const render_config::reticle_params& r, pos3 hit, float aa_world,
 
   // Any nonzero coverage marks this pixel for the resolve pass to supersample;
   // the reticle is mostly thin lines, so this is a small pixel count.
-  constexpr float coverage_eps = 1.0e-3F;
+  constexpr auto coverage_eps = 1.0e-3F;
   on_edge = fmaxf(mask, inner) > coverage_eps;
 
   // The outer ring holds full strength even when the inner crosshair is
@@ -1290,9 +1289,9 @@ apply_reticle(const render_config::reticle_params& r, pos3 hit, float aa_world,
 // edges sit on flat same-kind terrain the kind/depth test cannot see.
 struct ray_sample {
   vec3 color;
-  float depth;
-  hit_kind kind;
-  bool reticle_edge;
+  float depth{};
+  hit_kind kind{};
+  bool reticle_edge{};
 };
 
 // Unpolarized Fresnel reflectance at an interface, for incidence cosine `cosi`
@@ -1304,11 +1303,11 @@ struct ray_sample {
 // out.
 [[nodiscard]] __device__ inline float
 fresnel_reflectance(float cosi, float eta) {
-  const float sin_t2 = eta * eta * (1.0F - (cosi * cosi));
+  const auto sin_t2 = eta * eta * (1.0F - (cosi * cosi));
   if (sin_t2 >= 1.0F) return 1.0F; // total internal reflection
-  const float cost = sqrtf(1.0F - sin_t2);
-  const float rs = ((eta * cosi) - cost) / ((eta * cosi) + cost);
-  const float rp = (cosi - (eta * cost)) / (cosi + (eta * cost));
+  const auto cost = sqrtf(1.0F - sin_t2);
+  const auto rs = ((eta * cosi) - cost) / ((eta * cosi) + cost);
+  const auto rp = (cosi - (eta * cost)) / (cosi + (eta * cost));
   return 0.5F * ((rs * rs) + (rp * rp));
 }
 
@@ -1344,12 +1343,12 @@ fresnel_reflectance(float cosi, float eta) {
 apply_lensed_reticle(const metal_ball& ball, const render_config& cfg,
     pos3 eye, vec3 ray_dir, pos3 exit, vec3 dg, float twg, float px_scale,
     vec3 base, bool& reticle_edge) {
-  constexpr float reticle_reach = (1.0F / cos_30_v<>)+2.0F;
+  constexpr auto reticle_reach = (1.0F / cos_30_v<>)+2.0F;
   if (!cfg.reticle.enabled ||
       length((exit + (dg * twg)) - cfg.reticle.center) >=
           cfg.reticle.outer_radius * reticle_reach)
     return base;
-  const pos3 hit_g = exit + (dg * twg);
+  const auto hit_g = exit + (dg * twg);
   // Take the ring radius from a smooth surface fitted to the terrain near the
   // aim, not the per-pixel terrain hit: that hit rides the trilinear voxel
   // facets, so its radius frizzes at voxel scale and crawls with any lens
@@ -1357,8 +1356,8 @@ apply_lensed_reticle(const metal_ball& ball, const render_config& cfg,
   // tangent frame at the pick plus a quadric height, so it follows a tunnel or
   // bowl while ignoring the bumps, and degrades to the bare plane on flat
   // ground.
-  const reticle_surface_fit& fit = cfg.reticle.fit;
-  const float denom = dot(dg, fit.n);
+  const auto& fit = cfg.reticle.fit;
+  const auto denom = dot(dg, fit.n);
   if (fabsf(denom) < 1.0e-3F) return base; // ray skims the plane: no radius
   // Intersect the tangent plane through the pick, then lift that hit onto the
   // fitted quadric. No "plane behind the exit" guard: a ball resting with
@@ -1367,36 +1366,36 @@ apply_lensed_reticle(const metal_ball& ball, const render_config& cfg,
   // intersection still resolves to ~the center (a tiny radius), filling the
   // buried-cap disc instead of leaving a hole, and a genuinely distant one
   // self-rejects via the radius reach in `apply_reticle`.
-  const float t_plane = dot(cfg.reticle.center - exit, fit.n) / denom;
-  const pos3 hit_p = exit + (dg * t_plane); // on the tangent plane at center
+  const auto t_plane = dot(cfg.reticle.center - exit, fit.n) / denom;
+  const auto hit_p = exit + (dg * t_plane); // on the tangent plane at center
   // Lift onto the quadric: take the in-plane offset's (u, v), add the surface
   // height there, and report the conforming 3D radius while keeping the
   // in-plane direction (so the screen-axis azimuth is unchanged). On a curve
   // the radius grows faster than the planar distance, so the ring pulls in to
   // hug the bowl.
-  const vec3 dp = hit_p - cfg.reticle.center;
-  const float pu = dot(dp, fit.u);
-  const float pv = dot(dp, fit.v);
-  const float wq =
+  const auto dp = hit_p - cfg.reticle.center;
+  const auto pu = dot(dp, fit.u);
+  const auto pv = dot(dp, fit.v);
+  const auto wq =
       0.5F *
       ((fit.a * pu * pu) + (2.0F * fit.b * pu * pv) + (fit.c * pv * pv));
-  const float r_planar = sqrtf((pu * pu) + (pv * pv));
-  const float er = sqrtf((r_planar * r_planar) + (wq * wq));
-  const float scale = (r_planar > 1.0e-4F) ? (er / r_planar) : 0.0F;
-  const pos3 hit_s = cfg.reticle.center + (dp * scale);
+  const auto r_planar = sqrtf((pu * pu) + (pv * pv));
+  const auto er = sqrtf((r_planar * r_planar) + (wq * wq));
+  const auto scale = (r_planar > 1.0e-4F) ? (er / r_planar) : 0.0F;
+  const auto hit_s = cfg.reticle.center + (dp * scale);
   const auto refr_hit = [&](vec3 rd) {
-    const float te = ball.intersect(eye, rd);
-    const pos3 ex = eye + (rd * te);
+    const auto te = ball.intersect(eye, rd);
+    const auto ex = eye + (rd * te);
     return ex + (refract(rd, -ball.normal(ex), cfg.glass.ior) * twg);
   };
-  const vec3 ref_ax = (fabsf(ray_dir.x) < 0.9F) ? vec3::right : vec3::up;
-  const vec3 ta = normalize(cross(ray_dir, ref_ax));
-  const vec3 tb = cross(ray_dir, ta);
-  const float spread = fmaxf(
+  const auto ref_ax = (fabsf(ray_dir.x) < 0.9F) ? vec3::right : vec3::up;
+  const auto ta = normalize(cross(ray_dir, ref_ax));
+  const auto tb = cross(ray_dir, ta);
+  const auto spread = fmaxf(
       length(refr_hit(normalize(ray_dir + (ta * px_scale))) - hit_g),
       length(refr_hit(normalize(ray_dir + (tb * px_scale))) - hit_g));
-  const float graze = fmaxf(fabsf(denom), 0.1F); // grazing on the smooth plane
-  const float fp = fminf(cfg.reticle.outer_radius, spread / graze);
+  const auto graze = fmaxf(fabsf(denom), 0.1F); // grazing on the smooth plane
+  const auto fp = fminf(cfg.reticle.outer_radius, spread / graze);
   return apply_reticle(cfg.reticle, hit_s, fp, base, reticle_edge);
 }
 
@@ -1414,15 +1413,15 @@ apply_lensed_reticle(const metal_ball& ball, const render_config& cfg,
 shade_merged_glass(const density_field& field, cudaTextureObject_t color,
     const metal_ball& ball, const saucer_head& head, const render_config& cfg,
     pos3 eye, vec3 ray_dir, float px_scale) {
-  const float t_exit = ball.intersect(eye, ray_dir);
-  const pos3 exit = eye + (ray_dir * t_exit);
-  const vec3 n_out = ball.normal(exit);                // outward at the exit
-  const float cosi = fmaxf(dot(ray_dir, n_out), 0.0F); // exit incidence
-  const float refl_w = fresnel_reflectance(cosi, cfg.glass.ior);
+  const auto t_exit = ball.intersect(eye, ray_dir);
+  const auto exit = eye + (ray_dir * t_exit);
+  const auto n_out = ball.normal(exit);               // outward at the exit
+  const auto cosi = fmaxf(dot(ray_dir, n_out), 0.0F); // exit incidence
+  const auto refl_w = fresnel_reflectance(cosi, cfg.glass.ior);
 
   // Shade the world (terrain or sky) along a ray leaving the glass at `exit`.
   const auto march_world = [&](vec3 dir) {
-    const float tw = field.raymarch(exit, dir);
+    const auto tw = field.raymarch(exit, dir);
     return (tw >= 0.0F)
                ? shade_terrain_hit(field, color, cfg, exit + (dir * tw),
                      shadow_sphere{ball.center, ball.radius})
@@ -1434,25 +1433,25 @@ shade_merged_glass(const density_field& field, cudaTextureObject_t color,
   // chromatic fringing; the base (green) ray sets the depth, and a channel
   // that hits its own total internal reflection falls back to the green sample
   // rather than going black.
-  vec3 trans{};
-  float world_depth = big_value;
-  bool reticle_edge = false;
-  vec3 dg{};
-  float twg = -1.0F;
+  vec3 trans;
+  auto world_depth = big_value;
+  bool reticle_edge{};
+  vec3 dg;
+  auto twg = -1.0F;
   if (refl_w < 1.0F) {
     dg = refract(ray_dir, -n_out, cfg.glass.ior);
     twg = field.raymarch(exit, dg);
-    const vec3 green =
+    const auto green =
         (twg >= 0.0F)
             ? shade_terrain_hit(field, color, cfg, exit + (dg * twg),
                   shadow_sphere{ball.center, ball.radius})
             : sky_color(cfg, dg);
     world_depth = (twg >= 0.0F) ? t_exit + twg : big_value;
     if (const float disp = cfg.glass.dispersion; disp > 0.0F) {
-      const vec3 dr = refract(ray_dir, -n_out, cfg.glass.ior * (1.0F - disp));
-      const vec3 db = refract(ray_dir, -n_out, cfg.glass.ior * (1.0F + disp));
-      const float r = (dot(dr, dr) > 1.0e-8F) ? march_world(dr).x : green.x;
-      const float b = (dot(db, db) > 1.0e-8F) ? march_world(db).z : green.z;
+      const auto dr = refract(ray_dir, -n_out, cfg.glass.ior * (1.0F - disp));
+      const auto db = refract(ray_dir, -n_out, cfg.glass.ior * (1.0F + disp));
+      const auto r = (dot(dr, dr) > 1.0e-8F) ? march_world(dr).x : green.x;
+      const auto b = (dot(db, db) > 1.0e-8F) ? march_world(db).z : green.z;
       trans = vec3{r, green.y, b};
     } else {
       trans = green;
@@ -1462,15 +1461,15 @@ shade_merged_glass(const density_field& field, cudaTextureObject_t color,
   // Reflected internal bounce: the player's own saucer, faintly mirrored in
   // the glass. A miss falls to a dim interior, which doubles as the grazing
   // rim going dark.
-  vec3 ghost{};
+  vec3 ghost;
   if (refl_w > 0.0F) {
-    const vec3 rd = reflect(ray_dir, n_out);
-    const float th = head.raymarch(exit, rd);
+    const auto rd = reflect(ray_dir, n_out);
+    const auto th = head.raymarch(exit, rd);
     ghost = (th >= 0.0F) ? shade_head(head, cfg, exit + (rd * th), rd)
                          : cfg.terrain.ambient;
   }
 
-  vec3 col = (trans * (1.0F - refl_w)) + (ghost * (refl_w * cfg.glass.ghost));
+  auto col = (trans * (1.0F - refl_w)) + (ghost * (refl_w * cfg.glass.ghost));
   // Composite the in-world dig reticle on top of the Fresnel blend, not into
   // the transmitted side: the reflected head ghost grows over the center as
   // the pitch nears straight down (the reflected ray points back up the look
@@ -1492,11 +1491,11 @@ shade_merged_glass(const density_field& field, cudaTextureObject_t color,
   // reads white while the skirts stay green. `eye_glow_merged_gain` scales it
   // (0 disables).
   if (cfg.reticle.enabled && cfg.head.eye_glow_merged_gain > 0.0F) {
-    const vec3 aim = normalize(cfg.reticle.center - eye);
-    const float align = __saturatef(dot(ray_dir, aim)); // 1 toward the aim
-    const float a2 = align * align;
-    const float focus = a2 * a2 * a2; // tight glow around the aim direction
-    const float lit = cfg.reticle.show_inner ? 1.0F : 0.4F;
+    const auto aim = normalize(cfg.reticle.center - eye);
+    const auto align = __saturatef(dot(ray_dir, aim)); // 1 toward the aim
+    const auto a2 = align * align;
+    const auto focus = a2 * a2 * a2; // tight glow around the aim direction
+    const auto lit = cfg.reticle.show_inner ? 1.0F : 0.4F;
     col += cfg.head.eye_glow_color *
            (focus * lit * cfg.head.eye_glow_merged_gain);
   }
@@ -1532,8 +1531,8 @@ shade_primary_ray(const density_field& field, cudaTextureObject_t color,
     return shade_merged_glass(field, color, ball, head, cfg, eye, ray_dir,
         px_scale);
 
-  float t_terrain = field.raymarch(eye, ray_dir);
-  const float t_ball = ball.intersect(eye, ray_dir);
+  auto t_terrain = field.raymarch(eye, ray_dir);
+  const auto t_ball = ball.intersect(eye, ray_dir);
   // Tunnel-view sanity: at the jockey, let the ball draw through any terrain
   // nearer than it, so a wall between the close camera and the ball does not
   // bury it. Only the ball's own silhouette is punched through (terrain the
@@ -1543,11 +1542,11 @@ shade_primary_ray(const density_field& field, cudaTextureObject_t color,
   if (cfg.jockey_clear && t_ball >= 0.0F && t_terrain >= 0.0F &&
       t_terrain < t_ball)
     t_terrain = -1.0F;
-  const float t_mirror =
+  const auto t_mirror =
       cfg.show_mirror ? mirror.intersect(eye, ray_dir) : -1.0F;
-  const float t_head = cfg.show_head ? head.raymarch(eye, ray_dir) : -1.0F;
-  float best = big_value;
-  hit_kind kind = hit_kind::sky;
+  const auto t_head = cfg.show_head ? head.raymarch(eye, ray_dir) : -1.0F;
+  auto best = big_value;
+  auto kind = hit_kind::sky;
   if (t_terrain >= 0.0F && t_terrain < best) {
     best = t_terrain;
     kind = hit_kind::terrain;
@@ -1565,13 +1564,13 @@ shade_primary_ray(const density_field& field, cudaTextureObject_t color,
     kind = hit_kind::head;
   }
   vec3 col;
-  bool reticle_edge = false;
+  bool reticle_edge{};
   if (kind == hit_kind::ball)
     col = shade_ball(field, color, ball, head, cfg, eye + (ray_dir * best),
         ray_dir);
   else if (kind == hit_kind::mirror) {
-    const pos3 hit = eye + (ray_dir * best);
-    const vec3 refl = reflect(ray_dir, mirror.normal);
+    const auto hit = eye + (ray_dir * best);
+    const auto refl = reflect(ray_dir, mirror.normal);
     // `best` is the camera-to-mirror distance, passed as the reflected ray's
     // origin distance so the reflected reticle's footprint keeps growing with
     // the full path length.
@@ -1581,10 +1580,10 @@ shade_primary_ray(const density_field& field, cudaTextureObject_t color,
   } else if (kind == hit_kind::head)
     col = shade_head(head, cfg, eye + (ray_dir * best), ray_dir);
   else if (kind == hit_kind::terrain) {
-    const pos3 hit = eye + (ray_dir * best);
+    const auto hit = eye + (ray_dir * best);
     // Snap onto the true surface for the reticle radius (outside the lens the
     // real terrain hit is stable enough; only the merged view low-passes it).
-    const pos3 snapped = field.refine_hit(hit, ray_dir);
+    const auto snapped = field.refine_hit(hit, ray_dir);
     col = apply_reticle(cfg.reticle, snapped, length(snapped - eye) * px_scale,
         shade_terrain_hit(field, color, cfg, hit,
             shadow_sphere{ball.center, ball.radius}),
@@ -1597,7 +1596,7 @@ shade_primary_ray(const density_field& field, cudaTextureObject_t color,
   // view returned earlier, before this. `eye_glow_solo` (debug) replaces the
   // whole scene with just the cone, so its shape and edge can be read in
   // isolation instead of guessed at against terrain, ball, and reticle.
-  const vec3 cone = eye_cone_glow(cfg, head, eye, ray_dir, best);
+  const auto cone = eye_cone_glow(cfg, head, eye, ray_dir, best);
   // The headlamp's warm air cone (`flashlight_cone`), added except in the
   // eye-cone solo debug, which isolates the green laser haze.
   col = cfg.head.eye_glow_solo

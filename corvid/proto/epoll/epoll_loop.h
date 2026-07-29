@@ -123,7 +123,7 @@ class epoll_loop
 #pragma region Types
 public:
   // Maximum number of events retrieved per `epoll_wait` call.
-  static constexpr size_t max_events = 64;
+  static constexpr size_t max_events{64};
 
   using posted_fn_t =
       fixed_function<concurrency::default_fixed_function::capacity, bool()>;

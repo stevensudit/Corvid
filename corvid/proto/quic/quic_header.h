@@ -175,7 +175,7 @@ public:
 
   [[nodiscard]] std::strong_ordering operator<=>(
       const quic_cid& other) const noexcept {
-    if (auto c = cid_.datalen <=> other.cid_.datalen; c != 0) return c;
+    if (auto c = (cid_.datalen <=> other.cid_.datalen); c != 0) return c;
     const auto r = std::memcmp(cid_.data, other.cid_.data, cid_.datalen);
     return (r < 0)   ? std::strong_ordering::less
            : (r > 0) ? std::strong_ordering::greater
@@ -203,7 +203,7 @@ private:
 class quic_version_cid {
 public:
   // Default length, in bytes, of the SCIDs we issue locally.
-  static constexpr size_t default_scid_length = 16;
+  static constexpr size_t default_scid_length{16};
 
   constexpr quic_version_cid() noexcept = default;
 

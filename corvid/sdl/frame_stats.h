@@ -66,7 +66,7 @@ public:
   }
 
 private:
-  static constexpr float window_seconds = 1.0F;
+  static constexpr auto window_seconds = 1.0F;
   int frames_{};
   float sum_ms_{};
   float min_ms_{};

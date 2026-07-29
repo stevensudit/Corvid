@@ -101,7 +101,7 @@ struct body_params {
 // the ball, and `penetration` is how far the ball has sunk past resting
 // (radius minus the surface distance), positive when overlapping.
 //
-// `is_floor()` narrows `touching` to an upward-facing surface (a ramp counts,
+// `on_floor()` narrows `touching` to an upward-facing surface (a ramp counts,
 // up to the vertical limit, since the test is only that the normal still
 // points up), the one the body drives and jumps on; the body's own `grounded`
 // narrows it further still to resting there and not rising off it.
@@ -121,12 +121,12 @@ struct body_params {
 // motion into it.
 struct body_contact {
   bool touching{};
-  vec3 normal{};
+  vec3 normal;
   float penetration{};
 
   // A surface the ball can stand and gain traction on: in contact and facing
   // upward, as opposed to a wall or ceiling.
-  [[nodiscard]] bool is_floor() const { return touching && normal.y > 0.0F; }
+  [[nodiscard]] bool on_floor() const { return touching && normal.y > 0.0F; }
 
   // The speed `v` is closing into the surface: positive when penetrating,
   // negative when separating (rising off it).
@@ -148,11 +148,11 @@ struct body_contact {
 struct avatar_body {
 #pragma region State
 
-  pos3 center{};           // ball center
-  vec3 velocity{};         // linear velocity (world)
-  vec3 angular_velocity{}; // spin (world); real state, not derived from travel
-  bool grounded{};         // resting on a floor (can jump, has traction)
-  body_params params{};
+  pos3 center;           // ball center
+  vec3 velocity;         // linear velocity (world)
+  vec3 angular_velocity; // spin (world); real state, not derived from travel
+  bool grounded{};       // resting on a floor (can jump, has traction)
+  body_params params;
 
 #pragma endregion
 #pragma region Step
@@ -171,8 +171,8 @@ struct avatar_body {
   // and the contact normal. The order is force, then integrate (semi-implicit
   // Euler).
   void advance(const body_contact& contact, vec3 drive, bool jump, float dt) {
-    const vec3 gravity = body_up * -params.gravity;
-    const bool floor = contact.is_floor();
+    const auto gravity = body_up * -params.gravity;
+    const auto on_floor = contact.on_floor();
 
     // Jump-ready: on a floor and not rising off it (descending into the
     // contact, or at rest on it, where the resolve holds it). `jump` is a held
@@ -180,17 +180,17 @@ struct avatar_body {
     // back to the next contact rather than firing in mid-air; that is what
     // lets a hold hop off each landing and a tap jump once. A rising ball is
     // either between hops or climbing out right after one (where the stale
-    // probe still reads `floor`), and a ball off the ground has no floor at
+    // probe still reads `on_floor`), and a ball off the ground has no floor at
     // all, so the not-rising sign alone guards both without a tuned velocity
     // threshold.
-    const bool jump_ready = floor && contact.into(velocity) >= 0.0F;
+    const auto jump_ready = on_floor && (contact.into(velocity) >= 0.0F);
 
     // A jump is an impulse in a blend of straight up and the contact normal
     // (`jump_up`): up uses the droid's propulsion to leap regardless of the
     // ground, the normal pushes off the surface (off a steep face, or up and
     // out of a pit).
     if (jump && jump_ready) {
-      const vec3 dir = normalize(
+      const auto dir = normalize(
           (body_up * params.jump_up) +
           (contact.normal * (1.0F - params.jump_up)));
       velocity += dir * params.jump_speed;
@@ -199,7 +199,7 @@ struct avatar_body {
     velocity += gravity * dt;
 
     if (contact.touching) resolve_contact(contact);
-    if (floor)
+    if (on_floor)
       drive_on_floor(contact, gravity, drive, dt); // also spins the wheel
     else
       spin_in_air(drive, dt);
@@ -218,28 +218,28 @@ struct avatar_body {
     // speed keeps this in-band cancel from firing the tilted-normal upward
     // kick that sideways motion drove (see `resolve_contact`); a moving ball
     // still bobs, but its motion hides it.
-    if (floor && contact.penetration > -seat_band &&
+    if (on_floor && contact.penetration > -seat_band &&
         length(contact.tangent(velocity)) < rest_speed)
-      if (const float closing = contact.into(velocity); closing > 0.0F)
+      if (const auto closing = contact.into(velocity); closing > 0.0F)
         velocity += contact.normal * closing;
 
     center += velocity * dt;
 
     // Grounded (can jump, has traction) when resting on a floor and not rising
     // off it faster than the band.
-    grounded = floor && contact.into(velocity) >= -contact_eps;
+    grounded = on_floor && (contact.into(velocity) >= -contact_eps);
   }
 
 #pragma endregion
 #pragma region Resolve
 private:
-  static constexpr float contact_eps = 1.0e-3F; // "resting, not rising" band
-  static constexpr float tiny = 1.0e-6F;        // divide-by-length guard
+  static constexpr auto contact_eps = 1.0e-3F; // "resting, not rising" band
+  static constexpr auto tiny = 1.0e-6F;        // divide-by-length guard
   // Resting support (see `advance`): the seated penetration band the support
   // holds the ball in, and the planar speed below which a floor contact counts
   // as at rest.
-  static constexpr float seat_band = 0.008F;
-  static constexpr float rest_speed = 0.5F;
+  static constexpr auto seat_band = 0.008F;
+  static constexpr auto rest_speed = 0.5F;
 
   // Push the ball out of any overlap and, once it is in real contact, cancel
   // motion into the surface (a dead stop, no bounce). Runs for floors and
@@ -260,7 +260,7 @@ private:
       return; // hovering in the band: let it seat
     if (contact.penetration > 0.0F)
       center += contact.normal * contact.penetration;
-    if (const float closing = contact.into(velocity); closing > 0.0F)
+    if (const auto closing = contact.into(velocity); closing > 0.0F)
       velocity += contact.normal * closing;
   }
 
@@ -274,19 +274,19 @@ private:
   // slides above it, replacing the old hardcoded climb-angle cutoff.
   void drive_on_floor(const body_contact& contact, vec3 gravity, vec3 drive,
       float dt) {
-    const float fric_max = params.max_traction(contact.normal_load(gravity));
+    const auto fric_max = params.max_traction(contact.normal_load(gravity));
 
-    const vec3 force = drive * params.drive_force;
-    const vec3 drive_cmd = contact.tangent(force) * (1.0F / params.mass);
-    vec3 drive_acc = drive_cmd;
-    if (const float mag = length(drive_acc); mag > fric_max && mag > tiny)
+    const auto force = drive * params.drive_force;
+    const auto drive_cmd = contact.tangent(force) * (1.0F / params.mass);
+    auto drive_acc = drive_cmd;
+    if (const auto mag = length(drive_acc); mag > fric_max && mag > tiny)
       drive_acc *= fric_max / mag;
     velocity += drive_acc * dt;
 
-    const vec3 down = contact.tangent(gravity); // downhill acceleration
-    const float remaining = fmaxf(0.0F, fric_max - length(drive_acc));
-    if (const float mag = length(down); mag > tiny) {
-      const float held = fminf(mag, remaining);
+    const auto down = contact.tangent(gravity); // downhill acceleration
+    const auto remaining = fmaxf(0.0F, fric_max - length(drive_acc));
+    if (const auto mag = length(down); mag > tiny) {
+      const auto held = fminf(mag, remaining);
       velocity -= (down * (1.0F / mag)) * (held * dt);
     }
 
@@ -297,17 +297,17 @@ private:
     // exact solution of dv/dt = -drag*v^2, so it is stable at any dt or speed.
     // Floor only, so a jump arc stays ballistic.
     if (params.drag > 0.0F) {
-      const vec3 vt = contact.tangent(velocity);
-      if (const float speed = length(vt); speed > tiny)
+      const auto vt = contact.tangent(velocity);
+      if (const auto speed = length(vt); speed > tiny)
         velocity -= vt * (1.0F - (1.0F / (1.0F + (params.drag * speed * dt))));
     }
 
     // Rolling resistance brakes a coasting ball to rest; a perfect ball would
     // roll on forever, so this is the small real loss that stops it.
     if (params.rolling_resistance > 0.0F) {
-      const vec3 vt = contact.tangent(velocity);
-      if (const float mag = length(vt); mag > tiny) {
-        const float brake = fminf(mag, params.rolling_resistance * dt);
+      const auto vt = contact.tangent(velocity);
+      if (const auto mag = length(vt); mag > tiny) {
+        const auto brake = fminf(mag, params.rolling_resistance * dt);
         velocity -= (vt * (1.0F / mag)) * brake;
       }
     }
@@ -331,25 +331,26 @@ private:
   // momentum is lost to spin, which is exactly why the ball is stuck.
   void spin_on_floor(const body_contact& contact, vec3 drive_cmd,
       float fric_max, float dt) {
-    const float r = params.radius;
-    const float k = params.spin_coupling();
-    const vec3 omega_roll = cross(contact.normal, velocity) * (1.0F / r);
-    vec3 slip = angular_velocity - omega_roll;
+    const auto r = params.radius;
+    const auto k = params.spin_coupling();
+    const auto omega_roll = cross(contact.normal, velocity) * (1.0F / r);
+    auto slip = angular_velocity - omega_roll;
 
     // The motor spins the wheel up by the unclamped command.
     slip += cross(contact.normal, drive_cmd) * (k * dt / r);
 
     // Contact friction kills the slip toward zero, capped by the budget;
     // static friction locks it at zero once the slip is spent.
-    if (const float kill = k * fric_max * dt / r, s = length(slip); s > kill)
-      slip *= (s - kill) / s;
+    if (const auto kill = k * fric_max * dt / r, slip_len = length(slip);
+        slip_len > kill)
+      slip *= (slip_len - kill) / slip_len;
     else
       slip = vec3{};
 
     // Quadratic drag caps the rev (reuses the translation drag).
     if (params.drag > 0.0F)
-      if (const float s = length(slip); s > tiny)
-        slip *= 1.0F / (1.0F + (params.drag * s * r * dt));
+      if (const auto slip_len = length(slip); slip_len > tiny)
+        slip *= 1.0F / (1.0F + (params.drag * slip_len * r * dt));
 
     angular_velocity = omega_roll + slip;
   }
@@ -360,13 +361,13 @@ private:
   // between this spin and the new rolling rate shows as slip until the contact
   // kills it.
   void spin_in_air(vec3 drive, float dt) {
-    const float r = params.radius;
-    const vec3 force = drive * params.drive_force;
-    const vec3 drive_cmd = reject(force, body_up) * (1.0F / params.mass);
+    const auto r = params.radius;
+    const auto force = drive * params.drive_force;
+    const auto drive_cmd = reject(force, body_up) * (1.0F / params.mass);
     angular_velocity +=
         cross(body_up, drive_cmd) * (params.spin_coupling() * dt / r);
     if (params.drag > 0.0F)
-      if (const float s = length(angular_velocity); s > tiny)
+      if (const auto s = length(angular_velocity); s > tiny)
         angular_velocity =
             angular_velocity * (1.0F / (1.0F + (params.drag * s * r * dt)));
   }

@@ -223,8 +223,8 @@ __global__ void __launch_bounds__(256, 3) aa_resolve_kernel(float4* hdr,
       (my_kind ^ (right.kind & aa_kind_mask)) |
       (my_kind ^ (up.kind & aa_kind_mask)) |
       (my_kind ^ (down.kind & aa_kind_mask));
-  bool edge = edge_bits != 0;
-  if (!edge) {
+  auto is_edge = (edge_bits != 0);
+  if (!is_edge) {
     // All four neighbors share this pixel's kind, so the depths are comparable
     // (a sky miss would have changed the kind). `me.depth` scales the
     // threshold so a distant ramp is judged in proportion to its range.
@@ -235,26 +235,27 @@ __global__ void __launch_bounds__(256, 3) aa_resolve_kernel(float4* hdr,
     // supersamples the whole sky. Grouped this way the sentinel cancels
     // (`big - big = 0`) before any doubling.
     const float tol = cfg.aa_edge_depth * me.depth;
-    edge = fabsf((me.depth - left.depth) - (right.depth - me.depth)) > tol ||
-           fabsf((me.depth - up.depth) - (down.depth - me.depth)) > tol;
+    is_edge =
+        (fabsf((me.depth - left.depth) - (right.depth - me.depth)) > tol) ||
+        (fabsf((me.depth - up.depth) - (down.depth - me.depth)) > tol);
   }
-  if (!edge) return; // keep the prepass center sample
+  if (!is_edge) return; // keep the prepass center sample
 
   // Edge-detection debug: flat-tint the supersampled pixels (blue = reticle,
   // red = geometry) instead of shading them, so the marked pixels are visible.
   // Blue, not green, so the reticle flag does not blend into the reticle's own
   // green glow.
   if (cfg.debug_aa_edges) {
-    const bool reticle = (me.kind & aa_reticle_edge_bit) != 0;
+    const auto is_reticle = ((me.kind & aa_reticle_edge_bit) != 0);
     store_hdr(hdr, (py * w) + px,
-        reticle ? vec3{0.0F, 0.0F, 8.0F} : vec3{8.0F, 0.0F, 0.0F});
+        is_reticle ? vec3{0.0F, 0.0F, 8.0F} : vec3{8.0F, 0.0F, 0.0F});
     return;
   }
 
   const int aa_samples = cfg.aa_samples;
   const float inv = 1.0F / static_cast<float>(aa_samples);
   const float px_scale = pixel_world_scale(cam, res);
-  vec3 color{};
+  vec3 color;
   for (int sy = 0; sy < aa_samples; ++sy)
     for (int sx = 0; sx < aa_samples; ++sx) {
       const float ox = (static_cast<float>(sx) + 0.5F) * inv;
@@ -333,7 +334,7 @@ __global__ void bloom_prefilter_kernel(const float4* hdr, float4* bloom,
   const float luma = dot(avg, rec709_luma);
   // Floor for the divisors below, so a zero denominator can't blow the
   // quotient up to Inf/NaN.
-  constexpr float denom_floor = 1.0e-4F;
+  constexpr auto denom_floor = 1.0e-4F;
   const float knee = fmaxf(cfg.bloom.threshold * cfg.bloom.knee, denom_floor);
   float soft =
       __saturatef((luma - cfg.bloom.threshold + knee) / (2.0F * knee));
@@ -362,11 +363,11 @@ __global__ void bloom_blur_kernel(const float4* src, float4* dst,
 
   const float sigma = fmaxf(cfg.bloom.sigma, 1.0e-3F);
   const float inv_two_sigma_sq = 1.0F / (2.0F * sigma * sigma);
-  constexpr int max_radius = 8;
+  constexpr auto max_radius = 8;
   int radius = static_cast<int>(ceilf(2.0F * sigma));
   radius = min(radius, max_radius);
 
-  vec3 sum{};
+  vec3 sum;
   float wsum = 0.0F;
   for (int k = -radius; k <= radius; ++k) {
     const float w = expf(-static_cast<float>(k * k) * inv_two_sigma_sq);

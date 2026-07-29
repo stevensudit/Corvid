@@ -194,7 +194,7 @@ struct indexed_callbacks {
       // Create a table of function pointers, one for each index of the
       // variant. Each function pointer calls the corresponding lambda with
       // the index and the value at that index in the variant.
-      constexpr Fn table[] = {[](Variant&& var, Callback&& f) -> R {
+      constexpr Fn table[]{[](Variant&& var, Callback&& f) -> R {
         return f(index_constant<Is>{},
             variant_get<Is>(std::forward<Variant>(var)));
       }...};

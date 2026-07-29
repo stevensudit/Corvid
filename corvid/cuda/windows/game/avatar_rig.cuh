@@ -68,12 +68,23 @@ namespace corvid::cuda {
 struct avatar_rig {
 #pragma region State
 
+  // Every member below keeps its initializer, including the class-type ones a
+  // default constructor would already handle.
+  //
+  // This is an aggregate that `engine` and `kernel_bench` initialize
+  // positionally with only the first few members, so the rest are omitted
+  // fields. A field may be omitted only if it HAS a default member
+  // initializer; dropping one as redundant turns every such call site into a
+  // `-Wmissing-field-initializers` error, and since only the first offender is
+  // reported, the error then walks down the struct one member at a time. The
+  // class-type carve-out that lets `std::string s;` go bare does not reach
+  // here.
   pos3 anchor{};        // ball center, what the player drives
   orientation facing{}; // yaw/pitch look direction
   radians heading{};   // yaw the head sits along; tracks the look while moving
   float boom{};        // head distance behind the ball, jockey to trailing
   float boom_target{}; // where the wheel's taking the boom; `update` eases
-  bool merged_target_prev{}; // last frame's merge-target state, for pitch snap
+  bool target_merged_prev{}; // last frame's merge-target state, for pitch snap
   bool merge_tilt_locked{};  // hold the look at merge pitch through a crossing
   float terrain_clear = big_value; // clear distance along the boom axis
   vec3 ground_vel{};               // horizontal velocity, synced from the body
@@ -116,7 +127,7 @@ struct avatar_rig {
 
   // The orthonormal view basis for the current facing.
   [[nodiscard]] basis frame() const {
-    const float cos_pitch = cos(facing.pitch);
+    const auto cos_pitch = cos(facing.pitch);
     const vec3 forward{cos(facing.yaw) * cos_pitch, sin(facing.pitch),
         sin(facing.yaw) * cos_pitch};
     // The right axis is horizontal and a function of yaw alone, so the basis
@@ -133,8 +144,8 @@ struct avatar_rig {
   // The yaw-only forward, flattened to the ground plane, for movement and head
   // placement that ignore pitch.
   [[nodiscard]] vec3 ground_forward() const {
-    const basis b = frame();
-    return normalize(vec3{b.forward.x, 0.0F, b.forward.z});
+    const auto forward = frame().forward;
+    return normalize(vec3{forward.x, 0.0F, forward.z});
   }
 
   // The head's seat offset from the ball: behind it along the heading by the
@@ -154,7 +165,7 @@ struct avatar_rig {
   // that shifts the head in front, and only at the jockey. That waits on a
   // physics pass; until then the boom is always behind.
   [[nodiscard]] vec3 head_seat_offset() const {
-    const float rise = tune.head_height + (boom * tune.boom_rise);
+    const auto rise = tune.head_height + (boom * tune.boom_rise);
     const vec3 heading_fwd{cos(heading), 0.0F, sin(heading)};
     return (camera::world_up * rise) - (heading_fwd * boom);
   }
@@ -179,8 +190,8 @@ struct avatar_rig {
   };
   [[nodiscard]] boom_axis boom_probe_ray() const {
     const vec3 heading_fwd{cos(heading), 0.0F, sin(heading)};
-    const vec3 d = (camera::world_up * tune.boom_rise) - heading_fwd;
-    return {anchor + (camera::world_up * tune.head_height), normalize(d)};
+    const auto dir = (camera::world_up * tune.boom_rise) - heading_fwd;
+    return {anchor + (camera::world_up * tune.head_height), normalize(dir)};
   }
 
   // The largest boom the terrain allows before the head seat enters dirt, in
@@ -193,7 +204,7 @@ struct avatar_rig {
   // target, so the dolly clamps short in a tunnel and springs back out in the
   // open.
   [[nodiscard]] float boom_axis_limit() const {
-    const float dlen = sqrtf(1.0F + (tune.boom_rise * tune.boom_rise));
+    const auto dlen = sqrtf(1.0F + (tune.boom_rise * tune.boom_rise));
     return fmaxf(0.0F, (terrain_clear - tune.head_radius) / dlen);
   }
 
@@ -228,8 +239,8 @@ struct avatar_rig {
     wheel_spin = length(body.angular_velocity) * body.params.radius * dt;
     // Spin magnitude below which the body is treated as not turning; also
     // guards the `1 / omega` normalize below.
-    constexpr float min_omega = 1.0e-6F;
-    if (const float omega = length(body.angular_velocity); omega > min_omega) {
+    constexpr auto min_omega = 1.0e-6F;
+    if (const auto omega = length(body.angular_velocity); omega > min_omega) {
       // Ease the grid's flow axis toward the spin direction rather than
       // snapping to it, so the small frame-to-frame wander of the spin at low
       // speed (course corrections, the stale probe) is low-passed into a
@@ -238,10 +249,10 @@ struct avatar_rig {
       // the jitter. Only the axis is eased; the scroll rate and phase still
       // track the true spin. The length guard keeps the prior axis through a
       // near-reversal, where easing across the flip would cross zero.
-      const vec3 target = body.angular_velocity * (1.0F / omega);
-      const float ease = 1.0F - expf(-tune.ball_grid_turn_rate * dt);
+      const auto target = body.angular_velocity * (1.0F / omega);
+      const auto ease = 1.0F - expf(-tune.ball_grid_turn_rate * dt);
       // Length below which the eased axis is treated as degenerate.
-      constexpr float min_axis_len = 1.0e-4F;
+      constexpr auto min_axis_len = 1.0e-4F;
       if (const vec3 axis =
               ball_roll_axis + ((target - ball_roll_axis) * ease);
           length(axis) > min_axis_len)
@@ -311,8 +322,8 @@ struct avatar_rig {
     // is no resting partial merge: you are either at a trailing slot (outside)
     // or all the way inside, and a hole tight enough to crowd past the closest
     // slot merges you fully rather than parking the eye half in the glass.
-    const bool merged_before = merged();
-    const float step = fmaxf(tune.zoom_step, 0.01F);
+    const auto merged_before = merged();
+    const auto step = fmaxf(tune.zoom_step, 0.01F);
     boom_target =
         std::min(boom_target, floorf(boom_axis_limit() / step) * step);
 
@@ -321,14 +332,14 @@ struct avatar_rig {
     // surface early in the dolly-out, well before `boom` clears `boom_min`, so
     // a boom-based exit edge fires only once you are already out; the target
     // edge fires as you commit, while the eye is still on the near side.
-    const bool merged_target = boom_target < tune.boom_min;
+    const auto target_merged = (boom_target < tune.boom_min);
 
     // Slow the dolly through the merge zone by `merge_slowmo` (a tuning aid; 1
     // leaves it untouched), so the crossing and its ripple can be studied.
     // Scoped to the merge (currently merged, or a target heading into it);
     // normal jockey-to-trailing dollying is unaffected.
-    const bool in_merge_zone = merged_before || merged_target;
-    const float ease_dt = in_merge_zone ? (dt * tune.merge_slowmo) : dt;
+    const auto in_merge_zone = merged_before || target_merged;
+    const auto ease_dt = in_merge_zone ? (dt * tune.merge_slowmo) : dt;
     boom +=
         (boom_target - boom) * (1.0F - expf(-tune.zoom_approach * ease_dt));
 
@@ -339,15 +350,15 @@ struct avatar_rig {
     // on the near side, so the lock lands before the crossing: going in the
     // head looks down into the body to catch the ripple, backing out the same
     // hold keeps the exit ripple in view.
-    if (merged_target != merged_target_prev) merge_tilt_locked = true;
-    merged_target_prev = merged_target;
+    if (target_merged != target_merged_prev) merge_tilt_locked = true;
+    target_merged_prev = target_merged;
 
     if (moving > 0.0F) {
       if (looking) {
         // Steer: the heading chases the eye, so the ball arcs around the head
         // toward where you look, then drives that way once they line up.
-        const float rate = 1.0F - expf(-tune.heading_approach * dt);
-        const radians delta = radians_atan2(sin(facing.yaw - heading),
+        const auto rate = 1.0F - expf(-tune.heading_approach * dt);
+        const auto delta = radians_atan2(sin(facing.yaw - heading),
             cos(facing.yaw - heading));
         heading += delta * rate;
         // Fake the turn on the motion grid.
@@ -363,9 +374,9 @@ struct avatar_rig {
         // slide the grid faster than the eye reads it (a wagon-wheel strobe),
         // so it saturates to a readable rate there while passing normal
         // steering through untouched.
-        const float steer_step =
+        const auto steer_step =
             (delta * rate).value * tune.ball_grid_steer_gain;
-        const float steer_cap = tune.ball_grid_steer_cap * dt;
+        const auto steer_cap = tune.ball_grid_steer_cap * dt;
         ball_steer_phase = fmodf(
             ball_steer_phase + fmaxf(-steer_cap, fminf(steer_step, steer_cap)),
             std::numbers::sqrt3_v<float>);
@@ -373,8 +384,8 @@ struct avatar_rig {
         // Follow: the heading holds, so the ball keeps its course; the look
         // eases gently onto the heading and the pitch to level, rotating the
         // view to frame the travel without whipping.
-        const float rate = 1.0F - expf(-tune.follow_approach * dt);
-        const radians delta = radians_atan2(sin(heading - facing.yaw),
+        const auto rate = 1.0F - expf(-tune.follow_approach * dt);
+        const auto delta = radians_atan2(sin(heading - facing.yaw),
             cos(heading - facing.yaw));
         facing.yaw += delta * rate;
         facing.pitch *= (1.0F - rate);
@@ -396,9 +407,9 @@ struct avatar_rig {
       facing.pitch +=
           (target - facing.pitch) *
           (1.0F - expf(-tune.merge_pitch_rate * ease_dt));
-      constexpr float settle_eps = 0.02F; // boom units from the merge target
-      const bool settled =
-          merged_target ? fabsf(boom - boom_target) < settle_eps : !merged();
+      constexpr auto settle_eps = 0.02F; // boom units from the merge target
+      const auto settled =
+          target_merged ? (fabsf(boom - boom_target) < settle_eps) : !merged();
       if (settled) merge_tilt_locked = false;
     }
 
@@ -415,37 +426,38 @@ struct avatar_rig {
     // to the ball only; the ball's translation carries through `eye`
     // untouched, so driving never lags the head out of range. First frame just
     // seats it.
-    const vec3 seat = head_seat_offset();
+    const auto seat = head_seat_offset();
     if (!head_primed) {
       head_offset = seat;
       head_primed = true;
     } else {
-      const vec3 to = seat - head_offset;
-      const float dist = length(to);
-      const float step = tune.move_speed * dt;
-      head_offset = (dist <= step) ? seat : head_offset + (to * (step / dist));
+      const auto to_seat = seat - head_offset;
+      const auto dist = length(to_seat);
+      const auto step = tune.move_speed * dt;
+      head_offset =
+          (dist <= step) ? seat : head_offset + (to_seat * (step / dist));
     }
 
     // The tilt and spin read the head's own velocity (the ball-follow, the
     // zoom dolly, and turning all move the head), measured in the heading
     // frame: forward/back drives the nose tilt and the spin, strafe banks it.
     // Eased, and normalized so full move speed reads as 1.
-    const float ramp = 1.0F - expf(-tune.motion_approach * dt);
-    const pos3 here = eye();
+    const auto ramp = 1.0F - expf(-tune.motion_approach * dt);
+    const auto here = eye();
     if (primed && dt > 0.0F) {
       // Add the step the locked treadmill withheld, so a held body still reads
       // as moving; `locked_step` is zero when not locked.
-      const vec3 vel = ((here - prev_eye) + locked_step) * (1.0F / dt);
+      const auto vel = ((here - prev_eye) + locked_step) * (1.0F / dt);
       const vec3 heading_fwd{cos(heading), 0.0F, sin(heading)};
       const vec3 heading_right{-sin(heading), 0.0F, cos(heading)};
-      const float fwd_v = dot(vel, heading_fwd) / tune.move_speed;
-      const float side_v = dot(vel, heading_right) / tune.move_speed;
+      const auto fwd_v = dot(vel, heading_fwd) / tune.move_speed;
+      const auto side_v = dot(vel, heading_right) / tune.move_speed;
       // `drive`/`slide` clamp to +/-1 because the tilt and color saturate at
       // full move speed; `drive_raw`/`slide_raw` keep the unclamped signed
       // speed (a sprint pushes them past 1) so the belly spin and the beacon
       // blink track true speed.
-      const float drive_target = fmaxf(-1.0F, fminf(fwd_v, 1.0F));
-      const float slide_target = fmaxf(-1.0F, fminf(side_v, 1.0F));
+      const auto drive_target = fmaxf(-1.0F, fminf(fwd_v, 1.0F));
+      const auto slide_target = fmaxf(-1.0F, fminf(side_v, 1.0F));
       drive += (drive_target - drive) * ramp;
       slide += (slide_target - slide) * ramp;
       drive_raw += (fwd_v - drive_raw) * ramp;
@@ -460,7 +472,7 @@ struct avatar_rig {
     // It quiets the idle spin and, in `head`, gates the beacon's on/off blink
     // off at rest and blends its moving versus idle color. The unclamped
     // `move_mag` (which a sprint pushes past 1) sets the blink rate.
-    const float speed = fminf(1.0F, fabsf(drive) + fabsf(slide));
+    const auto speed = fminf(1.0F, fabsf(drive) + fabsf(slide));
 
     // The belly spin.
     //
@@ -470,12 +482,13 @@ struct avatar_rig {
     // direction every `spin_idle_period`, easing through each reversal, which
     // reads livelier than a constant idle spin.
     spin_clock += dt;
-    const float idle_target =
-        fmodf(spin_clock, 2.0F * tune.spin_idle_period) < tune.spin_idle_period
+    const auto idle_target =
+        (fmodf(spin_clock, 2.0F * tune.spin_idle_period) <
+            tune.spin_idle_period)
             ? 1.0F
             : -1.0F;
     idle_dir += (idle_target - idle_dir) * ramp;
-    const float idle = tune.spin_rate * idle_dir * (1.0F - speed);
+    const auto idle = tune.spin_rate * idle_dir * (1.0F - speed);
     spin +=
         (idle + (tune.spin_move_gain * drive_raw) +
             (tune.spin_strafe_gain * slide_raw)) *
@@ -487,7 +500,7 @@ struct avatar_rig {
     // not pulse at rest and runs faster the quicker the Head travels, sprint
     // included. `head` turns the phase into the 0..1 waveform; the wrap keeps
     // the accumulator bounded.
-    const float move_mag =
+    const auto move_mag =
         sqrtf((drive_raw * drive_raw) + (slide_raw * slide_raw));
     blink_phase =
         fmodf(blink_phase + ((tune.blink_move_gain * move_mag) * dt), 1.0F);
@@ -502,13 +515,13 @@ struct avatar_rig {
     // It flares up at `motion_approach` and fades back at `ball_grid_fade`, so
     // the two rates can be matched; the hex wireframe shows only while a key
     // is held.
-    const float ball_speed = (dt > 0.0F) ? wheel_spin / dt : 0.0F;
-    const float glow_target =
+    const auto ball_speed = (dt > 0.0F) ? wheel_spin / dt : 0.0F;
+    const auto glow_target =
         driving
             ? fminf(1.0F,
                   (ball_speed / tune.move_speed) * tune.ball_grid_move_gain)
             : 0.0F;
-    const float glow_rate =
+    const auto glow_rate =
         (glow_target > ball_glow) ? tune.motion_approach : tune.ball_grid_fade;
     ball_glow += (glow_target - ball_glow) * (1.0F - expf(-glow_rate * dt));
   }
@@ -548,14 +561,15 @@ struct avatar_rig {
   // ball as you look; the blend below is only crossed transiently while
   // dollying.
   [[nodiscard]] pos3 cam_pos() const {
-    const pos3 trailing =
+    const auto trailing =
         eye() + (camera::world_up * (tune.camera_height * tune.head_radius));
-    const float m = merge_t();
-    if (m <= 0.0F) return trailing;
-    const pos3 inside =
+    const auto merge_amount = merge_t();
+    if (merge_amount <= 0.0F) return trailing;
+    const auto inside =
         anchor - (frame().forward * (tune.merge_eye_back * tune.ball_radius));
-    const float s = m * m * (3.0F - (2.0F * m)); // smoothstep the blend
-    return trailing + ((inside - trailing) * s);
+    const auto blend =
+        merge_amount * merge_amount * (3.0F - (2.0F * merge_amount));
+    return trailing + ((inside - trailing) * blend);
   }
 
   // Enter or leave the observer freeze.
@@ -601,11 +615,11 @@ struct avatar_rig {
   // (animation rigging) swings the meridian off the look heading about the
   // vertical, to bring the back of the dome into the mirror.
   [[nodiscard]] saucer_head head(const render_config::head_params& hp) const {
-    const vec3 up_w = camera::world_up;
-    vec3 f_h = ground_forward();
+    const auto up_w = camera::world_up;
+    auto f_h = ground_forward();
     if (tune.front_offset_deg != 0.0F) {
       const radians a{tune.front_offset_deg * radians::per_degree};
-      const vec3 axis = normalize(cross(f_h, up_w)); // horizontal, off heading
+      const auto axis = normalize(cross(f_h, up_w)); // horizontal, off heading
       f_h = normalize((f_h * cos(a)) - (axis * sin(a)));
     }
 
@@ -631,12 +645,11 @@ struct avatar_rig {
     // edge below the pole. Geometry only (disc_height, dome_offset,
     // dome_radius), independent of the shader's seam decal, so retuning the
     // seam never moves the eye limit.
-    const float seam_h = fmaxf(
+    const auto seam_h = fmaxf(
         fminf((tune.disc_height - tune.dome_offset) / tune.dome_radius, 1.0F),
         -1.0F);
-    const radians dome_max = pole - eye_ang;
-    const radians dome_min =
-        std::min(radians_asin(seam_h) + eye_ang, dome_max);
+    const auto dome_max = pole - eye_ang;
+    const auto dome_min = std::min(radians_asin(seam_h) + eye_ang, dome_max);
 
     // The eye aims `lift` above the look.
     //
@@ -647,17 +660,17 @@ struct avatar_rig {
     // rotates the eye within its travel; past that the saucer takes over the
     // dip, nosing up until the eye reaches straight up and down only as far as
     // `dip_max`.
-    const radians aim = facing.pitch + lift;
-    const radians dome = std::clamp(aim + rest, dome_min, dome_max);
-    const radians tilt = std::clamp(aim - dome, -dip_max, eye_ang);
-    const radians eye_elev = dome + tilt; // the eye's world aim, = look + lift
+    const auto aim = facing.pitch + lift;
+    const auto dome = std::clamp(aim + rest, dome_min, dome_max);
+    const auto tilt = std::clamp(aim - dome, -dip_max, eye_ang);
+    const auto eye_elev = dome + tilt; // the eye's world aim, = look + lift
 
     // The two drawn directions in the look meridian: the disc normal (the
     // saucer tilt) and the eye direction. The antenna is built from the final
     // eye below, after the motion-tilt cap, so it keeps its fixed lead
     // exactly.
-    const vec3 up = normalize((up_w * cos(tilt)) - (f_h * sin(tilt)));
-    const vec3 eye_dir = (f_h * cos(eye_elev)) + (up_w * sin(eye_elev));
+    const auto up = normalize((up_w * cos(tilt)) - (f_h * sin(tilt)));
+    const auto eye_dir = (f_h * cos(eye_elev)) + (up_w * sin(eye_elev));
 
     // Helicopter motion tilt.
     //
@@ -677,7 +690,7 @@ struct avatar_rig {
     const vec3 h_right{-sin(heading), 0.0F, cos(heading)};
     const radians pitch_m{
         -drive *
-        (drive >= 0.0F ? tune.forward_tilt_deg : tune.backward_tilt_deg) *
+        ((drive >= 0.0F) ? tune.forward_tilt_deg : tune.backward_tilt_deg) *
         radians::per_degree};
     const radians roll_m{slide * tune.strafe_tilt_deg * radians::per_degree};
 
@@ -687,10 +700,10 @@ struct avatar_rig {
       return rotate_about(rotate_about(v, h_right, pitch_m * k), h_fwd,
           roll_m * k);
     };
-    const float dome_factor = 1.0F - tune.stabilize - tune.overcomp;
-    const vec3 saucer_up = bank_by(up, 1.0F);
-    vec3 dome_up = bank_by(up, dome_factor);
-    vec3 eye_banked = bank_by(eye_dir, dome_factor);
+    const auto dome_factor = 1.0F - tune.stabilize - tune.overcomp;
+    const auto saucer_up = bank_by(up, 1.0F);
+    auto dome_up = bank_by(up, dome_factor);
+    auto eye_banked = bank_by(eye_dir, dome_factor);
 
     // The saucer takes its full motion tilt, so reverse can raise its front
     // past level and show the belly; the eye is then clamped onto the visible
@@ -712,9 +725,9 @@ struct avatar_rig {
     // disc does, once a look-down plus a forward bank stand the disc on edge).
     // `mer` is the meridian normal, the stable axis the clamp rotates the
     // whole dome about.
-    const vec3 disc_fwd = normalize(cross(saucer_up, h_right));
-    const vec3 mer = normalize(cross(disc_fwd, saucer_up));
-    const radians eye_phi =
+    const auto disc_fwd = normalize(cross(saucer_up, h_right));
+    const auto mer = normalize(cross(disc_fwd, saucer_up));
+    const auto eye_phi =
         radians_atan2(dot(eye_banked, saucer_up), dot(eye_banked, disc_fwd));
 
     // The motion clamp's lower bound sits below the look gimbal's `dome_min`,
@@ -722,10 +735,10 @@ struct avatar_rig {
     // reverse bank (its iris edge entering the seam) rather than stopping a
     // full iris above it. The look gimbal keeps the higher `dome_min` for
     // framing.
-    const radians clamp_floor = radians_asin(seam_h) + (eye_ang * 0.5F);
-    const radians eye_clamped = std::clamp(eye_phi, clamp_floor, dome_max);
+    const auto clamp_floor = radians_asin(seam_h) + (eye_ang * 0.5F);
+    const auto eye_clamped = std::clamp(eye_phi, clamp_floor, dome_max);
     if (eye_clamped != eye_phi) {
-      const radians fix = eye_clamped - eye_phi;
+      const auto fix = eye_clamped - eye_phi;
       dome_up = rotate_about(dome_up, mer, fix);
       eye_banked = rotate_about(eye_banked, mer, fix);
     }
@@ -733,7 +746,7 @@ struct avatar_rig {
     // The antenna keeps its fixed `lead` over the eye, rotated toward the dome
     // pole along their shared meridian, so the 60-degree offset stays exact
     // through the bank and clamp.
-    const vec3 antenna_banked =
+    const auto antenna_banked =
         rotate_about(eye_banked, normalize(cross(eye_banked, dome_up)), lead);
 
     // The disc nose in the banked disc plane: the look heading lifted into the
@@ -741,7 +754,7 @@ struct avatar_rig {
     // the disc, so it stays unit and perpendicular to `saucer_up` even at a
     // full nose-down dip, where projecting the horizontal heading onto the
     // disc would collapse. The hull decals anchor to it.
-    const vec3 disc_nose =
+    const auto disc_nose =
         bank_by((f_h * cos(tilt)) + (up_w * sin(tilt)), 1.0F);
 
     // The beacon animation handed to the shader.
@@ -752,9 +765,9 @@ struct avatar_rig {
     // color selector tied to the belly idle spin so the beacon alternates in
     // tune with it at rest. Strafing does not redden the beacon: only backing
     // up is special.
-    const float blink = 0.5F + (0.5F * sin(radians{blink_phase * two_pi_v<>}));
-    const float reversing = fmaxf(0.0F, -drive);
-    const float speed = fminf(1.0F, fabsf(drive) + fabsf(slide));
+    const auto blink = 0.5F + (0.5F * sin(radians{blink_phase * two_pi_v<>}));
+    const auto reversing = fmaxf(0.0F, -drive);
+    const auto speed = fminf(1.0F, fabsf(drive) + fabsf(slide));
 
     // The idle color selector.
     //
@@ -763,12 +776,12 @@ struct avatar_rig {
     // the spin but at a chosen multiple of its rate (1 locks them identical,
     // which reads wrong). `color_phase` shifts the color against the spin (0
     // in phase, 1 opposite); `fmodf` keeps the cosine's argument bounded.
-    const float cycle = 2.0F * tune.spin_idle_period;
-    const float color_cycle = cycle / fmaxf(tune.color_spin_ratio, 0.01F);
-    const float frac = fmodf(spin_clock, color_cycle) / color_cycle;
-    const float idle_smooth =
+    const auto cycle = 2.0F * tune.spin_idle_period;
+    const auto color_cycle = cycle / fmaxf(tune.color_spin_ratio, 0.01F);
+    const auto frac = fmodf(spin_clock, color_cycle) / color_cycle;
+    const auto idle_smooth =
         cos(radians{(frac + (tune.color_phase * 0.5F)) * two_pi_v<>});
-    const float idle_mix = 0.5F - (0.5F * idle_smooth);
+    const auto idle_mix = 0.5F - (0.5F * idle_smooth);
 
     return {eye(), saucer_up, dome_up, disc_nose, tune.head_radius, spin,
         tune.disc_height, tune.dome_offset, tune.dome_radius, tune.dome_blend,
