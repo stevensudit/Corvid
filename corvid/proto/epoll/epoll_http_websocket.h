@@ -655,8 +655,8 @@ public:
       }
 
       // Extract and process payload of frame.
-      const bool processed = handle_payload(hdr);
-      if (!processed) return insatiable;
+      if (const auto processed = handle_payload(hdr); !processed)
+        return insatiable;
 
       data.remove_prefix(total);
     }
@@ -936,7 +936,7 @@ private:
 
     // We store the opcode of the message, which is in the initial fragment.
     // Subsequent fragments must have the continuation opcode.
-    const bool in_fragment = (message_opcode_ != ws_frame_control{});
+    const auto in_fragment = (message_opcode_ != ws_frame_control{});
     if ((in_fragment && opcode != ws_frame_control::continuation) ||
         (!in_fragment && opcode == ws_frame_control::continuation))
       return fail_proto("Invalid fragmentation");
@@ -992,9 +992,9 @@ private:
 
     // Dispatch the payload. Explicitly clear `message_` in case the callback
     // doesn't move it out.
-    const bool success = dispatch_message(std::move(message_), data_opcode);
+    const auto succeeded = dispatch_message(std::move(message_), data_opcode);
     message_.clear();
-    return success;
+    return succeeded;
   }
 
   [[nodiscard]] bool handle_control_frame(ws_frame_view& hdr) {
@@ -1038,13 +1038,13 @@ private:
 
   [[nodiscard]] bool
   dispatch_message(std::string&& payload, ws_frame_control opcode_bits) {
-    bool success = true;
+    auto succeeded = true;
     if (on_message)
-      success = on_message(*this, std::move(payload), opcode_bits);
+      succeeded = on_message(*this, std::move(payload), opcode_bits);
 
     // Clear, in case it wasn't moved out.
     payload.clear();
-    return success;
+    return succeeded;
   }
 
   [[nodiscard]] bool

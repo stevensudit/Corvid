@@ -429,7 +429,7 @@ private:
     if (state.parser_state) return true;
     state.parser_state = terminated_text_parser::state{"\r\n", 8192};
     state.send_cb = [this, &conn](any_strings&& bufs) -> bool {
-      const bool is_hangup = std::holds_alternative<std::monostate>(bufs);
+      const auto is_hangup = std::holds_alternative<std::monostate>(bufs);
       if (is_hangup || !arm_write_timeout(conn) ||
           !conn.send_any(std::move(bufs)))
       {
@@ -641,7 +641,7 @@ private:
     state.leading_crlf_count = 0;
 
     // Extract request line.
-    const bool extracted = state.req.parse(block_view);
+    const auto was_extracted = state.req.parse(block_view);
     view.update_active_view(input);
     parser.reset();
 
@@ -649,7 +649,7 @@ private:
     // something goes wrong during the version parsing, or even if it's
     // apparently HTTP/0.9 but still invalid.
     auto version = state.req.version;
-    if (!extracted) {
+    if (!was_extracted) {
       if (version != http_version::http_1_0) version = http_version::http_1_1;
       (void)send_error_response(conn, after_response::close, version);
       return enter_close_phase(conn) && false;
@@ -716,7 +716,7 @@ private:
       if (!*r) return reject_header_block(conn); // oversized
 
       // Process before updating view (buffer may compact on update).
-      const bool lines_ok = state.req.headers.add_lines(block_view);
+      const auto lines_ok = state.req.headers.add_lines(block_view);
       view.update_active_view(input);
       parser.reset();
       if (!lines_ok) return reject_header_block(conn); // malformed

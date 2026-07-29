@@ -91,7 +91,7 @@ struct SimGameStateJson {
   size_t current_wave{};
   int lives_count{};
   int resources_count{};
-  std::string_view phase{};
+  std::string_view phase;
   UiState ui_state;
 
   auto write_delta = [&writer, &game, &result, current_tick, &current_wave,
@@ -256,11 +256,11 @@ struct SimGameStateJson {
             *ui_state.placementAllowed);
       if (ui_state.spawnAllowed.has_value())
         ui->member(json_trusted{"spawnAllowed"}, *ui_state.spawnAllowed);
-      const bool include_summary =
+      const auto include_summary =
           ui_state.selectedDefender.has_value() &&
           ui_state.defenderSummary.has_value() &&
-          (send_strategy == update_strategy::full ||
-              ui_state.defenderSummary->modified == current_tick);
+          ((send_strategy == update_strategy::full) ||
+              (ui_state.defenderSummary->modified == current_tick));
       if (include_summary) {
         const auto& summary = *ui_state.defenderSummary;
         auto defender = ui->member_object(json_trusted{"defenderSummary"});

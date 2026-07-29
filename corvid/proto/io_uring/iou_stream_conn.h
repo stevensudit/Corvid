@@ -782,7 +782,7 @@ private:
             buffer& buf) mutable -> slot_retention {
           if (closed_) return slot_retention::release;
           const auto result = buf.result();
-          const bool has_more = buf.has_more();
+          const auto has_more = buf.has_more();
 
           // Normal case.
           if (has_more) {
@@ -808,7 +808,7 @@ private:
           // Not EOF or an error, so probably just a glitch. Retry.
           if (result.value() > 0 && !recv_paused_) {
             recv_token_ = completion_token{cbid};
-            const bool continued =
+            const auto continued =
                 loop_.submit_recv_buffer_multi(sock_, completion_token{cbid});
             (void)on_recv_complete(buf);
             if (continued) return slot_retention::retain;

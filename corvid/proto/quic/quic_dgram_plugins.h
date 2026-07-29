@@ -317,8 +317,8 @@ public:
     }
 
     bool unregister_self() {
-      const bool ok1 = router_.remove_session(scid_);
-      bool ok2 = true;
+      const auto ok1 = router_.remove_session(scid_);
+      auto ok2 = true;
       if (conn().role() == connection_role::server)
         ok2 = router_.remove_session(original_dcid_);
       return ok1 && ok2;
@@ -437,8 +437,8 @@ public:
       if (!conn().init(peer_scid, scid_, router_.local_endpoint(), peer_,
               original_dcid_, now, plugin_.idle_timeout))
         return false;
-      const bool ok1 = router_.add_session(original_dcid_, session_.self());
-      const bool ok2 = router_.add_session(scid_, session_.self());
+      const auto ok1 = router_.add_session(original_dcid_, session_.self());
+      const auto ok2 = router_.add_session(scid_, session_.self());
       if (!ok1 || !ok2 || !drain_then_maybe_close(now))
         return session_.close() && false;
       arm_expiry();
@@ -513,8 +513,8 @@ public:
       // already-registered deadline: the `target == registered_expiry_`
       // shortcut below assumes a live sweeper entry already sits at that
       // deadline, but the reaper needs its own guaranteed-live entry to fire.
-      const bool entering =
-          close_deadline_ == time_point_t::max() && conn().in_close_period();
+      const auto entering =
+          (close_deadline_ == time_point_t::max()) && conn().in_close_period();
       if (entering)
         close_deadline_ = steady_now_clock::now() + 3 * conn().pto();
       const auto target = std::min(conn().expiry(), close_deadline_);

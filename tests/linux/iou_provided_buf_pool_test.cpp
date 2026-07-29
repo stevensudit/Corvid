@@ -56,7 +56,7 @@ TEST_CASE("ConstructValid", "[IouProvidedBufPool]") {
   iou_provided_buf_pool::dispatcher_t dispatcher;
   if (true) {
     // 2 MB / 4 KB = 512 buffers.
-    constexpr size_t slab = 2ULL * 1024 * 1024;
+    constexpr size_t slab{2ULL * 1024 * 1024};
     auto pool =
         iou_provided_buf_pool::create(dispatcher, slab, block_size::kb004, 3);
     CHECK(*pool);
@@ -85,7 +85,7 @@ TEST_CASE("BufCountFromDivision", "[IouProvidedBufPool]") {
   }
   if (true) {
     // 8 MB slab (4 hugepages) / 1 MB = 8 buffers (power of two).
-    constexpr size_t slab = 4ULL * buffer_pool_base::hugepage_size;
+    constexpr size_t slab{4ULL * buffer_pool_base::hugepage_size};
     auto pool =
         iou_provided_buf_pool::create(dispatcher, slab, block_size::m01);
     CHECK(*pool);
@@ -103,7 +103,7 @@ TEST_CASE("BufDataOffsets", "[IouProvidedBufPool]") {
   // buf_data(bid) returns pointers that are exactly buf_size apart.
   iou_provided_buf_pool::dispatcher_t dispatcher;
   if (true) {
-    constexpr size_t slab = 2ULL * 1024 * 1024;
+    constexpr size_t slab{2ULL * 1024 * 1024};
     auto pool =
         iou_provided_buf_pool::create(dispatcher, slab, block_size::kb004);
     REQUIRE(pool);

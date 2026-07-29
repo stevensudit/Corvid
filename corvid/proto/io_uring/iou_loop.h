@@ -1519,8 +1519,8 @@ private:
       if (cbtoken && is_released(cbtoken)) return true;
 
       // Check availability up front and only assert on each.
-      const bool use_timeout = timeout && timeout->ts.is_valid();
-      size_t sqe_needed = use_timeout ? 2 : 1;
+      const auto use_timeout = timeout && timeout->ts.is_valid();
+      const size_t sqe_needed{use_timeout ? 2U : 1U};
       if (!ring_.enough_sqe_available(sqe_needed)) return false;
 
       // Queue the operation SQE.
@@ -1655,9 +1655,9 @@ private:
     if (!borrowed_cb || !*borrowed_cb) return false;
 
     const auto retention = borrowed_cb(token.as_int(), cqe.res(), cqe.flags());
-    const bool keep =
-        retention == slot_retention::retain ||
-        (retention == slot_retention::automatic &&
+    const auto keep =
+        (retention == slot_retention::retain) ||
+        ((retention == slot_retention::automatic) &&
             bitmask::has(cqe.flags(), iou_cqe_flags::more));
 
     // To keep, steal ownership away without freeing.

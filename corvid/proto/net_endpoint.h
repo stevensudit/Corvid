@@ -305,7 +305,7 @@ public:
       const auto null_pos = name.find('\0');
       const auto display = name.substr(0, null_pos);
       const auto npos = std::string_view::npos;
-      const bool has_more =
+      const auto has_more =
           (null_pos != npos) &&
           (name.find_first_not_of('\0', null_pos) != npos);
       return std::format("unix:@{}{}", display, has_more ? " (+)" : "");

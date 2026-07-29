@@ -184,7 +184,7 @@ public:
     running_.notify(true);
     scope_exit on_exit([&] { running_.notify(false); });
 
-    bool ok = true;
+    auto ok = true;
     for (; running_.get();)
       if (run_once(timeout_ms) < 0) {
         ok = false;

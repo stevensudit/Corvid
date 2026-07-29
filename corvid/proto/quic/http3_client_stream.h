@@ -92,7 +92,7 @@ public:
   // Invoke callback once the response is available.
   [[nodiscard]] bool on_close(h3_error_code app_error_code) override {
     assert(router()->is_loop_thread());
-    const bool ok = http3_stream::on_close(app_error_code);
+    const auto ok = http3_stream::on_close(app_error_code);
     on_complete_(*this);
     return ok;
   }

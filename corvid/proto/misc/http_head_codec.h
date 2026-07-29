@@ -361,7 +361,7 @@ public:
             std::string_view::npos))
       return std::nullopt;
     bool changed{};
-    bool capitalize = true;
+    auto capitalize = true;
     for (char& c : field_name) {
       // Capitalize the first character following the hyphen.
       if (c == '-') {
@@ -597,7 +597,7 @@ struct http_options {
 
   // Populate all fields by parsing `headers`. Call after headers are parsed.
   void extract(http_headers& headers) {
-    const bool has_upgrade = do_extract_connection(headers);
+    const auto has_upgrade = do_extract_connection(headers);
     do_extract_content_length(headers);
     do_extract_content_type(headers);
     do_extract_transfer_encoding(headers);

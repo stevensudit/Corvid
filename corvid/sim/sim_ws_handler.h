@@ -74,7 +74,7 @@ public:
     websocket().on_close =
         [](epoll_http_websocket&, uint16_t, std::string_view) { do_close(); };
     (void)enable_keepalive(loop, wheel, 20s, 5s);
-    if (!game_.loadMap()) throw std::runtime_error("Failed to load map");
+    if (!game_.loadMap()) throw std::runtime_error{"Failed to load map"};
     std::cout << "WebSocket client connected\n";
   }
 
@@ -96,7 +96,7 @@ private:
   std::atomic<uint64_t> tick_seq_; // Uses for sequencing tick timers
   WorldTick current_tick_{};       // updated each frame; loop-thread only
   SimGame game_;                   // all simulation entity state
-  update_strategy send_strategy_{update_strategy::full};
+  update_strategy send_strategy_ = update_strategy::full;
   SimGameStateJson json_buffer_; // persistent buffer and high-watermark
 
   // "Temporary" diagnostics.
@@ -212,17 +212,17 @@ private:
     const auto elapsed_ms =
         std::chrono::duration<double, std::milli>(now - stats_window_start_)
             .count();
-    const double measured_hz =
-        elapsed_ms > 0.0 && tick_fires_in_window_ > 1
+    const auto measured_hz =
+        (elapsed_ms > 0.0) && (tick_fires_in_window_ > 1)
             ? (static_cast<double>(tick_fires_in_window_ - 1) * 1000.0) /
                   elapsed_ms
             : 0.0;
-    const double avg_interval_ms =
-        tick_fires_in_window_ > 1
+    const auto avg_interval_ms =
+        (tick_fires_in_window_ > 1)
             ? interval_sum_ms_ / static_cast<double>(tick_fires_in_window_ - 1)
             : 0.0;
-    const double avg_payload_bytes =
-        tick_fires_in_window_ > 0
+    const auto avg_payload_bytes =
+        (tick_fires_in_window_ > 0)
             ? static_cast<double>(payload_bytes_in_window_) /
                   static_cast<double>(tick_fires_in_window_)
             : 0.0;

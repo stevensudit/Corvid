@@ -380,7 +380,7 @@ private:
         [self = self()](completion_id, buffer& buf) mutable -> slot_retention {
           if (!self->open_) return slot_retention::release;
           const auto res = buf.result();
-          const bool has_more = buf.has_more();
+          const auto has_more = buf.has_more();
 
           // Normal multishot delivery.
           if (has_more) {

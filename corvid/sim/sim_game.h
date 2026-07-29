@@ -102,7 +102,7 @@ consteval auto corvid_enum_spec(UiMouseButton*) {
 
 // Enemy spawn definition for a wave.
 struct EnemySpawn {
-  WaveTick startTicks;
+  WaveTick startTicks{};
   std::string label; // matches a label in `SimWorld::registerEntity`
   PathId pathId{};
 };
@@ -141,7 +141,7 @@ struct EntityDefinition {
   std::string category;    // Top-level menu category (e.g., "area", "laser").
   std::string flavorText;  // Description of its capabilities.
   // `max` means "not for sale" (all invaders default to this).
-  uint32_t resourceCost{std::numeric_limits<uint32_t>::max()};
+  uint32_t resourceCost = std::numeric_limits<uint32_t>::max();
   WorldScene::megatuple_t megatuple; // Component template.
 };
 
@@ -154,7 +154,7 @@ using EntityDefinitions = string_unordered_map<EntityDefinition>;
 // Human-focused summary of a defender, used for both the build menu and the
 // selected tab.
 struct DefenderSummary {
-  WorldTick modified{WorldTick::invalid}; // Not used for menu items
+  WorldTick modified = WorldTick::invalid; // Not used for menu items
   std::string entityName;
   std::string displayName;
   int menuOrder{}; // Used for menu items.
@@ -194,8 +194,8 @@ struct MapDesign {
 // and `parameters` for when the mouse location is paired with an action.
 struct UiCanvasInput {
   uint64_t seq{};
-  UiCanvasEvent event{UiCanvasEvent::click};
-  UiMouseButton button{UiMouseButton::left};
+  UiCanvasEvent event = UiCanvasEvent::click;
+  UiMouseButton button = UiMouseButton::left;
   uint32_t buttons{};
   float x{};
   float y{};
@@ -518,8 +518,8 @@ private:
   // Apply a move-drag intent: validate placement and, on dragend, relocate
   // the selected defender.
   [[nodiscard]] bool applyMoveIntent(const UiCanvasInput& input) {
-    const auto newPos = Position{input.x, input.y};
-    const bool valid = canMoveDefender(newPos);
+    const Position newPos{input.x, input.y};
+    const auto valid = canMoveDefender(newPos);
     uiState_.placementAllowed = valid;
     if (!valid || input.event != UiCanvasEvent::dragend) return true;
     const auto selectedId = world_.getId(selectedDefender_);
@@ -588,8 +588,8 @@ private:
       const auto& input = *pendingSpawnIntent_;
       const auto parameter = input.parameter();
       auto def = findEntityDef(parameter);
-      auto pos = Position{input.x, input.y};
-      bool spawnAllowed = canPlaceDefender(def, pos);
+      Position pos{input.x, input.y};
+      auto spawnAllowed = canPlaceDefender(def, pos);
       if (spawnAllowed) {
         // We need to spawn the entity using the registered template label, not
         // the map definition.
@@ -694,8 +694,8 @@ private:
     for (const auto& [name, def] : design.entityDefs) {
       if (!design.entityTemplateStore.registerEntity(def.entityName,
               def.megatuple))
-        throw std::runtime_error(
-            "Failed to register entity: " + def.entityName);
+        throw std::runtime_error{
+            "Failed to register entity: " + def.entityName};
       if (def.resourceCost == std::numeric_limits<uint32_t>::max()) continue;
       const auto& app_opt = std::get<std::optional<Appearance>>(def.megatuple);
       assert(app_opt);
@@ -763,7 +763,7 @@ private:
   size_t nextSpawnIndex_{};
 
   int16_t lives_{20};
-  uint32_t resources_{100};
+  uint32_t resources_{1000};
   UiState uiState_;
 
   std::optional<UiCanvasInput> pendingPlacementIntent_;
@@ -801,7 +801,7 @@ private:
       const MapDesign& design);
 
   [[nodiscard]] static bool shouldEmitMapEntityCsvReport() {
-    return std::getenv("CORVID_SUPPRESS_MAP_ENTITY_CSV") == nullptr;
+    return !std::getenv("CORVID_SUPPRESS_MAP_ENTITY_CSV");
   }
 
   // Load all `.json` files from the maps directory and return them keyed by
@@ -857,13 +857,13 @@ private:
 [[nodiscard]] inline bool
 SimGame::loadMapFromJson(const std::filesystem::path& file, MapDesign& out) {
   // Slurp the file.
-  std::ifstream ifs{file};
+  std::ifstream ifs(file);
   if (!ifs.is_open()) {
     std::cerr << "Cannot open map file: " << file << "\n";
     return false;
   }
-  const std::string content{std::istreambuf_iterator<char>(ifs),
-      std::istreambuf_iterator<char>()};
+  const std::string content{std::istreambuf_iterator<char>{ifs},
+      std::istreambuf_iterator<char>{}};
 
   // Parse top-level object.
   json_value_view root;
@@ -1143,7 +1143,7 @@ SimGame::loadMapFromJson(const std::filesystem::path& file, MapDesign& out) {
   auto csv_escape = [](std::string_view value) {
     std::string out;
     out.reserve(value.size() + 2);
-    const bool needs_quotes =
+    const auto needs_quotes =
         value.contains(',') || value.contains('"') || value.contains('\n');
     if (!needs_quotes) return std::string{value};
     out.push_back('"');

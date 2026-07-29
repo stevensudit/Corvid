@@ -185,8 +185,8 @@ struct epoll_recv_buffer {
       // at the cost of a small amount of imprecision when `current` is not
       // divisible by 4. As this is a heuristic anyway, and sizes are quite
       // likely powers of two, this is fine.
-      const bool must = (e == current) && (b > 0);
-      const bool worth_it = (b > current / 4) && (e > current / 4 * 3);
+      const auto must = (e == current) && (b > 0);
+      const auto worth_it = (b > current / 4) && (e > current / 4 * 3);
       if (!must && !worth_it) return;
       std::memmove(buffer.data(), buffer.data() + b, active_len);
     }

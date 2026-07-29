@@ -290,7 +290,7 @@ public:
   // been fully sent; send completion is signaled via the `on_drain` callback.
   [[nodiscard]] bool send_any(any_strings&& strings) {
     if (!open_ || write_shut_) return false;
-    const bool any = std::visit(
+    const auto is_any = std::visit(
         [](const auto& v) {
           using T = std::decay_t<decltype(v)>;
           if constexpr (std::is_same_v<T, std::string>)
@@ -303,7 +303,7 @@ public:
             return false;
         },
         strings);
-    if (!any) return false;
+    if (!is_any) return false;
     return execute_or_post([p = self(), s = std::move(strings)]() mutable {
       return p->enqueue_send_any(std::move(s));
     });
@@ -501,10 +501,10 @@ private:
     // to detect completion; sockets with pending sends need it to flush; and
     // accepted sockets need it so `flush_send_queue` fires `notify_drained`
     // (and thus `on_drain`) once on the first writable event.
-    const bool want_write = !listening_;
+    const auto want_write = !listening_;
     // Suppress reads while connecting: `handle_connect` calls
     // `refresh_read_interest` once `SO_ERROR` confirms success.
-    const bool want_read = !connecting_ && wants_read_events();
+    const auto want_read = !connecting_ && wants_read_events();
     if (loop_.register_socket(shared_from_this(), want_read, want_write)) {
       registered_ = true;
       return true;
@@ -907,9 +907,9 @@ private:
 
     const auto old_end = recv_buf_.end.load(std::memory_order::relaxed);
     if (!sock().recv_at(recv_buf_.buffer, old_end)) {
-      const bool hard_error = (recv_buf_.buffer.size() == old_end);
+      const auto is_hard_error = (recv_buf_.buffer.size() == old_end);
       no_zero{recv_buf_.buffer}.enlarge_to_cap();
-      if (hard_error) return do_close_now(close_mode::forceful) && false;
+      if (is_hard_error) return do_close_now(close_mode::forceful) && false;
 
       // EOF.
       // Arm EOF handling. If a view is active, defer until it destructs so
@@ -945,7 +945,7 @@ private:
       // Evaluate before compaction: compaction may reset `end` to
       // `active_len`, making a post-compact comparison against `last_seen_end`
       // meaningless.
-      const bool unseen_bytes =
+      const auto are_unseen_bytes =
           (p->recv_buf_.end.load(std::memory_order::acquire) > last_seen_end);
       p->recv_buf_.compact(new_size);
 
@@ -965,7 +965,7 @@ private:
       // Bytes can arrive while a view is live (`handle_readable` extends `end`
       // but skips the `on_data` dispatch). Re-dispatch now if the parser has
       // not yet seen all buffered bytes; otherwise just re-arm `EPOLLIN`.
-      if (unseen_bytes && !p->recv_buf_.active().empty()) {
+      if (are_unseen_bytes && !p->recv_buf_.active().empty()) {
         return p->loop_.post([p]() -> bool {
           if (!p->open_) return false;
           return p->notify_read_ready();
@@ -1144,9 +1144,9 @@ private:
       // `recv_at` returns false on both EOF and hard error.
       // Hard error: buffer trimmed to 0 by `recv_at`. EOF: buffer left at
       // full capacity (non-empty).
-      const bool hard_error = recv_buf_.buffer.empty();
+      const auto is_hard_error = recv_buf_.buffer.empty();
       no_zero{recv_buf_.buffer}.enlarge_to_cap();
-      if (hard_error) return do_close_now(close_mode::forceful) && false;
+      if (is_hard_error) return do_close_now(close_mode::forceful) && false;
       // Peer sent FIN: complete the close.
       return do_close_now();
     }
@@ -1304,7 +1304,7 @@ public:
 
     const auto result = sock.connect(remote);
     if (result && !*result) return {};
-    const bool still_connecting = !result;
+    const auto still_connecting = !result;
     const auto connection =
         still_connecting
             ? std::optional{connection_role::client}

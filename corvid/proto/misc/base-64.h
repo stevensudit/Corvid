@@ -120,7 +120,7 @@ struct base_64 {
     const size_t groups{encoded.size() / 4};
     for (size_t g = 0; g < groups; ++g) {
       const size_t pos{g * 4};
-      const bool is_last = (g + 1 == groups);
+      const auto is_last = (g + 1 == groups);
 
       const auto& dt = detail::base64_decode_table;
       const uint8_t a{dt[static_cast<uint8_t>(encoded[pos])]};
