@@ -322,6 +322,20 @@ Braces express "this object takes on these values", and they reject narrowing.
     coordinate keeps them legible as a pair, where blanking only `q`
     would split them. `float q{};` stays the canonical spelling, and this
     permits the other, so do not go looking for pairs to spell out.
+    - **For an enum member, zeroish means the zero enumerator is the
+      obvious default, the one a reader would assume unprompted.** "No
+      tool selected" and "target the first one" are such defaults, so
+      `active_tool tool_{};` and `TargetMode targetMode{};`. When the
+      zero enumerator instead encodes a choice the reader would have to
+      look up, the name stays spelled even though its value is zero:
+      `update_strategy send_strategy_ = update_strategy::full;` (the
+      full snapshot is a deliberate opening move, not the steady state),
+      `http_phase phase = http_phase::request_line;` (a state machine's
+      starting state), `mode mode_ = mode::binary;` (one output format
+      among three). This is the shot_type lesson stated from the other
+      side: `{}` on an enum member is only right when the empty state is
+      what you mean, and whether the enum has two values or five is not
+      the test.
   - **Rule:** Do not brace-init a class whose default constructor already
     initializes it safely: `std::string s;`, not `std::string s{};`
     (clang-tidy flags it). Generic code is exempt, since `T` may be scalar.

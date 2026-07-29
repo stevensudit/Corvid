@@ -194,8 +194,8 @@ struct MapDesign {
 // and `parameters` for when the mouse location is paired with an action.
 struct UiCanvasInput {
   uint64_t seq{};
-  UiCanvasEvent event = UiCanvasEvent::click;
-  UiMouseButton button = UiMouseButton::left;
+  UiCanvasEvent event{};
+  UiMouseButton button{};
   uint32_t buttons{};
   float x{};
   float y{};
