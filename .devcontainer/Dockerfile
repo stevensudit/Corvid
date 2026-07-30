@@ -28,7 +28,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Generate en_US.UTF-8, so bash stops complaining.
 RUN apt-get update && apt-get install -y --no-install-recommends locales && \
     sed -i 's/^# *en_US.UTF-8/en_US.UTF-8/' /etc/locale.gen && locale-gen && \
-    rm -rf /var/lib/apt/lists/*    
+    rm -rf /var/lib/apt/lists/*
 
 # Test toolchain repo.
 RUN add-apt-repository -y ppa:ubuntu-toolchain-r/test
