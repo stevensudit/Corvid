@@ -63,7 +63,7 @@ struct timer_invocation {
 
   // Event invocation count, starting at 1 and increasing with each recurring
   // call. Contains a snapshot of the namesake in `timer_event`.
-  size_t invocation_count;
+  size_t invocation_count{};
 
   // When the event was scheduled to run, which will be at or after
   // `tick_time`.
