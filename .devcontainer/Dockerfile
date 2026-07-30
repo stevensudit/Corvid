@@ -90,3 +90,4 @@ RUN chmod +x /usr/local/bin/init-firewall.sh && \
   chmod 0440 /etc/sudoers.d/node-firewall
 RUN mkdir -p /home/node/.ssh && chown node:node /home/node/.ssh && chmod 700 /home/node/.ssh
 USER node
+RUN echo '[ -f /workspace/.devcontainer/shellrc.sh ] && source /workspace/.devcontainer/shellrc.sh' >> /home/node/.zshrc
