@@ -61,7 +61,7 @@ public:
       : device_{device}, context_{context} {
     IMGUI_CHECKVERSION();
     ImGui::CreateContext();
-    ImGuiIO& io = ImGui::GetIO();
+    auto& io = ImGui::GetIO();
     // Scale the whole UI up: the default 13px font is small on a high-DPI
     // display. A global scale keeps it asset-free (no bundled TTF); swap in a
     // larger font later if the upscaled bitmap reads too soft.
@@ -119,7 +119,7 @@ public:
     win32::com_ptr<ID3D11RenderTargetView> rtv;
     device_->CreateRenderTargetView(back_buffer, nullptr, rtv.put());
     if (!rtv) return;
-    ID3D11RenderTargetView* rtv_raw = rtv.get();
+    auto* rtv_raw = rtv.get();
     context_->OMSetRenderTargets(1, &rtv_raw, nullptr);
     ImGui_ImplDX11_RenderDrawData(ImGui::GetDrawData());
   }

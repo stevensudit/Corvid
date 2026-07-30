@@ -37,7 +37,7 @@ namespace corvid::cuda {
 
 // 1/sqrt2 (= sin/cos 45 deg): the 45-degree diagonal component, so diagonal
 // samples and ring directions land at the same distance as axial ones.
-constexpr float inv_sqrt2 = std::numbers::sqrt2_v<float> / 2.0F;
+constexpr auto inv_sqrt2 = std::numbers::sqrt2_v<float> / 2.0F;
 
 #pragma region Editing
 
@@ -48,14 +48,14 @@ constexpr float inv_sqrt2 = std::numbers::sqrt2_v<float> / 2.0F;
 struct dig_probe {
   pos3 point;
   vec3 normal;
-  bool hit;
+  bool hit{};
 };
 
 // Cast the aim ray and record where it meets the surface, for the brush and
 // the in-world target reticle.
 __global__ void
 pick_kernel(density_field field, pos3 eye, vec3 dir, dig_probe* out) {
-  const float dist = field.raymarch(eye, dir);
+  const auto dist = field.raymarch(eye, dir);
   out->hit = (dist >= 0.0F);
   // No need to set on miss, because we check for hit before reading the point.
   if (out->hit) {
@@ -85,12 +85,12 @@ pick_kernel(density_field field, pos3 eye, vec3 dir, dig_probe* out) {
 // host reads it back like the pick.
 __global__ void fit_kernel(density_field field, pos3 center, float radius,
     reticle_surface_fit* out) {
-  const vec3 n = field.normal(center);
+  const auto n = field.normal(center);
   // Tangent axes perpendicular to `n`, built off the world axis least aligned
   // with it so the cross product never degenerates near vertical.
-  const vec3 ref = (fabsf(n.y) < 0.9F) ? vec3::up : vec3::right;
-  const vec3 u = normalize(cross(ref, n));
-  const vec3 v = cross(n, u);
+  const auto ref = (fabsf(n.y) < 0.9F) ? vec3::up : vec3::right;
+  const auto u = normalize(cross(ref, n));
+  const auto v = cross(n, u);
   out->u = u;
   out->v = v;
   out->n = n;
@@ -100,16 +100,16 @@ __global__ void fit_kernel(density_field field, pos3 center, float radius,
   // returning the height relative to `center` (0 if the column has no
   // surface).
   const auto height = [&](float du, float dv) -> float {
-    const float start = 2.0F * radius;
-    const pos3 above = center + (u * du) + (v * dv) + (n * start);
-    const float t = field.raymarch(above, n * -1.0F);
+    const auto start = 2.0F * radius;
+    const auto above = center + (u * du) + (v * dv) + (n * start);
+    const auto t = field.raymarch(above, n * -1.0F);
     return (t >= 0.0F) ? (start - t) : 0.0F;
   };
 
-  const float r = radius;
-  const float s = radius * inv_sqrt2; // diagonals, also at distance `radius`
-  const float w0 = height(0.0F, 0.0F);
-  const float inv_r2 = 1.0F / (r * r);
+  const auto r = radius;
+  const auto s = radius * inv_sqrt2; // diagonals, also at distance `radius`
+  const auto w0 = height(0.0F, 0.0F);
+  const auto inv_r2 = 1.0F / (r * r);
   out->a = (height(r, 0.0F) + height(-r, 0.0F) - (2.0F * w0)) * inv_r2;
   out->c = (height(0.0F, r) + height(0.0F, -r) - (2.0F * w0)) * inv_r2;
   out->b = (height(s, s) + height(-s, -s) - height(s, -s) - height(-s, s)) /
@@ -126,27 +126,28 @@ __global__ void dig_kernel(cudaSurfaceObject_t surface, density_field field,
   if (!probe->hit) return;
 
   // Skip voxels outside the brush's bounding cube.
-  const int radius_voxels = static_cast<int>(ceilf(radius / field.voxel_size));
-  const int span = (2 * radius_voxels) + 1;
-  const int sx = cuda_kernel::x_index();
-  const int sy = cuda_kernel::y_index();
-  const int sz = cuda_kernel::z_index();
+  const auto radius_voxels =
+      static_cast<int>(ceilf(radius / field.voxel_size));
+  const auto span = (2 * radius_voxels) + 1;
+  const auto sx = cuda_kernel::x_index();
+  const auto sy = cuda_kernel::y_index();
+  const auto sz = cuda_kernel::z_index();
   if (sx >= span || sy >= span || sz >= span) return;
 
   // The picked point in voxel space, and the voxel this thread edits.
-  const vec3 rel = field.to_voxel(probe->point);
-  const int vx = static_cast<int>(lroundf(rel.x)) + (sx - radius_voxels);
-  const int vy = static_cast<int>(lroundf(rel.y)) + (sy - radius_voxels);
-  const int vz = static_cast<int>(lroundf(rel.z)) + (sz - radius_voxels);
-  const int3 voxel = make_int3(vx, vy, vz);
+  const auto rel = field.to_voxel(probe->point);
+  const auto vx = static_cast<int>(lroundf(rel.x)) + (sx - radius_voxels);
+  const auto vy = static_cast<int>(lroundf(rel.y)) + (sy - radius_voxels);
+  const auto vz = static_cast<int>(lroundf(rel.z)) + (sz - radius_voxels);
+  const auto voxel = make_int3(vx, vy, vz);
   if (!field.contains(voxel)) return;
 
   // Skip voxels outside the brush sphere.
-  const pos3 voxel_point = field.voxel_center(voxel);
-  const float d = distance(voxel_point, probe->point);
+  const auto voxel_point = field.voxel_center(voxel);
+  const auto d = distance(voxel_point, probe->point);
   if (d > radius) return;
 
-  float density = 0.0F;
+  float density{};
   surf3Dread(&density, surface, vx * static_cast<int>(sizeof(float)), vy, vz);
   density -= strength * (1.0F - (d / radius));
   surf3Dwrite(density, surface, vx * static_cast<int>(sizeof(float)), vy, vz);
@@ -165,27 +166,28 @@ __global__ void dig_kernel(cudaSurfaceObject_t surface, density_field field,
 __global__ void crush_kernel(cudaSurfaceObject_t density_surface,
     cudaSurfaceObject_t color_surface, density_field field, pos3 contact,
     float radius, float crush, float darken, float darken_floor) {
-  const int radius_voxels = static_cast<int>(ceilf(radius / field.voxel_size));
-  const int span = (2 * radius_voxels) + 1;
-  const int sx = cuda_kernel::x_index();
-  const int sy = cuda_kernel::y_index();
-  const int sz = cuda_kernel::z_index();
+  const auto radius_voxels =
+      static_cast<int>(ceilf(radius / field.voxel_size));
+  const auto span = (2 * radius_voxels) + 1;
+  const auto sx = cuda_kernel::x_index();
+  const auto sy = cuda_kernel::y_index();
+  const auto sz = cuda_kernel::z_index();
   if (sx >= span || sy >= span || sz >= span) return;
 
-  const vec3 rel = field.to_voxel(contact);
-  const int vx = static_cast<int>(lroundf(rel.x)) + (sx - radius_voxels);
-  const int vy = static_cast<int>(lroundf(rel.y)) + (sy - radius_voxels);
-  const int vz = static_cast<int>(lroundf(rel.z)) + (sz - radius_voxels);
-  const int3 voxel = make_int3(vx, vy, vz);
+  const auto rel = field.to_voxel(contact);
+  const auto vx = static_cast<int>(lroundf(rel.x)) + (sx - radius_voxels);
+  const auto vy = static_cast<int>(lroundf(rel.y)) + (sy - radius_voxels);
+  const auto vz = static_cast<int>(lroundf(rel.z)) + (sz - radius_voxels);
+  const auto voxel = make_int3(vx, vy, vz);
   if (!field.contains(voxel)) return;
 
-  const pos3 voxel_point = field.voxel_center(voxel);
-  const float d = distance(voxel_point, contact);
+  const auto voxel_point = field.voxel_center(voxel);
+  const auto d = distance(voxel_point, contact);
   if (d > radius) return;
-  const float falloff = 1.0F - (d / radius);
+  const auto falloff = 1.0F - (d / radius);
 
   if (crush > 0.0F) {
-    float density = 0.0F;
+    float density{};
     surf3Dread(&density, density_surface, vx * static_cast<int>(sizeof(float)),
         vy, vz);
     density -= crush * falloff;
@@ -197,12 +199,12 @@ __global__ void crush_kernel(cudaSurfaceObject_t density_surface,
     uchar4 packed{};
     surf3Dread(&packed, color_surface, vx * static_cast<int>(sizeof(uchar4)),
         vy, vz);
-    const float fade = fmaxf(1.0F - (darken * falloff), 0.0F);
-    const float r =
+    const auto fade = fmaxf(1.0F - (darken * falloff), 0.0F);
+    const auto r =
         fmaxf((static_cast<float>(packed.x) / 255.0F) * fade, darken_floor);
-    const float g =
+    const auto g =
         fmaxf((static_cast<float>(packed.y) / 255.0F) * fade, darken_floor);
-    const float b =
+    const auto b =
         fmaxf((static_cast<float>(packed.z) / 255.0F) * fade, darken_floor);
     surf3Dwrite(
         make_uchar4(to_unorm8(r), to_unorm8(g), to_unorm8(b), packed.w),
@@ -227,16 +229,16 @@ __global__ void crush_kernel(cudaSurfaceObject_t density_surface,
 // dolly on.
 struct ground_probe {
   vec3 normal;
-  float surface_dist;
+  float surface_dist{};
   vec3 push;
   vec3 wall_normal;
-  bool overhead;
+  bool overhead{};
 };
 
 // A `surface_dist` magnitude meaning no surface is within reach: reported
 // (positive) in open air, and negated when buried in solid with no gradient to
 // climb. Far past any real voxel distance, so it never reads as contact.
-constexpr float no_contact = big_value;
+constexpr auto no_contact = big_value;
 
 // Resolve a sphere of `radius` at the ball `center` against the terrain for
 // one frame, sampling the live density field as an approximate signed-distance
@@ -256,8 +258,8 @@ constexpr float no_contact = big_value;
 // cancel to a stable rest. One thread; the host reads it back a frame later.
 __global__ void ground_probe_kernel(density_field field, pos3 center,
     float radius, ground_probe* out) {
-  const float e = field.voxel_size;
-  const float d = field.sample_density(center);
+  const auto e = field.voxel_size;
+  const auto d = field.sample_density(center);
   const vec3 dx{e, 0.0F, 0.0F};
   const vec3 dy{0.0F, e, 0.0F};
   const vec3 dz{0.0F, 0.0F, e};
@@ -265,10 +267,10 @@ __global__ void ground_probe_kernel(density_field field, pos3 center,
       field.sample_density(center + dx) - field.sample_density(center - dx),
       field.sample_density(center + dy) - field.sample_density(center - dy),
       field.sample_density(center + dz) - field.sample_density(center - dz)};
-  const float glen = length(g);
+  const auto glen = length(g);
   // A near-zero gradient is a flat region with no surface direction; below
   // this, fall back to the no-gradient case (also guards the divide by glen).
-  constexpr float gradient_epsilon = 1.0e-6F;
+  constexpr auto gradient_epsilon = 1.0e-6F;
   if (glen > gradient_epsilon) {
     out->normal = g * (-1.0F / glen); // outward = -grad / |grad|
     out->surface_dist = -d * 2.0F * e / glen;
@@ -276,13 +278,13 @@ __global__ void ground_probe_kernel(density_field field, pos3 center,
     // A flat region with no gradient: deep solid pushes straight up, open air
     // reports no contact.
     out->normal = vec3::up;
-    out->surface_dist = d > 0.0F ? -no_contact : no_contact;
+    out->surface_dist = (d > 0.0F) ? -no_contact : no_contact;
   }
 
   // The surface probe directions: eight around the equator (walls), then the
   // pole and an upper fan (ceilings and the mouth of a too-short tunnel).
-  constexpr float s = inv_sqrt2;
-  const vec3 dirs[13] = {{1.0F, 0.0F, 0.0F}, {s, 0.0F, s}, {0.0F, 0.0F, 1.0F},
+  constexpr auto s = inv_sqrt2;
+  const vec3 dirs[13]{{1.0F, 0.0F, 0.0F}, {s, 0.0F, s}, {0.0F, 0.0F, 1.0F},
       {-s, 0.0F, s}, {-1.0F, 0.0F, 0.0F}, {-s, 0.0F, -s}, {0.0F, 0.0F, -1.0F},
       {s, 0.0F, -s}, {0.0F, 1.0F, 0.0F}, {s, s, 0.0F}, {0.0F, s, s},
       {-s, s, 0.0F}, {0.0F, s, -s}};
@@ -296,13 +298,13 @@ __global__ void ground_probe_kernel(density_field field, pos3 center,
   // `contact_tol` ignores resting contact so a seated ball does not push at
   // all. The deepest horizontal contact also reports the wall normal, for the
   // velocity stop and the stain.
-  constexpr float contact_tol = 0.05F; // rest contact does not push
-  vec3 push{0.0F, 0.0F, 0.0F};
-  vec3 wall_normal{0.0F, 0.0F, 0.0F};
-  float worst_wall = 0.0F;
-  bool overhead = false;
-  for (const vec3 u : dirs) {
-    const float dp = field.sample_density(center + (u * radius)) - contact_tol;
+  constexpr auto contact_tol = 0.05F; // rest contact does not push
+  vec3 push;
+  vec3 wall_normal;
+  float worst_wall{};
+  bool overhead{};
+  for (const auto u : dirs) {
+    const auto dp = field.sample_density(center + (u * radius)) - contact_tol;
     if (dp <= 0.0F) continue;
     push += (u * -1.0F) * dp; // out along the radial, back to center
     if (u.y > 0.5F) {
@@ -335,7 +337,7 @@ boom_probe_kernel(density_field field, pos3 origin, vec3 dir, float* out) {
     *out = 0.0F; // the seat base is in solid: no room to dolly out
     return;
   }
-  const float t = field.raymarch(origin, dir);
+  const auto t = field.raymarch(origin, dir);
   *out = (t >= 0.0F) ? t : no_contact;
 }
 

@@ -101,7 +101,7 @@ TEST_CASE("OneEuroStepResponseConverges", "[OneEuroFilter]") {
   filter.smooth(dt, dx, dy); // seed at 0
 
   float previous = 0.0F;
-  for (int step = 0; step < 60; ++step) {
+  for (auto step = 0; step < 60; ++step) {
     dx = 1.0F;
     dy = 0.0F;
     filter.smooth(dt, dx, dy);

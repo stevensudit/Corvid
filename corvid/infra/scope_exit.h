@@ -105,8 +105,8 @@ public:
   requires(std::is_nothrow_move_constructible_v<EF> ||
               std::is_copy_constructible_v<EF>)
       : exit_function_(std::move_if_noexcept(other.exit_function_)),
-        active_(std::exchange(other.active_, false)),
-        uncaught_on_entry_(other.uncaught_on_entry_) {}
+        active_{std::exchange(other.active_, false)},
+        uncaught_on_entry_{other.uncaught_on_entry_} {}
 
 #pragma endregion
 #pragma region Destruction
@@ -153,8 +153,8 @@ private:
 #pragma region Data members
 
   EF exit_function_;
-  bool active_{true};
-  CORVID_NO_UNIQUE_ADDRESS exception_count_t uncaught_on_entry_;
+  bool active_ = true;
+  CORVID_NO_UNIQUE_ADDRESS exception_count_t uncaught_on_entry_{};
 
 #pragma endregion
 };

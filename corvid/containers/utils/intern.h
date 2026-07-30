@@ -382,7 +382,7 @@ public:
     auto iv = get(value, attestation);
     if (iv || sync.is_disabled()) return iv;
 
-    extensible_arena::scope s{arena_};
+    extensible_arena::scope s(arena_);
     const auto id = static_cast<id_t>(*min_id_ + lookup_by_id_.size());
     auto& found_value = lookup_by_id_.emplace_back(std::forward<U>(value));
     lookup_by_value_.emplace(key_t{found_value}, id);
@@ -414,7 +414,7 @@ public:
   requires Viewable<T, U>
   [[nodiscard]] const value_t& operator[](U&& value) const {
     auto iv = get(std::forward<U>(value));
-    if (!iv) throw std::out_of_range("value not found");
+    if (!iv) throw std::out_of_range{"value not found"};
     return iv.value();
   }
 
@@ -425,7 +425,7 @@ public:
   requires Viewable<T, U>
   [[nodiscard]] const value_t& operator[](U&& value) {
     auto iv = intern(std::forward<U>(value));
-    if (!iv) throw std::out_of_range("value not found");
+    if (!iv) throw std::out_of_range{"value not found"};
     return iv.value();
   }
 
@@ -496,6 +496,8 @@ interned_value<T, ID>::interned_value(intern_table<T, ID, TR>& table,
 // spec grammar. Debug `{:?}` instead renders the `(value, id)` pair, with the
 // id as its numeric underlying. Both modes read the value, so an empty
 // `interned_value` is a precondition violation, exactly as it is for `value`.
+//
+// NOLINTBEGIN(bugprone-std-namespace-modification).
 template<typename T, corvid::sequence::SequentialEnum ID,
     corvid::CharType CharT>
 requires std::formattable<T, CharT>
@@ -510,11 +512,11 @@ struct std::formatter<corvid::container::intern::interned_value<T, ID>, CharT>
   // takes no further spec; a plain spec is forwarded to the value's grammar.
   constexpr auto parse(auto& ctx) {
     auto it = ctx.begin();
-    if (it != ctx.end() && *it == CharT('?')) {
+    if (it != ctx.end() && *it == CharT{'?'}) {
       debug_ = true;
       ++it;
-      if (it != ctx.end() && *it != CharT('}'))
-        throw std::format_error("interned_value debug spec accepts only '?'");
+      if (it != ctx.end() && *it != CharT{'}'})
+        throw std::format_error{"interned_value debug spec accepts only '?'"};
       return it;
     }
     return base::parse(ctx);
@@ -529,12 +531,14 @@ struct std::formatter<corvid::container::intern::interned_value<T, ID>, CharT>
     const std::pair<const T&, id_print_t> pr{iv.value(),
         +corvid::as_underlying(iv.id())};
     std::formatter<std::pair<const T&, id_print_t>, CharT> pair_formatter;
-    std::basic_format_parse_context<CharT> pctx{
-        std::basic_string_view<CharT>{}};
+    // Close the synthetic spec.
+    static constexpr CharT closer[]{CharT{'}'}, CharT{}};
+    std::basic_format_parse_context<CharT> pctx{closer};
     pair_formatter.parse(pctx);
     return pair_formatter.format(pr, ctx);
   }
 
 private:
-  bool debug_{false};
+  bool debug_{};
 };
+// NOLINTEND(bugprone-std-namespace-modification)

@@ -56,10 +56,10 @@ enum class aligned : std::uint8_t { left, right, center };
   size_t lead{};
   size_t trail{};
   if (total_width > content_width) {
-    const size_t pad = total_width - content_width;
+    const auto pad = total_width - content_width;
     lead =
-        alignment == aligned::right ? pad
-        : alignment == aligned::center
+        (alignment == aligned::right) ? pad
+        : (alignment == aligned::center)
             ? pad / 2
             : 0;
     trail = pad - lead;

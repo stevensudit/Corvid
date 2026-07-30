@@ -42,7 +42,7 @@ static tp T(int ms) { return tp{} + std::chrono::milliseconds{ms}; }
 
 TEST_CASE("BasicFire", "[TimeoutSweeper]") {
   sweeper s;
-  int fired{0};
+  int fired{};
   CHECK(s.schedule(T(100), [&](tp) -> tp {
     ++fired;
     return {};
@@ -59,7 +59,7 @@ TEST_CASE("BasicFire", "[TimeoutSweeper]") {
 TEST_CASE("NotFiredEarly", "[TimeoutSweeper]") {
   // `fired` must outlive `s`: the sweeper's destructor drains the still-queued
   // T(100) callback (neither tick reaches it), which captures `&fired`.
-  int fired{0};
+  int fired{};
   sweeper s;
   s.schedule(T(100), [&](tp) -> tp {
     ++fired;
@@ -120,7 +120,7 @@ TEST_CASE("ExpireParameterIsRegisteredTime", "[TimeoutSweeper]") {
 
 TEST_CASE("RearmReturnsNewTime", "[TimeoutSweeper]") {
   sweeper s;
-  int fired{0};
+  int fired{};
   s.schedule(T(100), [&](tp) -> tp {
     ++fired;
     return fired < 3 ? T(100 + (fired * 100)) : tp{};
@@ -145,9 +145,9 @@ TEST_CASE("MultipleExpiredInOneTick", "[TimeoutSweeper]") {
   // A single tick should drain everything whose expiration is at or before
   // the tick time, in order.
   sweeper s;
-  int count{0};
-  for (int i = 1; i <= 5; ++i)
-    s.schedule(T(i * 10), [&](tp) -> tp {
+  int count{};
+  for (auto ndx = 1; ndx <= 5; ++ndx)
+    s.schedule(T(ndx * 10), [&](tp) -> tp {
       ++count;
       return {};
     });
@@ -161,7 +161,7 @@ TEST_CASE("MultipleExpiredInOneTick", "[TimeoutSweeper]") {
 
 TEST_CASE("Clear", "[TimeoutSweeper]") {
   sweeper s;
-  int fired{0};
+  int fired{};
   s.schedule(T(100), [&](tp) -> tp {
     ++fired;
     return {};
@@ -198,7 +198,7 @@ TEST_CASE("SizeAndEmpty", "[TimeoutSweeper]") {
 TEST_CASE("DestructorDrains", "[TimeoutSweeper]") {
   // Pending callbacks should each fire exactly once when the sweeper is
   // destroyed without an explicit drain tick.
-  int fired{0};
+  int fired{};
   {
     sweeper s;
     s.schedule(T(100), [&](tp) -> tp {
@@ -219,7 +219,7 @@ TEST_CASE("DestructorDrains", "[TimeoutSweeper]") {
 TEST_CASE("DestructorShortCircuitsRearm", "[TimeoutSweeper]") {
   // A callback that always asks to rearm must still fire only once during
   // the destructor's drain; otherwise the drain would not terminate.
-  int fired{0};
+  int fired{};
   {
     sweeper s;
     s.schedule(T(100), [&](tp) -> tp {
@@ -409,7 +409,7 @@ TEST_CASE("FixedFunctionSpecialization", "[TimeoutSweeper]") {
   static_assert(small_sw::paused_expiration == sweeper::paused_expiration);
 
   small_sw s;
-  int fired{0};
+  int fired{};
   CHECK(s.schedule(T(100), [&fired](tp) -> tp {
     ++fired;
     return {};

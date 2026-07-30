@@ -53,13 +53,13 @@ static std::string theirs_int(T value, int base = 10) {
 
 TEST_CASE("IntToChars", "[charconv]") {
   SECTION("matches std across bases and values") {
-    const int bases[] = {2, 8, 10, 16, 36};
-    const int64_t svals[] = {0, 1, -1, 7, -7, 42, -42, 255, 256, 1000, -1000,
+    const int bases[]{2, 8, 10, 16, 36};
+    const int64_t svals[]{0, 1, -1, 7, -7, 42, -42, 255, 256, 1000, -1000,
         65535, 2147483647, -2147483648, 9223372036854775807LL,
         (-9223372036854775807LL - 1)};
-    const uint64_t uvals[] = {0u, 1u, 255u, 256u, 65535u, 4294967295u,
+    const uint64_t uvals[]{0u, 1u, 255u, 256u, 65535u, 4294967295u,
         18446744073709551615ULL};
-    for (int base : bases) {
+    for (auto base : bases) {
       for (int64_t v : svals) CHECK(ours_int(v, base) == theirs_int(v, base));
       for (uint64_t v : uvals) CHECK(ours_int(v, base) == theirs_int(v, base));
     }
@@ -87,13 +87,13 @@ TEST_CASE("IntToChars", "[charconv]") {
 
 TEST_CASE("IntFromChars", "[charconv]") {
   SECTION("round-trips std's output across bases and values") {
-    const int bases[] = {2, 8, 10, 16, 36};
-    const int64_t svals[] = {0, 1, -1, 7, -7, 42, -42, 255, 256, 1000, -1000,
+    const int bases[]{2, 8, 10, 16, 36};
+    const int64_t svals[]{0, 1, -1, 7, -7, 42, -42, 255, 256, 1000, -1000,
         9223372036854775807LL, (-9223372036854775807LL - 1)};
-    for (int base : bases)
+    for (auto base : bases)
       for (int64_t v : svals) {
         const auto s = theirs_int(v, base);
-        int64_t out = 999;
+        int64_t out{999};
         auto [ptr, ec] =
             strings::int_from_chars(s.data(), s.data() + s.size(), out, base);
         CHECK(ec == std::errc{});
@@ -125,7 +125,7 @@ TEST_CASE("IntFromChars", "[charconv]") {
 
   SECTION("reports overflow and leaves value unchanged") {
     for (auto s : {"9223372036854775808"sv, "99999999999999999999"sv}) {
-      int64_t out = -5;
+      int64_t out{-5};
       auto [ptr, ec] =
           strings::int_from_chars(s.data(), s.data() + s.size(), out, 10);
       CHECK(ec == std::errc::result_out_of_range);
@@ -133,7 +133,7 @@ TEST_CASE("IntFromChars", "[charconv]") {
       CHECK(ptr == s.data() + s.size());
     }
     auto s = "18446744073709551616"sv; // uint64 max + 1
-    uint64_t out = 5;
+    uint64_t out{5};
     auto [ptr, ec] =
         strings::int_from_chars(s.data(), s.data() + s.size(), out, 10);
     CHECK(ec == std::errc::result_out_of_range);
@@ -164,8 +164,8 @@ TEST_CASE("WideInt", "[charconv]") {
     CHECK(ec == std::errc{});
     const std::u32string wide{b.data(), ptr};
     CHECK(wide.size() == narrow.size());
-    for (size_t i = 0; i < narrow.size(); ++i)
-      CHECK(wide[i] == static_cast<char32_t>(narrow[i]));
+    for (auto ndx = 0UZ; ndx < narrow.size(); ++ndx)
+      CHECK(wide[ndx] == static_cast<char32_t>(narrow[ndx]));
     // And parse the wide form back.
     T out{};
     auto [p2, ec2] = strings::int_from_chars(wide.data(),
@@ -174,7 +174,7 @@ TEST_CASE("WideInt", "[charconv]") {
     CHECK(p2 == wide.data() + wide.size());
     CHECK(out == value);
   };
-  for (int base : {2, 10, 16, 36}) {
+  for (auto base : {2, 10, 16, 36}) {
     widen_check(int64_t{-123456789}, base);
     widen_check(uint64_t{9876543210u}, base);
   }
@@ -187,7 +187,7 @@ TEST_CASE("WideInt", "[charconv]") {
     CHECK(ec == std::errc{});
     const std::u16string s{b.data(), ptr};
     CHECK(s == u"-fff");
-    int32_t out = 0;
+    int32_t out{};
     (void)strings::int_from_chars(s.data(), s.data() + s.size(), out, 16);
     CHECK(out == -4095);
   }
@@ -197,8 +197,7 @@ TEST_CASE("WideInt", "[charconv]") {
 #pragma region Float
 
 TEST_CASE("FloatCharMatchesStd", "[charconv]") {
-  const double vals[] = {0.0, 1.0, -1.0, 3.14159, -2.5, 1e10, 1e-10,
-      123456.789};
+  const double vals[]{0.0, 1.0, -1.0, 3.14159, -2.5, 1e10, 1e-10, 123456.789};
   for (double v : vals) {
     std::array<char, 64> a{}, b{};
     auto [pa, ea] = strings::float_to_chars(a.data(), a.data() + a.size(), v);
@@ -210,7 +209,7 @@ TEST_CASE("FloatCharMatchesStd", "[charconv]") {
 }
 
 TEST_CASE("FloatRoundTrip", "[charconv]") {
-  const double vals[] = {0.0, 1.0, -1.0, 3.141592653589793, -2.5, 1e10, 1e-10,
+  const double vals[]{0.0, 1.0, -1.0, 3.141592653589793, -2.5, 1e10, 1e-10,
       6.022e23};
 
   SECTION("char") {

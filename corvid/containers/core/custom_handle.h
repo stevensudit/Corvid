@@ -104,7 +104,7 @@ public:
 
   custom_handle(element_type element)
       : resource_{static_cast<resource_id_type>(element)} {}
-  custom_handle(resource_id_type resource) : resource_(resource) {}
+  custom_handle(resource_id_type resource) : resource_{resource} {}
 
 #pragma endregion
 #pragma region Assignment
@@ -172,8 +172,10 @@ public:
 
 }} // namespace corvid::custhandle
 
+// NOLINTBEGIN(bugprone-std-namespace-modification)
 template<typename TAG, typename T, typename TPtr, TPtr N,
     corvid::CharType CharT>
 requires std::formattable<T, CharT>
 struct std::formatter<corvid::custhandle::custom_handle<TAG, T, TPtr, N>,
     CharT>: corvid::nullable_formatter<T, CharT> {};
+// NOLINTEND(bugprone-std-namespace-modification)

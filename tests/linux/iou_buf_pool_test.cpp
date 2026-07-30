@@ -604,21 +604,21 @@ TEST_CASE("CoalesceChain", "[IouBufPool]") {
   // all 32 large blocks.
   if (true) {
     auto pool = iou_buf_pool::create();
-    constexpr size_t TOTAL_SMALLS = 512;
-    constexpr size_t TOTAL_LARGE = 32;
+    constexpr auto TOTAL_SMALLS = 512UZ;
+    constexpr auto TOTAL_LARGE = 32UZ;
     std::array<iou_buf_pool::buffer, TOTAL_SMALLS> bufs;
-    for (size_t i = 0; i < TOTAL_SMALLS; ++i) {
-      bufs[i] = pool->borrow_writer(block_size::kb004);
-      REQUIRE(bufs[i]);
+    for (auto ndx = 0UZ; ndx < TOTAL_SMALLS; ++ndx) {
+      bufs[ndx] = pool->borrow_writer(block_size::kb004);
+      REQUIRE(bufs[ndx]);
     }
     CHECK(pool->available() == 0ULL);
-    for (size_t i = 0; i < TOTAL_SMALLS; ++i) bufs[i].reset();
+    for (auto ndx = 0UZ; ndx < TOTAL_SMALLS; ++ndx) bufs[ndx].reset();
     CHECK(pool->available() == (2ULL * 1024 * 1024));
     // All 32 large blocks must now be individually allocatable.
     std::array<iou_buf_pool::buffer, TOTAL_LARGE> large_bufs;
-    for (size_t i = 0; i < TOTAL_LARGE; ++i) {
-      large_bufs[i] = pool->borrow_writer(block_size::kb064);
-      REQUIRE(large_bufs[i]);
+    for (auto ndx = 0UZ; ndx < TOTAL_LARGE; ++ndx) {
+      large_bufs[ndx] = pool->borrow_writer(block_size::kb064);
+      REQUIRE(large_bufs[ndx]);
     }
     auto extra = pool->borrow_writer(block_size::kb064);
     CHECK_FALSE(extra);
@@ -634,12 +634,12 @@ TEST_CASE("UdpTierAlloc", "[IouBufPool]") {
   // has the right size, then confirm full pool recovery after freeing all.
   if (true) {
     auto pool = iou_buf_pool::create();
-    constexpr size_t TOTAL = 2ULL * 1024 * 1024 / (2ULL * 1024); // 1024
+    constexpr auto TOTAL = 2 * 1024UZ * 1024UZ / (2 * 1024UZ);
     std::array<iou_buf_pool::buffer, TOTAL> bufs;
-    for (size_t i = 0; i < TOTAL; ++i) {
-      bufs[i] = pool->borrow_writer(block_size::kb002);
-      REQUIRE(bufs[i]);
-      CHECK(bufs[i].size() == (2ULL * 1024));
+    for (auto ndx = 0UZ; ndx < TOTAL; ++ndx) {
+      bufs[ndx] = pool->borrow_writer(block_size::kb002);
+      REQUIRE(bufs[ndx]);
+      CHECK(bufs[ndx].size() == (2ULL * 1024));
     }
     CHECK(pool->available() == 0ULL);
     auto extra = pool->borrow_writer(block_size::kb002);
@@ -670,8 +670,8 @@ TEST_CASE("UpdateRecvmsgValid", "[IouBufPool]") {
     REQUIRE(buf);
 
     constexpr std::string_view data{"hello-recvmsg"};
-    constexpr uint32_t peer_ip = 0x7f000001; // 127.0.0.1
-    constexpr uint16_t peer_port = 54321;
+    constexpr uint32_t peer_ip{0x7f000001}; // 127.0.0.1
+    constexpr uint16_t peer_port{54321};
 
     // Write io_uring_recvmsg_out header + peer sockaddr_in + payload at the
     // start of the buffer's active region.

@@ -92,7 +92,7 @@ public:
   using metadata_t = registry_t::metadata_t;
   using allocator_type = registry_t::allocator_type;
 
-  static constexpr size_t storage_count_v = sizeof...(STORES);
+  static constexpr auto storage_count_v = sizeof...(STORES);
 
   static_assert(registry_t::is_component_v,
       "component_scene requires a component-mode registry "
@@ -338,17 +338,17 @@ public:
   [[nodiscard]] size_type for_all(this auto& self, auto&& fn) {
     static_assert(sizeof...(Cs) >= 1,
         "`for_all` requires at least one component type");
-    size_type failures = 0;
+    size_type failures{};
     if (self.registry_.size() == 0) return failures;
-    const id_t id_end = self.registry_.max_id();
+    const auto id_end = self.registry_.max_id();
     for (id_t id{}; id <= id_end; ++id) {
       if (!self.registry_.is_valid(id)) continue;
       const auto& loc = self.registry_.get_location(id);
       // Per-selector presence check. For unique selectors: require the single
       // storage bit. For multi-match component types: require exactly one of
       // the union of matching storage bits (skip if zero or more than one).
-      bool match = true;
-      bool ambiguous = false;
+      auto match = true;
+      bool ambiguous{};
       auto check_one = [&]<typename C>() {
         constexpr size_t nc = component_match_count_v<C, STORES...>;
         if constexpr (nc > 1) {
@@ -455,7 +455,7 @@ private:
       // Scan all storages with `component_t == C`; the per-selector check in
       // `for_all` guarantees exactly one contains the entity.
       if constexpr (std::is_const_v<self_t>) {
-        const C* result = nullptr;
+        const C* result{};
         [&]<size_t... Is>(std::index_sequence<Is...>) {
           auto check = [&]<size_t I>() {
             using S = std::tuple_element_t<I + 1, storage_tuple_t>;
@@ -469,7 +469,7 @@ private:
         assert(result);
         return *result; // const C&
       } else {
-        C* result = nullptr;
+        C* result{};
         [&]<size_t... Is>(std::index_sequence<Is...>) {
           auto check = [&]<size_t I>() {
             using S = std::tuple_element_t<I + 1, storage_tuple_t>;
@@ -509,8 +509,7 @@ private:
   [[nodiscard]] std::span<const id_t> find_primary_ids() const noexcept {
     using first_c = std::tuple_element_t<0, std::tuple<Cs...>>;
     constexpr size_t first_idx = storage_index_for_v<first_c, STORES...>;
-    std::span<const id_t> primary =
-        std::get<first_idx + 1>(storages_).entity_ids();
+    auto primary = std::get<first_idx + 1>(storages_).entity_ids();
     auto check_smaller = [&]<typename C>() {
       constexpr size_t idx = storage_index_for_v<C, STORES...>;
       const auto ids = std::get<idx + 1>(storages_).entity_ids();

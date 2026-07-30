@@ -88,14 +88,14 @@ public:
   // render, and present. Returns false once the window is closing.
   [[nodiscard]] bool tick() {
     if (!handle_events()) return false;
-    const float dt = frame_dt();
+    const auto dt = frame_dt();
 
     // Freeze the simulation while another window holds focus (alt-tab): the dt
     // cap alone still let gravity drift the buried ball downward across the
     // gap. `frame_dt` already advanced the clock, so refocusing resumes at a
     // normal step rather than one huge catch-up. The scene still renders
     // (throttled) so the window does not go stale.
-    const bool active = focused();
+    const auto active = focused();
     if (active) advance_avatar(dt);
 
     // Skip all GPU work when the window has no client area (minimized, or
@@ -109,9 +109,9 @@ public:
     sync_settings();
 
     // The per-frame scene inputs, shared by the dig and the render.
-    const camera_rays rays = rig_.rays();
-    const metal_ball ball = rig_.ball();
-    const saucer_head head = rig_.head(render_cfg_.head);
+    const auto rays = rig_.rays();
+    const auto ball = rig_.ball();
+    const auto head = rig_.head(render_cfg_.head);
 
     // The flashlight is a headlamp: it rides the eye and points along the
     // view.
@@ -122,7 +122,7 @@ public:
     // Tunnel-view sanity: at the jockey, clear a bubble around the ball in the
     // primary march so dirt between the close camera and the ball does not
     // bury the view (`shade_primary_ray`). Render-only.
-    render_cfg_.jockey_clear = rig_.boom <= (rig_.tune.boom_min + 0.05F);
+    render_cfg_.jockey_clear = (rig_.boom <= (rig_.tune.boom_min + 0.05F));
 
     // Auto-exposure: ease the display exposure toward last frame's measured
     // scene brightness. Runs even unfocused, since the scene still renders.
@@ -188,7 +188,7 @@ private:
     // that gap flings the avatar far below the world in one step, where
     // collision can never recover (the camera rides it down, so the screen
     // goes to sky). The sim hitches by at most this instead.
-    constexpr float max_dt = 0.05F; // 50 ms; a long stall advances only this
+    constexpr auto max_dt = 0.05F; // 50 ms; a long stall advances only this
     return fminf(dt, max_dt);
   }
 
@@ -256,7 +256,7 @@ private:
     if (!body_primed_) {
       body_.center = rig_.anchor;
       body_.velocity = rig_.ground_vel + (body_up * rig_.vel_y);
-      body_.angular_velocity = vec3{};
+      body_.angular_velocity = {};
       body_.grounded = rig_.grounded;
       body_primed_ = true;
     }
@@ -266,7 +266,7 @@ private:
 
     // The floor contact, from the stale probe (the same penetration band as
     // the rig's grounded test).
-    const float pen = rig_.tune.ball_radius - ground_state_.surface_dist;
+    const auto pen = rig_.tune.ball_radius - ground_state_.surface_dist;
     const body_contact contact{.touching = pen > -rig_.tune.ground_tol,
         .normal = ground_state_.normal,
         .penetration = pen};
@@ -277,11 +277,11 @@ private:
     const auto [fwd, strafe] = input_.movement();
     const vec3 hfwd{cos(rig_.heading), 0.0F, sin(rig_.heading)};
     const vec3 hright{-sin(rig_.heading), 0.0F, cos(rig_.heading)};
-    const vec3 drive = (hfwd * fwd) + (hright * strafe);
+    const auto drive = (hfwd * fwd) + (hright * strafe);
     // Below this the stick is effectively centered; treat it as no input so a
     // resting stick does not read as driving.
-    constexpr float input_deadband = 1.0e-4F;
-    const bool driving = (fabsf(fwd) + fabsf(strafe)) > input_deadband;
+    constexpr auto input_deadband = 1.0e-4F;
+    const auto driving = ((fabsf(fwd) + fabsf(strafe)) > input_deadband);
 
     // Treadmill (lock position): hold the body in front of the mirror, but let
     // its velocity and spin keep evolving under the drive so every
@@ -297,11 +297,11 @@ private:
     // like the rig (the probe is stale and sparse), and stop the drive into a
     // wall, recording it for the stain. `confined` is left for the camera.
     body_.center += ground_state_.push * rig_.tune.collision_damp;
-    rig_.walled = length(ground_state_.wall_normal) > 0.5F;
+    rig_.walled = (length(ground_state_.wall_normal) > 0.5F);
     rig_.confined = ground_state_.overhead;
     rig_.wall_press = 0.0F;
     if (rig_.walled)
-      if (const float into = dot(body_.velocity, ground_state_.wall_normal);
+      if (const auto into = dot(body_.velocity, ground_state_.wall_normal);
           into < 0.0F)
       {
         body_.velocity -= ground_state_.wall_normal * into;
@@ -332,7 +332,7 @@ private:
     const body_contact flat{.touching = true,
         .normal = body_up,
         .penetration = 0.0F};
-    const pos3 held = body_.center;
+    const auto held = body_.center;
     body_.advance(flat, drive, false, dt);
     body_.center = held;
     body_.velocity.y = 0.0F;
@@ -345,12 +345,12 @@ private:
   // Clamp the body one radius inside the world box, killing the velocity into
   // a face it hits (the body has no world bounds of its own).
   void fence_body() {
-    const float r = body_.params.radius;
-    const float cx =
+    const auto r = body_.params.radius;
+    const auto cx =
         fminf(fmaxf(body_.center.v.x, world_min_.x + r), world_max_.x - r);
-    const float cy =
+    const auto cy =
         fminf(fmaxf(body_.center.v.y, world_min_.y + r), world_max_.y - r);
-    const float cz =
+    const auto cz =
         fminf(fmaxf(body_.center.v.z, world_min_.z + r), world_max_.z - r);
     if (cx != body_.center.v.x) body_.velocity.x = 0.0F;
     if (cy != body_.center.v.y) body_.velocity.y = 0.0F;
@@ -363,12 +363,13 @@ private:
   void update_title(float dt) {
     if (const auto report = stats_.record(dt)) {
       // Planar speed of the avatar (world units per second), the speedometer.
-      const float speed = sqrtf(
+      const auto speed = sqrtf(
           (rig_.ground_vel.x * rig_.ground_vel.x) +
           (rig_.ground_vel.z * rig_.ground_vel.z));
       // The aim's elevation above horizontal, so sighting up a tunnel reads
       // its grade off the title bar.
-      const float aim_deg = rig_.facing.pitch.value / radians::per_degree;
+      const auto aim_deg = rig_.facing.pitch.value / radians::per_degree;
+      // Deliberately uninitialized: only the written cells are ever read.
       std::array<char, 224> title;
       SDL_snprintf(title.data(), title.size(),
           "Corvid Voxel Viewer - %.0f fps  %.1f/%.1f/%.1f ms (min/avg/max)  "
@@ -397,7 +398,7 @@ private:
   // fires only while the lamp is on. On a sky miss (or lamp off) the cone has
   // no ground plane to clip to, so `grounded` clears and it casts to `range`.
   void update_flashlight(const camera_rays& rays, float dt) {
-    render_config::flashlight_params& fl = render_cfg_.flashlight;
+    auto& fl = render_cfg_.flashlight;
     fl.air_time += dt;
     if (!flashlight_on_) {
       fl.ground_weight = 0.0F;
@@ -411,11 +412,11 @@ private:
 
     // The raw aim: the hit point, or a far point down the beam on a miss (so
     // the cone runs out to `range` with no ground to clip against).
-    const pos3 raw_target =
+    const auto raw_target =
         pick.hit ? pick.point : rays.eye + (rays.frame.forward * fl.range);
-    const vec3 raw_normal =
+    const auto raw_normal =
         pick.hit ? pick.normal : (rays.frame.forward * -1.0F);
-    const float raw_ground = pick.hit ? 1.0F : 0.0F;
+    const auto raw_ground = pick.hit ? 1.0F : 0.0F;
 
     // Low-pass all of it so the cone does not flicker as the aim sweeps across
     // terrain facets or flips in and out of a grazing miss (the raw pick
@@ -427,12 +428,12 @@ private:
       fl.ground_weight = raw_ground;
       flashlight_primed_ = true;
     } else {
-      constexpr float ease_rate = 8.0F; // per second
-      const float k = 1.0F - expf(-ease_rate * dt);
-      fl.target = fl.target + ((raw_target - fl.target) * k);
-      fl.target_normal =
-          normalize(fl.target_normal + ((raw_normal - fl.target_normal) * k));
-      fl.ground_weight += (raw_ground - fl.ground_weight) * k;
+      constexpr auto ease_rate = 8.0F; // per second
+      const auto blend = 1.0F - expf(-ease_rate * dt);
+      fl.target = fl.target + ((raw_target - fl.target) * blend);
+      fl.target_normal = normalize(
+          fl.target_normal + ((raw_normal - fl.target_normal) * blend));
+      fl.ground_weight += (raw_ground - fl.ground_weight) * blend;
     }
   }
 
@@ -462,8 +463,8 @@ private:
     // drift scrolls the noise linearly and a wrap would jump the pattern.
     render_cfg_.reticle.eye_glow_time += dt;
 
-    const bool tool_on =
-        active_tool_ == active_tool::dig && input_.looking && !input_.fast;
+    const auto tool_on =
+        (active_tool_ == active_tool::dig) && input_.looking && !input_.fast;
     if (!tool_on && rig_.tune.force_beam == 0) {
       render_cfg_.reticle.enabled = false;
       pick_state_.hit = false;
@@ -472,7 +473,7 @@ private:
       return;
     }
 
-    const vec3 aim = rays.frame.forward;
+    const auto aim = rays.frame.forward;
     pick_kernel<<<1, 1>>>(field_, rays.eye, aim, dig_target_);
     dig_target_.store(pick_state_).or_throw();
     render_cfg_.reticle.enabled = pick_state_.hit;
@@ -490,19 +491,19 @@ private:
     // the eye) is also refused. The block lifts once merged (the eye inside
     // the glass lens), where the centered aim exits the ball at normal
     // incidence and so fires straight through it.
-    const vec3 oc = rays.eye - ball.center;
-    const bool eye_in_ball = dot(oc, oc) < (ball.radius * ball.radius);
-    const float t_ball = ball.intersect(rays.eye, aim);
-    const float t_hit =
+    const auto oc = rays.eye - ball.center;
+    const auto eye_in_ball = (dot(oc, oc) < (ball.radius * ball.radius));
+    const auto t_ball = ball.intersect(rays.eye, aim);
+    const auto t_hit =
         pick_state_.hit ? length(pick_state_.point - rays.eye) : big_value;
-    const bool aim_through_ball =
+    const auto aim_through_ball =
         !eye_in_ball && (t_ball >= 0.0F) && (t_ball < t_hit);
     // Range is measured from the ball (the digger), not the eye (the trailing
     // camera), so the reach does not change as the camera dollies in and out.
-    const bool out_of_range =
+    const auto out_of_range =
         pick_state_.hit &&
-        length(pick_state_.point - ball.center) >
-            render_cfg_.reticle.max_dig_distance;
+        (length(pick_state_.point - ball.center) >
+            render_cfg_.reticle.max_dig_distance);
     dig_blocked_ = aim_through_ball || out_of_range;
     render_cfg_.reticle.show_inner = !dig_blocked_;
     if (pick_state_.hit) {
@@ -525,33 +526,33 @@ private:
       // fires every frame and the marker jumps. The snap window scales with
       // distance too, so a fast look at range (a large but continuous step)
       // does not trip it.
-      const float target_dist = length(pick_state_.point - rays.eye);
-      constexpr float pick_rate_per_dist = 6.0F; // ease rate per world unit
-      constexpr float pick_rate_max = 60.0F;     // ease rate ceiling
-      constexpr float pick_speed_cutoff = 6.0F;  // speed low-pass rate, ~1 Hz
-      constexpr float pick_snap_frac = 0.125F;   // snap past this x distance
+      const auto target_dist = length(pick_state_.point - rays.eye);
+      constexpr auto pick_rate_per_dist = 6.0F; // ease rate per world unit
+      constexpr auto pick_rate_max = 60.0F;     // ease rate ceiling
+      constexpr auto pick_speed_cutoff = 6.0F;  // speed low-pass rate, ~1 Hz
+      constexpr auto pick_snap_frac = 0.125F;   // snap past this x distance
 
       // Pre-smooth the pick's world speed (the One Euro speed term), so the
       // adaptive rate keys off the trend, not the noisy per-frame step. Zero
       // until primed, when `prev_raw` is a real prior pick.
-      const float step =
+      const auto step =
           pick_smoothed_primed_
               ? length(pick_state_.point - pick_prev_raw_)
               : 0.0F;
-      const float raw_speed = (dt > 0.0F) ? (step / dt) : 0.0F;
+      const auto raw_speed = (dt > 0.0F) ? (step / dt) : 0.0F;
       pick_speed_ +=
           (raw_speed - pick_speed_) * (1.0F - expf(-pick_speed_cutoff * dt));
 
-      const float rest_rate = fminf(
+      const auto rest_rate = fminf(
           fmaxf(pick_rate_per_dist * target_dist,
               render_cfg_.reticle.pick_rest_rate),
           pick_rate_max);
-      const float rate = fminf(
+      const auto rate = fminf(
           rest_rate + (render_cfg_.reticle.pick_beta * pick_speed_),
           pick_rate_max);
 
-      bool snap = !pick_smoothed_primed_;
-      if (!snap) snap = step > (pick_snap_frac * target_dist);
+      auto snap = !pick_smoothed_primed_;
+      if (!snap) snap = (step > (pick_snap_frac * target_dist));
       if (snap) {
         pick_smoothed_ = pick_state_.point;
         pick_smoothed_primed_ = true;
@@ -586,7 +587,7 @@ private:
       render_cfg_.reticle.enabled = true;
       render_cfg_.reticle.show_inner = (rig_.tune.force_beam == 2);
       if (!pick_state_.hit) {
-        constexpr float forced_reach = 3.0F; // world units ahead of the eye
+        constexpr auto forced_reach = 3.0F; // world units ahead of the eye
         render_cfg_.reticle.center =
             rays.eye + (rays.frame.forward * forced_reach);
       }
@@ -604,20 +605,21 @@ private:
   // call so the spawn pose does not fire one.
   void update_merge_ripple(const camera_rays& rays, const metal_ball& ball,
       float dt) {
-    const vec3 oc = rays.eye - ball.center;
-    const bool inside = dot(oc, oc) < (ball.radius * ball.radius);
-    if (ripple_primed_ && inside != eye_inside_prev_)
+    const auto oc = rays.eye - ball.center;
+    const auto inside = (dot(oc, oc) < (ball.radius * ball.radius));
+    if (ripple_primed_ && (inside != eye_inside_prev_))
       merge_ripple_timer_ = render_cfg_.ripple.duration;
     eye_inside_prev_ = inside;
     ripple_primed_ = true;
 
     // Decay the timer, slowed by the merge tuning aid so the ripple stretches
     // in step with the slowed dolly (1 leaves it at full speed).
-    const float slow = fmaxf(rig_.tune.merge_slowmo, 0.01F);
+    const auto slow = fmaxf(rig_.tune.merge_slowmo, 0.01F);
     merge_ripple_timer_ = fmaxf(0.0F, merge_ripple_timer_ - (dt * slow));
-    const float dur = fmaxf(render_cfg_.ripple.duration, 1.0e-3F);
-    const float t = fminf(merge_ripple_timer_ / dur, 1.0F); // 1 at cross -> 0
-    render_cfg_.ripple.amplitude = render_cfg_.ripple.peak * t;
+    const auto dur = fmaxf(render_cfg_.ripple.duration, 1.0e-3F);
+    // 1 at cross -> 0
+    const auto fadeout = fminf(merge_ripple_timer_ / dur, 1.0F);
+    render_cfg_.ripple.amplitude = render_cfg_.ripple.peak * fadeout;
     render_cfg_.ripple.phase =
         (dur - merge_ripple_timer_) * render_cfg_.ripple.ring_speed;
   }
@@ -644,10 +646,10 @@ private:
   // groove and the ball settles into the track it just wore. A no-op when both
   // halves are off, the ball is airborne, or it barely rolled.
   void crush_track() {
-    const avatar_tuning& t = rig_.tune;
-    const bool carve = t.track_crush_strength > 0.0F;
-    const bool stain = t.track_darken_strength > 0.0F;
-    if (!carve && !stain) return;
+    const auto& t = rig_.tune;
+    const auto should_carve = (t.track_crush_strength > 0.0F);
+    const auto should_stain = (t.track_darken_strength > 0.0F);
+    if (!should_carve && !should_stain) return;
 
     // The rolling groove and stain on the floor, scaled by the lateral roll so
     // a parked or vertically settling ball leaves nothing. The brush falloff
@@ -659,11 +661,11 @@ private:
     // feedback that drifts and shivers it. The stain has no geometry feedback,
     // so it still follows any roll.
     if (rig_.grounded && rig_.moving > track_move_epsilon_) {
-      const pos3 contact = rig_.anchor - (camera::world_up * t.ball_radius);
+      const auto contact = rig_.anchor - (camera::world_up * t.ball_radius);
       // Stop carving once the ball is buried to its equator (`walled`): the
       // weight-dig sinks it only to the waist, then it can rev or hop but not
       // bore itself a shaft. The stain still follows the roll.
-      const float carve_amt =
+      const auto carve_amt =
           (rig_.driving && !rig_.walled)
               ? t.track_crush_strength * rig_.moving
               : 0.0F;
@@ -675,7 +677,7 @@ private:
     // wall blocked (collision kills that travel, so `moving` cannot stand in
     // for it). No carve: pushing into a wall stains it but does not dig, since
     // the beam is the tool for boring in.
-    if (stain && rig_.wall_press > track_move_epsilon_) {
+    if (should_stain && rig_.wall_press > track_move_epsilon_) {
       launch_crush(rig_.wall_contact, t.track_crush_radius, 0.0F,
           t.track_darken_strength * rig_.wall_press, t.track_darken_floor);
     }
@@ -686,7 +688,7 @@ private:
   // `crush_kernel`).
   void launch_crush(pos3 contact, float radius, float crush, float darken,
       float darken_floor) {
-    const int span =
+    const auto span =
         (2 * static_cast<int>(std::ceil(radius / voxel_size_))) + 1;
     const dim3 grid{cuda_kernel::ceil_div(span, dig_block_.x),
         cuda_kernel::ceil_div(span, dig_block_.y),
@@ -713,8 +715,8 @@ private:
       collision_log_ << "t,ax,ay,az,vy,gvx,gvz,sdist,nx,ny,nz,pen,pushx,pushy,"
                         "pushz,wnx,wny,wnz,over,gnd,mv,drv\n";
     }
-    const ground_probe& g = ground_state_;
-    const float pen = rig_.tune.ball_radius - g.surface_dist;
+    const auto& g = ground_state_;
+    const auto pen = rig_.tune.ball_radius - g.surface_dist;
     collision_log_
         << static_cast<double>(SDL_GetTicksNS()) / 1.0e9 << ','
         << rig_.anchor.v.x << ',' << rig_.anchor.v.y << ',' << rig_.anchor.v.z
@@ -768,15 +770,15 @@ private:
     if (exposure_primed_) {
       float sums[2]{};
       exposure_sums_.store(sums).or_throw();
-      const float avg = sums[0] / fmaxf(sums[1], 1.0e-3F);
-      const float target = fminf(
+      const auto avg = sums[0] / fmaxf(sums[1], 1.0e-3F);
+      const auto target = fminf(
           fmaxf(ex.key / fmaxf(avg, 1.0e-4F), ex.min_value), ex.max_value);
       // Faster toward a brighter scene (the exposure falling) than a darker
       // one, like the eye.
-      const float rate = target < ex.value ? ex.adapt_bright : ex.adapt_dark;
-      const float k = 1.0F - expf(-rate * dt);
+      const auto rate = (target < ex.value) ? ex.adapt_bright : ex.adapt_dark;
+      const auto blend = 1.0F - expf(-rate * dt);
       ex.value =
-          exp2f(log2f(ex.value) + ((log2f(target) - log2f(ex.value)) * k));
+          exp2f(log2f(ex.value) + ((log2f(target) - log2f(ex.value)) * blend));
     }
     constexpr float zeros[2]{};
     exposure_sums_.load(zeros).or_throw();
@@ -796,15 +798,15 @@ private:
   // climb/slip tests. Triggered by the panel button (`tunnels_requested_`);
   // flatten first, since it cuts into whatever terrain is there.
   void dig_test_tunnels() {
-    constexpr int count = 9;
-    constexpr float step = 10.0F * radians::per_degree;
-    constexpr float spacing = 5.0F; // between adjacent bore openings
-    constexpr float bore_length = 16.0F;
-    const float radius =
+    constexpr auto count = 9;
+    constexpr auto step = 10.0F * radians::per_degree;
+    constexpr auto spacing = 5.0F; // between adjacent bore openings
+    constexpr auto bore_length = 16.0F;
+    const auto radius =
         rig_.tune.ball_radius * 2.5F;  // clearance over the ball
     const vec3 bore{1.0F, 0.0F, 0.0F}; // heading all bores share
     const vec3 row{0.0F, 0.0F, 1.0F};  // openings spaced along z
-    const float surface_y = rig_.anchor.v.y - rig_.tune.ball_radius;
+    const auto surface_y = rig_.anchor.v.y - rig_.tune.ball_radius;
     // The first opening, so the row centers on the ball and sits a little
     // ahead of it along the bore.
     const vec3 first{rig_.anchor.v.x + 3.0F, surface_y,
@@ -828,7 +830,7 @@ private:
           log_collision_, body_.params, body_defaults_, flatten_requested_,
           tunnels_requested_, input_.run_multiplier);
 
-    const int sync_interval = present_sync_interval(win_, uncap_fps_);
+    const auto sync_interval = present_sync_interval(win_, uncap_fps_);
 
     presenter_
         .render(
@@ -843,7 +845,7 @@ private:
               // Time just the render so the title can show GPU ms against the
               // whole-frame ms (GPU-bound vs CPU-bound).
               {
-                cuda_timer gpu_timer{gpu_ms_};
+                cuda_timer gpu_timer(gpu_ms_);
                 render_scene(hdr_.get(), aa_gbuf_.get(), grid_dim, block_, res,
                     rays, field_, colors_.texture(), ball, head, mirror_,
                     render_cfg_);
@@ -870,7 +872,7 @@ private:
   // without reallocating. The prepass rewrites every texel each frame, so no
   // stale data survives a resize.
   void ensure_gbuffer(int w, int h) {
-    const size_t needed = static_cast<size_t>(w) * static_cast<size_t>(h);
+    const auto needed = static_cast<size_t>(w) * static_cast<size_t>(h);
     if (needed <= aa_gbuf_count_) return;
     aa_gbuf_ = cuda_ptr<aa_texel>{needed};
     if (!aa_gbuf_)
@@ -883,9 +885,9 @@ private:
   // buffers. Grow-only, like `ensure_gbuffer`; every pixel is rewritten each
   // frame, so a resize down keeps the larger allocation with no stale data.
   void ensure_post_buffers(int w, int h) {
-    const size_t needed = static_cast<size_t>(w) * static_cast<size_t>(h);
+    const auto needed = static_cast<size_t>(w) * static_cast<size_t>(h);
     if (needed <= post_count_) return;
-    const size_t half =
+    const auto half =
         static_cast<size_t>(bloom_dim(w)) * static_cast<size_t>(bloom_dim(h));
     hdr_ = cuda_ptr<float4>{needed};
     bloom_a_ = cuda_ptr<float4>{half};
@@ -941,24 +943,24 @@ private:
 #pragma region World constants
 
   static constexpr cudaExtent vol_extent_{512, 128, 512};
-  static constexpr float voxel_size_ = 0.5F;
-  static constexpr float ox_ =
+  static constexpr auto voxel_size_ = 0.5F;
+  static constexpr auto ox_ =
       -0.5F * static_cast<float>(vol_extent_.width - 1) * voxel_size_;
-  static constexpr float oy_ =
+  static constexpr auto oy_ =
       -0.5F * static_cast<float>(vol_extent_.height - 1) * voxel_size_;
-  static constexpr float oz_ =
+  static constexpr auto oz_ =
       -0.5F * static_cast<float>(vol_extent_.depth - 1) * voxel_size_;
-  static constexpr float world_x1_ =
+  static constexpr auto world_x1_ =
       ox_ + (static_cast<float>(vol_extent_.width - 1) * voxel_size_);
-  static constexpr float half_voxel_ = 0.5F * voxel_size_;
+  static constexpr auto half_voxel_ = 0.5F * voxel_size_;
 
-  static constexpr float dig_radius_ = 3.0F;
-  static constexpr float dig_rate_ = 10.0F;
+  static constexpr auto dig_radius_ = 3.0F;
+  static constexpr auto dig_rate_ = 10.0F;
 
   // Below this lateral roll (world units in a frame) the ball is treated as
   // not moving, so it wears no track: guards against jitter and the vertical
   // settle, which never enters `moving` anyway.
-  static constexpr float track_move_epsilon_ = 1.0e-4F;
+  static constexpr auto track_move_epsilon_ = 1.0e-4F;
 
 #pragma endregion
 #pragma region Window and input
@@ -972,22 +974,22 @@ private:
   sdl::frame_stats stats_;
 
   // The left mouse button, while held, digs at the reticle.
-  bool digging_ = false;
+  bool digging_{};
 
   // The active tool, toggled by the number keys (1 = dig). `none` shows no
   // reticle and disables the dig brush.
-  active_tool active_tool_ = active_tool::none;
+  active_tool active_tool_{};
 
   // The flashlight headlamp, toggled by the F key. Copied into the render
   // config each frame along with the camera eye and view direction, so the
   // beam rides the camera.
-  bool flashlight_on_ = false;
+  bool flashlight_on_{};
 
   // Whether the low-passed flashlight air-cone aim (`update_flashlight`) holds
   // a real prior pick: false snaps the eased target on (re)acquisition instead
   // of sliding in from a stale spot, like the reticle's
   // `pick_smoothed_primed_`.
-  bool flashlight_primed_ = false;
+  bool flashlight_primed_{};
 
 #pragma endregion
 #pragma region World grids
@@ -1053,8 +1055,8 @@ private:
   // bowl (see `apply_lensed_reticle`).
   cuda_ptr<reticle_surface_fit> fit_target_;
   const dim3 dig_block_{8, 8, 8};
-  int dig_span_ = 0; // cube edge in voxels, set in `init`
-  dim3 dig_grid_{};  // launch grid for the brush cube, set in `init`
+  int dig_span_{};  // cube edge in voxels, set in `init`
+  dim3 dig_grid_{}; // launch grid for the brush cube, set in `init`
 
   // The last aim pick read back from `dig_target_`: where the aim ray hit,
   // driving the target reticle and gating the dig brush. `hit` is false when
@@ -1069,14 +1071,14 @@ private:
   // term that relaxes the smoothing as the aim moves.
   pos3 pick_smoothed_{};
   pos3 pick_prev_raw_{};
-  float pick_speed_ = 0.0F;
-  bool pick_smoothed_primed_ = false;
+  float pick_speed_{};
+  bool pick_smoothed_primed_{};
 
   // True when the dig is refused for this aim: the ball occludes the target
   // (the dig beam leaves the ball, so it cannot fire through it) or the target
   // is past `max_dig_distance`. Blocks the dig and hides the inner crosshair
   // while it holds.
-  bool dig_blocked_ = false;
+  bool dig_blocked_{};
 
   // Ground-probe scratch.
   //
@@ -1089,9 +1091,9 @@ private:
   ground_probe ground_state_{.normal = vec3::up,
       .surface_dist = no_contact,
       .push = {},
-      .wall_normal{},
-      .overhead{}};
-  bool ground_primed_ = false;
+      .wall_normal = {},
+      .overhead = {}};
+  bool ground_primed_{};
 
   // Boom-probe scratch (auto-merge).
   //
@@ -1101,7 +1103,7 @@ private:
   // tunnel merges the camera into the ball. `boom_primed_` gates the readback
   // until the first probe has been issued.
   cuda_ptr<float> boom_clear_;
-  bool boom_primed_ = false;
+  bool boom_primed_{};
 
   // Auto-exposure scratch.
   //
@@ -1111,7 +1113,7 @@ private:
   // the ground probe; the metered mean is their quotient. `exposure_primed_`
   // gates the readback until the first measure has been issued.
   cuda_ptr<float> exposure_sums_{2};
-  bool exposure_primed_ = false;
+  bool exposure_primed_{};
 
 #pragma endregion
 #pragma region Avatar and config
@@ -1130,7 +1132,7 @@ private:
   // `body_primed_` seeds the body from the rig's spawn pose once at startup.
   avatar_body body_;
   const body_params body_defaults_{};
-  bool body_primed_ = false;
+  bool body_primed_{};
 
   // Merge-ripple scratch: the force-field shockwave as the eye crosses the
   // ball surface. `eye_inside_prev_` tracks the inside/outside state to catch
@@ -1138,14 +1140,14 @@ private:
   // pose does not fire one, and `merge_ripple_timer_` is the decaying
   // countdown the shader's `amplitude` and `phase` derive from. See
   // `update_merge_ripple`.
-  bool eye_inside_prev_ = false;
-  bool ripple_primed_ = false;
-  float merge_ripple_timer_ = 0.0F;
+  bool eye_inside_prev_{};
+  bool ripple_primed_{};
+  float merge_ripple_timer_{};
 
   // One-shot: flatten the world to a level test track at the ball's feet, set
   // by a panel button and consumed in `tick`.
-  bool flatten_requested_ = false;
-  bool tunnels_requested_ = false;
+  bool flatten_requested_{};
+  bool tunnels_requested_{};
 
   // The live shading config (sky, terrain, ball, head, anti-alias), edited by
   // the panel and passed to the kernel each frame; the defaults instance is
@@ -1163,7 +1165,7 @@ private:
   // silhouettes worth supersampling. Grown to the render target's size by
   // `ensure_gbuffer`; `aa_gbuf_count_` is its capacity in texels.
   cuda_ptr<aa_texel> aa_gbuf_;
-  size_t aa_gbuf_count_ = 0;
+  size_t aa_gbuf_count_{};
 
   // The linear HDR render target (`hdr_`) the render kernels write, plus the
   // two half-resolution bloom ping-pong buffers, all grown by
@@ -1173,7 +1175,7 @@ private:
   cuda_ptr<float4> hdr_;
   cuda_ptr<float4> bloom_a_;
   cuda_ptr<float4> bloom_b_;
-  size_t post_count_ = 0;
+  size_t post_count_{};
 
   // The GPU presentation pipeline: default-constructed with the engine (a
   // device, no swapchain), then bound to the window in `init` once its
@@ -1182,41 +1184,41 @@ private:
   // `init` after the presenter is up. Both are plain members, no optional.
   cuda_d3d11_presenter presenter_;
   imgui_overlay imgui_;
-  bool show_config_ = false;
+  bool show_config_{};
 
   // Observer freeze (debug): pin the camera and reveal the saucer head, which
   // is otherwise hidden from primary rays since the camera rides inside it.
   // Toggled by a panel checkbox; the avatar stays drivable so it can be moved
   // out in front of the pinned camera and watched.
-  bool freeze_camera_ = false;
+  bool freeze_camera_{};
 
   // Treadmill (debug): hold the body in place while it still animates as if
   // moving, so the saucer's motion tilt can be watched at a fixed distance
   // from the mirror. Toggled by a panel checkbox.
-  bool lock_position_ = false;
+  bool lock_position_{};
 
   // Benchmark: drop the vsync cap (present with tearing) so the frame rate
   // floats above the refresh rate and the title-bar FPS reads true GPU cost
   // for the current view. Toggled by a panel checkbox; needs a tearing-capable
   // swapchain, else it has no effect.
-  bool uncap_fps_ = false;
+  bool uncap_fps_{};
 
   // Collision logging (debug): write a per-frame CSV of the ball's settle
   // state to `log_path_` to diagnose jitter. Toggled by a panel checkbox; the
   // stream opens (truncating) on the first logged frame and closes when
   // toggled off. Temp instrumentation.
-  bool log_collision_ = false;
+  bool log_collision_{};
   std::ofstream collision_log_;
   std::string log_path_;
 
   // Frame timing in nanoseconds: millisecond ticks quantize dt enough to
   // judder movement at high refresh rates (a 6.94 ms frame reads as 6 or 7).
-  Uint64 last_ns_ = 0;
+  Uint64 last_ns_{};
 
   // Last frame's GPU kernel time (ms), measured with a `cuda_timer` and shown
   // next to the whole-frame ms so a slowdown can be pinned to the GPU render
   // or to the CPU-side per-frame work.
-  float gpu_ms_ = 0.0F;
+  float gpu_ms_{};
 
 #pragma endregion
 #pragma region Window geometry
@@ -1227,9 +1229,9 @@ private:
   // uncapped) for benchmarking, effective only on a tearing-capable swapchain;
   // backgrounded still throttles so an idle viewer does not spin the GPU fan.
   [[nodiscard]] static int present_sync_interval(SDL_Window* win, bool uncap) {
-    constexpr int background_sync = 4;
-    const bool focused =
-        (SDL_GetWindowFlags(win) & SDL_WINDOW_INPUT_FOCUS) != 0;
+    constexpr auto background_sync = 4;
+    const auto focused =
+        ((SDL_GetWindowFlags(win) & SDL_WINDOW_INPUT_FOCUS) != 0);
     if (!focused) return background_sync;
     return uncap ? 0 : 1;
   }
@@ -1250,12 +1252,12 @@ private:
 
   void restore_window_geometry() {
     if (geom_path_.empty()) return;
-    std::ifstream in{geom_path_};
-    int x = 0;
-    int y = 0;
-    int w = 0;
-    int h = 0;
-    int maximized = 0;
+    std::ifstream in(geom_path_);
+    int x{};
+    int y{};
+    int w{};
+    int h{};
+    int maximized{};
     if (!(in >> x >> y >> w >> h >> maximized)) return;
     SDL_SetWindowSize(win_, w, h);
     SDL_SetWindowPosition(win_, x, y);
@@ -1265,15 +1267,15 @@ private:
   void save_window_geometry() noexcept {
     try {
       if (geom_path_.empty()) return;
-      const bool maximized =
-          (SDL_GetWindowFlags(win_) & SDL_WINDOW_MAXIMIZED) != 0;
-      int x = 0;
-      int y = 0;
-      int w = 0;
-      int h = 0;
+      const auto maximized =
+          ((SDL_GetWindowFlags(win_) & SDL_WINDOW_MAXIMIZED) != 0);
+      int x{};
+      int y{};
+      int w{};
+      int h{};
       SDL_GetWindowPosition(win_, &x, &y);
       SDL_GetWindowSize(win_, &w, &h);
-      std::ofstream out{geom_path_, std::ios::trunc};
+      std::ofstream out(geom_path_, std::ios::trunc);
       out << x << ' ' << y << ' ' << w << ' ' << h << ' '
           << (maximized ? 1 : 0) << '\n';
     }

@@ -99,7 +99,7 @@ int do_main(int argc, char** argv) {
   // intended 20 Hz cadence. Use 1200 slots so the wheel still spans nearly
   // 60 seconds, which keeps the HTTP server's default 30s request timeout
   // within range.
-  timing_wheel_runner wheel{1200, 50ms};
+  timing_wheel_runner wheel(1200, 50ms);
 
   epoll_http_server::duration_t request_timeout = 30s;
   epoll_http_server::duration_t write_timeout = 5s;

@@ -31,7 +31,7 @@ struct attr_case {
 // The pairs straddle every gap (the value just before and just after each
 // reserved or unassigned run), since a whole-table shift would otherwise
 // survive the self-consistent round-trip below.
-constexpr attr_case attr_cases[] = {
+constexpr attr_case attr_cases[]{
     {cuda_device_attr::max_threads_per_block, cudaDevAttrMaxThreadsPerBlock,
         "max_threads_per_block"},
     {cuda_device_attr::max_texture1d_layered_layers,
@@ -112,7 +112,7 @@ TEST_CASE("cuda_device_attr comprehensive round-trip over the whole range",
   // form is a name or a number. Named values also resolve by name (names only,
   // no numeric text); unnamed slots stringify to their number and are never
   // matched as a name.
-  size_t named_count = 0;
+  size_t named_count{};
   const int max_attr = *max_value<cuda_device_attr>();
   for (int n = *min_value<cuda_device_attr>(); n <= max_attr; ++n) {
     CAPTURE(n);

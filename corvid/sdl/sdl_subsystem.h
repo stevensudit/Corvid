@@ -63,7 +63,7 @@ private:
 #pragma endregion
 #pragma region Data members
 private:
-  bool live_{true};
+  bool live_ = true;
 
 #pragma endregion
 };

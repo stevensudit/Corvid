@@ -45,10 +45,7 @@ public:
 #pragma region Construction
 
   event_fd() noexcept = default;
-  explicit event_fd(counter_t initial_value,
-      int flags = default_flags) noexcept
-      : os_file(::eventfd(initial_value, flags)) {}
-  explicit event_fd(os_file&& file) noexcept : os_file(std::move(file)) {}
+  explicit event_fd(os_file&& file) noexcept : os_file{std::move(file)} {}
 
   event_fd(event_fd&&) noexcept = default;
   event_fd(const event_fd&) = delete;
@@ -65,7 +62,7 @@ public:
     int flags = EFD_CLOEXEC;
     if (mode == event_mode::semaphore) flags |= EFD_SEMAPHORE;
     if (exec == execution::nonblocking) flags |= EFD_NONBLOCK;
-    return event_fd{initial_value, flags};
+    return event_fd{os_file{::eventfd(initial_value, flags)}};
   }
 
 #pragma endregion

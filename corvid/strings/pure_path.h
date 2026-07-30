@@ -82,8 +82,8 @@ using component_view = std::basic_string_view<path_char>;
 
 // Whether `comp` is the recursive wildcard: exactly "**".
 [[nodiscard]] constexpr bool is_double_star(component_view comp) noexcept {
-  return comp.size() == 2 && comp.front() == path_char('*') &&
-         comp.back() == path_char('*');
+  return comp.size() == 2 && comp.front() == path_char{'*'} &&
+         comp.back() == path_char{'*'};
 }
 
 // Parse `p` into its matchable components, in the generic format (so
@@ -95,7 +95,7 @@ using component_view = std::basic_string_view<path_char>;
   std::vector<component> parts;
   for (const auto& elem : p) {
     auto comp = elem.generic_string<path_char>();
-    if (comp.empty() || (comp.size() == 1 && comp.front() == path_char('.')))
+    if (comp.empty() || (comp.size() == 1 && comp.front() == path_char{'.'}))
       continue;
     parts.push_back(std::move(comp));
   }
@@ -110,7 +110,7 @@ using component_view = std::basic_string_view<path_char>;
 
 // Match one component pair through `fnmatch`.
 [[nodiscard]] inline bool
-match_component(component_view name, component_view pat, bool fold) noexcept {
+match_component(component_view name, component_view pat, bool fold) {
   return fold ? fnmatch::fnmatch(name, pat) : fnmatch::fnmatchcase(name, pat);
 }
 
@@ -160,7 +160,7 @@ match_component(component_view name, component_view pat, bool fold) noexcept {
     // A relative pattern matches only real components, never an anchor.
     return false;
   }
-  for (size_t ndx{}; ndx < pats.size(); ++ndx)
+  for (auto ndx = 0UZ; ndx < pats.size(); ++ndx)
     if (!match_component(parts[parts.size() - 1 - ndx],
             pats[pats.size() - 1 - ndx], fold))
       return false;
@@ -189,7 +189,7 @@ match_component(component_view name, component_view pat, bool fold) noexcept {
     if (pat_anchors != path_anchors ||
         pattern.has_root_name() != path.has_root_name())
       return false;
-    for (size_t ndx{}; ndx < pat_anchors; ++ndx)
+    for (auto ndx = 0UZ; ndx < pat_anchors; ++ndx)
       if (!match_component(parts[ndx], pats[ndx], fold)) return false;
     return do_walk(std::span{parts}.subspan(pat_anchors),
         std::span{pats}.subspan(pat_anchors), fold);

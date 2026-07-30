@@ -39,17 +39,17 @@ public:
   // One window's frame-time figures: the frame rate and the min, average, and
   // max frame time in milliseconds.
   struct summary {
-    float fps;
-    float min_ms;
-    float avg_ms;
-    float max_ms;
+    float fps{};
+    float min_ms{};
+    float avg_ms{};
+    float max_ms{};
   };
 
   // Fold one frame of `dt` seconds into the current window. Returns the
   // window's `summary` once it passes a second, resetting for the next window,
   // and otherwise nothing. The first frame of a window seeds the min and max.
   [[nodiscard]] std::optional<summary> record(float dt) {
-    const float frame_ms = dt * 1000.0F;
+    const auto frame_ms = dt * 1000.0F;
     min_ms_ = (frames_ == 0) ? frame_ms : std::min(min_ms_, frame_ms);
     max_ms_ = (frames_ == 0) ? frame_ms : std::max(max_ms_, frame_ms);
     sum_ms_ += frame_ms;
@@ -66,12 +66,12 @@ public:
   }
 
 private:
-  static constexpr float window_seconds = 1.0F;
-  int frames_ = 0;
-  float sum_ms_ = 0.0F;
-  float min_ms_ = 0.0F;
-  float max_ms_ = 0.0F;
-  float window_ = 0.0F;
+  static constexpr auto window_seconds = 1.0F;
+  int frames_{};
+  float sum_ms_{};
+  float min_ms_{};
+  float max_ms_{};
+  float window_{};
 };
 
 #pragma endregion

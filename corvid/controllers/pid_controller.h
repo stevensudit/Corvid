@@ -233,18 +233,18 @@ public:
 #pragma endregion
 #pragma region Data members
 private:
-  const double kp_{0.0};
-  const double ki_{0.0};
-  const double kd_{0.0};
-  const double alpha_{1.0};
-  const double min_value_{neg_infinity};
-  const double max_value_{pos_infinity};
+  const double kp_{};
+  const double ki_{};
+  const double kd_{};
+  const double alpha_{};
+  const double min_value_ = neg_infinity;
+  const double max_value_ = pos_infinity;
 
-  double value_last_{0.0};
-  double time_last_{neg_infinity};
-  double error_last_{0.0};
-  double cumulative_error_{0.0};
-  double d_term_last_{0.0};
+  double value_last_{};
+  double time_last_ = neg_infinity;
+  double error_last_{};
+  double cumulative_error_{};
+  double d_term_last_{};
 
 #pragma endregion
 };

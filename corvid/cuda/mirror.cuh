@@ -35,7 +35,7 @@ namespace corvid::cuda {
 // The shader reflects the view ray about `normal` at the hit and marches the
 // world from there.
 struct flat_mirror {
-  float plane_z;
+  float plane_z{};
   vec2 lo; // (x, y) min corner of the rectangle
   vec2 hi; // (x, y) max corner
 
@@ -53,9 +53,9 @@ struct flat_mirror {
   // `dir.z` division below cannot divide by zero for the ±z normals the type
   // admits.
   [[nodiscard]] __device__ float intersect(pos3 eye, vec3 dir) const {
-    const float denom = dot(dir, normal);
+    const auto denom = dot(dir, normal);
     if (denom >= 0.0F) return -1.0F; // parallel, or hitting the back
-    const float t = (plane_z - eye.v.z) / dir.z;
+    const auto t = (plane_z - eye.v.z) / dir.z;
     if (t <= 0.0F) return -1.0F;
     const pos3 hit = eye + (dir * t);
     if (hit.v.x < lo.x || hit.v.x > hi.x || hit.v.y < lo.y || hit.v.y > hi.y)

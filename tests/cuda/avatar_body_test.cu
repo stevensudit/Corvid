@@ -47,7 +47,7 @@ TEST_CASE("avatar_body falls under gravity", "[cuda][physics][avatar_body]") {
   b.center = pos3{vec3{0.0F, 100.0F, 0.0F}};
   const body_contact air{};
   const float dt = 0.001F;
-  for (int step = 0; step < 1000; ++step) b.advance(air, vec3{}, false, dt);
+  for (auto step = 0; step < 1000; ++step) b.advance(air, vec3{}, false, dt);
 
   // After one second, v = -g t and the drop is about half g t squared.
   CHECK(std::fabs(b.velocity.y - (-10.0F)) < 1e-3F);
@@ -100,7 +100,7 @@ TEST_CASE("avatar_body seats a ball hovering within the ground tolerance",
   b.center = pos3{vec3{0.0F, radius + 0.2F, 0.0F}}; // hovering 0.2 up, in band
 
   const float dt = 0.001F;
-  for (int step = 0; step < 2000; ++step) {
+  for (auto step = 0; step < 2000; ++step) {
     const float pen = radius - b.center.v.y; // flat floor at y = 0, normal up
     const body_contact floor{.touching = pen > -ground_tol,
         .normal = up,
@@ -133,7 +133,7 @@ TEST_CASE("avatar_body holds still when seated, no vertical sawtooth",
   const float dt = 1.0F / 120.0F;
   float ymin = b.center.v.y;
   float ymax = b.center.v.y;
-  for (int step = 0; step < 240; ++step) {
+  for (auto step = 0; step < 240; ++step) {
     b.advance(floor, vec3{}, false, dt);
     ymin = fminf(ymin, b.center.v.y);
     ymax = fmaxf(ymax, b.center.v.y);
@@ -159,7 +159,7 @@ TEST_CASE("avatar_body jump apex matches v^2 / 2g",
 
   const body_contact air{};
   float apex = b.center.v.y;
-  for (int step = 0; step < 100000 && b.velocity.y > 0.0F; ++step) {
+  for (auto step = 0; step < 100000 && b.velocity.y > 0.0F; ++step) {
     b.advance(air, vec3{}, false, dt);
     apex = fmaxf(apex, b.center.v.y);
   }
@@ -203,7 +203,7 @@ TEST_CASE("avatar_body holds on a slope below the friction angle",
   const body_contact slope{.touching = true,
       .normal = slope_normal(30.0F),
       .penetration = 0.0F};
-  for (int step = 0; step < 200; ++step)
+  for (auto step = 0; step < 200; ++step)
     b.advance(slope, vec3{}, false, 0.01F);
 
   // 30 degrees is below the 45 degree friction angle, so static friction holds
@@ -220,7 +220,7 @@ TEST_CASE("avatar_body slides down a slope above the friction angle",
   const body_contact slope{.touching = true,
       .normal = normal,
       .penetration = 0.0F};
-  for (int step = 0; step < 200; ++step)
+  for (auto step = 0; step < 200; ++step)
     b.advance(slope, vec3{}, false, 0.01F);
 
   // 60 degrees exceeds the friction angle, so the ball accelerates downhill.
@@ -243,7 +243,7 @@ TEST_CASE("avatar_body spins a slipping ball up to rolling without slipping",
   const body_contact floor{.touching = true,
       .normal = up,
       .penetration = 0.0F};
-  for (int step = 0; step < 200; ++step)
+  for (auto step = 0; step < 200; ++step)
     b.advance(floor, vec3{}, false, 0.01F);
 
   const float r = b.params.radius;
@@ -266,7 +266,8 @@ TEST_CASE("avatar_body over-spins the wheel when the drive beats the budget",
       .normal = up,
       .penetration = 0.0F};
   const vec3 drive{1.0F, 0.0F, 0.0F};
-  for (int step = 0; step < 100; ++step) b.advance(floor, drive, false, 0.01F);
+  for (auto step = 0; step < 100; ++step)
+    b.advance(floor, drive, false, 0.01F);
 
   const float r = b.params.radius;
   const vec3 vt = b.velocity - (up * dot(b.velocity, up));
@@ -285,7 +286,7 @@ TEST_CASE("avatar_body revs the wheel in the air toward the command",
   b.center = pos3{vec3{0.0F, 100.0F, 0.0F}};
   const body_contact air{};
   const vec3 drive{1.0F, 0.0F, 0.0F};
-  for (int step = 0; step < 20; ++step) b.advance(air, drive, false, 0.01F);
+  for (auto step = 0; step < 20; ++step) b.advance(air, drive, false, 0.01F);
 
   CHECK(length(b.angular_velocity) > 1.0F); // spun up by the motor
   CHECK(b.angular_velocity.z < 0.0F);       // about the heading's roll axis
@@ -307,7 +308,7 @@ TEST_CASE("avatar_body reaches a drag-limited terminal speed",
       .normal = up,
       .penetration = 0.0F};
   const vec3 drive{1.0F, 0.0F, 0.0F}; // full forward command
-  for (int step = 0; step < 1000; ++step)
+  for (auto step = 0; step < 1000; ++step)
     b.advance(floor, drive, false, 0.01F);
 
   // drive accel = drive_force / mass = 40 / 2 = 20; quadratic drag balances at

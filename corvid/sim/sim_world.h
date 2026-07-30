@@ -30,6 +30,7 @@
 
 #include "../containers/core/transparent.h"
 #include "../containers/core/opt_find.h"
+#include "../math/arithmetic.h"
 
 #include "../ecs.h"
 
@@ -82,16 +83,16 @@ namespace convert {
 // Convert Cartesian coordinates to a Euclidean vector.
 [[nodiscard]] constexpr std::pair<float, float>
 CartesianToPolar(float x, float y) noexcept {
-  float length = std::sqrt((x * x) + (y * y));
-  float direction = std::atan2(y, x);
+  const auto length = std::sqrt((x * x) + (y * y));
+  const auto direction = std::atan2(y, x);
   return {length, direction};
 }
 
 // Convert a Euclidean vector to Cartesian coordinates.
 [[nodiscard]] constexpr std::pair<float, float>
 PolarToCartesian(float length, float direction) noexcept {
-  float x = length * std::cos(direction);
-  float y = length * std::sin(direction);
+  const auto x = length * std::cos(direction);
+  const auto y = length * std::sin(direction);
   return {x, y};
 }
 } // namespace convert
@@ -136,10 +137,10 @@ struct SimWorldBounds {
   using WorldSid = WorldReg::store_id_t;
   using EntityId = WorldReg::id_t;
   using Handle = WorldReg::handle_t;
-  static constexpr float widthOfWorld = 1920.F;
-  static constexpr float heightOfWorld = 1080.F;
-  static constexpr float half_w = widthOfWorld * 0.5F;
-  static constexpr float half_h = heightOfWorld * 0.5F;
+  static constexpr auto widthOfWorld = 1920.F;
+  static constexpr auto heightOfWorld = 1080.F;
+  static constexpr auto half_w = widthOfWorld * 0.5F;
+  static constexpr auto half_h = heightOfWorld * 0.5F;
 
   // Whether the position is within the bounds of the world.
   [[nodiscard]] static constexpr bool isInBounds(const Position& pos) {
@@ -162,7 +163,7 @@ struct SimWorldBounds {
   // with this? It depends on how the client scales it, right?
   [[nodiscard]] constexpr static bool
   bounceFromBoundary(float& pos, float& vel, float limit) {
-    const float half = limit / 2.F;
+    const auto half = limit / 2.F;
     if (pos < -half) {
       pos = -half;
       vel = -vel;
@@ -187,7 +188,7 @@ struct PathJoints {
   };
 
   std::vector<Joint> joints;
-  float width{40.F};
+  float width = 40.F;
 };
 
 // `SegmentedPath` is built from a `PathJoints` and consists of pre-computed
@@ -198,9 +199,9 @@ struct SegmentedPath: private SimWorldBounds {
   struct Segment {
     Position front;
     Position back;
-    float length;          // Euclidean distance from `front` to `back`.
-    float cumulativeStart; // Sum of lengths of all preceding segments.
-    float angle{};         // Direction from `front` to `back`, in radians.
+    float length{};          // Euclidean distance from `front` to `back`.
+    float cumulativeStart{}; // Sum of lengths of all preceding segments.
+    float angle{};           // Direction from `front` to `back`, in radians.
   };
 
   std::vector<Segment> segments;
@@ -231,7 +232,7 @@ struct SegmentedPath: private SimWorldBounds {
 
     // Calculate the interpolation factor `t` along this segment, then lerp the
     // front and back positions to get the world position.
-    float t = 0.F;
+    float t{};
     if (seg.length > 0.F) t = (progress - seg.cumulativeStart) / seg.length;
 
     return {lerp(seg.front.x, seg.back.x, t),
@@ -254,17 +255,17 @@ struct SegmentedPath: private SimWorldBounds {
     sp.segments.reserve(p.joints.size() - 1);
     float cumulative{};
 
-    for (size_t i = 0; i + 1 < p.joints.size(); ++i) {
-      const Position& front = p.joints[i].pos;
-      const Position& back = p.joints[i + 1].pos;
+    for (auto ndx = 0UZ; ndx + 1 < p.joints.size(); ++ndx) {
+      const auto& front = p.joints[ndx].pos;
+      const auto& back = p.joints[ndx + 1].pos;
       assert(isInBounds(front));
       assert(isInBounds(back));
 
-      const float dx = back.x - front.x;
-      const float dy = back.y - front.y;
-      const float len = std::hypot(dx, dy);
+      const auto dx = back.x - front.x;
+      const auto dy = back.y - front.y;
+      const auto len = std::hypot(dx, dy);
       assert(len != 0.F);
-      const float angle = std::atan2(dy, dx);
+      const auto angle = std::atan2(dy, dx);
 
       sp.segments.push_back({front, back, len, cumulative, angle});
       cumulative += len;
@@ -289,9 +290,9 @@ struct Pathing {
 // game logic.
 // TODO: Add field for sprite selection.
 struct Appearance {
-  WorldTick modified{WorldTick::invalid}; // Tick when last modified.
+  WorldTick modified = WorldTick::invalid; // Tick when last modified.
   char32_t glyph{};      // A Unicode character to display, if any.
-  float radius{5.F};     // World-space radius of the rendered shape.
+  float radius = 5.F;    // World-space radius of the rendered shape.
   uint32_t fgColor{};    // RGBA.
   uint32_t bgColor{};    // RGBA.
   float attackRadius{};  // Display-only (world units).
@@ -302,7 +303,7 @@ struct Appearance {
 // fields are streamed to the client in order to render health bars. The
 // `regen` is server-side only.
 struct Health {
-  WorldTick modified{WorldTick::invalid}; // Tick when last modified.
+  WorldTick modified = WorldTick::invalid; // Tick when last modified.
   float currentHealth{};
   float maxHealth{};
   float regen{}; // Regeneration or bleed per tick. Not streamed to clients.
@@ -311,22 +312,22 @@ struct Health {
 // Visual effects component. Controls transient overlays on the client side,
 // but has no effect on physics or game logic.
 struct VisualEffects {
-  WorldTick modified{WorldTick::invalid}; // Tick when last modified.
-  uint32_t selectionColor{};              // RGBA.
+  WorldTick modified = WorldTick::invalid; // Tick when last modified.
+  uint32_t selectionColor{};               // RGBA.
   float rangeRadius{}; // Does not affect physics or game logic; display-only.
   uint32_t rangeColor{}; // RGBA.
   uint32_t flashColor{}; // RGBA.
-  WorldTick flashExpiry{WorldTick::invalid};
+  WorldTick flashExpiry = WorldTick::invalid;
   uint32_t cooldownColor{}; // RGBA. Active from fire time until `nextAttack`.
-  WorldTick cooldownExpiry{WorldTick::invalid};
+  WorldTick cooldownExpiry = WorldTick::invalid;
 };
 
 // Fire-and-forget, display-only explosion streamed once to the client.
 // `expiry` is absolute for emitted instances; when embedded as a template it
 // stores the desired duration to add to the current tick.
 struct TransientExplosion {
-  WorldTick expiry{WorldTick::invalid};
-  Circle circle{};
+  WorldTick expiry = WorldTick::invalid;
+  Circle circle;
   uint32_t primaryColor{};
   uint32_t secondaryColor{};
 };
@@ -336,7 +337,7 @@ struct TransientExplosion {
 // stores the desired duration to add to the current tick.
 struct TransientBeam {
   Circle circle{};
-  WorldTick expiry{WorldTick::invalid};
+  WorldTick expiry = WorldTick::invalid;
   uint32_t primaryColor{};
   uint32_t secondaryColor{}; // Not used in wedge mode
   Position targetPos{};
@@ -347,14 +348,14 @@ struct TransientBeam {
 
 // Defensive component, common across all defenders.
 struct Defender {
-  uint16_t entityTemplateIndex{std::numeric_limits<uint16_t>::max()};
+  uint16_t entityTemplateIndex = std::numeric_limits<uint16_t>::max();
   float hitCircleRadius{}; // Hit detection, as opposed to appearance.
   float attackRadius{};    // Used for physics and game logic.
   uint32_t rangeColor{};   // RGBA.
   float attackDamage{};    // Interpretation depends on the defender type.
   WorldTick cooldown{};    // Time between attacks.
   WorldTick nextAttack{};  // Updated when the defender attacks.
-  TargetMode targetMode{TargetMode::first};
+  TargetMode targetMode{};
 };
 
 // Stats for defenders, shown when selecting a defender.
@@ -374,7 +375,7 @@ struct DefenderAoe {
 // target instantly, rather than spawning a projectile that travels to the
 // target.
 struct DefenderHitscan {
-  TransientBeam transientTemplate{};
+  TransientBeam transientTemplate;
 };
 
 // Projectile component for `DefenderShooter`. Used as part of its own
@@ -383,7 +384,7 @@ struct DefenderHitscan {
 // its final moment.
 struct DefenderBullet {
   WorldTick expiry{}; // Expiration tick of the projectile.
-  SimWorldBounds::EntityId shooterId{SimWorldBounds::EntityId::invalid};
+  SimWorldBounds::EntityId shooterId = SimWorldBounds::EntityId::invalid;
   float hitCircleRadius{}; // Hit detection, used for physics and game logic.
   float speed{};
   float directDamage{};     // Damage upon impact.
@@ -409,7 +410,7 @@ struct DefenderShooter {
 
 // Invader component, shared across all invaders.
 struct Invader {
-  uint16_t entityTemplateIndex{std::numeric_limits<uint16_t>::max()};
+  uint16_t entityTemplateIndex = std::numeric_limits<uint16_t>::max();
   float hitCircleRadius{}; // Hit detection, used for physics and game logic.
   uint32_t bounty{10};     // Resources awarded for killing this invader.
 };
@@ -664,7 +665,7 @@ public:
   // Find an entity at a given position, if any. Uses simple bounding box,
   // suitable for UI, not hit detection.
   [[nodiscard]] EntityId findEntityAt(const Position& pos) const {
-    EntityId found_id = EntityId::invalid;
+    auto found_id = EntityId::invalid;
     scene_.for_each<Position, Appearance>([&](auto id, auto comps) {
       const auto& [epos, app] = comps;
       if (std::abs(epos.x - pos.x) >= app.radius ||
@@ -707,7 +708,7 @@ public:
   // defender so it can partially overlap its own footprint).
   [[nodiscard]] bool doesOveralapDefenders(const Position& pos, float radius,
       EntityId excludeId = EntityId::invalid) const {
-    bool overlaps = false;
+    bool overlaps{};
     scene_.for_each<Position, Appearance, Defender>([&](auto id, auto comps) {
       if (id == excludeId) return true;
       const auto& [defender_pos, defender_app, _] = comps;
@@ -723,8 +724,8 @@ public:
   // Check if an object at `pos` with a given `radius` touches any paths.
   [[nodiscard]] bool doesTouchPath(const Position& pos, float radius) const {
     for (const auto& path : paths_) {
-      const float expanded_radius = radius + (path.width * 0.5F);
-      const float expanded_radius_sq = expanded_radius * expanded_radius;
+      const auto expanded_radius = radius + (path.width * 0.5F);
+      const auto expanded_radius_sq = expanded_radius * expanded_radius;
       for (const auto& seg : path.segments)
         if (distanceSquaredToSegment(pos, seg.front, seg.back) <=
             expanded_radius_sq)
@@ -770,7 +771,7 @@ public:
   // tombstoned). Call after `resolveEscapees` and `resolveKills` so that
   // entities removed this tick are not counted.
   [[nodiscard]] bool hasActiveInvaders() const {
-    bool found = false;
+    bool found{};
     scene_.for_each<Invader>([&found](auto, auto) {
       found = true;
       return false; // Stop on first match.
@@ -919,15 +920,15 @@ public:
   // Calculate squared distance between two positions.
   static constexpr float
   distanceSquared(const Position& a, const Position& b) {
-    const float dx = a.x - b.x;
-    const float dy = a.y - b.y;
+    const auto dx = a.x - b.x;
+    const auto dy = a.y - b.y;
     return (dx * dx) + (dy * dy);
   }
 
   // Determine if two circles overlap.
   static constexpr bool circlesOverlap(const Position& posA, float radiusA,
       const Position& posB, float radiusB) {
-    const float r = radiusA + radiusB;
+    const auto r = radiusA + radiusB;
     return distanceSquared(posA, posB) <= r * r;
   }
 
@@ -935,12 +936,12 @@ public:
   // segment.
   static constexpr float distanceSquaredToSegment(const Position& point,
       const Position& segA, const Position& segB) {
-    const float dx = segB.x - segA.x;
-    const float dy = segB.y - segA.y;
-    const float len_sq = (dx * dx) + (dy * dy);
+    const auto dx = segB.x - segA.x;
+    const auto dy = segB.y - segA.y;
+    const auto len_sq = (dx * dx) + (dy * dy);
     if (len_sq <= 0.F) return distanceSquared(point, segA);
 
-    const float t = std::clamp(
+    const auto t = std::clamp(
         (((point.x - segA.x) * dx) + ((point.y - segA.y) * dy)) / len_sq, 0.F,
         1.F);
     const Position projection{
@@ -1035,7 +1036,7 @@ private:
     if (!hp || hp->currentHealth <= 0.F || damage <= 0.F) return false;
 
     // Apply damage.
-    const float actualDamage = std::min(damage, hp->currentHealth);
+    const auto actualDamage = std::min(damage, hp->currentHealth);
     hp->modified = tick_;
     hp->currentHealth -= actualDamage;
     shooterStats.totalDamageDealt += actualDamage;
@@ -1056,14 +1057,14 @@ private:
   // invader a projectile encounters during this frame.
   [[nodiscard]] static float calculateSweepDistance(const Position& start,
       const Position& end, const Position& point) {
-    const float dx = end.x - start.x;
-    const float dy = end.y - start.y;
-    const float lenSq = (dx * dx) + (dy * dy);
+    const auto dx = end.x - start.x;
+    const auto dy = end.y - start.y;
+    const auto lenSq = (dx * dx) + (dy * dy);
     if (lenSq <= 0.F) return 0.F;
 
     // Clamp the projected point to the segment so the returned value stays
     // within this frame's swept path.
-    const float t = std::clamp(
+    const auto t = std::clamp(
         (((point.x - start.x) * dx) + ((point.y - start.y) * dy)) / lenSq, 0.F,
         1.F);
     return t * lenSq;
@@ -1076,18 +1077,18 @@ private:
       const DefenderBullet& bullet) {
     const Position previousPos{bulletPos.x - vel.vx, bulletPos.y - vel.vy};
 
-    EntityId targetId = EntityId::invalid;
-    Position impactPos = bulletPos;
-    float bestTravel = std::numeric_limits<float>::max();
+    auto targetId = EntityId::invalid;
+    auto impactPos = bulletPos;
+    auto bestTravel = std::numeric_limits<float>::max();
     scene_.for_each<Position, Invader>([&](auto enemyId, auto comps) {
       const auto& [enemyPos, invader] = comps;
-      const float r = bullet.hitCircleRadius + invader.hitCircleRadius;
+      const auto r = bullet.hitCircleRadius + invader.hitCircleRadius;
       // Skip if it misses.
       if (distanceSquaredToSegment(enemyPos, previousPos, bulletPos) > r * r)
         return true;
 
       // Keep closest hit.
-      const float travel =
+      const auto travel =
           calculateSweepDistance(previousPos, bulletPos, enemyPos);
       if (travel < bestTravel) {
         bestTravel = travel;
@@ -1195,7 +1196,7 @@ private:
 
       (void)markDirty(id);
 
-      const float previousProgress = pf.progress;
+      const auto previousProgress = pf.progress;
       pf.progress += pf.speed;
       const auto& sp = paths_[pf.pathId];
 
@@ -1214,7 +1215,7 @@ private:
 
   // Candidate invader collected during target search.
   struct InvaderCandidate {
-    EntityId id;
+    EntityId id = EntityId::invalid;
     float progress{};      // Distance along path; used by `first` and `last`.
     float currentHealth{}; // Used by `strongest` and `weakest`.
     float distSq{};        // Squared distance to defender; used by `closest`.
@@ -1230,8 +1231,8 @@ private:
     scene_.for_each<Position, Invader, Pathing, Health>(
         [&](auto enemyId, auto comps) {
           const auto& [enemyPos, invader, pf, hp] = comps;
-          const float dSq = distanceSquared(defenderPos, enemyPos);
-          const float r = attackRadius + invader.hitCircleRadius;
+          const auto dSq = distanceSquared(defenderPos, enemyPos);
+          const auto r = attackRadius + invader.hitCircleRadius;
           if (dSq > r * r) return true;
 
           candidates.push_back({enemyId, pf.progress, hp.currentHealth, dSq});
@@ -1286,7 +1287,7 @@ private:
     for (const auto& cand : candidates) {
       auto* hp = scene_.try_get_component<Health>(cand.id);
       if (!hp) continue;
-      const float actualDamage =
+      const auto actualDamage =
           std::min(defender.attackDamage, cand.currentHealth);
       hp->modified = tick_;
       hp->currentHealth -= defender.attackDamage;
@@ -1317,23 +1318,23 @@ private:
   // The smallest positive root is the intercept time.
   [[nodiscard]] static float computeInterceptTime(const Position& defenderPos,
       const Position& targetPos, float tvx, float tvy, float bulletSpeed) {
-    constexpr float nan = std::numeric_limits<float>::quiet_NaN();
-    const float dx = targetPos.x - defenderPos.x;
-    const float dy = targetPos.y - defenderPos.y;
-    const float a = (tvx * tvx) + (tvy * tvy) - (bulletSpeed * bulletSpeed);
-    const float b = 2.F * ((dx * tvx) + (dy * tvy));
-    const float c = (dx * dx) + (dy * dy);
+    constexpr auto nan = std::numeric_limits<float>::quiet_NaN();
+    const auto dx = targetPos.x - defenderPos.x;
+    const auto dy = targetPos.y - defenderPos.y;
+    const auto a = (tvx * tvx) + (tvy * tvy) - (bulletSpeed * bulletSpeed);
+    const auto b = 2.F * ((dx * tvx) + (dy * tvy));
+    const auto c = (dx * dx) + (dy * dy);
 
     // Degenerate: target and bullet at the same speed. Linear in `t`.
-    constexpr float coeff_eps = 1e-4F;
+    constexpr auto coeff_eps = 1e-4F;
     if (std::abs(a) < coeff_eps) return (b < -coeff_eps) ? (-c / b) : nan;
 
-    const float disc = (b * b) - (4.F * a * c);
+    const auto disc = (b * b) - (4.F * a * c);
     if (disc < 0.F) return nan; // No real solution.
 
-    const float sq = std::sqrt(disc);
-    const float t1 = (-b + sq) / (2.F * a);
-    const float t2 = (-b - sq) / (2.F * a);
+    const auto sq = std::sqrt(disc);
+    const auto t1 = (-b + sq) / (2.F * a);
+    const auto t2 = (-b - sq) / (2.F * a);
 
     // Return the smallest positive root, or `NaN` if neither qualifies.
     if (t1 > 0.F && (t2 <= 0.F || t1 < t2)) return t1;
@@ -1360,12 +1361,12 @@ private:
     float tvx{};
     float tvy{};
     if (const auto* path = getPath(targetPathing->pathId)) {
-      const float angle = path->angleAtProgress(targetPathing->progress);
+      const auto angle = path->angleAtProgress(targetPathing->progress);
       tvx = targetPathing->speed * std::cos(angle);
       tvy = targetPathing->speed * std::sin(angle);
     }
 
-    const float t = computeInterceptTime(defenderPos, *targetPos, tvx, tvy,
+    const auto t = computeInterceptTime(defenderPos, *targetPos, tvx, tvy,
         shooter.bulletTemplate.speed);
     // TODO: Right now, if the "best" target is outrunning the bullet, we
     // simply do not fire. A smarter algorithm would remove the bad target and
@@ -1374,11 +1375,11 @@ private:
 
     const Position aimPos{targetPos->x + (tvx * t), targetPos->y + (tvy * t)};
 
-    const float adx = aimPos.x - defenderPos.x;
-    const float ady = aimPos.y - defenderPos.y;
-    const float dist = std::sqrt((adx * adx) + (ady * ady));
+    const auto adx = aimPos.x - defenderPos.x;
+    const auto ady = aimPos.y - defenderPos.y;
+    const auto dist = std::sqrt((adx * adx) + (ady * ady));
 
-    Velocity vel{};
+    Velocity vel;
     if (dist > 0.F) {
       vel.vx = (adx / dist) * shooter.bulletTemplate.speed;
       vel.vy = (ady / dist) * shooter.bulletTemplate.speed;
@@ -1434,7 +1435,7 @@ private:
     auto* hp = scene_.try_get_component<Health>(targetId);
     if (!hp) return false;
 
-    const float actualDamage =
+    const auto actualDamage =
         std::min(defender.attackDamage, hp->currentHealth);
     hp->modified = tick_;
     hp->currentHealth -= defender.attackDamage;
@@ -1497,7 +1498,7 @@ private:
   }
 
   [[nodiscard]] static constexpr bool isVisibleColor(uint32_t color) noexcept {
-    return (color & 0xFFU) != 0U;
+    return extract_byte<0>(color) != 0;
   }
 
   [[nodiscard]] static constexpr uint32_t

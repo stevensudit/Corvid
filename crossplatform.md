@@ -161,9 +161,42 @@ clang++ plain one: it passes `CORVID_ENABLE_CUDA=ON`, `CMAKE_CUDA_COMPILER`
 pointing at `clang++`, and an explicit `CMAKE_CUDA_ARCHITECTURES` from
 `nvidia-smi`. When it does reconfigure, it uses `cmake --fresh` rather than
 wiping `tests/build`, because clangd holds an open handle on
-`compile_commands.json` there. The other Linux
-cleanbuild modes (libc++/libstdc++ choice, msan/tsan, analyze-build scan,
-llvm-cov coverage, compiler-rt/lld swaps) have no MSVC analog and are absent.
+`compile_commands.json` there.
+
+### Driver parity
+
+The two drivers stay separate scripts: the MSVC environment comes from a
+PowerShell module (`Enter-VsDevShell`), and MSYS path mangling makes a shared
+Git Bash driver fragile in exactly the place a mistake is hardest to read. The
+cost is that the menu has to be kept in sync by hand, so the table below is the
+contract. A row that is "yes" on both sides must behave the same on either
+platform. An asymmetric row states why. A capability that belongs on both sides
+but is missing from one is a bug, not a platform difference, which is what the
+layering check was until it was ported.
+
+| Capability             | Linux            | Windows | If asymmetric, why           |
+|------------------------|------------------|---------|------------------------------|
+| band layering check    | yes              | yes     |                              |
+| build + ctest          | yes              | yes     |                              |
+| single test by name    | yes              | yes     |                              |
+| `clean`                | yes              | yes     |                              |
+| `reconfigure`          | yes              | yes     |                              |
+| `tidy` plus summary    | yes              | yes     | Windows adds a `.cu` pass    |
+| `asan` (carries UBSAN) | yes              | yes     |                              |
+| `ubsan` alone          | yes              | no      | static-CRT runtime vs `/MD`  |
+| `tsan`, `msan`         | yes              | no      | no MSVC analog               |
+| `coverage`             | yes              | no      | llvm-cov needs compiler-rt   |
+| `scan`                 | yes              | no      | analyze-build is POSIX       |
+| `all` config sweep     | yes              | no      | comprehensive.cmake driver   |
+| second compiler        | `gcc`            | `cl`    | different roles, section 3   |
+| standard library       | libc++, libstdc++| no      | MSVC STL only                |
+| CUDA bucket            | nvcc plus g++-15 | clang++ | section 3                    |
+| `cudacheck`            | no               | yes     | not ported yet               |
+
+The Linux-only analysis modes (libc++/libstdc++ choice, msan/tsan, analyze-build
+scan, llvm-cov coverage, compiler-rt/lld swaps) have no MSVC analog and are
+absent by design. `cudacheck` is the one row that is asymmetric only because
+nobody has ported it: `compute-sanitizer` ships with the Linux toolkit too.
 
 Compiler flags are set in the `WIN32` branch of `tests/CMakeLists.txt`:
 

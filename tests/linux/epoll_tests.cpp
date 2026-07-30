@@ -71,7 +71,7 @@ TEST_CASE("Lifecycle", "[Epoll]") {
 
   // A real epoll instance is open; closing it twice is idempotent.
   if (true) {
-    epoll p{epoll::default_flags};
+    auto p = epoll::create();
     CHECK(p.is_open());
     CHECK(static_cast<bool>(p));
     CHECK(p.handle() != epoll::invalid_handle);
@@ -81,7 +81,7 @@ TEST_CASE("Lifecycle", "[Epoll]") {
   }
 
   // Destructor closes an open epoll fd (no crash or leak).
-  if (true) { epoll p{epoll::default_flags}; }
+  if (true) { auto p = epoll::create(); }
 }
 
 #pragma endregion
@@ -106,7 +106,7 @@ TEST_CASE("Create", "[Epoll]") {
   // its notification.
   if (true) {
     auto p = epoll::create();
-    event_fd e{0};
+    auto e = event_fd::create();
 
     epoll_event ev{.events = EPOLLIN, .data = {.fd = e.handle()}};
     CHECK(p.add(e.handle(), ev));
@@ -126,7 +126,7 @@ TEST_CASE("Create", "[Epoll]") {
 TEST_CASE("Move", "[Epoll]") {
   // Move constructor transfers ownership; source becomes invalid.
   if (true) {
-    epoll a{epoll::default_flags};
+    auto a = epoll::create();
     const auto h = a.handle();
     epoll b{std::move(a)};
     // NOLINTNEXTLINE(bugprone-use-after-move,clang-analyzer-cplusplus.Move)
@@ -137,8 +137,8 @@ TEST_CASE("Move", "[Epoll]") {
 
   // Move assignment closes the destination and transfers the source.
   if (true) {
-    epoll a{epoll::default_flags};
-    epoll b{epoll::default_flags};
+    auto a = epoll::create();
+    auto b = epoll::create();
     const auto h = a.handle();
     b = std::move(a);
     // NOLINTNEXTLINE(bugprone-use-after-move,clang-analyzer-cplusplus.Move)
@@ -149,7 +149,7 @@ TEST_CASE("Move", "[Epoll]") {
 
   // Self-assignment is a no-op.
   if (true) {
-    epoll a{epoll::default_flags};
+    auto a = epoll::create();
     const auto h = a.handle();
     auto* p = &a;
     a = std::move(*p);
@@ -165,7 +165,7 @@ TEST_CASE("Move", "[Epoll]") {
 TEST_CASE("Release", "[Epoll]") {
   // `release` yields the handle without closing it; epoll becomes invalid.
   if (true) {
-    epoll p{epoll::default_flags};
+    auto p = epoll::create();
     const auto h = p.release();
     CHECK(h != epoll::invalid_handle);
     CHECK_FALSE(p.is_open());
@@ -178,8 +178,8 @@ TEST_CASE("Release", "[Epoll]") {
 #pragma region ControlWait
 
 TEST_CASE("ControlWait", "[Epoll]") {
-  event_fd e{0};
-  epoll p{epoll::default_flags};
+  auto e = event_fd::create();
+  auto p = epoll::create();
 
   epoll_event add_ev{.events = EPOLLIN,
       .data = epoll_data_t{.fd = e.handle()}};
@@ -208,8 +208,8 @@ TEST_CASE("ControlWait", "[Epoll]") {
 #pragma region WaitArray
 
 TEST_CASE("WaitArray", "[Epoll]") {
-  event_fd e{0};
-  epoll p{epoll::default_flags};
+  auto e = event_fd::create();
+  auto p = epoll::create();
 
   epoll_event add_ev{.events = EPOLLIN,
       .data = epoll_data_t{.fd = e.handle()}};
@@ -248,7 +248,7 @@ TEST_CASE("Lifecycle", "[EventFd]") {
 
   // A real eventfd is open; closing it twice is idempotent.
   if (true) {
-    event_fd e{0};
+    auto e = event_fd::create();
     CHECK(e.is_open());
     CHECK(static_cast<bool>(e));
     CHECK(e.handle() != event_fd::invalid_handle);
@@ -258,7 +258,7 @@ TEST_CASE("Lifecycle", "[EventFd]") {
   }
 
   // Destructor closes an open eventfd (no crash or leak).
-  if (true) { event_fd e{0}; }
+  if (true) { auto e = event_fd::create(); }
 }
 
 #pragma endregion
@@ -268,7 +268,7 @@ TEST_CASE("Lifecycle", "[EventFd]") {
 TEST_CASE("Move", "[EventFd]") {
   // Move constructor transfers ownership; source becomes invalid.
   if (true) {
-    event_fd a{0};
+    auto a = event_fd::create();
     const auto h = a.handle();
     event_fd b{std::move(a)};
     // NOLINTNEXTLINE(bugprone-use-after-move,clang-analyzer-cplusplus.Move)
@@ -279,8 +279,8 @@ TEST_CASE("Move", "[EventFd]") {
 
   // Move assignment closes the destination and transfers the source.
   if (true) {
-    event_fd a{0};
-    event_fd b{0};
+    auto a = event_fd::create();
+    auto b = event_fd::create();
     const auto h = a.handle();
     b = std::move(a);
     // NOLINTNEXTLINE(bugprone-use-after-move,clang-analyzer-cplusplus.Move)
@@ -291,7 +291,7 @@ TEST_CASE("Move", "[EventFd]") {
 
   // Self-assignment is a no-op.
   if (true) {
-    event_fd a{0};
+    auto a = event_fd::create();
     const auto h = a.handle();
     auto* p = &a;
     a = std::move(*p);
@@ -307,7 +307,7 @@ TEST_CASE("Move", "[EventFd]") {
 TEST_CASE("Release", "[EventFd]") {
   // `release` yields the handle without closing it; eventfd becomes invalid.
   if (true) {
-    event_fd e{0};
+    auto e = event_fd::create();
     const auto h = e.release();
     CHECK(h != event_fd::invalid_handle);
     CHECK_FALSE(e.is_open());
@@ -322,7 +322,7 @@ TEST_CASE("Release", "[EventFd]") {
 TEST_CASE("NotifyRead", "[EventFd]") {
   // Writes accumulate and a read returns the total while resetting to zero.
   if (true) {
-    event_fd e{0};
+    auto e = event_fd::create();
     CHECK(e.notify());
     CHECK(e.notify(4));
 
@@ -333,7 +333,7 @@ TEST_CASE("NotifyRead", "[EventFd]") {
 
   // The out-parameter overload returns the current counter value.
   if (true) {
-    event_fd e{7};
+    auto e = event_fd::create(7);
     event_fd::counter_t value = 0;
     CHECK(e.read(value));
     CHECK(value == 7U);
@@ -428,7 +428,7 @@ TEST_CASE("SemaphoreMode", "[EventFd]") {
 TEST_CASE("NonblockingEmptyRead", "[EventFd]") {
   // Default-created eventfds are non-blocking, so an empty read returns
   // nullopt.
-  event_fd e{0};
+  auto e = event_fd::create();
   auto value = e.read();
   CHECK_FALSE(value.has_value());
   CHECK(errno == EAGAIN);

@@ -90,7 +90,7 @@ TEST_CASE("MultipleNops", "[IouLoop]") {
     std::atomic<int> count{0};
 
     bool submitted = true;
-    for (int i = 0; i < 4; ++i) {
+    for (auto ndx = 0; ndx < 4; ++ndx) {
       submitted =
           submitted &&
           loop->submit_nop([&](completion_id, iou_res, iou_cqe_flags) {
@@ -1037,9 +1037,9 @@ TEST_CASE("RecvBufferMulti", "[IouLoop]") {
     const auto recv_token = loop->submit_recv_buffer_multi(recv_sock,
         [&](completion_id, iou_loop::buffer& buf) -> slot_retention {
           if (buf.result().ok()) {
-            const size_t i = count.load(std::memory_order::relaxed);
-            if (i < payloads.size())
-              payloads[i] = std::string{buf.payload_view()};
+            const size_t ndx = count.load(std::memory_order::relaxed);
+            if (ndx < payloads.size())
+              payloads[ndx] = std::string{buf.payload_view()};
           }
           count.fetch_add(1, std::memory_order::release);
           return slot_retention::automatic;
@@ -1061,7 +1061,8 @@ TEST_CASE("RecvBufferMulti", "[IouLoop]") {
     CHECK(
         WaitFor([&] { return count.load(std::memory_order::acquire) >= 3; }));
     CHECK(count.load() == 3);
-    for (int i = 0; i < 3; ++i) CHECK(payloads[i] == std::string{msgs[i]});
+    for (auto ndx = 0; ndx < 3; ++ndx)
+      CHECK(payloads[ndx] == std::string{msgs[ndx]});
   }
 }
 #pragma endregion
@@ -1089,9 +1090,9 @@ TEST_CASE("RecvMsgBufferMulti", "[IouLoop]") {
     const auto recv_token = loop->submit_recvmsg_buffer_multi(recv_sock,
         [&](completion_id, iou_loop::buffer& buf) -> slot_retention {
           if (buf.result().ok()) {
-            const size_t i = count.load(std::memory_order::relaxed);
-            if (i < payloads.size())
-              payloads[i] = std::string{buf.payload_view()};
+            const size_t ndx = count.load(std::memory_order::relaxed);
+            if (ndx < payloads.size())
+              payloads[ndx] = std::string{buf.payload_view()};
           }
           count.fetch_add(1, std::memory_order::release);
           return slot_retention::automatic;
@@ -1117,7 +1118,8 @@ TEST_CASE("RecvMsgBufferMulti", "[IouLoop]") {
     CHECK(
         WaitFor([&] { return count.load(std::memory_order::acquire) >= 3; }));
     CHECK(count.load() == 3);
-    for (int i = 0; i < 3; ++i) CHECK(payloads[i] == std::string{msgs[i]});
+    for (auto ndx = 0; ndx < 3; ++ndx)
+      CHECK(payloads[ndx] == std::string{msgs[ndx]});
   }
 }
 #pragma endregion
@@ -1157,7 +1159,7 @@ TEST_CASE("RecvMsgBufferMultiTruncated", "[IouLoop]") {
         });
     CHECK(recv_token.is_valid());
 
-    constexpr size_t datagram_size = 8192;
+    constexpr auto datagram_size = 8192UZ;
     const std::vector<std::byte> big(datagram_size, std::byte{'X'});
     CHECK(loop->post_and_wait([&] {
       auto send_buf = loop->borrow_write_buffer(block_size::kb008);
@@ -1260,7 +1262,7 @@ TEST_CASE("RecvMsgBufferMultiStress", "[IouLoop]") {
 
     constexpr int send_count = 4096;
     const char payload{'x'};
-    for (int i = 0; i < send_count; ++i)
+    for (auto ndx = 0; ndx < send_count; ++ndx)
       (void)send_sock.send(&payload, sizeof(payload));
 
     CHECK(WaitFor(
@@ -1360,7 +1362,7 @@ TEST_CASE("CompletionFnSizeProbe", "[IouLoop]") {
   const size_t sz_raw_buf =
       sizeof(raw_buf) + sizeof(iou_loop::buffer) + overhead;
 
-  const size_t all[] = {sz_direct_fn, sz_raw_bt, sz_raw_bewt, sz_raw_buf};
+  const size_t all[]{sz_direct_fn, sz_raw_bt, sz_raw_bewt, sz_raw_buf};
   const size_t max_sz = *std::ranges::max_element(all);
   CHECK(max_sz == 400U);
 // Sounds like SZ = 384 works.

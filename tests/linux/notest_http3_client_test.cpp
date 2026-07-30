@@ -70,12 +70,12 @@ bool WaitFor(const auto& pred, std::chrono::milliseconds timeout = 10s) {
 // thread, in `on_close`), so the result outlives the stream. main reads it via
 // post_and_wait once `complete` is set.
 struct response_capture {
-  bool complete{false};
-  bool failed{false};
+  bool complete{};
+  bool failed{};
   std::string status;
   std::vector<std::pair<std::string, std::string>> headers;
   std::vector<std::pair<std::string, std::string>> trailers;
-  size_t body_bytes{0};
+  size_t body_bytes{};
 };
 
 using protocol_t = quic_dgram_protocol<http3_router>;
@@ -108,8 +108,8 @@ std::unique_ptr<http3_client_stream> make_request(http3_method method,
     stream->request_headers().set_value("content-type", "text/plain");
     stream->request_headers().set_value("content-length",
         std::to_string(body.size()));
-    constexpr size_t piece = 8;
-    for (size_t off = 0; off < body.size(); off += piece) {
+    constexpr auto piece = 8UZ;
+    for (auto off = 0UZ; off < body.size(); off += piece) {
       const size_t len = std::min(piece, body.size() - off);
       stream->send_queue().append(std::vector<uint8_t>(
           body.begin() + static_cast<std::ptrdiff_t>(off),

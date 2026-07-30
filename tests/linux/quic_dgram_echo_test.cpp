@@ -122,7 +122,7 @@ struct echo_client_plugin: quic_conn_handlers {
       }
       auto out = io_.borrow_send_buffer();
       if (!out) return true;
-      uint64_t accepted = 0;
+      uint64_t accepted{};
       const auto status =
           io_.conn().writev_stream(sid, iov, out, accepted, flags, now);
       if (status != quic_status::ok) return false;

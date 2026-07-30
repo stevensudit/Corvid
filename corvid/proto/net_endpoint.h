@@ -90,7 +90,7 @@ namespace corvid { inline namespace proto {
 class net_endpoint {
 #pragma region Construction
 public:
-  static constexpr size_t max_sockaddr_size = sizeof(sockaddr_storage);
+  static constexpr auto max_sockaddr_size = sizeof(sockaddr_storage);
   static_assert(sizeof(sockaddr_un) <= max_sockaddr_size,
       "`sockaddr_storage` is not large enough to hold `sockaddr_un`");
 
@@ -148,7 +148,7 @@ public:
   // On failure, result is `empty`.
   explicit net_endpoint(const net_socket& sock) noexcept {
     sockaddr_storage addr{};
-    socklen_t len = sizeof(addr);
+    socklen_t len{sizeof(addr)};
     auto* ptr = reinterpret_cast<sockaddr*>(&addr);
     if (::getsockname(sock.handle(), ptr, &len) == 0) assign(*ptr, len);
   }
@@ -157,7 +157,7 @@ public:
   // is `empty`.
   [[nodiscard]] static net_endpoint peer_of(const net_socket& sock) noexcept {
     sockaddr_storage addr{};
-    socklen_t len = sizeof(addr);
+    socklen_t len{sizeof(addr)};
     auto* ptr = reinterpret_cast<sockaddr*>(&addr);
     if (::getpeername(sock.handle(), ptr, &len) == 0)
       return net_endpoint{*ptr, len};
@@ -305,8 +305,9 @@ public:
       const auto null_pos = name.find('\0');
       const auto display = name.substr(0, null_pos);
       const auto npos = std::string_view::npos;
-      const bool has_more =
-          null_pos != npos && name.find_first_not_of('\0', null_pos) != npos;
+      const auto has_more =
+          (null_pos != npos) &&
+          (name.find_first_not_of('\0', null_pos) != npos);
       return std::format("unix:@{}{}", display, has_more ? " (+)" : "");
     }
     if (is_uds()) return std::format("unix:{}", uds_path());
@@ -415,7 +416,7 @@ private:
 
   [[nodiscard]] static constexpr std::optional<uint16_t> do_parse_port(
       std::string_view s) noexcept {
-    uint32_t port = 0;
+    uint32_t port{};
     const auto [ptr, ec] =
         std::from_chars(s.data(), s.data() + s.size(), port);
     if (ec != std::errc{} || ptr != s.data() + s.size() || port > 65535U)
@@ -459,8 +460,7 @@ private:
     // IPv6.
     if (s[0] == '[') {
       const auto close = s.find(']');
-      if (close == std::string_view::npos || close + 1 >= s.size() ||
-          s[close + 1] != ':')
+      if (close == s.npos || close + 1 >= s.size() || s[close + 1] != ':')
         return {};
 
       const auto addr = ipv6_addr::parse(s.substr(1, close - 1));
@@ -471,7 +471,7 @@ private:
 
     // IPv4.
     const auto colon = s.rfind(':');
-    if (colon == std::string_view::npos) return {};
+    if (colon == s.npos) return {};
     if (s.find(':') != colon) return {};
 
     const auto addr = ipv4_addr::parse(s.substr(0, colon));

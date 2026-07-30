@@ -141,7 +141,8 @@ public:
   requires std::same_as<std::iter_value_t<It>, char_t> &&
            (!std::convertible_to<End, size_type>)
   constexpr explicit basic_cstring_view(It first, End last)
-      : basic_cstring_view{std::to_address(first), size_type(last - first)} {}
+      : basic_cstring_view{std::to_address(first),
+            static_cast<size_type>(last - first)} {}
 
   // Optional as null. Explicit exactly when construction from `U` itself
   // would be, since a risky payload stays risky inside an `optional`.
@@ -180,12 +181,12 @@ private:
     // Empty is allowed, but only when null. A non-null empty must include the
     // terminator in its length.
     if (sv.empty()) {
-      if (sv.data()) throw std::length_error("cstring_view len");
+      if (sv.data()) throw std::length_error{"cstring_view len"};
       return sv;
     }
 
     // Ensure terminator is there, and then exclude it from length.
-    if (sv.back()) throw std::invalid_argument("cstring_view arg");
+    if (sv.back()) throw std::invalid_argument{"cstring_view arg"};
     sv.remove_suffix(1);
     return sv;
   }
@@ -226,23 +227,23 @@ consteval u32cstring_view operator""_u32csv(const char32_t* ps, size_t n) {
 
 // Null literal; must pass 0.
 consteval cstring_view operator""_czsv(unsigned long long zero_only) {
-  if (zero_only) throw std::out_of_range("cstring_view not zero");
+  if (zero_only) throw std::out_of_range{"cstring_view not zero"};
   return cstring_view{};
 }
 consteval wcstring_view operator""_wczsv(unsigned long long zero_only) {
-  if (zero_only) throw std::out_of_range("wcstring_view not zero");
+  if (zero_only) throw std::out_of_range{"wcstring_view not zero"};
   return wcstring_view{};
 }
 consteval u8cstring_view operator""_u8csv(unsigned long long zero_only) {
-  if (zero_only) throw std::out_of_range("u8cstring_view not zero");
+  if (zero_only) throw std::out_of_range{"u8cstring_view not zero"};
   return u8cstring_view{};
 }
 consteval u16cstring_view operator""_u16csv(unsigned long long zero_only) {
-  if (zero_only) throw std::out_of_range("u16cstring_view not zero");
+  if (zero_only) throw std::out_of_range{"u16cstring_view not zero"};
   return u16cstring_view{};
 }
 consteval u32cstring_view operator""_u32csv(unsigned long long zero_only) {
-  if (zero_only) throw std::out_of_range("u32cstring_view not zero");
+  if (zero_only) throw std::out_of_range{"u32cstring_view not zero"};
   return u32cstring_view{};
 }
 

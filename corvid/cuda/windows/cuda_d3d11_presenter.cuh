@@ -70,7 +70,8 @@ public:
   // device and grow the render target to fit. Brings up a default-constructed
   // presenter, or repoints an existing one at a new window.
   [[nodiscard]] hr_status reset(HWND hwnd) {
-    if (hr_status st{swapchain_.reset(device_, hwnd)}; !st) return st;
+    if (hr_status status{swapchain_.reset(device_, hwnd)}; !status)
+      return status;
     return ensure_target();
   }
 
@@ -133,10 +134,10 @@ public:
   // Returns a success status (`S_FALSE` when the size was unchanged), or a
   // genuine failure for the caller to handle.
   [[nodiscard]] hr_status resize() {
-    auto st = swapchain_.resize();
-    if (d3d11_swapchain::is_device_lost(st)) return recover_device();
-    if (st && !st.is_false()) st = ensure_target();
-    return st;
+    auto status = swapchain_.resize();
+    if (d3d11_swapchain::is_device_lost(status)) return recover_device();
+    if (status && !status.is_false()) status = ensure_target();
+    return status;
   }
 
   // Copy the render target into the backbuffer and present it.
@@ -156,9 +157,9 @@ public:
   present(std::invocable auto&& overlay, int sync_interval = 1) {
     swapchain_.fill_back_buffer(render_texture_);
     overlay();
-    auto st = swapchain_.present(sync_interval);
-    if (d3d11_swapchain::is_device_lost(st)) st = recover_device();
-    return st;
+    auto status = swapchain_.present(sync_interval);
+    if (d3d11_swapchain::is_device_lost(status)) status = recover_device();
+    return status;
   }
 
   // Map the render target, hand its `cudaArray` and live size to `draw`, then
@@ -203,8 +204,8 @@ private:
   // Never shrinks, so an ordinary resize neither reallocates nor re-registers
   // it.
   hr_status ensure_target() {
-    const UINT need_w = round_up_to_multiple(buffer_width(), capacity_quantum);
-    const UINT need_h =
+    const auto need_w = round_up_to_multiple(buffer_width(), capacity_quantum);
+    const auto need_h =
         round_up_to_multiple(buffer_height(), capacity_quantum);
     if (render_texture_ && need_w <= cap_w_ && need_h <= cap_h_)
       return hr_status{S_FALSE};
@@ -213,7 +214,7 @@ private:
     cap_h_ = std::max(cap_h_, need_h);
 
     // unregister before releasing texture
-    cuda_target_ = cuda_d3d11_resource{};
+    cuda_target_ = {};
     render_texture_ = swapchain_.create_texture(cap_w_, cap_h_,
         d3d11_bind_flag::shader_resource);
     if (!render_texture_) return hr_status{E_FAIL};
@@ -225,8 +226,8 @@ private:
   // Rebuild every GPU object after a lost device: a fresh device, the
   // swapchain rebound to it, and the render target recreated.
   hr_status recover_device() {
-    cuda_target_ = cuda_d3d11_resource{};
-    render_texture_ = com_ptr<ID3D11Texture2D>{};
+    cuda_target_ = {};
+    render_texture_ = {};
     cap_w_ = 0;
     cap_h_ = 0;
     device_ = make_device();

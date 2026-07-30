@@ -114,7 +114,7 @@ public:
   // Construct with initial sizes for post queues and default retry count. See
   // `queue_high_watermark` for tuning. The constructing thread becomes the
   // loop thread; only one instance per thread is permitted (debug-asserted).
-  explicit owner_thread_dispatcher(size_t post_queue_reserve = 32,
+  explicit owner_thread_dispatcher(size_t post_queue_reserve = 32UZ,
       size_t default_retry_count = npos) {
     if (current_loop_)
       throw std::logic_error{
@@ -130,7 +130,7 @@ public:
   // Force shutdown of resources. Idempotent.
   [[nodiscard]] bool shutdown() {
     if (current_loop_ != this) return false;
-    std::scoped_lock lock{post_mutex_};
+    std::scoped_lock lock(post_mutex_);
     if (!active_queue_.exchange(nullptr)) return false;
     post_queues_[0].clear();
     post_queues_[1].clear();
@@ -167,7 +167,7 @@ public:
   [[nodiscard]] bool post(posted_fn&& cbpost) {
     bool was_empty{};
     // In the steady state, this does not require reallocation.
-    if (std::scoped_lock lock{post_mutex_}; true) {
+    if (std::scoped_lock lock(post_mutex_); true) {
       auto active_queue_ptr = *active_queue_;
       if (!active_queue_ptr) return false;
       auto& active_queue = *active_queue_ptr;
@@ -247,7 +247,7 @@ public:
   // vectors grow by doubling and never shrink, so in the steady state, there
   // should be no allocations.
   [[nodiscard]] size_t queue_high_watermark() const noexcept {
-    std::scoped_lock lock{post_mutex_};
+    std::scoped_lock lock(post_mutex_);
     return std::max(post_queues_[0].capacity(), post_queues_[1].capacity());
   }
 
@@ -271,16 +271,16 @@ protected:
     assert(is_loop_thread());
 
     // Atomically swap between the double-buffered queues.
-    post_queue_t* pending;
-    if (std::scoped_lock lock{post_mutex_}; true) {
+    post_queue_t* pending{};
+    if (std::scoped_lock lock(post_mutex_); true) {
       pending = active_queue_;
       if (!pending) return 0; // shutdown has been called.
-      post_queue_t* other =
+      auto* other =
           (pending == &post_queues_[0]) ? &post_queues_[1] : &post_queues_[0];
       active_queue_ = other;
     }
 
-    size_t count = pending->size();
+    const auto count = pending->size();
 
     // Note that this method is marked `noexcept`, so if any callback throws,
     // we crash. This is because we have no reasonable alternative.
@@ -295,7 +295,7 @@ private:
 
 #pragma region Data members
 private:
-  event_fd wake_fd_{0};
+  event_fd wake_fd_{event_fd::create()};
   mutable std::mutex post_mutex_;
   post_queue_t post_queues_[2];
   relaxed_atomic<post_queue_t*> active_queue_{&post_queues_[0]};
@@ -310,7 +310,7 @@ private:
 // NOLINTEND(bugprone-move-forwarding-reference)
 
 namespace default_fixed_function {
-inline static constexpr size_t capacity = 384;
+inline static constexpr auto capacity = 384UZ;
 } // namespace default_fixed_function
 
 #pragma endregion

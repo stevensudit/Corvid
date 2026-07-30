@@ -114,7 +114,7 @@ TEST_CASE("plant_test", "[sopdt]") {
     soptd_plant plant(1.0, 1.0, 1.0, 1.0, 0.1);
 
     // Apply 1.0 for multiple steps
-    for (int i = 0; i < 10; ++i) {
+    for (auto ndx = 0; ndx < 10; ++ndx) {
       // dead time, output should still be 0.0
       CHECK(std::abs((plant.update(1.0)) - (0.0)) <= eps);
     }
@@ -124,7 +124,7 @@ TEST_CASE("plant_test", "[sopdt]") {
     CHECK(std::abs((output) - (0.01)) <= eps);
 
     // Loop more to approximate steady state.
-    for (int i = 0; i < 1000; ++i) {
+    for (auto ndx = 0; ndx < 1000; ++ndx) {
       output = plant.update(1.0);
       CHECK(std::isfinite(output)); // Ensure output is finite
     }
@@ -135,7 +135,7 @@ TEST_CASE("plant_test", "[sopdt]") {
   if (true) {
     const double dt = 0.01;
     const double total_time = 30.0;
-    const int steps = static_cast<int>(total_time / dt);
+    const auto steps = static_cast<int>(total_time / dt);
 
     // Plant parameters: K = 1, tau1 = 3s, tau2 = 1s, L = 0.5s
     soptd_plant plant(1.0, 3.0, 1.0, 0.5, dt);
@@ -156,7 +156,7 @@ TEST_CASE("plant_test", "[sopdt]") {
     std::cout << std::fixed << std::setprecision(4);
     std::cout << "time\tsetpt\toutput\tcontrol\n";
 
-    for (int i = 0; i < steps; ++i) {
+    for (auto ndx = 0; ndx < steps; ++ndx) {
       double control = pid.update(setpoint, measured, time);
       measured = plant.update(control);
 #if 0

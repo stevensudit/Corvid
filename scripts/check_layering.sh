@@ -15,6 +15,10 @@
 # `corvid/infra.h`, and `corvid/math.h` umbrellas are the exception: they
 # aggregate the foundation, so they map to `meta`/`infra`/`math` and stay cheap
 # to depend on.
+#
+# The band map and allow-list below are mirrored clause for clause in
+# check_layering.ps1 (the native-Windows counterpart); a change to one belongs
+# in the other (and in corvid/deps.md).
 set -uo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -59,6 +63,10 @@ allowed() {
   # controllers is a standalone leaf (std only): no cross-band edges, not
   # even the otherwise-universal meta. Reject before the meta shortcut.
   case "$src" in controllers) return 1 ;; esac
+  # meta is the bottom of the graph: std and its own siblings only. Rejecting
+  # it as a source is what keeps the two universally-dependable destinations
+  # below from admitting a meta <-> math cycle.
+  case "$src" in meta) return 1 ;; esac
   # Apex bands may depend on anything lower (including umbrellas).
   case "$src" in ecs | proto | lang | sim) return 0 ;; esac
   # meta is the universal foundation.

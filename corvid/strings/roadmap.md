@@ -321,7 +321,12 @@ the wrapper technique applies just as it does for the keyed collections.
 Mechanics: the keyed spec grammar is `key`, or `{n}` / `{}` for a dynamic
 key, optionally followed by `:` and a nested spec applied to the looked-up
 value through the synthetic parse-context technique from
-`nullable_formatter`, shared as the `format_with_spec` helper. The
+`nullable_formatter`, shared as the `format_with_spec` helper. That synthetic
+context hands over the tail of the format string, through the closing `}`,
+rather than an exactly-sized spec: std always gives a formatter the rest of
+the whole format string, and the libc++ range formatter reads exactly-sized
+input as input that ran out, skipping the `set_debug_format` call that makes
+its elements quote themselves. The
 dynamic-key arg resolves through `arg_value_t::get_dynamic_str`, the
 string-returning sibling added next to `get_dynamic_num` in
 [../meta/formatting.h](../meta/formatting.h). A `std::variant` mapped type

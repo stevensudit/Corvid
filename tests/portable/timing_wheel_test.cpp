@@ -227,7 +227,7 @@ TEST_CASE("SameSlotMultiple", "[TimingWheel]") {
   timing_wheel wheel(600, dur{100}, T(0));
   int count = 0;
 
-  for (int i = 0; i < 5; ++i)
+  for (auto ndx = 0; ndx < 5; ++ndx)
     CHECK(wheel.schedule(
               [&] {
                 ++count;
@@ -305,8 +305,8 @@ TEST_CASE("CallbackOwnsMeta", "[TimingWheel]") {
   timing_wheel wheel(600, dur{100}, T(0));
 
   // Simulate a caller-owned ID scheme.
-  uint64_t active_id = 42;
-  uint64_t received_id = 0;
+  uint64_t active_id{42};
+  uint64_t received_id{};
 
   const uint64_t scheduled_id = active_id;
   CHECK(wheel.schedule(
@@ -322,8 +322,8 @@ TEST_CASE("CallbackOwnsMeta", "[TimingWheel]") {
   CHECK(received_id == 42U);
 
   // Simulate a second schedule where the operation completed before the timer.
-  uint64_t received_id2 = 0;
-  const uint64_t scheduled_id2 = 43;
+  uint64_t received_id2{};
+  const uint64_t scheduled_id2{43};
   CHECK(wheel.schedule(
             [&active_id, &received_id2] {
               if (active_id != scheduled_id2) return false; // stale
@@ -348,7 +348,7 @@ TEST_CASE("StopAbortsTick", "[TimingWheel]") {
   int count = 0;
 
   // Schedule five callbacks in the same slot; the first one calls stop().
-  for (int i = 0; i < 5; ++i)
+  for (auto ndx = 0; ndx < 5; ++ndx)
     CHECK(wheel.schedule(
               [&] {
                 ++count;

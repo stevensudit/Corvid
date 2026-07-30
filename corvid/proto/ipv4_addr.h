@@ -26,6 +26,7 @@
 
 #include <netinet/in.h>
 
+#include "../math/arithmetic.h"
 #include "../strings/cases.h"
 
 namespace corvid { inline namespace proto {
@@ -111,9 +112,9 @@ public:
   [[nodiscard]] static constexpr std::optional<ipv4_addr> parse(
       std::string_view s) noexcept {
     uint32_t result{};
-    for (int i = 0; i < 4; ++i) {
+    for (auto ndx = 0; ndx < 4; ++ndx) {
       // Remove leading dot, after first octet.
-      if (i > 0) {
+      if (ndx > 0) {
         if (s.empty() || s[0] != '.') return std::nullopt;
         s.remove_prefix(1);
       }
@@ -122,7 +123,7 @@ public:
       if (s[0] == '0' && s.size() > 1 && is_digit(s[1])) return std::nullopt;
       uint32_t octet{};
       while (!s.empty() && is_digit(s[0])) {
-        octet = (octet * 10) + uint32_t(s[0] - '0');
+        octet = (octet * 10) + static_cast<uint32_t>(s[0] - '0');
         if (octet > 255) return std::nullopt;
         s.remove_prefix(1);
       }
@@ -137,8 +138,8 @@ public:
 
   // Return the four octets in network order (most significant first).
   [[nodiscard]] constexpr byte_array octets() const noexcept {
-    return {uint8_t(addr_ >> 24), uint8_t(addr_ >> 16), uint8_t(addr_ >> 8),
-        uint8_t(addr_)};
+    return {extract_byte<3>(addr_), extract_byte<2>(addr_),
+        extract_byte<1>(addr_), extract_byte<0>(addr_)};
   }
 
   // Return the raw address in host byte order.

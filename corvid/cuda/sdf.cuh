@@ -40,10 +40,10 @@ namespace corvid::cuda {
 // ellipsoid has no closed form), accurate enough for sphere tracing.
 [[nodiscard]] __host__ __device__ inline float sd_ellipsoid(vec3 p, vec3 r) {
   const vec3 pr{p.x / r.x, p.y / r.y, p.z / r.z};
-  const float k0 = length(pr);
+  const auto k0 = length(pr);
   if (k0 == 0.0F) return -fminf(r.x, fminf(r.y, r.z));
   const vec3 pr2{p.x / (r.x * r.x), p.y / (r.y * r.y), p.z / (r.z * r.z)};
-  const float k1 = length(pr2);
+  const auto k1 = length(pr2);
   return k0 * (k0 - 1.0F) / k1;
 }
 
@@ -60,7 +60,7 @@ namespace corvid::cuda {
 sd_capsule(vec3 p, vec3 a, vec3 b, float r) {
   const vec3 pa = p - a;
   const vec3 ba = b - a;
-  const float h = __saturatef(dot(pa, ba) / dot(ba, ba));
+  const auto h = __saturatef(dot(pa, ba) / dot(ba, ba));
   return length(pa - (ba * h)) - r;
 }
 
@@ -78,9 +78,9 @@ sd_capsule(vec3 p, vec3 a, vec3 b, float r) {
 // lateral surface below the apex and a conservative underestimate above it, so
 // it is safe to sphere-trace and to intersect with a bounded solid.
 [[nodiscard]] __host__ __device__ inline float sd_cone(vec3 p, vec2 sin_cos) {
-  const float radial =
+  const auto radial =
       sqrtf((p.x * p.x) + (p.z * p.z)); // distance from -y axis
-  const float depth = -p.y;             // distance down the axis from the apex
+  const auto depth = -p.y;              // distance down the axis from the apex
   return (radial * sin_cos.y) - (depth * sin_cos.x);
 }
 
@@ -105,7 +105,7 @@ sd_capsule(vec3 p, vec3 a, vec3 b, float r) {
 // Union with a smooth blend of width `k` where the two surfaces meet.
 [[nodiscard]] __device__ inline float
 op_smooth_union(float a, float b, float k) {
-  const float h = fmaxf(k - fabsf(a - b), 0.0F) / k;
+  const auto h = fmaxf(k - fabsf(a - b), 0.0F) / k;
   return fminf(a, b) - (h * h * k * 0.25F);
 }
 
@@ -114,7 +114,7 @@ op_smooth_union(float a, float b, float k) {
 // edge. `k` must be positive.
 [[nodiscard]] __host__ __device__ inline float
 op_smooth_intersect(float a, float b, float k) {
-  const float h = fmaxf(k - fabsf(a - b), 0.0F) / k;
+  const auto h = fmaxf(k - fabsf(a - b), 0.0F) / k;
   return fmaxf(a, b) + (h * h * k * 0.25F);
 }
 

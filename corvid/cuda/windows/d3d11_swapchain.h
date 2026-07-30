@@ -100,7 +100,7 @@ public:
     // present, create the swapchain with the flag so a later `present(0)` can
     // run without the refresh-rate cap. Without it, a flip-model swapchain
     // stays locked to vblank even at sync interval 0.
-    const com_ptr<IDXGIFactory2> factory = device.make_factory();
+    const auto factory = device.make_factory();
     tearing_ = supports_tearing(factory.get());
     const DXGI_SWAP_CHAIN_DESC1 desc{
         .Width = 0,
@@ -115,11 +115,11 @@ public:
         .AlphaMode = DXGI_ALPHA_MODE_IGNORE,
         .Flags = swap_chain_flags(),
     };
-    if (hr_status st{factory->CreateSwapChainForHwnd(device_, hwnd, &desc,
+    if (hr_status status{factory->CreateSwapChainForHwnd(device_, hwnd, &desc,
             nullptr, nullptr, swapchain_.put())};
-        !st)
-      return st;
-    if (hr_status st{acquire_back_buffer()}; !st) return st;
+        !status)
+      return status;
+    if (hr_status status{acquire_back_buffer()}; !status) return status;
     window_width_ = buffer_width_;
     window_height_ = buffer_height_;
     return hr_status{S_OK};
@@ -172,7 +172,7 @@ public:
   // avoids reallocating on every resize.
   [[nodiscard]] com_ptr<ID3D11Texture2D>
   create_texture(UINT width, UINT height, d3d11_bind_flag bind_flags) const {
-    D3D11_TEXTURE2D_DESC desc = back_buffer_desc();
+    auto desc = back_buffer_desc();
     desc.Width = width;
     desc.Height = height;
     desc.BindFlags = *bind_flags;
@@ -248,10 +248,10 @@ public:
       return hr_status{S_FALSE}; // unchanged
 
     back_buffer_.reset();
-    if (hr_status st{swapchain_->ResizeBuffers(0, 0, 0, DXGI_FORMAT_UNKNOWN,
-            swap_chain_flags())};
-        !st)
-      return st;
+    if (hr_status status{swapchain_->ResizeBuffers(0, 0, 0,
+            DXGI_FORMAT_UNKNOWN, swap_chain_flags())};
+        !status)
+      return status;
     return acquire_back_buffer();
   }
 
@@ -271,13 +271,14 @@ public:
 private:
   // Acquire back buffer 0 and read its dimensions.
   [[nodiscard]] hr_status acquire_back_buffer() {
-    hr_status st{swapchain_->GetBuffer(0, IID_PPV_ARGS(back_buffer_.put()))};
-    if (!st) return st;
+    hr_status status{
+        swapchain_->GetBuffer(0, IID_PPV_ARGS(back_buffer_.put()))};
+    if (!status) return status;
 
     const auto tex_desc = back_buffer_desc();
     buffer_width_ = tex_desc.Width;
     buffer_height_ = tex_desc.Height;
-    return st;
+    return status;
   }
 
   // The swapchain creation/resize flags: the tearing flag when supported, kept
@@ -294,11 +295,11 @@ private:
     com_ptr<IDXGIFactory5> factory5;
     if (FAILED(factory->QueryInterface(IID_PPV_ARGS(factory5.put()))))
       return false;
-    BOOL allowed = FALSE;
+    BOOL allowed{};
     if (FAILED(factory5->CheckFeatureSupport(
             DXGI_FEATURE_PRESENT_ALLOW_TEARING, &allowed, sizeof(allowed))))
       return false;
-    return allowed != FALSE;
+    return !!allowed;
   }
 
 #pragma endregion

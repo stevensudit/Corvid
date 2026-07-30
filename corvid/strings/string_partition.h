@@ -51,7 +51,7 @@ struct string_partition_base {
 #pragma region Helpers
 protected:
   // Set the three views around the separator found at `pos`.
-  constexpr void do_found(view_t whole, size_t pos, size_t sep_size) noexcept {
+  constexpr void do_found(view_t whole, size_t pos, size_t sep_size) {
     head = whole.substr(0, pos);
     sep = whole.substr(pos, sep_size);
     tail = whole.substr(pos + sep_size);
@@ -79,8 +79,7 @@ struct string_partition: string_partition_base<CharT> {
   using view_t = base::view_t;
 
   // Partition `whole` around the first occurrence of `separator`.
-  explicit constexpr string_partition(view_t whole,
-      view_t separator) noexcept {
+  explicit constexpr string_partition(view_t whole, view_t separator) {
     const auto pos = separator.empty() ? npos : whole.find(separator);
     if (pos == npos) {
       this->head = whole;
@@ -110,8 +109,7 @@ struct string_rpartition: string_partition_base<CharT> {
   using view_t = base::view_t;
 
   // Partition `whole` around the last occurrence of `separator`.
-  explicit constexpr string_rpartition(view_t whole,
-      view_t separator) noexcept {
+  explicit constexpr string_rpartition(view_t whole, view_t separator) {
     const auto pos = separator.empty() ? npos : whole.rfind(separator);
     if (pos == npos) {
       this->head = this->sep = whole.substr(0, 0);

@@ -70,7 +70,7 @@ namespace corvid { inline namespace proto { namespace iouring {
 //
 // `iou_buf_pool_of` is non-copyable and non-movable. The pool must outlive
 // all uses of the memory it manages, and the `buffer` objects it hands out.
-template<size_t SIZE = 2UL * 1024 * 1024, size_t MIN_BLOCK = 1UL * 1024>
+template<size_t SIZE = 2 * 1024UZ * 1024UZ, size_t MIN_BLOCK = 1024UZ>
 class iou_buf_pool_of: public buffer_pool_base {
   static_assert(std::has_single_bit(SIZE), "SIZE must be a power of 2");
   static_assert(std::has_single_bit(MIN_BLOCK),
@@ -80,15 +80,15 @@ class iou_buf_pool_of: public buffer_pool_base {
 #pragma endregion
 #pragma region Free list
 
-  static constexpr size_t slab_size = SIZE;
-  static constexpr size_t min_block_size = MIN_BLOCK;
+  static constexpr auto slab_size = SIZE;
+  static constexpr auto min_block_size = MIN_BLOCK;
 
-  static constexpr size_t read_throttle_size = slab_size * 3 / 4;
-  static constexpr size_t write_reserve_size = slab_size / 4;
+  static constexpr auto read_throttle_size = slab_size * 3 / 4;
+  static constexpr auto write_reserve_size = slab_size / 4;
   // Tier i: block size == `min_block_size << i`
   // (tier 0 == min_block_size, tier_count-1 == slab_size).
-  static constexpr size_t tier_count =
-      std::countr_zero(slab_size / min_block_size) + 1;
+  static constexpr size_t tier_count{
+      std::countr_zero(slab_size / min_block_size) + 1};
 
   // Intrusive linked list node. Mapped onto the start of each free block.
   // In debug mode, the canaries detect use-after-free and double-free bugs in
@@ -98,12 +98,12 @@ class iou_buf_pool_of: public buffer_pool_base {
     static constexpr unsigned __int128 canary_value =
         static_cast<unsigned __int128>(0xC0A51F5F4FE6157ULL) << 64 |
         0xC0DE5C2B1E5AFEFDULL;
-    unsigned __int128 canary_front;
+    unsigned __int128 canary_front{};
 #endif
-    free_node* next;
-    free_node* prev;
+    free_node* next{};
+    free_node* prev{};
 #ifndef NDEBUG
-    unsigned __int128 canary_back;
+    unsigned __int128 canary_back{};
 #endif
 
     void init(free_node* n, free_node* p) noexcept {
@@ -135,7 +135,7 @@ class iou_buf_pool_of: public buffer_pool_base {
 #ifndef NDEBUG
       return canary_front == canary_value && canary_back == canary_value;
 #else
-      throw std::logic_error("Checks should only occur in debug mode");
+      throw std::logic_error{"Checks should only occur in debug mode"};
 #endif
     }
   };
@@ -246,13 +246,13 @@ public:
           *(mmap_prot::read | mmap_prot::write),
           *(mmap_mask::map_private | mmap_mask::anonymous), -1, 0));
       if (raw == MAP_FAILED)
-        throw std::system_error(errno, std::system_category(), "mmap");
+        throw std::system_error{errno, std::system_category(), "mmap"};
       const auto rawaddr = reinterpret_cast<uintptr_t>(raw);
-      const size_t prefix =
+      const auto prefix =
           (hugepage_size - (rawaddr % hugepage_size)) % hugepage_size;
       base_ = raw + prefix;
       if (prefix > 0) ::munmap(raw, prefix);
-      const size_t suffix = reserve_size - prefix - slab_size;
+      const auto suffix = reserve_size - prefix - slab_size;
       if (suffix > 0) ::munmap(base_ + slab_size, suffix);
       // Attempt to enable huge page backing on the aligned region. This is a
       // best-effort optimization; if it fails, we still have a correctly sized
@@ -297,7 +297,7 @@ public:
   //   - in-flight read bytes would exceed `read_throttle_size`.
   // Thread-safe.
   [[nodiscard]] buffer borrow_reader(block_size sz = block_size::kb004) {
-    std::scoped_lock lock{mutex_};
+    std::scoped_lock lock(mutex_);
     const auto len = *sz;
     if (available_bytes_ < write_reserve_size + len) return {};
     if (in_flight_read_bytes_ + len > read_throttle_size) return {};
@@ -312,7 +312,7 @@ public:
   // may draw from the write reserve. Returns an empty buffer if fully
   // exhausted. Thread-safe.
   [[nodiscard]] buffer borrow_writer(block_size sz = block_size::kb004) {
-    std::scoped_lock lock{mutex_};
+    std::scoped_lock lock(mutex_);
     span_t s{alloc_block(*sz), *sz};
     if (!s.data()) return {};
     available_bytes_ -= s.size();
@@ -321,7 +321,7 @@ public:
 
   // Total free bytes currently in the pool. Thread-safe.
   [[nodiscard]] size_t available() const noexcept {
-    std::scoped_lock lock{mutex_};
+    std::scoped_lock lock(mutex_);
     return available_bytes_;
   }
 
@@ -331,7 +331,7 @@ private:
   [[nodiscard]] bool
   return_buffer(span_t s, block_type blockrw) noexcept override {
     if (!s.data()) return false;
-    if (std::scoped_lock lock{mutex_}; true) {
+    if (std::scoped_lock lock(mutex_); true) {
       assert(available_bytes_ + s.size() <= slab_size);
       (void)return_block(s.data(), s.size());
       available_bytes_ += s.size();
@@ -358,7 +358,8 @@ private:
 
   // Assign tier sizes and push a single full-size block to the top tier.
   void init_free_lists() noexcept {
-    for (size_t i = 0; i < tier_count; ++i) lists_[i].sz = min_block_size << i;
+    for (auto ndx = 0UZ; ndx < tier_count; ++ndx)
+      lists_[ndx].sz = min_block_size << ndx;
     available_bytes_ = slab_size;
     lists_.back().push_head(base_);
   }
@@ -370,17 +371,18 @@ private:
 
   // Mark pages as externally allocated (`in_use==true`) or free.
   void mark_pages(cptr p, size_t sz, bool in_use) noexcept {
-    const size_t first = find_page_index(p);
-    const size_t count = sz / min_block_size;
-    for (size_t i = 0; i < count; ++i) in_use_pages_[first + i] = in_use;
+    const auto first = find_page_index(p);
+    const auto count = sz / min_block_size;
+    for (auto ndx = 0UZ; ndx < count; ++ndx)
+      in_use_pages_[first + ndx] = in_use;
   }
 
   // True if no page in `[p, p+sz)` is currently allocated externally.
   [[nodiscard]] bool are_all_free(cptr p, size_t sz) const noexcept {
-    const size_t first = find_page_index(p);
-    const size_t count = sz / min_block_size;
-    for (size_t i = 0; i < count; ++i)
-      if (in_use_pages_[first + i]) return false;
+    const auto first = find_page_index(p);
+    const auto count = sz / min_block_size;
+    for (auto ndx = 0UZ; ndx < count; ++ndx)
+      if (in_use_pages_[first + ndx]) return false;
     return true;
   }
 
@@ -448,7 +450,7 @@ private:
     }
 
     // Bottom-up: cascade coalesce from tier 0 upward to fill the target.
-    for (size_t t = 1; t <= tier; ++t) {
+    for (auto t = 1UZ; t <= tier; ++t) {
       while (coalesce(lists_[t - 1], lists_[t]))
         if (lists_[tier]) return true;
     }
@@ -459,7 +461,7 @@ private:
   // exhausted for that size class, even after splitting or coalescing. Caller
   // holds `mutex_`.
   [[nodiscard]] ptr alloc_block(size_t sz) noexcept {
-    const size_t tier = find_tier(sz);
+    const auto tier = find_tier(sz);
     if (tier >= tier_count || !ensure_tier(tier)) return nullptr;
     ptr p = lists_[tier].pop_head();
     if (p) mark_pages(p, lists_[tier].sz, true);

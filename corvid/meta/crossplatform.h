@@ -91,4 +91,22 @@ namespace corvid { inline namespace meta { inline namespace crossplatform {
 #endif
 
 #pragma endregion
+#pragma region Integer widths
+
+// Whether the compiler has the 128-bit integer types, `__uint128_t` and
+// `__int128_t`. GCC and Clang do, on 64-bit targets; MSVC has no equivalent.
+//
+// Note that the type existing is not the same as the standard library
+// recognizing it. libstdc++ reports `__uint128_t` as non-integral outside GNU
+// mode, so a strict `-std=c++23` build there has
+// `std::unsigned_integral<__uint128_t>` false, while Clang's library says
+// true. Detect the type with this macro and name it explicitly in a concept;
+// do not ask the standard traits whether it exists.
+#ifdef __SIZEOF_INT128__
+#define CORVID_HAS_INT128 1
+#else
+#define CORVID_HAS_INT128 0
+#endif
+
+#pragma endregion
 }}} // namespace corvid::meta::crossplatform

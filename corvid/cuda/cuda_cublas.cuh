@@ -88,7 +88,7 @@ public:
   }
 
 private:
-  cublas_status value_;
+  cublas_status value_{};
 };
 
 #pragma endregion
@@ -155,7 +155,7 @@ public:
 #pragma region Helpers
 private:
   static cublasHandle_t create() {
-    cublasHandle_t handle;
+    cublasHandle_t handle{};
     if (!cublas_last_status{cublasCreate(&handle)}.ok()) return nullptr;
     return handle;
   }

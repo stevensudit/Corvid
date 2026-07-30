@@ -282,7 +282,7 @@ struct http3_field {
 // A collection of HTTP fields, with support for the QPACK token lookups.
 class http3_headers {
 public:
-  static constexpr size_t npos = static_cast<size_t>(-1);
+  static constexpr auto npos = static_cast<size_t>(-1);
 
 #pragma region Construction
 
@@ -330,7 +330,7 @@ public:
   template<std::same_as<std::string> S>
   size_t set_value(header_name_and_enum key, S&& value,
       nv_flags flags = nv_flags::none) {
-    size_t ndx = find_next(key, 0);
+    const auto ndx = find_next(key, 0);
     // NOLINTBEGIN(bugprone-move-forwarding-reference)
     if (ndx == npos) return add(key, std::move(value), flags);
     auto& field = fields_[ndx];
@@ -344,7 +344,7 @@ public:
   auto find(this auto& self, header_name_and_enum key) noexcept
       -> decltype(self.fields_.data()) {
     const auto ndx = self.find_next(key, 0);
-    return ndx != npos ? &self.fields_[ndx] : nullptr;
+    return (ndx != npos) ? &self.fields_[ndx] : nullptr;
   }
 
   // Find the unique field with the given name or token, or `nullptr` if none
@@ -359,8 +359,8 @@ public:
 
   // Count the number of fields with the given name or token.
   [[nodiscard]] size_t count(header_name_and_enum key) const noexcept {
-    size_t count{0};
-    for (size_t ndx = find_next(key, 0); ndx != npos;
+    size_t count{};
+    for (auto ndx = find_next(key, 0); ndx != npos;
         ndx = find_next(key, ndx + 1))
       ++count;
     return count;
@@ -371,11 +371,11 @@ public:
   [[nodiscard]] size_t
   find_next(header_name_and_enum key, size_t start) const noexcept {
     if (auto token = key.as_enum(); token != qpack_token::unknown) {
-      for (size_t ndx = start; ndx < fields_.size(); ++ndx)
+      for (auto ndx = start; ndx < fields_.size(); ++ndx)
         if (fields_[ndx].token == token) return ndx;
     } else {
       const auto name = std::string_view{key};
-      for (size_t ndx = start; ndx < fields_.size(); ++ndx)
+      for (auto ndx = start; ndx < fields_.size(); ++ndx)
         if (fields_[ndx].name == name) return ndx;
     }
     return npos;

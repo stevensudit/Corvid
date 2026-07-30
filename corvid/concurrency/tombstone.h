@@ -89,7 +89,7 @@ public:
   // Returns true if the value was changed, false if it was already `v` or the
   // tombstone is dead.
   [[nodiscard]] bool try_set(value_type v) noexcept {
-    value_type expected = value_.load(std::memory_order::acquire);
+    auto expected = value_.load(std::memory_order::acquire);
     while (expected != final_v && expected != v) {
       if (value_.compare_exchange_weak(expected, v, std::memory_order::acq_rel,
               std::memory_order::acquire))
@@ -107,7 +107,7 @@ public:
 
   // Decrement if not dead.
   tombstone_of& operator--() noexcept {
-    value_type expected = value_.load(std::memory_order::acquire);
+    auto expected = value_.load(std::memory_order::acquire);
     while (expected != final_v) {
       if (value_.compare_exchange_weak(expected, expected - 1,
               std::memory_order::acq_rel, std::memory_order::acquire))
@@ -118,7 +118,7 @@ public:
 
   // Increment if not dead.
   tombstone_of& operator++() noexcept {
-    value_type expected = value_.load(std::memory_order::acquire);
+    auto expected = value_.load(std::memory_order::acquire);
     while (expected != final_v) {
       if (value_.compare_exchange_weak(expected, expected + 1,
               std::memory_order::acq_rel, std::memory_order::acquire))

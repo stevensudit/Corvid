@@ -55,24 +55,24 @@ struct epoll_recv_buffer {
 
   // Start of unconsumed data. Updated by the parser via `consume`. Never
   // changed by the framework while a view is extant.
-  std::atomic_size_t begin{0};
+  std::atomic_size_t begin;
 
   // One-past the end of unconsumed data. Updated by the framework after
   // each recv, even while a view is extant.
-  std::atomic_size_t end{0};
+  std::atomic_size_t end;
 
   // System of record for `EPOLLIN` desire. Loop-thread-only (not atomic).
   // Consulted by `epoll_stream_conn::wants_read_events`. May start `false` on
   // connections that should not begin reading until explicitly armed (e.g.,
   // accepted sockets that inherit a disabled-reads listener).
-  bool reads_enabled{true};
+  bool reads_enabled = true;
 
   // True while an `epoll_recv_buffer_view` is live. Loop-thread-only. When
   // set, `handle_readable` still recvs into the buffer (extending `end`
   // atomically) but suppresses the `on_data` dispatch. The in-flight parser
   // holds the view and will observe new bytes on its next `active_view`
   // call.
-  bool view_active{false};
+  bool view_active{};
 
   // Minimum capacity to maintain when compacting. This is used to avoid
   // repeatedly enlarging and shrinking the buffer when parsing frames of
@@ -100,8 +100,8 @@ struct epoll_recv_buffer {
   // (unconsumed) region. More data may arrive after this call and extend
   // `end`; subsequent calls may therefore return a larger region.
   [[nodiscard]] std::string_view active() const {
-    const size_t b = begin.load(std::memory_order::acquire);
-    const size_t e = end.load(std::memory_order::acquire);
+    const auto b = begin.load(std::memory_order::acquire);
+    const auto e = end.load(std::memory_order::acquire);
     assert(b <= e);
     return {buffer.data() + b, e - b};
   }
@@ -137,17 +137,17 @@ struct epoll_recv_buffer {
   //
   // Only safe to call within the polling thread (which can't be asserted on
   // here) and when no `epoll_recv_buffer_view` is live.
-  void compact(size_t target = 0) {
+  void compact(size_t target = {}) {
     assert(!view_active);
-    const size_t b = begin.load(std::memory_order::relaxed);
-    const size_t e = end.load(std::memory_order::relaxed);
+    const auto b = begin.load(std::memory_order::relaxed);
+    const auto e = end.load(std::memory_order::relaxed);
     assert(e >= b); // `end` can never precede `begin`
-    const size_t active_len = e - b;
+    const auto active_len = e - b;
 
     // Determine the effective resize target.
-    const size_t configured = min_capacity;
-    const size_t current = buffer.capacity();
-    size_t new_size = current;
+    const size_t configured{min_capacity};
+    const auto current = buffer.capacity();
+    auto new_size = current;
 
     // When no target is specified, shrinking is possible.
     if (target == 0) {
@@ -185,8 +185,8 @@ struct epoll_recv_buffer {
       // at the cost of a small amount of imprecision when `current` is not
       // divisible by 4. As this is a heuristic anyway, and sizes are quite
       // likely powers of two, this is fine.
-      const bool must = (e == current && b > 0);
-      const bool worth_it = (b > current / 4 && e > current / 4 * 3);
+      const auto must = (e == current) && (b > 0);
+      const auto worth_it = (b > current / 4) && (e > current / 4 * 3);
       if (!must && !worth_it) return;
       std::memmove(buffer.data(), buffer.data() + b, active_len);
     }
@@ -317,8 +317,8 @@ public:
   // Subsequent calls may return a larger view as the framework appends more.
   [[nodiscard]] std::string_view active_view() const {
     assert(buf_);
-    const size_t b = buf_->begin.load(std::memory_order::acquire);
-    const size_t e = buf_->end.load(std::memory_order::acquire);
+    const auto b = buf_->begin.load(std::memory_order::acquire);
+    const auto e = buf_->end.load(std::memory_order::acquire);
     assert(b <= e);
     last_seen_end_ = e;
     return {buf_->buffer.data() + b, e - b};
@@ -350,7 +350,7 @@ public:
   // observed via `active_view`.
   void consume(size_t n) {
     assert(buf_);
-    const size_t b = buf_->begin.load(std::memory_order::relaxed);
+    const auto b = buf_->begin.load(std::memory_order::relaxed);
     assert(last_seen_end_ >= b);
     n = std::min(n, last_seen_end_ - b);
     if (n > 0) buf_->begin.fetch_add(n, std::memory_order::release);
@@ -360,7 +360,7 @@ public:
   // snapshot after advancing it past parsed content.
   void update_active_view(std::string_view remaining) {
     assert(buf_);
-    const size_t b = buf_->begin.load(std::memory_order::relaxed);
+    const auto b = buf_->begin.load(std::memory_order::relaxed);
     const char* base = buf_->buffer.data() + b;
     assert(remaining.data() >= base);
     const auto consumed = static_cast<size_t>(remaining.data() - base);
@@ -378,15 +378,15 @@ public:
   // shrink the restored buffer.
   bool try_take_full(std::string& out, std::string_view& view) {
     assert(buf_);
-    const size_t b = buf_->begin.load(std::memory_order::relaxed);
-    const size_t e = buf_->end.load(std::memory_order::relaxed);
-    const size_t old_cap = buf_->buffer.size();
+    const auto b = buf_->begin.load(std::memory_order::relaxed);
+    const auto e = buf_->end.load(std::memory_order::relaxed);
+    const auto old_cap = buf_->buffer.size();
     if (e != old_cap) return false;
     buf_->buffer.swap(out);
     view = {out.data() + b, e - b};
     buf_->buffer.clear();
     no_zero{buf_->buffer}.enlarge_to_cap();
-    const size_t new_cap = buf_->buffer.size();
+    const auto new_cap = buf_->buffer.size();
     buf_->begin.store(0, std::memory_order::relaxed);
     buf_->end.store(0, std::memory_order::relaxed);
     last_seen_end_ = 0;
@@ -396,7 +396,7 @@ public:
 #pragma endregion
 #pragma region Data members
 private:
-  epoll_recv_buffer* buf_;                        // non-owning; nulled on move
+  epoll_recv_buffer* buf_{};                      // non-owning; nulled on move
   std::function<void(size_t, size_t)> resume_cb_; // keeps connection alive
   size_t new_buffer_size_{};       // 0 = no growth; set via `expand_to`
   mutable size_t last_seen_end_{}; // updated by `active_view`

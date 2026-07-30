@@ -43,7 +43,7 @@ public:
 #pragma region Construction
 
   constexpr hash_combiner() noexcept = default;
-  constexpr explicit hash_combiner(size_t seed) noexcept : seed_(seed) {}
+  constexpr explicit hash_combiner(size_t seed) noexcept : seed_{seed} {}
 
 #pragma endregion
 #pragma region Accessors
@@ -79,7 +79,7 @@ public:
 #pragma endregion
 #pragma region Data members
 private:
-  size_t seed_ = 0;
+  size_t seed_{};
 
 #pragma endregion
 };
@@ -95,7 +95,7 @@ private:
 template<typename... Ts>
 [[nodiscard]] constexpr size_t combined_hash(const Ts&... values) noexcept(
     (noexcept(std::hash<Ts>{}(values)) && ...)) {
-  auto combiner = hash_combiner{};
+  hash_combiner combiner;
   combiner.combine_all(values...);
   return combiner.value();
 }

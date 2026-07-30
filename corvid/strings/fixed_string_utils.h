@@ -49,10 +49,10 @@ consteval auto fixed_split() {
 
   auto w = whole;
   constexpr auto ws = WS.view();
-  for (size_t i = 0; i != result.size(); ++i) {
+  for (auto ndx = 0UZ; ndx != result.size(); ++ndx) {
     auto pos = w.find_first_of(delim);
-    result[i] = w.substr(0, pos);
-    if (ws.size()) result[i] = strings::trim(result[i], ws);
+    result[ndx] = w.substr(0, pos);
+    if (ws.size()) result[ndx] = strings::trim(result[ndx], ws);
     // When npos, substr goes to end, so this works fine.
     w = w.substr(pos + 1);
   }
@@ -81,9 +81,9 @@ consteval auto fixed_split_trim() {
 // turning a comma-delimited list into a null-delimited one.
 template<meta::fixed_string W, char F, char T>
 consteval auto fixed_replaced() {
-  constexpr size_t n = W.size();
+  constexpr auto n = W.size();
   char buf[n + 1]{};
-  for (size_t ndx = 0; ndx != n; ++ndx) buf[ndx] = W[ndx] == F ? T : W[ndx];
+  for (auto ndx = 0UZ; ndx != n; ++ndx) buf[ndx] = W[ndx] == F ? T : W[ndx];
   return meta::basic_fixed_string{buf, std::integral_constant<size_t, n>{}};
 }
 

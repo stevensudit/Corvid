@@ -55,7 +55,8 @@ TEST_CASE("ModifyAndNotify", "[Notifiable]") {
   // `modify_and_notify`: waiter unblocks once value exceeds threshold.
   notifiable<int> counter{0};
   std::thread t{[&] {
-    for (int i = 0; i < 5; ++i) counter.modify_and_notify([](int& v) { ++v; });
+    for (auto ndx = 0; ndx < 5; ++ndx)
+      counter.modify_and_notify([](int& v) { ++v; });
   }};
   auto v = counter.wait_until([](int n) { return n >= 5; });
   CHECK(v == 5);
@@ -173,7 +174,7 @@ TEST_CASE("Atomic", "[Notifiable]") {
   if (true) {
     notifiable<std::atomic<int>> counter{0};
     std::thread t{[&] {
-      for (int i = 0; i < 5; ++i)
+      for (auto ndx = 0; ndx < 5; ++ndx)
         counter.modify_and_notify([](std::atomic<int>& v) { ++v; });
     }};
     auto v = counter.wait_until([](const std::atomic<int>& n) {
@@ -328,7 +329,7 @@ TEST_CASE("RelaxedAtomic", "[Notifiable]") {
   if (true) {
     notifiable<relaxed_atomic<int>> counter{0};
     std::thread t{[&] {
-      for (int i = 0; i < 5; ++i)
+      for (auto ndx = 0; ndx < 5; ++ndx)
         counter.modify_and_notify([](relaxed_atomic<int>& v) {
           ++v.underlying();
         });

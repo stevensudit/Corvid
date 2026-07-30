@@ -167,7 +167,7 @@ TEST_CASE("TaggedPassthrough", "[tagged_string_view]") {
     CHECK(pad.find_last_not_of(' ') == 2U);
   }
   SECTION("copy") {
-    char buf[6] = {};
+    char buf[6]{};
     auto n = a.copy(buf, 5);
     CHECK(n == 5U);
     CHECK(std::string_view(buf, 5) == "hello");

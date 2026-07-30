@@ -1408,7 +1408,7 @@ TEST_CASE("SmallId", "[StableId]") {
   // Fill to capacity: 255 elements occupy every ID from 0 to 254.
   if (true) {
     V v;
-    for (int i = 0; i < 255; ++i) (void)v.push_back(i);
+    for (auto ndx = 0; ndx < 255; ++ndx) (void)v.push_back(ndx);
     CHECK(v.size() == 255U);
     CHECK(v[id_t{0}] == 0);
     CHECK(v[id_t{127}] == 127);
@@ -1418,7 +1418,7 @@ TEST_CASE("SmallId", "[StableId]") {
   // The 256th insertion exceeds the limit; container size is unchanged.
   if (true) {
     V v;
-    for (int i = 0; i < 255; ++i) (void)v.push_back(i);
+    for (auto ndx = 0; ndx < 255; ++ndx) (void)v.push_back(ndx);
     CHECK(v.size() == 255U);
     CHECK_THROWS_AS(v.push_back(999), std::out_of_range);
     CHECK(v.size() == 255U);
@@ -1428,7 +1428,7 @@ TEST_CASE("SmallId", "[StableId]") {
   // reuse the container is full again and the next insertion overflows.
   if (true) {
     V v;
-    for (int i = 0; i < 255; ++i) (void)v.push_back(i);
+    for (auto ndx = 0; ndx < 255; ++ndx) (void)v.push_back(ndx);
     auto h100 = v.get_handle(id_t{100});
 
     v.erase(id_t{100});
@@ -1478,7 +1478,7 @@ TEST_CASE("NoThrow", "[StableId]") {
   if (true) {
     V v;
     v.throw_on_insert_failure(on_failure::ignore);
-    for (int i = 0; i < 255; ++i) (void)v.push_back(i);
+    for (auto ndx = 0; ndx < 255; ++ndx) (void)v.push_back(ndx);
     CHECK(v.size() == 255U);
 
     auto id = v.push_back(999);
@@ -1490,7 +1490,7 @@ TEST_CASE("NoThrow", "[StableId]") {
   if (true) {
     V v;
     v.throw_on_insert_failure(on_failure::ignore);
-    for (int i = 0; i < 255; ++i) (void)v.emplace_back(i);
+    for (auto ndx = 0; ndx < 255; ++ndx) (void)v.emplace_back(ndx);
     CHECK(v.size() == 255U);
 
     auto id = v.emplace_back(999);
@@ -1502,7 +1502,7 @@ TEST_CASE("NoThrow", "[StableId]") {
   if (true) {
     V v;
     v.throw_on_insert_failure(on_failure::ignore);
-    for (int i = 0; i < 255; ++i) (void)v.push_back(i);
+    for (auto ndx = 0; ndx < 255; ++ndx) (void)v.push_back(ndx);
     CHECK(v.push_back(999) == id_t::invalid);
 
     v.throw_on_insert_failure(on_failure::raise);
@@ -1515,7 +1515,7 @@ TEST_CASE("NoThrow", "[StableId]") {
   if (true) {
     V v;
     v.throw_on_insert_failure(on_failure::ignore);
-    for (int i = 0; i < 255; ++i) (void)v.push_back(i);
+    for (auto ndx = 0; ndx < 255; ++ndx) (void)v.push_back(ndx);
 
     v.erase(id_t{50});
     CHECK(v.size() == 254U);
@@ -1762,7 +1762,7 @@ TEST_CASE("Fifo", "[StableId]") {
     using SV = int_stable_small_ids_fifo;
     using sid_t = SV::id_t;
     SV v;
-    for (int i = 0; i < 255; ++i) (void)v.push_back(i);
+    for (auto ndx = 0; ndx < 255; ++ndx) (void)v.push_back(ndx);
     CHECK(v.size() == 255U);
     v.erase(sid_t{10});
     v.erase(sid_t{20});
@@ -3744,7 +3744,8 @@ TEST_CASE("ChunkBoundary", "[ChunkedArchetypeStorage]") {
 
   auto make_ids = [&](reg_t& r, int n) {
     std::vector<reg_t::id_t> ids;
-    for (int i = 0; i < n; ++i) ids.push_back(r.create_id(staging, i * 10));
+    for (auto ndx = 0; ndx < n; ++ndx)
+      ids.push_back(r.create_id(staging, ndx * 10));
     return ids;
   };
 
@@ -3753,11 +3754,12 @@ TEST_CASE("ChunkBoundary", "[ChunkedArchetypeStorage]") {
     reg_t r;
     arch_t a{r, sid};
     auto ids = make_ids(r, 4);
-    for (int i = 0; i < 4; ++i) CHECK(a.add(ids[i], i + 1, float(i)));
+    for (auto ndx = 0; ndx < 4; ++ndx)
+      CHECK(a.add(ids[ndx], ndx + 1, float(ndx)));
     CHECK(a.size() == 4U);
-    for (int i = 0; i < 4; ++i) {
-      CHECK(a[ids[i]].component<int>() == (i + 1));
-      CHECK(r.get_location(ids[i]).ndx == size_t(i));
+    for (auto ndx = 0; ndx < 4; ++ndx) {
+      CHECK(a[ids[ndx]].component<int>() == (ndx + 1));
+      CHECK(r.get_location(ids[ndx]).ndx == size_t(ndx));
     }
   }
 
@@ -3766,7 +3768,8 @@ TEST_CASE("ChunkBoundary", "[ChunkedArchetypeStorage]") {
     reg_t r;
     arch_t a{r, sid};
     auto ids = make_ids(r, 5);
-    for (int i = 0; i < 5; ++i) CHECK(a.add(ids[i], i + 1, float(i)));
+    for (auto ndx = 0; ndx < 5; ++ndx)
+      CHECK(a.add(ids[ndx], ndx + 1, float(ndx)));
     CHECK(a.size() == 5U);
     CHECK(a[ids[4]].component<int>() == 5);
     CHECK(r.get_location(ids[4]).ndx == 4U);
@@ -3777,13 +3780,13 @@ TEST_CASE("ChunkBoundary", "[ChunkedArchetypeStorage]") {
     reg_t r;
     arch_t a{r, sid};
     auto ids = make_ids(r, 5);
-    for (int i = 0; i < 5; ++i) CHECK(a.add(ids[i], i, float(i)));
+    for (auto ndx = 0; ndx < 5; ++ndx) CHECK(a.add(ids[ndx], ndx, float(ndx)));
     CHECK(a.erase(ids[4])); // removes slot 0 of chunk 1
     CHECK(a.size() == 4U);
     // Remaining entities are all in chunk 0; indices 0-3 intact.
-    for (int i = 0; i < 4; ++i) {
-      CHECK(a.contains(ids[i]));
-      CHECK(r.get_location(ids[i]).ndx == size_t(i));
+    for (auto ndx = 0; ndx < 4; ++ndx) {
+      CHECK(a.contains(ids[ndx]));
+      CHECK(r.get_location(ids[ndx]).ndx == size_t(ndx));
     }
   }
 
@@ -3793,7 +3796,8 @@ TEST_CASE("ChunkBoundary", "[ChunkedArchetypeStorage]") {
     reg_t r;
     arch_t a{r, sid};
     auto ids = make_ids(r, 5);
-    for (int i = 0; i < 5; ++i) CHECK(a.add(ids[i], i * 10, float(i)));
+    for (auto ndx = 0; ndx < 5; ++ndx)
+      CHECK(a.add(ids[ndx], ndx * 10, float(ndx)));
     // Remove ids[0] (index 0); ids[4] (index 4, chunk 1 slot 0) swaps in.
     CHECK(a.erase(ids[0]));
     CHECK(a.size() == 4U);
@@ -3810,7 +3814,7 @@ TEST_CASE("ChunkBoundary", "[ChunkedArchetypeStorage]") {
     reg_t r;
     arch_t a{r, sid};
     auto ids = make_ids(r, 6);
-    for (int i = 0; i < 6; ++i) CHECK(a.add(ids[i], i, float(i)));
+    for (auto ndx = 0; ndx < 6; ++ndx) CHECK(a.add(ids[ndx], ndx, float(ndx)));
     // Remove ids[4] (index 4, chunk 1 slot 0); ids[5] (index 5, slot 1)
     // swaps in. Size becomes 5; chunk 1 still has one occupant at slot 0.
     CHECK(a.erase(ids[4]));
@@ -3825,7 +3829,8 @@ TEST_CASE("ChunkBoundary", "[ChunkedArchetypeStorage]") {
     reg_t r;
     arch_t a{r, sid};
     auto ids = make_ids(r, 7);
-    for (int i = 0; i < 7; ++i) CHECK(a.add(ids[i], i + 1, float(i)));
+    for (auto ndx = 0; ndx < 7; ++ndx)
+      CHECK(a.add(ids[ndx], ndx + 1, float(ndx)));
     int sum = 0;
     for (auto row : a) sum += row.component<int>();
     CHECK(sum == 28); // 1+2+3+4+5+6+7
@@ -3837,7 +3842,7 @@ TEST_CASE("ChunkBoundary", "[ChunkedArchetypeStorage]") {
     reg_t r;
     arch_t a{r, sid};
     auto ids = make_ids(r, 6);
-    for (int i = 0; i < 6; ++i) CHECK(a.add(ids[i], i, float(i)));
+    for (auto ndx = 0; ndx < 6; ++ndx) CHECK(a.add(ids[ndx], ndx, float(ndx)));
     // Erase even-valued ints: 0 (idx 0), 2 (idx 2), 4 (idx 4).
     auto cnt = a.erase_if([](const auto& row) {
       return row.template component<int>() % 2 == 0;

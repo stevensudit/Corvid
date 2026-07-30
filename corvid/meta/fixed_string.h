@@ -68,14 +68,14 @@ struct basic_fixed_string {
   // literal length, less the terminator.
   constexpr explicit(false)
       basic_fixed_string(const char_t (&txt)[N + 1]) noexcept {
-    for (size_t ndx = 0; ndx != N; ++ndx) do_not_use[ndx] = txt[ndx];
+    for (auto ndx = 0UZ; ndx != N; ++ndx) do_not_use[ndx] = txt[ndx];
   }
 
   // Construct from a pointer when there is no array to bind to, with `N`
   // carried as a compile-time tag.
   constexpr basic_fixed_string(const char_t* ptr,
       std::integral_constant<size_t, N>) noexcept {
-    for (size_t ndx = 0; ndx != N; ++ndx) do_not_use[ndx] = ptr[ndx];
+    for (auto ndx = 0UZ; ndx != N; ++ndx) do_not_use[ndx] = ptr[ndx];
   }
 
   // Construct from exactly `N` characters.
@@ -145,8 +145,8 @@ struct basic_fixed_string {
   operator+(const basic_fixed_string& lhs,
       const basic_fixed_string<CharT, N2>& rhs) noexcept {
     CharT buf[N + N2 + 1]{};
-    for (size_t ndx = 0; ndx != N; ++ndx) buf[ndx] = lhs.do_not_use[ndx];
-    for (size_t ndx = 0; ndx != N2; ++ndx) buf[N + ndx] = rhs.do_not_use[ndx];
+    for (auto ndx = 0UZ; ndx != N; ++ndx) buf[ndx] = lhs.do_not_use[ndx];
+    for (auto ndx = 0UZ; ndx != N2; ++ndx) buf[N + ndx] = rhs.do_not_use[ndx];
     return basic_fixed_string<CharT, N + N2>{buf,
         std::integral_constant<size_t, N + N2>{}};
   }

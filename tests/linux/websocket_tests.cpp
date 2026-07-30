@@ -930,7 +930,7 @@ TEST_CASE("FrameWrapper_CopyTo", "[WebSocket]") {
 // exercising `mask_key` and the mutable `variable_section` accessor.
 TEST_CASE("FrameWrapper_MaskPayloadInPlace", "[WebSocket]") {
   const std::string payload{"hello"};
-  const uint32_t key = 0xDEADBEEF;
+  const uint32_t key{0xDEADBEEF};
   std::string frame = ws_frame_lens::serialize_frame(
       ws_frame_control::fin | ws_frame_control::text, payload, key);
 
@@ -974,7 +974,7 @@ TEST_CASE("FrameWrapper_MaskPayloadCopyByteOrder", "[WebSocket]") {
   // `build` stores mask_ in host order and writes hton32(mask_) to the frame.
   // To get frame bytes [0x37, 0xfa, 0x21, 0x3d] on a little-endian host,
   // hton32(mask_val) must equal 0x3d21fa37, so mask_val = 0x37fa213d.
-  const uint32_t mask_val = 0x37FA213D;
+  const uint32_t mask_val{0x37FA213D};
 
   // Short payload: exercises only the straggler loop (n < 8).
   {

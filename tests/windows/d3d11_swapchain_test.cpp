@@ -20,7 +20,7 @@ struct flag_case {
   std::string_view name;
 };
 
-constexpr flag_case flag_cases[] = {
+constexpr flag_case flag_cases[]{
     {d3d11_bind_flag::vertex_buffer, "vertex_buffer"},
     {d3d11_bind_flag::index_buffer, "index_buffer"},
     {d3d11_bind_flag::constant_buffer, "constant_buffer"},

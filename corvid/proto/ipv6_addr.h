@@ -28,6 +28,7 @@
 
 #include <netinet/in.h>
 
+#include "../math/arithmetic.h"
 #include "../strings/conversion.h"
 #include "ipv4_addr.h"
 
@@ -63,13 +64,16 @@ public:
   // first), e.g., `ipv6_addr{0x2001, 0xdb8, 0, 0, 0, 0, 0, 1}`.
   constexpr ipv6_addr(uint16_t a, uint16_t b, uint16_t c, uint16_t d,
       uint16_t e, uint16_t f, uint16_t g, uint16_t h) noexcept
-      : bytes_{uint8_t(a >> 8), uint8_t(a), uint8_t(b >> 8), uint8_t(b),
-            uint8_t(c >> 8), uint8_t(c), uint8_t(d >> 8), uint8_t(d),
-            uint8_t(e >> 8), uint8_t(e), uint8_t(f >> 8), uint8_t(f),
-            uint8_t(g >> 8), uint8_t(g), uint8_t(h >> 8), uint8_t(h)} {}
+      : bytes_{extract_byte<1>(a), extract_byte<0>(a), extract_byte<1>(b),
+            extract_byte<0>(b), extract_byte<1>(c), extract_byte<0>(c),
+            extract_byte<1>(d), extract_byte<0>(d), extract_byte<1>(e),
+            extract_byte<0>(e), extract_byte<1>(f), extract_byte<0>(f),
+            extract_byte<1>(g), extract_byte<0>(g), extract_byte<1>(h),
+            extract_byte<0>(h)} {}
 
   // Construct from the raw bytes in network order.
-  explicit constexpr ipv6_addr(byte_array bytes) noexcept : bytes_{bytes} {}
+  explicit constexpr ipv6_addr(const byte_array& bytes) noexcept
+      : bytes_{bytes} {}
 
   // Construct from a colon-hex string (e.g., "2001:db8::1").
   //
@@ -81,14 +85,7 @@ public:
   }
 
   constexpr explicit ipv6_addr(const in6_addr& a) noexcept
-      : bytes_{uint8_t(a.s6_addr[0]), uint8_t(a.s6_addr[1]),
-            uint8_t(a.s6_addr[2]), uint8_t(a.s6_addr[3]),
-            uint8_t(a.s6_addr[4]), uint8_t(a.s6_addr[5]),
-            uint8_t(a.s6_addr[6]), uint8_t(a.s6_addr[7]),
-            uint8_t(a.s6_addr[8]), uint8_t(a.s6_addr[9]),
-            uint8_t(a.s6_addr[10]), uint8_t(a.s6_addr[11]),
-            uint8_t(a.s6_addr[12]), uint8_t(a.s6_addr[13]),
-            uint8_t(a.s6_addr[14]), uint8_t(a.s6_addr[15])} {}
+      : bytes_{std::bit_cast<byte_array>(a)} {}
 
 #pragma endregion
 #pragma region Constants
@@ -117,8 +114,8 @@ public:
   [[nodiscard]] static constexpr std::optional<ipv6_addr> parse(
       std::string_view s) {
     word_array groups{};
-    size_t group_count = 0;
-    size_t double_colon = 8;
+    size_t group_count{};
+    auto double_colon = 8UZ;
 
     if (!do_parse_groups_loop(s, groups, group_count, double_colon))
       return std::nullopt;
@@ -177,14 +174,14 @@ public:
 
   // Format using lowercase hex with RFC 5952-style zero-run compression.
   [[nodiscard]] constexpr std::string to_string() const {
-    auto groups = words();
-    size_t best_start = 8;
-    size_t best_len = 0;
-    size_t cur_start = 0;
-    size_t cur_len = 0;
+    const auto groups = words();
+    auto best_start = 8UZ;
+    size_t best_len{};
+    size_t cur_start{};
+    size_t cur_len{};
 
     // Figure out how many empty groups to skip before we start.
-    for (size_t ndx = 0; ndx < 8; ++ndx) {
+    for (auto ndx = 0UZ; ndx < 8; ++ndx) {
       if (groups[ndx] == 0) {
         if (cur_len == 0) cur_start = ndx;
         ++cur_len;
@@ -204,7 +201,7 @@ public:
 
     std::string out;
     out.reserve(39); // Max length of an IPv6 address string.
-    for (size_t ndx = 0; ndx < 8; ++ndx) {
+    for (auto ndx = 0UZ; ndx < 8; ++ndx) {
       if (ndx == best_start) {
         out += "::";
         ndx += best_len - 1;
@@ -238,10 +235,8 @@ private:
     const auto ipv4 = ipv4_addr::parse(token);
     if (!ipv4) return false;
     const auto octets = ipv4->octets();
-    groups[group_count++] =
-        uint16_t((uint16_t(octets[0]) << 8) | uint16_t(octets[1]));
-    groups[group_count++] =
-        uint16_t((uint16_t(octets[2]) << 8) | uint16_t(octets[3]));
+    groups[group_count++] = combine_bytes(octets[1], octets[0]);
+    groups[group_count++] = combine_bytes(octets[3], octets[2]);
     return true;
   }
 
@@ -306,7 +301,7 @@ private:
   [[nodiscard]] static constexpr bool do_parse_groups_loop(std::string_view s,
       word_array& groups, size_t& group_count, size_t& double_colon) {
     if (s.empty()) return false;
-    size_t pos = 0;
+    size_t pos{};
     while (pos < s.size()) {
       if (s[pos] == ':') {
         if (!do_advance_double_colon(s, pos, group_count, double_colon))
@@ -330,19 +325,20 @@ private:
     if (double_colon == 8) return group_count == 8;
     if (group_count == 8) return false;
     const auto zeros = 8 - group_count;
-    for (size_t i = group_count; i > double_colon; --i)
-      groups[i + zeros - 1] = groups[i - 1];
-    for (size_t i = 0; i < zeros; ++i) groups[double_colon + i] = 0;
+    for (auto ndx = group_count; ndx > double_colon; --ndx)
+      groups[ndx + zeros - 1] = groups[ndx - 1];
+    for (auto ndx = 0UZ; ndx < zeros; ++ndx) groups[double_colon + ndx] = 0;
     return true;
   }
 
   [[nodiscard]] static constexpr std::optional<uint16_t>
   do_parse_group(std::string_view s, size_t& pos) noexcept {
     if (pos >= s.size() || !strings::is_hex_digit(s[pos])) return std::nullopt;
-    uint16_t value = 0;
-    size_t digits = 0;
+    uint16_t value{};
+    size_t digits{};
     while (pos < s.size() && strings::is_hex_digit(s[pos])) {
-      value = uint16_t((value << 4) | strings::hex_digit_value(s[pos]));
+      value = static_cast<uint16_t>(
+          (value << 4) | strings::hex_digit_value(s[pos]));
       ++pos;
       ++digits;
       if (digits > 4) return std::nullopt;
@@ -352,25 +348,28 @@ private:
 
   [[nodiscard]] static constexpr byte_array groups_to_bytes(
       const word_array& groups) noexcept {
-    return {uint8_t(groups[0] >> 8), uint8_t(groups[0]),
-        uint8_t(groups[1] >> 8), uint8_t(groups[1]), uint8_t(groups[2] >> 8),
-        uint8_t(groups[2]), uint8_t(groups[3] >> 8), uint8_t(groups[3]),
-        uint8_t(groups[4] >> 8), uint8_t(groups[4]), uint8_t(groups[5] >> 8),
-        uint8_t(groups[5]), uint8_t(groups[6] >> 8), uint8_t(groups[6]),
-        uint8_t(groups[7] >> 8), uint8_t(groups[7])};
+    return {extract_byte<1>(groups[0]), extract_byte<0>(groups[0]),
+        extract_byte<1>(groups[1]), extract_byte<0>(groups[1]),
+        extract_byte<1>(groups[2]), extract_byte<0>(groups[2]),
+        extract_byte<1>(groups[3]), extract_byte<0>(groups[3]),
+        extract_byte<1>(groups[4]), extract_byte<0>(groups[4]),
+        extract_byte<1>(groups[5]), extract_byte<0>(groups[5]),
+        extract_byte<1>(groups[6]), extract_byte<0>(groups[6]),
+        extract_byte<1>(groups[7]), extract_byte<0>(groups[7])};
   }
 
   [[nodiscard]] constexpr uint16_t word_at(size_t i) const noexcept {
-    return uint16_t((uint16_t(bytes_[2 * i]) << 8) | bytes_[(2 * i) + 1]);
+    return combine_bytes(bytes_[(2 * i) + 1], bytes_[2 * i]);
   }
 
   static constexpr void do_append_hex_group(std::string& out, uint16_t value) {
+    // Deliberately uninitialized: only the written cells are ever read.
     char buffer[4];
-    int len = 0;
+    int len{};
 
     do {
       buffer[len++] = strings::as_hex_lc_digit(value);
-      value = uint16_t(value >> 4);
+      value = static_cast<uint16_t>(value >> 4);
     } while (value != 0);
 
     while (len-- > 0) out += buffer[len];

@@ -41,10 +41,12 @@ concept relaxed_atomic_like = requires {
   typename T::value_type;
 } && T::is_relaxed_atomic::value;
 
-// Helper: the "plain" value type for `notifiable<T>`. For a non-atomic `T`
-// this is `T` itself; for `std::atomic<U>` or `relaxed_atomic<U>` it is `U`.
-// Implemented as partial specializations rather than `std::conditional_t` to
-// avoid eagerly instantiating `typename T::value_type` for non-atomic types.
+// Helper: the "plain" value type for `notifiable<T>`.
+//
+// For a non-atomic `T` this is `T` itself; for `std::atomic<U>` or
+// `relaxed_atomic<U>` it is `U`. Implemented as partial specializations rather
+// than `std::conditional_t` to avoid eagerly instantiating `typename
+// T::value_type` for non-atomic types.
 template<typename T>
 struct notifiable_result {
   using type = T;
@@ -144,8 +146,8 @@ public:
   // `notify_all` is called even if the move assignment throws, so waiters are
   // never left stuck.
   void notify(value_t val) {
-    auto on_exit = scope_exit{[&]() noexcept { cv_.notify_all(); }};
-    std::scoped_lock lock{mutex_};
+    scope_exit on_exit([&]() noexcept { cv_.notify_all(); });
+    std::scoped_lock lock(mutex_);
     value_ = std::move(val);
   }
 
@@ -155,8 +157,8 @@ public:
   // the change is single-consumer (though note that there is no guarantee that
   // the waiter will be woken before the value changes again).
   void notify_one(value_t val) {
-    auto on_exit = scope_exit{[&]() noexcept { cv_.notify_one(); }};
-    std::scoped_lock lock{mutex_};
+    scope_exit on_exit([&]() noexcept { cv_.notify_one(); });
+    std::scoped_lock lock(mutex_);
     value_ = std::move(val);
   }
 
@@ -168,8 +170,8 @@ public:
   // `notify_all` is called even if `modify_value` throws, so waiters are never
   // left stuck.
   void modify_and_notify(std::invocable<T&> auto modify_value) {
-    auto on_exit = scope_exit{[&]() noexcept { cv_.notify_all(); }};
-    std::scoped_lock lock{mutex_};
+    scope_exit on_exit([&]() noexcept { cv_.notify_all(); });
+    std::scoped_lock lock(mutex_);
     modify_value(value_);
   }
 
@@ -179,8 +181,8 @@ public:
   // waiter or the change is single-consumer (though note that there is no
   // guarantee that the waiter will be woken before the value changes again).
   void modify_and_notify_one(std::invocable<T&> auto modify_value) {
-    auto on_exit = scope_exit{[&]() noexcept { cv_.notify_one(); }};
-    std::scoped_lock lock{mutex_};
+    scope_exit on_exit([&]() noexcept { cv_.notify_one(); });
+    std::scoped_lock lock(mutex_);
     modify_value(value_);
   }
 
@@ -191,7 +193,7 @@ public:
   [[nodiscard]] T get() const
   requires(!details::atomic_like<T>)
   {
-    std::scoped_lock lock{mutex_};
+    std::scoped_lock lock(mutex_);
     return value_;
   }
 
@@ -214,7 +216,7 @@ public:
   // Block until `pred(value)` returns true; return the value at that point.
   template<std::predicate<const T&> Pred>
   [[nodiscard]] value_t wait_until(Pred pred) const {
-    std::unique_lock lock{mutex_};
+    std::unique_lock lock(mutex_);
     cv_.wait(lock, [&] { return pred(value_); });
     return do_load();
   }
@@ -240,7 +242,7 @@ public:
   // before-value via `get` before starting the notifying thread, then pass it
   // here.
   [[nodiscard]] value_t wait_until_changed() const {
-    std::unique_lock lock{mutex_};
+    std::unique_lock lock(mutex_);
     const auto old_value = do_load();
     cv_.wait(lock, [&] { return do_load() != old_value; });
     return do_load();
@@ -252,7 +254,7 @@ public:
   // notifying thread, ensuring the wait succeeds even if notification arrives
   // before this call is entered.
   [[nodiscard]] value_t wait_until_changed(value_t expected_old) const {
-    std::unique_lock lock{mutex_};
+    std::unique_lock lock(mutex_);
     cv_.wait(lock, [&] { return do_load() != expected_old; });
     return do_load();
   }
@@ -267,7 +269,7 @@ public:
   template<typename Rep, typename Period, std::predicate<const T&> Pred>
   [[nodiscard]] std::optional<value_t>
   wait_for(std::chrono::duration<Rep, Period> timeout, Pred pred) const {
-    std::unique_lock lock{mutex_};
+    std::unique_lock lock(mutex_);
     if (cv_.wait_for(lock, timeout, [&] { return pred(value_); }))
       return do_load();
     return std::nullopt;
@@ -294,7 +296,7 @@ public:
   template<typename Rep, typename Period>
   [[nodiscard]] std::optional<value_t>
   wait_for_changed(std::chrono::duration<Rep, Period> timeout) const {
-    std::unique_lock lock{mutex_};
+    std::unique_lock lock(mutex_);
     const auto old_value = do_load();
     if (cv_.wait_for(lock, timeout, [&] { return do_load() != old_value; }))
       return do_load();
@@ -309,7 +311,7 @@ public:
   template<typename Rep, typename Period>
   [[nodiscard]] std::optional<value_t> wait_for_changed(
       std::chrono::duration<Rep, Period> timeout, value_t expected_old) const {
-    std::unique_lock lock{mutex_};
+    std::unique_lock lock(mutex_);
     if (cv_.wait_for(lock, timeout, [&] { return do_load() != expected_old; }))
       return do_load();
     return std::nullopt;

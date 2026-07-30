@@ -100,7 +100,7 @@ public:
   using metadata_t = registry_t::metadata_t;
   using allocator_type = registry_t::allocator_type;
 
-  static constexpr size_t storage_count_v = sizeof...(STORES);
+  static constexpr auto storage_count_v = sizeof...(STORES);
 
   static_assert(sizeof...(STORES) >= 1,
       "archetype_scene requires at least one storage");
@@ -247,7 +247,7 @@ public:
   // slower.
   [[nodiscard]] handle_t store_new_entity_from_mega(const metadata_t& metadata,
       const megatuple_t& tpl) {
-    const bitmap_t bm = bitmap_of(tpl);
+    const auto bm = bitmap_of(tpl);
     for (const auto& [arch_bm, sid] : bitmap_table_v) {
       if (arch_bm == bm) {
         return dispatch_storage<handle_t>(
@@ -536,7 +536,7 @@ public:
   template<typename... Cs>
   void for_each(this auto& self, auto&& fn) {
     [&]<size_t... Is>(std::index_sequence<Is...>) {
-      bool cont = true;
+      auto cont = true;
       (
           [&](auto& storage) {
             if constexpr (has_all_components_v<
@@ -578,7 +578,7 @@ public:
         std::is_const_v<std::remove_reference_t<decltype(self)>>, const C, C>;
     if (!self.registry_.is_valid(id)) return nullptr;
     auto loc = self.registry_.get_location(id);
-    result_t* found = nullptr;
+    result_t* found{};
     [&]<size_t... Is>(std::index_sequence<Is...>) {
       (
           [&](auto& storage) {
@@ -616,13 +616,14 @@ public:
     using result_t = std::tuple<
         std::conditional_t<std::is_const_v<Self>, const Cs*, Cs*>...>;
 
-    const result_t missing{
+    // Default to missing.
+    result_t found{
         static_cast<std::conditional_t<std::is_const_v<Self>, const Cs*, Cs*>>(
             nullptr)...};
-    if (!self.registry_.is_valid(id)) return missing;
+    if (!self.registry_.is_valid(id)) return found;
 
     auto loc = self.registry_.get_location(id);
-    result_t found = missing;
+
     [&]<size_t... Is>(std::index_sequence<Is...>) {
       (
           [&](auto& storage) {
@@ -658,13 +659,14 @@ public:
     using result_t = std::tuple<
         std::conditional_t<std::is_const_v<Self>, const Cs*, Cs*>...>;
 
-    const result_t missing{
+    // Default to missing.
+    result_t found{
         static_cast<std::conditional_t<std::is_const_v<Self>, const Cs*, Cs*>>(
             nullptr)...};
-    if (!self.registry_.is_valid(id)) return missing;
+    if (!self.registry_.is_valid(id)) return found;
 
     auto loc = self.registry_.get_location(id);
-    result_t found = missing;
+
     [&]<size_t... Is>(std::index_sequence<Is...>) {
       (
           [&](auto& storage) {
@@ -773,7 +775,7 @@ private:
   template<typename T, size_t... Is>
   static consteval store_id_t
   find_sid_for_tuple(std::index_sequence<Is...>) noexcept {
-    store_id_t result = store_id_t::invalid;
+    auto result = store_id_t::invalid;
     (void)((std::is_same_v<T, typename std::tuple_element_t<Is,
                                   std::tuple<STORES...>>::tuple_t>
                    ? (result = store_id_t{Is + 1}, true)
@@ -811,9 +813,9 @@ private:
   // exactly once.
   template<typename R, typename F>
   R dispatch_storage(store_id_t store_id, F&& f, R fallback) {
-    R result = fallback;
+    auto result = fallback;
     [&]<size_t... Is>(std::index_sequence<Is...>) {
-      (void)((store_id == store_id_t{Is}
+      (void)(((store_id == store_id_t{Is})
                      ? (result = f(std::get<Is>(storages_)), true)
                      : false) ||
              ...);

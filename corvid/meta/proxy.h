@@ -412,9 +412,9 @@ enum class proxy_alloc : std::uint8_t {
 // handle's storage. One facade can serve proxies of different policies, and
 // views, simultaneously.
 struct proxy_policy {
-  size_t sbo_size{2 * sizeof(void*)};
-  size_t sbo_align{alignof(std::max_align_t)};
-  proxy_alloc alloc{proxy_alloc::sbo_or_heap};
+  size_t sbo_size = 2 * sizeof(void*);
+  size_t sbo_align = alignof(std::max_align_t);
+  proxy_alloc alloc = proxy_alloc::sbo_or_heap;
 
   friend constexpr bool
   operator==(const proxy_policy&, const proxy_policy&) = default;
@@ -455,8 +455,8 @@ inline_fit_guaranteed(proxy_policy to, proxy_policy from) noexcept {
 // allocation, or nowhere at all to put it under `sbo_only`), or a heap arrival
 // that must un-box into an `sbo_only` buffer it might not fit.
 consteval bool adopt_may_throw(proxy_policy to, proxy_policy from) noexcept {
-  const bool from_sbo = from.alloc != proxy_alloc::heap_only;
-  const bool from_heap = from.alloc != proxy_alloc::sbo_only;
+  const auto from_sbo = (from.alloc != proxy_alloc::heap_only);
+  const auto from_heap = (from.alloc != proxy_alloc::sbo_only);
   return (from_sbo && !inline_fit_guaranteed(to, from)) ||
          (from_heap && to.alloc == proxy_alloc::sbo_only);
 }
@@ -1000,8 +1000,8 @@ constexpr inline vtbuild_t<F>::owning_vtable_t owning_vtable_for =
 // and target: an owning table in an owning ancestry (which is also per
 // storage mode), a view table in a view ancestry.
 struct ancestor_entry {
-  const void* tag;
-  const void* table;
+  const void* tag{};
+  const void* table{};
 };
 
 // `ancestry_t`: type-erased view of a birth ancestry, the facade the target
@@ -1011,8 +1011,8 @@ struct ancestor_entry {
 // tables at an owning ancestry, view tables at a view ancestry; the
 // underlying tables are the statics below.
 struct ancestry_t {
-  const ancestor_entry* entries;
-  size_t count;
+  const ancestor_entry* entries{};
+  size_t count{};
 };
 
 // `find_ancestor`: the table of the ancestry member whose tag is `tag`, or
@@ -1023,7 +1023,7 @@ struct ancestry_t {
 // type.
 [[nodiscard]] constexpr const void*
 find_ancestor(const ancestry_t& ancestry, const void* tag) noexcept {
-  for (size_t ndx = 0; ndx != ancestry.count; ++ndx)
+  for (auto ndx = 0UZ; ndx != ancestry.count; ++ndx)
     if (ancestry.entries[ndx].tag == tag) return ancestry.entries[ndx].table;
   return nullptr;
 }
@@ -1152,7 +1152,7 @@ using retag_slots_t = retag_slots<B, Slots>::type;
 template<typename S, typename... Ss>
 consteval size_t first_index_of_type() noexcept {
   constexpr std::array<bool, sizeof...(Ss)> matches{std::same_as<S, Ss>...};
-  for (size_t ndx = 0; ndx != matches.size(); ++ndx)
+  for (auto ndx = 0UZ; ndx != matches.size(); ++ndx)
     if (matches[ndx]) return ndx;
   return sizeof...(Ss);
 }
@@ -1311,20 +1311,20 @@ struct entry_traits<name<Name>> {
   using chain_t = std::tuple<>;
 
   template<typename F, typename T>
-  static constexpr bool bound_v = true;
+  static constexpr auto bound_v = true;
 };
 
 // `entry_name`: facade name carried by one entry of a facade's list, empty for
 // every other entry kind.
 template<typename E>
 struct entry_name {
-  static constexpr fixed_string name_v{""};
-  static constexpr bool is_name_v = false;
+  static constexpr fixed_string name_v = "";
+  static constexpr bool is_name_v{};
 };
 template<fixed_string Name>
 struct entry_name<name<Name>> {
   static constexpr auto name_v = Name;
-  static constexpr bool is_name_v = true;
+  static constexpr auto is_name_v = true;
 };
 
 // `entry_listed_once`: whether entry `E` appears exactly once in the facade's
@@ -1434,14 +1434,14 @@ struct vtable_builder_impl<std::tuple<Ss...>, std::tuple<Bs...>, OwnName> {
 
   using flat_slots_t = std::tuple<Ss...>;
   static constexpr auto name_v = OwnName;
-  static constexpr size_t count_v = sizeof...(Ss);
-  static constexpr size_t base_count_v = sizeof...(Bs);
+  static constexpr auto count_v = sizeof...(Ss);
+  static constexpr auto base_count_v = sizeof...(Bs);
 
   // `none_v`, `ambiguous_v`: flag results of `resolve`, outside the valid
   // index range: no slot answers to the key, or more than one does and the
   // arguments do not single one out.
-  static constexpr size_t none_v = count_v;
-  static constexpr size_t ambiguous_v = count_v + 1;
+  static constexpr auto none_v = count_v;
+  static constexpr auto ambiguous_v = count_v + 1;
 
   // `base_t`: direct-base facade at index `Ndx`.
   template<size_t Ndx>
@@ -1475,7 +1475,7 @@ struct vtable_builder_impl<std::tuple<Ss...>, std::tuple<Bs...>, OwnName> {
   // views still carry no lifetime machinery.
   struct vtable_t {
     thunks_t thunks;
-    const ancestry_t* ancestry;
+    const ancestry_t* ancestry{};
     std::tuple<const typename vtbuild_t<Bs>::vtable_t*...> bases;
   };
 
@@ -1497,7 +1497,7 @@ struct vtable_builder_impl<std::tuple<Ss...>, std::tuple<Bs...>, OwnName> {
     constexpr std::array<bool, sizeof...(Bs)> matches{(
         std::same_as<B, Bs> ||
         vtbuild_t<Bs>::template extends_facade<B>())...};
-    for (size_t ndx = 0; ndx != matches.size(); ++ndx)
+    for (auto ndx = 0UZ; ndx != matches.size(); ++ndx)
       if (matches[ndx]) return ndx;
     return base_count_v;
   }
@@ -1524,9 +1524,8 @@ struct vtable_builder_impl<std::tuple<Ss...>, std::tuple<Bs...>, OwnName> {
     constexpr std::string_view k = Key.view();
     constexpr auto pos = k.find("::");
     constexpr auto qual =
-        pos == std::string_view::npos ? std::string_view{} : k.substr(0, pos);
-    constexpr auto base =
-        pos == std::string_view::npos ? k : k.substr(pos + 2);
+        (pos == k.npos) ? std::string_view{} : k.substr(0, pos);
+    constexpr auto base = (pos == k.npos) ? k : k.substr(pos + 2);
     if (S::name_v.view() != base) return false;
     if (qual.empty()) return true;
     constexpr auto owner = owner_name<S>();
@@ -1560,7 +1559,7 @@ struct vtable_builder_impl<std::tuple<Ss...>, std::tuple<Bs...>, OwnName> {
   // `both`: narrow flag set `a` by flag set `b`, elementwise.
   static consteval std::array<bool, count_v> both(std::array<bool, count_v> a,
       const std::array<bool, count_v>& b) noexcept {
-    for (size_t ndx = 0; ndx != count_v; ++ndx) a[ndx] = a[ndx] && b[ndx];
+    for (auto ndx = 0UZ; ndx != count_v; ++ndx) a[ndx] = a[ndx] && b[ndx];
     return a;
   }
 
@@ -1570,7 +1569,7 @@ struct vtable_builder_impl<std::tuple<Ss...>, std::tuple<Bs...>, OwnName> {
       const std::array<bool, count_v>& flags) noexcept {
     size_t cnt{};
     size_t at{none_v};
-    for (size_t ndx = 0; ndx != count_v; ++ndx)
+    for (auto ndx = 0UZ; ndx != count_v; ++ndx)
       if (flags[ndx]) {
         ++cnt;
         at = ndx;
@@ -1830,17 +1829,17 @@ struct vtable_builder<facade<Es...>>
   // facade it extends, which is what `try_downcast` searches.
   struct owning_vtable_t {
     vtable_t vt;
-    void (*destroy)(void*) noexcept;
-    void (*relocate)(void*, void*) noexcept;
-    void* (*copy)(const void*, void*);
-    void* (*to_heap)(void*);
-    void (*to_sbo)(void*, void*) noexcept;
-    const void* type_tag;
-    const owning_vtable_t* heap_table;
-    const owning_vtable_t* sbo_table;
-    size_t size;
-    size_t align;
-    const ancestry_t* ancestry;
+    void (*destroy)(void*) noexcept {};
+    void (*relocate)(void*, void*) noexcept {};
+    void* (*copy)(const void*, void*){};
+    void* (*to_heap)(void*){};
+    void (*to_sbo)(void*, void*) noexcept {};
+    const void* type_tag{};
+    const owning_vtable_t* heap_table{};
+    const owning_vtable_t* sbo_table{};
+    size_t size{};
+    size_t align{};
+    const ancestry_t* ancestry{};
     owning_bases_t bases;
   };
 
@@ -2977,9 +2976,11 @@ private:
   // `buf_size`, `buf_align`: a `heap_only` proxy shrinks the buffer to the
   // pointer it overlays, so the whole handle is two words, like a view.
   static constexpr size_t buf_size =
-      Policy.alloc == proxy_alloc::heap_only ? sizeof(void*) : Policy.sbo_size;
+      (Policy.alloc == proxy_alloc::heap_only)
+          ? sizeof(void*)
+          : Policy.sbo_size;
   static constexpr size_t buf_align =
-      Policy.alloc == proxy_alloc::heap_only
+      (Policy.alloc == proxy_alloc::heap_only)
           ? alignof(void*)
           : Policy.sbo_align;
 
@@ -3063,9 +3064,9 @@ private:
       vt->relocate(other.storage_.buf, storage_.buf);
       vtable_ = vt;
     } else {
-      const bool inline_ok =
-          Policy.alloc != proxy_alloc::heap_only && vt->size <= buf_size &&
-          vt->align <= buf_align;
+      const auto inline_ok =
+          (Policy.alloc != proxy_alloc::heap_only) && (vt->size <= buf_size) &&
+          (vt->align <= buf_align);
       if (inline_ok) {
         vt->relocate(other.storage_.buf, storage_.buf);
         vtable_ = vt;
@@ -3075,8 +3076,8 @@ private:
         storage_.ptr = vt->to_heap(other.storage_.buf);
         vtable_ = vt->heap_table;
       } else {
-        throw std::length_error(
-            "the target cannot be stored in an sbo_only proxy's buffer");
+        throw std::length_error{
+            "the target cannot be stored in an sbo_only proxy's buffer"};
       }
     }
   }
@@ -3094,14 +3095,17 @@ private:
       vtable_ = vt;
     } else {
       if (!vt->to_sbo || vt->size > buf_size || vt->align > buf_align)
-        throw std::length_error(
-            "the target cannot be stored in an sbo_only proxy's buffer");
+        throw std::length_error{
+            "the target cannot be stored in an sbo_only proxy's buffer"};
       // NOLINTNEXTLINE(clang-analyzer-core.CallAndMessage): see target
       vt->to_sbo(other.storage_.ptr, storage_.buf);
       vtable_ = vt->sbo_table;
     }
   }
 
+  // Deliberately no initializer: emptiness and the active member are keyed by
+  // `vtable_` (see `target`), and zeroing the buffer on every construction
+  // would be pure waste.
   storage_t storage_;
   const owning_vtable_t* vtable_{};
 
@@ -3247,8 +3251,8 @@ public:
     const auto* src = source.vtable_;
     if (!src) return;
     const auto* ovt = details::upcast_owning_vtable<F, D>(src);
-    void* ptr = nullptr;
-    void (*destroy)(void*) noexcept = nullptr;
+    void* ptr{};
+    void (*destroy)(void*) noexcept {};
     if (src->relocate) {
       ptr = ovt->to_heap(source.storage_.buf);
       destroy = ovt->heap_table->destroy;

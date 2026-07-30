@@ -26,6 +26,7 @@
 #include <utility>
 #include <variant>
 
+#include "crossplatform.h"
 #include "traits.h"
 
 namespace corvid { inline namespace meta { inline namespace concepts {
@@ -124,6 +125,19 @@ concept Integer = std::integral<T> && (!Bool<T>);
 // `T` must be an enum or integral type.
 template<typename T>
 concept IntegerOrEnum = Integer<T> || StdEnum<T>;
+
+// `T` must be an unsigned integer, including `__uint128_t` where the compiler
+// has one.
+//
+// The 128-bit case is named explicitly rather than left to
+// `std::unsigned_integral`, which cannot answer the question portably; see
+// `CORVID_HAS_INT128` for why.
+template<typename T>
+concept UnsignedWord =
+#if CORVID_HAS_INT128
+    std::same_as<T, __uint128_t> ||
+#endif
+    std::unsigned_integral<T>;
 
 #pragma endregion
 #pragma region Null and characters

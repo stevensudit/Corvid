@@ -95,9 +95,9 @@ struct std::formatter<E, CharT> {
 
   template<typename FormatContext>
   auto format(E e, FormatContext& ctx) const {
-    size_t width = spec_.width;
+    auto width = spec_.width;
     if (spec_.width_arg.is_dynamic()) width = spec_.width_arg.get_dynamic(ctx);
-    std::optional<size_t> prec = spec_.precision;
+    auto prec = spec_.precision;
     if (spec_.precision_arg.is_dynamic())
       prec = spec_.precision_arg.get_dynamic(ctx);
 
@@ -110,7 +110,7 @@ struct std::formatter<E, CharT> {
     // in place with no buffer.
     if constexpr (corvid::enums::sequence::SequentialEnum<E>) {
       if (!spec_.debug) {
-        const std::string_view name = corvid::enums::sequence::enum_as_view(e);
+        const std::string_view name{corvid::enums::sequence::enum_as_view(e)};
         if (!name.empty()) return write_field(ctx.out(), name, prec, width);
       }
     }
@@ -137,11 +137,11 @@ private:
       append_enum(target, e);
       return target.out;
     }
-    *out++ = RenderCharT('"');
+    *out++ = RenderCharT{'"'};
     debug_escaping_appendable<OutIt, RenderCharT> target{out};
     append_enum(target, e);
     out = target.out;
-    *out++ = RenderCharT('"');
+    *out++ = RenderCharT{'"'};
     return out;
   }
 
@@ -158,10 +158,10 @@ private:
   constexpr void validate_spec() const {
     if (spec_.sign != '-' || spec_.alternate || spec_.zero_pad ||
         spec_.has_locale ||
-        (spec_.type != CharT(0) && spec_.type != CharT('?')))
-      throw std::format_error(
+        (spec_.type != CharT{} && spec_.type != CharT{'?'}))
+      throw std::format_error{
           "enum format spec accepts only fill and align, "
-          "width, precision, and '?'");
+          "width, precision, and '?'"};
   }
 
 #pragma endregion

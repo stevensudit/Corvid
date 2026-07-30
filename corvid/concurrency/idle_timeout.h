@@ -207,7 +207,7 @@ public:
 
   // If expiration was not fatal, you must reset it. Idempotent.
   void reset_expiration() noexcept {
-    cancel_action_t* expected = nullptr;
+    cancel_action_t* expected{};
     (void)on_idle_once_.compare_exchange(expected, &on_idle_);
   }
 
@@ -218,8 +218,7 @@ private:
   // call; the lambda captures it by value (16 bytes), fitting
   // `callback_t`. Reaches `expire` through the locked `self`.
   [[nodiscard]] callback_t build_sweeper_cb() {
-    auto self_sp =
-        std::shared_ptr<idle_timeout>{owner_.shared_from_this(), this};
+    std::shared_ptr<idle_timeout> self_sp{owner_.shared_from_this(), this};
     return [weak = std::weak_ptr<idle_timeout>{std::move(self_sp)}](
                time_point_t fired) -> time_point_t {
       auto self = weak.lock();
@@ -232,7 +231,7 @@ private:
 
   struct sweep_result {
     time_point_t next_deadline;
-    bool fire_idle;
+    bool fire_idle{};
   };
 
   [[nodiscard]] sweep_result on_sweep(time_point_t fired) noexcept {

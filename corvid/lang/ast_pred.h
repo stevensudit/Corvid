@@ -88,7 +88,7 @@ struct lookup {
 struct map_lookup: public lookup {
   const any_value& operator[](const std::string& key) const override {
     const auto it = m.find(key);
-    return it == m.end() ? missing : it->second;
+    return (it == m.end()) ? missing : it->second;
   }
 
   string_map<any_value> m;
@@ -255,7 +255,7 @@ struct or_node final: public junction {
 
 struct not_node final: public junction {
   explicit not_node(allow, node_list&& nodes)
-      : junction{allow::ctor, operation::not_junction, {std::move(nodes)}} {}
+      : junction{allow::ctor, operation::not_junction, std::move(nodes)} {}
 
   template<node_ptr_type... Args>
   explicit not_node(allow, Args&&... args)

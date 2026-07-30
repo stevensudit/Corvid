@@ -93,25 +93,26 @@ namespace corvid { inline namespace ecs { inline namespace entity_registries {
 template<typename T = void,
     sequence::SequentialEnum EID = id_enums::entity_id_t,
     sequence::SequentialEnum SID = id_enums::store_id_t,
-    generation_scheme GEN = generation_scheme::versioned, size_t OWN_COUNT = 1,
-    sequence_order REUSE = sequence_order::fifo, class A = std::allocator<T>>
+    generation_scheme GEN = generation_scheme::versioned,
+    size_t OWN_COUNT = 1UZ, sequence_order REUSE = sequence_order::fifo,
+    class A = std::allocator<T>>
 class entity_registry {
 public:
 #pragma region Types
 
-  static constexpr bool is_versioned_v = (GEN == generation_scheme::versioned);
-  static constexpr bool is_archetype_v = (OWN_COUNT == 1);
-  static constexpr bool is_component_v = !is_archetype_v;
-  static constexpr bool is_fifo_v = (REUSE == sequence_order::fifo);
-  static constexpr bool is_lifo_v = !is_fifo_v;
-  static constexpr size_t bitmap_bits_v = is_component_v ? OWN_COUNT : 1;
+  static constexpr auto is_versioned_v = (GEN == generation_scheme::versioned);
+  static constexpr auto is_archetype_v = (OWN_COUNT == 1);
+  static constexpr auto is_component_v = !is_archetype_v;
+  static constexpr auto is_fifo_v = (REUSE == sequence_order::fifo);
+  static constexpr auto is_lifo_v = !is_fifo_v;
+  static constexpr auto bitmap_bits_v = is_component_v ? OWN_COUNT : 1UZ;
   // `fixed_bitset` requires `N_BITS % 8 == 0`; round up to the nearest
   // multiple of 8. In component mode, bits above `bitmap_bits_v` are padding
   // and are never set; all `OWN_COUNT`- and `bitmap_bits_v`-based validation
   // uses the unpadded value. In archetype mode the value is 8 so that
   // `store_id_set_t` (which uses this as its `N_BITS`) is always well-formed.
-  static constexpr size_t padded_bitmap_bits_v =
-      is_component_v ? ((bitmap_bits_v + 7) / 8 * 8) : 8;
+  static constexpr auto padded_bitmap_bits_v =
+      is_component_v ? ((bitmap_bits_v + 7) / 8 * 8UZ) : 8UZ;
 
   using metadata_t = maybe_void_t<T>;
   using id_t = EID;
@@ -175,9 +176,9 @@ public:
     }
 
     [[nodiscard]] auto operator<=>(const handle_t& other) const noexcept {
-      auto cmp = id_ <=> other.id_;
+      auto cmp = (id_ <=> other.id_);
       if constexpr (is_versioned_v)
-        if (cmp == 0) cmp = gen_ <=> other.gen_;
+        if (cmp == 0) cmp = (gen_ <=> other.gen_);
       return cmp;
     }
 
@@ -198,7 +199,7 @@ public:
     }
 
   private:
-    id_t id_{id_t::invalid};
+    id_t id_ = id_t::invalid;
     CORVID_NO_UNIQUE_ADDRESS gen_t gen_{*id_t::invalid};
 
     explicit handle_t(id_t id, size_type gen) : id_{id}, gen_{gen} {}
@@ -215,8 +216,8 @@ public:
   // A `store_id` identifies the storage an entity resides in, and `ndx` is the
   // index within that storage.
   struct location_t {
-    store_id_t store_id{store_id_t::invalid};
-    size_type ndx{*id_t::invalid};
+    store_id_t store_id = store_id_t::invalid;
+    size_type ndx = *id_t::invalid;
   };
 
 #pragma endregion
@@ -251,8 +252,6 @@ public:
   // *id_t::invalid (all ones), which is not a valid entity index.
   class location_record {
   public:
-    constexpr location_record(const location_record& other) noexcept = default;
-
     [[nodiscard]] size_type ndx() const noexcept { return ndx_; }
 
     [[nodiscard]] location_t get_underlying() const noexcept
@@ -318,7 +317,7 @@ public:
         *store_id_t::invalid};
     CORVID_NO_UNIQUE_ADDRESS maybe_t<store_id_set_t, is_component_v>
         store_ids_;
-    size_type ndx_{*id_t::invalid};
+    size_type ndx_ = *id_t::invalid;
 
     constexpr location_record(location_t location = location_t{}) noexcept {
       set(location);
@@ -342,7 +341,7 @@ public:
   struct record_t {
     // Entity location; active fields within `location_record` depend on
     // `OWN_COUNT`.
-    location_record location{};
+    location_record location;
 
     // Generation counter for this entity.
     CORVID_NO_UNIQUE_ADDRESS gen_t gen{};
@@ -416,7 +415,7 @@ public:
       const metadata_t& metadata = {}) {
     if (location.store_id == store_id_t::invalid)
       location.store_id = store_id_t{};
-    const id_t id = alloc_id();
+    const auto id = alloc_id();
     if (id == id_t::invalid) return id_t::invalid;
     auto& rec = records_[id];
     rec.location.reset(location);
@@ -599,14 +598,14 @@ public:
   // Access metadata by ID, with bounds checking (but no generation checking).
   [[nodiscard]]
   auto& at(this auto& self, id_t id) {
-    if (!self.is_valid(id)) throw std::out_of_range("id out of range");
+    if (!self.is_valid(id)) throw std::out_of_range{"id out of range"};
     return self.records_[id].metadata;
   }
 
   // Access metadata by handle, with bounds and generation checking.
   [[nodiscard]]
   auto& at(this auto& self, handle_t handle) {
-    if (!self.is_valid(handle)) throw std::invalid_argument("invalid handle");
+    if (!self.is_valid(handle)) throw std::invalid_argument{"invalid handle"};
     return std::forward<decltype(self)>(self).at(handle.id_);
   }
 
@@ -715,7 +714,7 @@ public:
     if (prefill == allocation_policy::eager && new_cap > records_.size()) {
       const auto old_size = records_.size();
       records_.resize(new_cap);
-      for (size_type i = old_size; i < new_cap; ++i) push_free(id_t{i});
+      for (auto ndx = old_size; ndx < new_cap; ++ndx) push_free(id_t{ndx});
     }
   }
 
@@ -803,7 +802,7 @@ public:
 
   private:
     entity_registry* registry_{};
-    handle_t handle_{};
+    handle_t handle_;
   };
 
   // Create a new owner for a newly created entity. (Archetype mode only.)
@@ -878,7 +877,7 @@ private:
 
   // Trim trailing dead records from records_ and rebuild the free list.
   void trim_dead_tail() {
-    size_type new_size = records_.size();
+    auto new_size = records_.size();
     while (new_size > 0 && !is_alive(id_t{new_size - 1})) --new_size;
     if (new_size < records_.size()) {
       records_.resize(new_size);
@@ -907,9 +906,9 @@ private:
   void rebuild_free_list() {
     free_head_ = id_t::invalid;
     if constexpr (is_fifo_v) free_tail_ = id_t::invalid;
-    const size_type n = records_.size();
-    for (size_type i = 0; i < n; ++i) {
-      const id_t id = id_t{i};
+    const auto n = records_.size();
+    for (size_type ndx = 0; ndx < n; ++ndx) {
+      const id_t id{ndx};
       if (is_alive(id)) continue;
       push_free(id);
     }
@@ -949,7 +948,7 @@ private:
   // appended there, maximizing the interval before reuse.
   // LIFO: `free_tail_` is absent; new IDs are pushed onto `free_head_`,
   // giving stack (most-recently freed-first) reuse order.
-  id_t free_head_{id_t::invalid};
+  id_t free_head_ = id_t::invalid;
   CORVID_NO_UNIQUE_ADDRESS maybe_t<id_t, is_fifo_v> free_tail_{id_t::invalid};
 
 #pragma endregion

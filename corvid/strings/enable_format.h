@@ -91,11 +91,11 @@ template<CharType CharT>
 calc_nested_spec_size(std::basic_string_view<CharT> spec) noexcept {
   size_t ndx{};
   size_t depth{};
-  const size_t cnt = spec.size();
+  const auto cnt = spec.size();
   while (ndx < cnt) {
-    if (spec[ndx] == CharT('{')) {
+    if (spec[ndx] == CharT{'{'}) {
       ++depth;
-    } else if (spec[ndx] == CharT('}')) {
+    } else if (spec[ndx] == CharT{'}'}) {
       if (depth == 0) break;
       --depth;
     }
@@ -107,6 +107,12 @@ calc_nested_spec_size(std::basic_string_view<CharT> spec) noexcept {
 // Format `v` through its own formatter, driving its parse with `spec` at
 // format time (the synthetic parse-context technique from
 // `nullable_formatter`).
+//
+// `spec` must run through the field's closing '}', as a real parse context
+// does: std hands a formatter the rest of the whole format string, not just
+// its own specifiers. An exactly-sized `spec` looks to the formatter like
+// input that ran out, and the std range formatter takes that as a cue to skip
+// asking its elements to quote themselves, so strings come out bare.
 //
 // When `debug` is set and the formatter supports it, debug formatting is
 // requested, the way the std range formatter asks its elements to quote
@@ -212,14 +218,14 @@ private:
     if constexpr (requires { map_.find(key); })
       return map_.find(key);
     else
-      return map_.find(key_type(key));
+      return map_.find(key_type{key});
   }
 
   [[nodiscard]] constexpr auto do_equal_range(view_t key) const {
     if constexpr (requires { map_.equal_range(key); })
       return map_.equal_range(key);
     else
-      return map_.equal_range(key_type(key));
+      return map_.equal_range(key_type{key});
   }
 
   const M& map_;
@@ -280,37 +286,40 @@ private:
 
 public:
   constexpr auto parse(std::basic_format_parse_context<CharT>& ctx) {
-    const auto spec = view_t{ctx.begin(), ctx.end()};
-    const size_t cnt = spec.size();
+    const view_t spec{ctx.begin(), ctx.end()};
+    const auto cnt = spec.size();
     size_t ndx{};
     // Key: dynamic `{n}` / `{}`, or literal text up to ':' or '}'.
-    if (ndx < cnt && spec[ndx] == CharT('{')) {
+    if (ndx < cnt && spec[ndx] == CharT{'{'}) {
       key_arg_ = arg_value_t::make_from_parse(spec, ndx);
       if (key_arg_.is_automatic())
         key_arg_.claim_next_automatic(ctx);
       else
         ctx.check_arg_id(key_arg_.value);
     } else {
-      const size_t start = ndx;
-      while (ndx < cnt && spec[ndx] != CharT(':') && spec[ndx] != CharT('}'))
+      const auto start = ndx;
+      while (ndx < cnt && spec[ndx] != CharT{':'} && spec[ndx] != CharT{'}'})
         ++ndx;
       key_ = spec.substr(start, ndx - start);
       if (key_.empty()) throw std::format_error{"enable_format: key required"};
     }
     // Optional nested spec for the looked-up value.
-    if (ndx < cnt && spec[ndx] == CharT(':')) {
-      const size_t start = ++ndx;
-      ndx += corvid::strings::calc_nested_spec_size(spec.substr(start));
-      value_spec_ = spec.substr(start, ndx - start);
+    auto value_start = ndx;
+    if (ndx < cnt && spec[ndx] == CharT{':'}) {
+      value_start = ++ndx;
+      ndx += corvid::strings::calc_nested_spec_size(spec.substr(value_start));
     }
-    if (ndx >= cnt || spec[ndx] != CharT('}'))
+    if (ndx >= cnt || spec[ndx] != CharT{'}'})
       throw std::format_error{"enable_format: unterminated spec"};
+    // Keep the tail, not just the nested spec, so the value's own parse sees
+    // the closing '}' the way it would under `std::format`.
+    spec_tail_ = spec.substr(value_start);
     return ctx.begin() + ndx;
   }
 
   template<typename FormatContext>
   auto format(const wrapper_t& w, FormatContext& ctx) const {
-    const view_t key =
+    const auto key =
         key_arg_.is_dynamic()
             ? arg_value_t::get_dynamic_str(ctx, key_arg_.value)
             : key_;
@@ -318,9 +327,9 @@ public:
       const auto& v = w.lookup(key);
       if constexpr (corvid::meta::Variant<mapped_type>)
         return corvid::strings::format_with_spec(
-            corvid::strings::enable_format{v}, value_spec_, ctx);
+            corvid::strings::enable_format{v}, spec_tail_, ctx);
       else
-        return corvid::strings::format_with_spec(v, value_spec_, ctx);
+        return corvid::strings::format_with_spec(v, spec_tail_, ctx);
     } else {
       const auto values = w.equal_values(key);
       if (values.empty()) {
@@ -328,10 +337,10 @@ public:
         if (!missing) throw std::format_error{"enable_format: key not found"};
         return corvid::strings::format_with_spec(
             wrap_variants(std::span<const mapped_type>{&*missing, 1}),
-            value_spec_, ctx);
+            spec_tail_, ctx);
       }
       return corvid::strings::format_with_spec(wrap_variants(values),
-          value_spec_, ctx);
+          spec_tail_, ctx);
     }
   }
 
@@ -349,7 +358,7 @@ private:
 
   arg_value_t key_arg_;
   view_t key_;
-  view_t value_spec_;
+  view_t spec_tail_;
 };
 
 // The variant formatter.
@@ -366,9 +375,11 @@ struct std::formatter<corvid::strings::enable_format<std::variant<Ts...>>,
   constexpr void set_debug_format() noexcept { debug_ = true; }
 
   constexpr auto parse(std::basic_format_parse_context<CharT>& ctx) {
-    const auto spec = std::basic_string_view<CharT>{ctx.begin(), ctx.end()};
+    const std::basic_string_view<CharT> spec{ctx.begin(), ctx.end()};
     const auto cnt = corvid::strings::calc_nested_spec_size(spec);
-    spec_ = spec.substr(0, cnt);
+    // Keep the tail, not just our own spec, so the alternative's parse sees
+    // the closing '}' the way it would under `std::format`.
+    spec_tail_ = spec;
     return ctx.begin() + cnt;
   }
 
@@ -377,12 +388,13 @@ struct std::formatter<corvid::strings::enable_format<std::variant<Ts...>>,
       FormatContext& ctx) const {
     return std::visit(
         [&](const auto& alt) {
-          return corvid::strings::format_with_spec(alt, spec_, ctx, debug_);
+          return corvid::strings::format_with_spec(alt, spec_tail_, ctx,
+              debug_);
         },
         w.value);
   }
 
 private:
-  std::basic_string_view<CharT> spec_;
-  bool debug_ = false;
+  std::basic_string_view<CharT> spec_tail_;
+  bool debug_{};
 };

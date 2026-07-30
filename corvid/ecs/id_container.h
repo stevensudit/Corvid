@@ -206,7 +206,7 @@ public:
 #pragma region Data members
 private:
   enum_vector<value_type, id_t, allocator_type> data_;
-  id_t limit_{id_t::invalid};
+  id_t limit_ = id_t::invalid;
 
 #pragma endregion
 };

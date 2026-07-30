@@ -191,7 +191,7 @@ public:
   // component_t`), plus an implicit conversion to `const component_t&`.
   struct row_view {
     const component_t& value;
-    id_t entity_id;
+    id_t entity_id{};
 
     [[nodiscard]] operator const component_t&() const noexcept {
       return value;
@@ -226,13 +226,13 @@ public:
 
   // Mutable access by entity ID, with checking.
   [[nodiscard]] component_t& at(id_t id) {
-    if (!contains(id)) throw std::out_of_range("entity not in this storage");
+    if (!contains(id)) throw std::out_of_range{"entity not in this storage"};
     return components_[reverse_index_.lookup(id)];
   }
 
   // Const access by entity ID, with checking.
   [[nodiscard]] row_view at(id_t id) const {
-    if (!contains(id)) throw std::out_of_range("entity not in this storage");
+    if (!contains(id)) throw std::out_of_range{"entity not in this storage"};
     const auto ndx = reverse_index_.lookup(id);
     return {components_[ndx], ids_[ndx]};
   }
@@ -240,15 +240,15 @@ public:
   // Access component by handle, with checking.
   [[nodiscard]] component_t& at(handle_t handle) {
     if (!contains(handle))
-      throw std::invalid_argument(
-          "invalid handle or entity not in this storage");
+      throw std::invalid_argument{
+          "invalid handle or entity not in this storage"};
     return (*this)[handle.id()];
   }
 
   [[nodiscard]] row_view at(handle_t handle) const {
     if (!contains(handle))
-      throw std::invalid_argument(
-          "invalid handle or entity not in this storage");
+      throw std::invalid_argument{
+          "invalid handle or entity not in this storage"};
     return (*this)[handle.id()];
   }
 
@@ -412,8 +412,8 @@ private:
   // Sweep the storage, calling `pred(components_[ndx], ids_[ndx])` and either
   // erasing or removing each entity that satisfies `pred`.
   size_type do_bulk_op(auto pred, removal_mode mode) {
-    size_type cnt = 0;
-    for (size_type ndx{}; ndx < components_.size();) {
+    size_type cnt{};
+    for (size_type ndx = 0; ndx < components_.size();) {
       if (pred(components_[ndx], ids_[ndx])) {
         const auto removed_id = ids_[ndx];
         // Remove from ids_ and components_ using the same swap-and-pop

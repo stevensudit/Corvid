@@ -55,15 +55,15 @@ namespace corvid::strings { inline namespace charconv {
 // Mirror of `std::from_chars_result`, but templated on the code-unit type.
 template<CharType CharT>
 struct from_chars_result {
-  const CharT* ptr;
-  std::errc ec;
+  const CharT* ptr{};
+  std::errc ec{};
 };
 
 // Mirror of `std::to_chars_result`, but templated on the code-unit type.
 template<CharType CharT>
 struct to_chars_result {
-  CharT* ptr;
-  std::errc ec;
+  CharT* ptr{};
+  std::errc ec{};
 };
 
 #pragma endregion
@@ -74,12 +74,12 @@ struct to_chars_result {
 // its base.
 template<CharType CharT>
 [[nodiscard]] constexpr int digit_value(CharT c) noexcept {
-  if (c >= CharT('0') && c <= CharT('9'))
-    return static_cast<int>(c - CharT('0'));
-  if (c >= CharT('a') && c <= CharT('z'))
-    return static_cast<int>(c - CharT('a')) + 10;
-  if (c >= CharT('A') && c <= CharT('Z'))
-    return static_cast<int>(c - CharT('A')) + 10;
+  if (c >= CharT{'0'} && c <= CharT{'9'})
+    return static_cast<int>(c - CharT{'0'});
+  if (c >= CharT{'a'} && c <= CharT{'z'})
+    return static_cast<int>(c - CharT{'a'}) + 10;
+  if (c >= CharT{'A'} && c <= CharT{'Z'})
+    return static_cast<int>(c - CharT{'A'}) + 10;
   return -1;
 }
 
@@ -87,8 +87,8 @@ template<CharType CharT>
 // above 9, matching `std::to_chars`.
 template<CharType CharT>
 [[nodiscard]] constexpr CharT to_digit_char(int d) noexcept {
-  return d < 10 ? static_cast<CharT>(CharT('0') + d)
-                : static_cast<CharT>(CharT('a') + (d - 10));
+  return (d < 10) ? static_cast<CharT>(CharT{'0'} + d)
+                  : static_cast<CharT>(CharT{'a'} + (d - 10));
 }
 
 #pragma endregion
@@ -102,25 +102,25 @@ requires(!std::same_as<T, bool>)
   using U = std::make_unsigned_t<T>;
   const CharT* p = first;
 
-  bool negative = false;
+  bool negative{};
   if constexpr (std::is_signed_v<T>)
-    if (p != last && *p == CharT('-')) {
+    if (p != last && *p == CharT{'-'}) {
       negative = true;
       ++p;
     }
 
   // Largest magnitude representable: `max()` for positive, one more for the
   // most-negative signed value.
-  U limit = static_cast<U>(std::numeric_limits<T>::max());
+  auto limit = static_cast<U>(std::numeric_limits<T>::max());
   if constexpr (std::is_signed_v<T>)
     if (negative) limit = static_cast<U>(limit + 1);
 
-  const U ubase = static_cast<U>(base);
-  U acc = 0;
-  bool any = false;
-  bool overflow = false;
+  const auto ubase = static_cast<U>(base);
+  U acc{};
+  bool any{};
+  bool overflow{};
   for (; p != last; ++p) {
-    const int d = digit_value(*p);
+    const auto d = digit_value(*p);
     if (d < 0 || d >= base) break;
     any = true;
     if (acc > (limit - static_cast<U>(d)) / ubase)
@@ -150,11 +150,11 @@ requires(!std::same_as<T, bool>)
 [[nodiscard]] constexpr to_chars_result<CharT>
 int_to_chars(CharT* first, CharT* last, T value, int base = 10) noexcept {
   using U = std::make_unsigned_t<T>;
-  bool negative = false;
+  bool negative{};
   // U is make_unsigned_t<T>: for a signed value this is a same-width
   // reinterpret to its two's-complement bit pattern, not a widening, so the
   // sign cannot extend.
-  U mag = static_cast<U>(value); // NOLINT(bugprone-signed-char-misuse)
+  auto mag = static_cast<U>(value); // NOLINT(bugprone-signed-char-misuse)
   if constexpr (std::is_signed_v<T>)
     if (value < 0) {
       negative = true;
@@ -162,21 +162,22 @@ int_to_chars(CharT* first, CharT* last, T value, int base = 10) noexcept {
     }
 
   // Emit least-significant digit first into a scratch buffer; the widest case
-  // is base 2, which needs one digit per bit.
+  // is base 2, which needs one digit per bit. Deliberately uninitialized: only
+  // the written cells are ever read.
   CharT digits[std::numeric_limits<U>::digits];
-  int n = 0;
-  const U ubase = static_cast<U>(base);
+  int n{};
+  const auto ubase = static_cast<U>(base);
   do {
     digits[n++] = to_digit_char<CharT>(static_cast<int>(mag % ubase));
     mag = static_cast<U>(mag / ubase);
   } while (mag != 0);
 
-  const size_t total = static_cast<size_t>(n) + (negative ? 1U : 0U);
+  const auto total = static_cast<size_t>(n) + (negative ? 1U : 0U);
   if (static_cast<size_t>(last - first) < total)
     return {last, std::errc::value_too_large};
 
   CharT* out = first;
-  if (negative) *out++ = CharT('-');
+  if (negative) *out++ = CharT{'-'};
   while (n > 0) *out++ = digits[--n];
   return {out, std::errc{}};
 }
@@ -187,12 +188,12 @@ int_to_chars(CharT* first, CharT* last, T value, int base = 10) noexcept {
 // Scratch size for transcoding floating-point text between `char` and a wider
 // code unit. Ample for any `general`- or `scientific`-format double or long
 // double.
-inline constexpr size_t float_buffer_size = 128;
+inline constexpr auto float_buffer_size = 128UZ;
 
 // Upper bound on `precision` for `float_to_chars`, leaving room for the sign,
 // leading digit, radix point, and exponent within `float_buffer_size`. A
 // larger request is clipped to this; the buffer cannot hold more anyway.
-inline constexpr int max_float_precision =
+inline constexpr auto max_float_precision =
     static_cast<int>(float_buffer_size) - 16;
 
 #pragma endregion
@@ -214,8 +215,9 @@ float_from_chars(const CharT* first, const CharT* last, T& value,
         std::from_chars(f, reinterpret_cast<const char*>(last), value, fmt);
     return {first + (r.ptr - f), r.ec};
   } else {
+    // Deliberately uninitialized: only the written cells are ever read.
     char buf[float_buffer_size];
-    size_t n = 0;
+    size_t n{};
     for (const CharT* p = first; p != last && n < float_buffer_size; ++p) {
       const auto u = static_cast<std::make_unsigned_t<CharT>>(*p);
       if (u > 0x7F) break;
@@ -249,6 +251,7 @@ template<CharType CharT, std::floating_point T>
             : std::to_chars(f, l, value, fmt, precision);
     return {first + (r.ptr - f), r.ec};
   } else {
+    // Deliberately uninitialized: only the written cells are ever read.
     char buf[float_buffer_size];
     const auto r =
         (precision < 0)
@@ -260,8 +263,8 @@ template<CharType CharT, std::floating_point T>
     if (static_cast<size_t>(last - first) < n)
       return {last, std::errc::value_too_large};
     CharT* out = first;
-    for (size_t i = 0; i < n; ++i)
-      *out++ = static_cast<CharT>(static_cast<unsigned char>(buf[i]));
+    for (auto ndx = 0UZ; ndx < n; ++ndx)
+      *out++ = static_cast<CharT>(static_cast<unsigned char>(buf[ndx]));
     return {out, std::errc{}};
   }
 }

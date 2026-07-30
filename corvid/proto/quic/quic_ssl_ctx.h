@@ -134,9 +134,9 @@ private:
       unsigned char* outlen, const unsigned char* in, unsigned int inlen,
       void* arg) noexcept {
     auto* self = static_cast<quic_ssl_ctx*>(arg);
-    unsigned char* sel = nullptr;
+    unsigned char* sel{};
     const auto wire = strings::as_byte_span<unsigned char>(self->alpn_wire_);
-    const int rv = SSL_select_next_proto(&sel, outlen, wire.data(),
+    const auto rv = SSL_select_next_proto(&sel, outlen, wire.data(),
         static_cast<unsigned int>(wire.size()), in, inlen);
     if (rv == OPENSSL_NPN_NEGOTIATED) {
       *out = sel;
@@ -152,7 +152,7 @@ private:
     return try_or_terminate([&] {
       std::string s;
       if (proto.empty() || proto.size() > 255)
-        throw std::length_error("ALPN protocol name must be 1-255 bytes");
+        throw std::length_error{"ALPN protocol name must be 1-255 bytes"};
       s.reserve(proto.size() + 1);
       s.push_back(static_cast<char>(proto.size()));
       s.append(proto);

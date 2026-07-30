@@ -56,13 +56,13 @@ namespace corvid::strings { inline namespace cases {
 // Whether `ch` is a lowercase hex letter, 'a' through 'f'.
 template<CharType CharT>
 [[nodiscard]] constexpr bool is_lc_hex_alpha(CharT ch) noexcept {
-  return (ch >= CharT('a') && ch <= CharT('f'));
+  return (ch >= CharT{'a'} && ch <= CharT{'f'});
 }
 
 // Whether `ch` is an uppercase hex letter, 'A' through 'F'.
 template<CharType CharT>
 [[nodiscard]] constexpr bool is_uc_hex_alpha(CharT ch) noexcept {
-  return (ch >= CharT('A') && ch <= CharT('F'));
+  return (ch >= CharT{'A'} && ch <= CharT{'F'});
 }
 
 namespace details {
@@ -78,7 +78,7 @@ struct code_unit_pred {
   }
   template<StringViewLike S>
   [[nodiscard]] constexpr bool operator()(const S& s) const noexcept {
-    const auto sv{as_view(s)};
+    const auto sv = as_view(s);
     return !sv.empty() && std::ranges::all_of(sv, CharPred{});
   }
 };
@@ -86,14 +86,14 @@ struct code_unit_pred {
 struct lower_char {
   [[nodiscard]] constexpr bool operator()(CharType auto c) const noexcept {
     using C = decltype(c);
-    return c >= C('a') && c <= C('z');
+    return c >= C{'a'} && c <= C{'z'};
   }
 };
 
 struct upper_char {
   [[nodiscard]] constexpr bool operator()(CharType auto c) const noexcept {
     using C = decltype(c);
-    return c >= C('A') && c <= C('Z');
+    return c >= C{'A'} && c <= C{'Z'};
   }
 };
 
@@ -106,7 +106,7 @@ struct alpha_char {
 struct digit_char {
   [[nodiscard]] constexpr bool operator()(CharType auto c) const noexcept {
     using C = decltype(c);
-    return c >= C('0') && c <= C('9');
+    return c >= C{'0'} && c <= C{'9'};
   }
 };
 
@@ -125,8 +125,8 @@ struct hex_digit_char {
 struct space_char {
   [[nodiscard]] constexpr bool operator()(CharType auto c) const noexcept {
     using C = decltype(c);
-    return c == C(' ') || c == C('\t') || c == C('\n') || c == C('\v') ||
-           c == C('\f') || c == C('\r');
+    return c == C{' '} || c == C{'\t'} || c == C{'\n'} || c == C{'\v'} ||
+           c == C{'\f'} || c == C{'\r'};
   }
 };
 
@@ -139,7 +139,7 @@ struct ascii_char {
 struct printable_char {
   [[nodiscard]] constexpr bool operator()(CharType auto c) const noexcept {
     using C = decltype(c);
-    return c >= C(' ') && c <= C('~');
+    return c >= C{' '} && c <= C{'~'};
   }
 };
 
@@ -193,7 +193,7 @@ inline constexpr details::code_unit_pred<details::printable_char>
 
 template<StringViewLike S>
 [[nodiscard]] constexpr bool is_python_lower(const S& s) noexcept {
-  bool has_letter = false;
+  bool has_letter{};
   for (const auto c : as_view(s)) {
     if (is_upper(c)) return false;
     if (is_lower(c)) has_letter = true;
@@ -203,7 +203,7 @@ template<StringViewLike S>
 
 template<StringViewLike S>
 [[nodiscard]] constexpr bool is_python_upper(const S& s) noexcept {
-  bool has_letter = false;
+  bool has_letter{};
   for (const auto c : as_view(s)) {
     if (is_lower(c)) return false;
     if (is_upper(c)) has_letter = true;
@@ -219,8 +219,8 @@ template<StringViewLike S>
 // included, so `is_title(as_titled(s))` holds whenever `s` has a letter.
 template<StringViewLike S>
 [[nodiscard]] constexpr bool is_title(const S& s) noexcept {
-  bool prev_alpha = false;
-  bool has_letter = false;
+  bool prev_alpha{};
+  bool has_letter{};
   for (const auto c : as_view(s)) {
     if (is_alpha(c)) {
       if (prev_alpha ? is_upper(c) : is_lower(c)) return false;
@@ -239,7 +239,7 @@ template<StringViewLike S>
 // Avoids `std::toupper` because it's locale-dependent and slow.
 template<CharType CharT>
 [[nodiscard]] constexpr CharT as_upper(CharT c) noexcept {
-  return is_lower(c) ? static_cast<CharT>(c - (CharT('a') - CharT('A'))) : c;
+  return is_lower(c) ? static_cast<CharT>(c - (CharT{'a'} - CharT{'A'})) : c;
 }
 
 // Convert to uppercase in place.
@@ -263,7 +263,7 @@ template<StringViewLike S>
 // Avoids `std::tolower` because it's locale-dependent and slow.
 template<CharType CharT>
 [[nodiscard]] constexpr CharT as_lower(CharT c) noexcept {
-  return is_upper(c) ? static_cast<CharT>(c + (CharT('a') - CharT('A'))) : c;
+  return is_upper(c) ? static_cast<CharT>(c + (CharT{'a'} - CharT{'A'})) : c;
 }
 
 // Convert to lowercase in place.
@@ -313,10 +313,10 @@ template<StringViewLike S>
 //
 // Uppercases the first code unit and lowercases the rest.
 constexpr void to_capitalized(Range auto& r) noexcept {
-  bool first = true;
+  auto is_first = true;
   for (auto& ch : r) {
-    ch = first ? as_upper(ch) : as_lower(ch);
-    first = false;
+    ch = is_first ? as_upper(ch) : as_lower(ch);
+    is_first = false;
   }
 }
 
@@ -339,7 +339,7 @@ template<StringViewLike S>
 // The Python quirk comes along: any non-letter starts a new word, so "they're"
 // becomes "They'Re" and "3rd" becomes "3Rd".
 constexpr void to_titled(Range auto& r) noexcept {
-  bool prev_alpha = false;
+  bool prev_alpha{};
   for (auto& ch : r) {
     if (is_alpha(ch)) ch = prev_alpha ? as_lower(ch) : as_upper(ch);
     prev_alpha = is_alpha(ch);
@@ -371,8 +371,8 @@ requires std::same_as<char_type_of_t<A>, char_type_of_t<B>>
   const auto lhs = as_view(a);
   const auto rhs = as_view(b);
   if (lhs.size() != rhs.size()) return false;
-  for (size_t i = 0; i < lhs.size(); ++i)
-    if (as_lower(lhs[i]) != as_lower(rhs[i])) return false;
+  for (auto ndx = 0UZ; ndx < lhs.size(); ++ndx)
+    if (as_lower(lhs[ndx]) != as_lower(rhs[ndx])) return false;
   return true;
 }
 
@@ -386,11 +386,11 @@ ci_compare(const A& a, const B& b) noexcept {
   const auto lhs = as_view(a);
   const auto rhs = as_view(b);
   const auto n = std::min(lhs.size(), rhs.size());
-  for (size_t i = 0; i < n; ++i) {
-    const auto l = as_lower(lhs[i]);
-    const auto r = as_lower(rhs[i]);
+  for (auto ndx = 0UZ; ndx < n; ++ndx) {
+    const auto l = as_lower(lhs[ndx]);
+    const auto r = as_lower(rhs[ndx]);
     if (l != r)
-      return l < r ? std::weak_ordering::less : std::weak_ordering::greater;
+      return (l < r) ? std::weak_ordering::less : std::weak_ordering::greater;
   }
   return lhs.size() <=> rhs.size();
 }

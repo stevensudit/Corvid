@@ -36,7 +36,7 @@ public:
 
 #pragma endregion
 #pragma region Construction
-  explicit basic_token_parser(view_t separator) : separator_(separator) {}
+  explicit basic_token_parser(view_t separator) : separator_{separator} {}
 
 #pragma endregion
 #pragma region Accessors

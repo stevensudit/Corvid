@@ -53,7 +53,7 @@ public:
   explicit d3d11_device(IDXGIAdapter* adapter) {
     const D3D_FEATURE_LEVEL levels[]{D3D_FEATURE_LEVEL_11_1,
         D3D_FEATURE_LEVEL_11_0};
-    const D3D_DRIVER_TYPE driver_type =
+    const auto driver_type =
         adapter ? D3D_DRIVER_TYPE_UNKNOWN : D3D_DRIVER_TYPE_HARDWARE;
     hr_status{
         D3D11CreateDevice(adapter, driver_type, nullptr, 0, levels,

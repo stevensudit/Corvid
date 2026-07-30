@@ -56,7 +56,7 @@ TEST_CASE("ConstructValid", "[IouProvidedBufPool]") {
   iou_provided_buf_pool::dispatcher_t dispatcher;
   if (true) {
     // 2 MB / 4 KB = 512 buffers.
-    constexpr size_t slab = 2ULL * 1024 * 1024;
+    constexpr auto slab = 2 * 1024UZ * 1024UZ;
     auto pool =
         iou_provided_buf_pool::create(dispatcher, slab, block_size::kb004, 3);
     CHECK(*pool);
@@ -85,7 +85,7 @@ TEST_CASE("BufCountFromDivision", "[IouProvidedBufPool]") {
   }
   if (true) {
     // 8 MB slab (4 hugepages) / 1 MB = 8 buffers (power of two).
-    constexpr size_t slab = 4ULL * buffer_pool_base::hugepage_size;
+    constexpr auto slab = 4 * buffer_pool_base::hugepage_size;
     auto pool =
         iou_provided_buf_pool::create(dispatcher, slab, block_size::m01);
     CHECK(*pool);
@@ -103,14 +103,14 @@ TEST_CASE("BufDataOffsets", "[IouProvidedBufPool]") {
   // buf_data(bid) returns pointers that are exactly buf_size apart.
   iou_provided_buf_pool::dispatcher_t dispatcher;
   if (true) {
-    constexpr size_t slab = 2ULL * 1024 * 1024;
+    constexpr auto slab = 2 * 1024UZ * 1024UZ;
     auto pool =
         iou_provided_buf_pool::create(dispatcher, slab, block_size::kb004);
     REQUIRE(pool);
     const std::byte* base = pool->buf_data(0);
     REQUIRE(base != nullptr);
-    for (size_t i = 1; i < pool->buf_count(); ++i) {
-      CHECK(pool->buf_data(i) == (base + (i * pool->buf_size())));
+    for (auto ndx = 1UZ; ndx < pool->buf_count(); ++ndx) {
+      CHECK(pool->buf_data(ndx) == (base + (ndx * pool->buf_size())));
     }
   }
 }
@@ -161,7 +161,7 @@ TEST_CASE("ReconstructPayload", "[IouProvidedBufPool]") {
     REQUIRE(pool->register_with(ring));
 
     // Simulate the kernel writing "hello world" into slot 2.
-    const size_t bid = 2;
+    const auto bid = 2UZ;
     auto* slot = reinterpret_cast<char*>(pool->buf_data(bid));
     REQUIRE(slot != nullptr);
     const auto expected("hello world"sv);
@@ -262,7 +262,7 @@ TEST_CASE("ReturnReplenishes", "[IouProvidedBufPool]") {
     iou_ring ring;
     REQUIRE(pool->register_with(ring));
 
-    const size_t bid = 1;
+    const auto bid = 1UZ;
     const auto flags = iou_cqe_flags{
         static_cast<uint32_t>(IORING_CQE_F_BUFFER | (bid << 16U))};
 

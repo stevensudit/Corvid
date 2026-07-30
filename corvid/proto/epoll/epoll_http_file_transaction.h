@@ -65,8 +65,8 @@ public:
     for (auto& e : std::filesystem::recursive_directory_iterator(web_root, ec))
     {
       if (!e.is_regular_file()) continue;
-      auto rel = e.path().lexically_relative(web_root);
-      std::string url = "/" + rel.generic_string();
+      const auto rel = e.path().lexically_relative(web_root);
+      const auto url = "/" + rel.generic_string();
       auto body = read_file(e.path());
       if (!body) continue;
       map_[url] = {std::move(*body), std::string{content_type_for(url)}};
@@ -107,7 +107,7 @@ private:
   // Read `path` into a string. Returns empty optional on failure.
   [[nodiscard]] static std::optional<std::string> read_file(
       const std::filesystem::path& path) {
-    std::ifstream f{path, std::ios::binary};
+    std::ifstream f(path, std::ios::binary);
     if (!f) return std::nullopt;
     return std::string{std::istreambuf_iterator<char>{f}, {}};
   }
@@ -145,7 +145,7 @@ struct epoll_static_file_transaction: public epoll_http_transaction {
     }
 
     // Strip query string; only the path portion is used for lookup.
-    auto path = std::string_view{req.target};
+    std::string_view path{req.target};
     path = strings::token_parser::next_delimited('?', path);
 
     const auto* e = cache_->find(path);

@@ -85,14 +85,15 @@ public:
 
   // Allocates but does not initialize device memory for `count` objects of
   // type `T`.
-  explicit cuda_ptr(size_t count = 1) : base{allocate(count)}, count_{count} {}
+  explicit cuda_ptr(size_t count = 1UZ)
+      : base{allocate(count)}, count_{count} {}
 
 #pragma endregion
 #pragma region Transfer
 
   // Store memory from the CUDA device into the host buffer. Copies `count`
   // objects, or the whole allocation when `count` is defaulted.
-  [[nodiscard]] cuda_last_status store(T* host_ptr, size_t count = 0) const {
+  [[nodiscard]] cuda_last_status store(T* host_ptr, size_t count = {}) const {
     if (count == 0) count = count_;
     assert(count <= count_ && "store array size exceeds allocated count");
     return copy(host_ptr, this->get(), count, memcpy_kind::device_to_host);
@@ -112,7 +113,7 @@ public:
 
   // Load device memory from the host buffer at `host_ptr`. Copies `count`
   // objects, or the whole allocation when `count` is defaulted.
-  [[nodiscard]] cuda_last_status load(const T* host_ptr, size_t count = 0) {
+  [[nodiscard]] cuda_last_status load(const T* host_ptr, size_t count = {}) {
     if (count == 0) count = count_;
     assert(count <= count_ && "load array size exceeds allocated count");
     return copy(this->get(), host_ptr, count, memcpy_kind::host_to_device);
@@ -148,7 +149,7 @@ private:
   // pointer to the allocated memory. Returns `nullptr` on failure.
   [[nodiscard]] static T* allocate(size_t count) {
     if (count > std::numeric_limits<size_t>::max() / sizeof(T)) return nullptr;
-    T* ptr = nullptr;
+    T* ptr{};
     cuda_last_status status{cudaMalloc(&ptr, count * sizeof(T))};
     if (!status) return nullptr;
     return ptr;
@@ -157,7 +158,7 @@ private:
 #pragma endregion
 #pragma region Data members
 private:
-  size_t count_;
+  size_t count_{};
 
 #pragma endregion
 };

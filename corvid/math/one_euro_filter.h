@@ -49,7 +49,7 @@ public:
   // Smooth one sample's (`dx`, `dy`) in place over the elapsed `dt` seconds.
   void smooth(float dt, float& dx, float& dy) noexcept {
     if (dt <= 0.0F) return;
-    const float speed = std::hypot(dx, dy) / dt;
+    const auto speed = std::hypot(dx, dy) / dt;
 
     // The first sample has nothing to smooth against: seed the state and pass
     // the input through unchanged.
@@ -65,7 +65,7 @@ public:
     // does not jitter with the noisy raw input.
     speed_ = std::lerp(speed_, speed, alpha(speed_cutoff, dt));
     // Faster motion raises the cutoff, which lightens the smoothing.
-    const float a = alpha(min_cutoff_ + (beta_ * speed_), dt);
+    const auto a = alpha(min_cutoff_ + (beta_ * speed_), dt);
     dx_ = std::lerp(dx_, dx, a);
     dy_ = std::lerp(dy_, dy, a);
     dx = dx_;
@@ -78,18 +78,18 @@ public:
 private:
   // First-order low-pass weight for a cutoff frequency (Hz) over `dt` seconds.
   [[nodiscard]] static float alpha(float cutoff, float dt) noexcept {
-    const float tau = 1.0F / (two_pi_v<> * cutoff);
+    const auto tau = 1.0F / (two_pi_v<> * cutoff);
     return 1.0F / (1.0F + (tau / dt));
   }
 
   // Fixed cutoff (Hz) for the speed low-pass, the One Euro default.
-  static constexpr float speed_cutoff = 1.0F;
-  float min_cutoff_;
-  float beta_;
-  float speed_ = 0.0F;
-  float dx_ = 0.0F;
-  float dy_ = 0.0F;
-  bool primed_ = false;
+  static constexpr auto speed_cutoff = 1.0F;
+  float min_cutoff_{};
+  float beta_{};
+  float speed_{};
+  float dx_{};
+  float dy_{};
+  bool primed_{};
 };
 
 }} // namespace corvid::math

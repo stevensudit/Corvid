@@ -269,17 +269,17 @@ private:
   // enabled. Uses the double-check `timer_fuse` pattern: pre-check on the
   // wheel thread, definitive check after posting to the loop thread.
   [[nodiscard]] bool do_arm_ping_interval() {
-    auto wheel = keepalive_wheel_.lock();
+    const auto wheel = keepalive_wheel_.lock();
     if (!wheel) return true;
     return ws_fuse_t::set_timeout(*wheel, ping_interval_seq_,
         std::weak_ptr<epoll_http_transaction>{shared_from_this()},
         ping_interval_,
         [loop = keepalive_loop_](const ws_fuse_t& fuse) -> bool {
-          auto tx = fuse.get_if_armed();
-          auto l = loop.lock();
+          const auto tx = fuse.get_if_armed();
+          const auto l = loop.lock();
           if (!tx || !l) return true;
           return l->post([fuse]() -> bool {
-            auto tx = fuse.get_if_armed();
+            const auto tx = fuse.get_if_armed();
             if (!tx) return true;
             return std::static_pointer_cast<epoll_http_websocket_transaction>(
                 tx)
@@ -291,17 +291,17 @@ private:
   // Arm the pong-wait timer. If no matching pong arrives within
   // `pong_timeout_`, `do_pong_timeout_fire` is called.
   [[nodiscard]] bool do_arm_pong_timeout() {
-    auto wheel = keepalive_wheel_.lock();
+    const auto wheel = keepalive_wheel_.lock();
     if (!wheel) return true;
     return ws_fuse_t::set_timeout(*wheel, pong_wait_seq_,
         std::weak_ptr<epoll_http_transaction>{shared_from_this()},
         pong_timeout_,
         [loop = keepalive_loop_](const ws_fuse_t& fuse) -> bool {
-          auto tx = fuse.get_if_armed();
-          auto l = loop.lock();
+          const auto tx = fuse.get_if_armed();
+          const auto l = loop.lock();
           if (!tx || !l) return true;
           return l->post([fuse]() -> bool {
-            auto tx = fuse.get_if_armed();
+            const auto tx = fuse.get_if_armed();
             if (!tx) return true;
             return std::static_pointer_cast<epoll_http_websocket_transaction>(
                 tx)
@@ -335,8 +335,8 @@ private:
   std::string pending_response_;
   bool upgraded_{};
 
-  duration_t ping_interval_{30s};
-  duration_t pong_timeout_{10s};
+  duration_t ping_interval_ = 30s;
+  duration_t pong_timeout_ = 10s;
   std::atomic_uint64_t ping_interval_seq_;
   std::atomic_uint64_t pong_wait_seq_;
 

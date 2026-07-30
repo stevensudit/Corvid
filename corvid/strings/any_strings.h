@@ -49,7 +49,7 @@ using any_strings =
 template<typename... Strings>
 requires(std::same_as<Strings, std::string> && ...)
 [[nodiscard]] inline std::vector<std::string> as_vector(Strings&&... strings) {
-  auto result = std::vector<std::string>{};
+  std::vector<std::string> result;
   result.reserve(sizeof...(Strings));
   (result.emplace_back(std::move(strings)), ...);
   return result;

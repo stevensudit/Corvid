@@ -106,20 +106,21 @@ has_field(const std::vector<std::pair<std::string, std::string>>& headers,
 // QUIC: nghttp3 bytes go straight across instead of through ngtcp2. Returns
 // the number of (non-empty) writes relayed.
 int pump(http3_conn& from, http3_conn& to) {
-  int writes{0};
-  for (int guard = 0; guard < 100; ++guard) {
+  int writes{};
+  for (auto guard = 0; guard < 100; ++guard) {
     quic_stream_id stream_id = quic_stream_id::none;
     std::span<const iovec> vecs;
     stream_chunk chunk_fin{stream_chunk::more};
     REQUIRE(from.writev_stream(stream_id, vecs, chunk_fin));
     if (stream_id == quic_stream_id::none) break;
 
-    size_t total{0};
-    for (size_t i = 0; i < vecs.size(); ++i) {
-      const auto& v = vecs[i];
+    size_t total{};
+    for (auto ndx = 0UZ; ndx < vecs.size(); ++ndx) {
+      const auto& v = vecs[ndx];
       // The FIN rides with the final byte chunk.
-      const auto fin = (i + 1 == vecs.size()) ? chunk_fin : stream_chunk::more;
-      size_t consumed{0};
+      const auto fin =
+          (ndx + 1 == vecs.size()) ? chunk_fin : stream_chunk::more;
+      size_t consumed{};
       REQUIRE(to.read_stream(stream_id,
           {static_cast<const uint8_t*>(v.iov_base), v.iov_len}, fin,
           consumed));
@@ -127,7 +128,7 @@ int pump(http3_conn& from, http3_conn& to) {
     }
     // A pure FIN (no bytes) still has to be delivered.
     if (vecs.empty() && chunk_fin == stream_chunk::fin) {
-      size_t consumed{0};
+      size_t consumed{};
       REQUIRE(to.read_stream(stream_id, {}, stream_chunk::fin, consumed));
     }
     REQUIRE(from.add_write_offset(stream_id, total));

@@ -72,8 +72,8 @@ public:
   template<typename Clock, typename Duration>
   [[nodiscard]] bool until(std::stop_token st,
       const std::chrono::time_point<Clock, Duration>& deadline) {
-    std::stop_callback on_stop{st, [this] { cv_.notify_all(); }};
-    std::unique_lock lock{mutex_};
+    std::stop_callback on_stop(st, [this] { cv_.notify_all(); });
+    std::unique_lock lock(mutex_);
     return cv_.wait_until(lock, deadline, [&st] {
       return st.stop_requested();
     });
@@ -81,8 +81,8 @@ public:
 
   static void set_thread_name(std::string_view name) {
     static std::atomic_int thread_count;
-    const int n = ++thread_count;
-    std::string label = std::to_string(n);
+    const auto n = ++thread_count;
+    auto label = std::to_string(n);
     label += '-';
     label += name;
 #ifdef _WIN32

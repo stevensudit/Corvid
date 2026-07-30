@@ -73,7 +73,7 @@ constexpr inline bool is_fixed_function_v<fixed_function<SZ, Sig>> = true;
 // `capacity` before assignment.
 template<size_t SZ, class RP, class... ARGS>
 class fixed_function<SZ, RP(ARGS...)> {
-  static constexpr size_t pointer_pair_size = 2 * sizeof(void*);
+  static constexpr auto pointer_pair_size = 2 * sizeof(void*);
   static_assert(SZ > pointer_pair_size,
       "fixed_function: SZ must be greater than 2*sizeof(void*)");
   static_assert(SZ == padded_size(SZ),
@@ -173,7 +173,7 @@ public:
     using other_t = fixed_function<SZ2, RP(ARGS...)>;
     [[maybe_unused]] const bool refused =
         other.lifespan_ &&
-        other.lifespan_(other.storage_, storage_, storage_size) == 0;
+        (other.lifespan_(other.storage_, storage_, storage_size) == 0);
     // A refusal is only reachable when downsizing; the guard keeps the
     // guaranteed-fit instantiation genuinely non-throwing.
     if constexpr (other_t::storage_size > storage_size) {
@@ -234,7 +234,7 @@ public:
   }
 
   void swap(fixed_function& other) noexcept {
-    fixed_function tmp{std::move(*this)};
+    auto tmp = std::move(*this);
     *this = std::move(other);
     other = std::move(tmp);
   }
@@ -299,7 +299,7 @@ private:
         "fixed_function: callable returns a prvalue but RP is a reference "
         "type; every call would produce a dangling reference");
 
-    new (storage_) FD{std::forward<FD>(fn)};
+    new (storage_) FD(std::forward<FD>(fn));
     invoke_ = &invoke_impl<FD>;
     lifespan_ = &manage_impl<FD>;
   }
@@ -342,7 +342,7 @@ private:
       auto* f = static_cast<F*>(from);
       if (to) {
         if (to_size < sizeof(F)) return 0;
-        new (to) F{std::move(*f)};
+        new (to) F(std::move(*f));
       }
       f->~F();
     }
@@ -352,8 +352,10 @@ private:
 #pragma endregion
 #pragma region Data members
 
-  invoke_fn_t invoke_{&default_invoke_impl};
+  invoke_fn_t invoke_ = &default_invoke_impl;
   lifespan_fn_t lifespan_{};
+  // Deliberately no initializer: occupancy is keyed by `lifespan_`, and
+  // zeroing the buffer on every construction would be pure waste.
   alignas(std::max_align_t) std::byte storage_[storage_size];
 
 #pragma endregion

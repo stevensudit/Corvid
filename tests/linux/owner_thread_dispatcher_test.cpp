@@ -30,7 +30,7 @@ class OwnerThreadTestDispatcher: public owner_thread_dispatcher<> {
 public:
   using parent = owner_thread_dispatcher<>;
 
-  OwnerThreadTestDispatcher(size_t max_pending = 16) : parent(max_pending) {}
+  OwnerThreadTestDispatcher(size_t max_pending = 16UZ) : parent(max_pending) {}
 
   [[nodiscard]] size_t execute_post_queue() {
     // Expose `execute_post_queue` for testing.
@@ -178,7 +178,7 @@ TEST_CASE("QueueHighWatermark", "[OwnerThreadDispatcher]") {
   // `queue_high_watermark` reflects the maximum capacity seen.
   OwnerThreadTestDispatcher dispatcher{4};
   CHECK(dispatcher.queue_high_watermark() >= 4U);
-  for (int i{}; i < 8; ++i)
+  for (auto ndx = 0; ndx < 8; ++ndx)
     CHECK(dispatcher.post([]() -> bool { return true; }));
   (void)dispatcher.execute_post_queue();
   CHECK(dispatcher.queue_high_watermark() >= 8U);

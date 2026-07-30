@@ -83,6 +83,9 @@ class epoll_stream_conn;
 //                           `on_close` handler and call `close` or `hangup`
 //                           only when done.
 struct epoll_stream_conn_handlers {
+  // The `= nullptr` initializers are not redundant: a designated initializer
+  // may omit only fields that have a default member initializer (per
+  // -Wmissing-designated-field-initializers), and call sites do omit these.
   std::function<bool(epoll_stream_conn&, epoll_recv_buffer_view)> on_data =
       nullptr;
   std::function<bool(epoll_stream_conn&)> on_drain = nullptr;
@@ -156,7 +159,7 @@ class epoll_stream_conn: public epoll_io_conn {
 #pragma region Accessors
 public:
   // Default receive-buffer capacity per connection, in bytes.
-  static constexpr size_t default_recv_buf_size = 16384;
+  static constexpr auto default_recv_buf_size = 16 * 1024UZ;
 
   // True if the connection has not yet been closed.
   [[nodiscard]] bool is_open() const noexcept { return open_; }
@@ -287,7 +290,7 @@ public:
   // been fully sent; send completion is signaled via the `on_drain` callback.
   [[nodiscard]] bool send_any(any_strings&& strings) {
     if (!open_ || write_shut_) return false;
-    bool any = std::visit(
+    const auto is_any = std::visit(
         [](const auto& v) {
           using T = std::decay_t<decltype(v)>;
           if constexpr (std::is_same_v<T, std::string>)
@@ -300,7 +303,7 @@ public:
             return false;
         },
         strings);
-    if (!any) return false;
+    if (!is_any) return false;
     return execute_or_post([p = self(), s = std::move(strings)]() mutable {
       return p->enqueue_send_any(std::move(s));
     });
@@ -435,44 +438,44 @@ private:
 
   // Set by `close` to prevent the destructor of `epoll_stream_conn_ptr_with`
   // from closing forcefully after a graceful close has been initiated.
-  relaxed_atomic_bool no_hangup_on_destruct_{false};
+  relaxed_atomic_bool no_hangup_on_destruct_;
 
   // Per-direction state, assuming `open_` is true. `read_open_` is cleared by
   // `do_shutdown_read`; `write_shut_` is set by `do_shutdown_write`.
   relaxed_atomic_bool read_open_{true};
-  relaxed_atomic_bool write_shut_{false};
+  relaxed_atomic_bool write_shut_;
 
   // Set to true by `register_with_loop` after successful epoll registration.
   // Before this point, `execute_or_post` defers inline execution even on the
   // loop thread, so that operations posted before registration (e.g., `send`
   // from the loop thread immediately after `adopt`) do not attempt epoll
   // mutations on an unregistered fd.
-  relaxed_atomic_bool registered_{false};
+  relaxed_atomic_bool registered_;
 
   // True while an async connect is in progress. Cleared by
   // `handle_connect` once `SO_ERROR` is checked. During this phase,
   // `on_readable`, `on_writable`, and `on_error` all route to
   // `handle_connect` instead of the normal data paths.
-  bool connecting_ = false;
+  bool connecting_{};
 
   // True for listening sockets created by
   // `epoll_stream_conn_ptr_with::listen`. In this phase, `on_readable` routes
   // to `handle_listen` to drain accepted connections, `on_writable` is a
   // no-op, and the write data path is disabled.
-  bool listening_ = false;
+  bool listening_{};
 
   // Set by `do_close` to request a full or mutual close after pending writes
   // flush.
-  bool close_requested_ = false;
+  bool close_requested_{};
 
   // Set by `notify_close_once` to ensure `on_close` is delivered at most
   // once.
-  bool close_notified_ = false;
+  bool close_notified_{};
 
   // Set by `handle_read_eof` when EOF arrives while `view_active` is true.
   // Cleared and acted on by `resume_receive` once the live view destructs,
   // preventing a second view from being created while the first is still live.
-  bool eof_pending_ = false;
+  bool eof_pending_{};
 
   // When `bilateral`, `close` shuts down the write side after the send queue
   // flushes, then discards incoming data until the peer closes. When
@@ -498,10 +501,10 @@ private:
     // to detect completion; sockets with pending sends need it to flush; and
     // accepted sockets need it so `flush_send_queue` fires `notify_drained`
     // (and thus `on_drain`) once on the first writable event.
-    const bool want_write = !listening_;
+    const auto want_write = !listening_;
     // Suppress reads while connecting: `handle_connect` calls
     // `refresh_read_interest` once `SO_ERROR` confirms success.
-    const bool want_read = !connecting_ && wants_read_events();
+    const auto want_read = !connecting_ && wants_read_events();
     if (loop_.register_socket(shared_from_this(), want_read, want_write)) {
       registered_ = true;
       return true;
@@ -859,7 +862,7 @@ private:
     for (;;) {
       auto accepted = sock().accept();
       if (!accepted) break;
-      auto peer = accept_clone(std::move(accepted->first),
+      const auto peer = accept_clone(std::move(accepted->first),
           net_endpoint{accepted->second},
           epoll_stream_conn_handlers{own_handlers_});
       if (!peer) continue; // accept_clone declined this connection
@@ -875,8 +878,8 @@ private:
   void ensure_recv_buf() {
     assert(loop_.is_loop_thread());
     if (!recv_buf_.buffer.empty()) return;
-    const size_t configured = recv_buf_.min_capacity;
-    const size_t actual =
+    const size_t configured{recv_buf_.min_capacity};
+    const auto actual =
         no_zero{recv_buf_.buffer}.enlarge_to(configured)->size();
     auto expected = configured;
     recv_buf_.min_capacity->compare_exchange_strong(expected, actual,
@@ -893,7 +896,7 @@ private:
 
     ensure_recv_buf();
 
-    const size_t space = recv_buf_.write_space();
+    const auto space = recv_buf_.write_space();
     if (space == 0) {
       // Buffer full. Suppress `EPOLLIN` directly (without touching
       // `reads_enabled`) so `resume_receive` can re-arm it via
@@ -902,11 +905,11 @@ private:
       return true;
     }
 
-    const size_t old_end = recv_buf_.end.load(std::memory_order::relaxed);
+    const auto old_end = recv_buf_.end.load(std::memory_order::relaxed);
     if (!sock().recv_at(recv_buf_.buffer, old_end)) {
-      const bool hard_error = recv_buf_.buffer.size() == old_end;
+      const auto is_hard_error = (recv_buf_.buffer.size() == old_end);
       no_zero{recv_buf_.buffer}.enlarge_to_cap();
-      if (hard_error) return do_close_now(close_mode::forceful) && false;
+      if (is_hard_error) return do_close_now(close_mode::forceful) && false;
 
       // EOF.
       // Arm EOF handling. If a view is active, defer until it destructs so
@@ -934,7 +937,7 @@ private:
   //
   // Uses `execute_or_post` for compaction and `refresh_read_interest`, and may
   // call `notify_read_ready`.
-  void resume_receive(size_t new_size = 0, size_t last_seen_end = 0) {
+  void resume_receive(size_t new_size = {}, size_t last_seen_end = {}) {
     (void)execute_or_post([p = self(), new_size, last_seen_end]() -> bool {
       if (!p->open_) return false;
       p->recv_buf_.view_active = false;
@@ -942,8 +945,8 @@ private:
       // Evaluate before compaction: compaction may reset `end` to
       // `active_len`, making a post-compact comparison against `last_seen_end`
       // meaningless.
-      const bool unseen_bytes =
-          p->recv_buf_.end.load(std::memory_order::acquire) > last_seen_end;
+      const auto are_unseen_bytes =
+          (p->recv_buf_.end.load(std::memory_order::acquire) > last_seen_end);
       p->recv_buf_.compact(new_size);
 
       // If EOF arrived while a view was live, handle it now.
@@ -962,7 +965,7 @@ private:
       // Bytes can arrive while a view is live (`handle_readable` extends `end`
       // but skips the `on_data` dispatch). Re-dispatch now if the parser has
       // not yet seen all buffered bytes; otherwise just re-arm `EPOLLIN`.
-      if (unseen_bytes && !p->recv_buf_.active().empty()) {
+      if (are_unseen_bytes && !p->recv_buf_.active().empty()) {
         return p->loop_.post([p]() -> bool {
           if (!p->open_) return false;
           return p->notify_read_ready();
@@ -1069,7 +1072,7 @@ private:
 
       // Retire all fully consumed strings. `op.index` is the count of
       // segments (relative to the current front) that were completely sent.
-      for (size_t i{}; i < op.index; ++i) send_queue_.pop_front();
+      for (auto ndx = 0UZ; ndx < op.index; ++ndx) send_queue_.pop_front();
 
       // Clean up dead segments from `iov_sender_` if there is enough slack.
       iov_sender_.compact();
@@ -1141,9 +1144,9 @@ private:
       // `recv_at` returns false on both EOF and hard error.
       // Hard error: buffer trimmed to 0 by `recv_at`. EOF: buffer left at
       // full capacity (non-empty).
-      const bool hard_error = recv_buf_.buffer.empty();
+      const auto is_hard_error = recv_buf_.buffer.empty();
       no_zero{recv_buf_.buffer}.enlarge_to_cap();
-      if (hard_error) return do_close_now(close_mode::forceful) && false;
+      if (is_hard_error) return do_close_now(close_mode::forceful) && false;
       // Peer sent FIN: complete the close.
       return do_close_now();
     }
@@ -1232,7 +1235,7 @@ public:
   template<typename U>
   requires std::derived_from<U, conn_t>
   epoll_stream_conn_ptr_with(epoll_stream_conn_ptr_with<U>&& other) noexcept
-      : conn_(std::move(other.conn_)) {}
+      : conn_{std::move(other.conn_)} {}
 
   // Performs `hangup` on destruction. If you want to close cleanly, you must
   // call `close` before the instance is destructed.
@@ -1307,8 +1310,8 @@ public:
             ? std::optional{connection_role::client}
             : std::optional<connection_role>{};
 
-    auto ptr = epoll_stream_conn_ptr_with{loop, std::move(sock), remote,
-        std::move(h), recv_buf_size, connection, shutdown};
+    epoll_stream_conn_ptr_with ptr{loop, std::move(sock), remote, std::move(h),
+        recv_buf_size, connection, shutdown};
 
     // When `connect(2)` succeeds immediately, `handle_connect` never fires
     // via `EPOLLOUT`. Post a follow-up task to mirror its success path:
@@ -1348,7 +1351,7 @@ public:
     if (!sock.bind(local)) return {};
     if (!sock.listen()) return {};
 
-    return epoll_stream_conn_ptr_with{std::move(loop), std::move(sock),
+    return epoll_stream_conn_ptr_with{loop, std::move(sock),
         net_endpoint::invalid, std::move(h),
         epoll_stream_conn::default_recv_buf_size, connection_role::server,
         shutdown};
@@ -1438,8 +1441,8 @@ public:
       const net_endpoint& remote, epoll_stream_conn_handlers&& h, size_t rbs,
       std::optional<connection_role> connection = {},
       coordination_policy shutdown = coordination_policy::unilateral)
-      : epoll_stream_conn(a, std::move(loop), std::move(sock), remote,
-            std::move(h), rbs, connection, shutdown) {}
+      : epoll_stream_conn{a, std::move(loop), std::move(sock), remote,
+            std::move(h), rbs, connection, shutdown} {}
 #pragma endregion
 #pragma region Accessors
 

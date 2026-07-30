@@ -49,7 +49,7 @@ public:
 
   static constexpr bool is_sender = SENDER;
   static constexpr bool is_receiver = !SENDER;
-  static constexpr size_t npos = std::numeric_limits<size_t>::max();
+  static constexpr auto npos = std::numeric_limits<size_t>::max();
 
   // Result of an I/O operation, with both the linear count of bytes and the
   // position within the segment.
@@ -287,8 +287,8 @@ private:
     if (!last_op_.transferred) return true;
 
     // Map to actual index.
-    size_t actual_index = first_index_ + last_op_.index;
-    size_t offset = last_op_.offset;
+    const auto actual_index = first_index_ + last_op_.index;
+    const auto offset = last_op_.offset;
 
     // Disarm.
     last_op_ = {};
@@ -299,8 +299,8 @@ private:
     // Subtract bytes from all segments being skipped over. Note that we only
     // look at the lengths; we do not dereference the buffers because they may
     // well have been freed.
-    for (size_t i = first_index_; i < actual_index; ++i)
-      size_ -= segments_[i].iov_len;
+    for (size_t ndx = first_index_; ndx < actual_index; ++ndx)
+      size_ -= segments_[ndx].iov_len;
     first_index_ = actual_index;
 
     // If past the end of the last segment, trim.
@@ -319,13 +319,13 @@ private:
   // stores the result back into `last_op_`. The index may point one past the
   // last segment when the transfer ends exactly on a segment boundary.
   [[nodiscard]] bool do_update_results() noexcept {
-    const size_t transferred = last_op_.transferred;
+    const auto transferred = last_op_.transferred;
     if (transferred > size()) return do_set_fail();
     if (transferred == 0) return do_set_last(0, 0, 0);
 
-    size_t remaining = transferred;
+    auto remaining = transferred;
     for (size_t index = first_index_; index < segments_.size(); ++index) {
-      const size_t available = segments_[index].iov_len;
+      const auto available = segments_[index].iov_len;
 
       // If the remaining offset falls within the current segment, store the
       // index and offset within it.
@@ -363,7 +363,7 @@ private:
   std::vector<iovec> segments_;
   size_t first_index_{};
   size_t size_{};
-  op_results last_op_{};
+  op_results last_op_;
 
 #pragma endregion
 };

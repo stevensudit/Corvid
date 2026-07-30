@@ -18,6 +18,7 @@
 #include "corvid/meta.h"
 #include "catch2_main.h"
 
+#include <bit>
 #include <map>
 #include <memory>
 #include <set>

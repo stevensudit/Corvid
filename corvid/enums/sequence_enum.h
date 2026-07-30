@@ -451,20 +451,20 @@ public:
 
   // Convert from literal.
   template<size_t N>
-  consteval enum_name(const char (&s)[N]) : enum_name(s, N - 1) {}
+  consteval enum_name(const char (&s)[N]) : enum_name{s, N - 1} {}
 
   // Convert from pointer + length.
   consteval enum_name(const char* s, size_t n)
       : base{enum_intern_name<E>({s, n})} {
     if (base::empty())
-      throw std::invalid_argument("not a registered name for this enum");
+      throw std::invalid_argument{"not a registered name for this enum"};
   }
 
   // Convert from the enum value itself. Can be called `consteval` but does not
   // need to be. To construct with a value that has no name, use `force`.
   constexpr enum_name(E e) : base{enum_as_view(e)} {
     if (base::empty())
-      throw std::invalid_argument("not a registered name for this enum");
+      throw std::invalid_argument{"not a registered name for this enum"};
   }
 
 #pragma endregion
@@ -477,7 +477,7 @@ public:
   // `consteval` constructors. Throws if `sv` is not a registered name.
   static constexpr auto intern(std::string_view sv) {
     if (const auto self = try_intern(sv); self) return *self;
-    throw std::invalid_argument("not a registered name for this enum");
+    throw std::invalid_argument{"not a registered name for this enum"};
   }
 
   // Attempt to intern `sv` at runtime.
@@ -503,7 +503,7 @@ public:
   // Note: There is no `try_force` (or `triforce`), only do `force`.
   static constexpr auto force(std::string_view sv) {
     if (sv.empty())
-      throw std::invalid_argument("empty string is not a valid name");
+      throw std::invalid_argument{"empty string is not a valid name"};
     return enum_name(sv, force_tag{});
   }
 
@@ -572,7 +572,7 @@ public:
   // throws.
   static constexpr auto intern(std::string_view sv, E e) {
     if (const auto self = try_intern(sv, e); self) return *self;
-    throw std::invalid_argument("not a registered name for this enum");
+    throw std::invalid_argument{"not a registered name for this enum"};
   }
 
   // Intern at runtime.
@@ -580,7 +580,7 @@ public:
   // If `sv` does not match a name, throws.
   static constexpr auto intern(std::string_view sv) {
     if (const auto self = try_intern(sv); self) return *self;
-    throw std::invalid_argument("not a registered name for this enum");
+    throw std::invalid_argument{"not a registered name for this enum"};
   }
 
   // Intern at runtime.
@@ -588,7 +588,7 @@ public:
   // If `e` does not have a name, throws.
   static constexpr auto intern(E e) {
     if (const auto self = try_intern(e); self) return *self;
-    throw std::invalid_argument("not a registered name for this enum");
+    throw std::invalid_argument{"not a registered name for this enum"};
   }
 
   // Attempt to intern `sv` and `e` at runtime.
@@ -637,7 +637,7 @@ public:
   // Note: There is no `try_force` (or `triforce`), only do `force`.
   static constexpr auto force(std::string_view sv, E e) {
     if (sv.empty())
-      throw std::invalid_argument("empty string is not a valid name");
+      throw std::invalid_argument{"empty string is not a valid name"};
     return enum_named_value{sv, e, force_tag{}};
   }
 
@@ -661,7 +661,7 @@ protected:
 private:
 #pragma region Data members
 
-  E enum_;
+  E enum_{};
 
 #pragma endregion
 };
@@ -727,26 +727,26 @@ template<meta::fixed_string names, std::integral U, size_t NameCount,
   size_t packed_ndx{};
   size_t pos{};
 
-  for (size_t segment_ndx = 0; segment_ndx != SegCount; ++segment_ndx) {
-    const size_t seg_end = std::min(whole.find('|', pos), whole.size());
-    const size_t comma = whole.find(',', pos);
-    if (comma > seg_end) throw std::invalid_argument("invalid structure");
+  for (auto segment_ndx = 0UZ; segment_ndx != SegCount; ++segment_ndx) {
+    const auto seg_end = std::min(whole.find('|', pos), whole.size());
+    const auto comma = whole.find(',', pos);
+    if (comma > seg_end) throw std::invalid_argument{"invalid structure"};
     const auto maybe_start =
         strings::parse_num<U>(whole.substr(pos, comma - pos));
-    if (!maybe_start) throw std::invalid_argument("invalid segment start");
+    if (!maybe_start) throw std::invalid_argument{"invalid segment start"};
 
     const U start = *maybe_start;
     if (segment_ndx != 0) {
       if (start <= name_segments.max)
-        throw std::invalid_argument("segments must ascend");
+        throw std::invalid_argument{"segments must ascend"};
       if (start - name_segments.max <= 3)
-        throw std::invalid_argument("segments too close");
+        throw std::invalid_argument{"segments too close"};
     }
 
     size_t length{};
-    size_t field = comma + 1;
+    auto field = comma + 1;
     while (true) {
-      size_t field_end = std::min(whole.find(',', field), seg_end);
+      const auto field_end = std::min(whole.find(',', field), seg_end);
       name_segments.packed[packed_ndx++] =
           cstring_view{base + field, field_end - field + 1};
       ++length;
@@ -763,7 +763,7 @@ template<meta::fixed_string names, std::integral U, size_t NameCount,
         static_cast<uint64_t>(
             static_cast<UU>(std::numeric_limits<U>::max()) -
             static_cast<UU>(start)))
-      throw std::invalid_argument("segment overflows underlying type");
+      throw std::invalid_argument{"segment overflows underlying type"};
 
     name_segments.segments[segment_ndx] = enum_segment<U>{start, length};
     if (segment_ndx == 0) name_segments.min = start;
@@ -776,7 +776,8 @@ template<meta::fixed_string names, std::integral U, size_t NameCount,
 // Specialization of `sequence_enum_spec`, adding names for the values, stored
 // as a packed array plus a segment table.
 template<ScopedEnum E, E maxseq = E{}, E minseq = E{},
-    wrapclip wrapseq = wrapclip{}, size_t NameCount = 0, size_t SegCount = 1>
+    wrapclip wrapseq = wrapclip{}, size_t NameCount = 0UZ,
+    size_t SegCount = 1UZ>
 struct sequence_enum_names_spec
     : public sequence_enum_spec<E, maxseq, minseq, wrapseq> {
   using U = std::underlying_type_t<E>;
@@ -784,7 +785,7 @@ struct sequence_enum_names_spec
   constexpr sequence_enum_names_spec(
       std::array<cstring_view, NameCount> packed_names,
       std::array<enum_segment<U>, SegCount> segment_table)
-      : names(packed_names), segments(segment_table) {}
+      : names{packed_names}, segments{segment_table} {}
 
   // Append the name for `v`, falling back to its numeric text when `v` is out
   // of range or has an empty name.
@@ -806,7 +807,7 @@ struct sequence_enum_names_spec
   // packed names.
   [[nodiscard]] constexpr cstring_view find_name_by_enum(E v) const noexcept {
     const auto n = as_underlying(v);
-    size_t offset = 0;
+    size_t offset{};
     for (const auto& seg : segments) {
       if (n < seg.start) break;
       const auto intra = static_cast<size_t>(n - seg.start);
@@ -829,9 +830,9 @@ struct sequence_enum_names_spec
   [[nodiscard]] constexpr std::optional<E> find_enum_by_name(
       std::string_view sv) const noexcept {
     if (sv.empty()) return {};
-    size_t offset = 0;
+    size_t offset{};
     for (const auto& seg : segments) {
-      for (size_t ndx = 0; ndx != seg.length; ++ndx)
+      for (auto ndx = 0UZ; ndx != seg.length; ++ndx)
         if (names[offset + ndx] == sv)
           return make<E>(static_cast<U>(seg.start + static_cast<U>(ndx)));
       offset += seg.length;
@@ -906,15 +907,15 @@ template<ScopedEnum E, meta::fixed_string names, wrapclip wrapseq = wrapclip{},
         static_cast<size_t>(std::ranges::count(whole, ',')) + 1;
     std::array<cstring_view, name_count> packed{};
     const char* base = Nulled.data();
-    size_t name_ndx = 0;
-    size_t field = 0;
+    size_t name_ndx{};
+    size_t field{};
     while (true) {
-      const size_t field_end = std::min(whole.find(',', field), whole.size());
+      const auto field_end = std::min(whole.find(',', field), whole.size());
       packed[name_ndx++] = cstring_view{base + field, field_end - field + 1};
       if (field_end == whole.size()) break;
       field = field_end + 1;
     }
-    constexpr auto maxseq = E{as_underlying(minseq) + name_count - 1};
+    constexpr E maxseq{as_underlying(minseq) + name_count - 1};
     constexpr std::array<details::enum_segment<U>, 1> segments{
         {{as_underlying(minseq), name_count}}};
     return details::sequence_enum_names_spec<E, maxseq, minseq, wrapseq,

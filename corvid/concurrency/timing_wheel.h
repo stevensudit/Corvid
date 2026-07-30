@@ -102,10 +102,10 @@ public:
 #pragma region Constants
 
   // Default slot count covers ~60s at 100ms per slot.
-  static constexpr size_t default_slot_count{600};
+  static constexpr auto default_slot_count = 600UZ;
 
   // Default resolution: one 100ms slot per tick.
-  static constexpr duration_t default_tick_interval{100ms};
+  static constexpr duration_t default_tick_interval = 100ms;
 
 #pragma endregion
 #pragma region Construction
@@ -120,8 +120,11 @@ public:
   explicit timing_wheel(size_t slot_count = default_slot_count,
       duration_t tick_interval = default_tick_interval,
       time_point_t start_time = std::chrono::steady_clock::now())
-      : slots_(slot_count), tick_interval_(tick_interval),
-        last_tick_(start_time) {
+      // `slots_` takes parens: `slot_count` is a count of elements to
+      // allocate, the `std::vector<int> v(10)` shape, not a value the vector
+      // takes on.
+      : slots_(slot_count), tick_interval_{tick_interval},
+        last_tick_{start_time} {
     if (slot_count < 2)
       throw std::invalid_argument{"timing_wheel: slot_count must be >= 2"};
     if (tick_interval_ < 500'000ns)
@@ -157,7 +160,7 @@ public:
     delay = std::max(delay, tick_interval_);
     const auto ticks_ahead = static_cast<size_t>(delay / tick_interval_);
 
-    std::scoped_lock lock{mutex_};
+    std::scoped_lock lock(mutex_);
     const auto target = (current_slot_ + ticks_ahead) % slots_.size();
     slots_[target].push_back(std::move(callback));
     return true;
@@ -184,7 +187,7 @@ public:
     slots_t ready_events;
 
     {
-      std::scoped_lock lock{mutex_};
+      std::scoped_lock lock(mutex_);
 
       // Guard against clock going backward or redundant calls.
       if (now <= last_tick_) return;
@@ -225,7 +228,7 @@ public:
   // Return the time at which the next slot will open. Used by
   // `timing_wheel_runner` to compute the sleep deadline.
   [[nodiscard]] time_point_t next_tick_time() const {
-    std::scoped_lock lock{mutex_};
+    std::scoped_lock lock(mutex_);
     return last_tick_ + tick_interval_;
   }
 
@@ -239,7 +242,7 @@ private:
   slots_t slots_;
 
   const duration_t tick_interval_;
-  size_t current_slot_{0};
+  size_t current_slot_{};
   time_point_t last_tick_;
   tombstone stopped_;
 
@@ -307,7 +310,7 @@ private:
 
     // Kill the wheel's tombstone immediately when a stop is requested, so
     // any in-progress `tick` bails at the next callback boundary.
-    std::stop_callback on_stop{st, [this] { (void)wheel_->stop(); }};
+    std::stop_callback on_stop(st, [this] { (void)wheel_->stop(); });
     jthread_stoppable_sleep sleep;
     while (!sleep.until(st, wheel_->next_tick_time()))
       wheel_->tick(std::chrono::steady_clock::now());

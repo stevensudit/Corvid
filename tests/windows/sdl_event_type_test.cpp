@@ -25,7 +25,7 @@ struct event_case {
 
 // First and last of every sparse block; a run that starts one slot off would
 // break the boundary values here.
-constexpr event_case event_cases[] = {
+constexpr event_case event_cases[]{
     {sdl_event_type::quit, 256, "quit"},
     {sdl_event_type::system_theme_changed, 264, "system_theme_changed"},
     {sdl_event_type::display_orientation, 337, "display_orientation"},

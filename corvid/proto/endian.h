@@ -36,8 +36,8 @@ namespace corvid { inline namespace proto {
 inline auto swap_always(auto v) noexcept { return std::byteswap(v); }
 
 inline __uint128_t swap_always(__uint128_t v) noexcept {
-  auto lo = static_cast<uint64_t>(v);
-  auto hi = static_cast<uint64_t>(v >> 64);
+  const auto lo = static_cast<uint64_t>(v);
+  const auto hi = static_cast<uint64_t>(v >> 64);
   return (static_cast<__uint128_t>(std::byteswap(lo)) << 64) |
          std::byteswap(hi);
 }

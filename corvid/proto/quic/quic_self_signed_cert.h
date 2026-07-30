@@ -57,7 +57,7 @@ public:
     if (!X509_gmtime_adj(X509_getm_notAfter(raw), valid_for.count())) return;
     if (!X509_set_pubkey(raw, signed_key.get())) return;
 
-    X509_NAME* name = X509_get_subject_name(raw);
+    auto* name = X509_get_subject_name(raw);
     if (!X509_NAME_add_entry_by_txt(name, "CN", MBSTRING_ASC,
             reinterpret_cast<const unsigned char*>("localhost"), -1, -1, 0))
       return;

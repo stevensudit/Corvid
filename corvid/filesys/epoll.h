@@ -40,8 +40,7 @@ public:
 #pragma region Construction
 
   epoll() noexcept = default;
-  explicit epoll(int flags) noexcept : os_file(::epoll_create1(flags)) {}
-  explicit epoll(os_file&& file) noexcept : os_file(std::move(file)) {}
+  explicit epoll(os_file&& file) noexcept : os_file{std::move(file)} {}
 
   epoll(epoll&&) noexcept = default;
   epoll(const epoll&) = delete;
@@ -51,7 +50,7 @@ public:
 
   // Create an `epoll` instance with `flags` (default: `EPOLL_CLOEXEC`).
   [[nodiscard]] static epoll create(int flags = default_flags) noexcept {
-    return epoll{flags};
+    return epoll{os_file{::epoll_create1(flags)}};
   }
 
 #pragma endregion
@@ -94,8 +93,8 @@ public:
   // case.
   [[nodiscard]] std::optional<int>
   wait(epoll_event* events, int maxevents, int timeout_ms) const noexcept {
-    const int n = ::epoll_wait(handle(), events, maxevents, timeout_ms);
-    return n == -1 ? std::optional<int>{} : n;
+    const auto n = ::epoll_wait(handle(), events, maxevents, timeout_ms);
+    return (n == -1) ? std::optional<int>{} : n;
   }
 
   // Wait overload for a fixed-size array: `maxevents` is deduced from `N`.

@@ -40,11 +40,11 @@ namespace corvid::sdl {
 // The body reads `jump` and decides when it fires (at the next ground
 // contact).
 struct drive_input {
-  bool forward = false;
-  bool back = false;
-  bool left = false;
-  bool right = false;
-  bool fast = false;
+  bool forward{};
+  bool back{};
+  bool left{};
+  bool right{};
+  bool fast{};
 
   // Look and scroll tuning, with defaults a viewer may override.
   // `look_sensitivity` scales raw mouse counts to radians; `scroll_step` is
@@ -63,21 +63,21 @@ struct drive_input {
 
   // Whether mouse-look is active: held while the right button is down, which
   // captures the cursor. Persists across frames.
-  bool looking = false;
+  bool looking{};
 
   // This frame's accumulated mouse-look delta (raw counts, gated on `looking`)
   // and wheel scroll, gathered by `handle` and cleared by `look` and `dolly`
   // as they consume them.
-  float look_dx = 0.0F;
-  float look_dy = 0.0F;
-  float wheel = 0.0F;
+  float look_dx{};
+  float look_dy{};
+  float wheel{};
 
   // Whether Space is held this frame. The body fires the jump at the next
   // ground contact (on a floor and not rising), so a tap jumps once and a hold
   // hops off each landing. Held rather than edge-latched because the trigger
   // is the contact, not the press: the request must survive across the
   // airborne frames until the ball lands.
-  bool jump = false;
+  bool jump{};
 
   // Fold one event into this state.
   //
@@ -173,13 +173,13 @@ struct drive_input {
   // there is no vertical, gravity owns it.
   [[nodiscard]] std::pair<float, float> movement(
       float speed_multiplier = 1.0F) const {
-    const float speed = speed_multiplier * (fast ? run_multiplier : 1.0F);
-    float forward_move = (forward ? speed : 0.0F) - (back ? speed : 0.0F);
-    float sideways_move = (right ? speed : 0.0F) - (left ? speed : 0.0F);
-    if (const float planar = std::hypot(forward_move, sideways_move);
+    const auto speed = speed_multiplier * (fast ? run_multiplier : 1.0F);
+    auto forward_move = (forward ? speed : 0.0F) - (back ? speed : 0.0F);
+    auto sideways_move = (right ? speed : 0.0F) - (left ? speed : 0.0F);
+    if (const auto planar = std::hypot(forward_move, sideways_move);
         planar > speed)
     {
-      const float scale = speed / planar;
+      const auto scale = speed / planar;
       forward_move *= scale;
       sideways_move *= scale;
     }

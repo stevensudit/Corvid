@@ -226,7 +226,7 @@ TEST_CASE("General", "[TimersTest]") {
   });
   CHECK(ev2->start_at == (now + 60s));
 
-  size_t count = 0;
+  size_t count{};
   count = t->tick();
   CHECK(count == 0U);
 
@@ -259,7 +259,7 @@ TEST_CASE("Edge", "[TimersTest]") {
   t->set_clock_callback([&now]() { return now; });
   size_t calls{};
 
-  size_t count = 0;
+  size_t count{};
 
   // Repeating: fires at 30s, then every 60s after.
   auto ev = t->set(

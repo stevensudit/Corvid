@@ -70,7 +70,7 @@ public:
 #pragma endregion
 #pragma region Data members
 private:
-  HRESULT hr_;
+  HRESULT hr_{};
 
 #pragma endregion
 };

@@ -337,7 +337,7 @@ public:
   // The remote peer address. For accepted connections, computed lazily via
   // `getpeername` on first call.
   [[nodiscard]] const net_endpoint& remote_endpoint() noexcept {
-    std::scoped_lock lock{endpoint_mutex_};
+    std::scoped_lock lock(endpoint_mutex_);
     if (remote_.empty()) remote_ = net_endpoint::peer_of(sock_);
     return remote_;
   }
@@ -346,7 +346,7 @@ public:
   // `getsockname` on first call. Useful after `listen` on port 0 to discover
   // the OS-assigned port.
   [[nodiscard]] const net_endpoint& local_endpoint() noexcept {
-    std::scoped_lock lock{endpoint_mutex_};
+    std::scoped_lock lock(endpoint_mutex_);
     if (local_.empty()) local_ = net_endpoint{sock_};
     return local_;
   }
@@ -678,7 +678,7 @@ private:
   // distinction is needed because we can be forced by buffer pressure to
   // downgrade from multi to single.
   relaxed_atomic_bool recv_paused_;
-  shot_type recv_intended_shot_{shot_type::multi};
+  shot_type recv_intended_shot_ = shot_type::multi;
   relaxed_atomic<shot_type> recv_active_shot_{shot_type::multi};
 
   // When receiving, token of callback. Can be used for cancelation.
@@ -782,7 +782,7 @@ private:
             buffer& buf) mutable -> slot_retention {
           if (closed_) return slot_retention::release;
           const auto result = buf.result();
-          const bool has_more = buf.has_more();
+          const auto has_more = buf.has_more();
 
           // Normal case.
           if (has_more) {
@@ -808,7 +808,7 @@ private:
           // Not EOF or an error, so probably just a glitch. Retry.
           if (result.value() > 0 && !recv_paused_) {
             recv_token_ = completion_token{cbid};
-            const bool continued =
+            const auto continued =
                 loop_.submit_recv_buffer_multi(sock_, completion_token{cbid});
             (void)on_recv_complete(buf);
             if (continued) return slot_retention::retain;
@@ -1102,7 +1102,7 @@ private:
     }
 
     net_socket accepted_sock{os_file{res.value()}};
-    auto peer = do_accept_clone(std::move(accepted_sock));
+    const auto peer = do_accept_clone(std::move(accepted_sock));
     if (peer) (void)peer->start_reading();
     return true;
   }

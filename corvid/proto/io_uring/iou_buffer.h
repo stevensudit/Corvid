@@ -105,13 +105,13 @@ public:
   using block_type = ::corvid::proto::iouring::block_type;
   using pool_ptr_t = std::shared_ptr<buffer_pool_base>;
 
-  static constexpr uint64_t seek_current = static_cast<uint64_t>(-1);
+  static constexpr auto seek_current = static_cast<uint64_t>(-1);
 
   iou_buffer() = default;
   ~iou_buffer() { do_reset(); }
 
   iou_buffer(iou_buffer&& o) noexcept
-      : base_t(static_cast<base_t&&>(o)), pool_{std::move(o.pool_)},
+      : base_t{static_cast<base_t&&>(o)}, pool_{std::move(o.pool_)},
         full_span_{std::exchange(o.full_span_, {})},
         payload_span_{std::exchange(o.payload_span_, {})},
         active_span_{std::exchange(o.active_span_, {})},
@@ -149,7 +149,7 @@ public:
   // Copyable enough to satisfy `std::function`, but throws if you actually
   // try to copy it. This will no longer be necessary once
   // `std::move_only_function` becomes available.
-  iou_buffer(const iou_buffer& o) : address_forwarder<iou_buffer>(o) {
+  iou_buffer(const iou_buffer& o) : address_forwarder<iou_buffer>{o} {
     throw std::logic_error{"iou_buffer is not copyable"};
   }
   iou_buffer& operator=(const iou_buffer&) = delete;
@@ -292,7 +292,7 @@ public:
   // Return slot retention decision based on whether there are pending
   // releases.
   [[nodiscard]] slot_retention pending_releases_decision() const noexcept {
-    return pending_releases_ > 0
+    return (pending_releases_ > 0)
                ? slot_retention::retain
                : slot_retention::automatic;
   }
@@ -346,7 +346,7 @@ public:
   [[nodiscard]] span_t consume_read(size_t n) noexcept {
     if (n == 0) return {};
     assert(blockrw_ == block_type::read);
-    const size_t take = std::min(n, payload_span_.size());
+    const auto take = std::min(n, payload_span_.size());
     span_t result{payload_span_.data(), take};
     payload_span_ = payload_span_.subspan(take);
     if (payload_span_.empty()) {
@@ -481,7 +481,7 @@ public:
 
     if (file_offset_ != seek_current) file_offset_ += res.bytes();
     if (blockrw_ == block_type::read) {
-      const size_t extend = std::min(res.bytes(),
+      const auto extend = std::min(res.bytes(),
           full_span_.size() -
               static_cast<size_t>(payload_span_.data() - full_span_.data()) -
               payload_span_.size());
@@ -649,8 +649,9 @@ private:
   // Both states are treated identically: the next write operation resets.
   [[nodiscard]] bool do_is_fully_consumed() const noexcept {
     assert(blockrw_ == block_type::write);
-    return active_span_.size() == 0 &&
-           active_span_.data() >= payload_span_.data() + payload_span_.size();
+    return (active_span_.size() == 0) &&
+           (active_span_.data() >=
+               payload_span_.data() + payload_span_.size());
   }
 
   void do_reset_write_spans() noexcept {
@@ -676,9 +677,9 @@ private:
   span_t payload_span_;
   span_t active_span_;
   size_t buf_index_{};
-  uint64_t file_offset_{seek_current};
+  uint64_t file_offset_ = seek_current;
   size_t pending_releases_{};
-  block_type blockrw_{block_type::write};
+  block_type blockrw_ = block_type::write;
 
   combined_timespec timeout_;
   net_endpoint addr_;

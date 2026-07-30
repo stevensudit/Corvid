@@ -422,7 +422,7 @@ public:
         bitmask::has(flags, quic_stream_data_flags::fin)
             ? stream_chunk::fin
             : stream_chunk::more;
-    size_t consumed = 0;
+    size_t consumed{};
     if (!h3_.read_stream(stream_id, data, chunk, consumed)) return false;
     return credit_flow_control(stream_id, consumed);
   }
@@ -587,7 +587,7 @@ public:
       h3_error_code app_error_code, void* stream_user_data) override {
     auto* stream = to_stream(stream_user_data);
     if (!stream) stream = find_stream(stream_id);
-    bool ok{true};
+    auto ok = true;
     if (stream) ok = stream->on_close(app_error_code);
     streams_.erase(stream_id);
     return ok;
@@ -617,7 +617,7 @@ public:
 
       auto out = io_.borrow_send_buffer();
       if (!out) return true;
-      uint64_t accepted = 0;
+      uint64_t accepted{};
       const auto status =
           io_.conn().writev_stream(stream_id, vecs, out, accepted, flags, now);
       // Draining/closing is a connection-level state: ngtcp2 will emit nothing
@@ -831,7 +831,7 @@ private:
   quic_session_io& io_;
   http3_conn h3_;
   std::optional<http3_settings> peer_settings_;
-  bool streams_bound_{false};
+  bool streams_bound_{};
   std::unordered_map<quic_stream_id, std::unique_ptr<http3_stream>> streams_;
 
 #pragma endregion

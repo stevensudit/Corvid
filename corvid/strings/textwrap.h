@@ -85,7 +85,7 @@ template<CharType CharT>
 indent_of(std::basic_string_view<CharT> line) noexcept {
   size_t ndx{};
   while (ndx < line.size() &&
-         (line[ndx] == CharT(' ') || line[ndx] == CharT('\t')))
+         (line[ndx] == CharT{' '} || line[ndx] == CharT{'\t'}))
     ++ndx;
   return ndx;
 }
@@ -94,10 +94,10 @@ indent_of(std::basic_string_view<CharT> line) noexcept {
 // by every content line of `sv`.
 template<CharType CharT>
 [[nodiscard]] constexpr size_t
-dedent_margin(std::basic_string_view<CharT> sv) noexcept {
+dedent_margin(std::basic_string_view<CharT> sv) {
   std::basic_string_view<CharT> margin;
   bool found{};
-  auto whole{sv};
+  auto whole = sv;
   std::basic_string_view<CharT> line;
   while (more_lines(line, whole)) {
     const auto ndx = indent_of(line);
@@ -119,14 +119,14 @@ dedent_margin(std::basic_string_view<CharT> sv) noexcept {
 // Return the length of `sv`'s dedented form, given its `margin` length.
 template<CharType CharT>
 [[nodiscard]] constexpr size_t
-dedent_size(std::basic_string_view<CharT> sv, size_t margin) noexcept {
+dedent_size(std::basic_string_view<CharT> sv, size_t margin) {
   size_t cnt{};
-  auto whole{sv};
+  auto whole = sv;
   std::basic_string_view<CharT> line;
   while (more_lines(line, whole, line_ends::keep)) {
     auto brk = line.size();
     while (
-        brk && (line[brk - 1] == CharT('\n') || line[brk - 1] == CharT('\r')))
+        brk && (line[brk - 1] == CharT{'\n'} || line[brk - 1] == CharT{'\r'}))
       --brk;
     const auto content = line.substr(0, brk);
     if (indent_of(content) != content.size()) cnt += content.size() - margin;
@@ -140,14 +140,14 @@ dedent_size(std::basic_string_view<CharT> sv, size_t margin) noexcept {
 // caller sizes `out_span` exactly, via `dedent_size`; this is asserted.
 template<CharType CharT>
 constexpr void dedent_fill(std::basic_string_view<CharT> sv, size_t margin,
-    std::span<std::type_identity_t<CharT>> out_span) noexcept {
+    std::span<std::type_identity_t<CharT>> out_span) {
   auto out = out_span.data();
-  auto whole{sv};
+  auto whole = sv;
   std::basic_string_view<CharT> line;
   while (more_lines(line, whole, line_ends::keep)) {
     auto brk = line.size();
     while (
-        brk && (line[brk - 1] == CharT('\n') || line[brk - 1] == CharT('\r')))
+        brk && (line[brk - 1] == CharT{'\n'} || line[brk - 1] == CharT{'\r'}))
       --brk;
     const auto content = line.substr(0, brk);
     if (indent_of(content) != content.size())
@@ -180,7 +180,7 @@ constexpr void dedent_fill(std::basic_string_view<CharT> sv, size_t margin,
 template<StringViewLike S>
 [[nodiscard]] constexpr auto dedent(const S& s) {
   using C = char_type_of_t<S>;
-  const auto sv{as_view(s)};
+  const auto sv = as_view(s);
   const auto margin = details::dedent_margin(sv);
   std::basic_string<C> r;
   no_zero{r}.resize_to(details::dedent_size(sv, margin));
@@ -236,7 +236,7 @@ template<StringViewLike S,
 [[nodiscard]] constexpr auto indent(const S& s,
     std::basic_string_view<char_type_of_t<S>> prefix, Pred pred) {
   using C = char_type_of_t<S>;
-  auto whole{as_view(s)};
+  auto whole = as_view(s);
   std::basic_string<C> r;
   r.reserve(whole.size());
   std::basic_string_view<C> line;
@@ -266,8 +266,8 @@ indent(const S& s, std::basic_string_view<char_type_of_t<S>> prefix) {
 
 // The default `wrap_options` truncation marker, " [...]", per code unit.
 template<CharType CharT>
-inline constexpr auto default_placeholder_chars = std::array{CharT(' '),
-    CharT('['), CharT('.'), CharT('.'), CharT('.'), CharT(']')};
+inline constexpr std::array default_placeholder_chars{CharT{' '}, CharT{'['},
+    CharT{'.'}, CharT{'.'}, CharT{'.'}, CharT{']'}};
 template<CharType CharT>
 inline constexpr std::basic_string_view<CharT> default_placeholder{
     default_placeholder_chars<CharT>};
@@ -289,29 +289,31 @@ struct wrap_options {
   // Maximum line length, counting any indent. Python raises on zero; here zero
   // is not an error, and each line instead makes progress with a single code
   // unit of content, overflowing minimally.
-  size_t width{70};
+  size_t width = 70UZ;
 
   // Prefix for the first line and for every later line, respectively. Each
-  // counts toward `width`.
+  // counts toward `width`. The `{}` NSDMIs are not redundant: a designated
+  // initializer may omit only fields that have a default member initializer
+  // (per -Wmissing-designated-field-initializers).
   std::basic_string_view<CharT> initial_indent{};
   std::basic_string_view<CharT> subsequent_indent{};
 
   // Expand tabs to spaces first, exactly as `strings::expand_tabs` with
   // `tab_size` does.
-  bool expand_tabs{true};
-  size_t tab_size{8};
+  bool expand_tabs = true;
+  size_t tab_size = 8UZ;
 
   // Replace each remaining whitespace code unit with a space.
-  bool replace_whitespace{true};
+  bool replace_whitespace = true;
 
   // Drop whitespace at the start and end of every line, after wrapping but
   // before indenting. As in Python, whitespace at the start of the first line
   // is kept when non-whitespace follows it.
-  bool drop_whitespace{true};
+  bool drop_whitespace = true;
 
   // Break words longer than a line so no line overflows `width`; when false,
   // an overlong word gets a line to itself.
-  bool break_long_words{true};
+  bool break_long_words = true;
 
   // Truncate the output to at most this many lines, marking the cut with
   // `placeholder`; zero means unlimited. Python raises when the placeholder
@@ -346,7 +348,7 @@ template<CharType CharT>
     text.assign(sv);
   if (options.replace_whitespace)
     for (auto& c : text)
-      if (is_space(c)) c = CharT(' ');
+      if (is_space(c)) c = CharT{' '};
   return text;
 }
 
@@ -356,8 +358,8 @@ template<CharType CharT>
 template<CharType CharT>
 [[nodiscard]] constexpr auto chunk_runs(std::basic_string_view<CharT> tv) {
   std::vector<std::basic_string_view<CharT>> chunks;
-  for (size_t pos = 0; pos < tv.size();) {
-    const bool ws = is_space(tv[pos]);
+  for (auto pos = 0UZ; pos < tv.size();) {
+    const auto ws = is_space(tv[pos]);
     auto end = pos + 1;
     while (end < tv.size() && is_space(tv[end]) == ws) ++end;
     chunks.push_back(tv.substr(pos, end - pos));
@@ -397,7 +399,7 @@ take_line(std::vector<std::basic_string_view<CharT>>& chunks, size_t& next,
   // An overlong chunk: break it at the width or grant it a line to itself.
   if (next < chunks.size() && chunks[next].size() > width) {
     if (options.break_long_words) {
-      const auto space_left = width < 1 ? 1 : width - cur_len;
+      const auto space_left = (width < 1) ? 1 : width - cur_len;
       cur.push_back(chunks[next].substr(0, space_left));
       chunks[next].remove_prefix(space_left);
       cur_len += cur.back().size();
@@ -479,7 +481,7 @@ wrap(const S& s, const wrap_options<char_type_of_t<S>>& options = {}) {
     const auto line_indent =
         lines.empty() ? options.initial_indent : options.subsequent_indent;
     const auto width =
-        options.width > line_indent.size()
+        (options.width > line_indent.size())
             ? options.width - line_indent.size()
             : 0;
     auto [cur, cur_len] =
@@ -489,10 +491,10 @@ wrap(const S& s, const wrap_options<char_type_of_t<S>>& options = {}) {
     // content remains, in which case the placeholder takes over.
     const auto remaining = chunks.size() - next;
     const auto fits_last =
-        (remaining == 0 ||
-            (options.drop_whitespace && remaining == 1 &&
+        ((remaining == 0) ||
+            (options.drop_whitespace && (remaining == 1) &&
                 details::is_ws_chunk(chunks[next]))) &&
-        cur_len <= width;
+        (cur_len <= width);
     if (!options.max_lines || lines.size() + 1 < options.max_lines ||
         fits_last)
     {
@@ -522,9 +524,9 @@ fill(const S& s, const wrap_options<char_type_of_t<S>>& options = {}) {
   size_t total{lines.empty() ? 0 : lines.size() - 1};
   for (const auto& line : lines) total += line.size();
   r.reserve(total);
-  bool first{true};
+  auto first = true;
   for (const auto& line : lines) {
-    if (!first) r.push_back(C('\n'));
+    if (!first) r.push_back(C{'\n'});
     r.append(line);
     first = false;
   }
@@ -548,7 +550,7 @@ template<StringViewLike S>
     std::basic_string_view<char_type_of_t<S>> placeholder =
         default_placeholder<char_type_of_t<S>>) {
   using C = char_type_of_t<S>;
-  const auto sv{as_view(s)};
+  const auto sv = as_view(s);
   std::basic_string<C> collapsed;
   collapsed.reserve(sv.size());
   bool pending{};
@@ -557,7 +559,7 @@ template<StringViewLike S>
       pending = true;
       continue;
     }
-    if (pending && !collapsed.empty()) collapsed.push_back(C(' '));
+    if (pending && !collapsed.empty()) collapsed.push_back(C{' '});
     pending = false;
     collapsed.push_back(c);
   }

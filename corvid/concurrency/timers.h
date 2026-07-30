@@ -63,7 +63,7 @@ struct timer_invocation {
 
   // Event invocation count, starting at 1 and increasing with each recurring
   // call. Contains a snapshot of the namesake in `timer_event`.
-  size_t invocation_count;
+  size_t invocation_count{};
 
   // When the event was scheduled to run, which will be at or after
   // `tick_time`.
@@ -199,7 +199,7 @@ public:
   // The user can choose to cancel after a certain number of callback
   // invocations. This is more reliable than trying to set the expiration time
   // to an exact multiple of the repeat interval.
-  std::atomic_size_t invocation_count{0};
+  std::atomic_size_t invocation_count;
 
   // Tombstone. Setting this prevents the event from firing again.
   tombstone canceled;

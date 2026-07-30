@@ -142,7 +142,7 @@ overloaded_callbacks(Lambdas...) -> overloaded_callbacks<Lambdas...>;
 // You can only use it with the member `visit`.
 template<typename... Lambdas>
 struct indexed_callbacks {
-  constexpr static size_t size_v = sizeof...(Lambdas);
+  constexpr static auto size_v = sizeof...(Lambdas);
 
   // The tuple stores lambdas corresponding to each index of the variant.
   std::tuple<Lambdas...> callbacks;
@@ -194,7 +194,7 @@ struct indexed_callbacks {
       // Create a table of function pointers, one for each index of the
       // variant. Each function pointer calls the corresponding lambda with
       // the index and the value at that index in the variant.
-      constexpr Fn table[] = {[](Variant&& var, Callback&& f) -> R {
+      constexpr Fn table[]{[](Variant&& var, Callback&& f) -> R {
         return f(index_constant<Is>{},
             variant_get<Is>(std::forward<Variant>(var)));
       }...};
@@ -226,7 +226,7 @@ public:
   using underlying_type = std::variant<Ts...>;
   using enum_type = E;
   static constexpr enum_type variant_npos = static_cast<enum_type>(-1);
-  static constexpr size_t variant_size = sizeof...(Ts);
+  static constexpr auto variant_size = sizeof...(Ts);
 
 #pragma region Construction
 
@@ -256,7 +256,7 @@ public:
   // default-constructible. Note that, being implicit, this lets you assign an
   // `enum_type` to an `enum_variant`.
   consteval enum_variant(enum_type e)
-      : value_(construct(static_cast<size_t>(e))) {}
+      : value_{construct(static_cast<size_t>(e))} {}
 
   // Conversion constructor, where `T` is one of the types in `Ts...`.
   template<typename T>
@@ -542,7 +542,7 @@ private:
   underlying_type value_;
 
   // Used by consteval constructor.
-  template<size_t I = 0>
+  template<size_t I = 0UZ>
   static consteval underlying_type construct(size_t idx) {
     if constexpr (I < sizeof...(Ts)) {
       if (idx == I) {
@@ -556,7 +556,7 @@ private:
   }
 
   // Runtime equivalent of `construct` used by the enum assignment operator.
-  template<size_t I = 0>
+  template<size_t I = 0UZ>
   constexpr void assign_index(size_t idx) {
     if constexpr (I < sizeof...(Ts)) {
       if (idx == I) {
@@ -570,6 +570,8 @@ private:
 }}} // namespace corvid::container::rust_like
 
 // Hash support.
+//
+// NOLINTBEGIN(bugprone-std-namespace-modification)
 namespace std {
 template<corvid::meta::concepts::ScopedEnum E, typename... Ts>
 struct hash<corvid::container::rust_like::enum_variant<E, Ts...>> {
@@ -583,3 +585,4 @@ struct hash<corvid::container::rust_like::enum_variant<E, Ts...>> {
   }
 };
 } // namespace std
+// NOLINTEND(bugprone-std-namespace-modification)

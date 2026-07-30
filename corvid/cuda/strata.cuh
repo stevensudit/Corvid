@@ -40,13 +40,13 @@ namespace corvid::cuda::strata {
 
 // The albedo of a hardness tier, one distinct color per band.
 [[nodiscard]] __device__ inline vec3 tier_color(uint16_t tier) {
-  const vec3 palette[4] = {
+  const vec3 palette[4]{
       {0.45F, 0.34F, 0.20F}, // topsoil
       {0.34F, 0.25F, 0.16F}, // dirt
       {0.50F, 0.30F, 0.24F}, // clay
       {0.46F, 0.47F, 0.50F}, // rock
   };
-  return palette[tier < 4 ? tier : 3];
+  return palette[(tier < 4) ? tier : 3];
 }
 
 #pragma endregion

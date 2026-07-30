@@ -161,26 +161,26 @@ TEST_CASE("MoveHandle", "[ObjectPool]") {
 TEST_CASE("MultipleSlots", "[ObjectPool]") {
   // All slots can be borrowed and individually returned.
   if (true) {
-    constexpr size_t cap = 8;
+    constexpr auto cap = 8UZ;
     object_pool<int, cap> pool;
 
     std::array<std::optional<object_pool<int, cap>::borrowed>, cap> handles;
-    for (size_t i = 0; i < cap; ++i) {
-      handles[i] = pool.borrow();
-      CHECK(handles[i].has_value());
+    for (auto ndx = 0UZ; ndx < cap; ++ndx) {
+      handles[ndx] = pool.borrow();
+      CHECK(handles[ndx].has_value());
       // NOLINTNEXTLINE(bugprone-unchecked-optional-access)
-      **handles[i] = static_cast<int>(i);
+      **handles[ndx] = static_cast<int>(ndx);
     }
     CHECK_FALSE(pool.borrow()); // all slots in use
 
     // Return every other slot.
     // NOLINTNEXTLINE(bugprone-unchecked-optional-access)
-    for (size_t i = 0; i < cap; i += 2) handles[i]->reset();
+    for (auto ndx = 0UZ; ndx < cap; ndx += 2) handles[ndx]->reset();
 
     // Re-borrow the returned slots.
-    for (size_t i = 0; i < cap; i += 2) {
-      handles[i] = pool.borrow();
-      CHECK(handles[i].has_value());
+    for (auto ndx = 0UZ; ndx < cap; ndx += 2) {
+      handles[ndx] = pool.borrow();
+      CHECK(handles[ndx].has_value());
     }
     CHECK_FALSE(pool.borrow()); // all slots in use again
   }

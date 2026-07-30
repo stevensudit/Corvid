@@ -66,7 +66,7 @@ public:
 #pragma endregion
 #pragma region Data members
 private:
-  const char* error_;
+  const char* error_{};
 
 #pragma endregion
 };

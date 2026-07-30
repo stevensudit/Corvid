@@ -172,7 +172,7 @@ public:
 
   // NOLINTNEXTLINE(bugprone-exception-escape): a throw only reaches terminate
   [[noreturn]] void terminate() noexcept {
-    if (auto sync = std::osyncstream{**out_}; true)
+    if (std::osyncstream sync{**out_}; true)
       sync << "Terminating due to previous fatal log message.\n" << std::flush;
     std::terminate();
   }
@@ -194,15 +194,15 @@ private:
   // with non-ASCII characters folded to '?'; on POSIX it is the `pthread`
   // name.
   static const std::string& thread_label() {
-    thread_local const std::string label = [] {
+    thread_local const auto label = [] -> std::string {
 #ifdef _WIN32
-      std::string name{"thread"};
+      std::string name = "thread";
       wchar_t* desc{};
       if (SUCCEEDED(GetThreadDescription(GetCurrentThread(), &desc))) {
         if (desc && *desc) {
           name.clear();
           for (const auto c : std::wstring_view{desc}.substr(0, 15))
-            name.push_back(c < 0x80 ? static_cast<char>(c) : '?');
+            name.push_back((c < 0x80) ? static_cast<char>(c) : '?');
         }
         LocalFree(desc);
       }
@@ -232,6 +232,8 @@ private:
     // at the buffer end, so a long path truncates the prefix rather than
     // overflowing. 256 bytes covers the fixed-width timestamp, the <=15-char
     // thread name and tid, the level, and a full file path with line.
+    // Deliberately uninitialized: only the bytes `format_to_n` writes are
+    // read, and this runs per log line.
     std::array<char, 256> prefix;
     auto res = std::format_to_n(prefix.data(), prefix.size(),
         "{:%FT%T}Z [{}] [{} {}:{}] ", now, thread_label(),

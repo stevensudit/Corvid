@@ -216,7 +216,7 @@ struct avatar_tuning {
   // current pitch, since the reason to hold is that the pitch cannot be set
   // steady by hand first (e.g. -55 frames the eye, -81 the inner reticle
   // glow).
-  bool hold_pitch = false;
+  bool hold_pitch{};
   float hold_pitch_deg = -55.0F;
 
   // Convenience (debug): force the dig beam on even without aiming, so the
@@ -224,12 +224,12 @@ struct avatar_tuning {
   // (the outer reticle and cone shell, no beam core), 2 full (adds the inner
   // reticle and the white beam core). Fires at the aim hit when there is one,
   // else straight ahead.
-  int force_beam = 0;
+  int force_beam{};
 
   // Animation rigging: rotate the head's front (and the cockpit eye) off the
   // camera heading, in degrees. Mainly to animate the UFO shaking its head;
   // also handy when debugging to bring the back of the dome into the mirror.
-  float front_offset_deg = 0.0F;
+  float front_offset_deg{};
 
   // Field of view is stored with its derived tan(fov/2), so the per-frame ray
   // setup reads the cached tangent instead of recomputing it. Edit it through
@@ -246,7 +246,7 @@ private:
   // Cached from `fov_deg_` (declared above, so already initialized) rather
   // than a repeated literal, so the field and its tangent can never drift
   // apart.
-  float tan_half_fov_ = tanf(fov_deg_ * radians::per_degree * 0.5F);
+  float tan_half_fov_{tanf(fov_deg_ * radians::per_degree * 0.5F)};
 };
 
 #pragma endregion

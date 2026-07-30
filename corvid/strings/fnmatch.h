@@ -81,10 +81,10 @@ template<CharType CharT>
 [[nodiscard]] constexpr size_t
 locate_class_end(std::basic_string_view<CharT> pat, size_t pos) noexcept {
   auto ndx = pos + 1;
-  if (ndx < pat.size() && pat[ndx] == CharT('!')) ++ndx;
-  if (ndx < pat.size() && pat[ndx] == CharT(']')) ++ndx;
-  while (ndx < pat.size() && pat[ndx] != CharT(']')) ++ndx;
-  return ndx < pat.size() ? ndx : npos;
+  if (ndx < pat.size() && pat[ndx] == CharT{'!'}) ++ndx;
+  if (ndx < pat.size() && pat[ndx] == CharT{']'}) ++ndx;
+  while (ndx < pat.size() && pat[ndx] != CharT{']'}) ++ndx;
+  return (ndx < pat.size()) ? ndx : npos;
 }
 
 // Match pattern code unit `pc` against name code unit `nc`, folding ASCII
@@ -106,16 +106,16 @@ template<CharType CharT>
 [[nodiscard]] constexpr bool is_class_member(
     std::basic_string_view<CharT> content, CharT c, bool fold) noexcept {
   bool negated{};
-  if (!content.empty() && content.front() == CharT('!')) {
+  if (!content.empty() && content.front() == CharT{'!'}) {
     negated = true;
     content.remove_prefix(1);
   }
   if (fold) c = as_lower(c);
   bool found{};
-  for (size_t ndx{}; ndx < content.size();) {
+  for (auto ndx = 0UZ; ndx < content.size();) {
     auto lo = content[ndx];
     auto hi = lo;
-    if (ndx + 2 < content.size() && content[ndx + 1] == CharT('-')) {
+    if (ndx + 2 < content.size() && content[ndx + 1] == CharT{'-'}) {
       hi = content[ndx + 2];
       ndx += 3;
     } else {
@@ -139,7 +139,7 @@ template<CharType CharT>
 // patterns are linear, and no allocation ever happens.
 template<CharType CharT>
 [[nodiscard]] constexpr bool do_match(std::basic_string_view<CharT> name,
-    std::basic_string_view<CharT> pat, bool fold) noexcept {
+    std::basic_string_view<CharT> pat, bool fold) {
   size_t name_ndx{};
   size_t pat_ndx{};
   auto star_pat = npos;
@@ -147,12 +147,12 @@ template<CharType CharT>
   while (name_ndx < name.size()) {
     if (pat_ndx < pat.size()) {
       const auto pc = pat[pat_ndx];
-      if (pc == CharT('*')) {
+      if (pc == CharT{'*'}) {
         star_pat = ++pat_ndx;
         star_name = name_ndx;
         continue;
       }
-      if (pc == CharT('?')) {
+      if (pc == CharT{'?'}) {
         ++pat_ndx;
         ++name_ndx;
         continue;
@@ -162,7 +162,7 @@ template<CharType CharT>
       auto next_pat = pat_ndx + 1;
       bool hit{};
       const auto cls_end =
-          pc == CharT('[') ? locate_class_end(pat, pat_ndx) : npos;
+          (pc == CharT{'['}) ? locate_class_end(pat, pat_ndx) : npos;
       if (cls_end != npos) {
         hit = is_class_member(pat.substr(pat_ndx + 1, cls_end - pat_ndx - 1),
             name[name_ndx], fold);
@@ -180,7 +180,7 @@ template<CharType CharT>
     pat_ndx = star_pat;
     name_ndx = ++star_name;
   }
-  while (pat_ndx < pat.size() && pat[pat_ndx] == CharT('*')) ++pat_ndx;
+  while (pat_ndx < pat.size() && pat[pat_ndx] == CharT{'*'}) ++pat_ndx;
   return pat_ndx == pat.size();
 }
 
@@ -194,16 +194,14 @@ template<CharType CharT>
 // string-like with the same code-unit type.
 template<StringViewLike N, StringViewLike P>
 requires std::same_as<char_type_of_t<N>, char_type_of_t<P>>
-[[nodiscard]] constexpr bool
-fnmatch(const N& name, const P& pattern) noexcept {
+[[nodiscard]] constexpr bool fnmatch(const N& name, const P& pattern) {
   return details::do_match(as_view(name), as_view(pattern), true);
 }
 
 // Match `name` against shell wildcard `pattern`, case-sensitively.
 template<StringViewLike N, StringViewLike P>
 requires std::same_as<char_type_of_t<N>, char_type_of_t<P>>
-[[nodiscard]] constexpr bool
-fnmatchcase(const N& name, const P& pattern) noexcept {
+[[nodiscard]] constexpr bool fnmatchcase(const N& name, const P& pattern) {
   return details::do_match(as_view(name), as_view(pattern), false);
 }
 

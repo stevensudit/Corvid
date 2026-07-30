@@ -57,7 +57,7 @@ PRAGMA_CLANG_DIAG(pop);
 // type for overload resolution and ADL.
 template<ScopedEnum E>
 consteval auto corvid_enum_spec(E*) {
-  return scoped_enum_spec<E>();
+  return scoped_enum_spec<E>{};
 }
 
 // Registers generic support for all scoped enums through the hook above. A

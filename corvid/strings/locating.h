@@ -391,7 +391,7 @@ template<npos_choice npv = npos_choice::npos>
     std::string_view value, position pos = 0) {
   // An empty value matches everywhere, so a non-match is never found.
   if (value.empty()) return from_npos<npv>(s, s.size());
-  for (auto v = std::string_view{value}; pos < s.size(); pos += v.size())
+  for (auto v = value; pos < s.size(); pos += v.size())
     if (s.substr(pos, v.size()) != v) break;
 
   return from_npos<npv>(s, pos);
@@ -408,7 +408,7 @@ template<npos_choice npv = npos_choice::npos>
 template<npos_choice npv = npos_choice::npos>
 [[nodiscard]] constexpr position rlocate_not_string(std::string_view s,
     std::string_view value, position pos = npos) {
-  auto v = std::string_view{value};
+  auto v = value;
   // An empty value matches everywhere, so a non-match is never found.
   if (v.empty()) return from_npos<npv>(s, s.size());
   // A too-long value mismatches at 0 when that position exists; on an empty
@@ -418,7 +418,7 @@ template<npos_choice npv = npos_choice::npos>
   auto last = s.size() - v.size();
   if (pos == npos || pos > last) pos = last;
 
-  for (;; pos = (pos > v.size() ? pos - v.size() : 0)) {
+  for (;; pos = (pos > v.size()) ? pos - v.size() : 0) {
     if (s.substr(pos, v.size()) != v) break;
     if (pos == 0) {
       pos = npos;
@@ -521,7 +521,7 @@ template<npos_choice npv = npos_choice::npos>
 template<npos_choice npv = npos_choice::npos>
 [[nodiscard]] constexpr location locate_any_string(std::string_view s,
     const StringViewConvertibleSpan auto& values, position pos = 0) {
-  location best = nloc;
+  auto best = nloc;
   for (position pos_value = 0; pos_value < values.size(); ++pos_value) {
     const std::string_view value{values[pos_value]};
     if (const auto p = s.find(value, pos); p < best.pos) best = {p, pos_value};
@@ -537,7 +537,7 @@ template<npos_choice npv = npos_choice::npos>
 [[nodiscard]] constexpr location locate_none_string(std::string_view s,
     const StringViewConvertibleSpan auto& values, position pos = 0) {
   for (; pos < s.size(); ++pos) {
-    bool matched = false;
+    bool matched{};
     position pos_value = 0;
     for (; pos_value < values.size(); ++pos_value) {
       std::string_view value{values[pos_value]};
@@ -564,7 +564,7 @@ template<npos_choice npv = npos_choice::npos>
   // The cap exists for the early break below; `rfind` clamps on its own, and
   // an empty value matches at `size()`, exactly as in the forward direction.
   pos = std::min(pos, s.size());
-  location best = nloc;
+  auto best = nloc;
   for (position pos_value = 0; pos_value < values.size(); ++pos_value) {
     const std::string_view value{values[pos_value]};
     const auto p = s.rfind(value, pos);
@@ -583,7 +583,7 @@ template<npos_choice npv = npos_choice::npos>
   if (s.empty()) return as_nloc<npv>(s, values);
   if (pos >= s.size()) pos = s.size() - 1;
   for (++pos; pos-- > 0;) {
-    bool matched = false;
+    bool matched{};
     position pos_value = 0;
     for (; pos_value < values.size(); ++pos_value) {
       std::string_view value{values[pos_value]};
@@ -931,7 +931,7 @@ size_t substitute(std::string& s, const SingleLocateValue auto& from,
     const std::string_view from_sv{from};
     const std::string_view to_sv{to};
     const std::string_view sv{s};
-    const size_t from_size = from_sv.size();
+    const auto from_size = from_sv.size();
     // Pythonic insertion for an empty `from`: `to` goes around each
     // character.
     if (from_size == 0) {
@@ -961,7 +961,7 @@ size_t substitute(std::string& s, const SingleLocateValue auto& from,
     if (next == npos) return cnt;
     std::string result;
     result.reserve(sv.size());
-    size_t copied = 0;
+    size_t copied{};
     do {
       result.append(sv, copied, next - copied);
       result.append(to_sv);
@@ -969,7 +969,7 @@ size_t substitute(std::string& s, const SingleLocateValue auto& from,
       copied = next + from_size;
       next = sv.find(from_sv, copied);
     } while (next != npos);
-    result.append(sv, copied, npos);
+    result.append(sv, copied);
     s = std::move(result);
   }
   return cnt;
@@ -1011,7 +1011,7 @@ inline size_t substitute(std::string& s,
   if (loc.pos == npos) return cnt;
   std::string result;
   result.reserve(sv.size());
-  size_t copied = 0;
+  size_t copied{};
   while (loc.pos != npos) {
     result.append(sv, copied, loc.pos - copied);
     result.append(to[loc.pos_value]);
@@ -1030,7 +1030,7 @@ inline size_t substitute(std::string& s,
     }
     loc = locate(sv, from, copied);
   }
-  result.append(sv, copied, npos);
+  result.append(sv, copied);
   s = std::move(result);
   return cnt;
 }
@@ -1079,7 +1079,7 @@ excise(std::string& s, std::span<const char> from, position pos = 0) {
   auto* data = s.data();
   auto write = pos;
   for (auto read = pos; read < s.size(); ++read) {
-    unsigned char ch = data[read];
+    const auto ch = static_cast<unsigned char>(data[read]);
     if (!del[ch])
       data[write++] = static_cast<char>(ch);
     else
@@ -1112,7 +1112,7 @@ inline size_t excise(std::string& s, std::span<const std::string_view> from,
   auto write = pos;
   auto read = pos;
   while (read < s.size()) {
-    bool matched = false;
+    bool matched{};
     for (const auto& fv : from) {
       if (read + fv.size() <= s.size() &&
           std::memcmp(data + read, fv.data(), fv.size()) == 0)

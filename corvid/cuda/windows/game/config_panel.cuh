@@ -35,7 +35,7 @@ namespace corvid::cuda {
 
 // Amber text tint marking a field edited away from its default (paired with
 // the inline reset), so a changed value stands out.
-constexpr ImU32 modified_tint = IM_COL32(255, 220, 80, 255);
+constexpr ImU32 modified_tint{IM_COL32(255, 220, 80, 255)};
 
 // Draw one labeled float slider for `v` over the range [`lo`, `hi`], with
 // `tip` shown on hover. When `v` differs from its default `def`, the row is
@@ -48,9 +48,9 @@ constexpr ImU32 modified_tint = IM_COL32(255, 220, 80, 255);
 // it.
 inline bool tuned_slider(const char* label, float& v, float def, float lo,
     float hi, const char* tip, ImGuiSliderFlags flags = 0) {
-  const bool modified = v != def;
+  const auto modified = (v != def);
   if (modified) ImGui::PushStyleColor(ImGuiCol_Text, modified_tint);
-  bool changed = ImGui::SliderFloat(label, &v, lo, hi, "%.3f", flags);
+  auto changed = ImGui::SliderFloat(label, &v, lo, hi, "%.3f", flags);
   ImGui::SetItemTooltip("%s", tip);
   if (modified) {
     ImGui::PopStyleColor();
@@ -69,7 +69,7 @@ inline bool tuned_slider(const char* label, float& v, float def, float lo,
 // small counts (window panes, eyes) where a fractional value is meaningless.
 inline void tuned_slider_int(const char* label, int& v, int def, int lo,
     int hi, const char* tip) {
-  const bool modified = v != def;
+  const auto modified = (v != def);
   if (modified) ImGui::PushStyleColor(ImGuiCol_Text, modified_tint);
   ImGui::SliderInt(label, &v, lo, hi, "%d", ImGuiSliderFlags_AlwaysClamp);
   ImGui::SetItemTooltip("%s", tip);
@@ -87,7 +87,7 @@ inline void tuned_slider_int(const char* label, int& v, int def, int lo,
 // so the values read straight back as a `vec3{r, g, b}` in the code.
 inline void
 tuned_color(const char* label, vec3& v, vec3 def, const char* tip) {
-  const bool modified = v.x != def.x || v.y != def.y || v.z != def.z;
+  const auto modified = (v.x != def.x) || (v.y != def.y) || (v.z != def.z);
   if (modified) ImGui::PushStyleColor(ImGuiCol_Text, modified_tint);
   ImGui::ColorEdit3(label, &v.x, ImGuiColorEditFlags_Float);
   ImGui::SetItemTooltip("%s", tip);
@@ -104,7 +104,7 @@ tuned_color(const char* label, vec3& v, vec3 def, const char* tip) {
 // each component over [`lo`, `hi`].
 inline void tuned_vec3(const char* label, vec3& v, vec3 def, float lo,
     float hi, const char* tip) {
-  const bool modified = v.x != def.x || v.y != def.y || v.z != def.z;
+  const auto modified = (v.x != def.x) || (v.y != def.y) || (v.z != def.z);
   if (modified) ImGui::PushStyleColor(ImGuiCol_Text, modified_tint);
   ImGui::SliderFloat3(label, &v.x, lo, hi);
   ImGui::SetItemTooltip("%s", tip);
@@ -799,7 +799,7 @@ inline void draw_render_section(avatar_tuning& t, const avatar_tuning& d,
       "depth across the neighbors. Lower catches finer creases (slower); "
       "higher restricts the cost to the strong edges.");
   // Field of view caches tan(fov/2), so route edits through the setter.
-  float fov = t.fov_deg();
+  auto fov = t.fov_deg();
   if (tuned_slider("fov", fov, d.fov_deg(), 30.0F, 110.0F,
           "Vertical field of view, in degrees."))
     t.set_fov_deg(fov);
@@ -1106,10 +1106,10 @@ inline void draw_config_panel(avatar_tuning& t, const avatar_tuning& d,
     bool& lock_position, bool& uncap_fps, bool& log_collision, body_params& bp,
     const body_params& bpd, bool& flatten_requested, bool& tunnels_requested,
     float& run_multiplier) {
-  const ImGuiViewport* vp = ImGui::GetMainViewport();
+  const auto* vp = ImGui::GetMainViewport();
   ImGui::SetNextWindowPos(vp->GetCenter(), ImGuiCond_FirstUseEver,
-      ImVec2(0.5F, 0.5F));
-  ImGui::SetNextWindowSize(ImVec2(780.0F, vp->WorkSize.y * 0.8F),
+      ImVec2{0.5F, 0.5F});
+  ImGui::SetNextWindowSize(ImVec2{780.0F, vp->WorkSize.y * 0.8F},
       ImGuiCond_FirstUseEver);
   ImGui::Begin("Tuning");
   if (ImGui::Button("Reset all")) {

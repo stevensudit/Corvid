@@ -28,6 +28,7 @@
 
 #include "corvid/strings.h"
 #include "corvid/enums.h"
+#include "corvid/infra/ostream_redirector.h"
 
 std::ostream&
 operator<<(std::ostream& os, const corvid::strings::location& l) {
@@ -170,8 +171,8 @@ TEST_CASE("WhitespaceDelim", "[StringUtilsTest]") {
   if (true) {
     CHECK(strings::is_space(strings::whitespace));
     CHECK(strings::whitespace.size() == 6U);
-    for (int i = 0; i < 256; ++i) {
-      const auto c = static_cast<char>(i);
+    for (auto ndx = 0; ndx < 256; ++ndx) {
+      const auto c = static_cast<char>(ndx);
       CHECK(strings::is_space(c) ==
             (strings::whitespace.find(c) != strings::npos));
     }
@@ -1607,13 +1608,13 @@ TEST_CASE("Print", "[StringUtilsTest]") {
     CHECK(ss.str() == "abc,5,def,1");
 
     ss.str("");
-    strings::ostream_redirector cerr_to_ss(std::cerr, ss);
+    ostream_redirector cerr_to_ss(std::cerr, ss);
     strings::report("a=", 5);
     CHECK(ss.str() == "a=5\n");
   }
   if (true) {
     std::stringstream ss;
-    strings::ostream_redirector cout_to_ss(std::cout, ss);
+    ostream_redirector cout_to_ss(std::cout, ss);
     strings::println("a=", 5);
     CHECK(ss.str() == "a=5\n");
     ss.str("");
@@ -1622,58 +1623,30 @@ TEST_CASE("Print", "[StringUtilsTest]") {
   }
   if (true) {
     std::stringstream ss;
-    strings::ostream_redirector cout_to_ss(std::cout, ss);
+    ostream_redirector cout_to_ss(std::cout, ss);
     strings::print_with(", ", 42);
     CHECK(ss.str() == "42");
   }
   if (true) {
     std::stringstream ss;
-    strings::ostream_redirector cout_to_ss(std::cout, ss);
+    ostream_redirector cout_to_ss(std::cout, ss);
     strings::println_with(", ", 42);
     CHECK(ss.str() == "42\n");
   }
   if (true) {
     std::stringstream ss;
-    strings::ostream_redirector cerr_to_ss(std::cerr, ss);
+    ostream_redirector cerr_to_ss(std::cerr, ss);
     strings::report_with(", ", 42);
     CHECK(ss.str() == "42\n");
   }
 #ifdef NOT_SUPPOSED_TO_COMPILE
   if (true) {
     std::stringstream ss;
-    strings::ostream_redirector cout_to_ss(std::cout, ss);
+    ostream_redirector cout_to_ss(std::cout, ss);
     strings::print("a=", NotStreamable{});
     CHECK(ss.str() == "a=5");
   }
 #endif
-}
-
-#pragma endregion
-#pragma region OstreamRedirectorTraits
-
-TEST_CASE("OstreamRedirectorTraits", "[StringUtilsTest]") {
-  using R = strings::ostream_redirector;
-  static_assert(!std::is_copy_constructible_v<R>);
-  static_assert(!std::is_copy_assignable_v<R>);
-  static_assert(!std::is_move_constructible_v<R>);
-  static_assert(!std::is_move_assignable_v<R>);
-}
-
-#pragma endregion
-#pragma region OstreamRedirectorRestore
-
-TEST_CASE("OstreamRedirectorRestore", "[StringUtilsTest]") {
-  auto* orig = std::cout.rdbuf();
-  {
-    std::stringstream ss;
-    {
-      strings::ostream_redirector r(std::cout, ss);
-      std::cout << "abc";
-      CHECK(ss.str() == "abc");
-      CHECK_FALSE(std::cout.rdbuf() == orig);
-    }
-    CHECK(std::cout.rdbuf() == orig);
-  }
 }
 
 #pragma endregion
@@ -1745,8 +1718,8 @@ TEST_CASE("Trim", "[StringUtilsTest]") {
 
     vsv = strings::split(w, ",");
     std::map<int, std::string> mss;
-    for (size_t i = 0; i < vsv.size(); ++i) {
-      mss[static_cast<int>(i)] = vsv[i];
+    for (auto ndx = 0UZ; ndx < vsv.size(); ++ndx) {
+      mss[static_cast<int>(ndx)] = vsv[ndx];
     }
     CHECK(mss[0] == " 1");
     strings::trim(mss);

@@ -187,7 +187,7 @@ public:
 
   constexpr own_ptr(own_ptr&& other) noexcept
   requires is_move_constructible_deleter_v
-      : ptr_(other.ptr_), del_{std::move(other.del_)} {
+      : ptr_{other.ptr_}, del_{std::move(other.del_)} {
     other.ptr_ = pointer{};
   }
 
@@ -254,7 +254,7 @@ public:
   // `std::make_unique`.
   template<typename... Args>
   static constexpr own_ptr<T, Deleter> make(Args&&... args) {
-    return own_ptr{new T{std::forward<Args>(args)...}};
+    return own_ptr{new T(std::forward<Args>(args)...)};
   }
 
 private:

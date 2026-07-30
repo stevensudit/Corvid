@@ -60,7 +60,7 @@ using namespace std::chrono_literals;
 // the object stays alive for the duration of any in-progress dispatch even if
 // the caller unregisters it during a callback.
 struct epoll_io_conn: std::enable_shared_from_this<epoll_io_conn> {
-  explicit epoll_io_conn(net_socket&& sock) : sock_(std::move(sock)) {}
+  explicit epoll_io_conn(net_socket&& sock) : sock_{std::move(sock)} {}
   net_socket& sock() noexcept { return sock_; }
   const net_socket& sock() const noexcept { return sock_; }
 
@@ -71,7 +71,7 @@ struct epoll_io_conn: std::enable_shared_from_this<epoll_io_conn> {
 
   // Current epoll interest mask. Written only by `epoll_loop` while on the
   // loop thread.
-  uint32_t events{0};
+  uint32_t events{};
 
 private:
   net_socket sock_;
@@ -123,7 +123,7 @@ class epoll_loop
 #pragma region Types
 public:
   // Maximum number of events retrieved per `epoll_wait` call.
-  static constexpr size_t max_events = 64;
+  static constexpr auto max_events = 64UZ;
 
   using posted_fn_t =
       fixed_function<concurrency::default_fixed_function::capacity, bool()>;
@@ -142,8 +142,8 @@ public:
     epoll_event ev{.events = EPOLLIN,
         .data = epoll_data_t{.fd = wake_fd().handle()}};
     if (!epoll_.add(wake_fd().handle(), ev))
-      throw std::system_error(errno, std::generic_category(),
-          "epoll_ctl wake_fd");
+      throw std::system_error{errno, std::generic_category(),
+          "epoll_ctl wake_fd"};
   }
 
   epoll_loop(const epoll_loop&) = delete;
@@ -182,9 +182,9 @@ public:
     if (!has_run_.kill()) return false;
 
     running_.notify(true);
-    scope_exit on_exit{[&] { running_.notify(false); }};
+    scope_exit on_exit([&] { running_.notify(false); });
 
-    bool ok = true;
+    auto ok = true;
     for (; running_.get();)
       if (run_once(timeout_ms) < 0) {
         ok = false;
@@ -203,15 +203,17 @@ public:
     // Execute backlog of posts.
     (void)execute_post_queue();
 
-    // Poll for available events.
+    // Poll for available events. `events` is deliberately uninitialized:
+    // `epoll_wait` fills it and reports how many entries it wrote, so only
+    // those are ever read, and zeroing all of it on every poll is not free.
     epoll_event events[max_events];
-    auto available = epoll_.wait(events, max_events, timeout_ms);
+    const auto available = epoll_.wait(events, max_events, timeout_ms);
     if (!available) return os_file::is_hard_error() ? -1 : 0;
 
     // Dispatch each event to handler.
-    int dispatched = 0;
-    for (int ndx = 0; ndx < *available; ++ndx) {
-      const int fd = events[ndx].data.fd;
+    int dispatched{};
+    for (auto ndx = 0; ndx < *available; ++ndx) {
+      const auto fd = events[ndx].data.fd;
 
       // Drain the internal wakeup handle and skip: it carries no user event.
       if (fd == wake_fd().handle()) {
@@ -309,7 +311,7 @@ public:
   [[nodiscard]] bool unregister_socket(const net_socket& sock) {
     const auto fd = sock.handle();
     return execute_or_post([this, fd] {
-      auto found = find_opt(registrations_, fd);
+      const auto found = find_opt(registrations_, fd);
       if (!found) return false;
       return do_unregister_socket(**found);
     });
@@ -321,7 +323,7 @@ public:
   [[nodiscard]] std::shared_ptr<epoll_io_conn> find_fd(
       os_file::file_handle_t fd) const {
     assert(is_loop_thread());
-    auto found = find_opt(registrations_, fd);
+    const auto found = find_opt(registrations_, fd);
     return found ? *found : nullptr;
   }
 
@@ -333,10 +335,10 @@ private:
   [[nodiscard]] bool do_register_socket(std::shared_ptr<epoll_io_conn>&& conn,
       bool readable, bool writable) {
     assert(is_loop_thread());
-    const int fd = conn->sock().handle();
+    const auto fd = conn->sock().handle();
     if (registrations_.contains(fd)) return false;
 
-    const uint32_t events = make_event_mask(readable, writable);
+    const auto events = make_event_mask(readable, writable);
     epoll_event ev{.events = events, .data = epoll_data_t{.fd = fd}};
     if (!epoll_.add(fd, ev)) return false;
 
@@ -349,7 +351,7 @@ private:
   // `epoll_ctl` fails.
   [[nodiscard]] bool do_unregister_socket(epoll_io_conn& conn) {
     assert(is_loop_thread());
-    const int fd = conn.sock().handle();
+    const auto fd = conn.sock().handle();
     if (!registrations_.erase(fd)) return false;
     return epoll_.remove(fd);
   }
@@ -386,7 +388,7 @@ private:
     auto& events = conn.events;
 
     // If no change, skip the `epoll_ctl` call.
-    const uint32_t mask = on ? (events | flag) : (events & ~flag);
+    const auto mask = on ? (events | flag) : (events & ~flag);
     if (mask == events) return true;
 
     epoll_event ev{.events = mask, .data = epoll_data_t{.fd = fd}};
@@ -406,7 +408,7 @@ private:
     // create steady writable wakeups, and switching to `EPOLLET` would require
     // every read/write handler to drain to `EAGAIN` to avoid missed
     // readiness.
-    constexpr uint32_t always_on_events = EPOLLERR | EPOLLHUP | EPOLLRDHUP;
+    constexpr uint32_t always_on_events{EPOLLERR | EPOLLHUP | EPOLLRDHUP};
     return always_on_events | (readable ? uint32_t{EPOLLIN} : uint32_t{0}) |
            (writable ? uint32_t{EPOLLOUT} : uint32_t{0});
   }
@@ -417,7 +419,7 @@ private:
   // whether the event was dispatched.
   [[nodiscard]] bool dispatch_event(int fd, uint32_t ev) {
     assert(is_loop_thread());
-    auto found = find_opt(registrations_, fd);
+    const auto found = find_opt(registrations_, fd);
     if (!found) return true;
 
     // Keep the conn alive across the entire dispatch.
@@ -443,7 +445,7 @@ private:
   static epoll create_epollfd() {
     auto f = epoll::create();
     if (!f.is_open())
-      throw std::system_error(errno, std::generic_category(), "epoll_create1");
+      throw std::system_error{errno, std::generic_category(), "epoll_create1"};
     return f;
   }
 
@@ -485,9 +487,9 @@ class epoll_loop_runner {
 public:
   explicit epoll_loop_runner()
       : state_{std::make_shared<runner_state>()},
-        thread_{[state = state_](const std::stop_token& st) {
+        thread_([state = state_](const std::stop_token& st) {
           run(st, state);
-        }} {
+        }) {
     using namespace std::chrono_literals;
     if (!state_->started.wait_for_value(1000ms, true)) {
       thread_.request_stop();
@@ -495,7 +497,7 @@ public:
     }
     std::shared_ptr<epoll_loop> loop;
     std::exception_ptr startup_error;
-    if (std::scoped_lock lock{state_->startup_mutex}; true) {
+    if (std::scoped_lock lock(state_->startup_mutex); true) {
       loop = state_->loop;
       startup_error = state_->startup_error;
     }
@@ -557,10 +559,10 @@ private:
   struct runner_state {
     std::mutex startup_mutex;
     std::exception_ptr startup_error;
-    notifiable<std::atomic_bool> started{false};
-    notifiable<std::atomic_bool> finished{false};
+    notifiable<std::atomic_bool> started;
+    notifiable<std::atomic_bool> finished;
     std::shared_ptr<epoll_loop> loop;
-    relaxed_atomic<epoll_loop*> raw_loop{nullptr};
+    relaxed_atomic<epoll_loop*> raw_loop;
   };
 
   static void
@@ -568,7 +570,7 @@ private:
     jthread_stoppable_sleep::set_thread_name("epoll");
     try {
       auto loop = epoll_loop::make();
-      if (std::scoped_lock lock{state->startup_mutex}; true)
+      if (std::scoped_lock lock(state->startup_mutex); true)
         state->loop = loop;
       state->raw_loop = loop.get();
       state->started.notify(true);
@@ -580,7 +582,7 @@ private:
       // its `[loop]` capture) is released before the `use_count` check
       // below.
       {
-        std::stop_callback on_stop{st, [loop] { (void)loop->stop(); }};
+        std::stop_callback on_stop(st, [loop] { (void)loop->stop(); });
         (void)loop->run(100);
       }
 
@@ -617,17 +619,17 @@ private:
       (void)loop->shutdown_epoll_loop();
       loop.reset();
 
-      for (size_t retry = 0; retry < 10 && state->loop.use_count() != 1;
+      for (auto retry = 0UZ; retry < 10 && state->loop.use_count() != 1;
           ++retry)
         std::this_thread::sleep_for(1s);
       if (state->loop.use_count() != 1)
         log::fatal("Impossible loop use count: {}", state->loop.use_count());
 
-      if (std::scoped_lock lock{state->startup_mutex}; true)
+      if (std::scoped_lock lock(state->startup_mutex); true)
         state->loop.reset();
     }
     catch (...) {
-      if (std::scoped_lock lock{state->startup_mutex}; true)
+      if (std::scoped_lock lock(state->startup_mutex); true)
         state->startup_error = std::current_exception();
       state->started.notify(true);
     }

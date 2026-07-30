@@ -71,7 +71,7 @@ struct base_enum_spec {
 // the compiler (because it counts as a `ScopedEnum`) and is not otherwise
 // significant.
 template<typename T, typename... Ts>
-constexpr inline auto enum_spec_v = base_enum_spec<std::byte>();
+constexpr inline auto enum_spec_v = base_enum_spec<std::byte>{};
 
 #pragma endregion
 #pragma region details
@@ -84,18 +84,18 @@ template<StdEnum E>
 [[nodiscard]] constexpr bool lookup_helper(E& v, std::string_view sv) {
   // Input must be an integer. Caller checks for empty.
   assert(!sv.empty());
-  char first = sv.front();
+  const auto first = sv.front();
   if ((first < '0' || first > '9') && first != '-') return false;
 
   // A "0x" or "0X" prefix selects hex, matching the printed residual form.
-  int base = 10;
+  auto base = 10;
   if (sv.size() > 2 && sv[0] == '0' && (sv[1] == 'x' || sv[1] == 'X')) {
     base = 16;
     sv.remove_prefix(2);
   }
 
   // Convert to enum value of integer.
-  std::underlying_type_t<E> t;
+  std::underlying_type_t<E> t{};
   auto [ptr, ec] = std::from_chars(sv.data(), sv.data() + sv.size(), t, base);
   if (ec != std::errc{} || ptr != sv.data() + sv.size()) return false;
   v = static_cast<E>(t);

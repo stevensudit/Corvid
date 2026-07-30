@@ -73,7 +73,7 @@ TEST_CASE("Lifecycle", "[NetSocket]") {
 
   // A real socket is open; closing it twice is idempotent.
   if (true) {
-    net_socket s{address_family::inet, socket_type::stream, {}};
+    auto s = net_socket::create_ipv4(execution::blocking);
     CHECK(s.is_open());
     CHECK(static_cast<bool>(s));
     CHECK(s.handle() != net_socket::invalid_handle);
@@ -83,7 +83,7 @@ TEST_CASE("Lifecycle", "[NetSocket]") {
   }
 
   // Destructor closes an open socket (no crash or leak).
-  if (true) { net_socket s{address_family::inet, socket_type::stream, {}}; }
+  if (true) { auto s = net_socket::create_ipv4(execution::blocking); }
 }
 
 #pragma endregion
@@ -95,7 +95,7 @@ TEST_CASE("Move", "[NetSocket]") {
 
   // Move constructor transfers ownership; source becomes invalid.
   if (true) {
-    net_socket a{address_family::inet, socket_type::stream, {}};
+    auto a = net_socket::create_ipv4(execution::blocking);
     const auto h = a.handle();
     net_socket b{std::move(a)};
     // NOLINTNEXTLINE(bugprone-use-after-move,clang-analyzer-cplusplus.Move)
@@ -106,8 +106,8 @@ TEST_CASE("Move", "[NetSocket]") {
 
   // Move assignment closes the destination and transfers the source.
   if (true) {
-    net_socket a{address_family::inet, socket_type::stream, {}};
-    net_socket b{address_family::inet, socket_type::stream, {}};
+    auto a = net_socket::create_ipv4(execution::blocking);
+    auto b = net_socket::create_ipv4(execution::blocking);
     const auto h = a.handle();
     b = std::move(a);
     // NOLINTNEXTLINE(bugprone-use-after-move,clang-analyzer-cplusplus.Move)
@@ -118,7 +118,7 @@ TEST_CASE("Move", "[NetSocket]") {
 
   // Self-assignment is a no-op.
   if (true) {
-    net_socket a{address_family::inet, socket_type::stream, {}};
+    auto a = net_socket::create_ipv4(execution::blocking);
     const auto h = a.handle();
     // Route through a pointer to defeat -Wself-move while still exercising
     // the self-assignment path.
@@ -138,7 +138,7 @@ TEST_CASE("Release", "[NetSocket]") {
 
   // `release` yields the handle without closing it; socket becomes invalid.
   if (true) {
-    net_socket s{address_family::inet, socket_type::stream, {}};
+    auto s = net_socket::create_ipv4(execution::blocking);
     const auto h = s.release();
     CHECK(h != net_socket::invalid_handle);
     CHECK_FALSE(s.is_open());
@@ -155,7 +155,7 @@ TEST_CASE("Options", "[NetSocket]") {
 
   // Named option helpers round-trip through `get_option`.
   if (true) {
-    net_socket s{address_family::inet, socket_type::stream, {}};
+    auto s = net_socket::create_ipv4(execution::blocking);
 
     CHECK(s.set_reuse_addr(true));
     auto v = s.get_option<int>(socket_option::reuse_addr);
@@ -174,7 +174,7 @@ TEST_CASE("Options", "[NetSocket]") {
 
   // Buffer size helpers: kernel may round up, so just verify >= requested.
   if (true) {
-    net_socket s{address_family::inet, socket_type::stream, {}};
+    auto s = net_socket::create_ipv4(execution::blocking);
     CHECK(s.set_recv_buffer_size(65536));
     CHECK(s.set_send_buffer_size(65536));
     auto r = s.get_option<int>(socket_option::rcvbuf);
@@ -194,7 +194,7 @@ TEST_CASE("Nonblocking", "[NetSocket]") {
   if (is_codex()) return;
 
   if (true) {
-    net_socket s{address_family::inet, socket_type::stream, {}};
+    auto s = net_socket::create_ipv4(execution::blocking);
 
     CHECK(s.set_nonblocking(true));
     CHECK(bitmask::has(s.get_flags().value_or(o_flags{}), o_flags::nonblock));
@@ -278,7 +278,7 @@ TEST_CASE("BindListenAccept", "[NetSocket]") {
   if (is_codex()) return;
 
   // Bind a listening socket to a free loopback port.
-  net_socket listener{address_family::inet, socket_type::stream, {}};
+  auto listener = net_socket::create_ipv4(execution::blocking);
   CHECK(listener.is_open());
   CHECK(listener.set_reuse_addr());
   CHECK(listener.bind(net_endpoint{ipv4_addr::loopback, 0}));
@@ -293,7 +293,7 @@ TEST_CASE("BindListenAccept", "[NetSocket]") {
   CHECK(port != 0U);
 
   // Connect a client to the listening socket.
-  net_socket client{address_family::inet, socket_type::stream, {}};
+  auto client = net_socket::create_ipv4(execution::blocking);
   CHECK(client.is_open());
   CHECK(
       client.connect(net_endpoint{ipv4_addr::loopback, port}).value_or(false));

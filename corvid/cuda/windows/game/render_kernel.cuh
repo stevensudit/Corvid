@@ -49,12 +49,12 @@ namespace corvid::cuda {
 // supersamples them too (the reticle's edges sit on flat same-kind terrain the
 // kind/depth test cannot see). The flag is masked off before the kind
 // comparison, so it never reads as a geometry edge by itself.
-inline constexpr int aa_reticle_edge_bit = 1 << 8;
-inline constexpr int aa_kind_mask = aa_reticle_edge_bit - 1;
+inline constexpr auto aa_reticle_edge_bit = 1 << 8;
+inline constexpr auto aa_kind_mask = aa_reticle_edge_bit - 1;
 
 struct aa_texel {
-  float depth;
-  int kind;
+  float depth{};
+  int kind{};
 };
 
 // Reinhard tone map: roll each linear channel off into [0, 1] so highlights
@@ -93,9 +93,9 @@ write_surface(cudaSurfaceObject_t out, int px, int py, vec3 c) {
   // not band into visible steps at 8-bit output (see `dither_offset`). One
   // offset per pixel across the three channels, so the noise reads as
   // luminance grain rather than colored speckle.
-  const float d = dither_offset(px, py);
-  const uchar4 pixel =
-      make_uchar4(to_byte(c.x, d), to_byte(c.y, d), to_byte(c.z, d), 255);
+  const auto dither = dither_offset(px, py);
+  const auto pixel = make_uchar4(to_byte(c.x, dither), to_byte(c.y, dither),
+      to_byte(c.z, dither), 255);
   surf2Dwrite(pixel, out, px * static_cast<int>(sizeof(uchar4)), py);
 }
 
@@ -118,14 +118,14 @@ pixel_world_scale(const camera_rays& cam, resolution res) {
 [[nodiscard]] __device__ inline pos2 ripple_warp(pos2 pixel, resolution res,
     const render_config::ripple_params& rp) {
   if (rp.amplitude <= 0.0F) return pixel;
-  const float cx = (res.width - 1.0F) * 0.5F;
-  const float cy = (res.height - 1.0F) * 0.5F;
-  const float dx = pixel.v.x - cx;
-  const float dy = pixel.v.y - cy;
-  const float r = sqrtf((dx * dx) + (dy * dy)) / (res.height * 0.5F);
-  const float disp =
+  const auto cx = (res.width - 1.0F) * 0.5F;
+  const auto cy = (res.height - 1.0F) * 0.5F;
+  const auto dx = pixel.v.x - cx;
+  const auto dy = pixel.v.y - cy;
+  const auto r = sqrtf((dx * dx) + (dy * dy)) / (res.height * 0.5F);
+  const auto disp =
       rp.amplitude * sinf((r * rp.frequency * two_pi_v<>)-rp.phase);
-  const float scale = 1.0F + disp;
+  const auto scale = 1.0F + disp;
   return pos2{vec2{cx + (dx * scale), cy + (dy * scale)}};
 }
 
@@ -156,23 +156,23 @@ __global__ void __launch_bounds__(256, 3) aa_prepass_kernel(float4* hdr,
     __grid_constant__ const saucer_head head,
     __grid_constant__ const flat_mirror mirror,
     __grid_constant__ const render_config cfg) {
-  const int px = cuda_kernel::x_index();
-  const int py = cuda_kernel::y_index();
+  const auto px = cuda_kernel::x_index();
+  const auto py = cuda_kernel::y_index();
   const auto fx = static_cast<float>(px);
   const auto fy = static_cast<float>(py);
   if (fx >= res.width || fy >= res.height) return;
 
-  const float px_scale = pixel_world_scale(cam, res);
-  const pos2 sample =
+  const auto px_scale = pixel_world_scale(cam, res);
+  const auto sample =
       ripple_warp(pos2{vec2{fx + 0.5F, fy + 0.5F}}, res, cfg.ripple);
-  const vec3 ray_dir = cam.ray_direction(sample, res, cfg.fisheye_amount);
-  const ray_sample s = shade_primary_ray(field, color_tex, ball, head, mirror,
-      cfg, cam.eye, ray_dir, px_scale);
+  const auto ray_dir = cam.ray_direction(sample, res, cfg.fisheye_amount);
+  const auto hit = shade_primary_ray(field, color_tex, ball, head, mirror, cfg,
+      cam.eye, ray_dir, px_scale);
 
-  const int w = static_cast<int>(res.width);
-  const int packed = *s.kind | (s.reticle_edge ? aa_reticle_edge_bit : 0);
-  gbuf[(py * w) + px] = aa_texel{s.depth, packed};
-  store_hdr(hdr, (py * w) + px, s.color);
+  const auto w = static_cast<int>(res.width);
+  const auto packed = *hit.kind | (hit.reticle_edge ? aa_reticle_edge_bit : 0);
+  gbuf[(py * w) + px] = aa_texel{hit.depth, packed};
+  store_hdr(hdr, (py * w) + px, hit.color);
 }
 
 // Resolve: supersample the pixels the prepass marked as silhouettes, leaving
@@ -191,40 +191,40 @@ __global__ void __launch_bounds__(256, 3) aa_resolve_kernel(float4* hdr,
     __grid_constant__ const saucer_head head,
     __grid_constant__ const flat_mirror mirror,
     __grid_constant__ const render_config cfg) {
-  const int px = cuda_kernel::x_index();
-  const int py = cuda_kernel::y_index();
+  const auto px = cuda_kernel::x_index();
+  const auto py = cuda_kernel::y_index();
   const auto fx = static_cast<float>(px);
   const auto fy = static_cast<float>(py);
   if (fx >= res.width || fy >= res.height) return;
 
-  const int w = static_cast<int>(res.width);
-  const int h = static_cast<int>(res.height);
-  const int xm = (px > 0) ? px - 1 : 0;
-  const int xp = (px < w - 1) ? px + 1 : w - 1;
-  const int ym = (py > 0) ? py - 1 : 0;
-  const int yp = (py < h - 1) ? py + 1 : h - 1;
-  const aa_texel me = gbuf[(py * w) + px];
-  const aa_texel left = gbuf[(py * w) + xm];
-  const aa_texel right = gbuf[(py * w) + xp];
-  const aa_texel up = gbuf[(ym * w) + px];
-  const aa_texel down = gbuf[(yp * w) + px];
+  const auto w = static_cast<int>(res.width);
+  const auto h = static_cast<int>(res.height);
+  const auto xm = (px > 0) ? px - 1 : 0;
+  const auto xp = (px < w - 1) ? px + 1 : w - 1;
+  const auto ym = (py > 0) ? py - 1 : 0;
+  const auto yp = (py < h - 1) ? py + 1 : h - 1;
+  const auto me = gbuf[(py * w) + px];
+  const auto left = gbuf[(py * w) + xm];
+  const auto right = gbuf[(py * w) + xp];
+  const auto up = gbuf[(ym * w) + px];
+  const auto down = gbuf[(yp * w) + px];
 
   // The target reticle forces its own pixels to supersample (the kind/depth
   // test is blind to it, since it paints flat same-kind terrain).
-  const int my_kind = me.kind & aa_kind_mask;
+  const auto my_kind = me.kind & aa_kind_mask;
   // The reticle flag (bit 8) plus any 4-neighbor kind change (bits 0-7) folded
   // into one OR-of-XORs: the two bit ranges do not overlap, so a nonzero
   // result means "force supersample" (reticle pixel or geometry silhouette).
   // Masking the reticle flag out of `my_kind` keeps it from reading as a kind
   // change by itself.
-  const int edge_bits =
+  const auto edge_bits =
       (me.kind & aa_reticle_edge_bit) |
       (my_kind ^ (left.kind & aa_kind_mask)) |
       (my_kind ^ (right.kind & aa_kind_mask)) |
       (my_kind ^ (up.kind & aa_kind_mask)) |
       (my_kind ^ (down.kind & aa_kind_mask));
-  bool edge = edge_bits != 0;
-  if (!edge) {
+  auto is_edge = (edge_bits != 0);
+  if (!is_edge) {
     // All four neighbors share this pixel's kind, so the depths are comparable
     // (a sky miss would have changed the kind). `me.depth` scales the
     // threshold so a distant ramp is judged in proportion to its range.
@@ -234,34 +234,35 @@ __global__ void __launch_bounds__(256, 3) aa_resolve_kernel(float4* hdr,
     // sentinel, and `2 * big_value` overflows to inf, which trips the test and
     // supersamples the whole sky. Grouped this way the sentinel cancels
     // (`big - big = 0`) before any doubling.
-    const float tol = cfg.aa_edge_depth * me.depth;
-    edge = fabsf((me.depth - left.depth) - (right.depth - me.depth)) > tol ||
-           fabsf((me.depth - up.depth) - (down.depth - me.depth)) > tol;
+    const auto tol = cfg.aa_edge_depth * me.depth;
+    is_edge =
+        (fabsf((me.depth - left.depth) - (right.depth - me.depth)) > tol) ||
+        (fabsf((me.depth - up.depth) - (down.depth - me.depth)) > tol);
   }
-  if (!edge) return; // keep the prepass center sample
+  if (!is_edge) return; // keep the prepass center sample
 
   // Edge-detection debug: flat-tint the supersampled pixels (blue = reticle,
   // red = geometry) instead of shading them, so the marked pixels are visible.
   // Blue, not green, so the reticle flag does not blend into the reticle's own
   // green glow.
   if (cfg.debug_aa_edges) {
-    const bool reticle = (me.kind & aa_reticle_edge_bit) != 0;
+    const auto is_reticle = ((me.kind & aa_reticle_edge_bit) != 0);
     store_hdr(hdr, (py * w) + px,
-        reticle ? vec3{0.0F, 0.0F, 8.0F} : vec3{8.0F, 0.0F, 0.0F});
+        is_reticle ? vec3{0.0F, 0.0F, 8.0F} : vec3{8.0F, 0.0F, 0.0F});
     return;
   }
 
-  const int aa_samples = cfg.aa_samples;
-  const float inv = 1.0F / static_cast<float>(aa_samples);
-  const float px_scale = pixel_world_scale(cam, res);
-  vec3 color{};
-  for (int sy = 0; sy < aa_samples; ++sy)
-    for (int sx = 0; sx < aa_samples; ++sx) {
-      const float ox = (static_cast<float>(sx) + 0.5F) * inv;
-      const float oy = (static_cast<float>(sy) + 0.5F) * inv;
-      const pos2 sample =
+  const auto aa_samples = cfg.aa_samples;
+  const auto inv = 1.0F / static_cast<float>(aa_samples);
+  const auto px_scale = pixel_world_scale(cam, res);
+  vec3 color;
+  for (auto sy = 0; sy < aa_samples; ++sy)
+    for (auto sx = 0; sx < aa_samples; ++sx) {
+      const auto ox = (static_cast<float>(sx) + 0.5F) * inv;
+      const auto oy = (static_cast<float>(sy) + 0.5F) * inv;
+      const auto sample =
           ripple_warp(pos2{vec2{fx + ox, fy + oy}}, res, cfg.ripple);
-      const vec3 ray_dir = cam.ray_direction(sample, res, cfg.fisheye_amount);
+      const auto ray_dir = cam.ray_direction(sample, res, cfg.fisheye_amount);
       color =
           color +
           shade_primary_ray(field, color_tex, ball, head, mirror, cfg, cam.eye,
@@ -308,40 +309,39 @@ inline constexpr vec3 rec709_luma{0.2126F, 0.7152F, 0.0722F};
 __global__ void bloom_prefilter_kernel(const float4* hdr, float4* bloom,
     resolution full, resolution half,
     __grid_constant__ const render_config cfg) {
-  const int bx = cuda_kernel::x_index();
-  const int by = cuda_kernel::y_index();
-  const int hw = static_cast<int>(half.width);
-  const int hh = static_cast<int>(half.height);
+  const auto bx = cuda_kernel::x_index();
+  const auto by = cuda_kernel::y_index();
+  const auto hw = static_cast<int>(half.width);
+  const auto hh = static_cast<int>(half.height);
   if (bx >= hw || by >= hh) return;
 
-  const int fw = static_cast<int>(full.width);
-  const int fh = static_cast<int>(full.height);
-  const int x0 = bx * 2;
-  const int y0 = by * 2;
-  const int x1 = min(x0 + 1, fw - 1);
-  const int y1 = min(y0 + 1, fh - 1);
-  const float4 a = hdr[(y0 * fw) + x0];
-  const float4 b = hdr[(y0 * fw) + x1];
-  const float4 c = hdr[(y1 * fw) + x0];
-  const float4 d = hdr[(y1 * fw) + x1];
-  vec3 avg{0.25F * (a.x + b.x + c.x + d.x), 0.25F * (a.y + b.y + c.y + d.y),
-      0.25F * (a.z + b.z + c.z + d.z)};
+  const auto fw = static_cast<int>(full.width);
+  const auto fh = static_cast<int>(full.height);
+  const auto x0 = bx * 2;
+  const auto y0 = by * 2;
+  const auto x1 = min(x0 + 1, fw - 1);
+  const auto y1 = min(y0 + 1, fh - 1);
+  const auto a = hdr[(y0 * fw) + x0];
+  const auto b = hdr[(y0 * fw) + x1];
+  const auto c = hdr[(y1 * fw) + x0];
+  const auto d = hdr[(y1 * fw) + x1];
+  const vec3 avg{0.25F * (a.x + b.x + c.x + d.x),
+      0.25F * (a.y + b.y + c.y + d.y), 0.25F * (a.z + b.z + c.z + d.z)};
 
   // Soft-threshold knee (the Call of Duty / Unity curve): isolate the energy
   // above `threshold` without a hard cutoff, so a pixel hovering at the
   // threshold fades in instead of popping.
-  const float luma = dot(avg, rec709_luma);
+  const auto luma = dot(avg, rec709_luma);
   // Floor for the divisors below, so a zero denominator can't blow the
   // quotient up to Inf/NaN.
-  constexpr float denom_floor = 1.0e-4F;
-  const float knee = fmaxf(cfg.bloom.threshold * cfg.bloom.knee, denom_floor);
-  float soft =
-      __saturatef((luma - cfg.bloom.threshold + knee) / (2.0F * knee));
+  constexpr auto denom_floor = 1.0e-4F;
+  const auto knee = fmaxf(cfg.bloom.threshold * cfg.bloom.knee, denom_floor);
+  auto soft = __saturatef((luma - cfg.bloom.threshold + knee) / (2.0F * knee));
   // Quadratic ramp across the knee, joining the linear branch tangentially at
   // its top (`soft` = 1 gives `knee` = `luma - threshold`, slope 1).
   soft = soft * soft * knee;
-  const float over = fmaxf(soft, luma - cfg.bloom.threshold);
-  const float weight = over / fmaxf(luma, denom_floor);
+  const auto over = fmaxf(soft, luma - cfg.bloom.threshold);
+  const auto weight = over / fmaxf(luma, denom_floor);
 
   bloom[(by * hw) + bx] =
       make_float4(avg.x * weight, avg.y * weight, avg.z * weight, 1.0F);
@@ -354,29 +354,29 @@ __global__ void bloom_prefilter_kernel(const float4* hdr, float4* bloom,
 __global__ void bloom_blur_kernel(const float4* src, float4* dst,
     resolution half, int dx, int dy,
     __grid_constant__ const render_config cfg) {
-  const int x = cuda_kernel::x_index();
-  const int y = cuda_kernel::y_index();
-  const int hw = static_cast<int>(half.width);
-  const int hh = static_cast<int>(half.height);
+  const auto x = cuda_kernel::x_index();
+  const auto y = cuda_kernel::y_index();
+  const auto hw = static_cast<int>(half.width);
+  const auto hh = static_cast<int>(half.height);
   if (x >= hw || y >= hh) return;
 
-  const float sigma = fmaxf(cfg.bloom.sigma, 1.0e-3F);
-  const float inv_two_sigma_sq = 1.0F / (2.0F * sigma * sigma);
-  constexpr int max_radius = 8;
-  int radius = static_cast<int>(ceilf(2.0F * sigma));
+  const auto sigma = fmaxf(cfg.bloom.sigma, 1.0e-3F);
+  const auto inv_two_sigma_sq = 1.0F / (2.0F * sigma * sigma);
+  constexpr auto max_radius = 8;
+  auto radius = static_cast<int>(ceilf(2.0F * sigma));
   radius = min(radius, max_radius);
 
-  vec3 sum{};
-  float wsum = 0.0F;
-  for (int k = -radius; k <= radius; ++k) {
-    const float w = expf(-static_cast<float>(k * k) * inv_two_sigma_sq);
-    const int sx = min(max(x + (k * dx), 0), hw - 1);
-    const int sy = min(max(y + (k * dy), 0), hh - 1);
-    const float4 s = src[(sy * hw) + sx];
+  vec3 sum;
+  float wsum{};
+  for (auto k = -radius; k <= radius; ++k) {
+    const auto w = expf(-static_cast<float>(k * k) * inv_two_sigma_sq);
+    const auto sx = min(max(x + (k * dx), 0), hw - 1);
+    const auto sy = min(max(y + (k * dy), 0), hh - 1);
+    const auto s = src[(sy * hw) + sx];
     sum += vec3{s.x, s.y, s.z} * w;
     wsum += w;
   }
-  const float inv = 1.0F / wsum;
+  const auto inv = 1.0F / wsum;
   dst[(y * hw) + x] = make_float4(sum.x * inv, sum.y * inv, sum.z * inv, 1.0F);
 }
 
@@ -384,21 +384,21 @@ __global__ void bloom_blur_kernel(const float4* src, float4* dst,
 // (`px`, `py`), so the upsample does not show the half-res grid.
 [[nodiscard]] __device__ inline vec3
 sample_bloom(const float4* bloom, int hw, int hh, int px, int py) {
-  const float fx = (static_cast<float>(px) * 0.5F) - 0.25F;
-  const float fy = (static_cast<float>(py) * 0.5F) - 0.25F;
-  const int x0 = max(static_cast<int>(floorf(fx)), 0);
-  const int y0 = max(static_cast<int>(floorf(fy)), 0);
-  const int x1 = min(x0 + 1, hw - 1);
-  const int y1 = min(y0 + 1, hh - 1);
-  const float tx = __saturatef(fx - static_cast<float>(x0));
-  const float ty = __saturatef(fy - static_cast<float>(y0));
-  const float4 a = bloom[(y0 * hw) + x0];
-  const float4 b = bloom[(y0 * hw) + x1];
-  const float4 c = bloom[(y1 * hw) + x0];
-  const float4 d = bloom[(y1 * hw) + x1];
-  const vec3 top =
+  const auto fx = (static_cast<float>(px) * 0.5F) - 0.25F;
+  const auto fy = (static_cast<float>(py) * 0.5F) - 0.25F;
+  const auto x0 = max(static_cast<int>(floorf(fx)), 0);
+  const auto y0 = max(static_cast<int>(floorf(fy)), 0);
+  const auto x1 = min(x0 + 1, hw - 1);
+  const auto y1 = min(y0 + 1, hh - 1);
+  const auto tx = __saturatef(fx - static_cast<float>(x0));
+  const auto ty = __saturatef(fy - static_cast<float>(y0));
+  const auto a = bloom[(y0 * hw) + x0];
+  const auto b = bloom[(y0 * hw) + x1];
+  const auto c = bloom[(y1 * hw) + x0];
+  const auto d = bloom[(y1 * hw) + x1];
+  const auto top =
       vec3{a.x, a.y, a.z} + ((vec3{b.x, b.y, b.z} - vec3{a.x, a.y, a.z}) * tx);
-  const vec3 bot =
+  const auto bot =
       vec3{c.x, c.y, c.z} + ((vec3{d.x, d.y, d.z} - vec3{c.x, c.y, c.z}) * tx);
   return top + ((bot - top) * ty);
 }
@@ -410,16 +410,16 @@ sample_bloom(const float4* bloom, int hw, int hh, int px, int py) {
 __global__ void composite_kernel(const float4* hdr, const float4* bloom,
     cudaSurfaceObject_t out, resolution full, resolution half, bool use_bloom,
     __grid_constant__ const render_config cfg) {
-  const int px = cuda_kernel::x_index();
-  const int py = cuda_kernel::y_index();
-  const int fw = static_cast<int>(full.width);
-  const int fh = static_cast<int>(full.height);
+  const auto px = cuda_kernel::x_index();
+  const auto py = cuda_kernel::y_index();
+  const auto fw = static_cast<int>(full.width);
+  const auto fh = static_cast<int>(full.height);
   if (px >= fw || py >= fh) return;
 
-  const float4 h = hdr[(py * fw) + px];
-  vec3 color{h.x, h.y, h.z};
+  const auto src = hdr[(py * fw) + px];
+  vec3 color{src.x, src.y, src.z};
   if (use_bloom) {
-    const vec3 b = sample_bloom(bloom, static_cast<int>(half.width),
+    const auto b = sample_bloom(bloom, static_cast<int>(half.width),
         static_cast<int>(half.height), px, py);
     color += b * cfg.bloom.intensity;
   }
@@ -438,8 +438,8 @@ __global__ void composite_kernel(const float4* hdr, const float4* bloom,
 inline void post_process(cudaSurfaceObject_t out, const float4* hdr,
     float4* bloom_a, float4* bloom_b, dim3 block, resolution res,
     const render_config& cfg) {
-  const int w = static_cast<int>(res.width);
-  const int h = static_cast<int>(res.height);
+  const auto w = static_cast<int>(res.width);
+  const auto h = static_cast<int>(res.height);
   const dim3 full_grid{cuda_kernel::ceil_div(w, block.x),
       cuda_kernel::ceil_div(h, block.y)};
   if (!cfg.bloom.enabled) {
@@ -447,8 +447,8 @@ inline void post_process(cudaSurfaceObject_t out, const float4* hdr,
         cfg);
     return;
   }
-  const int hw = bloom_dim(w);
-  const int hh = bloom_dim(h);
+  const auto hw = bloom_dim(w);
+  const auto hh = bloom_dim(h);
   const resolution half{static_cast<float>(hw), static_cast<float>(hh)};
   const dim3 half_grid{cuda_kernel::ceil_div(hw, block.x),
       cuda_kernel::ceil_div(hh, block.y)};
@@ -492,19 +492,19 @@ inline void post_process(cudaSurfaceObject_t out, const float4* hdr,
 // barely saw it at any center bias, while the bloomed blob is the light that
 // actually fills the view. The block is 16x16 to match the fixed
 // shared-memory reduction below (`measure_exposure` owns the launch).
-inline constexpr int exposure_stride = 8; // sample every Nth pixel per axis
+inline constexpr auto exposure_stride = 8; // sample every Nth pixel per axis
 
 __global__ void exposure_measure_kernel(const float4* hdr, const float4* bloom,
     resolution full, resolution half, bool use_bloom, float bloom_intensity,
     float center_bias, float* sums) {
-  const int w = static_cast<int>(full.width);
-  const int h = static_cast<int>(full.height);
-  const int px = cuda_kernel::x_index() * exposure_stride;
-  const int py = cuda_kernel::y_index() * exposure_stride;
-  float lum = 0.0F;
-  float wgt = 0.0F;
+  const auto w = static_cast<int>(full.width);
+  const auto h = static_cast<int>(full.height);
+  const auto px = cuda_kernel::x_index() * exposure_stride;
+  const auto py = cuda_kernel::y_index() * exposure_stride;
+  float lum{};
+  float wgt{};
   if (px < w && py < h) {
-    const float4 c = hdr[(py * w) + px];
+    const auto c = hdr[(py * w) + px];
     vec3 color{c.x, c.y, c.z};
     if (use_bloom) {
       color +=
@@ -514,9 +514,9 @@ __global__ void exposure_measure_kernel(const float4* hdr, const float4* bloom,
     }
     const auto fw = static_cast<float>(w);
     const auto fh = static_cast<float>(h);
-    const float dx = ((2.0F * static_cast<float>(px)) - fw) / fw;
-    const float dy = ((2.0F * static_cast<float>(py)) - fh) / fh;
-    const float r2 = 0.5F * ((dx * dx) + (dy * dy));
+    const auto dx = ((2.0F * static_cast<float>(px)) - fw) / fw;
+    const auto dy = ((2.0F * static_cast<float>(py)) - fh) / fh;
+    const auto r2 = 0.5F * ((dx * dx) + (dy * dy));
     wgt = expf(-center_bias * r2);
     lum = wgt * dot(color, rec709_luma);
   }
@@ -524,11 +524,11 @@ __global__ void exposure_measure_kernel(const float4* hdr, const float4* bloom,
   // mean unchanged.
   __shared__ float sl[256];
   __shared__ float sw[256];
-  const int tid = static_cast<int>((threadIdx.y * blockDim.x) + threadIdx.x);
+  const auto tid = static_cast<int>((threadIdx.y * blockDim.x) + threadIdx.x);
   sl[tid] = lum;
   sw[tid] = wgt;
   __syncthreads();
-  for (int s = 128; s > 0; s >>= 1) {
+  for (auto s = 128; s > 0; s >>= 1) {
     if (tid < s) {
       sl[tid] += sl[tid + s];
       sw[tid] += sw[tid + s];
@@ -548,10 +548,10 @@ __global__ void exposure_measure_kernel(const float4* hdr, const float4* bloom,
 // The block is fixed at 16x16 to match the kernel's shared-memory reduction.
 inline void measure_exposure(const float4* hdr, const float4* bloom,
     resolution res, const render_config& cfg, float* sums) {
-  const int w = static_cast<int>(res.width);
-  const int h = static_cast<int>(res.height);
-  const int sw = (w + exposure_stride - 1) / exposure_stride;
-  const int sh = (h + exposure_stride - 1) / exposure_stride;
+  const auto w = static_cast<int>(res.width);
+  const auto h = static_cast<int>(res.height);
+  const auto sw = (w + exposure_stride - 1) / exposure_stride;
+  const auto sh = (h + exposure_stride - 1) / exposure_stride;
   const resolution half{static_cast<float>(bloom_dim(w)),
       static_cast<float>(bloom_dim(h))};
   const dim3 block{16, 16};

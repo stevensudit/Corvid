@@ -20,7 +20,7 @@ struct flag_case {
   std::string_view name;
 };
 
-constexpr flag_case flag_cases[] = {
+constexpr flag_case flag_cases[]{
     {sdl_window_flags::fullscreen, "fullscreen"},
     {sdl_window_flags::opengl, "opengl"},
     {sdl_window_flags::occluded, "occluded"},

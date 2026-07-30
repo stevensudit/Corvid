@@ -161,7 +161,7 @@ public:
   lock(const lock&) = delete;
   lock& operator=(const lock&) = delete;
 
-  lock(lock&& r) noexcept : sync_(r.release()) {}
+  lock(lock&& r) noexcept : sync_{r.release()} {}
   lock& operator=(lock&& r) noexcept {
     if (sync_ == r.sync_) return *this;
     if (sync_) sync_->unlock();

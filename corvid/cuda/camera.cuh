@@ -29,8 +29,8 @@ namespace corvid::cuda {
 
 // An image size in pixels.
 struct resolution {
-  float width;
-  float height;
+  float width{};
+  float height{};
 };
 
 // An orthonormal view frame: the `forward` look direction and the `right` and
@@ -60,7 +60,7 @@ struct basis {
 struct camera_rays {
   pos3 eye;
   basis frame;
-  float tan_half_fov;
+  float tan_half_fov{};
 
   // Direction of the primary ray through `pixel` of an image of size `res`.
   //
@@ -77,28 +77,27 @@ struct camera_rays {
   // wide image), so a small value gives a mild barrel.
   [[nodiscard]] __device__ vec3 ray_direction(pos2 pixel, resolution res,
       float fisheye_amount = 0.0F) const {
-    const float aspect = res.width / res.height;
+    const auto aspect = res.width / res.height;
     // Normalized screen offsets, the vertical edge at +/-1, before the field
     // of view scales them.
-    const float u =
-        ((((2.0F * pixel.v.x) + 1.0F) / res.width) - 1.0F) * aspect;
-    const float v = 1.0F - (((2.0F * pixel.v.y) + 1.0F) / res.height);
+    const auto u = ((((2.0F * pixel.v.x) + 1.0F) / res.width) - 1.0F) * aspect;
+    const auto v = 1.0F - (((2.0F * pixel.v.y) + 1.0F) / res.height);
     if (fisheye_amount <= 0.0F) {
-      const float sx = u * tan_half_fov;
-      const float sy = v * tan_half_fov;
+      const auto sx = u * tan_half_fov;
+      const auto sy = v * tan_half_fov;
       return normalize(frame.forward + (frame.right * sx) + (frame.up * sy));
     }
     // Blend the off-axis angle from the rectilinear `atan(r * tan_half_fov)`
     // toward the equidistant `r * (fov_y / 2)` (`atan(tan_half_fov)` is the
     // vertical half-FOV), then rebuild the ray from that angle and the screen
     // azimuth.
-    const float r = sqrtf((u * u) + (v * v));
+    const auto r = sqrtf((u * u) + (v * v));
     // Screen radius below which the azimuth is undefined.
-    constexpr float min_screen_r = 1.0e-6F;
+    constexpr auto min_screen_r = 1.0e-6F;
     if (r < min_screen_r) return frame.forward; // dead center, no azimuth
-    const float theta_rect = atanf(r * tan_half_fov);
-    const float theta_fish = r * atanf(tan_half_fov);
-    const float theta =
+    const auto theta_rect = atanf(r * tan_half_fov);
+    const auto theta_fish = r * atanf(tan_half_fov);
+    const auto theta =
         theta_rect + ((theta_fish - theta_rect) * fisheye_amount);
     const vec3 screen_dir = ((frame.right * u) + (frame.up * v)) * (1.0F / r);
     return (frame.forward * cosf(theta)) + (screen_dir * sinf(theta));
@@ -172,7 +171,7 @@ public:
 
   // The orthonormal view basis for the current orientation.
   [[nodiscard]] basis view_basis() const {
-    const float cos_pitch = cos(orientation_.pitch);
+    const auto cos_pitch = cos(orientation_.pitch);
     const vec3 forward{cos(orientation_.yaw) * cos_pitch,
         sin(orientation_.pitch), sin(orientation_.yaw) * cos_pitch};
     // Right is horizontal and yaw-only, so the basis holds up looking straight
@@ -187,7 +186,7 @@ public:
 private:
   pos3 position_;
   orientation orientation_;
-  float tan_half_fov_;
+  float tan_half_fov_{};
 
 #pragma endregion
 };

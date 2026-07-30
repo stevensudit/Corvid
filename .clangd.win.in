@@ -32,6 +32,29 @@ CompileFlags:
   Add: [@CORVID_CLANGD_CUDA_FLAGS@]
 
 ---
+# Our own headers. A header has no entry of its own in compile_commands.json, so
+# clangd parses it with the command of whatever proxy TU it picks, and here that
+# is imgui.cpp, which the build compiles with `-w` (see `corvid_require_imgui` in
+# tests/CMakeLists.txt). Inheriting that `-w` silenced every compiler warning in
+# every corvid header in the editor, so drop it and let the `-Wall -Wextra
+# -Werror` already on that command through. clang-tidy findings were never
+# affected: clangd routes those around `-w`.
+#
+# Only one `-Wno-*` proves necessary. Opening all 219 corvid headers through
+# clangd with `-w` gone yields exactly two warnings, and just one of them is an
+# artifact of the standalone parse: a header analyzed on its own has no caller,
+# so a constant it defines for the rest of the program looks unused (`vec.cuh`'s
+# `big_value`, used across the game headers). Resist padding this list
+# speculatively, since every entry here is a real diagnostic the editor stops
+# showing. `unused-const-variable` rather than the broader `unused-variable`
+# that the Linux template uses, so a genuinely unused local still gets flagged.
+If:
+  PathMatch: [corvid/.*]
+CompileFlags:
+  Remove: [-w]
+  Add: [-Wno-unused-const-variable]
+
+---
 Diagnostics:
   UnusedIncludes: None
   MissingIncludes: None

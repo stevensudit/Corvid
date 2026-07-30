@@ -100,7 +100,7 @@ protected:
 #pragma region Data members
 
   iou_loop& loop_;
-  block_size buf_size_;
+  block_size buf_size_{};
   relaxed_atomic_bool open_{true};
 
 #pragma endregion

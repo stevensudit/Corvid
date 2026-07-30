@@ -87,12 +87,12 @@ public:
   using atomic_gen_t = maybe_t<std::atomic_uint32_t, is_versioned_v>;
   using gen_array_t = maybe_t<std::array<atomic_gen_t, N>, is_versioned_v>;
 
-  static constexpr size_t index_bits_v =
-      N <= std::numeric_limits<uint8_t>::max()    ? 8U
-      : N <= std::numeric_limits<uint16_t>::max() ? 16U
-      : N <= std::numeric_limits<uint32_t>::max()
-          ? 32U
-          : 64U;
+  static constexpr auto index_bits_v =
+      (N <= std::numeric_limits<uint8_t>::max())    ? 8UZ
+      : (N <= std::numeric_limits<uint16_t>::max()) ? 16UZ
+      : (N <= std::numeric_limits<uint32_t>::max())
+          ? 32UZ
+          : 64UZ;
   using index_t = std::conditional_t<(index_bits_v == 8), uint8_t,
       std::conditional_t<(index_bits_v == 16), uint16_t,
           std::conditional_t<(index_bits_v == 32), uint32_t, uint64_t>>>;
@@ -129,7 +129,7 @@ public:
     // try to copy it. This will no longer be necessary once
     // `std::move_only_function` becomes available.
     borrowed(const borrowed&) {
-      throw std::logic_error("object_pool::borrowed is not copyable");
+      throw std::logic_error{"object_pool::borrowed is not copyable"};
     }
     borrowed& operator=(const borrowed&) = delete;
 
@@ -236,9 +236,9 @@ public:
     [[nodiscard]] uint64_t as_int() const noexcept
     requires allows_int_conversion
     {
-      auto i = uint64_t{ndx_};
-      if constexpr (is_versioned_v) i |= (uint64_t{gen_} << 32);
-      return i;
+      uint64_t packed{ndx_};
+      if constexpr (is_versioned_v) packed |= (uint64_t{gen_} << 32);
+      return packed;
     }
 
     // Get pointer to item, if still valid. Returns nullptr on failure.
@@ -306,7 +306,7 @@ public:
     // Order is important for packing. The index could be 8 bits while the
     // generation is always 32 when present.
     CORVID_NO_UNIQUE_ADDRESS gen_t gen_{};
-    index_t ndx_{npos};
+    index_t ndx_ = npos;
   };
 
   friend class token;
@@ -353,7 +353,7 @@ public:
     // We do not increment the generation until return, but we do set the
     // high bit to indicate that it's borrowed.
     T* item{};
-    if (std::scoped_lock pool_lock{pool_mutex_}; true) {
+    if (std::scoped_lock pool_lock(pool_mutex_); true) {
       if (free_top_ == 0) return {};
       auto ndx = free_list_[--free_top_];
       item = &slots_[ndx];
@@ -361,7 +361,7 @@ public:
       assert(!impossible);
     }
     if constexpr (!IsNoOpCb<BorrowCb>) {
-      std::scoped_lock func_lock{func_mutex_};
+      std::scoped_lock func_lock(func_mutex_);
       borrow_cb_(*item);
     }
     return {this, item};
@@ -422,10 +422,10 @@ public:
   // `return_cb` must be idempotent and safe to invoke on a default-
   // constructed `T`.
   [[nodiscard]] bool shutdown() noexcept {
-    std::scoped_lock both_lock{pool_mutex_, func_mutex_};
+    std::scoped_lock both_lock(pool_mutex_, func_mutex_);
     if (shut_down_) return false;
     shut_down_ = true;
-    for (size_t ndx = 0; ndx < N; ++ndx) {
+    for (auto ndx = 0UZ; ndx < N; ++ndx) {
       (void)release_slot_gen(ndx);
       if constexpr (!IsNoOpCb<ReturnCb>) return_cb_(slots_[ndx]);
       slots_[ndx] = T{};
@@ -458,10 +458,10 @@ private:
 
   void return_slot(index_t ndx) noexcept {
     if constexpr (!IsNoOpCb<ReturnCb>) {
-      std::scoped_lock func_lock{func_mutex_};
+      std::scoped_lock func_lock(func_mutex_);
       return_cb_(slots_[ndx]);
     }
-    std::scoped_lock pool_lock{pool_mutex_};
+    std::scoped_lock pool_lock(pool_mutex_);
     if (shut_down_) return;
     (void)release_slot_gen(ndx);
     free_list_[free_top_++] = ndx;
@@ -537,7 +537,7 @@ private:
   // Order of members is important for alignment.
   alignas(T) std::array<T, N> slots_{};
   std::array<index_t, N> free_list_{};
-  size_t free_top_{N};
+  size_t free_top_ = N;
   bool shut_down_{};
   mutable std::mutex pool_mutex_;
   mutable std::mutex func_mutex_;

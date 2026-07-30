@@ -23,6 +23,7 @@
 #include <string_view>
 #include <vector>
 
+#include "../../math/arithmetic.h"
 #include "../../strings/conversion.h"
 
 namespace corvid { inline namespace proto {
@@ -38,7 +39,8 @@ constexpr std::string_view alpha =
 constexpr std::array<uint8_t, 256> make_base64_decode_table() noexcept {
   std::array<uint8_t, 256> t{};
   t.fill(0xFF);
-  for (uint8_t i{}; i < 64; ++i) t[uint8_t(detail::alpha[i])] = i;
+  for (uint8_t ndx = 0; ndx < 64; ++ndx)
+    t[static_cast<uint8_t>(detail::alpha[ndx])] = ndx;
   return t;
 }
 
@@ -62,27 +64,26 @@ struct base_64 {
     std::string out;
     out.reserve(((bytes.size() + 2) / 3) * 4);
 
-    size_t i{};
-    for (; i + 2 < bytes.size(); i += 3) {
-      const uint32_t triple =
-          (static_cast<uint32_t>(bytes[i]) << 16) |
-          (static_cast<uint32_t>(bytes[i + 1]) << 8) | bytes[i + 2];
+    size_t ndx{};
+    for (; ndx + 2 < bytes.size(); ndx += 3) {
+      const auto triple =
+          combine_bytes(bytes[ndx + 2], bytes[ndx + 1], bytes[ndx], uint8_t{});
       out.push_back(detail::alpha[(triple >> 18) & 0x3F]);
       out.push_back(detail::alpha[(triple >> 12) & 0x3F]);
       out.push_back(detail::alpha[(triple >> 6) & 0x3F]);
       out.push_back(detail::alpha[triple & 0x3F]);
     }
 
-    const size_t remain = bytes.size() - i;
+    const auto remain = bytes.size() - ndx;
     if (remain == 1) {
-      const uint32_t triple = static_cast<uint32_t>(bytes[i]) << 16;
+      const auto triple =
+          combine_bytes(uint8_t{}, uint8_t{}, bytes[ndx], uint8_t{});
       out.push_back(detail::alpha[(triple >> 18) & 0x3F]);
       out.push_back(detail::alpha[(triple >> 12) & 0x3F]);
       out += "==";
     } else if (remain == 2) {
-      const uint32_t triple =
-          (static_cast<uint32_t>(bytes[i]) << 16) |
-          (static_cast<uint32_t>(bytes[i + 1]) << 8);
+      const auto triple =
+          combine_bytes(uint8_t{}, bytes[ndx + 1], bytes[ndx], uint8_t{});
       out.push_back(detail::alpha[(triple >> 18) & 0x3F]);
       out.push_back(detail::alpha[(triple >> 12) & 0x3F]);
       out.push_back(detail::alpha[(triple >> 6) & 0x3F]);
@@ -117,13 +118,13 @@ struct base_64 {
     out.reserve(((encoded.size() / 4) * 3) - pad);
 
     const size_t groups{encoded.size() / 4};
-    for (size_t g{}; g < groups; ++g) {
+    for (auto g = 0UZ; g < groups; ++g) {
       const size_t pos{g * 4};
-      const bool is_last{g + 1 == groups};
+      const auto is_last = (g + 1 == groups);
 
       const auto& dt = detail::base64_decode_table;
-      const uint8_t a{dt[uint8_t(encoded[pos])]};
-      const uint8_t b{dt[uint8_t(encoded[pos + 1])]};
+      const uint8_t a{dt[static_cast<uint8_t>(encoded[pos])]};
+      const uint8_t b{dt[static_cast<uint8_t>(encoded[pos + 1])]};
       if ((a | b) >= 64) {
         out.clear();
         return out;
@@ -131,11 +132,12 @@ struct base_64 {
 
       if (is_last && pad == 2) {
         // 2-padding: 2 base64 chars -> 1 output byte.
-        out.push_back(uint8_t((uint32_t(a) << 2) | (uint32_t(b) >> 4)));
+        out.push_back(
+            static_cast<uint8_t>((uint32_t{a} << 2) | (uint32_t{b} >> 4)));
         break;
       }
 
-      const uint8_t c{dt[uint8_t(encoded[pos + 2])]};
+      const uint8_t c{dt[static_cast<uint8_t>(encoded[pos + 2])]};
       if (c >= 64) {
         out.clear();
         return out;
@@ -144,23 +146,23 @@ struct base_64 {
       if (is_last && pad == 1) {
         // 1-padding: 3 base64 chars -> 2 output bytes.
         const uint32_t triple{
-            (uint32_t(a) << 18) | (uint32_t(b) << 12) | (uint32_t(c) << 6)};
-        out.push_back(uint8_t(triple >> 16));
-        out.push_back(uint8_t((triple >> 8) & 0xFF));
+            (uint32_t{a} << 18) | (uint32_t{b} << 12) | (uint32_t{c} << 6)};
+        out.push_back(extract_byte<2>(triple));
+        out.push_back(extract_byte<1>(triple));
         break;
       }
 
-      const uint8_t d{dt[uint8_t(encoded[pos + 3])]};
+      const uint8_t d{dt[static_cast<uint8_t>(encoded[pos + 3])]};
       if (d >= 64) {
         out.clear();
         return out;
       }
 
       const uint32_t triple{
-          (uint32_t(a) << 18) | (uint32_t(b) << 12) | (uint32_t(c) << 6) | d};
-      out.push_back(uint8_t(triple >> 16));
-      out.push_back(uint8_t((triple >> 8) & 0xFF));
-      out.push_back(uint8_t(triple & 0xFF));
+          (uint32_t{a} << 18) | (uint32_t{b} << 12) | (uint32_t{c} << 6) | d};
+      out.push_back(extract_byte<2>(triple));
+      out.push_back(extract_byte<1>(triple));
+      out.push_back(extract_byte<0>(triple));
     }
 
     return out;

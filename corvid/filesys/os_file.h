@@ -273,7 +273,7 @@ consteval auto corvid_enum_spec(errno_code*) {
 
 // Type-safe aliasing for `errno`.
 using EC = errno_code;
-inline errno_code e_code() { return errno_code{errno}; };
+inline errno_code e_code() { return errno_code{errno}; }
 inline bool e_code_is(errno_code code) { return e_code() == code; }
 
 #pragma endregion
@@ -504,7 +504,7 @@ public:
   [[nodiscard]] bool write(std::string_view& data) const {
     if (data.empty()) return true;
 
-    const ssize_t n = ::write(handle_, data.data(), data.size());
+    const auto n = ::write(handle_, data.data(), data.size());
     if (n <= 0) return !is_hard_error();
 
     data.remove_prefix(static_cast<size_t>(n));
@@ -524,7 +524,7 @@ public:
 
     // Read up to the current size.
     // NOLINTNEXTLINE(clang-analyzer-unix.BlockInCriticalSection)
-    const ssize_t n = ::read(handle_, data.data(), data.size());
+    const auto n = ::read(handle_, data.data(), data.size());
 
     // EOF/disconnect. Return false without clearing `data`.
     if (n == 0) return false;
@@ -558,10 +558,10 @@ public:
   // failure, clears `data` and returns false. Intended for blocking I/O; on
   // non-blocking fds, an empty kernel buffer causes a busy-loop.
   [[nodiscard]] bool read_exact(std::string& data) const {
-    size_t offset = 0;
-    const size_t target = data.size();
+    size_t offset{};
+    const auto target = data.size();
     while (offset < target) {
-      const ssize_t n = ::read(handle_, data.data() + offset, target - offset);
+      const auto n = ::read(handle_, data.data() + offset, target - offset);
       // On EOF, trim to bytes received and fail.
       if (n == 0) {
         no_zero{data}.trim_to(offset);
@@ -589,7 +589,7 @@ public:
 
   // Return the fd status flags via `fcntl(F_GETFL)`.
   [[nodiscard]] std::optional<o_flags> get_flags() const noexcept {
-    auto flags = o_flags{control(fcntl_ops::getfl)};
+    const o_flags flags{control(fcntl_ops::getfl)};
     if (*flags == -1) return std::nullopt;
     return flags;
   }
@@ -605,7 +605,7 @@ public:
   [[nodiscard]] bool set_nonblocking(bool on = true) const noexcept {
     const auto flags = get_flags();
     if (!flags) return false;
-    auto new_flags = bitmask::set_to(*flags, o_flags::nonblock, on);
+    const auto new_flags = bitmask::set_to(*flags, o_flags::nonblock, on);
     return set_flags(new_flags);
   }
 
@@ -627,7 +627,7 @@ public:
 #pragma endregion
 #pragma region Data members
 private:
-  file_handle_t handle_{invalid_file_handle};
+  file_handle_t handle_ = invalid_file_handle;
 
 #pragma endregion
 };
