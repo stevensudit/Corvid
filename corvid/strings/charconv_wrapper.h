@@ -176,7 +176,7 @@ int_to_chars(CharT* first, CharT* last, T value, int base = 10) noexcept {
   if (static_cast<size_t>(last - first) < total)
     return {last, std::errc::value_too_large};
 
-  auto* out = first;
+  CharT* out = first;
   if (negative) *out++ = CharT{'-'};
   while (n > 0) *out++ = digits[--n];
   return {out, std::errc{}};
@@ -262,7 +262,7 @@ template<CharType CharT, std::floating_point T>
     const auto n = static_cast<size_t>(r.ptr - buf);
     if (static_cast<size_t>(last - first) < n)
       return {last, std::errc::value_too_large};
-    auto* out = first;
+    CharT* out = first;
     for (auto ndx = 0UZ; ndx < n; ++ndx)
       *out++ = static_cast<CharT>(static_cast<unsigned char>(buf[ndx]));
     return {out, std::errc{}};

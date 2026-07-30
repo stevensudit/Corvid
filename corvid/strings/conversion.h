@@ -257,7 +257,7 @@ template<std::chars_format fmt = std::chars_format::general,
     int precision = -1, size_t width = 0UZ, char pad = ' '>
 constexpr auto&
 append_num(AnyAppendTarget auto& target, std::floating_point auto num) {
-  auto a = appender{target};
+  appender a{target};
   using C = decltype(a)::view_t::value_type;
   // Sized for the worst case: `fixed` format at the largest exponent (or the
   // deepest subnormal) with the maximum precision. A wide code unit is capped

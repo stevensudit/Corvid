@@ -70,7 +70,7 @@ bool WaitFor(const auto& pred, std::chrono::milliseconds timeout = 10s) {
 // thread, in `on_close`), so the result outlives the stream. main reads it via
 // post_and_wait once `complete` is set.
 struct response_capture {
-  bool complete{false};
+  bool complete{};
   bool failed{};
   std::string status;
   std::vector<std::pair<std::string, std::string>> headers;

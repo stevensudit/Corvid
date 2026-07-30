@@ -118,7 +118,7 @@ struct spec_parser: parsed_spec<CharT> {
   // the fixed value, the manual arg id, or the auto arg id once claimed from
   // the parse context.
   struct arg_value_t {
-    arg_kind kind = arg_kind::none;
+    arg_kind kind{};
     size_t value{};
 
     // Read an arg value from `spec` at `ndx`, returning an index past the

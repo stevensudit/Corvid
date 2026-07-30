@@ -106,7 +106,7 @@ has_field(const std::vector<std::pair<std::string, std::string>>& headers,
 // QUIC: nghttp3 bytes go straight across instead of through ngtcp2. Returns
 // the number of (non-empty) writes relayed.
 int pump(http3_conn& from, http3_conn& to) {
-  int writes{0};
+  int writes{};
   for (auto guard = 0; guard < 100; ++guard) {
     quic_stream_id stream_id = quic_stream_id::none;
     std::span<const iovec> vecs;

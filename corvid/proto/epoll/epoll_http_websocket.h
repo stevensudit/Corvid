@@ -168,7 +168,7 @@ public:
   // and payload into it.
   static size_t
   header_length_for(size_t payload_len, bool is_mask = false) noexcept {
-    const size_t mask_len{is_mask ? 4U : 0U};
+    const auto mask_len = is_mask ? 4UZ : 0UZ;
     if (payload_len < 126) return 2 + mask_len;
     if (payload_len <= 0xFFFF) return 4 + mask_len;
     return 10 + mask_len;

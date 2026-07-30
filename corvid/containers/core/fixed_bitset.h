@@ -113,7 +113,8 @@ public:
   static constexpr auto bits_per_word_v = sizeof(word_t) * 8;
 
   // Number of words needed to hold all `bit_count_v` bits.
-  static constexpr size_t word_count_v{ceil_div(bit_count_v, bits_per_word_v)};
+  static constexpr size_t word_count_v =
+      ceil_div(bit_count_v, bits_per_word_v);
 
 #pragma endregion
 #pragma region iterator

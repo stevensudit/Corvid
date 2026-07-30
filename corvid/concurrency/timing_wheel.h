@@ -120,8 +120,9 @@ public:
   explicit timing_wheel(size_t slot_count = default_slot_count,
       duration_t tick_interval = default_tick_interval,
       time_point_t start_time = std::chrono::steady_clock::now())
-      // `slots_` takes parens: braces would select the `initializer_list`
-      // constructor and make one element instead of `slot_count` of them.
+      // `slots_` takes parens: `slot_count` is a count of elements to
+      // allocate, the `std::vector<int> v(10)` shape, not a value the vector
+      // takes on.
       : slots_(slot_count), tick_interval_{tick_interval},
         last_tick_{start_time} {
     if (slot_count < 2)

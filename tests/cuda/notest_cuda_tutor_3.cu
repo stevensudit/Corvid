@@ -19,8 +19,8 @@ using namespace corvid::cuda;
 // NOLINTBEGIN(modernize-use-std-print)
 
 __global__ void iota(int n, int* out) {
-  const auto i = cuda_kernel::x_index();
-  if (i < n) out[i] = i;
+  const auto ndx = cuda_kernel::x_index();
+  if (ndx < n) out[ndx] = ndx;
 }
 
 // NOLINTEND(modernize-use-std-print)

@@ -20,11 +20,11 @@ using namespace corvid::cuda;
 __global__ void
 matmul_stupid(int M, int N, int K, const float* A, const float* B, float* C) {
   // 2D index now
-  int col = static_cast<int>((blockIdx.x * blockDim.x) + threadIdx.x);
-  int row = static_cast<int>((blockIdx.y * blockDim.y) + threadIdx.y);
+  auto col = static_cast<int>((blockIdx.x * blockDim.x) + threadIdx.x);
+  auto row = static_cast<int>((blockIdx.y * blockDim.y) + threadIdx.y);
   if (row < M && col < N) {
-    float acc = 0.0F;
-    for (int k = 0; k < K; ++k)
+    float acc{};
+    for (auto k = 0; k < K; ++k)
       acc += A[(row * K) + k] * B[(k * N) + col]; // row-major addressing
     C[(row * N) + col] = acc;
   }
@@ -37,14 +37,14 @@ matmul_naive(int M, int N, int K, const float* A, const float* B, float* C) {
   const auto row = static_cast<int>((blockIdx.x * blockDim.x) + threadIdx.x);
   const auto col = static_cast<int>((blockIdx.y * blockDim.y) + threadIdx.y);
   if (row < M && col < N) {
-    float acc = 0.0F;
-    for (int k = 0; k < K; ++k)
+    float acc{};
+    for (auto k = 0; k < K; ++k)
       acc += A[((size_t)k * M) + row] * B[((size_t)col * K) + k];
     C[((size_t)col * M) + row] = acc;
   }
 }
 
-const int k_tile = 32;
+const auto k_tile = 32;
 
 // Tiled SGEMM. The whole game: each block cooperatively stages a TILE x TILE
 // patch of A and of B from global memory into shared memory ONCE, then every
@@ -64,12 +64,12 @@ matmul_tiled(int M, int N, int K, const float* A, const float* B, float* C) {
   auto row = static_cast<int>((blockIdx.x * k_tile) + tx);
   auto col = static_cast<int>((blockIdx.y * k_tile) + ty);
 
-  float acc = 0.0F;
-  int numTiles = (K + k_tile - 1) / k_tile;
-  for (int t = 0; t < numTiles; ++t) {
-    const int kTile = t * k_tile;
-    const int aK = kTile + ty; // K-index of the A element this thread loads
-    const int bK = kTile + tx; // K-index of the B element this thread loads
+  float acc{};
+  auto numTiles = (K + k_tile - 1) / k_tile;
+  for (auto t = 0; t < numTiles; ++t) {
+    const auto kTile = t * k_tile;
+    const auto aK = kTile + ty; // K-index of the A element this thread loads
+    const auto bK = kTile + tx; // K-index of the B element this thread loads
 
     // Global loads are coalesced (consecutive tx -> consecutive address).
     As[ty][tx] = (row < M && aK < K) ? A[((size_t)aK * M) + row] : 0.0F;
@@ -78,7 +78,7 @@ matmul_tiled(int M, int N, int K, const float* A, const float* B, float* C) {
     __syncthreads(); // (1) everyone must finish loading before any read
 
 #pragma unroll
-    for (int k = 0; k < k_tile; ++k) acc += As[k][tx] * Bs[k][ty];
+    for (auto k = 0; k < k_tile; ++k) acc += As[k][tx] * Bs[k][ty];
 
     // (2) everyone must finish reading before the next iteration overwrites
     // the tiles
@@ -99,68 +99,68 @@ template<int BM, int BN, int BK, int TM, int TN>
 __global__ void
 matmul_regtiled(int M, int N, int K, const float* __restrict__ A,
     const float* __restrict__ B, float* __restrict__ C) {
-  const int blockRow = blockIdx.y * BM;   // this block's output-row origin
-  const int blockCol = blockIdx.x * BN;   // ... and output-col origin
-  const int threadRow = threadIdx.y * TM; // this thread's sub-tile origin
-  const int threadCol = threadIdx.x * TN; //     (within the block tile)
+  const auto blockRow = blockIdx.y * BM;   // this block's output-row origin
+  const auto blockCol = blockIdx.x * BN;   // ... and output-col origin
+  const auto threadRow = threadIdx.y * TM; // this thread's sub-tile origin
+  const auto threadCol = threadIdx.x * TN; //     (within the block tile)
 
   __shared__ float As[BK][BM]; // As[k][m] = A[blockRow+m, kSlab+k]
   __shared__ float Bs[BK][BN]; // Bs[k][n] = B[kSlab+k, blockCol+n]
 
   float acc[TM][TN];
 #pragma unroll
-  for (int i = 0; i < TM; ++i)
+  for (auto i = 0; i < TM; ++i)
 #pragma unroll
-    for (int j = 0; j < TN; ++j) acc[i][j] = 0.0F;
+    for (auto j = 0; j < TN; ++j) acc[i][j] = 0.0F;
 
   const auto tid =
       static_cast<int>(threadIdx.y * blockDim.x) +
       static_cast<int>(threadIdx.x);
-  const int numThreads = (BM / TM) * (BN / TN);
+  const auto numThreads = (BM / TM) * (BN / TN);
 
-  for (int kSlab = 0; kSlab < K; kSlab += BK) {
+  for (auto kSlab = 0; kSlab < K; kSlab += BK) {
     // Cooperatively stage the A and B tiles into shared memory.
-    for (int p = tid; p < BM * BK; p += numThreads) {
-      int m = p % BM;
-      int k = p / BM;
-      int row = blockRow + m;
-      int col = kSlab + k;
+    for (auto p = tid; p < BM * BK; p += numThreads) {
+      auto m = p % BM;
+      auto k = p / BM;
+      auto row = blockRow + m;
+      auto col = kSlab + k;
       As[k][m] = (row < M && col < K) ? A[((size_t)col * M) + row] : 0.0F;
     }
-    for (int p = tid; p < BK * BN; p += numThreads) {
-      int n = p % BN;
-      int k = p / BN;
-      int row = kSlab + k;
-      int col = blockCol + n;
+    for (auto p = tid; p < BK * BN; p += numThreads) {
+      auto n = p % BN;
+      auto k = p / BN;
+      auto row = kSlab + k;
+      auto col = blockCol + n;
       Bs[k][n] = (row < K && col < N) ? B[((size_t)col * K) + row] : 0.0F;
     }
     __syncthreads();
 
 // Accumulate this slab as a sequence of outer products.
 #pragma unroll
-    for (int k = 0; k < BK; ++k) {
+    for (auto k = 0; k < BK; ++k) {
       float regA[TM];
       float regB[TN];
 #pragma unroll
-      for (int i = 0; i < TM; ++i) regA[i] = As[k][threadRow + i];
+      for (auto i = 0; i < TM; ++i) regA[i] = As[k][threadRow + i];
 #pragma unroll
-      for (int j = 0; j < TN; ++j) regB[j] = Bs[k][threadCol + j];
+      for (auto j = 0; j < TN; ++j) regB[j] = Bs[k][threadCol + j];
 #pragma unroll
-      for (int i = 0; i < TM; ++i)
+      for (auto i = 0; i < TM; ++i)
 #pragma unroll
-        for (int j = 0; j < TN; ++j) acc[i][j] += regA[i] * regB[j];
+        for (auto j = 0; j < TN; ++j) acc[i][j] += regA[i] * regB[j];
     }
     __syncthreads();
   }
 
 // Write the TM x TN sub-tile back to C.
 #pragma unroll
-  for (int i = 0; i < TM; ++i) {
-    int row = blockRow + threadRow + i;
+  for (auto i = 0; i < TM; ++i) {
+    auto row = blockRow + threadRow + i;
     if (row >= M) continue;
 #pragma unroll
-    for (int j = 0; j < TN; ++j) {
-      int col = blockCol + threadCol + j;
+    for (auto j = 0; j < TN; ++j) {
+      auto col = blockCol + threadCol + j;
       if (col < N) C[((size_t)col * M) + row] = acc[i][j];
     }
   }
@@ -174,14 +174,14 @@ static double gflops(double M, double N, double K, double ms) {
 
 // NOLINTNEXTLINE(bugprone-exception-escape)
 int main() {
-  const int n = 4096; // square: M = N = K = n
+  const auto n = 4096; // square: M = N = K = n
   const size_t count = (size_t)n * n;
 
   std::vector<float> h_A(count);
   std::vector<float> h_B(count);
   std::vector<float> h_C_tiled(count);
   std::vector<float> h_C_cublas(count);
-  for (int i = 0; i < n * n; ++i) {
+  for (auto i = 0; i < n * n; ++i) {
     h_A[i] = static_cast<float>(i % 7) * 0.1F;
     h_B[i] = static_cast<float>(i % 5) * 0.2F;
   }
@@ -248,11 +248,11 @@ int main() {
       gflops(n, n, n, ms));
 
   // ---------- Register-tiled kernel ----------
-  constexpr int BM = 64;
-  constexpr int BN = 64;
-  constexpr int BK = 8;
-  constexpr int TM = 4;
-  constexpr int TN = 4;
+  constexpr auto BM = 64;
+  constexpr auto BN = 64;
+  constexpr auto BK = 8;
+  constexpr auto TM = 4;
+  constexpr auto TN = 4;
   dim3 block(BN / TN, BM / TM); // (16,16) = 256 threads
   dim3 grid((n + BN - 1) / BN, (n + BM - 1) / BM);
 
@@ -291,8 +291,12 @@ int main() {
   // ---------- Cross-check: the two answers must agree ----------
   // Validates both your kernel AND that its column-major addressing matches
   // what cuBLAS computed.
-  double maxRel = 0.0;
-  for (int i = 0; i < n * n; ++i) {
+  //
+  // Both the tiled and regtiled sections store into `h_C_tiled`, so the last
+  // writer wins and what this compares is regtiled's output. `matmul_tiled`
+  // itself is never cross-checked, and a bug in it would not fail here.
+  double maxRel{};
+  for (auto i = 0; i < n * n; ++i) {
     double a = h_C_tiled[i];
     double b = h_C_cublas[i];
     double denom = fabs(b) > 1e-6 ? fabs(b) : 1e-6;

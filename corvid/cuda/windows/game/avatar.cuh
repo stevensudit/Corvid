@@ -258,8 +258,8 @@ struct saucer_head {
   // shader can tell whether the antenna or the body is the nearer surface at a
   // hit and keep the antenna from bleeding through the body.
   [[nodiscard]] __device__ float saucer_sdf(pos3 p) const {
-    const auto parts = parts_at(p);
-    return op_smooth_union(parts.disc, parts.dome, radius * dome_blend);
+    const auto s = parts_at(p);
+    return op_smooth_union(s.disc, s.dome, radius * dome_blend);
   }
 
   // Signed distance from `p` to the saucer surface, evaluated in the tilted

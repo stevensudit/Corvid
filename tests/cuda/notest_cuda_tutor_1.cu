@@ -40,7 +40,7 @@ int main() {
   std::vector<float> h_A(n);
   std::vector<float> h_B(n);
   std::vector<float> h_C(n);
-  for (int i = 0; i < n; ++i) {
+  for (auto i = 0; i < n; ++i) {
     h_A[i] = 1.F;
     h_B[i] = 2.F;
   }
@@ -96,7 +96,7 @@ int main() {
 
   // Check for errors (all values should be 3.0f)
   float maxError = 0.0F;
-  for (int i = 0; i < n; i++) maxError = fmax(maxError, fabs(h_C[i] - 3.0F));
+  for (auto i = 0; i < n; ++i) maxError = fmax(maxError, fabs(h_C[i] - 3.0F));
   std::println("Max error: {}", maxError);
 
   return 0;

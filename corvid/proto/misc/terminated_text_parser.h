@@ -150,7 +150,7 @@ public:
     // split sentinel.
     const auto backup = slen - 1UZ;
     // Adjusted scan position for this call.
-    const size_t resume =
+    const auto resume =
         (state_.bytes_scanned_ > backup)
             ? state_.bytes_scanned_ - backup
             : 0UZ;

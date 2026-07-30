@@ -407,7 +407,8 @@ struct basic_piece_generator {
       const PieceFilter<CharT> auto& filter) {
     for (;;) {
       if (whole.null()) return false;
-      const auto [pos, next] = finder(whole);
+      const auto [pos, next] =
+          static_cast<std::pair<size_t, size_t>>(finder(whole));
       const opt_view_t opt_part{filter(whole.substr(0, pos))};
       if (pos == npos)
         whole = std::nullopt;

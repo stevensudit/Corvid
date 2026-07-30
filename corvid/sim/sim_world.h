@@ -835,7 +835,7 @@ public:
 
   // Call back `cbPath(PathId, Position)` for all joints of all paths.
   [[nodiscard]] bool obtainPaths(auto&& cbPath) const {
-    for (PathId pathId{}; pathId < paths_.size_as_enum(); ++pathId)
+    for (PathId pathId{0}; pathId < paths_.size_as_enum(); ++pathId)
       (void)obtainPath(cbPath, pathId);
     return true;
   }

@@ -552,7 +552,7 @@ TEST_CASE("StreamingOut", "[SequentialEnumTest]") {
   CHECK(OStreamable<tiger_pick>);
   if (true) {
     std::stringstream ss;
-    int ndx = *tiger_pick::moe;
+    int ndx{*tiger_pick::moe};
     ss << ndx << std::flush;
     CHECK(ss.str() == "3");
   }
