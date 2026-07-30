@@ -93,7 +93,6 @@
   },
   "workspaceMount": "source=${localWorkspaceFolder},target=/workspace,type=bind,consistency=delegated",
   "workspaceFolder": "/workspace",
-  "postStartCommand": "sudo /usr/local/bin/init-firewall.sh",
-  "postCreateCommand": "bash scripts/build_openssl_quic.sh",
+  "postStartCommand": "sudo /usr/local/bin/init-firewall.sh && { bash scripts/build_openssl_quic.sh || echo 'OpenSSL QUIC build failed; it will retry on next container start.'; }",
   "waitFor": "postStartCommand"
 }
