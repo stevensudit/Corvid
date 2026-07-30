@@ -178,7 +178,7 @@ public:
   // drained buffers around as slack until `tidy` drops them. If the caller can
   // wait to take ownership of full chunks, `harvest_chunk` is more efficient.
   [[nodiscard]] std::span<const byte_t>
-  harvest_bytes(chunk_t& out, size_t at = 0) noexcept {
+  harvest_bytes(chunk_t& out, size_t at = {}) noexcept {
     assert(at <= out.size());
     const auto want = std::min<uint64_t>(used_ - reclaimed_, out.size() - at);
     uint64_t written{};

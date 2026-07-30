@@ -406,7 +406,7 @@ public:
   // Upper bound on fields per `submit_request` / `submit_response`. These are
   // our own outgoing headers, so this is a sanity cap (lets the submit scratch
   // live on the stack instead of allocating), not a data-driven limit.
-  static constexpr size_t max_submit_fields{64};
+  static constexpr auto max_submit_fields = 64UZ;
 
   http3_conn() = default;
   http3_conn(const http3_conn&) = delete;

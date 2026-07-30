@@ -49,7 +49,7 @@ bool is_codex() {
 // `"/42"` -> 42 spaces). Returns 400 when the count exceeds 10 MB, and 405
 // for non-GET methods.
 struct padded_page_transaction: public epoll_http_transaction {
-  static constexpr size_t max_pad{10ULL * 1024 * 1024};
+  static constexpr auto max_pad = 10 * 1024UZ * 1024UZ;
 
   explicit padded_page_transaction(request_head&& req)
       : epoll_http_transaction{std::move(req)} {}

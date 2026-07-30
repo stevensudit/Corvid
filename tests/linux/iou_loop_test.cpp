@@ -1157,7 +1157,7 @@ TEST_CASE("RecvMsgBufferMultiTruncated", "[IouLoop]") {
         });
     CHECK(recv_token.is_valid());
 
-    constexpr size_t datagram_size{8192};
+    constexpr auto datagram_size = 8192UZ;
     const std::vector<std::byte> big(datagram_size, std::byte{'X'});
     CHECK(loop->post_and_wait([&] {
       auto send_buf = loop->borrow_write_buffer(block_size::kb008);

@@ -68,19 +68,25 @@ things apart, and the names are at fault.
 - Deliberate narrowing is spelled with an explicit cast, never by falling back
   to `=` to duck the brace error.
 - **Ruling: a named constant takes the same narrowing test as anything else,
-  and `constexpr` does not exempt it.** `static constexpr size_t
-  max_events = 64;` keeps `=` because a bare literal is the point, and
-  `static constexpr size_t read_throttle_size = slab_size * 3 / 4;` keeps it
-  because the expression is already `size_t`. When the initializer's type
-  differs from the declared type, braces do the coercion:
-  `static constexpr size_t hugepage_size{2UL * 1024 * 1024};`. Braces coerce
+  and `constexpr` does not exempt it.** `static constexpr auto
+  max_events = 64UZ;` spells no type because the suffix already carries the
+  target's own, and
+  `static constexpr size_t read_throttle_size = slab_size * 3 / 4;` keeps
+  `=` because the expression is already `size_t`. When the initializer's
+  type differs from the declared type, braces do the coercion:
+  `constexpr uint32_t prime_x{374761393U};`. Braces coerce
   the RESULT, which is a separate matter from the width the arithmetic is
-  performed in. When the initializer is a multiplication whose result widens,
-  the first operand must still carry the wide type via a suffix, as in
-  `2UL * 1024 * 1024`. That is not redundant type-restating. It stops the
-  product from overflowing in the narrow type before the widening ever
-  happens, and clang-tidy enforces it via
-  `bugprone-implicit-widening-of-multiplication-result`. Note also that
+  performed in. Within a product, the suffix belongs on the operand that
+  names a size or a unit, never on a bare multiplier: `4096UZ * 4` is
+  four 4k blocks, and `2 * 1024UZ * 1024UZ` is two binary megabytes, the
+  unit literals carrying the type while the count stays plain. When an
+  operand with a real type already names the size, no suffix is needed
+  at all: `4 * hugepage_size`. A suffixed operand must still sit early
+  enough that the arithmetic runs wide: multiplication associates left,
+  so `2 * 1024UZ` is already `size_t`, where a product of bare narrow
+  literals would overflow before any widening ever happened, which is
+  what clang-tidy's `bugprone-implicit-widening-of-multiplication-result`
+  watches for. Note also that
   `constexpr` weakens the narrowing check without removing it. A constant
   that fits is exempt, so braces reject only a value out of range for the
   target, such as a computed constant that went negative.
@@ -134,8 +140,8 @@ things apart, and the names are at fault.
     disagree about the identical literal, `float gravity = 20.0F;` beside
     `auto shadow_factor = 1.0F;`. Reading that as an inconsistency to
     clean up is the mistake; the member has only one spelling available.
-  - **Fixed-width and role types always stay spelled**: `uintN_t`,
-    `size_t`, `ptrdiff_t`. Fixing the literal is not available here, since
+  - **Fixed-width types always stay spelled**: `uintN_t` and friends.
+    Fixing the literal is not available here, since
     the language has no suffix that names a fixed width, so the declared
     type is the only place the fact can be written. Beyond that, whether a
     given literal happens to match one is an accident of its magnitude
@@ -145,17 +151,35 @@ things apart, and the names are at fault.
     `unsigned int`; one digit shorter it would not, since `0xff` is plain
     `int` and `auto` would lose both the width and the signedness. Two
     adjacent lines of identical shape with opposite answers is not a rule
-    anyone applies correctly at reading speed. `size_t` earns it twice
-    over, being `unsigned long long` on LLP64 and `unsigned long` on LP64,
-    so it names a role whose representation is the platform's to pick.
-  - **Fixed-width and role types also take braces, even for a bare
+    anyone applies correctly at reading speed. The role types `size_t` and
+    `ptrdiff_t` left this bullet when C++23 gave them suffixes: `64UZ`
+    (and `64Z`) names the role in the literal itself, so fixing the
+    literal is available after all and the ordinary rule takes over,
+    `constexpr auto max_events = 64UZ;`. A non-static data member still
+    spells the type, with the literal suffixed: `size_t width = 70UZ;`.
+    Defaulted function parameters and template parameters read the same
+    way, `size_t max_bytes = 4096UZ`, since `auto` there would change the
+    declaration's meaning (an abbreviated function template, a deduced
+    NTTP) rather than its spelling. A zeroish default is `= {}`, the
+    closest a parameter can come to the local's `size_t x{}`:
+    `size_t header_length = {}`. The spelled `0UZ` returns only when the
+    zero earns its spelling, as when it pairs with nonzero siblings in
+    one signature: `do_repeated(size_t init = 0UZ, size_t inc = 1UZ,
+    size_t limit = 42UZ)`. Template parameters are the carve-out: nvcc's
+    EDG frontend cannot parse a braced NTTP default (clang, gcc, and MSVC
+    all can), so a zeroish NTTP default spells the value,
+    `template<size_t width = 0UZ>`.
+  - **Fixed-width types also take braces, even for a bare
     literal.** The fact that forces the type to be spelled, that the
     literal cannot express the target's width, is the same fact that stops
     a reader from checking the fit, so the check belongs to the compiler:
     `constexpr uint32_t prime_x{374761393U};`. This is not decoration.
     `constexpr uint32_t x = 5000000000U;` compiles silently under
     `-Wall -Wextra -Werror` and stores 705032704, where the brace form is a
-    hard error that names the value. Idiomatic wraparound is the exception
+    hard error that names the value. `size_t` and `ptrdiff_t` are exempt
+    for the same reason they left the bullet above: a `UZ` literal IS the
+    target's own type, so there is nothing for a check to catch and `=`
+    is licensed. Idiomatic wraparound is the exception
     and keeps `=`: `static constexpr size_t npos = -1;` is the traditional
     shorthand for the target's maximum, and a negative literal against an
     unsigned target is obvious rather than subtle, so there is nothing

@@ -72,7 +72,7 @@ inline namespace fixed_bitsets {
 //
 // So long as `FORCED_WORD=0`, `sizeof(fixed_bitset<...>)` is `N_BITS / 8`,
 // meaning that there is no overhead.
-template<size_t N_BITS = 64, typename POS = size_t, typename TAG = void,
+template<size_t N_BITS = 64UZ, typename POS = size_t, typename TAG = void,
     size_t FORCED_WORD = 0>
 class fixed_bitset {
 public:

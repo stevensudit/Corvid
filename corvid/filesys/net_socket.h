@@ -657,7 +657,7 @@ public:
   //
   // This is a utility method, not optimized for performance.
   [[nodiscard]] std::string recv_sync_until(std::string& buf,
-      std::string_view delim, size_t max_size = 4096 * 16ULL) const {
+      std::string_view delim, size_t max_size = 4096UZ * 16) const {
     for (;;) {
       if (const auto pos = buf.find(delim); pos != std::string::npos) {
         const auto end = pos + delim.size();
@@ -679,7 +679,7 @@ public:
   // previous read). Otherwise reads the next chunk from `sock` into `buf`.
   // Returns false on EOF, hard error, or timeout, with `buf` cleared.
   [[nodiscard]] bool
-  recv_sync_chunk(std::string& buf, size_t max_bytes = 4096) const {
+  recv_sync_chunk(std::string& buf, size_t max_bytes = 4096UZ) const {
     if (!buf.empty()) return true;
     if (!recv(*no_zero{buf}.enlarge_to(max_bytes))) {
       buf.clear();
@@ -695,7 +695,7 @@ public:
   //
   // This is a utility method, not optimized for performance.
   [[nodiscard]] bool recv_sync_drain_to_eof(
-      size_t max_bytes = 4096 * 4ULL) const {
+      size_t max_bytes = 4096UZ * 4) const {
     std::string buf;
     for (size_t bytes_read = 0; bytes_read < max_bytes;
         bytes_read += buf.size())

@@ -159,7 +159,7 @@ class epoll_stream_conn: public epoll_io_conn {
 #pragma region Accessors
 public:
   // Default receive-buffer capacity per connection, in bytes.
-  static constexpr size_t default_recv_buf_size{16384};
+  static constexpr auto default_recv_buf_size = 16 * 1024UZ;
 
   // True if the connection has not yet been closed.
   [[nodiscard]] bool is_open() const noexcept { return open_; }
@@ -937,7 +937,7 @@ private:
   //
   // Uses `execute_or_post` for compaction and `refresh_read_interest`, and may
   // call `notify_read_ready`.
-  void resume_receive(size_t new_size = 0, size_t last_seen_end = 0) {
+  void resume_receive(size_t new_size = {}, size_t last_seen_end = {}) {
     (void)execute_or_post([p = self(), new_size, last_seen_end]() -> bool {
       if (!p->open_) return false;
       p->recv_buf_.view_active = false;

@@ -43,7 +43,7 @@ public:
   using buffer = iou_buffer;
   using ptr = std::byte*;
   using cptr = const std::byte*;
-  static constexpr size_t hugepage_size{2UL * 1024 * 1024};
+  static constexpr auto hugepage_size = 2 * 1024UZ * 1024UZ;
 
   virtual ~buffer_pool_base() = default;
 

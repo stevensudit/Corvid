@@ -206,7 +206,7 @@ private:
 
   // "Temporary" diagnostics.
   void maybe_log_tick_stats(clock_t::time_point now) {
-    constexpr size_t stats_window_ticks{20};
+    constexpr auto stats_window_ticks = 20UZ;
     if (tick_fires_in_window_ < stats_window_ticks) return;
 
     const auto elapsed_ms =

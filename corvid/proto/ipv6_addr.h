@@ -115,7 +115,7 @@ public:
       std::string_view s) {
     word_array groups{};
     size_t group_count{};
-    size_t double_colon{8};
+    auto double_colon = 8UZ;
 
     if (!do_parse_groups_loop(s, groups, group_count, double_colon))
       return std::nullopt;
@@ -175,7 +175,7 @@ public:
   // Format using lowercase hex with RFC 5952-style zero-run compression.
   [[nodiscard]] constexpr std::string to_string() const {
     const auto groups = words();
-    size_t best_start{8};
+    auto best_start = 8UZ;
     size_t best_len{};
     size_t cur_start{};
     size_t cur_len{};

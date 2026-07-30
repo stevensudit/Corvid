@@ -114,7 +114,7 @@ public:
   // Construct with initial sizes for post queues and default retry count. See
   // `queue_high_watermark` for tuning. The constructing thread becomes the
   // loop thread; only one instance per thread is permitted (debug-asserted).
-  explicit owner_thread_dispatcher(size_t post_queue_reserve = 32,
+  explicit owner_thread_dispatcher(size_t post_queue_reserve = 32UZ,
       size_t default_retry_count = npos) {
     if (current_loop_)
       throw std::logic_error{
@@ -310,7 +310,7 @@ private:
 // NOLINTEND(bugprone-move-forwarding-reference)
 
 namespace default_fixed_function {
-inline static constexpr size_t capacity{384};
+inline static constexpr auto capacity = 384UZ;
 } // namespace default_fixed_function
 
 #pragma endregion

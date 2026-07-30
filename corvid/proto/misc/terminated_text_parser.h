@@ -85,7 +85,7 @@ public:
     state() noexcept = default;
 
     explicit state(std::string_view sentinel,
-        size_t max_length = 8192) noexcept
+        size_t max_length = 8192UZ) noexcept
         : sentinel_{sentinel}, max_length_{max_length} {}
 
     [[nodiscard]] const auto& sentinel() const noexcept { return sentinel_; }

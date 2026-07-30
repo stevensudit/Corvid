@@ -111,7 +111,7 @@ struct json_error {
 
 // Parser configuration. `max_depth` guards against adversarial nesting.
 struct json_parse_options {
-  size_t max_depth{64};
+  size_t max_depth = 64UZ;
 };
 
 #pragma endregion

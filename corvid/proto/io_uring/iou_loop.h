@@ -222,9 +222,9 @@ using expiration_fn = fixed_function<32,
 // slots.
 //
 // `BUF_POOL_SIZE` and `BUF_POOL_MIN_BLOCK` are forwarded to `iou_buf_pool_of`.
-template<size_t RING_SIZE = 256, size_t SLOT_COUNT = 512,
-    size_t BUF_POOL_SIZE = 2UL * 1024 * 1024,
-    size_t BUF_POOL_MIN_BLOCK = 1UL * 1024>
+template<size_t RING_SIZE = 256UZ, size_t SLOT_COUNT = 512UZ,
+    size_t BUF_POOL_SIZE = 2 * 1024UZ * 1024UZ,
+    size_t BUF_POOL_MIN_BLOCK = 1024UZ>
 class iou_basic_loop: public owner_thread_dispatcher<posted_fn> {
 #pragma region Types
 public:
@@ -802,7 +802,7 @@ public:
   // `io_timeout_flags::multishot` flag. The meaning of `cqe_count` depends on
   // the mode.
   [[nodiscard]] completion_token submit_timeout(bound_timeout&& timeout,
-      CompletionInvocable auto&& cb, size_t cqe_count = 0) {
+      CompletionInvocable auto&& cb, size_t cqe_count = {}) {
     auto [cbtoken, timeout_ptr] =
         wrap_completion_fn_and_ptr(std::move(cb), std::move(timeout));
     if (!cbtoken || !timeout_ptr) return {};
@@ -817,7 +817,7 @@ public:
   // the mode. Note that `timeout` must either point inside the callback or
   // remain valid until cancelation.
   [[nodiscard]] bool submit_timeout(bound_timeout& timeout,
-      completion_token cbtoken, size_t cqe_count = 0,
+      completion_token cbtoken, size_t cqe_count = {},
       slot_retention on_fail = slot_retention::retain) {
     if (!cbtoken) return false;
     auto fn = [this, &timeout, cbtoken, cqe_count, on_fail]() mutable {
@@ -1633,7 +1633,7 @@ private:
   //
   // The `sqe_count` is added to the pending value, and if it exceeds the
   // configured limit, the submit is triggered immediately.
-  [[nodiscard]] bool maybe_submit_pending(size_t sqe_count = 1) {
+  [[nodiscard]] bool maybe_submit_pending(size_t sqe_count = 1UZ) {
     assert(is_loop_thread());
     pending_sqe_count_ += sqe_count;
     if (pending_sqe_count_ >= max_pending_sqes_) return immediate_submit();
@@ -1764,9 +1764,9 @@ using iou_loop = iou_basic_loop<>;
 //
 // Shutdown ordering: call `stop` (or destroy the runner) before destroying
 // any object that a pending `post` callback might reference.
-template<size_t RING_SIZE = 256, size_t SLOT_COUNT = 512,
-    size_t BUF_POOL_SIZE = 2UL * 1024 * 1024,
-    size_t BUF_POOL_MIN_BLOCK = 1UL * 1024>
+template<size_t RING_SIZE = 256UZ, size_t SLOT_COUNT = 512UZ,
+    size_t BUF_POOL_SIZE = 2 * 1024UZ * 1024UZ,
+    size_t BUF_POOL_MIN_BLOCK = 1024UZ>
 class iou_basic_loop_runner {
 public:
   using loop_t =

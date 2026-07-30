@@ -137,7 +137,7 @@ struct epoll_recv_buffer {
   //
   // Only safe to call within the polling thread (which can't be asserted on
   // here) and when no `epoll_recv_buffer_view` is live.
-  void compact(size_t target = 0) {
+  void compact(size_t target = {}) {
     assert(!view_active);
     const auto b = begin.load(std::memory_order::relaxed);
     const auto e = end.load(std::memory_order::relaxed);

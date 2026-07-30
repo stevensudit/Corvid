@@ -1406,7 +1406,7 @@ TEST_CASE("TryTakeFull_Success", "[RecvBufferView]") {
   // Active region starts mid-buffer so the view offset is verified.
   setup_rb(rb, cap, 10, cap, 'A');
 
-  size_t cb_lse{1}; // non-zero sentinel; confirmed reset to 0 by destructor
+  auto cb_lse = 1UZ; // non-zero sentinel; confirmed reset to 0 by destructor
   {
     epoll_recv_buffer_view v{rb, [&](size_t, size_t lse) { cb_lse = lse; }};
     std::string out;

@@ -1235,7 +1235,7 @@ TEST_CASE("ExtractFullIncludesPathsAndState", "[SimGame]") {
   size_t path_points{};
   size_t upserts{};
   size_t erased{};
-  size_t currentWave{99};
+  auto currentWave = 99UZ;
   WaveTick waveTick{99};
   uint16_t lives = -1;
   uint16_t resources = -1;

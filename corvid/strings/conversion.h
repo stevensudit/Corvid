@@ -125,7 +125,7 @@ template<std::integral T = int64_t, int base = 10, StringViewLike S>
 // zero-padded to the full width of the type, with a signed value rendered as
 // its unsigned two's-complement bit pattern. With an explicit `width`, there
 // is no prefix and the caller's `pad` is used.
-template<int base = 10, size_t width = 0, char pad = ' '>
+template<int base = 10, size_t width = 0UZ, char pad = ' '>
 constexpr auto& append_num(AnyAppendTarget auto& target, Integer auto num) {
   using T = decltype(num);
   if constexpr (base == 16 && !width && std::is_signed_v<T>) {
@@ -159,7 +159,7 @@ constexpr auto& append_num(AnyAppendTarget auto& target, Integer auto num) {
 }
 
 // Append bool, as number, to `target`.  Returns `target`.
-template<int base = 10, size_t width = 0, char pad = ' '>
+template<int base = 10, size_t width = 0UZ, char pad = ' '>
 constexpr auto& append_num(AnyAppendTarget auto& target, Bool auto num) {
   // Cast is needed because `std::to_chars` intentionally doesn't accept bool.
   return append_num<base, width, pad>(target, static_cast<int>(num));
@@ -167,7 +167,7 @@ constexpr auto& append_num(AnyAppendTarget auto& target, Bool auto num) {
 
 // Return integral number as string.
 // Accepts integers or bool.
-template<int base = 10, size_t width = 0, char pad = ' ',
+template<int base = 10, size_t width = 0UZ, char pad = ' ',
     CharType CharT = char>
 [[nodiscard]] constexpr std::basic_string<CharT>
 num_as_string(std::integral auto num) {
@@ -254,7 +254,7 @@ template<std::floating_point T,
 
 // Append floating-point number to `target`. Returns `target`.
 template<std::chars_format fmt = std::chars_format::general,
-    int precision = -1, size_t width = 0, char pad = ' '>
+    int precision = -1, size_t width = 0UZ, char pad = ' '>
 constexpr auto&
 append_num(AnyAppendTarget auto& target, std::floating_point auto num) {
   auto a = appender{target};
@@ -281,7 +281,7 @@ append_num(AnyAppendTarget auto& target, std::floating_point auto num) {
 
 // Return floating-point number as string.
 template<std::chars_format fmt = std::chars_format::general,
-    int precision = -1, size_t width = 0, char pad = ' ',
+    int precision = -1, size_t width = 0UZ, char pad = ' ',
     CharType CharT = char>
 [[nodiscard]] constexpr std::basic_string<CharT>
 num_as_string(std::floating_point auto num) {

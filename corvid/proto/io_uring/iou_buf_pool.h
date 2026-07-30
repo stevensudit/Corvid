@@ -70,7 +70,7 @@ namespace corvid { inline namespace proto { namespace iouring {
 //
 // `iou_buf_pool_of` is non-copyable and non-movable. The pool must outlive
 // all uses of the memory it manages, and the `buffer` objects it hands out.
-template<size_t SIZE = 2UL * 1024 * 1024, size_t MIN_BLOCK = 1UL * 1024>
+template<size_t SIZE = 2 * 1024UZ * 1024UZ, size_t MIN_BLOCK = 1024UZ>
 class iou_buf_pool_of: public buffer_pool_base {
   static_assert(std::has_single_bit(SIZE), "SIZE must be a power of 2");
   static_assert(std::has_single_bit(MIN_BLOCK),

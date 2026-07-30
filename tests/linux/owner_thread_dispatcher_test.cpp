@@ -30,7 +30,7 @@ class OwnerThreadTestDispatcher: public owner_thread_dispatcher<> {
 public:
   using parent = owner_thread_dispatcher<>;
 
-  OwnerThreadTestDispatcher(size_t max_pending = 16) : parent(max_pending) {}
+  OwnerThreadTestDispatcher(size_t max_pending = 16UZ) : parent(max_pending) {}
 
   [[nodiscard]] size_t execute_post_queue() {
     // Expose `execute_post_queue` for testing.

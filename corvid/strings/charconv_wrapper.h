@@ -188,7 +188,7 @@ int_to_chars(CharT* first, CharT* last, T value, int base = 10) noexcept {
 // Scratch size for transcoding floating-point text between `char` and a wider
 // code unit. Ample for any `general`- or `scientific`-format double or long
 // double.
-inline constexpr size_t float_buffer_size{128};
+inline constexpr auto float_buffer_size = 128UZ;
 
 // Upper bound on `precision` for `float_to_chars`, leaving room for the sign,
 // leading digit, radix point, and exponent within `float_buffer_size`. A

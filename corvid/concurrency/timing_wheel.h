@@ -102,7 +102,7 @@ public:
 #pragma region Constants
 
   // Default slot count covers ~60s at 100ms per slot.
-  static constexpr size_t default_slot_count{600};
+  static constexpr auto default_slot_count = 600UZ;
 
   // Default resolution: one 100ms slot per tick.
   static constexpr duration_t default_tick_interval = 100ms;

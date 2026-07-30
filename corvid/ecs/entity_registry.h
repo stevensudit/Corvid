@@ -93,8 +93,9 @@ namespace corvid { inline namespace ecs { inline namespace entity_registries {
 template<typename T = void,
     sequence::SequentialEnum EID = id_enums::entity_id_t,
     sequence::SequentialEnum SID = id_enums::store_id_t,
-    generation_scheme GEN = generation_scheme::versioned, size_t OWN_COUNT = 1,
-    sequence_order REUSE = sequence_order::fifo, class A = std::allocator<T>>
+    generation_scheme GEN = generation_scheme::versioned,
+    size_t OWN_COUNT = 1UZ, sequence_order REUSE = sequence_order::fifo,
+    class A = std::allocator<T>>
 class entity_registry {
 public:
 #pragma region Types

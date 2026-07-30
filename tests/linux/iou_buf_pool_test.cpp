@@ -604,8 +604,8 @@ TEST_CASE("CoalesceChain", "[IouBufPool]") {
   // all 32 large blocks.
   if (true) {
     auto pool = iou_buf_pool::create();
-    constexpr size_t TOTAL_SMALLS{512};
-    constexpr size_t TOTAL_LARGE{32};
+    constexpr auto TOTAL_SMALLS = 512UZ;
+    constexpr auto TOTAL_LARGE = 32UZ;
     std::array<iou_buf_pool::buffer, TOTAL_SMALLS> bufs;
     for (size_t i = 0; i < TOTAL_SMALLS; ++i) {
       bufs[i] = pool->borrow_writer(block_size::kb004);
@@ -634,7 +634,7 @@ TEST_CASE("UdpTierAlloc", "[IouBufPool]") {
   // has the right size, then confirm full pool recovery after freeing all.
   if (true) {
     auto pool = iou_buf_pool::create();
-    constexpr size_t TOTAL = 2ULL * 1024 * 1024 / (2ULL * 1024); // 1024
+    constexpr auto TOTAL = 2 * 1024UZ * 1024UZ / (2 * 1024UZ);
     std::array<iou_buf_pool::buffer, TOTAL> bufs;
     for (size_t i = 0; i < TOTAL; ++i) {
       bufs[i] = pool->borrow_writer(block_size::kb002);

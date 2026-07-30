@@ -203,7 +203,7 @@ private:
 class quic_version_cid {
 public:
   // Default length, in bytes, of the SCIDs we issue locally.
-  static constexpr size_t default_scid_length{16};
+  static constexpr auto default_scid_length = 16UZ;
 
   constexpr quic_version_cid() noexcept = default;
 

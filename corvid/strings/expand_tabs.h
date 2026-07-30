@@ -40,7 +40,7 @@ namespace corvid::strings { inline namespace tab_expansion {
 // one column. The column resets to zero after a newline or carriage return.
 // When `tab_size` is zero, tabs are deleted.
 template<StringViewLike S>
-[[nodiscard]] constexpr auto expand_tabs(const S& s, size_t tab_size = 8) {
+[[nodiscard]] constexpr auto expand_tabs(const S& s, size_t tab_size = 8UZ) {
   using C = char_type_of_t<S>;
   const auto sv = as_view(s);
   std::basic_string<C> r;

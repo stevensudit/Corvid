@@ -132,12 +132,12 @@ public:
 
   // Construct over `header`, initializing with length of `header` or the full
   // buffer it's at the front of. Use `is_complete` before `parse`.
-  explicit ws_frame_wrapper(header_t& header, size_t header_length = 0)
+  explicit ws_frame_wrapper(header_t& header, size_t header_length = {})
       : header_{&header}, header_length_{header_length} {}
 
   // Construct over `frame`, initializing with length of `frame`. Use
   // `is_complete` before `parse`.
-  explicit ws_frame_wrapper(char_ptr_t frame, size_t header_length = 0)
+  explicit ws_frame_wrapper(char_ptr_t frame, size_t header_length = {})
       : header_{reinterpret_cast<header_t*>(frame)},
         header_length_{header_length} {}
 
@@ -566,7 +566,7 @@ public:
   using pong_fn = std::function<bool(epoll_http_websocket&)>;
 
   // Sanity check limit on frame size, whether a fragment or complete.
-  static constexpr size_t max_frame_size{16UL * 1024 * 1024};
+  static constexpr auto max_frame_size = 16 * 1024UZ * 1024UZ;
 
   // Error value for feed(std::string_view&).
   static constexpr size_t insatiable = std::numeric_limits<size_t>::max();

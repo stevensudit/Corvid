@@ -60,7 +60,7 @@ int main() {
   float ms;
 
   // ---------- Naive kernel, ceil_div ----------
-  size_t block_size{1024};
+  auto block_size = 1024UZ;
   dim3 blockDim(block_size);
   dim3 gridDim(ceil_div(n, block_size)); // enough blocks to cover n
 

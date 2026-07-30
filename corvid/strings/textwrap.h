@@ -289,7 +289,7 @@ struct wrap_options {
   // Maximum line length, counting any indent. Python raises on zero; here zero
   // is not an error, and each line instead makes progress with a single code
   // unit of content, overflowing minimally.
-  size_t width{70};
+  size_t width = 70UZ;
 
   // Prefix for the first line and for every later line, respectively. Each
   // counts toward `width`. The `{}` NSDMIs are not redundant: a designated
@@ -301,7 +301,7 @@ struct wrap_options {
   // Expand tabs to spaces first, exactly as `strings::expand_tabs` with
   // `tab_size` does.
   bool expand_tabs = true;
-  size_t tab_size{8};
+  size_t tab_size = 8UZ;
 
   // Replace each remaining whitespace code unit with a space.
   bool replace_whitespace = true;

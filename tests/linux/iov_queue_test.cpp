@@ -199,7 +199,7 @@ TEST_CASE("budget-capped unused with exact consume", "[iov_queue]") {
   for (uint8_t i = 1; i <= 20; ++i) CHECK(q.append(bytes({i})));
   CHECK(q.appended() == 20);
 
-  constexpr size_t budget{16};
+  constexpr auto budget = 16UZ;
   const auto all = q.unused();
   CHECK(all.size() == 20);
   const auto capped = all.first(std::min(all.size(), budget));

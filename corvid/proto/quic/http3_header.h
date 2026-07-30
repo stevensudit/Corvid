@@ -359,7 +359,7 @@ public:
 
   // Count the number of fields with the given name or token.
   [[nodiscard]] size_t count(header_name_and_enum key) const noexcept {
-    size_t count{0};
+    size_t count{};
     for (size_t ndx = find_next(key, 0); ndx != npos;
         ndx = find_next(key, ndx + 1))
       ++count;

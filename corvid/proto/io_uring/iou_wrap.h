@@ -582,7 +582,7 @@ public:
   // fires before expiring, with 0 meaning infinite.
   bool prep_timeout(iou_timespec* duration,
       iou_timeout_flags flags = iou_timeout_flags::rel,
-      size_t cqe_count = 0) noexcept {
+      size_t cqe_count = {}) noexcept {
     io_uring_prep_timeout(sqe_, iou_timespec::to_pointer(duration), cqe_count,
         *flags);
     return true;
@@ -736,12 +736,12 @@ private:
 class iou_ring {
 public:
   using ptr_t = io_uring*;
-  static constexpr size_t max_size =
-      0x7FFF'FFFFU; // Max ring size, per kernel docs.
+  static constexpr auto max_size =
+      0x7FFF'FFFFUZ; // Max ring size, per kernel docs.
 
   // Construct and initialize an io_uring with the given `ring_size` and
   // `flags`.
-  explicit iou_ring(size_t ring_size = 256, iou_setup_flags flags = {}) {
+  explicit iou_ring(size_t ring_size = 256UZ, iou_setup_flags flags = {}) {
     iou_res res{io_uring_queue_init(ring_size, &ring_, *flags)};
     if (res) return;
     throw std::system_error{*res.err(), std::system_category(),

@@ -776,7 +776,8 @@ template<meta::fixed_string names, std::integral U, size_t NameCount,
 // Specialization of `sequence_enum_spec`, adding names for the values, stored
 // as a packed array plus a segment table.
 template<ScopedEnum E, E maxseq = E{}, E minseq = E{},
-    wrapclip wrapseq = wrapclip{}, size_t NameCount = 0, size_t SegCount = 1>
+    wrapclip wrapseq = wrapclip{}, size_t NameCount = 0UZ,
+    size_t SegCount = 1UZ>
 struct sequence_enum_names_spec
     : public sequence_enum_spec<E, maxseq, minseq, wrapseq> {
   using U = std::underlying_type_t<E>;
