@@ -100,7 +100,7 @@ public:
   using metadata_t = registry_t::metadata_t;
   using allocator_type = registry_t::allocator_type;
 
-  static constexpr size_t storage_count_v = sizeof...(STORES);
+  static constexpr auto storage_count_v = sizeof...(STORES);
 
   static_assert(sizeof...(STORES) >= 1,
       "archetype_scene requires at least one storage");

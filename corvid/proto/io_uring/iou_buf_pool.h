@@ -80,11 +80,11 @@ class iou_buf_pool_of: public buffer_pool_base {
 #pragma endregion
 #pragma region Free list
 
-  static constexpr size_t slab_size = SIZE;
-  static constexpr size_t min_block_size = MIN_BLOCK;
+  static constexpr auto slab_size = SIZE;
+  static constexpr auto min_block_size = MIN_BLOCK;
 
-  static constexpr size_t read_throttle_size = slab_size * 3 / 4;
-  static constexpr size_t write_reserve_size = slab_size / 4;
+  static constexpr auto read_throttle_size = slab_size * 3 / 4;
+  static constexpr auto write_reserve_size = slab_size / 4;
   // Tier i: block size == `min_block_size << i`
   // (tier 0 == min_block_size, tier_count-1 == slab_size).
   static constexpr size_t tier_count{
@@ -98,12 +98,12 @@ class iou_buf_pool_of: public buffer_pool_base {
     static constexpr unsigned __int128 canary_value =
         static_cast<unsigned __int128>(0xC0A51F5F4FE6157ULL) << 64 |
         0xC0DE5C2B1E5AFEFDULL;
-    unsigned __int128 canary_front;
+    unsigned __int128 canary_front{};
 #endif
-    free_node* next;
-    free_node* prev;
+    free_node* next{};
+    free_node* prev{};
 #ifndef NDEBUG
-    unsigned __int128 canary_back;
+    unsigned __int128 canary_back{};
 #endif
 
     void init(free_node* n, free_node* p) noexcept {

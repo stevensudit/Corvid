@@ -1000,8 +1000,8 @@ constexpr inline vtbuild_t<F>::owning_vtable_t owning_vtable_for =
 // and target: an owning table in an owning ancestry (which is also per
 // storage mode), a view table in a view ancestry.
 struct ancestor_entry {
-  const void* tag;
-  const void* table;
+  const void* tag{};
+  const void* table{};
 };
 
 // `ancestry_t`: type-erased view of a birth ancestry, the facade the target
@@ -1011,8 +1011,8 @@ struct ancestor_entry {
 // tables at an owning ancestry, view tables at a view ancestry; the
 // underlying tables are the statics below.
 struct ancestry_t {
-  const ancestor_entry* entries;
-  size_t count;
+  const ancestor_entry* entries{};
+  size_t count{};
 };
 
 // `find_ancestor`: the table of the ancestry member whose tag is `tag`, or
@@ -1434,14 +1434,14 @@ struct vtable_builder_impl<std::tuple<Ss...>, std::tuple<Bs...>, OwnName> {
 
   using flat_slots_t = std::tuple<Ss...>;
   static constexpr auto name_v = OwnName;
-  static constexpr size_t count_v = sizeof...(Ss);
-  static constexpr size_t base_count_v = sizeof...(Bs);
+  static constexpr auto count_v = sizeof...(Ss);
+  static constexpr auto base_count_v = sizeof...(Bs);
 
   // `none_v`, `ambiguous_v`: flag results of `resolve`, outside the valid
   // index range: no slot answers to the key, or more than one does and the
   // arguments do not single one out.
-  static constexpr size_t none_v = count_v;
-  static constexpr size_t ambiguous_v = count_v + 1;
+  static constexpr auto none_v = count_v;
+  static constexpr auto ambiguous_v = count_v + 1;
 
   // `base_t`: direct-base facade at index `Ndx`.
   template<size_t Ndx>
@@ -1475,7 +1475,7 @@ struct vtable_builder_impl<std::tuple<Ss...>, std::tuple<Bs...>, OwnName> {
   // views still carry no lifetime machinery.
   struct vtable_t {
     thunks_t thunks;
-    const ancestry_t* ancestry;
+    const ancestry_t* ancestry{};
     std::tuple<const typename vtbuild_t<Bs>::vtable_t*...> bases;
   };
 
@@ -1829,17 +1829,17 @@ struct vtable_builder<facade<Es...>>
   // facade it extends, which is what `try_downcast` searches.
   struct owning_vtable_t {
     vtable_t vt;
-    void (*destroy)(void*) noexcept;
-    void (*relocate)(void*, void*) noexcept;
-    void* (*copy)(const void*, void*);
-    void* (*to_heap)(void*);
-    void (*to_sbo)(void*, void*) noexcept;
-    const void* type_tag;
-    const owning_vtable_t* heap_table;
-    const owning_vtable_t* sbo_table;
-    size_t size;
-    size_t align;
-    const ancestry_t* ancestry;
+    void (*destroy)(void*) noexcept {};
+    void (*relocate)(void*, void*) noexcept {};
+    void* (*copy)(const void*, void*){};
+    void* (*to_heap)(void*){};
+    void (*to_sbo)(void*, void*) noexcept {};
+    const void* type_tag{};
+    const owning_vtable_t* heap_table{};
+    const owning_vtable_t* sbo_table{};
+    size_t size{};
+    size_t align{};
+    const ancestry_t* ancestry{};
     owning_bases_t bases;
   };
 

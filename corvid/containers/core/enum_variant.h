@@ -142,7 +142,7 @@ overloaded_callbacks(Lambdas...) -> overloaded_callbacks<Lambdas...>;
 // You can only use it with the member `visit`.
 template<typename... Lambdas>
 struct indexed_callbacks {
-  constexpr static size_t size_v = sizeof...(Lambdas);
+  constexpr static auto size_v = sizeof...(Lambdas);
 
   // The tuple stores lambdas corresponding to each index of the variant.
   std::tuple<Lambdas...> callbacks;
@@ -226,7 +226,7 @@ public:
   using underlying_type = std::variant<Ts...>;
   using enum_type = E;
   static constexpr enum_type variant_npos = static_cast<enum_type>(-1);
-  static constexpr size_t variant_size = sizeof...(Ts);
+  static constexpr auto variant_size = sizeof...(Ts);
 
 #pragma region Construction
 

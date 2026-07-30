@@ -216,7 +216,7 @@ public:
   // backward compatibility.
   struct row_view {
     const component_t& value;
-    id_t entity_id;
+    id_t entity_id{};
 
     [[nodiscard]] operator const component_t&() const noexcept {
       return value;

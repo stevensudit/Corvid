@@ -105,7 +105,7 @@ public:
   using block_type = ::corvid::proto::iouring::block_type;
   using pool_ptr_t = std::shared_ptr<buffer_pool_base>;
 
-  static constexpr uint64_t seek_current = static_cast<uint64_t>(-1);
+  static constexpr auto seek_current = static_cast<uint64_t>(-1);
 
   iou_buffer() = default;
   ~iou_buffer() { do_reset(); }
@@ -649,8 +649,9 @@ private:
   // Both states are treated identically: the next write operation resets.
   [[nodiscard]] bool do_is_fully_consumed() const noexcept {
     assert(blockrw_ == block_type::write);
-    return active_span_.size() == 0 &&
-           active_span_.data() >= payload_span_.data() + payload_span_.size();
+    return (active_span_.size() == 0) &&
+           (active_span_.data() >=
+               payload_span_.data() + payload_span_.size());
   }
 
   void do_reset_write_spans() noexcept {

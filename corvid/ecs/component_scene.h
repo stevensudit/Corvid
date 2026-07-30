@@ -92,7 +92,7 @@ public:
   using metadata_t = registry_t::metadata_t;
   using allocator_type = registry_t::allocator_type;
 
-  static constexpr size_t storage_count_v = sizeof...(STORES);
+  static constexpr auto storage_count_v = sizeof...(STORES);
 
   static_assert(registry_t::is_component_v,
       "component_scene requires a component-mode registry "

@@ -168,7 +168,11 @@ things apart, and the names are at fault.
     size_t limit = 42UZ)`. Template parameters are the carve-out: nvcc's
     EDG frontend cannot parse a braced NTTP default (clang, gcc, and MSVC
     all can), so a zeroish NTTP default spells the value,
-    `template<size_t width = 0UZ>`.
+    `template<size_t width = 0UZ>`. A template argument position is a
+    call site rather than a declaration, and call arguments stay bare:
+    `impl<C, 0, Storages...>`, never `0UZ` there. The conversion is a
+    converted constant expression, so it cannot narrow silently and the
+    suffix would have nothing to check.
   - **Fixed-width types also take braces, even for a bare
     literal.** The fact that forces the type to be spelled, that the
     literal cannot express the target's width, is the same fact that stops

@@ -73,7 +73,7 @@ constexpr inline bool is_fixed_function_v<fixed_function<SZ, Sig>> = true;
 // `capacity` before assignment.
 template<size_t SZ, class RP, class... ARGS>
 class fixed_function<SZ, RP(ARGS...)> {
-  static constexpr size_t pointer_pair_size = 2 * sizeof(void*);
+  static constexpr auto pointer_pair_size = 2 * sizeof(void*);
   static_assert(SZ > pointer_pair_size,
       "fixed_function: SZ must be greater than 2*sizeof(void*)");
   static_assert(SZ == padded_size(SZ),

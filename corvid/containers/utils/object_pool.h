@@ -87,12 +87,12 @@ public:
   using atomic_gen_t = maybe_t<std::atomic_uint32_t, is_versioned_v>;
   using gen_array_t = maybe_t<std::array<atomic_gen_t, N>, is_versioned_v>;
 
-  static constexpr size_t index_bits_v =
-      (N <= std::numeric_limits<uint8_t>::max())    ? 8U
-      : (N <= std::numeric_limits<uint16_t>::max()) ? 16U
+  static constexpr auto index_bits_v =
+      (N <= std::numeric_limits<uint8_t>::max())    ? 8UZ
+      : (N <= std::numeric_limits<uint16_t>::max()) ? 16UZ
       : (N <= std::numeric_limits<uint32_t>::max())
-          ? 32U
-          : 64U;
+          ? 32UZ
+          : 64UZ;
   using index_t = std::conditional_t<(index_bits_v == 8), uint8_t,
       std::conditional_t<(index_bits_v == 16), uint16_t,
           std::conditional_t<(index_bits_v == 32), uint32_t, uint64_t>>>;

@@ -80,23 +80,23 @@ protected:
 //
 // NOLINTNEXTLINE(performance-enum-size)
 enum class block_size : size_t {
-  kb001 = 1UL * 1024,
-  kb002 = 2UL * 1024, // 2 KB; fits a UDP payload inside a standard MTU
-  kb004 = 4UL * 1024,
-  kb008 = 8UL * 1024,
-  kb016 = 16UL * 1024,
-  kb032 = 32UL * 1024,
-  kb064 = 64UL * 1024,
-  kb128 = 128UL * 1024,
-  kb256 = 256UL * 1024,
-  kb512 = 512UL * 1024,
-  m01 = 1UL * 1024 * 1024,
-  m02 = 2UL * 1024 * 1024,
-  m04 = 4UL * 1024 * 1024,
-  m08 = 8UL * 1024 * 1024,
-  m16 = 16UL * 1024 * 1024,
-  m32 = 32UL * 1024 * 1024,
-  m64 = 64UL * 1024 * 1024,
+  kb001 = 1 * 1024UZ,
+  kb002 = 2 * 1024UZ, // 2 KB; fits a UDP payload inside a standard MTU
+  kb004 = 4 * 1024UZ,
+  kb008 = 8 * 1024UZ,
+  kb016 = 16 * 1024UZ,
+  kb032 = 32 * 1024UZ,
+  kb064 = 64 * 1024UZ,
+  kb128 = 128 * 1024UZ,
+  kb256 = 256 * 1024UZ,
+  kb512 = 512 * 1024UZ,
+  m01 = 1 * 1024UZ * 1024UZ,
+  m02 = 2 * 1024UZ * 1024UZ,
+  m04 = 4 * 1024UZ * 1024UZ,
+  m08 = 8 * 1024UZ * 1024UZ,
+  m16 = 16 * 1024UZ * 1024UZ,
+  m32 = 32 * 1024UZ * 1024UZ,
+  m64 = 64 * 1024UZ * 1024UZ,
 };
 consteval auto corvid_enum_spec(block_size*) {
   return corvid::enums::sequence::make_sequence_enum_spec<block_size, "">();

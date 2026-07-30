@@ -282,7 +282,7 @@ struct http3_field {
 // A collection of HTTP fields, with support for the QPACK token lookups.
 class http3_headers {
 public:
-  static constexpr size_t npos = static_cast<size_t>(-1);
+  static constexpr auto npos = static_cast<size_t>(-1);
 
 #pragma region Construction
 

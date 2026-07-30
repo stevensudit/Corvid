@@ -100,19 +100,19 @@ class entity_registry {
 public:
 #pragma region Types
 
-  static constexpr bool is_versioned_v = (GEN == generation_scheme::versioned);
-  static constexpr bool is_archetype_v = (OWN_COUNT == 1);
-  static constexpr bool is_component_v = !is_archetype_v;
-  static constexpr bool is_fifo_v = (REUSE == sequence_order::fifo);
-  static constexpr bool is_lifo_v = !is_fifo_v;
-  static constexpr size_t bitmap_bits_v = is_component_v ? OWN_COUNT : 1;
+  static constexpr auto is_versioned_v = (GEN == generation_scheme::versioned);
+  static constexpr auto is_archetype_v = (OWN_COUNT == 1);
+  static constexpr auto is_component_v = !is_archetype_v;
+  static constexpr auto is_fifo_v = (REUSE == sequence_order::fifo);
+  static constexpr auto is_lifo_v = !is_fifo_v;
+  static constexpr auto bitmap_bits_v = is_component_v ? OWN_COUNT : 1UZ;
   // `fixed_bitset` requires `N_BITS % 8 == 0`; round up to the nearest
   // multiple of 8. In component mode, bits above `bitmap_bits_v` are padding
   // and are never set; all `OWN_COUNT`- and `bitmap_bits_v`-based validation
   // uses the unpadded value. In archetype mode the value is 8 so that
   // `store_id_set_t` (which uses this as its `N_BITS`) is always well-formed.
-  static constexpr size_t padded_bitmap_bits_v =
-      is_component_v ? ((bitmap_bits_v + 7) / 8 * 8) : 8;
+  static constexpr auto padded_bitmap_bits_v =
+      is_component_v ? ((bitmap_bits_v + 7) / 8 * 8UZ) : 8UZ;
 
   using metadata_t = maybe_void_t<T>;
   using id_t = EID;

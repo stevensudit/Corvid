@@ -90,7 +90,7 @@ namespace corvid { inline namespace proto {
 class net_endpoint {
 #pragma region Construction
 public:
-  static constexpr size_t max_sockaddr_size = sizeof(sockaddr_storage);
+  static constexpr auto max_sockaddr_size = sizeof(sockaddr_storage);
   static_assert(sizeof(sockaddr_un) <= max_sockaddr_size,
       "`sockaddr_storage` is not large enough to hold `sockaddr_un`");
 

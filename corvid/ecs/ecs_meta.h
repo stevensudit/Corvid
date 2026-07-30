@@ -77,7 +77,7 @@ inline constexpr size_t find_component_storage_index_v =
 // Number of storages in `Storages...` whose `component_t == C`.
 template<typename C, typename... Storages>
 // NOLINTBEGIN(readability-redundant-typename)
-inline constexpr size_t component_match_count_v =
+inline constexpr auto component_match_count_v =
     (static_cast<size_t>(std::is_same_v<C, typename Storages::component_t>) +
         ...);
 // NOLINTEND(readability-redundant-typename)
@@ -107,7 +107,7 @@ inline constexpr size_t find_storage_by_tag_index_v =
 // Number of storages in `Storages...` whose `tag_t == C`.
 // NOLINTBEGIN(readability-redundant-typename)
 template<typename C, typename... Storages>
-inline constexpr size_t tag_match_count_v =
+inline constexpr auto tag_match_count_v =
     (static_cast<size_t>(std::is_same_v<C, typename Storages::tag_t>) + ...);
 // NOLINTEND(readability-redundant-typename)
 
@@ -192,7 +192,7 @@ template<typename... Tuples>
 using tuple_union_t = tuple_union_impl<std::tuple<>, Tuples...>::type;
 
 // 0-based index of T in Tuple. Fails to compile if T is not present.
-template<typename T, typename Tuple, size_t I = 0>
+template<typename T, typename Tuple, size_t I = 0UZ>
 struct tuple_index_impl;
 template<typename T, size_t I>
 struct tuple_index_impl<T, std::tuple<>, I> {

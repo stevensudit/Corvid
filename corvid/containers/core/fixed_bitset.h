@@ -78,8 +78,8 @@ class fixed_bitset {
 public:
 #pragma region Types
 
-  static constexpr size_t bit_count_v = N_BITS;
-  static constexpr size_t forced_word_v = FORCED_WORD;
+  static constexpr auto bit_count_v = N_BITS;
+  static constexpr auto forced_word_v = FORCED_WORD;
 
   using pos_t = POS;
   using tag_t = TAG;
@@ -97,11 +97,11 @@ private:
   // 8}.
   static constexpr size_t word_bits_v =
       (forced_word_v != 0)      ? forced_word_v
-      : (bit_count_v % 64 == 0) ? 64U
-      : (bit_count_v % 32 == 0) ? 32U
+      : (bit_count_v % 64 == 0) ? 64UZ
+      : (bit_count_v % 32 == 0) ? 32UZ
       : (bit_count_v % 16 == 0)
-          ? 16U
-          : 8U;
+          ? 16UZ
+          : 8UZ;
 
 public:
   // Word type: `FORCED_WORD` overrides auto-selection (0 = auto). Auto selects
@@ -110,11 +110,10 @@ public:
   using word_t = std::conditional_t<(word_bits_v == 64), uint64_t,
       std::conditional_t<(word_bits_v == 32), uint32_t,
           std::conditional_t<(word_bits_v == 16), uint16_t, uint8_t>>>;
-  static constexpr size_t bits_per_word_v = sizeof(word_t) * 8;
+  static constexpr auto bits_per_word_v = sizeof(word_t) * 8;
 
   // Number of words needed to hold all `bit_count_v` bits.
-  static constexpr size_t word_count_v =
-      ceil_div(bit_count_v, bits_per_word_v);
+  static constexpr size_t word_count_v{ceil_div(bit_count_v, bits_per_word_v)};
 
 #pragma endregion
 #pragma region iterator

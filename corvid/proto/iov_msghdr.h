@@ -49,7 +49,7 @@ public:
 
   static constexpr bool is_sender = SENDER;
   static constexpr bool is_receiver = !SENDER;
-  static constexpr size_t npos = std::numeric_limits<size_t>::max();
+  static constexpr auto npos = std::numeric_limits<size_t>::max();
 
   // Result of an I/O operation, with both the linear count of bytes and the
   // position within the segment.
