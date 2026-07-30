@@ -191,8 +191,7 @@ layering check was until it was ported.
 | second compiler        | `gcc`            | `cl`    | different roles, section 3   |
 | standard library       | libc++, libstdc++| no      | MSVC STL only                |
 | CUDA bucket            | nvcc plus g++-15 | clang++ | section 3                    |
-| `cudacheck`            | no               | yes     | not ported, no reason it     |
-|                        |                  |         | could not be                 |
+| `cudacheck`            | no               | yes     | not ported yet               |
 
 The Linux-only analysis modes (libc++/libstdc++ choice, msan/tsan, analyze-build
 scan, llvm-cov coverage, compiler-rt/lld swaps) have no MSVC analog and are

@@ -11,7 +11,7 @@ Four forms, each with one meaning:
 
 | Form                     | Meaning                                          |
 | ------------------------ | ------------------------------------------------ |
-| `int x = 5;`             | The specific value is the point (literals only)  |
+| `int x = 5;`             | The value is the point, or braces check nothing  |
 | `auto x = expr;`         | The type comes from the expression, deliberately |
 | `int x{expr};` etc.      | Value-init, narrowing check, aggregate, value    |
 | `Connection c(a, b);`    | Operational construction (active logic)          |
@@ -38,13 +38,14 @@ ready". Where a type is being asked to explain what the name should have
 said, the code is relying on `float x` here and `bool x` there to tell two
 things apart, and the names are at fault.
 
-## `=` with a spelled-out type: literals only
+## `=` with a spelled-out type: literals, plus no-narrow rulings
 
 - **Rule:** `Type x = expr;` is reserved for literal initializers where the
   specific value is the point: `int x = 5;`.
-- Loop counters follow from this: `for (int i = 0; i <= 5; ++i)`. The initial
-  value is a range endpoint that pairs with the bound; `int i{}` would hide
-  half the range.
+- Loop counters follow from this: `for (auto ndx = 0; ndx <= 5; ++ndx)`. The
+  initial value is a range endpoint that pairs with the bound, so it is
+  spelled where an accumulator's zero would be blanked. The two rulings below
+  settle what stands on the left.
 - **Ruling: a `size_t` counter drops the spelled type and suffixes the
   endpoint, `for (auto ndx = 0UZ; ndx != n; ++ndx)`.** A for-header init is a
   literal-initialized local like any other, so the named-constant rule below
@@ -84,7 +85,8 @@ things apart, and the names are at fault.
 - **Rule:** For a non-literal initializer, do not write `int x = y;`. The
   initializer's type can drift silently under `=`. Pick a side instead:
   `auto x = y;` when `x` should track `y`'s type, or a brace form when `x`'s
-  type is fixed (below).
+  type is fixed (below). The no-narrow rulings further down carve out where
+  `=` survives anyway.
 - Deliberate narrowing is spelled with an explicit cast, never by falling back
   to `=` to duck the brace error.
 - **Ruling: a named constant takes the same narrowing test as anything else,
@@ -149,7 +151,7 @@ things apart, and the names are at fault.
     literal.** `auto half = 0.5F;`, never `float half = 0.5;`. The
     mismatched form is a silent double-to-float narrowing dressed as a
     declaration, and suffixing the literal removes the conversion instead
-    of spelling a type to absorb it. Same move as the `4U` ruling above:
+    of spelling a type to absorb it. Same move as the `4U` ruling below:
     when a literal's type blocks the form you want, the literal is what is
     wrong.
   - **A non-static data member stays spelled, because the language leaves
@@ -213,19 +215,25 @@ things apart, and the names are at fault.
   brace form fails only because a literal initializer is signed and the target
   is not, suffix the literals (`4U`, or `UL` when that is not enough) rather
   than retreating to `=` or reaching for a cast:
-  `const size_t mask_len{is_mask ? 4U : 0U};`. The brace error was pointing at
-  a real signed/unsigned mismatch in the source, and the fix belongs where the
-  mismatch is. The ternary is also what puts this line under the brace rule at
-  all. A bare literal initializer takes `=` when the target is an ordinary
-  type, where the literal already carries that type and so the check could
-  never fire. That reasoning does not reach a fixed-width or role type: there
-  the constant's fit turns on a width the literal knows nothing about, and the
-  check fires for real. Those take braces, per the bullet above.
+  `const uint32_t mask_len{is_mask ? 4U : 0U};`. The brace error was pointing
+  at a real signed/unsigned mismatch in the source, and the fix belongs where
+  the mismatch is. The ternary is also what puts this line under the brace
+  rule at all. A bare literal initializer takes `=` when the target is an
+  ordinary type, where the literal already carries that type and so the check
+  could never fire. That reasoning does not reach a fixed-width type: there
+  the constant's fit turns on a width the literal knows nothing about, and
+  the check fires for real. Those take braces, per the bullet above. A role
+  type escapes the same way it escaped the braces bullet: `UZ` names the
+  target's own type, so once the arms carry it there is nothing left for a
+  check to catch, the spelled type has nothing left to say, and the
+  all-literal ladder rule takes over:
+  `const auto mask_len = is_mask ? 4UZ : 0UZ;`, which is how the site that
+  taught this ruling reads today.
 - **Ruling: an initializer that is already `bool` takes `auto`; spelling
   `bool` marks a conversion.** A comparison, a `&&` or `||`, a `!`, and a
   predicate call all yield `bool` by definition, so `auto` deduces exactly
   `bool` and the spelled type restates what the initializer already says:
-  `const auto floor = contact.is_floor();`,
+  `const auto on_floor = contact.on_floor();`,
   `const auto ok = p && p->is_good();`, `const auto ws = (a != b);`. The
   spelled `bool` is reserved for an initializer that is NOT bool and is
   being converted to one, where `auto` would deduce something else
@@ -243,7 +251,7 @@ things apart, and the names are at fault.
     boolean expression on the grounds that "nothing is spelled `bool`
     anywhere in it". That is true of the operands and false of the
     operator: `&&` and `==` are as plainly bool-valued as a function
-    named `is_floor`. Applied across the repo the narrower rule left the
+    named `on_floor`. Applied across the repo the narrower rule left the
     spelled form with no instances at all, since every site was already
     bool-valued.
 - **Ruling: ternary predicates containing comparisons take parens.** When
@@ -315,8 +323,10 @@ things apart, and the names are at fault.
   (an `int`) and `auto y = {5};` (an `initializer_list<int>`) mean different
   things; avoid both spellings entirely.
 - Spelling the type instead of `auto` for a non-literal initializer is
-  justified only by a particular reason to emphasize the type, and then a
-  brace form carries it, since `=` stays reserved for literals.
+  justified only by a particular reason to emphasize the type. A brace form
+  carries it when the initializer could narrow. When it cannot, the no-narrow
+  rulings in the `=` section license `=` instead, as with the spelled `bool`
+  and the pinned pointer.
 - A temporary copy whose type must track the source is `auto`:
   `auto tmp = std::move(*this);` in a `swap`, not
   `fixed_function tmp{std::move(*this)};`, which repeats a type that could
@@ -364,9 +374,9 @@ Braces express "this object takes on these values", and they reject narrowing.
     `{}` cannot is a value that is NOT zeroish: `bool live_ = true;`,
     `int width_ = 1024;`, `index_t ndx_ = npos;`. A sentinel that happens
     to equal the zero value is therefore just `{}`. The one carve-out is a
-    zero that pairs with a visible bound, `for (int i = 0; i <= 5; ++i)`,
-    where hiding it would show half a range; that is about the pair, not
-    about the zero. Sibling declarations can pair the same way: `auto p =
+    zero that pairs with a visible bound,
+    `for (auto ndx = 0; ndx <= 5; ++ndx)`, where hiding it would show half a
+    range; that is about the pair, not about the zero. Sibling declarations can pair the same way: `auto p =
     1.0F; auto q = 0.0F;` for the two components of one tangent-frame
     coordinate keeps them legible as a pair, where blanking only `q`
     would split them. `float q{};` stays the canonical spelling, and this

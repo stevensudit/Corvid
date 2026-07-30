@@ -198,7 +198,7 @@ int main() {
   *d_A.load(h_A);
   *d_B.load(h_B);
 
-  float ms;
+  float ms{};
 
   // ---------- Stupid kernel ----------
   dim3 stupid_block(32, 32);
