@@ -389,7 +389,8 @@ public:
       // outstanding handles. Free entries already had their gen bumped on
       // erase.
       if constexpr (is_versioned_v) {
-        for (size_type i = 0; i < live_size; ++i) ++reverse_[i].h_.gen_;
+        for (size_type ndx = 0; ndx < live_size; ++ndx)
+          ++reverse_[ndx].h_.gen_;
       }
       // Maintain FIFO free list.
       if constexpr (is_fifo_v) rebuild_fifo_list();

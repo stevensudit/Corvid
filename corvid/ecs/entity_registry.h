@@ -907,8 +907,8 @@ private:
     free_head_ = id_t::invalid;
     if constexpr (is_fifo_v) free_tail_ = id_t::invalid;
     const auto n = records_.size();
-    for (size_type i = 0; i < n; ++i) {
-      const id_t id{i};
+    for (size_type ndx = 0; ndx < n; ++ndx) {
+      const id_t id{ndx};
       if (is_alive(id)) continue;
       push_free(id);
     }

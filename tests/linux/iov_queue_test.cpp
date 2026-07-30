@@ -196,7 +196,7 @@ TEST_CASE("reliable caller may retire without consume", "[iov_queue]") {
 // next pull resumes past the handed-off bytes.
 TEST_CASE("budget-capped unused with exact consume", "[iov_queue]") {
   iov_queue<> q;
-  for (uint8_t i = 1; i <= 20; ++i) CHECK(q.append(bytes({i})));
+  for (uint8_t ndx = 1; ndx <= 20; ++ndx) CHECK(q.append(bytes({ndx})));
   CHECK(q.appended() == 20);
 
   constexpr auto budget = 16UZ;

@@ -884,8 +884,8 @@ struct std::formatter<corvid::container::fixed_bitset<N, POS, TAG, FW>, char> {
       break;
     }
     case mode::binary:
-      for (size_t i = N; i-- > 0;)
-        *out++ = bs[static_cast<POS>(i)] ? '1' : '0';
+      for (auto ndx = N; ndx-- > 0;)
+        *out++ = bs[static_cast<POS>(ndx)] ? '1' : '0';
       break;
     }
     return out;

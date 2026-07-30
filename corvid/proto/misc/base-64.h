@@ -39,8 +39,8 @@ constexpr std::string_view alpha =
 constexpr std::array<uint8_t, 256> make_base64_decode_table() noexcept {
   std::array<uint8_t, 256> t{};
   t.fill(0xFF);
-  for (uint8_t i = 0; i < 64; ++i)
-    t[static_cast<uint8_t>(detail::alpha[i])] = i;
+  for (uint8_t ndx = 0; ndx < 64; ++ndx)
+    t[static_cast<uint8_t>(detail::alpha[ndx])] = ndx;
   return t;
 }
 
@@ -64,26 +64,26 @@ struct base_64 {
     std::string out;
     out.reserve(((bytes.size() + 2) / 3) * 4);
 
-    size_t i{};
-    for (; i + 2 < bytes.size(); i += 3) {
+    size_t ndx{};
+    for (; ndx + 2 < bytes.size(); ndx += 3) {
       const auto triple =
-          combine_bytes(bytes[i + 2], bytes[i + 1], bytes[i], uint8_t{});
+          combine_bytes(bytes[ndx + 2], bytes[ndx + 1], bytes[ndx], uint8_t{});
       out.push_back(detail::alpha[(triple >> 18) & 0x3F]);
       out.push_back(detail::alpha[(triple >> 12) & 0x3F]);
       out.push_back(detail::alpha[(triple >> 6) & 0x3F]);
       out.push_back(detail::alpha[triple & 0x3F]);
     }
 
-    const auto remain = bytes.size() - i;
+    const auto remain = bytes.size() - ndx;
     if (remain == 1) {
       const auto triple =
-          combine_bytes(uint8_t{}, uint8_t{}, bytes[i], uint8_t{});
+          combine_bytes(uint8_t{}, uint8_t{}, bytes[ndx], uint8_t{});
       out.push_back(detail::alpha[(triple >> 18) & 0x3F]);
       out.push_back(detail::alpha[(triple >> 12) & 0x3F]);
       out += "==";
     } else if (remain == 2) {
       const auto triple =
-          combine_bytes(uint8_t{}, bytes[i + 1], bytes[i], uint8_t{});
+          combine_bytes(uint8_t{}, bytes[ndx + 1], bytes[ndx], uint8_t{});
       out.push_back(detail::alpha[(triple >> 18) & 0x3F]);
       out.push_back(detail::alpha[(triple >> 12) & 0x3F]);
       out.push_back(detail::alpha[(triple >> 6) & 0x3F]);

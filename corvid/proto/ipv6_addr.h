@@ -325,8 +325,8 @@ private:
     if (double_colon == 8) return group_count == 8;
     if (group_count == 8) return false;
     const auto zeros = 8 - group_count;
-    for (size_t i = group_count; i > double_colon; --i)
-      groups[i + zeros - 1] = groups[i - 1];
+    for (auto ndx = group_count; ndx > double_colon; --ndx)
+      groups[ndx + zeros - 1] = groups[ndx - 1];
     for (auto ndx = 0UZ; ndx < zeros; ++ndx) groups[double_colon + ndx] = 0;
     return true;
   }

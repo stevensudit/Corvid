@@ -299,8 +299,8 @@ private:
     // Subtract bytes from all segments being skipped over. Note that we only
     // look at the lengths; we do not dereference the buffers because they may
     // well have been freed.
-    for (size_t i = first_index_; i < actual_index; ++i)
-      size_ -= segments_[i].iov_len;
+    for (size_t ndx = first_index_; ndx < actual_index; ++ndx)
+      size_ -= segments_[ndx].iov_len;
     first_index_ = actual_index;
 
     // If past the end of the last segment, trim.

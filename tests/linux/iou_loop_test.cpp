@@ -1037,9 +1037,9 @@ TEST_CASE("RecvBufferMulti", "[IouLoop]") {
     const auto recv_token = loop->submit_recv_buffer_multi(recv_sock,
         [&](completion_id, iou_loop::buffer& buf) -> slot_retention {
           if (buf.result().ok()) {
-            const size_t i = count.load(std::memory_order::relaxed);
-            if (i < payloads.size())
-              payloads[i] = std::string{buf.payload_view()};
+            const size_t ndx = count.load(std::memory_order::relaxed);
+            if (ndx < payloads.size())
+              payloads[ndx] = std::string{buf.payload_view()};
           }
           count.fetch_add(1, std::memory_order::release);
           return slot_retention::automatic;
@@ -1090,9 +1090,9 @@ TEST_CASE("RecvMsgBufferMulti", "[IouLoop]") {
     const auto recv_token = loop->submit_recvmsg_buffer_multi(recv_sock,
         [&](completion_id, iou_loop::buffer& buf) -> slot_retention {
           if (buf.result().ok()) {
-            const size_t i = count.load(std::memory_order::relaxed);
-            if (i < payloads.size())
-              payloads[i] = std::string{buf.payload_view()};
+            const size_t ndx = count.load(std::memory_order::relaxed);
+            if (ndx < payloads.size())
+              payloads[ndx] = std::string{buf.payload_view()};
           }
           count.fetch_add(1, std::memory_order::release);
           return slot_retention::automatic;

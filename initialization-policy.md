@@ -56,6 +56,15 @@ things apart, and the names are at fault.
   `for (size_t ndx = start; ...)`, keeps the spelled type unless the
   expression itself names it. Comparisons in the same header stay bare: the
   bound converts harmlessly and `0UZ` there would be noise.
+- **Ruling: an `int` counter whose type is incidental drops the type too,
+  `for (auto ndx = 0; ndx < 4; ++ndx)`.** No suffix names `int`, but none is
+  needed: a bare `0` already deduces it. The spelled type stays where it
+  carries information the deduction would lose. Signedness that the loop
+  depends on is the usual case, `for (int ndx{name_array.size() - 1}; ndx >= 0;
+  --ndx)`, where the braces also check the narrowing that produced the
+  endpoint. A container's own `size_type` alias likewise stays spelled, since
+  no suffix names it and it is not necessarily `size_t`:
+  `for (size_type ndx = 0; ndx < n; ++ndx)`.
 - A single literal where the value is the point takes `=` into a class type
   the literal converts to implicitly:
   `std::string_view marker_ = "(null)";`,

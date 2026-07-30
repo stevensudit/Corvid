@@ -1173,7 +1173,7 @@ TEST_CASE("ReachesGameOverAsSoonAsLivesAreExhausted", "[SimGame]") {
   (void)game.start_wave();
 
   bool sawZeroLives = false;
-  for (uint16_t i = 0; i < 2000; ++i) {
+  for (auto ndx = 0; ndx < 2000; ++ndx) {
     (void)game.next();
     const auto delta = extractGameDelta(game);
     if (delta.lives <= 0) {
