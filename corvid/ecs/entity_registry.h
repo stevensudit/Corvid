@@ -714,7 +714,7 @@ public:
     if (prefill == allocation_policy::eager && new_cap > records_.size()) {
       const auto old_size = records_.size();
       records_.resize(new_cap);
-      for (auto i = old_size; i < new_cap; ++i) push_free(id_t{i});
+      for (auto ndx = old_size; ndx < new_cap; ++ndx) push_free(id_t{ndx});
     }
   }
 

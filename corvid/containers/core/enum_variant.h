@@ -542,7 +542,7 @@ private:
   underlying_type value_;
 
   // Used by consteval constructor.
-  template<size_t I = 0>
+  template<size_t I = 0UZ>
   static consteval underlying_type construct(size_t idx) {
     if constexpr (I < sizeof...(Ts)) {
       if (idx == I) {
@@ -556,7 +556,7 @@ private:
   }
 
   // Runtime equivalent of `construct` used by the enum assignment operator.
-  template<size_t I = 0>
+  template<size_t I = 0UZ>
   constexpr void assign_index(size_t idx) {
     if constexpr (I < sizeof...(Ts)) {
       if (idx == I) {

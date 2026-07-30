@@ -425,7 +425,7 @@ public:
     std::scoped_lock both_lock(pool_mutex_, func_mutex_);
     if (shut_down_) return false;
     shut_down_ = true;
-    for (size_t ndx = 0; ndx < N; ++ndx) {
+    for (auto ndx = 0UZ; ndx < N; ++ndx) {
       (void)release_slot_gen(ndx);
       if constexpr (!IsNoOpCb<ReturnCb>) return_cb_(slots_[ndx]);
       slots_[ndx] = T{};

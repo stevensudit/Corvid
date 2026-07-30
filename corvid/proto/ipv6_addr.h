@@ -181,7 +181,7 @@ public:
     size_t cur_len{};
 
     // Figure out how many empty groups to skip before we start.
-    for (size_t ndx = 0; ndx < 8; ++ndx) {
+    for (auto ndx = 0UZ; ndx < 8; ++ndx) {
       if (groups[ndx] == 0) {
         if (cur_len == 0) cur_start = ndx;
         ++cur_len;
@@ -201,7 +201,7 @@ public:
 
     std::string out;
     out.reserve(39); // Max length of an IPv6 address string.
-    for (size_t ndx = 0; ndx < 8; ++ndx) {
+    for (auto ndx = 0UZ; ndx < 8; ++ndx) {
       if (ndx == best_start) {
         out += "::";
         ndx += best_len - 1;
@@ -327,7 +327,7 @@ private:
     const auto zeros = 8 - group_count;
     for (size_t i = group_count; i > double_colon; --i)
       groups[i + zeros - 1] = groups[i - 1];
-    for (size_t i = 0; i < zeros; ++i) groups[double_colon + i] = 0;
+    for (auto ndx = 0UZ; ndx < zeros; ++ndx) groups[double_colon + ndx] = 0;
     return true;
   }
 

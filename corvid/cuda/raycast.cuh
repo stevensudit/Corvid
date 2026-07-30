@@ -53,7 +53,7 @@ soft_shadow(pos3 p, vec3 light_dir, float hardness) {
 
   auto result = 1.0F;
   auto dist = 0.02F;
-  for (int step = 0; step < limit; ++step) {
+  for (auto step = 0; step < limit; ++step) {
     const auto surf_dist = Sdf(p + (light_dir * dist));
     if (surf_dist < 0.001F) return 0.0F;
 
@@ -84,7 +84,7 @@ template<float Sdf(pos3)>
   float occlusion{};
   auto weight = 1.0F;
   auto offset = min_offset;
-  for (int step = 0; step < ao_samples; ++step) {
+  for (auto step = 0; step < ao_samples; ++step) {
     const auto surf_dist = Sdf(p + (normal * offset));
     occlusion += (offset - surf_dist) * weight;
     weight *= weight_falloff;
@@ -130,7 +130,7 @@ template<scene_policy Scene>
   constexpr auto min_eps = 0.001F;
   float dist{};
   bool hit{};
-  for (int step = 0; step < max_steps; ++step) {
+  for (auto step = 0; step < max_steps; ++step) {
     const auto surf_dist = Scene::sdf(eye + (ray_dir * dist));
     if (surf_dist < fmaxf(min_eps, pixel_eps * dist)) {
       hit = true;

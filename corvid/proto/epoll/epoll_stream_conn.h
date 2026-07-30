@@ -1072,7 +1072,7 @@ private:
 
       // Retire all fully consumed strings. `op.index` is the count of
       // segments (relative to the current front) that were completely sent.
-      for (size_t i = 0; i < op.index; ++i) send_queue_.pop_front();
+      for (auto ndx = 0UZ; ndx < op.index; ++ndx) send_queue_.pop_front();
 
       // Clean up dead segments from `iov_sender_` if there is enough slack.
       iov_sender_.compact();

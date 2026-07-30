@@ -66,7 +66,7 @@ constexpr auto hash_amp = 43758.547F;
   float sum{};
   auto amplitude = 0.5F;
   auto frequency = 1.0F;
-  for (int octave = 0; octave < 4; ++octave) {
+  for (auto octave = 0; octave < 4; ++octave) {
     sum += amplitude * value_noise(x * frequency, y * frequency);
     amplitude *= 0.5F;
     frequency *= 2.0F;
@@ -81,7 +81,7 @@ constexpr auto hash_amp = 43758.547F;
   float sum{};
   auto amplitude = 0.5F;
   auto frequency = 1.0F;
-  for (int octave = 0; octave < 4; ++octave) {
+  for (auto octave = 0; octave < 4; ++octave) {
     const auto n = value_noise(x * frequency, y * frequency);
     const auto r = 1.0F - fabsf((2.0F * n) - 1.0F);
     sum += amplitude * r * r;
@@ -133,7 +133,7 @@ value_noise_3d(float x, float y, float z) {
   float sum{};
   auto amplitude = 0.5F;
   auto frequency = 1.0F;
-  for (int octave = 0; octave < 3; ++octave) {
+  for (auto octave = 0; octave < 3; ++octave) {
     sum += amplitude *
            value_noise_3d(x * frequency, y * frequency, z * frequency);
     amplitude *= 0.5F;

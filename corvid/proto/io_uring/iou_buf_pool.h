@@ -358,7 +358,8 @@ private:
 
   // Assign tier sizes and push a single full-size block to the top tier.
   void init_free_lists() noexcept {
-    for (size_t i = 0; i < tier_count; ++i) lists_[i].sz = min_block_size << i;
+    for (auto ndx = 0UZ; ndx < tier_count; ++ndx)
+      lists_[ndx].sz = min_block_size << ndx;
     available_bytes_ = slab_size;
     lists_.back().push_head(base_);
   }
@@ -372,15 +373,16 @@ private:
   void mark_pages(cptr p, size_t sz, bool in_use) noexcept {
     const auto first = find_page_index(p);
     const auto count = sz / min_block_size;
-    for (size_t i = 0; i < count; ++i) in_use_pages_[first + i] = in_use;
+    for (auto ndx = 0UZ; ndx < count; ++ndx)
+      in_use_pages_[first + ndx] = in_use;
   }
 
   // True if no page in `[p, p+sz)` is currently allocated externally.
   [[nodiscard]] bool are_all_free(cptr p, size_t sz) const noexcept {
     const auto first = find_page_index(p);
     const auto count = sz / min_block_size;
-    for (size_t i = 0; i < count; ++i)
-      if (in_use_pages_[first + i]) return false;
+    for (auto ndx = 0UZ; ndx < count; ++ndx)
+      if (in_use_pages_[first + ndx]) return false;
     return true;
   }
 
@@ -448,7 +450,7 @@ private:
     }
 
     // Bottom-up: cascade coalesce from tier 0 upward to fill the target.
-    for (size_t t = 1; t <= tier; ++t) {
+    for (auto t = 1UZ; t <= tier; ++t) {
       while (coalesce(lists_[t - 1], lists_[t]))
         if (lists_[tier]) return true;
     }

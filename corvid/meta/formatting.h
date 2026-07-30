@@ -65,7 +65,7 @@ struct parsed_spec {
   // Write character `c`, `count` times.
   template<CharType InCharT, typename OutIt>
   static constexpr OutIt write_repeat(OutIt out, InCharT c, size_t count) {
-    for (size_t i = 0; i < count; ++i) *out++ = widen(c);
+    for (auto ndx = 0UZ; ndx < count; ++ndx) *out++ = widen(c);
     return out;
   }
 
@@ -345,10 +345,10 @@ struct spec_parser: parsed_spec<CharT> {
     std::basic_string<CharT> out;
     out.reserve(spec.size() + (got * 4));
     size_t next{};
-    for (size_t i = 0; i < spec.size(); ++i) {
-      out.push_back(spec[i]);
-      if (spec[i] == CharT{'{'} && i + 1 < spec.size() &&
-          spec[i + 1] == CharT{'}'})
+    for (auto ndx = 0UZ; ndx < spec.size(); ++ndx) {
+      out.push_back(spec[ndx]);
+      if (spec[ndx] == CharT{'{'} && ndx + 1 < spec.size() &&
+          spec[ndx + 1] == CharT{'}'})
         append_decimal(out, ids[next++]);
     }
     return out;

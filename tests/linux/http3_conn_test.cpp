@@ -107,7 +107,7 @@ has_field(const std::vector<std::pair<std::string, std::string>>& headers,
 // the number of (non-empty) writes relayed.
 int pump(http3_conn& from, http3_conn& to) {
   int writes{0};
-  for (int guard = 0; guard < 100; ++guard) {
+  for (auto guard = 0; guard < 100; ++guard) {
     quic_stream_id stream_id = quic_stream_id::none;
     std::span<const iovec> vecs;
     stream_chunk chunk_fin{stream_chunk::more};
@@ -115,10 +115,11 @@ int pump(http3_conn& from, http3_conn& to) {
     if (stream_id == quic_stream_id::none) break;
 
     size_t total{};
-    for (size_t i = 0; i < vecs.size(); ++i) {
-      const auto& v = vecs[i];
+    for (auto ndx = 0UZ; ndx < vecs.size(); ++ndx) {
+      const auto& v = vecs[ndx];
       // The FIN rides with the final byte chunk.
-      const auto fin = (i + 1 == vecs.size()) ? chunk_fin : stream_chunk::more;
+      const auto fin =
+          (ndx + 1 == vecs.size()) ? chunk_fin : stream_chunk::more;
       size_t consumed{};
       REQUIRE(to.read_stream(stream_id,
           {static_cast<const uint8_t*>(v.iov_base), v.iov_len}, fin,

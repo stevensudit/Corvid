@@ -256,8 +256,8 @@ __global__ void __launch_bounds__(256, 3) aa_resolve_kernel(float4* hdr,
   const auto inv = 1.0F / static_cast<float>(aa_samples);
   const auto px_scale = pixel_world_scale(cam, res);
   vec3 color;
-  for (int sy = 0; sy < aa_samples; ++sy)
-    for (int sx = 0; sx < aa_samples; ++sx) {
+  for (auto sy = 0; sy < aa_samples; ++sy)
+    for (auto sx = 0; sx < aa_samples; ++sx) {
       const auto ox = (static_cast<float>(sx) + 0.5F) * inv;
       const auto oy = (static_cast<float>(sy) + 0.5F) * inv;
       const auto sample =
@@ -368,7 +368,7 @@ __global__ void bloom_blur_kernel(const float4* src, float4* dst,
 
   vec3 sum;
   float wsum{};
-  for (int k = -radius; k <= radius; ++k) {
+  for (auto k = -radius; k <= radius; ++k) {
     const auto w = expf(-static_cast<float>(k * k) * inv_two_sigma_sq);
     const auto sx = min(max(x + (k * dx), 0), hw - 1);
     const auto sy = min(max(y + (k * dy), 0), hh - 1);
@@ -528,7 +528,7 @@ __global__ void exposure_measure_kernel(const float4* hdr, const float4* bloom,
   sl[tid] = lum;
   sw[tid] = wgt;
   __syncthreads();
-  for (int s = 128; s > 0; s >>= 1) {
+  for (auto s = 128; s > 0; s >>= 1) {
     if (tid < s) {
       sl[tid] += sl[tid + s];
       sw[tid] += sw[tid + s];

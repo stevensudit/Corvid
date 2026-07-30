@@ -113,7 +113,7 @@ consteval size_t heaviest_base() noexcept {
         std::tuple_size_v<typename vtbuild_t<
             typename vtbuild_t<F>::template base_t<Ndxs>>::flat_slots_t>...};
     size_t best{};
-    for (size_t ndx = 1; ndx != sizes.size(); ++ndx)
+    for (auto ndx = 1UZ; ndx != sizes.size(); ++ndx)
       if (sizes[ndx] > sizes[best]) best = ndx;
     return best;
   }(std::make_index_sequence<vtbuild_t<F>::base_count_v>{});
@@ -162,7 +162,7 @@ void emit_params(std::ostream& os, size_t next, std::tuple<Args...>*) {
 // `emit_args`: emit `arg_N, arg_N+1, ...`, numbering from `next`.
 template<typename... Args>
 void emit_args(std::ostream& os, size_t next, std::tuple<Args...>*) {
-  for (size_t ndx = 0; ndx != sizeof...(Args); ++ndx)
+  for (auto ndx = 0UZ; ndx != sizeof...(Args); ++ndx)
     os << (ndx ? ", " : "") << "arg_" << next + ndx;
 }
 

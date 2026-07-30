@@ -263,8 +263,8 @@ template<CharType CharT, std::floating_point T>
     if (static_cast<size_t>(last - first) < n)
       return {last, std::errc::value_too_large};
     auto* out = first;
-    for (size_t i = 0; i < n; ++i)
-      *out++ = static_cast<CharT>(static_cast<unsigned char>(buf[i]));
+    for (auto ndx = 0UZ; ndx < n; ++ndx)
+      *out++ = static_cast<CharT>(static_cast<unsigned char>(buf[ndx]));
     return {out, std::errc{}};
   }
 }

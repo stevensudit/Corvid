@@ -77,7 +77,7 @@ std::string friendly_type_name() {
   using TR = std::remove_reference_t<T>;
   auto r = type_name<std::remove_cv_t<TR>>();
   auto replace = [&r](std::string_view what, std::string_view with) {
-    for (size_t pos = 0; (pos = r.find(what, pos)) != std::string::npos;
+    for (auto pos = 0UZ; (pos = r.find(what, pos)) != std::string::npos;
         pos += with.size())
       r.replace(pos, what.size(), with);
   };

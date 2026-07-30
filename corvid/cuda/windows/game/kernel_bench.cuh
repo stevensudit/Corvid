@@ -138,7 +138,7 @@ namespace corvid::cuda {
         cfg);
   };
 
-  for (int i = 0; i < warmup; ++i) launch();
+  for (auto ndx = 0; ndx < warmup; ++ndx) launch();
   cuda_last_status{cudaDeviceSynchronize()}.or_throw();
   cuda_last_status{cudaGetLastError()}.or_throw();
 
@@ -147,7 +147,7 @@ namespace corvid::cuda {
   float total{};
   auto lo = big_value;
   float hi{};
-  for (int i = 0; i < iters; ++i) {
+  for (auto ndx = 0; ndx < iters; ++ndx) {
     start.record().or_throw();
     launch();
     stop.record().or_throw();

@@ -44,7 +44,7 @@ namespace {
 // the cancel action. Each test installs the fake clock with
 // `clk::fake_now_scope` and drives it through `clk::set_fake_now`.
 struct test_owner: std::enable_shared_from_this<test_owner> {
-  int idle_count{0};
+  int idle_count{};
   idle_timeout<test_owner> idle;
 
   test_owner(sweeper& sw, dur configured)

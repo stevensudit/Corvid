@@ -727,7 +727,7 @@ template<meta::fixed_string names, std::integral U, size_t NameCount,
   size_t packed_ndx{};
   size_t pos{};
 
-  for (size_t segment_ndx = 0; segment_ndx != SegCount; ++segment_ndx) {
+  for (auto segment_ndx = 0UZ; segment_ndx != SegCount; ++segment_ndx) {
     const auto seg_end = std::min(whole.find('|', pos), whole.size());
     const auto comma = whole.find(',', pos);
     if (comma > seg_end) throw std::invalid_argument{"invalid structure"};
@@ -832,7 +832,7 @@ struct sequence_enum_names_spec
     if (sv.empty()) return {};
     size_t offset{};
     for (const auto& seg : segments) {
-      for (size_t ndx = 0; ndx != seg.length; ++ndx)
+      for (auto ndx = 0UZ; ndx != seg.length; ++ndx)
         if (names[offset + ndx] == sv)
           return make<E>(static_cast<U>(seg.start + static_cast<U>(ndx)));
       offset += seg.length;

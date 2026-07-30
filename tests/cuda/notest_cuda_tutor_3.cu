@@ -41,7 +41,7 @@ int main() {
 
   *d_I.store(h_I);
 
-  for (int i = 0; i < n; ++i)
+  for (auto i = 0; i < n; ++i)
     if (h_I[i] != i) assert(false);
 
   return 0;

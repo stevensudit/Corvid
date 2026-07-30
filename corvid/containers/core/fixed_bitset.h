@@ -73,7 +73,7 @@ inline namespace fixed_bitsets {
 // So long as `FORCED_WORD=0`, `sizeof(fixed_bitset<...>)` is `N_BITS / 8`,
 // meaning that there is no overhead.
 template<size_t N_BITS = 64UZ, typename POS = size_t, typename TAG = void,
-    size_t FORCED_WORD = 0>
+    size_t FORCED_WORD = 0UZ>
 class fixed_bitset {
 public:
 #pragma region Types
@@ -297,7 +297,7 @@ public:
 
   // True if all bits are set.
   [[nodiscard]] constexpr bool all() const noexcept {
-    for (size_t ndx = 0; ndx + 1 < word_count_v; ++ndx)
+    for (auto ndx = 0UZ; ndx + 1 < word_count_v; ++ndx)
       if (words_[ndx] != all_ones_v) return false;
     return words_[word_count_v - 1] == top_word_mask_;
   }
@@ -331,21 +331,21 @@ public:
 
   // AND each word with `rhs` in place.
   constexpr fixed_bitset& operator&=(const fixed_bitset& rhs) noexcept {
-    for (size_t ndx = 0; ndx < word_count_v; ++ndx)
+    for (auto ndx = 0UZ; ndx < word_count_v; ++ndx)
       words_[ndx] &= rhs.words_[ndx];
     return *this;
   }
 
   // OR each word with `rhs` in place.
   constexpr fixed_bitset& operator|=(const fixed_bitset& rhs) noexcept {
-    for (size_t ndx = 0; ndx < word_count_v; ++ndx)
+    for (auto ndx = 0UZ; ndx < word_count_v; ++ndx)
       words_[ndx] |= rhs.words_[ndx];
     return *this;
   }
 
   // XOR each word with `rhs` in place.
   constexpr fixed_bitset& operator^=(const fixed_bitset& rhs) noexcept {
-    for (size_t ndx = 0; ndx < word_count_v; ++ndx)
+    for (auto ndx = 0UZ; ndx < word_count_v; ++ndx)
       words_[ndx] ^= rhs.words_[ndx];
     return *this;
   }
@@ -407,7 +407,7 @@ public:
       words_[word_shift] = static_cast<word_t>(words_[0] << bit_shift);
     }
 
-    for (size_t ndx = 0; ndx < word_shift; ++ndx) words_[ndx] = 0;
+    for (auto ndx = 0UZ; ndx < word_shift; ++ndx) words_[ndx] = 0;
     if constexpr (top_padding_bits_ != 0)
       words_[word_count_v - 1] &= top_word_mask_;
     return *this;
@@ -432,11 +432,11 @@ public:
     const auto limit = word_count_v - word_shift;
 
     if (bit_shift == 0) {
-      for (size_t ndx = 0; ndx < limit; ++ndx)
+      for (auto ndx = 0UZ; ndx < limit; ++ndx)
         words_[ndx] = words_[ndx + word_shift];
     } else {
       const auto lshift = bits_per_word_v - bit_shift;
-      for (size_t ndx = 0; ndx + 1 < limit; ++ndx)
+      for (auto ndx = 0UZ; ndx + 1 < limit; ++ndx)
         words_[ndx] = static_cast<word_t>(
             (words_[ndx + word_shift] >> bit_shift) |
             (words_[ndx + word_shift + 1] << lshift));
@@ -470,7 +470,7 @@ public:
 
     if (bit_shift == 0) {
       auto src = (word_count_v - word_shift) % word_count_v;
-      for (size_t ndx = 0; ndx < word_count_v; ++ndx) {
+      for (auto ndx = 0UZ; ndx < word_count_v; ++ndx) {
         out[ndx] = words_[src];
         if (++src == word_count_v) src = 0;
       }
@@ -479,7 +479,7 @@ public:
       auto src = (word_count_v - word_shift) % word_count_v;
       auto prev = (src == 0) ? (word_count_v - 1) : (src - 1);
 
-      for (size_t ndx = 0; ndx < word_count_v; ++ndx) {
+      for (auto ndx = 0UZ; ndx < word_count_v; ++ndx) {
         out[ndx] = static_cast<word_t>(
             (words_[src] << bit_shift) | (words_[prev] >> rshift));
         prev = src;
@@ -507,7 +507,7 @@ public:
 
     if (bit_shift == 0) {
       auto src = word_shift;
-      for (size_t ndx = 0; ndx < word_count_v; ++ndx) {
+      for (auto ndx = 0UZ; ndx < word_count_v; ++ndx) {
         out[ndx] = words_[src];
         if (++src == word_count_v) src = 0;
       }
@@ -517,7 +517,7 @@ public:
       auto next = src + 1;
       if (next == word_count_v) next = 0;
 
-      for (size_t ndx = 0; ndx < word_count_v; ++ndx) {
+      for (auto ndx = 0UZ; ndx < word_count_v; ++ndx) {
         out[ndx] = static_cast<word_t>(
             (words_[src] >> bit_shift) | (words_[next] << lshift));
         src = next;
@@ -569,7 +569,7 @@ public:
 
   // Flip all bits.
   constexpr fixed_bitset& flip() noexcept {
-    for (size_t ndx = 0; ndx < word_count_v; ++ndx) words_[ndx] ^= all_ones_v;
+    for (auto ndx = 0UZ; ndx < word_count_v; ++ndx) words_[ndx] ^= all_ones_v;
     if constexpr (top_padding_bits_ != 0)
       words_[word_count_v - 1] &= top_word_mask_;
     return *this;
@@ -587,7 +587,7 @@ public:
 
   // Number of consecutive zero bits starting at bit 0.
   [[nodiscard]] constexpr pos_t countr_zero() const noexcept {
-    for (size_t ndx = 0; ndx < word_count_v; ++ndx) {
+    for (auto ndx = 0UZ; ndx < word_count_v; ++ndx) {
       const auto w = words_[ndx];
       if (w)
         return as_pos(
@@ -599,7 +599,7 @@ public:
 
   // Number of consecutive one bits starting at bit 0.
   [[nodiscard]] constexpr pos_t countr_one() const noexcept {
-    for (size_t ndx = 0; ndx < word_count_v; ++ndx) {
+    for (auto ndx = 0UZ; ndx < word_count_v; ++ndx) {
       const auto w = words_[ndx];
       if (w != all_ones_v)
         return as_pos(
@@ -651,7 +651,7 @@ public:
   // because it short-circuits and avoids a temporary.
   [[nodiscard]] constexpr bool is_subset_of(
       const fixed_bitset& other) const noexcept {
-    for (size_t ndx = 0; ndx < word_count_v; ++ndx)
+    for (auto ndx = 0UZ; ndx < word_count_v; ++ndx)
       if (words_[ndx] & ~other.words_[ndx]) return false;
     return true;
   }
@@ -668,7 +668,7 @@ public:
   // temporary.
   [[nodiscard]] constexpr bool intersects(
       const fixed_bitset& other) const noexcept {
-    for (size_t ndx = 0; ndx < word_count_v; ++ndx)
+    for (auto ndx = 0UZ; ndx < word_count_v; ++ndx)
       if (words_[ndx] & other.words_[ndx]) return true;
     return false;
   }
@@ -879,7 +879,7 @@ struct std::formatter<corvid::container::fixed_bitset<N, POS, TAG, FW>, char> {
     case mode::hex: {
       constexpr int digits{2 * sizeof(typename bitset_t::word_t)};
       const auto& words = bs.array();
-      for (size_t wi = words.size(); wi-- > 0;)
+      for (auto wi = words.size(); wi-- > 0;)
         out = std::format_to(out, "{:0{}x}", words[wi], digits);
       break;
     }

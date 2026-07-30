@@ -227,7 +227,7 @@ TEST_CASE("SameSlotMultiple", "[TimingWheel]") {
   timing_wheel wheel(600, dur{100}, T(0));
   int count = 0;
 
-  for (int i = 0; i < 5; ++i)
+  for (auto ndx = 0; ndx < 5; ++ndx)
     CHECK(wheel.schedule(
               [&] {
                 ++count;
@@ -348,7 +348,7 @@ TEST_CASE("StopAbortsTick", "[TimingWheel]") {
   int count = 0;
 
   // Schedule five callbacks in the same slot; the first one calls stop().
-  for (int i = 0; i < 5; ++i)
+  for (auto ndx = 0; ndx < 5; ++ndx)
     CHECK(wheel.schedule(
               [&] {
                 ++count;

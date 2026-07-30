@@ -45,6 +45,17 @@ things apart, and the names are at fault.
 - Loop counters follow from this: `for (int i = 0; i <= 5; ++i)`. The initial
   value is a range endpoint that pairs with the bound; `int i{}` would hide
   half the range.
+- **Ruling: a `size_t` counter drops the spelled type and suffixes the
+  endpoint, `for (auto ndx = 0UZ; ndx != n; ++ndx)`.** A for-header init is a
+  literal-initialized local like any other, so the named-constant rule below
+  governs it: the suffix already names the type, which leaves `size_t` as
+  pure repetition, and dropping it foregrounds the endpoint that pairs with
+  the bound. The counter's type still matches the bound's by construction,
+  which is what the spelled type had been there to show. This applies only
+  to a literal endpoint; a counter that starts from an expression,
+  `for (size_t ndx = start; ...)`, keeps the spelled type unless the
+  expression itself names it. Comparisons in the same header stay bare: the
+  bound converts harmlessly and `0UZ` there would be noise.
 - A single literal where the value is the point takes `=` into a class type
   the literal converts to implicitly:
   `std::string_view marker_ = "(null)";`,
@@ -281,7 +292,8 @@ things apart, and the names are at fault.
   `std::array line_breaks{CharT{'\r'}, CharT{'\n'}};`. A default
   construction composes with the class-default rule and loses its braces
   too: `hash_combiner combiner;`, not `auto combiner = hash_combiner{};`.
-  A typed literal follows as `size_t x = 5;` under the literal rule, not
+  A typed literal follows the literal rule instead: `auto x = 5UZ;` where a
+  suffix names the type, `int x = 5;` where none does, never
   `auto x = size_t{5};`. Exempt: structured bindings, whose syntax forces
   `auto`, and a variable template whose specializations vary the type
   (`enum_spec_v`), where the `auto` is the point.

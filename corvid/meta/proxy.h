@@ -1023,7 +1023,7 @@ struct ancestry_t {
 // type.
 [[nodiscard]] constexpr const void*
 find_ancestor(const ancestry_t& ancestry, const void* tag) noexcept {
-  for (size_t ndx = 0; ndx != ancestry.count; ++ndx)
+  for (auto ndx = 0UZ; ndx != ancestry.count; ++ndx)
     if (ancestry.entries[ndx].tag == tag) return ancestry.entries[ndx].table;
   return nullptr;
 }
@@ -1152,7 +1152,7 @@ using retag_slots_t = retag_slots<B, Slots>::type;
 template<typename S, typename... Ss>
 consteval size_t first_index_of_type() noexcept {
   constexpr std::array<bool, sizeof...(Ss)> matches{std::same_as<S, Ss>...};
-  for (size_t ndx = 0; ndx != matches.size(); ++ndx)
+  for (auto ndx = 0UZ; ndx != matches.size(); ++ndx)
     if (matches[ndx]) return ndx;
   return sizeof...(Ss);
 }
@@ -1497,7 +1497,7 @@ struct vtable_builder_impl<std::tuple<Ss...>, std::tuple<Bs...>, OwnName> {
     constexpr std::array<bool, sizeof...(Bs)> matches{(
         std::same_as<B, Bs> ||
         vtbuild_t<Bs>::template extends_facade<B>())...};
-    for (size_t ndx = 0; ndx != matches.size(); ++ndx)
+    for (auto ndx = 0UZ; ndx != matches.size(); ++ndx)
       if (matches[ndx]) return ndx;
     return base_count_v;
   }
@@ -1559,7 +1559,7 @@ struct vtable_builder_impl<std::tuple<Ss...>, std::tuple<Bs...>, OwnName> {
   // `both`: narrow flag set `a` by flag set `b`, elementwise.
   static consteval std::array<bool, count_v> both(std::array<bool, count_v> a,
       const std::array<bool, count_v>& b) noexcept {
-    for (size_t ndx = 0; ndx != count_v; ++ndx) a[ndx] = a[ndx] && b[ndx];
+    for (auto ndx = 0UZ; ndx != count_v; ++ndx) a[ndx] = a[ndx] && b[ndx];
     return a;
   }
 
@@ -1569,7 +1569,7 @@ struct vtable_builder_impl<std::tuple<Ss...>, std::tuple<Bs...>, OwnName> {
       const std::array<bool, count_v>& flags) noexcept {
     size_t cnt{};
     size_t at{none_v};
-    for (size_t ndx = 0; ndx != count_v; ++ndx)
+    for (auto ndx = 0UZ; ndx != count_v; ++ndx)
       if (flags[ndx]) {
         ++cnt;
         at = ndx;

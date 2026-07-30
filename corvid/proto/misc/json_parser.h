@@ -617,7 +617,7 @@ decode_string_contents(std::string_view source, std::string& out) {
   out.clear();
   out.reserve(source.size());
 
-  for (size_t pos = 0; pos < source.size();) {
+  for (auto pos = 0UZ; pos < source.size();) {
     const auto ch = source[pos++];
     if (ch == '\\') {
       if (pos >= source.size()) return false;

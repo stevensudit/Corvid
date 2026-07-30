@@ -697,7 +697,7 @@ public:
   [[nodiscard]] bool recv_sync_drain_to_eof(
       size_t max_bytes = 4096UZ * 4) const {
     std::string buf;
-    for (size_t bytes_read = 0; bytes_read < max_bytes;
+    for (auto bytes_read = 0UZ; bytes_read < max_bytes;
         bytes_read += buf.size())
     {
       const auto chunk = std::min<size_t>(4096, max_bytes - bytes_read);

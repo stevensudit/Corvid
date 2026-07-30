@@ -117,7 +117,7 @@ round_up_to_multiple(T n, U m) noexcept {
 // than `T` is a compile error rather than a zero: the index is fixed at the
 // call site, so a byte that cannot be there is a mistake in the caller, not a
 // value worth reporting.
-template<size_t Ndx = 0>
+template<size_t Ndx = 0UZ>
 [[nodiscard]] constexpr uint8_t extract_byte(UnsignedWord auto v) noexcept {
   // NOLINTNEXTLINE(bugprone-sizeof-expression): the width is the real bound.
   static_assert(Ndx < sizeof(decltype(v)),

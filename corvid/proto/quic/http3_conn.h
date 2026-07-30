@@ -905,7 +905,8 @@ private:
   fill_nv(std::span<const http3_field> fields, std::span<nghttp3_nv> nva) {
     if (fields.size() > nva.size())
       return log::error("too many fields") && false;
-    for (size_t i = 0; i < fields.size(); ++i) nva[i] = to_nv(fields[i]);
+    for (auto ndx = 0UZ; ndx < fields.size(); ++ndx)
+      nva[ndx] = to_nv(fields[ndx]);
     return true;
   }
 

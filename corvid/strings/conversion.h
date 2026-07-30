@@ -385,8 +385,8 @@ parse_hex4(std::basic_string_view<CharT> s, size_t pos) noexcept {
   // Spelled to avoid wrapping when `pos` is huge (e.g. `npos`).
   if (pos > s.size() || s.size() - pos < 4) return std::nullopt;
   uint16_t value{};
-  for (size_t i = 0; i < 4; ++i) {
-    const auto ch = s[pos + i];
+  for (auto ndx = 0UZ; ndx < 4; ++ndx) {
+    const auto ch = s[pos + ndx];
     if (!is_hex_digit(ch)) return std::nullopt;
     value = static_cast<uint16_t>((value << 4U) | hex_digit_value(ch));
   }

@@ -251,7 +251,7 @@ public:
   // those contributes no room.)
   bool recycle() noexcept {
     uint64_t recycled{};
-    for (size_t ndx = 0; ndx < retained_index_; ++ndx)
+    for (auto ndx = 0UZ; ndx < retained_index_; ++ndx)
       recycled += chunks_[ndx].size();
     std::rotate(chunks_.begin(),
         chunks_.begin() + static_cast<std::ptrdiff_t>(retained_index_),

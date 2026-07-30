@@ -353,7 +353,7 @@ TEST_CASE("Smoke", "[CircularBufferTest]") {
     v.resize(3);
     circular_buffer cb{v};
     cb.clear();
-    int i = 1;
+    auto i = 1;
     cb.push_back(i);
     CHECK(cb[0] == 1);
     cb.clear();

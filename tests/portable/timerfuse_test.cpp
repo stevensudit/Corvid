@@ -30,7 +30,7 @@ using namespace std::chrono_literals;
 // Minimal resource type for timer_fuse tests. Holds the sequencer that
 // `timer_fuse` uses for liveness checks.
 struct FakeResource {
-  std::atomic_uint64_t seq{0};
+  std::atomic_uint64_t seq;
   int value{42};
 };
 

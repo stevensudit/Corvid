@@ -1916,7 +1916,7 @@ private:
       //   3. Drop `state->loop`, triggering `~loop_t` on this thread.
       loop.reset();
 
-      for (size_t retry = 0; retry < 10 && state->loop.use_count() != 1;
+      for (auto retry = 0UZ; retry < 10 && state->loop.use_count() != 1;
           ++retry)
         std::this_thread::sleep_for(1s);
       if (state->loop.use_count() != 1)

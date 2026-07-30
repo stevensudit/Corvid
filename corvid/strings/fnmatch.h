@@ -112,7 +112,7 @@ template<CharType CharT>
   }
   if (fold) c = as_lower(c);
   bool found{};
-  for (size_t ndx{}; ndx < content.size();) {
+  for (auto ndx = 0UZ; ndx < content.size();) {
     auto lo = content[ndx];
     auto hi = lo;
     if (ndx + 2 < content.size() && content[ndx + 1] == CharT{'-'}) {

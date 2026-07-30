@@ -178,7 +178,7 @@ TEST_CASE("QueueHighWatermark", "[OwnerThreadDispatcher]") {
   // `queue_high_watermark` reflects the maximum capacity seen.
   OwnerThreadTestDispatcher dispatcher{4};
   CHECK(dispatcher.queue_high_watermark() >= 4U);
-  for (int i{}; i < 8; ++i)
+  for (auto ndx = 0; ndx < 8; ++ndx)
     CHECK(dispatcher.post([]() -> bool { return true; }));
   (void)dispatcher.execute_post_queue();
   CHECK(dispatcher.queue_high_watermark() >= 8U);

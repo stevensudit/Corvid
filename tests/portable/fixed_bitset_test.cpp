@@ -80,11 +80,11 @@ TEST_CASE("SetClearTest", "[FixedBitset]") {
   // Set/reset all 64 bits.
   if (true) {
     fixed_bitset<64> b;
-    for (size_t i = 0; i < 64; ++i) b.set(i);
+    for (auto ndx = 0UZ; ndx < 64; ++ndx) b.set(ndx);
     CHECK(b.all());
     CHECK(b.count() == 64U);
 
-    for (size_t i = 0; i < 64; ++i) b.reset(i);
+    for (auto ndx = 0UZ; ndx < 64; ++ndx) b.reset(ndx);
     CHECK(b.none());
   }
 
@@ -149,7 +149,7 @@ TEST_CASE("Subscript", "[FixedBitset]") {
     CHECK_FALSE(cb[63]);
 
     // Must agree with test() at every position.
-    for (size_t i = 0; i < 64; ++i) CHECK(cb[i] == b.test(i));
+    for (auto ndx = 0UZ; ndx < 64; ++ndx) CHECK(cb[ndx] == b.test(ndx));
   }
 
   // Non-const overload: returns a reference proxy; writes go through.
@@ -187,7 +187,7 @@ TEST_CASE("Popcount", "[FixedBitset]") {
   // all() only returns true when every bit is set.
   if (true) {
     fixed_bitset<64> b;
-    for (size_t i = 0; i < 63; ++i) b.set(i);
+    for (auto ndx = 0UZ; ndx < 63; ++ndx) b.set(ndx);
     CHECK_FALSE(b.all());
     b.set(63);
     CHECK(b.all());
@@ -342,7 +342,7 @@ TEST_CASE("WordType", "[FixedBitset]") {
     CHECK(bits[1] == 7U);
 
     // all() requires all 8 bits set.
-    for (size_t i = 0; i < 8; ++i) b.set(i);
+    for (auto ndx = 0UZ; ndx < 8; ++ndx) b.set(ndx);
     CHECK(b.all());
     b.reset(3);
     CHECK_FALSE(b.all());
@@ -401,7 +401,7 @@ TEST_CASE("WordType", "[FixedBitset]") {
     CHECK_FALSE(b.test(16));
     CHECK(b.count() == 2U);
 
-    for (size_t i = 0; i < 32; ++i) b.set(i);
+    for (auto ndx = 0UZ; ndx < 32; ++ndx) b.set(ndx);
     CHECK(b.all());
   }
 
@@ -487,7 +487,7 @@ TEST_CASE("ForcedWord", "[FixedBitset]") {
     CHECK(bits[3] == 63U);
 
     // all() requires all 64 bits set.
-    for (size_t i = 0; i < 64; ++i) b.set(i);
+    for (auto ndx = 0UZ; ndx < 64; ++ndx) b.set(ndx);
     CHECK(b.all());
   }
 
@@ -505,7 +505,7 @@ TEST_CASE("ForcedWord", "[FixedBitset]") {
     CHECK((b.array()[0] & ~uint64_t{0xFF}) == uint64_t{0});
 
     // all() requires only the 8 valid bits to be set.
-    for (size_t i = 0; i < 8; ++i) b.set(i);
+    for (auto ndx = 0UZ; ndx < 8; ++ndx) b.set(ndx);
     CHECK(b.all());
     CHECK(b.count() == 8U);
     CHECK(b.array()[0] == uint64_t{0xFF}); // padding bits remain 0
@@ -535,7 +535,7 @@ TEST_CASE("ForcedWord", "[FixedBitset]") {
 
     // countl_one.
     fb8 all_set;
-    for (size_t i = 0; i < 8; ++i) all_set.set(i);
+    for (auto ndx = 0UZ; ndx < 8; ++ndx) all_set.set(ndx);
     CHECK(all_set.countl_one() == 8U);
 
     fb8 top_two;
@@ -668,8 +668,8 @@ TEST_CASE("Reference", "[FixedBitset]") {
 
     b.array()[0] = uint64_t{0xFF}; // set bits 0-7 directly
     CHECK(b.count() == 8U);
-    for (size_t i = 0; i < 8; ++i) CHECK(b.test(i));
-    for (size_t i = 8; i < 64; ++i) CHECK_FALSE(b.test(i));
+    for (auto ndx = 0UZ; ndx < 8; ++ndx) CHECK(b.test(ndx));
+    for (auto ndx = 8UZ; ndx < 64; ++ndx) CHECK_FALSE(b.test(ndx));
   }
 
   // array() -- const overload returns a const reference to the underlying
@@ -845,7 +845,7 @@ TEST_CASE("Complement", "[FixedBitset]") {
   // ~all-ones is empty.
   if (true) {
     fixed_bitset<64> full;
-    for (size_t i = 0; i < 64; ++i) full.set(i);
+    for (auto ndx = 0UZ; ndx < 64; ++ndx) full.set(ndx);
     CHECK((~full).none());
   }
 
@@ -908,7 +908,7 @@ TEST_CASE("CountBits", "[FixedBitset]") {
   // All set -> 0 trailing zeros.
   if (true) {
     fixed_bitset<64> b;
-    for (size_t i = 0; i < 64; ++i) b.set(i);
+    for (auto ndx = 0UZ; ndx < 64; ++ndx) b.set(ndx);
     CHECK(b.countr_zero() == 0U);
   }
   // Multi-word: only bit 64 set -> 64 trailing zeros.
@@ -934,25 +934,25 @@ TEST_CASE("CountBits", "[FixedBitset]") {
   // Bits 0-4 set, bit 5 clear -> 5.
   if (true) {
     fixed_bitset<64> b;
-    for (size_t i = 0; i < 5; ++i) b.set(i);
+    for (auto ndx = 0UZ; ndx < 5; ++ndx) b.set(ndx);
     CHECK(b.countr_one() == 5U);
   }
   // All set -> 64.
   if (true) {
     fixed_bitset<64> b;
-    for (size_t i = 0; i < 64; ++i) b.set(i);
+    for (auto ndx = 0UZ; ndx < 64; ++ndx) b.set(ndx);
     CHECK(b.countr_one() == 64U);
   }
   // Multi-word: bits 0-63 set, bit 64 clear -> 64.
   if (true) {
     fixed_bitset<128> b;
-    for (size_t i = 0; i < 64; ++i) b.set(i);
+    for (auto ndx = 0UZ; ndx < 64; ++ndx) b.set(ndx);
     CHECK(b.countr_one() == 64U);
   }
   // Multi-word: bits 0-64 set -> 65.
   if (true) {
     fixed_bitset<128> b;
-    for (size_t i = 0; i <= 64; ++i) b.set(i);
+    for (auto ndx = 0UZ; ndx <= 64; ++ndx) b.set(ndx);
     CHECK(b.countr_one() == 65U);
   }
 
@@ -984,7 +984,7 @@ TEST_CASE("CountBits", "[FixedBitset]") {
   // All set -> 0 leading zeros.
   if (true) {
     fixed_bitset<64> b;
-    for (size_t i = 0; i < 64; ++i) b.set(i);
+    for (auto ndx = 0UZ; ndx < 64; ++ndx) b.set(ndx);
     CHECK(b.countl_zero() == 0U);
   }
   // Multi-word 128-bit: only bit 64 set -> 63 leading zeros.
@@ -1022,13 +1022,13 @@ TEST_CASE("CountBits", "[FixedBitset]") {
   // All set -> 64.
   if (true) {
     fixed_bitset<64> b;
-    for (size_t i = 0; i < 64; ++i) b.set(i);
+    for (auto ndx = 0UZ; ndx < 64; ++ndx) b.set(ndx);
     CHECK(b.countl_one() == 64U);
   }
   // Multi-word 128-bit: bits 64-127 set, word 0 empty -> 64.
   if (true) {
     fixed_bitset<128> b;
-    for (size_t i = 64; i < 128; ++i) b.set(i);
+    for (auto ndx = 64UZ; ndx < 128; ++ndx) b.set(ndx);
     CHECK(b.countl_one() == 64U);
   }
 
@@ -1077,9 +1077,9 @@ TEST_CASE("HasSingleBit", "[FixedBitset]") {
 
   // Each individual bit -> true.
   if (true) {
-    for (size_t i = 0; i < 64; ++i) {
+    for (auto ndx = 0UZ; ndx < 64; ++ndx) {
       fixed_bitset<64> b;
-      b.set(i);
+      b.set(ndx);
       CHECK(b.has_single_bit());
     }
   }
@@ -1108,7 +1108,7 @@ TEST_CASE("HasSingleBit", "[FixedBitset]") {
   // All set -> false.
   if (true) {
     fixed_bitset<64> b;
-    for (size_t i = 0; i < 64; ++i) b.set(i);
+    for (auto ndx = 0UZ; ndx < 64; ++ndx) b.set(ndx);
     CHECK_FALSE(b.has_single_bit());
   }
 }
@@ -1226,7 +1226,7 @@ TEST_CASE("MultiWord", "[FixedBitset]") {
   // Reset clears all words.
   if (true) {
     fixed_bitset<128> b;
-    for (size_t i = 0; i < 128; ++i) b.set(i);
+    for (auto ndx = 0UZ; ndx < 128; ++ndx) b.set(ndx);
     CHECK(b.all());
     b.reset();
     CHECK(b.none());
@@ -1235,7 +1235,7 @@ TEST_CASE("MultiWord", "[FixedBitset]") {
   // all() requires every word to be full.
   if (true) {
     fixed_bitset<128> b;
-    for (size_t i = 0; i < 128; ++i) b.set(i);
+    for (auto ndx = 0UZ; ndx < 128; ++ndx) b.set(ndx);
     CHECK(b.all());
     b.reset(64);
     CHECK_FALSE(b.all());
@@ -1302,7 +1302,7 @@ TEST_CASE("PosParam", "[FixedBitset]") {
   // countr_one returns pos_t.
   if (true) {
     bs_t b;
-    for (size_t i = 0; i < 4; ++i) b.set(slot_t{i});
+    for (auto ndx = 0UZ; ndx < 4; ++ndx) b.set(slot_t{ndx});
     CHECK(b.countr_one() == slot_t{4});
   }
 
@@ -1401,7 +1401,7 @@ TEST_CASE("At", "[FixedBitset]") {
   if (true) {
     fixed_bitset<64> b;
     b.set(10).set(50);
-    for (size_t i = 0; i < 64; ++i) CHECK(b.at(i) == b.test(i));
+    for (auto ndx = 0UZ; ndx < 64; ++ndx) CHECK(b.at(ndx) == b.test(ndx));
   }
 
   // at() throws std::out_of_range for out-of-range positions.
@@ -1508,7 +1508,7 @@ TEST_CASE("Ordering", "[FixedBitset]") {
   if (true) {
     fixed_bitset<128> w0bit, w1full;
     w0bit.set(0);
-    for (size_t i = 64; i < 128; ++i) w1full.set(i);
+    for (auto ndx = 64UZ; ndx < 128; ++ndx) w1full.set(ndx);
     // w0bit: words_ = {1, 0}; w1full: words_ = {0, ~0ull}
     // words_[0]: 1 > 0, so w0bit > w1full
     CHECK(w0bit > w1full);

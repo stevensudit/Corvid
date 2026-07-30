@@ -100,7 +100,7 @@ TEST_CASE("Http3StreamHeaders", "[http3]") {
   }
 
   SECTION("over the field cap fails the callback") {
-    for (size_t i = 0; i < http3_conn::max_submit_fields; ++i)
+    for (auto ndx = 0UZ; ndx < http3_conn::max_submit_fields; ++ndx)
       CHECK(s.on_recv_header(qpack_token::unknown, "x", "y", nv_flags::none));
     // The (cap + 1)-th field is rejected rather than accumulated.
     CHECK_FALSE(

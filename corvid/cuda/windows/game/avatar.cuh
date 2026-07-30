@@ -313,7 +313,7 @@ struct saucer_head {
     // far.
     const auto hit_max = radius * hit_cap;
     float dist{};
-    for (int step = 0; step < max_steps; ++step) {
+    for (auto step = 0; step < max_steps; ++step) {
       const auto d = sdf(eye + (dir * dist));
       if (d < fminf(hit_base + (hit_slope * dist), hit_max)) return dist;
       dist += d;

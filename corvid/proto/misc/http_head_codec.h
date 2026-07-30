@@ -432,7 +432,8 @@ public:
     if (!ids) return add_raw(field_name, std::move(field_value)) && false;
     entries_[ids->front()].name = std::string{field_name};
     entries_[ids->front()].value = std::move(field_value);
-    for (size_t i = 1; i < ids->size(); ++i) entries_[(*ids)[i]].name.clear();
+    for (auto ndx = 1UZ; ndx < ids->size(); ++ndx)
+      entries_[(*ids)[ndx]].name.clear();
     ids->resize(1);
     return true;
   }
@@ -787,7 +788,7 @@ struct request_head: head_base {
   // for failure is stored in `target`, for logging and debugging purposes.
   [[nodiscard]] bool parse(std::string_view head) {
     // Skip leading CRLF lines (RFC 9112 section 2.2).
-    for (int leading_crlfs = 0; head.starts_with(crlf); ++leading_crlfs) {
+    for (auto leading_crlfs = 0; head.starts_with(crlf); ++leading_crlfs) {
       if (leading_crlfs == 5) return fail("Too many leading CRLFs");
       head.remove_prefix(crlf.size());
     }

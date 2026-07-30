@@ -327,7 +327,7 @@ Holder(T*) -> Holder<float>;
 #pragma region DeductionTest_Experimental
 
 TEST_CASE("Experimental", "[DeductionTest]") {
-  int i = 42;
+  auto i = 42;
   Holder<int> h0{&i};
   //  Holder h1{&i};
   //  Holder h2{42.0};
@@ -410,7 +410,7 @@ TEST_CASE("Basic", "[CustomHandleTest]") {
 
 TEST_CASE("Format", "[CustomHandleTest]") {
   using handle = custom_handle<struct FormatTag, int>;
-  int i{42};
+  auto i = 42;
   handle h{&i};
   handle n;
 

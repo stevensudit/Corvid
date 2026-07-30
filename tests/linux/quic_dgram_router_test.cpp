@@ -237,8 +237,8 @@ TEST_CASE(
   // has been processed -- so a single client-side check is a sufficient
   // bidirectional witness for the test.
   bool finished = false;
-  for (int iter = 0; iter < 32 && !finished; ++iter) {
-    for (int safety = 0; safety < 32; ++safety) {
+  for (auto iter = 0; iter < 32 && !finished; ++iter) {
+    for (auto safety = 0; safety < 32; ++safety) {
       auto buf = iouring::iou_buffer::make_synthetic_write(
           {backing.data(), backing.size()});
       const auto status = client.write_pkt(buf, now_tp());
@@ -251,7 +251,7 @@ TEST_CASE(
       REQUIRE(sent == static_cast<ssize_t>(payload.size()));
     }
 
-    for (int safety = 0; safety < 32; ++safety) {
+    for (auto safety = 0; safety < 32; ++safety) {
       const auto got = ::recvfrom(client_sock.handle(), recv_buf.data(),
           recv_buf.size(), 0, nullptr, nullptr);
       if (got <= 0) break;
@@ -424,7 +424,7 @@ TEST_CASE(
   const auto server_sockaddr = server_addr.as_sockaddr();
 
   auto pump_out = [&] {
-    for (int safety = 0; safety < 32; ++safety) {
+    for (auto safety = 0; safety < 32; ++safety) {
       auto buf = iouring::iou_buffer::make_synthetic_write(
           {backing.data(), backing.size()});
       if (client.write_pkt(buf, now_tp()) != quic_status::ok) break;
@@ -437,7 +437,7 @@ TEST_CASE(
     }
   };
   auto pump_in = [&] {
-    for (int safety = 0; safety < 32; ++safety) {
+    for (auto safety = 0; safety < 32; ++safety) {
       const auto got = ::recvfrom(client_sock.handle(), recv_buf.data(),
           recv_buf.size(), 0, nullptr, nullptr);
       if (got <= 0) break;
@@ -450,7 +450,7 @@ TEST_CASE(
   // server needs its 1-RTT read keys installed before it can decrypt the
   // application CONNECTION_CLOSE below. The server runs on the loop thread, so
   // its completion lands asynchronously in `g_server_hs`.
-  for (int iter = 0; iter < 64; ++iter) {
+  for (auto iter = 0; iter < 64; ++iter) {
     pump_out();
     pump_in();
     if (client_signal.done &&

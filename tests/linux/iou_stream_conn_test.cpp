@@ -170,7 +170,8 @@ TEST_CASE("MultipleStrings", "[IouStreamConn]") {
             .lock();
     CHECK(send_conn);
 
-    for (int i = 0; i < N; ++i) CHECK(send_conn->send(std::string{msg}));
+    for (auto ndx = 0; ndx < N; ++ndx)
+      CHECK(send_conn->send(std::string{msg}));
 
     const int expected = N * static_cast<int>(msg.size());
     CHECK(WaitFor([&] { return recv_bytes >= expected; }));
@@ -544,7 +545,8 @@ TEST_CASE("MultishotRecv_MultipleMessages", "[IouStreamConn]") {
             .lock();
     CHECK(send_conn);
 
-    for (int i = 0; i < N; ++i) CHECK(send_conn->send(std::string{msg}));
+    for (auto ndx = 0; ndx < N; ++ndx)
+      CHECK(send_conn->send(std::string{msg}));
 
     CHECK(WaitFor([&] {
       return recv_bytes.load(std::memory_order::acquire) >= expected;
@@ -1168,7 +1170,7 @@ TEST_CASE("ListenAcceptMultipleClients", "[IouStreamConn]") {
 
     std::vector<std::shared_ptr<capture_conn>> clients;
     clients.reserve(N);
-    for (int i = 0; i < N; ++i) {
+    for (auto ndx = 0; ndx < N; ++ndx) {
       auto c = capture_conn::connect(*runner.loop(), listen_ep).lock();
       CHECK(c);
       clients.push_back(c);

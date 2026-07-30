@@ -112,9 +112,9 @@ public:
   [[nodiscard]] static constexpr std::optional<ipv4_addr> parse(
       std::string_view s) noexcept {
     uint32_t result{};
-    for (int i = 0; i < 4; ++i) {
+    for (auto ndx = 0; ndx < 4; ++ndx) {
       // Remove leading dot, after first octet.
-      if (i > 0) {
+      if (ndx > 0) {
         if (s.empty() || s[0] != '.') return std::nullopt;
         s.remove_prefix(1);
       }

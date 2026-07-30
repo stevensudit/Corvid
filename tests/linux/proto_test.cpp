@@ -1527,7 +1527,7 @@ TEST_CASE("SetRecvBufSize", "[StreamConn]") {
 
   auto first = std::string_view{"abcd1234"};
   REQUIRE((b.send(first) && first.empty()));
-  for (int i = 0; i < 4 && received.size() < 8; ++i)
+  for (auto ndx = 0; ndx < 4 && received.size() < 8; ++ndx)
     CHECK(loop->run_once(0) >= 0);
   CHECK(received == "abcd1234");
 
@@ -1536,7 +1536,7 @@ TEST_CASE("SetRecvBufSize", "[StreamConn]") {
 
   auto second = std::string_view{"ABCDEFGHijkl"};
   REQUIRE((b.send(second) && second.empty()));
-  for (int i = 0; i < 4 && received.size() < 20; ++i)
+  for (auto ndx = 0; ndx < 4 && received.size() < 20; ++ndx)
     CHECK(loop->run_once(0) >= 0);
   CHECK(received == "abcd1234ABCDEFGHijkl");
 }
@@ -1972,7 +1972,7 @@ TEST_CASE("CloseThenDestructStaysGraceful", "[StreamConn]") {
   std::string received;
   received.reserve(payload.size());
   std::string tmp;
-  for (int i = 0; i < 512 && !closed; ++i) {
+  for (auto ndx = 0; ndx < 512 && !closed; ++ndx) {
     CHECK(loop->run_once(0) >= 0);
     no_zero{tmp}.enlarge_to(4096);
     while (b.read(tmp) && !tmp.empty()) {
@@ -2652,7 +2652,7 @@ TEST_CASE("RoundTrip_Short", "[Base64]") {
 
 TEST_CASE("RoundTrip_AllBytes", "[Base64]") {
   std::vector<uint8_t> all_bytes(256);
-  for (size_t i{}; i < 256; ++i) all_bytes[i] = uint8_t(i);
+  for (auto ndx = 0UZ; ndx < 256; ++ndx) all_bytes[ndx] = uint8_t(ndx);
 
   const std::string encoded = base_64::encode(
       std::span<const uint8_t>{all_bytes.data(), all_bytes.size()});

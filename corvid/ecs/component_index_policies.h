@@ -212,7 +212,7 @@ private:
 // Template parameters:
 //   PAGE_SIZE - Number of slots per page. Must be a power of two.
 template<sequence::SequentialEnum ID_T,
-    typename SIZE_T = std::underlying_type_t<ID_T>, size_t PAGE_SIZE = 256>
+    typename SIZE_T = std::underlying_type_t<ID_T>, size_t PAGE_SIZE = 256UZ>
 class paged_sparse_index {
 #pragma region Types
 

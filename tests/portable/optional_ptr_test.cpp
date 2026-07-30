@@ -40,7 +40,7 @@ TEST_CASE("Construction", "[OptionalPtrTest]") {
     CHECK_FALSE(o.has_value());
   }
   if (true) {
-    int i{42};
+    auto i = 42;
     optional_ptr o{&i};
     CHECK(o.has_value());
     o.reset();
@@ -54,7 +54,7 @@ TEST_CASE("Construction", "[OptionalPtrTest]") {
     CHECK_FALSE(o.has_value());
   }
   if (true) {
-    int i{42};
+    auto i = 42;
     optional_ptr o{&i};
     // NOLINTNEXTLINE(performance-move-const-arg)
     optional_ptr qo{std::move(o)};
@@ -248,7 +248,7 @@ TEST_CASE("Dumb", "[OptionalPtrTest]") {
     CHECK_FALSE(O{nullptr});
   }
   if (true) {
-    int i;
+    int i{};
     O o(&i);
     CHECK(o);
     auto& p = (o = nullptr);
@@ -256,7 +256,7 @@ TEST_CASE("Dumb", "[OptionalPtrTest]") {
     CHECK_FALSE(p);
   }
   if (true) {
-    int i;
+    int i{};
     O a(&i);
     O b;
     CHECK(a != b);
@@ -276,7 +276,7 @@ TEST_CASE("Dumb", "[OptionalPtrTest]") {
 #pragma region Format
 
 TEST_CASE("Format", "[OptionalPtrTest]") {
-  int i{42};
+  auto i = 42;
   optional_ptr<int*> p{&i};
   optional_ptr<int*> n;
 

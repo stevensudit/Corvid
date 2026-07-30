@@ -59,7 +59,7 @@ TEST_CASE("IntToChars", "[charconv]") {
         (-9223372036854775807LL - 1)};
     const uint64_t uvals[]{0u, 1u, 255u, 256u, 65535u, 4294967295u,
         18446744073709551615ULL};
-    for (int base : bases) {
+    for (auto base : bases) {
       for (int64_t v : svals) CHECK(ours_int(v, base) == theirs_int(v, base));
       for (uint64_t v : uvals) CHECK(ours_int(v, base) == theirs_int(v, base));
     }
@@ -90,7 +90,7 @@ TEST_CASE("IntFromChars", "[charconv]") {
     const int bases[]{2, 8, 10, 16, 36};
     const int64_t svals[]{0, 1, -1, 7, -7, 42, -42, 255, 256, 1000, -1000,
         9223372036854775807LL, (-9223372036854775807LL - 1)};
-    for (int base : bases)
+    for (auto base : bases)
       for (int64_t v : svals) {
         const auto s = theirs_int(v, base);
         int64_t out{999};
@@ -164,8 +164,8 @@ TEST_CASE("WideInt", "[charconv]") {
     CHECK(ec == std::errc{});
     const std::u32string wide{b.data(), ptr};
     CHECK(wide.size() == narrow.size());
-    for (size_t i = 0; i < narrow.size(); ++i)
-      CHECK(wide[i] == static_cast<char32_t>(narrow[i]));
+    for (auto ndx = 0UZ; ndx < narrow.size(); ++ndx)
+      CHECK(wide[ndx] == static_cast<char32_t>(narrow[ndx]));
     // And parse the wide form back.
     T out{};
     auto [p2, ec2] = strings::int_from_chars(wide.data(),
@@ -174,7 +174,7 @@ TEST_CASE("WideInt", "[charconv]") {
     CHECK(p2 == wide.data() + wide.size());
     CHECK(out == value);
   };
-  for (int base : {2, 10, 16, 36}) {
+  for (auto base : {2, 10, 16, 36}) {
     widen_check(int64_t{-123456789}, base);
     widen_check(uint64_t{9876543210u}, base);
   }

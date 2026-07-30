@@ -341,7 +341,7 @@ public:
   mask_payload_copy(char* dst, std::string_view src) noexcept {
     auto* p = reinterpret_cast<uint8_t*>(dst);
     const auto* s = reinterpret_cast<const uint8_t*>(src.data());
-    size_t n = src.size();
+    auto n = src.size();
 
     // If there wasn't a mask key or it was zero, there's no XORing.
     const auto key = mask_key();
@@ -373,7 +373,7 @@ public:
     if (n != 0) {
       uint8_t mask[sizeof(uint64_t)];
       std::memcpy(mask, &keybe_64, sizeof(mask));
-      for (size_t i = 0; i < n; ++i) p[i] = s[i] ^ mask[i];
+      for (auto ndx = 0UZ; ndx < n; ++ndx) p[ndx] = s[ndx] ^ mask[ndx];
     }
     return true;
   }
@@ -865,9 +865,9 @@ public:
 private:
   [[nodiscard]] static std::string generate_client_key() {
     std::array<uint8_t, 16> raw_bytes{};
-    for (size_t i = 0; i < 4; ++i) {
+    for (auto ndx = 0UZ; ndx < 4; ++ndx) {
       const auto val = generate_random();
-      std::memcpy(&raw_bytes[i * 4], &val, 4);
+      std::memcpy(&raw_bytes[ndx * 4], &val, 4);
     }
     return base_64::encode(raw_bytes);
   }

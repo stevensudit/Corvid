@@ -1198,7 +1198,7 @@ TEST_CASE("GameOverFreezesRemainingInvaders", "[SimGame]") {
   GameDelta terminalDelta;
   GameSnapshot terminalSnapshot;
   bool reachedGameOver = false;
-  for (int i = 0; i < 2000; ++i) {
+  for (auto ndx = 0; ndx < 2000; ++ndx) {
     (void)game.next();
     terminalDelta = extractGameDelta(game);
     if (terminalDelta.phase == std::string_view{"game_over"}) {
@@ -1216,12 +1216,12 @@ TEST_CASE("GameOverFreezesRemainingInvaders", "[SimGame]") {
 
   const auto afterSnapshot = snapshot(game);
   REQUIRE(afterSnapshot.entities.size() == terminalSnapshot.entities.size());
-  for (size_t i = 0; i < terminalSnapshot.entities.size(); ++i) {
-    CHECK(afterSnapshot.entities[i].id == terminalSnapshot.entities[i].id);
-    CHECK(std::abs((afterSnapshot.entities[i].pos.x) -
-                   (terminalSnapshot.entities[i].pos.x)) <= 1e-6);
-    CHECK(std::abs((afterSnapshot.entities[i].pos.y) -
-                   (terminalSnapshot.entities[i].pos.y)) <= 1e-6);
+  for (auto ndx = 0UZ; ndx < terminalSnapshot.entities.size(); ++ndx) {
+    CHECK(afterSnapshot.entities[ndx].id == terminalSnapshot.entities[ndx].id);
+    CHECK(std::abs((afterSnapshot.entities[ndx].pos.x) -
+                   (terminalSnapshot.entities[ndx].pos.x)) <= 1e-6);
+    CHECK(std::abs((afterSnapshot.entities[ndx].pos.y) -
+                   (terminalSnapshot.entities[ndx].pos.y)) <= 1e-6);
   }
 }
 

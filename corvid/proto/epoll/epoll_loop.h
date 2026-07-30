@@ -212,7 +212,7 @@ public:
 
     // Dispatch each event to handler.
     int dispatched{};
-    for (int ndx = 0; ndx < *available; ++ndx) {
+    for (auto ndx = 0; ndx < *available; ++ndx) {
       const auto fd = events[ndx].data.fd;
 
       // Drain the internal wakeup handle and skip: it carries no user event.
@@ -619,7 +619,7 @@ private:
       (void)loop->shutdown_epoll_loop();
       loop.reset();
 
-      for (size_t retry = 0; retry < 10 && state->loop.use_count() != 1;
+      for (auto retry = 0UZ; retry < 10 && state->loop.use_count() != 1;
           ++retry)
         std::this_thread::sleep_for(1s);
       if (state->loop.use_count() != 1)

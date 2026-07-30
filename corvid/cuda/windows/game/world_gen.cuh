@@ -168,7 +168,7 @@ inline void generate_world(const density_field& field,
       height_d, field.origin, field.voxel_size);
   auto* height_src = height_a.get();
   auto* height_dst = height_b.get();
-  for (int pass = 0; pass < erode_passes; ++pass) {
+  for (auto pass = 0; pass < erode_passes; ++pass) {
     erode_kernel<<<height_grid, height_block>>>(height_src, height_dst,
         height_w, height_d, repose_slope * field.voxel_size, erode_rate);
     auto* const tmp = height_src;
@@ -228,11 +228,11 @@ __global__ void dig_tunnels_kernel(cudaSurfaceObject_t density_surface,
   // negative inside). Each bore is a segment from its opening down into the
   // ground at its own grade.
   auto carve = 1.0e30F;
-  for (int i = 0; i < count; ++i) {
-    const auto theta = static_cast<float>(i + 1) * angle_step;
+  for (auto ndx = 0; ndx < count; ++ndx) {
+    const auto theta = static_cast<float>(ndx + 1) * angle_step;
     const auto dir = (bore_dir * cosf(theta)) - (up * sinf(theta));
     const auto start =
-        row_origin.v + (row_dir * (spacing * static_cast<float>(i)));
+        row_origin.v + (row_dir * (spacing * static_cast<float>(ndx)));
     const auto t = fminf(fmaxf(dot(w - start, dir), 0.0F), bore_length);
     carve = fminf(carve, length(w - (start + (dir * t))) - radius);
   }

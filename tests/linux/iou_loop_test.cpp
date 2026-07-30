@@ -90,7 +90,7 @@ TEST_CASE("MultipleNops", "[IouLoop]") {
     std::atomic<int> count{0};
 
     bool submitted = true;
-    for (int i = 0; i < 4; ++i) {
+    for (auto ndx = 0; ndx < 4; ++ndx) {
       submitted =
           submitted &&
           loop->submit_nop([&](completion_id, iou_res, iou_cqe_flags) {
@@ -1061,7 +1061,8 @@ TEST_CASE("RecvBufferMulti", "[IouLoop]") {
     CHECK(
         WaitFor([&] { return count.load(std::memory_order::acquire) >= 3; }));
     CHECK(count.load() == 3);
-    for (int i = 0; i < 3; ++i) CHECK(payloads[i] == std::string{msgs[i]});
+    for (auto ndx = 0; ndx < 3; ++ndx)
+      CHECK(payloads[ndx] == std::string{msgs[ndx]});
   }
 }
 #pragma endregion
@@ -1117,7 +1118,8 @@ TEST_CASE("RecvMsgBufferMulti", "[IouLoop]") {
     CHECK(
         WaitFor([&] { return count.load(std::memory_order::acquire) >= 3; }));
     CHECK(count.load() == 3);
-    for (int i = 0; i < 3; ++i) CHECK(payloads[i] == std::string{msgs[i]});
+    for (auto ndx = 0; ndx < 3; ++ndx)
+      CHECK(payloads[ndx] == std::string{msgs[ndx]});
   }
 }
 #pragma endregion
@@ -1260,7 +1262,7 @@ TEST_CASE("RecvMsgBufferMultiStress", "[IouLoop]") {
 
     constexpr int send_count = 4096;
     const char payload{'x'};
-    for (int i = 0; i < send_count; ++i)
+    for (auto ndx = 0; ndx < send_count; ++ndx)
       (void)send_sock.send(&payload, sizeof(payload));
 
     CHECK(WaitFor(

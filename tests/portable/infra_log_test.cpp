@@ -220,10 +220,10 @@ TEST_CASE("loggers sharing a stream do not interleave lines", "[infra][log]") {
   const std::string bb(120, 'b');
   constexpr int n_lines = 200;
   std::thread ta{[&] {
-    for (int ndx = 0; ndx < n_lines; ++ndx) lg_a.info("{}", aa);
+    for (auto ndx = 0; ndx < n_lines; ++ndx) lg_a.info("{}", aa);
   }};
   std::thread tb{[&] {
-    for (int ndx = 0; ndx < n_lines; ++ndx) lg_b.info("{}", bb);
+    for (auto ndx = 0; ndx < n_lines; ++ndx) lg_b.info("{}", bb);
   }};
   ta.join();
   tb.join();

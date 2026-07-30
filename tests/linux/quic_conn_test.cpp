@@ -236,7 +236,7 @@ TEST_CASE("quic_conn handshake completes in-process", "[quic][conn]") {
   // buffer is re-created each iteration so its payload starts empty and the
   // post-call `payload_bytes` is exactly the produced packet.
   auto pump = [&backing](quic_conn& from, quic_conn& to) -> bool {
-    for (int safety = 0; safety < 32; ++safety) {
+    for (auto safety = 0; safety < 32; ++safety) {
       auto buf = iouring::iou_buffer::make_synthetic_write(
           {backing.data(), backing.size()});
       const auto status = from.write_pkt(buf, now_tp());
@@ -249,7 +249,7 @@ TEST_CASE("quic_conn handshake completes in-process", "[quic][conn]") {
     return false;
   };
 
-  for (int iter = 0; iter < 16; ++iter) {
+  for (auto iter = 0; iter < 16; ++iter) {
     REQUIRE(pump(client, server));
     REQUIRE(pump(server, client));
     if (client_trace.saw("handshake_completed") &&
@@ -305,7 +305,7 @@ TEST_CASE("quic_conn handler upcalls fire during handshake", "[quic][conn]") {
 
   std::array<std::byte, 1500> backing{};
   auto pump = [&backing](quic_conn& from, quic_conn& to) -> bool {
-    for (int safety = 0; safety < 32; ++safety) {
+    for (auto safety = 0; safety < 32; ++safety) {
       auto buf = iouring::iou_buffer::make_synthetic_write(
           {backing.data(), backing.size()});
       const auto status = from.write_pkt(buf, now_tp());
@@ -326,7 +326,7 @@ TEST_CASE("quic_conn handler upcalls fire during handshake", "[quic][conn]") {
   // `on_handshake_confirmed` doc on `quic_conn_handlers` -- so we only
   // assert that one on the client.
   int extra_rounds = 0;
-  for (int iter = 0; iter < 16; ++iter) {
+  for (auto iter = 0; iter < 16; ++iter) {
     REQUIRE(pump(client, server));
     REQUIRE(pump(server, client));
     if (client_trace.saw("handshake_completed") &&
@@ -405,8 +405,8 @@ TEST_CASE("quic_conn handler returning false aborts read_pkt",
   // Pump until either the handshake completes or some side errors. The
   // server is expected to error once `on_app_tx_ready` returns false.
   bool saw_error = false;
-  for (int iter = 0; iter < 16 && !saw_error; ++iter) {
-    for (int safety = 0; safety < 32; ++safety) {
+  for (auto iter = 0; iter < 16 && !saw_error; ++iter) {
+    for (auto safety = 0; safety < 32; ++safety) {
       auto buf = make_buf();
       const auto status = client.write_pkt(buf, now_tp());
       if (status != quic_status::ok) {
@@ -422,7 +422,7 @@ TEST_CASE("quic_conn handler returning false aborts read_pkt",
       }
     }
     if (saw_error) break;
-    for (int safety = 0; safety < 32; ++safety) {
+    for (auto safety = 0; safety < 32; ++safety) {
       auto buf = make_buf();
       const auto status = server.write_pkt(buf, now_tp());
       if (status != quic_status::ok) {
@@ -487,7 +487,7 @@ TEST_CASE("quic_conn request_close + write_connection_close ships a packet",
 
   std::array<std::byte, 1500> backing{};
   auto pump = [&backing](quic_conn& from, quic_conn& to) -> bool {
-    for (int safety = 0; safety < 32; ++safety) {
+    for (auto safety = 0; safety < 32; ++safety) {
       auto buf = iouring::iou_buffer::make_synthetic_write(
           {backing.data(), backing.size()});
       const auto status = from.write_pkt(buf, now_tp());
@@ -500,7 +500,7 @@ TEST_CASE("quic_conn request_close + write_connection_close ships a packet",
     return false;
   };
 
-  for (int iter = 0; iter < 16; ++iter) {
+  for (auto iter = 0; iter < 16; ++iter) {
     REQUIRE(pump(client, server));
     REQUIRE(pump(server, client));
     if (client_trace.saw("handshake_completed") &&
@@ -594,7 +594,7 @@ TEST_CASE("quic_conn honors a configured idle timeout", "[quic][conn]") {
 
   std::array<std::byte, 1500> backing{};
   auto pump = [&backing](quic_conn& from, quic_conn& to) -> bool {
-    for (int safety = 0; safety < 32; ++safety) {
+    for (auto safety = 0; safety < 32; ++safety) {
       auto buf = iouring::iou_buffer::make_synthetic_write(
           {backing.data(), backing.size()});
       if (from.write_pkt(buf, now_tp()) != quic_status::ok) return false;
@@ -605,7 +605,7 @@ TEST_CASE("quic_conn honors a configured idle timeout", "[quic][conn]") {
     return false;
   };
 
-  for (int iter = 0; iter < 16; ++iter) {
+  for (auto iter = 0; iter < 16; ++iter) {
     REQUIRE(pump(client, server));
     REQUIRE(pump(server, client));
     if (client_trace.saw("handshake_completed") &&
@@ -669,7 +669,7 @@ TEST_CASE(
 
   std::array<std::byte, 1500> backing{};
   auto pump = [&backing](quic_conn& from, quic_conn& to) -> bool {
-    for (int safety = 0; safety < 32; ++safety) {
+    for (auto safety = 0; safety < 32; ++safety) {
       auto buf = iouring::iou_buffer::make_synthetic_write(
           {backing.data(), backing.size()});
       const auto status = from.write_pkt(buf, now_tp());
@@ -682,7 +682,7 @@ TEST_CASE(
     return false;
   };
 
-  for (int iter = 0; iter < 16; ++iter) {
+  for (auto iter = 0; iter < 16; ++iter) {
     REQUIRE(pump(client, server));
     REQUIRE(pump(server, client));
     if (client_trace.saw("handshake_completed") &&
@@ -696,7 +696,7 @@ TEST_CASE(
   // etc.) so the writev_stream call below exercises the stream-data path
   // exclusively; if non-stream frames are still queued, ngtcp2 emits them
   // and returns `ok` instead of `write_more`.
-  for (int i = 0; i < 4; ++i) {
+  for (auto ndx = 0; ndx < 4; ++ndx) {
     REQUIRE(pump(client, server));
     REQUIRE(pump(server, client));
   }

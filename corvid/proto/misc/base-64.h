@@ -118,7 +118,7 @@ struct base_64 {
     out.reserve(((encoded.size() / 4) * 3) - pad);
 
     const size_t groups{encoded.size() / 4};
-    for (size_t g = 0; g < groups; ++g) {
+    for (auto g = 0UZ; g < groups; ++g) {
       const size_t pos{g * 4};
       const auto is_last = (g + 1 == groups);
 

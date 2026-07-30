@@ -369,8 +369,8 @@ cone_sample(const render_config::head_params& hp,
   // reads about as crisp as the reticle it sits under.
   const auto ground_band = fmaxf(0.15F * full_tip_r, 0.02F);
   vec3 accum;
-  for (int i = 0; i < steps; ++i) {
-    const auto t = t_lo + ((static_cast<float>(i) + jitter) * dt);
+  for (auto step = 0; step < steps; ++step) {
+    const auto t = t_lo + ((static_cast<float>(step) + jitter) * dt);
     const auto sp = eye + (ray_dir * t);
     const auto rel = sp - apex;
     const auto s = dot(rel, axis);
@@ -517,8 +517,8 @@ cone_sample(const render_config::head_params& hp,
   const auto ground_band = fmaxf(0.15F * tip_r, 0.02F);
   const auto f = 0.4F * static_cast<float>(fl.air_speckle_freq);
   vec3 accum;
-  for (int i = 0; i < steps; ++i) {
-    const auto t = t_lo + ((static_cast<float>(i) + jitter) * dt);
+  for (auto step = 0; step < steps; ++step) {
+    const auto t = t_lo + ((static_cast<float>(step) + jitter) * dt);
     const auto sp = eye + (ray_dir * t);
     const auto rel = sp - apex;
     const auto s = dot(rel, axis);
@@ -1060,10 +1060,11 @@ shade_scene_ray(const density_field& field, cudaTextureObject_t color,
   const auto want = static_cast<int>(lroundf(sweep / aa));
   const auto taps = (want < 1) ? 1 : ((want > max_taps) ? max_taps : want);
   float line{};
-  for (int i = 0; i < taps; ++i) {
+  for (auto step = 0; step < taps; ++step) {
     const auto s =
         sweep *
-        (((static_cast<float>(i) + 0.5F) / static_cast<float>(taps)) - 0.5F);
+        (((static_cast<float>(step) + 0.5F) / static_cast<float>(taps)) -
+            0.5F);
     const auto edge = hex_grid_edge(uv.v * scale, (uv.u + s) * scale) / scale;
     line += __saturatef((cfg.ball.hex_line - edge) / aa);
   }

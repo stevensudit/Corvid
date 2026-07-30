@@ -360,7 +360,7 @@ public:
   // Count the number of fields with the given name or token.
   [[nodiscard]] size_t count(header_name_and_enum key) const noexcept {
     size_t count{};
-    for (size_t ndx = find_next(key, 0); ndx != npos;
+    for (auto ndx = find_next(key, 0); ndx != npos;
         ndx = find_next(key, ndx + 1))
       ++count;
     return count;
@@ -371,11 +371,11 @@ public:
   [[nodiscard]] size_t
   find_next(header_name_and_enum key, size_t start) const noexcept {
     if (auto token = key.as_enum(); token != qpack_token::unknown) {
-      for (size_t ndx = start; ndx < fields_.size(); ++ndx)
+      for (auto ndx = start; ndx < fields_.size(); ++ndx)
         if (fields_[ndx].token == token) return ndx;
     } else {
       const auto name = std::string_view{key};
-      for (size_t ndx = start; ndx < fields_.size(); ++ndx)
+      for (auto ndx = start; ndx < fields_.size(); ++ndx)
         if (fields_[ndx].name == name) return ndx;
     }
     return npos;

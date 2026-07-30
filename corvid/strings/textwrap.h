@@ -358,7 +358,7 @@ template<CharType CharT>
 template<CharType CharT>
 [[nodiscard]] constexpr auto chunk_runs(std::basic_string_view<CharT> tv) {
   std::vector<std::basic_string_view<CharT>> chunks;
-  for (size_t pos = 0; pos < tv.size();) {
+  for (auto pos = 0UZ; pos < tv.size();) {
     const auto ws = is_space(tv[pos]);
     auto end = pos + 1;
     while (end < tv.size() && is_space(tv[end]) == ws) ++end;

@@ -371,8 +371,8 @@ requires std::same_as<char_type_of_t<A>, char_type_of_t<B>>
   const auto lhs = as_view(a);
   const auto rhs = as_view(b);
   if (lhs.size() != rhs.size()) return false;
-  for (size_t i = 0; i < lhs.size(); ++i)
-    if (as_lower(lhs[i]) != as_lower(rhs[i])) return false;
+  for (auto ndx = 0UZ; ndx < lhs.size(); ++ndx)
+    if (as_lower(lhs[ndx]) != as_lower(rhs[ndx])) return false;
   return true;
 }
 
@@ -386,9 +386,9 @@ ci_compare(const A& a, const B& b) noexcept {
   const auto lhs = as_view(a);
   const auto rhs = as_view(b);
   const auto n = std::min(lhs.size(), rhs.size());
-  for (size_t i = 0; i < n; ++i) {
-    const auto l = as_lower(lhs[i]);
-    const auto r = as_lower(rhs[i]);
+  for (auto ndx = 0UZ; ndx < n; ++ndx) {
+    const auto l = as_lower(lhs[ndx]);
+    const auto r = as_lower(rhs[ndx]);
     if (l != r)
       return (l < r) ? std::weak_ordering::less : std::weak_ordering::greater;
   }

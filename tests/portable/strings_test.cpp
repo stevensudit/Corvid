@@ -171,8 +171,8 @@ TEST_CASE("WhitespaceDelim", "[StringUtilsTest]") {
   if (true) {
     CHECK(strings::is_space(strings::whitespace));
     CHECK(strings::whitespace.size() == 6U);
-    for (int i = 0; i < 256; ++i) {
-      const auto c = static_cast<char>(i);
+    for (auto ndx = 0; ndx < 256; ++ndx) {
+      const auto c = static_cast<char>(ndx);
       CHECK(strings::is_space(c) ==
             (strings::whitespace.find(c) != strings::npos));
     }
@@ -1718,8 +1718,8 @@ TEST_CASE("Trim", "[StringUtilsTest]") {
 
     vsv = strings::split(w, ",");
     std::map<int, std::string> mss;
-    for (size_t i = 0; i < vsv.size(); ++i) {
-      mss[static_cast<int>(i)] = vsv[i];
+    for (auto ndx = 0UZ; ndx < vsv.size(); ++ndx) {
+      mss[static_cast<int>(ndx)] = vsv[ndx];
     }
     CHECK(mss[0] == " 1");
     strings::trim(mss);

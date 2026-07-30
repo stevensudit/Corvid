@@ -109,8 +109,8 @@ TEST_CASE("BufDataOffsets", "[IouProvidedBufPool]") {
     REQUIRE(pool);
     const std::byte* base = pool->buf_data(0);
     REQUIRE(base != nullptr);
-    for (size_t i = 1; i < pool->buf_count(); ++i) {
-      CHECK(pool->buf_data(i) == (base + (i * pool->buf_size())));
+    for (auto ndx = 1UZ; ndx < pool->buf_count(); ++ndx) {
+      CHECK(pool->buf_data(ndx) == (base + (ndx * pool->buf_size())));
     }
   }
 }

@@ -607,18 +607,18 @@ TEST_CASE("CoalesceChain", "[IouBufPool]") {
     constexpr auto TOTAL_SMALLS = 512UZ;
     constexpr auto TOTAL_LARGE = 32UZ;
     std::array<iou_buf_pool::buffer, TOTAL_SMALLS> bufs;
-    for (size_t i = 0; i < TOTAL_SMALLS; ++i) {
-      bufs[i] = pool->borrow_writer(block_size::kb004);
-      REQUIRE(bufs[i]);
+    for (auto ndx = 0UZ; ndx < TOTAL_SMALLS; ++ndx) {
+      bufs[ndx] = pool->borrow_writer(block_size::kb004);
+      REQUIRE(bufs[ndx]);
     }
     CHECK(pool->available() == 0ULL);
-    for (size_t i = 0; i < TOTAL_SMALLS; ++i) bufs[i].reset();
+    for (auto ndx = 0UZ; ndx < TOTAL_SMALLS; ++ndx) bufs[ndx].reset();
     CHECK(pool->available() == (2ULL * 1024 * 1024));
     // All 32 large blocks must now be individually allocatable.
     std::array<iou_buf_pool::buffer, TOTAL_LARGE> large_bufs;
-    for (size_t i = 0; i < TOTAL_LARGE; ++i) {
-      large_bufs[i] = pool->borrow_writer(block_size::kb064);
-      REQUIRE(large_bufs[i]);
+    for (auto ndx = 0UZ; ndx < TOTAL_LARGE; ++ndx) {
+      large_bufs[ndx] = pool->borrow_writer(block_size::kb064);
+      REQUIRE(large_bufs[ndx]);
     }
     auto extra = pool->borrow_writer(block_size::kb064);
     CHECK_FALSE(extra);
@@ -636,10 +636,10 @@ TEST_CASE("UdpTierAlloc", "[IouBufPool]") {
     auto pool = iou_buf_pool::create();
     constexpr auto TOTAL = 2 * 1024UZ * 1024UZ / (2 * 1024UZ);
     std::array<iou_buf_pool::buffer, TOTAL> bufs;
-    for (size_t i = 0; i < TOTAL; ++i) {
-      bufs[i] = pool->borrow_writer(block_size::kb002);
-      REQUIRE(bufs[i]);
-      CHECK(bufs[i].size() == (2ULL * 1024));
+    for (auto ndx = 0UZ; ndx < TOTAL; ++ndx) {
+      bufs[ndx] = pool->borrow_writer(block_size::kb002);
+      REQUIRE(bufs[ndx]);
+      CHECK(bufs[ndx].size() == (2ULL * 1024));
     }
     CHECK(pool->available() == 0ULL);
     auto extra = pool->borrow_writer(block_size::kb002);

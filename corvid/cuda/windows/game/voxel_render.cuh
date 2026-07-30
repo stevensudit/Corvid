@@ -285,7 +285,7 @@ geodesic_grid_edge(vec3 dir, int freq, vec3 eye_dir, vec3 eye_tan) {
 
   int best{};
   auto best_dot = -3.0F;
-  for (int f = 0; f < 20; ++f) {
+  for (auto f = 0; f < 20; ++f) {
     const auto sum = vtx[face[f][0]] + vtx[face[f][1]] + vtx[face[f][2]];
     const auto d = dot(dir, sum);
     if (d > best_dot) {
@@ -327,7 +327,7 @@ geodesic_grid_edge(vec3 dir, int freq, vec3 eye_dir, vec3 eye_tan) {
   const int off[2][3][3]{{{1, 0, 0}, {0, 1, 0}, {0, 0, 1}},
       {{0, 1, 1}, {1, 0, 1}, {1, 1, 0}}};
   float t[3]{};
-  for (int ndx = 0; ndx < 3; ++ndx) {
+  for (auto ndx = 0; ndx < 3; ++ndx) {
     const auto corner =
         (a * (ga + static_cast<float>(off[sub][ndx][0]))) +
         (b * (gb + static_cast<float>(off[sub][ndx][1]))) +

@@ -146,12 +146,12 @@ struct density_field {
 
     auto prev = enter;
     auto dist = enter;
-    for (int step = 0; step < max_steps; ++step) {
+    for (auto step = 0; step < max_steps; ++step) {
       const auto density = sample_density(eye + (dir * dist));
       if (density >= 0.0F) {
         auto lo = prev;
         auto hi = dist;
-        for (int refine = 0; refine < refine_steps; ++refine) {
+        for (auto refine = 0; refine < refine_steps; ++refine) {
           const auto mid = 0.5F * (lo + hi);
           if (sample_density(eye + (dir * mid)) >= 0.0F)
             hi = mid;

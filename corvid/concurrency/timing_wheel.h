@@ -241,7 +241,7 @@ private:
   slots_t slots_;
 
   const duration_t tick_interval_;
-  size_t current_slot_{0};
+  size_t current_slot_{};
   time_point_t last_tick_;
   tombstone stopped_;
 

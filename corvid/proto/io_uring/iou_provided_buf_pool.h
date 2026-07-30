@@ -176,9 +176,10 @@ public:
     // and fill them on `IOSQE_BUFFER_SELECT` SQEs, and replenish them when we
     // return them in `return_buffer`.
     const auto mask = static_cast<int>(buf_count_) - 1;
-    for (size_t i = 0; i < buf_count_; ++i) {
-      buf_ring_.add(base_ + (i * buf_size_), static_cast<unsigned>(buf_size_),
-          static_cast<unsigned short>(i), mask, static_cast<int>(i));
+    for (auto ndx = 0UZ; ndx < buf_count_; ++ndx) {
+      buf_ring_.add(base_ + (ndx * buf_size_),
+          static_cast<unsigned>(buf_size_), static_cast<unsigned short>(ndx),
+          mask, static_cast<int>(ndx));
     }
     buf_ring_.advance(static_cast<int>(buf_count_));
     free_count_ = buf_count_;

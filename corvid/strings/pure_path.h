@@ -160,7 +160,7 @@ match_component(component_view name, component_view pat, bool fold) {
     // A relative pattern matches only real components, never an anchor.
     return false;
   }
-  for (size_t ndx{}; ndx < pats.size(); ++ndx)
+  for (auto ndx = 0UZ; ndx < pats.size(); ++ndx)
     if (!match_component(parts[parts.size() - 1 - ndx],
             pats[pats.size() - 1 - ndx], fold))
       return false;
@@ -189,7 +189,7 @@ match_component(component_view name, component_view pat, bool fold) {
     if (pat_anchors != path_anchors ||
         pattern.has_root_name() != path.has_root_name())
       return false;
-    for (size_t ndx{}; ndx < pat_anchors; ++ndx)
+    for (auto ndx = 0UZ; ndx < pat_anchors; ++ndx)
       if (!match_component(parts[ndx], pats[ndx], fold)) return false;
     return do_walk(std::span{parts}.subspan(pat_anchors),
         std::span{pats}.subspan(pat_anchors), fold);

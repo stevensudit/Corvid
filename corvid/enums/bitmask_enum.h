@@ -489,7 +489,7 @@ constexpr auto& do_value_append(AppendTarget auto& target, E v,
 // the bits or the values. Use `make_bitmask_enum_spec` or
 // `make_bitmask_enum_names_spec`, respectively, to construct.
 template<ScopedEnum E, wrapclip bitclip = wrapclip{}, E validbits = E{},
-    size_t N = 0>
+    size_t N = 0UZ>
 struct bitmask_enum_names_spec
     : public bitmask_enum_spec<E,
           static_cast<std::make_unsigned_t<std::underlying_type_t<E>>>(
@@ -592,8 +592,8 @@ consteval uint64_t calc_valid_bits_from_value_names() {
   static_assert(name_array.size() <= 64,
       "value names list exceeds maximum of 64 values");
   uint64_t valid_bits{};
-  for (size_t i = 1; i < name_array.size(); ++i) {
-    if (!name_array[i].empty()) valid_bits |= i;
+  for (auto ndx = 1UZ; ndx < name_array.size(); ++ndx) {
+    if (!name_array[ndx].empty()) valid_bits |= ndx;
   }
   return valid_bits;
 }

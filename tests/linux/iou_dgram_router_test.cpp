@@ -556,7 +556,8 @@ TEST_CASE("Multishot", "[IouDgramRouter]") {
     CHECK(routerB->add_session(destA, sessB));
 
     constexpr int total = 16;
-    for (int i = 0; i < total; ++i) CHECK(sessB->send_to(destA, "burst"));
+    for (auto ndx = 0; ndx < total; ++ndx)
+      CHECK(sessB->send_to(destA, "burst"));
 
     CHECK(WaitFor(
         [&] { return delivered.load(std::memory_order::acquire) >= total; },
