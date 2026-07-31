@@ -15,6 +15,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#include <concepts>
 #include <cstdint>
 #include <string_view>
 
@@ -357,6 +358,16 @@ TEST_CASE("Iterate", "[CircularBufferTest]") {
     CHECK(cb[0] == 4);
     circular_buffer<int>::iterator b2 = b;
     CHECK(b2 == b);
+
+    // A mutable iterator converts to a const one, but not the reverse.
+    static_assert(std::convertible_to<circular_buffer<int>::iterator,
+        circular_buffer<int>::const_iterator>);
+    static_assert(!std::convertible_to<circular_buffer<int>::const_iterator,
+        circular_buffer<int>::iterator>);
+    circular_buffer<int>::const_iterator cit = b;
+    CHECK(*cit == 4);
+    CHECK(cit == b);
+    CHECK(b != cb.cend());
   }
   if (true) {
     std::vector<int> v{4, 2, 3};

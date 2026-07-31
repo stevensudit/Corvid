@@ -16,10 +16,10 @@
 // limitations under the License.
 #pragma once
 #include <array>
+#include <cstddef>
 #include <span>
 #include <vector>
 #include <type_traits>
-#include <limits>
 #include <cassert>
 #include <stdexcept>
 #include <utility>
@@ -36,10 +36,7 @@ namespace corvid { inline namespace adapters {
 // empty range) is legal, if not very useful: it is both empty and full at
 // once, so the `try_` forms fail cleanly, while the plain push operations,
 // which must return a reference, have nonzero capacity as a precondition.
-//
-// As an optimization, you may specialize on a SZ smaller than size_t, such as
-// uint32_t, if you know that your buffer will never be larger than that.
-template<typename T, typename SZ = size_t>
+template<typename T>
 class circular_buffer final {
 public:
 #pragma region Types
@@ -49,8 +46,7 @@ public:
   using const_reference = const T&;
   using pointer = T*;
   using const_pointer = const T*;
-  using size_type = SZ;
-  static_assert(std::is_unsigned_v<size_type>);
+  using size_type = size_t;
 
 #pragma endregion
 #pragma region Construction
@@ -72,16 +68,13 @@ public:
   template<typename U>
   explicit circular_buffer(U&& u) noexcept
   requires std::convertible_to<U, std::span<T>>
-      : range_(std::forward<U>(u)), back_{last_index()} {
-    assert(range_.size() <= std::numeric_limits<size_type>::max());
-  }
+      : range_(std::forward<U>(u)), back_{last_index()} {}
 
   // Construct, with an initial size, from container.
   template<typename U>
   explicit circular_buffer(U&& u, size_type size) noexcept
       : range_(std::forward<U>(u)), back_{size ? size - 1 : last_index()},
         size_{size} {
-    assert(range_.size() <= std::numeric_limits<size_type>::max());
     assert(size <= capacity());
   }
 
@@ -255,8 +248,6 @@ private:
     using raw_value_type = circular_buffer::value_type;
     using value_type = std::conditional_t<std::is_const_v<CB>,
         const raw_value_type, raw_value_type>;
-    using const_type = std::conditional_t<std::is_const_v<CB>,
-        const circular_buffer, circular_buffer>;
 
     using difference_type = std::ptrdiff_t;
     using pointer = value_type*;
@@ -265,6 +256,12 @@ private:
     iterator_t() noexcept = default;
     iterator_t(CB& buf, size_type index) noexcept
         : buf_{&buf}, index_{index} {}
+
+    // Convert a mutable iterator into a const one.
+    template<typename MutableCB>
+    iterator_t(const iterator_t<MutableCB>& other) noexcept
+    requires(std::is_const_v<CB> && !std::is_const_v<MutableCB>)
+        : buf_{other.buf_}, index_{other.index_} {}
 
     [[nodiscard]] reference operator*() const { return buf_->at(index_); }
     [[nodiscard]] pointer operator->() const { return &(buf_->at(index_)); }
@@ -292,6 +289,10 @@ private:
     }
 
   private:
+    // Give the converting constructor access across specializations.
+    template<typename>
+    friend class iterator_t;
+
     CB* buf_{};
     size_type index_{};
   };
@@ -401,20 +402,20 @@ private:
 template<typename T>
 circular_buffer(std::span<T>&) -> circular_buffer<T>;
 
-template<typename T, typename SZ>
-circular_buffer(std::span<T>&, SZ) -> circular_buffer<T>;
+template<typename T>
+circular_buffer(std::span<T>&, size_t) -> circular_buffer<T>;
 
 template<typename T>
 circular_buffer(std::vector<T>&) -> circular_buffer<T>;
 
-template<typename T, typename SZ>
-circular_buffer(std::vector<T>&, SZ) -> circular_buffer<T>;
+template<typename T>
+circular_buffer(std::vector<T>&, size_t) -> circular_buffer<T>;
 
 template<typename T, size_t N>
 circular_buffer(std::array<T, N>&) -> circular_buffer<T>;
 
-template<typename T, size_t N, typename SZ>
-circular_buffer(std::array<T, N>&, SZ) -> circular_buffer<T>;
+template<typename T, size_t N>
+circular_buffer(std::array<T, N>&, size_t) -> circular_buffer<T>;
 
 #pragma endregion
 
