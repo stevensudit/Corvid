@@ -29,6 +29,18 @@ static_assert(std::is_same_v<object_pool<int, 256>::index_t, uint16_t>,
 static_assert(std::is_same_v<object_pool<int, 65536>::index_t, uint32_t>,
     "Pools at 65536 entries should widen to uint32_t indices");
 
+// The post-release generation always lands in [1, 0x7FFFFFFF]: the borrow bit
+// is cleared and the increment at the top of the range wraps back to 1
+// (skipping the invalid 0) instead of spilling into the borrow bit.
+static_assert(container::details::calc_next_gen(0x80000001U) == 2U,
+    "Release should clear the borrow bit and increment the generation");
+static_assert(container::details::calc_next_gen(0xFFFFFFFEU) == 0x7FFFFFFFU,
+    "The generation just below the top should not wrap");
+static_assert(container::details::calc_next_gen(0xFFFFFFFFU) == 1U,
+    "The top generation should wrap to 1, not into the borrow bit");
+static_assert(container::details::calc_next_gen(0x7FFFFFFFU) == 1U,
+    "Wrapping should not require the borrow bit to be set");
+
 } // namespace
 
 // NOLINTBEGIN(readability-function-cognitive-complexity)

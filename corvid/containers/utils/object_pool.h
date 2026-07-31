@@ -46,6 +46,21 @@ struct no_op_cb {
 template<typename FN>
 concept IsNoOpCb = std::is_same_v<no_op_cb, std::remove_cvref_t<FN>>;
 
+namespace details {
+
+// Calculate the generation value that follows `old_gen` on release.
+//
+// Clears the borrow bit (the high bit) and increments the generation, wrapping
+// back to 1 when the increment would otherwise spill into the borrow bit. The
+// result is always in [1, 0x7FFFFFFF]; 0 is reserved as invalid.
+[[nodiscard]] constexpr uint32_t calc_next_gen(uint32_t old_gen) noexcept {
+  auto new_gen = (old_gen & 0x7FFFFFFF) + 1;
+  if (new_gen == 0x80000000) new_gen = 1;
+  return new_gen;
+}
+
+} // namespace details
+
 #pragma region object_pool
 
 // Thread-safe fixed-capacity object pool with LIFO slot reuse.
@@ -514,17 +529,16 @@ private:
     return true;
   }
 
-  // Increment atomically, and wrapping past 0 (which is invalid). Also clear
-  // the high bit to indicate that it's not borrowed anymore. The
-  // `std::atomic` is used to ensure that a `token` can't observe a torn
-  // generation value or mistakenly borrow a slot being returned.
+  // Increment atomically, wrapping per `details::calc_next_gen`. Also clear
+  // the high bit to indicate that it's not borrowed anymore. The `std::atomic`
+  // is used to ensure that a `token` can't observe a torn generation value or
+  // mistakenly borrow a slot being returned.
   [[nodiscard]] bool release_slot_gen(index_t ndx) {
     if constexpr (is_versioned_v) {
       auto& gen = gen_array_[ndx];
       auto old_gen = gen.load(std::memory_order::relaxed);
       if (!(old_gen & 0x80000000)) return false;
-      auto new_gen = (old_gen & 0x7FFFFFFF) + 1;
-      if (new_gen == 0) new_gen = 1;
+      const auto new_gen = details::calc_next_gen(old_gen);
       return gen.compare_exchange_strong(old_gen, new_gen,
           std::memory_order::release, std::memory_order::relaxed);
     }
