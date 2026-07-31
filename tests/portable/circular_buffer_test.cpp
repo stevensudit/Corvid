@@ -244,6 +244,48 @@ TEST_CASE("At", "[CircularBufferTest]") {
 }
 #pragma endregion
 
+#pragma region ZeroCapacity
+
+TEST_CASE("ZeroCapacity", "[CircularBufferTest]") {
+  // A zero-capacity buffer, however obtained, is both empty and full at
+  // once: the `try_` forms fail cleanly and `at` throws.
+  auto probe = [](circular_buffer<int>& cb) {
+    CHECK(cb.capacity() == 0U);
+    CHECK(cb.empty());
+    CHECK(cb.full());
+    CHECK_FALSE(cb.try_push_back(1));
+    CHECK_FALSE(cb.try_push_front(1));
+    CHECK_FALSE(cb.try_emplace_back(1));
+    CHECK_THROWS_AS((void)cb.at(0), std::out_of_range);
+  };
+
+  // Default-constructed.
+  if (true) {
+    circular_buffer<int> cb;
+    probe(cb);
+  }
+
+  // Wrapping an empty container.
+  if (true) {
+    std::vector<int> v;
+    circular_buffer cb{v};
+    probe(cb);
+  }
+
+  // Moved-from.
+  if (true) {
+    std::vector<int> v;
+    v.resize(3);
+    circular_buffer cb{v};
+    cb.push_back(1);
+    auto cb2 = std::move(cb);
+    // NOLINTNEXTLINE(bugprone-use-after-move,clang-analyzer-cplusplus.Move)
+    probe(cb);
+    CHECK(cb2.size() == 1U);
+  }
+}
+#pragma endregion
+
 #pragma region PushPop
 
 TEST_CASE("PushPop", "[CircularBufferTest]") {

@@ -32,6 +32,11 @@ namespace corvid { inline namespace adapters {
 // access to the full range, with pushing to back and front, popping from back
 // and front, and random access. Does not own the underlying container.
 //
+// A zero-capacity buffer (default-constructed, moved-from, or wrapping an
+// empty range) is legal, if not very useful: it is both empty and full at
+// once, so the `try_` forms fail cleanly, while the plain push operations,
+// which must return a reference, have nonzero capacity as a precondition.
+//
 // As an optimization, you may specialize on a SZ smaller than size_t, such as
 // uint32_t, if you know that your buffer will never be larger than that.
 template<typename T, typename SZ = size_t>
@@ -68,7 +73,6 @@ public:
   explicit circular_buffer(U&& u) noexcept
   requires std::convertible_to<U, std::span<T>>
       : range_(std::forward<U>(u)), back_{last_index()} {
-    assert(range_.size() > 0);
     assert(range_.size() <= std::numeric_limits<size_type>::max());
   }
 
@@ -77,7 +81,6 @@ public:
   explicit circular_buffer(U&& u, size_type size) noexcept
       : range_(std::forward<U>(u)), back_{size ? size - 1 : last_index()},
         size_{size} {
-    assert(range_.size() > 0);
     assert(range_.size() <= std::numeric_limits<size_type>::max());
     assert(size <= capacity());
   }
@@ -92,7 +95,8 @@ public:
   }
 
   // Push the value to the front of the buffer, overwriting the backmost
-  // value if full. Returns reference to the new element.
+  // value if full. Returns reference to the new element, so nonzero capacity
+  // is a precondition; a zero-capacity buffer supports only the `try_` forms.
   auto& push_front(const value_type& value) noexcept(
       noexcept(*data() = value)) {
     adjust_size_for_front();
@@ -133,7 +137,8 @@ public:
   }
 
   // Push the value to the back of the buffer, overwriting the frontmost
-  // value if full. Returns reference to the new element.
+  // value if full. Returns reference to the new element, so nonzero capacity
+  // is a precondition; a zero-capacity buffer supports only the `try_` forms.
   auto& push_back(const value_type& value) noexcept(
       noexcept(*data() = value)) {
     adjust_size_for_back();
