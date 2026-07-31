@@ -936,6 +936,13 @@ TEST_CASE("ExtractEnum", "[BitMaskTest]") {
 }
 #pragma endregion
 
+// Valid bits with a hole (0b101): legal to register and use, but
+// `range_length` rejects it at compile time.
+enum class holey : std::uint8_t {};
+consteval auto corvid_enum_spec(holey*) {
+  return make_bitmask_enum_spec<holey, "red,-,blue">();
+}
+
 // Signed underlying type with the high bit valid. The mask is zero-extended
 // through the unsigned underlying type at registration, so it stays clean even
 // though `max_value` is negative.
@@ -951,6 +958,18 @@ consteval auto corvid_enum_spec(i8_all*) {
 }
 
 #pragma region SignedHighBit
+
+TEST_CASE("RangeLengthGuard", "[BitMaskTest]") {
+  if (true) {
+    // The holey mask registers and operates normally.
+    static_assert(valid_bits_v<holey> == 0b101);
+    CHECK(enum_as_string(holey{5}) == "red + blue");
+
+    // The next line correctly fails because holey's valid bits are not
+    // contiguous, so neither meaning of range_length is served.
+    // * range_length<holey>();
+  }
+}
 
 TEST_CASE("SignedHighBit", "[BitMaskTest]") {
   if (true) {

@@ -278,16 +278,21 @@ template<std::integral T>
 #pragma endregion
 #pragma region range_length
 
-// Length of range.
+// Length of range: the number of distinct valid values, which is also the
+// iteration span over `[0, max_value]`.
 //
-// This is the number of distinct values that are valid, if and only if valid
-// bits are contiguous.
+// Only meaningful when the valid bits are contiguous from the lsb, so a mask
+// with holes is rejected at compile time: for such a mask the two honest
+// answers (the valid-value count and the iteration span) diverge, and no
+// caller has needed either.
 //
 // Note: A mask spanning all 64 bits wraps the count to 0, because the true
 // count (2^64) does not fit. This is confusing but technically correct, which
 // is the best kind of correct.
 template<BitmaskEnum E>
 [[nodiscard]] constexpr auto range_length() noexcept {
+  static_assert((valid_bits_v<E> & (valid_bits_v<E> + 1)) == 0,
+      "range_length requires contiguous valid bits");
   return static_cast<size_t>(valid_bits_v<E>) + 1;
 }
 
