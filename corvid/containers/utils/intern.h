@@ -335,6 +335,14 @@ public:
   // When full, `intern` fails.
   [[nodiscard]] bool is_full() const { return sync.is_disabled(); }
 
+  // Whether `pv` points into this table's arena storage, where the stored
+  // values and any heap-backed contents they own live.
+  [[nodiscard]] bool contains(const void* pv) const {
+    // Scope installation writes only the thread-local slot, not the arena.
+    extensible_arena::scope s(const_cast<extensible_arena&>(arena_));
+    return extensible_arena::contains(pv);
+  }
+
   // Get interned value by ID. If not found, returns empty. Chains to next
   // table if necessary. See also: `operator()`.
   [[nodiscard]] interned_value_t

@@ -151,9 +151,12 @@ TEST_CASE("Basic", "[InternTableTest]") {
     CHECK(iv);
     CHECK(iv.id() == string_id{1});
     CHECK(iv.value() == "abc");
-    // The table stores values in its own private arena, not the ambient one.
-    // (These read true before the `scope` restore fix, because the table's
-    // arena leaked into the thread-local slot and stayed installed.)
+    // Both the string and its contents are in the table's own arena, not the
+    // ambient one. (The ambient checks read true before the `scope` restore
+    // fix, because the table's arena leaked into the thread-local slot and
+    // stayed installed; they now pin that regression.)
+    CHECK(sit.contains(&iv.value()));
+    CHECK(sit.contains(iv.value().data()));
     CHECK_FALSE(extensible_arena::contains(&iv.value()));
     CHECK_FALSE(extensible_arena::contains(iv.value().data()));
     iv = SIT::interned_value_t{};
@@ -165,8 +168,8 @@ TEST_CASE("Basic", "[InternTableTest]") {
     CHECK(iv);
     CHECK(iv.id() == string_id{1});
     CHECK(iv.value() == "abc");
-    CHECK_FALSE(extensible_arena::contains(&iv.value()));
-    CHECK_FALSE(extensible_arena::contains(iv.value().data()));
+    CHECK(sit.contains(&iv.value()));
+    CHECK(sit.contains(iv.value().data()));
 
     // Plain `{}` forwards to the value's formatter (honoring its spec);
     // debug `{:?}` shows the `(value, id)` pair, with the id as a number.
@@ -180,9 +183,9 @@ TEST_CASE("Basic", "[InternTableTest]") {
     CHECK(iv);
     CHECK(iv.id() == string_id{2});
     CHECK(iv.value() == "defghijklmnopqrstuvwxyz"sv);
-    // Even non-short strings live in the table's arena, not the ambient one.
-    CHECK_FALSE(extensible_arena::contains(&iv.value()));
-    CHECK_FALSE(extensible_arena::contains(iv.value().data()));
+    // Non-short strings are in the arena too.
+    CHECK(sit.contains(&iv.value()));
+    CHECK(sit.contains(iv.value().data()));
 
     iv = string_intern_table_value{csit, "ghi"s};
     CHECK_FALSE(iv);
