@@ -1,7 +1,7 @@
 {
-  "name": "Generic Corvid Ubuntu Sandbox",
+  "name": "Steve's Corvid Ubuntu Sandbox",
   "build": {
-    "dockerfile": "Dockerfile",
+    "dockerfile": "../Dockerfile",
     "args": {
       "TZ": "${localEnv:TZ:America/New_York}",
       "CLAUDE_CODE_VERSION": "latest",
@@ -80,7 +80,11 @@
   "mounts": [
     "source=claude-code-bashhistory-${devcontainerId},target=/commandhistory,type=volume",
     "source=claude-code-config-${devcontainerId},target=/home/node/.claude,type=volume",
-    "source=corvid-container-ssh,target=/home/node/.ssh,type=volume"
+    "source=corvid-container-ssh,target=/home/node/.ssh,type=volume",
+    // PERSONAL — delete these three mounts if you're not stevensudit
+    "source=/mnt/c/code/claude-memory,target=/mnt/c/code/claude-memory,type=bind",
+    "source=/mnt/c/code/claude-memory,target=/home/node/.claude/projects/-workspace/memory,type=bind",
+    "source=/mnt/c/code/dotfiles,target=/home/node/node-dotfiles,type=bind"
   ],
   "containerEnv": {
     "NODE_OPTIONS": "--max-old-space-size=4096",
