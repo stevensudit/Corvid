@@ -86,8 +86,8 @@ for domain in \
             exit 1
         fi
         echo "Adding $ip for $domain"
-	# The "-exist" is a new addition, required by the fact that we have multiple 
-	# hostnames resolving to the same IP.
+        # The "-exist" is a new addition, required by the fact that we have multiple 
+        # hostnames resolving to the same IP.
         ipset add allowed-domains "$ip" -exist
     done < <(echo "$ips")
 done
