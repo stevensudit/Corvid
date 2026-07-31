@@ -305,7 +305,7 @@ private:
   // `completion_token`, which is generation-checking. This token is used for
   // the SQE user data.
   using completion_cb_pool_t = object_pool<completion_fn, SLOT_COUNT * 2,
-      generation_scheme::versioned, no_op_cb, clear_function_cb>;
+      generation_size::bits32, no_op_cb, clear_function_cb>;
 
   // RAII handle for a `completion_fn` borrowed from the pool. Can be recreated
   // from a `completion_token`, like a `std::shared_ptr` locked from a

@@ -29,16 +29,40 @@ static_assert(std::is_same_v<object_pool<int, 256>::index_t, uint16_t>,
 static_assert(std::is_same_v<object_pool<int, 65536>::index_t, uint32_t>,
     "Pools at 65536 entries should widen to uint32_t indices");
 
-// The post-release generation always lands in [1, 0x7FFFFFFF]: the borrow bit
-// is cleared and the increment at the top of the range wraps back to 1
-// (skipping the invalid 0) instead of spilling into the borrow bit.
-static_assert(container::details::calc_next_gen(0x80000001U) == 2U,
+// The post-release generation always lands in [1, mask] at every supported
+// width: the borrow bit is cleared and the increment at the top of the range
+// wraps back to 1 (skipping the invalid 0) instead of spilling into the
+// borrow bit.
+using gen8_t = container::details::gen_traits<generation_size::bits8>;
+static_assert(std::is_same_v<gen8_t::storage_t, uint8_t>);
+static_assert(gen8_t::borrow_bit == 0x80U && gen8_t::mask == 0x7FU);
+static_assert(gen8_t::calc_next_gen(0x81U) == 2U,
     "Release should clear the borrow bit and increment the generation");
-static_assert(container::details::calc_next_gen(0xFFFFFFFEU) == 0x7FFFFFFFU,
-    "The generation just below the top should not wrap");
-static_assert(container::details::calc_next_gen(0xFFFFFFFFU) == 1U,
+static_assert(gen8_t::calc_next_gen(0xFFU) == 1U,
     "The top generation should wrap to 1, not into the borrow bit");
-static_assert(container::details::calc_next_gen(0x7FFFFFFFU) == 1U,
+
+using gen16_t = container::details::gen_traits<generation_size::bits16>;
+static_assert(std::is_same_v<gen16_t::storage_t, uint16_t>);
+static_assert(gen16_t::borrow_bit == 0x8000U && gen16_t::mask == 0x7FFFU);
+static_assert(gen16_t::calc_next_gen(0xFFFFU) == 1U);
+
+using gen24_t = container::details::gen_traits<generation_size::bits24>;
+static_assert(std::is_same_v<gen24_t::storage_t, uint32_t>);
+static_assert(
+    gen24_t::borrow_bit == 0x0080'0000U && gen24_t::mask == 0x007F'FFFFU);
+static_assert(gen24_t::calc_next_gen(0x00FF'FFFFU) == 1U);
+
+using gen32_t = container::details::gen_traits<generation_size::bits32>;
+static_assert(std::is_same_v<gen32_t::storage_t, uint32_t>);
+static_assert(
+    gen32_t::borrow_bit == 0x8000'0000U && gen32_t::mask == 0x7FFF'FFFFU);
+static_assert(gen32_t::calc_next_gen(0x8000'0001U) == 2U,
+    "Release should clear the borrow bit and increment the generation");
+static_assert(gen32_t::calc_next_gen(0xFFFF'FFFEU) == 0x7FFF'FFFFU,
+    "The generation just below the top should not wrap");
+static_assert(gen32_t::calc_next_gen(0xFFFF'FFFFU) == 1U,
+    "The top generation should wrap to 1, not into the borrow bit");
+static_assert(gen32_t::calc_next_gen(0x7FFF'FFFFU) == 1U,
     "Wrapping should not require the borrow bit to be set");
 
 } // namespace
@@ -208,7 +232,7 @@ TEST_CASE("Callbacks", "[ObjectPool]") {
     int return_count{};
     auto on_borrow = [&](int& v) noexcept { v = ++borrow_count; };
     auto on_return = [&](int&) noexcept { ++return_count; };
-    object_pool<int, 4, generation_scheme::versioned, decltype(on_borrow),
+    object_pool<int, 4, generation_size::bits32, decltype(on_borrow),
         decltype(on_return)>
         store{on_borrow, on_return};
 
@@ -232,7 +256,7 @@ TEST_CASE("Callbacks", "[ObjectPool]") {
   if (true) {
     auto on_borrow = [](int& v) noexcept { v = 99; };
     auto on_return = [](int& v) noexcept { v = 0; };
-    object_pool<int, 1, generation_scheme::versioned, decltype(on_borrow),
+    object_pool<int, 1, generation_size::bits32, decltype(on_borrow),
         decltype(on_return)>
         store{on_borrow, on_return};
 
@@ -261,10 +285,9 @@ TEST_CASE("CreateHelper", "[ObjectPool]") {
     int borrow_count{};
     int return_count{};
 
-    auto pool =
-        object_pool_factory::create<int, 2, generation_scheme::versioned>(
-            [&](int& v) noexcept { v = ++borrow_count; },
-            [&](int&) noexcept { ++return_count; });
+    auto pool = object_pool_factory::create<int, 2, generation_size::bits32>(
+        [&](int& v) noexcept { v = ++borrow_count; },
+        [&](int&) noexcept { ++return_count; });
 
     auto h0 = pool.borrow();
     CHECK(h0);
@@ -463,11 +486,11 @@ TEST_CASE("TokenAsInt", "[ObjectPool]") {
 
   // Unversioned pool: round-trip through `as_int` resolves to the same slot.
   if (true) {
-    object_pool<int, 4, generation_scheme::unversioned> pool;
+    object_pool<int, 4, generation_size::none> pool;
     auto b = pool.borrow();
-    object_pool<int, 4, generation_scheme::unversioned>::token h{b};
+    object_pool<int, 4, generation_size::none>::token h{b};
     auto packed = h.as_int();
-    object_pool<int, 4, generation_scheme::unversioned>::token h2{packed};
+    object_pool<int, 4, generation_size::none>::token h2{packed};
     CHECK(h2);
     CHECK(h2.get_ptr(pool) == b.get());
   }
@@ -483,14 +506,16 @@ TEST_CASE("TokenAsInt", "[ObjectPool]") {
     CHECK(oob.get_ptr(pool) == nullptr);
     CHECK_FALSE(oob.borrow(pool));
 
-    // Filler bit set above the index field.
-    object_pool<int, 4>::token filler{(1ULL << 8) | 2ULL};
-    CHECK_FALSE(filler);
+    // Bit set above the packed span. This pool packs an 8-bit index plus a
+    // 32-bit generation, so bit 40 is the first foreign one.
+    object_pool<int, 4>::token overflow{(1ULL << 40) | 2ULL};
+    CHECK_FALSE(overflow);
 
-    // Borrow bit set in the generation field.
+    // Borrow bit set in the generation field (the field's top bit, at bit 39
+    // here).
     auto b = pool.borrow();
     object_pool<int, 4>::token h{b};
-    object_pool<int, 4>::token forged{h.as_int() | (1ULL << 63)};
+    object_pool<int, 4>::token forged{h.as_int() | (1ULL << 39)};
     CHECK_FALSE(forged);
   }
 
@@ -504,10 +529,54 @@ TEST_CASE("TokenAsInt", "[ObjectPool]") {
 
   // Unversioned pool: an out-of-range value yields an invalid token.
   if (true) {
-    object_pool<int, 4, generation_scheme::unversioned> pool;
-    object_pool<int, 4, generation_scheme::unversioned>::token h{4ULL};
+    object_pool<int, 4, generation_size::none> pool;
+    object_pool<int, 4, generation_size::none>::token h{4ULL};
     CHECK_FALSE(h);
     CHECK(h.get_ptr(pool) == nullptr);
+  }
+
+  // Narrow generations pack tightly: an 8-bit index plus an 8-bit generation
+  // fits `as_int` in 16 bits, and still round-trips.
+  if (true) {
+    object_pool<int, 4, generation_size::bits8> pool;
+    auto b = pool.borrow();
+    object_pool<int, 4, generation_size::bits8>::token h{b};
+    auto packed = h.as_int();
+    CHECK(packed <= 0xFFFFU);
+    object_pool<int, 4, generation_size::bits8>::token h2{packed};
+    CHECK(h2);
+    CHECK(h2.get_ptr(pool) == b.get());
+  }
+}
+
+#pragma endregion
+#pragma region GenerationWrap
+
+TEST_CASE("GenerationWrap", "[ObjectPool]") {
+  // An 8-bit generation cycles through 127 values; the pool keeps borrowing
+  // cleanly across multiple wraps.
+  if (true) {
+    object_pool<int, 1, generation_size::bits8> pool;
+    for (auto cycle = 0; cycle < 300; ++cycle) {
+      auto b = pool.borrow();
+      REQUIRE(b);
+    }
+  }
+
+  // The ABA limitation, pinned: once the slot's generation cycles all the way
+  // around, a stale token matches again.
+  if (true) {
+    object_pool<int, 1, generation_size::bits8> pool;
+    auto b = pool.borrow();
+    int* p = b.get();
+    object_pool<int, 1, generation_size::bits8>::token h{b};
+    b.reset();
+    CHECK(h.get_ptr(pool) == nullptr); // stale after one release
+    for (auto cycle = 0; cycle < 126; ++cycle) {
+      auto b2 = pool.borrow();
+      REQUIRE(b2);
+    }
+    CHECK(h.get_ptr(pool) == p); // 127 releases in: wrapped back around
   }
 }
 
@@ -536,8 +605,7 @@ TEST_CASE("Shutdown", "[ObjectPool]") {
   if (true) {
     int return_count{};
     auto on_return = [&](int&) noexcept { ++return_count; };
-    object_pool<int, 4, generation_scheme::versioned, no_op_cb,
-        decltype(on_return)>
+    object_pool<int, 4, generation_size::bits32, no_op_cb, decltype(on_return)>
         pool{{}, on_return};
 
     auto h0 = pool.borrow();
@@ -604,7 +672,7 @@ TEST_CASE("Shutdown", "[ObjectPool]") {
     int return_count{};
     auto on_return = [&](int&) noexcept { ++return_count; };
     {
-      object_pool<int, 3, generation_scheme::versioned, no_op_cb,
+      object_pool<int, 3, generation_size::bits32, no_op_cb,
           decltype(on_return)>
           pool{{}, on_return};
       auto h = pool.borrow();
