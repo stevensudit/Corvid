@@ -127,4 +127,7 @@ RUN chmod +x /usr/local/bin/init-firewall.sh && \
   chmod 0440 /etc/sudoers.d/node-firewall
 
 USER node
+
+RUN git config --global url."git@github.com:stevensudit/".insteadOf "https://github.com/stevensudit/" && \
+    git config --global include.path /home/node/node-dotfiles/.gitconfig-personal
 RUN echo '[ -f /workspace/.devcontainer/shellrc.sh ] && source /workspace/.devcontainer/shellrc.sh' >> /home/node/.zshrc
