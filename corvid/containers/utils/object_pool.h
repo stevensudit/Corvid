@@ -460,7 +460,9 @@ public:
 
   // Reattach item to a new handle. Useful after `detach`. Returns empty if the
   // item is not from this pool, which "should never happen", so check the
-  // results. Nulls out the input. NOLINTBEGIN(performance-move-const-arg)
+  // results. Nulls out the input.
+  //
+  // NOLINTBEGIN(performance-move-const-arg)
   [[nodiscard]] borrowed reattach(T*&& item) noexcept {
     if (!is_in_pool(item)) return {};
     if constexpr (is_versioned_v) {
