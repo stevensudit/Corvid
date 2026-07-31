@@ -33,8 +33,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends locales && \
 # Test toolchain repo.
 RUN add-apt-repository -y ppa:ubuntu-toolchain-r/test
 
-# Node.js — was the base image; on the CUDA base it's an install step.
-RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
+# Node.js was the base image; on the CUDA base it's an install step.
+RUN curl -fsSL https://deb.nodesource.com/setup_24.x | bash -
 
 # Basic development tools, toolchain, and iptables/ipset.
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -77,7 +77,7 @@ RUN update-alternatives --install /usr/bin/clang clang /usr/bin/clang-22 100 \
 
 # npm global dir writable by node.
 RUN mkdir -p /usr/local/share/npm-global && \
-  chown -R node:node /usr/local/share
+  chown -R node:node /usr/local/share/npm-global
 
 # Persist bash history.
 RUN SNIPPET="export PROMPT_COMMAND='history -a' && export HISTFILE=/commandhistory/.bash_history" \
