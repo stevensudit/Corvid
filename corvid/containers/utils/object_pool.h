@@ -430,9 +430,12 @@ public:
     if (std::scoped_lock pool_lock(pool_mutex_); true) {
       if (free_top_ == 0) return {};
       auto ndx = free_list_[--free_top_];
+      // A failed claim means the entry was stale: the slot is already owned
+      // through some other path, which "can't happen". This attempt fails, but
+      // at least the slot is removed from the free list, so the next borrow
+      // will try a different slot.
+      if (!set_borrowed(ndx)) return {};
       item = &slots_[ndx];
-      [[maybe_unused]] const bool impossible = !set_borrowed(ndx);
-      assert(!impossible);
     }
     if constexpr (!IsNoOpCb<BorrowCb>) {
       std::scoped_lock func_lock(func_mutex_);
@@ -448,6 +451,11 @@ public:
   // fully responsible for using `reattach` to return the item to the pool.
   // Otherwise, it will leak, eventually leading to a lack of available
   // slots.
+  //
+  // The returned pointer must be the slot's only outstanding reference: it
+  // takes the role that a `token` would otherwise play, not a supplement to
+  // one. If a `token` for the slot also exists, whichever reference reacquires
+  // ownership first wins, and the other must then be discarded without use.
   [[nodiscard]] T* detach(borrowed&& h) noexcept {
     assert(h.pool_ == this);
     if constexpr (is_versioned_v) {
@@ -461,6 +469,15 @@ public:
   // Reattach item to a new handle. Useful after `detach`. Returns empty if the
   // item is not from this pool, which "should never happen", so check the
   // results. Nulls out the input.
+  //
+  // The pointer must be one previously returned by `detach` on this pool, with
+  // each `detach` matched by at most one `reattach`. A raw pointer carries no
+  // generation, so unlike `token::borrow` this cannot detect a stale pointer
+  // whose slot has since been freed; reattaching one is a contract violation.
+  // `borrow` refuses to double-issue the squatted slot, so the damage is
+  // contained to a spuriously failed borrow, but the violation remains a bug
+  // in the caller. When you need a detached reference that fails politely
+  // instead, keep a `token`.
   //
   // NOLINTBEGIN(performance-move-const-arg)
   [[nodiscard]] borrowed reattach(T*&& item) noexcept {

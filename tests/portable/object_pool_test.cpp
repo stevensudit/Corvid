@@ -339,6 +339,33 @@ TEST_CASE("DetachAndReattach", "[ObjectPool]") {
     auto h = pool.reattach(std::move(&outside));
     CHECK_FALSE(h);
   }
+
+  // Reattaching a stale pointer is a contract violation, but the damage is
+  // contained: the squatted entry is dropped from the free list, so that one
+  // borrow fails, and later borrows succeed without anything being freed in
+  // between. Once the squatter returns the slot, the pool fully reconverges.
+  if (true) {
+    object_pool<int, 2> pool;
+    auto h = pool.borrow();
+    int* p = h.get();
+    int* stale = p;
+    h.reset(); // slot goes back on the free list; `stale` now dangles
+
+    // NOLINTNEXTLINE(performance-move-const-arg)
+    auto squatter = pool.reattach(std::move(stale)); // the misuse "succeeds"
+    CHECK(squatter);
+    CHECK(squatter.get() == p);
+
+    CHECK_FALSE(pool.borrow()); // pops the squatted entry, drops it, fails
+    auto other = pool.borrow(); // next attempt serves the remaining slot
+    CHECK(other);
+    CHECK(other.get() != p);
+
+    squatter.reset();           // squatter returns its slot
+    auto again = pool.borrow(); // ...and it is borrowable again
+    CHECK(again);
+    CHECK(again.get() == p);
+  }
 }
 
 #pragma endregion
