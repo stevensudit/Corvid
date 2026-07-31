@@ -266,9 +266,18 @@ public:
     // As with `detach`, once you call this, you become fully responsible for
     // ensuring that the item gets returned to the pool. With great power,
     // yada, yada, yada.
+    //
+    // If this races `shutdown`, the detach cannot happen; the slot is instead
+    // returned on the spot. The handle ends up empty either way, and in the
+    // race case the responsibility ends there.
     explicit token(borrowed&& h) {
       if (!copy_from_handle(h)) return;
-      (void)h.pool_->detach(std::move(h));
+      // `detach` fails only when racing `shutdown`, and it leaves the handle
+      // untouched when it does, so the fallback `reset` is not a
+      // use-after-move.
+      //
+      // NOLINTNEXTLINE(bugprone-use-after-move)
+      if (!h.pool_->detach(std::move(h))) h.reset();
     }
 
     // Construct from a packed `uint64_t` produced by `as_int`. Only available

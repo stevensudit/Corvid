@@ -693,6 +693,20 @@ TEST_CASE("Shutdown", "[ObjectPool]") {
     CHECK(tok.get_ptr(pool) == nullptr);
   }
 
+  // `token(borrowed&&)` racing shutdown: the detach cannot happen (shutdown
+  // already cleared the borrow bit), so the ctor returns the slot on the
+  // spot. The handle ends up empty either way.
+  if (true) {
+    object_pool<int, 1> pool;
+    auto h = pool.borrow();
+    CHECK(pool.shutdown());
+
+    object_pool<int, 1>::token tok{std::move(h)};
+    // NOLINTNEXTLINE(bugprone-use-after-move,clang-analyzer-cplusplus.Move)
+    CHECK_FALSE(h); // emptied even though the detach failed
+    CHECK(tok.is_valid());
+  }
+
   // The pool's destructor calls `shutdown`, so `return_cb_` runs for
   // every slot even when no explicit `shutdown` was invoked.
   if (true) {
