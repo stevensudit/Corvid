@@ -209,6 +209,10 @@ public:
 
   // Array operators allow circular access, while `at` throws on
   // out-of-range.
+  //
+  // With circular access, any index into a non-empty buffer is in range, but
+  // indexing an empty buffer with the array operators is undefined; `at`
+  // throws in that case too.
   [[nodiscard]] const auto& operator[](size_type index) const noexcept {
     return data(index_at(index));
   }
@@ -335,6 +339,7 @@ private:
 
   // Note: Size must be adjusted before calling these, due to offset modulo.
   [[nodiscard]] size_type index_at(size_type offset) const noexcept {
+    assert(!empty());
     offset %= size();
     return (front_ + offset) % capacity();
   }

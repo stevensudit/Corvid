@@ -224,6 +224,26 @@ TEST_CASE("WrapIndex", "[CircularBufferTest]") {
 }
 #pragma endregion
 
+#pragma region At
+
+TEST_CASE("At", "[CircularBufferTest]") {
+  std::vector<int> v;
+  v.resize(3);
+  circular_buffer cb{v};
+
+  // `at` throws on an empty buffer, where the array operator is undefined.
+  CHECK_THROWS_AS((void)cb.at(0), std::out_of_range);
+
+  // In range, `at` matches the array operator; past the size, it throws
+  // instead of wrapping.
+  cb.push_back(1);
+  cb.push_back(2);
+  CHECK(cb.at(0) == 1);
+  CHECK(cb.at(1) == 2);
+  CHECK_THROWS_AS((void)cb.at(2), std::out_of_range);
+}
+#pragma endregion
+
 #pragma region PushPop
 
 TEST_CASE("PushPop", "[CircularBufferTest]") {
