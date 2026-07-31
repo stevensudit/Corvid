@@ -8,7 +8,10 @@
       "args": [],
       "stopOnEntry": false,
       "cwd": "${workspaceFolder}",
-      "preLaunchTask": "build"
+      "preLaunchTask": "build",
+      "initCommands": [
+        "settings set target.disable-aslr false"
+      ]
     },
     {
       "name": "Debug test (Windows - cppvsdbg)",
