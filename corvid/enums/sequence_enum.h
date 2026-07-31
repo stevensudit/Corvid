@@ -16,15 +16,20 @@
 // limitations under the License.
 #pragma once
 #include <algorithm>
+#include <array>
 #include <cassert>
-#include <string>
-#include <string_view>
-#include <stdexcept>
+#include <concepts>
+#include <cstddef>
+#include <cstdint>
+#include <limits>
 #include <optional>
+#include <stdexcept>
+#include <string_view>
+#include <type_traits>
 
-#include "enums_shared.h"
 #include "../meta/concepts.h"
 #include "../meta/enums.h"
+#include "../meta/fixed_string.h"
 #include "../strings/fixed_string_utils.h"
 #include "../strings/string_view_wrapper.h"
 #include "../strings/cstring_view.h"
@@ -824,9 +829,8 @@ struct sequence_enum_names_spec
   // names, segment by segment, for an exact match, recovering the enum as the
   // segment's start plus the intra-segment index.
   //
-  // Names only: unlike `lookup`, it never interprets numeric text, so it stays
-  // usable in a constant expression. The inter-segment gaps never appear in
-  // the scan.
+  // Names only: unlike `lookup`, it never interprets numeric text. The
+  // inter-segment gaps never appear in the scan.
   [[nodiscard]] constexpr std::optional<E> find_enum_by_name(
       std::string_view sv) const noexcept {
     if (sv.empty()) return {};
@@ -843,7 +847,7 @@ struct sequence_enum_names_spec
   // Map a candidate name to the registry's own copy of it, or an empty view if
   // it is not a registered name. Canonicalizes (interns) so the result points
   // into `names` rather than at the caller's buffer; emptiness doubles as the
-  // "not a name" test. Names only, so it stays usable from `consteval`.
+  // "not a name" test. Names only; never interprets numeric text.
   [[nodiscard]] constexpr cstring_view intern_name(
       std::string_view sv) const noexcept {
     auto e = find_enum_by_name(sv);
@@ -851,7 +855,7 @@ struct sequence_enum_names_spec
   }
 
   // Look up value from string view, parsing numeric text if necessary.
-  [[nodiscard]] bool lookup(E& v, std::string_view sv) const {
+  [[nodiscard]] constexpr bool lookup(E& v, std::string_view sv) const {
     if (sv.empty()) return false;
     if (registry::details::lookup_helper(v, sv)) {
       if constexpr (seq_actually_wrap_v<E>)

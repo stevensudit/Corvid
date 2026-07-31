@@ -15,17 +15,25 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 #pragma once
+#include <algorithm>
+#include <array>
 #include <bit>
 #include <cassert>
+#include <cstddef>
+#include <cstdint>
+#include <iterator>
+#include <string_view>
+#include <type_traits>
 
-#include "enums_shared.h"
 #include "../meta/concepts.h"
 #include "../meta/enums.h"
+#include "../meta/fixed_string.h"
 #include "../strings/fixed_string_utils.h"
 #include "../strings/targeting.h"
 #include "../strings/conversion.h"
 #include "../strings/delimiting.h"
 #include "../strings/splitting.h"
+#include "../strings/trimming.h"
 #include "enum_registry.h"
 #include "scoped_enum.h"
 
@@ -270,16 +278,21 @@ template<std::integral T>
 #pragma endregion
 #pragma region range_length
 
-// Length of range.
+// Length of range: the number of distinct valid values, which is also the
+// iteration span over `[0, max_value]`.
 //
-// This is the number of distinct values that are valid, if and only if valid
-// bits are contiguous.
+// Only meaningful when the valid bits are contiguous from the lsb, so a mask
+// with holes is rejected at compile time: for such a mask the two honest
+// answers (the valid-value count and the iteration span) diverge, and no
+// caller has needed either.
 //
 // Note: A mask spanning all 64 bits wraps the count to 0, because the true
 // count (2^64) does not fit. This is confusing but technically correct, which
 // is the best kind of correct.
 template<BitmaskEnum E>
 [[nodiscard]] constexpr auto range_length() noexcept {
+  static_assert((valid_bits_v<E> & (valid_bits_v<E> + 1)) == 0,
+      "range_length requires contiguous valid bits");
   return static_cast<size_t>(valid_bits_v<E>) + 1;
 }
 
@@ -514,7 +527,7 @@ struct bitmask_enum_names_spec
   // Every piece must be non-empty, so a leading, trailing, or doubled '+' is
   // rejected. On success, sets `v` and returns true; on failure, returns false
   // without setting `v`.
-  [[nodiscard]] bool lookup(E& v, std::string_view sv) const {
+  [[nodiscard]] constexpr bool lookup(E& v, std::string_view sv) const {
     E result{};
     E piece_value{};
     bool succeeded{};
@@ -534,7 +547,7 @@ struct bitmask_enum_names_spec
   }
 
   // Look up a single bitmask value, given as one name or number, from `sv`.
-  [[nodiscard]] bool lookup_one(E& v, std::string_view sv) const {
+  [[nodiscard]] constexpr bool lookup_one(E& v, std::string_view sv) const {
     if (sv.empty()) return false;
     if (registry::details::lookup_helper(v, sv)) {
       if constexpr (bit_clip_v<E>)
@@ -584,7 +597,7 @@ consteval uint64_t calc_valid_bits_from_bit_names() {
 // at 0 and are sequential. The union of the bits from each of the values
 // defines the valid bits.
 //
-/// Whitespace is trimmed.
+// Whitespace is trimmed.
 template<meta::fixed_string bit_names>
 consteval uint64_t calc_valid_bits_from_value_names() {
   static_assert(bit_names.view().contains(','));

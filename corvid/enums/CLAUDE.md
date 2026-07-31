@@ -1,6 +1,6 @@
 # CLAUDE.md
 
-`enum_spec_v<>` is the central access point for enum metadata, populated per-enum by an ADL-found `corvid_enum_spec` hook: the strings subsystem uses it for enum↔string conversion, and bitmask/sequence/bool enum adapters all build on it.
+`enum_spec_v<>` is the central access point for enum metadata, populated per-enum by an ADL-found `corvid_enum_spec` hook: the strings subsystem uses it for enum<->string conversion, and bitmask/sequence/bool enum adapters all build on it.
 
 ## How registration works
 
@@ -8,10 +8,12 @@ To opt a scoped enum into the system, declare a `corvid_enum_spec` overload for 
 
 ```cpp
 consteval auto corvid_enum_spec(my_enum*) {
-  return make_sequence_enum_spec<my_enum, "a, b, c">();
-  // or make_bitmask_enum_spec<my_enum, "x, y, z">();
+  return make_sequence_enum_spec<my_enum, "a,b,c">();
+  // or make_bitmask_enum_spec<my_enum, "x,y,z">();
 }
 ```
+
+Sequence names are taken verbatim (no whitespace trimming, so `"a, b, c"` would register the names `" b"` and `" c"`); bitmask names are trimmed.
 
 This is what unlocks the operator overloads and string conversion. Unregistered enums get none of it. The pointer parameter is never dereferenced; it only carries the type.
 

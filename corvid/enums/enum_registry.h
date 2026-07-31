@@ -15,14 +15,19 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 #pragma once
-#include "enums_shared.h"
+#include <cassert>
+#include <charconv>
+#include <cstddef>
+#include <cstdint>
+#include <string_view>
+#include <system_error>
+#include <type_traits>
+
 #include "../meta/concepts.h"
 #include "../meta/enums.h"
-#include "../strings/targeting.h"
 
 // Note: This does not need to be directly included by the user because it's
-// in both "bitmask_enum.h" and "sequence_enum.h". It does get included by
-// "strings/conversion.h" for access to  `enum_spec_v`.
+// in both "bitmask_enum.h" and "sequence_enum.h".
 
 namespace corvid { inline namespace enums {
 

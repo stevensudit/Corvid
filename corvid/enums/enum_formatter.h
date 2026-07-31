@@ -107,8 +107,9 @@ struct std::formatter<E, CharT> {
     if (!width && !prec) return render<CharT>(e, ctx.out());
 
     // A named sequence value is already stored as a view, so trim and pad it
-    // in place with no buffer.
-    if constexpr (corvid::enums::sequence::SequentialEnum<E>) {
+    // in place with no buffer. A value-form registration has no name
+    // machinery, so it takes the buffer path below and renders numerically.
+    if constexpr (corvid::enums::sequence::NamedSequentialEnum<E>) {
       if (!spec_.debug) {
         const std::string_view name{corvid::enums::sequence::enum_as_view(e)};
         if (!name.empty()) return write_field(ctx.out(), name, prec, width);
@@ -131,7 +132,7 @@ private:
   template<corvid::CharType RenderCharT, typename OutIt>
   OutIt render(E e, OutIt out) const {
     using namespace corvid::strings;
-    using namespace corvid::enums; // append_enum now lives here
+    using namespace corvid::enums;
     if (!spec_.debug) {
       output_iterator_appendable<OutIt, char, RenderCharT> target{out};
       append_enum(target, e);
