@@ -20,6 +20,7 @@
 #include <map>
 #include <set>
 #include <sstream>
+#include <stdexcept>
 #include <thread>
 #include <unordered_map>
 #include <vector>
@@ -770,6 +771,57 @@ TEST_CASE("Basic", "[EnumVariant]") {
     auto moved =
         variant_get<static_cast<size_t>(QueryType::Status)>(std::move(qv));
     CHECK(moved == "status");
+  }
+}
+#pragma endregion
+
+enum class ThrowKind : std::uint8_t { value, thrower };
+
+// The value constructor throws, to manufacture a valueless variant.
+struct ThrowOnConstruct {
+  ThrowOnConstruct() = default;
+  explicit ThrowOnConstruct(int) { throw std::runtime_error{"boom"}; }
+};
+
+using ThrowVariant = enum_variant<ThrowKind, int, ThrowOnConstruct>;
+
+#pragma region EnumVariant_BadIndex
+
+TEST_CASE("BadIndex", "[EnumVariant]") {
+  if (true) {
+    // An out-of-range enum value fails the consteval constructor's constant
+    // evaluation, so rejection is a compile error and can only be
+    // demonstrated:
+    // QueryVariant bad{static_cast<QueryType>(5)};
+    QueryVariant good{QueryType::Range};
+    CHECK(good.index() == QueryType::Range);
+  }
+  if (true) {
+    // In-range enum assignment default-constructs that alternative. Out of
+    // range is a precondition violation that terminates through the operator's
+    // `noexcept` boundary, so only the in-range side is testable.
+    QueryVariant qv{RetrievalKey{1, "x"}};
+    qv = QueryType::Range;
+    CHECK(qv.index() == QueryType::Range);
+    static_assert(noexcept(qv = QueryType::Range));
+  }
+  if (true) {
+    // A constructor that throws mid-emplace leaves the variant valueless.
+    // Visiting it then throws `bad_variant_access`, mirroring `std::visit`,
+    // on the indexed and overloaded paths alike.
+    ThrowVariant tv{42};
+    CHECK_THROWS_AS(tv.emplace<ThrowOnConstruct>(1), std::runtime_error);
+    CHECK(tv.valueless_by_exception());
+    CHECK(tv.index() == ThrowVariant::variant_npos);
+
+    auto indexed = indexed_callbacks( //
+        [](int) { return 1; }, [](const ThrowOnConstruct&) { return 2; });
+    CHECK_THROWS_AS(indexed.visit(tv), std::bad_variant_access);
+    CHECK_THROWS_AS(tv.visit(indexed), std::bad_variant_access);
+
+    auto overloads = overloaded_callbacks( //
+        [](int) { return 1; }, [](const ThrowOnConstruct&) { return 2; });
+    CHECK_THROWS_AS(tv.visit(overloads), std::bad_variant_access);
   }
 }
 #pragma endregion

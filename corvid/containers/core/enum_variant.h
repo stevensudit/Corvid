@@ -17,6 +17,7 @@
 #pragma once
 #include <variant>
 #include <tuple>
+#include <stdexcept>
 
 #include "../../meta/concepts.h"
 
@@ -209,8 +210,10 @@ struct indexed_callbacks {
         return f(index_constant<Is>{},
             variant_get<Is>(std::forward<Variant>(var)));
       }...};
-      // Invoke the callback for the current index of the variant.
+      // Invoke the callback for the current index of the variant, mirroring
+      // `std::visit` by throwing on a valueless variant.
       const auto idx = static_cast<size_t>(v.index());
+      if (idx >= variant_size_v<Variant>) throw std::bad_variant_access{};
       return table[idx](std::forward<Variant>(v), std::forward<Callback>(cb));
     }(IndexSeq{});
   }
@@ -390,6 +393,11 @@ public:
   // Assignment from the enum value itself. This will default construct the
   // corresponding alternative at runtime. It mirrors the behavior of the
   // consteval converting constructor used for compile-time initialization.
+  //
+  // An in-range enum value is a precondition: a violation throws through the
+  // `noexcept` boundary, terminating.
+  //
+  // NOLINTNEXTLINE(bugprone-exception-escape)
   constexpr enum_variant& operator=(enum_type e) noexcept
   requires std::is_default_constructible_v<underlying_type>
   {
@@ -565,7 +573,9 @@ private:
         return construct<I + 1>(idx);
       }
     } else {
-      return {}; // Unreachable, avoids warning
+      // Reached only by an out-of-range enum value; the throw fails the
+      // constant evaluation, making the violation a compile error.
+      throw std::invalid_argument{"enum_variant: enum value out of range"};
     }
   }
 
@@ -578,6 +588,10 @@ private:
       } else {
         assign_index<I + 1>(idx);
       }
+    } else {
+      // Reached only by an out-of-range enum value; the assignment operator's
+      // `noexcept` converts the throw into a terminate.
+      throw std::invalid_argument{"enum_variant: enum value out of range"};
     }
   }
 };
