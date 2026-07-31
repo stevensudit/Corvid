@@ -471,6 +471,44 @@ TEST_CASE("TokenAsInt", "[ObjectPool]") {
     CHECK(h2);
     CHECK(h2.get_ptr(pool) == b.get());
   }
+
+  // A packed value that `as_int` could never have produced yields an invalid
+  // token instead of indexing out of bounds.
+  if (true) {
+    object_pool<int, 4> pool;
+
+    // Index field out of range for the pool.
+    object_pool<int, 4>::token oob{7ULL};
+    CHECK_FALSE(oob);
+    CHECK(oob.get_ptr(pool) == nullptr);
+    CHECK_FALSE(oob.borrow(pool));
+
+    // Filler bit set above the index field.
+    object_pool<int, 4>::token filler{(1ULL << 8) | 2ULL};
+    CHECK_FALSE(filler);
+
+    // Borrow bit set in the generation field.
+    auto b = pool.borrow();
+    object_pool<int, 4>::token h{b};
+    object_pool<int, 4>::token forged{h.as_int() | (1ULL << 63)};
+    CHECK_FALSE(forged);
+  }
+
+  // A default token round-trips through `as_int` as invalid.
+  if (true) {
+    object_pool<int, 4> pool;
+    object_pool<int, 4>::token h{object_pool<int, 4>::token{}.as_int()};
+    CHECK_FALSE(h);
+    CHECK(h.get_ptr(pool) == nullptr);
+  }
+
+  // Unversioned pool: an out-of-range value yields an invalid token.
+  if (true) {
+    object_pool<int, 4, generation_scheme::unversioned> pool;
+    object_pool<int, 4, generation_scheme::unversioned>::token h{4ULL};
+    CHECK_FALSE(h);
+    CHECK(h.get_ptr(pool) == nullptr);
+  }
 }
 
 #pragma endregion

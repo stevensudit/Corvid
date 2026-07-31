@@ -239,11 +239,26 @@ public:
 
     // Construct from a packed `uint64_t` produced by `as_int`. Only available
     // when it fits.
+    //
+    // Packed values are meant to travel through untyped channels, so garbage
+    // input is anticipated, not a contract violation. A value that `as_int` on
+    // this pool type could not have produced (index field out of range for the
+    // pool, or the borrow bit set in the generation field) yields a default,
+    // invalid token.
     explicit token(uint64_t v) noexcept
     requires allows_int_conversion
     {
+      // Validate before narrowing; the cast would discard the very bits that
+      // prove a value foreign. When versioned, the index field plus its zero
+      // filler spans the low 32 bits, so one compare rejects out-of-range and
+      // foreign values alike.
+      if constexpr (is_versioned_v) {
+        if ((v & 0xFFFFFFFF) >= N || (v & 0x8000'0000'0000'0000)) return;
+        gen_ = static_cast<uint32_t>(v >> 32);
+      } else {
+        if (v >= N) return;
+      }
       ndx_ = static_cast<index_t>(v);
-      if constexpr (is_versioned_v) gen_ = static_cast<uint32_t>(v >> 32);
     }
 
     // Pack `gen_` (upper 32 bits) and `ndx_` (lower bits) into a `uint64_t`.
