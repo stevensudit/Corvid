@@ -15,6 +15,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 #pragma once
+#include <cstdint>
+
 #include "containers_shared.h"
 
 namespace corvid { inline namespace container { namespace arena {
@@ -97,9 +99,13 @@ class extensible_arena final {
     // Allocate a block of size `n` with `align` alignment from the current
     // node. If no room, returns `nullptr`.
     [[nodiscard]] void* allocate(size_t n, size_t align) noexcept {
-      // Ensure alignment by rounding up to the nearest multiple of 'align'.
-      auto start_index = (size_ + align - 1) & ~(align - 1);
-      auto past_index = start_index + n;
+      // Round the actual address up to the alignment, not the buffer offset:
+      // `data_`'s own offset within the node is not a multiple of alignments
+      // above `alignof(list_node)`.
+      const auto base = reinterpret_cast<uintptr_t>(data_);
+      const auto start_index = static_cast<size_t>(
+          ((base + size_ + align - 1) & ~(align - 1)) - base);
+      const auto past_index = start_index + n;
       if (past_index > capacity_) return nullptr;
       size_ = past_index;
       return data_ + start_index;
@@ -151,7 +157,7 @@ public:
   PRAGMA_GCC_IGNORED("-Wdangling-pointer")
   class [[nodiscard]] scope {
   public:
-    explicit scope(extensible_arena& arena) noexcept : old_head{&arena.head_} {
+    explicit scope(extensible_arena& arena) noexcept : old_head{tls_head_} {
       tls_head_ = &arena.head_;
     }
 

@@ -101,10 +101,16 @@ public:
   public:
     using value_type = V;
     using difference_type = std::ptrdiff_t;
-    using iterator_category = std::bidirectional_iterator_tag;
-    using pointer = V*;
-    using reference = V&;
+    // `operator*` returns a prvalue, so this models the C++20 bidirectional
+    // concept via `iterator_concept`, while the Cpp17 category honestly caps
+    // at input (the classic requirements demand a true reference beyond
+    // that). Same shape as `std::ranges::iota_view`'s iterator.
+    using iterator_concept = std::bidirectional_iterator_tag;
+    using iterator_category = std::input_iterator_tag;
+    using reference = V;
+    using pointer = void;
 
+    constexpr interval_iterator() noexcept = default;
     constexpr interval_iterator(U u) : u_{u} {}
 
     constexpr V operator*() const noexcept { return as_v(u_); }

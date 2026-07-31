@@ -35,9 +35,20 @@ concept HasUnderlyingType = requires {
 
 // Get the underlying type of a variant, which is either the type itself
 // or the type of its underlying value if it has one.
+//
+// A specialization pair, not `std::conditional_t`: the alias would substitute
+// both branches eagerly, and `::underlying_type` is ill-formed for a plain
+// `std::variant`.
 template<typename T>
-using underlying_variant_type_t = std::conditional_t<HasUnderlyingType<T>,
-    typename std::decay_t<T>::underlying_type, std::decay_t<T>>;
+struct underlying_variant_type {
+  using type = std::decay_t<T>;
+};
+template<HasUnderlyingType T>
+struct underlying_variant_type<T> {
+  using type = std::decay_t<T>::underlying_type;
+};
+template<typename T>
+using underlying_variant_type_t = underlying_variant_type<T>::type;
 
 // Check if `T` has a `visit` member template that can be called with a
 // variant of type `V`.
@@ -448,8 +459,11 @@ public:
   }
 
   // Get the underlying variant.
-  [[nodiscard]] constexpr auto& get_underlying(this auto&& self) noexcept {
-    return std::forward<decltype(self)>(self).value_;
+  [[nodiscard]] constexpr decltype(auto) get_underlying(
+      this auto&& self) noexcept {
+    // The parentheses are load-bearing: unparenthesized, `decltype(auto)` on a
+    // member access deduces the member's declared type and returns by value.
+    return (std::forward<decltype(self)>(self).value_);
   }
 
   // Check if the variant holds a value of type `T`.

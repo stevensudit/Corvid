@@ -206,21 +206,15 @@ them):
   Unlike `opt_string_view`, the marker is not padded: fill/align/width apply
   only to a present pointee. Not a range, so no `format_kind` disabling. Tested
   in `optional_ptr_test.cpp`.
-- [x] `custom_handle` ([../../containers/core/custom_handle.h](../containers/core/custom_handle.h)):
-  own formatter inheriting the `element_type`'s `std::formatter`, dereferencing
-  a live handle and forwarding with its full spec; a null handle (equal to
-  `null_v`) renders the unquoted `(null)` marker, exactly like `optional_ptr`
-  (marker unpadded). Not a range, so no `format_kind` disabling. Tested in
-  `containers_test.cpp` (`[CustomHandleTest]` Format). Note the element must
-  itself be formattable, so an enum `element_type` (the file-descriptor case)
-  needs the enum formatter in scope at the call site.
 - [x] `indirect_hash_key` / `indirect_map_key`
   ([../../containers/core/indirect_key.h](../containers/core/indirect_key.h)):
   each acts like its referenced key, so its formatter inherits the key's
   `std::formatter<T, CharT>` and forwards the `key` reference, honoring the
   key's full spec grammar. No null state. Tested in `containers_test.cpp`
   (`[IndirectKey]`).
-- [ ] Lower value: `own_ptr` (pointee or address, questionable).
+
+(`custom_handle` and `own_ptr` had formatter entries here until both classes
+were removed from the library in the 2026-07 containers review.)
 
 Containers already free via std ranges:
 
@@ -254,9 +248,9 @@ range-backed `strong_type`), and "forward to the underlying type's formatter"
 
 Stage 2 is paused here. Every Corvid type that materially benefits now formats:
 the string wrappers and `fixed_string`, the enum formatter, `interval`,
-`fixed_bitset`, `strong_type`, `interned_value`, `optional_ptr`,
-`custom_handle`, and the indirect keys, with `circular_buffer` and
-`enum_vector` coming along as ranges.
+`fixed_bitset`, `strong_type`, `interned_value`, `optional_ptr`, and the
+indirect keys, with `circular_buffer` and `enum_vector` coming along as
+ranges.
 
 What is left is a long tail of small wrappers whose formatter would all be the
 same trivial shape: forward an underlying scalar to its std formatter. For

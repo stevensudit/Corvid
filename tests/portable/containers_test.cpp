@@ -111,202 +111,6 @@ TEST_CASE("Basic", "[IndirectKey]") {
 }
 #pragma endregion
 
-class SpecialIntDeleter {
-public:
-  SpecialIntDeleter() = delete;
-  SpecialIntDeleter(int x) : x_(x) {}
-
-  void operator()(int* p) const { delete p; }
-  int x_;
-};
-
-class DefaultIntDeleter {
-public:
-  void operator()(int* p) const { delete p; }
-};
-
-struct D // deleter
-{
-  static inline std::string_view action;
-
-  D() { action = "ctor"sv; }
-  D(const D&) { action = "copy"sv; }
-  D(D&) { action = "non-const copy"sv; }
-  D(D&&) noexcept { action = "move"sv; }
-  void operator()(int* p) const {
-    action = "delete"sv;
-    delete p;
-  };
-};
-
-#pragma region OwnPtrTest_Ctor
-
-TEST_CASE("Ctor", "[OwnPtrTest]") {
-  {
-    own_ptr<int> p;
-    own_ptr<int, DefaultIntDeleter> q;
-
-    // If there's no deleter, it points to the object itself.
-    CHECK((const void*)&p.get_deleter() == (const void*)&p);
-
-    // Requires defaultable constructor.
-    //* own_ptr<int, SpecialIntDeleter> r;
-
-    own_ptr<int, SpecialIntDeleter> r{nullptr, SpecialIntDeleter{42}};
-    CHECK((sizeof(r)) > (sizeof(int*)));
-
-    CHECK(sizeof(p) == sizeof(int*));
-    CHECK(sizeof(q) == sizeof(int*));
-    auto p2 = std::move(p);
-
-    CHECK(r.get_deleter().x_ == 42);
-    auto r2 = std::move(r);
-    CHECK(r2.get_deleter().x_ == 42);
-  }
-  {
-    using P0 = own_ptr<int>;
-    CHECK(P0::is_deleter_non_reference_v);
-    CHECK_FALSE(P0::is_deleter_lvalue_reference_v);
-    CHECK_FALSE(P0::is_deleter_const_lvalue_reference_v);
-    using P1 = own_ptr<int, D>;
-    CHECK(P1::is_deleter_non_reference_v);
-    CHECK_FALSE(P1::is_deleter_lvalue_reference_v);
-    CHECK_FALSE(P1::is_deleter_const_lvalue_reference_v);
-    using P2 = own_ptr<int, D&>;
-    CHECK_FALSE(P2::is_deleter_non_reference_v);
-    CHECK(P2::is_deleter_lvalue_reference_v);
-    CHECK_FALSE(P2::is_deleter_const_lvalue_reference_v);
-    using P3 = own_ptr<int, const D&>;
-    CHECK_FALSE(P3::is_deleter_non_reference_v);
-    CHECK_FALSE(P3::is_deleter_lvalue_reference_v);
-    CHECK(P3::is_deleter_const_lvalue_reference_v);
-  }
-
-  // Cases from https://en.cppreference.com/w/cpp/memory/unique_ptr.
-  {
-    // Example constructor(1).
-    using P = own_ptr<int>;
-    P p;
-    P q{nullptr};
-    CHECK(p.get() == nullptr);
-    CHECK(q.get() == nullptr);
-  }
-  {
-    // Example constructor(2)
-    using P = own_ptr<int>;
-    P{new int};
-  }
-  D d;
-  CHECK(D::action == "ctor"sv);
-  {
-    // Example constructor(3a)
-    // Non-reference is copied when lvalue.
-    using P = own_ptr<int, D>;
-    P p{new int, d}; // Copy of d
-    CHECK(D::action == "copy"sv);
-  }
-  CHECK(D::action == "delete"sv);
-  {
-    // Example constructor(3b)
-    // Reference is held when lvalue.
-    using P = own_ptr<int, D&>;
-    D::action = "referenced"sv;
-    P p{new int, d}; // Reference to d
-    CHECK(D::action == "referenced"sv);
-  }
-  CHECK(D::action == "delete"sv);
-  {
-    // Example constructor(4)
-    // Non-reference is moved when rvalue.
-    using P = own_ptr<int, D>;
-    P p{new int, D{}}; // Move of D
-    CHECK(D::action == "move"sv);
-  }
-  CHECK(D::action == "delete"sv);
-  {
-    // Example constructor(5)
-    // Ownership transfer.
-    using P = own_ptr<int>;
-    P p{new int};
-    P q{std::move(p)};
-  }
-  CHECK(D::action == "delete"sv);
-  {
-    // Example constructor(6ab)
-    // Non-reference is copied when lvalue.
-    using P = own_ptr<int, D>;
-    P p{new int, d}; // Copy of d
-    CHECK(D::action == "copy"sv);
-    P q{std::move(p)}; // Move of d
-    CHECK(D::action == "move"sv);
-  }
-  CHECK(D::action == "delete"sv);
-  {
-    // Example constructor(6cd)
-    // Non-reference is copied when lvalue.
-    using P = own_ptr<int, D&>;
-    using Q = own_ptr<int, D>;
-    D::action = "referenced"sv;
-    // It cannot be moved. Implicitly deleted.
-    //* P q(new int, D{});
-    P p{new int, d}; // Copy of d
-    CHECK(D::action == "referenced"sv);
-    Q q{std::move(p)}; // Move of d
-    CHECK(D::action == "non-const copy"sv);
-    // This correctly fails.
-    //* P r{new int, D{}};
-  }
-  CHECK(D::action == "delete"sv);
-  {
-    using P = own_ptr<int, const D&>;
-    D::action = "referenced"sv;
-    P p{new int, d}; // Reference to d
-    CHECK(D::action == "referenced"sv);
-    // It cannot be moved. Deleted.
-    //* P q(new int, D{});
-  }
-  {
-#if 0
-    // Regression test.
-    using P = own_ptr<int, D&>;
-    using Q = own_ptr<int, const D&>;
-    // This fails correctly because the only available constructor requires an
-    // lvalue, not an rvalue. It takes a `D&`.
-    P p{new int, D{}};
-    // This now fails correctly but didn't before. It needed an explicit
-    // deletion, but also a fix to is_deleter.
-    Q q{new int, D{}};
-#endif
-  }
-  {
-    // CTAD.
-    //* auto pp = std::unique_ptr{new int};
-    //* auto p = own_ptr{new int};
-    auto pp = std::unique_ptr<int>{new int};
-    auto p = own_ptr<int>{new int};
-
-    // auto q = own_ptr{new int, D{}};
-#if 0
-    auto q{std::move(p)};
-    auto uq{std::move(up)};
-    auto r = own_ptr{new int, std::default_delete<int>{}};
-#endif
-    // sabotage with deduction guides to void
-
-    // std::unique_ptr up{new int};
-    // (void)up;
-  }
-
-  //  CHECK_FALSE(p);
-  //  std::unique_ptr<int> up;
-
-  {
-    auto p = own_ptr<int>::make(42);
-    CHECK(*p == 42);
-  }
-}
-#pragma endregion
-
 template<typename T, typename D = std::default_delete<T>>
 class Holder {
 public:
@@ -334,98 +138,6 @@ TEST_CASE("Experimental", "[DeductionTest]") {
 }
 #pragma endregion
 
-// NOLINTNEXTLINE(performance-enum-size)
-enum class FileDescriptor : int { invalid = -1 };
-
-struct fd_deleter {
-  using pointer = custom_handle<fd_deleter, FileDescriptor, int, -1>;
-
-  void operator()(pointer p) {
-    if (*p != FileDescriptor::invalid) ++close_count;
-  }
-  static inline size_t close_count{};
-};
-
-using unique_fd = std::unique_ptr<FileDescriptor, fd_deleter>;
-
-#pragma region CustomHandleTest_Basic
-
-TEST_CASE("Basic", "[CustomHandleTest]") {
-#if 0
-  // Baseline unique_ptr.
-  if (true) {
-    using P = std::unique_ptr<int>;
-    P p;
-    P q{new int};
-    p.reset(q.release());
-    q = std::move(p);
-  }
-  // Custom deleter for unique_ptr.
-  if (true) {
-    using P = unique_fd;
-    CHECK(fd_deleter::close_count == 0U);
-    P p;
-    CHECK(sizeof(p) == sizeof(int));
-    P q{FileDescriptor{42}};
-    auto* x = (int*)&p;
-    p.reset(FileDescriptor{49});
-    auto y = *p;
-    CHECK(*p == FileDescriptor{42});
-    p.reset(q.release());
-    q = std::move(p);
-    p.reset(FileDescriptor{43});
-    CHECK(fd_deleter::close_count == 0U);
-    FileDescriptor i{49};
-    p.reset(i);
-    CHECK(fd_deleter::close_count == 1U);
-    CHECK(i == FileDescriptor{42});
-    p = unique_fd{std::move(i)};
-    CHECK(fd_deleter::close_count == 2U);
-    CHECK(i == FileDescriptor::invalid);
-    const FileDescriptor j{42};
-    p = unique_fd{j};
-    CHECK(fd_deleter::close_count == 3U);
-    CHECK(j == FileDescriptor{42});
-    // * p = unique_fd{std::move(j)};
-    p.reset();
-    CHECK(fd_deleter::close_count == 4U);
-    i = FileDescriptor{46};
-    p.reset(i);
-    CHECK(*p == FileDescriptor{46});
-    CHECK(i == FileDescriptor{46});
-    i = FileDescriptor{47};
-
-    // Proof that 0 is not the nullptr.
-    p = unique_fd{FileDescriptor{0}};
-    CHECK(*p.get() == FileDescriptor{0});
-    CHECK(*p == FileDescriptor{0});
-    bool is_present = p ? true : false;
-    CHECK(is_present == true);
-    p.reset();
-    CHECK(fd_deleter::close_count == 6U);
-  }
-  CHECK(fd_deleter::close_count == 8U);
-#endif
-}
-
-TEST_CASE("Format", "[CustomHandleTest]") {
-  using handle = custom_handle<struct FormatTag, int>;
-  auto i = 42;
-  handle h{&i};
-  handle n;
-
-  // A live handle forwards to the element's formatter (with its spec); a null
-  // handle renders the unquoted `(null)` marker.
-  CHECK(std::format("{}", h) == "42");
-  CHECK(std::format("{:>4}", h) == "  42");
-  CHECK(std::format("{}", n) == "(null)");
-
-  // Narrow and wide both come along.
-  CHECK(std::format(L"{}", h) == L"42");
-  CHECK(std::format(L"{}", n) == L"(null)");
-}
-#pragma endregion
-
 #pragma region NoInitResize_Basic
 
 TEST_CASE("Basic", "[NoInitResize]") {
@@ -434,6 +146,50 @@ TEST_CASE("Basic", "[NoInitResize]") {
   std::string s;
   // s.resize_and_overwrite(2);
   (void)s;
+}
+#pragma endregion
+
+#pragma region Arena_Basic
+
+TEST_CASE("Basic", "[ArenaTest]") {
+  using arena::extensible_arena;
+  // Nested scopes: the inner scope routes allocations to its own arena, and
+  // ending it restores the outer arena, not the inner one.
+  if (true) {
+    extensible_arena a{256};
+    extensible_arena b{256};
+    void* in_a{};
+    if (true) {
+      extensible_arena::scope sa{a};
+      in_a = extensible_arena::allocate(8, 8);
+      CHECK(extensible_arena::contains(in_a));
+      void* in_b{};
+      if (true) {
+        extensible_arena::scope sb{b};
+        in_b = extensible_arena::allocate(8, 8);
+        CHECK(extensible_arena::contains(in_b));
+        CHECK_FALSE(extensible_arena::contains(in_a));
+      }
+      // Back on `a`: both the old and a fresh allocation are in `a`, and
+      // `b`'s allocation is not.
+      CHECK(extensible_arena::contains(in_a));
+      CHECK_FALSE(extensible_arena::contains(in_b));
+      auto* p = extensible_arena::allocate(8, 8);
+      CHECK(extensible_arena::contains(p));
+    }
+  }
+  // Allocations honor the requested alignment as an address, including
+  // alignments above `alignof(max_align_t)`, even after a deliberately odd
+  // tail.
+  if (true) {
+    extensible_arena a{4096};
+    extensible_arena::scope sa{a};
+    for (const auto align : {8UZ, 16UZ, 32UZ, 64UZ}) {
+      auto* p = extensible_arena::allocate(24, align);
+      CHECK(reinterpret_cast<uintptr_t>(p) % align == 0U);
+      CHECK(extensible_arena::allocate(1, 1) != nullptr);
+    }
+  }
 }
 #pragma endregion
 
@@ -988,6 +744,32 @@ TEST_CASE("Basic", "[EnumVariant]") {
 
     s = overload_visitor.visit(qv);
     CHECK(s == "Some RangeKey(start=10, end=20)");
+  }
+  if (true) {
+    // The callback helpers work on a plain std::variant, and the member
+    // `visit` works with `indexed_callbacks`; both route through
+    // `underlying_variant_type_t`, which must not hard-error on either shape.
+    auto sv_visitor = indexed_callbacks( //
+        [](std::monostate) { return "mono"s; },
+        [](int n) { return format_args("int(", n, ")"); },
+        [](const std::string& s) { return format_args("str(", s, ")"); });
+    std::variant<std::monostate, int, std::string> sv{7};
+    CHECK(sv_visitor.visit(sv) == "int(7)");
+
+    auto qv_visitor = indexed_callbacks( //
+        [](std::monostate) { return "None"s; },
+        [](const RetrievalKey& rk) { return format_args("R(", rk.id, ")"); },
+        [](const RangeKey&) { return "Range"s; },
+        [](const RangeKey&) { return "OtherRange"s; },
+        [](const std::string& s) { return format_args("S(", s, ")"); });
+    QueryVariant qv{RetrievalKey{1, "retrieve"}};
+    CHECK(qv.visit(qv_visitor) == "R(1)");
+
+    // Rvalue paths move out through `get_underlying`.
+    qv = QueryVariant::make<QueryType::Status>("status"s);
+    auto moved =
+        variant_get<static_cast<size_t>(QueryType::Status)>(std::move(qv));
+    CHECK(moved == "status");
   }
 }
 #pragma endregion

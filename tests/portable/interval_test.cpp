@@ -18,6 +18,8 @@
 #include <algorithm>
 #include <cstdint>
 #include <format>
+#include <iterator>
+#include <ranges>
 #include <vector>
 
 #include "corvid/containers.h"
@@ -225,6 +227,23 @@ TEST_CASE("Reverse", "[IntervalTest]") {
     });
 
     CHECK(c == 4);
+    CHECK(s == (1 + 2 + 3 + 4));
+    CHECK(l == 1);
+  }
+  // The iterator models the C++20 concepts (default-constructible, honest
+  // traits), so std::ranges views and algorithms work over an interval.
+  if (true) {
+    using it_t = decltype(std::begin(interval{1, 4}));
+    static_assert(std::bidirectional_iterator<it_t>);
+    static_assert(std::ranges::bidirectional_range<interval<int>>);
+
+    auto i = interval{1, 4};
+    int64_t s{};
+    int64_t l{};
+    for (auto v : std::ranges::reverse_view{i}) {
+      s += v;
+      l = v;
+    }
     CHECK(s == (1 + 2 + 3 + 4));
     CHECK(l == 1);
   }
