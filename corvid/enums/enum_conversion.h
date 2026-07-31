@@ -28,6 +28,7 @@
 #include "../strings/conversion.h"
 #include "enum_registry.h"
 #include "sequence_enum.h"
+#include "bitmask_enum.h"
 
 namespace corvid { inline namespace enums { inline namespace conversion {
 inline namespace cvt_enum {
@@ -168,12 +169,22 @@ constexpr E parse_enum(std::string_view sv, E default_value) {
 
 #pragma region operator<<
 
-// Append scoped enum to `os`. Defined at global scope (not inside `corvid`) so
-// ordinary lookup and ADL find it for enums declared in any namespace.
+// Append registered enum to `os`. Defined at global scope (not inside
+// `corvid`) so ordinary lookup and ADL find it for enums declared in any
+// namespace.
+//
+// Constrained to registered enums (sequence or bitmask) for the same reason as
+// the enum formatter: a blanket scoped-enum overload would also claim std and
+// third-party enums. The old unconstrained form served a pre-Catch2 test
+// framework that streamed everything; to stream an unregistered scoped enum,
+// print `*e` or `enum_as_string(e)`.
 //
 // No need to define this for old-style enums because they're treated as
 // aliases for their underlying type, which is already supported.
-auto& operator<<(std::ostream& os, corvid::ScopedEnum auto t) {
+template<typename E>
+requires(corvid::enums::sequence::SequentialEnum<E> ||
+         corvid::enums::bitmask::BitmaskEnum<E>)
+auto& operator<<(std::ostream& os, E t) {
   return corvid::enums::append_enum(os, t);
 }
 
