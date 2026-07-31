@@ -22,10 +22,12 @@
 #include <type_traits>
 
 #include "../meta/concepts.h"
+#include "../strings/cases.h"
 #include "../strings/trimming.h"
 #include "../strings/splitting.h"
 #include "../strings/conversion.h"
 #include "enum_registry.h"
+#include "sequence_enum.h"
 
 namespace corvid { inline namespace enums { inline namespace conversion {
 inline namespace cvt_enum {
@@ -81,9 +83,17 @@ constexpr bool convert_enum(StdEnum auto& e, std::string_view sv) {
 }
 
 // Convert enum from a `std::string_view` with text, not digits.
-constexpr bool convert_text_enum(StdEnum auto& e, std::string_view sv) {
+//
+// Restricted to named sequence enums, which are the only registrations with
+// name text to match. Fails on any input that starts with a digit or '-', so
+// numeric text (including "-0") never matches a value. The input must already
+// be trimmed; leading whitespace is not skipped, and an untrimmed name would
+// fail the lookup anyway. (An untrimmed number fails too: the numeric parser
+// also requires the digit or '-' at the first position.)
+constexpr bool
+convert_text_enum(sequence::NamedSequentialEnum auto& e, std::string_view sv) {
   e = {};
-  if (sv.empty() || (sv[0] >= '0' && sv[0] <= '9')) return false;
+  if (sv.empty() || strings::is_digit(sv[0]) || sv[0] == '-') return false;
   return details::help_extract_enum(e, sv);
 }
 

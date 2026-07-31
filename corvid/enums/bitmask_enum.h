@@ -15,17 +15,25 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 #pragma once
+#include <algorithm>
+#include <array>
 #include <bit>
 #include <cassert>
+#include <cstddef>
+#include <cstdint>
+#include <iterator>
+#include <string_view>
+#include <type_traits>
 
-#include "enums_shared.h"
 #include "../meta/concepts.h"
 #include "../meta/enums.h"
+#include "../meta/fixed_string.h"
 #include "../strings/fixed_string_utils.h"
 #include "../strings/targeting.h"
 #include "../strings/conversion.h"
 #include "../strings/delimiting.h"
 #include "../strings/splitting.h"
+#include "../strings/trimming.h"
 #include "enum_registry.h"
 #include "scoped_enum.h"
 
@@ -514,7 +522,7 @@ struct bitmask_enum_names_spec
   // Every piece must be non-empty, so a leading, trailing, or doubled '+' is
   // rejected. On success, sets `v` and returns true; on failure, returns false
   // without setting `v`.
-  [[nodiscard]] bool lookup(E& v, std::string_view sv) const {
+  [[nodiscard]] constexpr bool lookup(E& v, std::string_view sv) const {
     E result{};
     E piece_value{};
     bool succeeded{};
@@ -534,7 +542,7 @@ struct bitmask_enum_names_spec
   }
 
   // Look up a single bitmask value, given as one name or number, from `sv`.
-  [[nodiscard]] bool lookup_one(E& v, std::string_view sv) const {
+  [[nodiscard]] constexpr bool lookup_one(E& v, std::string_view sv) const {
     if (sv.empty()) return false;
     if (registry::details::lookup_helper(v, sv)) {
       if constexpr (bit_clip_v<E>)
@@ -584,7 +592,7 @@ consteval uint64_t calc_valid_bits_from_bit_names() {
 // at 0 and are sequential. The union of the bits from each of the values
 // defines the valid bits.
 //
-/// Whitespace is trimmed.
+// Whitespace is trimmed.
 template<meta::fixed_string bit_names>
 consteval uint64_t calc_valid_bits_from_value_names() {
   static_assert(bit_names.view().contains(','));

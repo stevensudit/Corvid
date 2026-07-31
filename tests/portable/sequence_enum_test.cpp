@@ -795,6 +795,46 @@ TEST_CASE("ExtractEnum", "[SequentialEnumTest]") {
   }
 }
 
+// Probe: whether `convert_text_enum` accepts `E`. The template parameter
+// keeps the requires-expression dependent, so a constraint failure reads as
+// false instead of a hard error.
+template<typename E>
+constexpr bool text_convertible = requires(E e) {
+  convert_text_enum(e, std::string_view{});
+};
+
+TEST_CASE("ConvertTextEnum", "[SequentialEnumTest]") {
+  if (true) {
+    tiger_pick e{};
+    CHECK(convert_text_enum(e, "meany"));
+    CHECK(e == tiger_pick::meany);
+
+    // Numeric text never matches, including negative and hex spellings.
+    CHECK_FALSE(convert_text_enum(e, "0"));
+    CHECK_FALSE(convert_text_enum(e, "-0"));
+    CHECK_FALSE(convert_text_enum(e, "-1"));
+    CHECK_FALSE(convert_text_enum(e, "0x3"));
+    CHECK_FALSE(convert_text_enum(e, ""));
+
+    // The input must be pre-trimmed; an untrimmed name fails the lookup.
+    CHECK_FALSE(convert_text_enum(e, " meany"));
+  }
+  // Probe: only named sequence enums are accepted; a value-form registration
+  // or an unscoped enum is rejected at compile time.
+  if (true) {
+    static_assert(text_convertible<tiger_pick>);
+    static_assert(!text_convertible<e0_255>);
+    static_assert(!text_convertible<old_enum>);
+  }
+  // Probe: the whole lookup chain is constexpr, so parses by name and by
+  // number both run in a constant expression.
+  if (true) {
+    static_assert(parse_enum<tiger_pick>("miny") == tiger_pick::miny);
+    static_assert(parse_enum<tiger_pick>("0x3") == tiger_pick::moe);
+    static_assert(!parse_enum<tiger_pick>("bogus"));
+  }
+}
+
 #pragma endregion
 #pragma region Int64
 

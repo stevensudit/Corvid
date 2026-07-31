@@ -844,6 +844,13 @@ TEST_CASE("EnumCalcValueNames", "[BitMaskTest]") {
 
 TEST_CASE("ExtractEnum", "[BitMaskTest]") {
   using namespace corvid::strings;
+  // Probe: the whole lookup chain is constexpr, so parses by name, by
+  // number, and by '+' combination all run in a constant expression.
+  if (true) {
+    static_assert(parse_enum<rgb>("red + blue") == (rgb::red + rgb::blue));
+    static_assert(parse_enum<rgb>("0x2") == rgb::green);
+    static_assert(!parse_enum<rgb>("bogus"));
+  }
   if (true) {
     rgb e{};
     std::string_view sv;

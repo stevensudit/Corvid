@@ -19,7 +19,6 @@
 // Note: Do not IWYU for enums. Just include this header to bring in the whole
 // system, including registration and formatter support.
 
-#include "enums/enums_shared.h"
 #include "enums/bitmask_enum.h"
 #include "enums/sequence_enum.h"
 #include "enums/enum_formatter.h"

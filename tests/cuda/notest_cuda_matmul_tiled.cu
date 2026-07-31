@@ -99,10 +99,14 @@ template<int BM, int BN, int BK, int TM, int TN>
 __global__ void
 matmul_regtiled(int M, int N, int K, const float* __restrict__ A,
     const float* __restrict__ B, float* __restrict__ C) {
-  const auto blockRow = blockIdx.y * BM;   // this block's output-row origin
-  const auto blockCol = blockIdx.x * BN;   // ... and output-col origin
-  const auto threadRow = threadIdx.y * TM; // this thread's sub-tile origin
-  const auto threadCol = threadIdx.x * TN; //     (within the block tile)
+  const auto blockRow =
+      static_cast<int>(blockIdx.y) * BM; // this block's output-row origin
+  const auto blockCol =
+      static_cast<int>(blockIdx.x) * BN; // ... and output-col origin
+  const auto threadRow =
+      static_cast<int>(threadIdx.y) * TM; // this thread's sub-tile origin
+  const auto threadCol =
+      static_cast<int>(threadIdx.x) * TN; //     (within the block tile)
 
   __shared__ float As[BK][BM]; // As[k][m] = A[blockRow+m, kSlab+k]
   __shared__ float Bs[BK][BN]; // Bs[k][n] = B[kSlab+k, blockCol+n]

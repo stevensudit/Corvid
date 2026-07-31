@@ -258,7 +258,7 @@ private:
     return true;
   }
 
-  /// Set `size_` to the total bytes in the active segments.
+  // Set `size_` to the total bytes in the active segments.
   bool update_count() {
     size_ = 0;
     for (size_t ndx = first_index_; ndx < segments_.size(); ++ndx)

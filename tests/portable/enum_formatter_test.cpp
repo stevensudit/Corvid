@@ -59,6 +59,12 @@ consteval auto corvid_enum_spec(weird*) {
   return make_sequence_enum_spec<weird, "ok,q\"x,b\\y,a\tb">();
 }
 
+// A value-form (nameless) sequence enum: formats as its numeric value.
+enum class dial : std::uint8_t {};
+consteval auto corvid_enum_spec(dial*) {
+  return make_sequence_enum_spec<dial, dial{255}>();
+}
+
 // NOLINTBEGIN(readability-function-cognitive-complexity)
 
 TEST_CASE("Sequence enum formats by name", "[EnumFormatterTest]") {
@@ -74,6 +80,18 @@ TEST_CASE("Bitmask enum formats as combination", "[EnumFormatterTest]") {
     CHECK(std::format("{}", rgb::yellow) == "red + green");
     CHECK(std::format("{}", rgb::white) == "red + green + blue");
     CHECK(std::format("{}", rgb::black) == "0x00");
+  }
+}
+
+TEST_CASE("Value-form sequence enum formats numerically",
+    "[EnumFormatterTest]") {
+  if (true) {
+    CHECK(std::format("{}", dial{7}) == "7");
+    CHECK(std::format(L"{}", dial{7}) == L"7");
+    // Width and precision route the numeric rendering through the buffer
+    // path; a value-form registration has no name machinery to consult.
+    CHECK(std::format("{:>4}", dial{7}) == "   7");
+    CHECK(std::format("{:?}", dial{7}) == R"("7")");
   }
 }
 

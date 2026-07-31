@@ -3,13 +3,12 @@
 Status and next steps for `corvid/enums`, following the registration-mechanism
 migration.
 
-## 1. cstring_view accessor (optional)
+## Done
 
-A registration may opt into a `'\0'`-delimited backing blob, enabling an
-`enum_as_cstring_view` accessor for handing names straight to C APIs (e.g.
-nghttp3). Not the default: `cstring_view` is not a `string_view`, so flipping
-the default return type would change `auto` deductions and break callers that
-use `substr`/`remove_suffix`. The default return stays `string_view`.
+- cstring_view accessor: the registration always stores names as
+  independently null-terminated fields (`make_nulled`), and `enum_as_view`
+  returns `cstring_view` directly, so names can be handed straight to C APIs
+  (e.g. nghttp3). No separate opt-in accessor was needed.
 
 ## Deferred / decided against
 

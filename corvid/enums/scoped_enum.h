@@ -15,11 +15,16 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 #pragma once
-#include "enums_shared.h"
+#include <algorithm>
+#include <cstdint>
+#include <string_view>
+
 #include "../meta/concepts.h"
+#include "../meta/crossplatform.h"
 #include "../meta/enums.h"
-#include "enum_registry.h"
 #include "../strings/conversion.h"
+#include "../strings/targeting.h"
+#include "enum_registry.h"
 
 namespace corvid { inline namespace enums { namespace registry {
 
@@ -37,11 +42,11 @@ template<ScopedEnum E, E minseq = min_scoped_enum_v<E>,
 struct scoped_enum_spec
     : public base_enum_spec<E, std::min(minseq, maxseq),
           std::max(minseq, maxseq), validseq, wrapseq, validbits, bitclip> {
-  auto& append(AppendTarget auto& target, E v) const {
+  [[nodiscard]] constexpr auto& append(AppendTarget auto& target, E v) const {
     return strings::append_num(target, as_underlying(v));
   }
 
-  bool lookup(E& v, std::string_view sv) const {
+  [[nodiscard]] constexpr bool lookup(E& v, std::string_view sv) const {
     return details::lookup_helper_wrapper(v, sv);
   }
 };
