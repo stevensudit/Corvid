@@ -1,4 +1,5 @@
 {
+	"comment": "Copied 2026-07-30 from https://raw.githubusercontent.com/moby/profiles/main/seccomp/default.json. Sole deviation: allows io_uring_enter, io_uring_register, and io_uring_setup, which the default profile blocks, because Corvid's network code uses liburing.",
 	"defaultAction": "SCMP_ACT_ERRNO",
 	"defaultErrnoRet": 1,
 	"archMap": [
