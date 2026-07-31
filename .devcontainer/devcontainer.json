@@ -49,18 +49,15 @@
         "tamasfe.even-better-toml",
         "twxs.cmake",
         "vadimcn.vscode-lldb",
-        "ms-vscode.azure-repos",
         "ms-vscode.cpptools-themes",
         "mikestead.dotenv",
         "usernamehw.errorlens",
         "ms-toolsai.jupyter-keymap",
-        "ms-python.debugpy",
-        "GitHub.remotehub",
-        "ms-vscode-remote.remote-containers",
-        "ms-vscode.remote-repositories"
+        "ms-python.debugpy"
       ],
       "settings": {
         "clangd.path": "/usr/bin/clangd",
+        "C_Cpp.intelliSenseEngine": "disabled",
         "editor.formatOnSave": true,
         "editor.defaultFormatter": "esbenp.prettier-vscode",
         "editor.codeActionsOnSave": {
