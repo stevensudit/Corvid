@@ -1,3 +1,19 @@
+// Corvid: A general-purpose modern C++ library extending std.
+// https://github.com/stevensudit/Corvid
+//
+// Copyright 2022-2026 Steven Sudit
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
 #pragma once
 #include <format>
 #include <unordered_map>
@@ -39,26 +55,28 @@ struct indirect_hash_key {
     using is_transparent = void;
 
     [[nodiscard]] constexpr size_t operator()(
-        const indirect_hash_key& ik) const noexcept {
+        const indirect_hash_key& ik) const noexcept(noexcept(H{}(ik.key))) {
       return H{}(ik.key);
     }
     template<typename U>
-    [[nodiscard]] constexpr size_t operator()(const U& u) const noexcept {
+    [[nodiscard]] constexpr size_t operator()(const U& u) const
+        noexcept(noexcept(H{}(u))) {
       return H{}(u);
     }
 
-    [[nodiscard]] constexpr bool operator()(const indirect_hash_key& l,
-        const indirect_hash_key& r) const noexcept {
+    [[nodiscard]] constexpr bool
+    operator()(const indirect_hash_key& l, const indirect_hash_key& r) const
+        noexcept(noexcept(E{}(l.key, r.key))) {
       return E{}(l.key, r.key);
     }
     template<typename U>
-    [[nodiscard]] constexpr bool
-    operator()(const indirect_hash_key& l, const U& r) const noexcept {
+    [[nodiscard]] constexpr bool operator()(const indirect_hash_key& l,
+        const U& r) const noexcept(noexcept(E{}(l.key, r))) {
       return E{}(l.key, r);
     }
     template<typename U>
-    [[nodiscard]] constexpr bool
-    operator()(const U& l, const indirect_hash_key& r) const noexcept {
+    [[nodiscard]] constexpr bool operator()(const U& l,
+        const indirect_hash_key& r) const noexcept(noexcept(E{}(l, r.key))) {
       return E{}(l, r.key);
     }
   };
@@ -84,8 +102,8 @@ struct indirect_map_key {
 
   [[nodiscard]] operator const T&() const noexcept { return key; }
 
-  [[nodiscard]] constexpr bool operator<(
-      const indirect_map_key& r) const noexcept {
+  [[nodiscard]] constexpr bool operator<(const indirect_map_key& r) const
+      noexcept(noexcept(C{}(key, r.key))) {
     return C{}(key, r.key);
   }
 
@@ -95,18 +113,19 @@ struct indirect_map_key {
   struct compare {
     using is_transparent = void;
 
-    [[nodiscard]] constexpr bool operator()(const indirect_map_key& l,
-        const indirect_map_key& r) const noexcept {
+    [[nodiscard]] constexpr bool
+    operator()(const indirect_map_key& l, const indirect_map_key& r) const
+        noexcept(noexcept(C{}(l.key, r.key))) {
       return C{}(l.key, r.key);
     }
     template<typename U>
-    [[nodiscard]] constexpr bool
-    operator()(const indirect_map_key& l, const U& r) const noexcept {
+    [[nodiscard]] constexpr bool operator()(const indirect_map_key& l,
+        const U& r) const noexcept(noexcept(C{}(l.key, r))) {
       return C{}(l.key, r);
     }
     template<typename U>
-    [[nodiscard]] constexpr bool
-    operator()(const U& l, const indirect_map_key& r) const noexcept {
+    [[nodiscard]] constexpr bool operator()(const U& l,
+        const indirect_map_key& r) const noexcept(noexcept(C{}(l, r.key))) {
       return C{}(l, r.key);
     }
   };

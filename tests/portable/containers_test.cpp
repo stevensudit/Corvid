@@ -18,6 +18,7 @@
 #include <cstdint>
 #include <functional>
 #include <map>
+#include <utility>
 #include <set>
 #include <sstream>
 #include <stdexcept>
@@ -97,10 +98,30 @@ TEST_CASE("General", "[TransparentTest]") {
 }
 #pragma endregion
 
+// Hashers with explicit exception specs, to pin the adapters' conditional
+// noexcept.
+struct nothrow_string_hash {
+  size_t operator()(const std::string& s) const noexcept {
+    return std::hash<std::string>{}(s);
+  }
+};
+struct throwing_string_hash {
+  size_t operator()(const std::string& s) const {
+    return std::hash<std::string>{}(s);
+  }
+};
+
 #pragma region IndirectKey_Basic
 
 TEST_CASE("Basic", "[IndirectKey]") {
   using IHK = indirect_hash_key<std::string>;
+
+  // The functor adapters mirror the wrapped hasher's exception spec instead
+  // of overpromising `noexcept`.
+  using NHK = indirect_hash_key<std::string, nothrow_string_hash>;
+  using THK = indirect_hash_key<std::string, throwing_string_hash>;
+  static_assert(noexcept(NHK::hash_equal_to{}(std::declval<const NHK&>())));
+  static_assert(!noexcept(THK::hash_equal_to{}(std::declval<const THK&>())));
   std::unordered_map<IHK, int> um;
   const auto key{"abc"s};
   um[key] = 42;

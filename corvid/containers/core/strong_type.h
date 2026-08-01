@@ -788,8 +788,9 @@ template<typename T, typename TAG>
 struct hash<corvid::strongtypes::strong_type<T, TAG>>
     : std::enable_if_t<std::is_default_constructible_v<std::hash<T>>,
           std::true_type> {
-  constexpr size_t operator()(
-      const corvid::strongtypes::strong_type<T, TAG>& obj) const noexcept {
+  constexpr size_t
+  operator()(const corvid::strongtypes::strong_type<T, TAG>& obj) const
+      noexcept(noexcept(std::hash<T>{}(obj.value()))) {
     return std::hash<T>{}(obj.value());
   }
 };
