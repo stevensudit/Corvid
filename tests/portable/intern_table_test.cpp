@@ -302,6 +302,7 @@ TEST_CASE("Chaining", "[InternTableTest]") {
     auto base_ptr = string_intern_table::make(string_id{0}, string_id{2});
     auto& base = *base_ptr;
     auto alpha = base.intern("alpha");
+    REQUIRE(alpha);
     CHECK(alpha.id() == string_id{1});
 
     auto derived_ptr = base_ptr->make_next(string_id{5});
@@ -310,10 +311,10 @@ TEST_CASE("Chaining", "[InternTableTest]") {
     CHECK(delta.id() == string_id{3});
 
     auto found = derived.get(string_id{1});
-    CHECK(found);
+    REQUIRE(found);
     CHECK(&found.value() == &alpha.value());
     found = derived.get("alpha"sv);
-    CHECK(found);
+    REQUIRE(found);
     CHECK(found.id() == string_id{1});
     CHECK(&found.value() == &alpha.value());
 
@@ -322,7 +323,7 @@ TEST_CASE("Chaining", "[InternTableTest]") {
     // attestation across the chain would throw on the mixed-lock check.)
     lock att{derived.sync};
     found = derived.get("alpha"sv, att);
-    CHECK(found);
+    REQUIRE(found);
     CHECK(&found.value() == &alpha.value());
   }
   if (true) {
@@ -331,6 +332,7 @@ TEST_CASE("Chaining", "[InternTableTest]") {
     // the base's `max_id`.
     auto base_ptr = string_intern_table::make(string_id{0}, string_id{2});
     auto alpha = base_ptr->intern("alpha");
+    REQUIRE(alpha);
     auto gap_ptr =
         string_intern_table::make(string_id{10}, string_id{12}, base_ptr);
     auto& gap = *gap_ptr;
@@ -338,10 +340,13 @@ TEST_CASE("Chaining", "[InternTableTest]") {
     CHECK(omega.id() == string_id{10});
 
     // IDs in the gap resolve to empty through the chain, while base IDs and
-    // values still resolve to the base's singletons.
+    // values still resolve to the base's singletons. (An empty result has the
+    // `missing` id, so the id probe needs no presence guard.)
     CHECK_FALSE(gap.get(string_id{5}));
     CHECK(gap.get(string_id{1}).id() == string_id{1});
-    CHECK(&gap.get("alpha"sv).value() == &alpha.value());
+    auto through = gap.get("alpha"sv);
+    REQUIRE(through);
+    CHECK(&through.value() == &alpha.value());
   }
 }
 #pragma endregion
