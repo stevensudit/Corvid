@@ -16,8 +16,6 @@
 // limitations under the License.
 
 #pragma once
-#include "containers_shared.h"
-
 #include <cstddef>
 #include <functional>
 

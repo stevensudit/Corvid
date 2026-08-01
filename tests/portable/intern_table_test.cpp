@@ -15,8 +15,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#include <atomic>
 #include <deque>
+#include <set>
 #include <string>
+#include <thread>
 
 #include "corvid/containers.h"
 #include "catch2_main.h"
@@ -151,9 +154,14 @@ TEST_CASE("Basic", "[InternTableTest]") {
     CHECK(iv);
     CHECK(iv.id() == string_id{1});
     CHECK(iv.value() == "abc");
-    // Both the string and its contents are in the arena.
-    CHECK(extensible_arena::contains(&iv.value()));
-    CHECK(extensible_arena::contains(iv.value().data()));
+    // Both the string and its contents are in the table's own arena, not the
+    // ambient one. (The ambient checks read true before the `scope` restore
+    // fix, because the table's arena leaked into the thread-local slot and
+    // stayed installed; they now pin that regression.)
+    CHECK(sit.contains(&iv.value()));
+    CHECK(sit.contains(iv.value().data()));
+    CHECK_FALSE(extensible_arena::contains(&iv.value()));
+    CHECK_FALSE(extensible_arena::contains(iv.value().data()));
     iv = SIT::interned_value_t{};
     CHECK_FALSE(iv);
     using C = SIT::lookup_by_value_t;
@@ -163,8 +171,8 @@ TEST_CASE("Basic", "[InternTableTest]") {
     CHECK(iv);
     CHECK(iv.id() == string_id{1});
     CHECK(iv.value() == "abc");
-    CHECK(extensible_arena::contains(&iv.value()));
-    CHECK(extensible_arena::contains(iv.value().data()));
+    CHECK(sit.contains(&iv.value()));
+    CHECK(sit.contains(iv.value().data()));
 
     // Plain `{}` forwards to the value's formatter (honoring its spec);
     // debug `{:?}` shows the `(value, id)` pair, with the id as a number.
@@ -178,9 +186,9 @@ TEST_CASE("Basic", "[InternTableTest]") {
     CHECK(iv);
     CHECK(iv.id() == string_id{2});
     CHECK(iv.value() == "defghijklmnopqrstuvwxyz"sv);
-    // Non-short strings are in the arena.
-    CHECK(extensible_arena::contains(&iv.value()));
-    CHECK(extensible_arena::contains(iv.value().data()));
+    // Non-short strings are in the arena too.
+    CHECK(sit.contains(&iv.value()));
+    CHECK(sit.contains(iv.value().data()));
 
     iv = string_intern_table_value{csit, "ghi"s};
     CHECK_FALSE(iv);
@@ -202,6 +210,170 @@ TEST_CASE("Basic", "[InternTableTest]") {
     CHECK(iv.id() == string_id{1});
     CHECK(iv.value() == "abc");
   }
+}
+#pragma endregion
+
+#pragma region Comparison
+
+TEST_CASE("Comparison", "[InternTableTest]") {
+  if (true) {
+    // Equality is identity, so equal contents interned in unrelated tables
+    // compare unequal; ordering breaks the value tie by address, keeping
+    // ordering equivalence consistent with equality.
+    auto lhs_ptr = string_intern_table::make();
+    auto rhs_ptr = string_intern_table::make();
+    auto a = lhs_ptr->intern("foo");
+    auto b = rhs_ptr->intern("foo");
+    CHECK(a != b);
+    // The extra parens keep Catch2 from decomposing the ordering-vs-0
+    // comparison, which trips on the consteval literal-zero parameter.
+    CHECK(((a <=> b) != 0));
+    CHECK(((a < b) != (b < a)));
+    CHECK(((a <=> a) == 0));
+
+    // Mixed-type equality asks about content, so both duplicates match the
+    // same view while remaining unequal to each other.
+    CHECK(a == "foo"sv);
+    CHECK(b == "foo"sv);
+
+    // The duplicates land as distinct-but-adjacent keys in an ordered
+    // container, while the same singleton collapses.
+    auto a2 = lhs_ptr->intern("foo");
+    CHECK(a == a2);
+    std::set<interned_string> set{a, b, a2};
+    CHECK(set.size() == 2);
+  }
+  if (true) {
+    // Value order dominates ordering; the address tie-break only decides
+    // equal values.
+    auto sit_ptr = string_intern_table::make();
+    auto abc = sit_ptr->intern("abc");
+    auto bcd = sit_ptr->intern("bcd");
+    CHECK(abc < bcd);
+    CHECK(bcd > abc);
+    CHECK(abc <= abc);
+    CHECK(abc >= abc);
+
+    // Heterogeneous equality compares content in both directions, matching
+    // the heterogeneous ordering that already existed.
+    CHECK(abc == "abc"sv);
+    CHECK("abc"sv == abc);
+    CHECK(abc != "bcd"sv);
+    CHECK(abc == "abc"s);
+    CHECK(abc < "b"sv);
+    CHECK("b"sv > abc);
+  }
+  if (true) {
+    // Empty orders below every non-empty value and ties with empty, the
+    // `std::optional` model, so the order stays total.
+    auto sit_ptr = string_intern_table::make();
+    auto abc = sit_ptr->intern("abc");
+    interned_string empty;
+    interned_string empty2;
+    CHECK(empty == empty2);
+    CHECK(((empty <=> empty2) == 0));
+    CHECK(empty < abc);
+    CHECK(abc > empty);
+    CHECK_FALSE(empty == abc);
+
+    // An ordered container admits one empty alongside the values.
+    std::set<interned_string> set{empty, abc, empty2};
+    CHECK(set.size() == 2);
+    CHECK(set.contains(empty));
+
+    // An empty equals no view, not even an empty one; it orders below all.
+    CHECK_FALSE(empty == "foo"sv);
+    CHECK_FALSE("foo"sv == empty);
+    CHECK(empty != ""sv);
+    CHECK(empty != ""s);
+    CHECK(empty < "foo"sv);
+    CHECK("foo"sv > empty);
+    CHECK(""sv > empty);
+  }
+}
+#pragma endregion
+
+#pragma region Chaining
+
+TEST_CASE("Chaining", "[InternTableTest]") {
+  if (true) {
+    // A `make_next` table starts one past the base and resolves chained
+    // lookups, by ID and by value, to the base's singletons.
+    auto base_ptr = string_intern_table::make(string_id{0}, string_id{2});
+    auto& base = *base_ptr;
+    auto alpha = base.intern("alpha");
+    REQUIRE(alpha);
+    CHECK(alpha.id() == string_id{1});
+
+    auto derived_ptr = base_ptr->make_next(string_id{5});
+    auto& derived = *derived_ptr;
+    auto delta = derived.intern("delta");
+    CHECK(delta.id() == string_id{3});
+
+    auto found = derived.get(string_id{1});
+    REQUIRE(found);
+    CHECK(&found.value() == &alpha.value());
+    found = derived.get("alpha"sv);
+    REQUIRE(found);
+    CHECK(found.id() == string_id{1});
+    CHECK(&found.value() == &alpha.value());
+
+    // A caller-held attestation on the derived table stays on the derived
+    // table; the chained call takes the base's own lock. (Forwarding the
+    // attestation across the chain would throw on the mixed-lock check.)
+    lock att{derived.sync};
+    found = derived.get("alpha"sv, att);
+    REQUIRE(found);
+    CHECK(&found.value() == &alpha.value());
+  }
+  if (true) {
+    // An explicit `min_id` alongside `next` is honored, allowing a reserved
+    // gap in the ID space; it used to be silently overwritten with one past
+    // the base's `max_id`.
+    auto base_ptr = string_intern_table::make(string_id{0}, string_id{2});
+    auto alpha = base_ptr->intern("alpha");
+    REQUIRE(alpha);
+    auto gap_ptr =
+        string_intern_table::make(string_id{10}, string_id{12}, base_ptr);
+    auto& gap = *gap_ptr;
+    auto omega = gap.intern("omega");
+    CHECK(omega.id() == string_id{10});
+
+    // IDs in the gap resolve to empty through the chain, while base IDs and
+    // values still resolve to the base's singletons. (An empty result has the
+    // `missing` id, so the id probe needs no presence guard.)
+    CHECK_FALSE(gap.get(string_id{5}));
+    CHECK(gap.get(string_id{1}).id() == string_id{1});
+    auto through = gap.get("alpha"sv);
+    REQUIRE(through);
+    CHECK(&through.value() == &alpha.value());
+  }
+}
+#pragma endregion
+
+#pragma region Concurrency
+
+TEST_CASE("Concurrency", "[InternTableTest]") {
+  // `contains` is documented safe alongside `intern` without the table lock:
+  // a reader thread hammers lookups of an already-interned value while the
+  // main thread interns enough new values to spill several arena blocks. The
+  // sanitizer legs, TSAN especially, give this test its teeth.
+  auto sit_ptr = string_intern_table::make();
+  auto& sit = *sit_ptr;
+  auto seed = sit.intern("seed");
+  const void* seed_ptr = &seed.value();
+
+  std::atomic<bool> stop{};
+  std::atomic<bool> ok{true};
+  std::jthread reader{[&] {
+    while (!stop.load(std::memory_order::relaxed))
+      if (!sit.contains(seed_ptr)) ok.store(false, std::memory_order::relaxed);
+  }};
+
+  for (auto i = 0; i < 1'000; ++i) (void)sit.intern(std::to_string(i));
+  stop.store(true, std::memory_order::relaxed);
+  reader.join();
+  CHECK(ok.load());
 }
 #pragma endregion
 

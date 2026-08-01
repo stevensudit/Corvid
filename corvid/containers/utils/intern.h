@@ -15,14 +15,26 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 #pragma once
+#include <cassert>
+#include <compare>
+#include <cstddef>
+#include <deque>
 #include <format>
+#include <limits>
+#include <memory>
+#include <stdexcept>
+#include <string>
+#include <string_view>
+#include <unordered_map>
+#include <utility>
 
-#include "../core/containers_shared.h"
 #include "../core/arena_allocator.h"
 #include "../core/opt_find.h"
 #include "../core/indirect_key.h"
 #include "../../concurrency/sync_lock.h"
 #include "../../enums/sequence_enum.h"
+#include "../../meta/concepts.h"
+#include "../../meta/enums.h"
 
 namespace corvid { inline namespace container { inline namespace intern {
 
@@ -148,8 +160,11 @@ public:
 #pragma endregion
 #pragma region Comparison
 
-  // Equality is optimized to compare by address. We do not want to compare
-  // ID's because we can't be sure that they're from the same table.
+  // Equality is identity: within a chain, equal values are the same singleton,
+  // so comparing addresses suffices (and tolerates empty). Equal contents
+  // interned in unrelated tables are distinct entities and compare unequal. We
+  // do not compare ID's because we can't be sure that they're from the same
+  // table.
   constexpr bool operator==(const interned_value& other) const noexcept {
     return value_ == other.value_;
   }
@@ -157,30 +172,51 @@ public:
     return value_ != other.value_;
   }
 
-  // Inequality has to look at the values. Note that we crash on nullptr.
-  constexpr bool operator<(const interned_value& other) const {
-    return *value_ < *other.value_;
-  }
-  constexpr bool operator<=(const interned_value& other) const {
-    return *value_ <= *other.value_;
-  }
-  constexpr bool operator>(const interned_value& other) const {
-    return *value_ > *other.value_;
-  }
-  constexpr bool operator>=(const interned_value& other) const {
-    return *value_ >= *other.value_;
+  // Ordering compares by value, with empty ordering below every non-empty
+  // value and equivalent to empty, the `std::optional` model, so the order is
+  // total. Equal values at distinct addresses, possible only across unrelated
+  // tables, break the tie by address so that ordering equivalence coincides
+  // with equality; the relative order of such duplicates is consistent within
+  // a run but otherwise arbitrary.
+  constexpr std::compare_three_way_result_t<value_t> operator<=>(
+      const interned_value& other) const {
+    using ordering = std::compare_three_way_result_t<value_t>;
+    if (!value_ || !other.value_) {
+      if (value_) return ordering::greater;
+      return other.value_ ? ordering::less : ordering::equivalent;
+    }
+    if (const auto cmp = *value_ <=> *other.value_; cmp != 0) return cmp;
+    return std::compare_three_way{}(value_, other.value_);
   }
 
-  // Heterogeneous comparisons with types that are viewable as `value_t`.
+  // Heterogeneous comparisons with types that are viewable as `value_t`. An
+  // empty operand orders below every view.
   template<typename U>
   requires Viewable<value_t, U>
   friend constexpr auto operator<=>(const interned_value& lhs, const U& rhs) {
+    if (!lhs.value_) return decltype(*lhs.value_ <=> rhs)::less;
     return *lhs.value_ <=> rhs;
   }
   template<typename U>
   requires Viewable<value_t, U>
   friend constexpr auto operator<=>(const U& lhs, const interned_value& rhs) {
+    if (!rhs.value_) return decltype(lhs <=> *rhs.value_)::greater;
     return lhs <=> *rhs.value_;
+  }
+
+  // Heterogeneous equality is by value, not identity, because the operand is
+  // not interned. Two interned values can each equal the same view while
+  // remaining unequal to each other. An empty operand equals no view, not even
+  // an empty one.
+  template<typename U>
+  requires Viewable<value_t, U>
+  friend constexpr bool operator==(const interned_value& lhs, const U& rhs) {
+    return lhs.value_ && (*lhs.value_ == rhs);
+  }
+  template<typename U>
+  requires Viewable<value_t, U>
+  friend constexpr bool operator==(const U& lhs, const interned_value& rhs) {
+    return rhs.value_ && (lhs == *rhs.value_);
   }
 
 #pragma endregion
@@ -306,14 +342,20 @@ public:
 
   // Make intern table for a range of IDs. If `next` is specified, the new
   // table will chain to that one and will default its `min_id` to 1 past that
-  // table's `max_id`. Otherwise, if unspecified, then it defaults to 1. If
-  // `max_id` is unspecified, it defaults to the max of the underlying type.
+  // table's `max_id`; an explicit `min_id` may leave a gap above that table's
+  // range but must not overlap it. Otherwise, if unspecified, then it defaults
+  // to 1. If `max_id` is unspecified, it defaults to the max of the underlying
+  // type.
   [[nodiscard]] static auto make(id_t min_id = id_t{}, id_t max_id = id_t{},
       const const_pointer& next = {}) {
-    if (next)
-      min_id = next->max_id_ + 1;
-    else if (!min_id)
+    if (next) {
+      if (!min_id)
+        min_id = next->max_id_ + 1;
+      else
+        assert(min_id > next->max_id_);
+    } else if (!min_id) {
       ++min_id;
+    }
 
     if (!max_id)
       max_id = static_cast<id_t>(
@@ -334,6 +376,18 @@ public:
 
   // When full, `intern` fails.
   [[nodiscard]] bool is_full() const { return sync.is_disabled(); }
+
+  // Whether `pv` points into this table's arena storage, where the stored
+  // values and any heap-backed contents they own live.
+  //
+  // Deliberately lock-free: the arena publishes its blocks for concurrent
+  // reading, so this is safe alongside `intern` without the table lock. A
+  // value being interned at that instant may not be reflected yet.
+  [[nodiscard]] bool contains(const void* pv) const {
+    // Scope installation writes only the thread-local slot, not the arena.
+    extensible_arena::scope s(const_cast<extensible_arena&>(arena_));
+    return extensible_arena::contains(pv);
+  }
 
   // Get interned value by ID. If not found, returns empty. Chains to next
   // table if necessary. See also: `operator()`.
@@ -363,7 +417,7 @@ public:
       const auto index = *id - *min_id_;
       found_value = reinterpret_cast<const value_t*>(&lookup_by_id_[index]);
     } else if (next_)
-      return next_->get(value, attestation);
+      return next_->get(value);
 
     return {allow::ctor, found_value, id};
   }

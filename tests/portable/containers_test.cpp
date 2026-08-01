@@ -15,12 +15,17 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#include <cstddef>
 #include <cstdint>
 #include <functional>
 #include <map>
+#include <new>
+#include <utility>
 #include <set>
 #include <sstream>
+#include <stdexcept>
 #include <thread>
+#include <type_traits>
 #include <unordered_map>
 #include <vector>
 
@@ -35,6 +40,12 @@ using namespace corvid::internal;
 enum class test_id_t : size_t { invalid = std::numeric_limits<size_t>::max() };
 consteval auto corvid_enum_spec(test_id_t*) {
   return corvid::enums::sequence::make_sequence_enum_spec<test_id_t, "">();
+}
+
+// Enum with a narrow underlying type, for the size_as_enum wrap pin.
+enum class small_id_t : uint8_t {};
+consteval auto corvid_enum_spec(small_id_t*) {
+  return corvid::enums::sequence::make_sequence_enum_spec<small_id_t, "">();
 }
 
 // NOLINTBEGIN(readability-function-cognitive-complexity,
@@ -89,10 +100,30 @@ TEST_CASE("General", "[TransparentTest]") {
 }
 #pragma endregion
 
+// Hashers with explicit exception specs, to pin the adapters' conditional
+// noexcept.
+struct nothrow_string_hash {
+  size_t operator()(const std::string& s) const noexcept {
+    return std::hash<std::string>{}(s);
+  }
+};
+struct throwing_string_hash {
+  size_t operator()(const std::string& s) const {
+    return std::hash<std::string>{}(s);
+  }
+};
+
 #pragma region IndirectKey_Basic
 
 TEST_CASE("Basic", "[IndirectKey]") {
   using IHK = indirect_hash_key<std::string>;
+
+  // The functor adapters mirror the wrapped hasher's exception spec instead
+  // of overpromising `noexcept`.
+  using NHK = indirect_hash_key<std::string, nothrow_string_hash>;
+  using THK = indirect_hash_key<std::string, throwing_string_hash>;
+  static_assert(noexcept(NHK::hash_equal_to{}(std::declval<const NHK&>())));
+  static_assert(!noexcept(THK::hash_equal_to{}(std::declval<const THK&>())));
   std::unordered_map<IHK, int> um;
   const auto key{"abc"s};
   um[key] = 42;
@@ -108,202 +139,6 @@ TEST_CASE("Basic", "[IndirectKey]") {
   CHECK(std::format("{:?}", IHK{key}) == "\"abc\"");
   CHECK(std::format("{}", IMK{key}) == "abc");
   CHECK(std::format("{:>5}", IMK{key}) == "  abc");
-}
-#pragma endregion
-
-class SpecialIntDeleter {
-public:
-  SpecialIntDeleter() = delete;
-  SpecialIntDeleter(int x) : x_(x) {}
-
-  void operator()(int* p) const { delete p; }
-  int x_;
-};
-
-class DefaultIntDeleter {
-public:
-  void operator()(int* p) const { delete p; }
-};
-
-struct D // deleter
-{
-  static inline std::string_view action;
-
-  D() { action = "ctor"sv; }
-  D(const D&) { action = "copy"sv; }
-  D(D&) { action = "non-const copy"sv; }
-  D(D&&) noexcept { action = "move"sv; }
-  void operator()(int* p) const {
-    action = "delete"sv;
-    delete p;
-  };
-};
-
-#pragma region OwnPtrTest_Ctor
-
-TEST_CASE("Ctor", "[OwnPtrTest]") {
-  {
-    own_ptr<int> p;
-    own_ptr<int, DefaultIntDeleter> q;
-
-    // If there's no deleter, it points to the object itself.
-    CHECK((const void*)&p.get_deleter() == (const void*)&p);
-
-    // Requires defaultable constructor.
-    //* own_ptr<int, SpecialIntDeleter> r;
-
-    own_ptr<int, SpecialIntDeleter> r{nullptr, SpecialIntDeleter{42}};
-    CHECK((sizeof(r)) > (sizeof(int*)));
-
-    CHECK(sizeof(p) == sizeof(int*));
-    CHECK(sizeof(q) == sizeof(int*));
-    auto p2 = std::move(p);
-
-    CHECK(r.get_deleter().x_ == 42);
-    auto r2 = std::move(r);
-    CHECK(r2.get_deleter().x_ == 42);
-  }
-  {
-    using P0 = own_ptr<int>;
-    CHECK(P0::is_deleter_non_reference_v);
-    CHECK_FALSE(P0::is_deleter_lvalue_reference_v);
-    CHECK_FALSE(P0::is_deleter_const_lvalue_reference_v);
-    using P1 = own_ptr<int, D>;
-    CHECK(P1::is_deleter_non_reference_v);
-    CHECK_FALSE(P1::is_deleter_lvalue_reference_v);
-    CHECK_FALSE(P1::is_deleter_const_lvalue_reference_v);
-    using P2 = own_ptr<int, D&>;
-    CHECK_FALSE(P2::is_deleter_non_reference_v);
-    CHECK(P2::is_deleter_lvalue_reference_v);
-    CHECK_FALSE(P2::is_deleter_const_lvalue_reference_v);
-    using P3 = own_ptr<int, const D&>;
-    CHECK_FALSE(P3::is_deleter_non_reference_v);
-    CHECK_FALSE(P3::is_deleter_lvalue_reference_v);
-    CHECK(P3::is_deleter_const_lvalue_reference_v);
-  }
-
-  // Cases from https://en.cppreference.com/w/cpp/memory/unique_ptr.
-  {
-    // Example constructor(1).
-    using P = own_ptr<int>;
-    P p;
-    P q{nullptr};
-    CHECK(p.get() == nullptr);
-    CHECK(q.get() == nullptr);
-  }
-  {
-    // Example constructor(2)
-    using P = own_ptr<int>;
-    P{new int};
-  }
-  D d;
-  CHECK(D::action == "ctor"sv);
-  {
-    // Example constructor(3a)
-    // Non-reference is copied when lvalue.
-    using P = own_ptr<int, D>;
-    P p{new int, d}; // Copy of d
-    CHECK(D::action == "copy"sv);
-  }
-  CHECK(D::action == "delete"sv);
-  {
-    // Example constructor(3b)
-    // Reference is held when lvalue.
-    using P = own_ptr<int, D&>;
-    D::action = "referenced"sv;
-    P p{new int, d}; // Reference to d
-    CHECK(D::action == "referenced"sv);
-  }
-  CHECK(D::action == "delete"sv);
-  {
-    // Example constructor(4)
-    // Non-reference is moved when rvalue.
-    using P = own_ptr<int, D>;
-    P p{new int, D{}}; // Move of D
-    CHECK(D::action == "move"sv);
-  }
-  CHECK(D::action == "delete"sv);
-  {
-    // Example constructor(5)
-    // Ownership transfer.
-    using P = own_ptr<int>;
-    P p{new int};
-    P q{std::move(p)};
-  }
-  CHECK(D::action == "delete"sv);
-  {
-    // Example constructor(6ab)
-    // Non-reference is copied when lvalue.
-    using P = own_ptr<int, D>;
-    P p{new int, d}; // Copy of d
-    CHECK(D::action == "copy"sv);
-    P q{std::move(p)}; // Move of d
-    CHECK(D::action == "move"sv);
-  }
-  CHECK(D::action == "delete"sv);
-  {
-    // Example constructor(6cd)
-    // Non-reference is copied when lvalue.
-    using P = own_ptr<int, D&>;
-    using Q = own_ptr<int, D>;
-    D::action = "referenced"sv;
-    // It cannot be moved. Implicitly deleted.
-    //* P q(new int, D{});
-    P p{new int, d}; // Copy of d
-    CHECK(D::action == "referenced"sv);
-    Q q{std::move(p)}; // Move of d
-    CHECK(D::action == "non-const copy"sv);
-    // This correctly fails.
-    //* P r{new int, D{}};
-  }
-  CHECK(D::action == "delete"sv);
-  {
-    using P = own_ptr<int, const D&>;
-    D::action = "referenced"sv;
-    P p{new int, d}; // Reference to d
-    CHECK(D::action == "referenced"sv);
-    // It cannot be moved. Deleted.
-    //* P q(new int, D{});
-  }
-  {
-#if 0
-    // Regression test.
-    using P = own_ptr<int, D&>;
-    using Q = own_ptr<int, const D&>;
-    // This fails correctly because the only available constructor requires an
-    // lvalue, not an rvalue. It takes a `D&`.
-    P p{new int, D{}};
-    // This now fails correctly but didn't before. It needed an explicit
-    // deletion, but also a fix to is_deleter.
-    Q q{new int, D{}};
-#endif
-  }
-  {
-    // CTAD.
-    //* auto pp = std::unique_ptr{new int};
-    //* auto p = own_ptr{new int};
-    auto pp = std::unique_ptr<int>{new int};
-    auto p = own_ptr<int>{new int};
-
-    // auto q = own_ptr{new int, D{}};
-#if 0
-    auto q{std::move(p)};
-    auto uq{std::move(up)};
-    auto r = own_ptr{new int, std::default_delete<int>{}};
-#endif
-    // sabotage with deduction guides to void
-
-    // std::unique_ptr up{new int};
-    // (void)up;
-  }
-
-  //  CHECK_FALSE(p);
-  //  std::unique_ptr<int> up;
-
-  {
-    auto p = own_ptr<int>::make(42);
-    CHECK(*p == 42);
-  }
 }
 #pragma endregion
 
@@ -334,98 +169,6 @@ TEST_CASE("Experimental", "[DeductionTest]") {
 }
 #pragma endregion
 
-// NOLINTNEXTLINE(performance-enum-size)
-enum class FileDescriptor : int { invalid = -1 };
-
-struct fd_deleter {
-  using pointer = custom_handle<fd_deleter, FileDescriptor, int, -1>;
-
-  void operator()(pointer p) {
-    if (*p != FileDescriptor::invalid) ++close_count;
-  }
-  static inline size_t close_count{};
-};
-
-using unique_fd = std::unique_ptr<FileDescriptor, fd_deleter>;
-
-#pragma region CustomHandleTest_Basic
-
-TEST_CASE("Basic", "[CustomHandleTest]") {
-#if 0
-  // Baseline unique_ptr.
-  if (true) {
-    using P = std::unique_ptr<int>;
-    P p;
-    P q{new int};
-    p.reset(q.release());
-    q = std::move(p);
-  }
-  // Custom deleter for unique_ptr.
-  if (true) {
-    using P = unique_fd;
-    CHECK(fd_deleter::close_count == 0U);
-    P p;
-    CHECK(sizeof(p) == sizeof(int));
-    P q{FileDescriptor{42}};
-    auto* x = (int*)&p;
-    p.reset(FileDescriptor{49});
-    auto y = *p;
-    CHECK(*p == FileDescriptor{42});
-    p.reset(q.release());
-    q = std::move(p);
-    p.reset(FileDescriptor{43});
-    CHECK(fd_deleter::close_count == 0U);
-    FileDescriptor i{49};
-    p.reset(i);
-    CHECK(fd_deleter::close_count == 1U);
-    CHECK(i == FileDescriptor{42});
-    p = unique_fd{std::move(i)};
-    CHECK(fd_deleter::close_count == 2U);
-    CHECK(i == FileDescriptor::invalid);
-    const FileDescriptor j{42};
-    p = unique_fd{j};
-    CHECK(fd_deleter::close_count == 3U);
-    CHECK(j == FileDescriptor{42});
-    // * p = unique_fd{std::move(j)};
-    p.reset();
-    CHECK(fd_deleter::close_count == 4U);
-    i = FileDescriptor{46};
-    p.reset(i);
-    CHECK(*p == FileDescriptor{46});
-    CHECK(i == FileDescriptor{46});
-    i = FileDescriptor{47};
-
-    // Proof that 0 is not the nullptr.
-    p = unique_fd{FileDescriptor{0}};
-    CHECK(*p.get() == FileDescriptor{0});
-    CHECK(*p == FileDescriptor{0});
-    bool is_present = p ? true : false;
-    CHECK(is_present == true);
-    p.reset();
-    CHECK(fd_deleter::close_count == 6U);
-  }
-  CHECK(fd_deleter::close_count == 8U);
-#endif
-}
-
-TEST_CASE("Format", "[CustomHandleTest]") {
-  using handle = custom_handle<struct FormatTag, int>;
-  auto i = 42;
-  handle h{&i};
-  handle n;
-
-  // A live handle forwards to the element's formatter (with its spec); a null
-  // handle renders the unquoted `(null)` marker.
-  CHECK(std::format("{}", h) == "42");
-  CHECK(std::format("{:>4}", h) == "  42");
-  CHECK(std::format("{}", n) == "(null)");
-
-  // Narrow and wide both come along.
-  CHECK(std::format(L"{}", h) == L"42");
-  CHECK(std::format(L"{}", n) == L"(null)");
-}
-#pragma endregion
-
 #pragma region NoInitResize_Basic
 
 TEST_CASE("Basic", "[NoInitResize]") {
@@ -434,6 +177,105 @@ TEST_CASE("Basic", "[NoInitResize]") {
   std::string s;
   // s.resize_and_overwrite(2);
   (void)s;
+}
+#pragma endregion
+
+#pragma region Arena_Basic
+
+TEST_CASE("Basic", "[ArenaTest]") {
+  using arena::extensible_arena;
+  // Nested scopes: the inner scope routes allocations to its own arena, and
+  // ending it restores the outer arena, not the inner one.
+  if (true) {
+    extensible_arena a{256};
+    extensible_arena b{256};
+    void* in_a{};
+    if (true) {
+      extensible_arena::scope sa{a};
+      in_a = extensible_arena::allocate(8, 8);
+      CHECK(extensible_arena::contains(in_a));
+      void* in_b{};
+      if (true) {
+        extensible_arena::scope sb{b};
+        in_b = extensible_arena::allocate(8, 8);
+        CHECK(extensible_arena::contains(in_b));
+        CHECK_FALSE(extensible_arena::contains(in_a));
+      }
+      // Back on `a`: both the old and a fresh allocation are in `a`, and
+      // `b`'s allocation is not.
+      CHECK(extensible_arena::contains(in_a));
+      CHECK_FALSE(extensible_arena::contains(in_b));
+      auto* p = extensible_arena::allocate(8, 8);
+      CHECK(extensible_arena::contains(p));
+    }
+  }
+  // Allocations honor the requested alignment as an address, including
+  // alignments above `alignof(max_align_t)`, even after a deliberately odd
+  // tail.
+  if (true) {
+    extensible_arena a{4096};
+    extensible_arena::scope sa{a};
+    for (const auto align : {8UZ, 16UZ, 32UZ, 64UZ}) {
+      auto* p = extensible_arena::allocate(24, align);
+      CHECK(reinterpret_cast<uintptr_t>(p) % align == 0U);
+      CHECK(extensible_arena::allocate(1, 1) != nullptr);
+    }
+  }
+  // Teardown of a long block chain iterates instead of recursing. Before the
+  // fix, destroying the arena overflowed the stack (one frame per block),
+  // which kills the process and so cannot be pinned as a failing assertion.
+  if (true) {
+    extensible_arena a{16};
+    extensible_arena::scope sa{a};
+    void* p{};
+    for (int i = 0; i < 100'000; ++i) p = extensible_arena::allocate(16, 1);
+    CHECK(p != nullptr);
+  }
+  // A fresh block is padded for alignment: a request of the full block
+  // capacity at an alignment above the node's own fits in the replacement
+  // block instead of returning null.
+  if (true) {
+    extensible_arena a{32};
+    extensible_arena::scope sa{a};
+    auto* p = extensible_arena::allocate(32, 16);
+    CHECK(p != nullptr);
+    CHECK(reinterpret_cast<uintptr_t>(p) % 16U == 0U);
+  }
+  // `contains` measures block storage, not the allocation frontier, so an
+  // address past the used tail but within the block still reports contained.
+  // (This is what lets it run lock-free alongside an allocating writer.)
+  if (true) {
+    extensible_arena a{256};
+    extensible_arena::scope sa{a};
+    auto* p = static_cast<std::byte*>(extensible_arena::allocate(8, 8));
+    CHECK(extensible_arena::contains(p));
+    CHECK(extensible_arena::contains(p + 100));
+  }
+  // A zero-capacity arena is legal: its head block holds nothing, so every
+  // allocation spills to a fresh block. (The head node's buffer must still be
+  // full-sized; pre-fix it came up one byte short of `sizeof(list_node)`.)
+  if (true) {
+    extensible_arena a{0};
+    extensible_arena::scope sa{a};
+    auto* p = extensible_arena::allocate(8, 8);
+    CHECK(p != nullptr);
+    CHECK(extensible_arena::contains(p));
+  }
+  // Overflow guards: unrepresentable sizes are rejected by throwing, before
+  // any arithmetic can wrap. Pre-fix, the first two wrapped to small values
+  // (allocating an undersized block while recording the huge capacity) and
+  // the third sailed under the room check.
+  if (true) {
+    using arena::arena_allocator;
+    CHECK_THROWS_AS(extensible_arena{SIZE_MAX}, std::bad_array_new_length);
+    extensible_arena a{64};
+    extensible_arena::scope sa{a};
+    arena_allocator<uint64_t> alloc;
+    CHECK_THROWS_AS(alloc.allocate(SIZE_MAX / sizeof(uint64_t) + 1),
+        std::bad_array_new_length);
+    CHECK_THROWS_AS(extensible_arena::allocate(SIZE_MAX - 2, 1),
+        std::bad_array_new_length);
+  }
 }
 #pragma endregion
 
@@ -482,6 +324,50 @@ TEST_CASE("Basic", "[StrongType]") {
   age = age - 1;
   CHECK(age == 43);
   age = age << 1;
+}
+#pragma endregion
+
+#pragma region StrongType_Heterogeneous
+
+TEST_CASE("Heterogeneous", "[StrongType]") {
+  if (true) {
+    // Mixed comparisons are exact in the natural common type; the operand is
+    // not quantized into `T`. Pre-fix, `age == 3.7` read true via truncation
+    // and `age < 3.5` read false.
+    PersonAge age{3};
+    CHECK_FALSE(age == 3.7);
+    CHECK(age != 3.7);
+    CHECK(age < 3.5);
+    CHECK(3.5 > age);
+    CHECK_FALSE(age < 3.0);
+    CHECK(age <= 3.0);
+    CHECK(age == 3.0);
+
+    // A type only comparable with `T`, not convertible to it, now works:
+    // `std::string_view` converts to `std::string` only explicitly.
+    FirstName fn{"John"};
+    CHECK(fn == "John"sv);
+    CHECK("Jane"sv < fn);
+  }
+  if (true) {
+    // Mixed arithmetic computes in the common type but returns the strong
+    // type, landing back in `T`'s domain, narrowing if necessary.
+    PersonAge age{3};
+    CHECK(age + 0.5 == PersonAge{3});
+    CHECK(age + 1.5 == PersonAge{4});
+  }
+  if (true) {
+    // A wrapped callable that returns a reference keeps returning one, so the
+    // result aliases the target and writes through it stick. Pre-fix, the
+    // `auto` return decayed it to a copy.
+    long target{7};
+    using GetRef = strong_type<std::function<long&()>, struct GetRefTag>;
+    GetRef get_ref{[&target]() -> long& { return target; }};
+    static_assert(std::is_same_v<decltype(get_ref()), long&>);
+    CHECK(&get_ref() == &target);
+    get_ref() = 9;
+    CHECK(target == 9);
+  }
 }
 #pragma endregion
 
@@ -908,6 +794,13 @@ TEST_CASE("Basic", "[EnumVariant]") {
     QueryVariant qv{in_place_enum<QueryType::Status>};
     auto e = qv.index();
     CHECK(e == QueryType::Status);
+
+    // The in_place ctors deduce the variant's own `enum_type`, so a foreign
+    // scoped enum's tag is rejected at overload resolution.
+    static_assert(std::is_constructible_v<QueryVariant,
+        in_place_enum_t<QueryType::Status>>);
+    static_assert(
+        !std::is_constructible_v<QueryVariant, in_place_enum_t<test_id_t{0}>>);
   }
   if (true) {
     QueryVariant::underlying_type underlying_other_range_key{
@@ -989,6 +882,87 @@ TEST_CASE("Basic", "[EnumVariant]") {
     s = overload_visitor.visit(qv);
     CHECK(s == "Some RangeKey(start=10, end=20)");
   }
+  if (true) {
+    // The callback helpers work on a plain std::variant, and the member
+    // `visit` works with `indexed_callbacks`; both route through
+    // `underlying_variant_type_t`, which must not hard-error on either shape.
+    auto sv_visitor = indexed_callbacks( //
+        [](std::monostate) { return "mono"s; },
+        [](int n) { return format_args("int(", n, ")"); },
+        [](const std::string& s) { return format_args("str(", s, ")"); });
+    std::variant<std::monostate, int, std::string> sv{7};
+    CHECK(sv_visitor.visit(sv) == "int(7)");
+
+    auto qv_visitor = indexed_callbacks( //
+        [](std::monostate) { return "None"s; },
+        [](const RetrievalKey& rk) { return format_args("R(", rk.id, ")"); },
+        [](const RangeKey&) { return "Range"s; },
+        [](const RangeKey&) { return "OtherRange"s; },
+        [](const std::string& s) { return format_args("S(", s, ")"); });
+    QueryVariant qv{RetrievalKey{1, "retrieve"}};
+    CHECK(qv.visit(qv_visitor) == "R(1)");
+
+    // Rvalue paths move out through `get_underlying`.
+    qv = QueryVariant::make<QueryType::Status>("status"s);
+    auto moved =
+        variant_get<static_cast<size_t>(QueryType::Status)>(std::move(qv));
+    CHECK(moved == "status");
+  }
+}
+#pragma endregion
+
+enum class ThrowKind : std::uint8_t { value, thrower };
+
+// The value constructor throws, to manufacture a valueless variant.
+struct ThrowOnConstruct {
+  ThrowOnConstruct() = default;
+  explicit ThrowOnConstruct(int) { throw std::runtime_error{"boom"}; }
+};
+
+using ThrowVariant = enum_variant<ThrowKind, int, ThrowOnConstruct>;
+
+#pragma region EnumVariant_BadIndex
+
+TEST_CASE("BadIndex", "[EnumVariant]") {
+  if (true) {
+    // An out-of-range enum value fails the consteval constructor's constant
+    // evaluation, so rejection is a compile error and can only be
+    // demonstrated:
+    // QueryVariant bad{static_cast<QueryType>(5)};
+    //
+    // The constexpr dodges an MSVC 14.51 bug materializing a consteval-built
+    // variant with a non-zero index into a runtime object; see
+    // crossplatform.md.
+    constexpr QueryVariant good{QueryType::Range};
+    CHECK(good.index() == QueryType::Range);
+  }
+  if (true) {
+    // In-range enum assignment default-constructs that alternative. Out of
+    // range is a precondition violation that terminates through the operator's
+    // `noexcept` boundary, so only the in-range side is testable.
+    QueryVariant qv{RetrievalKey{1, "x"}};
+    qv = QueryType::Range;
+    CHECK(qv.index() == QueryType::Range);
+    static_assert(noexcept(qv = QueryType::Range));
+  }
+  if (true) {
+    // A constructor that throws mid-emplace leaves the variant valueless.
+    // Visiting it then throws `bad_variant_access`, mirroring `std::visit`,
+    // on the indexed and overloaded paths alike.
+    ThrowVariant tv{42};
+    CHECK_THROWS_AS(tv.emplace<ThrowOnConstruct>(1), std::runtime_error);
+    CHECK(tv.valueless_by_exception());
+    CHECK(tv.index() == ThrowVariant::variant_npos);
+
+    auto indexed = indexed_callbacks( //
+        [](int) { return 1; }, [](const ThrowOnConstruct&) { return 2; });
+    CHECK_THROWS_AS(indexed.visit(tv), std::bad_variant_access);
+    CHECK_THROWS_AS(tv.visit(indexed), std::bad_variant_access);
+
+    auto overloads = overloaded_callbacks( //
+        [](int) { return 1; }, [](const ThrowOnConstruct&) { return 2; });
+    CHECK_THROWS_AS(tv.visit(overloads), std::bad_variant_access);
+  }
 }
 #pragma endregion
 
@@ -1047,6 +1021,17 @@ TEST_CASE("Basic", "[EnumVector]") {
 
   auto enum_size = v.size_as_enum();
   CHECK(*enum_size == v.size());
+
+  // The capacity vocabulary is `size_t`, so the vector can outgrow a narrow
+  // enum's underlying type and `size()` stays exact; `size_as_enum` is the
+  // narrowing bridge and wraps when the size does not fit: a full-domain
+  // 8-bit vector holds 256 but reports `small_id_t{0}`.
+  enum_vector<int, small_id_t> sv;
+  sv.resize(256);
+  CHECK(sv.size() == 256U);
+  CHECK(sv.size_as_enum() == small_id_t{0});
+  sv.pop_back();
+  CHECK(sv.size_as_enum() == small_id_t{255});
 
   auto& u = v.underlying();
   const auto& cu = cv.underlying();

@@ -1,5 +1,5 @@
 {
-	"comment": "Copied 2026-07-30 from https://raw.githubusercontent.com/moby/profiles/main/seccomp/default.json. Sole deviation: allows io_uring_enter, io_uring_register, and io_uring_setup, which the default profile blocks, because Corvid's network code uses liburing.",
+	"comment": "Copied 2026-07-30 from https://raw.githubusercontent.com/moby/profiles/main/seccomp/default.json. Two deviations from the default profile. First, it allows io_uring_enter, io_uring_register, and io_uring_setup, which the default blocks, because Corvid's network code uses liburing. Second, it allows personality with the ADDR_NO_RANDOMIZE bit (0x40000), which the default blocks, because the sanitizers, TSAN especially, must disable ASLR and re-exec themselves before their shadow memory will map. Disabling ASLR weakens only the calling process, so it opens no path out of the container.",
 	"defaultAction": "SCMP_ACT_ERRNO",
 	"defaultErrnoRet": 1,
 	"archMap": [
@@ -527,6 +527,58 @@
 				{
 					"index": 0,
 					"value": 131080,
+					"op": "SCMP_CMP_EQ"
+				}
+			]
+		},
+		{
+			"names": [
+				"personality"
+			],
+			"action": "SCMP_ACT_ALLOW",
+			"args": [
+				{
+					"index": 0,
+					"value": 262144,
+					"op": "SCMP_CMP_EQ"
+				}
+			]
+		},
+		{
+			"names": [
+				"personality"
+			],
+			"action": "SCMP_ACT_ALLOW",
+			"args": [
+				{
+					"index": 0,
+					"value": 262152,
+					"op": "SCMP_CMP_EQ"
+				}
+			]
+		},
+		{
+			"names": [
+				"personality"
+			],
+			"action": "SCMP_ACT_ALLOW",
+			"args": [
+				{
+					"index": 0,
+					"value": 393216,
+					"op": "SCMP_CMP_EQ"
+				}
+			]
+		},
+		{
+			"names": [
+				"personality"
+			],
+			"action": "SCMP_ACT_ALLOW",
+			"args": [
+				{
+					"index": 0,
+					"value": 393224,
 					"op": "SCMP_CMP_EQ"
 				}
 			]

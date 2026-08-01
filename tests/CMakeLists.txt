@@ -99,12 +99,17 @@ if(WIN32)
         #
         # /wd silences warnings that fire beyond clang's -Wall -Wextra (the level
         # this build mirrors) on correct, idiomatic code rather than real bugs:
+        #   4244 - narrowing on conversion to a smaller arithmetic type
+        #          (strong_type's heterogeneous arithmetic re-wraps into `T` by
+        #          documented design).
         #   4245 - signed/unsigned mismatch passing a literal (deliberate -1 etc.
         #          in wraparound tests).
         #   4267 - narrowing size_t to a smaller integer (an in-range index/count).
         #   4305 - "truncation" using an integer/size as a bool condition.
         #   4310 - cast truncates a constant value (deliberate wraparound tests).
-        set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /EHsc /permissive- /Zc:preprocessor /W4 /WX /wd4245 /wd4267 /wd4305 /wd4310")
+        #   4805 - "unsafe" bool/arithmetic mix in comparison (strong_type's
+        #          heterogeneous comparisons are exact in the common type).
+        set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /EHsc /permissive- /Zc:preprocessor /W4 /WX /wd4244 /wd4245 /wd4267 /wd4305 /wd4310 /wd4805")
     endif()
     # cleanbuild.ps1 drives this as a Release build: optimization and NDEBUG come
     # from CMAKE_BUILD_TYPE=Release (like Linux's -O3). ide_build.ps1 is the

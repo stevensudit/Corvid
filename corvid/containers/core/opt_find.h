@@ -16,8 +16,12 @@
 // limitations under the License.
 
 #pragma once
-#include "containers_shared.h"
+#include <algorithm>
+#include <iterator>
+
 #include "optional_ptr.h"
+#include "../../meta/concepts.h"
+#include "../../meta/containers.h"
 
 namespace corvid { inline namespace opt_find {
 

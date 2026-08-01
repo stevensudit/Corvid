@@ -15,6 +15,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#include <concepts>
 #include <cstdint>
 #include <string_view>
 
@@ -224,6 +225,68 @@ TEST_CASE("WrapIndex", "[CircularBufferTest]") {
 }
 #pragma endregion
 
+#pragma region At
+
+TEST_CASE("At", "[CircularBufferTest]") {
+  std::vector<int> v;
+  v.resize(3);
+  circular_buffer cb{v};
+
+  // `at` throws on an empty buffer, where the array operator is undefined.
+  CHECK_THROWS_AS((void)cb.at(0), std::out_of_range);
+
+  // In range, `at` matches the array operator; past the size, it throws
+  // instead of wrapping.
+  cb.push_back(1);
+  cb.push_back(2);
+  CHECK(cb.at(0) == 1);
+  CHECK(cb.at(1) == 2);
+  CHECK_THROWS_AS((void)cb.at(2), std::out_of_range);
+}
+#pragma endregion
+
+#pragma region ZeroCapacity
+
+TEST_CASE("ZeroCapacity", "[CircularBufferTest]") {
+  // A zero-capacity buffer, however obtained, is both empty and full at
+  // once: the `try_` forms fail cleanly and `at` throws.
+  auto probe = [](circular_buffer<int>& cb) {
+    CHECK(cb.capacity() == 0U);
+    CHECK(cb.empty());
+    CHECK(cb.full());
+    CHECK_FALSE(cb.try_push_back(1));
+    CHECK_FALSE(cb.try_push_front(1));
+    CHECK_FALSE(cb.try_emplace_back(1));
+    CHECK_THROWS_AS((void)cb.at(0), std::out_of_range);
+  };
+
+  // Default-constructed.
+  if (true) {
+    circular_buffer<int> cb;
+    probe(cb);
+  }
+
+  // Wrapping an empty container.
+  if (true) {
+    std::vector<int> v;
+    circular_buffer cb{v};
+    probe(cb);
+  }
+
+  // Moved-from.
+  if (true) {
+    std::vector<int> v;
+    v.resize(3);
+    circular_buffer cb{v};
+    cb.push_back(1);
+    auto cb2 = std::move(cb);
+    // NOLINTNEXTLINE(bugprone-use-after-move,clang-analyzer-cplusplus.Move)
+    probe(cb);
+    CHECK(cb2.size() == 1U);
+  }
+}
+#pragma endregion
+
 #pragma region PushPop
 
 TEST_CASE("PushPop", "[CircularBufferTest]") {
@@ -295,6 +358,16 @@ TEST_CASE("Iterate", "[CircularBufferTest]") {
     CHECK(cb[0] == 4);
     circular_buffer<int>::iterator b2 = b;
     CHECK(b2 == b);
+
+    // A mutable iterator converts to a const one, but not the reverse.
+    static_assert(std::convertible_to<circular_buffer<int>::iterator,
+        circular_buffer<int>::const_iterator>);
+    static_assert(!std::convertible_to<circular_buffer<int>::const_iterator,
+        circular_buffer<int>::iterator>);
+    circular_buffer<int>::const_iterator cit = b;
+    CHECK(*cit == 4);
+    CHECK(cit == b);
+    CHECK(b != cb.cend());
   }
   if (true) {
     std::vector<int> v{4, 2, 3};

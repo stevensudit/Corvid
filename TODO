@@ -39,19 +39,11 @@
    g. Implement split_adapter with efficient pre-allocation and single-pass splitting.
    h. Benchmark and optimize single-char delimiter handling.
 
-9. containers/own_ptr.h - own_ptr class improvements:
-   a. Consider supporting arrays (like std::unique_ptr<T[]>).
-   b. Consider supporting interop with `std::shared_ptr`.
-   c. Consider allowing specialization to make all operations atomic.
-
 10. containers/arena_allocator.h - extensible_arena class improvements:
    a. Consider adding the ability to limit per-block sizes or total size.
    b. Consider making the next block size constant, even when we had to blow past the limit to accommodate an oversize allocation.
    c. Sufficiently filled should be defined as having less than 1/4 of the capacity free, although it could also be configured.
    d. Consider changing algorithm so that we keep the current block as the head until it's sufficiently filled, overflowing as needed down the chain.
-
-11. containers/custom_handle.h - custom_handle class improvements:
-   a. Since move semantics don't work, attempt to allow assignment from a pointer.
 
 12. containers/sync_lock.h - synchronizer class improvements:
    a. Consider adding a safe version of mutex, perhaps based on `std::timed_mutex`, which throws if a lock is not acquired within a certain time.
@@ -77,7 +69,6 @@
    f. In append_fn: Consider printing enum string instead of integer.
 
 16. containers/intern.h improvements:
-   a. interned_value::operator==: If the value is itself a view, then we should compare the views. One way would be to compare `begin()`, if it's available.
    b. intern_traits: Add arena size as a parameter.
    c. intern_traits: A deque is only being used for lookup_by_id_ because we want to be able to enlarge without moving. As an optional optimization, write a class with a signature similar to vector or deque that is streamlined to only support appending.
    d. intern_traits: An entirely different scheme would be to store the values in a stable associative container, such as a map, and then use a deque to store pointers into the map.
@@ -112,23 +103,15 @@
    b. We need proper isolated unit tests just for the arena header.
    c. Add a test for edge case of arena capacity use. Allocate a small thing, then allocate up to the edge. If the two are contiguous, then it fit.
    d. When the traits wrap the key in an unnecessary indirect_hash_key, it breaks terribly. We need to test an arbitrary type that has no natural view as a key.
-   e. Test with a move-only pointer type (in own_ptr tests).
-   f. Add tests for op->* and perhaps more thorough tests for various different kinds of callbacks: function pointers, mutable lambdas, etc. (in strong_type tests).
+   e. Add tests for op->* and perhaps more thorough tests for various different kinds of callbacks: function pointers, mutable lambdas, etc. (in strong_type tests).
 
 28. controllers/sopdt_plant.h: The delay buffer in `update()` could be optimized with a circular buffer instead of push_back/erase.
-
-29. Test improvements - containers_test.cpp: Disabled tests that need to be enabled or fixed:
-   a. own_ptr regression tests (around line 1039 and 1059) - tests for reference deleters and CTAD.
-   b. CustomHandleTest_Basic (around line 1118) - entire test function is disabled.
 
 30. containers/stable_ids.h - stable_ids class improvements:
    a. Consider writing a drop-in replacement for vector that contains parallel heterogeneous vectors (e.g., for position and color). This would use a common indexing scheme across all of them, with a view/lens object containing a pointer to the container and an index for element references. The traits would implement the swap method for this multivector container for efficiency.
    b. Consider adding a heavier handle that contains a pointer to the stable_ids instance, preventing IDs from being used outside their scope.
    c. In `reserve()`: Consider prefilling `indexes_` and `reverse_` instead of just reserving. Would need to `rebuild_fifo_list`, too.
    d. In `find_max_extant_id()`: Consider rewriting to search `indexes_` backwards. While still linear, this would be faster when the container is large and full. Could decide which approach to take based on fill ratio (with benchmarks to justify). Currently not a priority since this function is not much used, and never in the critical path.
-
-31. containers/own_ptr.h - CTAD improvements:
-   a. Make all of the Ptr/Del ctors take the same three templated arguments, where the third is a named thing defaulted to void with a requires clause requiring it to be void. Then add deduction guides that set the must-be-void to something else.
 
 32. Checked assertions for testable preconditions: native `assert` calls `abort()` (uncatchable by Catch2, which has no death tests), so precondition-violation paths can't be exercised and get commented out (see interval_test.cpp). Add a `corvid_assert` macro backed by a swappable handler with build modes: release -> no-op, debug -> terminate, checked/test -> throw (e.g. `corvid::contract_violation`). Tests then use `CHECK_THROWS_AS`. Aligned with error-handling-policy.md category 2 (the Lakos rule: "a checked build may want the precondition check to throw").
    a. A throw from a `noexcept` function still terminates, so this only helps non-`noexcept` functions. Narrow-contract (category 2) functions would drop `noexcept`, which the policy already prefers.

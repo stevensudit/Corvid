@@ -181,7 +181,7 @@ TEST_CASE("Smart", "[OptionalPtrTest]") {
     CHECK(q == test);
 
     // * auto p{qo.get()};
-    auto p{std::move(qo).get()};
+    auto p{std::move(qo.get())};
 
     auto l = [&test]() {
       return optional_ptr{std::make_unique<std::string>(test)};

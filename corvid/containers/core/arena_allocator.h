@@ -15,7 +15,22 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 #pragma once
-#include "containers_shared.h"
+#include <algorithm>
+#include <atomic>
+#include <cassert>
+#include <cstddef>
+#include <cstdint>
+#include <deque>
+#include <functional>
+#include <limits>
+#include <memory>
+#include <new>
+#include <string>
+#include <type_traits>
+#include <unordered_map>
+#include <utility>
+
+#include "../../meta/crossplatform.h"
 
 namespace corvid { inline namespace container { namespace arena {
 
@@ -48,22 +63,41 @@ namespace corvid { inline namespace container { namespace arena {
 //
 // The expectation is that the arena is much larger than any single value, so
 // the waste from the last unfilled bit is minimal.
+//
+// Concurrency: allocation requires external serialization (at most one writer
+// at a time), but `contains` may run concurrently with a writer. The head is
+// published with release/acquire ordering and everything `contains` reads
+// behind it is immutable once published, so the walk is race-free; an
+// allocation in flight may simply not be reflected in the answer yet.
 class extensible_arena final {
 #pragma region Implementation
 
   struct list_node;
   struct list_node_deleter {
     void operator()(list_node* node) const noexcept {
-      // Destructs `next_` recursively.
-      node->~list_node();
-      delete[] reinterpret_cast<char*>(node);
+      // Detach `next_` before destructing so that teardown iterates instead
+      // of recursing one stack frame per block.
+      while (node) {
+        auto next = std::move(node->next_);
+        node->~list_node();
+        delete[] reinterpret_cast<char*>(node);
+        node = next.release();
+      }
     }
   };
   using pointer = std::unique_ptr<list_node, list_node_deleter>;
 
+  // The head is atomic so that `contains` can walk the chain concurrently
+  // with a (single, externally serialized) allocating writer; each node's
+  // `next_` stays a plain owning pointer because it is written before the
+  // node is published and never changes afterward.
+  using atomic_head_t = std::atomic<list_node*>;
+
   // Points to the head owned by the active container. Use
   // `extensible_arena::scope` to install whenever an allocation is needed.
-  thread_local static inline pointer* tls_head_{};
+  // Thread-locality isolates only this slot; the pointed-to head is shared by
+  // every thread with a scope on the same arena.
+  thread_local static inline atomic_head_t* tls_head_{};
 
   [[nodiscard]] static auto& get_head() {
     assert(tls_head_);
@@ -78,14 +112,19 @@ class extensible_arena final {
 
     // Helper function to calculate the total size needed for a list_node with
     // a given capacity. The minus 1 is because the list_node struct already
-    // includes storage for one element.
+    // includes storage for one element; clamping holds that credit to what
+    // `data_` actually provides, so a zero capacity cannot undersize the
+    // buffer relative to `sizeof(list_node)`.
     [[nodiscard]] static constexpr size_t calculate_total_size(
         size_t capacity) {
-      return sizeof(list_node) + capacity - 1;
+      return sizeof(list_node) + std::max(capacity, 1UZ) - 1;
     }
 
     // Make a new node of `capacity`.
     [[nodiscard]] static pointer make(size_t capacity) {
+      if (capacity >
+          std::numeric_limits<size_t>::max() - sizeof(list_node) + 1)
+        throw std::bad_array_new_length{};
       // The new operator is used to allocate raw memory, and then placement
       // new is used to construct a new list_node object in that memory.
       auto buffer_for_placement = new char[calculate_total_size(capacity)];
@@ -97,33 +136,56 @@ class extensible_arena final {
     // Allocate a block of size `n` with `align` alignment from the current
     // node. If no room, returns `nullptr`.
     [[nodiscard]] void* allocate(size_t n, size_t align) noexcept {
-      // Ensure alignment by rounding up to the nearest multiple of 'align'.
-      auto start_index = (size_ + align - 1) & ~(align - 1);
-      auto past_index = start_index + n;
-      if (past_index > capacity_) return nullptr;
-      size_ = past_index;
+      // Round the actual address up to the alignment, not the buffer offset:
+      // `data_`'s own offset within the node is not a multiple of alignments
+      // above `alignof(list_node)`.
+      const auto base = reinterpret_cast<uintptr_t>(data_);
+      const auto start_index = static_cast<size_t>(
+          ((base + size_ + align - 1) & ~(align - 1)) - base);
+      // Compare without summing so that a huge `n` cannot wrap past the
+      // capacity check.
+      if ((n > capacity_) || (start_index > capacity_ - n)) return nullptr;
+      size_ = start_index + n;
       return data_ + start_index;
     }
   };
 
   // Allocate a block of size `n` with `align` alignment. If no room at `head`,
-  // replaces with new block, chaining the rest.
-  [[nodiscard]] static void* allocate(pointer& head, size_t n, size_t align) {
-    if (auto start = head->allocate(n, align)) return start;
-    auto new_head = list_node::make(std::max(head->capacity_, n));
-    new_head->next_ = std::move(head);
-    head = std::move(new_head);
-    return head->allocate(n, align);
+  // replaces with new block, chaining the rest. Writer-side only, externally
+  // serialized, so the head loads are relaxed; the store publishing a fully
+  // initialized replacement block is the release that concurrent `contains`
+  // readers acquire.
+  [[nodiscard]] static void*
+  allocate(atomic_head_t& head, size_t n, size_t align) {
+    auto* node = head.load(std::memory_order::relaxed);
+    if (auto start = node->allocate(n, align)) return start;
+    // Pad the fresh block by `align - 1` so that `n` fits wherever `data_`
+    // lands relative to the alignment.
+    if (n > std::numeric_limits<size_t>::max() - (align - 1))
+      throw std::bad_array_new_length{};
+    auto new_head = list_node::make(std::max(node->capacity_, n + align - 1));
+    new_head->next_ = pointer{node};
+    auto start = new_head->allocate(n, align);
+    assert(start);
+    head.store(new_head.release(), std::memory_order::release);
+    return start;
   }
 
-  pointer head_;
+  atomic_head_t head_;
 
 #pragma endregion
 #pragma region Construction
 
 public:
-  explicit extensible_arena(size_t capacity) noexcept
-      : head_{list_node::make(capacity)} {}
+  explicit extensible_arena(size_t capacity)
+      : head_{list_node::make(capacity).release()} {}
+
+  // The atomic head carries raw ownership, so teardown is explicit; the
+  // atomic member also makes the arena immovable, which closes a latent trap
+  // (moving an arena would dangle any scope pointing at its head).
+  ~extensible_arena() {
+    list_node_deleter{}(head_.load(std::memory_order::relaxed));
+  }
 
 #pragma endregion
 #pragma region Operations
@@ -132,9 +194,15 @@ public:
     return allocate(get_head(), n, align);
   }
 
+  // Whether `pv` points into this arena's block storage. Measures each
+  // block's full extent (`capacity_`, immutable once published), not its
+  // allocation frontier, so the walk shares no mutable state with a
+  // concurrent writer; an allocation in flight may not be reflected yet.
   [[nodiscard]] static bool contains(const void* pv) {
-    for (auto next = get_head().get(); next; next = next->next_.get())
-      if (next->data_ <= pv && pv < next->data_ + next->size_) return true;
+    for (auto* node = get_head().load(std::memory_order::acquire); node;
+        node = node->next_.get())
+      if ((node->data_ <= pv) && (pv < node->data_ + node->capacity_))
+        return true;
 
     return false;
   }
@@ -151,14 +219,14 @@ public:
   PRAGMA_GCC_IGNORED("-Wdangling-pointer")
   class [[nodiscard]] scope {
   public:
-    explicit scope(extensible_arena& arena) noexcept : old_head{&arena.head_} {
+    explicit scope(extensible_arena& arena) noexcept : old_head{tls_head_} {
       tls_head_ = &arena.head_;
     }
 
     ~scope() noexcept { tls_head_ = old_head; }
 
   private:
-    pointer* old_head{};
+    atomic_head_t* old_head{};
   };
   PRAGMA_GCC_DIAG(pop)
 
@@ -195,8 +263,12 @@ public:
   // NOLINTBEGIN(bugprone-sizeof-expression)
 
   // Allocates a block of memory suitable for an array of `n` objects of type
-  // `T`, using the scoped `extensible_arena`.
+  // `T`, using the scoped `extensible_arena`. Throws
+  // `std::bad_array_new_length` if the total size would overflow `size_t`, as
+  // `std::allocator` does.
   [[nodiscard]] constexpr T* allocate(size_t n) {
+    if (n > std::numeric_limits<size_t>::max() / sizeof(T))
+      throw std::bad_array_new_length{};
     return static_cast<T*>(
         extensible_arena::allocate(n * sizeof(T), alignof(T)));
   }

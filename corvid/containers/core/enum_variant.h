@@ -17,6 +17,7 @@
 #pragma once
 #include <variant>
 #include <tuple>
+#include <stdexcept>
 
 #include "../../meta/concepts.h"
 
@@ -35,9 +36,20 @@ concept HasUnderlyingType = requires {
 
 // Get the underlying type of a variant, which is either the type itself
 // or the type of its underlying value if it has one.
+//
+// A specialization pair, not `std::conditional_t`: the alias would substitute
+// both branches eagerly, and `::underlying_type` is ill-formed for a plain
+// `std::variant`.
 template<typename T>
-using underlying_variant_type_t = std::conditional_t<HasUnderlyingType<T>,
-    typename std::decay_t<T>::underlying_type, std::decay_t<T>>;
+struct underlying_variant_type {
+  using type = std::decay_t<T>;
+};
+template<HasUnderlyingType T>
+struct underlying_variant_type<T> {
+  using type = std::decay_t<T>::underlying_type;
+};
+template<typename T>
+using underlying_variant_type_t = underlying_variant_type<T>::type;
 
 // Check if `T` has a `visit` member template that can be called with a
 // variant of type `V`.
@@ -198,8 +210,10 @@ struct indexed_callbacks {
         return f(index_constant<Is>{},
             variant_get<Is>(std::forward<Variant>(var)));
       }...};
-      // Invoke the callback for the current index of the variant.
+      // Invoke the callback for the current index of the variant, mirroring
+      // `std::visit` by throwing on a valueless variant.
       const auto idx = static_cast<size_t>(v.index());
+      if (idx >= variant_size_v<Variant>) throw std::bad_variant_access{};
       return table[idx](std::forward<Variant>(v), std::forward<Callback>(cb));
     }(IndexSeq{});
   }
@@ -285,7 +299,7 @@ public:
       : value_{std::in_place_type<T>, il, std::forward<Args>(args)...} {}
 
   // Emplace constructor by enum index. Consider using `make<T>` instead.
-  template<auto V, typename... Args>
+  template<enum_type V, typename... Args>
   constexpr explicit enum_variant(in_place_enum_t<V>,
       Args&&... args) noexcept(std::is_nothrow_constructible_v<underlying_type,
       std::in_place_index_t<static_cast<size_t>(V)>, Args&&...>)
@@ -296,7 +310,7 @@ public:
 
   // Emplace constructor by enum index with an initializer list. Consider using
   // `make<T>` instead.
-  template<auto V, typename U, typename... Args>
+  template<enum_type V, typename U, typename... Args>
   constexpr explicit enum_variant(in_place_enum_t<V>,
       std::initializer_list<U> il, Args&&... args)
   requires std::is_constructible_v<underlying_type,
@@ -379,6 +393,11 @@ public:
   // Assignment from the enum value itself. This will default construct the
   // corresponding alternative at runtime. It mirrors the behavior of the
   // consteval converting constructor used for compile-time initialization.
+  //
+  // An in-range enum value is a precondition: a violation throws through the
+  // `noexcept` boundary, terminating.
+  //
+  // NOLINTNEXTLINE(bugprone-exception-escape)
   constexpr enum_variant& operator=(enum_type e) noexcept
   requires std::is_default_constructible_v<underlying_type>
   {
@@ -448,8 +467,11 @@ public:
   }
 
   // Get the underlying variant.
-  [[nodiscard]] constexpr auto& get_underlying(this auto&& self) noexcept {
-    return std::forward<decltype(self)>(self).value_;
+  [[nodiscard]] constexpr decltype(auto) get_underlying(
+      this auto&& self) noexcept {
+    // The parentheses are load-bearing: unparenthesized, `decltype(auto)` on a
+    // member access deduces the member's declared type and returns by value.
+    return (std::forward<decltype(self)>(self).value_);
   }
 
   // Check if the variant holds a value of type `T`.
@@ -551,7 +573,9 @@ private:
         return construct<I + 1>(idx);
       }
     } else {
-      return {}; // Unreachable, avoids warning
+      // Reached only by an out-of-range enum value; the throw fails the
+      // constant evaluation, making the violation a compile error.
+      throw std::invalid_argument{"enum_variant: enum value out of range"};
     }
   }
 
@@ -564,6 +588,10 @@ private:
       } else {
         assign_index<I + 1>(idx);
       }
+    } else {
+      // Reached only by an out-of-range enum value; the assignment operator's
+      // `noexcept` converts the throw into a terminate.
+      throw std::invalid_argument{"enum_variant: enum value out of range"};
     }
   }
 };

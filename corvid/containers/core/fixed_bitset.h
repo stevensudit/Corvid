@@ -15,8 +15,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 #pragma once
-#include "containers_shared.h"
-
 #include "../../math/arithmetic.h"
 
 #include <array>
@@ -29,6 +27,7 @@
 #include <iterator>
 #include <limits>
 #include <stdexcept>
+#include <type_traits>
 
 namespace corvid { inline namespace container {
 inline namespace fixed_bitsets {
