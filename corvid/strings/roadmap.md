@@ -161,8 +161,8 @@ them):
 - [x] `interval` ([../../containers/utils/interval.h](../containers/utils/interval.h)):
   custom formatter plus `format_kind = disabled` (it is iterable, so the std
   range formatter would otherwise enumerate every value). Regular `{}` shows the
-  closed `[min, max]` (`[]` empty, `[invalid]` reversed); debug `{:?}` shows the
-  raw half-open underlying `[begin, end)`. Narrow only. Tested in
+  closed `[min, max]` (`[]` empty, reversed pairs included); debug `{:?}` shows
+  the raw closed storage pair, `{min, max}`. Narrow only. Tested in
   `interval_test.cpp`. (Also refactored off `std::pair` inheritance to
   composition with a conversion operator, which the debug path reuses.)
 - [x] `fixed_bitset` ([../../containers/core/fixed_bitset.h](../containers/core/fixed_bitset.h)):

@@ -19,7 +19,9 @@
 #include <cstdint>
 #include <format>
 #include <iterator>
+#include <limits>
 #include <ranges>
+#include <type_traits>
 #include <vector>
 
 #include "corvid/containers.h"
@@ -47,12 +49,11 @@ TEST_CASE("Ctors", "[Intervals]") {
   if (true) {
     interval i;
     CHECK(i.empty());
-    CHECK_FALSE(i.invalid());
+    CHECK(i.size() == 0U);
   }
   if (true) {
     interval i{42};
     CHECK_FALSE(i.empty());
-    CHECK_FALSE(i.invalid());
     CHECK(i.size() == 1U);
     CHECK(i.front() == 42);
     CHECK(i.back() == 42);
@@ -60,18 +61,49 @@ TEST_CASE("Ctors", "[Intervals]") {
   if (true) {
     interval i{40, 42};
     CHECK_FALSE(i.empty());
-    CHECK_FALSE(i.invalid());
     CHECK(i.size() == 3U);
     CHECK(i.front() == 40);
     CHECK(i.back() == 42);
   }
   if (true) {
-    // Next line asserts.
-    // * interval i{42, 40};
+    // Reversed bounds are legal and read as empty, whether constructed that
+    // way or reversed through the raw setter.
+    CHECK(interval{42, 40}.empty());
     interval i{40};
     i.min(42);
     CHECK(i.empty());
-    CHECK(i.invalid());
+  }
+  if (true) {
+    // Mixed signedness (or a narrower `U`) is rejected at compile time:
+    // * interval<int8_t, uint8_t> bad;
+    // * interval<int16_t, int8_t> bad;
+    static_assert(std::is_same_v<decltype(interval{1, 4}), interval<int>>);
+  }
+  if (true) {
+    // The closed storage reaches edge to edge; the old half-open storage
+    // could not represent an interval ending at the top of `U`.
+    constexpr auto top = std::numeric_limits<int64_t>::max();
+    constexpr auto bottom = std::numeric_limits<int64_t>::min();
+    interval full{bottom, top};
+    CHECK_FALSE(full.empty());
+    CHECK(full.front() == bottom);
+    CHECK(full.back() == top);
+    // One short of the full span is the largest representable size. The
+    // arithmetic is exact even in constant evaluation, where any signed
+    // overflow would refuse to compile.
+    static_assert(
+        interval{bottom + 1, top}.size() ==
+        std::numeric_limits<size_t>::max());
+    static_assert(
+        interval{bottom, top - 1}.size() ==
+        std::numeric_limits<size_t>::max());
+    // The full span's count is one past `size_type`, so `size` wraps to 0 by
+    // documented exception while `empty` stays false.
+    static_assert(interval{bottom, top}.size() == 0UZ);
+    static_assert(!interval{bottom, top}.empty());
+    CHECK(interval<>::max_size() == std::numeric_limits<size_t>::max());
+    // For a narrower `U`, `max_size` is the exact full-span count.
+    static_assert(interval<hue>::max_size() == 256UZ);
   }
 }
 #pragma endregion
@@ -82,24 +114,20 @@ TEST_CASE("Insert", "[IntervalTest]") {
   if (true) {
     interval i;
     CHECK(i.empty());
-    CHECK_FALSE(i.invalid());
     CHECK(i.insert(0));
     CHECK_FALSE(i.empty());
-    CHECK_FALSE(i.invalid());
     CHECK(i.size() == 1U);
     CHECK(i.front() == 0);
     CHECK(i.back() == 0);
 
     CHECK(i.insert(5));
     CHECK_FALSE(i.empty());
-    CHECK_FALSE(i.invalid());
     CHECK(i.size() == 6U);
     CHECK(i.front() == 0);
     CHECK(i.back() == 5);
 
     CHECK(i.insert(-5));
     CHECK_FALSE(i.empty());
-    CHECK_FALSE(i.invalid());
     CHECK(i.size() == 11U);
     CHECK(i.front() == -5);
     CHECK(i.back() == 5);
@@ -109,9 +137,34 @@ TEST_CASE("Insert", "[IntervalTest]") {
     CHECK_FALSE(i.insert(5));
   }
   if (true) {
+    // The extremes insert cleanly; these were the old corruption cases.
+    interval i;
+    CHECK(i.insert(std::numeric_limits<int64_t>::max()));
+    CHECK(i.size() == 1U);
+    CHECK_FALSE(i.insert(std::numeric_limits<int64_t>::max()));
+    CHECK(i.insert(std::numeric_limits<int64_t>::min()));
+    CHECK(i.front() == std::numeric_limits<int64_t>::min());
+    CHECK(i.back() == std::numeric_limits<int64_t>::max());
+    CHECK_FALSE(i.insert(0));
+
+    interval<int64_t> j{5};
+    CHECK(j.push_back(std::numeric_limits<int64_t>::max()));
+    CHECK(j.back() == std::numeric_limits<int64_t>::max());
+    CHECK(j.push_front(std::numeric_limits<int64_t>::min()));
+    CHECK(j.front() == std::numeric_limits<int64_t>::min());
+
+    // The whole expansion path is exact in constant evaluation too.
+    static_assert([] {
+      interval<int64_t> acc;
+      acc.insert(std::numeric_limits<int64_t>::max());
+      acc.insert(std::numeric_limits<int64_t>::min());
+      return (acc.front() == std::numeric_limits<int64_t>::min()) &&
+             (acc.back() == std::numeric_limits<int64_t>::max());
+    }());
+  }
+  if (true) {
     interval i{5};
     CHECK_FALSE(i.empty());
-    CHECK_FALSE(i.invalid());
     CHECK(i.size() == 1U);
 
     CHECK_FALSE(i.push_back(0));
@@ -133,7 +186,6 @@ TEST_CASE("Insert", "[IntervalTest]") {
   if (true) {
     interval i{5};
     CHECK_FALSE(i.empty());
-    CHECK_FALSE(i.invalid());
     CHECK(i.size() == 1U);
 
     CHECK_FALSE(i.push_front(7));
@@ -170,6 +222,11 @@ TEST_CASE("ForEach", "[IntervalTest]") {
 
   CHECK(c == 4);
   CHECK(s == (1 + 2 + 3 + 4));
+
+  // An empty interval iterates as an empty range.
+  int64_t n{};
+  for ([[maybe_unused]] auto e : interval{}) ++n;
+  CHECK(n == 0);
 }
 #pragma endregion
 
@@ -259,10 +316,15 @@ TEST_CASE("MinMax", "[IntervalTest]") {
   CHECK(i.max() == 4);
   i.min(42);
   CHECK(i.min() == 42);
-  CHECK(i.invalid());
+  // Reversed via the raw setter reads as empty.
+  CHECK(i.empty());
   i.max(64);
   CHECK(i.max() == 64);
-  CHECK_FALSE(i.invalid());
+  CHECK_FALSE(i.empty());
+  // The setter accepts the top of `U`, which the old half-open representation
+  // had to forbid. (This is an `interval<int>` by deduction.)
+  i.max(std::numeric_limits<int>::max());
+  CHECK(i.back() == std::numeric_limits<int>::max());
 }
 #pragma endregion
 
@@ -286,19 +348,21 @@ TEST_CASE("CompareAndSwap", "[IntervalTest]") {
 
 TEST_CASE("Formatting", "[Intervals]") {
   if (true) {
-    // Regular shows the closed interval; debug shows the raw half-open
-    // underlying representation.
+    // Regular shows the closed interval; debug shows the raw closed storage
+    // pair.
     CHECK(std::format("{}", interval{7, 9}) == "[7, 9]");
-    CHECK(std::format("{:?}", interval{7, 9}) == "[7, 10)");
+    CHECK(std::format("{:?}", interval{7, 9}) == "{7, 9}");
 
-    // Empty and invalid in regular mode; debug shows the raw bounds.
+    // Empty in regular mode; debug shows the raw reversed bounds, which for
+    // the canonical empty are the extremes.
     CHECK(std::format("{}", interval{}) == "[]");
-    CHECK(std::format("{:?}", interval{}) == "[0, 0)");
+    CHECK(std::format("{:?}", interval{}) ==
+          "{9223372036854775807, -9223372036854775808}");
     interval bad{5, 9};
     bad.max(3);
-    REQUIRE(bad.invalid());
-    CHECK(std::format("{}", bad) == "[invalid]");
-    CHECK(std::format("{:?}", bad) == "[5, 4)");
+    REQUIRE(bad.empty());
+    CHECK(std::format("{}", bad) == "[]");
+    CHECK(std::format("{:?}", bad) == "{5, 3}");
 
     // Not enumerated: format_kind is disabled, and a range of intervals shows
     // each as its closed form rather than a flattened list of values.
@@ -308,10 +372,56 @@ TEST_CASE("Formatting", "[Intervals]") {
     // Enum interval: names in regular mode, underlying numbers in debug.
     interval<hue> h{hue::red, hue::blue};
     CHECK(std::format("{}", h) == "[red, blue]");
-    CHECK(std::format("{:?}", h) == "[0, 3)");
+    CHECK(std::format("{:?}", h) == "{0, 2}");
   }
 }
 
+#pragma endregion
+
+#pragma region Int128
+
+#if defined(__SIZEOF_INT128__)
+// Probe `U = __int128`, which buys iteration headroom over the full range of
+// `int64_t`. The compiler extension alone is not enough: the standard library
+// must also treat `__int128` as integral (libc++ does; Microsoft's STL does
+// not, and libstdc++ only in GNU mode), so the probe is a template whose
+// `if constexpr` keeps `interval` uninstantiated where support is missing.
+template<typename I128>
+void probe_int128_interval() {
+  if constexpr (std::is_integral_v<I128>) {
+    using iv_t = interval<int64_t, I128>;
+    constexpr auto top = std::numeric_limits<int64_t>::max();
+
+    // An interval ending at the top of `int64_t` is iterable with the wider
+    // `U`, where `U = int64_t` could store but not iterate it.
+    iv_t iv{top - 2, top};
+    CHECK(iv.size() == 3U);
+    int64_t cnt{};
+    int64_t last{};
+    for (auto v : iv) {
+      ++cnt;
+      last = v;
+    }
+    CHECK(cnt == 3);
+    CHECK(last == top);
+
+    CHECK(iv_t::max_size() == std::numeric_limits<size_t>::max());
+    CHECK(iv_t{}.empty());
+  } else {
+    SUCCEED(
+        "__int128 exists but the standard library does not treat it as "
+        "integral, so interval cannot use it for U");
+  }
+}
+#endif
+
+TEST_CASE("Int128", "[IntervalTest]") {
+#if defined(__SIZEOF_INT128__)
+  probe_int128_interval<__int128>();
+#else
+  SUCCEED("__int128 is not available on this compiler");
+#endif
+}
 #pragma endregion
 
 // NOLINTEND(readability-function-size)

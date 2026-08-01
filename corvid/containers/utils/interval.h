@@ -22,6 +22,7 @@
 #include <format>
 #include <iterator>
 #include <limits>
+#include <type_traits>
 #include <utility>
 
 #include "../core/containers_shared.h"
@@ -47,24 +48,30 @@ namespace corvid { inline namespace intervals {
 // move the front and back around but can't modify anything being referred to.
 // As a result, all iterators are const.
 //
-// Internally it holds a `std::pair{begin, end}` as a half-open interval,
-// [begin, end), but exposes a closed interval, [min, max], in keeping with the
-// vector fiction.
+// Internally it stores the closed `{min, max}` pair directly, so an interval
+// can reach from edge to edge of `U`, signed or unsigned, without overflow:
+// expanding a bound is pure min/max comparison, never arithmetic.
 //
-// Note: Iterating over an interval that ends at the maximum value for the
-// underlying type doesn't work, and can't work unless we use a prohibitively
-// expensive implementation. See note below.
+// A reversed pair, with `min` above `max`, reads as empty. The canonical
+// empty, produced by default construction and `clear`, stores the extremes
+// reversed, which is the identity of min/max accumulation.
 //
-// It's perfectly fine for an interval to be empty, but if the range is
-// reversed, then it's invalid.
+// Two derived operations still need arithmetic and carry caveats: `size` of
+// the full span of a 64-bit `U` is one past what `size_type` can represent,
+// so it wraps to 0, and iteration must represent one past `back`, so an
+// interval whose `back` is the top of `U` can be stored but not iterated. The
+// workaround is to write a conventional `for` loop from `min` to `max`. For
+// types smaller than 64 bits, you can gain iteration headroom by specializing
+// `U` wider than `V`.
 //
 // `U` is the type used for the underlying representation, while `V` is the
 // type used for the presentation value. So, for example, `U` might be the
 // underlying type of an enum while `V` is the enum itself. Or `U` could be
 // larger than `V` to allow full-range iteration.
 //
-// Either can be signed or unsigned, although mixing those would probably be a
-// bad idea.
+// `U` must match the signedness of `V` (for an enum, of its underlying type)
+// and be at least as wide, so that every `V` value is representable in `U`
+// with order preserved.
 template<typename V = int64_t, typename U = as_underlying_t<V>>
 requires Integer<V> || StdEnum<V>
 class interval {
@@ -72,32 +79,6 @@ public:
 #pragma region interval_iterator
 
   class interval_iterator {
-    // A note on iterator size:
-    //
-    // In a half-open interval, there's no way to represent the maximum value
-    // of an integer range. This means that a loop over an interval would have
-    // to stop one short, otherwise it won't start at all. This is true
-    // regardless of whether it's signed or unsigned.
-    //
-    // The only solution is for the iterator to be able to represent a state
-    // past the maximum value. The easy way is to use an underlying
-    // representation that's larger. That's why `V` can be overridden; so that
-    // `U` can be a larger type while `U` remains as the presentation value
-    // type.
-    //
-    // But if you're already using the largest integer (which, across all
-    // platforms, is `int64_t`), then the only thing left is for the iterator
-    // to maintain a separate flag to set when it goes out of range, and this
-    // basically means testing for max before incrementing, and then including
-    // that flag in an inequality test.
-    //
-    // In principle, this could be made efficient by relying on the CPU to set
-    // a carry flag, which could then be added to the overflow, and then
-    // testing the overflow only as a tie-breaker. This is essentially how
-    // integers larger than what fits in a CPU register are implemented.
-    // However, how to accomplish this reliably and efficiently in
-    // cross-platform C++ is non-obvious. And, really, the right answer in such
-    // cases is to use a closed interval in the first place.
   public:
     using value_type = V;
     using difference_type = std::ptrdiff_t;
@@ -160,50 +141,73 @@ public:
   using reverse_iterator = std::reverse_iterator<iterator>;
   using const_reverse_iterator = std::reverse_iterator<const_iterator>;
 
+private:
+  // Unsigned mirror of `U`, for the derived arithmetic in `size`, iteration,
+  // and popping: modular unsigned math sidesteps signed overflow.
+  using uu_t = std::make_unsigned_t<U>;
+
+  static constexpr auto u_min = std::numeric_limits<U>::min();
+  static constexpr auto u_max = std::numeric_limits<U>::max();
+  static constexpr auto uu_max = std::numeric_limits<uu_t>::max();
+  static constexpr auto uu_size_max = static_cast<size_type>(uu_max);
+  static constexpr auto size_max = std::numeric_limits<size_type>::max();
+
+  // `U` must cover `V`'s domain with order preserved: same signedness (for an
+  // enum `V`, of its underlying type) and at least as wide.
+  static_assert(
+      (std::is_signed_v<U> == std::is_signed_v<as_underlying_t<V>>) &&
+          (sizeof(U) >= sizeof(as_underlying_t<V>)),
+      "U must match V's signedness and be at least as wide");
+
 #pragma endregion
 #pragma region Construction
+public:
+  // Construct with the canonical empty, storing the extremes reversed.
+  constexpr interval() noexcept : pair_{u_max, u_min} {}
 
-  constexpr interval() noexcept : pair_{U{}, U{}} {}
   constexpr interval(const interval&) noexcept = default;
+
+  // Construct from a single value, which becomes both `front` and `back`.
   explicit constexpr interval(V val) noexcept : interval{val, val} {}
+
+  // Construct from `min_val` and `max_val`, where `min_val > max_val` leaves
+  // it empty. Prefer the default constructor for a canonical empty.
   constexpr interval(V min_val, V max_val) noexcept
-      : pair_{as_u(min_val), as_u(max_val)} {
-    // Advance the closed max to the half-open end. The underlying-max case is
-    // unrepresentable, so make it reliably invalid rather than drop max_val.
-    if (pair_.second != std::numeric_limits<U>::max())
-      ++pair_.second;
-    else
-      pair_ = raw_pair{U{1}, U{0}};
-    assert(!invalid());
-  }
+      : pair_{as_u(min_val), as_u(max_val)} {}
 
   constexpr interval& operator=(const interval&) = default;
 
-  void clear() { *this = interval{}; }
+  constexpr void clear() noexcept { *this = interval{}; }
 
   constexpr void swap(interval& other) noexcept { pair_.swap(other.pair_); }
   friend constexpr void swap(interval& l, interval& r) noexcept { l.swap(r); }
 
-  // Compare by the underlying half-open [begin, end) representation. This also
+  // Compare by the stored closed {min, max} representation. This also
   // generates `operator==`.
+  //
+  // Note: empties with differing representations compare unequal; every
+  // API-produced empty is canonical.
   [[nodiscard]] constexpr auto operator<=>(
       const interval&) const noexcept = default;
 
-  // Convert to a copy of the underlying half-open [begin, end) pair.
+  // Convert to a copy of the stored closed {min, max} pair.
   [[nodiscard]] constexpr operator raw_pair() const noexcept { return pair_; }
 
 #pragma endregion
 #pragma region Iterators
 
-  // Note: When `invalid`, so are the iterators, but `empty` is fine.
+  // Note: When the underlying value of `max` is the top of `U`, the interval
+  // is still valid but cannot be iterated. See class documentation for
+  // details.
 
   [[nodiscard]] constexpr const_iterator cbegin() const noexcept {
-    assert(!invalid());
-    return b();
+    if (empty()) return {};
+    return {lo()};
   }
   [[nodiscard]] constexpr const_iterator cend() const noexcept {
-    assert(!invalid());
-    return e();
+    if (empty()) return {};
+    assert(hi() != u_max);
+    return {static_cast<U>(as_uu(hi()) + 1U)};
   }
   [[nodiscard]] constexpr iterator begin() const noexcept { return cbegin(); }
   [[nodiscard]] constexpr iterator end() const noexcept { return cend(); }
@@ -220,52 +224,65 @@ public:
 #pragma endregion
 #pragma region Size
 
-  // Note: When `invalid`, then `size` underflows by going negative. Therefore,
-  // while an invalid instance counts as empty, its size is undefined.
+  // A reversed interval counts as empty.
+  [[nodiscard]] constexpr bool empty() const noexcept { return lo() > hi(); }
 
-  [[nodiscard]] constexpr bool empty() const noexcept { return b() >= e(); }
-  [[nodiscard]] constexpr bool invalid() const noexcept { return b() > e(); }
-
+  // Size is well-defined for every representable interval except the full span
+  // of a 64-bit `U`, whose actual count is one past what `size_type` can hold,
+  // and therefore wraps to 0. This means that such a value has a `size` of 0,
+  // but is not `empty`.
   [[nodiscard]] constexpr size_type size() const noexcept {
-    assert(!invalid());
-    return e() - b();
+    if (empty()) return 0UZ;
+    return static_cast<size_type>(
+               static_cast<uu_t>(as_uu(hi()) - as_uu(lo()))) +
+           1UZ;
   }
 
+  // The count of the full span, saturated to `size_type` for a 64-bit `U`.
   [[nodiscard]] constexpr static size_type max_size() noexcept {
-    return static_cast<size_type>(std::numeric_limits<U>::max());
+    return (uu_size_max == size_max) ? uu_size_max : uu_size_max + 1UZ;
   }
 
-  // Access front and back value.
+  // Access front and back value, using the `std::string_view` idiom.
   //
   // Invalid when `empty`.
   [[nodiscard]] constexpr V front() const noexcept {
     assert(!empty());
-    return as_v(b());
+    return as_v(lo());
   }
   [[nodiscard]] constexpr V back() const noexcept {
     assert(!empty());
-    return as_v(e() - 1);
+    return as_v(hi());
   }
 
-  // Resize by moving `back`.
+  // Resize by moving `back`, anchored at `front`. A zero length clears; a
+  // nonzero length requires a non-empty interval and a result that fits `U`.
   constexpr void resize(size_type len) noexcept {
-    e() = b() + static_cast<U>(len);
+    if (len == 0UZ) return clear();
+    assert(!empty());
+    assert(len - 1UZ <= static_cast<size_type>(uu_max - as_uu(lo())));
+    hi() = static_cast<U>(as_uu(lo()) + static_cast<uu_t>(len - 1UZ));
   }
 
   // Insert value, expanding `front` and `back` as needed.
   //
-  // Returns whether the value was inserted. Cleanly handles all cases
-  // involving `empty` and `invalid` intervals.
-  //
-  // Note that, if the interval was `invalid`, the insertion will fail and it
-  // will stay `invalid`.
+  // Returns whether the interval grew; a value already contained leaves it
+  // unchanged. Inserting into an empty interval, canonical or not, restarts
+  // it at exactly that value.
   constexpr bool insert(V v) noexcept {
-    auto u = as_u(v);
-    if (invalid()) return false;
-    if (empty()) return min(u).max(u).ok();
-
-    if (u < min()) return min(u).ok();
-    if (u > max()) return max(u).ok();
+    const auto u = as_u(v);
+    if (empty()) {
+      lo() = hi() = u;
+      return true;
+    }
+    if (u < lo()) {
+      lo() = u;
+      return true;
+    }
+    if (u > hi()) {
+      hi() = u;
+      return true;
+    }
     return false;
   }
 
@@ -276,13 +293,14 @@ public:
   //
   // Do not use on an `empty` interval or if value might be below `front`. This
   // is a highly optimized function that does not consider, much less alter,
-  // the value of `front` in any way. It does not check for `empty` or even
-  // `invalid`. If any of these are possible, call `insert` instead.
+  // the value of `front` in any way. If either is possible, call `insert`
+  // instead.
   constexpr bool push_back(V v) noexcept {
     assert(!empty());
-    auto u = as_u(v);
-    if (u <= max()) return false;
-    return max(u).ok();
+    const auto u = as_u(v);
+    if (u <= hi()) return false;
+    hi() = u;
+    return true;
   }
 
   // Push value to the front.
@@ -291,72 +309,72 @@ public:
   //
   // Do not use on an `empty` interval or if value might be above `back`. This
   // is a highly optimized function that does not consider, much less alter,
-  // the value of `back` in any way. It does not check for `empty` or even
-  // `invalid`. If any of these are possible, call `insert` instead.
+  // the value of `back` in any way. If either is possible, call `insert`
+  // instead.
   constexpr bool push_front(V v) noexcept {
     assert(!empty());
-    auto u = as_u(v);
-    if (u >= min()) return false;
-    return min(u).ok();
+    const auto u = as_u(v);
+    if (u >= lo()) return false;
+    lo() = u;
+    return true;
   }
 
   // Pop values from back.
   //
-  // Only valid when `!empty() && size() >= len`.
+  // Only valid when `!empty() && size() >= len`. Popping every value leaves
+  // the canonical empty.
   constexpr void pop_back(size_type len = 1) noexcept {
-    assert(!empty() && size() >= len);
-    e() -= static_cast<U>(len);
+    assert(!empty() && (size() >= len));
+    if (len == size()) return clear();
+    hi() = static_cast<U>(as_uu(hi()) - static_cast<uu_t>(len));
   }
 
   // Pop values from front.
   //
-  // Only valid when `!empty() && size() >= len`.
+  // Only valid when `!empty() && size() >= len`. Popping every value leaves
+  // the canonical empty.
   constexpr void pop_front(size_type len = 1) noexcept {
-    assert(!empty() && size() >= len);
-    b() += static_cast<U>(len);
+    assert(!empty() && (size() >= len));
+    if (len == size()) return clear();
+    lo() = static_cast<U>(as_uu(lo()) + static_cast<uu_t>(len));
   }
 
 #pragma endregion
 #pragma region Min/max
 
-  // The `min` and `max` methods provide lower-level access to the interval
-  // values, both because they return U instead of V, and also because they
-  // give direct control over the both.
+  // The bounds in their natural min/max wording, as opposed to the collection
+  // wording of `front` and `back`. Unlike those, the getters tolerate
+  // `empty`. The setters move one bound directly; setting `min` above `max`
+  // yields a reversed pair, which reads as empty, so prefer `clear` for
+  // deliberate emptying.
 
-  [[nodiscard]] constexpr U min() const noexcept { return b(); }
-  constexpr interval& min(U u) noexcept {
-    b() = u;
+  [[nodiscard]] constexpr V min() const noexcept { return as_v(lo()); }
+  constexpr interval& min(V v) noexcept {
+    lo() = as_u(v);
     return *this;
   }
 
-  [[nodiscard]] constexpr U max() const noexcept { return e() - 1; }
-  constexpr interval& max(U u) noexcept {
-    // Ensure u+1 won't overflow (u must be less than the max representable U)
-    assert(u < std::numeric_limits<U>::max());
-    e() = u + 1;
+  [[nodiscard]] constexpr V max() const noexcept { return as_v(hi()); }
+  constexpr interval& max(V v) noexcept {
+    hi() = as_u(v);
     return *this;
   }
 
 #pragma endregion
 #pragma region Implementation
 private:
-  [[nodiscard]] constexpr bool ok() const noexcept {
-    assert(!invalid());
-    return true;
-  }
-  [[nodiscard]] constexpr auto& p(this auto& self) noexcept {
-    return self.pair_;
-  }
-
-  [[nodiscard]] constexpr auto& b(this auto& self) noexcept {
+  [[nodiscard]] constexpr auto& lo(this auto& self) noexcept {
     return self.pair_.first;
   }
-  [[nodiscard]] constexpr auto& e(this auto& self) noexcept {
+  [[nodiscard]] constexpr auto& hi(this auto& self) noexcept {
     return self.pair_.second;
   }
 
   [[nodiscard]] static constexpr U as_u(V v) { return static_cast<U>(v); }
   [[nodiscard]] static constexpr V as_v(U u) { return static_cast<V>(u); }
+  [[nodiscard]] static constexpr uu_t as_uu(U u) {
+    return static_cast<uu_t>(u);
+  }
 
 #pragma endregion
 #pragma region Data members
@@ -422,11 +440,10 @@ constexpr std::range_format std::format_kind<corvid::interval<V, U>> =
 //
 // Regular `{}` shows the closed presentation interval, `[min, max]`, with the
 // bounds formatted through `V`'s own formatter, so an enum interval prints its
-// names. An empty interval is `[]` and an invalid one (reversed bounds) is
-// `[invalid]`. Debug `{:?}` shows the raw half-open storage in the underlying
-// integer representation, `[begin, end)`; there an empty interval reads as
-// `[n, n)` and an invalid one as reversed bounds. The only accepted specs are
-// the empty spec and `?`.
+// names. An empty interval is `[]`. Debug `{:?}` shows the raw closed storage
+// pair in the underlying integer representation, `{min_u, max_u}`; there an
+// empty interval reads as a reversed pair, with the canonical empty showing
+// the extremes. The only accepted specs are the empty spec and `?`.
 template<typename V, typename U>
 struct std::formatter<corvid::interval<V, U>, char> {
   constexpr auto parse(auto& ctx) {
@@ -444,14 +461,14 @@ struct std::formatter<corvid::interval<V, U>, char> {
   auto format(const corvid::interval<V, U>& iv, FormatContext& ctx) const {
     auto out = ctx.out();
     if (debug_) {
-      // Raw half-open [begin, end) in the underlying integers. The unary plus
-      // promotes a char-like `U` so it prints as a number, not a character.
+      // Raw closed {min, max} storage in the underlying integers. The unary
+      // plus promotes a char-like `U` so it prints as a number, not a
+      // character.
       const std::pair<U, U> p{iv};
-      return std::format_to(out, "[{}, {})", +p.first, +p.second);
+      return std::format_to(out, "{{{}, {}}}", +p.first, +p.second);
     }
-    if (iv.invalid()) return std::format_to(out, "[invalid]");
     if (iv.empty()) return std::format_to(out, "[]");
-    return std::format_to(out, "[{}, {}]", iv.front(), iv.back());
+    return std::format_to(out, "[{}, {}]", iv.min(), iv.max());
   }
 
 private:
