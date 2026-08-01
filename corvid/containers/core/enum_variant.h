@@ -299,7 +299,7 @@ public:
       : value_{std::in_place_type<T>, il, std::forward<Args>(args)...} {}
 
   // Emplace constructor by enum index. Consider using `make<T>` instead.
-  template<auto V, typename... Args>
+  template<enum_type V, typename... Args>
   constexpr explicit enum_variant(in_place_enum_t<V>,
       Args&&... args) noexcept(std::is_nothrow_constructible_v<underlying_type,
       std::in_place_index_t<static_cast<size_t>(V)>, Args&&...>)
@@ -310,7 +310,7 @@ public:
 
   // Emplace constructor by enum index with an initializer list. Consider using
   // `make<T>` instead.
-  template<auto V, typename U, typename... Args>
+  template<enum_type V, typename U, typename... Args>
   constexpr explicit enum_variant(in_place_enum_t<V>,
       std::initializer_list<U> il, Args&&... args)
   requires std::is_constructible_v<underlying_type,

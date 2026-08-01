@@ -716,6 +716,13 @@ TEST_CASE("Basic", "[EnumVariant]") {
     QueryVariant qv{in_place_enum<QueryType::Status>};
     auto e = qv.index();
     CHECK(e == QueryType::Status);
+
+    // The in_place ctors deduce the variant's own `enum_type`, so a foreign
+    // scoped enum's tag is rejected at overload resolution.
+    static_assert(std::is_constructible_v<QueryVariant,
+        in_place_enum_t<QueryType::Status>>);
+    static_assert(
+        !std::is_constructible_v<QueryVariant, in_place_enum_t<test_id_t{0}>>);
   }
   if (true) {
     QueryVariant::underlying_type underlying_other_range_key{
