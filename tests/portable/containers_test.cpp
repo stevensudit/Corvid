@@ -18,6 +18,7 @@
 #include <cstdint>
 #include <functional>
 #include <map>
+#include <new>
 #include <utility>
 #include <set>
 #include <sstream>
@@ -218,6 +219,41 @@ TEST_CASE("Basic", "[ArenaTest]") {
       CHECK(reinterpret_cast<uintptr_t>(p) % align == 0U);
       CHECK(extensible_arena::allocate(1, 1) != nullptr);
     }
+  }
+  // Teardown of a long block chain iterates instead of recursing. Before the
+  // fix, destroying the arena overflowed the stack (one frame per block),
+  // which kills the process and so cannot be pinned as a failing assertion.
+  if (true) {
+    extensible_arena a{16};
+    extensible_arena::scope sa{a};
+    void* p{};
+    for (int i = 0; i < 100'000; ++i) p = extensible_arena::allocate(16, 1);
+    CHECK(p != nullptr);
+  }
+  // A fresh block is padded for alignment: a request of the full block
+  // capacity at an alignment above the node's own fits in the replacement
+  // block instead of returning null.
+  if (true) {
+    extensible_arena a{32};
+    extensible_arena::scope sa{a};
+    auto* p = extensible_arena::allocate(32, 16);
+    CHECK(p != nullptr);
+    CHECK(reinterpret_cast<uintptr_t>(p) % 16U == 0U);
+  }
+  // Overflow guards: unrepresentable sizes are rejected by throwing, before
+  // any arithmetic can wrap. Pre-fix, the first two wrapped to small values
+  // (allocating an undersized block while recording the huge capacity) and
+  // the third sailed under the room check.
+  if (true) {
+    using arena::arena_allocator;
+    CHECK_THROWS_AS(extensible_arena{SIZE_MAX}, std::bad_array_new_length);
+    extensible_arena a{64};
+    extensible_arena::scope sa{a};
+    arena_allocator<uint64_t> alloc;
+    CHECK_THROWS_AS(alloc.allocate(SIZE_MAX / sizeof(uint64_t) + 1),
+        std::bad_array_new_length);
+    CHECK_THROWS_AS(extensible_arena::allocate(SIZE_MAX - 2, 1),
+        std::bad_array_new_length);
   }
 }
 #pragma endregion
