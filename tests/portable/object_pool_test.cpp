@@ -544,6 +544,12 @@ TEST_CASE("TokenAsInt", "[ObjectPool]") {
     object_pool<int, 4>::token h{b};
     object_pool<int, 4>::token forged{h.as_int() | (1ULL << 39)};
     CHECK_FALSE(forged);
+
+    // A zero generation field passes validation (a post-shutdown mint can
+    // produce it), but generation 0 is reserved as invalid and never borrows.
+    object_pool<int, 4>::token zero_gen{2ULL};
+    CHECK(zero_gen.is_valid());
+    CHECK_FALSE(zero_gen.borrow(pool));
   }
 
   // A default token round-trips through `as_int` as invalid.
@@ -625,10 +631,10 @@ TEST_CASE("Shutdown", "[ObjectPool]") {
     CHECK_FALSE(pool.shutdown());
   }
 
-  // `shutdown` invokes `return_cb_` on every slot regardless of state:
-  // free slots (already returned), and currently borrowed slots (which it
-  // forcibly clears). Returning a still-live handle afterwards still runs
-  // `return_cb_` from the normal `return_slot` path.
+  // `shutdown` invokes `return_cb_` on every slot that is not currently
+  // borrowed. Borrowed slots are left to their handles: returning a
+  // still-live handle afterwards runs `return_cb_` from the normal
+  // `return_slot` path.
   if (true) {
     int return_count{};
     auto on_return = [&](int&) noexcept { ++return_count; };
@@ -640,19 +646,18 @@ TEST_CASE("Shutdown", "[ObjectPool]") {
     h0.reset(); // one return: count == 1
     CHECK(return_count == 1);
 
-    // Shutdown invokes return_cb on all 4 slots (including h1's).
+    // Shutdown invokes return_cb on the 3 unborrowed slots, skipping h1's.
     CHECK(pool.shutdown());
-    CHECK(return_count == 5);
+    CHECK(return_count == 4);
 
-    // Returning the still-live handle still runs return_cb once.
+    // Returning the still-live handle runs return_cb once, on its real value.
     h1.reset();
-    CHECK(return_count == 6);
+    CHECK(return_count == 5);
   }
 
-  // `shutdown` forcibly resets every slot to a default-constructed
-  // value, even one a `borrowed` handle is currently observing. The
-  // handle still resets cleanly afterwards, but the slot is not
-  // returned to the free list, so subsequent borrows still fail.
+  // `shutdown` leaves a borrowed slot's contents alone; the handle keeps
+  // working and resets cleanly afterwards, but the slot is not returned to
+  // the free list, so subsequent borrows still fail.
   if (true) {
     object_pool<int, 2> pool;
     auto h = pool.borrow();
@@ -661,8 +666,8 @@ TEST_CASE("Shutdown", "[ObjectPool]") {
 
     CHECK(pool.shutdown());
 
-    // The slot has been reset to T{}.
-    CHECK(*h == 0);
+    // The live handle's contents are preserved.
+    CHECK(*h == 42);
 
     h.reset();
     CHECK_FALSE(pool.borrow());
@@ -679,8 +684,8 @@ TEST_CASE("Shutdown", "[ObjectPool]") {
   }
 
   // Tokens captured before `shutdown` cannot escalate to a `borrowed`
-  // afterwards: shutdown clears the borrow bit and bumps the generation
-  // on every still-borrowed slot, leaving the token stale.
+  // afterwards: shutdown seals every slot, setting the borrow bit and wiping
+  // the generation, so the token's generation no longer matches.
   if (true) {
     object_pool<int, 2> pool;
     auto h = pool.borrow();
@@ -693,9 +698,10 @@ TEST_CASE("Shutdown", "[ObjectPool]") {
     CHECK(tok.get_ptr(pool) == nullptr);
   }
 
-  // `token(borrowed&&)` racing shutdown: the detach cannot happen (shutdown
-  // already cleared the borrow bit), so the ctor returns the slot on the
-  // spot. The handle ends up empty either way.
+  // `token(borrowed&&)` after shutdown: the sealed slot refuses the detach,
+  // so the ctor returns the slot on the spot. The handle ends up empty either
+  // way, and the token cannot escalate: the seal must not be cleared, or a
+  // gen-0 token could reacquire a shut-down slot.
   if (true) {
     object_pool<int, 1> pool;
     auto h = pool.borrow();
@@ -705,6 +711,40 @@ TEST_CASE("Shutdown", "[ObjectPool]") {
     // NOLINTNEXTLINE(bugprone-use-after-move,clang-analyzer-cplusplus.Move)
     CHECK_FALSE(h); // emptied even though the detach failed
     CHECK(tok.is_valid());
+    CHECK_FALSE(tok.borrow(pool));
+  }
+
+  // Plain `detach` after shutdown fails, leaving the handle intact; resetting
+  // it returns the slot the normal way.
+  if (true) {
+    object_pool<int, 1> pool;
+    auto h = pool.borrow();
+    CHECK(pool.shutdown());
+
+    CHECK(pool.detach(std::move(h)) == nullptr);
+    // NOLINTNEXTLINE(bugprone-use-after-move,clang-analyzer-cplusplus.Move)
+    CHECK(h); // detach leaves the handle intact on failure
+    CHECK(h.reset());
+  }
+
+  // A slot detached before `shutdown` is reclaimed by it: `return_cb_` runs
+  // on the detached item, and the later `reattach` fails cleanly.
+  if (true) {
+    int return_count{};
+    auto on_return = [&](int&) noexcept { ++return_count; };
+    object_pool<int, 2, generation_size::bits32, no_op_cb, decltype(on_return)>
+        pool{{}, on_return};
+
+    auto h = pool.borrow();
+    auto* p = pool.detach(std::move(h));
+    REQUIRE(p);
+
+    // Both the free slot and the detached slot are reclaimed.
+    CHECK(pool.shutdown());
+    CHECK(return_count == 2);
+
+    // NOLINTNEXTLINE(performance-move-const-arg)
+    CHECK_FALSE(pool.reattach(std::move(p)));
   }
 
   // The pool's destructor calls `shutdown`, so `return_cb_` runs for

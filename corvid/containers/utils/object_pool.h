@@ -110,9 +110,16 @@ struct gen_traits<generation_size::none> {
 // default-constructed state. Use `ReturnCb` in order to free up resources.
 //
 // Note, however, that the whole point of an object pool is to reuse objects,
-// so you should free up things like locks, but not buffers. For a pool of
-// `std::string`, for example, you could call `clear` in the `ReturnCb`, since
-// it doesn't deallocate.
+// so you should free up things like locks, but not buffers. For example, for a
+// pool of `std::string`, you could call `clear` in the `ReturnCb`, since it
+// doesn't deallocate, while calling `reserve` in the `BorrowCb` to allocate
+// the buffer up front.
+//
+// The only data a callback may touch is the object it is passed: `BorrowCb`
+// initializes it for use, `ReturnCb` clears it out without deallocating. In
+// particular, a callback must not call back into the pool; callbacks run under
+// an internal, non-recursive mutex, so reentry deadlocks. Both callbacks are
+// serialized through that mutex, and both must be noexcept.
 //
 // Optimizations:
 // There's an obvious potential for false sharing, particularly among the
@@ -267,13 +274,14 @@ public:
     // ensuring that the item gets returned to the pool. With great power,
     // yada, yada, yada.
     //
-    // If this races `shutdown`, the detach cannot happen; the slot is instead
-    // returned on the spot. The handle ends up empty either way, and in the
-    // race case the responsibility ends there.
+    // When versioned, if this races or follows `shutdown`, the detach cannot
+    // happen; the slot is instead returned on the spot. The handle ends up
+    // empty either way, and in that case the responsibility ends there.
     explicit token(borrowed&& h) {
       if (!copy_from_handle(h)) return;
-      // `detach` fails only when racing `shutdown`, and it leaves the handle
-      // untouched when it does, so the fallback `reset` is not a
+
+      // `detach` fails only when `shutdown` got there first, and it leaves the
+      // handle untouched when it does, so the fallback `reset` is not a
       // use-after-move.
       //
       // NOLINTNEXTLINE(bugprone-use-after-move)
@@ -433,8 +441,8 @@ public:
   // Borrows a slot; returns empty if the pool is full or has been shut
   // down.
   [[nodiscard]] borrowed borrow() {
-    // We do not increment the generation until return, but we do set the
-    // borrow bit to indicate that it's borrowed.
+    // We do not increment the generation until the slot is released, but we do
+    // set the borrow bit (when versioned).
     T* item{};
     if (std::scoped_lock pool_lock(pool_mutex_); true) {
       if (free_top_ == 0) return {};
@@ -465,6 +473,10 @@ public:
   // takes the role that a `token` would otherwise play, not a supplement to
   // one. If a `token` for the slot also exists, whichever reference reacquires
   // ownership first wins, and the other must then be discarded without use.
+  //
+  // When versioned, `detach` fails after `shutdown`, returning `nullptr` and
+  // leaving the handle intact; just reset the handle (or let it destruct) to
+  // return the slot normally.
   [[nodiscard]] T* detach(borrowed&& h) noexcept {
     assert(h.pool_ == this);
     if constexpr (is_versioned_v) {
@@ -488,6 +500,9 @@ public:
   // in the caller. When you need a detached reference that fails politely
   // instead, keep a `token`.
   //
+  // When versioned, `reattach` fails after `shutdown`: the detached item was
+  // already reclaimed.
+  //
   // NOLINTBEGIN(performance-move-const-arg)
   [[nodiscard]] borrowed reattach(T*&& item) noexcept {
     if (!is_in_pool(item)) return {};
@@ -499,36 +514,50 @@ public:
   }
   // NOLINTEND(performance-move-const-arg)
 
-  // Permanently shut down the pool. After the first call, `borrow` (and
-  // `token::borrow`) returns empty. Already-borrowed handles can still be
-  // reset/destroyed safely; `return_cb_` runs as usual on each return, but
-  // the freed slots are not offered for reuse. Each currently free slot
-  // also has `return_cb_` invoked, for callers that use it to release
-  // resources. Idempotent; returns true on the first call, false on any
+  // Permanently shut down the pool.
+  //
+  // Idempotent; returns true on the first call, false on any
   // subsequent call.
   //
-  // The mechanism that rejects post-shutdown borrows differs by path. `borrow`
-  // is blocked because `free_top_` is cleared. `token::borrow`, in versioned
-  // mode, is blocked because `release_slot_gen` below increments the gen of
-  // every currently borrowed slot, so any outstanding token's gen no longer
-  // matches; tokens for already-returned slots were stale anyway. In
-  // unversioned mode `token::borrow` has no staleness check at all (see the
-  // caveat on `token::borrow`), so shutdown adds no protection beyond what
-  // versioning itself does not provide.
+  // After the first call, `borrow` (and `token::borrow`) returns empty.
+  // Already-borrowed handles keep their contents and can still be
+  // reset/destroyed safely; `return_cb_` runs as usual on each return, but the
+  // freed slots are not offered for reuse.
   //
-  // `return_cb` contract: `return_cb` is invoked outside the pool mutex by
-  // `return_slot` (to minimize lock hold time), and is also invoked under
-  // the lock by `shutdown` on every slot. A late `return_slot` racing with
-  // `shutdown` can therefore see `return_cb` fired twice on the same slot:
-  // once with the original value, once with the post-shutdown `T{}`. So
-  // `return_cb` must be idempotent and safe to invoke on a default-
-  // constructed `T`.
+  // Every slot that is not currently borrowed, which includes detached ones,
+  // has `return_cb_` invoked and its value reset. Since detached items are
+  // reclaimed on the spot,  a later `reattach` (or `token::borrow`) fails
+  // cleanly.
+  //
+  // The mechanism: `shutdown_slot_gen` below seals every slot by setting its
+  // borrow bit and wiping its generation to the reserved invalid 0. `borrow`
+  // is blocked because `free_top_` is cleared; every other acquisition path
+  // (`token::borrow`, `reattach`, and `detach`, whose success would otherwise
+  // unseal the slot) fails against the sealed generation word.
+  //
+  // In unversioned mode there is no generation word, so none of this
+  // protection exists (see the caveat on `token::borrow`), and we instead
+  // assume every slot is borrowed.
+  //
+  // A `borrow` already in flight when `shutdown` runs may still complete and
+  // return a live handle; it simply becomes a handle held across shutdown, and
+  // is returned as normal.
+  //
+  // Shutdown procedure: Call `shutdown` first so that new work fails, give
+  // in-flight work a chance to drain (typically by failing cleanly, since
+  // detached items have been reclaimed), and only then destroy the pool. A
+  // handle must never outlive the pool unless reset: its destructor calls back
+  // into it. A token is just a number, so merely outliving the pool is
+  // harmless; what must not happen is passing a destroyed pool to its methods.
   [[nodiscard]] bool shutdown() noexcept {
     std::scoped_lock both_lock(pool_mutex_, func_mutex_);
     if (shut_down_) return false;
     shut_down_ = true;
     for (auto ndx = 0UZ; ndx < N; ++ndx) {
-      (void)release_slot_gen(ndx);
+      // If we know for a fact that it's not borrowed, we wipe it. Otherwise,
+      // the wipe has to wait until the handle is returned or the pool is
+      // destroyed.
+      if (shutdown_slot_gen(ndx)) continue;
       if constexpr (!IsNoOpCb<ReturnCb>) return_cb_(slots_[ndx]);
       slots_[ndx] = T{};
     }
@@ -579,8 +608,11 @@ private:
       if (old_gen & gen_traits_t::borrow_bit) return false;
       auto new_gen =
           static_cast<gen_storage_t>(old_gen | gen_traits_t::borrow_bit);
+      // Acquire on success pairs with the release in `release_slot_gen` and
+      // `unset_borrowed`, making the previous owner's writes to the object
+      // visible to the new owner.
       return gen.compare_exchange_strong(old_gen, new_gen,
-          std::memory_order::release, std::memory_order::relaxed);
+          std::memory_order::acquire, std::memory_order::relaxed);
     }
     return true;
   }
@@ -594,11 +626,16 @@ private:
       auto& gen = gen_array_[ndx];
       auto old_gen = gen.load(std::memory_order::relaxed);
       if (old_gen & gen_traits_t::borrow_bit) return false;
-      if (old_gen != expected_gen) return false;
+      // Generation 0 is reserved as invalid: it appears in tokens minted after
+      // `shutdown` sealed the slot, and can arrive through `token(uint64_t)`.
+      if ((old_gen != expected_gen) || !expected_gen) return false;
       auto new_gen =
           static_cast<gen_storage_t>(old_gen | gen_traits_t::borrow_bit);
+      // Acquire on success pairs with the release in `release_slot_gen`,
+      // making the previous owner's writes to the object visible to the new
+      // owner.
       return gen.compare_exchange_strong(old_gen, new_gen,
-          std::memory_order::release, std::memory_order::relaxed);
+          std::memory_order::acquire, std::memory_order::relaxed);
     }
     return true;
   }
@@ -611,7 +648,13 @@ private:
       auto& gen = gen_array_[ndx];
       auto old_gen = gen.load(std::memory_order::relaxed);
       if (!(old_gen & gen_traits_t::borrow_bit)) return false;
+      // A sealed slot (borrow bit on, generation wiped to the invalid 0) must
+      // stay sealed: clearing it would let `reattach` or a gen-0 token
+      // reacquire a shut-down slot.
+      if (!(old_gen & gen_traits_t::mask)) return false;
       auto new_gen = static_cast<gen_storage_t>(old_gen & gen_traits_t::mask);
+      // Release on success publishes the owner's writes to whoever later
+      // reacquires the slot.
       return gen.compare_exchange_strong(old_gen, new_gen,
           std::memory_order::release, std::memory_order::relaxed);
     }
@@ -628,9 +671,27 @@ private:
       auto old_gen = gen.load(std::memory_order::relaxed);
       if (!(old_gen & gen_traits_t::borrow_bit)) return false;
       const auto new_gen = gen_traits_t::calc_next_gen(old_gen);
+      //  Release on success publishes the owner's writes to whoever later
+      //  reacquires the slot.
       return gen.compare_exchange_strong(old_gen, new_gen,
           std::memory_order::release, std::memory_order::relaxed);
     }
+    return true;
+  }
+
+  // Rudely wipe the generation while setting the borrow bit, sealing the slot
+  // against every acquisition path. Returns whether the slot was borrowed at
+  // the time.
+  [[nodiscard]] bool shutdown_slot_gen(index_t ndx) {
+    if constexpr (is_versioned_v) {
+      auto& gen = gen_array_[ndx];
+      auto new_gen = gen_traits_t::borrow_bit;
+      //  Runs under both mutexes, and nothing consumes data published through
+      //  the sealed value, so relaxed suffices.
+      const auto old_gen = gen.exchange(new_gen, std::memory_order::relaxed);
+      return (old_gen & gen_traits_t::borrow_bit);
+    }
+    // When unversioned, we pretend the slot was borrowed.
     return true;
   }
 
