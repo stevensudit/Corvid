@@ -39,6 +39,12 @@ consteval auto corvid_enum_spec(test_id_t*) {
   return corvid::enums::sequence::make_sequence_enum_spec<test_id_t, "">();
 }
 
+// Enum with a narrow underlying type, for the size_as_enum wrap pin.
+enum class small_id_t : uint8_t {};
+consteval auto corvid_enum_spec(small_id_t*) {
+  return corvid::enums::sequence::make_sequence_enum_spec<small_id_t, "">();
+}
+
 // NOLINTBEGIN(readability-function-cognitive-complexity,
 // readability-function-size)
 
@@ -926,6 +932,17 @@ TEST_CASE("Basic", "[EnumVector]") {
 
   auto enum_size = v.size_as_enum();
   CHECK(*enum_size == v.size());
+
+  // The capacity vocabulary is `size_t`, so the vector can outgrow a narrow
+  // enum's underlying type and `size()` stays exact; `size_as_enum` is the
+  // narrowing bridge and wraps when the size does not fit: a full-domain
+  // 8-bit vector holds 256 but reports `small_id_t{0}`.
+  enum_vector<int, small_id_t> sv;
+  sv.resize(256);
+  CHECK(sv.size() == 256U);
+  CHECK(sv.size_as_enum() == small_id_t{0});
+  sv.pop_back();
+  CHECK(sv.size_as_enum() == small_id_t{255});
 
   auto& u = v.underlying();
   const auto& cu = cv.underlying();

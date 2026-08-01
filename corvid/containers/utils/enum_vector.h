@@ -16,6 +16,7 @@
 // limitations under the License.
 #pragma once
 
+#include <cstddef>
 #include <type_traits>
 #include <vector>
 
@@ -27,7 +28,9 @@ namespace corvid { inline namespace container { inline namespace enum_vectors {
 
 // Wrapper for vector where the index is a class enum.
 //
-// Provides full access to underlying type, but avoids casting.
+// Provides full access to underlying type, but avoids casting. It is the
+// caller's responsibility not to enlarge the vector beyond the range of the
+// enum.
 template<typename T, sequence::SequentialEnum E,
     class Allocator = std::allocator<T>>
 class enum_vector {
@@ -36,7 +39,7 @@ public:
 
   using value_type = T;
   using allocator_type = Allocator;
-  using size_type = std::underlying_type_t<E>;
+  using size_type = size_t;
   using difference_type = std::ptrdiff_t;
   using reference = value_type&;
   using const_reference = const value_type&;
@@ -122,8 +125,16 @@ public:
 #pragma endregion
 #pragma region Additional methods
 
+  // Return the size as an enum value.
+  //
+  // Warning: this is only meaningful when the size fits the enum's underlying
+  // type. A vector spanning the enum's full domain has a size one past the
+  // largest representable value, so it wraps; for an 8-bit enum, 256 elements
+  // report as `enum_t{0}`.
   [[nodiscard]] enum_t size_as_enum() const noexcept {
-    return enum_t{static_cast<size_type>(data_.size())};
+    // The explicit cast keeps the conversion legal for enums narrower than
+    // `size_t`, which brace-init alone would reject as narrowing.
+    return enum_t{static_cast<as_underlying_t<enum_t>>(data_.size())};
   }
 
   // Access underlying type.
