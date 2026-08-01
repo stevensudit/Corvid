@@ -16,6 +16,7 @@
 // limitations under the License.
 
 #include <deque>
+#include <set>
 #include <string>
 
 #include "corvid/containers.h"
@@ -206,6 +207,59 @@ TEST_CASE("Basic", "[InternTableTest]") {
     iv = string_intern_table_value{csit, "abc"};
     CHECK(iv.id() == string_id{1});
     CHECK(iv.value() == "abc");
+  }
+}
+#pragma endregion
+
+#pragma region Comparison
+
+TEST_CASE("Comparison", "[InternTableTest]") {
+  if (true) {
+    // Equality is identity, so equal contents interned in unrelated tables
+    // compare unequal; ordering breaks the value tie by address, keeping
+    // ordering equivalence consistent with equality.
+    auto lhs_ptr = string_intern_table::make();
+    auto rhs_ptr = string_intern_table::make();
+    auto a = lhs_ptr->intern("foo");
+    auto b = rhs_ptr->intern("foo");
+    CHECK(a != b);
+    // The extra parens keep Catch2 from decomposing the ordering-vs-0
+    // comparison, which trips on the consteval literal-zero parameter.
+    CHECK(((a <=> b) != 0));
+    CHECK(((a < b) != (b < a)));
+    CHECK(((a <=> a) == 0));
+
+    // Mixed-type equality asks about content, so both duplicates match the
+    // same view while remaining unequal to each other.
+    CHECK(a == "foo"sv);
+    CHECK(b == "foo"sv);
+
+    // The duplicates land as distinct-but-adjacent keys in an ordered
+    // container, while the same singleton collapses.
+    auto a2 = lhs_ptr->intern("foo");
+    CHECK(a == a2);
+    std::set<interned_string> set{a, b, a2};
+    CHECK(set.size() == 2);
+  }
+  if (true) {
+    // Value order dominates ordering; the address tie-break only decides
+    // equal values.
+    auto sit_ptr = string_intern_table::make();
+    auto abc = sit_ptr->intern("abc");
+    auto bcd = sit_ptr->intern("bcd");
+    CHECK(abc < bcd);
+    CHECK(bcd > abc);
+    CHECK(abc <= abc);
+    CHECK(abc >= abc);
+
+    // Heterogeneous equality compares content in both directions, matching
+    // the heterogeneous ordering that already existed.
+    CHECK(abc == "abc"sv);
+    CHECK("abc"sv == abc);
+    CHECK(abc != "bcd"sv);
+    CHECK(abc == "abc"s);
+    CHECK(abc < "b"sv);
+    CHECK("b"sv > abc);
   }
 }
 #pragma endregion

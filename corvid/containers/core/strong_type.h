@@ -175,103 +175,124 @@ public:
   }
 
   // Heterogeneous relational operators.
+  //
+  // Convertibility in either direction gates the operators to genuinely
+  // interacting types, but only as a gate: the conversion is not applied.
+  //
+  // (The gate also breaks a constraint recursion through expression-template
+  // wrappers, such as a test framework's decomposers, whose ADL drags these
+  // operators into their own satisfaction check.)
   template<NotStrongType U>
-  requires(std::convertible_to<const U&, T> &&
-           requires(const T& a, const T& b) { a <=> b; })
+  requires(
+      (std::convertible_to<const U&, T> || std::convertible_to<const T&, U>) &&
+      requires(const T& a, const U& b) { a <=> b; })
   [[nodiscard]] friend constexpr auto
   operator<=>(const strong_type& lhs, const U& rhs) {
-    return lhs.value_ <=> static_cast<T>(rhs);
+    return lhs.value_ <=> rhs;
   }
 
   template<NotStrongType U>
-  requires(std::convertible_to<const U&, T> &&
-           requires(const T& a, const T& b) { a == b; })
+  requires(
+      (std::convertible_to<const U&, T> || std::convertible_to<const T&, U>) &&
+      requires(const T& a, const U& b) { a == b; })
   [[nodiscard]] friend constexpr bool
   operator==(const strong_type& lhs, const U& rhs) {
-    return lhs.value_ == static_cast<T>(rhs);
+    return lhs.value_ == rhs;
   }
   template<NotStrongType U>
-  requires(std::convertible_to<const U&, T> &&
-           requires(const T& a, const T& b) { a == b; })
+  requires(
+      (std::convertible_to<const U&, T> || std::convertible_to<const T&, U>) &&
+      requires(const T& a, const U& b) { a == b; })
   [[nodiscard]] friend constexpr bool
   operator!=(const strong_type& lhs, const U& rhs) {
     return !(lhs == rhs);
   }
   template<NotStrongType U>
-  requires(std::convertible_to<const U&, T> &&
-           requires(const T& a, const T& b) { a <=> b; })
+  requires(
+      (std::convertible_to<const U&, T> || std::convertible_to<const T&, U>) &&
+      requires(const T& a, const U& b) { a <=> b; })
   [[nodiscard]] friend constexpr bool
   operator<(const strong_type& lhs, const U& rhs) {
     return (lhs <=> rhs) < 0;
   }
   template<NotStrongType U>
-  requires(std::convertible_to<const U&, T> &&
-           requires(const T& a, const T& b) { a <=> b; })
+  requires(
+      (std::convertible_to<const U&, T> || std::convertible_to<const T&, U>) &&
+      requires(const T& a, const U& b) { a <=> b; })
   [[nodiscard]] friend constexpr bool
   operator<=(const strong_type& lhs, const U& rhs) {
     return (lhs <=> rhs) <= 0;
   }
   template<NotStrongType U>
-  requires(std::convertible_to<const U&, T> &&
-           requires(const T& a, const T& b) { a <=> b; })
+  requires(
+      (std::convertible_to<const U&, T> || std::convertible_to<const T&, U>) &&
+      requires(const T& a, const U& b) { a <=> b; })
   [[nodiscard]] friend constexpr bool
   operator>(const strong_type& lhs, const U& rhs) {
     return (lhs <=> rhs) > 0;
   }
   template<NotStrongType U>
-  requires(std::convertible_to<const U&, T> &&
-           requires(const T& a, const T& b) { a <=> b; })
+  requires(
+      (std::convertible_to<const U&, T> || std::convertible_to<const T&, U>) &&
+      requires(const T& a, const U& b) { a <=> b; })
   [[nodiscard]] friend constexpr bool
   operator>=(const strong_type& lhs, const U& rhs) {
     return (lhs <=> rhs) >= 0;
   }
 
   template<NotStrongType U>
-  requires(std::convertible_to<const U&, T> &&
-           requires(const T& a, const T& b) { a <=> b; })
+  requires(
+      (std::convertible_to<const U&, T> || std::convertible_to<const T&, U>) &&
+      requires(const U& a, const T& b) { a <=> b; })
   [[nodiscard]] friend constexpr auto
   operator<=>(const U& lhs, const strong_type& rhs) {
-    return static_cast<T>(lhs) <=> rhs.value_;
+    return lhs <=> rhs.value_;
   }
 
   template<NotStrongType U>
-  requires(std::convertible_to<const U&, T> &&
-           requires(const T& a, const T& b) { a == b; })
+  requires(
+      (std::convertible_to<const U&, T> || std::convertible_to<const T&, U>) &&
+      requires(const U& a, const T& b) { a == b; })
   [[nodiscard]] friend constexpr bool
   operator==(const U& lhs, const strong_type& rhs) {
-    return static_cast<T>(lhs) == rhs.value_;
+    return lhs == rhs.value_;
   }
   template<NotStrongType U>
-  requires(std::convertible_to<const U&, T> &&
-           requires(const T& a, const T& b) { a == b; })
+  requires(
+      (std::convertible_to<const U&, T> || std::convertible_to<const T&, U>) &&
+      requires(const U& a, const T& b) { a == b; })
   [[nodiscard]] friend constexpr bool
   operator!=(const U& lhs, const strong_type& rhs) {
     return !(lhs == rhs);
   }
   template<NotStrongType U>
-  requires(std::convertible_to<const U&, T> &&
-           requires(const T& a, const T& b) { a <=> b; })
+  requires(
+      (std::convertible_to<const U&, T> || std::convertible_to<const T&, U>) &&
+      requires(const U& a, const T& b) { a <=> b; })
   [[nodiscard]] friend constexpr bool
   operator<(const U& lhs, const strong_type& rhs) {
     return (lhs <=> rhs) < 0;
   }
   template<NotStrongType U>
-  requires(std::convertible_to<const U&, T> &&
-           requires(const T& a, const T& b) { a <=> b; })
+  requires(
+      (std::convertible_to<const U&, T> || std::convertible_to<const T&, U>) &&
+      requires(const U& a, const T& b) { a <=> b; })
   [[nodiscard]] friend constexpr bool
   operator<=(const U& lhs, const strong_type& rhs) {
     return (lhs <=> rhs) <= 0;
   }
   template<NotStrongType U>
-  requires(std::convertible_to<const U&, T> &&
-           requires(const T& a, const T& b) { a <=> b; })
+  requires(
+      (std::convertible_to<const U&, T> || std::convertible_to<const T&, U>) &&
+      requires(const U& a, const T& b) { a <=> b; })
   [[nodiscard]] friend constexpr bool
   operator>(const U& lhs, const strong_type& rhs) {
     return (lhs <=> rhs) > 0;
   }
   template<NotStrongType U>
-  requires(std::convertible_to<const U&, T> &&
-           requires(const T& a, const T& b) { a <=> b; })
+  requires(
+      (std::convertible_to<const U&, T> || std::convertible_to<const T&, U>) &&
+      requires(const U& a, const T& b) { a <=> b; })
   [[nodiscard]] friend constexpr bool
   operator>=(const U& lhs, const strong_type& rhs) {
     return (lhs <=> rhs) >= 0;
@@ -712,13 +733,13 @@ public:
   template<typename... Args>
   requires CallableReturningNonVoid<T&, Args...>
   [[nodiscard]]
-  constexpr auto operator()(Args&&... args) {
+  constexpr decltype(auto) operator()(Args&&... args) {
     return std::invoke(value_, std::forward<Args>(args)...);
   }
   template<typename... Args>
   requires CallableReturningNonVoid<const T&, Args...>
   [[nodiscard]]
-  constexpr auto operator()(Args&&... args) const {
+  constexpr decltype(auto) operator()(Args&&... args) const {
     return std::invoke(value_, std::forward<Args>(args)...);
   }
 

@@ -22,6 +22,7 @@
 #include <sstream>
 #include <stdexcept>
 #include <thread>
+#include <type_traits>
 #include <unordered_map>
 #include <vector>
 
@@ -239,6 +240,50 @@ TEST_CASE("Basic", "[StrongType]") {
   age = age - 1;
   CHECK(age == 43);
   age = age << 1;
+}
+#pragma endregion
+
+#pragma region StrongType_Heterogeneous
+
+TEST_CASE("Heterogeneous", "[StrongType]") {
+  if (true) {
+    // Mixed comparisons are exact in the natural common type; the operand is
+    // not quantized into `T`. Pre-fix, `age == 3.7` read true via truncation
+    // and `age < 3.5` read false.
+    PersonAge age{3};
+    CHECK_FALSE(age == 3.7);
+    CHECK(age != 3.7);
+    CHECK(age < 3.5);
+    CHECK(3.5 > age);
+    CHECK_FALSE(age < 3.0);
+    CHECK(age <= 3.0);
+    CHECK(age == 3.0);
+
+    // A type only comparable with `T`, not convertible to it, now works:
+    // `std::string_view` converts to `std::string` only explicitly.
+    FirstName fn{"John"};
+    CHECK(fn == "John"sv);
+    CHECK("Jane"sv < fn);
+  }
+  if (true) {
+    // Mixed arithmetic computes in the common type but returns the strong
+    // type, landing back in `T`'s domain, narrowing if necessary.
+    PersonAge age{3};
+    CHECK(age + 0.5 == PersonAge{3});
+    CHECK(age + 1.5 == PersonAge{4});
+  }
+  if (true) {
+    // A wrapped callable that returns a reference keeps returning one, so the
+    // result aliases the target and writes through it stick. Pre-fix, the
+    // `auto` return decayed it to a copy.
+    long target{7};
+    using GetRef = strong_type<std::function<long&()>, struct GetRefTag>;
+    GetRef get_ref{[&target]() -> long& { return target; }};
+    static_assert(std::is_same_v<decltype(get_ref()), long&>);
+    CHECK(&get_ref() == &target);
+    get_ref() = 9;
+    CHECK(target == 9);
+  }
 }
 #pragma endregion
 

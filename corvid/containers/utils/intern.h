@@ -15,6 +15,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 #pragma once
+#include <compare>
 #include <format>
 
 #include "../core/containers_shared.h"
@@ -148,8 +149,11 @@ public:
 #pragma endregion
 #pragma region Comparison
 
-  // Equality is optimized to compare by address. We do not want to compare
-  // ID's because we can't be sure that they're from the same table.
+  // Equality is identity: within a chain, equal values are the same singleton,
+  // so comparing addresses suffices (and tolerates empty). Equal contents
+  // interned in unrelated tables are distinct entities and compare unequal. We
+  // do not compare ID's because we can't be sure that they're from the same
+  // table.
   constexpr bool operator==(const interned_value& other) const noexcept {
     return value_ == other.value_;
   }
@@ -157,18 +161,15 @@ public:
     return value_ != other.value_;
   }
 
-  // Inequality has to look at the values. Note that we crash on nullptr.
-  constexpr bool operator<(const interned_value& other) const {
-    return *value_ < *other.value_;
-  }
-  constexpr bool operator<=(const interned_value& other) const {
-    return *value_ <= *other.value_;
-  }
-  constexpr bool operator>(const interned_value& other) const {
-    return *value_ > *other.value_;
-  }
-  constexpr bool operator>=(const interned_value& other) const {
-    return *value_ >= *other.value_;
+  // Ordering compares by value, so it crashes on empty. Equal values at
+  // distinct addresses, possible only across unrelated tables, break the tie
+  // by address so that ordering equivalence coincides with equality; the
+  // relative order of such duplicates is consistent within a run but otherwise
+  // arbitrary.
+  constexpr std::compare_three_way_result_t<value_t> operator<=>(
+      const interned_value& other) const {
+    if (const auto cmp = *value_ <=> *other.value_; cmp != 0) return cmp;
+    return std::compare_three_way{}(value_, other.value_);
   }
 
   // Heterogeneous comparisons with types that are viewable as `value_t`.
@@ -181,6 +182,20 @@ public:
   requires Viewable<value_t, U>
   friend constexpr auto operator<=>(const U& lhs, const interned_value& rhs) {
     return lhs <=> *rhs.value_;
+  }
+
+  // Heterogeneous equality is by value, not identity, because the operand is
+  // not interned. Two interned values can each equal the same view while
+  // remaining unequal to each other.
+  template<typename U>
+  requires Viewable<value_t, U>
+  friend constexpr bool operator==(const interned_value& lhs, const U& rhs) {
+    return *lhs.value_ == rhs;
+  }
+  template<typename U>
+  requires Viewable<value_t, U>
+  friend constexpr bool operator==(const U& lhs, const interned_value& rhs) {
+    return lhs == *rhs.value_;
   }
 
 #pragma endregion

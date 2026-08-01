@@ -69,7 +69,6 @@
    f. In append_fn: Consider printing enum string instead of integer.
 
 16. containers/intern.h improvements:
-   a. interned_value::operator==: If the value is itself a view, then we should compare the views. One way would be to compare `begin()`, if it's available.
    b. intern_traits: Add arena size as a parameter.
    c. intern_traits: A deque is only being used for lookup_by_id_ because we want to be able to enlarge without moving. As an optional optimization, write a class with a signature similar to vector or deque that is streamlined to only support appending.
    d. intern_traits: An entirely different scheme would be to store the values in a stable associative container, such as a map, and then use a deque to store pointers into the map.
