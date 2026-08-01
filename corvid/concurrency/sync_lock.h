@@ -42,14 +42,26 @@ private:
 // call `disable` and the conversion to `synchronizer` returns `nullptr`, so
 // that no actual locking is done anymore.
 //
+// The disable transition is a data handoff: a reader that observes `nullptr`
+// skips the mutex entirely and reads the guarded data unlocked, so the null
+// store must pair with the null load as release/acquire to publish every
+// write made before freezing. The mutex cannot provide that ordering to a
+// reader who never takes it, and relaxed ordering would not suffice.
+//
 // If you don't want to allow someone outside the class to call `disable`, make
 // this object private and expose it through a function that returns a `const
 // synchronizer*`.
 class breakable_synchronizer final {
 public:
-  operator const synchronizer*() const noexcept { return sync_; };
-  void disable() const noexcept { sync_ = nullptr; };
-  bool is_disabled() const noexcept { return !sync_; }
+  operator const synchronizer*() const noexcept {
+    return sync_.load(std::memory_order_acquire);
+  }
+  void disable() const noexcept {
+    sync_.store(nullptr, std::memory_order_release);
+  }
+  bool is_disabled() const noexcept {
+    return !sync_.load(std::memory_order_acquire);
+  }
 
 private:
   synchronizer actual_sync_;
