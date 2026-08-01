@@ -15,8 +15,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 #pragma once
-#include "../core/containers_shared.h"
 #include "../../meta/crossplatform.h"
+#include "../../meta/maybe.h"
 
 #include <array>
 #include <atomic>
@@ -27,7 +27,6 @@
 #include <limits>
 #include <mutex>
 #include <numeric>
-#include <optional>
 #include <stdexcept>
 #include <type_traits>
 #include <utility>

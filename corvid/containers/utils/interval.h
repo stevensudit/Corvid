@@ -18,6 +18,8 @@
 #define NOMINMAX
 
 #include <cassert>
+#include <compare>
+#include <cstddef>
 #include <cstdint>
 #include <format>
 #include <iterator>
@@ -25,8 +27,9 @@
 #include <type_traits>
 #include <utility>
 
-#include "../core/containers_shared.h"
-#include "../../strings/delimiting.h"
+#include "../../meta/concepts.h"
+#include "../../meta/enums.h"
+#include "../../meta/traits.h"
 #include "../../enums/bitmask_enum.h"
 #include "../../enums/sequence_enum.h"
 

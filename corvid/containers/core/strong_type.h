@@ -15,10 +15,19 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 #pragma once
+#include <concepts>
+#include <cstddef>
 #include <format>
+#include <functional>
+#include <istream>
+#include <ostream>
+#include <type_traits>
+#include <utility>
 
-#include "containers_shared.h"
+#include "../../meta/concepts.h"
 #include "../../meta/formatting.h"
+#include "../../meta/forward_like.h"
+#include "../../meta/traits.h"
 
 namespace corvid { inline namespace strongtypes {
 

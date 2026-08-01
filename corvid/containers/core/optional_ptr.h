@@ -16,10 +16,15 @@
 // limitations under the License.
 
 #pragma once
+#include <cstddef>
 #include <format>
+#include <optional>
+#include <type_traits>
+#include <utility>
 
-#include "containers_shared.h"
+#include "../../meta/concepts.h"
 #include "../../meta/formatting.h"
+#include "../../meta/traits.h"
 
 // This is internal, like it says, so don't import it.
 namespace corvid::internal {

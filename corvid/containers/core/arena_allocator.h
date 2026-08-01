@@ -15,9 +15,20 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 #pragma once
+#include <algorithm>
+#include <cassert>
+#include <cstddef>
 #include <cstdint>
+#include <deque>
+#include <functional>
+#include <memory>
+#include <new>
+#include <string>
+#include <type_traits>
+#include <unordered_map>
+#include <utility>
 
-#include "containers_shared.h"
+#include "../../meta/crossplatform.h"
 
 namespace corvid { inline namespace container { namespace arena {
 

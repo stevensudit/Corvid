@@ -281,6 +281,18 @@ with a minimal repro:
 - An inline friend of a nested class cannot reach a sibling nested class's
   private members under cl, even where the nested class's own member functions
   can. Use a public accessor instead.
+- MSVC 14.51 compiler bug: a `consteval` function returning a `std::variant`
+  constructed at any non-zero index cannot be materialized into a runtime
+  object; cl emits a bogus C2440 ("cannot convert from initializer list ...
+  Invalid aggregate initialization ... too many initializers") at the call
+  site. Index 0 works, and a `constexpr` destination works, so the constant
+  evaluator itself is fine; only the constant-to-runtime materialization is
+  broken. Minimal repro: `consteval V make1() { return
+  V{std::in_place_index<1>}; } V x = make1();` with `using V =
+  std::variant<int, double, std::string>;`. This hits `enum_variant`'s
+  consteval enum constructor; the workaround at the one affected site
+  (containers_test.cpp, EnumVariant BadIndex) is to declare the destination
+  `constexpr`.
 
 clang-tidy findings differ by standard library too, so `./cleanbuild.ps1 tidy`
 (MSVC STL) surfaces two checks that the Linux libc++ run does not. Both are

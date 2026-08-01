@@ -15,7 +15,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 #pragma once
-#include "containers/core/containers_shared.h"
 #include "containers/core/hash_combiner.h"
 #include "containers/utils/enum_vector.h"
 #include "containers/core/optional_ptr.h"

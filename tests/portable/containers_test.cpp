@@ -872,7 +872,11 @@ TEST_CASE("BadIndex", "[EnumVariant]") {
     // evaluation, so rejection is a compile error and can only be
     // demonstrated:
     // QueryVariant bad{static_cast<QueryType>(5)};
-    QueryVariant good{QueryType::Range};
+    //
+    // The constexpr dodges an MSVC 14.51 bug materializing a consteval-built
+    // variant with a non-zero index into a runtime object; see
+    // crossplatform.md.
+    constexpr QueryVariant good{QueryType::Range};
     CHECK(good.index() == QueryType::Range);
   }
   if (true) {

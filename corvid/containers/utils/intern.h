@@ -15,15 +15,26 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 #pragma once
+#include <cassert>
 #include <compare>
+#include <cstddef>
+#include <deque>
 #include <format>
+#include <limits>
+#include <memory>
+#include <stdexcept>
+#include <string>
+#include <string_view>
+#include <unordered_map>
+#include <utility>
 
-#include "../core/containers_shared.h"
 #include "../core/arena_allocator.h"
 #include "../core/opt_find.h"
 #include "../core/indirect_key.h"
 #include "../../concurrency/sync_lock.h"
 #include "../../enums/sequence_enum.h"
+#include "../../meta/concepts.h"
+#include "../../meta/enums.h"
 
 namespace corvid { inline namespace container { inline namespace intern {
 
