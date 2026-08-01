@@ -342,7 +342,9 @@ public:
       if constexpr (is_versioned_v) {
         auto gen = pool.gen_array_[ndx_].load(std::memory_order_relaxed) &
                    gen_traits_t::mask;
-        if (gen != gen_) return nullptr;
+        // Generation 0 is reserved as invalid and never matches, so a token
+        // carrying the sealed generation cannot resolve a shut-down slot.
+        if ((gen != gen_) || !gen_) return nullptr;
       }
       return &pool.slots_[ndx_];
     }
@@ -669,6 +671,9 @@ private:
       auto& gen = gen_array_[ndx];
       auto old_gen = gen.load(std::memory_order::relaxed);
       if (!(old_gen & gen_traits_t::borrow_bit)) return false;
+      // A sealed word never reaches this point: `return_slot` bails on
+      // `shut_down_` before calling. Unsealing here would reopen the slot.
+      assert(old_gen & gen_traits_t::mask);
       const auto new_gen = gen_traits_t::calc_next_gen(old_gen);
       // Release on success publishes the owner's writes to whoever later
       // reacquires the slot.

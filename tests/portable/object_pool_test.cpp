@@ -712,6 +712,9 @@ TEST_CASE("Shutdown", "[ObjectPool]") {
     CHECK_FALSE(h); // emptied even though the detach failed
     CHECK(tok.is_valid());
     CHECK_FALSE(tok.borrow(pool));
+    // The minted token carries the sealed generation 0, which never matches:
+    // pre-fix, this resolved to a live pointer into the sealed slot.
+    CHECK(tok.get_ptr(pool) == nullptr);
   }
 
   // Plain `detach` after shutdown fails, leaving the handle intact; resetting
