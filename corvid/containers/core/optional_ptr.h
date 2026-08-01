@@ -24,6 +24,7 @@
 
 #include "../../meta/concepts.h"
 #include "../../meta/formatting.h"
+#include "../../meta/forward_like.h"
 #include "../../meta/traits.h"
 
 // This is internal, like it says, so don't import it.
@@ -93,30 +94,21 @@ public:
   [[nodiscard]] constexpr auto operator->() const noexcept { return &*ptr_; }
 
   // For smart pointers, we need to forward these two calls explicitly.
-  template<SmartPointer U = P>
-  [[nodiscard]] constexpr auto& operator*() const {
+  [[nodiscard]] constexpr auto& operator*() const
+  requires SmartPointer<P>
+  {
     return *ptr_;
   }
 
-  template<SmartPointer U = P>
-  [[nodiscard]] constexpr explicit operator bool() const noexcept {
+  [[nodiscard]] constexpr explicit operator bool() const noexcept
+  requires SmartPointer<P>
+  {
     return ptr_ ? true : false;
   }
 
   // Get underlying pointer.
-  [[nodiscard]] constexpr const pointer& get() const& noexcept { return ptr_; }
-  [[nodiscard]] constexpr pointer&& get() && noexcept {
-    return std::move(ptr_);
-  }
-
-  // Get raw pointer.
-  template<SmartPointer U = P>
-  [[nodiscard]] constexpr const element_type& get_ptr() const& noexcept {
-    return *ptr_;
-  }
-  template<SmartPointer U = P>
-  [[nodiscard]] constexpr element_type&& get_ptr() && noexcept {
-    return std::move(*ptr_);
+  [[nodiscard]] constexpr decltype(auto) get(this auto&& self) noexcept {
+    return forward_like<decltype(self)>(self.ptr_);
   }
 
   // Reset to new pointer value or null.

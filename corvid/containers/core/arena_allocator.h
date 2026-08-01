@@ -139,7 +139,7 @@ class extensible_arena final {
 #pragma region Construction
 
 public:
-  explicit extensible_arena(size_t capacity) noexcept
+  explicit extensible_arena(size_t capacity)
       : head_{list_node::make(capacity)} {}
 
 #pragma endregion
