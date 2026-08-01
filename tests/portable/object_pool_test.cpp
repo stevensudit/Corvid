@@ -721,7 +721,10 @@ TEST_CASE("Shutdown", "[ObjectPool]") {
     auto h = pool.borrow();
     CHECK(pool.shutdown());
 
-    CHECK(pool.detach(std::move(h)) == nullptr);
+    // The move stays outside CHECK: Catch2's macro repeats the expression in
+    // a dead retry condition, tripping bugprone-use-after-move.
+    auto* p = pool.detach(std::move(h));
+    CHECK(p == nullptr);
     // NOLINTNEXTLINE(bugprone-use-after-move,clang-analyzer-cplusplus.Move)
     CHECK(h); // detach leaves the handle intact on failure
     CHECK(h.reset());
@@ -743,8 +746,10 @@ TEST_CASE("Shutdown", "[ObjectPool]") {
     CHECK(pool.shutdown());
     CHECK(return_count == 2);
 
+    // Move outside CHECK_FALSE, as above.
     // NOLINTNEXTLINE(performance-move-const-arg)
-    CHECK_FALSE(pool.reattach(std::move(p)));
+    const auto reattached = pool.reattach(std::move(p));
+    CHECK_FALSE(reattached);
   }
 
   // The pool's destructor calls `shutdown`, so `return_cb_` runs for

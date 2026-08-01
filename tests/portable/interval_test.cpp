@@ -380,7 +380,7 @@ TEST_CASE("Formatting", "[Intervals]") {
 
 #pragma region Int128
 
-#if defined(__SIZEOF_INT128__)
+#ifdef __SIZEOF_INT128__
 // Probe `U = __int128`, which buys iteration headroom over the full range of
 // `int64_t`. The compiler extension alone is not enough: the standard library
 // must also treat `__int128` as integral (libc++ does; Microsoft's STL does
@@ -416,7 +416,7 @@ void probe_int128_interval() {
 #endif
 
 TEST_CASE("Int128", "[IntervalTest]") {
-#if defined(__SIZEOF_INT128__)
+#ifdef __SIZEOF_INT128__
   probe_int128_interval<__int128>();
 #else
   SUCCEED("__int128 is not available on this compiler");
