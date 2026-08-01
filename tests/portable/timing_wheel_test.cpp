@@ -15,6 +15,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#include <latch>
+#include <thread>
+
 #include "corvid/concurrency/timing_wheel.h"
 
 #include "catch2_main.h"
@@ -360,6 +363,45 @@ TEST_CASE("StopAbortsTick", "[TimingWheel]") {
 
   // Only the first callback fires before the tombstone is seen.
   CHECK(count == 1);
+}
+
+#pragma endregion
+#pragma region RunnerLifecycle
+
+TEST_CASE("RunnerLifecycle", "[TimingWheel]") {
+  // The runner drives the wheel from its own thread; destruction joins.
+  std::latch fired{1};
+  timing_wheel_runner runner{8, 1ms};
+  CHECK(runner.wheel()->schedule(
+            [&] {
+              fired.count_down();
+              return true;
+            },
+            1ms) == true);
+  fired.wait();
+}
+
+#pragma endregion
+#pragma region RunnerSelfDestruct
+
+TEST_CASE("RunnerSelfDestruct", "[TimingWheel]") {
+  // A callback may destroy the runner from the wheel thread itself (the
+  // epoll_http_server last-reference path): the destructor detaches instead
+  // of self-joining, and `run` must finish on its own copy of the wheel
+  // without touching the dead runner. ASAN is the real teeth here; without
+  // the local wheel copy in `run`, this is a deterministic use-after-free.
+  std::latch done{1};
+  auto* runner = new timing_wheel_runner{8, 1ms};
+  CHECK(runner->wheel()->schedule(
+            [&] {
+              delete runner;
+              done.count_down();
+              return true;
+            },
+            1ms) == true);
+  done.wait();
+  // Give the detached thread a beat to unwind before the test ends.
+  std::this_thread::sleep_for(20ms);
 }
 
 #pragma endregion

@@ -308,12 +308,17 @@ private:
   void run(const std::stop_token& st) {
     jthread_stoppable_sleep::set_thread_name("wheel");
 
+    // Own the wheel locally: on the self-destruction path, the destructor
+    // detaches this thread from inside a callback and the runner dies before
+    // the loop finishes, so `this` must not be touched past this point.
+    const auto wheel = wheel_;
+
     // Kill the wheel's tombstone immediately when a stop is requested, so
     // any in-progress `tick` bails at the next callback boundary.
-    std::stop_callback on_stop(st, [this] { (void)wheel_->stop(); });
+    std::stop_callback on_stop(st, [wheel] { (void)wheel->stop(); });
     jthread_stoppable_sleep sleep;
-    while (!sleep.until(st, wheel_->next_tick_time()))
-      wheel_->tick(std::chrono::steady_clock::now());
+    while (!sleep.until(st, wheel->next_tick_time()))
+      wheel->tick(std::chrono::steady_clock::now());
   }
 
 #pragma endregion
