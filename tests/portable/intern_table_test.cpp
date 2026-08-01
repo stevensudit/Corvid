@@ -261,6 +261,33 @@ TEST_CASE("Comparison", "[InternTableTest]") {
     CHECK(abc < "b"sv);
     CHECK("b"sv > abc);
   }
+  if (true) {
+    // Empty orders below every non-empty value and ties with empty, the
+    // `std::optional` model, so the order stays total.
+    auto sit_ptr = string_intern_table::make();
+    auto abc = sit_ptr->intern("abc");
+    interned_string empty;
+    interned_string empty2;
+    CHECK(empty == empty2);
+    CHECK(((empty <=> empty2) == 0));
+    CHECK(empty < abc);
+    CHECK(abc > empty);
+    CHECK_FALSE(empty == abc);
+
+    // An ordered container admits one empty alongside the values.
+    std::set<interned_string> set{empty, abc, empty2};
+    CHECK(set.size() == 2);
+    CHECK(set.contains(empty));
+
+    // An empty equals no view, not even an empty one; it orders below all.
+    CHECK_FALSE(empty == "foo"sv);
+    CHECK_FALSE("foo"sv == empty);
+    CHECK(empty != ""sv);
+    CHECK(empty != ""s);
+    CHECK(empty < "foo"sv);
+    CHECK("foo"sv > empty);
+    CHECK(""sv > empty);
+  }
 }
 #pragma endregion
 

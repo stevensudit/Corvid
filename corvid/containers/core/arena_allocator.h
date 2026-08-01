@@ -97,10 +97,12 @@ class extensible_arena final {
 
     // Helper function to calculate the total size needed for a list_node with
     // a given capacity. The minus 1 is because the list_node struct already
-    // includes storage for one element.
+    // includes storage for one element; clamping holds that credit to what
+    // `data_` actually provides, so a zero capacity cannot undersize the
+    // buffer relative to `sizeof(list_node)`.
     [[nodiscard]] static constexpr size_t calculate_total_size(
         size_t capacity) {
-      return sizeof(list_node) + capacity - 1;
+      return sizeof(list_node) + std::max(capacity, 1UZ) - 1;
     }
 
     // Make a new node of `capacity`.

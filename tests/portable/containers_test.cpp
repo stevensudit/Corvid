@@ -240,6 +240,16 @@ TEST_CASE("Basic", "[ArenaTest]") {
     CHECK(p != nullptr);
     CHECK(reinterpret_cast<uintptr_t>(p) % 16U == 0U);
   }
+  // A zero-capacity arena is legal: its head block holds nothing, so every
+  // allocation spills to a fresh block. (The head node's buffer must still be
+  // full-sized; pre-fix it came up one byte short of `sizeof(list_node)`.)
+  if (true) {
+    extensible_arena a{0};
+    extensible_arena::scope sa{a};
+    auto* p = extensible_arena::allocate(8, 8);
+    CHECK(p != nullptr);
+    CHECK(extensible_arena::contains(p));
+  }
   // Overflow guards: unrepresentable sizes are rejected by throwing, before
   // any arithmetic can wrap. Pre-fix, the first two wrapped to small values
   // (allocating an undersized block while recording the huge capacity) and

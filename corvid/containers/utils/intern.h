@@ -172,41 +172,51 @@ public:
     return value_ != other.value_;
   }
 
-  // Ordering compares by value, so it crashes on empty. Equal values at
-  // distinct addresses, possible only across unrelated tables, break the tie
-  // by address so that ordering equivalence coincides with equality; the
-  // relative order of such duplicates is consistent within a run but otherwise
-  // arbitrary.
+  // Ordering compares by value, with empty ordering below every non-empty
+  // value and equivalent to empty, the `std::optional` model, so the order is
+  // total. Equal values at distinct addresses, possible only across unrelated
+  // tables, break the tie by address so that ordering equivalence coincides
+  // with equality; the relative order of such duplicates is consistent within
+  // a run but otherwise arbitrary.
   constexpr std::compare_three_way_result_t<value_t> operator<=>(
       const interned_value& other) const {
+    using ordering = std::compare_three_way_result_t<value_t>;
+    if (!value_ || !other.value_) {
+      if (value_) return ordering::greater;
+      return other.value_ ? ordering::less : ordering::equivalent;
+    }
     if (const auto cmp = *value_ <=> *other.value_; cmp != 0) return cmp;
     return std::compare_three_way{}(value_, other.value_);
   }
 
-  // Heterogeneous comparisons with types that are viewable as `value_t`.
+  // Heterogeneous comparisons with types that are viewable as `value_t`. An
+  // empty operand orders below every view.
   template<typename U>
   requires Viewable<value_t, U>
   friend constexpr auto operator<=>(const interned_value& lhs, const U& rhs) {
+    if (!lhs.value_) return decltype(*lhs.value_ <=> rhs)::less;
     return *lhs.value_ <=> rhs;
   }
   template<typename U>
   requires Viewable<value_t, U>
   friend constexpr auto operator<=>(const U& lhs, const interned_value& rhs) {
+    if (!rhs.value_) return decltype(lhs <=> *rhs.value_)::greater;
     return lhs <=> *rhs.value_;
   }
 
   // Heterogeneous equality is by value, not identity, because the operand is
   // not interned. Two interned values can each equal the same view while
-  // remaining unequal to each other.
+  // remaining unequal to each other. An empty operand equals no view, not even
+  // an empty one.
   template<typename U>
   requires Viewable<value_t, U>
   friend constexpr bool operator==(const interned_value& lhs, const U& rhs) {
-    return *lhs.value_ == rhs;
+    return lhs.value_ && (*lhs.value_ == rhs);
   }
   template<typename U>
   requires Viewable<value_t, U>
   friend constexpr bool operator==(const U& lhs, const interned_value& rhs) {
-    return lhs == *rhs.value_;
+    return rhs.value_ && (lhs == *rhs.value_);
   }
 
 #pragma endregion
