@@ -15,9 +15,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#include <atomic>
 #include <deque>
 #include <set>
 #include <string>
+#include <thread>
 
 #include "corvid/containers.h"
 #include "catch2_main.h"
@@ -341,6 +343,32 @@ TEST_CASE("Chaining", "[InternTableTest]") {
     CHECK(gap.get(string_id{1}).id() == string_id{1});
     CHECK(&gap.get("alpha"sv).value() == &alpha.value());
   }
+}
+#pragma endregion
+
+#pragma region Concurrency
+
+TEST_CASE("Concurrency", "[InternTableTest]") {
+  // `contains` is documented safe alongside `intern` without the table lock:
+  // a reader thread hammers lookups of an already-interned value while the
+  // main thread interns enough new values to spill several arena blocks. The
+  // sanitizer legs, TSAN especially, give this test its teeth.
+  auto sit_ptr = string_intern_table::make();
+  auto& sit = *sit_ptr;
+  auto seed = sit.intern("seed");
+  const void* seed_ptr = &seed.value();
+
+  std::atomic<bool> stop{};
+  std::atomic<bool> ok{true};
+  std::jthread reader{[&] {
+    while (!stop.load(std::memory_order::relaxed))
+      if (!sit.contains(seed_ptr)) ok.store(false, std::memory_order::relaxed);
+  }};
+
+  for (auto i = 0; i < 1'000; ++i) (void)sit.intern(std::to_string(i));
+  stop.store(true, std::memory_order::relaxed);
+  reader.join();
+  CHECK(ok.load());
 }
 #pragma endregion
 

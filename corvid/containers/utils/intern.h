@@ -379,6 +379,10 @@ public:
 
   // Whether `pv` points into this table's arena storage, where the stored
   // values and any heap-backed contents they own live.
+  //
+  // Deliberately lock-free: the arena publishes its blocks for concurrent
+  // reading, so this is safe alongside `intern` without the table lock. A
+  // value being interned at that instant may not be reflected yet.
   [[nodiscard]] bool contains(const void* pv) const {
     // Scope installation writes only the thread-local slot, not the arena.
     extensible_arena::scope s(const_cast<extensible_arena&>(arena_));

@@ -15,6 +15,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#include <cstddef>
 #include <cstdint>
 #include <functional>
 #include <map>
@@ -239,6 +240,16 @@ TEST_CASE("Basic", "[ArenaTest]") {
     auto* p = extensible_arena::allocate(32, 16);
     CHECK(p != nullptr);
     CHECK(reinterpret_cast<uintptr_t>(p) % 16U == 0U);
+  }
+  // `contains` measures block storage, not the allocation frontier, so an
+  // address past the used tail but within the block still reports contained.
+  // (This is what lets it run lock-free alongside an allocating writer.)
+  if (true) {
+    extensible_arena a{256};
+    extensible_arena::scope sa{a};
+    auto* p = static_cast<std::byte*>(extensible_arena::allocate(8, 8));
+    CHECK(extensible_arena::contains(p));
+    CHECK(extensible_arena::contains(p + 100));
   }
   // A zero-capacity arena is legal: its head block holds nothing, so every
   // allocation spills to a fresh block. (The head node's buffer must still be
