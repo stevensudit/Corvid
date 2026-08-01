@@ -526,7 +526,7 @@ public:
   //
   // Every slot that is not currently borrowed, which includes detached ones,
   // has `return_cb_` invoked and its value reset. Since detached items are
-  // reclaimed on the spot,  a later `reattach` (or `token::borrow`) fails
+  // reclaimed on the spot, a later `reattach` (or `token::borrow`) fails
   // cleanly.
   //
   // The mechanism: `shutdown_slot_gen` below seals every slot by setting its
@@ -671,8 +671,8 @@ private:
       auto old_gen = gen.load(std::memory_order::relaxed);
       if (!(old_gen & gen_traits_t::borrow_bit)) return false;
       const auto new_gen = gen_traits_t::calc_next_gen(old_gen);
-      //  Release on success publishes the owner's writes to whoever later
-      //  reacquires the slot.
+      // Release on success publishes the owner's writes to whoever later
+      // reacquires the slot.
       return gen.compare_exchange_strong(old_gen, new_gen,
           std::memory_order::release, std::memory_order::relaxed);
     }
@@ -686,8 +686,8 @@ private:
     if constexpr (is_versioned_v) {
       auto& gen = gen_array_[ndx];
       auto new_gen = gen_traits_t::borrow_bit;
-      //  Runs under both mutexes, and nothing consumes data published through
-      //  the sealed value, so relaxed suffices.
+      // Runs under both mutexes, and nothing consumes data published through
+      // the sealed value, so relaxed suffices.
       const auto old_gen = gen.exchange(new_gen, std::memory_order::relaxed);
       return (old_gen & gen_traits_t::borrow_bit);
     }
