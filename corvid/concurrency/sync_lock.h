@@ -17,7 +17,7 @@
 #pragma once
 #include <atomic>
 #include <mutex>
-#include <cassert>
+#include <stdexcept>
 
 namespace corvid { inline namespace concurrency { inline namespace sync_lock {
 
@@ -109,9 +109,10 @@ private:
 // it's intended to be used with the attestation idiom so as to allow nested
 // calls to public methods.
 //
-// The alternative is either expensive recursive mutexes or shadowing each
-// public method with a private one that lacks the lock on top. This idiom is
-// as fast as the latter, without the code duplication.
+// The alternative is to either use expensive recursive mutexes or to
+// rigorously shadow each public method with a private one that lacks the lock.
+// This idiom is as fast as the latter, without the code duplication and
+// complexity.
 //
 // The way it works is that you add `const lock& attestation = {}` to the end
 // of the method, and then call `attestation(sync)` at the top. The `sync` is
@@ -119,8 +120,8 @@ private:
 // indirectly public). A caller can reuse an attestation across multiple calls,
 // maintaining a single lock across them all.
 //
-// Within a method that takes `attestation`, when calling other methods of the
-// same instance, pass that `attestation` instead of allowing it to be
+// Within a method that takes `attestation`, when you call other methods of the
+// same instance, then you pass that `attestation` instead of allowing it to be
 // defaulted. Note that if you allow it to be defaulted, you'll deadlock. If
 // your method doesn't access any data, it can skip the attestation sync call
 // at top, just passing along the `attestation` without calling it.
@@ -144,15 +145,19 @@ private:
 //     do_something_else(x + 2, y - 2, attestation);
 //     [...]
 //
-// Note again how, in the above case, the caller could make their own `lock`
-// object and reuse it across multiple calls, maintaining a lock. They could
-// even construct it on the instance's `sync` member.
+// Note again how, in the above case, the caller could make a named `lock`
+// object, constructing it on the instance's public `sync` member. This lets
+// them not only reuse the `lock` across multiple calls, but also hold a
+// single lock across all of them.
 class [[nodiscard]] lock final {
 public:
 #pragma region Construction
 
+  // Default construct with no associated synchronizer. The first call to
+  // `operator()` will associate it with a synchronizer and lock it.
   constexpr lock() noexcept = default;
 
+  // Construct with an associated synchronizer and lock it.
   explicit lock(const synchronizer& sync) : sync_{&sync} { sync_->lock(); }
   explicit lock(const synchronizer* sync) : sync_{sync} {
     if (sync_) sync_->lock();
@@ -180,10 +185,13 @@ public:
   [[nodiscard]] explicit operator bool() const noexcept { return sync_; }
 
   // Call this at top of method to acquire a lock on the synchronizer. Performs
-  // a no-op if already locked, but asserts if locks are mixed.
+  // a no-op if already locked, but throws if locks are mixed.
   void operator()(const synchronizer& sync) const {
-    assert(!sync_ || sync_ == &sync);
+    if (sync_ && (sync_ != &sync)) throw std::logic_error{"cannot mix locks"};
+    // Already locked, so no-op.
     if (sync_) return;
+
+    // Bind and lock.
     sync_ = &sync;
     sync_->lock();
   }

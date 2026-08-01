@@ -210,5 +210,58 @@ TEST_CASE("Basic", "[InternTableTest]") {
 }
 #pragma endregion
 
+#pragma region Chaining
+
+TEST_CASE("Chaining", "[InternTableTest]") {
+  if (true) {
+    // A `make_next` table starts one past the base and resolves chained
+    // lookups, by ID and by value, to the base's singletons.
+    auto base_ptr = string_intern_table::make(string_id{0}, string_id{2});
+    auto& base = *base_ptr;
+    auto alpha = base.intern("alpha");
+    CHECK(alpha.id() == string_id{1});
+
+    auto derived_ptr = base_ptr->make_next(string_id{5});
+    auto& derived = *derived_ptr;
+    auto delta = derived.intern("delta");
+    CHECK(delta.id() == string_id{3});
+
+    auto found = derived.get(string_id{1});
+    CHECK(found);
+    CHECK(&found.value() == &alpha.value());
+    found = derived.get("alpha"sv);
+    CHECK(found);
+    CHECK(found.id() == string_id{1});
+    CHECK(&found.value() == &alpha.value());
+
+    // A caller-held attestation on the derived table stays on the derived
+    // table; the chained call takes the base's own lock. (Forwarding the
+    // attestation across the chain would throw on the mixed-lock check.)
+    lock att{derived.sync};
+    found = derived.get("alpha"sv, att);
+    CHECK(found);
+    CHECK(&found.value() == &alpha.value());
+  }
+  if (true) {
+    // An explicit `min_id` alongside `next` is honored, allowing a reserved
+    // gap in the ID space; it used to be silently overwritten with one past
+    // the base's `max_id`.
+    auto base_ptr = string_intern_table::make(string_id{0}, string_id{2});
+    auto alpha = base_ptr->intern("alpha");
+    auto gap_ptr =
+        string_intern_table::make(string_id{10}, string_id{12}, base_ptr);
+    auto& gap = *gap_ptr;
+    auto omega = gap.intern("omega");
+    CHECK(omega.id() == string_id{10});
+
+    // IDs in the gap resolve to empty through the chain, while base IDs and
+    // values still resolve to the base's singletons.
+    CHECK_FALSE(gap.get(string_id{5}));
+    CHECK(gap.get(string_id{1}).id() == string_id{1});
+    CHECK(&gap.get("alpha"sv).value() == &alpha.value());
+  }
+}
+#pragma endregion
+
 // NOLINTEND(readability-function-cognitive-complexity,
 // readability-function-size)

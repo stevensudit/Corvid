@@ -306,14 +306,20 @@ public:
 
   // Make intern table for a range of IDs. If `next` is specified, the new
   // table will chain to that one and will default its `min_id` to 1 past that
-  // table's `max_id`. Otherwise, if unspecified, then it defaults to 1. If
-  // `max_id` is unspecified, it defaults to the max of the underlying type.
+  // table's `max_id`; an explicit `min_id` may leave a gap above that table's
+  // range but must not overlap it. Otherwise, if unspecified, then it defaults
+  // to 1. If `max_id` is unspecified, it defaults to the max of the underlying
+  // type.
   [[nodiscard]] static auto make(id_t min_id = id_t{}, id_t max_id = id_t{},
       const const_pointer& next = {}) {
-    if (next)
-      min_id = next->max_id_ + 1;
-    else if (!min_id)
+    if (next) {
+      if (!min_id)
+        min_id = next->max_id_ + 1;
+      else
+        assert(min_id > next->max_id_);
+    } else if (!min_id) {
       ++min_id;
+    }
 
     if (!max_id)
       max_id = static_cast<id_t>(
@@ -371,7 +377,7 @@ public:
       const auto index = *id - *min_id_;
       found_value = reinterpret_cast<const value_t*>(&lookup_by_id_[index]);
     } else if (next_)
-      return next_->get(value, attestation);
+      return next_->get(value);
 
     return {allow::ctor, found_value, id};
   }
