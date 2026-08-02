@@ -81,5 +81,50 @@ TEST_CASE("Kill", "[TombStone]") {
 }
 
 #pragma endregion
+#pragma region TombStone_Countdown
+
+// Probe for the stepping operators. The template parameter is load-bearing:
+// a requires-expression with no dependent names hard-errors instead of
+// yielding false.
+template<typename TS>
+constexpr bool can_step_v = requires(TS& t) {
+  ++t;
+  --t;
+};
+
+TEST_CASE("Countdown", "[TombStone]") {
+  // Counting down to `final_v` kills the tombstone by design; once dead, it
+  // stays dead and further steps are no-ops.
+  tombstone_of<int, 0, 3> t;
+  CHECK_FALSE(t.dead());
+  --t;
+  --t;
+  CHECK_FALSE(t.dead());
+  CHECK(t.get() == 1);
+
+  // The step that lands on the final value kills.
+  --t;
+  CHECK(t.dead());
+
+  // Dead stays dead: neither direction moves it.
+  --t;
+  ++t;
+  CHECK(t.dead());
+  CHECK(t.get() == 0);
+
+  // An increment can also land on death.
+  tombstone_of<int, 2, 0> u;
+  ++u;
+  CHECK_FALSE(u.dead());
+  ++u;
+  CHECK(u.dead());
+
+  // For the `bool` tombstone, stepping is pointless (both directions would
+  // land on death), so the operators are constrained away.
+  static_assert(can_step_v<tombstone_of<int, 0, 3>>);
+  static_assert(!can_step_v<tombstone>);
+}
+
+#pragma endregion
 
 // NOLINTEND(readability-function-cognitive-complexity)
