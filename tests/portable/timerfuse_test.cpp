@@ -34,6 +34,14 @@ struct FakeResource {
   int value{42};
 };
 
+// Payload for the plain-function case, which needs somewhere to report from.
+int fired_value{};
+
+[[nodiscard]] bool payload_fired(const timer_fuse<FakeResource>& fuse) {
+  if (auto r = fuse.get_if_armed()) fired_value = r->value;
+  return true;
+}
+
 #pragma region TimerFuse_Default
 
 TEST_CASE("Default", "[TimerFuse]") {
@@ -189,21 +197,21 @@ TEST_CASE("ExceedMaxDelay", "[TimerFuse]") {
 }
 
 #pragma endregion
-#pragma region TimerFuse_PayloadCopyable
+#pragma region TimerFuse_PlainFunctionPayload
 
-TEST_CASE("PayloadCopyable", "[TimerFuse]") {
-  // The payload is stored in `std::function`, so it must be
-  // copy-constructible; a move-only payload fails the static_assert with a
-  // readable message instead of erroring deep inside std internals.
-  // Uncomment to verify the rejection:
-  //
-  // auto resource = std::make_shared<FakeResource>();
-  // timing_wheel wheel{2, 1ms};
-  // (void)timer_fuse<FakeResource>::set_timeout(wheel, resource->seq,
-  //     resource, 1ms,
-  //     [p = std::make_unique<int>(0)](
-  //         const timer_fuse<FakeResource>&) -> bool { return true; });
-  SUCCEED();
+TEST_CASE("PlainFunctionPayload", "[TimerFuse]") {
+  // A payload named as a plain function, not a lambda, is accepted: it decays
+  // to a function pointer on capture. The function type itself is not
+  // copy-constructible, which is why `set_timeout` cannot screen payloads on
+  // that trait.
+  auto resource = std::make_shared<FakeResource>();
+  auto t0 = std::chrono::steady_clock::now();
+  timing_wheel wheel{4, 1ms, t0};
+
+  CHECK(timer_fuse<FakeResource>::set_timeout(wheel, resource->seq, resource,
+      1ms, payload_fired));
+  wheel.tick(t0 + 4ms);
+  CHECK(fired_value == 42);
 }
 
 #pragma endregion
