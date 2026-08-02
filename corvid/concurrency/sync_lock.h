@@ -74,7 +74,7 @@ private:
 // Reversed lock. Unlocks on construction, relocks on destruction.
 //
 // This class is largely internal. The normal way to use it is to call
-// `reverse` on a `lock`.
+// `lock_reverse` on a `lock`.
 class [[nodiscard]] reverse_lock final {
 public:
 #pragma region Construction
@@ -101,7 +101,8 @@ public:
     return old;
   }
 
-  [[nodiscard]] operator bool() const noexcept { return sync_; }
+  // Whether a `synchronizer` is associated.
+  [[nodiscard]] explicit operator bool() const noexcept { return sync_; }
 
 #pragma endregion
 #pragma region Data members
@@ -143,19 +144,38 @@ private:
 //
 // You can use a `breakable_synchronizer` if you want the ability to disable
 // locking once the object is frozen. And if you need to reverse the lock
-// within a scope, use `reverse`.
+// within a scope, use `lock_reverse`.
 //
 // All methods are `const` and all members are `mutable` because thread
 // safety is needed regardless of constness.
 //
-// class thread_safe_container {
-//   synchronizer sync;
-// public:
-//   void do_something(int x, int y, const lock& attestation = {}) {
-//     attestation(sync);
-//     // Do something with x and y, but use the same lock.
-//     do_something_else(x + 2, y - 2, attestation);
-//     [...]
+// This example is kept compiling and passing as the `LedeExample` case in
+// "sync_lock_test.cpp"; change the two together.
+//
+//   class thread_safe_container {
+//   public:
+//     synchronizer sync;
+//
+//     void do_something(int x, int y, const lock& attestation = {}) {
+//       attestation(sync);
+//       // Work with x and y under the lock, then call a sibling method,
+//       // passing the same attestation instead of letting it default.
+//       do_something_else(x + 2, y - 2, attestation);
+//     }
+//
+//     void do_something_else(int x, int y, const lock& attestation = {}) {
+//       attestation(sync);
+//       total_ += x + y;
+//     }
+//
+//     int total(const lock& attestation = {}) const {
+//       attestation(sync);
+//       return total_;
+//     }
+//
+//   private:
+//     int total_{};
+//   };
 //
 // Note again how, in the above case, the caller could make a named `lock`
 // object, constructing it on the instance's public `sync` member. This lets

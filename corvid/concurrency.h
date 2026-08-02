@@ -23,9 +23,9 @@
 //  jthread_stoppable_sleep - interruptible deadline sleep for `std::jthread`
 //  notifiable              - value guarded by mutex and condition variable
 //  owner_thread_dispatcher - dispatches callbacks to execute only in the
-//                            owning thread
-//  sync_lock               - `synchronizer`, `lock`, and `reverse_lock`
-//                            attestation idiom
+//                            owning thread (Linux-only)
+//  sync_lock               - `synchronizer`, `breakable_synchronizer`,
+//                            `lock`, and `reverse_lock` attestation idiom
 //  timeout_sweeper         - heap of (`expiration`, `callback`) pairs swept
 //                            by an external driver
 //  timeouts                - common types/constants shared by
@@ -39,7 +39,9 @@
 #include "concurrency/idle_timeout.h"
 #include "concurrency/jthread_stoppable_sleep.h"
 #include "concurrency/notifiable.h"
+#ifdef __linux__
 #include "concurrency/owner_thread_dispatcher.h"
+#endif
 #include "concurrency/sync_lock.h"
 #include "concurrency/timeout_sweeper.h"
 #include "concurrency/timeouts.h"
