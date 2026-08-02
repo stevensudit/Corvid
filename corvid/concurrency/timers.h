@@ -361,7 +361,10 @@ public:
       // because we care about the current time, not when the tick started. We
       // could have already called other callbacks that took a while.
       invocation.now = get_now(attestation);
-      if (event.stop_at <= invocation.now) continue;
+      if (event.stop_at <= invocation.now) {
+        (void)event.canceled.kill();
+        continue;
+      }
 
       // Set up invocation fully and invoke outside of the lock.
       ++callbacks_invoked;
