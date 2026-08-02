@@ -534,5 +534,101 @@ TEST_CASE("PostponeCannotResurrectStop", "[IdleTimeout]") {
 }
 
 #pragma endregion
+#pragma region StopStartKeepsSingleEntry
+
+TEST_CASE("StopStartKeepsSingleEntry", "[IdleTimeout]") {
+  // Restarting before the stopped entry is swept must not schedule a second
+  // entry; the in-flight one adapts to the new deadline.
+  sweeper sw;
+  auto fake_clock = clk::fake_now_scope();
+  auto o = make_owner(sw, 100ms);
+  clk::set_fake_now(T(0));
+  CHECK(o->idle.start());
+  CHECK(sw.size() == 1U);
+
+  clk::set_fake_now(T(50));
+  CHECK(o->idle.stop());
+  CHECK(o->idle.start());
+  CHECK(sw.size() == 1U); // Pre-fix: 2.
+
+  // The entry fires at its original registration, sees the moved deadline
+  // (T150), and chases it instead of dropping or expiring.
+  clk::set_fake_now(T(100));
+  sw.tick(T(100));
+  CHECK(o->idle_count == 0);
+  CHECK(sw.size() == 1U);
+
+  // At the restarted deadline it fires exactly once and drains.
+  clk::set_fake_now(T(150));
+  sw.tick(T(150));
+  CHECK(o->idle_count == 1);
+  CHECK(sw.empty());
+}
+
+#pragma endregion
+#pragma region StopPauseCyclesDontLeak
+
+TEST_CASE("StopPauseCyclesDontLeak", "[IdleTimeout]") {
+  // stop -> pause used to bootstrap a fresh clip entry each cycle while the
+  // old one clipped forever, leaking one permanent entry per cycle. The
+  // claim counter keeps it at exactly one.
+  sweeper sw;
+  auto fake_clock = clk::fake_now_scope();
+  auto o = make_owner(sw, 100ms);
+  clk::set_fake_now(T(0));
+  CHECK(o->idle.pause());
+  CHECK(sw.size() == 1U);
+
+  for (auto round = 0; round < 3; ++round) {
+    CHECK(o->idle.stop());
+    CHECK(o->idle.pause());
+  }
+  CHECK(sw.size() == 1U); // Pre-fix: 4.
+
+  // Clipping continues on the single entry, without firing.
+  clk::set_fake_now(T(100));
+  sw.tick(T(100));
+  CHECK(sw.size() == 1U);
+  CHECK(o->idle_count == 0);
+
+  // Stopped for good: the entry drains on its next fire.
+  CHECK(o->idle.stop());
+  clk::set_fake_now(T(200));
+  sw.tick(T(200));
+  CHECK(sw.empty());
+  CHECK(o->idle_count == 0);
+}
+
+#pragma endregion
+#pragma region LateTickStartActsAsPostpone
+
+TEST_CASE("LateTickStartActsAsPostpone", "[IdleTimeout]") {
+  // A deadline in the past does not mean the entry was swept: a start in
+  // that gap must not schedule a duplicate, and the late fire must chase the
+  // moved deadline rather than expire.
+  sweeper sw;
+  auto fake_clock = clk::fake_now_scope();
+  auto o = make_owner(sw, 100ms);
+  clk::set_fake_now(T(0));
+  CHECK(o->idle.start());
+  CHECK(sw.size() == 1U);
+
+  // Deadline T100 passes with no tick; restart at T150.
+  clk::set_fake_now(T(150));
+  CHECK(o->idle.start());
+  CHECK(sw.size() == 1U); // Pre-fix: 2.
+
+  // The late sweep sees the moved deadline (T250) and chases it.
+  sw.tick(T(150));
+  CHECK(o->idle_count == 0);
+  CHECK(sw.size() == 1U);
+
+  clk::set_fake_now(T(250));
+  sw.tick(T(250));
+  CHECK(o->idle_count == 1);
+  CHECK(sw.empty());
+}
+
+#pragma endregion
 
 // NOLINTEND(readability-function-cognitive-complexity)

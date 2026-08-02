@@ -46,7 +46,9 @@ namespace corvid { inline namespace concurrency {
 // The `postpone` method is fully thread-safe. Past that, individual loads and
 // stores are atomic, but there is no serialization of concurrent mutators. To
 // put it another way, it is best to call these other methods from a single
-// thread.
+// thread. Mode changes must also be serialized against the sweeper's driver
+// (in practice, both already run on the loop thread); only `postpone` may
+// come from any thread.
 template<typename Owner, typename Sweeper = timeout_sweeper<>>
 class idle_timeout: public timeouts {
 #pragma region Types
@@ -159,20 +161,19 @@ public:
 
   // Start the timeout that was stopped or paused.
   //
-  // If already running, all it does is postpone once. Fails if
-  // `configured_timeout` is zero or it can't schedule.
+  // If a sweeper entry is already in flight (running, paused, or stopped but
+  // not yet swept), all this does is move the deadline; the entry adapts on
+  // its next fire (`mode::paused` -> `mode::running` may see up to one
+  // `configured_timeout` of slop). Fails if `configured_timeout` is zero or
+  // it can't schedule.
   [[nodiscard]] bool start() {
-    const auto now_time = steady_now_clock::now();
-    const auto was_stopped = (*deadline_ <= now_time);
     const auto configured_snapshot = *configured_;
     if (configured_snapshot == duration_t{}) return false;
     active_ = configured_snapshot;
-    const auto deadline_snapshot = now_time + configured_snapshot;
+    const auto deadline_snapshot =
+        steady_now_clock::now() + configured_snapshot;
     deadline_ = deadline_snapshot;
-    // Existing entry adapts on its next fire (`mode::paused` ->
-    // `mode::running` may see up to one `configured_timeout` of slop).
-    if (!was_stopped) return true;
-    return sweeper_.schedule(deadline_snapshot, build_sweeper_cb());
+    return ensure_scheduled(deadline_snapshot);
   }
 
   // Pause the timeout. If already paused, does nothing.
@@ -184,26 +185,19 @@ public:
   //
   // Fails if `configured_timeout` is zero or it can't schedule.
   [[nodiscard]] bool pause() {
-    const auto now_time = steady_now_clock::now();
-    const auto was_stopped = (*deadline_ <= now_time);
     const auto configured_snapshot = *configured_;
     if (configured_snapshot == duration_t{}) return false;
-    auto succeeded = true;
-    if (was_stopped) {
-      // From `mode::stopped`: bootstrap. Schedule a near-future fire so the
-      // clipping cycle starts, then revert to the sentinel.
-      const auto deadline_snapshot = now_time + configured_snapshot;
-      deadline_ = deadline_snapshot;
-      succeeded = sweeper_.schedule(deadline_snapshot, build_sweeper_cb());
-    }
     active_ = duration_t{};
+    // Park the sentinel BEFORE scheduling the bootstrap entry, so it can
+    // never match a real deadline and fire; it lands on the clip path.
     deadline_ = paused_expiration;
-    return succeeded;
+    return ensure_scheduled(steady_now_clock::now() + configured_snapshot);
   }
 
-  // Change the mode to start, stop, or pause the timeout. Returns `false` if
-  // `configured_timeout` is zero and `target` is not `mode::stopped`, or if
-  // scheduling a fresh sweeper entry fails.
+  // Change the mode to start, stop, or pause the timeout.
+  //
+  // Returns `false` if `configured_timeout` is zero and `target` is not
+  // `mode::stopped`, or if scheduling a fresh sweeper entry fails.
   [[nodiscard]] bool set_mode(mode target) {
     switch (target) {
     case mode::stopped: return stop();
@@ -233,14 +227,37 @@ private:
   // Build the sweeper closure. Mints a fresh aliased `weak_ptr` each
   // call; the lambda captures it by value (16 bytes), fitting
   // `callback_t`. Reaches `expire` through the locked `self`.
+  // Ensure the single sweeper entry is in flight, scheduling one at `expire`
+  // if not. An entry that is already in flight adapts to the current
+  // `deadline_` on its next fire, so there is nothing to do. Fails only when
+  // the sweeper refuses (it is closing); the claim is released so a later
+  // attempt can retry.
+  [[nodiscard]] bool ensure_scheduled(time_point_t expire) {
+    auto expected = *scheduled_count_;
+    if (expected != 0) return true;
+    // Claim the 0 -> 1 transition; losing means someone else just scheduled.
+    if (!scheduled_count_.compare_exchange(expected, 1)) return true;
+    if (sweeper_.schedule(expire, build_sweeper_cb())) return true;
+    --scheduled_count_;
+    return false;
+  }
+
   [[nodiscard]] callback_t build_sweeper_cb() {
     std::shared_ptr<idle_timeout> self_sp{owner_.shared_from_this(), this};
     return [weak = std::weak_ptr<idle_timeout>{std::move(self_sp)}](
                time_point_t fired) -> time_point_t {
       auto self = weak.lock();
       if (!self) return {};
+      // A duplicate in-flight entry (which should not happen) drains itself
+      // rather than shadowing the real one.
+      if (self->scheduled_count_ > 1) {
+        --self->scheduled_count_;
+        return {};
+      }
       const auto result = self->on_sweep(fired);
       if (result.fire_idle && self->on_idle_) self->expire();
+      // Dropping the entry releases its claim on `scheduled_count_`.
+      if (result.next_deadline == time_point_t{}) --self->scheduled_count_;
       return result.next_deadline;
     };
   }
@@ -309,6 +326,14 @@ private:
   // each `postpone`, it is set again, only using the current `now()` value.
   // In paused mode, it is set to the sentinel value `paused_expiration`, which
   // is a time point far in the future.
+  //
+  // `scheduled_count_` is the number of sweeper entries currently in flight
+  // for this instance: 0 or 1 in normal operation. Mutators claim the 0 -> 1
+  // transition before scheduling, and the sweeper callback decrements when it
+  // drops an entry, so restarting before a stopped entry is swept can never
+  // double-schedule. It is a counter rather than a flag to leave room for
+  // deliberately scheduling an earlier second entry (e.g. so a shortened
+  // timeout takes effect immediately), with the extra entry draining itself.
 
   sweeper_t& sweeper_;
   owner_t& owner_;
@@ -317,6 +342,7 @@ private:
   relaxed_atomic<duration_t> configured_;
   relaxed_atomic<duration_t> active_;
   relaxed_atomic<time_point_t> deadline_;
+  relaxed_atomic_int scheduled_count_;
 
 #pragma endregion
 };

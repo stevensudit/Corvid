@@ -22,7 +22,6 @@
 #include <string_view>
 #include <string>
 #include <atomic>
-#include <thread>
 
 // We support both Windows and POSIX.
 #ifdef _WIN32
@@ -45,11 +44,12 @@ namespace corvid { inline namespace concurrency {
 
 // Interruptible deadline sleep for use with `std::jthread`.
 //
-// Wraps the workaround needed because libc++ does not yet implement the
-// stop-token overload of `std::condition_variable_any::wait_until`. The
-// pattern -- register a `std::stop_callback` that wakes the cv, then use
-// a regular `wait_until` with a stop-check predicate -- is encapsulated
-// here so callers don't have to repeat it.
+// A thin, named veneer over the stop-token overload of
+// `std::condition_variable_any::wait_until`: sleep until the deadline, wake
+// immediately when a stop is requested.
+//
+// Also home to `set_thread_name`, a small cross-platform thread-naming
+// helper used by the I/O loops.
 //
 // Usage:
 //
@@ -72,9 +72,8 @@ public:
   template<typename Clock, typename Duration>
   [[nodiscard]] bool until(std::stop_token st,
       const std::chrono::time_point<Clock, Duration>& deadline) {
-    std::stop_callback on_stop(st, [this] { cv_.notify_all(); });
     std::unique_lock lock(mutex_);
-    return cv_.wait_until(lock, deadline, [&st] {
+    return cv_.wait_until(lock, st, deadline, [&st] {
       return st.stop_requested();
     });
   }
@@ -100,7 +99,7 @@ public:
 #pragma region Data members
 private:
   std::mutex mutex_;
-  std::condition_variable cv_;
+  std::condition_variable_any cv_;
 
 #pragma endregion
 };
