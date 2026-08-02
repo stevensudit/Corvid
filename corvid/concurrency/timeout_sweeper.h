@@ -17,6 +17,7 @@
 #pragma once
 #include <algorithm>
 #include <chrono>
+#include <cstddef>
 #include <functional>
 #include <mutex>
 #include <type_traits>
@@ -63,27 +64,28 @@ using namespace std::chrono_literals;
 // state change (extend, pause, resume) is a single write to `read_expiration_`
 // with no further call into the sweeper.
 //
+// This example is kept compiling and passing as the `LedeExample` case in
+// "timeout_sweeper_test.cpp"; change the two together.
+//
 //   using sweeper_t = timeout_sweeper<>;
-//   // Initial registration. Set a real deadline, register, then mark as
-//   // paused so the first real read activity will trigger a rearm.
-//   conn->read_expiration_ = infra::steady_now_clock::now() +
-//          conn->read_timeout_;
+//   // Initial registration. Set a real deadline, then register.
+//   conn->read_expiration_ = steady_now_clock::now() + conn->read_timeout_;
 //   sweeper.schedule(conn->read_expiration_,
 //       [weak_conn = std::weak_ptr{conn}](sweeper_t::time_point_t expire)
 //           -> sweeper_t::time_point_t {
 //         auto conn = weak_conn.lock();
 //         if (!conn) return {};
-//         auto current = conn->read_expiration_;
+//         auto current = *conn->read_expiration_;
 //         if (current == expire) { conn->close(); return {}; }
 //         // Only needed in callback when timer can be logically paused.
-//         if (current == infra::steady_now_clock::paused_expiration)
-//           current = infra::steady_now_clock::now() + conn->read_timeout_;
+//         if (current == sweeper_t::paused_expiration)
+//           current = steady_now_clock::now() + conn->read_timeout_;
 //         return current;
 //       });
 //   // Logically pause. It will rearm every read_timeout_, without ever
 //   // triggering. Setting read_expiration_ to an actual value will
 //   // unpause. You can then re-pause at any time.
-//   read_expiration_ = sweeper_t::paused_expiration;
+//   conn->read_expiration_ = sweeper_t::paused_expiration;
 //
 // The default callback storage is `std::function`. Callers that want to
 // avoid the heap allocation can specialize on a `fixed_function` sized to
@@ -113,7 +115,7 @@ public:
 #pragma endregion
 #pragma region Construction
 
-  timeout_sweeper() { heap_.reserve(64); };
+  timeout_sweeper() { heap_.reserve(64); }
 
   timeout_sweeper(const timeout_sweeper&) = delete;
   timeout_sweeper(timeout_sweeper&&) = delete;
@@ -168,16 +170,18 @@ public:
   // Callbacks are invoked outside the internal lock; a non-zero return value
   // causes the callback to be re-inserted at the returned time.
   //
-  // Intended to be called from a single driver thread.
-  bool tick(time_point_t now) {
+  // Returns the number of callbacks invoked. Intended to be called from a
+  // single driver thread.
+  size_t tick(time_point_t now) {
+    size_t invoked{};
     for (;;) {
       callback_t callback;
       time_point_t expire;
 
       if (std::scoped_lock lock(mutex_); true) {
         // Stop when the heap is empty or the next entry hasn't expired yet.
-        if (heap_.empty()) return true;
-        if (heap_.front().expire > now) return true;
+        if (heap_.empty()) return invoked;
+        if (heap_.front().expire > now) return invoked;
 
         // Move next entry to back and extract it.
         std::pop_heap(heap_.begin(), heap_.end());
@@ -188,6 +192,7 @@ public:
 
       // Note how we pass `expire`, not `now`.
       const auto next = callback(expire);
+      ++invoked;
 
       // Short-circuit the rearm path during shutdown so the drain terminates.
       if (next == time_point_t{} || closing_) continue;
