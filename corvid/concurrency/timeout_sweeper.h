@@ -130,6 +130,13 @@ public:
 
   // Discard all registered entries without invoking their callbacks.
   // Thread-safe.
+  //
+  // This clears the heap as it stands at this instant; it does not prevent new
+  // registrations. In particular, a callback that is executing concurrently
+  // was already popped, so it is not discarded and may re-register itself
+  // through its return value. That is by design: callbacks run outside the
+  // lock, there is deliberately no way to cancel a specific entry, and it is
+  // each callback's job to detect its own irrelevance.
   void clear() noexcept {
     std::scoped_lock lock(mutex_);
     heap_.clear();
