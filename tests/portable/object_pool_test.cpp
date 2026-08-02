@@ -551,7 +551,7 @@ TEST_CASE("TokenAsInt", "[ObjectPool]") {
     // A zero generation field passes validation (a post-shutdown mint can
     // produce it), but generation 0 is reserved as invalid and never borrows.
     object_pool<int, 4>::token zero_gen{2ULL};
-    CHECK(zero_gen.is_valid());
+    CHECK(zero_gen);
     CHECK_FALSE(zero_gen.borrow(pool));
   }
 
@@ -713,7 +713,7 @@ TEST_CASE("Shutdown", "[ObjectPool]") {
     object_pool<int, 1>::token tok{std::move(h)};
     // NOLINTNEXTLINE(bugprone-use-after-move,clang-analyzer-cplusplus.Move)
     CHECK_FALSE(h); // emptied even though the detach failed
-    CHECK(tok.is_valid());
+    CHECK(tok);
     CHECK_FALSE(tok.borrow(pool));
     // The minted token carries the sealed generation 0, which never matches:
     // pre-fix, this resolved to a live pointer into the sealed slot.
