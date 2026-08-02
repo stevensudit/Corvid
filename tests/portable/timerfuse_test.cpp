@@ -163,12 +163,29 @@ TEST_CASE("ExceedMaxDelay", "[TimerFuse]") {
   // `set_timeout` returns false when the delay exceeds the wheel's range.
   // With slot_count=2 and tick_interval=1ms, max delay = 1ms.
   auto resource = std::make_shared<FakeResource>();
-  timing_wheel wheel{2, 1ms};
+  auto t0 = std::chrono::steady_clock::now();
+  timing_wheel wheel{2, 1ms, t0};
 
+  bool fired{false};
+  bool saw_resource{false};
+  CHECK(timer_fuse<FakeResource>::set_timeout(wheel, resource->seq, resource,
+      1ms, [&](const timer_fuse<FakeResource>& f) -> bool {
+        fired = true;
+        saw_resource = (f.get_if_armed() != nullptr);
+        return true;
+      }));
+
+  // The failed arm reports false and has no side effects: the sequencer is
+  // untouched, so the earlier fuse stays armed instead of fizzling.
   auto ok = timer_fuse<FakeResource>::set_timeout(wheel, resource->seq,
       resource, 2ms,
       [](const timer_fuse<FakeResource>&) -> bool { return true; });
   CHECK_FALSE(ok);
+  CHECK(resource->seq == 1U); // Pre-fix: 2, and the first fuse fizzled.
+
+  wheel.tick(t0 + 2ms);
+  CHECK(fired);
+  CHECK(saw_resource);
 }
 
 #pragma endregion
