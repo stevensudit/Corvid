@@ -185,7 +185,7 @@ public:
       active_queue.emplace_back(std::move(cbpost));
     }
     // On transition from empty, signal the `eventfd` to wake the loop thread.
-    if (was_empty) return wake_post_queue();
+    if (was_empty) (void)wake_post_queue();
 
     return true;
   }
@@ -210,6 +210,10 @@ public:
   // This only makes sense if the failure is retryable. Even so, we have a
   // finite retry count, which you can configure the default for in the
   // constructor.
+  //
+  // Returns true when `fn` succeeded inline or was queued for a later
+  // attempt, and false when it failed inline with no retries left or the post
+  // was refused, as it is after shutdown.
   [[nodiscard]] bool execute_or_post_with_retry(PostedInvocable auto&& fn,
       size_t retry_count = npos) {
     if (retry_count == npos) retry_count = default_retry_count_;
@@ -221,10 +225,9 @@ public:
     // This will always be executed in the loop thread, where it will run
     // once. It will only be queued again if it fails but there are more
     // retries.
-    (void)post([this, retry_count, fn = std::move(fn)]() mutable -> bool {
+    return post([this, retry_count, fn = std::move(fn)]() mutable -> bool {
       return execute_or_post_with_retry(std::move(fn), retry_count);
     });
-    return true;
   }
 
 #pragma endregion

@@ -413,6 +413,47 @@ TEST_CASE("ExecuteOrPostWithRetry_OffLoopThread", "[OwnerThreadDispatcher]") {
   (void)dispatcher.execute_post_queue();
   CHECK(calls == 1);
 }
+
+#pragma endregion
+#pragma region ExecuteOrPostWithRetry_AfterShutdown
+
+TEST_CASE("ExecuteOrPostWithRetry_AfterShutdown", "[OwnerThreadDispatcher]") {
+  // After shutdown, nothing can be queued, so a callback that needs the queue
+  // fails instead of reporting a success that never happens.
+  OwnerThreadTestDispatcher dispatcher;
+  CHECK(dispatcher.shutdown());
+
+  // Inline execution still works, since it doesn't touch the queue.
+  int calls{0};
+  CHECK(dispatcher.execute_or_post_with_retry([&calls] {
+    ++calls;
+    return true;
+  }));
+  CHECK(calls == 1);
+
+  // The retry has nowhere to go, even though retries remain.
+  calls = 0;
+  CHECK_FALSE(dispatcher.execute_or_post_with_retry(
+      [&calls] {
+        ++calls;
+        return false;
+      },
+      2));
+  CHECK(calls == 1);
+
+  // Off the loop thread, there is nothing but the queue.
+  relaxed_atomic_int off_thread_calls{0};
+  relaxed_atomic_bool ok{true};
+  std::thread t{[&] {
+    ok = dispatcher.execute_or_post_with_retry([&off_thread_calls] {
+      ++off_thread_calls;
+      return true;
+    });
+  }};
+  t.join();
+  CHECK_FALSE(ok);
+  CHECK(off_thread_calls == 0);
+}
 #pragma endregion
 
 // NOLINTEND(readability-function-cognitive-complexity)
