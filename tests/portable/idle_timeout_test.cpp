@@ -21,6 +21,7 @@
 #include "catch2_main.h"
 
 #include <atomic>
+#include <chrono>
 #include <memory>
 #include <thread>
 #include <vector>
@@ -38,6 +39,10 @@ using mode = timeouts::mode;
 // steady-clock epoch. Tests drive the clock through `clk::set_fake_now` and
 // by passing the desired `now` to `sweeper::tick` directly.
 static tp T(int ms) { return tp{} + std::chrono::milliseconds{ms}; }
+
+// The duration cap leaves centuries of usable range below the pause
+// sentinel.
+static_assert(timeouts::max_timeout > std::chrono::years{100});
 
 #pragma region Fixture
 
@@ -548,6 +553,9 @@ TEST_CASE("StopStartKeepsSingleEntry", "[IdleTimeout]") {
 
   clk::set_fake_now(T(50));
   CHECK(o->idle.stop());
+  // Stopped reads truthfully even while the old entry awaits its last look.
+  CHECK((static_cast<int>(o->idle.get_mode())) ==
+        (static_cast<int>(mode::stopped)));
   CHECK(o->idle.start());
   CHECK(sw.size() == 1U); // Pre-fix: 2.
 
@@ -613,8 +621,12 @@ TEST_CASE("LateTickStartActsAsPostpone", "[IdleTimeout]") {
   CHECK(o->idle.start());
   CHECK(sw.size() == 1U);
 
-  // Deadline T100 passes with no tick; restart at T150.
+  // Deadline T100 passes with no tick. The mode still reads running: the
+  // entry is live and will chase or fire on the next sweep (pre-fix, a past
+  // deadline misreported as stopped).
   clk::set_fake_now(T(150));
+  CHECK((static_cast<int>(o->idle.get_mode())) ==
+        (static_cast<int>(mode::running)));
   CHECK(o->idle.start());
   CHECK(sw.size() == 1U); // Pre-fix: 2.
 

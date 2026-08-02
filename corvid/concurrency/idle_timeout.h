@@ -15,7 +15,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 #pragma once
-#include <cstdint>
+#include <cassert>
 #include <memory>
 #include <utility>
 
@@ -60,7 +60,7 @@ public:
   using sweeper_t = Sweeper;
   using callback_t = Sweeper::callback_t;
 
-  // Cancelation action invoked when the idle timer expires.
+  // Cancellation action invoked when the idle timer expires.
   using cancel_action_t = meta::fixed_function<32, void()>;
 
 #pragma endregion
@@ -74,7 +74,7 @@ public:
       : sweeper_{sweeper}, owner_{owner}, on_idle_{std::move(on_idle)},
         configured_{configured} {
     on_idle_once_ = &on_idle_;
-    assert(configured >= duration_t{});
+    assert((configured >= duration_t{}) && (configured <= max_timeout));
     assert(on_idle_);
   }
 
@@ -106,13 +106,15 @@ public:
   // sweep is scheduled for `infra::steady_now_clock::now() +
   // configured_timeout()` but will not trigger an expiration.
   //
-  // When `mode::stopped`, this will be a value in the past.
+  // When `mode::stopped`, this is zero.
   [[nodiscard]] time_point_t deadline() const noexcept { return deadline_; }
 
   // Current mode.
   [[nodiscard]] mode get_mode() const noexcept {
-    if (*deadline_ >= paused_expiration) return mode::paused;
-    if (*deadline_ <= steady_now_clock::now()) return mode::stopped;
+    const auto deadline_snapshot = *deadline_;
+    if ((scheduled_count_ == 0) || (deadline_snapshot == time_point_t{}))
+      return mode::stopped;
+    if (deadline_snapshot >= paused_expiration) return mode::paused;
     return mode::running;
   }
 
@@ -124,7 +126,7 @@ public:
   // Syncs `active_timeout` if in `mode::running` (so the next deadline
   // reset uses the new value), but will not clear it.
   void configure(duration_t d) noexcept {
-    assert(d >= duration_t{});
+    assert((d >= duration_t{}) && (d <= max_timeout));
     configured_ = d;
     if (d == duration_t{}) return;
     auto expected = *active_;
@@ -224,14 +226,13 @@ public:
 #pragma endregion
 #pragma region Helpers
 private:
-  // Build the sweeper closure. Mints a fresh aliased `weak_ptr` each
-  // call; the lambda captures it by value (16 bytes), fitting
-  // `callback_t`. Reaches `expire` through the locked `self`.
   // Ensure the single sweeper entry is in flight, scheduling one at `expire`
-  // if not. An entry that is already in flight adapts to the current
-  // `deadline_` on its next fire, so there is nothing to do. Fails only when
-  // the sweeper refuses (it is closing); the claim is released so a later
-  // attempt can retry.
+  // if not.
+  //
+  // An entry that is already in flight adapts to the current `deadline_` on
+  // its next fire, so there is nothing to do. Fails only when the sweeper
+  // refuses (it is closing); the claim is released and the state unwinds to
+  // stopped, so the mode reads truthfully and a later attempt can retry.
   [[nodiscard]] bool ensure_scheduled(time_point_t expire) {
     auto expected = *scheduled_count_;
     if (expected != 0) return true;
@@ -239,9 +240,11 @@ private:
     if (!scheduled_count_.compare_exchange(expected, 1)) return true;
     if (sweeper_.schedule(expire, build_sweeper_cb())) return true;
     --scheduled_count_;
+    (void)stop();
     return false;
   }
 
+  // Build the sweeper closure.
   [[nodiscard]] callback_t build_sweeper_cb() {
     std::shared_ptr<idle_timeout> self_sp{owner_.shared_from_this(), this};
     return [weak = std::weak_ptr<idle_timeout>{std::move(self_sp)}](
@@ -255,7 +258,7 @@ private:
         return {};
       }
       const auto result = self->on_sweep(fired);
-      if (result.fire_idle && self->on_idle_) self->expire();
+      if (result.fire_idle) self->expire();
       // Dropping the entry releases its claim on `scheduled_count_`.
       if (result.next_deadline == time_point_t{}) --self->scheduled_count_;
       return result.next_deadline;
@@ -269,7 +272,7 @@ private:
 
   [[nodiscard]] sweep_result on_sweep(time_point_t fired) noexcept {
     // `mode::stopped`: we transitioned out from under the sweeper. Drop the
-    // entry; no rearm, no cancelation.
+    // entry; no rearm, no cancellation.
     if (*deadline_ == time_point_t{}) return {{}, false};
     // `mode::paused`: parked at the sentinel. The deadline is in the far
     // future, but we always set the next callback to the configured timeout
@@ -286,13 +289,13 @@ private:
       return {steady_now_clock::now() + configured_snapshot, false};
     }
     // `mode::running` and deadline reached: nobody restarted between the
-    // schedule and now. Fire the cancelation action and drop the entry.
+    // schedule and now. Fire the cancellation action and drop the entry.
     if (*deadline_ == fired) {
       deadline_ = time_point_t{};
       return {{}, true};
     }
     // `mode::running`, but deadline moved (`postpone` pushed it forward):
-    // rearm to the new deadline; do not fire the cancelation action.
+    // rearm to the new deadline; do not fire the cancellation action.
     return {*deadline_, false};
   }
 
@@ -309,8 +312,8 @@ private:
   // `std::weak_ptr` to the owner, so that the callback harmlessly fails if the
   // owner has been destroyed.
   //
-  // `on_idle_` is the cancelation action that is invoked when the idle timeout
-  // expires.
+  // `on_idle_` is the cancellation action that is invoked when the idle
+  // timeout expires.
   //
   // `on_idle_once_` is an atomic pointer to `on_idle_`, used to ensure that it
   // is invoked only once. It can be reset with `reset_expiration()`.
