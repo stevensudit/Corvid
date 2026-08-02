@@ -209,8 +209,6 @@ private:
 #pragma region Helpers
 
   static void do_append_float(std::string& out, double d);
-  static void do_append_string(std::string& out, const std::string& s);
-  void do_append_cell(std::string& out) const;
 
 #pragma endregion
 #pragma region Data members
@@ -244,6 +242,26 @@ public:
   cell(const cell&) = delete;
   cell& operator=(const cell&) = delete;
 
+  // Append the printed list form to `out`: proper lists as "(a b c)",
+  // improper tails dotted.
+  bool append(std::string& out) const {
+    out += '(';
+    for (const auto* cur = this;;) {
+      cur->head.append(out);
+      const auto& rest = cur->tail;
+      if (rest.is_nil()) break;
+      if (!rest.is_cell()) {
+        out += " . ";
+        rest.append(out);
+        break;
+      }
+      out += ' ';
+      cur = &rest.as_cell();
+    }
+    out += ')';
+    return true;
+  }
+
   value head;
   value tail;
 };
@@ -262,13 +280,23 @@ public:
   heap_string(const heap_string&) = delete;
   heap_string& operator=(const heap_string&) = delete;
 
+  // Append the quoted form to `out`, escaping exactly the set the reader
+  // unescapes.
+  bool append(std::string& out) const {
+    out.reserve(out.size() + 2 + str.size());
+    out += '"';
+    strings::append_escaped(out, str);
+    out += '"';
+    return true;
+  }
+
   std::string str;
 };
 
 #pragma endregion
 #pragma region runtime
 
-// The CoreB kernel runtime: the symbol table and the heap.
+// The CoreB kernel runtime, containing the symbol table and the heap.
 //
 // All aggregate values (cons cells, strings) are allocated here, and every
 // `value` handle is only valid while its runtime is alive.
@@ -327,8 +355,8 @@ inline bool value::append(std::string& out) const {
   case kind::integer: strings::append_num(out, as_int()); break;
   case kind::floating: do_append_float(out, as_float()); break;
   case kind::symbol: out += as_symbol().name(); break;
-  case kind::string: do_append_string(out, as_string()); break;
-  case kind::cell: do_append_cell(out); break;
+  case kind::string: v_.get<kind::string>()->append(out); break;
+  case kind::cell: as_cell().append(out); break;
   }
   return true;
 }
@@ -350,33 +378,6 @@ inline void value::do_append_float(std::string& out, double d) {
       break;
     }
   if (integral_form) out += ".0";
-}
-
-// Append a string in quoted form, escaping exactly the set the reader
-// unescapes.
-inline void value::do_append_string(std::string& out, const std::string& s) {
-  out += '"';
-  strings::append_escaped(out, s);
-  out += '"';
-}
-
-// Append a cons chain: proper lists as "(a b c)", improper tails dotted.
-inline void value::do_append_cell(std::string& out) const {
-  out += '(';
-  value rest = *this;
-  for (;;) {
-    const auto& cur = rest.as_cell();
-    cur.head.append(out);
-    rest = cur.tail;
-    if (rest.is_nil()) break;
-    if (!rest.is_cell()) {
-      out += " . ";
-      rest.append(out);
-      break;
-    }
-    out += ' ';
-  }
-  out += ')';
 }
 
 #pragma endregion

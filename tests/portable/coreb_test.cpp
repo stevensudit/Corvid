@@ -229,6 +229,14 @@ TEST_CASE("CoreB reader errors", "[coreb]") {
 
   const std::string deep(reader::max_depth + 1, '(');
   CHECK(err(deep).message == "nesting too deep");
+  // A chain of quotes nests one level per quote.
+  const std::string quotes(reader::max_depth + 1, '\'');
+  CHECK(err(quotes + "x").message == "nesting too deep");
+  // Depth counts nesting, not length: a long flat list is fine.
+  std::string wide = "(";
+  for (auto ndx = 0; ndx < 1000; ++ndx) wide += "x ";
+  wide += ")";
+  CHECK(reader::read_one(rt, wide).has_value());
 }
 
 // NOLINTEND(readability-function-cognitive-complexity)

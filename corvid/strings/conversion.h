@@ -423,13 +423,16 @@ append_utf8(std::string& out, uint32_t code_point) {
 #pragma endregion
 #pragma region Escaping
 
+// Callback that appends a single `char` and always returns true.
+template<typename T>
+concept CharAppenderFn = requires(T& append_cb, char c) {
+  { append_cb(c) } -> std::same_as<bool>;
+};
+
 // Append `ch` as a hex escape, such as "\u{1f}" or "\u{f}", using `append_cb`
 // (which must return true).
-constexpr bool append_escaped_ucode(unsigned char ch, auto append_cb)
-requires requires {
-  { append_cb(ch) } -> std::same_as<bool>;
-}
-{
+constexpr bool
+append_escaped_ucode(unsigned char ch, CharAppenderFn auto append_cb) {
   assert(ch < 0x20 || ch >= 0x7f);
   append_cb('\\') && append_cb('u') && append_cb('{');
   if (ch >= 0x10) append_cb(as_hex_lc_digit<char>(ch >> 4));
@@ -439,11 +442,7 @@ requires requires {
 
 // Append `ch` using `append_cb` (which must return true), escaping it if
 // necessary.
-constexpr bool append_escaped(char ch, auto append_cb)
-requires requires {
-  { append_cb(ch) } -> std::same_as<bool>;
-}
-{
+constexpr bool append_escaped(char ch, CharAppenderFn auto append_cb) {
   switch (ch) {
   case '\\': return append_cb('\\') && append_cb('\\');
   case '\t': return append_cb('\\') && append_cb('t');

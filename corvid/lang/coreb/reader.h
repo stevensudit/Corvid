@@ -15,6 +15,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 #pragma once
+#include <cassert>
 #include <cstddef>
 #include <cstdint>
 #include <expected>
@@ -98,7 +99,12 @@ public:
   template<typename T>
   using result = std::expected<T, read_error>;
 
-  // Maximum list-nesting depth accepted.
+  // Maximum expression-nesting depth accepted.
+  //
+  // Depth counts nested expressions (sublists and quotes), not list length: a
+  // flat thousand-element table is depth 1, so only genuinely nested
+  // structure approaches the limit, which exists to keep recursion from
+  // exhausting the C++ stack.
   static constexpr size_t max_depth = 256;
 
   // Read exactly one expression from `src`.
@@ -148,6 +154,18 @@ private:
       return (pos + ahead < src.size()) ? src[pos + ahead] : '\0';
     }
 
+    // Advance past the current character, so long as we're not at the end.
+    void consume() {
+      assert(!at_end());
+      ++pos;
+    }
+
+    // Advance past the current character, asserting that it is `c`.
+    void consume([[maybe_unused]] char c) {
+      assert(peek() == c);
+      consume();
+    }
+
     // Whether `c` ends a token.
     //
     // NUL is a delimiter, matching what `peek` returns for end of input.
@@ -157,14 +175,14 @@ private:
     }
 
     // Skip whitespace and ';' line comments.
-    void skip_trivia() noexcept {
+    void skip_trivia() {
       for (;;) {
         if (strings::is_space(peek())) {
-          ++pos;
+          consume();
           continue;
         }
         if (peek() == ';') {
-          while (peek() && peek() != '\n') ++pos;
+          while (peek() && peek() != '\n') consume();
           continue;
         }
         break;
@@ -188,30 +206,34 @@ private:
           read_error{std::move(message), at, line, at - bol + 1}};
     }
 
-    // Parse one expression starting at the current position.
+    // Parse one expression starting at the current position, guarding
+    // recursion depth.
     [[nodiscard]] result<value> parse_value() {
-      if (at_end()) return fail("unexpected end of input");
-      const char c = peek();
-      if (c == '(') return parse_list();
-      if (c == ')') return fail("unmatched ')'");
-      if (c == '"') return parse_string();
-      if (c == '\'') {
-        ++pos;
-        skip_trivia();
-        auto quoted = parse_value();
-        if (!quoted) return quoted;
-        return rt.cons(value{rt.intern("quote")}, rt.cons(*quoted, value{}));
-      }
-      return parse_atom();
-    }
-
-    // Parse a list, guarding recursion depth.
-    [[nodiscard]] result<value> parse_list() {
       if (depth >= max_depth) return fail("nesting too deep");
       ++depth;
-      auto r = do_parse_list();
+      auto r = do_parse_value();
       --depth;
       return r;
+    }
+
+    [[nodiscard]] result<value> do_parse_value() {
+      if (at_end()) return fail("unexpected end of input");
+      switch (peek()) {
+      case '(': return parse_list();
+      case ')': return fail("unmatched ')'");
+      case '"': return parse_string();
+      case '\'': return parse_quote();
+      default: return parse_atom();
+      }
+    }
+
+    // Parse a ' quotation, which is syntactic sugar for `(quote expr)`.
+    [[nodiscard]] result<value> parse_quote() {
+      consume('\'');
+      skip_trivia();
+      auto quoted = parse_value();
+      if (!quoted) return quoted;
+      return rt.cons(value{rt.intern("quote")}, rt.cons(*quoted, value{}));
     }
 
     // Whether the upcoming token is the lone '.' of a dotted tail.
@@ -219,16 +241,17 @@ private:
       return peek() == '.' && is_delimiter(peek(1));
     }
 
-    [[nodiscard]] result<value> do_parse_list() {
+    // Parse a parenthesized list.
+    [[nodiscard]] result<value> parse_list() {
       const auto open_pos = pos;
-      ++pos; // consume '('
+      consume('(');
       std::vector<value> elems;
       value tail;
       for (;;) {
         skip_trivia();
         if (at_end()) return fail_at(open_pos, "unterminated list");
         if (peek() == ')') {
-          ++pos;
+          consume(')');
           break;
         }
         if (at_dot()) {
@@ -253,7 +276,7 @@ private:
     //
     // Returns the tail expression.
     [[nodiscard]] result<value> parse_dotted_tail(size_t open_pos) {
-      ++pos; // consume '.'
+      consume('.');
       skip_trivia();
       if (at_end()) return fail_at(open_pos, "unterminated list");
       if (peek() == ')') return fail("expected expression after '.'");
@@ -262,19 +285,19 @@ private:
       skip_trivia();
       if (at_end()) return fail_at(open_pos, "unterminated list");
       if (peek() != ')') return fail("expected ')' after dotted tail");
-      ++pos;
+      consume(')');
       return t;
     }
 
     // Parse a quoted string literal.
     [[nodiscard]] result<value> parse_string() {
       const auto open_pos = pos;
-      ++pos; // consume '"'
+      consume('"');
       std::string out;
       while (!at_end()) {
         const char c = peek();
         if (c == '"') {
-          ++pos;
+          consume('"');
           return value{rt.make_string(std::move(out))};
         }
         if (c == '\\') {
@@ -287,7 +310,7 @@ private:
           continue;
         }
         out += c;
-        ++pos;
+        consume();
       }
       return fail_at(open_pos, "unterminated string");
     }
@@ -308,7 +331,7 @@ private:
     // Parse a literal, number, or symbol token.
     [[nodiscard]] result<value> parse_atom() {
       const auto start = pos;
-      while (!is_delimiter(peek())) ++pos;
+      while (!is_delimiter(peek())) consume();
       const auto token = src.substr(start, pos - start);
       if (token.empty()) return fail("unexpected character");
       if (token == "nil") return value{};
