@@ -366,6 +366,29 @@ TEST_CASE("StopAbortsTick", "[TimingWheel]") {
 }
 
 #pragma endregion
+#pragma region NonMultipleDelayRoundsUp
+
+TEST_CASE("NonMultipleDelayRoundsUp", "[TimingWheel]") {
+  // A delay that is not a slot multiple rounds UP to the next boundary:
+  // 150ms on a 100ms wheel must not fire at the 100ms tick.
+  timing_wheel wheel(600, dur{100}, T(0));
+  int fired = 0;
+
+  CHECK(wheel.schedule(
+            [&] {
+              ++fired;
+              return true;
+            },
+            150ms) == true);
+
+  wheel.tick(T(100));
+  CHECK(fired == 0); // Pre-fix: fired here, 50ms early.
+
+  wheel.tick(T(200));
+  CHECK(fired == 1);
+}
+
+#pragma endregion
 #pragma region RunnerLifecycle
 
 TEST_CASE("RunnerLifecycle", "[TimingWheel]") {

@@ -151,14 +151,19 @@ public:
   // Returns false if `delay` exceeds `(slot_count - 1) * tick_interval`; use
   // `timers` for longer delays, or chain callbacks. Delays below
   // `tick_interval` are clamped up to one tick (fires on the next `tick` call,
-  // not the current one, to avoid re-entrancy). The `delay` represents the
-  // minimum time before the callback fires; actual firing time is rounded to
-  // the next slot boundary after that, and only occurs after all previous
-  // callbacks have fired.
+  // not the current one, to avoid re-entrancy).
+  //
+  // Precision is one slot: `delay` is rounded up to a whole number of slots,
+  // measured from the most recent tick rather than from this call. Relative
+  // to the call, firing can therefore land up to one `tick_interval` early or
+  // late, plus any backlog of previously due callbacks.
   [[nodiscard]] bool schedule(eventfn callback, duration_t delay) {
     if (delay > max_delay()) return false;
     delay = std::max(delay, tick_interval_);
-    const auto ticks_ahead = static_cast<size_t>(delay / tick_interval_);
+    // Round up: the delay is a minimum, so a partial slot costs a whole one.
+    // No overflow risk: `delay` is bounded by `max_delay`.
+    const auto ticks_ahead = static_cast<size_t>(
+        (delay + tick_interval_ - duration_t{1}) / tick_interval_);
 
     std::scoped_lock lock(mutex_);
     const auto target = (current_slot_ + ticks_ahead) % slots_.size();
