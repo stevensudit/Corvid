@@ -132,18 +132,27 @@ public:
   //
   // See `queue_high_watermark` for tuning. The constructing thread becomes the
   // loop thread. Throws `std::logic_error` when that thread already has a
-  // dispatcher, whatever its callback type.
+  // dispatcher, whatever its callback type, and `std::runtime_error` when the
+  // wake `eventfd` could not be created. A construction that throws for any
+  // reason leaves the thread unclaimed.
   explicit owner_thread_dispatcher(size_t post_queue_reserve = 32UZ,
       size_t default_retry_count = npos) {
     if (current_loop_)
       throw std::logic_error{
           "another owner_thread_dispatcher already exists on this thread"};
 
+    if (!wake_fd_)
+      throw std::runtime_error{
+          "owner_thread_dispatcher could not create its wake eventfd"};
+
     if (default_retry_count != npos)
       default_retry_count_ = default_retry_count;
-    current_loop_ = this;
+
     post_queues_[0].reserve(post_queue_reserve);
     post_queues_[1].reserve(post_queue_reserve);
+
+    // Don't claim until fully constructed.
+    current_loop_ = this;
   }
 
   // Force shutdown of resources.

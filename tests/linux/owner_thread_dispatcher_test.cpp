@@ -80,6 +80,47 @@ TEST_CASE("OneInstancePerThread", "[OwnerThreadDispatcher]") {
 }
 
 #pragma endregion
+#pragma region ThrowingConstructorLeavesThreadUnclaimed
+
+TEST_CASE("ThrowingConstructorLeavesThreadUnclaimed",
+    "[OwnerThreadDispatcher]") {
+  // A constructor that throws never runs its destructor, so it must not have
+  // claimed the thread yet. Reserving past `max_size` is the cheap way to make
+  // it throw, since that is checked before anything is allocated.
+  //
+  // This runs on its own thread so that a regression fails here instead of
+  // stranding the claim on the main thread, where every later case would
+  // inherit the failure.
+  using dispatcher_t = owner_thread_dispatcher<>;
+  relaxed_atomic_bool refused{false};
+  relaxed_atomic_bool stranded{false};
+  relaxed_atomic_bool reclaimed{false};
+
+  std::thread t{[&] {
+    try {
+      dispatcher_t doomed{dispatcher_t::npos};
+    }
+    catch (const std::length_error&) {
+      refused = true;
+    }
+
+    // The thread is still available to the next dispatcher.
+    try {
+      dispatcher_t dispatcher;
+      reclaimed = dispatcher.is_loop_thread();
+    }
+    catch (const std::logic_error&) {
+      stranded = true;
+    }
+  }};
+  t.join();
+
+  CHECK(refused);
+  CHECK_FALSE(stranded);
+  CHECK(reclaimed);
+}
+
+#pragma endregion
 #pragma region PostAndExecute
 
 TEST_CASE("PostAndExecute", "[OwnerThreadDispatcher]") {
