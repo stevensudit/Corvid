@@ -535,14 +535,17 @@ TEST_CASE("TokenAsInt", "[ObjectPool]") {
 
     // Bit set above the packed span. This pool packs an 8-bit index plus a
     // 32-bit generation, so bit 40 is the first foreign one.
-    object_pool<int, 4>::token overflow{(1ULL << 40) | 2ULL};
+    constexpr auto index_bits = sizeof(object_pool<int, 4>::index_t) * 8;
+    object_pool<int, 4>::token overflow{
+        (1ULL << (index_bits + gen32_t::bits)) | 2ULL};
     CHECK_FALSE(overflow);
 
     // Borrow bit set in the generation field (the field's top bit, at bit 39
     // here).
     auto b = pool.borrow();
     object_pool<int, 4>::token h{b};
-    object_pool<int, 4>::token forged{h.as_int() | (1ULL << 39)};
+    object_pool<int, 4>::token forged{
+        h.as_int() | (uint64_t{gen32_t::borrow_bit} << index_bits)};
     CHECK_FALSE(forged);
 
     // A zero generation field passes validation (a post-shutdown mint can
