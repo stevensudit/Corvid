@@ -47,6 +47,11 @@ concept IsNoOpCb = std::is_same_v<no_op_cb, std::remove_cvref_t<FN>>;
 
 // Width of the per-slot generation counter used for stale-token detection, or
 // `none` to disable versioning entirely.
+//
+// Counter storage rounds up to the next integer width, so `bits24` occupies
+// the same four bytes per slot as `bits32`; what it narrows is the generation
+// field in packed tokens (an 8-bit index plus a 24-bit generation fits in 32
+// bits).
 enum class generation_size : uint8_t {
   none = 0,
   bits8 = 8,
