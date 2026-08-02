@@ -16,10 +16,10 @@
 // limitations under the License.
 #pragma once
 
+#include <atomic>
 #include <chrono>
+#include <cstddef>
 #include <functional>
-#include <limits>
-#include <map>
 #include <memory>
 #include <queue>
 #include <string>
@@ -54,7 +54,7 @@ using timer_event_ptr = std::shared_ptr<timer_event>;
 // reference, is valid only during the invocation.
 struct timer_invocation {
   // Access to the timers object that scheduled this event. Useful for
-  // scheduling follow-up events as well accessing the current time.
+  // scheduling follow-up events as well as accessing the current time.
   timers_ptr originating_timers;
 
   // The event, which was created in `timers::set` and is reused across
@@ -65,7 +65,7 @@ struct timer_invocation {
   // call. Contains a snapshot of the namesake in `timer_event`.
   size_t invocation_count{};
 
-  // When the event was scheduled to run, which will be at or after
+  // When the event was scheduled to run, which will be at or before
   // `tick_time`.
   time_point_t scheduled_time;
 
@@ -280,9 +280,9 @@ public:
   //
   // If `repeat_in` is zero, the event will be one-shot. If it's negative, then
   // it's malformed and therefore canceled. Note that you cannot repeat over
-  // and over again by passing a zero `repeat_in`. You can either pass the min
-  // or take control over rescheduling through the return value of the
-  // callback.
+  // and over again by passing a zero `repeat_in`. You can either pass a small
+  // positive interval, such as `1ms`, or take control over rescheduling
+  // through the return value of the callback.
   //
   // If `stop_at` isn't specified and the event is recurring, the event will
   // repeat indefinitely (or until canceled). If it is specified and is before
@@ -308,9 +308,9 @@ public:
   //
   // If `repeat_in` is zero, the event will be one-shot. If it's negative, then
   // it's malformed and therefore canceled. Note that you cannot repeat over
-  // and over again by passing a zero `repeat_in`. You can either pass the min
-  // or take control over rescheduling through the return value of the
-  // callback.
+  // and over again by passing a zero `repeat_in`. You can either pass a small
+  // positive interval, such as `1ms`, or take control over rescheduling
+  // through the return value of the callback.
   //
   // If `stop_in` is specified and is before `start_in`, it's canceled.
   auto set(duration_t start_in, timer_callback_t callback,
@@ -374,7 +374,7 @@ public:
       ++callbacks_invoked;
       invocation.invocation_count = ++event.invocation_count;
       time_point_t next_at{};
-      if (auto reverse_lock = attestation.lock_reverse()) {
+      if (auto rev_lock = attestation.lock_reverse()) {
         next_at = event.callback(invocation);
       }
 
@@ -387,8 +387,9 @@ public:
       invocation.now = get_now(attestation);
 
       // If no time specified, calculate it. Note how we add `repeat_in` to
-      // `get_now`, not `callback_now`, so that it's the interval between
-      // returns, not calls.
+      // the fresh `now` fetched after the callback returned, not to the
+      // pre-callback timestamp, so that it's the interval between returns,
+      // not calls.
       if (next_at == time_point_t{} && event.repeat_in != duration_t::max())
         next_at = invocation.now + event.repeat_in;
 
