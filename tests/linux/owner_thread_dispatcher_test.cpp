@@ -31,25 +31,6 @@ using namespace corvid;
 using namespace std::chrono_literals;
 
 // NOLINTBEGIN(readability-function-cognitive-complexity)
-// NOLINTBEGIN(bugprone-derived-method-shadowing-base-method)
-
-class OwnerThreadTestDispatcher: public owner_thread_dispatcher<> {
-public:
-  using parent = owner_thread_dispatcher<>;
-
-  OwnerThreadTestDispatcher(size_t max_pending = 16UZ) : parent(max_pending) {}
-
-  [[nodiscard]] size_t execute_post_queue() {
-    // Expose `execute_post_queue` for testing.
-    return parent::execute_post_queue();
-  }
-
-  [[nodiscard]] const auto& wake_fd() const noexcept {
-    return parent::wake_fd();
-  }
-};
-
-// NOLINTEND(bugprone-derived-method-shadowing-base-method)
 
 #pragma region IsLoopThread
 
@@ -125,7 +106,7 @@ TEST_CASE("ThrowingConstructorLeavesThreadUnclaimed",
 
 TEST_CASE("PostAndExecute", "[OwnerThreadDispatcher]") {
   // `post` queues callbacks; `execute_post_queue` drains and returns count.
-  OwnerThreadTestDispatcher dispatcher;
+  owner_thread_dispatcher<> dispatcher;
   int count{0};
   CHECK(dispatcher.post([&count]() mutable -> bool {
     ++count;
@@ -149,7 +130,7 @@ TEST_CASE("PostAndExecute", "[OwnerThreadDispatcher]") {
 
 TEST_CASE("ExecutePostQueue_Empty", "[OwnerThreadDispatcher]") {
   // Empty queue returns 0 and does not crash.
-  OwnerThreadTestDispatcher dispatcher;
+  owner_thread_dispatcher<> dispatcher;
   CHECK(dispatcher.execute_post_queue() == 0U);
 }
 
@@ -158,7 +139,7 @@ TEST_CASE("ExecutePostQueue_Empty", "[OwnerThreadDispatcher]") {
 
 TEST_CASE("ExecuteOrPost_OnLoopThread", "[OwnerThreadDispatcher]") {
   // On the loop thread `execute_or_post` runs inline without queuing.
-  OwnerThreadTestDispatcher dispatcher;
+  owner_thread_dispatcher<> dispatcher;
   int count{0};
   auto ok = dispatcher.execute_or_post([&count]() -> bool {
     ++count;
@@ -174,7 +155,7 @@ TEST_CASE("ExecuteOrPost_OnLoopThread", "[OwnerThreadDispatcher]") {
 
 TEST_CASE("ExecuteOrPost_OffLoopThread", "[OwnerThreadDispatcher]") {
   // From a non-loop thread `execute_or_post` posts without executing inline.
-  OwnerThreadTestDispatcher dispatcher;
+  owner_thread_dispatcher<> dispatcher;
   relaxed_atomic_int count{0};
   std::thread t{[&] {
     (void)dispatcher.execute_or_post([&count]() -> bool {
@@ -194,7 +175,7 @@ TEST_CASE("ExecuteOrPost_OffLoopThread", "[OwnerThreadDispatcher]") {
 
 TEST_CASE("PostAndWait_OnLoopThread", "[OwnerThreadDispatcher]") {
   // On the loop thread `post_and_wait` executes the callback directly.
-  OwnerThreadTestDispatcher dispatcher;
+  owner_thread_dispatcher<> dispatcher;
   int count{0};
   auto ok = dispatcher.post_and_wait([&count]() -> bool {
     ++count;
@@ -211,7 +192,7 @@ TEST_CASE("PostAndWait_OnLoopThread", "[OwnerThreadDispatcher]") {
 TEST_CASE("PostAndWait_OffLoopThread", "[OwnerThreadDispatcher]") {
   // From a non-loop thread `post_and_wait` blocks until the loop thread
   // drains the queue.
-  OwnerThreadTestDispatcher dispatcher;
+  owner_thread_dispatcher<> dispatcher;
   bool result{false};
   std::atomic<int> count{0};
 
@@ -251,7 +232,7 @@ TEST_CASE("PostAndWait_ShutdownReleasesWaiter", "[OwnerThreadDispatcher]") {
     std::binary_semaphore finished{0};
   };
   auto state = std::make_unique<waiter_state>();
-  OwnerThreadTestDispatcher dispatcher;
+  owner_thread_dispatcher<> dispatcher;
 
   std::thread t{[&dispatcher, s = state.get()] {
     s->result = dispatcher.post_and_wait([s]() -> bool {
@@ -290,7 +271,7 @@ TEST_CASE("PostAndWait_ShutdownReleasesWaiter", "[OwnerThreadDispatcher]") {
 
 TEST_CASE("QueueHighWatermark", "[OwnerThreadDispatcher]") {
   // `queue_high_watermark` reflects the maximum capacity seen.
-  OwnerThreadTestDispatcher dispatcher{4};
+  owner_thread_dispatcher<> dispatcher{4};
   CHECK(dispatcher.queue_high_watermark() >= 4U);
   for (auto ndx = 0; ndx < 8; ++ndx)
     CHECK(dispatcher.post([]() -> bool { return true; }));
@@ -304,7 +285,7 @@ TEST_CASE("QueueHighWatermark", "[OwnerThreadDispatcher]") {
 TEST_CASE("DoubleBuffer", "[OwnerThreadDispatcher]") {
   // Callbacks posted during `execute_post_queue` go into the inactive buffer
   // and are deferred to the next drain.
-  OwnerThreadTestDispatcher dispatcher;
+  owner_thread_dispatcher<> dispatcher;
   int first{0};
   int second{0};
 
@@ -334,7 +315,7 @@ TEST_CASE("ShutdownFromCallback", "[OwnerThreadDispatcher]") {
   // A callback may shut the dispatcher down. The drain running it stops
   // there, so the rest of the batch neither runs nor counts, and the queue it
   // was walking survives long enough for that callback to return.
-  OwnerThreadTestDispatcher dispatcher;
+  owner_thread_dispatcher<> dispatcher;
   int before{0};
   int after{0};
   std::string tag;
@@ -381,7 +362,7 @@ TEST_CASE("ShutdownFromCallback", "[OwnerThreadDispatcher]") {
 
 TEST_CASE("WakeFd", "[OwnerThreadDispatcher]") {
   // `wake_fd` is signaled exactly once when the queue transitions from empty.
-  OwnerThreadTestDispatcher dispatcher;
+  owner_thread_dispatcher<> dispatcher;
 
   // No signal before any post.
   CHECK_FALSE(dispatcher.wake_fd().read().has_value());
@@ -402,7 +383,7 @@ TEST_CASE("WakeFd", "[OwnerThreadDispatcher]") {
 
 TEST_CASE("ExecuteOrPostWithRetry_Success", "[OwnerThreadDispatcher]") {
   // On the loop thread, fn succeeds immediately; returns true without posting.
-  OwnerThreadTestDispatcher dispatcher;
+  owner_thread_dispatcher<> dispatcher;
   int calls{0};
   auto ok = dispatcher.execute_or_post_with_retry(
       [&calls]() mutable -> bool {
@@ -420,7 +401,7 @@ TEST_CASE("ExecuteOrPostWithRetry_Success", "[OwnerThreadDispatcher]") {
 
 TEST_CASE("ExecuteOrPostWithRetry_ExhaustedRetry", "[OwnerThreadDispatcher]") {
   // With retry_count=0 and a fn that always fails, returns false immediately.
-  OwnerThreadTestDispatcher dispatcher;
+  owner_thread_dispatcher<> dispatcher;
   int calls{0};
   auto ok = dispatcher.execute_or_post_with_retry(
       [&calls]() mutable -> bool {
@@ -438,7 +419,7 @@ TEST_CASE("ExecuteOrPostWithRetry_ExhaustedRetry", "[OwnerThreadDispatcher]") {
 
 TEST_CASE("ExecuteOrPostWithRetry_Retry", "[OwnerThreadDispatcher]") {
   // fn fails the first time; the retry posted to the queue succeeds.
-  OwnerThreadTestDispatcher dispatcher;
+  owner_thread_dispatcher<> dispatcher;
   int attempts{0};
   auto ok = dispatcher.execute_or_post_with_retry(
       [&attempts]() mutable -> bool {
@@ -458,7 +439,7 @@ TEST_CASE("ExecuteOrPostWithRetry_Retry", "[OwnerThreadDispatcher]") {
 
 TEST_CASE("ExecuteOrPostWithRetry_OffLoopThread", "[OwnerThreadDispatcher]") {
   // From a non-loop thread, fn is never called inline; it is always posted.
-  OwnerThreadTestDispatcher dispatcher;
+  owner_thread_dispatcher<> dispatcher;
   relaxed_atomic_int calls{0};
   std::thread t{[&] {
     (void)dispatcher.execute_or_post_with_retry([&calls]() -> bool {
@@ -478,7 +459,7 @@ TEST_CASE("ExecuteOrPostWithRetry_OffLoopThread", "[OwnerThreadDispatcher]") {
 TEST_CASE("ExecuteOrPostWithRetry_AfterShutdown", "[OwnerThreadDispatcher]") {
   // After shutdown, nothing can be queued, so a callback that needs the queue
   // fails instead of reporting a success that never happens.
-  OwnerThreadTestDispatcher dispatcher;
+  owner_thread_dispatcher<> dispatcher;
   CHECK(dispatcher.shutdown());
 
   // Inline execution still works, since it doesn't touch the queue.

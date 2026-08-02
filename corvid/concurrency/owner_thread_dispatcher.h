@@ -309,8 +309,8 @@ public:
     return std::max(post_queues_[0].capacity(), post_queues_[1].capacity());
   }
 
-#pragma region Child access
-protected:
+#pragma region Loop integration
+
   // Access `eventfd` to wait on for work in the post queue.
   const auto& wake_fd() const noexcept { return wake_fd_; }
 
