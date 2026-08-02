@@ -19,10 +19,12 @@
 #include <chrono>
 #include <memory>
 #include <semaphore>
+#include <stdexcept>
 #include <string>
 #include <thread>
 
 #include "corvid/concurrency.h"
+#include "corvid/meta/fixed_function.h"
 #include "catch2_main.h"
 
 using namespace corvid;
@@ -61,8 +63,23 @@ TEST_CASE("IsLoopThread", "[OwnerThreadDispatcher]") {
   t.join();
   CHECK_FALSE(other_is_loop);
 }
-#pragma endregion
 
+#pragma endregion
+#pragma region OneInstancePerThread
+
+TEST_CASE("OneInstancePerThread", "[OwnerThreadDispatcher]") {
+  // The thread is claimed by the dispatcher, not by the callback type, so a
+  // second one is refused even when it stores its callbacks differently.
+  using fixed_dispatcher = owner_thread_dispatcher<fixed_function<64, bool()>>;
+  owner_thread_dispatcher<> dispatcher;
+  CHECK_THROWS_AS(owner_thread_dispatcher<>{}, std::logic_error);
+  CHECK_THROWS_AS(fixed_dispatcher{}, std::logic_error);
+
+  // The failed claims left the original one intact.
+  CHECK(dispatcher.is_loop_thread());
+}
+
+#pragma endregion
 #pragma region PostAndExecute
 
 TEST_CASE("PostAndExecute", "[OwnerThreadDispatcher]") {
@@ -85,8 +102,8 @@ TEST_CASE("PostAndExecute", "[OwnerThreadDispatcher]") {
   CHECK(executed == 3U);
   CHECK(count == 3);
 }
-#pragma endregion
 
+#pragma endregion
 #pragma region ExecutePostQueue_Empty
 
 TEST_CASE("ExecutePostQueue_Empty", "[OwnerThreadDispatcher]") {
@@ -94,8 +111,8 @@ TEST_CASE("ExecutePostQueue_Empty", "[OwnerThreadDispatcher]") {
   OwnerThreadTestDispatcher dispatcher;
   CHECK(dispatcher.execute_post_queue() == 0U);
 }
-#pragma endregion
 
+#pragma endregion
 #pragma region ExecuteOrPost_OnLoopThread
 
 TEST_CASE("ExecuteOrPost_OnLoopThread", "[OwnerThreadDispatcher]") {
@@ -110,8 +127,8 @@ TEST_CASE("ExecuteOrPost_OnLoopThread", "[OwnerThreadDispatcher]") {
   CHECK(count == 1);
   CHECK(dispatcher.execute_post_queue() == 0U);
 }
-#pragma endregion
 
+#pragma endregion
 #pragma region ExecuteOrPost_OffLoopThread
 
 TEST_CASE("ExecuteOrPost_OffLoopThread", "[OwnerThreadDispatcher]") {
@@ -130,8 +147,8 @@ TEST_CASE("ExecuteOrPost_OffLoopThread", "[OwnerThreadDispatcher]") {
   CHECK(executed == 1U);
   CHECK(count == 1);
 }
-#pragma endregion
 
+#pragma endregion
 #pragma region PostAndWait_OnLoopThread
 
 TEST_CASE("PostAndWait_OnLoopThread", "[OwnerThreadDispatcher]") {
@@ -146,8 +163,8 @@ TEST_CASE("PostAndWait_OnLoopThread", "[OwnerThreadDispatcher]") {
   CHECK(count == 1);
   CHECK(dispatcher.execute_post_queue() == 0U);
 }
-#pragma endregion
 
+#pragma endregion
 #pragma region PostAndWait_OffLoopThread
 
 TEST_CASE("PostAndWait_OffLoopThread", "[OwnerThreadDispatcher]") {
@@ -175,8 +192,8 @@ TEST_CASE("PostAndWait_OffLoopThread", "[OwnerThreadDispatcher]") {
   CHECK(result);
   CHECK(count.load() == 1);
 }
-#pragma endregion
 
+#pragma endregion
 #pragma region PostAndWait_ShutdownReleasesWaiter
 
 TEST_CASE("PostAndWait_ShutdownReleasesWaiter", "[OwnerThreadDispatcher]") {
@@ -226,8 +243,8 @@ TEST_CASE("PostAndWait_ShutdownReleasesWaiter", "[OwnerThreadDispatcher]") {
   CHECK_FALSE(state->result);
   CHECK(state->count == 0);
 }
-#pragma endregion
 
+#pragma endregion
 #pragma region QueueHighWatermark
 
 TEST_CASE("QueueHighWatermark", "[OwnerThreadDispatcher]") {
@@ -239,8 +256,8 @@ TEST_CASE("QueueHighWatermark", "[OwnerThreadDispatcher]") {
   (void)dispatcher.execute_post_queue();
   CHECK(dispatcher.queue_high_watermark() >= 8U);
 }
-#pragma endregion
 
+#pragma endregion
 #pragma region DoubleBuffer
 
 TEST_CASE("DoubleBuffer", "[OwnerThreadDispatcher]") {
@@ -268,8 +285,8 @@ TEST_CASE("DoubleBuffer", "[OwnerThreadDispatcher]") {
   CHECK(count2 == 1U);
   CHECK(second == 1);
 }
-#pragma endregion
 
+#pragma endregion
 #pragma region ShutdownFromCallback
 
 TEST_CASE("ShutdownFromCallback", "[OwnerThreadDispatcher]") {
@@ -356,8 +373,8 @@ TEST_CASE("ExecuteOrPostWithRetry_Success", "[OwnerThreadDispatcher]") {
   CHECK(calls == 1);
   CHECK(dispatcher.execute_post_queue() == 0U);
 }
-#pragma endregion
 
+#pragma endregion
 #pragma region ExecuteOrPostWithRetry_ExhaustedRetry
 
 TEST_CASE("ExecuteOrPostWithRetry_ExhaustedRetry", "[OwnerThreadDispatcher]") {
@@ -374,8 +391,8 @@ TEST_CASE("ExecuteOrPostWithRetry_ExhaustedRetry", "[OwnerThreadDispatcher]") {
   CHECK(calls == 1);
   CHECK(dispatcher.execute_post_queue() == 0U);
 }
-#pragma endregion
 
+#pragma endregion
 #pragma region ExecuteOrPostWithRetry_Retry
 
 TEST_CASE("ExecuteOrPostWithRetry_Retry", "[OwnerThreadDispatcher]") {
@@ -394,8 +411,8 @@ TEST_CASE("ExecuteOrPostWithRetry_Retry", "[OwnerThreadDispatcher]") {
   (void)dispatcher.execute_post_queue();
   CHECK(attempts == 2); // Retry succeeded.
 }
-#pragma endregion
 
+#pragma endregion
 #pragma region ExecuteOrPostWithRetry_OffLoopThread
 
 TEST_CASE("ExecuteOrPostWithRetry_OffLoopThread", "[OwnerThreadDispatcher]") {
@@ -454,6 +471,7 @@ TEST_CASE("ExecuteOrPostWithRetry_AfterShutdown", "[OwnerThreadDispatcher]") {
   CHECK_FALSE(ok);
   CHECK(off_thread_calls == 0);
 }
+
 #pragma endregion
 
 // NOLINTEND(readability-function-cognitive-complexity)

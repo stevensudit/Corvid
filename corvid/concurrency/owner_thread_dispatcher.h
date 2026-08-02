@@ -55,6 +55,21 @@ concept StoredPostedInvocable =
 template<typename FN>
 concept PostedInvocable = MoveConsumable<FN> && StoredPostedInvocable<FN>;
 
+// Records which dispatcher, if any, has claimed the current thread.
+//
+// The claim lives outside the template so that all callback types compete for
+// it. As a member of `owner_thread_dispatcher`, it would be a distinct
+// `thread_local` per instantiation, letting dispatchers with different
+// callback types each claim the same thread. It also carries the
+// `enable_shared_from_this` hookup, so a dispatcher needs only this one base.
+class owner_thread_claim
+    : public std::enable_shared_from_this<owner_thread_claim> {
+protected:
+  ~owner_thread_claim() = default;
+
+  inline static thread_local const owner_thread_claim* current_loop_{};
+};
+
 // Dispatches callbacks to execute only in the owning thread (aka the loop
 // thread) by queuing them when they're posted from another thread.
 //
@@ -103,8 +118,7 @@ concept PostedInvocable = MoveConsumable<FN> && StoredPostedInvocable<FN>;
 //
 // NOLINTBEGIN(bugprone-move-forwarding-reference)
 template<typename CB = std::function<bool()>>
-class owner_thread_dispatcher
-    : public std::enable_shared_from_this<owner_thread_dispatcher<CB>> {
+class owner_thread_dispatcher: public owner_thread_claim {
 public:
 #pragma region Infrastructure
 
@@ -114,9 +128,11 @@ public:
   using posted_fn = CB;
   static constexpr size_t npos = -1;
 
-  // Construct with initial sizes for post queues and default retry count. See
-  // `queue_high_watermark` for tuning. The constructing thread becomes the
-  // loop thread; only one instance per thread is permitted (debug-asserted).
+  // Construct with initial sizes for post queues and default retry count.
+  //
+  // See `queue_high_watermark` for tuning. The constructing thread becomes the
+  // loop thread. Throws `std::logic_error` when that thread already has a
+  // dispatcher, whatever its callback type.
   explicit owner_thread_dispatcher(size_t post_queue_reserve = 32UZ,
       size_t default_retry_count = npos) {
     if (current_loop_)
@@ -130,10 +146,11 @@ public:
     post_queues_[1].reserve(post_queue_reserve);
   }
 
-  // Force shutdown of resources. Idempotent.
+  // Force shutdown of resources.
   //
-  // May be called from a posted callback, in which case the drain that is
-  // running it stops after it returns, discarding the rest of that batch.
+  // Idempotent. May be called from a posted callback, in which case the drain
+  // that is running it stops after it returns, discarding the rest of that
+  // batch.
   [[nodiscard]] bool shutdown() {
     if (current_loop_ != this) return false;
     std::scoped_lock lock(post_mutex_);
@@ -151,8 +168,7 @@ public:
     try_or_terminate([&] {
       if (current_loop_ != this)
         throw std::logic_error{
-            "owner_thread_dispatcher destructed on a different thread than it "
-            "was created on"};
+            "owner_thread_dispatcher destructed on wrong thread"};
       (void)shutdown();
       current_loop_ = nullptr;
     });
@@ -275,9 +291,10 @@ public:
 #pragma endregion
 
   // Returns the current high-watermark for the post queues, which can be used
-  // to tune the constructor's `post_queue_reserve` parameter. In practice,
-  // vectors grow by doubling and never shrink, so in the steady state, there
-  // should be no allocations.
+  // to tune the constructor's `post_queue_reserve` parameter
+  //
+  // In practice, vectors grow by doubling and never shrink, so in the steady
+  // state, there should be no allocations.
   [[nodiscard]] size_t queue_high_watermark() const noexcept {
     std::scoped_lock lock(post_mutex_);
     return std::max(post_queues_[0].capacity(), post_queues_[1].capacity());
@@ -291,19 +308,19 @@ protected:
   // Signal eventfd to wake the loop thread.
   [[nodiscard]] bool wake_post_queue() noexcept { return wake_fd_.notify(); }
 
-  // Execute all pending callbacks in the post queue. Returns the number of
-  // callbacks executed. There is no reason to call this until after `post`
-  // signals the `eventfd`, and it must only be called from the owning thread.
+  // Execute all pending callbacks in the post queue.
+  //
+  // Returns the number of callbacks executed. There is no reason to call this
+  // until after `post` signals the `eventfd`, and it must only be called from
+  // the owning thread.
   //
   // A callback must not call this again: a nested drain would take over the
   // queue this one is walking. Doing so asserts, and returns zero without
   // draining anything.
   //
   // A callback may call `shutdown`, which ends the drain after that callback
-  // returns. The rest of the batch is discarded and counts as unexecuted.
-  //
-  // This is intentional: we want to fail on an exception in a callback
-  // function.
+  // returns. The rest of the batch is discarded and counts as unexecuted. This
+  // is intentional: we want to fail on an exception in a callback function.
   //
   // NOLINTNEXTLINE(bugprone-exception-escape)
   [[nodiscard]] size_t execute_post_queue() noexcept {
@@ -343,7 +360,9 @@ private:
   using post_queue_t = std::vector<posted_fn>;
 
 #pragma region Data members
-private:
+
+  // Summary:
+  //
   // `wake_fd` is used to signal that `active_queue_` has work to do.
   //
   // `post_mutex_` protects the `post_queues_`.
@@ -354,8 +373,7 @@ private:
   // `execute_post_queue`, only while it's being drained.
   //
   // `default_retry_count_` is the default number of times
-  // `execute_or_post_with_retry` will retry a failed callback before giving
-  // up.
+  // `execute_or_post_with_retry` will retry a failed callback.
 
   event_fd wake_fd_{event_fd::create()};
   mutable std::mutex post_mutex_;
@@ -363,9 +381,6 @@ private:
   relaxed_atomic<post_queue_t*> active_queue_{&post_queues_[0]};
   post_queue_t* draining_queue_{};
   relaxed_atomic_size_t default_retry_count_{3};
-
-  // A thread can only have one active loop at a time.
-  inline static thread_local const owner_thread_dispatcher* current_loop_{};
 
 #pragma endregion
 };
