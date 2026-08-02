@@ -305,7 +305,7 @@ protected:
   // NOLINTNEXTLINE(bugprone-exception-escape)
   [[nodiscard]] size_t execute_post_queue() noexcept {
     assert(is_loop_thread());
-    assert(!draining_);
+    assert(!draining_queue_);
     if (draining_queue_) return 0;
 
     // Atomically swap between the double-buffered queues.

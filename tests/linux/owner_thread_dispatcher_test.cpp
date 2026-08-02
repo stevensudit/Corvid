@@ -338,8 +338,8 @@ TEST_CASE("WakeFd", "[OwnerThreadDispatcher]") {
 
   (void)dispatcher.execute_post_queue();
 }
-#pragma endregion
 
+#pragma endregion
 #pragma region ExecuteOrPostWithRetry_Success
 
 TEST_CASE("ExecuteOrPostWithRetry_Success", "[OwnerThreadDispatcher]") {
