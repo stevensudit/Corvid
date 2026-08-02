@@ -15,6 +15,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#include <atomic>
+#include <chrono>
+#include <concepts>
+#include <functional>
+#include <string>
+#include <string_view>
 #include <thread>
 
 #include "corvid/concurrency/notifiable.h"
@@ -367,6 +373,118 @@ TEST_CASE("RelaxedAtomic", "[Notifiable]") {
     CHECK_FALSE(n.wait_for_changed(1ms));
   }
 }
+#pragma endregion
+#pragma region LedeExample
+
+TEST_CASE("LedeExample", "[Notifiable]") {
+  // Keeps the class comment's sample compiling and passing; change the two
+  // together. The `bool` is deduced by CTAD via the deduction guide.
+  notifiable running{false};
+  static_assert(std::same_as<decltype(running), notifiable<bool>>);
+
+  // Setter thread:
+  std::jthread setter{[&] { running.notify(true); }};
+
+  // Waiting thread:
+  running.wait_until_value(true);
+  CHECK(running.get() == true);
+}
+
+#pragma endregion
+#pragma region SetLockFree
+
+TEST_CASE("SetLockFree", "[Notifiable]") {
+  // `set` is the lock-free counterpart of `get`: it stores without waking
+  // waiters, honoring the requested order on either payload flavor.
+  notifiable<std::atomic<int>> a{1};
+  a.set(2);
+  CHECK(a.get() == 2);
+  a.set(3, std::memory_order::release);
+  CHECK(a.get(std::memory_order::acquire) == 3);
+
+  notifiable<relaxed_atomic<int>> r{1};
+  r.set(2);
+  CHECK(r.get() == 2);
+  r.set(3, std::memory_order::release);
+  CHECK(r.get(std::memory_order::acquire) == 3);
+
+  // A waiter entering after the store still observes it: predicates read
+  // the current value on entry even though `set` wakes nobody.
+  CHECK(a.wait_for_value(0ms, 3));
+}
+
+#pragma endregion
+#pragma region SetLocked
+
+TEST_CASE("SetLocked", "[Notifiable]") {
+  // The non-atomic `set` stores under the lock without waking waiters; a
+  // waiter entering afterward still observes the value on entry.
+  notifiable<int> n{1};
+  n.set(2);
+  CHECK(n.get() == 2);
+  CHECK(n.wait_for_value(0ms, 2));
+
+  notifiable<std::string> s{"abc"};
+  s.set("xyz");
+  CHECK(s.get() == "xyz");
+}
+
+#pragma endregion
+#pragma region NotifyOne
+
+TEST_CASE("NotifyOne", "[Notifiable]") {
+  // The single-waiter forms: set or modify, then wake one waiter.
+  notifiable<int> n{0};
+  if (true) {
+    std::jthread waiter{[&] { n.wait_until_value(1); }};
+    n.notify_one(1);
+  }
+  CHECK(n.get() == 1);
+
+  if (true) {
+    std::jthread waiter{[&] { n.wait_until_value(3); }};
+    n.modify_and_notify_one([](int& v) { v += 2; });
+  }
+  CHECK(n.get() == 3);
+}
+
+#pragma endregion
+#pragma region ZeroArgWaitUntilChanged
+
+TEST_CASE("ZeroArgWaitUntilChanged", "[Notifiable]") {
+  // The zero-argument form captures the "before" value inside the lock, so
+  // the notifier keeps notifying until the waiter reports success: the safe
+  // pattern when entry order is not guaranteed.
+  notifiable<int> n{0};
+  std::atomic_bool done{false};
+  int observed = 0;
+  if (true) {
+    std::jthread waiter{[&] {
+      observed = n.wait_until_changed();
+      done = true;
+    }};
+    auto next = 0;
+    while (!done.load()) {
+      n.notify(++next);
+      std::this_thread::yield();
+    }
+  }
+  CHECK(observed != 0);
+}
+
+#pragma endregion
+#pragma region HeterogeneousTarget
+
+TEST_CASE("HeterogeneousTarget", "[Notifiable]") {
+  // The comparison target may be any type `T` compares with, such as
+  // `std::string_view` against `notifiable<std::string>`.
+  notifiable<std::string> s{"abc"};
+  CHECK(s.wait_for_value(0ms, std::string_view{"abc"}));
+  s.notify("xyz");
+  s.wait_until_value(std::string_view{"xyz"});
+  CHECK(s.get() == "xyz");
+}
+
 #pragma endregion
 
 // NOLINTEND(performance-unnecessary-copy-initialization)
