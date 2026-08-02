@@ -19,6 +19,7 @@
 #include <chrono>
 #include <memory>
 #include <semaphore>
+#include <string>
 #include <thread>
 
 #include "corvid/concurrency.h"
@@ -269,6 +270,55 @@ TEST_CASE("DoubleBuffer", "[OwnerThreadDispatcher]") {
 }
 #pragma endregion
 
+#pragma region ShutdownFromCallback
+
+TEST_CASE("ShutdownFromCallback", "[OwnerThreadDispatcher]") {
+  // A callback may shut the dispatcher down. The drain running it stops
+  // there, so the rest of the batch neither runs nor counts, and the queue it
+  // was walking survives long enough for that callback to return.
+  OwnerThreadTestDispatcher dispatcher;
+  int before{0};
+  int after{0};
+  std::string tag;
+
+  CHECK(dispatcher.post([&before]() -> bool {
+    ++before;
+    return true;
+  }));
+
+  // The owned string is read back after the shutdown, so that a shutdown
+  // which destroyed this callback mid-flight would be a use-after-free rather
+  // than something that happens to work. It is long enough to be heap
+  // allocated rather than held inline.
+  CHECK(dispatcher.post(
+      [&dispatcher, &tag, owned = std::string(64, 'x')]() -> bool {
+        const auto ok = dispatcher.shutdown();
+        tag = owned;
+        return ok;
+      }));
+
+  CHECK(dispatcher.post([&after]() -> bool {
+    ++after;
+    return true;
+  }));
+
+  CHECK(dispatcher.execute_post_queue() == 2U);
+  CHECK(before == 1);
+  CHECK(after == 0);
+  CHECK(tag == std::string(64, 'x'));
+
+  // Shutdown is complete: nothing more can be queued or drained.
+  CHECK_FALSE(dispatcher.post([]() -> bool { return true; }));
+  CHECK(dispatcher.execute_post_queue() == 0U);
+}
+
+// Draining from inside a callback asserts, so it cannot be probed here. The
+// call would be:
+//
+//   (void)dispatcher.post(
+//       [&dispatcher]() -> bool { return dispatcher.execute_post_queue(); });
+
+#pragma endregion
 #pragma region WakeFd
 
 TEST_CASE("WakeFd", "[OwnerThreadDispatcher]") {

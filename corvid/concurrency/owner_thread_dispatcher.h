@@ -131,12 +131,19 @@ public:
   }
 
   // Force shutdown of resources. Idempotent.
+  //
+  // May be called from a posted callback, in which case the drain that is
+  // running it stops after it returns, discarding the rest of that batch.
   [[nodiscard]] bool shutdown() {
     if (current_loop_ != this) return false;
     std::scoped_lock lock(post_mutex_);
     if (!active_queue_.exchange(nullptr)) return false;
-    post_queues_[0].clear();
-    post_queues_[1].clear();
+
+    // A drain in progress owns the queue it is walking, so leave that one to
+    // it. Clearing it here would destroy the callback that is executing.
+    for (auto& queue : post_queues_)
+      if (&queue != draining_queue_) queue.clear();
+
     return true;
   }
 
@@ -285,12 +292,21 @@ protected:
   // callbacks executed. There is no reason to call this until after `post`
   // signals the `eventfd`, and it must only be called from the owning thread.
   //
+  // A callback must not call this again: a nested drain would take over the
+  // queue this one is walking. Doing so asserts, and returns zero without
+  // draining anything.
+  //
+  // A callback may call `shutdown`, which ends the drain after that callback
+  // returns. The rest of the batch is discarded and counts as unexecuted.
+  //
   // This is intentional: we want to fail on an exception in a callback
   // function.
   //
   // NOLINTNEXTLINE(bugprone-exception-escape)
   [[nodiscard]] size_t execute_post_queue() noexcept {
     assert(is_loop_thread());
+    assert(!draining_);
+    if (draining_queue_) return 0;
 
     // Atomically swap between the double-buffered queues.
     post_queue_t* pending{};
@@ -300,14 +316,22 @@ protected:
       auto* other =
           (pending == &post_queues_[0]) ? &post_queues_[1] : &post_queues_[0];
       active_queue_ = other;
+      draining_queue_ = pending;
     }
-
-    const auto count = pending->size();
 
     // Note that this method is marked `noexcept`, so if any callback throws,
     // we crash. This is because we have no reasonable alternative.
-    for (auto& fn : *pending) fn();
+    size_t count{};
+    for (auto& fn : *pending) {
+      if (!active_queue_) break; // A callback shut us down.
+      fn();
+      ++count;
+    }
+
+    // Clear before releasing the claim, so that a destructor reaching
+    // `shutdown` still finds this queue spoken for.
     pending->clear();
+    draining_queue_ = nullptr;
     return count;
   }
 
@@ -317,10 +341,24 @@ private:
 
 #pragma region Data members
 private:
+  // `wake_fd` is used to signal that `active_queue_` has work to do.
+  //
+  // `post_mutex_` protects the `post_queues_`.
+  //
+  // `active_queue_` is the queue that is currently being filled by `post`.
+  //
+  // `draining_queue_` is the queue that is currently being drained by
+  // `execute_post_queue`, only while it's being drained.
+  //
+  // `default_retry_count_` is the default number of times
+  // `execute_or_post_with_retry` will retry a failed callback before giving
+  // up.
+
   event_fd wake_fd_{event_fd::create()};
   mutable std::mutex post_mutex_;
   post_queue_t post_queues_[2];
   relaxed_atomic<post_queue_t*> active_queue_{&post_queues_[0]};
+  post_queue_t* draining_queue_{};
   relaxed_atomic_size_t default_retry_count_{3};
 
   // A thread can only have one active loop at a time.
