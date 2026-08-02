@@ -1,14 +1,18 @@
 # CoreB
 
-CoreB is a new Lisp dialect with a surface syntax closer to Python or Pascal than to parentheses, in the spirit of Rhombus and Dylan and infected by decades of C++. It is bootstrapped by a small C++ kernel and otherwise written in itself. The name is a pun on "corbie", Scots for crow. There is no CoreA.
+CoreB is a yet another Lisp dialect, this time with a surface syntax closer to Python or Pascal than to parentheses, in the spirit of Rhombus and Dylan and infected by decades of C++. It is bootstrapped by a small C++ kernel and otherwise written in itself. The name is a pun on "corbie", Scots for crow. There is no CoreA.
+
+It exists because the only way to avoid being destroyed by [Greenspun's tenth rule](https://en.wikipedia.org/wiki/Greenspun%27s_tenth_rule) is to embrace it. Also, it seemed like a good idea at the time. More fundamentally, this is an exercise in education. And on that note, here's a tip: if someone tells you that Lisp is pronounced "lithp", they're messing with you.
 
 This document is the design record and status tracker for the project. It is written for a reader who is not assumed to know Lisp internals or compiler construction; terms are explained as they are introduced, and there is a glossary at the end.
+
 
 ## Goals and non-goals
 
 Goals:
 
 - Learning. The point is to build a language from scratch and understand every part of it.
+- Teaching. The code is self-explanatory to the level where reading it teaches the language..
 - A Lisp-1 with full macro power, reachable through a syntax that does not repel people who dislike parentheses.
 - Self-hosting: the C++ kernel stays minimal, and as much of the language as possible is written in CoreB itself.
 
@@ -100,7 +104,7 @@ Open syntax questions, deferred to milestone 4: operator set and precedence, how
 
 Milestones are ordered semantics-first: the pretty syntax arrives at milestone 4, not 1, so that every parser decision is tested against a working evaluator instead of guessed at.
 
-1. **Value model, s-expr reader and printer.** [DONE] Tagged value type, interned symbols, cons cells, a classic parenthesized reader, and a printer. The parens here are scaffolding, not the product: macros and `quote` traffic in s-expressions regardless, and this gives a working input format for testing the evaluator long before the surface parser exists. Landed as "value.h" (`value` over the library's `enum_variant`, a slim pointer-identity `symbol`, and a `runtime` owning the heap and symbol table, with heap objects constructible only by the runtime) and "reader.h" (recursive-descent, `std::expected` errors carrying position/line/column, grammar documented as EBNF), tested by "tests/portable/coreb_test.cpp". Kernel rulings made here: the halves of a cons cell are named `head` and `tail`, retiring car and cdr along with the IBM 704 registers they abbreviated; nil unifies with the empty list, printing as "nil" while the reader accepts "()" too; `nil`/`true`/`false` are reader literals, not symbols; integers are int64 with literal overflow falling back to double; the string escape set is `\"` `\\` `\n` `\t` `\r` plus `\u{hex}` denoting a byte by value (shared with the library's debug escaping, so the printer can escape non-printables and still round-trip); quote sugar `'x` reads as `(quote x)`.
+1. **Value model, s-expr reader and printer.** [DONE] Tagged value type, interned symbols, cons cells, a classic parenthesized reader, and a printer. The parens here are scaffolding, not the product: macros and `quote` traffic in s-expressions regardless, and this gives a working input format for testing the evaluator long before the surface parser exists. Landed as "value.h" (`value` over the library's `enum_variant`, a slim pointer-identity `symbol`, and a `runtime` owning the heap and symbol table, with heap objects constructible only by the runtime) and "reader.h" (recursive-descent, `std::expected` errors carrying position/line/column, grammar documented as EBNF), tested by "tests/portable/coreb_test.cpp". Kernel rulings made here: the halves of a cons cell are named `head` and `tail`, retiring car and cdr along with the IBM 704 registers they abbreviated; nil unifies with the empty list, printing as "nil" while the reader accepts "()" too; `nil`/`true`/`false` are reader literals, not symbols; integers are int64 with literal overflow falling back to double; the string escape set is `\"` `\\` `\n` `\t` `\r` plus `\u{hex}` denoting a byte by value, implemented by the shared escaping utilities in "corvid/strings/conversion.h" (one grammar for the printer, the reader, and the library's debug escaping, so non-printables round-trip); quote sugar `'x` reads as `(quote x)`.
 2. **Evaluator.** [NOT STARTED] Environments, closures, special forms (`quote`, `if`, `define`, `lambda`, and the minimum around them), with the tail-call-preserving evaluation loop built in from the start. Includes a minimal REPL driver (a `notest_` executable, per repo convention), since interactive poking is half the point.
 3. **Garbage collector.** [NOT STARTED] Mark-and-sweep. Development can run leaky until this lands.
 4. **Surface syntax.** [NOT STARTED] Hand-written lexer, Pratt parser for infix precedence, desugaring to s-expressions, and the unparser going the other way.

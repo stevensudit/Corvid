@@ -458,7 +458,7 @@ requires requires {
 }
 
 // Append `s` to `out`, escaping any characters that need it. Returns true.
-constexpr bool append_escaped(std::string& out, std::string_view& s) {
+constexpr bool append_escaped(std::string& out, std::string_view s) {
   out.reserve(out.size() + s.size());
   for (const char ch : s)
     append_escaped(ch, [&out](char c) {
@@ -468,22 +468,24 @@ constexpr bool append_escaped(std::string& out, std::string_view& s) {
   return true;
 }
 
-// Parse hex escape, such as "\u{1f}" or "\u{f}" , out of the start of `sv`
+// Parse hex escape, such as "\u{1f}" or "\u{f}", out of the start of `sv`
 // into `ch`.
 //
 // On success, returns true and sets `ch`, removing the parsed characters from
-// `sv`. On failure, returns false and leaves `sv` unchanged.
-bool parse_u_code(std::string_view& sv, char& ch) {
-  if (sv.size() < 4 || sv[0] != '\\' || sv[1] != 'u' || sv[2] != '{')
+// `sv`. On failure, which includes an empty "\u{}" and a value over 0xff,
+// returns false and leaves `sv` unchanged.
+[[nodiscard]] constexpr bool parse_u_code(std::string_view& sv, char& ch) {
+  if (sv.size() < 5 || sv[0] != '\\' || sv[1] != 'u' || sv[2] != '{')
     return false;
   size_t ndx = 3;
-  unsigned char value{};
+  unsigned value{};
   for (; ndx < sv.size() && sv[ndx] != '}'; ++ndx) {
-    const auto digit = hex_digit_value(sv[ndx]);
-    if (digit < 0 || digit > 0xf) return false;
-    value = static_cast<unsigned char>((value << 4U) | digit);
+    const auto digit = static_cast<unsigned>(hex_digit_value(sv[ndx]));
+    if (digit > 0xf) return false;
+    value = (value << 4U) | digit;
+    if (value > 0xffU) return false;
   }
-  if (ndx == sv.size() || sv[ndx] != '}') return false;
+  if (ndx == 3 || ndx == sv.size() || sv[ndx] != '}') return false;
   ch = static_cast<char>(value);
   sv.remove_prefix(ndx + 1);
   return true;
@@ -493,7 +495,7 @@ bool parse_u_code(std::string_view& sv, char& ch) {
 //
 // On success, returns true and sets `ch`, removing the parsed characters from
 // `sv`. On failure, returns false and leaves `sv` unchanged.
-bool parse_escaped(std::string_view& sv, char& ch) {
+[[nodiscard]] constexpr bool parse_escaped(std::string_view& sv, char& ch) {
   if (sv.empty() || sv[0] != '\\') return false;
   if (sv.size() < 2) return false;
   switch (sv[1]) {
@@ -514,9 +516,10 @@ bool parse_escaped(std::string_view& sv, char& ch) {
 // Parse all of `sv`, appending the unescaped characters to `out`.
 //
 // Returns true on success, false on failure.
-bool parse_escaped(std::string_view sv, std::string& out) {
+[[nodiscard]] constexpr bool
+parse_escaped(std::string_view sv, std::string& out) {
   out.reserve(out.size() + sv.size());
-  char ch;
+  char ch{};
   while (!sv.empty()) {
     if (sv[0] == '\\') {
       if (!parse_escaped(sv, ch)) return false;
@@ -534,11 +537,12 @@ bool parse_escaped(std::string_view sv, std::string& out) {
 //
 // Does not append the surrounding quotes; updates `sv` to point to the
 // remainder. Returns true on success, false on failure.
-bool parse_escaped_quoted(std::string_view& sv, std::string& out) {
+[[nodiscard]] constexpr bool
+parse_escaped_quoted(std::string_view& sv, std::string& out) {
   if (sv.empty() || sv[0] != '"') return false;
   sv.remove_prefix(1);
   while (!sv.empty() && sv[0] != '"') {
-    char ch;
+    char ch{};
     if (sv[0] == '\\') {
       if (!parse_escaped(sv, ch)) return false;
       out += ch;

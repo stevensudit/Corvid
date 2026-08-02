@@ -68,7 +68,10 @@ private:
   self_t& operator()(char c) { return emit(c); }
 
   self_t& put_escaped(char c) {
-    append_escaped(c, [this](char c) { return emit(c) || true; });
+    append_escaped(c, [this](char ec) {
+      emit(ec);
+      return true;
+    });
     return *this;
   }
 

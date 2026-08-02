@@ -217,10 +217,10 @@ TEST_CASE("CoreB reader errors", "[coreb]") {
   CHECK(nested.line == 2);
   CHECK(nested.col == 1);
   CHECK(err(R"("abc)").message == "unterminated string");
-  CHECK(err(R"("a\qb")").message == "unknown escape");
-  CHECK(err(R"("a\u{}b")").message == R"(malformed \u escape)");
-  CHECK(err(R"("a\u{1f")").message == R"(malformed \u escape)");
-  CHECK(err(R"("a\u{100}")").message == R"(\u escape out of range)");
+  CHECK(err(R"("a\qb")").message == "invalid escape");
+  CHECK(err(R"("a\u{}b")").message == "invalid escape");
+  CHECK(err(R"("a\u{1f")").message == "invalid escape");
+  CHECK(err(R"("a\u{100}")").message == "invalid escape");
   CHECK(err("1abc").message == "malformed number");
   CHECK(err("1 2").message == "trailing content after expression");
   CHECK(err("(. 1)").message == "misplaced '.'");

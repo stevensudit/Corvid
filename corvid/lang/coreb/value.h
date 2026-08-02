@@ -31,7 +31,6 @@
 #include "../../meta/concepts.h"
 #include "../../strings/cases.h"
 #include "../../strings/conversion.h"
-#include "../../strings/debug_escaping.h"
 
 namespace corvid { inline namespace lang { namespace coreb {
 
@@ -97,9 +96,9 @@ consteval auto corvid_enum_spec(kind*) {
 // CoreB value: nil, a boolean, an integer, a float, a symbol, or a handle to
 // a heap-allocated string or cons cell.
 //
-// A `value` is a small, cheap copy; copying is always shallow and never
-// copies heap data. The owning `runtime` must outlive every `value` handed
-// out from it.
+// A `value` is small and cheap. Copying is always shallow and never touches
+// heap data. The owning `runtime` must outlive every `value` handed out from
+// it.
 //
 // Nil doubles as the empty list, in the classic Lisp tradition: a proper list
 // chains cons cells through `tail` and terminates at nil. The standalone
@@ -125,7 +124,8 @@ public:
   value(heap_string& s) noexcept : v_{&s} {}
   value(cell& c) noexcept : v_{&c} {}
 
-  // Strings are made through `runtime::make_string`.
+  // Strings are made through `runtime::make_string` and symbols through
+  // `runtime::intern`.
   value(const char*) = delete;
 
 #pragma endregion
@@ -151,7 +151,7 @@ public:
   }
   [[nodiscard]] bool is_cell() const noexcept { return type() == kind::cell; }
 
-  // Whether this is anything but a cons cell.
+  // Whether this is something other than a cons cell.
   [[nodiscard]] bool is_atom() const noexcept { return !is_cell(); }
 
 #pragma endregion
@@ -223,11 +223,16 @@ private:
 #pragma endregion
 #pragma region Heap objects
 
-// Cons cell: the two-value node from which all CoreB structure is built.
+// Cons cell: the two-value node from which all CoreB structure is constructed.
 //
-// A proper list chains through `tail` and terminates at nil; any other `tail`
-// makes the sequence improper (printed dotted). Constructed only by the
-// `runtime`, which owns every cell.
+// If you like the IBM 704, you can call this a `pair` of `car` and `cdr`. But,
+// also, if you like the IBM 704, then something is wrong with you. Get help.
+//
+// A proper list chains through `tail` and terminates at nil. In other words,
+// the `tail` always contains either `nil` or another `cell`. Any other `tail`
+// makes the sequence improper, so it's printed with a dot: "(a b . c)".
+//
+// Constructed only by the `runtime`, which owns every cell.
 struct cell final {
 private:
   enum class allow : bool { ctor };
@@ -266,10 +271,11 @@ public:
 // The CoreB kernel runtime: the symbol table and the heap.
 //
 // All aggregate values (cons cells, strings) are allocated here, and every
-// `value` handle is only valid while its runtime is alive. Storage is
-// currently freed only on destruction; milestone 3 replaces that with
-// mark-and-sweep collection, which is why ownership is centralized from the
-// start.
+// `value` handle is only valid while its runtime is alive.
+//
+// Storage is currently freed only on destruction; milestone 3 replaces that
+// with mark-and-sweep collection, which is why ownership is centralized from
+// the start.
 class runtime final {
 public:
   // Intern `name`, returning its unique symbol.
@@ -280,7 +286,7 @@ public:
     return symbol{*syms_.emplace(name).first};
   }
 
-  // Allocate a cons cell.
+  // Construct a cell.
   [[nodiscard]] value cons(value head, value tail) {
     cells_.push_back(std::make_unique<cell>(cell::allow::ctor, head, tail));
     return value{*cells_.back()};

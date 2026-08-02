@@ -67,7 +67,7 @@ struct read_error final {
 //   integer too large for int64 falls back to floating point.
 // - (quote x) may be written 'x.
 // - Strings are double-quoted; the escapes are \" \\ \n \t \r, plus \u{hex}
-//   denoting a byte by value (the printer uses it for non-printables).
+//   denoting a byte by value.
 // - Any other token is a symbol, interned in the runtime.
 // - ';' starts a comment running to end of line. Comments and whitespace are
 //   dropped entirely for now; representing them for round-tripping is a
@@ -278,51 +278,18 @@ private:
           return value{rt.make_string(std::move(out))};
         }
         if (c == '\\') {
-          ++pos;
-          if (at_end()) break;
-          if (auto esc = parse_escape(out); !esc)
-            return std::unexpected{esc.error()};
+          if (pos + 1 == src.size()) break; // dangling '\' at end of input
+          auto rest = src.substr(pos);
+          char ch{};
+          if (!strings::parse_escaped(rest, ch)) return fail("invalid escape");
+          pos = src.size() - rest.size();
+          out += ch;
           continue;
         }
         out += c;
         ++pos;
       }
       return fail_at(open_pos, "unterminated string");
-    }
-
-    // Parse one escape sequence, with the leading '\' already consumed,
-    // appending the denoted character to `out`.
-    [[nodiscard]] result<void> parse_escape(std::string& out) {
-      switch (peek()) {
-      case '"': out += '"'; break;
-      case '\\': out += '\\'; break;
-      case 'n': out += '\n'; break;
-      case 't': out += '\t'; break;
-      case 'r': out += '\r'; break;
-      case 'u': return parse_hex_escape(out);
-      default: return fail("unknown escape");
-      }
-      ++pos;
-      return {};
-    }
-
-    // Parse the "u{hex}" of a hex escape, with the 'u' at the current
-    // position, appending the denoted byte to `out`.
-    [[nodiscard]] result<void> parse_hex_escape(std::string& out) {
-      ++pos; // consume 'u'
-      if (peek() != '{') return fail(R"(malformed \u escape)");
-      ++pos;
-      uint32_t code{};
-      size_t digits{};
-      for (; strings::is_hex_digit(peek()); ++pos, ++digits) {
-        code = (code * 16) +
-               static_cast<uint32_t>(strings::hex_digit_value(peek()));
-        if (code > 0xff) return fail(R"(\u escape out of range)");
-      }
-      if (digits == 0 || peek() != '}') return fail(R"(malformed \u escape)");
-      ++pos; // consume '}'
-      out += static_cast<char>(code);
-      return {};
     }
 
     // Whether `t` is claimed by the number grammar.
