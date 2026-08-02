@@ -421,5 +421,136 @@ append_utf8(std::string& out, uint32_t code_point) {
 }
 
 #pragma endregion
+#pragma region Escaping
 
+// Append `ch` as a hex escape, such as "\u{1f}" or "\u{f}", using `append_cb`
+// (which must return true).
+constexpr bool append_escaped_ucode(unsigned char ch, auto append_cb)
+requires requires {
+  { append_cb(ch) } -> std::same_as<bool>;
+}
+{
+  assert(ch < 0x20 || ch >= 0x7f);
+  append_cb('\\') && append_cb('u') && append_cb('{');
+  if (ch >= 0x10) append_cb(as_hex_lc_digit<char>(ch >> 4));
+  append_cb(as_hex_lc_digit<char>(ch)) && append_cb('}');
+  return true;
+}
+
+// Append `ch` using `append_cb` (which must return true), escaping it if
+// necessary.
+constexpr bool append_escaped(char ch, auto append_cb)
+requires requires {
+  { append_cb(ch) } -> std::same_as<bool>;
+}
+{
+  switch (ch) {
+  case '\\': return append_cb('\\') && append_cb('\\');
+  case '\t': return append_cb('\\') && append_cb('t');
+  case '\n': return append_cb('\\') && append_cb('n');
+  case '\r': return append_cb('\\') && append_cb('r');
+  case '"': return append_cb('\\') && append_cb('"');
+  default:
+    const auto byte = static_cast<unsigned char>(ch);
+    if (byte >= 0x20 && byte < 0x7f) return append_cb(ch);
+    return append_escaped_ucode(byte, append_cb);
+  }
+}
+
+// Append `s` to `out`, escaping any characters that need it. Returns true.
+constexpr bool append_escaped(std::string& out, std::string_view& s) {
+  out.reserve(out.size() + s.size());
+  for (const char ch : s)
+    append_escaped(ch, [&out](char c) {
+      out += c;
+      return true;
+    });
+  return true;
+}
+
+// Parse hex escape, such as "\u{1f}" or "\u{f}" , out of the start of `sv`
+// into `ch`.
+//
+// On success, returns true and sets `ch`, removing the parsed characters from
+// `sv`. On failure, returns false and leaves `sv` unchanged.
+bool parse_u_code(std::string_view& sv, char& ch) {
+  if (sv.size() < 4 || sv[0] != '\\' || sv[1] != 'u' || sv[2] != '{')
+    return false;
+  size_t ndx = 3;
+  unsigned char value{};
+  for (; ndx < sv.size() && sv[ndx] != '}'; ++ndx) {
+    const auto digit = hex_digit_value(sv[ndx]);
+    if (digit < 0 || digit > 0xf) return false;
+    value = static_cast<unsigned char>((value << 4U) | digit);
+  }
+  if (ndx == sv.size() || sv[ndx] != '}') return false;
+  ch = static_cast<char>(value);
+  sv.remove_prefix(ndx + 1);
+  return true;
+}
+
+// Parse an escaped character out of the start of `sv` into `ch`.
+//
+// On success, returns true and sets `ch`, removing the parsed characters from
+// `sv`. On failure, returns false and leaves `sv` unchanged.
+bool parse_escaped(std::string_view& sv, char& ch) {
+  if (sv.empty() || sv[0] != '\\') return false;
+  if (sv.size() < 2) return false;
+  switch (sv[1]) {
+  case '\\': ch = '\\'; break;
+  case 't': ch = '\t'; break;
+  case 'n': ch = '\n'; break;
+  case 'r': ch = '\r'; break;
+  case '"': ch = '"'; break;
+  case 'u':
+    if (!parse_u_code(sv, ch)) return false;
+    return true;
+  default: return false;
+  }
+  sv.remove_prefix(2);
+  return true;
+}
+
+// Parse all of `sv`, appending the unescaped characters to `out`.
+//
+// Returns true on success, false on failure.
+bool parse_escaped(std::string_view sv, std::string& out) {
+  out.reserve(out.size() + sv.size());
+  char ch;
+  while (!sv.empty()) {
+    if (sv[0] == '\\') {
+      if (!parse_escaped(sv, ch)) return false;
+      out += ch;
+    } else {
+      out += sv[0];
+      sv.remove_prefix(1);
+    }
+  }
+  return true;
+}
+
+// Parse `sv`, which starts with a quoted string, appending the unescaped
+// characters to `out`.
+//
+// Does not append the surrounding quotes; updates `sv` to point to the
+// remainder. Returns true on success, false on failure.
+bool parse_escaped_quoted(std::string_view& sv, std::string& out) {
+  if (sv.empty() || sv[0] != '"') return false;
+  sv.remove_prefix(1);
+  while (!sv.empty() && sv[0] != '"') {
+    char ch;
+    if (sv[0] == '\\') {
+      if (!parse_escaped(sv, ch)) return false;
+      out += ch;
+    } else {
+      out += sv[0];
+      sv.remove_prefix(1);
+    }
+  }
+  if (sv.empty() || sv[0] != '"') return false;
+  sv.remove_prefix(1);
+  return true;
+}
+
+#pragma endregion
 }} // namespace corvid::strings::conversion

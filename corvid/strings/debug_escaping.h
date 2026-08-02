@@ -68,19 +68,8 @@ private:
   self_t& operator()(char c) { return emit(c); }
 
   self_t& put_escaped(char c) {
-    switch (c) {
-    case '"': return emit('\\')('"');
-    case '\\': return emit('\\')('\\');
-    case '\t': return emit('\\')('t');
-    case '\n': return emit('\\')('n');
-    case '\r': return emit('\\')('r');
-    default: break;
-    }
-    const auto byte = static_cast<unsigned char>(c);
-    if (byte >= 0x20 && byte < 0x7f) return emit(c);
-    emit('\\')('u')('{');
-    if (byte >= 0x10) emit(as_hex_lc_digit<char>(byte >> 4));
-    return emit(as_hex_lc_digit<char>(byte))('}');
+    append_escaped(c, [this](char c) { return emit(c) || true; });
+    return *this;
   }
 
   auto& append_sv(std::string_view sv) {
