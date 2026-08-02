@@ -27,6 +27,26 @@ using namespace corvid::coreb;
 
 // NOLINTBEGIN(readability-function-cognitive-complexity)
 
+namespace {
+
+// Read one expression and return its printed form, checking that the form is
+// canonical: reading the printed text back and printing again must reproduce
+// it exactly, because a single round trip reaches the fixed point.
+std::string echo(runtime& rt, std::string_view src) {
+  CAPTURE(src);
+  auto v = reader::read_one(rt, src);
+  REQUIRE(v.has_value());
+  auto text = v->print();
+  auto again = reader::read_one(rt, text);
+  REQUIRE(again.has_value());
+  CHECK(again->print() == text);
+  return text;
+}
+
+} // namespace
+
+#pragma region CoreB values
+
 TEST_CASE("CoreB values", "[coreb]") {
   runtime rt;
 
@@ -79,8 +99,19 @@ TEST_CASE("CoreB values", "[coreb]") {
     CHECK(dotted.print() == "(1 . 2)");
     auto nested = rt.cons(two, rt.cons(value{3}, value{}));
     CHECK(nested.print() == "((1 2) 3)");
+    // The structural debug form hides nothing: every cell prints fully
+    // dotted, and the output is still valid reader syntax.
+    CHECK(one.dump() == "(1 . nil)");
+    CHECK(two.dump() == "(1 . (2 . nil))");
+    CHECK(dotted.dump() == "(1 . 2)");
+    CHECK(nested.dump() == "((1 . (2 . nil)) . (3 . nil))");
+    // Atoms dump as they print.
+    CHECK(value{7}.dump() == "7");
   }
 }
+
+#pragma endregion
+#pragma region CoreB symbols
 
 TEST_CASE("CoreB symbols", "[coreb]") {
   runtime rt;
@@ -98,6 +129,9 @@ TEST_CASE("CoreB symbols", "[coreb]") {
   CHECK(v.as_symbol() == foo);
   CHECK(v.print() == "foo");
 }
+
+#pragma endregion
+#pragma region CoreB reader atoms
 
 TEST_CASE("CoreB reader atoms", "[coreb]") {
   runtime rt;
@@ -128,27 +162,31 @@ TEST_CASE("CoreB reader atoms", "[coreb]") {
 
   constexpr auto int_max = std::numeric_limits<int64_t>::max();
   CHECK(read("9223372036854775807").as_int() == int_max);
-  // An integer too large for int64 falls back to floating point.
+  // An integer too large for int64 falls back to floating point. The float
+  // approximation it lands on is canonical, so `echo` verifies it survives
+  // another round trip unchanged.
   CHECK(read("92233720368547758080").is_float());
+  echo(rt, "92233720368547758080");
 }
+
+#pragma endregion
+#pragma region CoreB reader lists
 
 TEST_CASE("CoreB reader lists", "[coreb]") {
   runtime rt;
-  auto echo = [&rt](std::string_view src) {
-    auto v = reader::read_one(rt, src);
-    REQUIRE(v.has_value());
-    return v->print();
-  };
 
-  CHECK(echo("(1 2 3)") == "(1 2 3)");
-  CHECK(echo("( a ( b c )  d )") == "(a (b c) d)");
-  CHECK(echo("()") == "nil");
-  CHECK(echo("(a . b)") == "(a . b)");
-  CHECK(echo("(a b . c)") == "(a b . c)");
+  CHECK(echo(rt, "(1 2 3)") == "(1 2 3)");
+  CHECK(echo(rt, "( a ( b c )  d )") == "(a (b c) d)");
+  CHECK(echo(rt, "()") == "nil");
+  CHECK(echo(rt, "(a . b)") == "(a . b)");
+  CHECK(echo(rt, "(a b . c)") == "(a b . c)");
   // The dotted spelling of a proper list collapses to the plain form.
-  CHECK(echo("(a . (b . nil))") == "(a b)");
-  CHECK(echo("(a . (b . c))") == "(a b . c)");
+  CHECK(echo(rt, "(a . (b . nil))") == "(a b)");
+  CHECK(echo(rt, "(a . (b . c))") == "(a b . c)");
 }
+
+#pragma endregion
+#pragma region CoreB reader strings
 
 TEST_CASE("CoreB reader strings", "[coreb]") {
   runtime rt;
@@ -176,17 +214,15 @@ TEST_CASE("CoreB reader strings", "[coreb]") {
   CHECK(read(ctl.print()).as_string() == "\x01\x7f");
 }
 
+#pragma endregion
+#pragma region CoreB reader sugar and trivia
+
 TEST_CASE("CoreB reader sugar and trivia", "[coreb]") {
   runtime rt;
-  auto echo = [&rt](std::string_view src) {
-    auto v = reader::read_one(rt, src);
-    REQUIRE(v.has_value());
-    return v->print();
-  };
 
-  CHECK(echo("'x") == "(quote x)");
-  CHECK(echo("'(1 2)") == "(quote (1 2))");
-  CHECK(echo("; leading comment\n 42 ; trailing comment") == "42");
+  CHECK(echo(rt, "'x") == "(quote x)");
+  CHECK(echo(rt, "'(1 2)") == "(quote (1 2))");
+  CHECK(echo(rt, "; leading comment\n 42 ; trailing comment") == "42");
 
   auto all = reader::read_all(rt, "1 2 (3 4) ; done");
   REQUIRE(all.has_value());
@@ -198,6 +234,9 @@ TEST_CASE("CoreB reader sugar and trivia", "[coreb]") {
   REQUIRE(none.has_value());
   CHECK(none->empty());
 }
+
+#pragma endregion
+#pragma region CoreB reader errors
 
 TEST_CASE("CoreB reader errors", "[coreb]") {
   runtime rt;
@@ -241,5 +280,7 @@ TEST_CASE("CoreB reader errors", "[coreb]") {
   wide += ")";
   CHECK(reader::read_one(rt, wide).has_value());
 }
+
+#pragma endregion
 
 // NOLINTEND(readability-function-cognitive-complexity)

@@ -203,6 +203,24 @@ public:
     return out;
   }
 
+  // Append the structural debug form to `out`.
+  //
+  // Where `append` abbreviates chains of cells into list notation, this shows
+  // the raw pair structure in fully dotted form: every cell prints as "(head .
+  // tail)", so "(a b)" dumps as "(a . (b . nil))". Atoms print as in `append`.
+  // The output remains valid reader syntax, but re-reading it is subject to
+  // `reader::max_depth`: the dotted form spends one nesting level per list
+  // element where the abbreviated form spends none, so a long proper list
+  // dumps fine yet will not read back.
+  bool append_dump(std::string& out) const;
+
+  // Return the structural debug form.
+  [[nodiscard]] std::string dump() const {
+    std::string out;
+    append_dump(out);
+    return out;
+  }
+
 #pragma endregion
 
 private:
@@ -275,6 +293,17 @@ public:
       out += ' ';
       cur = &rest.as_cell();
     }
+    out += ')';
+    return true;
+  }
+
+  // Append the structural debug form to `out`: "(head . tail)", recursing
+  // into both halves, with no list abbreviation.
+  bool append_dump(std::string& out) const {
+    out += '(';
+    head.append_dump(out);
+    out += " . ";
+    tail.append_dump(out);
     out += ')';
     return true;
   }
@@ -376,6 +405,11 @@ inline bool value::append(std::string& out) const {
   case kind::cell: as_cell().append(out); break;
   }
   return true;
+}
+
+inline bool value::append_dump(std::string& out) const {
+  if (is_cell()) return as_cell().append_dump(out);
+  return append(out);
 }
 
 #pragma endregion
