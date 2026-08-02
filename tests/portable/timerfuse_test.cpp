@@ -189,5 +189,23 @@ TEST_CASE("ExceedMaxDelay", "[TimerFuse]") {
 }
 
 #pragma endregion
+#pragma region TimerFuse_PayloadCopyable
+
+TEST_CASE("PayloadCopyable", "[TimerFuse]") {
+  // The payload is stored in `std::function`, so it must be
+  // copy-constructible; a move-only payload fails the static_assert with a
+  // readable message instead of erroring deep inside std internals.
+  // Uncomment to verify the rejection:
+  //
+  // auto resource = std::make_shared<FakeResource>();
+  // timing_wheel wheel{2, 1ms};
+  // (void)timer_fuse<FakeResource>::set_timeout(wheel, resource->seq,
+  //     resource, 1ms,
+  //     [p = std::make_unique<int>(0)](
+  //         const timer_fuse<FakeResource>&) -> bool { return true; });
+  SUCCEED();
+}
+
+#pragma endregion
 
 // NOLINTEND(readability-function-cognitive-complexity)

@@ -110,6 +110,10 @@ public:
             const timer_fuse<T>&>,
         "payload must be invocable with `const timer_fuse<T>&` and return "
         "`bool`");
+    static_assert(
+        std::is_copy_constructible_v<std::remove_cvref_t<decltype(payload)>>,
+        "payload must be copy-constructible: the wheel stores callbacks in "
+        "`std::function`");
 
     // Check before touching `seq`: a failed arm must not fizzle the
     // previously armed fuse. Exact, because an oversized delay is
