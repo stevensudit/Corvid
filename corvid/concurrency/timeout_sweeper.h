@@ -28,6 +28,9 @@
 #include "../infra/exception_firewalls.h"
 
 namespace corvid { inline namespace concurrency {
+
+using namespace std::chrono_literals;
+
 #pragma region timeout_sweeper
 
 // A min-heap of (`expiration`, `callback`) pairs, swept by an external driver
@@ -117,12 +120,17 @@ public:
   timeout_sweeper& operator=(const timeout_sweeper&) = delete;
   timeout_sweeper& operator=(timeout_sweeper&&) = delete;
 
-  // Mark the sweeper as closing (further `schedule` calls are rejected) and
-  // drain anything still in the heap by invoking every remaining callback
-  // once.
+  // Destruct, invoking any pending timeouts now.
+  //
+  // Marks the sweeper as closing, so that further `schedule` calls are
+  // rejected, and drains the heap by ticking just short of
+  // `paused_expiration`. Every real deadline is expired, so running timeouts
+  // get their final invocation, while entries parked at (or past) the pause
+  // sentinel are discarded without one. As a result, paused means paused, even
+  // through destruction.
   ~timeout_sweeper() {
     closing_ = true;
-    try_or_terminate([&] { tick(time_point_t::max()); });
+    try_or_terminate([&] { tick(paused_expiration - 1s); });
   }
 
 #pragma endregion

@@ -214,6 +214,31 @@ TEST_CASE("DestructorDrains", "[TimeoutSweeper]") {
 }
 
 #pragma endregion
+#pragma region DestructorSkipsParkedEntries
+
+TEST_CASE("DestructorSkipsParkedEntries", "[TimeoutSweeper]") {
+  // The destructor drains by ticking just short of `paused_expiration`:
+  // entries at real deadlines get their final invocation, while an entry
+  // parked at the pause sentinel is discarded without one. Paused means
+  // paused, even through destruction.
+  int running_calls{};
+  int parked_calls{};
+  {
+    sweeper s;
+    s.schedule(T(100), [&](tp) -> tp {
+      ++running_calls;
+      return {};
+    });
+    s.schedule(sweeper::paused_expiration, [&](tp) -> tp {
+      ++parked_calls;
+      return {};
+    });
+  }
+  CHECK(running_calls == 1);
+  CHECK(parked_calls == 0); // Under a tick(max) drain, this would be 1.
+}
+
+#pragma endregion
 #pragma region DestructorShortCircuitsRearm
 
 TEST_CASE("DestructorShortCircuitsRearm", "[TimeoutSweeper]") {
