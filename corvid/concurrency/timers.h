@@ -99,9 +99,13 @@ struct timer_invocation {
 // This does not make it a recurring event, though. As soon as you return zero,
 // the event will be canceled.
 //
-// Scheduling in the past means it will be called back on the next tick.
-// Scheduling after `stop_at` cancels it, so you can return max to cancel. (You
-// can also cancel by explicitly setting the tombstone.)
+// The returned time must be in the future to keep the event alive. Returning
+// max cancels, as does any time at or after `stop_at`. Less obviously, a time
+// at or before the current time also cancels: this is what makes returning
+// zero cancel a one-shot, and it means a past time is never deferred to the
+// next tick. To run again as soon as possible, return a small future
+// increment, such as `i.now + 1ms`. (You can also cancel by explicitly setting
+// the tombstone.)
 using timer_callback_t = std::function<time_point_t(const timer_invocation&)>;
 
 // Callback to get the current time. Does not need to be reentrant, but must

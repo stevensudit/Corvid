@@ -82,6 +82,31 @@ TEST_CASE("StopAtExpires", "[TimersTest]") {
 }
 
 #pragma endregion
+#pragma region ReturnPastTimeCancels
+
+TEST_CASE("ReturnPastTimeCancels", "[TimersTest]") {
+  auto now = make_time(100);
+  auto t = timers::make("test");
+  t->set_clock_callback([&]() { return now; });
+  size_t cnt{};
+
+  // Returning a time at or before the current time cancels the event; a
+  // past time is never deferred to the next tick.
+  auto ev = t->set(25ms, [&](const timer_invocation& i) -> time_point_t {
+    ++cnt;
+    return i.now;
+  });
+  now += 25ms;
+  CHECK(t->tick() == 1U);
+  CHECK(cnt == 1U);
+  CHECK(ev->canceled);
+
+  now += 25ms;
+  CHECK(t->tick() == 0U);
+  CHECK(cnt == 1U);
+}
+
+#pragma endregion
 
 #pragma region OneShot
 
