@@ -28,13 +28,13 @@ namespace corvid { inline namespace concurrency {
 
 #pragma region idle_timeout
 
-// Mechanism for implementing a idle timeout for a given operation, providing a
-// full state machine over the duration and callbacks. The use case is to set
+// Mechanism for implementing an idle timeout for a given operation, providing
+// a full state machine over the duration and callbacks. The use case is to set
 // an idle timeout and keep postponing it as more work is accomplished.
 //
 // Works with a sweeper implementation (such as `timeout_sweeper`). Manages the
 // configured/active duration, current deadline, sweeper integration, and the
-// three-state machine that owners drive via `set_mode`.
+// three-state machine that owners drive via `set_mode` and its synonyms.
 //
 // Owner must inherit from `std::enable_shared_from_this`. The aliased
 // keepalive is built lazily on the first `set_mode` transition that requires
@@ -94,13 +94,17 @@ public:
   // Active timeout. Non-zero iff currently `mode::running`.
   [[nodiscard]] duration_t active_timeout() const noexcept { return active_; }
 
-  // Current deadline. When `mode::running`, this time was set to
-  // `infra::steady_now_clock::now() + active_timeout()` and used to schedule
-  // the next sweep. When `mode::paused`, this is at or past the sentinel value
+  // Current deadline.
+  //
+  // When `mode::running`, this time was set to `infra::steady_now_clock::now()
+  // + active_timeout()` and used to schedule the next sweep.
+  //
+  // When `mode::paused`, this is at or past the sentinel value
   // (`paused_expiration`) that signals the clipping behavior, so that the next
   // sweep is scheduled for `infra::steady_now_clock::now() +
-  // configured_timeout()` but will not trigger an expiration. When
-  // `mode::stopped`, this will be a value in the past.
+  // configured_timeout()` but will not trigger an expiration.
+  //
+  // When `mode::stopped`, this will be a value in the past.
   [[nodiscard]] time_point_t deadline() const noexcept { return deadline_; }
 
   // Current mode.
@@ -126,25 +130,37 @@ public:
     (void)active_.compare_exchange(expected, d);
   }
 
-  // Postpone the expiration after progress. Safe to call in any mode.
+  // Postpone the expiration after progress
+  //
+  // Safe to call in any mode, from any thread: a postpone that races `stop` or
+  // `pause` may be dropped, but can never resurrect a deadline they parked.
   void postpone() noexcept {
+    auto expected = *deadline_;
+    // Not running: nothing to postpone.
+    if ((expected == time_point_t{}) || (expected >= paused_expiration))
+      return;
+    // Determine how long to postpone; if it got zeroed out, we lost the race.
     const auto active_snapshot = *active_;
     if (active_snapshot == duration_t{}) return;
-    deadline_ = steady_now_clock::now() + active_snapshot;
+    // Postpone deadline. If someone else changed it, we lost the race.
+    (void)deadline_.compare_exchange(expected,
+        steady_now_clock::now() + active_snapshot);
   }
 
-  // Stop the timeout and cancel any pending entry. Idempotent. Safe to call in
-  // any mode. Leaves `configured_timeout` and `on_idle` intact so the timeout
-  // can be restarted later.
+  // Stop the timeout and cancel any pending entry.
+  //
+  // Idempotent. Safe to call in any mode. Leaves `configured_timeout` and
+  // `on_idle` intact so the timeout can be restarted later.
   [[nodiscard]] bool stop() noexcept {
     active_ = duration_t{};
     deadline_ = time_point_t{};
     return true;
   }
 
-  // Start the timeout that was stopped or paused. If already running, all it
-  // does is postpone once. Fails if `configured_timeout` is zero or it can't
-  // schedule.
+  // Start the timeout that was stopped or paused.
+  //
+  // If already running, all it does is postpone once. Fails if
+  // `configured_timeout` is zero or it can't schedule.
   [[nodiscard]] bool start() {
     const auto now_time = steady_now_clock::now();
     const auto was_stopped = (*deadline_ <= now_time);
@@ -244,12 +260,13 @@ private:
     if (*deadline_ >= paused_expiration) {
       // Defensive: configured was zeroed while paused, so the clip path
       // would compute `now + 0`, hot-looping. Collapse to Stopped.
-      if (*configured_ == duration_t{}) {
+      const auto configured_snapshot = *configured_;
+      if (configured_snapshot == duration_t{}) {
         deadline_ = time_point_t{};
         return {{}, false};
       }
       // Clip back to a near-future fire so we keep checking periodically.
-      return {steady_now_clock::now() + *configured_, false};
+      return {steady_now_clock::now() + configured_snapshot, false};
     }
     // `mode::running` and deadline reached: nobody restarted between the
     // schedule and now. Fire the cancelation action and drop the entry.
@@ -264,6 +281,34 @@ private:
 
 #pragma endregion
 #pragma region Data members
+
+  // Summary:
+  //
+  // `sweeper_` is the non-owning reference to the sweeper, and is used to call
+  // its `schedule` method to register the next callback.
+  //
+  // `owner_` is the non-owning reference to the object that owns this
+  // `idle_timeout` instance. This is used in `build_sweeper_cb` to create a
+  // `std::weak_ptr` to the owner, so that the callback harmlessly fails if the
+  // owner has been destroyed.
+  //
+  // `on_idle_` is the cancelation action that is invoked when the idle timeout
+  // expires.
+  //
+  // `on_idle_once_` is an atomic pointer to `on_idle_`, used to ensure that it
+  // is invoked only once. It can be reset with `reset_expiration()`.
+  //
+  // `configured_` is the configured timeout duration, which can be updated
+  // with `configure()`. This is used to set `active_` when starting.
+  //
+  // `active_` is the active timeout duration, which is non-zero only when in
+  // `mode::running`. It is used to compute the next deadline when postponing.
+  //
+  // `deadline_` is the current deadline for the idle timeout. When zero, the
+  // timeout is stopped. When running, it is set to `now() + active_`; with
+  // each `postpone`, it is set again, only using the current `now()` value.
+  // In paused mode, it is set to the sentinel value `paused_expiration`, which
+  // is a time point far in the future.
 
   sweeper_t& sweeper_;
   owner_t& owner_;

@@ -20,7 +20,10 @@
 
 #include "catch2_main.h"
 
+#include <atomic>
 #include <memory>
+#include <thread>
+#include <vector>
 
 using namespace std::chrono_literals;
 using namespace corvid::concurrency;
@@ -481,6 +484,53 @@ TEST_CASE("SweepAndExpireFireOnce", "[IdleTimeout]") {
   sw.tick(T(300));
   CHECK(o->idle_count == 2);
   CHECK(sw.empty());
+}
+
+#pragma endregion
+#pragma region PostponeCannotResurrectStop
+
+TEST_CASE("PostponeCannotResurrectStop", "[IdleTimeout]") {
+  // Threads hammering `postpone` race the main thread's `stop`: the CAS in
+  // `postpone` must never resurrect a deadline that `stop` just parked. The
+  // teeth are probabilistic; pre-fix, the unconditional read-then-store pair
+  // trips this within a few hundred rounds.
+  sweeper sw;
+  auto fake_clock = clk::fake_now_scope();
+  auto o = make_owner(sw, 100ms);
+  clk::set_fake_now(T(0));
+  std::atomic_bool running{true};
+  std::atomic_int ready{0};
+  int failed_starts = 0;
+  int resurrected = 0;
+
+  if (true) {
+    constexpr auto postponer_count = 4;
+    std::vector<std::jthread> postponers;
+    postponers.reserve(postponer_count);
+    for (auto ndx = 0; ndx < postponer_count; ++ndx)
+      postponers.emplace_back([&] {
+        ++ready;
+        while (running.load(std::memory_order::relaxed)) o->idle.postpone();
+      });
+
+    // Don't start racing until every postponer is actually spinning.
+    while (ready.load() < postponer_count) std::this_thread::yield();
+
+    for (auto round = 0; round < 10'000; ++round) {
+      if (!o->idle.start()) ++failed_starts;
+      if (!o->idle.stop()) ++failed_starts;
+      // Once `stop` returns, no in-flight `postpone` may land: a CAS armed
+      // with the pre-stop deadline fails against the zero, and one armed
+      // after the zero bails out before the CAS. Spin briefly so a stale
+      // store from the racing window cannot slip in after a single read.
+      for (auto spin = 0; spin < 16; ++spin)
+        if (o->idle.deadline() != tp{}) ++resurrected;
+    }
+    running = false;
+  }
+
+  CHECK(failed_starts == 0);
+  CHECK(resurrected == 0);
 }
 
 #pragma endregion
