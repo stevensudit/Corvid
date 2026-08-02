@@ -15,7 +15,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#include <atomic>
+#include <cstdint>
 #include <latch>
+#include <memory>
+#include <stdexcept>
 #include <thread>
 
 #include "corvid/concurrency/timing_wheel.h"
@@ -33,6 +37,17 @@ static tp T(int ms) { return tp{} + std::chrono::milliseconds{ms}; }
 
 // NOLINTBEGIN(readability-function-cognitive-complexity)
 
+#pragma region CtorValidation
+
+TEST_CASE("CtorValidation", "[TimingWheel]") {
+  // Constraints from the constructor doc: slot_count >= 2 and tick_interval
+  // >= 500000ns (which at millisecond granularity means >= 1ms).
+  CHECK_THROWS_AS(timing_wheel(1, dur{100}, T(0)), std::invalid_argument);
+  CHECK_THROWS_AS(timing_wheel(2, dur{0}, T(0)), std::invalid_argument);
+  CHECK_NOTHROW(timing_wheel(2, dur{1}, T(0)));
+}
+
+#pragma endregion
 #pragma region BasicFire
 
 TEST_CASE("BasicFire", "[TimingWheel]") {
@@ -386,6 +401,81 @@ TEST_CASE("NonMultipleDelayRoundsUp", "[TimingWheel]") {
 
   wheel.tick(T(200));
   CHECK(fired == 1);
+}
+
+#pragma endregion
+#pragma region LedeExample
+
+namespace {
+// The connection and loop types from the class comment's example. This test
+// keeps the code sample in "timing_wheel.h" compiling and passing; change the
+// two together.
+struct example_conn {
+  std::atomic<uint64_t> write_id_;
+  int timeouts_handled{};
+  void handle_write_timeout() { ++timeouts_handled; }
+};
+
+// Stands in for an I/O loop: runs the posted callback inline.
+struct example_loop {
+  bool post(const auto& cb) { return cb(); }
+};
+} // namespace
+
+TEST_CASE("LedeExample", "[TimingWheel]") {
+  timing_wheel wheel(600, dur{100}, T(0));
+  example_loop loop;
+  auto conn = std::make_shared<example_conn>();
+
+  // Caller generates IDs, captures them and any other context into the
+  // closure, and performs liveness checks inside the callback.
+  static std::atomic<uint64_t> next_id{1};
+  const auto id = next_id.fetch_add(1);
+  conn->write_id_.store(id);
+
+  const auto scheduled = wheel.schedule(
+      [id, &loop, conn_weak = std::weak_ptr{conn}] {
+        // Deliver the result on the loop thread.
+        return loop.post([id, conn_weak] {
+          auto c = conn_weak.lock();
+          if (!c || c->write_id_.load() != id) return true; // Stale.
+          c->handle_write_timeout();
+          return true;
+        });
+      },
+      10s);
+  CHECK(scheduled);
+
+  // The write never completes, so the callback finds the ID live and handles
+  // the timeout.
+  wheel.tick(T(9'900));
+  CHECK(conn->timeouts_handled == 0);
+  wheel.tick(T(10'000));
+  CHECK(conn->timeouts_handled == 1);
+
+  // Re-arm; this time the write completes before the timeout, staling the
+  // pending callback.
+  {
+    const auto id = next_id.fetch_add(1);
+    conn->write_id_.store(id);
+    const auto scheduled = wheel.schedule(
+        [id, &loop, conn_weak = std::weak_ptr{conn}] {
+          return loop.post([id, conn_weak] {
+            auto c = conn_weak.lock();
+            if (!c || c->write_id_.load() != id) return true; // Stale.
+            c->handle_write_timeout();
+            return true;
+          });
+        },
+        10s);
+    CHECK(scheduled);
+  }
+
+  // On write completion, store zero to stale any pending callback:
+  conn->write_id_.store(0);
+
+  wheel.tick(T(20'100));
+  CHECK(conn->timeouts_handled == 1); // Unchanged: the callback was stale.
 }
 
 #pragma endregion

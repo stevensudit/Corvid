@@ -16,11 +16,12 @@
 // limitations under the License.
 #pragma once
 #include <algorithm>
-#include <cassert>
 #include <chrono>
 #include <functional>
+#include <memory>
 #include <mutex>
 #include <stdexcept>
+#include <stop_token>
 #include <thread>
 #include <vector>
 
@@ -39,8 +40,9 @@ using namespace std::chrono_literals;
 
 // Single-level timing wheel with configurable precision (100ms by default).
 //
-// Schedules `std::function<void()>` callbacks and fires them at the
-// appropriate time. That is all it does. It has no concept of IDs,
+// Schedules `eventfn` callbacks (`std::function<bool()>`; the return value is
+// ignored) and fires them at the appropriate time. That is all it does. It has
+// no concept of IDs,
 // cancellation tokens, targets, or delivery channels -- those are the
 // caller's concern.
 //
@@ -58,29 +60,34 @@ using namespace std::chrono_literals;
 // Maximum delay: `(slot_count - 1) * tick_interval`. `schedule` returns false
 // if the delay exceeds this. For longer delays, use `timers` instead.
 //
-// Example (serving suggestion -- one way to handle write timeouts):
+// Example (serving suggestion; one way to handle write timeouts). Here `conn`
+// is a `std::shared_ptr` to a connection holding a `std::atomic<uint64_t>
+// write_id_`, `loop` is an I/O loop whose `post` runs a callback on the loop
+// thread, and `wheel` is a `timing_wheel` (typically `*runner.wheel()`).
+//
+// This example is kept compiling and passing as the `LedeExample` case in
+// "timing_wheel_test.cpp"; change the two together.
 //
 //   // Caller generates IDs, captures them and any other context into the
 //   // closure, and performs liveness checks inside the callback.
-//
 //   static std::atomic<uint64_t> next_id{1};
-//   uint64_t id = next_id.fetch_add(1);
-//   conn.write_id_.store(id);
+//   const auto id = next_id.fetch_add(1);
+//   conn->write_id_.store(id);
 //
-//   runner.wheel().schedule(
-//       [id, &loop, conn_weak = weak_ptr<epoll_stream_conn>{conn}] {
-//           // Deliver result on the loop thread.
-//           loop.post([id, conn_weak] {
-//               auto c = conn_weak.lock();
-//               if (!c || c->write_id_.load() != id) return true; // stale
-//               c->handle_write_timeout();
-//               return true;
-//           });
+//   const auto scheduled = wheel.schedule(
+//       [id, &loop, conn_weak = std::weak_ptr{conn}] {
+//         // Deliver the result on the loop thread.
+//         return loop.post([id, conn_weak] {
+//           auto c = conn_weak.lock();
+//           if (!c || c->write_id_.load() != id) return true; // Stale.
+//           c->handle_write_timeout();
+//           return true;
+//         });
 //       },
 //       10s);
 //
-//   // On write completion -- stales any pending callback:
-//   conn.write_id_.store(0);
+//   // On write completion, store zero to stale any pending callback:
+//   conn->write_id_.store(0);
 //
 class timing_wheel {
 public:
@@ -111,12 +118,14 @@ public:
 #pragma region Construction
 
   // Construct a timing wheel with `slot_count` slots and `tick_interval`
-  // precision, starting from `start_time`. `slot_count` must be at least 2.
-  // `tick_interval` must be at least 500000ns (the minimum reliable resolution
-  // of `nanosleep` on Linux). `start_time` defaults to the current wall time;
-  // pass an explicit value for testing with a fake clock. The maximum
-  // schedulable delay is `(slot_count - 1) * tick_interval`.
-  // Throws `std::invalid_argument` if either constraint is violated.
+  // precision, starting from `start_time`.
+  //
+  // `slot_count` must be at least 2. `tick_interval` must be at least 500000ns
+  // (the minimum reliable resolution of `nanosleep` on Linux). `start_time`
+  // defaults to the current time; pass an explicit value for testing with a
+  // fake clock. The maximum schedulable delay is `(slot_count
+  // - 1) * tick_interval`. Throws `std::invalid_argument` if either
+  // constraint is violated.
   explicit timing_wheel(size_t slot_count = default_slot_count,
       duration_t tick_interval = default_tick_interval,
       time_point_t start_time = std::chrono::steady_clock::now())
