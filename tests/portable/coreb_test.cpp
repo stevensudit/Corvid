@@ -119,6 +119,9 @@ TEST_CASE("CoreB reader atoms", "[coreb]") {
   CHECK_FALSE(read("false").as_bool());
   CHECK(read("foo").is_symbol());
   CHECK(read("empty?").print() == "empty?");
+  // Kernel-reserved symbols read like any other; only `define` polices them.
+  CHECK(read("%comment").is_symbol());
+  CHECK(read("%comment").print() == "%comment");
   // Signs alone are symbols, not numbers.
   CHECK(read("+").is_symbol());
   CHECK(read("-").is_symbol());

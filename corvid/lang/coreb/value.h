@@ -208,7 +208,24 @@ public:
 private:
 #pragma region Helpers
 
-  static void do_append_float(std::string& out, double d);
+  // Append a float so it re-reads as a float.
+  //
+  // A rendering with no exponent or decimal point (to_chars prints 1.0 as
+  // "1") gets ".0" appended. Infinities and NaN print as "inf"/"nan", which
+  // the reader does not accept as numbers; a round-trip for those is deferred
+  // until the language decides how to spell them.
+  static void do_append_float(std::string& out, double d) {
+    const auto start = out.size();
+    strings::append_num(out, d);
+    const auto text = std::string_view{out}.substr(start);
+    auto integral_form = true;
+    for (const char c : text)
+      if (!strings::is_digit(c) && c != '-') {
+        integral_form = false;
+        break;
+      }
+    if (integral_form) out += ".0";
+  }
 
 #pragma endregion
 #pragma region Data members
@@ -359,25 +376,6 @@ inline bool value::append(std::string& out) const {
   case kind::cell: as_cell().append(out); break;
   }
   return true;
-}
-
-// Append a float so it re-reads as a float.
-//
-// A rendering with no exponent or decimal point (to_chars prints 1.0 as "1")
-// gets ".0" appended. Infinities and NaN print as "inf"/"nan", which the
-// reader does not accept as numbers; a round-trip for those is deferred until
-// the language decides how to spell them.
-inline void value::do_append_float(std::string& out, double d) {
-  const auto start = out.size();
-  strings::append_num(out, d);
-  const auto text = std::string_view{out}.substr(start);
-  auto integral_form = true;
-  for (const char c : text)
-    if (!strings::is_digit(c) && c != '-') {
-      integral_form = false;
-      break;
-    }
-  if (integral_form) out += ".0";
 }
 
 #pragma endregion

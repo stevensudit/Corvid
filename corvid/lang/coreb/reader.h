@@ -69,7 +69,9 @@ struct read_error final {
 // - (quote x) may be written 'x.
 // - Strings are double-quoted; the escapes are \" \\ \n \t \r, plus \u{hex}
 //   denoting a byte by value.
-// - Any other token is a symbol, interned in the runtime.
+// - Any other token is a symbol, interned in the runtime. Symbols starting
+//   with '%' are reserved for kernel-generated forms (see "coreb.md"); the
+//   reader accepts them, and definition is policed by the evaluator.
 // - ';' starts a comment running to end of line. Comments and whitespace are
 //   dropped entirely for now; representing them for round-tripping is a
 //   deferred goal (see "coreb.md").
