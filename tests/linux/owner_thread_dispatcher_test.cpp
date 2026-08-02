@@ -16,12 +16,16 @@
 // limitations under the License.
 
 #include <atomic>
+#include <chrono>
+#include <memory>
+#include <semaphore>
 #include <thread>
 
 #include "corvid/concurrency.h"
 #include "catch2_main.h"
 
 using namespace corvid;
+using namespace std::chrono_literals;
 
 // NOLINTBEGIN(readability-function-cognitive-complexity)
 // NOLINTBEGIN(bugprone-derived-method-shadowing-base-method)
@@ -169,6 +173,57 @@ TEST_CASE("PostAndWait_OffLoopThread", "[OwnerThreadDispatcher]") {
   CHECK(executed == 1U);
   CHECK(result);
   CHECK(count.load() == 1);
+}
+#pragma endregion
+
+#pragma region PostAndWait_ShutdownReleasesWaiter
+
+TEST_CASE("PostAndWait_ShutdownReleasesWaiter", "[OwnerThreadDispatcher]") {
+  // A shutdown discards the queued callback without running it, and the
+  // waiter is released anyway, reporting failure.
+  //
+  // A regression strands the waiter thread permanently, so the state that
+  // thread reports through is heap-owned: the timeout below reports a failure
+  // and abandons it, rather than hanging the suite on a join that can never
+  // finish.
+  struct waiter_state {
+    relaxed_atomic_bool result{true};
+    relaxed_atomic_int count{0};
+    std::binary_semaphore finished{0};
+  };
+  auto state = std::make_unique<waiter_state>();
+  OwnerThreadTestDispatcher dispatcher;
+
+  std::thread t{[&dispatcher, s = state.get()] {
+    s->result = dispatcher.post_and_wait([s]() -> bool {
+      ++s->count;
+      return true;
+    });
+    s->finished.release();
+  }};
+
+  // Spin until the callback is queued, which the wake signal proves because
+  // `post` raises it only after adding to the queue.
+  event_fd::counter_t val{};
+  while (!dispatcher.wake_fd().read(val)) std::this_thread::yield();
+
+  CHECK(dispatcher.shutdown());
+
+  // Wildly generous: the whole suite runs in well under a second.
+  const auto released = state->finished.try_acquire_for(20s);
+  CHECK(released);
+  if (!released) {
+    // A stranded waiter reads nothing but `state` on the way out, so leaking
+    // that is enough. The dispatcher is left to die normally here, which
+    // keeps this thread usable by the rest of the file.
+    t.detach();
+    [[maybe_unused]] auto* leaked = state.release();
+    return;
+  }
+
+  t.join();
+  CHECK_FALSE(state->result);
+  CHECK(state->count == 0);
 }
 #pragma endregion
 

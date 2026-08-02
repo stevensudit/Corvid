@@ -17,6 +17,7 @@
 #pragma once
 #include <cstdint>
 #include <exception>
+#include <stdexcept>
 #include <type_traits>
 #include <utility>
 
@@ -93,7 +94,12 @@ public:
     if constexpr (Kind != scope_kind::success) fn();
   }
 
-  scope_guard(const scope_guard&) = delete;
+  // A guard cannot be copied, but we pretend that it can for the purpose of
+  // satisfying `std::function`'s requirements. So long as the `std::function`
+  // instance that a guard is bound into is only moved, everything is fine.
+  // Otherwise, we throw.
+  scope_guard(const scope_guard&) : exit_function_(do_refuse_copy()) {}
+
   scope_guard& operator=(const scope_guard&) = delete;
   scope_guard& operator=(scope_guard&&) = delete;
 
@@ -136,6 +142,14 @@ public:
 #pragma endregion
 #pragma region Helpers
 private:
+  // Refuse a copy, from the member initializer of the copy constructor.
+  //
+  // Throwing from there, rather than from the body, means `EF` is never
+  // copied and need not even be copyable.
+  [[noreturn]] static EF do_refuse_copy() {
+    throw std::logic_error{"scope guard cannot be copied"};
+  }
+
   // Pick the initializer for `exit_function_`. Forward `fn` when that
   // construction cannot throw, or when there is no lvalue alternative, and
   // otherwise pass the lvalue, so that a throwing copy leaves `fn` intact for

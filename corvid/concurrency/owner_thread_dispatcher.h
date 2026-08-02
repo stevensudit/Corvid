@@ -15,6 +15,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 #pragma once
+#include <algorithm>
 #include <atomic>
 #include <cassert>
 #include <concepts>
@@ -27,10 +28,12 @@
 #include <stdexcept>
 #include <thread>
 #include <type_traits>
+#include <utility>
 #include <vector>
 
 #include "../meta/concepts.h"
 #include "../infra/exception_firewalls.h"
+#include "../infra/scope_exit.h"
 #include "../filesys/os_file.h"
 #include "../filesys/event_fd.h"
 #include "../infra/relaxed_atomic.h"
@@ -224,15 +227,34 @@ public:
   // another thread, posts before blocking the calling thread until it
   // completes.
   //
+  // Returns false without running `fn` when the post cannot be queued, and
+  // also when a shutdown discards the post before the loop thread reaches it.
+  // Otherwise the wait is unbounded, so the loop thread has to be consuming
+  // its post queue.
+  //
   // The use cases for this are very limited, but it's helpful for testing.
   [[nodiscard]] bool post_and_wait(PostedInvocable auto&& fn) {
     if (is_loop_thread()) return fn();
     bool result{};
     std::latch done{1};
 
-    if (post([fn = std::move(fn), &result, &done]() mutable -> bool {
-          result = fn();
+    // The guard rides along in the callback, ending the wait when the
+    // callback is destroyed. That covers being discarded by a shutdown as
+    // well as having run, at the cost of waking no earlier than the end of
+    // the drain that ran it.
+    //
+    // Copying the guard throws, so the queue must never copy the callback.
+    // Growth uses `move_if_noexcept`, which reaches for the copy only when
+    // the move can throw.
+    static_assert(std::is_nothrow_move_constructible_v<posted_fn> ||
+                      !std::is_copy_constructible_v<posted_fn>,
+        "posted_fn must be nothrow-movable, or the post queue would copy "
+        "callbacks when it grows");
+
+    if (post([fn = std::move(fn), &result, guard = scope_exit{[&done] {
           done.count_down();
+        }}]() mutable -> bool {
+          result = fn();
           return true;
         }))
       done.wait();
