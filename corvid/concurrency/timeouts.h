@@ -38,11 +38,22 @@ public:
     running, // Timeout will trigger.
   };
 
-  // Sentinel value used to enter logical pause mode. One decade shy of
-  // `time_point_t::max`, leaving ample headroom against overflow when
-  // arithmetic is done on it.
+  // Sentinel value.
+  //
+  // Used to enter logical pause mode. One decade shy of `time_point_t::max`,
+  // leaving ample headroom against overflow when arithmetic is done on it.
   static constexpr steady_now_clock::time_point_t paused_expiration{
       steady_now_clock::time_point_t::max() - std::chrono::years{10}};
+
+  // Upper bound for a timeout duration.
+  //
+  // The span from a fixed stand-in for the present up to `paused_expiration`,
+  // so that `now() + duration` can neither overflow nor land in the sentinel
+  // band.
+  static constexpr steady_now_clock::duration_t max_timeout =
+      std::chrono::duration_cast<steady_now_clock::duration_t>(
+          paused_expiration -
+          (steady_now_clock::time_point_t{} + std::chrono::years{50}));
 
 #pragma endregion
 };

@@ -214,6 +214,103 @@ TEST_CASE("DestructorDrains", "[TimeoutSweeper]") {
 }
 
 #pragma endregion
+#pragma region LedeExample
+
+namespace {
+// The connection type from the class comment's example. This test keeps the
+// code sample in timeout_sweeper.h compiling and passing; change the two
+// together.
+struct example_conn {
+  corvid::relaxed_atomic<sweeper::time_point_t> read_expiration_;
+  sweeper::duration_t read_timeout_{100ms};
+  bool closed{};
+  void close() { closed = true; }
+};
+} // namespace
+
+TEST_CASE("LedeExample", "[TimeoutSweeper]") {
+  using sweeper_t = sweeper;
+  using clk = corvid::steady_now_clock;
+  auto fake_clock = clk::fake_now_scope();
+  clk::set_fake_now(T(0));
+  sweeper_t sw;
+  auto conn = std::make_shared<example_conn>();
+
+  // Initial registration. Set a real deadline, then register.
+  conn->read_expiration_ = steady_now_clock::now() + conn->read_timeout_;
+  sw.schedule(*conn->read_expiration_,
+      [weak_conn = std::weak_ptr{conn}](
+          sweeper_t::time_point_t expire) -> sweeper_t::time_point_t {
+        auto conn = weak_conn.lock();
+        if (!conn) return {};
+        auto current = *conn->read_expiration_;
+        if (current == expire) {
+          conn->close();
+          return {};
+        }
+        // Only needed in callback when timer can be logically paused.
+        if (current == sweeper_t::paused_expiration)
+          current = steady_now_clock::now() + conn->read_timeout_;
+        return current;
+      });
+  CHECK(sw.size() == 1U);
+
+  // Extend: a single write to the expiration, no sweeper call. The entry
+  // chases the moved deadline on its next fire instead of closing.
+  conn->read_expiration_ = T(150);
+  clk::set_fake_now(T(100));
+  CHECK(sw.tick(T(100)) == 1U);
+  CHECK_FALSE(conn->closed);
+  CHECK(sw.size() == 1U);
+
+  // Logically pause: the entry clips forward every `read_timeout_` without
+  // ever triggering.
+  conn->read_expiration_ = sweeper_t::paused_expiration;
+  clk::set_fake_now(T(150));
+  CHECK(sw.tick(T(150)) == 1U);
+  CHECK_FALSE(conn->closed);
+  CHECK(sw.size() == 1U);
+
+  // Nothing due yet: a tick invokes nothing.
+  CHECK(sw.tick(T(200)) == 0U);
+
+  // Unpause by setting a real deadline; when it arrives untouched, the
+  // connection closes and the entry drops.
+  conn->read_expiration_ = T(300);
+  clk::set_fake_now(T(250));
+  CHECK(sw.tick(T(250)) == 1U); // Clip entry chases the new deadline.
+  clk::set_fake_now(T(300));
+  CHECK(sw.tick(T(300)) == 1U);
+  CHECK(conn->closed);
+  CHECK(sw.empty());
+}
+
+#pragma endregion
+#pragma region DestructorSkipsParkedEntries
+
+TEST_CASE("DestructorSkipsParkedEntries", "[TimeoutSweeper]") {
+  // The destructor drains by ticking just short of `paused_expiration`:
+  // entries at real deadlines get their final invocation, while an entry
+  // parked at the pause sentinel is discarded without one. Paused means
+  // paused, even through destruction.
+  int running_calls{};
+  int parked_calls{};
+  {
+    sweeper s;
+    s.schedule(T(100), [&](tp) -> tp {
+      ++running_calls;
+      return {};
+    });
+    s.schedule(sweeper::paused_expiration, [&](tp) -> tp {
+      ++parked_calls;
+      return {};
+    });
+  }
+  CHECK(running_calls == 1);
+  CHECK(parked_calls == 0); // Under a tick(max) drain, this would be 1.
+}
+
+#pragma endregion
 #pragma region DestructorShortCircuitsRearm
 
 TEST_CASE("DestructorShortCircuitsRearm", "[TimeoutSweeper]") {

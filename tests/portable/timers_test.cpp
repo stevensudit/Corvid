@@ -42,6 +42,72 @@ static time_point_t make_time(int ms) {
   return time_point_t{} + milliseconds{ms};
 }
 
+#pragma region StopAtExpires
+
+TEST_CASE("StopAtExpires", "[TimersTest]") {
+  auto now = make_time(100);
+  auto t = timers::make("test");
+  t->set_clock_callback([&]() { return now; });
+  size_t cnt{};
+
+  // Recurring event, allowed to run only until 100ms from now.
+  auto ev = t->set(
+      25ms,
+      [&](const timer_invocation&) -> time_point_t {
+        ++cnt;
+        return {};
+      },
+      25ms, 100ms);
+  CHECK_FALSE(ev->canceled);
+
+  // The driver stalls past `stop_at`: the event pops expired, never fires,
+  // and its tombstone is killed so pollers observe the cancelation.
+  now += 150ms;
+  CHECK(t->tick() == 0U);
+  CHECK(cnt == 0U);
+  CHECK(ev->canceled); // Pre-fix: stayed false forever.
+
+  // Born dead: `stop_at` before `start_at` is DOA and never scheduled.
+  auto doa = t->set(
+      50ms,
+      [&](const timer_invocation&) -> time_point_t {
+        ++cnt;
+        return {};
+      },
+      {}, 25ms);
+  CHECK(doa->canceled);
+  now += 100ms;
+  CHECK(t->tick() == 0U);
+  CHECK(cnt == 0U);
+}
+
+#pragma endregion
+#pragma region ReturnPastTimeCancels
+
+TEST_CASE("ReturnPastTimeCancels", "[TimersTest]") {
+  auto now = make_time(100);
+  auto t = timers::make("test");
+  t->set_clock_callback([&]() { return now; });
+  size_t cnt{};
+
+  // Returning a time at or before the current time cancels the event; a
+  // past time is never deferred to the next tick.
+  auto ev = t->set(25ms, [&](const timer_invocation& i) -> time_point_t {
+    ++cnt;
+    return i.now;
+  });
+  now += 25ms;
+  CHECK(t->tick() == 1U);
+  CHECK(cnt == 1U);
+  CHECK(ev->canceled);
+
+  now += 25ms;
+  CHECK(t->tick() == 0U);
+  CHECK(cnt == 1U);
+}
+
+#pragma endregion
+
 #pragma region OneShot
 
 TEST_CASE("OneShot", "[TimersTest]") {

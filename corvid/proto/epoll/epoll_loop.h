@@ -115,9 +115,7 @@ private:
 // `epoll_loop::make`. Per the `owner_thread_dispatcher` contract, the
 // instance must be constructed and destructed on the loop thread; use
 // `epoll_loop_runner` to satisfy this automatically.
-class epoll_loop
-    : public concurrency::owner_thread_dispatcher<fixed_function<
-          concurrency::default_fixed_function::capacity, bool()>> {
+class epoll_loop: public owner_thread_dispatcher<> {
   enum class allow : bool { ctor };
 
 #pragma region Types
@@ -125,9 +123,7 @@ public:
   // Maximum number of events retrieved per `epoll_wait` call.
   static constexpr auto max_events = 64UZ;
 
-  using posted_fn_t =
-      fixed_function<concurrency::default_fixed_function::capacity, bool()>;
-  using parent = concurrency::owner_thread_dispatcher<posted_fn_t>;
+  using parent = owner_thread_dispatcher<>;
 
 #pragma endregion
 #pragma region Infrastructure

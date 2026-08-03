@@ -15,6 +15,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#include <atomic>
+#include <cstdint>
+#include <latch>
+#include <memory>
+#include <stdexcept>
+#include <thread>
+
 #include "corvid/concurrency/timing_wheel.h"
 
 #include "catch2_main.h"
@@ -23,18 +30,28 @@ using namespace std::chrono_literals;
 using namespace corvid::concurrency;
 
 using tp = timing_wheel::time_point_t;
-using dur = timing_wheel::duration_t;
 
 // Construct a time_point at `ms` milliseconds past the epoch.
 static tp T(int ms) { return tp{} + std::chrono::milliseconds{ms}; }
 
 // NOLINTBEGIN(readability-function-cognitive-complexity)
 
+#pragma region CtorValidation
+
+TEST_CASE("CtorValidation", "[TimingWheel]") {
+  // Constraints from the constructor doc: slot_count >= 2 and tick_interval
+  // >= 500000ns (which at millisecond granularity means >= 1ms).
+  CHECK_THROWS_AS(timing_wheel(1, 100ms, T(0)), std::invalid_argument);
+  CHECK_THROWS_AS(timing_wheel(2, 0ms, T(0)), std::invalid_argument);
+  CHECK_NOTHROW(timing_wheel(2, 1ms, T(0)));
+}
+
+#pragma endregion
 #pragma region BasicFire
 
 TEST_CASE("BasicFire", "[TimingWheel]") {
   // Schedule at 200ms; should not fire at 100ms but should fire at 200ms.
-  timing_wheel wheel(600, dur{100}, T(0));
+  timing_wheel wheel(600, 100ms, T(0));
   int fired = 0;
 
   CHECK(wheel.schedule(
@@ -60,7 +77,7 @@ TEST_CASE("BasicFire", "[TimingWheel]") {
 
 TEST_CASE("NotFiredEarly", "[TimingWheel]") {
   // Verify no premature fire.
-  timing_wheel wheel(600, dur{100}, T(0));
+  timing_wheel wheel(600, 100ms, T(0));
   int fired = 0;
 
   CHECK(wheel.schedule(
@@ -83,7 +100,7 @@ TEST_CASE("NotFiredEarly", "[TimingWheel]") {
 
 TEST_CASE("MultiSlot", "[TimingWheel]") {
   // Three entries at 100/200/300ms; exactly one fires per 100ms tick.
-  timing_wheel wheel(600, dur{100}, T(0));
+  timing_wheel wheel(600, 100ms, T(0));
   int count = 0;
 
   CHECK(wheel.schedule(
@@ -118,7 +135,7 @@ TEST_CASE("MultiSlot", "[TimingWheel]") {
 
 TEST_CASE("TickSkip", "[TimingWheel]") {
   // A single tick jump drains all three slots at once.
-  timing_wheel wheel(600, dur{100}, T(0));
+  timing_wheel wheel(600, 100ms, T(0));
   int count = 0;
 
   CHECK(wheel.schedule(
@@ -149,7 +166,7 @@ TEST_CASE("TickSkip", "[TimingWheel]") {
 
 TEST_CASE("TickTooEarly", "[TimingWheel]") {
   // Ticks separated by less than 100ms are no-ops.
-  timing_wheel wheel(600, dur{100}, T(0));
+  timing_wheel wheel(600, 100ms, T(0));
   int fired = 0;
 
   CHECK(wheel.schedule(
@@ -172,7 +189,7 @@ TEST_CASE("TickTooEarly", "[TimingWheel]") {
 
 TEST_CASE("ZeroDelay", "[TimingWheel]") {
   // Zero delay is clamped to one tick; fires on the next tick, not current.
-  timing_wheel wheel(600, dur{100}, T(0));
+  timing_wheel wheel(600, 100ms, T(0));
   int fired = 0;
 
   CHECK(wheel.schedule(
@@ -180,7 +197,7 @@ TEST_CASE("ZeroDelay", "[TimingWheel]") {
               ++fired;
               return true;
             },
-            dur{0}) == true);
+            0ms) == true);
 
   // Should not fire synchronously.
   CHECK(fired == 0);
@@ -195,7 +212,7 @@ TEST_CASE("ZeroDelay", "[TimingWheel]") {
 TEST_CASE("OverflowFails", "[TimingWheel]") {
   // A delay exceeding the wheel range is rejected; returns false.
   // Use slot_count=10 so the max is 900ms.
-  timing_wheel wheel(10, dur{100}, T(0));
+  timing_wheel wheel(10, 100ms, T(0));
   int fired = 0;
 
   // 10 seconds far exceeds the 900ms maximum: schedule fails.
@@ -224,7 +241,7 @@ TEST_CASE("OverflowFails", "[TimingWheel]") {
 
 TEST_CASE("SameSlotMultiple", "[TimingWheel]") {
   // Five callbacks in the same slot all fire together.
-  timing_wheel wheel(600, dur{100}, T(0));
+  timing_wheel wheel(600, 100ms, T(0));
   int count = 0;
 
   for (auto ndx = 0; ndx < 5; ++ndx)
@@ -245,7 +262,7 @@ TEST_CASE("SameSlotMultiple", "[TimingWheel]") {
 TEST_CASE("RingWrap", "[TimingWheel]") {
   // Advance near the end of the ring; a new entry wraps around to slot 0.
   // slot_count=10: slots 0..9, max delay = 900ms.
-  timing_wheel wheel(10, dur{100}, T(0));
+  timing_wheel wheel(10, 100ms, T(0));
   int fired = 0;
 
   // Advance 8 slots: current_slot becomes 8, last_tick = T(800).
@@ -271,7 +288,7 @@ TEST_CASE("RingWrap", "[TimingWheel]") {
 
 TEST_CASE("ScheduleDuringTick", "[TimingWheel]") {
   // A callback that calls schedule() places the new entry in a future slot.
-  timing_wheel wheel(600, dur{100}, T(0));
+  timing_wheel wheel(600, 100ms, T(0));
   int first = 0;
   int second = 0;
 
@@ -302,7 +319,7 @@ TEST_CASE("ScheduleDuringTick", "[TimingWheel]") {
 
 TEST_CASE("CallbackOwnsMeta", "[TimingWheel]") {
   // The callback closure owns all its own metadata (simulated ID + target).
-  timing_wheel wheel(600, dur{100}, T(0));
+  timing_wheel wheel(600, 100ms, T(0));
 
   // Simulate a caller-owned ID scheme.
   uint64_t active_id{42};
@@ -344,7 +361,7 @@ TEST_CASE("CallbackOwnsMeta", "[TimingWheel]") {
 
 TEST_CASE("StopAbortsTick", "[TimingWheel]") {
   // Calling stop() during tick() prevents remaining callbacks from firing.
-  timing_wheel wheel(600, dur{100}, T(0));
+  timing_wheel wheel(600, 100ms, T(0));
   int count = 0;
 
   // Schedule five callbacks in the same slot; the first one calls stop().
@@ -360,6 +377,143 @@ TEST_CASE("StopAbortsTick", "[TimingWheel]") {
 
   // Only the first callback fires before the tombstone is seen.
   CHECK(count == 1);
+}
+
+#pragma endregion
+#pragma region NonMultipleDelayRoundsUp
+
+TEST_CASE("NonMultipleDelayRoundsUp", "[TimingWheel]") {
+  // A delay that is not a slot multiple rounds UP to the next boundary:
+  // 150ms on a 100ms wheel must not fire at the 100ms tick.
+  timing_wheel wheel(600, 100ms, T(0));
+  int fired = 0;
+
+  CHECK(wheel.schedule(
+            [&] {
+              ++fired;
+              return true;
+            },
+            150ms) == true);
+
+  wheel.tick(T(100));
+  CHECK(fired == 0); // Pre-fix: fired here, 50ms early.
+
+  wheel.tick(T(200));
+  CHECK(fired == 1);
+}
+
+#pragma endregion
+#pragma region LedeExample
+
+namespace {
+// The connection and loop types from the class comment's example. This test
+// keeps the code sample in "timing_wheel.h" compiling and passing; change the
+// two together.
+struct example_conn {
+  std::atomic<uint64_t> write_id_;
+  int timeouts_handled{};
+  void handle_write_timeout() { ++timeouts_handled; }
+};
+
+// Stands in for an I/O loop: runs the posted callback inline.
+struct example_loop {
+  bool post(const auto& cb) { return cb(); }
+};
+} // namespace
+
+TEST_CASE("LedeExample", "[TimingWheel]") {
+  timing_wheel wheel(600, 100ms, T(0));
+  example_loop loop;
+  auto conn = std::make_shared<example_conn>();
+
+  // Caller generates IDs, captures them and any other context into the
+  // closure, and performs liveness checks inside the callback.
+  static std::atomic<uint64_t> next_id{1};
+  const auto id = next_id.fetch_add(1);
+  conn->write_id_.store(id);
+
+  const auto scheduled = wheel.schedule(
+      [id, &loop, conn_weak = std::weak_ptr{conn}] {
+        // Deliver the result on the loop thread.
+        return loop.post([id, conn_weak] {
+          auto c = conn_weak.lock();
+          if (!c || c->write_id_.load() != id) return true; // Stale.
+          c->handle_write_timeout();
+          return true;
+        });
+      },
+      10s);
+  CHECK(scheduled);
+
+  // The write never completes, so the callback finds the ID live and handles
+  // the timeout.
+  wheel.tick(T(9'900));
+  CHECK(conn->timeouts_handled == 0);
+  wheel.tick(T(10'000));
+  CHECK(conn->timeouts_handled == 1);
+
+  // Re-arm; this time the write completes before the timeout, staling the
+  // pending callback.
+  {
+    const auto id = next_id.fetch_add(1);
+    conn->write_id_.store(id);
+    const auto scheduled = wheel.schedule(
+        [id, &loop, conn_weak = std::weak_ptr{conn}] {
+          return loop.post([id, conn_weak] {
+            auto c = conn_weak.lock();
+            if (!c || c->write_id_.load() != id) return true; // Stale.
+            c->handle_write_timeout();
+            return true;
+          });
+        },
+        10s);
+    CHECK(scheduled);
+  }
+
+  // On write completion, store zero to stale any pending callback:
+  conn->write_id_.store(0);
+
+  wheel.tick(T(20'100));
+  CHECK(conn->timeouts_handled == 1); // Unchanged: the callback was stale.
+}
+
+#pragma endregion
+#pragma region RunnerLifecycle
+
+TEST_CASE("RunnerLifecycle", "[TimingWheel]") {
+  // The runner drives the wheel from its own thread; destruction joins.
+  std::latch fired{1};
+  timing_wheel_runner runner{8, 1ms};
+  CHECK(runner.wheel()->schedule(
+            [&] {
+              fired.count_down();
+              return true;
+            },
+            1ms) == true);
+  fired.wait();
+}
+
+#pragma endregion
+#pragma region RunnerSelfDestruct
+
+TEST_CASE("RunnerSelfDestruct", "[TimingWheel]") {
+  // A callback may destroy the runner from the wheel thread itself (the
+  // epoll_http_server last-reference path): the destructor detaches instead
+  // of self-joining, and `run` must finish on its own copy of the wheel
+  // without touching the dead runner. ASAN is the real teeth here; without
+  // the local wheel copy in `run`, this is a deterministic use-after-free.
+  std::latch done{1};
+  auto* runner = new timing_wheel_runner{8, 1ms};
+  CHECK(runner->wheel()->schedule(
+            [&] {
+              delete runner;
+              done.count_down();
+              return true;
+            },
+            1ms) == true);
+  done.wait();
+  // Give the detached thread a beat to unwind before the test ends.
+  std::this_thread::sleep_for(20ms);
 }
 
 #pragma endregion

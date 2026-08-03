@@ -99,7 +99,8 @@ public:
   // `payload` must be invocable as `bool(const timer_fuse<T>&)`.
   //
   // Returns false if `delay` exceeds the wheel's schedulable range; the
-  // caller should use `timers` instead for delays above ~60 s.
+  // caller should use `timers` instead for delays above ~60 s. A failed call
+  // has no side effects: any previously armed fuse stays armed.
   [[nodiscard]] static bool set_timeout(timing_wheel& wheel,
       std::atomic_uint64_t& seq, resource_weak_ptr_t resource_weak,
       timing_wheel::duration_t delay, auto&& payload) {
@@ -109,6 +110,11 @@ public:
             const timer_fuse<T>&>,
         "payload must be invocable with `const timer_fuse<T>&` and return "
         "`bool`");
+
+    // Check before touching `seq`: a failed arm must not fizzle the
+    // previously armed fuse. Exact, because an oversized delay is
+    // `schedule`'s only failure condition and `max_delay` is immutable.
+    if (delay > wheel.max_delay()) return false;
 
     const auto target = ++seq;
     timer_fuse<T> fuse{std::move(resource_weak), seq, target};

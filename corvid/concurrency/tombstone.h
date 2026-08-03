@@ -17,6 +17,7 @@
 #pragma once
 
 #include <atomic>
+#include <concepts>
 
 namespace corvid { inline namespace concurrency {
 
@@ -106,7 +107,12 @@ public:
   }
 
   // Decrement if not dead.
-  tombstone_of& operator--() noexcept {
+  //
+  // A decrement that lands on `final_v` kills the tombstone; counting down to
+  // death is intended usage. If already dead, does nothing.
+  tombstone_of& operator--() noexcept
+  requires(!std::same_as<value_type, bool>)
+  {
     auto expected = value_.load(std::memory_order::acquire);
     while (expected != final_v) {
       if (value_.compare_exchange_weak(expected, expected - 1,
@@ -117,7 +123,12 @@ public:
   }
 
   // Increment if not dead.
-  tombstone_of& operator++() noexcept {
+  //
+  // An increment that lands on `final_v` kills the tombstone; counting up to
+  // death is intended usage. If already dead, does nothing.
+  tombstone_of& operator++() noexcept
+  requires(!std::same_as<value_type, bool>)
+  {
     auto expected = value_.load(std::memory_order::acquire);
     while (expected != final_v) {
       if (value_.compare_exchange_weak(expected, expected + 1,

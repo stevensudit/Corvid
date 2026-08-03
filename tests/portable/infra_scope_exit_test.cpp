@@ -257,5 +257,66 @@ TEST_CASE("Throwing construction", "[ScopeExit][ScopeFail][ScopeSuccess]") {
   }
 }
 #pragma endregion
+#pragma region CopyRefused
+
+// A guard claims to be copyable so that a lambda holding one can be stored in
+// a `std::function`, which requires a copy-constructible target even when it
+// never copies.
+static_assert(std::is_copy_constructible_v<scope_exit<void (*)()>>);
+static_assert(std::is_copy_constructible_v<scope_fail<void (*)()>>);
+static_assert(std::is_copy_constructible_v<scope_success<void (*)()>>);
+
+namespace {
+// Exit function that can be moved but not copied.
+struct move_only_fn {
+  std::unique_ptr<int> owned;
+  void operator()() const noexcept {}
+};
+} // namespace
+
+// The claim holds even for an exit function that cannot itself be copied,
+// because the refusal happens before the exit function is touched.
+static_assert(!std::is_copy_constructible_v<move_only_fn>);
+static_assert(std::is_copy_constructible_v<scope_exit<move_only_fn>>);
+
+TEST_CASE("Copy refused", "[ScopeExit]") {
+  // Reaching a copy throws, and the guard that was copied from is left armed
+  // and fires exactly once.
+  int calls = 0;
+  if (true) {
+    scope_exit guard{[&calls]() noexcept { ++calls; }};
+    // Taking the guard by value is what makes the copy, and it keeps the
+    // attempt inside an expression Catch2 can handle. The by-value parameter
+    // is the subject of the test, not an oversight.
+    // NOLINTNEXTLINE(performance-unnecessary-value-param)
+    const auto copy_guard = [](auto) {};
+    CHECK_THROWS_AS(copy_guard(guard), std::logic_error);
+    CHECK(calls == 0);
+  }
+  CHECK(calls == 1);
+
+  // The refusal holds even when the exit function itself cannot be copied,
+  // which is why it is thrown from the member initializer rather than the
+  // body. Nothing else instantiates that copy constructor: the trait above
+  // inspects only its declaration, so a regression that copied the exit
+  // function would break this block's build rather than fail an assertion.
+  if (true) {
+    scope_exit move_only_guard{move_only_fn{std::make_unique<int>(1)}};
+    // NOLINTNEXTLINE(performance-unnecessary-value-param)
+    const auto copy_guard = [](auto) {};
+    CHECK_THROWS_AS(copy_guard(move_only_guard), std::logic_error);
+  }
+
+  // Moving is still the supported way to relocate a guard, and disarms the
+  // source rather than duplicating the call.
+  int moved_calls = 0;
+  if (true) {
+    scope_exit guard{[&moved_calls]() noexcept { ++moved_calls; }};
+    auto other = std::move(guard);
+    CHECK(moved_calls == 0);
+  }
+  CHECK(moved_calls == 1);
+}
+#pragma endregion
 
 // NOLINTEND(readability-function-cognitive-complexity)

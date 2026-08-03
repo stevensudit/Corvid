@@ -373,9 +373,13 @@ private:
     return self.pair_.second;
   }
 
-  [[nodiscard]] static constexpr U as_u(V v) { return static_cast<U>(v); }
-  [[nodiscard]] static constexpr V as_v(U u) { return static_cast<V>(u); }
-  [[nodiscard]] static constexpr uu_t as_uu(U u) {
+  [[nodiscard]] static constexpr U as_u(V v) noexcept {
+    return static_cast<U>(v);
+  }
+  [[nodiscard]] static constexpr V as_v(U u) noexcept {
+    return static_cast<V>(u);
+  }
+  [[nodiscard]] static constexpr uu_t as_uu(U u) noexcept {
     return static_cast<uu_t>(u);
   }
 

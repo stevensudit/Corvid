@@ -34,6 +34,14 @@ struct FakeResource {
   int value{42};
 };
 
+// Payload for the plain-function case, which needs somewhere to report from.
+int fired_value{};
+
+[[nodiscard]] bool payload_fired(const timer_fuse<FakeResource>& fuse) {
+  if (auto r = fuse.get_if_armed()) fired_value = r->value;
+  return true;
+}
+
 #pragma region TimerFuse_Default
 
 TEST_CASE("Default", "[TimerFuse]") {
@@ -163,12 +171,47 @@ TEST_CASE("ExceedMaxDelay", "[TimerFuse]") {
   // `set_timeout` returns false when the delay exceeds the wheel's range.
   // With slot_count=2 and tick_interval=1ms, max delay = 1ms.
   auto resource = std::make_shared<FakeResource>();
-  timing_wheel wheel{2, 1ms};
+  auto t0 = std::chrono::steady_clock::now();
+  timing_wheel wheel{2, 1ms, t0};
 
+  bool fired{false};
+  bool saw_resource{false};
+  CHECK(timer_fuse<FakeResource>::set_timeout(wheel, resource->seq, resource,
+      1ms, [&](const timer_fuse<FakeResource>& f) -> bool {
+        fired = true;
+        saw_resource = (f.get_if_armed() != nullptr);
+        return true;
+      }));
+
+  // The failed arm reports false and has no side effects: the sequencer is
+  // untouched, so the earlier fuse stays armed instead of fizzling.
   auto ok = timer_fuse<FakeResource>::set_timeout(wheel, resource->seq,
       resource, 2ms,
       [](const timer_fuse<FakeResource>&) -> bool { return true; });
   CHECK_FALSE(ok);
+  CHECK(resource->seq == 1U); // Pre-fix: 2, and the first fuse fizzled.
+
+  wheel.tick(t0 + 2ms);
+  CHECK(fired);
+  CHECK(saw_resource);
+}
+
+#pragma endregion
+#pragma region TimerFuse_PlainFunctionPayload
+
+TEST_CASE("PlainFunctionPayload", "[TimerFuse]") {
+  // A payload named as a plain function, not a lambda, is accepted: it decays
+  // to a function pointer on capture. The function type itself is not
+  // copy-constructible, which is why `set_timeout` cannot screen payloads on
+  // that trait.
+  auto resource = std::make_shared<FakeResource>();
+  auto t0 = std::chrono::steady_clock::now();
+  timing_wheel wheel{4, 1ms, t0};
+
+  CHECK(timer_fuse<FakeResource>::set_timeout(wheel, resource->seq, resource,
+      1ms, payload_fired));
+  wheel.tick(t0 + 4ms);
+  CHECK(fired_value == 42);
 }
 
 #pragma endregion

@@ -70,6 +70,7 @@ for domain in \
     "sentry.io" \
     "statsig.com" \
     "marketplace.visualstudio.com" \
+    "copilot-proxy.githubusercontent.com" \
     "vscode.blob.core.windows.net" \
     "update.code.visualstudio.com"\
     "embeddings.vscode-cdn.net"; do

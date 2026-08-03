@@ -158,11 +158,6 @@ concept AnyCompletionInvocable =
     CompletionInvocable<FN> || EndpointCompletionInvocable<FN> ||
     BufCompletionInvocable<FN> || MsgHdrCompletionInvocable<FN>;
 
-// Concept for `iou_loop::posted_fn` lambda.
-template<typename FN>
-concept PostedInvocable =
-    MoveConsumable<FN> && std::is_invocable_r_v<bool, FN>;
-
 // Callback scheduled via `post` to run on the loop thread. These are used to
 // force single-threading of ring access.
 using posted_fn = fixed_function<default_fixed_function::capacity, bool()>;
@@ -242,11 +237,10 @@ public:
   // Timeouts. (io_uring-specific)
   using duration_t = std::chrono::nanoseconds;
   static constexpr duration_t default_run_once_timeout = 10ms;
-  static constexpr duration_t default_post_and_wait_poll_interval = 100ms;
   static constexpr size_t default_max_pending_sqes{RING_SIZE / 4};
 
   // Expiration. (`timeout_sweeper`-specific)
-  using sweeper_t = concurrency::timeout_sweeper<expiration_fn>;
+  using sweeper_t = timeout_sweeper<expiration_fn>;
   using expiration_time_point_t = sweeper_t::time_point_t;
   using expiration_duration_t = sweeper_t::duration_t;
 
@@ -334,8 +328,6 @@ public:
   // Note: The flags for the ring require that all SQEs be issued from the same
   // thread, and optimizes completions for the single-issuer case.
   explicit iou_basic_loop(allow,
-      duration_t post_and_wait_poll_interval =
-          default_post_and_wait_poll_interval,
       size_t max_pending_sqes = default_max_pending_sqes,
       size_t udp_provided_size = buf_pool_t::hugepage_size,
       block_size udp_provided_buf_size = block_size::kb002,
@@ -350,8 +342,7 @@ public:
             iou_setup_flags::setup_single_issuer |
                 iou_setup_flags::setup_defer_taskrun |
                 iou_setup_flags::setup_submit_all},
-        max_pending_sqes_{max_pending_sqes},
-        post_and_wait_poll_interval_{post_and_wait_poll_interval} {
+        max_pending_sqes_{max_pending_sqes} {
     if (!buf_pool_->register_with(ring_))
       throw std::system_error{errno, std::system_category(),
           "io_uring_register_buffers"};
@@ -389,16 +380,14 @@ public:
 
   // Create a heap-allocated `iou_basic_loop` managed by `std::shared_ptr`.
   [[nodiscard]] static std::shared_ptr<iou_basic_loop>
-  make(duration_t post_and_wait_poll_interval =
-           default_post_and_wait_poll_interval,
-      size_t max_pending_sqes = default_max_pending_sqes,
+  make(size_t max_pending_sqes = default_max_pending_sqes,
       size_t udp_provided_size = buf_pool_t::hugepage_size,
       block_size udp_provided_buf_size = block_size::kb002,
       size_t tcp_provided_size = buf_pool_t::hugepage_size,
       block_size tcp_provided_buf_size = block_size::kb004) {
-    return std::make_shared<iou_basic_loop>(allow::ctor,
-        post_and_wait_poll_interval, max_pending_sqes, udp_provided_size,
-        udp_provided_buf_size, tcp_provided_size, tcp_provided_buf_size);
+    return std::make_shared<iou_basic_loop>(allow::ctor, max_pending_sqes,
+        udp_provided_size, udp_provided_buf_size, tcp_provided_size,
+        tcp_provided_buf_size);
   }
 
   // Block until `run` is active. Returns false on timeout.
@@ -1749,7 +1738,6 @@ private:
 
   size_t max_pending_sqes_{};
   size_t pending_sqe_count_{};
-  const duration_t post_and_wait_poll_interval_;
 
 #pragma endregion
 };
@@ -1773,15 +1761,12 @@ public:
       iou_basic_loop<RING_SIZE, SLOT_COUNT, BUF_POOL_SIZE, BUF_POOL_MIN_BLOCK>;
 
   explicit iou_basic_loop_runner(
-      std::chrono::nanoseconds post_and_wait_poll_interval =
-          loop_t::default_post_and_wait_poll_interval,
       size_t udp_provided_size = loop_t::buf_pool_t::hugepage_size,
       block_size udp_provided_buf_size = block_size::kb002,
       size_t tcp_provided_size = loop_t::buf_pool_t::hugepage_size,
       block_size tcp_provided_buf_size = block_size::kb004)
-      : state_{std::make_shared<runner_state>(post_and_wait_poll_interval,
-            udp_provided_size, udp_provided_buf_size, tcp_provided_size,
-            tcp_provided_buf_size)},
+      : state_{std::make_shared<runner_state>(udp_provided_size,
+            udp_provided_buf_size, tcp_provided_size, tcp_provided_buf_size)},
         thread_{[state = state_](const std::stop_token& st) {
           run(st, state);
         }} {
@@ -1854,13 +1839,11 @@ private:
   // handle when the handle is destroyed on the loop thread (a
   // self-destroy path that would otherwise be a use-after-free).
   struct runner_state {
-    explicit runner_state(std::chrono::nanoseconds ppi, size_t ups,
-        block_size ubs, size_t tps, block_size tbs)
-        : post_and_wait_poll_interval{ppi}, udp_provided_size{ups},
-          udp_provided_buf_size{ubs}, tcp_provided_size{tps},
-          tcp_provided_buf_size{tbs} {}
+    explicit runner_state(size_t ups, block_size ubs, size_t tps,
+        block_size tbs)
+        : udp_provided_size{ups}, udp_provided_buf_size{ubs},
+          tcp_provided_size{tps}, tcp_provided_buf_size{tbs} {}
 
-    const std::chrono::nanoseconds post_and_wait_poll_interval;
     const size_t udp_provided_size;
     const block_size udp_provided_buf_size;
     const size_t tcp_provided_size;
@@ -1876,10 +1859,9 @@ private:
   run(const std::stop_token& st, const std::shared_ptr<runner_state>& state) {
     jthread_stoppable_sleep::set_thread_name("iouring");
     try {
-      auto loop = loop_t::make(state->post_and_wait_poll_interval,
-          loop_t::default_max_pending_sqes, state->udp_provided_size,
-          state->udp_provided_buf_size, state->tcp_provided_size,
-          state->tcp_provided_buf_size);
+      auto loop = loop_t::make(loop_t::default_max_pending_sqes,
+          state->udp_provided_size, state->udp_provided_buf_size,
+          state->tcp_provided_size, state->tcp_provided_buf_size);
       if (std::scoped_lock lock(state->startup_mutex); true)
         state->loop = loop;
       state->started.notify(true);

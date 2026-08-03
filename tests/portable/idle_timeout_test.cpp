@@ -20,7 +20,11 @@
 
 #include "catch2_main.h"
 
+#include <atomic>
+#include <chrono>
 #include <memory>
+#include <thread>
+#include <vector>
 
 using namespace std::chrono_literals;
 using namespace corvid::concurrency;
@@ -35,6 +39,10 @@ using mode = timeouts::mode;
 // steady-clock epoch. Tests drive the clock through `clk::set_fake_now` and
 // by passing the desired `now` to `sweeper::tick` directly.
 static tp T(int ms) { return tp{} + std::chrono::milliseconds{ms}; }
+
+// The duration cap leaves centuries of usable range below the pause
+// sentinel.
+static_assert(timeouts::max_timeout > std::chrono::years{100});
 
 #pragma region Fixture
 
@@ -480,6 +488,221 @@ TEST_CASE("SweepAndExpireFireOnce", "[IdleTimeout]") {
   clk::set_fake_now(T(300));
   sw.tick(T(300));
   CHECK(o->idle_count == 2);
+  CHECK(sw.empty());
+}
+
+#pragma endregion
+#pragma region PostponeCannotResurrectStop
+
+TEST_CASE("PostponeCannotResurrectStop", "[IdleTimeout]") {
+  // Threads hammering `postpone` race the main thread's `stop`: the CAS in
+  // `postpone` must never resurrect a deadline that `stop` just parked. The
+  // teeth are probabilistic; pre-fix, the unconditional read-then-store pair
+  // trips this within a few hundred rounds.
+  sweeper sw;
+  auto fake_clock = clk::fake_now_scope();
+  auto o = make_owner(sw, 100ms);
+  clk::set_fake_now(T(0));
+  std::atomic_bool running{true};
+  std::atomic_int ready{0};
+  int failed_starts = 0;
+  int resurrected = 0;
+
+  if (true) {
+    constexpr auto postponer_count = 4;
+    std::vector<std::jthread> postponers;
+    postponers.reserve(postponer_count);
+    for (auto ndx = 0; ndx < postponer_count; ++ndx)
+      postponers.emplace_back([&] {
+        ++ready;
+        while (running.load(std::memory_order::relaxed)) o->idle.postpone();
+      });
+
+    // Don't start racing until every postponer is actually spinning.
+    while (ready.load() < postponer_count) std::this_thread::yield();
+
+    for (auto round = 0; round < 10'000; ++round) {
+      if (!o->idle.start()) ++failed_starts;
+      if (!o->idle.stop()) ++failed_starts;
+      // Once `stop` returns, no in-flight `postpone` may land: a CAS armed
+      // with the pre-stop deadline fails against the zero, and one armed
+      // after the zero bails out before the CAS. Spin briefly so a stale
+      // store from the racing window cannot slip in after a single read.
+      for (auto spin = 0; spin < 16; ++spin)
+        if (o->idle.deadline() != tp{}) ++resurrected;
+    }
+    running = false;
+  }
+
+  CHECK(failed_starts == 0);
+  CHECK(resurrected == 0);
+}
+
+#pragma endregion
+#pragma region StopStartKeepsSingleEntry
+
+TEST_CASE("StopStartKeepsSingleEntry", "[IdleTimeout]") {
+  // Restarting before the stopped entry is swept must not schedule a second
+  // entry; the in-flight one adapts to the new deadline.
+  sweeper sw;
+  auto fake_clock = clk::fake_now_scope();
+  auto o = make_owner(sw, 100ms);
+  clk::set_fake_now(T(0));
+  CHECK(o->idle.start());
+  CHECK(sw.size() == 1U);
+
+  clk::set_fake_now(T(50));
+  CHECK(o->idle.stop());
+  // Stopped reads truthfully even while the old entry awaits its last look.
+  CHECK((static_cast<int>(o->idle.get_mode())) ==
+        (static_cast<int>(mode::stopped)));
+  CHECK(o->idle.start());
+  CHECK(sw.size() == 1U); // Pre-fix: 2.
+
+  // The entry fires at its original registration, sees the moved deadline
+  // (T150), and chases it instead of dropping or expiring.
+  clk::set_fake_now(T(100));
+  sw.tick(T(100));
+  CHECK(o->idle_count == 0);
+  CHECK(sw.size() == 1U);
+
+  // At the restarted deadline it fires exactly once and drains.
+  clk::set_fake_now(T(150));
+  sw.tick(T(150));
+  CHECK(o->idle_count == 1);
+  CHECK(sw.empty());
+}
+
+#pragma endregion
+#pragma region StopPauseCyclesDontLeak
+
+TEST_CASE("StopPauseCyclesDontLeak", "[IdleTimeout]") {
+  // stop -> pause used to bootstrap a fresh clip entry each cycle while the
+  // old one clipped forever, leaking one permanent entry per cycle. The
+  // claim counter keeps it at exactly one.
+  sweeper sw;
+  auto fake_clock = clk::fake_now_scope();
+  auto o = make_owner(sw, 100ms);
+  clk::set_fake_now(T(0));
+  CHECK(o->idle.pause());
+  CHECK(sw.size() == 1U);
+
+  for (auto round = 0; round < 3; ++round) {
+    CHECK(o->idle.stop());
+    CHECK(o->idle.pause());
+  }
+  CHECK(sw.size() == 1U); // Pre-fix: 4.
+
+  // Clipping continues on the single entry, without firing.
+  clk::set_fake_now(T(100));
+  sw.tick(T(100));
+  CHECK(sw.size() == 1U);
+  CHECK(o->idle_count == 0);
+
+  // Stopped for good: the entry drains on its next fire.
+  CHECK(o->idle.stop());
+  clk::set_fake_now(T(200));
+  sw.tick(T(200));
+  CHECK(sw.empty());
+  CHECK(o->idle_count == 0);
+}
+
+#pragma endregion
+#pragma region LateTickStartActsAsPostpone
+
+TEST_CASE("LateTickStartActsAsPostpone", "[IdleTimeout]") {
+  // A deadline in the past does not mean the entry was swept: a start in
+  // that gap must not schedule a duplicate, and the late fire must chase the
+  // moved deadline rather than expire.
+  sweeper sw;
+  auto fake_clock = clk::fake_now_scope();
+  auto o = make_owner(sw, 100ms);
+  clk::set_fake_now(T(0));
+  CHECK(o->idle.start());
+  CHECK(sw.size() == 1U);
+
+  // Deadline T100 passes with no tick. The mode still reads running: the
+  // entry is live and will chase or fire on the next sweep (pre-fix, a past
+  // deadline misreported as stopped).
+  clk::set_fake_now(T(150));
+  CHECK((static_cast<int>(o->idle.get_mode())) ==
+        (static_cast<int>(mode::running)));
+  CHECK(o->idle.start());
+  CHECK(sw.size() == 1U); // Pre-fix: 2.
+
+  // The late sweep sees the moved deadline (T250) and chases it.
+  sw.tick(T(150));
+  CHECK(o->idle_count == 0);
+  CHECK(sw.size() == 1U);
+
+  clk::set_fake_now(T(250));
+  sw.tick(T(250));
+  CHECK(o->idle_count == 1);
+  CHECK(sw.empty());
+}
+
+#pragma endregion
+#pragma region RestartFromIdleAction
+
+namespace {
+// Owner whose idle action restarts the timeout, the natural "warn, then keep
+// waiting" shape.
+struct restart_owner: std::enable_shared_from_this<restart_owner> {
+  int idle_count{};
+  bool restart_ok{};
+  idle_timeout<restart_owner> idle;
+
+  restart_owner(sweeper& sw, dur configured)
+      : idle{sw, *this, idle_timeout<restart_owner>::cancel_action_t{[this] {
+               ++idle_count;
+               idle.reset_expiration();
+               restart_ok = idle.start();
+             }},
+            configured} {}
+};
+} // namespace
+
+TEST_CASE("RestartFromIdleAction", "[IdleTimeout]") {
+  // Firing leaves the timeout stopped, so the idle action may start it again.
+  // The entry releases its claim before the action runs, giving the restart
+  // one to take; otherwise the restart would report success while quietly
+  // adopting the entry that is about to be dropped.
+  sweeper sw;
+  auto fake_clock = clk::fake_now_scope();
+  clk::set_fake_now(T(0));
+  auto o = std::make_shared<restart_owner>(sw, dur{100ms});
+  CHECK(o->idle.start());
+  CHECK(sw.size() == 1U);
+
+  clk::set_fake_now(T(100));
+  sw.tick(T(100));
+  CHECK(o->idle_count == 1);
+  CHECK(o->restart_ok);
+  CHECK(o->idle.get_mode() == mode::running);
+  CHECK(sw.size() == 1U);
+
+  // The restarted timeout keeps its own schedule, firing a window later.
+  clk::set_fake_now(T(200));
+  sw.tick(T(200));
+  CHECK(o->idle_count == 2);
+}
+
+#pragma endregion
+#pragma region FailedStartLeavesNothingClaimed
+
+TEST_CASE("FailedStartLeavesNothingClaimed", "[IdleTimeout]") {
+  // Starting before any `shared_ptr` owns the owner cannot build the sweeper
+  // callback, so it throws. The timeout has to unwind to stopped: a start
+  // that half-succeeded would report success from then on while scheduling
+  // nothing, silencing the timeout for good.
+  sweeper sw;
+  test_owner unowned{sw, dur{100ms}};
+
+  CHECK_THROWS_AS((void)unowned.idle.start(), std::bad_weak_ptr);
+  CHECK(unowned.idle.get_mode() == mode::stopped);
+
+  // Still honest on a second attempt, rather than claiming success.
+  CHECK_THROWS_AS((void)unowned.idle.start(), std::bad_weak_ptr);
   CHECK(sw.empty());
 }
 

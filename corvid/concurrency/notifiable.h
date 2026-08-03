@@ -89,7 +89,9 @@ concept atomic_like =
 //
 // Not copyable or movable (owns a `std::mutex`).
 //
-// Typical use, signaling a bool flag from another thread:
+// Typical use, signaling a bool flag from another thread. This example is
+// kept compiling and passing as the `LedeExample` case in
+// "notifiable_test.cpp"; change the two together.
 //
 //   // The `bool` type is deduced by CTAD, but could be explicitly specified.
 //   notifiable running{false};
@@ -107,7 +109,7 @@ concept atomic_like =
 // `T` may be a specialization of `std::atomic`. In that case, `get` skips the
 // mutex and delegates directly to `T::load`, so readers pay no locking cost
 // while writers still go through the mutex to ensure correct notification
-// ordering.
+// ordering. It also supports `relaxed_atomic` in the same way.
 //
 // When considering `notifiable<std::atomic<U>>` vs. `std::atomic<U>`'s own
 // `wait`/`notify_one`/`notify_all` interface (added in C++20), prefer the
@@ -122,10 +124,9 @@ class notifiable {
 public:
 #pragma region Construction
 
-  // Return type of `wait_until` / `wait_until_changed` / `wait_for` /
-  // `wait_for_changed`, and parameter type of `notify` / `notify_one`.
-  // For non-atomic `T` this is `T` itself; for `std::atomic<U>` it is `U`,
-  // since atomics are neither copyable nor movable.
+  // For non-atomic `T`, this is `T` itself; for `std::atomic<U>` or
+  // `relaxed_atomic`, it is `U`, since atomics are neither copyable nor
+  // movable.
   using value_t = details::notifiable_result<T>::type;
 
   static_assert(
@@ -187,7 +188,25 @@ public:
   }
 
 #pragma endregion
-#pragma region Reading
+#pragma region Accessors
+
+  // Set the value without waking waiters.
+  void set(value_t val)
+  requires(!details::atomic_like<T>)
+  {
+    std::scoped_lock lock(mutex_);
+    value_ = std::move(val);
+  }
+
+  // Set the value without locking or waking waiters.
+  void set(value_t val, std::memory_order order = std::memory_order::relaxed)
+  requires(details::atomic_like<T>)
+  {
+    if constexpr (is_specialization_of_v<T, std::atomic>)
+      value_.store(val, order);
+    else
+      value_->store(val, order);
+  }
 
   // Return a snapshot of the current value under lock.
   [[nodiscard]] T get() const
@@ -320,10 +339,12 @@ public:
 #pragma endregion
 #pragma region Helpers
 
-  // Read a `T` as a `value_t`. For `std::atomic<U>` or `relaxed_atomic<U>`,
-  // uses a `relaxed` load rather than the implicit conversion operator (which
-  // would be `seq_cst` for `std::atomic`). This is correct when called inside
-  // the mutex, which already provides the necessary ordering.
+  // Read a `T` as a `value_t`.
+  //
+  // For `std::atomic<U>` or `relaxed_atomic<U>`, uses a `relaxed` load rather
+  // than the `std::atomic` implicit conversion operator (which would be
+  // `seq_cst` for `std::atomic`). This is correct when called inside the
+  // mutex, which already provides the necessary ordering.
   [[nodiscard]] static value_t load_value(const T& v) {
     if constexpr (is_specialization_of_v<T, std::atomic>)
       return v.load(std::memory_order::relaxed);
@@ -343,6 +364,11 @@ private:
 
 #pragma endregion
 };
+
+// Deduce the payload type from the initial value, as in
+// `notifiable running{false};`.
+template<typename T>
+notifiable(T) -> notifiable<T>;
 
 #pragma endregion
 }}} // namespace corvid::concurrency::notifiable_ns

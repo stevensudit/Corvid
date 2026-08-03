@@ -535,20 +535,23 @@ TEST_CASE("TokenAsInt", "[ObjectPool]") {
 
     // Bit set above the packed span. This pool packs an 8-bit index plus a
     // 32-bit generation, so bit 40 is the first foreign one.
-    object_pool<int, 4>::token overflow{(1ULL << 40) | 2ULL};
+    constexpr auto index_bits = sizeof(object_pool<int, 4>::index_t) * 8;
+    object_pool<int, 4>::token overflow{
+        (1ULL << (index_bits + gen32_t::bits)) | 2ULL};
     CHECK_FALSE(overflow);
 
     // Borrow bit set in the generation field (the field's top bit, at bit 39
     // here).
     auto b = pool.borrow();
     object_pool<int, 4>::token h{b};
-    object_pool<int, 4>::token forged{h.as_int() | (1ULL << 39)};
+    object_pool<int, 4>::token forged{
+        h.as_int() | (uint64_t{gen32_t::borrow_bit} << index_bits)};
     CHECK_FALSE(forged);
 
     // A zero generation field passes validation (a post-shutdown mint can
     // produce it), but generation 0 is reserved as invalid and never borrows.
     object_pool<int, 4>::token zero_gen{2ULL};
-    CHECK(zero_gen.is_valid());
+    CHECK(zero_gen);
     CHECK_FALSE(zero_gen.borrow(pool));
   }
 
@@ -710,7 +713,7 @@ TEST_CASE("Shutdown", "[ObjectPool]") {
     object_pool<int, 1>::token tok{std::move(h)};
     // NOLINTNEXTLINE(bugprone-use-after-move,clang-analyzer-cplusplus.Move)
     CHECK_FALSE(h); // emptied even though the detach failed
-    CHECK(tok.is_valid());
+    CHECK(tok);
     CHECK_FALSE(tok.borrow(pool));
     // The minted token carries the sealed generation 0, which never matches:
     // pre-fix, this resolved to a live pointer into the sealed slot.
