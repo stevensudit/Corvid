@@ -126,6 +126,25 @@ TEST_CASE("PostAndExecute", "[OwnerThreadDispatcher]") {
 }
 
 #pragma endregion
+#pragma region MoveOnlyCallback
+
+TEST_CASE("MoveOnlyCallback", "[OwnerThreadDispatcher]") {
+  // A callback may own what it captures. The default callback type stores
+  // move-only lambdas, which a `std::function` could not.
+  owner_thread_dispatcher<> dispatcher;
+  int value{0};
+
+  auto owned = std::make_unique<int>(42);
+  CHECK(dispatcher.post([&value, owned = std::move(owned)] {
+    value = *owned;
+    return true;
+  }));
+
+  CHECK(dispatcher.execute_post_queue() == 1U);
+  CHECK(value == 42);
+}
+
+#pragma endregion
 #pragma region ExecutePostQueue_Empty
 
 TEST_CASE("ExecutePostQueue_Empty", "[OwnerThreadDispatcher]") {

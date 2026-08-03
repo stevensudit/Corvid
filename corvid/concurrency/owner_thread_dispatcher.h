@@ -18,7 +18,6 @@
 #include <algorithm>
 #include <cassert>
 #include <cstddef>
-#include <functional>
 #include <latch>
 #include <memory>
 #include <mutex>
@@ -28,6 +27,7 @@
 #include <vector>
 
 #include "../meta/concepts.h"
+#include "../meta/fixed_function.h"
 #include "../infra/exception_firewalls.h"
 #include "../infra/scope_exit.h"
 #include "../filesys/event_fd.h"
@@ -37,6 +37,14 @@ namespace corvid { inline namespace concurrency {
 inline namespace owner_thread_dispatcherns {
 
 #pragma region owner_thread_dispatcher
+
+// Inline capacity of the `fixed_function` that callbacks are stored in, both
+// here and in the loops built on this class. Large enough for the captures
+// these callbacks carry in practice, which are a handle or two and a small
+// payload.
+namespace default_fixed_function {
+inline constexpr auto capacity = 384UZ;
+} // namespace default_fixed_function
 
 // Concept for `owner_thread_dispatcher::posted_fn` lambda in its stored form.
 // This is what the invocable in the post queue has to fit.
@@ -112,7 +120,8 @@ protected:
 // and therefore won't work with a raw function pointer.
 //
 // NOLINTBEGIN(bugprone-move-forwarding-reference)
-template<typename CB = std::function<bool()>>
+template<typename CB =
+             fixed_function<default_fixed_function::capacity, bool()>>
 class owner_thread_dispatcher: public owner_thread_claim {
 public:
 #pragma region Infrastructure
@@ -390,10 +399,6 @@ private:
 };
 
 // NOLINTEND(bugprone-move-forwarding-reference)
-
-namespace default_fixed_function {
-inline static constexpr auto capacity = 384UZ;
-} // namespace default_fixed_function
 
 #pragma endregion
 

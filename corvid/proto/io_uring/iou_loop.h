@@ -241,7 +241,7 @@ public:
   static constexpr size_t default_max_pending_sqes{RING_SIZE / 4};
 
   // Expiration. (`timeout_sweeper`-specific)
-  using sweeper_t = concurrency::timeout_sweeper<expiration_fn>;
+  using sweeper_t = timeout_sweeper<expiration_fn>;
   using expiration_time_point_t = sweeper_t::time_point_t;
   using expiration_duration_t = sweeper_t::duration_t;
 
