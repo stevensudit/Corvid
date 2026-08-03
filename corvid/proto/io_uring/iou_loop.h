@@ -158,11 +158,6 @@ concept AnyCompletionInvocable =
     CompletionInvocable<FN> || EndpointCompletionInvocable<FN> ||
     BufCompletionInvocable<FN> || MsgHdrCompletionInvocable<FN>;
 
-// Concept for `iou_loop::posted_fn` lambda.
-template<typename FN>
-concept PostedInvocable =
-    MoveConsumable<FN> && std::is_invocable_r_v<bool, FN>;
-
 // Callback scheduled via `post` to run on the loop thread. These are used to
 // force single-threading of ring access.
 using posted_fn = fixed_function<default_fixed_function::capacity, bool()>;

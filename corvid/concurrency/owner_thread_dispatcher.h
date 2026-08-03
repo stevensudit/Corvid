@@ -16,17 +16,13 @@
 // limitations under the License.
 #pragma once
 #include <algorithm>
-#include <atomic>
 #include <cassert>
-#include <concepts>
 #include <cstddef>
-#include <exception>
 #include <functional>
 #include <latch>
 #include <memory>
 #include <mutex>
 #include <stdexcept>
-#include <thread>
 #include <type_traits>
 #include <utility>
 #include <vector>
@@ -34,7 +30,6 @@
 #include "../meta/concepts.h"
 #include "../infra/exception_firewalls.h"
 #include "../infra/scope_exit.h"
-#include "../filesys/os_file.h"
 #include "../filesys/event_fd.h"
 #include "../infra/relaxed_atomic.h"
 
@@ -46,12 +41,12 @@ inline namespace owner_thread_dispatcherns {
 // Concept for `owner_thread_dispatcher::posted_fn` lambda in its stored form.
 // This is what the invocable in the post queue has to fit.
 template<typename FN>
-concept StoredPostedInvocable =
-    MoveConsumable<FN> && std::is_invocable_r_v<bool, FN>;
+concept StoredPostedInvocable = std::is_invocable_r_v<bool, FN>;
 
 // Concept for `owner_thread_dispatcher::posted_fn` lambda as a parameter. This
-// is what the parameter to `post` has to fit: see `MoveConsumable` for
-// details.
+// is what a callback handed to `execute_or_post` and its relatives has to fit,
+// adding to the stored form only the requirement that it can be moved from:
+// see `MoveConsumable` for details.
 template<typename FN>
 concept PostedInvocable = MoveConsumable<FN> && StoredPostedInvocable<FN>;
 
@@ -123,7 +118,7 @@ public:
 #pragma region Infrastructure
 
   static_assert(StoredPostedInvocable<CB>,
-      "CB must be a PostedInvocable lambda type");
+      "CB must be a StoredPostedInvocable callback type");
 
   using posted_fn = CB;
   static constexpr size_t npos = -1;
