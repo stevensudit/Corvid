@@ -642,6 +642,52 @@ TEST_CASE("LateTickStartActsAsPostpone", "[IdleTimeout]") {
 }
 
 #pragma endregion
+#pragma region RestartFromIdleAction
+
+namespace {
+// Owner whose idle action restarts the timeout, the natural "warn, then keep
+// waiting" shape.
+struct restart_owner: std::enable_shared_from_this<restart_owner> {
+  int idle_count{};
+  bool restart_ok{};
+  idle_timeout<restart_owner> idle;
+
+  restart_owner(sweeper& sw, dur configured)
+      : idle{sw, *this, idle_timeout<restart_owner>::cancel_action_t{[this] {
+               ++idle_count;
+               idle.reset_expiration();
+               restart_ok = idle.start();
+             }},
+            configured} {}
+};
+} // namespace
+
+TEST_CASE("RestartFromIdleAction", "[IdleTimeout]") {
+  // Firing leaves the timeout stopped, so the idle action may start it again.
+  // The entry releases its claim before the action runs, giving the restart
+  // one to take; otherwise the restart would report success while quietly
+  // adopting the entry that is about to be dropped.
+  sweeper sw;
+  auto fake_clock = clk::fake_now_scope();
+  clk::set_fake_now(T(0));
+  auto o = std::make_shared<restart_owner>(sw, dur{100ms});
+  CHECK(o->idle.start());
+  CHECK(sw.size() == 1U);
+
+  clk::set_fake_now(T(100));
+  sw.tick(T(100));
+  CHECK(o->idle_count == 1);
+  CHECK(o->restart_ok);
+  CHECK(o->idle.get_mode() == mode::running);
+  CHECK(sw.size() == 1U);
+
+  // The restarted timeout keeps its own schedule, firing a window later.
+  clk::set_fake_now(T(200));
+  sw.tick(T(200));
+  CHECK(o->idle_count == 2);
+}
+
+#pragma endregion
 #pragma region FailedStartLeavesNothingClaimed
 
 TEST_CASE("FailedStartLeavesNothingClaimed", "[IdleTimeout]") {

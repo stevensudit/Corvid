@@ -266,9 +266,10 @@ private:
         return {};
       }
       const auto result = self->on_sweep(fired);
-      if (result.fire_idle) self->expire();
-      // Dropping the entry releases its claim on `scheduled_count_`.
+      // Dropping the entry releases its claim on `scheduled_count_`. We do
+      // this before expiring so that the `on_idle_` can restart.
       if (result.next_deadline == time_point_t{}) --self->scheduled_count_;
+      if (result.fire_idle) self->expire();
       return result.next_deadline;
     };
   }
