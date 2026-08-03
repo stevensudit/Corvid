@@ -198,9 +198,9 @@ classDiagram
 
 | Class | File | Relationships |
 | ----- | ---- | ------------- |
-| [iou_basic_loop&lt;...&gt;](iou_loop.h#L226) | iou_loop.h | Inherits `owner_thread_dispatcher<posted_fn>`. Owns `iou_ring`, the buffer pools (by `shared_ptr`), a `timeout_sweeper`, and a completion-callback pool. `iou_loop = iou_basic_loop<>` ([L1759](iou_loop.h#L1759)). |
-| [iou_basic_loop_runner&lt;...&gt;](iou_loop.h#L1771) | iou_loop.h | Owns an `iou_basic_loop` and runs it on a dedicated thread. `iou_loop_runner = iou_basic_loop_runner<>` ([L1946](iou_loop.h#L1946)). |
-| [bound_timeout / bound_endpoint / bound_msghdr](iou_loop.h#L77) | iou_loop.h | `address_forwarder` helpers binding extra parameters onto a submit call. |
+| [iou_basic_loop&lt;...&gt;](iou_loop.h#L223) | iou_loop.h | Inherits `owner_thread_dispatcher<posted_fn>`. Owns `iou_ring`, the buffer pools (by `shared_ptr`), a `timeout_sweeper`, and a completion-callback pool. `iou_loop = iou_basic_loop<>` ([L1746](iou_loop.h#L1746)). |
+| [iou_basic_loop_runner&lt;...&gt;](iou_loop.h#L1758) | iou_loop.h | Owns an `iou_basic_loop` and runs it on a dedicated thread. `iou_loop_runner = iou_basic_loop_runner<>` ([L1927](iou_loop.h#L1927)). |
+| [bound_timeout / bound_endpoint / bound_msghdr](iou_loop.h#L79) | iou_loop.h | `address_forwarder` helpers binding extra parameters onto a submit call. |
 
 ### Connection and session abstractions
 
