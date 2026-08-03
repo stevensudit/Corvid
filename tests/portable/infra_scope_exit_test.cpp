@@ -295,6 +295,18 @@ TEST_CASE("Copy refused", "[ScopeExit]") {
   }
   CHECK(calls == 1);
 
+  // The refusal holds even when the exit function itself cannot be copied,
+  // which is why it is thrown from the member initializer rather than the
+  // body. Nothing else instantiates that copy constructor: the trait above
+  // inspects only its declaration, so a regression that copied the exit
+  // function would break this block's build rather than fail an assertion.
+  if (true) {
+    scope_exit move_only_guard{move_only_fn{std::make_unique<int>(1)}};
+    // NOLINTNEXTLINE(performance-unnecessary-value-param)
+    const auto copy_guard = [](auto) {};
+    CHECK_THROWS_AS(copy_guard(move_only_guard), std::logic_error);
+  }
+
   // Moving is still the supported way to relocate a guard, and disarms the
   // source rather than duplicating the call.
   int moved_calls = 0;
