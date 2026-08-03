@@ -161,11 +161,16 @@ public:
 
   // Force shutdown of resources.
   //
-  // Idempotent. May be called from a posted callback, in which case the drain
-  // that is running it stops after it returns, discarding the rest of that
-  // batch.
+  // Idempotent, returning false when the shutdown already happened. May be
+  // called from a posted callback, in which case the drain that is running it
+  // stops after it returns, discarding the rest of that batch.
+  //
+  // Throws when called from any thread but the loop thread, which is a caller
+  // bug rather than a lost race.
   [[nodiscard]] bool shutdown() {
-    if (current_loop_ != this) return false;
+    if (current_loop_ != this)
+      throw std::logic_error{"Wrong owner_thread_dispatcher shut down thread"};
+
     std::scoped_lock lock(post_mutex_);
     if (!active_queue_.exchange(nullptr)) return false;
 

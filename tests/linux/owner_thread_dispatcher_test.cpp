@@ -328,6 +328,29 @@ TEST_CASE("DoubleBuffer", "[OwnerThreadDispatcher]") {
 }
 
 #pragma endregion
+#pragma region ShutdownFailureModes
+
+TEST_CASE("ShutdownFailureModes", "[OwnerThreadDispatcher]") {
+  // Losing the race to whoever shut it down first is a false return. Calling
+  // from off the loop thread is a caller bug, and says so.
+  owner_thread_dispatcher<> dispatcher;
+  CHECK(dispatcher.shutdown());
+  CHECK_FALSE(dispatcher.shutdown());
+
+  relaxed_atomic_bool refused{false};
+  std::thread t{[&] {
+    try {
+      (void)dispatcher.shutdown();
+    }
+    catch (const std::logic_error&) {
+      refused = true;
+    }
+  }};
+  t.join();
+  CHECK(refused);
+}
+
+#pragma endregion
 #pragma region ShutdownFromCallback
 
 TEST_CASE("ShutdownFromCallback", "[OwnerThreadDispatcher]") {
