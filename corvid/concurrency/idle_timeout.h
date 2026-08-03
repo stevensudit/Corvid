@@ -21,6 +21,7 @@
 
 #include "../meta/fixed_function.h"
 #include "../infra/relaxed_atomic.h"
+#include "../infra/scope_exit.h"
 #include "timeout_sweeper.h"
 #include "timeouts.h"
 
@@ -230,18 +231,25 @@ private:
   // if not.
   //
   // An entry that is already in flight adapts to the current `deadline_` on
-  // its next fire, so there is nothing to do. Fails only when the sweeper
-  // refuses (it is closing); the claim is released and the state unwinds to
-  // stopped, so the mode reads truthfully and a later attempt can retry.
+  // its next fire, so there is nothing to do. Fails when the sweeper refuses
+  // (it is closing), and throws when building the callback or scheduling it
+  // does. Either way the claim is released and the state unwinds to stopped,
+  // so the mode reads truthfully and a later attempt can retry.
   [[nodiscard]] bool ensure_scheduled(time_point_t expire) {
     auto expected = *scheduled_count_;
     if (expected != 0) return true;
     // Claim the 0 -> 1 transition; losing means someone else just scheduled.
     if (!scheduled_count_.compare_exchange(expected, 1)) return true;
-    if (sweeper_.schedule(expire, build_sweeper_cb())) return true;
-    --scheduled_count_;
-    (void)stop();
-    return false;
+
+    // Every exit but success unwinds the claim, so a refusal and a throw
+    // leave the same state.
+    scope_exit unwind{[this]() noexcept {
+      --scheduled_count_;
+      (void)stop();
+    }};
+    if (!sweeper_.schedule(expire, build_sweeper_cb())) return false;
+    unwind.release();
+    return true;
   }
 
   // Build the sweeper closure.

@@ -642,5 +642,24 @@ TEST_CASE("LateTickStartActsAsPostpone", "[IdleTimeout]") {
 }
 
 #pragma endregion
+#pragma region FailedStartLeavesNothingClaimed
+
+TEST_CASE("FailedStartLeavesNothingClaimed", "[IdleTimeout]") {
+  // Starting before any `shared_ptr` owns the owner cannot build the sweeper
+  // callback, so it throws. The timeout has to unwind to stopped: a start
+  // that half-succeeded would report success from then on while scheduling
+  // nothing, silencing the timeout for good.
+  sweeper sw;
+  test_owner unowned{sw, dur{100ms}};
+
+  CHECK_THROWS_AS((void)unowned.idle.start(), std::bad_weak_ptr);
+  CHECK(unowned.idle.get_mode() == mode::stopped);
+
+  // Still honest on a second attempt, rather than claiming success.
+  CHECK_THROWS_AS((void)unowned.idle.start(), std::bad_weak_ptr);
+  CHECK(sw.empty());
+}
+
+#pragma endregion
 
 // NOLINTEND(readability-function-cognitive-complexity)
