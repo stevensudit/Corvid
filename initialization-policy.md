@@ -471,6 +471,13 @@ Braces express "this object takes on these values", and they reject narrowing.
   symptom, though, never the test. `std::unique_lock` hands its mutex back
   via `mutex()` for `condition_variable` interop and still takes parens,
   because a held lock, not the mutex, is what the object is.
+- **Ruling: an engine bound over its operand takes parens.**
+  `evaluator ev(rt);`: what the object is is a provisioned evaluation engine
+  (construction interns the special forms and stocks the builtins), and the
+  runtime is the operand it evaluates against, not its value. That it holds
+  the runtime and exposes its root environment is retrievability, the symptom
+  above; arguing braces from "it holds the reference for its whole life" is
+  exactly the reading the `unique_lock` example exists to block.
 - **Ruling: every RAII scoping object takes parens.** `std::scoped_lock`,
   `std::unique_lock`, `std::lock_guard`, `std::stop_callback`, `scoped_value`,
   and `scope_exit`. This is a corollary of the identity test, not a separate

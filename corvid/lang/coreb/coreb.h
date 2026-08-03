@@ -22,3 +22,4 @@
 // "coreb.md".
 #include "value.h"
 #include "reader.h"
+#include "eval.h"

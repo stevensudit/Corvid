@@ -47,11 +47,16 @@ namespace corvid { inline namespace lang { namespace coreb {
 //
 // `pos` is the byte offset where the offending construct starts; `line` and
 // `col` locate the same spot as a 1-based line number and byte column.
+//
+// `incomplete` marks errors that more input could repair, such as an
+// unterminated list or string; a REPL uses it to keep reading instead of
+// reporting.
 struct read_error final {
   std::string message;
   size_t pos{};
   size_t line{};
   size_t col{};
+  bool incomplete{};
 };
 
 #pragma endregion
@@ -193,10 +198,26 @@ private:
 
     // Build a failure at the current position, or at `at`.
     [[nodiscard]] std::unexpected<read_error> fail(std::string message) const {
-      return fail_at(pos, std::move(message));
+      return do_fail_at(pos, std::move(message), false);
     }
     [[nodiscard]] std::unexpected<read_error>
     fail_at(size_t at, std::string message) const {
+      return do_fail_at(at, std::move(message), false);
+    }
+
+    // Build a failure that more input could repair (see
+    // `read_error::incomplete`).
+    [[nodiscard]] std::unexpected<read_error> fail_incomplete(
+        std::string message) const {
+      return do_fail_at(pos, std::move(message), true);
+    }
+    [[nodiscard]] std::unexpected<read_error>
+    fail_incomplete_at(size_t at, std::string message) const {
+      return do_fail_at(at, std::move(message), true);
+    }
+
+    [[nodiscard]] std::unexpected<read_error>
+    do_fail_at(size_t at, std::string message, bool incomplete) const {
       size_t line = 1;
       size_t bol = 0;
       for (size_t ndx = 0; ndx < at; ++ndx)
@@ -205,7 +226,7 @@ private:
           bol = ndx + 1;
         }
       return std::unexpected{
-          read_error{std::move(message), at, line, at - bol + 1}};
+          read_error{std::move(message), at, line, at - bol + 1, incomplete}};
     }
 
     // Parse one expression starting at the current position, guarding
@@ -219,7 +240,7 @@ private:
     }
 
     [[nodiscard]] result<value> do_parse_value() {
-      if (at_end()) return fail("unexpected end of input");
+      if (at_end()) return fail_incomplete("unexpected end of input");
       switch (peek()) {
       case '(': return parse_list();
       case ')': return fail("unmatched ')'");
@@ -251,7 +272,7 @@ private:
       value tail;
       for (;;) {
         skip_trivia();
-        if (at_end()) return fail_at(open_pos, "unterminated list");
+        if (at_end()) return fail_incomplete_at(open_pos, "unterminated list");
         if (peek() == ')') {
           consume(')');
           break;
@@ -280,12 +301,12 @@ private:
     [[nodiscard]] result<value> parse_dotted_tail(size_t open_pos) {
       consume('.');
       skip_trivia();
-      if (at_end()) return fail_at(open_pos, "unterminated list");
+      if (at_end()) return fail_incomplete_at(open_pos, "unterminated list");
       if (peek() == ')') return fail("expected expression after '.'");
       auto t = parse_value();
       if (!t) return t;
       skip_trivia();
-      if (at_end()) return fail_at(open_pos, "unterminated list");
+      if (at_end()) return fail_incomplete_at(open_pos, "unterminated list");
       if (peek() != ')') return fail("expected ')' after dotted tail");
       consume(')');
       return t;
@@ -314,7 +335,7 @@ private:
         out += c;
         consume();
       }
-      return fail_at(open_pos, "unterminated string");
+      return fail_incomplete_at(open_pos, "unterminated string");
     }
 
     // Whether `t` is claimed by the number grammar.
