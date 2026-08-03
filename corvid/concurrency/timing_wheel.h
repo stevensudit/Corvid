@@ -123,9 +123,9 @@ public:
   // `slot_count` must be at least 2. `tick_interval` must be at least 500000ns
   // (the minimum reliable resolution of `nanosleep` on Linux). `start_time`
   // defaults to the current time; pass an explicit value for testing with a
-  // fake clock. The maximum schedulable delay is `(slot_count
-  // - 1) * tick_interval`. Throws `std::invalid_argument` if either
-  // constraint is violated.
+  // fake clock. The maximum schedulable delay is `max_delay()`, one tick short
+  // of a full revolution. Throws `std::invalid_argument` if either constraint
+  // is violated.
   explicit timing_wheel(size_t slot_count = default_slot_count,
       duration_t tick_interval = default_tick_interval,
       time_point_t start_time = std::chrono::steady_clock::now())

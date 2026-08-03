@@ -134,11 +134,14 @@ TEST_CASE("MoveOnlyCallback", "[OwnerThreadDispatcher]") {
   owner_thread_dispatcher<> dispatcher;
   int value{0};
 
+  // Posted outside the CHECK, which would move the capture inside a macro
+  // that the analyzer reads as looping.
   auto owned = std::make_unique<int>(42);
-  CHECK(dispatcher.post([&value, owned = std::move(owned)] {
+  const auto posted = dispatcher.post([&value, owned = std::move(owned)] {
     value = *owned;
     return true;
-  }));
+  });
+  CHECK(posted);
 
   CHECK(dispatcher.execute_post_queue() == 1U);
   CHECK(value == 42);
