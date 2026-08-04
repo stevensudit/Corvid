@@ -20,9 +20,7 @@ The ECS is built around **one foundation and two parallel models**:
   leaves) and a **scene** type that aggregates a registry plus a heterogeneous
   tuple of storages. The scene is the primary entry point.
 
-Two files sit **outside** that system: `stable_ids.h` is a legacy standalone
-sparse-set that predates the registry (kept for compatibility, obsoleted by
-`entity_registry` + `mono_archetype_storage`), and `ecs_meta.h` is a header of
+One file sits **outside** that system: `ecs_meta.h` is a header of
 compile-time utilities the scenes use internally rather than a class.
 
 ```mermaid
@@ -43,8 +41,6 @@ flowchart TB
     AS --> AF --> REG
     CS --> CF --> REG
     REG --> IDC --> IDS
-    LEG["stable_ids (legacy, standalone)"]
-    LEG -.->|obsoleted by| REG
 ```
 
 ## Foundation: registry and IDs
@@ -72,18 +68,11 @@ classDiagram
         +id
         +generation
     }
-    class stable_ids {
-        <<legacy / standalone>>
-    }
 
     entity_registry *-- id_container : records
     id_container ..> entity_ids : ID enums
     entity_registry ..> handle_t : issues
-    stable_ids ..> entity_ids : ID enums
 ```
-
-`stable_ids` is drawn here only because it shares the `entity_ids` enums; it has
-no other tie to the system (nothing in the core includes it).
 
 ## Archetype family
 
@@ -196,7 +185,6 @@ classDiagram
 
 | Class | File | Status |
 | ----- | ---- | ------ |
-| [stable_ids&lt;T, ID, ...&gt;](stable_ids.h#L87) | stable_ids.h | **Legacy, standalone.** An indexed vector / sparse-set with stable IDs and handle-based reuse detection that predates the full ECS. Nothing in the core includes it; it shares only the `entity_ids` enums. Obsoleted by `entity_registry` + `mono_archetype_storage`; prefer the full stack for new code (per [CLAUDE.md](CLAUDE.md)). |
 
 ## How the two models differ at runtime
 

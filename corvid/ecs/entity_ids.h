@@ -16,6 +16,9 @@
 // limitations under the License.
 #pragma once
 
+#include <cstddef>
+#include <limits>
+
 #include "../enums.h"
 #include "../enums/bool_enums.h"
 

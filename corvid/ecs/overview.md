@@ -193,4 +193,3 @@ component_storage_base.h  -- CRTP base for all component storages
 component_storage.h       -- single-component storage for component model
 component_scene.h         -- primary component-mode ECS entry point
 ecs_meta.h                -- compile-time type analysis and dispatch utilities
-stable_ids.h              -- legacy; predates the registry/storage design
