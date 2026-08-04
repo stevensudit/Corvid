@@ -956,6 +956,31 @@ TEST_CASE("IdLimitAdvanced", "[EntityRegistry]") {
     CHECK(r.max_id() == id_t{1}); // trimmed
   }
 
+  // Shrinking the limit deletes records that the free list may still name, so
+  // the list has to be rebuilt even when the tail trim shrinks nothing, which
+  // is exactly the case when the record just below the new limit is alive.
+  if (true) {
+    reg_t r;
+    id_t ids[10]{};
+    for (auto& id : ids) id = r.create_id();
+
+    // Erase the tail block first, so those IDs sit at the head of the FIFO
+    // free list, then erase one more below the future limit.
+    for (auto ndx = 5UZ; ndx < 10UZ; ++ndx) CHECK(r.erase(ids[ndx]));
+    CHECK(r.erase(ids[2]));
+    CHECK(r.size() == 4U); // 0, 1, 3, 4
+
+    // Record 4 is alive, so trimming the dead tail does nothing here.
+    CHECK(r.set_id_limit(id_t{5}));
+    CHECK(r.max_id() == id_t{4});
+
+    // Before the rebuild was unconditional, this popped the stale head (id 5)
+    // and handed back an ID past the end of the record vector.
+    const auto id = r.create_id();
+    CHECK(*id < 5U);
+    CHECK(r.is_valid(id));
+  }
+
   // Raising the limit always succeeds.
   if (true) {
     reg_t r{id_t{3}};
