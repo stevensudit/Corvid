@@ -29,8 +29,7 @@ using namespace corvid;
 using eid_t = corvid::ecs::id_enums::entity_id_t;
 using container_t = id_container<int, eid_t>;
 
-// NOLINTBEGIN(readability-function-cognitive-complexity,
-// readability-function-size)
+// NOLINTBEGIN(readability-function-cognitive-complexity)
 
 #pragma region DefaultConstruct
 
@@ -486,5 +485,4 @@ TEST_CASE("NonIntType", "[IdContainer]") {
 
 #pragma endregion
 
-// NOLINTEND(readability-function-cognitive-complexity,
-// readability-function-size)
+// NOLINTEND(readability-function-cognitive-complexity)

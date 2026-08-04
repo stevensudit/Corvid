@@ -27,8 +27,8 @@
 using namespace std::literals;
 using namespace corvid;
 
-// NOLINTBEGIN(readability-function-cognitive-complexity,
-// readability-function-size)
+// NOLINTBEGIN(readability-function-cognitive-complexity)
+// NOLINTBEGIN(readability-function-size)
 
 using int_stable_ids = stable_ids<int>;
 
@@ -124,7 +124,7 @@ TEST_CASE("Add", "[ArchetypeStorage]") {
     reg_t r;
     arch_t a{r, sid};
     auto id0 = r.create_id(staging, 10);
-    CHECK(a.add(id0, 42, 1.0f));
+    CHECK(a.add(id0, 42, 1.0F));
     CHECK(a.size() == 1U);
     CHECK_FALSE(a.empty());
     CHECK(a.contains(id0));
@@ -140,9 +140,9 @@ TEST_CASE("Add", "[ArchetypeStorage]") {
     auto id0 = r.create_id(staging, 10);
     auto id1 = r.create_id(staging, 20);
     auto id2 = r.create_id(staging, 30);
-    CHECK(a.add(id0, 1, 1.0f));
-    CHECK(a.add(id1, 2, 2.0f));
-    CHECK(a.add(id2, 3, 3.0f));
+    CHECK(a.add(id0, 1, 1.0F));
+    CHECK(a.add(id1, 2, 2.0F));
+    CHECK(a.add(id2, 3, 3.0F));
     CHECK(a.size() == 3U);
     CHECK(r.get_location(id0).ndx == 0U);
     CHECK(r.get_location(id1).ndx == 1U);
@@ -155,8 +155,8 @@ TEST_CASE("Add", "[ArchetypeStorage]") {
     arch_t a{r, sid};
     arch_t b{r, store_id_t{2}};
     auto id0 = r.create_id(staging, 10);
-    CHECK(a.add(id0, 1, 1.0f));
-    CHECK_FALSE(b.add(id0, 2, 2.0f)); // id0 not in staging
+    CHECK(a.add(id0, 1, 1.0F));
+    CHECK_FALSE(b.add(id0, 2, 2.0F)); // id0 not in staging
     CHECK(b.size() == 0U);
   }
 
@@ -165,7 +165,7 @@ TEST_CASE("Add", "[ArchetypeStorage]") {
     reg_t r;
     arch_t a{r, sid};
     auto h = r.create_handle(staging, 10);
-    CHECK(a.add(h, 99, 1.5f));
+    CHECK(a.add(h, 99, 1.5F));
     CHECK(a.size() == 1U);
     CHECK(a.contains(h));
   }
@@ -176,7 +176,7 @@ TEST_CASE("Add", "[ArchetypeStorage]") {
     arch_t a{r, sid};
     auto h = r.create_handle(staging, 10);
     r.erase(h);
-    CHECK_FALSE(a.add(h, 99, 1.5f));
+    CHECK_FALSE(a.add(h, 99, 1.5F));
     CHECK(a.size() == 0U);
   }
 
@@ -184,7 +184,7 @@ TEST_CASE("Add", "[ArchetypeStorage]") {
   if (true) {
     reg_t r;
     arch_t a{r, sid};
-    auto h = a.add_new(42, 7, 2.0f);
+    auto h = a.add_new(42, 7, 2.0F);
     CHECK(r.is_valid(h));
     CHECK(r[h.id()] == 42);
     CHECK(a.size() == 1U);
@@ -196,7 +196,7 @@ TEST_CASE("Add", "[ArchetypeStorage]") {
   if (true) {
     reg_t r{id_t{0}};
     arch_t a{r, sid};
-    auto h = a.add_new(10, 1, 1.0f);
+    auto h = a.add_new(10, 1, 1.0F);
     CHECK_FALSE(r.is_valid(h));
     CHECK(a.size() == 0U);
   }
@@ -206,9 +206,9 @@ TEST_CASE("Add", "[ArchetypeStorage]") {
   if (true) {
     reg_t r;
     arch_t a{r, sid, 1};
-    auto h0 = a.add_new(10, 1, 1.0f);
+    auto h0 = a.add_new(10, 1, 1.0F);
     CHECK(r.is_valid(h0));
-    auto h1 = a.add_new(20, 2, 2.0f);
+    auto h1 = a.add_new(20, 2, 2.0F);
     CHECK_FALSE(r.is_valid(h1));
     CHECK(a.size() == 1U);
     CHECK(r.size() == 1U); // second entity cleaned up by RAII owner
@@ -221,7 +221,7 @@ TEST_CASE("Add", "[ArchetypeStorage]") {
     auto id0 = r.create_id(staging, 10);
     CHECK(a.add(id0, 7));
     CHECK(a[id0].template component<int>() == 7);
-    CHECK(a[id0].template component<float>() == 0.0f);
+    CHECK(a[id0].template component<float>() == 0.0F);
   }
 
   // add with all components omitted: all are default-constructed.
@@ -231,7 +231,7 @@ TEST_CASE("Add", "[ArchetypeStorage]") {
     auto id0 = r.create_id(staging, 10);
     CHECK(a.add(id0));
     CHECK(a[id0].template component<int>() == 0);
-    CHECK(a[id0].template component<float>() == 0.0f);
+    CHECK(a[id0].template component<float>() == 0.0F);
   }
 
   // add_new with one trailing component omitted: it is default-constructed.
@@ -241,7 +241,7 @@ TEST_CASE("Add", "[ArchetypeStorage]") {
     auto h = a.add_new(42, 7);
     CHECK(r.is_valid(h));
     CHECK(a[h.id()].template component<int>() == 7);
-    CHECK(a[h.id()].template component<float>() == 0.0f);
+    CHECK(a[h.id()].template component<float>() == 0.0F);
   }
 
   // add_new with all components omitted: all are default-constructed.
@@ -251,7 +251,7 @@ TEST_CASE("Add", "[ArchetypeStorage]") {
     auto h = a.add_new(42);
     CHECK(r.is_valid(h));
     CHECK(a[h.id()].template component<int>() == 0);
-    CHECK(a[h.id()].template component<float>() == 0.0f);
+    CHECK(a[h.id()].template component<float>() == 0.0F);
   }
 
   // contains(id) returns false for entity in staging, true after add.
@@ -260,7 +260,7 @@ TEST_CASE("Add", "[ArchetypeStorage]") {
     arch_t a{r, sid};
     auto id0 = r.create_id(staging, 10);
     CHECK_FALSE(a.contains(id0));
-    CHECK(a.add(id0, 1, 1.0f));
+    CHECK(a.add(id0, 1, 1.0F));
     CHECK(a.contains(id0));
   }
 
@@ -290,7 +290,7 @@ TEST_CASE("Remove", "[ArchetypeStorage]") {
     reg_t r;
     arch_t a{r, sid};
     auto id0 = r.create_id(staging, 10);
-    CHECK(a.add(id0, 1, 1.0f));
+    CHECK(a.add(id0, 1, 1.0F));
     CHECK(a.remove(id0));
     CHECK(a.size() == 0U);
     CHECK_FALSE(a.contains(id0));
@@ -311,7 +311,7 @@ TEST_CASE("Remove", "[ArchetypeStorage]") {
     reg_t r;
     arch_t a{r, sid};
     auto h = r.create_handle(staging, 10);
-    CHECK(a.add(h, 1, 1.0f));
+    CHECK(a.add(h, 1, 1.0F));
     CHECK(a.remove(h));
     CHECK(r.is_valid(h));
     CHECK(a.size() == 0U);
@@ -333,9 +333,9 @@ TEST_CASE("Remove", "[ArchetypeStorage]") {
     auto id0 = r.create_id(staging, 10);
     auto id1 = r.create_id(staging, 20);
     auto id2 = r.create_id(staging, 30);
-    CHECK(a.add(id0, 1, 1.0f));
-    CHECK(a.add(id1, 2, 2.0f));
-    CHECK(a.add(id2, 3, 3.0f));
+    CHECK(a.add(id0, 1, 1.0F));
+    CHECK(a.add(id1, 2, 2.0F));
+    CHECK(a.add(id2, 3, 3.0F));
     a.remove_all();
     CHECK(a.size() == 0U);
     CHECK(r.is_valid(id0));
@@ -353,9 +353,9 @@ TEST_CASE("Remove", "[ArchetypeStorage]") {
     auto id0 = r.create_id(staging, 10);
     auto id1 = r.create_id(staging, 20);
     auto id2 = r.create_id(staging, 30);
-    CHECK(a.add(id0, 1, 1.0f));
-    CHECK(a.add(id1, 2, 2.0f));
-    CHECK(a.add(id2, 3, 3.0f));
+    CHECK(a.add(id0, 1, 1.0F));
+    CHECK(a.add(id1, 2, 2.0F));
+    CHECK(a.add(id2, 3, 3.0F));
     // Removing index 0 swaps id2 (last) into slot 0.
     CHECK(a.remove(id0));
     CHECK(a.size() == 2U);
@@ -380,7 +380,7 @@ TEST_CASE("Erase", "[ArchetypeStorage]") {
     reg_t r;
     arch_t a{r, sid};
     auto id0 = r.create_id(staging, 10);
-    CHECK(a.add(id0, 1, 1.0f));
+    CHECK(a.add(id0, 1, 1.0F));
     CHECK(a.erase(id0));
     CHECK(a.size() == 0U);
     CHECK_FALSE(r.is_valid(id0));
@@ -400,7 +400,7 @@ TEST_CASE("Erase", "[ArchetypeStorage]") {
     reg_t r;
     arch_t a{r, sid};
     auto h = r.create_handle(staging, 10);
-    CHECK(a.add(h, 1, 1.0f));
+    CHECK(a.add(h, 1, 1.0F));
     CHECK(a.erase(h));
     CHECK_FALSE(r.is_valid(h));
     CHECK(a.size() == 0U);
@@ -422,9 +422,9 @@ TEST_CASE("Erase", "[ArchetypeStorage]") {
     auto id0 = r.create_id(staging, 10);
     auto id1 = r.create_id(staging, 20);
     auto id2 = r.create_id(staging, 30);
-    CHECK(a.add(id0, 1, 1.0f));
-    CHECK(a.add(id1, 2, 2.0f));
-    CHECK(a.add(id2, 3, 3.0f));
+    CHECK(a.add(id0, 1, 1.0F));
+    CHECK(a.add(id1, 2, 2.0F));
+    CHECK(a.add(id2, 3, 3.0F));
     a.clear();
     CHECK(a.size() == 0U);
     CHECK_FALSE(r.is_valid(id0));
@@ -439,9 +439,9 @@ TEST_CASE("Erase", "[ArchetypeStorage]") {
     auto id0 = r.create_id(staging, 10);
     auto id1 = r.create_id(staging, 20);
     auto id2 = r.create_id(staging, 30);
-    CHECK(a.add(id0, 11, 1.1f));
-    CHECK(a.add(id1, 22, 2.2f));
-    CHECK(a.add(id2, 33, 3.3f));
+    CHECK(a.add(id0, 11, 1.1F));
+    CHECK(a.add(id1, 22, 2.2F));
+    CHECK(a.add(id2, 33, 3.3F));
     // Erase id0 at index 0: id2 (index 2) swaps into index 0.
     CHECK(a.erase(id0));
     CHECK(a.size() == 2U);
@@ -468,7 +468,7 @@ TEST_CASE("RowAccess", "[ArchetypeStorage]") {
     reg_t r;
     arch_t a{r, sid};
     auto id0 = r.create_id(staging, 10);
-    CHECK(a.add(id0, 42, 1.0f));
+    CHECK(a.add(id0, 42, 1.0F));
     auto row = a[id0];
     CHECK(row.index() == 0U);
     CHECK(row.id() == id0);
@@ -479,10 +479,10 @@ TEST_CASE("RowAccess", "[ArchetypeStorage]") {
     reg_t r;
     arch_t a{r, sid};
     auto id0 = r.create_id(staging, 10);
-    CHECK(a.add(id0, 42, 2.0f));
+    CHECK(a.add(id0, 42, 2.0F));
     auto row = a[id0];
     CHECK(row.component<int>() == 42);
-    CHECK(row.component<float>() == 2.0f);
+    CHECK(row.component<float>() == 2.0F);
     row.component<int>() = 99;
     CHECK(row.component<int>() == 99);
   }
@@ -492,10 +492,10 @@ TEST_CASE("RowAccess", "[ArchetypeStorage]") {
     reg_t r;
     arch_t a{r, sid};
     auto id0 = r.create_id(staging, 10);
-    CHECK(a.add(id0, 42, 3.0f));
+    CHECK(a.add(id0, 42, 3.0F));
     auto row = a[id0];
     CHECK(row.component<0>() == 42);
-    CHECK(row.component<1>() == 3.0f);
+    CHECK(row.component<1>() == 3.0F);
     row.component<0>() = 77;
     CHECK(row.component<0>() == 77);
   }
@@ -505,11 +505,11 @@ TEST_CASE("RowAccess", "[ArchetypeStorage]") {
     reg_t r;
     arch_t a{r, sid};
     auto id0 = r.create_id(staging, 10);
-    CHECK(a.add(id0, 10, 1.0f));
+    CHECK(a.add(id0, 10, 1.0F));
     auto row = a[id0];
     auto [i, f] = row.components();
     CHECK(i == 10);
-    CHECK(f == 1.0f);
+    CHECK(f == 1.0F);
     i = 100; // mutates actual data via reference
     CHECK(a[id0].component<int>() == 100);
   }
@@ -519,13 +519,13 @@ TEST_CASE("RowAccess", "[ArchetypeStorage]") {
     reg_t r;
     arch_t a{r, sid};
     auto id0 = r.create_id(staging, 10);
-    CHECK(a.add(id0, 42, 4.0f));
+    CHECK(a.add(id0, 42, 4.0F));
     const auto& ca = a;
     auto row = ca[id0];
     CHECK(row.index() == 0U);
     CHECK(row.id() == id0);
     CHECK(row.component<int>() == 42);
-    CHECK(row.component<float>() == 4.0f);
+    CHECK(row.component<float>() == 4.0F);
   }
 
   // row_view::component<Index>() const access by index.
@@ -533,11 +533,11 @@ TEST_CASE("RowAccess", "[ArchetypeStorage]") {
     reg_t r;
     arch_t a{r, sid};
     auto id0 = r.create_id(staging, 10);
-    CHECK(a.add(id0, 5, 2.0f));
+    CHECK(a.add(id0, 5, 2.0F));
     const auto& ca = a;
     auto row = ca[id0];
     CHECK(row.component<0>() == 5);
-    CHECK(row.component<1>() == 2.0f);
+    CHECK(row.component<1>() == 2.0F);
   }
 
   // row_view::components() returns tuple of const references.
@@ -545,11 +545,11 @@ TEST_CASE("RowAccess", "[ArchetypeStorage]") {
     reg_t r;
     arch_t a{r, sid};
     auto id0 = r.create_id(staging, 10);
-    CHECK(a.add(id0, 7, 3.0f));
+    CHECK(a.add(id0, 7, 3.0F));
     const auto& ca = a;
     auto [i, f] = ca[id0].components();
     CHECK(i == 7);
-    CHECK(f == 3.0f);
+    CHECK(f == 3.0F);
   }
 
   // row_lens::get_owner() refers back to the owning archetype_storage.
@@ -557,7 +557,7 @@ TEST_CASE("RowAccess", "[ArchetypeStorage]") {
     reg_t r;
     arch_t a{r, sid};
     auto id0 = r.create_id(staging, 10);
-    CHECK(a.add(id0, 1, 1.0f));
+    CHECK(a.add(id0, 1, 1.0F));
     auto row = a[id0];
     CHECK(&row.get_owner() == &a);
   }
@@ -568,8 +568,8 @@ TEST_CASE("RowAccess", "[ArchetypeStorage]") {
     arch_t a{r, sid};
     auto id0 = r.create_id(staging, 10);
     auto id1 = r.create_id(staging, 20);
-    CHECK(a.add(id0, 11, 1.0f));
-    CHECK(a.add(id1, 22, 2.0f));
+    CHECK(a.add(id0, 11, 1.0F));
+    CHECK(a.add(id1, 22, 2.0F));
     CHECK(a[id0].component<int>() == 11);
     CHECK(a[id1].component<int>() == 22);
     CHECK(a[id0].id() == id0);
@@ -581,7 +581,7 @@ TEST_CASE("RowAccess", "[ArchetypeStorage]") {
     reg_t r;
     arch_t a{r, sid};
     auto id0 = r.create_id(staging, 10);
-    CHECK(a.add(id0, 42, 1.0f));
+    CHECK(a.add(id0, 42, 1.0F));
     auto row = a[id0];
     auto copy = row; // copy construction
     CHECK(copy.index() == 0U);
@@ -596,7 +596,7 @@ TEST_CASE("RowAccess", "[ArchetypeStorage]") {
     reg_t r;
     arch_t a{r, sid};
     auto id0 = r.create_id(staging, 10);
-    CHECK(a.add(id0, 7, 2.0f));
+    CHECK(a.add(id0, 7, 2.0F));
     auto row = a[id0];
     auto moved = std::move(row);
     CHECK(moved.index() == 0U);
@@ -608,7 +608,7 @@ TEST_CASE("RowAccess", "[ArchetypeStorage]") {
     reg_t r;
     arch_t a{r, sid};
     auto id0 = r.create_id(staging, 10);
-    CHECK(a.add(id0, 55, 3.0f));
+    CHECK(a.add(id0, 55, 3.0F));
     const auto& ca = a;
     auto row = ca[id0];
     auto copy = row; // copy construction
@@ -635,8 +635,8 @@ TEST_CASE("ComponentAccess", "[ArchetypeStorage]") {
     arch_t a{r, sid};
     auto id0 = r.create_id(staging, 10);
     auto id1 = r.create_id(staging, 20);
-    CHECK(a.add(id0, 1, 1.0f));
-    CHECK(a.add(id1, 2, 2.0f));
+    CHECK(a.add(id0, 1, 1.0F));
+    CHECK(a.add(id1, 2, 2.0F));
     CHECK(a.size() == 2U);
     CHECK(a[id0].component<int>() == 1);
     CHECK(a[id1].component<int>() == 2);
@@ -649,10 +649,10 @@ TEST_CASE("ComponentAccess", "[ArchetypeStorage]") {
     reg_t r;
     arch_t a{r, sid};
     auto id0 = r.create_id(staging, 10);
-    CHECK(a.add(id0, 42, 5.0f));
+    CHECK(a.add(id0, 42, 5.0F));
     const auto& ca = a;
     CHECK(ca.size() == 1U);
-    CHECK(ca[id0].component<float>() == 5.0f);
+    CHECK(ca[id0].component<float>() == 5.0F);
   }
 
   // component<Index>() access by index, mutable and const.
@@ -660,9 +660,9 @@ TEST_CASE("ComponentAccess", "[ArchetypeStorage]") {
     reg_t r;
     arch_t a{r, sid};
     auto id0 = r.create_id(staging, 10);
-    CHECK(a.add(id0, 7, 4.0f));
+    CHECK(a.add(id0, 7, 4.0F));
     CHECK(a[id0].component<0>() == 7);
-    CHECK(a[id0].component<1>() == 4.0f);
+    CHECK(a[id0].component<1>() == 4.0F);
     a[id0].component<0>() = 77;
     CHECK(a[id0].component<0>() == 77);
   }
@@ -672,10 +672,10 @@ TEST_CASE("ComponentAccess", "[ArchetypeStorage]") {
     reg_t r;
     arch_t a{r, sid};
     auto id0 = r.create_id(staging, 10);
-    CHECK(a.add(id0, 3, 3.0f));
+    CHECK(a.add(id0, 3, 3.0F));
     auto [i, f] = a[id0].components();
     CHECK(i == 3);
-    CHECK(f == 3.0f);
+    CHECK(f == 3.0F);
     i = 33;
     CHECK(a[id0].component<int>() == 33);
   }
@@ -685,11 +685,11 @@ TEST_CASE("ComponentAccess", "[ArchetypeStorage]") {
     reg_t r;
     arch_t a{r, sid};
     auto id0 = r.create_id(staging, 10);
-    CHECK(a.add(id0, 6, 6.0f));
+    CHECK(a.add(id0, 6, 6.0F));
     const auto& ca = a;
     auto [i, f] = ca[id0].components();
     CHECK(i == 6);
-    CHECK(f == 6.0f);
+    CHECK(f == 6.0F);
   }
 }
 
@@ -719,9 +719,9 @@ TEST_CASE("Limit", "[ArchetypeStorage]") {
     auto id0 = r.create_id(staging, 10);
     auto id1 = r.create_id(staging, 20);
     auto id2 = r.create_id(staging, 30);
-    CHECK(a.add(id0, 1, 1.0f));
-    CHECK(a.add(id1, 2, 2.0f));
-    CHECK_FALSE(a.add(id2, 3, 3.0f)); // at limit
+    CHECK(a.add(id0, 1, 1.0F));
+    CHECK(a.add(id1, 2, 2.0F));
+    CHECK_FALSE(a.add(id2, 3, 3.0F)); // at limit
     CHECK(a.size() == 2U);
   }
 
@@ -730,7 +730,7 @@ TEST_CASE("Limit", "[ArchetypeStorage]") {
     reg_t r;
     arch_t a{r, sid};
     auto id0 = r.create_id(staging, 10);
-    CHECK(a.add(id0, 1, 1.0f));
+    CHECK(a.add(id0, 1, 1.0F));
     CHECK(a.set_limit(2U));
     CHECK(a.limit() == 2U);
   }
@@ -741,8 +741,8 @@ TEST_CASE("Limit", "[ArchetypeStorage]") {
     arch_t a{r, sid};
     auto id0 = r.create_id(staging, 10);
     auto id1 = r.create_id(staging, 20);
-    CHECK(a.add(id0, 1, 1.0f));
-    CHECK(a.add(id1, 2, 2.0f));
+    CHECK(a.add(id0, 1, 1.0F));
+    CHECK(a.add(id1, 2, 2.0F));
     CHECK_FALSE(a.set_limit(1U));
     CHECK(a.limit() == *id_t::invalid); // unchanged
   }
@@ -751,9 +751,9 @@ TEST_CASE("Limit", "[ArchetypeStorage]") {
   if (true) {
     reg_t r;
     arch_t a{r, sid, 1};
-    auto h0 = a.add_new(10, 1, 1.0f);
+    auto h0 = a.add_new(10, 1, 1.0F);
     CHECK(r.is_valid(h0));
-    auto h1 = a.add_new(20, 2, 2.0f); // fails: archetype full
+    auto h1 = a.add_new(20, 2, 2.0F); // fails: archetype full
     CHECK_FALSE(r.is_valid(h1));
     CHECK(a.size() == 1U);
     CHECK(r.size() == 1U);
@@ -779,8 +779,8 @@ TEST_CASE("SwapAndMove", "[ArchetypeStorage]") {
     arch_t b{r, sid2};
     auto id0 = r.create_id(staging, 10);
     auto id1 = r.create_id(staging, 20);
-    CHECK(a.add(id0, 11, 1.0f));
-    CHECK(b.add(id1, 22, 2.0f));
+    CHECK(a.add(id0, 11, 1.0F));
+    CHECK(b.add(id1, 22, 2.0F));
     swap(a, b);
     // After swap, a holds what b had and vice versa, including store_ids.
     CHECK(a.store_id() == sid2);
@@ -797,7 +797,7 @@ TEST_CASE("SwapAndMove", "[ArchetypeStorage]") {
     arch_t a{r, sid1};
     a.reserve(100);
     auto id0 = r.create_id(staging, 10);
-    CHECK(a.add(id0, 1, 1.0f));
+    CHECK(a.add(id0, 1, 1.0F));
     a.shrink_to_fit();
     CHECK(a.size() == 1U);
     CHECK((a.capacity()) < (100U));
@@ -810,7 +810,7 @@ TEST_CASE("SwapAndMove", "[ArchetypeStorage]") {
     auto id0 = r.create_id(staging, 10);
     {
       arch_t a{r, sid1};
-      CHECK(a.add(id0, 42, 1.0f));
+      CHECK(a.add(id0, 42, 1.0F));
       arch_t b{std::move(a)};
       CHECK(b.size() == 1U);
       CHECK(b.store_id() == sid1);
@@ -827,7 +827,7 @@ TEST_CASE("SwapAndMove", "[ArchetypeStorage]") {
     {
       arch_t a{r, sid1};
       arch_t b{r, sid2};
-      CHECK(a.add(id0, 7, 7.0f));
+      CHECK(a.add(id0, 7, 7.0F));
       b = std::move(a);
       CHECK(b.size() == 1U);
       CHECK(b.store_id() == sid1);
@@ -843,8 +843,8 @@ TEST_CASE("SwapAndMove", "[ArchetypeStorage]") {
     auto id1 = r.create_id(staging, 20);
     {
       arch_t a{r, sid1};
-      CHECK(a.add(id0, 1, 1.0f));
-      CHECK(a.add(id1, 2, 2.0f));
+      CHECK(a.add(id0, 1, 1.0F));
+      CHECK(a.add(id1, 2, 2.0F));
     } // destructor fires
     CHECK_FALSE(r.is_valid(id0));
     CHECK_FALSE(r.is_valid(id1));
@@ -869,9 +869,9 @@ TEST_CASE("Iterator", "[ArchetypeStorage]") {
     auto id0 = r.create_id(staging, 10);
     auto id1 = r.create_id(staging, 20);
     auto id2 = r.create_id(staging, 30);
-    CHECK(a.add(id0, 1, 1.0f));
-    CHECK(a.add(id1, 2, 2.0f));
-    CHECK(a.add(id2, 3, 3.0f));
+    CHECK(a.add(id0, 1, 1.0F));
+    CHECK(a.add(id1, 2, 2.0F));
+    CHECK(a.add(id2, 3, 3.0F));
     int sum = 0;
     for (auto row : a) sum += row.component<int>();
     CHECK(sum == 6);
@@ -883,12 +883,12 @@ TEST_CASE("Iterator", "[ArchetypeStorage]") {
     arch_t a{r, sid};
     auto id0 = r.create_id(staging, 10);
     auto id1 = r.create_id(staging, 20);
-    CHECK(a.add(id0, 10, 1.0f));
-    CHECK(a.add(id1, 20, 2.0f));
+    CHECK(a.add(id0, 10, 1.0F));
+    CHECK(a.add(id1, 20, 2.0F));
     const auto& ca = a;
-    float fsum = 0.0f;
+    float fsum = 0.0F;
     for (const auto& row : ca) fsum += row.component<float>();
-    CHECK(fsum == 3.0f);
+    CHECK(fsum == 3.0F);
   }
 
   // Mutating components via iterator is reflected in storage.
@@ -897,8 +897,8 @@ TEST_CASE("Iterator", "[ArchetypeStorage]") {
     arch_t a{r, sid};
     auto id0 = r.create_id(staging, 10);
     auto id1 = r.create_id(staging, 20);
-    CHECK(a.add(id0, 1, 0.0f));
-    CHECK(a.add(id1, 2, 0.0f));
+    CHECK(a.add(id0, 1, 0.0F));
+    CHECK(a.add(id1, 2, 0.0F));
     for (auto row : a) row.component<int>() *= 10;
     CHECK(a[id0].component<int>() == 10);
     CHECK(a[id1].component<int>() == 20);
@@ -910,8 +910,8 @@ TEST_CASE("Iterator", "[ArchetypeStorage]") {
     arch_t a{r, sid};
     auto id0 = r.create_id(staging, 10);
     auto id1 = r.create_id(staging, 20);
-    CHECK(a.add(id0, 0, 0.0f));
-    CHECK(a.add(id1, 0, 0.0f));
+    CHECK(a.add(id0, 0, 0.0F));
+    CHECK(a.add(id1, 0, 0.0F));
     auto it = a.begin();
     CHECK(it->id() == id0);
     ++it;
@@ -926,8 +926,8 @@ TEST_CASE("Iterator", "[ArchetypeStorage]") {
     arch_t a{r, sid};
     auto id0 = r.create_id(staging, 10);
     auto id1 = r.create_id(staging, 20);
-    CHECK(a.add(id0, 5, 0.0f));
-    CHECK(a.add(id1, 6, 0.0f));
+    CHECK(a.add(id0, 5, 0.0F));
+    CHECK(a.add(id1, 6, 0.0F));
     auto it = a.end();
     --it;
     CHECK((*it).component<int>() == 6);
@@ -950,11 +950,11 @@ TEST_CASE("Iterator", "[ArchetypeStorage]") {
     reg_t r;
     arch_t a{r, sid};
     auto id0 = r.create_id(staging, 10);
-    CHECK(a.add(id0, 7, 1.5f));
-    float fsum = 0.0f;
+    CHECK(a.add(id0, 7, 1.5F));
+    float fsum = 0.0F;
     for (auto it = a.cbegin(); it != a.cend(); ++it)
       fsum += it->component<float>();
-    CHECK(fsum == 1.5f);
+    CHECK(fsum == 1.5F);
     static_assert(
         std::is_same_v<decltype(a.cbegin()), arch_t::const_iterator>);
   }
@@ -977,8 +977,8 @@ TEST_CASE("EraseIf", "[ArchetypeStorage]") {
     arch_t a{r, sid};
     auto id0 = r.create_id(staging, 10);
     auto id1 = r.create_id(staging, 20);
-    CHECK(a.add(id0, 1, 1.0f));
-    CHECK(a.add(id1, 2, 2.0f));
+    CHECK(a.add(id0, 1, 1.0F));
+    CHECK(a.add(id1, 2, 2.0F));
     auto cnt = a.erase_if([](const auto&) { return false; });
     CHECK(cnt == 0U);
     CHECK(a.size() == 2U);
@@ -992,8 +992,8 @@ TEST_CASE("EraseIf", "[ArchetypeStorage]") {
     arch_t a{r, sid};
     auto id0 = r.create_id(staging, 10);
     auto id1 = r.create_id(staging, 20);
-    CHECK(a.add(id0, 1, 1.0f));
-    CHECK(a.add(id1, 2, 2.0f));
+    CHECK(a.add(id0, 1, 1.0F));
+    CHECK(a.add(id1, 2, 2.0F));
     auto cnt = a.erase_if([](const auto&) { return true; });
     CHECK(cnt == 2U);
     CHECK(a.size() == 0U);
@@ -1009,9 +1009,9 @@ TEST_CASE("EraseIf", "[ArchetypeStorage]") {
     auto id0 = r.create_id(staging, 10);
     auto id1 = r.create_id(staging, 20);
     auto id2 = r.create_id(staging, 30);
-    CHECK(a.add(id0, 11, 1.0f));
-    CHECK(a.add(id1, 22, 2.0f));
-    CHECK(a.add(id2, 33, 3.0f));
+    CHECK(a.add(id0, 11, 1.0F));
+    CHECK(a.add(id1, 22, 2.0F));
+    CHECK(a.add(id2, 33, 3.0F));
     // Erase entities whose int component is odd.
     auto cnt = a.erase_if([](const auto& row) {
       return row.template component<int>() % 2 != 0;
@@ -1032,7 +1032,7 @@ TEST_CASE("EraseIf", "[ArchetypeStorage]") {
     reg_t r;
     arch_t a{r, sid};
     auto id0 = r.create_id(staging, 10);
-    CHECK(a.add(id0, 1, 1.0f));
+    CHECK(a.add(id0, 1, 1.0F));
     auto cnt = a.erase_if([](const auto&) { return true; });
     CHECK(cnt == 1U);
     CHECK(a.size() == 0U);
@@ -1046,9 +1046,9 @@ TEST_CASE("EraseIf", "[ArchetypeStorage]") {
     auto id0 = r.create_id(staging, 10);
     auto id1 = r.create_id(staging, 20);
     auto id2 = r.create_id(staging, 30);
-    CHECK(a.add(id0, 10, 1.0f));
-    CHECK(a.add(id1, 20, 2.0f));
-    CHECK(a.add(id2, 30, 3.0f));
+    CHECK(a.add(id0, 10, 1.0F));
+    CHECK(a.add(id1, 20, 2.0F));
+    CHECK(a.add(id2, 30, 3.0F));
     auto cnt = a.erase_if_component<int>([](int val, auto) {
       return val > 15;
     });
@@ -1066,11 +1066,11 @@ TEST_CASE("EraseIf", "[ArchetypeStorage]") {
     arch_t a{r, sid};
     auto id0 = r.create_id(staging, 10);
     auto id1 = r.create_id(staging, 20);
-    CHECK(a.add(id0, 5, 1.0f));
-    CHECK(a.add(id1, 5, 9.0f));
+    CHECK(a.add(id0, 5, 1.0F));
+    CHECK(a.add(id1, 5, 9.0F));
     // Component at index 1 is float; erase where float > 5.
     auto cnt = a.erase_if_component<1>([](float val, auto) {
-      return val > 5.0f;
+      return val > 5.0F;
     });
     CHECK(cnt == 1U);
     CHECK(a.size() == 1U);
@@ -1312,7 +1312,8 @@ TEST_CASE("Basic", "[StableId]") {
 
   // swap exchanges containers.
   if (true) {
-    V a, b;
+    V a;
+    V b;
     (void)a.push_back(1);
     (void)a.push_back(2);
     (void)b.push_back(100);
@@ -1727,7 +1728,8 @@ TEST_CASE("Fifo", "[StableId]") {
 
   // swap exchanges the complete FIFO free-list state between containers.
   if (true) {
-    V a, b;
+    V a;
+    V b;
     (void)a.push_back(10); // a: id 0
     (void)a.push_back(20); // a: id 1
     a.erase(id_t{0});      // a free list: [0]
@@ -2252,13 +2254,13 @@ TEST_CASE("Basic", "[MonoArchetypeStorage]") {
     storage_t s{r, sid};
     auto id0 = r.create_id(staging, 10);
     auto id1 = r.create_id(staging, 20);
-    CHECK(s.add(id0, 1.0f));
-    CHECK(s.add(id1, 2.0f));
+    CHECK(s.add(id0, 1.0F));
+    CHECK(s.add(id1, 2.0F));
     CHECK(s.size() == 2U);
-    CHECK(s[id0] == 1.0f);
-    CHECK(s[id1] == 2.0f);
-    CHECK(s.at(id0) == 1.0f);
-    CHECK(s.at(id1) == 2.0f);
+    CHECK(s[id0] == 1.0F);
+    CHECK(s[id1] == 2.0F);
+    CHECK(s.at(id0) == 1.0F);
+    CHECK(s.at(id1) == 2.0F);
   }
 
   // Const access.
@@ -2266,10 +2268,10 @@ TEST_CASE("Basic", "[MonoArchetypeStorage]") {
     reg_t r;
     storage_t s{r, sid};
     auto id0 = r.create_id(staging, 10);
-    CHECK(s.add(id0, 3.14f));
+    CHECK(s.add(id0, 3.14F));
     const auto& cs = s;
-    CHECK(cs[id0] == 3.14f);
-    CHECK(cs.at(id0) == 3.14f);
+    CHECK(cs[id0] == 3.14F);
+    CHECK(cs.at(id0) == 3.14F);
   }
 
   // Mutable access via operator[].
@@ -2277,9 +2279,9 @@ TEST_CASE("Basic", "[MonoArchetypeStorage]") {
     reg_t r;
     storage_t s{r, sid};
     auto id0 = r.create_id(staging, 10);
-    CHECK(s.add(id0, 1.0f));
-    s[id0] = 99.0f;
-    CHECK(s[id0] == 99.0f);
+    CHECK(s.add(id0, 1.0F));
+    s[id0] = 99.0F;
+    CHECK(s[id0] == 99.0F);
   }
 
   // contains by ID.
@@ -2288,7 +2290,7 @@ TEST_CASE("Basic", "[MonoArchetypeStorage]") {
     storage_t s{r, sid};
     auto id0 = r.create_id(staging, 10);
     CHECK_FALSE(s.contains(id0));
-    CHECK(s.add(id0, 1.0f));
+    CHECK(s.add(id0, 1.0F));
     CHECK(s.contains(id0));
     CHECK_FALSE(s.contains(id_t{99}));
   }
@@ -2305,7 +2307,7 @@ TEST_CASE("Basic", "[MonoArchetypeStorage]") {
     reg_t r;
     storage_t s{r, sid};
     auto id0 = r.create_id(staging, 10);
-    CHECK(s.add(id0, 1.0f));
+    CHECK(s.add(id0, 1.0F));
     const auto loc = r.get_location(id0);
     CHECK(*loc.store_id == *sid);
     CHECK(loc.ndx == 0U);
@@ -2316,18 +2318,18 @@ TEST_CASE("Basic", "[MonoArchetypeStorage]") {
     reg_t r;
     storage_t s{r, sid};
     auto id0 = r.create_id(staging, 10);
-    CHECK(s.add(id0, 1.0f));
-    CHECK_FALSE(s.add(id0, 2.0f));
+    CHECK(s.add(id0, 1.0F));
+    CHECK_FALSE(s.add(id0, 2.0F));
   }
 
   // add_new creates entity and adds component; returns its handle.
   if (true) {
     reg_t r;
     storage_t s{r, sid};
-    auto h0 = s.add_new(1.0f, 42);
+    auto h0 = s.add_new(1.0F, 42);
     CHECK(bool(h0));
     CHECK(s.size() == 1U);
-    CHECK(s[h0.id()] == 1.0f);
+    CHECK(s[h0.id()] == 1.0F);
     CHECK(r[h0.id()] == 42);
     CHECK(s.contains(h0));
     const auto loc = r.get_location(h0);
@@ -2338,9 +2340,9 @@ TEST_CASE("Basic", "[MonoArchetypeStorage]") {
   if (true) {
     reg_t r;
     storage_t s{r, sid};
-    auto h0 = s.add_new(5.5f);
+    auto h0 = s.add_new(5.5F);
     CHECK(bool(h0));
-    CHECK(s[h0.id()] == 5.5f);
+    CHECK(s[h0.id()] == 5.5F);
     CHECK(r[h0.id()] == 0);
   }
 
@@ -2356,9 +2358,9 @@ TEST_CASE("Basic", "[MonoArchetypeStorage]") {
   if (true) {
     reg_t r;
     storage_t s{r, sid};
-    auto h0 = s.add_new(42, 2.5f);
+    auto h0 = s.add_new(42, 2.5F);
     CHECK(bool(h0));
-    CHECK(s[h0.id()] == 2.5f);
+    CHECK(s[h0.id()] == 2.5F);
     CHECK(r[h0.id()] == 42);
   }
 
@@ -2368,7 +2370,7 @@ TEST_CASE("Basic", "[MonoArchetypeStorage]") {
     storage_t s{r, sid};
     auto h0 = s.add_new(99);
     CHECK(bool(h0));
-    CHECK(s[h0.id()] == 0.0f);
+    CHECK(s[h0.id()] == 0.0F);
     CHECK(r[h0.id()] == 99);
   }
 
@@ -2400,9 +2402,9 @@ TEST_CASE("Handle", "[MonoArchetypeStorage]") {
     reg_t r;
     storage_t s{r, sid};
     auto h = r.create_handle(staging, 10);
-    CHECK(s.add(h, 1.0f));
+    CHECK(s.add(h, 1.0F));
     CHECK(s.size() == 1U);
-    CHECK(s[h.id()] == 1.0f);
+    CHECK(s[h.id()] == 1.0F);
   }
 
   // add by invalid handle returns false.
@@ -2411,7 +2413,7 @@ TEST_CASE("Handle", "[MonoArchetypeStorage]") {
     storage_t s{r, sid};
     auto h = r.create_handle(staging, 10);
     r.erase(h);
-    CHECK_FALSE(s.add(h, 1.0f));
+    CHECK_FALSE(s.add(h, 1.0F));
   }
 
   // contains by handle.
@@ -2420,7 +2422,7 @@ TEST_CASE("Handle", "[MonoArchetypeStorage]") {
     storage_t s{r, sid};
     auto h = r.create_handle(staging, 10);
     CHECK_FALSE(s.contains(h));
-    CHECK(s.add(h, 1.0f));
+    CHECK(s.add(h, 1.0F));
     CHECK(s.contains(h));
   }
 
@@ -2429,7 +2431,7 @@ TEST_CASE("Handle", "[MonoArchetypeStorage]") {
     reg_t r;
     storage_t s{r, sid};
     auto h = r.create_handle(staging, 10);
-    CHECK(s.add(h, 1.0f));
+    CHECK(s.add(h, 1.0F));
     auto eid = h.id();
     (void)s.erase(eid);
     CHECK_FALSE(s.contains(h));
@@ -2440,10 +2442,10 @@ TEST_CASE("Handle", "[MonoArchetypeStorage]") {
     reg_t r;
     storage_t s{r, sid};
     auto h = r.create_handle(staging, 10);
-    CHECK(s.add(h, 3.14f));
-    CHECK(s.at(h) == 3.14f);
-    s.at(h) = 99.0f;
-    CHECK(s.at(h) == 99.0f);
+    CHECK(s.add(h, 3.14F));
+    CHECK(s.at(h) == 3.14F);
+    s.at(h) = 99.0F;
+    CHECK(s.at(h) == 99.0F);
   }
 
   // at by handle const.
@@ -2451,9 +2453,9 @@ TEST_CASE("Handle", "[MonoArchetypeStorage]") {
     reg_t r;
     storage_t s{r, sid};
     auto h = r.create_handle(staging, 10);
-    CHECK(s.add(h, 3.14f));
+    CHECK(s.add(h, 3.14F));
     const auto& cs = s;
-    CHECK(cs.at(h) == 3.14f);
+    CHECK(cs.at(h) == 3.14F);
   }
 
   // at by invalid handle throws.
@@ -2469,7 +2471,7 @@ TEST_CASE("Handle", "[MonoArchetypeStorage]") {
     reg_t r;
     storage_t s{r, sid};
     auto h = r.create_handle(staging, 10);
-    CHECK(s.add(h, 1.0f));
+    CHECK(s.add(h, 1.0F));
     CHECK(s.remove(h));
     CHECK(s.empty());
     CHECK(r.is_valid(h));
@@ -2490,7 +2492,7 @@ TEST_CASE("Handle", "[MonoArchetypeStorage]") {
     reg_t r;
     storage_t s{r, sid};
     auto h = r.create_handle(staging, 10);
-    CHECK(s.add(h, 1.0f));
+    CHECK(s.add(h, 1.0F));
     CHECK(s.erase(h));
     CHECK(s.empty());
     CHECK_FALSE(r.is_valid(h));
@@ -2523,7 +2525,7 @@ TEST_CASE("Remove", "[MonoArchetypeStorage]") {
     reg_t r;
     storage_t s{r, sid};
     auto id0 = r.create_id(staging, 10);
-    CHECK(s.add(id0, 1.0f));
+    CHECK(s.add(id0, 1.0F));
     CHECK(s.remove(id0));
     CHECK_FALSE(s.contains(id0));
     CHECK(s.empty());
@@ -2546,14 +2548,14 @@ TEST_CASE("Remove", "[MonoArchetypeStorage]") {
     auto id0 = r.create_id(staging, 10);
     auto id1 = r.create_id(staging, 20);
     auto id2 = r.create_id(staging, 30);
-    CHECK(s.add(id0, 1.0f));
-    CHECK(s.add(id1, 2.0f));
-    CHECK(s.add(id2, 3.0f));
+    CHECK(s.add(id0, 1.0F));
+    CHECK(s.add(id1, 2.0F));
+    CHECK(s.add(id2, 3.0F));
     CHECK(s.remove(id0));
     CHECK(s.size() == 2U);
-    CHECK(s[id2] == 3.0f);
+    CHECK(s[id2] == 3.0F);
     CHECK(r.get_location(id2).ndx == 0U);
-    CHECK(s[id1] == 2.0f);
+    CHECK(s[id1] == 2.0F);
     CHECK(r.get_location(id1).ndx == 1U);
   }
 
@@ -2563,11 +2565,11 @@ TEST_CASE("Remove", "[MonoArchetypeStorage]") {
     storage_t s{r, sid};
     auto id0 = r.create_id(staging, 10);
     auto id1 = r.create_id(staging, 20);
-    CHECK(s.add(id0, 1.0f));
-    CHECK(s.add(id1, 2.0f));
+    CHECK(s.add(id0, 1.0F));
+    CHECK(s.add(id1, 2.0F));
     CHECK(s.remove(id1));
     CHECK(s.size() == 1U);
-    CHECK(s[id0] == 1.0f);
+    CHECK(s[id0] == 1.0F);
   }
 
   // Remove allows re-add.
@@ -2575,10 +2577,10 @@ TEST_CASE("Remove", "[MonoArchetypeStorage]") {
     reg_t r;
     storage_t s{r, sid};
     auto id0 = r.create_id(staging, 10);
-    CHECK(s.add(id0, 1.0f));
+    CHECK(s.add(id0, 1.0F));
     CHECK(s.remove(id0));
-    CHECK(s.add(id0, 99.0f));
-    CHECK(s[id0] == 99.0f);
+    CHECK(s.add(id0, 99.0F));
+    CHECK(s[id0] == 99.0F);
   }
 }
 
@@ -2601,9 +2603,9 @@ TEST_CASE("RemoveAll", "[MonoArchetypeStorage]") {
     auto id0 = r.create_id(staging, 10);
     auto id1 = r.create_id(staging, 20);
     auto id2 = r.create_id(staging, 30);
-    CHECK(s.add(id0, 1.0f));
-    CHECK(s.add(id1, 2.0f));
-    CHECK(s.add(id2, 3.0f));
+    CHECK(s.add(id0, 1.0F));
+    CHECK(s.add(id1, 2.0F));
+    CHECK(s.add(id2, 3.0F));
     s.remove_all();
     CHECK(s.empty());
     CHECK(r.is_valid(id0));
@@ -2625,10 +2627,10 @@ TEST_CASE("RemoveAll", "[MonoArchetypeStorage]") {
     reg_t r;
     storage_t s{r, sid};
     auto id0 = r.create_id(staging, 10);
-    CHECK(s.add(id0, 1.0f));
+    CHECK(s.add(id0, 1.0F));
     s.remove_all();
-    CHECK(s.add(id0, 99.0f));
-    CHECK(s[id0] == 99.0f);
+    CHECK(s.add(id0, 99.0F));
+    CHECK(s[id0] == 99.0F);
   }
 }
 
@@ -2650,7 +2652,7 @@ TEST_CASE("Erase", "[MonoArchetypeStorage]") {
     reg_t r;
     storage_t s{r, sid};
     auto id0 = r.create_id(staging, 10);
-    CHECK(s.add(id0, 1.0f));
+    CHECK(s.add(id0, 1.0F));
     CHECK(s.erase(id0));
     CHECK(s.empty());
     CHECK_FALSE(r.is_valid(id0));
@@ -2662,13 +2664,13 @@ TEST_CASE("Erase", "[MonoArchetypeStorage]") {
     storage_t s{r, sid};
     auto id0 = r.create_id(staging, 10);
     auto id1 = r.create_id(staging, 20);
-    CHECK(s.add(id0, 1.0f));
-    CHECK(s.add(id1, 2.0f));
+    CHECK(s.add(id0, 1.0F));
+    CHECK(s.add(id1, 2.0F));
     CHECK(s.erase(id0));
     CHECK(s.size() == 1U);
     CHECK_FALSE(r.is_valid(id0));
     CHECK(r.is_valid(id1));
-    CHECK(s[id1] == 2.0f);
+    CHECK(s[id1] == 2.0F);
     CHECK(r.get_location(id1).ndx == 0U);
   }
 
@@ -2700,10 +2702,10 @@ TEST_CASE("EraseIf", "[MonoArchetypeStorage]") {
     auto id0 = r.create_id(staging, 10);
     auto id1 = r.create_id(staging, 20);
     auto id2 = r.create_id(staging, 30);
-    CHECK(s.add(id0, 1.0f));
-    CHECK(s.add(id1, 5.0f));
-    CHECK(s.add(id2, 10.0f));
-    auto cnt = s.erase_if([](float val, auto) { return val > 3.0f; });
+    CHECK(s.add(id0, 1.0F));
+    CHECK(s.add(id1, 5.0F));
+    CHECK(s.add(id2, 10.0F));
+    auto cnt = s.erase_if([](float val, auto) { return val > 3.0F; });
     CHECK(cnt == 2U);
     CHECK(s.size() == 1U);
     CHECK(s.contains(id0));
@@ -2716,7 +2718,7 @@ TEST_CASE("EraseIf", "[MonoArchetypeStorage]") {
     reg_t r;
     storage_t s{r, sid};
     auto id0 = r.create_id(staging, 10);
-    CHECK(s.add(id0, 1.0f));
+    CHECK(s.add(id0, 1.0F));
     auto cnt = s.erase_if([](float, auto) { return false; });
     CHECK(cnt == 0U);
     CHECK(s.size() == 1U);
@@ -2750,9 +2752,9 @@ TEST_CASE("Clear", "[MonoArchetypeStorage]") {
     auto id0 = r.create_id(staging, 10);
     auto id1 = r.create_id(staging, 20);
     auto id2 = r.create_id(staging, 30);
-    CHECK(s.add(id0, 1.0f));
-    CHECK(s.add(id1, 2.0f));
-    CHECK(s.add(id2, 3.0f));
+    CHECK(s.add(id0, 1.0F));
+    CHECK(s.add(id1, 2.0F));
+    CHECK(s.add(id2, 3.0F));
     s.clear();
     CHECK(s.empty());
     CHECK_FALSE(r.is_valid(id0));
@@ -2789,8 +2791,8 @@ TEST_CASE("SwapAndMove", "[MonoArchetypeStorage]") {
     storage_t s2{r, sid2};
     auto id0 = r.create_id(staging, 10);
     auto id1 = r.create_id(staging, 20);
-    CHECK(s1.add(id0, 1.0f));
-    CHECK(s2.add(id1, 2.0f));
+    CHECK(s1.add(id0, 1.0F));
+    CHECK(s2.add(id1, 2.0F));
     s1.swap(s2);
     CHECK(*s1.store_id() == *sid2);
     CHECK(*s2.store_id() == *sid1);
@@ -2815,10 +2817,10 @@ TEST_CASE("SwapAndMove", "[MonoArchetypeStorage]") {
     auto id0 = r.create_id(staging, 10);
     {
       storage_t s1{r, sid1};
-      CHECK(s1.add(id0, 1.0f));
+      CHECK(s1.add(id0, 1.0F));
       storage_t s2{std::move(s1)};
       CHECK(s2.size() == 1U);
-      CHECK(s2[id0] == 1.0f);
+      CHECK(s2[id0] == 1.0F);
       CHECK(*s2.store_id() == *sid1);
     }
     CHECK_FALSE(r.is_valid(id0));
@@ -2830,11 +2832,11 @@ TEST_CASE("SwapAndMove", "[MonoArchetypeStorage]") {
     auto id0 = r.create_id(staging, 10);
     {
       storage_t s1{r, sid1};
-      CHECK(s1.add(id0, 1.0f));
+      CHECK(s1.add(id0, 1.0F));
       storage_t s2;
       s2 = std::move(s1);
       CHECK(s2.size() == 1U);
-      CHECK(s2[id0] == 1.0f);
+      CHECK(s2[id0] == 1.0F);
     }
     CHECK_FALSE(r.is_valid(id0));
   }
@@ -2846,8 +2848,8 @@ TEST_CASE("SwapAndMove", "[MonoArchetypeStorage]") {
     auto id1 = r.create_id(staging, 20);
     {
       storage_t s{r, sid1};
-      CHECK(s.add(id0, 1.0f));
-      CHECK(s.add(id1, 2.0f));
+      CHECK(s.add(id0, 1.0F));
+      CHECK(s.add(id1, 2.0F));
     } // destructor fires
     CHECK_FALSE(r.is_valid(id0));
     CHECK_FALSE(r.is_valid(id1));
@@ -2889,8 +2891,8 @@ TEST_CASE("LimitAndReserve", "[MonoArchetypeStorage]") {
     CHECK(s.limit() == 5U);
     CHECK(s.empty());
     auto id0 = r.create_id(staging, 10);
-    CHECK(s.add(id0, 1.0f));
-    CHECK(s[id0] == 1.0f);
+    CHECK(s.add(id0, 1.0F));
+    CHECK(s[id0] == 1.0F);
   }
 
   // Constructor with limit enforces on add.
@@ -2899,8 +2901,8 @@ TEST_CASE("LimitAndReserve", "[MonoArchetypeStorage]") {
     storage_t s{r, sid, 1};
     auto id0 = r.create_id(staging, 10);
     auto id1 = r.create_id(staging, 20);
-    CHECK(s.add(id0, 1.0f));
-    CHECK_FALSE(s.add(id1, 2.0f));
+    CHECK(s.add(id0, 1.0F));
+    CHECK_FALSE(s.add(id1, 2.0F));
   }
 
   // Constructor with default limit and reserve=true is a no-op reserve.
@@ -2927,9 +2929,9 @@ TEST_CASE("LimitAndReserve", "[MonoArchetypeStorage]") {
     auto id0 = r.create_id(staging, 10);
     auto id1 = r.create_id(staging, 20);
     auto id2 = r.create_id(staging, 30);
-    CHECK(s.add(id0, 1.0f));
-    CHECK(s.add(id1, 2.0f));
-    CHECK_FALSE(s.add(id2, 3.0f));
+    CHECK(s.add(id0, 1.0F));
+    CHECK(s.add(id1, 2.0F));
+    CHECK_FALSE(s.add(id2, 3.0F));
     CHECK(s.size() == 2U);
     // id2 should still be in staging.
     CHECK(r.is_valid(id2));
@@ -2943,8 +2945,8 @@ TEST_CASE("LimitAndReserve", "[MonoArchetypeStorage]") {
     CHECK(s.set_limit(1));
     auto h0 = r.create_handle(staging, 10);
     auto h1 = r.create_handle(staging, 20);
-    CHECK(s.add(h0, 1.0f));
-    CHECK_FALSE(s.add(h1, 2.0f));
+    CHECK(s.add(h0, 1.0F));
+    CHECK_FALSE(s.add(h1, 2.0F));
     CHECK(s.size() == 1U);
   }
 
@@ -2953,9 +2955,9 @@ TEST_CASE("LimitAndReserve", "[MonoArchetypeStorage]") {
     reg_t r;
     storage_t s{r, sid};
     CHECK(s.set_limit(1));
-    auto h0 = s.add_new(1.0f, 10);
+    auto h0 = s.add_new(1.0F, 10);
     CHECK(bool(h0));
-    auto h1 = s.add_new(2.0f, 20);
+    auto h1 = s.add_new(2.0F, 20);
     CHECK_FALSE(bool(h1));
     CHECK(s.size() == 1U);
     // The failed add_new should have cleaned up the entity it created.
@@ -2968,8 +2970,8 @@ TEST_CASE("LimitAndReserve", "[MonoArchetypeStorage]") {
     storage_t s{r, sid};
     auto id0 = r.create_id(staging, 10);
     auto id1 = r.create_id(staging, 20);
-    CHECK(s.add(id0, 1.0f));
-    CHECK(s.add(id1, 2.0f));
+    CHECK(s.add(id0, 1.0F));
+    CHECK(s.add(id1, 2.0F));
     CHECK_FALSE(s.set_limit(1));
     CHECK(s.limit() == *id_t::invalid); // unchanged
   }
@@ -2979,7 +2981,7 @@ TEST_CASE("LimitAndReserve", "[MonoArchetypeStorage]") {
     reg_t r;
     storage_t s{r, sid};
     auto id0 = r.create_id(staging, 10);
-    CHECK(s.add(id0, 1.0f));
+    CHECK(s.add(id0, 1.0F));
     CHECK(s.set_limit(1));
     CHECK(s.limit() == 1U);
   }
@@ -2992,11 +2994,11 @@ TEST_CASE("LimitAndReserve", "[MonoArchetypeStorage]") {
     auto id0 = r.create_id(staging, 10);
     auto id1 = r.create_id(staging, 20);
     auto id2 = r.create_id(staging, 30);
-    CHECK(s.add(id0, 1.0f));
-    CHECK(s.add(id1, 2.0f));
-    CHECK_FALSE(s.add(id2, 3.0f)); // at limit
+    CHECK(s.add(id0, 1.0F));
+    CHECK(s.add(id1, 2.0F));
+    CHECK_FALSE(s.add(id2, 3.0F)); // at limit
     CHECK(s.remove(id0));
-    CHECK(s.add(id2, 3.0f)); // now succeeds
+    CHECK(s.add(id2, 3.0F)); // now succeeds
     CHECK(s.size() == 2U);
   }
 
@@ -3006,7 +3008,7 @@ TEST_CASE("LimitAndReserve", "[MonoArchetypeStorage]") {
     storage_t s{r, sid};
     CHECK(s.set_limit(0));
     auto id0 = r.create_id(staging, 10);
-    CHECK_FALSE(s.add(id0, 1.0f));
+    CHECK_FALSE(s.add(id0, 1.0F));
   }
 
   // Raising the limit allows more adds.
@@ -3016,10 +3018,10 @@ TEST_CASE("LimitAndReserve", "[MonoArchetypeStorage]") {
     CHECK(s.set_limit(1));
     auto id0 = r.create_id(staging, 10);
     auto id1 = r.create_id(staging, 20);
-    CHECK(s.add(id0, 1.0f));
-    CHECK_FALSE(s.add(id1, 2.0f));
+    CHECK(s.add(id0, 1.0F));
+    CHECK_FALSE(s.add(id1, 2.0F));
     CHECK(s.set_limit(2));
-    CHECK(s.add(id1, 2.0f));
+    CHECK(s.add(id1, 2.0F));
     CHECK(s.size() == 2U);
   }
 
@@ -3029,10 +3031,10 @@ TEST_CASE("LimitAndReserve", "[MonoArchetypeStorage]") {
     storage_t s{r, sid};
     s.reserve(100);
     auto id0 = r.create_id(staging, 10);
-    CHECK(s.add(id0, 1.0f));
+    CHECK(s.add(id0, 1.0F));
     s.shrink_to_fit();
     CHECK(s.size() == 1U);
-    CHECK(s[id0] == 1.0f);
+    CHECK(s[id0] == 1.0F);
   }
 
   // shrink_to_fit on empty storage.
@@ -3083,13 +3085,13 @@ TEST_CASE("Iterator", "[MonoArchetypeStorage]") {
     storage_t s{r, sid};
     auto id0 = r.create_id(staging, 10);
     auto id1 = r.create_id(staging, 20);
-    CHECK(s.add(id0, 1.0f));
-    CHECK(s.add(id1, 2.0f));
+    CHECK(s.add(id0, 1.0F));
+    CHECK(s.add(id1, 2.0F));
     auto it = s.begin();
-    CHECK(*it == 1.0f);
+    CHECK(*it == 1.0F);
     CHECK(it.id() == id0);
     ++it;
-    CHECK(*it == 2.0f);
+    CHECK(*it == 2.0F);
     CHECK(it.id() == id1);
     ++it;
     CHECK(it == s.end());
@@ -3100,9 +3102,9 @@ TEST_CASE("Iterator", "[MonoArchetypeStorage]") {
     reg_t r;
     storage_t s{r, sid};
     auto id0 = r.create_id(staging, 10);
-    CHECK(s.add(id0, 1.0f));
-    *s.begin() = 99.0f;
-    CHECK(s[id0] == 99.0f);
+    CHECK(s.add(id0, 1.0F));
+    *s.begin() = 99.0F;
+    CHECK(s[id0] == 99.0F);
   }
 
   // Const iteration.
@@ -3110,10 +3112,10 @@ TEST_CASE("Iterator", "[MonoArchetypeStorage]") {
     reg_t r;
     storage_t s{r, sid};
     auto id0 = r.create_id(staging, 10);
-    CHECK(s.add(id0, 3.14f));
+    CHECK(s.add(id0, 3.14F));
     const auto& cs = s;
     auto it = cs.begin();
-    CHECK(*it == 3.14f);
+    CHECK(*it == 3.14F);
     CHECK(it.id() == id0);
   }
 
@@ -3124,12 +3126,12 @@ TEST_CASE("Iterator", "[MonoArchetypeStorage]") {
     auto id0 = r.create_id(staging, 10);
     auto id1 = r.create_id(staging, 20);
     auto id2 = r.create_id(staging, 30);
-    CHECK(s.add(id0, 1.0f));
-    CHECK(s.add(id1, 2.0f));
-    CHECK(s.add(id2, 3.0f));
-    float sum = 0.0f;
+    CHECK(s.add(id0, 1.0F));
+    CHECK(s.add(id1, 2.0F));
+    CHECK(s.add(id2, 3.0F));
+    float sum = 0.0F;
     for (auto val : s) sum += val;
-    CHECK(sum == 6.0f);
+    CHECK(sum == 6.0F);
   }
 
   // Range-for with id() access via explicit iterator.
@@ -3138,8 +3140,8 @@ TEST_CASE("Iterator", "[MonoArchetypeStorage]") {
     storage_t s{r, sid};
     auto id0 = r.create_id(staging, 10);
     auto id1 = r.create_id(staging, 20);
-    CHECK(s.add(id0, 1.0f));
-    CHECK(s.add(id1, 2.0f));
+    CHECK(s.add(id0, 1.0F));
+    CHECK(s.add(id1, 2.0F));
     std::vector<id_t> ids;
     for (auto it = s.begin(); it != s.end(); ++it) ids.push_back(it.id());
     CHECK(ids.size() == 2U);
@@ -3154,18 +3156,18 @@ TEST_CASE("Iterator", "[MonoArchetypeStorage]") {
     auto id0 = r.create_id(staging, 10);
     auto id1 = r.create_id(staging, 20);
     auto id2 = r.create_id(staging, 30);
-    CHECK(s.add(id0, 1.0f));
-    CHECK(s.add(id1, 2.0f));
-    CHECK(s.add(id2, 3.0f));
+    CHECK(s.add(id0, 1.0F));
+    CHECK(s.add(id1, 2.0F));
+    CHECK(s.add(id2, 3.0F));
     auto it = s.begin();
-    CHECK(it[0] == 1.0f);
-    CHECK(it[2] == 3.0f);
+    CHECK(it[0] == 1.0F);
+    CHECK(it[2] == 3.0F);
     auto it2 = it + 2;
-    CHECK(*it2 == 3.0f);
+    CHECK(*it2 == 3.0F);
     CHECK(it2.id() == id2);
     CHECK((it2 - it) == 2);
     it2 -= 1;
-    CHECK(*it2 == 2.0f);
+    CHECK(*it2 == 2.0F);
   }
 
   // Comparison operators.
@@ -3174,8 +3176,8 @@ TEST_CASE("Iterator", "[MonoArchetypeStorage]") {
     storage_t s{r, sid};
     auto id0 = r.create_id(staging, 10);
     auto id1 = r.create_id(staging, 20);
-    CHECK(s.add(id0, 1.0f));
-    CHECK(s.add(id1, 2.0f));
+    CHECK(s.add(id0, 1.0F));
+    CHECK(s.add(id1, 2.0F));
     auto a = s.begin();
     auto b = s.begin() + 1;
     CHECK(a < b);
@@ -3190,15 +3192,15 @@ TEST_CASE("Iterator", "[MonoArchetypeStorage]") {
     storage_t s{r, sid};
     auto id0 = r.create_id(staging, 10);
     auto id1 = r.create_id(staging, 20);
-    CHECK(s.add(id0, 1.0f));
-    CHECK(s.add(id1, 2.0f));
+    CHECK(s.add(id0, 1.0F));
+    CHECK(s.add(id1, 2.0F));
     auto it = s.begin();
     auto prev = it++;
-    CHECK(*prev == 1.0f);
-    CHECK(*it == 2.0f);
+    CHECK(*prev == 1.0F);
+    CHECK(*it == 2.0F);
     auto next = it--;
-    CHECK(*next == 2.0f);
-    CHECK(*it == 1.0f);
+    CHECK(*next == 2.0F);
+    CHECK(*it == 1.0F);
   }
 
   // n + iterator (commutative).
@@ -3207,10 +3209,10 @@ TEST_CASE("Iterator", "[MonoArchetypeStorage]") {
     storage_t s{r, sid};
     auto id0 = r.create_id(staging, 10);
     auto id1 = r.create_id(staging, 20);
-    CHECK(s.add(id0, 1.0f));
-    CHECK(s.add(id1, 2.0f));
+    CHECK(s.add(id0, 1.0F));
+    CHECK(s.add(id1, 2.0F));
     auto it = 1 + s.begin();
-    CHECK(*it == 2.0f);
+    CHECK(*it == 2.0F);
   }
 }
 
@@ -3299,7 +3301,7 @@ TEST_CASE("Add", "[ChunkedArchetypeStorage]") {
     reg_t r;
     arch_t a{r, sid};
     auto id0 = r.create_id(staging, 10);
-    CHECK(a.add(id0, 42, 1.0f));
+    CHECK(a.add(id0, 42, 1.0F));
     CHECK(a.size() == 1U);
     CHECK(a.contains(id0));
     auto loc = r.get_location(id0);
@@ -3313,8 +3315,8 @@ TEST_CASE("Add", "[ChunkedArchetypeStorage]") {
     arch_t a{r, sid};
     arch_t b{r, store_id_t{2}};
     auto id0 = r.create_id(staging, 10);
-    CHECK(a.add(id0, 1, 1.0f));
-    CHECK_FALSE(b.add(id0, 2, 2.0f));
+    CHECK(a.add(id0, 1, 1.0F));
+    CHECK_FALSE(b.add(id0, 2, 2.0F));
   }
 
   // add(handle) succeeds for valid staging handle.
@@ -3322,7 +3324,7 @@ TEST_CASE("Add", "[ChunkedArchetypeStorage]") {
     reg_t r;
     arch_t a{r, sid};
     auto h = r.create_handle(staging, 10);
-    CHECK(a.add(h, 99, 1.5f));
+    CHECK(a.add(h, 99, 1.5F));
     CHECK(a.contains(h));
   }
 
@@ -3332,14 +3334,14 @@ TEST_CASE("Add", "[ChunkedArchetypeStorage]") {
     arch_t a{r, sid};
     auto h = r.create_handle(staging, 10);
     r.erase(h);
-    CHECK_FALSE(a.add(h, 1, 1.0f));
+    CHECK_FALSE(a.add(h, 1, 1.0F));
   }
 
   // add_new creates and adds entity atomically.
   if (true) {
     reg_t r;
     arch_t a{r, sid};
-    auto h = a.add_new(42, 7, 2.0f);
+    auto h = a.add_new(42, 7, 2.0F);
     CHECK(r.is_valid(h));
     CHECK(r[h.id()] == 42);
     CHECK(a.contains(h));
@@ -3353,9 +3355,9 @@ TEST_CASE("Add", "[ChunkedArchetypeStorage]") {
     auto id0 = r.create_id(staging, 10);
     auto id1 = r.create_id(staging, 20);
     auto id2 = r.create_id(staging, 30);
-    CHECK(a.add(id0, 1, 1.0f));
-    CHECK(a.add(id1, 2, 2.0f));
-    CHECK_FALSE(a.add(id2, 3, 3.0f));
+    CHECK(a.add(id0, 1, 1.0F));
+    CHECK(a.add(id1, 2, 2.0F));
+    CHECK_FALSE(a.add(id2, 3, 3.0F));
     CHECK(a.size() == 2U);
   }
 
@@ -3365,8 +3367,8 @@ TEST_CASE("Add", "[ChunkedArchetypeStorage]") {
     arch_t a{r, sid};
     auto id0 = r.create_id(staging, 10);
     auto id1 = r.create_id(staging, 20);
-    CHECK(a.add(id0, 1, 1.0f));
-    CHECK(a.add(id1, 2, 2.0f));
+    CHECK(a.add(id0, 1, 1.0F));
+    CHECK(a.add(id1, 2, 2.0F));
     CHECK_FALSE(a.set_limit(1U));
     CHECK(a.set_limit(3U));
     CHECK(a.limit() == 3U);
@@ -3379,7 +3381,7 @@ TEST_CASE("Add", "[ChunkedArchetypeStorage]") {
     auto id0 = r.create_id(staging, 10);
     CHECK(a.add(id0, 7));
     CHECK(a[id0].template component<int>() == 7);
-    CHECK(a[id0].template component<float>() == 0.0f);
+    CHECK(a[id0].template component<float>() == 0.0F);
   }
 
   // add with all components omitted: all are default-constructed.
@@ -3389,7 +3391,7 @@ TEST_CASE("Add", "[ChunkedArchetypeStorage]") {
     auto id0 = r.create_id(staging, 10);
     CHECK(a.add(id0));
     CHECK(a[id0].template component<int>() == 0);
-    CHECK(a[id0].template component<float>() == 0.0f);
+    CHECK(a[id0].template component<float>() == 0.0F);
   }
 
   // add_new with one trailing component omitted: it is default-constructed.
@@ -3399,7 +3401,7 @@ TEST_CASE("Add", "[ChunkedArchetypeStorage]") {
     auto h = a.add_new(42, 7);
     CHECK(r.is_valid(h));
     CHECK(a[h.id()].template component<int>() == 7);
-    CHECK(a[h.id()].template component<float>() == 0.0f);
+    CHECK(a[h.id()].template component<float>() == 0.0F);
   }
 
   // add_new with all components omitted: all are default-constructed.
@@ -3409,7 +3411,7 @@ TEST_CASE("Add", "[ChunkedArchetypeStorage]") {
     auto h = a.add_new(42);
     CHECK(r.is_valid(h));
     CHECK(a[h.id()].template component<int>() == 0);
-    CHECK(a[h.id()].template component<float>() == 0.0f);
+    CHECK(a[h.id()].template component<float>() == 0.0F);
   }
 }
 
@@ -3429,7 +3431,7 @@ TEST_CASE("RemoveAndErase", "[ChunkedArchetypeStorage]") {
     reg_t r;
     arch_t a{r, sid};
     auto id0 = r.create_id(staging, 10);
-    CHECK(a.add(id0, 1, 1.0f));
+    CHECK(a.add(id0, 1, 1.0F));
     CHECK(a.remove(id0));
     CHECK(a.size() == 0U);
     CHECK(r.is_valid(id0));
@@ -3442,8 +3444,8 @@ TEST_CASE("RemoveAndErase", "[ChunkedArchetypeStorage]") {
     arch_t a{r, sid};
     auto id0 = r.create_id(staging, 10);
     auto id1 = r.create_id(staging, 20);
-    CHECK(a.add(id0, 1, 1.0f));
-    CHECK(a.add(id1, 2, 2.0f));
+    CHECK(a.add(id0, 1, 1.0F));
+    CHECK(a.add(id1, 2, 2.0F));
     a.remove_all();
     CHECK(a.size() == 0U);
     CHECK(r.is_valid(id0));
@@ -3457,7 +3459,7 @@ TEST_CASE("RemoveAndErase", "[ChunkedArchetypeStorage]") {
     reg_t r;
     arch_t a{r, sid};
     auto id0 = r.create_id(staging, 10);
-    CHECK(a.add(id0, 1, 1.0f));
+    CHECK(a.add(id0, 1, 1.0F));
     CHECK(a.erase(id0));
     CHECK(a.size() == 0U);
     CHECK_FALSE(r.is_valid(id0));
@@ -3468,7 +3470,7 @@ TEST_CASE("RemoveAndErase", "[ChunkedArchetypeStorage]") {
     reg_t r;
     arch_t a{r, sid};
     auto h = r.create_handle(staging, 10);
-    CHECK(a.add(h, 1, 1.0f));
+    CHECK(a.add(h, 1, 1.0F));
     CHECK(a.erase(h));
     CHECK_FALSE(r.is_valid(h));
     CHECK_FALSE(a.erase(h));
@@ -3480,8 +3482,8 @@ TEST_CASE("RemoveAndErase", "[ChunkedArchetypeStorage]") {
     arch_t a{r, sid};
     auto id0 = r.create_id(staging, 10);
     auto id1 = r.create_id(staging, 20);
-    CHECK(a.add(id0, 1, 1.0f));
-    CHECK(a.add(id1, 2, 2.0f));
+    CHECK(a.add(id0, 1, 1.0F));
+    CHECK(a.add(id1, 2, 2.0F));
     a.clear();
     CHECK(a.size() == 0U);
     CHECK_FALSE(r.is_valid(id0));
@@ -3493,7 +3495,7 @@ TEST_CASE("RemoveAndErase", "[ChunkedArchetypeStorage]") {
     reg_t r;
     arch_t a{r, sid};
     auto h = r.create_handle(staging, 10);
-    CHECK(a.add(h, 5, 5.0f));
+    CHECK(a.add(h, 5, 5.0F));
     CHECK(a.remove(h));
     CHECK(a.size() == 0U);
     CHECK(r.is_valid(h));
@@ -3510,9 +3512,9 @@ TEST_CASE("RemoveAndErase", "[ChunkedArchetypeStorage]") {
     auto id0 = r.create_id(staging, 10);
     auto id1 = r.create_id(staging, 20);
     auto id2 = r.create_id(staging, 30);
-    CHECK(a.add(id0, 11, 1.1f));
-    CHECK(a.add(id1, 22, 2.2f));
-    CHECK(a.add(id2, 33, 3.3f));
+    CHECK(a.add(id0, 11, 1.1F));
+    CHECK(a.add(id1, 22, 2.2F));
+    CHECK(a.add(id2, 33, 3.3F));
     CHECK(a.erase(id0)); // id2 swaps into slot 0
     CHECK(a.size() == 2U);
     CHECK(a[id2].id() == id2);
@@ -3539,12 +3541,12 @@ TEST_CASE("RowAndIterator", "[ChunkedArchetypeStorage]") {
     reg_t r;
     arch_t a{r, sid};
     auto id0 = r.create_id(staging, 10);
-    CHECK(a.add(id0, 42, 2.0f));
+    CHECK(a.add(id0, 42, 2.0F));
     auto row = a[id0];
     CHECK(row.index() == 0U);
     CHECK(row.id() == id0);
     CHECK(row.component<int>() == 42);
-    CHECK(row.component<float>() == 2.0f);
+    CHECK(row.component<float>() == 2.0F);
     row.component<int>() = 99;
     CHECK(a[id0].component<int>() == 99);
   }
@@ -3554,9 +3556,9 @@ TEST_CASE("RowAndIterator", "[ChunkedArchetypeStorage]") {
     reg_t r;
     arch_t a{r, sid};
     auto id0 = r.create_id(staging, 10);
-    CHECK(a.add(id0, 5, 3.0f));
+    CHECK(a.add(id0, 5, 3.0F));
     CHECK(a[id0].component<0>() == 5);
-    CHECK(a[id0].component<1>() == 3.0f);
+    CHECK(a[id0].component<1>() == 3.0F);
     a[id0].component<0>() = 77;
     CHECK(a[id0].component<0>() == 77);
   }
@@ -3566,7 +3568,7 @@ TEST_CASE("RowAndIterator", "[ChunkedArchetypeStorage]") {
     reg_t r;
     arch_t a{r, sid};
     auto id0 = r.create_id(staging, 10);
-    CHECK(a.add(id0, 10, 1.0f));
+    CHECK(a.add(id0, 10, 1.0F));
     auto [i, f] = a[id0].components();
     CHECK(i == 10);
     i = 100;
@@ -3578,11 +3580,11 @@ TEST_CASE("RowAndIterator", "[ChunkedArchetypeStorage]") {
     reg_t r;
     arch_t a{r, sid};
     auto id0 = r.create_id(staging, 10);
-    CHECK(a.add(id0, 7, 4.0f));
+    CHECK(a.add(id0, 7, 4.0F));
     const auto& ca = a;
     auto [i, f] = ca[id0].components();
     CHECK(i == 7);
-    CHECK(f == 4.0f);
+    CHECK(f == 4.0F);
   }
 
   // Range-based for over mutable storage.
@@ -3592,9 +3594,9 @@ TEST_CASE("RowAndIterator", "[ChunkedArchetypeStorage]") {
     auto id0 = r.create_id(staging, 10);
     auto id1 = r.create_id(staging, 20);
     auto id2 = r.create_id(staging, 30);
-    CHECK(a.add(id0, 1, 0.0f));
-    CHECK(a.add(id1, 2, 0.0f));
-    CHECK(a.add(id2, 3, 0.0f));
+    CHECK(a.add(id0, 1, 0.0F));
+    CHECK(a.add(id1, 2, 0.0F));
+    CHECK(a.add(id2, 3, 0.0F));
     int sum = 0;
     for (auto row : a) sum += row.component<int>();
     CHECK(sum == 6);
@@ -3606,12 +3608,12 @@ TEST_CASE("RowAndIterator", "[ChunkedArchetypeStorage]") {
     arch_t a{r, sid};
     auto id0 = r.create_id(staging, 10);
     auto id1 = r.create_id(staging, 20);
-    CHECK(a.add(id0, 0, 1.0f));
-    CHECK(a.add(id1, 0, 2.0f));
+    CHECK(a.add(id0, 0, 1.0F));
+    CHECK(a.add(id1, 0, 2.0F));
     const auto& ca = a;
-    float fsum = 0.0f;
+    float fsum = 0.0F;
     for (const auto& row : ca) fsum += row.component<float>();
-    CHECK(fsum == 3.0f);
+    CHECK(fsum == 3.0F);
   }
 
   // Bidirectional iterator.
@@ -3620,8 +3622,8 @@ TEST_CASE("RowAndIterator", "[ChunkedArchetypeStorage]") {
     arch_t a{r, sid};
     auto id0 = r.create_id(staging, 10);
     auto id1 = r.create_id(staging, 20);
-    CHECK(a.add(id0, 5, 0.0f));
-    CHECK(a.add(id1, 6, 0.0f));
+    CHECK(a.add(id0, 5, 0.0F));
+    CHECK(a.add(id1, 6, 0.0F));
     auto it = a.end();
     --it;
     CHECK((*it).component<int>() == 6);
@@ -3643,8 +3645,8 @@ TEST_CASE("RowAndIterator", "[ChunkedArchetypeStorage]") {
     arch_t a{r, sid};
     auto id0 = r.create_id(staging, 10);
     auto id1 = r.create_id(staging, 20);
-    CHECK(a.add(id0, 1, 0.0f));
-    CHECK(a.add(id1, 2, 0.0f));
+    CHECK(a.add(id0, 1, 0.0F));
+    CHECK(a.add(id1, 2, 0.0F));
     for (auto row : a) row.component<int>() *= 10;
     CHECK(a[id0].component<int>() == 10);
     CHECK(a[id1].component<int>() == 20);
@@ -3655,11 +3657,11 @@ TEST_CASE("RowAndIterator", "[ChunkedArchetypeStorage]") {
     reg_t r;
     arch_t a{r, sid};
     auto id0 = r.create_id(staging, 10);
-    CHECK(a.add(id0, 7, 1.5f));
-    float fsum = 0.0f;
+    CHECK(a.add(id0, 7, 1.5F));
+    float fsum = 0.0F;
     for (auto it = a.cbegin(); it != a.cend(); ++it)
       fsum += it->component<float>();
-    CHECK(fsum == 1.5f);
+    CHECK(fsum == 1.5F);
     static_assert(
         std::is_same_v<decltype(a.cbegin()), arch_t::const_iterator>);
   }
@@ -3683,9 +3685,9 @@ TEST_CASE("EraseIf", "[ChunkedArchetypeStorage]") {
     auto id0 = r.create_id(staging, 10);
     auto id1 = r.create_id(staging, 20);
     auto id2 = r.create_id(staging, 30);
-    CHECK(a.add(id0, 11, 1.0f));
-    CHECK(a.add(id1, 22, 2.0f));
-    CHECK(a.add(id2, 33, 3.0f));
+    CHECK(a.add(id0, 11, 1.0F));
+    CHECK(a.add(id1, 22, 2.0F));
+    CHECK(a.add(id2, 33, 3.0F));
     auto cnt = a.erase_if([](const auto& row) {
       return row.template component<int>() % 2 != 0;
     });
@@ -3704,9 +3706,9 @@ TEST_CASE("EraseIf", "[ChunkedArchetypeStorage]") {
     auto id0 = r.create_id(staging, 10);
     auto id1 = r.create_id(staging, 20);
     auto id2 = r.create_id(staging, 30);
-    CHECK(a.add(id0, 10, 1.0f));
-    CHECK(a.add(id1, 20, 2.0f));
-    CHECK(a.add(id2, 30, 3.0f));
+    CHECK(a.add(id0, 10, 1.0F));
+    CHECK(a.add(id1, 20, 2.0F));
+    CHECK(a.add(id2, 30, 3.0F));
     auto cnt = a.erase_if_component<int>([](int v, auto) { return v > 15; });
     CHECK(cnt == 2U);
     CHECK(a.size() == 1U);
@@ -3720,9 +3722,9 @@ TEST_CASE("EraseIf", "[ChunkedArchetypeStorage]") {
     arch_t a{r, sid};
     auto id0 = r.create_id(staging, 10);
     auto id1 = r.create_id(staging, 20);
-    CHECK(a.add(id0, 5, 1.0f));
-    CHECK(a.add(id1, 5, 9.0f));
-    auto cnt = a.erase_if_component<1>([](float v, auto) { return v > 5.0f; });
+    CHECK(a.add(id0, 5, 1.0F));
+    CHECK(a.add(id1, 5, 9.0F));
+    auto cnt = a.erase_if_component<1>([](float v, auto) { return v > 5.0F; });
     CHECK(cnt == 1U);
     CHECK(a.size() == 1U);
     CHECK(r.is_valid(id0));
@@ -3993,8 +3995,8 @@ TEST_CASE("Basic", "[ArchetypeScene]") {
   // store_new_entity inserts into the chosen storage.
   if (true) {
     two_storage_scene_t s;
-    auto h = s.store_new_entity<scene_sid_t{1}>({}, Position{1.f, 2.f},
-        Velocity{3.f, 4.f});
+    auto h = s.store_new_entity<scene_sid_t{1}>({}, Position{1.F, 2.F},
+        Velocity{3.F, 4.F});
     CHECK(h);
     CHECK(s.size() == 1U);
     CHECK_FALSE(s.empty());
@@ -4002,8 +4004,8 @@ TEST_CASE("Basic", "[ArchetypeScene]") {
     CHECK(s.storage<scene_sid_t{2}>().size() == 0U);
     // Component values round-trip correctly.
     auto row = s.storage<scene_sid_t{1}>()[h.id()];
-    CHECK(row.component<Position>().x == 1.f);
-    CHECK(row.component<Velocity>().vx == 3.f);
+    CHECK(row.component<Position>().x == 1.F);
+    CHECK(row.component<Velocity>().vx == 3.F);
   }
 
   // store_new_entity by tuple type: SID inferred from tuple_t.
@@ -4011,21 +4013,21 @@ TEST_CASE("Basic", "[ArchetypeScene]") {
     two_storage_scene_t s;
     // `tuple<Position, Velocity>` is unique to storage 1.
     auto h1 = s.store_new_entity({},
-        std::tuple<Position, Velocity>{Position{1.f, 2.f},
-            Velocity{3.f, 4.f}});
+        std::tuple<Position, Velocity>{Position{1.F, 2.F},
+            Velocity{3.F, 4.F}});
     CHECK(h1);
     CHECK(s.storage<scene_sid_t{1}>().contains(h1.id()));
     auto row1 = s.storage<scene_sid_t{1}>()[h1.id()];
-    CHECK(row1.component<Position>().x == 1.f);
-    CHECK(row1.component<Velocity>().vx == 3.f);
+    CHECK(row1.component<Position>().x == 1.F);
+    CHECK(row1.component<Velocity>().vx == 3.F);
     // `tuple<Position, Velocity, Health>` is unique to storage 2.
     auto h2 = s.store_new_entity({},
-        std::tuple<Position, Velocity, Health>{Position{5.f, 6.f}, Velocity{},
+        std::tuple<Position, Velocity, Health>{Position{5.F, 6.F}, Velocity{},
             Health{42}});
     CHECK(h2);
     CHECK(s.storage<scene_sid_t{2}>().contains(h2.id()));
     auto row2 = s.storage<scene_sid_t{2}>()[h2.id()];
-    CHECK(row2.component<Position>().x == 5.f);
+    CHECK(row2.component<Position>().x == 5.F);
     CHECK(row2.component<Health>().hp == 42);
     CHECK(s.size() == 2U);
   }
@@ -4054,9 +4056,9 @@ TEST_CASE("EraseRemove", "[ArchetypeScene]") {
   if (true) {
     two_storage_scene_t s;
     auto h0 =
-        s.store_new_entity<scene_sid_t{1}>({}, Position{1.f, 0.f}, Velocity{});
+        s.store_new_entity<scene_sid_t{1}>({}, Position{1.F, 0.F}, Velocity{});
     auto h1 =
-        s.store_new_entity<scene_sid_t{1}>({}, Position{2.f, 0.f}, Velocity{});
+        s.store_new_entity<scene_sid_t{1}>({}, Position{2.F, 0.F}, Velocity{});
     auto id0 = h0.id();
     CHECK(s.erase_entity(id0));
     CHECK(id0 == scene_reg_t::id_t::invalid); // invalidated on success
@@ -4135,8 +4137,8 @@ TEST_CASE("Migrate_Manual", "[ArchetypeScene]") {
   // Promote from arch_pv to arch_pvh, providing a new Health component.
   if (true) {
     two_storage_scene_t s;
-    auto h = s.store_new_entity<scene_sid_t{1}>({}, Position{1.f, 2.f},
-        Velocity{3.f, 4.f});
+    auto h = s.store_new_entity<scene_sid_t{1}>({}, Position{1.F, 2.F},
+        Velocity{3.F, 4.F});
     auto id = h.id();
     CHECK(s.storage<scene_sid_t{1}>().contains(id));
 
@@ -4151,16 +4153,16 @@ TEST_CASE("Migrate_Manual", "[ArchetypeScene]") {
     CHECK(s.storage<scene_sid_t{2}>().contains(id));
     // Component values preserved and new one set.
     auto row = s.storage<scene_sid_t{2}>()[id];
-    CHECK(row.component<Position>().x == 1.f);
-    CHECK(row.component<Velocity>().vx == 3.f);
+    CHECK(row.component<Position>().x == 1.F);
+    CHECK(row.component<Velocity>().vx == 3.F);
     CHECK(row.component<Health>().hp == 99);
   }
 
   // Migrate via handle overload.
   if (true) {
     two_storage_scene_t s;
-    auto h = s.store_new_entity<scene_sid_t{1}>({}, Position{5.f, 6.f},
-        Velocity{7.f, 8.f});
+    auto h = s.store_new_entity<scene_sid_t{1}>({}, Position{5.F, 6.F},
+        Velocity{7.F, 8.F});
     auto build2 = [](const auto& row) {
       return std::tuple<Position, Velocity, Health>{
           row.template component<Position>(),
@@ -4196,16 +4198,16 @@ TEST_CASE("Migrate_Auto", "[ArchetypeScene]") {
   // Health). Health should be default-constructed (hp=100).
   if (true) {
     two_storage_scene_t s;
-    auto h = s.store_new_entity<scene_sid_t{1}>({}, Position{1.f, 2.f},
-        Velocity{3.f, 4.f});
+    auto h = s.store_new_entity<scene_sid_t{1}>({}, Position{1.F, 2.F},
+        Velocity{3.F, 4.F});
     auto id = h.id();
     bool ok_promote = s.migrate_entity(id, scene_sid_t{2});
     CHECK(ok_promote);
     CHECK_FALSE(s.storage<scene_sid_t{1}>().contains(id));
     CHECK(s.storage<scene_sid_t{2}>().contains(id));
     auto row = s.storage<scene_sid_t{2}>()[id];
-    CHECK(row.component<Position>().x == 1.f);
-    CHECK(row.component<Velocity>().vx == 3.f);
+    CHECK(row.component<Position>().x == 1.F);
+    CHECK(row.component<Velocity>().vx == 3.F);
     CHECK(row.component<Health>().hp == 100); // default-constructed
   }
 
@@ -4213,23 +4215,23 @@ TEST_CASE("Migrate_Auto", "[ArchetypeScene]") {
   // are copied.
   if (true) {
     two_storage_scene_t s;
-    auto h = s.store_new_entity<scene_sid_t{2}>({}, Position{5.f, 6.f},
-        Velocity{7.f, 8.f}, Health{42});
+    auto h = s.store_new_entity<scene_sid_t{2}>({}, Position{5.F, 6.F},
+        Velocity{7.F, 8.F}, Health{42});
     auto id = h.id();
     bool ok_demote = s.migrate_entity(id, scene_sid_t{1});
     CHECK(ok_demote);
     CHECK_FALSE(s.storage<scene_sid_t{2}>().contains(id));
     CHECK(s.storage<scene_sid_t{1}>().contains(id));
     auto row = s.storage<scene_sid_t{1}>()[id];
-    CHECK(row.component<Position>().x == 5.f);
-    CHECK(row.component<Velocity>().vx == 7.f);
+    CHECK(row.component<Position>().x == 5.F);
+    CHECK(row.component<Velocity>().vx == 7.F);
   }
 
   // Auto-migrate via handle overload.
   if (true) {
     two_storage_scene_t s;
     auto h =
-        s.store_new_entity<scene_sid_t{1}>({}, Position{9.f, 0.f}, Velocity{});
+        s.store_new_entity<scene_sid_t{1}>({}, Position{9.F, 0.F}, Velocity{});
     bool ok_h = s.migrate_entity(h, scene_sid_t{2});
     CHECK(ok_h);
     CHECK(s.storage<scene_sid_t{2}>().contains(h.id()));
@@ -4239,8 +4241,8 @@ TEST_CASE("Migrate_Auto", "[ArchetypeScene]") {
   // components default-constructed.
   if (true) {
     three_storage_scene_t s;
-    auto h = s.store_new_entity<scene_sid_t{1}>({}, Position{1.f, 1.f},
-        Velocity{2.f, 2.f});
+    auto h = s.store_new_entity<scene_sid_t{1}>({}, Position{1.F, 1.F},
+        Velocity{2.F, 2.F});
     auto id = h.id();
     bool ok_cross = s.migrate_entity(id, scene_sid_t{3}); // arch_pv -> arch_h
     CHECK(ok_cross);
@@ -4401,8 +4403,8 @@ TEST_CASE("MultiStorage", "[ArchetypeScene]") {
     three_storage_scene_t s;
     // Add entities to each of the three storages.
     auto h0 =
-        s.store_new_entity<scene_sid_t{1}>({}, Position{1.f, 0.f}, Velocity{});
-    auto h1 = s.store_new_entity<scene_sid_t{2}>({}, Position{2.f, 0.f},
+        s.store_new_entity<scene_sid_t{1}>({}, Position{1.F, 0.F}, Velocity{});
+    auto h1 = s.store_new_entity<scene_sid_t{2}>({}, Position{2.F, 0.F},
         Velocity{}, Health{50});
     auto h2 = s.store_new_entity<scene_sid_t{3}>({}, Health{75});
     CHECK(s.size() == 3U);
@@ -4447,10 +4449,10 @@ TEST_CASE("MixedStorages", "[ArchetypeScene]") {
   // add_new into each storage type; size() sums all three.
   if (true) {
     mixed_scene_t s;
-    auto h0 = s.store_new_entity<scene_sid_t{1}>({}, Position{1.f, 2.f},
-        Velocity{3.f, 4.f});
+    auto h0 = s.store_new_entity<scene_sid_t{1}>({}, Position{1.F, 2.F},
+        Velocity{3.F, 4.F});
     auto h1 = s.store_new_entity<scene_sid_t{2}>({}, Health{50});
-    auto h2 = s.store_new_entity<scene_sid_t{3}>({}, Position{5.f, 6.f});
+    auto h2 = s.store_new_entity<scene_sid_t{3}>({}, Position{5.F, 6.F});
     CHECK(h0);
     CHECK(h1);
     CHECK(h2);
@@ -4460,9 +4462,9 @@ TEST_CASE("MixedStorages", "[ArchetypeScene]") {
     CHECK(s.storage<scene_sid_t{3}>().size() == 1U);
     // Component values round-trip correctly through each storage type.
     CHECK((s.storage<scene_sid_t{1}>()[h0.id()].component<Position>().x) ==
-          (1.f));
+          (1.F));
     CHECK(s.storage<scene_sid_t{2}>()[h1.id()].component<Health>().hp == 50);
-    CHECK(s.storage<scene_sid_t{3}>()[h2.id()].x == 5.f);
+    CHECK(s.storage<scene_sid_t{3}>()[h2.id()].x == 5.F);
   }
 
   // erase_entity dispatches to the correct storage regardless of type.
@@ -4484,15 +4486,15 @@ TEST_CASE("MixedStorages", "[ArchetypeScene]") {
   // Position is copied; Velocity is dropped (not in dst).
   if (true) {
     mixed_scene_t s;
-    auto h = s.store_new_entity<scene_sid_t{1}>({}, Position{7.f, 8.f},
-        Velocity{9.f, 10.f});
+    auto h = s.store_new_entity<scene_sid_t{1}>({}, Position{7.F, 8.F},
+        Velocity{9.F, 10.F});
     auto id = h.id();
     bool ok = s.migrate_entity(id, scene_sid_t{3});
     CHECK(ok);
     CHECK_FALSE(s.storage<scene_sid_t{1}>().contains(id));
     CHECK(s.storage<scene_sid_t{3}>().contains(id));
     // Position carried over; mono_archetype_storage's direct C& access works.
-    CHECK(s.storage<scene_sid_t{3}>()[id].x == 7.f);
+    CHECK(s.storage<scene_sid_t{3}>()[id].x == 7.F);
   }
 
   // Migrate chunked_h (Health) -> comp_pos (Position).
@@ -4505,22 +4507,22 @@ TEST_CASE("MixedStorages", "[ArchetypeScene]") {
     CHECK(ok);
     CHECK_FALSE(s.storage<scene_sid_t{2}>().contains(id));
     CHECK(s.storage<scene_sid_t{3}>().contains(id));
-    CHECK(s.storage<scene_sid_t{3}>()[id].x == 0.f); // default Position{}.x
+    CHECK(s.storage<scene_sid_t{3}>()[id].x == 0.F); // default Position{}.x
   }
 
   // Migrate comp_pos (Position) -> arch_pv (Position, Velocity).
   // Position is copied; Velocity is default-constructed.
   if (true) {
     mixed_scene_t s;
-    auto h = s.store_new_entity<scene_sid_t{3}>({}, Position{3.f, 4.f});
+    auto h = s.store_new_entity<scene_sid_t{3}>({}, Position{3.F, 4.F});
     auto id = h.id();
     bool ok = s.migrate_entity(id, scene_sid_t{1});
     CHECK(ok);
     CHECK_FALSE(s.storage<scene_sid_t{3}>().contains(id));
     CHECK(s.storage<scene_sid_t{1}>().contains(id));
     auto row = s.storage<scene_sid_t{1}>()[id];
-    CHECK(row.component<Position>().x == 3.f);
-    CHECK(row.component<Velocity>().vx == 0.f); // default-constructed
+    CHECK(row.component<Position>().x == 3.F);
+    CHECK(row.component<Velocity>().vx == 0.F); // default-constructed
   }
 
   // clear() empties all three storage types.
@@ -4552,10 +4554,10 @@ TEST_CASE("At", "[ArchetypeStorage]") {
     reg_t r;
     arch_t a{r, sid};
     auto id0 = r.create_id(staging, 10);
-    CHECK(a.add(id0, 42, 1.5f));
+    CHECK(a.add(id0, 42, 1.5F));
     auto row = a.at(id0);
     CHECK(row.component<int>() == 42);
-    CHECK(row.component<float>() == 1.5f);
+    CHECK(row.component<float>() == 1.5F);
     row.component<int>() = 99;
     CHECK(a[id0].component<int>() == 99);
   }
@@ -4565,11 +4567,11 @@ TEST_CASE("At", "[ArchetypeStorage]") {
     reg_t r;
     arch_t a{r, sid};
     auto id0 = r.create_id(staging, 10);
-    CHECK(a.add(id0, 7, 2.0f));
+    CHECK(a.add(id0, 7, 2.0F));
     const auto& ca = a;
     auto row = ca.at(id0);
     CHECK(row.component<int>() == 7);
-    CHECK(row.component<float>() == 2.0f);
+    CHECK(row.component<float>() == 2.0F);
   }
 
   // at(id_t) throws std::out_of_range when entity is not in this storage.
@@ -4587,14 +4589,14 @@ TEST_CASE("At", "[ArchetypeStorage]") {
     reg_t r;
     arch_t a{r, sid};
     auto h = r.create_handle(staging, 5);
-    CHECK(a.add(h.id(), 3, 0.5f));
+    CHECK(a.add(h.id(), 3, 0.5F));
     auto row = a.at(h);
     CHECK(row.component<int>() == 3);
-    row.component<float>() = 9.9f;
-    CHECK(a[h.id()].component<float>() == 9.9f);
+    row.component<float>() = 9.9F;
+    CHECK(a[h.id()].component<float>() == 9.9F);
     const auto& ca = a;
     auto crow = ca.at(h);
-    CHECK(crow.component<float>() == 9.9f);
+    CHECK(crow.component<float>() == 9.9F);
   }
 
   // at(handle_t) throws std::invalid_argument for an invalid handle.
@@ -4613,7 +4615,7 @@ TEST_CASE("At", "[ArchetypeStorage]") {
     arch_t a1{r, sid};
     arch_t a2{r, store_id_t{2}};
     auto h = r.create_handle(staging, 5);
-    CHECK(a1.add(h.id(), 1, 1.0f));
+    CHECK(a1.add(h.id(), 1, 1.0F));
     CHECK_THROWS_AS(a2.at(h), std::invalid_argument);
     const auto& ca2 = a2;
     CHECK_THROWS_AS(ca2.at(h), std::invalid_argument);
@@ -4638,9 +4640,9 @@ TEST_CASE("RemoveIf", "[ArchetypeStorage]") {
     auto id0 = r.create_id(staging, 10);
     auto id1 = r.create_id(staging, 20);
     auto id2 = r.create_id(staging, 30);
-    CHECK(a.add(id0, 11, 1.0f));
-    CHECK(a.add(id1, 22, 2.0f));
-    CHECK(a.add(id2, 33, 3.0f));
+    CHECK(a.add(id0, 11, 1.0F));
+    CHECK(a.add(id1, 22, 2.0F));
+    CHECK(a.add(id2, 33, 3.0F));
     auto cnt = a.remove_if([](const auto& row) {
       return row.template component<int>() % 2 != 0;
     });
@@ -4662,7 +4664,7 @@ TEST_CASE("RemoveIf", "[ArchetypeStorage]") {
     reg_t r;
     arch_t a{r, sid};
     auto id0 = r.create_id(staging, 10);
-    CHECK(a.add(id0, 5, 0.5f));
+    CHECK(a.add(id0, 5, 0.5F));
     auto cnt = a.remove_if([](const auto&) { return false; });
     CHECK(cnt == 0U);
     CHECK(a.size() == 1U);
@@ -4675,15 +4677,15 @@ TEST_CASE("RemoveIf", "[ArchetypeStorage]") {
     arch_t a{r, sid};
     auto id0 = r.create_id(staging, 10);
     auto id1 = r.create_id(staging, 20);
-    CHECK(a.add(id0, 1, 1.0f));
-    CHECK(a.add(id1, 2, 2.0f));
+    CHECK(a.add(id0, 1, 1.0F));
+    CHECK(a.add(id1, 2, 2.0F));
     auto cnt = a.remove_if([](const auto&) { return true; });
     CHECK(cnt == 2U);
     CHECK(a.size() == 0U);
     CHECK(r.is_valid(id0));
     CHECK(r.is_valid(id1));
     // Staged entities can be re-added.
-    CHECK(a.add(id0, 1, 1.0f));
+    CHECK(a.add(id0, 1, 1.0F));
     CHECK(a.size() == 1U);
   }
 
@@ -4694,9 +4696,9 @@ TEST_CASE("RemoveIf", "[ArchetypeStorage]") {
     auto id0 = r.create_id(staging, 10);
     auto id1 = r.create_id(staging, 20);
     auto id2 = r.create_id(staging, 30);
-    CHECK(a.add(id0, 10, 1.0f));
-    CHECK(a.add(id1, 20, 2.0f));
-    CHECK(a.add(id2, 30, 3.0f));
+    CHECK(a.add(id0, 10, 1.0F));
+    CHECK(a.add(id1, 20, 2.0F));
+    CHECK(a.add(id2, 30, 3.0F));
     auto cnt = a.remove_if_component<int>([](int v, auto) { return v > 15; });
     CHECK(cnt == 2U);
     CHECK(a.size() == 1U);
@@ -4713,10 +4715,10 @@ TEST_CASE("RemoveIf", "[ArchetypeStorage]") {
     arch_t a{r, sid};
     auto id0 = r.create_id(staging, 10);
     auto id1 = r.create_id(staging, 20);
-    CHECK(a.add(id0, 5, 1.0f));
-    CHECK(a.add(id1, 5, 9.0f));
+    CHECK(a.add(id0, 5, 1.0F));
+    CHECK(a.add(id1, 5, 9.0F));
     auto cnt = a.remove_if_component<1>([](float v, auto) {
-      return v > 5.0f;
+      return v > 5.0F;
     });
     CHECK(cnt == 1U);
     CHECK(a.size() == 1U);
@@ -4743,8 +4745,8 @@ TEST_CASE("IteratorPostIncDec", "[ArchetypeStorage]") {
     arch_t a{r, sid};
     auto id0 = r.create_id(staging, 10);
     auto id1 = r.create_id(staging, 20);
-    CHECK(a.add(id0, 1, 0.0f));
-    CHECK(a.add(id1, 2, 0.0f));
+    CHECK(a.add(id0, 1, 0.0F));
+    CHECK(a.add(id1, 2, 0.0F));
     auto it = a.begin();
     auto prev = it++;
     CHECK((*prev).component<int>() == 1);
@@ -4760,8 +4762,8 @@ TEST_CASE("IteratorPostIncDec", "[ArchetypeStorage]") {
     arch_t a{r, sid};
     auto id0 = r.create_id(staging, 10);
     auto id1 = r.create_id(staging, 20);
-    CHECK(a.add(id0, 5, 0.0f));
-    CHECK(a.add(id1, 6, 0.0f));
+    CHECK(a.add(id0, 5, 0.0F));
+    CHECK(a.add(id1, 6, 0.0F));
     auto it = a.end();
     auto prev = it--;
     CHECK(prev == a.end());
@@ -4778,8 +4780,8 @@ TEST_CASE("IteratorPostIncDec", "[ArchetypeStorage]") {
     arch_t a{r, sid};
     auto id0 = r.create_id(staging, 10);
     auto id1 = r.create_id(staging, 20);
-    CHECK(a.add(id0, 7, 0.0f));
-    CHECK(a.add(id1, 8, 0.0f));
+    CHECK(a.add(id0, 7, 0.0F));
+    CHECK(a.add(id1, 8, 0.0F));
     const auto& ca = a;
     auto it = ca.begin();
     auto prev = it++;
@@ -4793,8 +4795,8 @@ TEST_CASE("IteratorPostIncDec", "[ArchetypeStorage]") {
     arch_t a{r, sid};
     auto id0 = r.create_id(staging, 10);
     auto id1 = r.create_id(staging, 20);
-    CHECK(a.add(id0, 3, 0.0f));
-    CHECK(a.add(id1, 4, 0.0f));
+    CHECK(a.add(id0, 3, 0.0F));
+    CHECK(a.add(id1, 4, 0.0F));
     const auto& ca = a;
     auto it = ca.end();
     auto prev = it--;
@@ -4819,7 +4821,7 @@ TEST_CASE("At", "[ChunkedArchetypeStorage]") {
     reg_t r;
     arch_t a{r, sid};
     auto id0 = r.create_id(staging, 10);
-    CHECK(a.add(id0, 42, 1.5f));
+    CHECK(a.add(id0, 42, 1.5F));
     auto row = a.at(id0);
     CHECK(row.component<int>() == 42);
     row.component<int>() = 99;
@@ -4831,7 +4833,7 @@ TEST_CASE("At", "[ChunkedArchetypeStorage]") {
     reg_t r;
     arch_t a{r, sid};
     auto id0 = r.create_id(staging, 10);
-    CHECK(a.add(id0, 7, 2.0f));
+    CHECK(a.add(id0, 7, 2.0F));
     const auto& ca = a;
     auto row = ca.at(id0);
     CHECK(row.component<int>() == 7);
@@ -4852,7 +4854,7 @@ TEST_CASE("At", "[ChunkedArchetypeStorage]") {
     reg_t r;
     arch_t a{r, sid};
     auto h = r.create_handle(staging, 5);
-    CHECK(a.add(h.id(), 3, 0.5f));
+    CHECK(a.add(h.id(), 3, 0.5F));
     auto row = a.at(h);
     CHECK(row.component<int>() == 3);
     const auto& ca = a;
@@ -4889,9 +4891,9 @@ TEST_CASE("RemoveIf", "[ChunkedArchetypeStorage]") {
     auto id0 = r.create_id(staging, 10);
     auto id1 = r.create_id(staging, 20);
     auto id2 = r.create_id(staging, 30);
-    CHECK(a.add(id0, 11, 1.0f));
-    CHECK(a.add(id1, 22, 2.0f));
-    CHECK(a.add(id2, 33, 3.0f));
+    CHECK(a.add(id0, 11, 1.0F));
+    CHECK(a.add(id1, 22, 2.0F));
+    CHECK(a.add(id2, 33, 3.0F));
     auto cnt = a.remove_if([](const auto& row) {
       return row.template component<int>() % 2 != 0;
     });
@@ -4911,9 +4913,9 @@ TEST_CASE("RemoveIf", "[ChunkedArchetypeStorage]") {
     auto id0 = r.create_id(staging, 10);
     auto id1 = r.create_id(staging, 20);
     auto id2 = r.create_id(staging, 30);
-    CHECK(a.add(id0, 10, 1.0f));
-    CHECK(a.add(id1, 20, 2.0f));
-    CHECK(a.add(id2, 30, 3.0f));
+    CHECK(a.add(id0, 10, 1.0F));
+    CHECK(a.add(id1, 20, 2.0F));
+    CHECK(a.add(id2, 30, 3.0F));
     auto cnt = a.remove_if_component<int>([](int v, auto) { return v > 15; });
     CHECK(cnt == 2U);
     CHECK(a.size() == 1U);
@@ -4928,10 +4930,10 @@ TEST_CASE("RemoveIf", "[ChunkedArchetypeStorage]") {
     arch_t a{r, sid};
     auto id0 = r.create_id(staging, 10);
     auto id1 = r.create_id(staging, 20);
-    CHECK(a.add(id0, 5, 1.0f));
-    CHECK(a.add(id1, 5, 9.0f));
+    CHECK(a.add(id0, 5, 1.0F));
+    CHECK(a.add(id1, 5, 9.0F));
     auto cnt = a.remove_if_component<1>([](float v, auto) {
-      return v > 5.0f;
+      return v > 5.0F;
     });
     CHECK(cnt == 1U);
     CHECK(a.size() == 1U);
@@ -4956,9 +4958,9 @@ TEST_CASE("RowView", "[MonoArchetypeStorage]") {
     reg_t r;
     cs_t cs{r, sid};
     auto id0 = r.create_id(staging, 10);
-    CHECK(cs.add(id0, 3.14f));
+    CHECK(cs.add(id0, 3.14F));
     const auto& ccs = cs;
-    CHECK(ccs[id0].component<float>() == 3.14f);
+    CHECK(ccs[id0].component<float>() == 3.14F);
   }
 
   // row_view::id() returns the entity ID.
@@ -4967,8 +4969,8 @@ TEST_CASE("RowView", "[MonoArchetypeStorage]") {
     cs_t cs{r, sid};
     auto id0 = r.create_id(staging, 10);
     auto id1 = r.create_id(staging, 20);
-    CHECK(cs.add(id0, 1.0f));
-    CHECK(cs.add(id1, 2.0f));
+    CHECK(cs.add(id0, 1.0F));
+    CHECK(cs.add(id1, 2.0F));
     const auto& ccs = cs;
     CHECK(ccs[id0].id() == id0);
     CHECK(ccs[id1].id() == id1);
@@ -4979,10 +4981,10 @@ TEST_CASE("RowView", "[MonoArchetypeStorage]") {
     reg_t r;
     cs_t cs{r, sid};
     auto id0 = r.create_id(staging, 10);
-    CHECK(cs.add(id0, 2.5f));
-    CHECK(cs.at(id0) == 2.5f);
-    cs.at(id0) = 9.9f;
-    CHECK(cs[id0] == 9.9f);
+    CHECK(cs.add(id0, 2.5F));
+    CHECK(cs.at(id0) == 2.5F);
+    cs.at(id0) = 9.9F;
+    CHECK(cs[id0] == 9.9F);
     // at(id_t) throws std::out_of_range for absent entity.
     auto id1 = r.create_id(staging, 20);
     CHECK_THROWS_AS(cs.at(id1), std::out_of_range);
@@ -4995,10 +4997,10 @@ TEST_CASE("RowView", "[MonoArchetypeStorage]") {
     reg_t r;
     cs_t cs{r, sid};
     auto h = r.create_handle(staging, 5);
-    CHECK(cs.add(h.id(), 7.0f));
-    CHECK(cs.at(h) == 7.0f);
+    CHECK(cs.add(h.id(), 7.0F));
+    CHECK(cs.at(h) == 7.0F);
     const auto& ccs = cs;
-    CHECK(ccs.at(h).component<float>() == 7.0f);
+    CHECK(ccs.at(h).component<float>() == 7.0F);
     CHECK(ccs.at(h).id() == h.id());
     reg_t::handle_t bad{};
     CHECK_THROWS_AS(cs.at(bad), std::invalid_argument);
@@ -5039,11 +5041,11 @@ TEST_CASE("StorageTypeAccess", "[ArchetypeScene]") {
   // Data is visible through both access paths after insertion.
   if (true) {
     two_storage_scene_t s;
-    auto h = s.store_new_entity<scene_sid_t{1}>({}, Position{1.f, 2.f},
-        Velocity{3.f, 4.f});
+    auto h = s.store_new_entity<scene_sid_t{1}>({}, Position{1.F, 2.F},
+        Velocity{3.F, 4.F});
     const auto& st = s.storage<arch_pv_t>();
     CHECK(st.size() == 1U);
-    CHECK(st[h.id()].component<Position>().x == 1.f);
+    CHECK(st[h.id()].component<Position>().x == 1.F);
   }
 }
 
@@ -5080,8 +5082,8 @@ TEST_CASE("Tag", "[ArchetypeStorage]") {
     CHECK(sa.store_id() == scene_sid_t{1});
     CHECK(sb.store_id() == scene_sid_t{2});
     // Entities are inserted into and retrieved from the correct typed storage.
-    auto ha = s.store_new_entity<scene_sid_t{1}>({}, 10, 1.0f);
-    auto hb = s.store_new_entity<scene_sid_t{2}>({}, 20, 2.0f);
+    auto ha = s.store_new_entity<scene_sid_t{1}>({}, 10, 1.0F);
+    auto hb = s.store_new_entity<scene_sid_t{2}>({}, 20, 2.0F);
     CHECK(s.size() == 2U);
     CHECK(sa[ha.id()].component<int>() == 10);
     CHECK(sb[hb.id()].component<int>() == 20);
@@ -5145,8 +5147,8 @@ TEST_CASE("SwapAndMove", "[ChunkedArchetypeStorage]") {
     arch_t b{r, sid2};
     auto id0 = r.create_id(staging, 10);
     auto id1 = r.create_id(staging, 20);
-    CHECK(a.add(id0, 11, 1.0f));
-    CHECK(b.add(id1, 22, 2.0f));
+    CHECK(a.add(id0, 11, 1.0F));
+    CHECK(b.add(id1, 22, 2.0F));
     a.swap(b);
     CHECK(a.store_id() == sid2);
     CHECK(b.store_id() == sid1);
@@ -5163,8 +5165,8 @@ TEST_CASE("SwapAndMove", "[ChunkedArchetypeStorage]") {
     arch_t b{r, sid2};
     auto id0 = r.create_id(staging, 10);
     auto id1 = r.create_id(staging, 20);
-    CHECK(a.add(id0, 11, 1.0f));
-    CHECK(b.add(id1, 22, 2.0f));
+    CHECK(a.add(id0, 11, 1.0F));
+    CHECK(b.add(id1, 22, 2.0F));
     swap(a, b);
     CHECK(a.store_id() == sid2);
     CHECK(b.store_id() == sid1);
@@ -5178,7 +5180,7 @@ TEST_CASE("SwapAndMove", "[ChunkedArchetypeStorage]") {
     arch_t a{r, sid1};
     a.reserve(100);
     auto id0 = r.create_id(staging, 10);
-    CHECK(a.add(id0, 1, 1.0f));
+    CHECK(a.add(id0, 1, 1.0F));
     a.shrink_to_fit();
     CHECK(a.size() == 1U);
     CHECK((a.capacity()) < (100U));
@@ -5191,7 +5193,7 @@ TEST_CASE("SwapAndMove", "[ChunkedArchetypeStorage]") {
     auto id0 = r.create_id(staging, 10);
     {
       arch_t a{r, sid1};
-      CHECK(a.add(id0, 42, 1.0f));
+      CHECK(a.add(id0, 42, 1.0F));
       arch_t b{std::move(a)};
       CHECK(b.size() == 1U);
       CHECK(b.store_id() == sid1);
@@ -5208,7 +5210,7 @@ TEST_CASE("SwapAndMove", "[ChunkedArchetypeStorage]") {
     {
       arch_t a{r, sid1};
       arch_t b{r, sid2};
-      CHECK(a.add(id0, 7, 7.0f));
+      CHECK(a.add(id0, 7, 7.0F));
       b = std::move(a);
       CHECK(b.size() == 1U);
       CHECK(b.store_id() == sid1);
@@ -5224,8 +5226,8 @@ TEST_CASE("SwapAndMove", "[ChunkedArchetypeStorage]") {
     auto id1 = r.create_id(staging, 20);
     {
       arch_t a{r, sid1};
-      CHECK(a.add(id0, 1, 1.0f));
-      CHECK(a.add(id1, 2, 2.0f));
+      CHECK(a.add(id0, 1, 1.0F));
+      CHECK(a.add(id1, 2, 2.0F));
     } // destructor fires
     CHECK_FALSE(r.is_valid(id0));
     CHECK_FALSE(r.is_valid(id1));
@@ -5438,12 +5440,12 @@ TEST_CASE("Basic", "[ComponentStorage]") {
     cs_store_t s{r, cs_sid_t{1}};
     auto id0 = r.create_id({}, 10);
     auto id1 = r.create_id({}, 20);
-    CHECK(s.add(id0, 1.0f));
-    CHECK(s.add(id1, 2.0f));
+    CHECK(s.add(id0, 1.0F));
+    CHECK(s.add(id1, 2.0F));
     CHECK(s.size() == 2U);
     CHECK_FALSE(s.empty());
-    CHECK(s[id0] == 1.0f);
-    CHECK(s[id1] == 2.0f);
+    CHECK(s[id0] == 1.0F);
+    CHECK(s[id1] == 2.0F);
   }
 
   // contains() returns true only for entities in this storage.
@@ -5452,7 +5454,7 @@ TEST_CASE("Basic", "[ComponentStorage]") {
     cs_store_t s{r, cs_sid_t{1}};
     auto id0 = r.create_id({}, 0);
     CHECK_FALSE(s.contains(id0));
-    CHECK(s.add(id0, 1.0f));
+    CHECK(s.add(id0, 1.0F));
     CHECK(s.contains(id0));
     CHECK_FALSE(s.contains(cs_id_t{99})); // out of range
   }
@@ -5461,7 +5463,7 @@ TEST_CASE("Basic", "[ComponentStorage]") {
   if (true) {
     cs_reg_t r;
     cs_store_t s{r, cs_sid_t{1}};
-    auto h = s.add_new(9.0f);
+    auto h = s.add_new(9.0F);
     CHECK(s.contains(h));
     cs_reg_t::handle_t bad{};
     CHECK_FALSE(s.contains(bad));
@@ -5475,20 +5477,20 @@ TEST_CASE("Basic", "[ComponentStorage]") {
     cs_reg_t r;
     cs_store_t s{r, cs_sid_t{1}};
     auto id0 = r.create_id({}, 0);
-    CHECK(s.add(id0, 1.0f));
-    CHECK_FALSE(s.add(id0, 2.0f)); // already in storage
+    CHECK(s.add(id0, 1.0F));
+    CHECK_FALSE(s.add(id0, 2.0F)); // already in storage
     CHECK(s.size() == 1U);
-    CHECK(s[id0] == 1.0f);
+    CHECK(s[id0] == 1.0F);
   }
 
   // add_new() creates entity and adds in one step.
   if (true) {
     cs_reg_t r;
     cs_store_t s{r, cs_sid_t{1}};
-    auto h = s.add_new({}, 3.14f);
+    auto h = s.add_new({}, 3.14F);
     CHECK(static_cast<bool>(h));
     CHECK(s.contains(h.id()));
-    CHECK(s[h.id()] == 3.14f);
+    CHECK(s[h.id()] == 3.14F);
   }
 
   // Mutable operator[] modifies in place.
@@ -5496,9 +5498,9 @@ TEST_CASE("Basic", "[ComponentStorage]") {
     cs_reg_t r;
     cs_store_t s{r, cs_sid_t{1}};
     auto id0 = r.create_id({}, 0);
-    CHECK(s.add(id0, 1.0f));
-    s[id0] = 99.0f;
-    CHECK(s[id0] == 99.0f);
+    CHECK(s.add(id0, 1.0F));
+    s[id0] = 99.0F;
+    CHECK(s[id0] == 99.0F);
   }
 
   // Const operator[] returns row_view.
@@ -5506,10 +5508,10 @@ TEST_CASE("Basic", "[ComponentStorage]") {
     cs_reg_t r;
     cs_store_t s{r, cs_sid_t{1}};
     auto id0 = r.create_id({}, 0);
-    CHECK(s.add(id0, 5.0f));
+    CHECK(s.add(id0, 5.0F));
     const auto& cs = s;
-    CHECK(cs[id0] == 5.0f);
-    CHECK(cs[id0].component<float>() == 5.0f);
+    CHECK(cs[id0] == 5.0F);
+    CHECK(cs[id0].component<float>() == 5.0F);
     CHECK(cs[id0].id() == id0);
   }
 
@@ -5519,8 +5521,8 @@ TEST_CASE("Basic", "[ComponentStorage]") {
     cs_store_t s{r, cs_sid_t{1}};
     auto id0 = r.create_id({}, 0);
     CHECK_THROWS_AS((void)s.at(id0), std::out_of_range);
-    CHECK(s.add(id0, 1.0f));
-    CHECK(s.at(id0) == 1.0f);
+    CHECK(s.add(id0, 1.0F));
+    CHECK(s.at(id0) == 1.0F);
   }
 }
 
@@ -5538,13 +5540,13 @@ TEST_CASE("MultiStore", "[ComponentStorage]") {
 
     auto id0 = r.create_id({}, 0);
 
-    CHECK(s1.add(id0, 1.0f));
-    CHECK(s2.add(id0, 2.0f)); // same entity, second storage
+    CHECK(s1.add(id0, 1.0F));
+    CHECK(s2.add(id0, 2.0F)); // same entity, second storage
 
     CHECK(s1.contains(id0));
     CHECK(s2.contains(id0));
-    CHECK(s1[id0] == 1.0f);
-    CHECK(s2[id0] == 2.0f);
+    CHECK(s1[id0] == 1.0F);
+    CHECK(s2[id0] == 2.0F);
 
     // Entity remains valid and alive throughout.
     CHECK(r.is_valid(id0));
@@ -5556,9 +5558,9 @@ TEST_CASE("MultiStore", "[ComponentStorage]") {
     cs_store_t sa{r, cs_sid_t{1}};
     cs_store_t sb{r, cs_sid_t{2}};
 
-    auto h = sa.add_new({}, 10.0f);
+    auto h = sa.add_new({}, 10.0F);
     CHECK(static_cast<bool>(h));
-    CHECK(sb.add(h.id(), 20.0f));
+    CHECK(sb.add(h.id(), 20.0F));
 
     CHECK(sa.contains(h.id()));
     CHECK(sb.contains(h.id()));
@@ -5578,15 +5580,15 @@ TEST_CASE("Remove", "[ComponentStorage]") {
     cs_store_t s2{r, cs_sid_t{2}};
 
     auto id0 = r.create_id({}, 0);
-    CHECK(s1.add(id0, 1.0f));
-    CHECK(s2.add(id0, 2.0f));
+    CHECK(s1.add(id0, 1.0F));
+    CHECK(s2.add(id0, 2.0F));
 
     CHECK(s1.remove(id0));
 
     CHECK_FALSE(s1.contains(id0));
     CHECK(s2.contains(id0));
     CHECK(r.is_valid(id0)); // still alive in s2
-    CHECK(s2[id0] == 2.0f);
+    CHECK(s2[id0] == 2.0F);
   }
 
   // remove() from only storage sends entity to staging (still alive).
@@ -5595,15 +5597,15 @@ TEST_CASE("Remove", "[ComponentStorage]") {
     cs_store_t s{r, cs_sid_t{1}};
 
     auto id0 = r.create_id({}, 0);
-    CHECK(s.add(id0, 5.0f));
+    CHECK(s.add(id0, 5.0F));
     CHECK(s.remove(id0));
 
     CHECK_FALSE(s.contains(id0));
     CHECK(r.is_valid(id0)); // alive but staged
 
     // Can be re-added.
-    CHECK(s.add(id0, 7.0f));
-    CHECK(s[id0] == 7.0f);
+    CHECK(s.add(id0, 7.0F));
+    CHECK(s[id0] == 7.0F);
   }
 
   // remove() returns false for entity not in storage.
@@ -5620,8 +5622,8 @@ TEST_CASE("Remove", "[ComponentStorage]") {
     cs_store_t s{r, cs_sid_t{1}};
     auto id0 = r.create_id({}, 0);
     auto id1 = r.create_id({}, 0);
-    CHECK(s.add(id0, 1.0f));
-    CHECK(s.add(id1, 2.0f));
+    CHECK(s.add(id0, 1.0F));
+    CHECK(s.add(id1, 2.0F));
     s.remove_all();
     CHECK(s.empty());
     CHECK(r.is_valid(id0));
@@ -5641,7 +5643,7 @@ TEST_CASE("Erase", "[ComponentStorage]") {
     cs_store_t s{r, cs_sid_t{1}};
 
     auto id0 = r.create_id({}, 0);
-    CHECK(s.add(id0, 5.0f));
+    CHECK(s.add(id0, 5.0F));
     CHECK(s.erase(id0));
 
     CHECK_FALSE(s.contains(id0));
@@ -5655,8 +5657,8 @@ TEST_CASE("Erase", "[ComponentStorage]") {
     cs_store_t s2{r, cs_sid_t{2}};
 
     auto id0 = r.create_id({}, 0);
-    CHECK(s1.add(id0, 1.0f));
-    CHECK(s2.add(id0, 2.0f));
+    CHECK(s1.add(id0, 1.0F));
+    CHECK(s2.add(id0, 2.0F));
     CHECK(s1.erase(id0)); // removes from s1 only
 
     CHECK_FALSE(s1.contains(id0));
@@ -5679,8 +5681,8 @@ TEST_CASE("Erase", "[ComponentStorage]") {
     cs_store_t s{r, cs_sid_t{1}};
     auto id0 = r.create_id({}, 0);
     auto id1 = r.create_id({}, 0);
-    CHECK(s.add(id0, 1.0f));
-    CHECK(s.add(id1, 2.0f));
+    CHECK(s.add(id0, 1.0F));
+    CHECK(s.add(id1, 2.0F));
     s.clear();
     CHECK(s.empty());
     CHECK_FALSE(r.is_valid(id0));
@@ -5694,16 +5696,16 @@ TEST_CASE("Erase", "[ComponentStorage]") {
     auto id0 = r.create_id({}, 0);
     auto id1 = r.create_id({}, 0);
     auto id2 = r.create_id({}, 0);
-    CHECK(s.add(id0, 1.0f));
-    CHECK(s.add(id1, 2.0f));
-    CHECK(s.add(id2, 3.0f));
+    CHECK(s.add(id0, 1.0F));
+    CHECK(s.add(id1, 2.0F));
+    CHECK(s.add(id2, 3.0F));
     CHECK(s.erase(id1)); // erase middle
     CHECK(s.size() == 2U);
     CHECK_FALSE(s.contains(id1));
     CHECK(s.contains(id0));
     CHECK(s.contains(id2));
-    CHECK(s[id0] == 1.0f);
-    CHECK(s[id2] == 3.0f);
+    CHECK(s[id0] == 1.0F);
+    CHECK(s[id2] == 3.0F);
   }
 }
 
@@ -5720,17 +5722,17 @@ TEST_CASE("EraseIf", "[ComponentStorage]") {
     auto id0 = r.create_id({}, 0);
     auto id1 = r.create_id({}, 0);
     auto id2 = r.create_id({}, 0);
-    CHECK(s.add(id0, 1.0f));
-    CHECK(s.add(id1, 2.0f));
-    CHECK(s.add(id2, 3.0f));
+    CHECK(s.add(id0, 1.0F));
+    CHECK(s.add(id1, 2.0F));
+    CHECK(s.add(id2, 3.0F));
 
     const auto cnt = s.erase_if([](float v, cs_id_t) {
-      return v < 2.5f;
+      return v < 2.5F;
     }); // erases id0, id1
     CHECK(cnt == 2U);
     CHECK(s.size() == 1U);
     CHECK(s.contains(id2));
-    CHECK(s[id2] == 3.0f);
+    CHECK(s[id2] == 3.0F);
     CHECK_FALSE(r.is_valid(id0));
     CHECK_FALSE(r.is_valid(id1));
     CHECK(r.is_valid(id2));
@@ -5742,10 +5744,10 @@ TEST_CASE("EraseIf", "[ComponentStorage]") {
     cs_store_t s{r, cs_sid_t{1}};
     auto id0 = r.create_id({}, 0);
     auto id1 = r.create_id({}, 0);
-    CHECK(s.add(id0, 10.0f));
-    CHECK(s.add(id1, 20.0f));
+    CHECK(s.add(id0, 10.0F));
+    CHECK(s.add(id1, 20.0F));
 
-    const auto cnt = s.remove_if([](float v, cs_id_t) { return v < 15.0f; });
+    const auto cnt = s.remove_if([](float v, cs_id_t) { return v < 15.0F; });
     CHECK(cnt == 1U);
     CHECK(s.size() == 1U);
     CHECK_FALSE(s.contains(id0));
@@ -5761,14 +5763,14 @@ TEST_CASE("EraseIf", "[ComponentStorage]") {
     cs_store_t s1{r, cs_sid_t{1}};
     cs_store_t s2{r, cs_sid_t{2}};
     auto id0 = r.create_id({}, 0);
-    CHECK(s1.add(id0, 5.0f)); // will be erased from s1
-    CHECK(s2.add(id0, 9.0f)); // entity still lives here after erase_if
+    CHECK(s1.add(id0, 5.0F)); // will be erased from s1
+    CHECK(s2.add(id0, 9.0F)); // entity still lives here after erase_if
     const auto cnt = s1.erase_if([](float, cs_id_t) { return true; });
     CHECK(cnt == 1U);
     CHECK_FALSE(s1.contains(id0));
     CHECK(s2.contains(id0)); // entity survives in s2
     CHECK(r.is_valid(id0));  // not destroyed
-    CHECK(s2[id0] == 9.0f);
+    CHECK(s2[id0] == 9.0F);
   }
 }
 
@@ -5784,15 +5786,15 @@ TEST_CASE("Iterator", "[ComponentStorage]") {
     cs_store_t s{r, cs_sid_t{1}};
     auto id0 = r.create_id({}, 0);
     auto id1 = r.create_id({}, 0);
-    CHECK(s.add(id0, 1.0f));
-    CHECK(s.add(id1, 2.0f));
+    CHECK(s.add(id0, 1.0F));
+    CHECK(s.add(id1, 2.0F));
 
-    float sum = 0.0f;
+    float sum = 0.0F;
     for (auto it = s.begin(); it != s.end(); ++it) {
       sum += *it;
       CHECK(r.is_valid(it.id()));
     }
-    CHECK(sum == 3.0f);
+    CHECK(sum == 3.0F);
   }
 
   // Range-for over mutable storage.
@@ -5800,9 +5802,9 @@ TEST_CASE("Iterator", "[ComponentStorage]") {
     cs_reg_t r;
     cs_store_t s{r, cs_sid_t{1}};
     auto id0 = r.create_id({}, 0);
-    CHECK(s.add(id0, 7.0f));
-    for (auto& c : s) c = 8.0f;
-    CHECK(s[id0] == 8.0f);
+    CHECK(s.add(id0, 7.0F));
+    for (auto& c : s) c = 8.0F;
+    CHECK(s[id0] == 8.0F);
   }
 
   // Const iterator.
@@ -5811,12 +5813,12 @@ TEST_CASE("Iterator", "[ComponentStorage]") {
     cs_store_t s{r, cs_sid_t{1}};
     auto id0 = r.create_id({}, 0);
     auto id1 = r.create_id({}, 0);
-    CHECK(s.add(id0, 3.0f));
-    CHECK(s.add(id1, 4.0f));
+    CHECK(s.add(id0, 3.0F));
+    CHECK(s.add(id1, 4.0F));
     const auto& cs = s;
-    float sum = 0.0f;
+    float sum = 0.0F;
     for (const auto& c : cs) sum += c;
-    CHECK(sum == 7.0f);
+    CHECK(sum == 7.0F);
   }
 
   // Random-access: arithmetic operators and operator[].
@@ -5825,13 +5827,13 @@ TEST_CASE("Iterator", "[ComponentStorage]") {
     cs_store_t s{r, cs_sid_t{1}};
     auto id0 = r.create_id({}, 0);
     auto id1 = r.create_id({}, 0);
-    CHECK(s.add(id0, 10.0f));
-    CHECK(s.add(id1, 20.0f));
+    CHECK(s.add(id0, 10.0F));
+    CHECK(s.add(id1, 20.0F));
 
     auto it = s.begin();
-    CHECK(it[0] == 10.0f);
-    CHECK(it[1] == 20.0f);
-    CHECK(*(it + 1) == 20.0f);
+    CHECK(it[0] == 10.0F);
+    CHECK(it[1] == 20.0F);
+    CHECK(*(it + 1) == 20.0F);
     CHECK((s.end() - s.begin()) == 2);
   }
 
@@ -5857,13 +5859,13 @@ TEST_CASE("IndexVariants", "[ComponentStorage]") {
     sorted_store_t s{r, cs_sid_t{1}};
     auto id0 = r.create_id({}, 0);
     auto id1 = r.create_id({}, 0);
-    CHECK(s.add(id0, 1.0f));
-    CHECK(s.add(id1, 2.0f));
-    CHECK(s[id0] == 1.0f);
-    CHECK(s[id1] == 2.0f);
+    CHECK(s.add(id0, 1.0F));
+    CHECK(s.add(id1, 2.0F));
+    CHECK(s[id0] == 1.0F);
+    CHECK(s[id1] == 2.0F);
     CHECK(s.erase(id0));
     CHECK_FALSE(s.contains(id0));
-    CHECK(s[id1] == 2.0f);
+    CHECK(s[id1] == 2.0F);
   }
 
   // paged_sparse_index variant.
@@ -5874,10 +5876,10 @@ TEST_CASE("IndexVariants", "[ComponentStorage]") {
     paged_store_t s{r, cs_sid_t{1}};
     auto id0 = r.create_id({}, 0);
     auto id1 = r.create_id({}, 0);
-    CHECK(s.add(id0, 3.0f));
-    CHECK(s.add(id1, 4.0f));
-    CHECK(s[id0] == 3.0f);
-    CHECK(s[id1] == 4.0f);
+    CHECK(s.add(id0, 3.0F));
+    CHECK(s.add(id1, 4.0F));
+    CHECK(s[id0] == 3.0F);
+    CHECK(s[id1] == 4.0F);
     s.clear();
     CHECK(s.empty());
   }
@@ -5894,10 +5896,10 @@ TEST_CASE("IndexVariants", "[ComponentStorage]") {
     store_a_t sa{r, cs_sid_t{1}};
     store_b_t sb{r, cs_sid_t{2}};
     auto id0 = r.create_id({}, 0);
-    CHECK(sa.add(id0, 1.0f));
-    CHECK(sb.add(id0, 2.0f));
-    CHECK(sa[id0] == 1.0f);
-    CHECK(sb[id0] == 2.0f);
+    CHECK(sa.add(id0, 1.0F));
+    CHECK(sb.add(id0, 2.0F));
+    CHECK(sa[id0] == 1.0F);
+    CHECK(sb[id0] == 2.0F);
   }
 }
 
@@ -5983,14 +5985,14 @@ TEST_CASE("StoreEntity", "[ComponentScene]") {
     two_cs_scene_t s;
     auto h = s.stage_new_entity();
     auto id = h.id();
-    CHECK(s.store_entity<cs_scene_sid_t{1}>(id, 2.0f));
+    CHECK(s.store_entity<cs_scene_sid_t{1}>(id, 2.0F));
     CHECK(s.storage<cs_scene_sid_t{1}>().contains(id));
     CHECK_FALSE(s.storage<cs_scene_sid_t{2}>().contains(id));
 
     CHECK(s.store_entity<cs_scene_sid_t{2}>(id, 42));
     CHECK(s.storage<cs_scene_sid_t{1}>().contains(id));
     CHECK(s.storage<cs_scene_sid_t{2}>().contains(id));
-    CHECK(s.storage<cs_scene_sid_t{1}>()[id] == 2.0f);
+    CHECK(s.storage<cs_scene_sid_t{1}>()[id] == 2.0F);
     CHECK(s.storage<cs_scene_sid_t{2}>()[id] == 42);
   }
 
@@ -5998,22 +6000,22 @@ TEST_CASE("StoreEntity", "[ComponentScene]") {
   if (true) {
     two_cs_scene_t s;
     auto h = s.stage_new_entity();
-    CHECK(s.store_entity<cs_scene_sid_t{1}>(h, 3.14f));
+    CHECK(s.store_entity<cs_scene_sid_t{1}>(h, 3.14F));
     CHECK(s.storage<cs_scene_sid_t{1}>().contains(h.id()));
 
     // store_entity with invalid handle returns false.
     cs_scene_reg_t::handle_t bad{};
-    CHECK_FALSE(s.store_entity<cs_scene_sid_t{1}>(bad, 1.0f));
+    CHECK_FALSE(s.store_entity<cs_scene_sid_t{1}>(bad, 1.0F));
   }
 
   // store_entity fails if entity is already in that storage.
   if (true) {
     two_cs_scene_t s;
     auto h = s.stage_new_entity();
-    CHECK(s.store_entity<cs_scene_sid_t{1}>(h.id(), 1.0f));
-    CHECK_FALSE(s.store_entity<cs_scene_sid_t{1}>(h.id(), 2.0f));
+    CHECK(s.store_entity<cs_scene_sid_t{1}>(h.id(), 1.0F));
+    CHECK_FALSE(s.store_entity<cs_scene_sid_t{1}>(h.id(), 2.0F));
     CHECK(s.storage<cs_scene_sid_t{1}>().size() == 1U);
-    CHECK(s.storage<cs_scene_sid_t{1}>()[h.id()] == 1.0f); // unchanged
+    CHECK(s.storage<cs_scene_sid_t{1}>()[h.id()] == 1.0F); // unchanged
   }
 
   // store_entity returns false when the target storage is at its limit.
@@ -6022,8 +6024,8 @@ TEST_CASE("StoreEntity", "[ComponentScene]") {
     CHECK(s.storage<cs_scene_sid_t{1}>().set_limit(1));
     auto ha = s.stage_new_entity();
     auto hb = s.stage_new_entity();
-    CHECK(s.store_entity<cs_scene_sid_t{1}>(ha.id(), 1.0f));
-    CHECK_FALSE(s.store_entity<cs_scene_sid_t{1}>(hb.id(), 2.0f)); // at limit
+    CHECK(s.store_entity<cs_scene_sid_t{1}>(ha.id(), 1.0F));
+    CHECK_FALSE(s.store_entity<cs_scene_sid_t{1}>(hb.id(), 2.0F)); // at limit
     CHECK(s.storage<cs_scene_sid_t{1}>().size() == 1U);            // unchanged
     CHECK_FALSE(s.storage<cs_scene_sid_t{1}>().contains(hb.id()));
     CHECK(s.registry().is_valid(hb)); // entity still alive (staged)
@@ -6042,7 +6044,7 @@ TEST_CASE("RemoveErase", "[ComponentScene]") {
     two_cs_scene_t s;
     auto h = s.stage_new_entity();
     auto id = h.id();
-    CHECK(s.store_entity<cs_scene_sid_t{1}>(id, 5.0f));
+    CHECK(s.store_entity<cs_scene_sid_t{1}>(id, 5.0F));
     CHECK(s.store_entity<cs_scene_sid_t{2}>(id, 7));
 
     CHECK(s.remove_entity<cs_scene_sid_t{1}>(id));
@@ -6056,7 +6058,7 @@ TEST_CASE("RemoveErase", "[ComponentScene]") {
     two_cs_scene_t s;
     auto h = s.stage_new_entity();
     auto id = h.id();
-    CHECK(s.store_entity<cs_scene_sid_t{1}>(id, 9.0f));
+    CHECK(s.store_entity<cs_scene_sid_t{1}>(id, 9.0F));
     CHECK(s.remove_entity<cs_scene_sid_t{1}>(id));
     CHECK(s.storage<cs_scene_sid_t{1}>().size() == 0U);
     // Entity still alive (staged).
@@ -6083,7 +6085,7 @@ TEST_CASE("RemoveErase", "[ComponentScene]") {
     two_cs_scene_t s;
     auto h = s.stage_new_entity();
     auto id = h.id();
-    CHECK(s.store_entity<cs_scene_sid_t{1}>(id, 1.0f));
+    CHECK(s.store_entity<cs_scene_sid_t{1}>(id, 1.0F));
     CHECK(s.store_entity<cs_scene_sid_t{2}>(id, 2));
 
     CHECK(s.erase_entity(id));
@@ -6109,7 +6111,7 @@ TEST_CASE("RemoveErase", "[ComponentScene]") {
   if (true) {
     two_cs_scene_t s;
     auto h = s.stage_new_entity();
-    CHECK(s.store_entity<cs_scene_sid_t{1}>(h.id(), 3.0f));
+    CHECK(s.store_entity<cs_scene_sid_t{1}>(h.id(), 3.0F));
     CHECK(s.erase_entity(h));
     CHECK_FALSE(static_cast<bool>(h));
     CHECK(s.size() == 0U);
@@ -6152,7 +6154,7 @@ TEST_CASE("EraseStaged", "[ComponentScene]") {
   if (true) {
     two_cs_scene_t s;
     auto h1 = s.stage_new_entity();
-    CHECK(s.store_entity<cs_scene_sid_t{1}>(h1.id(), 1.0f));
+    CHECK(s.store_entity<cs_scene_sid_t{1}>(h1.id(), 1.0F));
     auto h2 = s.stage_new_entity(); // staged
     auto h3 = s.stage_new_entity(); // staged
     CHECK(s.size() == 3U);
@@ -6168,7 +6170,7 @@ TEST_CASE("EraseStaged", "[ComponentScene]") {
   if (true) {
     two_cs_scene_t s;
     auto h = s.stage_new_entity();
-    CHECK(s.store_entity<cs_scene_sid_t{1}>(h.id(), 1.0f));
+    CHECK(s.store_entity<cs_scene_sid_t{1}>(h.id(), 1.0F));
     CHECK(s.erase_staged_entities() == 0U);
   }
 
@@ -6177,7 +6179,7 @@ TEST_CASE("EraseStaged", "[ComponentScene]") {
     two_cs_scene_t s;
     auto h1 = s.stage_new_entity();
     auto h2 = s.stage_new_entity();
-    CHECK(s.store_entity<cs_scene_sid_t{1}>(h1.id(), 1.0f));
+    CHECK(s.store_entity<cs_scene_sid_t{1}>(h1.id(), 1.0F));
     CHECK(s.store_entity<cs_scene_sid_t{2}>(h2.id(), 2));
     (void)s.stage_new_entity();
     s.clear(deallocation_policy::release);
@@ -6192,7 +6194,7 @@ TEST_CASE("EraseStaged", "[ComponentScene]") {
     two_cs_scene_t s;
     auto h1 = s.stage_new_entity();
     auto h2 = s.stage_new_entity();
-    CHECK(s.store_entity<cs_scene_sid_t{1}>(h1.id(), 1.0f));
+    CHECK(s.store_entity<cs_scene_sid_t{1}>(h1.id(), 1.0F));
     CHECK(s.store_entity<cs_scene_sid_t{2}>(h2.id(), 2));
     (void)s.stage_new_entity();
     s.clear(deallocation_policy::preserve);
@@ -6218,7 +6220,7 @@ TEST_CASE("Destructor", "[ComponentScene]") {
     two_cs_scene_t s;
     auto h1 = s.stage_new_entity();
     auto h2 = s.stage_new_entity();
-    CHECK(s.store_entity<cs_scene_sid_t{1}>(h1.id(), 1.0f));
+    CHECK(s.store_entity<cs_scene_sid_t{1}>(h1.id(), 1.0F));
     CHECK(s.store_entity<cs_scene_sid_t{2}>(h2.id(), 2));
     CHECK(s.size() == 2U);
     // Scope ends here; destructor runs clear() implicitly.
@@ -6245,7 +6247,7 @@ TEST_CASE("CreateHandleId", "[ArchetypeScene]") {
     auto h = s.stage_new_entity();
     CHECK(h);
     auto& st = s.storage<scene_sid_t{1}>();
-    CHECK(st.add(h.id(), Position{1.f, 2.f}, Velocity{3.f, 4.f}));
+    CHECK(st.add(h.id(), Position{1.F, 2.F}, Velocity{3.F, 4.F}));
     CHECK(s.size() == 1U);
     CHECK(st.contains(h.id()));
   }
@@ -6276,8 +6278,8 @@ TEST_CASE("AddNewRuntime", "[ArchetypeScene]") {
     CHECK(s.size() == 1U);
     CHECK(s.storage<scene_sid_t{1}>().contains(h.id()));
     auto row = s.storage<scene_sid_t{1}>()[h.id()];
-    CHECK(row.component<Position>().x == 0.f);
-    CHECK(row.component<Velocity>().vx == 0.f);
+    CHECK(row.component<Position>().x == 0.F);
+    CHECK(row.component<Velocity>().vx == 0.F);
   }
 
   // store_new_entity(store_id) targeting the second storage.
@@ -6315,7 +6317,7 @@ TEST_CASE("StoreEntity", "[ArchetypeScene]") {
     CHECK(s.store_entity(id, scene_sid_t{1}));
     CHECK(s.size() == 1U);
     CHECK(s.storage<scene_sid_t{1}>().contains(id));
-    CHECK(s.storage<scene_sid_t{1}>()[id].component<Position>().x == 0.f);
+    CHECK(s.storage<scene_sid_t{1}>()[id].component<Position>().x == 0.F);
   }
 
   // store_entity(id, store_id) targeting the second storage.
@@ -6344,11 +6346,11 @@ TEST_CASE("StoreEntity", "[ArchetypeScene]") {
     two_storage_scene_t s;
     auto h = s.stage_new_entity();
     auto id = h.id();
-    CHECK(s.store_entity<scene_sid_t{1}>(id, Position{3.f, 4.f},
-        Velocity{5.f, 6.f}));
+    CHECK(s.store_entity<scene_sid_t{1}>(id, Position{3.F, 4.F},
+        Velocity{5.F, 6.F}));
     CHECK(s.storage<scene_sid_t{1}>().contains(id));
-    CHECK(s.storage<scene_sid_t{1}>()[id].component<Position>().x == 3.f);
-    CHECK(s.storage<scene_sid_t{1}>()[id].component<Velocity>().vx == 5.f);
+    CHECK(s.storage<scene_sid_t{1}>()[id].component<Position>().x == 3.F);
+    CHECK(s.storage<scene_sid_t{1}>()[id].component<Velocity>().vx == 5.F);
   }
 
   // store_entity(id, tuple) infers the storage from the tuple type.
@@ -6357,8 +6359,8 @@ TEST_CASE("StoreEntity", "[ArchetypeScene]") {
     auto h = s.stage_new_entity();
     auto id = h.id();
     CHECK(s.store_entity(id,
-        std::tuple<Position, Velocity, Health>{Position{7.f, 8.f},
-            Velocity{9.f, 0.f}, Health{55}}));
+        std::tuple<Position, Velocity, Health>{Position{7.F, 8.F},
+            Velocity{9.F, 0.F}, Health{55}}));
     CHECK(s.storage<scene_sid_t{2}>().contains(id));
     CHECK(s.storage<scene_sid_t{2}>()[id].component<Health>().hp == 55);
   }
@@ -6383,10 +6385,10 @@ TEST_CASE("StoreEntity", "[ArchetypeScene]") {
   if (true) {
     two_storage_scene_t s;
     auto h = s.stage_new_entity();
-    CHECK(s.store_entity<scene_sid_t{1}>(h, Position{1.f, 2.f},
-        Velocity{3.f, 4.f}));
+    CHECK(s.store_entity<scene_sid_t{1}>(h, Position{1.F, 2.F},
+        Velocity{3.F, 4.F}));
     CHECK((s.storage<scene_sid_t{1}>()[h.id()].component<Position>().x) ==
-          (1.f));
+          (1.F));
   }
 
   // store_entity<SID>(invalid handle, args) returns false.
@@ -6401,10 +6403,10 @@ TEST_CASE("StoreEntity", "[ArchetypeScene]") {
     two_storage_scene_t s;
     auto h = s.stage_new_entity();
     CHECK(s.store_entity(h,
-        std::tuple<Position, Velocity>{Position{2.f, 3.f}, Velocity{}}));
+        std::tuple<Position, Velocity>{Position{2.F, 3.F}, Velocity{}}));
     CHECK(s.storage<scene_sid_t{1}>().contains(h.id()));
     CHECK((s.storage<scene_sid_t{1}>()[h.id()].component<Position>().x) ==
-          (2.f));
+          (2.F));
   }
 
   // store_entity(invalid handle, tuple) returns false.
@@ -6434,11 +6436,11 @@ TEST_CASE("EntityLifecycle", "[ArchetypeScene]") {
   CHECK_FALSE(s.storage<scene_sid_t{2}>().contains(id));
 
   // Store: move the staged entity into storage 1.
-  CHECK(s.store_entity<scene_sid_t{1}>(id, Position{1.f, 2.f},
-      Velocity{3.f, 4.f}));
+  CHECK(s.store_entity<scene_sid_t{1}>(id, Position{1.F, 2.F},
+      Velocity{3.F, 4.F}));
   CHECK(s.size() == 1U);
   CHECK(s.storage<scene_sid_t{1}>().contains(id));
-  CHECK(s.storage<scene_sid_t{1}>()[id].component<Position>().x == 1.f);
+  CHECK(s.storage<scene_sid_t{1}>()[id].component<Position>().x == 1.F);
 
   // Remove: entity returns to staging; it remains valid but leaves storage 1.
   CHECK(s.remove_entity(id));
@@ -6447,8 +6449,8 @@ TEST_CASE("EntityLifecycle", "[ArchetypeScene]") {
   CHECK(s.registry().is_valid(id));
 
   // Re-store: put the same entity into storage 2.
-  CHECK(s.store_entity<scene_sid_t{2}>(id, Position{5.f, 6.f},
-      Velocity{7.f, 8.f}, Health{50}));
+  CHECK(s.store_entity<scene_sid_t{2}>(id, Position{5.F, 6.F},
+      Velocity{7.F, 8.F}, Health{50}));
   CHECK(s.size() == 1U);
   CHECK(s.storage<scene_sid_t{2}>().contains(id));
   CHECK(s.storage<scene_sid_t{2}>()[id].component<Health>().hp == 50);
@@ -6460,7 +6462,7 @@ TEST_CASE("EntityLifecycle", "[ArchetypeScene]") {
   CHECK(s.size() == 1U);
   CHECK_FALSE(s.storage<scene_sid_t{2}>().contains(id));
   CHECK(s.storage<scene_sid_t{1}>().contains(id));
-  CHECK(s.storage<scene_sid_t{1}>()[id].component<Position>().x == 5.f);
+  CHECK(s.storage<scene_sid_t{1}>()[id].component<Position>().x == 5.F);
 
   // Erase: entity is destroyed; handle becomes stale.
   CHECK(s.erase_entity(id));
@@ -6478,8 +6480,8 @@ TEST_CASE("MigrateEdgeCases", "[ArchetypeScene]") {
   // storage.
   if (true) {
     two_storage_scene_t s;
-    auto h = s.store_new_entity<scene_sid_t{1}>({}, Position{1.f, 2.f},
-        Velocity{3.f, 4.f});
+    auto h = s.store_new_entity<scene_sid_t{1}>({}, Position{1.F, 2.F},
+        Velocity{3.F, 4.F});
     auto id = h.id();
     auto build = [](const auto&) {
       return std::tuple<Position, Velocity, Health>{};
@@ -6504,7 +6506,7 @@ TEST_CASE("MigrateEdgeCases", "[ArchetypeScene]") {
   // storage.
   if (true) {
     two_storage_scene_t s;
-    auto h = s.store_new_entity<scene_sid_t{2}>({}, Position{5.f, 0.f},
+    auto h = s.store_new_entity<scene_sid_t{2}>({}, Position{5.F, 0.F},
         Velocity{}, Health{77});
     auto id = h.id();
     CHECK(s.migrate_entity(id, scene_sid_t{2})); // same storage -- no-op
@@ -6530,13 +6532,13 @@ TEST_CASE("ForEach", "[ArchetypeScene]") {
   if (true) {
     three_storage_scene_t s;
     auto h1 =
-        s.store_new_entity<scene_sid_t{1}>({}, Position{1.f, 0.f}, Velocity{});
-    auto h2 = s.store_new_entity<scene_sid_t{2}>({}, Position{2.f, 0.f},
+        s.store_new_entity<scene_sid_t{1}>({}, Position{1.F, 0.F}, Velocity{});
+    auto h2 = s.store_new_entity<scene_sid_t{2}>({}, Position{2.F, 0.F},
         Velocity{}, Health{});
     (void)s.store_new_entity<scene_sid_t{3}>({}, Health{});
     // for_each<Position, Velocity> matches SID{1} and SID{2}, not SID{3}.
     int count = 0;
-    float sum = 0.f;
+    float sum = 0.F;
     s.for_each<Position, Velocity>([&](auto id, auto comps) {
       ++count;
       sum += std::get<0>(comps).x;
@@ -6544,7 +6546,7 @@ TEST_CASE("ForEach", "[ArchetypeScene]") {
       return true;
     });
     CHECK(count == 2);
-    CHECK(sum == 3.f); // 1.f + 2.f
+    CHECK(sum == 3.F); // 1.f + 2.f
     (void)h1;
     (void)h2;
   }
@@ -6568,28 +6570,28 @@ TEST_CASE("ForEach", "[ArchetypeScene]") {
   if (true) {
     three_storage_scene_t s;
     (void)s.store_new_entity<scene_sid_t{1}>({}, Position{}, Velocity{});
-    (void)s.store_new_entity<scene_sid_t{2}>({}, Position{9.f, 0.f},
+    (void)s.store_new_entity<scene_sid_t{2}>({}, Position{9.F, 0.F},
         Velocity{}, Health{});
     (void)s.store_new_entity<scene_sid_t{3}>({}, Health{});
     int count = 0;
-    float x_sum = 0.f;
+    float x_sum = 0.F;
     s.for_each<Position, Velocity, Health>([&](auto, auto comps) {
       ++count;
       x_sum += std::get<0>(comps).x;
       return true;
     });
     CHECK(count == 1);
-    CHECK(x_sum == 9.f);
+    CHECK(x_sum == 9.F);
   }
 
   // for_each stops early when fn returns false.
   if (true) {
     three_storage_scene_t s;
-    (void)s.store_new_entity<scene_sid_t{1}>({}, Position{1.f, 0.f},
+    (void)s.store_new_entity<scene_sid_t{1}>({}, Position{1.F, 0.F},
         Velocity{});
-    (void)s.store_new_entity<scene_sid_t{1}>({}, Position{2.f, 0.f},
+    (void)s.store_new_entity<scene_sid_t{1}>({}, Position{2.F, 0.F},
         Velocity{});
-    (void)s.store_new_entity<scene_sid_t{2}>({}, Position{3.f, 0.f},
+    (void)s.store_new_entity<scene_sid_t{2}>({}, Position{3.F, 0.F},
         Velocity{}, Health{});
     int count = 0;
     s.for_each<Position, Velocity>([&](auto, auto) {
@@ -6618,16 +6620,16 @@ TEST_CASE("ForEach", "[ArchetypeScene]") {
   // for_each on a const scene yields const component references.
   if (true) {
     three_storage_scene_t s;
-    (void)s.store_new_entity<scene_sid_t{1}>({}, Position{7.f, 0.f},
+    (void)s.store_new_entity<scene_sid_t{1}>({}, Position{7.F, 0.F},
         Velocity{});
     const auto& cs = s;
-    float x = 0.f;
+    float x = 0.F;
     cs.for_each<Position, Velocity>([&](auto, auto comps) {
       // std::get<0>(comps) is const Position&
       x = std::get<0>(comps).x;
       return true;
     });
-    CHECK(x == 7.f);
+    CHECK(x == 7.F);
   }
 
   // for_each is a no-op when no storage has all requested components.
@@ -6659,13 +6661,13 @@ TEST_CASE("ForEach", "[ArchetypeScene]") {
   if (true) {
     three_storage_scene_t s;
     auto h =
-        s.store_new_entity<scene_sid_t{1}>({}, Position{0.f, 0.f}, Velocity{});
+        s.store_new_entity<scene_sid_t{1}>({}, Position{0.F, 0.F}, Velocity{});
     s.for_each<Position, Velocity>([](auto, auto comps) {
-      std::get<0>(comps).x = 42.f;
+      std::get<0>(comps).x = 42.F;
       return true;
     });
     CHECK((s.storage<scene_sid_t{1}>()[h.id()].component<Position>().x) ==
-          (42.f));
+          (42.F));
   }
 
   // Component order in the template list is independent of matching but
@@ -6674,20 +6676,20 @@ TEST_CASE("ForEach", "[ArchetypeScene]") {
   // and std::get<1> = Position.
   if (true) {
     three_storage_scene_t s;
-    (void)s.store_new_entity<scene_sid_t{1}>({}, Position{3.f, 0.f},
-        Velocity{5.f, 0.f});
-    (void)s.store_new_entity<scene_sid_t{2}>({}, Position{7.f, 0.f},
-        Velocity{9.f, 0.f}, Health{});
+    (void)s.store_new_entity<scene_sid_t{1}>({}, Position{3.F, 0.F},
+        Velocity{5.F, 0.F});
+    (void)s.store_new_entity<scene_sid_t{2}>({}, Position{7.F, 0.F},
+        Velocity{9.F, 0.F}, Health{});
     (void)s.store_new_entity<scene_sid_t{3}>({}, Health{}); // no Position/Vel
-    float pos_sum = 0.f;
-    float vel_sum = 0.f;
+    float pos_sum = 0.F;
+    float vel_sum = 0.F;
     s.for_each<Velocity, Position>([&](auto, auto comps) {
       vel_sum += std::get<0>(comps).vx; // index 0 = Velocity (first in list)
       pos_sum += std::get<1>(comps).x;  // index 1 = Position (second in list)
       return true;
     });
-    CHECK(pos_sum == 10.f); // 3.f + 7.f
-    CHECK(vel_sum == 14.f); // 5.f + 9.f
+    CHECK(pos_sum == 10.F); // 3.f + 7.f
+    CHECK(vel_sum == 14.F); // 5.f + 9.f
   }
 }
 
@@ -6699,10 +6701,10 @@ TEST_CASE("TryGetComponent", "[ArchetypeScene]") {
   if (true) {
     three_storage_scene_t s;
     auto h =
-        s.store_new_entity<scene_sid_t{1}>({}, Position{3.f, 0.f}, Velocity{});
+        s.store_new_entity<scene_sid_t{1}>({}, Position{3.F, 0.F}, Velocity{});
     auto* pos = s.try_get_component<Position>(h.id());
     REQUIRE(pos != nullptr);
-    CHECK(pos->x == 3.f);
+    CHECK(pos->x == 3.F);
   }
 
   // Returns null for a component the entity's archetype lacks.
@@ -6716,8 +6718,8 @@ TEST_CASE("TryGetComponent", "[ArchetypeScene]") {
   if (true) {
     three_storage_scene_t s;
     auto h1 =
-        s.store_new_entity<scene_sid_t{1}>({}, Position{1.f, 0.f}, Velocity{});
-    auto h2 = s.store_new_entity<scene_sid_t{2}>({}, Position{2.f, 0.f},
+        s.store_new_entity<scene_sid_t{1}>({}, Position{1.F, 0.F}, Velocity{});
+    auto h2 = s.store_new_entity<scene_sid_t{2}>({}, Position{2.F, 0.F},
         Velocity{}, Health{});
     auto h3 = s.store_new_entity<scene_sid_t{3}>({}, Health{99});
 
@@ -6747,21 +6749,21 @@ TEST_CASE("TryGetComponent", "[ArchetypeScene]") {
   if (true) {
     three_storage_scene_t s;
     auto h =
-        s.store_new_entity<scene_sid_t{1}>({}, Position{7.f, 0.f}, Velocity{});
+        s.store_new_entity<scene_sid_t{1}>({}, Position{7.F, 0.F}, Velocity{});
     const auto& cs = s;
     const Position* pos = cs.try_get_component<Position>(h.id());
     REQUIRE(pos != nullptr);
-    CHECK(pos->x == 7.f);
+    CHECK(pos->x == 7.F);
   }
 
   // Mutation through the returned pointer is reflected in the stored data.
   if (true) {
     three_storage_scene_t s;
     auto h =
-        s.store_new_entity<scene_sid_t{1}>({}, Position{0.f, 0.f}, Velocity{});
-    s.try_get_component<Position>(h.id())->x = 42.f;
+        s.store_new_entity<scene_sid_t{1}>({}, Position{0.F, 0.F}, Velocity{});
+    s.try_get_component<Position>(h.id())->x = 42.F;
     CHECK((s.storage<scene_sid_t{1}>()[h.id()].component<Position>().x) ==
-          (42.f));
+          (42.F));
   }
 }
 
@@ -6773,15 +6775,15 @@ TEST_CASE("TryGetComponents", "[ArchetypeScene]") {
   // contains them.
   if (true) {
     three_storage_scene_t s;
-    auto h = s.store_new_entity<scene_sid_t{2}>({}, Position{2.f, 3.f},
-        Velocity{4.f, 5.f}, Health{77});
+    auto h = s.store_new_entity<scene_sid_t{2}>({}, Position{2.F, 3.F},
+        Velocity{4.F, 5.F}, Health{77});
     auto [pos, vel, hp] =
         s.try_get_components<Position, Velocity, Health>(h.id());
     REQUIRE(pos != nullptr);
     REQUIRE(vel != nullptr);
     REQUIRE(hp != nullptr);
-    CHECK(pos->x == 2.f);
-    CHECK(vel->vx == 4.f);
+    CHECK(pos->x == 2.F);
+    CHECK(vel->vx == 4.F);
     CHECK(hp->hp == 77);
   }
 
@@ -6790,7 +6792,7 @@ TEST_CASE("TryGetComponents", "[ArchetypeScene]") {
   if (true) {
     three_storage_scene_t s;
     auto h =
-        s.store_new_entity<scene_sid_t{1}>({}, Position{1.f, 0.f}, Velocity{});
+        s.store_new_entity<scene_sid_t{1}>({}, Position{1.F, 0.F}, Velocity{});
     auto [pos, hp] = s.try_get_components<Position, Health>(h.id());
     CHECK(pos == nullptr);
     CHECK(hp == nullptr);
@@ -6814,32 +6816,32 @@ TEST_CASE("TryGetComponents", "[ArchetypeScene]") {
   // On a const scene returns const-qualified pointers.
   if (true) {
     three_storage_scene_t s;
-    auto h = s.store_new_entity<scene_sid_t{2}>({}, Position{7.f, 8.f},
-        Velocity{9.f, 10.f}, Health{});
+    auto h = s.store_new_entity<scene_sid_t{2}>({}, Position{7.F, 8.F},
+        Velocity{9.F, 10.F}, Health{});
     const auto& cs = s;
     auto [pos, vel] = cs.try_get_components<Position, Velocity>(h.id());
     static_assert(std::is_same_v<decltype(pos), const Position*>);
     static_assert(std::is_same_v<decltype(vel), const Velocity*>);
     REQUIRE(pos != nullptr);
     REQUIRE(vel != nullptr);
-    CHECK(pos->x == 7.f);
-    CHECK(vel->vx == 9.f);
+    CHECK(pos->x == 7.F);
+    CHECK(vel->vx == 9.F);
   }
 
   // Mutation through returned pointers updates stored data.
   if (true) {
     three_storage_scene_t s;
-    auto h = s.store_new_entity<scene_sid_t{2}>({}, Position{0.f, 0.f},
-        Velocity{1.f, 2.f}, Health{});
+    auto h = s.store_new_entity<scene_sid_t{2}>({}, Position{0.F, 0.F},
+        Velocity{1.F, 2.F}, Health{});
     auto [pos, vel] = s.try_get_components<Position, Velocity>(h.id());
     REQUIRE(pos != nullptr);
     REQUIRE(vel != nullptr);
-    pos->x = 42.f;
-    vel->vx = 24.f;
+    pos->x = 42.F;
+    vel->vx = 24.F;
     CHECK((s.storage<scene_sid_t{2}>()[h.id()].component<Position>().x) ==
-          (42.f));
+          (42.F));
     CHECK((s.storage<scene_sid_t{2}>()[h.id()].component<Velocity>().vx) ==
-          (24.f));
+          (24.F));
   }
 }
 
@@ -6878,20 +6880,20 @@ TEST_CASE("MegaTuple", "[ArchetypeScene]") {
   if (true) {
     two_storage_scene_t s;
     two_storage_scene_t::megatuple_t tpl{};
-    std::get<std::optional<Position>>(tpl) = Position{1.f, 2.f};
-    std::get<std::optional<Velocity>>(tpl) = Velocity{3.f, 4.f};
+    std::get<std::optional<Position>>(tpl) = Position{1.F, 2.F};
+    std::get<std::optional<Velocity>>(tpl) = Velocity{3.F, 4.F};
     auto h = s.store_new_entity_from_mega({}, tpl);
     CHECK(h);
     CHECK(s.storage<scene_sid_t{1}>().contains(h.id()));
     CHECK_FALSE(s.storage<scene_sid_t{2}>().contains(h.id()));
     auto* pos = s.try_get_component<Position>(h.id());
     REQUIRE(pos != nullptr);
-    CHECK(pos->x == 1.f);
-    CHECK(pos->y == 2.f);
+    CHECK(pos->x == 1.F);
+    CHECK(pos->y == 2.F);
     auto* vel = s.try_get_component<Velocity>(h.id());
     REQUIRE(vel != nullptr);
-    CHECK(vel->vx == 3.f);
-    CHECK(vel->vy == 4.f);
+    CHECK(vel->vx == 3.F);
+    CHECK(vel->vy == 4.F);
     // Health is not in arch_pv_t; try_get_component returns null.
     CHECK(s.try_get_component<Health>(h.id()) == nullptr);
   }
@@ -6900,8 +6902,8 @@ TEST_CASE("MegaTuple", "[ArchetypeScene]") {
   if (true) {
     two_storage_scene_t s;
     two_storage_scene_t::megatuple_t tpl{};
-    std::get<std::optional<Position>>(tpl) = Position{5.f, 6.f};
-    std::get<std::optional<Velocity>>(tpl) = Velocity{7.f, 8.f};
+    std::get<std::optional<Position>>(tpl) = Position{5.F, 6.F};
+    std::get<std::optional<Velocity>>(tpl) = Velocity{7.F, 8.F};
     std::get<std::optional<Health>>(tpl) = Health{42};
     auto h = s.store_new_entity_from_mega({}, tpl);
     CHECK(h);
@@ -6912,7 +6914,7 @@ TEST_CASE("MegaTuple", "[ArchetypeScene]") {
     CHECK(hp->hp == 42);
     auto* pos = s.try_get_component<Position>(h.id());
     REQUIRE(pos != nullptr);
-    CHECK(pos->x == 5.f);
+    CHECK(pos->x == 5.F);
   }
 
   // No optionals set: bitmap matches no archetype; returns invalid handle and
@@ -6982,30 +6984,30 @@ TEST_CASE("TryGetSomeComponents", "[ArchetypeScene]") {
   // values.
   if (true) {
     two_storage_scene_t s;
-    auto h = s.store_new_entity<scene_sid_t{2}>({}, Position{1.f, 2.f},
-        Velocity{3.f, 4.f}, Health{77});
+    auto h = s.store_new_entity<scene_sid_t{2}>({}, Position{1.F, 2.F},
+        Velocity{3.F, 4.F}, Health{77});
     auto [pos, vel, hp] =
         s.try_get_some_components<Position, Velocity, Health>(h.id());
     REQUIRE(pos != nullptr);
     REQUIRE(vel != nullptr);
     REQUIRE(hp != nullptr);
-    CHECK(pos->x == 1.f);
-    CHECK(vel->vx == 3.f);
+    CHECK(pos->x == 1.F);
+    CHECK(vel->vx == 3.F);
     CHECK(hp->hp == 77);
   }
 
   // Entity in arch_pv_t: Position and Velocity are non-null, Health is null.
   if (true) {
     two_storage_scene_t s;
-    auto h = s.store_new_entity<scene_sid_t{1}>({}, Position{5.f, 6.f},
-        Velocity{7.f, 8.f});
+    auto h = s.store_new_entity<scene_sid_t{1}>({}, Position{5.F, 6.F},
+        Velocity{7.F, 8.F});
     auto [pos, vel, hp] =
         s.try_get_some_components<Position, Velocity, Health>(h.id());
     REQUIRE(pos != nullptr);
     REQUIRE(vel != nullptr);
     CHECK(hp == nullptr);
-    CHECK(pos->x == 5.f);
-    CHECK(vel->vx == 7.f);
+    CHECK(pos->x == 5.F);
+    CHECK(vel->vx == 7.F);
   }
 
   // Invalid entity ID: all pointers null.
@@ -7036,10 +7038,10 @@ TEST_CASE("TryGetSomeComponents", "[ArchetypeScene]") {
     auto [pos, hp] = s.try_get_some_components<Position, Health>(h.id());
     REQUIRE(pos != nullptr);
     REQUIRE(hp != nullptr);
-    pos->x = 99.f;
+    pos->x = 99.F;
     hp->hp = 42;
     CHECK((s.storage<scene_sid_t{2}>()[h.id()].component<Position>().x) ==
-          (99.f));
+          (99.F));
     CHECK(s.storage<scene_sid_t{2}>()[h.id()].component<Health>().hp == 42);
   }
 
@@ -7047,13 +7049,13 @@ TEST_CASE("TryGetSomeComponents", "[ArchetypeScene]") {
   if (true) {
     two_storage_scene_t s;
     auto h =
-        s.store_new_entity<scene_sid_t{1}>({}, Position{1.f, 0.f}, Velocity{});
+        s.store_new_entity<scene_sid_t{1}>({}, Position{1.F, 0.F}, Velocity{});
     const auto& cs = s;
     auto [pos, vel] = cs.try_get_some_components<Position, Velocity>(h.id());
     static_assert(std::is_same_v<decltype(pos), const Position*>);
     static_assert(std::is_same_v<decltype(vel), const Velocity*>);
     REQUIRE(pos != nullptr);
-    CHECK(pos->x == 1.f);
+    CHECK(pos->x == 1.F);
   }
 }
 
@@ -7076,9 +7078,9 @@ TEST_CASE("StageNewEntity", "[ComponentScene]") {
   if (true) {
     two_cs_scene_t s;
     auto id = s.stage_new_entity().id();
-    CHECK(s.store_entity<cs_scene_sid_t{1}>(id, 7.0f));
+    CHECK(s.store_entity<cs_scene_sid_t{1}>(id, 7.0F));
     CHECK(s.store_entity<cs_scene_sid_t{2}>(id, 42));
-    CHECK(s.storage<cs_scene_sid_t{1}>()[id] == 7.0f);
+    CHECK(s.storage<cs_scene_sid_t{1}>()[id] == 7.0F);
     CHECK(s.storage<cs_scene_sid_t{2}>()[id] == 42);
   }
 }
@@ -7093,7 +7095,7 @@ TEST_CASE("RemoveAll", "[ComponentScene]") {
     two_cs_scene_t s;
     auto h = s.stage_new_entity();
     auto id = h.id();
-    CHECK(s.store_entity<cs_scene_sid_t{1}>(id, 1.0f));
+    CHECK(s.store_entity<cs_scene_sid_t{1}>(id, 1.0F));
     CHECK(s.store_entity<cs_scene_sid_t{2}>(id, 42));
     CHECK(s.restage_entity(id));
     CHECK_FALSE(s.storage<cs_scene_sid_t{1}>().contains(id));
@@ -7116,7 +7118,7 @@ TEST_CASE("RemoveAll", "[ComponentScene]") {
   if (true) {
     two_cs_scene_t s;
     auto h = s.stage_new_entity();
-    CHECK(s.store_entity<cs_scene_sid_t{1}>(h.id(), 3.0f));
+    CHECK(s.store_entity<cs_scene_sid_t{1}>(h.id(), 3.0F));
     CHECK(s.store_entity<cs_scene_sid_t{2}>(h.id(), 5));
     CHECK(s.restage_entity(h));
     CHECK_FALSE(s.storage<cs_scene_sid_t{1}>().contains(h.id()));
@@ -7136,7 +7138,7 @@ TEST_CASE("RemoveAll", "[ComponentScene]") {
     two_cs_scene_t s;
     auto h = s.stage_new_entity();
     auto id = h.id();
-    CHECK(s.store_entity<cs_scene_sid_t{1}>(id, 9.0f));
+    CHECK(s.store_entity<cs_scene_sid_t{1}>(id, 9.0F));
     CHECK(s.restage_entity(id));
     CHECK(s.erase_staged_entities() == 1U);
     CHECK_FALSE(s.registry().is_valid(h));
@@ -7165,11 +7167,11 @@ TEST_CASE("EntityLifecycle", "[ComponentScene]") {
   CHECK_FALSE(s.storage<cs_scene_sid_t{2}>().contains(id));
 
   // Add to storage 1: entity now carries a float component.
-  CHECK(s.store_entity<cs_scene_sid_t{1}>(id, 3.14f));
+  CHECK(s.store_entity<cs_scene_sid_t{1}>(id, 3.14F));
   CHECK(s.size() == 1U);
   CHECK(s.storage<cs_scene_sid_t{1}>().contains(id));
   CHECK_FALSE(s.storage<cs_scene_sid_t{2}>().contains(id));
-  CHECK(s.storage<cs_scene_sid_t{1}>()[id] == 3.14f);
+  CHECK(s.storage<cs_scene_sid_t{1}>()[id] == 3.14F);
 
   // Add to storage 2 simultaneously: entity now occupies both storages at
   // once. Both components are independently accessible.
@@ -7177,13 +7179,13 @@ TEST_CASE("EntityLifecycle", "[ComponentScene]") {
   CHECK(s.size() == 1U);
   CHECK(s.storage<cs_scene_sid_t{1}>().contains(id));
   CHECK(s.storage<cs_scene_sid_t{2}>().contains(id));
-  CHECK(s.storage<cs_scene_sid_t{1}>()[id] == 3.14f);
+  CHECK(s.storage<cs_scene_sid_t{1}>()[id] == 3.14F);
   CHECK(s.storage<cs_scene_sid_t{2}>()[id] == 42);
 
   // store_entity is idempotent per storage: a second add to storage 1 fails
   // and leaves the existing component unchanged.
-  CHECK_FALSE(s.store_entity<cs_scene_sid_t{1}>(id, 99.0f));
-  CHECK(s.storage<cs_scene_sid_t{1}>()[id] == 3.14f);
+  CHECK_FALSE(s.store_entity<cs_scene_sid_t{1}>(id, 99.0F));
+  CHECK(s.storage<cs_scene_sid_t{1}>()[id] == 3.14F);
 
   // Remove from storage 1 only: entity leaves that storage but remains in
   // storage 2 and in the registry. This is impossible in archetype_scene,
@@ -7196,10 +7198,10 @@ TEST_CASE("EntityLifecycle", "[ComponentScene]") {
 
   // Re-add to storage 1 with a new value while the entity is still in
   // storage 2; both storages are occupied again.
-  CHECK(s.store_entity<cs_scene_sid_t{1}>(id, 2.72f));
+  CHECK(s.store_entity<cs_scene_sid_t{1}>(id, 2.72F));
   CHECK(s.storage<cs_scene_sid_t{1}>().contains(id));
   CHECK(s.storage<cs_scene_sid_t{2}>().contains(id));
-  CHECK(s.storage<cs_scene_sid_t{1}>()[id] == 2.72f);
+  CHECK(s.storage<cs_scene_sid_t{1}>()[id] == 2.72F);
   CHECK(s.storage<cs_scene_sid_t{2}>()[id] == 42);
 
   // Restage: remove from all storages in one call. The entity returns to
@@ -7242,12 +7244,12 @@ TEST_CASE("ForEach", "[ComponentScene]") {
     auto ha = s.stage_new_entity(); // entity A: both storages
     auto hb = s.stage_new_entity(); // entity B: store1 only
     auto hc = s.stage_new_entity(); // entity C: store2 only
-    CHECK(s.store_entity<cs_scene_sid_t{1}>(ha.id(), 1.0f));
+    CHECK(s.store_entity<cs_scene_sid_t{1}>(ha.id(), 1.0F));
     CHECK(s.store_entity<cs_scene_sid_t{2}>(ha.id(), 10));
-    CHECK(s.store_entity<cs_scene_sid_t{1}>(hb.id(), 2.0f));
+    CHECK(s.store_entity<cs_scene_sid_t{1}>(hb.id(), 2.0F));
     CHECK(s.store_entity<cs_scene_sid_t{2}>(hc.id(), 20));
     int count = 0;
-    float fsum = 0.f;
+    float fsum = 0.F;
     int isum = 0;
     s.for_each<float, int>([&](auto, auto comps) {
       ++count;
@@ -7256,7 +7258,7 @@ TEST_CASE("ForEach", "[ComponentScene]") {
       return true;
     });
     CHECK(count == 1); // only entity A
-    CHECK(fsum == 1.0f);
+    CHECK(fsum == 1.0F);
     CHECK(isum == 10);
     (void)hb;
     (void)hc;
@@ -7267,15 +7269,15 @@ TEST_CASE("ForEach", "[ComponentScene]") {
     two_cs_scene_t s;
     auto ha = s.stage_new_entity();
     auto hb = s.stage_new_entity();
-    CHECK(s.store_entity<cs_scene_sid_t{1}>(ha.id(), 3.0f));
+    CHECK(s.store_entity<cs_scene_sid_t{1}>(ha.id(), 3.0F));
     CHECK(s.store_entity<cs_scene_sid_t{2}>(ha.id(), 0));
-    CHECK(s.store_entity<cs_scene_sid_t{1}>(hb.id(), 4.0f));
-    float fsum = 0.f;
+    CHECK(s.store_entity<cs_scene_sid_t{1}>(hb.id(), 4.0F));
+    float fsum = 0.F;
     s.for_each<float>([&](auto, auto comps) {
       fsum += std::get<0>(comps);
       return true;
     });
-    CHECK(fsum == 7.0f); // 3.0f + 4.0f
+    CHECK(fsum == 7.0F); // 3.0f + 4.0f
     (void)ha;
     (void)hb;
   }
@@ -7283,8 +7285,8 @@ TEST_CASE("ForEach", "[ComponentScene]") {
   // for_each stops early when fn returns false.
   if (true) {
     two_cs_scene_t s;
-    CHECK(s.store_entity<cs_scene_sid_t{1}>(s.stage_new_entity().id(), 1.0f));
-    CHECK(s.store_entity<cs_scene_sid_t{1}>(s.stage_new_entity().id(), 2.0f));
+    CHECK(s.store_entity<cs_scene_sid_t{1}>(s.stage_new_entity().id(), 1.0F));
+    CHECK(s.store_entity<cs_scene_sid_t{1}>(s.stage_new_entity().id(), 2.0F));
     int count = 0;
     s.for_each<float>([&](auto, auto) {
       ++count;
@@ -7297,17 +7299,17 @@ TEST_CASE("ForEach", "[ComponentScene]") {
   if (true) {
     two_cs_scene_t s;
     auto h = s.stage_new_entity();
-    CHECK(s.store_entity<cs_scene_sid_t{1}>(h.id(), 7.0f));
+    CHECK(s.store_entity<cs_scene_sid_t{1}>(h.id(), 7.0F));
     CHECK(s.store_entity<cs_scene_sid_t{2}>(h.id(), 42));
     const auto& cs = s;
-    float fval = 0.f;
+    float fval = 0.F;
     int ival = 0;
     cs.for_each<float, int>([&](auto, auto comps) {
       fval = std::get<0>(comps); // const float&
       ival = std::get<1>(comps); // const int&
       return true;
     });
-    CHECK(fval == 7.0f);
+    CHECK(fval == 7.0F);
     CHECK(ival == 42);
     (void)h;
   }
@@ -7327,12 +7329,12 @@ TEST_CASE("ForEach", "[ComponentScene]") {
   if (true) {
     two_cs_scene_t s;
     auto h = s.stage_new_entity();
-    CHECK(s.store_entity<cs_scene_sid_t{1}>(h.id(), 0.0f));
+    CHECK(s.store_entity<cs_scene_sid_t{1}>(h.id(), 0.0F));
     s.for_each<float>([](auto, auto comps) {
-      std::get<0>(comps) = 99.0f;
+      std::get<0>(comps) = 99.0F;
       return true;
     });
-    CHECK(s.storage<cs_scene_sid_t{1}>()[h.id()] == 99.0f);
+    CHECK(s.storage<cs_scene_sid_t{1}>()[h.id()] == 99.0F);
     (void)h;
   }
 
@@ -7342,9 +7344,9 @@ TEST_CASE("ForEach", "[ComponentScene]") {
   if (true) {
     two_cs_scene_t s;
     auto h = s.stage_new_entity();
-    CHECK(s.store_entity<cs_scene_sid_t{1}>(h.id(), 5.0f));
+    CHECK(s.store_entity<cs_scene_sid_t{1}>(h.id(), 5.0F));
     CHECK(s.store_entity<cs_scene_sid_t{2}>(h.id(), 11));
-    float fval = 0.f;
+    float fval = 0.F;
     int ival = 0;
     s.for_each<int, float>([&](auto, auto comps) {
       ival = std::get<0>(comps); // index 0 = int (first in list)
@@ -7352,7 +7354,7 @@ TEST_CASE("ForEach", "[ComponentScene]") {
       return true;
     });
     CHECK(ival == 11);
-    CHECK(fval == 5.0f);
+    CHECK(fval == 5.0F);
     (void)h;
   }
 
@@ -7361,7 +7363,7 @@ TEST_CASE("ForEach", "[ComponentScene]") {
     two_cs_scene_t s;
     auto h = s.stage_new_entity();
     auto id = h.id();
-    CHECK(s.store_entity<cs_scene_sid_t{1}>(id, 1.0f));
+    CHECK(s.store_entity<cs_scene_sid_t{1}>(id, 1.0F));
     CHECK(s.store_entity<cs_scene_sid_t{2}>(id, 1));
     cs_scene_id_t seen_id{};
     s.for_each<float, int>([&](auto eid, auto) {
@@ -7380,13 +7382,13 @@ TEST_CASE("ForEach", "[ComponentScene]") {
     auto ha = s.stage_new_entity(); // both stores: the match
     auto hb = s.stage_new_entity(); // float only
     auto hc = s.stage_new_entity(); // float only
-    CHECK(s.store_entity<cs_scene_sid_t{1}>(ha.id(), 1.0f));
+    CHECK(s.store_entity<cs_scene_sid_t{1}>(ha.id(), 1.0F));
     CHECK(s.store_entity<cs_scene_sid_t{2}>(ha.id(), 10));
-    CHECK(s.store_entity<cs_scene_sid_t{1}>(hb.id(), 2.0f));
-    CHECK(s.store_entity<cs_scene_sid_t{1}>(hc.id(), 3.0f));
+    CHECK(s.store_entity<cs_scene_sid_t{1}>(hb.id(), 2.0F));
+    CHECK(s.store_entity<cs_scene_sid_t{1}>(hc.id(), 3.0F));
     // store1 has 3 entities; store2 has 1 -- primary switches to store2.
     int count = 0;
-    float fval = 0.f;
+    float fval = 0.F;
     int ival = 0;
     s.for_each<float, int>([&](auto, auto comps) {
       ++count;
@@ -7395,7 +7397,7 @@ TEST_CASE("ForEach", "[ComponentScene]") {
       return true;
     });
     CHECK(count == 1); // only ha
-    CHECK(fval == 1.0f);
+    CHECK(fval == 1.0F);
     CHECK(ival == 10);
     (void)hb;
     (void)hc;
@@ -7419,11 +7421,11 @@ TEST_CASE("NonAlignedOwnCount", "[ComponentScene]") {
   scene3_t s;
   auto h = s.stage_new_entity();
   auto id = h.id();
-  CHECK(s.store_entity<reg3_t::store_id_t{1}>(id, 1.0f));
+  CHECK(s.store_entity<reg3_t::store_id_t{1}>(id, 1.0F));
   CHECK(s.store_entity<reg3_t::store_id_t{2}>(id, 42));
   CHECK(s.storage<reg3_t::store_id_t{1}>().contains(id));
   CHECK(s.storage<reg3_t::store_id_t{2}>().contains(id));
-  CHECK(s.storage<reg3_t::store_id_t{1}>()[id] == 1.0f);
+  CHECK(s.storage<reg3_t::store_id_t{1}>()[id] == 1.0F);
   CHECK(s.storage<reg3_t::store_id_t{2}>()[id] == 42);
   CHECK(s.erase_entity(id));
   CHECK(s.size() == 0U);
@@ -7444,12 +7446,12 @@ TEST_CASE("ForAll", "[ComponentScene]") {
     auto ha = s.stage_new_entity(); // both storages
     auto hb = s.stage_new_entity(); // store1 only
     auto hc = s.stage_new_entity(); // store2 only
-    CHECK(s.store_entity<cs_scene_sid_t{1}>(ha.id(), 1.0f));
+    CHECK(s.store_entity<cs_scene_sid_t{1}>(ha.id(), 1.0F));
     CHECK(s.store_entity<cs_scene_sid_t{2}>(ha.id(), 10));
-    CHECK(s.store_entity<cs_scene_sid_t{1}>(hb.id(), 2.0f));
+    CHECK(s.store_entity<cs_scene_sid_t{1}>(hb.id(), 2.0F));
     CHECK(s.store_entity<cs_scene_sid_t{2}>(hc.id(), 20));
     int count = 0;
-    float fsum = 0.f;
+    float fsum = 0.F;
     int isum = 0;
     auto f = s.for_all<float, int>([&](auto, auto comps) {
       ++count;
@@ -7459,7 +7461,7 @@ TEST_CASE("ForAll", "[ComponentScene]") {
     });
     CHECK(f == 0U);
     CHECK(count == 1); // only ha
-    CHECK(fsum == 1.0f);
+    CHECK(fsum == 1.0F);
     CHECK(isum == 10);
     (void)hb;
     (void)hc;
@@ -7480,8 +7482,8 @@ TEST_CASE("ForAll", "[ComponentScene]") {
   // for_all stops early when fn returns false.
   if (true) {
     two_cs_scene_t s;
-    CHECK(s.store_entity<cs_scene_sid_t{1}>(s.stage_new_entity().id(), 1.0f));
-    CHECK(s.store_entity<cs_scene_sid_t{1}>(s.stage_new_entity().id(), 2.0f));
+    CHECK(s.store_entity<cs_scene_sid_t{1}>(s.stage_new_entity().id(), 1.0F));
+    CHECK(s.store_entity<cs_scene_sid_t{1}>(s.stage_new_entity().id(), 2.0F));
     int count = 0;
     auto f = s.for_all<float>([&](auto, auto) {
       ++count;
@@ -7495,10 +7497,10 @@ TEST_CASE("ForAll", "[ComponentScene]") {
   if (true) {
     two_cs_scene_t s;
     auto h = s.stage_new_entity();
-    CHECK(s.store_entity<cs_scene_sid_t{1}>(h.id(), 7.0f));
+    CHECK(s.store_entity<cs_scene_sid_t{1}>(h.id(), 7.0F));
     CHECK(s.store_entity<cs_scene_sid_t{2}>(h.id(), 42));
     const auto& cs = s;
-    float fval = 0.f;
+    float fval = 0.F;
     int ival = 0;
     auto f = cs.for_all<float, int>([&](auto, auto comps) {
       fval = std::get<0>(comps);
@@ -7506,7 +7508,7 @@ TEST_CASE("ForAll", "[ComponentScene]") {
       return true;
     });
     CHECK(f == 0U);
-    CHECK(fval == 7.0f);
+    CHECK(fval == 7.0F);
     CHECK(ival == 42);
     (void)h;
   }
@@ -7515,13 +7517,13 @@ TEST_CASE("ForAll", "[ComponentScene]") {
   if (true) {
     two_cs_scene_t s;
     auto h = s.stage_new_entity();
-    CHECK(s.store_entity<cs_scene_sid_t{1}>(h.id(), 0.0f));
+    CHECK(s.store_entity<cs_scene_sid_t{1}>(h.id(), 0.0F));
     auto f = s.for_all<float>([](auto, auto comps) {
-      std::get<0>(comps) = 55.0f;
+      std::get<0>(comps) = 55.0F;
       return true;
     });
     CHECK(f == 0U);
-    CHECK(s.storage<cs_scene_sid_t{1}>()[h.id()] == 55.0f);
+    CHECK(s.storage<cs_scene_sid_t{1}>()[h.id()] == 55.0F);
     (void)h;
   }
 
@@ -7530,7 +7532,7 @@ TEST_CASE("ForAll", "[ComponentScene]") {
     two_cs_scene_t s;
     auto h = s.stage_new_entity();
     auto id = h.id();
-    CHECK(s.store_entity<cs_scene_sid_t{1}>(id, 1.0f));
+    CHECK(s.store_entity<cs_scene_sid_t{1}>(id, 1.0F));
     CHECK(s.store_entity<cs_scene_sid_t{2}>(id, 1));
     cs_scene_id_t seen_id{};
     auto f = s.for_all<float, int>([&](auto eid, auto) {
@@ -7546,9 +7548,9 @@ TEST_CASE("ForAll", "[ComponentScene]") {
     two_cs_scene_t s;
     auto ha = s.stage_new_entity(); // staged only -- must not be visited
     auto hb = s.stage_new_entity();
-    CHECK(s.store_entity<cs_scene_sid_t{1}>(hb.id(), 5.0f));
+    CHECK(s.store_entity<cs_scene_sid_t{1}>(hb.id(), 5.0F));
     int count = 0;
-    float fsum = 0.f;
+    float fsum = 0.F;
     auto f = s.for_all<float>([&](auto, auto comps) {
       ++count;
       fsum += std::get<0>(comps);
@@ -7556,7 +7558,7 @@ TEST_CASE("ForAll", "[ComponentScene]") {
     });
     CHECK(f == 0U);
     CHECK(count == 1); // only hb
-    CHECK(fsum == 5.0f);
+    CHECK(fsum == 5.0F);
     (void)ha;
     (void)hb;
   }
@@ -7569,12 +7571,12 @@ TEST_CASE("ForAll", "[ComponentScene]") {
     auto ha = s.stage_new_entity();
     auto hb = s.stage_new_entity();
     auto hc = s.stage_new_entity();
-    CHECK(s.store_entity<cs_scene_sid_t{1}>(ha.id(), 1.0f));
-    CHECK(s.store_entity<cs_scene_sid_t{1}>(hb.id(), 99.0f));
-    CHECK(s.store_entity<cs_scene_sid_t{1}>(hc.id(), 3.0f));
+    CHECK(s.store_entity<cs_scene_sid_t{1}>(ha.id(), 1.0F));
+    CHECK(s.store_entity<cs_scene_sid_t{1}>(hb.id(), 99.0F));
+    CHECK(s.store_entity<cs_scene_sid_t{1}>(hc.id(), 3.0F));
     CHECK(s.erase_entity(hb)); // leave a gap at hb's ID
     int count = 0;
-    float fsum = 0.f;
+    float fsum = 0.F;
     auto f = s.for_all<float>([&](auto, auto comps) {
       ++count;
       fsum += std::get<0>(comps);
@@ -7582,7 +7584,7 @@ TEST_CASE("ForAll", "[ComponentScene]") {
     });
     CHECK(f == 0U);
     CHECK(count == 2);   // only ha and hc
-    CHECK(fsum == 4.0f); // 1.0 + 3.0
+    CHECK(fsum == 4.0F); // 1.0 + 3.0
     (void)ha;
     (void)hc;
   }
@@ -7606,13 +7608,13 @@ TEST_CASE("TagLookup", "[ComponentScene]") {
     auto ha = s.stage_new_entity(); // both
     auto hb = s.stage_new_entity(); // TagA only
     auto hc = s.stage_new_entity(); // TagB only
-    CHECK(s.store_entity<cs_scene_sid_t{1}>(ha.id(), 1.0f));
-    CHECK(s.store_entity<cs_scene_sid_t{2}>(ha.id(), 10.0f));
-    CHECK(s.store_entity<cs_scene_sid_t{1}>(hb.id(), 2.0f));
-    CHECK(s.store_entity<cs_scene_sid_t{2}>(hc.id(), 3.0f));
+    CHECK(s.store_entity<cs_scene_sid_t{1}>(ha.id(), 1.0F));
+    CHECK(s.store_entity<cs_scene_sid_t{2}>(ha.id(), 10.0F));
+    CHECK(s.store_entity<cs_scene_sid_t{1}>(hb.id(), 2.0F));
+    CHECK(s.store_entity<cs_scene_sid_t{2}>(hc.id(), 3.0F));
     int count = 0;
-    float asum = 0.f;
-    float bsum = 0.f;
+    float asum = 0.F;
+    float bsum = 0.F;
     s.for_each<FloatTagA, FloatTagB>([&](auto, auto comps) {
       ++count;
       asum += std::get<0>(comps); // float from FloatTagA storage
@@ -7620,8 +7622,8 @@ TEST_CASE("TagLookup", "[ComponentScene]") {
       return true;
     });
     CHECK(count == 1); // only ha
-    CHECK(asum == 1.0f);
-    CHECK(bsum == 10.0f);
+    CHECK(asum == 1.0F);
+    CHECK(bsum == 10.0F);
     (void)hb;
     (void)hc;
   }
@@ -7631,14 +7633,14 @@ TEST_CASE("TagLookup", "[ComponentScene]") {
     two_tagged_scene_t s;
     auto ha = s.stage_new_entity();
     auto hb = s.stage_new_entity(); // TagB only, not visited
-    CHECK(s.store_entity<cs_scene_sid_t{1}>(ha.id(), 5.0f));
-    CHECK(s.store_entity<cs_scene_sid_t{2}>(hb.id(), 6.0f));
-    float asum = 0.f;
+    CHECK(s.store_entity<cs_scene_sid_t{1}>(ha.id(), 5.0F));
+    CHECK(s.store_entity<cs_scene_sid_t{2}>(hb.id(), 6.0F));
+    float asum = 0.F;
     s.for_each<FloatTagA>([&](auto, auto comps) {
       asum += std::get<0>(comps);
       return true;
     });
-    CHECK(asum == 5.0f);
+    CHECK(asum == 5.0F);
     (void)ha;
     (void)hb;
   }
@@ -7647,12 +7649,12 @@ TEST_CASE("TagLookup", "[ComponentScene]") {
   if (true) {
     two_tagged_scene_t s;
     auto h = s.stage_new_entity();
-    CHECK(s.store_entity<cs_scene_sid_t{1}>(h.id(), 0.0f));
+    CHECK(s.store_entity<cs_scene_sid_t{1}>(h.id(), 0.0F));
     s.for_each<FloatTagA>([](auto, auto comps) {
-      std::get<0>(comps) = 77.0f;
+      std::get<0>(comps) = 77.0F;
       return true;
     });
-    CHECK(s.storage<cs_scene_sid_t{1}>()[h.id()] == 77.0f);
+    CHECK(s.storage<cs_scene_sid_t{1}>()[h.id()] == 77.0F);
     (void)h;
   }
 
@@ -7660,18 +7662,18 @@ TEST_CASE("TagLookup", "[ComponentScene]") {
   if (true) {
     two_tagged_scene_t s;
     auto h = s.stage_new_entity();
-    CHECK(s.store_entity<cs_scene_sid_t{1}>(h.id(), 3.0f));
-    CHECK(s.store_entity<cs_scene_sid_t{2}>(h.id(), 4.0f));
+    CHECK(s.store_entity<cs_scene_sid_t{1}>(h.id(), 3.0F));
+    CHECK(s.store_entity<cs_scene_sid_t{2}>(h.id(), 4.0F));
     const auto& cs = s;
-    float aval = 0.f;
-    float bval = 0.f;
+    float aval = 0.F;
+    float bval = 0.F;
     cs.for_each<FloatTagA, FloatTagB>([&](auto, auto comps) {
       aval = std::get<0>(comps); // const float&
       bval = std::get<1>(comps); // const float&
       return true;
     });
-    CHECK(aval == 3.0f);
-    CHECK(bval == 4.0f);
+    CHECK(aval == 3.0F);
+    CHECK(bval == 4.0F);
     (void)h;
   }
 
@@ -7680,12 +7682,12 @@ TEST_CASE("TagLookup", "[ComponentScene]") {
     two_tagged_scene_t s;
     auto ha = s.stage_new_entity(); // both
     auto hb = s.stage_new_entity(); // TagA only
-    CHECK(s.store_entity<cs_scene_sid_t{1}>(ha.id(), 9.0f));
-    CHECK(s.store_entity<cs_scene_sid_t{2}>(ha.id(), 8.0f));
-    CHECK(s.store_entity<cs_scene_sid_t{1}>(hb.id(), 1.0f));
+    CHECK(s.store_entity<cs_scene_sid_t{1}>(ha.id(), 9.0F));
+    CHECK(s.store_entity<cs_scene_sid_t{2}>(ha.id(), 8.0F));
+    CHECK(s.store_entity<cs_scene_sid_t{1}>(hb.id(), 1.0F));
     int count = 0;
-    float asum = 0.f;
-    float bsum = 0.f;
+    float asum = 0.F;
+    float bsum = 0.F;
     auto f = s.for_all<FloatTagA, FloatTagB>([&](auto, auto comps) {
       ++count;
       asum += std::get<0>(comps);
@@ -7694,8 +7696,8 @@ TEST_CASE("TagLookup", "[ComponentScene]") {
     });
     CHECK(f == 0U);
     CHECK(count == 1); // only ha
-    CHECK(asum == 9.0f);
-    CHECK(bsum == 8.0f);
+    CHECK(asum == 9.0F);
+    CHECK(bsum == 8.0F);
     (void)hb;
   }
 
@@ -7703,17 +7705,17 @@ TEST_CASE("TagLookup", "[ComponentScene]") {
   if (true) {
     two_tagged_scene_t s;
     auto h = s.stage_new_entity();
-    CHECK(s.store_entity<cs_scene_sid_t{1}>(h.id(), 11.0f)); // TagA
-    CHECK(s.store_entity<cs_scene_sid_t{2}>(h.id(), 22.0f)); // TagB
-    float aval = 0.f;
-    float bval = 0.f;
+    CHECK(s.store_entity<cs_scene_sid_t{1}>(h.id(), 11.0F)); // TagA
+    CHECK(s.store_entity<cs_scene_sid_t{2}>(h.id(), 22.0F)); // TagB
+    float aval = 0.F;
+    float bval = 0.F;
     s.for_each<FloatTagB, FloatTagA>([&](auto, auto comps) {
       bval = std::get<0>(comps); // index 0 = FloatTagB (first in list)
       aval = std::get<1>(comps); // index 1 = FloatTagA (second in list)
       return true;
     });
-    CHECK(bval == 22.0f);
-    CHECK(aval == 11.0f);
+    CHECK(bval == 22.0F);
+    CHECK(aval == 11.0F);
     (void)h;
   }
 
@@ -7723,8 +7725,8 @@ TEST_CASE("TagLookup", "[ComponentScene]") {
     CHECK(s.storage<tagged_float_a_t>().empty());
     CHECK(s.storage<tagged_float_b_t>().empty());
     auto h = s.stage_new_entity();
-    CHECK(s.store_entity<cs_scene_sid_t{1}>(h.id(), 3.0f));
-    CHECK(s.storage<tagged_float_a_t>()[h.id()] == 3.0f);
+    CHECK(s.store_entity<cs_scene_sid_t{1}>(h.id(), 3.0F));
+    CHECK(s.storage<tagged_float_a_t>()[h.id()] == 3.0F);
     CHECK(s.storage<tagged_float_b_t>().empty());
     (void)h;
   }
@@ -7734,10 +7736,10 @@ TEST_CASE("TagLookup", "[ComponentScene]") {
     two_tagged_scene_t s;
     auto ha = s.stage_new_entity(); // TagA only
     auto hb = s.stage_new_entity(); // TagB only, not visited
-    CHECK(s.store_entity<cs_scene_sid_t{1}>(ha.id(), 5.0f));
-    CHECK(s.store_entity<cs_scene_sid_t{2}>(hb.id(), 6.0f));
+    CHECK(s.store_entity<cs_scene_sid_t{1}>(ha.id(), 5.0F));
+    CHECK(s.store_entity<cs_scene_sid_t{2}>(hb.id(), 6.0F));
     int count = 0;
-    float asum = 0.f;
+    float asum = 0.F;
     auto f = s.for_all<FloatTagA>([&](auto, auto comps) {
       ++count;
       asum += std::get<0>(comps);
@@ -7745,7 +7747,7 @@ TEST_CASE("TagLookup", "[ComponentScene]") {
     });
     CHECK(f == 0U);
     CHECK(count == 1);
-    CHECK(asum == 5.0f);
+    CHECK(asum == 5.0F);
     (void)ha;
     (void)hb;
   }
@@ -7755,8 +7757,8 @@ TEST_CASE("TagLookup", "[ComponentScene]") {
     two_tagged_scene_t s;
     auto ha = s.stage_new_entity();
     auto hb = s.stage_new_entity();
-    CHECK(s.store_entity<cs_scene_sid_t{1}>(ha.id(), 1.0f));
-    CHECK(s.store_entity<cs_scene_sid_t{1}>(hb.id(), 2.0f));
+    CHECK(s.store_entity<cs_scene_sid_t{1}>(ha.id(), 1.0F));
+    CHECK(s.store_entity<cs_scene_sid_t{1}>(hb.id(), 2.0F));
     int count = 0;
     s.for_each<FloatTagA>([&](auto, auto) {
       ++count;
@@ -7771,19 +7773,19 @@ TEST_CASE("TagLookup", "[ComponentScene]") {
   if (true) {
     two_tagged_scene_t s;
     auto h = s.stage_new_entity();
-    CHECK(s.store_entity<cs_scene_sid_t{1}>(h.id(), 21.0f));
-    CHECK(s.store_entity<cs_scene_sid_t{2}>(h.id(), 42.0f));
+    CHECK(s.store_entity<cs_scene_sid_t{1}>(h.id(), 21.0F));
+    CHECK(s.store_entity<cs_scene_sid_t{2}>(h.id(), 42.0F));
     const auto& cs = s;
-    float aval = 0.f;
-    float bval = 0.f;
+    float aval = 0.F;
+    float bval = 0.F;
     auto f = cs.for_all<FloatTagA, FloatTagB>([&](auto, auto comps) {
       aval = std::get<0>(comps); // const float&
       bval = std::get<1>(comps); // const float&
       return true;
     });
     CHECK(f == 0U);
-    CHECK(aval == 21.0f);
-    CHECK(bval == 42.0f);
+    CHECK(aval == 21.0F);
+    CHECK(bval == 42.0F);
     (void)h;
   }
 
@@ -7795,12 +7797,12 @@ TEST_CASE("TagLookup", "[ComponentScene]") {
     auto ha = s.stage_new_entity(); // FloatTagA + int: visited
     auto hb = s.stage_new_entity(); // FloatTagA only: skipped
     auto hc = s.stage_new_entity(); // int only: skipped
-    CHECK(s.store_entity<cs_scene_sid_t{1}>(ha.id(), 1.0f));
+    CHECK(s.store_entity<cs_scene_sid_t{1}>(ha.id(), 1.0F));
     CHECK(s.store_entity<cs_scene_sid_t{3}>(ha.id(), 10));
-    CHECK(s.store_entity<cs_scene_sid_t{1}>(hb.id(), 2.0f));
+    CHECK(s.store_entity<cs_scene_sid_t{1}>(hb.id(), 2.0F));
     CHECK(s.store_entity<cs_scene_sid_t{3}>(hc.id(), 20));
     int count = 0;
-    float fsum = 0.f;
+    float fsum = 0.F;
     int isum = 0;
     s.for_each<FloatTagA, int>([&](auto, auto comps) {
       ++count;
@@ -7809,7 +7811,7 @@ TEST_CASE("TagLookup", "[ComponentScene]") {
       return true;
     });
     CHECK(count == 1); // only ha
-    CHECK(fsum == 1.0f);
+    CHECK(fsum == 1.0F);
     CHECK(isum == 10);
     (void)hb;
     (void)hc;
@@ -7820,11 +7822,11 @@ TEST_CASE("TagLookup", "[ComponentScene]") {
     three_tagged_scene_t s;
     auto ha = s.stage_new_entity(); // FloatTagA + int
     auto hb = s.stage_new_entity(); // FloatTagA only
-    CHECK(s.store_entity<cs_scene_sid_t{1}>(ha.id(), 3.0f));
+    CHECK(s.store_entity<cs_scene_sid_t{1}>(ha.id(), 3.0F));
     CHECK(s.store_entity<cs_scene_sid_t{3}>(ha.id(), 30));
-    CHECK(s.store_entity<cs_scene_sid_t{1}>(hb.id(), 4.0f));
+    CHECK(s.store_entity<cs_scene_sid_t{1}>(hb.id(), 4.0F));
     int count = 0;
-    float fsum = 0.f;
+    float fsum = 0.F;
     int isum = 0;
     auto f = s.for_all<FloatTagA, int>([&](auto, auto comps) {
       ++count;
@@ -7834,7 +7836,7 @@ TEST_CASE("TagLookup", "[ComponentScene]") {
     });
     CHECK(f == 0U);
     CHECK(count == 1); // only ha
-    CHECK(fsum == 3.0f);
+    CHECK(fsum == 3.0F);
     CHECK(isum == 30);
     (void)hb;
   }
@@ -7845,16 +7847,16 @@ TEST_CASE("TagLookup", "[ComponentScene]") {
     auto ha = s.stage_new_entity(); // all three: the only match
     auto hb = s.stage_new_entity(); // FloatTagA + FloatTagB only
     auto hc = s.stage_new_entity(); // FloatTagA + int only
-    CHECK(s.store_entity<cs_scene_sid_t{1}>(ha.id(), 1.0f));
-    CHECK(s.store_entity<cs_scene_sid_t{2}>(ha.id(), 2.0f));
+    CHECK(s.store_entity<cs_scene_sid_t{1}>(ha.id(), 1.0F));
+    CHECK(s.store_entity<cs_scene_sid_t{2}>(ha.id(), 2.0F));
     CHECK(s.store_entity<cs_scene_sid_t{3}>(ha.id(), 10));
-    CHECK(s.store_entity<cs_scene_sid_t{1}>(hb.id(), 3.0f));
-    CHECK(s.store_entity<cs_scene_sid_t{2}>(hb.id(), 4.0f));
-    CHECK(s.store_entity<cs_scene_sid_t{1}>(hc.id(), 5.0f));
+    CHECK(s.store_entity<cs_scene_sid_t{1}>(hb.id(), 3.0F));
+    CHECK(s.store_entity<cs_scene_sid_t{2}>(hb.id(), 4.0F));
+    CHECK(s.store_entity<cs_scene_sid_t{1}>(hc.id(), 5.0F));
     CHECK(s.store_entity<cs_scene_sid_t{3}>(hc.id(), 20));
     int count = 0;
-    float asum = 0.f;
-    float bsum = 0.f;
+    float asum = 0.F;
+    float bsum = 0.F;
     int isum = 0;
     s.for_each<FloatTagA, FloatTagB, int>([&](auto, auto comps) {
       ++count;
@@ -7864,8 +7866,8 @@ TEST_CASE("TagLookup", "[ComponentScene]") {
       return true;
     });
     CHECK(count == 1); // only ha
-    CHECK(asum == 1.0f);
-    CHECK(bsum == 2.0f);
+    CHECK(asum == 1.0F);
+    CHECK(bsum == 2.0F);
     CHECK(isum == 10);
     (void)hb;
     (void)hc;
@@ -7879,15 +7881,15 @@ TEST_CASE("TagLookup", "[ComponentScene]") {
     auto ha = s.stage_new_entity(); // TagA + int: visited (float unambiguous)
     auto hb = s.stage_new_entity(); // TagB + int: visited (float unambiguous)
     auto hc = s.stage_new_entity(); // TagA + TagB + int: ambiguous, counted
-    CHECK(s.store_entity<cs_scene_sid_t{1}>(ha.id(), 1.0f));
+    CHECK(s.store_entity<cs_scene_sid_t{1}>(ha.id(), 1.0F));
     CHECK(s.store_entity<cs_scene_sid_t{3}>(ha.id(), 10));
-    CHECK(s.store_entity<cs_scene_sid_t{2}>(hb.id(), 2.0f));
+    CHECK(s.store_entity<cs_scene_sid_t{2}>(hb.id(), 2.0F));
     CHECK(s.store_entity<cs_scene_sid_t{3}>(hb.id(), 20));
-    CHECK(s.store_entity<cs_scene_sid_t{1}>(hc.id(), 99.0f));
-    CHECK(s.store_entity<cs_scene_sid_t{2}>(hc.id(), 99.0f));
+    CHECK(s.store_entity<cs_scene_sid_t{1}>(hc.id(), 99.0F));
+    CHECK(s.store_entity<cs_scene_sid_t{2}>(hc.id(), 99.0F));
     CHECK(s.store_entity<cs_scene_sid_t{3}>(hc.id(), 99));
     int count = 0;
-    float fsum = 0.f;
+    float fsum = 0.F;
     int isum = 0;
     auto f = s.for_all<float, int>([&](auto, auto comps) {
       ++count;
@@ -7897,7 +7899,7 @@ TEST_CASE("TagLookup", "[ComponentScene]") {
     });
     CHECK(f == 1U);      // hc is ambiguous
     CHECK(count == 2);   // ha and hb
-    CHECK(fsum == 3.0f); // 1.0 + 2.0
+    CHECK(fsum == 3.0F); // 1.0 + 2.0
     CHECK(isum == 30);   // 10 + 20
     (void)ha;
     (void)hb;
@@ -7919,9 +7921,9 @@ TEST_CASE("ForAllSharedType", "[ComponentScene]") {
   if (true) {
     two_tagged_scene_t s;
     auto h = s.stage_new_entity();
-    CHECK(s.store_entity<cs_scene_sid_t{1}>(h.id(), 3.0f)); // TagA
+    CHECK(s.store_entity<cs_scene_sid_t{1}>(h.id(), 3.0F)); // TagA
     int count = 0;
-    float fsum = 0.f;
+    float fsum = 0.F;
     auto f1 = s.for_all<float>([&](auto, auto comps) {
       ++count;
       fsum += std::get<0>(comps);
@@ -7929,7 +7931,7 @@ TEST_CASE("ForAllSharedType", "[ComponentScene]") {
     });
     CHECK(f1 == 0U);
     CHECK(count == 1);
-    CHECK(fsum == 3.0f);
+    CHECK(fsum == 3.0F);
     (void)h;
   }
 
@@ -7937,9 +7939,9 @@ TEST_CASE("ForAllSharedType", "[ComponentScene]") {
   if (true) {
     two_tagged_scene_t s;
     auto h = s.stage_new_entity();
-    CHECK(s.store_entity<cs_scene_sid_t{2}>(h.id(), 7.0f)); // TagB
+    CHECK(s.store_entity<cs_scene_sid_t{2}>(h.id(), 7.0F)); // TagB
     int count = 0;
-    float fsum = 0.f;
+    float fsum = 0.F;
     auto f2 = s.for_all<float>([&](auto, auto comps) {
       ++count;
       fsum += std::get<0>(comps);
@@ -7947,7 +7949,7 @@ TEST_CASE("ForAllSharedType", "[ComponentScene]") {
     });
     CHECK(f2 == 0U);
     CHECK(count == 1);
-    CHECK(fsum == 7.0f);
+    CHECK(fsum == 7.0F);
     (void)h;
   }
 
@@ -7956,10 +7958,10 @@ TEST_CASE("ForAllSharedType", "[ComponentScene]") {
     two_tagged_scene_t s;
     auto ha = s.stage_new_entity();
     auto hb = s.stage_new_entity();
-    CHECK(s.store_entity<cs_scene_sid_t{1}>(ha.id(), 1.0f)); // TagA
-    CHECK(s.store_entity<cs_scene_sid_t{2}>(hb.id(), 2.0f)); // TagB
+    CHECK(s.store_entity<cs_scene_sid_t{1}>(ha.id(), 1.0F)); // TagA
+    CHECK(s.store_entity<cs_scene_sid_t{2}>(hb.id(), 2.0F)); // TagB
     int count = 0;
-    float fsum = 0.f;
+    float fsum = 0.F;
     auto f3 = s.for_all<float>([&](auto, auto comps) {
       ++count;
       fsum += std::get<0>(comps);
@@ -7967,7 +7969,7 @@ TEST_CASE("ForAllSharedType", "[ComponentScene]") {
     });
     CHECK(f3 == 0U);
     CHECK(count == 2);
-    CHECK(fsum == 3.0f);
+    CHECK(fsum == 3.0F);
     (void)ha;
     (void)hb;
   }
@@ -7976,8 +7978,8 @@ TEST_CASE("ForAllSharedType", "[ComponentScene]") {
   if (true) {
     two_tagged_scene_t s;
     auto h = s.stage_new_entity();
-    CHECK(s.store_entity<cs_scene_sid_t{1}>(h.id(), 5.0f)); // TagA
-    CHECK(s.store_entity<cs_scene_sid_t{2}>(h.id(), 6.0f)); // TagB
+    CHECK(s.store_entity<cs_scene_sid_t{1}>(h.id(), 5.0F)); // TagA
+    CHECK(s.store_entity<cs_scene_sid_t{2}>(h.id(), 6.0F)); // TagB
     int count = 0;
     auto f4 = s.for_all<float>([&](auto, auto) {
       ++count;
@@ -7993,11 +7995,11 @@ TEST_CASE("ForAllSharedType", "[ComponentScene]") {
     two_tagged_scene_t s;
     auto ha = s.stage_new_entity(); // ambiguous: both storages
     auto hb = s.stage_new_entity(); // TagA only
-    CHECK(s.store_entity<cs_scene_sid_t{1}>(ha.id(), 99.0f));
-    CHECK(s.store_entity<cs_scene_sid_t{2}>(ha.id(), 99.0f));
-    CHECK(s.store_entity<cs_scene_sid_t{1}>(hb.id(), 4.0f));
+    CHECK(s.store_entity<cs_scene_sid_t{1}>(ha.id(), 99.0F));
+    CHECK(s.store_entity<cs_scene_sid_t{2}>(ha.id(), 99.0F));
+    CHECK(s.store_entity<cs_scene_sid_t{1}>(hb.id(), 4.0F));
     int count = 0;
-    float fsum = 0.f;
+    float fsum = 0.F;
     auto f5 = s.for_all<float>([&](auto, auto comps) {
       ++count;
       fsum += std::get<0>(comps);
@@ -8005,7 +8007,7 @@ TEST_CASE("ForAllSharedType", "[ComponentScene]") {
     });
     CHECK(f5 == 1U);   // ha counted as failure
     CHECK(count == 1); // only hb visited
-    CHECK(fsum == 4.0f);
+    CHECK(fsum == 4.0F);
     (void)ha;
     (void)hb;
   }
@@ -8015,8 +8017,8 @@ TEST_CASE("ForAllSharedType", "[ComponentScene]") {
     two_tagged_scene_t s;
     auto ha = s.stage_new_entity(); // TagA only
     auto hb = s.stage_new_entity(); // TagA only
-    CHECK(s.store_entity<cs_scene_sid_t{1}>(ha.id(), 1.0f));
-    CHECK(s.store_entity<cs_scene_sid_t{1}>(hb.id(), 2.0f));
+    CHECK(s.store_entity<cs_scene_sid_t{1}>(ha.id(), 1.0F));
+    CHECK(s.store_entity<cs_scene_sid_t{1}>(hb.id(), 2.0F));
     int count = 0;
     auto f6 = s.for_all<float>([&](auto, auto) {
       ++count;
@@ -8036,9 +8038,9 @@ TEST_CASE("ForAllSharedType", "[ComponentScene]") {
     two_tagged_scene_t s;
     auto ha = s.stage_new_entity(); // ambiguous: in both storages
     auto hb = s.stage_new_entity(); // TagA only
-    CHECK(s.store_entity<cs_scene_sid_t{1}>(ha.id(), 99.0f));
-    CHECK(s.store_entity<cs_scene_sid_t{2}>(ha.id(), 99.0f));
-    CHECK(s.store_entity<cs_scene_sid_t{1}>(hb.id(), 4.0f));
+    CHECK(s.store_entity<cs_scene_sid_t{1}>(ha.id(), 99.0F));
+    CHECK(s.store_entity<cs_scene_sid_t{2}>(ha.id(), 99.0F));
+    CHECK(s.store_entity<cs_scene_sid_t{1}>(hb.id(), 4.0F));
     int count = 0;
     auto f = s.for_all<float>([&](auto, auto) {
       ++count;
@@ -8058,12 +8060,12 @@ TEST_CASE("ForAllSharedType", "[ComponentScene]") {
     auto hb = s.stage_new_entity(); // TagB only, not visited
     auto hc = s.stage_new_entity(); // both storages (ambiguous for float, not
                                     // for FloatTagA)
-    CHECK(s.store_entity<cs_scene_sid_t{1}>(ha.id(), 1.0f));
-    CHECK(s.store_entity<cs_scene_sid_t{2}>(hb.id(), 2.0f));
-    CHECK(s.store_entity<cs_scene_sid_t{1}>(hc.id(), 3.0f));
-    CHECK(s.store_entity<cs_scene_sid_t{2}>(hc.id(), 99.0f));
+    CHECK(s.store_entity<cs_scene_sid_t{1}>(ha.id(), 1.0F));
+    CHECK(s.store_entity<cs_scene_sid_t{2}>(hb.id(), 2.0F));
+    CHECK(s.store_entity<cs_scene_sid_t{1}>(hc.id(), 3.0F));
+    CHECK(s.store_entity<cs_scene_sid_t{2}>(hc.id(), 99.0F));
     int count = 0;
-    float fsum = 0.f;
+    float fsum = 0.F;
     auto f7 = s.for_all<FloatTagA>([&](auto, auto comps) {
       ++count;
       fsum += std::get<0>(comps);
@@ -8071,7 +8073,7 @@ TEST_CASE("ForAllSharedType", "[ComponentScene]") {
     });
     CHECK(f7 == 0U);     // no ambiguity: tag resolves to exactly one storage
     CHECK(count == 2);   // ha and hc both have the TagA component
-    CHECK(fsum == 4.0f); // 1.0 + 3.0
+    CHECK(fsum == 4.0F); // 1.0 + 3.0
     (void)ha;
     (void)hb;
     (void)hc;
@@ -8090,10 +8092,10 @@ TEST_CASE("SwapMoveReserve", "[ComponentStorage]") {
     cs_store_t s{r, cs_sid_t{1}};
     s.reserve(50);
     auto id0 = r.create_id({}, 0);
-    CHECK(s.add(id0, 1.0f));
+    CHECK(s.add(id0, 1.0F));
     s.shrink_to_fit();
     CHECK(s.size() == 1U);
-    CHECK(s[id0] == 1.0f);
+    CHECK(s[id0] == 1.0F);
   }
 
   // swap() (member) exchanges store_ids and component data.
@@ -8103,15 +8105,15 @@ TEST_CASE("SwapMoveReserve", "[ComponentStorage]") {
     cs_store_t s2{r, cs_sid_t{2}};
     auto id0 = r.create_id({}, 0);
     auto id1 = r.create_id({}, 0);
-    CHECK(s1.add(id0, 1.0f));
-    CHECK(s2.add(id1, 2.0f));
+    CHECK(s1.add(id0, 1.0F));
+    CHECK(s2.add(id1, 2.0F));
     s1.swap(s2);
     CHECK(s1.store_id() == cs_sid_t{2});
     CHECK(s2.store_id() == cs_sid_t{1});
     CHECK(s1.contains(id1));
     CHECK(s2.contains(id0));
-    CHECK(s1[id1] == 2.0f);
-    CHECK(s2[id0] == 1.0f);
+    CHECK(s1[id1] == 2.0F);
+    CHECK(s2[id0] == 1.0F);
   }
 
   // swap() (free function).
@@ -8120,12 +8122,12 @@ TEST_CASE("SwapMoveReserve", "[ComponentStorage]") {
     cs_store_t s1{r, cs_sid_t{1}};
     cs_store_t s2{r, cs_sid_t{2}};
     auto id0 = r.create_id({}, 0);
-    CHECK(s1.add(id0, 5.0f));
+    CHECK(s1.add(id0, 5.0F));
     swap(s1, s2);
     CHECK(s1.store_id() == cs_sid_t{2});
     CHECK(s2.store_id() == cs_sid_t{1});
     CHECK(s2.contains(id0));
-    CHECK(s2[id0] == 5.0f);
+    CHECK(s2[id0] == 5.0F);
     CHECK(s1.empty());
   }
 
@@ -8135,11 +8137,11 @@ TEST_CASE("SwapMoveReserve", "[ComponentStorage]") {
     auto id0 = r.create_id({}, 0);
     {
       cs_store_t s1{r, cs_sid_t{1}};
-      CHECK(s1.add(id0, 3.14f));
+      CHECK(s1.add(id0, 3.14F));
       cs_store_t s2{std::move(s1)};
       CHECK(s2.size() == 1U);
       CHECK(s2.store_id() == cs_sid_t{1});
-      CHECK(s2[id0] == 3.14f);
+      CHECK(s2[id0] == 3.14F);
     } // s2 destructor erases entity
     CHECK_FALSE(r.is_valid(id0));
   }
@@ -8151,10 +8153,10 @@ TEST_CASE("SwapMoveReserve", "[ComponentStorage]") {
     {
       cs_store_t s1{r, cs_sid_t{1}};
       cs_store_t s2;
-      CHECK(s1.add(id0, 7.0f));
+      CHECK(s1.add(id0, 7.0F));
       s2 = std::move(s1);
       CHECK(s2.size() == 1U);
-      CHECK(s2[id0] == 7.0f);
+      CHECK(s2[id0] == 7.0F);
     } // s2 destructor erases entity
     CHECK_FALSE(r.is_valid(id0));
   }
@@ -8170,19 +8172,19 @@ TEST_CASE("AddNew", "[ComponentStorage]") {
   if (true) {
     cs_reg_t r;
     cs_store_t s{r, cs_sid_t{1}};
-    auto h = s.add_new(3.14f);
+    auto h = s.add_new(3.14F);
     CHECK(static_cast<bool>(h));
     CHECK(s.contains(h.id()));
-    CHECK(s[h.id()] == 3.14f);
+    CHECK(s[h.id()] == 3.14F);
   }
 
   // add_new(component, metadata) -- component-first with explicit metadata.
   if (true) {
     cs_reg_t r;
     cs_store_t s{r, cs_sid_t{1}};
-    auto h = s.add_new(9.9f, 42);
+    auto h = s.add_new(9.9F, 42);
     CHECK(static_cast<bool>(h));
-    CHECK(s[h.id()] == 9.9f);
+    CHECK(s[h.id()] == 9.9F);
     CHECK(r[h.id()] == 42);
   }
 
@@ -8192,9 +8194,9 @@ TEST_CASE("AddNew", "[ComponentStorage]") {
     cs_reg_t r;
     cs_store_t s{r, cs_sid_t{1}};
     CHECK(s.set_limit(1));
-    auto h0 = s.add_new(1.0f);
+    auto h0 = s.add_new(1.0F);
     CHECK(static_cast<bool>(h0));
-    auto h1 = s.add_new(2.0f);
+    auto h1 = s.add_new(2.0F);
     CHECK_FALSE(static_cast<bool>(h1));
     CHECK(s.size() == 1U);
     CHECK(r.size() == 1U);
@@ -8208,8 +8210,8 @@ TEST_CASE("AddNew", "[ComponentStorage]") {
     CHECK(s.limit() == *cs_id_t::invalid); // default: unlimited
     auto id0 = r.create_id({}, 0);
     auto id1 = r.create_id({}, 0);
-    CHECK(s.add(id0, 1.0f));
-    CHECK(s.add(id1, 2.0f));
+    CHECK(s.add(id0, 1.0F));
+    CHECK(s.add(id1, 2.0F));
     CHECK_FALSE(s.set_limit(1));           // 2 entities; 1 < 2 -- rejected
     CHECK(s.limit() == *cs_id_t::invalid); // unchanged
     CHECK(s.set_limit(2));                 // exactly current size -- accepted
@@ -8230,10 +8232,10 @@ TEST_CASE("At", "[ComponentStorage]") {
     cs_reg_t r;
     cs_store_t s{r, cs_sid_t{1}};
     auto id0 = r.create_id({}, 0);
-    CHECK(s.add(id0, 2.5f));
+    CHECK(s.add(id0, 2.5F));
     const auto& cs = s;
-    CHECK(cs.at(id0) == 2.5f);
-    CHECK(cs.at(id0).component<float>() == 2.5f);
+    CHECK(cs.at(id0) == 2.5F);
+    CHECK(cs.at(id0).component<float>() == 2.5F);
     CHECK(cs.at(id0).id() == id0);
   }
 
@@ -8250,19 +8252,19 @@ TEST_CASE("At", "[ComponentStorage]") {
   if (true) {
     cs_reg_t r;
     cs_store_t s{r, cs_sid_t{1}};
-    auto h = s.add_new({}, 5.0f);
-    CHECK(s.at(h) == 5.0f);
-    s.at(h) = 99.0f;
-    CHECK(s[h.id()] == 99.0f);
+    auto h = s.add_new({}, 5.0F);
+    CHECK(s.at(h) == 5.0F);
+    s.at(h) = 99.0F;
+    CHECK(s[h.id()] == 99.0F);
   }
 
   // at(handle_t) const: returns `row_view`.
   if (true) {
     cs_reg_t r;
     cs_store_t s{r, cs_sid_t{1}};
-    auto h = s.add_new({}, 7.0f);
+    auto h = s.add_new({}, 7.0F);
     const auto& cs = s;
-    CHECK(cs.at(h).component<float>() == 7.0f);
+    CHECK(cs.at(h).component<float>() == 7.0F);
     CHECK(cs.at(h).id() == h.id());
   }
 
@@ -8281,7 +8283,7 @@ TEST_CASE("At", "[ComponentStorage]") {
     cs_reg_t r;
     cs_store_t s1{r, cs_sid_t{1}};
     cs_store_t s2{r, cs_sid_t{2}};
-    auto h = s2.add_new({}, 3.0f);
+    auto h = s2.add_new({}, 3.0F);
     CHECK_THROWS_AS((void)s1.at(h), std::invalid_argument);
     const auto& cs1 = s1;
     CHECK_THROWS_AS((void)cs1.at(h), std::invalid_argument);
@@ -8290,5 +8292,5 @@ TEST_CASE("At", "[ComponentStorage]") {
 
 #pragma endregion
 
-// NOLINTEND(readability-function-cognitive-complexity,
-// readability-function-size)
+// NOLINTEND(readability-function-size)
+// NOLINTEND(readability-function-cognitive-complexity)

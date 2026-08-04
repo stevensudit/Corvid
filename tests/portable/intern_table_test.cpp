@@ -28,8 +28,7 @@ using namespace std::literals;
 using namespace corvid;
 using namespace corvid::internal;
 
-// NOLINTBEGIN(readability-function-cognitive-complexity,
-// readability-function-size)
+// NOLINTBEGIN(readability-function-cognitive-complexity)
 
 namespace corvid { inline namespace container { inline namespace intern {
 
@@ -377,5 +376,4 @@ TEST_CASE("Concurrency", "[InternTableTest]") {
 }
 #pragma endregion
 
-// NOLINTEND(readability-function-cognitive-complexity,
-// readability-function-size)
+// NOLINTEND(readability-function-cognitive-complexity)

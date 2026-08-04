@@ -24,8 +24,7 @@
 
 using namespace corvid;
 
-// NOLINTBEGIN(readability-function-cognitive-complexity,
-// readability-function-size)
+// NOLINTBEGIN(readability-function-cognitive-complexity)
 
 #pragma region Basic
 
@@ -1181,7 +1180,9 @@ TEST_CASE("LocationRecord", "[EntityRegistry]") {
     if (true) {
       reg_t r;
       (void)r.create_id({store_id_t{2}, 0}, 10);
-      bool has_2 = false, has_1 = false, has_invalid = false;
+      bool has_2 = false;
+      bool has_1 = false;
+      bool has_invalid = false;
       r.erase_if([&](auto, auto& rec) {
         has_2 = rec.location.contains(store_id_t{2});
         has_1 = rec.location.contains(store_id_t{1});
@@ -1209,7 +1210,8 @@ TEST_CASE("LocationRecord", "[EntityRegistry]") {
     if (true) {
       creg_t r;
       (void)r.create_id({}, 10);
-      bool has_staging = false, has_1 = false;
+      bool has_staging = false;
+      bool has_1 = false;
       r.erase_if([&](auto, auto& rec) {
         has_staging = rec.location.contains(store_id_t{0});
         has_1 = rec.location.contains(store_id_t{1});
@@ -1224,7 +1226,8 @@ TEST_CASE("LocationRecord", "[EntityRegistry]") {
       creg_t r;
       auto id0 = r.create_id({}, 10);
       r.add_location(id0, store_id_t{5});
-      bool has_5 = false, has_0 = false;
+      bool has_5 = false;
+      bool has_0 = false;
       r.erase_if([&](auto, auto& rec) {
         has_5 = rec.location.contains(store_id_t{5});
         has_0 = rec.location.contains(store_id_t{0}); // staging cleared
@@ -2453,5 +2456,4 @@ TEST_CASE("ComponentMode_Lifo", "[EntityRegistry]") {
 
 #pragma endregion
 
-// NOLINTEND(readability-function-cognitive-complexity,
-// readability-function-size)
+// NOLINTEND(readability-function-cognitive-complexity)

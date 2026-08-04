@@ -50,8 +50,7 @@ consteval beta operator""_beta(const char* s, size_t n) {
 }
 } // namespace
 
-// NOLINTBEGIN(readability-function-cognitive-complexity,
-// readability-function-size)
+// NOLINTBEGIN(readability-function-cognitive-complexity)
 
 #pragma region TypeSafety
 
@@ -317,5 +316,4 @@ TEST_CASE("TaggedComparison", "[tagged_string_view]") {
 
 #pragma endregion
 
-// NOLINTEND(readability-function-cognitive-complexity,
-// readability-function-size)
+// NOLINTEND(readability-function-cognitive-complexity)

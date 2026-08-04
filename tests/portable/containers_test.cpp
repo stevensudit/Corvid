@@ -48,8 +48,8 @@ consteval auto corvid_enum_spec(small_id_t*) {
   return corvid::enums::sequence::make_sequence_enum_spec<small_id_t, "">();
 }
 
-// NOLINTBEGIN(readability-function-cognitive-complexity,
-// readability-function-size)
+// NOLINTBEGIN(readability-function-cognitive-complexity)
+// NOLINTBEGIN(readability-function-size)
 
 #pragma region TransparentTest_General
 
@@ -1188,26 +1188,26 @@ TEST_CASE("Basic", "[HashCombiner]") {
   // Default seed is zero; explicit seed is respected.
   if (true) {
     hash_combiner h;
-    CHECK(h.value() == 0u);
-    CHECK(static_cast<size_t>(h) == 0u);
+    CHECK(h.value() == 0U);
+    CHECK(static_cast<size_t>(h) == 0U);
   }
   if (true) {
-    hash_combiner h{42u};
-    CHECK(h.value() == 42u);
+    hash_combiner h{42U};
+    CHECK(h.value() == 42U);
   }
 
   // Combining a non-zero hash into seed 0 must produce a non-zero result.
   if (true) {
     hash_combiner h;
-    h.combine_hash(1u);
-    CHECK(h.value() != 0u);
+    h.combine_hash(1U);
+    CHECK(h.value() != 0U);
   }
 
   // `combine` hashes a typed value and folds it in.
   if (true) {
     hash_combiner h;
     h.combine(123);
-    CHECK(h.value() != 0u);
+    CHECK(h.value() != 0U);
   }
 
   // Order of combination must matter.
@@ -1256,5 +1256,5 @@ TEST_CASE("Basic", "[HashCombiner]") {
 }
 #pragma endregion
 
-// NOLINTEND(readability-function-cognitive-complexity,
-// readability-function-size)
+// NOLINTEND(readability-function-size)
+// NOLINTEND(readability-function-cognitive-complexity)

@@ -27,8 +27,7 @@
 using namespace std::literals;
 using namespace corvid;
 
-// NOLINTBEGIN(readability-function-cognitive-complexity,
-// readability-function-size)
+// NOLINTBEGIN(readability-function-cognitive-complexity)
 
 // These tests exercise the formatter bases in `corvid/meta/formatting.h`
 // directly, with minimal local wrapper types, rather than relying on the
@@ -582,5 +581,4 @@ TEST_CASE("FormatToSpec", "[self_rendering_formatter]") {
 
 #pragma endregion
 
-// NOLINTEND(readability-function-cognitive-complexity,
-// readability-function-size)
+// NOLINTEND(readability-function-cognitive-complexity)

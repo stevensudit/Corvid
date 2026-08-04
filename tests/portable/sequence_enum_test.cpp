@@ -29,8 +29,8 @@ using namespace corvid;
 using namespace corvid::enums;
 using namespace corvid::enums::sequence;
 
-// NOLINTBEGIN(readability-function-cognitive-complexity,
-// readability-function-size)
+// NOLINTBEGIN(readability-function-cognitive-complexity)
+// NOLINTBEGIN(readability-function-size)
 
 enum class tiger_pick : std::int8_t { eeny, meany, miny, moe };
 consteval auto corvid_enum_spec(tiger_pick*) {
@@ -610,7 +610,8 @@ TEST_CASE("Missing", "[SequentialEnumTest]") {
 
 TEST_CASE("Intervals", "[SequentialEnumTest]") {
   if (true) {
-    int c{}, s{};
+    int c{};
+    int s{};
     for (auto e : make_interval<e0_3>()) {
       ++c;
       s += *e;
@@ -619,7 +620,8 @@ TEST_CASE("Intervals", "[SequentialEnumTest]") {
     CHECK(s == (0 + 1 + 2 + 3));
   }
   if (true) {
-    int c{}, s{};
+    int c{};
+    int s{};
     for (auto e : make_interval<e10_13>()) {
       ++c;
       s += *e;
@@ -628,7 +630,8 @@ TEST_CASE("Intervals", "[SequentialEnumTest]") {
     CHECK(s == (10 + 11 + 12 + 13));
   }
   if (true) {
-    int c{}, s{};
+    int c{};
+    int s{};
     // This fails with an assertion.
     // * auto bad = make_interval<e0_255>();
     for (auto e : make_interval<e0_255, uint16_t>()) {
@@ -639,7 +642,8 @@ TEST_CASE("Intervals", "[SequentialEnumTest]") {
     CHECK(s == 32640);
   }
   if (true) {
-    int c{}, s{};
+    int c{};
+    int s{};
     // This fails with an assertion.
     // * auto bad = make_interval<eneg128_127>();
     for (auto e : make_interval<eneg128_127, int16_t>()) {
@@ -1373,5 +1377,5 @@ TEST_CASE("Segmented", "[SequentialEnumTest]") {
 
 #pragma endregion
 
-// NOLINTEND(readability-function-cognitive-complexity,
-// readability-function-size)
+// NOLINTEND(readability-function-size)
+// NOLINTEND(readability-function-cognitive-complexity)

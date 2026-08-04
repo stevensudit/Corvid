@@ -28,8 +28,8 @@ using namespace std::literals;
 using namespace corvid;
 using namespace corvid::literals;
 
-// NOLINTBEGIN(readability-function-cognitive-complexity,
-// readability-function-size)
+// NOLINTBEGIN(readability-function-cognitive-complexity)
+// NOLINTBEGIN(readability-function-size)
 
 #pragma region Construction
 
@@ -507,5 +507,5 @@ TEST_CASE("Env", "[CStringViewTest]") {
 
 #pragma endregion
 
-// NOLINTEND(readability-function-cognitive-complexity,
-// readability-function-size)
+// NOLINTEND(readability-function-size)
+// NOLINTEND(readability-function-cognitive-complexity)

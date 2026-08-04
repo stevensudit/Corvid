@@ -27,8 +27,7 @@
 using namespace std::literals;
 using namespace corvid;
 
-// NOLINTBEGIN(readability-function-cognitive-complexity,
-// readability-function-size)
+// NOLINTBEGIN(readability-function-cognitive-complexity)
 
 // Format `value` to a `std::string` with our `int_to_chars`.
 template<std::integral T>
@@ -57,7 +56,7 @@ TEST_CASE("IntToChars", "[charconv]") {
     const int64_t svals[]{0, 1, -1, 7, -7, 42, -42, 255, 256, 1000, -1000,
         65535, 2147483647, -2147483648, 9223372036854775807LL,
         (-9223372036854775807LL - 1)};
-    const uint64_t uvals[]{0u, 1u, 255u, 256u, 65535u, 4294967295u,
+    const uint64_t uvals[]{0U, 1U, 255U, 256U, 65535U, 4294967295U,
         18446744073709551615ULL};
     for (auto base : bases) {
       for (int64_t v : svals) CHECK(ours_int(v, base) == theirs_int(v, base));
@@ -141,8 +140,10 @@ TEST_CASE("IntFromChars", "[charconv]") {
   }
 
   SECTION("accepts upper- and lowercase digits above base 10") {
-    int outl = 0, outu = 0;
-    auto l = "ff"sv, u = "FF"sv;
+    int outl = 0;
+    int outu = 0;
+    auto l = "ff"sv;
+    auto u = "FF"sv;
     (void)strings::int_from_chars(l.data(), l.data() + l.size(), outl, 16);
     (void)strings::int_from_chars(u.data(), u.data() + u.size(), outu, 16);
     CHECK(outl == 255);
@@ -176,7 +177,7 @@ TEST_CASE("WideInt", "[charconv]") {
   };
   for (auto base : {2, 10, 16, 36}) {
     widen_check(int64_t{-123456789}, base);
-    widen_check(uint64_t{9876543210u}, base);
+    widen_check(uint64_t{9876543210U}, base);
   }
 
   // char16_t round-trip.
@@ -199,7 +200,8 @@ TEST_CASE("WideInt", "[charconv]") {
 TEST_CASE("FloatCharMatchesStd", "[charconv]") {
   const double vals[]{0.0, 1.0, -1.0, 3.14159, -2.5, 1e10, 1e-10, 123456.789};
   for (double v : vals) {
-    std::array<char, 64> a{}, b{};
+    std::array<char, 64> a{};
+    std::array<char, 64> b{};
     auto [pa, ea] = strings::float_to_chars(a.data(), a.data() + a.size(), v);
     auto [pb, eb] = std::to_chars(b.data(), b.data() + b.size(), v);
     CHECK(ea == std::errc{});
@@ -291,5 +293,4 @@ TEST_CASE("FloatPrecisionClip", "[charconv]") {
 
 #pragma endregion
 
-// NOLINTEND(readability-function-cognitive-complexity,
-// readability-function-size)
+// NOLINTEND(readability-function-cognitive-complexity)
