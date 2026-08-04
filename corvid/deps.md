@@ -101,10 +101,10 @@ folder-level cycle, and no separate band needed to break one.
 
 ## Cross-band edges
 
-Derived from `#include` directives. `meta` and `math` have no outgoing
-cross-band edges.
+Derived from `#include` directives. `meta` has no outgoing cross-band edges.
 
 ```text
+math             -> meta
 infra            -> meta
 strings          -> meta
 containers/core  -> meta, infra, math
