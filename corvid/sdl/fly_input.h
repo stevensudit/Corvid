@@ -56,7 +56,7 @@ struct fly_input {
   // with speed).
   float look_sensitivity = 0.0025F;
   float scroll_step = 1.0F;
-  one_euro_filter look_filter{60.0F, 0.001F};
+  one_euro_filter<> look_filter{60.0F, 0.001F};
 
   // Whether mouse-look is active: held while the right button is down, which
   // captures the cursor. Persists across frames.

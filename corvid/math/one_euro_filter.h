@@ -17,6 +17,7 @@
 #pragma once
 
 #include <cmath>
+#include <concepts>
 
 #include "arithmetic.h"
 
@@ -33,22 +34,26 @@ namespace corvid { inline namespace math {
 // smoother); `beta` is how quickly that smoothing relaxes as the input speeds
 // up (0 leaves it a plain fixed low-pass). The driving speed is the input
 // magnitude per second, so `beta` scales against that.
+//
+// `T` is the floating-point type filtered and stored in, defaulting to
+// `float`. Deduction picks it up from the constructor arguments.
+template<std::floating_point T = float>
 class one_euro_filter {
 public:
-  explicit one_euro_filter(float rest_ms, float beta) noexcept
-      : min_cutoff_{1000.0F / (two_pi_v<> * rest_ms)}, beta_{beta} {}
+  explicit one_euro_filter(T rest_ms, T beta) noexcept
+      : min_cutoff_{T{1000} / (two_pi_v<T> * rest_ms)}, beta_{beta} {}
 
   // Retune the filter in place, keeping any carried smoothing state so a live
   // tuning change does not jolt the in-flight signal. `rest_ms` and `beta` are
   // as the constructor.
-  void set_params(float rest_ms, float beta) noexcept {
-    min_cutoff_ = 1000.0F / (two_pi_v<> * rest_ms);
+  void set_params(T rest_ms, T beta) noexcept {
+    min_cutoff_ = T{1000} / (two_pi_v<T> * rest_ms);
     beta_ = beta;
   }
 
   // Smooth one sample's (`dx`, `dy`) in place over the elapsed `dt` seconds.
-  void smooth(float dt, float& dx, float& dy) noexcept {
-    if (dt <= 0.0F) return;
+  void smooth(T dt, T& dx, T& dy) noexcept {
+    if (dt <= T{}) return;
     const auto speed = std::hypot(dx, dy) / dt;
 
     // The first sample has nothing to smooth against: seed the state and pass
@@ -77,18 +82,18 @@ public:
 
 private:
   // First-order low-pass weight for a cutoff frequency (Hz) over `dt` seconds.
-  [[nodiscard]] static float alpha(float cutoff, float dt) noexcept {
-    const auto tau = 1.0F / (two_pi_v<> * cutoff);
-    return 1.0F / (1.0F + (tau / dt));
+  [[nodiscard]] static T alpha(T cutoff, T dt) noexcept {
+    const auto tau = T{1} / (two_pi_v<T> * cutoff);
+    return T{1} / (T{1} + (tau / dt));
   }
 
   // Fixed cutoff (Hz) for the speed low-pass, the One Euro default.
-  static constexpr auto speed_cutoff = 1.0F;
-  float min_cutoff_{};
-  float beta_{};
-  float speed_{};
-  float dx_{};
-  float dy_{};
+  static constexpr auto speed_cutoff = T{1};
+  T min_cutoff_{};
+  T beta_{};
+  T speed_{};
+  T dx_{};
+  T dy_{};
   bool primed_{};
 };
 

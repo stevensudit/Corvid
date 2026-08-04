@@ -16,3 +16,5 @@
 // limitations under the License.
 #pragma once
 #include "math/arithmetic.h"
+#include "math/one_euro_filter.h"
+#include "math/pid_controller.h"

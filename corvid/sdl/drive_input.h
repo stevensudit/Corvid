@@ -59,7 +59,7 @@ struct drive_input {
   // The speed multiple Run (Shift) commands over Walk; `movement` scales the
   // target by it.
   float run_multiplier = 5.0F;
-  one_euro_filter look_filter{60.0F, 0.001F};
+  one_euro_filter<> look_filter{60.0F, 0.001F};
 
   // Whether mouse-look is active: held while the right button is down, which
   // captures the cursor. Persists across frames.

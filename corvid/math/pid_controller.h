@@ -19,9 +19,10 @@
 #include <algorithm>
 #include <cassert>
 #include <cmath>
+#include <concepts>
 #include <limits>
 
-namespace corvid { inline namespace lang { namespace controllers {
+namespace corvid { inline namespace math {
 
 #pragma region pid_controller
 
@@ -108,27 +109,30 @@ namespace corvid { inline namespace lang { namespace controllers {
 // to suppress noise near zero error, zeroing out the derivative on the first
 // update (we also do this), and computing the derivative based on the rate of
 // change in the measured value instead of the error.
+//
+// `T` is the floating-point type everything is computed and stored in,
+// defaulting to `float`. Deduction picks it up from the constructor
+// arguments, so `pid_controller pid{2.0, 0.0, 0.0}` is a `double` controller
+// while `pid_controller<> pid{2.0F, 0.0F, 0.0F}` is a `float` one.
+template<std::floating_point T = float>
 class pid_controller {
 public:
 #pragma region Constants
 
-  static constexpr double pos_infinity =
-      std::numeric_limits<double>::infinity();
-  static constexpr double neg_infinity =
-      -std::numeric_limits<double>::infinity();
+  static constexpr T pos_infinity = std::numeric_limits<T>::infinity();
+  static constexpr T neg_infinity = -std::numeric_limits<T>::infinity();
 
 #pragma endregion
 #pragma region Construction
 
-  pid_controller(double kp, double ki, double kd, double alpha = 0.0,
-      double min_value = neg_infinity,
-      double max_value = pos_infinity) noexcept
+  pid_controller(T kp, T ki, T kd, T alpha = {}, T min_value = neg_infinity,
+      T max_value = pos_infinity) noexcept
       : kp_{kp}, ki_{ki}, kd_{kd}, alpha_{alpha}, min_value_{min_value},
         max_value_{max_value} {
     assert(min_value < max_value);
-    // A value of 0.0 for alpha means no filtering. Reasonable values
+    // A value of zero for alpha means no filtering. Reasonable values
     // for noisy signals are typically between 0.1 and 0.3.
-    assert(alpha >= 0.0 && alpha <= 1.0);
+    assert((alpha >= T{}) && (alpha <= T{1}));
   }
 
   pid_controller(const pid_controller&) = default;
@@ -138,8 +142,7 @@ public:
 #pragma region Operations
 
   // Update the controller, returning the new input value.
-  [[nodiscard]] double
-  update(double setpoint, double measured_value, double time_now) {
+  [[nodiscard]] T update(T setpoint, T measured_value, T time_now) {
     assert(std::isfinite(setpoint));
     assert(std::isfinite(measured_value));
     assert(std::isfinite(time_now));
@@ -163,8 +166,8 @@ public:
     if (time_last_ == neg_infinity) {
       time_last_ = time_now;
       error_last_ = error;
-      cumulative_error_ = 0.0;
-      d_term_last_ = 0.0;
+      cumulative_error_ = T{};
+      d_term_last_ = T{};
       value_last_ = std::clamp(p_term, min_value_, max_value_);
       return value_last_;
     }
@@ -174,7 +177,7 @@ public:
     // returning the previously calculated value.
     const auto time_delta = time_now - time_last_;
     time_last_ = time_now;
-    if (time_delta < 0.0) return value_last_;
+    if (time_delta < T{}) return value_last_;
 
     // The I term is based on cumulative error, scaled by time delta.
     const auto integral = cumulative_error_ + (error * time_delta);
@@ -190,7 +193,7 @@ public:
     const auto d_term_unfiltered = kd_ * derivative;
     // Apply exponential moving average filter to the D term.
     const auto d_term =
-        (alpha_ * d_term_last_) + ((1.0 - alpha_) * d_term_unfiltered);
+        (alpha_ * d_term_last_) + ((T{1} - alpha_) * d_term_unfiltered);
     d_term_last_ = d_term;
 
     // Clamp input value.
@@ -206,48 +209,48 @@ public:
   }
 
   void reset() noexcept {
-    value_last_ = 0.0;
+    value_last_ = T{};
     time_last_ = neg_infinity;
-    error_last_ = 0.0;
-    cumulative_error_ = 0.0;
-    d_term_last_ = 0.0;
+    error_last_ = T{};
+    cumulative_error_ = T{};
+    d_term_last_ = T{};
   }
 
 #pragma endregion
 #pragma region Accessors
 
-  [[nodiscard]] double kp() const noexcept { return kp_; }
-  [[nodiscard]] double ki() const noexcept { return ki_; }
-  [[nodiscard]] double kd() const noexcept { return kd_; }
-  [[nodiscard]] double alpha() const noexcept { return alpha_; }
-  [[nodiscard]] double min_value() const noexcept { return min_value_; }
-  [[nodiscard]] double max_value() const noexcept { return max_value_; }
+  [[nodiscard]] T kp() const noexcept { return kp_; }
+  [[nodiscard]] T ki() const noexcept { return ki_; }
+  [[nodiscard]] T kd() const noexcept { return kd_; }
+  [[nodiscard]] T alpha() const noexcept { return alpha_; }
+  [[nodiscard]] T min_value() const noexcept { return min_value_; }
+  [[nodiscard]] T max_value() const noexcept { return max_value_; }
 
-  [[nodiscard]] double value_last() const noexcept { return value_last_; }
-  [[nodiscard]] double time_last() const noexcept { return time_last_; }
-  [[nodiscard]] double error_last() const noexcept { return error_last_; }
-  [[nodiscard]] double cumulative_error() const noexcept {
+  [[nodiscard]] T value_last() const noexcept { return value_last_; }
+  [[nodiscard]] T time_last() const noexcept { return time_last_; }
+  [[nodiscard]] T error_last() const noexcept { return error_last_; }
+  [[nodiscard]] T cumulative_error() const noexcept {
     return cumulative_error_;
   }
 
 #pragma endregion
 #pragma region Data members
 private:
-  const double kp_{};
-  const double ki_{};
-  const double kd_{};
-  const double alpha_{};
-  const double min_value_ = neg_infinity;
-  const double max_value_ = pos_infinity;
+  const T kp_{};
+  const T ki_{};
+  const T kd_{};
+  const T alpha_{};
+  const T min_value_ = neg_infinity;
+  const T max_value_ = pos_infinity;
 
-  double value_last_{};
-  double time_last_ = neg_infinity;
-  double error_last_{};
-  double cumulative_error_{};
-  double d_term_last_{};
+  T value_last_{};
+  T time_last_ = neg_infinity;
+  T error_last_{};
+  T cumulative_error_{};
+  T d_term_last_{};
 
 #pragma endregion
 };
 
 #pragma endregion
-}}} // namespace corvid::lang::controllers
+}} // namespace corvid::math
