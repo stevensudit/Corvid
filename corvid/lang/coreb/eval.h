@@ -139,19 +139,53 @@ public:
 
       // If it was the final value, return it. If it was a tail expression,
       // loop to evaluate it, without recursing.
-      if (!next->tail) return next->v;
-      expr = next->v;
+      if (const auto done = next->maybe_evaluated()) return *done;
+      expr = next->as_tail_call();
     }
   }
 
 private:
 #pragma region Evaluation
 
-  // The outcome of dispatching one form: a final value, or, when `tail` is
-  // set, the next expression to evaluate in tail position.
-  struct step final {
-    value v;
-    bool tail{};
+  // The outcome of dispatching one form: either a finished evaluation or a
+  // tail call, the next expression to evaluate in tail position.
+  class step final {
+  public:
+    // Build a step over the fully-evaluated `v`.
+    [[nodiscard]] static step make_evaluated(value v) noexcept {
+      return step{v, false};
+    }
+
+    // Build a step over `expr`, to be evaluated next in tail position.
+    [[nodiscard]] static step make_tail_call(value expr) noexcept {
+      return step{expr, true};
+    }
+
+    // Access the held state, asserting it.
+    [[nodiscard]] value as_evaluated() const {
+      assert(!tail_);
+      return v_;
+    }
+    [[nodiscard]] value as_tail_call() const {
+      assert(tail_);
+      return v_;
+    }
+
+    // The evaluated result, or empty if this step is a tail call.
+    [[nodiscard]] optional_ptr<const value*> maybe_evaluated() const noexcept {
+      return tail_ ? nullptr : &v_;
+    }
+
+    // The tail-call expression, or empty if this step is evaluated.
+    [[nodiscard]] optional_ptr<const value*> maybe_tail_call() const noexcept {
+      return tail_ ? &v_ : nullptr;
+    }
+
+  private:
+    step(value v, bool tail) noexcept : v_{v}, tail_{tail} {}
+
+    value v_;
+    bool tail_;
   };
 
   // Build a failure.
@@ -162,7 +196,7 @@ private:
   // Wrap a finished evaluation as a step.
   [[nodiscard]] static result<step> finish(result<value> r) {
     if (!r) return std::unexpected{std::move(r).error()};
-    return step{.v = *r};
+    return step::make_evaluated(*r);
   }
 
   // Evaluate a symbol by looking up its binding.
@@ -195,24 +229,24 @@ private:
   eval_special(symbol form, std::span<const value> args, environment& env) {
     if (form == quote_) {
       if (args.size() != 1) return fail("quote: expects 1 argument");
-      return step{.v = args[0]};
+      return step::make_evaluated(args[0]);
     }
     if (form == if_) {
       if (args.size() < 2 || args.size() > 3)
         return fail("if: expects 2 or 3 arguments");
       const auto cond = eval(args[0], env);
       if (!cond) return std::unexpected{cond.error()};
-      if (cond->is_truthy()) return step{.v = args[1], .tail = true};
-      if (args.size() == 3) return step{.v = args[2], .tail = true};
-      return step{.v = value{}};
+      if (cond->is_truthy()) return step::make_tail_call(args[1]);
+      if (args.size() == 3) return step::make_tail_call(args[2]);
+      return step::make_evaluated(value{});
     }
     if (form == define_) return finish(eval_define(args, env));
     if (form == lambda_) return finish(eval_lambda(args, env));
     assert(form == begin_);
-    if (args.empty()) return step{.v = value{}};
+    if (args.empty()) return step::make_evaluated(value{});
     const auto last = eval_leading(args, env);
     if (!last) return std::unexpected{last.error()};
-    return step{.v = *last, .tail = true};
+    return step::make_tail_call(*last);
   }
 
   // Evaluate an ordinary call: the operator, then the arguments, left to
@@ -247,7 +281,7 @@ private:
     if (!last) return std::unexpected{last.error()};
 
     env = *frame;
-    return step{.v = *last, .tail = true};
+    return step::make_tail_call(*last);
   }
 
   // Append a proper list's elements to `out`, returning false if the list is
