@@ -142,8 +142,8 @@ public:
 #pragma endregion
 #pragma region Construction
 
-  pid_controller(T kp, T ki, T kd, T alpha = {}, T min_value = neg_infinity,
-      T max_value = pos_infinity) noexcept
+  explicit pid_controller(T kp, T ki, T kd, T alpha = {},
+      T min_value = neg_infinity, T max_value = pos_infinity) noexcept
       : kp_{kp}, ki_{ki}, kd_{kd}, alpha_{alpha}, min_value_{min_value},
         max_value_{max_value} {
     assert(min_value < max_value);
@@ -151,9 +151,6 @@ public:
     // for noisy signals are typically between 0.1 and 0.3.
     assert((alpha >= T{}) && (alpha <= T{1}));
   }
-
-  pid_controller(const pid_controller&) = default;
-  pid_controller& operator=(const pid_controller&) = delete;
 
 #pragma endregion
 #pragma region Operations
