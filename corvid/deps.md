@@ -18,7 +18,7 @@ points to below.
 
 ```text
 L0  meta              corvid/meta/, corvid/meta.h    Foundation: std + internal only.
-    math              corvid/math/, corvid/math.h    Abstract math; rests on meta.
+    math              corvid/math/, corvid/math.h    arithmetic, constants, one_euro_filter, pid_controller; rests on meta.
 L1  infra             corvid/infra/                  scope_exit, relaxed_atomic, firewalls, ostream_redirector.
     strings           corvid/strings/                Enum-free string utilities.
     containers/core   corvid/containers/core/        Enum-free container utilities.
