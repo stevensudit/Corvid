@@ -26,6 +26,7 @@
 #include "containers/core/circular_buffer.h"
 #include "containers/core/strong_type.h"
 #include "containers/core/enum_variant.h"
+#include "containers/core/expected.h"
 #include "containers/core/fixed_bitset.h"
 #include "containers/core/scoped_value.h"
 #include "containers/utils/object_pool.h"

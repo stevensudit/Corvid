@@ -42,7 +42,7 @@ int main() {
     pending += '\n';
     auto forms = reader::read_all(rt, pending);
     if (!forms) {
-      const auto& err = forms.error();
+      const auto& err = forms.as_error();
       if (err.incomplete) continue;
       std::cout << "read error at line " << err.line << ", col " << err.col
                 << ": " << err.message << '\n';
@@ -53,7 +53,7 @@ int main() {
     for (const auto& form : *forms) {
       const auto v = ev.eval(form);
       if (!v) {
-        std::cout << "error: " << v.error().message << '\n';
+        std::cout << "error: " << v.as_error().message << '\n';
         break;
       }
       std::cout << v->print() << '\n';

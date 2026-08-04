@@ -19,7 +19,6 @@
 #include <compare>
 #include <cstddef>
 #include <cstdint>
-#include <expected>
 #include <limits>
 #include <optional>
 #include <span>
@@ -28,9 +27,9 @@
 #include <utility>
 #include <vector>
 
+#include "../../containers/core/expected.h"
 #include "../../containers/core/opt_find.h"
 #include "../../containers/core/scoped_value.h"
-#include "../../meta/expected.h"
 #include "value.h"
 
 namespace corvid { inline namespace lang { namespace coreb {
@@ -85,7 +84,7 @@ struct eval_error final {
 class evaluator final {
 public:
   template<typename T>
-  using result = std::expected<T, eval_error>;
+  using result = expected<T, eval_error>;
 
   // Maximum nested evaluation depth.
   //
@@ -143,7 +142,7 @@ public:
 
       // A cell is a special form, like "(if p x)", or a call, like "(+ 1 2)".
       const auto next = eval_cell(expr, cur);
-      if (!next) return as_unexpected(next);
+      if (!next) return next;
 
       // If it was the final value, return it. If it was a tail expression,
       // loop to evaluate it, without recursing.
@@ -197,13 +196,13 @@ private:
   };
 
   // Build a failure.
-  [[nodiscard]] static std::unexpected<eval_error> fail(std::string message) {
-    return std::unexpected{eval_error{std::move(message)}};
+  [[nodiscard]] static eval_error fail(std::string message) {
+    return eval_error{std::move(message)};
   }
 
   // Wrap a finished evaluation as a step.
   [[nodiscard]] static result<step> finish_step(result<value> r) {
-    if (!r) return as_unexpected(std::move(r));
+    if (!r) return std::move(r);
     return step::make_evaluated(*r);
   }
 
@@ -244,7 +243,7 @@ private:
       if (args.size() < 2 || args.size() > 3)
         return fail("if: expects 2 or 3 arguments");
       const auto cond = eval(args[0], env);
-      if (!cond) return as_unexpected(cond);
+      if (!cond) return cond;
       if (cond->is_truthy()) return step::make_tail_expr(args[1]);
       if (args.size() == 3) return step::make_tail_expr(args[2]);
       return step::make_evaluated(value{});
@@ -254,7 +253,7 @@ private:
     assert(form == begin_);
     if (args.empty()) return step::make_evaluated(value{});
     const auto last = eval_leading(args, env);
-    if (!last) return as_unexpected(last);
+    if (!last) return last;
     return step::make_tail_expr(*last);
   }
 
@@ -269,12 +268,12 @@ private:
     // may be a primitive or a closure. Note that this is the `op` on its own,
     // not as part of a cell: we have gone deeper.
     const auto callee = eval(op, *env);
-    if (!callee) return as_unexpected(callee);
+    if (!callee) return callee;
 
     // Eval each arg, replacing it with its value.
     for (auto& arg : args) {
       const auto r = eval(arg, *env);
-      if (!r) return as_unexpected(r);
+      if (!r) return r;
       arg = *r;
     }
     if (const auto prim = callee->maybe_primitive())
@@ -284,10 +283,10 @@ private:
     if (!fun) return fail("not callable: " + callee->print());
 
     const auto frame = bind_frame(*fun, args);
-    if (!frame) return as_unexpected(frame);
+    if (!frame) return frame;
 
     const auto last = eval_leading(fun->body, **frame);
-    if (!last) return as_unexpected(last);
+    if (!last) return last;
 
     env = *frame;
     return step::make_tail_expr(*last);
@@ -397,23 +396,22 @@ private:
   [[nodiscard]] result<value>
   apply_primitive(const primitive& prim, std::span<const value> args) {
     auto r = prim.fn(rt_, args);
-    if (!r) return fail(prim.name.name() + ": " + std::move(r).error());
+    if (!r) return fail(prim.name.name() + ": " + std::move(r).as_error());
     return *r;
   }
 
 #pragma endregion
 #pragma region Builtins
 
-  using prim_result = std::expected<value, std::string>;
+  using prim_result = expected<value, std::string>;
 
   // Build a primitive failure.
-  [[nodiscard]] static std::unexpected<std::string> prim_fail(
-      std::string message) {
-    return std::unexpected{std::move(message)};
+  [[nodiscard]] static std::string prim_fail(std::string message) {
+    return message;
   }
 
   // Build a primitive failure over a non-numeric operand.
-  [[nodiscard]] static std::unexpected<std::string> not_numeric(value v) {
+  [[nodiscard]] static std::string not_numeric(value v) {
     return prim_fail("expects numbers, got: " + v.print());
   }
 
@@ -520,13 +518,16 @@ private:
   // Exact ints compare exactly; a mixed pair promotes the int to double,
   // which is approximate past 2^53. NaN compares unordered, so every
   // comparison against it is false except `!=`.
-  [[nodiscard]] static std::expected<std::partial_ordering, std::string>
+  [[nodiscard]] static expected<std::partial_ordering, std::string>
   compare_nums(value a, value b) {
     const auto na = number::from(a);
     if (!na) return not_numeric(a);
     const auto nb = number::from(b);
     if (!nb) return not_numeric(b);
-    if (na->exact && nb->exact) return na->i <=> nb->i;
+    // The int comparison is strong, but the return type unifies on partial;
+    // no template converting constructor means the widening is spelled here.
+    if (na->exact && nb->exact)
+      return static_cast<std::partial_ordering>(na->i <=> nb->i);
     return na->as_double() <=> nb->as_double();
   }
 
@@ -537,7 +538,7 @@ private:
     if (args.size() < 2) return prim_fail("expects at least 2 arguments");
     for (size_t ndx = 0; ndx + 1 < args.size(); ++ndx) {
       const auto ord = compare_nums(args[ndx], args[ndx + 1]);
-      if (!ord) return as_unexpected(ord);
+      if (!ord) return ord;
       if (!keep(*ord)) return value{false};
     }
     return value{true};
@@ -634,7 +635,7 @@ private:
   static prim_result prim_ne(runtime&, std::span<const value> args) {
     if (args.size() != 2) return prim_fail("expects 2 arguments");
     const auto ord = compare_nums(args[0], args[1]);
-    if (!ord) return as_unexpected(ord);
+    if (!ord) return ord;
     return value{!std::is_eq(*ord)};
   }
 

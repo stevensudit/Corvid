@@ -21,7 +21,6 @@
 #include "meta/enums.h"
 #include "meta/naming.h"
 #include "meta/containers.h"
-#include "meta/expected.h"
 #include "meta/forward_like.h"
 #include "meta/forwarding_address.h"
 #include "meta/maybe.h"

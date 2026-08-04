@@ -18,14 +18,13 @@
 #include <cassert>
 #include <cstddef>
 #include <cstdint>
-#include <expected>
 #include <ranges>
 #include <string>
 #include <string_view>
 #include <utility>
 #include <vector>
 
-#include "../../meta/expected.h"
+#include "../../containers/core/expected.h"
 #include "../../strings/cases.h"
 #include "../../strings/conversion.h"
 #include "value.h"
@@ -105,7 +104,7 @@ struct read_error final {
 class reader final {
 public:
   template<typename T>
-  using result = std::expected<T, read_error>;
+  using result = expected<T, read_error>;
 
   // Maximum expression-nesting depth accepted.
   //
@@ -138,7 +137,7 @@ public:
     parser p{rt, src};
     for (p.skip_trivia(); !p.at_end(); p.skip_trivia()) {
       auto v = p.parse_value();
-      if (!v) return as_unexpected(std::move(v));
+      if (!v) return std::move(v);
       values.push_back(*v);
     }
     return values;
@@ -198,26 +197,24 @@ private:
     }
 
     // Build a failure at the current position, or at `at`.
-    [[nodiscard]] std::unexpected<read_error> fail(std::string message) const {
+    [[nodiscard]] read_error fail(std::string message) const {
       return do_fail_at(pos, std::move(message), false);
     }
-    [[nodiscard]] std::unexpected<read_error>
-    fail_at(size_t at, std::string message) const {
+    [[nodiscard]] read_error fail_at(size_t at, std::string message) const {
       return do_fail_at(at, std::move(message), false);
     }
 
     // Build a failure that more input could repair (see
     // `read_error::incomplete`).
-    [[nodiscard]] std::unexpected<read_error> fail_incomplete(
-        std::string message) const {
+    [[nodiscard]] read_error fail_incomplete(std::string message) const {
       return do_fail_at(pos, std::move(message), true);
     }
-    [[nodiscard]] std::unexpected<read_error>
+    [[nodiscard]] read_error
     fail_incomplete_at(size_t at, std::string message) const {
       return do_fail_at(at, std::move(message), true);
     }
 
-    [[nodiscard]] std::unexpected<read_error>
+    [[nodiscard]] read_error
     do_fail_at(size_t at, std::string message, bool incomplete) const {
       size_t line = 1;
       size_t bol = 0;
@@ -226,8 +223,8 @@ private:
           ++line;
           bol = ndx + 1;
         }
-      return std::unexpected{
-          read_error{std::move(message), at, line, at - bol + 1, incomplete}};
+      return read_error{std::move(message), at, line, at - bol + 1,
+          incomplete};
     }
 
     // Parse one expression starting at the current position, guarding

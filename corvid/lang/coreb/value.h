@@ -18,7 +18,6 @@
 #include <cassert>
 #include <cstddef>
 #include <cstdint>
-#include <expected>
 #include <functional>
 #include <memory>
 #include <optional>
@@ -31,6 +30,7 @@
 #include <vector>
 
 #include "../../containers/core/enum_variant.h"
+#include "../../containers/core/expected.h"
 #include "../../containers/core/opt_find.h"
 #include "../../containers/core/optional_ptr.h"
 #include "../../containers/core/transparent.h"
@@ -457,7 +457,7 @@ private:
   friend class runtime;
 
 public:
-  using fn_t = std::expected<value, std::string> (*)(runtime&,
+  using fn_t = expected<value, std::string> (*)(runtime&,
       std::span<const value>);
 
   primitive(allow, symbol name, fn_t fn) noexcept : name{name}, fn{fn} {}

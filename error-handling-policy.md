@@ -76,9 +76,11 @@ stack or run destructors. Therefore:
     prompt to check: `[[nodiscard]]` forces *using* the return, not comparing it
     to the sentinel (`find() == npos` is the classic miss, which is why we have
     `find_opt`).
-  - Reach for `std::optional`, or `std::expected` when failure must carry *why*,
-    when forgetting the check is plausible. Both are options; **neither is
-    mandated.** This is not Go, and even `optional` is often excessive.
+  - Reach for `std::optional`, or `expected` when failure must carry *why*,
+    when forgetting the check is plausible. (The library provides its own
+    `expected`, in "corvid/containers/core/expected.h"; use it rather than
+    `std::expected`.) Both are options; **neither is mandated.** This is not
+    Go, and even `optional` is often excessive.
 - Error codes: Officially,`std::error_code` is the non-throwing *return* vehicle;
   `std::system_error` is the *exception* that carries one. Bridge an `errno` with
   `std::error_code(errno, std::generic_category())`. These are not much used.

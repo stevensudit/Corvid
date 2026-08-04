@@ -67,7 +67,7 @@ std::string run_err(runtime& rt, evaluator& ev, std::string_view src) {
   REQUIRE(forms.has_value());
   for (const auto& form : *forms) {
     auto v = ev.eval(form);
-    if (!v) return v.error().message;
+    if (!v) return v.as_error().message;
   }
   FAIL("evaluation succeeded");
   return {};
@@ -286,7 +286,7 @@ TEST_CASE("CoreB reader errors", "[coreb]") {
   auto err = [&rt](std::string_view src) {
     auto v = reader::read_one(rt, src);
     REQUIRE_FALSE(v.has_value());
-    return v.error();
+    return v.as_error();
   };
 
   CHECK(err("").message == "unexpected end of input");
