@@ -83,7 +83,7 @@ public:
 
   // Maximum nested evaluation depth.
   //
-  // Tail calls consume no depth; iteration written as tail recursion is
+  // Tail calls consume no depth because iteration written as tail recursion is
   // unbounded. What consumes depth is evaluation nested inside an
   // expression: arguments, an `if` condition, and every level of a non-tail
   // recursion such as a factorial that multiplies after the recursive call
@@ -91,9 +91,9 @@ public:
   // stack exhaustion into an `eval_error`.
   //
   // The limit matches the reader's and is sized so the guard fires before the
-  // real C++ stack runs out even in unoptimized builds, whose frames are
-  // several times fatter, on the smallest common default stack (1MB on
-  // Windows).
+  // real C++ stack runs out. This is the case even in unoptimized builds,
+  // whose frames are several times fatter, on the smallest common default
+  // stack (1MB on Windows).
   static constexpr size_t max_depth = 256;
 
   // Bind an evaluator to `rt`, adopting the runtime's root environment as
@@ -128,12 +128,14 @@ public:
     auto* cur = &env;
     for (;;) {
       // Symbols are looked up in the environment chain, while atoms evaluate
-      // to themselves.
+      // to themselves. Note that a symbol that refers to a primitive or
+      // closure is going to be found initially as the head of a cell, not
+      // simply looked up.
       if (const auto name = expr.maybe_symbol())
         return eval_symbol(*name, *cur);
       if (!expr.is_cell()) return expr;
 
-      // A cell is a special form, like "(if ...)", or a call, like "(+ 1 2)".
+      // A cell is a special form, like "(if p x)", or a call, like "(+ 1 2)".
       const auto next = eval_cell(expr, cur);
       if (!next) return std::unexpected{next.error()};
 
