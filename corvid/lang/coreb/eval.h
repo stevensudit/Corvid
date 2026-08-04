@@ -131,7 +131,7 @@ public:
       // Symbols are looked up in the environment chain, while atoms evaluate
       // to themselves. Note that a symbol that refers to a primitive or
       // closure is going to be found initially as the head of a cell, not
-      // simply looked up.
+      // simply looked up here.
       if (const auto name = expr.maybe_symbol())
         return eval_symbol(*name, *cur);
       if (!expr.is_cell()) return expr;
@@ -143,7 +143,7 @@ public:
       // If it was the final value, return it. If it was a tail expression,
       // loop to evaluate it, without recursing.
       if (const auto done = next->maybe_evaluated()) return *done;
-      expr = next->as_tail_call();
+      expr = next->as_tail_expr();
     }
   }
 
@@ -151,7 +151,7 @@ private:
 #pragma region Evaluation
 
   // The outcome of dispatching one form: either a finished evaluation or a
-  // tail call, the next expression to evaluate in tail position.
+  // tail expression, the next expression to evaluate in tail position.
   class step final {
   public:
     // Build a step over the fully-evaluated `v`.
@@ -160,7 +160,7 @@ private:
     }
 
     // Build a step over `expr`, to be evaluated next in tail position.
-    [[nodiscard]] static step make_tail_call(value expr) noexcept {
+    [[nodiscard]] static step make_tail_expr(value expr) noexcept {
       return step{expr, true};
     }
 
@@ -169,18 +169,18 @@ private:
       assert(!tail_);
       return v_;
     }
-    [[nodiscard]] value as_tail_call() const {
+    [[nodiscard]] value as_tail_expr() const {
       assert(tail_);
       return v_;
     }
 
-    // The evaluated result, or empty if this step is a tail call.
+    // The evaluated result, or empty if this step is a tail expression.
     [[nodiscard]] optional_ptr<const value*> maybe_evaluated() const noexcept {
       return tail_ ? nullptr : &v_;
     }
 
-    // The tail-call expression, or empty if this step is evaluated.
-    [[nodiscard]] optional_ptr<const value*> maybe_tail_call() const noexcept {
+    // The tail expression, or empty if this step is evaluated.
+    [[nodiscard]] optional_ptr<const value*> maybe_tail_expr() const noexcept {
       return tail_ ? &v_ : nullptr;
     }
 
@@ -197,7 +197,7 @@ private:
   }
 
   // Wrap a finished evaluation as a step.
-  [[nodiscard]] static result<step> finish(result<value> r) {
+  [[nodiscard]] static result<step> finish_step(result<value> r) {
     if (!r) return as_unexpected(std::move(r));
     return step::make_evaluated(*r);
   }
@@ -232,6 +232,7 @@ private:
   eval_special(symbol form, std::span<const value> args, environment& env) {
     if (form == quote_) {
       if (args.size() != 1) return fail("quote: expects 1 argument");
+      // Ironically, it's not actually evaluated, which is the whole point.
       return step::make_evaluated(args[0]);
     }
     if (form == if_) {
@@ -239,17 +240,17 @@ private:
         return fail("if: expects 2 or 3 arguments");
       const auto cond = eval(args[0], env);
       if (!cond) return as_unexpected(cond);
-      if (cond->is_truthy()) return step::make_tail_call(args[1]);
-      if (args.size() == 3) return step::make_tail_call(args[2]);
+      if (cond->is_truthy()) return step::make_tail_expr(args[1]);
+      if (args.size() == 3) return step::make_tail_expr(args[2]);
       return step::make_evaluated(value{});
     }
-    if (form == define_) return finish(eval_define(args, env));
-    if (form == lambda_) return finish(eval_lambda(args, env));
+    if (form == define_) return finish_step(eval_define(args, env));
+    if (form == lambda_) return finish_step(eval_lambda(args, env));
     assert(form == begin_);
     if (args.empty()) return step::make_evaluated(value{});
     const auto last = eval_leading(args, env);
     if (!last) return as_unexpected(last);
-    return step::make_tail_call(*last);
+    return step::make_tail_expr(*last);
   }
 
   // Evaluate an ordinary call: the operator, then the arguments, left to
@@ -272,7 +273,7 @@ private:
       arg = *r;
     }
     if (const auto prim = callee->maybe_primitive())
-      return finish(apply_primitive(*prim, args));
+      return finish_step(apply_primitive(*prim, args));
 
     const auto fun = callee->maybe_closure();
     if (!fun) return fail("not callable: " + callee->print());
@@ -284,7 +285,7 @@ private:
     if (!last) return as_unexpected(last);
 
     env = *frame;
-    return step::make_tail_call(*last);
+    return step::make_tail_expr(*last);
   }
 
   // Append a proper list's elements to `out`, returning false if the list is
@@ -411,11 +412,11 @@ private:
     return prim_fail("expects numbers, got: " + v.print());
   }
 
-  // A kernel number: an exact int64 or a double.
+  // A kernel number: an exact `int64_t` or a `double`.
   //
   // Arithmetic stays exact while it can and switches to floating point when
-  // a float operand appears or integer math overflows, the same fallback the
-  // reader applies to oversized integer literals.
+  // a float operand appears or integer math overflows. This is the same
+  // fallback the reader applies to oversized integer literals.
   struct number final {
     int64_t i{};
     double d{};

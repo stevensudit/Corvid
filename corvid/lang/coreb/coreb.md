@@ -1,8 +1,10 @@
 # CoreB
 
-CoreB is a yet another Lisp dialect, this time with a surface syntax closer to Python or Pascal than to parentheses, in the spirit of Rhombus and Dylan and infected by decades of C++. It is bootstrapped by a small C++ kernel and otherwise written in itself. The name is a pun on "corbie", Scots for crow. There is no CoreA.
+CoreB is a yet another Lisp dialect, this time with a surface syntax closer to Python or Pascal than to parentheses, written in the spirit of Rhombus and Dylan and infected by decades of C++. It is bootstrapped by a small C++ kernel and otherwise written in itself. The name is a pun on "corbie", Scots for crow. There is no CoreA.
 
-It exists because the only way to avoid being destroyed by [Greenspun's tenth rule](https://en.wikipedia.org/wiki/Greenspun%27s_tenth_rule) is to embrace it. Also, it seemed like a good idea at the time. More fundamentally, this is an exercise in education. And on that note, here's a tip: if someone tells you that Lisp is pronounced "lithp", they're messing with you.
+It exists because the only way to avoid being destroyed by [Greenspun's tenth rule](https://en.wikipedia.org/wiki/Greenspun%27s_tenth_rule) is to embrace it. Also, it seemed like a good idea at the time.
+
+More fundamentally, this is an exercise in education. And on that note, here's a tip: if someone tells you that Lisp is pronounced "lithp", they're messing with you.
 
 This document is the design record and status tracker for the project. It is written for a reader who is not assumed to know Lisp internals or compiler construction; terms are explained as they are introduced, and there is a glossary at the end.
 
