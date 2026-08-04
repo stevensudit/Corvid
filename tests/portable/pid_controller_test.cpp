@@ -26,8 +26,7 @@
 
 using namespace corvid;
 
-// NOLINTBEGIN(readability-function-cognitive-complexity,
-// readability-function-size)
+// NOLINTBEGIN(readability-function-cognitive-complexity)
 
 constexpr double eps = 1e-6;
 
@@ -229,8 +228,8 @@ TEST_CASE("plant_test", "[sopdt]") {
         /* Ki = */ 0.5,
         /* Kd = */ 1.0,
         /* alpha = */ 0.1,
-        /* min = */ -10.0,
-        /* max = */ 10.0);
+        /* min_value = */ -10.0,
+        /* max_value = */ 10.0);
 
     const double setpoint = 1.0;
     double measured = 0.0;
@@ -269,5 +268,4 @@ TEST_CASE("FloatInstantiation", "[PidControllerTest]") {
 
 #pragma endregion
 
-// NOLINTEND(readability-function-cognitive-complexity,
-// readability-function-size)
+// NOLINTEND(readability-function-cognitive-complexity)

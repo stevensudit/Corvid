@@ -27,8 +27,7 @@
 using namespace std::literals;
 using namespace corvid;
 
-// NOLINTBEGIN(readability-function-cognitive-complexity,
-// readability-function-size)
+// NOLINTBEGIN(readability-function-cognitive-complexity)
 
 // These tests exercise the formatter bases in `corvid/meta/formatting.h`
 // directly, with minimal local wrapper types, rather than relying on the
@@ -69,11 +68,11 @@ struct closing_handle {
 struct greeter {
   std::string_view who;
   template<typename OutIt>
-  OutIt format_to(OutIt out) const {
+  [[nodiscard]] OutIt format_to(OutIt out) const {
     return std::format_to(out, "hi {}", who);
   }
   template<typename OutIt>
-  OutIt debug_format_to(OutIt out) const {
+  [[nodiscard]] OutIt debug_format_to(OutIt out) const {
     return std::format_to(out, "<{}>", who);
   }
 };
@@ -82,7 +81,8 @@ struct greeter {
 // `format_to_spec` member.
 struct dashes {
   template<CharType CharT, typename OutIt>
-  OutIt format_to_spec(const parsed_spec<CharT>& spec, OutIt out) const {
+  [[nodiscard]] OutIt
+  format_to_spec(const parsed_spec<CharT>& spec, OutIt out) const {
     std::string_view content = "----";
     if (const auto prec = spec.precision) content = content.substr(0, *prec);
     return spec.write_padded(out, content, spec.width);
@@ -582,5 +582,4 @@ TEST_CASE("FormatToSpec", "[self_rendering_formatter]") {
 
 #pragma endregion
 
-// NOLINTEND(readability-function-cognitive-complexity,
-// readability-function-size)
+// NOLINTEND(readability-function-cognitive-complexity)

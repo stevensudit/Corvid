@@ -25,8 +25,7 @@
 using namespace std::literals;
 using namespace corvid;
 
-// NOLINTBEGIN(readability-function-cognitive-complexity,
-// readability-function-size)
+// NOLINTBEGIN(readability-function-cognitive-complexity)
 
 #pragma region Construction
 
@@ -250,6 +249,9 @@ TEST_CASE("At", "[CircularBufferTest]") {
 TEST_CASE("ZeroCapacity", "[CircularBufferTest]") {
   // A zero-capacity buffer, however obtained, is both empty and full at
   // once: the `try_` forms fail cleanly and `at` throws.
+  // The last caller below deliberately probes a moved-from buffer, and the
+  // analyzer attributes that to every method reached through here.
+  // NOLINTBEGIN(clang-analyzer-cplusplus.Move)
   auto probe = [](circular_buffer<int>& cb) {
     CHECK(cb.capacity() == 0U);
     CHECK(cb.empty());
@@ -259,6 +261,7 @@ TEST_CASE("ZeroCapacity", "[CircularBufferTest]") {
     CHECK_FALSE(cb.try_emplace_back(1));
     CHECK_THROWS_AS((void)cb.at(0), std::out_of_range);
   };
+  // NOLINTEND(clang-analyzer-cplusplus.Move)
 
   // Default-constructed.
   if (true) {
@@ -648,5 +651,4 @@ TEST_CASE("Format", "[CircularBufferTest]") {
 
 #pragma endregion
 
-// NOLINTEND(readability-function-cognitive-complexity,
-// readability-function-size)
+// NOLINTEND(readability-function-cognitive-complexity)

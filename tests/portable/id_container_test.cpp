@@ -29,8 +29,7 @@ using namespace corvid;
 using eid_t = corvid::ecs::id_enums::entity_id_t;
 using container_t = id_container<int, eid_t>;
 
-// NOLINTBEGIN(readability-function-cognitive-complexity,
-// readability-function-size)
+// NOLINTBEGIN(readability-function-cognitive-complexity)
 
 #pragma region DefaultConstruct
 
@@ -66,6 +65,8 @@ TEST_CASE("PushBack", "[IdContainer]") {
   if (true) {
     container_t c;
     int val = 42;
+    // Exercising the rvalue overload is the point of this block.
+    // NOLINTNEXTLINE(bugprone-use-after-move,performance-move-const-arg)
     CHECK(c.push_back(std::move(val)));
     CHECK(c[eid_t{0}] == 42);
   }
@@ -486,5 +487,4 @@ TEST_CASE("NonIntType", "[IdContainer]") {
 
 #pragma endregion
 
-// NOLINTEND(readability-function-cognitive-complexity,
-// readability-function-size)
+// NOLINTEND(readability-function-cognitive-complexity)

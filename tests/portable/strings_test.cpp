@@ -44,8 +44,8 @@ using namespace corvid::enums::sequence;
 using namespace corvid::enums::bitmask;
 using namespace corvid::strings::delimiting;
 
-// NOLINTBEGIN(readability-function-cognitive-complexity,
-// readability-function-size)
+// NOLINTBEGIN(readability-function-cognitive-complexity)
+// NOLINTBEGIN(readability-function-size)
 
 // Test extract_piece.
 #pragma region ExtractPiece
@@ -73,7 +73,8 @@ TEST_CASE("ExtractPiece", "[StringUtilsTest]") {
 #pragma region MorePieces
 
 TEST_CASE("MorePieces", "[StringUtilsTest]") {
-  std::string_view w, part;
+  std::string_view w;
+  std::string_view part;
   w = "1,2";
   CHECK_FALSE(w.empty());
   CHECK(strings::more_pieces(part, w, ","));
@@ -139,6 +140,7 @@ TEST_CASE("Split", "[StringUtilsTest]") {
     std::string s{w};
     CHECK(strings::split(w, ",") == V{"1", "2", "3", "4"});
     CHECK(strings::split(s, ",") == V{"1", "2", "3", "4"});
+    // NOLINTNEXTLINE(bugprone-use-after-move): moved-from is asserted.
     CHECK(strings::split(std::move(s), ",") == S{"1", "2", "3", "4"});
   }
   if (true) {
@@ -174,6 +176,8 @@ TEST_CASE("WhitespaceDelim", "[StringUtilsTest]") {
     for (auto ndx = 0; ndx < 256; ++ndx) {
       const auto c = static_cast<char>(ndx);
       CHECK(strings::is_space(c) ==
+            // find/npos is the oracle that is_space is checked against.
+            // NOLINTNEXTLINE(readability-container-contains)
             (strings::whitespace.find(c) != strings::npos));
     }
     CHECK(strings::is_space(strings::wwhitespace));
@@ -420,7 +424,8 @@ TEST_CASE("WideSplit", "[StringUtilsTest]") {
   CHECK(strings::extract_piece<std::u16string>(sv, u",") == u"1");
 
   // more_pieces threads the same code unit.
-  std::u16string_view w = u"a;b", part;
+  std::u16string_view w = u"a;b";
+  std::u16string_view part;
   CHECK(strings::more_pieces(part, w, u";"));
   CHECK(part == u"a");
   CHECK_FALSE(strings::more_pieces(part, w, u";"));
@@ -1090,6 +1095,8 @@ TEST_CASE("RLocate", "[StringUtilsTest]") {
     CHECK(strings::rlocate(s, "a") == 10U);
     CHECK(strings::rlocate(s, "a", 10U) == 10U);
     CHECK(strings::rlocate(s, "a", 1U) == 0U);
+    // Mirrors the corvid call it is compared against.
+    // NOLINTNEXTLINE(performance-faster-string-find)
     CHECK(s.rfind("a", 0U) == 0U);
     CHECK(strings::rlocate(s, "a", 0U) == 0U);
     CHECK(strings::rlocate(s, {'i', 'j'}) == location{19U, 1U});
@@ -1174,6 +1181,8 @@ TEST_CASE("LocateEdges", "[StringUtilsTest]") {
   // Confirm the correctness of infinite loops.
   if (true) {
     constexpr auto s = "abcdefghijabcdefghij"sv;
+    // Mirrors the corvid call it is compared against.
+    // NOLINTNEXTLINE(performance-faster-string-find)
     CHECK(s.find("a") == 0U);
     CHECK(strings::locate(s, "a") == 0U);
     CHECK(s.find("") == 0U);
@@ -2355,7 +2364,7 @@ TEST_CASE("ParseNum", "[StringUtilsTest]") {
   if (true) {
     std::string_view sv;
     sv = "123";
-    int64_t t;
+    int64_t t{};
     CHECK(strings::extract_num(t, sv));
     CHECK(t == 123);
     CHECK(sv.empty());
@@ -2556,7 +2565,7 @@ TEST_CASE("WideConversion", "[StringUtilsTest]") {
   strings::append_num<10, 5>(s, 7); // width and pad
   CHECK(s == u"    7");
   s.clear();
-  strings::append_num(s, double(0.25));
+  strings::append_num(s, 0.25);
   CHECK(s == u"0.25");
 
   // num_as_string can return a wide string (code unit as the trailing arg).
@@ -2586,64 +2595,64 @@ TEST_CASE("StdFromChars", "[StringUtilsTest]") {
     sv = "3.14";
     auto result = std::from_chars(sv.data(), sv.data() + sv.size(), value);
     CHECK(result.ec == std::errc{});
-    CHECK((value > 3.13f && value < 3.15f));
+    CHECK((value > 3.13F && value < 3.15F));
     CHECK(result.ptr == (sv.data() + sv.size()));
 
     // Basic negative float.
     sv = "-2.5";
     result = std::from_chars(sv.data(), sv.data() + sv.size(), value);
     CHECK(result.ec == std::errc{});
-    CHECK(value == -2.5f);
+    CHECK(value == -2.5F);
     CHECK(result.ptr == (sv.data() + sv.size()));
 
     // Integer parsed as float.
     sv = "42";
     result = std::from_chars(sv.data(), sv.data() + sv.size(), value);
     CHECK(result.ec == std::errc{});
-    CHECK(value == 42.0f);
+    CHECK(value == 42.0F);
 
     // Zero.
     sv = "0.0";
     result = std::from_chars(sv.data(), sv.data() + sv.size(), value);
     CHECK(result.ec == std::errc{});
-    CHECK(value == 0.0f);
+    CHECK(value == 0.0F);
 
     // Negative zero.
     sv = "-0.0";
     result = std::from_chars(sv.data(), sv.data() + sv.size(), value);
     CHECK(result.ec == std::errc{});
     // Negative zero should be equal to positive zero.
-    CHECK(value == 0.0f);
+    CHECK(value == 0.0F);
 
     // Scientific notation.
     sv = "1.5e3";
     result = std::from_chars(sv.data(), sv.data() + sv.size(), value);
     CHECK(result.ec == std::errc{});
-    CHECK(value == 1500.0f);
+    CHECK(value == 1500.0F);
 
     // Negative exponent.
     sv = "1.5e-2";
     result = std::from_chars(sv.data(), sv.data() + sv.size(), value);
     CHECK(result.ec == std::errc{});
-    CHECK((value > 0.014f && value < 0.016f));
+    CHECK((value > 0.014F && value < 0.016F));
 
     // Large positive exponent.
     sv = "1e30";
     result = std::from_chars(sv.data(), sv.data() + sv.size(), value);
     CHECK(result.ec == std::errc{});
-    CHECK(value > 9e29f);
+    CHECK(value > 9e29F);
 
     // Very small positive number.
     sv = "1e-30";
     result = std::from_chars(sv.data(), sv.data() + sv.size(), value);
     CHECK(result.ec == std::errc{});
-    CHECK((value > 0.0f && value < 1e-29f));
+    CHECK((value > 0.0F && value < 1e-29F));
 
     // Partial parse (stops at non-numeric).
     sv = "3.14abc";
     result = std::from_chars(sv.data(), sv.data() + sv.size(), value);
     CHECK(result.ec == std::errc{});
-    CHECK((value > 3.13f && value < 3.15f));
+    CHECK((value > 3.13F && value < 3.15F));
     CHECK(result.ptr == (sv.data() + 4)); // Stops at 'a'.
   }
   // Test std::from_chars directly for double.
@@ -2696,7 +2705,7 @@ TEST_CASE("StdFromChars", "[StringUtilsTest]") {
   }
   // Test error handling.
   if (true) {
-    float fvalue{42.0f};
+    float fvalue{42.0F};
     std::string_view sv;
 
     // Empty string - properly returns error.
@@ -2717,13 +2726,13 @@ TEST_CASE("StdFromChars", "[StringUtilsTest]") {
     // Basic extraction.
     sv = "  3.14  ";
     CHECK(strings::extract_num(f, sv));
-    CHECK((f > 3.13f && f < 3.15f));
+    CHECK((f > 3.13F && f < 3.15F));
     CHECK(sv == "  "); // Whitespace trimmed from left, remaining on right.
 
     // Scientific notation.
     sv = "6.022e23";
     CHECK(strings::extract_num(f, sv));
-    CHECK(f > 6e23f);
+    CHECK(f > 6e23F);
     CHECK(sv.empty());
   }
   // Test parse_num float wrappers.
@@ -2731,7 +2740,7 @@ TEST_CASE("StdFromChars", "[StringUtilsTest]") {
     // Successful parse.
     auto opt = strings::parse_num<float>("2.5"sv);
     CHECK(opt.has_value());
-    CHECK(opt.value() == 2.5f);
+    CHECK(opt.value() == 2.5F);
 
     // Failure - trailing garbage.
     opt = strings::parse_num<float>("2.5abc"sv);
@@ -2742,14 +2751,14 @@ TEST_CASE("StdFromChars", "[StringUtilsTest]") {
     CHECK_FALSE(opt.has_value());
 
     // With default value.
-    float val = strings::parse_num<float>("1.5"sv, -1.0f);
-    CHECK(val == 1.5f);
+    auto val = strings::parse_num<float>("1.5"sv, -1.0F);
+    CHECK(val == 1.5F);
 
-    val = strings::parse_num<float>("bad"sv, -1.0f);
-    CHECK(val == -1.0f);
+    val = strings::parse_num<float>("bad"sv, -1.0F);
+    CHECK(val == -1.0F);
 
-    val = strings::parse_num<float>("1.5 "sv, -1.0f);
-    CHECK(val == -1.0f); // Trailing space causes failure.
+    val = strings::parse_num<float>("1.5 "sv, -1.0F);
+    CHECK(val == -1.0F); // Trailing space causes failure.
   }
   // Test parse_num double wrappers.
   if (true) {
@@ -2764,7 +2773,7 @@ TEST_CASE("StdFromChars", "[StringUtilsTest]") {
     CHECK((opt.value() > 0.0 && opt.value() < 1e-99));
 
     // With default value.
-    double val = strings::parse_num<double>("2.718281828"sv, 0.0);
+    auto val = strings::parse_num<double>("2.718281828"sv, 0.0);
     CHECK((val > 2.71828182 && val < 2.71828183));
 
     val = strings::parse_num<double>("xyz"sv, -999.0);
@@ -2781,19 +2790,19 @@ TEST_CASE("NoZero", "[StringUtilsTest]") {
   if (true) {
     std::string s;
     s.resize(50);
-    CHECK(s.capacity() >= 50u);
+    CHECK(s.capacity() >= 50U);
     s.clear();
-    CHECK(s.capacity() >= 50u);
+    CHECK(s.capacity() >= 50U);
     s.shrink_to_fit();
-    CHECK((s.capacity()) < (50u));
-    CHECK((s.capacity()) > (0u));
+    CHECK((s.capacity()) < (50U));
+    CHECK((s.capacity()) > (0U));
   }
 
   // Capture the SSO capacity (typically 15 on libc++ 64-bit).
   const auto sso_cap = std::string{}.capacity();
 
   // Ensure that the small values we use below are within SSO capacity.
-  CHECK((sso_cap) > (10u));
+  CHECK((sso_cap) > (10U));
 
   using corvid::strings::no_zero;
 
@@ -2805,41 +2814,41 @@ TEST_CASE("NoZero", "[StringUtilsTest]") {
 
     // Zero.
     no_zero{s}.resize_to(0);
-    CHECK(s.size() == 0u);
+    CHECK(s.size() == 0U);
 
     // Tiny (SSO range).
     no_zero{s}.resize_to(2);
-    CHECK(s.size() == 2u);
-    CHECK(s.capacity() >= 2u);
+    CHECK(s.size() == 2U);
+    CHECK(s.capacity() >= 2U);
 
     no_zero{s}.resize_to(4);
-    CHECK(s.size() == 4u);
-    CHECK(s.capacity() >= 4u);
+    CHECK(s.size() == 4U);
+    CHECK(s.capacity() >= 4U);
 
     // Shrink within SSO: capacity must not change.
     auto cap = s.capacity();
     no_zero{s}.resize_to(2);
-    CHECK(s.size() == 2u);
+    CHECK(s.size() == 2U);
     CHECK(s.capacity() == cap);
 
     // Small (heap range).
     no_zero{s}.resize_to(50);
-    CHECK(s.size() == 50u);
-    CHECK(s.capacity() >= 50u);
+    CHECK(s.size() == 50U);
+    CHECK(s.capacity() >= 50U);
 
     no_zero{s}.resize_to(100);
-    CHECK(s.size() == 100u);
-    CHECK(s.capacity() >= 100u);
+    CHECK(s.size() == 100U);
+    CHECK(s.capacity() >= 100U);
 
     // Shrink on heap: capacity must not change.
     cap = s.capacity();
     no_zero{s}.resize_to(50);
-    CHECK(s.size() == 50u);
+    CHECK(s.size() == 50U);
     CHECK(s.capacity() == cap);
 
     // Same size (no-op).
     no_zero{s}.resize_to(50);
-    CHECK(s.size() == 50u);
+    CHECK(s.size() == 50U);
     CHECK(s.capacity() == cap);
   }
 
@@ -2863,9 +2872,7 @@ TEST_CASE("NoZero", "[StringUtilsTest]") {
   // `trim_to`: shrinks when `new_size` is smaller, but never enlarges and
   // never changes capacity.
   if (true) {
-    static_assert(requires(std::string& value) {
-      no_zero{value}.trim_to(int{1});
-    });
+    static_assert(requires(std::string& value) { no_zero{value}.trim_to(1); });
     static_assert(requires(std::string& value) {
       no_zero{value}.trim_to(unsigned{1});
     });
@@ -2880,45 +2887,45 @@ TEST_CASE("NoZero", "[StringUtilsTest]") {
 
     // Shrink within current size.
     no_zero{s}.trim_to(20);
-    CHECK(s.size() == 20u);
+    CHECK(s.size() == 20U);
     CHECK(s.capacity() == cap);
 
     // Same size is a no-op.
     no_zero{s}.trim_to(20);
-    CHECK(s.size() == 20u);
+    CHECK(s.size() == 20U);
     CHECK(s.capacity() == cap);
 
     // Larger size request must not enlarge.
     no_zero{s}.trim_to(40);
-    CHECK(s.size() == 20u);
+    CHECK(s.size() == 20U);
     CHECK(s.capacity() == cap);
 
     // Trimming to zero works and still preserves capacity.
     no_zero{s}.trim_to(0);
-    CHECK(s.size() == 0u);
+    CHECK(s.size() == 0U);
     CHECK(s.capacity() == cap);
 
     // Negative signed values clamp to zero.
     no_zero{s}.resize_to(30);
     no_zero{s}.trim_to(-1);
-    CHECK(s.size() == 0u);
+    CHECK(s.size() == 0U);
     CHECK(s.capacity() == cap);
 
     // Positive signed values trim normally after the signed check.
     no_zero{s}.resize_to(30);
     no_zero{s}.trim_to(int16_t{6});
-    CHECK(s.size() == 6u);
+    CHECK(s.size() == 6U);
     CHECK(s.capacity() == cap);
 
     // Any integer type is accepted, including unsigned non-size_t.
     no_zero{s}.resize_to(30);
-    no_zero{s}.trim_to(7u);
-    CHECK(s.size() == 7u);
+    no_zero{s}.trim_to(7U);
+    CHECK(s.size() == 7U);
     CHECK(s.capacity() == cap);
 
     // Returns a reference to the same string.
     CHECK(&*no_zero{s}.trim_to(10) == &s);
-    CHECK(s.size() == 7u);
+    CHECK(s.size() == 7U);
     CHECK(s.capacity() == cap);
   }
 
@@ -2929,7 +2936,7 @@ TEST_CASE("NoZero", "[StringUtilsTest]") {
     // full SSO capacity.
     std::string s;
     no_zero{s}.enlarge_to(3);
-    CHECK(s.size() >= 3u);
+    CHECK(s.size() >= 3U);
     CHECK(s.size() == sso_cap);
     CHECK(s.size() == s.capacity());
 
@@ -2942,7 +2949,7 @@ TEST_CASE("NoZero", "[StringUtilsTest]") {
 
     // Small request beyond current capacity: reallocates, then fills capacity.
     no_zero{s}.enlarge_to(50);
-    CHECK(s.size() >= 50u);
+    CHECK(s.size() >= 50U);
     CHECK(s.size() == s.capacity());
 
     // Request within the new capacity: no reallocation.
@@ -2967,10 +2974,10 @@ TEST_CASE("NoZero", "[StringUtilsTest]") {
     // Heap-allocated string: buffer is released.
     std::string s;
     no_zero{s}.enlarge_to(100);
-    CHECK(s.capacity() >= 100u);
+    CHECK(s.capacity() >= 100U);
     no_zero{s}.clear_out();
-    CHECK(s.size() == 0u);
-    CHECK((s.capacity()) < (100u));
+    CHECK(s.size() == 0U);
+    CHECK((s.capacity()) < (100U));
     CHECK(s.capacity() >= sso_cap);
 
     // SSO-sized string: capacity is unchanged (nothing to release).
@@ -2978,7 +2985,7 @@ TEST_CASE("NoZero", "[StringUtilsTest]") {
     no_zero{t}.resize_to(4);
     auto cap = t.capacity();
     no_zero{t}.clear_out();
-    CHECK(t.size() == 0u);
+    CHECK(t.size() == 0U);
     CHECK(t.capacity() == cap);
 
     // Returns a reference to the same string.
@@ -2993,27 +3000,27 @@ TEST_CASE("NoZero", "[StringUtilsTest]") {
     // Tiny: SSO capacity within bounds -> enlarge_to path.
     std::string s;
     no_zero{s}.rightsize_to(3, 100);
-    CHECK(s.size() >= 3u);
+    CHECK(s.size() >= 3U);
     CHECK(s.size() == s.capacity());
 
     // Tiny: SSO capacity above maximum -> shrink to minimum_size.
     std::string t;
     no_zero{t}.resize_to(4); // capacity == sso_cap
     no_zero{t}.rightsize_to(2, sso_cap - 1);
-    CHECK(t.size() == 2u);
+    CHECK(t.size() == 2U);
 
     // Small: capacity within bounds -> enlarge_to path.
     std::string u;
     no_zero{u}.rightsize_to(50, 500);
-    CHECK(u.size() >= 50u);
+    CHECK(u.size() >= 50U);
     CHECK(u.size() == u.capacity());
 
     // Small: capacity above maximum -> shrinks to minimum_size.
     no_zero{u}.enlarge_to(200);
-    CHECK(u.capacity() >= 200u);
+    CHECK(u.capacity() >= 200U);
     no_zero{u}.rightsize_to(50, 100);
-    CHECK(u.size() == 50u);
-    CHECK((u.capacity()) < (200u));
+    CHECK(u.size() == 50U);
+    CHECK((u.capacity()) < (200U));
 
     // Returns a reference to the same string.
     CHECK(&*no_zero{u}.rightsize_to(50, 500) == &u);
@@ -3024,13 +3031,13 @@ TEST_CASE("NoZero", "[StringUtilsTest]") {
   if (true) {
     std::wstring w;
     no_zero{w}.enlarge_to(50);
-    CHECK(w.size() >= 50u);
+    CHECK(w.size() >= 50U);
     CHECK(w.size() == w.capacity());
-    CHECK(no_zero{w}.trim_to(3)->size() == 3u);
+    CHECK(no_zero{w}.trim_to(3)->size() == 3U);
 
     std::u16string u16;
     CHECK(&*no_zero{u16}.resize_to(20).clear_out() == &u16);
-    CHECK(u16.size() == 0u);
+    CHECK(u16.size() == 0U);
   }
 }
 
@@ -3154,12 +3161,12 @@ TEST_CASE("AnyStrings", "[StringUtilsTest]") {
   CHECK(v0.empty());
 
   auto v1 = strings::as_vector(std::string{"hello"});
-  REQUIRE(v1.size() == 1u);
+  REQUIRE(v1.size() == 1U);
   CHECK(v1[0] == "hello");
 
   auto v2 =
       strings::as_vector(std::string{"a"}, std::string{"b"}, std::string{"c"});
-  REQUIRE(v2.size() == 3u);
+  REQUIRE(v2.size() == 3U);
   CHECK(v2[0] == "a");
   CHECK(v2[1] == "b");
   CHECK(v2[2] == "c");
@@ -3177,7 +3184,7 @@ TEST_CASE("AnyStrings", "[StringUtilsTest]") {
   auto a2 = strings::as_any(std::string{"x"}, std::string{"y"});
   REQUIRE(std::holds_alternative<std::vector<std::string>>(a2));
   const auto& sv = std::get<std::vector<std::string>>(a2);
-  REQUIRE(sv.size() == 2u);
+  REQUIRE(sv.size() == 2U);
   CHECK(sv[0] == "x");
   CHECK(sv[1] == "y");
 }
@@ -3191,5 +3198,5 @@ TEST_CASE("DelimFormats", "[StringUtilsTest]") {
 
 #pragma endregion
 
-// NOLINTEND(readability-function-cognitive-complexity,
-// readability-function-size)
+// NOLINTEND(readability-function-size)
+// NOLINTEND(readability-function-cognitive-complexity)

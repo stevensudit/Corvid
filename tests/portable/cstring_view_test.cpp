@@ -28,8 +28,8 @@ using namespace std::literals;
 using namespace corvid;
 using namespace corvid::literals;
 
-// NOLINTBEGIN(readability-function-cognitive-complexity,
-// readability-function-size)
+// NOLINTBEGIN(readability-function-cognitive-complexity)
+// NOLINTBEGIN(readability-function-size)
 
 #pragma region Construction
 
@@ -199,6 +199,7 @@ TEST_CASE("Construction", "[CStringViewTest]") {
   }
   // Construct string_view on empty string_view.
   if (true) {
+    // NOLINTNEXTLINE(readability-redundant-string-init): non-null empty.
     std::string_view sv("");
     CHECK(sv.data() != nullptr);
     std::string_view v{sv};
@@ -208,6 +209,7 @@ TEST_CASE("Construction", "[CStringViewTest]") {
   }
   // Construct cstring_view on empty string_view.
   if (true) {
+    // NOLINTNEXTLINE(readability-redundant-string-init): non-null empty.
     std::string_view svbad("");
     CHECK(svbad.data() != nullptr);
     CHECK_THROWS_AS((cstring_view(svbad)), std::length_error);
@@ -507,5 +509,5 @@ TEST_CASE("Env", "[CStringViewTest]") {
 
 #pragma endregion
 
-// NOLINTEND(readability-function-cognitive-complexity,
-// readability-function-size)
+// NOLINTEND(readability-function-size)
+// NOLINTEND(readability-function-cognitive-complexity)

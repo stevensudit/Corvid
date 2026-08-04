@@ -310,25 +310,26 @@ consteval auto corvid_proxy_spec(hair_trigger*, robber*) {
 // method is noexcept, but a call-site argument needing a throwing conversion
 // (a literal into `std::string`) makes the call expression non-noexcept, in
 // both spellings alike.
+//
+// The by-value parameters below are moved, but only in a dependent call that
+// the check cannot see.
+// NOLINTBEGIN(performance-unnecessary-value-param)
 struct town_crier
     : prox::facade<prox::name<"town_crier">, //
           prox::method<"cry", void(std::string) noexcept>> {
   struct api {
-    // The by-value parameter is moved, but only in a dependent call the
-    // check cannot see.
-    // NOLINTNEXTLINE(performance-unnecessary-value-param)
     void cry(this auto&& self, std::string words) noexcept {
       self.template call<"cry">(std::move(words));
     }
   };
   template<typename T>
   struct boilerplate: proxy_impl_base {
-    // NOLINTNEXTLINE(performance-unnecessary-value-param)
     static void on(method_key<"cry">, T& t, std::string words) noexcept {
       t.cry(std::move(words));
     }
   };
 };
+// NOLINTEND(performance-unnecessary-value-param)
 
 struct crier {
   void cry(std::string words) noexcept { last = std::move(words); }

@@ -48,8 +48,8 @@ consteval auto corvid_enum_spec(small_id_t*) {
   return corvid::enums::sequence::make_sequence_enum_spec<small_id_t, "">();
 }
 
-// NOLINTBEGIN(readability-function-cognitive-complexity,
-// readability-function-size)
+// NOLINTBEGIN(readability-function-cognitive-complexity)
+// NOLINTBEGIN(readability-function-size)
 
 #pragma region TransparentTest_General
 
@@ -442,8 +442,11 @@ TEST_CASE("Extended", "[StrongType]") {
     CHECK(fn->at(0) == 'J');
     CHECK(fn->front() == 'J');
     CHECK(fn->back() == 'n');
+    // The accessor itself is what is under test here.
+    // NOLINTBEGIN(readability-redundant-string-cstr)
     CHECK(std::string_view{fn->data()} == "John");
     CHECK(std::string_view{fn->c_str()} == "John");
+    // NOLINTEND(readability-redundant-string-cstr)
     std::string s;
     for (auto c : fn) s += c;
     CHECK(s == "John");
@@ -461,13 +464,13 @@ TEST_CASE("Extended", "[StrongType]") {
     CHECK(fn == "John"s);
     CHECK(fn == fn);
     // Test spaceship, both heterogeneous and homogeneous.
-    CHECK(fn <=> fn == std::strong_ordering::equal);
-    CHECK(fn <=> fn2 == std::strong_ordering::greater);
-    CHECK(fn2 <=> fn == std::strong_ordering::less);
-    CHECK(fn <=> "John"s == std::strong_ordering::equal);
-    CHECK(fn <=> "Zoe"s == std::strong_ordering::less);
-    CHECK("Zoe"s <=> fn == std::strong_ordering::greater);
-    CHECK("John"s <=> fn == std::strong_ordering::equal);
+    CHECK((fn <=> fn) == std::strong_ordering::equal);
+    CHECK((fn <=> fn2) == std::strong_ordering::greater);
+    CHECK((fn2 <=> fn) == std::strong_ordering::less);
+    CHECK((fn <=> "John"s) == std::strong_ordering::equal);
+    CHECK((fn <=> "Zoe"s) == std::strong_ordering::less);
+    CHECK(("Zoe"s <=> fn) == std::strong_ordering::greater);
+    CHECK(("John"s <=> fn) == std::strong_ordering::equal);
     // Test homogeneous comparisons.
     CHECK_FALSE(fn == fn2);
     CHECK(fn != fn2);
@@ -477,13 +480,13 @@ TEST_CASE("Extended", "[StrongType]") {
     CHECK(fn >= fn2);
     // Test heterogeneous comparisons.
     CHECK(fn == "John"s);
-    CHECK(fn <=> "John"s == std::strong_ordering::equal);
+    CHECK((fn <=> "John"s) == std::strong_ordering::equal);
     CHECK_FALSE(fn != "John"s);
     CHECK(fn < "Zoe"s);
     CHECK(fn <= "John"s);
     CHECK(fn > "Adam"s);
     CHECK(fn >= "John"s);
-    CHECK("John"s <=> fn == std::strong_ordering::equal);
+    CHECK(("John"s <=> fn) == std::strong_ordering::equal);
     CHECK("John"s == fn);
     CHECK_FALSE("John"s != fn);
     CHECK("Zoe"s > fn);
@@ -1070,6 +1073,10 @@ struct throwing_scoped_value_test {
   throwing_scoped_value_test& operator=(
       const throwing_scoped_value_test&) = default;
 
+  // This fixture exists to exercise a throwing move, so the throw is the
+  // subject rather than a defect, and marking it noexcept would defeat it.
+  // NOLINTBEGIN(bugprone-exception-escape)
+  // NOLINTBEGIN(performance-noexcept-move-constructor)
   throwing_scoped_value_test(throwing_scoped_value_test&& other) {
     if (other.throw_on_move) throw std::runtime_error("move failed");
     value = std::move(other.value);
@@ -1082,6 +1089,8 @@ struct throwing_scoped_value_test {
     throw_on_move = other.throw_on_move;
     return *this;
   }
+  // NOLINTEND(performance-noexcept-move-constructor)
+  // NOLINTEND(bugprone-exception-escape)
 };
 
 inline void swap(throwing_scoped_value_test& lhs,
@@ -1188,26 +1197,26 @@ TEST_CASE("Basic", "[HashCombiner]") {
   // Default seed is zero; explicit seed is respected.
   if (true) {
     hash_combiner h;
-    CHECK(h.value() == 0u);
-    CHECK(static_cast<size_t>(h) == 0u);
+    CHECK(h.value() == 0U);
+    CHECK(static_cast<size_t>(h) == 0U);
   }
   if (true) {
-    hash_combiner h{42u};
-    CHECK(h.value() == 42u);
+    hash_combiner h{42U};
+    CHECK(h.value() == 42U);
   }
 
   // Combining a non-zero hash into seed 0 must produce a non-zero result.
   if (true) {
     hash_combiner h;
-    h.combine_hash(1u);
-    CHECK(h.value() != 0u);
+    h.combine_hash(1U);
+    CHECK(h.value() != 0U);
   }
 
   // `combine` hashes a typed value and folds it in.
   if (true) {
     hash_combiner h;
     h.combine(123);
-    CHECK(h.value() != 0u);
+    CHECK(h.value() != 0U);
   }
 
   // Order of combination must matter.
@@ -1256,5 +1265,5 @@ TEST_CASE("Basic", "[HashCombiner]") {
 }
 #pragma endregion
 
-// NOLINTEND(readability-function-cognitive-complexity,
-// readability-function-size)
+// NOLINTEND(readability-function-size)
+// NOLINTEND(readability-function-cognitive-complexity)

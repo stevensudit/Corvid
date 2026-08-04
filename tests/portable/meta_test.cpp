@@ -28,8 +28,8 @@
 using namespace std::literals;
 using namespace corvid;
 
-// NOLINTBEGIN(readability-function-cognitive-complexity,
-// readability-function-size)
+// NOLINTBEGIN(readability-function-cognitive-complexity)
+// NOLINTBEGIN(readability-function-size)
 
 // OStreamDerived
 
@@ -612,8 +612,11 @@ TEST_CASE("Number", "[MetaTest]") {
   CHECK_FALSE(Integer<bool>);
   CHECK(is_bool_v<bool>);
 
+  // The irregular initializers and the width are both deliberate here.
+  // NOLINTBEGIN(performance-enum-size,readability-enum-initial-value)
   enum ColorEnum { red, green = 20, blue };
   enum class ColorClass { red, green = 20, blue };
+  // NOLINTEND(performance-enum-size,readability-enum-initial-value)
 
   CHECK(StdEnum<ColorClass>);
   CHECK(StdEnum<ColorEnum>);
@@ -660,6 +663,7 @@ TEST_CASE("Tuple", "[MetaTest]") {
 TEST_CASE("Detection", "[MetaTest]") {
   // initializer_list detection
   {
+    // NOLINTNEXTLINE(clang-analyzer-deadcode.DeadStores): decltype only.
     auto il = {1, 2, 3};
     CHECK(is_initializer_list_v<decltype(il)>);
   }
@@ -700,9 +704,12 @@ TEST_CASE("Detection", "[MetaTest]") {
 #pragma region Underlying
 
 TEST_CASE("Underlying", "[MetaTest]") {
+  // The underlying type is the point of these fixtures.
+  // NOLINTBEGIN(performance-enum-size)
   enum class X : size_t { x1 = 1, x2 };
   enum class Y : int64_t { ylow = -1 };
   enum Z { z1 = 1 };
+  // NOLINTEND(performance-enum-size)
 
   // as_underlying converts scoped enum to underlying type
   auto x = as_underlying(X::x1);
@@ -807,6 +814,7 @@ TEST_CASE("MoveConstruct", "[AddressForwarder]") {
   // Move construction updates `ptr` to the new location.
   CHECK(ptr == &b);
   // Source no longer holds the forwarding address slot.
+  // NOLINTNEXTLINE(bugprone-use-after-move,clang-analyzer-cplusplus.Move)
   CHECK(a.forwarding_address_ptr(Trackable::raw::allow) == nullptr);
 }
 
@@ -823,6 +831,7 @@ TEST_CASE("MoveAssign", "[AddressForwarder]") {
   Trackable b{99};
   b = std::move(a);
   CHECK(ptr == &b);
+  // NOLINTNEXTLINE(bugprone-use-after-move,clang-analyzer-cplusplus.Move)
   CHECK(a.forwarding_address_ptr(Trackable::raw::allow) == nullptr);
 
   // Clearing the forwarding address on `b` stops future tracking, but does
@@ -892,6 +901,7 @@ TEST_CASE("CustomMoveCtor", "[AddressForwarder]") {
 
   Trackable2 b{std::move(a)};
   CHECK(ptr == &b);
+  // NOLINTNEXTLINE(bugprone-use-after-move,clang-analyzer-cplusplus.Move)
   CHECK(a.forwarding_address_ptr(Trackable2::raw::allow) == nullptr);
 }
 
@@ -1111,6 +1121,7 @@ TEST_CASE("MoveAcrossSizes", "[FixedFunction]") {
   fixed_function<96, int()> big{std::move(small)};
   CHECK(moves == base + 1);
   CHECK(big() == 42);
+  // NOLINTNEXTLINE(bugprone-use-after-move): moved-from state is the point.
   CHECK_FALSE(static_cast<bool>(small));
   CHECK(small.size() == 0);
   CHECK(big.size() == sizeof(mover));
@@ -1262,6 +1273,7 @@ TEST_CASE("Bool", "[FixedFunction]") {
   fixed_function<64, int()> a{[] { return 1; }};
   CHECK(static_cast<bool>(a));
   fixed_function<64, int()> b{std::move(a)};
+  // NOLINTNEXTLINE(bugprone-use-after-move): moved-from state is the point.
   CHECK_FALSE(static_cast<bool>(a));
   CHECK(static_cast<bool>(b));
 }
@@ -1273,6 +1285,7 @@ TEST_CASE("Move", "[FixedFunction]") {
   fixed_function<64, int()> a{[] { return 7; }};
   CHECK(static_cast<bool>(a));
   fixed_function<64, int()> b{std::move(a)};
+  // NOLINTNEXTLINE(bugprone-use-after-move): moved-from state is the point.
   CHECK_FALSE(static_cast<bool>(a));
   CHECK(static_cast<bool>(b));
   CHECK(b() == 7);
@@ -1285,6 +1298,7 @@ TEST_CASE("MoveAssign", "[FixedFunction]") {
   fixed_function<64, int()> a{[] { return 99; }};
   fixed_function<64, int()> b{[] { return 0; }};
   b = std::move(a);
+  // NOLINTNEXTLINE(bugprone-use-after-move): moved-from state is the point.
   CHECK_FALSE(static_cast<bool>(a));
   CHECK(static_cast<bool>(b));
   CHECK(b() == 99);
@@ -1337,6 +1351,11 @@ static int double_it(int x) { return x * 2; }
 // verifiable.
 #pragma region FixedFunction_CppRef
 
+// This case transcribes the cppreference `std::function` example set to
+// show `fixed_function` accepts the same callables, so the `std::bind`
+// expressions are the subject and the fixture keeps the reference shape.
+// NOLINTBEGIN(modernize-avoid-bind)
+// NOLINTBEGIN(modernize-use-nodiscard)
 TEST_CASE("CppRef", "[FixedFunction]") {
   struct Foo {
     Foo(int num) : num_(num) {}
@@ -1395,6 +1414,8 @@ TEST_CASE("CppRef", "[FixedFunction]") {
   CHECK(factorial(6) == 720);
   CHECK(factorial(7) == 5040);
 }
+// NOLINTEND(modernize-use-nodiscard)
+// NOLINTEND(modernize-avoid-bind)
 
 #pragma endregion
 #pragma region FixedFunction_RefReturn
@@ -1437,7 +1458,9 @@ TEST_CASE("EmptyThrows", "[FixedFunction]") {
   // Moved-from instance is also empty and throws on call.
   fixed_function<64, int()> f{[] { return 1; }};
   fixed_function<64, int()> g{std::move(f)};
+  // NOLINTNEXTLINE(bugprone-use-after-move,clang-analyzer-cplusplus.Move)
   CHECK(!f);
+  // NOLINTNEXTLINE(clang-analyzer-cplusplus.Move): same moved-from check.
   CHECK_THROWS_AS(f(), std::bad_function_call);
 
   // nullptr-assigned instance throws too.
@@ -1502,5 +1525,5 @@ TEST_CASE("Swap", "[FixedFunction]") {
 
 #pragma endregion
 
-// NOLINTEND(readability-function-cognitive-complexity,
-// readability-function-size)
+// NOLINTEND(readability-function-size)
+// NOLINTEND(readability-function-cognitive-complexity)

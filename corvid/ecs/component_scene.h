@@ -454,6 +454,11 @@ private:
       using self_t = std::remove_reference_t<decltype(self)>;
       // Scan all storages with `component_t == C`; the per-selector check in
       // `for_all` guarantees exactly one contains the entity.
+      //
+      // Both branches dereference a pointer that the analyzer cannot prove
+      // non-null, since it is the caller's guarantee above that makes it so.
+      // The asserts stand in for that narrow contract.
+      // NOLINTBEGIN(clang-analyzer-core.uninitialized.UndefReturn)
       if constexpr (std::is_const_v<self_t>) {
         const C* result{};
         [&]<size_t... Is>(std::index_sequence<Is...>) {
@@ -483,6 +488,7 @@ private:
         assert(result);
         return *result; // C&
       }
+      // NOLINTEND(clang-analyzer-core.uninitialized.UndefReturn)
     }
   }
 

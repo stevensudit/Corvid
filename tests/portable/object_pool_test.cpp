@@ -152,6 +152,8 @@ TEST_CASE("LIFOOrder", "[ObjectPool]") {
 #pragma endregion
 #pragma region MoveHandle
 
+// Each block checks the moved-from handle, which is the assertion.
+// NOLINTBEGIN(bugprone-use-after-move,clang-analyzer-cplusplus.Move)
 TEST_CASE("MoveHandle", "[ObjectPool]") {
   // Move construction transfers ownership; original becomes empty.
   if (true) {
@@ -160,7 +162,6 @@ TEST_CASE("MoveHandle", "[ObjectPool]") {
     CHECK(h);
 
     auto h2 = std::move(h);
-    // NOLINTNEXTLINE(bugprone-use-after-move,clang-analyzer-cplusplus.Move)
     CHECK_FALSE(h);
     CHECK(h2);
   }
@@ -185,11 +186,11 @@ TEST_CASE("MoveHandle", "[ObjectPool]") {
     auto h = pool.borrow();
     object_pool<int, 4>::borrowed h2;
     h2 = std::move(h);
-    // NOLINTNEXTLINE(bugprone-use-after-move,clang-analyzer-cplusplus.Move)
     CHECK_FALSE(h);
     CHECK(h2);
   }
 }
+// NOLINTEND(bugprone-use-after-move,clang-analyzer-cplusplus.Move)
 
 #pragma endregion
 #pragma region MultipleSlots
@@ -201,17 +202,18 @@ TEST_CASE("MultipleSlots", "[ObjectPool]") {
     object_pool<int, cap> pool;
 
     std::array<std::optional<object_pool<int, cap>::borrowed>, cap> handles;
+    // Every slot was just filled by borrow(), as the checks above assert.
+    // NOLINTBEGIN(bugprone-unchecked-optional-access)
     for (auto ndx = 0UZ; ndx < cap; ++ndx) {
       handles[ndx] = pool.borrow();
       CHECK(handles[ndx].has_value());
-      // NOLINTNEXTLINE(bugprone-unchecked-optional-access)
       **handles[ndx] = static_cast<int>(ndx);
     }
     CHECK_FALSE(pool.borrow()); // all slots in use
 
     // Return every other slot.
-    // NOLINTNEXTLINE(bugprone-unchecked-optional-access)
     for (auto ndx = 0UZ; ndx < cap; ndx += 2) handles[ndx]->reset();
+    // NOLINTEND(bugprone-unchecked-optional-access)
 
     // Re-borrow the returned slots.
     for (auto ndx = 0UZ; ndx < cap; ndx += 2) {
@@ -308,6 +310,8 @@ TEST_CASE("CreateHelper", "[ObjectPool]") {
 #pragma endregion
 #pragma region DetachAndReattach
 
+// reattach takes its pointer by value; the move spells out the transfer.
+// NOLINTBEGIN(performance-move-const-arg)
 TEST_CASE("DetachAndReattach", "[ObjectPool]") {
   // `detach` releases ownership from the handle without returning the slot.
   if (true) {
@@ -322,7 +326,6 @@ TEST_CASE("DetachAndReattach", "[ObjectPool]") {
     CHECK(detached == item);
     CHECK_FALSE(pool.borrow()); // detached slot is still out of the pool
 
-    // NOLINTNEXTLINE(performance-move-const-arg)
     auto h2 = pool.reattach(std::move(detached));
     CHECK(h2);
     CHECK(h2.get() == item);
@@ -335,7 +338,6 @@ TEST_CASE("DetachAndReattach", "[ObjectPool]") {
   if (true) {
     object_pool<int, 1> pool;
     int outside{};
-    // NOLINTNEXTLINE(performance-move-const-arg)
     auto h = pool.reattach(std::move(&outside));
     CHECK_FALSE(h);
   }
@@ -351,7 +353,6 @@ TEST_CASE("DetachAndReattach", "[ObjectPool]") {
     int* stale = p;
     h.reset(); // slot goes back on the free list; `stale` now dangles
 
-    // NOLINTNEXTLINE(performance-move-const-arg)
     auto squatter = pool.reattach(std::move(stale)); // the misuse "succeeds"
     CHECK(squatter);
     CHECK(squatter.get() == p);
@@ -367,6 +368,7 @@ TEST_CASE("DetachAndReattach", "[ObjectPool]") {
     CHECK(again.get() == p);
   }
 }
+// NOLINTEND(performance-move-const-arg)
 
 #pragma endregion
 #pragma region TokenBasics
@@ -705,13 +707,14 @@ TEST_CASE("Shutdown", "[ObjectPool]") {
   // so the ctor returns the slot on the spot. The handle ends up empty either
   // way, and the token cannot escalate: the seal must not be cleared, or a
   // gen-0 token could reacquire a shut-down slot.
+  // Both blocks check the handle after a detach that had to fail.
+  // NOLINTBEGIN(bugprone-use-after-move,clang-analyzer-cplusplus.Move)
   if (true) {
     object_pool<int, 1> pool;
     auto h = pool.borrow();
     CHECK(pool.shutdown());
 
     object_pool<int, 1>::token tok{std::move(h)};
-    // NOLINTNEXTLINE(bugprone-use-after-move,clang-analyzer-cplusplus.Move)
     CHECK_FALSE(h); // emptied even though the detach failed
     CHECK(tok);
     CHECK_FALSE(tok.borrow(pool));
@@ -731,10 +734,10 @@ TEST_CASE("Shutdown", "[ObjectPool]") {
     // a dead retry condition, tripping bugprone-use-after-move.
     auto* p = pool.detach(std::move(h));
     CHECK(p == nullptr);
-    // NOLINTNEXTLINE(bugprone-use-after-move,clang-analyzer-cplusplus.Move)
     CHECK(h); // detach leaves the handle intact on failure
     CHECK(h.reset());
   }
+  // NOLINTEND(bugprone-use-after-move,clang-analyzer-cplusplus.Move)
 
   // A slot detached before `shutdown` is reclaimed by it: `return_cb_` runs
   // on the detached item, and the later `reattach` fails cleanly.

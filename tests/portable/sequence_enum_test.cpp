@@ -29,8 +29,8 @@ using namespace corvid;
 using namespace corvid::enums;
 using namespace corvid::enums::sequence;
 
-// NOLINTBEGIN(readability-function-cognitive-complexity,
-// readability-function-size)
+// NOLINTBEGIN(readability-function-cognitive-complexity)
+// NOLINTBEGIN(readability-function-size)
 
 enum class tiger_pick : std::int8_t { eeny, meany, miny, moe };
 consteval auto corvid_enum_spec(tiger_pick*) {
@@ -208,7 +208,7 @@ TEST_CASE("MakeSafely", "[SequentialEnumTest]") {
     CHECK(*e == 3);
     e = make_safely<e0_3>(3 + 5);
     CHECK(*e == 0);
-    e = make_safely<e0_3>(3 + 3 * 4);
+    e = make_safely<e0_3>(3 + (3 * 4));
     CHECK(*e == 3);
 
     // Note: All of these casts are strictly unnecessary. They're just to
@@ -224,7 +224,7 @@ TEST_CASE("MakeSafely", "[SequentialEnumTest]") {
     CHECK(*e == 0);
     e = make_safely<e0_3>(int8_t(0 - 5));
     CHECK(*e == 3);
-    e = make_safely<e0_3>(int8_t(0 - 4 * 4));
+    e = make_safely<e0_3>(int8_t(0 - (4 * 4)));
     CHECK(*e == 0);
   }
   if (true) {
@@ -255,7 +255,7 @@ TEST_CASE("MakeSafely", "[SequentialEnumTest]") {
     CHECK(*e == 13);
     e = make_safely<e10_13>(13 + 5);
     CHECK(*e == 10);
-    e = make_safely<e10_13>(13 + 3 * 4);
+    e = make_safely<e10_13>(13 + (3 * 4));
     CHECK(*e == 13);
 
     e = make_safely<e10_13>(10 - 1);
@@ -268,7 +268,7 @@ TEST_CASE("MakeSafely", "[SequentialEnumTest]") {
     CHECK(*e == 10);
     e = make_safely<e10_13>(10 - 5);
     CHECK(*e == 13);
-    e = make_safely<e10_13>(int8_t(10 - 4 * 4));
+    e = make_safely<e10_13>(int8_t(10 - (4 * 4)));
     CHECK(*e == 10);
   }
   if (true) {
@@ -306,7 +306,7 @@ TEST_CASE("MakeSafely", "[SequentialEnumTest]") {
     CHECK(*e == 3);
     e = make_safely<eneg3_3>(3 + 8);
     CHECK(*e == -3);
-    e = make_safely<eneg3_3>(3 + 7 * 4);
+    e = make_safely<eneg3_3>(3 + (7 * 4));
     CHECK(*e == 3);
 
     e = make_safely<eneg3_3>(-3 - 1);
@@ -325,7 +325,7 @@ TEST_CASE("MakeSafely", "[SequentialEnumTest]") {
     CHECK(*e == -3);
     e = make_safely<eneg3_3>(-3 - 8);
     CHECK(*e == 3);
-    e = make_safely<eneg3_3>(-3 - 7 * 4);
+    e = make_safely<eneg3_3>(-3 - (7 * 4));
     CHECK(*e == -3);
   }
   if (true) {
@@ -354,7 +354,7 @@ TEST_CASE("MakeSafely", "[SequentialEnumTest]") {
     CHECK(*e == 254);
     e = make_safely<e0_255>(uint8_t(255 + 3));
     CHECK(*e == 2);
-    e = make_safely<e0_255>(uint8_t(255 + 3 * 256));
+    e = make_safely<e0_255>(uint8_t(255 + (3 * 256)));
     CHECK(*e == 255);
 
     // Safety is meaningless in this case.
@@ -369,7 +369,7 @@ TEST_CASE("MakeSafely", "[SequentialEnumTest]") {
     CHECK(*e == 254);
     e = make<e0_255>(uint8_t(255 + 3));
     CHECK(*e == 2);
-    e = make<e0_255>(uint8_t(255 + 3 * 256));
+    e = make<e0_255>(uint8_t(255 + (3 * 256)));
     CHECK(*e == 255);
   }
   if (true) {
@@ -386,7 +386,7 @@ TEST_CASE("MakeSafely", "[SequentialEnumTest]") {
     CHECK(*e == 126);
     e = make_safely<eneg128_127>(int8_t(127 + 3));
     CHECK(*e == -126);
-    e = make_safely<eneg128_127>(int8_t(127 + 3 * 256));
+    e = make_safely<eneg128_127>(int8_t(127 + (3 * 256)));
     CHECK(*e == 127);
 
     // Safety is meaningless in this case.
@@ -401,7 +401,7 @@ TEST_CASE("MakeSafely", "[SequentialEnumTest]") {
     CHECK(*e == 126);
     e = make<eneg128_127>(int8_t(127 + 3));
     CHECK(*e == -126);
-    e = make<eneg128_127>(int8_t(127 + 3 * 256));
+    e = make<eneg128_127>(int8_t(127 + (3 * 256)));
     CHECK(*e == 127);
   }
 }
@@ -566,6 +566,7 @@ TEST_CASE("StreamingOut", "[SequentialEnumTest]") {
 
 #pragma endregion
 
+// NOLINTNEXTLINE(readability-enum-initial-value): the gap is the point.
 enum class tiger_missing : std::uint8_t { eeny, miny = 2, moe };
 consteval auto corvid_enum_spec(tiger_missing*) {
   return make_sequence_enum_spec<tiger_missing, "eeny,,miny,moe">();
@@ -610,7 +611,8 @@ TEST_CASE("Missing", "[SequentialEnumTest]") {
 
 TEST_CASE("Intervals", "[SequentialEnumTest]") {
   if (true) {
-    int c{}, s{};
+    int c{};
+    int s{};
     for (auto e : make_interval<e0_3>()) {
       ++c;
       s += *e;
@@ -619,7 +621,8 @@ TEST_CASE("Intervals", "[SequentialEnumTest]") {
     CHECK(s == (0 + 1 + 2 + 3));
   }
   if (true) {
-    int c{}, s{};
+    int c{};
+    int s{};
     for (auto e : make_interval<e10_13>()) {
       ++c;
       s += *e;
@@ -628,7 +631,8 @@ TEST_CASE("Intervals", "[SequentialEnumTest]") {
     CHECK(s == (10 + 11 + 12 + 13));
   }
   if (true) {
-    int c{}, s{};
+    int c{};
+    int s{};
     // This fails with an assertion.
     // * auto bad = make_interval<e0_255>();
     for (auto e : make_interval<e0_255, uint16_t>()) {
@@ -639,7 +643,8 @@ TEST_CASE("Intervals", "[SequentialEnumTest]") {
     CHECK(s == 32640);
   }
   if (true) {
-    int c{}, s{};
+    int c{};
+    int s{};
     // This fails with an assertion.
     // * auto bad = make_interval<eneg128_127>();
     for (auto e : make_interval<eneg128_127, int16_t>()) {
@@ -1100,6 +1105,9 @@ TEST_CASE("EnumFindNamed", "[SequentialEnumTest]") {
 
 // Shows that a bare literal or enum value is validated by the parameter type,
 // with no ceremony at the call site.
+// Enum names are interned in static storage, so the returned view
+// outlives the parameter it came from.
+// NOLINTNEXTLINE(bugprone-dangling-handle)
 constexpr std::string_view take_tiger(enum_name<tiger_pick> s) { return s; }
 
 TEST_CASE("EnumStringView", "[SequentialEnumTest]") {
@@ -1262,6 +1270,8 @@ TEST_CASE("StringViewAndValue", "[SequentialEnumTest]") {
 // Sparse enum registered with the segmented syntax: two runs separated by a
 // gap. '|' delimits segments; each segment's first comma-field is its absolute
 // start value, the rest are names.
+// The underlying type is the point of these segment fixtures.
+// NOLINTBEGIN(performance-enum-size)
 enum class seg_basic : int { a = 0, b = 1, x = 10, y = 11, z = 12 };
 consteval auto corvid_enum_spec(seg_basic*) {
   return make_sequence_enum_spec<seg_basic, "0,a,b|10,x,y,z">();
@@ -1289,6 +1299,7 @@ consteval auto corvid_enum_spec(seg_neg*) {
 // * make_sequence_enum_spec<seg_three, "0,a,b|4,c">(); // gap too small; fold
 //   into empty names instead: "0,a,b,,,c"
 enum class seg_three : int { a = 0, b = 1, m = 5, x = 10, y = 11 };
+// NOLINTEND(performance-enum-size)
 consteval auto corvid_enum_spec(seg_three*) {
   return make_sequence_enum_spec<seg_three, "0,a,b|5,m|10,x,y">();
 }
@@ -1373,5 +1384,5 @@ TEST_CASE("Segmented", "[SequentialEnumTest]") {
 
 #pragma endregion
 
-// NOLINTEND(readability-function-cognitive-complexity,
-// readability-function-size)
+// NOLINTEND(readability-function-size)
+// NOLINTEND(readability-function-cognitive-complexity)

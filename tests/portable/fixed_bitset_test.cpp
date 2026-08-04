@@ -29,8 +29,7 @@ using namespace corvid;
 // It has no arithmetic operators, which exercises the as_sz/as_pos casts.
 enum class slot_t : size_t {};
 
-// NOLINTBEGIN(readability-function-cognitive-complexity,
-// readability-function-size)
+// NOLINTBEGIN(readability-function-cognitive-complexity)
 
 #pragma region Empty
 
@@ -214,7 +213,8 @@ TEST_CASE("Reset", "[FixedBitset]") {
 
 TEST_CASE("Equality", "[FixedBitset]") {
   if (true) {
-    fixed_bitset<64> a, b;
+    fixed_bitset<64> a;
+    fixed_bitset<64> b;
     CHECK(a == b);
 
     a.set(5);
@@ -249,7 +249,8 @@ TEST_CASE("CopyMove", "[FixedBitset]") {
 
   // Copy assignment.
   if (true) {
-    fixed_bitset<64> a, b;
+    fixed_bitset<64> a;
+    fixed_bitset<64> b;
     a.set(10);
     b = a;
     CHECK(a == b);
@@ -261,14 +262,17 @@ TEST_CASE("CopyMove", "[FixedBitset]") {
   if (true) {
     fixed_bitset<64> a;
     a.set(5);
+    // NOLINTNEXTLINE(performance-move-const-arg): move is the subject.
     fixed_bitset<64> b{std::move(a)};
     CHECK(b.test(5));
   }
 
   // Move assignment.
   if (true) {
-    fixed_bitset<64> a, b;
+    fixed_bitset<64> a;
+    fixed_bitset<64> b;
     a.set(20);
+    // NOLINTNEXTLINE(performance-move-const-arg): move is the subject.
     b = std::move(a);
     CHECK(b.test(20));
   }
@@ -651,7 +655,8 @@ TEST_CASE("Reference", "[FixedBitset]") {
 
   // operator=(const reference&) copies the bit value from another reference.
   if (true) {
-    fixed_bitset<64> a, b;
+    fixed_bitset<64> a;
+    fixed_bitset<64> b;
     a.set(2);
     b[5] = a[2]; // b[5] ← true (bit 2 of a)
     CHECK(b.test(5));
@@ -699,7 +704,8 @@ TEST_CASE("Reference", "[FixedBitset]") {
 
 TEST_CASE("BitwiseAnd", "[FixedBitset]") {
   if (true) {
-    fixed_bitset<64> a, b;
+    fixed_bitset<64> a;
+    fixed_bitset<64> b;
     a.set(1).set(3).set(5);
     b.set(3).set(5).set(7);
 
@@ -721,7 +727,8 @@ TEST_CASE("BitwiseAnd", "[FixedBitset]") {
 
   // AND with empty yields empty.
   if (true) {
-    fixed_bitset<64> a, empty;
+    fixed_bitset<64> a;
+    fixed_bitset<64> empty;
     a.set(7);
     auto result = a & empty;
     CHECK(result.none());
@@ -729,7 +736,8 @@ TEST_CASE("BitwiseAnd", "[FixedBitset]") {
 
   // operator&= in-place.
   if (true) {
-    fixed_bitset<64> a, b;
+    fixed_bitset<64> a;
+    fixed_bitset<64> b;
     a.set(2).set(4);
     b.set(4).set(6);
     a &= b;
@@ -744,7 +752,8 @@ TEST_CASE("BitwiseAnd", "[FixedBitset]") {
 
 TEST_CASE("BitwiseOr", "[FixedBitset]") {
   if (true) {
-    fixed_bitset<64> a, b;
+    fixed_bitset<64> a;
+    fixed_bitset<64> b;
     a.set(1).set(3);
     b.set(3).set(5);
 
@@ -757,7 +766,8 @@ TEST_CASE("BitwiseOr", "[FixedBitset]") {
 
   // OR with empty is idempotent.
   if (true) {
-    fixed_bitset<64> a, empty;
+    fixed_bitset<64> a;
+    fixed_bitset<64> empty;
     a.set(7);
     auto result = a | empty;
     CHECK(result == a);
@@ -765,7 +775,8 @@ TEST_CASE("BitwiseOr", "[FixedBitset]") {
 
   // operator|= in-place.
   if (true) {
-    fixed_bitset<64> a, b;
+    fixed_bitset<64> a;
+    fixed_bitset<64> b;
     a.set(1);
     b.set(2);
     a |= b;
@@ -781,7 +792,8 @@ TEST_CASE("BitwiseOr", "[FixedBitset]") {
 TEST_CASE("BitwiseXor", "[FixedBitset]") {
   // Basic XOR: shared bits cancel, unique bits survive.
   if (true) {
-    fixed_bitset<64> a, b;
+    fixed_bitset<64> a;
+    fixed_bitset<64> b;
     a.set(1).set(3).set(5);
     b.set(3).set(5).set(7);
 
@@ -802,14 +814,16 @@ TEST_CASE("BitwiseXor", "[FixedBitset]") {
 
   // XOR with empty is idempotent.
   if (true) {
-    fixed_bitset<64> a, empty;
+    fixed_bitset<64> a;
+    fixed_bitset<64> empty;
     a.set(9);
     CHECK((a ^ empty) == a);
   }
 
   // operator^= in-place.
   if (true) {
-    fixed_bitset<64> a, b;
+    fixed_bitset<64> a;
+    fixed_bitset<64> b;
     a.set(0).set(1);
     b.set(1).set(2);
     a ^= b;
@@ -820,7 +834,8 @@ TEST_CASE("BitwiseXor", "[FixedBitset]") {
 
   // XOR across word boundary (128-bit).
   if (true) {
-    fixed_bitset<128> a, b;
+    fixed_bitset<128> a;
+    fixed_bitset<128> b;
     a.set(63).set(64);
     b.set(63).set(65);
     auto c = a ^ b;
@@ -1192,7 +1207,8 @@ TEST_CASE("MultiWord", "[FixedBitset]") {
 
   // AND across word boundary.
   if (true) {
-    fixed_bitset<128> a, b;
+    fixed_bitset<128> a;
+    fixed_bitset<128> b;
     a.set(63).set(64);
     b.set(63).set(65);
     auto c = a & b;
@@ -1204,7 +1220,8 @@ TEST_CASE("MultiWord", "[FixedBitset]") {
 
   // OR across word boundary.
   if (true) {
-    fixed_bitset<128> a, b;
+    fixed_bitset<128> a;
+    fixed_bitset<128> b;
     a.set(60);
     b.set(68);
     auto c = a | b;
@@ -1243,7 +1260,8 @@ TEST_CASE("MultiWord", "[FixedBitset]") {
 
   // Equality across words.
   if (true) {
-    fixed_bitset<128> a, b;
+    fixed_bitset<128> a;
+    fixed_bitset<128> b;
     a.set(0).set(127);
     b.set(0);
     CHECK(a != b);
@@ -1342,7 +1360,8 @@ TEST_CASE("PosParam", "[FixedBitset]") {
 
   // Bitwise operators preserve pos_t interface.
   if (true) {
-    bs_t a, b;
+    bs_t a;
+    bs_t b;
     a.set(slot_t{2});
     b.set(slot_t{2}).set(slot_t{4});
     auto c = a & b;
@@ -1467,7 +1486,8 @@ TEST_CASE("At", "[FixedBitset]") {
 TEST_CASE("Ordering", "[FixedBitset]") {
   // Reflexive: equal bitsets compare equal.
   if (true) {
-    fixed_bitset<64> a, b;
+    fixed_bitset<64> a;
+    fixed_bitset<64> b;
     CHECK(std::is_eq(a <=> b));
     a.set(5);
     b.set(5);
@@ -1476,7 +1496,8 @@ TEST_CASE("Ordering", "[FixedBitset]") {
 
   // Within one word: a higher-index bit makes the word value larger.
   if (true) {
-    fixed_bitset<64> lo, hi;
+    fixed_bitset<64> lo;
+    fixed_bitset<64> hi;
     lo.set(0); // words_[0] = 1
     hi.set(1); // words_[0] = 2
     CHECK(lo < hi);
@@ -1487,7 +1508,8 @@ TEST_CASE("Ordering", "[FixedBitset]") {
 
   // Empty is less than any set bit.
   if (true) {
-    fixed_bitset<64> empty, b;
+    fixed_bitset<64> empty;
+    fixed_bitset<64> b;
     b.set(0);
     CHECK(empty < b);
     CHECK_FALSE(b < empty);
@@ -1496,7 +1518,8 @@ TEST_CASE("Ordering", "[FixedBitset]") {
   // Multi-word: word 0 dominates word 1, so a single bit in word 0 outweighs
   // any combination of bits in word 1.
   if (true) {
-    fixed_bitset<128> word0, word1;
+    fixed_bitset<128> word0;
+    fixed_bitset<128> word1;
     word0.set(0);  // words_ = {1, 0}
     word1.set(64); // words_ = {0, 1}
     // word0 > word1 because words_[0]=1 > 0
@@ -1506,7 +1529,8 @@ TEST_CASE("Ordering", "[FixedBitset]") {
 
   // A full word 1 is still less than a single bit in word 0.
   if (true) {
-    fixed_bitset<128> w0bit, w1full;
+    fixed_bitset<128> w0bit;
+    fixed_bitset<128> w1full;
     w0bit.set(0);
     for (auto ndx = 64UZ; ndx < 128; ++ndx) w1full.set(ndx);
     // w0bit: words_ = {1, 0}; w1full: words_ = {0, ~0ull}
@@ -1516,7 +1540,8 @@ TEST_CASE("Ordering", "[FixedBitset]") {
 
   // Ordering is consistent with equality.
   if (true) {
-    fixed_bitset<64> a, b;
+    fixed_bitset<64> a;
+    fixed_bitset<64> b;
     a.set(10);
     b.set(10);
     CHECK(a <= b);
@@ -2032,7 +2057,8 @@ TEST_CASE("ArrayConstruct", "[FixedBitset]") {
 TEST_CASE("Intersects", "[FixedBitset]") {
   // intersects: at least one bit set in both.
   if (true) {
-    fixed_bitset<8> a, b;
+    fixed_bitset<8> a;
+    fixed_bitset<8> b;
     a.set(1).set(3);
     b.set(3).set(5);
     CHECK(a.intersects(b)); // bit 3 is in both
@@ -2041,7 +2067,8 @@ TEST_CASE("Intersects", "[FixedBitset]") {
 
   // Non-overlapping sets do not intersect.
   if (true) {
-    fixed_bitset<8> a, b;
+    fixed_bitset<8> a;
+    fixed_bitset<8> b;
     a.set(0).set(2);
     b.set(1).set(3);
     CHECK_FALSE(a.intersects(b));
@@ -2050,7 +2077,8 @@ TEST_CASE("Intersects", "[FixedBitset]") {
 
   // Empty set intersects nothing.
   if (true) {
-    fixed_bitset<8> empty, full;
+    fixed_bitset<8> empty;
+    fixed_bitset<8> full;
     full.set();
     CHECK_FALSE(empty.intersects(full));
     CHECK_FALSE(full.intersects(empty));
@@ -2059,7 +2087,8 @@ TEST_CASE("Intersects", "[FixedBitset]") {
 
   // Full set intersects any non-empty set.
   if (true) {
-    fixed_bitset<8> full, single;
+    fixed_bitset<8> full;
+    fixed_bitset<8> single;
     full.set();
     single.set(4);
     CHECK(full.intersects(single));
@@ -2069,7 +2098,9 @@ TEST_CASE("Intersects", "[FixedBitset]") {
 
   // is_disjoint_from is the complement.
   if (true) {
-    fixed_bitset<8> a, b, c;
+    fixed_bitset<8> a;
+    fixed_bitset<8> b;
+    fixed_bitset<8> c;
     a.set(0);
     b.set(0).set(7);
     c.set(7);
@@ -2080,7 +2111,8 @@ TEST_CASE("Intersects", "[FixedBitset]") {
 
   // Multi-word bitset (128 bits = two 64-bit words, exercises the word loop).
   if (true) {
-    fixed_bitset<128> a, b;
+    fixed_bitset<128> a;
+    fixed_bitset<128> b;
     a.set(0);               // word 0
     a.set(65);              // word 1
     b.set(65);              // word 1 -- shared with a
@@ -2097,7 +2129,9 @@ TEST_CASE("Intersects", "[FixedBitset]") {
   // Constexpr.
   if (true) {
     constexpr auto make = []() {
-      fixed_bitset<8> a, b, c;
+      fixed_bitset<8> a;
+      fixed_bitset<8> b;
+      fixed_bitset<8> c;
       a.set(2);
       b.set(2).set(5);
       c.set(5);
@@ -2118,7 +2152,8 @@ TEST_CASE("Intersects", "[FixedBitset]") {
 TEST_CASE("IsSubset", "[FixedBitset]") {
   // is_subset_of: every set bit in *this is also set in other.
   if (true) {
-    fixed_bitset<8> a, b;
+    fixed_bitset<8> a;
+    fixed_bitset<8> b;
     a.set(1).set(3);
     b.set(1).set(2).set(3);
     CHECK(a.is_subset_of(b));       // {1,3} subset of {1,2,3}
@@ -2127,7 +2162,8 @@ TEST_CASE("IsSubset", "[FixedBitset]") {
 
   // Equal sets are subsets of each other.
   if (true) {
-    fixed_bitset<8> a, b;
+    fixed_bitset<8> a;
+    fixed_bitset<8> b;
     a.set(0).set(7);
     b.set(0).set(7);
     CHECK(a.is_subset_of(b));
@@ -2136,7 +2172,8 @@ TEST_CASE("IsSubset", "[FixedBitset]") {
 
   // Empty set is a subset of everything.
   if (true) {
-    fixed_bitset<8> empty, full;
+    fixed_bitset<8> empty;
+    fixed_bitset<8> full;
     full.set();
     CHECK(empty.is_subset_of(full));
     CHECK(empty.is_subset_of(empty));
@@ -2145,7 +2182,8 @@ TEST_CASE("IsSubset", "[FixedBitset]") {
 
   // Full set is only a subset of itself.
   if (true) {
-    fixed_bitset<8> full, almost;
+    fixed_bitset<8> full;
+    fixed_bitset<8> almost;
     full.set();
     almost = full;
     almost.reset(3);
@@ -2155,7 +2193,8 @@ TEST_CASE("IsSubset", "[FixedBitset]") {
 
   // is_superset_of is the mirror.
   if (true) {
-    fixed_bitset<8> a, b;
+    fixed_bitset<8> a;
+    fixed_bitset<8> b;
     a.set(2);
     b.set(2).set(5);
     CHECK(b.is_superset_of(a));       // {2,5} contains {2}
@@ -2164,7 +2203,8 @@ TEST_CASE("IsSubset", "[FixedBitset]") {
 
   // Multi-word bitset (128 bits = two 64-bit words, exercises the word loop).
   if (true) {
-    fixed_bitset<128> a, b;
+    fixed_bitset<128> a;
+    fixed_bitset<128> b;
     a.set(0);                         // word 0
     a.set(65);                        // word 1
     b.set(0);                         // word 0
@@ -2179,7 +2219,8 @@ TEST_CASE("IsSubset", "[FixedBitset]") {
   // Constexpr.
   if (true) {
     constexpr auto make = []() {
-      fixed_bitset<8> a, b;
+      fixed_bitset<8> a;
+      fixed_bitset<8> b;
       a.set(1);
       b.set(1).set(2);
       return std::pair{a.is_subset_of(b), b.is_subset_of(a)};
@@ -2248,5 +2289,4 @@ TEST_CASE("Formatting", "[FixedBitset]") {
 
 #pragma endregion
 
-// NOLINTEND(readability-function-cognitive-complexity,
-// readability-function-size)
+// NOLINTEND(readability-function-cognitive-complexity)

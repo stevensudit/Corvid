@@ -30,8 +30,8 @@ using namespace std::literals;
 using namespace corvid;
 using namespace corvid::literals;
 
-// NOLINTBEGIN(readability-function-cognitive-complexity,
-// readability-function-size)
+// NOLINTBEGIN(readability-function-cognitive-complexity)
+// NOLINTBEGIN(readability-function-size)
 
 #pragma region Construction
 
@@ -191,6 +191,7 @@ TEST_CASE("Construction", "[OptStringViewTest]") {
   }
   // Construct string_view on empty string_view.
   if (true) {
+    // NOLINTNEXTLINE(readability-redundant-string-init): non-null empty.
     std::string_view sv("");
     CHECK(sv.data() != nullptr);
     std::string_view v{sv};
@@ -200,6 +201,7 @@ TEST_CASE("Construction", "[OptStringViewTest]") {
   }
   // Construct opt_string_view on empty string_view.
   if (true) {
+    // NOLINTNEXTLINE(readability-redundant-string-init): non-null empty.
     std::string_view sv{""};
     opt_string_view v(sv);
     CHECK(v.empty());
@@ -360,7 +362,7 @@ TEST_CASE("Workalike", "[OptStringViewTest]") {
   // Methods operate correctly on rvalues.
   if (true) {
     opt_string_view osv{"qqq"};
-    // NOLINTNEXTLINE(performance-move-const-arg)
+    // NOLINTNEXTLINE(bugprone-use-after-move,performance-move-const-arg)
     CHECK(std::move(osv).value_or("def") == "qqq");
   }
 }
@@ -526,5 +528,5 @@ TEST_CASE("OptStringViewTestEqual", "[OptStringViewTestEqual]") {
 
 #pragma endregion
 
-// NOLINTEND(readability-function-cognitive-complexity,
-// readability-function-size)
+// NOLINTEND(readability-function-size)
+// NOLINTEND(readability-function-cognitive-complexity)
