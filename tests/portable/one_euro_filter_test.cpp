@@ -18,6 +18,8 @@
 #include "corvid/math/one_euro_filter.h"
 #include "catch2_main.h"
 
+#include <type_traits>
+
 using namespace corvid;
 
 // NOLINTBEGIN(readability-function-cognitive-complexity)
@@ -134,6 +136,56 @@ TEST_CASE("OneEuroSpeedRelaxesSmoothing", "[OneEuroFilter]") {
   adaptive.smooth(dt, ax, ay);
 
   CHECK(ax > px);
+}
+
+TEST_CASE("OneEuroSetParamsRetunesInPlace", "[OneEuroFilter]") {
+  // Retuning keeps the carried state, so the next sample smooths from it
+  // instead of passing through as a first sample, and the new parameters take
+  // effect immediately: ten times the at-rest time constant smooths ten times
+  // harder, so it tracks the step less.
+  one_euro_filter plain{50.0F, 0.0F};
+  one_euro_filter retuned{50.0F, 0.0F};
+
+  float px = 0.0F;
+  float py = 0.0F;
+  plain.smooth(dt, px, py); // seed at 0
+  float rx = 0.0F;
+  float ry = 0.0F;
+  retuned.smooth(dt, rx, ry); // seed at 0
+
+  retuned.set_params(500.0F, 0.0F);
+
+  px = 1.0F;
+  py = 0.0F;
+  plain.smooth(dt, px, py);
+  rx = 1.0F;
+  ry = 0.0F;
+  retuned.smooth(dt, rx, ry);
+
+  // Neither passed the step through untouched, so both are still smoothing
+  // from the seeded zero.
+  CHECK(px > 0.0F);
+  CHECK(px < 1.0F);
+  CHECK(rx > 0.0F);
+  CHECK(rx < 1.0F);
+  CHECK(rx < px);
+}
+
+TEST_CASE("OneEuroInstantiation", "[OneEuroFilter]") {
+  // The default is `float`, and deduction follows the constructor arguments.
+  one_euro_filter<> filter{50.0F, 1.0F};
+  static_assert(std::is_same_v<decltype(filter), one_euro_filter<float>>);
+
+  one_euro_filter deduced{50.0, 1.0};
+  static_assert(std::is_same_v<decltype(deduced), one_euro_filter<double>>);
+
+  // The same arithmetic holds in either precision, so a first sample seeds and
+  // passes through at double just as it does at float.
+  double dx = 5.0;
+  double dy = -3.0;
+  deduced.smooth(1.0 / 60.0, dx, dy);
+  CHECK(dx == 5.0);
+  CHECK(dy == -3.0);
 }
 
 // NOLINTEND(readability-function-cognitive-complexity)

@@ -19,9 +19,10 @@
 #include <algorithm>
 #include <cassert>
 #include <cmath>
+#include <concepts>
 #include <limits>
 
-namespace corvid { inline namespace lang { namespace controllers {
+namespace corvid { inline namespace math { inline namespace controllers {
 
 #pragma region pid_controller
 
@@ -32,12 +33,23 @@ namespace corvid { inline namespace lang { namespace controllers {
 //
 // The object is stateful and initialized with the three gain parameters. This
 // implementation also takes an alpha parameter to control the derivative term,
-// as well as min and max values to clamp the output.
+// as well as min and max values to clamp the output. All of these can be
+// retuned on the fly with `set_params`, which keeps the accumulated state.
 //
 // The initialized instance is then called periodically with the current
-// setpoint and measured value, as well as the timestamp, returning the new
-// input to the system. With proper tuning, the measured value will converge to
-// the setpoint.
+// setpoint and measured value, as well as the time elapsed since the previous
+// call, returning the new input to the system. With proper tuning, the
+// measured value will converge to the setpoint.
+//
+// The caller owns the clock and passes that elapsed time (`dt`) rather than a
+// timestamp, so time must move forward: read it from a monotonic source such
+// as `std::chrono::steady_clock`, never a wall clock that can be stepped
+// backwards. A zero `dt` means no time has passed and a negative one violates
+// the contract, so both are rejected by returning the previous value. Passing
+// a delta also keeps the arithmetic away from large absolute times, which
+// matters at the default `float`: a timestamp in the millions of seconds
+// cannot resolve a 60 Hz frame at all, and the controller would silently
+// freeze.
 //
 // The difference between the setpoint and measured value is the error. The
 // controller seeks to minimize it over time by providing the next input into
@@ -81,6 +93,12 @@ namespace corvid { inline namespace lang { namespace controllers {
 // implement anti-windup strategies, such as clamping the integral term (which
 // is what we did here) or resetting it when the error is small.
 //
+// Note that the cumulative error is a true accumulator, and the default clamp
+// bounds are infinite, so conditional integration never blocks it. An error
+// that persists forever therefore grows it without bound, until the type stops
+// resolving the increments. Any finite clamp bounds it, so this only bites a
+// loop that already failed to converge.
+//
 // The D (Derivative) term is calculated by multiplying the rate of
 // change of the error by Kd, the derivative gain. This is stateful: it
 // depends on the change in error over time.
@@ -108,46 +126,60 @@ namespace corvid { inline namespace lang { namespace controllers {
 // to suppress noise near zero error, zeroing out the derivative on the first
 // update (we also do this), and computing the derivative based on the rate of
 // change in the measured value instead of the error.
+//
+// `T` is the floating-point type everything is computed and stored in,
+// defaulting to `float`. Deduction picks it up from the constructor
+// arguments, so `pid_controller pid{2.0, 0.0, 0.0}` is a `double` controller
+// while `pid_controller<> pid{2.0F, 0.0F, 0.0F}` is a `float` one.
+template<std::floating_point T = float>
 class pid_controller {
 public:
 #pragma region Constants
 
-  static constexpr double pos_infinity =
-      std::numeric_limits<double>::infinity();
-  static constexpr double neg_infinity =
-      -std::numeric_limits<double>::infinity();
+  static constexpr T pos_infinity = std::numeric_limits<T>::infinity();
+  static constexpr T neg_infinity = -std::numeric_limits<T>::infinity();
 
 #pragma endregion
 #pragma region Construction
 
-  pid_controller(double kp, double ki, double kd, double alpha = 0.0,
-      double min_value = neg_infinity,
-      double max_value = pos_infinity) noexcept
+  explicit pid_controller(T kp, T ki, T kd, T alpha = {},
+      T min_value = neg_infinity, T max_value = pos_infinity) noexcept
       : kp_{kp}, ki_{ki}, kd_{kd}, alpha_{alpha}, min_value_{min_value},
         max_value_{max_value} {
     assert(min_value < max_value);
-    // A value of 0.0 for alpha means no filtering. Reasonable values
+    // A value of zero for alpha means no filtering. Reasonable values
     // for noisy signals are typically between 0.1 and 0.3.
-    assert(alpha >= 0.0 && alpha <= 1.0);
+    assert((alpha >= T{}) && (alpha <= T{1}));
   }
-
-  pid_controller(const pid_controller&) = default;
-  pid_controller& operator=(const pid_controller&) = delete;
 
 #pragma endregion
 #pragma region Operations
 
-  // Update the controller, returning the new input value.
-  [[nodiscard]] double
-  update(double setpoint, double measured_value, double time_now) {
+  // Retune the controller in place, keeping the accumulated state so a live
+  // tuning change does not jolt the loop in flight. The parameters are as the
+  // constructor, and all of them are replaced, so leaving one off restores its
+  // default rather than preserving the current setting. The last value is
+  // re-clamped into the new bounds, since that is what a rejected update
+  // returns.
+  void set_params(T kp, T ki, T kd, T alpha = {}, T min_value = neg_infinity,
+      T max_value = pos_infinity) noexcept {
+    assert(min_value < max_value);
+    assert((alpha >= T{}) && (alpha <= T{1}));
+    kp_ = kp;
+    ki_ = ki;
+    kd_ = kd;
+    alpha_ = alpha;
+    min_value_ = min_value;
+    max_value_ = max_value;
+    value_last_ = std::clamp(value_last_, min_value_, max_value_);
+  }
+
+  // Update the controller over the `dt` seconds elapsed since the previous
+  // call, returning the new input value.
+  [[nodiscard]] T update(T setpoint, T measured_value, T dt) {
     assert(std::isfinite(setpoint));
     assert(std::isfinite(measured_value));
-    assert(std::isfinite(time_now));
-
-    // For sanity, we don't do anything if the time hasn't changed. Note that
-    // we're intentionally not checking for a difference being too small, just
-    // for identical values.
-    if (time_last_ == time_now) return value_last_;
+    assert(std::isfinite(dt));
 
     // Calculate the error here. Note that, in principle, we could instead
     // accept the precomputed error as a parameter. However, this signature
@@ -159,25 +191,26 @@ public:
     // The P term is based entirely on the error.
     const auto p_term = kp_ * error;
 
-    // On the first call, initialize the state and return the clamped P term.
-    if (time_last_ == neg_infinity) {
-      time_last_ = time_now;
+    // On the first call, there is no interval to work over, so initialize the
+    // state and return the clamped P term.
+    if (!primed_) {
+      primed_ = true;
       error_last_ = error;
-      cumulative_error_ = 0.0;
-      d_term_last_ = 0.0;
+      cumulative_error_ = T{};
+      d_term_last_ = T{};
       value_last_ = std::clamp(p_term, min_value_, max_value_);
       return value_last_;
     }
 
-    // The other two terms need to apply the time delta. However, if the clock
-    // jumped backwards, we want to start using this new time zone while still
-    // returning the previously calculated value.
-    const auto time_delta = time_now - time_last_;
-    time_last_ = time_now;
-    if (time_delta < 0.0) return value_last_;
+    // The other two terms scale by the interval, so it has to be a real one.
+    // There is nothing to integrate over a `dt` of zero, and a negative one
+    // means the caller broke the monotonic contract, which we refuse to
+    // integrate backwards over. Either way, we hold the previous value. Note
+    // that we're intentionally not rejecting a merely small `dt`.
+    if (dt <= T{}) return value_last_;
 
     // The I term is based on cumulative error, scaled by time delta.
-    const auto integral = cumulative_error_ + (error * time_delta);
+    const auto integral = cumulative_error_ + (error * dt);
     // Note: Here is where we would normally update the cumulative error with
     // the integral. However, we postpone this until the very end to give us a
     // chance to avoid integral windup by applying conditional integration.
@@ -185,12 +218,12 @@ public:
 
     // The D term is based on the rate of change of error, scaled by time
     // delta.
-    const auto derivative = (error - error_last_) / time_delta;
+    const auto derivative = (error - error_last_) / dt;
     error_last_ = error;
     const auto d_term_unfiltered = kd_ * derivative;
     // Apply exponential moving average filter to the D term.
     const auto d_term =
-        (alpha_ * d_term_last_) + ((1.0 - alpha_) * d_term_unfiltered);
+        (alpha_ * d_term_last_) + ((T{1} - alpha_) * d_term_unfiltered);
     d_term_last_ = d_term;
 
     // Clamp input value.
@@ -206,48 +239,47 @@ public:
   }
 
   void reset() noexcept {
-    value_last_ = 0.0;
-    time_last_ = neg_infinity;
-    error_last_ = 0.0;
-    cumulative_error_ = 0.0;
-    d_term_last_ = 0.0;
+    value_last_ = T{};
+    primed_ = false;
+    error_last_ = T{};
+    cumulative_error_ = T{};
+    d_term_last_ = T{};
   }
 
 #pragma endregion
 #pragma region Accessors
 
-  [[nodiscard]] double kp() const noexcept { return kp_; }
-  [[nodiscard]] double ki() const noexcept { return ki_; }
-  [[nodiscard]] double kd() const noexcept { return kd_; }
-  [[nodiscard]] double alpha() const noexcept { return alpha_; }
-  [[nodiscard]] double min_value() const noexcept { return min_value_; }
-  [[nodiscard]] double max_value() const noexcept { return max_value_; }
+  [[nodiscard]] T kp() const noexcept { return kp_; }
+  [[nodiscard]] T ki() const noexcept { return ki_; }
+  [[nodiscard]] T kd() const noexcept { return kd_; }
+  [[nodiscard]] T alpha() const noexcept { return alpha_; }
+  [[nodiscard]] T min_value() const noexcept { return min_value_; }
+  [[nodiscard]] T max_value() const noexcept { return max_value_; }
 
-  [[nodiscard]] double value_last() const noexcept { return value_last_; }
-  [[nodiscard]] double time_last() const noexcept { return time_last_; }
-  [[nodiscard]] double error_last() const noexcept { return error_last_; }
-  [[nodiscard]] double cumulative_error() const noexcept {
+  [[nodiscard]] T value_last() const noexcept { return value_last_; }
+  [[nodiscard]] T error_last() const noexcept { return error_last_; }
+  [[nodiscard]] T cumulative_error() const noexcept {
     return cumulative_error_;
   }
 
 #pragma endregion
 #pragma region Data members
 private:
-  const double kp_{};
-  const double ki_{};
-  const double kd_{};
-  const double alpha_{};
-  const double min_value_ = neg_infinity;
-  const double max_value_ = pos_infinity;
+  T kp_{};
+  T ki_{};
+  T kd_{};
+  T alpha_{};
+  T min_value_ = neg_infinity;
+  T max_value_ = pos_infinity;
 
-  double value_last_{};
-  double time_last_ = neg_infinity;
-  double error_last_{};
-  double cumulative_error_{};
-  double d_term_last_{};
+  T value_last_{};
+  T error_last_{};
+  T cumulative_error_{};
+  T d_term_last_{};
+  bool primed_{};
 
 #pragma endregion
 };
 
 #pragma endregion
-}}} // namespace corvid::lang::controllers
+}}} // namespace corvid::math::controllers

@@ -49,7 +49,6 @@ band_of() {
   proto/*) echo proto ;;
   lang/*) echo lang ;;
   sim/*) echo sim ;;
-  controllers.h | controllers/*) echo controllers ;;
   *.h) echo umbrella ;; # any other top-level corvid/<sub>.h
   *) echo external ;;
   esac
@@ -60,9 +59,6 @@ allowed() {
   local src="$1" dst="$2"
   # A band may always include its own siblings.
   [ "$src" = "$dst" ] && return 0
-  # controllers is a standalone leaf (std only): no cross-band edges, not
-  # even the otherwise-universal meta. Reject before the meta shortcut.
-  case "$src" in controllers) return 1 ;; esac
   # meta is the bottom of the graph: std and its own siblings only. Rejecting
   # it as a source is what keeps the two universally-dependable destinations
   # below from admitting a meta <-> math cycle.

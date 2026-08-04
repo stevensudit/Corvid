@@ -18,7 +18,7 @@ points to below.
 
 ```text
 L0  meta              corvid/meta/, corvid/meta.h    Foundation: std + internal only.
-    math              corvid/math/, corvid/math.h    Abstract math; rests on meta.
+    math              corvid/math/, corvid/math.h    arithmetic, constants, one_euro_filter, pid_controller; rests on meta.
 L1  infra             corvid/infra/                  scope_exit, relaxed_atomic, firewalls, ostream_redirector.
     strings           corvid/strings/                Enum-free string utilities.
     containers/core   corvid/containers/core/        Enum-free container utilities.
@@ -28,7 +28,6 @@ L3  filesys           corvid/filesys/                os_file, event_fd, epoll gl
     containers/utils  corvid/containers/utils/       Enum/string-aware containers.
 L4  ecs, proto, lang  corvid/{ecs,proto,lang}/       Apex consumers.
 L5  sim               corvid/sim/                    Apex consumer.
---  controllers       corvid/controllers/            Standalone leaf: std only.
 ```
 
 The `L3` row is not flat: `filesys` rests on `enums` and `strings`;
@@ -36,7 +35,6 @@ The `L3` row is not flat: `filesys` rests on `enums` and `strings`;
 allow-list below captures that order precisely.
 
 The apex bands (`ecs`, `proto`, `lang`, `sim`) may depend on any lower band.
-`controllers` is a leaf parallel to the tree: it has no cross-folder edges.
 
 `math` sits alongside `meta` at the foundation and is universally dependable
 in the same way: any band may depend on it. It is not quite as low, though,
@@ -48,9 +46,8 @@ constrain themselves with the concepts and traits that `meta` already defines.
 That one edge is what makes `meta` the sole bottom of the graph. Since both
 bands are universally dependable as destinations, the DAG holds only so long
 as `meta` depends on nothing but itself, so the lint rejects `meta` as a
-source outright, exactly as it does `controllers`. Were `meta` ever to reach
-into `math`, the two would form a cycle that the destination rules alone would
-happily admit.
+source outright. Were `meta` ever to reach into `math`, the two would form a
+cycle that the destination rules alone would happily admit.
 
 ## The core/utils split
 
@@ -104,10 +101,10 @@ folder-level cycle, and no separate band needed to break one.
 
 ## Cross-band edges
 
-Derived from `#include` directives. `meta`, `math`, and `controllers` have no
-outgoing cross-band edges.
+Derived from `#include` directives. `meta` has no outgoing cross-band edges.
 
 ```text
+math             -> meta
 infra            -> meta
 strings          -> meta
 containers/core  -> meta, infra, math
@@ -137,7 +134,6 @@ graph TD
     concurrency[concurrency]
     containers_utils["containers/utils"]
     apex["ecs, proto, lang, sim<br/>(apex: any lower band)"]
-    controllers["controllers<br/>(standalone: std only)"]
 
     math --> meta
     infra --> meta
@@ -185,8 +181,7 @@ belongs in all three places.
 
 Allow-list (a band may always include its own siblings; `meta` and `math` are
 universally dependable destinations, though `meta` alone is a permitted source
-of nothing but itself; apex bands may include any lower band; `controllers`
-includes std only):
+of nothing but itself; apex bands may include any lower band):
 
 ```text
 meta             -> (std only)
@@ -199,7 +194,6 @@ filesys          -> meta, strings, enums
 concurrency      -> meta, infra, filesys
 containers/utils -> meta, infra, strings, enums, containers/core, concurrency
 ecs, proto, lang, sim -> (any lower band, plus consumer umbrellas)
-controllers      -> (std only)
 ```
 
 The check is deliberately crude: it inspects direct edges only, which is

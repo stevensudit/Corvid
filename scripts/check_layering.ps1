@@ -42,8 +42,6 @@ function Get-Band([string] $rel) {
     'proto/*' { return 'proto' }
     'lang/*' { return 'lang' }
     'sim/*' { return 'sim' }
-    'controllers.h' { return 'controllers' }
-    'controllers/*' { return 'controllers' }
     '*.h' { return 'umbrella' } # any other top-level corvid/<sub>.h
     default { return 'external' }
   }
@@ -53,9 +51,6 @@ function Get-Band([string] $rel) {
 function Test-BandEdge([string] $src, [string] $dst) {
   # A band may always include its own siblings.
   if ($src -eq $dst) { return $true }
-  # controllers is a standalone leaf (std only): no cross-band edges, not
-  # even the otherwise-universal meta. Reject before the meta shortcut.
-  if ($src -eq 'controllers') { return $false }
   # meta is the bottom of the graph: std and its own siblings only. Rejecting
   # it as a source is what keeps the two universally-dependable destinations
   # below from admitting a meta <-> math cycle.
