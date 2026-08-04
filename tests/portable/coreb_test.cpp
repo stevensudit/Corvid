@@ -138,6 +138,19 @@ TEST_CASE("CoreB values", "[coreb]") {
     // Atoms dump as they print.
     CHECK(value{7}.dump() == "7");
   }
+  SECTION("maybe accessors") {
+    // Test and access in one step: the result is empty for a kind mismatch
+    // and offers optional semantics like `value_or`.
+    value n = 42;
+    CHECK(n.maybe_int().value_or() == 42);
+    CHECK_FALSE(n.maybe_cell());
+    CHECK_FALSE(n.maybe_float());
+    CHECK(n.maybe_float().value_or(2.5) == 2.5);
+    auto lst = rt.cons(value{1}, value{});
+    CHECK(lst.maybe_cell());
+    CHECK(lst.maybe_cell()->head.as_int() == 1);
+    CHECK(value{rt.intern("x")}.maybe_symbol()->name() == "x");
+  }
 }
 
 #pragma endregion

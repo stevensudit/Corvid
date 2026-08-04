@@ -32,6 +32,7 @@
 
 #include "../../containers/core/enum_variant.h"
 #include "../../containers/core/opt_find.h"
+#include "../../containers/core/optional_ptr.h"
 #include "../../containers/core/transparent.h"
 #include "../../enums/sequence_enum.h"
 #include "../../meta/concepts.h"
@@ -189,11 +190,9 @@ public:
 
   // Clojure-style truthiness: nil and false are falsy; everything else,
   // including zero and the empty string, is truthy.
-  //
-  // The `is_bool` guard makes `as_bool`'s throw path dead.
-  // NOLINTNEXTLINE(bugprone-exception-escape)
   [[nodiscard]] bool is_truthy() const noexcept {
-    return !is_nil() && (!is_bool() || as_bool());
+    const auto b = v_.get_if<kind::boolean>();
+    return !is_nil() && (!b || *b);
   }
 
 #pragma endregion
@@ -227,6 +226,33 @@ public:
   [[nodiscard]] primitive& as_primitive() const {
     assert(is_primitive());
     return *v_.get<kind::primitive>();
+  }
+
+  // Test and access in one step.
+  //
+  // Each `maybe_*` returns an `optional_ptr` to the held alternative, empty
+  // when this value holds a different kind, so the result drives a branch
+  // directly and offers `std::optional` semantics such as `value_or`.
+  [[nodiscard]] optional_ptr<const symbol*> maybe_symbol() const noexcept {
+    return v_.get_if<kind::symbol>();
+  }
+  [[nodiscard]] optional_ptr<const int64_t*> maybe_int() const noexcept {
+    return v_.get_if<kind::integer>();
+  }
+  [[nodiscard]] optional_ptr<const double*> maybe_float() const noexcept {
+    return v_.get_if<kind::floating>();
+  }
+  [[nodiscard]] optional_ptr<cell*> maybe_cell() const noexcept {
+    const auto pp = v_.get_if<kind::cell>();
+    return pp ? *pp : nullptr;
+  }
+  [[nodiscard]] optional_ptr<closure*> maybe_closure() const noexcept {
+    const auto pp = v_.get_if<kind::closure>();
+    return pp ? *pp : nullptr;
+  }
+  [[nodiscard]] optional_ptr<primitive*> maybe_primitive() const noexcept {
+    const auto pp = v_.get_if<kind::primitive>();
+    return pp ? *pp : nullptr;
   }
 
   // The halves of a cons cell.

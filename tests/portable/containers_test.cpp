@@ -34,7 +34,6 @@
 
 using namespace std::literals;
 using namespace corvid;
-using namespace corvid::internal;
 
 // Enum type for testing enum_vector.
 enum class test_id_t : size_t { invalid = std::numeric_limits<size_t>::max() };

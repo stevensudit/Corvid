@@ -44,15 +44,14 @@ namespace corvid { inline namespace opt_find {
 // pointers (because then we can't determine the size).
 template<auto field = extract_field::value>
 [[nodiscard]] constexpr auto find_opt(KeyFindable auto&& c, const auto& k) {
-  return internal::optional_ptr{it_to_ptr<field>(c, c.find(k))};
+  return optional_ptr{it_to_ptr<field>(c, c.find(k))};
 }
 
 template<auto field = extract_field::value>
 [[nodiscard]] constexpr auto
 find_opt(RangeWithoutFind auto&& c, const auto& k) {
   using namespace std;
-  return internal::optional_ptr{
-      it_to_ptr<field>(c, std::find(begin(c), end(c), k))};
+  return optional_ptr{it_to_ptr<field>(c, std::find(begin(c), end(c), k))};
 }
 
 #pragma endregion

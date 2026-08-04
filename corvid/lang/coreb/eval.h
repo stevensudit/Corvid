@@ -129,11 +129,12 @@ public:
     for (;;) {
       // Symbols are looked up in the environment chain, while atoms evaluate
       // to themselves.
-      if (expr.is_symbol()) return eval_symbol(expr.as_symbol(), *cur);
+      if (const auto name = expr.maybe_symbol())
+        return eval_symbol(*name, *cur);
       if (!expr.is_cell()) return expr;
 
-      // A list is a special form, like "(if ...)", or a call, like "(+ 1 2)".
-      const auto next = eval_form(expr, cur);
+      // A cell is a special form, like "(if ...)", or a call, like "(+ 1 2)".
+      const auto next = eval_cell(expr, cur);
       if (!next) return std::unexpected{next.error()};
 
       // If it was the final value, return it. If it was a tail expression,
@@ -171,17 +172,20 @@ private:
     return fail("unbound symbol: " + name.name());
   }
 
-  // Dispatch one `(op . args)` form: a special form or an ordinary call.
+  // Evaluate a cell, `(op . args)`: a special form or an ordinary call.
   //
   // `env` is rebound when a closure call installs its frame.
-  [[nodiscard]] result<step> eval_form(value expr, environment*& env) {
+  [[nodiscard]] result<step> eval_cell(value expr, environment*& env) {
+    // Flatten the cell list into a vector of arguments.
     auto args = std::vector<value>{};
     if (!append_elements(args, expr.tail()))
       return fail("improper form: " + expr.print());
 
+    // If it's a special symbol, dispatch to its evaluation rule; otherwise,
+    // it's a call.
     const auto op = expr.head();
-    if (op.is_symbol() && is_special(op.as_symbol()))
-      return eval_special(op.as_symbol(), args, *env);
+    if (const auto form = op.maybe_symbol(); form && is_special(*form))
+      return eval_special(*form, args, *env);
 
     return eval_call(op, std::move(args), env);
   }
@@ -218,23 +222,30 @@ private:
   // `env`, and hands back its body's finale as the tail expression.
   [[nodiscard]] result<step>
   eval_call(value op, std::vector<value> args, environment*& env) {
-    const auto fn = eval(op, *env);
-    if (!fn) return std::unexpected{fn.error()};
+    // Look up the operator symbol to get the value associated with it, which
+    // may be a primitive or a closure. Note that this is the `op` on its own,
+    // not as part of a cell: we have gone deeper.
+    const auto callee = eval(op, *env);
+    if (!callee) return std::unexpected{callee.error()};
 
+    // Eval each arg, replacing it with its value.
     for (auto& arg : args) {
       const auto r = eval(arg, *env);
       if (!r) return std::unexpected{r.error()};
       arg = *r;
     }
-    if (fn->is_primitive())
-      return finish(apply_primitive(fn->as_primitive(), args));
+    if (const auto prim = callee->maybe_primitive())
+      return finish(apply_primitive(*prim, args));
 
-    if (!fn->is_closure()) return fail("not callable: " + fn->print());
-    const auto& fun = fn->as_closure();
-    const auto frame = bind_frame(fun, args);
+    const auto fun = callee->maybe_closure();
+    if (!fun) return fail("not callable: " + callee->print());
+
+    const auto frame = bind_frame(*fun, args);
     if (!frame) return std::unexpected{frame.error()};
-    const auto last = eval_leading(fun.body, **frame);
+
+    const auto last = eval_leading(fun->body, **frame);
     if (!last) return std::unexpected{last.error()};
+
     env = *frame;
     return step{.v = *last, .tail = true};
   }
@@ -265,14 +276,14 @@ private:
   [[nodiscard]] result<value>
   eval_define(std::span<const value> args, environment& env) {
     if (args.size() != 2) return fail("define: expects a name and a value");
-    if (!args[0].is_symbol())
+    const auto name = args[0].maybe_symbol();
+    if (!name)
       return fail("define: expects a symbol, got: " + args[0].print());
-    const auto name = args[0].as_symbol();
-    if (auto objection = check_bindable(name))
+    if (auto objection = check_bindable(*name))
       return fail(std::move(*objection));
     const auto init = eval(args[1], env);
     if (!init) return init;
-    env.bind(name, *init);
+    env.bind(*name, *init);
     return value{};
   }
 
@@ -299,13 +310,12 @@ private:
   parse_params(value list, std::vector<symbol>& out) const {
     for (; list.is_cell(); list = list.tail()) {
       const auto param = list.head();
-      if (!param.is_symbol())
-        return "lambda: parameter is not a symbol: " + param.print();
-      const auto name = param.as_symbol();
-      if (auto objection = check_bindable(name)) return objection;
-      if (find_opt(out, name))
-        return "lambda: duplicate parameter: " + name.name();
-      out.push_back(name);
+      const auto name = param.maybe_symbol();
+      if (!name) return "lambda: parameter is not a symbol: " + param.print();
+      if (auto objection = check_bindable(*name)) return objection;
+      if (find_opt(out, *name))
+        return "lambda: duplicate parameter: " + name->name();
+      out.push_back(*name);
     }
     if (list.is_nil()) return std::nullopt;
     if (list.is_symbol())
@@ -375,12 +385,10 @@ private:
     bool exact = true;
 
     // The number `v` holds, or empty if `v` is not numeric.
-    //
-    // The kind checks make the accessors' throw paths dead.
-    // NOLINTNEXTLINE(bugprone-exception-escape)
     [[nodiscard]] static std::optional<number> from(value v) noexcept {
-      if (v.is_int()) return number{.i = v.as_int()};
-      if (v.is_float()) return number{.d = v.as_float(), .exact = false};
+      if (const auto n = v.maybe_int()) return number{.i = *n};
+      if (const auto d = v.maybe_float())
+        return number{.d = *d, .exact = false};
       return std::nullopt;
     }
 
@@ -596,15 +604,15 @@ private:
   // The `head` and `tail` builtins: the halves of a cell.
   static prim_result prim_head(runtime&, std::span<const value> args) {
     if (args.size() != 1) return prim_fail("expects 1 argument");
-    if (!args[0].is_cell())
-      return prim_fail("expects a cell, got: " + args[0].print());
-    return args[0].head();
+    const auto c = args[0].maybe_cell();
+    if (!c) return prim_fail("expects a cell, got: " + args[0].print());
+    return c->head;
   }
   static prim_result prim_tail(runtime&, std::span<const value> args) {
     if (args.size() != 1) return prim_fail("expects 1 argument");
-    if (!args[0].is_cell())
-      return prim_fail("expects a cell, got: " + args[0].print());
-    return args[0].tail();
+    const auto c = args[0].maybe_cell();
+    if (!c) return prim_fail("expects a cell, got: " + args[0].print());
+    return c->tail;
   }
 
   // The `nil?` builtin: whether the argument is nil, and so also whether it
