@@ -198,6 +198,7 @@ TEST_CASE("WideInt", "[charconv]") {
 #pragma region Float
 
 TEST_CASE("FloatCharMatchesStd", "[charconv]") {
+  // NOLINTNEXTLINE(modernize-use-std-numbers): test data, not pi.
   const double vals[]{0.0, 1.0, -1.0, 3.14159, -2.5, 1e10, 1e-10, 123456.789};
   for (double v : vals) {
     std::array<char, 64> a{};
@@ -211,6 +212,7 @@ TEST_CASE("FloatCharMatchesStd", "[charconv]") {
 }
 
 TEST_CASE("FloatRoundTrip", "[charconv]") {
+  // NOLINTNEXTLINE(modernize-use-std-numbers): test data, not pi.
   const double vals[]{0.0, 1.0, -1.0, 3.141592653589793, -2.5, 1e10, 1e-10,
       6.022e23};
 

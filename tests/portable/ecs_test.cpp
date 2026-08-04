@@ -598,6 +598,7 @@ TEST_CASE("RowAccess", "[ArchetypeStorage]") {
     auto id0 = r.create_id(staging, 10);
     CHECK(a.add(id0, 7, 2.0F));
     auto row = a[id0];
+    // NOLINTNEXTLINE(performance-move-const-arg): move is the subject.
     auto moved = std::move(row);
     CHECK(moved.index() == 0U);
     CHECK(moved.component<int>() == 7);
@@ -3746,6 +3747,7 @@ TEST_CASE("ChunkBoundary", "[ChunkedArchetypeStorage]") {
 
   auto make_ids = [&](reg_t& r, int n) {
     std::vector<reg_t::id_t> ids;
+    ids.reserve(n);
     for (auto ndx = 0; ndx < n; ++ndx)
       ids.push_back(r.create_id(staging, ndx * 10));
     return ids;
@@ -3761,6 +3763,8 @@ TEST_CASE("ChunkBoundary", "[ChunkedArchetypeStorage]") {
     CHECK(a.size() == 4U);
     for (auto ndx = 0; ndx < 4; ++ndx) {
       CHECK(a[ids[ndx]].component<int>() == (ndx + 1));
+      // The explicit cast is deliberate and correct.
+      // NOLINTNEXTLINE(modernize-use-integer-sign-comparison)
       CHECK(r.get_location(ids[ndx]).ndx == size_t(ndx));
     }
   }
@@ -3788,6 +3792,8 @@ TEST_CASE("ChunkBoundary", "[ChunkedArchetypeStorage]") {
     // Remaining entities are all in chunk 0; indices 0-3 intact.
     for (auto ndx = 0; ndx < 4; ++ndx) {
       CHECK(a.contains(ids[ndx]));
+      // The explicit cast is deliberate and correct.
+      // NOLINTNEXTLINE(modernize-use-integer-sign-comparison)
       CHECK(r.get_location(ids[ndx]).ndx == size_t(ndx));
     }
   }
@@ -6613,8 +6619,8 @@ TEST_CASE("ForEach", "[ArchetypeScene]") {
       return true;
     });
     CHECK(seen.size() == 2U);
-    CHECK(std::find(seen.begin(), seen.end(), h1.id()) != seen.end());
-    CHECK(std::find(seen.begin(), seen.end(), h2.id()) != seen.end());
+    CHECK(std::ranges::find(seen, h1.id()) != seen.end());
+    CHECK(std::ranges::find(seen, h2.id()) != seen.end());
   }
 
   // for_each on a const scene yields const component references.

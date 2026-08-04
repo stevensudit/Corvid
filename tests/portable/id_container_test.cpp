@@ -65,6 +65,8 @@ TEST_CASE("PushBack", "[IdContainer]") {
   if (true) {
     container_t c;
     int val = 42;
+    // Exercising the rvalue overload is the point of this block.
+    // NOLINTNEXTLINE(bugprone-use-after-move,performance-move-const-arg)
     CHECK(c.push_back(std::move(val)));
     CHECK(c[eid_t{0}] == 42);
   }

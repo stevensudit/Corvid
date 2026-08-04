@@ -1754,7 +1754,9 @@ TEST_CASE("HandleOwner", "[EntityRegistry]") {
     auto o1 = r.create_owner(staging, 10);
     auto id = o1.id();
     owner_t o2{std::move(o1)};
+    // NOLINTNEXTLINE(bugprone-use-after-move): moved-from is asserted.
     CHECK_FALSE(bool(o1));
+    // NOLINTNEXTLINE(clang-analyzer-cplusplus.Move): same assertion.
     CHECK(o1.id() == id_t::invalid);
     CHECK(bool(o2));
     CHECK(o2.id() == id);
@@ -1769,6 +1771,7 @@ TEST_CASE("HandleOwner", "[EntityRegistry]") {
     auto id1 = o1.id();
     auto id2 = o2.id();
     o2 = std::move(o1);
+    // NOLINTNEXTLINE(bugprone-use-after-move): moved-from is asserted.
     CHECK_FALSE(bool(o1));
     CHECK(bool(o2));
     CHECK(o2.id() == id1);
@@ -1783,6 +1786,7 @@ TEST_CASE("HandleOwner", "[EntityRegistry]") {
     auto id = o1.id();
     owner_t o2;
     o2 = std::move(o1);
+    // NOLINTNEXTLINE(bugprone-use-after-move): moved-from is asserted.
     CHECK_FALSE(bool(o1));
     CHECK(bool(o2));
     CHECK(o2.id() == id);
@@ -2303,6 +2307,7 @@ TEST_CASE("ComponentMode_HandleOwner", "[EntityRegistry]") {
     auto o1 = r.create_owner(10);
     auto id = o1.id();
     owner_t o2{std::move(o1)};
+    // NOLINTNEXTLINE(bugprone-use-after-move): moved-from is asserted.
     CHECK_FALSE(bool(o1));
     CHECK(bool(o2));
     CHECK(o2.id() == id);

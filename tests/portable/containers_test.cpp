@@ -442,8 +442,11 @@ TEST_CASE("Extended", "[StrongType]") {
     CHECK(fn->at(0) == 'J');
     CHECK(fn->front() == 'J');
     CHECK(fn->back() == 'n');
+    // The accessor itself is what is under test here.
+    // NOLINTBEGIN(readability-redundant-string-cstr)
     CHECK(std::string_view{fn->data()} == "John");
     CHECK(std::string_view{fn->c_str()} == "John");
+    // NOLINTEND(readability-redundant-string-cstr)
     std::string s;
     for (auto c : fn) s += c;
     CHECK(s == "John");
@@ -1070,6 +1073,10 @@ struct throwing_scoped_value_test {
   throwing_scoped_value_test& operator=(
       const throwing_scoped_value_test&) = default;
 
+  // This fixture exists to exercise a throwing move, so the throw is the
+  // subject rather than a defect, and marking it noexcept would defeat it.
+  // NOLINTBEGIN(bugprone-exception-escape)
+  // NOLINTBEGIN(performance-noexcept-move-constructor)
   throwing_scoped_value_test(throwing_scoped_value_test&& other) {
     if (other.throw_on_move) throw std::runtime_error("move failed");
     value = std::move(other.value);
@@ -1082,6 +1089,8 @@ struct throwing_scoped_value_test {
     throw_on_move = other.throw_on_move;
     return *this;
   }
+  // NOLINTEND(performance-noexcept-move-constructor)
+  // NOLINTEND(bugprone-exception-escape)
 };
 
 inline void swap(throwing_scoped_value_test& lhs,

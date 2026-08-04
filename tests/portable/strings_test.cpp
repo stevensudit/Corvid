@@ -140,6 +140,7 @@ TEST_CASE("Split", "[StringUtilsTest]") {
     std::string s{w};
     CHECK(strings::split(w, ",") == V{"1", "2", "3", "4"});
     CHECK(strings::split(s, ",") == V{"1", "2", "3", "4"});
+    // NOLINTNEXTLINE(bugprone-use-after-move): moved-from is asserted.
     CHECK(strings::split(std::move(s), ",") == S{"1", "2", "3", "4"});
   }
   if (true) {
@@ -175,6 +176,8 @@ TEST_CASE("WhitespaceDelim", "[StringUtilsTest]") {
     for (auto ndx = 0; ndx < 256; ++ndx) {
       const auto c = static_cast<char>(ndx);
       CHECK(strings::is_space(c) ==
+            // find/npos is the oracle that is_space is checked against.
+            // NOLINTNEXTLINE(readability-container-contains)
             (strings::whitespace.find(c) != strings::npos));
     }
     CHECK(strings::is_space(strings::wwhitespace));
@@ -1092,6 +1095,8 @@ TEST_CASE("RLocate", "[StringUtilsTest]") {
     CHECK(strings::rlocate(s, "a") == 10U);
     CHECK(strings::rlocate(s, "a", 10U) == 10U);
     CHECK(strings::rlocate(s, "a", 1U) == 0U);
+    // Mirrors the corvid call it is compared against.
+    // NOLINTNEXTLINE(performance-faster-string-find)
     CHECK(s.rfind("a", 0U) == 0U);
     CHECK(strings::rlocate(s, "a", 0U) == 0U);
     CHECK(strings::rlocate(s, {'i', 'j'}) == location{19U, 1U});
@@ -1176,6 +1181,8 @@ TEST_CASE("LocateEdges", "[StringUtilsTest]") {
   // Confirm the correctness of infinite loops.
   if (true) {
     constexpr auto s = "abcdefghijabcdefghij"sv;
+    // Mirrors the corvid call it is compared against.
+    // NOLINTNEXTLINE(performance-faster-string-find)
     CHECK(s.find("a") == 0U);
     CHECK(strings::locate(s, "a") == 0U);
     CHECK(s.find("") == 0U);
@@ -2357,7 +2364,7 @@ TEST_CASE("ParseNum", "[StringUtilsTest]") {
   if (true) {
     std::string_view sv;
     sv = "123";
-    int64_t t;
+    int64_t t{};
     CHECK(strings::extract_num(t, sv));
     CHECK(t == 123);
     CHECK(sv.empty());
@@ -2558,7 +2565,7 @@ TEST_CASE("WideConversion", "[StringUtilsTest]") {
   strings::append_num<10, 5>(s, 7); // width and pad
   CHECK(s == u"    7");
   s.clear();
-  strings::append_num(s, double(0.25));
+  strings::append_num(s, 0.25);
   CHECK(s == u"0.25");
 
   // num_as_string can return a wide string (code unit as the trailing arg).
@@ -2744,7 +2751,7 @@ TEST_CASE("StdFromChars", "[StringUtilsTest]") {
     CHECK_FALSE(opt.has_value());
 
     // With default value.
-    float val = strings::parse_num<float>("1.5"sv, -1.0F);
+    auto val = strings::parse_num<float>("1.5"sv, -1.0F);
     CHECK(val == 1.5F);
 
     val = strings::parse_num<float>("bad"sv, -1.0F);
@@ -2766,7 +2773,7 @@ TEST_CASE("StdFromChars", "[StringUtilsTest]") {
     CHECK((opt.value() > 0.0 && opt.value() < 1e-99));
 
     // With default value.
-    double val = strings::parse_num<double>("2.718281828"sv, 0.0);
+    auto val = strings::parse_num<double>("2.718281828"sv, 0.0);
     CHECK((val > 2.71828182 && val < 2.71828183));
 
     val = strings::parse_num<double>("xyz"sv, -999.0);
@@ -2865,9 +2872,7 @@ TEST_CASE("NoZero", "[StringUtilsTest]") {
   // `trim_to`: shrinks when `new_size` is smaller, but never enlarges and
   // never changes capacity.
   if (true) {
-    static_assert(requires(std::string& value) {
-      no_zero{value}.trim_to(int{1});
-    });
+    static_assert(requires(std::string& value) { no_zero{value}.trim_to(1); });
     static_assert(requires(std::string& value) {
       no_zero{value}.trim_to(unsigned{1});
     });

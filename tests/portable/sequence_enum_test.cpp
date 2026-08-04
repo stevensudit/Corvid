@@ -566,6 +566,7 @@ TEST_CASE("StreamingOut", "[SequentialEnumTest]") {
 
 #pragma endregion
 
+// NOLINTNEXTLINE(readability-enum-initial-value): the gap is the point.
 enum class tiger_missing : std::uint8_t { eeny, miny = 2, moe };
 consteval auto corvid_enum_spec(tiger_missing*) {
   return make_sequence_enum_spec<tiger_missing, "eeny,,miny,moe">();
@@ -1104,6 +1105,9 @@ TEST_CASE("EnumFindNamed", "[SequentialEnumTest]") {
 
 // Shows that a bare literal or enum value is validated by the parameter type,
 // with no ceremony at the call site.
+// Enum names are interned in static storage, so the returned view
+// outlives the parameter it came from.
+// NOLINTNEXTLINE(bugprone-dangling-handle)
 constexpr std::string_view take_tiger(enum_name<tiger_pick> s) { return s; }
 
 TEST_CASE("EnumStringView", "[SequentialEnumTest]") {
@@ -1266,6 +1270,8 @@ TEST_CASE("StringViewAndValue", "[SequentialEnumTest]") {
 // Sparse enum registered with the segmented syntax: two runs separated by a
 // gap. '|' delimits segments; each segment's first comma-field is its absolute
 // start value, the rest are names.
+// The underlying type is the point of these segment fixtures.
+// NOLINTBEGIN(performance-enum-size)
 enum class seg_basic : int { a = 0, b = 1, x = 10, y = 11, z = 12 };
 consteval auto corvid_enum_spec(seg_basic*) {
   return make_sequence_enum_spec<seg_basic, "0,a,b|10,x,y,z">();
@@ -1293,6 +1299,7 @@ consteval auto corvid_enum_spec(seg_neg*) {
 // * make_sequence_enum_spec<seg_three, "0,a,b|4,c">(); // gap too small; fold
 //   into empty names instead: "0,a,b,,,c"
 enum class seg_three : int { a = 0, b = 1, m = 5, x = 10, y = 11 };
+// NOLINTEND(performance-enum-size)
 consteval auto corvid_enum_spec(seg_three*) {
   return make_sequence_enum_spec<seg_three, "0,a,b|5,m|10,x,y">();
 }

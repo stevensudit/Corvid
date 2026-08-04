@@ -262,6 +262,7 @@ TEST_CASE("CopyMove", "[FixedBitset]") {
   if (true) {
     fixed_bitset<64> a;
     a.set(5);
+    // NOLINTNEXTLINE(performance-move-const-arg): move is the subject.
     fixed_bitset<64> b{std::move(a)};
     CHECK(b.test(5));
   }
@@ -271,6 +272,7 @@ TEST_CASE("CopyMove", "[FixedBitset]") {
     fixed_bitset<64> a;
     fixed_bitset<64> b;
     a.set(20);
+    // NOLINTNEXTLINE(performance-move-const-arg): move is the subject.
     b = std::move(a);
     CHECK(b.test(20));
   }

@@ -123,13 +123,14 @@ TEST_CASE("Create", "[Epoll]") {
 
 #pragma region Move
 
+// The moved-from source going invalid is what these blocks assert.
+// NOLINTBEGIN(bugprone-use-after-move,clang-analyzer-cplusplus.Move)
 TEST_CASE("Move", "[Epoll]") {
   // Move constructor transfers ownership; source becomes invalid.
   if (true) {
     auto a = epoll::create();
     const auto h = a.handle();
     epoll b{std::move(a)};
-    // NOLINTNEXTLINE(bugprone-use-after-move,clang-analyzer-cplusplus.Move)
     CHECK_FALSE(a.is_open());
     CHECK(b.is_open());
     CHECK(b.handle() == h);
@@ -141,7 +142,6 @@ TEST_CASE("Move", "[Epoll]") {
     auto b = epoll::create();
     const auto h = a.handle();
     b = std::move(a);
-    // NOLINTNEXTLINE(bugprone-use-after-move,clang-analyzer-cplusplus.Move)
     CHECK_FALSE(a.is_open());
     CHECK(b.is_open());
     CHECK(b.handle() == h);
@@ -157,6 +157,7 @@ TEST_CASE("Move", "[Epoll]") {
     CHECK(a.handle() == h);
   }
 }
+// NOLINTEND(bugprone-use-after-move,clang-analyzer-cplusplus.Move)
 
 #pragma endregion
 
@@ -265,13 +266,14 @@ TEST_CASE("Lifecycle", "[EventFd]") {
 
 #pragma region EventFd_Move
 
+// The moved-from source going invalid is what these blocks assert.
+// NOLINTBEGIN(bugprone-use-after-move,clang-analyzer-cplusplus.Move)
 TEST_CASE("Move", "[EventFd]") {
   // Move constructor transfers ownership; source becomes invalid.
   if (true) {
     auto a = event_fd::create();
     const auto h = a.handle();
     event_fd b{std::move(a)};
-    // NOLINTNEXTLINE(bugprone-use-after-move,clang-analyzer-cplusplus.Move)
     CHECK_FALSE(a.is_open());
     CHECK(b.is_open());
     CHECK(b.handle() == h);
@@ -283,7 +285,6 @@ TEST_CASE("Move", "[EventFd]") {
     auto b = event_fd::create();
     const auto h = a.handle();
     b = std::move(a);
-    // NOLINTNEXTLINE(bugprone-use-after-move,clang-analyzer-cplusplus.Move)
     CHECK_FALSE(a.is_open());
     CHECK(b.is_open());
     CHECK(b.handle() == h);
@@ -299,6 +300,7 @@ TEST_CASE("Move", "[EventFd]") {
     CHECK(a.handle() == h);
   }
 }
+// NOLINTEND(bugprone-use-after-move,clang-analyzer-cplusplus.Move)
 
 #pragma endregion
 
