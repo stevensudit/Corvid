@@ -30,6 +30,7 @@
 
 #include "../../containers/core/opt_find.h"
 #include "../../containers/core/scoped_value.h"
+#include "../../meta/expected.h"
 #include "value.h"
 
 namespace corvid { inline namespace lang { namespace coreb {
@@ -137,7 +138,7 @@ public:
 
       // A cell is a special form, like "(if p x)", or a call, like "(+ 1 2)".
       const auto next = eval_cell(expr, cur);
-      if (!next) return std::unexpected{next.error()};
+      if (!next) return as_unexpected(next);
 
       // If it was the final value, return it. If it was a tail expression,
       // loop to evaluate it, without recursing.
@@ -197,7 +198,7 @@ private:
 
   // Wrap a finished evaluation as a step.
   [[nodiscard]] static result<step> finish(result<value> r) {
-    if (!r) return std::unexpected{std::move(r).error()};
+    if (!r) return as_unexpected(std::move(r));
     return step::make_evaluated(*r);
   }
 
@@ -237,7 +238,7 @@ private:
       if (args.size() < 2 || args.size() > 3)
         return fail("if: expects 2 or 3 arguments");
       const auto cond = eval(args[0], env);
-      if (!cond) return std::unexpected{cond.error()};
+      if (!cond) return as_unexpected(cond);
       if (cond->is_truthy()) return step::make_tail_call(args[1]);
       if (args.size() == 3) return step::make_tail_call(args[2]);
       return step::make_evaluated(value{});
@@ -247,7 +248,7 @@ private:
     assert(form == begin_);
     if (args.empty()) return step::make_evaluated(value{});
     const auto last = eval_leading(args, env);
-    if (!last) return std::unexpected{last.error()};
+    if (!last) return as_unexpected(last);
     return step::make_tail_call(*last);
   }
 
@@ -262,12 +263,12 @@ private:
     // may be a primitive or a closure. Note that this is the `op` on its own,
     // not as part of a cell: we have gone deeper.
     const auto callee = eval(op, *env);
-    if (!callee) return std::unexpected{callee.error()};
+    if (!callee) return as_unexpected(callee);
 
     // Eval each arg, replacing it with its value.
     for (auto& arg : args) {
       const auto r = eval(arg, *env);
-      if (!r) return std::unexpected{r.error()};
+      if (!r) return as_unexpected(r);
       arg = *r;
     }
     if (const auto prim = callee->maybe_primitive())
@@ -277,10 +278,10 @@ private:
     if (!fun) return fail("not callable: " + callee->print());
 
     const auto frame = bind_frame(*fun, args);
-    if (!frame) return std::unexpected{frame.error()};
+    if (!frame) return as_unexpected(frame);
 
     const auto last = eval_leading(fun->body, **frame);
-    if (!last) return std::unexpected{last.error()};
+    if (!last) return as_unexpected(last);
 
     env = *frame;
     return step::make_tail_call(*last);
@@ -530,7 +531,7 @@ private:
     if (args.size() < 2) return prim_fail("expects at least 2 arguments");
     for (size_t ndx = 0; ndx + 1 < args.size(); ++ndx) {
       const auto ord = compare_nums(args[ndx], args[ndx + 1]);
-      if (!ord) return std::unexpected{std::move(ord).error()};
+      if (!ord) return as_unexpected(ord);
       if (!keep(*ord)) return value{false};
     }
     return value{true};
@@ -627,7 +628,7 @@ private:
   static prim_result prim_ne(runtime&, std::span<const value> args) {
     if (args.size() != 2) return prim_fail("expects 2 arguments");
     const auto ord = compare_nums(args[0], args[1]);
-    if (!ord) return std::unexpected{std::move(ord).error()};
+    if (!ord) return as_unexpected(ord);
     return value{!std::is_eq(*ord)};
   }
 

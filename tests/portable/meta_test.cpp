@@ -1501,6 +1501,30 @@ TEST_CASE("Swap", "[FixedFunction]") {
 }
 
 #pragma endregion
+#pragma region AsUnexpected
+
+TEST_CASE("AsUnexpected", "[MetaTest]") {
+  using parsed = std::expected<int, std::string>;
+
+  // Propagate a failure out of a function whose `expected` has a different
+  // value type.
+  auto to_double = [](const parsed& p) -> std::expected<double, std::string> {
+    if (!p) return as_unexpected(p);
+    return *p * 2.0;
+  };
+
+  CHECK(to_double(parsed{21}) == 42.0);
+  const auto r = to_double(parsed{std::unexpect, "bad digit"});
+  REQUIRE_FALSE(r.has_value());
+  CHECK(r.error() == "bad digit");
+
+  // An rvalue argument moves the error out.
+  parsed failed{std::unexpect, "moved"};
+  const auto u = as_unexpected(std::move(failed));
+  CHECK(u.error() == "moved");
+}
+
+#pragma endregion
 
 // NOLINTEND(readability-function-cognitive-complexity,
 // readability-function-size)

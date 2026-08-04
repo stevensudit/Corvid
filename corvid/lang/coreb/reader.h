@@ -25,6 +25,7 @@
 #include <utility>
 #include <vector>
 
+#include "../../meta/expected.h"
 #include "../../strings/cases.h"
 #include "../../strings/conversion.h"
 #include "value.h"
@@ -137,7 +138,7 @@ public:
     parser p{rt, src};
     for (p.skip_trivia(); !p.at_end(); p.skip_trivia()) {
       auto v = p.parse_value();
-      if (!v) return std::unexpected{v.error()};
+      if (!v) return as_unexpected(std::move(v));
       values.push_back(*v);
     }
     return values;
