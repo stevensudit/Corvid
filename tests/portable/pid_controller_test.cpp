@@ -158,6 +158,24 @@ TEST_CASE("PidControllerTest", "[PidControllerTest]") {
     CHECK(std::abs((second) - (10.0)) <= eps); // Still clamped, no windup
   }
   if (true) {
+    // Retuning keeps the accumulated state.
+    pid_controller pid(0.0, 1.0, 0.0);
+    CHECK(std::abs((pid.update(1.0, 0.0, 1.0)) - (0.0)) <= eps); // Init
+    CHECK(std::abs((pid.update(1.0, 0.0, 1.0)) - (1.0)) <=
+          (eps)); // Integral = 1
+    pid.set_params(0.0, 2.0, 0.0);
+    CHECK(pid.ki() == 2.0);
+    // The carried integral of 1 grows to 2, now at twice the gain.
+    CHECK(std::abs((pid.update(1.0, 0.0, 1.0)) - (4.0)) <= eps);
+  }
+  if (true) {
+    // Retuning to tighter bounds re-clamps the last value.
+    pid_controller pid(2.0, 0.0, 0.0);
+    CHECK(std::abs((pid.update(10.0, 4.0, 1.0)) - (12.0)) <= eps);
+    pid.set_params(2.0, 0.0, 0.0, 0.0, -5.0, 5.0);
+    CHECK(std::abs((pid.value_last()) - (5.0)) <= eps);
+  }
+  if (true) {
     // Reset returns it to the unprimed state, so the next call is a first
     // call again.
     pid_controller pid(0.0, 1.0, 0.0);

@@ -16,12 +16,13 @@
 // limitations under the License.
 #pragma once
 
+#include <cassert>
 #include <cmath>
 #include <concepts>
 
 #include "arithmetic.h"
 
-namespace corvid { inline namespace math {
+namespace corvid { inline namespace math { inline namespace filters {
 
 // A One Euro Filter (Casiez, Roussel, Vogel, CHI 2012): an adaptive low-pass
 // over a 2D signal that smooths hard when the input changes slowly and
@@ -41,12 +42,20 @@ template<std::floating_point T = float>
 class one_euro_filter {
 public:
   explicit one_euro_filter(T rest_ms, T beta) noexcept
-      : min_cutoff_{T{1000} / (two_pi_v<T> * rest_ms)}, beta_{beta} {}
+      : min_cutoff_{T{1000} / (two_pi_v<T> * rest_ms)}, beta_{beta} {
+    // A non-positive `rest_ms` inverts to a negative or infinite cutoff, which
+    // poisons every later sample, and a negative `beta` would sharpen the
+    // smoothing as the input speeds up, which is backwards.
+    assert(rest_ms > T{});
+    assert(beta >= T{});
+  }
 
   // Retune the filter in place, keeping any carried smoothing state so a live
   // tuning change does not jolt the in-flight signal. `rest_ms` and `beta` are
   // as the constructor.
   void set_params(T rest_ms, T beta) noexcept {
+    assert(rest_ms > T{});
+    assert(beta >= T{});
     min_cutoff_ = T{1000} / (two_pi_v<T> * rest_ms);
     beta_ = beta;
   }
@@ -97,4 +106,4 @@ private:
   bool primed_{};
 };
 
-}} // namespace corvid::math
+}}} // namespace corvid::math::filters

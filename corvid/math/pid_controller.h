@@ -22,7 +22,7 @@
 #include <concepts>
 #include <limits>
 
-namespace corvid { inline namespace math {
+namespace corvid { inline namespace math { inline namespace controllers {
 
 #pragma region pid_controller
 
@@ -33,7 +33,8 @@ namespace corvid { inline namespace math {
 //
 // The object is stateful and initialized with the three gain parameters. This
 // implementation also takes an alpha parameter to control the derivative term,
-// as well as min and max values to clamp the output.
+// as well as min and max values to clamp the output. All of these can be
+// retuned on the fly with `set_params`, which keeps the accumulated state.
 //
 // The initialized instance is then called periodically with the current
 // setpoint and measured value, as well as the time elapsed since the previous
@@ -157,6 +158,25 @@ public:
 #pragma endregion
 #pragma region Operations
 
+  // Retune the controller in place, keeping the accumulated state so a live
+  // tuning change does not jolt the loop in flight. The parameters are as the
+  // constructor, and all of them are replaced, so leaving one off restores its
+  // default rather than preserving the current setting. The last value is
+  // re-clamped into the new bounds, since that is what a rejected update
+  // returns.
+  void set_params(T kp, T ki, T kd, T alpha = {}, T min_value = neg_infinity,
+      T max_value = pos_infinity) noexcept {
+    assert(min_value < max_value);
+    assert((alpha >= T{}) && (alpha <= T{1}));
+    kp_ = kp;
+    ki_ = ki;
+    kd_ = kd;
+    alpha_ = alpha;
+    min_value_ = min_value;
+    max_value_ = max_value;
+    value_last_ = std::clamp(value_last_, min_value_, max_value_);
+  }
+
   // Update the controller over the `dt` seconds elapsed since the previous
   // call, returning the new input value.
   [[nodiscard]] T update(T setpoint, T measured_value, T dt) {
@@ -248,12 +268,12 @@ public:
 #pragma endregion
 #pragma region Data members
 private:
-  const T kp_{};
-  const T ki_{};
-  const T kd_{};
-  const T alpha_{};
-  const T min_value_ = neg_infinity;
-  const T max_value_ = pos_infinity;
+  T kp_{};
+  T ki_{};
+  T kd_{};
+  T alpha_{};
+  T min_value_ = neg_infinity;
+  T max_value_ = pos_infinity;
 
   T value_last_{};
   T error_last_{};
@@ -265,4 +285,4 @@ private:
 };
 
 #pragma endregion
-}} // namespace corvid::math
+}}} // namespace corvid::math::controllers
