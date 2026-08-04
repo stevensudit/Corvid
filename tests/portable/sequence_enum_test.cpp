@@ -208,7 +208,7 @@ TEST_CASE("MakeSafely", "[SequentialEnumTest]") {
     CHECK(*e == 3);
     e = make_safely<e0_3>(3 + 5);
     CHECK(*e == 0);
-    e = make_safely<e0_3>(3 + 3 * 4);
+    e = make_safely<e0_3>(3 + (3 * 4));
     CHECK(*e == 3);
 
     // Note: All of these casts are strictly unnecessary. They're just to
@@ -224,7 +224,7 @@ TEST_CASE("MakeSafely", "[SequentialEnumTest]") {
     CHECK(*e == 0);
     e = make_safely<e0_3>(int8_t(0 - 5));
     CHECK(*e == 3);
-    e = make_safely<e0_3>(int8_t(0 - 4 * 4));
+    e = make_safely<e0_3>(int8_t(0 - (4 * 4)));
     CHECK(*e == 0);
   }
   if (true) {
@@ -255,7 +255,7 @@ TEST_CASE("MakeSafely", "[SequentialEnumTest]") {
     CHECK(*e == 13);
     e = make_safely<e10_13>(13 + 5);
     CHECK(*e == 10);
-    e = make_safely<e10_13>(13 + 3 * 4);
+    e = make_safely<e10_13>(13 + (3 * 4));
     CHECK(*e == 13);
 
     e = make_safely<e10_13>(10 - 1);
@@ -268,7 +268,7 @@ TEST_CASE("MakeSafely", "[SequentialEnumTest]") {
     CHECK(*e == 10);
     e = make_safely<e10_13>(10 - 5);
     CHECK(*e == 13);
-    e = make_safely<e10_13>(int8_t(10 - 4 * 4));
+    e = make_safely<e10_13>(int8_t(10 - (4 * 4)));
     CHECK(*e == 10);
   }
   if (true) {
@@ -306,7 +306,7 @@ TEST_CASE("MakeSafely", "[SequentialEnumTest]") {
     CHECK(*e == 3);
     e = make_safely<eneg3_3>(3 + 8);
     CHECK(*e == -3);
-    e = make_safely<eneg3_3>(3 + 7 * 4);
+    e = make_safely<eneg3_3>(3 + (7 * 4));
     CHECK(*e == 3);
 
     e = make_safely<eneg3_3>(-3 - 1);
@@ -325,7 +325,7 @@ TEST_CASE("MakeSafely", "[SequentialEnumTest]") {
     CHECK(*e == -3);
     e = make_safely<eneg3_3>(-3 - 8);
     CHECK(*e == 3);
-    e = make_safely<eneg3_3>(-3 - 7 * 4);
+    e = make_safely<eneg3_3>(-3 - (7 * 4));
     CHECK(*e == -3);
   }
   if (true) {
@@ -354,7 +354,7 @@ TEST_CASE("MakeSafely", "[SequentialEnumTest]") {
     CHECK(*e == 254);
     e = make_safely<e0_255>(uint8_t(255 + 3));
     CHECK(*e == 2);
-    e = make_safely<e0_255>(uint8_t(255 + 3 * 256));
+    e = make_safely<e0_255>(uint8_t(255 + (3 * 256)));
     CHECK(*e == 255);
 
     // Safety is meaningless in this case.
@@ -369,7 +369,7 @@ TEST_CASE("MakeSafely", "[SequentialEnumTest]") {
     CHECK(*e == 254);
     e = make<e0_255>(uint8_t(255 + 3));
     CHECK(*e == 2);
-    e = make<e0_255>(uint8_t(255 + 3 * 256));
+    e = make<e0_255>(uint8_t(255 + (3 * 256)));
     CHECK(*e == 255);
   }
   if (true) {
@@ -386,7 +386,7 @@ TEST_CASE("MakeSafely", "[SequentialEnumTest]") {
     CHECK(*e == 126);
     e = make_safely<eneg128_127>(int8_t(127 + 3));
     CHECK(*e == -126);
-    e = make_safely<eneg128_127>(int8_t(127 + 3 * 256));
+    e = make_safely<eneg128_127>(int8_t(127 + (3 * 256)));
     CHECK(*e == 127);
 
     // Safety is meaningless in this case.
@@ -401,7 +401,7 @@ TEST_CASE("MakeSafely", "[SequentialEnumTest]") {
     CHECK(*e == 126);
     e = make<eneg128_127>(int8_t(127 + 3));
     CHECK(*e == -126);
-    e = make<eneg128_127>(int8_t(127 + 3 * 256));
+    e = make<eneg128_127>(int8_t(127 + (3 * 256)));
     CHECK(*e == 127);
   }
 }

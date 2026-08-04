@@ -461,13 +461,13 @@ TEST_CASE("Extended", "[StrongType]") {
     CHECK(fn == "John"s);
     CHECK(fn == fn);
     // Test spaceship, both heterogeneous and homogeneous.
-    CHECK(fn <=> fn == std::strong_ordering::equal);
-    CHECK(fn <=> fn2 == std::strong_ordering::greater);
-    CHECK(fn2 <=> fn == std::strong_ordering::less);
-    CHECK(fn <=> "John"s == std::strong_ordering::equal);
-    CHECK(fn <=> "Zoe"s == std::strong_ordering::less);
-    CHECK("Zoe"s <=> fn == std::strong_ordering::greater);
-    CHECK("John"s <=> fn == std::strong_ordering::equal);
+    CHECK((fn <=> fn) == std::strong_ordering::equal);
+    CHECK((fn <=> fn2) == std::strong_ordering::greater);
+    CHECK((fn2 <=> fn) == std::strong_ordering::less);
+    CHECK((fn <=> "John"s) == std::strong_ordering::equal);
+    CHECK((fn <=> "Zoe"s) == std::strong_ordering::less);
+    CHECK(("Zoe"s <=> fn) == std::strong_ordering::greater);
+    CHECK(("John"s <=> fn) == std::strong_ordering::equal);
     // Test homogeneous comparisons.
     CHECK_FALSE(fn == fn2);
     CHECK(fn != fn2);
@@ -477,13 +477,13 @@ TEST_CASE("Extended", "[StrongType]") {
     CHECK(fn >= fn2);
     // Test heterogeneous comparisons.
     CHECK(fn == "John"s);
-    CHECK(fn <=> "John"s == std::strong_ordering::equal);
+    CHECK((fn <=> "John"s) == std::strong_ordering::equal);
     CHECK_FALSE(fn != "John"s);
     CHECK(fn < "Zoe"s);
     CHECK(fn <= "John"s);
     CHECK(fn > "Adam"s);
     CHECK(fn >= "John"s);
-    CHECK("John"s <=> fn == std::strong_ordering::equal);
+    CHECK(("John"s <=> fn) == std::strong_ordering::equal);
     CHECK("John"s == fn);
     CHECK_FALSE("John"s != fn);
     CHECK("Zoe"s > fn);
