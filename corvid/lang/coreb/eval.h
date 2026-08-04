@@ -49,6 +49,11 @@ namespace corvid { inline namespace lang { namespace coreb {
 #pragma region eval_error
 
 // Description of a failed evaluation.
+//
+// A distinct struct rather than a bare `std::string`, so that a finished
+// evaluator error is a different type from the raw message fragments
+// primitives return, and so it can grow structure (as `read_error` has)
+// without touching call sites.
 struct eval_error final {
   std::string message;
 };
