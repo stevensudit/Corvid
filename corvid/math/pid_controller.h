@@ -36,9 +36,19 @@ namespace corvid { inline namespace math {
 // as well as min and max values to clamp the output.
 //
 // The initialized instance is then called periodically with the current
-// setpoint and measured value, as well as the timestamp, returning the new
-// input to the system. With proper tuning, the measured value will converge to
-// the setpoint.
+// setpoint and measured value, as well as the time elapsed since the previous
+// call, returning the new input to the system. With proper tuning, the
+// measured value will converge to the setpoint.
+//
+// The caller owns the clock and passes that elapsed time (`dt`) rather than a
+// timestamp, so time must move forward: read it from a monotonic source such
+// as `std::chrono::steady_clock`, never a wall clock that can be stepped
+// backwards. A zero `dt` means no time has passed and a negative one violates
+// the contract, so both are rejected by returning the previous value. Passing
+// a delta also keeps the arithmetic away from large absolute times, which
+// matters at the default `float`: a timestamp in the millions of seconds
+// cannot resolve a 60 Hz frame at all, and the controller would silently
+// freeze.
 //
 // The difference between the setpoint and measured value is the error. The
 // controller seeks to minimize it over time by providing the next input into
@@ -81,6 +91,12 @@ namespace corvid { inline namespace math {
 // during a disturbance or a large setpoint change. To mitigate this, we can
 // implement anti-windup strategies, such as clamping the integral term (which
 // is what we did here) or resetting it when the error is small.
+//
+// Note that the cumulative error is a true accumulator, and the default clamp
+// bounds are infinite, so conditional integration never blocks it. An error
+// that persists forever therefore grows it without bound, until the type stops
+// resolving the increments. Any finite clamp bounds it, so this only bites a
+// loop that already failed to converge.
 //
 // The D (Derivative) term is calculated by multiplying the rate of
 // change of the error by Kd, the derivative gain. This is stateful: it
@@ -141,16 +157,12 @@ public:
 #pragma endregion
 #pragma region Operations
 
-  // Update the controller, returning the new input value.
-  [[nodiscard]] T update(T setpoint, T measured_value, T time_now) {
+  // Update the controller over the `dt` seconds elapsed since the previous
+  // call, returning the new input value.
+  [[nodiscard]] T update(T setpoint, T measured_value, T dt) {
     assert(std::isfinite(setpoint));
     assert(std::isfinite(measured_value));
-    assert(std::isfinite(time_now));
-
-    // For sanity, we don't do anything if the time hasn't changed. Note that
-    // we're intentionally not checking for a difference being too small, just
-    // for identical values.
-    if (time_last_ == time_now) return value_last_;
+    assert(std::isfinite(dt));
 
     // Calculate the error here. Note that, in principle, we could instead
     // accept the precomputed error as a parameter. However, this signature
@@ -162,9 +174,10 @@ public:
     // The P term is based entirely on the error.
     const auto p_term = kp_ * error;
 
-    // On the first call, initialize the state and return the clamped P term.
-    if (time_last_ == neg_infinity) {
-      time_last_ = time_now;
+    // On the first call, there is no interval to work over, so initialize the
+    // state and return the clamped P term.
+    if (!primed_) {
+      primed_ = true;
       error_last_ = error;
       cumulative_error_ = T{};
       d_term_last_ = T{};
@@ -172,15 +185,15 @@ public:
       return value_last_;
     }
 
-    // The other two terms need to apply the time delta. However, if the clock
-    // jumped backwards, we want to start using this new time zone while still
-    // returning the previously calculated value.
-    const auto time_delta = time_now - time_last_;
-    time_last_ = time_now;
-    if (time_delta < T{}) return value_last_;
+    // The other two terms scale by the interval, so it has to be a real one.
+    // There is nothing to integrate over a `dt` of zero, and a negative one
+    // means the caller broke the monotonic contract, which we refuse to
+    // integrate backwards over. Either way, we hold the previous value. Note
+    // that we're intentionally not rejecting a merely small `dt`.
+    if (dt <= T{}) return value_last_;
 
     // The I term is based on cumulative error, scaled by time delta.
-    const auto integral = cumulative_error_ + (error * time_delta);
+    const auto integral = cumulative_error_ + (error * dt);
     // Note: Here is where we would normally update the cumulative error with
     // the integral. However, we postpone this until the very end to give us a
     // chance to avoid integral windup by applying conditional integration.
@@ -188,7 +201,7 @@ public:
 
     // The D term is based on the rate of change of error, scaled by time
     // delta.
-    const auto derivative = (error - error_last_) / time_delta;
+    const auto derivative = (error - error_last_) / dt;
     error_last_ = error;
     const auto d_term_unfiltered = kd_ * derivative;
     // Apply exponential moving average filter to the D term.
@@ -210,7 +223,7 @@ public:
 
   void reset() noexcept {
     value_last_ = T{};
-    time_last_ = neg_infinity;
+    primed_ = false;
     error_last_ = T{};
     cumulative_error_ = T{};
     d_term_last_ = T{};
@@ -227,7 +240,6 @@ public:
   [[nodiscard]] T max_value() const noexcept { return max_value_; }
 
   [[nodiscard]] T value_last() const noexcept { return value_last_; }
-  [[nodiscard]] T time_last() const noexcept { return time_last_; }
   [[nodiscard]] T error_last() const noexcept { return error_last_; }
   [[nodiscard]] T cumulative_error() const noexcept {
     return cumulative_error_;
@@ -244,10 +256,10 @@ private:
   const T max_value_ = pos_infinity;
 
   T value_last_{};
-  T time_last_ = neg_infinity;
   T error_last_{};
   T cumulative_error_{};
   T d_term_last_{};
+  bool primed_{};
 
 #pragma endregion
 };

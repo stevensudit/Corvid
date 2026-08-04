@@ -89,57 +89,58 @@ TEST_CASE("PidControllerTest", "[PidControllerTest]") {
   if (true) {
     // Proportional only.
     pid_controller pid(2.0, 0.0, 0.0);
-    double out = pid.update(10.0, 4.0, 0.0);
+    double out = pid.update(10.0, 4.0, 1.0);
     CHECK(std::abs((out) - (12.0)) <= eps); // P = 2 * (10 - 4) = 12
   }
   if (true) {
-    // Proportional only, repeated time.
+    // Proportional only, no time elapsed.
     pid_controller pid(2.0, 0.0, 0.0);
-    double first = pid.update(10.0, 4.0, 0.0);  // First call
-    double second = pid.update(10.0, 4.0, 0.0); // Same time
+    double first = pid.update(10.0, 4.0, 1.0);  // First call
+    double second = pid.update(10.0, 4.0, 0.0); // No elapsed time
     CHECK(std::abs((first) - (second)) <=
           (eps)); // Should return last value, unchanged
   }
   if (true) {
-    // Proportional only, repeated time with same values.
+    // Proportional only, with time elapsing.
     pid_controller pid(2.0, 0.0, 0.0);
-    double first = pid.update(10.0, 4.0, 0.0);
+    double first = pid.update(10.0, 4.0, 1.0);
     double second = pid.update(10.0, 4.0, 1.0);
     CHECK(std::abs((first) - (second)) <= eps); // Still just P, no change
   }
   if (true) {
     // Integral accumulation.
     pid_controller pid(0.0, 1.0, 0.0);
-    CHECK(std::abs((pid.update(1.0, 0.0, 0.0)) - (0.0)) <= eps); // Init
+    CHECK(std::abs((pid.update(1.0, 0.0, 1.0)) - (0.0)) <= eps); // Init
     CHECK(std::abs((pid.update(1.0, 0.0, 1.0)) - (1.0)) <=
           (eps)); // Integral = 1
-    CHECK(std::abs((pid.update(1.0, 0.0, 2.0)) - (2.0)) <=
+    CHECK(std::abs((pid.update(1.0, 0.0, 1.0)) - (2.0)) <=
           (eps)); // Integral = 2
   }
   if (true) {
-    // Clock moves backwards.
+    // Negative elapsed time is rejected.
     pid_controller pid(1.0, 0.0, 0.0);
-    CHECK(std::abs((pid.update(1.0, 0.0, 5.0)) - (1.0)) <= eps);
-    CHECK(std::abs((pid.update(1.0, 0.0, 3.0)) - (1.0)) <= eps); // Last value
-    CHECK(std::abs((pid.update(1.0, 0.0, 6.0)) - (1.0)) <=
+    CHECK(std::abs((pid.update(1.0, 0.0, 1.0)) - (1.0)) <= eps);
+    CHECK(std::abs((pid.update(1.0, 0.0, -2.0)) - (1.0)) <= eps); // Last value
+    CHECK(std::abs((pid.update(1.0, 0.0, 1.0)) - (1.0)) <=
           (eps)); // Still same error
   }
   if (true) {
-    // Clock moves backwards, without losing integral.
+    // Negative elapsed time is rejected, without losing the integral.
     pid_controller pid(0.0, 1.0, 0.0);
-    CHECK(std::abs((pid.update(1.0, 0.0, 5.0)) - (0.0)) <= eps); // Init
-    CHECK(std::abs((pid.update(1.0, 0.0, 6.0)) - (1.0)) <=
+    CHECK(std::abs((pid.update(1.0, 0.0, 1.0)) - (0.0)) <= eps); // Init
+    CHECK(std::abs((pid.update(1.0, 0.0, 1.0)) - (1.0)) <=
           (eps)); // One second of panic.
-    CHECK(std::abs((pid.update(1.0, 0.0, 8.0)) - (3.0)) <=
+    CHECK(std::abs((pid.update(1.0, 0.0, 2.0)) - (3.0)) <=
           (eps)); // Two seconds of panic.
-    CHECK(std::abs((pid.update(1.0, 0.0, 3.0)) - (3.0)) <= eps); // Time jump.
-    CHECK(std::abs((pid.update(1.0, 0.0, 4.0)) - (4.0)) <=
+    CHECK(
+        std::abs((pid.update(1.0, 0.0, -5.0)) - (3.0)) <= (eps)); // Rejected.
+    CHECK(std::abs((pid.update(1.0, 0.0, 1.0)) - (4.0)) <=
           (eps)); // One second of panic.
   }
   if (true) {
     // Derivative filtering.
     pid_controller pid(0.0, 0.0, 1.0, 0.5);    // D-only, filtered
-    double first = pid.update(0.0, 10.0, 0.0); // First call, no D yet
+    double first = pid.update(0.0, 10.0, 0.1); // First call, no D yet
     CHECK(std::abs((first) - (0.0)) <= eps);   // No change, no previous error
     // Error jump from -10 to 0 -> D spike
     double out = pid.update(0.0, 0.0, 0.1);
@@ -150,11 +151,22 @@ TEST_CASE("PidControllerTest", "[PidControllerTest]") {
     // Saturation and windup
     // Aggressive gains, clamped
     pid_controller pid(100.0, 50.0, 0.0, 0.0, -10.0, 10.0);
-    double first = pid.update(1.0, -1.0, 0.0); // Error = 2 -> unclamped = huge
+    double first = pid.update(1.0, -1.0, 1.0); // Error = 2 -> unclamped = huge
     CHECK(std::abs((first) - (10.0)) <= eps);  // Clamped at max
     // Integral term would grow, but shouldn't
     double second = pid.update(1.0, -1.0, 1.0);
     CHECK(std::abs((second) - (10.0)) <= eps); // Still clamped, no windup
+  }
+  if (true) {
+    // Reset returns it to the unprimed state, so the next call is a first
+    // call again.
+    pid_controller pid(0.0, 1.0, 0.0);
+    CHECK(std::abs((pid.update(1.0, 0.0, 1.0)) - (0.0)) <= eps); // Init
+    CHECK(std::abs((pid.update(1.0, 0.0, 1.0)) - (1.0)) <=
+          (eps)); // Integral = 1
+    pid.reset();
+    CHECK(std::abs((pid.update(1.0, 0.0, 1.0)) - (0.0)) <= eps); // Init again
+    CHECK(std::abs((pid.cumulative_error()) - (0.0)) <= eps);
   }
 }
 
@@ -204,14 +216,12 @@ TEST_CASE("plant_test", "[sopdt]") {
 
     const double setpoint = 1.0;
     double measured = 0.0;
-    double time = 0.0;
 
     for (auto ndx = 0; ndx < steps; ++ndx) {
-      const double control = pid.update(setpoint, measured, time);
+      const double control = pid.update(setpoint, measured, dt);
       CHECK(control >= pid.min_value());
       CHECK(control <= pid.max_value());
       measured = plant.update(control);
-      time += dt;
     }
 
     // Closing the loop is the point: with integral action on a stable plant,
@@ -227,8 +237,8 @@ TEST_CASE("FloatInstantiation", "[PidControllerTest]") {
   // The default is `float`, and deduction follows the arguments, so the same
   // arithmetic holds in either precision.
   pid_controller<> pid{2.0F, 0.0F, 0.0F};
-  static_assert(std::is_same_v<decltype(pid.update(0.0F, 0.0F, 0.0F)), float>);
-  CHECK(pid.update(10.0F, 4.0F, 0.0F) == 12.0F);
+  static_assert(std::is_same_v<decltype(pid.update(0.0F, 0.0F, 1.0F)), float>);
+  CHECK(pid.update(10.0F, 4.0F, 1.0F) == 12.0F);
 
   // Deduced from the arguments instead.
   pid_controller deduced{2.0, 0.0, 0.0};
