@@ -53,9 +53,9 @@ inline constexpr T cos_30_v = std::numbers::sqrt3_v<T> / T{2};
 template<std::integral T, std::integral U>
 [[nodiscard]] constexpr std::common_type_t<T, U> ceil_div(T n, U d) noexcept {
   using R = std::common_type_t<T, U>;
-  assert(d > 0 && "ceil_div divisor must be positive");
+  assert((d > 0) && "ceil_div divisor must be positive");
   if constexpr (std::is_signed_v<T>)
-    assert(n >= 0 && "ceil_div dividend must be non-negative");
+    assert((n >= 0) && "ceil_div dividend must be non-negative");
   const auto rn = static_cast<R>(n);
   const auto rd = static_cast<R>(d);
   return (rn / rd) + static_cast<R>(rn % rd != 0);
@@ -145,7 +145,7 @@ inline constexpr size_t max_deducible_width = CORVID_HAS_INT128 ? 16 : 8;
 
 template<size_t Count>
 struct combine_result<void, Count> {
-  static_assert(std::has_single_bit(Count) && Count <= max_deducible_width,
+  static_assert(std::has_single_bit(Count) && (Count <= max_deducible_width),
       "combine_bytes deduces its result from the byte count, which must "
       "therefore be a power of two no wider than the widest unsigned type");
   using type = uint64_t;

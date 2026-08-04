@@ -24,6 +24,8 @@
 
 namespace corvid { inline namespace math { inline namespace filters {
 
+#pragma region one_euro_filter
+
 // A One Euro Filter (Casiez, Roussel, Vogel, CHI 2012): an adaptive low-pass
 // over a 2D signal that smooths hard when the input changes slowly and
 // steadily (where sampling jitter shows) and eases off as it speeds up (so
@@ -41,6 +43,8 @@ namespace corvid { inline namespace math { inline namespace filters {
 template<std::floating_point T = float>
 class one_euro_filter {
 public:
+#pragma region Construction
+
   explicit one_euro_filter(T rest_ms, T beta) noexcept
       : min_cutoff_{T{1000} / (two_pi_v<T> * rest_ms)}, beta_{beta} {
     // A non-positive `rest_ms` inverts to a negative or infinite cutoff, which
@@ -49,6 +53,9 @@ public:
     assert(rest_ms > T{});
     assert(beta >= T{});
   }
+
+#pragma endregion
+#pragma region Operations
 
   // Retune the filter in place, keeping any carried smoothing state so a live
   // tuning change does not jolt the in-flight signal. `rest_ms` and `beta` are
@@ -89,12 +96,17 @@ public:
   // Forget the carried state so the next run starts clean.
   void reset() noexcept { primed_ = false; }
 
+#pragma endregion
+#pragma region Helpers
 private:
   // First-order low-pass weight for a cutoff frequency (Hz) over `dt` seconds.
   [[nodiscard]] static T alpha(T cutoff, T dt) noexcept {
     const auto tau = T{1} / (two_pi_v<T> * cutoff);
     return T{1} / (T{1} + (tau / dt));
   }
+
+#pragma endregion
+#pragma region Data members
 
   // Fixed cutoff (Hz) for the speed low-pass, the One Euro default.
   static constexpr auto speed_cutoff = T{1};
@@ -104,6 +116,10 @@ private:
   T dx_{};
   T dy_{};
   bool primed_{};
+
+#pragma endregion
 };
+
+#pragma endregion
 
 }}} // namespace corvid::math::filters

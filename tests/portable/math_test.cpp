@@ -18,10 +18,47 @@
 #include "corvid/math.h"
 #include "catch2_main.h"
 
+#include <cmath>
 #include <cstdint>
 #include <limits>
+#include <numbers>
+#include <type_traits>
 
 using namespace corvid;
+
+// Tolerance for the double-precision constants, a few ulps at their
+// magnitudes.
+constexpr double eps = 1e-15;
+
+TEST_CASE("TwoPi", "[MathTest]") {
+  // Defaults to `float` and follows the argument otherwise, in the same
+  // variable-template form as <numbers>.
+  static_assert(
+      std::is_same_v<std::remove_const_t<decltype(two_pi_v<>)>, float>);
+  static_assert(
+      std::is_same_v<std::remove_const_t<decltype(two_pi_v<double>)>, double>);
+  static_assert(two_pi_v<double> == std::numbers::pi_v<double> * 2.0);
+
+  // It is a full turn, checked against its decimal expansion and against the
+  // trig identity rather than against the expression that produces it.
+  CHECK(std::abs(two_pi_v<double> - 6.283185307179586) <= eps);
+  CHECK(std::abs(std::sin(two_pi_v<double>)) <= eps);
+}
+
+TEST_CASE("Cos30", "[MathTest]") {
+  // Defaults to `float` and follows the argument otherwise.
+  static_assert(
+      std::is_same_v<std::remove_const_t<decltype(cos_30_v<>)>, float>);
+  static_assert(
+      std::is_same_v<std::remove_const_t<decltype(cos_30_v<double>)>, double>);
+  // Halving is exact in binary, so doubling it back is too.
+  static_assert(cos_30_v<double> * 2.0 == std::numbers::sqrt3_v<double>);
+
+  // It really is the cosine of 30 degrees.
+  CHECK(std::abs(cos_30_v<double> - 0.8660254037844386) <= eps);
+  CHECK(std::abs(cos_30_v<double> -
+                 std::cos(std::numbers::pi_v<double> / 6.0)) <= eps);
+}
 
 TEST_CASE("CeilDivExact", "[MathTest]") {
   // Exact division has no remainder to round up.
