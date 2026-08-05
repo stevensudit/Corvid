@@ -222,10 +222,19 @@ TEST_CASE("Reserve", "[IdContainer]") {
   // reserve() pre-allocates capacity without changing size.
   if (true) {
     container_t c;
-    c.reserve(100);
+    CHECK(c.reserve(100));
     CHECK(c.size() == 0U);
     CHECK(c.empty());
     CHECK(c.capacity() >= 100U);
+  }
+
+  // reserve() refuses to exceed the ID limit, leaving capacity untouched.
+  if (true) {
+    container_t c{eid_t{4}};
+    CHECK_FALSE(c.reserve(10));
+    CHECK(c.capacity() < 10U);
+    CHECK(c.reserve(4));
+    CHECK(c.capacity() >= 4U);
   }
 }
 
@@ -236,7 +245,7 @@ TEST_CASE("Resize", "[IdContainer]") {
   // resize(n) expands or shrinks the slot count.
   if (true) {
     container_t c;
-    c.resize(5);
+    CHECK(c.resize(5));
     CHECK(c.size() == 5U);
     CHECK_FALSE(c.empty());
   }
@@ -244,7 +253,7 @@ TEST_CASE("Resize", "[IdContainer]") {
   // resize(n, value) fills new slots with value.
   if (true) {
     container_t c;
-    c.resize(3, 77);
+    CHECK(c.resize(3, 77));
     CHECK(c.size() == 3U);
     CHECK(c[eid_t{0}] == 77);
     CHECK(c[eid_t{1}] == 77);
@@ -257,10 +266,35 @@ TEST_CASE("Resize", "[IdContainer]") {
     CHECK(c.push_back(1));
     CHECK(c.push_back(2));
     CHECK(c.push_back(3));
-    c.resize(2);
+    CHECK(c.resize(2));
     CHECK(c.size() == 2U);
     CHECK(c[eid_t{0}] == 1);
     CHECK(c[eid_t{1}] == 2);
+  }
+
+  // resize() refuses to exceed the ID limit, leaving the container untouched.
+  if (true) {
+    container_t c{eid_t{2}};
+    CHECK(c.push_back(1));
+    CHECK_FALSE(c.resize(5));
+    CHECK(c.size() == 1U);
+    CHECK(c.id_limit() == eid_t{2});
+  }
+
+  // The filling overload enforces the same limit instead of raising it.
+  if (true) {
+    container_t c{eid_t{2}};
+    CHECK_FALSE(c.resize(5, 7));
+    CHECK(c.empty());
+    CHECK(c.id_limit() == eid_t{2});
+  }
+
+  // resize() to exactly the limit fills the ID space; push_back is then full.
+  if (true) {
+    container_t c{eid_t{2}};
+    CHECK(c.resize(2));
+    CHECK(c.size() == 2U);
+    CHECK_FALSE(c.push_back(9));
   }
 }
 
@@ -286,7 +320,7 @@ TEST_CASE("ShrinkToFit", "[IdContainer]") {
   // shrink_to_fit() reduces capacity to match size.
   if (true) {
     container_t c;
-    c.reserve(100);
+    CHECK(c.reserve(100));
     CHECK(c.push_back(42));
     c.shrink_to_fit();
     CHECK(c.size() == 1U);
@@ -343,6 +377,25 @@ TEST_CASE("Limit", "[IdContainer]") {
     CHECK(c.set_id_limit(eid_t{30}, allocation_policy::eager));
     CHECK(c.capacity() >= 30U);
     CHECK(c.id_limit() == eid_t{30});
+  }
+
+  // Eager prefill of an unlimited container skips the reserve.
+  if (true) {
+    container_t c;
+    CHECK(c.set_id_limit(eid_t::invalid, allocation_policy::eager));
+    CHECK(c.capacity() == 0U);
+  }
+
+  // Shrinking the limit below size takes two steps: resize down, then lower.
+  if (true) {
+    container_t c;
+    CHECK(c.push_back(1));
+    CHECK(c.push_back(2));
+    CHECK(c.push_back(3));
+    CHECK_FALSE(c.set_id_limit(eid_t{2}));
+    CHECK(c.resize(2));
+    CHECK(c.set_id_limit(eid_t{2}));
+    CHECK(c.id_limit() == eid_t{2});
   }
 }
 

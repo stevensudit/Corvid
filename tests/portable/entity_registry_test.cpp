@@ -529,7 +529,7 @@ TEST_CASE("Reserve", "[EntityRegistry]") {
   // reserve without prefill: just reserves capacity, no IDs allocated.
   if (true) {
     reg_t r;
-    r.reserve(10);
+    CHECK(r.reserve(10));
     CHECK_FALSE(r.is_valid(id_t{0}));
     auto id0 = r.create_id({}, 42);
     CHECK(*id0 == 0U);
@@ -538,7 +538,7 @@ TEST_CASE("Reserve", "[EntityRegistry]") {
   // reserve with prefill: pre-creates free slots.
   if (true) {
     reg_t r;
-    r.reserve(5, allocation_policy::eager);
+    CHECK(r.reserve(5, allocation_policy::eager));
     // Slots exist but are not valid (free).
     CHECK_FALSE(r.is_valid(id_t{0}));
     CHECK_FALSE(r.is_valid(id_t{4}));
@@ -548,6 +548,16 @@ TEST_CASE("Reserve", "[EntityRegistry]") {
     CHECK(r.create_id({}, 30) == id_t{2});
     CHECK(r.create_id({}, 40) == id_t{3});
     CHECK(r.create_id({}, 50) == id_t{4});
+  }
+
+  // reserve refuses to exceed the ID limit, leaving the registry untouched.
+  if (true) {
+    reg_t r{id_t{5}};
+    CHECK_FALSE(r.reserve(10));
+    CHECK_FALSE(r.reserve(10, allocation_policy::eager));
+    CHECK(r.size() == 0U);
+    CHECK(r.reserve(5, allocation_policy::eager));
+    CHECK(r.create_id({}, 10) == id_t{0});
   }
 
   // Prefill constructor.
@@ -814,7 +824,7 @@ TEST_CASE("VoidMeta", "[EntityRegistry]") {
   // clear and reserve with prefill.
   if (true) {
     reg_t r;
-    r.reserve(5, allocation_policy::eager);
+    CHECK(r.reserve(5, allocation_policy::eager));
     CHECK(r.create_id() == id_t{0});
     CHECK(r.create_id() == id_t{1});
     r.clear();
@@ -1164,7 +1174,7 @@ TEST_CASE("LifoAdvanced", "[EntityRegistry]") {
   // highest prefilled slot is allocated first.
   if (true) {
     reg_t r;
-    r.reserve(4, allocation_policy::eager); // pushes 0, 1, 2, 3 -> top is 3
+    CHECK(r.reserve(4, allocation_policy::eager)); // pushes 0..3 -> top is 3
     CHECK(r.create_id({}, 10) == id_t{3});
     CHECK(r.create_id({}, 20) == id_t{2});
     CHECK(r.create_id({}, 30) == id_t{1});
@@ -1344,7 +1354,7 @@ TEST_CASE("EdgeCases", "[EntityRegistry]") {
   // reserve without prefill does not affect create order.
   if (true) {
     reg_t r;
-    r.reserve(100);
+    CHECK(r.reserve(100));
     CHECK(r.size() == 0U);
     CHECK(r.create_id({}, 10) == id_t{0});
     CHECK(r.create_id({}, 20) == id_t{1});
@@ -1631,7 +1641,7 @@ TEST_CASE("ReservePrefillExisting", "[EntityRegistry]") {
     auto id0 = r.create_id({}, 10); // id 0
     auto id1 = r.create_id({}, 20); // id 1
     CHECK(r.size() == 2U);
-    r.reserve(5, allocation_policy::eager); // adds free slots 2, 3, 4
+    CHECK(r.reserve(5, allocation_policy::eager)); // adds free slots 2, 3, 4
     // Existing entities are undisturbed.
     CHECK(r.is_valid(id0));
     CHECK(r.is_valid(id1));
@@ -1648,11 +1658,11 @@ TEST_CASE("ReservePrefillExisting", "[EntityRegistry]") {
   // reserve with prefill when some slots are already free.
   if (true) {
     reg_t r;
-    (void)r.create_id({}, 10);              // id 0
-    (void)r.create_id({}, 20);              // id 1
-    (void)r.create_id({}, 30);              // id 2
-    r.erase(id_t{1});                       // free: [1]
-    r.reserve(5, allocation_policy::eager); // adds free slots 3, 4
+    (void)r.create_id({}, 10);                     // id 0
+    (void)r.create_id({}, 20);                     // id 1
+    (void)r.create_id({}, 30);                     // id 2
+    r.erase(id_t{1});                              // free: [1]
+    CHECK(r.reserve(5, allocation_policy::eager)); // adds free slots 3, 4
     // Free list should be: 1 (existing), then 3, 4 (new).
     CHECK(r.create_id({}, 40) == id_t{1});
     CHECK(r.create_id({}, 50) == id_t{3});

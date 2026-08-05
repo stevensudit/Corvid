@@ -401,7 +401,7 @@ public:
       // The resize drops records that the free list may still name, and
       // `shrink_to_fit` only rebuilds the list when it trims further, which
       // it does not when the record just below the new limit is alive.
-      records_.resize(*new_limit);
+      (void)records_.resize(*new_limit); // Cannot fail: shrinks below limit.
       rebuild_free_list();
       shrink_to_fit();
     }
@@ -714,14 +714,18 @@ public:
   }
 
   // Reserve space for at least `new_cap` records.
-  void reserve(size_type new_cap,
+  //
+  // Fails when `new_cap` exceeds the ID limit; raise it first with
+  // `set_id_limit`.
+  [[nodiscard]] bool reserve(size_type new_cap,
       allocation_policy prefill = allocation_policy::lazy) {
-    records_.reserve(new_cap);
+    if (!records_.reserve(new_cap)) return false;
     if (prefill == allocation_policy::eager && new_cap > records_.size()) {
       const auto old_size = records_.size();
-      records_.resize(new_cap);
+      (void)records_.resize(new_cap); // Cannot fail: reserve passed the check.
       for (auto ndx = old_size; ndx < new_cap; ++ndx) push_free(id_t{ndx});
     }
+    return true;
   }
 
 #pragma endregion
@@ -889,7 +893,7 @@ private:
     auto new_size = records_.size();
     while ((new_size > 0) && !is_alive(id_t{new_size - 1})) --new_size;
     if (new_size < records_.size()) {
-      records_.resize(new_size);
+      (void)records_.resize(new_size); // Cannot fail: shrinks.
       rebuild_free_list();
     }
   }
