@@ -163,7 +163,7 @@ public:
 #pragma region Element access
 
   // Access slot by ID. No bounds check.
-  [[nodiscard]] decltype(auto) operator[](this auto& self, id_t id) noexcept {
+  [[nodiscard]] decltype(auto) operator[](this auto& self, id_t id) {
     assert(id < self.size_as_enum());
     return self.data_[id];
   }
@@ -174,10 +174,12 @@ public:
   }
 
   [[nodiscard]] decltype(auto) front(this auto& self) {
+    assert(!self.empty());
     return self.data_.front();
   }
 
   [[nodiscard]] decltype(auto) back(this auto& self) {
+    assert(!self.empty());
     return self.data_.back();
   }
 
@@ -206,7 +208,10 @@ public:
     return &data_.emplace_back(std::forward<Args>(args)...);
   }
 
-  void pop_back() { data_.pop_back(); }
+  void pop_back() {
+    assert(!empty());
+    data_.pop_back();
+  }
 
 #pragma endregion
 #pragma region Iteration
