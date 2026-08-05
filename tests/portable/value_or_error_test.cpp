@@ -17,6 +17,7 @@
 
 #include <concepts>
 #include <cstdint>
+#include <memory>
 #include <string>
 #include <string_view>
 #include <type_traits>
@@ -282,12 +283,27 @@ TEST_CASE("VoeErrorValueUsage", "[ValueOrErrorTest]") {
   CHECK(half_of("x").as_error().reason == "bad input: not a digit: x");
 }
 
+// Whether the anonymous double-brace error spelling compiles for a result. A
+// concept keeps the failure in a substitution context so it can be asserted.
+template<typename R>
+concept AcceptsAnonymousBraces = requires(R r) { r = {{"bad digit"}}; };
+
 TEST_CASE("VoeAnonymousErrorLimits", "[ValueOrErrorTest]") {
   // Why the anonymous double-brace error spelling is an anti-pattern: it
   // works by coincidence until `T` can also absorb the inner list, and then
   // it fails silently rather than loudly.
   using math_error = error_value<struct MathTag>;
   using named = value_or_error<std::string, math_error>;
+
+  // When both wings can absorb the inner list, the spelling is ambiguous
+  // outright and fails to compile.
+  static_assert(!AcceptsAnonymousBraces<named>);
+
+  // When only the value wing can absorb it, it compiles, and silently
+  // constructs a value where an error was meant.
+  using numeric_error = error_value<struct NumericTag, int, 0>;
+  value_or_error<std::string, numeric_error> silent = {{"bad digit"}};
+  CHECK(silent.has_value());
 
   // A bare string is a value, unambiguously.
   named val = "payload"s;
@@ -364,6 +380,54 @@ TEST_CASE("VoeReferences", "[ValueOrErrorTest]") {
   value_or_error<int&, lookup_error> c = count;
   *c += 1;
   CHECK(count == 1);
+}
+
+#pragma endregion
+#pragma region Pointers
+
+TEST_CASE("VoePointerWings", "[ValueOrErrorTest]") {
+  using open_error = error_value<struct OpenTag>;
+
+  // A move-only smart pointer works as a value wing, and the result becomes
+  // move-only along with it.
+  using handle_result = value_or_error<std::unique_ptr<int>, open_error>;
+  static_assert(!std::is_copy_constructible_v<handle_result>);
+  static_assert(std::is_move_constructible_v<handle_result>);
+  static_assert(std::is_move_assignable_v<handle_result>);
+
+  auto open = [](bool ok) -> handle_result {
+    if (!ok) return open_error{"denied"};
+    return std::make_unique<int>(42);
+  };
+
+  auto r = open(true);
+  REQUIRE(r.has_value());
+  CHECK(**r == 42);
+
+  // The payload moves out of an rvalue result; the husk stays on the value
+  // wing, now holding an empty pointer.
+  auto owned = *std::move(r);
+  CHECK(*owned == 42);
+  CHECK(r.has_value());
+  CHECK(!*r);
+
+  // The error wing is unaffected.
+  CHECK(open(false).as_error().reason == "denied");
+
+  // Success propagation moves the pointer across error domains.
+  using stash_result =
+      value_or_error<std::unique_ptr<int>, error_value<struct StashTag>>;
+  stash_result crossed = open(true);
+  CHECK(**crossed == 42);
+
+  // A raw pointer wing holds the address without owning it, and writes
+  // through.
+  auto n = 7;
+  value_or_error<int*, open_error> praw = &n;
+  REQUIRE(praw.has_value());
+  CHECK(*praw == &n);
+  **praw += 1;
+  CHECK(n == 8);
 }
 
 #pragma endregion

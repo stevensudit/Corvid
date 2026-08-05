@@ -54,7 +54,7 @@ inline namespace value_or_errors {
 // requirement and the wide construction surface. Fundamentally, a `T` is a
 // value, an `E` is an error, and each converts directly to the result.
 //
-// Enough editorializing and handwaving, this is what it looks like in action:
+// Enough editorializing and handwaving. This is what it looks like in action:
 //
 //   using door_result = value_or_error<std::string, rejection_reason>;
 //[...]
@@ -70,12 +70,12 @@ inline namespace value_or_errors {
 //
 // The error type here is an `enum` (which was registered as a
 // `sequence_enum` so as to make that streaming work), but it could also be any
-// `struct` with any number of fields. It could be class with private members
+// `struct` with any number of fields. It could be a class with private members
 // as well, although that's not a great choice for an error.
 //
 // If you wanted to return a `std::string` as the error, even though that's
 // also the type for the value, you can still do it, but not directly. Instead,
-// you would wrap the error string it in a `struct` to make it a distinct type
+// you would wrap the error string in a `struct` to make it a distinct type
 // (which has the desirable side-effect of making the entire result a distinct
 // type).
 //
@@ -89,7 +89,7 @@ inline namespace value_or_errors {
 //     if (door_.is_locked()) return rejection_text{"great failure."s};
 //     return "great success!"s;
 //
-// In this case, because we chose a `std::string` as both the value and as the
+// In this case, because we chose a `std::string` as both the value and the
 // contents of the error, we need to explicitly construct a `rejection_text`.
 //
 // Where `std::expected` requires you to wrap the error in a
@@ -112,9 +112,9 @@ inline namespace value_or_errors {
 //     if (const auto found = table_.find(name)) return *found;
 //     return failure_reason{"not found"};
 //
-// In this example, you could argue for returning a `std::string_view`,
-// instead, although that also has its disadvantages. You can also specialize
-// on a raw or smart pointer.
+// In this example, you could argue for returning a `std::string_view` instead,
+// although that also has its disadvantages. You can also specialize on a raw
+// or smart pointer.
 //
 // ---
 //
@@ -165,9 +165,10 @@ inline namespace value_or_errors {
 // convenience syntax, it is still your job to check if the contents of the
 // `value_or_error` are of the correct type before returning them.
 //
-// Failure to do so will lead to runtime errors through UB, not compile
-// errors or even clean exceptions. Having said that, if you stick to the
-// pattern of checking before returning, it will always work as expected.
+// Failure to do so is caught by an assert in debug builds and is UB in release
+// builds, not a compile error or even a clean exception. Having said that, if
+// you stick to the pattern of checking before returning, it will always work
+// as expected.
 //
 //   value_or_error<int, failure_reason> get_int_or_reason() {
 //     // Implicitly returns the `int`.
@@ -192,7 +193,7 @@ inline namespace value_or_errors {
 // shared wing is copied as is, and a differing wing never converts, even when
 // its types are convertible.
 //
-// This is intentional. Allowing such conversions would create the ambiguities
+// Allowing such conversions would create the ambiguities
 // that force the class down the path of requiring a `std::unexpected` wrapper
 // for all error types in all cases. This means that if what's being returned
 // is not an exact type match, you will need to dereference it yourself and
@@ -218,7 +219,7 @@ inline namespace value_or_errors {
 //     if (auto r = get_int_or_reason()) got_int = *r;
 //
 // You can also use optional access with `maybe_value` and `maybe_error`. These
-// return an `optional_ptr`, which is  akin to `std::optional` but contains a
+// return an `optional_ptr`, which is akin to `std::optional` but contains a
 // pointer instead of a copy.
 //
 // Its adapters (`value_or`, `value_or_fn`, and the rest) provide a monadic
@@ -509,10 +510,12 @@ private:
 // `return {};` is a self-describing generic failure. A domain with its own
 // reason type passes its own default, such as an enum value.
 //
-// Spell an error by naming its type: `parse_error{"bad digit"}`. The
-// anonymous `return {{"bad digit"}};` spelling is an anti-pattern: it
-// resolves by conversion rank, so when `T` can also absorb the inner list
-// it silently constructs a value instead of an error.
+// Spell an error by naming its type: `parse_error{"bad digit"}`. The anonymous
+// `return {{"bad digit"}};` spelling is an anti-pattern: it resolves by
+// conversion rank against both wings, not by intent. When both wings can
+// absorb the inner list, it is ambiguous and fails to compile; when only `T`
+// can absorb it, or the inner element is already a `T`, it silently constructs
+// a value instead of an error.
 //
 // Staying an aggregate is load-bearing, not incidental. A non-explicit
 // constructor from the reason type would make the error implicitly convertible
