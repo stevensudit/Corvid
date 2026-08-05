@@ -34,26 +34,25 @@ inline namespace value_or_errors {
 
 // Overview and tutorial:
 //
-// A `value_or_error` is a result that is either the value or the error
-// that explains the absence of the value. Like `std::expected`, it is parallel
-// to a `std::optional`, except that, when there's no value, it carries an
-// error instead of being empty.
+// A `value_or_error` is a result that contains either the value or the error
+// that explains its absence. It is parallel to a `std::optional`, except that,
+// when there's no value, it carries an error instead of being empty.
 //
-// In fact, this class is a deliberately reduced alternative to
-// `std::expected`: an improper subset, and not shy about it. It was not
-// designed by a committee, much less the result of trying to unify any number
-// of extant alternatives. As a result, it's simpler and more reliable, hence
-// more useful in practice than the standard library's version, which is a
+// If this sounds a lot like `std::expected`, that's because this class is a
+// deliberately reduced alternative to it: an improper subset, and not shy
+// about it.
+//
+// It was not designed by a committee, much less the result of trying
+// to unify any number of extant alternatives. As a result, it's simpler and
+// more reliable, hence more useful in practice. The motto here is: expect
+// less, receive more. In contrast, the standard library's version is a
 // compromise on a compromise on a compromise.
 //
-// The design benefits from being opinionated. By requiring that the value and
-// error types be nothrow-movable, distinct from each other, and not implicitly
-// convertible to each other, it gets rid of the `std::unexpected` requirement
-// and the wide construction surface. While there is still irreducible
-// complexity, it does not have 13 constructors with subtle interactions.
-//
-// Fundamentally, a `T` is a value, an `E` is an error, and each converts
-// directly to the result. The motto here is: expect less, receive more.
+// This design benefits from being firm and opinionated. By requiring that the
+// value and error types be nothrow-movable, distinct from each other, and not
+// implicitly convertible to each other, it gets rid of the `std::unexpected`
+// requirement and the wide construction surface. Fundamentally, a `T` is a
+// value, an `E` is an error, and each converts directly to the result.
 //
 // Enough editorializing and handwaving, this is what it looks like in action:
 //
@@ -67,22 +66,18 @@ inline namespace value_or_errors {
 //    if (r) std::cout << "Opened with " << *r << '\n';
 //    if (!r) std::cout << "Failed: " << r.as_error() << '\n';
 //
-// In other words, the `value_or_error` works like a `std::optional`, allowing
-// you to evaluate it as a predicate to see if has a value, at which point you
-// can dereference it. The difference is that, if it doesn't have a value, it
-// has an error, which can be accessed with `as_error()`.
-//
 // ---
 //
 // The error type here is an `enum` (which was registered as a
 // `sequence_enum` so as to make that streaming work), but it could also be any
 // `struct` with any number of fields. It could be class with private members
-// as well, although that's uncommon for an error.
+// as well, although that's not a great choice for an error.
 //
-// If you wanted to return a `std::string` as the error, you can still do it,
-// but not directly. Instead, you would wrap it in a `struct` to make it a
-// distinct type (which has the desirable side-effect of making the entire
-// result a distinct type).
+// If you wanted to return a `std::string` as the error, even though that's
+// also the type for the value, you can still do it, but not directly. Instead,
+// you would wrap the error string it in a `struct` to make it a distinct type
+// (which has the desirable side-effect of making the entire result a distinct
+// type).
 //
 // While you could do this manually, it would be easier to use the
 // `error_value` helper:
@@ -94,8 +89,8 @@ inline namespace value_or_errors {
 //     if (door_.is_locked()) return rejection_text{"great failure."s};
 //     return "great success!"s;
 //
-// In this case, because you chose a `std::string` as both the value and as the
-// contents of the error, you need to explicitly construct a `rejection_text`.
+// In this case, because we chose a `std::string` as both the value and as the
+// contents of the error, we need to explicitly construct a `rejection_text`.
 //
 // Where `std::expected` requires you to wrap the error in a
 // `std::unexpected` in all cases, this class requires invoking the constructor
@@ -107,9 +102,25 @@ inline namespace value_or_errors {
 //
 // ---
 //
-// Construction and assignment are intentionally narrow, with conversions
-// avoided. As a result, you may need to be more explicit about the value,
-// although you retain flexibility. Using the above definition:
+// Either type being specialized on could be a reference. This has all the
+// standard advantages and risks, in that it's lightweight but not owning. So,
+// for example:
+//
+//   using lookup_result = value_or_error<const std::string&, failure_reason>;
+//[...]
+//   lookup_result find_name(std::string_view name) {
+//     if (const auto found = table_.find(name)) return *found;
+//     return failure_reason{"not found"};
+//
+// In this example, you could argue for returning a `std::string_view`,
+// instead, although that also has its disadvantages. You can also specialize
+// on a raw or smart pointer.
+//
+// ---
+//
+// Construction and assignment are intentionally narrow, with automatic
+// conversions avoided. As a result, you may need to be more explicit about the
+// value. Using the earlier definitions:
 //
 //   door_result r{}; // Default to error text.
 //   r = "certain success."s; // compiles
@@ -126,17 +137,18 @@ inline namespace value_or_errors {
 // ---
 //
 // When a function calls another that returns a `value_or_error` with the same
-// specializations as its own result, it can return it directly. However, it's
-// also common for the specializations to overlap on only one wing: just the
-// value or just the error.
+// specializations as its own result type, it can return this directly.
+// However, it's common for the specializations to overlap on only one wing:
+// just the value or just the error.
 //
 // It is always the case that you need to check what a `value_or_error`
-// contains before dereferencing it. And when returning a result that only
+// contains before dereferencing it. So when returning a result that only
 // matches one wing, you have to do the same.
 //
-// However, since you're just returning it and not accessing its contents, you
-// don't need to dereference it. Instead, results convert across across
-// specializations along whichever wing they share.
+// However, when you're just returning it and not accessing its contents, you
+// don't need to dereference it. Instead, a result converts across
+// specializations along whichever wing they share, so long as its current
+// contents are of the type they share.
 //
 // This means that a successful `value_or_error<int, excuse_id>`, which
 // contains an `int`, converts to a successful `value_or_error<int,
@@ -151,11 +163,11 @@ inline namespace value_or_errors {
 // Note that whether the conversion works depends on what value it contains,
 // and that can only be determined at runtime. This is why, even with this
 // convenience syntax, it is still your job to check if the contents of the
-// `value_or_error` are compatible before returning them.
+// `value_or_error` are of the correct type before returning them.
 //
 // Failure to do so will lead to runtime errors through UB, not compile
 // errors or even clean exceptions. Having said that, if you stick to the
-// pattern of checking before returning, it will work as expected.
+// pattern of checking before returning, it will always work as expected.
 //
 //   value_or_error<int, failure_reason> get_int_or_reason() {
 //     // Implicitly returns the `int`.
@@ -169,9 +181,9 @@ inline namespace value_or_errors {
 //     // Explicitly returns the `failure_reason` by first dereferencing.
 //     if (auto s = get_long_or_failure_reason(); !s) return s.as_error();
 //
-// The second instance of each example does the same thing, but with an
-// unnecessarily explicit dereference. It is not any safer or more efficient,
-// just more verbose.
+// The second instance of each example does the same thing as the first, but
+// with an unnecessarily explicit dereference. It is not any safer or more
+// efficient, just more verbose, so it's shown here only for comparison.
 //
 // ---
 //
@@ -182,7 +194,9 @@ inline namespace value_or_errors {
 //
 // This is intentional. Allowing such conversions would create the ambiguities
 // that force the class down the path of requiring a `std::unexpected` wrapper
-// for all error types in all cases. As a result:
+// for all error types in all cases. This means that if what's being returned
+// is not an exact type match, you will need to dereference it yourself and
+// possibly convert it.
 //
 //   value_or_error<long, excuse_id> get_long_or_excuse() {
 //     // The next line works because the `int` widens to `long`.
@@ -191,13 +205,10 @@ inline namespace value_or_errors {
 //     // The next line fails, because it won't convert results directly.
 //     if (auto t = get_int_or_reason()) return t;
 //
-// In the above example, it will not convert automatically from a
-// `value_or_error<int, failure_reason>` to a `value_or_error<long,
-// excuse_id>`, even though it contains a value and `int` converts to `long`.
-//
-// In more realistic examples of mismatched types, you would not only
-// explicitly dereference, but also cast the value or otherwise use it to
-// construct the desired type.
+// In the second case of the example above, it will not extract the `int` from
+// the `value_or_error<int, failure_reason>` and copy it into a
+// `value_or_error<long, excuse_id>`, even though `int` implicitly widens to
+// `long`.
 //
 // ---
 //
@@ -269,21 +280,18 @@ inline namespace value_or_errors {
 //
 // Access follows the model of `std::optional`, with `operator*` and
 // `operator->` to reach the value, and `as_error` to get the error, each
-// asserting its presence but intentionally not throwing. The `maybe_value` and
-// `maybe_error` methods return an `optional_ptr` that is empty when the other
-// alternative is engaged, allowing you to do the check and then just
-// dereference. For example:
+// asserting its presence but intentionally not throwing.
 //
-//  // Access and convert in one step; no need to call`as_error`.
-//  if (const auto e = r.maybe_error()) return handle(*e);
-//  // No need to call `r.as_value()` here and check, because we know already.
-//  return use(*r);
+// The `maybe_value` and `maybe_error` methods return an `optional_ptr` that is
+// empty when the other alternative is engaged, allowing you to do the check
+// and then just dereference.
 //
-// Distinctness between results comes directly from the distinctness of the `T`
-// and `E` types. Typically, `E` is custom to a particular function, while `T`
-// is a well-known value type, such as `std::string`. However, it's just as
-// possible, if perhaps less common, to have a few result types share the `E`,
-// such as an enum, while using whichever `T` is appropriate to that function.
+// Distinctness between `value_or_error` result types comes directly from the
+// distinctness of the `T` and `E` types they're specialized on. Typically, `E`
+// is custom to a particular function, while `T` is a well-known value type,
+// such as `std::string`. However, it's just as possible, if perhaps less
+// common, to have a few result types share the `E`, such as an enum, while
+// using whichever `T` is appropriate to that function.
 //
 // It works logically in any combination because propagation follows the
 // overlap. An error travels to any result with the same `E`, a value to any
@@ -422,9 +430,6 @@ private:
   // Return the stored pointer for the `X` wing, unwrapping a reference wing,
   // or null when the other wing is engaged. Constness follows `self` for an
   // object wing and the referent for a reference wing.
-  //
-  // The wing is named by its own type rather than by index, which the
-  // distinctness of `T` and `E` guarantees is unambiguous.
   template<typename X>
   constexpr auto do_get_ptr(this auto&& self) noexcept {
     auto p = std::get_if<stored_t<X>>(&self.v_);
@@ -496,13 +501,13 @@ private:
 // wrapped reason a nominal identity, in the manner of `strong_type`, and it
 // is mandatory because distinctness is the whole point.
 //
-// The reason type defaults to `std::string`, and `Default` supplies the
+// The type of the reason defaults to `std::string`, and `Default` supplies the
 // reason's initial value, so the minimal spelling names only the domain,
 // through that tag, and default-constructs to "Unknown error".
 //
 // This composes with `value_or_error`'s own default constructor so that
 // `return {};` is a self-describing generic failure. A domain with its own
-// reason type passes its own default, such as an enumerator.
+// reason type passes its own default, such as an enum value.
 //
 // Spell an error by naming its type: `parse_error{"bad digit"}`. The
 // anonymous `return {{"bad digit"}};` spelling is an anti-pattern: it
