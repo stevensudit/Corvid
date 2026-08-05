@@ -311,28 +311,38 @@ inline namespace value_or_errors {
 // report the stored forms.
 //
 // A value-less result (did it work, and if not, why not) is spelled
-// `value_or_error<std::monostate, E>`.
+// `value_or_error<void, E>`. The `void` wing is stored as a `std::monostate`,
+// so success is returned as `std::monostate{}`. A `void` error works the same
+// way, for a failure that needs no explanation.
 template<typename T, typename E>
 class [[nodiscard]] value_or_error final {
 public:
 #pragma region Types
 
+  // Map away the `void` shorthand: a `void` wing is a `std::monostate` wing.
+  template<typename X>
+  using nonvoid_t = std::conditional_t<std::is_void_v<X>, std::monostate, X>;
+
   // Map a declared type to its stored form: a reference is stored as a
-  // `std::reference_wrapper`.
+  // `std::reference_wrapper`, and `void` as a `std::monostate`.
   template<typename X>
   using stored_t = std::conditional_t<std::is_reference_v<X>,
-      std::reference_wrapper<std::remove_reference_t<X>>, X>;
+      std::reference_wrapper<std::remove_reference_t<X>>, nonvoid_t<X>>;
 
   using value_type = stored_t<T>;
   using error_type = stored_t<E>;
 
-  static_assert((std::is_object_v<T> || std::is_lvalue_reference_v<T>) &&
-                    (std::is_object_v<E> || std::is_lvalue_reference_v<E>),
-      "T and E must be object types or lvalue references");
+  static_assert(
+      (std::is_object_v<T> || std::is_lvalue_reference_v<T> ||
+          std::is_void_v<T>) &&
+          (std::is_object_v<E> || std::is_lvalue_reference_v<E> ||
+              std::is_void_v<E>),
+      "T and E must be object types, lvalue references, or void");
   static_assert(!std::is_const_v<T> && !std::is_volatile_v<T> &&
                     !std::is_const_v<E> && !std::is_volatile_v<E>,
       "T and E must not be cv-qualified: access is already read-only");
-  static_assert(!std::is_convertible_v<T, E> && !std::is_convertible_v<E, T>,
+  static_assert(!std::is_convertible_v<nonvoid_t<T>, nonvoid_t<E>> &&
+                    !std::is_convertible_v<nonvoid_t<E>, nonvoid_t<T>>,
       "T and E must be distinct and not implicitly convertible to each other");
   static_assert(std::is_nothrow_move_constructible_v<stored_t<T>> &&
                     std::is_nothrow_move_constructible_v<stored_t<E>>,
@@ -342,16 +352,20 @@ private:
   // Access and intake spellings per wing. A reference wing hands back the
   // reference itself; `*_take` is the sink parameter, which for a reference
   // wing is the rvalue overload that gets deleted.
-  using value_ref = std::conditional_t<std::is_reference_v<T>, T, const T&>;
-  using value_move = std::conditional_t<std::is_reference_v<T>, T, T&&>;
+  using value_ref =
+      std::conditional_t<std::is_reference_v<T>, T, const nonvoid_t<T>&>;
+  using value_move =
+      std::conditional_t<std::is_reference_v<T>, T, nonvoid_t<T>&&>;
   using value_take = std::conditional_t<std::is_reference_v<T>,
-      std::remove_reference_t<T>&&, T&&>;
+      std::remove_reference_t<nonvoid_t<T>>&&, nonvoid_t<T>&&>;
   using value_ptr = std::add_pointer_t<std::remove_reference_t<value_ref>>;
 
-  using error_ref = std::conditional_t<std::is_reference_v<E>, E, const E&>;
-  using error_move = std::conditional_t<std::is_reference_v<E>, E, E&&>;
+  using error_ref =
+      std::conditional_t<std::is_reference_v<E>, E, const nonvoid_t<E>&>;
+  using error_move =
+      std::conditional_t<std::is_reference_v<E>, E, nonvoid_t<E>&&>;
   using error_take = std::conditional_t<std::is_reference_v<E>,
-      std::remove_reference_t<E>&&, E&&>;
+      std::remove_reference_t<nonvoid_t<E>>&&, nonvoid_t<E>&&>;
   using error_ptr = std::add_pointer_t<std::remove_reference_t<error_ref>>;
 
 #pragma endregion

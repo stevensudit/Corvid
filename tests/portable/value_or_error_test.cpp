@@ -343,6 +343,36 @@ TEST_CASE("VoeMonostate", "[ValueOrErrorTest]") {
   CHECK(failed.maybe_error().value_or("none") == "no permission");
 }
 
+TEST_CASE("VoeVoidWing", "[ValueOrErrorTest]") {
+  // A `void` wing is the spelling for "nothing to carry": it is stored as a
+  // `std::monostate`, so success is returned as `std::monostate{}`.
+  using outcome = value_or_error<void, std::string>;
+  static_assert(std::same_as<outcome::value_type, std::monostate>);
+  outcome ok = std::monostate{};
+  CHECK(ok.has_value());
+  outcome failed = "no permission"s;
+  CHECK_FALSE(failed.has_value());
+  CHECK(failed.as_error() == "no permission");
+
+  // A `void` error fits a result whose failure needs no explanation, and it
+  // composes with default construction being a failure.
+  using attempt = value_or_error<std::string, void>;
+  static_assert(std::same_as<attempt::error_type, std::monostate>);
+  attempt made = "payload"s;
+  CHECK(*made == "payload");
+  attempt refused = {};
+  CHECK_FALSE(refused.has_value());
+  refused = "second try"s;
+  CHECK(refused.has_value());
+  refused = std::monostate{}; // An `E` constructs an error.
+  CHECK_FALSE(refused.has_value());
+
+  // The type follows the specialization, not the storage: the `void` and
+  // `std::monostate` spellings name distinct result types.
+  static_assert(
+      !std::same_as<outcome, value_or_error<std::monostate, std::string>>);
+}
+
 #pragma endregion
 #pragma region References
 
