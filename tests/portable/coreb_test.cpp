@@ -382,9 +382,10 @@ TEST_CASE("CoreB eval atoms and quote", "[coreb]") {
   CHECK(run_err(rt, ev, "(quote a b)") == "quote: expects 1 argument");
 
   // A symbol evaluates to its binding; function values print as display
-  // forms.
+  // forms, a closure's showing its code but not its captured environment.
   CHECK(run(rt, ev, "+") == "#<primitive +>");
-  CHECK(run(rt, ev, "(lambda (x) x)") == "#<lambda>");
+  CHECK(run(rt, ev, "(lambda (x) x)") == "#<lambda (x) x>");
+  CHECK(run(rt, ev, "(lambda () 1 2)") == "#<lambda () 1 2>");
   CHECK(run_err(rt, ev, "y") == "unbound symbol: y");
 }
 
@@ -417,8 +418,9 @@ TEST_CASE("CoreB eval define", "[coreb]") {
   runtime rt;
   evaluator ev(rt);
 
-  // Define binds in the current scope, yields nil, and allows rebinding.
-  CHECK(run(rt, ev, "(define x 5)") == "nil");
+  // Define binds in the current scope, yields the defined name, and allows
+  // rebinding.
+  CHECK(run(rt, ev, "(define x 5)") == "x");
   CHECK(run(rt, ev, "x") == "5");
   CHECK(run(rt, ev, "(define x 6) x") == "6");
 
@@ -442,6 +444,7 @@ TEST_CASE("CoreB eval lambda and closures", "[coreb]") {
 
   CHECK(run(rt, ev, "((lambda (x) x) 42)") == "42");
   CHECK(run(rt, ev, "(define add (lambda (a b) (+ a b))) (add 2 3)") == "5");
+  CHECK(run(rt, ev, "add") == "#<lambda (a b) (+ a b)>");
 
   // The classic closure test: the inner lambda captures its birthplace's
   // `n`, which outlives the call that created it.
@@ -614,9 +617,9 @@ TEST_CASE("CoreB eval persistent runtime", "[coreb]") {
     evaluator ev(rt);
     CHECK(run(rt, ev,
               "(define x 5)"
-              "(define double (lambda (n) (* n 2)))") == "nil");
+              "(define double (lambda (n) (* n 2)))") == "double");
     // Builtins are ordinary bindings, so even rebinding one sticks.
-    CHECK(run(rt, ev, "(define + 42)") == "nil");
+    CHECK(run(rt, ev, "(define + 42)") == "+");
   }
   // The global scope is the runtime's root environment, so a later evaluator
   // over the same runtime sees everything the first one defined; stocking

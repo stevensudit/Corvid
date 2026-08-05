@@ -305,7 +305,8 @@ private:
   }
 
   // Evaluate a `(define name expr)` form: bind `name` in the current scope
-  // to the evaluated expression, and yield nil.
+  // to the evaluated expression, and yield the name, which the REPL then
+  // echoes as confirmation.
   //
   // Definition is where reserved names are policed: `%` names belong to the
   // kernel, and special-form names cannot be rebound.
@@ -321,7 +322,7 @@ private:
     auto init = eval(args[1], env);
     if (!init) return init;
     env.bind(*name, *init);
-    return value{};
+    return args[0];
   }
 
   // Evaluate a `(lambda (params...) body...)` form into a closure capturing

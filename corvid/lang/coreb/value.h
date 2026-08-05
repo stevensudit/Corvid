@@ -277,8 +277,9 @@ public:
   //
   // The output is what the reader accepts: symbols bare, strings quoted and
   // escaped, proper lists as "(a b c)", improper ones dotted. Function values
-  // are the exception: they have no readable form and print as the display
-  // forms "#<lambda>" and "#<primitive name>".
+  // are the exception: they have no readable form and print as display forms,
+  // "#<primitive name>" and "#<lambda (params) body...>", the latter showing
+  // the closure's code but not its captured environment.
   //
   // Nesting deeper than `max_depth` is the other exception: the subtree
   // renders as the display form "#<too deep>" instead of overflowing the C++
@@ -477,6 +478,11 @@ public:
   closure(const closure&) = delete;
   closure& operator=(const closure&) = delete;
 
+  // Append the display form, "#<lambda (params) body...>". Closures have no
+  // readable form: the parameters and body are shown, but the captured
+  // environment has no printed spelling.
+  bool append(std::string& out, size_t depth = 0) const;
+
   std::vector<symbol> params;
   std::vector<value> body;
   environment* env;
@@ -662,10 +668,26 @@ inline bool value::append(std::string& out, size_t depth) const {
   case kind::symbol: out += as_symbol().name(); break;
   case kind::string: v_.get<kind::string>()->append(out); break;
   case kind::cell: return as_cell().append(out, depth);
-  case kind::closure: out += "#<lambda>"; break;
+  case kind::closure: return as_closure().append(out, depth);
   case kind::primitive: as_primitive().append(out); break;
   }
   return true;
+}
+
+inline bool closure::append(std::string& out, size_t depth) const {
+  out += "#<lambda (";
+  for (size_t ndx = 0; ndx < params.size(); ++ndx) {
+    if (ndx) out += ' ';
+    out += params[ndx].name();
+  }
+  out += ')';
+  auto ok = true;
+  for (const auto& form : body) {
+    out += ' ';
+    ok = form.append(out, depth) && ok;
+  }
+  out += '>';
+  return ok;
 }
 
 inline bool value::append_dump(std::string& out, size_t depth) const {
