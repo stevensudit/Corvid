@@ -264,14 +264,28 @@ public:
 #pragma endregion
 #pragma region Printing
 
+  // Maximum nesting depth `append` and `append_dump` render.
+  //
+  // The cap matches `reader::max_depth`, so anything the reader can produce
+  // prints in full, and printing programmatically built structure cannot
+  // exhaust the C++ stack. Only nesting through `head` spends depth; chains
+  // through `tail` are iterated flat in both forms, so list length costs
+  // none.
+  static constexpr size_t max_depth = 256;
+
   // Append the printed s-expression form to `out`.
   //
   // The output is what the reader accepts: symbols bare, strings quoted and
   // escaped, proper lists as "(a b c)", improper ones dotted. Function values
   // are the exception: they have no readable form and print as the display
-  // forms "#<lambda>" and "#<primitive name>". Printing cyclic data (possible
-  // only after mutation) is unsupported and will not terminate.
-  bool append(std::string& out) const;
+  // forms "#<lambda>" and "#<primitive name>".
+  //
+  // Nesting deeper than `max_depth` is the other exception: the subtree
+  // renders as the display form "#<too deep>" instead of overflowing the C++
+  // stack. Returns false if any subtree was truncated this way, true
+  // otherwise. Printing cyclic data (possible only after mutation) is
+  // unsupported; a cycle through `tail` will not terminate.
+  bool append(std::string& out, size_t depth = 0) const;
 
   // Return the printed s-expression form.
   [[nodiscard]] std::string print() const {
@@ -284,13 +298,14 @@ public:
   //
   // Where `append` abbreviates chains of cells into list notation, this shows
   // the raw pair structure in fully dotted form: every cell prints as "(head .
-  // tail)", so "(a b)" dumps as "(a . (b . nil))". Atoms print as in `append`.
+  // tail)", so "(a b)" dumps as "(a . (b . nil))". Atoms print as in `append`,
+  // and depth truncation works as in `append` too.
   //
-  // The output remains valid reader syntax, but re-reading it is subject to
-  // `reader::max_depth`: the dotted form spends one nesting level per list
-  // element where the abbreviated form spends none, so a long proper list
-  // dumps fine yet will not read back.
-  bool append_dump(std::string& out) const;
+  // Display forms and truncation aside, the output is valid reader syntax,
+  // but re-reading it is subject to `reader::max_depth`: the dotted form
+  // spends one nesting level per list element where the abbreviated form
+  // spends none, so a long proper list dumps fine yet will not read back.
+  bool append_dump(std::string& out, size_t depth = 0) const;
 
   // Return the structural debug form.
   [[nodiscard]] std::string dump() const {
@@ -356,34 +371,56 @@ public:
   cell& operator=(const cell&) = delete;
 
   // Append the printed list form to `out`: proper lists as "(a b c)",
-  // improper tails dotted.
-  bool append(std::string& out) const {
+  // improper tails dotted. Returns false if a subtree was truncated for
+  // depth (see `value::max_depth`).
+  bool append(std::string& out, size_t depth = 0) const {
+    if (depth >= value::max_depth) {
+      out += "#<too deep>";
+      return false;
+    }
     out += '(';
+    auto ok = true;
     for (const auto* cur = this;;) {
-      cur->head.append(out);
+      ok = cur->head.append(out, depth + 1) && ok;
       const auto& rest = cur->tail;
       if (rest.is_nil()) break;
       if (!rest.is_cell()) {
         out += " . ";
-        rest.append(out);
+        ok = rest.append(out, depth) && ok;
         break;
       }
       out += ' ';
       cur = &rest.as_cell();
     }
     out += ')';
-    return true;
+    return ok;
   }
 
   // Append the structural debug form to `out`: "(head . tail)", recursing
-  // into both halves, with no list abbreviation.
-  bool append_dump(std::string& out) const {
-    out += '(';
-    head.append_dump(out);
-    out += " . ";
-    tail.append_dump(out);
-    out += ')';
-    return true;
+  // into each head while iterating the tail chain, with no list
+  // abbreviation. Returns false if a subtree was truncated for depth (see
+  // `value::max_depth`).
+  bool append_dump(std::string& out, size_t depth = 0) const {
+    if (depth >= value::max_depth) {
+      out += "#<too deep>";
+      return false;
+    }
+    auto ok = true;
+    size_t opens = 0;
+    for (const auto* cur = this;;) {
+      out += '(';
+      ++opens;
+      ok = cur->head.append_dump(out, depth + 1) && ok;
+      out += " . ";
+      const auto& rest = cur->tail;
+      if (!rest.is_cell()) {
+        ok = rest.append_dump(out, depth) && ok;
+        break;
+      }
+      cur = &rest.as_cell();
+    }
+    out.append(opens, ')');
+    return ok;
   }
 
   value head;
@@ -616,7 +653,7 @@ inline const std::string& value::as_string() const {
 inline value value::head() const { return as_cell().head; }
 inline value value::tail() const { return as_cell().tail; }
 
-inline bool value::append(std::string& out) const {
+inline bool value::append(std::string& out, size_t depth) const {
   switch (type()) {
   case kind::nil: out += "nil"; break;
   case kind::boolean: out += (as_bool() ? "true" : "false"); break;
@@ -624,16 +661,16 @@ inline bool value::append(std::string& out) const {
   case kind::floating: do_append_float(out, as_float()); break;
   case kind::symbol: out += as_symbol().name(); break;
   case kind::string: v_.get<kind::string>()->append(out); break;
-  case kind::cell: as_cell().append(out); break;
+  case kind::cell: return as_cell().append(out, depth);
   case kind::closure: out += "#<lambda>"; break;
   case kind::primitive: as_primitive().append(out); break;
   }
   return true;
 }
 
-inline bool value::append_dump(std::string& out) const {
-  if (is_cell()) return as_cell().append_dump(out);
-  return append(out);
+inline bool value::append_dump(std::string& out, size_t depth) const {
+  if (is_cell()) return as_cell().append_dump(out, depth);
+  return append(out, depth);
 }
 
 #pragma endregion

@@ -96,8 +96,9 @@ struct read_error final {
 // where "plain" is any character but '"' or '\', "char" is any character that
 // is not a delimiter (whitespace, parentheses, '"', ';', '\''), a dotted tail
 // requires at least one preceding element, and the "." must stand alone as a
-// token. `read_one` accepts a single trivia-surrounded `expr`; `read_all`
-// accepts `unit`.
+// token. A lone "." is dotted-tail punctuation only, not an atom, so anywhere
+// else it is an error. `read_one` accepts a single trivia-surrounded `expr`;
+// `read_all` accepts `unit`.
 //
 // Failure is reported by value as a `read_error`; nesting deeper than
 // `max_depth` is rejected rather than risking stack exhaustion.
@@ -355,6 +356,9 @@ private:
       while (!is_delimiter(peek())) consume();
       const auto token = src.substr(start, pos - start);
       if (token.empty()) return fail("unexpected character");
+      // A lone '.' reaching here is outside a dotted tail (`parse_list`
+      // intercepts the valid ones), so it is never a symbol.
+      if (token == ".") return fail_at(start, "misplaced '.'");
       if (token == "nil") return value{};
       if (token == "true") return value{true};
       if (token == "false") return value{false};

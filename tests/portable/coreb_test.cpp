@@ -138,6 +138,28 @@ TEST_CASE("CoreB values", "[coreb]") {
     // Atoms dump as they print.
     CHECK(value{7}.dump() == "7");
   }
+  SECTION("printing depth") {
+    // List length costs no printing depth: a long flat list prints, and
+    // dumps, in full.
+    value flat;
+    for (size_t ndx = 0; ndx < 1000; ++ndx) flat = rt.cons(value{1}, flat);
+    std::string out;
+    CHECK(flat.append(out));
+    out.clear();
+    CHECK(flat.append_dump(out));
+
+    // Nesting through heads past the cap renders as a display form instead
+    // of overflowing the C++ stack, and the return reports the truncation.
+    value deep;
+    for (size_t ndx = 0; ndx < value::max_depth + 10; ++ndx)
+      deep = rt.cons(deep, value{});
+    out.clear();
+    CHECK_FALSE(deep.append(out));
+    CHECK(out == std::string(value::max_depth, '(') + "#<too deep>" +
+                     std::string(value::max_depth, ')'));
+    out.clear();
+    CHECK_FALSE(deep.append_dump(out));
+  }
   SECTION("maybe accessors") {
     // Test and access in one step: the result is empty for a kind mismatch
     // and offers optional semantics like `value_or`.
@@ -202,6 +224,8 @@ TEST_CASE("CoreB reader atoms", "[coreb]") {
   // Signs alone are symbols, not numbers.
   CHECK(read("+").is_symbol());
   CHECK(read("-").is_symbol());
+  // Only the lone '.' is punctuation; multi-dot tokens are ordinary symbols.
+  CHECK(read("...").is_symbol());
 
   constexpr auto int_max = std::numeric_limits<int64_t>::max();
   CHECK(read("9223372036854775807").as_int() == int_max);
@@ -311,6 +335,9 @@ TEST_CASE("CoreB reader errors", "[coreb]") {
   CHECK(err("(. 1)").message == "misplaced '.'");
   CHECK(err("(1 . )").message == "expected expression after '.'");
   CHECK(err("(1 . 2 3)").message == "expected ')' after dotted tail");
+  // A lone '.' is dotted-tail punctuation, not an atom, even at top level.
+  CHECK(err(".").message == "misplaced '.'");
+  CHECK(err("'.").message == "misplaced '.'");
 
   // The incomplete flag marks the errors more input could repair, which is
   // how a REPL decides to keep reading rather than report.
@@ -477,6 +504,13 @@ TEST_CASE("CoreB eval tail calls", "[coreb]") {
             "(define even? (lambda (n) (if (= n 0) true (odd? (- n 1)))))"
             "(define odd? (lambda (n) (if (= n 0) false (even? (- n 1)))))"
             "(even? 100001)") == "false");
+
+  // `begin`'s finale is a tail position too: routed through it, the loop
+  // still runs in constant stack.
+  CHECK(run(rt, ev,
+            "(define loop2 (lambda (n)"
+            "  (begin 0 (if (= n 0) 'done (loop2 (- n 1))))))"
+            "(loop2 100000)") == "done");
 
   // Non-tail recursion is the contrast: the multiply happens after the
   // recursive call returns, so each level consumes real depth and the guard
