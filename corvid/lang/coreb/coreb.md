@@ -1,6 +1,6 @@
 # CoreB
 
-CoreB is a yet another Lisp dialect, this time with a surface syntax closer to Python or Pascal than to parentheses, written in the spirit of Rhombus and Dylan and infected by decades of C++. It is bootstrapped by a small C++ kernel and otherwise written in itself. The name is a pun on "corbie", Scots for crow. There is no CoreA.
+CoreB is yet another Lisp dialect, this time with a surface syntax closer to Python or Pascal than to parentheses, written in the spirit of Rhombus and Dylan and infected by decades of C++. It is bootstrapped by a small C++ kernel and otherwise written in itself. The name is a pun on "corbie", Scots for crow. There is no CoreA.
 
 It exists because the only way to avoid being destroyed by [Greenspun's tenth rule](https://en.wikipedia.org/wiki/Greenspun%27s_tenth_rule) is to embrace it. Also, it seemed like a good idea at the time.
 
@@ -14,7 +14,7 @@ This document is the design record and status tracker for the project. It is wri
 Goals:
 
 - Learning. The point is to build a language from scratch and understand every part of it.
-- Teaching. The code is self-explanatory to the level where reading it teaches the language..
+- Teaching. The code is self-explanatory to the level where reading it teaches the language.
 - A Lisp-1 with full macro power, reachable through a syntax that does not repel people who dislike parentheses.
 - Self-hosting: the C++ kernel stays minimal, and as much of the language as possible is written in CoreB itself.
 
