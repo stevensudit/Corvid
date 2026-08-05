@@ -17,12 +17,14 @@
 #pragma once
 
 #include <cassert>
+#include <cstddef>
 #include <limits>
 #include <memory>
 #include <type_traits>
 #include <utility>
 
 #include "../containers/utils/enum_vector.h"
+#include "../enums/bool_enums.h"
 #include "entity_ids.h"
 
 namespace corvid { inline namespace ecs { inline namespace id_containers {
@@ -121,8 +123,18 @@ public:
     return data_.size_as_enum();
   }
 
+  // Capacity, saturated at the maximum representable value.
+  //
+  // The underlying vector may over-allocate past the ID domain during growth;
+  // such capacity is unusable, so it is reported as the maximum rather than
+  // truncated.
   [[nodiscard]] size_type capacity() const noexcept {
-    return static_cast<size_type>(data_.capacity());
+    const auto cap = data_.capacity();
+    if constexpr (sizeof(size_type) < sizeof(size_t)) {
+      constexpr auto max_cap = std::numeric_limits<size_type>::max();
+      if (cap > max_cap) return max_cap;
+    }
+    return static_cast<size_type>(cap);
   }
 
   [[nodiscard]] bool empty() const noexcept { return data_.empty(); }
@@ -227,7 +239,7 @@ public:
   [[nodiscard]] auto cbegin() const noexcept { return data_.cbegin(); }
   [[nodiscard]] auto cend() const noexcept { return data_.cend(); }
 
-  // Direct access to the underlying enum_vector.
+  // Direct access to the underlying `std::vector`.
   [[nodiscard]] decltype(auto) underlying(this auto& self) noexcept {
     return self.data_.underlying();
   }

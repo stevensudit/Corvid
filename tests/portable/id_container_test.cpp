@@ -16,6 +16,7 @@
 // limitations under the License.
 
 #include <cstddef>
+#include <cstdint>
 #include <stdexcept>
 #include <vector>
 
@@ -28,6 +29,12 @@ using namespace corvid;
 // Aliased to eid_t to avoid collision with the POSIX ::id_t from sys/types.h.
 using eid_t = corvid::ecs::id_enums::entity_id_t;
 using container_t = id_container<int, eid_t>;
+
+// Enum with a narrow underlying type, for the capacity saturation pin.
+enum class small_id_t : uint8_t { invalid = 255 };
+consteval auto corvid_enum_spec(small_id_t*) {
+  return corvid::enums::sequence::make_sequence_enum_spec<small_id_t, "">();
+}
 
 // NOLINTBEGIN(readability-function-cognitive-complexity)
 
@@ -508,6 +515,22 @@ TEST_CASE("Allocator", "[IdContainer]") {
     container_t c{eid_t{10}, allocation_policy::lazy, alloc};
     CHECK(c.id_limit() == eid_t{10});
     CHECK(c.empty());
+  }
+}
+
+#pragma endregion
+#pragma region NarrowId
+
+TEST_CASE("NarrowId", "[IdContainer]") {
+  // An 8-bit ID caps the container at 255 slots, since ID 255 is `invalid`.
+  // The vector may still over-allocate past 255 while growing; capacity()
+  // reports such overshoot saturated at the maximum, not truncated.
+  if (true) {
+    id_container<int, small_id_t> c;
+    for (int i = 0; i < 255; ++i) REQUIRE(c.push_back(i));
+    CHECK(c.size() == 255U);
+    CHECK_FALSE(c.push_back(255));
+    CHECK(c.capacity() >= c.size());
   }
 }
 
