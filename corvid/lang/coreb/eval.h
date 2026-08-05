@@ -17,6 +17,7 @@
 #pragma once
 #include <cassert>
 #include <compare>
+#include <concepts>
 #include <cstddef>
 #include <cstdint>
 #include <limits>
@@ -150,7 +151,8 @@ private:
 #pragma region Evaluation
 
   // The outcome of dispatching one form: either a finished evaluation or a
-  // tail expression, the next expression to evaluate in tail position.
+  // tail expression, which is the next expression to evaluate in tail
+  // position.
   class step final {
   public:
     // Build a step over the fully-evaluated `v`.
@@ -191,6 +193,8 @@ private:
   };
 
   // Wrap a finished evaluation as a step.
+  //
+  // Maps a `value` `result` to a `step` result.
   [[nodiscard]] static result<step> finish_step(result<value> r) {
     if (!r) return std::move(r);
     return step::make_evaluated(*r);
@@ -402,32 +406,6 @@ private:
     return "expects numbers, got: " + v.print();
   }
 
-  // A kernel number: an exact `int64_t` or a `double`.
-  //
-  // Arithmetic stays exact while it can and switches to floating point when
-  // a float operand appears or integer math overflows. This is the same
-  // fallback the reader applies to oversized integer literals.
-  struct number final {
-    int64_t i{};
-    double d{};
-    bool exact = true;
-
-    // The number `v` holds, or empty if `v` is not numeric.
-    [[nodiscard]] static std::optional<number> from(value v) noexcept {
-      if (const auto n = v.maybe_int()) return number{.i = *n};
-      if (const auto d = v.maybe_float())
-        return number{.d = *d, .exact = false};
-      return std::nullopt;
-    }
-
-    [[nodiscard]] value as_value() const noexcept {
-      return exact ? value{i} : value{d};
-    }
-    [[nodiscard]] double as_double() const noexcept {
-      return exact ? static_cast<double>(i) : d;
-    }
-  };
-
   // Checked int64 addition, subtraction, and multiplication; empty on
   // overflow. Implemented over uint64, whose wraparound is well-defined.
   [[nodiscard]] static std::optional<int64_t>
@@ -464,58 +442,98 @@ private:
     return prod;
   }
 
-  // Arithmetic in the numeric tower.
-  [[nodiscard]] static number add(number a, number b) noexcept {
-    if (a.exact && b.exact)
-      if (const auto n = checked_add(a.i, b.i)) return number{.i = *n};
-    return number{.d = a.as_double() + b.as_double(), .exact = false};
-  }
-  [[nodiscard]] static number sub(number a, number b) noexcept {
-    if (a.exact && b.exact)
-      if (const auto n = checked_sub(a.i, b.i)) return number{.i = *n};
-    return number{.d = a.as_double() - b.as_double(), .exact = false};
-  }
-  [[nodiscard]] static number mul(number a, number b) noexcept {
-    if (a.exact && b.exact)
-      if (const auto n = checked_mul(a.i, b.i)) return number{.i = *n};
-    return number{.d = a.as_double() * b.as_double(), .exact = false};
-  }
-
-  // Divide in the numeric tower; empty on an exact zero divisor.
+  // A kernel number: an exact `int64_t` or a `double`.
   //
-  // An exact quotient stays exact only when the division is even; a
-  // remainder falls to double, there being no ratio type. A float zero
-  // divisor is not an error: IEEE yields an infinity or NaN.
-  [[nodiscard]] static std::optional<number> div(number a, number b) noexcept {
-    if (b.exact && b.i == 0) return std::nullopt;
-    if (a.exact && b.exact) {
-      // min / -1 overflows (and min % -1 is UB); checked negation covers
-      // both.
-      if (b.i == -1) {
-        if (const auto n = checked_sub(0, a.i)) return number{.i = *n};
-      } else if (a.i % b.i == 0) {
-        return number{.i = a.i / b.i};
-      }
+  // Arithmetic stays exact while it can and switches to floating point when a
+  // float operand appears or integer math overflows. This is the same fallback
+  // the reader applies to oversized integer literals.
+  //
+  // Which representation a number holds is decided by which constructor built
+  // it, and only the members see the representation.
+  class number final {
+  public:
+    // Default is exact zero. An integral value is exact, widened to `int64_t`;
+    // a floating value is inexact, widened to `double`.
+    constexpr number() noexcept = default;
+    template<std::integral N>
+    constexpr number(N n) noexcept : i_{n} {}
+    template<std::floating_point F>
+    constexpr number(F d) noexcept : d_{d}, exact_{false} {}
+
+    // The number `v` holds, or empty if `v` is not numeric.
+    [[nodiscard]] static std::optional<number> from(value v) noexcept {
+      if (const auto n = v.maybe_int()) return number{*n};
+      if (const auto d = v.maybe_float()) return number{*d};
+      return std::nullopt;
     }
-    return number{.d = a.as_double() / b.as_double(), .exact = false};
-  }
+
+    [[nodiscard]] value as_value() const noexcept {
+      return exact_ ? value{i_} : value{d_};
+    }
+    [[nodiscard]] double as_double() const noexcept {
+      return exact_ ? static_cast<double>(i_) : d_;
+    }
+
+    // Arithmetic in the numeric tower.
+    [[nodiscard]] number add(number b) const noexcept {
+      if (exact_ && b.exact_)
+        if (const auto n = checked_add(i_, b.i_)) return number{*n};
+      return number{as_double() + b.as_double()};
+    }
+    [[nodiscard]] number sub(number b) const noexcept {
+      if (exact_ && b.exact_)
+        if (const auto n = checked_sub(i_, b.i_)) return number{*n};
+      return number{as_double() - b.as_double()};
+    }
+    [[nodiscard]] number mul(number b) const noexcept {
+      if (exact_ && b.exact_)
+        if (const auto n = checked_mul(i_, b.i_)) return number{*n};
+      return number{as_double() * b.as_double()};
+    }
+
+    // Divide in the numeric tower; empty on an exact zero divisor.
+    //
+    // An exact quotient stays exact only when the division is even; a
+    // remainder falls to double, there being no ratio type. A float zero
+    // divisor is not an error: IEEE yields an infinity or NaN.
+    [[nodiscard]] std::optional<number> div(number b) const noexcept {
+      if (b.exact_ && b.i_ == 0) return std::nullopt;
+      if (exact_ && b.exact_) {
+        // min / -1 overflows (and min % -1 is UB); checked negation covers
+        // both.
+        if (b.i_ == -1) {
+          if (const auto n = checked_sub(0, i_)) return number{*n};
+        } else if (i_ % b.i_ == 0) {
+          return number{i_ / b.i_};
+        }
+      }
+      return number{as_double() / b.as_double()};
+    }
+
+    // Compare, exactly when both sides are exact.
+    //
+    // A mixed pair promotes the int to double, which is approximate past 2^53.
+    // NaN compares unordered, so every comparison against it is false except
+    // `!=`.
+    [[nodiscard]] std::partial_ordering compare(number b) const noexcept {
+      if (exact_ && b.exact_) return i_ <=> b.i_;
+      return as_double() <=> b.as_double();
+    }
+
+  private:
+    int64_t i_{};
+    double d_{};
+    bool exact_ = true;
+  };
 
   // Compare two numeric values.
-  //
-  // Exact ints compare exactly; a mixed pair promotes the int to double,
-  // which is approximate past 2^53. NaN compares unordered, so every
-  // comparison against it is false except `!=`.
   [[nodiscard]] static value_or_error<std::partial_ordering, std::string>
   compare_nums(value a, value b) {
     const auto na = number::from(a);
     if (!na) return not_numeric(a);
     const auto nb = number::from(b);
     if (!nb) return not_numeric(b);
-    // The int comparison is strong, but the return type unifies on partial;
-    // no template converting constructor means the widening is spelled here.
-    if (na->exact && nb->exact)
-      return static_cast<std::partial_ordering>(na->i <=> nb->i);
-    return na->as_double() <=> nb->as_double();
+    return na->compare(*nb);
   }
 
   // Chain a comparison across adjacent argument pairs: `(< a b c)` is true
@@ -537,7 +555,7 @@ private:
     for (const auto& arg : args) {
       const auto n = number::from(arg);
       if (!n) return not_numeric(arg);
-      acc = add(acc, *n);
+      acc = acc.add(*n);
     }
     return acc.as_value();
   }
@@ -547,23 +565,23 @@ private:
     if (args.empty()) return "expects at least 1 argument"s;
     const auto first = number::from(args[0]);
     if (!first) return not_numeric(args[0]);
-    if (args.size() == 1) return sub(number{}, *first).as_value();
+    if (args.size() == 1) return number{}.sub(*first).as_value();
     auto acc = *first;
     for (const auto& arg : args.subspan(1)) {
       const auto n = number::from(arg);
       if (!n) return not_numeric(arg);
-      acc = sub(acc, *n);
+      acc = acc.sub(*n);
     }
     return acc.as_value();
   }
 
   // The `*` builtin: n-ary multiplication; no arguments yield 1.
   static prim_result prim_mul(runtime&, std::span<const value> args) {
-    auto acc = number{.i = 1};
+    auto acc = number{1};
     for (const auto& arg : args) {
       const auto n = number::from(arg);
       if (!n) return not_numeric(arg);
-      acc = mul(acc, *n);
+      acc = acc.mul(*n);
     }
     return acc.as_value();
   }
@@ -575,14 +593,14 @@ private:
     if (!first) return not_numeric(args[0]);
     auto acc = *first;
     if (args.size() == 1) {
-      const auto r = div(number{.i = 1}, acc);
+      const auto r = number{1}.div(acc);
       if (!r) return "division by zero"s;
       return r->as_value();
     }
     for (const auto& arg : args.subspan(1)) {
       const auto n = number::from(arg);
       if (!n) return not_numeric(arg);
-      const auto r = div(acc, *n);
+      const auto r = acc.div(*n);
       if (!r) return "division by zero"s;
       acc = *r;
     }
