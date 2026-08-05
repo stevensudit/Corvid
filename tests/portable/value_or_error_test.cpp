@@ -83,6 +83,7 @@ TEST_CASE("VoeConstruction", "[ValueOrErrorTest]") {
     parsed m{std::move(q)};
     CHECK(*m == 42);
     parsed e = "oops"s;
+    // NOLINTNEXTLINE(performance-unnecessary-copy-initialization)
     parsed f{e};
     CHECK(f.as_error() == "oops");
   }
@@ -383,6 +384,7 @@ TEST_CASE("VoeReferences", "[ValueOrErrorTest]") {
   // A reference result hands back the caller's own object, not a copy.
   const auto name =
       "a name long enough to defeat the small-string optimization"s;
+  // NOLINTNEXTLINE(performance-no-automatic-move): binds a reference; no move.
   auto say_my_name = [&]() -> name_ref { return name; };
   auto r = say_my_name();
   REQUIRE(r.has_value());
@@ -438,6 +440,7 @@ TEST_CASE("VoePointerWings", "[ValueOrErrorTest]") {
   // wing, now holding an empty pointer.
   auto owned = *std::move(r);
   CHECK(*owned == 42);
+  // NOLINTNEXTLINE(bugprone-use-after-move): inspecting the husk is the point.
   CHECK(r.has_value());
   CHECK(!*r);
 
