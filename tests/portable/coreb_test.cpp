@@ -67,7 +67,7 @@ std::string run_err(runtime& rt, evaluator& ev, std::string_view src) {
   REQUIRE(forms.has_value());
   for (const auto& form : *forms) {
     auto v = ev.eval(form);
-    if (!v) return v.as_error().message;
+    if (!v) return v.as_error().reason;
   }
   FAIL("evaluation succeeded");
   return {};

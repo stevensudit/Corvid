@@ -34,6 +34,8 @@
 
 namespace corvid { inline namespace lang { namespace coreb {
 
+using namespace std::literals;
+
 // CoreB evaluator.
 //
 // Evaluates the s-expressions the reader produces: lexical environments,
@@ -48,14 +50,7 @@ namespace corvid { inline namespace lang { namespace coreb {
 #pragma region eval_error
 
 // Description of a failed evaluation.
-//
-// A distinct struct rather than a bare `std::string`, so that a finished
-// evaluator error is a different type from the raw message fragments
-// primitives return, and so it can grow structure (as `read_error` has)
-// without touching call sites.
-struct eval_error final {
-  std::string message;
-};
+using eval_error = error_value<struct EvalTag>;
 
 #pragma endregion
 #pragma region evaluator
@@ -125,7 +120,7 @@ public:
   // Evaluate `expr` in `env`.
   [[nodiscard]] result<value> eval(value expr, environment& env) {
     scoped_value guard(depth_, depth_ + 1);
-    if (depth_ >= max_depth) return fail("evaluation too deep");
+    if (depth_ >= max_depth) return eval_error{"evaluation too deep"};
 
     // Each pass handles one expression. A step that hands back a tail
     // expression re-enters the loop instead of recursing in C++; that is the
@@ -195,11 +190,6 @@ private:
     bool tail_;
   };
 
-  // Build a failure.
-  [[nodiscard]] static eval_error fail(std::string message) {
-    return eval_error{std::move(message)};
-  }
-
   // Wrap a finished evaluation as a step.
   [[nodiscard]] static result<step> finish_step(result<value> r) {
     if (!r) return std::move(r);
@@ -210,7 +200,7 @@ private:
   [[nodiscard]] static result<value>
   eval_symbol(symbol name, const environment& env) {
     if (const auto found = env.lookup(name)) return *found;
-    return fail("unbound symbol: " + name.name());
+    return eval_error{"unbound symbol: " + name.name()};
   }
 
   // Evaluate a cell, `(op . args)`: a special form or an ordinary call.
@@ -220,7 +210,7 @@ private:
     // Flatten the cell list into a vector of arguments.
     auto args = std::vector<value>{};
     if (!append_elements(args, expr.tail()))
-      return fail("improper form: " + expr.print());
+      return eval_error{"improper form: " + expr.print()};
 
     // If it's a special symbol, dispatch to its evaluation rule; otherwise,
     // it's a call.
@@ -235,13 +225,13 @@ private:
   [[nodiscard]] result<step>
   eval_special(symbol form, std::span<const value> args, environment& env) {
     if (form == quote_) {
-      if (args.size() != 1) return fail("quote: expects 1 argument");
+      if (args.size() != 1) return eval_error{"quote: expects 1 argument"};
       // Ironically, it's not actually evaluated, which is the whole point.
       return step::make_evaluated(args[0]);
     }
     if (form == if_) {
       if (args.size() < 2 || args.size() > 3)
-        return fail("if: expects 2 or 3 arguments");
+        return eval_error{"if: expects 2 or 3 arguments"};
       auto cond = eval(args[0], env);
       if (!cond) return cond;
       if (cond->is_truthy()) return step::make_tail_expr(args[1]);
@@ -280,7 +270,7 @@ private:
       return finish_step(apply_primitive(*prim, args));
 
     const auto fun = callee->maybe_closure();
-    if (!fun) return fail("not callable: " + callee->print());
+    if (!fun) return eval_error{"not callable: " + callee->print()};
 
     auto frame = bind_frame(*fun, args);
     if (!frame) return frame;
@@ -317,12 +307,13 @@ private:
   // kernel, and special-form names cannot be rebound.
   [[nodiscard]] result<value>
   eval_define(std::span<const value> args, environment& env) {
-    if (args.size() != 2) return fail("define: expects a name and a value");
+    if (args.size() != 2)
+      return eval_error{"define: expects a name and a value"};
     const auto name = args[0].maybe_symbol();
     if (!name)
-      return fail("define: expects a symbol, got: " + args[0].print());
+      return eval_error{"define: expects a symbol, got: " + args[0].print()};
     if (auto objection = check_bindable(*name))
-      return fail(std::move(*objection));
+      return eval_error{std::move(*objection)};
     auto init = eval(args[1], env);
     if (!init) return init;
     env.bind(*name, *init);
@@ -334,10 +325,10 @@ private:
   [[nodiscard]] result<value>
   eval_lambda(std::span<const value> args, environment& env) {
     if (args.size() < 2)
-      return fail("lambda: expects a parameter list and a body");
+      return eval_error{"lambda: expects a parameter list and a body"};
     std::vector<symbol> params;
     if (auto objection = parse_params(args[0], params))
-      return fail(std::move(*objection));
+      return eval_error{std::move(*objection)};
     return rt_.make_closure(std::move(params), {args.begin() + 1, args.end()},
         env);
   }
@@ -384,8 +375,9 @@ private:
   [[nodiscard]] result<environment*>
   bind_frame(const closure& fun, std::span<const value> args) {
     if (args.size() != fun.params.size())
-      return fail("lambda: expects " + std::to_string(fun.params.size()) +
-                  " arguments, got " + std::to_string(args.size()));
+      return eval_error{
+          "lambda: expects " + std::to_string(fun.params.size()) +
+          " arguments, got " + std::to_string(args.size())};
     auto& frame = rt_.make_env(*fun.env);
     for (size_t ndx = 0; ndx < args.size(); ++ndx)
       frame.bind(fun.params[ndx], args[ndx]);
@@ -396,7 +388,7 @@ private:
   [[nodiscard]] result<value>
   apply_primitive(const primitive& prim, std::span<const value> args) {
     auto r = prim.fn(rt_, args);
-    if (!r) return fail(prim.name.name() + ": " + std::move(r).as_error());
+    if (!r) return eval_error{prim.name.name() + ": " + r.as_error()};
     return *r;
   }
 
@@ -405,14 +397,9 @@ private:
 
   using prim_result = value_or_error<value, std::string>;
 
-  // Build a primitive failure.
-  [[nodiscard]] static std::string prim_fail(std::string message) {
-    return message;
-  }
-
   // Build a primitive failure over a non-numeric operand.
   [[nodiscard]] static std::string not_numeric(value v) {
-    return prim_fail("expects numbers, got: " + v.print());
+    return "expects numbers, got: " + v.print();
   }
 
   // A kernel number: an exact `int64_t` or a `double`.
@@ -535,7 +522,7 @@ private:
   // when a < b and b < c.
   template<typename Pred>
   static prim_result chain_compare(std::span<const value> args, Pred keep) {
-    if (args.size() < 2) return prim_fail("expects at least 2 arguments");
+    if (args.size() < 2) return "expects at least 2 arguments"s;
     for (size_t ndx = 0; ndx + 1 < args.size(); ++ndx) {
       auto ord = compare_nums(args[ndx], args[ndx + 1]);
       if (!ord) return ord;
@@ -557,7 +544,7 @@ private:
 
   // The `-` builtin: subtraction folding left; one argument negates.
   static prim_result prim_sub(runtime&, std::span<const value> args) {
-    if (args.empty()) return prim_fail("expects at least 1 argument");
+    if (args.empty()) return "expects at least 1 argument"s;
     const auto first = number::from(args[0]);
     if (!first) return not_numeric(args[0]);
     if (args.size() == 1) return sub(number{}, *first).as_value();
@@ -583,20 +570,20 @@ private:
 
   // The `/` builtin: division folding left; one argument divides 1 by it.
   static prim_result prim_div(runtime&, std::span<const value> args) {
-    if (args.empty()) return prim_fail("expects at least 1 argument");
+    if (args.empty()) return "expects at least 1 argument"s;
     const auto first = number::from(args[0]);
     if (!first) return not_numeric(args[0]);
     auto acc = *first;
     if (args.size() == 1) {
       const auto r = div(number{.i = 1}, acc);
-      if (!r) return prim_fail("division by zero");
+      if (!r) return "division by zero"s;
       return r->as_value();
     }
     for (const auto& arg : args.subspan(1)) {
       const auto n = number::from(arg);
       if (!n) return not_numeric(arg);
       const auto r = div(acc, *n);
-      if (!r) return prim_fail("division by zero");
+      if (!r) return "division by zero"s;
       acc = *r;
     }
     return acc.as_value();
@@ -633,7 +620,7 @@ private:
   // arguments, because chaining adjacent inequality is a trap: `(!= 1 2 1)`
   // would be true.
   static prim_result prim_ne(runtime&, std::span<const value> args) {
-    if (args.size() != 2) return prim_fail("expects 2 arguments");
+    if (args.size() != 2) return "expects 2 arguments"s;
     auto ord = compare_nums(args[0], args[1]);
     if (!ord) return ord;
     return value{!std::is_eq(*ord)};
@@ -641,28 +628,28 @@ private:
 
   // The `cons` builtin: construct a cell.
   static prim_result prim_cons(runtime& rt, std::span<const value> args) {
-    if (args.size() != 2) return prim_fail("expects 2 arguments");
+    if (args.size() != 2) return "expects 2 arguments"s;
     return rt.cons(args[0], args[1]);
   }
 
   // The `head` and `tail` builtins: the halves of a cell.
   static prim_result prim_head(runtime&, std::span<const value> args) {
-    if (args.size() != 1) return prim_fail("expects 1 argument");
+    if (args.size() != 1) return "expects 1 argument"s;
     const auto c = args[0].maybe_cell();
-    if (!c) return prim_fail("expects a cell, got: " + args[0].print());
+    if (!c) return "expects a cell, got: " + args[0].print();
     return c->head;
   }
   static prim_result prim_tail(runtime&, std::span<const value> args) {
-    if (args.size() != 1) return prim_fail("expects 1 argument");
+    if (args.size() != 1) return "expects 1 argument"s;
     const auto c = args[0].maybe_cell();
-    if (!c) return prim_fail("expects a cell, got: " + args[0].print());
+    if (!c) return "expects a cell, got: " + args[0].print();
     return c->tail;
   }
 
   // The `nil?` builtin: whether the argument is nil, and so also whether it
   // is the empty list.
   static prim_result prim_nil(runtime&, std::span<const value> args) {
-    if (args.size() != 1) return prim_fail("expects 1 argument");
+    if (args.size() != 1) return "expects 1 argument"s;
     return value{args[0].is_nil()};
   }
 

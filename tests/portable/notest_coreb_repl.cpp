@@ -53,7 +53,7 @@ int main() {
     for (const auto& form : *forms) {
       const auto v = ev.eval(form);
       if (!v) {
-        std::cout << "error: " << v.as_error().message << '\n';
+        std::cout << "error: " << v.as_error().reason << '\n';
         break;
       }
       std::cout << v->print() << '\n';
