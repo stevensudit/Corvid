@@ -15,18 +15,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 #pragma once
-#include "containers/core/hash_combiner.h"
-#include "containers/utils/enum_vector.h"
-#include "containers/core/optional_ptr.h"
-#include "containers/core/opt_find.h"
-#include "containers/core/transparent.h"
-#include "containers/utils/interval.h"
-#include "containers/core/indirect_key.h"
-#include "containers/utils/intern.h"
-#include "containers/core/circular_buffer.h"
-#include "containers/core/strong_type.h"
-#include "containers/core/enum_variant.h"
-#include "containers/core/value_or_error.h"
-#include "containers/core/fixed_bitset.h"
-#include "containers/core/scoped_value.h"
-#include "containers/utils/object_pool.h"
+
+// CoreB: a Lisp-1 bootstrapped in C++.
+//
+// Umbrella header for the kernel; the language design and roadmap live in
+// "coreb.md".
+#include "value.h"
+#include "reader.h"
+#include "eval.h"

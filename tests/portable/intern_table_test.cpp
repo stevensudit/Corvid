@@ -26,7 +26,6 @@
 
 using namespace std::literals;
 using namespace corvid;
-using namespace corvid::internal;
 
 // NOLINTBEGIN(readability-function-cognitive-complexity)
 

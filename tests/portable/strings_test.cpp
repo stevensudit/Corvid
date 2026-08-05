@@ -3197,6 +3197,146 @@ TEST_CASE("DelimFormats", "[StringUtilsTest]") {
 }
 
 #pragma endregion
+#pragma region Escaping
+
+TEST_CASE("Escaping", "[StringUtilsTest]") {
+  SECTION("append_escaped by character") {
+    std::string out;
+    auto put = [&out](char c) {
+      out += c;
+      return true;
+    };
+    CHECK(strings::append_escaped('a', put));
+    CHECK(strings::append_escaped('"', put));
+    CHECK(strings::append_escaped('\\', put));
+    CHECK(strings::append_escaped('\t', put));
+    CHECK(strings::append_escaped('\n', put));
+    CHECK(strings::append_escaped('\r', put));
+    CHECK(strings::append_escaped('\x1f', put));
+    CHECK(out == R"(a\"\\\t\n\r\u{1f})");
+  }
+  SECTION("append_escaped_ucode digit widths") {
+    std::string out;
+    auto put = [&out](char c) {
+      out += c;
+      return true;
+    };
+    CHECK(strings::append_escaped_ucode(0x00, put));
+    CHECK(strings::append_escaped_ucode(0x0f, put));
+    CHECK(strings::append_escaped_ucode(0x10, put));
+    CHECK(strings::append_escaped_ucode(0xff, put));
+    CHECK(out == R"(\u{0}\u{f}\u{10}\u{ff})");
+  }
+  SECTION("append_escaped whole string") {
+    std::string out;
+    CHECK(strings::append_escaped(out, "say \"hi\"\t"));
+    CHECK(out == R"(say \"hi\"\t)");
+    out.clear();
+    CHECK(strings::append_escaped(out, "\x01\x7f"));
+    CHECK(out == R"(\u{1}\u{7f})");
+  }
+  SECTION("parse_u_code") {
+    char ch{};
+    auto sv = R"(\u{1f}rest)"sv;
+    CHECK(strings::parse_u_code(sv, ch));
+    CHECK(ch == '\x1f');
+    CHECK(sv == "rest");
+
+    sv = R"(\u{f})"sv;
+    CHECK(strings::parse_u_code(sv, ch));
+    CHECK(ch == '\x0f');
+    CHECK(sv.empty());
+
+    // Leading zeros are legal while the value fits a byte.
+    sv = R"(\u{00ff})"sv;
+    CHECK(strings::parse_u_code(sv, ch));
+    CHECK(ch == '\xff');
+
+    // Failure leaves the view unchanged.
+    const auto reject = [](std::string_view bad) {
+      char c{};
+      const auto save = bad;
+      const auto parsed = strings::parse_u_code(bad, c);
+      return !parsed && bad == save;
+    };
+    CHECK(reject(R"(\u{})"));    // no digits
+    CHECK(reject(R"(\u{100})")); // over 0xff
+    CHECK(reject(R"(\u{zz})"));  // not hex
+    CHECK(reject(R"(\u{1f)"));   // unterminated
+    CHECK(reject(R"(\x{1f})"));  // wrong introducer
+    CHECK(reject("plain"));
+  }
+  SECTION("parse_escaped single") {
+    char ch{};
+    auto sv = R"(\n\t\r\"\\x)"sv;
+    CHECK(strings::parse_escaped(sv, ch));
+    CHECK(ch == '\n');
+    CHECK(strings::parse_escaped(sv, ch));
+    CHECK(ch == '\t');
+    CHECK(strings::parse_escaped(sv, ch));
+    CHECK(ch == '\r');
+    CHECK(strings::parse_escaped(sv, ch));
+    CHECK(ch == '"');
+    CHECK(strings::parse_escaped(sv, ch));
+    CHECK(ch == '\\');
+    // What remains is plain text, not an escape.
+    CHECK_FALSE(strings::parse_escaped(sv, ch));
+    CHECK(sv == "x");
+
+    sv = R"(\u{41}z)"sv;
+    CHECK(strings::parse_escaped(sv, ch));
+    CHECK(ch == 'A');
+    CHECK(sv == "z");
+
+    sv = R"(\q)"sv;
+    CHECK_FALSE(strings::parse_escaped(sv, ch));
+    CHECK(sv == R"(\q)");
+    sv = R"(\)"sv;
+    CHECK_FALSE(strings::parse_escaped(sv, ch));
+  }
+  SECTION("parse_escaped whole string") {
+    std::string out;
+    CHECK(strings::parse_escaped(R"(say \"hi\"\t\u{1})", out));
+    CHECK(out == "say \"hi\"\t\x01");
+    out.clear();
+    CHECK(strings::parse_escaped("plain", out));
+    CHECK(out == "plain");
+    out.clear();
+    CHECK_FALSE(strings::parse_escaped(R"(bad \q escape)", out));
+  }
+  SECTION("escape round trip") {
+    const std::string original =
+        "mixed \"text\"\twith\r\nbytes \x01\x7f and \\ too";
+    std::string escaped;
+    CHECK(strings::append_escaped(escaped, original));
+    std::string back;
+    CHECK(strings::parse_escaped(escaped, back));
+    CHECK(back == original);
+  }
+  SECTION("parse_escaped_quoted") {
+    std::string out;
+    auto sv = R"("say \"hi\"" tail)"sv;
+    CHECK(strings::parse_escaped_quoted(sv, out));
+    CHECK(out == R"(say "hi")");
+    CHECK(sv == " tail");
+
+    out.clear();
+    sv = R"(""x)"sv;
+    CHECK(strings::parse_escaped_quoted(sv, out));
+    CHECK(out.empty());
+    CHECK(sv == "x");
+
+    out.clear();
+    sv = "no quote"sv;
+    CHECK_FALSE(strings::parse_escaped_quoted(sv, out));
+    sv = R"("unterminated)"sv;
+    CHECK_FALSE(strings::parse_escaped_quoted(sv, out));
+    sv = R"("bad \q")"sv;
+    CHECK_FALSE(strings::parse_escaped_quoted(sv, out));
+  }
+}
+
+#pragma endregion
 
 // NOLINTEND(readability-function-size)
 // NOLINTEND(readability-function-cognitive-complexity)

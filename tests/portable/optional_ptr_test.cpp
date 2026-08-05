@@ -20,7 +20,6 @@
 
 using namespace std::literals;
 using namespace corvid;
-using corvid::internal::optional_ptr;
 
 // NOLINTBEGIN(readability-function-cognitive-complexity)
 

@@ -27,8 +27,8 @@
 #include "../../meta/forward_like.h"
 #include "../../meta/traits.h"
 
-// This is internal, like it says, so don't import it.
-namespace corvid::internal {
+namespace corvid { inline namespace container {
+inline namespace optional_ptrs {
 
 #pragma region optional_ptr
 
@@ -37,10 +37,10 @@ namespace corvid::internal {
 // https://en.cppreference.com/w/cpp/named_req/NullablePointer.
 //
 // The sole purpose of this class is to be used as a lightweight return value,
-// not a parameter or local. This makes it ideal for lookups, where you can
-// then chain calls to methods such as `value_or`. So if you find yourself
-// declaring variables of this type, you're doing it wrong. That's why it's
-// hidden behind the `internal` namespace.
+// not a parameter, member, or long-lived local. This makes it ideal for
+// lookups and test-and-access accessors, where the caller binds the result
+// in an `if` condition and consumes it on the spot, or chains calls to
+// methods such as `value_or`.
 //
 // Note that it can be used like a pointer, both in terms of evaluating to
 // `bool` in a predicate expression and being dereferenceable when `has_value`.
@@ -48,7 +48,7 @@ namespace corvid::internal {
 // For safety, enforces `[[nodiscard]]` and deletes some unwanted raw pointer
 // behavior.
 template<PointerLike Ptr>
-class optional_ptr final {
+class [[nodiscard]] optional_ptr final {
 public:
 #pragma region Types
 
@@ -195,10 +195,10 @@ private:
 
 #pragma endregion
 
-} // namespace corvid::internal
+}}} // namespace corvid::container::optional_ptrs
 
 template<corvid::PointerLike Ptr, corvid::CharType CharT>
 requires std::formattable<corvid::pointer_element_t<Ptr>, CharT>
 // NOLINTNEXTLINE(bugprone-std-namespace-modification)
-struct std::formatter<corvid::internal::optional_ptr<Ptr>, CharT>
+struct std::formatter<corvid::optional_ptr<Ptr>, CharT>
     : corvid::nullable_formatter<corvid::pointer_element_t<Ptr>, CharT> {};
