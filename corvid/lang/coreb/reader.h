@@ -24,7 +24,7 @@
 #include <utility>
 #include <vector>
 
-#include "../../containers/core/expected.h"
+#include "../../containers/core/value_or_error.h"
 #include "../../strings/cases.h"
 #include "../../strings/conversion.h"
 #include "value.h"
@@ -104,7 +104,7 @@ struct read_error final {
 class reader final {
 public:
   template<typename T>
-  using result = expected<T, read_error>;
+  using result = value_or_error<T, read_error>;
 
   // Maximum expression-nesting depth accepted.
   //

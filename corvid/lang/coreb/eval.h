@@ -27,7 +27,7 @@
 #include <utility>
 #include <vector>
 
-#include "../../containers/core/expected.h"
+#include "../../containers/core/value_or_error.h"
 #include "../../containers/core/opt_find.h"
 #include "../../containers/core/scoped_value.h"
 #include "value.h"
@@ -84,7 +84,7 @@ struct eval_error final {
 class evaluator final {
 public:
   template<typename T>
-  using result = expected<T, eval_error>;
+  using result = value_or_error<T, eval_error>;
 
   // Maximum nested evaluation depth.
   //
@@ -141,7 +141,7 @@ public:
       if (!expr.is_cell()) return expr;
 
       // A cell is a special form, like "(if p x)", or a call, like "(+ 1 2)".
-      const auto next = eval_cell(expr, cur);
+      auto next = eval_cell(expr, cur);
       if (!next) return next;
 
       // If it was the final value, return it. If it was a tail expression,
@@ -242,7 +242,7 @@ private:
     if (form == if_) {
       if (args.size() < 2 || args.size() > 3)
         return fail("if: expects 2 or 3 arguments");
-      const auto cond = eval(args[0], env);
+      auto cond = eval(args[0], env);
       if (!cond) return cond;
       if (cond->is_truthy()) return step::make_tail_expr(args[1]);
       if (args.size() == 3) return step::make_tail_expr(args[2]);
@@ -252,7 +252,7 @@ private:
     if (form == lambda_) return finish_step(eval_lambda(args, env));
     assert(form == begin_);
     if (args.empty()) return step::make_evaluated(value{});
-    const auto last = eval_leading(args, env);
+    auto last = eval_leading(args, env);
     if (!last) return last;
     return step::make_tail_expr(*last);
   }
@@ -267,12 +267,12 @@ private:
     // Look up the operator symbol to get the value associated with it, which
     // may be a primitive or a closure. Note that this is the `op` on its own,
     // not as part of a cell: we have gone deeper.
-    const auto callee = eval(op, *env);
+    auto callee = eval(op, *env);
     if (!callee) return callee;
 
     // Eval each arg, replacing it with its value.
     for (auto& arg : args) {
-      const auto r = eval(arg, *env);
+      auto r = eval(arg, *env);
       if (!r) return r;
       arg = *r;
     }
@@ -282,10 +282,10 @@ private:
     const auto fun = callee->maybe_closure();
     if (!fun) return fail("not callable: " + callee->print());
 
-    const auto frame = bind_frame(*fun, args);
+    auto frame = bind_frame(*fun, args);
     if (!frame) return frame;
 
-    const auto last = eval_leading(fun->body, **frame);
+    auto last = eval_leading(fun->body, **frame);
     if (!last) return last;
 
     env = *frame;
@@ -306,7 +306,7 @@ private:
   eval_leading(std::span<const value> exprs, environment& env) {
     assert(!exprs.empty());
     for (size_t ndx = 0; ndx + 1 < exprs.size(); ++ndx)
-      if (const auto r = eval(exprs[ndx], env); !r) return r;
+      if (auto r = eval(exprs[ndx], env); !r) return r;
     return exprs.back();
   }
 
@@ -323,7 +323,7 @@ private:
       return fail("define: expects a symbol, got: " + args[0].print());
     if (auto objection = check_bindable(*name))
       return fail(std::move(*objection));
-    const auto init = eval(args[1], env);
+    auto init = eval(args[1], env);
     if (!init) return init;
     env.bind(*name, *init);
     return value{};
@@ -403,7 +403,7 @@ private:
 #pragma endregion
 #pragma region Builtins
 
-  using prim_result = expected<value, std::string>;
+  using prim_result = value_or_error<value, std::string>;
 
   // Build a primitive failure.
   [[nodiscard]] static std::string prim_fail(std::string message) {
@@ -518,7 +518,7 @@ private:
   // Exact ints compare exactly; a mixed pair promotes the int to double,
   // which is approximate past 2^53. NaN compares unordered, so every
   // comparison against it is false except `!=`.
-  [[nodiscard]] static expected<std::partial_ordering, std::string>
+  [[nodiscard]] static value_or_error<std::partial_ordering, std::string>
   compare_nums(value a, value b) {
     const auto na = number::from(a);
     if (!na) return not_numeric(a);
@@ -537,7 +537,7 @@ private:
   static prim_result chain_compare(std::span<const value> args, Pred keep) {
     if (args.size() < 2) return prim_fail("expects at least 2 arguments");
     for (size_t ndx = 0; ndx + 1 < args.size(); ++ndx) {
-      const auto ord = compare_nums(args[ndx], args[ndx + 1]);
+      auto ord = compare_nums(args[ndx], args[ndx + 1]);
       if (!ord) return ord;
       if (!keep(*ord)) return value{false};
     }
@@ -634,7 +634,7 @@ private:
   // would be true.
   static prim_result prim_ne(runtime&, std::span<const value> args) {
     if (args.size() != 2) return prim_fail("expects 2 arguments");
-    const auto ord = compare_nums(args[0], args[1]);
+    auto ord = compare_nums(args[0], args[1]);
     if (!ord) return ord;
     return value{!std::is_eq(*ord)};
   }
