@@ -615,7 +615,7 @@ private:
   bool do_remove_erase(id_t id, store_id_t new_store_id) {
     if (!contains(id)) return false;
     derived().do_swap_and_pop(registry_->get_location(id).ndx);
-    registry_->set_location(id, {new_store_id, *store_id_t::invalid});
+    registry_->set_location(id, {new_store_id});
     return true;
   }
 

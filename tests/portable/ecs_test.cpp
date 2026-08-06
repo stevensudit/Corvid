@@ -27,6 +27,15 @@
 using namespace std::literals;
 using namespace corvid;
 
+// Store ID enum with a narrow underlying type, for pins that catch constants
+// from the wrong ID domain; the domains' markers coincide when every ID is
+// backed by `size_t`.
+enum class small_store_id_t : uint8_t { invalid = 255 };
+consteval auto corvid_enum_spec(small_store_id_t*) {
+  return corvid::enums::sequence::make_sequence_enum_spec<small_store_id_t,
+      "">();
+}
+
 // NOLINTBEGIN(readability-function-cognitive-complexity)
 // NOLINTBEGIN(readability-function-size)
 
@@ -395,6 +404,40 @@ TEST_CASE("Remove", "[ArchetypeStorage]") {
     CHECK(a.size() == 2U);
     CHECK(r.get_location(id2).ndx == 0U);
     CHECK(r.get_location(id1).ndx == 1U);
+  }
+}
+
+#pragma endregion
+#pragma region ArchetypeStorage_NarrowStoreId
+
+TEST_CASE("NarrowStoreId", "[ArchetypeStorage]") {
+  using id_enums::entity_id_t;
+  using reg_t = entity_registry<int, entity_id_t, small_store_id_t>;
+  using id_t = reg_t::id_t;
+  using arch_t = archetype_storage<reg_t, std::tuple<int, float>>;
+
+  // A removed entity's staging record carries the entity-ID domain's invalid
+  // index marker. With a uint8 store ID the two domains' markers differ (255
+  // vs the size_t maximum), so this pins the single-remove path against
+  // writing the store-ID domain's constant into `ndx`.
+  if (true) {
+    reg_t r;
+    arch_t a{r, small_store_id_t{1}, 100};
+    auto h = a.add_new(0, 42, 3.5f);
+    CHECK(r.is_valid(h));
+    const auto id = h.id();
+    CHECK(a.remove(id));
+    CHECK(r.get_location(id).ndx == *id_t::invalid);
+  }
+
+  // remove_all writes the same marker.
+  if (true) {
+    reg_t r;
+    arch_t a{r, small_store_id_t{1}, 100};
+    auto h = a.add_new(0, 1, 1.0F);
+    const auto id = h.id();
+    a.remove_all();
+    CHECK(r.get_location(id).ndx == *id_t::invalid);
   }
 }
 
