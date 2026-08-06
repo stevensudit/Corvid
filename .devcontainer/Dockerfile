@@ -87,7 +87,8 @@ RUN SNIPPET="export PROMPT_COMMAND='history -a' && export HISTFILE=/commandhisto
 
 ENV DEVCONTAINER=true
 
-RUN mkdir -p /workspace /home/node/.claude && \
+# Pre-create the memory bind-mount target so a fresh config volume is seeded with node-owned directories; otherwise Docker creates the intermediate dirs as root and Claude Code cannot write session transcripts.
+RUN mkdir -p /workspace /home/node/.claude/projects/-workspace/memory && \
   chown -R node:node /workspace /home/node/.claude
 WORKDIR /workspace
 
