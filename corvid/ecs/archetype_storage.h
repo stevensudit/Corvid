@@ -224,7 +224,7 @@ private:
   }
 
   // Swap elements at `left_ndx` and `right_ndx`, including their IDs.
-  bool do_swap_elements(size_type left_ndx, size_type right_ndx) noexcept {
+  bool do_swap_elements(size_type left_ndx, size_type right_ndx) {
     for_each_component([&](auto& vec) {
       std::swap(vec[left_ndx], vec[right_ndx]);
     });
@@ -257,18 +257,17 @@ private:
 
   template<typename C>
   [[nodiscard]] decltype(auto)
-  do_get_component(this auto& self, size_type ndx) noexcept {
+  do_get_component(this auto& self, size_type ndx) {
     return std::get<component_vector_t<C>>(self.components_)[ndx];
   }
 
   template<size_t Index>
   [[nodiscard]] decltype(auto)
-  do_get_component_by_index(this auto& self, size_type ndx) noexcept {
+  do_get_component_by_index(this auto& self, size_type ndx) {
     return std::get<Index>(self.components_)[ndx];
   }
 
-  [[nodiscard]] auto
-  do_make_components_tuple(this auto& self, size_type ndx) noexcept {
+  [[nodiscard]] auto do_make_components_tuple(this auto& self, size_type ndx) {
     return std::apply(
         [&](auto&&... vecs) {
           return std::tuple<decltype(vecs[ndx])&...>{vecs[ndx]...};

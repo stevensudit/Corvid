@@ -410,8 +410,7 @@ private:
   // rules). When resolved via tag, the return type is that storage's
   // `component_t`, not `C`.
   template<typename C>
-  [[nodiscard]] decltype(auto)
-  get_component(this auto& self, id_t id) noexcept {
+  [[nodiscard]] decltype(auto) get_component(this auto& self, id_t id) {
     constexpr size_t idx = storage_index_for_v<C, STORES...>;
     auto& st = std::get<idx + 1>(self.storages_);
     if constexpr (std::is_const_v<std::remove_reference_t<decltype(st)>>)
@@ -446,7 +445,7 @@ private:
   template<typename C>
   [[nodiscard]] decltype(auto)
   // NOLINTNEXTLINE(readability-function-cognitive-complexity)
-  get_component_dyn(this auto& self, id_t id) noexcept {
+  get_component_dyn(this auto& self, id_t id) {
     constexpr size_t nc = component_match_count_v<C, STORES...>;
     if constexpr (nc <= 1) {
       return self.template get_component<C>(id);

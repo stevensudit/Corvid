@@ -99,13 +99,13 @@ public:
 #pragma region Queries
 
   // Check whether an entity is in this storage, by ID.
-  [[nodiscard]] bool contains(id_t id) const {
+  [[nodiscard]] bool contains(id_t id) const noexcept {
     if (!registry_->is_valid(id)) return false;
     return registry_->get_location(id).store_id == store_id_;
   }
 
   // Check whether an entity is in this storage, by handle.
-  [[nodiscard]] bool contains(handle_t handle) const {
+  [[nodiscard]] bool contains(handle_t handle) const noexcept {
     if (!registry_->is_valid(handle)) return false;
     return contains(handle.id());
   }
@@ -127,7 +127,7 @@ public:
   // Set a new entity limit.
   //
   // Returns true on success, false if the current size exceeds the new limit.
-  [[nodiscard]] bool set_limit(size_type new_limit) {
+  [[nodiscard]] bool set_limit(size_type new_limit) noexcept {
     if (new_limit < ids_.size()) return false;
     limit_ = new_limit;
     return true;
@@ -254,18 +254,18 @@ public:
     // accepts both lvalue and rvalue row wrappers (e.g. temporaries returned
     // by `operator[]`).
     template<typename C>
-    [[nodiscard]] decltype(auto) component(this auto&& self) noexcept {
+    [[nodiscard]] decltype(auto) component(this auto&& self) {
       return self.owner_->template do_get_component<C>(self.ndx_);
     }
 
     // Access component by zero-based tuple index, propagating constness.
     template<size_t Index>
-    [[nodiscard]] decltype(auto) component(this auto&& self) noexcept {
+    [[nodiscard]] decltype(auto) component(this auto&& self) {
       return self.owner_->template do_get_component_by_index<Index>(self.ndx_);
     }
 
     // Access all components as a tuple of references.
-    [[nodiscard]] decltype(auto) components(this auto&& self) noexcept {
+    [[nodiscard]] decltype(auto) components(this auto&& self) {
       return self.get_owner().do_make_components_tuple(self.ndx_);
     }
 
@@ -489,11 +489,11 @@ public:
   // (const).
   //
   // Entity must be valid and in this storage; asserts in debug.
-  [[nodiscard]] row_lens operator[](id_t id) noexcept {
+  [[nodiscard]] row_lens operator[](id_t id) {
     assert(contains(id));
     return row_lens{*this, registry_->get_location(id).ndx};
   }
-  [[nodiscard]] row_view operator[](id_t id) const noexcept {
+  [[nodiscard]] row_view operator[](id_t id) const {
     assert(contains(id));
     return row_view{*this, registry_->get_location(id).ndx};
   }

@@ -89,13 +89,13 @@ public:
   }
 
   // Update the ndx for `id` in-place. Slot must already exist.
-  void update(id_t id, size_type ndx) noexcept {
+  void update(id_t id, size_type ndx) {
     assert(*id < data_.size());
     data_[*id] = ndx;
   }
 
   // Return the ndx for `id`. Slot must exist.
-  [[nodiscard]] size_type lookup(id_t id) const noexcept {
+  [[nodiscard]] size_type lookup(id_t id) const {
     assert(*id < data_.size());
     return data_[*id];
   }
@@ -164,14 +164,14 @@ public:
   }
 
   // Update the ndx for `id` in-place. Slot must exist.
-  void update(id_t id, size_type ndx) noexcept {
+  void update(id_t id, size_type ndx) {
     auto it = find_it(id);
     assert(it != data_.end() && it->first == id);
     it->second = ndx;
   }
 
   // Return the ndx for `id`. Slot must exist.
-  [[nodiscard]] size_type lookup(id_t id) const noexcept {
+  [[nodiscard]] size_type lookup(id_t id) const {
     auto it = find_it(id);
     assert(it != data_.cend() && it->first == id);
     return it->second;
@@ -179,13 +179,13 @@ public:
 
   // Erase the entry for `id`. Required to prevent stale duplicates on
   // reinsert.
-  void erase(id_t id) {
+  void erase(id_t id) noexcept {
     auto it = find_it(id);
     if (it != data_.end() && it->first == id) data_.erase(it);
   }
 
   // Clear all state.
-  void clear() { data_.clear(); }
+  void clear() noexcept { data_.clear(); }
 
 #pragma endregion
 #pragma region Data members
@@ -253,7 +253,7 @@ public:
   }
 
   // Update the ndx for `id` in-place. Slot must exist.
-  void update(id_t id, size_type ndx) noexcept {
+  void update(id_t id, size_type ndx) {
     const auto raw = *id;
     assert(page_of(raw) < page_dir_.size());
     assert(page_dir_[page_of(raw)]);
@@ -261,7 +261,7 @@ public:
   }
 
   // Return the ndx for `id`. Slot must exist.
-  [[nodiscard]] size_type lookup(id_t id) const noexcept {
+  [[nodiscard]] size_type lookup(id_t id) const {
     const auto raw = *id;
     assert(page_of(raw) < page_dir_.size());
     assert(page_dir_[page_of(raw)]);

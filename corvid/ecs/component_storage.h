@@ -212,13 +212,13 @@ public:
 #pragma region Element access
 
   // Mutable access: returns `component_t&` directly.
-  [[nodiscard]] component_t& operator[](id_t id) noexcept {
+  [[nodiscard]] component_t& operator[](id_t id) {
     assert(contains(id));
     return components_[reverse_index_.lookup(id)];
   }
 
   // Const access: returns `row_view` for uniform migrate-compatible access.
-  [[nodiscard]] row_view operator[](id_t id) const noexcept {
+  [[nodiscard]] row_view operator[](id_t id) const {
     assert(contains(id));
     const auto ndx = reverse_index_.lookup(id);
     return {components_[ndx], ids_[ndx]};

@@ -280,7 +280,7 @@ public:
       return store_ids_;
     }
 
-    constexpr void set(location_t location) noexcept {
+    constexpr void set(location_t location) {
       ndx_ = location.ndx;
       if constexpr (is_archetype_v) {
         store_id_ = location.store_id;
@@ -299,7 +299,7 @@ public:
       }
     }
 
-    constexpr void reset(location_t location) noexcept {
+    constexpr void reset(location_t location) {
       if constexpr (is_component_v) store_ids_.reset();
       set(location);
     }
@@ -808,7 +808,7 @@ public:
     }
 
     // Get the registry.
-    [[nodiscard]] decltype(auto) registry(this auto& self) noexcept {
+    [[nodiscard]] decltype(auto) registry(this auto& self) {
       assert(self.registry_);
       return *self.registry_;
     }

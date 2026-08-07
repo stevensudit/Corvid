@@ -93,13 +93,13 @@ public:
 #pragma region Queries
 
   // Check whether entity `id` is currently in this storage (via bitmap).
-  [[nodiscard]] bool contains(id_t id) const {
+  [[nodiscard]] bool contains(id_t id) const noexcept {
     if (!registry_->is_valid(id)) return false;
     return registry_->is_in_location(id, store_id_);
   }
 
   // Check whether entity referenced by `handle` is in this storage.
-  [[nodiscard]] bool contains(handle_t handle) const {
+  [[nodiscard]] bool contains(handle_t handle) const noexcept {
     if (!registry_->is_valid(handle)) return false;
     return contains(handle.id());
   }
@@ -125,7 +125,7 @@ public:
 
   // Set a new entity limit. Returns false if the current size exceeds the new
   // limit.
-  [[nodiscard]] bool set_limit(size_type new_limit) {
+  [[nodiscard]] bool set_limit(size_type new_limit) noexcept {
     if (new_limit < ids_.size()) return false;
     limit_ = new_limit;
     return true;

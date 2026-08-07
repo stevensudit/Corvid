@@ -228,7 +228,7 @@ private:
   }
 
   // Swap the elements (all component slots and the ID) at two logical indices.
-  bool do_swap_elements(size_type left_ndx, size_type right_ndx) noexcept {
+  bool do_swap_elements(size_type left_ndx, size_type right_ndx) {
     const auto [left_chunk_ndx, left_element_ndx] = chunk_coords(left_ndx);
     const auto [right_chunk_ndx, right_element_ndx] = chunk_coords(right_ndx);
     (std::swap(
@@ -268,20 +268,19 @@ private:
 
   template<typename C>
   [[nodiscard]] decltype(auto)
-  do_get_component(this auto& self, size_type ndx) noexcept {
+  do_get_component(this auto& self, size_type ndx) {
     const auto [chunk_ndx, element_ndx] = chunk_coords(ndx);
     return std::get<chunk_t<C>>(self.chunks_[chunk_ndx])[element_ndx];
   }
 
   template<size_t Index>
   [[nodiscard]] decltype(auto)
-  do_get_component_by_index(this auto& self, size_type ndx) noexcept {
+  do_get_component_by_index(this auto& self, size_type ndx) {
     const auto [chunk_ndx, element_ndx] = chunk_coords(ndx);
     return std::get<Index>(self.chunks_[chunk_ndx])[element_ndx];
   }
 
-  [[nodiscard]] auto
-  do_make_components_tuple(this auto& self, size_type ndx) noexcept {
+  [[nodiscard]] auto do_make_components_tuple(this auto& self, size_type ndx) {
     const auto [chunk_ndx, element_ndx] = chunk_coords(ndx);
     // NOLINTBEGIN(clang-analyzer-core.NullDereference)
     return std::apply(

@@ -237,13 +237,13 @@ public:
 #pragma region Element access
 
   // Mutable access: returns `component_t&` directly.
-  [[nodiscard]] component_t& operator[](id_t id) noexcept {
+  [[nodiscard]] component_t& operator[](id_t id) {
     assert(contains(id));
     return components_[registry_->get_location(id).ndx];
   }
 
   // Const access: returns `row_view` for uniform migrate-compatible access.
-  [[nodiscard]] row_view operator[](id_t id) const noexcept {
+  [[nodiscard]] row_view operator[](id_t id) const {
     assert(contains(id));
     const auto ndx = registry_->get_location(id).ndx;
     return {components_[ndx], ids_[ndx]};
@@ -417,7 +417,7 @@ private:
   // `erase_if_component<C>`).
   template<typename T>
   [[nodiscard]] decltype(auto)
-  do_get_component(this auto& self, size_type ndx) noexcept {
+  do_get_component(this auto& self, size_type ndx) {
     static_assert(std::is_same_v<T, component_t>,
         "mono_archetype_storage only has one component type");
     return self.components_[ndx];
@@ -426,7 +426,7 @@ private:
   // Access the component by zero-based tuple index (must be 0).
   template<size_t Index>
   [[nodiscard]] decltype(auto)
-  do_get_component_by_index(this auto& self, size_type ndx) noexcept {
+  do_get_component_by_index(this auto& self, size_type ndx) {
     static_assert(Index == 0,
         "mono_archetype_storage only has one component (index 0)");
     return self.components_[ndx];
@@ -434,7 +434,7 @@ private:
 
   // Return all components as a single-element tuple of references.
   [[nodiscard]] decltype(auto)
-  do_make_components_tuple(this auto& self, size_type ndx) noexcept {
+  do_make_components_tuple(this auto& self, size_type ndx) {
     return std::tuple<decltype(self.components_[ndx])>{self.components_[ndx]};
   }
 
