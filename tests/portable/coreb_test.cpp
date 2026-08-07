@@ -17,6 +17,7 @@
 
 #include <limits>
 #include <string>
+#include <type_traits>
 
 #include "corvid/lang/coreb/coreb.h"
 #include "catch2_main.h"
@@ -666,6 +667,8 @@ TEST_CASE("CoreB gc", "[coreb]") {
     CHECK(rt.live_objects() == baseline);
   }
   SECTION("a pin roots the variable, not a copy") {
+    // A temporary cannot be pinned: it would dangle by the semicolon.
+    static_assert(!std::is_constructible_v<gc_pin, runtime&, value>);
     value v = rt.cons(value{1}, value{});
     gc_pin pin(rt, v);
     rt.collect();

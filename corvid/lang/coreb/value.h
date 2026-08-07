@@ -752,6 +752,12 @@ public:
   gc_pin(runtime& rt, const value& v) : rt_{rt}, vals_{&v, 1} {
     rt_.do_pin(*this);
   }
+
+  // A temporary would dangle by the end of the statement, long before any
+  // collection could trace it. A span's underlying storage cannot be
+  // checked the same way, so there the contract stays on the caller.
+  gc_pin(runtime&, value&&) = delete;
+
   gc_pin(runtime& rt, std::span<const value> vals) : rt_{rt}, vals_{vals} {
     rt_.do_pin(*this);
   }
