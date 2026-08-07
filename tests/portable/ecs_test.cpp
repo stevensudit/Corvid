@@ -16,7 +16,9 @@
 // limitations under the License.
 
 #include <cstdint>
+#include <iterator>
 #include <memory>
+#include <ranges>
 #include <string>
 #include <tuple>
 #include <vector>
@@ -423,7 +425,7 @@ TEST_CASE("NarrowStoreId", "[ArchetypeStorage]") {
   if (true) {
     reg_t r;
     arch_t a{r, small_store_id_t{1}, 100};
-    auto h = a.add_new(0, 42, 3.5f);
+    auto h = a.add_new(0, 42, 3.5F);
     CHECK(r.is_valid(h));
     const auto id = h.id();
     CHECK(a.remove(id));
@@ -1035,6 +1037,28 @@ TEST_CASE("Iterator", "[ArchetypeStorage]") {
     CHECK(fsum == 1.5F);
     static_assert(
         std::is_same_v<decltype(a.cbegin()), arch_t::const_iterator>);
+  }
+
+  // Dereferencing returns rows by value, so the Cpp17 category caps at input
+  // while the C++20 concept stays bidirectional, which is what reverse_view
+  // checks.
+  if (true) {
+    static_assert(std::bidirectional_iterator<arch_t::iterator>);
+    static_assert(std::bidirectional_iterator<arch_t::const_iterator>);
+    static_assert(std::is_same_v<arch_t::iterator::iterator_category,
+        std::input_iterator_tag>);
+    static_assert(std::is_same_v<arch_t::iterator::reference,
+        arch_t::iterator::value_type>);
+    reg_t r;
+    arch_t a{r, sid};
+    auto id0 = r.create_id(staging, 10);
+    auto id1 = r.create_id(staging, 20);
+    CHECK(a.add(id0, 1, 0.0F));
+    CHECK(a.add(id1, 2, 0.0F));
+    std::vector<int> seen;
+    for (auto row : std::views::reverse(a))
+      seen.push_back(row.component<int>());
+    CHECK(seen == std::vector{2, 1});
   }
 }
 
@@ -2849,7 +2873,7 @@ TEST_CASE("ChunkBoundary", "[ChunkedArchetypeStorage]") {
     CHECK(a[ids[4]].component<int>() == 40);
     CHECK(r.get_location(ids[4]).ndx == 0U);
     // All survivors are now in chunk 0.
-    for (auto& row : a) CHECK(r.is_valid(row.id()));
+    for (auto row : a) CHECK(r.is_valid(row.id()));
   }
 
   // Removing from a non-zero slot within the last chunk: no chunk pop.

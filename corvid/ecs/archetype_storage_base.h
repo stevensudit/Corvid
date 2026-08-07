@@ -280,18 +280,21 @@ public:
 #pragma endregion
 #pragma region row_iterator
 
-  // Bidirectional iterator. Dereferencing yields a `row_lens` or `row_view`,
-  // depending on constness. Invalidated by any structural mutation
+  // Bidirectional iterator. Dereferencing yields a `row_lens` or `row_view` by
+  // value, depending on constness. Invalidated by any structural mutation
   // (add/remove/erase).
   template<access ACCESS = access::as_mutable>
   class row_iterator {
   public:
     static constexpr bool mutable_v = (ACCESS == access::as_mutable);
-    using iterator_category = std::bidirectional_iterator_tag;
+    // `operator*` returns a prvalue row, so this models the C++20
+    // bidirectional concept via `iterator_concept`, while the Cpp17 category
+    // honestly caps at input.
     using iterator_concept = std::bidirectional_iterator_tag;
+    using iterator_category = std::input_iterator_tag;
     using value_type = std::conditional_t<mutable_v, row_lens, row_view>;
     using difference_type = std::ptrdiff_t;
-    using reference = value_type&;
+    using reference = value_type;
     using pointer = value_type*;
     using base_owner_t = std::conditional_t<mutable_v, archetype_storage_base,
         const archetype_storage_base>;
