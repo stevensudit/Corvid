@@ -268,17 +268,18 @@ public:
   //
   // The cap matches `reader::max_depth`, so anything the reader can produce
   // prints in full, and printing programmatically built structure cannot
-  // exhaust the C++ stack. Only nesting through `head` spends depth; chains
-  // through `tail` are iterated flat in both forms, so list length costs
-  // none.
+  // exhaust the C++ stack. Only nesting spends depth: a cell's head, and
+  // each form of a closure's body. Chains through `tail` are iterated flat
+  // in both forms, so list length costs none.
   static constexpr size_t max_depth = 256;
 
   // Append the printed s-expression form to `out`.
   //
   // The output is what the reader accepts: symbols bare, strings quoted and
   // escaped, proper lists as "(a b c)", improper ones dotted. Function values
-  // are the exception: they have no readable form and print as the display
-  // forms "#<lambda>" and "#<primitive name>".
+  // are the exception: they have no readable form and print as display forms,
+  // "#<primitive name>" and "#<lambda (params) body...>", the latter showing
+  // the closure's code but not its captured environment.
   //
   // Nesting deeper than `max_depth` is the other exception: the subtree
   // renders as the display form "#<too deep>" instead of overflowing the C++
@@ -341,6 +342,9 @@ private:
 #pragma endregion
 #pragma region Data members
 
+  // The runtime traces heap pointers through the variant when collecting.
+  friend class runtime;
+
   variant_t v_;
 
 #pragma endregion
@@ -348,6 +352,29 @@ private:
 
 #pragma endregion
 #pragma region Heap objects
+
+// Base for the runtime's collectible heap objects.
+//
+// Every heap object shares the same identity semantics: constructed in place
+// by the runtime, never copied, and freed only by collection or the
+// runtime's destruction. The base pins those down and carries the
+// collector's mark epoch. It is deliberately not polymorphic: tracing stays
+// centralized in the runtime, so the base is data, not behavior.
+class gc_object {
+public:
+  gc_object(const gc_object&) = delete;
+  gc_object& operator=(const gc_object&) = delete;
+
+protected:
+  gc_object() = default;
+  ~gc_object() = default;
+
+private:
+  friend class runtime;
+
+  // Collector mark epoch.
+  size_t marked_gen_{};
+};
 
 // Cons cell: the two-value node from which all CoreB structure is constructed.
 //
@@ -359,16 +386,13 @@ private:
 // makes the sequence improper, so it's printed with a dot: "(a b . c)".
 //
 // Constructed only by the `runtime`, which owns every cell.
-struct cell final {
+struct cell final: gc_object {
 private:
   enum class allow : bool { ctor };
   friend class runtime;
 
 public:
   cell(allow, value head, value tail) noexcept : head{head}, tail{tail} {}
-
-  cell(const cell&) = delete;
-  cell& operator=(const cell&) = delete;
 
   // Append the printed list form to `out`: proper lists as "(a b c)",
   // improper tails dotted. Returns false if a subtree was truncated for
@@ -430,16 +454,13 @@ public:
 // Heap-allocated string payload.
 //
 // Constructed only by the `runtime`, which owns it.
-struct heap_string final {
+struct heap_string final: gc_object {
 private:
   enum class allow : bool { ctor };
   friend class runtime;
 
 public:
   heap_string(allow, std::string str) noexcept : str{std::move(str)} {}
-
-  heap_string(const heap_string&) = delete;
-  heap_string& operator=(const heap_string&) = delete;
 
   // Append the quoted form to `out`, escaping exactly the set the reader
   // unescapes.
@@ -464,7 +485,7 @@ public:
 // variables of its birthplace even when called from somewhere else entirely.
 //
 // Constructed only by the `runtime`, which owns it.
-struct closure final {
+struct closure final: gc_object {
 private:
   enum class allow : bool { ctor };
   friend class runtime;
@@ -474,8 +495,12 @@ public:
       environment& env) noexcept
       : params{std::move(params)}, body{std::move(body)}, env{&env} {}
 
-  closure(const closure&) = delete;
-  closure& operator=(const closure&) = delete;
+  // Append the display form, "#<lambda (params) body...>".
+  //
+  // Closures have no readable form: the parameters and body are shown, but the
+  // captured environment has no printed spelling. Returns false if a subtree
+  // was truncated for depth (see `value::max_depth`).
+  bool append(std::string& out, size_t depth = 0) const;
 
   std::vector<symbol> params;
   std::vector<value> body;
@@ -488,7 +513,7 @@ public:
 // error message, which the evaluator prefixes with the primitive's name.
 //
 // Constructed only by the `runtime`, which owns it.
-struct primitive final {
+struct primitive final: gc_object {
 private:
   enum class allow : bool { ctor };
   friend class runtime;
@@ -498,9 +523,6 @@ public:
       std::span<const value>);
 
   primitive(allow, symbol name, fn_t fn) noexcept : name{name}, fn{fn} {}
-
-  primitive(const primitive&) = delete;
-  primitive& operator=(const primitive&) = delete;
 
   // Append the display form, "#<primitive name>". Primitives have no
   // readable form.
@@ -527,16 +549,13 @@ public:
 // environment, which must then outlive the call that created it.
 //
 // Constructed only by the `runtime`, which owns it.
-class environment final {
+class environment final: public gc_object {
 private:
   enum class allow : bool { ctor };
   friend class runtime;
 
 public:
   environment(allow, environment* parent) : parent_{parent} {}
-
-  environment(const environment&) = delete;
-  environment& operator=(const environment&) = delete;
 
   // Look up `name`, searching enclosing scopes outward.
   [[nodiscard]] std::optional<value> lookup(symbol name) const noexcept {
@@ -561,15 +580,22 @@ private:
 #pragma endregion
 #pragma region runtime
 
+// Fwd.
+class gc_pin;
+
 // The CoreB kernel runtime, containing the symbol table and the heap.
 //
 // All aggregate values (cons cells, strings, closures, primitives) and all
 // environments are allocated here, and every `value` handle is only valid
 // while its runtime is alive.
 //
-// Storage is currently freed only on destruction; milestone 3 replaces that
-// with mark-and-sweep collection, which is why ownership is centralized from
-// the start.
+// Storage is reclaimed by a stop-the-world mark-and-sweep collector.
+// `collect` frees everything not reachable from the roots: the root
+// environment, every live `gc_pin`, and, for the safe-point form
+// `maybe_collect`, whatever the evaluator hands in. A `value` held in C++
+// across a possible collection must be pinned, or it dangles. Interned
+// symbol spellings are not collected; they leak deliberately until gensym
+// makes that worth solving.
 class runtime final {
 public:
   // A fresh runtime owns one environment from the start: the empty root
@@ -589,12 +615,14 @@ public:
 
   // Construct a cell.
   [[nodiscard]] value cons(value head, value tail) {
+    ++allocs_;
     cells_.push_back(std::make_unique<cell>(cell::allow::ctor, head, tail));
     return value{*cells_.back()};
   }
 
   // Allocate a string.
   [[nodiscard]] heap_string& make_string(std::string str) {
+    ++allocs_;
     strings_.push_back(std::make_unique<heap_string>(heap_string::allow::ctor,
         std::move(str)));
     return *strings_.back();
@@ -603,6 +631,7 @@ public:
   // Construct a closure over `env`.
   [[nodiscard]] value make_closure(std::vector<symbol> params,
       std::vector<value> body, environment& env) {
+    ++allocs_;
     closures_.push_back(std::make_unique<closure>(closure::allow::ctor,
         std::move(params), std::move(body), env));
     return value{*closures_.back()};
@@ -610,6 +639,7 @@ public:
 
   // Expose a C++ function as a function value named `name`.
   [[nodiscard]] value make_primitive(symbol name, primitive::fn_t fn) {
+    ++allocs_;
     primitives_.push_back(
         std::make_unique<primitive>(primitive::allow::ctor, name, fn));
     return value{*primitives_.back()};
@@ -617,6 +647,7 @@ public:
 
   // Construct an environment scoped inside `parent`.
   [[nodiscard]] environment& make_env(environment& parent) {
+    ++allocs_;
     envs_.push_back(
         std::make_unique<environment>(environment::allow::ctor, &parent));
     return *envs_.back();
@@ -629,7 +660,62 @@ public:
   // across evaluations.
   [[nodiscard]] environment& root_env() noexcept { return *envs_.front(); }
 
+#pragma region Collection
+
+  // Allocations between safe-point collections.
+  //
+  // Crossing this makes the next `maybe_collect` collect. Collection cost is
+  // proportional to live data, so the value only trades peak heap size
+  // against collection frequency; it is deliberately untuned.
+  static constexpr size_t gc_threshold = 10'000;
+
+  // Free every heap object not reachable from a root: the root environment
+  // and every live `gc_pin`.
+  //
+  // A `value` held in C++ dangles after this unless what it references is
+  // still reachable, whether through an environment or a `gc_pin`.
+  void collect() { do_collect(value{}, nullptr); }
+
+  // The safe-point form of `collect`: collect only if allocation since the
+  // last collection has crossed `gc_threshold`, tracing `live` and `env` as
+  // extra roots.
+  //
+  // The evaluator calls this at its outermost trampoline loop top, where its
+  // entire live set is the expression about to be evaluated and the current
+  // environment.
+  void maybe_collect(value live, environment& env) {
+    if (allocs_ < gc_threshold) return;
+    do_collect(live, &env);
+  }
+
+  // The number of heap objects (cells, strings, closures, primitives, and
+  // environments) currently owned.
+  [[nodiscard]] size_t live_objects() const noexcept {
+    return cells_.size() + strings_.size() + closures_.size() +
+           primitives_.size() + envs_.size();
+  }
+
+#pragma endregion
+
 private:
+#pragma region Collection helpers
+
+  friend class gc_pin;
+
+  void do_pin(const gc_pin& pin) { pins_.push_back(&pin); }
+  void do_unpin(const gc_pin& pin) noexcept { std::erase(pins_, &pin); }
+
+  // Mark `obj` for the current epoch, returning whether it was newly
+  // reached.
+  [[nodiscard]] bool do_mark(gc_object& obj) const noexcept {
+    if (obj.marked_gen_ == gen_) return false;
+    obj.marked_gen_ = gen_;
+    return true;
+  }
+
+  void do_collect(value live, environment* extra_env);
+
+#pragma endregion
 #pragma region Data members
 
   string_set syms_;
@@ -638,8 +724,55 @@ private:
   std::vector<std::unique_ptr<closure>> closures_;
   std::vector<std::unique_ptr<primitive>> primitives_;
   std::vector<std::unique_ptr<environment>> envs_;
+  std::vector<const gc_pin*> pins_;
+  size_t gen_{};
+  size_t allocs_{};
 
 #pragma endregion
+};
+
+#pragma endregion
+#pragma region gc_pin
+
+// Root registration for values held in C++ across a possible collection.
+//
+// A pin registers the caller's own storage, not a copy: the pinned variable
+// or span is traced as a root on every collection while the pin lives, so
+// rebinding through the variable needs no re-pin. The storage must outlive
+// the pin, and the pin must not outlive the runtime.
+//
+// There is no race between allocating and pinning, because allocation never
+// collects: collection runs only inside `collect` and `maybe_collect`, and
+// the evaluator calls the latter only at its safe point. A value is at risk
+// only when held across one of those, which is exactly when a pin is needed.
+//
+//   value v = rt.cons(value{1}, value{});
+//   gc_pin pin(rt, v); // No collection can run between these lines.
+//   rt.collect(); // `v` survives; unpinned garbage does not.
+class gc_pin final {
+public:
+  gc_pin(runtime& rt, const value& v) : rt_{rt}, vals_{&v, 1} {
+    rt_.do_pin(*this);
+  }
+
+  // A temporary would dangle by the end of the statement, long before any
+  // collection could trace it. A span's underlying storage cannot be
+  // checked the same way, so there the contract stays on the caller.
+  gc_pin(runtime&, value&&) = delete;
+
+  gc_pin(runtime& rt, std::span<const value> vals) : rt_{rt}, vals_{vals} {
+    rt_.do_pin(*this);
+  }
+  ~gc_pin() { rt_.do_unpin(*this); }
+
+  gc_pin(const gc_pin&) = delete;
+  gc_pin& operator=(const gc_pin&) = delete;
+
+private:
+  friend class runtime;
+
+  runtime& rt_;
+  std::span<const value> vals_;
 };
 
 #pragma endregion
@@ -662,15 +795,105 @@ inline bool value::append(std::string& out, size_t depth) const {
   case kind::symbol: out += as_symbol().name(); break;
   case kind::string: v_.get<kind::string>()->append(out); break;
   case kind::cell: return as_cell().append(out, depth);
-  case kind::closure: out += "#<lambda>"; break;
+  case kind::closure: return as_closure().append(out, depth);
   case kind::primitive: as_primitive().append(out); break;
   }
   return true;
 }
 
+inline bool closure::append(std::string& out, size_t depth) const {
+  if (depth >= value::max_depth) {
+    out += "#<too deep>";
+    return false;
+  }
+  out += "#<lambda (";
+  for (size_t ndx = 0; ndx < params.size(); ++ndx) {
+    if (ndx) out += ' ';
+    out += params[ndx].name();
+  }
+  out += ')';
+  auto ok = true;
+  for (const auto& form : body) {
+    out += ' ';
+    ok = form.append(out, depth + 1) && ok;
+  }
+  out += '>';
+  return ok;
+}
+
 inline bool value::append_dump(std::string& out, size_t depth) const {
   if (is_cell()) return as_cell().append_dump(out, depth);
   return append(out, depth);
+}
+
+#pragma endregion
+#pragma region Collection definitions
+
+// Mark and sweep collection of the heap, tracing outward from the roots.
+inline void runtime::do_collect(value live, environment* extra_env) {
+  // Mark: trace outward from the roots with explicit worklists.
+  //
+  // Recursion here would be fatal: structure nests arbitrarily deep, and the
+  // object graph is cyclic (a self-recursive definition's closure captures the
+  // scope that binds it). The epoch check is also what breaks the cycles.
+  ++gen_;
+  allocs_ = 0;
+
+  // Accumulate the root values and environments into worklists.
+  std::vector<value> vals{live};
+  std::vector<environment*> envs{&root_env()};
+  if (extra_env) envs.push_back(extra_env);
+  for (const auto* pin : pins_)
+    vals.insert(vals.end(), pin->vals_.begin(), pin->vals_.end());
+
+  // Keep marking until the worklists are empty.
+  while (!vals.empty() || !envs.empty()) {
+    // Find the next env that hasn't already been marked, mark it, and push its
+    // parent and all its values onto the worklists.
+    if (!envs.empty()) {
+      auto* env = envs.back();
+      envs.pop_back();
+      if (!do_mark(*env)) continue;
+      if (env->parent_) envs.push_back(env->parent_);
+      for (const auto& binding : env->vars_) vals.push_back(binding.second);
+      continue;
+    }
+    // Find the next val that hasn't already been marked, mark it, and push its
+    // children onto the worklists.
+    const auto v = vals.back();
+    vals.pop_back();
+    switch (v.type()) {
+    case kind::nil:
+    case kind::boolean:
+    case kind::integer:
+    case kind::floating:
+    case kind::symbol: break;
+    case kind::string: v.v_.get<kind::string>()->marked_gen_ = gen_; break;
+    case kind::cell: {
+      auto& c = v.as_cell();
+      if (!do_mark(c)) break;
+      vals.push_back(c.head);
+      vals.push_back(c.tail);
+      break;
+    }
+    case kind::closure: {
+      auto& c = v.as_closure();
+      if (!do_mark(c)) break;
+      vals.insert(vals.end(), c.body.begin(), c.body.end());
+      envs.push_back(c.env);
+      break;
+    }
+    case kind::primitive: v.as_primitive().marked_gen_ = gen_; break;
+    }
+  }
+
+  // Sweep: free everything the trace did not reach.
+  const auto dead = [this](const auto& p) { return p->marked_gen_ != gen_; };
+  std::erase_if(cells_, dead);
+  std::erase_if(strings_, dead);
+  std::erase_if(closures_, dead);
+  std::erase_if(primitives_, dead);
+  std::erase_if(envs_, dead);
 }
 
 #pragma endregion

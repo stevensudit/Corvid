@@ -17,6 +17,7 @@
 
 #include <limits>
 #include <string>
+#include <type_traits>
 
 #include "corvid/lang/coreb/coreb.h"
 #include "catch2_main.h"
@@ -50,6 +51,8 @@ std::string run(runtime& rt, evaluator& ev, std::string_view src) {
   auto forms = reader::read_all(rt, src);
   REQUIRE(forms.has_value());
   REQUIRE_FALSE(forms->empty());
+  // Evaluation may collect at safe points; the pending forms are roots.
+  gc_pin pin(rt, *forms);
   value last;
   for (const auto& form : *forms) {
     auto v = ev.eval(form);
@@ -65,6 +68,8 @@ std::string run_err(runtime& rt, evaluator& ev, std::string_view src) {
   CAPTURE(src);
   auto forms = reader::read_all(rt, src);
   REQUIRE(forms.has_value());
+  // Evaluation may collect at safe points; the pending forms are roots.
+  gc_pin pin(rt, *forms);
   for (const auto& form : *forms) {
     auto v = ev.eval(form);
     if (!v) return v.as_error().reason;
@@ -159,6 +164,14 @@ TEST_CASE("CoreB values", "[coreb]") {
                      std::string(value::max_depth, ')'));
     out.clear();
     CHECK_FALSE(deep.append_dump(out));
+
+    // Closure bodies charge depth too: an embedder can nest closures
+    // through `make_closure` bodies, a shape no read source can produce.
+    value fn = 1;
+    for (size_t ndx = 0; ndx < value::max_depth + 10; ++ndx)
+      fn = rt.make_closure({}, {fn}, rt.root_env());
+    out.clear();
+    CHECK_FALSE(fn.append(out));
   }
   SECTION("maybe accessors") {
     // Test and access in one step: the result is empty for a kind mismatch
@@ -382,9 +395,10 @@ TEST_CASE("CoreB eval atoms and quote", "[coreb]") {
   CHECK(run_err(rt, ev, "(quote a b)") == "quote: expects 1 argument");
 
   // A symbol evaluates to its binding; function values print as display
-  // forms.
+  // forms, a closure's showing its code but not its captured environment.
   CHECK(run(rt, ev, "+") == "#<primitive +>");
-  CHECK(run(rt, ev, "(lambda (x) x)") == "#<lambda>");
+  CHECK(run(rt, ev, "(lambda (x) x)") == "#<lambda (x) x>");
+  CHECK(run(rt, ev, "(lambda () 1 2)") == "#<lambda () 1 2>");
   CHECK(run_err(rt, ev, "y") == "unbound symbol: y");
 }
 
@@ -417,8 +431,9 @@ TEST_CASE("CoreB eval define", "[coreb]") {
   runtime rt;
   evaluator ev(rt);
 
-  // Define binds in the current scope, yields nil, and allows rebinding.
-  CHECK(run(rt, ev, "(define x 5)") == "nil");
+  // Define binds in the current scope, yields the defined name, and allows
+  // rebinding.
+  CHECK(run(rt, ev, "(define x 5)") == "x");
   CHECK(run(rt, ev, "x") == "5");
   CHECK(run(rt, ev, "(define x 6) x") == "6");
 
@@ -442,6 +457,7 @@ TEST_CASE("CoreB eval lambda and closures", "[coreb]") {
 
   CHECK(run(rt, ev, "((lambda (x) x) 42)") == "42");
   CHECK(run(rt, ev, "(define add (lambda (a b) (+ a b))) (add 2 3)") == "5");
+  CHECK(run(rt, ev, "add") == "#<lambda (a b) (+ a b)>");
 
   // The classic closure test: the inner lambda captures its birthplace's
   // `n`, which outlives the call that created it.
@@ -614,9 +630,9 @@ TEST_CASE("CoreB eval persistent runtime", "[coreb]") {
     evaluator ev(rt);
     CHECK(run(rt, ev,
               "(define x 5)"
-              "(define double (lambda (n) (* n 2)))") == "nil");
+              "(define double (lambda (n) (* n 2)))") == "double");
     // Builtins are ordinary bindings, so even rebinding one sticks.
-    CHECK(run(rt, ev, "(define + 42)") == "nil");
+    CHECK(run(rt, ev, "(define + 42)") == "+");
   }
   // The global scope is the runtime's root environment, so a later evaluator
   // over the same runtime sees everything the first one defined; stocking
@@ -641,6 +657,77 @@ TEST_CASE("CoreB eval errors", "[coreb]") {
   CHECK(run_err(rt, ev, "(+ 1 . 2)") == "improper form: (+ 1 . 2)");
   // Errors propagate out of nested evaluation.
   CHECK(run_err(rt, ev, "(+ 1 (head 2))") == "head: expects a cell, got: 2");
+}
+
+#pragma endregion
+#pragma region CoreB garbage collection
+
+TEST_CASE("CoreB gc", "[coreb]") {
+  runtime rt;
+  // A fresh runtime owns exactly one heap object: the root environment.
+  const auto baseline = rt.live_objects();
+  CHECK(baseline == 1);
+
+  SECTION("unreachable garbage is collected") {
+    CHECK(rt.cons(value{1}, rt.cons(value{2}, value{})).is_cell());
+    CHECK(rt.live_objects() == baseline + 2);
+    rt.collect();
+    CHECK(rt.live_objects() == baseline);
+  }
+  SECTION("a pin roots the variable, not a copy") {
+    // A temporary cannot be pinned: it would dangle by the semicolon.
+    static_assert(!std::is_constructible_v<gc_pin, runtime&, value>);
+    value v = rt.cons(value{1}, value{});
+    gc_pin pin(rt, v);
+    rt.collect();
+    CHECK(v.print() == "(1)");
+    // Rebinding the pinned variable roots the new value on the next
+    // collection, and the old one becomes garbage.
+    v = rt.cons(value{2}, value{});
+    rt.collect();
+    CHECK(v.print() == "(2)");
+    CHECK(rt.live_objects() == baseline + 1);
+  }
+  SECTION("root environment bindings survive") {
+    rt.root_env().bind(rt.intern("keep"), rt.cons(value{1}, value{}));
+    CHECK(rt.cons(value{9}, value{}).is_cell()); // Abandoned garbage.
+    rt.collect();
+    CHECK(rt.live_objects() == baseline + 1);
+    CHECK(rt.root_env().lookup(rt.intern("keep"))->print() == "(1)");
+  }
+  SECTION("cycles are collected once unreachable") {
+    evaluator ev(rt);
+    // A self-recursive definition is a reference cycle without any mutation
+    // primitive: the closure captures the very scope that binds it. While
+    // reachable, it survives collection.
+    CHECK(run(rt, ev, "(define f (lambda (n) (f n)))") == "f");
+    rt.collect();
+    CHECK(run(rt, ev, "(nil? f)") == "false");
+    const auto with_f = rt.live_objects();
+    // Unreachable, the whole cycle goes, which reference counting could
+    // never do.
+    CHECK(run(rt, ev, "(define f nil)") == "f");
+    rt.collect();
+    CHECK(rt.live_objects() < with_f);
+  }
+  SECTION("marking iterates over deep structure") {
+    value deep;
+    gc_pin pin(rt, deep);
+    for (size_t ndx = 0; ndx < 100'000; ++ndx) deep = rt.cons(deep, value{});
+    rt.collect();
+    CHECK(rt.live_objects() == baseline + 100'000);
+  }
+  SECTION("the evaluator collects at its safe point") {
+    evaluator ev(rt);
+    const auto before = rt.live_objects();
+    // The tail loop allocates one call frame per iteration; without the
+    // safe point, all 100000 environments would still be here afterward.
+    // Collections along the way keep the heap near the trigger threshold.
+    CHECK(run(rt, ev,
+              "(define loop (lambda (n) (if (= n 0) 'done (loop (- n 1)))))"
+              "(loop 100000)") == "done");
+    CHECK(rt.live_objects() < before + (2 * runtime::gc_threshold));
+  }
 }
 
 #pragma endregion

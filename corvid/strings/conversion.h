@@ -16,6 +16,7 @@
 // limitations under the License.
 #pragma once
 #include <array>
+#include <cassert>
 #include <charconv>
 #include <concepts>
 #include <cstdint>
