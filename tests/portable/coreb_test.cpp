@@ -50,6 +50,8 @@ std::string run(runtime& rt, evaluator& ev, std::string_view src) {
   auto forms = reader::read_all(rt, src);
   REQUIRE(forms.has_value());
   REQUIRE_FALSE(forms->empty());
+  // Evaluation may collect at safe points; the pending forms are roots.
+  gc_pin pin(rt, *forms);
   value last;
   for (const auto& form : *forms) {
     auto v = ev.eval(form);
@@ -65,6 +67,8 @@ std::string run_err(runtime& rt, evaluator& ev, std::string_view src) {
   CAPTURE(src);
   auto forms = reader::read_all(rt, src);
   REQUIRE(forms.has_value());
+  // Evaluation may collect at safe points; the pending forms are roots.
+  gc_pin pin(rt, *forms);
   for (const auto& form : *forms) {
     auto v = ev.eval(form);
     if (!v) return v.as_error().reason;
@@ -644,6 +648,75 @@ TEST_CASE("CoreB eval errors", "[coreb]") {
   CHECK(run_err(rt, ev, "(+ 1 . 2)") == "improper form: (+ 1 . 2)");
   // Errors propagate out of nested evaluation.
   CHECK(run_err(rt, ev, "(+ 1 (head 2))") == "head: expects a cell, got: 2");
+}
+
+#pragma endregion
+#pragma region CoreB garbage collection
+
+TEST_CASE("CoreB gc", "[coreb]") {
+  runtime rt;
+  // A fresh runtime owns exactly one heap object: the root environment.
+  const auto baseline = rt.live_objects();
+  CHECK(baseline == 1);
+
+  SECTION("unreachable garbage is collected") {
+    CHECK(rt.cons(value{1}, rt.cons(value{2}, value{})).is_cell());
+    CHECK(rt.live_objects() == baseline + 2);
+    rt.collect();
+    CHECK(rt.live_objects() == baseline);
+  }
+  SECTION("a pin roots the variable, not a copy") {
+    value v = rt.cons(value{1}, value{});
+    gc_pin pin(rt, v);
+    rt.collect();
+    CHECK(v.print() == "(1)");
+    // Rebinding the pinned variable roots the new value on the next
+    // collection, and the old one becomes garbage.
+    v = rt.cons(value{2}, value{});
+    rt.collect();
+    CHECK(v.print() == "(2)");
+    CHECK(rt.live_objects() == baseline + 1);
+  }
+  SECTION("root environment bindings survive") {
+    rt.root_env().bind(rt.intern("keep"), rt.cons(value{1}, value{}));
+    CHECK(rt.cons(value{9}, value{}).is_cell()); // Abandoned garbage.
+    rt.collect();
+    CHECK(rt.live_objects() == baseline + 1);
+    CHECK(rt.root_env().lookup(rt.intern("keep"))->print() == "(1)");
+  }
+  SECTION("cycles are collected once unreachable") {
+    evaluator ev(rt);
+    // A self-recursive definition is a reference cycle without any mutation
+    // primitive: the closure captures the very scope that binds it. While
+    // reachable, it survives collection.
+    CHECK(run(rt, ev, "(define f (lambda (n) (f n)))") == "f");
+    rt.collect();
+    CHECK(run(rt, ev, "(nil? f)") == "false");
+    const auto with_f = rt.live_objects();
+    // Unreachable, the whole cycle goes, which reference counting could
+    // never do.
+    CHECK(run(rt, ev, "(define f nil)") == "f");
+    rt.collect();
+    CHECK(rt.live_objects() < with_f);
+  }
+  SECTION("marking iterates over deep structure") {
+    value deep;
+    gc_pin pin(rt, deep);
+    for (size_t ndx = 0; ndx < 100'000; ++ndx) deep = rt.cons(deep, value{});
+    rt.collect();
+    CHECK(rt.live_objects() == baseline + 100'000);
+  }
+  SECTION("the evaluator collects at its safe point") {
+    evaluator ev(rt);
+    const auto before = rt.live_objects();
+    // The tail loop allocates one call frame per iteration; without the
+    // safe point, all 100000 environments would still be here afterward.
+    // Collections along the way keep the heap near the trigger threshold.
+    CHECK(run(rt, ev,
+              "(define loop (lambda (n) (if (= n 0) 'done (loop (- n 1)))))"
+              "(loop 100000)") == "done");
+    CHECK(rt.live_objects() < before + (2 * runtime::gc_threshold));
+  }
 }
 
 #pragma endregion

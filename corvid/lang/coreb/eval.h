@@ -76,6 +76,10 @@ using eval_error = error_value<struct EvalTag>;
 // constant stack. Only evaluation nested inside an expression recurses,
 // guarded by `max_depth`.
 //
+// The outermost loop top is also the garbage-collection safe point (see
+// `runtime::maybe_collect`), so values the embedder holds across `eval`
+// calls must be pinned with a `gc_pin`.
+//
 // Failure is reported by value as an `eval_error`.
 class evaluator final {
 public:
@@ -128,6 +132,10 @@ public:
     // entire tail-call mechanism.
     auto* cur = &env;
     for (;;) {
+      // The outermost loop top is the collection safe point: the evaluator's
+      // entire live set here is `expr` and the current environment.
+      if (depth_ == 1) rt_.maybe_collect(expr, *cur);
+
       // Symbols are looked up in the environment chain, while atoms evaluate
       // to themselves. Note that a symbol that refers to a primitive or
       // closure is going to be found initially as the head of a cell, not

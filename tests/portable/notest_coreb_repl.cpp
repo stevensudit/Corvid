@@ -50,6 +50,9 @@ int main() {
       continue;
     }
     pending.clear();
+    // Evaluation may collect at safe points; the not-yet-evaluated forms are
+    // roots only while pinned.
+    gc_pin pin(rt, *forms);
     for (const auto& form : *forms) {
       const auto v = ev.eval(form);
       if (!v) {
