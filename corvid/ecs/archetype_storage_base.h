@@ -161,7 +161,7 @@ public:
 
   // Erase by handle; validates the handle first.
   //
-  /// Resets `handle` to an invalid state on success.
+  // Resets `handle` to an invalid state on success.
   bool erase(handle_t& handle) {
     if (!registry_->is_valid(handle)) return false;
     if (!do_remove_erase(handle.id(), store_id_t::invalid)) return false;
@@ -378,14 +378,15 @@ public:
   // Insert components for an entity already in staging (`store_id ==
   // store_id_t{}`).
   //
-  // Returns false if the entity is not in staging, is invalid, or if the limit
-  // would be exceeded. Trailing components may be omitted; they are
-  // default-constructed. Passing more args than components is a compile-time
-  // error.
+  // The ID must be valid (asserted). Returns false if the entity is not in
+  // staging or if the limit would be exceeded. Trailing components may be
+  // omitted; they are default-constructed. Passing more args than components
+  // is a compile-time error.
   template<typename... Args>
   [[nodiscard]] bool add(id_t id, Args&&... args) {
     static_assert(sizeof...(Args) <= sizeof...(Cs),
         "too many arguments: cannot exceed the component count");
+    assert(registry_->is_valid(id));
     const auto& loc = registry_->get_location(id);
     if (loc.store_id != store_id_t{}) return false;
     const auto ndx = size();
