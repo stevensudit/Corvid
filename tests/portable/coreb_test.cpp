@@ -164,6 +164,14 @@ TEST_CASE("CoreB values", "[coreb]") {
                      std::string(value::max_depth, ')'));
     out.clear();
     CHECK_FALSE(deep.append_dump(out));
+
+    // Closure bodies charge depth too: an embedder can nest closures
+    // through `make_closure` bodies, a shape no read source can produce.
+    value fn = 1;
+    for (size_t ndx = 0; ndx < value::max_depth + 10; ++ndx)
+      fn = rt.make_closure({}, {fn}, rt.root_env());
+    out.clear();
+    CHECK_FALSE(fn.append(out));
   }
   SECTION("maybe accessors") {
     // Test and access in one step: the result is empty for a kind mismatch

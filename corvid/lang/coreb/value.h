@@ -268,9 +268,9 @@ public:
   //
   // The cap matches `reader::max_depth`, so anything the reader can produce
   // prints in full, and printing programmatically built structure cannot
-  // exhaust the C++ stack. Only nesting through `head` spends depth; chains
-  // through `tail` are iterated flat in both forms, so list length costs
-  // none.
+  // exhaust the C++ stack. Only nesting spends depth: a cell's head, and
+  // each form of a closure's body. Chains through `tail` are iterated flat
+  // in both forms, so list length costs none.
   static constexpr size_t max_depth = 256;
 
   // Append the printed s-expression form to `out`.
@@ -495,9 +495,11 @@ public:
       environment& env) noexcept
       : params{std::move(params)}, body{std::move(body)}, env{&env} {}
 
-  // Append the display form, "#<lambda (params) body...>". Closures have no
-  // readable form: the parameters and body are shown, but the captured
-  // environment has no printed spelling.
+  // Append the display form, "#<lambda (params) body...>".
+  //
+  // Closures have no readable form: the parameters and body are shown, but the
+  // captured environment has no printed spelling. Returns false if a subtree
+  // was truncated for depth (see `value::max_depth`).
   bool append(std::string& out, size_t depth = 0) const;
 
   std::vector<symbol> params;
@@ -800,6 +802,10 @@ inline bool value::append(std::string& out, size_t depth) const {
 }
 
 inline bool closure::append(std::string& out, size_t depth) const {
+  if (depth >= value::max_depth) {
+    out += "#<too deep>";
+    return false;
+  }
   out += "#<lambda (";
   for (size_t ndx = 0; ndx < params.size(); ++ndx) {
     if (ndx) out += ' ';
@@ -809,7 +815,7 @@ inline bool closure::append(std::string& out, size_t depth) const {
   auto ok = true;
   for (const auto& form : body) {
     out += ' ';
-    ok = form.append(out, depth) && ok;
+    ok = form.append(out, depth + 1) && ok;
   }
   out += '>';
   return ok;
