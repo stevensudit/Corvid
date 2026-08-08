@@ -344,10 +344,6 @@ public:
     operator==(row_iterator lhs, row_iterator rhs) noexcept {
       return lhs.row_.index() == rhs.row_.index();
     }
-    [[nodiscard]] friend bool
-    operator!=(row_iterator lhs, row_iterator rhs) noexcept {
-      return !(lhs == rhs);
-    }
 
   private:
     mutable value_type row_;
