@@ -85,6 +85,13 @@ TEST_CASE("Monty lexer tokens", "[coreb]") {
         "word:a op:<= word:b op:!= word:c op:>= word:d op:< word:e op:> "
         "word:f newline eof");
 
+  // `==`, `:=`, and `=` are three distinct operators, and a colon is
+  // punctuation only when no '=' follows.
+  CHECK(lex_dump("a == b") == "word:a op:== word:b newline eof");
+  CHECK(lex_dump("x := 5") == "word:x op::= number:5 newline eof");
+  CHECK(lex_dump("a==b:=c=d") ==
+        "word:a op:== word:b op::= word:c op:= word:d newline eof");
+
   // Unary minus is an operator, never part of the number literal.
   CHECK(lex_dump("-7") == "op:- number:7 newline eof");
   CHECK(lex_dump("1 2.5 .5 1e3 2E+4") ==

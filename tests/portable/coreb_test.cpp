@@ -511,28 +511,28 @@ TEST_CASE("CoreB eval tail calls", "[coreb]") {
   // A tail-recursive loop runs in constant C++ stack: 100000 iterations
   // would overflow any real stack if each call recursed.
   CHECK(run(rt, ev,
-            "(define loop (lambda (n) (if (= n 0) 'done (loop (- n 1)))))"
+            "(define loop (lambda (n) (if (== n 0) 'done (loop (- n 1)))))"
             "(loop 100000)") == "done");
 
   // Mutual tail recursion too. Note that `even?` calls `odd?` before it is
   // defined; the symbol is looked up at call time, not definition time.
   CHECK(run(rt, ev,
-            "(define even? (lambda (n) (if (= n 0) true (odd? (- n 1)))))"
-            "(define odd? (lambda (n) (if (= n 0) false (even? (- n 1)))))"
+            "(define even? (lambda (n) (if (== n 0) true (odd? (- n 1)))))"
+            "(define odd? (lambda (n) (if (== n 0) false (even? (- n 1)))))"
             "(even? 100001)") == "false");
 
   // `begin`'s finale is a tail position too: routed through it, the loop
   // still runs in constant stack.
   CHECK(run(rt, ev,
             "(define loop2 (lambda (n)"
-            "  (begin 0 (if (= n 0) 'done (loop2 (- n 1))))))"
+            "  (begin 0 (if (== n 0) 'done (loop2 (- n 1))))))"
             "(loop2 100000)") == "done");
 
   // Non-tail recursion is the contrast: the multiply happens after the
   // recursive call returns, so each level consumes real depth and the guard
   // catches runaways.
   CHECK(run(rt, ev,
-            "(define fact (lambda (n) (if (= n 0) 1 (* n (fact (- n 1))))))"
+            "(define fact (lambda (n) (if (== n 0) 1 (* n (fact (- n 1))))))"
             "(fact 20)") == "2432902008176640000");
   CHECK(run_err(rt, ev, "(fact 2000)") == "evaluation too deep");
 }
@@ -587,9 +587,9 @@ TEST_CASE("CoreB eval comparisons", "[coreb]") {
   CHECK(run(rt, ev, "(<= 1 1 2)") == "true");
   CHECK(run(rt, ev, "(> 3 2 1)") == "true");
   CHECK(run(rt, ev, "(>= 2 2 1)") == "true");
-  CHECK(run(rt, ev, "(= 1 1 1)") == "true");
+  CHECK(run(rt, ev, "(== 1 1 1)") == "true");
   // A mixed pair compares numerically across the int/float divide.
-  CHECK(run(rt, ev, "(= 1 1.0)") == "true");
+  CHECK(run(rt, ev, "(== 1 1.0)") == "true");
   // `!=` takes exactly 2: chained adjacent inequality would be a trap.
   CHECK(run(rt, ev, "(!= 1 2)") == "true");
   CHECK(run(rt, ev, "(!= 1 1)") == "false");
@@ -598,7 +598,7 @@ TEST_CASE("CoreB eval comparisons", "[coreb]") {
   CHECK(run_err(rt, ev, "(< 1)") == "<: expects at least 2 arguments");
   // Comparisons are numeric only; symbol and string equality is a later,
   // separate primitive.
-  CHECK(run_err(rt, ev, "(= 'a 'a)") == "=: expects numbers, got: a");
+  CHECK(run_err(rt, ev, "(== 'a 'a)") == "==: expects numbers, got: a");
 }
 
 #pragma endregion
@@ -724,7 +724,7 @@ TEST_CASE("CoreB gc", "[coreb]") {
     // safe point, all 100000 environments would still be here afterward.
     // Collections along the way keep the heap near the trigger threshold.
     CHECK(run(rt, ev,
-              "(define loop (lambda (n) (if (= n 0) 'done (loop (- n 1)))))"
+              "(define loop (lambda (n) (if (== n 0) 'done (loop (- n 1)))))"
               "(loop 100000)") == "done");
     CHECK(rt.live_objects() < before + (2 * runtime::gc_threshold));
   }

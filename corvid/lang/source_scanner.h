@@ -163,6 +163,7 @@ public:
         incomplete};
   }
 
+private:
   std::string_view src_;
   size_t pos_{};
 };
