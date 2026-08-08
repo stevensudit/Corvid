@@ -610,6 +610,9 @@ TEST_CASE("CoreB eval lists", "[coreb]") {
 
   CHECK(run(rt, ev, "(cons 1 2)") == "(1 . 2)");
   CHECK(run(rt, ev, "(cons 1 nil)") == "(1)");
+  CHECK(run(rt, ev, "(list 1 2 3)") == "(1 2 3)");
+  CHECK(run(rt, ev, "(list)") == "nil");
+  CHECK(run(rt, ev, "(list (+ 1 2))") == "(3)");
   CHECK(run(rt, ev, "(head '(1 2))") == "1");
   CHECK(run(rt, ev, "(tail '(1 2 3))") == "(2 3)");
   CHECK(run(rt, ev, "(nil? nil)") == "true");

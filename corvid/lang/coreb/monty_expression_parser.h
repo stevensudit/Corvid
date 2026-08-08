@@ -50,6 +50,7 @@ namespace corvid { inline namespace lang { namespace coreb { namespace monty {
 //   a + b < c * d  ->  (< (+ a b) (* c d))
 //   x if c else y  ->  (if c x y)
 //   map((-), xs)   ->  (map - xs)
+//   [1, x + 1]     ->  (list 1 (+ x 1))
 //
 // The grammar in EBNF ("{x}" repetition, "[x]" option, "|" alternation):
 //
@@ -59,7 +60,9 @@ namespace corvid { inline namespace lang { namespace coreb { namespace monty {
 //             | unary { ( "*" | "/" ) unary }
 //   unary   ::= "-" unary | postfix
 //   postfix ::= primary { "(" [ expr { "," expr } ] ")" }
-//   primary ::= number | string | word | "(" operator ")" | "(" expr ")"
+//   primary ::= number | string | word | list
+//             | "(" operator ")" | "(" expr ")"
+//   list    ::= "[" [ expr { "," expr } ] "]"
 //   cmp     ::= "==" | "!=" | "<" | "<=" | ">" | ">="
 //
 // where number/string/word are the lexer's tokens ("nil", "true", and
@@ -261,8 +264,7 @@ private:
       case token_kind::string: return parse_string();
       case token_kind::word: return parse_word();
       case token_kind::lparen: return parse_group();
-      case token_kind::lbracket:
-        return toks.fail("list literals are not yet supported");
+      case token_kind::lbracket: return parse_list();
       default: return toks.fail("expected an expression");
       }
     }
@@ -300,6 +302,26 @@ private:
       if (text == "true") return value{true};
       if (text == "false") return value{false};
       return value{rt.intern(text)};
+    }
+
+    // Parse a list literal, which desugars to the kernel `list` constructor,
+    // so elements are evaluated: `[1, x]` is `(list 1 x)`, and `[]` is
+    // `(list)`, yielding nil.
+    [[nodiscard]] result<value> parse_list() {
+      toks.take(); // '['
+      std::vector<value> form{value{rt.intern("list")}};
+      if (!toks.at(token_kind::rbracket)) {
+        for (;;) {
+          auto elem = parse_expr();
+          if (!elem) return elem;
+          form.push_back(*elem);
+          if (!toks.at(token_kind::comma)) break;
+          toks.take();
+        }
+      }
+      if (!toks.at(token_kind::rbracket)) return toks.fail("expected ']'");
+      toks.take();
+      return list_of(form);
     }
 
     // Parse a parenthesized group: an operator mention such as `(-)`, or a

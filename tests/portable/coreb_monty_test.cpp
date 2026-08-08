@@ -267,8 +267,15 @@ TEST_CASE("Monty expression parser", "[coreb]") {
   CHECK(parse_dump(rt, "map((-), xs)") == "(map - xs)");
   CHECK(parse_dump(rt, "(+)") == "+");
 
+  // List literals desugar to the kernel `list` constructor, so elements are
+  // evaluated expressions.
+  CHECK(parse_dump(rt, "[1, 2, 3]") == "(list 1 2 3)");
+  CHECK(parse_dump(rt, "[]") == "(list)");
+  CHECK(parse_dump(rt, "[1 + 2, [x]]") == "(list (+ 1 2) (list x))");
+
   // Bracket continuation carries an expression across lines.
   CHECK(parse_dump(rt, "f(a,\n  b)") == "(f a b)");
+  CHECK(parse_dump(rt, "[1,\n  2]") == "(list 1 2)");
 }
 
 #pragma endregion
@@ -295,10 +302,13 @@ TEST_CASE("Monty expression parser errors", "[coreb]") {
         "'=' is a definition statement, not an expression");
   CHECK(parse_err(rt, "(=)").message == "'=' is a statement, not a value");
 
-  // Reserved forms awaiting rulings.
-  CHECK(parse_err(rt, "[1, 2]").message ==
-        "list literals are not yet supported");
+  // Indexing is reserved awaiting a ruling.
   CHECK(parse_err(rt, "xs[0]").message == "indexing is not yet part of Monty");
+
+  // List-literal structural errors; trailing commas stay rejected, as in
+  // calls.
+  CHECK(parse_err(rt, "[1 2]").message == "expected ']'");
+  CHECK(parse_err(rt, "[1, 2,]").message == "expected an expression");
 
   // Structural errors.
   CHECK(parse_err(rt, "x if c").message ==
@@ -370,6 +380,8 @@ TEST_CASE("Monty expression parser evaluates", "[coreb]") {
   CHECK(parse_eval("-2 * -3") == "6");
   CHECK(parse_eval("10 / 4") == "2.5");
   CHECK(parse_eval("1 if nil else 2") == "2");
+  CHECK(parse_eval("[1, 2 + 3]") == "(1 5)");
+  CHECK(parse_eval("head([1, 2])") == "1");
 }
 
 #pragma endregion

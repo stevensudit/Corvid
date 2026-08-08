@@ -22,6 +22,7 @@
 #include <cstdint>
 #include <limits>
 #include <optional>
+#include <ranges>
 #include <span>
 #include <string>
 #include <string_view>
@@ -659,6 +660,15 @@ private:
     return rt.cons(args[0], args[1]);
   }
 
+  // The `list` builtin: construct a list of the arguments, so `(list)` is
+  // nil.
+  static prim_result prim_list(runtime& rt, std::span<const value> args) {
+    value list;
+    for (const auto& arg : std::views::reverse(args))
+      list = rt.cons(arg, list);
+    return list;
+  }
+
   // The `head` and `tail` builtins: the halves of a cell.
   static prim_result prim_head(runtime&, std::span<const value> args) {
     if (args.size() != 1) return "expects 1 argument"s;
@@ -696,6 +706,7 @@ private:
     register_builtin(">", prim_gt);
     register_builtin(">=", prim_ge);
     register_builtin("cons", prim_cons);
+    register_builtin("list", prim_list);
     register_builtin("head", prim_head);
     register_builtin("tail", prim_tail);
     register_builtin("nil?", prim_nil);
