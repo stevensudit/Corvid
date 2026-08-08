@@ -316,8 +316,10 @@ TEST_CASE("Monty expression parser errors", "[coreb]") {
   CHECK(v->print() == "a");
   CHECK(toks.at_word("b"));
 
-  // Probe: `std::move` on a const stream (as `std::move(*lexed)` would be)
-  // is rejected rather than copying silently; moving the result works.
+  // Probe: the stream is move-only, so `std::move` on a const stream (as
+  // `std::move(*lexed)` would be) is rejected rather than copying silently;
+  // moving the result works.
+  static_assert(!std::is_copy_constructible_v<monty::token_stream>);
   static_assert(!std::is_constructible_v<monty::token_stream,
       const monty::token_stream&&>);
   static_assert(

@@ -148,16 +148,13 @@ public:
     assert(!tokens_.empty() && tokens_.back().kind == token_kind::eof);
   }
 
-  token_stream(const token_stream&) = default;
-  token_stream& operator=(const token_stream&) = default;
+  // The stream is heavy and single-consumer, so it moves, never copies. This
+  // also rejects the silent-copy trap `std::move(*r)` on a result lvalue;
+  // move the result itself: `*std::move(r)`.
+  token_stream(const token_stream&) = delete;
+  token_stream& operator=(const token_stream&) = delete;
   token_stream(token_stream&&) noexcept = default;
   token_stream& operator=(token_stream&&) noexcept = default;
-
-  // A const stream can only be copied, so `std::move` on one (say, on `*r` for
-  // a result lvalue) would copy silently; the const-rvalue forms are deleted
-  // to reject that outright. Move the result itself instead: `*std::move(r)`.
-  token_stream(const token_stream&&) = delete;
-  token_stream& operator=(const token_stream&&) = delete;
 
   [[nodiscard]] std::string_view src() const noexcept { return src_; }
   [[nodiscard]] std::span<const token> tokens() const noexcept {
