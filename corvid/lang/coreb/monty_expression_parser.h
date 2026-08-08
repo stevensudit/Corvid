@@ -36,11 +36,10 @@ namespace corvid { inline namespace lang { namespace coreb { namespace monty {
 
 // Monty expression parser.
 //
-// Parses one Monty expression from the lexer's token stream and desugars it
-// to the Hall s-expression the kernel evaluates. This layer covers
-// everything legal in expression position. Statements (definition,
-// assignment, blocks) belong to the statement parser, still to come, and
-// `=`/`:=` are rejected here with messages saying so.
+// Parses one Monty expression from the lexer's token stream and desugars it to
+// the Hall s-expression the kernel evaluates. This layer covers everything
+// legal in expression position; `=` and `:=` head statements, not expressions,
+// so in expression position they are rejected with messages saying so.
 //
 // The desugar, by example:
 //
@@ -74,7 +73,7 @@ namespace corvid { inline namespace lang { namespace coreb { namespace monty {
 // decision, arithmetic sits above comparison, and comparison chains desugar
 // to the kernel's chaining primitives.
 
-#pragma region parser
+#pragma region expression_parser
 
 // Parser from Monty expression source to a Hall value.
 //
@@ -82,7 +81,7 @@ namespace corvid { inline namespace lang { namespace coreb { namespace monty {
 // exhaustion. Failure is reported by value as a `source_error`; lexer failures
 // pass through, so an unterminated bracket keeps its `incomplete_input`
 // cause.
-class parser final {
+class expression_parser final {
 public:
   template<typename T>
   using result = source_scanner::result<T>;
@@ -201,8 +200,8 @@ private:
 
     // Parse a comparison chain over arithmetic operands. A chain uses one
     // comparison operator throughout and desugars to the kernel's chaining
-    // primitive, so `a < b < c` becomes `(< a b c)`; mixed chains await
-    // `and`, and `!=` refuses to chain at all.
+    // primitive, so `a < b < c` becomes `(< a b c)`; mixed chains are an
+    // error, and `!=` refuses to chain at all.
     [[nodiscard]] result<value> parse_chain() {
       auto l = parse_arith();
       if (!l) return l;

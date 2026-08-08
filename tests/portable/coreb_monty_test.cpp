@@ -67,7 +67,7 @@ source_error lex_err(std::string_view src) {
 // form.
 std::string parse_dump(runtime& rt, std::string_view src) {
   CAPTURE(src);
-  auto v = monty::parser::parse_expression(rt, src);
+  auto v = monty::expression_parser::parse_expression(rt, src);
   REQUIRE(v.has_value());
   return v->print();
 }
@@ -75,7 +75,7 @@ std::string parse_dump(runtime& rt, std::string_view src) {
 // Parse a Monty expression expecting failure, returning the error.
 source_error parse_err(runtime& rt, std::string_view src) {
   CAPTURE(src);
-  auto r = monty::parser::parse_expression(rt, src);
+  auto r = monty::expression_parser::parse_expression(rt, src);
   REQUIRE_FALSE(r.has_value());
   return r.as_error();
 }
@@ -304,10 +304,11 @@ TEST_CASE("Monty expression parser errors", "[coreb]") {
 
   // Nesting is depth-guarded rather than risking the C++ stack.
   const std::string deep =
-      std::string(monty::parser::max_depth + 1, '(') + "x" +
-      std::string(monty::parser::max_depth + 1, ')');
+      std::string(monty::expression_parser::max_depth + 1, '(') + "x" +
+      std::string(monty::expression_parser::max_depth + 1, ')');
   CHECK(parse_err(rt, deep).message == "nesting too deep");
-  CHECK(parse_err(rt, std::string(monty::parser::max_depth + 1, '-') + "x")
+  CHECK(parse_err(rt,
+            std::string(monty::expression_parser::max_depth + 1, '-') + "x")
             .message == "nesting too deep");
 
   // Errors carry the offending position.
@@ -326,7 +327,7 @@ TEST_CASE("Monty expression parser evaluates", "[coreb]") {
   // End-to-end: Monty source through the desugar into the evaluator.
   auto parse_eval = [&](std::string_view src) {
     CAPTURE(src);
-    auto v = monty::parser::parse_expression(rt, src);
+    auto v = monty::expression_parser::parse_expression(rt, src);
     REQUIRE(v.has_value());
     // Evaluation may collect at safe points; the pending form is a root.
     std::vector<value> forms{*v};
