@@ -15,12 +15,14 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#include <concepts>
 #include <cstdint>
 #include <iterator>
 #include <memory>
 #include <ranges>
 #include <string>
 #include <tuple>
+#include <utility>
 #include <vector>
 
 #include "corvid/ecs.h"
@@ -483,6 +485,25 @@ TEST_CASE("NarrowEntityId", "[ChunkedArchetypeStorage]") {
   reg_t r;
   arch_t a{r, store_id_t{1}};
   for (int i = 0; i < 255; ++i) REQUIRE(r.is_valid(a.add_new(0, i, 0.0F)));
+  CHECK(a.size() == 255);
+  CHECK(a.capacity() >= a.size());
+}
+
+#pragma endregion
+#pragma region MonoArchetypeStorage_NarrowEntityId
+
+TEST_CASE("NarrowEntityId", "[MonoArchetypeStorage]") {
+  using id_enums::store_id_t;
+  using reg_t = entity_registry<int, small_entity_id_t>;
+  using arch_t = mono_archetype_storage<reg_t, int>;
+
+  // Same saturation pin as the sibling storages. The instantiation also
+  // exercises `metadata_t == component_t` (both `int`), which was a hard
+  // redeclaration error while mono declared its own metadata-first `add_new`
+  // alongside the component-first one.
+  reg_t r;
+  arch_t a{r, store_id_t{1}};
+  for (int i = 0; i < 255; ++i) REQUIRE(r.is_valid(a.add_new(i)));
   CHECK(a.size() == 255);
   CHECK(a.capacity() >= a.size());
 }
@@ -2317,6 +2338,27 @@ TEST_CASE("Iterator", "[MonoArchetypeStorage]") {
     CHECK(s.add(id1, 2.0F));
     auto it = 1 + s.begin();
     CHECK(*it == 2.0F);
+  }
+
+  // The iterators satisfy `std::contiguous_iterator`, as advertised, and
+  // `iterator` converts to `const_iterator` (never the reverse), enabling
+  // mixed comparisons.
+  if (true) {
+    using iterator = storage_t::iterator;
+    using const_iterator = storage_t::const_iterator;
+    static_assert(std::contiguous_iterator<iterator>);
+    static_assert(std::contiguous_iterator<const_iterator>);
+    static_assert(std::convertible_to<iterator, const_iterator>);
+    static_assert(!std::convertible_to<const_iterator, iterator>);
+    reg_t r;
+    storage_t s{r, sid};
+    auto id0 = r.create_id(staging, 10);
+    CHECK(s.add(id0, 1.0F));
+    const_iterator cit = s.begin();
+    CHECK(*cit == 1.0F);
+    CHECK(cit == s.begin());
+    CHECK(s.begin() != s.cend());
+    CHECK(std::as_const(s).begin() == s.begin());
   }
 }
 

@@ -384,9 +384,11 @@ public:
   }
 
   // Create a new entity by extracting this archetype's components from
-  // `mega`, a `megatuple_t` (tuple of optionals). Each `optional<C>` for a
-  // component `C` in this archetype must have a value; the caller is
-  // responsible for ensuring the bitmap matches before calling.
+  // `mega`, a `megatuple_t` (tuple of optionals).
+  //
+  // Each `optional<C>` for a component `C` in this archetype must have a
+  // value; the caller is responsible for ensuring the bitmap matches before
+  // calling.
   // NOLINTBEGIN(bugprone-unchecked-optional-access)
   template<typename MegaTuple>
   [[nodiscard]] handle_t

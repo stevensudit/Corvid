@@ -128,10 +128,12 @@ public:
   // fully constructed instance before calling any mutation methods.
   chunked_archetype_storage() = default;
 
-  // Construct bound to `registry` with the given `store_id`. `store_id` must
-  // not be `store_id_t::invalid` or `store_id_t{0}` (staging). If `policy` is
-  // `allocation_policy::eager` and `limit` is not the sentinel unlimited
-  // value, reserves capacity for `limit` entities up front.
+  // Construct bound to `registry` with the given `store_id`.
+  //
+  // The `store_id` is not permitted to be `store_id_t::invalid` or
+  // `store_id_t{0}` (staging). If `policy` is `allocation_policy::eager` and
+  // `limit` is not the sentinel unlimited value, reserves capacity for
+  // `limit` entities up front.
   explicit chunked_archetype_storage(registry_t& registry, store_id_t store_id,
       size_type limit = *id_t::invalid,
       allocation_policy policy = allocation_policy::lazy)
@@ -175,9 +177,10 @@ public:
     ids_.shrink_to_fit();
   }
 
-  // Reserve capacity for at least `new_cap` entities. Requests beyond the
-  // entity limit are clamped to it. The chunk vector is rounded up to whole
-  // chunks; IDs is reserved exactly.
+  // Reserve capacity for at least `new_cap` entities.
+  //
+  // Requests beyond the entity limit are clamped to it. The chunk vector is
+  // rounded up to whole chunks; IDs is reserved exactly.
   void reserve(size_type new_cap) {
     const auto n = static_cast<size_t>(std::min(new_cap, limit_));
     chunks_.reserve(ceil_div(n, chunk_size_v));
