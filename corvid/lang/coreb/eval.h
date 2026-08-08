@@ -689,7 +689,7 @@ private:
     register_builtin("-", prim_sub);
     register_builtin("*", prim_mul);
     register_builtin("/", prim_div);
-    register_builtin("=", prim_eq);
+    register_builtin("==", prim_eq);
     register_builtin("!=", prim_ne);
     register_builtin("<", prim_lt);
     register_builtin("<=", prim_le);

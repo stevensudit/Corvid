@@ -44,8 +44,9 @@ namespace corvid { inline namespace lang { namespace coreb { namespace monty {
 // - Words lead with a letter or underscore and may end with a single '?',
 //   which marks a predicate: `head`, `x2`, `_helper`, `nil?`.
 // - Operators come from the closed table, longest match first, so `a<=b`
-//   lexes as `a`, `<=`, `b`. Blends do not exist: `comb-over` is `comb`
-//   minus `over`.
+//   lexes as `a`, `<=`, `b`, and `x:=y` as `x`, `:=`, `y` (a colon is
+//   punctuation only when no '=' follows). Blends do not exist: `comb-over`
+//   is `comb` minus `over`.
 // - Numbers take an optional fraction and exponent: `1`, `2.5`, `.5`, `1e3`,
 //   `2E+4`. No sign; `-7` is the operator `-` applied to `7`.
 // - Strings are double-quoted and single-line, with the kernel escape set:
@@ -57,7 +58,7 @@ namespace corvid { inline namespace lang { namespace coreb { namespace monty {
 //
 //   token    ::= word | operator | number | string | punct
 //   word     ::= ( letter | "_" ) { letter | digit | "_" } [ "?" ]
-//   operator ::= "!=" | "<=" | ">=" |
+//   operator ::= "==" | "!=" | "<=" | ">=" | ":=" |
 //                "+" | "-" | "*" | "/" | "<" | ">" | "="
 //   number   ::= digit { digit } [ frac ] [ exp ] | frac [ exp ]
 //   frac     ::= "." digit { digit }
@@ -262,7 +263,8 @@ private:
         return push1(c == ')' ? token_kind::rparen : token_kind::rbracket);
       }
       if (c == ',') return push1(token_kind::comma);
-      if (c == ':') return push1(token_kind::colon);
+      // A ':' is punctuation only when no '=' follows; ':=' is an operator.
+      if (c == ':' && peek(1) != '=') return push1(token_kind::colon);
 
       return extract_operator();
     }
@@ -363,7 +365,8 @@ private:
     // Lex an operator symbol from the closed operator table, longest match
     // first.
     [[nodiscard]] result<void> extract_operator() {
-      static constexpr std::string_view two_char_ops[]{"!=", "<=", ">="};
+      static constexpr std::string_view two_char_ops[]{
+          "==", "!=", "<=", ">=", ":="};
       const auto start = cursor();
       for (const auto op : two_char_ops)
         if (at_text(op)) {
