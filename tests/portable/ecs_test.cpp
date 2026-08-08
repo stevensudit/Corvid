@@ -471,6 +471,23 @@ TEST_CASE("NarrowEntityId", "[ArchetypeStorage]") {
 }
 
 #pragma endregion
+#pragma region ChunkedArchetypeStorage_NarrowEntityId
+
+TEST_CASE("NarrowEntityId", "[ChunkedArchetypeStorage]") {
+  using id_enums::store_id_t;
+  using reg_t = entity_registry<int, small_entity_id_t>;
+  using arch_t = chunked_archetype_storage<reg_t, std::tuple<int, float>, 4>;
+
+  // Same saturation pin as the `archetype_storage` case: ID and chunk vector
+  // growth overshoots the uint8 domain once 255 entities are stored.
+  reg_t r;
+  arch_t a{r, store_id_t{1}};
+  for (int i = 0; i < 255; ++i) REQUIRE(r.is_valid(a.add_new(0, i, 0.0F)));
+  CHECK(a.size() == 255);
+  CHECK(a.capacity() >= a.size());
+}
+
+#pragma endregion
 #pragma region ArchetypeStorage_Erase
 
 TEST_CASE("Erase", "[ArchetypeStorage]") {
@@ -3627,6 +3644,24 @@ TEST_CASE("MixedStorages", "[ArchetypeScene]") {
     s.clear();
     CHECK(s.empty());
     CHECK(s.registry().size() == 0U);
+  }
+
+  // store_new_entity_from_mega dispatches into chunked and mono storages,
+  // pinning that every storage type provides `add_new_from_mega`, not just
+  // `archetype_storage`.
+  if (true) {
+    mixed_scene_t s;
+    mixed_scene_t::megatuple_t tpl{};
+    std::get<std::optional<Health>>(tpl) = Health{7};
+    auto h_chunked = s.store_new_entity_from_mega({}, tpl);
+    CHECK(h_chunked);
+    CHECK(s.storage<scene_sid_t{2}>().contains(h_chunked.id()));
+    tpl = {};
+    std::get<std::optional<Position>>(tpl) = Position{9.F, 8.F};
+    auto h_mono = s.store_new_entity_from_mega({}, tpl);
+    CHECK(h_mono);
+    CHECK(s.storage<scene_sid_t{3}>().contains(h_mono.id()));
+    CHECK(s.storage<scene_sid_t{3}>()[h_mono.id()].x == 9.F);
   }
 }
 
