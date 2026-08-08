@@ -38,6 +38,14 @@ consteval auto corvid_enum_spec(small_store_id_t*) {
       "">();
 }
 
+// Entity ID enum with a narrow underlying type, for pins where vector growth
+// overshoots the ID domain's range.
+enum class small_entity_id_t : uint8_t { invalid = 255 };
+consteval auto corvid_enum_spec(small_entity_id_t*) {
+  return corvid::enums::sequence::make_sequence_enum_spec<small_entity_id_t,
+      "">();
+}
+
 // NOLINTBEGIN(readability-function-cognitive-complexity)
 // NOLINTBEGIN(readability-function-size)
 
@@ -441,6 +449,25 @@ TEST_CASE("NarrowStoreId", "[ArchetypeStorage]") {
     a.remove_all();
     CHECK(r.get_location(id).ndx == *id_t::invalid);
   }
+}
+
+#pragma endregion
+#pragma region ArchetypeStorage_NarrowEntityId
+
+TEST_CASE("NarrowEntityId", "[ArchetypeStorage]") {
+  using id_enums::store_id_t;
+  using reg_t = entity_registry<int, small_entity_id_t>;
+  using arch_t = archetype_storage<reg_t, std::tuple<int, float>>;
+
+  // `capacity()` reports the minimum across the component vectors, whose
+  // growth can overshoot a narrow ID domain's range; the report saturates at
+  // the domain maximum instead of truncating. Filling the storage pushes the
+  // vectors' capacity past 255, which truncated to 0 before the fix.
+  reg_t r;
+  arch_t a{r, store_id_t{1}};
+  for (int i = 0; i < 255; ++i) REQUIRE(r.is_valid(a.add_new(0, i, 0.0F)));
+  CHECK(a.size() == 255);
+  CHECK(a.capacity() >= a.size());
 }
 
 #pragma endregion

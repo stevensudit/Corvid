@@ -16,17 +16,16 @@
 // limitations under the License.
 #pragma once
 
+#include <algorithm>
 #include <cstddef>
-#include <cstdint>
 #include <limits>
 #include <memory>
 #include <optional>
-#include <span>
-#include <type_traits>
 #include <tuple>
 #include <utility>
 #include <vector>
 
+#include "../enums/bool_enums.h"
 #include "../infra/exception_firewalls.h"
 #include "archetype_storage_base.h"
 
@@ -58,7 +57,8 @@ namespace corvid { inline namespace ecs { inline namespace archetype_storages {
 //
 // Template parameters:
 //  REG      - `entity_registry` instantiation. Provides types.
-//  TUPLE    - Tuple of component types. Each must be trivially copyable.
+//  TUPLE    - Tuple of component types. Each must be movable (removal uses
+//             swap-and-pop).
 //  TAG      - Optional tag type (default: `void`). Use a distinct tag to
 //             create multiple structurally identical storages that are
 //             nevertheless different types and can coexist in the same
@@ -113,15 +113,15 @@ public:
   archetype_storage() = default;
 
   // Construct bound to `registry` with the given `store_id`. `store_id` must
-  // not be `store_id_t::invalid` or `store_id_t{0}` (staging). If
-  // `do_reserve` is true and `limit` is not the sentinel unlimited value,
-  // reserves capacity for `limit` entities up front.
+  // not be `store_id_t::invalid` or `store_id_t{0}` (staging). If `policy` is
+  // `allocation_policy::eager` and `limit` is not the sentinel unlimited
+  // value, reserves capacity for `limit` entities up front.
   explicit archetype_storage(registry_t& registry, store_id_t store_id,
       size_type limit = *id_t::invalid,
       allocation_policy policy = allocation_policy::lazy)
       : base_t{registry, store_id, limit},
         components_{make_components(registry.get_allocator())} {
-    if (policy == allocation_policy::eager && limit_ != *id_t::invalid)
+    if ((policy == allocation_policy::eager) && (limit_ != *id_t::invalid))
       reserve(limit_);
   }
 
@@ -143,8 +143,7 @@ public:
     components_.swap(other.components_);
   }
 
-  friend void swap(archetype_storage& lhs, archetype_storage& rhs) noexcept(
-      noexcept(lhs.swap(rhs))) {
+  friend void swap(archetype_storage& lhs, archetype_storage& rhs) noexcept {
     lhs.swap(rhs);
   }
 
@@ -158,9 +157,9 @@ public:
   }
 
   // Reserve capacity for at least `new_cap` entities across all component
-  // vectors and IDs.
+  // vectors and IDs. Requests beyond the entity limit are clamped to it.
   void reserve(size_type new_cap) {
-    const auto cap = static_cast<size_t>(new_cap);
+    const auto cap = static_cast<size_t>(std::min(new_cap, limit_));
     for_each_component([&](auto& vec) { vec.reserve(cap); });
     ids_.reserve(cap);
   }
@@ -173,6 +172,10 @@ public:
           ((min_cap = std::min(min_cap, vecs.capacity())), ...);
         },
         components_);
+    if constexpr (sizeof(size_type) < sizeof(size_t)) {
+      constexpr auto max_cap = std::numeric_limits<size_type>::max();
+      if (min_cap > max_cap) return max_cap;
+    }
     return static_cast<size_type>(min_cap);
   }
 
@@ -270,7 +273,7 @@ private:
   [[nodiscard]] auto do_make_components_tuple(this auto& self, size_type ndx) {
     return std::apply(
         [&](auto&&... vecs) {
-          return std::tuple<decltype(vecs[ndx])&...>{vecs[ndx]...};
+          return std::tuple<decltype(vecs[ndx])...>{vecs[ndx]...};
         },
         self.components_);
   }
