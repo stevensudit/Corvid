@@ -413,9 +413,9 @@ public:
   // source, so the row is valid during the call.
   //
   // Returns false if the entity is staged, `to` is not a valid storage ID, or
-  // the target storage rejects the insertion (e.g., at limit). On failure the
-  // entity remains in its current storage or is stranded in staging.  ID must
-  // be valid.
+  // the target storage rejects the insertion (e.g., at limit). On failure,
+  // the entity remains in its current storage or is stranded in staging. ID
+  // must be valid.
   //
   // Build shape: `(const auto& row) -> <destination component tuple>`.
   [[nodiscard]] bool migrate_entity(id_t id, store_id_t to, auto&& build) {
