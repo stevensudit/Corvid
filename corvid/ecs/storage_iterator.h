@@ -69,7 +69,7 @@ struct single_component_row_view {
 template<typename STORAGE, access ACCESS>
 class contiguous_storage_iterator {
 public:
-  static constexpr bool mutable_v = static_cast<bool>(ACCESS);
+  static constexpr auto mutable_v = (ACCESS == access::as_mutable);
   using iterator_category = std::contiguous_iterator_tag;
   using iterator_concept = std::contiguous_iterator_tag;
   using value_type = STORAGE::component_t;
@@ -94,14 +94,17 @@ public:
   template<access OTHER>
   contiguous_storage_iterator(
       const contiguous_storage_iterator<STORAGE, OTHER>& other)
-  requires(!mutable_v && static_cast<bool>(OTHER))
+  requires(!mutable_v && (OTHER == access::as_mutable))
       : storage_{other.storage_}, ndx_{other.ndx_} {}
 
   [[nodiscard]] reference operator*() const {
     return storage_->components_[ndx_];
   }
+  // `data() + ndx_`, not `&components_[ndx_]` because `std::to_address`
+  // unwraps past-the-end iterators through `operator->`, where indexing would
+  // be out of bounds.
   [[nodiscard]] pointer operator->() const {
-    return &storage_->components_[ndx_];
+    return storage_->components_.data() + ndx_;
   }
 
   [[nodiscard]] id_t id() const { return storage_->ids_[ndx_]; }

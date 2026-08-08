@@ -25,6 +25,7 @@
 
 #include "../containers/utils/enum_vector.h"
 #include "../enums/bool_enums.h"
+#include "../math/arithmetic.h"
 #include "entity_ids.h"
 
 namespace corvid { inline namespace ecs { inline namespace id_containers {
@@ -107,7 +108,7 @@ public:
       allocation_policy prefill = allocation_policy::lazy) {
     if (new_limit < size_as_enum()) return false;
     limit_ = new_limit;
-    if (prefill == allocation_policy::eager && limit_ != id_t::invalid)
+    if ((prefill == allocation_policy::eager) && (limit_ != id_t::invalid))
       (void)reserve(*limit_); // Cannot fail: the request equals the limit.
     return true;
   }
@@ -129,12 +130,7 @@ public:
   // such capacity is unusable, so it is reported as the maximum rather than
   // truncated.
   [[nodiscard]] size_type capacity() const noexcept {
-    const auto cap = data_.capacity();
-    if constexpr (sizeof(size_type) < sizeof(size_t)) {
-      constexpr auto max_cap = std::numeric_limits<size_type>::max();
-      if (cap > max_cap) return max_cap;
-    }
-    return static_cast<size_type>(cap);
+    return saturate_cast<size_type>(data_.capacity());
   }
 
   [[nodiscard]] bool empty() const noexcept { return data_.empty(); }

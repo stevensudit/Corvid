@@ -239,11 +239,14 @@ public:
         std::forward<T>(obj));
   }
 
-  // Create a new entity from a `megatuple_t`. The set of optionals that have
-  // values must exactly match the component set of one of this scene's
-  // archetypes, as determined by a linear search of the compile-time bitmap
-  // table. Returns a valid handle on success, or an invalid handle if no
-  // archetype matches the bitmap, the registry refused creation, or the
+  // Create a new entity from a `megatuple_t`.
+  //
+  // The set of optionals that have values must exactly match the component set
+  // of one of this scene's archetypes, as determined by a linear search of the
+  // compile-time bitmap table. Returns a valid handle on success, or an
+  // invalid handle if no archetype matches the bitmap, the bitmap is shared by
+  // TAG-twin storages (which the pattern cannot disambiguate; use
+  // `store_new_entity<SID>` for those), the registry refused creation, or the
   // storage limit would be exceeded.
   //
   // Note: It's tempting to sort the array and do a binary search, but given
@@ -251,12 +254,13 @@ public:
   // slower.
   [[nodiscard]] handle_t store_new_entity_from_mega(const metadata_t& metadata,
       const megatuple_t& tpl) {
-    static_assert(bitmaps_unique(),
-        "store_new_entity_from_mega: two storages share the same component "
-        "set (TAG twins); the megatuple pattern cannot disambiguate them");
     const auto bm = bitmap_of(tpl);
-    for (const auto& [arch_bm, sid] : bitmap_table_v) {
+    for (size_t ndx = 0; ndx < bitmap_table_v.size(); ++ndx) {
+      const auto& [arch_bm, sid] = bitmap_table_v[ndx];
       if (arch_bm == bm) {
+        // A bitmap shared by TAG twins is undecidable from the pattern alone;
+        // refuse rather than silently picking the first twin.
+        if (duplicated_bitmap_v[ndx]) return handle_t{};
         return dispatch_storage<handle_t>(
             sid,
             [&](auto& s) -> handle_t {
@@ -758,16 +762,19 @@ private:
             store_id_t{Is + 1}}...};
       }(std::index_sequence_for<STORES...>{});
 
-  // Return whether every archetype's component bitmap is distinct.
-  //
-  // TAG-duplicated storages share a bitmap, which the megatuple pattern
-  // cannot disambiguate.
-  static consteval bool bitmaps_unique() {
-    for (size_t i = 0; i < bitmap_table_v.size(); ++i)
-      for (size_t j = i + 1; j < bitmap_table_v.size(); ++j)
-        if (bitmap_table_v[i].first == bitmap_table_v[j].first) return false;
-    return true;
-  }
+  // Flags marking archetypes whose component bitmap is shared with another
+  // archetype (TAG twins), which the megatuple pattern cannot disambiguate.
+  static constexpr std::array<bool, storage_count_v> duplicated_bitmap_v =
+      []() consteval {
+        std::array<bool, storage_count_v> dup{};
+        for (size_t i = 0; i < bitmap_table_v.size(); ++i)
+          for (size_t j = 0; j < bitmap_table_v.size(); ++j)
+            if ((i != j) &&
+                (bitmap_table_v[i].first == bitmap_table_v[j].first))
+              dup[i] = true;
+
+        return dup;
+      }();
 
   // Compute the runtime bitmap of a `megatuple_t`: bit j is set if the jth
   // optional has a value.

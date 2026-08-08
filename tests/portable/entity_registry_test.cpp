@@ -468,7 +468,7 @@ TEST_CASE("Fifo", "[EntityRegistry]") {
   using id_t = reg_t::id_t;
 
   // Freed IDs are reused in FIFO order (oldest first).
-  // Detailed FIFO behavior is tested in StableId_Fifo.
+  // Detailed FIFO behavior is tested in FifoAdvanced.
   if (true) {
     reg_t r;
     auto id0 = r.create_id({}, 10);
@@ -492,7 +492,6 @@ TEST_CASE("Clear", "[EntityRegistry]") {
   using id_t = reg_t::id_t;
 
   // clear() without shrink: IDs reusable, gens bumped.
-  // Detailed clear behavior is tested in StableId_Basic and StableId_Fifo.
   if (true) {
     reg_t r;
     (void)r.create_id({}, 10); // id 0
@@ -571,7 +570,7 @@ TEST_CASE("Reserve", "[EntityRegistry]") {
   }
 
   // shrink_to_fit trims trailing dead records.
-  // Detailed shrink behavior is tested in StableId_Basic and StableId_Fifo.
+  // Detailed shrink behavior is tested in EdgeCases.
   if (true) {
     reg_t r;
     (void)r.create_id({}, 10); // id 0
@@ -594,7 +593,7 @@ TEST_CASE("IdLimit", "[EntityRegistry]") {
   using id_t = reg_t::id_t;
 
   // Constructor with limit and overflow.
-  // Detailed id_limit behavior is tested in StableId_MaxId.
+  // Detailed id_limit behavior is tested in IdLimitAdvanced.
   if (true) {
     reg_t r{id_t{3}};
     CHECK(r.id_limit() == id_t{3});
@@ -632,8 +631,6 @@ TEST_CASE("NoGen", "[EntityRegistry]") {
   const loc_t loc1{store_id_t{0}, 1};
 
   // handle_t has no get_gen() when UseGen=false.
-  // Detailed no-gen behavior is tested in StableId_NoGen and
-  // StableId_FifoNoGen.
   if (true) { static_assert(sizeof(reg_t::handle_t) == sizeof(id_t)); }
 
   // Basic create and access.
@@ -978,7 +975,7 @@ TEST_CASE("IdLimitAdvanced", "[EntityRegistry]") {
 
     // Erase the tail block first, so those IDs sit at the head of the FIFO
     // free list, then erase one more below the future limit.
-    for (auto ndx = 5UZ; ndx < 10UZ; ++ndx) CHECK(r.erase(ids[ndx]));
+    for (auto ndx = 5UZ; ndx < 10; ++ndx) CHECK(r.erase(ids[ndx]));
     CHECK(r.erase(ids[2]));
     CHECK(r.size() == 4U); // 0, 1, 3, 4
 

@@ -18,7 +18,6 @@
 
 #include <algorithm>
 #include <cstddef>
-#include <limits>
 #include <memory>
 #include <tuple>
 #include <utility>
@@ -26,6 +25,7 @@
 
 #include "../enums/bool_enums.h"
 #include "../infra/exception_firewalls.h"
+#include "../math/arithmetic.h"
 #include "archetype_storage_base.h"
 
 namespace corvid { inline namespace ecs { inline namespace archetype_storages {
@@ -175,11 +175,7 @@ public:
           ((min_cap = std::min(min_cap, vecs.capacity())), ...);
         },
         components_);
-    if constexpr (sizeof(size_type) < sizeof(size_t)) {
-      constexpr auto max_cap = std::numeric_limits<size_type>::max();
-      if (min_cap > max_cap) return max_cap;
-    }
-    return static_cast<size_type>(min_cap);
+    return saturate_cast<size_type>(min_cap);
   }
 
 #pragma endregion

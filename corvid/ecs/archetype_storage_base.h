@@ -438,8 +438,10 @@ public:
 #pragma endregion
 #pragma region Conditional removal
 
-  // Erase entities for which `pred(comp, id)` returns true., where `comp` is a
-  // const reference to the entity's `C` component and `id` is its ID.
+  // Erase entities for which `pred(comp, id)` returns true.
+  //
+  // `comp` is a const reference to the entity's `C` component and `id` is its
+  // ID.
   //
   // Uses swap-and-pop; `pred` must not structurally modify the storage. All
   // erased entities are destroyed in the registry. Returns the count erased.

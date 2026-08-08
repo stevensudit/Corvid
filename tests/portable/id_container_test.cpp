@@ -527,7 +527,7 @@ TEST_CASE("NarrowId", "[IdContainer]") {
   // reports such overshoot saturated at the maximum, not truncated.
   if (true) {
     id_container<int, small_id_t> c;
-    for (int i = 0; i < 255; ++i) REQUIRE(c.push_back(i));
+    for (auto ndx = 0; ndx < 255; ++ndx) REQUIRE(c.push_back(ndx));
     CHECK(c.size() == 255U);
     CHECK_FALSE(c.push_back(255));
     CHECK(c.capacity() >= c.size());

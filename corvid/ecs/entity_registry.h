@@ -398,12 +398,14 @@ public:
       for (auto id = new_limit; id < id_end; ++id)
         if (is_alive(id)) return false;
 
-      // The resize drops records that the free list may still name, and
-      // `shrink_to_fit` only rebuilds the list when it trims further, which
-      // it does not when the record just below the new limit is alive.
-      (void)records_.resize(*new_limit); // Cannot fail: shrinks below limit.
+      // The resize drops records that the free list may still name, so the
+      // list must be rebuilt over the final size. Fold the dead-tail trim
+      // into the same resize so both happen exactly once.
+      auto new_size = static_cast<size_type>(*new_limit);
+      while ((new_size > 0) && !is_alive(id_t{new_size - 1})) --new_size;
+      (void)records_.resize(new_size); // Cannot fail: shrinks below limit.
       rebuild_free_list();
-      shrink_to_fit();
+      records_.shrink_to_fit();
     }
 
     return records_.set_id_limit(new_limit);
@@ -802,12 +804,13 @@ public:
     }
 
     // Erase the owned entity (if any) and reset to empty. Returns whether
-    // there was an entity to erase.
+    // an entity was actually erased, which a stale handle (entity erased
+    // out-of-band) is not.
     bool reset() {
-      const auto owned = (handle_.id() != id_t::invalid);
-      if (owned) registry_->erase(handle_);
+      auto erased = false;
+      if (handle_.id() != id_t::invalid) erased = registry_->erase(handle_);
       handle_ = handle_t{};
-      return owned;
+      return erased;
     }
 
     // Get the registry.

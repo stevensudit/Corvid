@@ -467,7 +467,8 @@ TEST_CASE("NarrowEntityId", "[ArchetypeStorage]") {
   // vectors' capacity past 255, which truncated to 0 before the fix.
   reg_t r;
   arch_t a{r, store_id_t{1}};
-  for (int i = 0; i < 255; ++i) REQUIRE(r.is_valid(a.add_new(0, i, 0.0F)));
+  for (auto ndx = 0; ndx < 255; ++ndx)
+    REQUIRE(r.is_valid(a.add_new(0, ndx, 0.0F)));
   CHECK(a.size() == 255);
   CHECK(a.capacity() >= a.size());
 }
@@ -484,7 +485,8 @@ TEST_CASE("NarrowEntityId", "[ChunkedArchetypeStorage]") {
   // growth overshoots the uint8 domain once 255 entities are stored.
   reg_t r;
   arch_t a{r, store_id_t{1}};
-  for (int i = 0; i < 255; ++i) REQUIRE(r.is_valid(a.add_new(0, i, 0.0F)));
+  for (auto ndx = 0; ndx < 255; ++ndx)
+    REQUIRE(r.is_valid(a.add_new(0, ndx, 0.0F)));
   CHECK(a.size() == 255);
   CHECK(a.capacity() >= a.size());
 }
@@ -498,12 +500,12 @@ TEST_CASE("NarrowEntityId", "[MonoArchetypeStorage]") {
   using arch_t = mono_archetype_storage<reg_t, int>;
 
   // Same saturation pin as the sibling storages. The instantiation also
-  // exercises `metadata_t == component_t` (both `int`), which was a hard
-  // redeclaration error while mono declared its own metadata-first `add_new`
-  // alongside the component-first one.
+  // exercises `metadata_t == component_t` (both `int`): the constrained-away
+  // component-first overload leaves only the base's metadata-first `add_new`,
+  // so `add_new(ndx)` sets the metadata and default-constructs the component.
   reg_t r;
   arch_t a{r, store_id_t{1}};
-  for (int i = 0; i < 255; ++i) REQUIRE(r.is_valid(a.add_new(i)));
+  for (auto ndx = 0; ndx < 255; ++ndx) REQUIRE(r.is_valid(a.add_new(ndx)));
   CHECK(a.size() == 255);
   CHECK(a.capacity() >= a.size());
 }
@@ -5008,11 +5010,11 @@ TEST_CASE("NarrowEntityId", "[ComponentStorage]") {
 
   // Same saturation pin as the archetype-family storages, on a component-mode
   // registry. The instantiation also pins `metadata_t == component_t` (both
-  // `int`) compiling now that the metadata-first `add_new` overload comes
-  // from the base.
+  // `int`): the constrained-away component-first overload leaves only the
+  // base's metadata-first `add_new`.
   reg_t r;
   store_t s{r, store_id_t{1}};
-  for (int i = 0; i < 255; ++i) REQUIRE(r.is_valid(s.add_new(i)));
+  for (auto ndx = 0; ndx < 255; ++ndx) REQUIRE(r.is_valid(s.add_new(ndx)));
   CHECK(s.size() == 255);
   CHECK(s.capacity() >= s.size());
 }
@@ -6145,6 +6147,33 @@ TEST_CASE("MegaTuple", "[ArchetypeScene]") {
     CHECK(s.size() == 2U);
     CHECK(s.storage<scene_sid_t{1}>().size() == 1U);
     CHECK(s.storage<scene_sid_t{2}>().size() == 1U);
+  }
+
+  // TAG twins share a component bitmap the megatuple pattern cannot
+  // disambiguate: a mega insert targeting the twins is refused with an
+  // invalid handle, while unique-bitmap targets in the same scene still work.
+  if (true) {
+    struct twin_a_tag {};
+    struct twin_b_tag {};
+    using twin_pv_a_t = archetype_storage<scene_reg_t,
+        std::tuple<Position, Velocity>, twin_a_tag>;
+    using twin_pv_b_t = archetype_storage<scene_reg_t,
+        std::tuple<Position, Velocity>, twin_b_tag>;
+    using twin_scene_t =
+        archetype_scene<scene_reg_t, twin_pv_a_t, twin_pv_b_t, arch_h_t>;
+    twin_scene_t s;
+    twin_scene_t::megatuple_t tpl{};
+    std::get<std::optional<Health>>(tpl) = Health{5};
+    auto h = s.store_new_entity_from_mega({}, tpl);
+    CHECK(h);
+    CHECK(s.storage<scene_sid_t{3}>().contains(h.id()));
+    tpl = {};
+    std::get<std::optional<Position>>(tpl) = Position{1.F, 2.F};
+    std::get<std::optional<Velocity>>(tpl) = Velocity{3.F, 4.F};
+    auto h2 = s.store_new_entity_from_mega({}, tpl);
+    CHECK_FALSE(h2);
+    CHECK(s.size() == 1U);
+    CHECK(s.registry().size() == 1U);
   }
 }
 

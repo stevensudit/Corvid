@@ -20,7 +20,6 @@
 #include <array>
 #include <bit>
 #include <cstddef>
-#include <limits>
 #include <memory>
 #include <tuple>
 #include <utility>
@@ -193,11 +192,7 @@ public:
   [[nodiscard]] size_type capacity() const noexcept {
     auto min_cap =
         std::min(ids_.capacity(), chunks_.capacity() * chunk_size_v);
-    if constexpr (sizeof(size_type) < sizeof(size_t)) {
-      constexpr auto max_cap = std::numeric_limits<size_type>::max();
-      if (min_cap > max_cap) return max_cap;
-    }
-    return static_cast<size_type>(min_cap);
+    return saturate_cast<size_type>(min_cap);
   }
 
 #pragma endregion

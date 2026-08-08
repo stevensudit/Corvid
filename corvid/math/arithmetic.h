@@ -20,6 +20,7 @@
 #include <concepts>
 #include <cstddef>
 #include <cstdint>
+#include <limits>
 #include <numbers>
 #include <type_traits>
 
@@ -74,6 +75,22 @@ template<std::integral T, std::integral U>
 round_up_to_multiple(T n, U m) noexcept {
   using R = std::common_type_t<T, U>;
   return ceil_div(n, m) * static_cast<R>(m);
+}
+
+#pragma endregion
+#pragma region saturate_cast
+
+// Cast `n` to `To`, clamping to `To`'s maximum instead of truncating.
+//
+// The unsigned-to-unsigned slice of C++26's `std::saturate_cast`, for
+// narrowing a computed size into a smaller size type.
+template<std::unsigned_integral To, std::unsigned_integral From>
+[[nodiscard]] constexpr To saturate_cast(From n) noexcept {
+  constexpr auto max_v = std::numeric_limits<To>::max();
+  if constexpr (sizeof(To) < sizeof(From)) {
+    if (n > max_v) return max_v;
+  }
+  return static_cast<To>(n);
 }
 
 #pragma endregion

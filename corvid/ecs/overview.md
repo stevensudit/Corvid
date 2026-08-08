@@ -174,9 +174,10 @@ selectors are compile errors.
 ecs_meta.h
 ----------
 Compile-time metaprogramming utilities used internally by the scene types.
-Key utilities: tuple_contains_v, has_all_components_v,
-find_component_storage_index_v, storage_index_for_v. These drive the
-for_each dispatch and selector resolution described above.
+Key utilities: has_all_components_v, find_component_storage_index_v,
+storage_index_for_v. These drive the for_each dispatch and selector
+resolution described above; the generic tuple metafunctions they build on
+(tuple_contains_v, tuple_union_t, ...) live in meta/traits.h.
 
 
 File Map
@@ -187,6 +188,7 @@ archetype_storage_base.h  -- CRTP base for all archetype storages
 archetype_storage.h       -- SoA multi-component archetype storage
 chunked_archetype_storage.h -- AoSoA multi-component archetype storage
 mono_archetype_storage.h  -- single-component archetype storage
+storage_iterator.h        -- iterator/row view shared by single-component storages
 archetype_scene.h         -- primary archetype-mode ECS entry point
 component_index_policies.h -- flat/sorted/paged reverse-index strategies
 component_storage_base.h  -- CRTP base for all component storages

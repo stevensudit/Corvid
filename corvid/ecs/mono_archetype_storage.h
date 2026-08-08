@@ -19,7 +19,6 @@
 #include <algorithm>
 #include <cassert>
 #include <cstddef>
-#include <limits>
 #include <memory>
 #include <stdexcept>
 #include <type_traits>
@@ -29,6 +28,7 @@
 
 #include "../enums/bool_enums.h"
 #include "../infra/exception_firewalls.h"
+#include "../math/arithmetic.h"
 #include "archetype_storage_base.h"
 #include "storage_iterator.h"
 
@@ -159,11 +159,7 @@ public:
   // Return current capacity (minimum across the component and ID vectors).
   [[nodiscard]] size_type capacity() const noexcept {
     auto min_cap = std::min(components_.capacity(), ids_.capacity());
-    if constexpr (sizeof(size_type) < sizeof(size_t)) {
-      constexpr auto max_cap = std::numeric_limits<size_type>::max();
-      if (min_cap > max_cap) return max_cap;
-    }
-    return static_cast<size_type>(min_cap);
+    return saturate_cast<size_type>(min_cap);
   }
 
 #pragma endregion
@@ -174,9 +170,13 @@ public:
   //
   // Component-first convenience overload of the base's metadata-first
   // `add_new`. `metadata` is by value so this overload outranks the base's
-  // forwarding pack on component-first calls.
+  // forwarding pack on component-first calls, and the constraint removes it
+  // when the two roles have the same type and the ordering would be
+  // ambiguous. Move-only components must use the metadata-first form.
   [[nodiscard]] handle_t
-  add_new(const component_t& component, metadata_t metadata = {}) {
+  add_new(const component_t& component, metadata_t metadata = {})
+  requires(!std::is_same_v<component_t, metadata_t>)
+  {
     return base_t::add_new(metadata, component);
   }
 

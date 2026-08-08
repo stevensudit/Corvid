@@ -20,8 +20,10 @@ The ECS is built around **one foundation and two parallel models**:
   leaves) and a **scene** type that aggregates a registry plus a heterogeneous
   tuple of storages. The scene is the primary entry point.
 
-One file sits **outside** that system: `ecs_meta.h` is a header of
-compile-time utilities the scenes use internally rather than a class.
+Two files sit **outside** that system: `ecs_meta.h` is a header of
+compile-time utilities the scenes use internally rather than a class, and
+`storage_iterator.h` holds the iterator and row view shared by the
+single-component storages.
 
 ```mermaid
 flowchart TB
@@ -179,12 +181,8 @@ classDiagram
 
 | Item | File | Role |
 | ---- | ---- | ---- |
-| [ecs_meta.h](ecs_meta.h) | ecs_meta.h | Compile-time utilities (`tuple_contains_v`, `has_all_components_v`, `storage_index_for_v`, ...) driving `for_each` dispatch and component-selector resolution in both scenes. A header of metafunctions, not a class. |
-
-### Standalone / legacy
-
-| Class | File | Status |
-| ----- | ---- | ------ |
+| [ecs_meta.h](ecs_meta.h) | ecs_meta.h | Compile-time utilities (`has_all_components_v`, `storage_index_for_v`, ...) driving `for_each` dispatch and component-selector resolution in both scenes. A header of metafunctions, not a class; the generic tuple metafunctions it builds on live in `meta/traits.h`. |
+| [storage_iterator.h](storage_iterator.h) | storage_iterator.h | `contiguous_storage_iterator` and `single_component_row_view`, shared by `mono_archetype_storage` and `component_storage`. |
 
 ## How the two models differ at runtime
 

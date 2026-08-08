@@ -139,6 +139,18 @@ TEST_CASE("RoundUpConstexpr", "[MathTest]") {
   static_assert(round_up_to_multiple(4096, 256) == 4096);
 }
 
+TEST_CASE("SaturateCast", "[MathTest]") {
+  // In-range values pass through; out-of-range values clamp to the
+  // destination maximum instead of truncating. Widening never clamps.
+  CHECK(saturate_cast<uint8_t>(200UZ) == 200);
+  CHECK(saturate_cast<uint8_t>(255UZ) == 255);
+  CHECK(saturate_cast<uint8_t>(256UZ) == 255);
+  CHECK(saturate_cast<uint8_t>(std::numeric_limits<size_t>::max()) == 255);
+  CHECK(saturate_cast<size_t>(uint8_t{255}) == 255UZ);
+  static_assert(saturate_cast<uint8_t>(1000U) == 255);
+  static_assert(saturate_cast<uint16_t>(1000U) == 1000);
+}
+
 TEST_CASE("ExtractByte", "[MathTest]") {
   // Index 0 is the low byte, counting up from there.
   CHECK(extract_byte<0>(std::uint16_t{0x2001}) == 0x01);
