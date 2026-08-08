@@ -23,3 +23,4 @@
 #include "value.h"
 #include "reader.h"
 #include "eval.h"
+#include "monty_lexer.h"

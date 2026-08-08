@@ -15,7 +15,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 #pragma once
-#include <cassert>
 #include <cstddef>
 #include <cstdint>
 #include <ranges>
@@ -24,9 +23,9 @@
 #include <utility>
 #include <vector>
 
-#include "../../containers/core/value_or_error.h"
 #include "../../strings/cases.h"
 #include "../../strings/conversion.h"
+#include "../source_scanner.h"
 #include "value.h"
 
 namespace corvid { inline namespace lang { namespace coreb {
@@ -41,25 +40,6 @@ namespace corvid { inline namespace lang { namespace coreb {
 //   auto v = reader::read_one(rt, "(a 1 2.5)");
 //   if (v) v->print();  // "(a 1 2.5)"
 
-#pragma region read_error
-
-// Description of a failed read.
-//
-// `pos` is the byte offset where the offending construct starts; `line` and
-// `col` locate the same spot as a 1-based line number and byte column.
-//
-// `incomplete` marks errors that more input could repair, such as an
-// unterminated list or string; a REPL uses it to keep reading instead of
-// reporting.
-struct read_error final {
-  std::string message;
-  size_t pos{};
-  size_t line{};
-  size_t col{};
-  bool incomplete{};
-};
-
-#pragma endregion
 #pragma region reader
 
 // Reader from s-expression source text to values.
@@ -100,12 +80,14 @@ struct read_error final {
 // else it is an error. `read_one` accepts a single trivia-surrounded `expr`;
 // `read_all` accepts `unit`.
 //
-// Failure is reported by value as a `read_error`; nesting deeper than
-// `max_depth` is rejected rather than risking stack exhaustion.
+// Failure is reported by value as a `source_error`, whose `incomplete` flag
+// is how the REPL keeps reading a multi-line form instead of reporting;
+// nesting deeper than `max_depth` is rejected rather than risking stack
+// exhaustion.
 class reader final {
 public:
   template<typename T>
-  using result = value_or_error<T, read_error>;
+  using result = source_scanner::result<T>;
 
   // Maximum expression-nesting depth accepted.
   //
@@ -120,7 +102,7 @@ public:
   // Anything but trailing trivia after the expression is an error.
   [[nodiscard]] static result<value>
   read_one(runtime& rt, std::string_view src) {
-    parser p{rt, src};
+    parser p(rt, src);
     p.skip_trivia();
     auto v = p.parse_value();
     if (!v) return v;
@@ -135,7 +117,7 @@ public:
   [[nodiscard]] static result<std::vector<value>>
   read_all(runtime& rt, std::string_view src) {
     std::vector<value> values;
-    parser p{rt, src};
+    parser p(rt, src);
     for (p.skip_trivia(); !p.at_end(); p.skip_trivia()) {
       auto v = p.parse_value();
       if (!v) return std::move(v);
@@ -148,31 +130,12 @@ private:
 #pragma region parser
 
   // Single-pass recursive-descent parser over the source text.
-  struct parser {
+  struct parser: source_scanner {
+    parser(runtime& rt, std::string_view src) noexcept
+        : source_scanner{src}, rt{rt} {}
+
     runtime& rt;
-    std::string_view src;
-    size_t pos{};
     size_t depth{};
-
-    [[nodiscard]] bool at_end() const noexcept { return pos == src.size(); }
-
-    // Character `ahead` positions past the current one, or '\0' at or past
-    // the end.
-    [[nodiscard]] char peek(size_t ahead = 0) const noexcept {
-      return (pos + ahead < src.size()) ? src[pos + ahead] : '\0';
-    }
-
-    // Advance past the current character, so long as we're not at the end.
-    void consume() {
-      assert(!at_end());
-      ++pos;
-    }
-
-    // Advance past the current character, asserting that it is `c`.
-    void consume([[maybe_unused]] char c) {
-      assert(peek() == c);
-      consume();
-    }
 
     // Whether `c` ends a token.
     //
@@ -186,46 +149,15 @@ private:
     void skip_trivia() {
       for (;;) {
         if (strings::is_space(peek())) {
-          consume();
+          take();
           continue;
         }
         if (peek() == ';') {
-          while (peek() && peek() != '\n') consume();
+          while (peek() && peek() != '\n') take();
           continue;
         }
         break;
       }
-    }
-
-    // Build a failure at the current position, or at `at`.
-    [[nodiscard]] read_error fail(std::string message) const {
-      return do_fail_at(pos, std::move(message), false);
-    }
-    [[nodiscard]] read_error fail_at(size_t at, std::string message) const {
-      return do_fail_at(at, std::move(message), false);
-    }
-
-    // Build a failure that more input could repair (see
-    // `read_error::incomplete`).
-    [[nodiscard]] read_error fail_incomplete(std::string message) const {
-      return do_fail_at(pos, std::move(message), true);
-    }
-    [[nodiscard]] read_error
-    fail_incomplete_at(size_t at, std::string message) const {
-      return do_fail_at(at, std::move(message), true);
-    }
-
-    [[nodiscard]] read_error
-    do_fail_at(size_t at, std::string message, bool incomplete) const {
-      size_t line = 1;
-      size_t bol = 0;
-      for (size_t ndx = 0; ndx < at; ++ndx)
-        if (src[ndx] == '\n') {
-          ++line;
-          bol = ndx + 1;
-        }
-      return read_error{std::move(message), at, line, at - bol + 1,
-          incomplete};
     }
 
     // Parse one expression starting at the current position, guarding
@@ -238,20 +170,9 @@ private:
       return r;
     }
 
-    [[nodiscard]] result<value> do_parse_value() {
-      if (at_end()) return fail_incomplete("unexpected end of input");
-      switch (peek()) {
-      case '(': return parse_list();
-      case ')': return fail("unmatched ')'");
-      case '"': return parse_string();
-      case '\'': return parse_quote();
-      default: return parse_atom();
-      }
-    }
-
     // Parse a ' quotation, which is syntactic sugar for `(quote expr)`.
     [[nodiscard]] result<value> parse_quote() {
-      consume('\'');
+      take('\'');
       skip_trivia();
       auto quoted = parse_value();
       if (!quoted) return quoted;
@@ -265,15 +186,15 @@ private:
 
     // Parse a parenthesized list.
     [[nodiscard]] result<value> parse_list() {
-      const auto open_pos = pos;
-      consume('(');
+      const auto open_pos = cursor();
+      take('(');
       std::vector<value> elems;
       value tail;
       for (;;) {
         skip_trivia();
         if (at_end()) return fail_incomplete_at(open_pos, "unterminated list");
         if (peek() == ')') {
-          consume(')');
+          take(')');
           break;
         }
         if (at_dot()) {
@@ -294,11 +215,11 @@ private:
     }
 
     // Parse a dotted tail, ". expr )", with the '.' already detected but not
-    // consumed.
+    // yet taken.
     //
     // Returns the tail expression.
     [[nodiscard]] result<value> parse_dotted_tail(size_t open_pos) {
-      consume('.');
+      take('.');
       skip_trivia();
       if (at_end()) return fail_incomplete_at(open_pos, "unterminated list");
       if (peek() == ')') return fail("expected expression after '.'");
@@ -307,32 +228,30 @@ private:
       skip_trivia();
       if (at_end()) return fail_incomplete_at(open_pos, "unterminated list");
       if (peek() != ')') return fail("expected ')' after dotted tail");
-      consume(')');
+      take(')');
       return t;
     }
 
     // Parse a quoted string literal.
     [[nodiscard]] result<value> parse_string() {
-      const auto open_pos = pos;
-      consume('"');
+      const auto open_pos = cursor();
+      take('"');
       std::string out;
       while (!at_end()) {
         const char c = peek();
         if (c == '"') {
-          consume('"');
+          take('"');
           return value{rt.make_string(std::move(out))};
         }
         if (c == '\\') {
-          if (pos + 1 == src.size()) break; // dangling '\' at end of input
-          auto rest = src.substr(pos);
+          if (at_end(1)) break; // dangling '\' at end of input
           char ch{};
-          if (!strings::parse_escaped(rest, ch)) return fail("invalid escape");
-          pos = src.size() - rest.size();
+          if (!take_escaped(ch)) return fail("invalid escape");
           out += ch;
           continue;
         }
         out += c;
-        consume();
+        take();
       }
       return fail_incomplete_at(open_pos, "unterminated string");
     }
@@ -352,9 +271,9 @@ private:
 
     // Parse a literal, number, or symbol token.
     [[nodiscard]] result<value> parse_atom() {
-      const auto start = pos;
-      while (!is_delimiter(peek())) consume();
-      const auto token = src.substr(start, pos - start);
+      const auto start = cursor();
+      while (!is_delimiter(peek())) take();
+      const auto token = taken_from(start);
       if (token.empty()) return fail("unexpected character");
       // A lone '.' reaching here is outside a dotted tail (`parse_list`
       // intercepts the valid ones), so it is never a symbol.
@@ -373,6 +292,18 @@ private:
         return fail_at(start, "malformed number");
       }
       return value{rt.intern(token)};
+    }
+
+  private:
+    [[nodiscard]] result<value> do_parse_value() {
+      if (at_end()) return fail_incomplete("unexpected end of input");
+      switch (peek()) {
+      case '(': return parse_list();
+      case ')': return fail("unmatched ')'");
+      case '"': return parse_string();
+      case '\'': return parse_quote();
+      default: return parse_atom();
+      }
     }
   };
 
