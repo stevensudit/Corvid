@@ -17,6 +17,7 @@
 #pragma once
 
 #include <array>
+#include <cassert>
 #include <cstddef>
 #include <cstdint>
 #include <optional>
@@ -25,6 +26,7 @@
 #include <utility>
 #include <variant>
 
+#include "../enums/bool_enums.h"
 #include "../infra/exception_firewalls.h"
 #include "ecs_meta.h"
 #include "entity_registry.h"
@@ -147,6 +149,8 @@ public:
       : registry_{alloc},
         storages_{make_storages(std::index_sequence_for<STORES...>{})} {}
 
+  // Non-copyable and non-movable: each storage holds a pointer to
+  // `registry_`, which a move would have to rebind.
   archetype_scene(const archetype_scene&) = delete;
   archetype_scene(archetype_scene&&) = delete;
   archetype_scene& operator=(const archetype_scene&) = delete;
@@ -247,6 +251,9 @@ public:
   // slower.
   [[nodiscard]] handle_t store_new_entity_from_mega(const metadata_t& metadata,
       const megatuple_t& tpl) {
+    static_assert(bitmaps_unique(),
+        "store_new_entity_from_mega: two storages share the same component "
+        "set (TAG twins); the megatuple pattern cannot disambiguate them");
     const auto bm = bitmap_of(tpl);
     for (const auto& [arch_bm, sid] : bitmap_table_v) {
       if (arch_bm == bm) {
@@ -342,10 +349,7 @@ public:
     const auto old_id = id;
     id = id_t::invalid;
     const auto store_id = registry_.get_location(old_id).store_id;
-    if (store_id == store_id_t{}) {
-      if (!registry_.erase(old_id)) return false;
-      return true;
-    }
+    if (store_id == store_id_t{}) return registry_.erase(old_id);
     return dispatch_storage<bool>(
         store_id,
         [&](auto& s) {
@@ -362,8 +366,7 @@ public:
     auto old_id = handle.id();
     handle = handle_t{};
     if (!registry_.is_valid(old_handle)) return false;
-    if (!erase_entity(old_id)) return false;
-    return true;
+    return erase_entity(old_id);
   }
 
   // Destroy all entities in staging (`store_id == store_id_t{0}`). Returns
@@ -474,7 +477,8 @@ public:
   // This handles both promotion (target has more components than source) and
   // demotion (target has fewer). Components are matched by type; if a type
   // appears in both archetypes it is copied, otherwise it is default-
-  // constructed in the target.
+  // constructed in the target. On failure, the entity remains in its current
+  // storage or is stranded in staging.
   [[nodiscard]] bool migrate_entity(id_t id, store_id_t to) {
     assert(registry_.is_valid(id));
     const auto store_id = registry_.get_location(id).store_id;
@@ -754,6 +758,17 @@ private:
             store_id_t{Is + 1}}...};
       }(std::index_sequence_for<STORES...>{});
 
+  // Return whether every archetype's component bitmap is distinct.
+  //
+  // TAG-duplicated storages share a bitmap, which the megatuple pattern
+  // cannot disambiguate.
+  static consteval bool bitmaps_unique() {
+    for (size_t i = 0; i < bitmap_table_v.size(); ++i)
+      for (size_t j = i + 1; j < bitmap_table_v.size(); ++j)
+        if (bitmap_table_v[i].first == bitmap_table_v[j].first) return false;
+    return true;
+  }
+
   // Compute the runtime bitmap of a `megatuple_t`: bit j is set if the jth
   // optional has a value.
   [[nodiscard]] static bitmap_t bitmap_of(const megatuple_t& tpl) noexcept {
@@ -803,7 +818,7 @@ private:
   template<size_t... Is>
   storage_tuple_t make_storages(std::index_sequence<Is...>) {
     return std::make_tuple(std::monostate{},
-        STORES{registry_, store_id_t{Is + 1}}...);
+        STORES(registry_, store_id_t{Is + 1})...);
   }
 
   // Invoke `f(storage)` on the storage whose assigned `store_id` matches
