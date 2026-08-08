@@ -22,6 +22,11 @@
 #   ./cleanbuild.ps1                     clang++, portable + CUDA suite, ctest
 #                                        (incremental when config is unchanged)
 #   ./cleanbuild.ps1 clean               force a fresh configure + full recompile
+#   ./cleanbuild.ps1 clean-all           delete every build tree (tests/build,
+#                                        build-cl, and ide_build's build-debug);
+#                                        builds nothing, so each tree configures
+#                                        fresh on its next use. Keeps the
+#                                        FetchContent caches.
 #   ./cleanbuild.ps1 reconfigure         configure-only full refresh of tests/build
 #                                        (regenerates compile_commands.json for clangd)
 #   ./cleanbuild.ps1 strings_test.cpp    build and run just that one test
@@ -60,6 +65,7 @@ $cudacheck = $false
 $tidy = $false
 $reconfigure = $false
 $clean = $false
+$cleanAll = $false
 foreach ($a in $Rest) {
   switch -Regex ($a) {
     '\.(cpp|cu)$' { $testName = $a }
@@ -70,7 +76,8 @@ foreach ($a in $Rest) {
     '^(tidy|--tidy)$' { $tidy = $true }
     '^reconfigure$' { $reconfigure = $true }
     '^clean$' { $clean = $true }
-    default { throw "Unrecognized argument '$a' (expected <name>_test.cpp, <name>_test.cu, clang|cl, asan, tidy, cudacheck, clean, or reconfigure)" }
+    '^clean-all$' { $cleanAll = $true }
+    default { throw "Unrecognized argument '$a' (expected <name>_test.cpp, <name>_test.cu, clang|cl, asan, tidy, cudacheck, clean, clean-all, or reconfigure)" }
   }
 }
 if ($sanitizer -and $compiler -eq 'cl') {
@@ -94,6 +101,25 @@ if ($tidy -and ($sanitizer -or $cudacheck)) {
 # compile_commands.json); it builds nothing and takes no other mode.
 if ($reconfigure -and ($testName -or $sanitizer -or $cudacheck -or $tidy -or $clean -or ($compiler -eq 'cl'))) {
   throw 'reconfigure is a standalone configure-only refresh; it takes no test name, compiler, or analysis mode.'
+}
+# clean-all deletes every build tree, including ide_build.ps1's debug tree
+# (which has no command line of its own: it only runs via F5). It builds
+# nothing, so it takes no other mode; the FetchContent caches survive, being
+# build-independent.
+if ($cleanAll) {
+  if ($testName -or $sanitizer -or $cudacheck -or $tidy -or $clean -or $reconfigure -or ($compiler -eq 'cl')) {
+    throw 'clean-all is a standalone wipe of all build trees; it takes no test name, compiler, or analysis mode.'
+  }
+  foreach ($tree in 'tests/build', 'tests/build-cl', 'tests/build-debug') {
+    $dir = Join-Path $repo $tree
+    if (Test-Path $dir) {
+      Remove-Item -Recurse -Force $dir
+      Write-Host "Removed $tree"
+    } else {
+      Write-Host "Already absent: $tree"
+    }
+  }
+  exit 0
 }
 
 # Resolve the compiler. clang++ uses the full LLVM path; cl rides the dev-shell

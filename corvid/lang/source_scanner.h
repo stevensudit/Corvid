@@ -61,8 +61,8 @@ struct source_error final {
 // the `source_error` builders. Everything language-shaped stays in the
 // derived scanner: what a token is, what nesting means, and when to fail.
 //
-// Derived code peeks and takes; it treats `pos` as an opaque bookmark (to
-// save for an error message or a token span), never as a number to do
+// Derived code peeks and takes; it treats the cursor as an opaque bookmark
+// (to save for an error message or a token span), never as a number to do
 // arithmetic on. Any offset math belongs in a helper here.
 class source_scanner {
 public:
@@ -86,7 +86,7 @@ public:
   }
 
   // Whether `s` is next at the cursor.
-  [[nodiscard]] bool at(std::string_view s) const noexcept {
+  [[nodiscard]] bool at_text(std::string_view s) const noexcept {
     return src_.substr(pos_).starts_with(s);
   }
 
@@ -109,7 +109,7 @@ public:
 
   // Take `s`, asserting that it is next.
   void take(std::string_view s) {
-    assert(at(s));
+    assert(at_text(s));
     pos_ += s.size();
   }
 
@@ -135,35 +135,35 @@ public:
     return src_.substr(start, pos_ - start);
   }
 
-  // Build a failure at the current position, or at `at`.
+  // Build a failure at the current position, or at `pos`.
   [[nodiscard]] source_error fail(std::string message) const {
-    return do_fail_at(pos_, std::move(message), false);
+    return make_source_error(pos_, std::move(message), false);
   }
-  [[nodiscard]] source_error fail_at(size_t at, std::string message) const {
-    return do_fail_at(at, std::move(message), false);
+  [[nodiscard]] source_error fail_at(size_t pos, std::string message) const {
+    return make_source_error(pos, std::move(message), false);
   }
 
   // Build a failure that more input could repair (see
   // `source_error::incomplete`).
   [[nodiscard]] source_error fail_incomplete(std::string message) const {
-    return do_fail_at(pos_, std::move(message), true);
+    return make_source_error(pos_, std::move(message), true);
   }
   [[nodiscard]] source_error
-  fail_incomplete_at(size_t at, std::string message) const {
-    return do_fail_at(at, std::move(message), true);
+  fail_incomplete_at(size_t pos, std::string message) const {
+    return make_source_error(pos, std::move(message), true);
   }
 
-private:
   [[nodiscard]] source_error
-  do_fail_at(size_t at, std::string message, bool incomplete) const {
+  make_source_error(size_t pos, std::string message, bool incomplete) const {
+    // Compute the 1-based line and column from the byte offset.
     size_t line = 1;
     size_t bol = 0;
-    for (size_t ndx = 0; ndx < at; ++ndx)
+    for (size_t ndx = 0; ndx < pos; ++ndx)
       if (src_[ndx] == '\n') {
         ++line;
         bol = ndx + 1;
       }
-    return source_error{std::move(message), at, line, at - bol + 1,
+    return source_error{std::move(message), pos, line, pos - bol + 1,
         incomplete};
   }
 

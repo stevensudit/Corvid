@@ -17,10 +17,10 @@
 #pragma once
 #include <cstddef>
 #include <cstdint>
-#include <optional>
 #include <string>
 #include <string_view>
 #include <utility>
+#include <variant>
 #include <vector>
 
 #include "../../enums/sequence_enum.h"
@@ -166,7 +166,10 @@ private:
     }
 
     // Emit a token spanning from `start` to the current position.
-    std::nullopt_t push(token_kind kind, size_t start) {
+    //
+    // The `std::monostate` return is `result<void>` success, so an extract
+    // method can end with `return push(...);`.
+    std::monostate push(token_kind kind, size_t start) {
       out.push_back(token{kind, taken_from(start), start});
       switch (kind) {
       case token_kind::newline: line_has_content = false; break;
@@ -175,11 +178,11 @@ private:
       case token_kind::eof: break;
       default: line_has_content = true; break;
       }
-      return std::nullopt;
+      return {};
     }
 
     // Emit a single-character token at the current position.
-    std::nullopt_t push1(token_kind kind) {
+    std::monostate push1(token_kind kind) {
       const auto start = cursor();
       take();
       return push(kind, start);
@@ -189,11 +192,11 @@ private:
     [[nodiscard]] result<std::vector<token>> scan() {
       for (;;) {
         if (at_line_start && brackets.empty())
-          if (auto err = extract_line_start()) return std::move(*err);
+          if (auto r = extract_line_start(); !r) return r;
 
         if (at_end()) break;
 
-        if (auto err = extract_token()) return std::move(*err);
+        if (auto r = extract_token(); !r) return r;
       }
 
       if (!brackets.empty())
@@ -210,21 +213,21 @@ private:
 
     // Dispatch on the current character: whitespace, a comment, or one
     // token.
-    [[nodiscard]] std::optional<source_error> extract_token() {
+    [[nodiscard]] result<void> extract_token() {
       const char c = peek();
       if (c == ' ') {
         take();
-        return std::nullopt;
+        return std::monostate{};
       }
       if (c == '\t') return fail("tab character");
       if (at_newline()) {
         extract_newline();
-        return std::nullopt;
+        return std::monostate{};
       }
       if (c == '\r') return fail("stray carriage return");
       if (c == '#') {
         skip_comment();
-        return std::nullopt;
+        return std::monostate{};
       }
       if (c == '"') return extract_string();
       if (strings::is_digit(c) || (c == '.' && strings::is_digit(peek(1))))
@@ -247,7 +250,7 @@ private:
 
     // Lex punctuation, tracking bracket nesting, or fall through to the
     // operator table.
-    [[nodiscard]] std::optional<source_error> extract_punct(char c) {
+    [[nodiscard]] result<void> extract_punct(char c) {
       if (c == '(' || c == '[') {
         brackets.emplace_back(c, cursor());
         return push1(c == '(' ? token_kind::lparen : token_kind::lbracket);
@@ -267,7 +270,7 @@ private:
 
     // Handle the start of a logical line: skip blank and comment-only lines,
     // then check the indentation and emit indent or dedent tokens.
-    [[nodiscard]] std::optional<source_error> extract_line_start() {
+    [[nodiscard]] result<void> extract_line_start() {
       for (;;) {
         size_t count = 0;
         while (peek() == ' ') {
@@ -275,7 +278,7 @@ private:
           ++count;
         }
         if (peek() == '\t') return fail("tab character");
-        if (at_end()) return std::nullopt;
+        if (at_end()) return std::monostate{};
         if (at_newline()) {
           take_newline();
           continue;
@@ -299,13 +302,13 @@ private:
           for (; depth > units; --depth) push(token_kind::dedent, cursor());
         }
         at_line_start = false;
-        return std::nullopt;
+        return std::monostate{};
       }
     }
 
     // Lex a quoted single-line string, validating its escapes; the token
     // text keeps the quotes and escapes raw for the parser to unescape.
-    [[nodiscard]] std::optional<source_error> extract_string() {
+    [[nodiscard]] result<void> extract_string() {
       const auto start = cursor();
       take('"');
       for (;;) {
@@ -328,7 +331,7 @@ private:
 
     // Lex a number: digits, optional fraction, optional exponent. The
     // parser converts, applying the kernel's int64-overflow-to-double rule.
-    [[nodiscard]] std::optional<source_error> extract_number() {
+    [[nodiscard]] result<void> extract_number() {
       const auto start = cursor();
       while (strings::is_digit(peek())) take();
       if (peek() == '.' && strings::is_digit(peek(1))) {
@@ -349,7 +352,7 @@ private:
 
     // Lex a word symbol: a leading letter or underscore, word characters,
     // and an optional final '?', which must in fact be final.
-    [[nodiscard]] std::optional<source_error> extract_word() {
+    [[nodiscard]] result<void> extract_word() {
       const auto start = cursor();
       take();
       while (is_word_char(peek())) take();
@@ -361,11 +364,11 @@ private:
 
     // Lex an operator symbol from the closed operator table, longest match
     // first.
-    [[nodiscard]] std::optional<source_error> extract_operator() {
+    [[nodiscard]] result<void> extract_operator() {
       static constexpr std::string_view two_char_ops[]{"!=", "<=", ">="};
       const auto start = cursor();
       for (const auto op : two_char_ops)
-        if (at(op)) {
+        if (at_text(op)) {
           take(op);
           return push(token_kind::op, start);
         }

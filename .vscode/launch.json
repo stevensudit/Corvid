@@ -9,6 +9,9 @@
       "stopOnEntry": false,
       "cwd": "${workspaceFolder}",
       "preLaunchTask": "build",
+      // On Windows, debugger-launched processes get the debug heap (~100x
+      // slowdown on allocation-heavy tests); harmless on Linux.
+      "env": { "_NO_DEBUG_HEAP": "1" },
       "initCommands": [
         "settings set target.disable-aslr false"
       ]
@@ -21,7 +24,10 @@
       "args": [],
       "stopAtEntry": false,
       "cwd": "${workspaceFolder}",
-      "preLaunchTask": "build"
+      "preLaunchTask": "build",
+      // Debugger-launched processes get the Windows debug heap, which makes
+      // allocation-heavy tests ~100x slower (a silent 2-minute "hang").
+      "environment": [{ "name": "_NO_DEBUG_HEAP", "value": "1" }]
     }
   ]
 }
