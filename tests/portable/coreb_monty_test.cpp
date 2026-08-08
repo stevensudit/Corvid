@@ -63,6 +63,23 @@ source_error lex_err(std::string_view src) {
   return r.as_error();
 }
 
+// Parse a Monty expression and return the desugared s-expression's printed
+// form.
+std::string parse_dump(runtime& rt, std::string_view src) {
+  CAPTURE(src);
+  auto v = monty::parser::parse_expression(rt, src);
+  REQUIRE(v.has_value());
+  return v->print();
+}
+
+// Parse a Monty expression expecting failure, returning the error.
+source_error parse_err(runtime& rt, std::string_view src) {
+  CAPTURE(src);
+  auto r = monty::parser::parse_expression(rt, src);
+  REQUIRE_FALSE(r.has_value());
+  return r.as_error();
+}
+
 } // namespace
 
 #pragma region Monty lexer tokens
@@ -188,6 +205,143 @@ TEST_CASE("Monty lexer errors", "[coreb]") {
   e = lex_err("ok\n   x");
   CHECK(e.line == 2);
   CHECK(e.col == 4);
+}
+
+#pragma endregion
+#pragma region Monty expression parser
+
+TEST_CASE("Monty expression parser", "[coreb]") {
+  runtime rt;
+
+  // Primaries and literals.
+  CHECK(parse_dump(rt, "x") == "x");
+  CHECK(parse_dump(rt, "nil?") == "nil?");
+  CHECK(parse_dump(rt, "42") == "42");
+  CHECK(parse_dump(rt, "2.5") == "2.5");
+  CHECK(parse_dump(rt, "nil") == "nil");
+  CHECK(parse_dump(rt, "true") == "true");
+  CHECK(parse_dump(rt, "false") == "false");
+  CHECK(parse_dump(rt, R"("a\nb")") == R"("a\nb")");
+
+  // Integer overflow falls back to double, matching the kernel rule.
+  CHECK(parse_dump(rt, "99999999999999999999") == "1e+20");
+
+  // Calls bind tightest and fold left.
+  CHECK(parse_dump(rt, "f(x, y)") == "(f x y)");
+  CHECK(parse_dump(rt, "f()") == "(f)");
+  CHECK(parse_dump(rt, "f(a)(b)") == "((f a) b)");
+  CHECK(parse_dump(rt, "f(g(x))") == "(f (g x))");
+
+  // Arithmetic families fold left; parentheses group.
+  CHECK(parse_dump(rt, "a + b - c") == "(- (+ a b) c)");
+  CHECK(parse_dump(rt, "a * b / c") == "(/ (* a b) c)");
+  CHECK(parse_dump(rt, "a + (b * c)") == "(+ a (* b c))");
+  CHECK(parse_dump(rt, "(a + b) * c") == "(* (+ a b) c)");
+
+  // Unary minus binds to the postfix chain it precedes.
+  CHECK(parse_dump(rt, "-7") == "(- 7)");
+  CHECK(parse_dump(rt, "a - -b") == "(- a (- b))");
+  CHECK(parse_dump(rt, "-f(x) * y") == "(* (- (f x)) y)");
+
+  // Comparison chains are same-operator and n-ary; arithmetic sits above.
+  CHECK(parse_dump(rt, "a == b") == "(== a b)");
+  CHECK(parse_dump(rt, "a != b") == "(!= a b)");
+  CHECK(parse_dump(rt, "a < b < c") == "(< a b c)");
+  CHECK(parse_dump(rt, "a + b < c * d") == "(< (+ a b) (* c d))");
+
+  // The ternary desugars to the kernel `if` and chains rightward.
+  CHECK(parse_dump(rt, "x if c else y") == "(if c x y)");
+  CHECK(parse_dump(rt, "a if c else b if d else e") == "(if c a (if d b e))");
+
+  // A parenthesized operator mentions it as a value.
+  CHECK(parse_dump(rt, "map((-), xs)") == "(map - xs)");
+  CHECK(parse_dump(rt, "(+)") == "+");
+
+  // Bracket continuation carries an expression across lines.
+  CHECK(parse_dump(rt, "f(a,\n  b)") == "(f a b)");
+}
+
+#pragma endregion
+#pragma region Monty expression parser errors
+
+TEST_CASE("Monty expression parser errors", "[coreb]") {
+  runtime rt;
+
+  // The sparse partial order: family mixing and mixed chains are errors.
+  CHECK(parse_err(rt, "a + b * c").message ==
+        "mixing '+'/'-' with '*'/'/' requires parentheses");
+  CHECK(parse_err(rt, "a * b + c").message ==
+        "mixing '+'/'-' with '*'/'/' requires parentheses");
+  CHECK(parse_err(rt, "a < b <= c").message ==
+        "comparison chains cannot mix operators");
+  CHECK(parse_err(rt, "a != b != c").message == "'!=' does not chain");
+
+  // `=` and `:=` are statements, rejected with dedicated messages.
+  CHECK(parse_err(rt, "x = 5").message ==
+        "'=' is a definition statement, not an expression");
+  CHECK(parse_err(rt, "x := 5").message ==
+        "':=' is reserved for assignment, a statement");
+  CHECK(parse_err(rt, "f(x = 5)").message ==
+        "'=' is a definition statement, not an expression");
+  CHECK(parse_err(rt, "(=)").message == "'=' is a statement, not a value");
+
+  // Reserved forms awaiting rulings.
+  CHECK(parse_err(rt, "[1, 2]").message ==
+        "list literals are not yet supported");
+  CHECK(parse_err(rt, "xs[0]").message == "indexing is not yet part of Monty");
+
+  // Structural errors.
+  CHECK(parse_err(rt, "x if c").message ==
+        "expected 'else' after ternary condition");
+  CHECK(parse_err(rt, "a b").message == "trailing content after expression");
+  CHECK(parse_err(rt, "()").message == "expected an expression");
+  CHECK(parse_err(rt, "a +\nb").message == "expected an expression");
+
+  // A lexer failure passes through, keeping its `incomplete` flag.
+  auto e = parse_err(rt, "f(a");
+  CHECK(e.message == "unterminated bracket");
+  CHECK(e.incomplete);
+
+  // Nesting is depth-guarded rather than risking the C++ stack.
+  const std::string deep =
+      std::string(monty::parser::max_depth + 1, '(') + "x" +
+      std::string(monty::parser::max_depth + 1, ')');
+  CHECK(parse_err(rt, deep).message == "nesting too deep");
+  CHECK(parse_err(rt, std::string(monty::parser::max_depth + 1, '-') + "x")
+            .message == "nesting too deep");
+
+  // Errors carry the offending position.
+  e = parse_err(rt, "ok +\n   $");
+  CHECK(e.line == 2);
+  CHECK(e.col == 4);
+}
+
+#pragma endregion
+#pragma region Monty expression parser evaluates
+
+TEST_CASE("Monty expression parser evaluates", "[coreb]") {
+  runtime rt;
+  evaluator ev(rt);
+
+  // End-to-end: Monty source through the desugar into the evaluator.
+  auto parse_eval = [&](std::string_view src) {
+    CAPTURE(src);
+    auto v = monty::parser::parse_expression(rt, src);
+    REQUIRE(v.has_value());
+    // Evaluation may collect at safe points; the pending form is a root.
+    std::vector<value> forms{*v};
+    gc_pin pin(rt, forms);
+    auto r = ev.eval(forms[0]);
+    REQUIRE(r.has_value());
+    return r->print();
+  };
+
+  CHECK(parse_eval("(1 + 2) * 3") == "9");
+  CHECK(parse_eval("1 + 2 == 3") == "true");
+  CHECK(parse_eval("1 < 2 < 3") == "true");
+  CHECK(parse_eval("-2 * -3") == "6");
+  CHECK(parse_eval("10 / 4") == "2.5");
+  CHECK(parse_eval("1 if nil else 2") == "2");
 }
 
 #pragma endregion

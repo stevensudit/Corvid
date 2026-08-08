@@ -24,3 +24,4 @@
 #include "hall_reader.h"
 #include "eval.h"
 #include "monty_lexer.h"
+#include "monty_parser.h"
