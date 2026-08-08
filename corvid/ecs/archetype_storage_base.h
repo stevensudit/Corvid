@@ -174,10 +174,7 @@ public:
   }
 
   // Destroy all entities in the registry and empty the storage.
-  bool clear() {
-    do_remove_erase_all(store_id_t::invalid);
-    return true;
-  }
+  bool clear() { return do_remove_erase_all(store_id_t::invalid) || true; }
 
 #pragma endregion
 #pragma region add_guard

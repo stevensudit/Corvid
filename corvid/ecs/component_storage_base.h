@@ -17,12 +17,13 @@
 #pragma once
 
 #include <cassert>
+#include <memory>
 #include <span>
 #include <stdexcept>
-#include <type_traits>
 #include <utility>
 #include <vector>
 
+#include "../enums/bool_enums.h"
 #include "../infra/exception_firewalls.h"
 #include "component_index_policies.h"
 #include "entity_registry.h"
@@ -167,11 +168,11 @@ public:
 #pragma endregion
 #pragma region Insertion
 
-  // Insert component data for an entity. Entity must be valid and not already
-  // in this storage. May be in other storages (component model allows this).
-  // Returns false if entity is invalid, already in this storage, or at limit.
-  // The pre-extension of the reverse index happens before the `add_guard` so
-  // that if it throws nothing else has been modified.
+  // Insert component data for an entity.
+  //
+  // Returns false if the entity is invalid, already in this storage, or at
+  // limit. It may already be in other storages (the component model allows
+  // this).
   template<typename... Args>
   [[nodiscard]] bool add(id_t id, Args&&... args) {
     if (!registry_->is_valid(id)) return false;
@@ -216,7 +217,9 @@ public:
   // never set on the failure path.
   struct add_guard {
     explicit add_guard(derived_t& owner) noexcept
-        : owner_{&owner}, saved_size_{owner.size()} {}
+        : owner_{&owner}, saved_size_{owner.size()} {
+      assert(saved_size_ != *id_t::invalid);
+    }
     add_guard(const add_guard&) = delete;
     add_guard& operator=(const add_guard&) = delete;
 
@@ -265,7 +268,7 @@ protected:
       size_type limit)
       : registry_{&registry}, store_id_{store_id}, limit_{limit},
         ids_{id_allocator_t{registry.get_allocator()}} {
-    if (store_id == store_id_t::invalid || store_id == store_id_t{})
+    if ((store_id == store_id_t::invalid) || (store_id == store_id_t{}))
       throw std::invalid_argument{"store_id must be a valid non-zero value"};
   }
 
