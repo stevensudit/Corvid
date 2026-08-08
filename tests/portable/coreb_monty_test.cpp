@@ -38,7 +38,7 @@ std::string lex_dump(std::string_view src) {
   auto r = monty::lexer::lex(src);
   REQUIRE(r.has_value());
   std::string out;
-  for (const auto& t : *r) {
+  for (const auto& t : r->tokens()) {
     if (!out.empty()) out += ' ';
     out += std::format("{}", t.kind);
     switch (t.kind) {
@@ -64,18 +64,27 @@ source_error lex_err(std::string_view src) {
 }
 
 // Parse a Monty expression and return the desugared s-expression's printed
-// form.
+// form, requiring the expression to span the whole source up to a trailing
+// newline.
 std::string parse_dump(runtime& rt, std::string_view src) {
   CAPTURE(src);
-  auto v = monty::expression_parser::parse_expression(rt, src);
+  auto lexed = monty::lexer::lex(src);
+  REQUIRE(lexed.has_value());
+  auto toks = *std::move(lexed);
+  auto v = monty::expression_parser::parse(rt, toks);
   REQUIRE(v.has_value());
+  if (toks.at(monty::token_kind::newline)) toks.take();
+  REQUIRE(toks.at(monty::token_kind::eof));
   return v->print();
 }
 
 // Parse a Monty expression expecting failure, returning the error.
 source_error parse_err(runtime& rt, std::string_view src) {
   CAPTURE(src);
-  auto r = monty::expression_parser::parse_expression(rt, src);
+  auto lexed = monty::lexer::lex(src);
+  REQUIRE(lexed.has_value());
+  auto toks = *std::move(lexed);
+  auto r = monty::expression_parser::parse(rt, toks);
   REQUIRE_FALSE(r.has_value());
   return r.as_error();
 }
@@ -293,14 +302,18 @@ TEST_CASE("Monty expression parser errors", "[coreb]") {
   // Structural errors.
   CHECK(parse_err(rt, "x if c").message ==
         "expected 'else' after ternary condition");
-  CHECK(parse_err(rt, "a b").message == "trailing content after expression");
   CHECK(parse_err(rt, "()").message == "expected an expression");
   CHECK(parse_err(rt, "a +\nb").message == "expected an expression");
 
-  // A lexer failure passes through, keeping its `incomplete_input` cause.
-  auto e = parse_err(rt, "f(a");
-  CHECK(e.message == "unterminated bracket");
-  CHECK(e.incomplete());
+  // Parsing consumes exactly one expression; the leftover tokens stay in
+  // the stream for the caller to judge.
+  auto lexed = monty::lexer::lex("a b");
+  REQUIRE(lexed.has_value());
+  auto toks = *std::move(lexed);
+  auto v = monty::expression_parser::parse(rt, toks);
+  REQUIRE(v.has_value());
+  CHECK(v->print() == "a");
+  CHECK(toks.at_word("b"));
 
   // Nesting is depth-guarded rather than risking the C++ stack.
   const std::string deep =
@@ -312,9 +325,10 @@ TEST_CASE("Monty expression parser errors", "[coreb]") {
             .message == "nesting too deep");
 
   // Errors carry the offending position.
-  e = parse_err(rt, "ok +\n   $");
+  auto e = parse_err(rt, "(1 +\n*)");
+  CHECK(e.message == "expected an expression");
   CHECK(e.line == 2);
-  CHECK(e.col == 4);
+  CHECK(e.col == 1);
 }
 
 #pragma endregion
@@ -327,7 +341,10 @@ TEST_CASE("Monty expression parser evaluates", "[coreb]") {
   // End-to-end: Monty source through the desugar into the evaluator.
   auto parse_eval = [&](std::string_view src) {
     CAPTURE(src);
-    auto v = monty::expression_parser::parse_expression(rt, src);
+    auto lexed = monty::lexer::lex(src);
+    REQUIRE(lexed.has_value());
+    auto toks = *std::move(lexed);
+    auto v = monty::expression_parser::parse(rt, toks);
     REQUIRE(v.has_value());
     // Evaluation may collect at safe points; the pending form is a root.
     std::vector<value> forms{*v};

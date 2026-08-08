@@ -15,9 +15,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 #pragma once
+#include <algorithm>
 #include <cassert>
 #include <cstddef>
 #include <cstdint>
+#include <span>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -127,6 +129,64 @@ struct token final {
 };
 
 #pragma endregion
+#pragma region token_stream
+
+// Lexed tokens with a cursor into them, as well as the source text they point
+// into (for error reporting).
+//
+// A token's `pos` and `text` are meaningful only against the whole source, so
+// the two travel together. The lexer produces the stream, and parsers consume
+// tokens through the cursor, each taking exactly the tokens its grammar covers
+// and leaving the rest for its caller to judge. `src` must outlive the stream.
+//
+// The stream always ends with an `eof` token, which `peek` yields on any
+// overshoot and `take` never moves past.
+class token_stream final {
+public:
+  token_stream(std::string_view src, std::vector<token> tokens) noexcept
+      : src_{src}, tokens_{std::move(tokens)} {
+    assert(!tokens_.empty() && tokens_.back().kind == token_kind::eof);
+  }
+
+  [[nodiscard]] std::string_view src() const noexcept { return src_; }
+  [[nodiscard]] std::span<const token> tokens() const noexcept {
+    return tokens_;
+  }
+
+  // Token `ahead` positions past the current one.
+  [[nodiscard]] const token& peek(size_t ahead = 0) const noexcept {
+    return tokens_[std::min(ndx_ + ahead, tokens_.size() - 1)];
+  }
+
+  // Take the current token.
+  const token& take() noexcept {
+    const auto& t = peek();
+    if (ndx_ + 1 < tokens_.size()) ++ndx_;
+    return t;
+  }
+
+  [[nodiscard]] bool at(token_kind kind) const noexcept {
+    return peek().kind == kind;
+  }
+  [[nodiscard]] bool at_op(std::string_view text) const noexcept {
+    return at(token_kind::op) && peek().text == text;
+  }
+  [[nodiscard]] bool at_word(std::string_view text) const noexcept {
+    return at(token_kind::word) && peek().text == text;
+  }
+
+  // Build a failure at the current token.
+  [[nodiscard]] source_error fail(std::string message) const {
+    return peek().error_at(src_, std::move(message));
+  }
+
+private:
+  std::string_view src_;
+  std::vector<token> tokens_;
+  size_t ndx_{};
+};
+
+#pragma endregion
 #pragma region lexer
 
 // Lexer from Monty source text to a token stream.
@@ -148,9 +208,11 @@ public:
   template<typename T>
   using result = source_scanner::result<T>;
 
-  // Tokenize `src`, which must outlive the returned tokens.
-  [[nodiscard]] static result<std::vector<token>> lex(std::string_view src) {
-    return scanner(src).scan();
+  // Tokenize `src`, which must outlive the returned stream.
+  [[nodiscard]] static result<token_stream> lex(std::string_view src) {
+    auto r = scanner(src).scan();
+    if (!r) return r;
+    return token_stream{src, *std::move(r)};
   }
 
 private:
