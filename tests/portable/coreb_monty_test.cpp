@@ -18,6 +18,7 @@
 #include <format>
 #include <string>
 #include <string_view>
+#include <type_traits>
 
 #include "corvid/enums.h"
 #include "corvid/lang/coreb/coreb.h"
@@ -314,6 +315,13 @@ TEST_CASE("Monty expression parser errors", "[coreb]") {
   REQUIRE(v.has_value());
   CHECK(v->print() == "a");
   CHECK(toks.at_word("b"));
+
+  // Probe: `std::move` on a const stream (as `std::move(*lexed)` would be)
+  // is rejected rather than copying silently; moving the result works.
+  static_assert(!std::is_constructible_v<monty::token_stream,
+      const monty::token_stream&&>);
+  static_assert(
+      std::is_constructible_v<monty::token_stream, monty::token_stream&&>);
 
   // Nesting is depth-guarded rather than risking the C++ stack.
   const std::string deep =
