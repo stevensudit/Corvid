@@ -4974,6 +4974,47 @@ TEST_CASE("Iterator", "[ComponentStorage]") {
     cs_store_t s{r, cs_sid_t{1}};
     CHECK(s.begin() == s.end());
   }
+
+  // The iterators satisfy `std::contiguous_iterator`, as advertised, and
+  // `iterator` converts to `const_iterator` (never the reverse), enabling
+  // mixed comparisons.
+  if (true) {
+    using iterator = cs_store_t::iterator;
+    using const_iterator = cs_store_t::const_iterator;
+    static_assert(std::contiguous_iterator<iterator>);
+    static_assert(std::contiguous_iterator<const_iterator>);
+    static_assert(std::convertible_to<iterator, const_iterator>);
+    static_assert(!std::convertible_to<const_iterator, iterator>);
+    cs_reg_t r;
+    cs_store_t s{r, cs_sid_t{1}};
+    auto id0 = r.create_id({}, 0);
+    CHECK(s.add(id0, 1.0F));
+    const_iterator cit = s.begin();
+    CHECK(*cit == 1.0F);
+    CHECK(cit == s.begin());
+    CHECK(s.begin() != s.cend());
+    CHECK(std::as_const(s).begin() == s.begin());
+  }
+}
+
+#pragma endregion
+#pragma region ComponentStorage_NarrowEntityId
+
+TEST_CASE("NarrowEntityId", "[ComponentStorage]") {
+  using id_enums::store_id_t;
+  using reg_t = entity_registry<int, small_entity_id_t, store_id_t,
+      generation_scheme::versioned, 8>;
+  using store_t = component_storage<reg_t, int>;
+
+  // Same saturation pin as the archetype-family storages, on a component-mode
+  // registry. The instantiation also pins `metadata_t == component_t` (both
+  // `int`) compiling now that the metadata-first `add_new` overload comes
+  // from the base.
+  reg_t r;
+  store_t s{r, store_id_t{1}};
+  for (int i = 0; i < 255; ++i) REQUIRE(r.is_valid(s.add_new(i)));
+  CHECK(s.size() == 255);
+  CHECK(s.capacity() >= s.size());
 }
 
 #pragma endregion

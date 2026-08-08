@@ -16,13 +16,18 @@
 // limitations under the License.
 #pragma once
 
+#include <algorithm>
 #include <cassert>
+#include <cstddef>
 #include <iterator>
+#include <limits>
+#include <memory>
 #include <stdexcept>
 #include <type_traits>
 #include <utility>
 #include <vector>
 
+#include "../enums/bool_enums.h"
 #include "../infra/exception_firewalls.h"
 #include "component_index_policies.h"
 #include "component_storage_base.h"
@@ -49,7 +54,7 @@ namespace corvid { inline namespace ecs { inline namespace component_storages {
 // Template parameters:
 //   REG - `entity_registry` instantiation; must be component-mode
 //         (`is_component_v == true`).
-//   C   - Component type. Must be trivially copyable.
+//   C   - Component type. Must be movable (removal uses swap-and-pop).
 //   TAG - Optional tag type (default: `void`). Use a distinct tag to
 //         create multiple structurally identical storages that are
 //         nevertheless different types and can coexist in the same
@@ -86,21 +91,24 @@ public:
   using component_allocator_type =
       std::allocator_traits<allocator_type>::template rebind_alloc<C>;
 
-  static_assert(std::is_trivially_copyable_v<component_t>,
-      "Component type must be trivially copyable");
-
 #pragma endregion
 #pragma region Construction
 
   // Default-constructed instances can only be assigned to.
   component_storage() noexcept = default;
 
+  // Construct bound to `registry` with the given `store_id`.
+  //
+  // The `store_id` is not permitted to be `store_id_t::invalid` or
+  // `store_id_t{0}` (staging). If `policy` is `allocation_policy::eager` and
+  // `limit` is not the sentinel unlimited value, reserves capacity for
+  // `limit` entities up front.
   explicit component_storage(registry_t& registry, store_id_t store_id,
       size_type limit = *id_t::invalid,
       allocation_policy policy = allocation_policy::lazy)
       : base_t{registry, store_id, limit},
         components_{component_allocator_type{registry.get_allocator()}} {
-    if (policy == allocation_policy::eager && limit_ != *id_t::invalid)
+    if ((policy == allocation_policy::eager) && (limit_ != *id_t::invalid))
       reserve(limit_);
   }
 
@@ -143,26 +151,39 @@ public:
   }
 
   // Reserve space for at least `new_cap` components.
+  //
+  // Requests beyond the entity limit are clamped to it.
   void reserve(size_type new_cap) {
-    components_.reserve(new_cap);
-    ids_.reserve(new_cap);
+    const auto cap = static_cast<size_t>(std::min(new_cap, limit_));
+    components_.reserve(cap);
+    ids_.reserve(cap);
+  }
+
+  // Return current capacity (minimum across the component and ID vectors).
+  [[nodiscard]] size_type capacity() const noexcept {
+    auto min_cap = std::min(components_.capacity(), ids_.capacity());
+    if constexpr (sizeof(size_type) < sizeof(size_t)) {
+      constexpr auto max_cap = std::numeric_limits<size_type>::max();
+      if (min_cap > max_cap) return max_cap;
+    }
+    return static_cast<size_type>(min_cap);
   }
 
 #pragma endregion
 #pragma region Insertion
 
-  // Add a component for a new entity. Component-first convenience overload.
+  // Add a component for a new entity, returning its handle or an invalid
+  // handle on failure.
+  //
+  // Component-first convenience overload of the base's metadata-first
+  // `add_new`. `metadata` is by value so this overload outranks the base's
+  // forwarding pack on component-first calls.
   [[nodiscard]] handle_t
-  add_new(const component_t& component, const metadata_t& metadata = {}) {
+  add_new(const component_t& component, metadata_t metadata = {}) {
     return base_t::add_new(metadata, component);
   }
 
-  // Metadata-first overload matching the archetype storage convention,
-  // enabling use as a `StorageSpec` in `component_scene`.
-  [[nodiscard]] handle_t add_new(const metadata_t& metadata,
-      const component_t& component = component_t{}) {
-    return base_t::add_new(metadata, component);
-  }
+  using base_t::add_new;
 
 #pragma endregion
 #pragma region Conditional removal
@@ -278,6 +299,12 @@ public:
     iterator_t& operator=(const iterator_t&) = default;
     iterator_t& operator=(iterator_t&&) = default;
 
+    // Converting constructor: `iterator` to `const_iterator`.
+    template<access OTHER>
+    iterator_t(const iterator_t<OTHER>& other)
+    requires(!mutable_v && iterator_t<OTHER>::mutable_v)
+        : storage_{other.storage_}, ndx_{other.ndx_} {}
+
     [[nodiscard]] reference operator*() const {
       return storage_->components_[ndx_];
     }
@@ -337,9 +364,11 @@ public:
     }
 
     [[nodiscard]] bool operator==(const iterator_t& o) const {
+      assert(storage_ == o.storage_);
       return ndx_ == o.ndx_;
-    };
+    }
     [[nodiscard]] auto operator<=>(const iterator_t& o) const {
+      assert(storage_ == o.storage_);
       return ndx_ <=> o.ndx_;
     }
 
@@ -349,6 +378,8 @@ public:
 
     iterator_t(storage_ptr s, size_type ndx) : storage_{s}, ndx_{ndx} {}
     friend class component_storage;
+    template<access>
+    friend class iterator_t;
   };
 
   using iterator = iterator_t<access::as_mutable>;
@@ -379,7 +410,9 @@ private:
   friend base_t::add_guard;
 
   // Append one component row (called by the base's `add(id_t, ...)`).
-  bool do_add_components(const component_t& component) {
+  //
+  // The defaulted parameter covers callers that omit the component argument.
+  bool do_add_components(const component_t& component = {}) {
     components_.push_back(component);
     return true;
   }
@@ -388,7 +421,7 @@ private:
   // handles `ids_` and `reverse_index_`; this method touches only
   // `components_`.
   bool do_swap_and_pop(size_type ndx) {
-    assert(components_.size() > 0);
+    assert(!components_.empty());
     const auto last = static_cast<size_type>(components_.size() - 1);
     if (ndx != last) std::swap(components_[ndx], components_[last]);
     components_.pop_back();
