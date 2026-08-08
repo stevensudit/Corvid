@@ -431,6 +431,9 @@ TEST_CASE("Monty statement parser desugar", "[coreb]") {
   CHECK(stmt_dump(rt, "return = 5") == "(define return 5)");
   CHECK(stmt_dump(rt, "elif = 5") == "(define elif 5)");
   CHECK(stmt_dump(rt, "if = 5") == "(define if 5)");
+  // Grouping parens strip the keyword claim, keeping Monty total: an
+  // expression statement can lead with a keyword-named variable this way.
+  CHECK(stmt_dump(rt, "(fun + 1)") == "(+ fun 1)");
 
   // `fun` is a define of a lambda; the block splats into the implicit
   // sequence.
@@ -498,8 +501,9 @@ TEST_CASE("Monty statement parser errors", "[coreb]") {
   CHECK(stmt_err(rt, "if a\n  f()").message == "expected ':'");
   CHECK(stmt_err(rt, "if a: f()").message == "expected an indented block");
   CHECK(stmt_err(rt, "fun f(5):\n  1").message == "expected a parameter name");
-  // A statement led by a keyword spelling reads as the keyword form, so a
-  // keyword-named variable is read from non-leading expression positions.
+  // A statement led by a keyword spelling reads as the keyword form; a
+  // keyword-named variable is read from non-leading expression positions,
+  // or from the lead behind grouping parens.
   CHECK(stmt_err(rt, "fun + 1").message == "expected a function name");
   CHECK(stmt_err(rt, "fun f():\n  x = ").message == "expected an expression");
   CHECK(stmt_err(rt, "x, y").message == "expected end of line");
@@ -534,7 +538,7 @@ TEST_CASE("Monty statement parser evaluates", "[coreb]") {
   };
 
   CHECK(program_eval("x = 5\nx + 1") == "6");
-  CHECK(program_eval("fun = 5\nx = fun + 1\nx") == "6");
+  CHECK(program_eval("fun = 5\n(fun + 1)") == "6");
   CHECK(program_eval("fun double(n):\n  n * 2\ndouble(21)") == "42");
   CHECK(program_eval("if 1 < 2:\n  \"yes\"\nelse:\n  \"no\"") == "\"yes\"");
 

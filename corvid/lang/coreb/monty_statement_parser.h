@@ -66,12 +66,13 @@ namespace corvid { inline namespace lang { namespace coreb { namespace monty {
 //
 // where fun/if/elif/else/return are contextual words, recognized in
 // statement-leading position only when no `=` or `:=` follows (the
-// definition reading wins, so keywords can be bound as variables and read
-// from any position a keyword does not lead; a statement otherwise led by
-// the spelling reads as the keyword form), `=` desugars 1:1 to the kernel
-// `define`, `:=` is rejected with a message reserving it for assignment,
-// and blocks desugar to `(begin ...)` sequences except a `fun` body,
-// which splats into the lambda's implicit sequence.
+// definition reading wins, so keywords can be bound as variables; a
+// statement otherwise led by the spelling reads as the keyword form, with
+// grouping parens stripping the claim: `(fun + 1)` is an expression
+// statement), `=` desugars 1:1 to the kernel `define`, `:=` is rejected
+// with a message reserving it for assignment, and blocks desugar to
+// `(begin ...)` sequences except a `fun` body, which splats into the
+// lambda's implicit sequence.
 //
 // `return` follows the restricted-return ruling in "coreb.md": a final
 // `return e` is just `e`, and an else-less `if` whose every arm ends in
