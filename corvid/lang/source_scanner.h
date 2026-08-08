@@ -17,6 +17,7 @@
 #pragma once
 #include <cassert>
 #include <cstddef>
+#include <cstdint>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -36,20 +37,43 @@ namespace corvid { inline namespace lang {
 
 #pragma region source_error
 
+// Cause of a failure, distinguishing errors more input could repair.
+//
+// `incomplete_input` marks errors such as an unterminated list or bracket,
+// where reading more source could turn the failure into a success. A REPL uses
+// it to keep reading instead of reporting. Everything else is `invalid_input`.
+enum class error_cause : std::uint8_t { invalid_input, incomplete_input };
+
 // Description of a failure at a position in source text.
 //
 // `pos` is the byte offset where the offending construct starts; `line` and
 // `col` locate the same spot as a 1-based line number and byte column.
-//
-// `incomplete` marks errors that more input could repair, such as an
-// unterminated list or bracket; a REPL uses it to keep reading instead of
-// reporting.
 struct source_error final {
   std::string message;
   size_t pos{};
   size_t line{};
   size_t col{};
-  bool incomplete{};
+  error_cause cause{};
+
+  // Whether more input could repair this failure.
+  [[nodiscard]] bool incomplete() const noexcept {
+    return cause == error_cause::incomplete_input;
+  }
+
+  // Build a failure at `pos` in `src`, deriving the human-facing line and
+  // column from the byte offset.
+  [[nodiscard]] static source_error at(std::string_view src, size_t pos,
+      std::string message, error_cause cause = error_cause::invalid_input) {
+    assert(pos <= src.size());
+    size_t line = 1;
+    size_t bol = 0;
+    for (size_t ndx = 0; ndx < pos; ++ndx)
+      if (src[ndx] == '\n') {
+        ++line;
+        bol = ndx + 1;
+      }
+    return source_error{std::move(message), pos, line, pos - bol + 1, cause};
+  }
 };
 
 #pragma endregion
@@ -58,7 +82,7 @@ struct source_error final {
 // Base for single-pass scanners over source text.
 //
 // Holds the text and the cursor, the primitive character operations, and
-// the `source_error` builders. Everything language-shaped stays in the
+// the `source_error` builder. Everything language-shaped stays in the
 // derived scanner: what a token is, what nesting means, and when to fail.
 //
 // Derived code peeks and takes; it treats the cursor as an opaque bookmark
@@ -135,32 +159,12 @@ public:
     return src_.substr(start, pos_ - start);
   }
 
-  // Build a failure at the current position, or at `pos`.
-  [[nodiscard]] source_error fail(std::string message, size_t pos = -1) const {
+  // Build a failure at the current position, or at `pos`; pass
+  // `error_cause::incomplete_input` for an error more input could repair.
+  [[nodiscard]] source_error fail(std::string message, size_t pos = -1,
+      error_cause cause = error_cause::invalid_input) const {
     if (pos >= src_.size()) pos = pos_;
-    return make_source_error(pos, std::move(message), false);
-  }
-
-  // Build a failure that more input could repair (see
-  // `source_error::incomplete`).
-  [[nodiscard]] source_error
-  fail_incomplete(std::string message, size_t pos = -1) const {
-    if (pos >= src_.size()) pos = pos_;
-    return make_source_error(pos, std::move(message), true);
-  }
-
-  [[nodiscard]] source_error
-  make_source_error(size_t pos, std::string message, bool incomplete) const {
-    // Compute the 1-based line and column from the byte offset.
-    size_t line = 1;
-    size_t bol = 0;
-    for (size_t ndx = 0; ndx < pos; ++ndx)
-      if (src_[ndx] == '\n') {
-        ++line;
-        bol = ndx + 1;
-      }
-    return source_error{std::move(message), pos, line, pos - bol + 1,
-        incomplete};
+    return source_error::at(src_, pos, std::move(message), cause);
   }
 
 private:

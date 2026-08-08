@@ -20,6 +20,7 @@
 #include <cassert>
 #include <cstdint>
 #include <cstring>
+#include <functional>
 #include <initializer_list>
 #include <iterator>
 #include <ranges>
@@ -295,6 +296,24 @@ point_past(location& loc, std::initializer_list<char> values) noexcept {
 constexpr position point_past(location& loc,
     std::initializer_list<std::string_view> values) noexcept {
   return point_past(loc, std::span{values.begin(), values.end()});
+}
+
+#pragma endregion
+#pragma region locate_subview
+
+// Locate `part` within `whole` by identity, not content.
+//
+// Returns the position of `part` when it is literally a subview, pointing into
+// `whole`'s own buffer the way a slice of `whole` does, and `npos` otherwise.
+// This recovers the offset a slice was taken at, and doubles as a sanity check
+// that a view belongs to the source it claims to come from.
+[[nodiscard]] constexpr position
+locate_subview(std::string_view whole, std::string_view part) noexcept {
+  const std::less_equal<> le;
+  if (!le(whole.data(), part.data()) ||
+      !le(part.data() + part.size(), whole.data() + whole.size()))
+    return npos;
+  return static_cast<position>(part.data() - whole.data());
 }
 
 #pragma endregion

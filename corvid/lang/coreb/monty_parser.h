@@ -79,8 +79,9 @@ namespace corvid { inline namespace lang { namespace coreb { namespace monty {
 // Parser from Monty expression source to a Hall value.
 //
 // Nesting deeper than `max_depth` is rejected rather than risking stack
-// exhaustion. Failure is reported by value as a `source_error`; lexer
-// failures pass through, so an unterminated bracket stays `incomplete`.
+// exhaustion. Failure is reported by value as a `source_error`; lexer failures
+// pass through, so an unterminated bracket keeps its `incomplete_input`
+// cause.
 class parser final {
 public:
   template<typename T>
@@ -117,10 +118,10 @@ private:
   struct builder {
     builder(runtime& rt, std::string_view src,
         std::span<const token> toks) noexcept
-        : rt{rt}, errors{src}, toks{toks} {}
+        : rt{rt}, src{src}, toks{toks} {}
 
     runtime& rt;
-    source_scanner errors; // Used only for position errors.
+    std::string_view src;
     std::span<const token> toks;
     size_t ndx{};
     size_t depth{};
@@ -157,7 +158,7 @@ private:
 
     // Build a failure at the current token.
     [[nodiscard]] source_error fail(std::string message) const {
-      return errors.make_source_error(peek().pos, std::move(message), false);
+      return peek().error_at(src, std::move(message));
     }
 
     // Build the list `(elems...)` as nested cons cells.

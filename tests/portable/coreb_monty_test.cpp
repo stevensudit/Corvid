@@ -185,18 +185,18 @@ TEST_CASE("Monty lexer errors", "[coreb]") {
   CHECK(lex_err(")").message == "unmatched ')'");
   CHECK(lex_err("[)]").message == "unmatched ')'");
 
-  // String errors are never incomplete: strings are single-line, so more
-  // input cannot repair them.
+  // String errors never report `incomplete_input`: strings are single-line, so
+  // more input cannot repair them.
   auto e = lex_err(R"("abc)");
   CHECK(e.message == "unterminated string");
-  CHECK_FALSE(e.incomplete);
+  CHECK_FALSE(e.incomplete());
   CHECK(lex_err("\"a\nb\"").message == "unterminated string");
   CHECK(lex_err(R"("a\qb")").message == "invalid escape");
 
-  // An unterminated bracket is incomplete, and is reported at its opener.
+  // An unterminated bracket needs more input, and is reported at its opener.
   e = lex_err("f(a");
   CHECK(e.message == "unterminated bracket");
-  CHECK(e.incomplete);
+  CHECK(e.incomplete());
   CHECK(e.pos == 1);
   CHECK(e.line == 1);
   CHECK(e.col == 2);
@@ -297,10 +297,10 @@ TEST_CASE("Monty expression parser errors", "[coreb]") {
   CHECK(parse_err(rt, "()").message == "expected an expression");
   CHECK(parse_err(rt, "a +\nb").message == "expected an expression");
 
-  // A lexer failure passes through, keeping its `incomplete` flag.
+  // A lexer failure passes through, keeping its `incomplete_input` cause.
   auto e = parse_err(rt, "f(a");
   CHECK(e.message == "unterminated bracket");
-  CHECK(e.incomplete);
+  CHECK(e.incomplete());
 
   // Nesting is depth-guarded rather than risking the C++ stack.
   const std::string deep =

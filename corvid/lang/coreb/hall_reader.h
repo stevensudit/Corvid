@@ -81,8 +81,8 @@ namespace corvid { inline namespace lang { namespace coreb {
 // else it is an error. `read_one` accepts a single trivia-surrounded `expr`;
 // `read_all` accepts `unit`.
 //
-// Failure is reported by value as a `source_error`, whose `incomplete` flag
-// is how the REPL keeps reading a multi-line form instead of reporting;
+// Failure is reported by value as a `source_error`, whose `incomplete_input`
+// cause is how the REPL keeps reading a multi-line form instead of reporting;
 // nesting deeper than `max_depth` is rejected rather than risking stack
 // exhaustion.
 class hall_reader final {
@@ -193,7 +193,9 @@ private:
       value tail;
       for (;;) {
         skip_trivia();
-        if (at_end()) return fail_incomplete("unterminated list", open_pos);
+        if (at_end())
+          return fail("unterminated list", open_pos,
+              error_cause::incomplete_input);
         if (peek() == ')') {
           take(')');
           break;
@@ -222,12 +224,16 @@ private:
     [[nodiscard]] result<value> parse_dotted_tail(size_t open_pos) {
       take('.');
       skip_trivia();
-      if (at_end()) return fail_incomplete("unterminated list", open_pos);
+      if (at_end())
+        return fail("unterminated list", open_pos,
+            error_cause::incomplete_input);
       if (peek() == ')') return fail("expected expression after '.'");
       auto t = parse_value();
       if (!t) return t;
       skip_trivia();
-      if (at_end()) return fail_incomplete("unterminated list", open_pos);
+      if (at_end())
+        return fail("unterminated list", open_pos,
+            error_cause::incomplete_input);
       if (peek() != ')') return fail("expected ')' after dotted tail");
       take(')');
       return t;
@@ -254,7 +260,8 @@ private:
         out += c;
         take();
       }
-      return fail_incomplete("unterminated string", open_pos);
+      return fail("unterminated string", open_pos,
+          error_cause::incomplete_input);
     }
 
     // Whether `t` is claimed by the number grammar.
@@ -297,7 +304,9 @@ private:
 
   private:
     [[nodiscard]] result<value> do_parse_value() {
-      if (at_end()) return fail_incomplete("unexpected end of input");
+      if (at_end())
+        return fail("unexpected end of input", cursor(),
+            error_cause::incomplete_input);
       switch (peek()) {
       case '(': return parse_list();
       case ')': return fail("unmatched ')'");

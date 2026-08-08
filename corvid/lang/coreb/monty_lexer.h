@@ -15,6 +15,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 #pragma once
+#include <cassert>
 #include <cstddef>
 #include <cstdint>
 #include <string>
@@ -25,6 +26,7 @@
 
 #include "../../enums/sequence_enum.h"
 #include "../../strings/cases.h"
+#include "../../strings/locating.h"
 #include "../source_scanner.h"
 
 namespace corvid { inline namespace lang { namespace coreb { namespace monty {
@@ -113,6 +115,15 @@ struct token final {
   token_kind kind;
   std::string_view text;
   size_t pos{};
+
+  // Build a failure at this token's position in `src`, the source it was
+  // lexed from.
+  [[nodiscard]] source_error error_at(std::string_view src,
+      std::string message,
+      error_cause cause = error_cause::invalid_input) const {
+    assert(strings::locate_subview(src, text) == pos);
+    return source_error::at(src, pos, std::move(message), cause);
+  }
 };
 
 #pragma endregion
@@ -130,8 +141,8 @@ struct token final {
 // affect nothing, and inside unclosed brackets newlines and indentation are
 // plain whitespace. Strings are single-line, sharing the kernel's escape
 // grammar. Failure is reported by value as a `source_error`; an unterminated
-// bracket is `incomplete` (more lines could close it), while an unterminated
-// string is not, strings being single-line.
+// bracket reports `incomplete_input` (more lines could close it), while an
+// unterminated string does not, strings being single-line.
 class lexer final {
 public:
   template<typename T>
@@ -201,7 +212,8 @@ private:
       }
 
       if (!brackets.empty())
-        return fail_incomplete("unterminated bracket", brackets.back().second);
+        return fail("unterminated bracket", brackets.back().second,
+            error_cause::incomplete_input);
 
       if (line_has_content) push(token_kind::newline, cursor());
 

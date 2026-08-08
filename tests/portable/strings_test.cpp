@@ -1244,6 +1244,15 @@ TEST_CASE("LocateUtilities", "[StringUtilsTest]") {
   CHECK(strings::from_npos(s, location{2U, 0U}) == location{2U, 0U});
   CHECK((strings::from_npos<strings::npos_choice::size>(s,
             location{s.size(), 2U})) == location{s.size(), 2U});
+
+  // locate_subview recovers the offset of a slice by identity.
+  CHECK(strings::locate_subview(s, s.substr(3, 2)) == 3U);
+  CHECK(strings::locate_subview(s, s) == 0U);
+  // An empty slice is still located, even at the very end.
+  CHECK(strings::locate_subview(s, s.substr(3, 0)) == 3U);
+  CHECK(strings::locate_subview(s, s.substr(s.size())) == s.size());
+  // Equal content in a different buffer is not a subview.
+  CHECK(strings::locate_subview(s, "abx"sv) == npos);
 }
 
 #pragma endregion

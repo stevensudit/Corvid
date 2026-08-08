@@ -352,14 +352,14 @@ TEST_CASE("CoreB reader errors", "[coreb]") {
   CHECK(err(".").message == "misplaced '.'");
   CHECK(err("'.").message == "misplaced '.'");
 
-  // The incomplete flag marks the errors more input could repair, which is
-  // how a REPL decides to keep reading rather than report.
-  CHECK(err("(1 2").incomplete);
-  CHECK(err(R"("abc)").incomplete);
-  CHECK(err("").incomplete);
-  CHECK(err("'").incomplete);
-  CHECK_FALSE(err(")").incomplete);
-  CHECK_FALSE(err("1abc").incomplete);
+  // The incomplete_input cause marks the errors more input could repair,
+  // which is how a REPL decides to keep reading rather than report.
+  CHECK(err("(1 2").incomplete());
+  CHECK(err(R"("abc)").incomplete());
+  CHECK(err("").incomplete());
+  CHECK(err("'").incomplete());
+  CHECK_FALSE(err(")").incomplete());
+  CHECK_FALSE(err("1abc").incomplete());
 
   const std::string deep(hall_reader::max_depth + 1, '(');
   CHECK(err(deep).message == "nesting too deep");

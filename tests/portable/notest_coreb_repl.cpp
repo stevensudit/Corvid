@@ -46,7 +46,7 @@ int main() {
           auto forms = hall_reader::read_all(rt, pending);
           if (!forms) {
             const auto& err = forms.as_error();
-            if (err.incomplete) continue;
+            if (err.incomplete()) continue;
             std::cout << "read error at line " << err.line << ", col "
                       << err.col << ": " << err.message << '\n';
             pending.clear();
