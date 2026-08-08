@@ -18,6 +18,7 @@
 #include <cstddef>
 #include <memory>
 #include <stdexcept>
+#include <utility>
 
 #include "corvid/ecs/entity_registry.h"
 #include "catch2_main.h"
@@ -1590,6 +1591,38 @@ TEST_CASE("EraseIfPredicate", "[EntityRegistry]") {
     CHECK(r.is_valid(id_t{0}));
     CHECK_FALSE(r.is_valid(id_t{2}));
   }
+
+  // erase_if scans records in ascending ID order, so under FIFO the IDs it
+  // frees are reused in that same ascending order.
+  if (true) {
+    reg_t r;
+    (void)r.create_id({}, 10); // id 0
+    (void)r.create_id({}, 25); // id 1
+    (void)r.create_id({}, 30); // id 2
+    (void)r.create_id({}, 5);  // id 3
+    (void)r.create_id({}, 15); // id 4
+    auto cnt = r.erase_if([](auto, auto& rec) { return rec.metadata > 20; });
+    CHECK(cnt == 2U); // ids 1 and 2
+    CHECK(r.create_id({}, 100) == id_t{1});
+    CHECK(r.create_id({}, 200) == id_t{2});
+  }
+
+  // Under LIFO, the same ascending scan means the IDs erase_if frees are
+  // reused in descending order (last freed first).
+  if (true) {
+    using lifo_reg_t = entity_registry<int, entity_id_t, store_id_t,
+        generation_scheme::versioned, 1, sequence_order::lifo>;
+    lifo_reg_t r;
+    (void)r.create_id({}, 10); // id 0
+    (void)r.create_id({}, 25); // id 1
+    (void)r.create_id({}, 30); // id 2
+    (void)r.create_id({}, 5);  // id 3
+    (void)r.create_id({}, 15); // id 4
+    auto cnt = r.erase_if([](auto, auto& rec) { return rec.metadata > 20; });
+    CHECK(cnt == 2U); // ids 1 and 2, freed in that order
+    CHECK(r.create_id({}, 100) == id_t{2});
+    CHECK(r.create_id({}, 200) == id_t{1});
+  }
 }
 
 #pragma endregion
@@ -1622,6 +1655,70 @@ TEST_CASE("IdLimitFreeList", "[EntityRegistry]") {
     CHECK(r.create_id({}, 60) == id_t{1});
     // At limit now: 3 live, limit is 3.
     CHECK(r.create_id({}, 70) == id_t::invalid);
+  }
+}
+
+#pragma endregion
+
+#pragma region SwapMoveFreeList
+
+TEST_CASE("SwapMoveFreeList", "[EntityRegistry]") {
+  using namespace id_enums;
+  using reg_t = entity_registry<int>;
+  using id_t = reg_t::id_t;
+
+  // Swap exchanges the complete FIFO free-list state, including the tail, so
+  // a free after the swap appends in the right place.
+  if (true) {
+    reg_t ra;
+    reg_t rb;
+    (void)ra.create_id({}, 10); // ra: id 0
+    (void)ra.create_id({}, 20); // ra: id 1
+    ra.erase(id_t{0});          // ra free list: [0]
+    (void)rb.create_id({}, 30); // rb: id 0
+    (void)rb.create_id({}, 40); // rb: id 1
+    (void)rb.create_id({}, 50); // rb: id 2
+    rb.erase(id_t{1});          // rb free list: [1]
+    rb.erase(id_t{0});          // rb free list: [1, 0]
+    std::swap(ra, rb);
+    // ra now has rb's old records; this free appends at the tail.
+    ra.erase(id_t{2}); // ra free list: [1, 0, 2]
+    CHECK(ra.create_id({}, 100) == id_t{1});
+    CHECK(ra.create_id({}, 200) == id_t{0});
+    CHECK(ra.create_id({}, 300) == id_t{2});
+    // rb now has ra's old free list.
+    CHECK(rb.create_id({}, 400) == id_t{0});
+  }
+
+  // Move construction transfers the FIFO free list intact, tail included.
+  if (true) {
+    reg_t src;
+    (void)src.create_id({}, 10); // id 0
+    (void)src.create_id({}, 20); // id 1
+    (void)src.create_id({}, 30); // id 2
+    src.erase(id_t{0});          // free list: [0]
+    src.erase(id_t{2});          // free list: [0, 2]
+    reg_t dst{std::move(src)};
+    dst.erase(id_t{1}); // free list: [0, 2, 1]
+    CHECK(dst.create_id({}, 100) == id_t{0});
+    CHECK(dst.create_id({}, 200) == id_t{2});
+    CHECK(dst.create_id({}, 300) == id_t{1});
+  }
+
+  // Move assignment transfers the FIFO free list intact, tail included.
+  if (true) {
+    reg_t src;
+    (void)src.create_id({}, 10); // id 0
+    (void)src.create_id({}, 20); // id 1
+    (void)src.create_id({}, 30); // id 2
+    src.erase(id_t{0});          // free list: [0]
+    src.erase(id_t{2});          // free list: [0, 2]
+    reg_t dst;
+    dst = std::move(src);
+    dst.erase(id_t{1}); // free list: [0, 2, 1]
+    CHECK(dst.create_id({}, 100) == id_t{0});
+    CHECK(dst.create_id({}, 200) == id_t{2});
+    CHECK(dst.create_id({}, 300) == id_t{1});
   }
 }
 
