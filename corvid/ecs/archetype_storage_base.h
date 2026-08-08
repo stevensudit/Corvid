@@ -187,7 +187,9 @@ public:
   // storage back to the saved size, providing strong exception safety.
   struct add_guard {
     explicit add_guard(derived_t& owner) noexcept
-        : owner_{&owner}, saved_size_{owner.size()} {}
+        : owner_{&owner}, saved_size_{owner.size()} {
+      assert(saved_size_ != *id_t::invalid);
+    }
     add_guard(const add_guard&) = delete;
     add_guard& operator=(const add_guard&) = delete;
 
@@ -207,6 +209,12 @@ public:
 
   private:
     derived_t* owner_{};
+
+    // `*id_t::invalid` doubles as the disarmed marker. It cannot collide with
+    // a real captured size because the guard is constructed only after `add`
+    // has verified the incoming entity is a valid ID still in staging, so at
+    // capture time at least one valid ID lies outside this storage and `size()
+    // <= *id_t::invalid - 1`.
     size_type saved_size_{};
   };
 
@@ -548,25 +556,13 @@ public:
 #pragma endregion
 #pragma region Construction
 
-  // Public deleted/defined special members.
+  // Public deleted special members.
   archetype_storage_base(const archetype_storage_base&) = delete;
-
-  // Custom move constructor: explicitly clears `other.ids_` after stealing it.
-  //
-  // Derived destructors call `clear`, which iterates `ids_` and writes to the
-  // registry. The standard only guarantees a moved-from `std::vector` is
-  // "valid but unspecified", not necessarily empty, so this explicit clear
-  // makes destruction safe.
-  archetype_storage_base(archetype_storage_base&& other) noexcept
-      : registry_{other.registry_}, store_id_{other.store_id_},
-        limit_{other.limit_}, ids_{std::move(other.ids_)} {
-    other.ids_.clear();
-  }
-
   archetype_storage_base& operator=(const archetype_storage_base&) = delete;
 
 protected:
-  // Constructors are protected; only derived classes may construct.
+  // Constructors and move operations are protected; only derived classes may
+  // construct, and slice-moves through the base are blocked from outside.
   //
   // CRTP base constructors are protected rather than using the private+friend
   // pattern, since this base is shared by multiple derived classes.
@@ -581,6 +577,18 @@ protected:
         ids_{id_allocator_t{registry.get_allocator()}} {
     if ((store_id == store_id_t::invalid) || (store_id == store_id_t{}))
       throw std::invalid_argument{"store_id must be a valid non-zero value"};
+  }
+
+  // Custom move constructor: explicitly clears `other.ids_` after stealing it.
+  //
+  // Derived destructors call `clear`, which iterates `ids_` and writes to the
+  // registry. The standard only guarantees a moved-from `std::vector` is
+  // "valid but unspecified", not necessarily empty, so this explicit clear
+  // makes destruction safe.
+  archetype_storage_base(archetype_storage_base&& other) noexcept
+      : registry_{other.registry_}, store_id_{other.store_id_},
+        limit_{other.limit_}, ids_{std::move(other.ids_)} {
+    other.ids_.clear();
   }
 
   archetype_storage_base& operator=(archetype_storage_base&& other) noexcept {
