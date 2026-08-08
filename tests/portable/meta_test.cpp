@@ -21,7 +21,9 @@
 #include <bit>
 #include <map>
 #include <memory>
+#include <optional>
 #include <set>
+#include <tuple>
 
 // #include "Interval.h"
 
@@ -1521,6 +1523,40 @@ TEST_CASE("Swap", "[FixedFunction]") {
   a.swap(empty2);
   CHECK_FALSE(static_cast<bool>(a));
   CHECK_FALSE(static_cast<bool>(empty2));
+}
+
+#pragma endregion
+#pragma region TupleMetafunctions
+
+TEST_CASE("TupleMetafunctions", "[MetaTest]") {
+  using tup_t = std::tuple<int, float, char>;
+
+  // Membership.
+  static_assert(tuple_contains_v<int, tup_t>);
+  static_assert(tuple_contains_v<char, tup_t>);
+  static_assert(!tuple_contains_v<double, tup_t>);
+  static_assert(!tuple_contains_v<int, std::tuple<>>);
+
+  // Index of first occurrence.
+  static_assert(tuple_index_v<int, tup_t> == 0UZ);
+  static_assert(tuple_index_v<char, tup_t> == 2UZ);
+
+  // Union preserves first-seen order and drops duplicates; empty tuples
+  // contribute nothing.
+  static_assert(std::is_same_v<
+      tuple_union_t<std::tuple<int, float>, std::tuple<int, char>>,
+      std::tuple<int, float, char>>);
+  static_assert(std::is_same_v<tuple_union_t<>, std::tuple<>>);
+  static_assert(std::is_same_v<tuple_union_t<std::tuple<>, std::tuple<int>>,
+      std::tuple<int>>);
+
+  // Optional-wrapping preserves order.
+  static_assert(std::is_same_v<wrap_optionals_t<tup_t>,
+      std::tuple<std::optional<int>, std::optional<float>,
+          std::optional<char>>>);
+
+  // Runtime anchor so the case is not assert-only.
+  CHECK(tuple_index_v<float, tup_t> == 1UZ);
 }
 
 #pragma endregion
