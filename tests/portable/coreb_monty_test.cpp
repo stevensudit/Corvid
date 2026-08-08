@@ -90,6 +90,34 @@ source_error parse_err(runtime& rt, std::string_view src) {
   return r.as_error();
 }
 
+// Parse a Monty program and render the desugared forms' printed forms,
+// space-separated.
+std::string stmt_dump(runtime& rt, std::string_view src) {
+  CAPTURE(src);
+  auto lexed = monty::lexer::lex(src);
+  REQUIRE(lexed.has_value());
+  auto toks = *std::move(lexed);
+  auto forms = monty::statement_parser::parse_all(rt, toks);
+  REQUIRE(forms.has_value());
+  std::string out;
+  for (const auto& v : *forms) {
+    if (!out.empty()) out += ' ';
+    out += v.print();
+  }
+  return out;
+}
+
+// Parse a Monty program expecting failure, returning the error.
+source_error stmt_err(runtime& rt, std::string_view src) {
+  CAPTURE(src);
+  auto lexed = monty::lexer::lex(src);
+  REQUIRE(lexed.has_value());
+  auto toks = *std::move(lexed);
+  auto r = monty::statement_parser::parse_all(rt, toks);
+  REQUIRE_FALSE(r.has_value());
+  return r.as_error();
+}
+
 } // namespace
 
 #pragma region Monty lexer tokens
@@ -382,6 +410,130 @@ TEST_CASE("Monty expression parser evaluates", "[coreb]") {
   CHECK(parse_eval("1 if nil else 2") == "2");
   CHECK(parse_eval("[1, 2 + 3]") == "(1 5)");
   CHECK(parse_eval("head([1, 2])") == "1");
+}
+
+#pragma endregion
+#pragma region Monty statement parser desugar
+
+TEST_CASE("Monty statement parser desugar", "[coreb]") {
+  runtime rt;
+
+  // Simple statements: definitions and expression statements.
+  CHECK(stmt_dump(rt, "x = 5") == "(define x 5)");
+  CHECK(stmt_dump(rt, "f(1)") == "(f 1)");
+  CHECK(
+      stmt_dump(rt, "x = 5\ny = x + 1") == "(define x 5) (define y (+ x 1))");
+
+  // `def` is a define of a lambda; the block splats into the implicit
+  // sequence.
+  CHECK(stmt_dump(rt, "def inc(n):\n  n + 1") ==
+        "(define inc (lambda (n) (+ n 1)))");
+  // A zero-parameter lambda's parameter list is nil, which prints as
+  // "nil" per the nil-unifies-with-empty-list ruling.
+  CHECK(stmt_dump(rt, "def f():\n  1\n  2") == "(define f (lambda nil 1 2))");
+  CHECK(stmt_dump(rt, "def add(a, b):\n  a + b") ==
+        "(define add (lambda (a b) (+ a b)))");
+
+  // `if`/`elif`/`else` chains rightward over begin blocks; else-less is
+  // the kernel's two-argument `if`.
+  CHECK(stmt_dump(rt, "if a:\n  f()") == "(if a (begin (f)))");
+  CHECK(stmt_dump(rt, "if a:\n  f()\nelse:\n  g()") ==
+        "(if a (begin (f)) (begin (g)))");
+  CHECK(stmt_dump(rt, "if a:\n  1\nelif b:\n  2\nelse:\n  3") ==
+        "(if a (begin 1) (if b (begin 2) (begin 3)))");
+
+  // A final `return e` is just `e`; the bare spelling returns nil.
+  CHECK(stmt_dump(rt, "def f(n):\n  return n") == "(define f (lambda (n) n))");
+  CHECK(stmt_dump(rt, "def f():\n  return") == "(define f (lambda nil nil))");
+
+  // The guard-clause rewrite: an else-less `if` ending in `return` takes
+  // the remainder of the body as its else branch.
+  CHECK(stmt_dump(rt, "def f(n):\n  if n == 0:\n    return 1\n  n * 2") ==
+        "(define f (lambda (n) (if (== n 0) (begin 1) (begin (* n 2)))))");
+
+  // A final `if` with `else` may return from both arms.
+  CHECK(stmt_dump(rt,
+            "def f(n):\n  if n:\n    return 1\n  else:\n    return 2") ==
+        "(define f (lambda (n) (if n (begin 1) (begin 2))))");
+
+  // The single-statement entry consumes exactly one statement, leaving
+  // the rest in the stream.
+  auto lexed = monty::lexer::lex("x = 1\ny = 2");
+  REQUIRE(lexed.has_value());
+  auto toks = *std::move(lexed);
+  auto v = monty::statement_parser::parse(rt, toks);
+  REQUIRE(v.has_value());
+  CHECK(v->print() == "(define x 1)");
+  CHECK(toks.at_word("y"));
+}
+
+#pragma endregion
+#pragma region Monty statement parser errors
+
+TEST_CASE("Monty statement parser errors", "[coreb]") {
+  runtime rt;
+
+  // Restricted return: inside `def` only, and only where the rewrite can
+  // express it.
+  CHECK(stmt_err(rt, "return 1").message == "'return' outside a function");
+  CHECK(stmt_err(rt, "def f():\n  return 1\n  2").message ==
+        "'return' must end its function or a guard clause");
+  CHECK(stmt_err(rt, "def f():\n  if a:\n    return 1\n  else:\n    2\n  3")
+            .message == "'return' must end its function or a guard clause");
+
+  // `:=` stays reserved pending mutation.
+  CHECK(stmt_err(rt, "x := 5").message ==
+        "':=' assignment is not yet part of Monty");
+
+  // Structural errors.
+  CHECK(stmt_err(rt, "  x").message == "unexpected indent");
+  CHECK(stmt_err(rt, "if a\n  f()").message == "expected ':'");
+  CHECK(stmt_err(rt, "if a: f()").message == "expected an indented block");
+  CHECK(stmt_err(rt, "def f(5):\n  1").message == "expected a parameter name");
+  CHECK(stmt_err(rt, "def f():\n  x = ").message == "expected an expression");
+  CHECK(stmt_err(rt, "x, y").message == "expected end of line");
+}
+
+#pragma endregion
+#pragma region Monty statement parser evaluates
+
+TEST_CASE("Monty statement parser evaluates", "[coreb]") {
+  runtime rt;
+  evaluator ev(rt);
+
+  // End-to-end: a Monty program through the desugar into the evaluator,
+  // yielding the last form's value.
+  auto program_eval = [&](std::string_view src) {
+    CAPTURE(src);
+    auto lexed = monty::lexer::lex(src);
+    REQUIRE(lexed.has_value());
+    auto toks = *std::move(lexed);
+    auto parsed = monty::statement_parser::parse_all(rt, toks);
+    REQUIRE(parsed.has_value());
+    auto forms = *std::move(parsed);
+    // Evaluation may collect at safe points; the pending forms are roots.
+    gc_pin pin(rt, forms);
+    std::string out;
+    for (const auto& form : forms) {
+      auto r = ev.eval(form);
+      REQUIRE(r.has_value());
+      out = r->print();
+    }
+    return out;
+  };
+
+  CHECK(program_eval("x = 5\nx + 1") == "6");
+  CHECK(program_eval("def double(n):\n  n * 2\ndouble(21)") == "42");
+  CHECK(program_eval("if 1 < 2:\n  \"yes\"\nelse:\n  \"no\"") == "\"yes\"");
+
+  // The guard-clause rewrite, end to end.
+  CHECK(
+      program_eval(
+          "def fact(n):\n"
+          "  if n == 0:\n"
+          "    return 1\n"
+          "  n * fact(n - 1)\n"
+          "fact(10)") == "3628800");
 }
 
 #pragma endregion
