@@ -43,7 +43,7 @@ int main() {
           if (!std::getline(std::cin, line)) break;
           pending += line;
           pending += '\n';
-          auto forms = reader::read_all(rt, pending);
+          auto forms = hall_reader::read_all(rt, pending);
           if (!forms) {
             const auto& err = forms.as_error();
             if (err.incomplete) continue;

@@ -45,7 +45,7 @@ using namespace std::literals;
 //
 //   runtime rt;
 //   evaluator ev(rt);
-//   auto v = ev.eval(*reader::read_one(rt, "(+ 1 2)"));
+//   auto v = ev.eval(*hall_reader::read_one(rt, "(+ 1 2)"));
 //   if (v) v->print();  // "3"
 
 #pragma region eval_error
