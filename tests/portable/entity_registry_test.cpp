@@ -235,12 +235,14 @@ TEST_CASE("Basic", "[EntityRegistry]") {
     CHECK_THROWS_AS(r.at(id0), std::out_of_range);
   }
 
-  // size() tracks living entities.
+  // size() and empty() track living entities.
   if (true) {
     reg_t r;
     CHECK(r.size() == 0U);
+    CHECK(r.empty());
     auto id0 = r.create_id(loc0, 10);
     CHECK(r.size() == 1U);
+    CHECK_FALSE(r.empty());
     (void)r.create_id(loc1, 20);
     CHECK(r.size() == 2U);
     r.erase(id0);

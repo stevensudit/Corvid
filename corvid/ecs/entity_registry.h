@@ -663,6 +663,9 @@ public:
   // highest ID issued or in use.
   [[nodiscard]] size_type size() const noexcept { return living_count_; }
 
+  // Return whether there are no living entities.
+  [[nodiscard]] bool empty() const noexcept { return living_count_ == 0; }
+
   // Return maximum valid ID, or `id_t::invalid` if empty. This is the
   // high-water mark, not the highest extant ID. (Note that underflow of the
   // unsigned underlying type is well-defined, so we know that
