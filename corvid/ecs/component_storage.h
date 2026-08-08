@@ -31,6 +31,7 @@
 #include "../infra/exception_firewalls.h"
 #include "component_index_policies.h"
 #include "component_storage_base.h"
+#include "storage_iterator.h"
 
 namespace corvid { inline namespace ecs { inline namespace component_storages {
 
@@ -207,27 +208,9 @@ public:
 #pragma endregion
 #pragma region row_view
 
-  // Read-only view of a single entity's row. Provides a `component<T>`
-  // accessor uniform with archetype storages (only valid for `T ==
-  // component_t`), plus an implicit conversion to `const component_t&`.
-  struct row_view {
-    const component_t& value;
-    id_t entity_id{};
-
-    [[nodiscard]] operator const component_t&() const noexcept {
-      return value;
-    }
-
-    // Uniform accessor (`component_t` only).
-    template<typename T>
-    [[nodiscard]] const T& component() const noexcept {
-      static_assert(std::is_same_v<T, component_t>,
-          "component_storage only has one component type");
-      return value;
-    }
-
-    [[nodiscard]] id_t id() const noexcept { return entity_id; }
-  };
+  // Read-only view of a single entity's row; see
+  // `single_component_row_view`.
+  using row_view = single_component_row_view<component_t, id_t>;
 
 #pragma endregion
 #pragma region Element access
@@ -274,119 +257,13 @@ public:
   }
 
 #pragma endregion
-#pragma region iterator_t
-
-  // Contiguous iterator over components. Dereferencing yields a `component_t`
-  // reference; `id` returns the entity ID at the current position.
-  template<access ACCESS>
-  class iterator_t {
-  public:
-    static constexpr bool mutable_v = static_cast<bool>(ACCESS);
-    using iterator_category = std::contiguous_iterator_tag;
-    using iterator_concept = std::contiguous_iterator_tag;
-    using value_type = component_t;
-    using difference_type = std::ptrdiff_t;
-    using reference =
-        std::conditional_t<mutable_v, value_type&, const value_type&>;
-    using pointer =
-        std::conditional_t<mutable_v, value_type*, const value_type*>;
-    using storage_ptr = std::conditional_t<mutable_v, component_storage*,
-        const component_storage*>;
-
-    iterator_t() = default;
-    iterator_t(const iterator_t&) = default;
-    iterator_t(iterator_t&&) = default;
-    iterator_t& operator=(const iterator_t&) = default;
-    iterator_t& operator=(iterator_t&&) = default;
-
-    // Converting constructor: `iterator` to `const_iterator`.
-    template<access OTHER>
-    iterator_t(const iterator_t<OTHER>& other)
-    requires(!mutable_v && iterator_t<OTHER>::mutable_v)
-        : storage_{other.storage_}, ndx_{other.ndx_} {}
-
-    [[nodiscard]] reference operator*() const {
-      return storage_->components_[ndx_];
-    }
-    [[nodiscard]] pointer operator->() const {
-      return &storage_->components_[ndx_];
-    }
-
-    [[nodiscard]] id_t id() const { return storage_->ids_[ndx_]; }
-
-    iterator_t& operator++() {
-      ++ndx_;
-      return *this;
-    }
-    iterator_t operator++(int) {
-      auto tmp = *this;
-      ++ndx_;
-      return tmp;
-    }
-    iterator_t& operator--() {
-      --ndx_;
-      return *this;
-    }
-    iterator_t operator--(int) {
-      auto tmp = *this;
-      --ndx_;
-      return tmp;
-    }
-
-    iterator_t& operator+=(difference_type n) {
-      ndx_ += n;
-      return *this;
-    }
-    iterator_t& operator-=(difference_type n) {
-      ndx_ -= n;
-      return *this;
-    }
-    [[nodiscard]] iterator_t operator+(difference_type n) const {
-      auto tmp = *this;
-      return tmp += n;
-    }
-    [[nodiscard]] iterator_t operator-(difference_type n) const {
-      auto tmp = *this;
-      return tmp -= n;
-    }
-    [[nodiscard]] difference_type operator-(const iterator_t& o) const {
-      return static_cast<difference_type>(ndx_) -
-             static_cast<difference_type>(o.ndx_);
-    }
-
-    [[nodiscard]] reference operator[](difference_type n) const {
-      return storage_->components_[ndx_ + n];
-    }
-
-    [[nodiscard]] friend iterator_t
-    operator+(difference_type n, const iterator_t& it) {
-      return it + n;
-    }
-
-    [[nodiscard]] bool operator==(const iterator_t& o) const {
-      assert(storage_ == o.storage_);
-      return ndx_ == o.ndx_;
-    }
-    [[nodiscard]] auto operator<=>(const iterator_t& o) const {
-      assert(storage_ == o.storage_);
-      return ndx_ <=> o.ndx_;
-    }
-
-  private:
-    storage_ptr storage_{};
-    size_type ndx_{};
-
-    iterator_t(storage_ptr s, size_type ndx) : storage_{s}, ndx_{ndx} {}
-    friend class component_storage;
-    template<access>
-    friend class iterator_t;
-  };
-
-  using iterator = iterator_t<access::as_mutable>;
-  using const_iterator = iterator_t<access::as_const>;
-
-#pragma endregion
 #pragma region Iteration
+
+  // Contiguous iterators over components; see `contiguous_storage_iterator`.
+  using iterator =
+      contiguous_storage_iterator<component_storage, access::as_mutable>;
+  using const_iterator =
+      contiguous_storage_iterator<component_storage, access::as_const>;
 
   [[nodiscard]] iterator begin() noexcept { return {this, 0}; }
   [[nodiscard]] iterator end() noexcept { return {this, size()}; }
@@ -405,9 +282,11 @@ private:
   using base_t::reverse_index_;
 
   // Grant `component_storage_base` and its nested types access to the CRTP
-  // customization points.
+  // customization points, and the shared iterators access to the vectors.
   friend base_t;
   friend base_t::add_guard;
+  friend iterator;
+  friend const_iterator;
 
   // Append one component row (called by the base's `add(id_t, ...)`).
   //

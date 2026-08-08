@@ -24,6 +24,8 @@
 //  archetype_storage         - SoA multi-component archetype storage
 //  chunked_archetype_storage - AoSoA multi-component archetype storage
 //  entity_registry           - Entity lifecycle and location tracking
+//  storage_iterator          - Iterator/row view shared by the
+//                              single-component storages
 //  mono_archetype_storage    - Single-component per-entity dense storage
 //  ecs_meta                  - ECS-specific type metaprogramming utilities
 //  archetype_scene           - Unified scene aggregating registry + storages
@@ -37,6 +39,7 @@
 #include "ecs/archetype_storage.h"
 #include "ecs/chunked_archetype_storage.h"
 #include "ecs/entity_registry.h"
+#include "ecs/storage_iterator.h"
 #include "ecs/mono_archetype_storage.h"
 #include "ecs/ecs_meta.h"
 #include "ecs/archetype_scene.h"
