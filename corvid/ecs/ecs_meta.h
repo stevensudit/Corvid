@@ -16,12 +16,19 @@
 // limitations under the License.
 #pragma once
 
+#include <cstddef>
 #include <optional>
 #include <tuple>
 #include <type_traits>
-#include <utility>
 
 namespace corvid { inline namespace ecs { inline namespace ecs_metas {
+
+// Compile-time helpers shared by the scene aggregators.
+//
+// Provides tuple-membership and indexing metafunctions, the
+// selector-to-storage resolution (`storage_index_for_v`) used by
+// `archetype_scene` and `component_scene`, and the `get_or_default` migration
+// helper.
 
 #pragma region Tuple membership
 
@@ -35,19 +42,13 @@ template<typename T, typename Tuple>
 inline constexpr bool tuple_contains_v = tuple_contains<T, Tuple>::value;
 
 // True if `Storage::tuple_t` contains every type in `Cs...`.
+//
+// Tidy false positive: `typename` is required in template-argument lists.
 // NOLINTBEGIN(readability-redundant-typename)
 template<typename Storage, typename... Cs>
 inline constexpr bool has_all_components_v =
     (tuple_contains_v<Cs, typename Storage::tuple_t> && ...);
 // NOLINTEND(readability-redundant-typename)
-
-#pragma endregion
-#pragma region dependent_false_v
-
-// Always-false helper for `static_assert` in templates, avoiding reliance on
-// `sizeof(C) == 0` which requires `C` to be a complete type.
-template<typename>
-inline constexpr bool dependent_false_v = false;
 
 #pragma endregion
 #pragma region Storage selection
@@ -65,18 +66,21 @@ struct find_component_storage_index_impl<C, I, First, Rest...>
 
 template<typename C, size_t I>
 struct find_component_storage_index_impl<C, I> {
-  static_assert(dependent_false_v<C>,
+  static_assert(false,
       "no storage in the scene has `component_t` equal to `C`");
 };
 
-// 0-based index into `Storages...` of the storage whose `component_t == C`.
+// 0-based index into `Storages...` of the first storage whose
+// `component_t == C`.
 template<typename C, typename... Storages>
 inline constexpr size_t find_component_storage_index_v =
     find_component_storage_index_impl<C, 0, Storages...>::value;
 
 // Number of storages in `Storages...` whose `component_t == C`.
-template<typename C, typename... Storages>
+//
+// Tidy false positive: `typename` is required in template-argument lists.
 // NOLINTBEGIN(readability-redundant-typename)
+template<typename C, typename... Storages>
 inline constexpr auto component_match_count_v =
     (static_cast<size_t>(std::is_same_v<C, typename Storages::component_t>) +
         ...);
@@ -95,16 +99,17 @@ struct find_storage_by_tag_impl<TAG, I, First, Rest...>
 
 template<typename TAG, size_t I>
 struct find_storage_by_tag_impl<TAG, I> {
-  static_assert(dependent_false_v<TAG>,
-      "no storage in the scene has `tag_t` equal to `TAG`");
+  static_assert(false, "no storage in the scene has `tag_t` equal to `TAG`");
 };
 
-// 0-based index into `Storages...` of the storage with `tag_t == TAG`.
+// 0-based index into `Storages...` of the first storage with `tag_t == TAG`.
 template<typename TAG, typename... Storages>
 inline constexpr size_t find_storage_by_tag_index_v =
     find_storage_by_tag_impl<TAG, 0, Storages...>::value;
 
 // Number of storages in `Storages...` whose `tag_t == C`.
+//
+// Tidy false positive: `typename` is required in template-argument lists.
 // NOLINTBEGIN(readability-redundant-typename)
 template<typename C, typename... Storages>
 inline constexpr auto tag_match_count_v =
@@ -125,12 +130,12 @@ consteval size_t storage_index_for_impl() noexcept {
   } else if constexpr (nc == 0 && nt == 1) {
     return find_storage_by_tag_index_v<C, Storages...>;
   } else if constexpr (nc > 1) {
-    static_assert(dependent_false_v<C>,
+    static_assert(false,
         "`C` matches multiple storages by `component_t`; pass the storage's "
         "`tag_t` instead to select the specific storage");
     return 0;
   } else {
-    static_assert(dependent_false_v<C>,
+    static_assert(false,
         "`C` matches no storage by `component_t` and does not uniquely match "
         "any storage by `tag_t`");
     return 0;
@@ -196,7 +201,7 @@ template<typename T, typename Tuple, size_t I = 0UZ>
 struct tuple_index_impl;
 template<typename T, size_t I>
 struct tuple_index_impl<T, std::tuple<>, I> {
-  static_assert(dependent_false_v<T>, "type not found in tuple");
+  static_assert(false, "type not found in tuple");
 };
 template<typename T, typename Head, typename... Tail, size_t I>
 struct tuple_index_impl<T, std::tuple<Head, Tail...>, I>
