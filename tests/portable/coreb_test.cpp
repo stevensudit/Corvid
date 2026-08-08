@@ -35,10 +35,10 @@ namespace {
 // it exactly, because a single round trip reaches the fixed point.
 std::string echo(runtime& rt, std::string_view src) {
   CAPTURE(src);
-  auto v = reader::read_one(rt, src);
+  auto v = hall_reader::read_one(rt, src);
   REQUIRE(v.has_value());
   auto text = v->print();
-  auto again = reader::read_one(rt, text);
+  auto again = hall_reader::read_one(rt, text);
   REQUIRE(again.has_value());
   CHECK(again->print() == text);
   return text;
@@ -48,7 +48,7 @@ std::string echo(runtime& rt, std::string_view src) {
 // value's printed form.
 std::string run(runtime& rt, evaluator& ev, std::string_view src) {
   CAPTURE(src);
-  auto forms = reader::read_all(rt, src);
+  auto forms = hall_reader::read_all(rt, src);
   REQUIRE(forms.has_value());
   REQUIRE_FALSE(forms->empty());
   // Evaluation may collect at safe points; the pending forms are roots.
@@ -66,7 +66,7 @@ std::string run(runtime& rt, evaluator& ev, std::string_view src) {
 // message. Evaluating them all successfully fails the test.
 std::string run_err(runtime& rt, evaluator& ev, std::string_view src) {
   CAPTURE(src);
-  auto forms = reader::read_all(rt, src);
+  auto forms = hall_reader::read_all(rt, src);
   REQUIRE(forms.has_value());
   // Evaluation may collect at safe points; the pending forms are roots.
   gc_pin pin(rt, *forms);
@@ -214,7 +214,7 @@ TEST_CASE("CoreB symbols", "[coreb]") {
 TEST_CASE("CoreB reader atoms", "[coreb]") {
   runtime rt;
   auto read = [&rt](std::string_view src) {
-    auto v = reader::read_one(rt, src);
+    auto v = hall_reader::read_one(rt, src);
     REQUIRE(v.has_value());
     return *v;
   };
@@ -271,7 +271,7 @@ TEST_CASE("CoreB reader lists", "[coreb]") {
 TEST_CASE("CoreB reader strings", "[coreb]") {
   runtime rt;
   auto read = [&rt](std::string_view src) {
-    auto v = reader::read_one(rt, src);
+    auto v = hall_reader::read_one(rt, src);
     REQUIRE(v.has_value());
     return *v;
   };
@@ -304,13 +304,13 @@ TEST_CASE("CoreB reader sugar and trivia", "[coreb]") {
   CHECK(echo(rt, "'(1 2)") == "(quote (1 2))");
   CHECK(echo(rt, "; leading comment\n 42 ; trailing comment") == "42");
 
-  auto all = reader::read_all(rt, "1 2 (3 4) ; done");
+  auto all = hall_reader::read_all(rt, "1 2 (3 4) ; done");
   REQUIRE(all.has_value());
   REQUIRE(all->size() == 3);
   CHECK((*all)[0].print() == "1");
   CHECK((*all)[2].print() == "(3 4)");
 
-  auto none = reader::read_all(rt, " ; nothing here\n");
+  auto none = hall_reader::read_all(rt, " ; nothing here\n");
   REQUIRE(none.has_value());
   CHECK(none->empty());
 }
@@ -321,7 +321,7 @@ TEST_CASE("CoreB reader sugar and trivia", "[coreb]") {
 TEST_CASE("CoreB reader errors", "[coreb]") {
   runtime rt;
   auto err = [&rt](std::string_view src) {
-    auto v = reader::read_one(rt, src);
+    auto v = hall_reader::read_one(rt, src);
     REQUIRE_FALSE(v.has_value());
     return v.as_error();
   };
@@ -361,16 +361,16 @@ TEST_CASE("CoreB reader errors", "[coreb]") {
   CHECK_FALSE(err(")").incomplete);
   CHECK_FALSE(err("1abc").incomplete);
 
-  const std::string deep(reader::max_depth + 1, '(');
+  const std::string deep(hall_reader::max_depth + 1, '(');
   CHECK(err(deep).message == "nesting too deep");
   // A chain of quotes nests one level per quote.
-  const std::string quotes(reader::max_depth + 1, '\'');
+  const std::string quotes(hall_reader::max_depth + 1, '\'');
   CHECK(err(quotes + "x").message == "nesting too deep");
   // Depth counts nesting, not length: a long flat list is fine.
   std::string wide = "(";
   for (auto ndx = 0; ndx < 1000; ++ndx) wide += "x ";
   wide += ")";
-  CHECK(reader::read_one(rt, wide).has_value());
+  CHECK(hall_reader::read_one(rt, wide).has_value());
 }
 
 #pragma endregion

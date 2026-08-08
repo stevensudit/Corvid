@@ -266,10 +266,10 @@ public:
 
   // Maximum nesting depth `append` and `append_dump` render.
   //
-  // The cap matches `reader::max_depth`, so anything the reader can produce
-  // prints in full, and printing programmatically built structure cannot
-  // exhaust the C++ stack. Only nesting spends depth: a cell's head, and
-  // each form of a closure's body. Chains through `tail` are iterated flat
+  // The cap matches `hall_reader::max_depth`, so anything the reader can
+  // produce prints in full, and printing programmatically built structure
+  // cannot exhaust the C++ stack. Only nesting spends depth: a cell's head,
+  // and each form of a closure's body. Chains through `tail` are iterated flat
   // in both forms, so list length costs none.
   static constexpr size_t max_depth = 256;
 
@@ -303,7 +303,7 @@ public:
   // and depth truncation works as in `append` too.
   //
   // Display forms and truncation aside, the output is valid reader syntax,
-  // but re-reading it is subject to `reader::max_depth`: the dotted form
+  // but re-reading it is subject to `hall_reader::max_depth`: the dotted form
   // spends one nesting level per list element where the abbreviated form
   // spends none, so a long proper list dumps fine yet will not read back.
   bool append_dump(std::string& out, size_t depth = 0) const;

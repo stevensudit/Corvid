@@ -21,6 +21,6 @@
 // Umbrella header for the kernel; the language design and roadmap live in
 // "coreb.md".
 #include "value.h"
-#include "reader.h"
+#include "hall_reader.h"
 #include "eval.h"
 #include "monty_lexer.h"

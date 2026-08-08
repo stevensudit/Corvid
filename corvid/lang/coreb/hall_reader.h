@@ -30,17 +30,18 @@
 
 namespace corvid { inline namespace lang { namespace coreb {
 
-// CoreB s-expression reader.
+// Hall reader.
 //
-// Parses parenthesized source text into values. This is the kernel's internal
-// bootstrap format, not the CoreB surface syntax (which arrives in milestone
-// 4 as a separate parser producing the same values).
+// Hall is CoreB's native s-expression syntax; the design rulings are
+// recorded in "coreb.md". This header parses parenthesized source text into
+// values. Monty, the Pythonesque surface syntax, is a skin whose parser
+// produces the same values.
 //
 //   runtime rt;
-//   auto v = reader::read_one(rt, "(a 1 2.5)");
+//   auto v = hall_reader::read_one(rt, "(a 1 2.5)");
 //   if (v) v->print();  // "(a 1 2.5)"
 
-#pragma region reader
+#pragma region hall_reader
 
 // Reader from s-expression source text to values.
 //
@@ -84,7 +85,7 @@ namespace corvid { inline namespace lang { namespace coreb {
 // is how the REPL keeps reading a multi-line form instead of reporting;
 // nesting deeper than `max_depth` is rejected rather than risking stack
 // exhaustion.
-class reader final {
+class hall_reader final {
 public:
   template<typename T>
   using result = source_scanner::result<T>;
