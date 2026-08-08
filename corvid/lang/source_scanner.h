@@ -136,20 +136,16 @@ public:
   }
 
   // Build a failure at the current position, or at `pos`.
-  [[nodiscard]] source_error fail(std::string message) const {
-    return make_source_error(pos_, std::move(message), false);
-  }
-  [[nodiscard]] source_error fail_at(size_t pos, std::string message) const {
+  [[nodiscard]] source_error fail(std::string message, size_t pos = -1) const {
+    if (pos >= src_.size()) pos = pos_;
     return make_source_error(pos, std::move(message), false);
   }
 
   // Build a failure that more input could repair (see
   // `source_error::incomplete`).
-  [[nodiscard]] source_error fail_incomplete(std::string message) const {
-    return make_source_error(pos_, std::move(message), true);
-  }
   [[nodiscard]] source_error
-  fail_incomplete_at(size_t pos, std::string message) const {
+  fail_incomplete(std::string message, size_t pos = -1) const {
+    if (pos >= src_.size()) pos = pos_;
     return make_source_error(pos, std::move(message), true);
   }
 
