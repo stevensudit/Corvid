@@ -192,7 +192,7 @@ private:
       value tail;
       for (;;) {
         skip_trivia();
-        if (at_end()) return fail_incomplete_at(open_pos, "unterminated list");
+        if (at_end()) return fail_incomplete("unterminated list", open_pos);
         if (peek() == ')') {
           take(')');
           break;
@@ -221,12 +221,12 @@ private:
     [[nodiscard]] result<value> parse_dotted_tail(size_t open_pos) {
       take('.');
       skip_trivia();
-      if (at_end()) return fail_incomplete_at(open_pos, "unterminated list");
+      if (at_end()) return fail_incomplete("unterminated list", open_pos);
       if (peek() == ')') return fail("expected expression after '.'");
       auto t = parse_value();
       if (!t) return t;
       skip_trivia();
-      if (at_end()) return fail_incomplete_at(open_pos, "unterminated list");
+      if (at_end()) return fail_incomplete("unterminated list", open_pos);
       if (peek() != ')') return fail("expected ')' after dotted tail");
       take(')');
       return t;
@@ -253,7 +253,7 @@ private:
         out += c;
         take();
       }
-      return fail_incomplete_at(open_pos, "unterminated string");
+      return fail_incomplete("unterminated string", open_pos);
     }
 
     // Whether `t` is claimed by the number grammar.
@@ -277,7 +277,7 @@ private:
       if (token.empty()) return fail("unexpected character");
       // A lone '.' reaching here is outside a dotted tail (`parse_list`
       // intercepts the valid ones), so it is never a symbol.
-      if (token == ".") return fail_at(start, "misplaced '.'");
+      if (token == ".") return fail("misplaced '.'", start);
       if (token == "nil") return value{};
       if (token == "true") return value{true};
       if (token == "false") return value{false};
@@ -289,7 +289,7 @@ private:
           return value{*n};
         if (const auto d = strings::parse_num<double>(digits))
           return value{*d};
-        return fail_at(start, "malformed number");
+        return fail("malformed number", start);
       }
       return value{rt.intern(token)};
     }

@@ -200,8 +200,7 @@ private:
       }
 
       if (!brackets.empty())
-        return fail_incomplete_at(brackets.back().second,
-            "unterminated bracket");
+        return fail_incomplete("unterminated bracket", brackets.back().second);
 
       if (line_has_content) push(token_kind::newline, cursor());
 
@@ -313,7 +312,7 @@ private:
       take('"');
       for (;;) {
         if (at_end() || at_newline())
-          return fail_at(start, "unterminated string");
+          return fail("unterminated string", start);
 
         const char c = peek();
         if (c == '"') {
@@ -341,12 +340,11 @@ private:
       if (peek() == 'e' || peek() == 'E') {
         take();
         if (peek() == '+' || peek() == '-') take();
-        if (!strings::is_digit(peek()))
-          return fail_at(start, "malformed number");
+        if (!strings::is_digit(peek())) return fail("malformed number", start);
         while (strings::is_digit(peek())) take();
       }
       if (is_word_char(peek()) || peek() == '.')
-        return fail_at(start, "malformed number");
+        return fail("malformed number", start);
       return push(token_kind::number, start);
     }
 
