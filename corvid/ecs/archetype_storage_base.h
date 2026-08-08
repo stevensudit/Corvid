@@ -17,13 +17,16 @@
 #pragma once
 
 #include <cassert>
+#include <cstddef>
 #include <iterator>
+#include <memory>
 #include <stdexcept>
 #include <type_traits>
 #include <tuple>
 #include <utility>
 #include <vector>
 
+#include "../enums/bool_enums.h"
 #include "../meta/forward_like.h"
 #include "../infra/exception_firewalls.h"
 #include "entity_registry.h"
@@ -580,7 +583,7 @@ protected:
       size_type limit)
       : registry_{&registry}, store_id_{store_id}, limit_{limit},
         ids_{id_allocator_t{registry.get_allocator()}} {
-    if (store_id == store_id_t::invalid || store_id == store_id_t{})
+    if ((store_id == store_id_t::invalid) || (store_id == store_id_t{}))
       throw std::invalid_argument{"store_id must be a valid non-zero value"};
   }
 
