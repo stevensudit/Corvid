@@ -424,14 +424,22 @@ TEST_CASE("Monty statement parser desugar", "[coreb]") {
   CHECK(
       stmt_dump(rt, "x = 5\ny = x + 1") == "(define x 5) (define y (+ x 1))");
 
-  // `def` is a define of a lambda; the block splats into the implicit
+  // Keywords are contextual, not reserved: a leading word followed by `=`
+  // is a definition even when the word is a statement keyword. `if`
+  // parses the same way; rebinding it is policed at kernel `define`.
+  CHECK(stmt_dump(rt, "fun = 5") == "(define fun 5)");
+  CHECK(stmt_dump(rt, "return = 5") == "(define return 5)");
+  CHECK(stmt_dump(rt, "elif = 5") == "(define elif 5)");
+  CHECK(stmt_dump(rt, "if = 5") == "(define if 5)");
+
+  // `fun` is a define of a lambda; the block splats into the implicit
   // sequence.
-  CHECK(stmt_dump(rt, "def inc(n):\n  n + 1") ==
+  CHECK(stmt_dump(rt, "fun inc(n):\n  n + 1") ==
         "(define inc (lambda (n) (+ n 1)))");
   // A zero-parameter lambda's parameter list is nil, which prints as
   // "nil" per the nil-unifies-with-empty-list ruling.
-  CHECK(stmt_dump(rt, "def f():\n  1\n  2") == "(define f (lambda nil 1 2))");
-  CHECK(stmt_dump(rt, "def add(a, b):\n  a + b") ==
+  CHECK(stmt_dump(rt, "fun f():\n  1\n  2") == "(define f (lambda nil 1 2))");
+  CHECK(stmt_dump(rt, "fun add(a, b):\n  a + b") ==
         "(define add (lambda (a b) (+ a b)))");
 
   // `if`/`elif`/`else` chains rightward over begin blocks; else-less is
@@ -443,17 +451,17 @@ TEST_CASE("Monty statement parser desugar", "[coreb]") {
         "(if a (begin 1) (if b (begin 2) (begin 3)))");
 
   // A final `return e` is just `e`; the bare spelling returns nil.
-  CHECK(stmt_dump(rt, "def f(n):\n  return n") == "(define f (lambda (n) n))");
-  CHECK(stmt_dump(rt, "def f():\n  return") == "(define f (lambda nil nil))");
+  CHECK(stmt_dump(rt, "fun f(n):\n  return n") == "(define f (lambda (n) n))");
+  CHECK(stmt_dump(rt, "fun f():\n  return") == "(define f (lambda nil nil))");
 
   // The guard-clause rewrite: an else-less `if` ending in `return` takes
   // the remainder of the body as its else branch.
-  CHECK(stmt_dump(rt, "def f(n):\n  if n == 0:\n    return 1\n  n * 2") ==
+  CHECK(stmt_dump(rt, "fun f(n):\n  if n == 0:\n    return 1\n  n * 2") ==
         "(define f (lambda (n) (if (== n 0) (begin 1) (begin (* n 2)))))");
 
   // A final `if` with `else` may return from both arms.
   CHECK(stmt_dump(rt,
-            "def f(n):\n  if n:\n    return 1\n  else:\n    return 2") ==
+            "fun f(n):\n  if n:\n    return 1\n  else:\n    return 2") ==
         "(define f (lambda (n) (if n (begin 1) (begin 2))))");
 
   // The single-statement entry consumes exactly one statement, leaving
@@ -473,12 +481,12 @@ TEST_CASE("Monty statement parser desugar", "[coreb]") {
 TEST_CASE("Monty statement parser errors", "[coreb]") {
   runtime rt;
 
-  // Restricted return: inside `def` only, and only where the rewrite can
+  // Restricted return: inside `fun` only, and only where the rewrite can
   // express it.
   CHECK(stmt_err(rt, "return 1").message == "'return' outside a function");
-  CHECK(stmt_err(rt, "def f():\n  return 1\n  2").message ==
+  CHECK(stmt_err(rt, "fun f():\n  return 1\n  2").message ==
         "'return' must end its function or a guard clause");
-  CHECK(stmt_err(rt, "def f():\n  if a:\n    return 1\n  else:\n    2\n  3")
+  CHECK(stmt_err(rt, "fun f():\n  if a:\n    return 1\n  else:\n    2\n  3")
             .message == "'return' must end its function or a guard clause");
 
   // `:=` stays reserved pending mutation.
@@ -489,8 +497,11 @@ TEST_CASE("Monty statement parser errors", "[coreb]") {
   CHECK(stmt_err(rt, "  x").message == "unexpected indent");
   CHECK(stmt_err(rt, "if a\n  f()").message == "expected ':'");
   CHECK(stmt_err(rt, "if a: f()").message == "expected an indented block");
-  CHECK(stmt_err(rt, "def f(5):\n  1").message == "expected a parameter name");
-  CHECK(stmt_err(rt, "def f():\n  x = ").message == "expected an expression");
+  CHECK(stmt_err(rt, "fun f(5):\n  1").message == "expected a parameter name");
+  // A statement led by a keyword spelling reads as the keyword form, so a
+  // keyword-named variable is read from non-leading expression positions.
+  CHECK(stmt_err(rt, "fun + 1").message == "expected a function name");
+  CHECK(stmt_err(rt, "fun f():\n  x = ").message == "expected an expression");
   CHECK(stmt_err(rt, "x, y").message == "expected end of line");
 }
 
@@ -523,13 +534,14 @@ TEST_CASE("Monty statement parser evaluates", "[coreb]") {
   };
 
   CHECK(program_eval("x = 5\nx + 1") == "6");
-  CHECK(program_eval("def double(n):\n  n * 2\ndouble(21)") == "42");
+  CHECK(program_eval("fun = 5\nx = fun + 1\nx") == "6");
+  CHECK(program_eval("fun double(n):\n  n * 2\ndouble(21)") == "42");
   CHECK(program_eval("if 1 < 2:\n  \"yes\"\nelse:\n  \"no\"") == "\"yes\"");
 
   // The guard-clause rewrite, end to end.
   CHECK(
       program_eval(
-          "def fact(n):\n"
+          "fun fact(n):\n"
           "  if n == 0:\n"
           "    return 1\n"
           "  n * fact(n - 1)\n"

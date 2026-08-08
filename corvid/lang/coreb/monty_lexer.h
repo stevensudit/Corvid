@@ -78,7 +78,7 @@ namespace corvid { inline namespace lang { namespace coreb { namespace monty {
 // logical line, and INDENT/DEDENT bracket each two-space indentation change,
 // so
 //
-//   def f(n):    ->  word:def word:f lparen word:n rparen colon newline
+//   fun f(n):    ->  word:fun word:f lparen word:n rparen colon newline
 //     n + 1      ->  indent word:n op:+ number:1 newline dedent
 //                ->  eof
 
