@@ -153,6 +153,8 @@ run_get(std::string server_name, std::string client_authority) {
 
 } // namespace
 
+#pragma region http3_router
+
 // NOLINTBEGIN(readability-function-cognitive-complexity)
 TEST_CASE(
     "http3_router establishes a connection and exchanges SETTINGS over the "
@@ -205,6 +207,9 @@ TEST_CASE(
   }));
 }
 
+#pragma endregion
+#pragma region http3_server_router
+
 TEST_CASE(
     "http3_server_router serves a GET and enforces the request authority over "
     "the live iou_dgram_router",
@@ -225,4 +230,6 @@ TEST_CASE(
     CHECK(r.body.empty());
   }
 }
+
+#pragma endregion
 // NOLINTEND(readability-function-cognitive-complexity)

@@ -149,6 +149,7 @@ TEST_CASE("Http09", "[HttpServer]") {
   // HTTP/0.9 never keep-alive; server should close after the response.
   CHECK(client.recv_sync_drain_to_eof());
 }
+
 #pragma endregion
 #pragma region LeadingCrlf
 
@@ -168,6 +169,7 @@ TEST_CASE("LeadingCrlf", "[HttpServer]") {
   const auto response = client.recv_sync_until(buf, "\r\n\r\n");
   CHECK(response.contains("200"));
 }
+
 #pragma endregion
 #pragma region TooManyLeadingCrls
 
@@ -188,6 +190,7 @@ TEST_CASE("TooManyLeadingCrls", "[HttpServer]") {
   const auto response = client.recv_sync_until(buf, "\r\n\r\n");
   CHECK(response.empty());
 }
+
 #pragma endregion
 #pragma region OwnLoop
 
@@ -199,6 +202,7 @@ TEST_CASE("OwnLoop", "[HttpServer]") {
   REQUIRE(server);
   CHECK(server->local_endpoint());
 }
+
 #pragma endregion
 #pragma region SharedLoop
 
@@ -212,6 +216,7 @@ TEST_CASE("SharedLoop", "[HttpServer]") {
   REQUIRE(server);
   CHECK(server->local_endpoint());
 }
+
 #pragma endregion
 #pragma region Create_BadEndpoint
 
@@ -221,6 +226,7 @@ TEST_CASE("Create_BadEndpoint", "[HttpServer]") {
   auto server = make_test_server(net_endpoint{});
   CHECK_FALSE(server);
 }
+
 #pragma endregion
 #pragma region GetRoot
 
@@ -239,6 +245,7 @@ TEST_CASE("GetRoot", "[HttpServer]") {
   const auto response = client.recv_sync_until(buf, "\r\n\r\n");
   CHECK(response.contains("200"));
 }
+
 #pragma endregion
 #pragma region GetPath
 
@@ -259,6 +266,7 @@ TEST_CASE("GetPath", "[HttpServer]") {
   const auto body = client.recv_sync_until(buf, "</html>");
   CHECK(body.contains("123"));
 }
+
 #pragma endregion
 #pragma region RouteBasePath
 
@@ -278,6 +286,7 @@ TEST_CASE("RouteBasePath", "[HttpServer]") {
   for (const auto& tc : cases)
     CHECK(epoll_http_server::route_base_path(tc.target) == tc.base_path);
 }
+
 #pragma endregion
 #pragma region InvalidRequest
 
@@ -295,6 +304,7 @@ TEST_CASE("InvalidRequest", "[HttpServer]") {
   const auto response = client.recv_sync_until(buf, "\r\n\r\n");
   CHECK(response.contains("405"));
 }
+
 #pragma endregion
 #pragma region TooLongRequest
 
@@ -315,6 +325,7 @@ TEST_CASE("TooLongRequest", "[HttpServer]") {
   const auto response = client.recv_sync_until(buf, "\r\n\r\n");
   CHECK(response.size() == 0ULL);
 }
+
 #pragma endregion
 #pragma region PartialRequest
 
@@ -337,6 +348,7 @@ TEST_CASE("PartialRequest", "[HttpServer]") {
   const auto body = client.recv_sync_until(buf, "</html>");
   CHECK(body.contains("42"));
 }
+
 #pragma endregion
 #pragma region ANS
 
@@ -362,6 +374,7 @@ TEST_CASE("ANS", "[HttpServer]") {
   const auto body = client.recv_sync_until(buf, "</html>");
   CHECK(body.contains("42"));
 }
+
 #pragma endregion
 #pragma region SharedWheel
 
@@ -375,6 +388,7 @@ TEST_CASE("SharedWheel", "[HttpServer]") {
   REQUIRE(server);
   CHECK(server->local_endpoint());
 }
+
 #pragma endregion
 #pragma region RequestWithinTimeout
 
@@ -393,6 +407,7 @@ TEST_CASE("RequestWithinTimeout", "[HttpServer]") {
   const auto response = client.recv_sync_until(buf, "\r\n\r\n");
   CHECK(response.contains("200"));
 }
+
 #pragma endregion
 #pragma region IdleTimeout
 
@@ -425,6 +440,7 @@ TEST_CASE("IdleTimeout", "[HttpServer]") {
   no_zero{buf}.enlarge_to(4096);
   CHECK_FALSE(client.recv(buf));
 }
+
 #pragma endregion
 #pragma region WriteTimeout
 
@@ -495,6 +511,7 @@ TEST_CASE("WriteTimeout", "[HttpServer]") {
   // (e.g., the response drained before backpressure engaged).
   CHECK((std::chrono::steady_clock::now() - start) >= (kWriteTimeout / 2));
 }
+
 #pragma endregion
 #pragma region MissingHost
 
@@ -515,6 +532,7 @@ TEST_CASE("MissingHost", "[HttpServer]") {
   // Server closes after the error response.
   CHECK(client.recv_sync_drain_to_eof());
 }
+
 #pragma endregion
 #pragma region KeepAlive
 
@@ -540,6 +558,7 @@ TEST_CASE("KeepAlive", "[HttpServer]") {
   CHECK(r2.contains("200"));
   (void)client.recv_sync_until(buf, "</html>");
 }
+
 #pragma endregion
 #pragma region Pipeline
 
@@ -568,6 +587,7 @@ TEST_CASE("Pipeline", "[HttpServer]") {
   CHECK(r2.contains("200"));
   (void)client.recv_sync_until(buf, "</html>");
 }
+
 #pragma endregion
 #pragma region ConnectionClose
 
@@ -591,6 +611,7 @@ TEST_CASE("ConnectionClose", "[HttpServer]") {
   // Server should close after the response.
   CHECK(client.recv_sync_drain_to_eof());
 }
+
 #pragma endregion
 #pragma region Http10NoKeepAlive
 
@@ -612,6 +633,7 @@ TEST_CASE("Http10NoKeepAlive", "[HttpServer]") {
   // HTTP/1.0 default is close; server should close after the response.
   CHECK(client.recv_sync_drain_to_eof());
 }
+
 #pragma endregion
 #pragma region BodyTooLarge
 
@@ -632,6 +654,7 @@ TEST_CASE("BodyTooLarge", "[HttpServer]") {
   const auto response = client.recv_sync_until(buf, "\r\n\r\n");
   CHECK(response.contains("400"));
 }
+
 #pragma endregion
 #pragma region TooLongHeaders
 
@@ -655,6 +678,7 @@ TEST_CASE("TooLongHeaders", "[HttpServer]") {
   CHECK(response.contains("400"));
   CHECK(client.recv_sync_drain_to_eof()); // server closes after error
 }
+
 #pragma endregion
 #pragma region MalformedRequestLine
 
@@ -675,6 +699,7 @@ TEST_CASE("MalformedRequestLine", "[HttpServer]") {
   CHECK(response.contains("400"));
   CHECK(client.recv_sync_drain_to_eof()); // server closes after error
 }
+
 #pragma endregion
 #pragma region Http10KeepAlive
 
@@ -705,6 +730,7 @@ TEST_CASE("Http10KeepAlive", "[HttpServer]") {
   CHECK(r2.contains("200"));
   (void)client.recv_sync_until(buf, "</html>");
 }
+
 #pragma endregion
 
 // NOLINTEND(bugprone-unchecked-optional-access)

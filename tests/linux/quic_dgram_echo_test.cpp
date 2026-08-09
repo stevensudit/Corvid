@@ -171,6 +171,8 @@ using client_protocol_t = quic_dgram_protocol<echo_client_plugin>;
 
 } // namespace
 
+#pragma region Echo
+
 // NOLINTBEGIN(readability-function-cognitive-complexity)
 TEST_CASE(
     "quic_echo_plugin echoes stream bytes (+ FIN) back to a client running "
@@ -244,4 +246,6 @@ TEST_CASE(
     return client_plugin.received_for(sid) == payload;
   }));
 }
+
+#pragma endregion
 // NOLINTEND(readability-function-cognitive-complexity)

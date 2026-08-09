@@ -30,6 +30,8 @@ using namespace corvid::strings::format_wrapping;
 
 // NOLINTBEGIN(readability-function-cognitive-complexity)
 
+#pragma region EnableFormat
+
 TEST_CASE("EnableFormat", "[EnableFormat]") {
   const std::map<std::string, std::string> cities{{"NYC", "New York City"},
       {"LA", "Los Angeles"}};
@@ -151,5 +153,7 @@ TEST_CASE("EnableFormat", "[EnableFormat]") {
         std::format_error);
   }
 }
+
+#pragma endregion
 
 // NOLINTEND(readability-function-cognitive-complexity)

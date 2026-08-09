@@ -69,8 +69,8 @@ TEST_CASE("Construction", "[CircularBufferTest]") {
     cb2.push_back(2);
   }
 }
-#pragma endregion
 
+#pragma endregion
 #pragma region Ops
 
 TEST_CASE("Ops", "[CircularBufferTest]") {
@@ -196,8 +196,8 @@ TEST_CASE("Ops", "[CircularBufferTest]") {
   CHECK(cb.front() == 2);
   CHECK(cb.back() == 1);
 }
-#pragma endregion
 
+#pragma endregion
 #pragma region WrapIndex
 
 TEST_CASE("WrapIndex", "[CircularBufferTest]") {
@@ -222,8 +222,8 @@ TEST_CASE("WrapIndex", "[CircularBufferTest]") {
   CHECK(cb[4] == 2);
   CHECK(cb[5] == 3);
 }
-#pragma endregion
 
+#pragma endregion
 #pragma region At
 
 TEST_CASE("At", "[CircularBufferTest]") {
@@ -242,8 +242,8 @@ TEST_CASE("At", "[CircularBufferTest]") {
   CHECK(cb.at(1) == 2);
   CHECK_THROWS_AS((void)cb.at(2), std::out_of_range);
 }
-#pragma endregion
 
+#pragma endregion
 #pragma region ZeroCapacity
 
 TEST_CASE("ZeroCapacity", "[CircularBufferTest]") {
@@ -288,8 +288,8 @@ TEST_CASE("ZeroCapacity", "[CircularBufferTest]") {
     CHECK(cb2.size() == 1U);
   }
 }
-#pragma endregion
 
+#pragma endregion
 #pragma region PushPop
 
 TEST_CASE("PushPop", "[CircularBufferTest]") {
@@ -338,8 +338,8 @@ TEST_CASE("PushPop", "[CircularBufferTest]") {
   CHECK(cb[1] == 3);
   CHECK(cb[2] == 4);
 }
-#pragma endregion
 
+#pragma endregion
 #pragma region Iterate
 
 TEST_CASE("Iterate", "[CircularBufferTest]") {
@@ -392,6 +392,7 @@ TEST_CASE("Iterate", "[CircularBufferTest]") {
     // *c = 5;
   }
 }
+
 #pragma endregion
 
 class MoveOnlyInt {
@@ -624,6 +625,7 @@ TEST_CASE("Smoke", "[CircularBufferTest]") {
     //*ccb[0] = 43;
   }
 }
+
 #pragma endregion
 #pragma region Format
 

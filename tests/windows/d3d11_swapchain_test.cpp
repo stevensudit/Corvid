@@ -35,6 +35,8 @@ constexpr flag_case flag_cases[]{
 
 } // namespace
 
+#pragma region d3d11_bind_flag
+
 TEST_CASE("d3d11_bind_flag string round-trip and valid-bit set",
     "[d3d][enums]") {
   // Convert each named flag both ways, then confirm the named flags are
@@ -68,3 +70,5 @@ TEST_CASE("d3d11_bind_flag combined and unknown handling", "[d3d][enums]") {
   d3d11_bind_flag unused{};
   CHECK_FALSE(convert_enum(unused, "not_a_flag"));
 }
+
+#pragma endregion

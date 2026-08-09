@@ -58,6 +58,7 @@ bool WaitFor(const auto& pred, std::chrono::milliseconds timeout = 500ms) {
 
 // NOLINTBEGIN(readability-function-cognitive-complexity)
 #pragma region NopCompletion
+
 TEST_CASE("NopCompletion", "[IouLoop]") {
   // Verify that a submitted NOP fires its completion callback on the runner.
   if (true) {
@@ -80,9 +81,10 @@ TEST_CASE("NopCompletion", "[IouLoop]") {
     CHECK(result.load() == 0);
   }
 }
-#pragma endregion
 
+#pragma endregion
 #pragma region MultipleNops
+
 TEST_CASE("MultipleNops", "[IouLoop]") {
   // Submit several NOPs and confirm all complete on the runner thread.
   if (true) {
@@ -104,9 +106,10 @@ TEST_CASE("MultipleNops", "[IouLoop]") {
     CHECK(count.load() == 4);
   }
 }
-#pragma endregion
 
+#pragma endregion
 #pragma region StopFromThread
+
 TEST_CASE("StopFromThread", "[IouLoop]") {
   // Stop the runner from another thread and let destruction join cleanly.
   if (true) {
@@ -122,9 +125,10 @@ TEST_CASE("StopFromThread", "[IouLoop]") {
     CHECK(stopped.load(std::memory_order::acquire));
   }
 }
-#pragma endregion
 
+#pragma endregion
 #pragma region SelfDestroyOnLoopThread
+
 // A loop-thread callback that holds the last `unique_ptr<iou_loop_runner>`
 // destroys the runner from inside the worker thread. The destructor detaches
 // the jthread and returns; the worker then unwinds out of `loop_t::run`
@@ -151,9 +155,10 @@ TEST_CASE("SelfDestroyOnLoopThread", "[IouLoop]") {
 
   REQUIRE(finished->wait_for_value(1s, true));
 }
-#pragma endregion
 
+#pragma endregion
 #pragma region PostFromThread
+
 TEST_CASE("PostFromThread", "[IouLoop]") {
   // Post a callback from an external thread; verify the loop executes it.
   if (true) {
@@ -170,9 +175,10 @@ TEST_CASE("PostFromThread", "[IouLoop]") {
     CHECK(WaitFor([&] { return fired.load(std::memory_order::acquire); }));
   }
 }
-#pragma endregion
 
+#pragma endregion
 #pragma region PostAndWait
+
 TEST_CASE("PostAndWait", "[IouLoop]") {
   // `post_and_wait` blocks until the callback runs, then returns.
   if (true) {
@@ -188,9 +194,10 @@ TEST_CASE("PostAndWait", "[IouLoop]") {
     CHECK(ran.load());
   }
 }
-#pragma endregion
 
+#pragma endregion
 #pragma region RecvSend
+
 TEST_CASE("RecvSend", "[IouLoop]") {
   // Submit a recv and a send over a Unix socket pair; confirm the payload
   // arrives and the byte counts are correct.
@@ -232,9 +239,10 @@ TEST_CASE("RecvSend", "[IouLoop]") {
               msg.size()) == msg);
   }
 }
-#pragma endregion
 
+#pragma endregion
 #pragma region RecvWriteFixed
+
 TEST_CASE("RecvWriteFixed", "[IouLoop]") {
   // Submit a recv_fixed and a send_fixed over a Unix socket pair using
   // registered buffers; confirm the payload arrives and byte counts match.
@@ -281,9 +289,10 @@ TEST_CASE("RecvWriteFixed", "[IouLoop]") {
     CHECK(payload == msg);
   }
 }
-#pragma endregion
 
+#pragma endregion
 #pragma region SendBuffer
+
 TEST_CASE("SendBuffer", "[IouLoop]") {
   // `submit_send_buffer` uses `IORING_OP_SEND_ZC` over connected UDP sockets
   // on loopback. ZC send requires IP sockets; Unix domain sockets return
@@ -347,9 +356,10 @@ TEST_CASE("SendBuffer", "[IouLoop]") {
     CHECK(payload == std::string{msg});
   }
 }
-#pragma endregion
 
+#pragma endregion
 #pragma region IsLoopThread
+
 TEST_CASE("IsLoopThread", "[IouLoop]") {
   // `is_loop_thread` returns false on the test thread and true inside a
   // callback executing on the loop thread.
@@ -366,9 +376,10 @@ TEST_CASE("IsLoopThread", "[IouLoop]") {
     CHECK(confirmed.load(std::memory_order::acquire));
   }
 }
-#pragma endregion
 
+#pragma endregion
 #pragma region ExecuteOrPost
+
 TEST_CASE("ExecuteOrPost", "[IouLoop]") {
   // `execute_or_post` from an off-thread posts; the callback still runs.
   if (true) {
@@ -384,9 +395,10 @@ TEST_CASE("ExecuteOrPost", "[IouLoop]") {
     CHECK(WaitFor([&] { return executed.load(std::memory_order::acquire); }));
   }
 }
-#pragma endregion
 
+#pragma endregion
 #pragma region NopTokenVariant
+
 TEST_CASE("NopTokenVariant", "[IouLoop]") {
   // `tokenize` + `submit_nop(token)` exercises the token-based submission
   // path.
@@ -410,9 +422,10 @@ TEST_CASE("NopTokenVariant", "[IouLoop]") {
     CHECK(result.load() == 0);
   }
 }
-#pragma endregion
 
+#pragma endregion
 #pragma region TokenIsReleased
+
 TEST_CASE("TokenIsReleased", "[IouLoop]") {
   // `tokenize` produces a valid token; `is_released` returns false while the
   // slot is live, true after explicit release.
@@ -433,9 +446,10 @@ TEST_CASE("TokenIsReleased", "[IouLoop]") {
     CHECK_FALSE(token.is_valid());
   }
 }
-#pragma endregion
 
+#pragma endregion
 #pragma region SubmitClose
+
 TEST_CASE("SubmitClose", "[IouLoop]") {
   // `submit_close` fires its callback with `res == 0` after the fd is closed.
   if (true) {
@@ -457,9 +471,10 @@ TEST_CASE("SubmitClose", "[IouLoop]") {
     CHECK(result.load() == 0);
   }
 }
-#pragma endregion
 
+#pragma endregion
 #pragma region SubmitTimeout
+
 TEST_CASE("SubmitTimeout", "[IouLoop]") {
   // A single-shot timeout fires with `-ETIME` after the specified duration.
   if (true) {
@@ -482,9 +497,10 @@ TEST_CASE("SubmitTimeout", "[IouLoop]") {
     CHECK(result.load() == -ETIME);
   }
 }
-#pragma endregion
 
+#pragma endregion
 #pragma region SubmitTimeoutMultishot
+
 TEST_CASE("SubmitTimeoutMultishot", "[IouLoop]") {
   // A multishot timeout with `cqe_count`=3 fires exactly 3 times then stops.
   if (true) {
@@ -508,9 +524,10 @@ TEST_CASE("SubmitTimeoutMultishot", "[IouLoop]") {
     CHECK(count.load() == 3);
   }
 }
-#pragma endregion
 
+#pragma endregion
 #pragma region SubmitCancelFile
+
 TEST_CASE("SubmitCancelFile", "[IouLoop]") {
   // Canceling a file's pending ops delivers a negative result to the recv
   // callback (typically `ECANCELED`).
@@ -545,9 +562,10 @@ TEST_CASE("SubmitCancelFile", "[IouLoop]") {
     CHECK((recv_res.load()) < (0));
   }
 }
-#pragma endregion
 
+#pragma endregion
 #pragma region SubmitCancelToken
+
 TEST_CASE("SubmitCancelToken", "[IouLoop]") {
   // Canceling via `completion_token` delivers a negative result to the
   // matching recv callback (typically `ECANCELED`).
@@ -583,9 +601,10 @@ TEST_CASE("SubmitCancelToken", "[IouLoop]") {
     CHECK((recv_res.load()) < (0));
   }
 }
-#pragma endregion
 
+#pragma endregion
 #pragma region AcceptConnect
+
 TEST_CASE("AcceptConnect", "[IouLoop]") {
   // `submit_accept` and `submit_connect` complete successfully over a Unix ANS
   // socket. The accepted socket fd (>= 0) is immediately closed to avoid
@@ -635,9 +654,10 @@ TEST_CASE("AcceptConnect", "[IouLoop]") {
     if (accept_res.load() >= 0) ::close(accept_res.load());
   }
 }
-#pragma endregion
 
+#pragma endregion
 #pragma region RecvSendMsg
+
 TEST_CASE("RecvSendMsg", "[IouLoop]") {
   // `submit_recvmsg_buffer` and `submit_sendmsg_buffer` exchange a datagram
   // between two UDP sockets. On completion, the received payload and sender
@@ -695,9 +715,10 @@ TEST_CASE("RecvSendMsg", "[IouLoop]") {
     CHECK(recv_result == std::string{payload});
   }
 }
-#pragma endregion
 
+#pragma endregion
 #pragma region BorrowBufferSizes
+
 TEST_CASE("BorrowBufferSizes", "[IouLoop]") {
   // `borrow_read_buffer` and `borrow_write_buffer` succeed for all three block
   // sizes, and the buffers are returned to the pool on destruction.
@@ -722,9 +743,10 @@ TEST_CASE("BorrowBufferSizes", "[IouLoop]") {
     }
   }
 }
-#pragma endregion
 
+#pragma endregion
 #pragma region SlotRetentionRetain
+
 TEST_CASE("SlotRetentionRetain", "[IouLoop]") {
   // A callback returning `slot_retention::retain` keeps the pool slot live.
   // Re-submitting a NOP with the same token fires the callback a second time,
@@ -753,9 +775,10 @@ TEST_CASE("SlotRetentionRetain", "[IouLoop]") {
     CHECK(count.load() == 2);
   }
 }
-#pragma endregion
 
+#pragma endregion
 #pragma region TimespecDurationRoundTrip
+
 TEST_CASE("TimespecDurationRoundTrip", "[IouWrap]") {
   // Construct from durations and verify `as_duration` recovers the original.
   if (true) {
@@ -777,9 +800,10 @@ TEST_CASE("TimespecDurationRoundTrip", "[IouWrap]") {
     CHECK(ts.as_duration<std::chrono::nanoseconds>().count() == 0);
   }
 }
-#pragma endregion
 
+#pragma endregion
 #pragma region TimespecTimePointRoundTrip
+
 TEST_CASE("TimespecTimePointRoundTrip", "[IouWrap]") {
   // Construct from a `steady_clock` time_point and verify `as_time_point`
   // recovers the exact same value.
@@ -792,9 +816,10 @@ TEST_CASE("TimespecTimePointRoundTrip", "[IouWrap]") {
     CHECK(recovered == now);
   }
 }
-#pragma endregion
 
+#pragma endregion
 #pragma region TimespecStaticHelpers
+
 TEST_CASE("TimespecStaticHelpers", "[IouWrap]") {
   // `from_duration` splits seconds and nanosecond remainder correctly.
   if (true) {
@@ -822,9 +847,10 @@ TEST_CASE("TimespecStaticHelpers", "[IouWrap]") {
     CHECK(recovered == now);
   }
 }
-#pragma endregion
 
+#pragma endregion
 #pragma region TimespecAsPointer
+
 TEST_CASE("TimespecAsPointer", "[IouWrap]") {
   // `as_pointer(nullptr)` is null; `as_pointer(&ts)` is non-null.
   if (true) {
@@ -840,9 +866,10 @@ TEST_CASE("TimespecAsPointer", "[IouWrap]") {
     CHECK(iou_timespec::to_pointer(&cts) != nullptr);
   }
 }
-#pragma endregion
 
+#pragma endregion
 #pragma region ItimerspecConstruct
+
 TEST_CASE("ItimerspecConstruct", "[IouWrap]") {
   // Default construction zeros both fields; explicit construction stores the
   // correct interval and value.
@@ -861,9 +888,10 @@ TEST_CASE("ItimerspecConstruct", "[IouWrap]") {
     CHECK(its.it_value().tv_nsec == 500'000'000LL);
   }
 }
-#pragma endregion
 
+#pragma endregion
 #pragma region ResStatus
+
 TEST_CASE("ResStatus", "[IouWrap]") {
   // `ok`, `bool`, and `!` reflect the sign of the raw result.
   if (true) {
@@ -896,9 +924,10 @@ TEST_CASE("ResStatus", "[IouWrap]") {
     CHECK_FALSE(iou_res{-EINVAL}.is_soft_error());
   }
 }
-#pragma endregion
 
+#pragma endregion
 #pragma region CqeFlagsString
+
 TEST_CASE("CqeFlagsString", "[IouWrap]") {
   // Each named bit round-trips through `enum_as_string` / `parse_enum`.
   using namespace corvid::strings;
@@ -922,9 +951,10 @@ TEST_CASE("CqeFlagsString", "[IouWrap]") {
     CHECK(parse_enum("more + buffer", bad) == (F::more | F::buffer));
   }
 }
-#pragma endregion
 
+#pragma endregion
 #pragma region SqeFlagsString
+
 TEST_CASE("SqeFlagsString", "[IouWrap]") {
   // Each named bit round-trips through `enum_as_string` / `parse_enum`.
   using namespace corvid::strings;
@@ -949,9 +979,10 @@ TEST_CASE("SqeFlagsString", "[IouWrap]") {
     CHECK(parse_enum("async + io_link", bad) == (F::async | F::io_link));
   }
 }
-#pragma endregion
 
+#pragma endregion
 #pragma region SetupFlagsString
+
 TEST_CASE("SetupFlagsString", "[IouWrap]") {
   // Each named bit round-trips through `enum_as_string` / `parse_enum`.
   using namespace corvid::strings;
@@ -989,9 +1020,10 @@ TEST_CASE("SetupFlagsString", "[IouWrap]") {
           (F::setup_sqpoll | F::setup_iopoll));
   }
 }
-#pragma endregion
 
+#pragma endregion
 #pragma region TimeoutFlagsString
+
 TEST_CASE("TimeoutFlagsString", "[IouWrap]") {
   // Each named bit round-trips through `enum_as_string` / `parse_enum`.
   // `rel` (value 0) has no bit name and prints as "0x00".
@@ -1018,9 +1050,10 @@ TEST_CASE("TimeoutFlagsString", "[IouWrap]") {
     CHECK(parse_enum("multishot + abs", bad) == (F::multishot | F::abs));
   }
 }
-#pragma endregion
 
+#pragma endregion
 #pragma region RecvBufferMulti
+
 TEST_CASE("RecvBufferMulti", "[IouLoop]") {
   // `submit_recv_buffer_multi` fires the callback for each message received.
   // Send three messages over a SEQPACKET socket pair (which preserves message
@@ -1065,9 +1098,10 @@ TEST_CASE("RecvBufferMulti", "[IouLoop]") {
       CHECK(payloads[ndx] == std::string{msgs[ndx]});
   }
 }
-#pragma endregion
 
+#pragma endregion
 #pragma region RecvMsgBufferMulti
+
 TEST_CASE("RecvMsgBufferMulti", "[IouLoop]") {
   // `submit_recvmsg_buffer_multi` fires the callback for each datagram.
   // Send three UDP datagrams; confirm all three arrive with correct payloads.
@@ -1122,9 +1156,10 @@ TEST_CASE("RecvMsgBufferMulti", "[IouLoop]") {
       CHECK(payloads[ndx] == std::string{msgs[ndx]});
   }
 }
-#pragma endregion
 
+#pragma endregion
 #pragma region RecvMsgBufferMultiTruncated
+
 TEST_CASE("RecvMsgBufferMultiTruncated", "[IouLoop]") {
   // An 8 KiB datagram exceeds the 2 KiB UDP provided-buffer size. The
   // multishot recvmsg callback should fire once with:
@@ -1180,9 +1215,10 @@ TEST_CASE("RecvMsgBufferMultiTruncated", "[IouLoop]") {
     CHECK(len == datagram_size);
   }
 }
-#pragma endregion
 
+#pragma endregion
 #pragma region RecvMsgBufferMultiStress
+
 TEST_CASE("RecvMsgBufferMultiStress", "[IouLoop]") {
   // Stress test for multishot recvmsg with provided buffers.
   //
@@ -1276,9 +1312,10 @@ TEST_CASE("RecvMsgBufferMultiStress", "[IouLoop]") {
     CHECK(c_count == 1024);
   }
 }
-#pragma endregion
 
+#pragma endregion
 #pragma region FnSizeProbe
+
 TEST_CASE("CompletionFnSizeProbe", "[IouLoop]") {
   // Probe the storage each (cb, ep) combination would need if `completion_fn`
   // were replaced with `fixed_function<SZ, slot_retention(completion_id,
@@ -1371,9 +1408,10 @@ TEST_CASE("CompletionFnSizeProbe", "[IouLoop]") {
       sz_direct_fn, sz_raw_bt, sz_raw_bewt, sz_raw_buf, max_sz);
 #endif
 }
-#pragma endregion
 
+#pragma endregion
 #pragma region SubmitPoll
+
 TEST_CASE("SubmitPoll", "[IouLoop]") {
   // Single-shot `submit_poll` fires once when the polled file becomes
   // readable; `res` contains the triggered events mask (POLLIN bit set).
@@ -1407,9 +1445,10 @@ TEST_CASE("SubmitPoll", "[IouLoop]") {
     CHECK(poll_res.load() >= 0);
   }
 }
-#pragma endregion
 
+#pragma endregion
 #pragma region SubmitShutdown
+
 TEST_CASE("SubmitShutdown", "[IouLoop]") {
   // `submit_shutdown(SHUT_WR)` causes the peer recv to see EOF (0 bytes).
   if (true) {
@@ -1452,9 +1491,10 @@ TEST_CASE("SubmitShutdown", "[IouLoop]") {
     CHECK(shutdown_res.load() == 0); // success
   }
 }
-#pragma endregion
 
+#pragma endregion
 #pragma region SubmitTimeoutRemove
+
 TEST_CASE("SubmitTimeoutRemove", "[IouLoop]") {
   // `submit_timeout_remove(completion_token&&)` (auto-release variant)
   // cancels a pending timeout. The returned remove token is valid; its slot
@@ -1480,9 +1520,10 @@ TEST_CASE("SubmitTimeoutRemove", "[IouLoop]") {
     CHECK(ok);
   }
 }
-#pragma endregion
 
+#pragma endregion
 #pragma region SubmitTimeoutRemoveExplicit
+
 TEST_CASE("SubmitTimeoutRemoveExplicit", "[IouLoop]") {
   // Two-arg `submit_timeout_remove` allows an explicit callback for the
   // remove operation itself; verify it fires with `res == 0`.
@@ -1520,9 +1561,10 @@ TEST_CASE("SubmitTimeoutRemoveExplicit", "[IouLoop]") {
     CHECK(remove_res.load() == 0);
   }
 }
-#pragma endregion
 
+#pragma endregion
 #pragma region SubmitCancelTokenAutoRelease
+
 TEST_CASE("SubmitCancelTokenAutoRelease", "[IouLoop]") {
   if (true) {
     auto [send_sock, recv_sock] = net_socket::create_pair();
@@ -1550,9 +1592,10 @@ TEST_CASE("SubmitCancelTokenAutoRelease", "[IouLoop]") {
     CHECK((recv_res.load()) < (0));
   }
 }
-#pragma endregion
 
+#pragma endregion
 #pragma region SubmitTimeoutUpdate
+
 TEST_CASE("SubmitTimeoutUpdate", "[IouLoop]") {
   // `submit_timeout_update` changes the expiry of a pending timeout. Submit a
   // 2s timeout, update it to 50ms, then wait for two CQEs on the same token:
@@ -1593,6 +1636,7 @@ TEST_CASE("SubmitTimeoutUpdate", "[IouLoop]") {
     CHECK(last_res.load(std::memory_order::acquire) == -ETIME);
   }
 }
+
 #pragma endregion
 
 // NOLINTEND(readability-function-cognitive-complexity)

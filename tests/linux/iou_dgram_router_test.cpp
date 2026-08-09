@@ -135,6 +135,8 @@ using capture_handle =
 
 // NOLINTBEGIN(readability-function-cognitive-complexity)
 
+#pragma region BasicSendRecv
+
 TEST_CASE("BasicSendRecv", "[IouDgramRouter]") {
   // First packet hits create_session; payload arrives via the buffer.
   if (true) {
@@ -173,6 +175,9 @@ TEST_CASE("BasicSendRecv", "[IouDgramRouter]") {
     CHECK(payload == "buf-udp");
   }
 }
+
+#pragma endregion
+#pragma region OnSentReturnsBuffer
 
 TEST_CASE("OnSentReturnsBuffer", "[IouDgramRouter]") {
   // `handle_sent` fires with the buffer in success state after a send
@@ -215,6 +220,9 @@ TEST_CASE("OnSentReturnsBuffer", "[IouDgramRouter]") {
     CHECK(sent_bytes.load(std::memory_order::acquire) == 4);
   }
 }
+
+#pragma endregion
+#pragma region LazySession
 
 TEST_CASE("LazySession", "[IouDgramRouter]") {
   // create_session fires once per unknown key; subsequent packets bypass it
@@ -262,6 +270,9 @@ TEST_CASE("LazySession", "[IouDgramRouter]") {
   }
 }
 
+#pragma endregion
+#pragma region DropOnNullFactory
+
 TEST_CASE("DropOnNullFactory", "[IouDgramRouter]") {
   // `create_session` returns false (no session installed); every arriving
   // packet re-invokes it.
@@ -297,6 +308,8 @@ TEST_CASE("DropOnNullFactory", "[IouDgramRouter]") {
         1s));
   }
 }
+
+#pragma endregion
 
 namespace {
 
@@ -368,6 +381,8 @@ public:
 
 } // namespace
 
+#pragma region CustomKey
+
 TEST_CASE("CustomKey", "[IouDgramRouter]") {
   // Routing by a 32-bit ID extracted from the first 4 payload bytes,
   // independent of peer_addr.
@@ -422,6 +437,8 @@ TEST_CASE("CustomKey", "[IouDgramRouter]") {
     }));
   }
 }
+
+#pragma endregion
 
 namespace {
 
@@ -492,6 +509,8 @@ public:
 
 } // namespace
 
+#pragma region WithPluginState
+
 TEST_CASE("WithPluginState", "[IouDgramRouter]") {
   // SessionPlugin is the per-session state container.
   if (true) {
@@ -525,6 +544,9 @@ TEST_CASE("WithPluginState", "[IouDgramRouter]") {
     }));
   }
 }
+
+#pragma endregion
+#pragma region Multishot
 
 TEST_CASE("Multishot", "[IouDgramRouter]") {
   // Multishot recvmsg path: a burst of datagrams all arrive.
@@ -564,6 +586,9 @@ TEST_CASE("Multishot", "[IouDgramRouter]") {
         2s));
   }
 }
+
+#pragma endregion
+#pragma region OnClose
 
 TEST_CASE("OnClose", "[IouDgramRouter]") {
   // Closing the router fires `unregister_self` on registered sessions
@@ -607,6 +632,9 @@ TEST_CASE("OnClose", "[IouDgramRouter]") {
   }
 }
 
+#pragma endregion
+#pragma region RoundTrip
+
 TEST_CASE("RoundTrip", "[IouDgramEchoProtocol]") {
   // `iou_dgram_echo_server` bounces each datagram back to its sender.
   if (true) {
@@ -643,5 +671,7 @@ TEST_CASE("RoundTrip", "[IouDgramEchoProtocol]") {
     CHECK(echoed == "hello-echo");
   }
 }
+
+#pragma endregion
 
 // NOLINTEND(readability-function-cognitive-complexity)

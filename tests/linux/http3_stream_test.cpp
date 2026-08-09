@@ -57,6 +57,8 @@ struct capture_stream: http3_stream {
 
 } // namespace
 
+#pragma region Http3StreamHeaders
+
 TEST_CASE("Http3StreamHeaders", "[http3]") {
   capture_stream s{};
   s.attach(nullptr, a_stream_id);
@@ -108,6 +110,9 @@ TEST_CASE("Http3StreamHeaders", "[http3]") {
   }
 }
 
+#pragma endregion
+#pragma region Http3StreamTrailers
+
 TEST_CASE("Http3StreamTrailers", "[http3]") {
   capture_stream s;
   s.attach(nullptr, a_stream_id);
@@ -157,6 +162,9 @@ TEST_CASE("Http3StreamTrailers", "[http3]") {
   }
 }
 
+#pragma endregion
+#pragma region Http3StreamDefaults
+
 TEST_CASE("Http3StreamDefaults", "[http3]") {
   // The base class is concrete; its unoverridden hooks are no-op `true`.
   http3_stream s;
@@ -172,4 +180,6 @@ TEST_CASE("Http3StreamDefaults", "[http3]") {
   CHECK(s.on_end_stream());
   CHECK(s.on_close(h3_error_code::no_error));
 }
+
+#pragma endregion
 // NOLINTEND(readability-function-cognitive-complexity)

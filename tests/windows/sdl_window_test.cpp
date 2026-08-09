@@ -51,6 +51,8 @@ constexpr flag_case flag_cases[]{
 
 } // namespace
 
+#pragma region sdl_window_flags
+
 TEST_CASE("sdl_window_flags single-flag string round-trip", "[sdl][enums]") {
   for (const auto& c : flag_cases) {
     CAPTURE(c.name);
@@ -75,3 +77,5 @@ TEST_CASE("sdl_window_flags combined and unknown handling", "[sdl][enums]") {
   sdl_window_flags unused{};
   CHECK_FALSE(convert_enum(unused, "not_a_flag"));
 }
+
+#pragma endregion

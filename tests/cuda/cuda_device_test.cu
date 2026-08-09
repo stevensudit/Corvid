@@ -86,6 +86,8 @@ constexpr attr_case attr_cases[]{
 
 } // namespace
 
+#pragma region cuda_device_attr
+
 // NOLINTBEGIN(readability-function-cognitive-complexity)
 TEST_CASE("cuda_device_attr derived range", "[cuda][enums]") {
   static_assert(*min_value<cuda_device_attr>() == 1);
@@ -149,4 +151,6 @@ TEST_CASE("cuda_device_attr gap and unknown handling", "[cuda][enums]") {
   cuda_device_attr unused{};
   CHECK_FALSE(convert_enum(unused, "not_a_real_attr"));
 }
+
+#pragma endregion
 // NOLINTEND(readability-function-cognitive-complexity)

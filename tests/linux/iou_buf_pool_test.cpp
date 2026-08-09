@@ -42,6 +42,7 @@ static size_t sim_read(iou_buf_pool::buffer& buf, std::string_view data) {
 // NOLINTBEGIN(readability-function-cognitive-complexity)
 
 #pragma region ReadInitialState
+
 TEST_CASE("ReadInitialState", "[IouBufPool]") {
   // Freshly allocated read buffer: empty payload, active = entire block.
   if (true) {
@@ -63,9 +64,10 @@ TEST_CASE("ReadInitialState", "[IouBufPool]") {
 #endif
   }
 }
-#pragma endregion
 
+#pragma endregion
 #pragma region ReadAfterUpdate
+
 TEST_CASE("ReadAfterUpdate", "[IouBufPool]") {
   // After a simulated read, payload grows and active shrinks to the tail.
   if (true) {
@@ -82,9 +84,10 @@ TEST_CASE("ReadAfterUpdate", "[IouBufPool]") {
     CHECK(buf.payload_view().substr(0, 5) == "hello");
   }
 }
-#pragma endregion
 
+#pragma endregion
 #pragma region ReadMultipleUpdates
+
 TEST_CASE("ReadMultipleUpdates", "[IouBufPool]") {
   // Two successive reads concatenate into a single growing payload.
   if (true) {
@@ -101,9 +104,10 @@ TEST_CASE("ReadMultipleUpdates", "[IouBufPool]") {
     CHECK(buf.active_span().size() == (buf.size() - 11));
   }
 }
-#pragma endregion
 
+#pragma endregion
 #pragma region ReadConsumePartial
+
 TEST_CASE("ReadConsumePartial", "[IouBufPool]") {
   // consume_read(n) with n < payload returns n bytes and advances the front.
   if (true) {
@@ -124,9 +128,10 @@ TEST_CASE("ReadConsumePartial", "[IouBufPool]") {
     CHECK(buf.active_span().size() == (buf.size() - 8));
   }
 }
-#pragma endregion
 
+#pragma endregion
 #pragma region ReadConsumeFullReset
+
 TEST_CASE("ReadConsumeFullReset", "[IouBufPool]") {
   // Consuming all payload bytes resets the buffer to its initial state.
   if (true) {
@@ -146,9 +151,10 @@ TEST_CASE("ReadConsumeFullReset", "[IouBufPool]") {
     CHECK(buf.active_span().data() == base);
   }
 }
-#pragma endregion
 
+#pragma endregion
 #pragma region ReadConsumeOverRequest
+
 TEST_CASE("ReadConsumeOverRequest", "[IouBufPool]") {
   // Requesting more bytes than available returns only what's present.
   if (true) {
@@ -164,9 +170,10 @@ TEST_CASE("ReadConsumeOverRequest", "[IouBufPool]") {
     CHECK(buf.active_span().size() == buf.size());
   }
 }
-#pragma endregion
 
+#pragma endregion
 #pragma region ReadUpdateError
+
 TEST_CASE("ReadUpdateError", "[IouBufPool]") {
   // An error result leaves spans unchanged.
   if (true) {
@@ -184,9 +191,10 @@ TEST_CASE("ReadUpdateError", "[IouBufPool]") {
     CHECK(buf.active_span().size() == active_before);
   }
 }
-#pragma endregion
 
+#pragma endregion
 #pragma region WriteInitialState
+
 TEST_CASE("WriteInitialState", "[IouBufPool]") {
   // Freshly allocated write buffer: both payload and active are empty.
   if (true) {
@@ -200,9 +208,10 @@ TEST_CASE("WriteInitialState", "[IouBufPool]") {
     CHECK(buf.payload_span().data() == buf.active_span().data());
   }
 }
-#pragma endregion
 
+#pragma endregion
 #pragma region WriteViaAppend
+
 TEST_CASE("WriteViaAppend", "[IouBufPool]") {
   // append fills payload and active_span covers the same bytes.
   if (true) {
@@ -223,9 +232,10 @@ TEST_CASE("WriteViaAppend", "[IouBufPool]") {
     CHECK(buf.payload_view() == "hello, world");
   }
 }
-#pragma endregion
 
+#pragma endregion
 #pragma region WriteAppendOverflow
+
 TEST_CASE("WriteAppendOverflow", "[IouBufPool]") {
   // append returns false without modifying anything when data would not fit.
   if (true) {
@@ -242,9 +252,10 @@ TEST_CASE("WriteAppendOverflow", "[IouBufPool]") {
     CHECK(buf.payload_span().size() == cap); // unchanged
   }
 }
-#pragma endregion
 
+#pragma endregion
 #pragma region WriteViaTailAndUpdatePayload
+
 TEST_CASE("WriteViaTailAndUpdatePayload", "[IouBufPool]") {
   // Manual fill: get tail_span, memcpy, then update_payload.
   if (true) {
@@ -263,9 +274,10 @@ TEST_CASE("WriteViaTailAndUpdatePayload", "[IouBufPool]") {
     CHECK(buf.payload_view() == msg);
   }
 }
-#pragma endregion
 
+#pragma endregion
 #pragma region WriteUpdatePayloadBadStart
+
 TEST_CASE("WriteUpdatePayloadBadStart", "[IouBufPool]") {
   // update_payload rejects a span that does not start at payload_span's end.
   if (true) {
@@ -281,9 +293,10 @@ TEST_CASE("WriteUpdatePayloadBadStart", "[IouBufPool]") {
     CHECK(buf.payload_span().size() == 3ULL); // unchanged
   }
 }
-#pragma endregion
 
+#pragma endregion
 #pragma region WriteUpdatePayloadOverflow
+
 TEST_CASE("WriteUpdatePayloadOverflow", "[IouBufPool]") {
   // update_payload rejects a span whose end exceeds full_span.
   if (true) {
@@ -298,9 +311,10 @@ TEST_CASE("WriteUpdatePayloadOverflow", "[IouBufPool]") {
     CHECK(buf.payload_span().size() == 0ULL); // unchanged
   }
 }
-#pragma endregion
 
+#pragma endregion
 #pragma region WriteUpdatePartialSend
+
 TEST_CASE("WriteUpdatePartialSend", "[IouBufPool]") {
   // Partial send advances active_span front while payload_span stays fixed.
   if (true) {
@@ -322,9 +336,10 @@ TEST_CASE("WriteUpdatePartialSend", "[IouBufPool]") {
           ("6789"));
   }
 }
-#pragma endregion
 
+#pragma endregion
 #pragma region WriteFullyConsumedThenAppend
+
 TEST_CASE("WriteFullyConsumedThenAppend", "[IouBufPool]") {
   // After a complete send, the next append resets from the block base.
   if (true) {
@@ -349,9 +364,10 @@ TEST_CASE("WriteFullyConsumedThenAppend", "[IouBufPool]") {
     CHECK(buf.payload_view() == "new");
   }
 }
-#pragma endregion
 
+#pragma endregion
 #pragma region WriteFullyConsumedThenTailSpan
+
 TEST_CASE("WriteFullyConsumedThenTailSpan", "[IouBufPool]") {
   // After a complete send, tail_span() triggers an implicit reset.
   if (true) {
@@ -370,9 +386,10 @@ TEST_CASE("WriteFullyConsumedThenTailSpan", "[IouBufPool]") {
     CHECK(tail.data() == base);
   }
 }
-#pragma endregion
 
+#pragma endregion
 #pragma region WriteUpdateError
+
 TEST_CASE("WriteUpdateError", "[IouBufPool]") {
   // An error result leaves spans unchanged.
   if (true) {
@@ -392,9 +409,10 @@ TEST_CASE("WriteUpdateError", "[IouBufPool]") {
     CHECK(buf.active_span().size() == active_before);
   }
 }
-#pragma endregion
 
+#pragma endregion
 #pragma region AppendToPartiallySentBuffer
+
 TEST_CASE("AppendToPartiallySentBuffer", "[IouBufPool]") {
   // After a partial send, appending more extends both payload and active.
   if (true) {
@@ -420,9 +438,10 @@ TEST_CASE("AppendToPartiallySentBuffer", "[IouBufPool]") {
           ("lo world"));
   }
 }
-#pragma endregion
 
+#pragma endregion
 #pragma region PromoteToWrite
+
 TEST_CASE("PromoteToWrite", "[IouBufPool]") {
   // Promoting a read buffer keeps payload; active_span = payload_span.
   if (true) {
@@ -443,9 +462,10 @@ TEST_CASE("PromoteToWrite", "[IouBufPool]") {
     CHECK(buf.payload_view() == "proxy data");
   }
 }
-#pragma endregion
 
+#pragma endregion
 #pragma region DemoteToRead
+
 TEST_CASE("DemoteToRead", "[IouBufPool]") {
   // Demoting a write buffer keeps payload; active_span = tail after payload.
   if (true) {
@@ -464,9 +484,10 @@ TEST_CASE("DemoteToRead", "[IouBufPool]") {
           buf.payload_span().data() + buf.payload_span().size());
   }
 }
-#pragma endregion
 
+#pragma endregion
 #pragma region PromoteDemoteRoundtrip
+
 TEST_CASE("PromoteDemoteRoundtrip", "[IouBufPool]") {
   // promote_to_write then demote_to_read preserves payload throughout.
   if (true) {
@@ -486,9 +507,10 @@ TEST_CASE("PromoteDemoteRoundtrip", "[IouBufPool]") {
     CHECK(buf.active_span().size() == (buf.size() - 9ULL));
   }
 }
-#pragma endregion
 
+#pragma endregion
 #pragma region AvailableTracking
+
 TEST_CASE("AvailableTracking", "[IouBufPool]") {
   // Allocating reduces available bytes; reset restores them.
   if (true) {
@@ -510,9 +532,10 @@ TEST_CASE("AvailableTracking", "[IouBufPool]") {
     CHECK(pool->available() == initial);
   }
 }
-#pragma endregion
 
+#pragma endregion
 #pragma region MoveBuffer
+
 TEST_CASE("MoveBuffer", "[IouBufPool]") {
   // Moving a buffer transfers ownership; source becomes empty.
   if (true) {
@@ -527,9 +550,10 @@ TEST_CASE("MoveBuffer", "[IouBufPool]") {
     CHECK(b.payload_view() == "move me");
   }
 }
-#pragma endregion
 
+#pragma endregion
 #pragma region CoalesceSmallToMedium
+
 TEST_CASE("CoalesceSmallToMedium", "[IouBufPool]") {
   // Four smalls from the same medium coalesce back to one medium.
   // The three sibling mediums are held, so the large does NOT coalesce.
@@ -568,9 +592,10 @@ TEST_CASE("CoalesceSmallToMedium", "[IouBufPool]") {
     CHECK(pool->available() == (2ULL * 1024 * 1024));
   }
 }
-#pragma endregion
 
+#pragma endregion
 #pragma region CoalesceMediumToLarge
+
 TEST_CASE("CoalesceMediumToLarge", "[IouBufPool]") {
   // Four mediums from the same large coalesce back to one large.
   if (true) {
@@ -596,9 +621,10 @@ TEST_CASE("CoalesceMediumToLarge", "[IouBufPool]") {
     CHECK(pool->available() == initial);
   }
 }
-#pragma endregion
 
+#pragma endregion
 #pragma region CoalesceChain
+
 TEST_CASE("CoalesceChain", "[IouBufPool]") {
   // Allocate all 512 smalls, free all 512: cascading coalesce must rebuild
   // all 32 large blocks.
@@ -626,9 +652,10 @@ TEST_CASE("CoalesceChain", "[IouBufPool]") {
     CHECK(pool->available() == (2ULL * 1024 * 1024));
   }
 }
-#pragma endregion
 
+#pragma endregion
 #pragma region UdpTierAlloc
+
 TEST_CASE("UdpTierAlloc", "[IouBufPool]") {
   // Allocate all 1024 x 2 KB slots (2 MB / 2 KB), verify each succeeds and
   // has the right size, then confirm full pool recovery after freeing all.
@@ -648,9 +675,10 @@ TEST_CASE("UdpTierAlloc", "[IouBufPool]") {
     CHECK(pool->available() == (2ULL * 1024 * 1024));
   }
 }
-#pragma endregion
 
+#pragma endregion
 #pragma region UpdateRecvmsgMsgFlagsDefault
+
 TEST_CASE("UpdateRecvmsgMsgFlagsDefault", "[IouBufPool]") {
   // A freshly borrowed buffer has msg_flags() == 0.
   if (true) {
@@ -660,9 +688,10 @@ TEST_CASE("UpdateRecvmsgMsgFlagsDefault", "[IouBufPool]") {
     CHECK(buf.msghdr_flags() == msg_flags{});
   }
 }
-#pragma endregion
 
+#pragma endregion
 #pragma region UpdateRecvmsgValid
+
 TEST_CASE("UpdateRecvmsgValid", "[IouBufPool]") {
   if (true) {
     auto pool = iou_buf_pool::create();
@@ -706,9 +735,10 @@ TEST_CASE("UpdateRecvmsgValid", "[IouBufPool]") {
     CHECK(buf.peer_addr().port() == peer_port);
   }
 }
-#pragma endregion
 
+#pragma endregion
 #pragma region UpdateRecvmsgTruncated
+
 TEST_CASE("UpdateRecvmsgTruncated", "[IouBufPool]") {
   // When the kernel sets MSG_TRUNC in out->flags, msg_flags() reflects it.
   if (true) {
@@ -742,9 +772,10 @@ TEST_CASE("UpdateRecvmsgTruncated", "[IouBufPool]") {
     CHECK(bitmask::has(buf.msghdr_flags(), msg_flags::trunc));
   }
 }
-#pragma endregion
 
+#pragma endregion
 #pragma region SyntheticPrefilled
+
 TEST_CASE("SyntheticPrefilled", "[IouBufPool]") {
   // `make_synthetic` produces a non-owning read buffer whose payload covers
   // the input span and whose active tail is empty.
@@ -763,9 +794,10 @@ TEST_CASE("SyntheticPrefilled", "[IouBufPool]") {
         buf.payload_span().data() + buf.payload_span().size());
   CHECK(buf.result().bytes() == data.size());
 }
-#pragma endregion
 
+#pragma endregion
 #pragma region SyntheticDestructionHarmless
+
 TEST_CASE("SyntheticDestructionHarmless", "[IouBufPool]") {
   // The buffer holds no real allocation, so going out of scope must not
   // touch the data the caller owns.
@@ -778,9 +810,10 @@ TEST_CASE("SyntheticDestructionHarmless", "[IouBufPool]") {
   }
   CHECK(data == "keepalive");
 }
-#pragma endregion
 
+#pragma endregion
 #pragma region SyntheticConsumeRead
+
 TEST_CASE("SyntheticConsumeRead", "[IouBufPool]") {
   // A synthetic buffer behaves like a freshly completed read: the consumer
   // can drain it via `consume_read`.
@@ -799,9 +832,10 @@ TEST_CASE("SyntheticConsumeRead", "[IouBufPool]") {
   CHECK(rest.size() == 3ULL);
   CHECK(buf.payload_span().size() == 0ULL);
 }
-#pragma endregion
 
+#pragma endregion
 #pragma region SyntheticMove
+
 TEST_CASE("SyntheticMove", "[IouBufPool]") {
   // Moving a synthetic buffer transfers the view; the source ends up empty.
   std::string data{"transferable"};
@@ -816,6 +850,7 @@ TEST_CASE("SyntheticMove", "[IouBufPool]") {
   // NOLINTNEXTLINE(bugprone-use-after-move,clang-analyzer-cplusplus.Move)
   CHECK(src.payload_span().size() == 0ULL);
 }
+
 #pragma endregion
 
 // NOLINTEND(readability-function-cognitive-complexity)

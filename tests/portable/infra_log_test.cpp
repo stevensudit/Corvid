@@ -50,6 +50,8 @@ struct std::formatter<move_only_arg>: std::formatter<std::string_view> {
 
 // NOLINTBEGIN(readability-function-cognitive-complexity)
 
+#pragma region Logger
+
 TEST_CASE("logger threshold gates output", "[infra][log]") {
   logger lg;
   CHECK(lg.threshold() == log_level::info);
@@ -152,6 +154,9 @@ TEST_CASE("logger prefixes output with a UTC ISO-8601 timestamp",
   CHECK(out.contains("] [I "));
 }
 
+#pragma endregion
+#pragma region Log facade
+
 TEST_CASE("log singleton can be redirected via set_stream", "[infra][log]") {
   std::stringstream sink;
   log::singleton().set_stream(sink);
@@ -236,6 +241,9 @@ TEST_CASE("loggers sharing a stream do not interleave lines", "[infra][log]") {
   }
   CHECK(cnt == 2 * n_lines);
 }
+
+#pragma endregion
+#pragma region Exception firewalls
 
 TEST_CASE("try_or_log swallows and substitutes failure_value",
     "[infra][exception]") {
@@ -393,5 +401,7 @@ TEST_CASE("try_or_log with attempt swallows mid-unwind",
   log::singleton().set_stream(std::cerr);
   CHECK(sink.str().contains("inner"));
 }
+
+#pragma endregion
 
 // NOLINTEND(readability-function-cognitive-complexity)

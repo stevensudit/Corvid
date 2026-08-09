@@ -25,6 +25,8 @@ using namespace corvid::proto::quic::http3_literals;
 
 // NOLINTBEGIN(readability-function-cognitive-complexity)
 
+#pragma region h3_error_code
+
 TEST_CASE("h3_error_code names round-trip across the gap", "[http3]") {
   using namespace corvid;
   using E = h3_error_code;
@@ -46,6 +48,8 @@ TEST_CASE("h3_error_code names round-trip across the gap", "[http3]") {
         E::qpack_encoder_stream_error);
   CHECK(!parse_enum<E>("nonexistent"));
 }
+
+#pragma endregion
 
 namespace {
 
@@ -142,6 +146,8 @@ int pump(http3_conn& from, http3_conn& to) {
 }
 
 } // namespace
+
+#pragma region http3_conn
 
 TEST_CASE("http3_conn links nghttp3 control streams end to end", "[http3]") {
   recording_handlers client_handlers;
@@ -312,4 +318,6 @@ TEST_CASE("http3_conn set_stream_user_data round-trips to upcalls",
   REQUIRE_FALSE(client_handlers.headers.empty());
   CHECK(client_handlers.last_user_data == &marker);
 }
+
+#pragma endregion
 // NOLINTEND(readability-function-cognitive-complexity)

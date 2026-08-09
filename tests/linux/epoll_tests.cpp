@@ -85,7 +85,6 @@ TEST_CASE("Lifecycle", "[Epoll]") {
 }
 
 #pragma endregion
-
 #pragma region Create
 
 TEST_CASE("Create", "[Epoll]") {
@@ -120,7 +119,6 @@ TEST_CASE("Create", "[Epoll]") {
 }
 
 #pragma endregion
-
 #pragma region Move
 
 // The moved-from source going invalid is what these blocks assert.
@@ -160,7 +158,6 @@ TEST_CASE("Move", "[Epoll]") {
 // NOLINTEND(bugprone-use-after-move,clang-analyzer-cplusplus.Move)
 
 #pragma endregion
-
 #pragma region Release
 
 TEST_CASE("Release", "[Epoll]") {
@@ -175,7 +172,6 @@ TEST_CASE("Release", "[Epoll]") {
 }
 
 #pragma endregion
-
 #pragma region ControlWait
 
 TEST_CASE("ControlWait", "[Epoll]") {
@@ -205,7 +201,6 @@ TEST_CASE("ControlWait", "[Epoll]") {
 }
 
 #pragma endregion
-
 #pragma region WaitArray
 
 TEST_CASE("WaitArray", "[Epoll]") {
@@ -234,7 +229,6 @@ TEST_CASE("WaitArray", "[Epoll]") {
 }
 
 #pragma endregion
-
 #pragma region EventFd_Lifecycle
 
 TEST_CASE("Lifecycle", "[EventFd]") {
@@ -263,7 +257,6 @@ TEST_CASE("Lifecycle", "[EventFd]") {
 }
 
 #pragma endregion
-
 #pragma region EventFd_Move
 
 // The moved-from source going invalid is what these blocks assert.
@@ -303,7 +296,6 @@ TEST_CASE("Move", "[EventFd]") {
 // NOLINTEND(bugprone-use-after-move,clang-analyzer-cplusplus.Move)
 
 #pragma endregion
-
 #pragma region EventFd_Release
 
 TEST_CASE("Release", "[EventFd]") {
@@ -318,7 +310,6 @@ TEST_CASE("Release", "[EventFd]") {
 }
 
 #pragma endregion
-
 #pragma region EventFd_NotifyRead
 
 TEST_CASE("NotifyRead", "[EventFd]") {
@@ -343,7 +334,6 @@ TEST_CASE("NotifyRead", "[EventFd]") {
 }
 
 #pragma endregion
-
 #pragma region EventFd_Create
 
 TEST_CASE("Create", "[EventFd]") {
@@ -378,7 +368,6 @@ TEST_CASE("Create", "[EventFd]") {
 }
 
 #pragma endregion
-
 #pragma region EventFd_SemaphoreMode
 
 TEST_CASE("SemaphoreMode", "[EventFd]") {
@@ -424,7 +413,6 @@ TEST_CASE("SemaphoreMode", "[EventFd]") {
 }
 
 #pragma endregion
-
 #pragma region EventFd_NonblockingEmptyRead
 
 TEST_CASE("NonblockingEmptyRead", "[EventFd]") {

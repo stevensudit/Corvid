@@ -93,6 +93,7 @@ TEST_CASE("Basic", "[ScopeExit]") {
     CHECK(value == 7);
   }
 }
+
 #pragma endregion
 #pragma region ScopeFail_Basic
 
@@ -164,6 +165,7 @@ TEST_CASE("Basic", "[ScopeFail]") {
     CHECK(calls == 1);
   }
 }
+
 #pragma endregion
 #pragma region ScopeSuccess_Basic
 
@@ -217,6 +219,7 @@ TEST_CASE("Basic", "[ScopeSuccess]") {
     CHECK_THROWS_AS(fire(), std::runtime_error);
   }
 }
+
 #pragma endregion
 #pragma region ThrowingConstruction
 
@@ -256,6 +259,7 @@ TEST_CASE("Throwing construction", "[ScopeExit][ScopeFail][ScopeSuccess]") {
     CHECK(calls == 0);
   }
 }
+
 #pragma endregion
 #pragma region CopyRefused
 
@@ -317,6 +321,7 @@ TEST_CASE("Copy refused", "[ScopeExit]") {
   }
   CHECK(moved_calls == 1);
 }
+
 #pragma endregion
 
 // NOLINTEND(readability-function-cognitive-complexity)

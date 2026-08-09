@@ -373,6 +373,7 @@ TEST_CASE("RelaxedAtomic", "[Notifiable]") {
     CHECK_FALSE(n.wait_for_changed(1ms));
   }
 }
+
 #pragma endregion
 #pragma region LedeExample
 

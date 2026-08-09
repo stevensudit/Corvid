@@ -34,6 +34,7 @@ template<operation op, typename... Args>
 }
 
 #pragma region Constants
+
 TEST_CASE("Constants", "[LangTest]") {
   using enum operation;
   node_ptr root;

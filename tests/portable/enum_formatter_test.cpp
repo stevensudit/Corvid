@@ -67,6 +67,8 @@ consteval auto corvid_enum_spec(dial*) {
 
 // NOLINTBEGIN(readability-function-cognitive-complexity)
 
+#pragma region Rendering
+
 TEST_CASE("Sequence enum formats by name", "[EnumFormatterTest]") {
   if (true) {
     CHECK(std::format("{}", hue::red) == "red");
@@ -108,6 +110,9 @@ TEST_CASE("Unregistered scoped enums are not formattable",
   }
 }
 
+#pragma endregion
+#pragma region Wide and debug
+
 TEST_CASE("Wide formatting widens the name", "[EnumFormatterTest]") {
   if (true) {
     CHECK(std::format(L"{}", hue::green) == L"green");
@@ -131,6 +136,9 @@ TEST_CASE("Debug spec escapes special characters", "[EnumFormatterTest]") {
     CHECK(std::format(L"{:?}", weird::quote) == LR"("q\"x")");
   }
 }
+
+#pragma endregion
+#pragma region Spec handling
 
 TEST_CASE("Honors width, align, fill, and precision", "[EnumFormatterTest]") {
   if (true) {
@@ -176,6 +184,9 @@ TEST_CASE("Rejects specs that don't apply to a name", "[EnumFormatterTest]") {
   }
 }
 
+#pragma endregion
+#pragma region Composition
+
 TEST_CASE("Composes inside std range and map", "[EnumFormatterTest]") {
   if (true) {
     // The range and map formatters auto-enable debug on elements that have
@@ -187,5 +198,7 @@ TEST_CASE("Composes inside std range and map", "[EnumFormatterTest]") {
     CHECK(std::format("{}", m) == R"({1: "red", 2: "blue"})");
   }
 }
+
+#pragma endregion
 
 // NOLINTEND(readability-function-cognitive-complexity)

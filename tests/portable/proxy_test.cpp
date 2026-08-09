@@ -1710,6 +1710,8 @@ static_assert(prox::validate_api<ranger>());
 
 // NOLINTBEGIN(readability-function-cognitive-complexity)
 
+#pragma region Registration and dispatch
+
 TEST_CASE("Boilerplate impl through registration", "[proxy]") {
   lawman l;
   proxy_view<gunslinger> pv{l};
@@ -1809,6 +1811,9 @@ TEST_CASE("Heterogeneous dispatch", "[proxy]") {
   pv2.fire(1);
   CHECK(l.rounds_fired == 3);
 }
+
+#pragma endregion
+#pragma region Views and emptiness
 
 TEST_CASE("Views rebind by assignment", "[proxy]") {
   lawman l;
@@ -1947,6 +1952,9 @@ TEST_CASE("Generic code accepts concrete and erased alike", "[proxy]") {
   CHECK(fire_twice(p) == 2);
 }
 
+#pragma endregion
+#pragma region Owning proxies
+
 TEST_CASE("Owning proxy, inline target", "[proxy]") {
   life_stats stats;
   if (true) {
@@ -2037,6 +2045,9 @@ TEST_CASE("Noexcept facade methods", "[proxy]") {
   tv.cry(std::move(words));
   CHECK(c.last == "oyez");
 }
+
+#pragma endregion
+#pragma region Facade composition and overloads
 
 TEST_CASE("Member-call sugar via the api mixin", "[proxy]") {
   lawman l;
@@ -2328,6 +2339,9 @@ TEST_CASE("Diamond composition", "[proxy]") {
   p.rally();
 }
 
+#pragma endregion
+#pragma region Upcasts
+
 TEST_CASE("Upcasting views", "[proxy]") {
   texas_ranger tr;
   proxy_view<ranger> rv{tr};
@@ -2476,6 +2490,9 @@ TEST_CASE("Owning upcast lifetimes", "[proxy]") {
   }
   CHECK(heap_stats.destroyed == heap_stats.constructed);
 }
+
+#pragma endregion
+#pragma region Storage and downcasts
 
 // Diagnostics on record: constructing an sbo_only proxy over an ineligible
 // target, e.g. `make_proxy<lockbox, big_box, policies::sbo_only>(stats)`,
@@ -2839,6 +2856,9 @@ TEST_CASE("Downcasting a shared_proxy", "[proxy]") {
   CHECK(!sm.try_downcast<ranger>());
 }
 
+#pragma endregion
+#pragma region Cloning
+
 TEST_CASE("Cloning", "[proxy]") {
   // Cloneability is a runtime property of the erased target: `strongbox` is
   // move-only, so its proxy answers no. Cloning it anyway is graceful: the
@@ -2954,6 +2974,9 @@ TEST_CASE("Clone exception safety", "[proxy]") {
   }
   CHECK(stats.destroyed == stats.constructed);
 }
+
+#pragma endregion
+#pragma region Ownership interop
 
 TEST_CASE("unique_ptr interop", "[proxy]") {
   life_stats stats;
@@ -3100,6 +3123,9 @@ TEST_CASE("Shared ownership interop with std", "[proxy]") {
   }
   CHECK(stats.destroyed == stats.constructed);
 }
+
+#pragma endregion
+#pragma region Codegen
 
 TEST_CASE("Codegen", "[proxy]") {
   // `prox::codegen<F>(os)` writes the canonical `api` and `boilerplate` for
@@ -3321,5 +3347,7 @@ TEST_CASE("Codegen", "[proxy]") {
   prox::codegen<vault>(oss);
   CHECK(oss.str() == vault_golden);
 }
+
+#pragma endregion
 
 // NOLINTEND(readability-function-cognitive-complexity)

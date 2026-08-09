@@ -35,6 +35,8 @@ void check_data_type(SDL_EventType type, sdl_event_data_type expected) {
 
 // NOLINTBEGIN(readability-function-cognitive-complexity)
 
+#pragma region Classification and enums
+
 TEST_CASE("sdl_event classifies every union member", "[sdl][event]") {
   using dt = sdl_event_data_type;
   check_data_type(SDL_EVENT_DISPLAY_ORIENTATION, dt::display);
@@ -105,6 +107,9 @@ TEST_CASE("sdl_event exposes the shared header", "[sdl][event]") {
   CHECK(ev.raw().type == SDL_EVENT_KEY_DOWN); // escape hatch sees the union
 }
 
+#pragma endregion
+#pragma region Display and polling
+
 TEST_CASE("sdl_event get_display copies the cleaned payload", "[sdl][event]") {
   SDL_Event raw{};
   raw.type = SDL_EVENT_DISPLAY_MOVED;
@@ -139,6 +144,9 @@ TEST_CASE("sdl_event::poll drains the queue through the wrapper",
 
   SDL_Quit();
 }
+
+#pragma endregion
+#pragma region sdl_keycode
 
 TEST_CASE("sdl_keycode string round-trip", "[sdl][event][enums]") {
   struct keycode_case {
@@ -415,6 +423,9 @@ TEST_CASE("sdl_keycode string round-trip", "[sdl][event][enums]") {
   }
 }
 
+#pragma endregion
+#pragma region Payload accessors
+
 TEST_CASE("sdl_event get_wheel copies the cleaned payload", "[sdl][event]") {
   SDL_Event raw{};
   raw.type = SDL_EVENT_MOUSE_WHEEL;
@@ -479,5 +490,7 @@ TEST_CASE("sdl_event get_window copies the cleaned payload", "[sdl][event]") {
   CHECK(window.data1 == 1280);
   CHECK(window.data2 == 720);
 }
+
+#pragma endregion
 
 // NOLINTEND(readability-function-cognitive-complexity)

@@ -99,6 +99,8 @@ constexpr std::array<uint8_t, 16> sample_scid{0x11, 0x22, 0x33, 0x44, 0x55,
 
 // NOLINTBEGIN(readability-function-cognitive-complexity)
 
+#pragma region Extract
+
 TEST_CASE("quic_dgram_protocol::router_plugin::extract", "[quic][router]") {
   // `router_plugin` requires a server SSL context for `create_session`, but
   // we only exercise `extract` here, which doesn't consult it. A client-side
@@ -151,6 +153,8 @@ TEST_CASE("quic_dgram_protocol::router_plugin::extract", "[quic][router]") {
   }
 }
 
+#pragma endregion
+
 namespace {
 
 constexpr std::string_view handshake_alpn = "corvid-test";
@@ -166,6 +170,8 @@ constexpr std::array<uint8_t, 16> client_scid_bytes{0x11, 0x22, 0x33, 0x44,
 }
 
 } // namespace
+
+#pragma region Handshake
 
 TEST_CASE(
     "quic_dgram_protocol drives a server-side TLS 1.3 handshake "
@@ -336,6 +342,8 @@ TEST_CASE(
   }));
 }
 
+#pragma endregion
+
 // Counts live server-side upper plugins, and counts server handshake
 // completions. A server session constructs its plugin on creation and destroys
 // it on reap (when the router drops its last reference), so
@@ -359,6 +367,8 @@ struct reap_probe_plugin: quic_no_op_plugin {
   }
 };
 } // namespace
+
+#pragma region Draining
 
 TEST_CASE(
     "quic_dgram_protocol reaps a draining server session after a "
@@ -484,4 +494,6 @@ TEST_CASE(
       },
       5000ms));
 }
+
+#pragma endregion
 // NOLINTEND(readability-function-cognitive-complexity)

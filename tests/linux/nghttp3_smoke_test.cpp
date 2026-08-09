@@ -26,6 +26,8 @@
 // functional test of HTTP/3 itself; that arrives with the http3_router
 // wrapping nghttp3_conn.
 
+#pragma region Smoke
+
 TEST_CASE("HTTP/3 dependency links and reports version", "[http3]") {
   SECTION("nghttp3 returns a valid version struct") {
     const nghttp3_info* info = nghttp3_version(0);
@@ -45,4 +47,6 @@ TEST_CASE("HTTP/3 dependency links and reports version", "[http3]") {
     SUCCEED("nghttp3_settings_default linked and ran");
   }
 }
+
+#pragma endregion
 // NOLINTEND(readability-function-cognitive-complexity)

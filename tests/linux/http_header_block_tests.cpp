@@ -91,6 +91,7 @@ TEST_CASE("ParseHttp11", "[HttpHeaderBlock]") {
   REQUIRE(accept);
   CHECK(*accept == "text/html");
 }
+
 #pragma endregion
 #pragma region ParseHttp10
 
@@ -102,6 +103,7 @@ TEST_CASE("ParseHttp10", "[HttpHeaderBlock]") {
   CHECK(req.method == http_method::POST);
   CHECK(req.target == "/submit");
 }
+
 #pragma endregion
 #pragma region UnknownMethod
 
@@ -110,6 +112,7 @@ TEST_CASE("UnknownMethod", "[HttpHeaderBlock]") {
   request_head req;
   CHECK_FALSE(req.parse("BREW /coffee HTTP/1.1\r\n"));
 }
+
 #pragma endregion
 #pragma region InvalidVersion
 
@@ -118,6 +121,7 @@ TEST_CASE("InvalidVersion", "[HttpHeaderBlock]") {
   request_head req;
   CHECK_FALSE(req.parse("GET / HTTP/2.0\r\n"));
 }
+
 #pragma endregion
 #pragma region Http09Style
 
@@ -129,6 +133,7 @@ TEST_CASE("Http09Style", "[HttpHeaderBlock]") {
   CHECK(req.version == http_version::http_0_9);
   CHECK(req.target == "/");
 }
+
 #pragma endregion
 #pragma region NoSp
 
@@ -137,6 +142,7 @@ TEST_CASE("NoSp", "[HttpHeaderBlock]") {
   request_head req;
   CHECK_FALSE(req.parse("GETNOSPC\r\n"));
 }
+
 #pragma endregion
 #pragma region HeaderLookupCanonical
 
@@ -152,6 +158,7 @@ TEST_CASE("HeaderLookupCanonical", "[HttpHeaderBlock]") {
   REQUIRE(content_type);
   CHECK(*content_type == "text/plain");
 }
+
 #pragma endregion
 #pragma region HeaderGet
 
@@ -165,6 +172,7 @@ TEST_CASE("HeaderGet", "[HttpHeaderBlock]") {
   CHECK_FALSE(h.get("Heist"));
   CHECK_FALSE(h.get("Content-Type"));
 }
+
 #pragma endregion
 #pragma region HeaderGetEmptyValue
 
@@ -177,6 +185,7 @@ TEST_CASE("HeaderGetEmptyValue", "[HttpHeaderBlock]") {
   CHECK(empty_value->empty());
   CHECK_FALSE(h.get("Missing"));
 }
+
 #pragma endregion
 #pragma region HeaderCombine
 
@@ -188,6 +197,7 @@ TEST_CASE("HeaderCombine", "[HttpHeaderBlock]") {
   CHECK(h.get_combined("Accept") == "text/html, application/json");
   CHECK(h.get_combined("Missing") == "");
 }
+
 #pragma endregion
 #pragma region KeepAlive
 
@@ -214,6 +224,7 @@ TEST_CASE("KeepAlive", "[HttpHeaderBlock]") {
     CHECK(req.options.keep_alive(req.version) == after_response::keep_alive);
   }
 }
+
 #pragma endregion
 #pragma region KeepAliveTokenList
 
@@ -248,6 +259,7 @@ TEST_CASE("KeepAliveTokenList", "[HttpHeaderBlock]") {
     CHECK(req.options.keep_alive(req.version) == after_response::close);
   }
 }
+
 #pragma endregion
 #pragma region ResponseSerialize
 
@@ -269,6 +281,7 @@ TEST_CASE("ResponseSerialize", "[HttpHeaderBlock]") {
   // Wire format ends with the blank line; body is not included.
   CHECK(wire.ends_with("\r\n\r\n"));
 }
+
 #pragma endregion
 #pragma region ExtractLeadingCrlf
 
@@ -291,6 +304,7 @@ TEST_CASE("ExtractLeadingCrlf", "[HttpHeaderBlock]") {
     CHECK_FALSE(req.parse("\r\n\r\n"));
   }
 }
+
 #pragma endregion
 #pragma region ExtractHeaderErrors
 
@@ -319,6 +333,7 @@ TEST_CASE("ExtractHeaderErrors", "[HttpHeaderBlock]") {
     CHECK_FALSE(req.parse("GET / HTTP/1.1\r\nBad Name: value\r\n"));
   }
 }
+
 #pragma endregion
 #pragma region RequestSerialize
 
@@ -373,6 +388,7 @@ TEST_CASE("RequestSerialize", "[HttpHeaderBlock]") {
     CHECK(req.serialize().empty());
   }
 }
+
 #pragma endregion
 #pragma region ResponseExtract
 
@@ -436,6 +452,7 @@ TEST_CASE("ResponseExtract", "[HttpHeaderBlock]") {
     CHECK(*location == "/new/resource");
   }
 }
+
 #pragma endregion
 #pragma region NormalizeCasing
 
@@ -534,6 +551,7 @@ TEST_CASE("NormalizeCasing", "[HttpHeaderBlock]") {
     CHECK(name == "X-Forwarded-For");
   }
 }
+
 #pragma endregion
 #pragma region NormalizeSpecialChars
 
@@ -566,6 +584,7 @@ TEST_CASE("NormalizeSpecialChars", "[HttpHeaderBlock]") {
     CHECK(name == "-Foo");
   }
 }
+
 #pragma endregion
 #pragma region NormalizeInvalidChars
 
@@ -591,6 +610,7 @@ TEST_CASE("NormalizeInvalidChars", "[HttpHeaderBlock]") {
   CHECK(bad("bad<name"));  // less-than
   CHECK(bad("bad>name"));  // greater-than
 }
+
 #pragma endregion
 #pragma region NormalizeEdgeCases
 
@@ -632,6 +652,7 @@ TEST_CASE("NormalizeEdgeCases", "[HttpHeaderBlock]") {
     CHECK(name == "Content Type");
   }
 }
+
 #pragma endregion
 #pragma region IsValidFieldValue
 
@@ -654,6 +675,7 @@ TEST_CASE("IsValidFieldValue", "[HttpHeaderBlock]") {
   // Other control chars (< 0x20, not HTAB): invalid.
   CHECK_FALSE(http_headers::is_valid_field_value("bad\x01value"));
 }
+
 #pragma endregion
 #pragma region ContentLength
 
@@ -693,6 +715,7 @@ TEST_CASE("ContentLength", "[HttpHeaderBlock]") {
     CHECK(*opts.content_length == 0ULL);
   }
 }
+
 #pragma endregion
 #pragma region IsChunked
 
@@ -761,6 +784,7 @@ TEST_CASE("IsChunked", "[HttpHeaderBlock]") {
     CHECK_FALSE(opts.transfer_encoding);
   }
 }
+
 #pragma endregion
 #pragma region SizeAndEmpty
 
@@ -785,6 +809,7 @@ TEST_CASE("SizeAndEmpty", "[HttpHeaderBlock]") {
   ++it;
   CHECK(it == h.end());
 }
+
 #pragma endregion
 #pragma region AddRawWithRawName
 
@@ -806,6 +831,7 @@ TEST_CASE("AddRawWithRawName", "[HttpHeaderBlock]") {
   CHECK(out.contains("content-type: text/html\r\n"));
   CHECK_FALSE(out.contains("Content-Type"));
 }
+
 #pragma endregion
 #pragma region GetReturnsFirst
 
@@ -825,6 +851,7 @@ TEST_CASE("GetReturnsFirst", "[HttpHeaderBlock]") {
   CHECK((h.get_combined("Accept")) ==
         ("text/html, application/json, image/webp"));
 }
+
 #pragma endregion
 #pragma region KeepAliveHttp09
 
@@ -844,6 +871,7 @@ TEST_CASE("KeepAliveHttp09", "[HttpHeaderBlock]") {
   opts.extract(h);
   CHECK(opts.keep_alive(http_version::http_0_9) == after_response::close);
 }
+
 #pragma endregion
 #pragma region Http09WithHeaders
 
@@ -853,6 +881,7 @@ TEST_CASE("Http09WithHeaders", "[HttpHeaderBlock]") {
   request_head req;
   CHECK_FALSE(req.parse("GET /\r\nHost: example.com\r\n"));
 }
+
 #pragma endregion
 #pragma region TooManyLeadingCrlfs
 
@@ -871,6 +900,7 @@ TEST_CASE("TooManyLeadingCrlfs", "[HttpHeaderBlock]") {
     CHECK_FALSE(req.parse("\r\n\r\n\r\n\r\n\r\n\r\nGET / HTTP/1.1\r\n"));
   }
 }
+
 #pragma endregion
 #pragma region TargetNotPath
 
@@ -887,6 +917,7 @@ TEST_CASE("TargetNotPath", "[HttpHeaderBlock]") {
     CHECK_FALSE(req.parse("CONNECT example.com:443 HTTP/1.1\r\n"));
   }
 }
+
 #pragma endregion
 #pragma region ClearRequest
 
@@ -905,6 +936,7 @@ TEST_CASE("ClearRequest", "[HttpHeaderBlock]") {
   CHECK(req.target.empty());
   CHECK(req.headers.empty());
 }
+
 #pragma endregion
 #pragma region ClearResponse
 
@@ -922,6 +954,7 @@ TEST_CASE("ClearResponse", "[HttpHeaderBlock]") {
   CHECK(resp.reason.empty());
   CHECK(resp.headers.empty());
 }
+
 #pragma endregion
 #pragma region ResponseSerializeInvalid
 
@@ -938,6 +971,7 @@ TEST_CASE("ResponseSerializeInvalid", "[HttpHeaderBlock]") {
   resp.reason = "OK";
   CHECK(resp.serialize().empty());
 }
+
 #pragma endregion
 #pragma region MakeErrorResponse
 
@@ -963,6 +997,7 @@ TEST_CASE("MakeErrorResponse", "[HttpHeaderBlock]") {
     CHECK(wire.contains("Connection: keep-alive"));
   }
 }
+
 #pragma endregion
 #pragma region ResponseParseEdgeCases
 
@@ -994,6 +1029,7 @@ TEST_CASE("ResponseParseEdgeCases", "[HttpHeaderBlock]") {
     CHECK_FALSE(resp.parse("HTTP/1.1 1000 Too High\r\n"));
   }
 }
+
 #pragma endregion
 #pragma region HttpOptionsExtractApply
 
@@ -1092,6 +1128,7 @@ TEST_CASE("HttpOptionsExtractApply", "[HttpHeaderBlock]") {
     CHECK_FALSE(h.get("Content-Type"));
   }
 }
+
 #pragma endregion
 #pragma region GetValues
 
@@ -1147,6 +1184,7 @@ TEST_CASE("GetValues", "[HttpHeaderBlock]") {
     CHECK(*it == "application/json");
   }
 }
+
 #pragma endregion
 #pragma region SetRawAndRemove
 
@@ -1249,6 +1287,7 @@ TEST_CASE("SetRawAndRemove", "[HttpHeaderBlock]") {
     CHECK(*host == "example.com");
   }
 }
+
 #pragma endregion
 
 // NOLINTEND(bugprone-unchecked-optional-access)

@@ -30,6 +30,8 @@ using namespace corvid;
 // magnitudes.
 constexpr double eps = 1e-15;
 
+#pragma region TwoPi
+
 TEST_CASE("TwoPi", "[MathTest]") {
   // Defaults to `float` and follows the argument otherwise, in the same
   // variable-template form as <numbers>.
@@ -44,6 +46,9 @@ TEST_CASE("TwoPi", "[MathTest]") {
   CHECK(std::abs(two_pi_v<double> - 6.283185307179586) <= eps);
   CHECK(std::abs(std::sin(two_pi_v<double>)) <= eps);
 }
+
+#pragma endregion
+#pragma region Cos30
 
 TEST_CASE("Cos30", "[MathTest]") {
   // Defaults to `float` and follows the argument otherwise.
@@ -60,12 +65,18 @@ TEST_CASE("Cos30", "[MathTest]") {
                  std::cos(std::numbers::pi_v<double> / 6.0)) <= eps);
 }
 
+#pragma endregion
+#pragma region CeilDivExact
+
 TEST_CASE("CeilDivExact", "[MathTest]") {
   // Exact division has no remainder to round up.
   CHECK(ceil_div(0, 3) == 0);
   CHECK(ceil_div(6, 3) == 2);
   CHECK(ceil_div(4096, 16) == 256);
 }
+
+#pragma endregion
+#pragma region CeilDivRoundsUp
 
 TEST_CASE("CeilDivRoundsUp", "[MathTest]") {
   // Any remainder rounds up to the next bucket.
@@ -74,11 +85,17 @@ TEST_CASE("CeilDivRoundsUp", "[MathTest]") {
   CHECK(ceil_div(4090, 16) == 256);
 }
 
+#pragma endregion
+#pragma region CeilDivByOne
+
 TEST_CASE("CeilDivByOne", "[MathTest]") {
   // A divisor of one returns the dividend unchanged.
   CHECK(ceil_div(0, 1) == 0);
   CHECK(ceil_div(7, 1) == 7);
 }
+
+#pragma endregion
+#pragma region CeilDivMixedSign
 
 TEST_CASE("CeilDivMixedSign", "[MathTest]") {
   // Mixed operands resolve to the common type. The matmul grid case is an
@@ -87,17 +104,26 @@ TEST_CASE("CeilDivMixedSign", "[MathTest]") {
   CHECK(ceil_div(size_t{1000}, 256) == 4U);
 }
 
+#pragma endregion
+#pragma region CeilDivNoOverflow
+
 TEST_CASE("CeilDivNoOverflow", "[MathTest]") {
   // The `(n + d - 1)` idiom would wrap uint32_t here; ceil_div must not.
   constexpr auto max32 = std::numeric_limits<std::uint32_t>::max();
   CHECK(ceil_div(max32, std::uint32_t{2}) == (max32 / 2) + 1);
 }
 
+#pragma endregion
+#pragma region CeilDivConstexpr
+
 TEST_CASE("CeilDivConstexpr", "[MathTest]") {
   // Usable in constant expressions.
   static_assert(ceil_div(7, 3) == 3);
   static_assert(ceil_div(16'777'216, 4096) == 4096);
 }
+
+#pragma endregion
+#pragma region RoundUpAlreadyMultiple
 
 TEST_CASE("RoundUpAlreadyMultiple", "[MathTest]") {
   // A value already on a boundary is returned unchanged.
@@ -106,6 +132,9 @@ TEST_CASE("RoundUpAlreadyMultiple", "[MathTest]") {
   CHECK(round_up_to_multiple(512, 256) == 512);
 }
 
+#pragma endregion
+#pragma region RoundUpRoundsUp
+
 TEST_CASE("RoundUpRoundsUp", "[MathTest]") {
   // A value off a boundary rounds up to the next multiple.
   CHECK(round_up_to_multiple(1, 256) == 256);
@@ -113,10 +142,16 @@ TEST_CASE("RoundUpRoundsUp", "[MathTest]") {
   CHECK(round_up_to_multiple(257, 256) == 512);
 }
 
+#pragma endregion
+#pragma region RoundUpByOne
+
 TEST_CASE("RoundUpByOne", "[MathTest]") {
   // Every integer is a multiple of one, so the value is unchanged.
   CHECK(round_up_to_multiple(7, 1) == 7);
 }
+
+#pragma endregion
+#pragma region RoundUpMixedSign
 
 TEST_CASE("RoundUpMixedSign", "[MathTest]") {
   // Mixed operands resolve to the common type. The viewer rounds a pixel
@@ -124,6 +159,9 @@ TEST_CASE("RoundUpMixedSign", "[MathTest]") {
   CHECK(round_up_to_multiple(100, 256U) == 256U);
   CHECK(round_up_to_multiple(513U, 256) == 768U);
 }
+
+#pragma endregion
+#pragma region RoundUpNoDivisionOverflow
 
 TEST_CASE("RoundUpNoDivisionOverflow", "[MathTest]") {
   // The underlying ceil_div avoids the (n + m - 1) wraparound, so rounding the
@@ -133,11 +171,17 @@ TEST_CASE("RoundUpNoDivisionOverflow", "[MathTest]") {
   CHECK(round_up_to_multiple(max32, std::uint32_t{1}) == max32);
 }
 
+#pragma endregion
+#pragma region RoundUpConstexpr
+
 TEST_CASE("RoundUpConstexpr", "[MathTest]") {
   // Usable in constant expressions.
   static_assert(round_up_to_multiple(1, 256) == 256);
   static_assert(round_up_to_multiple(4096, 256) == 4096);
 }
+
+#pragma endregion
+#pragma region SaturateCast
 
 TEST_CASE("SaturateCast", "[MathTest]") {
   // In-range values pass through; out-of-range values clamp to the
@@ -151,6 +195,9 @@ TEST_CASE("SaturateCast", "[MathTest]") {
   static_assert(saturate_cast<uint16_t>(1000U) == 1000);
 }
 
+#pragma endregion
+#pragma region ExtractByte
+
 TEST_CASE("ExtractByte", "[MathTest]") {
   // Index 0 is the low byte, counting up from there.
   CHECK(extract_byte<0>(std::uint16_t{0x2001}) == 0x01);
@@ -158,6 +205,9 @@ TEST_CASE("ExtractByte", "[MathTest]") {
   CHECK(extract_byte<0>(std::uint16_t{}) == 0);
   CHECK(extract_byte<1>(std::uint16_t{}) == 0);
 }
+
+#pragma endregion
+#pragma region ExtractByteAddressesEveryByte
 
 TEST_CASE("ExtractByteAddressesEveryByte", "[MathTest]") {
   // Every byte of a wider value is reachable by its own index, most
@@ -171,18 +221,29 @@ TEST_CASE("ExtractByteAddressesEveryByte", "[MathTest]") {
   CHECK(extract_byte<0>(std::uint8_t{0x42}) == 0x42);
 }
 
+#pragma endregion
+#pragma region ExtractByteConstexpr
+
 TEST_CASE("ExtractByteConstexpr", "[MathTest]") {
   // Usable in constant expressions.
   static_assert(extract_byte<1>(std::uint16_t{0xbeef}) == 0xbe);
   static_assert(extract_byte<0>(std::uint16_t{0xbeef}) == 0xef);
 }
 
+#pragma endregion
+
 #ifdef NOT_SUPPOSED_TO_COMPILE
+#pragma region ExtractByteOutOfRange
+
 TEST_CASE("ExtractByteOutOfRange", "[MathTest]") {
   // A byte the type does not have is a compile error, not a zero.
   CHECK(extract_byte<2>(std::uint16_t{0x2001}) == 0);
 }
+
+#pragma endregion
 #endif
+
+#pragma region CombineBytes
 
 TEST_CASE("CombineBytes", "[MathTest]") {
   // Least significant first, so the first argument is the low byte.
@@ -192,6 +253,9 @@ TEST_CASE("CombineBytes", "[MathTest]") {
             std::uint8_t{0xa8}, std::uint8_t{0xc0}) == 0xc0a80101);
 }
 
+#pragma endregion
+#pragma region CombineBytesRoundTrips
+
 TEST_CASE("CombineBytesRoundTrips", "[MathTest]") {
   // The inverse of `extract_byte`.
   constexpr auto addr = std::uint32_t{0xc0a80101};
@@ -199,6 +263,9 @@ TEST_CASE("CombineBytesRoundTrips", "[MathTest]") {
             extract_byte<1>(addr), extract_byte<2>(addr),
             extract_byte<3>(addr)) == addr);
 }
+
+#pragma endregion
+#pragma region CombineBytesSpellsItsZeros
 
 TEST_CASE("CombineBytesSpellsItsZeros", "[MathTest]") {
   // Every byte is supplied, so a mostly-empty value states the zeros rather
@@ -209,11 +276,17 @@ TEST_CASE("CombineBytesSpellsItsZeros", "[MathTest]") {
       combine_bytes<std::uint32_t>(z, z, z, std::uint8_t{0xff}) == 0xff000000);
 }
 
+#pragma endregion
+#pragma region CombineBytesUsesOnlyTheLowByte
+
 TEST_CASE("CombineBytesUsesOnlyTheLowByte", "[MathTest]") {
   // A wider argument contributes its low byte and nothing else.
   CHECK(combine_bytes<std::uint16_t>(std::uint16_t{0xbeef}, std::uint8_t{}) ==
         0x00ef);
 }
+
+#pragma endregion
+#pragma region CombineBytesDeducesItsWidth
 
 TEST_CASE("CombineBytesDeducesItsWidth", "[MathTest]") {
   // With no type named, the byte count picks the result type.
@@ -230,7 +303,11 @@ TEST_CASE("CombineBytesDeducesItsWidth", "[MathTest]") {
             std::uint8_t{0xfe}) == 0xfe00'0000'0000'0010);
 }
 
+#pragma endregion
+
 #ifdef __SIZEOF_INT128__
+#pragma region ExtractAndCombine128
+
 TEST_CASE("ExtractAndCombine128", "[MathTest]") {
   // Where the compiler has a 128-bit type, the pair reaches it too. Note that
   // libstdc++ outside GNU mode does not report `__uint128_t` as integral, so
@@ -243,7 +320,11 @@ TEST_CASE("ExtractAndCombine128", "[MathTest]") {
   CHECK(extract_byte<15>(v) == 0xfe);
   CHECK(extract_byte<7>(v) == 0);
 }
+
+#pragma endregion
 #endif
+
+#pragma region CombineBytesDeducedMatchesSpelled
 
 TEST_CASE("CombineBytesDeducedMatchesSpelled", "[MathTest]") {
   // Naming the type is allowed and must agree with the count.
@@ -252,6 +333,9 @@ TEST_CASE("CombineBytesDeducedMatchesSpelled", "[MathTest]") {
   CHECK(combine_bytes<std::uint16_t>(lo, hi) == combine_bytes(lo, hi));
 }
 
+#pragma endregion
+#pragma region CombineBytesConstexpr
+
 TEST_CASE("CombineBytesConstexpr", "[MathTest]") {
   // Usable in constant expressions.
   static_assert(
@@ -259,7 +343,11 @@ TEST_CASE("CombineBytesConstexpr", "[MathTest]") {
       0xbeef);
 }
 
+#pragma endregion
+
 #ifdef NOT_SUPPOSED_TO_COMPILE
+#pragma region CombineBytesWrongCount
+
 TEST_CASE("CombineBytesWrongCount", "[MathTest]") {
   // A named type must match the count exactly, in both directions.
   CHECK(combine_bytes<std::uint16_t>(std::uint8_t{1}, std::uint8_t{2},
@@ -268,4 +356,6 @@ TEST_CASE("CombineBytesWrongCount", "[MathTest]") {
   // Deducing needs a count some standard width matches.
   CHECK(combine_bytes(std::uint8_t{1}, std::uint8_t{2}, std::uint8_t{3}) == 0);
 }
+
+#pragma endregion
 #endif

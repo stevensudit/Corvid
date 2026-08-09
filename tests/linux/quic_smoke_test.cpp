@@ -30,6 +30,8 @@
 // test of the libraries themselves; that comes with the wrappers.
 // nghttp3's matching link/version check lives in nghttp3_smoke_test.cpp.
 
+#pragma region Smoke
+
 TEST_CASE("QUIC dependencies link and report versions", "[quic]") {
   SECTION("OpenSSL is 3.5 or newer (native QUIC API)") {
     // 0x30500000L == 3.5.0. We need the QUIC API that landed in 3.5.
@@ -56,4 +58,6 @@ TEST_CASE("QUIC dependencies link and report versions", "[quic]") {
     ngtcp2_crypto_ossl_ctx_del(ctx);
   }
 }
+
+#pragma endregion
 // NOLINTEND(readability-function-cognitive-complexity)

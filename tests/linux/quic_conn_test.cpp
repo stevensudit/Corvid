@@ -102,6 +102,8 @@ struct bound_loopback {
 
 } // namespace
 
+#pragma region Construction
+
 // NOLINTBEGIN(readability-function-cognitive-complexity)
 TEST_CASE("quic_conn constructs as server", "[quic][conn]") {
   self_signed_cert ck;
@@ -174,6 +176,9 @@ TEST_CASE("quic_conn expiry is queryable on a fresh conn", "[quic][conn]") {
   // Any non-default value is fine; the API just needs to round-trip.
   (void)deadline;
 }
+
+#pragma endregion
+#pragma region Handshake
 
 TEST_CASE("quic_conn handshake completes in-process", "[quic][conn]") {
   // Drive a real TLS 1.3 handshake between a client and server conn, in
@@ -444,6 +449,9 @@ TEST_CASE("quic_conn handler returning false aborts read_pkt",
   CHECK(saw_error);
   CHECK_FALSE(server_trace.saw("handshake_completed"));
 }
+
+#pragma endregion
+#pragma region Close and I/O
 
 TEST_CASE("quic_conn request_close + write_connection_close ships a packet",
     "[quic][conn]") {
@@ -735,7 +743,9 @@ TEST_CASE(
         quic_status::ok);
 }
 
+#pragma endregion
 #pragma region CloseKindString
+
 TEST_CASE("CloseKindString", "[quic]") {
   // Each named value round-trips through `enum_as_string` / `parse_enum`.
   // Values are the on-wire CONNECTION_CLOSE frame type codes (0x1c, 0x1d).
@@ -751,9 +761,10 @@ TEST_CASE("CloseKindString", "[quic]") {
     CHECK(parse_enum("application", bad) == F::application);
   }
 }
-#pragma endregion
 
+#pragma endregion
 #pragma region WriteStreamFlagsString
+
 TEST_CASE("WriteStreamFlagsString", "[quic]") {
   // Each named bit round-trips through `enum_as_string` / `parse_enum`.
   using namespace corvid::strings;
@@ -777,6 +788,7 @@ TEST_CASE("WriteStreamFlagsString", "[quic]") {
           (F::padding | F::fin | F::more));
   }
 }
+
 #pragma endregion
 
 // NOLINTEND(readability-function-cognitive-complexity)
