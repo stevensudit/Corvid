@@ -28,6 +28,7 @@
 #include "../../containers/core/scoped_value.h"
 #include "../../strings/conversion.h"
 #include "../source_scanner.h"
+#include "hall_reader.h"
 #include "monty_lexer.h"
 #include "value.h"
 
@@ -51,6 +52,7 @@ namespace corvid { inline namespace lang { namespace coreb { namespace monty {
 //   x if c else y  ->  (if c x y)
 //   map((-), xs)   ->  (map - xs)
 //   [1, x + 1]     ->  (list 1 (+ x 1))
+//   %(lambda (n) n)  ->  (lambda (n) n)
 //
 // The grammar in EBNF ("{x}" repetition, "[x]" option, "|" alternation):
 //
@@ -60,21 +62,23 @@ namespace corvid { inline namespace lang { namespace coreb { namespace monty {
 //             | unary { ( "*" | "/" ) unary }
 //   unary   ::= "-" unary | postfix
 //   postfix ::= primary { "(" [ expr { "," expr } ] ")" }
-//   primary ::= number | string | word | list
+//   primary ::= number | string | word | list | hall
 //             | "(" operator ")" | "(" expr ")"
 //   list    ::= "[" [ expr { "," expr } ] "]"
 //   cmp     ::= "==" | "!=" | "<" | "<=" | ">" | ">="
 //
-// where number/string/word are the lexer's tokens ("nil", "true", and
+// where number/string/word/hall are the lexer's tokens ("nil", "true", and
 // "false" reading as literals rather than symbols), a chain's cmp
 // occurrences must all be the same operator ("!=" may occur only once), and
 // `(op)` mentions an operator as a value.
 //
-// The grammar enforces the sparse partial-order precedence ruling from
-// "coreb.md" structurally: {+ -} and {* /} each fold left but mixing the
-// families without parentheses is an error rather than a precedence
-// decision, arithmetic sits above comparison, and comparison chains desugar
-// to the kernel's chaining primitives.
+// A `hall` token is the `%(...)` escape: its text is the Hall form itself,
+// which is read, not evaluated, and splices in place.
+//
+// The grammar enforces the sparse partial-order precedence structurally: {+ -}
+// and {* /} each fold left but mixing the families without parentheses is an
+// error rather than a precedence decision, arithmetic sits above comparison,
+// and comparison chains desugar to the kernel's chaining primitives.
 
 #pragma region expression_parser
 
@@ -191,7 +195,7 @@ private:
 
     // Parse an arithmetic fold. {+ -} and {* /} are families: each folds
     // left into binary forms, and mixing the families without parentheses
-    // is an error, per the sparse partial-order precedence ruling.
+    // is an error, per the sparse partial-order precedence design.
     [[nodiscard]] result<value> parse_arith() {
       auto l = parse_unary();
       if (!l) return l;
@@ -263,6 +267,7 @@ private:
       case token_kind::number: return parse_number();
       case token_kind::string: return parse_string();
       case token_kind::word: return parse_word();
+      case token_kind::hall: return parse_hall();
       case token_kind::lparen: return parse_group();
       case token_kind::lbracket: return parse_list();
       default: return toks.fail("expected an expression");
@@ -302,6 +307,19 @@ private:
       if (text == "true") return value{true};
       if (text == "false") return value{false};
       return value{rt.intern(text)};
+    }
+
+    // Parse a Hall escape token.
+    [[nodiscard]] result<value> parse_hall() {
+      const auto tok = toks.take();
+      auto v = hall_reader::read_one(rt, tok.text);
+      // Patch the error location.
+      if (!v) {
+        auto e = std::move(v).as_error();
+        return source_error::at(toks.src(), tok.pos + e.pos,
+            std::move(e.message), e.cause);
+      }
+      return v;
     }
 
     // Parse a list literal, which desugars to the kernel `list` constructor,

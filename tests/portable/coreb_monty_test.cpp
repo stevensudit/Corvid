@@ -47,6 +47,7 @@ std::string lex_dump(std::string_view src) {
     case monty::token_kind::op:
     case monty::token_kind::number:
     case monty::token_kind::string:
+    case monty::token_kind::hall:
       out += ':';
       out += t.text;
       break;
@@ -157,6 +158,16 @@ TEST_CASE("Monty lexer tokens", "[coreb]") {
   CHECK(
       lex_dump(R"(s = "a\nb")") == R"(word:s op:= string:"a\nb" newline eof)");
   CHECK(lex_dump("\"a\tb\"") == "string:\"a\tb\" newline eof");
+
+  // `%(` opens a Hall escape, scanned raw to the matching paren; the
+  // token's text is the Hall form, without the `%`. Parens inside Hall
+  // strings and `;` comments do not count, and newlines inside are plain
+  // text, not line structure.
+  CHECK(lex_dump("x = %(+ 1 2)") == "word:x op:= hall:(+ 1 2) newline eof");
+  CHECK(lex_dump("%(f (g 1))") == "hall:(f (g 1)) newline eof");
+  CHECK(lex_dump(R"x(%(f ")"))x") == R"x(hall:(f ")") newline eof)x");
+  CHECK(lex_dump("%(f ; )\n 1)") == "hall:(f ; )\n 1) newline eof");
+  CHECK(lex_dump("%(f\n  1)") == "hall:(f\n  1) newline eof");
 }
 
 #pragma endregion
@@ -239,6 +250,18 @@ TEST_CASE("Monty lexer errors", "[coreb]") {
   CHECK(e.line == 1);
   CHECK(e.col == 2);
 
+  // An unterminated Hall escape needs more input, reported at its opener;
+  // an unterminated Hall string swallows everything, leaving the escape
+  // unclosed.
+  e = lex_err("x = %(f (g 1)");
+  CHECK(e.message == "unterminated Hall escape");
+  CHECK(e.incomplete());
+  CHECK(e.pos == 4);
+  CHECK(lex_err(R"x(%(f "))x").message == "unterminated Hall escape");
+
+  // `%` opens nothing but an escape.
+  CHECK(lex_err("%x").message == "unexpected character");
+
   // Errors carry a 1-based line and column.
   e = lex_err("ok\n   x");
   CHECK(e.line == 2);
@@ -300,6 +323,13 @@ TEST_CASE("Monty expression parser", "[coreb]") {
   CHECK(parse_dump(rt, "[1, 2, 3]") == "(list 1 2 3)");
   CHECK(parse_dump(rt, "[]") == "(list)");
   CHECK(parse_dump(rt, "[1 + 2, [x]]") == "(list (+ 1 2) (list x))");
+
+  // The `%(...)` Hall escape splices the read form in place: code, not
+  // quotation, composing with postfix and operands like any primary.
+  CHECK(parse_dump(rt, "%(+ 1 2)") == "(+ 1 2)");
+  CHECK(parse_dump(rt, "1 + %(head xs)") == "(+ 1 (head xs))");
+  CHECK(parse_dump(rt, "%(lambda (n) (* n 2))(21)") ==
+        "((lambda (n) (* n 2)) 21)");
 
   // Bracket continuation carries an expression across lines.
   CHECK(parse_dump(rt, "f(a,\n  b)") == "(f a b)");
@@ -377,6 +407,13 @@ TEST_CASE("Monty expression parser errors", "[coreb]") {
   CHECK(e.message == "expected an expression");
   CHECK(e.line == 2);
   CHECK(e.col == 1);
+
+  // A Hall reader error inside an escape maps back to the enclosing
+  // source, offset by the token's position: here, the misplaced dot.
+  e = parse_err(rt, "x + %(.)");
+  CHECK(e.message == "misplaced '.'");
+  CHECK(e.pos == 6);
+  CHECK(e.col == 7);
 }
 
 #pragma endregion
@@ -539,6 +576,10 @@ TEST_CASE("Monty statement parser evaluates", "[coreb]") {
 
   CHECK(program_eval("x = 5\nx + 1") == "6");
   CHECK(program_eval("fun = 5\n(fun + 1)") == "6");
+
+  // The Hall escape end to end: an anonymous lambda, inexpressible in
+  // Monty today, embeds and evaluates.
+  CHECK(program_eval("double = %(lambda (n) (* n 2))\ndouble(21)") == "42");
   CHECK(program_eval("fun double(n):\n  n * 2\ndouble(21)") == "42");
   CHECK(program_eval("if 1 < 2:\n  \"yes\"\nelse:\n  \"no\"") == "\"yes\"");
 

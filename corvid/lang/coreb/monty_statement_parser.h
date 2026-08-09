@@ -74,10 +74,10 @@ namespace corvid { inline namespace lang { namespace coreb { namespace monty {
 // `(begin ...)` sequences except a `fun` body, which splats into the
 // lambda's implicit sequence.
 //
-// `return` follows the restricted-return ruling in "coreb.md": a final
-// `return e` is just `e`, and an else-less `if` whose every arm ends in
-// `return` takes the remainder of the body as its else branch, the guard
-// clause idiom. Any deeper `return` is an error, as is one outside `fun`.
+// `return` follows the restricted-return design: a final `return e` is just
+// `e`, and an else-less `if` whose every arm ends in `return` takes the
+// remainder of the body as its else branch, the guard clause idiom. Any deeper
+// `return` is an error, as is one outside `fun`.
 
 #pragma region statement_parser
 

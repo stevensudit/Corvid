@@ -35,8 +35,7 @@ namespace corvid { inline namespace lang { namespace coreb { namespace monty {
 
 // Monty lexer.
 //
-// Monty is CoreB's Pythonesque surface syntax; the design rulings it
-// implements are recorded in "coreb.md".
+// Monty is CoreB's Pythonesque surface syntax.
 //
 // This header tokenizes Monty source into words, operators, numbers, strings,
 // punctuation, and the INDENT/DEDENT/NEWLINE structure that Python-style
@@ -55,12 +54,16 @@ namespace corvid { inline namespace lang { namespace coreb { namespace monty {
 //   `2E+4`. No sign; `-7` is the operator `-` applied to `7`.
 // - Strings are double-quoted and single-line, with the kernel escape set:
 //   `"say \"hi\"\n"`.
+// - `%(` opens a Hall escape: `%(+ 1 2)`. The token runs to the paren
+//   balancing the opener, parens inside Hall strings and `;` comments not
+//   counting, and its text is the form itself, without the `%`, for the
+//   Hall reader to judge.
 // - `#` starts a comment running to end of line.
 //
 // The same grammar in EBNF ("{x}" repetition, "[x]" option, "|"
 // alternation):
 //
-//   token    ::= word | operator | number | string | punct
+//   token    ::= word | operator | number | string | hall | punct
 //   word     ::= ( letter | "_" ) { letter | digit | "_" } [ "?" ]
 //   operator ::= "==" | "!=" | "<=" | ">=" | ":=" |
 //                "+" | "-" | "*" | "/" | "<" | ">" | "="
@@ -68,11 +71,13 @@ namespace corvid { inline namespace lang { namespace coreb { namespace monty {
 //   frac     ::= "." digit { digit }
 //   exp      ::= ( "e" | "E" ) [ "+" | "-" ] digit { digit }
 //   string   ::= '"' { plain | escape } '"'
+//   hall     ::= "%" "(" hall-text ")"
 //   punct    ::= "(" | ")" | "[" | "]" | "," | ":"
 //   comment  ::= "#" { not-newline }
 //
-// where "plain" is any character except '"', '\', and newline, and "escape"
-// is the kernel set from "conversion.h": \" \\ \n \t \r \u{hex}.
+// where "plain" is any character except '"', '\', and newline, "escape"
+// is the kernel set from "conversion.h": \" \\ \n \t \r \u{hex}, and
+// "hall-text" is raw Hall, scanned for paren balance only.
 //
 // Around the tokens, the lexer synthesizes line structure: NEWLINE ends each
 // logical line, and INDENT/DEDENT bracket each two-space indentation change,
@@ -90,6 +95,7 @@ enum class token_kind : std::uint8_t {
   op,
   number,
   string,
+  hall,
   lparen,
   rparen,
   lbracket,
@@ -103,8 +109,8 @@ enum class token_kind : std::uint8_t {
 };
 consteval auto corvid_enum_spec(token_kind*) {
   return corvid::enums::sequence::make_sequence_enum_spec<token_kind,
-      "word,op,number,string,lparen,rparen,lbracket,rbracket,comma,colon,"
-      "newline,indent,dedent,eof">();
+      "word,op,number,string,hall,lparen,rparen,lbracket,rbracket,comma,"
+      "colon,newline,indent,dedent,eof">();
 }
 
 // One lexed token.
@@ -312,6 +318,7 @@ private:
         return std::monostate{};
       }
       if (c == '"') return extract_string();
+      if (c == '%' && peek(1) == '(') return extract_hall();
       if (strings::is_digit(c) || (c == '.' && strings::is_digit(peek(1))))
         return extract_number();
       if (is_word_lead(c)) return extract_word();
@@ -409,6 +416,51 @@ private:
           continue;
         }
         take();
+      }
+    }
+
+    // Lex a Hall escape, `%(...)`, into one `hall` token.
+    //
+    // The token's text is the Hall form itself, without the `%`. It ends at
+    // the paren balancing its opener, parens inside Hall strings and `;`
+    // comments not counting; the contents are otherwise unexamined, the Hall
+    // reader's to judge, newlines and raw tabs included. An unclosed escape is
+    // incomplete at its opener.
+    [[nodiscard]] result<void> extract_hall() {
+      const auto opener = cursor();
+      take('%');
+      const auto start = cursor();
+      take('(');
+      size_t nesting = 1;
+      while (nesting > 0) {
+        if (at_end())
+          return fail("unterminated Hall escape", opener,
+              error_cause::incomplete_input);
+
+        const char c = peek();
+        if (c == '"') {
+          skip_hall_string();
+          continue;
+        }
+        if (c == ';') {
+          skip_comment();
+          continue;
+        }
+        if (c == '(') ++nesting;
+        if (c == ')') --nesting;
+        take();
+      }
+      return push(token_kind::hall, start);
+    }
+
+    // Skip a Hall string during the escape scan.
+    void skip_hall_string() {
+      take('"');
+      while (!at_end()) {
+        const char c = peek();
+        take();
+        if (c == '"') return;
+        if (c == '\\' && !at_end()) take();
       }
     }
 

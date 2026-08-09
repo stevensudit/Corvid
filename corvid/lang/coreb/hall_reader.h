@@ -32,10 +32,9 @@ namespace corvid { inline namespace lang { namespace coreb {
 
 // Hall reader.
 //
-// Hall is CoreB's native s-expression syntax; the design rulings are
-// recorded in "coreb.md". This header parses parenthesized source text into
-// values. Monty, the Pythonesque surface syntax, is a skin whose parser
-// produces the same values.
+// Hall is CoreB's native s-expression syntax. This header parses parenthesized
+// source text into values. Monty, the Pythonesque surface syntax, is a skin
+// whose parser produces the same values.
 //
 //   runtime rt;
 //   auto v = hall_reader::read_one(rt, "(a 1 2.5)");
