@@ -18,6 +18,7 @@
 #include <cstddef>
 #include <memory>
 #include <stdexcept>
+#include <utility>
 
 #include "corvid/ecs/entity_registry.h"
 #include "catch2_main.h"
@@ -235,12 +236,14 @@ TEST_CASE("Basic", "[EntityRegistry]") {
     CHECK_THROWS_AS(r.at(id0), std::out_of_range);
   }
 
-  // size() tracks living entities.
+  // size() and empty() track living entities.
   if (true) {
     reg_t r;
     CHECK(r.size() == 0U);
+    CHECK(r.empty());
     auto id0 = r.create_id(loc0, 10);
     CHECK(r.size() == 1U);
+    CHECK_FALSE(r.empty());
     (void)r.create_id(loc1, 20);
     CHECK(r.size() == 2U);
     r.erase(id0);
@@ -466,7 +469,7 @@ TEST_CASE("Fifo", "[EntityRegistry]") {
   using id_t = reg_t::id_t;
 
   // Freed IDs are reused in FIFO order (oldest first).
-  // Detailed FIFO behavior is tested in StableId_Fifo.
+  // Detailed FIFO behavior is tested in FifoAdvanced.
   if (true) {
     reg_t r;
     auto id0 = r.create_id({}, 10);
@@ -490,7 +493,6 @@ TEST_CASE("Clear", "[EntityRegistry]") {
   using id_t = reg_t::id_t;
 
   // clear() without shrink: IDs reusable, gens bumped.
-  // Detailed clear behavior is tested in StableId_Basic and StableId_Fifo.
   if (true) {
     reg_t r;
     (void)r.create_id({}, 10); // id 0
@@ -529,7 +531,7 @@ TEST_CASE("Reserve", "[EntityRegistry]") {
   // reserve without prefill: just reserves capacity, no IDs allocated.
   if (true) {
     reg_t r;
-    r.reserve(10);
+    CHECK(r.reserve(10));
     CHECK_FALSE(r.is_valid(id_t{0}));
     auto id0 = r.create_id({}, 42);
     CHECK(*id0 == 0U);
@@ -538,7 +540,7 @@ TEST_CASE("Reserve", "[EntityRegistry]") {
   // reserve with prefill: pre-creates free slots.
   if (true) {
     reg_t r;
-    r.reserve(5, allocation_policy::eager);
+    CHECK(r.reserve(5, allocation_policy::eager));
     // Slots exist but are not valid (free).
     CHECK_FALSE(r.is_valid(id_t{0}));
     CHECK_FALSE(r.is_valid(id_t{4}));
@@ -550,6 +552,16 @@ TEST_CASE("Reserve", "[EntityRegistry]") {
     CHECK(r.create_id({}, 50) == id_t{4});
   }
 
+  // reserve refuses to exceed the ID limit, leaving the registry untouched.
+  if (true) {
+    reg_t r{id_t{5}};
+    CHECK_FALSE(r.reserve(10));
+    CHECK_FALSE(r.reserve(10, allocation_policy::eager));
+    CHECK(r.size() == 0U);
+    CHECK(r.reserve(5, allocation_policy::eager));
+    CHECK(r.create_id({}, 10) == id_t{0});
+  }
+
   // Prefill constructor.
   if (true) {
     reg_t r{id_t{5}, allocation_policy::eager};
@@ -559,7 +571,7 @@ TEST_CASE("Reserve", "[EntityRegistry]") {
   }
 
   // shrink_to_fit trims trailing dead records.
-  // Detailed shrink behavior is tested in StableId_Basic and StableId_Fifo.
+  // Detailed shrink behavior is tested in EdgeCases.
   if (true) {
     reg_t r;
     (void)r.create_id({}, 10); // id 0
@@ -582,7 +594,7 @@ TEST_CASE("IdLimit", "[EntityRegistry]") {
   using id_t = reg_t::id_t;
 
   // Constructor with limit and overflow.
-  // Detailed id_limit behavior is tested in StableId_MaxId.
+  // Detailed id_limit behavior is tested in IdLimitAdvanced.
   if (true) {
     reg_t r{id_t{3}};
     CHECK(r.id_limit() == id_t{3});
@@ -620,8 +632,6 @@ TEST_CASE("NoGen", "[EntityRegistry]") {
   const loc_t loc1{store_id_t{0}, 1};
 
   // handle_t has no get_gen() when UseGen=false.
-  // Detailed no-gen behavior is tested in StableId_NoGen and
-  // StableId_FifoNoGen.
   if (true) { static_assert(sizeof(reg_t::handle_t) == sizeof(id_t)); }
 
   // Basic create and access.
@@ -814,7 +824,7 @@ TEST_CASE("VoidMeta", "[EntityRegistry]") {
   // clear and reserve with prefill.
   if (true) {
     reg_t r;
-    r.reserve(5, allocation_policy::eager);
+    CHECK(r.reserve(5, allocation_policy::eager));
     CHECK(r.create_id() == id_t{0});
     CHECK(r.create_id() == id_t{1});
     r.clear();
@@ -954,6 +964,31 @@ TEST_CASE("IdLimitAdvanced", "[EntityRegistry]") {
     CHECK(r.set_id_limit(id_t{2}));
     CHECK(r.id_limit() == id_t{2});
     CHECK(r.max_id() == id_t{1}); // trimmed
+  }
+
+  // Shrinking the limit deletes records that the free list may still name, so
+  // the list has to be rebuilt even when the tail trim shrinks nothing, which
+  // is exactly the case when the record just below the new limit is alive.
+  if (true) {
+    reg_t r;
+    id_t ids[10]{};
+    for (auto& id : ids) id = r.create_id();
+
+    // Erase the tail block first, so those IDs sit at the head of the FIFO
+    // free list, then erase one more below the future limit.
+    for (auto ndx = 5UZ; ndx < 10; ++ndx) CHECK(r.erase(ids[ndx]));
+    CHECK(r.erase(ids[2]));
+    CHECK(r.size() == 4U); // 0, 1, 3, 4
+
+    // Record 4 is alive, so trimming the dead tail does nothing here.
+    CHECK(r.set_id_limit(id_t{5}));
+    CHECK(r.max_id() == id_t{4});
+
+    // Before the rebuild was unconditional, this popped the stale head (id 5)
+    // and handed back an ID past the end of the record vector.
+    const auto id = r.create_id();
+    CHECK(*id < 5U);
+    CHECK(r.is_valid(id));
   }
 
   // Raising the limit always succeeds.
@@ -1139,7 +1174,7 @@ TEST_CASE("LifoAdvanced", "[EntityRegistry]") {
   // highest prefilled slot is allocated first.
   if (true) {
     reg_t r;
-    r.reserve(4, allocation_policy::eager); // pushes 0, 1, 2, 3 -> top is 3
+    CHECK(r.reserve(4, allocation_policy::eager)); // pushes 0..3 -> top is 3
     CHECK(r.create_id({}, 10) == id_t{3});
     CHECK(r.create_id({}, 20) == id_t{2});
     CHECK(r.create_id({}, 30) == id_t{1});
@@ -1319,7 +1354,7 @@ TEST_CASE("EdgeCases", "[EntityRegistry]") {
   // reserve without prefill does not affect create order.
   if (true) {
     reg_t r;
-    r.reserve(100);
+    CHECK(r.reserve(100));
     CHECK(r.size() == 0U);
     CHECK(r.create_id({}, 10) == id_t{0});
     CHECK(r.create_id({}, 20) == id_t{1});
@@ -1556,6 +1591,38 @@ TEST_CASE("EraseIfPredicate", "[EntityRegistry]") {
     CHECK(r.is_valid(id_t{0}));
     CHECK_FALSE(r.is_valid(id_t{2}));
   }
+
+  // erase_if scans records in ascending ID order, so under FIFO the IDs it
+  // frees are reused in that same ascending order.
+  if (true) {
+    reg_t r;
+    (void)r.create_id({}, 10); // id 0
+    (void)r.create_id({}, 25); // id 1
+    (void)r.create_id({}, 30); // id 2
+    (void)r.create_id({}, 5);  // id 3
+    (void)r.create_id({}, 15); // id 4
+    auto cnt = r.erase_if([](auto, auto& rec) { return rec.metadata > 20; });
+    CHECK(cnt == 2U); // ids 1 and 2
+    CHECK(r.create_id({}, 100) == id_t{1});
+    CHECK(r.create_id({}, 200) == id_t{2});
+  }
+
+  // Under LIFO, the same ascending scan means the IDs erase_if frees are
+  // reused in descending order (last freed first).
+  if (true) {
+    using lifo_reg_t = entity_registry<int, entity_id_t, store_id_t,
+        generation_scheme::versioned, 1, sequence_order::lifo>;
+    lifo_reg_t r;
+    (void)r.create_id({}, 10); // id 0
+    (void)r.create_id({}, 25); // id 1
+    (void)r.create_id({}, 30); // id 2
+    (void)r.create_id({}, 5);  // id 3
+    (void)r.create_id({}, 15); // id 4
+    auto cnt = r.erase_if([](auto, auto& rec) { return rec.metadata > 20; });
+    CHECK(cnt == 2U); // ids 1 and 2, freed in that order
+    CHECK(r.create_id({}, 100) == id_t{2});
+    CHECK(r.create_id({}, 200) == id_t{1});
+  }
 }
 
 #pragma endregion
@@ -1593,6 +1660,70 @@ TEST_CASE("IdLimitFreeList", "[EntityRegistry]") {
 
 #pragma endregion
 
+#pragma region SwapMoveFreeList
+
+TEST_CASE("SwapMoveFreeList", "[EntityRegistry]") {
+  using namespace id_enums;
+  using reg_t = entity_registry<int>;
+  using id_t = reg_t::id_t;
+
+  // Swap exchanges the complete FIFO free-list state, including the tail, so
+  // a free after the swap appends in the right place.
+  if (true) {
+    reg_t ra;
+    reg_t rb;
+    (void)ra.create_id({}, 10); // ra: id 0
+    (void)ra.create_id({}, 20); // ra: id 1
+    ra.erase(id_t{0});          // ra free list: [0]
+    (void)rb.create_id({}, 30); // rb: id 0
+    (void)rb.create_id({}, 40); // rb: id 1
+    (void)rb.create_id({}, 50); // rb: id 2
+    rb.erase(id_t{1});          // rb free list: [1]
+    rb.erase(id_t{0});          // rb free list: [1, 0]
+    std::swap(ra, rb);
+    // ra now has rb's old records; this free appends at the tail.
+    ra.erase(id_t{2}); // ra free list: [1, 0, 2]
+    CHECK(ra.create_id({}, 100) == id_t{1});
+    CHECK(ra.create_id({}, 200) == id_t{0});
+    CHECK(ra.create_id({}, 300) == id_t{2});
+    // rb now has ra's old free list.
+    CHECK(rb.create_id({}, 400) == id_t{0});
+  }
+
+  // Move construction transfers the FIFO free list intact, tail included.
+  if (true) {
+    reg_t src;
+    (void)src.create_id({}, 10); // id 0
+    (void)src.create_id({}, 20); // id 1
+    (void)src.create_id({}, 30); // id 2
+    src.erase(id_t{0});          // free list: [0]
+    src.erase(id_t{2});          // free list: [0, 2]
+    reg_t dst{std::move(src)};
+    dst.erase(id_t{1}); // free list: [0, 2, 1]
+    CHECK(dst.create_id({}, 100) == id_t{0});
+    CHECK(dst.create_id({}, 200) == id_t{2});
+    CHECK(dst.create_id({}, 300) == id_t{1});
+  }
+
+  // Move assignment transfers the FIFO free list intact, tail included.
+  if (true) {
+    reg_t src;
+    (void)src.create_id({}, 10); // id 0
+    (void)src.create_id({}, 20); // id 1
+    (void)src.create_id({}, 30); // id 2
+    src.erase(id_t{0});          // free list: [0]
+    src.erase(id_t{2});          // free list: [0, 2]
+    reg_t dst;
+    dst = std::move(src);
+    dst.erase(id_t{1}); // free list: [0, 2, 1]
+    CHECK(dst.create_id({}, 100) == id_t{0});
+    CHECK(dst.create_id({}, 200) == id_t{2});
+    CHECK(dst.create_id({}, 300) == id_t{1});
+  }
+}
+
+#pragma endregion
+
 #pragma region ReservePrefillExisting
 
 TEST_CASE("ReservePrefillExisting", "[EntityRegistry]") {
@@ -1606,7 +1737,7 @@ TEST_CASE("ReservePrefillExisting", "[EntityRegistry]") {
     auto id0 = r.create_id({}, 10); // id 0
     auto id1 = r.create_id({}, 20); // id 1
     CHECK(r.size() == 2U);
-    r.reserve(5, allocation_policy::eager); // adds free slots 2, 3, 4
+    CHECK(r.reserve(5, allocation_policy::eager)); // adds free slots 2, 3, 4
     // Existing entities are undisturbed.
     CHECK(r.is_valid(id0));
     CHECK(r.is_valid(id1));
@@ -1623,11 +1754,11 @@ TEST_CASE("ReservePrefillExisting", "[EntityRegistry]") {
   // reserve with prefill when some slots are already free.
   if (true) {
     reg_t r;
-    (void)r.create_id({}, 10);              // id 0
-    (void)r.create_id({}, 20);              // id 1
-    (void)r.create_id({}, 30);              // id 2
-    r.erase(id_t{1});                       // free: [1]
-    r.reserve(5, allocation_policy::eager); // adds free slots 3, 4
+    (void)r.create_id({}, 10);                     // id 0
+    (void)r.create_id({}, 20);                     // id 1
+    (void)r.create_id({}, 30);                     // id 2
+    r.erase(id_t{1});                              // free: [1]
+    CHECK(r.reserve(5, allocation_policy::eager)); // adds free slots 3, 4
     // Free list should be: 1 (existing), then 3, 4 (new).
     CHECK(r.create_id({}, 40) == id_t{1});
     CHECK(r.create_id({}, 50) == id_t{3});

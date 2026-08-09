@@ -20,10 +20,10 @@ The ECS is built around **one foundation and two parallel models**:
   leaves) and a **scene** type that aggregates a registry plus a heterogeneous
   tuple of storages. The scene is the primary entry point.
 
-Two files sit **outside** that system: `stable_ids.h` is a legacy standalone
-sparse-set that predates the registry (kept for compatibility, obsoleted by
-`entity_registry` + `mono_archetype_storage`), and `ecs_meta.h` is a header of
-compile-time utilities the scenes use internally rather than a class.
+Two files sit **outside** that system: `ecs_meta.h` is a header of
+compile-time utilities the scenes use internally rather than a class, and
+`storage_iterator.h` holds the iterator and row view shared by the
+single-component storages.
 
 ```mermaid
 flowchart TB
@@ -43,8 +43,6 @@ flowchart TB
     AS --> AF --> REG
     CS --> CF --> REG
     REG --> IDC --> IDS
-    LEG["stable_ids (legacy, standalone)"]
-    LEG -.->|obsoleted by| REG
 ```
 
 ## Foundation: registry and IDs
@@ -72,18 +70,11 @@ classDiagram
         +id
         +generation
     }
-    class stable_ids {
-        <<legacy / standalone>>
-    }
 
     entity_registry *-- id_container : records
     id_container ..> entity_ids : ID enums
     entity_registry ..> handle_t : issues
-    stable_ids ..> entity_ids : ID enums
 ```
-
-`stable_ids` is drawn here only because it shares the `entity_ids` enums; it has
-no other tie to the system (nothing in the core includes it).
 
 ## Archetype family
 
@@ -190,13 +181,8 @@ classDiagram
 
 | Item | File | Role |
 | ---- | ---- | ---- |
-| [ecs_meta.h](ecs_meta.h) | ecs_meta.h | Compile-time utilities (`tuple_contains_v`, `has_all_components_v`, `storage_index_for_v`, ...) driving `for_each` dispatch and component-selector resolution in both scenes. A header of metafunctions, not a class. |
-
-### Standalone / legacy
-
-| Class | File | Status |
-| ----- | ---- | ------ |
-| [stable_ids&lt;T, ID, ...&gt;](stable_ids.h#L87) | stable_ids.h | **Legacy, standalone.** An indexed vector / sparse-set with stable IDs and handle-based reuse detection that predates the full ECS. Nothing in the core includes it; it shares only the `entity_ids` enums. Obsoleted by `entity_registry` + `mono_archetype_storage`; prefer the full stack for new code (per [CLAUDE.md](CLAUDE.md)). |
+| [ecs_meta.h](ecs_meta.h) | ecs_meta.h | Compile-time utilities (`has_all_components_v`, `storage_index_for_v`, ...) driving `for_each` dispatch and component-selector resolution in both scenes. A header of metafunctions, not a class; the generic tuple metafunctions it builds on live in `meta/traits.h`. |
+| [storage_iterator.h](storage_iterator.h) | storage_iterator.h | `contiguous_storage_iterator` and `single_component_row_view`, shared by `mono_archetype_storage` and `component_storage`. |
 
 ## How the two models differ at runtime
 

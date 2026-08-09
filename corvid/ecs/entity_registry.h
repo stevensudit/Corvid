@@ -17,6 +17,7 @@
 #pragma once
 
 #include <cassert>
+#include <cstddef>
 #include <cstdint>
 #include <functional>
 #include <limits>
@@ -28,6 +29,7 @@
 
 #include "../infra/exception_firewalls.h"
 #include "../containers/core/fixed_bitset.h"
+#include "../math/arithmetic.h"
 #include "../meta/maybe.h"
 #include "../meta/crossplatform.h"
 #include "entity_ids.h"
@@ -112,7 +114,7 @@ public:
   // uses the unpadded value. In archetype mode the value is 8 so that
   // `store_id_set_t` (which uses this as its `N_BITS`) is always well-formed.
   static constexpr auto padded_bitmap_bits_v =
-      is_component_v ? ((bitmap_bits_v + 7) / 8 * 8UZ) : 8UZ;
+      is_component_v ? round_up_to_multiple(bitmap_bits_v, 8UZ) : 8UZ;
 
   using metadata_t = maybe_void_t<T>;
   using id_t = EID;
@@ -182,7 +184,7 @@ public:
       return cmp;
     }
 
-    [[nodiscard]] id_t id() const { return id_; }
+    [[nodiscard]] id_t id() const noexcept { return id_; }
 
     // True if the handle holds a valid (non-invalid) ID.
     [[nodiscard]] explicit operator bool() const noexcept {
@@ -192,7 +194,7 @@ public:
     // Note: While equality/inequality is guaranteed, the precise value is not.
     // As a result, you should not be checking for specific generation values,
     // and should probably not call this method at all.
-    [[nodiscard]] size_type gen() const
+    [[nodiscard]] size_type gen() const noexcept
     requires is_versioned_v
     {
       return gen_;
@@ -278,13 +280,13 @@ public:
       return store_ids_;
     }
 
-    constexpr void set(location_t location) noexcept {
+    constexpr void set(location_t location) {
       ndx_ = location.ndx;
       if constexpr (is_archetype_v) {
         store_id_ = location.store_id;
       } else {
         const auto store_id = location.store_id;
-        assert(store_id == store_id_t::invalid || *store_id < OWN_COUNT);
+        assert((store_id == store_id_t::invalid) || (*store_id < OWN_COUNT));
         if (store_id == store_id_t::invalid)
           store_ids_.reset();
         else if (store_id == store_id_t{}) {
@@ -297,7 +299,7 @@ public:
       }
     }
 
-    constexpr void reset(location_t location) noexcept {
+    constexpr void reset(location_t location) {
       if constexpr (is_component_v) store_ids_.reset();
       set(location);
     }
@@ -396,8 +398,14 @@ public:
       for (auto id = new_limit; id < id_end; ++id)
         if (is_alive(id)) return false;
 
-      records_.resize(*new_limit);
-      shrink_to_fit();
+      // The resize drops records that the free list may still name, so the
+      // list must be rebuilt over the final size. Fold the dead-tail trim
+      // into the same resize so both happen exactly once.
+      auto new_size = static_cast<size_type>(*new_limit);
+      while ((new_size > 0) && !is_alive(id_t{new_size - 1})) --new_size;
+      (void)records_.resize(new_size); // Cannot fail: shrinks below limit.
+      rebuild_free_list();
+      records_.shrink_to_fit();
     }
 
     return records_.set_id_limit(new_limit);
@@ -437,7 +445,7 @@ public:
   }
 
   // Get handle for ID. When invalid, returns an invalid handle.
-  [[nodiscard]] handle_t get_handle(id_t id) const {
+  [[nodiscard]] handle_t get_handle(id_t id) const noexcept {
     if (!is_valid(id)) return {};
     if constexpr (is_versioned_v)
       return handle_t{id, records_[id].gen};
@@ -453,13 +461,13 @@ public:
   //
   // Note that many methods taking an ID expect it to be valid and will not
   // check. In contrast, methods taking a handle will check.
-  [[nodiscard]] bool is_valid(id_t id) const {
+  [[nodiscard]] bool is_valid(id_t id) const noexcept {
     if (*id >= records_.size()) return false;
     return is_alive(id);
   }
 
   // Check whether handle is valid, including generation.
-  [[nodiscard]] bool is_valid(handle_t handle) const {
+  [[nodiscard]] bool is_valid(handle_t handle) const noexcept {
     if (!is_valid(handle.id_)) return false;
     if constexpr (is_versioned_v)
       return records_[handle.id_].gen == handle.gen_;
@@ -467,7 +475,7 @@ public:
   }
 
   // Get ID from handle, but returns `id_t::invalid` if the handle is invalid.
-  [[nodiscard]] id_t id_from_handle(handle_t handle) const {
+  [[nodiscard]] id_t id_from_handle(handle_t handle) const noexcept {
     if (!is_valid(handle)) return id_t::invalid;
     return handle.id();
   }
@@ -488,7 +496,7 @@ public:
   //
   // Returns `location_t` in archetype mode, and `store_id_set_t` in component
   // mode.
-  [[nodiscard]] decltype(auto) get_location(handle_t handle) const {
+  [[nodiscard]] decltype(auto) get_location(handle_t handle) const noexcept {
     if (!is_valid(handle)) return invalid_location.get_underlying();
     return get_location(handle.id_);
   }
@@ -527,7 +535,7 @@ public:
   requires is_component_v
   {
     assert(is_valid(id));
-    assert(*sid >= 1 && *sid < OWN_COUNT);
+    assert((*sid >= 1) && (*sid < OWN_COUNT));
     auto& bm = records_[id].location.store_ids_;
     bm[store_id_t{0}] = false; // leave staging (no-op if already out)
     bm[sid] = true;
@@ -544,7 +552,7 @@ public:
   requires is_component_v
   {
     assert(is_valid(id));
-    assert(*sid >= 1 && *sid < OWN_COUNT);
+    assert((*sid >= 1) && (*sid < OWN_COUNT));
     auto& bm = records_[id].location.store_ids_;
     bm[sid] = false;
     if (bm.none()) {
@@ -557,7 +565,7 @@ public:
 
   // Test whether entity is in a given storage. `*sid` must be < `OWN_COUNT`.
   // (Component mode only.)
-  [[nodiscard]] bool is_in_location(id_t id, store_id_t sid) const noexcept
+  [[nodiscard]] bool is_in_location(id_t id, store_id_t sid) const
   requires is_component_v
   {
     assert(is_valid(id));
@@ -572,7 +580,7 @@ public:
   // success.
   //
   // Deleted IDs will be reused.
-  bool erase(id_t id) {
+  bool erase(id_t id) noexcept {
     if (!is_valid(id)) return false;
     return do_erase(id);
   }
@@ -580,7 +588,7 @@ public:
   // Erase by handle. Fails if handle is invalid. Returns success.
   //
   // Deleted IDs will be reused, but the handle will be invalidated.
-  bool erase(handle_t handle) {
+  bool erase(handle_t handle) noexcept {
     if (!is_valid(handle)) return false;
     return do_erase(handle.id_);
   }
@@ -590,7 +598,7 @@ public:
 
   // Access metadata by ID. Must be valid.
   [[nodiscard]]
-  auto& operator[](this auto& self, id_t id) noexcept {
+  auto& operator[](this auto& self, id_t id) {
     assert(self.is_valid(id));
     return self.records_[id].metadata;
   }
@@ -657,6 +665,9 @@ public:
   // highest ID issued or in use.
   [[nodiscard]] size_type size() const noexcept { return living_count_; }
 
+  // Return whether there are no living entities.
+  [[nodiscard]] bool empty() const noexcept { return living_count_ == 0; }
+
   // Return maximum valid ID, or `id_t::invalid` if empty. This is the
   // high-water mark, not the highest extant ID. (Note that underflow of the
   // unsigned underlying type is well-defined, so we know that
@@ -708,14 +719,18 @@ public:
   }
 
   // Reserve space for at least `new_cap` records.
-  void reserve(size_type new_cap,
+  //
+  // Fails when `new_cap` exceeds the ID limit; raise it first with
+  // `set_id_limit`.
+  [[nodiscard]] bool reserve(size_type new_cap,
       allocation_policy prefill = allocation_policy::lazy) {
-    records_.reserve(new_cap);
+    if (!records_.reserve(new_cap)) return false;
     if (prefill == allocation_policy::eager && new_cap > records_.size()) {
       const auto old_size = records_.size();
-      records_.resize(new_cap);
+      (void)records_.resize(new_cap); // Cannot fail: reserve passed the check.
       for (auto ndx = old_size; ndx < new_cap; ++ndx) push_free(id_t{ndx});
     }
+    return true;
   }
 
 #pragma endregion
@@ -788,15 +803,19 @@ public:
       return std::exchange(handle_, handle_t{});
     }
 
-    // Erase the owned entity (if any) and reset to empty.
-    bool reset() noexcept {
-      if (handle_.id() != id_t::invalid) registry_->erase(handle_);
+    // Erase the owned entity (if any) and reset to empty. Returns whether
+    // an entity was actually erased, which a stale handle (entity erased
+    // out-of-band) is not.
+    bool reset() {
+      auto erased = false;
+      if (handle_.id() != id_t::invalid) erased = registry_->erase(handle_);
       handle_ = handle_t{};
-      return true;
+      return erased;
     }
 
     // Get the registry.
-    [[nodiscard]] decltype(auto) registry(this auto& self) noexcept {
+    [[nodiscard]] decltype(auto) registry(this auto& self) {
+      assert(self.registry_);
       return *self.registry_;
     }
 
@@ -878,9 +897,9 @@ private:
   // Trim trailing dead records from records_ and rebuild the free list.
   void trim_dead_tail() {
     auto new_size = records_.size();
-    while (new_size > 0 && !is_alive(id_t{new_size - 1})) --new_size;
+    while ((new_size > 0) && !is_alive(id_t{new_size - 1})) --new_size;
     if (new_size < records_.size()) {
-      records_.resize(new_size);
+      (void)records_.resize(new_size); // Cannot fail: shrinks.
       rebuild_free_list();
     }
   }

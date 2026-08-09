@@ -16,6 +16,7 @@
 // limitations under the License.
 
 #include <cstddef>
+#include <cstdint>
 #include <stdexcept>
 #include <vector>
 
@@ -28,6 +29,12 @@ using namespace corvid;
 // Aliased to eid_t to avoid collision with the POSIX ::id_t from sys/types.h.
 using eid_t = corvid::ecs::id_enums::entity_id_t;
 using container_t = id_container<int, eid_t>;
+
+// Enum with a narrow underlying type, for the capacity saturation pin.
+enum class small_id_t : uint8_t { invalid = 255 };
+consteval auto corvid_enum_spec(small_id_t*) {
+  return corvid::enums::sequence::make_sequence_enum_spec<small_id_t, "">();
+}
 
 // NOLINTBEGIN(readability-function-cognitive-complexity)
 
@@ -222,10 +229,19 @@ TEST_CASE("Reserve", "[IdContainer]") {
   // reserve() pre-allocates capacity without changing size.
   if (true) {
     container_t c;
-    c.reserve(100);
+    CHECK(c.reserve(100));
     CHECK(c.size() == 0U);
     CHECK(c.empty());
     CHECK(c.capacity() >= 100U);
+  }
+
+  // reserve() refuses to exceed the ID limit, leaving capacity untouched.
+  if (true) {
+    container_t c{eid_t{4}};
+    CHECK_FALSE(c.reserve(10));
+    CHECK(c.capacity() < 10U);
+    CHECK(c.reserve(4));
+    CHECK(c.capacity() >= 4U);
   }
 }
 
@@ -236,7 +252,7 @@ TEST_CASE("Resize", "[IdContainer]") {
   // resize(n) expands or shrinks the slot count.
   if (true) {
     container_t c;
-    c.resize(5);
+    CHECK(c.resize(5));
     CHECK(c.size() == 5U);
     CHECK_FALSE(c.empty());
   }
@@ -244,7 +260,7 @@ TEST_CASE("Resize", "[IdContainer]") {
   // resize(n, value) fills new slots with value.
   if (true) {
     container_t c;
-    c.resize(3, 77);
+    CHECK(c.resize(3, 77));
     CHECK(c.size() == 3U);
     CHECK(c[eid_t{0}] == 77);
     CHECK(c[eid_t{1}] == 77);
@@ -257,10 +273,35 @@ TEST_CASE("Resize", "[IdContainer]") {
     CHECK(c.push_back(1));
     CHECK(c.push_back(2));
     CHECK(c.push_back(3));
-    c.resize(2);
+    CHECK(c.resize(2));
     CHECK(c.size() == 2U);
     CHECK(c[eid_t{0}] == 1);
     CHECK(c[eid_t{1}] == 2);
+  }
+
+  // resize() refuses to exceed the ID limit, leaving the container untouched.
+  if (true) {
+    container_t c{eid_t{2}};
+    CHECK(c.push_back(1));
+    CHECK_FALSE(c.resize(5));
+    CHECK(c.size() == 1U);
+    CHECK(c.id_limit() == eid_t{2});
+  }
+
+  // The filling overload enforces the same limit instead of raising it.
+  if (true) {
+    container_t c{eid_t{2}};
+    CHECK_FALSE(c.resize(5, 7));
+    CHECK(c.empty());
+    CHECK(c.id_limit() == eid_t{2});
+  }
+
+  // resize() to exactly the limit fills the ID space; push_back is then full.
+  if (true) {
+    container_t c{eid_t{2}};
+    CHECK(c.resize(2));
+    CHECK(c.size() == 2U);
+    CHECK_FALSE(c.push_back(9));
   }
 }
 
@@ -286,7 +327,7 @@ TEST_CASE("ShrinkToFit", "[IdContainer]") {
   // shrink_to_fit() reduces capacity to match size.
   if (true) {
     container_t c;
-    c.reserve(100);
+    CHECK(c.reserve(100));
     CHECK(c.push_back(42));
     c.shrink_to_fit();
     CHECK(c.size() == 1U);
@@ -343,6 +384,25 @@ TEST_CASE("Limit", "[IdContainer]") {
     CHECK(c.set_id_limit(eid_t{30}, allocation_policy::eager));
     CHECK(c.capacity() >= 30U);
     CHECK(c.id_limit() == eid_t{30});
+  }
+
+  // Eager prefill of an unlimited container skips the reserve.
+  if (true) {
+    container_t c;
+    CHECK(c.set_id_limit(eid_t::invalid, allocation_policy::eager));
+    CHECK(c.capacity() == 0U);
+  }
+
+  // Shrinking the limit below size takes two steps: resize down, then lower.
+  if (true) {
+    container_t c;
+    CHECK(c.push_back(1));
+    CHECK(c.push_back(2));
+    CHECK(c.push_back(3));
+    CHECK_FALSE(c.set_id_limit(eid_t{2}));
+    CHECK(c.resize(2));
+    CHECK(c.set_id_limit(eid_t{2}));
+    CHECK(c.id_limit() == eid_t{2});
   }
 }
 
@@ -455,6 +515,22 @@ TEST_CASE("Allocator", "[IdContainer]") {
     container_t c{eid_t{10}, allocation_policy::lazy, alloc};
     CHECK(c.id_limit() == eid_t{10});
     CHECK(c.empty());
+  }
+}
+
+#pragma endregion
+#pragma region NarrowId
+
+TEST_CASE("NarrowId", "[IdContainer]") {
+  // An 8-bit ID caps the container at 255 slots, since ID 255 is `invalid`.
+  // The vector may still over-allocate past 255 while growing; capacity()
+  // reports such overshoot saturated at the maximum, not truncated.
+  if (true) {
+    id_container<int, small_id_t> c;
+    for (auto ndx = 0; ndx < 255; ++ndx) REQUIRE(c.push_back(ndx));
+    CHECK(c.size() == 255U);
+    CHECK_FALSE(c.push_back(255));
+    CHECK(c.capacity() >= c.size());
   }
 }
 

@@ -17,12 +17,15 @@
 #pragma once
 
 #include <cassert>
+#include <cstddef>
 #include <limits>
 #include <memory>
 #include <type_traits>
 #include <utility>
 
 #include "../containers/utils/enum_vector.h"
+#include "../enums/bool_enums.h"
+#include "../math/arithmetic.h"
 #include "entity_ids.h"
 
 namespace corvid { inline namespace ecs { inline namespace id_containers {
@@ -37,8 +40,10 @@ namespace corvid { inline namespace ecs { inline namespace id_containers {
 //
 // The ID limit is the exclusive upper bound on valid IDs. It defaults to
 // `id_t::invalid` (the maximum representable value), i.e., effectively
-// unlimited. Callers may lower it to enforce a stricter cap. Combining this
-// with `reserve` or `resize` allows preallocating a fixed-size pool of IDs.
+// unlimited. Callers may lower it to enforce a stricter cap. Every growth path
+// (`push_back`, `emplace_back`, `resize`, `reserve`) refuses to exceed the
+// limit; `set_id_limit` is the only way to raise it. Combining this with
+// `reserve` or `resize` allows preallocating a fixed-size pool of IDs.
 //
 // ID requirements:
 //   - Must be a `SequentialEnum`.
@@ -90,14 +95,21 @@ public:
   // Exclusive upper bound on valid IDs. Defaults to `id_t::invalid`.
   [[nodiscard]] id_t id_limit() const noexcept { return limit_; }
 
-  // Change the ID limit. Fails when the new limit would invalidate live IDs.
-  // When expanding and `prefill` is `allocation_policy::eager`, reserves but
-  // does not resize.
+  // Change the ID limit.
+  //
+  // Fails when the new limit is below the current size, since existing slots
+  // would become unaddressable. Shrink with `resize` first; whether slot
+  // contents may be discarded is the caller's judgment.
+  //
+  // When `prefill` is `allocation_policy::eager`, reserves capacity for the
+  // full limit but does not resize. An unlimited (`id_t::invalid`) limit skips
+  // the reserve, as there is no finite capacity to preallocate.
   [[nodiscard]] bool set_id_limit(id_t new_limit,
       allocation_policy prefill = allocation_policy::lazy) {
     if (new_limit < size_as_enum()) return false;
     limit_ = new_limit;
-    if (prefill == allocation_policy::eager) reserve(*limit_);
+    if ((prefill == allocation_policy::eager) && (limit_ != id_t::invalid))
+      (void)reserve(*limit_); // Cannot fail: the request equals the limit.
     return true;
   }
 
@@ -112,8 +124,13 @@ public:
     return data_.size_as_enum();
   }
 
+  // Capacity, saturated at the maximum representable value.
+  //
+  // The underlying vector may over-allocate past the ID domain during growth;
+  // such capacity is unusable, so it is reported as the maximum rather than
+  // truncated.
   [[nodiscard]] size_type capacity() const noexcept {
-    return static_cast<size_type>(data_.capacity());
+    return saturate_cast<size_type>(data_.capacity());
   }
 
   [[nodiscard]] bool empty() const noexcept { return data_.empty(); }
@@ -121,13 +138,29 @@ public:
 #pragma endregion
 #pragma region Memory management
 
-  void reserve(size_type new_cap) { data_.reserve(new_cap); }
+  // Reserve capacity for `new_cap` slots.
+  //
+  // Fails when `new_cap` exceeds the ID limit; raise it first with
+  // `set_id_limit`.
+  [[nodiscard]] bool reserve(size_type new_cap) {
+    if (new_cap > *limit_) return false;
+    data_.reserve(new_cap);
+    return true;
+  }
 
-  void resize(size_type count) { data_.resize(count); }
-  void resize(size_type count, const value_type& value) {
-    const auto new_size = static_cast<id_t>(count);
-    if (limit_ < new_size) limit_ = new_size;
+  // Change the slot count, discarding tail slots when shrinking.
+  //
+  // Fails when `count` exceeds the ID limit; raise it first with
+  // `set_id_limit`.
+  [[nodiscard]] bool resize(size_type count) {
+    if (count > *limit_) return false;
+    data_.resize(count);
+    return true;
+  }
+  [[nodiscard]] bool resize(size_type count, const value_type& value) {
+    if (count > *limit_) return false;
     data_.resize(count, value);
+    return true;
   }
 
   void clear() noexcept { data_.clear(); }
@@ -138,7 +171,7 @@ public:
 #pragma region Element access
 
   // Access slot by ID. No bounds check.
-  [[nodiscard]] decltype(auto) operator[](this auto& self, id_t id) noexcept {
+  [[nodiscard]] decltype(auto) operator[](this auto& self, id_t id) {
     assert(id < self.size_as_enum());
     return self.data_[id];
   }
@@ -149,10 +182,12 @@ public:
   }
 
   [[nodiscard]] decltype(auto) front(this auto& self) {
+    assert(!self.empty());
     return self.data_.front();
   }
 
   [[nodiscard]] decltype(auto) back(this auto& self) {
+    assert(!self.empty());
     return self.data_.back();
   }
 
@@ -181,7 +216,10 @@ public:
     return &data_.emplace_back(std::forward<Args>(args)...);
   }
 
-  void pop_back() { data_.pop_back(); }
+  void pop_back() {
+    assert(!empty());
+    data_.pop_back();
+  }
 
 #pragma endregion
 #pragma region Iteration
@@ -197,7 +235,7 @@ public:
   [[nodiscard]] auto cbegin() const noexcept { return data_.cbegin(); }
   [[nodiscard]] auto cend() const noexcept { return data_.cend(); }
 
-  // Direct access to the underlying enum_vector.
+  // Direct access to the underlying `std::vector`.
   [[nodiscard]] decltype(auto) underlying(this auto& self) noexcept {
     return self.data_.underlying();
   }

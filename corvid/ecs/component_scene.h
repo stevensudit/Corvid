@@ -16,6 +16,7 @@
 // limitations under the License.
 #pragma once
 
+#include <cassert>
 #include <cstddef>
 #include <span>
 #include <tuple>
@@ -23,6 +24,8 @@
 #include <utility>
 #include <variant>
 
+#include "../enums/bool_enums.h"
+#include "../infra/exception_firewalls.h"
 #include "component_storage_base.h"
 #include "ecs_meta.h"
 #include "entity_registry.h"
@@ -129,6 +132,8 @@ public:
       : registry_{alloc},
         storages_{make_storages(std::index_sequence_for<STORES...>{})} {}
 
+  // Non-copyable and non-movable: each storage holds a pointer to
+  // `registry_`, which a move would have to rebind.
   component_scene(const component_scene&) = delete;
   component_scene(component_scene&&) = delete;
   component_scene& operator=(const component_scene&) = delete;
@@ -218,8 +223,7 @@ public:
     if (!registry_.is_valid(id)) return false;
     const auto location = registry_.get_location(id);
     [&]<size_t... Is>(std::index_sequence<Is...>) {
-      ((location[store_id_t{
-            static_cast<std::underlying_type_t<store_id_t>>(Is + 1)}]
+      ((location[store_id_t{Is + 1}]
                ? std::get<Is + 1>(storages_).remove(id)
                : false),
           ...);
@@ -243,11 +247,8 @@ public:
     const auto old_id = id;
     id = id_t::invalid;
     if (!registry_.is_valid(old_id)) return false;
-    // Remove from every storage (preserve mode so each storage's swap-and-pop
-    // runs cleanly; the entity stays alive until the registry erase below).
-    [&]<size_t... Is>(std::index_sequence<Is...>) {
-      (std::get<Is + 1>(storages_).remove(old_id), ...);
-    }(std::make_index_sequence<storage_count_v>{});
+    // Cannot fail: the ID was just validated.
+    (void)restage_entity(old_id);
     // Entity is now in staging. Destroy it.
     registry_.erase(old_id);
     return true;
@@ -260,8 +261,7 @@ public:
     handle = handle_t{};
     if (!registry_.is_valid(old_handle)) return false;
     auto id = old_handle.id();
-    if (!erase_entity(id)) return false;
-    return true;
+    return erase_entity(id);
   }
 
   // Erase all staged entities (those with no components in any storage).
@@ -280,7 +280,7 @@ public:
   [[nodiscard]] size_type size() const noexcept { return registry_.size(); }
 
   // Return true if there are no living entities.
-  [[nodiscard]] bool empty() const noexcept { return registry_.size() == 0; }
+  [[nodiscard]] bool empty() const noexcept { return registry_.empty(); }
 
   // Call `fn(id, std::tuple<component&...>)` for each entity simultaneously
   // present in all storages named by `Cs...`. At runtime, the storage with the
@@ -339,7 +339,7 @@ public:
     static_assert(sizeof...(Cs) >= 1,
         "`for_all` requires at least one component type");
     size_type failures{};
-    if (self.registry_.size() == 0) return failures;
+    if (self.registry_.empty()) return failures;
     const auto id_end = self.registry_.max_id();
     for (id_t id{}; id <= id_end; ++id) {
       if (!self.registry_.is_valid(id)) continue;
@@ -410,8 +410,7 @@ private:
   // rules). When resolved via tag, the return type is that storage's
   // `component_t`, not `C`.
   template<typename C>
-  [[nodiscard]] decltype(auto)
-  get_component(this auto& self, id_t id) noexcept {
+  [[nodiscard]] decltype(auto) get_component(this auto& self, id_t id) {
     constexpr size_t idx = storage_index_for_v<C, STORES...>;
     auto& st = std::get<idx + 1>(self.storages_);
     if constexpr (std::is_const_v<std::remove_reference_t<decltype(st)>>)
@@ -446,7 +445,7 @@ private:
   template<typename C>
   [[nodiscard]] decltype(auto)
   // NOLINTNEXTLINE(readability-function-cognitive-complexity)
-  get_component_dyn(this auto& self, id_t id) noexcept {
+  get_component_dyn(this auto& self, id_t id) {
     constexpr size_t nc = component_match_count_v<C, STORES...>;
     if constexpr (nc <= 1) {
       return self.template get_component<C>(id);
@@ -530,7 +529,7 @@ private:
   template<size_t... Is>
   storage_tuple_t make_storages(std::index_sequence<Is...>) {
     return std::make_tuple(std::monostate{},
-        STORES{registry_, store_id_t{Is + 1}}...);
+        STORES(registry_, store_id_t{Is + 1})...);
   }
 
 #pragma endregion

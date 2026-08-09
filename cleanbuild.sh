@@ -34,6 +34,12 @@ set -e
 # standard library chosen for the C++ files. Pass a *.cu filename to build and
 # run just one.
 #
+# Pass "clean-all" to delete the buildable outputs and stop: the release tree
+# (tests/build), the IDE debug tree (tests/build-debug), and any legacy
+# in-source strays at the repo root. Standalone; builds nothing. The dependency
+# caches (tests/.fetchcontent, tests/.fetchcontent-debug, tests/.local) are
+# expensive to rebuild and are preserved, same as "clean".
+#
 # This script builds and runs one configuration at a time. To exercise every
 # configuration (plain, asan, tsan, msan, tidy) in sequence, pass "all":
 #
@@ -54,7 +60,7 @@ use_clean=false
 test_name=""
 target_name=""
 
-usage="Usage: $0 [all | reconfigure | [testname.cpp|testname.cu] [clang|gcc] [libstdcpp|libcxx] [clean] [tidy] [asan|tsan|ubsan|msan] [coverage] [scan]]"
+usage="Usage: $0 [all | reconfigure | clean-all | [testname.cpp|testname.cu] [clang|gcc] [libstdcpp|libcxx] [clean] [tidy] [asan|tsan|ubsan|msan] [coverage] [scan]]"
 
 # Enforce the core/utils band layering before any build (fast, static, and
 # build-independent). See corvid/deps.md.
@@ -89,6 +95,24 @@ if [[ "${1:-}" == "all" ]]; then
   fi
 
   exit "$rv"
+fi
+
+# "clean-all" deletes the buildable outputs and stops: both build trees and
+# any legacy in-source strays at the repo root. The dependency caches
+# (tests/.fetchcontent, tests/.fetchcontent-debug, tests/.local) survive,
+# same as "clean". Note clangd loses compile_commands.json until the next
+# configure; "reconfigure" restores it without building.
+if [[ "${1:-}" == "clean-all" ]]; then
+  if [[ $# -gt 1 ]]; then
+    echo "$0: 'clean-all' takes no other arguments" >&2
+    echo "$usage" >&2
+    exit 1
+  fi
+  rm -f CMakeCache.txt cmake_install.cmake ClangExeProject.sln build.ninja
+  rm -rf CMakeFiles .ninja_deps .ninja_log
+  rm -rf tests/build tests/build-debug
+  echo "Removed tests/build and tests/build-debug (dependency caches preserved)."
+  exit 0
 fi
 
 if [[ $# -gt 0 && "$1" != "libstdcpp" && "$1" != "libcxx" \

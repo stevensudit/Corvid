@@ -16,16 +16,21 @@
 // limitations under the License.
 #pragma once
 
+#include <algorithm>
 #include <cassert>
-#include <iterator>
+#include <cstddef>
+#include <memory>
 #include <stdexcept>
 #include <type_traits>
 #include <tuple>
 #include <utility>
 #include <vector>
 
+#include "../enums/bool_enums.h"
 #include "../infra/exception_firewalls.h"
+#include "../math/arithmetic.h"
 #include "archetype_storage_base.h"
+#include "storage_iterator.h"
 
 namespace corvid { inline namespace ecs {
 inline namespace mono_archetype_storages {
@@ -46,7 +51,7 @@ inline namespace mono_archetype_storages {
 //
 // Template parameters:
 //  REG - `entity_registry` instantiation. Provides types.
-//  C   - Component type. Must be trivially copyable.
+//  C   - Component type. Must be movable (removal uses swap-and-pop).
 //  TAG - Optional tag type (default: `void`). Use a distinct tag to create
 //        multiple structurally identical storages that are nevertheless
 //        different types and can coexist in the same `archetype_scene<>`
@@ -82,8 +87,9 @@ public:
   using component_allocator_type =
       std::allocator_traits<allocator_type>::template rebind_alloc<C>;
 
-  static_assert(std::is_trivially_copyable_v<component_t>,
-      "Component type must be trivially copyable");
+  static_assert(
+      std::is_move_constructible_v<C> && std::is_move_assignable_v<C>,
+      "component type must be movable (removal uses swap-and-pop)");
 
 #pragma endregion
 #pragma region Construction
@@ -91,12 +97,18 @@ public:
   // Default-constructed instances can only be assigned to.
   mono_archetype_storage() noexcept = default;
 
+  // Construct bound to `registry` with the given `store_id`.
+  //
+  // The `store_id` is not permitted to be `store_id_t::invalid` or
+  // `store_id_t{0}` (staging). If `policy` is `allocation_policy::eager` and
+  // `limit` is not the sentinel unlimited value, reserves capacity for
+  // `limit` entities up front.
   explicit mono_archetype_storage(registry_t& registry, store_id_t store_id,
       size_type limit = *id_t::invalid,
       allocation_policy policy = allocation_policy::lazy)
       : base_t{registry, store_id, limit},
         components_{component_allocator_type{registry.get_allocator()}} {
-    if (policy == allocation_policy::eager && limit_ != *id_t::invalid)
+    if ((policy == allocation_policy::eager) && (limit_ != *id_t::invalid))
       reserve(limit_);
   }
 
@@ -140,9 +152,18 @@ public:
   }
 
   // Reserve space for at least `new_cap` components.
+  //
+  // Requests beyond the entity limit are clamped to it.
   void reserve(size_type new_cap) {
-    components_.reserve(new_cap);
-    ids_.reserve(new_cap);
+    const auto cap = static_cast<size_t>(std::min(new_cap, limit_));
+    components_.reserve(cap);
+    ids_.reserve(cap);
+  }
+
+  // Return current capacity (minimum across the component and ID vectors).
+  [[nodiscard]] size_type capacity() const noexcept {
+    auto min_cap = std::min(components_.capacity(), ids_.capacity());
+    return saturate_cast<size_type>(min_cap);
   }
 
 #pragma endregion
@@ -150,100 +171,51 @@ public:
 
   // Add a component for a new entity, returning its handle or an invalid
   // handle on failure.
-  [[nodiscard]] handle_t
-  add_new(const component_t& component, const metadata_t& metadata = {}) {
-    auto owner = registry_->create_owner(location_t{store_id_t{}}, metadata);
-    if (!owner || !add(owner.id(), component)) return {};
-    return owner.release();
-  }
-
-  // Metadata-first overload matching the archetype storage convention,
-  // enabling use as a StorageSpec in `archetype_scene`.
-  [[nodiscard]] handle_t add_new(const metadata_t& metadata,
-      const component_t& component = component_t{}) {
-    return add_new(component, metadata);
-  }
-
-  // Add a component for an entity. Returns success flag.
   //
-  // ID must be valid. The entity's location must be `store_id_t{0}` (staging).
-  // As a result of being added, the registry updates the entity's location to
-  // this storage's `store_id_` and the correct `ndx`.
-  [[nodiscard]] bool add(id_t id, const component_t& component) {
-    const auto& loc = registry_->get_location(id);
-    if (loc.store_id != store_id_t{}) return false;
-    const auto ndx = size();
-    if (ndx >= limit_) return false;
-    typename base_t::add_guard guard{*this};
-    components_.push_back(component);
-    ids_.push_back(id);
-    registry_->set_location(id, {store_id_, ndx});
-    return guard.disarm();
+  // Component-first convenience overload of the base's metadata-first
+  // `add_new`. `metadata` is by value so this overload outranks the base's
+  // forwarding pack on component-first calls, and the constraint removes it
+  // when the two roles have the same type and the ordering would be
+  // ambiguous. Move-only components must use the metadata-first form.
+  [[nodiscard]] handle_t
+  add_new(const component_t& component, metadata_t metadata = {})
+  requires(!std::is_same_v<component_t, metadata_t>)
+  {
+    return base_t::add_new(metadata, component);
   }
 
-  // Add a component for an entity by handle. Returns success flag.
-  [[nodiscard]] bool add(handle_t handle, const component_t& component) {
-    if (!registry_->is_valid(handle)) return false;
-    return add(handle.id(), component);
-  }
+  using base_t::add_new;
 
 #pragma endregion
 #pragma region Conditional removal
 
-  // Erase components for which `pred(component, id)` returns true. Returns
-  // count erased.
-  // Predicate shape: `(const component_t& comp, id_t id) -> bool`.
+  // Erase components for which `pred(component, id)` returns true.
+  //
+  // Returns count erased. Component-first convenience for
+  // `erase_if_component<component_t>`. Predicate shape: `(const component_t&
+  // comp, id_t id) -> bool`.
   size_type erase_if(auto pred) {
-    size_type cnt{};
-    for (size_type ndx = 0; ndx < components_.size();) {
-      if (pred(components_[ndx], ids_[ndx])) {
-        const auto removed_id = ids_[ndx];
-        do_swap_and_pop(ndx);
-        registry_->set_location(removed_id, {store_id_t::invalid});
-        ++cnt;
-      } else
-        ++ndx;
-    }
-    return cnt;
+    return base_t::template erase_if_component<component_t>(std::move(pred));
   }
 
 #pragma endregion
 #pragma region row_view
 
-  // Read-only view of a single entity's row. Provides a `component<T>`
-  // accessor uniform with archetype storages (only valid for `T ==
-  // component_t`), plus an implicit conversion to `const component_t&` for
-  // backward compatibility.
-  struct row_view {
-    const component_t& value;
-    id_t entity_id{};
-
-    [[nodiscard]] operator const component_t&() const noexcept {
-      return value;
-    }
-
-    // Uniform accessor (component_t only).
-    template<typename T>
-    [[nodiscard]] const T& component() const noexcept {
-      static_assert(std::is_same_v<T, component_t>,
-          "mono_archetype_storage only has one component type");
-      return value;
-    }
-
-    [[nodiscard]] id_t id() const noexcept { return entity_id; }
-  };
+  // Read-only view of a single entity's row; see
+  // `single_component_row_view`.
+  using row_view = single_component_row_view<component_t, id_t>;
 
 #pragma endregion
 #pragma region Element access
 
   // Mutable access: returns `component_t&` directly.
-  [[nodiscard]] component_t& operator[](id_t id) noexcept {
+  [[nodiscard]] component_t& operator[](id_t id) {
     assert(contains(id));
     return components_[registry_->get_location(id).ndx];
   }
 
   // Const access: returns `row_view` for uniform migrate-compatible access.
-  [[nodiscard]] row_view operator[](id_t id) const noexcept {
+  [[nodiscard]] row_view operator[](id_t id) const {
     assert(contains(id));
     const auto ndx = registry_->get_location(id).ndx;
     return {components_[ndx], ids_[ndx]};
@@ -278,111 +250,13 @@ public:
   }
 
 #pragma endregion
-#pragma region iterator_t
-
-  // Contiguous iterator over components. Dereferencing yields a `component_t`
-  // reference; `id` returns the entity ID at the current position.
-  template<access ACCESS>
-  class iterator_t {
-  public:
-    static constexpr bool mutable_v = static_cast<bool>(ACCESS);
-    using iterator_category = std::contiguous_iterator_tag;
-    using iterator_concept = std::contiguous_iterator_tag;
-    using value_type = component_t;
-    using difference_type = std::ptrdiff_t;
-    using reference =
-        std::conditional_t<mutable_v, value_type&, const value_type&>;
-    using pointer =
-        std::conditional_t<mutable_v, value_type*, const value_type*>;
-    using storage_ptr = std::conditional_t<mutable_v, mono_archetype_storage*,
-        const mono_archetype_storage*>;
-
-    iterator_t() = default;
-    iterator_t(const iterator_t&) = default;
-    iterator_t(iterator_t&&) = default;
-    iterator_t& operator=(const iterator_t&) = default;
-    iterator_t& operator=(iterator_t&&) = default;
-
-    [[nodiscard]] reference operator*() const {
-      return storage_->components_[ndx_];
-    }
-    [[nodiscard]] pointer operator->() const {
-      return &storage_->components_[ndx_];
-    }
-
-    [[nodiscard]] id_t id() const { return storage_->ids_[ndx_]; }
-
-    iterator_t& operator++() {
-      ++ndx_;
-      return *this;
-    }
-    iterator_t operator++(int) {
-      auto tmp = *this;
-      ++ndx_;
-      return tmp;
-    }
-    iterator_t& operator--() {
-      --ndx_;
-      return *this;
-    }
-    iterator_t operator--(int) {
-      auto tmp = *this;
-      --ndx_;
-      return tmp;
-    }
-
-    iterator_t& operator+=(difference_type n) {
-      ndx_ += n;
-      return *this;
-    }
-    iterator_t& operator-=(difference_type n) {
-      ndx_ -= n;
-      return *this;
-    }
-    [[nodiscard]] iterator_t operator+(difference_type n) const {
-      auto tmp = *this;
-      return tmp += n;
-    }
-    [[nodiscard]] iterator_t operator-(difference_type n) const {
-      auto tmp = *this;
-      return tmp -= n;
-    }
-    [[nodiscard]] difference_type operator-(const iterator_t& o) const {
-      return static_cast<difference_type>(ndx_) -
-             static_cast<difference_type>(o.ndx_);
-    }
-
-    [[nodiscard]] reference operator[](difference_type n) const {
-      return storage_->components_[ndx_ + n];
-    }
-
-    [[nodiscard]] friend iterator_t
-    operator+(difference_type n, const iterator_t& it) {
-      return it + n;
-    }
-
-    [[nodiscard]] bool operator==(const iterator_t& o) const {
-      assert(storage_ == o.storage_);
-      return ndx_ == o.ndx_;
-    };
-    [[nodiscard]] auto operator<=>(const iterator_t& o) const {
-      assert(storage_ == o.storage_);
-      return ndx_ <=> o.ndx_;
-    }
-
-  private:
-    storage_ptr storage_{};
-    size_type ndx_{};
-
-    iterator_t(storage_ptr s, size_type ndx) : storage_{s}, ndx_{ndx} {}
-    friend class mono_archetype_storage;
-  };
-
-  using iterator = iterator_t<access::as_mutable>;
-  using const_iterator = iterator_t<access::as_const>;
-
-#pragma endregion
 #pragma region Iteration
+
+  // Contiguous iterators over components; see `contiguous_storage_iterator`.
+  using iterator =
+      contiguous_storage_iterator<mono_archetype_storage, access::as_mutable>;
+  using const_iterator =
+      contiguous_storage_iterator<mono_archetype_storage, access::as_const>;
 
   [[nodiscard]] iterator begin() noexcept { return {this, 0}; }
   [[nodiscard]] iterator end() noexcept { return {this, size()}; }
@@ -400,11 +274,13 @@ private:
   using base_t::ids_;
 
   // Grant `archetype_storage_base` and its nested types access to the CRTP
-  // customization points.
+  // customization points, and the shared iterators access to the vectors.
   friend base_t;
   friend base_t::add_guard;
   friend base_t::row_lens;
   friend base_t::row_view;
+  friend iterator;
+  friend const_iterator;
 
   // Append one component row (called by the base's `add(id_t, ...)`).
   template<typename... Args>
@@ -417,7 +293,7 @@ private:
   // `erase_if_component<C>`).
   template<typename T>
   [[nodiscard]] decltype(auto)
-  do_get_component(this auto& self, size_type ndx) noexcept {
+  do_get_component(this auto& self, size_type ndx) {
     static_assert(std::is_same_v<T, component_t>,
         "mono_archetype_storage only has one component type");
     return self.components_[ndx];
@@ -426,7 +302,7 @@ private:
   // Access the component by zero-based tuple index (must be 0).
   template<size_t Index>
   [[nodiscard]] decltype(auto)
-  do_get_component_by_index(this auto& self, size_type ndx) noexcept {
+  do_get_component_by_index(this auto& self, size_type ndx) {
     static_assert(Index == 0,
         "mono_archetype_storage only has one component (index 0)");
     return self.components_[ndx];
@@ -434,23 +310,15 @@ private:
 
   // Return all components as a single-element tuple of references.
   [[nodiscard]] decltype(auto)
-  do_make_components_tuple(this auto& self, size_type ndx) noexcept {
+  do_make_components_tuple(this auto& self, size_type ndx) {
     return std::tuple<decltype(self.components_[ndx])>{self.components_[ndx]};
   }
 
-  // Swap element at `ndx` with the last element and pop. Updates the
-  // swapped-in entity's registry location.
-  bool do_swap_and_pop(size_type ndx) {
-    assert(size());
-    const auto last = static_cast<size_type>(components_.size() - 1);
-    if (ndx != last) {
-      std::swap(components_[ndx], components_[last]);
-      std::swap(ids_[ndx], ids_[last]);
-      // Update the swapped-in entity's index in the registry.
-      registry_->set_location(ids_[ndx], {store_id_, ndx});
-    }
-    components_.pop_back();
-    ids_.pop_back();
+  // Swap the components at `left_ndx` and `right_ndx`.
+  //
+  // The base handles `ids_`.
+  bool do_swap_components(size_type left_ndx, size_type right_ndx) {
+    std::swap(components_[left_ndx], components_[right_ndx]);
     return true;
   }
 
@@ -461,8 +329,8 @@ private:
     return true;
   }
 
-  // Roll back component storage to `new_size` (called by `add_guard` on
-  // exception).
+  // Resize component storage to `new_size` rows (called by `add_guard` on
+  // exception and by the base's `do_swap_and_pop`).
   bool do_resize_storage(size_type new_size) {
     components_.resize(new_size);
     return true;

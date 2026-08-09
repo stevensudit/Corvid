@@ -17,13 +17,17 @@
 #pragma once
 
 #include <cassert>
+#include <cstddef>
 #include <iterator>
+#include <memory>
+#include <optional>
 #include <stdexcept>
 #include <type_traits>
 #include <tuple>
 #include <utility>
 #include <vector>
 
+#include "../enums/bool_enums.h"
 #include "../meta/forward_like.h"
 #include "../infra/exception_firewalls.h"
 #include "entity_registry.h"
@@ -63,7 +67,7 @@ inline namespace archetype_storage_bases {
 //         decltype(auto) do_get_component_by_index(this auto& self,
 //         size_type ndx);`
 //   `decltype(auto) do_make_components_tuple(this auto& self, size_type ndx);`
-//   `bool do_swap_and_pop(size_type ndx);`
+//   `bool do_swap_components(size_type left_ndx, size_type right_ndx);`
 //   `bool do_clear_storage();`
 //   `bool do_resize_storage(size_type new_size);`
 //
@@ -99,13 +103,13 @@ public:
 #pragma region Queries
 
   // Check whether an entity is in this storage, by ID.
-  [[nodiscard]] bool contains(id_t id) const {
+  [[nodiscard]] bool contains(id_t id) const noexcept {
     if (!registry_->is_valid(id)) return false;
     return registry_->get_location(id).store_id == store_id_;
   }
 
   // Check whether an entity is in this storage, by handle.
-  [[nodiscard]] bool contains(handle_t handle) const {
+  [[nodiscard]] bool contains(handle_t handle) const noexcept {
     if (!registry_->is_valid(handle)) return false;
     return contains(handle.id());
   }
@@ -124,9 +128,10 @@ public:
   // Maximum number of entities allowed in this storage.
   [[nodiscard]] size_type limit() const noexcept { return limit_; }
 
-  // Set a new entity limit. Returns true on success, false if the current size
-  // exceeds the new limit.
-  [[nodiscard]] bool set_limit(size_type new_limit) {
+  // Set a new entity limit.
+  //
+  // Returns true on success, false if the current size exceeds the new limit.
+  [[nodiscard]] bool set_limit(size_type new_limit) noexcept {
     if (new_limit < ids_.size()) return false;
     limit_ = new_limit;
     return true;
@@ -135,28 +140,32 @@ public:
 #pragma endregion
 #pragma region Removal
 
-  // Remove entity by ID, moving it back to staging. Returns success flag.
+  // Remove entity by ID, moving it back to staging.
   bool remove(id_t id) { return do_remove_erase(id, store_id_t{}); }
 
-  // Remove entity by handle, moving it back to staging. Returns success flag.
+  // Remove entity by handle, moving it back to staging.
   bool remove(handle_t handle) {
     if (!registry_->is_valid(handle)) return false;
     return do_remove_erase(handle.id(), store_id_t{});
   }
 
-  // Move all entities back to staging. Entities remain valid after this call.
+  // Move all entities back to staging.
+  //
+  // Entities remain valid after this call.
   void remove_all() { do_remove_erase_all(store_id_t{}); }
 
   // Swap-and-pop the entity out of storage and destroy it in the registry.
-  // Sets `id` to `id_t::invalid` on success. Returns success flag.
+  //
+  // Sets `id` to `id_t::invalid` on success.
   bool erase(id_t& id) {
     if (!do_remove_erase(id, store_id_t::invalid)) return false;
     id = id_t::invalid;
     return true;
   }
 
-  // Erase by handle; validates the handle first. Resets `handle` to an
-  // invalid state on success. Returns success flag.
+  // Erase by handle; validates the handle first.
+  //
+  // Resets `handle` to an invalid state on success.
   bool erase(handle_t& handle) {
     if (!registry_->is_valid(handle)) return false;
     if (!do_remove_erase(handle.id(), store_id_t::invalid)) return false;
@@ -165,20 +174,20 @@ public:
   }
 
   // Destroy all entities in the registry and empty the storage.
-  bool clear() {
-    do_remove_erase_all(store_id_t::invalid);
-    return true;
-  }
+  bool clear() { return do_remove_erase_all(store_id_t::invalid) || true; }
 
 #pragma endregion
 #pragma region add_guard
 
-  // RAII guard for `add`: captures `size` on construction. If `disarm` is not
-  // called before destruction, rolls `ids_` and derived storage back to the
-  // saved size, providing strong exception safety.
+  // RAII guard for `add`: captures `size` on construction.
+  //
+  // If `disarm` is not called before destruction, rolls `ids_` and derived
+  // storage back to the saved size, providing strong exception safety.
   struct add_guard {
     explicit add_guard(derived_t& owner) noexcept
-        : owner_{&owner}, saved_size_{owner.size()} {}
+        : owner_{&owner}, saved_size_{owner.size()} {
+      assert(saved_size_ != *id_t::invalid);
+    }
     add_guard(const add_guard&) = delete;
     add_guard& operator=(const add_guard&) = delete;
 
@@ -241,23 +250,25 @@ public:
     [[nodiscard]] size_type index() const noexcept { return ndx_; }
     [[nodiscard]] id_t id() const { return owner_->ids_[ndx_]; }
 
-    // Access component by type. Constness of the return propagates from
-    // `owner_`, which is typed `const derived_t*` for `row_view` and
-    // `derived_t*` for `row_lens`. `auto&&` accepts both lvalue and rvalue
-    // row wrappers (e.g. temporaries returned by `operator[]`).
+    // Access component by type.
+    //
+    // Constness of the return propagates from `owner_`, which is typed `const
+    // derived_t*` for `row_view` and `derived_t*` for `row_lens`. `auto&&`
+    // accepts both lvalue and rvalue row wrappers (e.g. temporaries returned
+    // by `operator[]`).
     template<typename C>
-    [[nodiscard]] decltype(auto) component(this auto&& self) noexcept {
+    [[nodiscard]] decltype(auto) component(this auto&& self) {
       return self.owner_->template do_get_component<C>(self.ndx_);
     }
 
-    // Access component by zero-based tuple index. Same constness propagation.
+    // Access component by zero-based tuple index, propagating constness.
     template<size_t Index>
-    [[nodiscard]] decltype(auto) component(this auto&& self) noexcept {
+    [[nodiscard]] decltype(auto) component(this auto&& self) {
       return self.owner_->template do_get_component_by_index<Index>(self.ndx_);
     }
 
     // Access all components as a tuple of references.
-    [[nodiscard]] decltype(auto) components(this auto&& self) noexcept {
+    [[nodiscard]] decltype(auto) components(this auto&& self) {
       return self.get_owner().do_make_components_tuple(self.ndx_);
     }
 
@@ -280,18 +291,22 @@ public:
 #pragma endregion
 #pragma region row_iterator
 
-  // Bidirectional iterator. Dereferencing yields a `row_lens` or `row_view`,
-  // depending on constness. Invalidated by any structural mutation
-  // (add/remove/erase).
+  // Bidirectional iterator.
+  //
+  // Dereferencing yields a `row_lens` or `row_view` by value, depending on
+  // constness. Invalidated by any structural mutation (add/remove/erase).
   template<access ACCESS = access::as_mutable>
   class row_iterator {
   public:
     static constexpr bool mutable_v = (ACCESS == access::as_mutable);
-    using iterator_category = std::bidirectional_iterator_tag;
+    // `operator*` returns a prvalue row, so this models the C++20
+    // bidirectional concept via `iterator_concept`, while the Cpp17 category
+    // honestly caps at input.
     using iterator_concept = std::bidirectional_iterator_tag;
+    using iterator_category = std::input_iterator_tag;
     using value_type = std::conditional_t<mutable_v, row_lens, row_view>;
     using difference_type = std::ptrdiff_t;
-    using reference = value_type&;
+    using reference = value_type;
     using pointer = value_type*;
     using base_owner_t = std::conditional_t<mutable_v, archetype_storage_base,
         const archetype_storage_base>;
@@ -329,10 +344,6 @@ public:
     operator==(row_iterator lhs, row_iterator rhs) noexcept {
       return lhs.row_.index() == rhs.row_.index();
     }
-    [[nodiscard]] friend bool
-    operator!=(row_iterator lhs, row_iterator rhs) noexcept {
-      return !(lhs == rhs);
-    }
 
   private:
     mutable value_type row_;
@@ -350,8 +361,10 @@ public:
 #pragma region Insertion
 
   // Atomically create an entity in the registry and insert it into this
-  // storage. Returns the new entity's handle on success, or an invalid handle
-  // if the registry refused creation or the storage limit would be exceeded.
+  // storage.
+  //
+  // Returns the new entity's handle on success, or an invalid handle if the
+  // registry refused creation or the storage limit would be exceeded.
   // Components are forwarded in the same order as the `Cs...` pack. Trailing
   // components may be omitted and will be default-constructed.
   template<typename... Args>
@@ -361,15 +374,32 @@ public:
     return owner.release();
   }
 
+  // Create a new entity by extracting this archetype's components from
+  // `mega`, a `megatuple_t` (tuple of optionals).
+  //
+  // Each `optional<C>` for a component `C` in this archetype must have a
+  // value; the caller is responsible for ensuring the bitmap matches before
+  // calling.
+  // NOLINTBEGIN(bugprone-unchecked-optional-access)
+  template<typename MegaTuple>
+  [[nodiscard]] handle_t
+  add_new_from_mega(const metadata_t& metadata, const MegaTuple& mega) {
+    return add_new(metadata, *std::get<std::optional<Cs>>(mega)...);
+  }
+  // NOLINTEND(bugprone-unchecked-optional-access)
+
   // Insert components for an entity already in staging (`store_id ==
-  // store_id_t{}`). Returns false if the entity is not in staging, is
-  // invalid, or if the limit would be exceeded. Trailing components may be
+  // store_id_t{}`).
+  //
+  // The ID must be valid (asserted). Returns false if the entity is not in
+  // staging or if the limit would be exceeded. Trailing components may be
   // omitted; they are default-constructed. Passing more args than components
   // is a compile-time error.
   template<typename... Args>
   [[nodiscard]] bool add(id_t id, Args&&... args) {
     static_assert(sizeof...(Args) <= sizeof...(Cs),
         "too many arguments: cannot exceed the component count");
+    assert(registry_->is_valid(id));
     const auto& loc = registry_->get_location(id);
     if (loc.store_id != store_id_t{}) return false;
     const auto ndx = size();
@@ -390,8 +420,9 @@ public:
     return guard.disarm();
   }
 
-  // Insert components for an entity by handle. Validates the handle before
-  // delegating to `add(id_t, ...)`.
+  // Insert components for an entity by handle.
+  //
+  // Validates the handle before delegating to `add(id_t, ...)`.
   template<typename... Args>
   [[nodiscard]] bool add(handle_t handle, Args&&... args) {
     if (!registry_->is_valid(handle)) return false;
@@ -401,10 +432,13 @@ public:
 #pragma endregion
 #pragma region Conditional removal
 
-  // Erase entities for which `pred(comp, id)` returns true, where `comp` is a
-  // const reference to the entity's `C` component and `id` is its ID. Uses
-  // swap-and-pop; `pred` must not structurally modify the storage. All erased
-  // entities are destroyed in the registry. Returns the count erased.
+  // Erase entities for which `pred(comp, id)` returns true.
+  //
+  // `comp` is a const reference to the entity's `C` component and `id` is its
+  // ID.
+  //
+  // Uses swap-and-pop; `pred` must not structurally modify the storage. All
+  // erased entities are destroyed in the registry. Returns the count erased.
   // Predicate shape: `(const C& comp, id_t id) -> bool`.
   template<typename C>
   size_type erase_if_component(auto pred) {
@@ -413,10 +447,11 @@ public:
   }
 
   // Overload that selects the component by zero-based tuple index rather than
-  // by type. Needed when two component types in `Cs...` are identical
-  // (although this should be avoided when possible).
-  // Predicate shape: `(const C& comp, id_t id) -> bool`, where `C` is
-  // `std::tuple_element_t<Index, tuple_t>`.
+  // by type.
+  //
+  // Needed when two component types in `Cs...` are identical (although this
+  // should be avoided when possible). Predicate shape: `(const C& comp, id_t
+  // id) -> bool`, where `C` is `std::tuple_element_t<Index, tuple_t>`.
   template<size_t Index>
   size_type erase_if_component(auto pred) {
     using C = std::tuple_element_t<Index, tuple_t>;
@@ -424,17 +459,20 @@ public:
   }
 
   // Erase entities for which `pred(row)` returns true, where `row` is a
-  // `row_view` giving const access to all components and the entity ID. Uses
-  // swap-and-pop; `pred` must not structurally modify the storage. Returns the
-  // count erased.
-  // Predicate shape: `(const row_view& row) -> bool`.
+  // `row_view` giving const access to all components and the entity ID.
+  //
+  // Uses swap-and-pop; `pred` must not structurally modify the storage.
+  // Returns the count erased. Predicate shape: `(const row_view& row) ->
+  // bool`.
   size_type erase_if(auto pred) {
     return do_remove_erase_if(std::move(pred), store_id_t::invalid);
   }
 
   // Move entities for which `pred(comp, id)` returns true back to staging.
+  //
   // Parallel to `erase_if_component` but keeps entities alive. Returns the
   // count moved.
+  //
   // Predicate shape: `(const C& comp, id_t id) -> bool`.
   template<typename C>
   size_type remove_if_component(auto pred) {
@@ -442,6 +480,7 @@ public:
   }
 
   // Overload that selects the component by zero-based tuple index.
+  //
   // Predicate shape: `(const C& comp, id_t id) -> bool`, where `C` is
   // `std::tuple_element_t<Index, tuple_t>`.
   template<size_t Index>
@@ -450,8 +489,9 @@ public:
     return remove_if_component<C>(std::move(pred));
   }
 
-  // Move entities for which `pred(row)` returns true back to staging. Parallel
-  // to `erase_if` but keeps entities alive. Returns the count moved.
+  // Move entities for which `pred(row)` returns true back to staging.
+  //
+  // Parallel to `erase_if` but keeps entities alive. Returns the count moved.
   // Predicate shape: `(const row_view& row) -> bool`.
   size_type remove_if(auto pred) {
     return do_remove_erase_if(std::move(pred), store_id_t{});
@@ -461,18 +501,21 @@ public:
 #pragma region Element access
 
   // Access the row for entity `id` as a `row_lens` (mutable) or `row_view`
-  // (const). Entity must be valid and in this storage; asserts in debug.
-  [[nodiscard]] row_lens operator[](id_t id) noexcept {
+  // (const).
+  //
+  // Entity must be valid and in this storage; asserts in debug.
+  [[nodiscard]] row_lens operator[](id_t id) {
     assert(contains(id));
     return row_lens{*this, registry_->get_location(id).ndx};
   }
-  [[nodiscard]] row_view operator[](id_t id) const noexcept {
+  [[nodiscard]] row_view operator[](id_t id) const {
     assert(contains(id));
     return row_view{*this, registry_->get_location(id).ndx};
   }
 
-  // Access the row for entity `id` with bounds checking. Throws
-  // `std::out_of_range` if the entity is not in this storage.
+  // Access the row for entity `id` with bounds checking.
+  //
+  // Throws `std::out_of_range` if the entity is not in this storage.
   [[nodiscard]] row_lens at(id_t id) {
     if (!contains(id)) throw std::out_of_range{"entity not in this storage"};
     return row_lens{*this, registry_->get_location(id).ndx};
@@ -482,9 +525,10 @@ public:
     return row_view{*this, registry_->get_location(id).ndx};
   }
 
-  // Access the row for entity with handle and bounds checking. Throws
-  // `std::invalid_argument` if the handle is invalid or stale, or if the
-  // entity is not in this storage.
+  // Access the row for entity with handle and bounds checking.
+  //
+  // Throws `std::invalid_argument` if the handle is invalid or stale, or if
+  // the entity is not in this storage.
   [[nodiscard]] row_lens at(handle_t handle) {
     if (!contains(handle))
       throw std::invalid_argument{
@@ -520,10 +564,31 @@ public:
 #pragma endregion
 #pragma region Construction
 
-  // Public deleted/defined special members.
+  // Public deleted special members.
   archetype_storage_base(const archetype_storage_base&) = delete;
+  archetype_storage_base& operator=(const archetype_storage_base&) = delete;
+
+protected:
+  // Constructors and move operations are protected; only derived classes may
+  // construct, and slice-moves through the base are blocked from outside.
+  //
+  // CRTP base constructors are protected rather than using the private+friend
+  // pattern, since this base is shared by multiple derived classes.
+  //
+  // NOLINTNEXTLINE(bugprone-crtp-constructor-accessibility)
+  archetype_storage_base() = default;
+
+  // NOLINTNEXTLINE(bugprone-crtp-constructor-accessibility)
+  archetype_storage_base(registry_t& registry, store_id_t store_id,
+      size_type limit)
+      : registry_{&registry}, store_id_{store_id}, limit_{limit},
+        ids_{id_allocator_t{registry.get_allocator()}} {
+    if ((store_id == store_id_t::invalid) || (store_id == store_id_t{}))
+      throw std::invalid_argument{"store_id must be a valid non-zero value"};
+  }
 
   // Custom move constructor: explicitly clears `other.ids_` after stealing it.
+  //
   // Derived destructors call `clear`, which iterates `ids_` and writes to the
   // registry. The standard only guarantees a moved-from `std::vector` is
   // "valid but unspecified", not necessarily empty, so this explicit clear
@@ -532,25 +597,6 @@ public:
       : registry_{other.registry_}, store_id_{other.store_id_},
         limit_{other.limit_}, ids_{std::move(other.ids_)} {
     other.ids_.clear();
-  }
-
-  archetype_storage_base& operator=(const archetype_storage_base&) = delete;
-
-protected:
-  // Constructors are protected; only derived classes may construct.
-  // NOLINT: CRTP base constructors are protected rather than using the
-  // private+friend pattern, since this base is shared by multiple derived
-  // classes.
-  archetype_storage_base() =
-      default; // NOLINT(bugprone-crtp-constructor-accessibility)
-
-  // NOLINTNEXTLINE(bugprone-crtp-constructor-accessibility)
-  archetype_storage_base(registry_t& registry, store_id_t store_id,
-      size_type limit)
-      : registry_{&registry}, store_id_{store_id}, limit_{limit},
-        ids_{id_allocator_t{registry.get_allocator()}} {
-    if (store_id == store_id_t::invalid || store_id == store_id_t{})
-      throw std::invalid_argument{"store_id must be a valid non-zero value"};
   }
 
   archetype_storage_base& operator=(archetype_storage_base&& other) noexcept {
@@ -575,8 +621,9 @@ protected:
     return static_cast<const derived_t&>(*this);
   }
 
-  // Swap all base-class members with `other`. `CHILD::swap` should call this,
-  // then swap its own component storage.
+  // Swap all base-class members with `other`.
+  //
+  // `CHILD::swap` should call this, then swap its own component storage.
   bool do_swap_base(archetype_storage_base& other) noexcept {
     using std::swap;
     swap(registry_, other.registry_);
@@ -603,8 +650,10 @@ protected:
 #pragma region Implementation
 private:
   // Fast bulk-drop: clear component and ID vectors without touching the
-  // registry. Only safe when the registry will be reset wholesale immediately
-  // afterward (e.g. `archetype_scene::clear`). Called via
+  // registry.
+  //
+  // Only safe when the registry will be reset wholesale immediately afterward
+  // (e.g. `archetype_scene::clear`). Called via
   // `archetype_scene_base::storage_drop_all`.
   bool do_drop_all() {
     ids_.clear();
@@ -612,10 +661,28 @@ private:
     return true;
   }
 
+  // Swap the row at `ndx` with the last row and pop it, updating the
+  // displaced entity's registry location.
+  //
+  // The child swaps and shrinks the component data, while `ids_` and the
+  // registry fixup are handled here.
+  bool do_swap_and_pop(size_type ndx) {
+    assert(!ids_.empty());
+    const auto last = ids_.size() - 1;
+    if (ndx != last) {
+      derived().do_swap_components(ndx, last);
+      std::swap(ids_[ndx], ids_[last]);
+      registry_->set_location(ids_[ndx], {store_id_, ndx});
+    }
+    ids_.pop_back();
+    derived().do_resize_storage(ids_.size());
+    return true;
+  }
+
   bool do_remove_erase(id_t id, store_id_t new_store_id) {
     if (!contains(id)) return false;
-    derived().do_swap_and_pop(registry_->get_location(id).ndx);
-    registry_->set_location(id, {new_store_id, *store_id_t::invalid});
+    do_swap_and_pop(registry_->get_location(id).ndx);
+    registry_->set_location(id, {new_store_id});
     return true;
   }
 
@@ -624,8 +691,8 @@ private:
     return do_drop_all();
   }
 
-  // Return arg I from a `forward_as_tuple` result, or a default-constructed
-  // component when I is past the end of the provided arguments.
+  // Return arg `I` from a `forward_as_tuple` result, or a default-constructed
+  // component when `I` is past the end of the provided arguments.
   template<size_t I, typename ArgTuple>
   static decltype(auto) do_arg(ArgTuple&& fwd) {
     if constexpr (I < std::tuple_size_v<std::remove_cvref_t<ArgTuple>>)
@@ -636,7 +703,6 @@ private:
 
   // Sweep the storage, calling `pred` on component `C` (or on the full row),
   // and either erasing or removing each entity that satisfies `pred`.
-
   template<typename C>
   size_type do_remove_erase_if_component(auto pred, store_id_t new_store_id) {
     static_assert(std::is_invocable_r_v<bool, decltype(pred), const C&, id_t>,
@@ -646,7 +712,7 @@ private:
       const auto& comp = derived().template do_get_component<C>(ndx);
       if (pred(comp, ids_[ndx])) {
         const auto removed_id = ids_[ndx];
-        derived().do_swap_and_pop(ndx);
+        do_swap_and_pop(ndx);
         registry_->set_location(removed_id, {new_store_id});
         ++cnt;
       } else
@@ -664,7 +730,7 @@ private:
       row.ndx_ = ndx;
       if (pred(row)) {
         const auto removed_id = ids_[ndx];
-        derived().do_swap_and_pop(ndx);
+        do_swap_and_pop(ndx);
         registry_->set_location(removed_id, {new_store_id});
         ++cnt;
       } else

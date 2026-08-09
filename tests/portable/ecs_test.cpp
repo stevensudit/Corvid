@@ -15,10 +15,14 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#include <concepts>
 #include <cstdint>
+#include <iterator>
 #include <memory>
+#include <ranges>
 #include <string>
 #include <tuple>
+#include <utility>
 #include <vector>
 
 #include "corvid/ecs.h"
@@ -27,11 +31,62 @@
 using namespace std::literals;
 using namespace corvid;
 
+// Store ID enum with a narrow underlying type, for pins that catch constants
+// from the wrong ID domain; the domains' markers coincide when every ID is
+// backed by `size_t`.
+enum class small_store_id_t : uint8_t { invalid = 255 };
+consteval auto corvid_enum_spec(small_store_id_t*) {
+  return corvid::enums::sequence::make_sequence_enum_spec<small_store_id_t,
+      "">();
+}
+
+// Entity ID enum with a narrow underlying type, for pins where vector growth
+// overshoots the ID domain's range.
+enum class small_entity_id_t : uint8_t { invalid = 255 };
+consteval auto corvid_enum_spec(small_entity_id_t*) {
+  return corvid::enums::sequence::make_sequence_enum_spec<small_entity_id_t,
+      "">();
+}
+
 // NOLINTBEGIN(readability-function-cognitive-complexity)
 // NOLINTBEGIN(readability-function-size)
 
-using int_stable_ids = stable_ids<int>;
+#pragma region IdEnums
 
+TEST_CASE("Defaults", "[IdEnums]") {
+  using namespace id_enums;
+
+  // Every default ID enum is a registered sequence enum over `size_t`, with
+  // `invalid` as the maximum value, which is what makes it usable as an ID
+  // type anywhere the ECS asks for one.
+  const auto check_id_enum = []<sequence::SequentialEnum E>(E) {
+    static_assert(std::is_same_v<std::underlying_type_t<E>, size_t>);
+    static_assert(E::invalid == E{std::numeric_limits<size_t>::max()});
+    CHECK(*E::invalid == std::numeric_limits<size_t>::max());
+    CHECK(*E{7} == 7U);
+  };
+  // `id_t` must be qualified: "sys/types.h" injects one into the global
+  // namespace, as the header this comes from warns.
+  check_id_enum(id_enums::id_t{});
+  check_id_enum(entity_id_t{});
+  check_id_enum(component_id_t{});
+  check_id_enum(archetype_id_t{});
+  check_id_enum(store_id_t{});
+
+  // They are distinct types, so an ID meant for one concept cannot silently
+  // stand in for another.
+  static_assert(!std::is_same_v<entity_id_t, store_id_t>);
+  static_assert(!std::is_same_v<component_id_t, archetype_id_t>);
+
+  // `entity_registry` takes its entity and store ID types as parameters, and
+  // defaults them to two of these. `component_id_t` and `archetype_id_t` have
+  // no consumer in the library: they are offered for callers who want a
+  // distinct type per concept, so this case is what keeps them honest.
+  static_assert(std::is_same_v<entity_registry<int>::id_t, entity_id_t>);
+  static_assert(std::is_same_v<entity_registry<int>::store_id_t, store_id_t>);
+}
+
+#pragma endregion
 #pragma region ArchetypeStorage_Basic
 
 TEST_CASE("Basic", "[ArchetypeStorage]") {
@@ -362,6 +417,97 @@ TEST_CASE("Remove", "[ArchetypeStorage]") {
     CHECK(r.get_location(id2).ndx == 0U);
     CHECK(r.get_location(id1).ndx == 1U);
   }
+}
+
+#pragma endregion
+#pragma region ArchetypeStorage_NarrowStoreId
+
+TEST_CASE("NarrowStoreId", "[ArchetypeStorage]") {
+  using id_enums::entity_id_t;
+  using reg_t = entity_registry<int, entity_id_t, small_store_id_t>;
+  using id_t = reg_t::id_t;
+  using arch_t = archetype_storage<reg_t, std::tuple<int, float>>;
+
+  // A removed entity's staging record carries the entity-ID domain's invalid
+  // index marker. With a uint8 store ID the two domains' markers differ (255
+  // vs the size_t maximum), so this pins the single-remove path against
+  // writing the store-ID domain's constant into `ndx`.
+  if (true) {
+    reg_t r;
+    arch_t a{r, small_store_id_t{1}, 100};
+    auto h = a.add_new(0, 42, 3.5F);
+    CHECK(r.is_valid(h));
+    const auto id = h.id();
+    CHECK(a.remove(id));
+    CHECK(r.get_location(id).ndx == *id_t::invalid);
+  }
+
+  // remove_all writes the same marker.
+  if (true) {
+    reg_t r;
+    arch_t a{r, small_store_id_t{1}, 100};
+    auto h = a.add_new(0, 1, 1.0F);
+    const auto id = h.id();
+    a.remove_all();
+    CHECK(r.get_location(id).ndx == *id_t::invalid);
+  }
+}
+
+#pragma endregion
+#pragma region ArchetypeStorage_NarrowEntityId
+
+TEST_CASE("NarrowEntityId", "[ArchetypeStorage]") {
+  using id_enums::store_id_t;
+  using reg_t = entity_registry<int, small_entity_id_t>;
+  using arch_t = archetype_storage<reg_t, std::tuple<int, float>>;
+
+  // `capacity()` reports the minimum across the component vectors, whose
+  // growth can overshoot a narrow ID domain's range; the report saturates at
+  // the domain maximum instead of truncating. Filling the storage pushes the
+  // vectors' capacity past 255, which truncated to 0 before the fix.
+  reg_t r;
+  arch_t a{r, store_id_t{1}};
+  for (auto ndx = 0; ndx < 255; ++ndx)
+    REQUIRE(r.is_valid(a.add_new(0, ndx, 0.0F)));
+  CHECK(a.size() == 255);
+  CHECK(a.capacity() >= a.size());
+}
+
+#pragma endregion
+#pragma region ChunkedArchetypeStorage_NarrowEntityId
+
+TEST_CASE("NarrowEntityId", "[ChunkedArchetypeStorage]") {
+  using id_enums::store_id_t;
+  using reg_t = entity_registry<int, small_entity_id_t>;
+  using arch_t = chunked_archetype_storage<reg_t, std::tuple<int, float>, 4>;
+
+  // Same saturation pin as the `archetype_storage` case: ID and chunk vector
+  // growth overshoots the uint8 domain once 255 entities are stored.
+  reg_t r;
+  arch_t a{r, store_id_t{1}};
+  for (auto ndx = 0; ndx < 255; ++ndx)
+    REQUIRE(r.is_valid(a.add_new(0, ndx, 0.0F)));
+  CHECK(a.size() == 255);
+  CHECK(a.capacity() >= a.size());
+}
+
+#pragma endregion
+#pragma region MonoArchetypeStorage_NarrowEntityId
+
+TEST_CASE("NarrowEntityId", "[MonoArchetypeStorage]") {
+  using id_enums::store_id_t;
+  using reg_t = entity_registry<int, small_entity_id_t>;
+  using arch_t = mono_archetype_storage<reg_t, int>;
+
+  // Same saturation pin as the sibling storages. The instantiation also
+  // exercises `metadata_t == component_t` (both `int`): the constrained-away
+  // component-first overload leaves only the base's metadata-first `add_new`,
+  // so `add_new(ndx)` sets the metadata and default-constructs the component.
+  reg_t r;
+  arch_t a{r, store_id_t{1}};
+  for (auto ndx = 0; ndx < 255; ++ndx) REQUIRE(r.is_valid(a.add_new(ndx)));
+  CHECK(a.size() == 255);
+  CHECK(a.capacity() >= a.size());
 }
 
 #pragma endregion
@@ -959,6 +1105,28 @@ TEST_CASE("Iterator", "[ArchetypeStorage]") {
     static_assert(
         std::is_same_v<decltype(a.cbegin()), arch_t::const_iterator>);
   }
+
+  // Dereferencing returns rows by value, so the Cpp17 category caps at input
+  // while the C++20 concept stays bidirectional, which is what reverse_view
+  // checks.
+  if (true) {
+    static_assert(std::bidirectional_iterator<arch_t::iterator>);
+    static_assert(std::bidirectional_iterator<arch_t::const_iterator>);
+    static_assert(std::is_same_v<arch_t::iterator::iterator_category,
+        std::input_iterator_tag>);
+    static_assert(std::is_same_v<arch_t::iterator::reference,
+        arch_t::iterator::value_type>);
+    reg_t r;
+    arch_t a{r, sid};
+    auto id0 = r.create_id(staging, 10);
+    auto id1 = r.create_id(staging, 20);
+    CHECK(a.add(id0, 1, 0.0F));
+    CHECK(a.add(id1, 2, 0.0F));
+    std::vector<int> seen;
+    for (auto row : std::views::reverse(a))
+      seen.push_back(row.component<int>());
+    CHECK(seen == std::vector{2, 1});
+  }
 }
 
 #pragma endregion
@@ -1077,1048 +1245,6 @@ TEST_CASE("EraseIf", "[ArchetypeStorage]") {
     CHECK(a.size() == 1U);
     CHECK(r.is_valid(id0));
     CHECK_FALSE(r.is_valid(id1));
-  }
-}
-
-#pragma endregion
-#pragma region StableId_Basic
-
-TEST_CASE("Basic", "[StableId]") {
-  using V = int_stable_ids;
-  using id_t = V::id_t;
-
-  // Empty container.
-  if (true) {
-    V v;
-    CHECK(v.empty());
-    CHECK(v.size() == 0U);
-    CHECK(v.find_max_extant_id() == id_t::invalid);
-  }
-
-  // push_back and emplace_back assign sequential IDs starting at 0.
-  if (true) {
-    V v;
-    auto id0 = v.push_back(10);
-    CHECK(*id0 == 0U);
-    CHECK(v.size() == 1U);
-    CHECK_FALSE(v.empty());
-    auto id1 = v.push_back(20);
-    auto id2 = v.emplace_back(30);
-    CHECK(*id1 == 1U);
-    CHECK(*id2 == 2U);
-    CHECK(v.size() == 3U);
-    CHECK(v[id0] == 10);
-    CHECK(v[id1] == 20);
-    CHECK(v[id2] == 30);
-  }
-
-  // Mutable and const access via operator[] and at().
-  if (true) {
-    V v;
-    auto id0 = v.push_back(10);
-    auto id1 = v.push_back(20);
-    CHECK(v[id0] == 10);
-    CHECK(v.at(id0) == 10);
-    v[id0] = 42;
-    CHECK(v[id0] == 42);
-    v.at(id1) = 99;
-    CHECK(v.at(id1) == 99);
-    const V& cv = v;
-    CHECK(cv[id0] == 42);
-    CHECK(cv.at(id1) == 99);
-  }
-
-  // at(id) throws std::out_of_range for an invalid ID.
-  if (true) {
-    V v;
-    (void)v.push_back(10);
-    CHECK_THROWS_AS(v.at(id_t{99}), std::out_of_range);
-  }
-
-  // Handles carry generation; get_handle and is_valid agree.
-  if (true) {
-    V v;
-    auto id0 = v.push_back(10);
-    auto id1 = v.push_back(20);
-    auto h0 = v.get_handle(id0);
-    auto h1 = v.get_handle(id1);
-    CHECK(v.is_valid(h0));
-    CHECK(v.is_valid(h1));
-    CHECK(h0.id() == id0);
-    CHECK(h1.id() == id1);
-    CHECK(h0.gen() == 0U);
-    CHECK(h1.gen() == 0U);
-  }
-
-  // push_back_handle and emplace_back_handle return handles.
-  if (true) {
-    V v;
-    auto h0 = v.push_back_handle(10);
-    auto h1 = v.emplace_back_handle(20);
-    CHECK(v.is_valid(h0));
-    CHECK(v.is_valid(h1));
-    CHECK(v.at(h0) == 10);
-    const V& cv = v;
-    CHECK(cv.at(h1) == 20);
-  }
-
-  // erase by ID.
-  if (true) {
-    V v;
-    auto id0 = v.push_back(10);
-    auto id1 = v.push_back(20);
-    auto id2 = v.push_back(30);
-    CHECK(v.size() == 3U);
-    CHECK(v.erase(id1));
-    CHECK(v.size() == 2U);
-    CHECK_FALSE(v.is_valid(id1));
-    CHECK(v.is_valid(id0));
-    CHECK(v.is_valid(id2));
-    CHECK(v[id0] == 10);
-    CHECK(v[id2] == 30);
-  }
-
-  // erase by handle.
-  if (true) {
-    V v;
-    auto h0 = v.push_back_handle(10);
-    auto h1 = v.push_back_handle(20);
-    CHECK(v.erase(h0));
-    CHECK_FALSE(v.is_valid(h0));
-    CHECK(v.is_valid(h1));
-    CHECK(v.size() == 1U);
-  }
-
-  // Erased handle is no longer valid; erase returns false for stale handle.
-  if (true) {
-    V v;
-    auto h = v.push_back_handle(10);
-    CHECK(v.is_valid(h));
-    CHECK(v.erase(h));
-    CHECK_FALSE(v.is_valid(h));
-    CHECK_FALSE(v.erase(h));
-    CHECK_THROWS_AS(v.at(h), std::invalid_argument);
-  }
-
-  // ID reuse: erased ID is reused by next insertion (LIFO order).
-  if (true) {
-    V v;
-    (void)v.push_back(10);         // id 0
-    auto id1 = v.push_back(20);    // id 1
-    (void)v.push_back(30);         // id 2
-    v.erase(id1);                  // id 1 is freed
-    auto id_new = v.push_back(99); // should reuse id 1
-    CHECK(id_new == id1);
-    CHECK(v[id_new] == 99);
-  }
-
-  // Old handle is invalidated even if ID is reused.
-  if (true) {
-    V v;
-    auto h = v.push_back_handle(10);
-    v.erase(h);
-    (void)v.push_back(20); // reuse ID
-    CHECK_FALSE(v.is_valid(h));
-    auto h_new = v.get_handle(h.id());
-    CHECK(v.is_valid(h_new));
-    CHECK(h.gen() != h_new.gen());
-  }
-
-  // erase_if removes matching elements.
-  if (true) {
-    V v;
-    (void)v.push_back(5);
-    (void)v.push_back(15);
-    (void)v.push_back(25);
-    (void)v.push_back(10);
-    auto cnt = v.erase_if([](int x) { return x > 10; });
-    CHECK(cnt == 2U);
-    CHECK(v.size() == 2U);
-    int sum = 0;
-    for (auto x : v) sum += x;
-    CHECK(sum == 15); // 5 + 10
-  }
-
-  // Linear iteration via begin()/end().
-  if (true) {
-    V v;
-    (void)v.push_back(1);
-    (void)v.push_back(2);
-    (void)v.push_back(3);
-    int sum = 0;
-    for (auto x : v) sum += x;
-    CHECK(sum == 6);
-  }
-
-  // span() gives mutable access.
-  if (true) {
-    V v;
-    (void)v.push_back(10);
-    (void)v.push_back(20);
-    auto s = v.span();
-    s[0] = 100;
-    CHECK(v[V::id_t{0}] == 100);
-  }
-
-  // vector() gives const access.
-  if (true) {
-    V v;
-    (void)v.push_back(10);
-    const auto& vec = v.vector();
-    CHECK(vec.size() == 1U);
-    CHECK(vec[0] == 10);
-  }
-
-  // clear() removes all elements; shrink=true also frees memory.
-  if (true) {
-    V v;
-    (void)v.push_back(1);
-    (void)v.push_back(2);
-    v.clear();
-    CHECK(v.empty());
-    CHECK(v.size() == 0U);
-    // IDs may still be reused after clear without shrink.
-    auto id = v.push_back(99);
-    CHECK(*id == 0U); // reuses freed id 0
-  }
-
-  // clear(true) fully resets.
-  if (true) {
-    V v;
-    (void)v.push_back(1);
-    v.clear(deallocation_policy::release);
-    CHECK(v.empty());
-    auto id = v.push_back(100);
-    CHECK(*id == 0U);
-    CHECK(v.get_handle(id).gen() == 0U);
-  }
-
-  // shrink_to_fit compacts the container.
-  if (true) {
-    V v;
-    (void)v.push_back(10); // id 0
-    (void)v.push_back(20); // id 1
-    (void)v.push_back(30); // id 2
-    v.erase(V::id_t{2});
-    v.shrink_to_fit();
-    CHECK(v.size() == 2U);
-  }
-
-  // reserve does not change size.
-  if (true) {
-    V v;
-    v.reserve(100);
-    CHECK(v.empty());
-  }
-
-  // swap exchanges containers.
-  if (true) {
-    V a;
-    V b;
-    (void)a.push_back(1);
-    (void)a.push_back(2);
-    (void)b.push_back(100);
-    swap(a, b);
-    CHECK(a.size() == 1U);
-    CHECK(b.size() == 2U);
-    CHECK(a[V::id_t{0}] == 100);
-    CHECK(b[V::id_t{0}] == 1);
-  }
-
-  // Move constructor and assignment.
-  if (true) {
-    V v;
-    (void)v.push_back(42);
-    V w{std::move(v)};
-    CHECK(w.size() == 1U);
-    CHECK(w[V::id_t{0}] == 42);
-    V x;
-    x = std::move(w);
-    CHECK(x.size() == 1U);
-    CHECK(x[V::id_t{0}] == 42);
-  }
-
-  // next_id() returns the ID that will be allocated next.
-  if (true) {
-    V v;
-    CHECK(v.next_id() == V::id_t{0});
-    (void)v.push_back(10);
-    CHECK(v.next_id() == V::id_t{1});
-    (void)v.push_back(20);
-    v.erase(V::id_t{0});
-    // LIFO: freed ID 0 is at the tail front, so next reuse is ID 0.
-    CHECK(v.next_id() == V::id_t{0});
-  }
-
-  // max_id() is the high-water mark, not the highest extant ID.
-  if (true) {
-    V v;
-    (void)v.push_back(10); // id 0
-    (void)v.push_back(20); // id 1
-    (void)v.push_back(30); // id 2
-    CHECK(v.max_id() == V::id_t{2});
-    v.erase(V::id_t{2});
-    CHECK(v.max_id() == V::id_t{2});
-    CHECK((v.find_max_extant_id()) ==
-          (V::id_t{1})); // contrast: live max dropped
-    // Reinserting reuses id 2; high-water mark stays the same.
-    (void)v.push_back(99);
-    CHECK(v.max_id() == V::id_t{2});
-    // clear() without shrink keeps the index table intact.
-    v.clear();
-    CHECK(v.max_id() == V::id_t{2});
-    // clear(true) frees the index table; max_id resets.
-    v.clear(deallocation_policy::release);
-    CHECK(v.max_id() == V::id_t::invalid);
-  }
-
-  // Allocator constructor produces a usable, empty container.
-  if (true) {
-    V v{std::allocator<int>{}};
-    CHECK(v.empty());
-    auto id = v.push_back(42);
-    CHECK(v[id] == 42);
-    CHECK(v.size() == 1U);
-  }
-}
-
-#pragma endregion
-
-enum class small_id_t : std::uint8_t { invalid = 255 };
-
-consteval auto corvid_enum_spec(small_id_t*) {
-  return corvid::enums::sequence::make_sequence_enum_spec<small_id_t, "">();
-}
-
-using int_stable_small_ids = stable_ids<int, small_id_t>;
-
-using int_stable_ids_fifo = stable_ids<int, int_stable_ids::id_t,
-    generation_scheme::versioned, sequence_order::fifo, std::allocator<int>>;
-using int_stable_ids_nogen = stable_ids<int, int_stable_ids::id_t,
-    generation_scheme::unversioned, sequence_order::lifo, std::allocator<int>>;
-using int_stable_ids_fifo_nogen = stable_ids<int, int_stable_ids::id_t,
-    generation_scheme::unversioned, sequence_order::fifo, std::allocator<int>>;
-using int_stable_small_ids_fifo = stable_ids<int, small_id_t,
-    generation_scheme::versioned, sequence_order::fifo, std::allocator<int>>;
-
-#pragma region StableId_SmallId
-
-TEST_CASE("SmallId", "[StableId]") {
-  using V = int_stable_small_ids;
-  using id_t = V::id_t; // small_id_t : uint8_t, invalid = 255
-
-  // Fill to capacity: 255 elements occupy every ID from 0 to 254.
-  if (true) {
-    V v;
-    for (auto ndx = 0; ndx < 255; ++ndx) (void)v.push_back(ndx);
-    CHECK(v.size() == 255U);
-    CHECK(v[id_t{0}] == 0);
-    CHECK(v[id_t{127}] == 127);
-    CHECK(v[id_t{254}] == 254);
-  }
-
-  // The 256th insertion exceeds the limit; container size is unchanged.
-  if (true) {
-    V v;
-    for (auto ndx = 0; ndx < 255; ++ndx) (void)v.push_back(ndx);
-    CHECK(v.size() == 255U);
-    CHECK_THROWS_AS(v.push_back(999), std::out_of_range);
-    CHECK(v.size() == 255U);
-  }
-
-  // Erasing one element opens exactly one reuse slot.  After that single
-  // reuse the container is full again and the next insertion overflows.
-  if (true) {
-    V v;
-    for (auto ndx = 0; ndx < 255; ++ndx) (void)v.push_back(ndx);
-    auto h100 = v.get_handle(id_t{100});
-
-    v.erase(id_t{100});
-    CHECK(v.size() == 254U);
-    CHECK_FALSE(v.is_valid(id_t{100}));
-    CHECK_FALSE(v.is_valid(h100));
-
-    // The freed ID 100 is the one that gets reused.
-    auto id_reused = v.push_back(999);
-    CHECK(id_reused == id_t{100});
-    CHECK(v[id_reused] == 999);
-    CHECK(v.size() == 255U);
-    // The old handle is still invalid even though the ID is live again.
-    CHECK_FALSE(v.is_valid(h100));
-    auto h100_new = v.get_handle(id_reused);
-    CHECK(v.is_valid(h100_new));
-    CHECK((h100_new.gen()) > (h100.gen()));
-
-    // Full again -- exceeds limit.
-    CHECK_THROWS_AS(v.push_back(0), std::out_of_range);
-  }
-}
-
-#pragma endregion
-#pragma region StableId_NoThrow
-
-TEST_CASE("NoThrow", "[StableId]") {
-  using V = int_stable_small_ids;
-  using id_t = V::id_t; // small_id_t : uint8_t, invalid = 255
-
-  // Default is to throw.
-  if (true) {
-    V v;
-    CHECK(v.throw_on_insert_failure() == on_failure::raise);
-  }
-
-  // Accessor round-trips.
-  if (true) {
-    V v;
-    v.throw_on_insert_failure(on_failure::ignore);
-    CHECK(v.throw_on_insert_failure() == on_failure::ignore);
-    v.throw_on_insert_failure(on_failure::raise);
-    CHECK(v.throw_on_insert_failure() == on_failure::raise);
-  }
-
-  // push_back returns invalid on overflow instead of throwing.
-  if (true) {
-    V v;
-    v.throw_on_insert_failure(on_failure::ignore);
-    for (auto ndx = 0; ndx < 255; ++ndx) (void)v.push_back(ndx);
-    CHECK(v.size() == 255U);
-
-    auto id = v.push_back(999);
-    CHECK(id == id_t::invalid);
-    CHECK(v.size() == 255U);
-  }
-
-  // emplace_back returns invalid on overflow instead of throwing.
-  if (true) {
-    V v;
-    v.throw_on_insert_failure(on_failure::ignore);
-    for (auto ndx = 0; ndx < 255; ++ndx) (void)v.emplace_back(ndx);
-    CHECK(v.size() == 255U);
-
-    auto id = v.emplace_back(999);
-    CHECK(id == id_t::invalid);
-    CHECK(v.size() == 255U);
-  }
-
-  // Re-enabling the flag restores throwing on overflow.
-  if (true) {
-    V v;
-    v.throw_on_insert_failure(on_failure::ignore);
-    for (auto ndx = 0; ndx < 255; ++ndx) (void)v.push_back(ndx);
-    CHECK(v.push_back(999) == id_t::invalid);
-
-    v.throw_on_insert_failure(on_failure::raise);
-    CHECK_THROWS_AS(v.push_back(999), std::out_of_range);
-    CHECK(v.size() == 255U);
-  }
-
-  // Free-list reuse works normally with the flag off; only exceeding the limit
-  // returns invalid.
-  if (true) {
-    V v;
-    v.throw_on_insert_failure(on_failure::ignore);
-    for (auto ndx = 0; ndx < 255; ++ndx) (void)v.push_back(ndx);
-
-    v.erase(id_t{50});
-    CHECK(v.size() == 254U);
-
-    auto id = v.push_back(888);
-    CHECK(id == id_t{50});
-    CHECK(v[id] == 888);
-    CHECK(v.size() == 255U);
-
-    // Now truly full -- returns invalid, does not throw.
-    CHECK(v.push_back(999) == id_t::invalid);
-    CHECK(v.size() == 255U);
-  }
-}
-
-#pragma endregion
-#pragma region StableId_Fifo
-
-TEST_CASE("Fifo", "[StableId]") {
-  using V = int_stable_ids_fifo;
-  using id_t = V::id_t;
-
-  // Freed IDs are reused oldest-first (FIFO), not most-recent-first (LIFO).
-  if (true) {
-    V v;
-    (void)v.push_back(10); // id 0
-    (void)v.push_back(20); // id 1
-    (void)v.push_back(30); // id 2
-    v.erase(id_t{0});      // free list: [0]
-    v.erase(id_t{1});      // free list: [0, 1]
-    // LIFO would give 1 then 0; FIFO gives 0 then 1.
-    CHECK(v.push_back(100) == id_t{0});
-    CHECK(v.push_back(200) == id_t{1});
-  }
-
-  // FIFO reuse order matches erase order, not ID order.
-  if (true) {
-    V v;
-    (void)v.push_back(10); // id 0
-    (void)v.push_back(20); // id 1
-    (void)v.push_back(30); // id 2
-    (void)v.push_back(40); // id 3
-    (void)v.push_back(50); // id 4
-    v.erase(id_t{2});
-    v.erase(id_t{0});
-    v.erase(id_t{3});
-    // Erase order was 2, 0, 3; reuse must follow that order.
-    CHECK(v.push_back(100) == id_t{2});
-    CHECK(v.push_back(200) == id_t{0});
-    CHECK(v.push_back(300) == id_t{3});
-  }
-
-  // Interleaved free and alloc: each alloc pops the oldest free.
-  if (true) {
-    V v;
-    (void)v.push_back(10);      // id 0
-    (void)v.push_back(20);      // id 1
-    (void)v.push_back(30);      // id 2
-    v.erase(id_t{0});           // free: [0]
-    v.erase(id_t{1});           // free: [0, 1]
-    auto r0 = v.push_back(100); // pops 0; free: [1]
-    CHECK(r0 == id_t{0});
-    CHECK(v[r0] == 100);
-    v.erase(id_t{2});           // free: [1, 2]
-    auto r1 = v.push_back(200); // pops 1; free: [2]
-    CHECK(r1 == id_t{1});
-    CHECK(v[r1] == 200);
-    auto r2 = v.push_back(300); // pops 2; free: []
-    CHECK(r2 == id_t{2});
-    CHECK(v[r2] == 300);
-    // All live; next insert gets a fresh ID.
-    CHECK(v.push_back(400) == id_t{3});
-  }
-
-  // next_id returns 0 on empty, the FIFO head when IDs are free, or the
-  // next sequential value when the free list is empty.
-  if (true) {
-    V v;
-    CHECK(v.next_id() == id_t{0});
-    (void)v.push_back(10);         // id 0
-    (void)v.push_back(20);         // id 1
-    (void)v.push_back(30);         // id 2
-    CHECK(v.next_id() == id_t{3}); // no free IDs
-    v.erase(id_t{1});
-    CHECK(v.next_id() == id_t{1}); // head is 1
-    v.erase(id_t{0});
-    CHECK(v.next_id() == id_t{1}); // head is still 1 (oldest freed)
-  }
-
-  // Handles are invalidated on FIFO reuse; gen is bumped on erase.
-  if (true) {
-    V v;
-    auto id0 = v.push_back(10);
-    (void)v.push_back(20);
-    auto h0 = v.get_handle(id0);
-    CHECK(h0.gen() == 0U);
-    v.erase(id0);
-    CHECK_FALSE(v.is_valid(h0));
-    auto id0_reused = v.push_back(99);
-    CHECK(id0_reused == id0);
-    CHECK_FALSE(v.is_valid(h0)); // stale handle stays invalid
-    auto h0_new = v.get_handle(id0_reused);
-    CHECK(v.is_valid(h0_new));
-    CHECK((h0_new.gen()) > (h0.gen()));
-  }
-
-  // push_back_handle returns a correct handle after FIFO reuse.
-  if (true) {
-    V v;
-    (void)v.push_back(10); // id 0
-    (void)v.push_back(20); // id 1
-    v.erase(id_t{0});
-    auto h = v.push_back_handle(99);
-    CHECK(h.id() == id_t{0});
-    CHECK(v.is_valid(h));
-    CHECK(h.gen() == 1U); // bumped once on erase
-  }
-
-  // Free all elements; reuse order matches erase order.
-  if (true) {
-    V v;
-    (void)v.push_back(10); // id 0
-    (void)v.push_back(20); // id 1
-    (void)v.push_back(30); // id 2
-    v.erase(id_t{2});
-    v.erase(id_t{1});
-    v.erase(id_t{0});
-    CHECK(v.empty());
-    CHECK(v.push_back(100) == id_t{2});
-    CHECK(v.push_back(200) == id_t{1});
-    CHECK(v.push_back(300) == id_t{0});
-  }
-
-  // erase_if frees matching elements; subsequent allocs reuse them in
-  // the order erase_if processed them (data-index scan, swap-and-pop).
-  if (true) {
-    V v;
-    (void)v.push_back(10); // id 0
-    (void)v.push_back(25); // id 1
-    (void)v.push_back(30); // id 2
-    (void)v.push_back(5);  // id 3
-    (void)v.push_back(15); // id 4
-    auto cnt = v.erase_if([](int x) { return x > 20; });
-    CHECK(cnt == 2U);
-    CHECK(v.size() == 3U);
-    int sum{};
-    for (auto val : v) sum += val;
-    CHECK(sum == 30); // 10 + 5 + 15
-    // erase_if hits id 1 (val 25) first at data-index 1, then id 2
-    // (val 30) at data-index 2 after the swap brings it into range.
-    // FIFO reuses them in that order.
-    CHECK(v.push_back(100) == id_t{1});
-    CHECK(v.push_back(200) == id_t{2});
-    CHECK(v.size() == 5U);
-  }
-
-  // clear() without shrink rebuilds the FIFO list in position order;
-  // with no prior swaps that matches ID order 0, 1, 2.
-  if (true) {
-    V v;
-    (void)v.push_back(10); // id 0
-    (void)v.push_back(20); // id 1
-    (void)v.push_back(30); // id 2
-    auto h0 = v.get_handle(id_t{0});
-    v.clear();
-    CHECK(v.empty());
-    CHECK_FALSE(v.is_valid(h0));
-    CHECK(v.push_back(100) == id_t{0});
-    CHECK(v.push_back(200) == id_t{1});
-    CHECK(v.push_back(300) == id_t{2});
-    CHECK(v.get_handle(id_t{0}).gen() == 1U); // bumped once by clear
-  }
-
-  // clear(true) frees all storage; next insert starts fresh.
-  if (true) {
-    V v;
-    (void)v.push_back(10);
-    (void)v.push_back(20);
-    v.erase(id_t{0});
-    v.clear(deallocation_policy::release);
-    CHECK(v.empty());
-    auto id = v.push_back(42);
-    CHECK(*id == 0U);
-    CHECK(v.get_handle(id).gen() == 0U);
-  }
-
-  // shrink_to_fit rebuilds the FIFO list; only free IDs below the new
-  // table size survive.  IDs beyond max-live are discarded entirely.
-  if (true) {
-    V v;
-    (void)v.push_back(10); // id 0
-    (void)v.push_back(20); // id 1
-    (void)v.push_back(30); // id 2
-    (void)v.push_back(40); // id 3
-    (void)v.push_back(50); // id 4
-    v.erase(id_t{3});
-    v.erase(id_t{4});
-    v.erase(id_t{0});
-    // Live: ids 1, 2.  shrink trims to max(1,2)+1 = 3; only id 0 is a
-    // free slot that fits.  Ids 3 and 4 are beyond the new table size.
-    v.shrink_to_fit();
-    CHECK(v.size() == 2U);
-    CHECK(v[id_t{1}] == 20);
-    CHECK(v[id_t{2}] == 30);
-    auto id_new = v.push_back(99);
-    CHECK(id_new == id_t{0});
-    CHECK(v[id_new] == 99);
-  }
-
-  // swap exchanges the complete FIFO free-list state between containers.
-  if (true) {
-    V a;
-    V b;
-    (void)a.push_back(10); // a: id 0
-    (void)a.push_back(20); // a: id 1
-    a.erase(id_t{0});      // a free list: [0]
-    (void)b.push_back(30); // b: id 0
-    (void)b.push_back(40); // b: id 1
-    (void)b.push_back(50); // b: id 2
-    b.erase(id_t{1});      // b free list: [1]
-    b.erase(id_t{0});      // b free list: [1, 0]
-    swap(a, b);
-    // a now has b's old free list [1, 0]; oldest free is 1.
-    CHECK(a.push_back(100) == id_t{1});
-    CHECK(a.push_back(200) == id_t{0});
-    // b now has a's old free list [0].
-    CHECK(b.push_back(300) == id_t{0});
-  }
-
-  // Move construction transfers the FIFO free-list intact.
-  if (true) {
-    V v;
-    (void)v.push_back(10); // id 0
-    (void)v.push_back(20); // id 1
-    (void)v.push_back(30); // id 2
-    v.erase(id_t{0});      // free: [0]
-    v.erase(id_t{2});      // free: [0, 2]
-    V w{std::move(v)};
-    CHECK(w.push_back(100) == id_t{0});
-    CHECK(w.push_back(200) == id_t{2});
-  }
-
-  // FIFO reuse at small_id_t capacity limit.
-  if (true) {
-    using SV = int_stable_small_ids_fifo;
-    using sid_t = SV::id_t;
-    SV v;
-    for (auto ndx = 0; ndx < 255; ++ndx) (void)v.push_back(ndx);
-    CHECK(v.size() == 255U);
-    v.erase(sid_t{10});
-    v.erase(sid_t{20});
-    v.erase(sid_t{30});
-    // FIFO order matches erase order: 10, 20, 30.
-    CHECK(v.push_back(100) == sid_t{10});
-    CHECK(v.push_back(200) == sid_t{20});
-    CHECK(v.push_back(300) == sid_t{30});
-    CHECK(v.size() == 255U);
-  }
-}
-
-#pragma endregion
-#pragma region StableId_NoGen
-
-TEST_CASE("NoGen", "[StableId]") {
-  using V = int_stable_ids_nogen;
-  using id_t = V::id_t;
-
-  // Basic push, access, and size without generation tracking.
-  if (true) {
-    V v;
-    auto id0 = v.push_back(10);
-    auto id1 = v.push_back(20);
-    CHECK(*id0 == 0U);
-    CHECK(*id1 == 1U);
-    CHECK(v[id0] == 10);
-    CHECK(v[id1] == 20);
-    CHECK(v.size() == 2U);
-  }
-
-  // handle_t is exactly sizeof(id_t): the gen field is zero-size via
-  // CORVID_NO_UNIQUE_ADDRESS.  Smaller than the default (gen-enabled) handle.
-  if (true) {
-    static_assert(sizeof(V::handle_t) == sizeof(V::id_t));
-    using WithGen = int_stable_ids;
-    static_assert(sizeof(V::handle_t) < sizeof(WithGen::handle_t));
-  }
-
-  // is_valid detects free IDs; erase makes them invalid.
-  if (true) {
-    V v;
-    auto id0 = v.push_back(10);
-    (void)v.push_back(20);
-    CHECK(v.is_valid(id0));
-    v.erase(id0);
-    CHECK_FALSE(v.is_valid(id0));
-  }
-
-  // A handle for a free (not-yet-reused) ID is detected as invalid.
-  if (true) {
-    V v;
-    auto id0 = v.push_back(10);
-    (void)v.push_back(20);
-    auto h0 = v.get_handle(id0);
-    v.erase(id0);
-    CHECK_FALSE(v.is_valid(h0));
-    CHECK_THROWS_AS(v.at(h0), std::invalid_argument);
-  }
-
-  // Without gen, a stale handle for a *reused* ID is indistinguishable
-  // from a fresh one: is_valid returns true, at() returns the new value.
-  // This is the documented trade-off of UseGen=false.
-  if (true) {
-    V v;
-    auto id0 = v.push_back(10);
-    (void)v.push_back(20);
-    auto h0 = v.get_handle(id0); // snapshot while id 0 holds 10
-    v.erase(id0);
-    (void)v.push_back(99); // reuses id 0 (LIFO)
-    CHECK(v.is_valid(h0)); // indistinguishable: ID is live
-    CHECK(v.at(h0) == 99); // returns new value, not original 10
-  }
-
-  // LIFO reuse: most recently freed ID is reused first.  Contrast with
-  // the FIFO variant where the same erase order would yield 0 then 1.
-  if (true) {
-    V v;
-    (void)v.push_back(10); // id 0
-    (void)v.push_back(20); // id 1
-    (void)v.push_back(30); // id 2
-    v.erase(id_t{0});      // freed first
-    v.erase(id_t{1});      // freed second (most recent)
-    // LIFO: id 1 freed last, so it's reused first.
-    CHECK(v.push_back(100) == id_t{1});
-    CHECK(v.push_back(200) == id_t{0});
-  }
-
-  // Erase-reinsert cycle: values and IDs stay consistent.
-  if (true) {
-    V v;
-    (void)v.push_back(10); // id 0
-    (void)v.push_back(20); // id 1
-    (void)v.push_back(30); // id 2
-    v.erase(id_t{1});
-    auto r = v.push_back(99);
-    CHECK(r == id_t{1});
-    CHECK(v[r] == 99);
-    CHECK(v[id_t{0}] == 10);
-    CHECK(v[id_t{2}] == 30);
-    CHECK(v.size() == 3U);
-  }
-
-  // clear() without shrink: all IDs become reusable; no gen to bump.
-  if (true) {
-    V v;
-    (void)v.push_back(10);
-    (void)v.push_back(20);
-    v.clear();
-    CHECK(v.empty());
-    auto id0 = v.push_back(100);
-    auto id1 = v.push_back(200);
-    CHECK(id0 == id_t{0});
-    CHECK(id1 == id_t{1});
-    CHECK(v[id0] == 100);
-    CHECK(v[id1] == 200);
-  }
-
-  // clear(true) resets the container entirely.
-  if (true) {
-    V v;
-    (void)v.push_back(10);
-    v.clear(deallocation_policy::release);
-    CHECK(v.empty());
-    auto id = v.push_back(42);
-    CHECK(*id == 0U);
-    CHECK(v[id] == 42);
-  }
-}
-
-#pragma endregion
-#pragma region StableId_FifoNoGen
-
-TEST_CASE("FifoNoGen", "[StableId]") {
-  using V = int_stable_ids_fifo_nogen;
-  using id_t = V::id_t;
-
-  // FIFO reuse order is maintained without generation tracking.
-  if (true) {
-    V v;
-    (void)v.push_back(10); // id 0
-    (void)v.push_back(20); // id 1
-    (void)v.push_back(30); // id 2
-    v.erase(id_t{0});      // free: [0]
-    v.erase(id_t{2});      // free: [0, 2]
-    CHECK(v.push_back(100) == id_t{0});
-    CHECK(v.push_back(200) == id_t{2});
-  }
-
-  // Interleaved free and alloc follow FIFO order without gen.
-  if (true) {
-    V v;
-    (void)v.push_back(10);      // id 0
-    (void)v.push_back(20);      // id 1
-    (void)v.push_back(30);      // id 2
-    (void)v.push_back(40);      // id 3
-    v.erase(id_t{1});           // free: [1]
-    v.erase(id_t{3});           // free: [1, 3]
-    auto r0 = v.push_back(100); // pops 1
-    CHECK(r0 == id_t{1});
-    v.erase(id_t{0});           // free: [3, 0]
-    auto r1 = v.push_back(200); // pops 3
-    CHECK(r1 == id_t{3});
-    auto r2 = v.push_back(300); // pops 0
-    CHECK(r2 == id_t{0});
-  }
-
-  // Values are correct after FIFO reuse.
-  if (true) {
-    V v;
-    (void)v.push_back(10); // id 0
-    (void)v.push_back(20); // id 1
-    (void)v.push_back(30); // id 2
-    v.erase(id_t{1});
-    auto r = v.push_back(99);
-    CHECK(r == id_t{1});
-    CHECK(v[r] == 99);
-    CHECK(v[id_t{0}] == 10);
-    CHECK(v[id_t{2}] == 30);
-  }
-
-  // handle_t is sizeof(id_t): neither gen nor the FIFO next-pointer
-  // appears in it.  The next-pointer lives in the internal slot_t only.
-  if (true) { static_assert(sizeof(V::handle_t) == sizeof(V::id_t)); }
-
-  // Without gen, a stale handle for a reused ID is indistinguishable.
-  // FIFO increases the reuse delay but is not a correctness guard.
-  if (true) {
-    V v;
-    auto id0 = v.push_back(10);
-    (void)v.push_back(20);
-    (void)v.push_back(30);
-    auto h0 = v.get_handle(id0);
-    v.erase(id0);
-    v.erase(id_t{1}); // id 0 is oldest; next alloc reuses it
-    (void)v.push_back(99);
-    CHECK(v.is_valid(h0)); // indistinguishable: ID is live again
-    CHECK(v.at(h0) == 99);
-  }
-
-  // clear() without shrink rebuilds the FIFO list in position order.
-  if (true) {
-    V v;
-    (void)v.push_back(10);
-    (void)v.push_back(20);
-    (void)v.push_back(30);
-    v.clear();
-    CHECK(v.empty());
-    CHECK(v.push_back(100) == id_t{0});
-    CHECK(v.push_back(200) == id_t{1});
-    CHECK(v.push_back(300) == id_t{2});
-  }
-}
-
-#pragma endregion
-#pragma region StableId_MaxId
-
-// Test the max_id() setting to limit ID allocation.
-
-TEST_CASE("MaxId", "[StableId]") {
-  using id_t = int_stable_ids::id_t;
-  using V = stable_ids<int, id_t>;
-
-  // Can allocate up to max.
-  if (true) {
-    // Limit to 3 IDs (0, 1, 2).
-    V v{id_t{3}};
-    auto id0 = v.push_back(10);
-    auto id1 = v.push_back(20);
-    auto id2 = v.push_back(30);
-    CHECK(*id0 == 0U);
-    CHECK(*id1 == 1U);
-    CHECK(*id2 == 2U);
-    CHECK(v.size() == 3U);
-  }
-
-  // The 4th insertion overflows.
-  if (true) {
-    V v{id_t{3}};
-    (void)v.push_back(10);
-    (void)v.push_back(20);
-    (void)v.push_back(30);
-    CHECK_THROWS_AS(v.push_back(40), std::out_of_range);
-    CHECK(v.size() == 3U);
-  }
-
-  // With throw disabled, returns invalid.
-  if (true) {
-    V v{id_t{3}};
-    v.throw_on_insert_failure(on_failure::ignore);
-    (void)v.push_back(10);
-    (void)v.push_back(20);
-    (void)v.push_back(30);
-    auto id3 = v.push_back(40);
-    CHECK(id3 == id_t::invalid);
-    CHECK(v.size() == 3U);
-  }
-
-  // Erasing frees a slot for reuse.
-  if (true) {
-    V v{id_t{3}};
-    auto id0 = v.push_back(10);
-    (void)v.push_back(20);
-    (void)v.push_back(30);
-    CHECK(v.size() == 3U);
-
-    v.erase(id0);
-    CHECK(v.size() == 2U);
-
-    // Can now insert again, reusing the freed ID.
-    auto id_reused = v.push_back(40);
-    CHECK(id_reused == id0);
-    CHECK(v.size() == 3U);
-    CHECK(v[id_reused] == 40);
-
-    // Full again -- exceeds limit.
-    CHECK_THROWS_AS(v.push_back(50), std::out_of_range);
-  }
-
-  // set_id_limit on empty container always succeeds.
-  if (true) {
-    V v;
-    CHECK(v.id_limit() == id_t::invalid);
-    CHECK(v.set_id_limit(id_t{2}));
-    CHECK(v.id_limit() == id_t{2});
-
-    (void)v.push_back(10);
-    (void)v.push_back(20);
-    CHECK_THROWS_AS(v.push_back(30), std::out_of_range);
-  }
-
-  // set_id_limit fails if it would invalidate live IDs.
-  if (true) {
-    V v;
-    (void)v.push_back(10); // ID 0
-    (void)v.push_back(20); // ID 1
-    (void)v.push_back(30); // ID 2
-
-    // Can't set limit to 2 because ID 2 is live (limit means IDs 0..limit-1).
-    CHECK_FALSE(v.set_id_limit(id_t{2}));
-    CHECK(v.id_limit() == id_t::invalid); // Unchanged.
-
-    // Can set limit to 3 (IDs 0,1,2 are valid).
-    CHECK(v.set_id_limit(id_t{3}));
-    CHECK(v.id_limit() == id_t{3});
-
-    // Can raise the limit.
-    CHECK(v.set_id_limit(id_t{10}));
-    CHECK(v.id_limit() == id_t{10});
-  }
-
-  // set_id_limit with freed slots beyond the new limit triggers shrink.
-  if (true) {
-    V v;
-    (void)v.push_back(10); // ID 0
-    (void)v.push_back(20); // ID 1
-    (void)v.push_back(30); // ID 2
-    v.erase(id_t{2});      // Free ID 2, max_id() still 2.
-
-    CHECK(v.max_id() == id_t{2});
-    CHECK(v.find_max_extant_id() == id_t{1});
-
-    // Setting limit to 2 should succeed and shrink (ID 2 is freed).
-    CHECK(v.set_id_limit(id_t{2}));
-    CHECK(v.id_limit() == id_t{2});
-    // After shrink, max_id() should equal find_max_extant_id().
-    CHECK(v.max_id() == id_t{1});
-  }
-
-  // set_id_limit on empty container with freed slots clears them.
-  if (true) {
-    V v;
-    (void)v.push_back(10); // ID 0
-    (void)v.push_back(20); // ID 1
-    v.erase(id_t{0});
-    v.erase(id_t{1});
-    CHECK(v.empty());
-    CHECK(v.max_id() == id_t{1}); // High-water mark is still 1.
-
-    // Setting a lower limit should clear the freed slots.
-    CHECK(v.set_id_limit(id_t{1}));
-    CHECK(v.id_limit() == id_t{1});
-  }
-
-  // Prefill constructor pre-allocates slots.
-  if (true) {
-    V v{id_t{5}, allocation_policy::eager};
-    CHECK(v.id_limit() == id_t{5});
-    // Slots are pre-allocated, so push_back won't allocate indexes_/reverse_.
-    auto id0 = v.push_back(10);
-    auto id1 = v.push_back(20);
-    CHECK(*id0 == 0U);
-    CHECK(*id1 == 1U);
   }
 }
 
@@ -3215,6 +2341,27 @@ TEST_CASE("Iterator", "[MonoArchetypeStorage]") {
     auto it = 1 + s.begin();
     CHECK(*it == 2.0F);
   }
+
+  // The iterators satisfy `std::contiguous_iterator`, as advertised, and
+  // `iterator` converts to `const_iterator` (never the reverse), enabling
+  // mixed comparisons.
+  if (true) {
+    using iterator = storage_t::iterator;
+    using const_iterator = storage_t::const_iterator;
+    static_assert(std::contiguous_iterator<iterator>);
+    static_assert(std::contiguous_iterator<const_iterator>);
+    static_assert(std::convertible_to<iterator, const_iterator>);
+    static_assert(!std::convertible_to<const_iterator, iterator>);
+    reg_t r;
+    storage_t s{r, sid};
+    auto id0 = r.create_id(staging, 10);
+    CHECK(s.add(id0, 1.0F));
+    const_iterator cit = s.begin();
+    CHECK(*cit == 1.0F);
+    CHECK(cit == s.begin());
+    CHECK(s.begin() != s.cend());
+    CHECK(std::as_const(s).begin() == s.begin());
+  }
 }
 
 #pragma endregion
@@ -3814,7 +2961,7 @@ TEST_CASE("ChunkBoundary", "[ChunkedArchetypeStorage]") {
     CHECK(a[ids[4]].component<int>() == 40);
     CHECK(r.get_location(ids[4]).ndx == 0U);
     // All survivors are now in chunk 0.
-    for (auto& row : a) CHECK(r.is_valid(row.id()));
+    for (auto row : a) CHECK(r.is_valid(row.id()));
   }
 
   // Removing from a non-zero slot within the last chunk: no chunk pop.
@@ -4542,6 +3689,24 @@ TEST_CASE("MixedStorages", "[ArchetypeScene]") {
     CHECK(s.empty());
     CHECK(s.registry().size() == 0U);
   }
+
+  // store_new_entity_from_mega dispatches into chunked and mono storages,
+  // pinning that every storage type provides `add_new_from_mega`, not just
+  // `archetype_storage`.
+  if (true) {
+    mixed_scene_t s;
+    mixed_scene_t::megatuple_t tpl{};
+    std::get<std::optional<Health>>(tpl) = Health{7};
+    auto h_chunked = s.store_new_entity_from_mega({}, tpl);
+    CHECK(h_chunked);
+    CHECK(s.storage<scene_sid_t{2}>().contains(h_chunked.id()));
+    tpl = {};
+    std::get<std::optional<Position>>(tpl) = Position{9.F, 8.F};
+    auto h_mono = s.store_new_entity_from_mega({}, tpl);
+    CHECK(h_mono);
+    CHECK(s.storage<scene_sid_t{3}>().contains(h_mono.id()));
+    CHECK(s.storage<scene_sid_t{3}>()[h_mono.id()].x == 9.F);
+  }
 }
 
 #pragma endregion
@@ -5093,44 +4258,6 @@ TEST_CASE("Tag", "[ArchetypeStorage]") {
     CHECK(s.size() == 2U);
     CHECK(sa[ha.id()].component<int>() == 10);
     CHECK(sb[hb.id()].component<int>() == 20);
-  }
-}
-
-#pragma endregion
-#pragma region StableId_ReservePrefill
-
-TEST_CASE("ReservePrefill", "[StableId]") {
-  // reserve(n, true) extends the ID space without inserting elements.
-  if (true) {
-    int_stable_ids ids;
-    CHECK(ids.max_id() == int_stable_ids::id_t::invalid);
-    ids.reserve(5, allocation_policy::eager);
-    CHECK(ids.size() == 0U);                        // no elements inserted
-    CHECK(ids.max_id() == int_stable_ids::id_t{4}); // ID space set to [0,4]
-  }
-
-  // reserve(n, false) does not extend the ID space.
-  if (true) {
-    int_stable_ids ids;
-    ids.reserve(5, allocation_policy::lazy);
-    CHECK(ids.size() == 0U);
-    CHECK(ids.max_id() == int_stable_ids::id_t::invalid);
-  }
-
-  // After reserve(n, true), push_back uses the pre-filled slots correctly.
-  if (true) {
-    int_stable_ids ids;
-    ids.reserve(3, allocation_policy::eager);
-    auto id0 = ids.push_back(10);
-    auto id1 = ids.push_back(20);
-    auto id2 = ids.push_back(30);
-    CHECK(ids.is_valid(id0));
-    CHECK(ids.is_valid(id1));
-    CHECK(ids.is_valid(id2));
-    CHECK(ids[id0] == 10);
-    CHECK(ids[id1] == 20);
-    CHECK(ids[id2] == 30);
-    CHECK(ids.size() == 3U);
   }
 }
 
@@ -5849,6 +4976,47 @@ TEST_CASE("Iterator", "[ComponentStorage]") {
     cs_store_t s{r, cs_sid_t{1}};
     CHECK(s.begin() == s.end());
   }
+
+  // The iterators satisfy `std::contiguous_iterator`, as advertised, and
+  // `iterator` converts to `const_iterator` (never the reverse), enabling
+  // mixed comparisons.
+  if (true) {
+    using iterator = cs_store_t::iterator;
+    using const_iterator = cs_store_t::const_iterator;
+    static_assert(std::contiguous_iterator<iterator>);
+    static_assert(std::contiguous_iterator<const_iterator>);
+    static_assert(std::convertible_to<iterator, const_iterator>);
+    static_assert(!std::convertible_to<const_iterator, iterator>);
+    cs_reg_t r;
+    cs_store_t s{r, cs_sid_t{1}};
+    auto id0 = r.create_id({}, 0);
+    CHECK(s.add(id0, 1.0F));
+    const_iterator cit = s.begin();
+    CHECK(*cit == 1.0F);
+    CHECK(cit == s.begin());
+    CHECK(s.begin() != s.cend());
+    CHECK(std::as_const(s).begin() == s.begin());
+  }
+}
+
+#pragma endregion
+#pragma region ComponentStorage_NarrowEntityId
+
+TEST_CASE("NarrowEntityId", "[ComponentStorage]") {
+  using id_enums::store_id_t;
+  using reg_t = entity_registry<int, small_entity_id_t, store_id_t,
+      generation_scheme::versioned, 8>;
+  using store_t = component_storage<reg_t, int>;
+
+  // Same saturation pin as the archetype-family storages, on a component-mode
+  // registry. The instantiation also pins `metadata_t == component_t` (both
+  // `int`): the constrained-away component-first overload leaves only the
+  // base's metadata-first `add_new`.
+  reg_t r;
+  store_t s{r, store_id_t{1}};
+  for (auto ndx = 0; ndx < 255; ++ndx) REQUIRE(r.is_valid(s.add_new(ndx)));
+  CHECK(s.size() == 255);
+  CHECK(s.capacity() >= s.size());
 }
 
 #pragma endregion
@@ -6979,6 +6147,33 @@ TEST_CASE("MegaTuple", "[ArchetypeScene]") {
     CHECK(s.size() == 2U);
     CHECK(s.storage<scene_sid_t{1}>().size() == 1U);
     CHECK(s.storage<scene_sid_t{2}>().size() == 1U);
+  }
+
+  // TAG twins share a component bitmap the megatuple pattern cannot
+  // disambiguate: a mega insert targeting the twins is refused with an
+  // invalid handle, while unique-bitmap targets in the same scene still work.
+  if (true) {
+    struct twin_a_tag {};
+    struct twin_b_tag {};
+    using twin_pv_a_t = archetype_storage<scene_reg_t,
+        std::tuple<Position, Velocity>, twin_a_tag>;
+    using twin_pv_b_t = archetype_storage<scene_reg_t,
+        std::tuple<Position, Velocity>, twin_b_tag>;
+    using twin_scene_t =
+        archetype_scene<scene_reg_t, twin_pv_a_t, twin_pv_b_t, arch_h_t>;
+    twin_scene_t s;
+    twin_scene_t::megatuple_t tpl{};
+    std::get<std::optional<Health>>(tpl) = Health{5};
+    auto h = s.store_new_entity_from_mega({}, tpl);
+    CHECK(h);
+    CHECK(s.storage<scene_sid_t{3}>().contains(h.id()));
+    tpl = {};
+    std::get<std::optional<Position>>(tpl) = Position{1.F, 2.F};
+    std::get<std::optional<Velocity>>(tpl) = Velocity{3.F, 4.F};
+    auto h2 = s.store_new_entity_from_mega({}, tpl);
+    CHECK_FALSE(h2);
+    CHECK(s.size() == 1U);
+    CHECK(s.registry().size() == 1U);
   }
 }
 

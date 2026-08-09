@@ -16,17 +16,19 @@
 // limitations under the License.
 #pragma once
 
+#include <algorithm>
 #include <array>
+#include <bit>
 #include <cstddef>
-#include <cstdint>
-#include <limits>
 #include <memory>
 #include <type_traits>
 #include <tuple>
 #include <utility>
 #include <vector>
 
+#include "../enums/bool_enums.h"
 #include "../infra/exception_firewalls.h"
+#include "../math/arithmetic.h"
 #include "archetype_storage_base.h"
 
 namespace corvid { inline namespace ecs {
@@ -52,10 +54,16 @@ inline namespace chunked_archetype_storages {
 //
 // Template parameters:
 //  REG       - `entity_registry` instantiation. Provides types.
-//  TUPLE     - Tuple of component types. Each must be trivially copyable.
+//  TUPLE     - Tuple of component types. Each must be default-constructible,
+//              assignable, and swappable (swap-and-pop removal swaps
+//              component slots). Intended for cheap value-type components:
+//              vacated slots retain stale values until their chunk is
+//              dropped.
 //  CHUNKSZ   - Entities per chunk. Must be a positive power of two.
-//              Default: 16. Tune so that one chunk fills a cache line
-//              (e.g., CHUNKSZ = 64 / sizeof(largest_component_type)).
+//              Default: 16. To avoid false sharing when threads are
+//              partitioned by chunk, size each per-component slice to at
+//              least one cache line: `CHUNKSZ >= (64 /
+//              sizeof(smallest_component_type))`.
 //  TAG       - Optional tag type (default: `void`). Use a distinct tag to
 //              create multiple structurally identical storages that are
 //              nevertheless different types and can coexist in the same
@@ -99,7 +107,7 @@ public:
 
   static constexpr size_t chunk_size_v = CHUNKSZ;
 
-  static_assert((chunk_size_v & (chunk_size_v - 1)) == 0 && chunk_size_v > 0,
+  static_assert(std::has_single_bit(chunk_size_v),
       "CHUNKSZ must be a positive power of two");
 
   // Array of chunk_size_v elements for a single component type within a chunk.
@@ -114,6 +122,13 @@ public:
 
   using chunk_vector_t = std::vector<chunk_tuple_t, chunk_allocator_t>;
 
+  static_assert((std::is_default_constructible_v<Cs> && ...),
+      "component types must be default-constructible (chunks are built from "
+      "default-constructed slots)");
+  static_assert((std::is_swappable_v<Cs> && ...),
+      "component types must be swappable (swap-and-pop removal swaps "
+      "component slots)");
+
 #pragma endregion
 #pragma region Construction
 
@@ -121,16 +136,18 @@ public:
   // fully constructed instance before calling any mutation methods.
   chunked_archetype_storage() = default;
 
-  // Construct bound to `registry` with the given `store_id`. `store_id` must
-  // not be `store_id_t::invalid` or `store_id_t{0}` (staging). If
-  // `do_reserve` is true and `limit` is not the sentinel unlimited value,
-  // reserves capacity for `limit` entities up front.
+  // Construct bound to `registry` with the given `store_id`.
+  //
+  // The `store_id` is not permitted to be `store_id_t::invalid` or
+  // `store_id_t{0}` (staging). If `policy` is `allocation_policy::eager` and
+  // `limit` is not the sentinel unlimited value, reserves capacity for
+  // `limit` entities up front.
   explicit chunked_archetype_storage(registry_t& registry, store_id_t store_id,
       size_type limit = *id_t::invalid,
       allocation_policy policy = allocation_policy::lazy)
       : base_t{registry, store_id, limit},
         chunks_{chunk_allocator_t{registry.get_allocator()}} {
-    if (policy == allocation_policy::eager && limit_ != *id_t::invalid)
+    if ((policy == allocation_policy::eager) && (limit_ != *id_t::invalid))
       reserve(limit_);
   }
 
@@ -155,7 +172,7 @@ public:
   }
 
   friend void swap(chunked_archetype_storage& lhs,
-      chunked_archetype_storage& rhs) noexcept(noexcept(lhs.swap(rhs))) {
+      chunked_archetype_storage& rhs) noexcept {
     lhs.swap(rhs);
   }
 
@@ -168,19 +185,23 @@ public:
     ids_.shrink_to_fit();
   }
 
-  // Reserve capacity for at least `new_cap` entities. The chunk vector is
-  // rounded up to `ceil(new_cap / chunk_size_v)` whole chunks; IDs is
-  // reserved exactly.
+  // Reserve capacity for at least `new_cap` entities.
+  //
+  // Requests beyond the entity limit are clamped to it. The chunk vector is
+  // rounded up to whole chunks; IDs is reserved exactly.
   void reserve(size_type new_cap) {
-    const auto n = static_cast<size_t>(new_cap);
-    chunks_.reserve((n + chunk_size_v - 1) / chunk_size_v);
+    const auto n = static_cast<size_t>(std::min(new_cap, limit_));
+    chunks_.reserve(ceil_div(n, chunk_size_v));
     ids_.reserve(n);
   }
 
-  // Return the current entity capacity. Governed by IDs capacity(); the chunk
-  // vector may hold slightly more slots due to chunk-boundary rounding.
+  // Return the current entity capacity: the number of entities the storage
+  // can hold without reallocating, which is the minimum of the ID capacity
+  // and the whole-chunk capacity.
   [[nodiscard]] size_type capacity() const noexcept {
-    return static_cast<size_type>(ids_.capacity());
+    auto min_cap =
+        std::min(ids_.capacity(), chunks_.capacity() * chunk_size_v);
+    return saturate_cast<size_type>(min_cap);
   }
 
 #pragma endregion
@@ -211,12 +232,11 @@ private:
     return true;
   }
 
-  // Roll back chunks_ to the number needed for `new_size` entities (called
-  // by base's `add_guard` on exception).
+  // Resize chunks_ to the number needed for `new_size` entities (called by
+  // base's `add_guard` on exception and by its `do_swap_and_pop`, where the
+  // rounding drops the last chunk once it empties).
   bool do_resize_storage(size_type new_size) {
-    const auto chunk_count =
-        (static_cast<size_t>(new_size) + chunk_size_v - 1) / chunk_size_v;
-    chunks_.resize(chunk_count);
+    chunks_.resize(ceil_div(static_cast<size_t>(new_size), chunk_size_v));
     return true;
   }
 
@@ -227,33 +247,16 @@ private:
     return {n / chunk_size_v, n % chunk_size_v};
   }
 
-  // Swap the elements (all component slots and the ID) at two logical indices.
-  bool do_swap_elements(size_type left_ndx, size_type right_ndx) noexcept {
+  // Swap the component slots at two logical indices.
+  //
+  // The base handles `ids_`.
+  bool do_swap_components(size_type left_ndx, size_type right_ndx) {
     const auto [left_chunk_ndx, left_element_ndx] = chunk_coords(left_ndx);
     const auto [right_chunk_ndx, right_element_ndx] = chunk_coords(right_ndx);
     (std::swap(
          std::get<chunk_t<Cs>>(chunks_[left_chunk_ndx])[left_element_ndx],
          std::get<chunk_t<Cs>>(chunks_[right_chunk_ndx])[right_element_ndx]),
         ...);
-    std::swap(ids_[left_ndx], ids_[right_ndx]);
-    return true;
-  }
-
-  // Swap element at `ndx` with the last element, pop the last slot, and drop
-  // the last chunk if it is now empty. Updates the displaced entity's registry
-  // location.
-  bool do_swap_and_pop(size_type ndx) {
-    assert(size());
-    const auto last = size() - 1;
-    if (ndx != last) {
-      do_swap_elements(ndx, last);
-      if (registry_) registry_->set_location(ids_[ndx], {store_id_, ndx});
-    }
-    ids_.pop_back();
-    // The last chunk becomes empty when the element we just removed was in its
-    // first slot (slot 0), i.e. `ids_.size()` is now a multiple of
-    // `chunk_size_v`.
-    if (ids_.size() % chunk_size_v == 0) chunks_.pop_back();
     return true;
   }
 
@@ -268,26 +271,25 @@ private:
 
   template<typename C>
   [[nodiscard]] decltype(auto)
-  do_get_component(this auto& self, size_type ndx) noexcept {
+  do_get_component(this auto& self, size_type ndx) {
     const auto [chunk_ndx, element_ndx] = chunk_coords(ndx);
     return std::get<chunk_t<C>>(self.chunks_[chunk_ndx])[element_ndx];
   }
 
   template<size_t Index>
   [[nodiscard]] decltype(auto)
-  do_get_component_by_index(this auto& self, size_type ndx) noexcept {
+  do_get_component_by_index(this auto& self, size_type ndx) {
     const auto [chunk_ndx, element_ndx] = chunk_coords(ndx);
     return std::get<Index>(self.chunks_[chunk_ndx])[element_ndx];
   }
 
-  [[nodiscard]] auto
-  do_make_components_tuple(this auto& self, size_type ndx) noexcept {
+  [[nodiscard]] auto do_make_components_tuple(this auto& self, size_type ndx) {
     const auto [chunk_ndx, element_ndx] = chunk_coords(ndx);
     // NOLINTBEGIN(clang-analyzer-core.NullDereference)
     return std::apply(
         [&](auto&&... arrs) {
-          return std::tuple<decltype(arrs[element_ndx])&...>{
-              arrs[element_ndx]...}; // NOLINT(modernize-type-traits)
+          return std::tuple<decltype(arrs[element_ndx])...>{
+              arrs[element_ndx]...};
         },
         self.chunks_[chunk_ndx]);
     // NOLINTEND(clang-analyzer-core.NullDereference)

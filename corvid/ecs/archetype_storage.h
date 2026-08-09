@@ -16,18 +16,17 @@
 // limitations under the License.
 #pragma once
 
+#include <algorithm>
 #include <cstddef>
-#include <cstdint>
-#include <limits>
 #include <memory>
-#include <optional>
-#include <span>
 #include <type_traits>
 #include <tuple>
 #include <utility>
 #include <vector>
 
+#include "../enums/bool_enums.h"
 #include "../infra/exception_firewalls.h"
+#include "../math/arithmetic.h"
 #include "archetype_storage_base.h"
 
 namespace corvid { inline namespace ecs { inline namespace archetype_storages {
@@ -58,7 +57,8 @@ namespace corvid { inline namespace ecs { inline namespace archetype_storages {
 //
 // Template parameters:
 //  REG      - `entity_registry` instantiation. Provides types.
-//  TUPLE    - Tuple of component types. Each must be trivially copyable.
+//  TUPLE    - Tuple of component types. Each must be movable (removal uses
+//             swap-and-pop).
 //  TAG      - Optional tag type (default: `void`). Use a distinct tag to
 //             create multiple structurally identical storages that are
 //             nevertheless different types and can coexist in the same
@@ -105,6 +105,10 @@ public:
   template<typename T>
   using component_vector_t = std::vector<T, component_allocator_t<T>>;
 
+  static_assert((std::is_move_constructible_v<Cs> && ...) &&
+                    (std::is_move_assignable_v<Cs> && ...),
+      "component types must be movable (removal uses swap-and-pop)");
+
 #pragma endregion
 #pragma region Construction
 
@@ -112,16 +116,18 @@ public:
   // fully constructed instance before calling any mutation methods.
   archetype_storage() = default;
 
-  // Construct bound to `registry` with the given `store_id`. `store_id` must
-  // not be `store_id_t::invalid` or `store_id_t{0}` (staging). If
-  // `do_reserve` is true and `limit` is not the sentinel unlimited value,
-  // reserves capacity for `limit` entities up front.
+  // Construct bound to `registry` with the given `store_id`.
+  //
+  // The `store_id` is not permitted to be `store_id_t::invalid` or
+  // `store_id_t{0}` (staging). If `policy` is `allocation_policy::eager` and
+  // `limit` is not the sentinel unlimited value, reserves capacity for
+  // `limit` entities up front.
   explicit archetype_storage(registry_t& registry, store_id_t store_id,
       size_type limit = *id_t::invalid,
       allocation_policy policy = allocation_policy::lazy)
       : base_t{registry, store_id, limit},
         components_{make_components(registry.get_allocator())} {
-    if (policy == allocation_policy::eager && limit_ != *id_t::invalid)
+    if ((policy == allocation_policy::eager) && (limit_ != *id_t::invalid))
       reserve(limit_);
   }
 
@@ -143,8 +149,7 @@ public:
     components_.swap(other.components_);
   }
 
-  friend void swap(archetype_storage& lhs, archetype_storage& rhs) noexcept(
-      noexcept(lhs.swap(rhs))) {
+  friend void swap(archetype_storage& lhs, archetype_storage& rhs) noexcept {
     lhs.swap(rhs);
   }
 
@@ -159,8 +164,10 @@ public:
 
   // Reserve capacity for at least `new_cap` entities across all component
   // vectors and IDs.
+  //
+  // Requests beyond the entity limit are clamped to it.
   void reserve(size_type new_cap) {
-    const auto cap = static_cast<size_t>(new_cap);
+    const auto cap = static_cast<size_t>(std::min(new_cap, limit_));
     for_each_component([&](auto& vec) { vec.reserve(cap); });
     ids_.reserve(cap);
   }
@@ -173,23 +180,8 @@ public:
           ((min_cap = std::min(min_cap, vecs.capacity())), ...);
         },
         components_);
-    return static_cast<size_type>(min_cap);
+    return saturate_cast<size_type>(min_cap);
   }
-
-#pragma endregion
-#pragma region Insertion
-
-  // Create a new entity by extracting this archetype's components from `mega`,
-  // a `megatuple_t` (tuple of optionals). Each `optional<C>` for a component
-  // `C` in this archetype must have a value; the caller is responsible for
-  // ensuring the bitmap matches before calling.
-  // NOLINTBEGIN(bugprone-unchecked-optional-access)
-  template<typename MegaTuple>
-  [[nodiscard]] handle_t
-  add_new_from_mega(const metadata_t& metadata, const MegaTuple& mega) {
-    return this->add_new(metadata, *std::get<std::optional<Cs>>(mega)...);
-  }
-  // NOLINTEND(bugprone-unchecked-optional-access)
 
 #pragma endregion
 #pragma region Implementation
@@ -216,33 +208,20 @@ private:
     return true;
   }
 
-  // Roll back all component vectors to `new_size` (called by base's
-  // `add_guard` on exception).
+  // Resize all component vectors to `new_size` rows (called by base's
+  // `add_guard` on exception and by its `do_swap_and_pop`).
   bool do_resize_storage(size_type new_size) {
     for_each_component([&](auto& vec) { vec.resize(new_size); });
     return true;
   }
 
-  // Swap elements at `left_ndx` and `right_ndx`, including their IDs.
-  bool do_swap_elements(size_type left_ndx, size_type right_ndx) noexcept {
+  // Swap the component data at `left_ndx` and `right_ndx`.
+  //
+  // The base handles `ids_`.
+  bool do_swap_components(size_type left_ndx, size_type right_ndx) {
     for_each_component([&](auto& vec) {
       std::swap(vec[left_ndx], vec[right_ndx]);
     });
-    std::swap(ids_[left_ndx], ids_[right_ndx]);
-    return true;
-  }
-
-  // Swap element at `ndx` with the last element and pop. Updates the displaced
-  // entity's registry location.
-  bool do_swap_and_pop(size_type ndx) {
-    assert(size());
-    const auto last = size() - 1;
-    if (ndx != last) {
-      do_swap_elements(ndx, last);
-      if (registry_) registry_->set_location(ids_[ndx], {store_id_, ndx});
-    }
-    for_each_component([&](auto& vec) { vec.pop_back(); });
-    ids_.pop_back();
     return true;
   }
 
@@ -257,21 +236,20 @@ private:
 
   template<typename C>
   [[nodiscard]] decltype(auto)
-  do_get_component(this auto& self, size_type ndx) noexcept {
+  do_get_component(this auto& self, size_type ndx) {
     return std::get<component_vector_t<C>>(self.components_)[ndx];
   }
 
   template<size_t Index>
   [[nodiscard]] decltype(auto)
-  do_get_component_by_index(this auto& self, size_type ndx) noexcept {
+  do_get_component_by_index(this auto& self, size_type ndx) {
     return std::get<Index>(self.components_)[ndx];
   }
 
-  [[nodiscard]] auto
-  do_make_components_tuple(this auto& self, size_type ndx) noexcept {
+  [[nodiscard]] auto do_make_components_tuple(this auto& self, size_type ndx) {
     return std::apply(
         [&](auto&&... vecs) {
-          return std::tuple<decltype(vecs[ndx])&...>{vecs[ndx]...};
+          return std::tuple<decltype(vecs[ndx])...>{vecs[ndx]...};
         },
         self.components_);
   }
