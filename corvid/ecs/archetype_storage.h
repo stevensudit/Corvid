@@ -203,33 +203,20 @@ private:
     return true;
   }
 
-  // Roll back all component vectors to `new_size` (called by base's
-  // `add_guard` on exception).
+  // Resize all component vectors to `new_size` rows (called by base's
+  // `add_guard` on exception and by its `do_swap_and_pop`).
   bool do_resize_storage(size_type new_size) {
     for_each_component([&](auto& vec) { vec.resize(new_size); });
     return true;
   }
 
-  // Swap elements at `left_ndx` and `right_ndx`, including their IDs.
-  bool do_swap_elements(size_type left_ndx, size_type right_ndx) {
+  // Swap the component data at `left_ndx` and `right_ndx`.
+  //
+  // The base handles `ids_`.
+  bool do_swap_components(size_type left_ndx, size_type right_ndx) {
     for_each_component([&](auto& vec) {
       std::swap(vec[left_ndx], vec[right_ndx]);
     });
-    std::swap(ids_[left_ndx], ids_[right_ndx]);
-    return true;
-  }
-
-  // Swap element at `ndx` with the last element and pop. Updates the displaced
-  // entity's registry location.
-  bool do_swap_and_pop(size_type ndx) {
-    assert(size());
-    const auto last = size() - 1;
-    if (ndx != last) {
-      do_swap_elements(ndx, last);
-      if (registry_) registry_->set_location(ids_[ndx], {store_id_, ndx});
-    }
-    for_each_component([&](auto& vec) { vec.pop_back(); });
-    ids_.pop_back();
     return true;
   }
 

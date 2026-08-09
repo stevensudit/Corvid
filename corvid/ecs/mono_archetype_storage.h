@@ -310,19 +310,11 @@ private:
     return std::tuple<decltype(self.components_[ndx])>{self.components_[ndx]};
   }
 
-  // Swap element at `ndx` with the last element and pop. Updates the
-  // swapped-in entity's registry location.
-  bool do_swap_and_pop(size_type ndx) {
-    assert(size());
-    const auto last = static_cast<size_type>(components_.size() - 1);
-    if (ndx != last) {
-      std::swap(components_[ndx], components_[last]);
-      std::swap(ids_[ndx], ids_[last]);
-      // Update the swapped-in entity's index in the registry.
-      if (registry_) registry_->set_location(ids_[ndx], {store_id_, ndx});
-    }
-    components_.pop_back();
-    ids_.pop_back();
+  // Swap the components at `left_ndx` and `right_ndx`.
+  //
+  // The base handles `ids_`.
+  bool do_swap_components(size_type left_ndx, size_type right_ndx) {
+    std::swap(components_[left_ndx], components_[right_ndx]);
     return true;
   }
 
@@ -333,8 +325,8 @@ private:
     return true;
   }
 
-  // Roll back component storage to `new_size` (called by `add_guard` on
-  // exception).
+  // Resize component storage to `new_size` rows (called by `add_guard` on
+  // exception and by the base's `do_swap_and_pop`).
   bool do_resize_storage(size_type new_size) {
     components_.resize(new_size);
     return true;

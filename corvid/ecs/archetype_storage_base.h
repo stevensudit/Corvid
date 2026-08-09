@@ -67,7 +67,7 @@ inline namespace archetype_storage_bases {
 //         decltype(auto) do_get_component_by_index(this auto& self,
 //         size_type ndx);`
 //   `decltype(auto) do_make_components_tuple(this auto& self, size_type ndx);`
-//   `bool do_swap_and_pop(size_type ndx);`
+//   `bool do_swap_components(size_type left_ndx, size_type right_ndx);`
 //   `bool do_clear_storage();`
 //   `bool do_resize_storage(size_type new_size);`
 //
@@ -667,9 +667,27 @@ private:
     return true;
   }
 
+  // Swap the row at `ndx` with the last row and pop it, updating the
+  // displaced entity's registry location.
+  //
+  // The child swaps and shrinks the component data, while `ids_` and the
+  // registry fixup are handled here.
+  bool do_swap_and_pop(size_type ndx) {
+    assert(!ids_.empty());
+    const auto last = ids_.size() - 1;
+    if (ndx != last) {
+      derived().do_swap_components(ndx, last);
+      std::swap(ids_[ndx], ids_[last]);
+      registry_->set_location(ids_[ndx], {store_id_, ndx});
+    }
+    ids_.pop_back();
+    derived().do_resize_storage(ids_.size());
+    return true;
+  }
+
   bool do_remove_erase(id_t id, store_id_t new_store_id) {
     if (!contains(id)) return false;
-    derived().do_swap_and_pop(registry_->get_location(id).ndx);
+    do_swap_and_pop(registry_->get_location(id).ndx);
     registry_->set_location(id, {new_store_id});
     return true;
   }
@@ -700,7 +718,7 @@ private:
       const auto& comp = derived().template do_get_component<C>(ndx);
       if (pred(comp, ids_[ndx])) {
         const auto removed_id = ids_[ndx];
-        derived().do_swap_and_pop(ndx);
+        do_swap_and_pop(ndx);
         registry_->set_location(removed_id, {new_store_id});
         ++cnt;
       } else
@@ -718,7 +736,7 @@ private:
       row.ndx_ = ndx;
       if (pred(row)) {
         const auto removed_id = ids_[ndx];
-        derived().do_swap_and_pop(ndx);
+        do_swap_and_pop(ndx);
         registry_->set_location(removed_id, {new_store_id});
         ++cnt;
       } else

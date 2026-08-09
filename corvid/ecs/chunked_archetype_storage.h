@@ -223,8 +223,9 @@ private:
     return true;
   }
 
-  // Roll back chunks_ to the number needed for `new_size` entities (called
-  // by base's `add_guard` on exception).
+  // Resize chunks_ to the number needed for `new_size` entities (called by
+  // base's `add_guard` on exception and by its `do_swap_and_pop`, where the
+  // rounding drops the last chunk once it empties).
   bool do_resize_storage(size_type new_size) {
     chunks_.resize(ceil_div(static_cast<size_t>(new_size), chunk_size_v));
     return true;
@@ -237,33 +238,16 @@ private:
     return {n / chunk_size_v, n % chunk_size_v};
   }
 
-  // Swap the elements (all component slots and the ID) at two logical indices.
-  bool do_swap_elements(size_type left_ndx, size_type right_ndx) {
+  // Swap the component slots at two logical indices.
+  //
+  // The base handles `ids_`.
+  bool do_swap_components(size_type left_ndx, size_type right_ndx) {
     const auto [left_chunk_ndx, left_element_ndx] = chunk_coords(left_ndx);
     const auto [right_chunk_ndx, right_element_ndx] = chunk_coords(right_ndx);
     (std::swap(
          std::get<chunk_t<Cs>>(chunks_[left_chunk_ndx])[left_element_ndx],
          std::get<chunk_t<Cs>>(chunks_[right_chunk_ndx])[right_element_ndx]),
         ...);
-    std::swap(ids_[left_ndx], ids_[right_ndx]);
-    return true;
-  }
-
-  // Swap element at `ndx` with the last element, pop the last slot, and drop
-  // the last chunk if it is now empty. Updates the displaced entity's registry
-  // location.
-  bool do_swap_and_pop(size_type ndx) {
-    assert(size());
-    const auto last = size() - 1;
-    if (ndx != last) {
-      do_swap_elements(ndx, last);
-      if (registry_) registry_->set_location(ids_[ndx], {store_id_, ndx});
-    }
-    ids_.pop_back();
-    // The last chunk becomes empty when the element we just removed was in its
-    // first slot (slot 0), i.e. `ids_.size()` is now a multiple of
-    // `chunk_size_v`.
-    if (ids_.size() % chunk_size_v == 0) chunks_.pop_back();
     return true;
   }
 
