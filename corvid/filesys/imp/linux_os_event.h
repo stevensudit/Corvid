@@ -14,24 +14,22 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
-#ifndef CORVID_IMP_LINUX_OS_EVENT_H
-#ifndef CORVID_OS_EVENT_ENTRY
-#if defined(CORVID_CLANGD) || !defined(NDEBUG)
-// Reroute a standalone dev-time inclusion through the entry point.
-#include "../os_event.h"
-#else
+#pragma once
+
+// Standalone inclusion is permitted in dev builds and under clangd, so this
+// file can be viewed and parsed on its own; release builds must come through
+// the entry point.
+#if !defined(CORVID_OS_EVENT_ENTRY) && defined(NDEBUG) &&                     \
+    !defined(CORVID_CLANGD)
 #error "Include \"os_event.h\" instead of this implementation header."
 #endif
-#else
-#define CORVID_IMP_LINUX_OS_EVENT_H
 
 #include <optional>
-#include <utility>
 
 #include <sys/eventfd.h>
 
 #include "../../enums/bool_enums.h"
-#include "../os_file.h"
+#include "../os_event_base.h"
 
 // Linux implementation of "os_event.h", wrapping an `eventfd`.
 
@@ -40,38 +38,31 @@ using namespace bool_enums;
 
 #pragma region os_event
 
-// Wake-up event backed by a Linux `eventfd`. See "os_event.h" for the
-// portable contract.
+// Wake-up event backed by a Linux `eventfd`.
 //
-// `os_event` owns a single eventfd handle and inherits the general fd helpers
-// from `os_file`. The raw handle can be registered with a poll set such as
-// `epoll`. Beyond the portable surface, it adds typed counter-based read
+// Beyond the portable surface, it adds typed counter-based notify/read
 // operations and the counter/semaphore and blocking mode choices.
-class [[nodiscard]] os_event: public os_file {
+class [[nodiscard]] os_event: public os_event_base<os_event> {
+  using base = os_event_base<os_event>;
+  friend base;
+
 public:
 #pragma region Types
 
-  using handle_t = os_file::file_handle_t;
   using counter_t = eventfd_t;
-  static constexpr handle_t invalid_handle = os_file::invalid_file_handle;
   static constexpr int default_flags = EFD_CLOEXEC | EFD_NONBLOCK;
 
 #pragma endregion
 #pragma region Construction
 
-  os_event() noexcept = default;
-  explicit os_event(os_file&& file) noexcept : os_file{std::move(file)} {}
+  using base::base;
+  using base::create;
 
-  os_event(os_event&&) noexcept = default;
-  os_event(const os_event&) = delete;
-
-  os_event& operator=(os_event&&) noexcept = default;
-  os_event& operator=(const os_event&) = delete;
-
-  // Create an `os_event` with `initial_value`. Defaults to non-blocking
-  // counter mode (`EFD_CLOEXEC | EFD_NONBLOCK`); pass `event_mode::semaphore`
+  // Create an `os_event` with `initial_value`. Pass `event_mode::semaphore`
   // to add `EFD_SEMAPHORE`, or `execution::blocking` to omit `EFD_NONBLOCK`.
-  [[nodiscard]] static os_event create(counter_t initial_value = 0,
+  // The first parameter takes no default so that the portable no-argument
+  // `create` stays unambiguous; it is the equivalent of passing 0 here.
+  [[nodiscard]] static os_event create(counter_t initial_value,
       event_mode mode = event_mode::counter,
       execution exec = execution::nonblocking) noexcept {
     int flags = EFD_CLOEXEC;
@@ -83,19 +74,11 @@ public:
 #pragma endregion
 #pragma region Operations
 
-  // Add `value` to the counter. Returns true on success.
-  [[nodiscard]] bool notify(counter_t value = 1) const noexcept {
-    return ::eventfd_write(handle(), value) == 0;
-  }
+  using base::notify;
 
-  // Consume any pending notifications so a subsequent wait blocks until the
-  // next `notify`. Returns true when the event was drained or already clear,
-  // false on hard error. Assumes the default non-blocking mode; in blocking
-  // mode, an already-clear counter would block.
-  [[nodiscard]] bool drain() const noexcept {
-    counter_t value{};
-    if (::eventfd_read(handle(), &value) == 0) return true;
-    return !os_error::last().is_hard_error();
+  // Add `value` to the counter. Returns true on success.
+  [[nodiscard]] bool notify(counter_t value) const noexcept {
+    return ::eventfd_write(handle(), value) == 0;
   }
 
   // Read the counter, returning the consumed value on success. In counter
@@ -115,10 +98,28 @@ public:
   }
 
 #pragma endregion
+#pragma region Workers
+private:
+  // Create a non-blocking counter-mode eventfd, initially 0.
+  [[nodiscard]] static os_file do_create() noexcept {
+    return os_file{::eventfd(0, default_flags)};
+  }
+
+  // Add 1 to the counter.
+  [[nodiscard]] bool do_notify() const noexcept {
+    return ::eventfd_write(handle(), 1) == 0;
+  }
+
+  // Consume the accumulated count. Assumes the default non-blocking mode; in
+  // blocking mode, an already-clear counter would block.
+  [[nodiscard]] bool do_drain() const noexcept {
+    counter_t value{};
+    if (::eventfd_read(handle(), &value) == 0) return true;
+    return !os_error::last().is_hard_error();
+  }
+
+#pragma endregion
 };
 
 #pragma endregion
 }} // namespace corvid::filesys
-
-#endif // CORVID_OS_EVENT_ENTRY
-#endif // CORVID_IMP_LINUX_OS_EVENT_H
