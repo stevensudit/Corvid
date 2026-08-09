@@ -17,7 +17,6 @@
 #pragma once
 #include <cstddef>
 #include <cstdint>
-#include <ranges>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -26,6 +25,7 @@
 #include "../../strings/cases.h"
 #include "../../strings/conversion.h"
 #include "../source_scanner.h"
+#include "symbols.h"
 #include "token_classes.h"
 #include "value.h"
 
@@ -37,8 +37,8 @@ namespace corvid { inline namespace lang { namespace coreb {
 // source text into values. Monty, the Pythonesque surface syntax, is a skin
 // whose parser produces the same values.
 //
-//   runtime rt;
-//   auto v = hall_reader::read_one(rt, "(a 1 2.5)");
+//   runtime_environment run_env;
+//   auto v = hall_reader::read_one(run_env, "(a 1 2.5)");
 //   if (v) v->print();  // "(a 1 2.5)"
 
 #pragma region hall_reader
@@ -93,20 +93,16 @@ public:
   template<typename T>
   using result = source_scanner::result<T>;
 
-  // Maximum expression-nesting depth accepted.
-  //
-  // Depth counts nested expressions (sublists and quotes), not list length: a
-  // flat thousand-element table is depth 1, so only genuinely nested
-  // structure approaches the limit, which exists to keep recursion from
-  // exhausting the C++ stack.
-  static constexpr size_t max_depth = 256;
-
   // Read exactly one expression from `src`.
   //
-  // Anything but trailing trivia after the expression is an error.
-  [[nodiscard]] static result<value>
-  read_one(runtime& rt, std::string_view src) {
-    parser p(rt, src);
+  // Anything but trailing trivia after the expression is an error. `depth`
+  // seeds the nesting budget for a caller already that deep (the Monty
+  // parser reading a Hall escape), so stacked front ends share the one
+  // `max_depth` rather than each starting fresh.
+  [[nodiscard]] static result<value> read_one(runtime_environment& run_env,
+      std::string_view src, size_t depth = 0) {
+    parser p(run_env, src);
+    p.depth = depth;
     p.skip_trivia();
     auto v = p.parse_value();
     if (!v) return v;
@@ -119,9 +115,9 @@ public:
   //
   // All-trivia input yields an empty vector.
   [[nodiscard]] static result<std::vector<value>>
-  read_all(runtime& rt, std::string_view src) {
+  read_all(runtime_environment& run_env, std::string_view src) {
     std::vector<value> values;
-    parser p(rt, src);
+    parser p(run_env, src);
     for (p.skip_trivia(); !p.at_end(); p.skip_trivia()) {
       auto v = p.parse_value();
       if (!v) return std::move(v);
@@ -135,10 +131,11 @@ private:
 
   // Single-pass recursive-descent parser over the source text.
   struct parser: source_scanner {
-    parser(runtime& rt, std::string_view src) noexcept
-        : source_scanner{src}, rt{rt} {}
+    parser(runtime_environment& run_env, std::string_view src) noexcept
+        : source_scanner{src}, rt{run_env.rt}, syms{run_env.syms} {}
 
     runtime& rt;
+    const symbols& syms;
     size_t depth{};
 
     // Whether `c` ends a token.
@@ -180,7 +177,7 @@ private:
       skip_trivia();
       auto quoted = parse_value();
       if (!quoted) return quoted;
-      return rt.cons(value{rt.intern("quote")}, rt.cons(*quoted, value{}));
+      return rt.cons(value{syms.quote}, rt.cons(*quoted, value{}));
     }
 
     // Whether the upcoming token is the lone '.' of a dotted tail.
@@ -214,10 +211,7 @@ private:
         if (!v) return v;
         elems.push_back(*v);
       }
-      value list = tail;
-      for (const auto& elem : std::views::reverse(elems))
-        list = rt.cons(elem, list);
-      return list;
+      return rt.list_of(elems, tail);
     }
 
     // Parse a dotted tail, ". expr )", with the '.' already detected but not

@@ -94,6 +94,9 @@ public:
   template<typename T>
   using result = value_or_error<T, source_error>;
 
+  // Default value indicating that the cursor position should be used.
+  static constexpr size_t npos = std::string_view::npos;
+
   explicit source_scanner(std::string_view src) noexcept : src_{src} {}
 
   [[nodiscard]] size_t cursor() const noexcept { return pos_; }
@@ -159,10 +162,12 @@ public:
     return src_.substr(start, pos_ - start);
   }
 
-  // Build a failure at the current position, or at `pos`; pass
-  // `error_cause::incomplete_input` for an error more input could repair.
-  [[nodiscard]] source_error fail(std::string message, size_t pos = -1,
+  // Build a failure at the current position, or at `pos`.
+  //
+  // Pass `error_cause::incomplete_input` for an error more input could repair.
+  [[nodiscard]] source_error fail(std::string message, size_t pos = npos,
       error_cause cause = error_cause::invalid_input) const {
+    assert(pos <= src_.size() || pos == npos);
     if (pos >= src_.size()) pos = pos_;
     return source_error::at(src_, pos, std::move(message), cause);
   }

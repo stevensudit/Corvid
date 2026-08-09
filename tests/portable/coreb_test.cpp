@@ -33,12 +33,12 @@ namespace {
 // Read one expression and return its printed form, checking that the form is
 // canonical: reading the printed text back and printing again must reproduce
 // it exactly, because a single round trip reaches the fixed point.
-std::string echo(runtime& rt, std::string_view src) {
+std::string echo(runtime_environment& run_env, std::string_view src) {
   CAPTURE(src);
-  auto v = hall_reader::read_one(rt, src);
+  auto v = hall_reader::read_one(run_env, src);
   REQUIRE(v.has_value());
   auto text = v->print();
-  auto again = hall_reader::read_one(rt, text);
+  auto again = hall_reader::read_one(run_env, text);
   REQUIRE(again.has_value());
   CHECK(again->print() == text);
   return text;
@@ -46,13 +46,14 @@ std::string echo(runtime& rt, std::string_view src) {
 
 // Read every form in `src` and evaluate them in order, returning the last
 // value's printed form.
-std::string run(runtime& rt, evaluator& ev, std::string_view src) {
+std::string
+run(runtime_environment& run_env, evaluator& ev, std::string_view src) {
   CAPTURE(src);
-  auto forms = hall_reader::read_all(rt, src);
+  auto forms = hall_reader::read_all(run_env, src);
   REQUIRE(forms.has_value());
   REQUIRE_FALSE(forms->empty());
   // Evaluation may collect at safe points; the pending forms are roots.
-  gc_pin pin(rt, *forms);
+  gc_pin pin(run_env.rt, *forms);
   value last;
   for (const auto& form : *forms) {
     auto v = ev.eval(form);
@@ -64,12 +65,13 @@ std::string run(runtime& rt, evaluator& ev, std::string_view src) {
 
 // Read every form in `src` and evaluate until one fails, returning the error
 // message. Evaluating them all successfully fails the test.
-std::string run_err(runtime& rt, evaluator& ev, std::string_view src) {
+std::string
+run_err(runtime_environment& run_env, evaluator& ev, std::string_view src) {
   CAPTURE(src);
-  auto forms = hall_reader::read_all(rt, src);
+  auto forms = hall_reader::read_all(run_env, src);
   REQUIRE(forms.has_value());
   // Evaluation may collect at safe points; the pending forms are roots.
-  gc_pin pin(rt, *forms);
+  gc_pin pin(run_env.rt, *forms);
   for (const auto& form : *forms) {
     auto v = ev.eval(form);
     if (!v) return v.as_error().reason;
@@ -156,19 +158,19 @@ TEST_CASE("CoreB values", "[coreb]") {
     // Nesting through heads past the cap renders as a display form instead
     // of overflowing the C++ stack, and the return reports the truncation.
     value deep;
-    for (size_t ndx = 0; ndx < value::max_depth + 10; ++ndx)
+    for (size_t ndx = 0; ndx < max_depth + 10; ++ndx)
       deep = rt.cons(deep, value{});
     out.clear();
     CHECK_FALSE(deep.append(out));
-    CHECK(out == std::string(value::max_depth, '(') + "#<too deep>" +
-                     std::string(value::max_depth, ')'));
+    CHECK(out == std::string(max_depth, '(') + "#<too deep>" +
+                     std::string(max_depth, ')'));
     out.clear();
     CHECK_FALSE(deep.append_dump(out));
 
     // Closure bodies charge depth too: an embedder can nest closures
     // through `make_closure` bodies, a shape no read source can produce.
     value fn = 1;
-    for (size_t ndx = 0; ndx < value::max_depth + 10; ++ndx)
+    for (size_t ndx = 0; ndx < max_depth + 10; ++ndx)
       fn = rt.make_closure({}, {fn}, rt.root_env());
     out.clear();
     CHECK_FALSE(fn.append(out));
@@ -212,9 +214,9 @@ TEST_CASE("CoreB symbols", "[coreb]") {
 #pragma region CoreB reader atoms
 
 TEST_CASE("CoreB reader atoms", "[coreb]") {
-  runtime rt;
-  auto read = [&rt](std::string_view src) {
-    auto v = hall_reader::read_one(rt, src);
+  runtime_environment run_env;
+  auto read = [&run_env](std::string_view src) {
+    auto v = hall_reader::read_one(run_env, src);
     REQUIRE(v.has_value());
     return *v;
   };
@@ -247,32 +249,32 @@ TEST_CASE("CoreB reader atoms", "[coreb]") {
   // approximation it lands on is canonical, so `echo` verifies it survives
   // another round trip unchanged.
   CHECK(read("92233720368547758080").is_float());
-  echo(rt, "92233720368547758080");
+  echo(run_env, "92233720368547758080");
 }
 
 #pragma endregion
 #pragma region CoreB reader lists
 
 TEST_CASE("CoreB reader lists", "[coreb]") {
-  runtime rt;
+  runtime_environment run_env;
 
-  CHECK(echo(rt, "(1 2 3)") == "(1 2 3)");
-  CHECK(echo(rt, "( a ( b c )  d )") == "(a (b c) d)");
-  CHECK(echo(rt, "()") == "nil");
-  CHECK(echo(rt, "(a . b)") == "(a . b)");
-  CHECK(echo(rt, "(a b . c)") == "(a b . c)");
+  CHECK(echo(run_env, "(1 2 3)") == "(1 2 3)");
+  CHECK(echo(run_env, "( a ( b c )  d )") == "(a (b c) d)");
+  CHECK(echo(run_env, "()") == "nil");
+  CHECK(echo(run_env, "(a . b)") == "(a . b)");
+  CHECK(echo(run_env, "(a b . c)") == "(a b . c)");
   // The dotted spelling of a proper list collapses to the plain form.
-  CHECK(echo(rt, "(a . (b . nil))") == "(a b)");
-  CHECK(echo(rt, "(a . (b . c))") == "(a b . c)");
+  CHECK(echo(run_env, "(a . (b . nil))") == "(a b)");
+  CHECK(echo(run_env, "(a . (b . c))") == "(a b . c)");
 }
 
 #pragma endregion
 #pragma region CoreB reader strings
 
 TEST_CASE("CoreB reader strings", "[coreb]") {
-  runtime rt;
-  auto read = [&rt](std::string_view src) {
-    auto v = hall_reader::read_one(rt, src);
+  runtime_environment run_env;
+  auto read = [&run_env](std::string_view src) {
+    auto v = hall_reader::read_one(run_env, src);
     REQUIRE(v.has_value());
     return *v;
   };
@@ -290,7 +292,7 @@ TEST_CASE("CoreB reader strings", "[coreb]") {
         "a\x1f"
         "b");
   // Non-printables print as hex escapes, and round-trip.
-  value ctl = rt.make_string("\x01\x7f");
+  value ctl = run_env.rt.make_string("\x01\x7f");
   CHECK(ctl.print() == R"("\u{1}\u{7f}")");
   CHECK(read(ctl.print()).as_string() == "\x01\x7f");
 }
@@ -299,19 +301,19 @@ TEST_CASE("CoreB reader strings", "[coreb]") {
 #pragma region CoreB reader sugar and trivia
 
 TEST_CASE("CoreB reader sugar and trivia", "[coreb]") {
-  runtime rt;
+  runtime_environment run_env;
 
-  CHECK(echo(rt, "'x") == "(quote x)");
-  CHECK(echo(rt, "'(1 2)") == "(quote (1 2))");
-  CHECK(echo(rt, "; leading comment\n 42 ; trailing comment") == "42");
+  CHECK(echo(run_env, "'x") == "(quote x)");
+  CHECK(echo(run_env, "'(1 2)") == "(quote (1 2))");
+  CHECK(echo(run_env, "; leading comment\n 42 ; trailing comment") == "42");
 
-  auto all = hall_reader::read_all(rt, "1 2 (3 4) ; done");
+  auto all = hall_reader::read_all(run_env, "1 2 (3 4) ; done");
   REQUIRE(all.has_value());
   REQUIRE(all->size() == 3);
   CHECK((*all)[0].print() == "1");
   CHECK((*all)[2].print() == "(3 4)");
 
-  auto none = hall_reader::read_all(rt, " ; nothing here\n");
+  auto none = hall_reader::read_all(run_env, " ; nothing here\n");
   REQUIRE(none.has_value());
   CHECK(none->empty());
 }
@@ -320,9 +322,9 @@ TEST_CASE("CoreB reader sugar and trivia", "[coreb]") {
 #pragma region CoreB reader errors
 
 TEST_CASE("CoreB reader errors", "[coreb]") {
-  runtime rt;
-  auto err = [&rt](std::string_view src) {
-    auto v = hall_reader::read_one(rt, src);
+  runtime_environment run_env;
+  auto err = [&run_env](std::string_view src) {
+    auto v = hall_reader::read_one(run_env, src);
     REQUIRE_FALSE(v.has_value());
     return v.as_error();
   };
@@ -370,126 +372,142 @@ TEST_CASE("CoreB reader errors", "[coreb]") {
   CHECK_FALSE(err(")").incomplete());
   CHECK_FALSE(err("1abc").incomplete());
 
-  const std::string deep(hall_reader::max_depth + 1, '(');
+  const std::string deep(max_depth + 1, '(');
   CHECK(err(deep).message == "nesting too deep");
   // A chain of quotes nests one level per quote.
-  const std::string quotes(hall_reader::max_depth + 1, '\'');
+  const std::string quotes(max_depth + 1, '\'');
   CHECK(err(quotes + "x").message == "nesting too deep");
   // Depth counts nesting, not length: a long flat list is fine.
   std::string wide = "(";
   for (auto ndx = 0; ndx < 1000; ++ndx) wide += "x ";
   wide += ")";
-  CHECK(hall_reader::read_one(rt, wide).has_value());
+  CHECK(hall_reader::read_one(run_env, wide).has_value());
 }
 
 #pragma endregion
 #pragma region CoreB eval atoms and quote
 
 TEST_CASE("CoreB eval atoms and quote", "[coreb]") {
-  runtime rt;
-  evaluator ev(rt);
+  runtime_environment run_env;
+  evaluator ev(run_env);
 
   // Atoms evaluate to themselves.
-  CHECK(run(rt, ev, "42") == "42");
-  CHECK(run(rt, ev, "2.5") == "2.5");
-  CHECK(run(rt, ev, "true") == "true");
-  CHECK(run(rt, ev, "nil") == "nil");
-  CHECK(run(rt, ev, R"("hello")") == R"("hello")");
+  CHECK(run(run_env, ev, "42") == "42");
+  CHECK(run(run_env, ev, "2.5") == "2.5");
+  CHECK(run(run_env, ev, "true") == "true");
+  CHECK(run(run_env, ev, "nil") == "nil");
+  CHECK(run(run_env, ev, R"("hello")") == R"("hello")");
 
   // Quote yields its argument unevaluated.
-  CHECK(run(rt, ev, "'x") == "x");
-  CHECK(run(rt, ev, "''x") == "(quote x)");
-  CHECK(run(rt, ev, "(quote (1 2))") == "(1 2)");
-  CHECK(run_err(rt, ev, "(quote)") == "quote: expects 1 argument");
-  CHECK(run_err(rt, ev, "(quote a b)") == "quote: expects 1 argument");
+  CHECK(run(run_env, ev, "'x") == "x");
+  CHECK(run(run_env, ev, "''x") == "(quote x)");
+  CHECK(run(run_env, ev, "(quote (1 2))") == "(1 2)");
+  CHECK(run_err(run_env, ev, "(quote)") == "quote: expects 1 argument");
+  CHECK(run_err(run_env, ev, "(quote a b)") == "quote: expects 1 argument");
 
   // A symbol evaluates to its binding; function values print as display
   // forms, a closure's showing its code but not its captured environment.
-  CHECK(run(rt, ev, "+") == "#<primitive +>");
-  CHECK(run(rt, ev, "(lambda (x) x)") == "#<lambda (x) x>");
-  CHECK(run(rt, ev, "(lambda () 1 2)") == "#<lambda () 1 2>");
-  CHECK(run_err(rt, ev, "y") == "unbound symbol: y");
+  CHECK(run(run_env, ev, "+") == "#<primitive +>");
+  CHECK(run(run_env, ev, "(lambda (x) x)") == "#<lambda (x) x>");
+  CHECK(run(run_env, ev, "(lambda () 1 2)") == "#<lambda () 1 2>");
+  CHECK(run_err(run_env, ev, "y") == "unbound symbol: y");
 }
 
 #pragma endregion
 #pragma region CoreB eval if
 
 TEST_CASE("CoreB eval if", "[coreb]") {
-  runtime rt;
-  evaluator ev(rt);
+  runtime_environment run_env;
+  evaluator ev(run_env);
 
-  CHECK(run(rt, ev, "(if true 1 2)") == "1");
-  CHECK(run(rt, ev, "(if false 1 2)") == "2");
+  CHECK(run(run_env, ev, "(if true 1 2)") == "1");
+  CHECK(run(run_env, ev, "(if false 1 2)") == "2");
   // Clojure-style truthiness: nil and false are falsy; everything else is
   // truthy, zero and the empty string included.
-  CHECK(run(rt, ev, "(if nil 'y 'n)") == "n");
-  CHECK(run(rt, ev, "(if '() 'y 'n)") == "n");
-  CHECK(run(rt, ev, "(if 0 'y 'n)") == "y");
-  CHECK(run(rt, ev, R"((if "" 'y 'n))") == "y");
+  CHECK(run(run_env, ev, "(if nil 'y 'n)") == "n");
+  CHECK(run(run_env, ev, "(if '() 'y 'n)") == "n");
+  CHECK(run(run_env, ev, "(if 0 'y 'n)") == "y");
+  CHECK(run(run_env, ev, R"((if "" 'y 'n))") == "y");
   // One-armed if yields nil when the condition is falsy.
-  CHECK(run(rt, ev, "(if false 1)") == "nil");
+  CHECK(run(run_env, ev, "(if false 1)") == "nil");
   // Only the chosen branch is evaluated: the head of a non-cell would error.
-  CHECK(run(rt, ev, "(if true 1 (head 2))") == "1");
-  CHECK(run_err(rt, ev, "(if true)") == "if: expects 2 or 3 arguments");
+  CHECK(run(run_env, ev, "(if true 1 (head 2))") == "1");
+  CHECK(run_err(run_env, ev, "(if true)") == "if: expects 2 or 3 arguments");
 }
 
 #pragma endregion
 #pragma region CoreB eval define
 
 TEST_CASE("CoreB eval define", "[coreb]") {
-  runtime rt;
-  evaluator ev(rt);
+  runtime_environment run_env;
+  evaluator ev(run_env);
 
   // Define binds in the current scope, yields the defined name, and allows
   // rebinding.
-  CHECK(run(rt, ev, "(define x 5)") == "x");
-  CHECK(run(rt, ev, "x") == "5");
-  CHECK(run(rt, ev, "(define x 6) x") == "6");
+  CHECK(run(run_env, ev, "(define x 5)") == "x");
+  CHECK(run(run_env, ev, "x") == "5");
+  CHECK(run(run_env, ev, "(define x 6) x") == "6");
 
   // Primitives are ordinary bindings, so a Lisp-1 can pass them around.
-  CHECK(run(rt, ev, "(define plus +) (plus 1 2)") == "3");
+  CHECK(run(run_env, ev, "(define plus +) (plus 1 2)") == "3");
 
   // Definition polices reserved names.
-  CHECK(run_err(rt, ev, "(define %x 1)") ==
+  CHECK(run_err(run_env, ev, "(define %x 1)") ==
         "'%' names are reserved for the kernel: %x");
-  CHECK(run_err(rt, ev, "(define if 1)") == "cannot rebind special form: if");
-  CHECK(run_err(rt, ev, "(define 5 1)") == "define: expects a symbol, got: 5");
-  CHECK(run_err(rt, ev, "(define y)") == "define: expects a name and a value");
+  CHECK(run_err(run_env, ev, "(define if 1)") ==
+        "cannot rebind special form: if");
+  // Literal words cannot be bound either. The reader never produces these
+  // symbols (`nil` in source reads as the literal), so build the form
+  // directly.
+  {
+    auto& rt = run_env.rt;
+    std::vector<value> forms{rt.cons(value{rt.intern("define")},
+        rt.cons(value{rt.intern("nil")}, rt.cons(value{1}, value{})))};
+    gc_pin pin(rt, forms);
+    auto r = ev.eval(forms[0]);
+    REQUIRE_FALSE(r.has_value());
+    CHECK(r.as_error().reason == "cannot bind a literal: nil");
+  }
+  CHECK(run_err(run_env, ev, "(define 5 1)") ==
+        "define: expects a symbol, got: 5");
+  CHECK(run_err(run_env, ev, "(define y)") ==
+        "define: expects a name and a value");
 }
 
 #pragma endregion
 #pragma region CoreB eval lambda and closures
 
 TEST_CASE("CoreB eval lambda and closures", "[coreb]") {
-  runtime rt;
-  evaluator ev(rt);
+  runtime_environment run_env;
+  evaluator ev(run_env);
 
-  CHECK(run(rt, ev, "((lambda (x) x) 42)") == "42");
-  CHECK(run(rt, ev, "(define add (lambda (a b) (+ a b))) (add 2 3)") == "5");
-  CHECK(run(rt, ev, "add") == "#<lambda (a b) (+ a b)>");
+  CHECK(run(run_env, ev, "((lambda (x) x) 42)") == "42");
+  CHECK(run(run_env, ev, "(define add (lambda (a b) (+ a b))) (add 2 3)") ==
+        "5");
+  CHECK(run(run_env, ev, "add") == "#<lambda (a b) (+ a b)>");
 
   // The classic closure test: the inner lambda captures its birthplace's
   // `n`, which outlives the call that created it.
-  CHECK(run(rt, ev,
+  CHECK(run(run_env, ev,
             "(define make_adder (lambda (n) (lambda (x) (+ x n))))"
             "(define add3 (make_adder 3))"
             "(add3 4)") == "7");
   // Scoping is lexical, not dynamic: a global `n` does not leak into the
   // closure, whose captured `n` still shadows it.
-  CHECK(run(rt, ev, "(define n 100) (add3 4)") == "7");
+  CHECK(run(run_env, ev, "(define n 100) (add3 4)") == "7");
 
-  CHECK(run_err(rt, ev, "((lambda (a b) a) 1)") ==
+  CHECK(run_err(run_env, ev, "((lambda (a b) a) 1)") ==
         "lambda: expects 2 arguments, got 1");
-  CHECK(
-      run_err(rt, ev, "(lambda (a a) a)") == "lambda: duplicate parameter: a");
-  CHECK(run_err(rt, ev, "(lambda (a 5) a)") ==
+  CHECK(run_err(run_env, ev, "(lambda (a a) a)") ==
+        "lambda: duplicate parameter: a");
+  CHECK(run_err(run_env, ev, "(lambda (a 5) a)") ==
         "lambda: parameter is not a symbol: 5");
-  CHECK(run_err(rt, ev, "(lambda (x))") ==
+  CHECK(run_err(run_env, ev, "(lambda (x))") ==
         "lambda: expects a parameter list and a body");
   // The variadic spellings are reserved until they are implemented.
-  CHECK(run_err(rt, ev, "(lambda (a . rest) a)") ==
+  CHECK(run_err(run_env, ev, "(lambda (a . rest) a)") ==
         "lambda: variadic parameters are not yet supported");
-  CHECK(run_err(rt, ev, "(lambda args args)") ==
+  CHECK(run_err(run_env, ev, "(lambda args args)") ==
         "lambda: variadic parameters are not yet supported");
 }
 
@@ -497,42 +515,43 @@ TEST_CASE("CoreB eval lambda and closures", "[coreb]") {
 #pragma region CoreB eval begin and sequencing
 
 TEST_CASE("CoreB eval begin and sequencing", "[coreb]") {
-  runtime rt;
-  evaluator ev(rt);
+  runtime_environment run_env;
+  evaluator ev(run_env);
 
-  CHECK(run(rt, ev, "(begin 1 2 3)") == "3");
-  CHECK(run(rt, ev, "(begin)") == "nil");
+  CHECK(run(run_env, ev, "(begin 1 2 3)") == "3");
+  CHECK(run(run_env, ev, "(begin)") == "nil");
   // A lambda body is an implicit sequence; the last expression is its value.
-  CHECK(run(rt, ev, "((lambda () 1 2))") == "2");
+  CHECK(run(run_env, ev, "((lambda () 1 2))") == "2");
   // Define works inside a body, binding in the call's scope, not the global
   // one.
-  CHECK(run(rt, ev, "((lambda () (define local 9) (+ local 1)))") == "10");
-  CHECK(run_err(rt, ev, "local") == "unbound symbol: local");
+  CHECK(
+      run(run_env, ev, "((lambda () (define local 9) (+ local 1)))") == "10");
+  CHECK(run_err(run_env, ev, "local") == "unbound symbol: local");
 }
 
 #pragma endregion
 #pragma region CoreB eval tail calls
 
 TEST_CASE("CoreB eval tail calls", "[coreb]") {
-  runtime rt;
-  evaluator ev(rt);
+  runtime_environment run_env;
+  evaluator ev(run_env);
 
   // A tail-recursive loop runs in constant C++ stack: 100000 iterations
   // would overflow any real stack if each call recursed.
-  CHECK(run(rt, ev,
+  CHECK(run(run_env, ev,
             "(define loop (lambda (n) (if (== n 0) 'done (loop (- n 1)))))"
             "(loop 100000)") == "done");
 
   // Mutual tail recursion too. Note that `even?` calls `odd?` before it is
   // defined; the symbol is looked up at call time, not definition time.
-  CHECK(run(rt, ev,
+  CHECK(run(run_env, ev,
             "(define even? (lambda (n) (if (== n 0) true (odd? (- n 1)))))"
             "(define odd? (lambda (n) (if (== n 0) false (even? (- n 1)))))"
             "(even? 100001)") == "false");
 
   // `begin`'s finale is a tail position too: routed through it, the loop
   // still runs in constant stack.
-  CHECK(run(rt, ev,
+  CHECK(run(run_env, ev,
             "(define loop2 (lambda (n)"
             "  (begin 0 (if (== n 0) 'done (loop2 (- n 1))))))"
             "(loop2 100000)") == "done");
@@ -540,142 +559,147 @@ TEST_CASE("CoreB eval tail calls", "[coreb]") {
   // Non-tail recursion is the contrast: the multiply happens after the
   // recursive call returns, so each level consumes real depth and the guard
   // catches runaways.
-  CHECK(run(rt, ev,
+  CHECK(run(run_env, ev,
             "(define fact (lambda (n) (if (== n 0) 1 (* n (fact (- n 1))))))"
             "(fact 20)") == "2432902008176640000");
-  CHECK(run_err(rt, ev, "(fact 2000)") == "evaluation too deep");
+  CHECK(run_err(run_env, ev, "(fact 2000)") == "evaluation too deep");
 }
 
 #pragma endregion
 #pragma region CoreB eval arithmetic
 
 TEST_CASE("CoreB eval arithmetic", "[coreb]") {
-  runtime rt;
-  evaluator ev(rt);
+  runtime_environment run_env;
+  evaluator ev(run_env);
 
-  CHECK(run(rt, ev, "(+ 1 2)") == "3");
-  CHECK(run(rt, ev, "(+)") == "0");
-  CHECK(run(rt, ev, "(*)") == "1");
-  CHECK(run(rt, ev, "(* 2 3 4)") == "24");
-  CHECK(run(rt, ev, "(- 10 1 2)") == "7");
-  CHECK(run(rt, ev, "(- 5)") == "-5");
+  CHECK(run(run_env, ev, "(+ 1 2)") == "3");
+  CHECK(run(run_env, ev, "(+)") == "0");
+  CHECK(run(run_env, ev, "(*)") == "1");
+  CHECK(run(run_env, ev, "(* 2 3 4)") == "24");
+  CHECK(run(run_env, ev, "(- 10 1 2)") == "7");
+  CHECK(run(run_env, ev, "(- 5)") == "-5");
   // A float operand switches the fold to floating point.
-  CHECK(run(rt, ev, "(+ 1 2.5)") == "3.5");
-  CHECK(run(rt, ev, "(* 2 0.5)") == "1.0");
+  CHECK(run(run_env, ev, "(+ 1 2.5)") == "3.5");
+  CHECK(run(run_env, ev, "(* 2 0.5)") == "1.0");
   // Integer overflow falls back to floating point, matching what the reader
   // does with oversized integer literals.
-  CHECK(run(rt, ev, "(* 9223372036854775807 2)") == "1.8446744073709552e+19");
-  CHECK(run(rt, ev, "(- -9223372036854775808)") == "9.223372036854776e+18");
+  CHECK(run(run_env, ev, "(* 9223372036854775807 2)") ==
+        "1.8446744073709552e+19");
+  CHECK(
+      run(run_env, ev, "(- -9223372036854775808)") == "9.223372036854776e+18");
 
-  CHECK(run_err(rt, ev, "(+ 1 'a)") == "+: expects numbers, got: a");
-  CHECK(run_err(rt, ev, "(-)") == "-: expects at least 1 argument");
+  CHECK(run_err(run_env, ev, "(+ 1 'a)") == "+: expects numbers, got: a");
+  CHECK(run_err(run_env, ev, "(-)") == "-: expects at least 1 argument");
 
   // Division stays exact when it divides evenly and otherwise falls to
   // double; there is no ratio type.
-  CHECK(run(rt, ev, "(/ 6 3)") == "2");
-  CHECK(run(rt, ev, "(/ 7 2)") == "3.5");
-  CHECK(run(rt, ev, "(/ 2)") == "0.5");
-  CHECK(run(rt, ev, "(/ 24 2 2)") == "6");
-  CHECK(run(rt, ev, "(/ -9223372036854775808 -1)") == "9.223372036854776e+18");
+  CHECK(run(run_env, ev, "(/ 6 3)") == "2");
+  CHECK(run(run_env, ev, "(/ 7 2)") == "3.5");
+  CHECK(run(run_env, ev, "(/ 2)") == "0.5");
+  CHECK(run(run_env, ev, "(/ 24 2 2)") == "6");
+  CHECK(run(run_env, ev, "(/ -9223372036854775808 -1)") ==
+        "9.223372036854776e+18");
   // An exact zero divisor is an error; a float zero divisor follows IEEE.
-  CHECK(run_err(rt, ev, "(/ 5 0)") == "/: division by zero");
-  CHECK(run(rt, ev, "(/ 1 0.0)") == "inf");
+  CHECK(run_err(run_env, ev, "(/ 5 0)") == "/: division by zero");
+  CHECK(run(run_env, ev, "(/ 1 0.0)") == "inf");
 }
 
 #pragma endregion
 #pragma region CoreB eval comparisons
 
 TEST_CASE("CoreB eval comparisons", "[coreb]") {
-  runtime rt;
-  evaluator ev(rt);
+  runtime_environment run_env;
+  evaluator ev(run_env);
 
   // Comparisons chain across adjacent pairs, so (< a b c) is a < b and
   // b < c.
-  CHECK(run(rt, ev, "(< 1 2 3)") == "true");
-  CHECK(run(rt, ev, "(< 1 3 2)") == "false");
-  CHECK(run(rt, ev, "(<= 1 1 2)") == "true");
-  CHECK(run(rt, ev, "(> 3 2 1)") == "true");
-  CHECK(run(rt, ev, "(>= 2 2 1)") == "true");
-  CHECK(run(rt, ev, "(== 1 1 1)") == "true");
+  CHECK(run(run_env, ev, "(< 1 2 3)") == "true");
+  CHECK(run(run_env, ev, "(< 1 3 2)") == "false");
+  CHECK(run(run_env, ev, "(<= 1 1 2)") == "true");
+  CHECK(run(run_env, ev, "(> 3 2 1)") == "true");
+  CHECK(run(run_env, ev, "(>= 2 2 1)") == "true");
+  CHECK(run(run_env, ev, "(== 1 1 1)") == "true");
   // A mixed pair compares numerically across the int/float divide.
-  CHECK(run(rt, ev, "(== 1 1.0)") == "true");
+  CHECK(run(run_env, ev, "(== 1 1.0)") == "true");
   // `!=` takes exactly 2: chained adjacent inequality would be a trap.
-  CHECK(run(rt, ev, "(!= 1 2)") == "true");
-  CHECK(run(rt, ev, "(!= 1 1)") == "false");
-  CHECK(run_err(rt, ev, "(!= 1 2 3)") == "!=: expects 2 arguments");
+  CHECK(run(run_env, ev, "(!= 1 2)") == "true");
+  CHECK(run(run_env, ev, "(!= 1 1)") == "false");
+  CHECK(run_err(run_env, ev, "(!= 1 2 3)") == "!=: expects 2 arguments");
 
-  CHECK(run_err(rt, ev, "(< 1)") == "<: expects at least 2 arguments");
+  CHECK(run_err(run_env, ev, "(< 1)") == "<: expects at least 2 arguments");
   // Comparisons are numeric only; symbol and string equality is a later,
   // separate primitive.
-  CHECK(run_err(rt, ev, "(== 'a 'a)") == "==: expects numbers, got: a");
+  CHECK(run_err(run_env, ev, "(== 'a 'a)") == "==: expects numbers, got: a");
 }
 
 #pragma endregion
 #pragma region CoreB eval lists
 
 TEST_CASE("CoreB eval lists", "[coreb]") {
-  runtime rt;
-  evaluator ev(rt);
+  runtime_environment run_env;
+  evaluator ev(run_env);
 
-  CHECK(run(rt, ev, "(cons 1 2)") == "(1 . 2)");
-  CHECK(run(rt, ev, "(cons 1 nil)") == "(1)");
-  CHECK(run(rt, ev, "(list 1 2 3)") == "(1 2 3)");
-  CHECK(run(rt, ev, "(list)") == "nil");
-  CHECK(run(rt, ev, "(list (+ 1 2))") == "(3)");
-  CHECK(run(rt, ev, "(head '(1 2))") == "1");
-  CHECK(run(rt, ev, "(tail '(1 2 3))") == "(2 3)");
-  CHECK(run(rt, ev, "(nil? nil)") == "true");
-  CHECK(run(rt, ev, "(nil? '())") == "true");
-  CHECK(run(rt, ev, "(nil? 0)") == "false");
-  CHECK(run(rt, ev, "(nil? '(1))") == "false");
+  CHECK(run(run_env, ev, "(cons 1 2)") == "(1 . 2)");
+  CHECK(run(run_env, ev, "(cons 1 nil)") == "(1)");
+  CHECK(run(run_env, ev, "(list 1 2 3)") == "(1 2 3)");
+  CHECK(run(run_env, ev, "(list)") == "nil");
+  CHECK(run(run_env, ev, "(list (+ 1 2))") == "(3)");
+  CHECK(run(run_env, ev, "(head '(1 2))") == "1");
+  CHECK(run(run_env, ev, "(tail '(1 2 3))") == "(2 3)");
+  CHECK(run(run_env, ev, "(nil? nil)") == "true");
+  CHECK(run(run_env, ev, "(nil? '())") == "true");
+  CHECK(run(run_env, ev, "(nil? 0)") == "false");
+  CHECK(run(run_env, ev, "(nil? '(1))") == "false");
 
-  CHECK(run_err(rt, ev, "(head 5)") == "head: expects a cell, got: 5");
-  CHECK(run_err(rt, ev, "(tail 5)") == "tail: expects a cell, got: 5");
+  CHECK(run_err(run_env, ev, "(head 5)") == "head: expects a cell, got: 5");
+  CHECK(run_err(run_env, ev, "(tail 5)") == "tail: expects a cell, got: 5");
 }
 
 #pragma endregion
 #pragma region CoreB eval persistent runtime
 
 TEST_CASE("CoreB eval persistent runtime", "[coreb]") {
-  runtime rt;
+  runtime_environment run_env;
   {
-    evaluator ev(rt);
-    CHECK(run(rt, ev,
+    evaluator ev(run_env);
+    CHECK(run(run_env, ev,
               "(define x 5)"
               "(define double (lambda (n) (* n 2)))") == "double");
     // Builtins are ordinary bindings, so even rebinding one sticks.
-    CHECK(run(rt, ev, "(define + 42)") == "+");
+    CHECK(run(run_env, ev, "(define + 42)") == "+");
   }
   // The global scope is the runtime's root environment, so a later evaluator
   // over the same runtime sees everything the first one defined; stocking
   // never overwrites an existing binding, which is why the rebound `+`
   // survives.
-  evaluator again(rt);
-  CHECK(run(rt, again, "x") == "5");
-  CHECK(run(rt, again, "(double 4)") == "8");
-  CHECK(run(rt, again, "+") == "42");
+  evaluator again(run_env);
+  CHECK(run(run_env, again, "x") == "5");
+  CHECK(run(run_env, again, "(double 4)") == "8");
+  CHECK(run(run_env, again, "+") == "42");
 }
 
 #pragma endregion
 #pragma region CoreB eval errors
 
 TEST_CASE("CoreB eval errors", "[coreb]") {
-  runtime rt;
-  evaluator ev(rt);
+  runtime_environment run_env;
+  evaluator ev(run_env);
 
-  CHECK(run_err(rt, ev, "(5 1)") == "not callable: 5");
-  CHECK(run_err(rt, ev, R"(("no" 1))") == R"(not callable: "no")");
+  CHECK(run_err(run_env, ev, "(5 1)") == "not callable: 5");
+  CHECK(run_err(run_env, ev, R"(("no" 1))") == R"(not callable: "no")");
   // A form must be a proper list; a dotted call is malformed.
-  CHECK(run_err(rt, ev, "(+ 1 . 2)") == "improper form: (+ 1 . 2)");
+  CHECK(run_err(run_env, ev, "(+ 1 . 2)") == "improper form: (+ 1 . 2)");
   // Errors propagate out of nested evaluation.
-  CHECK(run_err(rt, ev, "(+ 1 (head 2))") == "head: expects a cell, got: 2");
+  CHECK(run_err(run_env, ev, "(+ 1 (head 2))") ==
+        "head: expects a cell, got: 2");
 }
 
 #pragma endregion
 #pragma region CoreB garbage collection
 
 TEST_CASE("CoreB gc", "[coreb]") {
-  runtime rt;
+  runtime_environment run_env;
+  auto& rt = run_env.rt;
   // A fresh runtime owns exactly one heap object: the root environment.
   const auto baseline = rt.live_objects();
   CHECK(baseline == 1);
@@ -708,17 +732,17 @@ TEST_CASE("CoreB gc", "[coreb]") {
     CHECK(rt.root_env().lookup(rt.intern("keep"))->print() == "(1)");
   }
   SECTION("cycles are collected once unreachable") {
-    evaluator ev(rt);
+    evaluator ev(run_env);
     // A self-recursive definition is a reference cycle without any mutation
     // primitive: the closure captures the very scope that binds it. While
     // reachable, it survives collection.
-    CHECK(run(rt, ev, "(define f (lambda (n) (f n)))") == "f");
+    CHECK(run(run_env, ev, "(define f (lambda (n) (f n)))") == "f");
     rt.collect();
-    CHECK(run(rt, ev, "(nil? f)") == "false");
+    CHECK(run(run_env, ev, "(nil? f)") == "false");
     const auto with_f = rt.live_objects();
     // Unreachable, the whole cycle goes, which reference counting could
     // never do.
-    CHECK(run(rt, ev, "(define f nil)") == "f");
+    CHECK(run(run_env, ev, "(define f nil)") == "f");
     rt.collect();
     CHECK(rt.live_objects() < with_f);
   }
@@ -730,12 +754,12 @@ TEST_CASE("CoreB gc", "[coreb]") {
     CHECK(rt.live_objects() == baseline + 100'000);
   }
   SECTION("the evaluator collects at its safe point") {
-    evaluator ev(rt);
+    evaluator ev(run_env);
     const auto before = rt.live_objects();
     // The tail loop allocates one call frame per iteration; without the
     // safe point, all 100000 environments would still be here afterward.
     // Collections along the way keep the heap near the trigger threshold.
-    CHECK(run(rt, ev,
+    CHECK(run(run_env, ev,
               "(define loop (lambda (n) (if (== n 0) 'done (loop (- n 1)))))"
               "(loop 100000)") == "done");
     CHECK(rt.live_objects() < before + (2 * runtime::gc_threshold));

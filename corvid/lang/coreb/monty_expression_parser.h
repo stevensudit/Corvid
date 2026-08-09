@@ -17,10 +17,7 @@
 #pragma once
 #include <cstddef>
 #include <cstdint>
-#include <initializer_list>
 #include <optional>
-#include <ranges>
-#include <span>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -31,6 +28,8 @@
 #include "../source_scanner.h"
 #include "hall_reader.h"
 #include "monty_lexer.h"
+#include "symbols.h"
+#include "token_classes.h"
 #include "value.h"
 
 namespace corvid { inline namespace lang { namespace coreb { namespace monty {
@@ -100,16 +99,15 @@ public:
   template<typename T>
   using result = source_scanner::result<T>;
 
-  // Maximum expression-nesting depth accepted, matching
-  // `hall_reader::max_depth`.
-  static constexpr size_t max_depth = 256;
-
   // Parse one expression from `toks`, desugared to a Hall value.
   //
   // Consumes exactly the expression's tokens, leaving the rest of the
-  // stream, so the caller decides what may legally follow.
-  [[nodiscard]] static result<value> parse(runtime& rt, token_stream& toks) {
-    return builder{rt, toks}.parse_expr();
+  // stream, so the caller decides what may legally follow. `depth` seeds
+  // the nesting budget for a caller already that deep, so stacked front
+  // ends share the one `max_depth` rather than each starting fresh.
+  [[nodiscard]] static result<value>
+  parse(runtime_environment& run_env, token_stream& toks, size_t depth = 0) {
+    return builder{run_env, toks, depth}.parse_expr();
   }
 
 private:
@@ -117,29 +115,24 @@ private:
 
   // Single-pass builder from the token stream to a value.
   struct builder {
-    runtime& rt;
+    runtime_environment& run_env;
     token_stream& toks;
     size_t depth{};
+    runtime& rt = run_env.rt;
+    const symbols& syms = run_env.syms;
 
-    [[nodiscard]] bool at_cmp() const noexcept {
-      constexpr std::string_view cmp_ops[]{"==", "!=", "<", "<=", ">", ">="};
-      return toks.at(token_kind::op) &&
-             std::ranges::contains(cmp_ops, toks.peek().text);
+    // The operator table entry at the cursor, or null.
+    [[nodiscard]] const operator_symbol* at_operator() const noexcept {
+      if (!toks.at(token_kind::op)) return nullptr;
+      return find_operator(toks.peek().text);
     }
-    [[nodiscard]] bool at_arith() const noexcept {
-      return toks.at_op("+") || toks.at_op("-") || toks.at_op("*") ||
-             toks.at_op("/");
+    [[nodiscard]] const operator_symbol* at_comparison() const noexcept {
+      const auto* op = at_operator();
+      return op && op->kind == operator_kind::comparison ? op : nullptr;
     }
-
-    // Build the list `(elems...)` as nested cons cells.
-    [[nodiscard]] value list_of(std::span<const value> elems) const {
-      value list;
-      for (const auto& elem : std::views::reverse(elems))
-        list = rt.cons(elem, list);
-      return list;
-    }
-    [[nodiscard]] value list_of(std::initializer_list<value> elems) const {
-      return list_of(std::span<const value>{elems.begin(), elems.size()});
+    [[nodiscard]] const operator_symbol* at_arithmetic() const noexcept {
+      const auto* op = at_operator();
+      return op && is_arithmetic(op->kind) ? op : nullptr;
     }
 
     // Parse one expression: a comparison chain, optionally wrapped by the
@@ -164,7 +157,7 @@ private:
         auto e = parse_expr();
         if (!e) return e;
 
-        v = list_of({value{rt.intern("if")}, *c, *v, *e});
+        v = rt.list_of({value{syms.keyword_if}, *c, *v, *e});
       }
       if (toks.at_op("="))
         return toks.fail("'=' is a definition statement, not an expression");
@@ -182,24 +175,28 @@ private:
     [[nodiscard]] result<value> parse_chain() {
       auto l = parse_arith();
       if (!l) return l;
-      if (!at_cmp()) return l;
-      const auto op = toks.take().text;
-      std::vector<value> elems{value{rt.intern(op)}, *l};
+      const auto* cmp = at_comparison();
+      if (!cmp) return l;
+      toks.take();
+      std::vector<value> elems{value{rt.intern(cmp->spelling)}, *l};
       for (;;) {
         auto r = parse_arith();
         if (!r) return r;
 
         elems.push_back(*r);
-        if (!at_cmp()) break;
+        const auto* next = at_comparison();
+        if (!next) break;
 
-        if (op == "!=") return toks.fail("'!=' does not chain");
+        if (!cmp->chains)
+          return toks.fail(
+              "'" + std::string{cmp->spelling} + "' does not chain");
 
-        if (toks.peek().text != op)
+        if (next != cmp)
           return toks.fail("comparison chains cannot mix operators");
 
         toks.take();
       }
-      return list_of(elems);
+      return rt.list_of(elems);
     }
 
     // Parse an arithmetic fold. {+ -} and {* /} are families: each folds
@@ -208,16 +205,18 @@ private:
     [[nodiscard]] result<value> parse_arith() {
       auto l = parse_unary();
       if (!l) return l;
-      const bool additive = toks.at_op("+") || toks.at_op("-");
-      while (at_arith()) {
-        if ((toks.at_op("+") || toks.at_op("-")) != additive)
+      const auto* op = at_arithmetic();
+      if (!op) return l;
+      const auto family = op->kind;
+      for (; op; op = at_arithmetic()) {
+        if (op->kind != family)
           return toks.fail("mixing '+'/'-' with '*'/'/' requires parentheses");
 
-        const auto op = toks.take().text;
+        toks.take();
         auto r = parse_unary();
         if (!r) return r;
 
-        l = list_of({value{rt.intern(op)}, *l, *r});
+        l = rt.list_of({value{rt.intern(op->spelling)}, *l, *r});
       }
       return l;
     }
@@ -253,7 +252,7 @@ private:
         auto v = parse_unary();
         if (!v) return v;
 
-        return list_of({value{rt.intern("-")}, *v});
+        return rt.list_of({value{syms.minus}, *v});
       }
       return parse_postfix();
     }
@@ -285,7 +284,7 @@ private:
         if (!toks.at(token_kind::rparen)) return toks.fail("expected ')'");
 
         toks.take();
-        v = list_of(form);
+        v = rt.list_of(form);
       }
       return v;
     }
@@ -342,10 +341,11 @@ private:
       return value{rt.intern(text)};
     }
 
-    // Parse a Hall escape token.
+    // Parse a Hall escape token, the reader sharing this parser's nesting
+    // budget.
     [[nodiscard]] result<value> parse_hall() {
       const auto tok = toks.take();
-      auto v = hall_reader::read_one(rt, tok.text);
+      auto v = hall_reader::read_one(run_env, tok.text, depth);
       // Patch the error location.
       if (!v) {
         auto e = std::move(v).as_error();
@@ -361,7 +361,7 @@ private:
     // evaluated: `[1, x]` is `(list 1 x)`, and `[]` is `(list)`, yielding nil.
     [[nodiscard]] result<value> parse_list() {
       toks.take(); // '['
-      std::vector<value> form{value{rt.intern("list")}};
+      std::vector<value> form{value{syms.list}};
       if (!toks.at(token_kind::rbracket)) {
         for (;;) {
           auto elem = parse_expr();
@@ -373,20 +373,16 @@ private:
       }
       if (!toks.at(token_kind::rbracket)) return toks.fail("expected ']'");
       toks.take();
-      return list_of(form);
+      return rt.list_of(form);
     }
 
     // Parse a parenthesized group: an operator mention such as `(-)`, or a
-    // full expression.
+    // full expression. Every operator mentions, `=` and `:=` included:
+    // only their infix spellings are statement-bound.
     [[nodiscard]] result<value> parse_group() {
       toks.take(); // '('
       if (toks.at(token_kind::op) && toks.peek(1).kind == token_kind::rparen) {
-        const auto op = toks.peek().text;
-        if (op == "=" || op == ":=")
-          return toks.fail(
-              "'" + std::string{op} + "' is a statement, not a value");
-
-        toks.take();
+        const auto op = toks.take().text;
         toks.take();
         return value{rt.intern(op)};
       }

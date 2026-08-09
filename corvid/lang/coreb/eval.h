@@ -22,16 +22,16 @@
 #include <cstdint>
 #include <limits>
 #include <optional>
-#include <ranges>
 #include <span>
 #include <string>
-#include <string_view>
 #include <utility>
 #include <vector>
 
 #include "../../containers/core/value_or_error.h"
 #include "../../containers/core/opt_find.h"
 #include "../../containers/core/scoped_value.h"
+#include "symbols.h"
+#include "token_classes.h"
 #include "value.h"
 
 namespace corvid { inline namespace lang { namespace coreb {
@@ -44,9 +44,9 @@ using namespace std::literals;
 // closures, special forms, and proper tail calls, over the value model in
 // "value.h".
 //
-//   runtime rt;
-//   evaluator ev(rt);
-//   auto v = ev.eval(*hall_reader::read_one(rt, "(+ 1 2)"));
+//   runtime_environment run_env;
+//   evaluator ev(run_env);
+//   auto v = ev.eval(*hall_reader::read_one(run_env, "(+ 1 2)"));
 //   if (v) v->print();  // "3"
 
 #pragma region eval_error
@@ -75,7 +75,9 @@ using eval_error = error_value<struct EvalTag>;
 // and lambda-body finales, and closure calls re-enter the loop instead of
 // recursing in C++, so tail recursion (including mutual recursion) runs in
 // constant stack. Only evaluation nested inside an expression recurses,
-// guarded by `max_depth`.
+// guarded by `max_depth`: arguments, an `if` condition, and every level of a
+// non-tail recursion such as a factorial that multiplies after the recursive
+// call returns.
 //
 // The outermost loop top is also the garbage-collection safe point (see
 // `runtime::maybe_collect`), so values the embedder holds across `eval`
@@ -87,29 +89,12 @@ public:
   template<typename T>
   using result = value_or_error<T, eval_error>;
 
-  // Maximum nested evaluation depth.
-  //
-  // Tail calls consume no depth because iteration written as tail recursion is
-  // unbounded. What consumes depth is evaluation nested inside an
-  // expression: arguments, an `if` condition, and every level of a non-tail
-  // recursion such as a factorial that multiplies after the recursive call
-  // returns. Each nested level is a C++ recursion, so the guard turns C++
-  // stack exhaustion into an `eval_error`.
-  //
-  // The limit matches the reader's and is sized so the guard fires before the
-  // real C++ stack runs out. This is the case even in unoptimized builds,
-  // whose frames are several times fatter, on the smallest common default
-  // stack (1MB on Windows).
-  static constexpr size_t max_depth = 256;
-
-  // Bind an evaluator to `rt`, adopting the runtime's root environment as
-  // the global scope.
+  // Bind an evaluator to `run_env`, adopting its runtime's root environment
+  // as the global scope.
   //
   // Construction stocks the root with kernel primitives.
-  explicit evaluator(runtime& rt)
-      : rt_{rt}, global_{rt.root_env()}, quote_{rt.intern("quote")},
-        if_{rt.intern("if")}, define_{rt.intern("define")},
-        lambda_{rt.intern("lambda")}, begin_{rt.intern("begin")} {
+  explicit evaluator(runtime_environment& run_env)
+      : rt_{run_env.rt}, global_{run_env.rt.root_env()}, syms_{run_env.syms} {
     register_builtins();
   }
 
@@ -222,7 +207,7 @@ private:
   [[nodiscard]] result<step> eval_cell(value expr, environment*& env) {
     // Flatten the cell list into a vector of arguments.
     auto args = std::vector<value>{};
-    if (!append_elements(args, expr.tail()))
+    if (!expr.tail().append_elements(args))
       return eval_error{"improper form: " + expr.print()};
 
     // If it's a special symbol, dispatch to its evaluation rule; otherwise,
@@ -237,12 +222,12 @@ private:
   // Evaluate a special form, each with its own evaluation rule.
   [[nodiscard]] result<step>
   eval_special(symbol form, std::span<const value> args, environment& env) {
-    if (form == quote_) {
+    if (form == syms_.quote) {
       if (args.size() != 1) return eval_error{"quote: expects 1 argument"};
       // Ironically, it's not actually evaluated, which is the whole point.
       return step::make_evaluated(args[0]);
     }
-    if (form == if_) {
+    if (form == syms_.keyword_if) {
       if (args.size() < 2 || args.size() > 3)
         return eval_error{"if: expects 2 or 3 arguments"};
       auto cond = eval(args[0], env);
@@ -251,9 +236,9 @@ private:
       if (args.size() == 3) return step::make_tail_expr(args[2]);
       return step::make_evaluated(value{});
     }
-    if (form == define_) return finish_step(eval_define(args, env));
-    if (form == lambda_) return finish_step(eval_lambda(args, env));
-    assert(form == begin_);
+    if (form == syms_.define) return finish_step(eval_define(args, env));
+    if (form == syms_.lambda) return finish_step(eval_lambda(args, env));
+    assert(form == syms_.begin);
     if (args.empty()) return step::make_evaluated(value{});
     auto last = eval_leading(args, env);
     if (!last) return last;
@@ -295,14 +280,6 @@ private:
     return step::make_tail_expr(*last);
   }
 
-  // Append a proper list's elements to `out`, returning false if the list is
-  // improper.
-  [[nodiscard]] static bool
-  append_elements(std::vector<value>& out, value list) {
-    for (; list.is_cell(); list = list.tail()) out.push_back(list.head());
-    return list.is_nil();
-  }
-
   // Evaluate every expression but the last, returning the last unevaluated
   // so the caller can treat it as a tail position.
   [[nodiscard]] result<value>
@@ -318,7 +295,8 @@ private:
   // echoes as confirmation.
   //
   // Definition is where reserved names are policed: `%` names belong to the
-  // kernel, and special-form names cannot be rebound.
+  // kernel, special-form names cannot be rebound, and literal words name no
+  // binding.
   [[nodiscard]] result<value>
   eval_define(std::span<const value> args, environment& env) {
     if (args.size() != 2)
@@ -375,13 +353,15 @@ private:
     if (name.name().starts_with('%'))
       return "'%' names are reserved for the kernel: " + name.name();
     if (is_special(name)) return "cannot rebind special form: " + name.name();
+    if (is_literal_word(name.name()))
+      return "cannot bind a literal: " + name.name();
     return std::nullopt;
   }
 
   // Whether `name` names a special form.
   [[nodiscard]] bool is_special(symbol name) const noexcept {
-    return name == quote_ || name == if_ || name == define_ ||
-           name == lambda_ || name == begin_;
+    return name == syms_.quote || name == syms_.keyword_if ||
+           name == syms_.define || name == syms_.lambda || name == syms_.begin;
   }
 
   // Bind a call frame for `fun` over `args`, scoped inside the closure's
@@ -663,10 +643,7 @@ private:
   // The `list` builtin: construct a list of the arguments, so `(list)` is
   // nil.
   static prim_result prim_list(runtime& rt, std::span<const value> args) {
-    value list;
-    for (const auto& arg : std::views::reverse(args))
-      list = rt.cons(arg, list);
-    return list;
+    return rt.list_of(args);
   }
 
   // The `head` and `tail` builtins: the halves of a cell.
@@ -693,27 +670,26 @@ private:
   // Bind the kernel's primitive functions into the global environment,
   // skipping any name already bound.
   void register_builtins() {
-    if (global_.lookup(rt_.intern("+"))) return;
+    if (global_.lookup(syms_.plus)) return;
 
-    register_builtin("+", prim_add);
-    register_builtin("-", prim_sub);
-    register_builtin("*", prim_mul);
-    register_builtin("/", prim_div);
-    register_builtin("==", prim_eq);
-    register_builtin("!=", prim_ne);
-    register_builtin("<", prim_lt);
-    register_builtin("<=", prim_le);
-    register_builtin(">", prim_gt);
-    register_builtin(">=", prim_ge);
-    register_builtin("cons", prim_cons);
-    register_builtin("list", prim_list);
-    register_builtin("head", prim_head);
-    register_builtin("tail", prim_tail);
-    register_builtin("nil?", prim_nil);
+    register_builtin(syms_.plus, prim_add);
+    register_builtin(syms_.minus, prim_sub);
+    register_builtin(syms_.times, prim_mul);
+    register_builtin(syms_.divide, prim_div);
+    register_builtin(syms_.eq, prim_eq);
+    register_builtin(syms_.ne, prim_ne);
+    register_builtin(syms_.lt, prim_lt);
+    register_builtin(syms_.le, prim_le);
+    register_builtin(syms_.gt, prim_gt);
+    register_builtin(syms_.ge, prim_ge);
+    register_builtin(syms_.cons, prim_cons);
+    register_builtin(syms_.list, prim_list);
+    register_builtin(syms_.head, prim_head);
+    register_builtin(syms_.tail, prim_tail);
+    register_builtin(syms_.nil_p, prim_nil);
   }
 
-  void register_builtin(std::string_view name, primitive::fn_t fn) {
-    const auto s = rt_.intern(name);
+  void register_builtin(symbol s, primitive::fn_t fn) {
     if (global_.lookup(s)) return;
     global_.bind(s, rt_.make_primitive(s, fn));
   }
@@ -723,11 +699,7 @@ private:
 
   runtime& rt_;
   environment& global_;
-  symbol quote_;
-  symbol if_;
-  symbol define_;
-  symbol lambda_;
-  symbol begin_;
+  const symbols& syms_;
   size_t depth_{};
 
 #pragma endregion

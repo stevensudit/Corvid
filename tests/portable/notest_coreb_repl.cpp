@@ -55,17 +55,24 @@ void print_help() {
          "In Monty, a blank line ends an indented block.\n";
 }
 
-// One interactive session: the shared runtime and the line loop's state.
+// One interactive session: the shared runtime environment and the line
+// loop's state.
 //
-// Both modes evaluate against the same runtime, so definitions persist
-// across /monty and /hall switches. The runtime is held by pointer so
-// /clear can replace it wholesale, there being no way to empty one out;
-// evaluators are transient views, so each batch constructs its own.
+// Both modes evaluate against the same runtime environment, so definitions
+// persist across /monty and /hall switches. The environment is held by
+// pointer so /clear can replace it wholesale, there being no way to empty
+// one out; evaluators are transient views, so each batch constructs its
+// own.
+//
+// Slash commands are recognized on any line, even mid-collection, so
+// /clear and /quit can always rescue a stuck continuation; a mode switch
+// or /clear abandons the partially entered input, while /help keeps it.
 struct repl {
-  std::unique_ptr<runtime> rt = std::make_unique<runtime>();
+  std::unique_ptr<runtime_environment> run_env =
+      std::make_unique<runtime_environment>();
   mode syntax = mode::monty;
   std::string pending;
-  bool in_block = false;
+  bool in_block{};
 
   // Read and process lines until /quit or end-of-input.
   void run() {
@@ -77,11 +84,11 @@ struct repl {
       // '\r'.
       if (line.ends_with('\r')) line.pop_back();
       const auto cmd = strings::trim(std::string_view{line});
-      if (pending.empty() && cmd.starts_with('/')) {
+      if (cmd.starts_with('/')) {
         if (!command(cmd)) break;
         continue;
       }
-      const bool blank = is_blank(line);
+      const auto blank = is_blank(line);
       pending += line;
       pending += '\n';
       if (syntax == mode::monty)
@@ -103,12 +110,15 @@ struct repl {
       print_help();
     } else if (line == "/monty") {
       syntax = mode::monty;
+      reset();
       std::cout << "Monty mode.\n";
     } else if (line == "/hall") {
       syntax = mode::hall;
+      reset();
       std::cout << "Hall mode.\n";
     } else if (line == "/clear") {
-      rt = std::make_unique<runtime>();
+      run_env = std::make_unique<runtime_environment>();
+      reset();
       std::cout << "Runtime cleared.\n";
     } else {
       std::cout << "unknown command; /help lists them\n";
@@ -134,13 +144,14 @@ struct repl {
       return;
     }
     auto toks = *std::move(lexed);
-    auto parsed = monty::statement_parser::parse_all(*rt, toks);
+    auto parsed = monty::statement_parser::parse_all(*run_env, toks);
     if (!parsed) {
       const auto& err = parsed.as_error();
-      // A failure at the end of input is one more lines could repair, so a
-      // non-blank line opens a block; the ending blank line reports what
-      // remains broken.
-      if (!blank && err.pos + 1 >= pending.size()) {
+      // A failure at the synthesized eof token is one more lines could
+      // repair (a block header awaiting its body), so a non-blank line
+      // opens a block; a failure anywhere earlier is already hard, and the
+      // ending blank line reports whatever a block left broken.
+      if (!blank && err.pos >= pending.size()) {
         in_block = true;
         return;
       }
@@ -152,14 +163,14 @@ struct repl {
     auto forms = *std::move(parsed);
     // Evaluation may collect at safe points; the not-yet-evaluated forms
     // are roots only while pinned.
-    gc_pin pin(*rt, forms);
+    gc_pin pin(run_env->rt, forms);
     run_forms(forms, true);
   }
 
   // Read and run `pending` as Hall forms; incomplete input keeps
   // collecting instead.
   void step_hall() {
-    auto forms = hall_reader::read_all(*rt, pending);
+    auto forms = hall_reader::read_all(*run_env, pending);
     if (!forms) {
       const auto& err = forms.as_error();
       if (err.incomplete()) return;
@@ -168,7 +179,7 @@ struct repl {
       return;
     }
     reset();
-    gc_pin pin(*rt, *forms);
+    gc_pin pin(run_env->rt, *forms);
     run_forms(*forms, false);
   }
 
@@ -176,11 +187,12 @@ struct repl {
   // translating, each form is prefaced by its Hall form and the Monty the
   // unparser round-trips it to.
   void run_forms(std::span<const value> forms, bool translate) const {
-    evaluator ev(*rt);
+    evaluator ev(*run_env);
     for (const auto& form : forms) {
       if (translate) {
         std::cout << "hall:  " << form.print() << '\n';
-        std::cout << "monty: " << monty::unparser::unparse(*rt, form) << '\n';
+        std::cout << "monty: " << monty::unparser::unparse(*run_env, form)
+                  << '\n';
       }
       const auto v = ev.eval(form);
       if (!v) {
@@ -197,11 +209,12 @@ struct repl {
 // Minimal interactive REPL for CoreB, speaking both syntaxes over one shared
 // runtime.
 //
-// Starts in Monty mode; slash commands steer it: /monty and /hall pick the
-// syntax, /clear resets the runtime, /help lists the commands, and /quit
-// exits, as does end-of-input (Ctrl+Z then Enter on Windows, Ctrl+D
-// elsewhere). Definitions persist across switches, both modes evaluating
-// against the same runtime.
+// Starts in Monty mode; slash commands steer it, recognized on any line,
+// even mid-continuation: /monty and /hall pick the syntax, /clear resets
+// the runtime, /help lists the commands, and /quit exits, as does
+// end-of-input (Ctrl+Z then Enter on Windows, Ctrl+D elsewhere).
+// Definitions persist across switches, both modes evaluating against the
+// same runtime.
 //
 // Monty mode shows each statement's desugared Hall form and canonical Monty
 // round trip before its value; Hall mode prints values only. Either way,

@@ -27,6 +27,7 @@
 
 #include "../../containers/core/scoped_value.h"
 #include "../../strings/cases.h"
+#include "symbols.h"
 #include "token_classes.h"
 #include "value.h"
 
@@ -82,8 +83,11 @@ namespace corvid { inline namespace lang { namespace coreb { namespace monty {
 // in output: a final `return e` desugared to `e` and guards to if/else, so
 // unparsing spells them as the plain expression and else block they became.
 //
-// Symbols emit their interned spelling, which re-lexes because the reader
-// enforces the shared token classes (see "token_classes.h").
+// Symbols emit their interned spelling: a word as itself and an operator as
+// its mention, `=` and `:=` included, both re-lexing under the shared token
+// classes (see "token_classes.h"). The one exception is a `%` kernel symbol,
+// which renders as-is and has no Monty spelling, kernel-generated forms
+// being milestone 5's concern.
 
 #pragma region unparser
 
@@ -93,12 +97,11 @@ namespace corvid { inline namespace lang { namespace coreb { namespace monty {
 // stack exhaustion, subject to the printer's own depth guard.
 class unparser final {
 public:
-  static constexpr size_t max_depth = 256;
-
   // Unparse one Hall form as a Monty statement, possibly a multi-line
   // block, without a trailing newline.
-  [[nodiscard]] static std::string unparse(runtime& rt, const value& form) {
-    builder b(rt);
+  [[nodiscard]] static std::string
+  unparse(runtime_environment& run_env, const value& form) {
+    builder b(run_env.syms);
     b.emit_statement(form, 0);
     b.trim();
     return std::move(b.out);
@@ -107,8 +110,8 @@ public:
   // Unparse a program: each Hall form a top-level statement, newline
   // separated.
   [[nodiscard]] static std::string
-  unparse_all(runtime& rt, std::span<const value> forms) {
-    builder b(rt);
+  unparse_all(runtime_environment& run_env, std::span<const value> forms) {
+    builder b(run_env.syms);
     for (const auto& form : forms) b.emit_statement(form, 0);
     b.trim();
     return std::move(b.out);
@@ -130,51 +133,25 @@ private:
 
   // Single-pass builder from Hall forms to Monty text.
   struct builder {
-    explicit builder(runtime& rt) : rt{rt} {}
+    explicit builder(const symbols& syms) noexcept : syms{syms} {}
 
-    runtime& rt;
+    const symbols& syms;
     std::string out;
     size_t depth{};
-    symbol define_ = rt.intern("define");
-    symbol lambda_ = rt.intern("lambda");
-    symbol if_ = rt.intern("if");
-    symbol begin_ = rt.intern("begin");
-    symbol quote_ = rt.intern("quote");
-    symbol list_ = rt.intern("list");
 
     // Drop the final statement's newline.
     void trim() {
       if (out.ends_with('\n')) out.pop_back();
     }
 
-    // Whether `name` is an operator that `(op)` can mention: any operator
-    // symbol except the statement spellings `=` and `:=`.
-    [[nodiscard]] static bool is_mention_op(std::string_view name) noexcept {
-      return is_operator_symbol(name) && name != "=" && name != ":=";
-    }
-
-    // Collect a proper list's elements; false when the list is dotted.
-    [[nodiscard]] static bool
-    elements_of(const value& v, std::vector<value>& elems) {
-      for (auto rest = v; !rest.is_nil(); rest = rest.tail()) {
-        if (!rest.is_cell()) return false;
-        elems.push_back(rest.head());
-      }
-      return true;
-    }
-
     // Whether a statement line would begin with a contextual keyword,
     // needing grouping parens to strip the keyword claim.
     [[nodiscard]] static bool leads_with_keyword(std::string_view text) {
-      constexpr std::string_view keywords[]{"fun", "if", "return", "elif",
-          "else"};
-      for (const auto kw : keywords) {
+      for (const auto kw : contextual_keywords) {
         if (!text.starts_with(kw)) continue;
         if (text.size() == kw.size()) return true;
         const char c = text[kw.size()];
-        if (!strings::is_alpha(c) && !strings::is_digit(c) && c != '_' &&
-            c != '?')
-          return true;
+        if (!is_word_char(c) && c != '?') return true;
       }
       return false;
     }
@@ -198,31 +175,31 @@ private:
     [[nodiscard]] std::string as_expr(const value& v) { return emit(v).text; }
     [[nodiscard]] std::string as_chain_operand(const value& v) {
       auto e = emit(v);
-      const bool parens = e.b == band::expr;
+      const auto parens = e.b == band::expr;
       return parenthesize(std::move(e), parens);
     }
     [[nodiscard]] std::string as_cmp_operand(const value& v) {
       auto e = emit(v);
-      const bool parens = e.b == band::expr || e.b == band::chain;
+      const auto parens = e.b == band::expr || e.b == band::chain;
       return parenthesize(std::move(e), parens);
     }
     [[nodiscard]] std::string
     as_arith_operand(const value& v, band family, bool leftmost) {
       auto e = emit(v);
-      const bool arith = e.b == band::add || e.b == band::mul;
-      const bool parens =
+      const auto arith = e.b == band::add || e.b == band::mul;
+      const auto parens =
           e.b == band::expr || e.b == band::chain ||
           (arith && (e.b != family || !leftmost));
       return parenthesize(std::move(e), parens);
     }
     [[nodiscard]] std::string as_unary_operand(const value& v) {
       auto e = emit(v);
-      const bool parens = e.b != band::unary && e.b != band::tight;
+      const auto parens = e.b != band::unary && e.b != band::tight;
       return parenthesize(std::move(e), parens);
     }
     [[nodiscard]] std::string as_callee(const value& v) {
       auto e = emit(v);
-      const bool parens = e.b != band::tight;
+      const auto parens = e.b != band::tight;
       return parenthesize(std::move(e), parens);
     }
 
@@ -240,7 +217,9 @@ private:
     [[nodiscard]] emitted emit(const value& v) {
       if (const auto sym = v.maybe_symbol()) {
         const auto& name = (*sym).name();
-        if (is_mention_op(name)) return {"(" + name + ")", band::tight};
+        // Every operator spells as its mention, `=` and `:=` included; a
+        // `%` kernel symbol renders as-is, having no Monty spelling.
+        if (is_operator_symbol(name)) return {"(" + name + ")", band::tight};
         return {name, band::tight};
       }
       if (!v.is_cell()) {
@@ -253,21 +232,20 @@ private:
       if (depth >= max_depth) return escape(v);
       scoped_value guard(depth, depth + 1);
       std::vector<value> elems;
-      if (!elements_of(v, elems)) return escape(v);
+      if (!v.append_elements(elems)) return escape(v);
       if (const auto head = elems[0].maybe_symbol()) {
-        if (*head == if_ && elems.size() == 4)
+        if (*head == syms.keyword_if && elems.size() == 4)
           return {
               as_chain_operand(elems[2]) + " if " +
                   as_chain_operand(elems[1]) + " else " + as_expr(elems[3]),
               band::expr};
-        if (*head == list_)
+        if (*head == syms.list)
           return {"[" + join_exprs(std::span{elems}.subspan(1)) + "]",
               band::tight};
-        if (*head == begin_)
-          return {"begin(" + join_exprs(std::span{elems}.subspan(1)) + ")",
-              band::tight};
-        if (*head == quote_ || *head == lambda_ || *head == define_ ||
-            *head == if_)
+        // A `begin` head deliberately falls through to the call emission:
+        // the call spelling is the ruled sequencer.
+        if (*head == syms.quote || *head == syms.lambda ||
+            *head == syms.define || *head == syms.keyword_if)
           return escape(v);
         if (auto e = emit_operator((*head).name(), elems))
           return *std::move(e);
@@ -277,19 +255,21 @@ private:
           band::tight};
     }
 
-    // Emit an operator form whose arity has an infix or unary spelling;
-    // other arities fall through to the mention-call, `(+)(a, b, c)`, as
-    // does negation of a number, `(-)(7)`, whose unary spelling `-7` would
-    // re-read as a signed literal.
+    // Emit an operator form whose arity has an infix or unary spelling per
+    // the shared operator table; other shapes fall through to the
+    // mention-call, `(+)(a, b, c)`. That includes negation of a number,
+    // `(-)(7)`, whose unary spelling `-7` would re-read as a signed
+    // literal, and the statement spellings, which have no infix at all.
     [[nodiscard]] std::optional<emitted>
     emit_operator(std::string_view name, std::span<const value> elems) {
+      const auto* op = find_operator(name);
+      if (!op) return std::nullopt;
       if (name == "-" && elems.size() == 2 && !elems[1].is_int() &&
           !elems[1].is_float())
         return emitted{"-" + as_unary_operand(elems[1]), band::unary};
-      constexpr std::string_view arith_ops[]{"+", "-", "*", "/"};
-      if (std::ranges::contains(arith_ops, name) && elems.size() == 3) {
+      if (is_arithmetic(op->kind) && elems.size() == 3) {
         const auto family =
-            (name == "+" || name == "-") ? band::add : band::mul;
+            op->kind == operator_kind::additive ? band::add : band::mul;
         auto text = as_arith_operand(elems[1], family, true);
         text += " ";
         text += name;
@@ -297,10 +277,9 @@ private:
         text += as_arith_operand(elems[2], family, false);
         return emitted{std::move(text), family};
       }
-      constexpr std::string_view chain_ops[]{"==", "<", "<=", ">", ">="};
-      const bool chains =
-          std::ranges::contains(chain_ops, name) && elems.size() >= 3;
-      if (chains || (name == "!=" && elems.size() == 3)) {
+      if (op->kind == operator_kind::comparison &&
+          (op->chains ? elems.size() >= 3 : elems.size() == 3))
+      {
         std::string text;
         for (const auto& elem : elems.subspan(1)) {
           if (!text.empty()) {
@@ -343,50 +322,49 @@ private:
     [[nodiscard]] bool emit_compound(const value& v, size_t indent) {
       scoped_value guard(depth, depth + 1);
       std::vector<value> elems;
-      if (!elements_of(v, elems)) return false;
+      if (!v.append_elements(elems)) return false;
       const auto head = elems[0].maybe_symbol();
       if (!head) return false;
-      if (*head == define_ && elems.size() == 3) {
+      if (*head == syms.define && elems.size() == 3) {
         if (emit_fun(elems[1], elems[2], indent)) return true;
         const auto name = elems[1].maybe_symbol();
-        if (!name || !is_word_symbol((*name).name())) return false;
+        if (!name || !is_bindable_word((*name).name())) return false;
         emit_line(indent, (*name).name() + " = " + as_expr(elems[2]));
         return true;
       }
-      if (*head == begin_ && elems.size() >= 2) {
+      if (*head == syms.begin && elems.size() >= 2) {
         for (const auto& elem : std::span{elems}.subspan(1))
           emit_statement(elem, indent);
         return true;
       }
-      return *head == if_ && emit_if(elems, indent);
+      return *head == syms.keyword_if && emit_if(elems, indent);
     }
 
     // Emit `(define name (lambda params body...))` as a `fun` block when
-    // the whole shape checks out: a name that is a word symbol or a
-    // mentionable operator (spelled as its mention), params nil or all
-    // word symbols, and a nonempty body.
+    // the whole shape checks out: a name that is a bindable word or an
+    // operator (spelled as its mention), params nil or all bindable words,
+    // and a nonempty body.
     [[nodiscard]] bool
     emit_fun(const value& name_v, const value& lambda_v, size_t indent) {
       const auto name = name_v.maybe_symbol();
       if (!name) return false;
       const auto& fname = (*name).name();
-      if (!is_word_symbol(fname) && !is_mention_op(fname)) return false;
+      const auto word = is_bindable_word(fname);
+      if (!word && !is_operator_symbol(fname)) return false;
       std::vector<value> lam;
-      if (!lambda_v.is_cell() || !elements_of(lambda_v, lam)) return false;
+      if (!lambda_v.is_cell() || !lambda_v.append_elements(lam)) return false;
       if (lam.size() < 3) return false;
-      if (const auto head = lam[0].maybe_symbol(); !head || *head != lambda_)
+      if (const auto head = lam[0].maybe_symbol();
+          !head || *head != syms.lambda)
         return false;
       std::vector<value> params;
       if (!lam[1].is_nil() &&
-          (!lam[1].is_cell() || !elements_of(lam[1], params)))
+          (!lam[1].is_cell() || !lam[1].append_elements(params)))
         return false;
-      std::string line =
-          is_word_symbol(fname)
-              ? "fun " + fname + "("
-              : "fun (" + fname + ")(";
+      std::string line = word ? "fun " + fname + "(" : "fun (" + fname + ")(";
       for (const auto& param : params) {
         const auto sym = param.maybe_symbol();
-        if (!sym || !is_word_symbol((*sym).name())) return false;
+        if (!sym || !is_bindable_word((*sym).name())) return false;
         if (line.back() != '(') line += ", ";
         line += (*sym).name();
       }
@@ -422,14 +400,14 @@ private:
           break;
         }
         std::vector<value> nested;
-        if (!else_arm.is_cell() || !elements_of(else_arm, nested))
+        if (!else_arm.is_cell() || !else_arm.append_elements(nested))
           return false;
         const auto head = nested[0].maybe_symbol();
-        if (!head || *head != if_) return false;
+        if (!head || *head != syms.keyword_if) return false;
         cur = std::move(nested);
       }
       for (size_t ndx = 0; ndx < arms.size(); ++ndx) {
-        const auto lead = ndx == 0 ? "if " : "elif ";
+        const auto lead = (ndx == 0) ? "if " : "elif ";
         emit_line(indent, lead + as_expr(arms[ndx].cond) + ":");
         for (const auto& form : arms[ndx].body)
           emit_statement(form, indent + 1);
@@ -445,9 +423,9 @@ private:
     [[nodiscard]] std::optional<std::vector<value>> block_of(
         const value& v) const {
       std::vector<value> elems;
-      if (!v.is_cell() || !elements_of(v, elems)) return std::nullopt;
+      if (!v.is_cell() || !v.append_elements(elems)) return std::nullopt;
       if (const auto head = elems[0].maybe_symbol();
-          !head || *head != begin_ || elems.size() < 2)
+          !head || *head != syms.begin || elems.size() < 2)
         return std::nullopt;
       elems.erase(elems.begin());
       return elems;

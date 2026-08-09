@@ -122,7 +122,7 @@ consteval auto corvid_enum_spec(token_kind*) {
 // string token's text keeps its quotes and escapes raw, for the parser to
 // unescape. `pos` is the byte offset where the token starts.
 struct token final {
-  token_kind kind;
+  token_kind kind{};
   std::string_view text;
   size_t pos{};
 
@@ -495,9 +495,9 @@ private:
     // longest-first order makes the first match the longest.
     [[nodiscard]] result<void> extract_operator() {
       const auto start = cursor();
-      for (const auto op : operator_symbols)
-        if (at_text(op)) {
-          take(op);
+      for (const auto& op : operator_table)
+        if (at_text(op.spelling)) {
+          take(op.spelling);
           return push(token_kind::op, start);
         }
       if (peek() == '!') return fail("'!' appears only in '!='");

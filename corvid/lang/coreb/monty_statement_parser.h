@@ -16,7 +16,6 @@
 // limitations under the License.
 #pragma once
 #include <cstddef>
-#include <initializer_list>
 #include <optional>
 #include <ranges>
 #include <span>
@@ -30,6 +29,8 @@
 #include "../source_scanner.h"
 #include "monty_expression_parser.h"
 #include "monty_lexer.h"
+#include "symbols.h"
+#include "token_classes.h"
 #include "value.h"
 
 namespace corvid { inline namespace lang { namespace coreb { namespace monty {
@@ -85,22 +86,22 @@ namespace corvid { inline namespace lang { namespace coreb { namespace monty {
 // Parser from a Monty token stream to Hall statement forms.
 //
 // Nesting deeper than `max_depth` is rejected rather than risking stack
-// exhaustion. Failure is reported by value as a `source_error`.
+// exhaustion; the current depth seeds the expression parser at expression
+// positions, which seeds the reader inside a Hall escape, so the stacked
+// front ends share one budget. Failure is reported by value as a
+// `source_error`.
 class statement_parser final {
 public:
   template<typename T>
   using result = source_scanner::result<T>;
 
-  // Maximum statement-nesting depth accepted, matching
-  // `hall_reader::max_depth`.
-  static constexpr size_t max_depth = 256;
-
   // Parse one statement from `toks`, desugared to a Hall value.
   //
   // Consumes exactly the statement's tokens, through its trailing newline
   // (or its block's dedent), leaving the rest of the stream.
-  [[nodiscard]] static result<value> parse(runtime& rt, token_stream& toks) {
-    builder b{rt, toks};
+  [[nodiscard]] static result<value>
+  parse(runtime_environment& run_env, token_stream& toks) {
+    builder b{run_env, toks};
     auto s = b.parse_statement();
     if (!s) return s;
 
@@ -112,8 +113,8 @@ public:
 
   // Parse every statement in `toks`, in order, up to end of input.
   [[nodiscard]] static result<std::vector<value>>
-  parse_all(runtime& rt, token_stream& toks) {
-    builder b{rt, toks};
+  parse_all(runtime_environment& run_env, token_stream& toks) {
+    builder b{run_env, toks};
     std::vector<stmt> stmts;
     while (!toks.at(token_kind::eof)) {
       auto s = b.parse_statement();
@@ -162,26 +163,17 @@ private:
 
   // Single-pass builder from the token stream to statement forms.
   struct builder {
-    runtime& rt;
+    runtime_environment& run_env;
     token_stream& toks;
     size_t depth{};
-
-    // Build the list `(elems...)` as nested cons cells.
-    [[nodiscard]] value list_of(std::span<const value> elems) const {
-      value list;
-      for (const auto& elem : std::views::reverse(elems))
-        list = rt.cons(elem, list);
-      return list;
-    }
-    [[nodiscard]] value list_of(std::initializer_list<value> elems) const {
-      return list_of(std::span<const value>{elems.begin(), elems.size()});
-    }
+    runtime& rt = run_env.rt;
+    const symbols& syms = run_env.syms;
 
     // Build `(begin body...)`.
     [[nodiscard]] value begin_of(std::span<const value> body) const {
-      std::vector<value> form{value{rt.intern("begin")}};
+      std::vector<value> form{value{syms.begin}};
       form.insert(form.end(), body.begin(), body.end());
-      return list_of(form);
+      return rt.list_of(form);
     }
 
     // Take the newline ending a simple statement.
@@ -208,24 +200,34 @@ private:
       if (toks.at_word("fun")) return parse_fun();
       if (toks.at_word("if")) return parse_if();
       if (toks.at_word("return")) return parse_return();
-      auto v = expression_parser::parse(rt, toks);
+      auto v = expression_parser::parse(run_env, toks, depth);
       if (!v) return v;
 
       if (auto e = take_line_end()) return std::move(*e);
       return stmt{*v};
     }
 
+    // Reject a leading literal word in a binding position.
+    [[nodiscard]] std::optional<source_error> reject_literal() const {
+      const auto name = toks.peek().text;
+      if (!is_literal_word(name)) return std::nullopt;
+      return toks.fail("'" + std::string{name} + "' is a literal, not a name");
+    }
+
     // Parse a definition: `name = expr` desugars 1:1 to `(define name
     // expr)`.
+    //
+    // The literal words read as values, so they name no binding.
     [[nodiscard]] result<stmt> parse_define() {
+      if (auto e = reject_literal()) return std::move(*e);
       const auto name = toks.take().text;
       toks.take(); // '='
-      auto v = expression_parser::parse(rt, toks);
+      auto v = expression_parser::parse(run_env, toks, depth);
       if (!v) return v;
 
       if (auto e = take_line_end()) return std::move(*e);
       return stmt{
-          list_of({value{rt.intern("define")}, value{rt.intern(name)}, *v})};
+          rt.list_of({value{syms.define}, value{rt.intern(name)}, *v})};
     }
 
     // Parse a function definition.
@@ -233,22 +235,18 @@ private:
     // This desugars to a `define` of a lambda. The block splats into the
     // lambda's implicit sequence, with the restricted-return rewrite applied.
     // The name is a word or an operator mention, so `fun (-)(a, b):` rebinds
-    // subtraction.
+    // subtraction; literal words name no binding.
     [[nodiscard]] result<stmt> parse_fun() {
       toks.take(); // 'fun'
       std::string_view name;
       if (toks.at(token_kind::word)) {
+        if (auto e = reject_literal()) return std::move(*e);
         name = toks.take().text;
       } else if (toks.at(token_kind::lparen) &&
                  toks.peek(1).kind == token_kind::op &&
                  toks.peek(2).kind == token_kind::rparen)
       {
         toks.take(); // '('
-        const auto op = toks.peek().text;
-        if (op == "=" || op == ":=")
-          return toks.fail(
-              "'" + std::string{op} + "' is a statement, not a value");
-
         name = toks.take().text;
         toks.take(); // ')'
       } else
@@ -263,6 +261,7 @@ private:
           if (!toks.at(token_kind::word))
             return toks.fail("expected a parameter name");
 
+          if (auto e = reject_literal()) return std::move(*e);
           params.emplace_back(rt.intern(toks.take().text));
           if (!toks.at(token_kind::comma)) break;
           toks.take();
@@ -276,10 +275,10 @@ private:
       auto body = desugar_body(*block, true, true);
       if (!body) return body;
 
-      std::vector<value> lambda{value{rt.intern("lambda")}, list_of(params)};
+      std::vector<value> lambda{value{syms.lambda}, rt.list_of(params)};
       lambda.insert(lambda.end(), body->begin(), body->end());
-      return stmt{list_of({value{rt.intern("define")}, value{rt.intern(name)},
-          list_of(lambda)})};
+      return stmt{rt.list_of(
+          {value{syms.define}, value{rt.intern(name)}, rt.list_of(lambda)})};
     }
 
     // Parse an `if` statement: the if/elif arms and the optional else.
@@ -287,7 +286,7 @@ private:
       if_stmt f;
       toks.take(); // 'if'
       for (;;) {
-        auto cond = expression_parser::parse(rt, toks);
+        auto cond = expression_parser::parse(run_env, toks, depth);
         if (!cond) return cond;
 
         auto body = parse_block();
@@ -316,7 +315,7 @@ private:
       toks.take(); // 'return'
       value expr;
       if (!toks.at(token_kind::newline)) {
-        auto v = expression_parser::parse(rt, toks);
+        auto v = expression_parser::parse(run_env, toks, depth);
         if (!v) return v;
         expr = *v;
       }
@@ -374,36 +373,41 @@ private:
     // `return` is expressible: as the final statement, or through the
     // guard-clause rewrite, where an else-less `if` whose every arm ends
     // in `return` takes the remainder of the body as its else branch.
+    //
+    // The walk runs back to front so each guard clause absorbs the
+    // already-desugared remainder as its else branch iteratively; a flat
+    // run of guard clauses costs no C++ stack, which the parse-nesting
+    // depth guard could not otherwise bound.
     [[nodiscard]] result<std::vector<value>>
     desugar_body(std::span<const stmt> stmts, bool in_fun, bool tail) {
-      std::vector<value> out;
-      for (size_t ndx = 0; ndx < stmts.size(); ++ndx) {
+      // Reversed while building: `rest.back()` is the body's next form.
+      std::vector<value> rest;
+      for (size_t ndx = stmts.size(); ndx-- > 0;) {
         const auto& s = stmts[ndx];
-        const bool last = ndx + 1 == stmts.size();
+        const auto last = rest.empty();
         if (const auto* v = std::get_if<value>(&s.node)) {
-          out.push_back(*v);
+          rest.push_back(*v);
           continue;
         }
         if (const auto* r = std::get_if<ret_stmt>(&s.node)) {
           if (auto e = check_return(*r, in_fun, tail && last))
             return std::move(*e);
-          out.push_back(r->expr);
+          rest.push_back(r->expr);
           continue;
         }
         const auto& f = std::get<if_stmt>(s.node);
         if (tail && !last && !f.has_else && all_arms_return(f)) {
-          auto rest = desugar_body(stmts.subspan(ndx + 1), in_fun, tail);
-          if (!rest) return rest;
-          auto guard = desugar_if(f, in_fun, true, begin_of(*rest));
+          const std::vector<value> remainder{rest.rbegin(), rest.rend()};
+          auto guard = desugar_if(f, in_fun, true, begin_of(remainder));
           if (!guard) return guard;
-          out.push_back(*guard);
-          return out;
+          rest.assign(1, *guard);
+          continue;
         }
         auto form = desugar_if(f, in_fun, tail && last, std::nullopt);
         if (!form) return form;
-        out.push_back(*form);
+        rest.push_back(*form);
       }
-      return out;
+      return std::vector<value>{rest.rbegin(), rest.rend()};
     }
 
     // Desugar an `if` statement to the kernel `if`, elifs chaining
@@ -422,9 +426,9 @@ private:
         if (!body) return body;
 
         const value then = begin_of(*body);
-        const value if_sym{rt.intern("if")};
-        chain = chain ? list_of({if_sym, arm.cond, then, *chain})
-                      : list_of({if_sym, arm.cond, then});
+        const value if_sym{syms.keyword_if};
+        chain = chain ? rt.list_of({if_sym, arm.cond, then, *chain})
+                      : rt.list_of({if_sym, arm.cond, then});
       }
       return *chain;
     }

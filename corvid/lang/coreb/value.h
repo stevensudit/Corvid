@@ -19,8 +19,10 @@
 #include <cstddef>
 #include <cstdint>
 #include <functional>
+#include <initializer_list>
 #include <memory>
 #include <optional>
+#include <ranges>
 #include <span>
 #include <string>
 #include <string_view>
@@ -65,6 +67,21 @@ namespace corvid { inline namespace lang { namespace coreb {
 // Declared up front: a friend declaration alone does not make the name
 // visible (MSVC injects it as an extension; conforming compilers do not).
 class runtime;
+
+// Maximum nesting depth for every recursive pass over values: reading,
+// printing, Monty parsing and unparsing, and evaluation.
+//
+// Depth counts genuinely nested structure, not list length: every pass
+// iterates chains through `tail` flat. The passes share the one budget, and
+// front ends stacked on each other (Monty statements over expressions over
+// Hall escapes) seed it forward rather than each starting fresh, so anything
+// one pass accepts the others can process in full.
+//
+// The value is sized so each pass's guard fires before the real C++ stack
+// runs out. This is the case even in unoptimized builds, whose frames are
+// several times fatter, on the smallest common default stack (1MB on
+// Windows).
+inline constexpr size_t max_depth = 256;
 
 #pragma region symbol
 
@@ -265,17 +282,21 @@ public:
   [[nodiscard]] value head() const;
   [[nodiscard]] value tail() const;
 
+  // Append a proper list's elements to `out`, returning whether this value
+  // is a proper list.
+  //
+  // Walks the `tail` chain appending each `head`, so nil appends nothing and
+  // is proper. Returns false when the walk ends at anything but nil (an
+  // improper list, or an atom), with the elements up to that point already
+  // appended.
+  [[nodiscard]] bool append_elements(std::vector<value>& out) const {
+    auto list = *this;
+    for (; list.is_cell(); list = list.tail()) out.push_back(list.head());
+    return list.is_nil();
+  }
+
 #pragma endregion
 #pragma region Printing
-
-  // Maximum nesting depth `append` and `append_dump` render.
-  //
-  // The cap matches `hall_reader::max_depth`, so anything the reader can
-  // produce prints in full, and printing programmatically built structure
-  // cannot exhaust the C++ stack. Only nesting spends depth: a cell's head,
-  // and each form of a closure's body. Chains through `tail` are iterated flat
-  // in both forms, so list length costs none.
-  static constexpr size_t max_depth = 256;
 
   // Append the printed s-expression form to `out`.
   //
@@ -287,7 +308,8 @@ public:
   //
   // Nesting deeper than `max_depth` is the other exception: the subtree
   // renders as the display form "#<too deep>" instead of overflowing the C++
-  // stack. Returns false if any subtree was truncated this way, true
+  // stack. Only nesting spends depth here: a cell's head, and each form of a
+  // closure's body. Returns false if any subtree was truncated this way, true
   // otherwise. Printing cyclic data (possible only after mutation) is
   // unsupported; a cycle through `tail` will not terminate.
   bool append(std::string& out, size_t depth = 0) const;
@@ -307,7 +329,7 @@ public:
   // and depth truncation works as in `append` too.
   //
   // Display forms and truncation aside, the output is valid reader syntax,
-  // but re-reading it is subject to `hall_reader::max_depth`: the dotted form
+  // but re-reading it is subject to `max_depth`: the dotted form
   // spends one nesting level per list element where the abbreviated form
   // spends none, so a long proper list dumps fine yet will not read back.
   bool append_dump(std::string& out, size_t depth = 0) const;
@@ -400,9 +422,9 @@ public:
 
   // Append the printed list form to `out`: proper lists as "(a b c)",
   // improper tails dotted. Returns false if a subtree was truncated for
-  // depth (see `value::max_depth`).
+  // depth (see `max_depth`).
   bool append(std::string& out, size_t depth = 0) const {
-    if (depth >= value::max_depth) {
+    if (depth >= max_depth) {
       out += "#<too deep>";
       return false;
     }
@@ -427,9 +449,9 @@ public:
   // Append the structural debug form to `out`: "(head . tail)", recursing
   // into each head while iterating the tail chain, with no list
   // abbreviation. Returns false if a subtree was truncated for depth (see
-  // `value::max_depth`).
+  // `max_depth`).
   bool append_dump(std::string& out, size_t depth = 0) const {
-    if (depth >= value::max_depth) {
+    if (depth >= max_depth) {
       out += "#<too deep>";
       return false;
     }
@@ -503,7 +525,7 @@ public:
   //
   // Closures have no readable form: the parameters and body are shown, but the
   // captured environment has no printed spelling. Returns false if a subtree
-  // was truncated for depth (see `value::max_depth`).
+  // was truncated for depth (see `max_depth`).
   bool append(std::string& out, size_t depth = 0) const;
 
   std::vector<symbol> params;
@@ -611,7 +633,10 @@ public:
 
   // Intern `name`, returning its unique symbol.
   //
-  // Repeated calls with the same spelling return the same symbol.
+  // Repeated calls with the same spelling return the same symbol. The
+  // spelling is not validated here: the front ends enforce the token
+  // classes before interning, so only symbols they produce are guaranteed
+  // to re-read from their printed form.
   [[nodiscard]] symbol intern(std::string_view name) {
     if (const auto found = find_opt(syms_, name)) return symbol{*found};
     return symbol{*syms_.emplace(name).first};
@@ -622,6 +647,20 @@ public:
     ++allocs_;
     cells_.push_back(std::make_unique<cell>(cell::allow::ctor, head, tail));
     return value{*cells_.back()};
+  }
+
+  // Construct the proper list `(elems...)` as a chain of cells.
+  //
+  // An explicit `tail` seeds the chain in place of nil, yielding the dotted
+  // list `(elems... . tail)`.
+  [[nodiscard]] value list_of(std::span<const value> elems, value tail = {}) {
+    auto list = tail;
+    for (const auto& elem : std::views::reverse(elems))
+      list = cons(elem, list);
+    return list;
+  }
+  [[nodiscard]] value list_of(std::initializer_list<value> elems) {
+    return list_of(std::span<const value>{elems.begin(), elems.size()});
   }
 
   // Allocate a string.
@@ -806,7 +845,7 @@ inline bool value::append(std::string& out, size_t depth) const {
 }
 
 inline bool closure::append(std::string& out, size_t depth) const {
-  if (depth >= value::max_depth) {
+  if (depth >= max_depth) {
     out += "#<too deep>";
     return false;
   }

@@ -22,6 +22,7 @@
 // "coreb.md".
 #include "token_classes.h"
 #include "value.h"
+#include "symbols.h"
 #include "hall_reader.h"
 #include "eval.h"
 #include "monty_lexer.h"
