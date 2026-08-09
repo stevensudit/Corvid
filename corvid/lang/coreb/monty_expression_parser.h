@@ -54,6 +54,7 @@ namespace corvid { inline namespace lang { namespace coreb { namespace monty {
 //   x if c else y  ->  (if c x y)
 //   map((-), xs)   ->  (map - xs)
 //   [1, x + 1]     ->  (list 1 (+ x 1))
+//   begin(f(), 3)  ->  (begin (f) 3)
 //   %(lambda (n) n)  ->  (lambda (n) n)
 //
 // The grammar in EBNF ("{x}" repetition, "[x]" option, "|" alternation):
@@ -77,8 +78,11 @@ namespace corvid { inline namespace lang { namespace coreb { namespace monty {
 // so `-7` is the literal and negating a number on purpose is spelled by
 // mention: `(-)(7)`.
 //
-// A `hall` token is the `%(...)` escape: its text is the Hall form itself,
-// which is read, not evaluated, and splices in place.
+// A `hall` token is the `%(...)` escape, a Hall pass: its text is the Hall
+// form itself, which is read, not evaluated, and splices in place. The
+// sequencer `begin(a, b)` needs no rule of its own. This is because `begin` is
+// an ordinary word here, and the call desugar manufactures the kernel form,
+// which special-form identity then claims.
 //
 // The grammar enforces the sparse partial-order precedence structurally: {+ -}
 // and {* /} each fold left but mixing the families without parentheses is an

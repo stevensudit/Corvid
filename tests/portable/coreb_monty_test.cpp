@@ -339,6 +339,10 @@ TEST_CASE("Monty expression parser", "[coreb]") {
   CHECK(parse_dump(rt, "%(lambda (n) (* n 2))(21)") ==
         "((lambda (n) (* n 2)) 21)");
 
+  // Call-spelled `begin` is the sequencer expression: the call desugar
+  // manufactures the kernel form, which special-form identity then claims.
+  CHECK(parse_dump(rt, "begin(f(), 3)") == "(begin (f) 3)");
+
   // Bracket continuation carries an expression across lines.
   CHECK(parse_dump(rt, "f(a,\n  b)") == "(f a b)");
   CHECK(parse_dump(rt, "[1,\n  2]") == "(list 1 2)");
@@ -462,6 +466,7 @@ TEST_CASE("Monty expression parser evaluates", "[coreb]") {
   CHECK(parse_eval("1 if nil else 2") == "2");
   CHECK(parse_eval("[1, 2 + 3]") == "(1 5)");
   CHECK(parse_eval("head([1, 2])") == "1");
+  CHECK(parse_eval("begin(1 + 1, 2 + 2)") == "4");
 }
 
 #pragma endregion
@@ -680,8 +685,17 @@ TEST_CASE("Monty unparser", "[coreb]") {
   CHECK(up("(if c 1 2)") == "1 if c else 2");
   CHECK(up("(define x (if c 1 2))") == "x = 1 if c else 2");
 
-  // A statement-position begin splats into the sequence.
+  // A statement-position begin splats into the sequence; an
+  // expression-position begin is the call-shaped sequencer. The same
+  // if-form takes the block spelling at statement position and the
+  // ternary with sequencer arms in expression position.
   CHECK(up("(begin (f) (g))") == "f()\ng()");
+  CHECK(up("(define x (begin (+ 1 1) (+ 2 2)))") == "x = begin(1 + 1, 2 + 2)");
+  CHECK(up("(begin)") == "begin()");
+  CHECK(up("(if pred (begin (foo) (goo)) (begin (hoo) (ioo)))") ==
+        "if pred:\n  foo()\n  goo()\nelse:\n  hoo()\n  ioo()");
+  CHECK(up("(define zzz (if pred (begin (foo) (goo)) (begin (hoo) (ioo))))") ==
+        "zzz = begin(foo(), goo()) if pred else begin(hoo(), ioo())");
 
   // Infix with minimal parens per the partial order.
   CHECK(up("(+ (- a b) c)") == "a - b + c");
@@ -717,7 +731,6 @@ TEST_CASE("Monty unparser", "[coreb]") {
   CHECK(up("(define 5 6)") == "%(define 5 6)");
   CHECK(up("((lambda (n) n) 5)") == "%(lambda (n) n)(5)");
   CHECK(up("(f (quote x))") == "f(%(quote x))");
-  CHECK(up("(begin)") == "%(begin)");
   CHECK(up("(a . b)") == "%(a . b)");
 
   // A keyword-led expression statement takes grouping parens; a keyword
@@ -756,6 +769,8 @@ TEST_CASE("Monty unparser round trip", "[coreb]") {
       "(- 7)",
       "(- (- 7))",
       "(+ x -7)",
+      "(define x (begin (f) (g)))",
+      "(define zzz (if pred (begin (foo) (goo)) (begin (hoo) (ioo))))",
   };
   for (const auto src : sources) check_roundtrip(rt, src);
 
@@ -769,6 +784,8 @@ TEST_CASE("Monty unparser round trip", "[coreb]") {
       "x + -7",
       "(-)(7)",
       "(-)(-7)",
+      "x = begin(f(), g())",
+      "zzz = begin(foo(), goo()) if pred else begin(hoo(), ioo())",
       "a - (b - c)",
       "[1, x + 1]",
       "map((-), xs)",

@@ -39,11 +39,11 @@ namespace corvid { inline namespace lang { namespace coreb { namespace monty {
 // partial order demands, and two-space indentation throughout. Parsing the
 // output desugars back to the same forms, canonical after one round trip.
 //
-// A form with no Monty spelling renders as the `%(...)` Hall escape, which
-// keeps unparsing total. This includes an anonymous `lambda`, or
-// `begin`/`define`/`quote` in expression position, a dotted pair, or any shape
-// the desugars do not produce, such as a `define` of a non-symbol or a
-// body-less `lambda`.
+// A form with no Monty spelling renders as the `%(...)` Hall escape, a Hall
+// pass, which keeps unparsing total. This includes an anonymous `lambda`, or
+// `define`/`quote` in expression position, a dotted pair, or any shape the
+// desugars do not produce, such as a `define` of a non-symbol or a body-less
+// `lambda`.
 //
 // Each emitter claims a form only when its whole shape checks out and
 // otherwise falls through, so the escape preserves the program rather than
@@ -61,6 +61,7 @@ namespace corvid { inline namespace lang { namespace coreb { namespace monty {
 //   (map - xs)               ->  map((-), xs)
 //   (+ a b c)                ->  (+)(a, b, c)
 //   (- 7)                    ->  (-)(7)
+//   (define x (begin (f) 3))  ->  x = begin(f(), 3)
 //   (define f (lambda (n)))  ->  f = %(lambda (n))
 //
 // and, with blocks:
@@ -75,7 +76,8 @@ namespace corvid { inline namespace lang { namespace coreb { namespace monty {
 //                                            g()
 //
 // A statement-position `begin` splats into the enclosing sequence, which is
-// identity-preserving under function-level scoping. `return` never appears
+// identity-preserving under function-level scoping; an expression-position
+// `begin` is the call-shaped sequencer, `begin(a, b)`. `return` never appears
 // in output: a final `return e` desugared to `e` and guards to if/else, so
 // unparsing spells them as the plain expression and else block they became.
 //
@@ -274,8 +276,11 @@ private:
         if (*head == list_)
           return {"[" + join_exprs(std::span{elems}.subspan(1)) + "]",
               band::tight};
+        if (*head == begin_)
+          return {"begin(" + join_exprs(std::span{elems}.subspan(1)) + ")",
+              band::tight};
         if (*head == quote_ || *head == lambda_ || *head == define_ ||
-            *head == begin_ || *head == if_)
+            *head == if_)
           return escape(v);
         if (auto e = emit_operator((*head).name(), elems))
           return *std::move(e);
