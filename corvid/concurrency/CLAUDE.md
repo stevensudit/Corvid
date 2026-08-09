@@ -14,11 +14,11 @@ The `concurrency` module provides thread-safety primitives.
 - `owner_thread_dispatcher` -- cross-thread dispatch primitive: post a
   callback (in stored form) from any thread, run it on the bound owner
   thread. Provides `post`, `execute_or_post`, `post_and_wait`, and
-  `is_loop_thread`. Owns the wake `event_fd` exposed via `wake_fd()`. The
+  `is_loop_thread`. Owns the wake `os_event` exposed via `wake_event()`. The
   instance must be constructed and destructed on the owner thread, and only
   one such instance can live on a given thread. Used as the base for I/O
-  loops (`iou_basic_loop`, `epoll_loop`), which register the wake fd with
-  their poller so posts interrupt blocked waits.
+  loops (`iou_basic_loop`, `epoll_loop`), which register the wake event's
+  handle with their poller so posts interrupt blocked waits.
 - `tombstone_of<T>` / `tombstone` -- atomic value that can be set once to a
   final "dead" state; cannot be reverted.
 - `timers` -- thread-safe priority-queue timer scheduler with one-shot and

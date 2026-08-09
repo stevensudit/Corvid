@@ -40,7 +40,7 @@
 #include "../../infra/scope_exit.h"
 #include "../../containers/core/opt_find.h"
 #include "../../filesys/epoll.h"
-#include "../../filesys/event_fd.h"
+#include "../../filesys/os_event.h"
 #include "../../filesys/net_socket.h"
 #include "../../meta/fixed_function.h"
 
@@ -96,7 +96,7 @@ private:
 //
 // Cross-thread dispatch is provided by `owner_thread_dispatcher`: `post`,
 // `execute_or_post`, `post_and_wait`, and `is_loop_thread` come from the base
-// class. The base owns the wakeup `event_fd` (exposed as `wake_fd`), which
+// class. The base owns the wakeup `os_event` (exposed as `wake_event`), which
 // `epoll_loop` registers with `epoll` so that posts interrupt a sleeping
 // `epoll_wait`. Posted callbacks run at the top of the next `run_once`. The
 // expected pattern is that I/O callbacks fire on the loop thread and handle
@@ -104,7 +104,7 @@ private:
 // to deliver results back.
 //
 // `stop` is also thread-safe: it sets `running_` (a
-// `notifiable<std::atomic_bool>`) and signals the wake `event_fd` so the loop
+// `notifiable<std::atomic_bool>`) and signals the wake `os_event` so the loop
 // exits promptly even if blocked in `epoll_wait`.
 //
 // `register_socket`, `unregister_socket`, `enable_reads`, and `enable_writes`
@@ -128,18 +128,18 @@ public:
 #pragma endregion
 #pragma region Infrastructure
 public:
-  // Create the `epoll` instance and register the base's wakeup `event_fd`.
+  // Create the `epoll` instance and register the base's wakeup `os_event`.
   // Throws `std::system_error` on failure. Use `make` instead of calling this
   // directly. Per the dispatcher contract, the constructing thread becomes the
   // loop thread.
   explicit epoll_loop(allow) : epoll_{create_epollfd()} {
-    // The base's `event_fd` is used by `post` and `stop` to interrupt a
+    // The base's `os_event` is used by `post` and `stop` to interrupt a
     // sleeping `epoll_wait` from another thread.
     epoll_event ev{.events = EPOLLIN,
-        .data = epoll_data_t{.fd = wake_fd().handle()}};
-    if (!epoll_.add(wake_fd().handle(), ev))
+        .data = epoll_data_t{.fd = *wake_event()}};
+    if (!epoll_.add(*wake_event(), ev))
       throw std::system_error{errno, std::generic_category(),
-          "epoll_ctl wake_fd"};
+          "epoll_ctl wake_event"};
   }
 
   epoll_loop(const epoll_loop&) = delete;
@@ -149,7 +149,7 @@ public:
 
   // Factory: create a heap-allocated `epoll_loop` managed by
   // `std::shared_ptr`. Throws `std::system_error` in the improbable event that
-  // the underlying `epoll` or `eventfd` cannot be created. Per the dispatcher
+  // the underlying `epoll` or wake event cannot be created. Per the dispatcher
   // contract, must be called on the thread that will run the loop.
   //
   // Normally, you would want to use an `epoll_loop_runner` to create an
@@ -212,8 +212,8 @@ public:
       const auto fd = events[ndx].data.fd;
 
       // Drain the internal wakeup handle and skip: it carries no user event.
-      if (fd == wake_fd().handle()) {
-        if (!wake_fd().read()) return -1;
+      if (fd == *wake_event()) {
+        if (!wake_event().read()) return -1;
         continue;
       }
 

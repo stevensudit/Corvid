@@ -23,7 +23,7 @@ L1  infra             corvid/infra/                  scope_exit, relaxed_atomic,
     strings           corvid/strings/                Enum-free string utilities.
     containers/core   corvid/containers/core/        Enum-free container utilities.
 L2  enums             corvid/enums/                  scoped/sequence/bitmask/bool, registry, enum<->string + formatter.
-L3  filesys           corvid/filesys/                os_file, event_fd, epoll glue.
+L3  filesys           corvid/filesys/                os_file, os_event, epoll glue.
     concurrency       corvid/concurrency/            locks, timers, dispatch, atomics.
     containers/utils  corvid/containers/utils/       Enum/string-aware containers.
 L4  ecs, proto, lang  corvid/{ecs,proto,lang}/       Apex consumers.

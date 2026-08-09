@@ -145,7 +145,7 @@ classDiagram
 | Class | File | Relationships |
 | ----- | ---- | ------------- |
 | [epoll_io_conn](epoll_loop.h#L60) | epoll_loop.h | Inherits `enable_shared_from_this`. Abstract base for anything the loop drives: holds the socket, exposes `on_readable` / `on_writable` / `on_error` virtuals and the current epoll interest mask. |
-| [epoll_loop](epoll_loop.h#L116) | epoll_loop.h | Inherits `owner_thread_dispatcher<fixed_function<...>>`. Owns the `epoll` fd and `registrations_` (fd to `shared_ptr<epoll_io_conn>`); the dispatcher base owns the wakeup `event_fd`. |
+| [epoll_loop](epoll_loop.h#L116) | epoll_loop.h | Inherits `owner_thread_dispatcher<fixed_function<...>>`. Owns the `epoll` fd and `registrations_` (fd to `shared_ptr<epoll_io_conn>`); the dispatcher base owns the wakeup `os_event`. |
 | [epoll_loop_runner](epoll_loop.h#L482) | epoll_loop.h | Owns an `epoll_loop` and pumps it on a dedicated thread. |
 
 ### Stream connections

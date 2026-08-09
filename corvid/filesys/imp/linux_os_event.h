@@ -14,25 +14,40 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
-#pragma once
+#ifndef CORVID_IMP_LINUX_OS_EVENT_H
+#ifndef CORVID_OS_EVENT_ENTRY
+#if defined(CORVID_CLANGD) || !defined(NDEBUG)
+// Reroute a standalone dev-time inclusion through the entry point.
+#include "../os_event.h"
+#else
+#error "Include \"os_event.h\" instead of this implementation header."
+#endif
+#else
+#define CORVID_IMP_LINUX_OS_EVENT_H
+
 #include <optional>
 #include <utility>
 
 #include <sys/eventfd.h>
 
-#include "../enums/bool_enums.h"
-#include "os_file.h"
+#include "../../enums/bool_enums.h"
+#include "../os_file.h"
+
+// Linux implementation of "os_event.h", wrapping an `eventfd`.
 
 namespace corvid { inline namespace filesys {
 using namespace bool_enums;
 
-#pragma region event_fd
+#pragma region os_event
 
-// RAII wrapper around Linux `eventfd`.
+// Wake-up event backed by a Linux `eventfd`. See "os_event.h" for the
+// portable contract.
 //
-// `event_fd` owns a single eventfd handle, inherits the general fd helpers
-// from `os_file`, and adds typed counter-based read/write operations.
-class [[nodiscard]] event_fd: public os_file {
+// `os_event` owns a single eventfd handle and inherits the general fd helpers
+// from `os_file`. The raw handle can be registered with a poll set such as
+// `epoll`. Beyond the portable surface, it adds typed counter-based read
+// operations and the counter/semaphore and blocking mode choices.
+class [[nodiscard]] os_event: public os_file {
 public:
 #pragma region Types
 
@@ -44,25 +59,25 @@ public:
 #pragma endregion
 #pragma region Construction
 
-  event_fd() noexcept = default;
-  explicit event_fd(os_file&& file) noexcept : os_file{std::move(file)} {}
+  os_event() noexcept = default;
+  explicit os_event(os_file&& file) noexcept : os_file{std::move(file)} {}
 
-  event_fd(event_fd&&) noexcept = default;
-  event_fd(const event_fd&) = delete;
+  os_event(os_event&&) noexcept = default;
+  os_event(const os_event&) = delete;
 
-  event_fd& operator=(event_fd&&) noexcept = default;
-  event_fd& operator=(const event_fd&) = delete;
+  os_event& operator=(os_event&&) noexcept = default;
+  os_event& operator=(const os_event&) = delete;
 
-  // Create an `event_fd` with `initial_value`. Defaults to non-blocking
+  // Create an `os_event` with `initial_value`. Defaults to non-blocking
   // counter mode (`EFD_CLOEXEC | EFD_NONBLOCK`); pass `event_mode::semaphore`
   // to add `EFD_SEMAPHORE`, or `execution::blocking` to omit `EFD_NONBLOCK`.
-  [[nodiscard]] static event_fd create(counter_t initial_value = 0,
+  [[nodiscard]] static os_event create(counter_t initial_value = 0,
       event_mode mode = event_mode::counter,
       execution exec = execution::nonblocking) noexcept {
     int flags = EFD_CLOEXEC;
     if (mode == event_mode::semaphore) flags |= EFD_SEMAPHORE;
     if (exec == execution::nonblocking) flags |= EFD_NONBLOCK;
-    return event_fd{os_file{::eventfd(initial_value, flags)}};
+    return os_event{os_file{::eventfd(initial_value, flags)}};
   }
 
 #pragma endregion
@@ -71,6 +86,16 @@ public:
   // Add `value` to the counter. Returns true on success.
   [[nodiscard]] bool notify(counter_t value = 1) const noexcept {
     return ::eventfd_write(handle(), value) == 0;
+  }
+
+  // Consume any pending notifications so a subsequent wait blocks until the
+  // next `notify`. Returns true when the event was drained or already clear,
+  // false on hard error. Assumes the default non-blocking mode; in blocking
+  // mode, an already-clear counter would block.
+  [[nodiscard]] bool drain() const noexcept {
+    counter_t value{};
+    if (::eventfd_read(handle(), &value) == 0) return true;
+    return !os_error::last().is_hard_error();
   }
 
   // Read the counter, returning the consumed value on success. In counter
@@ -94,3 +119,6 @@ public:
 
 #pragma endregion
 }} // namespace corvid::filesys
+
+#endif // CORVID_OS_EVENT_ENTRY
+#endif // CORVID_IMP_LINUX_OS_EVENT_H

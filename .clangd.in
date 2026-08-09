@@ -10,6 +10,9 @@ CompileFlags:
   # `<ngtcp2/ngtcp2.h>`, with the missing include cascading into spurious
   # "no matching constructor" / "unused private field" diagnostics.
   CompilationDatabase: tests/build
+  # Mark clangd's parse so the implementation headers under `imp/` reroute a
+  # standalone open through their public entry header instead of failing.
+  Add: [-DCORVID_CLANGD]
 
 ---
 If:
