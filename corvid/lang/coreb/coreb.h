@@ -20,6 +20,7 @@
 //
 // Umbrella header for the kernel; the language design and roadmap live in
 // "coreb.md".
+#include "token_classes.h"
 #include "value.h"
 #include "hall_reader.h"
 #include "eval.h"

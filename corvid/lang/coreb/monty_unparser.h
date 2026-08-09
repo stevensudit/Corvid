@@ -27,6 +27,7 @@
 
 #include "../../containers/core/scoped_value.h"
 #include "../../strings/cases.h"
+#include "token_classes.h"
 #include "value.h"
 
 namespace corvid { inline namespace lang { namespace coreb { namespace monty {
@@ -81,9 +82,8 @@ namespace corvid { inline namespace lang { namespace coreb { namespace monty {
 // in output: a final `return e` desugared to `e` and guards to if/else, so
 // unparsing spells them as the plain expression and else block they became.
 //
-// Symbols whose spellings fall outside Monty's token classes (and outside
-// the operator table) render as-is and may not re-lex; the reader stops
-// producing such symbols when it enforces the shared token classes.
+// Symbols emit their interned spelling, which re-lexes because the reader
+// enforces the shared token classes (see "token_classes.h").
 
 #pragma region unparser
 
@@ -147,23 +147,10 @@ private:
       if (out.ends_with('\n')) out.pop_back();
     }
 
-    // Whether `name` spells a Monty word symbol.
-    [[nodiscard]] static bool is_word(std::string_view name) noexcept {
-      if (name.empty()) return false;
-      if (!strings::is_alpha(name.front()) && name.front() != '_')
-        return false;
-      auto rest = name.substr(1);
-      if (rest.ends_with('?')) rest.remove_suffix(1);
-      return std::ranges::all_of(rest, [](char c) {
-        return strings::is_alpha(c) || strings::is_digit(c) || c == '_';
-      });
-    }
-
-    // Whether `name` is an operator that `(op)` can mention.
+    // Whether `name` is an operator that `(op)` can mention: any operator
+    // symbol except the statement spellings `=` and `:=`.
     [[nodiscard]] static bool is_mention_op(std::string_view name) noexcept {
-      constexpr std::string_view ops[]{"+", "-", "*", "/", "==", "!=", "<",
-          "<=", ">", ">="};
-      return std::ranges::contains(ops, name);
+      return is_operator_symbol(name) && name != "=" && name != ":=";
     }
 
     // Collect a proper list's elements; false when the list is dotted.
@@ -362,7 +349,7 @@ private:
       if (*head == define_ && elems.size() == 3) {
         if (emit_fun(elems[1], elems[2], indent)) return true;
         const auto name = elems[1].maybe_symbol();
-        if (!name || !is_word((*name).name())) return false;
+        if (!name || !is_word_symbol((*name).name())) return false;
         emit_line(indent, (*name).name() + " = " + as_expr(elems[2]));
         return true;
       }
@@ -383,7 +370,7 @@ private:
       const auto name = name_v.maybe_symbol();
       if (!name) return false;
       const auto& fname = (*name).name();
-      if (!is_word(fname) && !is_mention_op(fname)) return false;
+      if (!is_word_symbol(fname) && !is_mention_op(fname)) return false;
       std::vector<value> lam;
       if (!lambda_v.is_cell() || !elements_of(lambda_v, lam)) return false;
       if (lam.size() < 3) return false;
@@ -394,10 +381,12 @@ private:
           (!lam[1].is_cell() || !elements_of(lam[1], params)))
         return false;
       std::string line =
-          is_word(fname) ? "fun " + fname + "(" : "fun (" + fname + ")(";
+          is_word_symbol(fname)
+              ? "fun " + fname + "("
+              : "fun (" + fname + ")(";
       for (const auto& param : params) {
         const auto sym = param.maybe_symbol();
-        if (!sym || !is_word((*sym).name())) return false;
+        if (!sym || !is_word_symbol((*sym).name())) return false;
         if (line.back() != '(') line += ", ";
         line += (*sym).name();
       }

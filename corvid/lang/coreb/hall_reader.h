@@ -26,6 +26,7 @@
 #include "../../strings/cases.h"
 #include "../../strings/conversion.h"
 #include "../source_scanner.h"
+#include "token_classes.h"
 #include "value.h"
 
 namespace corvid { inline namespace lang { namespace coreb {
@@ -54,9 +55,12 @@ namespace corvid { inline namespace lang { namespace coreb {
 // - (quote x) may be written 'x.
 // - Strings are double-quoted; the escapes are \" \\ \n \t \r, plus \u{hex}
 //   denoting a byte by value.
-// - Any other token is a symbol, interned in the runtime. Symbols starting
-//   with '%' are reserved for kernel-generated forms (see "coreb.md"); the
-//   reader accepts them, and definition is policed by the evaluator.
+// - Any other token must spell a symbol in the shared token classes (see
+//   "token_classes.h"): a word symbol, an operator symbol, or the '%' kernel
+//   prefix on a word symbol; anything else is an error, so blends such as
+//   "comb-over" do not read. '%' symbols are reserved for kernel-generated
+//   forms (see "coreb.md"); the reader accepts them, and definition is
+//   policed by the evaluator.
 // - ';' starts a comment running to end of line. Comments and whitespace are
 //   dropped entirely for now; representing them for round-tripping is a
 //   deferred goal (see "coreb.md").
@@ -298,6 +302,7 @@ private:
           return value{*d};
         return fail("malformed number", start);
       }
+      if (!is_symbol_spelling(token)) return fail("malformed symbol", start);
       return value{rt.intern(token)};
     }
 

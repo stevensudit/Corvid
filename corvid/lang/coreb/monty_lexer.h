@@ -30,6 +30,7 @@
 #include "../../strings/cases.h"
 #include "../../strings/locating.h"
 #include "../source_scanner.h"
+#include "token_classes.h"
 
 namespace corvid { inline namespace lang { namespace coreb { namespace monty {
 
@@ -46,10 +47,10 @@ namespace corvid { inline namespace lang { namespace coreb { namespace monty {
 //
 // - Words lead with a letter or underscore and may end with a single '?',
 //   which marks a predicate: `head`, `x2`, `_helper`, `nil?`.
-// - Operators come from the closed table, longest match first, so `a<=b`
-//   lexes as `a`, `<=`, `b`, and `x:=y` as `x`, `:=`, `y` (a colon is
-//   punctuation only when no '=' follows). Blends do not exist: `comb-over`
-//   is `comb` minus `over`.
+// - Operators come from the closed table in "token_classes.h", longest match
+//   first, so `a<=b` lexes as `a`, `<=`, `b`, and `x:=y` as `x`, `:=`, `y` (a
+//   colon is punctuation only when no '=' follows). Blends do not exist:
+//   `comb-over` is `comb` minus `over`.
 // - Numbers take an optional fraction and exponent: `1`, `2.5`, `.5`, `1e3`,
 //   `2E+4`. No sign at this layer; the expression parser folds a touching
 //   `-` into the literal.
@@ -245,13 +246,6 @@ private:
 
     void skip_comment() {
       while (!at_end() && !at_newline()) take();
-    }
-
-    [[nodiscard]] static bool is_word_lead(char c) noexcept {
-      return strings::is_alpha(c) || c == '_';
-    }
-    [[nodiscard]] static bool is_word_char(char c) noexcept {
-      return strings::is_alpha(c) || strings::is_digit(c) || c == '_';
     }
 
     // Emit a token spanning from `start` to the current position.
@@ -497,19 +491,15 @@ private:
       return push(token_kind::word, start);
     }
 
-    // Lex an operator symbol from the closed operator table, longest match
-    // first.
+    // Lex an operator symbol from the closed operator table, whose
+    // longest-first order makes the first match the longest.
     [[nodiscard]] result<void> extract_operator() {
-      static constexpr std::string_view two_char_ops[]{
-          "==", "!=", "<=", ">=", ":="};
       const auto start = cursor();
-      for (const auto op : two_char_ops)
+      for (const auto op : operator_symbols)
         if (at_text(op)) {
           take(op);
           return push(token_kind::op, start);
         }
-      constexpr std::string_view one_char_ops = "+-*/<>=";
-      if (one_char_ops.contains(peek())) return push1(token_kind::op);
       if (peek() == '!') return fail("'!' appears only in '!='");
       return fail("unexpected character");
     }

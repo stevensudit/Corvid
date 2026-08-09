@@ -234,11 +234,12 @@ TEST_CASE("CoreB reader atoms", "[coreb]") {
   // Kernel-reserved symbols read like any other; only `define` polices them.
   CHECK(read("%comment").is_symbol());
   CHECK(read("%comment").print() == "%comment");
-  // Signs alone are symbols, not numbers.
+  // Signs alone are symbols, not numbers; operator spellings come from the
+  // closed table.
   CHECK(read("+").is_symbol());
   CHECK(read("-").is_symbol());
-  // Only the lone '.' is punctuation; multi-dot tokens are ordinary symbols.
-  CHECK(read("...").is_symbol());
+  CHECK(read("<=").is_symbol());
+  CHECK(read(":=").is_symbol());
 
   constexpr auto int_max = std::numeric_limits<int64_t>::max();
   CHECK(read("9223372036854775807").as_int() == int_max);
@@ -344,6 +345,14 @@ TEST_CASE("CoreB reader errors", "[coreb]") {
   CHECK(err(R"("a\u{1f")").message == "invalid escape");
   CHECK(err(R"("a\u{100}")").message == "invalid escape");
   CHECK(err("1abc").message == "malformed number");
+  // Symbols must spell the shared token classes; blends and other
+  // out-of-class spellings do not read.
+  CHECK(err("comb-over").message == "malformed symbol");
+  CHECK(err("...").message == "malformed symbol");
+  CHECK(err("a-7").message == "malformed symbol");
+  CHECK(err("x?y").message == "malformed symbol");
+  CHECK(err("%").message == "malformed symbol");
+  CHECK(err("%%x").message == "malformed symbol");
   CHECK(err("1 2").message == "trailing content after expression");
   CHECK(err("(. 1)").message == "misplaced '.'");
   CHECK(err("(1 . )").message == "expected expression after '.'");
@@ -462,8 +471,8 @@ TEST_CASE("CoreB eval lambda and closures", "[coreb]") {
   // The classic closure test: the inner lambda captures its birthplace's
   // `n`, which outlives the call that created it.
   CHECK(run(rt, ev,
-            "(define make-adder (lambda (n) (lambda (x) (+ x n))))"
-            "(define add3 (make-adder 3))"
+            "(define make_adder (lambda (n) (lambda (x) (+ x n))))"
+            "(define add3 (make_adder 3))"
             "(add3 4)") == "7");
   // Scoping is lexical, not dynamic: a global `n` does not leak into the
   // closure, whose captured `n` still shadows it.
