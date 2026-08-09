@@ -51,7 +51,8 @@ namespace corvid { inline namespace lang { namespace coreb { namespace monty {
 //   punctuation only when no '=' follows). Blends do not exist: `comb-over`
 //   is `comb` minus `over`.
 // - Numbers take an optional fraction and exponent: `1`, `2.5`, `.5`, `1e3`,
-//   `2E+4`. No sign; `-7` is the operator `-` applied to `7`.
+//   `2E+4`. No sign at this layer; the expression parser folds a touching
+//   `-` into the literal.
 // - Strings are double-quoted and single-line, with the kernel escape set:
 //   `"say \"hi\"\n"`.
 // - `%(` opens a Hall escape: `%(+ 1 2)`. The token runs to the paren

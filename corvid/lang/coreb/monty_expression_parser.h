@@ -18,6 +18,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <initializer_list>
+#include <optional>
 #include <ranges>
 #include <span>
 #include <string>
@@ -47,6 +48,7 @@ namespace corvid { inline namespace lang { namespace coreb { namespace monty {
 //   f(x, y)        ->  (f x y)
 //   a - b + c      ->  (+ (- a b) c)
 //   -x * y         ->  (* (- x) y)
+//   -7             ->  -7
 //   a < b < c      ->  (< a b c)
 //   a + b < c * d  ->  (< (+ a b) (* c d))
 //   x if c else y  ->  (if c x y)
@@ -69,8 +71,11 @@ namespace corvid { inline namespace lang { namespace coreb { namespace monty {
 //
 // where number/string/word/hall are the lexer's tokens ("nil", "true", and
 // "false" reading as literals rather than symbols), a chain's cmp
-// occurrences must all be the same operator ("!=" may occur only once), and
-// `(op)` mentions an operator as a value.
+// occurrences must all be the same operator ("!=" may occur only once),
+// `(op)` mentions an operator as a value, and a unary `-` must touch its
+// operand, a touching number token taking the sign as part of the literal,
+// so `-7` is the literal and negating a number on purpose is spelled by
+// mention: `(-)(7)`.
 //
 // A `hall` token is the `%(...)` escape: its text is the Hall form itself,
 // which is read, not evaluated, and splices in place.
@@ -213,12 +218,33 @@ private:
       return l;
     }
 
-    // Parse a unary minus, which binds to the postfix chain it precedes
-    // and desugars to the kernel's one-argument negation.
+    // Parse a unary minus, which must touch its operand.
+    //
+    // Touching a number token, the sign is part of the literal, as in Hall, so
+    // `-7` is the literal; touching anything else, it binds to the postfix
+    // chain it precedes and desugars to the kernel's one-argument negation.
+    // Negating a number on purpose is spelled by mention: `(-)(7)`.
     [[nodiscard]] result<value> parse_unary() {
       if (depth >= max_depth) return toks.fail("nesting too deep");
       scoped_value guard(depth, depth + 1);
       if (toks.at_op("-")) {
+        const auto minus = toks.peek();
+        const auto& next = toks.peek(1);
+        // A hall token's `pos` names its '(', one past the '%' badge.
+        const auto start =
+            next.kind == token_kind::hall ? next.pos - 1 : next.pos;
+        if (start != minus.pos + 1)
+          return toks.fail("unary '-' must touch its operand");
+
+        if (next.kind == token_kind::number) {
+          // The tokens touch, so the signed text is one source span.
+          const auto text = toks.src().substr(minus.pos, next.text.size() + 1);
+          const auto v = to_number(text);
+          if (!v) return toks.fail("malformed number");
+          toks.take(); // '-'
+          toks.take(); // number
+          return *v;
+        }
         toks.take();
         auto v = parse_unary();
         if (!v) return v;
@@ -274,17 +300,20 @@ private:
       }
     }
 
-    // Parse a number token, applying the kernel's int64-overflow-to-double
+    // Convert a number's text, applying the kernel's int64-overflow-to-double
     // rule.
+    [[nodiscard]] static std::optional<value> to_number(
+        std::string_view text) {
+      if (const auto n = strings::parse_num<int64_t>(text)) return value{*n};
+      if (const auto d = strings::parse_num<double>(text)) return value{*d};
+      return std::nullopt;
+    }
+
+    // Parse a number token.
     [[nodiscard]] result<value> parse_number() {
-      const auto text = toks.peek().text;
-      if (const auto n = strings::parse_num<int64_t>(text)) {
+      if (const auto v = to_number(toks.peek().text)) {
         toks.take();
-        return value{*n};
-      }
-      if (const auto d = strings::parse_num<double>(text)) {
-        toks.take();
-        return value{*d};
+        return *v;
       }
       return toks.fail("malformed number");
     }
@@ -322,9 +351,10 @@ private:
       return v;
     }
 
-    // Parse a list literal, which desugars to the kernel `list` constructor,
-    // so elements are evaluated: `[1, x]` is `(list 1 x)`, and `[]` is
-    // `(list)`, yielding nil.
+    // Parse a list literal.
+    //
+    // This desugars to the kernel `list` constructor, so elements are
+    // evaluated: `[1, x]` is `(list 1 x)`, and `[]` is `(list)`, yielding nil.
     [[nodiscard]] result<value> parse_list() {
       toks.take(); // '['
       std::vector<value> form{value{rt.intern("list")}};

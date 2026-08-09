@@ -59,20 +59,21 @@ namespace corvid { inline namespace lang { namespace coreb { namespace monty {
 //   statement ::= define | reserve | fun | if | return | expr NEWLINE
 //   define  ::= word "=" expr NEWLINE
 //   reserve ::= word ":=" expr NEWLINE
-//   fun     ::= "fun" word "(" [ word { "," word } ] ")" block
+//   fun     ::= "fun" fname "(" [ word { "," word } ] ")" block
+//   fname   ::= word | "(" operator ")"
 //   if      ::= "if" expr block { "elif" expr block } [ "else" block ]
 //   return  ::= "return" [ expr ] NEWLINE
 //   block   ::= ":" NEWLINE INDENT statement { statement } DEDENT
 //
 // where fun/if/elif/else/return are contextual words, recognized in
-// statement-leading position only when no `=` or `:=` follows (the
-// definition reading wins, so keywords can be bound as variables; a
-// statement otherwise led by the spelling reads as the keyword form, with
-// grouping parens stripping the claim: `(fun + 1)` is an expression
-// statement), `=` desugars 1:1 to the kernel `define`, `:=` is rejected
-// with a message reserving it for assignment, and blocks desugar to
-// `(begin ...)` sequences except a `fun` body, which splats into the
-// lambda's implicit sequence.
+// statement-leading position only when no `=` or `:=` follows (the definition
+// reading wins, so keywords can be bound as variables; a statement otherwise
+// led by the spelling reads as the keyword form, with grouping parens
+// stripping the claim: `(fun + 1)` is an expression statement), a `fun` name
+// is a word or an operator mention (`fun (-)(a, b):` rebinds subtraction), `=`
+// desugars 1:1 to the kernel `define`, `:=` is rejected with a message
+// reserving it for assignment, and blocks desugar to `(begin ...)` sequences
+// except a `fun` body, which splats into the lambda's implicit sequence.
 //
 // `return` follows the restricted-return design: a final `return e` is just
 // `e`, and an else-less `if` whose every arm ends in `return` takes the
@@ -227,15 +228,32 @@ private:
           list_of({value{rt.intern("define")}, value{rt.intern(name)}, *v})};
     }
 
-    // Parse a function definition, which desugars to a `define` of a
-    // lambda; the block splats into the lambda's implicit sequence, with
-    // the restricted-return rewrite applied.
+    // Parse a function definition.
+    //
+    // This desugars to a `define` of a lambda. The block splats into the
+    // lambda's implicit sequence, with the restricted-return rewrite applied.
+    // The name is a word or an operator mention, so `fun (-)(a, b):` rebinds
+    // subtraction.
     [[nodiscard]] result<stmt> parse_fun() {
       toks.take(); // 'fun'
-      if (!toks.at(token_kind::word))
+      std::string_view name;
+      if (toks.at(token_kind::word)) {
+        name = toks.take().text;
+      } else if (toks.at(token_kind::lparen) &&
+                 toks.peek(1).kind == token_kind::op &&
+                 toks.peek(2).kind == token_kind::rparen)
+      {
+        toks.take(); // '('
+        const auto op = toks.peek().text;
+        if (op == "=" || op == ":=")
+          return toks.fail(
+              "'" + std::string{op} + "' is a statement, not a value");
+
+        name = toks.take().text;
+        toks.take(); // ')'
+      } else
         return toks.fail("expected a function name");
 
-      const auto name = toks.take().text;
       if (!toks.at(token_kind::lparen)) return toks.fail("expected '('");
 
       toks.take();

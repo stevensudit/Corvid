@@ -299,8 +299,16 @@ TEST_CASE("Monty expression parser", "[coreb]") {
   CHECK(parse_dump(rt, "a + (b * c)") == "(+ a (* b c))");
   CHECK(parse_dump(rt, "(a + b) * c") == "(* (+ a b) c)");
 
-  // Unary minus binds to the postfix chain it precedes.
-  CHECK(parse_dump(rt, "-7") == "(- 7)");
+  // A '-' touching a number token signs the literal, int64 min included;
+  // touching anything else it negates, binding to the postfix chain it
+  // precedes. Negation of a number is called by mention.
+  CHECK(parse_dump(rt, "-7") == "-7");
+  CHECK(parse_dump(rt, "-7.5") == "-7.5");
+  CHECK(parse_dump(rt, "-9223372036854775808") == "-9223372036854775808");
+  CHECK(parse_dump(rt, "--7") == "(- -7)");
+  CHECK(parse_dump(rt, "8 - -7") == "(- 8 -7)");
+  CHECK(parse_dump(rt, "(-)(7)") == "(- 7)");
+  CHECK(parse_dump(rt, "-%(head xs)") == "(- (head xs))");
   CHECK(parse_dump(rt, "a - -b") == "(- a (- b))");
   CHECK(parse_dump(rt, "-f(x) * y") == "(* (- (f x)) y)");
 
@@ -351,6 +359,12 @@ TEST_CASE("Monty expression parser errors", "[coreb]") {
         "comparison chains cannot mix operators");
   CHECK(parse_err(rt, "a != b != c").message == "'!=' does not chain");
 
+  // Unary minus must touch its operand; an accidental space would
+  // otherwise quietly turn a literal into a negation call.
+  CHECK(parse_err(rt, "- 7").message == "unary '-' must touch its operand");
+  CHECK(
+      parse_err(rt, "a * - b").message == "unary '-' must touch its operand");
+
   // `=` and `:=` are statements, rejected with dedicated messages.
   CHECK(parse_err(rt, "x = 5").message ==
         "'=' is a definition statement, not an expression");
@@ -360,7 +374,7 @@ TEST_CASE("Monty expression parser errors", "[coreb]") {
         "'=' is a definition statement, not an expression");
   CHECK(parse_err(rt, "(=)").message == "'=' is a statement, not a value");
 
-  // Indexing is reserved awaiting a ruling.
+  // Indexing is reserved.
   CHECK(parse_err(rt, "xs[0]").message == "indexing is not yet part of Monty");
 
   // List-literal structural errors; trailing commas stay rejected, as in
@@ -443,6 +457,7 @@ TEST_CASE("Monty expression parser evaluates", "[coreb]") {
   CHECK(parse_eval("1 + 2 == 3") == "true");
   CHECK(parse_eval("1 < 2 < 3") == "true");
   CHECK(parse_eval("-2 * -3") == "6");
+  CHECK(parse_eval("(-)(7)") == "-7");
   CHECK(parse_eval("10 / 4") == "2.5");
   CHECK(parse_eval("1 if nil else 2") == "2");
   CHECK(parse_eval("[1, 2 + 3]") == "(1 5)");
@@ -477,10 +492,13 @@ TEST_CASE("Monty statement parser desugar", "[coreb]") {
   CHECK(stmt_dump(rt, "fun inc(n):\n  n + 1") ==
         "(define inc (lambda (n) (+ n 1)))");
   // A zero-parameter lambda's parameter list is nil, which prints as
-  // "nil" per the nil-unifies-with-empty-list ruling.
+  // "nil": nil unifies with the empty list.
   CHECK(stmt_dump(rt, "fun f():\n  1\n  2") == "(define f (lambda nil 1 2))");
   CHECK(stmt_dump(rt, "fun add(a, b):\n  a + b") ==
         "(define add (lambda (a b) (+ a b)))");
+  // A `fun` name may be an operator mention, rebinding the operator.
+  CHECK(stmt_dump(rt, "fun (-)(a, b):\n  a + b") ==
+        "(define - (lambda (a b) (+ a b)))");
 
   // `if`/`elif`/`else` chains rightward over begin blocks; else-less is
   // the kernel's two-argument `if`.
@@ -542,6 +560,10 @@ TEST_CASE("Monty statement parser errors", "[coreb]") {
   // keyword-named variable is read from non-leading expression positions,
   // or from the lead behind grouping parens.
   CHECK(stmt_err(rt, "fun + 1").message == "expected a function name");
+  // A mention name comes from the operator table's values; `=` and `:=`
+  // are statements.
+  CHECK(stmt_err(rt, "fun (=)(a, b):\n  a").message ==
+        "'=' is a statement, not a value");
   CHECK(stmt_err(rt, "fun f():\n  x = ").message == "expected an expression");
   CHECK(stmt_err(rt, "x, y").message == "expected end of line");
 }
@@ -591,6 +613,180 @@ TEST_CASE("Monty statement parser evaluates", "[coreb]") {
           "    return 1\n"
           "  n * fact(n - 1)\n"
           "fact(10)") == "3628800");
+
+  // An operator-mention `fun` rebinds the operator for later infix use.
+  // Last in this test case: `-` stays rebound in the shared runtime.
+  CHECK(program_eval("fun (-)(a, b):\n  a + b\n10 - 4") == "14");
+}
+
+#pragma endregion
+#pragma region Monty unparser
+
+namespace {
+
+// Read Hall source and unparse its forms as Monty.
+std::string unparse_hall(runtime& rt, std::string_view src) {
+  CAPTURE(src);
+  auto forms = hall_reader::read_all(rt, src);
+  REQUIRE(forms.has_value());
+  return monty::unparser::unparse_all(rt, *forms);
+}
+
+// Check the round trip: reading Hall, unparsing to Monty, and parsing that
+// back reaches the same forms.
+void check_roundtrip(runtime& rt, std::string_view src) {
+  CAPTURE(src);
+  auto forms = hall_reader::read_all(rt, src);
+  REQUIRE(forms.has_value());
+  const auto monty_src = monty::unparser::unparse_all(rt, *forms);
+  CAPTURE(monty_src);
+  auto lexed = monty::lexer::lex(monty_src);
+  REQUIRE(lexed.has_value());
+  auto toks = *std::move(lexed);
+  auto back = monty::statement_parser::parse_all(rt, toks);
+  REQUIRE(back.has_value());
+  REQUIRE(back->size() == forms->size());
+  for (size_t ndx = 0; ndx < forms->size(); ++ndx)
+    CHECK((*back)[ndx].print() == (*forms)[ndx].print());
+}
+
+} // namespace
+
+TEST_CASE("Monty unparser", "[coreb]") {
+  runtime rt;
+  auto up = [&](std::string_view src) { return unparse_hall(rt, src); };
+
+  // Simple statements.
+  CHECK(up("(define x 5)") == "x = 5");
+  CHECK(up("(f x y)") == "f(x, y)");
+  CHECK(up("(f)") == "f()");
+  CHECK(up("((f a) b)") == "f(a)(b)");
+  CHECK(up("(define x 5) (f x)") == "x = 5\nf(x)");
+
+  // fun blocks; a zero-parameter list unparses from nil.
+  CHECK(up("(define inc (lambda (n) (+ n 1)))") == "fun inc(n):\n  n + 1");
+  CHECK(up("(define f (lambda nil 1 2))") == "fun f():\n  1\n  2");
+  CHECK(up("(define f (lambda nil nil))") == "fun f():\n  nil");
+  // An operator name spells as its mention; a non-lambda operator define
+  // still escapes, since `=` takes a word.
+  CHECK(up("(define - (lambda (a b) (- a b)))") == "fun (-)(a, b):\n  a - b");
+  CHECK(up("(define - 5)") == "%(define - 5)");
+
+  // if ladders when every arm is a block; the ternary otherwise.
+  CHECK(up("(if a (begin 1))") == "if a:\n  1");
+  CHECK(up("(if a (begin 1) (begin 2))") == "if a:\n  1\nelse:\n  2");
+  CHECK(up("(if a (begin 1) (if b (begin 2) (begin 3)))") ==
+        "if a:\n  1\nelif b:\n  2\nelse:\n  3");
+  CHECK(up("(if c 1 2)") == "1 if c else 2");
+  CHECK(up("(define x (if c 1 2))") == "x = 1 if c else 2");
+
+  // A statement-position begin splats into the sequence.
+  CHECK(up("(begin (f) (g))") == "f()\ng()");
+
+  // Infix with minimal parens per the partial order.
+  CHECK(up("(+ (- a b) c)") == "a - b + c");
+  CHECK(up("(- a (- b c))") == "a - (b - c)");
+  CHECK(up("(+ a (* b c))") == "a + (b * c)");
+  CHECK(up("(* (+ a b) c)") == "(a + b) * c");
+  // Negation of a number spells as the mention-call: `-7` is the literal.
+  CHECK(up("(- 7)") == "(-)(7)");
+  CHECK(up("(- -7)") == "(-)(-7)");
+  CHECK(up("(- (- 7))") == "-(-)(7)");
+  CHECK(up("(- (- x))") == "--x");
+  CHECK(up("(- (+ a b))") == "-(a + b)");
+  CHECK(up("(* (- x) y)") == "-x * y");
+  CHECK(up("(< a b c)") == "a < b < c");
+  CHECK(up("(!= a b)") == "a != b");
+  CHECK(up("(< (+ a b) (* c d))") == "a + b < c * d");
+  CHECK(up("(== (< a b) c)") == "(a < b) == c");
+
+  // A negative literal round-trips as itself: the touching sign is part
+  // of the literal.
+  CHECK(up("(+ x -7)") == "x + -7");
+
+  // Lists and operator mentions; arities without an infix spelling call
+  // the mention.
+  CHECK(up("(list 1 2)") == "[1, 2]");
+  CHECK(up("(list)") == "[]");
+  CHECK(up("(map - xs)") == "map((-), xs)");
+  CHECK(up("(+ a b c)") == "(+)(a, b, c)");
+
+  // Escapes: shapes with no Monty spelling.
+  CHECK(up("(define f (lambda (n)))") == "f = %(lambda (n))");
+  CHECK(up("(quote x)") == "%(quote x)");
+  CHECK(up("(define 5 6)") == "%(define 5 6)");
+  CHECK(up("((lambda (n) n) 5)") == "%(lambda (n) n)(5)");
+  CHECK(up("(f (quote x))") == "f(%(quote x))");
+  CHECK(up("(begin)") == "%(begin)");
+  CHECK(up("(a . b)") == "%(a . b)");
+
+  // A keyword-led expression statement takes grouping parens; a keyword
+  // definition does not need them.
+  CHECK(up("(fun 1)") == "(fun(1))");
+  CHECK(up("(define fun 5)") == "fun = 5");
+}
+
+#pragma endregion
+#pragma region Monty unparser round trip
+
+TEST_CASE("Monty unparser round trip", "[coreb]") {
+  runtime rt;
+
+  // Hall -> Monty -> Hall reaches the same forms.
+  constexpr std::string_view sources[]{
+      "(define x 5)",
+      "(define inc (lambda (n) (+ n 1)))",
+      "(define - (lambda (a b) (- a b)))",
+      "(define f (lambda nil (if (== n 0) (begin 1) (begin (* n 2)))))",
+      "(if a (begin 1) (if b (begin 2) (begin 3)))",
+      "(if c 1 2)",
+      "(+ (- a b) c)",
+      "(- a (- b c))",
+      "(* (+ a b) (/ c d))",
+      "(< a b c)",
+      "(list 1 (+ x 1) (list))",
+      "(map - xs)",
+      "(+ a b c)",
+      "(define f (lambda (n)))",
+      "(quote (a b))",
+      "((lambda (n) (* n 2)) 21)",
+      "(f (g x) (h))",
+      "(fun 1)",
+      "(define fun 5)",
+      "(- 7)",
+      "(- (- 7))",
+      "(+ x -7)",
+  };
+  for (const auto src : sources) check_roundtrip(rt, src);
+
+  // Monty -> Hall -> Monty is textually the fixed point for canonical
+  // source.
+  constexpr std::string_view canonical[]{
+      "x = 5",
+      "fun inc(n):\n  n + 1",
+      "fun (-)(a, b):\n  a - b",
+      "if a:\n  f()\nelse:\n  g()",
+      "x + -7",
+      "(-)(7)",
+      "(-)(-7)",
+      "a - (b - c)",
+      "[1, x + 1]",
+      "map((-), xs)",
+      "(+)(a, b, c)",
+      "f = %(lambda (n))",
+      "1 if c else 2",
+      "(fun(1))",
+      "fun = 5\n(fun + 1)",
+  };
+  for (const auto src : canonical) {
+    CAPTURE(src);
+    auto lexed = monty::lexer::lex(src);
+    REQUIRE(lexed.has_value());
+    auto toks = *std::move(lexed);
+    auto forms = monty::statement_parser::parse_all(rt, toks);
+    REQUIRE(forms.has_value());
+    CHECK(monty::unparser::unparse_all(rt, *forms) == src);
+  }
 }
 
 #pragma endregion
