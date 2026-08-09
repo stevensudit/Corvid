@@ -44,6 +44,8 @@ std::string_view gate(std::optional<std::string_view> authority,
 
 // NOLINTBEGIN(readability-function-cognitive-complexity)
 
+#pragma region Http3ServerStreamAuthorityGate
+
 TEST_CASE("Http3ServerStreamAuthorityGate", "[http3]") {
   SECTION("no configured authority is a server misconfiguration") {
     CHECK(gate("example.com", std::nullopt, ""sv) == "500");
@@ -85,5 +87,7 @@ TEST_CASE("Http3ServerStreamAuthorityGate", "[http3]") {
     CHECK(gate("evil.com", "example.com") == "421");
   }
 }
+
+#pragma endregion
 
 // NOLINTEND(readability-function-cognitive-complexity)

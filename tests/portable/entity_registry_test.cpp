@@ -263,7 +263,6 @@ TEST_CASE("Basic", "[EntityRegistry]") {
 }
 
 #pragma endregion
-
 #pragma region Handle
 
 TEST_CASE("Handle", "[EntityRegistry]") {
@@ -460,7 +459,6 @@ TEST_CASE("Handle", "[EntityRegistry]") {
 }
 
 #pragma endregion
-
 #pragma region Fifo
 
 TEST_CASE("Fifo", "[EntityRegistry]") {
@@ -484,7 +482,6 @@ TEST_CASE("Fifo", "[EntityRegistry]") {
 }
 
 #pragma endregion
-
 #pragma region Clear
 
 TEST_CASE("Clear", "[EntityRegistry]") {
@@ -520,7 +517,6 @@ TEST_CASE("Clear", "[EntityRegistry]") {
 }
 
 #pragma endregion
-
 #pragma region Reserve
 
 TEST_CASE("Reserve", "[EntityRegistry]") {
@@ -585,7 +581,6 @@ TEST_CASE("Reserve", "[EntityRegistry]") {
 }
 
 #pragma endregion
-
 #pragma region IdLimit
 
 TEST_CASE("IdLimit", "[EntityRegistry]") {
@@ -618,7 +613,6 @@ TEST_CASE("IdLimit", "[EntityRegistry]") {
 }
 
 #pragma endregion
-
 #pragma region NoGen
 
 TEST_CASE("NoGen", "[EntityRegistry]") {
@@ -765,7 +759,6 @@ TEST_CASE("NoGen", "[EntityRegistry]") {
 }
 
 #pragma endregion
-
 #pragma region VoidMeta
 
 TEST_CASE("VoidMeta", "[EntityRegistry]") {
@@ -888,7 +881,6 @@ TEST_CASE("VoidMeta", "[EntityRegistry]") {
 }
 
 #pragma endregion
-
 #pragma region VoidNoGen
 
 TEST_CASE("VoidNoGen", "[EntityRegistry]") {
@@ -934,7 +926,6 @@ TEST_CASE("VoidNoGen", "[EntityRegistry]") {
 }
 
 #pragma endregion
-
 #pragma region IdLimitAdvanced
 
 TEST_CASE("IdLimitAdvanced", "[EntityRegistry]") {
@@ -1020,7 +1011,6 @@ TEST_CASE("IdLimitAdvanced", "[EntityRegistry]") {
 }
 
 #pragma endregion
-
 #pragma region FifoAdvanced
 
 TEST_CASE("FifoAdvanced", "[EntityRegistry]") {
@@ -1092,7 +1082,6 @@ TEST_CASE("FifoAdvanced", "[EntityRegistry]") {
 }
 
 #pragma endregion
-
 #pragma region LifoAdvanced
 
 TEST_CASE("LifoAdvanced", "[EntityRegistry]") {
@@ -1183,7 +1172,6 @@ TEST_CASE("LifoAdvanced", "[EntityRegistry]") {
 }
 
 #pragma endregion
-
 #pragma region LocationRecord
 
 TEST_CASE("LocationRecord", "[EntityRegistry]") {
@@ -1275,7 +1263,6 @@ TEST_CASE("LocationRecord", "[EntityRegistry]") {
 }
 
 #pragma endregion
-
 #pragma region EdgeCases
 
 TEST_CASE("EdgeCases", "[EntityRegistry]") {
@@ -1508,7 +1495,6 @@ TEST_CASE("EdgeCases", "[EntityRegistry]") {
 }
 
 #pragma endregion
-
 #pragma region MetadataCleanup
 
 TEST_CASE("MetadataCleanup", "[EntityRegistry]") {
@@ -1563,7 +1549,6 @@ TEST_CASE("MetadataCleanup", "[EntityRegistry]") {
 }
 
 #pragma endregion
-
 #pragma region EraseIfPredicate
 
 TEST_CASE("EraseIfPredicate", "[EntityRegistry]") {
@@ -1626,7 +1611,6 @@ TEST_CASE("EraseIfPredicate", "[EntityRegistry]") {
 }
 
 #pragma endregion
-
 #pragma region IdLimitFreeList
 
 TEST_CASE("IdLimitFreeList", "[EntityRegistry]") {
@@ -1659,7 +1643,6 @@ TEST_CASE("IdLimitFreeList", "[EntityRegistry]") {
 }
 
 #pragma endregion
-
 #pragma region SwapMoveFreeList
 
 TEST_CASE("SwapMoveFreeList", "[EntityRegistry]") {
@@ -1723,7 +1706,6 @@ TEST_CASE("SwapMoveFreeList", "[EntityRegistry]") {
 }
 
 #pragma endregion
-
 #pragma region ReservePrefillExisting
 
 TEST_CASE("ReservePrefillExisting", "[EntityRegistry]") {
@@ -1767,7 +1749,6 @@ TEST_CASE("ReservePrefillExisting", "[EntityRegistry]") {
 }
 
 #pragma endregion
-
 #pragma region HandleOwner
 
 TEST_CASE("HandleOwner", "[EntityRegistry]") {
@@ -1998,7 +1979,6 @@ TEST_CASE("HandleOwner", "[EntityRegistry]") {
 }
 
 #pragma endregion
-
 #pragma region GetAllocator
 
 TEST_CASE("GetAllocator", "[EntityRegistry]") {
@@ -2181,7 +2161,6 @@ TEST_CASE("ComponentMode_Basic", "[EntityRegistry]") {
 }
 
 #pragma endregion
-
 #pragma region ComponentMode_Bitmap
 
 TEST_CASE("ComponentMode_Bitmap", "[EntityRegistry]") {
@@ -2299,7 +2278,6 @@ TEST_CASE("ComponentMode_Bitmap", "[EntityRegistry]") {
 }
 
 #pragma endregion
-
 #pragma region ComponentMode_Fifo
 
 TEST_CASE("ComponentMode_Fifo", "[EntityRegistry]") {
@@ -2364,7 +2342,6 @@ TEST_CASE("ComponentMode_Fifo", "[EntityRegistry]") {
 }
 
 #pragma endregion
-
 #pragma region ComponentMode_HandleOwner
 
 TEST_CASE("ComponentMode_HandleOwner", "[EntityRegistry]") {
@@ -2447,7 +2424,6 @@ TEST_CASE("ComponentMode_HandleOwner", "[EntityRegistry]") {
 }
 
 #pragma endregion
-
 #pragma region ComponentMode_NoGen
 
 TEST_CASE("ComponentMode_NoGen", "[EntityRegistry]") {
@@ -2496,7 +2472,6 @@ TEST_CASE("ComponentMode_NoGen", "[EntityRegistry]") {
 }
 
 #pragma endregion
-
 #pragma region ComponentMode_VoidMeta
 
 TEST_CASE("ComponentMode_VoidMeta", "[EntityRegistry]") {
@@ -2552,7 +2527,6 @@ TEST_CASE("ComponentMode_VoidMeta", "[EntityRegistry]") {
 }
 
 #pragma endregion
-
 #pragma region ComponentMode_Lifo
 
 TEST_CASE("ComponentMode_Lifo", "[EntityRegistry]") {

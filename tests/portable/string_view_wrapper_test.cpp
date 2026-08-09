@@ -30,6 +30,8 @@ using namespace std::string_view_literals;
 
 // NOLINTBEGIN(readability-function-cognitive-complexity)
 
+#pragma region Basic formatting
+
 TEST_CASE("Wrapper formats like its string view", "[StringViewWrapperTest]") {
   if (true) {
     CHECK(std::format("{}", "hi"_czsv) == "hi");
@@ -55,6 +57,9 @@ TEST_CASE("Wrapper honors fill, align, and width", "[StringViewWrapperTest]") {
   }
 }
 
+#pragma endregion
+#pragma region Null handling
+
 TEST_CASE("Null is transparent under {} and marked under {:?}",
     "[StringViewWrapperTest]") {
   if (true) {
@@ -73,6 +78,9 @@ TEST_CASE("Null marker honors fill, align, and width",
     CHECK(std::format("{:*^10?}", 0_optsv) == "**(null)**");
   }
 }
+
+#pragma endregion
+#pragma region Dynamic width and composition
 
 TEST_CASE("Dynamic width works with and without the debug spec",
     "[StringViewWrapperTest]") {
@@ -126,6 +134,8 @@ TEST_CASE("Wide formatting widens the content", "[StringViewWrapperTest]") {
   }
 }
 
+#pragma endregion
+
 // The blocks below frame the subject between other fields that consume their
 // own (sometimes dynamic) width/precision args, so a miscounted arg id on the
 // subject would shift the trailing field and show up in the output. Each
@@ -133,6 +143,8 @@ TEST_CASE("Wide formatting widens the content", "[StringViewWrapperTest]") {
 // `std::string_view`, which must agree; only the null cases are wrapper-only.
 // Surrounding fields use strings and ints, not floats, to keep expected output
 // exact.
+
+#pragma region Framed comparisons
 
 TEST_CASE("Static width and precision, framed, match std::string_view",
     "[StringViewWrapperTest]") {
@@ -246,6 +258,9 @@ TEST_CASE("Null marker honors fill, align, and static width, framed",
   }
 }
 
+#pragma endregion
+#pragma region Null vs empty
+
 TEST_CASE("Empty-present differs from null under the debug spec",
     "[StringViewWrapperTest]") {
   if (true) {
@@ -295,5 +310,7 @@ TEST_CASE("Null marker honors DYNAMIC width under the debug spec",
     CHECK(std::format(L"{:{}?}", wnul, 10) == L"(null)    ");
   }
 }
+
+#pragma endregion
 
 // NOLINTEND(readability-function-cognitive-complexity)

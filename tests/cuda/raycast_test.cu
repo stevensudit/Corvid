@@ -65,6 +65,8 @@ __global__ void to_byte_kernel(unsigned char* out) {
 
 } // namespace
 
+#pragma region surface_normal
+
 TEST_CASE("surface_normal points outward from the sphere", "[cuda][raycast]") {
   vec3 normal{};
   if (cuda_ptr<vec3> d_out; true) {
@@ -78,6 +80,9 @@ TEST_CASE("surface_normal points outward from the sphere", "[cuda][raycast]") {
   CHECK(std::fabs(normal.z) < 1e-3F);
 }
 
+#pragma endregion
+#pragma region soft_shadow
+
 TEST_CASE("soft_shadow blocks light through the sphere", "[cuda][raycast]") {
   float shadow[2]{-1.0F, -1.0F};
   if (cuda_ptr<float> d_out{2}; true) {
@@ -90,6 +95,9 @@ TEST_CASE("soft_shadow blocks light through the sphere", "[cuda][raycast]") {
   CHECK(shadow[1] == 1.0F); // unobstructed
 }
 
+#pragma endregion
+#pragma region ambient_occlusion
+
 TEST_CASE("ambient_occlusion is open on a convex surface", "[cuda][raycast]") {
   float ao = -1.0F;
   if (cuda_ptr<float> d_out; true) {
@@ -101,6 +109,9 @@ TEST_CASE("ambient_occlusion is open on a convex surface", "[cuda][raycast]") {
   CHECK(ao > 0.99F);
   CHECK(ao <= 1.0F);
 }
+
+#pragma endregion
+#pragma region shade_ray
 
 TEST_CASE("shade_ray shades a hit and returns sky on a miss",
     "[cuda][raycast]") {
@@ -123,6 +134,9 @@ TEST_CASE("shade_ray shades a hit and returns sky on a miss",
   CHECK(std::fabs(color[1].z - 0.5F) < 1e-4F);
 }
 
+#pragma endregion
+#pragma region to_byte
+
 TEST_CASE("to_byte gamma-encodes and clamps", "[cuda][raycast]") {
   unsigned char bytes[5]{};
   if (cuda_ptr<unsigned char> d_out{5}; true) {
@@ -137,5 +151,7 @@ TEST_CASE("to_byte gamma-encodes and clamps", "[cuda][raycast]") {
   CHECK(bytes[3] == 255); // above one clamps to 255
   CHECK(bytes[4] == 186); // 0.5 ^ (1/2.2) * 255, rounded
 }
+
+#pragma endregion
 
 // NOLINTEND(readability-function-cognitive-complexity)

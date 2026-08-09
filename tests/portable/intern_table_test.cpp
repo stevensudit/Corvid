@@ -209,8 +209,8 @@ TEST_CASE("Basic", "[InternTableTest]") {
     CHECK(iv.value() == "abc");
   }
 }
-#pragma endregion
 
+#pragma endregion
 #pragma region Comparison
 
 TEST_CASE("Comparison", "[InternTableTest]") {
@@ -289,8 +289,8 @@ TEST_CASE("Comparison", "[InternTableTest]") {
     CHECK(""sv > empty);
   }
 }
-#pragma endregion
 
+#pragma endregion
 #pragma region Chaining
 
 TEST_CASE("Chaining", "[InternTableTest]") {
@@ -347,8 +347,8 @@ TEST_CASE("Chaining", "[InternTableTest]") {
     CHECK(&through.value() == &alpha.value());
   }
 }
-#pragma endregion
 
+#pragma endregion
 #pragma region Concurrency
 
 TEST_CASE("Concurrency", "[InternTableTest]") {
@@ -373,6 +373,7 @@ TEST_CASE("Concurrency", "[InternTableTest]") {
   reader.join();
   CHECK(ok.load());
 }
+
 #pragma endregion
 
 // NOLINTEND(readability-function-cognitive-complexity)

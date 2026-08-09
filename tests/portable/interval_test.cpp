@@ -106,8 +106,8 @@ TEST_CASE("Ctors", "[Intervals]") {
     static_assert(interval<hue>::max_size() == 256UZ);
   }
 }
-#pragma endregion
 
+#pragma endregion
 #pragma region Insert
 
 TEST_CASE("Insert", "[IntervalTest]") {
@@ -206,8 +206,8 @@ TEST_CASE("Insert", "[IntervalTest]") {
     CHECK(i.empty());
   }
 }
-#pragma endregion
 
+#pragma endregion
 #pragma region ForEach
 
 TEST_CASE("ForEach", "[IntervalTest]") {
@@ -228,8 +228,8 @@ TEST_CASE("ForEach", "[IntervalTest]") {
   for ([[maybe_unused]] auto e : interval{}) ++n;
   CHECK(n == 0);
 }
-#pragma endregion
 
+#pragma endregion
 #pragma region Reverse
 
 TEST_CASE("Reverse", "[IntervalTest]") {
@@ -305,8 +305,8 @@ TEST_CASE("Reverse", "[IntervalTest]") {
     CHECK(l == 1);
   }
 }
-#pragma endregion
 
+#pragma endregion
 #pragma region MinMax
 
 TEST_CASE("MinMax", "[IntervalTest]") {
@@ -326,8 +326,8 @@ TEST_CASE("MinMax", "[IntervalTest]") {
   i.max(std::numeric_limits<int>::max());
   CHECK(i.back() == std::numeric_limits<int>::max());
 }
-#pragma endregion
 
+#pragma endregion
 #pragma region CompareAndSwap
 
 TEST_CASE("CompareAndSwap", "[IntervalTest]") {
@@ -343,6 +343,7 @@ TEST_CASE("CompareAndSwap", "[IntervalTest]") {
   i.swap(j);
   CHECK(i.back() == 4);
 }
+
 #pragma endregion
 #pragma region Formatting
 
@@ -377,7 +378,6 @@ TEST_CASE("Formatting", "[Intervals]") {
 }
 
 #pragma endregion
-
 #pragma region Int128
 
 #ifdef __SIZEOF_INT128__
@@ -422,6 +422,7 @@ TEST_CASE("Int128", "[IntervalTest]") {
   SUCCEED("__int128 is not available on this compiler");
 #endif
 }
+
 #pragma endregion
 
 // NOLINTEND(readability-function-size)

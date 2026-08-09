@@ -87,7 +87,6 @@ TEST_CASE("Lifecycle", "[NetSocket]") {
 }
 
 #pragma endregion
-
 #pragma region Move
 
 TEST_CASE("Move", "[NetSocket]") {
@@ -130,7 +129,6 @@ TEST_CASE("Move", "[NetSocket]") {
 }
 
 #pragma endregion
-
 #pragma region Release
 
 TEST_CASE("Release", "[NetSocket]") {
@@ -147,7 +145,6 @@ TEST_CASE("Release", "[NetSocket]") {
 }
 
 #pragma endregion
-
 #pragma region Options
 
 TEST_CASE("Options", "[NetSocket]") {
@@ -187,7 +184,6 @@ TEST_CASE("Options", "[NetSocket]") {
 }
 
 #pragma endregion
-
 #pragma region Nonblocking
 
 TEST_CASE("Nonblocking", "[NetSocket]") {
@@ -206,7 +202,6 @@ TEST_CASE("Nonblocking", "[NetSocket]") {
 }
 
 #pragma endregion
-
 #pragma region SendRecv
 
 TEST_CASE("SendRecv", "[NetSocket]") {
@@ -234,7 +229,6 @@ TEST_CASE("SendRecv", "[NetSocket]") {
 }
 
 #pragma endregion
-
 #pragma region RecvAtContract
 
 TEST_CASE("RecvAtContract", "[NetSocket]") {
@@ -271,7 +265,6 @@ TEST_CASE("RecvAtContract", "[NetSocket]") {
 }
 
 #pragma endregion
-
 #pragma region BindListenAccept
 
 TEST_CASE("BindListenAccept", "[NetSocket]") {
@@ -308,7 +301,6 @@ TEST_CASE("BindListenAccept", "[NetSocket]") {
 }
 
 #pragma endregion
-
 #pragma region FactoryMethods
 
 TEST_CASE("FactoryMethods", "[NetSocket]") {
@@ -387,7 +379,6 @@ TEST_CASE("FactoryMethods", "[NetSocket]") {
 }
 
 #pragma endregion
-
 #pragma region SocketTypeString
 
 TEST_CASE("SocketTypeString", "[NetSocket]") {
@@ -410,7 +401,6 @@ TEST_CASE("SocketTypeString", "[NetSocket]") {
 }
 
 #pragma endregion
-
 #pragma region AddressFamilyString
 
 TEST_CASE("AddressFamilyString", "[NetSocket]") {
@@ -434,7 +424,6 @@ TEST_CASE("AddressFamilyString", "[NetSocket]") {
 }
 
 #pragma endregion
-
 #pragma region ProtocolTypeString
 
 TEST_CASE("ProtocolTypeString", "[NetSocket]") {
@@ -485,7 +474,6 @@ TEST_CASE("ProtocolTypeString", "[NetSocket]") {
 }
 
 #pragma endregion
-
 #pragma region SocketOptionString
 
 TEST_CASE("SocketOptionString", "[NetSocket]") {
@@ -534,7 +522,6 @@ TEST_CASE("SocketOptionString", "[NetSocket]") {
 }
 
 #pragma endregion
-
 #pragma region TcpOptionString
 
 TEST_CASE("TcpOptionString", "[NetSocket]") {

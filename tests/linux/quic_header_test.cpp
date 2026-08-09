@@ -26,6 +26,8 @@
 
 namespace quic = corvid::proto::quic;
 
+#pragma region quic_connection_id
+
 // NOLINTBEGIN(readability-function-cognitive-complexity)
 TEST_CASE("quic_connection_id basics", "[quic]") {
   SECTION("value-initialized is empty") {
@@ -81,7 +83,9 @@ TEST_CASE("quic_connection_id basics", "[quic]") {
   }
 }
 
+#pragma endregion
 #pragma region StreamIdString
+
 TEST_CASE("StreamIdString", "[quic]") {
   // Each named bit round-trips through `enum_as_string` / `parse_enum`.
   using namespace corvid;
@@ -104,9 +108,10 @@ TEST_CASE("StreamIdString", "[quic]") {
           (F::unidirectional | F::server_initiated));
   }
 }
-#pragma endregion
 
+#pragma endregion
 #pragma region StreamSideString
+
 TEST_CASE("StreamSideString", "[quic]") {
   // Each named bit round-trips through `enum_as_string` / `parse_enum`.
   using namespace corvid;
@@ -127,9 +132,10 @@ TEST_CASE("StreamSideString", "[quic]") {
     CHECK(parse_enum("write + read", bad) == F::both);
   }
 }
-#pragma endregion
 
+#pragma endregion
 #pragma region StreamDataFlagsString
+
 TEST_CASE("StreamDataFlagsString", "[quic]") {
   // Each named bit round-trips through `enum_as_string` / `parse_enum`.
   using namespace corvid;
@@ -150,9 +156,10 @@ TEST_CASE("StreamDataFlagsString", "[quic]") {
     CHECK(parse_enum("zero_rtt + fin", bad) == (F::zero_rtt | F::fin));
   }
 }
-#pragma endregion
 
+#pragma endregion
 #pragma region DatagramFlagsString
+
 TEST_CASE("DatagramFlagsString", "[quic]") {
   // Single named bit round-trips through `enum_as_string` / `parse_enum`.
   using namespace corvid;
@@ -186,6 +193,7 @@ TEST_CASE("QuicStatusString", "[quic]") {
     CHECK(parse_enum("nonexistent", bad) == bad); // unknown -> default
   }
 }
+
 #pragma endregion
 
 // NOLINTEND(readability-function-cognitive-complexity)

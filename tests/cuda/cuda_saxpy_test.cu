@@ -38,6 +38,8 @@ __global__ void saxpy_kernel(float a, float x, float y, float* out) {
 
 using namespace corvid::cuda;
 
+#pragma region Saxpy
+
 TEST_CASE("cuda saxpy kernel runs on the device", "[cuda]") {
   float h_out = 0.0F;
   if (cuda_ptr<float> d_out; true) {
@@ -57,3 +59,5 @@ TEST_CASE("cuda saxpy kernel runs on the device", "[cuda]") {
   // 2*3 + 4 == 10, exactly representable in float.
   CHECK(h_out == 10.0F);
 }
+
+#pragma endregion

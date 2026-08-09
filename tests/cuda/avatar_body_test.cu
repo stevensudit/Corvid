@@ -41,6 +41,8 @@ vec3 slope_normal(float degrees) {
 
 } // namespace
 
+#pragma region Gravity and contact
+
 TEST_CASE("avatar_body falls under gravity", "[cuda][physics][avatar_body]") {
   avatar_body b;
   b.params = test_params();
@@ -84,6 +86,9 @@ TEST_CASE("avatar_body is pushed out of an overlap",
   CHECK(b.center.v.y > 0.99F); // lifted ~0.3 back to resting
   CHECK(b.grounded);
 }
+
+#pragma endregion
+#pragma region Seating
 
 TEST_CASE("avatar_body seats a ball hovering within the ground tolerance",
     "[cuda][physics][avatar_body]") {
@@ -143,6 +148,9 @@ TEST_CASE("avatar_body holds still when seated, no vertical sawtooth",
   CHECK(b.grounded);
 }
 
+#pragma endregion
+#pragma region Jumping
+
 TEST_CASE("avatar_body jump apex matches v^2 / 2g",
     "[cuda][physics][avatar_body]") {
   avatar_body b;
@@ -195,6 +203,9 @@ TEST_CASE("avatar_body defers a held jump while rising to the next contact",
   CHECK(b.velocity.y > 5.0F);
 }
 
+#pragma endregion
+#pragma region Slopes
+
 TEST_CASE("avatar_body holds on a slope below the friction angle",
     "[cuda][physics][avatar_body]") {
   avatar_body b;
@@ -229,6 +240,9 @@ TEST_CASE("avatar_body slides down a slope above the friction angle",
   const vec3 downhill = normalize(gravity - (normal * dot(gravity, normal)));
   CHECK(dot(normalize(b.velocity), downhill) > 0.9F);
 }
+
+#pragma endregion
+#pragma region Wheel spin
 
 TEST_CASE("avatar_body spins a slipping ball up to rolling without slipping",
     "[cuda][physics][avatar_body]") {
@@ -297,6 +311,9 @@ TEST_CASE("avatar_body revs the wheel in the air toward the command",
   CHECK(length(b.angular_velocity - omega) < 1e-6F);
 }
 
+#pragma endregion
+#pragma region Terminal speed
+
 TEST_CASE("avatar_body reaches a drag-limited terminal speed",
     "[cuda][physics][avatar_body]") {
   avatar_body b;
@@ -318,5 +335,7 @@ TEST_CASE("avatar_body reaches a drag-limited terminal speed",
   const vec3 vt = b.velocity - (up * dot(b.velocity, up));
   CHECK(std::fabs(length(vt) - terminal) < 0.25F);
 }
+
+#pragma endregion
 
 // NOLINTEND(readability-function-cognitive-complexity)

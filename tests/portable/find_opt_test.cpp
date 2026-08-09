@@ -28,6 +28,8 @@ using namespace corvid;
 
 // NOLINTBEGIN(readability-function-cognitive-complexity)
 
+#pragma region FindOptTest_Maps
+
 TEST_CASE("FindOptTest_Maps", "[find_opt][maps]") {
   SECTION("std::map of string to string") {
     const auto key = "key"s;
@@ -63,6 +65,9 @@ TEST_CASE("FindOptTest_Maps", "[find_opt][maps]") {
   }
 }
 
+#pragma endregion
+#pragma region FindOptTest_Sets
+
 TEST_CASE("FindOptTest_Sets", "[find_opt][sets]") {
   const auto value = "value"s;
   using C = std::set<std::string>;
@@ -72,6 +77,9 @@ TEST_CASE("FindOptTest_Sets", "[find_opt][sets]") {
   CHECK(KeyFindable<C>);
   CHECK_FALSE(RangeWithoutFind<C>);
 }
+
+#pragma endregion
+#pragma region FindOptTest_Vectors
 
 TEST_CASE("FindOptTest_Vectors", "[find_opt][vectors]") {
   const auto value = "value"s;
@@ -83,6 +91,9 @@ TEST_CASE("FindOptTest_Vectors", "[find_opt][vectors]") {
   CHECK(RangeWithoutFind<C>);
 }
 
+#pragma endregion
+#pragma region FindOptTest_Arrays
+
 TEST_CASE("FindOptTest_Arrays", "[find_opt][arrays]") {
   int s[]{1, 2, 3, 4};
   using C = decltype(s);
@@ -91,6 +102,9 @@ TEST_CASE("FindOptTest_Arrays", "[find_opt][arrays]") {
   CHECK_FALSE(KeyFindable<C>);
   CHECK(RangeWithoutFind<C>);
 }
+
+#pragma endregion
+#pragma region FindOptTest_Strings
 
 TEST_CASE("FindOptTest_Strings", "[find_opt][strings]") {
   SECTION("std::string") {
@@ -118,5 +132,7 @@ TEST_CASE("FindOptTest_Strings", "[find_opt][strings]") {
     CHECK(RangeWithoutFind<C>);
   }
 }
+
+#pragma endregion
 
 // NOLINTEND(readability-function-cognitive-complexity)

@@ -480,7 +480,6 @@ TEST_CASE("WrapExtremes", "[SequentialEnumTest]") {
 }
 
 #pragma endregion
-
 #pragma region NamedConcept
 
 // `NamedSequentialEnum` refines `SequentialEnum` to enums registered with a

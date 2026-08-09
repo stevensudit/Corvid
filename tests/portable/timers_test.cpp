@@ -107,7 +107,6 @@ TEST_CASE("ReturnPastTimeCancels", "[TimersTest]") {
 }
 
 #pragma endregion
-
 #pragma region OneShot
 
 TEST_CASE("OneShot", "[TimersTest]") {

@@ -29,6 +29,8 @@ namespace {
 constexpr float dt = 1.0F / 60.0F;
 } // namespace
 
+#pragma region OneEuroFirstSamplePassesThrough
+
 TEST_CASE("OneEuroFirstSamplePassesThrough", "[OneEuroFilter]") {
   // The first sample has no history to smooth against, so it seeds the state
   // and is returned unchanged.
@@ -39,6 +41,9 @@ TEST_CASE("OneEuroFirstSamplePassesThrough", "[OneEuroFilter]") {
   CHECK(dx == 5.0F);
   CHECK(dy == -3.0F);
 }
+
+#pragma endregion
+#pragma region OneEuroConstantInputIsFixed
 
 TEST_CASE("OneEuroConstantInputIsFixed", "[OneEuroFilter]") {
   // A steady input has nothing to converge toward: once seeded, the same value
@@ -53,6 +58,9 @@ TEST_CASE("OneEuroConstantInputIsFixed", "[OneEuroFilter]") {
   CHECK(dx == 2.0F);
   CHECK(dy == 2.0F);
 }
+
+#pragma endregion
+#pragma region OneEuroNonPositiveDtIsNoOp
 
 TEST_CASE("OneEuroNonPositiveDtIsNoOp", "[OneEuroFilter]") {
   // A zero or negative elapsed time cannot define a speed, so the sample is
@@ -71,6 +79,9 @@ TEST_CASE("OneEuroNonPositiveDtIsNoOp", "[OneEuroFilter]") {
   CHECK(dx == 4.0F);
   CHECK(dy == 4.0F);
 }
+
+#pragma endregion
+#pragma region OneEuroResetForgetsState
 
 TEST_CASE("OneEuroResetForgetsState", "[OneEuroFilter]") {
   // After reset, the filter behaves as if freshly constructed: the next sample
@@ -91,6 +102,9 @@ TEST_CASE("OneEuroResetForgetsState", "[OneEuroFilter]") {
   filter.smooth(dt, dx, dy);
   CHECK(dx == 7.0F);
 }
+
+#pragma endregion
+#pragma region OneEuroStepResponseConverges
 
 TEST_CASE("OneEuroStepResponseConverges", "[OneEuroFilter]") {
   // Seeded at zero, a constant unit input is approached from below without
@@ -113,6 +127,9 @@ TEST_CASE("OneEuroStepResponseConverges", "[OneEuroFilter]") {
   }
   CHECK(previous > 0.99F);
 }
+
+#pragma endregion
+#pragma region OneEuroSpeedRelaxesSmoothing
 
 TEST_CASE("OneEuroSpeedRelaxesSmoothing", "[OneEuroFilter]") {
   // The adaptive cutoff is the point of the filter: for the same input, a
@@ -137,6 +154,9 @@ TEST_CASE("OneEuroSpeedRelaxesSmoothing", "[OneEuroFilter]") {
 
   CHECK(ax > px);
 }
+
+#pragma endregion
+#pragma region OneEuroSetParamsRetunesInPlace
 
 TEST_CASE("OneEuroSetParamsRetunesInPlace", "[OneEuroFilter]") {
   // Retuning keeps the carried state, so the next sample smooths from it
@@ -171,6 +191,9 @@ TEST_CASE("OneEuroSetParamsRetunesInPlace", "[OneEuroFilter]") {
   CHECK(rx < px);
 }
 
+#pragma endregion
+#pragma region OneEuroInstantiation
+
 TEST_CASE("OneEuroInstantiation", "[OneEuroFilter]") {
   // The default is `float`, and deduction follows the constructor arguments.
   one_euro_filter<> filter{50.0F, 1.0F};
@@ -187,5 +210,7 @@ TEST_CASE("OneEuroInstantiation", "[OneEuroFilter]") {
   CHECK(dx == 5.0);
   CHECK(dy == -3.0);
 }
+
+#pragma endregion
 
 // NOLINTEND(readability-function-cognitive-complexity)

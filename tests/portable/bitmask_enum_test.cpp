@@ -116,8 +116,8 @@ TEST_CASE("Ops", "[BitMaskTest]") {
     CHECK(c == rgb::green);
   }
 }
-#pragma endregion
 
+#pragma endregion
 #pragma region NamedFunctions
 
 TEST_CASE("NamedFunctions", "[BitMaskTest]") {
@@ -183,8 +183,8 @@ TEST_CASE("NamedFunctions", "[BitMaskTest]") {
     CHECK(enum_as_string(rgb(7 + 0x40)) == "red + green + blue + 0x40");
   }
 }
-#pragma endregion
 
+#pragma endregion
 #pragma region SafeOps
 
 TEST_CASE("SafeOps", "[BitMaskTest]") {
@@ -224,8 +224,8 @@ TEST_CASE("SafeOps", "[BitMaskTest]") {
     CHECK(c == safe_rgb::green);
   }
 }
-#pragma endregion
 
+#pragma endregion
 #pragma region SafeNamedFunctions
 
 TEST_CASE("SafeNamedFunctions", "[BitMaskTest]") {
@@ -271,6 +271,7 @@ TEST_CASE("SafeNamedFunctions", "[BitMaskTest]") {
     CHECK(enum_as_string(safe_rgb(7 + 0x40)) == "white + 0x40");
   }
 }
+
 #pragma endregion
 
 enum class rgb_unnamed : std::uint8_t {
@@ -344,8 +345,8 @@ TEST_CASE("MoreNamingTests", "[BitMaskTest]") {
     CHECK(enum_as_string(patchy_rgb(7 + 0x40)) == "white + 0x40");
   }
 }
-#pragma endregion
 
+#pragma endregion
 #pragma region StreamingOut
 
 TEST_CASE("StreamingOut", "[BitMaskTest]") {
@@ -362,6 +363,7 @@ TEST_CASE("StreamingOut", "[BitMaskTest]") {
     CHECK(ss.str() == "red");
   }
 }
+
 #pragma endregion
 
 // RGB, but without the G.
@@ -398,6 +400,7 @@ TEST_CASE("NoGreen", "[BitMaskTest]") {
     CHECK(enum_as_string(rb(0x7 + 0x40)) == "red + blue + 0x42");
   }
 }
+
 #pragma endregion
 
 // RGB, but without the B.
@@ -434,6 +437,7 @@ TEST_CASE("NoBlue", "[BitMaskTest]") {
     CHECK(enum_as_string(rg(0x7 + 0x40)) == "red + green + 0x41");
   }
 }
+
 #pragma endregion
 
 // RGB, but without the R.
@@ -474,6 +478,7 @@ TEST_CASE("NoRed", "[BitMaskTest]") {
     CHECK(enum_as_string(gb(0x7 + 0x40)) == "green + blue + 0x44");
   }
 }
+
 #pragma endregion
 
 // Same thing, but safe due to clipping.
@@ -511,6 +516,7 @@ TEST_CASE("SafeNoGreen", "[BitMaskTest]") {
     CHECK(enum_as_string(safe_rb(0x7 + 0x40)) == "purple + 0x42");
   }
 }
+
 #pragma endregion
 
 // Same thing, but safe due to clipping.
@@ -548,6 +554,7 @@ TEST_CASE("SafeNoBlue", "[BitMaskTest]") {
     CHECK(enum_as_string(safe_rg(0x7 + 0x40)) == "yellow + 0x41");
   }
 }
+
 #pragma endregion
 
 // Same thing, but safe due to clipping.
@@ -585,6 +592,7 @@ TEST_CASE("SafeNoRed", "[BitMaskTest]") {
     CHECK(enum_as_string(safe_gb(0x7 + 0x40)) == "cyan + 0x44");
   }
 }
+
 #pragma endregion
 
 // All three bits are valid, but we have no name for green, so we use a
@@ -682,8 +690,8 @@ TEST_CASE("Placeholders", "[BitMaskTest]") {
     CHECK(enum_as_string(safe_rb_h(0x07)) == "purple + 0x02");
   }
 }
-#pragma endregion
 
+#pragma endregion
 #pragma region SkipBlue
 
 TEST_CASE("SkipBlue", "[BitMaskTest]") {
@@ -725,6 +733,7 @@ TEST_CASE("SkipBlue", "[BitMaskTest]") {
     CHECK(enum_as_string(safe_rskipb(0x7 + 0x40)) == "purple + 0x42");
   }
 }
+
 #pragma endregion
 
 // Note: safe_b is impossible because we need at least one valid bit.
@@ -759,6 +768,7 @@ TEST_CASE("SafeBlackWhite", "[BitMaskTest]") {
     CHECK(enum_as_string(safe_bw(0x7 + 0x40)) == "color::white + 0x46");
   }
 }
+
 #pragma endregion
 
 // Same thing, but safe due to clipping.
@@ -791,6 +801,7 @@ TEST_CASE("SafeWhite", "[BitMaskTest]") {
     CHECK(enum_as_string(safe_w(0x7 + 0x40)) == "color::white + 0x46");
   }
 }
+
 #pragma endregion
 
 template<meta::fixed_string W>
@@ -815,6 +826,7 @@ TEST_CASE("EnumCalcBitNames", "[BitMaskTest]") {
              "az,ba,bb,bc,bd,be,bf,bg,bh,bi,bj,bk,bl">() ==
       18446744073709551615ULL);
 }
+
 #pragma endregion
 
 template<meta::fixed_string W>
@@ -838,8 +850,8 @@ TEST_CASE("EnumCalcValueNames", "[BitMaskTest]") {
   static_assert(cvbfvn<"black,blue,,,red,purple,,,">() == 5);
   static_assert(cvbfvn<"black,,green,,red,,yellow,">() == 6);
 }
-#pragma endregion
 
+#pragma endregion
 #pragma region ExtractEnum
 
 TEST_CASE("ExtractEnum", "[BitMaskTest]") {
@@ -934,6 +946,7 @@ TEST_CASE("ExtractEnum", "[BitMaskTest]") {
     CHECK_FALSE(extract_enum(e, sv));
   }
 }
+
 #pragma endregion
 
 // Valid bits with a hole (0b101): legal to register and use, but
@@ -1023,8 +1036,8 @@ TEST_CASE("HoleyOps", "[BitMaskTest]") {
     CHECK(~safe_rb::purple == safe_rb::black);
   }
 }
-#pragma endregion
 
+#pragma endregion
 #pragma region MakeAt
 
 TEST_CASE("MakeAt", "[BitMaskTest]") {
@@ -1044,6 +1057,7 @@ TEST_CASE("MakeAt", "[BitMaskTest]") {
     CHECK(clear_at(rgb::white, 3) == rgb::cyan);
   }
 }
+
 #pragma endregion
 
 // NOLINTEND(readability-function-cognitive-complexity)

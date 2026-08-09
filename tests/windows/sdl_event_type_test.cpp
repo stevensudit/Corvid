@@ -70,6 +70,8 @@ constexpr event_case event_cases[]{
 
 } // namespace
 
+#pragma region sdl_event_type
+
 TEST_CASE("sdl_event_type values and string round-trip", "[sdl][enums]") {
   for (const auto& c : event_cases) {
     CAPTURE(c.name);
@@ -89,3 +91,5 @@ TEST_CASE("sdl_event_type unnamed and unknown handling", "[sdl][enums]") {
   sdl_event_type unused{};
   CHECK_FALSE(convert_enum(unused, "not_a_real_event"));
 }
+
+#pragma endregion

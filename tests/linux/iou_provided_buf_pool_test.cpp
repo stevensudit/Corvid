@@ -29,6 +29,7 @@ using namespace std::string_view_literals;
 // NOLINTBEGIN(readability-function-cognitive-complexity)
 
 #pragma region NoOpZeroSlab
+
 TEST_CASE("NoOpZeroSlab", "[IouProvidedBufPool]") {
   // slab_size=0 produces a no-op pool with no allocation.
   iou_provided_buf_pool::dispatcher_t dispatcher;
@@ -48,9 +49,10 @@ TEST_CASE("NoOpZeroSlab", "[IouProvidedBufPool]") {
     CHECK_FALSE(buf);
   }
 }
-#pragma endregion
 
+#pragma endregion
 #pragma region ConstructValid
+
 TEST_CASE("ConstructValid", "[IouProvidedBufPool]") {
   // Valid construction: sizes, buf_count, slab_size, and bgid are correct.
   iou_provided_buf_pool::dispatcher_t dispatcher;
@@ -69,9 +71,10 @@ TEST_CASE("ConstructValid", "[IouProvidedBufPool]") {
     CHECK(pool->buf_data(512) == nullptr); // out of range
   }
 }
-#pragma endregion
 
+#pragma endregion
 #pragma region BufCountFromDivision
+
 TEST_CASE("BufCountFromDivision", "[IouProvidedBufPool]") {
   // buf_count is derived as slab_size / buf_size.
   iou_provided_buf_pool::dispatcher_t dispatcher;
@@ -96,9 +99,10 @@ TEST_CASE("BufCountFromDivision", "[IouProvidedBufPool]") {
     CHECK(pool->register_with(ring));
   }
 }
-#pragma endregion
 
+#pragma endregion
 #pragma region BufDataOffsets
+
 TEST_CASE("BufDataOffsets", "[IouProvidedBufPool]") {
   // buf_data(bid) returns pointers that are exactly buf_size apart.
   iou_provided_buf_pool::dispatcher_t dispatcher;
@@ -114,9 +118,10 @@ TEST_CASE("BufDataOffsets", "[IouProvidedBufPool]") {
     }
   }
 }
-#pragma endregion
 
+#pragma endregion
 #pragma region RegisterWithRing
+
 TEST_CASE("RegisterWithRing", "[IouProvidedBufPool]") {
   // register_with succeeds, and a second call on the same pool fails.
   iou_provided_buf_pool::dispatcher_t dispatcher;
@@ -130,9 +135,10 @@ TEST_CASE("RegisterWithRing", "[IouProvidedBufPool]") {
     CHECK_FALSE(pool->register_with(ring));
   }
 }
-#pragma endregion
 
+#pragma endregion
 #pragma region ReconstructBeforeRegister
+
 TEST_CASE("ReconstructBeforeRegister", "[IouProvidedBufPool]") {
   // reconstruct before register_with returns an empty buffer.
   iou_provided_buf_pool::dispatcher_t dispatcher;
@@ -146,9 +152,10 @@ TEST_CASE("ReconstructBeforeRegister", "[IouProvidedBufPool]") {
     CHECK_FALSE(buf);
   }
 }
-#pragma endregion
 
+#pragma endregion
 #pragma region ReconstructPayload
+
 TEST_CASE("ReconstructPayload", "[IouProvidedBufPool]") {
   // After register_with, reconstruct creates a read buffer with the correct
   // payload span.
@@ -184,9 +191,10 @@ TEST_CASE("ReconstructPayload", "[IouProvidedBufPool]") {
     CHECK(buf.pending_releases() == 0ULL);
   }
 }
-#pragma endregion
 
+#pragma endregion
 #pragma region ReconstructErrorResult
+
 TEST_CASE("ReconstructErrorResult", "[IouProvidedBufPool]") {
   // A CQE with buffer flag set but an error result yields an empty payload.
   iou_provided_buf_pool::dispatcher_t dispatcher;
@@ -205,9 +213,10 @@ TEST_CASE("ReconstructErrorResult", "[IouProvidedBufPool]") {
     CHECK(buf.payload_span().size() == 0ULL); // no data
   }
 }
-#pragma endregion
 
+#pragma endregion
 #pragma region ReconstructNoBufferFlag
+
 TEST_CASE("ReconstructNoBufferFlag", "[IouProvidedBufPool]") {
   // A CQE without the buffer flag returns a synthetic stub: no payload, but
   // the CQE `res` is preserved so callers can distinguish EOF (`res=0`)
@@ -227,9 +236,10 @@ TEST_CASE("ReconstructNoBufferFlag", "[IouProvidedBufPool]") {
     CHECK(buf.payload_view().empty());
   }
 }
-#pragma endregion
 
+#pragma endregion
 #pragma region ReconstructOutOfRangeBid
+
 TEST_CASE("ReconstructOutOfRangeBid", "[IouProvidedBufPool]") {
   // A buffer ID >= buf_count returns an empty buffer.
   iou_provided_buf_pool::dispatcher_t dispatcher;
@@ -247,9 +257,10 @@ TEST_CASE("ReconstructOutOfRangeBid", "[IouProvidedBufPool]") {
     CHECK_FALSE(buf);
   }
 }
-#pragma endregion
 
+#pragma endregion
 #pragma region ReturnReplenishes
+
 TEST_CASE("ReturnReplenishes", "[IouProvidedBufPool]") {
   // Destroying the reconstructed buffer returns the slot to the ring.
   // We verify indirectly: reconstruct the same slot twice (once after the
@@ -277,6 +288,7 @@ TEST_CASE("ReturnReplenishes", "[IouProvidedBufPool]") {
     CHECK(buf2.payload_span().size() == 3ULL);
   }
 }
+
 #pragma endregion
 
 // NOLINTEND(readability-function-cognitive-complexity)

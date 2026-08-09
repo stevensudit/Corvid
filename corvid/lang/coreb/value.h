@@ -62,6 +62,10 @@ namespace corvid { inline namespace lang { namespace coreb {
 //   auto v = rt.cons(value{rt.intern("x")}, rt.cons(value{42}, value{}));
 //   v.print();  // "(x 42)"
 
+// Declared up front: a friend declaration alone does not make the name
+// visible (MSVC injects it as an extension; conforming compilers do not).
+class runtime;
+
 #pragma region symbol
 
 // Interned symbol.

@@ -31,6 +31,8 @@ constexpr flag_case flag_cases[]{
 
 } // namespace
 
+#pragma region cuda_graphics_register_flags
+
 TEST_CASE("cuda_graphics_register_flags single-flag round-trip",
     "[cuda][enums]") {
   for (const auto& c : flag_cases) {
@@ -59,6 +61,9 @@ TEST_CASE("cuda_graphics_register_flags combined and unknown",
   CHECK_FALSE(convert_enum(unused, "not_a_flag"));
 }
 
+#pragma endregion
+#pragma region cuda_interop_adapter
+
 TEST_CASE("cuda_interop_adapter picks the CUDA device's adapter",
     "[cuda][interop]") {
   // These CUDA tests already target a discrete GPU, so an adapter must be
@@ -79,3 +84,5 @@ TEST_CASE("cuda_interop_adapter picks the CUDA device's adapter",
   CHECK(std::memcmp(&desc.AdapterLuid, prop.luid, sizeof(desc.AdapterLuid)) ==
         0);
 }
+
+#pragma endregion

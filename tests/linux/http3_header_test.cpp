@@ -26,6 +26,8 @@ using namespace corvid::proto::quic::http3_literals;
 
 // NOLINTBEGIN(readability-function-cognitive-complexity)
 
+#pragma region Http3HeaderLiterals
+
 TEST_CASE("Http3HeaderLiterals", "[http3]") {
   // The `_header` literal validates the field name at compile time. It stores
   // only the name; `as_enum` resolves the token by lookup, not from a stored
@@ -44,6 +46,9 @@ TEST_CASE("Http3HeaderLiterals", "[http3]") {
   // Underscored enumerators spell as hyphenated names on the wire.
   CHECK(("VERSION-CONTROL"_method).as_enum() == http3_method::VERSION_CONTROL);
 }
+
+#pragma endregion
+#pragma region Http3FieldMake
 
 TEST_CASE("Http3FieldMake", "[http3]") {
   SECTION("make derives the token from a known name") {
@@ -64,6 +69,9 @@ TEST_CASE("Http3FieldMake", "[http3]") {
     CHECK(f.flags == nv_flags::never_index);
   }
 }
+
+#pragma endregion
+#pragma region Http3HeadersAdd
 
 TEST_CASE("Http3HeadersAdd", "[http3]") {
   http3_headers h;
@@ -109,6 +117,9 @@ TEST_CASE("Http3HeadersAdd", "[http3]") {
     CHECK(h[0].value == "abc");
   }
 }
+
+#pragma endregion
+#pragma region Http3HeadersSet
 
 TEST_CASE("Http3HeadersSet", "[http3]") {
   http3_headers h;
@@ -167,6 +178,9 @@ TEST_CASE("Http3HeadersSet", "[http3]") {
     CHECK(h[1].value == "b"); // later duplicate left untouched
   }
 }
+
+#pragma endregion
+#pragma region Http3HeadersFind
 
 TEST_CASE("Http3HeadersFind", "[http3]") {
   http3_headers h;
@@ -236,6 +250,9 @@ TEST_CASE("Http3HeadersFind", "[http3]") {
   }
 }
 
+#pragma endregion
+#pragma region Http3HeadersIteration
+
 TEST_CASE("Http3HeadersIteration", "[http3]") {
   http3_headers h;
   h.add(":method", "GET"_method);
@@ -272,6 +289,9 @@ TEST_CASE("Http3HeadersIteration", "[http3]") {
   }
 }
 
+#pragma endregion
+#pragma region Http3HeadersEraseAndClear
+
 TEST_CASE("Http3HeadersEraseAndClear", "[http3]") {
   http3_headers h;
   h.add(":method", "GET"_method);
@@ -298,6 +318,9 @@ TEST_CASE("Http3HeadersEraseAndClear", "[http3]") {
   }
 }
 
+#pragma endregion
+#pragma region Http3HeadersChunkFin
+
 TEST_CASE("Http3HeadersChunkFin", "[http3]") {
   http3_headers h;
 
@@ -317,6 +340,9 @@ TEST_CASE("Http3HeadersChunkFin", "[http3]") {
   }
 }
 
+#pragma endregion
+#pragma region Http3HeadersSpanConversion
+
 TEST_CASE("Http3HeadersSpanConversion", "[http3]") {
   http3_headers h;
   h.add(":status", "200");
@@ -331,6 +357,9 @@ TEST_CASE("Http3HeadersSpanConversion", "[http3]") {
   CHECK(fields[1].name == "content-length");
   CHECK(fields.data() == &h[0]);
 }
+
+#pragma endregion
+#pragma region NvFlagsString
 
 TEST_CASE("NvFlagsString", "[http3]") {
   // Each named bit round-trips through `enum_as_string` / `parse_enum`.
@@ -357,6 +386,9 @@ TEST_CASE("NvFlagsString", "[http3]") {
   }
 }
 
+#pragma endregion
+#pragma region StreamChunkString
+
 TEST_CASE("StreamChunkString", "[http3]") {
   // Both sequence values round-trip through `enum_as_string` / `parse_enum`.
   using namespace corvid;
@@ -372,6 +404,9 @@ TEST_CASE("StreamChunkString", "[http3]") {
     CHECK(parse_enum("fin", bad) == C::fin);
   }
 }
+
+#pragma endregion
+#pragma region HttpMethodString
 
 TEST_CASE("HttpMethodString", "[http3]") {
   // Method names round-trip through `enum_as_string` / `parse_enum`.
@@ -394,4 +429,6 @@ TEST_CASE("HttpMethodString", "[http3]") {
     CHECK(parse_enum("VERSION-CONTROL", bad) == M::VERSION_CONTROL);
   }
 }
+
+#pragma endregion
 // NOLINTEND(readability-function-cognitive-complexity)

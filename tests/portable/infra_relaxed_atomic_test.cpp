@@ -26,6 +26,8 @@ using namespace corvid;
 
 // NOLINTBEGIN(readability-function-cognitive-complexity)
 
+#pragma region relaxed_atomic
+
 TEST_CASE("relaxed_atomic converts and assigns", "[infra][relaxed_atomic]") {
   relaxed_atomic_int a{5};
   int copied = a;
@@ -112,5 +114,7 @@ TEST_CASE("relaxed_atomic is not copyable", "[infra][relaxed_atomic]") {
   STATIC_CHECK_FALSE(std::is_copy_constructible_v<relaxed_atomic_int>);
   STATIC_CHECK_FALSE(std::is_copy_assignable_v<relaxed_atomic_int>);
 }
+
+#pragma endregion
 
 // NOLINTEND(readability-function-cognitive-complexity)

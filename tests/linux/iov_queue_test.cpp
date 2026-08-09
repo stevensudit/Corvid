@@ -68,6 +68,8 @@ size_t fill(iov_queue<>& q, std::span<const uint8_t> src) {
 
 // NOLINTBEGIN(readability-function-cognitive-complexity)
 
+#pragma region basics
+
 TEST_CASE("empty queue is empty", "[iov_queue]") {
   iov_queue<> q;
   CHECK(q.size() == 0);
@@ -80,6 +82,7 @@ TEST_CASE("empty queue is empty", "[iov_queue]") {
   CHECK(q.slack() == 0);
 }
 
+#pragma endregion
 #pragma region send-style use
 
 TEST_CASE("append takes ownership and drops empties", "[iov_queue]") {

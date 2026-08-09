@@ -43,6 +43,8 @@ using coarse_now_clock = now_clock<coarse_clock, 100>;
 
 // NOLINTBEGIN(readability-function-cognitive-complexity)
 
+#pragma region Fake clock injection
+
 TEST_CASE("set_now_fn installs a custom function", "[infra][clocks]") {
   custom_now_calls = 0;
   const auto sentinel =
@@ -125,6 +127,9 @@ TEST_CASE(
         high_resolution_now_clock::time_point_t{2ms});
 }
 
+#pragma endregion
+#pragma region Nanosecond conversion
+
 TEST_CASE("as_nanoseconds and from_nanoseconds round-trip",
     "[infra][clocks]") {
   const auto tp = steady_now_clock::time_point_t{1234ms};
@@ -185,6 +190,9 @@ TEST_CASE("as_nanoseconds saturates for clocks with a coarser tick",
         coarse_now_clock::time_point_t::max());
 }
 
+#pragma endregion
+#pragma region Calendar clocks
+
 TEST_CASE("utc_clock supports fake injection", "[infra][clocks]") {
   auto guard = utc_now_clock::fake_now_scope();
   utc_now_clock::set_fake_now(utc_now_clock::time_point_t{42ms});
@@ -236,5 +244,7 @@ TEST_CASE("libc++ experimental tzdb / utc_now_clock are available",
   const auto utc = std::chrono::utc_clock::now();
   CHECK(utc.time_since_epoch().count() > 0);
 }
+
+#pragma endregion
 
 // NOLINTEND(readability-function-cognitive-complexity)

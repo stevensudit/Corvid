@@ -27,6 +27,8 @@ using namespace corvid::strings::partitioning;
 
 // NOLINTBEGIN(readability-function-cognitive-complexity)
 
+#pragma region Partition
+
 TEST_CASE("Partition", "[StringPartition]") {
   // The common case: split a key from a value.
   if (true) {
@@ -93,6 +95,9 @@ TEST_CASE("Partition", "[StringPartition]") {
   }
 }
 
+#pragma endregion
+#pragma region Rpartition
+
 TEST_CASE("Rpartition", "[StringPartition]") {
   // Split around the last separator instead of the first.
   if (true) {
@@ -131,6 +136,9 @@ TEST_CASE("Rpartition", "[StringPartition]") {
   }
 }
 
+#pragma endregion
+#pragma region PartitionAnchoring
+
 TEST_CASE("PartitionAnchoring", "[StringPartition]") {
   // Probe the anchoring contract: the three views tile the input exactly, so
   // their concatenation reconstructs it, even when empty.
@@ -157,6 +165,9 @@ TEST_CASE("PartitionAnchoring", "[StringPartition]") {
   }
 }
 
+#pragma endregion
+#pragma region WidePartition
+
 TEST_CASE("WidePartition", "[StringPartition]") {
   // Wide strings come along for free, deduced through CTAD.
   if (true) {
@@ -171,5 +182,7 @@ TEST_CASE("WidePartition", "[StringPartition]") {
     CHECK(p.tail == L"c"sv);
   }
 }
+
+#pragma endregion
 
 // NOLINTEND(readability-function-cognitive-complexity)

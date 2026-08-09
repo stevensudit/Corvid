@@ -97,6 +97,7 @@ TEST_CASE("General", "[TransparentTest]") {
     CHECK(tss.contains(ksv));
   }
 }
+
 #pragma endregion
 
 // Hashers with explicit exception specs, to pin the adapters' conditional
@@ -139,6 +140,7 @@ TEST_CASE("Basic", "[IndirectKey]") {
   CHECK(std::format("{}", IMK{key}) == "abc");
   CHECK(std::format("{:>5}", IMK{key}) == "  abc");
 }
+
 #pragma endregion
 
 template<typename T, typename D = std::default_delete<T>>
@@ -166,8 +168,8 @@ TEST_CASE("Experimental", "[DeductionTest]") {
   //  Holder h1{&i};
   //  Holder h2{42.0};
 }
-#pragma endregion
 
+#pragma endregion
 #pragma region NoInitResize_Basic
 
 TEST_CASE("Basic", "[NoInitResize]") {
@@ -177,8 +179,8 @@ TEST_CASE("Basic", "[NoInitResize]") {
   // s.resize_and_overwrite(2);
   (void)s;
 }
-#pragma endregion
 
+#pragma endregion
 #pragma region Arena_Basic
 
 TEST_CASE("Basic", "[ArenaTest]") {
@@ -276,6 +278,7 @@ TEST_CASE("Basic", "[ArenaTest]") {
         std::bad_array_new_length);
   }
 }
+
 #pragma endregion
 
 using FirstName = strong_type<std::string, struct FirstNameTag>;
@@ -324,8 +327,8 @@ TEST_CASE("Basic", "[StrongType]") {
   CHECK(age == 43);
   age = age << 1;
 }
-#pragma endregion
 
+#pragma endregion
 #pragma region StrongType_Heterogeneous
 
 TEST_CASE("Heterogeneous", "[StrongType]") {
@@ -368,8 +371,8 @@ TEST_CASE("Heterogeneous", "[StrongType]") {
     CHECK(target == 9);
   }
 }
-#pragma endregion
 
+#pragma endregion
 #pragma region StrongType_Extended
 
 TEST_CASE("Extended", "[StrongType]") {
@@ -730,6 +733,7 @@ TEST_CASE("Extended", "[StrongType]") {
   using Tags = strong_type<std::vector<int>, struct TagsTag>;
   CHECK(std::format("{}", Tags{std::vector<int>{1, 2, 3}}) == "[1, 2, 3]");
 }
+
 #pragma endregion
 
 struct RetrievalKey {
@@ -911,6 +915,7 @@ TEST_CASE("Basic", "[EnumVariant]") {
     CHECK(moved == "status");
   }
 }
+
 #pragma endregion
 
 enum class ThrowKind : std::uint8_t { value, thrower };
@@ -966,8 +971,8 @@ TEST_CASE("BadIndex", "[EnumVariant]") {
     CHECK_THROWS_AS(tv.visit(overloads), std::bad_variant_access);
   }
 }
-#pragma endregion
 
+#pragma endregion
 #pragma region EnumVector_Basic
 
 TEST_CASE("Basic", "[EnumVector]") {
@@ -1058,6 +1063,7 @@ TEST_CASE("Basic", "[EnumVector]") {
   v.clear();
   CHECK(v.empty());
 }
+
 #pragma endregion
 
 struct throwing_scoped_value_test {
@@ -1188,8 +1194,8 @@ TEST_CASE("Basic", "[ScopedValue]") {
     CHECK(x == 10);
   }
 }
-#pragma endregion
 
+#pragma endregion
 #pragma region HashCombiner_Basic
 
 TEST_CASE("Basic", "[HashCombiner]") {
@@ -1262,6 +1268,7 @@ TEST_CASE("Basic", "[HashCombiner]") {
     CHECK(combined_hash(1, 2) != combined_hash(1, 3));
   }
 }
+
 #pragma endregion
 
 // NOLINTEND(readability-function-size)

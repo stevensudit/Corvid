@@ -48,6 +48,8 @@ constexpr status_case status_cases[]{
 
 } // namespace
 
+#pragma region cuda_status
+
 TEST_CASE("cuda_status values and string round-trip", "[cuda][enums]") {
   for (const auto& c : status_cases) {
     CAPTURE(c.name);
@@ -78,3 +80,5 @@ TEST_CASE("cuda_status gap and unknown handling", "[cuda][enums]") {
   cuda_status unused{};
   CHECK_FALSE(convert_enum(unused, "not_a_real_status"));
 }
+
+#pragma endregion
