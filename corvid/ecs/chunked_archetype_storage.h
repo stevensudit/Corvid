@@ -21,6 +21,7 @@
 #include <bit>
 #include <cstddef>
 #include <memory>
+#include <type_traits>
 #include <tuple>
 #include <utility>
 #include <vector>
@@ -53,8 +54,9 @@ inline namespace chunked_archetype_storages {
 //
 // Template parameters:
 //  REG       - `entity_registry` instantiation. Provides types.
-//  TUPLE     - Tuple of component types. Each must be default-constructible
-//              and assignable. Intended for cheap value-type components:
+//  TUPLE     - Tuple of component types. Each must be default-constructible,
+//              assignable, and swappable (swap-and-pop removal swaps
+//              component slots). Intended for cheap value-type components:
 //              vacated slots retain stale values until their chunk is
 //              dropped.
 //  CHUNKSZ   - Entities per chunk. Must be a positive power of two.
@@ -119,6 +121,13 @@ public:
       allocator_type>::template rebind_alloc<chunk_tuple_t>;
 
   using chunk_vector_t = std::vector<chunk_tuple_t, chunk_allocator_t>;
+
+  static_assert((std::is_default_constructible_v<Cs> && ...),
+      "component types must be default-constructible (chunks are built from "
+      "default-constructed slots)");
+  static_assert((std::is_swappable_v<Cs> && ...),
+      "component types must be swappable (swap-and-pop removal swaps "
+      "component slots)");
 
 #pragma endregion
 #pragma region Construction

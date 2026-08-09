@@ -19,6 +19,7 @@
 #include <algorithm>
 #include <cstddef>
 #include <memory>
+#include <type_traits>
 #include <tuple>
 #include <utility>
 #include <vector>
@@ -103,6 +104,10 @@ public:
 
   template<typename T>
   using component_vector_t = std::vector<T, component_allocator_t<T>>;
+
+  static_assert((std::is_move_constructible_v<Cs> && ...) &&
+                    (std::is_move_assignable_v<Cs> && ...),
+      "component types must be movable (removal uses swap-and-pop)");
 
 #pragma endregion
 #pragma region Construction

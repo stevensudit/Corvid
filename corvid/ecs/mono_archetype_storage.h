@@ -87,6 +87,10 @@ public:
   using component_allocator_type =
       std::allocator_traits<allocator_type>::template rebind_alloc<C>;
 
+  static_assert(
+      std::is_move_constructible_v<C> && std::is_move_assignable_v<C>,
+      "component type must be movable (removal uses swap-and-pop)");
+
 #pragma endregion
 #pragma region Construction
 
