@@ -207,12 +207,6 @@ public:
 
   private:
     derived_t* owner_{};
-
-    // `*id_t::invalid` doubles as the disarmed marker. It cannot collide with
-    // a real captured size because the guard is constructed only after `add`
-    // has verified the incoming entity is a valid ID still in staging, so at
-    // capture time at least one valid ID lies outside this storage and `size()
-    // <= *id_t::invalid - 1`.
     size_type saved_size_{};
   };
 
