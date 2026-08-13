@@ -98,7 +98,12 @@ public:
   // satisfying `std::function`'s requirements. So long as the `std::function`
   // instance that a guard is bound into is only moved, everything is fine.
   // Otherwise, we throw.
+  //
+  // cl flags the member inits after the noreturn refuse-copy as unreachable.
+  PRAGMA_DIAG(push)
+  PRAGMA_MSVC_IGNORED(4702)
   scope_guard(const scope_guard&) : exit_function_(do_refuse_copy()) {}
+  PRAGMA_DIAG(pop)
 
   scope_guard& operator=(const scope_guard&) = delete;
   scope_guard& operator=(scope_guard&&) = delete;

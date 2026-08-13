@@ -26,7 +26,7 @@ using namespace corvid;
 
 namespace {
 // A representative frame interval: one 60 Hz step, in seconds.
-constexpr float dt = 1.0F / 60.0F;
+constexpr float frame_dt = 1.0F / 60.0F;
 } // namespace
 
 #pragma region OneEuroFirstSamplePassesThrough
@@ -37,7 +37,7 @@ TEST_CASE("OneEuroFirstSamplePassesThrough", "[OneEuroFilter]") {
   one_euro_filter filter{50.0F, 1.0F};
   float dx = 5.0F;
   float dy = -3.0F;
-  filter.smooth(dt, dx, dy);
+  filter.smooth(frame_dt, dx, dy);
   CHECK(dx == 5.0F);
   CHECK(dy == -3.0F);
 }
@@ -51,10 +51,10 @@ TEST_CASE("OneEuroConstantInputIsFixed", "[OneEuroFilter]") {
   one_euro_filter filter{50.0F, 1.0F};
   float dx = 2.0F;
   float dy = 2.0F;
-  filter.smooth(dt, dx, dy); // seed
+  filter.smooth(frame_dt, dx, dy); // seed
   dx = 2.0F;
   dy = 2.0F;
-  filter.smooth(dt, dx, dy);
+  filter.smooth(frame_dt, dx, dy);
   CHECK(dx == 2.0F);
   CHECK(dy == 2.0F);
 }
@@ -75,7 +75,7 @@ TEST_CASE("OneEuroNonPositiveDtIsNoOp", "[OneEuroFilter]") {
   // Still unseeded, so the next real sample passes through as the first.
   dx = 4.0F;
   dy = 4.0F;
-  filter.smooth(dt, dx, dy);
+  filter.smooth(frame_dt, dx, dy);
   CHECK(dx == 4.0F);
   CHECK(dy == 4.0F);
 }
@@ -89,17 +89,17 @@ TEST_CASE("OneEuroResetForgetsState", "[OneEuroFilter]") {
   one_euro_filter filter{50.0F, 1.0F};
   float dx = 1.0F;
   float dy = 0.0F;
-  filter.smooth(dt, dx, dy); // seed at 1
+  filter.smooth(frame_dt, dx, dy); // seed at 1
   dx = 0.0F;
   dy = 0.0F;
-  filter.smooth(dt, dx, dy); // smooths toward 0, landing between
+  filter.smooth(frame_dt, dx, dy); // smooths toward 0, landing between
   CHECK(dx > 0.0F);
   CHECK(dx < 1.0F);
 
   filter.reset();
   dx = 7.0F;
   dy = 0.0F;
-  filter.smooth(dt, dx, dy);
+  filter.smooth(frame_dt, dx, dy);
   CHECK(dx == 7.0F);
 }
 
@@ -114,13 +114,13 @@ TEST_CASE("OneEuroStepResponseConverges", "[OneEuroFilter]") {
   one_euro_filter filter{50.0F, 0.0F};
   float dx = 0.0F;
   float dy = 0.0F;
-  filter.smooth(dt, dx, dy); // seed at 0
+  filter.smooth(frame_dt, dx, dy); // seed at 0
 
   float previous = 0.0F;
   for (auto step = 0; step < 60; ++step) {
     dx = 1.0F;
     dy = 0.0F;
-    filter.smooth(dt, dx, dy);
+    filter.smooth(frame_dt, dx, dy);
     CHECK(dx >= previous);
     CHECK(dx < 1.0F);
     previous = dx;
@@ -140,17 +140,17 @@ TEST_CASE("OneEuroSpeedRelaxesSmoothing", "[OneEuroFilter]") {
 
   float px = 0.0F;
   float py = 0.0F;
-  plain.smooth(dt, px, py); // seed at 0
+  plain.smooth(frame_dt, px, py); // seed at 0
   float ax = 0.0F;
   float ay = 0.0F;
-  adaptive.smooth(dt, ax, ay); // seed at 0
+  adaptive.smooth(frame_dt, ax, ay); // seed at 0
 
   px = 1.0F;
   py = 0.0F;
-  plain.smooth(dt, px, py);
+  plain.smooth(frame_dt, px, py);
   ax = 1.0F;
   ay = 0.0F;
-  adaptive.smooth(dt, ax, ay);
+  adaptive.smooth(frame_dt, ax, ay);
 
   CHECK(ax > px);
 }
@@ -168,19 +168,19 @@ TEST_CASE("OneEuroSetParamsRetunesInPlace", "[OneEuroFilter]") {
 
   float px = 0.0F;
   float py = 0.0F;
-  plain.smooth(dt, px, py); // seed at 0
+  plain.smooth(frame_dt, px, py); // seed at 0
   float rx = 0.0F;
   float ry = 0.0F;
-  retuned.smooth(dt, rx, ry); // seed at 0
+  retuned.smooth(frame_dt, rx, ry); // seed at 0
 
   retuned.set_params(500.0F, 0.0F);
 
   px = 1.0F;
   py = 0.0F;
-  plain.smooth(dt, px, py);
+  plain.smooth(frame_dt, px, py);
   rx = 1.0F;
   ry = 0.0F;
-  retuned.smooth(dt, rx, ry);
+  retuned.smooth(frame_dt, rx, ry);
 
   // Neither passed the step through untouched, so both are still smoothing
   // from the seeded zero.

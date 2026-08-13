@@ -455,19 +455,19 @@ TEST_CASE("LedeExample", "[TimingWheel]") {
   // Re-arm; this time the write completes before the timeout, staling the
   // pending callback.
   {
-    const auto id = next_id.fetch_add(1);
-    conn->write_id_.store(id);
-    const auto scheduled = wheel.schedule(
-        [id, &loop, conn_weak = std::weak_ptr{conn}] {
-          return loop.post([id, conn_weak] {
+    const auto id2 = next_id.fetch_add(1);
+    conn->write_id_.store(id2);
+    const auto scheduled2 = wheel.schedule(
+        [id2, &loop, conn_weak = std::weak_ptr{conn}] {
+          return loop.post([id2, conn_weak] {
             auto c = conn_weak.lock();
-            if (!c || c->write_id_.load() != id) return true; // Stale.
+            if (!c || c->write_id_.load() != id2) return true; // Stale.
             c->handle_write_timeout();
             return true;
           });
         },
         10s);
-    CHECK(scheduled);
+    CHECK(scheduled2);
   }
 
   // On write completion, store zero to stale any pending callback:
