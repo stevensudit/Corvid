@@ -53,6 +53,7 @@ namespace corvid { inline namespace filesys {
 // commonly surface from file, pipe, and socket calls; it makes no attempt to
 // be exhaustive. An unnamed value still round-trips through the enum and
 // prints numerically.
+// NOLINTNEXTLINE(performance-enum-size)
 enum class win_error_code : uint32_t {
   ok = ERROR_SUCCESS,                              // 0
   invalid_function = ERROR_INVALID_FUNCTION,       // 1

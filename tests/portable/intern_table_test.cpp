@@ -55,8 +55,6 @@ using arena_string_intern_test = intern_test<arena_string, string_id>;
 using string_intern_table = intern_table<std::string, string_id>;
 using string_intern_table_value = string_intern_table::interned_value_t;
 
-template class std::deque<std::string>;
-
 #pragma region Basic
 
 TEST_CASE("Basic", "[InternTableTest]") {

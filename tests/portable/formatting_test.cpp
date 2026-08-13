@@ -91,6 +91,7 @@ struct dashes {
 
 } // namespace
 
+// NOLINTBEGIN(bugprone-std-namespace-modification)
 template<CharType CharT>
 struct std::formatter<fbox, CharT>: corvid::forwarding_formatter<int, CharT> {
 };
@@ -113,6 +114,7 @@ struct std::formatter<greeter, CharT>
 template<corvid::CharType CharT>
 struct std::formatter<dashes, CharT>: corvid::self_rendering_formatter<CharT> {
 };
+// NOLINTEND(bugprone-std-namespace-modification)
 
 #pragma endregion
 #pragma region Compile-time checks
