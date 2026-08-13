@@ -23,6 +23,7 @@
 #include <type_traits>
 #include <atomic>
 #include <bit>
+#include <format>
 #include <chrono>
 #include <cstring>
 #include <iostream>
@@ -290,6 +291,15 @@ TEST_CASE("Formatting", "[Ipv4Addr]") {
   CHECK(ipv4_addr::loopback.to_string() == "127.0.0.1");
   CHECK(ipv4_addr::broadcast.to_string() == "255.255.255.255");
   CHECK(ipv4_addr(192, 168, 1, 100).to_string() == "192.168.1.100");
+
+  // std::format goes through the formatter, not to_string.
+  CHECK(std::format("{}", ipv4_addr(192, 168, 1, 100)) == "192.168.1.100");
+  CHECK(std::format("{}", ipv4_addr::any) == "0.0.0.0");
+
+  // Conversion to bool is explicit, so an address cannot promote into
+  // arithmetic or comparison with integers.
+  static_assert(!std::is_convertible_v<ipv4_addr, bool>);
+  static_assert(std::is_constructible_v<bool, ipv4_addr>);
 
   // Round-trip: parse then format.
   auto addr = ipv4_addr::parse("10.20.30.40");
