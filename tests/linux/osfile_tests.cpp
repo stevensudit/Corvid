@@ -292,7 +292,8 @@ TEST_CASE("ErrnoCodeString", "[OsFile]") {
 #pragma region FcntlOpsString
 
 TEST_CASE("FcntlOpsString", "[OsFile]") {
-  // Sequence enum: named values 0 ("dupfd") through 16 ("getownex").
+  // Sequence enum: named values 0 ("dupfd") through 16 ("getownex"), plus a
+  // sparse segment naming `dupfd_cloexec` at 1030.
   using namespace corvid::strings;
   using FO = filesys::fcntl_ops;
   if (true) {
@@ -300,19 +301,19 @@ TEST_CASE("FcntlOpsString", "[OsFile]") {
     CHECK(enum_as_string(FO::getfd) == "getfd");
     CHECK(enum_as_string(FO::setfl) == "setfl");
     CHECK(enum_as_string(FO::getownex) == "getownex");
+    CHECK(enum_as_string(FO::dupfd_cloexec) == "dupfd_cloexec");
   }
   if (true) {
-    // Out-of-range values (including the non-contiguous `dupfd_cloexec`) print
-    // as their numeric value.
+    // Out-of-range and between-segment values print as their numeric value.
     CHECK(enum_as_string(FO{-1}) == "-1");
     CHECK(enum_as_string(FO{17}) == "17");
-    CHECK(enum_as_string(FO::dupfd_cloexec) == "1030");
   }
   if (true) {
     constexpr FO bad{-1};
     CHECK(parse_enum("dupfd", bad) == FO::dupfd);
     CHECK(parse_enum("setfl", bad) == FO::setfl);
     CHECK(parse_enum("getownex", bad) == FO::getownex);
+    CHECK(parse_enum("dupfd_cloexec", bad) == FO::dupfd_cloexec);
   }
 }
 
@@ -320,7 +321,8 @@ TEST_CASE("FcntlOpsString", "[OsFile]") {
 #pragma region MmapProtString
 
 TEST_CASE("MmapProtString", "[OsFile]") {
-  // Bitmask enum: exec(4) > write(2) > read(1); none(0) has no bit name.
+  // Bitmask enum: exec(4) > write(2) > read(1), plus the stack-growth bits
+  // growsdown(24) and growsup(25); none(0) has no bit name.
   using namespace corvid::strings;
   using P = mmap_prot;
   if (true) {
@@ -329,6 +331,10 @@ TEST_CASE("MmapProtString", "[OsFile]") {
     CHECK(enum_as_string(P::write) == "write");
     CHECK(enum_as_string(P::exec) == "exec");
     CHECK(enum_as_string(P::exec | P::read) == "exec + read");
+    CHECK(enum_as_string(P::growsdown) == "growsdown");
+    CHECK(enum_as_string(P::growsup) == "growsup");
+    CHECK(enum_as_string(P::growsdown | P::write | P::read) ==
+          "growsdown + write + read");
   }
   if (true) {
     constexpr P bad{};
@@ -336,6 +342,7 @@ TEST_CASE("MmapProtString", "[OsFile]") {
     CHECK(parse_enum("write", bad) == P::write);
     CHECK(parse_enum("exec", bad) == P::exec);
     CHECK(parse_enum("exec + read", bad) == (P::exec | P::read));
+    CHECK(parse_enum("growsdown + read", bad) == (P::growsdown | P::read));
   }
 }
 
@@ -343,7 +350,8 @@ TEST_CASE("MmapProtString", "[OsFile]") {
 #pragma region MmapAdviceString
 
 TEST_CASE("MmapAdviceString", "[OsFile]") {
-  // Sequence enum: values 0-4 and 8-25 named; 5-7 are gaps; 26+ out of range.
+  // Sequence enum: values 0-4 and 8-25 named, plus a sparse segment naming
+  // `hwpoison` at 100; 5-7 are gaps.
   using namespace corvid::strings;
   using MA = mmap_advice;
   if (true) {
@@ -358,10 +366,10 @@ TEST_CASE("MmapAdviceString", "[OsFile]") {
     CHECK(enum_as_string(MA::collapse) == "collapse");
   }
   if (true) {
-    // Gap values 5-7 print numerically; hwpoison=100 and -1 are out of range.
+    // Gap and between-segment values print numerically; -1 is out of range.
     CHECK(enum_as_string(MA{5}) == "5");
     CHECK(enum_as_string(MA{26}) == "26");
-    CHECK(enum_as_string(MA::hwpoison) == "100");
+    CHECK(enum_as_string(MA::hwpoison) == "hwpoison");
     CHECK(enum_as_string(MA{-1}) == "-1");
     CHECK(enums::sequence::enum_as_view(MA::normal) == "normal");
     CHECK(enums::sequence::enum_as_view(MA{5}) == "");
@@ -376,6 +384,7 @@ TEST_CASE("MmapAdviceString", "[OsFile]") {
     CHECK(parse_enum("dofork", bad) == MA::dofork);
     CHECK(parse_enum("hugepage", bad) == MA::hugepage);
     CHECK(parse_enum("collapse", bad) == MA::collapse);
+    CHECK(parse_enum("hwpoison", bad) == MA::hwpoison);
   }
 }
 

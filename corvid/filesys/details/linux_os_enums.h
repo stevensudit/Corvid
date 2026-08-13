@@ -106,8 +106,9 @@ enum class fcntl_ops : int {
 };
 consteval auto corvid_enum_spec(fcntl_ops*) {
   return corvid::enums::sequence::make_sequence_enum_spec<fcntl_ops,
-      "dupfd,getfd,setfd,getfl,setfl,getlk,setlk,setlkw,setown,getown,setsig,"
-      "getsig,getlk64,setlk64,setlkw64,setownex,getownex">();
+      "0,dupfd,getfd,setfd,getfl,setfl,getlk,setlk,setlkw,setown,getown,"
+      "setsig,getsig,getlk64,setlk64,setlkw64,setownex,getownex|1030,"
+      "dupfd_cloexec">();
 }
 
 #pragma endregion
@@ -352,7 +353,7 @@ enum class mmap_prot : uint32_t {
 
 consteval auto corvid_enum_spec(mmap_prot*) {
   return corvid::enums::bitmask::make_bitmask_enum_spec<mmap_prot,
-      "exec,write,read">();
+      "growsup,growsdown,,,,,,,,,,,,,,,,,,,,,,exec,write,read">();
 }
 
 #pragma endregion
@@ -420,10 +421,10 @@ enum class mmap_advice : int32_t {
 };
 consteval auto corvid_enum_spec(mmap_advice*) {
   return corvid::enums::sequence::make_sequence_enum_spec<mmap_advice,
-      "normal,random,sequential,willneed,dontneed,,,,free,remove,dontfork,"
+      "0,normal,random,sequential,willneed,dontneed,,,,free,remove,dontfork,"
       "dofork,mergeable,unmergeable,hugepage,nohugepage,dontdump,dodump,"
       "wipeonfork,keeponfork,cold,pageout,populate_read,populate_write,"
-      "dontneed_locked,collapse">();
+      "dontneed_locked,collapse|100,hwpoison">();
 }
 
 #pragma endregion
