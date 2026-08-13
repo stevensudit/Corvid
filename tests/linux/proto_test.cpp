@@ -22,6 +22,7 @@
 
 #include <type_traits>
 #include <atomic>
+#include <bit>
 #include <chrono>
 #include <cstring>
 #include <iostream>
@@ -50,6 +51,38 @@ struct iov_msghdr_test {
 // NOLINTBEGIN(readability-function-cognitive-complexity)
 // NOLINTBEGIN(bugprone-unchecked-optional-access)
 
+#pragma region Endian
+
+TEST_CASE("Endian", "[Endian]") {
+  // Round-tripping restores the original value at every width.
+  static_assert(ntoh16(hton16(0x1234)) == 0x1234);
+  static_assert(ntoh32(hton32(0x01020304)) == 0x01020304);
+  static_assert(ntoh64(hton64(0x0102030405060708)) == 0x0102030405060708);
+
+  // On a little-endian host, conversion reverses the bytes; on a big-endian
+  // host, it is the identity.
+  constexpr bool little = std::endian::native == std::endian::little;
+  static_assert(!little || hton16(0x1234) == 0x3412);
+  static_assert(!little || hton32(0x01020304) == 0x04030201);
+  static_assert(!little || hton64(0x0102030405060708) == 0x0807060504030201);
+  static_assert(little || hton32(0x01020304) == 0x01020304);
+
+#ifdef __SIZEOF_INT128__
+  constexpr auto v128 =
+      (static_cast<__uint128_t>(0x0102030405060708) << 64) |
+      0x090A0B0C0D0E0F10;
+  static_assert(ntoh128(hton128(v128)) == v128);
+  static_assert(
+      !little ||
+      hton128(v128) == ((static_cast<__uint128_t>(0x100F0E0D0C0B0A09) << 64) |
+                           0x0807060504030201));
+#endif
+
+  // Runtime anchor.
+  CHECK(ntoh32(hton32(0xDEADBEEF)) == 0xDEADBEEF);
+}
+
+#pragma endregion
 #pragma region Construction
 
 TEST_CASE("Construction", "[Ipv4Addr]") {

@@ -22,32 +22,37 @@ namespace corvid { inline namespace proto {
 
 // Byte-order conversion between host and network (big-endian) order.
 //
-// Analogous to the POSIX `htons`/`ntohs`/`htonl`/`ntohl` family, but
-// extended to 16, 32, 64, and 128 bits with consistent naming:
-//   `hton16`, `hton32`, `hton64`, `hton128`  -- host -> network
-//   `ntoh16`, `ntoh32`, `ntoh64`, `ntoh128`  -- network -> host
+// Analogous to the POSIX `htons`/`ntohs`/`htonl`/`ntohl` family, but extended
+// to 16, 32, 64, and 128 bits with consistent naming: `hton16` through
+// `hton128` convert host to network order, and `ntoh16` through `ntoh128`
+// convert back.
 //
-// Since byte-swapping is its own inverse, `htonN` and `ntohN` are
-// identical in implementation; both names are provided so that call
-// sites read naturally.
+// Since byte-swapping is its own inverse, `htonN` and `ntohN` are identical in
+// implementation; both names are provided so that call sites read naturally.
+// The 128-bit forms are available only when the compiler provides
+// `__uint128_t`.
 
 #pragma region Byte swapping
 
-inline auto swap_always(auto v) noexcept { return std::byteswap(v); }
+[[nodiscard]] constexpr auto swap_always(auto v) noexcept {
+  return std::byteswap(v);
+}
 
-inline __uint128_t swap_always(__uint128_t v) noexcept {
+#ifdef __SIZEOF_INT128__
+[[nodiscard]] constexpr __uint128_t swap_always(__uint128_t v) noexcept {
   const auto lo = static_cast<uint64_t>(v);
   const auto hi = static_cast<uint64_t>(v >> 64);
   return (static_cast<__uint128_t>(std::byteswap(lo)) << 64) |
          std::byteswap(hi);
 }
+#endif
 
-inline auto swap_not_big(auto v) noexcept {
+[[nodiscard]] constexpr auto swap_not_big(auto v) noexcept {
   if constexpr (std::endian::native == std::endian::big) return v;
   return swap_always(v);
 }
 
-inline auto swap_not_little(auto v) noexcept {
+[[nodiscard]] constexpr auto swap_not_little(auto v) noexcept {
   if constexpr (std::endian::native == std::endian::little) return v;
   return swap_always(v);
 }
@@ -55,14 +60,32 @@ inline auto swap_not_little(auto v) noexcept {
 #pragma endregion
 #pragma region Host/network
 
-inline uint16_t hton16(uint16_t v) noexcept { return swap_not_big(v); }
-inline uint16_t ntoh16(uint16_t v) noexcept { return swap_not_big(v); }
-inline uint32_t hton32(uint32_t v) noexcept { return swap_not_big(v); }
-inline uint32_t ntoh32(uint32_t v) noexcept { return swap_not_big(v); }
-inline uint64_t hton64(uint64_t v) noexcept { return swap_not_big(v); }
-inline uint64_t ntoh64(uint64_t v) noexcept { return swap_not_big(v); }
-inline __uint128_t hton128(__uint128_t v) noexcept { return swap_not_big(v); }
-inline __uint128_t ntoh128(__uint128_t v) noexcept { return swap_not_big(v); }
+[[nodiscard]] constexpr uint16_t hton16(uint16_t v) noexcept {
+  return swap_not_big(v);
+}
+[[nodiscard]] constexpr uint16_t ntoh16(uint16_t v) noexcept {
+  return swap_not_big(v);
+}
+[[nodiscard]] constexpr uint32_t hton32(uint32_t v) noexcept {
+  return swap_not_big(v);
+}
+[[nodiscard]] constexpr uint32_t ntoh32(uint32_t v) noexcept {
+  return swap_not_big(v);
+}
+[[nodiscard]] constexpr uint64_t hton64(uint64_t v) noexcept {
+  return swap_not_big(v);
+}
+[[nodiscard]] constexpr uint64_t ntoh64(uint64_t v) noexcept {
+  return swap_not_big(v);
+}
+#ifdef __SIZEOF_INT128__
+[[nodiscard]] constexpr __uint128_t hton128(__uint128_t v) noexcept {
+  return swap_not_big(v);
+}
+[[nodiscard]] constexpr __uint128_t ntoh128(__uint128_t v) noexcept {
+  return swap_not_big(v);
+}
+#endif
 
 #pragma endregion
 }} // namespace corvid::proto
