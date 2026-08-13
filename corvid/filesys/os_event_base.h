@@ -15,6 +15,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 #pragma once
+#include <algorithm>
 #include <chrono>
 #include <cstdint>
 #include <utility>
@@ -23,6 +24,7 @@
 #include "os_file.h"
 
 namespace corvid { inline namespace filesys {
+using namespace std::chrono_literals;
 
 #pragma region wait_result
 
@@ -93,11 +95,13 @@ public:
 
   // Wait until the event is signaled or `timeout` elapses.
   //
-  // Does not consume the notification; `drain` does. An interrupted wait
-  // reports `failed`; re-wait if that matters.
+  // A negative `timeout` counts as zero, not infinite. Does not consume the
+  // notification; `drain` does. An interrupted wait reports `failed`; re-wait
+  // if that matters.
   [[nodiscard]] wait_result wait_for(
       std::chrono::milliseconds timeout) const noexcept {
-    return static_cast<const Derived&>(*this).do_wait_for(timeout);
+    return static_cast<const Derived&>(*this).do_wait_for(
+        std::max(timeout, 0ms));
   }
 
 #pragma endregion

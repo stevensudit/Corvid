@@ -63,6 +63,10 @@ protected:
     size_t bytes = 0;
   };
 
+  // Outcome of one `do_write_some` primitive: the bytes written, 0 for a soft
+  // (retriable) failure, or nullopt for a hard one.
+  using write_result = std::optional<size_t>;
+
 public:
 #pragma endregion
 #pragma region Construction

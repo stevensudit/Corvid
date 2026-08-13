@@ -67,14 +67,13 @@ private:
     return ::CloseHandle(h);
   }
 
-  // One `WriteFile`. Returns the bytes written, 0 for a soft failure, or
-  // nullopt for a hard one.
-  [[nodiscard]] std::optional<size_t>
+  // One `WriteFile`.
+  [[nodiscard]] write_result
   do_write_some(const char* p, size_t len) const noexcept {
     DWORD written{};
     if (!::WriteFile(handle(), p, saturate_cast<DWORD>(len), &written,
             nullptr))
-      return is_hard_error() ? std::nullopt : std::optional<size_t>{0};
+      return is_hard_error() ? std::nullopt : write_result{0};
     // A zero-progress success sets no error, so classify it as hard instead of
     // consulting a stale value.
     if (written == 0) return std::nullopt;

@@ -146,16 +146,16 @@ private:
 
   // Wait for readability via `poll`.
   //
-  // A negative timeout would mean infinite, so clamp to [0, INT_MAX]
-  // milliseconds. `poll` silently ignores a closed (-1) fd, so check for one
-  // explicitly to fail fast, as Windows does.
+  // The base floors `timeout` at zero; cap it at INT_MAX milliseconds because
+  // `poll` takes an int, where a negative value would mean infinite. `poll`
+  // silently ignores a closed (-1) fd, so check for one explicitly to fail
+  // fast, as Windows does.
   [[nodiscard]] wait_result do_wait_for(
       std::chrono::milliseconds timeout) const noexcept {
     if (!is_open()) return wait_result::failed;
     pollfd pfd{.fd = handle(), .events = POLLIN, .revents = 0};
-    const auto ms = static_cast<int>(
-        std::clamp<std::chrono::milliseconds::rep>(timeout.count(), 0,
-            std::numeric_limits<int>::max()));
+    const auto ms = static_cast<int>(std::min<std::chrono::milliseconds::rep>(
+        timeout.count(), std::numeric_limits<int>::max()));
     const auto n = ::poll(&pfd, 1, ms);
     if (n > 0)
       return (pfd.revents & POLLIN)

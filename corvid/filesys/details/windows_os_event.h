@@ -69,12 +69,12 @@ private:
     return ::ResetEvent(handle());
   }
 
-  // Wait via `WaitForSingleObject`, clamped to finite milliseconds so a huge
-  // or negative timeout cannot alias `INFINITE`.
+  // Wait via `WaitForSingleObject`, capped below `INFINITE` so a huge timeout
+  // cannot alias it; the base floors negative timeouts at zero.
   [[nodiscard]] wait_result do_wait_for(
       std::chrono::milliseconds timeout) const noexcept {
     const auto ms = static_cast<DWORD>(
-        std::clamp<std::chrono::milliseconds::rep>(timeout.count(), 0,
+        std::min<std::chrono::milliseconds::rep>(timeout.count(),
             INFINITE - 1));
     switch (::WaitForSingleObject(handle(), ms)) {
     case WAIT_OBJECT_0: return wait_result::signaled;

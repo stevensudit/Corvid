@@ -104,15 +104,14 @@ private:
 
   // One `::write`.
   //
-  // Returns the bytes written, 0 for a soft failure, or nullopt for a hard
-  // one. Note that this call can raise SIGPIPE on broken pipes/sockets, so use
+  // Note that this call can raise SIGPIPE on broken pipes/sockets, so use
   // `net_socket::send` with MSG_NOSIGNAL instead.
-  [[nodiscard]] std::optional<size_t>
+  [[nodiscard]] write_result
   do_write_some(const char* p, size_t len) const noexcept {
     const auto n = ::write(handle(), p, len);
     if (n > 0) return static_cast<size_t>(n);
     if ((n == 0) || is_hard_error()) return std::nullopt;
-    return std::optional<size_t>{0};
+    return write_result{0};
   }
 
   // One `::read`.
