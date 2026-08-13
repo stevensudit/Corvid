@@ -803,7 +803,7 @@ public:
   }
 
   // Initiate a connection to `addr`.
-
+  //
   // Returns `true` on immediate success, `std::nullopt` when the connection is
   // in progress (`EINPROGRESS`), or `false` on hard failure. For non-blocking
   // sockets, arm `EPOLLOUT` and check `SO_ERROR` on the next writable event to

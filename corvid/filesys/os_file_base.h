@@ -155,8 +155,8 @@ public:
 
   // Read up to `data.size()` bytes from the file into `data`.
   //
-  /// Use `no_zero{data}.enlarge_to_cap()` or `no_zero{data}.enlarge_to(n)` to
-  /// get the desired size.
+  // Use `no_zero{data}.enlarge_to_cap()` or `no_zero{data}.enlarge_to(n)` to
+  // get the desired size.
   //
   // On success, resizes `data` to the number of bytes read and returns true.
   // A soft failure is treated as success with zero bytes read. On
@@ -234,7 +234,8 @@ public:
   //
   // Note that the last error is only meaningful immediately after a failing
   // OS call and may be overwritten by the next one.
-  static bool is_hard_error(os_error err = os_error::last()) noexcept {
+  [[nodiscard]] static bool is_hard_error(
+      os_error err = os_error::last()) noexcept {
     return err.is_hard_error();
   }
 
