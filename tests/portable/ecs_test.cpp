@@ -5768,7 +5768,7 @@ TEST_CASE("ForEach", "[ArchetypeScene]") {
     (void)s.store_new_entity<scene_sid_t{2}>({}, Position{3.F, 0.F},
         Velocity{}, Health{});
     int count = 0;
-    s.for_each<Position, Velocity>([&](auto, auto) {
+    s.for_each<Position, Velocity>([&](auto, const auto&) {
       ++count;
       return false; // stop after first entity
     });
@@ -5782,7 +5782,7 @@ TEST_CASE("ForEach", "[ArchetypeScene]") {
     auto h2 = s.store_new_entity<scene_sid_t{2}>({}, Position{}, Velocity{},
         Health{});
     std::vector<scene_reg_t::id_t> seen;
-    s.for_each<Position, Velocity>([&](auto id, auto) {
+    s.for_each<Position, Velocity>([&](auto id, const auto&) {
       seen.push_back(id);
       return true;
     });
@@ -5813,7 +5813,7 @@ TEST_CASE("ForEach", "[ArchetypeScene]") {
     three_storage_scene_t s;
     (void)s.store_new_entity<scene_sid_t{3}>({}, Health{}); // only Health
     int count = 0;
-    s.for_each<Position, Velocity, Health>([&](auto, auto) {
+    s.for_each<Position, Velocity, Health>([&](auto, const auto&) {
       ++count;
       return true;
     });
@@ -5824,7 +5824,7 @@ TEST_CASE("ForEach", "[ArchetypeScene]") {
   if (true) {
     three_storage_scene_t s;
     int count = 0;
-    s.for_each<Position>([&](auto, auto) {
+    s.for_each<Position>([&](auto, const auto&) {
       ++count;
       return true;
     });
@@ -6489,7 +6489,7 @@ TEST_CASE("ForEach", "[ComponentScene]") {
     CHECK(s.store_entity<cs_scene_sid_t{1}>(s.stage_new_entity().id(), 1.0F));
     CHECK(s.store_entity<cs_scene_sid_t{1}>(s.stage_new_entity().id(), 2.0F));
     int count = 0;
-    s.for_each<float>([&](auto, auto) {
+    s.for_each<float>([&](auto, const auto&) {
       ++count;
       return false; // stop after first
     });
@@ -6519,7 +6519,7 @@ TEST_CASE("ForEach", "[ComponentScene]") {
   if (true) {
     two_cs_scene_t s;
     int count = 0;
-    s.for_each<float>([&](auto, auto) {
+    s.for_each<float>([&](auto, const auto&) {
       ++count;
       return true;
     });
@@ -6567,7 +6567,7 @@ TEST_CASE("ForEach", "[ComponentScene]") {
     CHECK(s.store_entity<cs_scene_sid_t{1}>(id, 1.0F));
     CHECK(s.store_entity<cs_scene_sid_t{2}>(id, 1));
     cs_scene_id_t seen_id{};
-    s.for_each<float, int>([&](auto eid, auto) {
+    s.for_each<float, int>([&](auto eid, const auto&) {
       seen_id = eid;
       return true;
     });
@@ -6672,7 +6672,7 @@ TEST_CASE("ForAll", "[ComponentScene]") {
   if (true) {
     two_cs_scene_t s;
     int count = 0;
-    auto f = s.for_all<float>([&](auto, auto) {
+    auto f = s.for_all<float>([&](auto, const auto&) {
       ++count;
       return true;
     });
@@ -6686,7 +6686,7 @@ TEST_CASE("ForAll", "[ComponentScene]") {
     CHECK(s.store_entity<cs_scene_sid_t{1}>(s.stage_new_entity().id(), 1.0F));
     CHECK(s.store_entity<cs_scene_sid_t{1}>(s.stage_new_entity().id(), 2.0F));
     int count = 0;
-    auto f = s.for_all<float>([&](auto, auto) {
+    auto f = s.for_all<float>([&](auto, const auto&) {
       ++count;
       return false;
     });
@@ -6736,7 +6736,7 @@ TEST_CASE("ForAll", "[ComponentScene]") {
     CHECK(s.store_entity<cs_scene_sid_t{1}>(id, 1.0F));
     CHECK(s.store_entity<cs_scene_sid_t{2}>(id, 1));
     cs_scene_id_t seen_id{};
-    auto f = s.for_all<float, int>([&](auto eid, auto) {
+    auto f = s.for_all<float, int>([&](auto eid, const auto&) {
       seen_id = eid;
       return true;
     });
@@ -6961,7 +6961,7 @@ TEST_CASE("TagLookup", "[ComponentScene]") {
     CHECK(s.store_entity<cs_scene_sid_t{1}>(ha.id(), 1.0F));
     CHECK(s.store_entity<cs_scene_sid_t{1}>(hb.id(), 2.0F));
     int count = 0;
-    s.for_each<FloatTagA>([&](auto, auto) {
+    s.for_each<FloatTagA>([&](auto, const auto&) {
       ++count;
       return false; // stop after the first entity
     });
@@ -7182,7 +7182,7 @@ TEST_CASE("ForAllSharedType", "[ComponentScene]") {
     CHECK(s.store_entity<cs_scene_sid_t{1}>(h.id(), 5.0F)); // TagA
     CHECK(s.store_entity<cs_scene_sid_t{2}>(h.id(), 6.0F)); // TagB
     int count = 0;
-    auto f4 = s.for_all<float>([&](auto, auto) {
+    auto f4 = s.for_all<float>([&](auto, const auto&) {
       ++count;
       return true;
     });
@@ -7221,7 +7221,7 @@ TEST_CASE("ForAllSharedType", "[ComponentScene]") {
     CHECK(s.store_entity<cs_scene_sid_t{1}>(ha.id(), 1.0F));
     CHECK(s.store_entity<cs_scene_sid_t{1}>(hb.id(), 2.0F));
     int count = 0;
-    auto f6 = s.for_all<float>([&](auto, auto) {
+    auto f6 = s.for_all<float>([&](auto, const auto&) {
       ++count;
       return false; // stop after first entity
     });
@@ -7243,7 +7243,7 @@ TEST_CASE("ForAllSharedType", "[ComponentScene]") {
     CHECK(s.store_entity<cs_scene_sid_t{2}>(ha.id(), 99.0F));
     CHECK(s.store_entity<cs_scene_sid_t{1}>(hb.id(), 4.0F));
     int count = 0;
-    auto f = s.for_all<float>([&](auto, auto) {
+    auto f = s.for_all<float>([&](auto, const auto&) {
       ++count;
       return false; // stop after hb
     });

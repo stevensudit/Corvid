@@ -22,6 +22,10 @@
 #   ./cleanbuild.ps1                     clang++, portable + CUDA suite, ctest
 #                                        (incremental when config is unchanged)
 #   ./cleanbuild.ps1 clean               force a fresh configure + full recompile
+#   ./cleanbuild.ps1 clean-all           delete the buildable outputs and stop:
+#                                        tests/build, tests/build-cl, and
+#                                        tests/build-debug (dependency caches
+#                                        preserved, same as clean)
 #   ./cleanbuild.ps1 reconfigure         configure-only full refresh of tests/build
 #                                        (regenerates compile_commands.json for clangd)
 #   ./cleanbuild.ps1 strings_test.cpp    build and run just that one test
@@ -60,6 +64,7 @@ $cudacheck = $false
 $tidy = $false
 $reconfigure = $false
 $clean = $false
+$cleanAll = $false
 foreach ($a in $Rest) {
   switch -Regex ($a) {
     '\.(cpp|cu)$' { $testName = $a }
@@ -70,8 +75,35 @@ foreach ($a in $Rest) {
     '^(tidy|--tidy)$' { $tidy = $true }
     '^reconfigure$' { $reconfigure = $true }
     '^clean$' { $clean = $true }
-    default { throw "Unrecognized argument '$a' (expected <name>_test.cpp, <name>_test.cu, clang|cl, asan, tidy, cudacheck, clean, or reconfigure)" }
+    '^clean-all$' { $cleanAll = $true }
+    default { throw "Unrecognized argument '$a' (expected <name>_test.cpp, <name>_test.cu, clang|cl, asan, tidy, cudacheck, clean, clean-all, or reconfigure)" }
   }
+}
+
+# "clean-all" deletes the buildable outputs and stops: the release tree
+# (tests/build), the cl tree (tests/build-cl), the IDE debug tree
+# (tests/build-debug), and any legacy in-source strays at the repo root.
+# Standalone; builds nothing. The dependency caches (tests/.fetchcontent,
+# tests/.fetchcontent-debug, tests/.local) are expensive to rebuild and are
+# preserved, same as "clean". Note clangd loses compile_commands.json until
+# the next configure; "reconfigure" restores it without building.
+if ($cleanAll) {
+  if ($Rest.Count -gt 1) {
+    throw "'clean-all' takes no other arguments"
+  }
+  foreach ($stray in 'CMakeCache.txt', 'cmake_install.cmake',
+    'ClangExeProject.sln', 'build.ninja', 'CMakeFiles', '.ninja_deps',
+    '.ninja_log') {
+    Remove-Item -Recurse -Force -ErrorAction SilentlyContinue `
+      (Join-Path $repo $stray)
+  }
+  foreach ($tree in 'tests/build', 'tests/build-cl', 'tests/build-debug') {
+    Remove-Item -Recurse -Force -ErrorAction SilentlyContinue `
+      (Join-Path $repo $tree)
+  }
+  Write-Host ('Removed tests/build, tests/build-cl, and tests/build-debug ' +
+    '(dependency caches preserved).')
+  exit 0
 }
 if ($sanitizer -and $compiler -eq 'cl') {
   throw 'ASAN requires clang++, not MSVC cl.'
