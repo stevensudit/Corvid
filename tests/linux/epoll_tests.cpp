@@ -105,7 +105,7 @@ TEST_CASE("Create", "[Epoll]") {
   // its notification.
   if (true) {
     auto p = epoll::create();
-    auto e = event_fd::create();
+    auto e = os_event::create();
 
     epoll_event ev{.events = EPOLLIN, .data = {.fd = e.handle()}};
     CHECK(p.add(e.handle(), ev));
@@ -175,7 +175,7 @@ TEST_CASE("Release", "[Epoll]") {
 #pragma region ControlWait
 
 TEST_CASE("ControlWait", "[Epoll]") {
-  auto e = event_fd::create();
+  auto e = os_event::create();
   auto p = epoll::create();
 
   epoll_event add_ev{.events = EPOLLIN,
@@ -204,7 +204,7 @@ TEST_CASE("ControlWait", "[Epoll]") {
 #pragma region WaitArray
 
 TEST_CASE("WaitArray", "[Epoll]") {
-  auto e = event_fd::create();
+  auto e = os_event::create();
   auto p = epoll::create();
 
   epoll_event add_ev{.events = EPOLLIN,
@@ -234,26 +234,26 @@ TEST_CASE("WaitArray", "[Epoll]") {
 TEST_CASE("Lifecycle", "[EventFd]") {
   // Default-constructed eventfd is invalid.
   if (true) {
-    event_fd e;
+    os_event e;
     CHECK_FALSE(e.is_open());
     CHECK_FALSE(static_cast<bool>(e));
-    CHECK(e.handle() == event_fd::invalid_handle);
+    CHECK(e.handle() == os_event::invalid_handle);
     CHECK_FALSE(e.close());
   }
 
   // A real eventfd is open; closing it twice is idempotent.
   if (true) {
-    auto e = event_fd::create();
+    auto e = os_event::create();
     CHECK(e.is_open());
     CHECK(static_cast<bool>(e));
-    CHECK(e.handle() != event_fd::invalid_handle);
+    CHECK(e.handle() != os_event::invalid_handle);
     CHECK(e.close());
     CHECK_FALSE(e.is_open());
     CHECK_FALSE(e.close());
   }
 
   // Destructor closes an open eventfd (no crash or leak).
-  if (true) { auto e = event_fd::create(); }
+  if (true) { auto e = os_event::create(); }
 }
 
 #pragma endregion
@@ -264,9 +264,9 @@ TEST_CASE("Lifecycle", "[EventFd]") {
 TEST_CASE("Move", "[EventFd]") {
   // Move constructor transfers ownership; source becomes invalid.
   if (true) {
-    auto a = event_fd::create();
+    auto a = os_event::create();
     const auto h = a.handle();
-    event_fd b{std::move(a)};
+    os_event b{std::move(a)};
     CHECK_FALSE(a.is_open());
     CHECK(b.is_open());
     CHECK(b.handle() == h);
@@ -274,8 +274,8 @@ TEST_CASE("Move", "[EventFd]") {
 
   // Move assignment closes the destination and transfers the source.
   if (true) {
-    auto a = event_fd::create();
-    auto b = event_fd::create();
+    auto a = os_event::create();
+    auto b = os_event::create();
     const auto h = a.handle();
     b = std::move(a);
     CHECK_FALSE(a.is_open());
@@ -285,7 +285,7 @@ TEST_CASE("Move", "[EventFd]") {
 
   // Self-assignment is a no-op.
   if (true) {
-    auto a = event_fd::create();
+    auto a = os_event::create();
     const auto h = a.handle();
     auto* p = &a;
     a = std::move(*p);
@@ -301,9 +301,9 @@ TEST_CASE("Move", "[EventFd]") {
 TEST_CASE("Release", "[EventFd]") {
   // `release` yields the handle without closing it; eventfd becomes invalid.
   if (true) {
-    auto e = event_fd::create();
+    auto e = os_event::create();
     const auto h = e.release();
-    CHECK(h != event_fd::invalid_handle);
+    CHECK(h != os_event::invalid_handle);
     CHECK_FALSE(e.is_open());
     ::close(h);
   }
@@ -315,7 +315,7 @@ TEST_CASE("Release", "[EventFd]") {
 TEST_CASE("NotifyRead", "[EventFd]") {
   // Writes accumulate and a read returns the total while resetting to zero.
   if (true) {
-    auto e = event_fd::create();
+    auto e = os_event::create();
     CHECK(e.notify());
     CHECK(e.notify(4));
 
@@ -326,8 +326,8 @@ TEST_CASE("NotifyRead", "[EventFd]") {
 
   // The out-parameter overload returns the current counter value.
   if (true) {
-    auto e = event_fd::create(7);
-    event_fd::counter_t value = 0;
+    auto e = os_event::create(7);
+    os_event::counter_t value = 0;
     CHECK(e.read(value));
     CHECK(value == 7U);
   }
@@ -341,7 +341,7 @@ TEST_CASE("Create", "[EventFd]") {
 
   // Default: non-blocking counter mode, initial value 0.
   if (true) {
-    auto e = event_fd::create();
+    auto e = os_event::create();
     CHECK(e.is_open());
     CHECK(bitmask::has(e.get_flags().value_or(o_flags{}), o_flags::nonblock));
     // Counter starts at 0, so an immediate read returns nullopt (EAGAIN).
@@ -351,7 +351,7 @@ TEST_CASE("Create", "[EventFd]") {
 
   // Non-zero initial value is readable immediately.
   if (true) {
-    auto e = event_fd::create(5);
+    auto e = os_event::create(5);
     CHECK(e.is_open());
     auto v = e.read();
     CHECK(v.has_value());
@@ -360,7 +360,7 @@ TEST_CASE("Create", "[EventFd]") {
 
   // Blocking mode: O_NONBLOCK is absent.
   if (true) {
-    auto e = event_fd::create(0, event_mode::counter, execution::blocking);
+    auto e = os_event::create(0, event_mode::counter, execution::blocking);
     CHECK(e.is_open());
     CHECK_FALSE(
         bitmask::has(e.get_flags().value_or(o_flags{}), o_flags::nonblock));
@@ -375,7 +375,7 @@ TEST_CASE("SemaphoreMode", "[EventFd]") {
 
   // With initial value 3, each read consumes exactly 1 token and returns 1.
   if (true) {
-    auto e = event_fd::create(3, event_mode::semaphore);
+    auto e = os_event::create(3, event_mode::semaphore);
     CHECK(e.is_open());
 
     auto v = e.read();
@@ -397,10 +397,10 @@ TEST_CASE("SemaphoreMode", "[EventFd]") {
 
   // notify(n) posts n tokens; each read still consumes exactly 1.
   if (true) {
-    auto e = event_fd::create(0, event_mode::semaphore);
+    auto e = os_event::create(0, event_mode::semaphore);
     CHECK(e.notify(2));
 
-    event_fd::counter_t val = 0;
+    os_event::counter_t val = 0;
     CHECK(e.read(val));
     CHECK(val == 1U);
 
@@ -418,7 +418,7 @@ TEST_CASE("SemaphoreMode", "[EventFd]") {
 TEST_CASE("NonblockingEmptyRead", "[EventFd]") {
   // Default-created eventfds are non-blocking, so an empty read returns
   // nullopt.
-  auto e = event_fd::create();
+  auto e = os_event::create();
   auto value = e.read();
   CHECK_FALSE(value.has_value());
   CHECK(errno == EAGAIN);

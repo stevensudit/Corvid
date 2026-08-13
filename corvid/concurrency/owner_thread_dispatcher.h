@@ -30,7 +30,7 @@
 #include "../meta/fixed_function.h"
 #include "../infra/exception_firewalls.h"
 #include "../infra/scope_exit.h"
-#include "../filesys/event_fd.h"
+#include "../filesys/os_event.h"
 #include "../infra/relaxed_atomic.h"
 
 namespace corvid { inline namespace concurrency {
@@ -137,7 +137,7 @@ public:
   // See `queue_high_watermark` for tuning. The constructing thread becomes the
   // loop thread. Throws `std::logic_error` when that thread already has a
   // dispatcher, whatever its callback type, and `std::runtime_error` when the
-  // wake `eventfd` could not be created. A construction that throws for any
+  // wake event could not be created. A construction that throws for any
   // reason leaves the thread unclaimed.
   explicit owner_thread_dispatcher(size_t post_queue_reserve = 32UZ,
       size_t default_retry_count = npos) {
@@ -145,9 +145,9 @@ public:
       throw std::logic_error{
           "another owner_thread_dispatcher already exists on this thread"};
 
-    if (!wake_fd_)
+    if (!wake_event_)
       throw std::runtime_error{
-          "owner_thread_dispatcher could not create its wake eventfd"};
+          "owner_thread_dispatcher could not create its wake event"};
 
     if (default_retry_count != npos)
       default_retry_count_ = default_retry_count;
@@ -218,7 +218,10 @@ public:
       was_empty = active_queue.empty();
       active_queue.emplace_back(std::move(cbpost));
     }
-    // On transition from empty, signal the `eventfd` to wake the loop thread.
+    // On transition from empty, signal the wake event to wake the loop thread.
+    // The wake event stays open for the dispatcher's whole lifetime and a
+    // single add cannot overflow the counter, so this cannot fail; the
+    // callback is already queued, so there is no failure to report anyway.
     if (was_empty) (void)wake_post_queue();
 
     return true;
@@ -320,17 +323,19 @@ public:
 
 #pragma region Loop integration
 
-  // Access `eventfd` to wait on for work in the post queue.
-  const auto& wake_fd() const noexcept { return wake_fd_; }
+  // Access the wake event to wait on for work in the post queue.
+  const auto& wake_event() const noexcept { return wake_event_; }
 
-  // Signal eventfd to wake the loop thread.
-  [[nodiscard]] bool wake_post_queue() noexcept { return wake_fd_.notify(); }
+  // Signal the wake event to wake the loop thread.
+  [[nodiscard]] bool wake_post_queue() noexcept {
+    return wake_event_.notify();
+  }
 
   // Execute all pending callbacks in the post queue.
   //
   // Returns the number of callbacks executed. There is no reason to call this
-  // until after `post` signals the `eventfd`, and it must only be called from
-  // the owning thread.
+  // until after `post` signals the wake event, and it must only be called
+  // from the owning thread.
   //
   // A callback must not call this again: a nested drain would take over the
   // queue this one is walking. Doing so asserts, and returns zero without
@@ -381,7 +386,7 @@ private:
 
   // Summary:
   //
-  // `wake_fd` is used to signal that `active_queue_` has work to do.
+  // `wake_event_` is used to signal that `active_queue_` has work to do.
   //
   // `post_mutex_` protects the `post_queues_`.
   //
@@ -393,7 +398,7 @@ private:
   // `default_retry_count_` is the default number of times
   // `execute_or_post_with_retry` will retry a failed callback.
 
-  event_fd wake_fd_{event_fd::create()};
+  os_event wake_event_{os_event::create()};
   mutable std::mutex post_mutex_;
   post_queue_t post_queues_[2];
   relaxed_atomic<post_queue_t*> active_queue_{&post_queues_[0]};

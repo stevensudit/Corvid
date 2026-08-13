@@ -226,8 +226,8 @@ TEST_CASE("PostAndWait_OffLoopThread", "[OwnerThreadDispatcher]") {
   }};
 
   // Spin until the posted item signals the eventfd.
-  event_fd::counter_t val{};
-  while (!dispatcher.wake_fd().read(val)) std::this_thread::yield();
+  os_event::counter_t val{};
+  while (!dispatcher.wake_event().read(val)) std::this_thread::yield();
 
   auto executed = dispatcher.execute_post_queue();
   t.join();
@@ -266,8 +266,8 @@ TEST_CASE("PostAndWait_ShutdownReleasesWaiter", "[OwnerThreadDispatcher]") {
 
   // Spin until the callback is queued, which the wake signal proves because
   // `post` raises it only after adding to the queue.
-  event_fd::counter_t val{};
-  while (!dispatcher.wake_fd().read(val)) std::this_thread::yield();
+  os_event::counter_t val{};
+  while (!dispatcher.wake_event().read(val)) std::this_thread::yield();
 
   CHECK(dispatcher.shutdown());
 
@@ -403,22 +403,23 @@ TEST_CASE("ShutdownFromCallback", "[OwnerThreadDispatcher]") {
 //       [&dispatcher]() -> bool { return dispatcher.execute_post_queue(); });
 
 #pragma endregion
-#pragma region WakeFd
+#pragma region WakeEvent
 
-TEST_CASE("WakeFd", "[OwnerThreadDispatcher]") {
-  // `wake_fd` is signaled exactly once when the queue transitions from empty.
+TEST_CASE("WakeEvent", "[OwnerThreadDispatcher]") {
+  // `wake_event` is signaled exactly once when the queue transitions from
+  // empty.
   owner_thread_dispatcher<> dispatcher;
 
   // No signal before any post.
-  CHECK_FALSE(dispatcher.wake_fd().read().has_value());
+  CHECK_FALSE(dispatcher.wake_event().read().has_value());
 
-  // First post to empty queue signals the fd.
+  // First post to empty queue signals the event.
   CHECK(dispatcher.post([]() -> bool { return true; }));
-  CHECK(dispatcher.wake_fd().read().has_value());
+  CHECK(dispatcher.wake_event().read().has_value());
 
   // Second post to a non-empty queue does not re-signal.
   CHECK(dispatcher.post([]() -> bool { return true; }));
-  CHECK_FALSE(dispatcher.wake_fd().read().has_value());
+  CHECK_FALSE(dispatcher.wake_event().read().has_value());
 
   (void)dispatcher.execute_post_queue();
 }

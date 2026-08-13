@@ -15,6 +15,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 #pragma once
+
+// Linux-only: Windows sockets are a different API (Winsock `SOCKET`).
+#ifdef _WIN32
+#error "\"net_socket.h\" is Linux-only."
+#endif
 #include <algorithm>
 #include <cassert>
 #include <chrono>
@@ -375,14 +380,17 @@ public:
 #pragma endregion
 #pragma region Destruction
 
-  // Close the socket. Idempotent. Returns true when the socket was open and
-  // is now closed, false if it could not be closed (likely because it
-  // already was).
+  // Close the socket.
+  //
+  // Idempotent. Returns true when the socket was open and is now closed, false
+  // if it could not be closed (likely because it already was).
   // NOLINTNEXTLINE(bugprone-derived-method-shadowing-base-method)
   [[nodiscard]] bool close() noexcept { return os_file::close(); }
 
-  // Close the socket. In `graceful` mode, performs a normal close (FIN/ACK).
-  // In `forceful` mode, performs a forceful close (RST).
+  // Close the socket.
+  //
+  // In `graceful` mode, performs a normal close (FIN/ACK). In `forceful` mode,
+  // performs a forceful close (RST).
   [[nodiscard]] bool close(close_mode mode) noexcept {
     if (mode == close_mode::forceful && is_open())
       (void)set_option(socket_option::linger,
@@ -392,7 +400,7 @@ public:
   }
 
   // Shut down part of a full-duplex connection. `how` is one of `SHUT_RD`,
-  // `SHUT_WR`, or `SHUT_RDWR`. Returns true on success.
+  // `SHUT_WR`, or `SHUT_RDWR`.
   [[nodiscard]] bool shutdown(int how) noexcept {
     assert(is_open());
     return ::shutdown(handle(), how) == 0;
@@ -401,39 +409,45 @@ public:
 #pragma endregion
 #pragma region Factories
 
-  // Create an IPv4 socket. Defaults to non-blocking TCP (`SOCK_STREAM |
-  // SOCK_NONBLOCK | SOCK_CLOEXEC`). Pass `message_style::datagram` for UDP,
-  // or `execution::blocking` to omit `SOCK_NONBLOCK`.
+  // Create an IPv4 socket.
+  //
+  // Defaults to non-blocking TCP (`SOCK_STREAM | SOCK_NONBLOCK |
+  // SOCK_CLOEXEC`). Pass `message_style::datagram` for UDP, or
+  // `execution::blocking` to omit `SOCK_NONBLOCK`.
   [[nodiscard]] static net_socket
   create_ipv4(execution exec = execution::nonblocking,
       message_style style = message_style::stream) noexcept {
     return do_create(address_family::inet, exec, style);
   }
 
-  // Create an IPv6 socket. Defaults to non-blocking TCP (`SOCK_STREAM |
-  // SOCK_NONBLOCK | SOCK_CLOEXEC`). Pass `message_style::datagram` for UDP,
-  // or `execution::blocking` to omit `SOCK_NONBLOCK`.
+  // Create an IPv6 socket.
+  //
+  // Defaults to non-blocking TCP (`SOCK_STREAM | SOCK_NONBLOCK |
+  // SOCK_CLOEXEC`). Pass `message_style::datagram` for UDP, or
+  // `execution::blocking` to omit `SOCK_NONBLOCK`.
   [[nodiscard]] static net_socket
   create_ipv6(execution exec = execution::nonblocking,
       message_style style = message_style::stream) noexcept {
     return do_create(address_family::inet6, exec, style);
   }
 
-  // Create a Unix domain socket. Defaults to non-blocking stream
-  // (`SOCK_STREAM | SOCK_NONBLOCK | SOCK_CLOEXEC`). Pass
-  // `message_style::datagram` for a connectionless UDS, or
-  // `execution::blocking` to omit `SOCK_NONBLOCK`.
+  // Create a Unix domain socket.
+  //
+  // Defaults to non-blocking stream (`SOCK_STREAM | SOCK_NONBLOCK |
+  // SOCK_CLOEXEC`). Pass `message_style::datagram` for a connectionless UDS,
+  // or `execution::blocking` to omit `SOCK_NONBLOCK`.
   [[nodiscard]] static net_socket
   create_uds(execution exec = execution::nonblocking,
       message_style style = message_style::stream) noexcept {
     return do_create(address_family::unix, exec, style);
   }
 
-  // Create a socket whose address family matches `addr`. The family is read
-  // from `addr.ss_family`; if it is unrecognized, the underlying `socket(2)`
-  // call will fail and the returned socket will not be open. Defaults to
-  // non-blocking stream (`SOCK_STREAM | SOCK_NONBLOCK | SOCK_CLOEXEC`).
-  // Does not bind on `addr`.
+  // Create a socket whose address family matches `addr`.
+  //
+  // The family is read from `addr.ss_family`; if it is unrecognized, the
+  // underlying `socket(2)` call will fail and the returned socket will not be
+  // open. Defaults to non-blocking stream (`SOCK_STREAM | SOCK_NONBLOCK |
+  // SOCK_CLOEXEC`). Does not bind on `addr`.
   [[nodiscard]] static net_socket create_for(const sockaddr_storage& addr,
       execution exec = execution::nonblocking,
       message_style style = message_style::stream) noexcept {
@@ -479,9 +493,11 @@ public:
 #pragma endregion
 #pragma region Options
 
-  // Set a socket option. Returns true on success. Templated to infer
-  // `sizeof(T)` automatically and hide the `reinterpret_cast` required by
-  // the C `setsockopt` API; callers pass a typed value directly.
+  // Set a socket option.
+  //
+  // Returns true on success. Templated to infer `sizeof(T)` automatically and
+  // hide the `reinterpret_cast` required by the C `setsockopt` API; callers
+  // pass a typed value directly.
   template<typename T>
   [[nodiscard]] bool
   set_raw_option(int level, int optname, const T& value) noexcept {
@@ -504,7 +520,7 @@ public:
     return set_raw_option(*protocol_type::tcp, *optname, value);
   }
 
-  // Get a socket option. Returns `std::nullopt` on failure.
+  // Get a socket option.
   template<typename T>
   [[nodiscard]] std::optional<T>
   get_raw_option(int level, int optname) const noexcept {
@@ -517,16 +533,14 @@ public:
     return value;
   }
 
-  // Get a socket option at the `SOL_SOCKET` level. Returns `std::nullopt` on
-  // failure.
+  // Get a socket option at the `SOL_SOCKET` level.
   template<typename T>
   [[nodiscard]] std::optional<T>
   get_option(socket_option optname) const noexcept {
     return get_raw_option<T>(SOL_SOCKET, *optname);
   }
 
-  // Get a socket option at the `IPPROTO_TCP` level. Returns `std::nullopt` on
-  // failure.
+  // Get a socket option at the `IPPROTO_TCP` level.
   template<typename T>
   [[nodiscard]] std::optional<T>
   get_option(tcp_option optname) const noexcept {
@@ -630,6 +644,7 @@ public:
   }
 
   // Receive a message into `msg`, forwarding directly to POSIX `recvmsg`.
+  //
   // See "iov_msghdr.h".
   [[nodiscard]] ssize_t
   recv(msghdr& msgh, msg_flags flags = {}) const noexcept {
@@ -638,10 +653,11 @@ public:
   }
 
   // Peek at the socket, without consuming data, to determine whether EOF has
-  // been reached. Returns `true` if the peer has closed the connection
-  // (EOF), `false` if data is available (not EOF), or `std::nullopt` on any
-  // error (hard or soft) that prevents a determination (e.g., `EAGAIN`,
-  // `EBADF`).
+  // been reached.
+  //
+  // Returns `true` if the peer has closed the connection (EOF), `false` if
+  // data is available (not EOF), or `std::nullopt` on any error (hard or soft)
+  // that prevents a determination (e.g., `EAGAIN`, `EBADF`).
   [[nodiscard]] std::optional<bool> peek_eof() const noexcept {
     char byte{};
     const auto n = recv(&byte, 1, msg_flags::peek | msg_flags::dontwait);
@@ -651,6 +667,7 @@ public:
   }
 
   // Read synchronous socket until `delim` appears in the accumulated buffer.
+  //
   // Returns everything up to and including `delim`; trailing bytes stay in
   // `buf` for a subsequent call. Returns empty on EOF, hard error, timeout,
   // or if `buf` would grow beyond `max_size` without finding the delimiter.
@@ -674,10 +691,12 @@ public:
     return {};
   }
 
-  // Ensure `buf` contains pending bytes to process. If `buf` is non-empty,
-  // returns true immediately (the caller still has unprocessed bytes from a
-  // previous read). Otherwise reads the next chunk from `sock` into `buf`.
-  // Returns false on EOF, hard error, or timeout, with `buf` cleared.
+  // Ensure `buf` contains pending bytes to process.
+  //
+  // If `buf` is non-empty, returns true immediately (the caller still has
+  // unprocessed bytes from a previous read). Otherwise reads the next chunk
+  // from `sock` into `buf`. Returns false on EOF, hard error, or timeout, with
+  // `buf` cleared.
   [[nodiscard]] bool
   recv_sync_chunk(std::string& buf, size_t max_bytes = 4096UZ) const {
     if (!buf.empty()) return true;
@@ -689,9 +708,11 @@ public:
   }
 
   // Drain any trailing bytes from synchronous socket, up to `max_bytes`, and
-  // return true iff the peer reached clean EOF (FIN). Returns false on hard
-  // error (e.g., RST) or on timeout without EOF. Useful for asserting that a
-  // server closed the connection cleanly after sending its response.
+  // return true iff the peer reached clean EOF (FIN).
+  //
+  // Returns false on hard error (e.g., RST) or on timeout without EOF. Useful
+  // for asserting that a server closed the connection cleanly after sending
+  // its response.
   //
   // This is a utility method, not optimized for performance.
   [[nodiscard]] bool recv_sync_drain_to_eof(
@@ -710,15 +731,17 @@ public:
 #pragma endregion
 #pragma region Send
 
-  // Send as much of `data` as possible on the socket. On success, removes
-  // the written prefix from `data` and returns true. On failure, leaves
-  // `data` unchanged and returns false. A "soft" failure (e.g., `EAGAIN`)
-  // is treated as success with no progress.
+  // Send as much of `data` as possible on the socket.
+  //
+  // On success, removes the written prefix from `data` and returns true. On
+  // failure, leaves `data` unchanged and returns false. A "soft" failure
+  // (e.g., `EAGAIN`) is treated as success with no progress.
   [[nodiscard]] bool send(std::string_view& data) const noexcept {
     if (data.empty()) return true;
 
     const auto n = send(data.data(), data.size());
-    if (n <= 0) return !os_file::is_hard_error();
+    if (n == 0) return false;
+    if (n < 0) return !os_file::is_hard_error();
 
     data.remove_prefix(static_cast<size_t>(n));
     return true;
@@ -731,8 +754,9 @@ public:
     return ::send(handle(), buf, len, *flags);
   }
 
-  // Send a message described by `msgh`, forwarding to POSIX `sendmsg`. See
-  // "iov_msghdr.h".
+  // Send a message described by `msgh`, forwarding to POSIX `sendmsg`.
+  //
+  // See "iov_msghdr.h".
   [[nodiscard]] ssize_t
   send(msghdr& msgh, msg_flags flags = msg_flags::nosignal) const noexcept {
     assert(is_open());
@@ -750,12 +774,14 @@ public:
 #pragma endregion
 #pragma region Connecting
 
-  // Return the POSIX socket address size for `addr`. For IPv4 and IPv6,
-  // returns the fixed struct size. For UDS pathname sockets, returns only
-  // the significant portion of `sun_path` (path length + null terminator +
-  // header). For ANS (abstract name sockets, where `sun_path[0] == '\0'`),
-  // returns `sizeof(sockaddr_un)` so the full name buffer is transmitted.
-  // For unrecognized families, returns `sizeof(sockaddr_storage)`.
+  // Return the POSIX socket address size for `addr`.
+  //
+  // For IPv4 and IPv6, returns the fixed struct size. For UDS pathname
+  // sockets, returns only the significant portion of `sun_path` (path length +
+  // null terminator + header). For ANS (abstract name sockets, where
+  // `sun_path[0] == '\0'`), returns `sizeof(sockaddr_un)` so the full name
+  // buffer is transmitted. For unrecognized families, returns
+  // `sizeof(sockaddr_storage)`.
   [[nodiscard]] static socklen_t sockaddr_size(
       const sockaddr_storage& addr) noexcept {
     if (addr.ss_family == *address_family::inet) return sizeof(sockaddr_in);
@@ -776,31 +802,35 @@ public:
                sockaddr_size(addr)) == 0;
   }
 
-  // Initiate a connection to `addr`. Returns `true` on immediate success,
-  // `std::nullopt` when the connection is in progress (`EINPROGRESS`), or
-  // `false` on hard failure. For non-blocking sockets, arm `EPOLLOUT` and
-  // check `SO_ERROR` on the next writable event to confirm in-progress
-  // connects.
+  // Initiate a connection to `addr`.
+  //
+  // Returns `true` on immediate success, `std::nullopt` when the connection is
+  // in progress (`EINPROGRESS`), or `false` on hard failure. For non-blocking
+  // sockets, arm `EPOLLOUT` and check `SO_ERROR` on the next writable event to
+  // confirm in-progress connects.
   [[nodiscard]] std::optional<bool> connect(
       const sockaddr_storage& addr) noexcept {
     assert(is_open());
     if (::connect(handle(), reinterpret_cast<const sockaddr*>(&addr),
             sockaddr_size(addr)) == 0)
       return true;
-    if (e_code_is(EC::inprogress)) return std::nullopt;
+    if (os_error::last().code() == EC::inprogress) return std::nullopt;
     return false;
   }
 
-  // Mark the socket as passive and ready to accept connections. `backlog`
-  // is the maximum pending connection queue length. Returns true on success.
+  // Mark the socket as passive and ready to accept connections.
+  //
+  // `backlog` is the maximum pending connection queue length. Returns true on
+  // success.
   [[nodiscard]] bool listen(int backlog = SOMAXCONN) noexcept {
     assert(is_open());
     return ::listen(handle(), backlog) == 0;
   }
 
   // Accept a pending connection. Returns `std::nullopt` when no connection
-  // is available (`EAGAIN`/`EWOULDBLOCK`) or an error occurs. The peer
-  // address is returned as a raw `sockaddr_storage`; use
+  // is available (`EAGAIN`/`EWOULDBLOCK`) or an error occurs.
+  //
+  // The peer address is returned as a raw `sockaddr_storage`; use
   // `net_endpoint{sockaddr_storage}` to convert it if needed.
   [[nodiscard]] std::optional<std::pair<net_socket, sockaddr_storage>>
   accept() noexcept {

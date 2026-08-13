@@ -15,20 +15,23 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 #pragma once
-// Umbrella header for the Corvid filesys module.
+
+// Registered enums wrapping the OS-level flag and error macros used by the
+// filesys classes.
 //
-// Includes:
-//  os_enums  - registered enums wrapping OS flag and error macros
-//  os_error  - value wrapper for an OS error code
-//  os_file   - RAII OS file-handle ownership and read/write
-//  os_event  - wake-up event for signaling across threads
-//  epoll     - RAII Linux epoll handle with control and wait helpers (Linux)
-//  net_socket - RAII socket handle with type-safe option methods (Linux)
-#include "filesys/os_enums.h"
-#include "filesys/os_error.h"
-#include "filesys/os_file.h"
-#include "filesys/os_event.h"
-#ifndef _WIN32
-#include "filesys/epoll.h"
-#include "filesys/net_socket.h"
+// Each platform contributes its own vocabulary, and most of it is
+// platform-specific by nature: Linux provides `o_flags`, `msg_flags`,
+// `fcntl_ops`, the `mmap_*` family, and `errno_code`, while Windows provides
+// `win_error_code`.
+//
+// The one portable guarantee is the platform error code enum (`errno_code` or
+// `win_error_code`), which always has an `ok` member, is aliased as `EC`, and
+// serves as `os_error::code_t`.
+
+#define CORVID_OS_ENUMS_ENTRY
+#ifdef _WIN32
+#include "details/windows_os_enums.h"
+#else
+#include "details/linux_os_enums.h"
 #endif
+#undef CORVID_OS_ENUMS_ENTRY

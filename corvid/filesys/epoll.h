@@ -15,6 +15,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 #pragma once
+
+// Linux-only: `epoll` has no Windows counterpart.
+#ifdef _WIN32
+#error "\"epoll.h\" is Linux-only."
+#endif
 #include <optional>
 #include <sys/epoll.h>
 
@@ -86,6 +91,7 @@ public:
 #pragma region Wait
 
   // Wait for up to `maxevents` ready entries, optionally timing out.
+  //
   // A `timeout_ms` of -1 means to wait indefinitely (which is probably
   // unwise), while 0 means to return immediately. Returns the number of ready
   // entries on success, or `nullopt` on error. Note that `errno == EINTR` is

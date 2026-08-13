@@ -1326,8 +1326,8 @@ TEST_CASE("Segmented", "[SequentialEnumTest]") {
     static_assert(enum_intern_name<seg_basic>("z") == "z");
     static_assert(enum_intern_name<seg_basic>("q").empty());
     static_assert(enum_intern_name<seg_basic>("5").empty());
-    CHECK(*enum_find_by_name<seg_basic>("a") == seg_basic::a);
-    CHECK(*enum_find_by_name<seg_basic>("z") == seg_basic::z);
+    CHECK(enum_find_by_name<seg_basic>("a") == seg_basic::a);
+    CHECK(enum_find_by_name<seg_basic>("z") == seg_basic::z);
     CHECK(!enum_find_by_name<seg_basic>("q"));
 
     // Numeric-aware parse still reaches gap values.
@@ -1346,8 +1346,8 @@ TEST_CASE("Segmented", "[SequentialEnumTest]") {
     CHECK(enum_as_string(seg_inner::deep) == "deep");
     CHECK(enum_as_string(seg_inner(10)) == "10"); // between segments
 
-    CHECK(*enum_find_by_name<seg_inner>("p") == seg_inner::p);
-    CHECK(*enum_find_by_name<seg_inner>("deep") == seg_inner::deep);
+    CHECK(enum_find_by_name<seg_inner>("p") == seg_inner::p);
+    CHECK(enum_find_by_name<seg_inner>("deep") == seg_inner::deep);
     CHECK(!enum_find_by_name<seg_inner>("-")); // placeholder is not a name
   }
 
@@ -1361,8 +1361,8 @@ TEST_CASE("Segmented", "[SequentialEnumTest]") {
     CHECK(enum_as_string(seg_neg::hi2) == "hi2");
     CHECK(enum_as_string(seg_neg(0)) == "0"); // between segments
 
-    CHECK(*enum_find_by_name<seg_neg>("lo") == seg_neg::lo);
-    CHECK(*enum_find_by_name<seg_neg>("hi2") == seg_neg::hi2);
+    CHECK(enum_find_by_name<seg_neg>("lo") == seg_neg::lo);
+    CHECK(enum_find_by_name<seg_neg>("hi2") == seg_neg::hi2);
   }
 
   SECTION("Three ascending segments") {
@@ -1375,9 +1375,9 @@ TEST_CASE("Segmented", "[SequentialEnumTest]") {
     CHECK(enum_as_string(seg_three(3)) == "3"); // between segments 0 and 1
     CHECK(enum_as_string(seg_three(7)) == "7"); // between segments 1 and 2
 
-    CHECK(*enum_find_by_name<seg_three>("a") == seg_three::a);
-    CHECK(*enum_find_by_name<seg_three>("m") == seg_three::m);
-    CHECK(*enum_find_by_name<seg_three>("y") == seg_three::y);
+    CHECK(enum_find_by_name<seg_three>("a") == seg_three::a);
+    CHECK(enum_find_by_name<seg_three>("m") == seg_three::m);
+    CHECK(enum_find_by_name<seg_three>("y") == seg_three::y);
   }
 }
 
