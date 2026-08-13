@@ -218,8 +218,10 @@ public:
       was_empty = active_queue.empty();
       active_queue.emplace_back(std::move(cbpost));
     }
-    // On transition from empty, signal the wake event to wake the loop
-    // thread.
+    // On transition from empty, signal the wake event to wake the loop thread.
+    // The wake event stays open for the dispatcher's whole lifetime and a
+    // single add cannot overflow the counter, so this cannot fail; the
+    // callback is already queued, so there is no failure to report anyway.
     if (was_empty) (void)wake_post_queue();
 
     return true;

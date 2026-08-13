@@ -75,6 +75,9 @@ public:
   // NOLINTEND(bugprone-crtp-constructor-accessibility)
 
   // Create an event in the portable default configuration, initially clear.
+  //
+  // Check event for validity with `operator bool`, and optionally follow up
+  // with `os_error::last()`.
   [[nodiscard]] static Derived create() noexcept {
     return Derived{Derived::do_create()};
   }

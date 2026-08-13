@@ -1668,12 +1668,16 @@ private:
     // initial submission.
     auto raw_cb =
         [this](completion_id cbhandle, iou_res, iou_cqe_flags flags) {
-          (void)wake_event().drain();
+          if (!wake_event().drain())
+            throw std::runtime_error{"failed to drain wake event"};
+
           if (bitmask::has(flags, iou_cqe_flags::more))
             return slot_retention::automatic;
+
           if (!submit_poll_multishot(wake_event(), completion_token{cbhandle},
                   poll_flags::in, slot_retention::retain))
             throw std::runtime_error{"failed to resubmit wake poll multishot"};
+
           return slot_retention::retain;
         };
 

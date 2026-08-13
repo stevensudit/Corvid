@@ -91,15 +91,14 @@ if ($cleanAll) {
   if ($Rest.Count -gt 1) {
     throw "'clean-all' takes no other arguments"
   }
-  foreach ($stray in 'CMakeCache.txt', 'cmake_install.cmake',
+  foreach ($target in 'CMakeCache.txt', 'cmake_install.cmake',
     'ClangExeProject.sln', 'build.ninja', 'CMakeFiles', '.ninja_deps',
-    '.ninja_log') {
-    Remove-Item -Recurse -Force -ErrorAction SilentlyContinue `
-      (Join-Path $repo $stray)
-  }
-  foreach ($tree in 'tests/build', 'tests/build-cl', 'tests/build-debug') {
-    Remove-Item -Recurse -Force -ErrorAction SilentlyContinue `
-      (Join-Path $repo $tree)
+    '.ninja_log', 'tests/build', 'tests/build-cl', 'tests/build-debug') {
+    $path = Join-Path $repo $target
+    Remove-Item -Recurse -Force -ErrorAction SilentlyContinue $path
+    if (Test-Path $path) {
+      throw "clean-all: failed to remove '$path' (open handle? close clangd/IDE and retry)"
+    }
   }
   Write-Host ('Removed tests/build, tests/build-cl, and tests/build-debug ' +
     '(dependency caches preserved).')
