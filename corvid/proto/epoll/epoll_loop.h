@@ -213,7 +213,7 @@ public:
 
       // Drain the internal wakeup handle and skip: it carries no user event.
       if (fd == *wake_event()) {
-        if (!wake_event().read()) return -1;
+        if (!wake_event().drain()) return -1;
         continue;
       }
 
