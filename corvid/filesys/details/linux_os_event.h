@@ -70,7 +70,9 @@ public:
   // Create an `os_event` with `initial_value`.
   //
   // Pass `event_mode::semaphore` to add `EFD_SEMAPHORE`, or
-  // `execution::blocking` to omit `EFD_NONBLOCK`.
+  // `execution::blocking` to omit `EFD_NONBLOCK`. In semaphore mode, the
+  // portable `drain` consumes one count per call rather than clearing the
+  // counter.
   //
   // The first parameter takes no default so that the portable no-argument
   // `create` stays unambiguous; it is the equivalent of passing 0 here.
@@ -137,7 +139,9 @@ private:
   // Consume the accumulated count.
   //
   // Assumes the default non-blocking mode; in blocking mode, an already-clear
-  // counter would block.
+  // counter would block. In semaphore mode, each read consumes a single count,
+  // so one drain clears only one pending notification; loop on `read` when a
+  // semaphore event must be fully cleared.
   [[nodiscard]] bool do_drain() const noexcept {
     counter_t value{};
     if (::eventfd_read(handle(), &value) == 0) return true;
