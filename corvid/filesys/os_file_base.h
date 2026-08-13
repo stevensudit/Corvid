@@ -15,22 +15,32 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 #pragma once
+#include <cstddef>
+#include <cstdint>
+#include <optional>
+#include <string>
+#include <string_view>
+
+#include "../strings/no_zero.h"
 #include "os_error.h"
 
 namespace corvid { inline namespace filesys {
+
+using corvid::strings::no_zero;
 
 #pragma region os_file_base
 
 // CRTP base defining the shared `os_file` interface.
 //
 // `os_file` is an RAII wrapper around an OS file handle: a file descriptor on
-// Linux and a `HANDLE` on Windows, exposed as `file_handle_t` with the
-// invalid sentinel `invalid_file_handle`. An `os_file` owns a single file and
-// closes it on destruction; it is movable and non-copyable. The platform
-// implementation derives from this base, supplying the `do_` workers for
-// adoption and closing, the I/O operations (`write`, `read`, `write_all`,
-// `read_exact`, whose semantics are documented on each platform), and any
-// extras, such as the `fcntl` helpers on Linux.
+// Linux and a `HANDLE` on Windows. These are exposed as `file_handle_t` with
+// the invalid sentinel, `invalid_file_handle`. An `os_file` owns a single file
+// and closes it on destruction; it is movable and non-copyable.
+//
+// The whole interface, including the I/O operations, reads here. The platform
+// implementation derives from this base, supplying only the `do_` workers
+// (adopt, close, and the single-call read/write primitives) plus any extras,
+// such as the `fcntl` helpers on Linux.
 //
 //   auto data = read_request();
 //   while (!data.empty())
@@ -43,6 +53,17 @@ public:
   using file_handle_t = HandleT;
   static constexpr file_handle_t invalid_file_handle = Invalid;
 
+protected:
+  // Outcome of one `do_read_some` primitive: what happened and, when data
+  // arrived, how many bytes.
+  enum class read_status : uint8_t { data, eof, soft, hard };
+
+  struct read_result {
+    read_status status;
+    size_t bytes = 0;
+  };
+
+public:
 #pragma endregion
 #pragma region Construction
 
@@ -90,10 +111,12 @@ public:
 #pragma endregion
 #pragma region Close and release
 
-  // Close the file. Idempotent. Returns true when the file was open and is
-  // now closed, false if it could not be closed (likely because it already
-  // was). Note that, on failure, the file is left in a closed state to avoid
-  // potential reuse of a stale handle.
+  // Close the file.
+  //
+  // Idempotent. Returns true when the file was open and is now closed, false
+  // if it could not be closed (likely because it already was). Note that, on
+  // failure, the file is left in a closed state to avoid potential reuse of a
+  // stale handle.
   bool close() noexcept {
     if (!is_open()) return false;
     const auto old_handle = handle_;
@@ -109,6 +132,97 @@ public:
   }
 
 #pragma endregion
+#pragma region I/O
+
+  // Write as much of `data` as possible to the file.
+  //
+  // On success, removes the written prefix from `data` and returns true. On
+  // failure, leaves `data` unchanged and returns false. A soft failure (see
+  // `os_error`) is treated as success with no progress.
+  [[nodiscard]] bool write(std::string_view& data) const {
+    if (data.empty()) return true;
+
+    const auto n = self().do_write_some(data.data(), data.size());
+    if (!n) return false;
+
+    data.remove_prefix(*n);
+    return true;
+  }
+
+  // Read up to `data.size()` bytes from the file into `data`.
+  //
+  /// Use `no_zero{data}.enlarge_to_cap()` or `no_zero{data}.enlarge_to(n)` to
+  /// get the desired size.
+  //
+  // On success, resizes `data` to the number of bytes read and returns true.
+  // A soft failure is treated as success with zero bytes read. On
+  // EOF/disconnect, leaves `data` unchanged and returns false. On hard
+  // failure, clears `data` and returns false.
+  [[nodiscard]] bool read(std::string& data) const {
+    if (data.empty()) return true;
+
+    const auto [status, bytes] = self().do_read_some(data.data(), data.size());
+
+    // Update `data` to the size actually read.
+    if (status == read_status::data) {
+      no_zero{data}.trim_to(bytes);
+      return true;
+    }
+
+    // EOF/disconnect. Return false without clearing `data`.
+    if (status == read_status::eof) return false;
+
+    // If retriable, treat as a success with nothing read, while a hard error
+    // is a failure; either way, `data` ends up cleared.
+    data.clear();
+    return status == read_status::soft;
+  }
+
+  // Write all of `data` to the file, retrying after partial writes and soft
+  // errors.
+  //
+  // Returns true only when all bytes have been written. On hard failure,
+  // returns false with an indeterminate prefix of `data` already sent.
+  // Intended for blocking I/O; on a non-blocking file, a full kernel buffer
+  // causes a busy-loop.
+  [[nodiscard]] bool write_all(std::string_view data) const {
+    while (!data.empty())
+      if (!write(data)) return false;
+    return true;
+  }
+
+  // Read exactly `data.size()` bytes into `data`, retrying after partial
+  // reads and soft errors. Size `data` with `data.resize(n)` or
+  // `no_zero{data}.enlarge_to(n)` before calling.
+  //
+  // Returns true only when all bytes have been read. On EOF before
+  // completion, trims `data` to the bytes received and returns false. On
+  // hard failure, clears `data` and returns false. Intended for blocking
+  // I/O; on a non-blocking file, an empty kernel buffer causes a busy-loop.
+  [[nodiscard]] bool read_exact(std::string& data) const {
+    size_t offset{};
+    const auto target = data.size();
+    while (offset < target) {
+      const auto [status, bytes] =
+          self().do_read_some(data.data() + offset, target - offset);
+      if (status == read_status::data) {
+        offset += bytes;
+        continue;
+      }
+      if (status == read_status::soft) continue;
+      // On EOF, trim to bytes received and fail.
+      if (status == read_status::eof) {
+        no_zero{data}.trim_to(offset);
+        return false;
+      }
+      // On hard error, clear `data` and fail.
+      data.clear();
+      return false;
+    }
+    return true;
+  }
+
+#pragma endregion
 #pragma region Errors
 
   // Check whether the last error was a hard error (true) or a soft error
@@ -121,8 +235,15 @@ public:
   }
 
 #pragma endregion
-#pragma region Data members
+#pragma region Helpers
 private:
+  [[nodiscard]] constexpr const Derived& self() const noexcept {
+    return static_cast<const Derived&>(*this);
+  }
+
+#pragma endregion
+#pragma region Data members
+
   file_handle_t handle_ = invalid_file_handle;
 
 #pragma endregion

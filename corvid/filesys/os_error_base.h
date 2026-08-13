@@ -35,14 +35,16 @@ using corvid::enums::bitmask::ops::operator*;
 
 #pragma region os_error_base
 
-// CRTP base defining the entire `os_error` interface.
+// CRTP base defining the portable `os_error` interface.
 //
 // `os_error` is a value wrapper for an OS error code. The wrapped code is the
 // platform's own vocabulary: `errno_code` on Linux and `win_error_code` on
 // Windows. This is exposed as `code_t`, which is a scoped enum whose
-// `ok` member means no error. The platform implementation of `os_error`
-// derives from this base, supplying only the `do_` workers that implement the
-// platform-specific operations.
+// `ok` member means no error.
+//
+// A platform-specific implementation of `os_error` derives from this base,
+// supplying only the `do_` workers that implement the platform-specific
+// operations.
 //
 // Capture the error immediately after the failing call, as in:
 //
@@ -101,6 +103,12 @@ public:
   [[nodiscard]] constexpr bool ok() const noexcept {
     return code_ == code_t::ok;
   }
+
+  [[nodiscard]] constexpr explicit operator bool() const noexcept {
+    return ok();
+  }
+
+  [[nodiscard]] constexpr code_t operator*() const noexcept { return code_; }
 
   constexpr bool operator==(const os_error_base&) const noexcept = default;
 

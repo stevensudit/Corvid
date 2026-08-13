@@ -24,6 +24,10 @@
 #error "Include \"os_error.h\" instead of this implementation header."
 #endif
 
+// The body drops out on the wrong platform, keeping cross-platform viewing
+// quiet.
+#ifdef _WIN32
+
 #include <cstdint>
 
 #include "../os_enums.h"
@@ -70,3 +74,5 @@ private:
 
 #pragma endregion
 }} // namespace corvid::filesys
+
+#endif // _WIN32

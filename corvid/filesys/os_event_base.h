@@ -15,12 +15,25 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 #pragma once
+#include <chrono>
+#include <cstdint>
 #include <utility>
 
+#include "../enums/sequence_enum.h"
 #include "os_file.h"
 
 namespace corvid { inline namespace filesys {
 
+#pragma region wait_result
+
+// Outcome of a timed wait on an `os_event`.
+enum class wait_result : uint8_t { failed, timed_out, signaled };
+consteval auto corvid_enum_spec(wait_result*) {
+  return corvid::enums::sequence::make_sequence_enum_spec<wait_result,
+      "failed,timed_out,signaled">();
+}
+
+#pragma endregion
 #pragma region os_event_base
 
 // CRTP base defining the portable `os_event` interface.
@@ -29,11 +42,13 @@ namespace corvid { inline namespace filesys {
 // `eventfd` on Linux and a Win32 manual-reset event on Windows. It derives
 // from `os_file` and owns its handle the same way.
 //
-// How to wait is a platform matter, driven through the raw handle (as by
+// `wait_for` provides a simple timed wait. Waiting on the event alongside
+// other work is a platform matter, driven through the raw handle (as by
 // dereferencing), such as registering it with `epoll` on Linux or passing it
-// to `WaitForSingleObject` on Windows. The platform implementation derives
-// from this base, supplying the `do_` workers and any extras, such as the
-// counter and semaphore modes on Linux.
+// to `WaitForMultipleObjects` on Windows.
+//
+// The platform implementation derives from this base, supplying the `do_`
+// workers and any extras, such as the counter and semaphore modes on Linux.
 template<typename Derived>
 class os_event_base: public os_file {
 public:
@@ -74,6 +89,15 @@ public:
   // next `notify`.
   [[nodiscard]] bool drain() const noexcept {
     return static_cast<const Derived&>(*this).do_drain();
+  }
+
+  // Wait until the event is signaled or `timeout` elapses.
+  //
+  // Does not consume the notification; `drain` does. An interrupted wait
+  // reports `failed`; re-wait if that matters.
+  [[nodiscard]] wait_result wait_for(
+      std::chrono::milliseconds timeout) const noexcept {
+    return static_cast<const Derived&>(*this).do_wait_for(timeout);
   }
 
 #pragma endregion

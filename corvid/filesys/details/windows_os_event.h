@@ -24,6 +24,13 @@
 #error "Include \"os_event.h\" instead of this implementation header."
 #endif
 
+// The body drops out on the wrong platform, keeping cross-platform viewing
+// quiet.
+#ifdef _WIN32
+
+#include <algorithm>
+#include <chrono>
+
 #include "../os_event_base.h"
 
 // Windows implementation of "os_event.h", wrapping a Win32 event.
@@ -54,12 +61,26 @@ private:
 
   // Signal the event.
   [[nodiscard]] bool do_notify() const noexcept {
-    return ::SetEvent(handle()) != 0;
+    return ::SetEvent(handle());
   }
 
   // Reset the event to clear.
   [[nodiscard]] bool do_drain() const noexcept {
-    return ::ResetEvent(handle()) != 0;
+    return ::ResetEvent(handle());
+  }
+
+  // Wait via `WaitForSingleObject`, clamped to finite milliseconds so a huge
+  // or negative timeout cannot alias `INFINITE`.
+  [[nodiscard]] wait_result do_wait_for(
+      std::chrono::milliseconds timeout) const noexcept {
+    const auto ms = static_cast<DWORD>(
+        std::clamp<std::chrono::milliseconds::rep>(timeout.count(), 0,
+            INFINITE - 1));
+    switch (::WaitForSingleObject(handle(), ms)) {
+    case WAIT_OBJECT_0: return wait_result::signaled;
+    case WAIT_TIMEOUT: return wait_result::timed_out;
+    default: return wait_result::failed;
+    }
   }
 
 #pragma endregion
@@ -67,3 +88,5 @@ private:
 
 #pragma endregion
 }} // namespace corvid::filesys
+
+#endif // _WIN32

@@ -24,9 +24,14 @@
 #error "Include \"os_enums.h\" instead of this implementation header."
 #endif
 
+// The body drops out on the wrong platform, keeping cross-platform viewing
+// quiet.
+#ifndef _WIN32
+
 #include <cerrno>
 #include <cstdint>
 #include <fcntl.h>
+#include <sys/eventfd.h>
 #include <sys/mman.h>
 #include <sys/socket.h>
 
@@ -316,6 +321,21 @@ consteval auto corvid_enum_spec(o_flags*) {
 }
 
 #pragma endregion
+#pragma region efd_flags
+
+// `EFD_*` wrapper for `eventfd` flags.
+enum class efd_flags : int {
+  none = 0,                  // 0x0000'0000
+  semaphore = EFD_SEMAPHORE, // 0x0000'0001
+  nonblock = EFD_NONBLOCK,   // 0x0000'0800
+  cloexec = EFD_CLOEXEC,     // 0x0008'0000
+};
+consteval auto corvid_enum_spec(efd_flags*) {
+  return corvid::enums::bitmask::make_bitmask_enum_spec<efd_flags,
+      "cloexec,,,,,,,,nonblock,,,,,,,,,,,semaphore">();
+}
+
+#pragma endregion
 
 // TODO: Move out into "mmap.h", which also wraps `::map` and `::madvise` and
 // defines a RAII `mmap` wrapper class.
@@ -410,3 +430,5 @@ consteval auto corvid_enum_spec(mmap_advice*) {
 
 #pragma endregion
 }} // namespace corvid::filesys
+
+#endif // !_WIN32

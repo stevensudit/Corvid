@@ -24,24 +24,23 @@
 #error "Include \"os_file.h\" instead of this implementation header."
 #endif
 
+// The body drops out on the wrong platform, keeping cross-platform viewing
+// quiet.
+#ifndef _WIN32
+
 #include <cstddef>
 #include <optional>
-#include <string>
-#include <string_view>
 #include <utility>
 
 #include <fcntl.h>
 #include <unistd.h>
 
-#include "../../strings/no_zero.h"
 #include "../os_enums.h"
 #include "../os_file_base.h"
 
 // Linux implementation of "os_file.h", wrapping a file descriptor.
 
 namespace corvid { inline namespace filesys {
-
-using corvid::strings::no_zero;
 
 #pragma region os_file
 
@@ -58,94 +57,11 @@ class [[nodiscard]] os_file: public os_file_base<os_file, int, -1> {
 public:
   using base::base;
 
-#pragma region I/O
-
-  // Write as much of `data` as possible to the file. On success, removes the
-  // written prefix from `data` and returns true. On failure, leaves `data`
-  // unchanged and returns false. A "soft" failure (e.g., EAGAIN) is treated
-  // as success with no progress. Note that this call can invoke a SIGPIPE on
-  // broken pipes/sockets, so use `net_socket::send` with MSG_NOSIGNAL instead.
-  [[nodiscard]] bool write(std::string_view& data) const {
-    if (data.empty()) return true;
-
-    const auto n = ::write(handle(), data.data(), data.size());
-    if (n <= 0) return !is_hard_error();
-
-    data.remove_prefix(static_cast<size_t>(n));
-    return true;
-  }
-
-  // Read up to `data.size()` bytes from the file into `data`. Use
-  // `no_zero{data}.enlarge_to_cap()` or `no_zero{data}.enlarge_to(n)` to get
-  // the desired size.
-  //
-  // On success, resizes `data` to the number of bytes read and returns true. A
-  // "soft" failure (e.g., EAGAIN) is treated as success with zero bytes read.
-  // On EOF/disconnect, leaves `data` unchanged and returns false. On hard
-  // failure, clears `data` and returns false.
-  [[nodiscard]] bool read(std::string& data) const {
-    if (data.empty()) return true;
-
-    // Read up to the current size.
-    // NOLINTNEXTLINE(clang-analyzer-unix.BlockInCriticalSection)
-    const auto n = ::read(handle(), data.data(), data.size());
-
-    // EOF/disconnect. Return false without clearing `data`.
-    if (n == 0) return false;
-
-    // Update `data` to the size actually read.
-    no_zero{data}.trim_to(n);
-
-    // If retriable, treat as a success with nothing read, while a hard error
-    // is a failure with `data` cleared.
-    if (n < 0) return !is_hard_error();
-    return true;
-  }
-
-  // Write all of `data` to the file, retrying after partial writes and soft
-  // errors (e.g., `EINTR`). Returns true only when all bytes have been
-  // written. On hard failure, returns false with an indeterminate prefix of
-  // `data` already sent. Intended for blocking I/O; on non-blocking fds, a
-  // full kernel buffer causes a busy-loop.
-  [[nodiscard]] bool write_all(std::string_view data) const {
-    while (!data.empty())
-      if (!write(data)) return false;
-    return true;
-  }
-
-  // Read exactly `data.size()` bytes into `data`, retrying after partial
-  // reads and soft errors (e.g., `EINTR`). Size `data` with `data.resize(n)`
-  // or `no_zero{data}.enlarge_to(n)` before calling.
-  //
-  // Returns true only when all bytes have been read. On EOF before
-  // completion, trims `data` to the bytes received and returns false. On hard
-  // failure, clears `data` and returns false. Intended for blocking I/O; on
-  // non-blocking fds, an empty kernel buffer causes a busy-loop.
-  [[nodiscard]] bool read_exact(std::string& data) const {
-    size_t offset{};
-    const auto target = data.size();
-    while (offset < target) {
-      const auto n = ::read(handle(), data.data() + offset, target - offset);
-      // On EOF, trim to bytes received and fail.
-      if (n == 0) {
-        no_zero{data}.trim_to(offset);
-        return false;
-      }
-      // On hard error, clear `data` and fail.
-      if (n < 0) {
-        if (!is_hard_error()) continue;
-        data.clear();
-        return false;
-      }
-      offset += static_cast<size_t>(n);
-    }
-    return true;
-  }
-
-#pragma endregion
 #pragma region Control
 
-  // Invoke `fcntl(cmd, args...)` on the handle. Returns -1 on failure.
+  // Invoke `fcntl(cmd, args...)` on the handle.
+  //
+  // Returns -1 on failure.
   template<typename... Args>
   [[nodiscard]] int control(fcntl_ops cmd, Args&&... args) const noexcept {
     return ::fcntl(handle(), *cmd, std::forward<Args>(args)...);
@@ -158,13 +74,13 @@ public:
     return flags;
   }
 
-  // Set the fd status flags via `fcntl(F_SETFL)`. Returns false on failure.
-  // These are the "O_" flags.
+  // Set the fd status flags via `fcntl(F_SETFL)`.
   [[nodiscard]] bool set_flags(o_flags flags) const noexcept {
     return control(fcntl_ops::setfl, *flags) == 0;
   }
 
   // Enable or disable non-blocking I/O via `fcntl(F_SETFL, O_NONBLOCK)`.
+  //
   // But consider opening with `O_NONBLOCK` in the first place.
   [[nodiscard]] bool set_nonblocking(bool on = true) const noexcept {
     const auto flags = get_flags();
@@ -186,8 +102,33 @@ private:
     return ::close(h) == 0;
   }
 
+  // One `::write`.
+  //
+  // Returns the bytes written, 0 for a soft failure, or nullopt for a hard
+  // one. Note that this call can raise SIGPIPE on broken pipes/sockets, so use
+  // `net_socket::send` with MSG_NOSIGNAL instead.
+  [[nodiscard]] std::optional<size_t>
+  do_write_some(const char* p, size_t len) const noexcept {
+    const auto n = ::write(handle(), p, len);
+    if (n > 0) return static_cast<size_t>(n);
+    return is_hard_error() ? std::nullopt : std::optional<size_t>{0};
+  }
+
+  // One `::read`.
+  //
+  // EOF is a zero return; a negative one classifies soft or hard by `errno`.
+  [[nodiscard]] read_result do_read_some(char* p, size_t len) const noexcept {
+    // NOLINTNEXTLINE(clang-analyzer-unix.BlockInCriticalSection)
+    const auto n = ::read(handle(), p, len);
+    if (n > 0) return {read_status::data, static_cast<size_t>(n)};
+    if (n == 0) return {read_status::eof};
+    return {is_hard_error() ? read_status::hard : read_status::soft};
+  }
+
 #pragma endregion
 };
 
 #pragma endregion
 }} // namespace corvid::filesys
+
+#endif // !_WIN32

@@ -32,8 +32,8 @@
 
 #define CORVID_OS_EVENT_ENTRY
 #ifdef _WIN32
-#include "imp/windows_os_event.h"
+#include "details/windows_os_event.h"
 #else
-#include "imp/linux_os_event.h"
+#include "details/linux_os_event.h"
 #endif
 #undef CORVID_OS_EVENT_ENTRY

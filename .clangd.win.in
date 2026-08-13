@@ -15,8 +15,8 @@ CompileFlags:
   # command without them and resolves no types; add them globally (harmless
   # extra search paths). ImGui needs both its source root and backends dir.
   # `-DCORVID_CLANGD` marks clangd's parse so the implementation headers under
-  # `imp/` reroute a standalone open through their public entry header instead
-  # of failing.
+  # `details/` tolerate a standalone open instead of failing their entry-point
+  # check.
   Add: [-isystem, @CORVID_CLANGD_SDL_INCLUDE@, -isystem, @CORVID_CLANGD_IMGUI_INCLUDE@, -isystem, @CORVID_CLANGD_IMGUI_BACKENDS@, -DCORVID_CLANGD]
 
 ---

@@ -19,9 +19,11 @@
 
 #include "catch2_main.h"
 
+#include <chrono>
 #include <utility>
 
 using namespace corvid;
+using namespace std::chrono_literals;
 
 // NOLINTBEGIN(readability-function-cognitive-complexity)
 
@@ -53,6 +55,19 @@ TEST_CASE("os_event portable surface") {
     os_event b{std::move(a)};
     CHECK(b.is_open());
     CHECK(b.handle() == h);
+  }
+
+  // Timed wait: a clear event times out, a notified one is signaled, and
+  // waiting does not consume the notification; `drain` does.
+  if (true) {
+    auto e = os_event::create();
+    REQUIRE(e.is_open());
+    CHECK(e.wait_for(0ms) == wait_result::timed_out);
+    CHECK(e.notify());
+    CHECK(e.wait_for(0ms) == wait_result::signaled);
+    CHECK(e.wait_for(0ms) == wait_result::signaled);
+    CHECK(e.drain());
+    CHECK(e.wait_for(0ms) == wait_result::timed_out);
   }
 }
 

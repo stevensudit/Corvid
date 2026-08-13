@@ -23,9 +23,9 @@
 
 #define CORVID_OS_ERROR_ENTRY
 #ifdef _WIN32
-#include "imp/windows_os_error.h"
+#include "details/windows_os_error.h"
 #else
-#include "imp/linux_os_error.h"
+#include "details/linux_os_error.h"
 #endif
 #undef CORVID_OS_ERROR_ENTRY
 

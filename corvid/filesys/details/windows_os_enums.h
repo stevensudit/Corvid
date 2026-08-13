@@ -24,6 +24,10 @@
 #error "Include \"os_enums.h\" instead of this implementation header."
 #endif
 
+// The body drops out on the wrong platform, keeping cross-platform viewing
+// quiet.
+#ifdef _WIN32
+
 #include <cstdint>
 
 #ifndef NOMINMAX
@@ -131,3 +135,5 @@ using EC = win_error_code;
 
 #pragma endregion
 }} // namespace corvid::filesys
+
+#endif // _WIN32

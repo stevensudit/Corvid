@@ -30,8 +30,8 @@
 
 #define CORVID_OS_ENUMS_ENTRY
 #ifdef _WIN32
-#include "imp/windows_os_enums.h"
+#include "details/windows_os_enums.h"
 #else
-#include "imp/linux_os_enums.h"
+#include "details/linux_os_enums.h"
 #endif
 #undef CORVID_OS_ENUMS_ENTRY
