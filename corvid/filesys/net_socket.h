@@ -814,7 +814,7 @@ public:
     if (::connect(handle(), reinterpret_cast<const sockaddr*>(&addr),
             sockaddr_size(addr)) == 0)
       return true;
-    if (e_code_is(EC::inprogress)) return std::nullopt;
+    if (os_error::last().code() == EC::inprogress) return std::nullopt;
     return false;
   }
 

@@ -277,10 +277,8 @@ consteval auto corvid_enum_spec(errno_code*) {
       "hwpoison">();
 }
 
-// Type-safe aliasing for `errno`.
+// Shorthand for `errno_code`.
 using EC = errno_code;
-inline errno_code e_code() { return errno_code{errno}; }
-inline bool e_code_is(errno_code code) { return e_code() == code; }
 
 #pragma endregion
 #pragma region o_flags
