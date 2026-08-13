@@ -403,9 +403,9 @@ TEST_CASE("ShutdownFromCallback", "[OwnerThreadDispatcher]") {
 //       [&dispatcher]() -> bool { return dispatcher.execute_post_queue(); });
 
 #pragma endregion
-#pragma region WakeFd
+#pragma region WakeEvent
 
-TEST_CASE("WakeFd", "[OwnerThreadDispatcher]") {
+TEST_CASE("WakeEvent", "[OwnerThreadDispatcher]") {
   // `wake_event` is signaled exactly once when the queue transitions from
   // empty.
   owner_thread_dispatcher<> dispatcher;
@@ -413,7 +413,7 @@ TEST_CASE("WakeFd", "[OwnerThreadDispatcher]") {
   // No signal before any post.
   CHECK_FALSE(dispatcher.wake_event().read().has_value());
 
-  // First post to empty queue signals the fd.
+  // First post to empty queue signals the event.
   CHECK(dispatcher.post([]() -> bool { return true; }));
   CHECK(dispatcher.wake_event().read().has_value());
 
