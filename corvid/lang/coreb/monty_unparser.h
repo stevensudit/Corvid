@@ -27,7 +27,7 @@
 
 #include "../../containers/core/scoped_value.h"
 #include "../../strings/cases.h"
-#include "symbols.h"
+#include "runtime.h"
 #include "token_classes.h"
 #include "value.h"
 
@@ -100,8 +100,8 @@ public:
   // Unparse one Hall form as a Monty statement, possibly a multi-line
   // block, without a trailing newline.
   [[nodiscard]] static std::string
-  unparse(runtime_environment& run_env, const value& form) {
-    builder b(run_env.syms);
+  unparse(const runtime& rt, const value& form) {
+    builder b(rt);
     b.emit_statement(form, 0);
     b.trim();
     return std::move(b.out);
@@ -110,8 +110,8 @@ public:
   // Unparse a program: each Hall form a top-level statement, newline
   // separated.
   [[nodiscard]] static std::string
-  unparse_all(runtime_environment& run_env, std::span<const value> forms) {
-    builder b(run_env.syms);
+  unparse_all(const runtime& rt, std::span<const value> forms) {
+    builder b(rt);
     for (const auto& form : forms) b.emit_statement(form, 0);
     b.trim();
     return std::move(b.out);
@@ -133,9 +133,9 @@ private:
 
   // Single-pass builder from Hall forms to Monty text.
   struct builder {
-    explicit builder(const symbols& syms) noexcept : syms{syms} {}
+    explicit builder(const runtime& rt) noexcept : rt{rt} {}
 
-    const symbols& syms;
+    const runtime& rt;
     std::string out;
     size_t depth{};
 
@@ -234,18 +234,18 @@ private:
       std::vector<value> elems;
       if (!v.append_elements(elems)) return escape(v);
       if (const auto head = elems[0].maybe_symbol()) {
-        if (*head == syms.keyword_if && elems.size() == 4)
+        if (*head == rt.sym_if && elems.size() == 4)
           return {
               as_chain_operand(elems[2]) + " if " +
                   as_chain_operand(elems[1]) + " else " + as_expr(elems[3]),
               band::expr};
-        if (*head == syms.list)
+        if (*head == rt.sym_list)
           return {"[" + join_exprs(std::span{elems}.subspan(1)) + "]",
               band::tight};
         // A `begin` head deliberately falls through to the call emission:
         // the call spelling is the ruled sequencer.
-        if (*head == syms.quote || *head == syms.lambda ||
-            *head == syms.define || *head == syms.keyword_if)
+        if (*head == rt.sym_quote || *head == rt.sym_lambda ||
+            *head == rt.sym_define || *head == rt.sym_if)
           return escape(v);
         if (auto e = emit_operator((*head).name(), elems))
           return *std::move(e);
@@ -325,19 +325,19 @@ private:
       if (!v.append_elements(elems)) return false;
       const auto head = elems[0].maybe_symbol();
       if (!head) return false;
-      if (*head == syms.define && elems.size() == 3) {
+      if (*head == rt.sym_define && elems.size() == 3) {
         if (emit_fun(elems[1], elems[2], indent)) return true;
         const auto name = elems[1].maybe_symbol();
         if (!name || !is_bindable_word((*name).name())) return false;
         emit_line(indent, (*name).name() + " = " + as_expr(elems[2]));
         return true;
       }
-      if (*head == syms.begin && elems.size() >= 2) {
+      if (*head == rt.sym_begin && elems.size() >= 2) {
         for (const auto& elem : std::span{elems}.subspan(1))
           emit_statement(elem, indent);
         return true;
       }
-      return *head == syms.keyword_if && emit_if(elems, indent);
+      return *head == rt.sym_if && emit_if(elems, indent);
     }
 
     // Emit `(define name (lambda params body...))` as a `fun` block when
@@ -355,7 +355,7 @@ private:
       if (!lambda_v.is_cell() || !lambda_v.append_elements(lam)) return false;
       if (lam.size() < 3) return false;
       if (const auto head = lam[0].maybe_symbol();
-          !head || *head != syms.lambda)
+          !head || *head != rt.sym_lambda)
         return false;
       std::vector<value> params;
       if (!lam[1].is_nil() &&
@@ -403,7 +403,7 @@ private:
         if (!else_arm.is_cell() || !else_arm.append_elements(nested))
           return false;
         const auto head = nested[0].maybe_symbol();
-        if (!head || *head != syms.keyword_if) return false;
+        if (!head || *head != rt.sym_if) return false;
         cur = std::move(nested);
       }
       for (size_t ndx = 0; ndx < arms.size(); ++ndx) {
@@ -425,7 +425,7 @@ private:
       std::vector<value> elems;
       if (!v.is_cell() || !v.append_elements(elems)) return std::nullopt;
       if (const auto head = elems[0].maybe_symbol();
-          !head || *head != syms.begin || elems.size() < 2)
+          !head || *head != rt.sym_begin || elems.size() < 2)
         return std::nullopt;
       elems.erase(elems.begin());
       return elems;

@@ -29,7 +29,7 @@
 #include "../source_scanner.h"
 #include "monty_expression_parser.h"
 #include "monty_lexer.h"
-#include "symbols.h"
+#include "runtime.h"
 #include "token_classes.h"
 #include "value.h"
 
@@ -99,9 +99,8 @@ public:
   //
   // Consumes exactly the statement's tokens, through its trailing newline
   // (or its block's dedent), leaving the rest of the stream.
-  [[nodiscard]] static result<value>
-  parse(runtime_environment& run_env, token_stream& toks) {
-    builder b{run_env, toks};
+  [[nodiscard]] static result<value> parse(runtime& rt, token_stream& toks) {
+    builder b{rt, toks};
     auto s = b.parse_statement();
     if (!s) return s;
 
@@ -113,8 +112,8 @@ public:
 
   // Parse every statement in `toks`, in order, up to end of input.
   [[nodiscard]] static result<std::vector<value>>
-  parse_all(runtime_environment& run_env, token_stream& toks) {
-    builder b{run_env, toks};
+  parse_all(runtime& rt, token_stream& toks) {
+    builder b{rt, toks};
     std::vector<stmt> stmts;
     while (!toks.at(token_kind::eof)) {
       auto s = b.parse_statement();
@@ -163,15 +162,13 @@ private:
 
   // Single-pass builder from the token stream to statement forms.
   struct builder {
-    runtime_environment& run_env;
+    runtime& rt;
     token_stream& toks;
     size_t depth{};
-    runtime& rt = run_env.rt;
-    const symbols& syms = run_env.syms;
 
     // Build `(begin body...)`.
     [[nodiscard]] value begin_of(std::span<const value> body) const {
-      std::vector<value> form{value{syms.begin}};
+      std::vector<value> form{value{rt.sym_begin}};
       form.insert(form.end(), body.begin(), body.end());
       return rt.list_of(form);
     }
@@ -200,7 +197,7 @@ private:
       if (toks.at_word("fun")) return parse_fun();
       if (toks.at_word("if")) return parse_if();
       if (toks.at_word("return")) return parse_return();
-      auto v = expression_parser::parse(run_env, toks, depth);
+      auto v = expression_parser::parse(rt, toks, depth);
       if (!v) return v;
 
       if (auto e = take_line_end()) return std::move(*e);
@@ -222,12 +219,12 @@ private:
       if (auto e = reject_literal()) return std::move(*e);
       const auto name = toks.take().text;
       toks.take(); // '='
-      auto v = expression_parser::parse(run_env, toks, depth);
+      auto v = expression_parser::parse(rt, toks, depth);
       if (!v) return v;
 
       if (auto e = take_line_end()) return std::move(*e);
       return stmt{
-          rt.list_of({value{syms.define}, value{rt.intern(name)}, *v})};
+          rt.list_of({value{rt.sym_define}, value{rt.intern(name)}, *v})};
     }
 
     // Parse a function definition.
@@ -275,10 +272,10 @@ private:
       auto body = desugar_body(*block, true, true);
       if (!body) return body;
 
-      std::vector<value> lambda{value{syms.lambda}, rt.list_of(params)};
+      std::vector<value> lambda{value{rt.sym_lambda}, rt.list_of(params)};
       lambda.insert(lambda.end(), body->begin(), body->end());
       return stmt{rt.list_of(
-          {value{syms.define}, value{rt.intern(name)}, rt.list_of(lambda)})};
+          {value{rt.sym_define}, value{rt.intern(name)}, rt.list_of(lambda)})};
     }
 
     // Parse an `if` statement: the if/elif arms and the optional else.
@@ -286,7 +283,7 @@ private:
       if_stmt f;
       toks.take(); // 'if'
       for (;;) {
-        auto cond = expression_parser::parse(run_env, toks, depth);
+        auto cond = expression_parser::parse(rt, toks, depth);
         if (!cond) return cond;
 
         auto body = parse_block();
@@ -315,7 +312,7 @@ private:
       toks.take(); // 'return'
       value expr;
       if (!toks.at(token_kind::newline)) {
-        auto v = expression_parser::parse(run_env, toks, depth);
+        auto v = expression_parser::parse(rt, toks, depth);
         if (!v) return v;
         expr = *v;
       }
@@ -426,7 +423,7 @@ private:
         if (!body) return body;
 
         const value then = begin_of(*body);
-        const value if_sym{syms.keyword_if};
+        const value if_sym{rt.sym_if};
         chain = chain ? rt.list_of({if_sym, arm.cond, then, *chain})
                       : rt.list_of({if_sym, arm.cond, then});
       }

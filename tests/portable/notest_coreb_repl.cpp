@@ -55,21 +55,18 @@ void print_help() {
          "In Monty, a blank line ends an indented block.\n";
 }
 
-// One interactive session: the shared runtime environment and the line
-// loop's state.
+// One interactive session: the shared runtime and the line loop's state.
 //
-// Both modes evaluate against the same runtime environment, so definitions
-// persist across /monty and /hall switches. The environment is held by
-// pointer so /clear can replace it wholesale, there being no way to empty
-// one out; evaluators are transient views, so each batch constructs its
-// own.
+// Both modes evaluate against the same runtime, so definitions persist
+// across /monty and /hall switches. The runtime is held by pointer so
+// /clear can replace it wholesale, there being no way to empty one out;
+// evaluators are transient views, so each batch constructs its own.
 //
 // Slash commands are recognized on any line, even mid-collection, so
 // /clear and /quit can always rescue a stuck continuation; a mode switch
 // or /clear abandons the partially entered input, while /help keeps it.
 struct repl {
-  std::unique_ptr<runtime_environment> run_env =
-      std::make_unique<runtime_environment>();
+  std::unique_ptr<runtime> rt = std::make_unique<runtime>();
   mode syntax = mode::monty;
   std::string pending;
   bool in_block{};
@@ -117,7 +114,7 @@ struct repl {
       reset();
       std::cout << "Hall mode.\n";
     } else if (line == "/clear") {
-      run_env = std::make_unique<runtime_environment>();
+      rt = std::make_unique<runtime>();
       reset();
       std::cout << "Runtime cleared.\n";
     } else {
@@ -144,7 +141,7 @@ struct repl {
       return;
     }
     auto toks = *std::move(lexed);
-    auto parsed = monty::statement_parser::parse_all(*run_env, toks);
+    auto parsed = monty::statement_parser::parse_all(*rt, toks);
     if (!parsed) {
       const auto& err = parsed.as_error();
       // A failure at the synthesized eof token is one more lines could
@@ -163,14 +160,14 @@ struct repl {
     auto forms = *std::move(parsed);
     // Evaluation may collect at safe points; the not-yet-evaluated forms
     // are roots only while pinned.
-    gc_pin pin(run_env->rt, forms);
+    gc_pin pin(*rt, forms);
     run_forms(forms, true);
   }
 
   // Read and run `pending` as Hall forms; incomplete input keeps
   // collecting instead.
   void step_hall() {
-    auto forms = hall_reader::read_all(*run_env, pending);
+    auto forms = hall_reader::read_all(*rt, pending);
     if (!forms) {
       const auto& err = forms.as_error();
       if (err.incomplete()) return;
@@ -179,7 +176,7 @@ struct repl {
       return;
     }
     reset();
-    gc_pin pin(run_env->rt, *forms);
+    gc_pin pin(*rt, *forms);
     run_forms(*forms, false);
   }
 
@@ -187,12 +184,11 @@ struct repl {
   // translating, each form is prefaced by its Hall form and the Monty the
   // unparser round-trips it to.
   void run_forms(std::span<const value> forms, bool translate) const {
-    evaluator ev(*run_env);
+    evaluator ev(*rt);
     for (const auto& form : forms) {
       if (translate) {
         std::cout << "hall:  " << form.print() << '\n';
-        std::cout << "monty: " << monty::unparser::unparse(*run_env, form)
-                  << '\n';
+        std::cout << "monty: " << monty::unparser::unparse(*rt, form) << '\n';
       }
       const auto v = ev.eval(form);
       if (!v) {

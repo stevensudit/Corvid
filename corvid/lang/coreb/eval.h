@@ -30,7 +30,7 @@
 #include "../../containers/core/value_or_error.h"
 #include "../../containers/core/opt_find.h"
 #include "../../containers/core/scoped_value.h"
-#include "symbols.h"
+#include "runtime.h"
 #include "token_classes.h"
 #include "value.h"
 
@@ -44,9 +44,9 @@ using namespace std::literals;
 // closures, special forms, and proper tail calls, over the value model in
 // "value.h".
 //
-//   runtime_environment run_env;
-//   evaluator ev(run_env);
-//   auto v = ev.eval(*hall_reader::read_one(run_env, "(+ 1 2)"));
+//   runtime rt;
+//   evaluator ev(rt);
+//   auto v = ev.eval(*hall_reader::read_one(rt, "(+ 1 2)"));
 //   if (v) v->print();  // "3"
 
 #pragma region eval_error
@@ -89,12 +89,11 @@ public:
   template<typename T>
   using result = value_or_error<T, eval_error>;
 
-  // Bind an evaluator to `run_env`, adopting its runtime's root environment
-  // as the global scope.
+  // Bind an evaluator to `rt`, adopting the runtime's root environment as
+  // the global scope.
   //
   // Construction stocks the root with kernel primitives.
-  explicit evaluator(runtime_environment& run_env)
-      : rt_{run_env.rt}, global_{run_env.rt.root_env()}, syms_{run_env.syms} {
+  explicit evaluator(runtime& rt) : rt_{rt}, global_{rt.root_env()} {
     register_builtins();
   }
 
@@ -222,12 +221,12 @@ private:
   // Evaluate a special form, each with its own evaluation rule.
   [[nodiscard]] result<step>
   eval_special(symbol form, std::span<const value> args, environment& env) {
-    if (form == syms_.quote) {
+    if (form == rt_.sym_quote) {
       if (args.size() != 1) return eval_error{"quote: expects 1 argument"};
       // Ironically, it's not actually evaluated, which is the whole point.
       return step::make_evaluated(args[0]);
     }
-    if (form == syms_.keyword_if) {
+    if (form == rt_.sym_if) {
       if (args.size() < 2 || args.size() > 3)
         return eval_error{"if: expects 2 or 3 arguments"};
       auto cond = eval(args[0], env);
@@ -236,9 +235,9 @@ private:
       if (args.size() == 3) return step::make_tail_expr(args[2]);
       return step::make_evaluated(value{});
     }
-    if (form == syms_.define) return finish_step(eval_define(args, env));
-    if (form == syms_.lambda) return finish_step(eval_lambda(args, env));
-    assert(form == syms_.begin);
+    if (form == rt_.sym_define) return finish_step(eval_define(args, env));
+    if (form == rt_.sym_lambda) return finish_step(eval_lambda(args, env));
+    assert(form == rt_.sym_begin);
     if (args.empty()) return step::make_evaluated(value{});
     auto last = eval_leading(args, env);
     if (!last) return last;
@@ -360,8 +359,9 @@ private:
 
   // Whether `name` names a special form.
   [[nodiscard]] bool is_special(symbol name) const noexcept {
-    return name == syms_.quote || name == syms_.keyword_if ||
-           name == syms_.define || name == syms_.lambda || name == syms_.begin;
+    return name == rt_.sym_quote || name == rt_.sym_if ||
+           name == rt_.sym_define || name == rt_.sym_lambda ||
+           name == rt_.sym_begin;
   }
 
   // Bind a call frame for `fun` over `args`, scoped inside the closure's
@@ -540,7 +540,7 @@ private:
   }
 
   // The `+` builtin: n-ary addition; no arguments yield 0.
-  static prim_result prim_add(runtime&, std::span<const value> args) {
+  static prim_result prim_add(runtime_core&, std::span<const value> args) {
     auto acc = number{};
     for (const auto& arg : args) {
       const auto n = number::from(arg);
@@ -551,7 +551,7 @@ private:
   }
 
   // The `-` builtin: subtraction folding left; one argument negates.
-  static prim_result prim_sub(runtime&, std::span<const value> args) {
+  static prim_result prim_sub(runtime_core&, std::span<const value> args) {
     if (args.empty()) return "expects at least 1 argument"s;
     const auto first = number::from(args[0]);
     if (!first) return not_numeric(args[0]);
@@ -566,7 +566,7 @@ private:
   }
 
   // The `*` builtin: n-ary multiplication; no arguments yield 1.
-  static prim_result prim_mul(runtime&, std::span<const value> args) {
+  static prim_result prim_mul(runtime_core&, std::span<const value> args) {
     auto acc = number{1};
     for (const auto& arg : args) {
       const auto n = number::from(arg);
@@ -577,7 +577,7 @@ private:
   }
 
   // The `/` builtin: division folding left; one argument divides 1 by it.
-  static prim_result prim_div(runtime&, std::span<const value> args) {
+  static prim_result prim_div(runtime_core&, std::span<const value> args) {
     if (args.empty()) return "expects at least 1 argument"s;
     const auto first = number::from(args[0]);
     if (!first) return not_numeric(args[0]);
@@ -598,27 +598,27 @@ private:
   }
 
   // The numeric comparison builtins, chained across adjacent pairs.
-  static prim_result prim_eq(runtime&, std::span<const value> args) {
+  static prim_result prim_eq(runtime_core&, std::span<const value> args) {
     return chain_compare(args, [](std::partial_ordering ord) {
       return std::is_eq(ord);
     });
   }
-  static prim_result prim_lt(runtime&, std::span<const value> args) {
+  static prim_result prim_lt(runtime_core&, std::span<const value> args) {
     return chain_compare(args, [](std::partial_ordering ord) {
       return std::is_lt(ord);
     });
   }
-  static prim_result prim_le(runtime&, std::span<const value> args) {
+  static prim_result prim_le(runtime_core&, std::span<const value> args) {
     return chain_compare(args, [](std::partial_ordering ord) {
       return std::is_lteq(ord);
     });
   }
-  static prim_result prim_gt(runtime&, std::span<const value> args) {
+  static prim_result prim_gt(runtime_core&, std::span<const value> args) {
     return chain_compare(args, [](std::partial_ordering ord) {
       return std::is_gt(ord);
     });
   }
-  static prim_result prim_ge(runtime&, std::span<const value> args) {
+  static prim_result prim_ge(runtime_core&, std::span<const value> args) {
     return chain_compare(args, [](std::partial_ordering ord) {
       return std::is_gteq(ord);
     });
@@ -627,7 +627,7 @@ private:
   // The `!=` builtin. Unlike the other comparisons it takes exactly 2
   // arguments, because chaining adjacent inequality is a trap: `(!= 1 2 1)`
   // would be true.
-  static prim_result prim_ne(runtime&, std::span<const value> args) {
+  static prim_result prim_ne(runtime_core&, std::span<const value> args) {
     if (args.size() != 2) return "expects 2 arguments"s;
     auto ord = compare_nums(args[0], args[1]);
     if (!ord) return ord;
@@ -635,25 +635,25 @@ private:
   }
 
   // The `cons` builtin: construct a cell.
-  static prim_result prim_cons(runtime& rt, std::span<const value> args) {
+  static prim_result prim_cons(runtime_core& rt, std::span<const value> args) {
     if (args.size() != 2) return "expects 2 arguments"s;
     return rt.cons(args[0], args[1]);
   }
 
   // The `list` builtin: construct a list of the arguments, so `(list)` is
   // nil.
-  static prim_result prim_list(runtime& rt, std::span<const value> args) {
+  static prim_result prim_list(runtime_core& rt, std::span<const value> args) {
     return rt.list_of(args);
   }
 
   // The `head` and `tail` builtins: the halves of a cell.
-  static prim_result prim_head(runtime&, std::span<const value> args) {
+  static prim_result prim_head(runtime_core&, std::span<const value> args) {
     if (args.size() != 1) return "expects 1 argument"s;
     const auto c = args[0].maybe_cell();
     if (!c) return "expects a cell, got: " + args[0].print();
     return c->head;
   }
-  static prim_result prim_tail(runtime&, std::span<const value> args) {
+  static prim_result prim_tail(runtime_core&, std::span<const value> args) {
     if (args.size() != 1) return "expects 1 argument"s;
     const auto c = args[0].maybe_cell();
     if (!c) return "expects a cell, got: " + args[0].print();
@@ -662,7 +662,7 @@ private:
 
   // The `nil?` builtin: whether the argument is nil, and so also whether it
   // is the empty list.
-  static prim_result prim_nil(runtime&, std::span<const value> args) {
+  static prim_result prim_nil(runtime_core&, std::span<const value> args) {
     if (args.size() != 1) return "expects 1 argument"s;
     return value{args[0].is_nil()};
   }
@@ -670,23 +670,23 @@ private:
   // Bind the kernel's primitive functions into the global environment,
   // skipping any name already bound.
   void register_builtins() {
-    if (global_.lookup(syms_.plus)) return;
+    if (global_.lookup(rt_.sym_plus)) return;
 
-    register_builtin(syms_.plus, prim_add);
-    register_builtin(syms_.minus, prim_sub);
-    register_builtin(syms_.times, prim_mul);
-    register_builtin(syms_.divide, prim_div);
-    register_builtin(syms_.eq, prim_eq);
-    register_builtin(syms_.ne, prim_ne);
-    register_builtin(syms_.lt, prim_lt);
-    register_builtin(syms_.le, prim_le);
-    register_builtin(syms_.gt, prim_gt);
-    register_builtin(syms_.ge, prim_ge);
-    register_builtin(syms_.cons, prim_cons);
-    register_builtin(syms_.list, prim_list);
-    register_builtin(syms_.head, prim_head);
-    register_builtin(syms_.tail, prim_tail);
-    register_builtin(syms_.nil_p, prim_nil);
+    register_builtin(rt_.sym_plus, prim_add);
+    register_builtin(rt_.sym_minus, prim_sub);
+    register_builtin(rt_.sym_times, prim_mul);
+    register_builtin(rt_.sym_divide, prim_div);
+    register_builtin(rt_.sym_eq, prim_eq);
+    register_builtin(rt_.sym_ne, prim_ne);
+    register_builtin(rt_.sym_lt, prim_lt);
+    register_builtin(rt_.sym_le, prim_le);
+    register_builtin(rt_.sym_gt, prim_gt);
+    register_builtin(rt_.sym_ge, prim_ge);
+    register_builtin(rt_.sym_cons, prim_cons);
+    register_builtin(rt_.sym_list, prim_list);
+    register_builtin(rt_.sym_head, prim_head);
+    register_builtin(rt_.sym_tail, prim_tail);
+    register_builtin(rt_.sym_nil_p, prim_nil);
   }
 
   void register_builtin(symbol s, primitive::fn_t fn) {
@@ -699,7 +699,6 @@ private:
 
   runtime& rt_;
   environment& global_;
-  const symbols& syms_;
   size_t depth_{};
 
 #pragma endregion

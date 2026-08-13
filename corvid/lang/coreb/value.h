@@ -57,8 +57,11 @@ namespace corvid { inline namespace lang { namespace coreb {
 // A lexical `environment` maps symbols to values, chained to its enclosing
 // scope.
 //
-// A `runtime` owns the symbol table and the heap the aggregate values and
-// environments live in.
+// A `runtime_core` owns the symbol table and the heap the aggregate values
+// and environments live in. It is the base half of the runtime: "runtime.h"
+// derives the `runtime` embedders actually hold, which adds the kernel's
+// pre-interned vocabulary. Nothing here needs that vocabulary, which is why
+// the split exists.
 //
 //   runtime rt;
 //   auto v = rt.cons(value{rt.intern("x")}, rt.cons(value{42}, value{}));
@@ -66,7 +69,7 @@ namespace corvid { inline namespace lang { namespace coreb {
 
 // Declared up front: a friend declaration alone does not make the name
 // visible (MSVC injects it as an extension; conforming compilers do not).
-class runtime;
+class runtime_core;
 
 // Maximum nesting depth for every recursive pass over values: reading,
 // printing, Monty parsing and unparsing, and evaluation.
@@ -87,7 +90,7 @@ inline constexpr size_t max_depth = 256;
 
 // Interned symbol.
 //
-// Each distinct spelling interned in a given `runtime` yields one unique
+// Each distinct spelling interned in a given runtime yields one unique
 // symbol, so equality is pointer identity: comparing symbols never compares
 // text.
 class symbol final {
@@ -96,7 +99,7 @@ public:
   [[nodiscard]] bool operator==(const symbol&) const noexcept = default;
 
 private:
-  friend class runtime;
+  friend class runtime_core;
 
   explicit symbol(const std::string& name) noexcept : name_{&name} {}
 
@@ -144,7 +147,7 @@ consteval auto corvid_enum_spec(kind*) {
 // a heap-allocated string, cons cell, or function (closure or primitive).
 //
 // A `value` is small and cheap. Copying is always shallow and never touches
-// heap data. The owning `runtime` must outlive every `value` handed out from
+// heap data. The owning runtime must outlive every `value` handed out from
 // it.
 //
 // Nil doubles as the empty list, in the classic Lisp tradition: a proper list
@@ -173,8 +176,8 @@ public:
   value(closure& c) noexcept : v_{&c} {}
   value(primitive& p) noexcept : v_{&p} {}
 
-  // Strings are made through `runtime::make_string` and symbols through
-  // `runtime::intern`.
+  // Strings are made through `runtime_core::make_string` and symbols through
+  // `runtime_core::intern`.
   value(const char*) = delete;
 
 #pragma endregion
@@ -369,7 +372,7 @@ private:
 #pragma region Data members
 
   // The runtime traces heap pointers through the variant when collecting.
-  friend class runtime;
+  friend class runtime_core;
 
   variant_t v_;
 
@@ -396,7 +399,7 @@ protected:
   ~gc_object() = default;
 
 private:
-  friend class runtime;
+  friend class runtime_core;
 
   // Collector mark epoch.
   size_t marked_gen_{};
@@ -411,11 +414,11 @@ private:
 // the `tail` always contains either `nil` or another `cell`. Any other `tail`
 // makes the sequence improper, so it's printed with a dot: "(a b . c)".
 //
-// Constructed only by the `runtime`, which owns every cell.
+// Constructed only by the runtime, which owns every cell.
 struct cell final: gc_object {
 private:
   enum class allow : bool { ctor };
-  friend class runtime;
+  friend class runtime_core;
 
 public:
   cell(allow, value head, value tail) noexcept : head{head}, tail{tail} {}
@@ -479,11 +482,11 @@ public:
 
 // Heap-allocated string payload.
 //
-// Constructed only by the `runtime`, which owns it.
+// Constructed only by the runtime, which owns it.
 struct heap_string final: gc_object {
 private:
   enum class allow : bool { ctor };
-  friend class runtime;
+  friend class runtime_core;
 
 public:
   heap_string(allow, std::string str) noexcept : str{std::move(str)} {}
@@ -510,11 +513,11 @@ public:
 // That captured environment is what makes it a closure: the body sees the
 // variables of its birthplace even when called from somewhere else entirely.
 //
-// Constructed only by the `runtime`, which owns it.
+// Constructed only by the runtime, which owns it.
 struct closure final: gc_object {
 private:
   enum class allow : bool { ctor };
-  friend class runtime;
+  friend class runtime_core;
 
 public:
   closure(allow, std::vector<symbol> params, std::vector<value> body,
@@ -538,14 +541,14 @@ public:
 // The function receives the evaluated arguments and returns a value or an
 // error message, which the evaluator prefixes with the primitive's name.
 //
-// Constructed only by the `runtime`, which owns it.
+// Constructed only by the runtime, which owns it.
 struct primitive final: gc_object {
 private:
   enum class allow : bool { ctor };
-  friend class runtime;
+  friend class runtime_core;
 
 public:
-  using fn_t = value_or_error<value, std::string> (*)(runtime&,
+  using fn_t = value_or_error<value, std::string> (*)(runtime_core&,
       std::span<const value>);
 
   primitive(allow, symbol name, fn_t fn) noexcept : name{name}, fn{fn} {}
@@ -574,11 +577,11 @@ public:
 // objects rather than stack frames because a closure captures its defining
 // environment, which must then outlive the call that created it.
 //
-// Constructed only by the `runtime`, which owns it.
+// Constructed only by the runtime, which owns it.
 class environment final: public gc_object {
 private:
   enum class allow : bool { ctor };
-  friend class runtime;
+  friend class runtime_core;
 
 public:
   environment(allow, environment* parent) : parent_{parent} {}
@@ -604,12 +607,13 @@ private:
 };
 
 #pragma endregion
-#pragma region runtime
+#pragma region runtime_core
 
 // Fwd.
 class gc_pin;
 
-// The CoreB kernel runtime, containing the symbol table and the heap.
+// The symbol table and the heap: the half of the runtime that knows nothing
+// of what any particular symbol means.
 //
 // All aggregate values (cons cells, strings, closures, primitives) and all
 // environments are allocated here, and every `value` handle is only valid
@@ -622,15 +626,12 @@ class gc_pin;
 // across a possible collection must be pinned, or it dangles. Interned
 // symbol spellings are not collected; they leak deliberately until gensym
 // makes that worth solving.
-class runtime final {
+//
+// This is a base, not a whole runtime: "runtime.h" derives `runtime`, which
+// adds the kernel's pre-interned vocabulary, and that is what embedders
+// construct. Construction and destruction are therefore protected.
+class runtime_core {
 public:
-  // A fresh runtime owns one environment from the start: the empty root
-  // scope.
-  runtime() {
-    envs_.push_back(
-        std::make_unique<environment>(environment::allow::ctor, nullptr));
-  }
-
   // Intern `name`, returning its unique symbol.
   //
   // Repeated calls with the same spelling return the same symbol. The
@@ -740,6 +741,18 @@ public:
 
 #pragma endregion
 
+protected:
+  // A fresh runtime owns one environment from the start: the empty root
+  // scope.
+  runtime_core() {
+    envs_.push_back(
+        std::make_unique<environment>(environment::allow::ctor, nullptr));
+  }
+
+  // Non-polymorphic base: destruction runs through the derived type, and
+  // there is nothing to delete a `runtime_core*` with.
+  ~runtime_core() = default;
+
 private:
 #pragma region Collection helpers
 
@@ -794,16 +807,17 @@ private:
 //   rt.collect(); // `v` survives; unpinned garbage does not.
 class gc_pin final {
 public:
-  gc_pin(runtime& rt, const value& v) : rt_{rt}, vals_{&v, 1} {
+  gc_pin(runtime_core& rt, const value& v) : rt_{rt}, vals_{&v, 1} {
     rt_.do_pin(*this);
   }
 
   // A temporary would dangle by the end of the statement, long before any
   // collection could trace it. A span's underlying storage cannot be
   // checked the same way, so there the contract stays on the caller.
-  gc_pin(runtime&, value&&) = delete;
+  gc_pin(runtime_core&, value&&) = delete;
 
-  gc_pin(runtime& rt, std::span<const value> vals) : rt_{rt}, vals_{vals} {
+  gc_pin(runtime_core& rt, std::span<const value> vals)
+      : rt_{rt}, vals_{vals} {
     rt_.do_pin(*this);
   }
   ~gc_pin() { rt_.do_unpin(*this); }
@@ -812,9 +826,9 @@ public:
   gc_pin& operator=(const gc_pin&) = delete;
 
 private:
-  friend class runtime;
+  friend class runtime_core;
 
-  runtime& rt_;
+  runtime_core& rt_;
   std::span<const value> vals_;
 };
 
@@ -873,7 +887,7 @@ inline bool value::append_dump(std::string& out, size_t depth) const {
 #pragma region Collection definitions
 
 // Mark and sweep collection of the heap, tracing outward from the roots.
-inline void runtime::do_collect(value live, environment* extra_env) {
+inline void runtime_core::do_collect(value live, environment* extra_env) {
   // Mark: trace outward from the roots with explicit worklists.
   //
   // Recursion here would be fatal: structure nests arbitrarily deep, and the

@@ -68,12 +68,12 @@ source_error lex_err(std::string_view src) {
 // Parse a Monty expression and return the desugared s-expression's printed
 // form, requiring the expression to span the whole source up to a trailing
 // newline.
-std::string parse_dump(runtime_environment& run_env, std::string_view src) {
+std::string parse_dump(runtime& rt, std::string_view src) {
   CAPTURE(src);
   auto lexed = monty::lexer::lex(src);
   REQUIRE(lexed.has_value());
   auto toks = *std::move(lexed);
-  auto v = monty::expression_parser::parse(run_env, toks);
+  auto v = monty::expression_parser::parse(rt, toks);
   REQUIRE(v.has_value());
   if (toks.at(monty::token_kind::newline)) toks.take();
   REQUIRE(toks.at(monty::token_kind::eof));
@@ -81,24 +81,24 @@ std::string parse_dump(runtime_environment& run_env, std::string_view src) {
 }
 
 // Parse a Monty expression expecting failure, returning the error.
-source_error parse_err(runtime_environment& run_env, std::string_view src) {
+source_error parse_err(runtime& rt, std::string_view src) {
   CAPTURE(src);
   auto lexed = monty::lexer::lex(src);
   REQUIRE(lexed.has_value());
   auto toks = *std::move(lexed);
-  auto r = monty::expression_parser::parse(run_env, toks);
+  auto r = monty::expression_parser::parse(rt, toks);
   REQUIRE_FALSE(r.has_value());
   return r.as_error();
 }
 
 // Parse a Monty program and render the desugared forms' printed forms,
 // space-separated.
-std::string stmt_dump(runtime_environment& run_env, std::string_view src) {
+std::string stmt_dump(runtime& rt, std::string_view src) {
   CAPTURE(src);
   auto lexed = monty::lexer::lex(src);
   REQUIRE(lexed.has_value());
   auto toks = *std::move(lexed);
-  auto forms = monty::statement_parser::parse_all(run_env, toks);
+  auto forms = monty::statement_parser::parse_all(rt, toks);
   REQUIRE(forms.has_value());
   std::string out;
   for (const auto& v : *forms) {
@@ -109,12 +109,12 @@ std::string stmt_dump(runtime_environment& run_env, std::string_view src) {
 }
 
 // Parse a Monty program expecting failure, returning the error.
-source_error stmt_err(runtime_environment& run_env, std::string_view src) {
+source_error stmt_err(runtime& rt, std::string_view src) {
   CAPTURE(src);
   auto lexed = monty::lexer::lex(src);
   REQUIRE(lexed.has_value());
   auto toks = *std::move(lexed);
-  auto r = monty::statement_parser::parse_all(run_env, toks);
+  auto r = monty::statement_parser::parse_all(rt, toks);
   REQUIRE_FALSE(r.has_value());
   return r.as_error();
 }
@@ -272,137 +272,134 @@ TEST_CASE("Monty lexer errors", "[coreb]") {
 #pragma region Monty expression parser
 
 TEST_CASE("Monty expression parser", "[coreb]") {
-  runtime_environment run_env;
+  runtime rt;
 
   // Primaries and literals.
-  CHECK(parse_dump(run_env, "x") == "x");
-  CHECK(parse_dump(run_env, "nil?") == "nil?");
-  CHECK(parse_dump(run_env, "42") == "42");
-  CHECK(parse_dump(run_env, "2.5") == "2.5");
-  CHECK(parse_dump(run_env, "nil") == "nil");
-  CHECK(parse_dump(run_env, "true") == "true");
-  CHECK(parse_dump(run_env, "false") == "false");
-  CHECK(parse_dump(run_env, R"("a\nb")") == R"("a\nb")");
+  CHECK(parse_dump(rt, "x") == "x");
+  CHECK(parse_dump(rt, "nil?") == "nil?");
+  CHECK(parse_dump(rt, "42") == "42");
+  CHECK(parse_dump(rt, "2.5") == "2.5");
+  CHECK(parse_dump(rt, "nil") == "nil");
+  CHECK(parse_dump(rt, "true") == "true");
+  CHECK(parse_dump(rt, "false") == "false");
+  CHECK(parse_dump(rt, R"("a\nb")") == R"("a\nb")");
 
   // Integer overflow falls back to double, matching the kernel rule.
-  CHECK(parse_dump(run_env, "99999999999999999999") == "1e+20");
+  CHECK(parse_dump(rt, "99999999999999999999") == "1e+20");
 
   // Calls bind tightest and fold left.
-  CHECK(parse_dump(run_env, "f(x, y)") == "(f x y)");
-  CHECK(parse_dump(run_env, "f()") == "(f)");
-  CHECK(parse_dump(run_env, "f(a)(b)") == "((f a) b)");
-  CHECK(parse_dump(run_env, "f(g(x))") == "(f (g x))");
+  CHECK(parse_dump(rt, "f(x, y)") == "(f x y)");
+  CHECK(parse_dump(rt, "f()") == "(f)");
+  CHECK(parse_dump(rt, "f(a)(b)") == "((f a) b)");
+  CHECK(parse_dump(rt, "f(g(x))") == "(f (g x))");
 
   // Arithmetic families fold left; parentheses group.
-  CHECK(parse_dump(run_env, "a + b - c") == "(- (+ a b) c)");
-  CHECK(parse_dump(run_env, "a * b / c") == "(/ (* a b) c)");
-  CHECK(parse_dump(run_env, "a + (b * c)") == "(+ a (* b c))");
-  CHECK(parse_dump(run_env, "(a + b) * c") == "(* (+ a b) c)");
+  CHECK(parse_dump(rt, "a + b - c") == "(- (+ a b) c)");
+  CHECK(parse_dump(rt, "a * b / c") == "(/ (* a b) c)");
+  CHECK(parse_dump(rt, "a + (b * c)") == "(+ a (* b c))");
+  CHECK(parse_dump(rt, "(a + b) * c") == "(* (+ a b) c)");
 
   // A '-' touching a number token signs the literal, int64 min included;
   // touching anything else it negates, binding to the postfix chain it
   // precedes. Negation of a number is called by mention.
-  CHECK(parse_dump(run_env, "-7") == "-7");
-  CHECK(parse_dump(run_env, "-7.5") == "-7.5");
-  CHECK(parse_dump(run_env, "-9223372036854775808") == "-9223372036854775808");
-  CHECK(parse_dump(run_env, "--7") == "(- -7)");
-  CHECK(parse_dump(run_env, "8 - -7") == "(- 8 -7)");
-  CHECK(parse_dump(run_env, "(-)(7)") == "(- 7)");
-  CHECK(parse_dump(run_env, "-%(head xs)") == "(- (head xs))");
-  CHECK(parse_dump(run_env, "a - -b") == "(- a (- b))");
-  CHECK(parse_dump(run_env, "-f(x) * y") == "(* (- (f x)) y)");
+  CHECK(parse_dump(rt, "-7") == "-7");
+  CHECK(parse_dump(rt, "-7.5") == "-7.5");
+  CHECK(parse_dump(rt, "-9223372036854775808") == "-9223372036854775808");
+  CHECK(parse_dump(rt, "--7") == "(- -7)");
+  CHECK(parse_dump(rt, "8 - -7") == "(- 8 -7)");
+  CHECK(parse_dump(rt, "(-)(7)") == "(- 7)");
+  CHECK(parse_dump(rt, "-%(head xs)") == "(- (head xs))");
+  CHECK(parse_dump(rt, "a - -b") == "(- a (- b))");
+  CHECK(parse_dump(rt, "-f(x) * y") == "(* (- (f x)) y)");
 
   // Comparison chains are same-operator and n-ary; arithmetic sits above.
-  CHECK(parse_dump(run_env, "a == b") == "(== a b)");
-  CHECK(parse_dump(run_env, "a != b") == "(!= a b)");
-  CHECK(parse_dump(run_env, "a < b < c") == "(< a b c)");
-  CHECK(parse_dump(run_env, "a + b < c * d") == "(< (+ a b) (* c d))");
+  CHECK(parse_dump(rt, "a == b") == "(== a b)");
+  CHECK(parse_dump(rt, "a != b") == "(!= a b)");
+  CHECK(parse_dump(rt, "a < b < c") == "(< a b c)");
+  CHECK(parse_dump(rt, "a + b < c * d") == "(< (+ a b) (* c d))");
 
   // The ternary desugars to the kernel `if` and chains rightward.
-  CHECK(parse_dump(run_env, "x if c else y") == "(if c x y)");
-  CHECK(parse_dump(run_env, "a if c else b if d else e") ==
-        "(if c a (if d b e))");
+  CHECK(parse_dump(rt, "x if c else y") == "(if c x y)");
+  CHECK(parse_dump(rt, "a if c else b if d else e") == "(if c a (if d b e))");
 
   // A parenthesized operator mentions it as a value, `=`/`:=` included;
   // only their infix spellings are statement-bound.
-  CHECK(parse_dump(run_env, "map((-), xs)") == "(map - xs)");
-  CHECK(parse_dump(run_env, "(+)") == "+");
-  CHECK(parse_dump(run_env, "(=)") == "=");
-  CHECK(parse_dump(run_env, "(:=)") == ":=");
+  CHECK(parse_dump(rt, "map((-), xs)") == "(map - xs)");
+  CHECK(parse_dump(rt, "(+)") == "+");
+  CHECK(parse_dump(rt, "(=)") == "=");
+  CHECK(parse_dump(rt, "(:=)") == ":=");
 
   // List literals desugar to the kernel `list` constructor, so elements are
   // evaluated expressions.
-  CHECK(parse_dump(run_env, "[1, 2, 3]") == "(list 1 2 3)");
-  CHECK(parse_dump(run_env, "[]") == "(list)");
-  CHECK(parse_dump(run_env, "[1 + 2, [x]]") == "(list (+ 1 2) (list x))");
+  CHECK(parse_dump(rt, "[1, 2, 3]") == "(list 1 2 3)");
+  CHECK(parse_dump(rt, "[]") == "(list)");
+  CHECK(parse_dump(rt, "[1 + 2, [x]]") == "(list (+ 1 2) (list x))");
 
   // The `%(...)` Hall escape splices the read form in place: code, not
   // quotation, composing with postfix and operands like any primary.
-  CHECK(parse_dump(run_env, "%(+ 1 2)") == "(+ 1 2)");
-  CHECK(parse_dump(run_env, "1 + %(head xs)") == "(+ 1 (head xs))");
-  CHECK(parse_dump(run_env, "%(lambda (n) (* n 2))(21)") ==
+  CHECK(parse_dump(rt, "%(+ 1 2)") == "(+ 1 2)");
+  CHECK(parse_dump(rt, "1 + %(head xs)") == "(+ 1 (head xs))");
+  CHECK(parse_dump(rt, "%(lambda (n) (* n 2))(21)") ==
         "((lambda (n) (* n 2)) 21)");
 
   // Call-spelled `begin` is the sequencer expression: the call desugar
   // manufactures the kernel form, which special-form identity then claims.
-  CHECK(parse_dump(run_env, "begin(f(), 3)") == "(begin (f) 3)");
+  CHECK(parse_dump(rt, "begin(f(), 3)") == "(begin (f) 3)");
 
   // Bracket continuation carries an expression across lines.
-  CHECK(parse_dump(run_env, "f(a,\n  b)") == "(f a b)");
-  CHECK(parse_dump(run_env, "[1,\n  2]") == "(list 1 2)");
+  CHECK(parse_dump(rt, "f(a,\n  b)") == "(f a b)");
+  CHECK(parse_dump(rt, "[1,\n  2]") == "(list 1 2)");
 }
 
 #pragma endregion
 #pragma region Monty expression parser errors
 
 TEST_CASE("Monty expression parser errors", "[coreb]") {
-  runtime_environment run_env;
+  runtime rt;
 
   // The sparse partial order: family mixing and mixed chains are errors.
-  CHECK(parse_err(run_env, "a + b * c").message ==
+  CHECK(parse_err(rt, "a + b * c").message ==
         "mixing '+'/'-' with '*'/'/' requires parentheses");
-  CHECK(parse_err(run_env, "a * b + c").message ==
+  CHECK(parse_err(rt, "a * b + c").message ==
         "mixing '+'/'-' with '*'/'/' requires parentheses");
-  CHECK(parse_err(run_env, "a < b <= c").message ==
+  CHECK(parse_err(rt, "a < b <= c").message ==
         "comparison chains cannot mix operators");
-  CHECK(parse_err(run_env, "a != b != c").message == "'!=' does not chain");
+  CHECK(parse_err(rt, "a != b != c").message == "'!=' does not chain");
 
   // Unary minus must touch its operand; an accidental space would
   // otherwise quietly turn a literal into a negation call.
+  CHECK(parse_err(rt, "- 7").message == "unary '-' must touch its operand");
   CHECK(
-      parse_err(run_env, "- 7").message == "unary '-' must touch its operand");
-  CHECK(parse_err(run_env, "a * - b").message ==
-        "unary '-' must touch its operand");
+      parse_err(rt, "a * - b").message == "unary '-' must touch its operand");
 
   // `=` and `:=` are statements, rejected with dedicated messages.
-  CHECK(parse_err(run_env, "x = 5").message ==
+  CHECK(parse_err(rt, "x = 5").message ==
         "'=' is a definition statement, not an expression");
-  CHECK(parse_err(run_env, "x := 5").message ==
+  CHECK(parse_err(rt, "x := 5").message ==
         "':=' is reserved for assignment, a statement");
-  CHECK(parse_err(run_env, "f(x = 5)").message ==
+  CHECK(parse_err(rt, "f(x = 5)").message ==
         "'=' is a definition statement, not an expression");
 
   // Indexing is reserved.
-  CHECK(parse_err(run_env, "xs[0]").message ==
-        "indexing is not yet part of Monty");
+  CHECK(parse_err(rt, "xs[0]").message == "indexing is not yet part of Monty");
 
   // List-literal structural errors; trailing commas stay rejected, as in
   // calls.
-  CHECK(parse_err(run_env, "[1 2]").message == "expected ']'");
-  CHECK(parse_err(run_env, "[1, 2,]").message == "expected an expression");
+  CHECK(parse_err(rt, "[1 2]").message == "expected ']'");
+  CHECK(parse_err(rt, "[1, 2,]").message == "expected an expression");
 
   // Structural errors.
-  CHECK(parse_err(run_env, "x if c").message ==
+  CHECK(parse_err(rt, "x if c").message ==
         "expected 'else' after ternary condition");
-  CHECK(parse_err(run_env, "()").message == "expected an expression");
-  CHECK(parse_err(run_env, "a +\nb").message == "expected an expression");
+  CHECK(parse_err(rt, "()").message == "expected an expression");
+  CHECK(parse_err(rt, "a +\nb").message == "expected an expression");
 
   // Parsing consumes exactly one expression; the leftover tokens stay in
   // the stream for the caller to judge.
   auto lexed = monty::lexer::lex("a b");
   REQUIRE(lexed.has_value());
   auto toks = *std::move(lexed);
-  auto v = monty::expression_parser::parse(run_env, toks);
+  auto v = monty::expression_parser::parse(rt, toks);
   REQUIRE(v.has_value());
   CHECK(v->print() == "a");
   CHECK(toks.at_word("b"));
@@ -419,29 +416,29 @@ TEST_CASE("Monty expression parser errors", "[coreb]") {
   // Nesting is depth-guarded rather than risking the C++ stack.
   const std::string deep =
       std::string(max_depth + 1, '(') + "x" + std::string(max_depth + 1, ')');
-  CHECK(parse_err(run_env, deep).message == "nesting too deep");
-  CHECK(parse_err(run_env, std::string(max_depth + 1, '-') + "x").message ==
+  CHECK(parse_err(rt, deep).message == "nesting too deep");
+  CHECK(parse_err(rt, std::string(max_depth + 1, '-') + "x").message ==
         "nesting too deep");
 
   // Nesting budgets compound across layers: neither 100 parens nor a
   // 100-deep Hall escape alone approaches the cap, but stacked they exceed
   // it.
-  CHECK(parse_dump(run_env,
-            std::string(100, '(') + "x" + std::string(100, ')')) == "x");
+  CHECK(parse_dump(rt, std::string(100, '(') + "x" + std::string(100, ')')) ==
+        "x");
   const std::string stacked =
       std::string(100, '(') + "%(" + std::string(99, '(') + "x" +
       std::string(100, ')') + std::string(100, ')');
-  CHECK(parse_err(run_env, stacked).message == "nesting too deep");
+  CHECK(parse_err(rt, stacked).message == "nesting too deep");
 
   // Errors carry the offending position.
-  auto e = parse_err(run_env, "(1 +\n*)");
+  auto e = parse_err(rt, "(1 +\n*)");
   CHECK(e.message == "expected an expression");
   CHECK(e.line == 2);
   CHECK(e.col == 1);
 
   // A Hall reader error inside an escape maps back to the enclosing
   // source, offset by the token's position: here, the misplaced dot.
-  e = parse_err(run_env, "x + %(.)");
+  e = parse_err(rt, "x + %(.)");
   CHECK(e.message == "misplaced '.'");
   CHECK(e.pos == 6);
   CHECK(e.col == 7);
@@ -451,8 +448,8 @@ TEST_CASE("Monty expression parser errors", "[coreb]") {
 #pragma region Monty expression parser evaluates
 
 TEST_CASE("Monty expression parser evaluates", "[coreb]") {
-  runtime_environment run_env;
-  evaluator ev(run_env);
+  runtime rt;
+  evaluator ev(rt);
 
   // End-to-end: Monty source through the desugar into the evaluator.
   auto parse_eval = [&](std::string_view src) {
@@ -460,11 +457,11 @@ TEST_CASE("Monty expression parser evaluates", "[coreb]") {
     auto lexed = monty::lexer::lex(src);
     REQUIRE(lexed.has_value());
     auto toks = *std::move(lexed);
-    auto v = monty::expression_parser::parse(run_env, toks);
+    auto v = monty::expression_parser::parse(rt, toks);
     REQUIRE(v.has_value());
     // Evaluation may collect at safe points; the pending form is a root.
     std::vector<value> forms{*v};
-    gc_pin pin(run_env.rt, forms);
+    gc_pin pin(rt, forms);
     auto r = ev.eval(forms[0]);
     REQUIRE(r.has_value());
     return r->print();
@@ -486,41 +483,39 @@ TEST_CASE("Monty expression parser evaluates", "[coreb]") {
 #pragma region Monty statement parser desugar
 
 TEST_CASE("Monty statement parser desugar", "[coreb]") {
-  runtime_environment run_env;
+  runtime rt;
 
   // Simple statements: definitions and expression statements.
-  CHECK(stmt_dump(run_env, "x = 5") == "(define x 5)");
-  CHECK(stmt_dump(run_env, "f(1)") == "(f 1)");
-  CHECK(stmt_dump(run_env, "x = 5\ny = x + 1") ==
-        "(define x 5) (define y (+ x 1))");
+  CHECK(stmt_dump(rt, "x = 5") == "(define x 5)");
+  CHECK(stmt_dump(rt, "f(1)") == "(f 1)");
+  CHECK(
+      stmt_dump(rt, "x = 5\ny = x + 1") == "(define x 5) (define y (+ x 1))");
 
   // Keywords are contextual, not reserved: a leading word followed by `=`
   // is a definition even when the word is a statement keyword. `if`
   // parses the same way; rebinding it is policed at kernel `define`.
-  CHECK(stmt_dump(run_env, "fun = 5") == "(define fun 5)");
-  CHECK(stmt_dump(run_env, "return = 5") == "(define return 5)");
-  CHECK(stmt_dump(run_env, "elif = 5") == "(define elif 5)");
-  CHECK(stmt_dump(run_env, "if = 5") == "(define if 5)");
+  CHECK(stmt_dump(rt, "fun = 5") == "(define fun 5)");
+  CHECK(stmt_dump(rt, "return = 5") == "(define return 5)");
+  CHECK(stmt_dump(rt, "elif = 5") == "(define elif 5)");
+  CHECK(stmt_dump(rt, "if = 5") == "(define if 5)");
   // Grouping parens strip the keyword claim, keeping Monty total: an
   // expression statement can lead with a keyword-named variable this way.
-  CHECK(stmt_dump(run_env, "(fun + 1)") == "(+ fun 1)");
+  CHECK(stmt_dump(rt, "(fun + 1)") == "(+ fun 1)");
 
   // `fun` is a define of a lambda; the block splats into the implicit
   // sequence.
-  CHECK(stmt_dump(run_env, "fun inc(n):\n  n + 1") ==
+  CHECK(stmt_dump(rt, "fun inc(n):\n  n + 1") ==
         "(define inc (lambda (n) (+ n 1)))");
   // A zero-parameter lambda's parameter list is nil, which prints as
   // "nil": nil unifies with the empty list.
-  CHECK(stmt_dump(run_env, "fun f():\n  1\n  2") ==
-        "(define f (lambda nil 1 2))");
-  CHECK(stmt_dump(run_env, "fun add(a, b):\n  a + b") ==
+  CHECK(stmt_dump(rt, "fun f():\n  1\n  2") == "(define f (lambda nil 1 2))");
+  CHECK(stmt_dump(rt, "fun add(a, b):\n  a + b") ==
         "(define add (lambda (a b) (+ a b)))");
   // A `fun` name may be an operator mention, rebinding the operator;
   // `=`/`:=` mention like any other.
-  CHECK(stmt_dump(run_env, "fun (-)(a, b):\n  a + b") ==
+  CHECK(stmt_dump(rt, "fun (-)(a, b):\n  a + b") ==
         "(define - (lambda (a b) (+ a b)))");
-  CHECK(stmt_dump(run_env, "fun (=)(a, b):\n  a") ==
-        "(define = (lambda (a b) a))");
+  CHECK(stmt_dump(rt, "fun (=)(a, b):\n  a") == "(define = (lambda (a b) a))");
 
   // A flat run of guard clauses folds iteratively rather than one C++
   // recursion per clause.
@@ -532,30 +527,28 @@ TEST_CASE("Monty statement parser desugar", "[coreb]") {
     auto guards = monty::lexer::lex(src);
     REQUIRE(guards.has_value());
     auto guard_toks = *std::move(guards);
-    CHECK(monty::statement_parser::parse_all(run_env, guard_toks).has_value());
+    CHECK(monty::statement_parser::parse_all(rt, guard_toks).has_value());
   }
 
   // `if`/`elif`/`else` chains rightward over begin blocks; else-less is
   // the kernel's two-argument `if`.
-  CHECK(stmt_dump(run_env, "if a:\n  f()") == "(if a (begin (f)))");
-  CHECK(stmt_dump(run_env, "if a:\n  f()\nelse:\n  g()") ==
+  CHECK(stmt_dump(rt, "if a:\n  f()") == "(if a (begin (f)))");
+  CHECK(stmt_dump(rt, "if a:\n  f()\nelse:\n  g()") ==
         "(if a (begin (f)) (begin (g)))");
-  CHECK(stmt_dump(run_env, "if a:\n  1\nelif b:\n  2\nelse:\n  3") ==
+  CHECK(stmt_dump(rt, "if a:\n  1\nelif b:\n  2\nelse:\n  3") ==
         "(if a (begin 1) (if b (begin 2) (begin 3)))");
 
   // A final `return e` is just `e`; the bare spelling returns nil.
-  CHECK(stmt_dump(run_env, "fun f(n):\n  return n") ==
-        "(define f (lambda (n) n))");
-  CHECK(stmt_dump(run_env, "fun f():\n  return") ==
-        "(define f (lambda nil nil))");
+  CHECK(stmt_dump(rt, "fun f(n):\n  return n") == "(define f (lambda (n) n))");
+  CHECK(stmt_dump(rt, "fun f():\n  return") == "(define f (lambda nil nil))");
 
   // The guard-clause rewrite: an else-less `if` ending in `return` takes
   // the remainder of the body as its else branch.
-  CHECK(stmt_dump(run_env, "fun f(n):\n  if n == 0:\n    return 1\n  n * 2") ==
+  CHECK(stmt_dump(rt, "fun f(n):\n  if n == 0:\n    return 1\n  n * 2") ==
         "(define f (lambda (n) (if (== n 0) (begin 1) (begin (* n 2)))))");
 
   // A final `if` with `else` may return from both arms.
-  CHECK(stmt_dump(run_env,
+  CHECK(stmt_dump(rt,
             "fun f(n):\n  if n:\n    return 1\n  else:\n    return 2") ==
         "(define f (lambda (n) (if n (begin 1) (begin 2))))");
 
@@ -564,7 +557,7 @@ TEST_CASE("Monty statement parser desugar", "[coreb]") {
   auto lexed = monty::lexer::lex("x = 1\ny = 2");
   REQUIRE(lexed.has_value());
   auto toks = *std::move(lexed);
-  auto v = monty::statement_parser::parse(run_env, toks);
+  auto v = monty::statement_parser::parse(rt, toks);
   REQUIRE(v.has_value());
   CHECK(v->print() == "(define x 1)");
   CHECK(toks.at_word("y"));
@@ -574,44 +567,38 @@ TEST_CASE("Monty statement parser desugar", "[coreb]") {
 #pragma region Monty statement parser errors
 
 TEST_CASE("Monty statement parser errors", "[coreb]") {
-  runtime_environment run_env;
+  runtime rt;
 
   // Restricted return: inside `fun` only, and only where the rewrite can
   // express it.
-  CHECK(
-      stmt_err(run_env, "return 1").message == "'return' outside a function");
-  CHECK(stmt_err(run_env, "fun f():\n  return 1\n  2").message ==
+  CHECK(stmt_err(rt, "return 1").message == "'return' outside a function");
+  CHECK(stmt_err(rt, "fun f():\n  return 1\n  2").message ==
         "'return' must end its function or a guard clause");
-  CHECK(
-      stmt_err(run_env, "fun f():\n  if a:\n    return 1\n  else:\n    2\n  3")
-          .message == "'return' must end its function or a guard clause");
+  CHECK(stmt_err(rt, "fun f():\n  if a:\n    return 1\n  else:\n    2\n  3")
+            .message == "'return' must end its function or a guard clause");
 
   // `:=` stays reserved pending mutation.
-  CHECK(stmt_err(run_env, "x := 5").message ==
+  CHECK(stmt_err(rt, "x := 5").message ==
         "':=' assignment is not yet part of Monty");
 
   // Structural errors.
-  CHECK(stmt_err(run_env, "  x").message == "unexpected indent");
-  CHECK(stmt_err(run_env, "if a\n  f()").message == "expected ':'");
-  CHECK(
-      stmt_err(run_env, "if a: f()").message == "expected an indented block");
-  CHECK(stmt_err(run_env, "fun f(5):\n  1").message ==
-        "expected a parameter name");
+  CHECK(stmt_err(rt, "  x").message == "unexpected indent");
+  CHECK(stmt_err(rt, "if a\n  f()").message == "expected ':'");
+  CHECK(stmt_err(rt, "if a: f()").message == "expected an indented block");
+  CHECK(stmt_err(rt, "fun f(5):\n  1").message == "expected a parameter name");
   // A statement led by a keyword spelling reads as the keyword form; a
   // keyword-named variable is read from non-leading expression positions,
   // or from the lead behind grouping parens.
-  CHECK(stmt_err(run_env, "fun + 1").message == "expected a function name");
+  CHECK(stmt_err(rt, "fun + 1").message == "expected a function name");
   // Literal words name no binding: not in definitions, fun names, or
   // parameters.
-  CHECK(stmt_err(run_env, "nil = 5").message ==
-        "'nil' is a literal, not a name");
-  CHECK(stmt_err(run_env, "fun true():\n  1").message ==
+  CHECK(stmt_err(rt, "nil = 5").message == "'nil' is a literal, not a name");
+  CHECK(stmt_err(rt, "fun true():\n  1").message ==
         "'true' is a literal, not a name");
-  CHECK(stmt_err(run_env, "fun f(false):\n  1").message ==
+  CHECK(stmt_err(rt, "fun f(false):\n  1").message ==
         "'false' is a literal, not a name");
-  CHECK(stmt_err(run_env, "fun f():\n  x = ").message ==
-        "expected an expression");
-  CHECK(stmt_err(run_env, "x, y").message == "expected end of line");
+  CHECK(stmt_err(rt, "fun f():\n  x = ").message == "expected an expression");
+  CHECK(stmt_err(rt, "x, y").message == "expected end of line");
 
   // The statement parser's block depth seeds the expression parser: ten
   // block levels plus an expression fine on its own exceed the shared
@@ -621,15 +608,15 @@ TEST_CASE("Monty statement parser errors", "[coreb]") {
     stacked += std::string(2 * ndx, ' ') + "if c:\n";
   stacked += std::string(20, ' ') + std::string(125, '(') + "x" +
              std::string(125, ')') + "\n";
-  CHECK(stmt_err(run_env, stacked).message == "nesting too deep");
+  CHECK(stmt_err(rt, stacked).message == "nesting too deep");
 }
 
 #pragma endregion
 #pragma region Monty statement parser evaluates
 
 TEST_CASE("Monty statement parser evaluates", "[coreb]") {
-  runtime_environment run_env;
-  evaluator ev(run_env);
+  runtime rt;
+  evaluator ev(rt);
 
   // End-to-end: a Monty program through the desugar into the evaluator,
   // yielding the last form's value.
@@ -638,11 +625,11 @@ TEST_CASE("Monty statement parser evaluates", "[coreb]") {
     auto lexed = monty::lexer::lex(src);
     REQUIRE(lexed.has_value());
     auto toks = *std::move(lexed);
-    auto parsed = monty::statement_parser::parse_all(run_env, toks);
+    auto parsed = monty::statement_parser::parse_all(rt, toks);
     REQUIRE(parsed.has_value());
     auto forms = *std::move(parsed);
     // Evaluation may collect at safe points; the pending forms are roots.
-    gc_pin pin(run_env.rt, forms);
+    gc_pin pin(rt, forms);
     std::string out;
     for (const auto& form : forms) {
       auto r = ev.eval(form);
@@ -681,25 +668,25 @@ TEST_CASE("Monty statement parser evaluates", "[coreb]") {
 namespace {
 
 // Read Hall source and unparse its forms as Monty.
-std::string unparse_hall(runtime_environment& run_env, std::string_view src) {
+std::string unparse_hall(runtime& rt, std::string_view src) {
   CAPTURE(src);
-  auto forms = hall_reader::read_all(run_env, src);
+  auto forms = hall_reader::read_all(rt, src);
   REQUIRE(forms.has_value());
-  return monty::unparser::unparse_all(run_env, *forms);
+  return monty::unparser::unparse_all(rt, *forms);
 }
 
 // Check the round trip: reading Hall, unparsing to Monty, and parsing that
 // back reaches the same forms.
-void check_roundtrip(runtime_environment& run_env, std::string_view src) {
+void check_roundtrip(runtime& rt, std::string_view src) {
   CAPTURE(src);
-  auto forms = hall_reader::read_all(run_env, src);
+  auto forms = hall_reader::read_all(rt, src);
   REQUIRE(forms.has_value());
-  const auto monty_src = monty::unparser::unparse_all(run_env, *forms);
+  const auto monty_src = monty::unparser::unparse_all(rt, *forms);
   CAPTURE(monty_src);
   auto lexed = monty::lexer::lex(monty_src);
   REQUIRE(lexed.has_value());
   auto toks = *std::move(lexed);
-  auto back = monty::statement_parser::parse_all(run_env, toks);
+  auto back = monty::statement_parser::parse_all(rt, toks);
   REQUIRE(back.has_value());
   REQUIRE(back->size() == forms->size());
   for (size_t ndx = 0; ndx < forms->size(); ++ndx)
@@ -709,8 +696,8 @@ void check_roundtrip(runtime_environment& run_env, std::string_view src) {
 } // namespace
 
 TEST_CASE("Monty unparser", "[coreb]") {
-  runtime_environment run_env;
-  auto up = [&](std::string_view src) { return unparse_hall(run_env, src); };
+  runtime rt;
+  auto up = [&](std::string_view src) { return unparse_hall(rt, src); };
 
   // Simple statements.
   CHECK(up("(define x 5)") == "x = 5");
@@ -785,10 +772,9 @@ TEST_CASE("Monty unparser", "[coreb]") {
   CHECK(up("(f %foo)") == "f(%foo)");
   // A define of a literal word arises only from embedder-built forms (the
   // reader makes the literal); it has no Monty spelling and escapes.
-  auto& rt = run_env.rt;
   const auto define_nil = rt.cons(value{rt.intern("define")},
       rt.cons(value{rt.intern("nil")}, rt.cons(value{5}, value{})));
-  CHECK(monty::unparser::unparse(run_env, define_nil) == "%(define nil 5)");
+  CHECK(monty::unparser::unparse(rt, define_nil) == "%(define nil 5)");
 
   // Escapes: shapes with no Monty spelling.
   CHECK(up("(define f (lambda (n)))") == "f = %(lambda (n))");
@@ -808,7 +794,7 @@ TEST_CASE("Monty unparser", "[coreb]") {
 #pragma region Monty unparser round trip
 
 TEST_CASE("Monty unparser round trip", "[coreb]") {
-  runtime_environment run_env;
+  runtime rt;
 
   // Hall -> Monty -> Hall reaches the same forms.
   constexpr std::string_view sources[]{
@@ -840,7 +826,7 @@ TEST_CASE("Monty unparser round trip", "[coreb]") {
       "(= a b)",
       "(define := (lambda (a b) a))",
   };
-  for (const auto src : sources) check_roundtrip(run_env, src);
+  for (const auto src : sources) check_roundtrip(rt, src);
 
   // Monty -> Hall -> Monty is textually the fixed point for canonical
   // source.
@@ -869,9 +855,9 @@ TEST_CASE("Monty unparser round trip", "[coreb]") {
     auto lexed = monty::lexer::lex(src);
     REQUIRE(lexed.has_value());
     auto toks = *std::move(lexed);
-    auto forms = monty::statement_parser::parse_all(run_env, toks);
+    auto forms = monty::statement_parser::parse_all(rt, toks);
     REQUIRE(forms.has_value());
-    CHECK(monty::unparser::unparse_all(run_env, *forms) == src);
+    CHECK(monty::unparser::unparse_all(rt, *forms) == src);
   }
 }
 

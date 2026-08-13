@@ -28,7 +28,7 @@
 #include "../source_scanner.h"
 #include "hall_reader.h"
 #include "monty_lexer.h"
-#include "symbols.h"
+#include "runtime.h"
 #include "token_classes.h"
 #include "value.h"
 
@@ -106,8 +106,8 @@ public:
   // the nesting budget for a caller already that deep, so stacked front
   // ends share the one `max_depth` rather than each starting fresh.
   [[nodiscard]] static result<value>
-  parse(runtime_environment& run_env, token_stream& toks, size_t depth = 0) {
-    return builder{run_env, toks, depth}.parse_expr();
+  parse(runtime& rt, token_stream& toks, size_t depth = 0) {
+    return builder{rt, toks, depth}.parse_expr();
   }
 
 private:
@@ -115,11 +115,9 @@ private:
 
   // Single-pass builder from the token stream to a value.
   struct builder {
-    runtime_environment& run_env;
+    runtime& rt;
     token_stream& toks;
     size_t depth{};
-    runtime& rt = run_env.rt;
-    const symbols& syms = run_env.syms;
 
     // The operator table entry at the cursor, or null.
     [[nodiscard]] const operator_symbol* at_operator() const noexcept {
@@ -157,7 +155,7 @@ private:
         auto e = parse_expr();
         if (!e) return e;
 
-        v = rt.list_of({value{syms.keyword_if}, *c, *v, *e});
+        v = rt.list_of({value{rt.sym_if}, *c, *v, *e});
       }
       if (toks.at_op("="))
         return toks.fail("'=' is a definition statement, not an expression");
@@ -252,7 +250,7 @@ private:
         auto v = parse_unary();
         if (!v) return v;
 
-        return rt.list_of({value{syms.minus}, *v});
+        return rt.list_of({value{rt.sym_minus}, *v});
       }
       return parse_postfix();
     }
@@ -345,7 +343,7 @@ private:
     // budget.
     [[nodiscard]] result<value> parse_hall() {
       const auto tok = toks.take();
-      auto v = hall_reader::read_one(run_env, tok.text, depth);
+      auto v = hall_reader::read_one(rt, tok.text, depth);
       // Patch the error location.
       if (!v) {
         auto e = std::move(v).as_error();
@@ -361,7 +359,7 @@ private:
     // evaluated: `[1, x]` is `(list 1 x)`, and `[]` is `(list)`, yielding nil.
     [[nodiscard]] result<value> parse_list() {
       toks.take(); // '['
-      std::vector<value> form{value{syms.list}};
+      std::vector<value> form{value{rt.sym_list}};
       if (!toks.at(token_kind::rbracket)) {
         for (;;) {
           auto elem = parse_expr();

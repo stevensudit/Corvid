@@ -25,7 +25,7 @@
 #include "../../strings/cases.h"
 #include "../../strings/conversion.h"
 #include "../source_scanner.h"
-#include "symbols.h"
+#include "runtime.h"
 #include "token_classes.h"
 #include "value.h"
 
@@ -37,8 +37,8 @@ namespace corvid { inline namespace lang { namespace coreb {
 // source text into values. Monty, the Pythonesque surface syntax, is a skin
 // whose parser produces the same values.
 //
-//   runtime_environment run_env;
-//   auto v = hall_reader::read_one(run_env, "(a 1 2.5)");
+//   runtime rt;
+//   auto v = hall_reader::read_one(rt, "(a 1 2.5)");
 //   if (v) v->print();  // "(a 1 2.5)"
 
 #pragma region hall_reader
@@ -99,9 +99,9 @@ public:
   // seeds the nesting budget for a caller already that deep (the Monty
   // parser reading a Hall escape), so stacked front ends share the one
   // `max_depth` rather than each starting fresh.
-  [[nodiscard]] static result<value> read_one(runtime_environment& run_env,
-      std::string_view src, size_t depth = 0) {
-    parser p(run_env, src);
+  [[nodiscard]] static result<value>
+  read_one(runtime& rt, std::string_view src, size_t depth = 0) {
+    parser p(rt, src);
     p.depth = depth;
     p.skip_trivia();
     auto v = p.parse_value();
@@ -115,9 +115,9 @@ public:
   //
   // All-trivia input yields an empty vector.
   [[nodiscard]] static result<std::vector<value>>
-  read_all(runtime_environment& run_env, std::string_view src) {
+  read_all(runtime& rt, std::string_view src) {
     std::vector<value> values;
-    parser p(run_env, src);
+    parser p(rt, src);
     for (p.skip_trivia(); !p.at_end(); p.skip_trivia()) {
       auto v = p.parse_value();
       if (!v) return std::move(v);
@@ -131,11 +131,10 @@ private:
 
   // Single-pass recursive-descent parser over the source text.
   struct parser: source_scanner {
-    parser(runtime_environment& run_env, std::string_view src) noexcept
-        : source_scanner{src}, rt{run_env.rt}, syms{run_env.syms} {}
+    parser(runtime& rt, std::string_view src) noexcept
+        : source_scanner{src}, rt{rt} {}
 
     runtime& rt;
-    const symbols& syms;
     size_t depth{};
 
     // Whether `c` ends a token.
@@ -177,7 +176,7 @@ private:
       skip_trivia();
       auto quoted = parse_value();
       if (!quoted) return quoted;
-      return rt.cons(value{syms.quote}, rt.cons(*quoted, value{}));
+      return rt.cons(value{rt.sym_quote}, rt.cons(*quoted, value{}));
     }
 
     // Whether the upcoming token is the lone '.' of a dotted tail.
