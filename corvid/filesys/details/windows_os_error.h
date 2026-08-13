@@ -66,6 +66,9 @@ private:
   // The soft errors are the retriable flow control conditions:
   // `WSAEWOULDBLOCK` and `WSAEINTR`, plus the overlapped-pending pair
   // `ERROR_IO_PENDING` and `ERROR_IO_INCOMPLETE`.
+  //
+  // TODO: When Windows pipe support lands, add `ERROR_NO_DATA` (an empty
+  // PIPE_NOWAIT read, the `EAGAIN` analogue) to the soft set.
   [[nodiscard]] constexpr bool do_is_soft_error() const noexcept {
     return code() == code_t::wouldblock || code() == code_t::intr ||
            code() == code_t::io_pending || code() == code_t::io_incomplete;

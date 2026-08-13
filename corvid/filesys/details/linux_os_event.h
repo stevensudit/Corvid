@@ -80,7 +80,15 @@ public:
     auto flags = efd_flags::cloexec;
     if (mode == event_mode::semaphore) flags |= efd_flags::semaphore;
     if (exec == execution::nonblocking) flags |= efd_flags::nonblock;
-    return os_event{os_file{::eventfd(initial_value, *flags)}};
+
+    // If it fits in 32 bits, we can do it in one step.
+    if (initial_value <= std::numeric_limits<uint32_t>::max())
+      return os_event{
+          os_file{::eventfd(static_cast<uint32_t>(initial_value), *flags)}};
+
+    os_event ev{os_file{::eventfd(0, *flags)}};
+    if (ev.is_open() && !ev.notify(initial_value)) return os_event{};
+    return ev;
   }
 
 #pragma endregion
@@ -139,9 +147,11 @@ private:
   // Wait for readability via `poll`.
   //
   // A negative timeout would mean infinite, so clamp to [0, INT_MAX]
-  // milliseconds.
+  // milliseconds. `poll` silently ignores a closed (-1) fd, so check for one
+  // explicitly to fail fast, as Windows does.
   [[nodiscard]] wait_result do_wait_for(
       std::chrono::milliseconds timeout) const noexcept {
+    if (!is_open()) return wait_result::failed;
     pollfd pfd{.fd = handle(), .events = POLLIN, .revents = 0};
     const auto ms = static_cast<int>(
         std::clamp<std::chrono::milliseconds::rep>(timeout.count(), 0,

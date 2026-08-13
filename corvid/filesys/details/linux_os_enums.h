@@ -263,7 +263,7 @@ consteval auto corvid_enum_spec(errno_code*) {
       "acces,fault,notblk,busy,exist,xdev,nodev,notdir,isdir,inval,nfile,"
       "mfile,notty,txtbsy,fbig,nospc,spipe,rofs,mlink,pipe,dom,range,deadlk,"
       "nametoolong,nolck,nosys,notempty,loop,old_wouldblock,nomsg,idrm,chrng,"
-      "l2nsync,l3hlt,l3rst,lnrng,unatch,ncsi,l2hlt,bade,badr,exfull,noano,"
+      "l2nsync,l3hlt,l3rst,lnrng,unatch,ncsi,l2hlt,bade,badr,xfull,noano,"
       "badrqc,badslt,old_deadlock,bfont,nostr,nodata,time,nosr,nonet,nopkg,"
       "remote,nolink,adv,srmnt,comm,proto,multihop,dotdot,badmsg,overflow,"
       "notuniq,badfd,remchg,libacc,libbad,libscn,libmax,libexec,ilseq,restart,"
@@ -287,31 +287,31 @@ inline bool e_code_is(errno_code code) { return e_code() == code; }
 
 // `O_*` wrapper for `open` flags.
 enum class o_flags : int {
-  rdonly = O_RDONLY,                     // 0x0000'0000 sequence value
-  wronly = O_WRONLY,                     // 0x0000'0001 sequence value
-  rdwr = O_RDWR,                         // 0x0000'0002 sequence value
-  accmode = O_ACCMODE,                   // 0x0000'0003 mask for above three
-  creat = O_CREAT,                       // 0x0000'0040
-  excl = O_EXCL,                         // 0x0000'0080
-  noctty = O_NOCTTY,                     // 0x0000'0100
-  trunc = O_TRUNC,                       // 0x0000'0200
-  append = O_APPEND,                     // 0x0000'0400
-  nonblock = O_NONBLOCK,                 // 0x0000'0800
-  dsync = O_DSYNC,                       // 0x0000'1000
-  async = O_ASYNC,                       // 0x0000'2000
-  direct = O_DIRECT,                     // 0x0000'4000
-  largefile = O_LARGEFILE,               // 0x0000'8000
-  directory = O_DIRECTORY,               // 0x0001'0000
-  nofollow = O_NOFOLLOW,                 // 0x0002'0000
-  noattime = O_NOATIME,                  // 0x0004'0000
-  cloexec = O_CLOEXEC,                   // 0x0008'0000
-  raw_osync = O_FSYNC & O_DSYNC,         // 0x0010'0000 aka __O_SYNC.
-  osync = O_SYNC,                        // 0x0010'1000 raw_osync + dsync
-  fsync = O_FSYNC,                       // 0x0010'1000 alias for osync
-  rsync = O_RSYNC,                       // 0x0010'1000 alias for osync
-  path = O_PATH,                         // 0x0020'0000
-  raw_tmpfile = O_TMPFILE & O_DIRECTORY, // 0x0040'0000 aka __O_TMPFILE
-  tmpfile = O_TMPFILE,                   // 0x0041'0000 raw_tmpfile + directory
+  rdonly = O_RDONLY,                      // 0x0000'0000 sequence value
+  wronly = O_WRONLY,                      // 0x0000'0001 sequence value
+  rdwr = O_RDWR,                          // 0x0000'0002 sequence value
+  accmode = O_ACCMODE,                    // 0x0000'0003 mask for above three
+  creat = O_CREAT,                        // 0x0000'0040
+  excl = O_EXCL,                          // 0x0000'0080
+  noctty = O_NOCTTY,                      // 0x0000'0100
+  trunc = O_TRUNC,                        // 0x0000'0200
+  append = O_APPEND,                      // 0x0000'0400
+  nonblock = O_NONBLOCK,                  // 0x0000'0800
+  dsync = O_DSYNC,                        // 0x0000'1000
+  async = O_ASYNC,                        // 0x0000'2000
+  direct = O_DIRECT,                      // 0x0000'4000
+  largefile = O_LARGEFILE,                // 0x0000'8000
+  directory = O_DIRECTORY,                // 0x0001'0000
+  nofollow = O_NOFOLLOW,                  // 0x0002'0000
+  noattime = O_NOATIME,                   // 0x0004'0000
+  cloexec = O_CLOEXEC,                    // 0x0008'0000
+  raw_osync = O_FSYNC & ~O_DSYNC,         // 0x0010'0000 aka __O_SYNC.
+  osync = O_SYNC,                         // 0x0010'1000 raw_osync + dsync
+  fsync = O_FSYNC,                        // 0x0010'1000 alias for osync
+  rsync = O_RSYNC,                        // 0x0010'1000 alias for osync
+  path = O_PATH,                          // 0x0020'0000
+  raw_tmpfile = O_TMPFILE & ~O_DIRECTORY, // 0x0040'0000 aka __O_TMPFILE
+  tmpfile = O_TMPFILE, // 0x0041'0000 raw_tmpfile + directory
 };
 consteval auto corvid_enum_spec(o_flags*) {
   return corvid::enums::bitmask::make_bitmask_enum_spec<o_flags,

@@ -111,7 +111,8 @@ private:
   do_write_some(const char* p, size_t len) const noexcept {
     const auto n = ::write(handle(), p, len);
     if (n > 0) return static_cast<size_t>(n);
-    return is_hard_error() ? std::nullopt : std::optional<size_t>{0};
+    if ((n == 0) || is_hard_error()) return std::nullopt;
+    return std::optional<size_t>{0};
   }
 
   // One `::read`.

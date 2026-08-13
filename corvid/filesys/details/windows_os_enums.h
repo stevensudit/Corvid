@@ -30,6 +30,11 @@
 
 #include <cstdint>
 
+// windows.h pulls in min/max macros, and its non-lean corners pollute further
+// (see corvid/infra/log.h); keep them out.
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
 #ifndef NOMINMAX
 #define NOMINMAX
 #endif

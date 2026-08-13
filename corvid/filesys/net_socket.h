@@ -740,7 +740,8 @@ public:
     if (data.empty()) return true;
 
     const auto n = send(data.data(), data.size());
-    if (n <= 0) return !os_file::is_hard_error();
+    if (n == 0) return false;
+    if (n < 0) return !os_file::is_hard_error();
 
     data.remove_prefix(static_cast<size_t>(n));
     return true;

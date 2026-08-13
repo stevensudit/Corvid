@@ -75,6 +75,9 @@ private:
     DWORD written{};
     if (!::WriteFile(handle(), p, clamp_len(len), &written, nullptr))
       return is_hard_error() ? std::nullopt : std::optional<size_t>{0};
+    // A zero-progress success sets no error, so classify it as hard instead of
+    // consulting a stale value.
+    if (written == 0) return std::nullopt;
     return size_t{written};
   }
 
@@ -86,6 +89,9 @@ private:
     DWORD got{};
     if (!::ReadFile(handle(), p, clamp_len(len), &got, nullptr)) {
       const auto err = os_error::last();
+      // TODO: When Windows pipe support lands, preserve the `got` bytes that
+      // an ERROR_MORE_DATA read on a message-mode pipe has already
+      // transferred.
       if (err.code() == EC::broken_pipe) return {read_status::eof};
       return {err.is_hard_error() ? read_status::hard : read_status::soft};
     }
