@@ -3,7 +3,10 @@
 Status: Windows port complete, including CUDA, device tooling, and lint, and the
 Windows-only CUDA cell (CUDA plus Direct3D 11 interop) is now built. The portable
 suite builds and passes on Linux (clang), native Windows (clang++, the default),
-and native Windows (MSVC cl): 40 of 40 portable tests per Windows compiler. The
+and native Windows (MSVC cl): 51 of 51 portable tests per Windows compiler. The
+filesys OS-handle layer (`os_enums` / `os_error` / `os_file` / `os_event`) is
+cross-platform via per-platform implementation headers, which makes
+`owner_thread_dispatcher` portable (see section 5). The
 cross-platform CUDA bucket builds and runs natively on Windows under clang++ (4 of
 4 registered `.cu` pass on the GPU, plus the cuBLAS tutorials); device correctness
 runs via `./cleanbuild.ps1 cudacheck` (compute-sanitizer) and device debugging via
@@ -225,15 +228,23 @@ is `-std=c++23 -O3 -lineinfo`; raising its host warnings to `-Wextra` (via nvcc
 ## 5. Header portability conventions
 
 The library stays single-source: portability is handled with guards, not
-parallel files. When adding code the portable bucket will compile, follow these:
+parallel files, except for the filesys OS-handle layer described below. When
+adding code the portable bucket will compile, follow these:
 
 - POSIX reach is guarded, not assumed. Two "soft" headers do thread-label work
   behind a `#ifdef _WIN32` guard: `infra/log.h` (Linux uses
   `pthread_getname_np` + `syscall(SYS_gettid)`, Windows uses
   `std::this_thread::get_id`) and `concurrency/jthread_stoppable_sleep.h` (Linux
-  uses `pthread_setname_np`, Windows is a no-op). The one genuinely Linux
-  concurrency primitive, `owner_thread_dispatcher` (eventfd), stays in the linux
-  bucket, as does `sim/sim_game.h` (epoll).
+  uses `pthread_setname_np`, Windows is a no-op). `owner_thread_dispatcher` is
+  portable, built on the filesys `os_event`; `sim/sim_game.h` (epoll) stays in
+  the linux bucket.
+- The filesys OS-handle wrappers are the one place with per-platform files
+  rather than guards. Each public entry header (`corvid/filesys/os_enums.h`,
+  `os_error.h`, `os_file.h`, `os_event.h`) selects a `details/linux_*.h` or
+  `details/windows_*.h` implementation, and the shared contract lives in a CRTP
+  base header (`os_*_base.h`) that both implementations include; see
+  "corvid/filesys/CLAUDE.md" for the structure. `epoll.h` and `net_socket.h`
+  remain Linux-only and say so with an `#ifdef _WIN32` `#error`.
 - Empty-base and member elision: use `CORVID_NO_UNIQUE_ADDRESS` (from
   `corvid/meta/crossplatform.h`), not the raw `[[no_unique_address]]`. MSVC
   silently ignores the standard attribute and needs `[[msvc::no_unique_address]]`;
@@ -397,8 +408,9 @@ compute-sanitizer reports that and cudacheck records it as a skip, not a fault.
   conformance second compiler.
 - The three `proto.h`-umbrella parser tests: json_parser and utf8_checker move
   to portable with narrowed includes; http_header_block stays Linux.
-- Concurrency: the std-based primitives are portable; only
-  `owner_thread_dispatcher` (eventfd) stays Linux.
+- Concurrency: all primitives are portable. `owner_thread_dispatcher` rides on
+  the filesys `os_event` (eventfd on Linux, an event handle on Windows); it was
+  the original motivation for making that layer cross-platform.
 
 ## 10. Test classification
 
