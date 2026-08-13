@@ -28,12 +28,11 @@
 // quiet.
 #ifdef _WIN32
 
-#include <algorithm>
 #include <cstddef>
-#include <limits>
 #include <optional>
 
 // <windows.h> comes via "os_enums.h".
+#include "../../math/arithmetic.h"
 #include "../os_enums.h"
 #include "../os_file_base.h"
 
@@ -73,7 +72,8 @@ private:
   [[nodiscard]] std::optional<size_t>
   do_write_some(const char* p, size_t len) const noexcept {
     DWORD written{};
-    if (!::WriteFile(handle(), p, clamp_len(len), &written, nullptr))
+    if (!::WriteFile(handle(), p, saturate_cast<DWORD>(len), &written,
+            nullptr))
       return is_hard_error() ? std::nullopt : std::optional<size_t>{0};
     // A zero-progress success sets no error, so classify it as hard instead of
     // consulting a stale value.
@@ -87,7 +87,7 @@ private:
   // soft or hard by `GetLastError`.
   [[nodiscard]] read_result do_read_some(char* p, size_t len) const noexcept {
     DWORD got{};
-    if (!::ReadFile(handle(), p, clamp_len(len), &got, nullptr)) {
+    if (!::ReadFile(handle(), p, saturate_cast<DWORD>(len), &got, nullptr)) {
       const auto err = os_error::last();
       // TODO: When Windows pipe support lands, preserve the `got` bytes that
       // an ERROR_MORE_DATA read on a message-mode pipe has already
@@ -97,12 +97,6 @@ private:
     }
     if (got == 0) return {read_status::eof};
     return {read_status::data, size_t{got}};
-  }
-
-  // Clamp a buffer size to what a single Win32 I/O call can carry.
-  static DWORD clamp_len(size_t n) noexcept {
-    return static_cast<DWORD>(
-        std::min<size_t>(n, std::numeric_limits<DWORD>::max()));
   }
 
 #pragma endregion
