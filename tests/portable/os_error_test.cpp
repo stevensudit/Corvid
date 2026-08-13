@@ -59,7 +59,7 @@ TEST_CASE("os_error basics") {
 TEST_CASE("os_error capture") {
   // `last` reflects the most recent failing call.
 #ifdef _WIN32
-  CHECK(::CloseHandle(nullptr) == 0);
+  CHECK(::SetEvent(nullptr) == 0);
   CHECK(os_error::last().code() == os_error::code_t::invalid_handle);
 #else
   CHECK(::close(-1) == -1);
