@@ -474,6 +474,19 @@ TEST_CASE("Formatting", "[Ipv6Addr]") {
   auto addr = ipv6_addr::parse("2001:db8::abcd");
   REQUIRE(addr.has_value());
   CHECK(addr->to_string() == "2001:db8::abcd");
+
+  // A lone zero group is not compressed.
+  CHECK(ipv6_addr(1, 0, 2, 3, 4, 5, 6, 7).to_string() == "1:0:2:3:4:5:6:7");
+
+  // std::format goes through the formatter, not to_string.
+  CHECK(std::format("{}", ipv6_addr(0x2001, 0xdb8, 0, 1, 0, 0, 0, 1)) ==
+        "2001:db8:0:1::1");
+  CHECK(std::format("{}", ipv6_addr::any) == "::");
+
+  // Conversion to bool is explicit, so an address cannot promote into
+  // arithmetic or comparison with integers.
+  static_assert(!std::is_convertible_v<ipv6_addr, bool>);
+  static_assert(std::is_constructible_v<bool, ipv6_addr>);
 }
 
 #pragma endregion
