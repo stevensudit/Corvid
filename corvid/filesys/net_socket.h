@@ -351,6 +351,163 @@ consteval auto corvid_enum_spec(tcp_option*) {
 
 #pragma endregion
 #pragma endregion
+#pragma region sockaddr_view
+
+// Immutable, non-owning view of a POSIX socket address, containing a pointer
+// to the `sockaddr` buffer and its length.
+//
+// Conversions can fail, such as when the contents do not match the length, but
+// constructors do not throw: on failure, they leave the view `empty`.
+//
+// Note that, while the length can be derived from the contents for almost all
+// types of addresses, it has to be explicit for abstract-namespace Unix domain
+// sockets (ANS UDS). As a result, conversion from such a buffer will fail if
+// the length is not explicitly provided.
+struct sockaddr_view {
+#pragma region Data
+
+  const sockaddr* const addr{};
+  const socklen_t addrlen{};
+
+#pragma endregion
+#pragma region Construction
+
+  sockaddr_view() noexcept = default;
+
+  // Construct from a pointer to a `sockaddr` buffer and its length, without
+  // validating the length.
+  //
+  // This is the low-level constructor to use when you already have a validated
+  // buffer and length, such as inside `net_endpoint`, or when it cannot be
+  // validated, such an ANS UDS.
+  sockaddr_view(const sockaddr* address, socklen_t length) noexcept
+      : addr{address}, addrlen{length} {}
+
+  // Construct from a `sockaddr` buffer and its length, validating that the
+  // length is consistent with the contents.
+  //
+  // This cannot validate ANS UDS, so it will instead accept the `length`.
+  sockaddr_view(const sockaddr& address, socklen_t length) noexcept
+      : addr{&address}, addrlen{validated_length(&address, length)} {}
+
+  // Construct from a `sockaddr` buffer, calculating the length from the
+  // contents.
+  sockaddr_view(const sockaddr& addr) noexcept
+      : addr{&addr}, addrlen{calculate_length(addr)} {}
+
+  // Construct from a `sockaddr_in`, validating the contents.
+  sockaddr_view(const sockaddr_in& address) noexcept
+      : sockaddr_view{*as_addr(&address), sizeof(address)} {}
+
+  // Construct from a `sockaddr_in6`, validating the contents.
+  sockaddr_view(const sockaddr_in6& address) noexcept
+      : sockaddr_view{*as_addr(&address), sizeof(address)} {}
+
+  // Construct from a `sockaddr_un`, validating the contents.
+  //
+  // Note that this will not work for an ANS UDS; you will have to use a
+  // constructor that takes a `length`.
+  sockaddr_view(const sockaddr_un& address) noexcept
+      : sockaddr_view{*as_addr(&address)} {}
+
+  // Construct from a `sockaddr_storage`, validating the contents.
+  //
+  // Note that this will not work for an ANS UDS; you will have to use a
+  // constructor that takes a `length`.
+  sockaddr_view(const sockaddr_storage& address) noexcept
+      : sockaddr_view{*as_addr(&address)} {}
+
+#pragma endregion
+#pragma region Properties
+
+  // A default-constructed instance, or one that failed conversion, is empty.
+  [[nodiscard]] bool empty() const noexcept { return !addr || !addrlen; }
+
+  [[nodiscard]] explicit operator bool() const noexcept { return !empty(); }
+
+  [[nodiscard]] constexpr address_family family() const noexcept {
+    return addr ? address_family{addr->sa_family} : address_family{};
+  }
+
+  [[nodiscard]] constexpr bool is_v4() const noexcept {
+    return family() == address_family::inet;
+  }
+
+  [[nodiscard]] constexpr bool is_v6() const noexcept {
+    return family() == address_family::inet6;
+  }
+
+  [[nodiscard]] constexpr bool is_uds() const noexcept {
+    return family() == address_family::unix;
+  }
+
+  [[nodiscard]] bool is_ans() const noexcept {
+    return is_uds() && as_sockaddr_un().sun_path[0] == '\0';
+  }
+
+  [[nodiscard]] const sockaddr_in& as_sockaddr_in() const {
+    assert(is_v4());
+    return reinterpret_cast<const sockaddr_in&>(*addr);
+  }
+
+  [[nodiscard]] const sockaddr_in6& as_sockaddr_in6() const {
+    assert(is_v6());
+    return reinterpret_cast<const sockaddr_in6&>(*addr);
+  }
+
+  [[nodiscard]] const sockaddr_un& as_sockaddr_un() const {
+    assert(is_uds());
+    return reinterpret_cast<const sockaddr_un&>(*addr);
+  }
+
+#pragma endregion
+#pragma region Helpers
+
+  [[nodiscard]] static socklen_t calculate_length(
+      const auto& raw_addr) noexcept {
+    auto& addr = reinterpret_cast<const sockaddr&>(raw_addr);
+    const auto fam = address_family{addr.sa_family};
+
+    if (fam == address_family::inet) return sizeof(sockaddr_in);
+
+    if (fam == address_family::inet6) return sizeof(sockaddr_in6);
+
+    if (fam == address_family::unix) {
+      const auto& sun = reinterpret_cast<const sockaddr_un&>(addr);
+      const char* path = sun.sun_path;
+      const auto path_size = sizeof(sun.sun_path);
+      if (path[0]) {
+        const auto name_len = strnlen(path, path_size);
+        const auto termination = (name_len < path_size) ? 1UZ : 0UZ;
+        return offsetof(sockaddr_un, sun_path) + name_len + termination;
+      }
+    }
+    // Fail if ANS or unknown family.
+    return 0;
+  }
+
+private:
+  [[nodiscard]] static const sockaddr* as_addr(
+      const void* any_address) noexcept {
+    return reinterpret_cast<const sockaddr*>(any_address);
+  }
+
+  // Calculate the validated length so that, for example, an IPv4 address in a
+  // full `sockaddr_storage` buffer will return `sizeof(sockaddr_in)`.
+  [[nodiscard]] static socklen_t
+  validated_length(const void* any_address, socklen_t length) noexcept {
+    if (!any_address || !length) return 0;
+    const auto address = as_addr(any_address);
+    const auto calculated = calculate_length(address);
+    // If we calculated a non-zero length (meaning that it's not an ANS), fail
+    // if the stated length doesn't match our expectations.
+    if (calculated && calculated != length) return 0;
+    return length;
+  }
+#pragma endregion
+};
+
+#pragma endregion
 #pragma region net_socket
 
 // RAII IP socket with type-safe option methods.
@@ -358,10 +515,8 @@ consteval auto corvid_enum_spec(tcp_option*) {
 // `net_socket` is-an `os_file`, adding socket-specific operations on top
 // of the shared fd ownership and control helpers. Movable, non-copyable.
 //
-// `bind` and `connect` accept a `sockaddr_storage`. `net_endpoint`
-// converts implicitly, so it can be passed directly. `accept` returns the
-// peer address as a raw `sockaddr_storage`; use
-// `net_endpoint{sockaddr_storage}` to convert it if needed.
+// `bind` and `connect` accept a `sockaddr_view`. `net_endpoint` converts
+// implicitly, so it can be passed directly.
 class [[nodiscard]] net_socket: public os_file {
 #pragma region Construction
 public:
@@ -387,7 +542,7 @@ public:
   // NOLINTNEXTLINE(bugprone-derived-method-shadowing-base-method)
   [[nodiscard]] bool close() noexcept { return os_file::close(); }
 
-  // Close the socket.
+  // Close the socket using the specified mode.
   //
   // In `graceful` mode, performs a normal close (FIN/ACK). In `forceful` mode,
   // performs a forceful close (RST).
@@ -399,8 +554,9 @@ public:
     return os_file::close();
   }
 
-  // Shut down part of a full-duplex connection. `how` is one of `SHUT_RD`,
-  // `SHUT_WR`, or `SHUT_RDWR`.
+  // Shut down part of a full-duplex connection.
+  //
+  // `how` is one of `SHUT_RD`, `SHUT_WR`, or `SHUT_RDWR`.
   [[nodiscard]] bool shutdown(int how) noexcept {
     assert(is_open());
     return ::shutdown(handle(), how) == 0;
@@ -442,16 +598,17 @@ public:
     return do_create(address_family::unix, exec, style);
   }
 
-  // Create a socket whose address family matches `addr`.
+  // Create a socket whose address family matches `target`.
   //
-  // The family is read from `addr.ss_family`; if it is unrecognized, the
+  // The family is read from the address; if it is unrecognized, the
   // underlying `socket(2)` call will fail and the returned socket will not be
   // open. Defaults to non-blocking stream (`SOCK_STREAM | SOCK_NONBLOCK |
-  // SOCK_CLOEXEC`). Does not bind on `addr`.
-  [[nodiscard]] static net_socket create_for(const sockaddr_storage& addr,
+  // SOCK_CLOEXEC`). Does not bind on `target`.
+  [[nodiscard]] static net_socket create_for(sockaddr_view target,
       execution exec = execution::nonblocking,
       message_style style = message_style::stream) noexcept {
-    return do_create(address_family{addr.ss_family}, exec, style);
+    if (!target) return {};
+    return do_create(address_family{target.family()}, exec, style);
   }
 
   // Create a blocking socket and connect it to `addr`.
@@ -459,9 +616,9 @@ public:
   // As synchronous I/O is not scalable, this is a convenience factory for
   // simple use cases, meant to work with other utility methods with "sync" in
   // their name.
-  [[nodiscard]] static net_socket create_sync_connected(
-      const sockaddr_storage& addr, std::chrono::milliseconds timeout = 1s) {
-    auto sock = net_socket::create_for(addr, execution::blocking);
+  [[nodiscard]] static net_socket create_sync_connected(sockaddr_view target,
+      std::chrono::milliseconds timeout = 1s) {
+    auto sock = net_socket::create_for(target, execution::blocking);
     if (!sock.is_open()) return {};
     if (timeout.count() > 0) {
       const timeval tv{timeout.count() / 1000,
@@ -470,13 +627,11 @@ public:
           !sock.set_option(socket_option::sndtimeo, tv))
         return {};
     }
-    if (::connect(sock.handle(), reinterpret_cast<const sockaddr*>(&addr),
-            sockaddr_size(addr)) != 0)
-      return {};
+    if (::connect(sock.handle(), target.addr, target.addrlen) != 0) return {};
     return sock;
   }
 
-  // Create a connected pair of sockets.
+  // Create a connected pair of UDS sockets.
   [[nodiscard]] static std::pair<net_socket, net_socket>
   create_pair(address_family domain = address_family::unix,
       socket_type type = socket_type::stream,
@@ -495,9 +650,9 @@ public:
 
   // Set a socket option.
   //
-  // Returns true on success. Templated to infer `sizeof(T)` automatically and
-  // hide the `reinterpret_cast` required by the C `setsockopt` API; callers
-  // pass a typed value directly.
+  // Templated to infer `sizeof(T)` automatically and hide the
+  // `reinterpret_cast` required by the C `setsockopt` API; callers pass a
+  // typed value directly.
   template<typename T>
   [[nodiscard]] bool
   set_raw_option(int level, int optname, const T& value) noexcept {
@@ -774,46 +929,21 @@ public:
 #pragma endregion
 #pragma region Connecting
 
-  // Return the POSIX socket address size for `addr`.
-  //
-  // For IPv4 and IPv6, returns the fixed struct size. For UDS pathname
-  // sockets, returns only the significant portion of `sun_path` (path length +
-  // null terminator + header). For ANS (abstract name sockets, where
-  // `sun_path[0] == '\0'`), returns `sizeof(sockaddr_un)` so the full name
-  // buffer is transmitted. For unrecognized families, returns
-  // `sizeof(sockaddr_storage)`.
-  [[nodiscard]] static socklen_t sockaddr_size(
-      const sockaddr_storage& addr) noexcept {
-    if (addr.ss_family == *address_family::inet) return sizeof(sockaddr_in);
-    if (addr.ss_family == *address_family::inet6) return sizeof(sockaddr_in6);
-    if (addr.ss_family == *address_family::unix) {
-      const auto& sun = reinterpret_cast<const sockaddr_un&>(addr);
-      if (sun.sun_path[0] == '\0') return sizeof(sockaddr_un); // ANS
-      return static_cast<socklen_t>(
-          offsetof(sockaddr_un, sun_path) + std::strlen(sun.sun_path) + 1);
-    }
-    return sizeof(sockaddr_storage);
-  }
-
   // Bind the socket to a local address. Returns true on success.
-  [[nodiscard]] bool bind(const sockaddr_storage& addr) noexcept {
+  [[nodiscard]] bool bind(sockaddr_view target) noexcept {
     assert(is_open());
-    return ::bind(handle(), reinterpret_cast<const sockaddr*>(&addr),
-               sockaddr_size(addr)) == 0;
+    return ::bind(handle(), target.addr, target.addrlen) == 0;
   }
 
-  // Initiate a connection to `addr`.
+  // Initiate a connection to `target`.
   //
   // Returns `true` on immediate success, `std::nullopt` when the connection is
   // in progress (`EINPROGRESS`), or `false` on hard failure. For non-blocking
   // sockets, arm `EPOLLOUT` and check `SO_ERROR` on the next writable event to
   // confirm in-progress connects.
-  [[nodiscard]] std::optional<bool> connect(
-      const sockaddr_storage& addr) noexcept {
+  [[nodiscard]] std::optional<bool> connect(sockaddr_view target) noexcept {
     assert(is_open());
-    if (::connect(handle(), reinterpret_cast<const sockaddr*>(&addr),
-            sockaddr_size(addr)) == 0)
-      return true;
+    if (::connect(handle(), target.addr, target.addrlen) == 0) return true;
     if (os_error::last().code() == EC::inprogress) return std::nullopt;
     return false;
   }

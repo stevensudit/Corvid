@@ -481,6 +481,13 @@ public:
 
     if (file_offset_ != seek_current) file_offset_ += res.bytes();
     if (blockrw_ == block_type::read) {
+      // A plain `recvmsg` arms `msg_name` at `addr_`'s own storage, so the
+      // kernel writes the source address there and its length only into
+      // `msg_namelen`, bypassing the endpoint's stored length. Finalize via
+      // self-assign, which restores the length invariant and normalizes.
+      if (msgh_.msg_name == addr_.as_sockaddr_ptr())
+        (void)addr_.assign(
+            sockaddr_view{addr_.as_sockaddr_ptr(), msgh_.msg_namelen});
       const auto extend = std::min(res.bytes(),
           full_span_.size() -
               static_cast<size_t>(payload_span_.data() - full_span_.data()) -
@@ -528,7 +535,8 @@ public:
 
     iou_recvmsg_out out{full_span_.data(), msgh, res};
     if (out) {
-      addr_.assign(*out.addr(), out.addr_len());
+      (void)addr_.assign(
+          sockaddr_view{out.addr(), static_cast<socklen_t>(out.addr_len())});
       msgh_.msg_flags = *out.msghdr_flags();
       msgh_.msg_controllen = out.datagram_length();
     }
