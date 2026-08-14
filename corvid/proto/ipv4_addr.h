@@ -170,7 +170,7 @@ public:
   }
 
   // True if this is in an RFC 1918 private range:
-  //   10.0.0.0/8, 172.16.0.0/12, or 192.168.0.0/16.
+  //   "10.0.0.0/8", "172.16.0.0/12", or "192.168.0.0/16".
   [[nodiscard]] constexpr bool is_private() const noexcept {
     return (addr_ & 0xff000000U) == 0x0a000000U ||
            (addr_ & 0xfff00000U) == 0xac100000U ||

@@ -485,7 +485,8 @@ public:
     sockaddr* sockaddr_ptr{};
     socklen_t* socklen_ptr{};
     if (endpoint) {
-      endpoint->len = endpoint->sockaddr.sockaddr_size();
+      // `len` is the kernel's write capacity, not the current length.
+      endpoint->len = net_endpoint::max_sockaddr_size;
       sockaddr_ptr = endpoint->sockaddr.as_sockaddr_ptr();
       socklen_ptr = &endpoint->len;
     }

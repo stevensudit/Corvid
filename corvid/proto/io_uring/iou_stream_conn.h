@@ -347,7 +347,7 @@ public:
   // the OS-assigned port.
   [[nodiscard]] const net_endpoint& local_endpoint() noexcept {
     std::scoped_lock lock(endpoint_mutex_);
-    if (local_.empty()) local_ = net_endpoint{sock_};
+    if (local_.empty()) local_ = net_endpoint::local_of(sock_);
     return local_;
   }
 

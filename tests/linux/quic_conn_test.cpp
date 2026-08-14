@@ -91,7 +91,7 @@ struct bound_loopback {
         execution::nonblocking, message_style::datagram);
     if (!bl.sock.is_open()) return {};
     if (!bl.sock.bind(net_endpoint::loopback_v4())) return {};
-    bl.addr = net_endpoint{bl.sock};
+    bl.addr = net_endpoint::local_of(bl.sock);
     return bl;
   }
 

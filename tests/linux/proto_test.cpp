@@ -545,15 +545,11 @@ TEST_CASE("Construction", "[NetEndpoint]") {
     CHECK(ep.uds_path() == path);
   }
 
-  // UDS: path longer than 107 chars is silently truncated.
+  // UDS: a path too long for `sun_path` is rejected, not truncated.
   if (true) {
     const std::string long_path(200, 'x');
     net_endpoint ep{"/" + long_path};
-    CHECK(!ep.empty());
-    CHECK(ep.is_uds());
-    CHECK_FALSE(ep.is_ans());
-    CHECK(ep.uds_path().size() == 107U);
-    CHECK(ep.uds_path()[0] == '/');
+    CHECK(ep.empty());
   }
 
   // ANS: construct from "@name" string.
@@ -564,22 +560,22 @@ TEST_CASE("Construction", "[NetEndpoint]") {
     CHECK(ep.is_ans());
     CHECK_FALSE(ep.is_v4());
     CHECK_FALSE(ep.is_v6());
-    // `uds_path` skips the leading '\0' and returns the full 107-byte
-    // buffer.
-    CHECK(ep.uds_path().size() == 107U);
-    CHECK(ep.uds_path().substr(0, 9) == "myservice");
-    CHECK(ep.uds_path()[9] == '\0'); // trailing bytes are zero-padding
+    // `uds_path` skips the leading '\0' and returns the length-delimited
+    // name.
+    CHECK(ep.uds_path() == "myservice");
   }
 
-  // ANS: name longer than 107 chars is silently truncated.
+  // ANS: a name too long for `sun_path` is rejected, not truncated.
   if (true) {
     const std::string long_name(200, 'y');
     net_endpoint ep{"@" + long_name};
-    CHECK(!ep.empty());
-    CHECK(ep.is_ans());
-    CHECK(ep.uds_path().size() == 107U);
-    CHECK(ep.uds_path()[0] == 'y');
+    CHECK(ep.empty());
   }
+
+  // Conversion to bool is explicit, so an endpoint cannot promote into
+  // arithmetic or comparison with integers.
+  static_assert(!std::is_convertible_v<net_endpoint, bool>);
+  static_assert(std::is_constructible_v<bool, net_endpoint>);
 }
 
 #pragma endregion
@@ -633,16 +629,14 @@ TEST_CASE("Parse", "[NetEndpoint]") {
     CHECK(!ep.empty());
     CHECK(ep.is_uds());
     CHECK(ep.is_ans());
-    CHECK(ep.uds_path().size() == 107U);
-    CHECK(ep.uds_path().substr(0, 8) == "abstract");
+    CHECK(ep.uds_path() == "abstract");
   }
 
   // The `string_view` constructor also accepts ANS names.
   if (true) {
     net_endpoint ep{std::string_view{"@svc"}};
     CHECK(ep.is_ans());
-    CHECK(ep.uds_path().size() == 107U);
-    CHECK(ep.uds_path().substr(0, 3) == "svc");
+    CHECK(ep.uds_path() == "svc");
   }
 
   // An IPv4-mapped IPv6 address (e.g., `[::ffff:192.168.1.1]:80`) is stored
@@ -683,7 +677,7 @@ TEST_CASE("Comparison", "[NetEndpoint]") {
   // UDS and IPv4 compare by family.
   CHECK(a != u1);
 
-  // ANS endpoints compare by full sun_path buffer.
+  // ANS endpoints compare by the length-delimited name.
   auto n1 = net_endpoint{"@same"};
   auto n2 = net_endpoint{"@same"};
   auto n3 = net_endpoint{"@zzz"};
@@ -693,6 +687,15 @@ TEST_CASE("Comparison", "[NetEndpoint]") {
 
   // ANS and regular UDS are unequal (sun_path[0] differs: '\0' vs '/').
   CHECK(n1 != u1);
+
+  // The address length participates in ANS identity: "abc" and "abc\0\0" are
+  // distinct names, not equal-after-padding.
+  auto short_name = net_endpoint{"@abc"};
+  auto padded_name = net_endpoint{std::string_view{"@abc\0\0", 6}};
+  CHECK((short_name.is_ans() && padded_name.is_ans()));
+  CHECK(short_name != padded_name);
+  CHECK(short_name.uds_path().size() == 3U);
+  CHECK(padded_name.uds_path().size() == 5U);
 }
 
 #pragma endregion
@@ -708,25 +711,27 @@ TEST_CASE("Formatting", "[NetEndpoint]") {
   CHECK(!uds.empty());
   CHECK(uds.to_string() == "unix:/tmp/app.sock");
 
-  // ANS: name with no embedded null truncates at trailing zeros.
+  // ANS: a name with no embedded null prints in full.
   auto ans = net_endpoint{"@svc"};
   CHECK(!ans.empty());
   CHECK(ans.to_string() == "unix:@svc");
 
-  // ANS: name without an embedded null truncates at the null, ignoring bytes
-  // after it.
-  if (true) {
-    net_endpoint ep{"@abc"};
-    CHECK(ep.is_ans());
-    CHECK(ep.to_string() == "unix:@abc");
-  }
-
-  // ANS: name with an embedded null truncates at the null, ignoring bytes
-  // after it. Pass a `string_view` that includes the embedded null.
+  // ANS: a name with an embedded null truncates the display there and
+  // appends the full name length. Pass a `string_view` that includes the
+  // embedded null.
   if (true) {
     net_endpoint ep{std::string_view{"@abc\0def", 8}};
     CHECK(ep.is_ans());
-    CHECK(ep.to_string() == "unix:@abc (+)");
+    CHECK(ep.uds_path().size() == 7U);
+    CHECK(ep.to_string() == "unix:@abc (len 7)");
+  }
+
+  // ANS: trailing zeros are part of the name, so they trigger the same
+  // truncated-display form.
+  if (true) {
+    net_endpoint ep{std::string_view{"@abc\0\0", 6}};
+    CHECK(ep.is_ans());
+    CHECK(ep.to_string() == "unix:@abc (len 5)");
   }
 
   // ANS: name that fills the entire 107-byte buffer with no null uses the
@@ -739,14 +744,12 @@ TEST_CASE("Formatting", "[NetEndpoint]") {
     CHECK(ep.to_string() == ("unix:@" + max_name));
   }
 
-  // ANS: name longer than 107 chars is truncated to 107, ignoring the excess.
-  if (true) {
-    const std::string max_name(107, 'x');
-    const std::string full_name = "@" + max_name + "extra";
-    net_endpoint ep{std::string_view{full_name}};
-    CHECK(ep.is_ans());
-    CHECK(ep.to_string() == ("unix:@" + max_name));
-  }
+  // std::format goes through the formatter, not to_string.
+  CHECK(std::format("{}", v4) == "127.0.0.1:80");
+  CHECK(std::format("{}", v6) == "[::1]:443");
+  CHECK(std::format("{}", uds) == "unix:/tmp/app.sock");
+  CHECK(std::format("{}", ans) == "unix:@svc");
+  CHECK(std::format("{}", net_endpoint{}) == "(invalid)");
 }
 
 #pragma endregion
@@ -823,13 +826,65 @@ TEST_CASE("PosixInterop", "[NetEndpoint]") {
     CHECK(ep.uds_path().size() == 107U);
     CHECK(ep.uds_path().substr(0, 10) == name);
 
-    // Roundtrip via as_sockaddr_un().
+    // Roundtrip via as_sockaddr_un() plus the explicit length: the struct
+    // alone cannot carry ANS identity.
     auto raw2 = ep.as_sockaddr_un();
-    net_endpoint ep2{raw2};
+    net_endpoint ep2{reinterpret_cast<const sockaddr&>(raw2),
+        ep.sockaddr_size()};
     CHECK(ep2 == ep);
 
-    // sockaddr_size() for ANS is sizeof(sockaddr_un).
+    // The full buffer was given as the length, so that is the name's extent.
     CHECK(ep.sockaddr_size() == sizeof(sockaddr_un));
+  }
+
+  // The sockaddr_un constructor rejects ANS: without a length, the name's
+  // extent is unknowable.
+  if (true) {
+    sockaddr_un raw{};
+    raw.sun_family = AF_UNIX;
+    const std::string_view name = "abstract";
+    name.copy(raw.sun_path + 1, sizeof(raw.sun_path) - 1);
+    CHECK(net_endpoint{raw}.empty());
+  }
+
+  // A kernel-style short ANS length is honored exactly, and reassignment
+  // fully replaces the previous state, ghost bytes included.
+  if (true) {
+    sockaddr_un raw{};
+    raw.sun_family = AF_UNIX;
+    const std::string_view name = "abc";
+    name.copy(raw.sun_path + 1, name.size());
+    const auto len = static_cast<socklen_t>(
+        offsetof(sockaddr_un, sun_path) + 1 + name.size());
+
+    // Start from an endpoint whose storage held a long path.
+    net_endpoint ep{"/a/very/long/path/that/fills/many/bytes/of/storage"};
+    REQUIRE(!ep.empty());
+    CHECK(ep.assign(reinterpret_cast<const sockaddr&>(raw), len));
+    CHECK(ep.is_ans());
+    CHECK(ep.uds_path() == name);
+    CHECK(ep == net_endpoint{"@abc"});
+
+    // A pathname arriving with a padded length is normalized, so it compares
+    // equal to the parsed form.
+    sockaddr_un padded{};
+    padded.sun_family = AF_UNIX;
+    const std::string_view path = "/tmp/pad.sock";
+    path.copy(padded.sun_path, path.size());
+    net_endpoint from_padded{reinterpret_cast<const sockaddr&>(padded),
+        sizeof(padded)};
+    CHECK(from_padded == net_endpoint{"/tmp/pad.sock"});
+  }
+
+  // A failed assign reports false and leaves the endpoint empty, discarding
+  // the previous state.
+  if (true) {
+    net_endpoint ep{ipv4_addr::loopback, 80};
+    REQUIRE(!ep.empty());
+    sockaddr bogus{};
+    bogus.sa_family = AF_PACKET;
+    CHECK_FALSE(ep.assign(bogus, sizeof(bogus)));
+    CHECK(ep.empty());
   }
 }
 

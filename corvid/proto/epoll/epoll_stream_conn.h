@@ -214,7 +214,7 @@ public:
   // The local address this socket is bound to. Useful after `listen` on
   // port 0 to discover the OS-assigned port. Safe from any thread.
   [[nodiscard]] net_endpoint local_endpoint() const noexcept {
-    return net_endpoint{sock()};
+    return net_endpoint::local_of(sock());
   }
 
   // The `epoll_loop` that drives this connection. Valid for the lifetime of

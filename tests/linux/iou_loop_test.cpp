@@ -312,7 +312,7 @@ TEST_CASE("SendBuffer", "[IouLoop]") {
         message_style::datagram);
     CHECK(recv_sock.bind(recv_ep));
     CHECK(send_sock.bind(send_ep));
-    net_endpoint recv_addr{recv_sock};
+    auto recv_addr = net_endpoint::local_of(recv_sock);
     const auto connect_ok = send_sock.connect(recv_addr);
     CHECK((connect_ok && *connect_ok));
 
@@ -671,7 +671,7 @@ TEST_CASE("RecvSendMsg", "[IouLoop]") {
         message_style::datagram);
     CHECK(recv_sock.bind(recv_ep));
     CHECK(send_sock.bind(send_ep));
-    net_endpoint recv_addr{recv_sock};
+    auto recv_addr = net_endpoint::local_of(recv_sock);
 
     std::atomic_bool received{false};
     std::atomic_int32_t recv_n{-1};
@@ -1114,7 +1114,7 @@ TEST_CASE("RecvMsgBufferMulti", "[IouLoop]") {
         message_style::datagram);
     CHECK(recv_sock.bind(recv_ep));
     CHECK(send_sock.bind(send_ep));
-    net_endpoint recv_addr{recv_sock};
+    auto recv_addr = net_endpoint::local_of(recv_sock);
 
     std::atomic<int> count{0};
     std::array<std::string, 3> payloads;
@@ -1175,7 +1175,7 @@ TEST_CASE("RecvMsgBufferMultiTruncated", "[IouLoop]") {
         message_style::datagram);
     CHECK(recv_sock.bind(recv_ep));
     CHECK(send_sock.bind(send_ep));
-    net_endpoint recv_addr{recv_sock};
+    auto recv_addr = net_endpoint::local_of(recv_sock);
 
     std::atomic_bool fired{false};
     relaxed_atomic_int32_t result{0};
@@ -1245,7 +1245,7 @@ TEST_CASE("RecvMsgBufferMultiStress", "[IouLoop]") {
         message_style::datagram);
     CHECK(recv_sock.bind(recv_ep));
     CHECK(send_sock.bind(send_ep));
-    net_endpoint recv_addr{recv_sock};
+    auto recv_addr = net_endpoint::local_of(recv_sock);
     const auto connect_ok = send_sock.connect(recv_addr);
     CHECK((connect_ok && *connect_ok));
 

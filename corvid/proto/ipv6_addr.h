@@ -301,6 +301,7 @@ private:
   // append it to `groups`, then consume the following separator. Returns
   // `nullopt` on error, `false` when parsing is complete, `true` to continue.
   [[nodiscard]] static constexpr std::optional<bool>
+  // NOLINTNEXTLINE(bugprone-exception-escape): substr positions are in-bounds.
   do_parse_one_item(std::string_view s, size_t& pos, word_array& groups,
       size_t& group_count, size_t& double_colon) noexcept {
     if (group_count == 8) return std::nullopt;

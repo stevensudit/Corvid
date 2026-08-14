@@ -234,7 +234,7 @@ public:
   // The bound local address. Safe from any thread.
   [[nodiscard]] const net_endpoint& local_endpoint() noexcept {
     std::scoped_lock lock(endpoint_mutex_);
-    if (local_.empty()) local_ = net_endpoint{sock_};
+    if (local_.empty()) local_ = net_endpoint::local_of(sock_);
     return local_;
   }
 
@@ -531,7 +531,7 @@ public:
         message_style::datagram);
     if (!sock.is_open() || !sock.set_nonblocking() || !sock.bind(local))
       return {};
-    if (!local.port()) local = net_endpoint{sock};
+    if (!local.port()) local = net_endpoint::local_of(sock);
     auto router = std::make_shared<router_t>(router_t::allow::ctor, loop,
         std::move(sock), std::move(local), recv_shot,
         std::forward<PluginArgs>(plugin_args)...);
