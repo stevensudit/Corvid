@@ -510,23 +510,23 @@ TEST_CASE("Construction", "[NetEndpoint]") {
   if (true) {
     net_endpoint ep;
     CHECK(ep.empty());
-    CHECK_FALSE(ep.is_v4());
-    CHECK_FALSE(ep.is_v6());
-    CHECK_FALSE(ep.is_uds());
+    CHECK_FALSE(ep.as_sockaddr_view().is_v4());
+    CHECK_FALSE(ep.as_sockaddr_view().is_v6());
+    CHECK_FALSE(ep.as_sockaddr_view().is_uds());
     CHECK(ep.to_string() == "(invalid)");
   }
 
   if (true) {
     net_endpoint ep{ipv4_addr(127, 0, 0, 1), 80};
-    REQUIRE(ep.is_v4());
-    CHECK(ep.port() == 80U);
+    REQUIRE(ep.as_sockaddr_view().is_v4());
+    CHECK(ep.as_sockaddr_view().port() == 80U);
     CHECK(ep.v4()->to_string() == "127.0.0.1");
   }
 
   if (true) {
     net_endpoint ep{ipv6_addr::loopback, 443};
-    REQUIRE(ep.is_v6());
-    CHECK(ep.port() == 443U);
+    REQUIRE(ep.as_sockaddr_view().is_v6());
+    CHECK(ep.as_sockaddr_view().port() == 443U);
     CHECK(ep.v6()->to_string() == "::1");
   }
 
@@ -539,10 +539,10 @@ TEST_CASE("Construction", "[NetEndpoint]") {
 
     net_endpoint ep{raw};
     CHECK_FALSE(ep.empty());
-    CHECK(ep.is_uds());
-    CHECK_FALSE(ep.is_v4());
-    CHECK_FALSE(ep.is_v6());
-    CHECK(ep.uds_path() == path);
+    CHECK(ep.as_sockaddr_view().is_uds());
+    CHECK_FALSE(ep.as_sockaddr_view().is_v4());
+    CHECK_FALSE(ep.as_sockaddr_view().is_v6());
+    CHECK(ep.as_sockaddr_view().uds_path() == path);
   }
 
   // UDS: a path too long for `sun_path` is rejected, not truncated.
@@ -556,13 +556,13 @@ TEST_CASE("Construction", "[NetEndpoint]") {
   if (true) {
     net_endpoint ep{"@myservice"};
     CHECK(!ep.empty());
-    CHECK(ep.is_uds());
-    CHECK(ep.is_ans());
-    CHECK_FALSE(ep.is_v4());
-    CHECK_FALSE(ep.is_v6());
+    CHECK(ep.as_sockaddr_view().is_uds());
+    CHECK(ep.as_sockaddr_view().is_ans());
+    CHECK_FALSE(ep.as_sockaddr_view().is_v4());
+    CHECK_FALSE(ep.as_sockaddr_view().is_v6());
     // `uds_path` skips the leading '\0' and returns the length-delimited
     // name.
-    CHECK(ep.uds_path() == "myservice");
+    CHECK(ep.as_sockaddr_view().uds_path() == "myservice");
   }
 
   // ANS: a name too long for `sun_path` is rejected, not truncated.
@@ -585,14 +585,14 @@ TEST_CASE("Parse", "[NetEndpoint]") {
   if (true) {
     net_endpoint a{"192.168.1.10:8080"};
     CHECK(!a.empty());
-    REQUIRE(a.is_v4());
-    CHECK(a.port() == 8080U);
+    REQUIRE(a.as_sockaddr_view().is_v4());
+    CHECK(a.as_sockaddr_view().port() == 8080U);
     CHECK(a.v4()->to_string() == "192.168.1.10");
 
     net_endpoint b{"[2001:db8::1]:443"};
     CHECK(!b.empty());
-    REQUIRE(b.is_v6());
-    CHECK(b.port() == 443U);
+    REQUIRE(b.as_sockaddr_view().is_v6());
+    CHECK(b.as_sockaddr_view().port() == 443U);
     CHECK(b.v6()->to_string() == "2001:db8::1");
   }
 
@@ -611,32 +611,32 @@ TEST_CASE("Parse", "[NetEndpoint]") {
   if (true) {
     net_endpoint ep{"/run/app.sock"};
     CHECK(!ep.empty());
-    CHECK(ep.is_uds());
-    CHECK(ep.uds_path() == "/run/app.sock");
+    CHECK(ep.as_sockaddr_view().is_uds());
+    CHECK(ep.as_sockaddr_view().uds_path() == "/run/app.sock");
   }
 
   // The `string_view` constructor also accepts UDS paths.
   if (true) {
     net_endpoint ep{std::string_view{"/var/run/foo.sock"}};
-    CHECK(ep.is_uds());
-    CHECK_FALSE(ep.is_ans());
-    CHECK(ep.uds_path() == "/var/run/foo.sock");
+    CHECK(ep.as_sockaddr_view().is_uds());
+    CHECK_FALSE(ep.as_sockaddr_view().is_ans());
+    CHECK(ep.as_sockaddr_view().uds_path() == "/var/run/foo.sock");
   }
 
   // A leading `@` produces an ANS endpoint.
   if (true) {
     net_endpoint ep{"@abstract"};
     CHECK(!ep.empty());
-    CHECK(ep.is_uds());
-    CHECK(ep.is_ans());
-    CHECK(ep.uds_path() == "abstract");
+    CHECK(ep.as_sockaddr_view().is_uds());
+    CHECK(ep.as_sockaddr_view().is_ans());
+    CHECK(ep.as_sockaddr_view().uds_path() == "abstract");
   }
 
   // The `string_view` constructor also accepts ANS names.
   if (true) {
     net_endpoint ep{std::string_view{"@svc"}};
-    CHECK(ep.is_ans());
-    CHECK(ep.uds_path() == "svc");
+    CHECK(ep.as_sockaddr_view().is_ans());
+    CHECK(ep.as_sockaddr_view().uds_path() == "svc");
   }
 
   // An IPv4-mapped IPv6 address (e.g., `[::ffff:192.168.1.1]:80`) is stored
@@ -646,9 +646,9 @@ TEST_CASE("Parse", "[NetEndpoint]") {
   if (true) {
     net_endpoint ep{"[::ffff:192.168.1.1]:80"};
     CHECK(!ep.empty());
-    CHECK(ep.is_v6());
-    CHECK_FALSE(ep.is_v4());
-    CHECK(ep.port() == 80U);
+    CHECK(ep.as_sockaddr_view().is_v6());
+    CHECK_FALSE(ep.as_sockaddr_view().is_v4());
+    CHECK(ep.as_sockaddr_view().port() == 80U);
     CHECK(ep.to_string() == "[::ffff:c0a8:101]:80");
   }
 }
@@ -692,10 +692,11 @@ TEST_CASE("Comparison", "[NetEndpoint]") {
   // distinct names, not equal-after-padding.
   auto short_name = net_endpoint{"@abc"};
   auto padded_name = net_endpoint{std::string_view{"@abc\0\0", 6}};
-  CHECK((short_name.is_ans() && padded_name.is_ans()));
+  CHECK((short_name.as_sockaddr_view().is_ans() &&
+         padded_name.as_sockaddr_view().is_ans()));
   CHECK(short_name != padded_name);
-  CHECK(short_name.uds_path().size() == 3U);
-  CHECK(padded_name.uds_path().size() == 5U);
+  CHECK(short_name.as_sockaddr_view().uds_path().size() == 3U);
+  CHECK(padded_name.as_sockaddr_view().uds_path().size() == 5U);
 }
 
 #pragma endregion
@@ -721,8 +722,8 @@ TEST_CASE("Formatting", "[NetEndpoint]") {
   // embedded null.
   if (true) {
     net_endpoint ep{std::string_view{"@abc\0def", 8}};
-    CHECK(ep.is_ans());
-    CHECK(ep.uds_path().size() == 7U);
+    CHECK(ep.as_sockaddr_view().is_ans());
+    CHECK(ep.as_sockaddr_view().uds_path().size() == 7U);
     CHECK(ep.to_string() == "unix:@abc (len 7)");
   }
 
@@ -730,7 +731,7 @@ TEST_CASE("Formatting", "[NetEndpoint]") {
   // truncated-display form.
   if (true) {
     net_endpoint ep{std::string_view{"@abc\0\0", 6}};
-    CHECK(ep.is_ans());
+    CHECK(ep.as_sockaddr_view().is_ans());
     CHECK(ep.to_string() == "unix:@abc (len 5)");
   }
 
@@ -740,7 +741,7 @@ TEST_CASE("Formatting", "[NetEndpoint]") {
     const std::string max_name(107, 'x');
     const std::string full_name = "@" + max_name;
     net_endpoint ep{std::string_view{full_name}};
-    CHECK(ep.is_ans());
+    CHECK(ep.as_sockaddr_view().is_ans());
     CHECK(ep.to_string() == ("unix:@" + max_name));
   }
 
@@ -822,9 +823,9 @@ TEST_CASE("PosixInterop", "[NetEndpoint]") {
     const socklen_t len = sizeof(sockaddr_un);
 
     net_endpoint ep{reinterpret_cast<const sockaddr&>(raw), len};
-    CHECK(ep.is_ans());
-    CHECK(ep.uds_path().size() == 107U);
-    CHECK(ep.uds_path().substr(0, 10) == name);
+    CHECK(ep.as_sockaddr_view().is_ans());
+    CHECK(ep.as_sockaddr_view().uds_path().size() == 107U);
+    CHECK(ep.as_sockaddr_view().uds_path().substr(0, 10) == name);
 
     // Roundtrip via as_sockaddr_un() plus the explicit length: the struct
     // alone cannot carry ANS identity.
@@ -860,9 +861,10 @@ TEST_CASE("PosixInterop", "[NetEndpoint]") {
     // Start from an endpoint whose storage held a long path.
     net_endpoint ep{"/a/very/long/path/that/fills/many/bytes/of/storage"};
     REQUIRE(!ep.empty());
-    CHECK(ep.assign(reinterpret_cast<const sockaddr&>(raw), len));
-    CHECK(ep.is_ans());
-    CHECK(ep.uds_path() == name);
+    CHECK(
+        ep.assign(sockaddr_view{reinterpret_cast<const sockaddr&>(raw), len}));
+    CHECK(ep.as_sockaddr_view().is_ans());
+    CHECK(ep.as_sockaddr_view().uds_path() == name);
     CHECK(ep == net_endpoint{"@abc"});
 
     // A pathname arriving with a padded length is normalized, so it compares
@@ -883,7 +885,7 @@ TEST_CASE("PosixInterop", "[NetEndpoint]") {
     REQUIRE(!ep.empty());
     sockaddr bogus{};
     bogus.sa_family = AF_PACKET;
-    CHECK_FALSE(ep.assign(bogus, sizeof(bogus)));
+    CHECK_FALSE(ep.assign(sockaddr_view{bogus, sizeof(bogus)}));
     CHECK(ep.empty());
   }
 }
@@ -897,7 +899,9 @@ TEST_CASE("NumericIPv4", "[DnsResolve]") {
   CHECK_FALSE(result.empty());
   bool found = false;
   for (const auto& ep : result) {
-    if (ep.is_v4() && ep.v4()->is_loopback() && ep.port() == 80) found = true;
+    if (ep.as_sockaddr_view().is_v4() && ep.v4()->is_loopback() &&
+        ep.as_sockaddr_view().port() == 80)
+      found = true;
   }
   CHECK(found);
 }
@@ -911,7 +915,9 @@ TEST_CASE("NumericIPv6", "[DnsResolve]") {
   CHECK_FALSE(result.empty());
   bool found = false;
   for (const auto& ep : result) {
-    if (ep.is_v6() && ep.v6()->is_loopback() && ep.port() == 443) found = true;
+    if (ep.as_sockaddr_view().is_v6() && ep.v6()->is_loopback() &&
+        ep.as_sockaddr_view().port() == 443)
+      found = true;
   }
   CHECK(found);
 }
@@ -924,12 +930,12 @@ TEST_CASE("Localhost", "[DnsResolve]") {
   auto result = dns_resolver::find_all("localhost", 8080);
   CHECK_FALSE(result.empty());
   // Every returned endpoint must use the requested port.
-  for (const auto& ep : result) CHECK(ep.port() == 8080U);
+  for (const auto& ep : result) CHECK(ep.as_sockaddr_view().port() == 8080U);
   // At least one result should be a loopback address.
   bool found = false;
   for (const auto& ep : result) {
-    if ((ep.is_v4() && ep.v4()->is_loopback()) ||
-        (ep.is_v6() && ep.v6()->is_loopback()))
+    if ((ep.as_sockaddr_view().is_v4() && ep.v4()->is_loopback()) ||
+        (ep.as_sockaddr_view().is_v6() && ep.v6()->is_loopback()))
       found = true;
   }
   CHECK(found);
@@ -941,11 +947,11 @@ TEST_CASE("Localhost", "[DnsResolve]") {
 TEST_CASE("FamilyFilter", "[DnsResolve]") {
   // With `AF_INET`, every result must be an IPv4 endpoint.
   auto v4 = dns_resolver::find_all("localhost", 80, AF_INET);
-  for (const auto& ep : v4) CHECK(ep.is_v4());
+  for (const auto& ep : v4) CHECK(ep.as_sockaddr_view().is_v4());
 
   // With `AF_INET6`, every result must be an IPv6 endpoint.
   auto v6 = dns_resolver::find_all("localhost", 80, AF_INET6);
-  for (const auto& ep : v6) CHECK(ep.is_v6());
+  for (const auto& ep : v6) CHECK(ep.as_sockaddr_view().is_v6());
 }
 
 #pragma endregion
@@ -963,8 +969,8 @@ TEST_CASE("InvalidHost", "[DnsResolve]") {
 TEST_CASE("Success", "[DnsResolveOne]") {
   // Numeric loopback resolves to exactly one endpoint with the right port.
   const auto ep = dns_resolver::find_one("127.0.0.1", 80);
-  CHECK(ep.is_v4());
-  CHECK(ep.port() == 80U);
+  CHECK(ep.as_sockaddr_view().is_v4());
+  CHECK(ep.as_sockaddr_view().port() == 80U);
 }
 
 #pragma endregion

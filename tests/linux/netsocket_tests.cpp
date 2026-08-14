@@ -296,7 +296,7 @@ TEST_CASE("BindListenAccept", "[NetSocket]") {
   CHECK(result.has_value());
   CHECK(result->first.is_open());
   const auto peer = net_endpoint{result->second};
-  CHECK(peer.is_v4());
+  CHECK(peer.as_sockaddr_view().is_v4());
   CHECK(peer.v4()->is_loopback());
 }
 

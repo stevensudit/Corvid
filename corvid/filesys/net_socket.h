@@ -23,7 +23,9 @@
 #include <algorithm>
 #include <cassert>
 #include <chrono>
+#include <compare>
 #include <cstddef>
+#include <cstdint>
 #include <cstring>
 #include <optional>
 #include <string>
@@ -386,14 +388,15 @@ struct sockaddr_view {
   // Construct from a `sockaddr` buffer and its length, validating that the
   // length is consistent with the contents.
   //
-  // This cannot validate ANS UDS, so it will instead accept the `length`.
+  // This cannot validate ANS UDS, so it will instead accept the `length` as
+  // correct.
   sockaddr_view(const sockaddr& address, socklen_t length) noexcept
-      : addr{&address}, addrlen{validated_length(&address, length)} {}
+      : addr{&address}, addrlen{validate_stated_length(&address, length)} {}
 
   // Construct from a `sockaddr` buffer, calculating the length from the
   // contents.
   sockaddr_view(const sockaddr& addr) noexcept
-      : addr{&addr}, addrlen{calculate_length(addr)} {}
+      : addr{&addr}, addrlen{calculate_valid_length(addr)} {}
 
   // Construct from a `sockaddr_in`, validating the contents.
   sockaddr_view(const sockaddr_in& address) noexcept
@@ -425,8 +428,17 @@ struct sockaddr_view {
 
   [[nodiscard]] explicit operator bool() const noexcept { return !empty(); }
 
+  // Return whether the address is unnamed, which is to say that the entire
+  // length is just `sizeof(sa_family_t)`.
+  //
+  // This is possible when calling `getsockaddr` on an unbound socket.
+  [[nodiscard]] bool unnamed() const noexcept {
+    return addrlen <= sizeof(sa_family_t);
+  }
+
   [[nodiscard]] constexpr address_family family() const noexcept {
-    return addr ? address_family{addr->sa_family} : address_family{};
+    if (empty()) return {};
+    return address_family{addr->sa_family};
   }
 
   [[nodiscard]] constexpr bool is_v4() const noexcept {
@@ -442,7 +454,79 @@ struct sockaddr_view {
   }
 
   [[nodiscard]] bool is_ans() const noexcept {
-    return is_uds() && as_sockaddr_un().sun_path[0] == '\0';
+    const auto path = raw_uds_path();
+    return (!path.empty() && path.front() == '\0');
+  }
+
+  // Return the port number in host order.
+  //
+  // For UDS/ANS (or `empty` or `unnamed`), returns 0.
+  [[nodiscard]] uint16_t port() const noexcept {
+    if (unnamed()) return 0;
+    if (is_v4()) return ntohs(as_sockaddr_in().sin_port);
+    if (is_v6()) return ntohs(as_sockaddr_in6().sin6_port);
+    return 0;
+  }
+
+  // Return the UDS path, or an empty `string_view` if not a UDS address (or
+  // if it is an unnamed one).
+  //
+  // For ANS, skips the leading '\0' and returns the length-delimited name,
+  // where embedded and trailing zeros are significant.
+  [[nodiscard]] std::string_view uds_path() const noexcept {
+    // Remove leading or trailing '\0', as appropriate.
+    auto path = raw_uds_path();
+    if (path.empty()) return {};
+
+    if (path.front() == '\0')
+      path.remove_prefix(1);
+    else if (path.back() == '\0')
+      path.remove_suffix(1);
+
+    return path;
+  }
+
+  // Return the raw `sun_path` bytes of a named UDS address.
+  //
+  // The length is derived from `addrlen`, not the contents of `sun_path`.
+  // Therefore, the returned value includes the leading `\0` for ANS and the
+  // trailing `\0` for a UDS pathname.
+  [[nodiscard]] std::string_view raw_uds_path() const noexcept {
+    if (!is_uds() || unnamed()) return {};
+    return {as_sockaddr_un().sun_path,
+        addrlen - offsetof(sockaddr_un, sun_path)};
+  }
+
+  // Return a `string_view` over the raw address bytes; the basis for
+  // comparison and hashing.
+  [[nodiscard]] std::string_view as_string_view() const noexcept {
+    return {reinterpret_cast<const char*>(addr), addrlen};
+  }
+
+#pragma endregion
+#pragma region Comparison
+
+  // Comparison operators.
+  //
+  // Only endpoints with the same family can be equal: there is no special
+  // handling for IPv4-Mapped IPv6 Addresses. Comparison delegates to
+  // `sockaddr_view`, whose length-delimited bytes also feed
+  // `std::hash<net_endpoint>`. For IPv6, this means endpoints differing only
+  // in `sin6_scope_id` or `sin6_flowinfo` compare unequal. Since link-local
+  // addresses with different scopes are distinct destinations, this is
+  // correct. The stored address length participates, too, so that ANS names
+  // differing only in length compare unequal.
+
+  // Comparison is over the length-delimited address bytes, so the family,
+  // the contents, and (for ANS) the length all participate.
+  [[nodiscard]] friend bool
+  operator==(const sockaddr_view& lhs, const sockaddr_view& rhs) noexcept {
+    return lhs.as_string_view() == rhs.as_string_view();
+  }
+
+  [[nodiscard]] friend std::strong_ordering
+  operator<=>(const sockaddr_view& lhs, const sockaddr_view& rhs) noexcept {
+    return lhs.as_string_view() <=> rhs.as_string_view();
   }
 
   [[nodiscard]] const sockaddr_in& as_sockaddr_in() const {
@@ -464,8 +548,7 @@ struct sockaddr_view {
 #pragma region Helpers
 
   [[nodiscard]] static socklen_t calculate_length(
-      const auto& raw_addr) noexcept {
-    auto& addr = reinterpret_cast<const sockaddr&>(raw_addr);
+      const sockaddr& addr) noexcept {
     const auto fam = address_family{addr.sa_family};
 
     if (fam == address_family::inet) return sizeof(sockaddr_in);
@@ -479,7 +562,9 @@ struct sockaddr_view {
       if (path[0]) {
         const auto name_len = strnlen(path, path_size);
         const auto termination = (name_len < path_size) ? 1UZ : 0UZ;
-        return offsetof(sockaddr_un, sun_path) + name_len + termination;
+        const auto calculated =
+            offsetof(sockaddr_un, sun_path) + name_len + termination;
+        if (calculated <= path_size) return calculated;
       }
     }
     // Fail if ANS or unknown family.
@@ -492,15 +577,30 @@ private:
     return reinterpret_cast<const sockaddr*>(any_address);
   }
 
-  // Calculate the validated length so that, for example, an IPv4 address in a
-  // full `sockaddr_storage` buffer will return `sizeof(sockaddr_in)`.
-  [[nodiscard]] static socklen_t
-  validated_length(const void* any_address, socklen_t length) noexcept {
-    if (!any_address || !length) return 0;
-    const auto address = as_addr(any_address);
+  static constexpr socklen_t max_length = sizeof(sockaddr_storage);
+
+  // Calculate the length of a `sockaddr` buffer based on its contents,
+  // truncating to 0 if it won't fit (such as when a UDS pathname is too long).
+  //
+  // The purpose is to allow passing in an IPv4 address in a full
+  // `sockaddr_storage` and using just the correct length.
+  [[nodiscard]] static socklen_t calculate_valid_length(
+      const sockaddr& address) noexcept {
     const auto calculated = calculate_length(address);
-    // If we calculated a non-zero length (meaning that it's not an ANS), fail
-    // if the stated length doesn't match our expectations.
+    if (calculated > max_length) return 0;
+    return calculated;
+  }
+
+  // Validate the stated length, returning 0 if it doesn't match our own
+  // calculations.
+  //
+  // This will always fail for ANS, because we can't derive the length the
+  // contents.
+  [[nodiscard]] static socklen_t
+  validate_stated_length(const void* any_address, socklen_t length) noexcept {
+    if (!any_address || !length || length > max_length) return 0;
+    const auto address = as_addr(any_address);
+    const auto calculated = calculate_length(*address);
     if (calculated && calculated != length) return 0;
     return length;
   }

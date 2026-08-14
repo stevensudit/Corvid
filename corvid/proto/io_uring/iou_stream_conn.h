@@ -929,7 +929,8 @@ private:
     assert(loop().is_loop_thread() && listening_ && !connect_token_);
 
     // Don't  waste time attempting ZC writes on UDS.
-    if (local_endpoint().is_uds()) send_zc_supported_ = false;
+    if (local_endpoint().as_sockaddr_view().is_uds())
+      send_zc_supported_ = false;
 
     // Set up a callback that resubmits itself, and use it to bootstrap the
     // initial submission.

@@ -783,7 +783,7 @@ TEST_CASE("Endpoints", "[IouStreamConn]") {
 
     const auto& listen_ep = server->local_endpoint();
     CHECK_FALSE(listen_ep.empty());
-    CHECK(listen_ep.port() != 0);
+    CHECK(listen_ep.as_sockaddr_view().port() != 0);
 
     auto client = capture_conn::connect(*runner.loop(), listen_ep,
         shot_type::single, {}, {}, &client_state)
@@ -793,11 +793,12 @@ TEST_CASE("Endpoints", "[IouStreamConn]") {
 
     // After connect succeeds, both endpoints should be resolvable.
     const auto& cl_remote = client->remote_endpoint();
-    CHECK(cl_remote.port() == listen_ep.port());
+    CHECK(cl_remote.as_sockaddr_view().port() ==
+          listen_ep.as_sockaddr_view().port());
 
     const auto& cl_local = client->local_endpoint();
     CHECK_FALSE(cl_local.empty());
-    CHECK(cl_local.port() != 0);
+    CHECK(cl_local.as_sockaddr_view().port() != 0);
   }
 }
 

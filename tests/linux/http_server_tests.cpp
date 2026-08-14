@@ -360,7 +360,7 @@ TEST_CASE("ANS", "[HttpServer]") {
   const std::string name =
       "@corvid_proto_http_test." + std::to_string(getpid()) + ".sock";
   const net_endpoint ep{name};
-  REQUIRE(ep.is_ans());
+  REQUIRE(ep.as_sockaddr_view().is_ans());
 
   auto server = make_test_server(ep);
   REQUIRE(server);
