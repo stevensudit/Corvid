@@ -62,12 +62,13 @@ std::pair<os_file, os_file> make_blocking_pipe() {
 TEST_CASE("Lifecycle", "[NetSocket]") {
   if (is_codex()) return;
 
-  // Default-constructed socket is invalid.
+  // Default-constructed socket is invalid, and reads as EOF.
   if (true) {
     net_socket s;
     CHECK_FALSE(s.is_open());
     CHECK_FALSE(static_cast<bool>(s));
     CHECK(s.handle() == net_socket::invalid_handle);
+    CHECK(s.peek_eof() == true);
     CHECK_FALSE(s.close());
   }
 

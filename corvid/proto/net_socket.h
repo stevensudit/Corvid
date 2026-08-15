@@ -346,9 +346,10 @@ public:
   //
   // Returns `true` if the peer has closed the connection (EOF), `false` if
   // data is available (not EOF), or `std::nullopt` on any error (hard or soft)
-  // that prevents a determination (e.g., `EAGAIN`, `EBADF`).
+  // that prevents a determination (e.g., `EAGAIN`, `EBADF`). A socket that is
+  // not open reads as EOF.
   [[nodiscard]] std::optional<bool> peek_eof() const noexcept {
-    if (!is_open()) return false;
+    if (!is_open()) return true;
     char byte{};
     const auto n = recv(&byte, 1, msg_flags::peek | msg_flags::dontwait);
     if (n == 0) return true;
