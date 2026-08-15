@@ -484,7 +484,9 @@ public:
       // A plain `recvmsg` arms `msg_name` at `addr_`'s own storage, so the
       // kernel writes the source address there and its length only into
       // `msg_namelen`, bypassing the endpoint's stored length. Finalize via
-      // self-assign, which restores the length invariant and normalizes.
+      // self-assign, which adopts the kernel's length; when no source address
+      // is available (e.g. a connected socket), the kernel reports zero and
+      // the endpoint resets to empty.
       if (msgh_.msg_name == addr_.as_sockaddr_ptr())
         (void)addr_.assign(
             sockaddr_view{addr_.as_sockaddr_ptr(), msgh_.msg_namelen});

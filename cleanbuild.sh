@@ -35,10 +35,14 @@ set -e
 # run just one.
 #
 # Pass "clean-all" to delete the buildable outputs and stop: the release tree
-# (tests/build), the IDE debug tree (tests/build-debug), and any legacy
-# in-source strays at the repo root. Standalone; builds nothing. The dependency
-# caches (tests/.fetchcontent, tests/.fetchcontent-debug, tests/.local) are
-# expensive to rebuild and are preserved, same as "clean".
+# (tests/build), the IDE debug tree (tests/build-debug), any legacy in-source
+# strays at the repo root, and the compiled Catch2 objects inside the
+# dependency caches (they are not keyed by sanitizer mode, so a stale mode's
+# objects could otherwise survive into later links). Standalone; builds
+# nothing. The downloaded sources and prebuilt deps (tests/.local) are
+# expensive to rebuild, mode-independent, and preserved, same as "clean". The
+# next build may still be fast: ccache hits are keyed by compiler, flags, and
+# content, so they are always mode-correct.
 #
 # This script builds and runs one configuration at a time. To exercise every
 # configuration (plain, asan, tsan, msan, tidy) in sequence, pass "all":
@@ -97,11 +101,13 @@ if [[ "${1:-}" == "all" ]]; then
   exit "$rv"
 fi
 
-# "clean-all" deletes the buildable outputs and stops: both build trees and
-# any legacy in-source strays at the repo root. The dependency caches
-# (tests/.fetchcontent, tests/.fetchcontent-debug, tests/.local) survive,
-# same as "clean". Note clangd loses compile_commands.json until the next
-# configure; "reconfigure" restores it without building.
+# "clean-all" deletes the buildable outputs and stops: both build trees, any
+# legacy in-source strays at the repo root, and the Catch2 build dirs inside
+# the dependency caches (Catch2 objects are not mode-keyed, so a stale
+# sanitizer mode's objects could otherwise poison later links). The downloaded
+# sources and prebuilt deps (tests/.local) survive, same as "clean". Note
+# clangd loses compile_commands.json until the next configure; "reconfigure"
+# restores it without building.
 if [[ "${1:-}" == "clean-all" ]]; then
   if [[ $# -gt 1 ]]; then
     echo "$0: 'clean-all' takes no other arguments" >&2
@@ -111,7 +117,8 @@ if [[ "${1:-}" == "clean-all" ]]; then
   rm -f CMakeCache.txt cmake_install.cmake ClangExeProject.sln build.ninja
   rm -rf CMakeFiles .ninja_deps .ninja_log
   rm -rf tests/build tests/build-debug
-  echo "Removed tests/build and tests/build-debug (dependency caches preserved)."
+  rm -rf tests/.fetchcontent/catch2-build tests/.fetchcontent-debug/catch2-build
+  echo "Removed tests/build, tests/build-debug, and the Catch2 object caches (downloaded sources and prebuilt deps preserved)."
   exit 0
 fi
 
