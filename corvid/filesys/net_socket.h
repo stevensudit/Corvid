@@ -578,7 +578,7 @@ struct sockaddr_view {
         const auto termination = (name_len < path_size) ? 1UZ : 0UZ;
         const auto calculated =
             offsetof(sockaddr_un, sun_path) + name_len + termination;
-        if (calculated <= path_size) return calculated;
+        if (calculated <= sizeof(sockaddr_un)) return calculated;
       }
     }
     // Fail if ANS or unknown family.

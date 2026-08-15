@@ -818,13 +818,33 @@ TEST_CASE("PosixInterop", "[NetEndpoint]") {
     CHECK(roundtrip == ep);
 
     net_endpoint from_sockaddr{reinterpret_cast<const sockaddr&>(raw),
-        sizeof(raw)};
+        ep.sockaddr_size()};
     CHECK(from_sockaddr == ep);
+
+    // The stated length must be exact: passing the whole-struct size for a
+    // shorter path fails.
+    net_endpoint overstated{reinterpret_cast<const sockaddr&>(raw),
+        sizeof(raw)};
+    CHECK(overstated.empty());
 
     CHECK((ep.sockaddr_size()) ==
           (static_cast<socklen_t>(
               offsetof(sockaddr_un, sun_path) +
               std::strlen("/tmp/interop.sock") + 1)));
+  }
+
+  // A maximum-length pathname (107 chars) still derives its length from the
+  // contents.
+  if (true) {
+    sockaddr_un raw{};
+    raw.sun_family = AF_UNIX;
+    const std::string long_path = "/" + std::string(106, 'x');
+    long_path.copy(raw.sun_path, long_path.size());
+    net_endpoint ep{raw};
+    CHECK(!ep.empty());
+    CHECK(ep.as_sockaddr_view().uds_path() == long_path);
+    CHECK(ep.sockaddr_size() ==
+          offsetof(sockaddr_un, sun_path) + long_path.size() + 1);
   }
 
   // ANS: build sockaddr_un manually (as the kernel would return it) and
@@ -883,15 +903,15 @@ TEST_CASE("PosixInterop", "[NetEndpoint]") {
     CHECK(ep.as_sockaddr_view().uds_path() == name);
     CHECK(ep == net_endpoint{"@abc"});
 
-    // A pathname arriving with a padded length is normalized, so it compares
-    // equal to the parsed form.
+    // A pathname arriving with a padded (whole-struct) length is rejected:
+    // the stated length must be exact.
     sockaddr_un padded{};
     padded.sun_family = AF_UNIX;
     const std::string_view path = "/tmp/pad.sock";
     path.copy(padded.sun_path, path.size());
     net_endpoint from_padded{reinterpret_cast<const sockaddr&>(padded),
         sizeof(padded)};
-    CHECK(from_padded == net_endpoint{"/tmp/pad.sock"});
+    CHECK(from_padded.empty());
   }
 
   // A failed assign reports false and leaves the endpoint empty, discarding
@@ -899,9 +919,12 @@ TEST_CASE("PosixInterop", "[NetEndpoint]") {
   if (true) {
     net_endpoint ep{ipv4_addr::loopback, 80};
     REQUIRE(!ep.empty());
-    sockaddr bogus{};
-    bogus.sa_family = AF_PACKET;
-    CHECK_FALSE(ep.assign(sockaddr_view{bogus, sizeof(bogus)}));
+    // A truncated IPv6 address: the stated length is shorter than the
+    // contents require.
+    sockaddr_in6 bogus{};
+    bogus.sin6_family = AF_INET6;
+    CHECK_FALSE(ep.assign(sockaddr_view{
+        reinterpret_cast<const sockaddr&>(bogus), sizeof(sockaddr_in)}));
     CHECK(ep.empty());
   }
 }
