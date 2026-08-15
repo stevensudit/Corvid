@@ -41,7 +41,7 @@
 #include "../../containers/core/opt_find.h"
 #include "../../filesys/epoll.h"
 #include "../../filesys/os_event.h"
-#include "../../filesys/net_socket.h"
+#include "../net_socket.h"
 #include "../../meta/fixed_function.h"
 
 namespace corvid { inline namespace proto {

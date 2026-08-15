@@ -30,7 +30,7 @@
 #include <sys/socket.h>
 #include <sys/uio.h>
 
-#include "../filesys/net_socket.h"
+#include "net_socket.h"
 
 namespace corvid { inline namespace proto {
 

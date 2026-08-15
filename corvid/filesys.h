@@ -30,5 +30,4 @@
 #include "filesys/os_event.h"
 #ifndef _WIN32
 #include "filesys/epoll.h"
-#include "filesys/net_socket.h"
 #endif

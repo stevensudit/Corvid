@@ -40,6 +40,7 @@
 //  iou_stream_conn - io_uring-backed stream connection
 #include "proto/ipv4_addr.h"
 #include "proto/ipv6_addr.h"
+#include "proto/net_socket.h"
 #include "proto/net_endpoint.h"
 #include "proto/iov_msghdr.h"
 #include "proto/dns_resolver.h"

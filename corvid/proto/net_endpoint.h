@@ -34,10 +34,10 @@
 #include <sys/un.h>
 
 #include "../containers/core/hash_combiner.h"
-#include "../filesys/net_socket.h"
 #include "../math/endian.h"
 #include "ipv4_addr.h"
 #include "ipv6_addr.h"
+#include "net_socket.h"
 
 namespace corvid { inline namespace proto {
 
@@ -210,6 +210,14 @@ public:
     return !empty();
   }
 
+  // Return whether the address is unnamed, which is to say that the entire
+  // length is just `sizeof(sa_family_t)`.
+  //
+  // This is possible when calling `getsockaddr` on an unbound socket.
+  [[nodiscard]] bool unnamed() const noexcept {
+    return addrlen_ <= sizeof(sa_family_t);
+  }
+
   bool reset() noexcept {
     storage_ = {};
     addrlen_ = 0;
@@ -243,8 +251,6 @@ public:
 #pragma endregion
 #pragma region Comparison
 
-  // Comparison operators.
-  //
   // See comments for `sockaddr_view`.
 
   [[nodiscard]] friend bool
@@ -261,8 +267,10 @@ public:
 #pragma region Formatting
 
   // Format as "1.2.3.4:80" (IPv4), "[2001:db8::1]:80" (IPv6), "unix:<path>"
-  // (regular UDS), "unix:@<name>" (ANS), or "(invalid)". An ANS name with an
-  // embedded '\0' is truncated there, with " (len N)" appended.
+  // (regular UDS), "unix:@<name>" (ANS), or "(invalid)".
+  //
+  // An ANS name with an embedded '\0' is truncated there, with " (len N)"
+  // appended.
   //
   // Defined after the formatter, which it delegates to.
   [[nodiscard]] std::string to_string() const;
@@ -295,12 +303,15 @@ public:
     return addrlen_;
   }
 
-  // Implicit conversion for socket calls; carries the address length.
+  // Explicit conversion, mostly to access methods found on `sockaddr_view` but
+  // not passed through from this class.
   [[nodiscard]] sockaddr_view as_sockaddr_view() const noexcept {
     return {reinterpret_cast<const sockaddr*>(&storage_), addrlen_};
   }
 
-  // Implicit conversion for socket calls; carries the address length.
+  // Implicit conversion, which carries the address length.
+  //
+  // This is what allows interop with `net_socket`.
   [[nodiscard]] operator sockaddr_view() const noexcept {
     return as_sockaddr_view();
   }
@@ -319,6 +330,9 @@ public:
     return std::pair{self.as_sockaddr_ptr(), self.sockaddr_size()};
   }
 
+  // Like `as_sockaddr`, but static.
+  //
+  // Since `ep` can be null, so can the pointer this method returns.
   [[nodiscard]] static std::pair<sockaddr*, socklen_t> to_sockaddr(
       net_endpoint* ep) noexcept {
     if (!ep) return {nullptr, 0};
@@ -338,6 +352,7 @@ private:
   //   that the stored length includes the terminator.
   // - ANS (`@`-prefixed): `sun_path[0] = '\0'`, the name follows without a
   //   terminator, and the stored length delimits it exactly.
+  //
   // NOLINTNEXTLINE(bugprone-exception-escape): substr positions are in-bounds.
   [[nodiscard]] static net_endpoint do_parse_uds(
       std::string_view path) noexcept {

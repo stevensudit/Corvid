@@ -21,7 +21,6 @@
 #error "\"net_socket.h\" is Linux-only."
 #endif
 #include <algorithm>
-#include <array>
 #include <cassert>
 #include <chrono>
 #include <compare>
@@ -41,12 +40,13 @@
 #include <sys/un.h>
 
 #include "../enums/bool_enums.h"
-#include "../math/arithmetic.h"
+#include "../filesys/os_file.h"
 #include "../math/endian.h"
 
-#include "os_file.h"
+#include "ipv4_addr.h"
+#include "ipv6_addr.h"
 
-namespace corvid { inline namespace filesys {
+namespace corvid { inline namespace proto {
 using namespace std::chrono_literals;
 using namespace bool_enums;
 
@@ -366,10 +366,12 @@ consteval auto corvid_enum_spec(tcp_option*) {
 // Conversions can fail, such as when the contents do not match the length, but
 // constructors do not throw: on failure, they leave the view `empty`.
 //
-// Note that, while the length can be derived from the contents for almost all
-// types of addresses, it has to be explicit for abstract-namespace Unix domain
-// sockets (ANS UDS). As a result, conversion from such a buffer will fail if
-// the length is not explicitly provided.
+// Note that, while the length can be derived from the contents for the common
+// address families, it has to be explicit whenever it cannot be. This mostly
+// means abstract-namespace Unix domain sockets (ANS UDS), whose layout is not
+// self-describing, but also applies to address families not directly supported
+// by this class. In either case, a stated length is accepted so long as it is
+// plausible, but conversion without one fails politely.
 struct sockaddr_view {
 #pragma region Data
 
@@ -386,7 +388,7 @@ struct sockaddr_view {
   //
   // This is the low-level constructor to use when you already have a validated
   // buffer and length, such as inside `net_endpoint`, or when it cannot be
-  // validated, such an ANS UDS.
+  // validated, such as an ANS UDS.
   sockaddr_view(const sockaddr* address, socklen_t length) noexcept
       : addr{address}, addrlen{length} {}
 
@@ -396,16 +398,17 @@ struct sockaddr_view {
   // It is an error to pass the length of the entire `sockaddr_storage` buffer
   // when the contents do not fill it completely.
   //
-  // Also, since we cannot validate, ANS UDS lengths, this method accepts the
-  // presented `length` as correct so long as it's plausible.
+  // Also, when we cannot calculate the length from the contents (an ANS UDS
+  // or an unsupported address family), this method accepts the presented
+  // `length` as correct so long as it's plausible.
   sockaddr_view(const sockaddr& address, socklen_t length) noexcept
       : addr{&address}, addrlen{validate_stated_length(&address, length)} {}
 
   // Construct from a `sockaddr` buffer, calculating the length from the
   // contents.
   //
-  // This will always fail for an ANS UDS, since the length cannot be derived
-  // from the contents.
+  // This will always fail for an ANS UDS or an unsupported address family,
+  // since the length cannot be derived from the contents.
   sockaddr_view(const sockaddr& addr) noexcept
       : addr{&addr}, addrlen{calculate_valid_length(addr)} {}
 
@@ -426,8 +429,8 @@ struct sockaddr_view {
 
   // Construct from a `sockaddr_storage`, validating the contents.
   //
-  // Note that this will not work for an ANS UDS; you will have to use a
-  // constructor that takes a `length`.
+  // Note that this will not work for an ANS UDS or an unknown address family;
+  // you will have to use a constructor that takes a `length`.
   sockaddr_view(const sockaddr_storage& address) noexcept
       : sockaddr_view{*as_addr(&address)} {}
 
@@ -608,8 +611,9 @@ private:
   // Validate the stated length, returning 0 if it doesn't match our own
   // calculations.
   //
-  // This will always fail for an ANS UDS, because we can't derive the length
-  // the contents.
+  // When no length can be calculated from the contents (an ANS UDS or an
+  // unknown address family), the stated length is accepted so long as it is
+  // plausible.
   [[nodiscard]] static socklen_t
   validate_stated_length(const void* any_address, socklen_t length) noexcept {
     if (!any_address || !length || length > max_length) return 0;
@@ -1106,7 +1110,7 @@ private:
 };
 
 #pragma endregion
-}} // namespace corvid::filesys
+}} // namespace corvid::proto
 
 #pragma region formatter
 
@@ -1115,11 +1119,9 @@ private:
 // an embedded '\0' is truncated there, with " (len N)" appended. No format
 // spec is supported.
 //
-// IPv6 addresses use lowercase hex with RFC 5952-style zero-run compression,
-// matching the formatting of `ipv6_addr` (which this cannot delegate to, as
-// that class lives in the higher proto layer).
+// The addresses themselves are formatted as `ipv4_addr` and `ipv6_addr` are.
 template<>
-struct std::formatter<corvid::filesys::sockaddr_view> {
+struct std::formatter<corvid::proto::sockaddr_view> {
   static constexpr auto parse(std::format_parse_context& ctx) {
     auto it = ctx.begin();
     if (it != ctx.end() && *it != '}')
@@ -1127,10 +1129,16 @@ struct std::formatter<corvid::filesys::sockaddr_view> {
     return it;
   }
 
-  static auto format(const corvid::filesys::sockaddr_view& view,
-      std::format_context& ctx) {
-    if (view.is_v4()) return do_format_v4(view, ctx);
-    if (view.is_v6()) return do_format_v6(view, ctx);
+  static auto
+  format(const corvid::proto::sockaddr_view& view, std::format_context& ctx) {
+    if (view.is_v4())
+      return std::format_to(ctx.out(), "{}:{}",
+          corvid::proto::ipv4_addr{view.as_sockaddr_in().sin_addr},
+          view.port());
+    if (view.is_v6())
+      return std::format_to(ctx.out(), "[{}]:{}",
+          corvid::proto::ipv6_addr{view.as_sockaddr_in6().sin6_addr},
+          view.port());
     if (view.is_ans()) {
       const auto name = view.uds_path();
       const auto null_pos = name.find('\0');
@@ -1142,66 +1150,6 @@ struct std::formatter<corvid::filesys::sockaddr_view> {
     if (view.is_uds())
       return std::format_to(ctx.out(), "unix:{}", view.uds_path());
     return std::format_to(ctx.out(), "(invalid)");
-  }
-
-private:
-  static std::format_context::iterator do_format_v4(
-      const corvid::filesys::sockaddr_view& view, std::format_context& ctx) {
-    const auto addr = corvid::ntoh32(view.as_sockaddr_in().sin_addr.s_addr);
-    return std::format_to(ctx.out(), "{}.{}.{}.{}:{}",
-        corvid::extract_byte<3>(addr), corvid::extract_byte<2>(addr),
-        corvid::extract_byte<1>(addr), corvid::extract_byte<0>(addr),
-        view.port());
-  }
-
-  static std::format_context::iterator do_format_v6(
-      const corvid::filesys::sockaddr_view& view, std::format_context& ctx) {
-    // Split the address into eight big-endian 16-bit groups.
-    const auto& bytes = view.as_sockaddr_in6().sin6_addr.s6_addr;
-    std::array<uint16_t, 8> groups{};
-    for (auto ndx = 0UZ; ndx < groups.size(); ++ndx)
-      groups[ndx] =
-          corvid::combine_bytes(bytes[(2 * ndx) + 1], bytes[2 * ndx]);
-
-    // Find the leftmost longest run of zero groups.
-    auto best_start = 8UZ;
-    size_t best_len{};
-    size_t cur_start{};
-    size_t cur_len{};
-    for (auto ndx = 0UZ; ndx < groups.size(); ++ndx) {
-      if (groups[ndx] == 0) {
-        if (cur_len == 0) cur_start = ndx;
-        ++cur_len;
-      } else {
-        if (cur_len > best_len) {
-          best_start = cur_start;
-          best_len = cur_len;
-        }
-        cur_len = 0;
-      }
-    }
-    if (cur_len > best_len) {
-      best_start = cur_start;
-      best_len = cur_len;
-    }
-    if (best_len < 2) best_start = 8;
-
-    auto out = ctx.out();
-    *out++ = '[';
-    bool need_sep = false;
-    for (auto ndx = 0UZ; ndx < groups.size(); ++ndx) {
-      if (ndx == best_start) {
-        *out++ = ':';
-        *out++ = ':';
-        ndx += best_len - 1;
-        need_sep = false;
-        continue;
-      }
-      if (need_sep) *out++ = ':';
-      out = std::format_to(out, "{:x}", groups[ndx]);
-      need_sep = true;
-    }
-    return std::format_to(out, "]:{}", view.port());
   }
 };
 
