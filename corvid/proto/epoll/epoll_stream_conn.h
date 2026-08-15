@@ -1075,7 +1075,9 @@ private:
       for (auto ndx = 0UZ; ndx < op.index; ++ndx) send_queue_.pop_front();
 
       // Clean up dead segments from `iov_sender_` if there is enough slack.
-      iov_sender_.compact();
+      // A failed sender surfaces on the next `send`, so the result is moot
+      // here.
+      (void)iov_sender_.compact();
 
       // Partial send: the front string still has unsent data; the sender
       // will trim it internally on the next call. Arm `EPOLLOUT`.

@@ -2826,6 +2826,146 @@ TEST_CASE("RoundTrip_AllBytes", "[Base64]") {
 }
 
 #pragma endregion
+#pragma region SegmentBookkeeping
+
+TEST_CASE("SegmentBookkeeping", "[IovMsghdr]") {
+  iov_msghdr_sender sender;
+  CHECK(sender.empty());
+  CHECK(sender.segments().empty());
+
+  // Appending tracks the total byte count across segments.
+  const std::string_view hello = "hello";
+  const std::string_view world = "world!";
+  CHECK(sender.append(hello));
+  CHECK(sender.append(world));
+  CHECK_FALSE(sender.empty());
+  CHECK(sender.size() == 11U);
+  CHECK(sender.segments().size() == 2U);
+
+  // Empty segments are rejected, not stored.
+  CHECK_FALSE(sender.append(std::string_view{}));
+  CHECK(sender.segments().size() == 2U);
+
+  // Clearing empties everything.
+  sender.clear();
+  CHECK(sender.empty());
+  CHECK(sender.segments().empty());
+  CHECK(sender.size() == 0U);
+}
+
+#pragma endregion
+#pragma region GatherScatterRoundTrip
+
+TEST_CASE("GatherScatterRoundTrip", "[IovMsghdr]") {
+  auto [writer, reader] = net_socket::create_pair(address_family::unix,
+      socket_type::stream, execution::blocking);
+  REQUIRE(writer.is_open());
+  REQUIRE(reader.is_open());
+
+  // Gather two segments into one send.
+  const std::string_view hello = "hello";
+  const std::string_view world = "world!";
+  iov_msghdr_sender sender;
+  REQUIRE(sender.append(hello));
+  REQUIRE(sender.append(world));
+  CHECK(sender.send(writer));
+
+  // The transfer ended exactly on the last segment boundary, so the index
+  // points one past it.
+  CHECK(sender.last_op().transferred == 11U);
+  CHECK(sender.last_op().index == 2U);
+  CHECK(sender.last_op().offset == 0U);
+
+  // A follow-up send first consumes everything, then trivially succeeds with
+  // nothing left to write.
+  CHECK(sender.send(writer));
+  CHECK(sender.last_op().transferred == 0U);
+  CHECK(sender.empty());
+
+  // Scatter the bytes across two receive buffers, with room to spare in the
+  // second, so the index points within it.
+  std::string first(4, '\0');
+  std::string second(8, '\0');
+  iov_msghdr_receiver receiver;
+  REQUIRE(receiver.append(first.data(), first.size()));
+  REQUIRE(receiver.append(second.data(), second.size()));
+  CHECK(receiver.recv(reader));
+  CHECK(receiver.last_op().transferred == 11U);
+  CHECK(receiver.last_op().index == 1U);
+  CHECK(receiver.last_op().offset == 7U);
+  CHECK(first == "hell");
+  CHECK(second.substr(0, 7) == "oworld!");
+}
+
+#pragma endregion
+#pragma region PartialConsumeAdvances
+
+TEST_CASE("PartialConsumeAdvances", "[IovMsghdr]") {
+  auto [writer, reader] = net_socket::create_pair(address_family::unix,
+      socket_type::stream, execution::blocking);
+  REQUIRE(writer.is_open());
+  REQUIRE(reader.is_open());
+
+  // Two receive buffers, filled partway into the second.
+  std::string first(4, '\0');
+  std::string second(6, '\0');
+  iov_msghdr_receiver receiver;
+  REQUIRE(receiver.append(first.data(), first.size()));
+  REQUIRE(receiver.append(second.data(), second.size()));
+
+  REQUIRE(writer.send_sync_all("freedom"));
+  CHECK(receiver.recv(reader));
+  CHECK(receiver.last_op().transferred == 7U);
+  CHECK(receiver.last_op().index == 1U);
+  CHECK(receiver.last_op().offset == 3U);
+  CHECK(first == "free");
+  CHECK(second.substr(0, 3) == "dom");
+
+  // The next receive first consumes past those 7 bytes, leaving the tail of
+  // the second buffer as the only active segment.
+  REQUIRE(writer.send_sync_all("end"));
+  CHECK(receiver.recv(reader));
+  CHECK(receiver.segments().size() == 1U);
+  CHECK(receiver.size() == 3U);
+  CHECK(receiver.last_op().transferred == 3U);
+  CHECK(receiver.last_op().index == 1U);
+  CHECK(receiver.last_op().offset == 0U);
+  CHECK(second == "domend");
+}
+
+#pragma endregion
+#pragma region CompactRetiresSlack
+
+TEST_CASE("CompactRetiresSlack", "[IovMsghdr]") {
+  auto [writer, reader] = net_socket::create_pair(address_family::unix,
+      socket_type::stream, execution::blocking);
+  REQUIRE(writer.is_open());
+  REQUIRE(reader.is_open());
+
+  // Build one-byte receive segments over a 20-char buffer, then fill the
+  // first 17 exactly.
+  std::string buf(20, '\0');
+  iov_msghdr_receiver receiver;
+  for (auto ndx = 0UZ; ndx < buf.size(); ++ndx)
+    REQUIRE(receiver.append(buf.data() + ndx, 1));
+  REQUIRE(writer.send_sync_all("seventeen-letters"));
+  CHECK(receiver.recv(reader));
+  CHECK(receiver.last_op().transferred == 17U);
+
+  // With more than `initial_segments` of leading slack, compact retires the
+  // consumed segments.
+  CHECK(receiver.compact());
+  CHECK(receiver.segments().size() == 3U);
+  CHECK(receiver.size() == 3U);
+
+  // With no slack left, compact declines, which is also success.
+  CHECK(receiver.compact());
+  CHECK(receiver.segments().size() == 3U);
+
+  CHECK(buf.substr(0, 17) == "seventeen-letters");
+}
+
+#pragma endregion
 #pragma region OversizeTransferIsHardFailure
 
 TEST_CASE("OversizeTransferIsHardFailure", "[IovMsghdr]") {
