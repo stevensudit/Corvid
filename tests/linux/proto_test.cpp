@@ -519,14 +519,14 @@ TEST_CASE("Construction", "[NetEndpoint]") {
   if (true) {
     net_endpoint ep{ipv4_addr(127, 0, 0, 1), 80};
     REQUIRE(ep.as_sockaddr_view().is_v4());
-    CHECK(ep.as_sockaddr_view().port() == 80U);
+    CHECK(ep.port() == 80U);
     CHECK(ep.v4()->to_string() == "127.0.0.1");
   }
 
   if (true) {
     net_endpoint ep{ipv6_addr::loopback, 443};
     REQUIRE(ep.as_sockaddr_view().is_v6());
-    CHECK(ep.as_sockaddr_view().port() == 443U);
+    CHECK(ep.port() == 443U);
     CHECK(ep.v6()->to_string() == "::1");
   }
 
@@ -586,13 +586,13 @@ TEST_CASE("Parse", "[NetEndpoint]") {
     net_endpoint a{"192.168.1.10:8080"};
     CHECK(!a.empty());
     REQUIRE(a.as_sockaddr_view().is_v4());
-    CHECK(a.as_sockaddr_view().port() == 8080U);
+    CHECK(a.port() == 8080U);
     CHECK(a.v4()->to_string() == "192.168.1.10");
 
     net_endpoint b{"[2001:db8::1]:443"};
     CHECK(!b.empty());
     REQUIRE(b.as_sockaddr_view().is_v6());
-    CHECK(b.as_sockaddr_view().port() == 443U);
+    CHECK(b.port() == 443U);
     CHECK(b.v6()->to_string() == "2001:db8::1");
   }
 
@@ -605,6 +605,15 @@ TEST_CASE("Parse", "[NetEndpoint]") {
     CHECK(net_endpoint{"[2001:db8::1]"}.empty());
     CHECK(net_endpoint{"[2001:db8::1]:"}.empty());
     CHECK(net_endpoint{"[2001:db8::1]:70000"}.empty());
+  }
+
+  // Port range boundary: `std::from_chars` itself rejects values that do not
+  // fit in `uint16_t`.
+  if (true) {
+    net_endpoint ep{"1.2.3.4:65535"};
+    CHECK(!ep.empty());
+    CHECK(ep.port() == 65535U);
+    CHECK(net_endpoint{"1.2.3.4:65536"}.empty());
   }
 
   // A leading `/` produces a UDS endpoint.
@@ -648,7 +657,7 @@ TEST_CASE("Parse", "[NetEndpoint]") {
     CHECK(!ep.empty());
     CHECK(ep.as_sockaddr_view().is_v6());
     CHECK_FALSE(ep.as_sockaddr_view().is_v4());
-    CHECK(ep.as_sockaddr_view().port() == 80U);
+    CHECK(ep.port() == 80U);
     CHECK(ep.to_string() == "[::ffff:c0a8:101]:80");
   }
 }
@@ -751,6 +760,13 @@ TEST_CASE("Formatting", "[NetEndpoint]") {
   CHECK(std::format("{}", uds) == "unix:/tmp/app.sock");
   CHECK(std::format("{}", ans) == "unix:@svc");
   CHECK(std::format("{}", net_endpoint{}) == "(invalid)");
+
+  // A `sockaddr_view` formats directly, identically to the endpoint over
+  // which it is taken.
+  CHECK(std::format("{}", v4.as_sockaddr_view()) == "127.0.0.1:80");
+  CHECK(std::format("{}", v6.as_sockaddr_view()) == "[::1]:443");
+  CHECK(std::format("{}", uds.as_sockaddr_view()) == "unix:/tmp/app.sock");
+  CHECK(std::format("{}", sockaddr_view{}) == "(invalid)");
 }
 
 #pragma endregion
@@ -759,7 +775,7 @@ TEST_CASE("Formatting", "[NetEndpoint]") {
 TEST_CASE("PosixInterop", "[NetEndpoint]") {
   if (true) {
     net_endpoint ep{ipv4_addr(192, 168, 1, 2), 1234};
-    auto raw = ep.as_sockaddr_in();
+    auto raw = ep.as_sockaddr_view().as_sockaddr_in();
     net_endpoint roundtrip{raw};
     CHECK(roundtrip == ep);
 
@@ -775,7 +791,7 @@ TEST_CASE("PosixInterop", "[NetEndpoint]") {
 
   if (true) {
     net_endpoint ep{ipv6_addr(0x2001, 0xdb8, 0, 0, 0, 0, 0, 1), 4321};
-    auto raw = ep.as_sockaddr_in6();
+    auto raw = ep.as_sockaddr_view().as_sockaddr_in6();
     net_endpoint roundtrip{raw};
     CHECK(roundtrip == ep);
 
@@ -794,7 +810,7 @@ TEST_CASE("PosixInterop", "[NetEndpoint]") {
     net_endpoint ep{"/tmp/interop.sock"};
     CHECK(!ep.empty());
 
-    auto raw = ep.as_sockaddr_un();
+    auto raw = ep.as_sockaddr_view().as_sockaddr_un();
     CHECK(raw.sun_family == static_cast<sa_family_t>(AF_UNIX));
     CHECK(std::string_view{raw.sun_path} == "/tmp/interop.sock");
 
@@ -829,7 +845,7 @@ TEST_CASE("PosixInterop", "[NetEndpoint]") {
 
     // Roundtrip via as_sockaddr_un() plus the explicit length: the struct
     // alone cannot carry ANS identity.
-    auto raw2 = ep.as_sockaddr_un();
+    auto raw2 = ep.as_sockaddr_view().as_sockaddr_un();
     net_endpoint ep2{reinterpret_cast<const sockaddr&>(raw2),
         ep.sockaddr_size()};
     CHECK(ep2 == ep);
@@ -900,7 +916,7 @@ TEST_CASE("NumericIPv4", "[DnsResolve]") {
   bool found = false;
   for (const auto& ep : result) {
     if (ep.as_sockaddr_view().is_v4() && ep.v4()->is_loopback() &&
-        ep.as_sockaddr_view().port() == 80)
+        ep.port() == 80)
       found = true;
   }
   CHECK(found);
@@ -916,7 +932,7 @@ TEST_CASE("NumericIPv6", "[DnsResolve]") {
   bool found = false;
   for (const auto& ep : result) {
     if (ep.as_sockaddr_view().is_v6() && ep.v6()->is_loopback() &&
-        ep.as_sockaddr_view().port() == 443)
+        ep.port() == 443)
       found = true;
   }
   CHECK(found);
@@ -930,7 +946,7 @@ TEST_CASE("Localhost", "[DnsResolve]") {
   auto result = dns_resolver::find_all("localhost", 8080);
   CHECK_FALSE(result.empty());
   // Every returned endpoint must use the requested port.
-  for (const auto& ep : result) CHECK(ep.as_sockaddr_view().port() == 8080U);
+  for (const auto& ep : result) CHECK(ep.port() == 8080U);
   // At least one result should be a loopback address.
   bool found = false;
   for (const auto& ep : result) {
@@ -970,7 +986,7 @@ TEST_CASE("Success", "[DnsResolveOne]") {
   // Numeric loopback resolves to exactly one endpoint with the right port.
   const auto ep = dns_resolver::find_one("127.0.0.1", 80);
   CHECK(ep.as_sockaddr_view().is_v4());
-  CHECK(ep.as_sockaddr_view().port() == 80U);
+  CHECK(ep.port() == 80U);
 }
 
 #pragma endregion

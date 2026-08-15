@@ -732,7 +732,7 @@ TEST_CASE("UpdateRecvmsgValid", "[IouBufPool]") {
     CHECK(buf.msghdr_flags() == msg_flags{});
     CHECK(buf.result().bytes() == data.size());
     CHECK(buf.peer_addr().as_sockaddr_view().is_v4());
-    CHECK(buf.peer_addr().as_sockaddr_view().port() == peer_port);
+    CHECK(buf.peer_addr().port() == peer_port);
   }
 }
 

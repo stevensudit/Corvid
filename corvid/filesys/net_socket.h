@@ -21,13 +21,16 @@
 #error "\"net_socket.h\" is Linux-only."
 #endif
 #include <algorithm>
+#include <array>
 #include <cassert>
 #include <chrono>
 #include <compare>
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
+#include <format>
 #include <optional>
+#include <span>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -38,6 +41,8 @@
 #include <sys/un.h>
 
 #include "../enums/bool_enums.h"
+#include "../math/arithmetic.h"
+#include "../math/endian.h"
 
 #include "os_file.h"
 
@@ -388,13 +393,19 @@ struct sockaddr_view {
   // Construct from a `sockaddr` buffer and its length, validating that the
   // length is consistent with the contents.
   //
-  // This cannot validate ANS UDS, so it will instead accept the `length` as
-  // correct.
+  // It is an error to pass the length of the entire `sockaddr_storage` buffer
+  // when the contents do not fill it completely.
+  //
+  // Also, since we cannot validate, ANS UDS lengths, this method accepts the
+  // presented `length` as correct so long as it's plausible.
   sockaddr_view(const sockaddr& address, socklen_t length) noexcept
       : addr{&address}, addrlen{validate_stated_length(&address, length)} {}
 
   // Construct from a `sockaddr` buffer, calculating the length from the
   // contents.
+  //
+  // This will always fail for an ANS UDS, since the length cannot be derived
+  // from the contents.
   sockaddr_view(const sockaddr& addr) noexcept
       : addr{&addr}, addrlen{calculate_valid_length(addr)} {}
 
@@ -463,8 +474,8 @@ struct sockaddr_view {
   // For UDS/ANS (or `empty` or `unnamed`), returns 0.
   [[nodiscard]] uint16_t port() const noexcept {
     if (unnamed()) return 0;
-    if (is_v4()) return ntohs(as_sockaddr_in().sin_port);
-    if (is_v6()) return ntohs(as_sockaddr_in6().sin6_port);
+    if (is_v4()) return ntoh16(as_sockaddr_in().sin_port);
+    if (is_v6()) return ntoh16(as_sockaddr_in6().sin6_port);
     return 0;
   }
 
@@ -497,10 +508,10 @@ struct sockaddr_view {
         addrlen - offsetof(sockaddr_un, sun_path)};
   }
 
-  // Return a `string_view` over the raw address bytes; the basis for
+  // Return a span over the raw address bytes, providing the basis for
   // comparison and hashing.
-  [[nodiscard]] std::string_view as_string_view() const noexcept {
-    return {reinterpret_cast<const char*>(addr), addrlen};
+  [[nodiscard]] std::span<const std::byte> as_span() const noexcept {
+    return {reinterpret_cast<const std::byte*>(addr), addrlen};
   }
 
 #pragma endregion
@@ -521,12 +532,15 @@ struct sockaddr_view {
   // the contents, and (for ANS) the length all participate.
   [[nodiscard]] friend bool
   operator==(const sockaddr_view& lhs, const sockaddr_view& rhs) noexcept {
-    return lhs.as_string_view() == rhs.as_string_view();
+    return std::ranges::equal(lhs.as_span(), rhs.as_span());
   }
 
   [[nodiscard]] friend std::strong_ordering
   operator<=>(const sockaddr_view& lhs, const sockaddr_view& rhs) noexcept {
-    return lhs.as_string_view() <=> rhs.as_string_view();
+    const auto lhs_bytes = lhs.as_span();
+    const auto rhs_bytes = rhs.as_span();
+    return std::lexicographical_compare_three_way(lhs_bytes.begin(),
+        lhs_bytes.end(), rhs_bytes.begin(), rhs_bytes.end());
   }
 
   [[nodiscard]] const sockaddr_in& as_sockaddr_in() const {
@@ -594,8 +608,8 @@ private:
   // Validate the stated length, returning 0 if it doesn't match our own
   // calculations.
   //
-  // This will always fail for ANS, because we can't derive the length the
-  // contents.
+  // This will always fail for an ANS UDS, because we can't derive the length
+  // the contents.
   [[nodiscard]] static socklen_t
   validate_stated_length(const void* any_address, socklen_t length) noexcept {
     if (!any_address || !length || length > max_length) return 0;
@@ -1093,3 +1107,102 @@ private:
 
 #pragma endregion
 }} // namespace corvid::filesys
+
+#pragma region formatter
+
+// Format a `sockaddr_view` as "1.2.3.4:80" (IPv4), "[2001:db8::1]:80" (IPv6),
+// "unix:<path>" (UDS), "unix:@<name>" (ANS), or "(invalid)". An ANS name with
+// an embedded '\0' is truncated there, with " (len N)" appended. No format
+// spec is supported.
+//
+// IPv6 addresses use lowercase hex with RFC 5952-style zero-run compression,
+// matching the formatting of `ipv6_addr` (which this cannot delegate to, as
+// that class lives in the higher proto layer).
+template<>
+struct std::formatter<corvid::filesys::sockaddr_view> {
+  static constexpr auto parse(std::format_parse_context& ctx) {
+    auto it = ctx.begin();
+    if (it != ctx.end() && *it != '}')
+      throw std::format_error("sockaddr_view accepts no format spec");
+    return it;
+  }
+
+  static auto format(const corvid::filesys::sockaddr_view& view,
+      std::format_context& ctx) {
+    if (view.is_v4()) return do_format_v4(view, ctx);
+    if (view.is_v6()) return do_format_v6(view, ctx);
+    if (view.is_ans()) {
+      const auto name = view.uds_path();
+      const auto null_pos = name.find('\0');
+      if (null_pos == std::string_view::npos)
+        return std::format_to(ctx.out(), "unix:@{}", name);
+      return std::format_to(ctx.out(), "unix:@{} (len {})",
+          name.substr(0, null_pos), name.size());
+    }
+    if (view.is_uds())
+      return std::format_to(ctx.out(), "unix:{}", view.uds_path());
+    return std::format_to(ctx.out(), "(invalid)");
+  }
+
+private:
+  static std::format_context::iterator do_format_v4(
+      const corvid::filesys::sockaddr_view& view, std::format_context& ctx) {
+    const auto addr = corvid::ntoh32(view.as_sockaddr_in().sin_addr.s_addr);
+    return std::format_to(ctx.out(), "{}.{}.{}.{}:{}",
+        corvid::extract_byte<3>(addr), corvid::extract_byte<2>(addr),
+        corvid::extract_byte<1>(addr), corvid::extract_byte<0>(addr),
+        view.port());
+  }
+
+  static std::format_context::iterator do_format_v6(
+      const corvid::filesys::sockaddr_view& view, std::format_context& ctx) {
+    // Split the address into eight big-endian 16-bit groups.
+    const auto& bytes = view.as_sockaddr_in6().sin6_addr.s6_addr;
+    std::array<uint16_t, 8> groups{};
+    for (auto ndx = 0UZ; ndx < groups.size(); ++ndx)
+      groups[ndx] =
+          corvid::combine_bytes(bytes[(2 * ndx) + 1], bytes[2 * ndx]);
+
+    // Find the leftmost longest run of zero groups.
+    auto best_start = 8UZ;
+    size_t best_len{};
+    size_t cur_start{};
+    size_t cur_len{};
+    for (auto ndx = 0UZ; ndx < groups.size(); ++ndx) {
+      if (groups[ndx] == 0) {
+        if (cur_len == 0) cur_start = ndx;
+        ++cur_len;
+      } else {
+        if (cur_len > best_len) {
+          best_start = cur_start;
+          best_len = cur_len;
+        }
+        cur_len = 0;
+      }
+    }
+    if (cur_len > best_len) {
+      best_start = cur_start;
+      best_len = cur_len;
+    }
+    if (best_len < 2) best_start = 8;
+
+    auto out = ctx.out();
+    *out++ = '[';
+    bool need_sep = false;
+    for (auto ndx = 0UZ; ndx < groups.size(); ++ndx) {
+      if (ndx == best_start) {
+        *out++ = ':';
+        *out++ = ':';
+        ndx += best_len - 1;
+        need_sep = false;
+        continue;
+      }
+      if (need_sep) *out++ = ':';
+      out = std::format_to(out, "{:x}", groups[ndx]);
+      need_sep = true;
+    }
+    return std::format_to(out, "]:{}", view.port());
+  }
+};
+
+#pragma endregion

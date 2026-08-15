@@ -33,8 +33,9 @@
 #include <sys/socket.h>
 #include <sys/un.h>
 
+#include "../containers/core/hash_combiner.h"
 #include "../filesys/net_socket.h"
-#include "endian.h"
+#include "../math/endian.h"
 #include "ipv4_addr.h"
 #include "ipv6_addr.h"
 
@@ -131,7 +132,7 @@ public:
 
   // Construct from a view over any POSIX socket address struct.
   //
-  // Note that, for an ANS or unnamed Unix address, you will need to either
+  // Note that, for an ANS or `unnamed` Unix address, you will need to either
   // construct the view by passing in the length explicitly, or use the
   // `sockaddr, socklen_t` constructor.
   explicit net_endpoint(sockaddr_view view) noexcept {
@@ -215,8 +216,8 @@ public:
     return false;
   }
 
-  // Family, categorization, port, and UDS path accessors live on
-  // `sockaddr_view`; call them on the `as_sockaddr_view()` temporary.
+  // Family, categorization, and UDS path accessors live on `sockaddr_view`, so
+  // call them on the `as_sockaddr_view()` temporary.
 
   // Return the held `ipv4_addr` or `ipv6_addr`, respectively, or nullopt if
   // the endpoint holds something else.
@@ -230,6 +231,13 @@ public:
     const auto view = as_sockaddr_view();
     if (!view.is_v6()) return std::nullopt;
     return ipv6_addr{view.as_sockaddr_in6().sin6_addr};
+  }
+
+  // Return the port number in host order.
+  //
+  // For UDS/ANS (or `empty` or `unnamed`), returns 0.
+  [[nodiscard]] uint16_t port() const noexcept {
+    return as_sockaddr_view().port();
   }
 
 #pragma endregion
@@ -352,14 +360,14 @@ private:
     return ep;
   }
 
+  // Parse a decimal port number.
   [[nodiscard]] static constexpr std::optional<uint16_t> do_parse_port(
       std::string_view s) noexcept {
-    uint32_t port{};
+    uint16_t port{};
     const auto [ptr, ec] =
         std::from_chars(s.data(), s.data() + s.size(), port);
-    if (ec != std::errc{} || ptr != s.data() + s.size() || port > 65535U)
-      return std::nullopt;
-    return static_cast<uint16_t>(port);
+    if (ec != std::errc{} || ptr != s.data() + s.size()) return std::nullopt;
+    return port;
   }
 
   // Internal reinterpretation. Note that `auto this` doesn't work well in this
@@ -418,25 +426,13 @@ private:
 
 inline const net_endpoint net_endpoint::invalid;
 
-// Net endpoint as a target.
-//
-//  Necessary for io_uring, even though we don't care about the value inserted
-//  into `sockaddr_len`.
-struct net_endpoint_target {
-  net_endpoint sockaddr;
-  socklen_t sockaddr_len{net_endpoint::max_sockaddr_size};
-};
-
 #pragma endregion
 
 }} // namespace corvid::proto
 
 #pragma region formatter
 
-// Format a `net_endpoint` as "1.2.3.4:80" (IPv4), "[2001:db8::1]:80" (IPv6),
-// "unix:<path>" (UDS), "unix:@<name>" (ANS), or "(invalid)". An ANS name with
-// an embedded '\0' is truncated there, with " (len N)" appended. No format
-// spec is supported.
+// Format a `net_endpoint` exactly as the `sockaddr_view` over it.
 template<>
 struct std::formatter<corvid::proto::net_endpoint> {
   static constexpr auto parse(std::format_parse_context& ctx) {
@@ -448,22 +444,7 @@ struct std::formatter<corvid::proto::net_endpoint> {
 
   static auto
   format(const corvid::proto::net_endpoint& ep, std::format_context& ctx) {
-    const auto view = ep.as_sockaddr_view();
-    if (const auto addr = ep.v4())
-      return std::format_to(ctx.out(), "{}:{}", *addr, view.port());
-    if (const auto addr = ep.v6())
-      return std::format_to(ctx.out(), "[{}]:{}", *addr, view.port());
-    if (view.is_ans()) {
-      const auto name = view.uds_path();
-      const auto null_pos = name.find('\0');
-      if (null_pos == std::string_view::npos)
-        return std::format_to(ctx.out(), "unix:@{}", name);
-      return std::format_to(ctx.out(), "unix:@{} (len {})",
-          name.substr(0, null_pos), name.size());
-    }
-    if (view.is_uds())
-      return std::format_to(ctx.out(), "unix:{}", view.uds_path());
-    return std::format_to(ctx.out(), "(invalid)");
+    return std::format_to(ctx.out(), "{}", ep.as_sockaddr_view());
   }
 };
 
@@ -481,11 +462,10 @@ template<>
 struct hash<corvid::net_endpoint> {
   [[nodiscard]] size_t operator()(
       const corvid::net_endpoint& ep) const noexcept {
-    if (ep.empty()) return 0;
-    // TODO: This should use the `as_span`, since `as_string_view` is on the
-    // chopping block.
-    return std::hash<std::string_view>{}(
-        ep.as_sockaddr_view().as_string_view());
+    corvid::hash_combiner combiner;
+    for (const auto b : ep.as_sockaddr_view().as_span())
+      combiner.combine(std::to_integer<unsigned char>(b));
+    return combiner.value();
   }
 };
 } // namespace std

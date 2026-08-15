@@ -114,7 +114,7 @@ template<std::unsigned_integral To, std::unsigned_integral From>
 // Once it exists, `meta`'s `UnsignedWord` collapses back to
 // `std::unsigned_integral` plus the new type, `combine_result<void, 16>` stops
 // being conditional, `CORVID_HAS_INT128` becomes an implementation detail of
-// the wrapper rather than something callers see, and `proto/endian.h`'s
+// the wrapper rather than something callers see, and `math/endian.h`'s
 // `hton128` and `ntoh128` stop resting on a compiler extension. Worth settling
 // at that point what `std::numeric_limits`, `std::format`, and the `charconv`
 // conversions should do with it, since none of them handle a 128-bit integer

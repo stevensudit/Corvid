@@ -27,8 +27,8 @@
 #include <netinet/in.h>
 
 #include "../math/arithmetic.h"
+#include "../math/endian.h"
 #include "../strings/cases.h"
-#include "endian.h"
 
 namespace corvid { inline namespace proto {
 

@@ -33,7 +33,7 @@
 #include "../../enums.h"
 #include "../../math/arithmetic.h"
 #include "../misc/base-64.h"
-#include "endian.h"
+#include "../../math/endian.h"
 #include "../misc/sha-1.h"
 #include "../misc/http_head_codec.h"
 #include "epoll_http_transaction.h"

@@ -18,7 +18,7 @@
 #include <bit>
 #include <cstdint>
 
-namespace corvid { inline namespace proto {
+namespace corvid { inline namespace math {
 
 // Byte-order conversion between host and network (big-endian) order.
 //
@@ -88,4 +88,4 @@ namespace corvid { inline namespace proto {
 #endif
 
 #pragma endregion
-}} // namespace corvid::proto
+}} // namespace corvid::math
