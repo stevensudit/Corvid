@@ -189,6 +189,10 @@ public:
   // place.
   [[nodiscard]] bool assign(sockaddr_view view) noexcept {
     if (view.empty()) return reset();
+    // Every legal source is bounded by `sockaddr_storage`: the validating
+    // view constructors cap at `max_length`, and the kernel-filled paths
+    // write into one. Nonetheless, we guard with an assertion.
+    assert(view.addrlen <= max_sockaddr_size);
     if (view.addr == reinterpret_cast<const sockaddr*>(&storage_)) {
       addrlen_ = view.addrlen;
       return true;

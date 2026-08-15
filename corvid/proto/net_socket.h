@@ -146,6 +146,11 @@ public:
   // As synchronous I/O is not scalable, this is a convenience factory for
   // simple use cases, meant to work with other utility methods with "sync" in
   // their name.
+  //
+  // `timeout` bounds the connect itself as well as the later synchronous
+  // transfers: Linux honors `SO_SNDTIMEO` in `connect(2)` (see socket(7)), and
+  // a connect that times out fails with `EINPROGRESS`, which this factory
+  // classifies as failure.
   [[nodiscard]] static net_socket create_sync_connected(sockaddr_view target,
       std::chrono::milliseconds timeout = 1s) noexcept {
     auto sock = net_socket::create_for(target, execution::blocking);
