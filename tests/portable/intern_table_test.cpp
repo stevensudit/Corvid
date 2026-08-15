@@ -82,8 +82,9 @@ TEST_CASE("Basic", "[InternTableTest]") {
 
     // lookup_by_id_t
     std::string key{"abc"};
-    std::deque<std::string> dq{42};
-    arena_deque<arena_string> adq{42};
+    // Constructing these, heap and arena, is itself the exercise.
+    [[maybe_unused]] std::deque<std::string> dq{42};
+    [[maybe_unused]] arena_deque<arena_string> adq{42};
     auto z = key + key;
     (void)z;
   }

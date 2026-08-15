@@ -17,6 +17,9 @@ set -e
 # is clang-only. Add "tidy" to run clang-tidy during the
 # build. Add a sanitizer mode ("asan" [which includes ubsan], "tsan", "ubsan",
 # or "msan") to instrument the build with the corresponding LLVM sanitizer.
+# The "msan" mode self-installs its instrumented dependencies (libc++ and
+# OpenSSL) via the scripts/ helpers when missing, cloning from github.com; the
+# first run after a container rebuild takes ~15 minutes, later runs skip it.
 # The build is incremental when the configuration is unchanged; add "clean" to
 # force a wipe, fresh configure, and full recompile.
 # Add "coverage" to build with source-based coverage instrumentation and run
@@ -298,6 +301,13 @@ if [[ -n "$sanitizer" ]]; then
   # cleanbuild runs can yield stale .o files.
   if [[ "$sanitizer" == "msan" ]]; then
     export CCACHE_EXTRAFILES="$(pwd)/scripts/msan-libcxx-ignorelist.txt"
+    # MSAN needs instrumented deps (libc++ and OpenSSL). Both scripts are
+    # idempotent, with a completed install short-circuiting in milliseconds,
+    # so ensure them on every msan run instead of making the user remember a
+    # one-time setup after each container rebuild. The first run clones from
+    # github.com and takes ~15 minutes.
+    ./scripts/build_msan_libcxx.sh
+    ./scripts/build_openssl_quic.sh msan
   fi
 else
   SAN_OPTION=""

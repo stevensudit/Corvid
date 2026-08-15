@@ -24,7 +24,7 @@ lives in `tests/` only; there is no root one. Build output lands in
 ./cleanbuild.sh asan             # build + run with ASAN + UBSAN
 ./cleanbuild.sh tsan             # build + run with TSAN
 ./cleanbuild.sh ubsan            # build + run with UBSAN only
-./cleanbuild.sh msan             # build + run with MSAN (needs one-time setup)
+./cleanbuild.sh msan             # build + run with MSAN (self-installs deps)
 ./cleanbuild.sh strings_test.cpp # build + run only that target
 ./format_all.sh                  # format all sources (run before commit)
 ```
@@ -37,12 +37,16 @@ instruments a conflicting runtime); run them separately. Sanitizer sweeps
 continue past test failures so all issues surface in one run; plain runs still
 bail on the first failure.
 
-## MSAN one-time setup
+## MSAN setup
 
-MSAN requires a one-time setup: run `scripts/build_msan_libcxx.sh` and
-`scripts/build_openssl_quic.sh msan` before `./cleanbuild.sh msan`. Both build
-instrumented dependencies (libc++ and OpenSSL/ngtcp2) so the QUIC tests don't
-drown in false positives from uninstrumented library internals.
+`./cleanbuild.sh msan` ensures its instrumented dependencies itself: every
+msan invocation runs `scripts/build_msan_libcxx.sh` and
+`scripts/build_openssl_quic.sh msan`, both idempotent, so an existing install
+short-circuits instantly and a fresh container pays the ~15-minute build once.
+The instrumented libc++ and OpenSSL exist so the QUIC tests don't drown in
+false positives from uninstrumented library internals. Note the msan libc++
+builds from LLVM trunk, so its headers can emit warnings the release
+toolchain doesn't (e.g. `[[gnu::warn_unused]]` on containers).
 
 ## Writing tests
 
