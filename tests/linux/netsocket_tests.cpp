@@ -291,12 +291,12 @@ TEST_CASE("BindListenAccept", "[NetSocket]") {
   CHECK(
       client.connect(net_endpoint{ipv4_addr::loopback, port}).value_or(false));
 
-  // Accept the connection on the listener side.
-  auto result = listener.accept();
-  CHECK(result.has_value());
-  CHECK(result->first.is_open());
-  const auto peer = net_endpoint{result->second};
-  CHECK(peer.as_sockaddr_view().is_v4());
+  // Accept the connection on the listener side, capturing the peer address
+  // directly into an endpoint.
+  net_endpoint peer;
+  auto conn = listener.accept(peer.as_ref());
+  CHECK(conn.is_open());
+  CHECK(peer->is_v4());
   CHECK(peer.v4()->is_loopback());
 }
 

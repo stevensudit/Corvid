@@ -328,6 +328,20 @@ private:
 };
 
 #pragma endregion
+#pragma region sockaddr_buffer_ref
+
+// Mutable references to a socket-address buffer and its length.
+//
+// Used as an output parameter by calls that fill an address in place, such as
+// `net_socket::accept`.
+//
+// Obtain one over a `net_endpoint` via its `as_ref`.
+struct sockaddr_buffer_ref {
+  sockaddr_storage& addr;
+  socklen_t& addrlen;
+};
+
+#pragma endregion
 }} // namespace corvid::proto
 
 #pragma region formatter

@@ -1720,7 +1720,7 @@ TEST_CASE("PeerClose", "[StreamConn]") {
       }});
   CHECK(loop->run_once(0) >= 0); // process posted do_open()
 
-  REQUIRE(b.shutdown(SHUT_WR));
+  REQUIRE(b.shutdown(shutdown_how::wr));
 
   CHECK(loop->run_once(0) >= 0); // dispatch readable event with EOF (HUP)
 
@@ -1783,7 +1783,7 @@ TEST_CASE("PeerClose_WithBufferedData", "[StreamConn]") {
   const std::string msg{"hello"};
   auto msg_view = std::string_view{msg};
   REQUIRE((b.send(msg_view) && msg_view.empty()));
-  REQUIRE(b.shutdown(SHUT_WR)); // send EOF after data
+  REQUIRE(b.shutdown(shutdown_how::wr)); // send EOF after data
 
   // First iteration: reads "hello", dispatches on_data (consumes "he").
   CHECK(loop->run_once(0) >= 0);

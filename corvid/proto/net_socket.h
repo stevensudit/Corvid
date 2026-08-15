@@ -42,7 +42,7 @@ using namespace bool_enums;
 
 #pragma region net_socket
 
-// RAII IP socket with type-safe option methods.
+// RAII network socket with type-safe option methods.
 //
 // `net_socket` is-an `os_file`, adding socket-specific operations on top
 // of the shared fd ownership and control helpers. Movable, non-copyable.
@@ -87,11 +87,9 @@ public:
   }
 
   // Shut down part of a full-duplex connection.
-  //
-  // `how` is one of `SHUT_RD`, `SHUT_WR`, or `SHUT_RDWR`.
-  [[nodiscard]] bool shutdown(int how) noexcept {
+  [[nodiscard]] bool shutdown(shutdown_how how) noexcept {
     assert(is_open());
-    return ::shutdown(handle(), how) == 0;
+    return ::shutdown(handle(), *how) == 0;
   }
 
 #pragma endregion
@@ -149,17 +147,16 @@ public:
   // simple use cases, meant to work with other utility methods with "sync" in
   // their name.
   [[nodiscard]] static net_socket create_sync_connected(sockaddr_view target,
-      std::chrono::milliseconds timeout = 1s) {
+      std::chrono::milliseconds timeout = 1s) noexcept {
     auto sock = net_socket::create_for(target, execution::blocking);
     if (!sock.is_open()) return {};
-    if (timeout.count() > 0) {
-      const timeval tv{timeout.count() / 1000,
-          (timeout.count() % 1000) * 1000};
+    if (timeout > 0ms) {
+      const timeval tv{timeout / 1s, (timeout % 1s) / 1us};
       if (!sock.set_option(socket_option::rcvtimeo, tv) ||
           !sock.set_option(socket_option::sndtimeo, tv))
         return {};
     }
-    if (::connect(sock.handle(), target.addr, target.addrlen) != 0) return {};
+    if (!sock.connect(target).value_or(false)) return {};
     return sock;
   }
 
@@ -490,20 +487,21 @@ public:
     return ::listen(handle(), backlog) == 0;
   }
 
-  // Accept a pending connection. Returns `std::nullopt` when no connection
-  // is available (`EAGAIN`/`EWOULDBLOCK`) or an error occurs.
+  // Accept a pending connection, filling `peer` with the peer address and
+  // its exact kernel-reported length.
   //
-  // The peer address is returned as a raw `sockaddr_storage`; use
-  // `net_endpoint{sockaddr_storage}` to convert it if needed.
-  [[nodiscard]] std::optional<std::pair<net_socket, sockaddr_storage>>
-  accept() noexcept {
+  // Pass `net_endpoint::as_ref` to capture the address directly into an
+  // endpoint. When no connection is available (`EAGAIN`/`EWOULDBLOCK`) or an
+  // error occurs, returns a closed socket and leaves `peer` unmodified.
+  [[nodiscard]] net_socket accept(sockaddr_buffer_ref peer) noexcept {
     assert(is_open());
-    sockaddr_storage addr{};
-    socklen_t len{sizeof(addr)};
-    const auto fd = ::accept4(handle(), reinterpret_cast<sockaddr*>(&addr),
-        &len, *socket_type::nonblock_cloexec);
-    if (fd < 0) return std::nullopt;
-    return std::pair{net_socket{os_file{fd}}, addr};
+    socklen_t len{sizeof(peer.addr)};
+    const auto fd = ::accept4(handle(),
+        reinterpret_cast<sockaddr*>(&peer.addr), &len,
+        *socket_type::nonblock_cloexec);
+    if (fd < 0) return {};
+    peer.addrlen = len;
+    return net_socket{os_file{fd}};
   }
 
 #pragma endregion

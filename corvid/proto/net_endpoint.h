@@ -304,6 +304,12 @@ public:
     return {reinterpret_cast<const sockaddr*>(&storage_), addrlen_};
   }
 
+  // Return mutable references to the underlying storage and length, so that
+  // calls like `net_socket::accept` can fill the storage and address in place.
+  [[nodiscard]] sockaddr_buffer_ref as_ref() noexcept {
+    return {storage_, addrlen_};
+  }
+
   // Implicit conversion, which carries the address length.
   //
   // This is what allows interop with `net_socket`.

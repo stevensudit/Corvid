@@ -334,5 +334,20 @@ consteval auto corvid_enum_spec(tcp_option*) {
 }
 
 #pragma endregion
+#pragma region shutdown_how
+
+// `SHUT_*` wrapper for `shutdown`.
+// NOLINTNEXTLINE(performance-enum-size)
+enum class shutdown_how : int {
+  rd = SHUT_RD,     // 0
+  wr = SHUT_WR,     // 1
+  rdwr = SHUT_RDWR, // 2
+};
+consteval auto corvid_enum_spec(shutdown_how*) {
+  return corvid::enums::sequence::make_sequence_enum_spec<shutdown_how,
+      "rd,wr,rdwr">();
+}
+
+#pragma endregion
 
 }} // namespace corvid::proto
