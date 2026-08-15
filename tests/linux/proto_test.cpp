@@ -572,6 +572,14 @@ TEST_CASE("Construction", "[NetEndpoint]") {
     CHECK(ep.empty());
   }
 
+  // `operator->` drills down to the `sockaddr_view` accessors.
+  if (true) {
+    net_endpoint ep{"/run/app.sock"};
+    CHECK(ep->is_uds());
+    CHECK(ep->uds_path() == "/run/app.sock");
+    CHECK(net_endpoint{"1.2.3.4:80"}->port() == 80U);
+  }
+
   // Conversion to bool is explicit, so an endpoint cannot promote into
   // arithmetic or comparison with integers.
   static_assert(!std::is_convertible_v<net_endpoint, bool>);

@@ -224,21 +224,17 @@ public:
     return false;
   }
 
-  // Family, categorization, and UDS path accessors live on `sockaddr_view`, so
-  // call them on the `as_sockaddr_view()` temporary.
+  // Family, categorization, and UDS path accessors live on `sockaddr_view`,
+  // so call them through `operator->`, as in `ep->uds_path()`.
 
   // Return the held `ipv4_addr` or `ipv6_addr`, respectively, or nullopt if
   // the endpoint holds something else.
   [[nodiscard]] std::optional<ipv4_addr> v4() const noexcept {
-    const auto view = as_sockaddr_view();
-    if (!view.is_v4()) return std::nullopt;
-    return ipv4_addr{view.as_sockaddr_in().sin_addr};
+    return as_sockaddr_view().v4();
   }
 
   [[nodiscard]] std::optional<ipv6_addr> v6() const noexcept {
-    const auto view = as_sockaddr_view();
-    if (!view.is_v6()) return std::nullopt;
-    return ipv6_addr{view.as_sockaddr_in6().sin6_addr};
+    return as_sockaddr_view().v6();
   }
 
   // Return the port number in host order.
@@ -284,8 +280,8 @@ public:
 
   // Convert to the corresponding POSIX socket address struct.
   //
-  // For `as_sockaddr_in`, `as_sockaddr_in6`, and `as_sockaddr_un`, call over
-  // `as_sockaddr_view`.
+  // For `as_sockaddr_in`, `as_sockaddr_in6`, and `as_sockaddr_un`, call
+  // through `operator->`, as in `ep->as_sockaddr_in()`.
 
   [[nodiscard]] constexpr const sockaddr_storage&
   as_sockaddr_storage() const noexcept {
@@ -303,8 +299,7 @@ public:
     return addrlen_;
   }
 
-  // Explicit conversion, mostly to access methods found on `sockaddr_view` but
-  // not passed through from this class.
+  // Explicit conversion to the underlying view.
   [[nodiscard]] sockaddr_view as_sockaddr_view() const noexcept {
     return {reinterpret_cast<const sockaddr*>(&storage_), addrlen_};
   }
@@ -313,6 +308,12 @@ public:
   //
   // This is what allows interop with `net_socket`.
   [[nodiscard]] operator sockaddr_view() const noexcept {
+    return as_sockaddr_view();
+  }
+
+  // Drill down to the underlying `sockaddr_view`, so that its accessors can
+  // be called directly, as in `ep->uds_path()`.
+  [[nodiscard]] sockaddr_view operator->() const noexcept {
     return as_sockaddr_view();
   }
 
@@ -353,25 +354,24 @@ private:
   // - ANS (`@`-prefixed): `sun_path[0] = '\0'`, the name follows without a
   //   terminator, and the stored length delimits it exactly.
   //
-  // NOLINTNEXTLINE(bugprone-exception-escape): substr positions are in-bounds.
+  // NOLINTNEXTLINE(bugprone-exception-escape): copy positions are in-bounds.
   [[nodiscard]] static net_endpoint do_parse_uds(
       std::string_view path) noexcept {
     net_endpoint ep;
     auto& raw = ep.as_uds();
-    const auto header = offsetof(sockaddr_un, sun_path);
 
-    if (path[0] == '@') {
-      const auto name = path.substr(1);
-      if (name.size() > sizeof(raw.sun_path) - 1) return {};
-      raw.sun_path[0] = '\0';
-      name.copy(raw.sun_path + 1, name.size());
-      ep.addrlen_ = static_cast<socklen_t>(header + 1 + name.size());
-    } else {
-      if (path.size() > sizeof(raw.sun_path) - 1) return {};
-      path.copy(raw.sun_path, path.size());
-      ep.addrlen_ = static_cast<socklen_t>(header + path.size() + 1);
-    }
+    // Either way, `sun_path` stores the path bytes verbatim: for an ANS, the
+    // leading '@' becomes the '\0', while a pathname instead appends one as a
+    // terminator (already present from zero-initialization).
+    const auto is_ans = (path[0] == '@');
+    const auto stored = path.size() + (is_ans ? 0UZ : 1UZ);
+    if (stored > sizeof(raw.sun_path)) return {};
+    path.copy(raw.sun_path, path.size());
+    if (is_ans) raw.sun_path[0] = '\0';
+
     raw.sun_family = AF_UNIX;
+    ep.addrlen_ =
+        static_cast<socklen_t>(offsetof(sockaddr_un, sun_path) + stored);
     return ep;
   }
 

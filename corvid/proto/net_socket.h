@@ -442,6 +442,12 @@ struct sockaddr_view {
 
   [[nodiscard]] explicit operator bool() const noexcept { return !empty(); }
 
+  // Terminate the arrow chain from `net_endpoint::operator->` by yielding a
+  // pointer to this view.
+  [[nodiscard]] const sockaddr_view* operator->() const noexcept {
+    return this;
+  }
+
   // Return whether the address is unnamed, which is to say that the entire
   // length is just `sizeof(sa_family_t)`.
   //
@@ -470,6 +476,18 @@ struct sockaddr_view {
   [[nodiscard]] bool is_ans() const noexcept {
     const auto path = raw_uds_path();
     return (!path.empty() && path.front() == '\0');
+  }
+
+  // Return the viewed `ipv4_addr` or `ipv6_addr`, respectively, or nullopt if
+  // the view is over something else.
+  [[nodiscard]] std::optional<ipv4_addr> v4() const noexcept {
+    if (!is_v4()) return std::nullopt;
+    return ipv4_addr{as_sockaddr_in().sin_addr};
+  }
+
+  [[nodiscard]] std::optional<ipv6_addr> v6() const noexcept {
+    if (!is_v6()) return std::nullopt;
+    return ipv6_addr{as_sockaddr_in6().sin6_addr};
   }
 
   // Return the port number in host order.
@@ -1131,14 +1149,10 @@ struct std::formatter<corvid::proto::sockaddr_view> {
 
   static auto
   format(const corvid::proto::sockaddr_view& view, std::format_context& ctx) {
-    if (view.is_v4())
-      return std::format_to(ctx.out(), "{}:{}",
-          corvid::proto::ipv4_addr{view.as_sockaddr_in().sin_addr},
-          view.port());
-    if (view.is_v6())
-      return std::format_to(ctx.out(), "[{}]:{}",
-          corvid::proto::ipv6_addr{view.as_sockaddr_in6().sin6_addr},
-          view.port());
+    if (const auto addr = view.v4())
+      return std::format_to(ctx.out(), "{}:{}", *addr, view.port());
+    if (const auto addr = view.v6())
+      return std::format_to(ctx.out(), "[{}]:{}", *addr, view.port());
     if (view.is_ans()) {
       const auto name = view.uds_path();
       const auto null_pos = name.find('\0');
