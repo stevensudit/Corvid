@@ -38,7 +38,9 @@ using namespace bool_enums;
 #pragma region iov_queue
 
 // A queue of owned byte buffers, presented to a gather/scatter operation as an
-// `iovec` view. The same machinery serves both directions; a queue uses one
+// `iovec` view.
+//
+// The same machinery serves both directions; a queue uses one
 // or the other:
 //
 //   Send: the producer `append`s buffers that already hold bytes. `unused`
@@ -51,25 +53,30 @@ using namespace bool_enums;
 //   system filled, and `harvest_bytes` or `harvest_chunk` hands the filled
 //   payload back to the caller.
 //
-// Three byte watermarks advance monotonically, `reclaimed <= used <=
-// appended`:
-//   appended   total bytes appended (send: data; receive: capacity)
-//   used       already accessed by the system (send: written; receive: filled)
-//   reclaimed  released from the front (send: acked; receive: harvested)
+// Three byte watermarks advance monotonically, such that:
+// `reclaimed <= used <= appended`
 //
-// `consume` drives `used`; `retire` and the `harvest` methods drive
-// `reclaimed`. They differ only in what they do with a buffer once its bytes
-// are reclaimed: `retire` frees each fully-reclaimed front buffer in place,
-// `harvest_bytes` copies the bytes out and leaves the drained buffers as slack
-// for `tidy`, and `harvest_chunk` moves a buffer out to the caller.
+// - appended   total bytes appended (send: data; receive: capacity)
+// - used       already accessed by the system (send: written; receive: filled)
+// - reclaimed  released from the front (send: acked; receive: harvested)
+//
+// `consume` drives `used`, while `retire` and the `harvest` methods drive
+// `reclaimed`.
+//
+// They differ only in what they do with a buffer once its bytes are reclaimed:
+// - `retire` frees each fully-reclaimed front buffer in place
+// - `harvest_bytes` copies the bytes out and leaves the drained buffers as
+//    slack for `tidy`
+// - `harvest_chunk` moves a buffer out to the caller.
 //
 // Two cursors track the watermarks as a buffer index plus an offset within
 // that buffer, so `unused` and the `harvest` methods read the position
 // directly without rescanning:
-//   unused cursor     the first buffer holding an unused byte
-//   retained cursor   the first buffer holding an unreclaimed byte
 //
-// `Chunk` is any movable owner of a contiguous run of 1-byte elements that
+// - unused cursor     the first buffer holding an unused byte
+// - retained cursor   the first buffer holding an unreclaimed byte
+//
+// A `Chunk` is any movable owner of a contiguous run of 1-byte elements that
 // keeps its buffer at a stable address when the `Chunk` itself is moved.
 //
 // That stability is the load-bearing requirement: the system holds the `iovec`
@@ -83,15 +90,15 @@ using namespace bool_enums;
 // move-assignment from a default-constructed instance (used to free a retired
 // chunk).
 //
-// So long as it meets these requirements, it could come from some sort of
+// So long as it meets these requirements, it could also come from some sort of
 // object pool or arena.
 //
 // `State`, when not `void`, is an arbitrary per-queue value the producer sets
-// through `state` and can be used by the system to parameterize the operation,
-// alongside `unused`, e.g. the QUIC `write_stream_flags` that ride with a
-// stream's final bytes. It could also be used to track state relevant to
-// parsing or production. Either way, the queue carries it opaquely: it neither
-// interprets nor clears it. When `void` it adds no storage.
+// through `state`, which can be used by the system to parameterize the
+// operation, alongside `unused`, e.g. the QUIC `write_stream_flags` that ride
+// with a stream's final bytes. It could also be used to track state relevant
+// to parsing or production. Either way, the queue carries it opaquely: it
+// neither interprets nor clears it.
 template<typename Chunk = std::vector<uint8_t>, typename State = void>
 class iov_queue {
 public:
@@ -104,9 +111,11 @@ public:
 
 #pragma region Utilities
 
-  // Total bytes spanned by `iov`. A sink that takes only a prefix of an
-  // `unused` span (e.g. capped by a fixed vec count) sums the prefix with this
-  // to learn the exact byte count to `consume`.
+  // Total bytes spanned by `iov`.
+  //
+  // A sink that takes only a prefix of an `unused` span (e.g. capped by a
+  // fixed vec count) sums the prefix with this to learn the exact byte count
+  // to `consume`.
   [[nodiscard]] static uint64_t iov_byte_count(
       std::span<const iovec> iov) noexcept {
     uint64_t n{};
@@ -127,10 +136,11 @@ public:
 #pragma endregion
 #pragma region Mutators
 
-  // Take ownership of `chunk`, appending it to the back. For a send queue, the
-  // chunk holds bytes to write; for a receive queue, it is empty room to fill,
-  // pre-sized to the capacity the kernel may scatter into. (It does not need
-  // to be prefilled.)
+  // Take ownership of `chunk`, appending it to the back.
+  //
+  // For a send queue, the chunk holds bytes to write; for a receive queue, it
+  // is empty room to fill, pre-sized to the capacity the kernel may scatter
+  // into.
   bool append(chunk_t&& chunk) {
     if (chunk.empty()) return false;
     appended_ += chunk.size();
@@ -140,9 +150,10 @@ public:
     return true;
   }
 
-  // Mark `n` unused bytes as used, advancing the `used` watermark: for a send,
-  // these are bytes the sink wrote, for a receive, bytes the system filled.
-  // The next `unused` does not include them.
+  // Mark `n` unused bytes as used, advancing the `used` watermark.
+  //
+  // For a send, these are bytes the sink wrote; for a receive, bytes the
+  // system filled. The next `unused` does not include them.
   bool consume(uint64_t n) noexcept {
     assert(used_ + n <= appended_);
     used_ += n;
@@ -151,9 +162,10 @@ public:
   }
 
   // Retire `n` bytes from the front, freeing each fully-reclaimed buffer in
-  // place. A reliable send caller may skip `consume` and retire directly;
-  // `used` is pulled along so the unused view and `unacknowledged` stay
-  // honest.
+  // place.
+  //
+  // A reliable send caller may skip `consume` and retire directly; `used` is
+  // pulled along so the unused view and `unacknowledged` stay honest.
   bool retire(uint64_t n) noexcept {
     assert(reclaimed_ + n <= appended_);
     reclaimed_ += n;
@@ -169,25 +181,31 @@ public:
   }
 
   // Copy used-but-unreclaimed bytes into `out`, starting at offset `at` and
-  // filling the room that remains (`out.size() - at`). Reclaims the copied
-  // bytes, leaving the drained source buffers as slack for `tidy`. Returns the
-  // region written, [at, at + written); `out` itself is not resized. A nonzero
-  // `at` lets the caller accumulate after a header or a prior harvest.
+  // filling the room that remains (`out.size() - at`).
   //
-  // This technique is convenient, but requires an extra copy and leaves the
-  // drained buffers around as slack until `tidy` drops them. If the caller can
-  // wait to take ownership of full chunks, `harvest_chunk` is more efficient.
+  // Returns the buffer's good bytes, which consists of the region
+  // written, [at, at + written); `out` itself is not resized. Reclaims the
+  // copied-from bytes, leaving the drained source buffers as slack for `tidy`.
+  // A nonzero `at` lets the caller accumulate after a header or a prior
+  // harvest.
+  //
+  // This technique is convenient and removes chunk boundaries, but requires an
+  // extra copy and leaves the drained buffers around as slack until `tidy`
+  // drops them. If the caller can wait to take ownership of full chunks and
+  // can deal with boundaries, `harvest_chunk` is necessarily more efficient.
   [[nodiscard]] std::span<const byte_t>
   harvest_bytes(chunk_t& out, size_t at = {}) noexcept {
     assert(at <= out.size());
     const auto want = std::min<uint64_t>(used_ - reclaimed_, out.size() - at);
+    const auto start = out.data() + at;
     uint64_t written{};
     while (written < want) {
       auto& chunk = chunks_[retained_index_];
       const auto take =
           std::min<uint64_t>(chunk.size() - retained_offset_, want - written);
-      std::memcpy(out.data() + at + written, chunk.data() + retained_offset_,
-          take);
+      const auto dest = start + written;
+      const auto src = chunk.data() + retained_offset_;
+      std::memcpy(dest, src, take);
       written += take;
       retained_offset_ += take;
       if (retained_offset_ == chunk.size()) {
@@ -196,11 +214,11 @@ public:
       }
     }
     reclaimed_ += written;
-    return std::span<const byte_t>{out.data() + at,
-        static_cast<size_t>(written)};
+    return {start, static_cast<size_t>(written)};
   }
 
   // Move the front fully-filled buffer into `out`, reclaiming its bytes.
+  //
   // Returns the buffer's good bytes: the whole buffer unless its front was
   // already taken by `harvest_bytes`, in which case the span starts past that
   // prefix. The partially-filled tail buffer is never moved out (the system
@@ -217,14 +235,15 @@ public:
     reclaimed_ += good;
     ++retained_index_;
     retained_offset_ = 0;
-    return std::span<const byte_t>{out.data() + good_start,
-        static_cast<size_t>(good)};
+    return {out.data() + good_start, static_cast<size_t>(good)};
   }
 
   // For long-running queues, check `slack` and decide when to call `tidy` to
-  // drop the empty leading slots. With `release`, also returns the vector's
-  // freed capacity to the allocator and rebases the byte watermarks toward
-  // zero so they can't overflow.
+  // drop the empty leading slots.
+  //
+  // With `deallocation_policy::release`, also returns the vector's freed
+  // capacity to the allocator and rebases the byte watermarks toward zero so
+  // they can't overflow.
   bool tidy(deallocation_policy policy = deallocation_policy::preserve) {
     chunks_.erase(chunks_.begin(),
         chunks_.begin() + static_cast<std::ptrdiff_t>(retained_index_));
@@ -243,12 +262,14 @@ public:
   }
 
   // Move the fully-reclaimed leading buffers to the back, where they become
-  // free room to fill again as though freshly appended (their sizes are added
-  // to `appended`). The counterpart to `harvest_bytes` for a receive queue
-  // reusing its buffers: rather than letting `tidy` free the drained buffers,
-  // recycle them for the next read. Clears the slack, so `slack` returns to
-  // zero. (`harvest_chunk` and `retire` empty their buffers, so recycling
-  // those contributes no room.)
+  // free room to fill again, as though freshly appended (their sizes are added
+  // to `appended`).
+  //
+  // The counterpart to `harvest_bytes` for a receive queue reusing its
+  // buffers: rather than letting `tidy` free the drained buffers, recycle them
+  // for the next read. Clears the slack, so `slack` returns to zero.
+  // (`harvest_chunk` and `retire` empty their buffers, so recycling those
+  // contributes no room.)
   bool recycle() noexcept {
     uint64_t recycled{};
     for (auto ndx = 0UZ; ndx < retained_index_; ++ndx)
@@ -279,8 +300,8 @@ public:
   }
 
   // The carried per-queue `State` (present only when `State` is not `void`).
-  // The producer sets it; the syscall reads it alongside `unused`. The queue
-  // never inspects it.
+  //
+  // This value is never inspected by the queue.
   [[nodiscard]] auto& state(this auto& self) noexcept
   requires(!std::is_void_v<State>)
   {
@@ -299,7 +320,7 @@ public:
     auto& first = chunks_[unused_index_];
     iov_.emplace_back(at_offset(first, unused_offset_),
         first.size() - unused_offset_);
-    for (size_t ndx = unused_index_ + 1; ndx < chunks_.size(); ++ndx) {
+    for (auto ndx = unused_index_ + 1; ndx < chunks_.size(); ++ndx) {
       auto& chunk = chunks_[ndx];
       iov_.emplace_back(at_offset(chunk, 0), chunk.size());
     }
@@ -323,11 +344,11 @@ public:
 #pragma region Helpers
 private:
   // Walk a cursor forward by `n` bytes, calling `on_pass` for each buffer
-  // fully passed. Lands the cursor on the first byte past the advance,
-  // pointing one slot past the back (offset 0) when it ends on a buffer
-  // boundary.
-  template<typename OnPass>
-  void advance(size_t& index, uint64_t& offset, uint64_t n, OnPass on_pass) {
+  // fully passed.
+  //
+  // Lands the cursor on the first byte past the advance, pointing one slot
+  // past the back (offset 0) when it ends on a buffer boundary.
+  void advance(size_t& index, uint64_t& offset, uint64_t n, auto on_pass) {
     while (n > 0) {
       assert(index < chunks_.size());
       auto& chunk = chunks_[index];
@@ -343,9 +364,11 @@ private:
     }
   }
 
-  // Free a reclaimed chunk's buffer. A helper (rather than a trait) so an
-  // exotic `Chunk` can be accommodated with an `if constexpr` branch here;
-  // move-assigning an empty instance frees `std::vector` / `std::string`.
+  // Free a reclaimed chunk's buffer.
+  //
+  // A helper (rather than a trait). An exotic `Chunk` can be accommodated with
+  // an `if constexpr` branch here. Move-assigning an empty instance frees
+  // `std::vector` / `std::string`.
   static void clear_chunk(chunk_t& chunk) noexcept { chunk = chunk_t{}; }
 
   // `void*` to `chunk`'s byte at `offset`, normalizing the element type and
