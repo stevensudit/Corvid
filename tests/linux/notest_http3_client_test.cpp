@@ -134,7 +134,7 @@ bool curl(int argc, char** argv) {
   if (!body.empty()) std::cout << " (" << body.size() << "-byte body)";
   std::cout << "\n";
 
-  const auto peer = dns_resolver::find_one(host, 443, AF_INET);
+  const auto peer = dns_resolver::find_one(host, 443, address_family::inet);
   if (peer.empty()) {
     std::cerr << "error: could not resolve " << host << "\n";
     return false;

@@ -958,7 +958,7 @@ TEST_CASE("NumericIPv4", "[DnsResolve]") {
 
 TEST_CASE("NumericIPv6", "[DnsResolve]") {
   // Numeric IPv6 addresses are resolved without a DNS lookup.
-  auto result = dns_resolver::find_all("::1", 443, AF_INET6);
+  auto result = dns_resolver::find_all("::1", 443, address_family::inet6);
   CHECK_FALSE(result.empty());
   bool found = false;
   for (const auto& ep : result) {
@@ -992,12 +992,12 @@ TEST_CASE("Localhost", "[DnsResolve]") {
 #pragma region FamilyFilter
 
 TEST_CASE("FamilyFilter", "[DnsResolve]") {
-  // With `AF_INET`, every result must be an IPv4 endpoint.
-  auto v4 = dns_resolver::find_all("localhost", 80, AF_INET);
+  // With `inet`, every result must be an IPv4 endpoint.
+  auto v4 = dns_resolver::find_all("localhost", 80, address_family::inet);
   for (const auto& ep : v4) CHECK(ep.as_sockaddr_view().is_v4());
 
-  // With `AF_INET6`, every result must be an IPv6 endpoint.
-  auto v6 = dns_resolver::find_all("localhost", 80, AF_INET6);
+  // With `inet6`, every result must be an IPv6 endpoint.
+  auto v6 = dns_resolver::find_all("localhost", 80, address_family::inet6);
   for (const auto& ep : v6) CHECK(ep.as_sockaddr_view().is_v6());
 }
 
