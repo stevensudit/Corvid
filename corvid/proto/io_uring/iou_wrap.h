@@ -31,6 +31,7 @@
 
 #include "../../filesys/os_event.h"
 #include "../net_endpoint.h"
+#include "../socket_enums.h"
 #include "../../enums.h"
 
 // Wrapper around `io_uring`'s C API, with the primary goal of adding C++
@@ -131,18 +132,6 @@ enum class poll_flags : uint16_t {
 consteval auto corvid_enum_spec(poll_flags*) {
   return corvid::enums::bitmask::make_bitmask_enum_spec<poll_flags,
       "nval,hup,err,out,pri,in">();
-}
-
-// `SHUT_*` wrapper for `prep_shutdown`.
-// NOLINTNEXTLINE(performance-enum-size)
-enum class shutdown_how : int {
-  rd = SHUT_RD,     // 0
-  wr = SHUT_WR,     // 1
-  rdwr = SHUT_RDWR, // 2
-};
-consteval auto corvid_enum_spec(shutdown_how*) {
-  return corvid::enums::sequence::make_sequence_enum_spec<shutdown_how,
-      "rd,wr,rdwr">();
 }
 
 // Extracts the buffer ID from `flags` if `buffer` is set; otherwise returns 0.
@@ -485,7 +474,8 @@ public:
     sockaddr* sockaddr_ptr{};
     socklen_t* socklen_ptr{};
     if (endpoint) {
-      endpoint->len = endpoint->sockaddr.sockaddr_size();
+      // `len` is the kernel's write capacity, not the current length.
+      endpoint->len = net_endpoint::max_sockaddr_size;
       sockaddr_ptr = endpoint->sockaddr.as_sockaddr_ptr();
       socklen_ptr = &endpoint->len;
     }

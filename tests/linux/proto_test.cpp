@@ -22,6 +22,8 @@
 
 #include <type_traits>
 #include <atomic>
+#include <bit>
+#include <format>
 #include <chrono>
 #include <cstring>
 #include <iostream>
@@ -50,6 +52,38 @@ struct iov_msghdr_test {
 // NOLINTBEGIN(readability-function-cognitive-complexity)
 // NOLINTBEGIN(bugprone-unchecked-optional-access)
 
+#pragma region Endian
+
+TEST_CASE("Endian", "[Endian]") {
+  // Round-tripping restores the original value at every width.
+  static_assert(ntoh16(hton16(0x1234)) == 0x1234);
+  static_assert(ntoh32(hton32(0x01020304)) == 0x01020304);
+  static_assert(ntoh64(hton64(0x0102030405060708)) == 0x0102030405060708);
+
+  // On a little-endian host, conversion reverses the bytes; on a big-endian
+  // host, it is the identity.
+  constexpr bool little = std::endian::native == std::endian::little;
+  static_assert(!little || hton16(0x1234) == 0x3412);
+  static_assert(!little || hton32(0x01020304) == 0x04030201);
+  static_assert(!little || hton64(0x0102030405060708) == 0x0807060504030201);
+  static_assert(little || hton32(0x01020304) == 0x01020304);
+
+#ifdef __SIZEOF_INT128__
+  constexpr auto v128 =
+      (static_cast<__uint128_t>(0x0102030405060708) << 64) |
+      0x090A0B0C0D0E0F10;
+  static_assert(ntoh128(hton128(v128)) == v128);
+  static_assert(
+      !little ||
+      hton128(v128) == ((static_cast<__uint128_t>(0x100F0E0D0C0B0A09) << 64) |
+                           0x0807060504030201));
+#endif
+
+  // Runtime anchor.
+  CHECK(ntoh32(hton32(0xDEADBEEF)) == 0xDEADBEEF);
+}
+
+#pragma endregion
 #pragma region Construction
 
 TEST_CASE("Construction", "[Ipv4Addr]") {
@@ -258,6 +292,15 @@ TEST_CASE("Formatting", "[Ipv4Addr]") {
   CHECK(ipv4_addr::broadcast.to_string() == "255.255.255.255");
   CHECK(ipv4_addr(192, 168, 1, 100).to_string() == "192.168.1.100");
 
+  // std::format goes through the formatter, not to_string.
+  CHECK(std::format("{}", ipv4_addr(192, 168, 1, 100)) == "192.168.1.100");
+  CHECK(std::format("{}", ipv4_addr::any) == "0.0.0.0");
+
+  // Conversion to bool is explicit, so an address cannot promote into
+  // arithmetic or comparison with integers.
+  static_assert(!std::is_convertible_v<ipv4_addr, bool>);
+  static_assert(std::is_constructible_v<bool, ipv4_addr>);
+
   // Round-trip: parse then format.
   auto addr = ipv4_addr::parse("10.20.30.40");
   REQUIRE(addr.has_value());
@@ -431,6 +474,19 @@ TEST_CASE("Formatting", "[Ipv6Addr]") {
   auto addr = ipv6_addr::parse("2001:db8::abcd");
   REQUIRE(addr.has_value());
   CHECK(addr->to_string() == "2001:db8::abcd");
+
+  // A lone zero group is not compressed.
+  CHECK(ipv6_addr(1, 0, 2, 3, 4, 5, 6, 7).to_string() == "1:0:2:3:4:5:6:7");
+
+  // std::format goes through the formatter, not to_string.
+  CHECK(std::format("{}", ipv6_addr(0x2001, 0xdb8, 0, 1, 0, 0, 0, 1)) ==
+        "2001:db8:0:1::1");
+  CHECK(std::format("{}", ipv6_addr::any) == "::");
+
+  // Conversion to bool is explicit, so an address cannot promote into
+  // arithmetic or comparison with integers.
+  static_assert(!std::is_convertible_v<ipv6_addr, bool>);
+  static_assert(std::is_constructible_v<bool, ipv6_addr>);
 }
 
 #pragma endregion
@@ -454,22 +510,22 @@ TEST_CASE("Construction", "[NetEndpoint]") {
   if (true) {
     net_endpoint ep;
     CHECK(ep.empty());
-    CHECK_FALSE(ep.is_v4());
-    CHECK_FALSE(ep.is_v6());
-    CHECK_FALSE(ep.is_uds());
+    CHECK_FALSE(ep.as_sockaddr_view().is_v4());
+    CHECK_FALSE(ep.as_sockaddr_view().is_v6());
+    CHECK_FALSE(ep.as_sockaddr_view().is_uds());
     CHECK(ep.to_string() == "(invalid)");
   }
 
   if (true) {
     net_endpoint ep{ipv4_addr(127, 0, 0, 1), 80};
-    REQUIRE(ep.is_v4());
+    REQUIRE(ep.as_sockaddr_view().is_v4());
     CHECK(ep.port() == 80U);
     CHECK(ep.v4()->to_string() == "127.0.0.1");
   }
 
   if (true) {
     net_endpoint ep{ipv6_addr::loopback, 443};
-    REQUIRE(ep.is_v6());
+    REQUIRE(ep.as_sockaddr_view().is_v6());
     CHECK(ep.port() == 443U);
     CHECK(ep.v6()->to_string() == "::1");
   }
@@ -483,47 +539,51 @@ TEST_CASE("Construction", "[NetEndpoint]") {
 
     net_endpoint ep{raw};
     CHECK_FALSE(ep.empty());
-    CHECK(ep.is_uds());
-    CHECK_FALSE(ep.is_v4());
-    CHECK_FALSE(ep.is_v6());
-    CHECK(ep.uds_path() == path);
+    CHECK(ep.as_sockaddr_view().is_uds());
+    CHECK_FALSE(ep.as_sockaddr_view().is_v4());
+    CHECK_FALSE(ep.as_sockaddr_view().is_v6());
+    CHECK(ep.as_sockaddr_view().uds_path() == path);
   }
 
-  // UDS: path longer than 107 chars is silently truncated.
+  // UDS: a path too long for `sun_path` is rejected, not truncated.
   if (true) {
     const std::string long_path(200, 'x');
     net_endpoint ep{"/" + long_path};
-    CHECK(!ep.empty());
-    CHECK(ep.is_uds());
-    CHECK_FALSE(ep.is_ans());
-    CHECK(ep.uds_path().size() == 107U);
-    CHECK(ep.uds_path()[0] == '/');
+    CHECK(ep.empty());
   }
 
   // ANS: construct from "@name" string.
   if (true) {
     net_endpoint ep{"@myservice"};
     CHECK(!ep.empty());
-    CHECK(ep.is_uds());
-    CHECK(ep.is_ans());
-    CHECK_FALSE(ep.is_v4());
-    CHECK_FALSE(ep.is_v6());
-    // `uds_path` skips the leading '\0' and returns the full 107-byte
-    // buffer.
-    CHECK(ep.uds_path().size() == 107U);
-    CHECK(ep.uds_path().substr(0, 9) == "myservice");
-    CHECK(ep.uds_path()[9] == '\0'); // trailing bytes are zero-padding
+    CHECK(ep.as_sockaddr_view().is_uds());
+    CHECK(ep.as_sockaddr_view().is_ans());
+    CHECK_FALSE(ep.as_sockaddr_view().is_v4());
+    CHECK_FALSE(ep.as_sockaddr_view().is_v6());
+    // `uds_path` skips the leading '\0' and returns the length-delimited
+    // name.
+    CHECK(ep.as_sockaddr_view().uds_path() == "myservice");
   }
 
-  // ANS: name longer than 107 chars is silently truncated.
+  // ANS: a name too long for `sun_path` is rejected, not truncated.
   if (true) {
     const std::string long_name(200, 'y');
     net_endpoint ep{"@" + long_name};
-    CHECK(!ep.empty());
-    CHECK(ep.is_ans());
-    CHECK(ep.uds_path().size() == 107U);
-    CHECK(ep.uds_path()[0] == 'y');
+    CHECK(ep.empty());
   }
+
+  // `operator->` drills down to the `sockaddr_view` accessors.
+  if (true) {
+    net_endpoint ep{"/run/app.sock"};
+    CHECK(ep->is_uds());
+    CHECK(ep->uds_path() == "/run/app.sock");
+    CHECK(net_endpoint{"1.2.3.4:80"}->port() == 80U);
+  }
+
+  // Conversion to bool is explicit, so an endpoint cannot promote into
+  // arithmetic or comparison with integers.
+  static_assert(!std::is_convertible_v<net_endpoint, bool>);
+  static_assert(std::is_constructible_v<bool, net_endpoint>);
 }
 
 #pragma endregion
@@ -533,13 +593,13 @@ TEST_CASE("Parse", "[NetEndpoint]") {
   if (true) {
     net_endpoint a{"192.168.1.10:8080"};
     CHECK(!a.empty());
-    REQUIRE(a.is_v4());
+    REQUIRE(a.as_sockaddr_view().is_v4());
     CHECK(a.port() == 8080U);
     CHECK(a.v4()->to_string() == "192.168.1.10");
 
     net_endpoint b{"[2001:db8::1]:443"};
     CHECK(!b.empty());
-    REQUIRE(b.is_v6());
+    REQUIRE(b.as_sockaddr_view().is_v6());
     CHECK(b.port() == 443U);
     CHECK(b.v6()->to_string() == "2001:db8::1");
   }
@@ -555,38 +615,45 @@ TEST_CASE("Parse", "[NetEndpoint]") {
     CHECK(net_endpoint{"[2001:db8::1]:70000"}.empty());
   }
 
+  // Port range boundary: `std::from_chars` itself rejects values that do not
+  // fit in `uint16_t`.
+  if (true) {
+    net_endpoint ep{"1.2.3.4:65535"};
+    CHECK(!ep.empty());
+    CHECK(ep.port() == 65535U);
+    CHECK(net_endpoint{"1.2.3.4:65536"}.empty());
+  }
+
   // A leading `/` produces a UDS endpoint.
   if (true) {
     net_endpoint ep{"/run/app.sock"};
     CHECK(!ep.empty());
-    CHECK(ep.is_uds());
-    CHECK(ep.uds_path() == "/run/app.sock");
+    CHECK(ep.as_sockaddr_view().is_uds());
+    CHECK(ep.as_sockaddr_view().uds_path() == "/run/app.sock");
   }
 
   // The `string_view` constructor also accepts UDS paths.
   if (true) {
     net_endpoint ep{std::string_view{"/var/run/foo.sock"}};
-    CHECK(ep.is_uds());
-    CHECK_FALSE(ep.is_ans());
-    CHECK(ep.uds_path() == "/var/run/foo.sock");
+    CHECK(ep.as_sockaddr_view().is_uds());
+    CHECK_FALSE(ep.as_sockaddr_view().is_ans());
+    CHECK(ep.as_sockaddr_view().uds_path() == "/var/run/foo.sock");
   }
 
   // A leading `@` produces an ANS endpoint.
   if (true) {
     net_endpoint ep{"@abstract"};
     CHECK(!ep.empty());
-    CHECK(ep.is_uds());
-    CHECK(ep.is_ans());
-    CHECK(ep.uds_path().size() == 107U);
-    CHECK(ep.uds_path().substr(0, 8) == "abstract");
+    CHECK(ep.as_sockaddr_view().is_uds());
+    CHECK(ep.as_sockaddr_view().is_ans());
+    CHECK(ep.as_sockaddr_view().uds_path() == "abstract");
   }
 
   // The `string_view` constructor also accepts ANS names.
   if (true) {
     net_endpoint ep{std::string_view{"@svc"}};
-    CHECK(ep.is_ans());
-    CHECK(ep.uds_path().size() == 107U);
-    CHECK(ep.uds_path().substr(0, 3) == "svc");
+    CHECK(ep.as_sockaddr_view().is_ans());
+    CHECK(ep.as_sockaddr_view().uds_path() == "svc");
   }
 
   // An IPv4-mapped IPv6 address (e.g., `[::ffff:192.168.1.1]:80`) is stored
@@ -596,8 +663,8 @@ TEST_CASE("Parse", "[NetEndpoint]") {
   if (true) {
     net_endpoint ep{"[::ffff:192.168.1.1]:80"};
     CHECK(!ep.empty());
-    CHECK(ep.is_v6());
-    CHECK_FALSE(ep.is_v4());
+    CHECK(ep.as_sockaddr_view().is_v6());
+    CHECK_FALSE(ep.as_sockaddr_view().is_v4());
     CHECK(ep.port() == 80U);
     CHECK(ep.to_string() == "[::ffff:c0a8:101]:80");
   }
@@ -627,7 +694,7 @@ TEST_CASE("Comparison", "[NetEndpoint]") {
   // UDS and IPv4 compare by family.
   CHECK(a != u1);
 
-  // ANS endpoints compare by full sun_path buffer.
+  // ANS endpoints compare by the length-delimited name.
   auto n1 = net_endpoint{"@same"};
   auto n2 = net_endpoint{"@same"};
   auto n3 = net_endpoint{"@zzz"};
@@ -637,6 +704,16 @@ TEST_CASE("Comparison", "[NetEndpoint]") {
 
   // ANS and regular UDS are unequal (sun_path[0] differs: '\0' vs '/').
   CHECK(n1 != u1);
+
+  // The address length participates in ANS identity: "abc" and "abc\0\0" are
+  // distinct names, not equal-after-padding.
+  auto short_name = net_endpoint{"@abc"};
+  auto padded_name = net_endpoint{std::string_view{"@abc\0\0", 6}};
+  CHECK((short_name.as_sockaddr_view().is_ans() &&
+         padded_name.as_sockaddr_view().is_ans()));
+  CHECK(short_name != padded_name);
+  CHECK(short_name.as_sockaddr_view().uds_path().size() == 3U);
+  CHECK(padded_name.as_sockaddr_view().uds_path().size() == 5U);
 }
 
 #pragma endregion
@@ -652,25 +729,27 @@ TEST_CASE("Formatting", "[NetEndpoint]") {
   CHECK(!uds.empty());
   CHECK(uds.to_string() == "unix:/tmp/app.sock");
 
-  // ANS: name with no embedded null truncates at trailing zeros.
+  // ANS: a name with no embedded null prints in full.
   auto ans = net_endpoint{"@svc"};
   CHECK(!ans.empty());
   CHECK(ans.to_string() == "unix:@svc");
 
-  // ANS: name without an embedded null truncates at the null, ignoring bytes
-  // after it.
-  if (true) {
-    net_endpoint ep{"@abc"};
-    CHECK(ep.is_ans());
-    CHECK(ep.to_string() == "unix:@abc");
-  }
-
-  // ANS: name with an embedded null truncates at the null, ignoring bytes
-  // after it. Pass a `string_view` that includes the embedded null.
+  // ANS: a name with an embedded null truncates the display there and
+  // appends the full name length. Pass a `string_view` that includes the
+  // embedded null.
   if (true) {
     net_endpoint ep{std::string_view{"@abc\0def", 8}};
-    CHECK(ep.is_ans());
-    CHECK(ep.to_string() == "unix:@abc (+)");
+    CHECK(ep.as_sockaddr_view().is_ans());
+    CHECK(ep.as_sockaddr_view().uds_path().size() == 7U);
+    CHECK(ep.to_string() == "unix:@abc (len 7)");
+  }
+
+  // ANS: trailing zeros are part of the name, so they trigger the same
+  // truncated-display form.
+  if (true) {
+    net_endpoint ep{std::string_view{"@abc\0\0", 6}};
+    CHECK(ep.as_sockaddr_view().is_ans());
+    CHECK(ep.to_string() == "unix:@abc (len 5)");
   }
 
   // ANS: name that fills the entire 107-byte buffer with no null uses the
@@ -679,18 +758,23 @@ TEST_CASE("Formatting", "[NetEndpoint]") {
     const std::string max_name(107, 'x');
     const std::string full_name = "@" + max_name;
     net_endpoint ep{std::string_view{full_name}};
-    CHECK(ep.is_ans());
+    CHECK(ep.as_sockaddr_view().is_ans());
     CHECK(ep.to_string() == ("unix:@" + max_name));
   }
 
-  // ANS: name longer than 107 chars is truncated to 107, ignoring the excess.
-  if (true) {
-    const std::string max_name(107, 'x');
-    const std::string full_name = "@" + max_name + "extra";
-    net_endpoint ep{std::string_view{full_name}};
-    CHECK(ep.is_ans());
-    CHECK(ep.to_string() == ("unix:@" + max_name));
-  }
+  // std::format goes through the formatter, not to_string.
+  CHECK(std::format("{}", v4) == "127.0.0.1:80");
+  CHECK(std::format("{}", v6) == "[::1]:443");
+  CHECK(std::format("{}", uds) == "unix:/tmp/app.sock");
+  CHECK(std::format("{}", ans) == "unix:@svc");
+  CHECK(std::format("{}", net_endpoint{}) == "(invalid)");
+
+  // A `sockaddr_view` formats directly, identically to the endpoint over
+  // which it is taken.
+  CHECK(std::format("{}", v4.as_sockaddr_view()) == "127.0.0.1:80");
+  CHECK(std::format("{}", v6.as_sockaddr_view()) == "[::1]:443");
+  CHECK(std::format("{}", uds.as_sockaddr_view()) == "unix:/tmp/app.sock");
+  CHECK(std::format("{}", sockaddr_view{}) == "(invalid)");
 }
 
 #pragma endregion
@@ -699,7 +783,7 @@ TEST_CASE("Formatting", "[NetEndpoint]") {
 TEST_CASE("PosixInterop", "[NetEndpoint]") {
   if (true) {
     net_endpoint ep{ipv4_addr(192, 168, 1, 2), 1234};
-    auto raw = ep.as_sockaddr_in();
+    auto raw = ep.as_sockaddr_view().as_sockaddr_in();
     net_endpoint roundtrip{raw};
     CHECK(roundtrip == ep);
 
@@ -715,7 +799,7 @@ TEST_CASE("PosixInterop", "[NetEndpoint]") {
 
   if (true) {
     net_endpoint ep{ipv6_addr(0x2001, 0xdb8, 0, 0, 0, 0, 0, 1), 4321};
-    auto raw = ep.as_sockaddr_in6();
+    auto raw = ep.as_sockaddr_view().as_sockaddr_in6();
     net_endpoint roundtrip{raw};
     CHECK(roundtrip == ep);
 
@@ -734,7 +818,7 @@ TEST_CASE("PosixInterop", "[NetEndpoint]") {
     net_endpoint ep{"/tmp/interop.sock"};
     CHECK(!ep.empty());
 
-    auto raw = ep.as_sockaddr_un();
+    auto raw = ep.as_sockaddr_view().as_sockaddr_un();
     CHECK(raw.sun_family == static_cast<sa_family_t>(AF_UNIX));
     CHECK(std::string_view{raw.sun_path} == "/tmp/interop.sock");
 
@@ -742,13 +826,33 @@ TEST_CASE("PosixInterop", "[NetEndpoint]") {
     CHECK(roundtrip == ep);
 
     net_endpoint from_sockaddr{reinterpret_cast<const sockaddr&>(raw),
-        sizeof(raw)};
+        ep.sockaddr_size()};
     CHECK(from_sockaddr == ep);
+
+    // The stated length must be exact: passing the whole-struct size for a
+    // shorter path fails.
+    net_endpoint overstated{reinterpret_cast<const sockaddr&>(raw),
+        sizeof(raw)};
+    CHECK(overstated.empty());
 
     CHECK((ep.sockaddr_size()) ==
           (static_cast<socklen_t>(
               offsetof(sockaddr_un, sun_path) +
               std::strlen("/tmp/interop.sock") + 1)));
+  }
+
+  // A maximum-length pathname (107 chars) still derives its length from the
+  // contents.
+  if (true) {
+    sockaddr_un raw{};
+    raw.sun_family = AF_UNIX;
+    const std::string long_path = "/" + std::string(106, 'x');
+    long_path.copy(raw.sun_path, long_path.size());
+    net_endpoint ep{raw};
+    CHECK(!ep.empty());
+    CHECK(ep.as_sockaddr_view().uds_path() == long_path);
+    CHECK(ep.sockaddr_size() ==
+          offsetof(sockaddr_un, sun_path) + long_path.size() + 1);
   }
 
   // ANS: build sockaddr_un manually (as the kernel would return it) and
@@ -763,17 +867,73 @@ TEST_CASE("PosixInterop", "[NetEndpoint]") {
     const socklen_t len = sizeof(sockaddr_un);
 
     net_endpoint ep{reinterpret_cast<const sockaddr&>(raw), len};
-    CHECK(ep.is_ans());
-    CHECK(ep.uds_path().size() == 107U);
-    CHECK(ep.uds_path().substr(0, 10) == name);
+    CHECK(ep.as_sockaddr_view().is_ans());
+    CHECK(ep.as_sockaddr_view().uds_path().size() == 107U);
+    CHECK(ep.as_sockaddr_view().uds_path().substr(0, 10) == name);
 
-    // Roundtrip via as_sockaddr_un().
-    auto raw2 = ep.as_sockaddr_un();
-    net_endpoint ep2{raw2};
+    // Roundtrip via as_sockaddr_un() plus the explicit length: the struct
+    // alone cannot carry ANS identity.
+    auto raw2 = ep.as_sockaddr_view().as_sockaddr_un();
+    net_endpoint ep2{reinterpret_cast<const sockaddr&>(raw2),
+        ep.sockaddr_size()};
     CHECK(ep2 == ep);
 
-    // sockaddr_size() for ANS is sizeof(sockaddr_un).
+    // The full buffer was given as the length, so that is the name's extent.
     CHECK(ep.sockaddr_size() == sizeof(sockaddr_un));
+  }
+
+  // The sockaddr_un constructor rejects ANS: without a length, the name's
+  // extent is unknowable.
+  if (true) {
+    sockaddr_un raw{};
+    raw.sun_family = AF_UNIX;
+    const std::string_view name = "abstract";
+    name.copy(raw.sun_path + 1, sizeof(raw.sun_path) - 1);
+    CHECK(net_endpoint{raw}.empty());
+  }
+
+  // A kernel-style short ANS length is honored exactly, and reassignment
+  // fully replaces the previous state, ghost bytes included.
+  if (true) {
+    sockaddr_un raw{};
+    raw.sun_family = AF_UNIX;
+    const std::string_view name = "abc";
+    name.copy(raw.sun_path + 1, name.size());
+    const auto len = static_cast<socklen_t>(
+        offsetof(sockaddr_un, sun_path) + 1 + name.size());
+
+    // Start from an endpoint whose storage held a long path.
+    net_endpoint ep{"/a/very/long/path/that/fills/many/bytes/of/storage"};
+    REQUIRE(!ep.empty());
+    CHECK(
+        ep.assign(sockaddr_view{reinterpret_cast<const sockaddr&>(raw), len}));
+    CHECK(ep.as_sockaddr_view().is_ans());
+    CHECK(ep.as_sockaddr_view().uds_path() == name);
+    CHECK(ep == net_endpoint{"@abc"});
+
+    // A pathname arriving with a padded (whole-struct) length is rejected:
+    // the stated length must be exact.
+    sockaddr_un padded{};
+    padded.sun_family = AF_UNIX;
+    const std::string_view path = "/tmp/pad.sock";
+    path.copy(padded.sun_path, path.size());
+    net_endpoint from_padded{reinterpret_cast<const sockaddr&>(padded),
+        sizeof(padded)};
+    CHECK(from_padded.empty());
+  }
+
+  // A failed assign reports false and leaves the endpoint empty, discarding
+  // the previous state.
+  if (true) {
+    net_endpoint ep{ipv4_addr::loopback, 80};
+    REQUIRE(!ep.empty());
+    // A truncated IPv6 address: the stated length is shorter than the
+    // contents require.
+    sockaddr_in6 bogus{};
+    bogus.sin6_family = AF_INET6;
+    CHECK_FALSE(ep.assign(sockaddr_view{
+        reinterpret_cast<const sockaddr&>(bogus), sizeof(sockaddr_in)}));
+    CHECK(ep.empty());
   }
 }
 
@@ -786,7 +946,9 @@ TEST_CASE("NumericIPv4", "[DnsResolve]") {
   CHECK_FALSE(result.empty());
   bool found = false;
   for (const auto& ep : result) {
-    if (ep.is_v4() && ep.v4()->is_loopback() && ep.port() == 80) found = true;
+    if (ep.as_sockaddr_view().is_v4() && ep.v4()->is_loopback() &&
+        ep.port() == 80)
+      found = true;
   }
   CHECK(found);
 }
@@ -796,11 +958,13 @@ TEST_CASE("NumericIPv4", "[DnsResolve]") {
 
 TEST_CASE("NumericIPv6", "[DnsResolve]") {
   // Numeric IPv6 addresses are resolved without a DNS lookup.
-  auto result = dns_resolver::find_all("::1", 443, AF_INET6);
+  auto result = dns_resolver::find_all("::1", 443, address_family::inet6);
   CHECK_FALSE(result.empty());
   bool found = false;
   for (const auto& ep : result) {
-    if (ep.is_v6() && ep.v6()->is_loopback() && ep.port() == 443) found = true;
+    if (ep.as_sockaddr_view().is_v6() && ep.v6()->is_loopback() &&
+        ep.port() == 443)
+      found = true;
   }
   CHECK(found);
 }
@@ -817,8 +981,8 @@ TEST_CASE("Localhost", "[DnsResolve]") {
   // At least one result should be a loopback address.
   bool found = false;
   for (const auto& ep : result) {
-    if ((ep.is_v4() && ep.v4()->is_loopback()) ||
-        (ep.is_v6() && ep.v6()->is_loopback()))
+    if ((ep.as_sockaddr_view().is_v4() && ep.v4()->is_loopback()) ||
+        (ep.as_sockaddr_view().is_v6() && ep.v6()->is_loopback()))
       found = true;
   }
   CHECK(found);
@@ -828,13 +992,13 @@ TEST_CASE("Localhost", "[DnsResolve]") {
 #pragma region FamilyFilter
 
 TEST_CASE("FamilyFilter", "[DnsResolve]") {
-  // With `AF_INET`, every result must be an IPv4 endpoint.
-  auto v4 = dns_resolver::find_all("localhost", 80, AF_INET);
-  for (const auto& ep : v4) CHECK(ep.is_v4());
+  // With `inet`, every result must be an IPv4 endpoint.
+  auto v4 = dns_resolver::find_all("localhost", 80, address_family::inet);
+  for (const auto& ep : v4) CHECK(ep.as_sockaddr_view().is_v4());
 
-  // With `AF_INET6`, every result must be an IPv6 endpoint.
-  auto v6 = dns_resolver::find_all("localhost", 80, AF_INET6);
-  for (const auto& ep : v6) CHECK(ep.is_v6());
+  // With `inet6`, every result must be an IPv6 endpoint.
+  auto v6 = dns_resolver::find_all("localhost", 80, address_family::inet6);
+  for (const auto& ep : v6) CHECK(ep.as_sockaddr_view().is_v6());
 }
 
 #pragma endregion
@@ -852,7 +1016,7 @@ TEST_CASE("InvalidHost", "[DnsResolve]") {
 TEST_CASE("Success", "[DnsResolveOne]") {
   // Numeric loopback resolves to exactly one endpoint with the right port.
   const auto ep = dns_resolver::find_one("127.0.0.1", 80);
-  CHECK(ep.is_v4());
+  CHECK(ep.as_sockaddr_view().is_v4());
   CHECK(ep.port() == 80U);
 }
 
@@ -1556,7 +1720,7 @@ TEST_CASE("PeerClose", "[StreamConn]") {
       }});
   CHECK(loop->run_once(0) >= 0); // process posted do_open()
 
-  REQUIRE(b.shutdown(SHUT_WR));
+  REQUIRE(b.shutdown(shutdown_how::wr));
 
   CHECK(loop->run_once(0) >= 0); // dispatch readable event with EOF (HUP)
 
@@ -1619,7 +1783,7 @@ TEST_CASE("PeerClose_WithBufferedData", "[StreamConn]") {
   const std::string msg{"hello"};
   auto msg_view = std::string_view{msg};
   REQUIRE((b.send(msg_view) && msg_view.empty()));
-  REQUIRE(b.shutdown(SHUT_WR)); // send EOF after data
+  REQUIRE(b.shutdown(shutdown_how::wr)); // send EOF after data
 
   // First iteration: reads "hello", dispatches on_data (consumes "he").
   CHECK(loop->run_once(0) >= 0);
@@ -2659,6 +2823,146 @@ TEST_CASE("RoundTrip_AllBytes", "[Base64]") {
   const auto decoded = base_64::decode(encoded);
 
   CHECK(decoded == all_bytes);
+}
+
+#pragma endregion
+#pragma region SegmentBookkeeping
+
+TEST_CASE("SegmentBookkeeping", "[IovMsghdr]") {
+  iov_msghdr_sender sender;
+  CHECK(sender.empty());
+  CHECK(sender.segments().empty());
+
+  // Appending tracks the total byte count across segments.
+  const std::string_view hello = "hello";
+  const std::string_view world = "world!";
+  CHECK(sender.append(hello));
+  CHECK(sender.append(world));
+  CHECK_FALSE(sender.empty());
+  CHECK(sender.size() == 11U);
+  CHECK(sender.segments().size() == 2U);
+
+  // Empty segments are rejected, not stored.
+  CHECK_FALSE(sender.append(std::string_view{}));
+  CHECK(sender.segments().size() == 2U);
+
+  // Clearing empties everything.
+  sender.clear();
+  CHECK(sender.empty());
+  CHECK(sender.segments().empty());
+  CHECK(sender.size() == 0U);
+}
+
+#pragma endregion
+#pragma region GatherScatterRoundTrip
+
+TEST_CASE("GatherScatterRoundTrip", "[IovMsghdr]") {
+  auto [writer, reader] = net_socket::create_pair(address_family::unix,
+      socket_type::stream, execution::blocking);
+  REQUIRE(writer.is_open());
+  REQUIRE(reader.is_open());
+
+  // Gather two segments into one send.
+  const std::string_view hello = "hello";
+  const std::string_view world = "world!";
+  iov_msghdr_sender sender;
+  REQUIRE(sender.append(hello));
+  REQUIRE(sender.append(world));
+  CHECK(sender.send(writer));
+
+  // The transfer ended exactly on the last segment boundary, so the index
+  // points one past it.
+  CHECK(sender.last_op().transferred == 11U);
+  CHECK(sender.last_op().index == 2U);
+  CHECK(sender.last_op().offset == 0U);
+
+  // A follow-up send first consumes everything, then trivially succeeds with
+  // nothing left to write.
+  CHECK(sender.send(writer));
+  CHECK(sender.last_op().transferred == 0U);
+  CHECK(sender.empty());
+
+  // Scatter the bytes across two receive buffers, with room to spare in the
+  // second, so the index points within it.
+  std::string first(4, '\0');
+  std::string second(8, '\0');
+  iov_msghdr_receiver receiver;
+  REQUIRE(receiver.append(first.data(), first.size()));
+  REQUIRE(receiver.append(second.data(), second.size()));
+  CHECK(receiver.recv(reader));
+  CHECK(receiver.last_op().transferred == 11U);
+  CHECK(receiver.last_op().index == 1U);
+  CHECK(receiver.last_op().offset == 7U);
+  CHECK(first == "hell");
+  CHECK(second.substr(0, 7) == "oworld!");
+}
+
+#pragma endregion
+#pragma region PartialConsumeAdvances
+
+TEST_CASE("PartialConsumeAdvances", "[IovMsghdr]") {
+  auto [writer, reader] = net_socket::create_pair(address_family::unix,
+      socket_type::stream, execution::blocking);
+  REQUIRE(writer.is_open());
+  REQUIRE(reader.is_open());
+
+  // Two receive buffers, filled partway into the second.
+  std::string first(4, '\0');
+  std::string second(6, '\0');
+  iov_msghdr_receiver receiver;
+  REQUIRE(receiver.append(first.data(), first.size()));
+  REQUIRE(receiver.append(second.data(), second.size()));
+
+  REQUIRE(writer.send_sync_all("freedom"));
+  CHECK(receiver.recv(reader));
+  CHECK(receiver.last_op().transferred == 7U);
+  CHECK(receiver.last_op().index == 1U);
+  CHECK(receiver.last_op().offset == 3U);
+  CHECK(first == "free");
+  CHECK(second.substr(0, 3) == "dom");
+
+  // The next receive first consumes past those 7 bytes, leaving the tail of
+  // the second buffer as the only active segment.
+  REQUIRE(writer.send_sync_all("end"));
+  CHECK(receiver.recv(reader));
+  CHECK(receiver.segments().size() == 1U);
+  CHECK(receiver.size() == 3U);
+  CHECK(receiver.last_op().transferred == 3U);
+  CHECK(receiver.last_op().index == 1U);
+  CHECK(receiver.last_op().offset == 0U);
+  CHECK(second == "domend");
+}
+
+#pragma endregion
+#pragma region CompactRetiresSlack
+
+TEST_CASE("CompactRetiresSlack", "[IovMsghdr]") {
+  auto [writer, reader] = net_socket::create_pair(address_family::unix,
+      socket_type::stream, execution::blocking);
+  REQUIRE(writer.is_open());
+  REQUIRE(reader.is_open());
+
+  // Build one-byte receive segments over a 20-char buffer, then fill the
+  // first 17 exactly.
+  std::string buf(20, '\0');
+  iov_msghdr_receiver receiver;
+  for (auto ndx = 0UZ; ndx < buf.size(); ++ndx)
+    REQUIRE(receiver.append(buf.data() + ndx, 1));
+  REQUIRE(writer.send_sync_all("seventeen-letters"));
+  CHECK(receiver.recv(reader));
+  CHECK(receiver.last_op().transferred == 17U);
+
+  // With more than `initial_segments` of leading slack, compact retires the
+  // consumed segments.
+  CHECK(receiver.compact());
+  CHECK(receiver.segments().size() == 3U);
+  CHECK(receiver.size() == 3U);
+
+  // With no slack left, compact declines, which is also success.
+  CHECK(receiver.compact());
+  CHECK(receiver.segments().size() == 3U);
+
+  CHECK(buf.substr(0, 17) == "seventeen-letters");
 }
 
 #pragma endregion

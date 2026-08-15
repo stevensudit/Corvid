@@ -17,6 +17,9 @@ set -e
 # is clang-only. Add "tidy" to run clang-tidy during the
 # build. Add a sanitizer mode ("asan" [which includes ubsan], "tsan", "ubsan",
 # or "msan") to instrument the build with the corresponding LLVM sanitizer.
+# The "msan" mode self-installs its instrumented dependencies (libc++ and
+# OpenSSL) via the scripts/ helpers when missing, cloning from github.com; the
+# first run after a container rebuild takes ~15 minutes, later runs skip it.
 # The build is incremental when the configuration is unchanged; add "clean" to
 # force a wipe, fresh configure, and full recompile.
 # Add "coverage" to build with source-based coverage instrumentation and run
@@ -35,10 +38,14 @@ set -e
 # run just one.
 #
 # Pass "clean-all" to delete the buildable outputs and stop: the release tree
-# (tests/build), the IDE debug tree (tests/build-debug), and any legacy
-# in-source strays at the repo root. Standalone; builds nothing. The dependency
-# caches (tests/.fetchcontent, tests/.fetchcontent-debug, tests/.local) are
-# expensive to rebuild and are preserved, same as "clean".
+# (tests/build), the IDE debug tree (tests/build-debug), any legacy in-source
+# strays at the repo root, and the compiled Catch2 objects inside the
+# dependency caches (they are not keyed by sanitizer mode, so a stale mode's
+# objects could otherwise survive into later links). Standalone; builds
+# nothing. The downloaded sources and prebuilt deps (tests/.local) are
+# expensive to rebuild, mode-independent, and preserved, same as "clean". The
+# next build may still be fast: ccache hits are keyed by compiler, flags, and
+# content, so they are always mode-correct.
 #
 # This script builds and runs one configuration at a time. To exercise every
 # configuration (plain, asan, tsan, msan, tidy) in sequence, pass "all":
@@ -97,11 +104,13 @@ if [[ "${1:-}" == "all" ]]; then
   exit "$rv"
 fi
 
-# "clean-all" deletes the buildable outputs and stops: both build trees and
-# any legacy in-source strays at the repo root. The dependency caches
-# (tests/.fetchcontent, tests/.fetchcontent-debug, tests/.local) survive,
-# same as "clean". Note clangd loses compile_commands.json until the next
-# configure; "reconfigure" restores it without building.
+# "clean-all" deletes the buildable outputs and stops: both build trees, any
+# legacy in-source strays at the repo root, and the Catch2 build dirs inside
+# the dependency caches (Catch2 objects are not mode-keyed, so a stale
+# sanitizer mode's objects could otherwise poison later links). The downloaded
+# sources and prebuilt deps (tests/.local) survive, same as "clean". Note
+# clangd loses compile_commands.json until the next configure; "reconfigure"
+# restores it without building.
 if [[ "${1:-}" == "clean-all" ]]; then
   if [[ $# -gt 1 ]]; then
     echo "$0: 'clean-all' takes no other arguments" >&2
@@ -111,7 +120,8 @@ if [[ "${1:-}" == "clean-all" ]]; then
   rm -f CMakeCache.txt cmake_install.cmake ClangExeProject.sln build.ninja
   rm -rf CMakeFiles .ninja_deps .ninja_log
   rm -rf tests/build tests/build-debug
-  echo "Removed tests/build and tests/build-debug (dependency caches preserved)."
+  rm -rf tests/.fetchcontent/catch2-build tests/.fetchcontent-debug/catch2-build
+  echo "Removed tests/build, tests/build-debug, and the Catch2 object caches (downloaded sources and prebuilt deps preserved)."
   exit 0
 fi
 
@@ -291,6 +301,13 @@ if [[ -n "$sanitizer" ]]; then
   # cleanbuild runs can yield stale .o files.
   if [[ "$sanitizer" == "msan" ]]; then
     export CCACHE_EXTRAFILES="$(pwd)/scripts/msan-libcxx-ignorelist.txt"
+    # MSAN needs instrumented deps (libc++ and OpenSSL). Both scripts are
+    # idempotent, with a completed install short-circuiting in milliseconds,
+    # so ensure them on every msan run instead of making the user remember a
+    # one-time setup after each container rebuild. The first run clones from
+    # github.com and takes ~15 minutes.
+    ./scripts/build_msan_libcxx.sh
+    ./scripts/build_openssl_quic.sh msan
   fi
 else
   SAN_OPTION=""

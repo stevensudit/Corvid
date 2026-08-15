@@ -54,8 +54,8 @@ helpers cover the most common options: `set_reuse_addr`, `set_reuse_port`,
 ### `dns_resolver`
 
 Resolves hostnames to `net_endpoint` values via `getaddrinfo`. `find_all()`
-returns a `std::vector<net_endpoint>` with an optional address-family filter
-(`AF_UNSPEC`, `AF_INET`, or `AF_INET6`) and `max_results` cap. `find_one()`
+returns a `std::vector<net_endpoint>` with an optional `address_family` filter
+(`unspecified`, `inet`, or `inet6`) and `max_results` cap. `find_one()`
 returns the first result as a `net_endpoint`, or a default-constructed
 (invalid) endpoint on failure.
 
@@ -382,8 +382,9 @@ server->add_route({"", "/ws"},
 `base-64.h` provides RFC 4648 Base64 `encode` / `decode`.
 `sha-1.h` provides `sha_1::digest` plus `sha_1::bytes` for the WebSocket
 accept-key (protocol use only, not for security).
-`endian.h` provides `hton16/32/64/128` and `ntoh16/32/64/128` built on
-`std::byteswap`.
+Byte-order conversion (`hton16/32/64/128` and `ntoh16/32/64/128`, built on
+`std::byteswap`) comes from `corvid/math/endian.h`, which lives in the `math`
+band so that lower bands such as `filesys` can use it too.
 
 ## What comes next
 

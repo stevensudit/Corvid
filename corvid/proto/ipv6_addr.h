@@ -19,9 +19,10 @@
 #include <bit>
 #include <cstddef>
 #include <cstdint>
+#include <format>
+#include <iterator>
 #include <optional>
 #include <ostream>
-#include <stdexcept>
 #include <string>
 #include <string_view>
 #include <type_traits>
@@ -29,6 +30,7 @@
 #include <netinet/in.h>
 
 #include "../math/arithmetic.h"
+#include "../strings/cases.h"
 #include "../strings/conversion.h"
 #include "ipv4_addr.h"
 
@@ -62,7 +64,7 @@ public:
 
   // Construct from eight 16-bit groups in network order (most significant
   // first), e.g., `ipv6_addr{0x2001, 0xdb8, 0, 0, 0, 0, 0, 1}`.
-  constexpr ipv6_addr(uint16_t a, uint16_t b, uint16_t c, uint16_t d,
+  explicit constexpr ipv6_addr(uint16_t a, uint16_t b, uint16_t c, uint16_t d,
       uint16_t e, uint16_t f, uint16_t g, uint16_t h) noexcept
       : bytes_{extract_byte<1>(a), extract_byte<0>(a), extract_byte<1>(b),
             extract_byte<0>(b), extract_byte<1>(c), extract_byte<0>(c),
@@ -80,17 +82,21 @@ public:
   // If not a valid IPv6 address, the result is `empty`. If you need to
   // distinguish between an invalid address and the "any" address ("::"), use
   // `parse` instead.
-  explicit constexpr ipv6_addr(std::string_view s) {
+  explicit constexpr ipv6_addr(std::string_view s) noexcept {
     if (const auto parsed = parse(s); parsed) *this = *parsed;
   }
 
-  constexpr explicit ipv6_addr(const in6_addr& a) noexcept
+  // Construct from a POSIX `in6_addr` (which is in network byte order).
+  explicit constexpr ipv6_addr(const in6_addr& a) noexcept
       : bytes_{std::bit_cast<byte_array>(a)} {}
 
 #pragma endregion
 #pragma region Constants
 
+  // The "any" address (::): typically used to bind to all interfaces.
   static const ipv6_addr any;
+
+  // The loopback address (::1).
   static const ipv6_addr loopback;
 
 #pragma endregion
@@ -103,16 +109,18 @@ public:
   }
 
   // Return whether this has a non-any address.
-  [[nodiscard]] constexpr operator bool() const noexcept { return !empty(); }
+  [[nodiscard]] explicit constexpr operator bool() const noexcept {
+    return !empty();
+  }
 
 #pragma endregion
 #pragma region Parsing
 
   // Parse from IPv6 colon-hex notation, including "::" compression and
-  // IPv4-embedded tails such as `::ffff:192.168.1.1`.
+  // IPv4-embedded tails such as "::ffff:192.168.1.1".
   // Returns `std::nullopt` if the string is not a valid IPv6 address.
   [[nodiscard]] static constexpr std::optional<ipv6_addr> parse(
-      std::string_view s) {
+      std::string_view s) noexcept {
     word_array groups{};
     size_t group_count{};
     auto double_colon = 8UZ;
@@ -142,23 +150,25 @@ public:
 #pragma endregion
 #pragma region Classification
 
+  // True if this is the "any" address ("::").
   [[nodiscard]] constexpr bool is_any() const noexcept { return empty(); }
 
+  // True if this is the loopback address ("::1").
   [[nodiscard]] constexpr bool is_loopback() const noexcept {
     return *this == loopback;
   }
 
-  // True if this is in ff00::/8.
+  // True if this is in "ff00::/8".
   [[nodiscard]] constexpr bool is_multicast() const noexcept {
     return bytes_[0] == 0xff;
   }
 
-  // True if this is in fe80::/10.
+  // True if this is in "fe80::/10".
   [[nodiscard]] constexpr bool is_link_local() const noexcept {
     return bytes_[0] == 0xfe && (bytes_[1] & 0xc0U) == 0x80U;
   }
 
-  // True if this is in fc00::/7.
+  // True if this is in "fc00::/7".
   [[nodiscard]] constexpr bool is_unique_local() const noexcept {
     return (bytes_[0] & 0xfeU) == 0xfcU;
   }
@@ -166,6 +176,8 @@ public:
 #pragma endregion
 #pragma region Comparison
 
+  // Comparison (lexicographic on the network-order bytes, which is also
+  // numerically correct for IPv6 ordering).
   [[nodiscard]] friend constexpr auto
   operator<=>(const ipv6_addr&, const ipv6_addr&) noexcept = default;
 
@@ -174,13 +186,36 @@ public:
 
   // Format using lowercase hex with RFC 5952-style zero-run compression.
   [[nodiscard]] constexpr std::string to_string() const {
+    std::string out;
+    out.reserve(39); // Max length of an IPv6 address string.
+    (void)do_format_to(std::back_inserter(out));
+    return out;
+  }
+
+  friend std::ostream& operator<<(std::ostream& os, const ipv6_addr& a) {
+    return os << a.to_string();
+  }
+
+  [[nodiscard]] constexpr in6_addr to_in6_addr() const noexcept {
+    return std::bit_cast<in6_addr>(bytes_);
+  }
+
+#pragma endregion
+#pragma region Implementation
+private:
+  friend struct std::formatter<ipv6_addr>;
+
+  // Write the RFC 5952 text form (lowercase hex, longest zero run compressed)
+  // through `out`, returning the advanced iterator.
+  template<typename Out>
+  [[nodiscard]] constexpr Out do_format_to(Out out) const {
     const auto groups = words();
     auto best_start = 8UZ;
     size_t best_len{};
     size_t cur_start{};
     size_t cur_len{};
 
-    // Figure out how many empty groups to skip before we start.
+    // Find the leftmost longest run of zero groups.
     for (auto ndx = 0UZ; ndx < 8; ++ndx) {
       if (groups[ndx] == 0) {
         if (cur_len == 0) cur_start = ndx;
@@ -199,32 +234,22 @@ public:
     }
     if (best_len < 2) best_start = 8;
 
-    std::string out;
-    out.reserve(39); // Max length of an IPv6 address string.
+    bool need_sep = false;
     for (auto ndx = 0UZ; ndx < 8; ++ndx) {
       if (ndx == best_start) {
-        out += "::";
+        *out++ = ':';
+        *out++ = ':';
         ndx += best_len - 1;
+        need_sep = false;
         continue;
       }
-      if (!out.empty() && out.back() != ':') out += ':';
-      do_append_hex_group(out, groups[ndx]);
+      if (need_sep) *out++ = ':';
+      out = do_append_hex_group(out, groups[ndx]);
+      need_sep = true;
     }
-    if (out.empty()) out = "::";
     return out;
   }
 
-  friend std::ostream& operator<<(std::ostream& os, const ipv6_addr& a) {
-    return os << a.to_string();
-  }
-
-  [[nodiscard]] constexpr in6_addr to_in6_addr() const noexcept {
-    return std::bit_cast<in6_addr>(bytes_);
-  }
-
-#pragma endregion
-#pragma region Implementation
-private:
   // Parse the IPv4-embedded tail token (e.g., "192.168.1.1") and append two
   // 16-bit groups to `groups`, advancing `group_count`. Returns false if
   // `group_count > 6` or the token is not a valid IPv4 address.
@@ -276,8 +301,9 @@ private:
   // append it to `groups`, then consume the following separator. Returns
   // `nullopt` on error, `false` when parsing is complete, `true` to continue.
   [[nodiscard]] static constexpr std::optional<bool>
-  parse_one_item(std::string_view s, size_t& pos, word_array& groups,
-      size_t& group_count, size_t& double_colon) {
+  // NOLINTNEXTLINE(bugprone-exception-escape): substr positions are in-bounds.
+  do_parse_one_item(std::string_view s, size_t& pos, word_array& groups,
+      size_t& group_count, size_t& double_colon) noexcept {
     if (group_count == 8) return std::nullopt;
     auto token_end = pos;
     while (token_end < s.size() && s[token_end] != ':') ++token_end;
@@ -299,7 +325,7 @@ private:
   // point in `double_colon` (value 8 means no "::" was seen). Returns false
   // on any syntax error.
   [[nodiscard]] static constexpr bool do_parse_groups_loop(std::string_view s,
-      word_array& groups, size_t& group_count, size_t& double_colon) {
+      word_array& groups, size_t& group_count, size_t& double_colon) noexcept {
     if (s.empty()) return false;
     size_t pos{};
     while (pos < s.size()) {
@@ -310,7 +336,7 @@ private:
         continue;
       }
       const auto result =
-          parse_one_item(s, pos, groups, group_count, double_colon);
+          do_parse_one_item(s, pos, groups, group_count, double_colon);
       if (!result) return false;
       if (!*result) break;
     }
@@ -358,11 +384,12 @@ private:
         extract_byte<1>(groups[7]), extract_byte<0>(groups[7])};
   }
 
-  [[nodiscard]] constexpr uint16_t word_at(size_t i) const noexcept {
-    return combine_bytes(bytes_[(2 * i) + 1], bytes_[2 * i]);
+  [[nodiscard]] constexpr uint16_t word_at(size_t ndx) const noexcept {
+    return combine_bytes(bytes_[(2 * ndx) + 1], bytes_[2 * ndx]);
   }
 
-  static constexpr void do_append_hex_group(std::string& out, uint16_t value) {
+  template<typename Out>
+  static constexpr Out do_append_hex_group(Out out, uint16_t value) {
     // Deliberately uninitialized: only the written cells are ever read.
     char buffer[4];
     int len{};
@@ -372,7 +399,8 @@ private:
       value = static_cast<uint16_t>(value >> 4);
     } while (value != 0);
 
-    while (len-- > 0) out += buffer[len];
+    while (len-- > 0) *out++ = buffer[len];
+    return out;
   }
 
 #pragma endregion
@@ -387,8 +415,28 @@ private:
 #pragma region Constant definitions
 
 constexpr ipv6_addr ipv6_addr::any{};
-constexpr ipv6_addr ipv6_addr::loopback{uint16_t{0}, uint16_t{0}, uint16_t{0},
-    uint16_t{0}, uint16_t{0}, uint16_t{0}, uint16_t{0}, uint16_t{1}};
+constexpr ipv6_addr ipv6_addr::loopback{0, 0, 0, 0, 0, 0, 0, 1};
 
 #pragma endregion
 }} // namespace corvid::proto
+
+#pragma region formatter
+
+// Format an `ipv6_addr` in RFC 5952 form (e.g., "2001:db8::1"). No format
+// spec is supported.
+template<>
+struct std::formatter<corvid::proto::ipv6_addr> {
+  static constexpr auto parse(std::format_parse_context& ctx) {
+    auto it = ctx.begin();
+    if (it != ctx.end() && *it != '}')
+      throw std::format_error("ipv6_addr accepts no format spec");
+    return it;
+  }
+
+  static auto
+  format(const corvid::proto::ipv6_addr& a, std::format_context& ctx) {
+    return a.do_format_to(ctx.out());
+  }
+};
+
+#pragma endregion

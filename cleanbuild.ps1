@@ -23,9 +23,10 @@
 #                                        (incremental when config is unchanged)
 #   ./cleanbuild.ps1 clean               force a fresh configure + full recompile
 #   ./cleanbuild.ps1 clean-all           delete the buildable outputs and stop:
-#                                        tests/build, tests/build-cl, and
-#                                        tests/build-debug (dependency caches
-#                                        preserved, same as clean)
+#                                        tests/build, tests/build-cl,
+#                                        tests/build-debug, and the Catch2
+#                                        object caches (downloaded sources and
+#                                        prebuilt deps preserved, same as clean)
 #   ./cleanbuild.ps1 reconfigure         configure-only full refresh of tests/build
 #                                        (regenerates compile_commands.json for clangd)
 #   ./cleanbuild.ps1 strings_test.cpp    build and run just that one test
@@ -82,26 +83,31 @@ foreach ($a in $Rest) {
 
 # "clean-all" deletes the buildable outputs and stops: the release tree
 # (tests/build), the cl tree (tests/build-cl), the IDE debug tree
-# (tests/build-debug), and any legacy in-source strays at the repo root.
-# Standalone; builds nothing. The dependency caches (tests/.fetchcontent,
-# tests/.fetchcontent-debug, tests/.local) are expensive to rebuild and are
-# preserved, same as "clean". Note clangd loses compile_commands.json until
-# the next configure; "reconfigure" restores it without building.
+# (tests/build-debug), any legacy in-source strays at the repo root, and the
+# Catch2 build dirs inside the dependency caches (Catch2 objects are not
+# mode-keyed, so a stale sanitizer mode's objects could otherwise poison later
+# links). Standalone; builds nothing. The downloaded sources and prebuilt deps
+# (tests/.local) are expensive to rebuild, mode-independent, and preserved,
+# same as "clean". Note clangd loses compile_commands.json until the next
+# configure; "reconfigure" restores it without building.
 if ($cleanAll) {
   if ($Rest.Count -gt 1) {
     throw "'clean-all' takes no other arguments"
   }
   foreach ($target in 'CMakeCache.txt', 'cmake_install.cmake',
     'ClangExeProject.sln', 'build.ninja', 'CMakeFiles', '.ninja_deps',
-    '.ninja_log', 'tests/build', 'tests/build-cl', 'tests/build-debug') {
+    '.ninja_log', 'tests/build', 'tests/build-cl', 'tests/build-debug',
+    'tests/.fetchcontent/catch2-build',
+    'tests/.fetchcontent-debug/catch2-build') {
     $path = Join-Path $repo $target
     Remove-Item -Recurse -Force -ErrorAction SilentlyContinue $path
     if (Test-Path $path) {
       throw "clean-all: failed to remove '$path' (open handle? close clangd/IDE and retry)"
     }
   }
-  Write-Host ('Removed tests/build, tests/build-cl, and tests/build-debug ' +
-    '(dependency caches preserved).')
+  Write-Host ('Removed tests/build, tests/build-cl, tests/build-debug, and ' +
+    'the Catch2 object caches (downloaded sources and prebuilt deps ' +
+    'preserved).')
   exit 0
 }
 if ($sanitizer -and $compiler -eq 'cl') {

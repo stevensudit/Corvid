@@ -62,12 +62,13 @@ std::pair<os_file, os_file> make_blocking_pipe() {
 TEST_CASE("Lifecycle", "[NetSocket]") {
   if (is_codex()) return;
 
-  // Default-constructed socket is invalid.
+  // Default-constructed socket is invalid, and reads as EOF.
   if (true) {
     net_socket s;
     CHECK_FALSE(s.is_open());
     CHECK_FALSE(static_cast<bool>(s));
     CHECK(s.handle() == net_socket::invalid_handle);
+    CHECK(s.peek_eof() == true);
     CHECK_FALSE(s.close());
   }
 
@@ -291,12 +292,12 @@ TEST_CASE("BindListenAccept", "[NetSocket]") {
   CHECK(
       client.connect(net_endpoint{ipv4_addr::loopback, port}).value_or(false));
 
-  // Accept the connection on the listener side.
-  auto result = listener.accept();
-  CHECK(result.has_value());
-  CHECK(result->first.is_open());
-  const auto peer = net_endpoint{result->second};
-  CHECK(peer.is_v4());
+  // Accept the connection on the listener side, capturing the peer address
+  // directly into an endpoint.
+  net_endpoint peer;
+  auto conn = listener.accept(peer.as_ref());
+  CHECK(conn.is_open());
+  CHECK(peer->is_v4());
   CHECK(peer.v4()->is_loopback());
 }
 

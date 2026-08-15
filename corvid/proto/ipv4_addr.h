@@ -27,11 +27,10 @@
 #include <netinet/in.h>
 
 #include "../math/arithmetic.h"
+#include "../math/endian.h"
 #include "../strings/cases.h"
 
 namespace corvid { inline namespace proto {
-
-using namespace strings::cases;
 
 #pragma region ipv4_addr
 
@@ -74,12 +73,13 @@ public:
   // If not a valid IPv4 address, the result is `empty`. If you need to
   // distinguish between an invalid address and the "any" address ("0.0.0.0"),
   // use `parse` instead.
-  explicit constexpr ipv4_addr(std::string_view s) {
+  explicit constexpr ipv4_addr(std::string_view s) noexcept {
     if (const auto parsed = parse(s); parsed) *this = *parsed;
   }
 
   // Construct from a POSIX `in_addr` (which is in network byte order).
-  explicit ipv4_addr(const in_addr& a) noexcept : addr_{ntohl(a.s_addr)} {}
+  explicit constexpr ipv4_addr(const in_addr& a) noexcept
+      : addr_{ntoh32(a.s_addr)} {}
 
 #pragma endregion
 #pragma region Constants
@@ -101,7 +101,9 @@ public:
   [[nodiscard]] constexpr bool empty() const noexcept { return !addr_; }
 
   // Return whether this has a non-any address.
-  [[nodiscard]] constexpr operator bool() const noexcept { return !empty(); }
+  [[nodiscard]] explicit constexpr operator bool() const noexcept {
+    return !empty();
+  }
 
 #pragma endregion
 #pragma region Parsing
@@ -118,11 +120,12 @@ public:
         if (s.empty() || s[0] != '.') return std::nullopt;
         s.remove_prefix(1);
       }
-      if (s.empty() || !is_digit(s[0])) return std::nullopt;
+      if (s.empty() || !strings::is_digit(s[0])) return std::nullopt;
       // Reject leading zeros to avoid ambiguity.
-      if (s[0] == '0' && s.size() > 1 && is_digit(s[1])) return std::nullopt;
+      if (s[0] == '0' && s.size() > 1 && strings::is_digit(s[1]))
+        return std::nullopt;
       uint32_t octet{};
-      while (!s.empty() && is_digit(s[0])) {
+      while (!s.empty() && strings::is_digit(s[0])) {
         octet = (octet * 10) + static_cast<uint32_t>(s[0] - '0');
         if (octet > 255) return std::nullopt;
         s.remove_prefix(1);
@@ -167,7 +170,7 @@ public:
   }
 
   // True if this is in an RFC 1918 private range:
-  //   10.0.0.0/8, 172.16.0.0/12, or 192.168.0.0/16.
+  //   "10.0.0.0/8", "172.16.0.0/12", or "192.168.0.0/16".
   [[nodiscard]] constexpr bool is_private() const noexcept {
     return (addr_ & 0xff000000U) == 0x0a000000U ||
            (addr_ & 0xfff00000U) == 0xac100000U ||
@@ -186,7 +189,7 @@ public:
 #pragma region Formatting
 
   // Format as dotted-decimal (e.g., "192.168.1.1").
-  [[nodiscard]] constexpr std::string to_string() const {
+  [[nodiscard]] std::string to_string() const {
     const auto o = octets();
     return std::format("{}.{}.{}.{}", o[0], o[1], o[2], o[3]);
   }
@@ -196,8 +199,8 @@ public:
   }
 
   // Convert to a POSIX `in_addr` (network byte order).
-  [[nodiscard]] in_addr to_in_addr() const noexcept {
-    return in_addr{.s_addr = htonl(addr_)};
+  [[nodiscard]] constexpr in_addr to_in_addr() const noexcept {
+    return in_addr{.s_addr = hton32(addr_)};
   }
 
 #pragma endregion
@@ -217,3 +220,25 @@ constexpr ipv4_addr ipv4_addr::broadcast{uint32_t{0xffffffffU}};
 
 #pragma endregion
 }} // namespace corvid::proto
+
+#pragma region formatter
+
+// Format an `ipv4_addr` as dotted-decimal (e.g., "192.168.1.1"). No format
+// spec is supported.
+template<>
+struct std::formatter<corvid::proto::ipv4_addr> {
+  static constexpr auto parse(std::format_parse_context& ctx) {
+    auto it = ctx.begin();
+    if (it != ctx.end() && *it != '}')
+      throw std::format_error("ipv4_addr accepts no format spec");
+    return it;
+  }
+
+  static auto
+  format(const corvid::proto::ipv4_addr& a, std::format_context& ctx) {
+    const auto o = a.octets();
+    return std::format_to(ctx.out(), "{}.{}.{}.{}", o[0], o[1], o[2], o[3]);
+  }
+};
+
+#pragma endregion

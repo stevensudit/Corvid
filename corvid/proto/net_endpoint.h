@@ -22,9 +22,9 @@
 #include <compare>
 #include <cstdint>
 #include <format>
+#include <cstddef>
 #include <optional>
 #include <ostream>
-#include <stdexcept>
 #include <string>
 #include <string_view>
 #include <type_traits>
@@ -33,20 +33,22 @@
 #include <sys/socket.h>
 #include <sys/un.h>
 
-#include "../filesys/net_socket.h"
-#include "endian.h"
+#include "../containers/core/hash_combiner.h"
+#include "../math/endian.h"
 #include "ipv4_addr.h"
 #include "ipv6_addr.h"
+#include "net_socket.h"
 
 namespace corvid { inline namespace proto {
 
 #pragma region net_endpoint
 
 // Unified network endpoint: an IPv4/IPv6 address with port, or a Unix domain
-// socket path.
+// socket path; the mutable object that a `sockaddr_view` refers to.
 //
-// Stores the endpoint in a `sockaddr_storage`, using `ss_family` as the tag.
-// Default-constructs to an empty state.
+// Stores the endpoint in a `sockaddr_storage`, using `ss_family` as the tag,
+// along with the explicit address length that POSIX socket calls use as
+// `addrlen`. Default-constructs to an empty state.
 //
 // Constructors do not throw: on failure, they leave the endpoint `empty`.
 //
@@ -69,21 +71,24 @@ namespace corvid { inline namespace proto {
 // if the process that created it shut down improperly, so you might need to
 // manually delete it or else it will fail at `bind`.
 //
-// ANS (Abstract Name Sockets) are a UDS variant where `sun_path[0] ==
-// '\0'` and the full remaining 107-byte buffer is the name. Note: ANS sockets
-// are also called Abstract Sockets, as they are defined by an abstract name
-// rather than a file path.
+// ANS (Abstract Name Sockets) are a UDS variant where `sun_path[0] == '\0'`.
+// The name that follows is not zero-terminated, so only the length parameter
+// determines where it ends. Note: ANS sockets are also called Abstract
+// Sockets, as they are defined by an abstract name rather than a file path.
 //
-// They are constructed like any other UDS, except that there's a leading '@',
-// and all of the characters that follow are significant. While the name often
-// looks pathlike, it can be literally anything: there's no connection with
-// directory structure, and even embedded zeros are significant. They can be
-// discovered by parsing "/proc/net/unix".
+// They are constructed like any other UDS, except that the name has leading
+// '@' (which is a non-terminating placeholder for the required '\0'),
+// and all of the characters that follow are significant. While the name
+// often looks pathlike, it can be literally anything: there's no
+// connection with directory structure, and even embedded/trailing zeros are
+// significant. They can be discovered by parsing "/proc/net/unix".
 //
-// An ANS is a UDS, so `is_uds` returns true for it, as does the more-specific
-// `is_ans`. For an ANS, `uds_path` skips the leading '\0' and returns the full
-// 107-byte remainder, including trailing zeros; `to_string` formats it as
-// "unix:@<name>", which does truncate at the first zero (after the '@').
+// An ANS is a UDS, so `is_uds` returns true for it, as does the
+// more-specific `is_ans`. For an ANS, `uds_path` skips the leading '\0' and
+// returns the length-delimited name; `to_string` formats it as "unix:@<name>".
+// A name containing an embedded '\0' is displayed truncated there, with " (len
+// N)" appended; that form does not round-trip through parsing, since the bytes
+// past the '\0' are lost.
 //
 // Interop with `sockaddr_in`, `sockaddr_in6`, `sockaddr_un`, and
 // `sockaddr_storage` is provided.
@@ -105,6 +110,7 @@ public:
     raw.sin_family = AF_INET;
     raw.sin_port = hton16(port);
     raw.sin_addr = addr.to_in_addr();
+    addrlen_ = sizeof(sockaddr_in);
   }
 
   explicit net_endpoint(ipv6_addr addr, uint16_t port) noexcept {
@@ -112,45 +118,38 @@ public:
     raw.sin6_family = AF_INET6;
     raw.sin6_port = hton16(port);
     raw.sin6_addr = addr.to_in6_addr();
+    addrlen_ = sizeof(sockaddr_in6);
   }
 
   // Construct from text: "1.2.3.4:80" (IPv4), "[2001:db8::1]:80" (IPv6),
-  // "/run/user/[UID]/[appname].sock" (UDS), or "@abstract_name" (ANS). For
-  // IPv4 and IPv6, port is required but may be "0", as a wildcard. On failure,
-  // result is `empty`.
-  explicit net_endpoint(std::string_view s) { *this = do_parse(s); }
+  // "/run/user/[UID]/[appname].sock" (UDS), or "@abstract_name" (ANS).
+  //
+  // For IPv4 and IPv6, port is required but may be "0", as a wildcard. For an
+  // ANS, the length is load-bearing. On failure, result is `empty`.
+  explicit net_endpoint(std::string_view s) noexcept { *this = do_parse(s); }
 
   // Conversion constructors for interop.
 
-  // Construct from a POSIX `sockaddr_in`, `sockaddr_in6`, or `sockaddr_un`.
-  explicit net_endpoint(const sockaddr_in& addr) noexcept {
-    if (addr.sin_family == AF_INET) as_v4() = addr;
-  }
-
-  explicit net_endpoint(const sockaddr_in6& addr) noexcept {
-    if (addr.sin6_family == AF_INET6) as_v6() = addr;
-  }
-
-  explicit net_endpoint(const sockaddr_un& addr) noexcept {
-    if (addr.sun_family == AF_UNIX) as_uds() = addr;
+  // Construct from a view over any POSIX socket address struct.
+  //
+  // Note that, for an ANS or `unnamed` Unix address, you will need to either
+  // construct the view by passing in the length explicitly, or use the
+  // `sockaddr, socklen_t` constructor.
+  explicit net_endpoint(sockaddr_view view) noexcept {
+    if (view.addr) (void)assign(view);
   }
 
   explicit net_endpoint(const sockaddr& addr, socklen_t len) noexcept {
-    assign(addr, len);
+    (void)assign(sockaddr_view{addr, len});
   }
 
-  // Only supports recognized families (AF_INET, AF_INET6, AF_UNIX).
-  explicit net_endpoint(const sockaddr_storage& addr) noexcept {
-    assign(reinterpret_cast<const sockaddr&>(addr), sizeof(addr));
-  }
-
-  // Construct by querying the local address bound to `sock` via `getsockname`.
-  // On failure, result is `empty`.
-  explicit net_endpoint(const net_socket& sock) noexcept {
+  // Construct from the local address bound to `sock` via `getsockname`.
+  [[nodiscard]] static net_endpoint local_of(const net_socket& sock) noexcept {
     sockaddr_storage addr{};
     socklen_t len{sizeof(addr)};
     auto* ptr = reinterpret_cast<sockaddr*>(&addr);
-    if (::getsockname(sock.handle(), ptr, &len) == 0) assign(*ptr, len);
+    if (::getsockname(sock.handle(), ptr, &len)) return {};
+    return net_endpoint{*ptr, len};
   }
 
   // Query the peer address of `sock` via `getpeername`. On failure, result
@@ -159,9 +158,8 @@ public:
     sockaddr_storage addr{};
     socklen_t len{sizeof(addr)};
     auto* ptr = reinterpret_cast<sockaddr*>(&addr);
-    if (::getpeername(sock.handle(), ptr, &len) == 0)
-      return net_endpoint{*ptr, len};
-    return {};
+    if (::getpeername(sock.handle(), ptr, &len)) return {};
+    return net_endpoint{*ptr, len};
   }
 
   // Create wildcard bind endpoints for IPv4 or IPv6 with the given port.
@@ -181,138 +179,101 @@ public:
     return net_endpoint{ipv6_addr::loopback, port};
   }
 
-  // Assign from `sockaddr` buffer of given length. Fails on unknown family or
-  // insufficient input size.
-  bool constexpr assign(const sockaddr& addr, socklen_t len) noexcept {
-    const auto count = static_cast<size_t>(len);
-    if (addr.sa_family == AF_INET && count >= sizeof(sockaddr_in)) {
-      as_v4() = *reinterpret_cast<const sockaddr_in*>(&addr);
+  // Assign from a `sockaddr_view`, whose constructors have already validated
+  // and normalized the length.
+  //
+  // On failure, resets the endpoint to empty and returns false.
+  //
+  // A view aliasing this endpoint's own storage updates only the stored
+  // length; the kernel-completion paths use this after writing an address in
+  // place.
+  [[nodiscard]] bool assign(sockaddr_view view) noexcept {
+    if (view.empty()) return reset();
+    // Every legal source is bounded by `sockaddr_storage`: the validating
+    // view constructors cap at `max_length`, and the kernel-filled paths
+    // write into one. Nonetheless, we guard with an assertion.
+    assert(view.addrlen <= max_sockaddr_size);
+    if (view.addr == reinterpret_cast<const sockaddr*>(&storage_)) {
+      addrlen_ = view.addrlen;
       return true;
     }
-    if (addr.sa_family == AF_INET6 && count >= sizeof(sockaddr_in6)) {
-      as_v6() = *reinterpret_cast<const sockaddr_in6*>(&addr);
-      return true;
-    }
-    if (addr.sa_family == AF_UNIX && count >= sizeof(sa_family_t)) {
-      std::memcpy(&as_uds(), &addr, std::min(count, sizeof(sockaddr_un)));
-      return true;
-    }
-    return false;
+
+    addrlen_ = view.addrlen;
+    std::memcpy(&storage_, view.addr, addrlen_);
+    return true;
   }
 
 #pragma endregion
 #pragma region Accessors
 
   // Return whether this endpoint is empty (i.e., has no valid address).
-  [[nodiscard]] constexpr bool empty() const noexcept { return !family(); }
+  [[nodiscard]] constexpr bool empty() const noexcept { return !addrlen_; }
 
   // Return whether this endpoint has an address.
-  [[nodiscard]] constexpr operator bool() const noexcept { return !empty(); }
-
-  // Access family flag.
-  [[nodiscard]] constexpr sa_family_t family() const noexcept {
-    return storage_.ss_family;
+  [[nodiscard]] explicit constexpr operator bool() const noexcept {
+    return !empty();
   }
 
-  // Return whether this endpoint holds an IPv4, IPv6, UDS, or ANS address,
-  // respectively.
-  [[nodiscard]] constexpr bool is_v4() const noexcept {
-    return family() == AF_INET;
+  // Return whether the address is unnamed, which is to say that the entire
+  // length is just `sizeof(sa_family_t)`.
+  //
+  // This is possible when calling `getsockaddr` on an unbound socket.
+  [[nodiscard]] bool unnamed() const noexcept {
+    return addrlen_ <= sizeof(sa_family_t);
   }
 
-  [[nodiscard]] constexpr bool is_v6() const noexcept {
-    return family() == AF_INET6;
+  bool reset() noexcept {
+    storage_ = {};
+    addrlen_ = 0;
+    return false;
   }
 
-  [[nodiscard]] constexpr bool is_uds() const noexcept {
-    return family() == AF_UNIX;
-  }
-
-  [[nodiscard]] constexpr bool is_ans() const noexcept {
-    return is_uds() && as_uds().sun_path[0] == '\0';
-  }
-
-  // Return the port number. For UDS/ANS (or `empty`), returns 0.
-  [[nodiscard]] constexpr uint16_t port() const noexcept {
-    if (is_v4()) return ntoh16(as_v4().sin_port);
-    if (is_v6()) return ntoh16(as_v6().sin6_port);
-    return 0;
-  }
+  // Family, categorization, and UDS path accessors live on `sockaddr_view`,
+  // so call them through `operator->`, as in `ep->uds_path()`.
 
   // Return the held `ipv4_addr` or `ipv6_addr`, respectively, or nullopt if
   // the endpoint holds something else.
-  [[nodiscard]] constexpr std::optional<ipv4_addr> v4() const noexcept {
-    if (!is_v4()) return std::nullopt;
-    return ipv4_addr{as_v4().sin_addr};
+  [[nodiscard]] std::optional<ipv4_addr> v4() const noexcept {
+    return as_sockaddr_view().v4();
   }
 
-  [[nodiscard]] constexpr std::optional<ipv6_addr> v6() const noexcept {
-    if (!is_v6()) return std::nullopt;
-    return ipv6_addr{as_v6().sin6_addr};
+  [[nodiscard]] std::optional<ipv6_addr> v6() const noexcept {
+    return as_sockaddr_view().v6();
   }
 
-  // Return the UDS path, or an empty `string_view` if not a UDS endpoint.
-  // For ANS, skips the leading `\0` and returns the full 107-byte remainder
-  // (including trailing zeros, which are significant for ANS).
-  [[nodiscard]] constexpr std::string_view uds_path() const noexcept {
-    if (!is_uds()) return {};
-    const auto& sun = as_uds().sun_path;
-    if (sun[0]) return sun;            // UDS.
-    return {sun + 1, sizeof(sun) - 1}; // ANS.
-  }
-
-  // Return the raw UDS/ANS path buffer, including leading '\0' for ANS and all
-  // trailing zeros, or an empty `string_view` if not a UDS endpoint. This is
-  // useful for ANS, where every byte is significant.
-  [[nodiscard]] constexpr std::string_view raw_uds_path() const noexcept {
-    if (!is_uds()) return {};
-    return do_raw_uds_path();
+  // Return the port number in host order.
+  //
+  // For UDS/ANS (or `empty` or `unnamed`), returns 0.
+  [[nodiscard]] uint16_t port() const noexcept {
+    return as_sockaddr_view().port();
   }
 
 #pragma endregion
 #pragma region Comparison
 
-  // Comparison operators.
-  // Only endpoints with the same family can be equal: there is no special
-  // handling for IPv4-Mapped IPv6 Addresses. Comparison is defined over the
-  // raw `as_view` bytes to match `std::hash<net_endpoint>`. For IPv6, this
-  // means endpoints differing only in `sin6_scope_id` or `sin6_flowinfo`
-  // compare unequal - link-local addresses with different scopes are
-  // distinct destinations, so this is correct.
+  // See comments for `sockaddr_view`.
 
-  [[nodiscard]] friend constexpr bool
+  [[nodiscard]] friend bool
   operator==(const net_endpoint& lhs, const net_endpoint& rhs) noexcept {
-    return lhs.as_view() == rhs.as_view();
+    return lhs.as_sockaddr_view() == rhs.as_sockaddr_view();
   }
 
-  [[nodiscard]] friend constexpr std::strong_ordering
+  [[nodiscard]] friend std::strong_ordering
   operator<=>(const net_endpoint& lhs, const net_endpoint& rhs) noexcept {
-    return lhs.as_view() <=> rhs.as_view();
+    return lhs.as_sockaddr_view() <=> rhs.as_sockaddr_view();
   }
 
 #pragma endregion
 #pragma region Formatting
 
   // Format as "1.2.3.4:80" (IPv4), "[2001:db8::1]:80" (IPv6), "unix:<path>"
-  // (regular UDS), "unix:@<name>" (terminated ANS),  or "(invalid)".
-  [[nodiscard]] constexpr std::string to_string() const {
-    if (const auto addr = v4())
-      return std::format("{}:{}", addr->to_string(), port());
-    if (const auto addr = v6())
-      return std::format("[{}]:{}", addr->to_string(), port());
-    if (is_ans()) {
-      const auto name = uds_path();
-      const auto null_pos = name.find('\0');
-      const auto display = name.substr(0, null_pos);
-      const auto npos = std::string_view::npos;
-      const auto has_more =
-          (null_pos != npos) &&
-          (name.find_first_not_of('\0', null_pos) != npos);
-      return std::format("unix:@{}{}", display, has_more ? " (+)" : "");
-    }
-    if (is_uds()) return std::format("unix:{}", uds_path());
-    return "(invalid)";
-  }
+  // (regular UDS), "unix:@<name>" (ANS), or "(invalid)".
+  //
+  // An ANS name with an embedded '\0' is truncated there, with " (len N)"
+  // appended.
+  //
+  // Defined after the formatter, which it delegates to.
+  [[nodiscard]] std::string to_string() const;
 
   friend std::ostream& operator<<(std::ostream& os, const net_endpoint& ep) {
     return os << ep.to_string();
@@ -322,23 +283,9 @@ public:
 #pragma region Interop
 
   // Convert to the corresponding POSIX socket address struct.
-  // `as_sockaddr_in`, `as_sockaddr_in6`, and `as_sockaddr_un` require the
-  // endpoint to hold the matching family; `as_sockaddr_storage` works for
-  // any.
-  [[nodiscard]] constexpr const sockaddr_in& as_sockaddr_in() const {
-    assert(is_v4());
-    return as_v4();
-  }
-
-  [[nodiscard]] constexpr const sockaddr_in6& as_sockaddr_in6() const {
-    assert(is_v6());
-    return as_v6();
-  }
-
-  [[nodiscard]] constexpr const sockaddr_un& as_sockaddr_un() const {
-    assert(is_uds());
-    return as_uds();
-  }
+  //
+  // For `as_sockaddr_in`, `as_sockaddr_in6`, and `as_sockaddr_un`, call
+  // through `operator->`, as in `ep->as_sockaddr_in()`.
 
   [[nodiscard]] constexpr const sockaddr_storage&
   as_sockaddr_storage() const noexcept {
@@ -350,13 +297,38 @@ public:
     return storage_;
   }
 
-  // Return the size of the sockaddr struct corresponding to the held endpoint.
-  [[nodiscard]] socklen_t sockaddr_size() const noexcept {
-    return net_socket::sockaddr_size(storage_);
+  // Return the address length: the `addrlen` that POSIX socket calls take
+  // alongside the `sockaddr` pointer.
+  [[nodiscard]] constexpr socklen_t sockaddr_size() const noexcept {
+    return addrlen_;
+  }
+
+  // Explicit conversion to the underlying view.
+  [[nodiscard]] sockaddr_view as_sockaddr_view() const noexcept {
+    return {reinterpret_cast<const sockaddr*>(&storage_), addrlen_};
+  }
+
+  // Return mutable references to the underlying storage and length, so that
+  // calls like `net_socket::accept` can fill the storage and address in place.
+  [[nodiscard]] sockaddr_buffer_ref as_ref() noexcept {
+    return {storage_, addrlen_};
+  }
+
+  // Implicit conversion, which carries the address length.
+  //
+  // This is what allows interop with `net_socket`.
+  [[nodiscard]] operator sockaddr_view() const noexcept {
+    return as_sockaddr_view();
+  }
+
+  // Drill down to the underlying `sockaddr_view`, so that its accessors can
+  // be called directly, as in `ep->uds_path()`.
+  [[nodiscard]] sockaddr_view operator->() const noexcept {
+    return as_sockaddr_view();
   }
 
   // Expose raw pointer to sockaddr.
-  [[nodiscard]] constexpr auto as_sockaddr_ptr(this auto& self) noexcept {
+  [[nodiscard]] auto as_sockaddr_ptr(this auto& self) noexcept {
     using self_t = std::remove_reference_t<decltype(self)>;
     using sockaddr_t =
         std::conditional_t<std::is_const_v<self_t>, const sockaddr, sockaddr>;
@@ -365,93 +337,81 @@ public:
 
   // Return a pointer and length suitable for passing to POSIX socket
   // functions.
-  [[nodiscard]] constexpr auto as_sockaddr(this auto& self) noexcept {
+  [[nodiscard]] auto as_sockaddr(this auto& self) noexcept {
     return std::pair{self.as_sockaddr_ptr(), self.sockaddr_size()};
   }
 
-  // Return a `string_view` of the raw bytes of the sockaddr struct.
-  [[nodiscard]] constexpr std::string_view as_view() const noexcept {
-    return std::string_view{reinterpret_cast<const char*>(as_sockaddr_ptr()),
-        sockaddr_size()};
-  }
-
-  [[nodiscard]] static constexpr std::pair<sockaddr*, socklen_t> to_sockaddr(
+  // Like `as_sockaddr`, but static.
+  //
+  // Since `ep` can be null, so can the pointer this method returns.
+  [[nodiscard]] static std::pair<sockaddr*, socklen_t> to_sockaddr(
       net_endpoint* ep) noexcept {
     if (!ep) return {nullptr, 0};
     return ep->as_sockaddr();
   }
 
-  [[nodiscard]] static constexpr std::pair<const sockaddr*, socklen_t>
-  to_sockaddr(const net_endpoint* ep) noexcept {
-    if (!ep) return {nullptr, 0};
-    return ep->as_sockaddr();
-  }
-
-  // Convenient invalid endpoint. Actual definition must be after the class is
-  // complete.
+  // Convenient invalid endpoint; defined after class is complete.
   static const net_endpoint invalid;
 
 #pragma endregion
 #pragma region Implementation
 private:
-  // Create a UDS or ANS endpoint from `path`.
-  // - Regular UDS (`/`-prefixed): copies up to 107 chars, null-terminated.
-  // - ANS (`@`-prefixed): `sun_path[0] = '\0'`, name occupies
-  // `sun_path[1..107]`
-  //   without an added null terminator (the full buffer is the name; trailing
-  //   zeros from zero-initialization are significant, not padding).
-  [[nodiscard]] static constexpr net_endpoint do_parse_uds(
-      std::string_view path) {
+  // Create a UDS or ANS endpoint from `path`. If the path or name does not
+  // fit in `sun_path`, returns an empty endpoint.
+  //
+  // - Regular UDS (`/`-prefixed): copies the null-terminated path ensuring
+  //   that the stored length includes the terminator.
+  // - ANS (`@`-prefixed): `sun_path[0] = '\0'`, the name follows without a
+  //   terminator, and the stored length delimits it exactly.
+  //
+  // NOLINTNEXTLINE(bugprone-exception-escape): copy positions are in-bounds.
+  [[nodiscard]] static net_endpoint do_parse_uds(
+      std::string_view path) noexcept {
     net_endpoint ep;
     auto& raw = ep.as_uds();
+
+    // Either way, `sun_path` stores the path bytes verbatim: for an ANS, the
+    // leading '@' becomes the '\0', while a pathname instead appends one as a
+    // terminator (already present from zero-initialization).
+    const auto is_ans = (path[0] == '@');
+    const auto stored = path.size() + (is_ans ? 0UZ : 1UZ);
+    if (stored > sizeof(raw.sun_path)) return {};
+    path.copy(raw.sun_path, path.size());
+    if (is_ans) raw.sun_path[0] = '\0';
+
     raw.sun_family = AF_UNIX;
-
-    if (!path.empty() && path[0] == '@')
-      path.substr(1).copy(raw.sun_path + 1, sizeof(raw.sun_path) - 1);
-    else
-      path.copy(raw.sun_path, sizeof(raw.sun_path) - 1);
-
+    ep.addrlen_ =
+        static_cast<socklen_t>(offsetof(sockaddr_un, sun_path) + stored);
     return ep;
   }
 
+  // Parse a decimal port number.
   [[nodiscard]] static constexpr std::optional<uint16_t> do_parse_port(
       std::string_view s) noexcept {
-    uint32_t port{};
+    uint16_t port{};
     const auto [ptr, ec] =
         std::from_chars(s.data(), s.data() + s.size(), port);
-    if (ec != std::errc{} || ptr != s.data() + s.size() || port > 65535U)
-      return std::nullopt;
-    return static_cast<uint16_t>(port);
+    if (ec != std::errc{} || ptr != s.data() + s.size()) return std::nullopt;
+    return port;
   }
 
   // Internal reinterpretation. Note that `auto this` doesn't work well in this
   // use case.
 
-  [[nodiscard]] constexpr sockaddr_in& as_v4() noexcept {
+  [[nodiscard]] sockaddr_in& as_v4() noexcept {
     return *reinterpret_cast<sockaddr_in*>(&storage_);
   }
 
-  [[nodiscard]] constexpr const sockaddr_in& as_v4() const noexcept {
-    return *reinterpret_cast<const sockaddr_in*>(&storage_);
-  }
-
-  [[nodiscard]] constexpr sockaddr_in6& as_v6() noexcept {
+  [[nodiscard]] sockaddr_in6& as_v6() noexcept {
     return *reinterpret_cast<sockaddr_in6*>(&storage_);
   }
 
-  [[nodiscard]] constexpr const sockaddr_in6& as_v6() const noexcept {
-    return *reinterpret_cast<const sockaddr_in6*>(&storage_);
-  }
-
-  [[nodiscard]] constexpr sockaddr_un& as_uds() noexcept {
+  [[nodiscard]] sockaddr_un& as_uds() noexcept {
     return *reinterpret_cast<sockaddr_un*>(&storage_);
   }
 
-  [[nodiscard]] constexpr const sockaddr_un& as_uds() const noexcept {
-    return *reinterpret_cast<const sockaddr_un*>(&storage_);
-  }
-
-  [[nodiscard]] static constexpr net_endpoint do_parse(std::string_view s) {
+  // NOLINTNEXTLINE(bugprone-exception-escape): substr positions are in-bounds.
+  [[nodiscard]] static net_endpoint do_parse(std::string_view s) noexcept {
     if (s.empty()) return {};
 
     // UDS or ANS.
@@ -480,38 +440,57 @@ private:
     return net_endpoint{*addr, *port};
   }
 
-  [[nodiscard]] constexpr std::string_view do_raw_uds_path() const noexcept {
-    return {as_uds().sun_path, sizeof(as_uds().sun_path)};
-  }
-
 #pragma endregion
 #pragma region Data members
 private:
   sockaddr_storage storage_{};
+  socklen_t addrlen_{};
+
 #pragma endregion
 };
 
-// Declared inside the class, but defined here, after the class is complete.
 inline const net_endpoint net_endpoint::invalid;
-
-// Net endpoint as a target. Necessary for io_uring, even though we don't care
-// about the value inserted into `sockaddr_len`.
-struct net_endpoint_target {
-  net_endpoint sockaddr;
-  socklen_t sockaddr_len{net_endpoint::max_sockaddr_size};
-};
 
 #pragma endregion
 
 }} // namespace corvid::proto
+
+#pragma region formatter
+
+// Format a `net_endpoint` exactly as the `sockaddr_view` over it.
+template<>
+struct std::formatter<corvid::proto::net_endpoint> {
+  static constexpr auto parse(std::format_parse_context& ctx) {
+    auto it = ctx.begin();
+    if (it != ctx.end() && *it != '}')
+      throw std::format_error("net_endpoint accepts no format spec");
+    return it;
+  }
+
+  static auto
+  format(const corvid::proto::net_endpoint& ep, std::format_context& ctx) {
+    return std::format_to(ctx.out(), "{}", ep.as_sockaddr_view());
+  }
+};
+
+#pragma endregion
+#pragma region to_string definition
+
+inline std::string corvid::proto::net_endpoint::to_string() const {
+  return std::format("{}", *this);
+}
+
+#pragma endregion
 
 namespace std {
 template<>
 struct hash<corvid::net_endpoint> {
   [[nodiscard]] size_t operator()(
       const corvid::net_endpoint& ep) const noexcept {
-    if (ep.empty()) return 0;
-    return std::hash<std::string_view>{}(ep.as_view());
+    corvid::hash_combiner combiner;
+    for (const auto b : ep.as_sockaddr_view().as_span())
+      combiner.combine(std::to_integer<unsigned char>(b));
+    return combiner.value();
   }
 };
 } // namespace std

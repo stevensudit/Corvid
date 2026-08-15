@@ -15,22 +15,18 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 #pragma once
-#include <compare>
-#include <concepts>
 #include <cstddef>
 #include <cstdint>
-#include <cstring>
+#include <initializer_list>
 #include <limits>
-#include <optional>
 #include <span>
-#include <string>
 #include <string_view>
 #include <vector>
 
 #include <sys/socket.h>
 #include <sys/uio.h>
 
-#include "../filesys/net_socket.h"
+#include "net_socket.h"
 
 namespace corvid { inline namespace proto {
 
@@ -39,9 +35,10 @@ struct iov_msghdr_test;
 
 #pragma region iov_msghdr
 
-// Scatter/gather socket I/O support using `msghdr` and `sendmsg`. Wraps the
-// `msghdr` and the `iovec` array. Use `iov_msghdr_sender` for sending and
-// `iov_msghdr_receiver` for receiving.
+// Scatter/gather socket I/O support using `msghdr` with `sendmsg`/`recvmsg`.
+//
+// Wraps the `msghdr` and the `iovec` array. Use `iov_msghdr_sender` for
+// sending and `iov_msghdr_receiver` for receiving.
 template<bool SENDER>
 class iov_msghdr {
 public:
@@ -50,6 +47,10 @@ public:
   static constexpr bool is_sender = SENDER;
   static constexpr bool is_receiver = !SENDER;
   static constexpr auto npos = std::numeric_limits<size_t>::max();
+
+  // Initial segment capacity to reserve, matching the POSIX floor for
+  // `IOV_MAX`; `compact` also tolerates up to this much leading slack.
+  static constexpr size_t initial_segments = 16;
 
   // Result of an I/O operation, with both the linear count of bytes and the
   // position within the segment.
@@ -65,11 +66,12 @@ public:
 #pragma endregion
 #pragma region Construction
 
-  // Default constructor, allowing segments to be added with `append`. POSIX
-  // requires `IOV_MAX` to be at least 16, while Linux typically allows 1024.
-  // This class does not impose a limit: the OS will handle it.
+  // Default constructor, allowing segments to be added with `append`.
+  //
+  // While POSIX requires `IOV_MAX` to be at least 16, Linux typically allows
+  // 1024. This class does not impose a limit: the OS will handle it.
   iov_msghdr() {
-    segments_.reserve(16);
+    segments_.reserve(initial_segments);
     update_iov();
   }
 
@@ -108,8 +110,9 @@ public:
     update_iov();
   }
 
-  // Append a segment. Returns whether the segment was added: empty ones are
-  // not.
+  // Append a segment.
+  //
+  // Returns whether the segment was added: empty ones are not.
   [[nodiscard]] bool append(iovec iov) {
     if (iov.iov_len == 0) return false;
     segments_.push_back(iov);
@@ -150,27 +153,30 @@ public:
 #pragma endregion
 #pragma region I/O
 
-  // Compact the segments if there is excessive slack. Completely optional, and
-  // only useful if you have a long-running instance and never quite finish
-  // consuming all segments.
-  bool compact(bool force = false) noexcept {
-    // Consume before compacting.
-    if (last_op_.transferred == npos) return false;
-    if (last_op_.transferred != 0)
-      if (!do_consume()) return false;
+  // Compact the segments if there is excessive slack.
+  //
+  // Completely optional, and only useful if you have a long-running instance
+  // and never quite finish consuming all segments. Unless `force` is set,
+  // declines when the leading slack is no more than `initial_segments` slots
+  // and reports success. Returns false only when the previous operation
+  // hard-failed.
+  [[nodiscard]] bool compact(bool force = false) noexcept {
+    if (!do_apply_last()) return false;
 
-    if (!force && (first_index_ <= 16)) return false;
+    if (!force && (first_index_ <= initial_segments)) return true;
 
     segments_.erase(segments_.begin(), segments_.begin() + first_index_);
     first_index_ = 0;
     return update_iov();
   }
 
-  // Send to `socket` using `sendmsg` to gather segments. On success, updates
-  // `last_op`, setting `transferred` to the count of bytes written and
-  // pointing `index`/`offset` past the sent data, then returns true. A soft
-  // error counts as a success that just so happens to send 0 bytes. On
-  // failure, including EOF, sets `last_op` to `npos` and returns false.
+  // Send to `socket` using `sendmsg` to gather segments.
+  //
+  // On success, updates `last_op`, setting `transferred` to the count of bytes
+  // written and pointing `index`/`offset` past the sent data, then returns
+  // true. A soft error counts as a success that just so happens to send 0
+  // bytes. On failure, including EOF, sets `last_op` to `npos` and returns
+  // false.
   //
   // Applies the previous operation's results before starting a new one,
   // pointing the effective start of the segments past the sent bytes. This
@@ -185,10 +191,7 @@ public:
       msg_flags flags = msg_flags::nosignal) noexcept
   requires is_sender
   {
-    // Apply last op before starting new one.
-    if (last_op_.transferred == npos) return false;
-    if (last_op_.transferred != 0)
-      if (!do_consume()) return false;
+    if (!do_apply_last()) return false;
 
     const auto result = socket.send(msgh_, flags);
     if (result < 0) {
@@ -200,10 +203,11 @@ public:
     return do_update_results();
   }
 
-  // Receive from `socket`, using `recvmsg` to scatter segments. On success,
-  // updates `last_op`, setting `transferred` to the count of bytes read and
-  // pointing `index`/`offset` past the read data, then returns true. A
-  // soft error counts as a success with no new data. On EOF, sets `last_op`
+  // Receive from `socket`, using `recvmsg` to scatter segments.
+  //
+  // On success, updates `last_op`, setting `transferred` to the count of bytes
+  // read and pointing `index`/`offset` past the read data, then returns true.
+  // A soft error counts as a success with no new data. On EOF, sets `last_op`
   // to zero and returns false. On hard failure, sets `last_op` to `npos` and
   // returns false.
   //
@@ -221,10 +225,7 @@ public:
   recv(const net_socket& socket, msg_flags flags = {}) noexcept
   requires is_receiver
   {
-    // Apply last op before starting new one.
-    if (last_op_.transferred == npos) return false;
-    if (last_op_.transferred != 0)
-      if (!do_consume()) return false;
+    if (!do_apply_last()) return false;
 
     msgh_.msg_flags = 0;
     const auto result = socket.recv(msgh_, flags);
@@ -246,8 +247,17 @@ public:
 private:
   friend struct iov_msghdr_test;
 
+  // Apply the pending operation's results, if any, consuming past the
+  // transferred bytes.
+  //
+  // Returns false if the instance is in a failed state.
+  [[nodiscard]] bool do_apply_last() noexcept {
+    if (last_op_.transferred == npos) return false;
+    return last_op_.transferred == 0 || do_consume();
+  }
+
   // Point header at the active segments.
-  bool update_iov() {
+  bool update_iov() noexcept {
     if (first_index_ >= segments_.size()) {
       msgh_.msg_iov = nullptr;
       msgh_.msg_iovlen = 0;
@@ -259,7 +269,7 @@ private:
   }
 
   // Set `size_` to the total bytes in the active segments.
-  bool update_count() {
+  bool update_count() noexcept {
     size_ = 0;
     for (size_t ndx = first_index_; ndx < segments_.size(); ++ndx)
       size_ += segments_[ndx].iov_len;
@@ -267,7 +277,7 @@ private:
   }
 
   // Update both header and count.
-  bool update() { return update_iov() && update_count(); }
+  bool update() noexcept { return update_iov() && update_count(); }
 
   bool do_clear() noexcept {
     msgh_ = {};
@@ -278,10 +288,11 @@ private:
     return true;
   }
 
-  // Consume up to the position, making it the new start of the active
-  // region. Use with return value from `offset_to_coordinates` to skip past
-  // a linear offset. When position is past the end, clears and returns true
-  // (a complete consume is success). Returns false only on hard error.
+  // Consume up to the position in `last_op_`, making it the new start of the
+  // active region.
+  //
+  // When the position is past the end, clears and returns true (a complete
+  // consume is success). Returns false only on hard error.
   [[nodiscard]] bool do_consume() noexcept {
     if (segments_.empty() || last_op_.transferred == npos) return false;
     if (!last_op_.transferred) return true;
@@ -303,7 +314,7 @@ private:
       size_ -= segments_[ndx].iov_len;
     first_index_ = actual_index;
 
-    // If past the end of the last segment, trim.
+    // An offset past the end of the segment is invalid: clear and fail.
     auto& last_iov = segments_[first_index_];
     if (offset > last_iov.iov_len) return do_clear() && false;
 
@@ -316,8 +327,10 @@ private:
 
   // Converts `last_op_.transferred` from a linear byte count into a segment
   // index and intra-segment offset (both relative to `first_index_`), then
-  // stores the result back into `last_op_`. The index may point one past the
-  // last segment when the transfer ends exactly on a segment boundary.
+  // stores the result back into `last_op_`.
+  //
+  // The index may point one past the last segment when the transfer ends
+  // exactly on a segment boundary.
   [[nodiscard]] bool do_update_results() noexcept {
     const auto transferred = last_op_.transferred;
     if (transferred > size()) return do_set_fail();

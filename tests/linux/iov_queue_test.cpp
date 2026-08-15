@@ -291,6 +291,21 @@ TEST_CASE("harvest_bytes writes at an offset within out", "[iov_queue]") {
   }
 }
 
+TEST_CASE("harvest_bytes into a plain span", "[iov_queue]") {
+  iov_queue<> q;
+  CHECK(q.append(std::vector<uint8_t>(4)));
+  CHECK(fill(q, std::vector<uint8_t>{1, 2, 3, 4}) == 4);
+  CHECK(q.consume(4));
+
+  // A subspan stands in for the chunk overload's `at` offset, with its bound
+  // capping the harvest.
+  std::array<uint8_t, 6> dest{};
+  const auto good = q.harvest_bytes(std::span<uint8_t>{dest}.subspan(2, 3));
+  CHECK(as_vec(good) == bytes({1, 2, 3}));
+  CHECK(dest == std::array<uint8_t, 6>{0, 0, 1, 2, 3, 0});
+  CHECK(q.unacknowledged() == 1);
+}
+
 TEST_CASE("harvest_chunk moves out filled buffers, refuses the tail",
     "[iov_queue]") {
   iov_queue<> q;
@@ -368,6 +383,35 @@ TEST_CASE("recycle returns drained buffers as fresh capacity", "[iov_queue]") {
   CHECK(q.consume(6));
   std::vector<uint8_t> out2(6);
   CHECK(as_vec(q.harvest_bytes(out2)) == bytes({5, 6, 7, 8, 9, 10}));
+}
+
+TEST_CASE("recycle drops empty husks instead of rotating them",
+    "[iov_queue]") {
+  iov_queue<> q;
+  CHECK(q.append(std::vector<uint8_t>(2)));
+  CHECK(q.append(std::vector<uint8_t>(2)));
+  CHECK(q.append(std::vector<uint8_t>(2)));
+  CHECK(fill(q, std::vector<uint8_t>{1, 2, 3, 4}) == 4);
+  CHECK(q.consume(4));
+
+  // Leave one husk (moved out) and one drained-but-allocated buffer in front.
+  std::vector<uint8_t> whole;
+  CHECK(as_vec(q.harvest_chunk(whole)) == bytes({1, 2}));
+  std::vector<uint8_t> copied(2);
+  CHECK(as_vec(q.harvest_bytes(copied)) == bytes({3, 4}));
+  CHECK(q.slack() == 2);
+
+  // Recycle rotates the drained buffer to the back but drops the husk.
+  const auto appended_before = q.appended();
+  CHECK(q.recycle());
+  CHECK(q.slack() == 0);
+  CHECK(q.retained_chunks() == 2);
+  CHECK(q.appended() == appended_before + 2); // only the drained buffer's room
+
+  // The offered room has no zero-length husk entry.
+  const auto iov = q.unused();
+  CHECK(iov.size() == 2);
+  CHECK(iov_queue<>::iov_byte_count(iov) == 4);
 }
 
 TEST_CASE("recycle with no slack is a no-op", "[iov_queue]") {

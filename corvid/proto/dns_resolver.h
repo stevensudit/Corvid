@@ -15,56 +15,71 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 #pragma once
+#include <array>
+#include <charconv>
+#include <cstddef>
 #include <cstdint>
-#include <memory>
-#include <string>
+#include <limits>
 #include <vector>
 
 #include <netdb.h>
 #include <sys/socket.h>
 
+#include "../infra/scope_exit.h"
 #include "../strings/cstring_view.h"
 #include "net_endpoint.h"
+#include "socket_enums.h"
 
 namespace corvid { inline namespace proto {
 
 #pragma region dns_resolver
 
 // Resolves hostnames to `net_endpoint` values via `getaddrinfo`.
+//
+// Resolution is synchronous and can block on network I/O, so it is fit for
+// startup and configuration paths, not event loops.
 struct dns_resolver {
   // Resolve a hostname to a list of `net_endpoint` values.
   //
   // `host` is a hostname or numeric address string (e.g. `"example.com"` or
-  // `"127.0.0.1"`). `port` is the port number. `family` may be `AF_UNSPEC`
-  // (default, returns both IPv4 and IPv6 results), `AF_INET`, or `AF_INET6`.
-  // `max_results` caps the number of endpoints returned (default: unlimited).
+  // `"127.0.0.1"`). `port` is the port number. `family` may be
+  // `address_family::unspecified` (the default, returning both IPv4 and IPv6
+  // results), `inet`, or `inet6`. `max_results` caps the number of endpoints
+  // returned (default: unlimited).
   //
-  // Returns an empty vector on failure (e.g. unknown host) or if the resolver
-  // returned only address families other than `AF_INET` / `AF_INET6`. Only
+  // Returns an empty vector on failure (e.g. unknown host). Results are
+  // limited to IPv4/IPv6; any other family is filtered out. Only
   // `SOCK_STREAM` results are requested, to avoid duplicate entries per
   // address.
+  //
+  // `AI_ADDRCONFIG` is deliberately not set: glibc does not count loopback as
+  // a configured address, so it would break resolving `"::1"` on hosts
+  // without a global IPv6 address.
   [[nodiscard]] static std::vector<net_endpoint> find_all(cstring_view host,
-      uint16_t port, int family = AF_UNSPEC, size_t max_results = SIZE_MAX) {
+      uint16_t port, address_family family = address_family::unspecified,
+      size_t max_results = std::numeric_limits<size_t>::max()) {
     addrinfo hints{};
-    hints.ai_family = family;
+    hints.ai_flags = AI_NUMERICSERV;
+    hints.ai_family = *family;
     hints.ai_socktype = SOCK_STREAM;
 
+    // Render the port as a numeric service string.
+    std::array<char, 6> service{};
+    (void)std::to_chars(service.data(), service.data() + service.size() - 1,
+        port);
+
     std::vector<net_endpoint> endpoints;
+    endpoints.reserve(8);
     addrinfo* res{};
-    if (::getaddrinfo(host.c_str(), std::to_string(port).c_str(), &hints,
-            &res) != 0)
+    if (::getaddrinfo(host.c_str(), service.data(), &hints, &res) != 0)
       return endpoints;
+    scope_exit cleanup([&] { ::freeaddrinfo(res); });
 
-    const std::unique_ptr<addrinfo, decltype(&::freeaddrinfo)> info{res,
-        ::freeaddrinfo};
-    res = nullptr;
-
-    for (const auto* ai = info.get(); ai && endpoints.size() < max_results;
+    for (const auto* ai = res; ai && (endpoints.size() < max_results);
         ai = ai->ai_next)
-    {
-      endpoints.emplace_back(*ai->ai_addr, ai->ai_addrlen);
-      if (endpoints.back().empty()) endpoints.pop_back();
-    }
+      if (const auto fam = address_family{ai->ai_family};
+          fam == address_family::inet || fam == address_family::inet6)
+        endpoints.emplace_back(*ai->ai_addr, ai->ai_addrlen);
 
     return endpoints;
   }
@@ -73,8 +88,8 @@ struct dns_resolver {
   //
   // Returns a default-constructed (invalid) `net_endpoint` on failure or if no
   // matching address was found.
-  [[nodiscard]] static net_endpoint
-  find_one(cstring_view host, uint16_t port, int family = AF_UNSPEC) {
+  [[nodiscard]] static net_endpoint find_one(cstring_view host, uint16_t port,
+      address_family family = address_family::unspecified) {
     const auto results = find_all(host, port, family, 1);
     return results.empty() ? net_endpoint{} : results.front();
   }

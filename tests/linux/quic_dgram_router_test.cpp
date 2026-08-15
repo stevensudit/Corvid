@@ -210,7 +210,7 @@ TEST_CASE(
   REQUIRE(client_sock.bind(net_endpoint::loopback_v4()));
   const timeval rcv_timeout{.tv_sec = 0, .tv_usec = 50000};
   REQUIRE(client_sock.set_option(socket_option::rcvtimeo, rcv_timeout));
-  const net_endpoint client_addr{client_sock};
+  const auto client_addr = net_endpoint::local_of(client_sock);
 
   const quic_cid client_dcid{client_dcid_bytes};
   const quic_cid client_scid{client_scid_bytes};
@@ -413,7 +413,7 @@ TEST_CASE(
   REQUIRE(client_sock.bind(net_endpoint::loopback_v4()));
   const timeval rcv_timeout{.tv_sec = 0, .tv_usec = 50000};
   REQUIRE(client_sock.set_option(socket_option::rcvtimeo, rcv_timeout));
-  const net_endpoint client_addr{client_sock};
+  const auto client_addr = net_endpoint::local_of(client_sock);
 
   quic_conn client{client_tls};
   REQUIRE(client.init(quic_cid{client_dcid_bytes}, quic_cid{client_scid_bytes},

@@ -214,7 +214,7 @@ public:
   // The local address this socket is bound to. Useful after `listen` on
   // port 0 to discover the OS-assigned port. Safe from any thread.
   [[nodiscard]] net_endpoint local_endpoint() const noexcept {
-    return net_endpoint{sock()};
+    return net_endpoint::local_of(sock());
   }
 
   // The `epoll_loop` that drives this connection. Valid for the lifetime of
@@ -696,7 +696,7 @@ private:
   [[nodiscard]] bool do_shutdown_read() {
     assert(loop_.is_loop_thread());
     if (!open_ || !read_open_) return false;
-    if (!sock().shutdown(SHUT_RD))
+    if (!sock().shutdown(shutdown_how::rd))
       return do_close_now(close_mode::forceful) && false;
     read_open_ = false;
     if (!loop_.enable_reads(*this, false)) return false;
@@ -713,7 +713,7 @@ private:
   [[nodiscard]] bool do_shutdown_write() {
     assert(loop_.is_loop_thread());
     if (!open_ || write_shut_) return false;
-    if (!sock().shutdown(SHUT_WR))
+    if (!sock().shutdown(shutdown_how::wr))
       return do_close_now(close_mode::forceful) && false;
     write_shut_ = true;
     send_queue_.clear();
@@ -860,10 +860,10 @@ private:
   [[nodiscard]] bool handle_listen() {
     assert(loop_.is_loop_thread());
     for (;;) {
-      auto accepted = sock().accept();
-      if (!accepted) break;
-      const auto peer = accept_clone(std::move(accepted->first),
-          net_endpoint{accepted->second},
+      net_endpoint peer_ep;
+      auto conn = sock().accept(peer_ep.as_ref());
+      if (!conn.is_open()) break;
+      const auto peer = accept_clone(std::move(conn), peer_ep,
           epoll_stream_conn_handlers{own_handlers_});
       if (!peer) continue; // accept_clone declined this connection
       if (!peer->register_with_loop()) return false;
@@ -1075,7 +1075,9 @@ private:
       for (auto ndx = 0UZ; ndx < op.index; ++ndx) send_queue_.pop_front();
 
       // Clean up dead segments from `iov_sender_` if there is enough slack.
-      iov_sender_.compact();
+      // A failed sender surfaces on the next `send`, so the result is moot
+      // here.
+      (void)iov_sender_.compact();
 
       // Partial send: the front string still has unsent data; the sender
       // will trim it internally on the next call. Arm `EPOLLOUT`.

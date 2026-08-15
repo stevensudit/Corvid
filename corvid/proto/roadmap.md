@@ -174,7 +174,8 @@ WebSocket protocol built on top of the HTTP/1.1 upgrade mechanism.
 - **[done]** `endian.h` -- `hton16` / `hton32` / `hton64` / `hton128` and
   their `ntoh` inverses; implemented via `std::byteswap` on little-endian hosts
   and as identity on big-endian; used by `ws_frame_header_storage` for
-  network-byte-order payload length fields
+  network-byte-order payload length fields. Since moved to `corvid/math/` so
+  that lower bands (e.g. `filesys`) can use it.
 - **[done]** `base-64.h` -- RFC 4648 Base64 encode/decode; `encode(span<uint8_t>)`
   and `decode(string_view)` (returns `std::vector<uint8_t>`); used for `Sec-WebSocket-Key`
   generation and `Sec-WebSocket-Accept` computation
