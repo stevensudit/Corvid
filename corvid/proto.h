@@ -22,7 +22,16 @@
 //                formatting
 //  ipv6_addr   - IPv6 address type with construction, classification, and
 //                formatting
+//  socket_enums - typed enums for the socket APIs: `address_family`,
+//                `socket_type`, `protocol_type`, socket/TCP options, and
+//                `shutdown_how`
+//  sockaddr_view - non-owning `sockaddr` pointer + length pair with family
+//                classification, accessors, comparison, and formatting
+//  net_socket  - RAII network socket wrapping creation, bind/connect/accept,
+//                synchronous I/O, and options
 //  net_endpoint - IP address + port pair for IPv4 or IPv6, or a UDS/ANS path
+//  iov_msghdr  - scatter/gather socket I/O via `msghdr` with
+//                `sendmsg`/`recvmsg`
 //  dns_resolver - thin wrapper around `getaddrinfo` returning a list of
 //                `net_endpoint` values
 //  epoll_loop  - single-threaded epoll-based I/O event loop
@@ -32,11 +41,16 @@
 //                views
 //  terminated_text_parser - sentinel-terminated text frame parser for
 //                line-oriented protocols (HTTP, SMTP, POP3, etc.)
-//  http_header_block - HTTP/1.1 types: `http_version`/`http_method` enums,
+//  base-64     - Base64 encoding and decoding
+//  utf8-checker - incremental UTF-8 validator
+//  http_head_codec - HTTP/1.1 types: `http_version`/`http_method` enums,
 //                `http_headers` ordered multimap, `request_head` and
 //                `response_head` with extraction and serialization
+//  sha-1       - SHA-1 digest for non-security-critical protocol work, such
+//                as the WebSocket handshake
 //  epoll_http_server - HTTP/1.1 server with keep-alive and pipelining
-//  iouring_loop - io_uring-based event loop, API-compatible with `epoll_loop`
+//  iou_loop    - io_uring-based I/O event loop, the counterpart to
+//                `epoll_loop`
 //  iou_stream_conn - io_uring-backed stream connection
 #include "proto/ipv4_addr.h"
 #include "proto/ipv6_addr.h"
@@ -59,3 +73,5 @@
 #include "proto/epoll/epoll_http_websocket_transaction.h"
 #include "proto/epoll/epoll_http_server.h"
 #include "proto/epoll/epoll_http_file_transaction.h"
+#include "proto/io_uring/iou_loop.h"
+#include "proto/io_uring/iou_stream_conn.h"
