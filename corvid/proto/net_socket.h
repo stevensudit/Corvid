@@ -143,7 +143,7 @@ public:
     return do_create(address_family{target.family()}, exec, style);
   }
 
-  // Create a blocking socket and connect it to `addr`.
+  // Create a blocking socket and connect it to `target`.
   //
   // As synchronous I/O is not scalable, this is a convenience factory for
   // simple use cases, meant to work with other utility methods with "sync" in
@@ -346,6 +346,7 @@ public:
   // data is available (not EOF), or `std::nullopt` on any error (hard or soft)
   // that prevents a determination (e.g., `EAGAIN`, `EBADF`).
   [[nodiscard]] std::optional<bool> peek_eof() const noexcept {
+    if (!is_open()) return false;
     char byte{};
     const auto n = recv(&byte, 1, msg_flags::peek | msg_flags::dontwait);
     if (n == 0) return true;
