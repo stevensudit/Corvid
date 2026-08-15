@@ -349,7 +349,6 @@ public:
   explicit iou_res(errno_code err) : res_{-*err} {}
 
   [[nodiscard]] operator bool() const noexcept { return ok(); }
-  [[nodiscard]] bool operator!() const noexcept { return !ok(); }
 
   [[nodiscard]] bool ok(int r = 0) const noexcept { return res_ >= r; }
   [[nodiscard]] int value() const noexcept { return res_; }
@@ -394,7 +393,6 @@ public:
   explicit iou_sqe(ptr_t sqe) : sqe_{sqe} {}
 
   [[nodiscard]] operator bool() const noexcept { return ok(); }
-  [[nodiscard]] bool operator!() const noexcept { return !ok(); }
 
   [[nodiscard]] ptr_t value() const noexcept { return sqe_; }
   [[nodiscard]] ptr_t* pointer() noexcept { return &sqe_; }
@@ -641,7 +639,6 @@ public:
   explicit iou_cqe(ptr_t cqe) : cqe_{cqe} {}
 
   [[nodiscard]] operator bool() const noexcept { return ok(); }
-  [[nodiscard]] bool operator!() const noexcept { return !ok(); }
 
   [[nodiscard]] ptr_t value() const noexcept { return cqe_; }
   [[nodiscard]] ptr_t* pointer() noexcept { return &cqe_; }
@@ -681,7 +678,6 @@ public:
   }
 
   [[nodiscard]] operator bool() const noexcept { return ok(); }
-  [[nodiscard]] bool operator!() const noexcept { return !ok(); }
 
   [[nodiscard]] bool ok() const noexcept { return out_; }
 
@@ -878,7 +874,6 @@ public:
   ~iou_buf_ring() { do_free(); }
 
   [[nodiscard]] explicit operator bool() const noexcept { return buf_ring_; }
-  [[nodiscard]] bool operator!() const noexcept { return !buf_ring_; }
 
   // Add a buffer slot to the ring. Must be followed by `advance`.
   void add(void* data, unsigned len, unsigned short bid, int mask,

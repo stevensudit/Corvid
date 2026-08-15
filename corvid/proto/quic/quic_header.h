@@ -156,7 +156,6 @@ public:
   [[nodiscard]] bool empty() const noexcept { return cid_.datalen == 0; }
 
   [[nodiscard]] explicit operator bool() const noexcept { return !empty(); }
-  [[nodiscard]] bool operator!() const noexcept { return empty(); }
 
   // Bytes view, valid for the lifetime of this object.
   [[nodiscard]] std::span<const uint8_t> bytes() const noexcept {
@@ -229,9 +228,6 @@ public:
   // `if (!vc) { /* decode failed */ }` idiom.
   [[nodiscard]] explicit operator bool() const noexcept {
     return status_ == quic_status::ok;
-  }
-  [[nodiscard]] bool operator!() const noexcept {
-    return status_ != quic_status::ok;
   }
 
   // QUIC version field. Zero for short-header packets, since they do not carry

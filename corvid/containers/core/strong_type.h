@@ -326,11 +326,6 @@ public:
   [[nodiscard]] constexpr strong_type operator~() const {
     return strong_type{~value_};
   }
-  template<typename = void>
-  requires requires(T t) { !t; }
-  [[nodiscard]] constexpr strong_type operator!() const {
-    return strong_type{!value_};
-  }
 
   template<typename = void>
   requires requires(T t) { ++t; }

@@ -229,7 +229,6 @@ public:
 
   // Check for validity when a `buffer` has been allocated from the pool.
   [[nodiscard]] explicit operator bool() const noexcept { return pool_.get(); }
-  [[nodiscard]] bool operator!() const noexcept { return !pool_; }
 
   // Access the result of the I/O operation; initially an error condition.
   [[nodiscard]] const iou_res& result() const noexcept { return res_; }

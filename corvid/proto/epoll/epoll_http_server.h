@@ -509,6 +509,11 @@ private:
     auto& state = conn_t::from(conn).state();
     const auto keep_alive = state.req.options.keep_alive(state.req.version);
 
+    // CONNECT parses (authority-form) but tunneling is not implemented.
+    if (state.req.method == http_method::CONNECT)
+      return send_error_response(conn, keep_alive, state.req.version,
+          http_status_code::NOT_IMPLEMENTED, "Not Implemented");
+
     // HTTP/1.1 requires a `Host` header.
     if (state.req.version == http_version::http_1_1 &&
         !state.req.headers.get("Host"))

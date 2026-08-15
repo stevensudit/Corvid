@@ -2635,15 +2635,50 @@ TEST_CASE("EmptyLine", "[TerminatedTextParser]") {
 
 #pragma endregion
 
-// Exceeding max_length with no sentinel present returns false.
+// Exceeding max_length with no sentinel present returns false. The last
+// sentinel-size - 1 bytes could still be the start of a split sentinel, so
+// only the bytes before them count as frame content.
 #pragma region TooLong
 
 TEST_CASE("TooLong", "[TerminatedTextParser]") {
+  // 9 bytes could still be 8 content bytes plus '\r': incomplete, not too
+  // long.
+  {
+    terminated_text_parser::state s{"\r\n", 8};
+    terminated_text_parser p{s};
+    std::string_view sv{"123456789"};
+    std::string_view text;
+    CHECK(p.parse(sv, text) == std::nullopt);
+  }
+  // 10 bytes put at least 9 content bytes before any possible sentinel.
+  {
+    terminated_text_parser::state s{"\r\n", 8};
+    terminated_text_parser p{s};
+    std::string_view sv{"1234567890"};
+    std::string_view text;
+    CHECK(p.parse(sv, text) == false);
+  }
+}
+
+#pragma endregion
+
+// A frame of exactly max_length content whose stream pauses mid-sentinel is
+// not rejected prematurely; acceptance does not depend on how the input was
+// chunked across reads.
+#pragma region TooLong_SplitSentinel
+
+TEST_CASE("TooLong_SplitSentinel", "[TerminatedTextParser]") {
   terminated_text_parser::state s{"\r\n", 8};
   terminated_text_parser p{s};
-  std::string_view sv{"123456789"}; // 9 bytes, no sentinel
   std::string_view text;
-  CHECK(p.parse(sv, text) == false);
+
+  std::string_view sv{"12345678\r"};
+  CHECK(p.parse(sv, text) == std::nullopt);
+
+  // The rest of the sentinel arrives; the frame completes at the limit.
+  std::string_view sv2{"12345678\r\n"};
+  CHECK(p.parse(sv2, text) == true);
+  CHECK(text == "12345678");
 }
 
 #pragma endregion
@@ -2823,6 +2858,49 @@ TEST_CASE("RoundTrip_AllBytes", "[Base64]") {
   const auto decoded = base_64::decode(encoded);
 
   CHECK(decoded == all_bytes);
+}
+
+#pragma endregion
+
+// ---------------------------------------------------------------------------
+// sha_1 tests
+// ---------------------------------------------------------------------------
+
+// RFC 3174 (and FIPS 180) test vectors, covering the empty message, a
+// single-block message, a message whose padding forces a second block, and a
+// million-byte multi-block message.
+#pragma region Sha1_KnownVectors
+
+TEST_CASE("Sha1_KnownVectors", "[Sha1]") {
+  CHECK(sha_1::digest("") ==
+        sha_1::digest_t{0xDA39A3EEU, 0x5E6B4B0DU, 0x3255BFEFU, 0x95601890U,
+            0xAFD80709U});
+  CHECK(sha_1::digest("abc") ==
+        sha_1::digest_t{0xA9993E36U, 0x4706816AU, 0xBA3E2571U, 0x7850C26CU,
+            0x9CD0D89DU});
+  CHECK(sha_1::digest(
+            "abcdbcdecdefdefgefghfghighijhijkijkljklmklmnlmnomnopnopq") ==
+        sha_1::digest_t{0x84983E44U, 0x1C3BD26EU, 0xBAAE4AA1U, 0xF95129E5U,
+            0xE54670F1U});
+  CHECK(sha_1::digest("The quick brown fox jumps over the lazy dog") ==
+        sha_1::digest_t{0x2FD4E1C6U, 0x7A2D28FCU, 0xED849EE1U, 0xBB76E739U,
+            0x1B93EB12U});
+  CHECK(sha_1::digest(std::string(1'000'000, 'a')) ==
+        sha_1::digest_t{0x34AA973CU, 0xD4C4DAA4U, 0xF61EEB2BU, 0xDBAD2731U,
+            0x6534016FU});
+}
+
+#pragma endregion
+
+// bytes() serializes the digest words big-endian, most significant byte
+// first.
+#pragma region Sha1_Bytes
+
+TEST_CASE("Sha1_Bytes", "[Sha1]") {
+  const auto raw = sha_1::bytes(sha_1::digest("abc"));
+  const sha_1::bytes_t expected{0xA9, 0x99, 0x3E, 0x36, 0x47, 0x06, 0x81, 0x6A,
+      0xBA, 0x3E, 0x25, 0x71, 0x78, 0x50, 0xC2, 0x6C, 0x9C, 0xD0, 0xD8, 0x9D};
+  CHECK(raw == expected);
 }
 
 #pragma endregion

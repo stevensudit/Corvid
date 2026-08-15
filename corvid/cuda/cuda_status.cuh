@@ -264,7 +264,6 @@ public:
     return value_ == cuda_status::success;
   }
   [[nodiscard]] explicit operator bool() const noexcept { return ok(); }
-  [[nodiscard]] bool operator!() const noexcept { return !ok(); }
 
 #pragma endregion
 #pragma region Errors

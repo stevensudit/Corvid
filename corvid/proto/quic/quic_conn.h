@@ -512,7 +512,6 @@ public:
 
   [[nodiscard]] bool ok() const noexcept { return !!conn_; }
   [[nodiscard]] explicit operator bool() const noexcept { return !!conn_; }
-  [[nodiscard]] bool operator!() const noexcept { return !conn_; }
   [[nodiscard]] connection_role role() const noexcept { return role_; }
   [[nodiscard]] auto native(this auto& self) { return self.conn_.get(); }
 

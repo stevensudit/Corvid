@@ -153,7 +153,6 @@ public:
   [[nodiscard]] constexpr explicit operator bool() const noexcept {
     return value_;
   }
-  [[nodiscard]] constexpr bool operator!() const noexcept { return !value_; }
   [[nodiscard]] constexpr const value_t& operator*() const { return value(); }
   [[nodiscard]] constexpr const value_t* operator->() const { return value_; }
 

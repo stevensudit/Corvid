@@ -17,6 +17,7 @@
 #pragma once
 
 #include <algorithm>
+#include <cassert>
 #include <charconv>
 #include <cmath>
 #include <cstddef>
@@ -464,8 +465,8 @@ public:
   get_string(std::string_view key, std::string& out) const {
     return find(key).decode_string(out);
   }
-  // If the value for `key` is a JSON object or array, returns a view into
-  // it. Otherwise, returns an empty view.
+  // If the value for `key` is a JSON object, returns a view into it.
+  // Otherwise, returns an empty view.
   [[nodiscard]] constexpr json_object_view get_object(
       std::string_view key) const {
     return find(key).as_object();
@@ -894,12 +895,22 @@ constexpr void append_float(Target& target, Number value,
   else
     result = std::to_chars(buffer, buffer + sizeof(buffer), value, fmt);
 
-  if (result.ec != std::errc{}) return;
+  if (result.ec != std::errc{}) {
+    // `to_chars` can only fail here by overflowing the buffer (e.g., a huge
+    // `precision`); emit null, as with non-finite values, rather than corrupt
+    // the JSON with a missing value.
+    strings::appender{target}.append("null");
+    return;
+  }
   strings::appender{target}.append(
       std::string_view{buffer, static_cast<size_t>(result.ptr - buffer)});
 }
 
 // Determine if `c` needs escaping for JSON.
+//
+// The solidus is escaped even though RFC 8259 does not require it: emitting
+// `<\/` instead of `</` means the output can never contain `</script>`, so it
+// is safe to embed directly inside an HTML script block.
 [[nodiscard]] constexpr bool needs_escaping(char c) noexcept {
   // Compare as an unsigned byte: on a signed `char`, UTF-8 lead/continuation
   // bytes (0x80-0xFF) are negative and would wrongly satisfy `c < 32`, so
@@ -950,7 +961,7 @@ constexpr void append_escaped(Target& target, std::string_view text) {
 #pragma endregion
 #pragma region iterator_parse_options
 
-constexpr json_parse_options iterator_parse_options{
+inline constexpr json_parse_options iterator_parse_options{
     std::numeric_limits<size_t>::max()};
 
 #pragma endregion
@@ -1141,13 +1152,13 @@ json_object_view::parse_bool(std::string_view key, bool& out) const {
 #pragma endregion
 #pragma region json_writer
 
-template<AppendTarget Target>
 // Stateful compact JSON writer over a `std::string` or `std::ostream`.
 //
 // The writer tracks container nesting and comma placement internally. It
 // does not validate call ordering aggressively; callers are expected to use
 // matching `begin_*` / `end_*` pairs and to write object keys before their
 // values.
+template<AppendTarget Target>
 class json_writer {
 #pragma region scoped_writer
 
@@ -1180,7 +1191,7 @@ class json_writer {
 
     [[nodiscard]] constexpr json_writer& writer() noexcept { return *writer_; }
 
-    // This lets you scope the the instance to an `if` statement, so that you
+    // This lets you scope the instance to an `if` statement, so that you
     // don't need to have braces without explanation.
     [[nodiscard]] operator bool() const noexcept { return true; }
 

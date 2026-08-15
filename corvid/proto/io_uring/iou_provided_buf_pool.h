@@ -132,7 +132,6 @@ public:
 
   // Whether the pool is active (non-zero sizes, memory allocated).
   [[nodiscard]] explicit operator bool() const noexcept { return base_; }
-  [[nodiscard]] bool operator!() const noexcept { return !base_; }
 
   // Buffer group ID; use as the `bgid` for `IOSQE_BUFFER_SELECT` SQEs.
   [[nodiscard]] uint16_t bgid() const noexcept { return bgid_; }

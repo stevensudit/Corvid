@@ -222,6 +222,11 @@ struct http_constants {
       "0123456789-!#$%&'*+.^_`|~"sv;
   static constexpr auto crlf = "\r\n"sv;
   static constexpr auto crlfcrlf = "\r\n\r\n"sv;
+
+  // Cap on field lines in one `http_headers`. Every added line permanently
+  // consumes an entry (and an index slot), even after tombstoning, so
+  // attacker-supplied fields would otherwise grow memory without bound.
+  static constexpr size_t max_field_lines = 100UZ;
 };
 
 #pragma endregion
@@ -265,9 +270,9 @@ public:
     class iterator {
     public:
       using iterator_category = std::forward_iterator_tag;
-      using value_type = std::string_view;
+      using value_type = std::string;
       using difference_type = std::ptrdiff_t;
-      using reference = std::string_view;
+      using reference = const std::string&;
       using pointer = void;
 
       [[nodiscard]] const std::string& operator*() const noexcept {
@@ -406,12 +411,13 @@ public:
   // The use case for this method is when the caller has already validated
   // and normalized the field name and value, such as when they're hardcoded.
   //
-  // The caller is responsible for providing a valid,
-  // normalized field name and a valid field value. Fails if too many fields
-  // are added.
+  // The caller is responsible for providing a valid, normalized field name and
+  // a valid field value. Fails if adding the line would exceed
+  // `max_field_lines`.
   [[nodiscard]] bool add_raw(std::string_view field_name,
       std::string field_value, std::string_view raw_field_name = {}) {
     assert(is_normalized(field_name) && is_valid_field_value(field_value));
+    if (entries_.size() >= max_field_lines) return false;
     if (raw_field_name.empty()) raw_field_name = field_name;
     entries_.push_back({std::string{raw_field_name}, std::move(field_value)});
     index_[std::string{field_name}].push_back(entries_.size() - 1);
@@ -422,7 +428,9 @@ public:
   // entries for that field. If the field already exists, the first entry is
   // updated in place (preserving its position and normalizing its name);
   // any additional entries are tombstoned. Returns true in this case.
-  // If no entry exists, a new one is appended and false is returned.
+  // If no entry exists, a new one is appended and false is returned; the
+  // append can also fail at the `max_field_lines` cap, which likewise
+  // returns false.
   // The caller is responsible for providing a valid, normalized field name
   // and a valid field value.
   [[nodiscard]] bool
@@ -439,9 +447,9 @@ public:
   }
 
   // Add a field line from parts, performing normalization and validation.
-  // Returns false if the line is malformed, or if either the field name or
-  // value is invalid. Fails if either parameter is invalid, which merits a
-  // "400 Bad Request".
+  // Returns false if either the field name or value is invalid, which merits
+  // a "400 Bad Request", or at the `max_field_lines` cap, which merits a
+  // "431 Request Header Fields Too Large".
   [[nodiscard]] bool
   add(std::string_view field_name, std::string_view field_value) {
     std::string normal_field_name{field_name};
@@ -690,11 +698,20 @@ private:
   // This can be a list of compression types, none of which we support, but
   // "chunked" must always be the last encoding applied, if present. Multiple
   // `Transfer-Encoding` fields are treated as a single concatenated list, so
-  // only the last token of the last field determines whether chunked is
-  // active.
+  // the last token of the last field determines the result: `chunked` or
+  // `identity` when recognized, `unknown` otherwise.
+  //
+  // Any live field, even one with an empty value, counts as present. This
+  // lets the caller distinguish an absent header from an unsupported coding
+  // and reject the latter, per RFC 9112 section 6.1: an unrecognized transfer
+  // coding merits a 501, and a coding list where chunked is not final cannot
+  // be framed. Collapsing unsupported codings into "absent" would silently
+  // fall back to `Content-Length` framing, a request-smuggling vector.
   void do_extract_transfer_encoding(http_headers& headers) {
+    bool present{};
     std::string t;
     for (const auto& val : headers.get_values("Transfer-Encoding")) {
+      present = true;
       if (val.empty()) continue;
       const auto encodings = strings::split(val, ",");
       if (encodings.empty()) continue;
@@ -702,11 +719,11 @@ private:
       if (v.empty()) continue;
       t = v;
     }
-    if (t.empty()) return;
+    if (!present) return;
     strings::to_lower(t);
     transfer_encoding_value te{};
-    if (convert_text_enum(te, t) && te == transfer_encoding_value::chunked)
-      transfer_encoding = te;
+    if (!convert_text_enum(te, t)) te = transfer_encoding_value::unknown;
+    transfer_encoding = te;
   }
 
   void do_extract_upgrade(http_headers& headers) {
@@ -779,6 +796,14 @@ struct request_head: head_base {
   // headers when it's HTTP/0.9. It is up to the caller to look at both the
   // version and the headers to decide whether the combination is valid.
   //
+  // The request-target is validated against the method, per RFC 9112 section
+  // 3.2: origin-form ("/path") for any method; asterisk-form ("*") only for
+  // OPTIONS; authority-form ("host:port") required for CONNECT, which parses
+  // successfully so the server can reject tunneling with a truthful "501 Not
+  // Implemented"; and absolute-form ("http://host/path"), which is reduced
+  // to origin-form with the URI's authority replacing any `Host` header, per
+  // section 3.3.
+  //
   // The instance should be empty or cleared before calling this method,
   // although it's ok to reuse without clearing if you're parsing the request
   // line and then the entire head. Alternately, you could parse just the
@@ -807,7 +832,12 @@ struct request_head: head_base {
 
     target = std::string{space_parser.next_delimited(request_line)};
     if (target.empty()) return fail("Empty target");
-    if (target[0] != '/') return fail("Target not a path");
+
+    // Validate the request-target form against the method (RFC 9112 section
+    // 3.2). `authority` becomes non-empty only for absolute-form, where it
+    // replaces the `Host` header after the headers are parsed.
+    std::string authority;
+    if (!do_validate_target_form(authority)) return false;
 
     auto version_sv = request_line;
     if (version_sv.empty())
@@ -826,10 +856,14 @@ struct request_head: head_base {
 
     // HTTP/1.x: headers required, but that requirement is enforced by
     // `epoll_http_server`.
-    if (header_lines.empty()) return true;
-
-    if (!headers.add_lines(header_lines))
+    if (!header_lines.empty() && !headers.add_lines(header_lines))
       return fail("Malformed header lines");
+
+    // Absolute-form: the target URI's authority is authoritative, so it
+    // replaces any received `Host` header (RFC 9112 section 3.3).
+    if (!authority.empty())
+      (void)headers.reset_raw("Host", std::move(authority));
+
     options.extract(headers);
     return true;
   }
@@ -861,6 +895,71 @@ private:
   bool fail(std::string failure) {
     target = std::move(failure);
     return false;
+  }
+
+  // Validate the request-target form against the parsed method, per RFC 9112
+  // section 3.2.
+  //
+  // This is origin-form ("/path") for any method; asterisk-form ("*") only for
+  // OPTIONS; authority-form ("host:port") required for CONNECT and rejected
+  // elsewhere; anything else must be absolute-form, which is reduced to
+  // origin-form with the URI's authority stored in `authority`.
+  //
+  // On failure, `target` holds the reason, as with `fail`.
+  [[nodiscard]] bool do_validate_target_form(std::string& authority) {
+    if (method == http_method::CONNECT) {
+      // Authority-form is required for CONNECT and only for CONNECT. Parsing
+      // it, rather than failing, lets the server reject tunneling with a
+      // truthful "501 Not Implemented" instead of a "400 Bad Request".
+      if (target[0] == '/' || target == "*")
+        return fail("CONNECT requires authority-form");
+      return true;
+    }
+    if (target == "*") {
+      // Asterisk-form is only used for a server-wide OPTIONS request.
+      if (method != http_method::OPTIONS)
+        return fail("Asterisk-form target requires OPTIONS");
+      return true;
+    }
+    if (target[0] != '/') return do_reduce_absolute_form(authority);
+    return true;
+  }
+
+  // Reduce an absolute-form `target` to origin-form, per RFC 9112 section
+  // 3.2.2 (a server must accept absolute-form).
+  //
+  // Only the http and https schemes are accepted, case-insensitively. On
+  // success, `authority` receives the URI's host and optional port, and
+  // `target` is left holding the path and query, with an empty path becoming
+  // "/". The authority must pass the field-value check because it is destined
+  // for the `Host` header.
+  //
+  // On failure, `target` holds the reason, as with `fail`.
+  [[nodiscard]] bool do_reduce_absolute_form(std::string& authority) {
+    const std::string_view t{target};
+    constexpr auto scheme_sep = "://"sv;
+    const auto sep_pos = t.find(scheme_sep);
+    if (sep_pos == std::string_view::npos) return fail("Target not a path");
+
+    const auto scheme = t.substr(0, sep_pos);
+    if (!strings::ci_equal(scheme, "http"sv) &&
+        !strings::ci_equal(scheme, "https"sv))
+      return fail("Unsupported absolute-form scheme");
+
+    const auto rest = t.substr(sep_pos + scheme_sep.size());
+    const auto path_pos = rest.find_first_of("/?");
+    authority = std::string{rest.substr(0, path_pos)};
+    if (authority.empty()) return fail("Empty absolute-form authority");
+    if (!http_headers::is_valid_field_value(authority))
+      return fail("Invalid absolute-form authority");
+
+    if (path_pos == std::string_view::npos)
+      target = "/";
+    else if (rest[path_pos] == '?')
+      target = "/" + std::string{rest.substr(path_pos)};
+    else
+      target = std::string{rest.substr(path_pos)};
+    return true;
   }
 
 #pragma endregion

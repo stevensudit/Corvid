@@ -43,7 +43,6 @@ public:
 
   [[nodiscard]] bool ok() const noexcept { return !error_; }
   [[nodiscard]] explicit operator bool() const noexcept { return ok(); }
-  [[nodiscard]] bool operator!() const noexcept { return !ok(); }
 
 #pragma endregion
 #pragma region Errors

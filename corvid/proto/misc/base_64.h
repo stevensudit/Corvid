@@ -55,7 +55,7 @@ inline constexpr auto base64_decode_table = make_base64_decode_table();
 //
 // Barely touched by human hands. Vibe-coded by Claude for use in WebSocket
 // accept-key computation. Note that, according to Claude, this would not be
-// optimized by resizing without initialization because -o3 is smart enough to
+// optimized by resizing without initialization because -O3 is smart enough to
 // elide the expansion checks due to knowing the size up front.
 struct base_64 {
 #pragma region Encode

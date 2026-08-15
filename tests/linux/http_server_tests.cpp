@@ -306,6 +306,27 @@ TEST_CASE("InvalidRequest", "[HttpServer]") {
 }
 
 #pragma endregion
+#pragma region Connect501
+
+// CONNECT parses (authority-form) but tunneling is not implemented, so the
+// server responds "501 Not Implemented" rather than treating the request as
+// malformed.
+TEST_CASE("Connect501", "[HttpServer]") {
+  if (is_codex()) return;
+
+  auto server = make_test_server(net_endpoint{ipv4_addr::loopback, 0});
+  REQUIRE(server);
+
+  auto client = net_socket::create_sync_connected(server->local_endpoint());
+  std::string buf;
+  REQUIRE(client.is_open());
+  CHECK(client.send_sync_all(
+      "CONNECT example.com:443 HTTP/1.1\r\nHost: example.com\r\n\r\n"));
+  const auto response = client.recv_sync_until(buf, "\r\n\r\n");
+  CHECK(response.contains("501"));
+}
+
+#pragma endregion
 #pragma region TooLongRequest
 
 // Verify that a request line exceeding the 8192-byte limit causes the server

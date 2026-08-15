@@ -163,6 +163,11 @@ followed by client and proxy support.
 - Deferred: request body reading (`Content-Length` / chunked transfer),
   `POST` / `PUT` methods, chunked response encoding, content negotiation,
   encoding decode (percent-hex `%20`, RFC 2047 MIME word, RFC 5987)
+- Deferred: server-wide `OPTIONS *` handling; the codec parses it
+  (RFC 9112 section 3.2.4) but the server has no route for `"*"`, so it
+  currently gets a 404 where a 204 with an `Allow` header would be truthful.
+  Also deferred: rejecting requests whose `Transfer-Encoding` extraction
+  yields `unknown` (501 per RFC 9112 section 6.1) once body reading lands.
 - `http_client` -- HTTP/1.1 client built on `epoll_stream_conn`
 - `http_proxy` -- HTTP proxy support
 - **Future:** HTTP/2
