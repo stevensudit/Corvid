@@ -220,11 +220,12 @@ public:
     return net_endpoint::local_of(sock());
   }
 
-  // The `epoll_loop` that drives this connection. The reference is valid
-  // only while the loop itself is alive; cross-thread code that can outlive
-  // the loop must go through `weak_loop` instead. Loop-thread-only for
-  // mutation operations; reads are safe from any thread, provided the
-  // connection is still alive.
+  // The `epoll_loop` that drives this connection.
+  //
+  // The reference is valid only while the loop itself is alive; cross-thread
+  // code that can outlive the loop must go through `weak_loop` instead.
+  // Loop-thread-only for mutation operations; reads are safe from any
+  // thread, provided the connection is still alive.
   [[nodiscard]] epoll_loop& loop() noexcept { return loop_; }
 
   // Return a weak pointer to the loop. The reason for this is to handle an

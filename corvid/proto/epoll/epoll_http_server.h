@@ -29,6 +29,7 @@
 #include <variant>
 
 #include "../../infra/exception_firewalls.h"
+#include "../../strings/token_parser.h"
 #include "../misc/http_head_codec.h"
 #include "../misc/terminated_text_parser.h"
 #include "../../containers/core/opt_find.h"
@@ -336,12 +337,15 @@ public:
   // colon introduces a port only when no `]` follows it.
   [[nodiscard]] static std::string_view strip_host_port(
       std::string_view host) {
-    const auto colon = host.rfind(':');
-    if (colon == std::string_view::npos) return host;
-    if (const auto bracket = host.rfind(']');
-        bracket != std::string_view::npos && bracket > colon)
-      return host;
-    return host.substr(0, colon);
+    auto text = host;
+    // A bracketed IPv6 literal keeps its brackets, and a port can begin only
+    // after the closing bracket.
+    if (host.starts_with('[')) {
+      if (const auto v6 = strings::token_parser::next_terminated(']', text))
+        return host.substr(0, v6->size() + 1);
+      return host; // no closing bracket; not ours to repair
+    }
+    return strings::token_parser::next_delimited(':', text);
   }
 #pragma endregion
 #pragma region Construction
@@ -448,7 +452,7 @@ private:
     state.parser_state = terminated_text_parser::state{"\r\n", 8192};
     // Capture the server weakly.
     //
-    //.A connection can outlive the server in the shared-loop case, and a
+    // A connection can outlive the server in the shared-loop case, and a
     // shared capture would form a reference cycle (server -> loop ->
     // connection state -> send_cb -> server). A send after the server is gone
     // just hangs up the connection.
@@ -550,11 +554,12 @@ private:
       return send_error_response(conn, after_response::close,
           state.req.version);
 
-    // Build the route key from the
+    // Build the route key.
     //
-    // `Host` header (minus any `:port` suffix) and the leading path component
-    // of the request target path, ignoring any query or fragment suffix (e.g.,
-    // "/api" from "/api/v2?x=1#y", "/api/", or "/api"; and "/" from "/").
+    // The key combines the `Host` header (minus any `:port` suffix) with the
+    // leading path component of the request target path, ignoring any query
+    // or fragment suffix (e.g., "/api" from "/api/v2?x=1#y", "/api/", or
+    // "/api"; and "/" from "/").
     const auto host_opt = state.req.headers.get("Host");
     const auto hostname =
         host_opt ? strip_host_port(*host_opt) : std::string_view{};

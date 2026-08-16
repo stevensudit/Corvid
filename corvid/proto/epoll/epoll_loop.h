@@ -596,12 +596,13 @@ private:
         (void)loop->run(100);
       }
 
-      // Shut down and drop the loop refs on this thread. Because
-      // `shutdown_epoll_loop` retires the loop, destruction is safe from any
-      // thread afterward: in the normal case `state->loop` is the last owner
-      // and `~epoll_loop` runs right here, while a lingering external ref (a
-      // `weak_loop` lock in flight, or a user-held `self` copy) destroys the
-      // retired loop wherever it releases.
+      // Shut down and drop the loop refs on this thread.
+      //
+      // Because `shutdown_epoll_loop` retires the loop, destruction is safe
+      // from any thread afterward: in the normal case `state->loop` is the
+      // last owner and `~epoll_loop` runs right here, while a lingering
+      // external ref (a `weak_loop` lock in flight, or a user-held `self`
+      // copy) destroys the retired loop wherever it releases.
       //
       // Order:
       //   1. Clear `raw_loop` so external lookups via the public
