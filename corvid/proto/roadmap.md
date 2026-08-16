@@ -57,7 +57,7 @@ without changing higher layers.
   (size == capacity) with atomic `begin` / `end` indexes and loop-thread-only
   `reads_enabled` / `view_active` flags; `compact(target)` resizes and/or
   memmoves active bytes subject to hysteresis; `epoll_recv_buffer_view` is the
-  limited-interface token delivered to `on_data`: `active_view()` /
+  limited-interface view delivered to `on_data`: `active_view()` /
   implicit-`string_view` conversion reads the unconsumed region, `consume(n)`
   / `update_active_view(tail)` advance `begin`, `expand_to(n)` requests growth,
   `try_take_full(out, view)` bulk-transfers a full buffer; destructor posts
@@ -84,8 +84,7 @@ without changing higher layers.
   `can_read()` / `can_write()` query half-close state; `local_endpoint()` /
   `remote_endpoint()` return socket addresses; supports persistent callback
   mode via `epoll_stream_conn_handlers` (`on_data(conn, epoll_recv_buffer_view)`,
-  `on_drain`, `on_close`); holds `own_handlers_` and an atomic
-  `active_handlers_` pointer that an extension may temporarily redirect
+  `on_drain`, `on_close`), held in `handlers_`
 - **[done]** `tcp_listener` -- now integrated as `epoll_stream_conn_ptr::listen()`;
   creates a non-blocking listening socket, binds, and calls `listen(2)`; drains
   accepted connections via `accept4` on `EPOLLIN`, creating self-owning

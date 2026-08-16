@@ -41,13 +41,12 @@ enum class stream_claim : bool { release = false, claim = true };
 #pragma endregion
 
 #pragma region epoll_http_transaction
-struct epoll_http_transaction; // forward declaration for
-                               // epoll_http_transaction_queue
+struct epoll_http_transaction; // fwd for epoll_http_transaction_queue
 using epoll_http_transaction_ptr = std::shared_ptr<epoll_http_transaction>;
 
 // HTTP/1.x request-response transaction.
 //
-// Constructed (always via `std::make_shared`) by a
+// Constructed (always via `std::make_shared`) by an
 // `epoll_http_transaction_factory` when a matching route is found in
 // `epoll_http_server`. Holds the parsed `request_head` and a mutable
 // `response_head` to populate, as well as `close_after`. Writes are
@@ -142,16 +141,17 @@ struct epoll_http_transaction
     return stream_claim::release;
   }
 
-  // Called by `epoll_http_server` when this becomes the active write
-  // transaction, and then again after the send queue drains, until this
-  // function returns `release`. On the initial call, the transaction should
-  // populate `response_headers` with the response head, serialize and send
-  // the headers, and optionally send some body data. If that's all it needs
-  // to do, it returns `release`. On subsequent calls, if any, the transaction
-  // should send more body data until the entire response is sent, at which
-  // point it returns `release`.
+  // Send the next part of the response through `send_cb`.
   //
-  // Default: invoke `on_drain` if set, else return `release`.
+  // Called by `epoll_http_server` when this becomes the active write
+  // transaction, and again each time the send queue drains, until it returns
+  // `release`. Populate `response_headers`, send the serialized head, and
+  // send as much of the body as desired; return `claim` while more body
+  // remains to be sent.
+  //
+  // Default: invoke `on_drain` if set. Otherwise set `close_after` to
+  // `close` (a transaction that cannot respond must not leave the client
+  // waiting on a live connection) and return `release`.
   [[nodiscard]] virtual stream_claim handle_drain(const send_fn& send_cb) {
     if (on_drain) return on_drain(*this, send_cb);
     close_after = after_response::close;

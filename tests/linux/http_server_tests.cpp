@@ -17,11 +17,14 @@
 
 #include "corvid/proto.h"
 #include "corvid/concurrency/jthread_stoppable_sleep.h"
+#include "corvid/infra/scope_exit.h"
 
 #include <charconv>
 #include <cerrno>
 #include <chrono>
 #include <cstdlib>
+#include <filesystem>
+#include <fstream>
 #include <iostream>
 #include <unistd.h>
 
@@ -610,6 +613,84 @@ TEST_CASE("Pipeline", "[HttpServer]") {
 }
 
 #pragma endregion
+#pragma region PipelineAfterBody
+
+// Transaction that consumes a `Content-Length`-sized request body from the
+// receive buffer view across `handle_data` calls, responding with a small
+// 200 page as soon as it becomes the writer.
+struct body_sink_transaction: public epoll_http_transaction {
+  explicit body_sink_transaction(request_head&& req)
+      : epoll_http_transaction{std::move(req)},
+        remaining_{request_headers.options.content_length.value_or(0)} {}
+
+  [[nodiscard]] stream_claim handle_data(
+      epoll_recv_buffer_view& view) override {
+    const auto data = view.active_view();
+    const auto take = std::min(remaining_, data.size());
+    view.consume(take);
+    remaining_ -= take;
+    return remaining_ ? stream_claim::claim : stream_claim::release;
+  }
+
+  [[nodiscard]] stream_claim handle_drain(const send_fn& send_cb) override {
+    response_headers.version = request_headers.version;
+    response_headers.status_code = http_status_code::OK;
+    response_headers.reason = "OK";
+    response_headers.options.content_length = 4;
+    response_headers.options.connection = close_after;
+    (void)send_cb(response_headers.serialize());
+    (void)send_cb("sunk"s);
+    return stream_claim::release;
+  }
+
+private:
+  size_t remaining_;
+};
+
+// Verify that a pipelined request already sitting in the receive buffer when
+// a body-consuming transaction releases the input stream is parsed
+// immediately, rather than stalling until more bytes arrive from the client.
+TEST_CASE("PipelineAfterBody", "[HttpServer]") {
+  if (is_codex()) return;
+
+  auto server = epoll_http_server::create(net_endpoint{ipv4_addr::loopback, 0},
+      [](epoll_http_server& s) {
+        return s.add_route({"", "/sink"},
+                   [](request_head&& req) -> epoll_http_transaction_ptr {
+                     return std::make_shared<body_sink_transaction>(
+                         std::move(req));
+                   }) &&
+               s.add_route({"", "/"},
+                   [](request_head&& req) -> epoll_http_transaction_ptr {
+                     return std::make_shared<padded_page_transaction>(
+                         std::move(req));
+                   });
+      });
+  REQUIRE(server);
+
+  auto client = net_socket::create_sync_connected(server->local_endpoint());
+  std::string buf;
+  REQUIRE(client.is_open());
+
+  // First write: POST headers plus the first 3 of 10 body bytes. The sink
+  // transaction consumes them and claims the stream, leaving the connection
+  // in body phase; its response confirms the write was processed.
+  CHECK(client.send_sync_all(
+      "POST /sink HTTP/1.1\r\nHost: "
+      "localhost\r\nContent-Length: 10\r\n\r\n123"));
+  const auto r1 = client.recv_sync_until(buf, "sunk");
+  CHECK(r1.contains("200"));
+
+  // Second write: the remaining 7 body bytes plus a complete pipelined GET
+  // in a single segment. The GET must be answered without any further client
+  // bytes.
+  CHECK(client.send_sync_all(
+      "4567890GET /5 HTTP/1.1\r\nHost: localhost\r\n\r\n"));
+  const auto r2 = client.recv_sync_until(buf, "</html>");
+  CHECK(r2.contains("200"));
+}
+
+#pragma endregion
 #pragma region ConnectionClose
 
 // Verify that `Connection: close` causes the server to close the connection
@@ -750,6 +831,60 @@ TEST_CASE("Http10KeepAlive", "[HttpServer]") {
   const auto r2 = client.recv_sync_until(buf, "\r\n\r\n");
   CHECK(r2.contains("200"));
   (void)client.recv_sync_until(buf, "</html>");
+}
+
+#pragma endregion
+#pragma region StaticFiles
+
+// Verify that the static file transaction serves GET with a body, serves
+// HEAD with the same head but no body, and rejects other methods with a 405
+// listing the supported methods in `Allow`.
+TEST_CASE("StaticFiles", "[HttpServer]") {
+  if (is_codex()) return;
+
+  namespace fs = std::filesystem;
+  const auto web_root = fs::temp_directory_path() / "corvid_http_static_test";
+  fs::create_directories(web_root);
+  scope_exit cleanup([&] { fs::remove_all(web_root); });
+  if (std::ofstream f(web_root / "index.html", std::ios::binary); true)
+    f << "<html><body>static</body></html>";
+
+  auto cache = std::make_shared<const epoll_static_file_cache>(web_root);
+  REQUIRE(cache->size() == 2); // "/index.html" plus the "/" alias
+
+  auto server = epoll_http_server::create(net_endpoint{ipv4_addr::loopback, 0},
+      [&cache](epoll_http_server& s) {
+        return s.add_route({"", "/"},
+            [cache](request_head&& req) -> epoll_http_transaction_ptr {
+              return std::make_shared<epoll_static_file_transaction>(
+                  std::move(req), cache);
+            });
+      });
+  REQUIRE(server);
+
+  auto client = net_socket::create_sync_connected(server->local_endpoint());
+  std::string buf;
+  REQUIRE(client.is_open());
+
+  CHECK(client.send_sync_all(
+      "GET /index.html HTTP/1.1\r\nHost: localhost\r\n\r\n"));
+  const auto r1 = client.recv_sync_until(buf, "</html>");
+  CHECK(r1.contains("200"));
+  CHECK(r1.contains("Content-Type: text/html"));
+
+  CHECK(client.send_sync_all(
+      "HEAD /index.html HTTP/1.1\r\nHost: localhost\r\n\r\n"));
+  const auto r2 = client.recv_sync_until(buf, "\r\n\r\n");
+  CHECK(r2.contains("200"));
+  CHECK(r2.contains("Content-Length: 32"));
+
+  // The next bytes on the wire must be the 405's status line; a body after
+  // the HEAD response head would land at the front of `r3` instead.
+  CHECK(client.send_sync_all(
+      "DELETE /index.html HTTP/1.1\r\nHost: localhost\r\n\r\n"));
+  const auto r3 = client.recv_sync_until(buf, "\r\n\r\n");
+  CHECK(r3.starts_with("HTTP/1.1 405"));
+  CHECK(r3.contains("Allow: GET, HEAD"));
 }
 
 #pragma endregion

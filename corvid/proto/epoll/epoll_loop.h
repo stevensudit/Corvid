@@ -113,8 +113,10 @@ private:
 //
 // `epoll_loop` is non-copyable, non-movable, and always heap-allocated via
 // `epoll_loop::make`. Per the `owner_thread_dispatcher` contract, the
-// instance must be constructed and destructed on the loop thread; use
-// `epoll_loop_runner` to satisfy this automatically.
+// instance must be constructed on the loop thread and destructed there too,
+// unless `shutdown_epoll_loop` has retired it first, after which the last
+// owner may destroy it from any thread. Use `epoll_loop_runner` to satisfy
+// this automatically.
 class epoll_loop: public owner_thread_dispatcher<> {
   enum class allow : bool { ctor };
 
@@ -234,11 +236,19 @@ public:
     return wake_post_queue();
   }
 
-  // Force shutdown of loop resources.
+  // Force shutdown of loop resources and retire the loop.
+  //
+  // Clears all registrations, releasing the loop's connection references,
+  // then retires the dispatcher (see `owner_thread_dispatcher::retire`), so
+  // the last owner may destroy the loop from any thread.
+  //
+  // Terminal: call only after `run` has returned, never from a posted
+  // callback. Loop-thread-only; returns false from any other thread.
   [[nodiscard]] bool shutdown_epoll_loop() {
     if (!is_loop_thread()) return false;
     (void)shutdown();
     registrations_.clear();
+    (void)retire();
     return true;
   }
 
@@ -471,9 +481,10 @@ private:
 // self-destroy path that would otherwise be a use-after-free).
 //
 // The loop is constructed inside the worker thread (as required by
-// `owner_thread_dispatcher`); the worker resets the loop `shared_ptr`
-// before releasing its own ref to `runner_state`, so `~epoll_loop` always
-// fires on the worker thread.
+// `owner_thread_dispatcher`). On the way out, the worker retires the loop
+// (via `shutdown_epoll_loop`) and drops its refs, so `~epoll_loop` normally
+// fires on the worker thread; a lingering external ref destroys the retired
+// loop wherever it releases, which retirement makes safe.
 //
 // Shutdown ordering: call `stop` (or destroy the runner) before destroying
 // any object that a pending `post` callback might reference. Pending
@@ -539,8 +550,11 @@ public:
   [[nodiscard]] operator epoll_loop&() noexcept { return **state_->raw_loop; }
   [[nodiscard]] epoll_loop* operator->() noexcept { return state_->raw_loop; }
 
-  // Signal set when the worker thread has fully unwound, after `~epoll_loop`
-  // has run on the worker and the loop's `shared_ptr` has been released.
+  // Signal set when the worker thread has fully unwound, after the loop has
+  // been retired and the worker's `shared_ptr` refs released (normally
+  // running `~epoll_loop` right there; an external holder may delay the
+  // actual destruction past this signal).
+  //
   // Returned as an aliased `shared_ptr` that keeps the underlying
   // `runner_state` alive, so callers can safely wait on it even after the
   // handle is destroyed (e.g., the self-destroy-on-loop-thread path). Useful
@@ -575,51 +589,35 @@ private:
       // exit. Capture `loop` by value (not `state`) so the callback is
       // self-contained and runs the same regardless of which thread
       // triggered the stop. Inner scope so the `stop_callback` (and
-      // its `[loop]` capture) is released before the `use_count` check
+      // its `[loop]` capture) is released before the refs are dropped
       // below.
       {
         std::stop_callback on_stop(st, [loop] { (void)loop->stop(); });
         (void)loop->run(100);
       }
 
-      // Drop the local loop ref here so that the last `shared_ptr`
-      // release (and thus `~epoll_loop`) happens on this thread rather
-      // than on whichever thread later destroys `runner_state`. The
-      // `owner_thread_dispatcher` base requires destruction on the
-      // owning thread.
+      // Shut down and drop the loop refs on this thread. Because
+      // `shutdown_epoll_loop` retires the loop, destruction is safe from any
+      // thread afterward: in the normal case `state->loop` is the last owner
+      // and `~epoll_loop` runs right here, while a lingering external ref (a
+      // `weak_loop` lock in flight, or a user-held `self` copy) destroys the
+      // retired loop wherever it releases.
       //
       // Order:
       //   1. Clear `raw_loop` so external lookups via the public
       //      accessor see nullptr; in-flight callers that already
       //      loaded the pointer are responsible for not outliving the
       //      runner.
-      //   2. Break ownership cycles by clearing the loop's registrations on
-      //      this thread, so any `shared_ptr<epoll_loop>` held by a connection
-      //      is released here.
-      //   3. Drop the local `loop` so `state->loop` should be the sole
-      //      owner.
-      //   4. Belt-and-suspenders: confirm no external `shared_ptr`
-      //      still holds the loop alive. `use_count` is approximate
-      //      (the standard explicitly calls it "immediately stale" in
-      //      MT contexts), but adequate as a misuse detector. Retry
-      //      briefly to absorb in-flight releases. If it never
-      //      settles, call `std::terminate` rather than let
-      //      `~epoll_loop` fire on a non-owner thread (which would
-      //      itself throw from inside a destructor). `std::terminate`
-      //      is used instead of `throw` so the catch handler below
-      //      cannot swallow it.
-      //   5. Drop `state->loop`, triggering `~epoll_loop` on this
-      //      thread.
+      //   2. Break ownership cycles by clearing the loop's registrations
+      //      on this thread. A connection holds the loop only by reference
+      //      plus a `weak_ptr`, but its handlers and state can capture
+      //      `shared_ptr<epoll_loop>` copies (including promoted `weak_loop`
+      //      locks); destroying the connections here releases those refs.
+      //      This also retires the loop.
+      //   3. Drop the local `loop`, then `state->loop`.
       state->raw_loop = nullptr;
       (void)loop->shutdown_epoll_loop();
       loop.reset();
-
-      for (auto retry = 0UZ; retry < 10 && state->loop.use_count() != 1;
-          ++retry)
-        std::this_thread::sleep_for(1s);
-      if (state->loop.use_count() != 1)
-        log::fatal("Impossible loop use count: {}", state->loop.use_count());
-
       if (std::scoped_lock lock(state->startup_mutex); true)
         state->loop.reset();
     }
@@ -628,10 +626,10 @@ private:
         state->startup_error = std::current_exception();
       state->started.notify(true);
     }
-    // Signal `finished` last, after `~epoll_loop` has run. Both worker and
-    // any waiter hold `state` via `shared_ptr`, so the notifiable's
-    // destructor synchronizes through the ref-count and cannot fire while
-    // `notify_all` is still in flight.
+    // Signal `finished` last, after the loop has been retired and this
+    // thread's refs released. Both worker and any waiter hold `state` via
+    // `shared_ptr`, so the notifiable's destructor synchronizes through the
+    // ref-count and cannot fire while `notify_all` is still in flight.
     state->finished.notify(true);
   }
 

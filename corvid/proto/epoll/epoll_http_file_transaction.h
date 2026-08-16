@@ -60,13 +60,20 @@ public:
 
   // Load all regular files under `web_root`.
   //
-  // Filesystem errors per entry are silently ignored; an unreadable `web_root`
+  // A filesystem error on an entry silently skips that entry; an error
+  // advancing the walk itself ends the load early; an unreadable `web_root`
   // produces an empty cache.
   explicit epoll_static_file_cache(const std::filesystem::path& web_root) {
-    std::error_code ec;
-    for (auto& e : std::filesystem::recursive_directory_iterator(web_root, ec))
+    // The `error_code` overloads are used throughout because the throwing ones
+    // would abandon the load on the first failure.
+    std::error_code walk_ec;
+    const std::filesystem::recursive_directory_iterator end;
+    for (std::filesystem::recursive_directory_iterator it{web_root, walk_ec};
+        !walk_ec && it != end; it.increment(walk_ec))
     {
-      if (!e.is_regular_file()) continue;
+      const auto& e = *it;
+      std::error_code entry_ec;
+      if (!e.is_regular_file(entry_ec)) continue;
       const auto rel = e.path().lexically_relative(web_root);
       const auto url = "/" + rel.generic_string();
       auto body = read_file(e.path());
@@ -121,12 +128,13 @@ private:
 #pragma endregion
 
 #pragma region epoll_static_file_transaction
-// `epoll_static_file_transaction` serves pre-cached static files from a
+// `epoll_static_file_transaction` serves pre-cached static files from an
 // `epoll_static_file_cache`.
 //
 // Holds a `shared_ptr` to the cache so the transaction keeps the cache alive
-// independently of the factory closure. Only "GET" is supported; other methods
-// return 405. Request targets not found in the cache return 404.
+// independently of the factory closure. Only GET and HEAD are supported;
+// other methods return 405 with an `Allow` header. Request targets not found
+// in the cache return 404.
 struct epoll_static_file_transaction: public epoll_http_transaction {
 #pragma region Construction
   epoll_static_file_transaction(request_head&& req,
@@ -138,11 +146,18 @@ struct epoll_static_file_transaction: public epoll_http_transaction {
   [[nodiscard]] stream_claim handle_drain(const send_fn& send_cb) override {
     const auto& req = request_headers;
 
-    if (req.method != http_method::GET) {
+    // RFC 9110 section 9.1 makes GET and HEAD the mandatory methods, and
+    // this transaction supports nothing else. Section 15.5.6 requires a 405
+    // to list the supported methods in `Allow`.
+    if (req.method != http_method::GET && req.method != http_method::HEAD) {
       close_after = after_response::close;
-      (void)send_cb(response_head::make_error_response(close_after,
-          req.version, http_status_code::METHOD_NOT_ALLOWED,
-          "Method Not Allowed"));
+      response_headers.version = req.version;
+      response_headers.status_code = http_status_code::METHOD_NOT_ALLOWED;
+      response_headers.reason = "Method Not Allowed";
+      response_headers.options.content_length = 0;
+      response_headers.options.connection = close_after;
+      (void)response_headers.headers.reset_raw("Allow", "GET, HEAD");
+      (void)send_cb(response_headers.serialize());
       return stream_claim::release;
     }
 
@@ -165,7 +180,8 @@ struct epoll_static_file_transaction: public epoll_http_transaction {
     (void)response_headers.headers.reset_raw("Content-Type", e->content_type);
 
     (void)send_cb(response_headers.serialize());
-    (void)send_cb(std::string{e->body});
+    // RFC 9110 section 9.3.2: HEAD is GET without the response content.
+    if (req.method != http_method::HEAD) (void)send_cb(std::string{e->body});
     return stream_claim::release;
   }
 #pragma endregion

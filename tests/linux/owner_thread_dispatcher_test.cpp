@@ -354,6 +354,29 @@ TEST_CASE("ShutdownFailureModes", "[OwnerThreadDispatcher]") {
 }
 
 #pragma endregion
+#pragma region Retire
+
+TEST_CASE("Retire", "[OwnerThreadDispatcher]") {
+  // Retiring on the loop thread shuts down, releases the thread claim, and
+  // waives the wrong-thread destruction guard.
+  auto dispatcher = std::make_unique<owner_thread_dispatcher<>>();
+  CHECK(dispatcher->is_loop_thread());
+  CHECK(dispatcher->retire());
+  CHECK_FALSE(dispatcher->retire()); // idempotent
+  CHECK_FALSE(dispatcher->is_loop_thread());
+  CHECK_FALSE(dispatcher->post([] { return true; }));
+
+  // The thread is unclaimed again, so a new dispatcher can bind here while
+  // the retired one is still alive.
+  owner_thread_dispatcher<> replacement;
+  CHECK(replacement.is_loop_thread());
+
+  // The last owner may destroy a retired dispatcher from any thread.
+  std::thread t{[d = std::move(dispatcher)]() mutable { d.reset(); }};
+  t.join();
+}
+
+#pragma endregion
 #pragma region ShutdownFromCallback
 
 TEST_CASE("ShutdownFromCallback", "[OwnerThreadDispatcher]") {

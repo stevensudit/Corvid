@@ -199,7 +199,7 @@ struct epoll_recv_buffer {
 #pragma endregion
 
 #pragma region epoll_recv_buffer_view
-// Limited-interface token handed to the parser via the `on_data` callback.
+// Limited-interface view handed to the parser via the `on_data` callback.
 // At most one `epoll_recv_buffer_view` is live at a time for a given
 // connection.
 //
@@ -372,10 +372,10 @@ public:
   // anything if the buffer is not full.
   //
   // On success, swaps the backing buffer into `out` (stealing the caller's
-  // allocation), sets `view` to the active region inside `out`, resets the
-  // backing buffer to its previous capacity (using `no_zero` to avoid zero
-  // initialization), clears both indices, and ensures `compact` will not
-  // shrink the restored buffer.
+  // allocation), sets `view` to the active region inside `out`, rebuilds the
+  // backing buffer from the swapped-in string at no less than `min_capacity`
+  // (using `no_zero` to avoid zero initialization), clears both indices, and
+  // ensures `compact` will not shrink the restored buffer.
   bool try_take_full(std::string& out, std::string_view& view) {
     assert(buf_);
     const auto b = buf_->begin.load(std::memory_order::relaxed);
@@ -385,6 +385,11 @@ public:
     buf_->buffer.swap(out);
     view = {out.data() + b, e - b};
     buf_->buffer.clear();
+    // The swapped-in string may be much smaller than the buffer we gave up
+    // (e.g., a fresh `out`); reserve up to `min_capacity` so the restored
+    // buffer is immediately usable for full-sized reads.
+    const size_t configured{buf_->min_capacity};
+    buf_->buffer.reserve(configured);
     no_zero{buf_->buffer}.enlarge_to_cap();
     const auto new_cap = buf_->buffer.size();
     buf_->begin.store(0, std::memory_order::relaxed);

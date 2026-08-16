@@ -34,6 +34,7 @@
 
 using namespace corvid;
 using namespace std::chrono_literals;
+using namespace std::string_literals;
 
 namespace corvid { inline namespace proto {
 struct iov_msghdr_test {
@@ -1131,6 +1132,23 @@ TEST_CASE("SelfDestroyOnLoopThread", "[IoLoop]") {
 
   REQUIRE(finished->wait_for_value(1s, true));
 }
+
+#pragma endregion
+#pragma region LoopRefOutlivesRunner
+
+// A `shared_ptr<epoll_loop>` held past the runner's shutdown is harmless:
+// the worker retires the loop on its way out, so the lingering ref neither
+// stalls the worker's exit nor forbids last-release on this thread.
+TEST_CASE("LoopRefOutlivesRunner", "[IoLoop]") {
+  std::shared_ptr<epoll_loop> loop;
+  if (epoll_loop_runner runner; true) loop = runner.loop()->self();
+  REQUIRE(loop);
+
+  // The retired loop is inert: no thread is its loop thread, and posts are
+  // refused.
+  CHECK_FALSE(loop->is_loop_thread());
+  CHECK_FALSE(loop->post([] { return true; }));
+} // `~epoll_loop` runs here, on the test thread, which retirement permits
 
 #pragma endregion
 
@@ -2307,6 +2325,41 @@ TEST_CASE("DestructorHangsUp", "[StreamConn]") {
 
   CHECK(closed);
   CHECK((received.size()) < (payload.size()));
+}
+
+#pragma endregion
+#pragma region ConnOutlivesLoop
+
+// Verify that a connection handle that outlives its loop degrades safely:
+// the cross-thread entry points return false through the `weak_loop_` guard
+// instead of touching the destroyed loop, and destructing a handle is a
+// plain drop.
+TEST_CASE("ConnOutlivesLoop", "[StreamConn]") {
+  auto [a, b] = net_socket::create_pair();
+
+  epoll_stream_conn_ptr conn;
+  epoll_stream_conn_ptr dropped;
+  if (true) {
+    auto loop = epoll_loop::make();
+    conn = epoll_stream_conn_ptr::adopt(loop, std::move(a), {});
+    dropped = epoll_stream_conn_ptr::adopt(loop, std::move(b), {});
+    REQUIRE(conn);
+    REQUIRE(dropped);
+    CHECK(loop->run_once(0) >= 0); // process posted register_with_loop
+  } // `~epoll_loop` runs here, on this thread, releasing its conn refs
+
+  // The connections survive the loop; every cross-thread entry point now
+  // reports failure rather than dispatching.
+  CHECK(conn->is_open());
+  CHECK_FALSE(conn->send("x"s));
+  CHECK_FALSE(conn->hangup());
+  CHECK_FALSE(conn->shutdown_write());
+  CHECK_FALSE(conn->shutdown_read());
+  CHECK_FALSE(conn->close());
+
+  // `dropped` destructs at scope exit without `close` having been called,
+  // exercising the handle destructor against the dead loop; its socket
+  // closes via RAII when the connection is released.
 }
 
 #pragma endregion

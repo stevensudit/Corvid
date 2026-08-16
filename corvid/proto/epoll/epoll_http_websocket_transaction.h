@@ -136,12 +136,13 @@ public:
   //
   // Requirement: `ping_interval + pong_timeout` must be less than the HTTP
   // server's read timeout to prevent the server from closing the connection
-  // before the keepalive does.
+  // before the keepalive does. The defaults (15s + 10s) satisfy this against
+  // the server's default 30s read timeout.
   //
   // Call from the `configure` callback passed to `make_factory`.
   [[nodiscard]] bool enable_keepalive(const std::shared_ptr<epoll_loop>& loop,
       const std::shared_ptr<timing_wheel>& wheel,
-      duration_t ping_interval = 30s, duration_t pong_timeout = 10s) {
+      duration_t ping_interval = 15s, duration_t pong_timeout = 10s) {
     keepalive_loop_ = std::weak_ptr{loop};
     keepalive_wheel_ = std::weak_ptr{wheel};
     ping_interval_ = ping_interval;
@@ -335,7 +336,7 @@ private:
   std::string pending_response_;
   bool upgraded_{};
 
-  duration_t ping_interval_ = 30s;
+  duration_t ping_interval_ = 15s;
   duration_t pong_timeout_ = 10s;
   std::atomic_uint64_t ping_interval_seq_;
   std::atomic_uint64_t pong_wait_seq_;

@@ -100,8 +100,10 @@ protected:
 // callbacks.
 //
 // An instance must be created on the thread it will run in and destructed in
-// that same thread. Only one such instance can live on a thread, and the post
-// queue must be consumed only from within that thread.
+// that same thread, unless it has been retired first (see `retire`), which
+// makes destruction safe from any thread. Only one such instance can live on
+// a thread, and the post queue must be consumed only from within that
+// thread.
 //
 // When lambdas are passed to `execute_or_post`, they are only executed
 // immediately if already on the loop thread. Otherwise, they are posted to the
@@ -182,8 +184,32 @@ public:
     return true;
   }
 
+  // Retire the dispatcher: shut down, release the thread claim, and mark the
+  // instance safe for destruction from any thread.
+  //
+  // Callable only on the loop thread, after that thread has stopped
+  // consuming the post queue; throws from any other thread (the `shutdown`
+  // contract). Afterward, `is_loop_thread` returns false on every thread,
+  // posts are refused, the thread is free to claim a new dispatcher, and the
+  // wrong-thread destruction guard is waived, so the last owner of a retired
+  // dispatcher may release it from anywhere. The caller must sequence the
+  // retirement before any foreign-thread destruction (a `shared_ptr`
+  // refcount release provides this).
+  //
+  // Idempotent, returning false when already retired.
+  [[nodiscard]] bool retire() {
+    if (retired_) return false;
+    (void)shutdown();
+    current_loop_ = nullptr;
+    retired_ = true;
+    return true;
+  }
+
   ~owner_thread_dispatcher() {
     try_or_terminate([&] {
+      // A retired instance has no thread-bound state left; the last owner
+      // may destroy it from any thread.
+      if (retired_) return;
       if (current_loop_ != this)
         throw std::logic_error{
             "owner_thread_dispatcher destructed on wrong thread"};
@@ -397,6 +423,10 @@ private:
   //
   // `default_retry_count_` is the default number of times
   // `execute_or_post_with_retry` will retry a failed callback.
+  //
+  // `retired_` is set by `retire` on the loop thread and read by the
+  // destructor, possibly on another thread; the caller's synchronization
+  // (e.g., the `shared_ptr` refcount release) orders that read.
 
   os_event wake_event_{os_event::create()};
   mutable std::mutex post_mutex_;
@@ -404,6 +434,7 @@ private:
   relaxed_atomic<post_queue_t*> active_queue_{&post_queues_[0]};
   post_queue_t* draining_queue_{};
   relaxed_atomic_size_t default_retry_count_{3};
+  relaxed_atomic_bool retired_;
 
 #pragma endregion
 };

@@ -300,11 +300,14 @@ public:
 #pragma endregion
 #pragma region Routing
 
-  // Register `factory` for the route identified by `key`. The `hostname`
-  // field is matched against the `Host` request header (empty matches any
-  // host). The `base_path` field is the leading path component (e.g.,
-  // `"/api"` from `"/api/v2"`); `"/"` acts as a host-scoped catch-all for
-  // unmatched paths. Replaces any existing registration for the same key.
+  // Register `factory` for the route identified by `key`.
+  //
+  // The `hostname` field is matched against the `Host` request header's
+  // `uri-host`; any `:port` suffix in the header is ignored, and an empty
+  // `hostname` matches any host. The `base_path` field is the leading path
+  // component (e.g., `"/api"` from `"/api/v2"`); `"/"` acts as a host-scoped
+  // catch-all for unmatched paths. Replaces any existing registration for the
+  // same key.
   //
   // Must be called only from within the `configure` callback passed to
   // `create`; returns `false` if the server has already started accepting
@@ -324,6 +327,21 @@ public:
       std::string_view target) {
     target = target.substr(0, target.find_first_of("?#"));
     return target.substr(0, target.find('/', 1));
+  }
+
+  // Strip the optional `":" port` suffix from a `Host` header value.
+  //
+  // Routes match on the `uri-host` alone (RFC 9110 section 7.2:
+  // `Host = uri-host [ ":" port ]`). An IPv6 literal is bracketed, so a
+  // colon introduces a port only when no `]` follows it.
+  [[nodiscard]] static std::string_view strip_host_port(
+      std::string_view host) {
+    const auto colon = host.rfind(':');
+    if (colon == std::string_view::npos) return host;
+    if (const auto bracket = host.rfind(']');
+        bracket != std::string_view::npos && bracket > colon)
+      return host;
+    return host.substr(0, colon);
   }
 #pragma endregion
 #pragma region Construction
@@ -428,9 +446,17 @@ private:
     auto& state = conn_t::from(conn).state();
     if (state.parser_state) return true;
     state.parser_state = terminated_text_parser::state{"\r\n", 8192};
-    state.send_cb = [this, &conn](any_strings&& bufs) -> bool {
+    // Capture the server weakly.
+    //
+    //.A connection can outlive the server in the shared-loop case, and a
+    // shared capture would form a reference cycle (server -> loop ->
+    // connection state -> send_cb -> server). A send after the server is gone
+    // just hangs up the connection.
+    state.send_cb =
+        [weak_self = weak_from_this(), &conn](any_strings&& bufs) -> bool {
+      const auto self = weak_self.lock();
       const auto is_hangup = std::holds_alternative<std::monostate>(bufs);
-      if (is_hangup || !arm_write_timeout(conn) ||
+      if (!self || is_hangup || !self->arm_write_timeout(conn) ||
           !conn.send_any(std::move(bufs)))
       {
         (void)hangup(conn);
@@ -442,9 +468,11 @@ private:
   }
 
   // When the send queue fully drains, disarm the write timeout and notify
-  // the active write transaction. Transitions to `done` when in `response`
-  // phase and the transaction queue empties. Also handles initial parser
-  // setup on the first drain event before any request has arrived.
+  // the active write transaction.
+  //
+  // Transitions to `done` when in `response` phase and the transaction queue
+  // empties. Also handles initial parser setup on the first drain event before
+  // any request has arrived.
   [[nodiscard]] bool handle_drain(epoll_stream_conn& conn) const {
     auto& state = conn_t::from(conn).state();
     timer_fuse_t::disarm(state.write_seq);
@@ -476,8 +504,10 @@ private:
     return keep_alive;
   }
 
-  // Find the registered route for `key`. Extracts the `base_path` from
-  // `key.base_path` directly and performs a prioritized lookup:
+  // Find the registered route for `key`.
+  //
+  // Extracts the `base_path` from `key.base_path` directly and performs a
+  // prioritized lookup:
   //   1. `{hostname, base_path}` -- exact host + folder
   //   2. `{hostname, "/"}` -- host-specific catch-all
   //   3. `{"", base_path}` -- any-host folder match
@@ -520,12 +550,14 @@ private:
       return send_error_response(conn, after_response::close,
           state.req.version);
 
-    // Build the route key from the `Host` header and the leading path
-    // component of the request target path, ignoring any query or fragment
-    // suffix (e.g., "/api" from "/api/v2?x=1#y", "/api/", or "/api"; and
-    // "/" from "/").
+    // Build the route key from the
+    //
+    // `Host` header (minus any `:port` suffix) and the leading path component
+    // of the request target path, ignoring any query or fragment suffix (e.g.,
+    // "/api" from "/api/v2?x=1#y", "/api/", or "/api"; and "/" from "/").
     const auto host_opt = state.req.headers.get("Host");
-    const auto hostname = host_opt ? *host_opt : std::string_view{};
+    const auto hostname =
+        host_opt ? strip_host_port(*host_opt) : std::string_view{};
     const auto base_path = route_base_path(state.req.target);
 
     const auto* factory = find_route({hostname, base_path});
@@ -616,10 +648,11 @@ private:
   // to continue the loop, or a `bool` to return immediately from
   // `handle_data`.
 
-  // Try to parse out just the request line, which ends at crlf. This lets
-  // us check for HTTP/0.9 instead of blocking forever on headers that might
-  // never come. Note that, while headers are technically optional for
-  // HTTP/1.0, we can at least count on the crlfcrlf sentinel.
+  // Try to parse out just the request line, which ends at crlf.
+  //
+  // This lets us check for HTTP/0.9 instead of blocking forever on headers
+  // that might never come. Note that, while headers are technically optional
+  // for HTTP/1.0, we can at least count on the crlfcrlf sentinel.
   [[nodiscard]] std::optional<bool>
   handle_request_line(epoll_stream_conn& conn, std::string_view& input,
       epoll_recv_buffer_view& view) const {
@@ -702,9 +735,10 @@ private:
     return enter_close_phase(conn) && false;
   }
 
-  // Parse or skip the header block for an incoming request. When the
-  // request has no header-field lines (blank line follows the request line
-  // immediately) the active data begins with "\r\n" rather than
+  // Parse or skip the header block for an incoming request.
+  //
+  // When the request has no header-field lines (blank line follows the request
+  // line immediately) the active data begins with "\r\n" rather than
   // "...\r\n\r\n". The "\r\n\r\n" sentinel cannot match in that case, so
   // detect it up front and skip the parser entirely.
   //
@@ -737,11 +771,13 @@ private:
   }
 
   // Handle the header lines phase, which ends when the full block is parsed or
-  // skipped. On success, dispatches the transaction and transitions to `body`
-  // phase if the transaction claims the input stream, or back to
-  // `request_line` phase if it releases immediately (no body or fully
-  // consumed). Returns `nullopt` to continue the loop, or a `bool` to return
-  // immediately from `handle_data`.
+  // skipped.
+  //
+  // On success, dispatches the transaction and transitions to `body` phase if
+  // the transaction claims the input stream, or back to `request_line` phase
+  // if it releases immediately (no body or fully consumed). Returns `nullopt`
+  // to continue the loop, or a `bool` to return immediately from
+  // `handle_data`.
   [[nodiscard]] std::optional<bool>
   handle_header_lines(epoll_stream_conn& conn, std::string_view& input,
       epoll_recv_buffer_view& view) const {
@@ -774,10 +810,14 @@ private:
     return std::nullopt;
   }
 
-  // Deliver incoming body bytes to the active read transaction. Transitions
-  // back to `request_line` phase when the transaction releases the input
-  // stream.
-  [[nodiscard]] bool handle_body(epoll_stream_conn& conn,
+  // Deliver incoming body bytes to the active read transaction.
+  //
+  // Returns `true` to wait for more data while the transaction retains its
+  // claim, or `nullopt` to continue the outer loop when it releases the input
+  // stream, so that a pipelined request already in the receive buffer is
+  // parsed without waiting for further bytes. Returns `false` if the
+  // connection is hung up.
+  [[nodiscard]] std::optional<bool> handle_body(epoll_stream_conn& conn,
       std::string_view& input, epoll_recv_buffer_view& view) const {
     auto& state = conn_t::from(conn).state();
     auto* reader = state.pipeline.get_reader().get();
@@ -787,20 +827,19 @@ private:
     // how much it consumes via `epoll_recv_buffer_view`.
     const auto sc = reader->handle_data(view);
 
-    // If the transaction has released the input stream, we transition back to
-    // `request_line` phase to parse the next request.
-    input = {};
-    if (sc == stream_claim::release) {
-      state.pipeline.next_reader();
-      state.parser_state = terminated_text_parser::state{"\r\n", 8192};
-      state.phase = http_phase::request_line;
-      // Re-sync `input` from the view so the outer loop can continue
-      // to process pipelined requests with any remaining bytes.
-      input = view.active_view();
-    }
-
     if (!arm_read_timeout(conn)) return conn.hangup() && false;
-    return true;
+
+    input = {};
+    if (sc == stream_claim::claim) return true;
+
+    // The transaction released the input stream; transition back to
+    // `request_line` phase and re-sync `input` from the view so the outer
+    // loop parses any remaining buffered bytes as the next request.
+    state.pipeline.next_reader();
+    state.parser_state = terminated_text_parser::state{"\r\n", 8192};
+    state.phase = http_phase::request_line;
+    input = view.active_view();
+    return std::nullopt;
   }
 
   // Handle incoming data for an accepted connection.
@@ -834,7 +873,11 @@ private:
         if (r) return *r;
         continue;
       }
-      case http_phase::body: return handle_body(conn, input, view);
+      case http_phase::body: {
+        const auto r = handle_body(conn, input, view);
+        if (r) return *r;
+        continue;
+      }
       case http_phase::response:
       // Both phases arrive here only after `enter_close_phase` has called
       // `conn.close`. The write side drains via `on_drain`/`handle_drain`,
