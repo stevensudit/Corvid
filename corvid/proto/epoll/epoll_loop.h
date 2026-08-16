@@ -593,10 +593,9 @@ private:
       //      accessor see nullptr; in-flight callers that already
       //      loaded the pointer are responsible for not outliving the
       //      runner.
-      //   2. Break ownership cycles by clearing the loop's
-      //      registrations on this thread, so any
-      //      `shared_ptr<epoll_loop>` held by a connection is released
-      //      here.
+      //   2. Break ownership cycles by clearing the loop's registrations on
+      //      this thread, so any `shared_ptr<epoll_loop>` held by a connection
+      //      is released here.
       //   3. Drop the local `loop` so `state->loop` should be the sole
       //      owner.
       //   4. Belt-and-suspenders: confirm no external `shared_ptr`

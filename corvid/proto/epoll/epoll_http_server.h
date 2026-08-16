@@ -636,7 +636,7 @@ private:
 
     // Skip leading bare CRLFs (RFC 9112 section 2.2), up to the limit.
     if (block_view.empty()) {
-      if (++state.leading_crlf_count > max_leading_crls)
+      if (++state.leading_crlf_count > max_leading_crlfs)
         return conn.hangup() && false;
 
       view.update_active_view(input);
@@ -849,8 +849,8 @@ private:
 #pragma endregion
 #pragma region Data members
 
-  // Maximum bare CRLFs to skip before the request line (RFC 9112 §2.2).
-  static constexpr uint8_t max_leading_crls{8};
+  // Maximum bare CRLFs to skip before the request line (RFC 9112 section 2.2).
+  static constexpr uint8_t max_leading_crlfs{8};
 
   relaxed_atomic_bool configured_;
   std::optional<epoll_loop_runner> runner_;

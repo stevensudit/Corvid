@@ -58,8 +58,10 @@ public:
 #pragma endregion
 #pragma region Construction
 
-  // Load all regular files under `web_root`. Filesystem errors per entry are
-  // silently ignored; an unreadable `web_root` produces an empty cache.
+  // Load all regular files under `web_root`.
+  //
+  // Filesystem errors per entry are silently ignored; an unreadable `web_root`
+  // produces an empty cache.
   explicit epoll_static_file_cache(const std::filesystem::path& web_root) {
     std::error_code ec;
     for (auto& e : std::filesystem::recursive_directory_iterator(web_root, ec))
