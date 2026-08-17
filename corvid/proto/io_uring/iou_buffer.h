@@ -578,6 +578,10 @@ public:
   // payload); `active_span` is set to `payload_span` (so the next send
   // transmits exactly what was read). Decrements the pool's in-flight read
   // byte count for the full block.
+  //
+  // A pool that declines read-byte tracking (the Provided Buffer and
+  // synthetic pools) refuses the promotion, leaving the buffer in read mode.
+  // Detect this by chaining a mode check: `promote_to_write().blockrw()`.
   iou_buffer& promote_to_write() {
     assert(blockrw_ == block_type::read);
     if (!pool_->decrement_read_bytes(full_span_.size())) return *this;
@@ -589,7 +593,12 @@ public:
   // Demote this write buffer to read mode.
   //
   // `payload_span` is kept as-is; `active_span` becomes the tail (space after
-  // `payload_span` for additional incoming data).
+  // `payload_span` for additional incoming data). Increments the pool's
+  // in-flight read byte count for the full block.
+  //
+  // A pool that declines read-byte tracking refuses the demotion, leaving
+  // the buffer in write mode. Detect this by chaining a mode check:
+  // `demote_to_read().blockrw()`.
   iou_buffer& demote_to_read() {
     assert(blockrw_ == block_type::write);
     if (!pool_->increment_read_bytes(full_span_.size())) return *this;

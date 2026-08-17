@@ -509,6 +509,30 @@ TEST_CASE("PromoteDemoteRoundtrip", "[IouBufPool]") {
 }
 
 #pragma endregion
+#pragma region PromoteDemoteRefusal
+
+TEST_CASE("PromoteDemoteRefusal", "[IouBufPool]") {
+  // A pool that declines read-byte tracking (here, the synthetic null pool)
+  // refuses promote/demote; the chained `blockrw` check detects it.
+  if (true) {
+    std::string data{"held"};
+    iou_buffer::span_t span{reinterpret_cast<std::byte*>(data.data()),
+        data.size()};
+    auto buf = iou_buffer::make_synthetic(span);
+    REQUIRE(buf);
+    CHECK(buf.promote_to_write().blockrw() == block_type::read);
+  }
+  if (true) {
+    std::string data{"held"};
+    iou_buffer::span_t span{reinterpret_cast<std::byte*>(data.data()),
+        data.size()};
+    auto buf = iou_buffer::make_synthetic_write(span);
+    REQUIRE(buf);
+    CHECK(buf.demote_to_read().blockrw() == block_type::write);
+  }
+}
+
+#pragma endregion
 #pragma region AvailableTracking
 
 TEST_CASE("AvailableTracking", "[IouBufPool]") {
