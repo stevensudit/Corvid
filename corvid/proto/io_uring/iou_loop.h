@@ -608,7 +608,14 @@ public:
       if constexpr (StoredBufCompletionInvocable<decltype(cb)>) {
         return cb(cbhandle, af.update(res, flags));
       } else if constexpr (StoredEndpointCompletionInvocable<decltype(cb)>) {
-        af.sockaddr.len = net_endpoint::max_sockaddr_size;
+        // On success, the kernel filled the endpoint's storage and wrote the
+        // actual address length into `len` (`accept4(2)` value-result
+        // contract). Finalize via self-assign so the `net_endpoint` adopts
+        // the kernel's length before the callback sees it. On failure,
+        // nothing was written and the endpoint stays in its prep state.
+        if (res)
+          (void)af.sockaddr.sockaddr.assign(sockaddr_view{
+              af.sockaddr.sockaddr.as_sockaddr_ptr(), af.sockaddr.len});
         return cb(cbhandle, res, flags, af.sockaddr);
       } else if constexpr (StoredMsgHdrCompletionInvocable<decltype(cb)>) {
         af.msg.msg_namelen = net_endpoint::max_sockaddr_size;

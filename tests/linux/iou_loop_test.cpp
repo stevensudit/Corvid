@@ -24,6 +24,7 @@
 #include <cstring>
 #include <string_view>
 #include <thread>
+#include <netinet/in.h>
 #include <sys/socket.h>
 #include <sys/uio.h>
 
@@ -652,6 +653,68 @@ TEST_CASE("AcceptConnect", "[IouLoop]") {
     CHECK(accept_res.load() >= 0);
     CHECK(connect_res.load() == 0);
     if (accept_res.load() >= 0) ::close(accept_res.load());
+  }
+}
+
+#pragma endregion
+#pragma region AcceptFillsEndpoint
+
+TEST_CASE("AcceptFillsEndpoint", "[IouLoop]") {
+  // The kernel fills the endpoint bound to `submit_accept` and writes the
+  // actual address length into `len` (accept4(2) value-result contract). The
+  // callback must see the finalized endpoint: `len` holds the true sockaddr
+  // length rather than the prep-time write capacity, and the `net_endpoint`
+  // has adopted it.
+  if (true) {
+    auto listen_ep = net_endpoint::loopback_v4(0);
+    auto listen_sock = net_socket::create_for(listen_ep);
+    CHECK(listen_sock);
+    CHECK(listen_sock.set_reuse_addr());
+    CHECK(listen_sock.bind(listen_ep));
+    CHECK(listen_sock.listen());
+    const auto bound = net_endpoint::local_of(listen_sock);
+
+    std::atomic_bool accepted{false};
+    std::atomic_int32_t accept_res{-1};
+    net_endpoint peer_ep;
+    socklen_t peer_len{};
+
+    iou_loop_runner loop;
+
+    const auto accept_tok = loop->submit_accept(listen_sock,
+        [&](completion_id, iou_res res, iou_cqe_flags,
+            const combined_endpoint& ep) -> slot_retention {
+          accept_res.store(res.value(), std::memory_order::relaxed);
+          peer_ep = ep.sockaddr;
+          peer_len = ep.len;
+          accepted.store(true, std::memory_order::release);
+          return slot_retention{};
+        });
+    CHECK(accept_tok.is_valid());
+
+    auto client_sock = net_socket::create_for(bound);
+    CHECK(client_sock);
+    std::atomic_bool connected{false};
+    bound_endpoint_with_timeout connect_ep{};
+    connect_ep.sockaddr.sockaddr = bound;
+    connect_ep.sockaddr.len = bound.sockaddr_size();
+    const auto connect_tok = loop->submit_connect(client_sock,
+        std::move(connect_ep),
+        [&](completion_id, iou_res, iou_cqe_flags) -> slot_retention {
+          connected.store(true, std::memory_order::release);
+          return slot_retention{};
+        });
+    CHECK(connect_tok.is_valid());
+
+    CHECK(WaitFor([&] { return accepted.load(std::memory_order::acquire); }));
+    CHECK(WaitFor([&] { return connected.load(std::memory_order::acquire); }));
+    if (accept_res.load() >= 0) ::close(accept_res.load());
+
+    // A real IPv4 peer address, not the write capacity.
+    CHECK(peer_len == sizeof(sockaddr_in));
+    CHECK_FALSE(peer_ep.empty());
+    CHECK(peer_ep.as_sockaddr_view().is_v4());
+    CHECK(peer_ep.port() == net_endpoint::local_of(client_sock).port());
   }
 }
 
