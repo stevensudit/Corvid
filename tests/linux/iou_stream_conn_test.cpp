@@ -1023,6 +1023,97 @@ TEST_CASE("ShutdownRecv", "[IouStreamConn]") {
 }
 
 #pragma endregion
+#pragma region ReadIdleAfterPeerEof
+
+TEST_CASE("ReadIdleAfterPeerEof", "[IouStreamConn]") {
+  // Peer EOF deliberately leaves the read-idle countdown running: a peer
+  // that shut its outbound is still idle and earns the hangup. Our own
+  // `shutdown_recv`, in contrast, stops the countdown even when the peer
+  // already went first: once we decline to listen, the peer cannot be
+  // blamed for silence.
+  if (true) {
+    // EOF alone: the countdown keeps running and hangs the conn up.
+    auto [sock0, sock1] = net_socket::create_pair();
+
+    std::atomic_bool got_eof{false};
+    std::atomic_bool got_close{false};
+
+    capture_protocol::state recv_state;
+    recv_state.on_data = [&](iou_recv_view view) {
+      if (view.active_view().empty())
+        got_eof.store(true, std::memory_order::release);
+      else
+        view.consume(view.active_view().size());
+      return true;
+    };
+    recv_state.on_close = [&] {
+      got_close.store(true, std::memory_order::release);
+      return true;
+    };
+
+    iou_loop_runner runner;
+
+    auto recv_conn =
+        capture_conn::adopt(*runner.loop(), std::move(sock1),
+            net_endpoint::invalid, shot_type::single, 50ms, {}, &recv_state)
+            .lock();
+    CHECK(recv_conn);
+    auto send_conn =
+        capture_conn::adopt(*runner.loop(), std::move(sock0),
+            net_endpoint::invalid)
+            .lock();
+    CHECK(send_conn);
+
+    CHECK(send_conn->close());
+    CHECK(WaitFor([&] { return got_eof.load(std::memory_order::acquire); }));
+    CHECK(WaitFor([&] { return got_close.load(std::memory_order::acquire); }));
+    CHECK_FALSE(recv_conn->is_open());
+  }
+  if (true) {
+    // `shutdown_recv` after peer EOF: the countdown stops, no hangup. The
+    // 10s timeout cannot fire within the test, so the mode transition is
+    // the observable.
+    auto [sock0, sock1] = net_socket::create_pair();
+
+    std::atomic_bool got_eof{false};
+
+    capture_protocol::state recv_state;
+    recv_state.on_data = [&](iou_recv_view view) {
+      if (view.active_view().empty())
+        got_eof.store(true, std::memory_order::release);
+      else
+        view.consume(view.active_view().size());
+      return true;
+    };
+
+    iou_loop_runner runner;
+
+    auto recv_conn =
+        capture_conn::adopt(*runner.loop(), std::move(sock1),
+            net_endpoint::invalid, shot_type::single, 10s, {}, &recv_state)
+            .lock();
+    CHECK(recv_conn);
+    auto send_conn =
+        capture_conn::adopt(*runner.loop(), std::move(sock0),
+            net_endpoint::invalid)
+            .lock();
+    CHECK(send_conn);
+
+    CHECK(send_conn->close());
+    CHECK(WaitFor([&] { return got_eof.load(std::memory_order::acquire); }));
+    CHECK(
+        recv_conn->read_idle().get_mode() == capture_conn::idle_mode::running);
+
+    CHECK_FALSE(recv_conn->shutdown_recv()); // already shut; still stops
+    CHECK(WaitFor([&] {
+      return recv_conn->read_idle().get_mode() ==
+             capture_conn::idle_mode::stopped;
+    }));
+    CHECK(recv_conn->is_open());
+  }
+}
+
+#pragma endregion
 #pragma region StopAndResumeReceivingOnConn
 
 TEST_CASE("StopAndResumeReceivingOnConn", "[IouStreamConn]") {

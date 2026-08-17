@@ -378,6 +378,10 @@ public:
   // zero means "no timeout". The two `idle_timeout` instances expose the
   // full API for each direction.
   //
+  // Peer EOF leaves the read-idle countdown running: a peer that shut its
+  // outbound is still idle and earns the hangup. Only our own choice to stop
+  // listening (`shutdown_recv`) silences it.
+  //
 
   [[nodiscard]] auto& read_idle(this auto& self) noexcept {
     return self.read_idle_;
@@ -460,12 +464,22 @@ public:
   // `read_shut_`. The write side stays open. If writes were already shut, just
   // closes. Idempotent.
   //
+  // Stops the read-idle countdown, even when the peer already shut its side
+  // (which by itself deliberately leaves the countdown running).
+  //
   // Symmetric to `shutdown_send`, though generally less useful because it
   // doesn't send any indication over the wire or offer strong guarantees about
   // kernel behavior.
   [[nodiscard]] bool shutdown_recv() {
     if (closed_) return false;
-    if (read_shut_.exchange(true)) return false;
+    // Already shut, typically by peer EOF. We are now declining to listen, so
+    // the peer can no longer be blamed for silence.
+    if (read_shut_.exchange(true)) {
+      (void)loop_.execute_or_post([this, _ = self()] {
+        return read_idle_.stop();
+      });
+      return false;
+    }
     return loop_.execute_or_post([this, _ = self()] {
       if (closed_) return false;
       (void)read_idle_.stop();
@@ -1146,7 +1160,8 @@ private:
     const auto res = buf.result();
 
     // EOF from peer. Deliver an empty view so the plugin learns the read side
-    // is shut.
+    // is shut. The read-idle countdown deliberately keeps running: peer EOF
+    // is still idleness.
     if (res.value() == 0) {
       read_shut_ = true;
       if (write_shut_) return do_close_now();
