@@ -433,7 +433,7 @@ public:
     if (closed_) return false;
     if (close_requested_.exchange(true)) return false;
     return loop_.execute_or_post([this, _ = self()] {
-      if (send_queue_.empty() && !send_token_) return do_close_now(true);
+      if (send_queue_.empty() && !send_token_) return do_close_now();
       return true;
     });
   }
@@ -961,9 +961,9 @@ private:
   }
 
   // Close immediately without flushing.
-  [[nodiscard]] bool do_close_now(bool already_exchanged = false) {
+  [[nodiscard]] bool do_close_now() {
     assert(loop().is_loop_thread());
-    if (!already_exchanged && closed_.exchange(true)) return false;
+    if (closed_.exchange(true)) return false;
     send_queue_.clear();
     if (sock_)
       (void)loop_.submit_close(std::move(sock_),

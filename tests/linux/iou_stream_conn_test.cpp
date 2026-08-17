@@ -1272,6 +1272,45 @@ TEST_CASE("HangupIdempotent", "[IouStreamConn]") {
 }
 
 #pragma endregion
+#pragma region MultishotCloseMarksClosed
+
+TEST_CASE("MultishotCloseMarksClosed", "[IouStreamConn]") {
+  // After `close` on an idle multishot conn, `on_close` fires and `is_open`
+  // reports false. The single-shot flavor of this is covered by
+  // `AccessorsLifecycle`; multishot pins the flag ordering, since its recv
+  // callback bows out on cancelation without touching the close path.
+  if (true) {
+    auto [sock0, sock1] = net_socket::create_pair();
+
+    std::atomic_bool closed{false};
+
+    capture_protocol::state state0;
+    state0.on_close = [&] {
+      closed.store(true, std::memory_order::release);
+      return true;
+    };
+
+    iou_loop_runner runner;
+
+    auto conn0 = capture_conn::adopt(*runner.loop(), std::move(sock0),
+        net_endpoint::invalid, shot_type::multi, {}, {}, &state0)
+                     .lock();
+    auto conn1 = capture_conn::adopt(*runner.loop(), std::move(sock1),
+        net_endpoint::invalid)
+                     .lock();
+    CHECK(conn0);
+    CHECK(conn1);
+
+    CHECK(conn0->close());
+    CHECK(WaitFor([&] { return closed.load(std::memory_order::acquire); }));
+    CHECK_FALSE(conn0->is_open());
+
+    // Second `close` is a no-op.
+    CHECK_FALSE(conn0->close());
+  }
+}
+
+#pragma endregion
 #pragma region SelfSharedPtr
 
 TEST_CASE("SelfSharedPtr", "[IouStreamConn]") {
