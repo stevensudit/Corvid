@@ -1669,6 +1669,12 @@ TEST_CASE("SubmitTimeoutRemove", "[IouLoop]") {
 
     const auto ok = loop->submit_timeout_remove(std::move(timeout_token));
     CHECK(ok);
+
+    // The canceled timeout completes with `-ECANCELED` instead of `-ETIME`.
+    CHECK(WaitFor([&] {
+      return timeout_result.load(std::memory_order::acquire) != 1;
+    }));
+    CHECK(timeout_result.load(std::memory_order::acquire) == -ECANCELED);
   }
 }
 
