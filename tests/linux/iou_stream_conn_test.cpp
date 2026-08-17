@@ -1409,6 +1409,65 @@ TEST_CASE("SendStringBatchOverflow", "[IouStreamConn]") {
 }
 
 #pragma endregion
+#pragma region SendHealsAfterPoolExhaustion
+
+TEST_CASE("SendHealsAfterPoolExhaustion", "[IouStreamConn]") {
+  // A string send whose JIT buffer borrow fails (write pool exhausted) stays
+  // queued and goes out on its own once buffers return to the pool, even
+  // with no other sends or completions to re-drive the queue.
+  if (true) {
+    auto [sock0, sock1] = net_socket::create_pair();
+
+    std::atomic_bool received{false};
+    std::string payload;
+
+    constexpr std::string_view msg{"starved"};
+
+    capture_protocol::state recv_state;
+    recv_state.on_data = [&](iou_recv_view view) {
+      payload += view.active_view();
+      view.consume(view.active_view().size());
+      received.store(true, std::memory_order::release);
+      return true;
+    };
+
+    iou_loop_runner runner;
+
+    // Multishot conns so the recv side draws on the provided pool, leaving
+    // the fixed pool entirely to the hogs below.
+    auto recv_conn =
+        capture_conn::adopt(*runner.loop(), std::move(sock1),
+            net_endpoint::invalid, shot_type::multi, {}, {}, &recv_state)
+            .lock();
+    CHECK(recv_conn);
+
+    auto send_conn =
+        capture_conn::adopt(*runner.loop(), std::move(sock0),
+            net_endpoint::invalid)
+            .lock();
+    CHECK(send_conn);
+
+    // Hog the entire fixed pool so the send's JIT borrow fails.
+    std::vector<iou_loop::buffer> hogs;
+    for (;;) {
+      auto hog = runner->borrow_write_buffer(block_size::kb064);
+      if (!hog) break;
+      hogs.push_back(std::move(hog));
+    }
+    CHECK_FALSE(runner->borrow_write_buffer());
+
+    CHECK(send_conn->send(std::string{msg}));
+    std::this_thread::sleep_for(20ms);
+    CHECK_FALSE(received.load(std::memory_order::acquire));
+
+    // Return the pool; the queued send must now go out unprompted.
+    hogs.clear();
+    CHECK(WaitFor([&] { return received.load(std::memory_order::acquire); }));
+    CHECK(payload == msg);
+  }
+}
+
+#pragma endregion
 #pragma region SendStringTooBigRejected
 
 TEST_CASE("SendStringTooBigRejected", "[IouStreamConn]") {

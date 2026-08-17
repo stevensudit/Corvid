@@ -512,8 +512,9 @@ public:
     return conn;
   }
 
-  // Resume receiving after `stop_receiving`. Idempotent. A no-op once the read
-  // side has been shut (peer EOF observed).
+  // Resume receiving after `stop_receiving`.
+  //
+  // Idempotent. A no-op once the read side has been shut (peer EOF observed).
   [[nodiscard]] bool resume_receiving() {
     if (!recv_paused_.exchange(false)) return false;
     return loop_.execute_or_post([this, _ = self()]() -> bool {
@@ -761,7 +762,16 @@ private:
     else
       buf = loop_.borrow_read_buffer(recv_buf_size_);
 
-    if (!buf) return false;
+    // Pool exhausted or read-throttled: retry from the back of the post
+    // queue. The guard ends the retries once a recv is armed some other way
+    // or the read side stops.
+    if (!buf) {
+      (void)loop_.post([this, _ = self()]() -> bool {
+        if (closed_ || recv_token_ || read_shut_ || recv_paused_) return true;
+        return do_submit_single_recv();
+      });
+      return false;
+    }
 
     recv_token_ = loop_.submit_read_buffer(sock_, std::move(buf),
         [this, _ = self()](completion_id, buffer& b) {
@@ -832,17 +842,18 @@ private:
     return true;
   }
 
-  // Build the resume callback captured by an `iou_recv_view`. Returns an
-  // `iou_loop::posted_fn` resume token on the stop path (notsock signal),
-  // or an empty `posted_fn` on the normal re-arm path. Safe to call from any
-  // thread.
+  // Build the resume callback captured by an `iou_recv_view`.
+  //
+  // Returns an `iou_loop::posted_fn` resume token on the stop path (notsock
+  // signal), or an empty `posted_fn` on the normal re-arm path. Safe to call
+  // from any thread.
   [[nodiscard]] iou_recv_view::resume_fn make_view_resume() {
     return [this, conn = self()](buffer&& buf) -> iou_loop::posted_fn {
       // Read side is shut: the recv chain has already ended. Nothing to
       // resubmit, no stop callback to mint.
       if (read_shut_) return {};
 
-      // Stop signal: deactivated buffer carries `EC::notsock`.
+      // If `deactivate` was called on the buffer, resume.
       if (!buf.result() && buf.result().err() == EC::notsock)
         return [this, conn = stop_receiving()] { return resume_receiving(); };
 
@@ -869,6 +880,17 @@ private:
       send_queue_.pop_front();
     } else {
       buf = loop_.borrow_write_buffer(send_buf_size_);
+      // Pool exhausted: the strings stay queued. Retry from the back of the
+      // post queue, giving the work ahead of us a chance to return buffers.
+      // The guard ends the retries once a send is driven some other way or
+      // the conn closes.
+      if (!buf) {
+        (void)loop_.post([this, _ = self()]() -> bool {
+          if (closed_ || send_token_ || send_queue_.empty()) return true;
+          return do_submit_send();
+        });
+        return false;
+      }
       while (!send_queue_.empty() &&
              std::holds_alternative<std::string>(send_queue_.front()))
       {
@@ -881,10 +903,11 @@ private:
     return do_submit_send_buffer(std::move(buf));
   }
 
-  // Send buffer. Prefers `submit_send_buffer` (ZC). On first `EOPNOTSUPP`
-  // (such as with Unix domain sockets), `on_send_complete` clears
-  // `send_zc_supported_` and this helper falls back to `submit_write_buffer`
-  // for all subsequent sends.
+  // Send buffer.
+  //
+  // Prefers `submit_send_buffer` (ZC). On first `EOPNOTSUPP` (such as with
+  // Unix domain sockets), `on_send_complete` clears `send_zc_supported_` and
+  // this helper falls back to `submit_write_buffer` for all subsequent sends.
   [[nodiscard]] bool do_submit_send_buffer(buffer&& buf) {
     assert(loop().is_loop_thread() && !send_token_);
     if (!buf) return false;

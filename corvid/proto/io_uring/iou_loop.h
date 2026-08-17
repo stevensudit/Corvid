@@ -481,8 +481,10 @@ public:
   }
 
   // Borrow a registered `buffer` from the pool for the purpose of writing to
-  // it. Returns an invalid `buffer` if the pool is exhausted. Fill the
-  // `buffer`'s payload, then pass it to `submit_send_buffer`.
+  // it.
+  //
+  // Returns an invalid `buffer` if the pool is exhausted. Fill the `buffer`'s
+  // payload, then pass it to `submit_send_buffer`.
   [[nodiscard]] buffer borrow_write_buffer(block_size sz = block_size::kb004) {
     return buf_pool_->borrow_writer(sz);
   }

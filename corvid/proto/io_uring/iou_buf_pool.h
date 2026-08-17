@@ -309,9 +309,10 @@ public:
     return make_buffer(this->shared_from_this(), s, 0U, block_type::read);
   }
 
-  // Borrow a buffer for an outgoing write. Not subject to read backpressure;
-  // may draw from the write reserve. Returns an empty buffer if fully
-  // exhausted. Thread-safe.
+  // Borrow a buffer for an outgoing write.
+  //
+  // Not subject to read backpressure; may draw from the write reserve. Returns
+  // an empty buffer if fully exhausted. Thread-safe.
   [[nodiscard]] buffer borrow_writer(block_size sz = block_size::kb004) {
     std::scoped_lock lock(mutex_);
     span_t s{alloc_block(*sz), *sz};

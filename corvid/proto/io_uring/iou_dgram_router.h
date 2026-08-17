@@ -351,7 +351,16 @@ private:
       return do_submit_multi_recv();
 
     auto buf = loop_.borrow_read_buffer(buf_size);
-    if (!buf) return false;
+    // Pool exhausted or read-throttled: retry from the back of the post
+    // queue. The guard ends the retries once a recv is armed some other way
+    // or the router closes.
+    if (!buf) {
+      (void)loop_.post([self = self()]() -> bool {
+        if (!self->open_ || self->recv_token_) return true;
+        return self->do_submit_single_recv();
+      });
+      return false;
+    }
 
     recv_token_ = loop_.submit_recvmsg_buffer(sock_, std::move(buf),
         [self = self()](completion_id, buffer& buf) mutable -> slot_retention {
