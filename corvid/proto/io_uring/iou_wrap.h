@@ -26,6 +26,7 @@
 #include <type_traits>
 
 #include <poll.h>
+#include <sys/mman.h>
 #include <sys/socket.h>
 #include <sys/uio.h>
 
@@ -899,15 +900,23 @@ public:
   //
   // `io_uring_queue_exit` releases the kernel-side buf-ring registration as
   // part of its teardown, so the explicit unregister is unnecessary in that
-  // case and would dereference a destroyed `iou_ring`. The user-space `add`
-  // and `advance` paths remain usable (they only touch the mmap'd ring),
-  // though by this point nothing should be calling them.
+  // case and would dereference a destroyed `iou_ring`. The destructor then
+  // just unmaps the ring pages. The user-space `add` and `advance` paths
+  // remain usable (they only touch the mmap'd ring), though by this point
+  // nothing should be calling them.
   void skip_unregister() noexcept { ring_ = nullptr; }
 
 private:
   void do_free() noexcept {
-    if (ring_ && buf_ring_)
+    if (!buf_ring_) return;
+    if (ring_) {
       ::io_uring_free_buf_ring(ring_->get_ptr(), buf_ring_, entries_, bgid_);
+      return;
+    }
+    // After `skip_unregister`, `io_uring_queue_exit` handles the kernel-side
+    // release but leaves the ring pages mapped. Unmap them here, sized per
+    // `io_uring_register_buf_ring(3)`: one `io_uring_buf` per entry.
+    ::munmap(buf_ring_, entries_ * sizeof(io_uring_buf));
   }
 
   iou_ring* ring_{};
