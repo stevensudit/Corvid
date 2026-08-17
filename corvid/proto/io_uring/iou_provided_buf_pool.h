@@ -162,16 +162,17 @@ public:
 #pragma region Registration
 
   // Register the buffer ring with `ring` and enqueue all buffer slots.
+  //
   // Must be called once before any SQE with `IOSQE_BUFFER_SELECT` is
   // submitted.
   //
   // Note that, when `slab_size` is 0, we silently pass.
-  [[nodiscard]] bool register_with(iou_ring& ring) noexcept {
-    if (!base_) return true;
+  [[nodiscard]] iou_res register_with(iou_ring& ring) noexcept {
+    if (!base_) return {};
 
     // Associate buffer ring with I/O ring.
     buf_ring_ = iou_buf_ring{ring, buf_count_, bgid_};
-    if (!buf_ring_) return false;
+    if (!buf_ring_) return buf_ring_.setup_result();
 
     // Enqueue all buffer slots into the kernel ring. The kernel will select
     // and fill them on `IOSQE_BUFFER_SELECT` SQEs, and replenish them when we
@@ -185,7 +186,7 @@ public:
     buf_ring_.advance(static_cast<int>(buf_count_));
     free_count_ = buf_count_;
 
-    return true;
+    return {};
   }
 
   // Tell the embedded `iou_buf_ring` that its associated `iou_ring` is about

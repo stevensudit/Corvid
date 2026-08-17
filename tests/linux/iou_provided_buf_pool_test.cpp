@@ -131,8 +131,12 @@ TEST_CASE("RegisterWithRing", "[IouProvidedBufPool]") {
     REQUIRE(pool);
     iou_ring ring;
     REQUIRE(pool->register_with(ring));
-    // Double registration must fail.
-    CHECK_FALSE(pool->register_with(ring));
+    // Double registration must fail, with the code plumbed through. The
+    // kernel reports `EEXIST` for a duplicate bgid (observed behavior;
+    // `io_uring_register_buf_ring(3)` specifies only "-errno").
+    const auto res = pool->register_with(ring);
+    CHECK_FALSE(res);
+    CHECK(res.err() == EC::exist);
   }
 }
 

@@ -280,10 +280,11 @@ public:
   }
 
   // Register the backing block as a single fixed buffer (index 0) with
-  // `ring`. Must be called exactly once before any buffer is used in an I/O
-  // submission. Returns false (and sets `errno`) on failure. The `ring`
-  // unregisters on destruction.
-  [[nodiscard]] bool register_with(iou_ring& ring) noexcept {
+  // `ring`.
+  //
+  // Must be called exactly once before any buffer is used in an I/O
+  // submission. The `ring` unregisters on destruction.
+  [[nodiscard]] iou_res register_with(iou_ring& ring) noexcept {
     iovec iov{base_, slab_size};
     return ring.register_buffers(&iov, 1);
   }

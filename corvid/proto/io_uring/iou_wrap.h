@@ -30,6 +30,7 @@
 #include <sys/uio.h>
 
 #include "../../filesys/os_event.h"
+#include "../../strings/cstring_view.h"
 #include "../net_endpoint.h"
 #include "../socket_enums.h"
 #include "../../enums.h"
@@ -368,10 +369,10 @@ public:
            e == EC::nomem || e == EC::restart;
   }
 
-  void throw_if_error(const std::string& context, int r = 0) const {
+  // Throw `std::system_error` for a failed result, identified by `context`.
+  void throw_if_error(cstring_view context, int r = 0) const {
     if (ok(r)) return;
-    throw std::system_error{*err(), std::system_category(),
-        "io_uring error in " + context};
+    throw std::system_error{*err(), std::system_category(), context.c_str()};
   }
 
 private:
@@ -816,14 +817,15 @@ public:
         ts.pointer(), nullptr)};
   }
 
-  // Register a fixed buffer table with the kernel. `iovecs` points to an
-  // array of `count` `iovec` entries describing the pre-allocated buffers.
-  // Each entry's `iov_base`/`iov_len` defines one registered slot used by
-  // `read_fixed`/`write_fixed`. Returns false (with `errno` set) on failure.
-  [[nodiscard]] bool
+  // Register a fixed buffer table with the kernel.
+  //
+  // `iovecs` points to an array of `count` `iovec` entries describing the
+  // pre-allocated buffers. Each entry's `iov_base`/`iov_len` defines one
+  // registered slot used by `read_fixed`/`write_fixed`.
+  [[nodiscard]] iou_res
   register_buffers(const iovec* iovecs, size_t count) noexcept {
-    return io_uring_register_buffers(&ring_, iovecs,
-               static_cast<unsigned>(count)) == 0;
+    return iou_res{io_uring_register_buffers(&ring_, iovecs,
+        static_cast<unsigned>(count))};
   }
 
 private:
@@ -844,17 +846,21 @@ public:
   iou_buf_ring& operator=(const iou_buf_ring&) = delete;
 
   // Set up a provided-buffer ring with `entries` slots (must be a power of
-  // two) under group ID `bgid`. Returns an empty `iou_buf_ring` on failure.
+  // two) under group ID `bgid`.
+  //
+  // On failure, the constructed `iou_buf_ring` is empty and `setup_result`
+  // holds the error code.
   [[nodiscard]] iou_buf_ring(iou_ring& ring, size_t entries, uint16_t bgid)
       : ring_{&ring}, entries_{static_cast<unsigned>(entries)}, bgid_{bgid} {
     int err{};
     buf_ring_ = ::io_uring_setup_buf_ring(ring_->get_ptr(),
         static_cast<unsigned>(entries), bgid, 0, &err);
+    if (!buf_ring_) setup_res_ = iou_res{err};
   }
 
   iou_buf_ring(iou_buf_ring&& o) noexcept
       : ring_{o.ring_}, buf_ring_{o.buf_ring_}, entries_{o.entries_},
-        bgid_{o.bgid_} {
+        bgid_{o.bgid_}, setup_res_{o.setup_res_} {
     o.ring_ = nullptr;
     o.buf_ring_ = nullptr;
   }
@@ -866,6 +872,7 @@ public:
     buf_ring_ = o.buf_ring_;
     entries_ = o.entries_;
     bgid_ = o.bgid_;
+    setup_res_ = o.setup_res_;
     o.ring_ = nullptr;
     o.buf_ring_ = nullptr;
     return *this;
@@ -874,6 +881,8 @@ public:
   ~iou_buf_ring() { do_free(); }
 
   [[nodiscard]] explicit operator bool() const noexcept { return buf_ring_; }
+
+  [[nodiscard]] iou_res setup_result() const noexcept { return setup_res_; }
 
   // Add a buffer slot to the ring. Must be followed by `advance`.
   void add(void* data, unsigned len, unsigned short bid, int mask,
@@ -905,6 +914,7 @@ private:
   io_uring_buf_ring* buf_ring_{};
   unsigned entries_{};
   uint16_t bgid_{};
+  iou_res setup_res_;
 };
 
 #pragma endregion

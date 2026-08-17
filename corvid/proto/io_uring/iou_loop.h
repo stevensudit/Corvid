@@ -343,15 +343,12 @@ public:
                 iou_setup_flags::setup_defer_taskrun |
                 iou_setup_flags::setup_submit_all},
         max_pending_sqes_{max_pending_sqes} {
-    if (!buf_pool_->register_with(ring_))
-      throw std::system_error{errno, std::system_category(),
-          "io_uring_register_buffers"};
-    if (!udp_buf_pool_->register_with(ring_))
-      throw std::system_error{errno, std::system_category(),
-          "io_uring_register_buf_ring (udp_buf_pool)"};
-    if (!tcp_provided_buf_pool_->register_with(ring_))
-      throw std::system_error{errno, std::system_category(),
-          "io_uring_register_buf_ring (tcp_provided_buf_pool)"};
+    buf_pool_->register_with(ring_).throw_if_error(
+        "io_uring_register_buffers");
+    udp_buf_pool_->register_with(ring_).throw_if_error(
+        "io_uring_register_buf_ring (udp_buf_pool)");
+    tcp_provided_buf_pool_->register_with(ring_).throw_if_error(
+        "io_uring_register_buf_ring (tcp_provided_buf_pool)");
   }
 
   iou_basic_loop(const iou_basic_loop&) = delete;
@@ -359,6 +356,8 @@ public:
   iou_basic_loop(iou_basic_loop&&) = delete;
   iou_basic_loop& operator=(iou_basic_loop&&) = delete;
 
+  // Safely clean up the loop.
+  //
   // The provided buf pools are declared above `ring_` so their backing memory
   // outlives `io_uring_queue_exit` (which `~iou_ring` calls to cancel
   // in-flight ops). But their embedded `iou_buf_ring`s would otherwise call
