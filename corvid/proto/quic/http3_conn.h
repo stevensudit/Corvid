@@ -667,12 +667,15 @@ public:
 private:
 #pragma region Trampolines
 
-  // nghttp3 trampolines: recover the typed `http3_conn*` from `conn_user_data`
-  // and forward into the installed `http3_conn_handlers`, with each upcall run
-  // through `try_callback` so a thrown exception becomes
-  // `NGHTTP3_ERR_CALLBACK_FAILURE` rather than crossing the C ABI. Each
-  // per-stream trampoline also forwards nghttp3's `stream_user_data` to the
-  // matching upcall; it is null today since `http3_conn` never sets it.
+  // nghttp3 trampolines.
+  //
+  // Recovers the typed `http3_conn*` from `conn_user_data` and forwards into
+  // the installed `http3_conn_handlers`, with each upcall run through
+  // `try_callback` so a thrown exception becomes
+  // `NGHTTP3_ERR_CALLBACK_FAILURE` rather than crossing the C ABI.
+  //
+  // Each per-stream trampoline also forwards nghttp3's `stream_user_data` to
+  // the matching upcall; it is null today since `http3_conn` never sets it.
   static int on_begin_headers(nghttp3_conn*, int64_t stream_id,
       void* conn_user_data, void* stream_user_data) noexcept {
     auto* self = static_cast<http3_conn*>(conn_user_data);

@@ -224,8 +224,6 @@ public:
   // decoded.
   [[nodiscard]] quic_status status() const noexcept { return status_; }
 
-  // True iff `status() == ok`. `operator!` is the inverse, for the
-  // `if (!vc) { /* decode failed */ }` idiom.
   [[nodiscard]] explicit operator bool() const noexcept {
     return status_ == quic_status::ok;
   }
@@ -339,7 +337,9 @@ consteval auto corvid_enum_spec(quic_stream_data_flags*) {
 
 // Flags accompanying a `recv_datagram` upcall, mirroring
 // `NGTCP2_DATAGRAM_FLAG_*`. `zero_rtt` indicates the DATAGRAM rode in a 0-RTT
-// packet. NOLINTNEXTLINE(performance-enum-size)
+// packet.
+//
+// NOLINTNEXTLINE(performance-enum-size)
 enum class quic_datagram_flags : uint32_t {
   none = 0x0,
   zero_rtt = NGTCP2_DATAGRAM_FLAG_0RTT // 0x1

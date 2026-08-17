@@ -290,7 +290,7 @@ public:
 
 #pragma endregion
 #pragma region Data members
-
+private:
   quic_stream_id stream_id_{quic_stream_id::none};
   http3_router* router_{};
 
@@ -564,8 +564,13 @@ public:
     return stream ? stream->on_end_trailers(chunk_fin) : true;
   }
 
-  [[nodiscard]] bool on_recv_data(quic_stream_id,
+  [[nodiscard]] bool on_recv_data(quic_stream_id stream_id,
       std::span<const uint8_t> data, void* stream_user_data) override {
+    // DATA payload bytes are excluded from `read_stream`'s consumed count;
+    // their flow-control credit is the application's to return (nghttp3
+    // `recv_data` doc). Credit on delivery, whether or not a stream object
+    // exists to take the bytes: either way they are consumed here.
+    if (!credit_flow_control(stream_id, data.size())) return false;
     auto* stream = to_stream(stream_user_data);
     return stream ? stream->on_recv_data(data) : true;
   }
@@ -596,10 +601,12 @@ public:
 #pragma endregion
 #pragma region Drain
 
-  // Per-turn outbound path. Each iteration pulls the next chunk nghttp3 wants
-  // to write, hands it to ngtcp2 (which packs stream bytes alongside any
-  // non-stream frames), reports back to nghttp3 how much ngtcp2 accepted, and
-  // ships the packet. Loops until both layers report nothing more to send.
+  // Per-turn outbound path.
+  //
+  // Each iteration pulls the next chunk nghttp3 wants to write, hands it to
+  // ngtcp2 (which packs stream bytes alongside any non-stream frames), reports
+  // back to nghttp3 how much ngtcp2 accepted, and ships the packet. Loops
+  // until both layers report nothing more to send.
   //
   // Before nghttp3 is bound (during the handshake), `h3_` is empty and every
   // turn degenerates to the `stream_id::none` flush that emits ACKs and
@@ -624,6 +631,21 @@ public:
       // more, so this is a clean stop, not a failure.
       if (status == quic_status::draining || status == quic_status::closing)
         return true;
+      // Stream-level statuses are per-stream conditions, not connection errors
+      // (per the `ngtcp2_conn_writev_stream` doc, other streams may still
+      // write). A flow-control-blocked stream stops being offered until
+      // `on_extend_max_stream_data` unblocks it; a write-shut or unknown
+      // stream is shut in nghttp3, which stops offering it at all.
+      if (status == quic_status::stream_data_blocked) {
+        h3_.block_stream(stream_id);
+        continue;
+      }
+      if (status == quic_status::stream_shut_wr ||
+          status == quic_status::stream_not_found)
+      {
+        h3_.shutdown_stream_write(stream_id);
+        continue;
+      }
       if (status != quic_status::ok) return false;
 
       // Tell nghttp3 how much of the offered stream data ngtcp2 took (must be
@@ -667,7 +689,7 @@ public:
   // the body and response upcalls route back to it.
   [[nodiscard]] bool submit_request(http3_stream* stream,
       std::span<const http3_field> fields, bool with_body = false) {
-    if (!h3_.submit_request(stream->stream_id_, fields, with_body,
+    if (!h3_.submit_request(stream->stream_id(), fields, with_body,
             with_body ? stream : nullptr))
       return false;
     return io_.request_drain();
@@ -685,7 +707,7 @@ public:
   // request stream was minted (`ensure_stream`), so those upcalls route back
   // to it.
   [[nodiscard]] bool submit_response(http3_stream* stream) {
-    if (!h3_.submit_response(stream->stream_id_, stream->response_headers(),
+    if (!h3_.submit_response(stream->stream_id(), stream->response_headers(),
             stream->has_body()))
       return false;
     return io_.request_drain();

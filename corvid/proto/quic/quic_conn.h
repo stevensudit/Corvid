@@ -409,7 +409,7 @@ public:
   quic_conn(quic_conn&&) = delete;
   quic_conn& operator=(quic_conn&&) = delete;
 
-  // Finish initalization, using the provided CIDs and endpoints to allocate
+  // Finish initialization, using the provided CIDs and endpoints to allocate
   // the underlying `ngtcp2_conn`. Must be called exactly once after
   // construction, before any I/O or handler upcall fires.
   //
@@ -515,7 +515,7 @@ public:
   [[nodiscard]] connection_role role() const noexcept { return role_; }
   [[nodiscard]] auto native(this auto& self) { return self.conn_.get(); }
 
-  // Return the bound local/peer address by value..
+  // Return the bound local/peer address by value.
   [[nodiscard]] net_endpoint local() const noexcept {
     return net_endpoint{*path_storage_.path.local.addr,
         path_storage_.path.local.addrlen};
