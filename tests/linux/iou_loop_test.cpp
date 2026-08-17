@@ -780,6 +780,65 @@ TEST_CASE("RecvSendMsg", "[IouLoop]") {
 }
 
 #pragma endregion
+#pragma region SendMsgConnectedNoPeer
+
+TEST_CASE("SendMsgConnectedNoPeer", "[IouLoop]") {
+  // `submit_sendmsg_buffer` with an empty `peer_addr` sends to the socket's
+  // connected peer: the msghdr takes sendmsg(2)'s no-address form.
+  if (true) {
+    auto recv_ep = net_endpoint::any_v4(0);
+    auto send_ep = net_endpoint::any_v4(0);
+    auto recv_sock = net_socket::create_for(recv_ep, execution::nonblocking,
+        message_style::datagram);
+    auto send_sock = net_socket::create_for(send_ep, execution::nonblocking,
+        message_style::datagram);
+    CHECK(recv_sock.bind(recv_ep));
+    CHECK(send_sock.bind(send_ep));
+    auto recv_addr = net_endpoint::local_of(recv_sock);
+    const auto connect_ok = send_sock.connect(recv_addr);
+    CHECK((connect_ok && *connect_ok));
+
+    std::atomic_bool received{false};
+    std::atomic_int32_t send_n{-1};
+    std::string recv_result;
+
+    constexpr std::string_view payload{"connected-nopeer"};
+
+    iou_loop_runner loop;
+
+    const bool ok = loop->post_and_wait([&] {
+      auto recv_buf = loop->borrow_read_buffer();
+      if (!recv_buf) return false;
+      const auto rtok = loop->submit_recvmsg_buffer(recv_sock,
+          std::move(recv_buf),
+          [&](completion_id, iou_loop::buffer& buf) -> slot_retention {
+            recv_result = std::string{buf.payload_view()};
+            received.store(true, std::memory_order::release);
+            return {};
+          });
+      if (!rtok.is_valid()) return false;
+
+      auto send_buf = loop->borrow_write_buffer();
+      if (!send_buf) return false;
+      (void)send_buf.append(payload);
+      // Deliberately no `peer_addr`: the connected peer must apply.
+      const auto stok = loop->submit_sendmsg_buffer(send_sock,
+          std::move(send_buf),
+          [&](completion_id, iou_loop::buffer& buf) -> slot_retention {
+            send_n.store(buf.result().value(), std::memory_order::relaxed);
+            return {};
+          });
+      if (!stok.is_valid()) return false;
+      return loop->immediate_submit();
+    });
+    CHECK(ok);
+    CHECK(WaitFor([&] { return received.load(std::memory_order::acquire); }));
+    CHECK(send_n.load() == static_cast<int32_t>(payload.size()));
+    CHECK(recv_result == payload);
+  }
+}
+
+#pragma endregion
 #pragma region BorrowBufferSizes
 
 TEST_CASE("BorrowBufferSizes", "[IouLoop]") {

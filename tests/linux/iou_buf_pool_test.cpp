@@ -774,6 +774,33 @@ TEST_CASE("UpdateRecvmsgTruncated", "[IouBufPool]") {
 }
 
 #pragma endregion
+#pragma region PrepareSendmsgPeerForms
+
+TEST_CASE("PrepareSendmsgPeerForms", "[IouBufPool]") {
+  // With a peer set, `prepare_sendmsg` arms `msg_name`; with an empty peer,
+  // it takes sendmsg(2)'s no-address form so a connected socket's peer
+  // applies.
+  auto pool = iou_buf_pool::create();
+  if (true) {
+    auto buf = pool->borrow_writer();
+    REQUIRE(buf);
+    CHECK(buf.append("x"sv));
+    auto* msg = buf.prepare_sendmsg();
+    CHECK(msg->msg_name == nullptr);
+    CHECK(msg->msg_namelen == 0U);
+  }
+  if (true) {
+    auto buf = pool->borrow_writer();
+    REQUIRE(buf);
+    CHECK(buf.append("x"sv));
+    buf.peer_addr() = net_endpoint::loopback_v4(1234);
+    auto* msg = buf.prepare_sendmsg();
+    CHECK(msg->msg_name != nullptr);
+    CHECK(msg->msg_namelen == sizeof(sockaddr_in));
+  }
+}
+
+#pragma endregion
 #pragma region SyntheticPrefilled
 
 TEST_CASE("SyntheticPrefilled", "[IouBufPool]") {

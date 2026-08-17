@@ -619,8 +619,7 @@ public:
   // Points `iov_` at `active_span_` and `msg_name` at `addr_` to capture the
   // sender address.
   //
-  // Returns `&msg_` for use with `prep_recvmsg`. Call `prepare_msg` after
-  // this.
+  // Returns `&msg_` for use with `prep_recvmsg`.
   [[nodiscard]] msghdr* prepare_recvmsg() noexcept {
     assert(blockrw_ == block_type::read);
     reset_result();
@@ -640,8 +639,9 @@ public:
 
   // Configure `msg_` for a sendmsg operation to `peer_addr`.
   //
-  // Returns `&msg_` for use with `prep_sendmsg`. Call `prepare_msg` after
-  // this.
+  // An empty `peer_addr` takes sendmsg(2)'s no-address form (null
+  // `msg_name`), deferring to the socket's connected peer. Returns `&msg_`
+  // for use with `prep_sendmsg`.
   [[nodiscard]] msghdr* prepare_sendmsg() noexcept {
     assert(blockrw_ == block_type::write);
     reset_result();
@@ -651,8 +651,13 @@ public:
     iov_.iov_len = active_span_.size();
     msgh_.msg_iov = &iov_;
     msgh_.msg_iovlen = 1;
-    msgh_.msg_name = addr_.as_sockaddr_ptr();
-    msgh_.msg_namelen = addr_.sockaddr_size();
+    if (addr_.empty()) {
+      msgh_.msg_name = nullptr;
+      msgh_.msg_namelen = 0;
+    } else {
+      msgh_.msg_name = addr_.as_sockaddr_ptr();
+      msgh_.msg_namelen = addr_.sockaddr_size();
+    }
     msgh_.msg_control = nullptr;
     msgh_.msg_controllen = 0;
     msgh_.msg_flags = 0;
@@ -694,7 +699,9 @@ private:
 
   void do_reconstitute_msg() noexcept {
     msgh_.msg_iov = &iov_;
-    msgh_.msg_name = addr_.as_sockaddr_ptr();
+    // Only re-point a `msg_name` armed at the old storage; a null one is
+    // the deliberate no-address form and stays null.
+    if (msgh_.msg_name) msgh_.msg_name = addr_.as_sockaddr_ptr();
   }
 
 #pragma endregion
