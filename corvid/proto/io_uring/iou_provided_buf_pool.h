@@ -68,20 +68,21 @@ public:
       : dispatcher_{&dispatcher}, bgid_{bgid} {
     if (slab_size == 0) return;
 
-    slab_size_ = slab_size;
-    buf_size_ = *buf_size;
-    buf_count_ = slab_size_ / buf_size_;
-
-    if (buf_count_ == 0) return;
-    if (!std::has_single_bit(buf_count_))
+    const auto buf_bytes = *buf_size;
+    const auto buf_count = slab_size / buf_bytes;
+    if (buf_count == 0) return;
+    if (!std::has_single_bit(buf_count))
       throw std::invalid_argument{"buf_count must be a power of two"};
     if (slab_size % hugepage_size != 0)
       throw std::invalid_argument{
           "slab_size must be a multiple of hugepage_size"};
-    if (buf_count_ >
+    if (buf_count >
         static_cast<size_t>(std::numeric_limits<unsigned short>::max()) + 1ULL)
       throw std::invalid_argument{
           "buf_count exceeds io_uring 16-bit bid range"};
+    slab_size_ = slab_size;
+    buf_size_ = buf_bytes;
+    buf_count_ = buf_count;
 
     // Try a hugepage-backed mapping first; fall back to anonymous with
     // hugepage advice. Over-allocate by one `hugepage_size` to guarantee

@@ -1600,7 +1600,8 @@ TEST_CASE("SubmitPoll", "[IouLoop]") {
 #pragma region SubmitShutdown
 
 TEST_CASE("SubmitShutdown", "[IouLoop]") {
-  // `submit_shutdown(SHUT_WR)` causes the peer recv to see EOF (0 bytes).
+  // `submit_shutdown(shutdown_how::wr)` causes the peer recv to see EOF (0
+  // bytes).
   if (true) {
     auto [send_sock, recv_sock] = net_socket::create_pair();
     std::atomic_bool recv_done{false};

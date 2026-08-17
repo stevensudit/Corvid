@@ -246,7 +246,7 @@ public:
     return bitmask::has(cqe_flags_, iou_cqe_flags::buffer);
   }
 
-  // Byte size of this allocation: 4096, 16384, or 65536.
+  // Byte size of this allocation.
   [[nodiscard]] size_t size() const noexcept { return full_span_.size(); }
 
   // Index of buffer entry. Can be 0 if the entire page is registered
@@ -304,7 +304,10 @@ public:
     return msg_flags{msgh_.msg_flags};
   }
 
-  // Access the length in the `msghdr`.
+  // Full datagram length from a multishot recvmsg completion, even when the
+  // payload was truncated.
+  //
+  // Repurposes the otherwise-unused `msg_controllen` field as storage.
   [[nodiscard]] size_t msghdr_len() const noexcept {
     return msgh_.msg_controllen;
   }

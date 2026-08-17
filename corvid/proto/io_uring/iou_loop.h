@@ -1169,8 +1169,8 @@ public:
   //
   // Receive a message from a datagram socket into a fixed buffer (however, it
   // is not taking full advantage of the fact that it's fixed, and it's not
-  // provided or zero-copy). The socket is unbound, so the sender address is
-  // placed into the `buffer::peer_addr`.
+  // provided or zero-copy). The socket is unconnected, so the sender address
+  // is placed into the `buffer::peer_addr`.
   //
 
   // Submit an async recvmsg on `socket` into `buf`. On completion, the
@@ -1212,8 +1212,8 @@ public:
   //
   // Send a message from a datagram socket from a fixed buffer (however, it is
   // not taking full advantage of the fact that it's fixed, and it's not
-  // provided or zero-copy). The socket is unbound, so the destination address
-  // is taken from the `buffer::peer_addr`.
+  // provided or zero-copy). The socket is unconnected, so the destination
+  // address is taken from the `buffer::peer_addr`.
   //
 
   // Submit an async sendmsg on `socket` from `buf` to its `peer_addr`. On

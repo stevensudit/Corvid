@@ -131,7 +131,7 @@ class iou_buf_pool_of: public buffer_pool_base {
       return reinterpret_cast<ptr>(this);
     }
 
-    [[nodiscard]] bool is_valid() const noexcept {
+    [[nodiscard]] bool is_valid() const {
 #ifndef NDEBUG
       return canary_front == canary_value && canary_back == canary_value;
 #else
@@ -345,8 +345,8 @@ private:
   [[nodiscard]] ptr base() const noexcept override { return base_; }
 
   [[nodiscard]] bool decrement_read_bytes(size_t n) noexcept override {
-    [[maybe_unused]] const auto old = in_flight_read_bytes_ -= n;
-    assert(old < read_throttle_size);
+    [[maybe_unused]] const auto remaining = in_flight_read_bytes_ -= n;
+    assert(remaining < read_throttle_size);
     return true;
   }
 

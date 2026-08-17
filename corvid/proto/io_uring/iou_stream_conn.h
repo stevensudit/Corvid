@@ -397,7 +397,7 @@ public:
   [[nodiscard]] bool send(buffer&& buf) {
     // `buf` is an rvalue ref; the actual move into the lambda capture below
     // is the only consumption. Analyzer flags the precondition checks as
-    // use-after-move because callers write `std::move(tok)`, but no move
+    // use-after-move because callers write `std::move(buf)`, but no move
     // has happened yet.
     // NOLINTNEXTLINE(clang-analyzer-cplusplus.Move)
     if (!writes_allowed() || !buf || buf.active_span().empty()) return false;
@@ -967,7 +967,7 @@ private:
   [[nodiscard]] bool do_submit_accept() {
     assert(loop().is_loop_thread() && listening_ && !connect_token_);
 
-    // Don't  waste time attempting ZC writes on UDS.
+    // Don't waste time attempting ZC writes on UDS.
     if (local_endpoint().as_sockaddr_view().is_uds())
       send_zc_supported_ = false;
 

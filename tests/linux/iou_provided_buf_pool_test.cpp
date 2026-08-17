@@ -48,6 +48,16 @@ TEST_CASE("NoOpZeroSlab", "[IouProvidedBufPool]") {
     auto buf = pool->borrow(iou_res{4}, flags);
     CHECK_FALSE(buf);
   }
+  if (true) {
+    // A slab smaller than one buffer also produces a no-op pool, with all
+    // accessors reporting zero.
+    auto pool = iou_provided_buf_pool::create(dispatcher, 2 * 1024UZ * 1024UZ,
+        block_size::m04);
+    CHECK_FALSE(*pool);
+    CHECK(pool->buf_size() == 0ULL);
+    CHECK(pool->buf_count() == 0ULL);
+    CHECK(pool->slab_size() == 0ULL);
+  }
 }
 
 #pragma endregion
