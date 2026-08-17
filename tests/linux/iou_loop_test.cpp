@@ -439,7 +439,7 @@ TEST_CASE("TokenIsReleased", "[IouLoop]") {
     CHECK(token.is_valid());
     CHECK_FALSE(loop->is_released(token));
 
-    const bool released = loop->release(std::move(token));
+    const auto released = loop->release(std::move(token));
     CHECK(released);
     // The slot's generation was bumped; `is_released` detects the mismatch and
     // nullifies the token.
@@ -472,7 +472,8 @@ TEST_CASE("FailedSubmitLeavesNoPin", "[IouLoop]") {
     CHECK_FALSE(loop->submit_write_buffer(no_file, buf, token,
         slot_retention::retain));
     CHECK(buf.pending_releases() == 0ULL);
-    CHECK(loop->release(std::move(token)));
+    const auto released = loop->release(std::move(token));
+    CHECK(released);
   }
 }
 

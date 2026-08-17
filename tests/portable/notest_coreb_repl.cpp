@@ -18,6 +18,7 @@
 #include <iostream>
 #include <string>
 
+#include "corvid/infra/exception_firewalls.h"
 #include "corvid/lang/coreb/coreb.h"
 
 using namespace corvid;
@@ -30,37 +31,41 @@ using namespace corvid::coreb;
 // continues onto the next line instead of reporting an error. Exit with
 // end-of-input: Ctrl+Z then Enter on Windows, Ctrl+D elsewhere.
 int main() {
-  runtime rt;
-  evaluator ev(rt);
-  std::cout << "CoreB kernel REPL. Exit with end-of-input.\n";
-  std::string pending;
-  for (;;) {
-    std::cout << (pending.empty() ? "coreb> " : "  ...> ") << std::flush;
-    std::string line;
-    if (!std::getline(std::cin, line)) break;
-    pending += line;
-    pending += '\n';
-    auto forms = reader::read_all(rt, pending);
-    if (!forms) {
-      const auto& err = forms.as_error();
-      if (err.incomplete) continue;
-      std::cout << "read error at line " << err.line << ", col " << err.col
-                << ": " << err.message << '\n';
-      pending.clear();
-      continue;
-    }
-    pending.clear();
-    // Evaluation may collect at safe points; the not-yet-evaluated forms are
-    // roots only while pinned.
-    gc_pin pin(rt, *forms);
-    for (const auto& form : *forms) {
-      const auto v = ev.eval(form);
-      if (!v) {
-        std::cout << "error: " << v.as_error().reason << '\n';
-        break;
-      }
-      std::cout << v->print() << '\n';
-    }
-  }
-  return 0;
+  return try_or_log(
+      [] {
+        runtime rt;
+        evaluator ev(rt);
+        std::cout << "CoreB kernel REPL. Exit with end-of-input.\n";
+        std::string pending;
+        for (;;) {
+          std::cout << (pending.empty() ? "coreb> " : "  ...> ") << std::flush;
+          std::string line;
+          if (!std::getline(std::cin, line)) break;
+          pending += line;
+          pending += '\n';
+          auto forms = reader::read_all(rt, pending);
+          if (!forms) {
+            const auto& err = forms.as_error();
+            if (err.incomplete) continue;
+            std::cout << "read error at line " << err.line << ", col "
+                      << err.col << ": " << err.message << '\n';
+            pending.clear();
+            continue;
+          }
+          pending.clear();
+          // Evaluation may collect at safe points; the not-yet-evaluated
+          // forms are roots only while pinned.
+          gc_pin pin(rt, *forms);
+          for (const auto& form : *forms) {
+            const auto v = ev.eval(form);
+            if (!v) {
+              std::cout << "error: " << v.as_error().reason << '\n';
+              break;
+            }
+            std::cout << v->print() << '\n';
+          }
+        }
+        return 0;
+      },
+      1);
 }
