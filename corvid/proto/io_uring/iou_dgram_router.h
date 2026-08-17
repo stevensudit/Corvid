@@ -249,10 +249,10 @@ public:
   [[nodiscard]] bool start_reading() {
     if (!open_) return false;
     if (is_reading_.exchange(true)) return false;
-    return loop_.execute_or_post_with_retry([this]() mutable {
-      if (recv_active_shot_ == shot_type::single)
-        return do_submit_single_recv();
-      return do_submit_multi_recv();
+    return loop_.execute_or_post_with_retry([self = self()]() mutable {
+      if (self->recv_active_shot_ == shot_type::single)
+        return self->do_submit_single_recv();
+      return self->do_submit_multi_recv();
     });
   }
 
@@ -275,9 +275,9 @@ public:
   // is async when called off-loop. Safe from any thread.
   [[nodiscard]] bool add_session(const key_t& key, const session_ptr& ssn) {
     if (!ssn || !key) return false;
-    return loop_.execute_or_post([this, key, ssn]() mutable -> bool {
-      if (!is_open()) return false;
-      auto [it, inserted] = sessions_.try_emplace(key, std::move(ssn));
+    return loop_.execute_or_post([self = self(), key, ssn]() mutable -> bool {
+      if (!self->is_open()) return false;
+      auto [it, inserted] = self->sessions_.try_emplace(key, std::move(ssn));
       return inserted;
     });
   }
@@ -286,8 +286,8 @@ public:
   // `unregister_self`; use the session's own `close` to notify. Actual
   // removal is async when called off-loop. Safe from any thread.
   [[nodiscard]] bool remove_session(const key_t& key) {
-    return loop_.execute_or_post([this, key]() -> bool {
-      return sessions_.erase(key) > 0;
+    return loop_.execute_or_post([self = self(), key]() -> bool {
+      return self->sessions_.erase(key) > 0;
     });
   }
 
