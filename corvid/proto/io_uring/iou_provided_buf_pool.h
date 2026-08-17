@@ -57,6 +57,7 @@ public:
   using dispatcher_t = owner_thread_dispatcher<posted_fn>;
 
   // Public for `std::make_shared`; external callers must go through `create`.
+  //
   // Constructs a pool backed by a slab of `slab_size` bytes (must be a
   // multiple of `hugepage_size`), split into slots of `buf_size` bytes each.
   // `buf_count` is derived as `slab_size / buf_size` and must be a power of

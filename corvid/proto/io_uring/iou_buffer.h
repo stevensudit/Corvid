@@ -464,14 +464,17 @@ public:
   }
 
   // Update with the result of an I/O completion.
+  //
   //   Read mode: extends `payload_span` by bytes read; `active_span`
   //     becomes the new tail (space remaining for further reads).
   //   Write mode: advances `active_span` front by bytes sent; when fully
   //     sent, `active_span` becomes zero-length (consumed state).
+  //
   // On error, spans are left unchanged.
-  // When `cqe_flags::more` is absent from, we decrement `pending_releases`.
-  // This is most relevant for ZC writes, where it prevents prematurely freeing
-  // the buffer.
+  //
+  // When `cqe_flags::more` is absent from `cqe_flags`, we decrement
+  // `pending_releases`. This is most relevant for ZC writes, where it prevents
+  // prematurely freeing the buffer.
   iou_buffer& update(iou_res res, iou_cqe_flags cqe_flags) noexcept {
     res_ = res;
     cqe_flags_ = cqe_flags;

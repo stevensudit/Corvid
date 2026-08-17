@@ -410,11 +410,12 @@ public:
     return total;
   }
 
-  // Process one batch of completions, waiting up to `timeout`. Drains the post
-  // queue first, then submits SQEs and waits for CQEs. One of those CQEs may
-  // be a wakeup triggered by setting the `eventfd`. Returns the number of
-  // completions dispatched, or 0 on timeout or signal. Must be called on the
-  // loop thread.
+  // Process one batch of completions, waiting up to `timeout`.
+  //
+  // Drains the post queue first, then submits SQEs and waits for CQEs. One of
+  // those CQEs may be a wakeup triggered by setting the `eventfd`. Returns the
+  // number of completions dispatched, or 0 on timeout or signal. Must be
+  // called on the loop thread.
   [[nodiscard]] size_t run_once(const iou_timespec& timeout) {
     assert(is_loop_thread());
     (void)execute_post_queue();
@@ -427,7 +428,7 @@ public:
     if (res.is_soft_error()) return 0;
     res.throw_if_error("submit_and_wait_timeout");
 
-    // Dispatch snapshotted SQEs.
+    // Dispatch snapshotted CQEs.
     size_t dispatched{};
     const auto total = ring_.for_each_snapshotted_cqe([&](iou_cqe cqe) {
       if (do_dispatch(cqe)) ++dispatched;
@@ -1179,8 +1180,10 @@ public:
     return cbtoken;
   }
 
-  // Submit an async recvmsg on `socket`. Note that `buf` must point inside
-  // the callback, or remain valid until completion.
+  // Submit an async recvmsg on `socket`.
+  //
+  // Note that `buf` must point inside the callback, or remain valid until
+  // completion.
   [[nodiscard]] bool submit_recvmsg_buffer(const net_socket& socket,
       buffer& buf, completion_token cbtoken,
       slot_retention on_fail = slot_retention::retain, msg_flags flags = {}) {
@@ -1790,8 +1793,7 @@ public:
     }
     if (!loop || !loop->wait_until_running(1000ms)) {
       // Drop our local ref before stopping the worker so the worker's local
-      // in `run` is the last owner and `~loop_t` fires on the worker thread
-      // (required by `owner_thread_dispatcher`).
+      // in `run` is the last owner and `~loop_t` fires on the worker thread.
       loop.reset();
       thread_.request_stop();
       if (thread_.joinable()) thread_.join();
@@ -1879,35 +1881,18 @@ private:
         loop->run();
       }
 
-      // Drop the local loop ref so `~loop_t` happens on this thread rather
-      // than on whichever thread later destroys `runner_state`. The
-      // `owner_thread_dispatcher` base requires destruction on the owning
-      // thread.
+      // Retire the dispatcher now that `run` has returned and this thread has
+      // stopped draining the post queue.
       //
-      // Order:
-      //   1. Drop the local `loop` so `state->loop` should be the sole owner.
-      //      (Unlike `epoll_loop`, no separate shutdown step is needed:
-      //      `iou_stream_conn` holds a bare `iou_loop&` rather than a
-      //      `shared_ptr`, so there are no ownership cycles from connections
-      //      to break.)
-      //   2. Belt-and-suspenders: confirm no external `shared_ptr` still holds
-      //      the loop alive (e.g., a copy taken from `loop`). `use_count` is
-      //      approximate (the standard explicitly calls it "immediately stale"
-      //      in MT contexts), but adequate as a misuse detector. Retry briefly
-      //      to absorb in-flight releases. If it never settles, call
-      //      `std::terminate` rather than let `~loop_t` fire on a non-owner
-      //      thread (which would itself throw from inside a destructor).
-      //      `std::terminate` is used instead of `throw` so the catch handler
-      //      below cannot swallow it.
-      //   3. Drop `state->loop`, triggering `~loop_t` on this thread.
+      // Retirement waives the wrong-thread destruction guard, so `~loop_t` may
+      // run on whichever thread releases the last `shared_ptr`. Normally that
+      // is this thread, via the resets below; a caller that copied
+      // `state->loop` merely defers destruction to its own release. (Unlike
+      // `epoll_loop`, no separate connection-shutdown step is needed:
+      // `iou_stream_conn` holds a bare `iou_loop&` rather than a `shared_ptr`,
+      // so there are no ownership cycles from connections to break.)
+      (void)loop->retire();
       loop.reset();
-
-      for (auto retry = 0UZ; retry < 10 && state->loop.use_count() != 1;
-          ++retry)
-        std::this_thread::sleep_for(1s);
-      if (state->loop.use_count() != 1)
-        log::fatal("Impossible loop use count: {}", state->loop.use_count());
-
       if (std::scoped_lock lock(state->startup_mutex); true)
         state->loop.reset();
     }

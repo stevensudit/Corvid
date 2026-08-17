@@ -452,11 +452,13 @@ public:
     });
   }
 
-  // Shut down the read side. Submits `SHUT_RD` so the kernel discards any
-  // queued inbound data and future recvs return EOF, and cancels any
-  // in-flight recv so its terminating CQE is dropped silently rather than
-  // treated as a hard error. Sets `read_shut_`. The write side stays open.
-  // If writes were already shut, just closes. Idempotent.
+  // Shut down the read side.
+  //
+  // Submits `SHUT_RD` so the kernel discards any queued inbound data and
+  // future recvs return EOF, and cancels any in-flight recv so its terminating
+  // CQE is dropped silently rather than treated as a hard error. Sets
+  // `read_shut_`. The write side stays open. If writes were already shut, just
+  // closes. Idempotent.
   //
   // Symmetric to `shutdown_send`, though generally less useful because it
   // doesn't send any indication over the wire or offer strong guarantees about
@@ -1108,10 +1110,11 @@ private:
     return true;
   }
 
-  // Handle completion of a receive operation. Delivers the buffer to
-  // `on_data` (including an empty buffer on peer EOF, as the EOF signal).
-  // On hard error, fully closes. On peer EOF with our write side already
-  // shut, transitions to full close.
+  // Handle completion of a receive operation.
+  //
+  // Delivers the buffer to `on_data` (including an empty buffer on peer EOF,
+  // as the EOF signal). On hard error, fully closes. On peer EOF with our
+  // write side already shut, transitions to full close.
   [[nodiscard]] bool on_recv_complete(buffer& buf) {
     assert(loop().is_loop_thread());
     read_idle_.postpone();

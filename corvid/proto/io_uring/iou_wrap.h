@@ -793,7 +793,7 @@ public:
     return io_uring_sq_space_left(&ring_);
   }
 
-  // Check whether we have enough SQE slots available..
+  // Check whether we have enough SQE slots available.
   [[nodiscard]] bool enough_sqe_available(size_t s = 1U) const noexcept {
     return sqe_available() >= s;
   }
@@ -886,11 +886,13 @@ public:
 
   // Tell this `iou_buf_ring` that its associated `iou_ring` is about to be
   // destroyed, so the destructor must not call `io_uring_free_buf_ring` on
-  // it. `io_uring_queue_exit` releases the kernel-side buf-ring registration
-  // as part of its teardown, so the explicit unregister is unnecessary in
-  // that case and would dereference a destroyed `iou_ring`. The user-space
-  // `add` and `advance` paths remain usable (they only touch the mmap'd
-  // ring), though by this point nothing should be calling them.
+  // it.
+  //
+  // `io_uring_queue_exit` releases the kernel-side buf-ring registration as
+  // part of its teardown, so the explicit unregister is unnecessary in that
+  // case and would dereference a destroyed `iou_ring`. The user-space `add`
+  // and `advance` paths remain usable (they only touch the mmap'd ring),
+  // though by this point nothing should be calling them.
   void skip_unregister() noexcept { ring_ = nullptr; }
 
 private:

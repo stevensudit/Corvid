@@ -142,8 +142,8 @@ TEST_CASE("StopFromThread", "[IouLoop]") {
 // the io_uring memory being unmapped before the next test re-mmaps it.
 TEST_CASE("SelfDestroyOnLoopThread", "[IouLoop]") {
   auto runner = std::make_unique<iou_loop_runner>();
-  // Use a reference (no `shared_ptr` copy) so the worker's `use_count`
-  // check sees `state->loop` as the sole owner during cleanup.
+  // Use a reference (no `shared_ptr` copy) so the worker's cleanup releases
+  // the last owner and `~loop_t` runs during it.
   iou_loop& loop = *runner;
   auto finished = runner->finished_signal();
 
