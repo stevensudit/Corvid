@@ -1196,8 +1196,8 @@ public:
       buffer& buf, completion_token cbtoken,
       slot_retention on_fail = slot_retention::retain, msg_flags flags = {}) {
     if (!cbtoken) return false;
-    auto* msg = buf.prepare_recvmsg();
     if (!socket) return fail_and_maybe_release(on_fail, cbtoken);
+    auto* msg = buf.prepare_recvmsg();
     auto fn = [this, fd = *socket, flags, cbtoken, msg,
                   &timeout = buf.timeout(), on_fail]() mutable {
       return do_submit_timeout(cbtoken, &timeout, on_fail,
@@ -1238,8 +1238,8 @@ public:
       slot_retention on_fail = slot_retention::retain,
       msg_flags flags = msg_flags::nosignal) {
     if (!cbtoken) return false;
-    auto* msg = buf.prepare_sendmsg();
     if (!socket) return fail_and_maybe_release(on_fail, cbtoken);
+    auto* msg = buf.prepare_sendmsg();
     auto fn = [this, fd = *socket, flags, cbtoken, msg,
                   &timeout = buf.timeout(), on_fail]() mutable {
       return do_submit_timeout(cbtoken, &timeout, on_fail,
@@ -1287,8 +1287,9 @@ public:
       completion_token cbtoken,
       slot_retention on_fail = slot_retention::retain) {
     if (!cbtoken) return false;
+    if (!file || buf.active_span().empty())
+      return fail_and_maybe_release(on_fail, cbtoken);
     auto [span, buf_index, file_offset] = buf.prepare();
-    if (!file || span.empty()) return fail_and_maybe_release(on_fail, cbtoken);
     auto fn = [this, fd = *file, cbtoken, span, buf_index, file_offset,
                   &timeout = buf.timeout(), on_fail]() mutable {
       return do_submit_timeout(cbtoken, &timeout, on_fail,
@@ -1337,8 +1338,9 @@ public:
       completion_token cbtoken,
       slot_retention on_fail = slot_retention::retain) {
     if (!cbtoken) return false;
+    if (!file || buf.active_span().empty())
+      return fail_and_maybe_release(on_fail, cbtoken);
     auto [span, buf_index, file_offset] = buf.prepare();
-    if (!file || span.empty()) return fail_and_maybe_release(on_fail, cbtoken);
     auto fn = [this, fd = *file, cbtoken, span, buf_index, file_offset,
                   &timeout = buf.timeout(), on_fail]() mutable {
       return do_submit_timeout(cbtoken, &timeout, on_fail,
@@ -1487,9 +1489,9 @@ public:
       slot_retention on_fail = slot_retention::retain,
       msg_flags flags = msg_flags::nosignal) {
     if (!cbtoken) return false;
-    auto [span, buf_index, _] = buf.prepare();
-    if (!socket || span.empty())
+    if (!socket || buf.active_span().empty())
       return fail_and_maybe_release(on_fail, cbtoken);
+    auto [span, buf_index, _] = buf.prepare();
     auto fn = [this, fd = *socket, flags, cbtoken, span, buf_index,
                   &timeout = buf.timeout(), on_fail]() mutable {
       return do_submit_timeout(cbtoken, &timeout, on_fail,
@@ -1551,8 +1553,7 @@ private:
 
       // Store as token, "leaking" it.
       sqe_op.set_data_int(cbtoken.as_int());
-      if (!maybe_submit_pending(sqe_needed)) return false;
-      return true;
+      return maybe_submit_pending(sqe_needed);
     };
 
     if (!do_submit()) return fail_and_maybe_release(on_fail, cbtoken);
@@ -1582,8 +1583,7 @@ private:
       std::forward<decltype(prep_second)>(prep_second)(sqe_second);
       sqe_second.set_data_int(cbtoken.as_int());
 
-      if (!maybe_submit_pending(2)) return false;
-      return true;
+      return maybe_submit_pending(2);
     };
 
     if (!do_submit()) return fail_and_maybe_release(on_fail, cbtoken);
@@ -1612,8 +1612,7 @@ private:
 
       // Store as token, "leaking" it.
       sqe_op.set_data_int(cbtoken.as_int());
-      if (!maybe_submit_pending(1)) return false;
-      return true;
+      return maybe_submit_pending(1);
     };
 
     if (!do_submit()) return fail_and_maybe_release(on_fail, cbtoken);
@@ -1629,14 +1628,18 @@ private:
     return false;
   }
 
-  // Submit pending SQEs, although this could be delayed.
+  // Count `sqe_count` newly prepped SQEs and flush once the configured limit
+  // accumulates.
   //
-  // The `sqe_count` is added to the pending value, and if it exceeds the
-  // configured limit, the submit is triggered immediately.
-  [[nodiscard]] bool maybe_submit_pending(size_t sqe_count = 1UZ) {
+  // Always returns true, as the caller's success value: by this point the
+  // prepped SQEs are committed. A failed flush is deliberately not reported:
+  // the prepped SQEs stay queued in the SQ ring regardless, and the next
+  // `submit_and_wait_timeout` either flushes them or surfaces the ring's real
+  // error by throwing.
+  bool maybe_submit_pending(size_t sqe_count = 1UZ) {
     assert(is_loop_thread());
     pending_sqe_count_ += sqe_count;
-    if (pending_sqe_count_ >= max_pending_sqes_) return immediate_submit();
+    if (pending_sqe_count_ >= max_pending_sqes_) (void)immediate_submit();
     return true;
   }
 
@@ -1666,9 +1669,10 @@ private:
     return true;
   }
 
-  // Submit a multishot `IORING_OP_POLL_ADD` for the wakeup `eventfd`. Each
-  // time `post` or `stop` writes to the `eventfd`, the poll fires as a CQE
-  // and interrupts `io_uring_wait_cqe_timeout`. Because the operation is
+  // Submit a multishot `IORING_OP_POLL_ADD` for the wakeup `eventfd`.
+  //
+  // Each time `post` or `stop` writes to the `eventfd`, the poll fires as a
+  // CQE and interrupts `io_uring_wait_cqe_timeout`. Because the operation is
   // multishot, the kernel keeps it alive as long as `IORING_CQE_F_MORE` is
   // set; the callback drains the `eventfd` on each firing. If the kernel
   // ends the multishot (flag absent), the callback resubmits.

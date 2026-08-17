@@ -449,6 +449,34 @@ TEST_CASE("TokenIsReleased", "[IouLoop]") {
 }
 
 #pragma endregion
+#pragma region FailedSubmitLeavesNoPin
+
+TEST_CASE("FailedSubmitLeavesNoPin", "[IouLoop]") {
+  // A submit rejected before reaching the ring (invalid file) must not leave
+  // `pending_releases` incremented on the buffer: only an SQE that will
+  // produce a CQE may pin it.
+  if (true) {
+    iou_loop_runner loop;
+
+    auto buf = loop->borrow_write_buffer();
+    REQUIRE(buf);
+    CHECK(buf.append("data"));
+
+    auto token = loop->tokenize(
+        [](completion_id, iou_res, iou_cqe_flags) -> slot_retention {
+          return {};
+        });
+    REQUIRE(token.is_valid());
+
+    const os_file no_file;
+    CHECK_FALSE(loop->submit_write_buffer(no_file, buf, token,
+        slot_retention::retain));
+    CHECK(buf.pending_releases() == 0ULL);
+    CHECK(loop->release(std::move(token)));
+  }
+}
+
+#pragma endregion
 #pragma region SubmitClose
 
 TEST_CASE("SubmitClose", "[IouLoop]") {
