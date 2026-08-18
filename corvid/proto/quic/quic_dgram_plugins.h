@@ -427,7 +427,9 @@ public:
         if (!do_close_on_error(rv, now)) (void)session_.close();
         return {};
       }
-      if (!plugin_.drain(now)) {
+      const auto drained = plugin_.drain(now);
+      conn().update_pkt_tx_time(now);
+      if (!drained) {
         if (!do_close_on_error(quic_status::internal, now))
           (void)session_.close();
         return {};
@@ -492,7 +494,11 @@ public:
     // `do_register_server`, `do_register_client`) so registration-time and
     // steady-state requests are handled the same way.
     [[nodiscard]] bool drain_then_maybe_close(time_point_t now) {
-      if (!plugin_.drain(now)) return false;
+      const auto drained = plugin_.drain(now);
+      // Close out the turn's write batch for ngtcp2's pacing, packets shipped
+      // or not; a failed drain may still have written some before failing.
+      conn().update_pkt_tx_time(now);
+      if (!drained) return false;
       if (!conn().has_pending_close()) return true;
       auto out = borrow_send_buffer();
       if (!out) return false;

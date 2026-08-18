@@ -702,6 +702,19 @@ public:
     return status;
   }
 
+  // Record `now` as the transmission instant of the packets just written, so
+  // ngtcp2 can pace the next burst.
+  //
+  // Call once per outbound turn, after its (possibly many) `writev_stream` /
+  // `write_pkt` calls: ngtcp2 requires it "after (multiple invocation of)
+  // ngtcp2_conn_writev_stream". The pacing deadline this sets is folded into
+  // `expiry`, so a paced-out packet is released by the normal expiry sweep.
+  void update_pkt_tx_time(
+      time_point_t now = steady_now_clock::now()) noexcept {
+    ngtcp2_conn_update_pkt_tx_time(conn_.get(),
+        steady_now_clock::as_nanoseconds(now));
+  }
+
   // Emit a CONNECTION_CLOSE frame from the stash set by `request_close` or
   // `request_close_on_error`.
   [[nodiscard]] quic_status write_connection_close(iouring::iou_buffer& buf,
