@@ -64,12 +64,13 @@ constexpr auto server_control = static_cast<quic_stream_id>(3U);
 constexpr auto server_qpack_enc = static_cast<quic_stream_id>(7U);
 constexpr auto server_qpack_dec = static_cast<quic_stream_id>(11U);
 
-// Records the peer's SETTINGS arrival plus any received HEADERS,
+// Records the peer's SETTINGS arrival plus any received HEADERS, body bytes,
 // end-of-headers, and end-of-stream. Everything else keeps the no-op base
 // behavior.
 struct recording_handlers: http3_conn_handlers {
   bool settings_received{false};
   std::vector<std::pair<std::string, std::string>> headers;
+  std::string body;
   bool headers_ended{false};
   bool stream_ended{false};
   void* last_user_data{};
@@ -93,6 +94,27 @@ struct recording_handlers: http3_conn_handlers {
   [[nodiscard]] bool on_end_stream(quic_stream_id, void*) override {
     stream_ended = true;
     return true;
+  }
+  [[nodiscard]] bool
+  on_recv_data(quic_stream_id, std::span<const uint8_t> data, void*) override {
+    body.append(reinterpret_cast<const char*>(data.data()), data.size());
+    return true;
+  }
+};
+
+// A body producer that reports `block` until released, then serves one fixed
+// chunk with eof. Exercises nghttp3's WOULDBLOCK pause and `resume_stream`.
+struct blocking_body_handlers: recording_handlers {
+  static constexpr std::string_view chunk = "lazy body";
+
+  bool release{false};
+  iovec vec{};
+
+  [[nodiscard]] body_vecs
+  on_send_data_ready(quic_stream_id, size_t, void*) override {
+    if (!release) return {.iov = {}, .block = true};
+    vec = {const_cast<char*>(chunk.data()), chunk.size()};
+    return {.iov = {&vec, 1}, .eof = true};
   }
 };
 
@@ -269,6 +291,56 @@ TEST_CASE("http3_conn blocks and unblocks stream output", "[http3]") {
   CHECK(client.unblock_stream(client_qpack_dec));
   CHECK(pump(client, server) > 0);
   CHECK(server_handlers.settings_received);
+}
+
+TEST_CASE("http3_conn resume_stream releases a body paused by block",
+    "[http3]") {
+  // A lazy request body that reports `block` pauses the stream: nghttp3
+  // stops offering its bytes and `unblock_stream` cannot wake it. Only
+  // `resume_stream` can, after which the body and its eof flow.
+  blocking_body_handlers client_handlers;
+  recording_handlers server_handlers;
+
+  http3_conn client;
+  http3_conn server;
+  client.set_handlers(&client_handlers);
+  server.set_handlers(&server_handlers);
+  REQUIRE(client.init(connection_role::client));
+  REQUIRE(server.init(connection_role::server));
+
+  REQUIRE(client.bind_control_stream(client_control));
+  REQUIRE(client.bind_qpack_streams(client_qpack_enc, client_qpack_dec));
+  REQUIRE(server.bind_control_stream(server_control));
+  REQUIRE(server.bind_qpack_streams(server_qpack_enc, server_qpack_dec));
+
+  // A request with a body: nghttp3 pulls `on_send_data_ready`, which blocks.
+  const auto request_stream = static_cast<quic_stream_id>(0U);
+  const std::array request{
+      http3_field::make(":method", "POST"_method),
+      http3_field::make(":scheme", "https"),
+      http3_field::make(":authority", "example.com"),
+      http3_field::make(":path", "/"),
+  };
+  REQUIRE(client.submit_request(request_stream, request, true));
+  pump(client, server);
+
+  // The HEADERS went through, but the blocked body did not end the stream.
+  CHECK(server_handlers.headers_ended);
+  CHECK(server_handlers.body.empty());
+  CHECK_FALSE(server_handlers.stream_ended);
+
+  // Releasing the producer without `resume_stream` changes nothing: the
+  // stream stays paused.
+  client_handlers.release = true;
+  pump(client, server);
+  CHECK(server_handlers.body.empty());
+  CHECK_FALSE(server_handlers.stream_ended);
+
+  // `resume_stream` wakes it; the body and the stream end arrive.
+  REQUIRE(client.resume_stream(request_stream));
+  pump(client, server);
+  CHECK(server_handlers.body == blocking_body_handlers::chunk);
+  CHECK(server_handlers.stream_ended);
 }
 
 TEST_CASE("http3_conn set_stream_user_data round-trips to upcalls",

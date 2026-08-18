@@ -526,7 +526,7 @@ public:
 
     // Ship a terminal CONNECTION_CLOSE for the hard error `err` and keep the
     // session alive through its RFC 9000 sec. 10.2 closing period, per
-    // ngtcp2's `read_pkt` / `handle_expiry contract` ("call
+    // ngtcp2's `read_pkt` / `handle_expiry` contract ("call
     // ngtcp2_conn_write_connection_close to get terminal packet").
     //
     // Emitting the packet moves the conn into the closing period, and

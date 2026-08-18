@@ -628,6 +628,18 @@ public:
         nghttp3_conn_unblock_stream(conn_.get(), from(stream_id)));
   }
 
+  // Resume `stream_id` after its body data reader reported `block` (nghttp3's
+  // WOULDBLOCK), so nghttp3 offers the stream's bytes in `writev_stream`
+  // again.
+  //
+  // The pause is the input-data twin of `block_stream`'s flow-control block,
+  // and `unblock_stream` does not clear it. nghttp3 reports success for a
+  // stream it does not track, so false here means only NOMEM.
+  [[nodiscard]] bool resume_stream(quic_stream_id stream_id) {
+    return ok("nghttp3_conn_resume_stream",
+        nghttp3_conn_resume_stream(conn_.get(), from(stream_id)));
+  }
+
 #pragma endregion
 #pragma region Stream user data
 

@@ -739,6 +739,16 @@ public:
     return io_.request_drain();
   }
 
+  // Resume `stream_id` after its lazy body reported `block` from
+  // `on_send_data_ready`, now that data is available.
+  //
+  // Posts a drain so the freed bytes ship without waiting for an inbound
+  // packet. Returns false on an nghttp3 failure or a failed drain post.
+  [[nodiscard]] bool resume_stream(quic_stream_id stream_id) {
+    if (!h3_.resume_stream(stream_id)) return false;
+    return io_.request_drain();
+  }
+
 #pragma endregion
 #pragma region Subclass access
 protected:
