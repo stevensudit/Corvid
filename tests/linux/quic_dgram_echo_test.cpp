@@ -85,6 +85,9 @@ struct echo_client_plugin: quic_conn_handlers {
   [[nodiscard]] bool on_recv_stream_data(quic_stream_id stream_id,
       uint64_t /*offset*/, std::span<const uint8_t> data,
       quic_stream_data_flags flags) override {
+    // Fail the upcall on demand, so a test can drive the session's
+    // hard-error path (read_pkt reports callback_failure).
+    if (fail_recv.load(std::memory_order::acquire)) return false;
     {
       std::scoped_lock lock{mu};
       auto& v = received[stream_id];
@@ -197,6 +200,7 @@ struct echo_client_plugin: quic_conn_handlers {
   std::unordered_map<quic_stream_id, std::vector<uint8_t>> received;
   std::atomic_bool handshake_completed{false};
   std::atomic_bool app_tx_ready{false};
+  std::atomic_bool fail_recv{false};
   std::atomic_int fins_seen{0};
 };
 
@@ -366,6 +370,75 @@ TEST_CASE(
       return false;
     return client_plugin.received_for(sid) == payload;
   }));
+}
+
+#pragma endregion
+#pragma region Terminal close
+
+TEST_CASE(
+    "a handler failure ships a terminal CONNECTION_CLOSE and winds the "
+    "session down instead of vanishing",
+    "[quic][router][echo]") {
+  self_signed_cert ck;
+  REQUIRE(ck);
+  quic_ssl_ctx server_tls{ck, echo_alpn};
+  REQUIRE(server_tls);
+  quic_ssl_ctx client_tls{echo_alpn};
+  REQUIRE(client_tls);
+
+  iou_loop_runner runner;
+
+  auto server_router =
+      iou_dgram_router_handle<server_protocol_t::router_plugin>::bind(
+          *runner.loop(), net_endpoint::loopback_v4(), shot_type::multi,
+          server_tls);
+  CHECK(server_router);
+  const auto server_addr = server_router->local_endpoint();
+  REQUIRE_FALSE(server_addr.empty());
+
+  auto client_router =
+      iou_dgram_router_handle<client_protocol_t::router_plugin>::bind(
+          *runner.loop(), net_endpoint::loopback_v4(), shot_type::multi,
+          client_tls);
+  CHECK(client_router);
+
+  std::shared_ptr<client_protocol_t::session_plugin::session_t> client_sess;
+  REQUIRE(runner.loop()->post_and_wait([&]() -> bool {
+    client_sess = client_protocol_t::session_plugin::make_client(
+        *client_router.pointer(), server_addr, ""); // no SNI
+    return client_sess != nullptr;
+  }));
+  REQUIRE(client_sess);
+
+  auto& client_plugin = client_sess->plugin().protocol_plugin();
+  CHECK(WaitFor([&] {
+    return client_plugin.handshake_completed.load(
+               std::memory_order::acquire) &&
+           client_plugin.app_tx_ready.load(std::memory_order::acquire);
+  }));
+
+  // Arm the failure, then provoke an echo so the failing upcall fires: the
+  // client's read_pkt reports callback_failure, a hard error.
+  client_plugin.fail_recv.store(true, std::memory_order::release);
+  const std::vector<uint8_t> payload{0x01, 0x02, 0x03, 0x04};
+  quic_stream_id sid = quic_stream_id::none;
+  REQUIRE(runner.loop()->post_and_wait([&]() -> bool {
+    auto payload_copy = payload;
+    sid = client_plugin.send_with_fin(std::move(payload_copy));
+    if (sid == quic_stream_id::none) return false;
+    return client_plugin.drain(steady_now_clock::now());
+  }));
+  REQUIRE(sid != quic_stream_id::none);
+
+  // The hard error must produce a terminal CONNECTION_CLOSE: the conn enters
+  // its closing period and the session survives to wind down over 3*PTO.
+  // Before the fix the session simply closed, never entering the period.
+  CHECK(WaitFor([&] {
+    return runner.loop()->post_and_wait([&]() -> bool {
+      return client_sess->plugin().conn().in_close_period();
+    });
+  }));
+  CHECK(client_plugin.fins_seen.load(std::memory_order::acquire) == 0);
 }
 
 #pragma endregion

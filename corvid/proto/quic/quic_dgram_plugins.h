@@ -341,18 +341,21 @@ public:
       const auto now = steady_now_clock::now();
       const auto rv = conn().read_pkt(buf.payload_bytes(), now);
       if (rv != quic_status::ok) {
-        if (!is_soft_error(rv)) return false;
+        if (!is_soft_error(rv)) return do_close_on_error(rv, now);
         // Switch to short timeout if we're closing.
         if (conn().in_close_period()) arm_expiry();
         return true;
       }
-      const auto ok = drain_then_maybe_close(now);
+      if (!drain_then_maybe_close(now))
+        return do_close_on_error(quic_status::internal, now);
       arm_expiry();
-      return ok;
+      return true;
     }
 
     // The send buffer comes back here once the kernel has accepted the
-    // datagram. There is nothing to do at the QUIC layer: ngtcp2's own ACK /
+    // datagram.
+    //
+    // There is nothing to do at the QUIC layer: ngtcp2's own ACK /
     // loss-detection machinery (driven via the sweeper-armed expiry timer)
     // handles retransmits, and the buffer returns to the pool when this frame
     // unwinds.
@@ -376,24 +379,30 @@ public:
     [[nodiscard]] quic_plugin_t& protocol_plugin() noexcept { return plugin_; }
 
     // The server's freshly generated SCID, used as the primary CID for routing
-    // packets after the client switches off the Initial DCID. Exposed for
-    // tests; the full set of keys also includes `original_dcid_` until the
-    // client migrates.
+    // packets after the client switches off the Initial DCID.
+    //
+    // Exposed for tests; the full set of keys also includes `original_dcid_`
+    // until the client migrates.
     [[nodiscard]] const key_t& primary_cid() const noexcept { return scid_; }
 
 #pragma endregion
 #pragma region Expiry
 
-    // Sweeper-callback entry point. Invoked by `iou_loop::timeouts` when the
-    // registered deadline elapses. Stale entries (left over from a deadline
-    // that was superseded by an earlier rearm) detect themselves via
-    // `fired_expire != registered_expiry_` and drop.
+    // Sweeper-callback entry point.
+    //
+    // Invoked by `iou_loop::timeouts` when the registered deadline elapses.
+    // Stale entries (left over from a deadline that was superseded by an
+    // earlier rearm) detect themselves via `fired_expire !=
+    // registered_expiry_` and drop.
     //
     // `handle_expiry` advances ngtcp2's loss-detection state and queues
     // anything that needs to fly (PTO probes, delayed ACKs, retransmits);
-    // `drain` flushes that queue. If either reports a hard error the
-    // connection is corrupt, so close the session and drop the sweeper entry
-    // rather than asking a broken conn for its next deadline.
+    // `drain` flushes that queue. If either reports a hard error,
+    // `do_close_on_error` ships the terminal CONNECTION_CLOSE where the
+    // contract calls for one (arming the wind-down sweep) or closes the
+    // session outright (`idle_close`, the usual visitor here, drops silently
+    // by contract); either way this sweeper entry is dropped rather than
+    // asking a broken conn for its next deadline.
     //
     // The 3*PTO wind-down is an application-level deadline ngtcp2 does not
     // track, so reaching `close_deadline_` is the session's own cue to reap;
@@ -413,9 +422,14 @@ public:
         registered_expiry_ = std::min(target, close_deadline_);
         return registered_expiry_;
       }
-      if (conn().handle_expiry(now) != quic_status::ok || !plugin_.drain(now))
-      {
-        (void)session_.close();
+      const auto rv = conn().handle_expiry(now);
+      if (rv != quic_status::ok) {
+        if (!do_close_on_error(rv, now)) (void)session_.close();
+        return {};
+      }
+      if (!plugin_.drain(now)) {
+        if (!do_close_on_error(quic_status::internal, now))
+          (void)session_.close();
         return {};
       }
       registered_expiry_ = std::min(conn().expiry(), close_deadline_);
@@ -425,12 +439,13 @@ public:
 #pragma endregion
 #pragma region Helpers
   private:
-    // Loop-thread half of server-side registration: allocate the `ngtcp2_conn`
-    // against the parsed peer SCID, register under both the original DCID and
-    // the server's own SCID, drive any initial ngtcp2 output through the
-    // plugin, and arm the handshake-expiry timer. A hard `drain` failure here
-    // means the session is born tainted; close to undo the registrations and
-    // report failure to the caller.
+    // Loop-thread half of server-side registration.
+    //
+    // Allocates the `ngtcp2_conn` against the parsed peer SCID, registers
+    // under both the original DCID and the server's own SCID, drives any
+    // initial ngtcp2 output through the plugin, and arms the handshake-expiry
+    // timer. A hard `drain` failure here means the session is born tainted;
+    // close to undo the registrations and report failure to the caller.
     bool do_register_server(const key_t& peer_scid) {
       assert(router_.loop().is_loop_thread());
       const auto now = steady_now_clock::now();
@@ -445,12 +460,13 @@ public:
       return true;
     }
 
-    // Loop-thread half of client-side registration: pick a random Initial DCID
-    // (which we put on the wire but never receive back), allocate the
-    // `ngtcp2_conn`, register under our SCID, push the Initial through the
-    // plugin's drain, and arm the handshake-expiry timer. A hard `drain`
-    // failure here means the session is born tainted; close to undo the
-    // registration and report failure to the caller.
+    // Loop-thread half of client-side registration.
+    //
+    // Picks a random Initial DCID (which we put on the wire but never receive
+    // back), allocates the `ngtcp2_conn`, registers under our SCID, pushes the
+    // Initial through the plugin's drain, and arms the handshake-expiry timer.
+    // A hard `drain` failure here means the session is born tainted; close to
+    // undo the registration and report failure to the caller.
     bool do_register_client() {
       assert(router_.loop().is_loop_thread());
       const key_t initial_dcid =
@@ -468,12 +484,13 @@ public:
     }
 
     // Run the upper-plugin drain, then emit a CONNECTION_CLOSE if one was
-    // requested via `quic_conn::request_close` during this turn. Drain itself
-    // stays close-agnostic: this helper is the single place the session
-    // observes `quic_conn::has_pending_close` and ships the terminal packet.
-    // Used from every drain call site (`handle_recv`, `do_register_server`,
-    // `do_register_client`) so registration-time and steady-state requests
-    // are handled the same way.
+    // requested via `quic_conn::request_close` during this turn.
+    //
+    // Drain itself stays close-agnostic: this helper is the single place the
+    // session observes `quic_conn::has_pending_close` and ships the terminal
+    // packet. Used from every drain call site (`handle_recv`,
+    // `do_register_server`, `do_register_client`) so registration-time and
+    // steady-state requests are handled the same way.
     [[nodiscard]] bool drain_then_maybe_close(time_point_t now) {
       if (!plugin_.drain(now)) return false;
       if (!conn().has_pending_close()) return true;
@@ -487,21 +504,62 @@ public:
 
     // `quic_session_io` override: run one outbound turn on behalf of a
     // `request_drain` the upper plugin posted (e.g. after submitting a
-    // request). Same drain / close / expiry cycle as `do_register_client`, so
-    // a request that originated off a read cycle is recovered identically.
+    // request).
+    //
+    // Same drain / close / expiry cycle as `do_register_client`, so a request
+    // that originated off a read cycle is recovered identically.
     [[nodiscard]] bool do_drain_cycle(time_point_t now) override {
-      if (!drain_then_maybe_close(now)) return session_.close() && false;
+      if (!drain_then_maybe_close(now)) {
+        if (!do_close_on_error(quic_status::internal, now))
+          return session_.close() && false;
+        return true;
+      }
+      arm_expiry();
+      return true;
+    }
+
+    // Ship a terminal CONNECTION_CLOSE for the hard error `err` and keep the
+    // session alive through its RFC 9000 sec. 10.2 closing period, per
+    // ngtcp2's `read_pkt` / `handle_expiry contract` ("call
+    // ngtcp2_conn_write_connection_close to get terminal packet").
+    //
+    // Emitting the packet moves the conn into the closing period, and
+    // `arm_expiry` then latches the 3*PTO reaper, so the return of `true`
+    // means "session stays, wind-down armed".
+    //
+    // Returning false closes the session immediately instead. That is the
+    // contract for `drop_conn` (server must drop silently), `idle_close` (the
+    // idle timer fired; nothing to say), and `retry` (the server must answer
+    // with a Retry packet instead; address validation is not implemented yet,
+    // so the state is discarded without one), and the fallback when the
+    // terminal packet cannot be built or sent.
+    //
+    // A close already stashed by `request_close` is preserved rather than
+    // overwritten, so a plugin-requested close survives a drain that failed
+    // before shipping it.
+    [[nodiscard]] bool do_close_on_error(quic_status err, time_point_t now) {
+      if (err == quic_status::retry || err == quic_status::drop_conn ||
+          err == quic_status::idle_close)
+        return false;
+      if (!conn().has_pending_close()) conn().request_close_on_error(err);
+      auto out = borrow_send_buffer();
+      if (!out) return false;
+      if (conn().write_connection_close(out, now) != quic_status::ok)
+        return false;
+      (void)send_packet(std::move(out));
       arm_expiry();
       return true;
     }
 
     // Schedule (or reschedule) the expiry-sweeper entry at `min(ngtcp2 expiry,
-    // close_deadline_)`. The sweeper has no cancel API, so an existing entry
-    // that was scheduled at a later deadline becomes stale and self-cancels on
-    // its next fire (via the `fired_expire != registered_expiry_` check
-    // above). Skipping the schedule when the new target is the same as the
-    // already-registered one (the common case across consecutive packets in a
-    // flight) avoids pointless heap churn.
+    // close_deadline_)`.
+    //
+    // The sweeper has no cancel API, so an existing entry that was scheduled
+    // at a later deadline becomes stale and self-cancels on its next fire (via
+    // the `fired_expire != registered_expiry_` check above). Skipping the
+    // schedule when the new target is the same as the already-registered one
+    // (the common case across consecutive packets in a flight) avoids
+    // pointless heap churn.
     //
     // The first time the conn is seen in a closing/draining period, latch the
     // RFC 9000 sec. 10.2 3*PTO wind-down deadline; `close_deadline_` stays
@@ -533,10 +591,11 @@ public:
       return true;
     }
 
-    // RFC 9000 sec. 5.1: CIDs must be unpredictable. Random bytes from OpenSSL
-    // satisfy this; on failure (which should not happen in normal operation)
-    // we return a zero-length CID, which makes the enclosing conn unusable --
-    // a fail-closed safer than fail-open.
+    // RFC 9000 sec. 5.1: CIDs must be unpredictable.
+    //
+    // Random bytes from OpenSSL satisfy this; on failure (which should not
+    // happen in normal operation) we return a zero-length CID, which makes the
+    // enclosing conn unusable, because a fail-closed safer than fail-open.
     [[nodiscard]] static key_t make_random_cid(size_t cidlen) noexcept {
       ngtcp2_cid raw{};
       raw.datalen = cidlen;
