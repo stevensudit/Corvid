@@ -101,12 +101,16 @@ TEST_CASE("Http3StreamHeaders", "[http3]") {
     CHECK(s.headers->chunk_fin() == stream_chunk::more);
   }
 
-  SECTION("over the field cap fails the callback") {
-    for (auto ndx = 0UZ; ndx < http3_conn::max_submit_fields; ++ndx)
+  SECTION("over the field cap rejects the stream") {
+    for (auto ndx = 0UZ; ndx < http3_stream::max_inbound_fields; ++ndx)
       CHECK(s.on_recv_header(qpack_token::unknown, "x", "y", nv_flags::none));
-    // The (cap + 1)-th field is rejected rather than accumulated.
+    // The (cap + 1)-th field trips the per-stream rejection. With no router
+    // to reject through, the callback fails as a last resort, but the
+    // rejection still latches, so later fields drop without failing.
     CHECK_FALSE(
         s.on_recv_header(qpack_token::unknown, "x", "y", nv_flags::none));
+    CHECK(s.rejected());
+    CHECK(s.on_recv_header(qpack_token::unknown, "x", "y", nv_flags::none));
   }
 }
 

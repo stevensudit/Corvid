@@ -53,7 +53,10 @@ class http3_router;
 //
 // Defaults are no-op `true`, so concrete streams override only what they need.
 // Returning `false` from any upcall fails the nghttp3 callback and tears the
-// connection down, the same contract as the connection-level handlers.
+// connection down, the same contract as the connection-level handlers. Inbound
+// limit violations (the field cap, the receive-queue cap) do NOT take that
+// path: they reject this one stream via `reject_over_limit` and leave the
+// connection up.
 class http3_stream {
   // Per-queue state for the send and receive queues. `max_size` caps a receive
   // queue (enforced in `on_recv_data`). `body_production` tells the send path
@@ -67,6 +70,11 @@ class http3_stream {
   using iov_queue_t = iov_queue<std::vector<uint8_t>, queue_state>;
 
 public:
+  // Upper bound on the fields accumulated from one inbound header or trailer
+  // section. A section that exceeds it is rejected per stream via
+  // `reject_over_limit`, not buffered without bound.
+  static constexpr auto max_inbound_fields = 64UZ;
+
 #pragma region Construction
 
   explicit http3_stream() {
@@ -150,6 +158,10 @@ public:
   // `submit_response`). A server stream consults it to avoid responding twice.
   [[nodiscard]] bool responded() const noexcept { return responded_; }
 
+  // Whether this stream was rejected for exceeding an inbound limit (see
+  // `reject_over_limit`). Later inbound events for a rejected stream drop.
+  [[nodiscard]] bool rejected() const noexcept { return rejected_; }
+
   bool set_role(connection_role role) {
     if (role_ && *role_ != role) return false;
     role_ = role;
@@ -198,12 +210,17 @@ public:
     return true;
   }
 
-  // One decoded HTTP field. `token` names a known header or is
-  // `qpack_token::unknown`.
+  // One decoded HTTP field.
+  //
+  // `token` names a known header or is `qpack_token::unknown`. The field past
+  // `max_inbound_fields` is dropped and the section rejected per stream ("431
+  // Request Header Fields Too Large", RFC 6585 sec. 5); fields after a
+  // response or rejection drop silently.
   [[nodiscard]] virtual bool on_recv_header(qpack_token token,
       std::string_view name, std::string_view value, nv_flags flags) {
-    if (inbound_headers_->size() >= http3_conn::max_submit_fields)
-      return false;
+    if (rejected_ || responded_) return true;
+    if (inbound_headers_->size() >= max_inbound_fields)
+      return reject_over_limit("431");
     inbound_headers_->add(header_name_and_enum::force(name, token),
         std::string{value}, flags);
     return true;
@@ -228,11 +245,13 @@ public:
     return true;
   }
 
-  // One decoded trailer field, same contract as `on_recv_header`.
+  // One decoded trailer field, same contract (and per-stream cap rejection)
+  // as `on_recv_header`.
   [[nodiscard]] virtual bool on_recv_trailer(qpack_token token,
       std::string_view name, std::string_view value, nv_flags flags) {
-    if (inbound_trailers_->size() >= http3_conn::max_submit_fields)
-      return false;
+    if (rejected_ || responded_) return true;
+    if (inbound_trailers_->size() >= max_inbound_fields)
+      return reject_over_limit("431");
     inbound_trailers_->add(header_name_and_enum::force(name, token),
         std::string{value}, flags);
     return true;
@@ -253,13 +272,16 @@ public:
   }
 
   // Inbound body bytes (DATA payload).
+  //
+  // Bytes past the receive queue's `max_size` reject the stream per stream
+  // ("413 Content Too Large", RFC 9110 sec. 15.5.14). Bytes after a response
+  // or rejection are dropped instead of buffered (`submit_response` also sends
+  // STOP_SENDING, but bytes already in the current packet still surface here,
+  // so the discard is what handles them).
   [[nodiscard]] virtual bool on_recv_data(std::span<const uint8_t> data) {
-    // Once we have responded, drop the rest of the body instead of buffering
-    // it. `submit_response` also sends STOP_SENDING, but bytes already in the
-    // current packet still surface here, so the discard is what handles them.
-    if (responded_) return true;
+    if (rejected_ || responded_) return true;
     if (receive_queue_.size() + data.size() > receive_queue_.state().max_size)
-      return log::error("Receive queue overflow") && false;
+      return reject_over_limit("413");
 
     receive_queue_.append(std::vector<uint8_t>(data.begin(), data.end()));
     return true;
@@ -289,6 +311,22 @@ public:
   }
 
 #pragma endregion
+#pragma region Rejection
+protected:
+  // Reject this stream for exceeding an inbound limit, answering with the HTTP
+  // status `status` when this side can still respond.
+  //
+  // A server that has not yet responded submits a header-only `status` reply
+  // through the guarded `submit_response`, which also curtails the peer's
+  // sending. Otherwise the peer's sending is curtailed directly via
+  // STOP_SENDING with `excessive_load` (RFC 9114 sec. 8.1). Latches
+  // `rejected`, so later inbound events drop. Returns false only when neither
+  // path could be taken (no router, or the submit failed), which fails the
+  // nghttp3 callback and tears the connection down as a last resort. Defined
+  // out of line below, after `http3_router`.
+  [[nodiscard]] bool reject_over_limit(std::string_view status);
+
+#pragma endregion
 #pragma region Data members
 private:
   quic_stream_id stream_id_{quic_stream_id::none};
@@ -312,6 +350,7 @@ private:
 
   bool completed_{};
   bool responded_{};
+  bool rejected_{};
   h3_error_code app_error_code_{h3_error_code::no_error};
 
 #pragma endregion
@@ -917,6 +956,20 @@ inline bool http3_stream::submit_response() {
   // `completed_` (the read side saw fin), so skip it there.
   if (completed_) return true;
   return router_->shutdown_stream_read(stream_id_, h3_error_code::no_error);
+}
+
+// Defined here for the same reason as `submit_response` above: both reach
+// back into the router.
+inline bool http3_stream::reject_over_limit(std::string_view status) {
+  if (rejected_ || responded_) return true;
+  rejected_ = true;
+  if (!router_) return false;
+  if (role_ == connection_role::server) {
+    response_headers().set_value(":status", status);
+    return submit_response();
+  }
+  return router_->shutdown_stream_read(stream_id_,
+      h3_error_code::excessive_load);
 }
 
 #pragma endregion

@@ -95,10 +95,21 @@ public:
   }
 };
 
-// Drive one `GET /` to a fresh server bound for `server_name` (minting a
+// A server stream that accepts only a small request body, so a modest POST
+// overflows it and must be rejected per stream with 413 rather than by
+// tearing the connection down.
+class tiny_body_stream: public http3_server_stream {
+public:
+  static constexpr size_t body_cap = 1024;
+
+  tiny_body_stream() { receive_queue().state().max_size = body_cap; }
+};
+
+// Drive one request to a fresh server bound for `server_name` (minting a
 // `Stream` per request), from a client whose SNI and `:authority` are
 // `client_authority`, and return the captured response status and body. A new
-// loop, cert, and router pair per call.
+// loop, cert, and router pair per call. A nonzero `body_size` turns the GET
+// into a request carrying that many bytes of body.
 struct response_capture {
   bool complete{false};
   std::string status;
@@ -107,8 +118,8 @@ struct response_capture {
 
 // NOLINTBEGIN(readability-function-cognitive-complexity)
 template<std::derived_from<http3_server_stream> Stream>
-response_capture
-run_get(std::string server_name, std::string client_authority) {
+response_capture run_get(std::string server_name, std::string client_authority,
+    size_t body_size = 0) {
   using server_protocol_t = quic_dgram_protocol<http3_server_router<Stream>>;
   self_signed_cert ck;
   REQUIRE(ck);
@@ -158,6 +169,8 @@ run_get(std::string server_name, std::string client_authority) {
         });
     http3_client_stream::configure_request(stream->request_headers(),
         http3_method::GET, "/");
+    if (body_size != 0)
+      stream->send_queue().append(std::vector<uint8_t>(body_size, 0x42));
     return client_plugin.add_stream(std::move(stream));
   }));
 
@@ -246,6 +259,17 @@ TEST_CASE(
   SECTION("a server with no configured authority refuses with 500") {
     const auto r = run_get<hello_stream>("", "localhost");
     CHECK(r.status == "500");
+    CHECK(r.body.empty());
+  }
+  SECTION(
+      "a request body over the stream's receive cap is refused with 413, "
+      "not a dead connection") {
+    // The 413 arriving at all is the survival proof: before the per-stream
+    // rejection, the overflow failed the nghttp3 callback and the whole
+    // connection went down with no response.
+    const auto r = run_get<tiny_body_stream>("localhost", "localhost",
+        4 * tiny_body_stream::body_cap);
+    CHECK(r.status == "413");
     CHECK(r.body.empty());
   }
   SECTION(
