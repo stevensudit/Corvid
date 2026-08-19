@@ -20,6 +20,7 @@
 #include <string_view>
 
 #include "../../strings/cases.h"
+#include "../misc/http_authority.h"
 #include "http3_plugins.h"
 
 namespace corvid { inline namespace proto { namespace quic {
@@ -121,26 +122,8 @@ public:
   // dropped) against the configured name.
   [[nodiscard]] static bool
   host_matches(std::string_view authority, std::string_view name) noexcept {
-    return strings::ci_equal(host_of(authority), name);
+    return strings::ci_equal(strip_host_port(authority), name);
   }
-
-  // The host portion of an authority, dropping a trailing ":port" (a bare host
-  // or an IPv6 literal without a port is returned unchanged).
-  // NOLINTBEGIN(bugprone-exception-escape)
-  [[nodiscard]] static std::string_view host_of(
-      std::string_view authority) noexcept {
-    const auto colon = authority.rfind(':');
-    if (colon == std::string_view::npos) return authority;
-    const auto port = authority.substr(colon + 1);
-    if (port.empty()) return authority;
-    // Only strip a suffix that is an actual numeric port. If any character
-    // after the last ':' is not a digit, that colon belongs to the host itself
-    // (e.g. an IPv6 literal), so leave the authority unchanged.
-    for (const char c : port)
-      if (!strings::is_digit(c)) return authority;
-    return authority.substr(0, colon);
-  }
-  // NOLINTEND(bugprone-exception-escape)
 };
 
 #pragma endregion

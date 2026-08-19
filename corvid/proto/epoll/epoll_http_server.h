@@ -29,7 +29,7 @@
 #include <variant>
 
 #include "../../infra/exception_firewalls.h"
-#include "../../strings/token_parser.h"
+#include "../misc/http_authority.h"
 #include "../misc/http_head_codec.h"
 #include "../misc/terminated_text_parser.h"
 #include "../../containers/core/opt_find.h"
@@ -330,23 +330,6 @@ public:
     return target.substr(0, target.find('/', 1));
   }
 
-  // Strip the optional `":" port` suffix from a `Host` header value.
-  //
-  // Routes match on the `uri-host` alone (RFC 9110 section 7.2:
-  // `Host = uri-host [ ":" port ]`). An IPv6 literal is bracketed, so a
-  // colon introduces a port only when no `]` follows it.
-  [[nodiscard]] static std::string_view strip_host_port(
-      std::string_view host) {
-    auto text = host;
-    // A bracketed IPv6 literal keeps its brackets, and a port can begin only
-    // after the closing bracket.
-    if (host.starts_with('[')) {
-      if (const auto v6 = strings::token_parser::next_terminated(']', text))
-        return host.substr(0, v6->size() + 1);
-      return host; // no closing bracket; not ours to repair
-    }
-    return strings::token_parser::next_delimited(':', text);
-  }
 #pragma endregion
 #pragma region Construction
 
