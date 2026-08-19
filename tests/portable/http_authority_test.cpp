@@ -23,6 +23,8 @@
 using namespace corvid;
 using namespace std::string_view_literals;
 
+// NOLINTBEGIN(readability-function-cognitive-complexity)
+
 #pragma region HttpAuthorityStripHostPort
 
 TEST_CASE("HttpAuthorityStripHostPort", "[HttpAuthority]") {
@@ -50,3 +52,5 @@ TEST_CASE("HttpAuthorityStripHostPort", "[HttpAuthority]") {
 }
 
 #pragma endregion
+
+// NOLINTEND(readability-function-cognitive-complexity)

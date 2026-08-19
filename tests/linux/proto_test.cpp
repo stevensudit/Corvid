@@ -2229,8 +2229,10 @@ TEST_CASE("MutualClose", "[StreamConn]") {
 #pragma region Listen_MutualClose
 
 TEST_CASE("Listen_MutualClose", "[StreamConn]") {
-  epoll_loop_runner loop;
-
+  // The notifiables precede the runner so they outlive its thread: handlers
+  // capture them by reference and can still run during posted teardown (the
+  // listener's own `on_close` fires after the test's last wait).
+  //
   // Set in `on_data` after the server calls `conn.close`, so the test thread
   // knows the server has initiated its half-close.
   notifiable<bool> close_initiated{false};
@@ -2240,6 +2242,8 @@ TEST_CASE("Listen_MutualClose", "[StreamConn]") {
   // `on_data` -- confirms the policy was copied from the listener.
   notifiable<coordination_policy> accepted_policy{
       coordination_policy::unilateral};
+
+  epoll_loop_runner loop;
 
   auto listener = epoll_stream_conn_ptr::listen(loop.loop()->self(),
       net_endpoint{ipv4_addr::loopback, 0},
@@ -2267,9 +2271,12 @@ TEST_CASE("Listen_MutualClose", "[StreamConn]") {
   REQUIRE(server_ep);
 
   // Connect and send a message to trigger `on_data` on the accepted
-  // connection.
-  auto client =
-      epoll_stream_conn_ptr::connect(loop.loop()->self(), server_ep, {});
+  // connection. The client installs an `on_close` handler so peer EOF (the
+  // server's half-close) does not auto-close it; the bilateral close must
+  // wait for the explicit `close` below, which is what makes the
+  // `server_closed` check deterministic.
+  auto client = epoll_stream_conn_ptr::connect(loop.loop()->self(), server_ep,
+      {.on_close = [](epoll_stream_conn&) { return true; }});
   REQUIRE(client);
   REQUIRE(client->send(std::string{"ping"}));
 
@@ -2366,6 +2373,12 @@ TEST_CASE("ConnOutlivesLoop", "[StreamConn]") {
 #pragma region EchoServer
 
 TEST_CASE("EchoServer", "[StreamConn]") {
+  // Handler state precedes the runner so it outlives the loop thread: the
+  // client handlers capture it by reference and can still run during posted
+  // teardown.
+  std::string received;
+  notifiable<bool> done{false};
+
   epoll_loop_runner loop;
 
   // Bind a non-blocking listener to an OS-assigned loopback port.
@@ -2388,8 +2401,6 @@ TEST_CASE("EchoServer", "[StreamConn]") {
   // Connect to the server, send a message once the connection is established,
   // and accumulate the echo in `received`.
   constexpr std::string_view msg{"hello echo"};
-  std::string received;
-  notifiable<bool> done{false};
   epoll_stream_conn_ptr client_conn;
 
   client_conn = epoll_stream_conn_ptr::connect(loop.loop()->self(), server_ep,
