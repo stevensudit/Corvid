@@ -87,16 +87,22 @@ public:
 
   // Ask the session to run an outbound turn soon, for use after the upper
   // plugin queues work that did not originate from an inbound packet (the
-  // first request on an idle connection, or a follow-up request fired from
-  // inside a response upcall). The drain is posted to the loop rather than run
-  // inline because ngtcp2/nghttp3 forbid emitting I/O from within a callback;
-  // a posted task always runs after the current callback returns. Safe from
-  // any thread; the session is kept alive across the hop. Returns false only
-  // if the post could not be enqueued.
+  // first request on an idle connection, a follow-up request fired from
+  // inside a response upcall, or a drain retry after `borrow_send_buffer`
+  // came up empty).
+  //
+  // The drain is posted to the loop rather than run inline because
+  // ngtcp2/nghttp3 forbid emitting I/O from within a callback; a posted task
+  // always runs after the current callback returns. Safe from any thread; the
+  // session is kept alive across the hop. A session that closed before the
+  // post runs skips the drain, which is also what ends a borrow-failure retry
+  // chain on a closed session. Returns false only if the post could not be
+  // enqueued.
   [[nodiscard]] bool request_drain() {
     auto keepalive = ssnbase_.shared_from_this();
     return ssnbase_.loop().post(
         [this, keepalive = std::move(keepalive)]() -> bool {
+          if (!ssnbase_.is_open()) return true;
           return do_drain_cycle(steady_now_clock::now());
         });
   }

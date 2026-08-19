@@ -151,7 +151,11 @@ public:
     for (;;) {
       const auto pick = do_pick_stream(blocked);
       auto out = io_.borrow_send_buffer();
-      if (!out) return true;
+      // Pool exhausted: post a retry drain so the queued output does not
+      // strand until the next inbound packet or expiry. The retry ends via
+      // `request_drain`'s closed guard or, once a borrow succeeds, this
+      // loop's own exits.
+      if (!out) return io_.request_drain();
       uint64_t accepted{};
       const auto status = io_.conn().writev_stream(pick.sid, pick.iov, out,
           accepted, pick.flags, now);

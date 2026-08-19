@@ -662,7 +662,11 @@ public:
               : write_stream_flags::none;
 
       auto out = io_.borrow_send_buffer();
-      if (!out) return true;
+      // Pool exhausted: post a retry drain so the queued output does not
+      // strand until the next inbound packet or expiry. The retry ends via
+      // `request_drain`'s closed guard or, once a borrow succeeds, this
+      // loop's own exits.
+      if (!out) return io_.request_drain();
       uint64_t accepted{};
       const auto status =
           io_.conn().writev_stream(stream_id, vecs, out, accepted, flags, now);
