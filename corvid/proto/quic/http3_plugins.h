@@ -641,64 +641,43 @@ public:
 
   // Per-turn outbound path.
   //
-  // Each iteration pulls the next chunk nghttp3 wants to write, hands it to
-  // ngtcp2 (which packs stream bytes alongside any non-stream frames), reports
-  // back to nghttp3 how much ngtcp2 accepted, and ships the packet. Loops
-  // until both layers report nothing more to send.
+  // Each iteration offers the next chunk nghttp3 wants to write to ngtcp2
+  // (which packs stream bytes alongside any non-stream frames) and reports
+  // back to nghttp3 how much ngtcp2 accepted, until both layers report
+  // nothing more to send.
   //
   // Before nghttp3 is bound (during the handshake), `h3_` is empty and every
   // turn degenerates to the `stream_id::none` flush that emits ACKs and
-  // handshake frames, the same work `quic_no_op_plugin::drain` does.
+  // handshake frames, the same work `quic_no_op_plugin::drain` does. The
+  // default-constructed `drain_pick` is already that flush, so the pick
+  // simply leaves it alone.
   [[nodiscard]] bool drain(time_point_t now) {
-    for (;;) {
-      quic_stream_id stream_id = quic_stream_id::none;
-      std::span<const iovec> vecs;
-      stream_chunk chunk_fin = stream_chunk::more;
-      if (h3_ && !h3_.writev_stream(stream_id, vecs, chunk_fin)) return false;
-      const auto flags =
-          (chunk_fin == stream_chunk::fin)
-              ? write_stream_flags::fin
-              : write_stream_flags::none;
-
-      auto out = io_.borrow_send_buffer();
-      // Pool exhausted: post a retry drain so the queued output does not
-      // strand until the next inbound packet or expiry. The retry ends via
-      // `request_drain`'s closed guard or, once a borrow succeeds, this
-      // loop's own exits.
-      if (!out) return io_.request_drain();
-      uint64_t accepted{};
-      const auto status =
-          io_.conn().writev_stream(stream_id, vecs, out, accepted, flags, now);
-      // Draining/closing is a connection-level state: ngtcp2 will emit nothing
-      // more, so this is a clean stop, not a failure.
-      if (status == quic_status::draining || status == quic_status::closing)
-        return true;
-      // Stream-level statuses are per-stream conditions, not connection errors
-      // (per the `ngtcp2_conn_writev_stream` doc, other streams may still
-      // write). A flow-control-blocked stream stops being offered until
-      // `on_extend_max_stream_data` unblocks it; a write-shut or unknown
-      // stream is shut in nghttp3, which stops offering it at all.
-      if (status == quic_status::stream_data_blocked) {
-        h3_.block_stream(stream_id);
-        continue;
-      }
-      if (status == quic_status::stream_shut_wr ||
-          status == quic_status::stream_not_found)
-      {
-        h3_.shutdown_stream_write(stream_id);
-        continue;
-      }
-      if (status != quic_status::ok) return false;
-
-      // Tell nghttp3 how much of the offered stream data ngtcp2 took (must be
-      // reported even when 0, e.g. a pure FIN, so nghttp3 advances its
-      // offset).
-      if (h3_ && stream_id != quic_stream_id::none &&
-          !h3_.add_write_offset(stream_id, accepted))
-        return false;
-      if (out.payload_bytes().empty()) return true;
-      (void)io_.send_packet(std::move(out));
-    }
+    return io_.pump_drain(
+        now,
+        [&](drain_pick& pick) {
+          stream_chunk chunk_fin = stream_chunk::more;
+          if (h3_ && !h3_.writev_stream(pick.sid, pick.iov, chunk_fin))
+            return false;
+          if (chunk_fin == stream_chunk::fin)
+            pick.flags = write_stream_flags::fin;
+          return true;
+        },
+        // A flow-control-blocked stream stops being offered until
+        // `on_extend_max_stream_data` unblocks it; a write-shut or unknown
+        // stream is shut in nghttp3, which stops offering it at all.
+        [&](quic_status status, const drain_pick& pick) {
+          if (status == quic_status::stream_data_blocked)
+            h3_.block_stream(pick.sid);
+          else
+            h3_.shutdown_stream_write(pick.sid);
+        },
+        // Tell nghttp3 how much of the offered stream data ngtcp2 took (must
+        // be reported even when 0, e.g. a pure FIN, so nghttp3 advances its
+        // offset).
+        [&](const drain_pick& pick, uint64_t accepted) {
+          return !h3_ || pick.sid == quic_stream_id::none ||
+                 h3_.add_write_offset(pick.sid, accepted);
+        });
   }
 
 #pragma endregion

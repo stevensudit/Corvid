@@ -15,6 +15,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 #pragma once
+#include <cassert>
 #include <chrono>
 #include <cstdint>
 #include <memory>
@@ -74,29 +75,18 @@ class quic_no_op_plugin: public quic_conn_handlers {
 public:
   explicit quic_no_op_plugin(quic_session_io& s) noexcept : io_{s} {}
 
-  // Drive ngtcp2's outbound queue until it stops producing. ngtcp2's pacing
-  // dictates one packet per call; we ship each packet on its own borrowed
-  // buffer. `stream_id::none` means "emit whatever non-stream frames are
-  // queued"; concrete plugins override this with a per-stream drive and may
-  // end with a `stream_id::none` flush to pick up any remaining ACKs.
+  // Drive ngtcp2's outbound queue until it stops producing, offering no
+  // stream.
+  //
+  // The default `drain_pick` is already the `stream_id::none` offer, which
+  // emits whatever non-stream frames are queued; concrete plugins replace
+  // this with a per-stream drive. A `none` offer cannot produce per-stream
+  // statuses, so that handler is unreachable.
   [[nodiscard]] bool drain(time_point_t now) {
-    for (;;) {
-      auto out = io_.borrow_send_buffer();
-      // Pool exhausted: post a retry drain so the queued output does not
-      // strand until the next inbound packet or expiry. The retry ends via
-      // `request_drain`'s closed guard or, once a borrow succeeds, this
-      // loop's own exits.
-      if (!out) return io_.request_drain();
-      uint64_t accepted{};
-      const auto status = io_.conn().writev_stream(quic_stream_id::none, {},
-          out, accepted, write_stream_flags::none, now);
-      // Draining/closing is a connection-level state, so give up.
-      if (status == quic_status::draining || status == quic_status::closing)
-        return true;
-      if (status != quic_status::ok) return false;
-      if (out.payload_bytes().empty()) return true;
-      (void)io_.send_packet(std::move(out));
-    }
+    return io_.pump_drain(
+        now, [](drain_pick&) { return true; },
+        [](quic_status, const drain_pick&) { assert(false); },
+        [](const drain_pick&, uint64_t) { return true; });
   }
 
 protected:

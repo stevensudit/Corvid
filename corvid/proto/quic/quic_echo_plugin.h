@@ -126,13 +126,9 @@ public:
 #pragma endregion
 #pragma region Drain
 
-  // Drive ngtcp2's outbound queue until it stops producing.
-  //
-  // Each iteration picks a stream with pending work (or `stream_id::none` if
-  // none), borrows a fresh send buffer, and hands one packet to ngtcp2 via
-  // `writev_stream`. ngtcp2 may pack stream bytes alongside non-stream frames
-  // in the same packet, so the unified loop subsumes the no-op base's ACK-only
-  // flush.
+  // Drive ngtcp2's outbound queue until it stops producing, offering the first
+  // stream with pending work each iteration (or `stream_id::none` when none
+  // has any).
   //
   // Round-robin across streams is not strictly fair: the first
   // unordered_map iterator hit with work wins each iteration, so a stream
@@ -148,44 +144,29 @@ public:
     // fallback still run; the peer's next `MAX_STREAM_DATA` reopens them on a
     // later turn.
     std::vector<quic_stream_id> blocked;
-    for (;;) {
-      const auto pick = do_pick_stream(blocked);
-      auto out = io_.borrow_send_buffer();
-      // Pool exhausted: post a retry drain so the queued output does not
-      // strand until the next inbound packet or expiry. The retry ends via
-      // `request_drain`'s closed guard or, once a borrow succeeds, this
-      // loop's own exits.
-      if (!out) return io_.request_drain();
-      uint64_t accepted{};
-      const auto status = io_.conn().writev_stream(pick.sid, pick.iov, out,
-          accepted, pick.flags, now);
-      // Draining/closing is a connection-level state: ngtcp2 will emit nothing
-      // more, so this is a clean stop, not a failure.
-      if (status == quic_status::draining || status == quic_status::closing)
-        return true;
-      // Stream-level statuses are per-stream conditions, not connection errors
-      // (per the `ngtcp2_conn_writev_stream` doc, other streams may still
-      // write). A flow-control-blocked stream is set aside for the turn; a
-      // write-shut or unknown stream can never send again, so its queue is
-      // dropped.
-      if (status == quic_status::stream_data_blocked) {
-        blocked.push_back(pick.sid);
-        continue;
-      }
-      if (status == quic_status::stream_shut_wr ||
-          status == quic_status::stream_not_found)
-      {
-        queues_.erase(pick.sid);
-        continue;
-      }
-      if (status != quic_status::ok) return false;
-      if (out.payload_bytes().empty()) return true;
-      if (pick.qp) {
-        pick.qp->consume(accepted);
-        if (pick.qp->size() == 0) pick.qp->state() = write_stream_flags::none;
-      }
-      (void)io_.send_packet(std::move(out));
-    }
+    return io_.pump_drain<stream_pick>(
+        now,
+        [&](stream_pick& pick) {
+          pick = do_pick_stream(blocked);
+          return true;
+        },
+        // A flow-control-blocked stream is set aside for the turn; a
+        // write-shut or unknown stream can never send again, so its queue is
+        // dropped.
+        [&](quic_status status, const stream_pick& pick) {
+          if (status == quic_status::stream_data_blocked)
+            blocked.push_back(pick.sid);
+          else
+            queues_.erase(pick.sid);
+        },
+        [](const stream_pick& pick, uint64_t accepted) {
+          if (pick.qp) {
+            pick.qp->consume(accepted);
+            if (pick.qp->size() == 0)
+              pick.qp->state() = write_stream_flags::none;
+          }
+          return true;
+        });
   }
 
 #pragma endregion
