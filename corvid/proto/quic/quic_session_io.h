@@ -94,10 +94,11 @@ public:
   // The drain is posted to the loop rather than run inline because
   // ngtcp2/nghttp3 forbid emitting I/O from within a callback; a posted task
   // always runs after the current callback returns. Safe from any thread; the
-  // session is kept alive across the hop. A session that closed before the
-  // post runs skips the drain, which is also what ends a borrow-failure retry
-  // chain on a closed session. Returns false only if the post could not be
-  // enqueued.
+  // session is kept alive across the hop, and the loop is reached by plain
+  // reference rather than a weak handle because the lifetime model has the
+  // loop outlive its sessions. A session that closed before the post runs
+  // skips the drain, which is also what ends a borrow-failure retry chain on
+  // a closed session. Returns false only if the post could not be enqueued.
   [[nodiscard]] bool request_drain() {
     auto keepalive = ssnbase_.shared_from_this();
     return ssnbase_.loop().post(
