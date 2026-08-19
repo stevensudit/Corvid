@@ -341,7 +341,8 @@ private:
   http3_headers response_trailers_;
 
   // Inbound headers/trailers land here. Defaults to the request pair (server
-  // orientation); `orient_as_client` repoints them to the response pair.
+  // orientation); `set_role(connection_role::client)` repoints them to the
+  // response pair.
   http3_headers* inbound_headers_{&request_headers_};
   http3_headers* inbound_trailers_{&request_trailers_};
 
@@ -592,9 +593,7 @@ public:
       std::string_view name, std::string_view value, nv_flags flags,
       void* stream_user_data) override {
     auto* stream = to_stream(stream_user_data);
-    return stream ? stream->on_recv_trailer(token, header_name::force(name),
-                        value, flags)
-                  : true;
+    return stream ? stream->on_recv_trailer(token, name, value, flags) : true;
   }
 
   [[nodiscard]] bool on_end_trailers(quic_stream_id, stream_chunk chunk_fin,

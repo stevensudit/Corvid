@@ -687,7 +687,8 @@ private:
   // `NGHTTP3_ERR_CALLBACK_FAILURE` rather than crossing the C ABI.
   //
   // Each per-stream trampoline also forwards nghttp3's `stream_user_data` to
-  // the matching upcall; it is null today since `http3_conn` never sets it.
+  // the matching upcall; it holds the pointer registered for the stream via
+  // `submit_request` or `set_stream_user_data`, null when none was.
   static int on_begin_headers(nghttp3_conn*, int64_t stream_id,
       void* conn_user_data, void* stream_user_data) noexcept {
     auto* self = static_cast<http3_conn*>(conn_user_data);
