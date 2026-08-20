@@ -51,6 +51,9 @@ public:
 
   struct state {
     std::function<bool(iou_recv_view)> on_data;
+    // Like `on_data`, but also handed the receiving conn (e.g. to echo);
+    // wins over `on_data` when both are set.
+    std::function<bool(conn_t&, iou_recv_view)> on_data_conn;
     std::function<bool()> on_drain;
     std::function<bool()> on_close;
   };
@@ -59,6 +62,8 @@ public:
       : conn_{conn}, state_{s} {}
 
   bool on_data(iou_recv_view view) {
+    if (state_ && state_->on_data_conn)
+      return state_->on_data_conn(conn_, std::move(view));
     if (state_ && state_->on_data) return state_->on_data(std::move(view));
     view.consume(view.active_view().size());
     return true;
@@ -1609,6 +1614,88 @@ TEST_CASE("SendHealsAfterPoolExhaustion", "[IouStreamConn]") {
     hogs.clear();
     CHECK(WaitFor([&] { return received.load(std::memory_order::acquire); }));
     CHECK(payload == msg);
+  }
+}
+
+#pragma endregion
+#pragma region ConnectHealsAfterPoolExhaustion
+
+TEST_CASE("ConnectHealsAfterPoolExhaustion", "[IouStreamConn]") {
+  // A connect that completes while the fixed pool is exhausted must not kill
+  // the new conn: the recv borrow fails, the posted heal arms the recv once
+  // buffers return, and the connection works normally from then on. Before
+  // the fix, `on_connect_complete` treated the healing recv's false as fatal
+  // and closed the healthy conn (which also canceled the heal).
+  if (true) {
+    std::atomic_bool drained{false};
+    std::atomic_bool closed{false};
+    std::atomic_bool echoed{false};
+    std::string payload;
+
+    constexpr std::string_view msg{"ping"};
+
+    // The accepted server conn echoes whatever arrives. Multishot listener,
+    // so accepted conns draw on the provided ring, leaving the fixed pool to
+    // the hogs.
+    capture_protocol::state server_state;
+    server_state.on_data_conn = [&](capture_conn& conn, iou_recv_view view) {
+      const auto sv = view.active_view();
+      const auto ok = conn.send(std::string{sv});
+      view.consume(sv.size());
+      return ok;
+    };
+
+    capture_protocol::state client_state;
+    client_state.on_data = [&](iou_recv_view view) {
+      payload += view.active_view();
+      view.consume(view.active_view().size());
+      echoed.store(true, std::memory_order::release);
+      return true;
+    };
+    client_state.on_drain = [&] {
+      drained.store(true, std::memory_order::release);
+      return true;
+    };
+    client_state.on_close = [&] {
+      closed.store(true, std::memory_order::release);
+      return true;
+    };
+
+    iou_loop_runner runner;
+
+    auto server = capture_conn::listen(*runner.loop(),
+        net_endpoint::loopback_v4(0), shot_type::multi, {}, {}, &server_state)
+                      .lock();
+    CHECK(server);
+    const auto& listen_ep = server->local_endpoint();
+
+    // Hog the entire fixed pool before connecting, so the connect completes
+    // into a failed recv borrow.
+    std::vector<iou_loop::buffer> hogs;
+    for (;;) {
+      auto hog = runner->borrow_write_buffer(block_size::kb064);
+      if (!hog) break;
+      hogs.push_back(std::move(hog));
+    }
+    CHECK_FALSE(runner->borrow_write_buffer());
+
+    auto client = capture_conn::connect(*runner.loop(), listen_ep,
+        shot_type::single, {}, {}, &client_state)
+                      .lock();
+    CHECK(client);
+
+    // The connect itself succeeds (on_drain), and the conn survives the
+    // starved recv borrow.
+    CHECK(WaitFor([&] { return drained.load(std::memory_order::acquire); }));
+    CHECK_FALSE(closed.load(std::memory_order::acquire));
+
+    // Return the pool; the healed conn must round-trip an echo, proving the
+    // recv side armed itself.
+    hogs.clear();
+    CHECK(client->send(std::string{msg}));
+    CHECK(WaitFor([&] { return echoed.load(std::memory_order::acquire); }));
+    CHECK(payload == msg);
+    CHECK_FALSE(closed.load(std::memory_order::acquire));
   }
 }
 

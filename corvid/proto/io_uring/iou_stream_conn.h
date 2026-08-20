@@ -765,10 +765,16 @@ private:
   // Submit buffer for singleshot recv, borrowing a read buffer if needed.
   // `allow_upgrade` controls whether we can re-enter `do_submit_multi_recv`
   // when we switched to singleshot due to a multishot failure.
+  //
+  // Returns false only when the actual submit fails. Declining because no
+  // recv is wanted (closed, already armed, read shut, or paused) and posting
+  // a borrow-failure heal are both success: in every such case there is
+  // nothing further for the caller to drive, and in particular nothing to
+  // close.
   [[nodiscard]] bool
   do_submit_single_recv(buffer* bufptr = {}, bool allow_upgrade = true) {
     assert(loop().is_loop_thread());
-    if (closed_ || recv_token_ || read_shut_ || recv_paused_) return false;
+    if (closed_ || recv_token_ || read_shut_ || recv_paused_) return true;
     recv_active_shot_ = shot_type::single;
 
     if (allow_upgrade && recv_intended_shot_ == shot_type::multi &&
@@ -785,13 +791,16 @@ private:
 
     // Pool exhausted or read-throttled: retry from the back of the post
     // queue. The guard ends the retries once a recv is armed some other way
-    // or the read side stops.
+    // or the read side stops. The posted heal is success, not failure: a
+    // recv will be armed, so reporting false would tell callers like
+    // `on_connect_complete` to close a healthy conn (which would also
+    // cancel this very heal).
     if (!buf) {
       (void)loop_.post([this, _ = self()]() -> bool {
         if (closed_ || recv_token_ || read_shut_ || recv_paused_) return true;
         return do_submit_single_recv();
       });
-      return false;
+      return true;
     }
 
     recv_token_ = loop_.submit_read_buffer(sock_, std::move(buf),
@@ -805,9 +814,13 @@ private:
 
   // Submit a multishot recv using the loop's TCP provided-buffer ring.
   // Automatically handles `has_more` failure.
+  //
+  // Same return contract as `do_submit_single_recv`: declining to arm is
+  // success; false means the submit (or its singleshot fallback's submit)
+  // failed.
   [[nodiscard]] bool do_submit_multi_recv() {
     assert(loop().is_loop_thread() && !recv_token_);
-    if (closed_ || recv_token_ || read_shut_ || recv_paused_) return false;
+    if (closed_ || recv_token_ || read_shut_ || recv_paused_) return true;
 
     recv_active_shot_ = shot_type::multi;
     recv_token_ = loop_.submit_recv_buffer_multi(sock_,
