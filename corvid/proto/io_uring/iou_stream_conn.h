@@ -394,6 +394,10 @@ public:
 #pragma region send
 
   // Queue a registered `buffer` for zero-copy sending.
+  //
+  // False means the payload was not accepted (writes disallowed, empty, or
+  // the conn closed); the caller may resend. True means accepted: delivery
+  // rides on the connection, the same on and off the loop thread.
   [[nodiscard]] bool send(buffer&& buf) {
     // `buf` is an rvalue ref; the actual move into the lambda capture below
     // is the only consumption. Analyzer flags the precondition checks as
@@ -415,7 +419,10 @@ public:
   //
   // Strings larger than the current `send_buf_size` are rejected; the caller
   // is responsible for chunking large payloads or using the `buffer` overload
-  // with a larger `buffer`.
+  // with a larger `buffer`. False means the payload was not accepted
+  // (rejected here or the conn closed); true means accepted, the same on and
+  // off the loop thread, even when the send is waiting out a write-pool
+  // shortage.
   [[nodiscard]] bool send(std::string&& data) {
     if (!writes_allowed() || data.empty()) return false;
     if (data.size() > **send_buf_size_) return false;
@@ -884,6 +891,10 @@ private:
   }
 
   // Send the next buffer in the send queue.
+  //
+  // Returns false only on a hard submit failure. An empty queue and a posted
+  // borrow-failure heal both report true: in each case the queue's contents
+  // (if any) remain accepted and will transmit without further driving.
   [[nodiscard]] bool do_submit_send() {
     assert(loop().is_loop_thread() && !send_token_);
     if (send_queue_.empty()) return true;
@@ -897,13 +908,16 @@ private:
       // Pool exhausted: the strings stay queued. Retry from the back of the
       // post queue, giving the work ahead of us a chance to return buffers.
       // The guard ends the retries once a send is driven some other way or
-      // the conn closes.
+      // the conn closes. A posted heal is success, not failure: the queued
+      // payload is accepted and will transmit, so reporting false here would
+      // tell an inline `send` caller (and the completion chain) to treat a
+      // healthy conn as failed.
       if (!buf) {
         (void)loop_.post([this, _ = self()]() -> bool {
           if (closed_ || send_token_ || send_queue_.empty()) return true;
           return do_submit_send();
         });
-        return false;
+        return true;
       }
       while (!send_queue_.empty() &&
              std::holds_alternative<std::string>(send_queue_.front()))

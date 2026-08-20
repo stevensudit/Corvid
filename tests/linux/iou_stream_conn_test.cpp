@@ -1556,6 +1556,60 @@ TEST_CASE("SendHealsAfterPoolExhaustion", "[IouStreamConn]") {
     CHECK(WaitFor([&] { return received.load(std::memory_order::acquire); }));
     CHECK(payload == msg);
   }
+
+  // The same starved send driven from the loop thread. `execute_or_post`
+  // runs the lambda inline there, and the inline result must match the
+  // off-loop one: accepted (the payload is queued and heals), not a failure
+  // for bytes that will still transmit.
+  if (true) {
+    auto [sock0, sock1] = net_socket::create_pair();
+
+    std::atomic_bool received{false};
+    std::string payload;
+
+    constexpr std::string_view msg{"starved-inline"};
+
+    capture_protocol::state recv_state;
+    recv_state.on_data = [&](iou_recv_view view) {
+      payload += view.active_view();
+      view.consume(view.active_view().size());
+      received.store(true, std::memory_order::release);
+      return true;
+    };
+
+    iou_loop_runner runner;
+
+    auto recv_conn =
+        capture_conn::adopt(*runner.loop(), std::move(sock1),
+            net_endpoint::invalid, shot_type::multi, {}, {}, &recv_state)
+            .lock();
+    CHECK(recv_conn);
+
+    auto send_conn =
+        capture_conn::adopt(*runner.loop(), std::move(sock0),
+            net_endpoint::invalid)
+            .lock();
+    CHECK(send_conn);
+
+    std::vector<iou_loop::buffer> hogs;
+    for (;;) {
+      auto hog = runner->borrow_write_buffer(block_size::kb064);
+      if (!hog) break;
+      hogs.push_back(std::move(hog));
+    }
+    CHECK_FALSE(runner->borrow_write_buffer());
+
+    const auto ok = runner->post_and_wait([&] {
+      return send_conn->send(std::string{msg});
+    });
+    CHECK(ok);
+    std::this_thread::sleep_for(20ms);
+    CHECK_FALSE(received.load(std::memory_order::acquire));
+
+    hogs.clear();
+    CHECK(WaitFor([&] { return received.load(std::memory_order::acquire); }));
+    CHECK(payload == msg);
+  }
 }
 
 #pragma endregion
