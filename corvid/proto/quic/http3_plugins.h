@@ -673,10 +673,12 @@ public:
         },
         // Tell nghttp3 how much of the offered stream data ngtcp2 took (must
         // be reported even when 0, e.g. a pure FIN, so nghttp3 advances its
-        // offset).
-        [&](const drain_pick& pick, uint64_t accepted) {
+        // offset). A packet that omitted the stream frame reports 0 since
+        // nothing was consumed, and nghttp3 re-offers the same bytes (and fin)
+        // on the next turn.
+        [&](const drain_pick& pick, std::optional<uint64_t> accepted) {
           return !h3_ || pick.sid == quic_stream_id::none ||
-                 h3_.add_write_offset(pick.sid, accepted);
+                 h3_.add_write_offset(pick.sid, accepted.value_or(0));
         });
   }
 

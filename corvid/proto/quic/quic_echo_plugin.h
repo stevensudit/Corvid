@@ -159,9 +159,12 @@ public:
           else
             queues_.erase(pick.sid);
         },
-        [](const stream_pick& pick, uint64_t accepted) {
-          if (pick.qp) {
-            pick.qp->consume(accepted);
+        // The sticky flags clear only on an engaged `accepted`: a packet
+        // that omitted the stream frame (ACKs under a full cwnd) did not
+        // ship the FIN, and nothing re-arms the flag once it is cleared.
+        [](const stream_pick& pick, std::optional<uint64_t> accepted) {
+          if (pick.qp && accepted) {
+            pick.qp->consume(*accepted);
             if (pick.qp->size() == 0)
               pick.qp->state() = write_stream_flags::none;
           }

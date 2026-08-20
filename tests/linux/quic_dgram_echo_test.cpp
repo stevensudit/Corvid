@@ -121,7 +121,7 @@ struct echo_client_plugin: quic_conn_handlers {
       const auto pick = do_pick_stream(blocked);
       auto out = io_.borrow_send_buffer();
       if (!out) return true;
-      uint64_t accepted{};
+      std::optional<uint64_t> accepted;
       const auto status = io_.conn().writev_stream(pick.sid, pick.iov, out,
           accepted, pick.flags, now);
       if (status == quic_status::draining || status == quic_status::closing)
@@ -138,8 +138,8 @@ struct echo_client_plugin: quic_conn_handlers {
       }
       if (status != quic_status::ok) return false;
       if (out.payload_bytes().empty()) return true;
-      if (pick.qp) {
-        pick.qp->consume(accepted);
+      if (pick.qp && accepted) {
+        pick.qp->consume(*accepted);
         if (pick.qp->size() == 0) pick.qp->state() = write_stream_flags::none;
       }
       (void)io_.send_packet(std::move(out));

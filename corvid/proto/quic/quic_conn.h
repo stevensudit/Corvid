@@ -638,8 +638,16 @@ public:
   // forward across calls. To ship each packet as its own UDP datagram, borrow
   // a fresh `buf` per packet.
   //
+  // `bytes_accepted` is engaged exactly when the packet carries a STREAM
+  // frame for the offered stream: its value is the byte count, where `0`
+  // means a zero-length frame (a pure FIN). It is empty when ngtcp2 omitted
+  // the stream frame (other frames occupied the packet, or none was offered)
+  // and on failure. The distinction is load-bearing for sticky-FIN callers: a
+  // turn that shipped a packet without the stream frame must not treat the
+  // FIN as sent.
+  //
   // ngtcp2 packets are atomic, so this gives up (returns `ok` without
-  // extending `buf` and with `bytes_accepted == 0`) whenever the remaining
+  // extending `buf` and with `bytes_accepted` empty) whenever the remaining
   // tail can't hold the next packet ngtcp2 wants to emit, not just when the
   // tail is fully empty. The same status covers three cases the caller can't
   // distinguish directly: tail too small, congestion control limit, or ngtcp2
@@ -655,10 +663,11 @@ public:
   // remain valid in the caller's storage until the peer ACKs them via
   // `on_acked_stream_data_offset`. `stream_id == quic_stream_id::none` (the
   // ngtcp2 -1 sentinel) emits a packet carrying only non-stream frames (ACKs,
-  // MAX_DATA, etc.), the same as `write_pkt`; `bytes_accepted` is `0` in that
-  // case. `flags` selects ngtcp2 write modifiers; see `write_stream_flags` for
-  // the per-bit semantics (`fin` to terminate the stream, `more` to coalesce
-  // subsequent calls into the same packet, `padding` to pad to path MTU).
+  // MAX_DATA, etc.), the same as `write_pkt`; `bytes_accepted` is empty in
+  // that case. `flags` selects ngtcp2 write modifiers; see
+  // `write_stream_flags` for the per-bit semantics (`fin` to terminate the
+  // stream, `more` to coalesce subsequent calls into the same packet,
+  // `padding` to pad to path MTU).
   //
   // `write_more` is not a real error: ngtcp2 returns it when the caller
   // passed `write_stream_flags::more`, bytes were consumed into an
@@ -667,22 +676,22 @@ public:
   // or finalize via `write_pkt` / a follow-up call without `more`. `buf`
   // is intentionally not extended yet: no packet exists on the wire until
   // finalization. Callers that do not pass `more` will never see this status.
-  // On any other error, `buf` is left unchanged and `bytes_accepted` is `0`.
+  // On any other error, `buf` is left unchanged and `bytes_accepted` is empty.
   //
   // ngtcp2 may prefer to emit queued non-stream frames (ACKs, MAX_DATA,
   // HANDSHAKE_DONE, etc.) ahead of the offered stream data even when
   // `stream_id` names a real stream and `more` was set: the call returns `ok`
-  // with `bytes_accepted == 0` and `buf` extended by the non-stream packet,
+  // with `bytes_accepted` empty and `buf` extended by the non-stream packet,
   // while the offered stream bytes stay buffered for the next call. A
   // MORE-using drain must keep calling: the first invocation does not reliably
-  // surface `write_more`. Termination is "buf stopped growing", not
-  // "bytes_accepted == 0".
+  // surface `write_more`. Termination is "buf stopped growing", not "no bytes
+  // accepted".
   [[nodiscard]] quic_status writev_stream(quic_stream_id stream_id,
       std::span<const iovec> iov, iouring::iou_buffer& buf,
-      uint64_t& bytes_accepted,
+      std::optional<uint64_t>& bytes_accepted,
       write_stream_flags flags = write_stream_flags::none,
       time_point_t now = steady_now_clock::now()) noexcept {
-    bytes_accepted = 0;
+    bytes_accepted.reset();
     auto tail = buf.tail_span();
     if (tail.empty()) return quic_status::ok;
     ngtcp2_ssize pdatalen{-1};
@@ -698,7 +707,7 @@ public:
       status = static_cast<quic_status>(rv);
       if (status != quic_status::write_more) return status;
     }
-    if (pdatalen > 0) bytes_accepted = static_cast<uint64_t>(pdatalen);
+    if (pdatalen >= 0) bytes_accepted = static_cast<uint64_t>(pdatalen);
     return status;
   }
 

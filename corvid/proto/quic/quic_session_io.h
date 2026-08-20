@@ -16,6 +16,7 @@
 // limitations under the License.
 #pragma once
 #include <cstdint>
+#include <optional>
 #include <span>
 #include <string>
 #include <string_view>
@@ -139,7 +140,11 @@ public:
   // per-stream conditions, not connection errors, and other streams may still
   // write (`ngtcp2_conn_writev_stream` doc). `commit(const P&, accepted)`
   // reports how many offered bytes ngtcp2 took, once per shipped packet, and
-  // returns false on a hard failure.
+  // returns false on a hard failure. `accepted` is engaged exactly when the
+  // packet carried the offered stream's frame (`0` = a zero-length frame,
+  // e.g. a pure FIN) and empty when ngtcp2 omitted it; a commit managing
+  // sticky flags must not treat an omitted frame as sent (see
+  // `quic_conn::writev_stream`).
   //
   // Returns true when ngtcp2 has nothing more to emit this turn (including
   // the draining/closing connection states, and a failed buffer borrow after
@@ -158,7 +163,7 @@ public:
       // `request_drain`'s closed guard or, once a borrow succeeds, this
       // loop's own exits.
       if (!out) return request_drain();
-      uint64_t accepted{};
+      std::optional<uint64_t> accepted;
       const auto status =
           conn().writev_stream(p.sid, p.iov, out, accepted, p.flags, now);
       // Draining/closing is a connection-level state, so ngtcp2 will emit

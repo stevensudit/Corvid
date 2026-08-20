@@ -19,6 +19,7 @@
 #include <chrono>
 #include <cstdint>
 #include <memory>
+#include <optional>
 #include <span>
 #include <string>
 #include <string_view>
@@ -86,7 +87,7 @@ public:
     return io_.pump_drain(
         now, [](drain_pick&) { return true; },
         [](quic_status, const drain_pick&) { assert(false); },
-        [](const drain_pick&, uint64_t) { return true; });
+        [](const drain_pick&, std::optional<uint64_t>) { return true; });
   }
 
 protected:

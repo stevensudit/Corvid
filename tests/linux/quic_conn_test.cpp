@@ -808,7 +808,7 @@ TEST_CASE(
   auto stream_buf = iouring::iou_buffer::make_synthetic_write(
       {stream_backing.data(), stream_backing.size()});
 
-  uint64_t accepted{};
+  std::optional<uint64_t> accepted;
   const auto status = client.writev_stream(sid, iovs, stream_buf, accepted,
       write_stream_flags::more, now_tp());
 
@@ -823,6 +823,30 @@ TEST_CASE(
   // The server reads the packet without error.
   CHECK(server.read_pkt(stream_buf.payload_bytes(), now_tp()) ==
         quic_status::ok);
+
+  // A pure FIN (empty iov, fin flag) serializes a zero-length STREAM frame:
+  // `bytes_accepted` engages at 0, distinguishing "frame shipped" from a
+  // packet that omitted the stream frame. Clearing a sticky FIN flag hinges
+  // on this distinction.
+  std::array<std::byte, 1500> fin_backing{};
+  auto fin_buf = iouring::iou_buffer::make_synthetic_write(
+      {fin_backing.data(), fin_backing.size()});
+  std::optional<uint64_t> fin_accepted;
+  CHECK(client.writev_stream(sid, {}, fin_buf, fin_accepted,
+            write_stream_flags::fin, now_tp()) == quic_status::ok);
+  REQUIRE(fin_accepted);
+  CHECK(*fin_accepted == 0);
+  CHECK_FALSE(fin_buf.payload_bytes().empty());
+
+  // A turn with no stream offered leaves `bytes_accepted` empty, whether or
+  // not a packet went out.
+  std::array<std::byte, 1500> none_backing{};
+  auto none_buf = iouring::iou_buffer::make_synthetic_write(
+      {none_backing.data(), none_backing.size()});
+  std::optional<uint64_t> none_accepted;
+  CHECK(client.writev_stream(quic_stream_id::none, {}, none_buf, none_accepted,
+            write_stream_flags::none, now_tp()) == quic_status::ok);
+  CHECK_FALSE(none_accepted);
 }
 
 #pragma endregion
