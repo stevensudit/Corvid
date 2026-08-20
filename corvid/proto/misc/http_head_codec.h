@@ -712,12 +712,14 @@ private:
     std::string t;
     for (const auto& val : headers.get_values("Transfer-Encoding")) {
       present = true;
-      if (val.empty()) continue;
-      const auto encodings = strings::split(val, ",");
-      if (encodings.empty()) continue;
-      const auto v = strings::trim(encodings.back());
-      if (v.empty()) continue;
-      t = v;
+      // Empty list elements are ignored (RFC 9110 section 5.6.1), so the
+      // decider is the field's last non-empty token; a field with none leaves
+      // the verdict from the previous field intact.
+      for (const auto& e : strings::rsplit(val, ","))
+        if (const auto v = strings::trim(e); !v.empty()) {
+          t = v;
+          break;
+        }
     }
     if (!present) return;
     strings::to_lower(t);

@@ -873,6 +873,38 @@ TEST_CASE("IsChunked", "[HttpHeaderBlock]") {
     CHECK(*opts.transfer_encoding == transfer_encoding_value::unknown);
   }
   {
+    // A trailing empty element in the last field is ignored, so the decider
+    // is the last non-empty token of the concatenated list: `gzip`, which
+    // reads as unknown rather than leaking the earlier field's `chunked`.
+    http_headers h;
+    CHECK(h.add_raw("Transfer-Encoding", "chunked"));
+    CHECK(h.add_raw("Transfer-Encoding", "gzip,"));
+    http_options opts;
+    opts.extract(h);
+    REQUIRE(opts.transfer_encoding);
+    CHECK(*opts.transfer_encoding == transfer_encoding_value::unknown);
+  }
+  {
+    // A trailing comma does not mask a final `chunked`.
+    http_headers h;
+    CHECK(h.add_raw("Transfer-Encoding", "gzip, chunked,"));
+    http_options opts;
+    opts.extract(h);
+    REQUIRE(opts.transfer_encoding);
+    CHECK(*opts.transfer_encoding == transfer_encoding_value::chunked);
+  }
+  {
+    // A later field holding only empty elements changes nothing: the last
+    // non-empty token of the concatenated list is still `chunked`.
+    http_headers h;
+    CHECK(h.add_raw("Transfer-Encoding", "chunked"));
+    CHECK(h.add_raw("Transfer-Encoding", ","));
+    http_options opts;
+    opts.extract(h);
+    REQUIRE(opts.transfer_encoding);
+    CHECK(*opts.transfer_encoding == transfer_encoding_value::chunked);
+  }
+  {
     // Recognized but not chunked: `identity` is reported as itself.
     http_headers h;
     CHECK(h.add_raw("Transfer-Encoding", "identity"));
