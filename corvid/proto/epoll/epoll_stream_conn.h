@@ -82,6 +82,15 @@ class epoll_stream_conn;
 //                           write side open after peer EOF, install an
 //                           `on_close` handler and call `close` or `hangup`
 //                           only when done.
+//
+// Handlers run on the loop thread and can fire after the owning
+// `epoll_stream_conn_ptr`'s destructor returns, because that destructor posts
+// its teardown to the loop and `on_close` is delivered from the posted work.
+// A listener's handlers are also copied into every accepted connection, which
+// is self-owning. State a handler captures by reference must therefore
+// outlive the loop thread: declare it before the `epoll_loop_runner` (whose
+// destructor joins the thread), or wait on `finished_signal` before
+// destroying it.
 struct epoll_stream_conn_handlers {
   // The `= nullptr` initializers are not redundant: a designated initializer
   // may omit only fields that have a default member initializer (per

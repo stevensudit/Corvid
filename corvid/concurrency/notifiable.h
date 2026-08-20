@@ -86,6 +86,11 @@ concept atomic_like =
 // because a waiter that has observed a value can then destroy the notifiable
 // without racing a trailing signal.
 //
+// The exception is the atomic specialization's lock-free `get`: it can observe
+// a value while the notifier is still signaling, so destruction after a
+// lock-free poll must be synchronized some other way, such as shared
+// ownership.
+//
 // All waiting methods always supply a predicate to
 // `std::condition_variable::wait*`, eliminating spurious-wakeup bugs.
 //
