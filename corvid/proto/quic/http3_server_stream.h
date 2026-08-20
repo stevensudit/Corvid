@@ -75,10 +75,19 @@ public:
   }
 
   // Gate the completed request HEADERS on the authority before handing them to
-  // the per-stream `on_recv_headers`. On rejection, submit the error response
-  // (header-only) and stop; `submit_response` sets the responded flag, so the
-  // later `on_end_stream` does not respond again.
+  // the per-stream `on_recv_headers`.
+  //
+  // On rejection, submit the error response (header-only) and stop;
+  // `submit_response` sets the responded flag, so the later `on_end_stream`
+  // does not respond again.
+  //
+  // A stream that already responded or was rejected (the field cap trips
+  // before the section ends) drops the event like every other inbound hook:
+  // running the gate would re-enter `submit_response`, whose latch fails the
+  // nghttp3 callback and tears down the whole connection. The guard precedes
+  // the assert because a muted stream must not touch the router at all.
   [[nodiscard]] bool on_end_headers(stream_chunk chunk_fin) override {
+    if (rejected() || responded()) return true;
     assert(router()->is_loop_thread());
     if (const auto status = authority_reject_status(); !status.empty()) {
       response_headers().set_value(":status", status);
