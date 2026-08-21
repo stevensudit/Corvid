@@ -386,11 +386,10 @@ public:
     view = {out.data() + b, e - b};
     buf_->buffer.clear();
     // The swapped-in string may be much smaller than the buffer we gave up
-    // (e.g., a fresh `out`); reserve up to `min_capacity` so the restored
-    // buffer is immediately usable for full-sized reads.
+    // (e.g., a fresh `out`). Enlarge to at least `min_capacity` so the
+    // restored buffer is immediately usable for full-sized reads.
     const size_t configured{buf_->min_capacity};
-    buf_->buffer.reserve(configured);
-    no_zero{buf_->buffer}.enlarge_to_cap();
+    no_zero{buf_->buffer}.enlarge_to(configured);
     const auto new_cap = buf_->buffer.size();
     buf_->begin.store(0, std::memory_order::relaxed);
     buf_->end.store(0, std::memory_order::relaxed);
