@@ -167,7 +167,7 @@ TEST_CASE("PostFromThread", "[IouLoop]") {
 
     iou_loop_runner loop;
 
-    const bool ok = loop->post([&] {
+    const auto ok = loop->post([&] {
       fired.store(true, std::memory_order::release);
       return true;
     });
@@ -187,7 +187,7 @@ TEST_CASE("PostAndWait", "[IouLoop]") {
 
     iou_loop_runner loop;
 
-    const bool ok = loop->post_and_wait([&] {
+    const auto ok = loop->post_and_wait([&] {
       ran.store(true, std::memory_order::relaxed);
       return true;
     });
@@ -214,7 +214,7 @@ TEST_CASE("RecvSend", "[IouLoop]") {
 
     iou_loop_runner loop;
 
-    const bool ok = loop->post_and_wait([&] {
+    const auto ok = loop->post_and_wait([&] {
       const auto token = loop->submit_recv_bytes(recv_sock, buf,
           [&](completion_id, iou_res res, iou_cqe_flags) {
             recv_result.store(res.value(), std::memory_order::relaxed);
@@ -369,7 +369,7 @@ TEST_CASE("IsLoopThread", "[IouLoop]") {
     CHECK_FALSE(loop->is_loop_thread());
 
     std::atomic_bool confirmed{false};
-    const bool ok = loop->post_and_wait([&] {
+    const auto ok = loop->post_and_wait([&] {
       confirmed.store(loop->is_loop_thread(), std::memory_order::release);
       return true;
     });
@@ -388,7 +388,7 @@ TEST_CASE("ExecuteOrPost", "[IouLoop]") {
 
     iou_loop_runner loop;
 
-    const bool ok = loop->execute_or_post([&] {
+    const auto ok = loop->execute_or_post([&] {
       executed.store(true, std::memory_order::release);
       return true;
     });
@@ -417,7 +417,7 @@ TEST_CASE("NopTokenVariant", "[IouLoop]") {
         });
     CHECK(token.is_valid());
 
-    const bool submitted = loop->submit_nop(token, slot_retention::automatic);
+    const auto submitted = loop->submit_nop(token, slot_retention::automatic);
     CHECK(submitted);
     CHECK(WaitFor([&] { return fired.load(std::memory_order::acquire); }));
     CHECK(result.load() == 0);
@@ -774,7 +774,7 @@ TEST_CASE("RecvSendMsg", "[IouLoop]") {
 
     iou_loop_runner loop;
 
-    const bool ok = loop->post_and_wait([&] {
+    const auto ok = loop->post_and_wait([&] {
       auto recv_buf = loop->borrow_read_buffer();
       if (!recv_buf) return false;
       const auto rtok = loop->submit_recvmsg_buffer(recv_sock,
@@ -835,7 +835,7 @@ TEST_CASE("SendMsgConnectedNoPeer", "[IouLoop]") {
 
     iou_loop_runner loop;
 
-    const bool ok = loop->post_and_wait([&] {
+    const auto ok = loop->post_and_wait([&] {
       auto recv_buf = loop->borrow_read_buffer();
       if (!recv_buf) return false;
       const auto rtok = loop->submit_recvmsg_buffer(recv_sock,
@@ -919,7 +919,7 @@ TEST_CASE("SlotRetentionRetain", "[IouLoop]") {
           return slot_retention::automatic;
         });
     CHECK(token.is_valid());
-    const bool submitted = loop->submit_nop(token, slot_retention::automatic);
+    const auto submitted = loop->submit_nop(token, slot_retention::automatic);
     CHECK(submitted);
     CHECK(
         WaitFor([&] { return count.load(std::memory_order::acquire) == 2; }));
@@ -1421,7 +1421,7 @@ TEST_CASE("RecvMsgBufferMultiStress", "[IouLoop]") {
 
     const auto recv_token = loop->submit_recvmsg_buffer_multi(recv_sock,
         [&](completion_id, iou_loop::buffer& buf) -> slot_retention {
-          const bool valid =
+          const auto valid =
               bitmask::has(buf.cqe_flags(), iou_cqe_flags::buffer);
           if (!valid) {
             enobufs_fired = true;
@@ -1710,7 +1710,7 @@ TEST_CASE("SubmitTimeoutRemoveExplicit", "[IouLoop]") {
         });
     CHECK(remove_cbtoken.is_valid());
 
-    const bool ok = loop->submit_timeout_remove(std::move(timeout_token),
+    const auto ok = loop->submit_timeout_remove(std::move(timeout_token),
         remove_cbtoken, slot_retention::automatic);
     CHECK(ok);
 
@@ -1743,7 +1743,7 @@ TEST_CASE("SubmitCancelTokenAutoRelease", "[IouLoop]") {
       return recv_token.is_valid();
     }));
 
-    const bool cancel_ok = loop->submit_cancel(std::move(recv_token));
+    const auto cancel_ok = loop->submit_cancel(std::move(recv_token));
     CHECK(cancel_ok);
 
     CHECK(WaitFor([&] { return recv_done.load(std::memory_order::acquire); }));
@@ -1783,7 +1783,7 @@ TEST_CASE("SubmitTimeoutUpdate", "[IouLoop]") {
 
     bound_timeout new_timeout{
         .when = {.ts = iou_timespec{50ms}, .flags = iou_timeout_flags::rel}};
-    const bool updated = loop->post_and_wait([&] {
+    const auto updated = loop->post_and_wait([&] {
       return loop->submit_timeout_update(timeout_token, new_timeout);
     });
     CHECK(updated);
