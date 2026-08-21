@@ -629,7 +629,7 @@ private:
     // Add selection visual effects.
     fx->selectionColor = 0xFFF2B63FU;
     fx->rangeRadius = defender->attackRadius;
-    fx->rangeColor = 0xFFFF007F;
+    fx->rangeColor = 0xFFFF007FU;
     fx->modified = world_.currentTick();
     (void)world_.markDirty(selectedId);
 
@@ -701,10 +701,7 @@ private:
           .resourceCost = def.resourceCost,
           .appearance = *app_opt});
     }
-    std::ranges::sort(design.defenderMenu,
-        [](const DefenderSummary& a, const DefenderSummary& b) {
-          return a.menuOrder < b.menuOrder;
-        });
+    std::ranges::sort(design.defenderMenu, {}, &DefenderSummary::menuOrder);
   }
 
   // Add each `PathJoints` from `mapDesign_->paths` to the world. Previous
@@ -1103,7 +1100,7 @@ SimGame::loadMapFromJson(const std::filesystem::path& file, MapDesign& out) {
       if (!elem.is_object()) continue;
       const auto wo = elem.as_object();
       WaveDefinition wave;
-      if (const auto v = wo.get_number<int>("resourceInflux"))
+      if (const auto v = wo.get_number<uint32_t>("resourceInflux"))
         wave.resourceInflux = *v;
       if (const auto enemies = wo.get_array("enemies")) {
         for (const auto eelem : enemies) {
@@ -1118,10 +1115,7 @@ SimGame::loadMapFromJson(const std::filesystem::path& file, MapDesign& out) {
           wave.enemies.push_back(std::move(spawn));
         }
       }
-      std::ranges::sort(wave.enemies,
-          [](const EnemySpawn& a, const EnemySpawn& b) {
-            return a.startTicks < b.startTicks;
-          });
+      std::ranges::sort(wave.enemies, {}, &EnemySpawn::startTicks);
       out.waves.push_back(std::move(wave));
     }
   }
@@ -1136,11 +1130,11 @@ SimGame::loadMapFromJson(const std::filesystem::path& file, MapDesign& out) {
 [[nodiscard]] inline std::string SimGame::buildMapEntityCsvReport(
     const MapDesign& design) {
   auto csv_escape = [](std::string_view value) {
-    std::string out;
-    out.reserve(value.size() + 2);
     const auto needs_quotes =
         value.contains(',') || value.contains('"') || value.contains('\n');
     if (!needs_quotes) return std::string{value};
+    std::string out;
+    out.reserve(value.size() + 2);
     out.push_back('"');
     for (const char ch : value) {
       if (ch == '"') out.push_back('"');
@@ -1158,14 +1152,11 @@ SimGame::loadMapFromJson(const std::filesystem::path& file, MapDesign& out) {
     else if (std::get<std::optional<Invader>>(def.megatuple))
       invaders.push_back(&def);
 
-  auto by_name = [](const EntityDefinition* lhs, const EntityDefinition* rhs) {
-    return lhs->entityName < rhs->entityName;
-  };
-  std::ranges::sort(invaders, by_name);
-  std::ranges::sort(defenders, by_name);
+  std::ranges::sort(invaders, {}, &EntityDefinition::entityName);
+  std::ranges::sort(defenders, {}, &EntityDefinition::entityName);
 
   std::ostringstream oss;
-  oss << "entityName,Radius,Speed,Radius,Health,Regen,Bounty\n";
+  oss << "entityName,hitRadius,speed,drawRadius,health,regen,bounty\n";
   for (const auto* def : invaders) {
     const auto& pathing = std::get<std::optional<Pathing>>(def->megatuple);
     const auto& invader = std::get<std::optional<Invader>>(def->megatuple);
@@ -1178,7 +1169,7 @@ SimGame::loadMapFromJson(const std::filesystem::path& file, MapDesign& out) {
         << invader->bounty << '\n';
   }
 
-  oss << "\nentityName,resourceCost,radius,attackRadius,attackDamage,"
+  oss << "\nentityName,resourceCost,drawRadius,attackRadius,attackDamage,"
          "cooldown\n";
   for (const auto* def : defenders) {
     const auto& defender = std::get<std::optional<Defender>>(def->megatuple);

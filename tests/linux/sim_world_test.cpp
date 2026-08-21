@@ -1595,11 +1595,12 @@ TEST_CASE("BuildCurrentMapEntityCsvReport", "[SimGame]") {
   REQUIRE(game.loadMap());
 
   const auto csv = game.buildCurrentMapEntityCsvReport();
-  CHECK(csv.contains("entityName,Radius,Speed,Radius,Health,Regen,Bounty\n"));
+  CHECK(csv.contains(
+      "entityName,hitRadius,speed,drawRadius,health,regen,bounty\n"));
   CHECK(csv.contains("InvaderAlphaBasic,30,50,30,50,10,10\n"));
   CHECK(csv.contains("InvaderBetaBasic,40,30,40,120,12,25\n"));
   CHECK(csv.contains(
-      "\nentityName,resourceCost,radius,attackRadius,"
+      "\nentityName,resourceCost,drawRadius,attackRadius,"
       "attackDamage,cooldown\n"));
   CHECK(csv.contains("DefenderAoeBasic,50,30,100,6,20\n"));
   CHECK(csv.contains("DefenderHitscanBasic,100,25,200,30,25\n"));

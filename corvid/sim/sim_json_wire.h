@@ -90,7 +90,7 @@ struct SimGameStateJson {
 
   size_t current_wave{};
   int lives_count{};
-  int resources_count{};
+  uint32_t resources_count{};
   std::string_view phase;
   UiState ui_state;
 

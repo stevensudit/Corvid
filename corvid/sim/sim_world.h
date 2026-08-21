@@ -1286,13 +1286,11 @@ private:
   // `pendingKills_` for `SimGame` to resolve (bounty, death animation, etc.).
   // Then put the defender on cooldown.
   [[nodiscard]] bool attackWithAoe(EntityId defenderId, Defender& defender,
-      DefenderStats& stats, const std::vector<InvaderCandidate>& candidates,
-      const DefenderAoe&) {
-    const auto* defenderPos = scene_.try_get_component<Position>(defenderId);
-    assert(defenderPos);
+      const Position& defenderPos, DefenderStats& stats,
+      const std::vector<InvaderCandidate>& candidates, const DefenderAoe&) {
     pendingTransientExplosions_.emplace_back(TransientExplosion{
         .expiry = WorldTick{*tick_ + 1},
-        .circle = Circle{Position{defenderPos->x, defenderPos->y},
+        .circle = Circle{Position{defenderPos.x, defenderPos.y},
             defender.attackRadius},
         .primaryColor = withAlpha(defender.rangeColor, 0x30U),
         .secondaryColor = withAlpha(defender.rangeColor, 0x10U)});
@@ -1300,7 +1298,7 @@ private:
       (void)applyAttackDamage(cand.id, defender.attackDamage, stats,
           0xFF7F7FFFU);
     defender.nextAttack = WorldTick{*tick_ + *defender.cooldown};
-    (void)flashEntity(defenderId, 0xFFFFFFFF, WorldTick{5});
+    (void)flashEntity(defenderId, 0xFFFFFFFFU, WorldTick{5});
     (void)setCooldown(defenderId, 0x0000007FU, defender.nextAttack,
         defender.cooldown);
     return true;
@@ -1404,7 +1402,7 @@ private:
           .coneRadius = shooter.muzzleFlashTemplate.coneRadius});
     }
     defender.nextAttack = WorldTick{*tick_ + *defender.cooldown};
-    (void)flashEntity(defenderId, 0xFFFFFFFF, WorldTick{5});
+    (void)flashEntity(defenderId, 0xFFFFFFFFU, WorldTick{5});
     (void)setCooldown(defenderId, 0x0000007FU, defender.nextAttack,
         defender.cooldown);
     return true;
@@ -1451,7 +1449,7 @@ private:
         .lineWidth = hitscan.transientTemplate.lineWidth});
 
     defender.nextAttack = WorldTick{*tick_ + *defender.cooldown};
-    (void)flashEntity(defenderId, 0xFFFFFFFF, WorldTick{5});
+    (void)flashEntity(defenderId, 0xFFFFFFFFU, WorldTick{5});
     (void)setCooldown(defenderId, 0x0000007FU, defender.nextAttack,
         defender.cooldown);
     return true;
@@ -1475,7 +1473,8 @@ private:
               hitscan] = scene_.try_get_some_components<DefenderAoe,
               DefenderShooter, DefenderHitscan>(defenderId);
           if (aoe)
-            (void)attackWithAoe(defenderId, defender, stats, candidates, *aoe);
+            (void)attackWithAoe(defenderId, defender, defenderPos, stats,
+                candidates, *aoe);
           else if (shooter)
             (void)attackWithShooter(defenderId, defender, defenderPos,
                 candidates, *shooter);
