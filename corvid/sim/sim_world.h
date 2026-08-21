@@ -320,6 +320,7 @@ struct VisualEffects {
   WorldTick flashExpiry = WorldTick::invalid;
   uint32_t cooldownColor{}; // RGBA. Active from fire time until `nextAttack`.
   WorldTick cooldownExpiry = WorldTick::invalid;
+  WorldTick cooldownDuration{}; // Full cooldown length in ticks.
 };
 
 // Fire-and-forget, display-only explosion streamed once to the client.
@@ -638,14 +639,18 @@ public:
     return true;
   }
 
-  // Set a cooldown overlay on a defender. `absoluteExpiry` is an absolute tick
-  // (typically `defender.nextAttack`) at which the overlay clears.
-  [[nodiscard]] bool
-  setCooldown(EntityId id, uint32_t color, WorldTick absoluteExpiry) {
+  // Set a cooldown overlay on a defender.
+  //
+  // `absoluteExpiry` is an absolute tick (typically `defender.nextAttack`) at
+  // which the overlay clears, and `duration` is the full cooldown length in
+  // ticks.
+  [[nodiscard]] bool setCooldown(EntityId id, uint32_t color,
+      WorldTick absoluteExpiry, WorldTick duration) {
     auto* effects = changeVisualEffects(id);
     if (!effects) return false;
     effects->cooldownColor = color;
     effects->cooldownExpiry = absoluteExpiry;
+    effects->cooldownDuration = duration;
     return true;
   }
 
@@ -1295,7 +1300,8 @@ private:
           0xFF7F7FFFU);
     defender.nextAttack = WorldTick{*tick_ + *defender.cooldown};
     (void)flashEntity(defenderId, 0xFFFFFFFF, WorldTick{5});
-    (void)setCooldown(defenderId, 0x0000007FU, defender.nextAttack);
+    (void)setCooldown(defenderId, 0x0000007FU, defender.nextAttack,
+        defender.cooldown);
     return true;
   }
 
@@ -1398,7 +1404,8 @@ private:
     }
     defender.nextAttack = WorldTick{*tick_ + *defender.cooldown};
     (void)flashEntity(defenderId, 0xFFFFFFFF, WorldTick{5});
-    (void)setCooldown(defenderId, 0x0000007FU, defender.nextAttack);
+    (void)setCooldown(defenderId, 0x0000007FU, defender.nextAttack,
+        defender.cooldown);
     return true;
   }
 
@@ -1444,7 +1451,8 @@ private:
 
     defender.nextAttack = WorldTick{*tick_ + *defender.cooldown};
     (void)flashEntity(defenderId, 0xFFFFFFFF, WorldTick{5});
-    (void)setCooldown(defenderId, 0x0000007FU, defender.nextAttack);
+    (void)setCooldown(defenderId, 0x0000007FU, defender.nextAttack,
+        defender.cooldown);
     return true;
   }
 

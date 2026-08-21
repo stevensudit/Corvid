@@ -140,8 +140,8 @@ struct SimGameStateJson {
                   .member(json_trusted{"cooldown"}, effects.cooldownColor)
                   .member(json_trusted{"cooldownExpiryTick"},
                       cooldownExpiryTick(effects))
-                  .member(json_trusted{"cooldownDurationTick"},
-                      cooldownExpiryTick(effects));
+                  .member(json_trusted{"cooldownDurationTicks"},
+                      *effects.cooldownDuration);
             }
 
             if (hp.modified == current_tick) {
