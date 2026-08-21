@@ -895,10 +895,10 @@ constexpr void append_float(Target& target, Number value,
   else
     result = std::to_chars(buffer, buffer + sizeof(buffer), value, fmt);
 
+  // `to_chars` can only fail here by overflowing the buffer (e.g., a huge
+  // `precision`); emit null, as with non-finite values, rather than corrupt
+  // the JSON with a missing value.
   if (result.ec != std::errc{}) {
-    // `to_chars` can only fail here by overflowing the buffer (e.g., a huge
-    // `precision`); emit null, as with non-finite values, rather than corrupt
-    // the JSON with a missing value.
     strings::appender{target}.append("null");
     return;
   }
@@ -908,7 +908,7 @@ constexpr void append_float(Target& target, Number value,
 
 // Determine if `c` needs escaping for JSON.
 //
-// The solidus is escaped even though RFC 8259 does not require it: emitting
+// The solidus is escaped even though RFC 8259 does not require it. Emitting
 // `<\/` instead of `</` means the output can never contain `</script>`, so it
 // is safe to embed directly inside an HTML script block.
 [[nodiscard]] constexpr bool needs_escaping(char c) noexcept {
