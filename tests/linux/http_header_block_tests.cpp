@@ -862,8 +862,8 @@ TEST_CASE("IsChunked", "[HttpHeaderBlock]") {
     CHECK(*opts.transfer_encoding == transfer_encoding_value::chunked);
   }
   {
-    // Multiple fields: a later field appends after `chunked` -- not chunked,
-    // and the unrecognized final coding reads as unknown.
+    // Multiple fields: a later field appends after `chunked`, so the message
+    // is not chunked, and the unrecognized final coding reads as unknown.
     http_headers h;
     CHECK(h.add_raw("Transfer-Encoding", "gzip, chunked"));
     CHECK(h.add_raw("Transfer-Encoding", "deflate"));
