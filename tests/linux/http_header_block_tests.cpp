@@ -964,6 +964,37 @@ TEST_CASE("FieldLineCap", "[HttpHeaderBlock]") {
 }
 
 #pragma endregion
+#pragma region AbsoluteFormAtFieldCap
+
+// A full-head parse of an absolute-form request installs the URI authority
+// as `Host` after the header block (RFC 9112 section 3.3).
+//
+// At exactly the field-line cap that install is refused, and the authority
+// must not drop silently (the request would route by the wrong host): the
+// parse fails with the 431 latched. One line under the cap, the replacement
+// lands.
+TEST_CASE("AbsoluteFormAtFieldCap", "[HttpHeaderBlock]") {
+  const auto build = [](size_t filler_lines) {
+    std::string head{"GET http://specific.host/x HTTP/1.0"};
+    for (auto ndx = 0UZ; ndx < filler_lines; ++ndx) head += "\r\na:b";
+    return head;
+  };
+
+  if (true) {
+    request_head req;
+    CHECK_FALSE(req.parse(build(http_constants::max_field_lines)));
+    CHECK(req.headers.reject_status() ==
+          http_status_code::REQUEST_HEADER_FIELDS_TOO_LARGE);
+  }
+  if (true) {
+    request_head req;
+    REQUIRE(req.parse(build(http_constants::max_field_lines - 1)));
+    CHECK(req.headers.get("Host") == "specific.host");
+    CHECK(req.target == "/x");
+  }
+}
+
+#pragma endregion
 #pragma region SizeAndEmpty
 
 // Verify `empty`, `size`, and ordered iteration.

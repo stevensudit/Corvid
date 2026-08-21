@@ -880,8 +880,18 @@ struct request_head: head_base {
 
     // Absolute-form: the target URI's authority is authoritative, so it
     // replaces any received `Host` header (RFC 9112 section 3.3).
-    if (!authority.empty())
+    //
+    // With no `Host` to replace, the install is an append, which can be
+    // refused at the `max_field_lines` cap; the authority must not drop
+    // silently (the request would route by the wrong host), so the refusal
+    // fails the parse, with the latched `reject_status` naming the 431. The
+    // bool itself stays discarded: it conflates replaced-in-place with
+    // appended.
+    if (!authority.empty()) {
       (void)headers.reset_raw("Host", std::move(authority));
+      if (headers.reject_status() != http_status_code::invalid)
+        return fail("Header cap blocked authority Host");
+    }
 
     options.extract(headers);
     return true;
