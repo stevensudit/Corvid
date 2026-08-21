@@ -82,11 +82,19 @@ public:
   // The default `drain_pick` is already the `stream_id::none` offer, which
   // emits whatever non-stream frames are queued; concrete plugins replace
   // this with a per-stream drive. A `none` offer cannot produce per-stream
-  // statuses, so that handler is unreachable.
+  // statuses (ngtcp2: -1 means no stream data to send, and those statuses
+  // are outcomes of writing the offered stream), so that handler is
+  // reachable only through a broken ngtcp2 contract: checked builds assert,
+  // and release fails the drain closed (the session tears down) instead of
+  // re-offering `none` in an unbounded spin.
   [[nodiscard]] bool drain(time_point_t now) {
+    bool contract_broken = false;
     return io_.pump_drain(
-        now, [](drain_pick&) { return true; },
-        [](quic_status, const drain_pick&) { assert(false); },
+        now, [&](drain_pick&) { return !contract_broken; },
+        [&](quic_status, const drain_pick&) {
+          assert(false);
+          contract_broken = true;
+        },
         [](const drain_pick&, std::optional<uint64_t>) { return true; });
   }
 
