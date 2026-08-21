@@ -679,14 +679,20 @@ public:
           else
             h3_.shutdown_stream_write(pick.sid);
         },
-        // Tell nghttp3 how much of the offered stream data ngtcp2 took (must
-        // be reported even when 0, e.g. a pure FIN, so nghttp3 advances its
-        // offset). A packet that omitted the stream frame reports 0 since
-        // nothing was consumed, and nghttp3 re-offers the same bytes (and fin)
-        // on the next turn.
+        // Tell nghttp3 how much of the offered stream data ngtcp2 took, but
+        // only when the packet carried the stream's frame (`accepted`
+        // engaged; an engaged 0 is an accepted pure FIN and must be
+        // reported so nghttp3 retires the stream).
+        //
+        // A disengaged `accepted` (frame omitted, e.g. ACK-only under a full
+        // cwnd) must NOT report 0: nghttp3 schedules a fin-only stream by a
+        // zero-length outq entry, and a 0-byte offset still consumes that
+        // entry and unschedules the stream, losing the FIN for good. Skipping
+        // the call leaves the stream scheduled, so the fin is re-offered on
+        // the next turn.
         [&](const drain_pick& pick, std::optional<uint64_t> accepted) {
-          return !h3_ || pick.sid == quic_stream_id::none ||
-                 h3_.add_write_offset(pick.sid, accepted.value_or(0));
+          return !h3_ || pick.sid == quic_stream_id::none || !accepted ||
+                 h3_.add_write_offset(pick.sid, *accepted);
         });
   }
 
