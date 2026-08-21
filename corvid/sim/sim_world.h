@@ -478,7 +478,7 @@ struct EntityTemplateStore {
   [[nodiscard]] bool
   registerEntity(std::string label, WorldScene::megatuple_t tpl) {
     auto [it, inserted] =
-        templates.insert_or_assign(std::move(label), std::move(tpl));
+        templates.try_emplace(std::move(label), std::move(tpl));
     if (!inserted) return false;
     auto& [key, value] = *it;
     labels.push_back(key);

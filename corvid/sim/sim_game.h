@@ -24,7 +24,6 @@
 #include <map>
 #include <optional>
 #include <sstream>
-#include <stdexcept>
 #include <vector>
 #include <sys/types.h>
 
@@ -692,10 +691,11 @@ private:
   // Called once per map at load time, before the map enters the singleton.
   static void finalizeMapDesign(MapDesign& design) {
     for (const auto& [name, def] : design.entityDefs) {
-      if (!design.entityTemplateStore.registerEntity(def.entityName,
-              def.megatuple))
-        throw std::runtime_error{
-            "Failed to register entity: " + def.entityName};
+      // Registration cannot collide: `entityDefs` keys are already unique.
+      [[maybe_unused]] const auto registered =
+          design.entityTemplateStore.registerEntity(def.entityName,
+              def.megatuple);
+      assert(registered);
       if (def.resourceCost == std::numeric_limits<uint32_t>::max()) continue;
       const auto& app_opt = std::get<std::optional<Appearance>>(def.megatuple);
       assert(app_opt);
