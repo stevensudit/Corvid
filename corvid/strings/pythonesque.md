@@ -289,7 +289,7 @@ input for further analysis, not a commitment to build any particular item.
 - `binascii` / `base64`: per-digit hex helpers exist in
   [conversion.h](conversion.h), but whole-buffer `hexlify` / `unhexlify` does
   not, and base-64 exists only as a websocket-handshake helper in
-  [base-64.h](../proto/misc/base-64.h). Promoting and generalizing those into
+  [base_64.h](../proto/misc/base_64.h). Promoting and generalizing those into
   the strings band would fit the general-code-to-library rule.
 
 ## Missing for lack of demand (not excluded by policy)

@@ -180,10 +180,10 @@ WebSocket protocol built on top of the HTTP/1.1 upgrade mechanism.
   and as identity on big-endian; used by `ws_frame_header_storage` for
   network-byte-order payload length fields. Since moved to `corvid/math/` so
   that lower bands (e.g. `filesys`) can use it.
-- **[done]** `base-64.h` -- RFC 4648 Base64 encode/decode; `encode(span<uint8_t>)`
+- **[done]** `base_64.h` -- RFC 4648 Base64 encode/decode; `encode(span<uint8_t>)`
   and `decode(string_view)` (returns `std::vector<uint8_t>`); used for `Sec-WebSocket-Key`
   generation and `Sec-WebSocket-Accept` computation
-- **[done]** `sha-1.h` -- SHA-1 digest for WebSocket accept-key computation;
+- **[done]** `sha_1.h` -- SHA-1 digest for WebSocket accept-key computation;
   `sha_1::digest(string_view)` returns `digest_t`
   (`array<uint32_t,5>`), and `sha_1::bytes(digest_t)` converts it to the raw
   20-byte `array<uint8_t,20>`; suitable only for non-security-critical
