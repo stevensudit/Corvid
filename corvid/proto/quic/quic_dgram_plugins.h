@@ -500,6 +500,15 @@ public:
       conn().update_pkt_tx_time(now);
       if (!drained) return false;
       if (!conn().has_pending_close()) return true;
+      return ship_pending_close(now);
+    }
+
+    // Emit the CONNECTION_CLOSE stashed on the conn as its own packet.
+    //
+    // Returns false when the terminal packet could not be built or sent (no
+    // buffer, or ngtcp2 refused), which the callers treat as cause for an
+    // immediate session close.
+    [[nodiscard]] bool ship_pending_close(time_point_t now) {
       auto out = borrow_send_buffer();
       if (!out) return false;
       if (conn().write_connection_close(out, now) != quic_status::ok)
@@ -548,11 +557,7 @@ public:
           err == quic_status::idle_close)
         return false;
       if (!conn().has_pending_close()) conn().request_close_on_error(err);
-      auto out = borrow_send_buffer();
-      if (!out) return false;
-      if (conn().write_connection_close(out, now) != quic_status::ok)
-        return false;
-      (void)send_packet(std::move(out));
+      if (!ship_pending_close(now)) return false;
       arm_expiry();
       return true;
     }
