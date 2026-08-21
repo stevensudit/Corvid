@@ -51,8 +51,7 @@ namespace corvid { inline namespace proto { inline namespace http_proto {
   auto text = host;
   if (host.starts_with('[')) {
     const auto v6 = strings::token_parser::next_terminated(']', text);
-    if (!v6 || text.empty()) return host;
-    if (!text.starts_with(':')) return host;
+    if (!v6 || !text.starts_with(':')) return host;
     text.remove_prefix(1);
     if (!is_port(text)) return host;
     return host.substr(0, v6->size() + 1);

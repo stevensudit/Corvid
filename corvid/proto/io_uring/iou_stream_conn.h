@@ -878,7 +878,7 @@ private:
 
   // Build the resume callback captured by an `iou_recv_view`.
   //
-  // Returns an `iou_loop::posted_fn` resume token on the stop path (notsock
+  // Returns an `iou_loop::posted_fn` resume callback on the stop path (notsock
   // signal), or an empty `posted_fn` on the normal re-arm path. Safe to call
   // from any thread.
   [[nodiscard]] iou_recv_view::resume_fn make_view_resume() {
