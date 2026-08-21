@@ -151,13 +151,9 @@ struct epoll_static_file_transaction: public epoll_http_transaction {
     // to list the supported methods in `Allow`.
     if (req.method != http_method::GET && req.method != http_method::HEAD) {
       close_after = after_response::close;
-      response_headers.version = req.version;
-      response_headers.status_code = http_status_code::METHOD_NOT_ALLOWED;
-      response_headers.reason = "Method Not Allowed";
-      response_headers.options.content_length = 0;
-      response_headers.options.connection = close_after;
-      (void)response_headers.headers.reset_raw("Allow", "GET, HEAD");
-      (void)send_cb(response_headers.serialize());
+      (void)send_cb(response_head::make_error_response(close_after,
+          req.version, http_status_code::METHOD_NOT_ALLOWED,
+          "Method Not Allowed", {"Allow", "GET, HEAD"}));
       return stream_claim::release;
     }
 

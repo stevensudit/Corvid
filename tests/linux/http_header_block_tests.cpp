@@ -1188,6 +1188,15 @@ TEST_CASE("MakeErrorResponse", "[HttpHeaderBlock]") {
     CHECK(wire.contains("Method Not Allowed"));
     CHECK(wire.contains("Connection: keep-alive"));
   }
+  {
+    // The `extra` pair carries a single additional header, as a 405's
+    // mandatory `Allow` (RFC 9110 section 15.5.6).
+    const auto wire = response_head::make_error_response(after_response::close,
+        http_version::http_1_1, http_status_code::METHOD_NOT_ALLOWED,
+        "Method Not Allowed", {"Allow", "GET, HEAD"});
+    CHECK(wire.contains("405"));
+    CHECK(wire.contains("Allow: GET, HEAD"));
+  }
 }
 
 #pragma endregion

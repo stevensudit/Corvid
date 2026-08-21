@@ -23,6 +23,7 @@
 #include <string>
 #include <string_view>
 #include <unordered_map>
+#include <utility>
 #include <vector>
 
 #include "../../enums.h"
@@ -1074,17 +1075,24 @@ struct response_head: head_base {
   // Build a minimal HTTP/1.1 error response with no body. Used when the
   // server needs to respond before a `request_head` is available
   // (e.g., parse failure).
+  //
+  // `extra` optionally adds one header field to the head (a 405's `Allow`, a
+  // 503's `Retry-After`); an empty name adds nothing. The name must be
+  // normalized and the value valid, per `add_raw`.
   [[nodiscard]] static std::string
   make_error_response(after_response keep_alive = after_response::close,
       http_version version = http_version::http_1_1,
       http_status_code code = http_status_code::BAD_REQUEST,
-      std::string_view phrase = "Bad Request") {
+      std::string_view phrase = "Bad Request",
+      std::pair<std::string_view, std::string_view> extra = {}) {
     response_head resp;
     resp.version = version;
     resp.status_code = code;
     resp.reason = std::string{phrase};
     resp.options.connection = keep_alive;
     resp.options.content_length = 0;
+    if (!extra.first.empty())
+      (void)resp.headers.add_raw(extra.first, std::string{extra.second});
     return resp.serialize();
   }
 
