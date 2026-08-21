@@ -124,10 +124,13 @@ using route_map_t =
 // `epoll_loop`, with `timing_wheel`-driven timeouts.
 //
 // Listens for TCP (or UDS/ANS) connections. Parses each request in two
-// phases using `terminated_text_parser` (sentinel `"\r\n"`, max 8192 bytes
-// per line): Phase 1 reads the request line, Phase 2 reads header-field
-// lines until the blank-line terminator. HTTP/0.9 requests (no version
-// token) are dispatched after Phase 1 with no Phase 2.
+// phases using `terminated_text_parser`.
+//
+// Phase 1 reads the request line (sentinel `"\r\n"`,
+// `max_request_line_bytes`). Phase 2 reads the header block through its
+// blank-line terminator (sentinel `"\r\n\r\n"`, `max_header_block_bytes`).
+// HTTP/0.9 requests (no version token) are dispatched after Phase 1 with no
+// Phase 2.
 //
 // Persistent connections (keep-alive) and pipelining are supported:
 // `on_data` loops over all complete header blocks present in the receive
@@ -432,7 +435,8 @@ private:
   [[nodiscard]] bool ensure_initialized(epoll_stream_conn& conn) const {
     auto& state = conn_t::from(conn).state();
     if (state.parser_state) return true;
-    state.parser_state = terminated_text_parser::state{"\r\n", 8192};
+    state.parser_state =
+        terminated_text_parser::state{"\r\n", max_request_line_bytes};
     // Capture the server weakly.
     //
     // A connection can outlive the server in the shared-loop case, and a
@@ -655,8 +659,8 @@ private:
     const auto r = parser.parse(input, block_view);
     if (!r) return true; // incomplete; wait for more data
 
-    // Request line exceeded 8192-byte limit. We have no idea what version
-    // the client is trying to speak, so there's no point pretending to
+    // Request line exceeded `max_request_line_bytes`. We have no idea what
+    // version the client is trying to speak, so there's no point pretending to
     // send a reasonable error response.
     if (!*r) return conn.hangup() && false;
 
@@ -694,7 +698,8 @@ private:
     }
 
     // HTTP/1.x: proceed to parse header-field lines.
-    state.parser_state = terminated_text_parser::state{"\r\n\r\n", 8192};
+    state.parser_state =
+        terminated_text_parser::state{"\r\n\r\n", max_header_block_bytes};
     state.phase = http_phase::header_lines;
     return std::nullopt;
   }
@@ -807,7 +812,8 @@ private:
     if (state.phase != http_phase::body) {
       // Transaction released the input immediately (no body or fully
       // consumed); reset sentinel for the next request line.
-      state.parser_state = terminated_text_parser::state{"\r\n", 8192};
+      state.parser_state =
+          terminated_text_parser::state{"\r\n", max_request_line_bytes};
       state.phase = http_phase::request_line;
       // Re-sync `input` from the view so the outer loop continues correctly.
       input = view.active_view();
@@ -847,7 +853,8 @@ private:
     // `request_line` phase and re-sync `input` from the view so the outer
     // loop parses any remaining buffered bytes as the next request.
     state.pipeline.next_reader();
-    state.parser_state = terminated_text_parser::state{"\r\n", 8192};
+    state.parser_state =
+        terminated_text_parser::state{"\r\n", max_request_line_bytes};
     state.phase = http_phase::request_line;
     input = view.active_view();
     return std::nullopt;
@@ -905,6 +912,15 @@ private:
 
   // Maximum bare CRLFs to skip before the request line (RFC 9112 section 2.2).
   static constexpr uint8_t max_leading_crlfs{8};
+
+  // Maximum bytes for a request line. All three request-line parser sites
+  // (fresh connection plus the two pipelined next-request resets) must share
+  // this limit; overflow is a bare hangup.
+  static constexpr auto max_request_line_bytes = 8192UZ;
+
+  // Maximum bytes for a full header block; overflow answers 431. Equal to
+  // the request-line limit today, but semantically distinct.
+  static constexpr auto max_header_block_bytes = 8192UZ;
 
   relaxed_atomic_bool configured_;
   std::optional<epoll_loop_runner> runner_;
