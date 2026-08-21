@@ -546,6 +546,27 @@ private:
           state.req.version, http_status_code::NOT_IMPLEMENTED,
           "Not Implemented");
 
+    // A request bearing `Transfer-Encoding` cannot be processed: chunked
+    // decoding is not implemented, and when chunked is not the final coding
+    // the body length cannot be determined at all.
+    //
+    // Chunked-final answers "501 Not Implemented" (RFC 9112 sec. 6.1: a
+    // transfer coding the server does not understand); anything else answers
+    // "400 Bad Request" (sec. 6.3: chunked not final MUST get 400 and a closed
+    // connection). Both force close: the unread body bytes must not parse as
+    // requests on a kept-alive connection. This also disposes of the
+    // `Transfer-Encoding` + `Content-Length` smuggling combination (sec. 6.3),
+    // since every `Transfer-Encoding` request is rejected.
+    if (state.req.options.transfer_encoding) {
+      if (*state.req.options.transfer_encoding ==
+          transfer_encoding_value::chunked)
+        return send_error_response(conn, after_response::close,
+            state.req.version, http_status_code::NOT_IMPLEMENTED,
+            "Not Implemented");
+      return send_error_response(conn, after_response::close,
+          state.req.version);
+    }
+
     // Build the route key.
     //
     // The key combines the `Host` header (minus any `:port` suffix) with the

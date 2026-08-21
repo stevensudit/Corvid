@@ -349,6 +349,55 @@ TEST_CASE("Connect501", "[HttpServer]") {
 }
 
 #pragma endregion
+#pragma region TransferEncodingRejected
+
+// The server implements no transfer codings, so any `Transfer-Encoding`
+// request is rejected before dispatch: chunked-final answers "501 Not
+// Implemented" (RFC 9112 sec. 6.1), anything else "400 Bad Request" (sec.
+// 6.3's MUST when chunked is not the final coding). Both force close, so an
+// unread body cannot desync a kept-alive connection.
+TEST_CASE("TransferEncodingRejected", "[HttpServer]") {
+  if (is_codex()) return;
+
+  auto server = make_test_server(net_endpoint{ipv4_addr::loopback, 0});
+  REQUIRE(server);
+
+  // Chunked: understood but not implemented, so 501 with a forced close.
+  // The chunked body smuggles a request line; the close keeps it from ever
+  // parsing, so exactly one response comes back before EOF.
+  if (true) {
+    auto client = net_socket::create_sync_connected(server->local_endpoint());
+    std::string buf;
+    REQUIRE(client.is_open());
+    CHECK(client.send_sync_all(
+        "POST / HTTP/1.1\r\nHost: localhost\r\n"
+        "Transfer-Encoding: chunked\r\n\r\n"
+        "27\r\n"
+        "GET /evil HTTP/1.1\r\nHost: localhost\r\n\r\n"
+        "\r\n0\r\n\r\n"));
+    const auto response = client.recv_sync_until(buf, "\r\n\r\n");
+    CHECK(response.contains("501"));
+    CHECK(response.contains("Connection: close"));
+    CHECK(client.recv_sync_drain_to_eof());
+  }
+
+  // A non-chunked final coding leaves the body length indeterminate: 400
+  // and close per RFC 9112 sec. 6.3.
+  if (true) {
+    auto client = net_socket::create_sync_connected(server->local_endpoint());
+    std::string buf;
+    REQUIRE(client.is_open());
+    CHECK(client.send_sync_all(
+        "POST / HTTP/1.1\r\nHost: localhost\r\n"
+        "Transfer-Encoding: gzip\r\n\r\n"));
+    const auto response = client.recv_sync_until(buf, "\r\n\r\n");
+    CHECK(response.contains("400"));
+    CHECK(response.contains("Connection: close"));
+    CHECK(client.recv_sync_drain_to_eof());
+  }
+}
+
+#pragma endregion
 #pragma region HeaderFieldsTooLarge
 
 // A request over the field-line cap answers "431 Request Header Fields Too
