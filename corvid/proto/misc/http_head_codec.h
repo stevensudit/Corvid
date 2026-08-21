@@ -965,17 +965,13 @@ private:
   //
   // On failure, `target` holds the reason, as with `fail`.
   [[nodiscard]] bool do_reduce_absolute_form(std::string& authority) {
-    const std::string_view t{target};
-    constexpr auto scheme_sep = "://"sv;
-    const auto sep_pos = t.find(scheme_sep);
-    if (sep_pos == std::string_view::npos) return fail("Target not a path");
-
-    const auto scheme = t.substr(0, sep_pos);
-    if (!strings::ci_equal(scheme, "http"sv) &&
-        !strings::ci_equal(scheme, "https"sv))
+    auto rest = std::string_view{target};
+    const auto scheme = strings::token_parser::next_terminated("://"sv, rest);
+    if (!scheme) return fail("Target not a path");
+    if (!strings::ci_equal(*scheme, "http"sv) &&
+        !strings::ci_equal(*scheme, "https"sv))
       return fail("Unsupported absolute-form scheme");
 
-    const auto rest = t.substr(sep_pos + scheme_sep.size());
     const auto path_pos = rest.find_first_of("/?");
     authority = std::string{rest.substr(0, path_pos)};
     if (authority.empty()) return fail("Empty absolute-form authority");
