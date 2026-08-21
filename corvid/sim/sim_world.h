@@ -1025,12 +1025,15 @@ private:
     return true;
   }
 
-  // Apply projectile damage to one invader and credit the originating
-  // defender's live stats. Shared by both direct-hit and splash-hit
+  // Apply attack damage to one invader and credit the attacking defender's
+  // live stats.
+  //
+  // Shared by projectile direct hits, splash, area-of-effect, and hitscan
   // resolution.
+  //
   // TODO: This will need to be expanded to handle different damage types, as
   // well as applying a lingering damage-over-time effect.
-  [[nodiscard]] bool applyProjectileDamage(EntityId targetId, float damage,
+  [[nodiscard]] bool applyAttackDamage(EntityId targetId, float damage,
       DefenderStats& shooterStats, uint32_t flashColor) {
     auto* hp = scene_.try_get_component<Health>(targetId);
     if (!hp || hp->currentHealth <= 0.F || damage <= 0.F) return false;
@@ -1109,7 +1112,7 @@ private:
       if (!circlesOverlap(center, bullet.splashRadius, enemyPos,
               invader.hitCircleRadius))
         return true;
-      (void)applyProjectileDamage(enemyId, bullet.directDamage, shooterStats,
+      (void)applyAttackDamage(enemyId, bullet.directDamage, shooterStats,
           0xFFFFA040U);
       return true;
     });
@@ -1137,7 +1140,7 @@ private:
         scene_.try_get_component<DefenderStats>(bullet.shooterId);
     assert(shooterStats);
     if (bullet.directDamage > 0.F)
-      (void)applyProjectileDamage(targetId, bullet.directDamage, *shooterStats,
+      (void)applyAttackDamage(targetId, bullet.directDamage, *shooterStats,
           0xFFFFA040U);
     if (bullet.splashRadius > 0.F)
       (void)applySplashProjectileDamage(impactPos, bullet, *shooterStats);
@@ -1231,6 +1234,9 @@ private:
     scene_.for_each<Position, Invader, Pathing, Health>(
         [&](auto enemyId, auto comps) {
           const auto& [enemyPos, invader, pf, hp] = comps;
+          // Skip invaders already killed earlier this tick; they are
+          // tombstoned only when the kills are resolved.
+          if (hp.currentHealth <= 0.F) return true;
           const auto dSq = distanceSquared(defenderPos, enemyPos);
           const auto r = attackRadius + invader.hitCircleRadius;
           if (dSq > r * r) return true;
@@ -1284,22 +1290,9 @@ private:
             defender.attackRadius},
         .primaryColor = withAlpha(defender.rangeColor, 0x30U),
         .secondaryColor = withAlpha(defender.rangeColor, 0x10U)});
-    for (const auto& cand : candidates) {
-      auto* hp = scene_.try_get_component<Health>(cand.id);
-      if (!hp) continue;
-      const auto actualDamage =
-          std::min(defender.attackDamage, cand.currentHealth);
-      hp->modified = tick_;
-      hp->currentHealth -= defender.attackDamage;
-      (void)markDirty(cand.id);
-      if (hp->currentHealth <= 0.F) {
-        pendingKills_.push_back(cand.id);
-        stats.totalKills += 1.F;
-      } else {
-        (void)flashEntity(cand.id, 0xFF7F7FFF, WorldTick{5});
-      }
-      stats.totalDamageDealt += actualDamage;
-    }
+    for (const auto& cand : candidates)
+      (void)applyAttackDamage(cand.id, defender.attackDamage, stats,
+          0xFF7F7FFFU);
     defender.nextAttack = WorldTick{*tick_ + *defender.cooldown};
     (void)flashEntity(defenderId, 0xFFFFFFFF, WorldTick{5});
     (void)setCooldown(defenderId, 0x0000007FU, defender.nextAttack);
@@ -1432,19 +1425,9 @@ private:
     const auto targetId = selectTarget(candidates, defender.targetMode);
     if (targetId == EntityId::invalid) return false;
 
-    auto* hp = scene_.try_get_component<Health>(targetId);
-    if (!hp) return false;
-
-    const auto actualDamage =
-        std::min(defender.attackDamage, hp->currentHealth);
-    hp->modified = tick_;
-    hp->currentHealth -= defender.attackDamage;
-    (void)markDirty(targetId);
-    if (hp->currentHealth <= 0.F) {
-      pendingKills_.push_back(targetId);
-      stats.totalKills += 1.F;
-    }
-    stats.totalDamageDealt += actualDamage;
+    if (!applyAttackDamage(targetId, defender.attackDamage, stats,
+            0xFFFFA040U))
+      return false;
 
     const auto* defenderPos = scene_.try_get_component<Position>(defenderId);
     const auto* targetPos = scene_.try_get_component<Position>(targetId);

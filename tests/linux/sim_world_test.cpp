@@ -450,6 +450,48 @@ TEST_CASE("DefenderAoeAttackEmitsPulseExplosion", "[SimWorld]") {
 }
 
 #pragma endregion
+#pragma region World_AoeKillIsCountedOnceAcrossDefenders
+
+TEST_CASE("AoeKillIsCountedOnceAcrossDefenders", "[SimWorld]") {
+  SimWorld w;
+  PathJoints p;
+  p.joints = {{{0.F, 0.F}}, {{500.F, 0.F}}};
+  const auto pid = w.addPath(p);
+  const auto defenderA = spawnDefenderAoe(w, {0.F, 0.F});
+  const auto defenderB = spawnDefenderAoe(w, {100.F, 0.F});
+  const auto invader = spawnInvaderAlpha(w, pid);
+  {
+    auto* hp = w.try_get_component<Health>(invader.id());
+    REQUIRE(hp != nullptr);
+    hp->currentHealth = 3.F;
+  }
+
+  (void)w.next();
+
+  // The invader dies to the first defender; the second must not attack the
+  // corpse. Health is clamped at zero, never negative.
+  const auto* hp = w.try_get_component<Health>(invader.id());
+  REQUIRE(hp != nullptr);
+  CHECK(std::abs((hp->currentHealth) - (0.0)) <= 1e-6);
+
+  const auto* statsA = w.try_get_component<DefenderStats>(defenderA.id());
+  const auto* statsB = w.try_get_component<DefenderStats>(defenderB.id());
+  REQUIRE(statsA != nullptr);
+  REQUIRE(statsB != nullptr);
+  CHECK(std::abs((statsA->totalKills + statsB->totalKills) - (1.0)) <= 1e-6);
+  CHECK((statsA->totalDamageDealt) >= (0.F));
+  CHECK((statsB->totalDamageDealt) >= (0.F));
+
+  size_t killed{};
+  (void)w.resolveKills(
+      [&killed](SimWorld::EntityId, const Position&, const Invader&) {
+        ++killed;
+        return true;
+      });
+  CHECK(killed == 1U);
+}
+
+#pragma endregion
 #pragma region World_DefenderShooterSpawnsVisibleBullet
 
 TEST_CASE("DefenderShooterSpawnsVisibleBullet", "[SimWorld]") {
