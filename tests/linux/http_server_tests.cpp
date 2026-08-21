@@ -941,9 +941,19 @@ TEST_CASE("StaticFiles", "[HttpServer]") {
   if (is_codex()) return;
 
   namespace fs = std::filesystem;
-  const auto web_root = fs::temp_directory_path() / "corvid_http_static_test";
+  // The pid suffix keeps a stale directory from an aborted run (or a
+  // concurrent one) from inflating the cache-size check below.
+  const auto web_root =
+      fs::temp_directory_path() /
+      ("corvid_http_static_test_" + std::to_string(getpid()));
   fs::create_directories(web_root);
-  scope_exit cleanup([&] { fs::remove_all(web_root); });
+  // The guard's destructor is noexcept, so the non-throwing overload is
+  // required; a failed cleanup leaks one temp directory instead of
+  // terminating the test run.
+  scope_exit cleanup([&] {
+    std::error_code ec;
+    fs::remove_all(web_root, ec);
+  });
   if (std::ofstream f(web_root / "index.html", std::ios::binary); true)
     f << "<html><body>static</body></html>";
 
