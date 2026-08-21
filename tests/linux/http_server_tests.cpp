@@ -320,13 +320,32 @@ TEST_CASE("Connect501", "[HttpServer]") {
   auto server = make_test_server(net_endpoint{ipv4_addr::loopback, 0});
   REQUIRE(server);
 
-  auto client = net_socket::create_sync_connected(server->local_endpoint());
-  std::string buf;
-  REQUIRE(client.is_open());
-  CHECK(client.send_sync_all(
-      "CONNECT example.com:443 HTTP/1.1\r\nHost: example.com\r\n\r\n"));
-  const auto response = client.recv_sync_until(buf, "\r\n\r\n");
-  CHECK(response.contains("501"));
+  // The 501 also forces close: a CONNECT client may pipeline tunnel bytes
+  // right behind the head (the tunnel only exists after a 2xx), and those
+  // must not parse as requests on a kept-alive connection.
+  if (true) {
+    auto client = net_socket::create_sync_connected(server->local_endpoint());
+    std::string buf;
+    REQUIRE(client.is_open());
+    CHECK(client.send_sync_all(
+        "CONNECT example.com:443 HTTP/1.1\r\nHost: example.com\r\n\r\n"));
+    const auto response = client.recv_sync_until(buf, "\r\n\r\n");
+    CHECK(response.contains("501"));
+    CHECK(response.contains("Connection: close"));
+    CHECK(client.recv_sync_drain_to_eof());
+  }
+
+  // RFC 9112 sec. 3.2: an HTTP/1.1 request without `Host` gets 400, with no
+  // method carve-out, so the Host check outranks the CONNECT rejection.
+  if (true) {
+    auto client = net_socket::create_sync_connected(server->local_endpoint());
+    std::string buf;
+    REQUIRE(client.is_open());
+    CHECK(client.send_sync_all("CONNECT example.com:443 HTTP/1.1\r\n\r\n"));
+    const auto response = client.recv_sync_until(buf, "\r\n\r\n");
+    CHECK(response.contains("400"));
+    CHECK(client.recv_sync_drain_to_eof());
+  }
 }
 
 #pragma endregion

@@ -526,16 +526,21 @@ private:
     auto& state = conn_t::from(conn).state();
     const auto keep_alive = state.req.options.keep_alive(state.req.version);
 
-    // CONNECT parses (authority-form) but tunneling is not implemented.
-    if (state.req.method == http_method::CONNECT)
-      return send_error_response(conn, keep_alive, state.req.version,
-          http_status_code::NOT_IMPLEMENTED, "Not Implemented");
-
-    // HTTP/1.1 requires a `Host` header.
+    // HTTP/1.1 requires a `Host` header (RFC 9112 sec. 3.2, with no method
+    // carve-out, so this outranks the CONNECT rejection below).
     if (state.req.version == http_version::http_1_1 &&
         !state.req.headers.get("Host"))
       return send_error_response(conn, after_response::close,
           state.req.version);
+
+    // CONNECT parses (authority-form) but tunneling is not implemented. The
+    // 501 forces close: a CONNECT client may pipeline tunnel bytes right
+    // behind the head, and those must not parse as requests on a kept-alive
+    // connection.
+    if (state.req.method == http_method::CONNECT)
+      return send_error_response(conn, after_response::close,
+          state.req.version, http_status_code::NOT_IMPLEMENTED,
+          "Not Implemented");
 
     // Build the route key.
     //
