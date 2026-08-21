@@ -15,23 +15,21 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 #pragma once
+#include <algorithm>
 #include <cassert>
 #include <charconv>
 #include <cstdint>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
+#include <iostream>
 #include <map>
 #include <optional>
 #include <sstream>
-#include <vector>
-#include <sys/types.h>
-
-#include <algorithm>
-#include <iostream>
 #include <string>
 #include <string_view>
 #include <utility>
+#include <vector>
 
 #include "../proto/misc/json_parser.h"
 #include "sim_world.h"
@@ -252,11 +250,6 @@ struct UiState {
 // Game simulation.
 class SimGame {
 public:
-#pragma region Construction
-
-  explicit SimGame() { (void)resetMap(); }
-
-#pragma endregion
 #pragma region Map management
 
   // Load all maps from the maps directory and activate the first one.
@@ -595,7 +588,7 @@ private:
         auto h = world_.spawnEntity(parameter);
         if (h) {
           *world_.try_get_component<Position>(h.id()) = pos;
-          if (def) resources_ -= def->resourceCost;
+          resources_ -= def->resourceCost;
         } else
           spawnAllowed = false;
       }

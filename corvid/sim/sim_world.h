@@ -23,7 +23,6 @@
 #include <limits>
 #include <numbers>
 #include <optional>
-#include <stdexcept>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -396,12 +395,13 @@ struct DefenderBullet {
   int projectileType{};     // Eventually an enum.
 };
 
-// Shooter component for defenders that spawn projectiles. The
-// `bulletTemplate` is used to spawn bullets with the same properties as the
-// defender's attack, but with their own position and velocity. When
-// `muzzleFlashTemplate.primaryColor` is set, a transient beam is emitted
-// toward `aimPos` on each shot, guaranteeing a visible effect even if the
-// bullet hits within a single tick.
+// Shooter component for defenders that spawn projectiles.
+//
+// The `bulletTemplate` is used to spawn bullets with the same properties as
+// the defender's attack, but with their own position and velocity. When
+// `muzzleFlashTemplate.primaryColor` is a visible color, a transient beam is
+// emitted toward `aimPos` on each shot, guaranteeing a visible effect even if
+// the bullet hits within a single tick.
 struct DefenderShooter {
   DefenderBullet bulletTemplate{};
   TransientBeam muzzleFlashTemplate{}; // Template; `expiry` stores TTL.
@@ -854,7 +854,6 @@ public:
   // different path.
   [[nodiscard]] bool resolveEscapees(auto&& cbEscapee) {
     for (auto id : pathEscapees_) {
-      if (!scene_.registry().is_valid(id)) continue;
       auto [pos, pf] = scene_.try_get_components<Position, Pathing>(id);
       if (pos && cbEscapee(id, *pos, *pf)) (void)tombstoneEntity(id);
     }
@@ -1390,7 +1389,7 @@ private:
     bullet.expiry = WorldTick{*tick_ + *shooter.bulletTemplate.expiry};
 
     (void)spawnBullet(defenderPos, vel, bullet);
-    if (shooter.muzzleFlashTemplate.primaryColor != 0) {
+    if (isVisibleColor(shooter.muzzleFlashTemplate.primaryColor)) {
       pendingTransientBeams_.emplace_back(TransientBeam{
           .circle = Circle{Position{defenderPos.x, defenderPos.y},
               shooter.muzzleFlashTemplate.circle.radius},
