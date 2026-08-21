@@ -279,7 +279,7 @@ struct SegmentedPath: private SimWorldBounds {
 // `speed`; the entity's `Position` is re-derived from the segmented path
 // geometry.
 struct Pathing {
-  PathId pathId{};  // Index into `sim_world::paths_`.
+  PathId pathId{};  // Index into `SimWorld::paths_`.
   float progress{}; // Distance traveled along the path so far.
   float speed{};    // Distance per tick.
 };
@@ -339,7 +339,7 @@ struct TransientBeam {
   Circle circle{};
   WorldTick expiry = WorldTick::invalid;
   uint32_t primaryColor{};
-  uint32_t secondaryColor{}; // Not used in wedge mode
+  uint32_t secondaryColor{}; // Not used in wedge mode.
   Position targetPos{};
   float lineWidth{};
   float halfAngleDeg{}; // When > 0, render as wedge
@@ -378,21 +378,22 @@ struct DefenderHitscan {
   TransientBeam transientTemplate;
 };
 
-// Projectile component for `DefenderShooter`. Used as part of its own
-// archetype, and also as the `bulletTemplate`. As a template, the `expiry`
-// field stores the TTL. Once instantiated, added to the current tick to gets
-// its final moment.
+// Projectile component for `DefenderShooter`.
+//
+// Used as part of its own archetype, and also as the `bulletTemplate`. As a
+// template, the `expiry` field stores the TTL. Once instantiated, it is added
+// to the current tick to get its final moment.
 struct DefenderBullet {
   WorldTick expiry{}; // Expiration tick of the projectile.
   SimWorldBounds::EntityId shooterId = SimWorldBounds::EntityId::invalid;
   float hitCircleRadius{}; // Hit detection, used for physics and game logic.
   float speed{};
-  float directDamage{};     // Damage upon impact.
-  float damageOverTime{};   // Damage applied over time.
-  float splashRadius{};     // Radius for area-of-effect damage.
-  float directDamageType{}; // Eventually an enum.
-  float dotDamageType{};    // Eventually an enum.
-  int projectileType{};     // Eventually an enum.
+  float directDamage{};   // Damage upon impact.
+  float damageOverTime{}; // Damage applied over time.
+  float splashRadius{};   // Radius for area-of-effect damage.
+  int directDamageType{}; // Eventually an enum.
+  int dotDamageType{};    // Eventually an enum.
+  int projectileType{};   // Eventually an enum.
 };
 
 // Shooter component for defenders that spawn projectiles.
@@ -418,7 +419,7 @@ struct Invader {
 
 // ECS types for the simulation world.
 //
-// Registry metadata (`uint64_t`) stores each entity's last-change tick
+// Registry metadata (`WorldTick`) stores each entity's last-change tick
 // count, enabling delta snapshots without a separate dirty set.
 //
 // Storage layout (store_id assignment is positional, 1-based):
@@ -437,7 +438,8 @@ struct Invader {
 //
 //   `sidBullet`          = 3 -> `ArchBullet`
 //                               spawned projectiles
-//                               (Position + Velocity + DefenderBullet)
+//                               (Position + Velocity + Appearance +
+//                               DefenderBullet)
 //
 //   `sidDefenderShooter`  = 4 -> `ArchDefenderShooter`
 //                                projectile-firing defenders
@@ -711,7 +713,7 @@ public:
   // defenders. Used for placement. Skips the entity with `excludeId` (pass
   // `EntityId::invalid` to skip no entity; used when moving a placed
   // defender so it can partially overlap its own footprint).
-  [[nodiscard]] bool doesOveralapDefenders(const Position& pos, float radius,
+  [[nodiscard]] bool doesOverlapDefenders(const Position& pos, float radius,
       EntityId excludeId = EntityId::invalid) const {
     bool overlaps{};
     scene_.for_each<Position, Appearance, Defender>([&](auto id, auto comps) {
@@ -745,7 +747,7 @@ public:
   [[nodiscard]] bool isDefenderPlacementBlocked(const Position& pos,
       float radius, EntityId excludeId = EntityId::invalid) const {
     return !isInBounds(pos, radius) ||
-           doesOveralapDefenders(pos, radius, excludeId) ||
+           doesOverlapDefenders(pos, radius, excludeId) ||
            doesTouchPath(pos, radius);
   }
 
@@ -787,11 +789,11 @@ public:
   // Destructively extract upserts and erasures.
   //
   // Call back `cbUpserts(EntityId, Position, Appearance, VisualEffects,
-  // Health)` for each changed entity that has a `Position` and `Appearance`
-  // and has changed since the last tick, and `cbErased(EntityId)` for each
-  // entity that has been erased since the last tick. The visual effects
-  // pointer is null for archetypes that do not carry that component. These
-  // callbacks will be interleaved.
+  // Health)` for each entity with a `Position` and `Appearance` that has
+  // changed since the last tick, and `cbErased(EntityId)` for each entity
+  // that has been erased since the last tick. For archetypes that do not
+  // carry `VisualEffects` or `Health`, an empty default is passed instead.
+  // These callbacks will be interleaved.
   [[nodiscard]] bool
   extractUpdatedEntities(auto&& cbUpserts, auto&& cbErased) {
     static constexpr VisualEffects nfx;
@@ -1311,7 +1313,7 @@ private:
   //
   // Derivation: `|T + V_t*t - D|^2 = (bulletSpeed*t)^2`, expanded as a
   // quadratic in `t` with:
-  // a` = `|V_t|^2 - bulletSpeed^2`, `b` = `2*(T-D).V_t`, c = `|T-D|^2`.
+  // `a` = `|V_t|^2 - bulletSpeed^2`, `b` = `2*(T-D).V_t`, `c` = `|T-D|^2`.
   //
   // The smallest positive root is the intercept time.
   [[nodiscard]] static float computeInterceptTime(const Position& defenderPos,
@@ -1409,7 +1411,7 @@ private:
   }
 
   // Spawn a bullet entity directly, bypassing the label-based template
-  // system by using the template in the defender itself
+  // system by using the template in the defender itself.
   [[nodiscard]] Handle spawnBullet(const Position& pos, const Velocity& vel,
       const DefenderBullet& bullet) {
     auto h = scene_.store_new_entity({WorldTick::invalid},
