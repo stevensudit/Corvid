@@ -87,7 +87,7 @@ public:
   // nghttp3 callback and tears down the whole connection. The guard precedes
   // the assert because a muted stream must not touch the router at all.
   [[nodiscard]] bool on_end_headers(stream_chunk chunk_fin) override {
-    if (rejected() || responded()) return true;
+    if (inbound_muted()) return true;
     assert(router()->is_loop_thread());
     if (const auto status = authority_reject_status(); !status.empty()) {
       response_headers().set_value(":status", status);

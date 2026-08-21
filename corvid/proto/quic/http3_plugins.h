@@ -162,6 +162,14 @@ public:
   // `reject_over_limit`). Later inbound events for a rejected stream drop.
   [[nodiscard]] bool rejected() const noexcept { return rejected_; }
 
+  // Whether this stream no longer accepts inbound events: it was rejected
+  // over a limit, or a response is already out.
+  //
+  // Every inbound hook drops events silently on a muted stream.
+  [[nodiscard]] bool inbound_muted() const noexcept {
+    return rejected_ || responded_;
+  }
+
   bool set_role(connection_role role) {
     if (role_ && *role_ != role) return false;
     role_ = role;
@@ -218,7 +226,7 @@ public:
   // response or rejection drop silently.
   [[nodiscard]] virtual bool on_recv_header(qpack_token token,
       std::string_view name, std::string_view value, nv_flags flags) {
-    if (rejected_ || responded_) return true;
+    if (inbound_muted()) return true;
     if (inbound_headers_->size() >= max_inbound_fields)
       return reject_over_limit("431");
     inbound_headers_->add(header_name_and_enum::force(name, token),
@@ -249,7 +257,7 @@ public:
   // as `on_recv_header`.
   [[nodiscard]] virtual bool on_recv_trailer(qpack_token token,
       std::string_view name, std::string_view value, nv_flags flags) {
-    if (rejected_ || responded_) return true;
+    if (inbound_muted()) return true;
     if (inbound_trailers_->size() >= max_inbound_fields)
       return reject_over_limit("431");
     inbound_trailers_->add(header_name_and_enum::force(name, token),
@@ -279,7 +287,7 @@ public:
   // STOP_SENDING, but bytes already in the current packet still surface here,
   // so the discard is what handles them).
   [[nodiscard]] virtual bool on_recv_data(std::span<const uint8_t> data) {
-    if (rejected_ || responded_) return true;
+    if (inbound_muted()) return true;
     if (receive_queue_.size() + data.size() > receive_queue_.state().max_size)
       return reject_over_limit("413");
 
@@ -945,7 +953,7 @@ inline bool http3_stream::submit_response() {
 // Defined here for the same reason as `submit_response` above: both reach
 // back into the router.
 inline bool http3_stream::reject_over_limit(std::string_view status) {
-  if (rejected_ || responded_) return true;
+  if (inbound_muted()) return true;
   rejected_ = true;
   if (!router_) return false;
   if (role_ == connection_role::server) {
