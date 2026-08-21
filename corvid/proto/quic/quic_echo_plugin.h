@@ -184,13 +184,11 @@ public:
 private:
   // One drain iteration's choice.
   //
-  // This is the stream to offer to `writev_stream` plus its queue view and
-  // sticky flags. `sid == none` (with an empty view and null `qp`) means no
-  // stream has work, so the call emits only non-stream frames.
-  struct stream_pick {
-    quic_stream_id sid = quic_stream_id::none;
-    std::span<const iovec> iov;
-    write_stream_flags flags = write_stream_flags::none;
+  // The `drain_pick` offer plus the picked stream's queue, so the commit
+  // seam can consume accepted bytes and clear sticky flags. `sid == none`
+  // (with an empty view and null `qp`) means no stream has work, so the call
+  // emits only non-stream frames.
+  struct stream_pick: drain_pick {
     send_queue_t* qp{};
   };
 
@@ -201,7 +199,7 @@ private:
     for (auto& [id, q] : queues_) {
       if (q.size() == 0 && q.state() == write_stream_flags::none) continue;
       if (std::ranges::contains(blocked, id)) continue;
-      return {id, q.unused(), q.state(), &q};
+      return {{id, q.unused(), q.state()}, &q};
     }
     return {};
   }
