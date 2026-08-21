@@ -341,9 +341,15 @@ private:
   }
 
   // Submit a singleshot recv.
+  //
+  // Returns false only when the actual submit fails. Declining because a
+  // recv is already armed and posting a borrow-failure heal are both
+  // success. A recv is or will be armed, so there is nothing further for the
+  // caller to drive, and reporting false would make `start_reading`'s
+  // `execute_or_post_with_retry` stack redundant retries on top of the heal.
   [[nodiscard]] bool do_submit_single_recv(bool allow_upgrade = true) {
     assert(loop_.is_loop_thread());
-    if (recv_token_) return false;
+    if (recv_token_) return true;
     recv_active_shot_ = shot_type::single;
 
     if (allow_upgrade && (recv_intended_shot_ == shot_type::multi) &&
@@ -359,7 +365,7 @@ private:
         if (!self->open_ || self->recv_token_) return true;
         return self->do_submit_single_recv();
       });
-      return false;
+      return true;
     }
 
     recv_token_ = loop_.submit_recvmsg_buffer(sock_, std::move(buf),
@@ -381,6 +387,8 @@ private:
   }
 
   // Submit a multishot recv.
+  //
+  // Same return contract as `do_submit_single_recv`, via its fallback.
   [[nodiscard]] bool do_submit_multi_recv() {
     assert(loop_.is_loop_thread() && !recv_token_);
     recv_active_shot_ = shot_type::multi;
