@@ -1229,8 +1229,8 @@ public:
       if (!conn_ || conn_->no_hangup_on_destruct_) return;
       const auto lp = conn_->weak_loop_.lock();
       if (!lp) return;
-      (void)lp->execute_or_post([p = std::move(conn_)] {
-        return p->do_hangup();
+      (void)lp->execute_or_post([conn = std::move(conn_)] {
+        return conn->do_hangup();
       });
     });
   }
