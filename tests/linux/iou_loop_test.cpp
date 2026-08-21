@@ -862,6 +862,9 @@ TEST_CASE("SendMsgConnectedNoPeer", "[IouLoop]") {
     });
     CHECK(ok);
     CHECK(WaitFor([&] { return received.load(std::memory_order::acquire); }));
+    // The send CQE has no ordering contract against the recv CQE (loopback
+    // delivery can post the recv completion first), so wait for it too.
+    CHECK(WaitFor([&] { return send_n.load() != -1; }));
     CHECK(send_n.load() == static_cast<int32_t>(payload.size()));
     CHECK(recv_result == payload);
   }
