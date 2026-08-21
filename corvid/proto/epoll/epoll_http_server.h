@@ -716,14 +716,20 @@ private:
     return conn.close();
   }
 
-  // Send a 400 error response and close the connection after a header-block
-  // parse failure (oversized block or malformed field lines).
-  [[nodiscard]] std::optional<bool> reject_header_block(
-      epoll_stream_conn& conn) const {
+  // Send an error response and close the connection after a header-block
+  // parse failure.
+  //
+  // The default 400 covers malformed field lines; the header caps (block
+  // bytes, field lines) pass "431 Request Header Fields Too Large" instead
+  // (RFC 6585 sec. 5).
+  [[nodiscard]] std::optional<bool>
+  reject_header_block(epoll_stream_conn& conn,
+      http_status_code code = http_status_code::BAD_REQUEST,
+      std::string_view phrase = "Bad Request") const {
     auto& state = conn_t::from(conn).state();
     if (!arm_write_timeout(conn)) return conn.hangup() && false;
     if (!conn.send(response_head::make_error_response(after_response::close,
-            state.req.version)))
+            state.req.version, code, phrase)))
       return conn.hangup() && false;
     return enter_close_phase(conn) && false;
   }
@@ -745,13 +751,25 @@ private:
       std::string_view block_view;
       const auto r = parser.parse(input, block_view);
       if (!r) return true; // incomplete; wait for more data
-      if (!*r) return reject_header_block(conn); // oversized
+      if (!*r)             // oversized block
+        return reject_header_block(conn,
+            http_status_code::REQUEST_HEADER_FIELDS_TOO_LARGE,
+            "Request Header Fields Too Large");
 
       // Process before updating view (buffer may compact on update).
       const auto lines_ok = state.req.headers.add_lines(block_view);
       view.update_active_view(input);
       parser.reset();
-      if (!lines_ok) return reject_header_block(conn); // malformed
+      if (!lines_ok) {
+        // A status latched by the headers (the field-line cap's 431)
+        // outranks the generic malformed 400. Each latched code is mapped to
+        // its phrase here; an unmapped one falls back to the 400 default.
+        const auto latched = state.req.headers.reject_status();
+        if (latched == http_status_code::REQUEST_HEADER_FIELDS_TOO_LARGE)
+          return reject_header_block(conn, latched,
+              "Request Header Fields Too Large");
+        return reject_header_block(conn);
+      }
 
       state.req.options.extract(state.req.headers);
     } else {

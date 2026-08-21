@@ -349,6 +349,35 @@ TEST_CASE("Connect501", "[HttpServer]") {
 }
 
 #pragma endregion
+#pragma region HeaderFieldsTooLarge
+
+// A request over the field-line cap answers "431 Request Header Fields Too
+// Large" (RFC 6585 sec. 5) rather than a generic 400: the request is
+// well-formed, just too big, and the status is the client's cue that
+// trimming its header set would fix it. The HTTP/3 stack answers its
+// analogous cap with 431 as well; the block byte cap is covered by
+// `TooLongHeaders` below.
+TEST_CASE("HeaderFieldsTooLarge", "[HttpServer]") {
+  if (is_codex()) return;
+
+  auto server = make_test_server(net_endpoint{ipv4_addr::loopback, 0});
+  REQUIRE(server);
+
+  // 101 short, valid lines fit well under the byte cap, so the line cap is
+  // what trips.
+  auto client = net_socket::create_sync_connected(server->local_endpoint());
+  std::string buf;
+  REQUIRE(client.is_open());
+  std::string request{"GET / HTTP/1.1\r\nHost: localhost\r\n"};
+  for (auto ndx = 0; ndx < 100; ++ndx) request += "a:b\r\n";
+  request += "\r\n";
+  CHECK(client.send_sync_all(request));
+  const auto response = client.recv_sync_until(buf, "\r\n\r\n");
+  CHECK(response.contains("431"));
+  CHECK(client.recv_sync_drain_to_eof());
+}
+
+#pragma endregion
 #pragma region TooLongRequest
 
 // Verify that a request line exceeding the 8192-byte limit causes the server
@@ -779,8 +808,9 @@ TEST_CASE("BodyTooLarge", "[HttpServer]") {
 #pragma endregion
 #pragma region TooLongHeaders
 
-// Verify that a header block exceeding the 8192-byte limit yields a 400
-// response and the server closes the connection.
+// Verify that a header block exceeding the 8192-byte limit yields a "431
+// Request Header Fields Too Large" (RFC 6585 sec. 5 covers the total size,
+// not just the line count) and the server closes the connection.
 TEST_CASE("TooLongHeaders", "[HttpServer]") {
   if (is_codex()) return;
 
@@ -796,7 +826,7 @@ TEST_CASE("TooLongHeaders", "[HttpServer]") {
   const std::string long_header = "X-Pad: " + std::string(8192, 'a') + "\r\n";
   CHECK(client.send_sync_all("GET / HTTP/1.1\r\n" + long_header + "\r\n"));
   const auto response = client.recv_sync_until(buf, "\r\n\r\n");
-  CHECK(response.contains("400"));
+  CHECK(response.contains("431"));
   CHECK(client.recv_sync_drain_to_eof()); // server closes after error
 }
 

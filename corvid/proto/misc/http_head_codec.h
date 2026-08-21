@@ -255,6 +255,7 @@ class http_headers: http_constants {
 
   field_line_vector entries_;
   index_map index_;
+  http_status_code reject_status_{};
 
 #pragma endregion
 
@@ -417,7 +418,10 @@ public:
   [[nodiscard]] bool add_raw(std::string_view field_name,
       std::string field_value, std::string_view raw_field_name = {}) {
     assert(is_normalized(field_name) && is_valid_field_value(field_value));
-    if (entries_.size() >= max_field_lines) return false;
+    if (entries_.size() >= max_field_lines) {
+      reject_status_ = http_status_code::REQUEST_HEADER_FIELDS_TOO_LARGE;
+      return false;
+    }
     if (raw_field_name.empty()) raw_field_name = field_name;
     entries_.push_back({std::string{raw_field_name}, std::move(field_value)});
     index_[std::string{field_name}].push_back(entries_.size() - 1);
@@ -449,7 +453,8 @@ public:
   // Add a field line from parts, performing normalization and validation.
   // Returns false if either the field name or value is invalid, which merits
   // a "400 Bad Request", or at the `max_field_lines` cap, which merits a
-  // "431 Request Header Fields Too Large".
+  // "431 Request Header Fields Too Large"; `reject_status` records the
+  // specific status when one applies.
   [[nodiscard]] bool
   add(std::string_view field_name, std::string_view field_value) {
     std::string normal_field_name{field_name};
@@ -460,6 +465,18 @@ public:
 
 #pragma endregion
 #pragma region Accessors
+
+  // The HTTP status with which to reject this header block, or `invalid`
+  // when no failed add has dictated one.
+  //
+  // A refusal that merits a specific status latches it here (currently only
+  // the `max_field_lines` cap's "431 Request Header Fields Too Large"),
+  // letting a caller holding only a failed add's bool pick the right
+  // response; failures that latch nothing merit the generic "400 Bad
+  // Request".
+  [[nodiscard]] http_status_code reject_status() const noexcept {
+    return reject_status_;
+  }
 
   // Return a `string_view` into the field value for the field line whose
   // name matches `field_name`. The `field_name` is expected to be

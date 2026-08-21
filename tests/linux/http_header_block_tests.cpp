@@ -941,9 +941,18 @@ TEST_CASE("FieldLineCap", "[HttpHeaderBlock]") {
   for (auto ndx = 0UZ; ndx < http_constants::max_field_lines; ++ndx)
     REQUIRE(h.add_raw("X-Filler", std::to_string(ndx)));
   CHECK(h.size() == http_constants::max_field_lines);
+  // A full-but-valid block has latched no reject status; neither does a
+  // malformed add (which fails before reaching the cap).
+  CHECK(h.reject_status() == http_status_code::invalid);
+  CHECK_FALSE(h.add_line("no colon"));
+  CHECK(h.reject_status() == http_status_code::invalid);
 
-  // The cap refuses further additions through every entry point.
+  // The cap refuses further additions through every entry point, and the
+  // refusal latches the 431 so the caller can answer it rather than a
+  // generic 400.
   CHECK_FALSE(h.add_raw("X-Filler", "overflow"));
+  CHECK(
+      h.reject_status() == http_status_code::REQUEST_HEADER_FIELDS_TOO_LARGE);
   CHECK_FALSE(h.add("X-Filler", "overflow"));
   CHECK_FALSE(h.add_line("X-Filler: overflow"));
   CHECK(h.size() == http_constants::max_field_lines);
