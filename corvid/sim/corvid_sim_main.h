@@ -55,6 +55,7 @@ private:
 
 using namespace corvid::proto;
 using namespace corvid::concurrency;
+using namespace corvid::sim;
 
 int do_main(int argc, char** argv) {
   // Default web root: walk up from the executable until a
