@@ -28,14 +28,14 @@
 
 namespace corvid { inline namespace sim {
 
-// Return the absolute world tick of an expiry as a uint32_t.
-// Returns 0 if `expiry` is invalid (i.e. no expiry is set).
+// Return the absolute world tick of an expiry as a `uint32_t`, or 0 if
+// `expiry` is invalid (no expiry is set).
 [[nodiscard]] inline uint32_t tickExpiryTick(WorldTick expiry) {
   if (expiry == WorldTick::invalid) return 0;
   return *expiry;
 }
 
-// Returns 0 if the color is unset; otherwise returns the absolute expiry tick.
+// Return the absolute expiry tick, or 0 if the color is unset.
 [[nodiscard]] inline uint32_t
 tickExpiryTick(uint32_t color, WorldTick expiry) {
   if (color == 0) return 0;
@@ -58,7 +58,7 @@ struct SimGameStateJson {
   std::vector<TransientExplosion> transient_explosions;
   std::vector<TransientBeam> transient_beams;
 
-  // Clear the body and erased IDs. These fields retain their allocations.
+  // Clear all fields, retaining their allocations.
   [[nodiscard]] bool clear() {
     body.clear();
     erased_ids.clear();
