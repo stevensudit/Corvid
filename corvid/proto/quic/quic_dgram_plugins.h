@@ -422,13 +422,18 @@ public:
         if (!do_close_on_error(rv, now)) (void)session_.close();
         return {};
       }
-      const auto drained = plugin_.drain(now);
-      conn().update_pkt_tx_time(now);
-      if (!drained) {
+      if (!drain_then_maybe_close(now)) {
         if (!do_close_on_error(quic_status::internal, now))
           (void)session_.close();
         return {};
       }
+      // The drain may have shipped a close stashed by an upcall, newly
+      // entering the close period, so latch the reaper deadline before
+      // rescheduling. Rescheduling happens by return value rather than
+      // `arm_expiry`: its dedup shortcut assumes a live sweeper entry at the
+      // registered deadline, and inside this callback that entry is the one
+      // currently dying.
+      (void)latch_close_deadline(now);
       registered_expiry_ = std::min(conn().expiry(), close_deadline_);
       return registered_expiry_;
     }
@@ -485,9 +490,9 @@ public:
     //
     // Drain itself stays close-agnostic: this helper is the single place the
     // session observes `quic_conn::has_pending_close` and ships the terminal
-    // packet. Used from every drain call site (`handle_recv`,
-    // `do_register_server`, `do_register_client`) so registration-time and
-    // steady-state requests are handled the same way.
+    // packet. Used from every drain call site (`handle_recv`, the
+    // registration paths, `do_drain_cycle`, and `on_expiry_sweep`) so a
+    // request stashed on any turn is handled the same way.
     [[nodiscard]] bool drain_then_maybe_close(time_point_t now) {
       const auto drained = plugin_.drain(now);
       // Close out the turn's write batch for ngtcp2's pacing, packets shipped
@@ -552,6 +557,19 @@ public:
       return true;
     }
 
+    // Latch the RFC 9000 sec. 10.2 3*PTO wind-down deadline on the first
+    // sight of the closing/draining period.
+    //
+    // `close_deadline_` stays `time_point_t::max()` (keeping the deadline
+    // `min`s transparent) while the conn is live. Returns true on the
+    // latching turn only.
+    bool latch_close_deadline(time_point_t now) {
+      if (close_deadline_ != time_point_t::max() || !conn().in_close_period())
+        return false;
+      close_deadline_ = now + 3 * conn().pto();
+      return true;
+    }
+
     // Schedule (or reschedule) the expiry-sweeper entry at `min(ngtcp2 expiry,
     // close_deadline_)`.
     //
@@ -562,20 +580,13 @@ public:
     // (the common case across consecutive packets in a flight) avoids
     // pointless heap churn.
     //
-    // The first time the conn is seen in a closing/draining period, latch the
-    // RFC 9000 sec. 10.2 3*PTO wind-down deadline; `close_deadline_` stays
-    // `time_point_t::max()` (and the `min` stays transparent) while the conn
-    // is live.
     bool arm_expiry() {
       // Detect the transition into the closing/draining period. On that turn
       // we must force a fresh schedule even if `target` matches the
       // already-registered deadline: the `target == registered_expiry_`
       // shortcut below assumes a live sweeper entry already sits at that
       // deadline, but the reaper needs its own guaranteed-live entry to fire.
-      const auto entering =
-          (close_deadline_ == time_point_t::max()) && conn().in_close_period();
-      if (entering)
-        close_deadline_ = steady_now_clock::now() + 3 * conn().pto();
+      const auto entering = latch_close_deadline(steady_now_clock::now());
       const auto target = std::min(conn().expiry(), close_deadline_);
       if (!entering && target == registered_expiry_) return false;
       registered_expiry_ = target;
