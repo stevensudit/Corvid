@@ -23,7 +23,6 @@
 #include <iostream>
 #include <memory>
 #include <optional>
-#include <stdexcept>
 
 #include "../proto/epoll/epoll_http_websocket_transaction.h"
 #include "../strings/any_strings.h"
@@ -74,18 +73,24 @@ public:
     websocket().on_close =
         [](epoll_http_websocket&, uint16_t, std::string_view) { do_close(); };
     (void)enable_keepalive(loop, wheel, 20s, 5s);
-    if (!game_.loadMap()) throw std::runtime_error{"Failed to load map"};
-    std::cout << "WebSocket client connected\n";
   }
 
-  // Returns an `epoll_http_transaction_factory` for use with
+  // Return an `epoll_http_transaction_factory` for use with
   // `epoll_http_server::add_route`.
+  //
+  // The factory returns `nullptr` when the sim map fails to load.
   [[nodiscard]] static epoll_http_transaction_factory make_factory(
       std::shared_ptr<epoll_loop> loop, std::shared_ptr<timing_wheel> wheel) {
     // Factory factory.
     return [loop = std::move(loop), wheel = std::move(wheel)](
                request_head&& req) -> epoll_http_transaction_ptr {
-      return std::make_shared<SimWsHandler>(std::move(req), loop, wheel);
+      auto tx = std::make_shared<SimWsHandler>(std::move(req), loop, wheel);
+      if (!tx->game_.loadMap()) {
+        std::cerr << "Failed to load sim map\n";
+        return nullptr;
+      }
+      std::cout << "WebSocket client connected\n";
+      return tx;
     };
   }
 
