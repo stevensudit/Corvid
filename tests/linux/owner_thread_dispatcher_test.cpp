@@ -372,7 +372,9 @@ TEST_CASE("Retire", "[OwnerThreadDispatcher]") {
   CHECK(replacement.is_loop_thread());
 
   // The last owner may destroy a retired dispatcher from any thread.
-  std::thread t{[d = std::move(dispatcher)]() mutable { d.reset(); }};
+  std::thread t{[dispatcher = std::move(dispatcher)]() mutable {
+    dispatcher.reset();
+  }};
   t.join();
 }
 
