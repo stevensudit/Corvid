@@ -509,6 +509,30 @@ TEST_CASE("PromoteDemoteRoundtrip", "[IouBufPool]") {
 }
 
 #pragma endregion
+#pragma region PromoteDemoteRefusal
+
+TEST_CASE("PromoteDemoteRefusal", "[IouBufPool]") {
+  // A pool that declines read-byte tracking (here, the synthetic null pool)
+  // refuses promote/demote; the chained `blockrw` check detects it.
+  if (true) {
+    std::string data{"held"};
+    iou_buffer::span_t span{reinterpret_cast<std::byte*>(data.data()),
+        data.size()};
+    auto buf = iou_buffer::make_synthetic(span);
+    REQUIRE(buf);
+    CHECK(buf.promote_to_write().blockrw() == block_type::read);
+  }
+  if (true) {
+    std::string data{"held"};
+    iou_buffer::span_t span{reinterpret_cast<std::byte*>(data.data()),
+        data.size()};
+    auto buf = iou_buffer::make_synthetic_write(span);
+    REQUIRE(buf);
+    CHECK(buf.demote_to_read().blockrw() == block_type::write);
+  }
+}
+
+#pragma endregion
 #pragma region AvailableTracking
 
 TEST_CASE("AvailableTracking", "[IouBufPool]") {
@@ -770,6 +794,33 @@ TEST_CASE("UpdateRecvmsgTruncated", "[IouBufPool]") {
         msg_template);
 
     CHECK(bitmask::has(buf.msghdr_flags(), msg_flags::trunc));
+  }
+}
+
+#pragma endregion
+#pragma region PrepareSendmsgPeerForms
+
+TEST_CASE("PrepareSendmsgPeerForms", "[IouBufPool]") {
+  // With a peer set, `prepare_sendmsg` arms `msg_name`; with an empty peer,
+  // it takes sendmsg(2)'s no-address form so a connected socket's peer
+  // applies.
+  auto pool = iou_buf_pool::create();
+  if (true) {
+    auto buf = pool->borrow_writer();
+    REQUIRE(buf);
+    CHECK(buf.append("x"sv));
+    auto* msg = buf.prepare_sendmsg();
+    CHECK(msg->msg_name == nullptr);
+    CHECK(msg->msg_namelen == 0U);
+  }
+  if (true) {
+    auto buf = pool->borrow_writer();
+    REQUIRE(buf);
+    CHECK(buf.append("x"sv));
+    buf.peer_addr() = net_endpoint::loopback_v4(1234);
+    auto* msg = buf.prepare_sendmsg();
+    CHECK(msg->msg_name != nullptr);
+    CHECK(msg->msg_namelen == sizeof(sockaddr_in));
   }
 }
 

@@ -15,6 +15,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 #pragma once
+#include <algorithm>
 #include <cstdint>
 #include <optional>
 #include <span>
@@ -42,7 +43,8 @@ namespace corvid { inline namespace proto { namespace quic {
 //   `on_stream_open`             create an empty send queue
 //
 //   `on_recv_stream_data`        append the inbound bytes (and any sticky
-//                                `fin`) to the stream's queue
+//                                `fin`) to the stream's queue and return
+//                                their flow-control credit
 //
 //   `on_acked_stream_data_offset` retire the freshly ACKed prefix of that
 //                                 queue
@@ -96,6 +98,16 @@ public:
     auto& q = queues_[stream_id];
     q.append(std::vector<uint8_t>(data.begin(), data.end()));
     q.state() |= write_flags;
+    // The bytes are consumed on arrival (copied into the echo queue), so
+    // return their flow-control credit immediately; without it the peer's send
+    // window never reopens, and a stream stalls for good once the initial
+    // window is spent.
+    if (!data.empty()) {
+      if (io_.conn().extend_max_stream_offset(stream_id, data.size()) !=
+          quic_status::ok)
+        return false;
+      io_.conn().extend_max_offset(data.size());
+    }
     return true;
   }
 
@@ -114,11 +126,9 @@ public:
 #pragma endregion
 #pragma region Drain
 
-  // Drive ngtcp2's outbound queue until it stops producing. Each iteration
-  // picks a stream with pending work (or `stream_id::none` if none), borrows
-  // a fresh send buffer, and hands one packet to ngtcp2 via `writev_stream`.
-  // ngtcp2 may pack stream bytes alongside non-stream frames in the same
-  // packet, so the unified loop subsumes the no-op base's ACK-only flush.
+  // Drive ngtcp2's outbound queue until it stops producing, offering the first
+  // stream with pending work each iteration (or `stream_id::none` when none
+  // has any).
   //
   // Round-robin across streams is not strictly fair: the first
   // unordered_map iterator hit with work wins each iteration, so a stream
@@ -129,37 +139,37 @@ public:
   // TODO: Consider starvation avoidance, perhaps with rotation so we
   // round-robin.
   [[nodiscard]] bool drain(time_point_t now) {
-    for (;;) {
-      quic_stream_id sid = quic_stream_id::none;
-      std::span<const iovec> iov;
-      write_stream_flags flags = write_stream_flags::none;
-      send_queue_t* qp{};
-      for (auto& [id, q] : queues_) {
-        if (q.size() == 0 && q.state() == write_stream_flags::none) continue;
-        sid = id;
-        iov = q.unused();
-        flags = q.state();
-        qp = &q;
-        break;
-      }
-
-      auto out = io_.borrow_send_buffer();
-      if (!out) return true;
-      uint64_t accepted{};
-      const auto status =
-          io_.conn().writev_stream(sid, iov, out, accepted, flags, now);
-      // Draining/closing is a connection-level state: ngtcp2 will emit nothing
-      // more, so this is a clean stop, not a failure.
-      if (status == quic_status::draining || status == quic_status::closing)
-        return true;
-      if (status != quic_status::ok) return false;
-      if (out.payload_bytes().empty()) return true;
-      if (qp) {
-        qp->consume(accepted);
-        if (qp->size() == 0) qp->state() = write_stream_flags::none;
-      }
-      (void)io_.send_packet(std::move(out));
-    }
+    // Streams found blocked by stream-level flow control this turn. They are
+    // skipped on re-selection so the remaining streams and the non-stream
+    // fallback still run; the peer's next `MAX_STREAM_DATA` reopens them on a
+    // later turn.
+    std::vector<quic_stream_id> blocked;
+    return io_.pump_drain<stream_pick>(
+        now,
+        [&](stream_pick& pick) {
+          pick = do_pick_stream(blocked);
+          return true;
+        },
+        // A flow-control-blocked stream is set aside for the turn; a
+        // write-shut or unknown stream can never send again, so its queue is
+        // dropped.
+        [&](quic_status status, const stream_pick& pick) {
+          if (status == quic_status::stream_data_blocked)
+            blocked.push_back(pick.sid);
+          else
+            queues_.erase(pick.sid);
+        },
+        // The sticky flags clear only on an engaged `accepted`: a packet
+        // that omitted the stream frame (ACKs under a full cwnd) did not
+        // ship the FIN, and nothing re-arms the flag once it is cleared.
+        [](const stream_pick& pick, std::optional<uint64_t> accepted) {
+          if (pick.qp && accepted) {
+            pick.qp->consume(*accepted);
+            if (pick.qp->size() == 0)
+              pick.qp->state() = write_stream_flags::none;
+          }
+          return true;
+        });
   }
 
 #pragma endregion
@@ -168,6 +178,31 @@ public:
   // Number of streams with at least one queue currently allocated. Exposed
   // for tests / diagnostics.
   [[nodiscard]] size_t stream_count() const noexcept { return queues_.size(); }
+
+#pragma endregion
+#pragma region Helpers
+private:
+  // One drain iteration's choice.
+  //
+  // The `drain_pick` offer plus the picked stream's queue, so the commit
+  // seam can consume accepted bytes and clear sticky flags. `sid == none`
+  // (with an empty view and null `qp`) means no stream has work, so the call
+  // emits only non-stream frames.
+  struct stream_pick: drain_pick {
+    send_queue_t* qp{};
+  };
+
+  // Pick the first stream with pending bytes or a sticky flag, skipping the
+  // ones in `blocked`.
+  [[nodiscard]] stream_pick do_pick_stream(
+      std::span<const quic_stream_id> blocked) {
+    for (auto& [id, q] : queues_) {
+      if (q.size() == 0 && q.state() == write_stream_flags::none) continue;
+      if (std::ranges::contains(blocked, id)) continue;
+      return {{id, q.unused(), q.state()}, &q};
+    }
+    return {};
+  }
 
 #pragma endregion
 #pragma region Data members

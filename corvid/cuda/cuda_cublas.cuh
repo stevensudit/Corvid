@@ -68,7 +68,6 @@ public:
 
   [[nodiscard]] bool ok() const { return value_ == cublas_status::success; }
   [[nodiscard]] explicit operator bool() const { return ok(); }
-  [[nodiscard]] bool operator!() const { return !ok(); }
 
   [[nodiscard]] cublas_status status() const { return value_; }
 

@@ -1,13 +1,20 @@
 # Proto Module Overview
 
-The `corvid::proto` module provides networking primitives and an
-async I/O loop with C++20 coroutine support.
+The `corvid::proto` module provides networking primitives, async I/O loops,
+and the protocol layers built on them.
+
+This overview covers the POSIX primitives, the `epoll` stream loop, and the
+HTTP/1.x and WebSocket layers. The `io_uring` loop and the QUIC / HTTP/3
+stack are documented separately in `io_uring/classes.md` and
+`quic/classes.md`, with roadmaps alongside.
 
 ## Layer 1: POSIX/Linux Primitives
 
 ### `os_file`
 
-RAII wrapper around a raw OS file descriptor. Movable, non-copyable. Core
+RAII wrapper around a raw OS file descriptor, provided by the `filesys` band
+(`corvid/filesys/os_file.h`) and used as the base of every proto handle.
+Movable, non-copyable. Core
 operations: `read(string&)` fills a pre-sized buffer and trims it to the
 actual byte count, treating `EAGAIN`/`EWOULDBLOCK` as success with no
 progress; `write(string_view&)` writes as much as possible and removes the
@@ -90,8 +97,8 @@ computes consumed bytes from a pointer difference. `buffer_capacity()` returns
 the backing string's full capacity. `expand_to(n)` requests buffer growth on
 the next compact. `try_take_full(out, view)` bulk-transfers the entire backing
 buffer when it is completely full, swapping ownership to the caller's string
-and resetting the connection's buffer to its previous capacity without
-zero-initialization.
+and rebuilding the connection's buffer from the swapped-in string, enlarged
+to at least `min_capacity` without zero-initialization.
 
 When the view destructs, `resume_cb_(new_buffer_size_, last_seen_end_)` is
 called; this callback captures a `shared_ptr` to the owning connection to keep
@@ -106,10 +113,10 @@ dedicated background thread for the common case.
 
 `register_socket(shared_ptr<epoll_io_conn>, readable, writable)` registers a
 connection (the `epoll_io_conn` owns its `net_socket`) with the initial read/write
-interest. `set_readable(sock, bool)` and `set_writable(sock, bool)` toggle
+interest. `enable_reads(conn, on)` and `enable_writes(conn, on)` toggle
 `EPOLLIN` and `EPOLLOUT` without disturbing the registered `epoll_io_conn`.
 `EPOLLERR`, `EPOLLHUP`, and `EPOLLRDHUP` are always armed; the loop operates
-level-triggered. `unregister_socket(sock)` removes a registration.
+level-triggered. `unregister_socket(conn)` removes a registration.
 
 All four socket-management methods are safe to call from any thread: when
 invoked off the loop thread they automatically promote into a `post()` and
@@ -123,9 +130,7 @@ inline when already on the loop thread, otherwise posts it asynchronously.
 
 `run()` / `run_once(timeout_ms)` / `stop()` drive dispatch. `stop()` and
 `wait_until_running(timeout_ms)` are thread-safe. `is_loop_thread()` returns
-true when the current thread is the active polling thread. `poll_thread_scope()`
-marks the current thread as the loop thread without entering the dispatch loop
-(primarily for testing).
+true when the current thread is the active polling thread.
 
 `epoll_io_conn` is an abstract base holding a `net_socket sock_` (passed at
 construction) with virtual `on_readable`, `on_writable`, and `on_error`; the
@@ -186,13 +191,13 @@ advances `begin` via `consume`; when the view destructs, compaction and
 `EPOLLIN` re-arming are posted back to the loop. `set_recv_buf_size(n)` adjusts
 the per-connection buffer target; `recv_buf_size()` reports it.
 
-Handler dispatch: `epoll_stream_conn` holds `own_handlers_` (an
-`epoll_stream_conn_handlers` value) and an atomic pointer `active_handlers_` that
-normally points to `own_handlers_`. The split exists so an extension can
-temporarily redirect `active_handlers_` to its own handler struct via an
-atomic CAS and later restore the pointer. `epoll_stream_conn` dispatches every
-event through `active_handlers_` and is unaware of which handler struct is
-installed.
+Handler dispatch: `epoll_stream_conn` holds an `epoll_stream_conn_handlers`
+value (`handlers_`), supplied at construction; an accepted connection starts
+with a copy of its listener's handlers (via `accept_clone`). Each event
+invokes the corresponding handler when one is set. Handlers run on the loop
+thread and can fire after the last user reference to the connection is
+released, so captured state must outlive the loop thread; the full lifetime
+contract is documented on `epoll_stream_conn_handlers`.
 
 Half-close: `shutdown_read()` shuts down the local read side. `shutdown_write()`
 shuts down the local write side and discards unsent data. `can_read()` and
@@ -221,8 +226,9 @@ across `on_data` calls; it holds the sentinel bytes (e.g., `"\r\n"`), a
 frame)` scans `input` for the sentinel, advances `input` past all consumed
 bytes (including the sentinel on a match), and returns `std::optional<bool>`:
 empty when more data is needed, `true` when a complete frame is found in
-`frame`, and `false` when `max_length` bytes are scanned without finding the
-sentinel. `reset()` clears `bytes_scanned` for the next frame. The parser never
+`frame`, and `false` when the frame content exceeds `max_length` without the
+sentinel completing (the scan may run up to sentinel-length minus one bytes
+past the limit). `reset()` clears `bytes_scanned` for the next frame. The parser never
 copies data; `frame` is a `string_view` into the caller's buffer.
 
 ### `json_parser`
@@ -250,16 +256,21 @@ Enums: `http_version` (`invalid`, `http_0_9`, `http_1_0`, `http_1_1`);
 `http_method` (`GET`, `HEAD`, `POST`, `PUT`, `DELETE`, `OPTIONS`, `PATCH`,
 `CONNECT`, `TRACE`); `after_response` (`close`, `keep_alive`);
 `http_status_code` (full 1xx-5xx range); `content_type_value` (`text_html`,
-`text_plain`, `application_json`); `transfer_encoding_value` (`identity`,
-`chunked`); `upgrade_value` (`websocket`). All enums have stream operators.
+`text_plain`, `application_json`); `transfer_encoding_value` (`unknown`,
+`identity`, `chunked`: a present-but-unrecognized coding reports `unknown`
+rather than collapsing to absent, per RFC 9112 section 6.1); `upgrade_value`
+(`unknown`, `websocket`). All enums have stream operators.
 
 `http_headers` is an ordered multimap with O(1) average lookup. It stores
-fields in insertion order (a `vector`) and indexes them by canonical
-title-case name (an `unordered_map`). `add(name, value)` normalizes the name
-to title case, drops unknown fields into an `others` bucket, and returns false
-on duplicate detected-header fields. `add_raw(name, value)` bypasses
-normalization. `get(name)` returns the first value for a canonical name.
-`get_combined(name)` returns all values joined by `", "`.
+field lines in insertion order (a `vector`) and indexes them by canonical
+"Content-Type"-form name (an `unordered_map`). `add(name, value)` normalizes
+and validates, returning false on an invalid name or value (a 400) or at the
+`max_field_lines` cap (a 431); when a specific status applies it latches in
+`reject_status()` so the caller can answer correctly. `add_raw(name, value)`
+requires an already-normalized name; `add_line` / `add_lines` parse raw wire
+lines. `get(name)` returns the first value as an `optional<string_view>`;
+`get_values(name)` is a non-allocating range over all values;
+`get_combined(name)` returns them joined by `", "`.
 
 `request_options` and `response_options` carry decoded semantic fields parsed
 from the header collection: `connection` (`after_response`), `content_length`
@@ -274,16 +285,24 @@ requests.
 
 `response_head` builds and serializes a response head. `serialize()` produces
 the full status line + header fields as a `string` ready to write to the wire.
-`make_error_response(keep_alive, version, code, phrase)` is a static factory
-that returns a complete serialized error response.
+`make_error_response(keep_alive, version, code, phrase, extra)` is a static
+factory that returns a complete serialized error response; `extra` optionally
+adds one header field (a 405's `Allow`, a 503's `Retry-After`).
 
 ### `epoll_http_server`
 
 HTTP/1.1 server (with HTTP/0.9 and HTTP/1.0 fallback) built on `epoll_stream_conn`.
-Constructed via `create(endpoint, loop, wheel, request_timeout, write_timeout)`.
-If `loop` is null the server starts its own `epoll_loop_runner`; if `wheel` is
-null it starts its own `timing_wheel_runner` (from `corvid::concurrency`).
-Returns null if the listen socket cannot be bound.
+Constructed via `create(endpoint, configure, loop, wheel, request_timeout,
+write_timeout)`. If `loop` is null the server starts its own
+`epoll_loop_runner`; if `wheel` is null it starts its own
+`timing_wheel_runner` (from `corvid::concurrency`). Returns null if the
+listen socket cannot be bound.
+
+Routing: `add_route(host_path_key, factory)` maps a `Host` (with any
+`":" port` suffix stripped via `strip_host_port`) plus leading path segment
+to an `epoll_http_transaction_factory`; an empty hostname matches any host.
+Routes must be registered inside the `configure` callback, which runs after
+the loop and wheel are ready but before the server starts accepting.
 
 Connection state is held in `epoll_stream_conn_with_state<http_conn_state>`, which
 bundles a `terminated_text_parser::state`, sequencing counters for
@@ -306,9 +325,12 @@ are delivered in request order (pipelining).
 Persistent connections: keep-alive by default for HTTP/1.1; close by default
 for HTTP/1.0; never for HTTP/0.9. The `Connection` header is honored.
 
-Validation: HTTP/1.1 requests without a `Host` header receive a 400 response.
-Unsupported methods receive a 405 response. The path encodes an optional
-response body padding size for testing.
+Validation: HTTP/1.1 requests without a `Host` header receive a 400. CONNECT
+receives a 501 and a forced close, because the client may have pipelined
+tunnel bytes behind the request. A header block that overflows the size or
+field-line caps receives a 431. The static-file transaction serves GET and
+HEAD only, answering anything else with a 405 that carries
+`Allow: GET, HEAD`.
 
 Timeouts: `request_timeout` (default 30 s) is armed after each accepted
 connection and re-armed after each parsed request on keep-alive connections. If
@@ -379,19 +401,24 @@ server->add_route({"", "/ws"},
 
 ### Support headers
 
-`base-64.h` provides RFC 4648 Base64 `encode` / `decode`.
-`sha-1.h` provides `sha_1::digest` plus `sha_1::bytes` for the WebSocket
+`base_64.h` provides RFC 4648 Base64 `encode` / `decode`.
+`sha_1.h` provides `sha_1::digest` plus `sha_1::bytes` for the WebSocket
 accept-key (protocol use only, not for security).
+`http_authority.h` provides `strip_host_port`, the bracket-aware `Host` /
+`:authority` port stripper shared by the server's routing and the HTTP/3
+authority check.
+`utf8_checker.h` provides UTF-8 validation, used for WebSocket text
+payloads.
 Byte-order conversion (`hton16/32/64/128` and `ntoh16/32/64/128`, built on
 `std::byteswap`) comes from `corvid/math/endian.h`, which lives in the `math`
 band so that lower bands such as `filesys` can use it too.
 
 ## What comes next
 
-See `roadmap.md` for the full plan. Layer 3 has a complete HTTP/1.1 server with
-routing and transaction pipelining; remaining work includes request body
-reading, `POST`/`PUT` support, chunked transfer encoding, and an HTTP client
-and proxy. Layer 4 has initial WebSocket server support; remaining work includes
-WebSocket client mode and subprotocol negotiation. If datagram support is
-needed later, it should arrive as a separate `dgram_conn` abstraction built on
-`epoll_loop`.
+See `roadmap.md` for the full plan. Layer 3 has a complete HTTP/1.1 server
+with routing, transaction pipelining, and request body reading; remaining
+work includes chunked transfer encoding and an HTTP client and proxy. Layer 4
+has initial WebSocket server support; remaining work includes WebSocket
+client mode and subprotocol negotiation. Datagram support lives in the
+`io_uring` band (`iou_dgram_session` and its router), with QUIC and HTTP/3
+layered on top; see `io_uring/classes.md` and `quic/classes.md`.

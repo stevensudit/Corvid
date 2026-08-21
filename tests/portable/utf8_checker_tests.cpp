@@ -15,7 +15,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#include "corvid/proto/misc/utf8-checker.h"
+#include "corvid/proto/misc/utf8_checker.h"
 #include "corvid/concurrency/jthread_stoppable_sleep.h"
 #include "corvid/meta/crossplatform.h"
 

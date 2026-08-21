@@ -32,12 +32,12 @@
 #include "../../containers/core/scoped_value.h"
 #include "../../enums.h"
 #include "../../math/arithmetic.h"
-#include "../misc/base-64.h"
+#include "../misc/base_64.h"
 #include "../../math/endian.h"
-#include "../misc/sha-1.h"
+#include "../misc/sha_1.h"
 #include "../misc/http_head_codec.h"
 #include "epoll_http_transaction.h"
-#include "../misc/utf8-checker.h"
+#include "../misc/utf8_checker.h"
 
 namespace corvid { inline namespace proto {
 
@@ -222,11 +222,13 @@ public:
   // Mask key, or 0 if `!is_masked()`.
   [[nodiscard]] uint32_t mask_key() const noexcept { return mask_; }
 
-  // Determine whether the header is complete. Interprets initial
-  // `header_length` as `buffer_length` and probes the front of the buffer up
-  // to that point. In the process, sets `header_length` correctly.
+  // Determine whether the header is complete.
   //
-  // If the header is complete, then it can be parsed. If it's incomplete, then
+  // Interprets the initial `header_length` as the buffer length and probes the
+  // front of the buffer up to that point.
+  //
+  // If the header is complete, then it can be parsed; `parse` is what sets
+  // `header_length` to the true header length. If it's incomplete, then
   // `header_length` is the estimated number of bytes needed to complete it.
   [[nodiscard]] bool is_complete() noexcept {
     const auto buffer_length = header_length_;
@@ -252,9 +254,11 @@ public:
   }
 
   // Parse a complete header to extract the payload length, header length and
-  // mask (if any), making them available as properties. Does not depend upon
-  // `header_length` being set in advance, but does require that `is_complete`
-  // would have returned true. May fail if the header is semantically invalid.
+  // mask (if any), making them available as properties.
+  //
+  // Does not depend upon `header_length` being set in advance, but does
+  // require that `is_complete` would have returned true. May fail if the
+  // header is semantically invalid.
   [[nodiscard]] bool parse() noexcept {
     assert(is_complete());
     const auto lb = payload_size_flags();
@@ -568,7 +572,8 @@ public:
   // Sanity check limit on frame size, whether a fragment or complete.
   static constexpr auto max_frame_size = 16 * 1024UZ * 1024UZ;
 
-  // Error value for feed(std::string_view&).
+  // Error value returned by the needed-bytes computation to initiate
+  // shutdown.
   static constexpr auto insatiable = std::numeric_limits<size_t>::max();
 
 #pragma endregion
@@ -645,13 +650,13 @@ public:
       // Try to parse the header. If it's incomplete, ask for more.
       ws_frame_view hdr{data};
       if (!hdr.is_complete()) return hdr.total_length();
-      if (!hdr.parse()) return fail_insatiable(1002, "Malformed frame header");
+      if (!hdr.parse()) return fail_insatiable(); // malformed frame header
 
       // Now that we know the entire frame size, demand that exact amount.
       const auto total = hdr.total_length();
       if (data.size() < total) {
-        if (total > max_frame_size)
-          return fail_insatiable(1009, "Frame size exceeds limit");
+        // Instead of returning error code 1009, we cut the connection.
+        if (total > max_frame_size) return fail_insatiable();
         return total;
       }
 
@@ -677,9 +682,10 @@ public:
         payload);
   }
 
-  // Send a close frame, updating state. The `reason`, if provided, must be
-  // valid UTF-8 and short. If you send a `reason` that's not hardcoded, you
-  // are responsible for it being valid.
+  // Send a close frame, updating state.
+  //
+  // The `reason`, if provided, must be valid UTF-8 and short. If you send a
+  // `reason` that's not hardcoded, you are responsible for it being valid.
   [[nodiscard]] bool
   send_close(uint16_t code = 1000, std::string_view reason = {}) {
     // Payload is optional.
@@ -854,9 +860,16 @@ public:
     return fail(1002, full_reason);
   }
 
-  [[nodiscard]] size_t
-  fail_insatiable(uint16_t code = 1000, std::string_view reason = "Error") {
-    (void)fail(code, reason);
+  // Hang up immediately, returning `insatiable`.
+  //
+  // RFC 6455 section 7.1.7 prefers sending a close frame before closing
+  // (1002 for a malformed header, 1009 for an oversized frame) but allows
+  // omitting it when the peer is unlikely to be able to process it. A peer
+  // that lands here is spewing malformed or overlong frames; that is not
+  // recoverable, and every moment the connection stays open is an
+  // opportunity for it to flood our buffers. So we do not bother with the
+  // courtesy, matching the immediate hangup in `handle_data_frame`.
+  [[nodiscard]] size_t fail_insatiable() {
     (void)hangup();
     return insatiable;
   }
@@ -905,10 +918,12 @@ private:
     return true;
   }
 
-  // Process the payload of a received frame. Accumulates payloads from the
-  // frames of a fragmented message and dispatches it to the user as a complete
-  // message once the final fragment arrives. Returns false on a protocol
-  // error, true on success. Handles control frames and state transitions.
+  // Process the payload of a received frame.
+  //
+  // Accumulates payloads from the frames of a fragmented message and
+  // dispatches it to the user as a complete message once the final fragment
+  // arrives. Returns false on a protocol error, true on success. Handles
+  // control frames and state transitions.
   [[nodiscard]] bool handle_payload(ws_frame_view& hdr) {
     // Sniff frame and reject obvious defects.
     const auto frame_control = hdr.frame_control();
@@ -1092,6 +1107,7 @@ private:
   const bool is_server_{};
 
   // Per-message state.
+  //
   // Opcode of the initial frame in the current fragmented message, or 0 if not
   // in a fragmented message, as well as UTF-8 validation state for text
   // messages.
@@ -1117,7 +1133,7 @@ private:
   bool send_in_fragment_{};
 
   // Auto-incrementing counter for outgoing pings. Each call to `send_ping`
-  // increments this and stores the new value in `pending_ping_`.
+  // increments this and stores the new value in `pending_pong_`.
   uint32_t ping_seq_{};
 
   // The counter value of the most recently sent ping, if a pong is still

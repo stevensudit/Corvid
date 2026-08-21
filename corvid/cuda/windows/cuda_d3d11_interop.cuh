@@ -192,7 +192,6 @@ public:
 #pragma region Accessors
 
   [[nodiscard]] operator bool() const noexcept { return resource_; }
-  [[nodiscard]] bool operator!() const noexcept { return !resource_; }
 
   // The mapped resource's array (sub-resource 0, mip 0), to build a surface or
   // texture object. Borrowed: valid only while this mapping is alive.

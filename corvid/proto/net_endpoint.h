@@ -145,6 +145,7 @@ public:
 
   // Construct from the local address bound to `sock` via `getsockname`.
   [[nodiscard]] static net_endpoint local_of(const net_socket& sock) noexcept {
+    if (!sock) return {};
     sockaddr_storage addr{};
     socklen_t len{sizeof(addr)};
     auto* ptr = reinterpret_cast<sockaddr*>(&addr);
@@ -155,6 +156,7 @@ public:
   // Query the peer address of `sock` via `getpeername`. On failure, result
   // is `empty`.
   [[nodiscard]] static net_endpoint peer_of(const net_socket& sock) noexcept {
+    if (!sock) return {};
     sockaddr_storage addr{};
     socklen_t len{sizeof(addr)};
     auto* ptr = reinterpret_cast<sockaddr*>(&addr);

@@ -29,6 +29,7 @@
 #include <variant>
 
 #include "../../infra/exception_firewalls.h"
+#include "../misc/http_authority.h"
 #include "../misc/http_head_codec.h"
 #include "../misc/terminated_text_parser.h"
 #include "../../containers/core/opt_find.h"
@@ -123,10 +124,13 @@ using route_map_t =
 // `epoll_loop`, with `timing_wheel`-driven timeouts.
 //
 // Listens for TCP (or UDS/ANS) connections. Parses each request in two
-// phases using `terminated_text_parser` (sentinel `"\r\n"`, max 8192 bytes
-// per line): Phase 1 reads the request line, Phase 2 reads header-field
-// lines until the blank-line terminator. HTTP/0.9 requests (no version
-// token) are dispatched after Phase 1 with no Phase 2.
+// phases using `terminated_text_parser`.
+//
+// Phase 1 reads the request line (sentinel `"\r\n"`,
+// `max_request_line_bytes`). Phase 2 reads the header block through its
+// blank-line terminator (sentinel `"\r\n\r\n"`, `max_header_block_bytes`).
+// HTTP/0.9 requests (no version token) are dispatched after Phase 1 with no
+// Phase 2.
 //
 // Persistent connections (keep-alive) and pipelining are supported:
 // `on_data` loops over all complete header blocks present in the receive
@@ -300,11 +304,14 @@ public:
 #pragma endregion
 #pragma region Routing
 
-  // Register `factory` for the route identified by `key`. The `hostname`
-  // field is matched against the `Host` request header (empty matches any
-  // host). The `base_path` field is the leading path component (e.g.,
-  // `"/api"` from `"/api/v2"`); `"/"` acts as a host-scoped catch-all for
-  // unmatched paths. Replaces any existing registration for the same key.
+  // Register `factory` for the route identified by `key`.
+  //
+  // The `hostname` field is matched against the `Host` request header's
+  // `uri-host`; any `:port` suffix in the header is ignored, and an empty
+  // `hostname` matches any host. The `base_path` field is the leading path
+  // component (e.g., `"/api"` from `"/api/v2"`); `"/"` acts as a host-scoped
+  // catch-all for unmatched paths. Replaces any existing registration for the
+  // same key.
   //
   // Must be called only from within the `configure` callback passed to
   // `create`; returns `false` if the server has already started accepting
@@ -325,6 +332,7 @@ public:
     target = target.substr(0, target.find_first_of("?#"));
     return target.substr(0, target.find('/', 1));
   }
+
 #pragma endregion
 #pragma region Construction
 
@@ -427,10 +435,19 @@ private:
   [[nodiscard]] bool ensure_initialized(epoll_stream_conn& conn) const {
     auto& state = conn_t::from(conn).state();
     if (state.parser_state) return true;
-    state.parser_state = terminated_text_parser::state{"\r\n", 8192};
-    state.send_cb = [this, &conn](any_strings&& bufs) -> bool {
+    state.parser_state =
+        terminated_text_parser::state{"\r\n", max_request_line_bytes};
+    // Capture the server weakly.
+    //
+    // A connection can outlive the server in the shared-loop case, and a
+    // shared capture would form a reference cycle (server -> loop ->
+    // connection state -> send_cb -> server). A send after the server is gone
+    // just hangs up the connection.
+    state.send_cb =
+        [weak_self = weak_from_this(), &conn](any_strings&& bufs) -> bool {
+      const auto self = weak_self.lock();
       const auto is_hangup = std::holds_alternative<std::monostate>(bufs);
-      if (is_hangup || !arm_write_timeout(conn) ||
+      if (!self || is_hangup || !self->arm_write_timeout(conn) ||
           !conn.send_any(std::move(bufs)))
       {
         (void)hangup(conn);
@@ -442,9 +459,11 @@ private:
   }
 
   // When the send queue fully drains, disarm the write timeout and notify
-  // the active write transaction. Transitions to `done` when in `response`
-  // phase and the transaction queue empties. Also handles initial parser
-  // setup on the first drain event before any request has arrived.
+  // the active write transaction.
+  //
+  // Transitions to `done` when in `response` phase and the transaction queue
+  // empties. Also handles initial parser setup on the first drain event before
+  // any request has arrived.
   [[nodiscard]] bool handle_drain(epoll_stream_conn& conn) const {
     auto& state = conn_t::from(conn).state();
     timer_fuse_t::disarm(state.write_seq);
@@ -476,8 +495,10 @@ private:
     return keep_alive;
   }
 
-  // Find the registered route for `key`. Extracts the `base_path` from
-  // `key.base_path` directly and performs a prioritized lookup:
+  // Find the registered route for `key`.
+  //
+  // Extracts the `base_path` from `key.base_path` directly and performs a
+  // prioritized lookup:
   //   1. `{hostname, base_path}` -- exact host + folder
   //   2. `{hostname, "/"}` -- host-specific catch-all
   //   3. `{"", base_path}` -- any-host folder match
@@ -509,18 +530,52 @@ private:
     auto& state = conn_t::from(conn).state();
     const auto keep_alive = state.req.options.keep_alive(state.req.version);
 
-    // HTTP/1.1 requires a `Host` header.
+    // HTTP/1.1 requires a `Host` header (RFC 9112 sec. 3.2, with no method
+    // carve-out, so this outranks the CONNECT rejection below).
     if (state.req.version == http_version::http_1_1 &&
         !state.req.headers.get("Host"))
       return send_error_response(conn, after_response::close,
           state.req.version);
 
-    // Build the route key from the `Host` header and the leading path
-    // component of the request target path, ignoring any query or fragment
-    // suffix (e.g., "/api" from "/api/v2?x=1#y", "/api/", or "/api"; and
-    // "/" from "/").
+    // CONNECT parses (authority-form) but tunneling is not implemented. The
+    // 501 forces close: a CONNECT client may pipeline tunnel bytes right
+    // behind the head, and those must not parse as requests on a kept-alive
+    // connection.
+    if (state.req.method == http_method::CONNECT)
+      return send_error_response(conn, after_response::close,
+          state.req.version, http_status_code::NOT_IMPLEMENTED,
+          "Not Implemented");
+
+    // A request bearing `Transfer-Encoding` cannot be processed: chunked
+    // decoding is not implemented, and when chunked is not the final coding
+    // the body length cannot be determined at all.
+    //
+    // Chunked-final answers "501 Not Implemented" (RFC 9112 sec. 6.1: a
+    // transfer coding the server does not understand); anything else answers
+    // "400 Bad Request" (sec. 6.3: chunked not final MUST get 400 and a closed
+    // connection). Both force close: the unread body bytes must not parse as
+    // requests on a kept-alive connection. This also disposes of the
+    // `Transfer-Encoding` + `Content-Length` smuggling combination (sec. 6.3),
+    // since every `Transfer-Encoding` request is rejected.
+    if (state.req.options.transfer_encoding) {
+      if (*state.req.options.transfer_encoding ==
+          transfer_encoding_value::chunked)
+        return send_error_response(conn, after_response::close,
+            state.req.version, http_status_code::NOT_IMPLEMENTED,
+            "Not Implemented");
+      return send_error_response(conn, after_response::close,
+          state.req.version);
+    }
+
+    // Build the route key.
+    //
+    // The key combines the `Host` header (minus any `:port` suffix) with the
+    // leading path component of the request target path, ignoring any query
+    // or fragment suffix (e.g., "/api" from "/api/v2?x=1#y", "/api/", or
+    // "/api"; and "/" from "/").
     const auto host_opt = state.req.headers.get("Host");
-    const auto hostname = host_opt ? *host_opt : std::string_view{};
+    const auto hostname =
+        host_opt ? strip_host_port(*host_opt) : std::string_view{};
     const auto base_path = route_base_path(state.req.target);
 
     const auto* factory = find_route({hostname, base_path});
@@ -611,10 +666,11 @@ private:
   // to continue the loop, or a `bool` to return immediately from
   // `handle_data`.
 
-  // Try to parse out just the request line, which ends at crlf. This lets
-  // us check for HTTP/0.9 instead of blocking forever on headers that might
-  // never come. Note that, while headers are technically optional for
-  // HTTP/1.0, we can at least count on the crlfcrlf sentinel.
+  // Try to parse out just the request line, which ends at crlf.
+  //
+  // This lets us check for HTTP/0.9 instead of blocking forever on headers
+  // that might never come. Note that, while headers are technically optional
+  // for HTTP/1.0, we can at least count on the crlfcrlf sentinel.
   [[nodiscard]] std::optional<bool>
   handle_request_line(epoll_stream_conn& conn, std::string_view& input,
       epoll_recv_buffer_view& view) const {
@@ -624,14 +680,14 @@ private:
     const auto r = parser.parse(input, block_view);
     if (!r) return true; // incomplete; wait for more data
 
-    // Request line exceeded 8192-byte limit. We have no idea what version
-    // the client is trying to speak, so there's no point pretending to
+    // Request line exceeded `max_request_line_bytes`. We have no idea what
+    // version the client is trying to speak, so there's no point pretending to
     // send a reasonable error response.
     if (!*r) return conn.hangup() && false;
 
     // Skip leading bare CRLFs (RFC 9112 section 2.2), up to the limit.
     if (block_view.empty()) {
-      if (++state.leading_crlf_count > max_leading_crls)
+      if (++state.leading_crlf_count > max_leading_crlfs)
         return conn.hangup() && false;
 
       view.update_active_view(input);
@@ -663,7 +719,8 @@ private:
     }
 
     // HTTP/1.x: proceed to parse header-field lines.
-    state.parser_state = terminated_text_parser::state{"\r\n\r\n", 8192};
+    state.parser_state =
+        terminated_text_parser::state{"\r\n\r\n", max_header_block_bytes};
     state.phase = http_phase::header_lines;
     return std::nullopt;
   }
@@ -685,21 +742,28 @@ private:
     return conn.close();
   }
 
-  // Send a 400 error response and close the connection after a header-block
-  // parse failure (oversized block or malformed field lines).
-  [[nodiscard]] std::optional<bool> reject_header_block(
-      epoll_stream_conn& conn) const {
+  // Send an error response and close the connection after a header-block
+  // parse failure.
+  //
+  // The default 400 covers malformed field lines; the header caps (block
+  // bytes, field lines) pass "431 Request Header Fields Too Large" instead
+  // (RFC 6585 sec. 5).
+  [[nodiscard]] std::optional<bool>
+  reject_header_block(epoll_stream_conn& conn,
+      http_status_code code = http_status_code::BAD_REQUEST,
+      std::string_view phrase = "Bad Request") const {
     auto& state = conn_t::from(conn).state();
     if (!arm_write_timeout(conn)) return conn.hangup() && false;
     if (!conn.send(response_head::make_error_response(after_response::close,
-            state.req.version)))
+            state.req.version, code, phrase)))
       return conn.hangup() && false;
     return enter_close_phase(conn) && false;
   }
 
-  // Parse or skip the header block for an incoming request. When the
-  // request has no header-field lines (blank line follows the request line
-  // immediately) the active data begins with "\r\n" rather than
+  // Parse or skip the header block for an incoming request.
+  //
+  // When the request has no header-field lines (blank line follows the request
+  // line immediately) the active data begins with "\r\n" rather than
   // "...\r\n\r\n". The "\r\n\r\n" sentinel cannot match in that case, so
   // detect it up front and skip the parser entirely.
   //
@@ -713,13 +777,25 @@ private:
       std::string_view block_view;
       const auto r = parser.parse(input, block_view);
       if (!r) return true; // incomplete; wait for more data
-      if (!*r) return reject_header_block(conn); // oversized
+      if (!*r)             // oversized block
+        return reject_header_block(conn,
+            http_status_code::REQUEST_HEADER_FIELDS_TOO_LARGE,
+            "Request Header Fields Too Large");
 
       // Process before updating view (buffer may compact on update).
       const auto lines_ok = state.req.headers.add_lines(block_view);
       view.update_active_view(input);
       parser.reset();
-      if (!lines_ok) return reject_header_block(conn); // malformed
+      if (!lines_ok) {
+        // A status latched by the headers (the field-line cap's 431)
+        // outranks the generic malformed 400. Each latched code is mapped to
+        // its phrase here; an unmapped one falls back to the 400 default.
+        const auto latched = state.req.headers.reject_status();
+        if (latched == http_status_code::REQUEST_HEADER_FIELDS_TOO_LARGE)
+          return reject_header_block(conn, latched,
+              "Request Header Fields Too Large");
+        return reject_header_block(conn);
+      }
 
       state.req.options.extract(state.req.headers);
     } else {
@@ -732,11 +808,13 @@ private:
   }
 
   // Handle the header lines phase, which ends when the full block is parsed or
-  // skipped. On success, dispatches the transaction and transitions to `body`
-  // phase if the transaction claims the input stream, or back to
-  // `request_line` phase if it releases immediately (no body or fully
-  // consumed). Returns `nullopt` to continue the loop, or a `bool` to return
-  // immediately from `handle_data`.
+  // skipped.
+  //
+  // On success, dispatches the transaction and transitions to `body` phase if
+  // the transaction claims the input stream, or back to `request_line` phase
+  // if it releases immediately (no body or fully consumed). Returns `nullopt`
+  // to continue the loop, or a `bool` to return immediately from
+  // `handle_data`.
   [[nodiscard]] std::optional<bool>
   handle_header_lines(epoll_stream_conn& conn, std::string_view& input,
       epoll_recv_buffer_view& view) const {
@@ -755,7 +833,8 @@ private:
     if (state.phase != http_phase::body) {
       // Transaction released the input immediately (no body or fully
       // consumed); reset sentinel for the next request line.
-      state.parser_state = terminated_text_parser::state{"\r\n", 8192};
+      state.parser_state =
+          terminated_text_parser::state{"\r\n", max_request_line_bytes};
       state.phase = http_phase::request_line;
       // Re-sync `input` from the view so the outer loop continues correctly.
       input = view.active_view();
@@ -769,10 +848,14 @@ private:
     return std::nullopt;
   }
 
-  // Deliver incoming body bytes to the active read transaction. Transitions
-  // back to `request_line` phase when the transaction releases the input
-  // stream.
-  [[nodiscard]] bool handle_body(epoll_stream_conn& conn,
+  // Deliver incoming body bytes to the active read transaction.
+  //
+  // Returns `true` to wait for more data while the transaction retains its
+  // claim, or `nullopt` to continue the outer loop when it releases the input
+  // stream, so that a pipelined request already in the receive buffer is
+  // parsed without waiting for further bytes. Returns `false` if the
+  // connection is hung up.
+  [[nodiscard]] std::optional<bool> handle_body(epoll_stream_conn& conn,
       std::string_view& input, epoll_recv_buffer_view& view) const {
     auto& state = conn_t::from(conn).state();
     auto* reader = state.pipeline.get_reader().get();
@@ -782,20 +865,20 @@ private:
     // how much it consumes via `epoll_recv_buffer_view`.
     const auto sc = reader->handle_data(view);
 
-    // If the transaction has released the input stream, we transition back to
-    // `request_line` phase to parse the next request.
-    input = {};
-    if (sc == stream_claim::release) {
-      state.pipeline.next_reader();
-      state.parser_state = terminated_text_parser::state{"\r\n", 8192};
-      state.phase = http_phase::request_line;
-      // Re-sync `input` from the view so the outer loop can continue
-      // to process pipelined requests with any remaining bytes.
-      input = view.active_view();
-    }
-
     if (!arm_read_timeout(conn)) return conn.hangup() && false;
-    return true;
+
+    input = {};
+    if (sc == stream_claim::claim) return true;
+
+    // The transaction released the input stream; transition back to
+    // `request_line` phase and re-sync `input` from the view so the outer
+    // loop parses any remaining buffered bytes as the next request.
+    state.pipeline.next_reader();
+    state.parser_state =
+        terminated_text_parser::state{"\r\n", max_request_line_bytes};
+    state.phase = http_phase::request_line;
+    input = view.active_view();
+    return std::nullopt;
   }
 
   // Handle incoming data for an accepted connection.
@@ -829,7 +912,11 @@ private:
         if (r) return *r;
         continue;
       }
-      case http_phase::body: return handle_body(conn, input, view);
+      case http_phase::body: {
+        const auto r = handle_body(conn, input, view);
+        if (r) return *r;
+        continue;
+      }
       case http_phase::response:
       // Both phases arrive here only after `enter_close_phase` has called
       // `conn.close`. The write side drains via `on_drain`/`handle_drain`,
@@ -844,8 +931,17 @@ private:
 #pragma endregion
 #pragma region Data members
 
-  // Maximum bare CRLFs to skip before the request line (RFC 9112 §2.2).
-  static constexpr uint8_t max_leading_crls{8};
+  // Maximum bare CRLFs to skip before the request line (RFC 9112 section 2.2).
+  static constexpr uint8_t max_leading_crlfs{8};
+
+  // Maximum bytes for a request line. All three request-line parser sites
+  // (fresh connection plus the two pipelined next-request resets) must share
+  // this limit; overflow is a bare hangup.
+  static constexpr auto max_request_line_bytes = 8192UZ;
+
+  // Maximum bytes for a full header block; overflow answers 431. Equal to
+  // the request-line limit today, but semantically distinct.
+  static constexpr auto max_header_block_bytes = 8192UZ;
 
   relaxed_atomic_bool configured_;
   std::optional<epoll_loop_runner> runner_;

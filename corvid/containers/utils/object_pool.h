@@ -207,7 +207,6 @@ public:
     }
 
     [[nodiscard]] explicit operator bool() const noexcept { return item_; }
-    [[nodiscard]] bool operator!() const noexcept { return !item_; }
 
     [[nodiscard]] T* get() const noexcept { return item_; }
     [[nodiscard]] T& value() const noexcept { return *item_; }
@@ -376,7 +375,6 @@ public:
     [[nodiscard]] explicit operator bool() const noexcept {
       return is_valid();
     }
-    [[nodiscard]] bool operator!() const noexcept { return !is_valid(); }
 
     // Return whether the token refers to a slot. There is no guarantee that
     // it's not stale; you can only find that out by trying.

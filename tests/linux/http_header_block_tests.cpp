@@ -144,6 +144,96 @@ TEST_CASE("NoSp", "[HttpHeaderBlock]") {
 }
 
 #pragma endregion
+#pragma region AsteriskForm
+
+// Asterisk-form is accepted for OPTIONS only (RFC 9112 section 3.2.4).
+TEST_CASE("AsteriskForm", "[HttpHeaderBlock]") {
+  {
+    request_head req;
+    REQUIRE(req.parse("OPTIONS * HTTP/1.1\r\nHost: example.com"));
+    CHECK(req.method == http_method::OPTIONS);
+    CHECK(req.target == "*");
+  }
+  {
+    request_head req;
+    CHECK_FALSE(req.parse("GET * HTTP/1.1\r\nHost: example.com"));
+  }
+}
+
+#pragma endregion
+#pragma region AuthorityForm
+
+// CONNECT requires authority-form and parses successfully, so the server can
+// reject tunneling with a 501 rather than mistaking the request for
+// malformed. Other forms are rejected for CONNECT (RFC 9112 section 3.2.3).
+TEST_CASE("AuthorityForm", "[HttpHeaderBlock]") {
+  {
+    request_head req;
+    REQUIRE(
+        req.parse("CONNECT example.com:443 HTTP/1.1\r\nHost: example.com"));
+    CHECK(req.method == http_method::CONNECT);
+    CHECK(req.target == "example.com:443");
+  }
+  {
+    request_head req;
+    CHECK_FALSE(req.parse("CONNECT /path HTTP/1.1\r\nHost: example.com"));
+  }
+  {
+    request_head req;
+    CHECK_FALSE(req.parse("CONNECT * HTTP/1.1\r\nHost: example.com"));
+  }
+}
+
+#pragma endregion
+#pragma region AbsoluteForm
+
+// Absolute-form is accepted (RFC 9112 section 3.2.2 requires it) and reduced
+// to origin-form, with the URI's authority replacing any `Host` header
+// (section 3.3).
+TEST_CASE("AbsoluteForm", "[HttpHeaderBlock]") {
+  {
+    // Path and query survive; the authority overrides the Host header.
+    request_head req;
+    REQUIRE(req.parse(
+        "GET http://example.com/path?q=1 HTTP/1.1\r\n"
+        "Host: spoofed.example"));
+    CHECK(req.target == "/path?q=1");
+    CHECK(req.headers.get("Host") == "example.com");
+  }
+  {
+    // Empty path becomes "/"; with no Host header line, one is synthesized
+    // from the authority. The scheme is case-insensitive and the authority's
+    // case is preserved.
+    request_head req;
+    REQUIRE(req.parse("GET HTTPS://Example.com:8443 HTTP/1.1\r\n"));
+    CHECK(req.target == "/");
+    CHECK(req.headers.get("Host") == "Example.com:8443");
+  }
+  {
+    // Empty path with a query keeps the query.
+    request_head req;
+    REQUIRE(req.parse("GET http://h?q=1 HTTP/1.1\r\n"));
+    CHECK(req.target == "/?q=1");
+    CHECK(req.headers.get("Host") == "h");
+  }
+  {
+    // Only http and https schemes are accepted.
+    request_head req;
+    CHECK_FALSE(req.parse("GET ftp://example.com/file HTTP/1.1\r\n"));
+  }
+  {
+    // An empty authority is rejected.
+    request_head req;
+    CHECK_FALSE(req.parse("GET http:///path HTTP/1.1\r\n"));
+  }
+  {
+    // A target that is neither a path nor a URI is still rejected.
+    request_head req;
+    CHECK_FALSE(req.parse("GET example.com/path HTTP/1.1\r\n"));
+  }
+}
+
+#pragma endregion
 #pragma region HeaderLookupCanonical
 
 // Verify that `http_headers::get` requires the canonical key form.
@@ -720,8 +810,10 @@ TEST_CASE("ContentLength", "[HttpHeaderBlock]") {
 #pragma region IsChunked
 
 // Verify `transfer_encoding` in `http_options`: `chunked` when recognized
-// (case-insensitive) as the last token of the last field, `std::nullopt`
-// otherwise.
+// (case-insensitive) as the last token of the last field, `unknown` when the
+// header is present but the final coding is unrecognized (so the caller can
+// reject rather than fall back to `Content-Length` framing), and
+// `std::nullopt` only when the header is absent.
 TEST_CASE("IsChunked", "[HttpHeaderBlock]") {
   {
     http_headers h;
@@ -750,12 +842,14 @@ TEST_CASE("IsChunked", "[HttpHeaderBlock]") {
     CHECK(*opts.transfer_encoding == transfer_encoding_value::chunked);
   }
   {
-    // `chunked` does not work before other encodings.
+    // `chunked` does not work before other encodings: the final coding is
+    // unrecognized, so the header reads as present-but-unknown.
     http_headers h;
     CHECK(h.add_raw("Transfer-Encoding", "chunked, gzip"));
     http_options opts;
     opts.extract(h);
-    CHECK_FALSE(opts.transfer_encoding);
+    REQUIRE(opts.transfer_encoding);
+    CHECK(*opts.transfer_encoding == transfer_encoding_value::unknown);
   }
   {
     // Multiple fields: last token of last field is `chunked`.
@@ -768,13 +862,65 @@ TEST_CASE("IsChunked", "[HttpHeaderBlock]") {
     CHECK(*opts.transfer_encoding == transfer_encoding_value::chunked);
   }
   {
-    // Multiple fields: a later field appends after `chunked` -- not chunked.
+    // Multiple fields: a later field appends after `chunked`, so the message
+    // is not chunked, and the unrecognized final coding reads as unknown.
     http_headers h;
     CHECK(h.add_raw("Transfer-Encoding", "gzip, chunked"));
     CHECK(h.add_raw("Transfer-Encoding", "deflate"));
     http_options opts;
     opts.extract(h);
-    CHECK_FALSE(opts.transfer_encoding);
+    REQUIRE(opts.transfer_encoding);
+    CHECK(*opts.transfer_encoding == transfer_encoding_value::unknown);
+  }
+  {
+    // A trailing empty element in the last field is ignored, so the decider
+    // is the last non-empty token of the concatenated list: `gzip`, which
+    // reads as unknown rather than leaking the earlier field's `chunked`.
+    http_headers h;
+    CHECK(h.add_raw("Transfer-Encoding", "chunked"));
+    CHECK(h.add_raw("Transfer-Encoding", "gzip,"));
+    http_options opts;
+    opts.extract(h);
+    REQUIRE(opts.transfer_encoding);
+    CHECK(*opts.transfer_encoding == transfer_encoding_value::unknown);
+  }
+  {
+    // A trailing comma does not mask a final `chunked`.
+    http_headers h;
+    CHECK(h.add_raw("Transfer-Encoding", "gzip, chunked,"));
+    http_options opts;
+    opts.extract(h);
+    REQUIRE(opts.transfer_encoding);
+    CHECK(*opts.transfer_encoding == transfer_encoding_value::chunked);
+  }
+  {
+    // A later field holding only empty elements changes nothing: the last
+    // non-empty token of the concatenated list is still `chunked`.
+    http_headers h;
+    CHECK(h.add_raw("Transfer-Encoding", "chunked"));
+    CHECK(h.add_raw("Transfer-Encoding", ","));
+    http_options opts;
+    opts.extract(h);
+    REQUIRE(opts.transfer_encoding);
+    CHECK(*opts.transfer_encoding == transfer_encoding_value::chunked);
+  }
+  {
+    // Recognized but not chunked: `identity` is reported as itself.
+    http_headers h;
+    CHECK(h.add_raw("Transfer-Encoding", "identity"));
+    http_options opts;
+    opts.extract(h);
+    REQUIRE(opts.transfer_encoding);
+    CHECK(*opts.transfer_encoding == transfer_encoding_value::identity);
+  }
+  {
+    // Present with an empty value: still present, hence unknown.
+    http_headers h;
+    CHECK(h.add_raw("Transfer-Encoding", ""));
+    http_options opts;
+    opts.extract(h);
+    REQUIRE(opts.transfer_encoding);
+    CHECK(*opts.transfer_encoding == transfer_encoding_value::unknown);
   }
   {
     // Absent: nullopt.
@@ -782,6 +928,69 @@ TEST_CASE("IsChunked", "[HttpHeaderBlock]") {
     http_options opts;
     opts.extract(h);
     CHECK_FALSE(opts.transfer_encoding);
+  }
+}
+
+#pragma endregion
+#pragma region FieldLineCap
+
+// `add_raw` (and everything layered on it) refuses to grow past
+// `max_field_lines`, bounding memory consumed by attacker-supplied fields.
+TEST_CASE("FieldLineCap", "[HttpHeaderBlock]") {
+  http_headers h;
+  for (auto ndx = 0UZ; ndx < http_constants::max_field_lines; ++ndx)
+    REQUIRE(h.add_raw("X-Filler", std::to_string(ndx)));
+  CHECK(h.size() == http_constants::max_field_lines);
+  // A full-but-valid block has latched no reject status; neither does a
+  // malformed add (which fails before reaching the cap).
+  CHECK(h.reject_status() == http_status_code::invalid);
+  CHECK_FALSE(h.add_line("no colon"));
+  CHECK(h.reject_status() == http_status_code::invalid);
+
+  // The cap refuses further additions through every entry point, and the
+  // refusal latches the 431 so the caller can answer it rather than a
+  // generic 400.
+  CHECK_FALSE(h.add_raw("X-Filler", "overflow"));
+  CHECK(
+      h.reject_status() == http_status_code::REQUEST_HEADER_FIELDS_TOO_LARGE);
+  CHECK_FALSE(h.add("X-Filler", "overflow"));
+  CHECK_FALSE(h.add_line("X-Filler: overflow"));
+  CHECK(h.size() == http_constants::max_field_lines);
+
+  // `reset_raw` still works at the cap: it replaces in place rather than
+  // appending.
+  CHECK(h.reset_raw("X-Filler", "replaced"));
+  CHECK(h.get("X-Filler") == "replaced");
+}
+
+#pragma endregion
+#pragma region AbsoluteFormAtFieldCap
+
+// A full-head parse of an absolute-form request installs the URI authority
+// as `Host` after the header block (RFC 9112 section 3.3).
+//
+// At exactly the field-line cap that install is refused, and the authority
+// must not drop silently (the request would route by the wrong host): the
+// parse fails with the 431 latched. One line under the cap, the replacement
+// lands.
+TEST_CASE("AbsoluteFormAtFieldCap", "[HttpHeaderBlock]") {
+  const auto build = [](size_t filler_lines) {
+    std::string head{"GET http://specific.host/x HTTP/1.0"};
+    for (auto ndx = 0UZ; ndx < filler_lines; ++ndx) head += "\r\na:b";
+    return head;
+  };
+
+  if (true) {
+    request_head req;
+    CHECK_FALSE(req.parse(build(http_constants::max_field_lines)));
+    CHECK(req.headers.reject_status() ==
+          http_status_code::REQUEST_HEADER_FIELDS_TOO_LARGE);
+  }
+  if (true) {
+    request_head req;
+    REQUIRE(req.parse(build(http_constants::max_field_lines - 1)));
+    CHECK(req.headers.get("Host") == "specific.host");
+    CHECK(req.target == "/x");
   }
 }
 
@@ -902,23 +1111,6 @@ TEST_CASE("TooManyLeadingCrlfs", "[HttpHeaderBlock]") {
 }
 
 #pragma endregion
-#pragma region TargetNotPath
-
-// Verify that a target not starting with `'/'` causes `parse` to fail.
-TEST_CASE("TargetNotPath", "[HttpHeaderBlock]") {
-  {
-    // Absolute URI form (HTTP/1.1 proxies): not accepted by this parser.
-    request_head req;
-    CHECK_FALSE(req.parse("GET http://example.com/ HTTP/1.1\r\n"));
-  }
-  {
-    // Authority form.
-    request_head req;
-    CHECK_FALSE(req.parse("CONNECT example.com:443 HTTP/1.1\r\n"));
-  }
-}
-
-#pragma endregion
 #pragma region ClearRequest
 
 // Verify that `request_head::clear` restores default-constructed state so the
@@ -995,6 +1187,15 @@ TEST_CASE("MakeErrorResponse", "[HttpHeaderBlock]") {
     CHECK(wire.contains("405"));
     CHECK(wire.contains("Method Not Allowed"));
     CHECK(wire.contains("Connection: keep-alive"));
+  }
+  {
+    // The `extra` pair carries a single additional header, as a 405's
+    // mandatory `Allow` (RFC 9110 section 15.5.6).
+    const auto wire = response_head::make_error_response(after_response::close,
+        http_version::http_1_1, http_status_code::METHOD_NOT_ALLOWED,
+        "Method Not Allowed", {"Allow", "GET, HEAD"});
+    CHECK(wire.contains("405"));
+    CHECK(wire.contains("Allow: GET, HEAD"));
   }
 }
 

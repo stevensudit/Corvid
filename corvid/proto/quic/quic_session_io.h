@@ -15,8 +15,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 #pragma once
+#include <cstdint>
+#include <optional>
+#include <span>
 #include <string>
 #include <string_view>
+#include <sys/uio.h>
 #include <utility>
 
 #include "../io_uring/iou_dgram_session.h"
@@ -25,6 +29,21 @@
 
 namespace corvid { inline namespace proto { namespace quic {
 
+#pragma region drain_pick
+
+// The stream offer for one `quic_session_io::pump_drain` iteration.
+//
+// `sid == none` (with an empty `iov`) offers no stream, so the
+// `writev_stream` call emits only non-stream frames (ACKs, MAX_DATA, ...).
+// Plugins needing to carry extra state from pick to commit supply their own
+// type with these three members plus whatever else they need.
+struct drain_pick {
+  quic_stream_id sid = quic_stream_id::none;
+  std::span<const iovec> iov;
+  write_stream_flags flags = write_stream_flags::none;
+};
+
+#pragma endregion
 #pragma region quic_session_io
 
 // Non-templated pairing of a `quic_conn` with the io_uring datagram session
@@ -87,18 +106,82 @@ public:
 
   // Ask the session to run an outbound turn soon, for use after the upper
   // plugin queues work that did not originate from an inbound packet (the
-  // first request on an idle connection, or a follow-up request fired from
-  // inside a response upcall). The drain is posted to the loop rather than run
-  // inline because ngtcp2/nghttp3 forbid emitting I/O from within a callback;
-  // a posted task always runs after the current callback returns. Safe from
-  // any thread; the session is kept alive across the hop. Returns false only
-  // if the post could not be enqueued.
+  // first request on an idle connection, a follow-up request fired from
+  // inside a response upcall, or a drain retry after `borrow_send_buffer`
+  // came up empty).
+  //
+  // The drain is posted to the loop rather than run inline because
+  // ngtcp2/nghttp3 forbid emitting I/O from within a callback; a posted task
+  // always runs after the current callback returns. Safe from any thread; the
+  // session is kept alive across the hop, and the loop is reached by plain
+  // reference rather than a weak handle because the lifetime model has the
+  // loop outlive its sessions. A session that closed before the post runs
+  // skips the drain, which is also what ends a borrow-failure retry chain on
+  // a closed session. Returns false only if the post could not be enqueued.
   [[nodiscard]] bool request_drain() {
     auto keepalive = ssnbase_.shared_from_this();
     return ssnbase_.loop().post(
         [this, keepalive = std::move(keepalive)]() -> bool {
+          if (!ssnbase_.is_open()) return true;
           return do_drain_cycle(steady_now_clock::now());
         });
+  }
+
+  // Drive ngtcp2's outbound queue until it stops producing, shipping one
+  // packet per iteration on its own borrowed buffer (ngtcp2's pacing dictates
+  // one packet per `writev_stream` call).
+  //
+  // This is the loop skeleton every upper-plugin `drain` shares; the plugin
+  // supplies the policy through three callables. `pick(P&)` fills in what to
+  // offer ngtcp2 (`drain_pick` is the default shape) and returns false on a
+  // hard failure. `on_stream_status(quic_status, const P&)` reacts to the
+  // per-stream statuses (`stream_data_blocked`, `stream_shut_wr`,
+  // `stream_not_found`), after which the loop continues, because those are
+  // per-stream conditions, not connection errors, and other streams may still
+  // write (`ngtcp2_conn_writev_stream` doc). `commit(const P&, accepted)`
+  // reports how many offered bytes ngtcp2 took, once per shipped packet, and
+  // returns false on a hard failure. `accepted` is engaged exactly when the
+  // packet carried the offered stream's frame (`0` = a zero-length frame,
+  // e.g. a pure FIN) and empty when ngtcp2 omitted it; a commit managing
+  // sticky flags must not treat an omitted frame as sent (see
+  // `quic_conn::writev_stream`).
+  //
+  // Returns true when ngtcp2 has nothing more to emit this turn (including
+  // the draining/closing connection states, and a failed buffer borrow after
+  // posting a retry drain); false on a hard failure from ngtcp2, `pick`, or
+  // `commit`, which the session turns into a connection close.
+  template<typename P = drain_pick, typename PickFn, typename StreamStatusFn,
+      typename CommitFn>
+  [[nodiscard]] bool pump_drain(steady_now_clock::time_point_t now,
+      PickFn&& pick, StreamStatusFn&& on_stream_status, CommitFn&& commit) {
+    for (;;) {
+      P p{};
+      if (!pick(p)) return false;
+      auto out = borrow_send_buffer();
+      // Pool exhausted: post a retry drain so the queued output does not
+      // strand until the next inbound packet or expiry. The retry ends via
+      // `request_drain`'s closed guard or, once a borrow succeeds, this
+      // loop's own exits.
+      if (!out) return request_drain();
+      std::optional<uint64_t> accepted;
+      const auto status =
+          conn().writev_stream(p.sid, p.iov, out, accepted, p.flags, now);
+      // Draining/closing is a connection-level state, so ngtcp2 will emit
+      // nothing more; a clean stop, not a failure.
+      if (status == quic_status::draining || status == quic_status::closing)
+        return true;
+      if (status == quic_status::stream_data_blocked ||
+          status == quic_status::stream_shut_wr ||
+          status == quic_status::stream_not_found)
+      {
+        on_stream_status(status, p);
+        continue;
+      }
+      if (status != quic_status::ok) return false;
+      if (out.payload_bytes().empty()) return true;
+      if (!commit(p, accepted)) return false;
+      (void)send_packet(std::move(out));
+    }
   }
 
 #pragma endregion

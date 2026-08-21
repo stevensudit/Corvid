@@ -266,6 +266,27 @@ TEST_CASE("FormatsFloatsAndRoundTrips", "[JsonWriter]") {
 }
 
 #pragma endregion
+#pragma region Writer_FloatOverflowEmitsNull
+
+// A `precision` too large for the writer's internal buffer must not silently
+// drop the value: `to_chars` failure falls back to null, as with non-finite
+// values, keeping the output well-formed JSON.
+TEST_CASE("FloatOverflowEmitsNull", "[JsonWriter]") {
+  std::string out;
+  json_writer writer{out};
+
+  {
+    auto root = writer.array();
+    root->value(1).value(1.5, std::chars_format::fixed, 500).value(2);
+  }
+
+  CHECK(out == "[1,null,2]");
+
+  json_value_view root;
+  CHECK(parse_json(out, root));
+}
+
+#pragma endregion
 #pragma region Writer_WritesScalarsAndTrusted
 
 TEST_CASE("WritesScalarsAndTrusted", "[JsonWriter]") {

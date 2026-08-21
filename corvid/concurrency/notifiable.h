@@ -79,10 +79,17 @@ concept atomic_like =
 // avoids tricky edge conditions.
 //
 // The mutating methods (`notify`, `notify_one`, `modify_and_notify`,
-// `modify_and_notify_one`) hold the lock while updating the value, release it,
-// then call `std::condition_variable::notify_all` or
-// `std::condition_variable::notify_one`. This is the correct ordering that
-// prevents missed wakeups.
+// `modify_and_notify_one`) update the value and signal the condition variable
+// while holding the lock. Signaling under the lock costs a possible
+// pessimistic wake (the woken thread may briefly block on the still-held
+// mutex; Linux wait morphing absorbs this) and buys destruction safety,
+// because a waiter that has observed a value can then destroy the notifiable
+// without racing a trailing signal.
+//
+// The exception is the atomic specialization's lock-free `get`: it can observe
+// a value while the notifier is still signaling, so destruction after a
+// lock-free poll must be synchronized some other way, such as shared
+// ownership.
 //
 // All waiting methods always supply a predicate to
 // `std::condition_variable::wait*`, eliminating spurious-wakeup bugs.
@@ -147,8 +154,10 @@ public:
   // `notify_all` is called even if the move assignment throws, so waiters are
   // never left stuck.
   void notify(value_t val) {
-    scope_exit on_exit([&]() noexcept { cv_.notify_all(); });
+    // Declaration order is load-bearing, here and in the siblings below: the
+    // lock comes first so the notify fires before it releases.
     std::scoped_lock lock(mutex_);
+    scope_exit on_exit([&]() noexcept { cv_.notify_all(); });
     value_ = std::move(val);
   }
 
@@ -158,8 +167,8 @@ public:
   // the change is single-consumer (though note that there is no guarantee that
   // the waiter will be woken before the value changes again).
   void notify_one(value_t val) {
-    scope_exit on_exit([&]() noexcept { cv_.notify_one(); });
     std::scoped_lock lock(mutex_);
+    scope_exit on_exit([&]() noexcept { cv_.notify_one(); });
     value_ = std::move(val);
   }
 
@@ -171,8 +180,8 @@ public:
   // `notify_all` is called even if `modify_value` throws, so waiters are never
   // left stuck.
   void modify_and_notify(std::invocable<T&> auto modify_value) {
-    scope_exit on_exit([&]() noexcept { cv_.notify_all(); });
     std::scoped_lock lock(mutex_);
+    scope_exit on_exit([&]() noexcept { cv_.notify_all(); });
     modify_value(value_);
   }
 
@@ -182,8 +191,8 @@ public:
   // waiter or the change is single-consumer (though note that there is no
   // guarantee that the waiter will be woken before the value changes again).
   void modify_and_notify_one(std::invocable<T&> auto modify_value) {
-    scope_exit on_exit([&]() noexcept { cv_.notify_one(); });
     std::scoped_lock lock(mutex_);
+    scope_exit on_exit([&]() noexcept { cv_.notify_one(); });
     modify_value(value_);
   }
 

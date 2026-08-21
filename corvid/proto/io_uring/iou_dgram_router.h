@@ -249,10 +249,10 @@ public:
   [[nodiscard]] bool start_reading() {
     if (!open_) return false;
     if (is_reading_.exchange(true)) return false;
-    return loop_.execute_or_post_with_retry([this]() mutable {
-      if (recv_active_shot_ == shot_type::single)
-        return do_submit_single_recv();
-      return do_submit_multi_recv();
+    return loop_.execute_or_post_with_retry([self = self()]() mutable {
+      if (self->recv_active_shot_ == shot_type::single)
+        return self->do_submit_single_recv();
+      return self->do_submit_multi_recv();
     });
   }
 
@@ -275,9 +275,9 @@ public:
   // is async when called off-loop. Safe from any thread.
   [[nodiscard]] bool add_session(const key_t& key, const session_ptr& ssn) {
     if (!ssn || !key) return false;
-    return loop_.execute_or_post([this, key, ssn]() mutable -> bool {
-      if (!is_open()) return false;
-      auto [it, inserted] = sessions_.try_emplace(key, std::move(ssn));
+    return loop_.execute_or_post([self = self(), key, ssn]() mutable -> bool {
+      if (!self->is_open()) return false;
+      auto [it, inserted] = self->sessions_.try_emplace(key, std::move(ssn));
       return inserted;
     });
   }
@@ -286,8 +286,8 @@ public:
   // `unregister_self`; use the session's own `close` to notify. Actual
   // removal is async when called off-loop. Safe from any thread.
   [[nodiscard]] bool remove_session(const key_t& key) {
-    return loop_.execute_or_post([this, key]() -> bool {
-      return sessions_.erase(key) > 0;
+    return loop_.execute_or_post([self = self(), key]() -> bool {
+      return self->sessions_.erase(key) > 0;
     });
   }
 
@@ -341,9 +341,15 @@ private:
   }
 
   // Submit a singleshot recv.
+  //
+  // Returns false only when the actual submit fails. Declining because a
+  // recv is already armed and posting a borrow-failure heal are both
+  // success. A recv is or will be armed, so there is nothing further for the
+  // caller to drive, and reporting false would make `start_reading`'s
+  // `execute_or_post_with_retry` stack redundant retries on top of the heal.
   [[nodiscard]] bool do_submit_single_recv(bool allow_upgrade = true) {
     assert(loop_.is_loop_thread());
-    if (recv_token_) return false;
+    if (recv_token_) return true;
     recv_active_shot_ = shot_type::single;
 
     if (allow_upgrade && (recv_intended_shot_ == shot_type::multi) &&
@@ -351,7 +357,16 @@ private:
       return do_submit_multi_recv();
 
     auto buf = loop_.borrow_read_buffer(buf_size);
-    if (!buf) return false;
+    // Pool exhausted or read-throttled: retry from the back of the post
+    // queue. The guard ends the retries once a recv is armed some other way
+    // or the router closes.
+    if (!buf) {
+      (void)loop_.post([self = self()]() -> bool {
+        if (!self->open_ || self->recv_token_) return true;
+        return self->do_submit_single_recv();
+      });
+      return true;
+    }
 
     recv_token_ = loop_.submit_recvmsg_buffer(sock_, std::move(buf),
         [self = self()](completion_id, buffer& buf) mutable -> slot_retention {
@@ -372,6 +387,8 @@ private:
   }
 
   // Submit a multishot recv.
+  //
+  // Same return contract as `do_submit_single_recv`, via its fallback.
   [[nodiscard]] bool do_submit_multi_recv() {
     assert(loop_.is_loop_thread() && !recv_token_);
     recv_active_shot_ = shot_type::multi;

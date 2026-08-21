@@ -343,15 +343,12 @@ public:
                 iou_setup_flags::setup_defer_taskrun |
                 iou_setup_flags::setup_submit_all},
         max_pending_sqes_{max_pending_sqes} {
-    if (!buf_pool_->register_with(ring_))
-      throw std::system_error{errno, std::system_category(),
-          "io_uring_register_buffers"};
-    if (!udp_buf_pool_->register_with(ring_))
-      throw std::system_error{errno, std::system_category(),
-          "io_uring_register_buf_ring (udp_buf_pool)"};
-    if (!tcp_provided_buf_pool_->register_with(ring_))
-      throw std::system_error{errno, std::system_category(),
-          "io_uring_register_buf_ring (tcp_provided_buf_pool)"};
+    buf_pool_->register_with(ring_).throw_if_error(
+        "io_uring_register_buffers");
+    udp_buf_pool_->register_with(ring_).throw_if_error(
+        "io_uring_register_buf_ring (udp_buf_pool)");
+    tcp_provided_buf_pool_->register_with(ring_).throw_if_error(
+        "io_uring_register_buf_ring (tcp_provided_buf_pool)");
   }
 
   iou_basic_loop(const iou_basic_loop&) = delete;
@@ -359,6 +356,8 @@ public:
   iou_basic_loop(iou_basic_loop&&) = delete;
   iou_basic_loop& operator=(iou_basic_loop&&) = delete;
 
+  // Safely clean up the loop.
+  //
   // The provided buf pools are declared above `ring_` so their backing memory
   // outlives `io_uring_queue_exit` (which `~iou_ring` calls to cancel
   // in-flight ops). But their embedded `iou_buf_ring`s would otherwise call
@@ -410,11 +409,12 @@ public:
     return total;
   }
 
-  // Process one batch of completions, waiting up to `timeout`. Drains the post
-  // queue first, then submits SQEs and waits for CQEs. One of those CQEs may
-  // be a wakeup triggered by setting the `eventfd`. Returns the number of
-  // completions dispatched, or 0 on timeout or signal. Must be called on the
-  // loop thread.
+  // Process one batch of completions, waiting up to `timeout`.
+  //
+  // Drains the post queue first, then submits SQEs and waits for CQEs. One of
+  // those CQEs may be a wakeup triggered by setting the `eventfd`. Returns the
+  // number of completions dispatched, or 0 on timeout or signal. Must be
+  // called on the loop thread.
   [[nodiscard]] size_t run_once(const iou_timespec& timeout) {
     assert(is_loop_thread());
     (void)execute_post_queue();
@@ -427,7 +427,7 @@ public:
     if (res.is_soft_error()) return 0;
     res.throw_if_error("submit_and_wait_timeout");
 
-    // Dispatch snapshotted SQEs.
+    // Dispatch snapshotted CQEs.
     size_t dispatched{};
     const auto total = ring_.for_each_snapshotted_cqe([&](iou_cqe cqe) {
       if (do_dispatch(cqe)) ++dispatched;
@@ -481,8 +481,10 @@ public:
   }
 
   // Borrow a registered `buffer` from the pool for the purpose of writing to
-  // it. Returns an invalid `buffer` if the pool is exhausted. Fill the
-  // `buffer`'s payload, then pass it to `submit_send_buffer`.
+  // it.
+  //
+  // Returns an invalid `buffer` if the pool is exhausted. Fill the `buffer`'s
+  // payload, then pass it to `submit_send_buffer`.
   [[nodiscard]] buffer borrow_write_buffer(block_size sz = block_size::kb004) {
     return buf_pool_->borrow_writer(sz);
   }
@@ -607,7 +609,14 @@ public:
       if constexpr (StoredBufCompletionInvocable<decltype(cb)>) {
         return cb(cbhandle, af.update(res, flags));
       } else if constexpr (StoredEndpointCompletionInvocable<decltype(cb)>) {
-        af.sockaddr.len = net_endpoint::max_sockaddr_size;
+        // On success, the kernel filled the endpoint's storage and wrote the
+        // actual address length into `len` (`accept4(2)` value-result
+        // contract). Finalize via self-assign so the `net_endpoint` adopts
+        // the kernel's length before the callback sees it. On failure,
+        // nothing was written and the endpoint stays in its prep state.
+        if (res)
+          (void)af.sockaddr.sockaddr.assign(sockaddr_view{
+              af.sockaddr.sockaddr.as_sockaddr_ptr(), af.sockaddr.len});
         return cb(cbhandle, res, flags, af.sockaddr);
       } else if constexpr (StoredMsgHdrCompletionInvocable<decltype(cb)>) {
         af.msg.msg_namelen = net_endpoint::max_sockaddr_size;
@@ -1160,8 +1169,8 @@ public:
   //
   // Receive a message from a datagram socket into a fixed buffer (however, it
   // is not taking full advantage of the fact that it's fixed, and it's not
-  // provided or zero-copy). The socket is unbound, so the sender address is
-  // placed into the `buffer::peer_addr`.
+  // provided or zero-copy). The socket is unconnected, so the sender address
+  // is placed into the `buffer::peer_addr`.
   //
 
   // Submit an async recvmsg on `socket` into `buf`. On completion, the
@@ -1179,14 +1188,16 @@ public:
     return cbtoken;
   }
 
-  // Submit an async recvmsg on `socket`. Note that `buf` must point inside
-  // the callback, or remain valid until completion.
+  // Submit an async recvmsg on `socket`.
+  //
+  // Note that `buf` must point inside the callback, or remain valid until
+  // completion.
   [[nodiscard]] bool submit_recvmsg_buffer(const net_socket& socket,
       buffer& buf, completion_token cbtoken,
       slot_retention on_fail = slot_retention::retain, msg_flags flags = {}) {
     if (!cbtoken) return false;
-    auto* msg = buf.prepare_recvmsg();
     if (!socket) return fail_and_maybe_release(on_fail, cbtoken);
+    auto* msg = buf.prepare_recvmsg();
     auto fn = [this, fd = *socket, flags, cbtoken, msg,
                   &timeout = buf.timeout(), on_fail]() mutable {
       return do_submit_timeout(cbtoken, &timeout, on_fail,
@@ -1201,8 +1212,8 @@ public:
   //
   // Send a message from a datagram socket from a fixed buffer (however, it is
   // not taking full advantage of the fact that it's fixed, and it's not
-  // provided or zero-copy). The socket is unbound, so the destination address
-  // is taken from the `buffer::peer_addr`.
+  // provided or zero-copy). The socket is unconnected, so the destination
+  // address is taken from the `buffer::peer_addr`.
   //
 
   // Submit an async sendmsg on `socket` from `buf` to its `peer_addr`. On
@@ -1227,8 +1238,8 @@ public:
       slot_retention on_fail = slot_retention::retain,
       msg_flags flags = msg_flags::nosignal) {
     if (!cbtoken) return false;
-    auto* msg = buf.prepare_sendmsg();
     if (!socket) return fail_and_maybe_release(on_fail, cbtoken);
+    auto* msg = buf.prepare_sendmsg();
     auto fn = [this, fd = *socket, flags, cbtoken, msg,
                   &timeout = buf.timeout(), on_fail]() mutable {
       return do_submit_timeout(cbtoken, &timeout, on_fail,
@@ -1276,8 +1287,9 @@ public:
       completion_token cbtoken,
       slot_retention on_fail = slot_retention::retain) {
     if (!cbtoken) return false;
+    if (!file || buf.active_span().empty())
+      return fail_and_maybe_release(on_fail, cbtoken);
     auto [span, buf_index, file_offset] = buf.prepare();
-    if (!file || span.empty()) return fail_and_maybe_release(on_fail, cbtoken);
     auto fn = [this, fd = *file, cbtoken, span, buf_index, file_offset,
                   &timeout = buf.timeout(), on_fail]() mutable {
       return do_submit_timeout(cbtoken, &timeout, on_fail,
@@ -1326,8 +1338,9 @@ public:
       completion_token cbtoken,
       slot_retention on_fail = slot_retention::retain) {
     if (!cbtoken) return false;
+    if (!file || buf.active_span().empty())
+      return fail_and_maybe_release(on_fail, cbtoken);
     auto [span, buf_index, file_offset] = buf.prepare();
-    if (!file || span.empty()) return fail_and_maybe_release(on_fail, cbtoken);
     auto fn = [this, fd = *file, cbtoken, span, buf_index, file_offset,
                   &timeout = buf.timeout(), on_fail]() mutable {
       return do_submit_timeout(cbtoken, &timeout, on_fail,
@@ -1476,9 +1489,9 @@ public:
       slot_retention on_fail = slot_retention::retain,
       msg_flags flags = msg_flags::nosignal) {
     if (!cbtoken) return false;
-    auto [span, buf_index, _] = buf.prepare();
-    if (!socket || span.empty())
+    if (!socket || buf.active_span().empty())
       return fail_and_maybe_release(on_fail, cbtoken);
+    auto [span, buf_index, _] = buf.prepare();
     auto fn = [this, fd = *socket, flags, cbtoken, span, buf_index,
                   &timeout = buf.timeout(), on_fail]() mutable {
       return do_submit_timeout(cbtoken, &timeout, on_fail,
@@ -1540,8 +1553,7 @@ private:
 
       // Store as token, "leaking" it.
       sqe_op.set_data_int(cbtoken.as_int());
-      if (!maybe_submit_pending(sqe_needed)) return false;
-      return true;
+      return maybe_submit_pending(sqe_needed);
     };
 
     if (!do_submit()) return fail_and_maybe_release(on_fail, cbtoken);
@@ -1571,8 +1583,7 @@ private:
       std::forward<decltype(prep_second)>(prep_second)(sqe_second);
       sqe_second.set_data_int(cbtoken.as_int());
 
-      if (!maybe_submit_pending(2)) return false;
-      return true;
+      return maybe_submit_pending(2);
     };
 
     if (!do_submit()) return fail_and_maybe_release(on_fail, cbtoken);
@@ -1601,8 +1612,7 @@ private:
 
       // Store as token, "leaking" it.
       sqe_op.set_data_int(cbtoken.as_int());
-      if (!maybe_submit_pending(1)) return false;
-      return true;
+      return maybe_submit_pending(1);
     };
 
     if (!do_submit()) return fail_and_maybe_release(on_fail, cbtoken);
@@ -1618,14 +1628,18 @@ private:
     return false;
   }
 
-  // Submit pending SQEs, although this could be delayed.
+  // Count `sqe_count` newly prepped SQEs and flush once the configured limit
+  // accumulates.
   //
-  // The `sqe_count` is added to the pending value, and if it exceeds the
-  // configured limit, the submit is triggered immediately.
-  [[nodiscard]] bool maybe_submit_pending(size_t sqe_count = 1UZ) {
+  // Always returns true, as the caller's success value: by this point the
+  // prepped SQEs are committed. A failed flush is deliberately not reported:
+  // the prepped SQEs stay queued in the SQ ring regardless, and the next
+  // `submit_and_wait_timeout` either flushes them or surfaces the ring's real
+  // error by throwing.
+  bool maybe_submit_pending(size_t sqe_count = 1UZ) {
     assert(is_loop_thread());
     pending_sqe_count_ += sqe_count;
-    if (pending_sqe_count_ >= max_pending_sqes_) return immediate_submit();
+    if (pending_sqe_count_ >= max_pending_sqes_) (void)immediate_submit();
     return true;
   }
 
@@ -1655,9 +1669,10 @@ private:
     return true;
   }
 
-  // Submit a multishot `IORING_OP_POLL_ADD` for the wakeup `eventfd`. Each
-  // time `post` or `stop` writes to the `eventfd`, the poll fires as a CQE
-  // and interrupts `io_uring_wait_cqe_timeout`. Because the operation is
+  // Submit a multishot `IORING_OP_POLL_ADD` for the wakeup `eventfd`.
+  //
+  // Each time `post` or `stop` writes to the `eventfd`, the poll fires as a
+  // CQE and interrupts `io_uring_wait_cqe_timeout`. Because the operation is
   // multishot, the kernel keeps it alive as long as `IORING_CQE_F_MORE` is
   // set; the callback drains the `eventfd` on each firing. If the kernel
   // ends the multishot (flag absent), the callback resubmits.
@@ -1790,8 +1805,7 @@ public:
     }
     if (!loop || !loop->wait_until_running(1000ms)) {
       // Drop our local ref before stopping the worker so the worker's local
-      // in `run` is the last owner and `~loop_t` fires on the worker thread
-      // (required by `owner_thread_dispatcher`).
+      // in `run` is the last owner and `~loop_t` fires on the worker thread.
       loop.reset();
       thread_.request_stop();
       if (thread_.joinable()) thread_.join();
@@ -1879,35 +1893,18 @@ private:
         loop->run();
       }
 
-      // Drop the local loop ref so `~loop_t` happens on this thread rather
-      // than on whichever thread later destroys `runner_state`. The
-      // `owner_thread_dispatcher` base requires destruction on the owning
-      // thread.
+      // Retire the dispatcher now that `run` has returned and this thread has
+      // stopped draining the post queue.
       //
-      // Order:
-      //   1. Drop the local `loop` so `state->loop` should be the sole owner.
-      //      (Unlike `epoll_loop`, no separate shutdown step is needed:
-      //      `iou_stream_conn` holds a bare `iou_loop&` rather than a
-      //      `shared_ptr`, so there are no ownership cycles from connections
-      //      to break.)
-      //   2. Belt-and-suspenders: confirm no external `shared_ptr` still holds
-      //      the loop alive (e.g., a copy taken from `loop`). `use_count` is
-      //      approximate (the standard explicitly calls it "immediately stale"
-      //      in MT contexts), but adequate as a misuse detector. Retry briefly
-      //      to absorb in-flight releases. If it never settles, call
-      //      `std::terminate` rather than let `~loop_t` fire on a non-owner
-      //      thread (which would itself throw from inside a destructor).
-      //      `std::terminate` is used instead of `throw` so the catch handler
-      //      below cannot swallow it.
-      //   3. Drop `state->loop`, triggering `~loop_t` on this thread.
+      // Retirement waives the wrong-thread destruction guard, so `~loop_t` may
+      // run on whichever thread releases the last `shared_ptr`. Normally that
+      // is this thread, via the resets below; a caller that copied
+      // `state->loop` merely defers destruction to its own release. (Unlike
+      // `epoll_loop`, no separate connection-shutdown step is needed:
+      // `iou_stream_conn` holds a bare `iou_loop&` rather than a `shared_ptr`,
+      // so there are no ownership cycles from connections to break.)
+      (void)loop->retire();
       loop.reset();
-
-      for (auto retry = 0UZ; retry < 10 && state->loop.use_count() != 1;
-          ++retry)
-        std::this_thread::sleep_for(1s);
-      if (state->loop.use_count() != 1)
-        log::fatal("Impossible loop use count: {}", state->loop.use_count());
-
       if (std::scoped_lock lock(state->startup_mutex); true)
         state->loop.reset();
     }

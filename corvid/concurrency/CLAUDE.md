@@ -15,10 +15,13 @@ The `concurrency` module provides thread-safety primitives.
   callback (in stored form) from any thread, run it on the bound owner
   thread. Provides `post`, `execute_or_post`, `post_and_wait`, and
   `is_loop_thread`. Owns the wake `os_event` exposed via `wake_event()`. The
-  instance must be constructed and destructed on the owner thread, and only
-  one such instance can live on a given thread. Used as the base for I/O
-  loops (`iou_basic_loop`, `epoll_loop`), which register the wake event's
-  handle with their poller so posts interrupt blocked waits.
+  instance must be constructed and destructed on the owner thread, unless
+  `retire()` (shut down, release the thread claim, waive the wrong-thread
+  destruction guard) has run on the owner thread first, after which the last
+  owner may destroy it from any thread. Only one such instance can live on a
+  given thread at a time. Used as the base for I/O loops (`iou_basic_loop`,
+  `epoll_loop`), which register the wake event's handle with their poller so
+  posts interrupt blocked waits.
 - `tombstone_of<T>` / `tombstone` -- atomic value that can be set once to a
   final "dead" state; cannot be reverted.
 - `timers` -- thread-safe priority-queue timer scheduler with one-shot and

@@ -562,6 +562,88 @@ TEST_CASE("quic_conn request_close + write_connection_close ships a packet",
   CHECK(server.in_close_period());
 }
 
+TEST_CASE(
+    "quic_conn request_close_on_error maps a library error into a "
+    "terminal CONNECTION_CLOSE",
+    "[quic][conn]") {
+  // The session's hard-error path stashes the failed status via
+  // `request_close_on_error` and emits through the same
+  // `write_connection_close` as a graceful close. The packet must ship and
+  // decode: the peer that reads it enters the draining period.
+
+  self_signed_cert ck;
+  REQUIRE(ck);
+  quic_ssl_ctx server_tls{ck, alpn};
+  quic_ssl_ctx client_tls{alpn};
+  REQUIRE(server_tls);
+  REQUIRE(client_tls);
+
+  const auto server_loop = bound_loopback::make_v4();
+  const auto client_loop = bound_loopback::make_v4();
+  REQUIRE(server_loop);
+  REQUIRE(client_loop);
+
+  const quic_cid client_chosen_dcid{dcid_bytes};
+  const quic_cid client_scid{scid_bytes};
+  quic_conn client{client_tls};
+  REQUIRE(client.init(client_chosen_dcid, client_scid, client_loop.addr,
+      server_loop.addr, quic_cid{}, now_tp(), 30s));
+
+  constexpr std::array<uint8_t, 16> server_scid_bytes{0xaa, 0xbb, 0xcc, 0xdd,
+      0xee, 0xff, 0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88, 0x99};
+  const quic_cid server_scid{server_scid_bytes};
+  quic_conn server{server_tls};
+  REQUIRE(server.init(client_scid, server_scid, server_loop.addr,
+      client_loop.addr, client_chosen_dcid, now_tp(), 30s));
+
+  trace_handlers client_trace;
+  trace_handlers server_trace;
+  client.set_handlers(&client_trace);
+  server.set_handlers(&server_trace);
+
+  std::array<std::byte, 1500> backing{};
+  auto pump = [&backing](quic_conn& from, quic_conn& to) -> bool {
+    for (auto safety = 0; safety < 32; ++safety) {
+      auto buf = iouring::iou_buffer::make_synthetic_write(
+          {backing.data(), backing.size()});
+      const auto status = from.write_pkt(buf, now_tp());
+      if (status != quic_status::ok) return false;
+      const auto payload = buf.payload_bytes();
+      if (payload.empty()) return true;
+      const auto rv = to.read_pkt(payload, now_tp());
+      if (rv != quic_status::ok) return false;
+    }
+    return false;
+  };
+
+  for (auto iter = 0; iter < 16; ++iter) {
+    REQUIRE(pump(client, server));
+    REQUIRE(pump(server, client));
+    if (client_trace.saw("handshake_completed") &&
+        server_trace.saw("handshake_completed"))
+      break;
+  }
+  REQUIRE(client_trace.saw("handshake_completed"));
+  REQUIRE(server_trace.saw("handshake_completed"));
+
+  CHECK_FALSE(client.has_pending_close());
+  client.request_close_on_error(quic_status::proto);
+  CHECK(client.has_pending_close());
+
+  std::array<std::byte, 1500> close_backing{};
+  auto close_buf = iouring::iou_buffer::make_synthetic_write(
+      {close_backing.data(), close_backing.size()});
+  CHECK(client.write_connection_close(close_buf, now_tp()) == quic_status::ok);
+  CHECK_FALSE(close_buf.payload_bytes().empty());
+  CHECK_FALSE(client.has_pending_close());
+  CHECK(client.in_close_period());
+
+  // The peer decodes the terminal packet and enters the draining period.
+  const auto server_rv = server.read_pkt(close_buf.payload_bytes(), now_tp());
+  CHECK((server_rv == quic_status::ok || is_soft_error(server_rv)));
+  CHECK(server.in_close_period());
+}
+
 TEST_CASE("quic_conn honors a configured idle timeout", "[quic][conn]") {
   // `set_idle_timeout` (called before `init`) lowers the advertised
   // `max_idle_timeout`, so `handle_expiry` past the idle deadline reports
@@ -726,7 +808,7 @@ TEST_CASE(
   auto stream_buf = iouring::iou_buffer::make_synthetic_write(
       {stream_backing.data(), stream_backing.size()});
 
-  uint64_t accepted{};
+  std::optional<uint64_t> accepted;
   const auto status = client.writev_stream(sid, iovs, stream_buf, accepted,
       write_stream_flags::more, now_tp());
 
@@ -741,6 +823,30 @@ TEST_CASE(
   // The server reads the packet without error.
   CHECK(server.read_pkt(stream_buf.payload_bytes(), now_tp()) ==
         quic_status::ok);
+
+  // A pure FIN (empty iov, fin flag) serializes a zero-length STREAM frame:
+  // `bytes_accepted` engages at 0, distinguishing "frame shipped" from a
+  // packet that omitted the stream frame. Clearing a sticky FIN flag hinges
+  // on this distinction.
+  std::array<std::byte, 1500> fin_backing{};
+  auto fin_buf = iouring::iou_buffer::make_synthetic_write(
+      {fin_backing.data(), fin_backing.size()});
+  std::optional<uint64_t> fin_accepted;
+  CHECK(client.writev_stream(sid, {}, fin_buf, fin_accepted,
+            write_stream_flags::fin, now_tp()) == quic_status::ok);
+  REQUIRE(fin_accepted);
+  CHECK(*fin_accepted == 0);
+  CHECK_FALSE(fin_buf.payload_bytes().empty());
+
+  // A turn with no stream offered leaves `bytes_accepted` empty, whether or
+  // not a packet went out.
+  std::array<std::byte, 1500> none_backing{};
+  auto none_buf = iouring::iou_buffer::make_synthetic_write(
+      {none_backing.data(), none_backing.size()});
+  std::optional<uint64_t> none_accepted;
+  CHECK(client.writev_stream(quic_stream_id::none, {}, none_buf, none_accepted,
+            write_stream_flags::none, now_tp()) == quic_status::ok);
+  CHECK_FALSE(none_accepted);
 }
 
 #pragma endregion

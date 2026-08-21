@@ -26,10 +26,12 @@
 #include <type_traits>
 
 #include <poll.h>
+#include <sys/mman.h>
 #include <sys/socket.h>
 #include <sys/uio.h>
 
 #include "../../filesys/os_event.h"
+#include "../../strings/cstring_view.h"
 #include "../net_endpoint.h"
 #include "../socket_enums.h"
 #include "../../enums.h"
@@ -349,7 +351,6 @@ public:
   explicit iou_res(errno_code err) : res_{-*err} {}
 
   [[nodiscard]] operator bool() const noexcept { return ok(); }
-  [[nodiscard]] bool operator!() const noexcept { return !ok(); }
 
   [[nodiscard]] bool ok(int r = 0) const noexcept { return res_ >= r; }
   [[nodiscard]] int value() const noexcept { return res_; }
@@ -369,10 +370,10 @@ public:
            e == EC::nomem || e == EC::restart;
   }
 
-  void throw_if_error(const std::string& context, int r = 0) const {
+  // Throw `std::system_error` for a failed result, identified by `context`.
+  void throw_if_error(cstring_view context, int r = 0) const {
     if (ok(r)) return;
-    throw std::system_error{*err(), std::system_category(),
-        "io_uring error in " + context};
+    throw std::system_error{*err(), std::system_category(), context.c_str()};
   }
 
 private:
@@ -394,7 +395,6 @@ public:
   explicit iou_sqe(ptr_t sqe) : sqe_{sqe} {}
 
   [[nodiscard]] operator bool() const noexcept { return ok(); }
-  [[nodiscard]] bool operator!() const noexcept { return !ok(); }
 
   [[nodiscard]] ptr_t value() const noexcept { return sqe_; }
   [[nodiscard]] ptr_t* pointer() noexcept { return &sqe_; }
@@ -641,7 +641,6 @@ public:
   explicit iou_cqe(ptr_t cqe) : cqe_{cqe} {}
 
   [[nodiscard]] operator bool() const noexcept { return ok(); }
-  [[nodiscard]] bool operator!() const noexcept { return !ok(); }
 
   [[nodiscard]] ptr_t value() const noexcept { return cqe_; }
   [[nodiscard]] ptr_t* pointer() noexcept { return &cqe_; }
@@ -681,7 +680,6 @@ public:
   }
 
   [[nodiscard]] operator bool() const noexcept { return ok(); }
-  [[nodiscard]] bool operator!() const noexcept { return !ok(); }
 
   [[nodiscard]] bool ok() const noexcept { return out_; }
 
@@ -797,7 +795,7 @@ public:
     return io_uring_sq_space_left(&ring_);
   }
 
-  // Check whether we have enough SQE slots available..
+  // Check whether we have enough SQE slots available.
   [[nodiscard]] bool enough_sqe_available(size_t s = 1U) const noexcept {
     return sqe_available() >= s;
   }
@@ -820,14 +818,15 @@ public:
         ts.pointer(), nullptr)};
   }
 
-  // Register a fixed buffer table with the kernel. `iovecs` points to an
-  // array of `count` `iovec` entries describing the pre-allocated buffers.
-  // Each entry's `iov_base`/`iov_len` defines one registered slot used by
-  // `read_fixed`/`write_fixed`. Returns false (with `errno` set) on failure.
-  [[nodiscard]] bool
+  // Register a fixed buffer table with the kernel.
+  //
+  // `iovecs` points to an array of `count` `iovec` entries describing the
+  // pre-allocated buffers. Each entry's `iov_base`/`iov_len` defines one
+  // registered slot used by `read_fixed`/`write_fixed`.
+  [[nodiscard]] iou_res
   register_buffers(const iovec* iovecs, size_t count) noexcept {
-    return io_uring_register_buffers(&ring_, iovecs,
-               static_cast<unsigned>(count)) == 0;
+    return iou_res{io_uring_register_buffers(&ring_, iovecs,
+        static_cast<unsigned>(count))};
   }
 
 private:
@@ -848,17 +847,21 @@ public:
   iou_buf_ring& operator=(const iou_buf_ring&) = delete;
 
   // Set up a provided-buffer ring with `entries` slots (must be a power of
-  // two) under group ID `bgid`. Returns an empty `iou_buf_ring` on failure.
+  // two) under group ID `bgid`.
+  //
+  // On failure, the constructed `iou_buf_ring` is empty and `setup_result`
+  // holds the error code.
   [[nodiscard]] iou_buf_ring(iou_ring& ring, size_t entries, uint16_t bgid)
       : ring_{&ring}, entries_{static_cast<unsigned>(entries)}, bgid_{bgid} {
     int err{};
     buf_ring_ = ::io_uring_setup_buf_ring(ring_->get_ptr(),
         static_cast<unsigned>(entries), bgid, 0, &err);
+    if (!buf_ring_) setup_res_ = iou_res{err};
   }
 
   iou_buf_ring(iou_buf_ring&& o) noexcept
       : ring_{o.ring_}, buf_ring_{o.buf_ring_}, entries_{o.entries_},
-        bgid_{o.bgid_} {
+        bgid_{o.bgid_}, setup_res_{o.setup_res_} {
     o.ring_ = nullptr;
     o.buf_ring_ = nullptr;
   }
@@ -870,6 +873,7 @@ public:
     buf_ring_ = o.buf_ring_;
     entries_ = o.entries_;
     bgid_ = o.bgid_;
+    setup_res_ = o.setup_res_;
     o.ring_ = nullptr;
     o.buf_ring_ = nullptr;
     return *this;
@@ -878,7 +882,8 @@ public:
   ~iou_buf_ring() { do_free(); }
 
   [[nodiscard]] explicit operator bool() const noexcept { return buf_ring_; }
-  [[nodiscard]] bool operator!() const noexcept { return !buf_ring_; }
+
+  [[nodiscard]] iou_res setup_result() const noexcept { return setup_res_; }
 
   // Add a buffer slot to the ring. Must be followed by `advance`.
   void add(void* data, unsigned len, unsigned short bid, int mask,
@@ -891,23 +896,34 @@ public:
 
   // Tell this `iou_buf_ring` that its associated `iou_ring` is about to be
   // destroyed, so the destructor must not call `io_uring_free_buf_ring` on
-  // it. `io_uring_queue_exit` releases the kernel-side buf-ring registration
-  // as part of its teardown, so the explicit unregister is unnecessary in
-  // that case and would dereference a destroyed `iou_ring`. The user-space
-  // `add` and `advance` paths remain usable (they only touch the mmap'd
-  // ring), though by this point nothing should be calling them.
+  // it.
+  //
+  // `io_uring_queue_exit` releases the kernel-side buf-ring registration as
+  // part of its teardown, so the explicit unregister is unnecessary in that
+  // case and would dereference a destroyed `iou_ring`. The destructor then
+  // just unmaps the ring pages. The user-space `add` and `advance` paths
+  // remain usable (they only touch the mmap'd ring), though by this point
+  // nothing should be calling them.
   void skip_unregister() noexcept { ring_ = nullptr; }
 
 private:
   void do_free() noexcept {
-    if (ring_ && buf_ring_)
+    if (!buf_ring_) return;
+    if (ring_) {
       ::io_uring_free_buf_ring(ring_->get_ptr(), buf_ring_, entries_, bgid_);
+      return;
+    }
+    // After `skip_unregister`, `io_uring_queue_exit` handles the kernel-side
+    // release but leaves the ring pages mapped. Unmap them here, sized per
+    // `io_uring_register_buf_ring(3)`: one `io_uring_buf` per entry.
+    ::munmap(buf_ring_, entries_ * sizeof(io_uring_buf));
   }
 
   iou_ring* ring_{};
   io_uring_buf_ring* buf_ring_{};
   unsigned entries_{};
   uint16_t bgid_{};
+  iou_res setup_res_;
 };
 
 #pragma endregion

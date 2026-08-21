@@ -68,7 +68,7 @@ consteval auto corvid_enum_spec(write_stream_flags*) {
 
 using namespace std::chrono_literals;
 
-#pragma region quic_close_request
+#pragma region quic_close_kind
 
 // Which CONNECTION_CLOSE frame variant ngtcp2 should emit.
 //   transport:   CONNECTION_CLOSE of type 0x1c (RFC 9000 sec. 19.19).
@@ -87,23 +87,6 @@ consteval auto corvid_enum_spec(quic_close_kind*) {
       "transport,application", corvid::enums::wrapclip{},
       quic_close_kind::transport>();
 }
-
-// A pending request to close the connection, carrying the kind, error code,
-// and optional UTF-8 reason phrase. Stashed on `quic_conn` by `request_close`
-// (typically called from inside a `quic_conn_handlers` upcall) and consumed
-// by the session's drain on the same turn, which feeds it into
-// `ngtcp2_ccerr_set_*_error` and `ngtcp2_conn_write_connection_close`.
-//
-// `kind == {}` is the "no close requested" sentinel; non-default `kind` means
-// the caller asked to close.
-//
-// IMPORTANT: the storage backing `reason` must outlive the read_pkt + drain
-// cycle.
-struct quic_close_request {
-  quic_close_kind kind{};
-  uint64_t error_code{};
-  std::string_view reason;
-};
 
 #pragma endregion
 #pragma region quic_conn_handlers
@@ -409,7 +392,7 @@ public:
   quic_conn(quic_conn&&) = delete;
   quic_conn& operator=(quic_conn&&) = delete;
 
-  // Finish initalization, using the provided CIDs and endpoints to allocate
+  // Finish initialization, using the provided CIDs and endpoints to allocate
   // the underlying `ngtcp2_conn`. Must be called exactly once after
   // construction, before any I/O or handler upcall fires.
   //
@@ -512,11 +495,10 @@ public:
 
   [[nodiscard]] bool ok() const noexcept { return !!conn_; }
   [[nodiscard]] explicit operator bool() const noexcept { return !!conn_; }
-  [[nodiscard]] bool operator!() const noexcept { return !conn_; }
   [[nodiscard]] connection_role role() const noexcept { return role_; }
   [[nodiscard]] auto native(this auto& self) { return self.conn_.get(); }
 
-  // Return the bound local/peer address by value..
+  // Return the bound local/peer address by value.
   [[nodiscard]] net_endpoint local() const noexcept {
     return net_endpoint{*path_storage_.path.local.addr,
         path_storage_.path.local.addrlen};
@@ -543,10 +525,11 @@ public:
   }
 
   // Queue a graceful CONNECTION_CLOSE for the session's per-turn drain to emit
-  // after `read_pkt` returns. Typically called from inside a
-  // `quic_conn_handlers` upcall (which then returns the bool of its choosing
-  // to ngtcp2). Requesting close is terminal: this is a one-shot decision, not
-  // something the conn keeps polling.
+  // after `read_pkt` returns.
+  //
+  // Typically called from inside a `quic_conn_handlers` upcall (which then
+  // returns the bool of its choosing to ngtcp2). Requesting close is terminal:
+  // this is a one-shot decision, not something the conn keeps polling.
   //
   // The defaults give a no-fault clean close (transport NO_ERROR, no reason
   // phrase). `kind` selects the CONNECTION_CLOSE frame variant the drain emits
@@ -555,15 +538,44 @@ public:
   // outlive the read_pkt + drain cycle.
   void request_close(quic_close_kind kind = quic_close_kind::transport,
       uint64_t error_code = 0, std::string_view reason = {}) noexcept {
-    pending_close_ = {kind, error_code, reason};
+    const auto r = strings::as_byte_span(reason);
+    if (kind == quic_close_kind::application)
+      ngtcp2_ccerr_set_application_error(&pending_close_, error_code, r.data(),
+          r.size());
+    else
+      ngtcp2_ccerr_set_transport_error(&pending_close_, error_code, r.data(),
+          r.size());
+    has_pending_close_ = true;
   }
 
-  // True iff a `request_close` has been stashed and not yet shipped. The
-  // session inspects this after the upper-plugin drain returns and, if set,
-  // ships one more packet via `write_connection_close`. `quic_conn` itself
-  // does not poll this; the consumer is the session's post-drain step.
+  // Queue a CONNECTION_CLOSE conveying the hard library error `err`, for the
+  // same emission path as `request_close`.
+  //
+  // The transport error code is inferred from the library error
+  // (`ngtcp2_ccerr_set_liberr`). A TLS handshake failure carries the specific
+  // alert instead (`ngtcp2_ccerr_set_tls_alert`).
+  //
+  // The caller filters out the statuses whose contract forbids a
+  // CONNECTION_CLOSE (`retry`, `drop_conn`, `idle_close`): those drop the
+  // connection silently and never reach this stash.
+  void request_close_on_error(quic_status err) noexcept {
+    if (err == quic_status::crypto)
+      ngtcp2_ccerr_set_tls_alert(&pending_close_,
+          ngtcp2_conn_get_tls_alert(conn_.get()), nullptr, 0);
+    else
+      ngtcp2_ccerr_set_liberr(&pending_close_, static_cast<int>(*err), nullptr,
+          0);
+    has_pending_close_ = true;
+  }
+
+  // True iff a `request_close` / `request_close_on_error` has been stashed
+  // and not yet shipped.
+  //
+  // The session inspects this after the upper-plugin drain returns and, if
+  // set, ships one more packet via `write_connection_close`. `quic_conn`
+  // itself does not poll this; the consumer is the session's post-drain step.
   [[nodiscard]] bool has_pending_close() const noexcept {
-    return pending_close_.kind != quic_close_kind{};
+    return has_pending_close_;
   }
 
 #pragma endregion
@@ -580,11 +592,13 @@ public:
   }
 
   // Drive a single outgoing packet carrying only non-stream frames (ACKs,
-  // MAX_DATA, etc.). ngtcp2 writes the produced packet into `buf`'s tail,
-  // extending `buf`'s payload by the packet length; the caller calls again on
-  // the same `buf` to keep appending packets, or borrows a fresh `buf` per
-  // packet for one-packet-per-datagram shipping. ngtcp2 may update the
-  // destination path in `path_storage_`.
+  // MAX_DATA, etc.).
+  //
+  // ngtcp2 writes the produced packet into `buf`'s tail, extending `buf`'s
+  // payload by the packet length; the caller calls again on the same `buf` to
+  // keep appending packets, or borrows a fresh `buf` per packet for
+  // one-packet-per-datagram shipping. ngtcp2 may update the destination path
+  // in `path_storage_`.
   //
   // ngtcp2 packets are atomic, so this gives up (returns `ok` without
   // extending `buf`) whenever the remaining tail can't hold the next packet
@@ -612,19 +626,28 @@ public:
     return quic_status::ok;
   }
 
-  // Drive a single outgoing packet, optionally carrying stream bytes. ngtcp2
-  // writes the produced packet into `buf`'s tail (extending `buf`'s payload by
-  // the packet length) and reports through `bytes_accepted` how many bytes of
-  // `iov` it consumed into its send queue. The caller owns `iov` and is
-  // responsible for advancing its own per-stream cursors by `bytes_accepted`
-  // between calls; ngtcp2 may accept zero, some prefix, or all of the offered
-  // bytes depending on flow control and packet capacity. To keep appending
-  // packets, call again on the same `buf`: its tail moves forward across
-  // calls. To ship each packet as its own UDP datagram, borrow a fresh `buf`
-  // per packet.
+  // Drive a single outgoing packet, optionally carrying stream bytes.
+  //
+  // ngtcp2 writes the produced packet into `buf`'s tail (extending `buf`'s
+  // payload by the packet length) and reports through `bytes_accepted` how
+  // many bytes of `iov` it consumed into its send queue. The caller owns `iov`
+  // and is responsible for advancing its own per-stream cursors by
+  // `bytes_accepted` between calls; ngtcp2 may accept zero, some prefix, or
+  // all of the offered bytes depending on flow control and packet capacity. To
+  // keep appending packets, call again on the same `buf`: its tail moves
+  // forward across calls. To ship each packet as its own UDP datagram, borrow
+  // a fresh `buf` per packet.
+  //
+  // `bytes_accepted` is engaged exactly when the packet carries a STREAM
+  // frame for the offered stream: its value is the byte count, where `0`
+  // means a zero-length frame (a pure FIN). It is empty when ngtcp2 omitted
+  // the stream frame (other frames occupied the packet, or none was offered)
+  // and on failure. The distinction is load-bearing for sticky-FIN callers: a
+  // turn that shipped a packet without the stream frame must not treat the
+  // FIN as sent.
   //
   // ngtcp2 packets are atomic, so this gives up (returns `ok` without
-  // extending `buf` and with `bytes_accepted == 0`) whenever the remaining
+  // extending `buf` and with `bytes_accepted` empty) whenever the remaining
   // tail can't hold the next packet ngtcp2 wants to emit, not just when the
   // tail is fully empty. The same status covers three cases the caller can't
   // distinguish directly: tail too small, congestion control limit, or ngtcp2
@@ -640,10 +663,11 @@ public:
   // remain valid in the caller's storage until the peer ACKs them via
   // `on_acked_stream_data_offset`. `stream_id == quic_stream_id::none` (the
   // ngtcp2 -1 sentinel) emits a packet carrying only non-stream frames (ACKs,
-  // MAX_DATA, etc.), the same as `write_pkt`; `bytes_accepted` is `0` in that
-  // case. `flags` selects ngtcp2 write modifiers; see `write_stream_flags` for
-  // the per-bit semantics (`fin` to terminate the stream, `more` to coalesce
-  // subsequent calls into the same packet, `padding` to pad to path MTU).
+  // MAX_DATA, etc.), the same as `write_pkt`; `bytes_accepted` is empty in
+  // that case. `flags` selects ngtcp2 write modifiers; see
+  // `write_stream_flags` for the per-bit semantics (`fin` to terminate the
+  // stream, `more` to coalesce subsequent calls into the same packet,
+  // `padding` to pad to path MTU).
   //
   // `write_more` is not a real error: ngtcp2 returns it when the caller
   // passed `write_stream_flags::more`, bytes were consumed into an
@@ -652,22 +676,22 @@ public:
   // or finalize via `write_pkt` / a follow-up call without `more`. `buf`
   // is intentionally not extended yet: no packet exists on the wire until
   // finalization. Callers that do not pass `more` will never see this status.
-  // On any other error, `buf` is left unchanged and `bytes_accepted` is `0`.
+  // On any other error, `buf` is left unchanged and `bytes_accepted` is empty.
   //
   // ngtcp2 may prefer to emit queued non-stream frames (ACKs, MAX_DATA,
   // HANDSHAKE_DONE, etc.) ahead of the offered stream data even when
   // `stream_id` names a real stream and `more` was set: the call returns `ok`
-  // with `bytes_accepted == 0` and `buf` extended by the non-stream packet,
+  // with `bytes_accepted` empty and `buf` extended by the non-stream packet,
   // while the offered stream bytes stay buffered for the next call. A
   // MORE-using drain must keep calling: the first invocation does not reliably
-  // surface `write_more`. Termination is "buf stopped growing", not
-  // "bytes_accepted == 0".
+  // surface `write_more`. Termination is "buf stopped growing", not "no bytes
+  // accepted".
   [[nodiscard]] quic_status writev_stream(quic_stream_id stream_id,
       std::span<const iovec> iov, iouring::iou_buffer& buf,
-      uint64_t& bytes_accepted,
+      std::optional<uint64_t>& bytes_accepted,
       write_stream_flags flags = write_stream_flags::none,
       time_point_t now = steady_now_clock::now()) noexcept {
-    bytes_accepted = 0;
+    bytes_accepted.reset();
     auto tail = buf.tail_span();
     if (tail.empty()) return quic_status::ok;
     ngtcp2_ssize pdatalen{-1};
@@ -683,41 +707,49 @@ public:
       status = static_cast<quic_status>(rv);
       if (status != quic_status::write_more) return status;
     }
-    if (pdatalen > 0) bytes_accepted = static_cast<uint64_t>(pdatalen);
+    if (pdatalen >= 0) bytes_accepted = static_cast<uint64_t>(pdatalen);
     return status;
   }
 
-  // Emit a CONNECTION_CLOSE frame from the stash set by `request_close`.
+  // Record `now` as the transmission instant of the packets just written, so
+  // ngtcp2 can pace the next burst.
+  //
+  // Call once per outbound turn, after its (possibly many) `writev_stream` /
+  // `write_pkt` calls: ngtcp2 requires it "after (multiple invocation of)
+  // ngtcp2_conn_writev_stream". The pacing deadline this sets is folded into
+  // `expiry`, so a paced-out packet is released by the normal expiry sweep.
+  void update_pkt_tx_time(
+      time_point_t now = steady_now_clock::now()) noexcept {
+    ngtcp2_conn_update_pkt_tx_time(conn_.get(),
+        steady_now_clock::as_nanoseconds(now));
+  }
+
+  // Emit a CONNECTION_CLOSE frame from the stash set by `request_close` or
+  // `request_close_on_error`.
   [[nodiscard]] quic_status write_connection_close(iouring::iou_buffer& buf,
       time_point_t now = steady_now_clock::now()) noexcept {
-    if (!has_pending_close()) return quic_status::ok;
+    if (!has_pending_close_) return quic_status::ok;
     auto tail = buf.tail_span();
     if (tail.empty()) return quic_status::ok;
-    ngtcp2_ccerr ccerr;
-    const auto reason = strings::as_byte_span(pending_close_.reason);
-    if (pending_close_.kind == quic_close_kind::application)
-      ngtcp2_ccerr_set_application_error(&ccerr, pending_close_.error_code,
-          reason.data(), reason.size());
-    else
-      ngtcp2_ccerr_set_transport_error(&ccerr, pending_close_.error_code,
-          reason.data(), reason.size());
     const auto rv = ngtcp2_conn_write_connection_close(conn_.get(),
         &path_storage_.path, nullptr, reinterpret_cast<uint8_t*>(tail.data()),
-        tail.size(), &ccerr, steady_now_clock::as_nanoseconds(now));
+        tail.size(), &pending_close_, steady_now_clock::as_nanoseconds(now));
     if (rv < 0) return static_cast<quic_status>(rv);
     if (rv == 0) return quic_status::internal;
     (void)buf.update_payload({tail.data(), static_cast<size_t>(rv)});
     pending_close_ = {};
+    has_pending_close_ = false;
     return quic_status::ok;
   }
 
-  // Open a locally initiated bidirectional stream. On success `stream_id` is
-  // set to the ngtcp2-picked id from the next free slot in the local
-  // bidirectional space, which the caller uses on subsequent `writev_stream`
-  // calls. Fails with `NGTCP2_ERR_STREAM_ID_BLOCKED` when the peer's
-  // `initial_max_streams_bidi` has been exhausted; the caller may retry after
-  // `on_extend_max_local_streams_bidi` fires. On input, `stream_id` must be
-  // `quic_stream_id::none`. On failure `stream_id` is left untouched.
+  // Open a locally initiated bidirectional stream.
+  //
+  // On success `stream_id` is set to the ngtcp2-picked id from the next free
+  // slot in the local bidirectional space, which the caller uses on subsequent
+  // `writev_stream` calls. Fails with `NGTCP2_ERR_STREAM_ID_BLOCKED` when the
+  // peer's `initial_max_streams_bidi` has been exhausted; the caller may retry
+  // after `on_extend_max_local_streams_bidi` fires. On input, `stream_id` must
+  // be `quic_stream_id::none`. On failure `stream_id` is left untouched.
   [[nodiscard]] quic_status open_bidi_stream(
       quic_stream_id& stream_id) noexcept {
     assert(stream_id == quic_stream_id::none);
@@ -729,10 +761,11 @@ public:
   }
 
   // Open a locally initiated unidirectional stream (the HTTP/3 control and
-  // QPACK encoder / decoder streams are three of these). Same contract as
-  // `open_bidi_stream`, against the local unidirectional space and the peer's
-  // `initial_max_streams_uni`. ngtcp2 permits this once the 1-RTT TX key is
-  // installed (signaled by `on_app_tx_ready`).
+  // QPACK encoder / decoder streams are three of these).
+  //
+  // Same contract as `open_bidi_stream`, against the local unidirectional
+  // space and the peer's `initial_max_streams_uni`. ngtcp2 permits this once
+  // the 1-RTT TX key is installed (signaled by `on_app_tx_ready`).
   [[nodiscard]] quic_status open_uni_stream(
       quic_stream_id& stream_id) noexcept {
     assert(stream_id == quic_stream_id::none);
@@ -745,10 +778,11 @@ public:
 
   // Abruptly close the read side of `stream_id`, emitting STOP_SENDING with
   // `app_error_code` (an opaque transport value; HTTP/3 passes an
-  // `h3_error_code` cast to its underlying `uint64_t`). ngtcp2 stops
-  // forwarding inbound data for the stream immediately (the local effect) and
-  // queues the STOP_SENDING frame for the next outbound turn. Safe to call
-  // from inside a callback (the HTTP/3 plugin forwards nghttp3's
+  // `h3_error_code` cast to its underlying `uint64_t`).
+  //
+  // ngtcp2 stops forwarding inbound data for the stream immediately (the local
+  // effect) and queues the STOP_SENDING frame for the next outbound turn. Safe
+  // to call from inside a callback (the HTTP/3 plugin forwards nghttp3's
   // `on_stop_sending` here). Returns `ok` for an unknown stream; rejects a
   // local unidirectional stream (no read side).
   [[nodiscard]] quic_status shutdown_stream_read(quic_stream_id stream_id,
@@ -758,11 +792,12 @@ public:
   }
 
   // Abruptly close the write side of `stream_id`, emitting RESET_STREAM with
-  // `app_error_code` and discarding unacknowledged send data. ngtcp2 marks the
-  // write side closed immediately and queues the RESET_STREAM frame for the
-  // next outbound turn. Safe to call from inside a callback (the HTTP/3 plugin
-  // forwards nghttp3's `on_reset_stream` here). Returns `ok` for an unknown
-  // stream; rejects a remote unidirectional stream (no write side).
+  // `app_error_code` and discarding unacknowledged send data.
+  //
+  // ngtcp2 marks the write side closed immediately and queues the RESET_STREAM
+  // frame for the next outbound turn. Safe to call from inside a callback (the
+  // HTTP/3 plugin forwards nghttp3's `on_reset_stream` here). Returns `ok` for
+  // an unknown stream; rejects a remote unidirectional stream (no write side).
   [[nodiscard]] quic_status shutdown_stream_write(quic_stream_id stream_id,
       uint64_t app_error_code) noexcept {
     return static_cast<quic_status>(ngtcp2_conn_shutdown_stream_write(
@@ -774,11 +809,12 @@ public:
 
   // Return flow-control credit to the peer after the upper layer has consumed
   // `datalen` bytes received on `stream_id`: `extend_max_stream_offset` raises
-  // the stream-level window, `extend_max_offset` the connection-level one. The
-  // HTTP/3 plugin calls both with the byte count nghttp3 reports it consumed
-  // (from `read_stream` and `on_deferred_consume`), so the peer's send window
-  // reopens as the application drains data. ngtcp2 folds the new limits into
-  // MAX_STREAM_DATA / MAX_DATA frames on the next outbound turn.
+  // the stream-level window, `extend_max_offset` the connection-level one.
+  //
+  // The HTTP/3 plugin calls both with the byte count nghttp3 reports it
+  // consumed (from `read_stream` and `on_deferred_consume`), so the peer's
+  // send window reopens as the application drains data. ngtcp2 folds the new
+  // limits into MAX_STREAM_DATA / MAX_DATA frames on the next outbound turn.
   //
   // `extend_max_stream_offset` returns `ok` for an unknown stream and rejects
   // a local unidirectional stream (which has no receive side) with
@@ -796,9 +832,11 @@ public:
 #pragma endregion
 #pragma region Expiry
 
-  // The next deadline at which `handle_expiry` should be called. If ngtcp2
-  // currently has no pending timer, returns `time_point_t::max`. Caller arms
-  // an external timer at this point and invokes `handle_expiry` when it fires.
+  // The next deadline at which `handle_expiry` should be called.
+  //
+  // If ngtcp2 currently has no pending timer, returns `time_point_t::max`.
+  // Caller arms an external timer at this point and invokes `handle_expiry`
+  // when it fires.
   [[nodiscard]] time_point_t expiry() const noexcept {
     return steady_now_clock::from_nanoseconds(
         ngtcp2_conn_get_expiry(conn_.get()));
@@ -811,17 +849,20 @@ public:
   }
 
   // True once ngtcp2 has entered the closing (we sent CONNECTION_CLOSE) or
-  // draining (peer sent it) period. In both, no further transmission is
-  // allowed; the application owns the RFC 9000 sec. 10.2 wind-down timer,
-  // since ngtcp2 does not fold that period into `expiry`.
+  // draining (peer sent it) period.
+  //
+  // In both, no further transmission is allowed; the application owns the RFC
+  // 9000 sec. 10.2 wind-down timer, since ngtcp2 does not fold that period
+  // into `expiry`.
   [[nodiscard]] bool in_close_period() const noexcept {
     return ngtcp2_conn_in_closing_period(conn_.get()) ||
            ngtcp2_conn_in_draining_period(conn_.get());
   }
 
-  // Current Probe Timeout. The wind-down period after entering closing /
-  // draining is 3*PTO (RFC 9000 sec. 10.2). This is expected to be much
-  // shorter than the idle timeout.
+  // Current Probe Timeout.
+  //
+  // The wind-down period after entering closing / draining is 3*PTO (RFC 9000
+  // sec. 10.2). This is expected to be much shorter than the idle timeout.
   [[nodiscard]] std::chrono::nanoseconds pto() const noexcept {
     return std::chrono::nanoseconds{ngtcp2_conn_get_pto(conn_.get())};
   }
@@ -829,16 +870,18 @@ public:
 #pragma endregion
 #pragma region Handlers
 private:
-  // App-supplied callbacks. The crypto-shim functions handle the AEAD / HP /
-  // key / crypto-data callbacks; we only own the ones the shim does not
-  // provide. Trampolines that surface a `quic_conn_handlers` upcall recover
-  // the typed `quic_conn*` from `user_data` and translate the handler's bool
-  // return into `0` / `NGTCP2_ERR_CALLBACK_FAILURE`. The owning session must
-  // call `set_handlers` before any I/O fires (`read_pkt`, `write_pkt`,
-  // `writev_stream`), since the trampolines deref `handlers_` unconditionally;
-  // a null pointer here will crash. A handler that wants a graceful
-  // CONNECTION_CLOSE instead of a callback failure calls `request_close` first
-  // to request the close, then returns whichever bool fits its needs.
+  // App-supplied callbacks.
+  //
+  // The crypto-shim functions handle the AEAD / HP / key / crypto-data
+  // callbacks; we only own the ones the shim does not provide. Trampolines
+  // that surface a `quic_conn_handlers` upcall recover the typed `quic_conn*`
+  // from `user_data` and translate the handler's bool return into `0` /
+  // `NGTCP2_ERR_CALLBACK_FAILURE`. The owning session must call `set_handlers`
+  // before any I/O fires (`read_pkt`, `write_pkt`, `writev_stream`), since the
+  // trampolines deref `handlers_` unconditionally; a null pointer here will
+  // crash. A handler that wants a graceful CONNECTION_CLOSE instead of a
+  // callback failure calls `request_close` first to request the close, then
+  // returns whichever bool fits its needs.
 
   // Generate random bytes. No way to signal error and can't throw through C,
   // so just terminate in the unlikely event that it fails
@@ -854,8 +897,10 @@ private:
   }
 
   // CIDs must be unpredictable per RFC 9000 sec. 5.1, so fill with
-  // cryptographic randomness. The stateless-reset token is reused as the
-  // "secret known to the issuer" in the reset path; same constraint applies.
+  // cryptographic randomness.
+  //
+  // The stateless-reset token is reused as the "secret known to the issuer" in
+  // the reset path; same constraint applies.
   static int on_get_new_connection_id2(ngtcp2_conn*, ngtcp2_cid* cid,
       ngtcp2_stateless_reset_token* token, size_t cidlen, void*) noexcept {
     cid->datalen = cidlen;
@@ -873,16 +918,20 @@ private:
   }
 
   // `recv_rx_key` is unused: nothing in the handler contract reacts to RX key
-  // installation. The TX direction is handled separately by `on_recv_tx_key`
-  // (it filters on 1-RTT and surfaces `on_app_tx_ready`).
+  // installation.
+  //
+  // The TX direction is handled separately by `on_recv_tx_key` (it filters on
+  // 1-RTT and surfaces `on_app_tx_ready`).
   static int
   on_recv_rx_key(ngtcp2_conn*, ngtcp2_encryption_level, void*) noexcept {
     return success(true);
   }
 
   // v2 trampoline around the shim's v1 `get_path_challenge_data` (which writes
-  // raw bytes). The ngtcp2 callback table at version V3 uses the v2 signature,
-  // which takes a typed struct that wraps the same byte array.
+  // raw bytes).
+  //
+  // The ngtcp2 callback table at version V3 uses the v2 signature,  which
+  // takes a typed struct that wraps the same byte array.
   static int on_get_path_challenge_data2(ngtcp2_conn* conn,
       ngtcp2_path_challenge_data* data, void* user_data) noexcept {
     return ngtcp2_crypto_get_path_challenge_data_cb(conn, data->data,
@@ -907,6 +956,7 @@ private:
 
   // `recv_tx_key` fires once per TX-key install during the handshake; ngtcp2
   // omits the INITIAL level, so the levels we observe are HANDSHAKE and 1-RTT.
+  //
   // Application data only becomes sendable at 1-RTT, so we filter and only
   // surface `on_app_tx_ready` then. The intermediate HANDSHAKE call is
   // silently ignored.
@@ -1040,10 +1090,12 @@ private:
 
   // Run `fn` (the body of a ngtcp2 trampoline) inside `try_or_log` so a thrown
   // exception becomes a `false` result, then convert that result to ngtcp2's
-  // callback status via `success`. This is the canonical body for every
-  // trampoline that forwards into a `quic_conn_handlers` upcall: the
-  // trampoline is the noexcept firewall, and the virtual it calls is free to
-  // throw under low memory or other failures without crossing the C ABI.
+  // callback status via `success`.
+  //
+  // This is the canonical body for every trampoline that forwards into a
+  // `quic_conn_handlers` upcall: the trampoline is the noexcept firewall, and
+  // the virtual it calls is free to throw under low memory or other failures
+  // without crossing the C ABI.
   template<std::invocable F>
   requires std::same_as<std::invoke_result_t<F>, bool>
   [[nodiscard]] static int try_callback(F&& fn) noexcept {
@@ -1128,6 +1180,7 @@ private:
   }
 
   // One-time process-wide initialization for the ngtcp2 OpenSSL backend.
+  //
   // Documented as optional but strongly recommended for performance. A
   // failure here means the crypto backend can't function (FIPS provider
   // load failure, OpenSSL provider mismatch, sandbox without urandom,
@@ -1166,11 +1219,12 @@ private:
 #pragma region Data members
 
   // Declaration order matters: members are destroyed in reverse order, so
-  // declaring `conn_` last makes it the first to go. `conn_` references
-  // `ossl_ctx_` (via `ngtcp2_conn_set_tls_native_handle`), which in turn wraps
-  // `ssl_`. Tearing down inside-out keeps every dependency live while it is
-  // being used. `conn_ref_` is declared first so it outlives the SSL that
-  // points at it.
+  // declaring `conn_` last makes it the first to go.
+  //
+  // `conn_` references `ossl_ctx_` (via `ngtcp2_conn_set_tls_native_handle`),
+  // which in turn wraps `ssl_`. Tearing down inside-out keeps every dependency
+  // live while it is being used. `conn_ref_` is declared first so it outlives
+  // the SSL that points at it.
   ngtcp2_crypto_conn_ref conn_ref_{};
   connection_role role_{};
   ngtcp2_path_storage path_storage_{};
@@ -1183,10 +1237,15 @@ private:
   // install handlers before any I/O fires.
   quic_conn_handlers* handlers_{};
 
-  // Close request stashed by `request_close` (typically called from inside a
-  // handler upcall); not externally observable. `kind == quic_close_kind{}`
-  // means "not set". Last write in a turn wins.
-  quic_close_request pending_close_;
+  // Close stashed by `request_close` / `request_close_on_error` (the former
+  // typically called from inside a handler upcall) as a ready-to-emit
+  // `ngtcp2_ccerr`; not externally observable beyond `has_pending_close`.
+  //
+  // Last write in a turn wins. The ccerr stores a POINTER to the reason
+  // phrase, so the storage backing a `request_close` reason must outlive the
+  // emit.
+  ngtcp2_ccerr pending_close_{};
+  bool has_pending_close_{};
 
 #pragma endregion
 };

@@ -256,7 +256,6 @@ public:
 #pragma region Accessors
 
   [[nodiscard]] explicit operator bool() const noexcept { return lifespan_; }
-  [[nodiscard]] bool operator!() const noexcept { return !lifespan_; }
 
   // Size of the stored callable's payload in bytes, or 0 when empty.
   [[nodiscard]] size_t size() const noexcept {

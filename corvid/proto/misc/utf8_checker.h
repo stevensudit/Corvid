@@ -60,7 +60,7 @@ public:
     return state_;
   }
 
-  void constexpr reset() noexcept {
+  constexpr void reset() noexcept {
     state_ = validation::complete;
     remaining_ = 0;
     min_cont_ = 0x80;

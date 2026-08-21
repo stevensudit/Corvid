@@ -378,6 +378,10 @@ public:
   // zero means "no timeout". The two `idle_timeout` instances expose the
   // full API for each direction.
   //
+  // Peer EOF leaves the read-idle countdown running: a peer that shut its
+  // outbound is still idle and earns the hangup. Only our own choice to stop
+  // listening (`shutdown_recv`) silences it.
+  //
 
   [[nodiscard]] auto& read_idle(this auto& self) noexcept {
     return self.read_idle_;
@@ -390,10 +394,14 @@ public:
 #pragma region send
 
   // Queue a registered `buffer` for zero-copy sending.
+  //
+  // False means the payload was not accepted (writes disallowed, empty, or
+  // the conn closed); the caller may resend. True means accepted: delivery
+  // rides on the connection, the same on and off the loop thread.
   [[nodiscard]] bool send(buffer&& buf) {
     // `buf` is an rvalue ref; the actual move into the lambda capture below
     // is the only consumption. Analyzer flags the precondition checks as
-    // use-after-move because callers write `std::move(tok)`, but no move
+    // use-after-move because callers write `std::move(buf)`, but no move
     // has happened yet.
     // NOLINTNEXTLINE(clang-analyzer-cplusplus.Move)
     if (!writes_allowed() || !buf || buf.active_span().empty()) return false;
@@ -411,7 +419,10 @@ public:
   //
   // Strings larger than the current `send_buf_size` are rejected; the caller
   // is responsible for chunking large payloads or using the `buffer` overload
-  // with a larger `buffer`.
+  // with a larger `buffer`. False means the payload was not accepted
+  // (rejected here or the conn closed); true means accepted, the same on and
+  // off the loop thread, even when the send is waiting out a write-pool
+  // shortage.
   [[nodiscard]] bool send(std::string&& data) {
     if (!writes_allowed() || data.empty()) return false;
     if (data.size() > **send_buf_size_) return false;
@@ -433,7 +444,7 @@ public:
     if (closed_) return false;
     if (close_requested_.exchange(true)) return false;
     return loop_.execute_or_post([this, _ = self()] {
-      if (send_queue_.empty() && !send_token_) return do_close_now(true);
+      if (send_queue_.empty() && !send_token_) return do_close_now();
       return true;
     });
   }
@@ -452,18 +463,30 @@ public:
     });
   }
 
-  // Shut down the read side. Submits `SHUT_RD` so the kernel discards any
-  // queued inbound data and future recvs return EOF, and cancels any
-  // in-flight recv so its terminating CQE is dropped silently rather than
-  // treated as a hard error. Sets `read_shut_`. The write side stays open.
-  // If writes were already shut, just closes. Idempotent.
+  // Shut down the read side.
+  //
+  // Submits `SHUT_RD` so the kernel discards any queued inbound data and
+  // future recvs return EOF, and cancels any in-flight recv so its terminating
+  // CQE is dropped silently rather than treated as a hard error. Sets
+  // `read_shut_`. The write side stays open. If writes were already shut, just
+  // closes. Idempotent.
+  //
+  // Stops the read-idle countdown, even when the peer already shut its side
+  // (which by itself deliberately leaves the countdown running).
   //
   // Symmetric to `shutdown_send`, though generally less useful because it
   // doesn't send any indication over the wire or offer strong guarantees about
   // kernel behavior.
   [[nodiscard]] bool shutdown_recv() {
     if (closed_) return false;
-    if (read_shut_.exchange(true)) return false;
+    // Already shut, typically by peer EOF. We are now declining to listen, so
+    // the peer can no longer be blamed for silence.
+    if (read_shut_.exchange(true)) {
+      (void)loop_.execute_or_post([this, _ = self()] {
+        return read_idle_.stop();
+      });
+      return false;
+    }
     return loop_.execute_or_post([this, _ = self()] {
       if (closed_) return false;
       (void)read_idle_.stop();
@@ -510,8 +533,9 @@ public:
     return conn;
   }
 
-  // Resume receiving after `stop_receiving`. Idempotent. A no-op once the read
-  // side has been shut (peer EOF observed).
+  // Resume receiving after `stop_receiving`.
+  //
+  // Idempotent. A no-op once the read side has been shut (peer EOF observed).
   [[nodiscard]] bool resume_receiving() {
     if (!recv_paused_.exchange(false)) return false;
     return loop_.execute_or_post([this, _ = self()]() -> bool {
@@ -741,10 +765,16 @@ private:
   // Submit buffer for singleshot recv, borrowing a read buffer if needed.
   // `allow_upgrade` controls whether we can re-enter `do_submit_multi_recv`
   // when we switched to singleshot due to a multishot failure.
+  //
+  // Returns false only when the actual submit fails. Declining because no
+  // recv is wanted (closed, already armed, read shut, or paused) and posting
+  // a borrow-failure heal are both success: in every such case there is
+  // nothing further for the caller to drive, and in particular nothing to
+  // close.
   [[nodiscard]] bool
   do_submit_single_recv(buffer* bufptr = {}, bool allow_upgrade = true) {
     assert(loop().is_loop_thread());
-    if (closed_ || recv_token_ || read_shut_ || recv_paused_) return false;
+    if (closed_ || recv_token_ || read_shut_ || recv_paused_) return true;
     recv_active_shot_ = shot_type::single;
 
     if (allow_upgrade && recv_intended_shot_ == shot_type::multi &&
@@ -759,7 +789,19 @@ private:
     else
       buf = loop_.borrow_read_buffer(recv_buf_size_);
 
-    if (!buf) return false;
+    // Pool exhausted or read-throttled: retry from the back of the post
+    // queue. The guard ends the retries once a recv is armed some other way
+    // or the read side stops. The posted heal is success, not failure: a
+    // recv will be armed, so reporting false would tell callers like
+    // `on_connect_complete` to close a healthy conn (which would also
+    // cancel this very heal).
+    if (!buf) {
+      (void)loop_.post([this, _ = self()]() -> bool {
+        if (closed_ || recv_token_ || read_shut_ || recv_paused_) return true;
+        return do_submit_single_recv();
+      });
+      return true;
+    }
 
     recv_token_ = loop_.submit_read_buffer(sock_, std::move(buf),
         [this, _ = self()](completion_id, buffer& b) {
@@ -772,9 +814,13 @@ private:
 
   // Submit a multishot recv using the loop's TCP provided-buffer ring.
   // Automatically handles `has_more` failure.
+  //
+  // Same return contract as `do_submit_single_recv`: declining to arm is
+  // success; false means the submit (or its singleshot fallback's submit)
+  // failed.
   [[nodiscard]] bool do_submit_multi_recv() {
     assert(loop().is_loop_thread() && !recv_token_);
-    if (closed_ || recv_token_ || read_shut_ || recv_paused_) return false;
+    if (closed_ || recv_token_ || read_shut_ || recv_paused_) return true;
 
     recv_active_shot_ = shot_type::multi;
     recv_token_ = loop_.submit_recv_buffer_multi(sock_,
@@ -830,17 +876,18 @@ private:
     return true;
   }
 
-  // Build the resume callback captured by an `iou_recv_view`. Returns an
-  // `iou_loop::posted_fn` resume token on the stop path (notsock signal),
-  // or an empty `posted_fn` on the normal re-arm path. Safe to call from any
-  // thread.
+  // Build the resume callback captured by an `iou_recv_view`.
+  //
+  // Returns an `iou_loop::posted_fn` resume callback on the stop path (notsock
+  // signal), or an empty `posted_fn` on the normal re-arm path. Safe to call
+  // from any thread.
   [[nodiscard]] iou_recv_view::resume_fn make_view_resume() {
     return [this, conn = self()](buffer&& buf) -> iou_loop::posted_fn {
       // Read side is shut: the recv chain has already ended. Nothing to
       // resubmit, no stop callback to mint.
       if (read_shut_) return {};
 
-      // Stop signal: deactivated buffer carries `EC::notsock`.
+      // If `deactivate` was called on the buffer, resume.
       if (!buf.result() && buf.result().err() == EC::notsock)
         return [this, conn = stop_receiving()] { return resume_receiving(); };
 
@@ -857,6 +904,10 @@ private:
   }
 
   // Send the next buffer in the send queue.
+  //
+  // Returns false only on a hard submit failure. An empty queue and a posted
+  // borrow-failure heal both report true: in each case the queue's contents
+  // (if any) remain accepted and will transmit without further driving.
   [[nodiscard]] bool do_submit_send() {
     assert(loop().is_loop_thread() && !send_token_);
     if (send_queue_.empty()) return true;
@@ -867,6 +918,20 @@ private:
       send_queue_.pop_front();
     } else {
       buf = loop_.borrow_write_buffer(send_buf_size_);
+      // Pool exhausted: the strings stay queued. Retry from the back of the
+      // post queue, giving the work ahead of us a chance to return buffers.
+      // The guard ends the retries once a send is driven some other way or
+      // the conn closes. A posted heal is success, not failure: the queued
+      // payload is accepted and will transmit, so reporting false here would
+      // tell an inline `send` caller (and the completion chain) to treat a
+      // healthy conn as failed.
+      if (!buf) {
+        (void)loop_.post([this, _ = self()]() -> bool {
+          if (closed_ || send_token_ || send_queue_.empty()) return true;
+          return do_submit_send();
+        });
+        return true;
+      }
       while (!send_queue_.empty() &&
              std::holds_alternative<std::string>(send_queue_.front()))
       {
@@ -879,10 +944,11 @@ private:
     return do_submit_send_buffer(std::move(buf));
   }
 
-  // Send buffer. Prefers `submit_send_buffer` (ZC). On first `EOPNOTSUPP`
-  // (such as with Unix domain sockets), `on_send_complete` clears
-  // `send_zc_supported_` and this helper falls back to `submit_write_buffer`
-  // for all subsequent sends.
+  // Send buffer.
+  //
+  // Prefers `submit_send_buffer` (ZC). On first `EOPNOTSUPP` (such as with
+  // Unix domain sockets), `on_send_complete` clears `send_zc_supported_` and
+  // this helper falls back to `submit_write_buffer` for all subsequent sends.
   [[nodiscard]] bool do_submit_send_buffer(buffer&& buf) {
     assert(loop().is_loop_thread() && !send_token_);
     if (!buf) return false;
@@ -928,7 +994,7 @@ private:
   [[nodiscard]] bool do_submit_accept() {
     assert(loop().is_loop_thread() && listening_ && !connect_token_);
 
-    // Don't  waste time attempting ZC writes on UDS.
+    // Don't waste time attempting ZC writes on UDS.
     if (local_endpoint().as_sockaddr_view().is_uds())
       send_zc_supported_ = false;
 
@@ -959,9 +1025,9 @@ private:
   }
 
   // Close immediately without flushing.
-  [[nodiscard]] bool do_close_now(bool already_exchanged = false) {
+  [[nodiscard]] bool do_close_now() {
     assert(loop().is_loop_thread());
-    if (!already_exchanged && closed_.exchange(true)) return false;
+    if (closed_.exchange(true)) return false;
     send_queue_.clear();
     if (sock_)
       (void)loop_.submit_close(std::move(sock_),
@@ -1108,10 +1174,11 @@ private:
     return true;
   }
 
-  // Handle completion of a receive operation. Delivers the buffer to
-  // `on_data` (including an empty buffer on peer EOF, as the EOF signal).
-  // On hard error, fully closes. On peer EOF with our write side already
-  // shut, transitions to full close.
+  // Handle completion of a receive operation.
+  //
+  // Delivers the buffer to `on_data` (including an empty buffer on peer EOF,
+  // as the EOF signal). On hard error, fully closes. On peer EOF with our
+  // write side already shut, transitions to full close.
   [[nodiscard]] bool on_recv_complete(buffer& buf) {
     assert(loop().is_loop_thread());
     read_idle_.postpone();
@@ -1120,7 +1187,8 @@ private:
     const auto res = buf.result();
 
     // EOF from peer. Deliver an empty view so the plugin learns the read side
-    // is shut.
+    // is shut. The read-idle countdown deliberately keeps running: peer EOF
+    // is still idleness.
     if (res.value() == 0) {
       read_shut_ = true;
       if (write_shut_) return do_close_now();

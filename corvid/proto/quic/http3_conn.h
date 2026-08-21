@@ -449,7 +449,6 @@ public:
 
   [[nodiscard]] bool ok() const noexcept { return !!conn_; }
   [[nodiscard]] explicit operator bool() const noexcept { return !!conn_; }
-  [[nodiscard]] bool operator!() const noexcept { return !conn_; }
   [[nodiscard]] connection_role role() const noexcept { return role_; }
   [[nodiscard]] auto native(this auto& self) { return self.conn_.get(); }
 
@@ -629,6 +628,18 @@ public:
         nghttp3_conn_unblock_stream(conn_.get(), from(stream_id)));
   }
 
+  // Resume `stream_id` after its body data reader reported `block` (nghttp3's
+  // WOULDBLOCK), so nghttp3 offers the stream's bytes in `writev_stream`
+  // again.
+  //
+  // The pause is the input-data twin of `block_stream`'s flow-control block,
+  // and `unblock_stream` does not clear it. nghttp3 reports success for a
+  // stream it does not track, so false here means only NOMEM.
+  [[nodiscard]] bool resume_stream(quic_stream_id stream_id) {
+    return ok("nghttp3_conn_resume_stream",
+        nghttp3_conn_resume_stream(conn_.get(), from(stream_id)));
+  }
+
 #pragma endregion
 #pragma region Stream user data
 
@@ -668,12 +679,16 @@ public:
 private:
 #pragma region Trampolines
 
-  // nghttp3 trampolines: recover the typed `http3_conn*` from `conn_user_data`
-  // and forward into the installed `http3_conn_handlers`, with each upcall run
-  // through `try_callback` so a thrown exception becomes
-  // `NGHTTP3_ERR_CALLBACK_FAILURE` rather than crossing the C ABI. Each
-  // per-stream trampoline also forwards nghttp3's `stream_user_data` to the
-  // matching upcall; it is null today since `http3_conn` never sets it.
+  // nghttp3 trampolines.
+  //
+  // Recovers the typed `http3_conn*` from `conn_user_data` and forwards into
+  // the installed `http3_conn_handlers`, with each upcall run through
+  // `try_callback` so a thrown exception becomes
+  // `NGHTTP3_ERR_CALLBACK_FAILURE` rather than crossing the C ABI.
+  //
+  // Each per-stream trampoline also forwards nghttp3's `stream_user_data` to
+  // the matching upcall; it holds the pointer registered for the stream via
+  // `submit_request` or `set_stream_user_data`, null when none was.
   static int on_begin_headers(nghttp3_conn*, int64_t stream_id,
       void* conn_user_data, void* stream_user_data) noexcept {
     auto* self = static_cast<http3_conn*>(conn_user_data);

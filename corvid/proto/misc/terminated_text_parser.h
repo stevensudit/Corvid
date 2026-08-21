@@ -71,10 +71,13 @@ public:
   //
   // `sentinel`: byte sequence marking the end of each frame (e.g., "\r\n",
   //   ":", "\r\n\r\n"). The pointed-to bytes must outlive the `state`.
-  // `max_length`: maximum bytes that may be scanned before `false` is
-  //   returned. 0 means no limit is enforced here; the caller is responsible
-  //   for the full-buffer case (compare `bytes_scanned` against
-  //   `view.buffer_capacity`).
+  // `max_length`: maximum frame content length, in bytes, before `false` is
+  //   returned. Scanning may proceed up to `sentinel.size() - 1` bytes past
+  //   this limit before failing, because those bytes could still be the start
+  //   of a split sentinel, keeping the verdict independent of how the input
+  //   was chunked across reads. 0 means no limit is enforced here; the caller
+  //   is responsible for the full-buffer case (compare `bytes_scanned`
+  //   against `view.buffer_capacity`).
   //
   // Default construction leaves the sentinel empty, which is falsy and signals
   // that the state has not yet been configured. Assign a configured `state`
@@ -91,8 +94,9 @@ public:
     [[nodiscard]] const auto& sentinel() const noexcept { return sentinel_; }
 
     // Determine whether the state is valid or just zero-initialized.
-    [[nodiscard]] operator bool() const noexcept { return !sentinel_.empty(); }
-    [[nodiscard]] bool operator!() const noexcept { return sentinel_.empty(); }
+    [[nodiscard]] explicit operator bool() const noexcept {
+      return !sentinel_.empty();
+    }
 
   private:
     std::string_view sentinel_;
@@ -136,10 +140,10 @@ public:
   // Invalid:
   //   - Returns `false`, and doesn't modify `text_out` or `input`. When
   //     the sentinel isn't empty and max_length isn't 0, this indicates that
-  //     the input exceeded max_length without finding a full frame. When the
-  //     sentinel is empty, this indicates that the state was never properly
-  //     initialized. In either case, the parser cannot continue and the
-  //     caller should close the connection.
+  //     the frame content exceeded max_length without a full sentinel. When
+  //     the sentinel is empty, this indicates that the state was never
+  //     properly initialized. In either case, the parser cannot continue and
+  //     the caller should close the connection.
   [[nodiscard]] std::optional<bool>
   parse(std::string_view& input, std::string_view& text_out) {
     // An empty sentinel is invalid.
@@ -161,8 +165,13 @@ public:
       // Track how far we got.
       state_.bytes_scanned_ = input.size();
 
-      // Fail if too long.
-      if (state_.max_length_ > 0 && state_.bytes_scanned_ > state_.max_length_)
+      // Fail if too long. The last `backup` bytes could still be the start of
+      // a split sentinel, so only the bytes before them are known to be frame
+      // content; failing any earlier would make acceptance of an
+      // exactly-max_length frame depend on how the input was chunked.
+      const auto content_so_far =
+          (input.size() > backup) ? input.size() - backup : 0UZ;
+      if (state_.max_length_ > 0 && content_so_far > state_.max_length_)
         return false;
 
       return std::nullopt;

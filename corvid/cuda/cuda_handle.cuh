@@ -70,7 +70,6 @@ public:
 
   [[nodiscard]] bool ok() const noexcept { return handle_ != H{}; }
   [[nodiscard]] explicit operator bool() const noexcept { return ok(); }
-  [[nodiscard]] bool operator!() const noexcept { return !ok(); }
 
   H operator*() const {
     if (handle_ == H{})

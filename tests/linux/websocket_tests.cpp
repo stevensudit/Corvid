@@ -1096,8 +1096,8 @@ TEST_CASE("Hangup", "[WebSocket]") {
 #pragma region Fail
 
 // `fail` sends a close frame and returns false. `fail_proto` wraps `fail` with
-// code 1002 and a "Protocol failure: " prefix. `fail_insatiable` sends close
-// and hangup then returns `insatiable`.
+// code 1002 and a "Protocol failure: " prefix. `fail_insatiable` hangs up
+// immediately, with no close frame, and returns `insatiable`.
 TEST_CASE("Fail", "[WebSocket]") {
   // `fail` with no prior close sends a close frame.
   {
@@ -1134,11 +1134,19 @@ TEST_CASE("Fail", "[WebSocket]") {
     CHECK(code == uint16_t{1002});
   }
 
-  // `fail_insatiable` returns `insatiable`.
+  // `fail_insatiable` hangs up (a single `monostate` send) and returns
+  // `insatiable`.
   {
-    epoll_http_websocket ws{[](any_strings&&) { return true; }};
-    CHECK(
-        ws.fail_insatiable(1000, "error") == epoll_http_websocket::insatiable);
+    int calls{};
+    bool got_monostate{};
+    epoll_http_websocket ws{[&](any_strings&& f) {
+      ++calls;
+      got_monostate = std::holds_alternative<std::monostate>(f);
+      return true;
+    }};
+    CHECK(ws.fail_insatiable() == epoll_http_websocket::insatiable);
+    CHECK(calls == 1);
+    CHECK(got_monostate);
   }
 }
 

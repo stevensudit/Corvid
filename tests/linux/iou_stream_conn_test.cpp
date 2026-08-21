@@ -51,6 +51,9 @@ public:
 
   struct state {
     std::function<bool(iou_recv_view)> on_data;
+    // Like `on_data`, but also handed the receiving conn (e.g. to echo);
+    // wins over `on_data` when both are set.
+    std::function<bool(conn_t&, iou_recv_view)> on_data_conn;
     std::function<bool()> on_drain;
     std::function<bool()> on_close;
   };
@@ -59,6 +62,8 @@ public:
       : conn_{conn}, state_{s} {}
 
   bool on_data(iou_recv_view view) {
+    if (state_ && state_->on_data_conn)
+      return state_->on_data_conn(conn_, std::move(view));
     if (state_ && state_->on_data) return state_->on_data(std::move(view));
     view.consume(view.active_view().size());
     return true;
@@ -1023,6 +1028,97 @@ TEST_CASE("ShutdownRecv", "[IouStreamConn]") {
 }
 
 #pragma endregion
+#pragma region ReadIdleAfterPeerEof
+
+TEST_CASE("ReadIdleAfterPeerEof", "[IouStreamConn]") {
+  // Peer EOF deliberately leaves the read-idle countdown running: a peer
+  // that shut its outbound is still idle and earns the hangup. Our own
+  // `shutdown_recv`, in contrast, stops the countdown even when the peer
+  // already went first: once we decline to listen, the peer cannot be
+  // blamed for silence.
+  if (true) {
+    // EOF alone: the countdown keeps running and hangs the conn up.
+    auto [sock0, sock1] = net_socket::create_pair();
+
+    std::atomic_bool got_eof{false};
+    std::atomic_bool got_close{false};
+
+    capture_protocol::state recv_state;
+    recv_state.on_data = [&](iou_recv_view view) {
+      if (view.active_view().empty())
+        got_eof.store(true, std::memory_order::release);
+      else
+        view.consume(view.active_view().size());
+      return true;
+    };
+    recv_state.on_close = [&] {
+      got_close.store(true, std::memory_order::release);
+      return true;
+    };
+
+    iou_loop_runner runner;
+
+    auto recv_conn =
+        capture_conn::adopt(*runner.loop(), std::move(sock1),
+            net_endpoint::invalid, shot_type::single, 50ms, {}, &recv_state)
+            .lock();
+    CHECK(recv_conn);
+    auto send_conn =
+        capture_conn::adopt(*runner.loop(), std::move(sock0),
+            net_endpoint::invalid)
+            .lock();
+    CHECK(send_conn);
+
+    CHECK(send_conn->close());
+    CHECK(WaitFor([&] { return got_eof.load(std::memory_order::acquire); }));
+    CHECK(WaitFor([&] { return got_close.load(std::memory_order::acquire); }));
+    CHECK_FALSE(recv_conn->is_open());
+  }
+  if (true) {
+    // `shutdown_recv` after peer EOF: the countdown stops, no hangup. The
+    // 10s timeout cannot fire within the test, so the mode transition is
+    // the observable.
+    auto [sock0, sock1] = net_socket::create_pair();
+
+    std::atomic_bool got_eof{false};
+
+    capture_protocol::state recv_state;
+    recv_state.on_data = [&](iou_recv_view view) {
+      if (view.active_view().empty())
+        got_eof.store(true, std::memory_order::release);
+      else
+        view.consume(view.active_view().size());
+      return true;
+    };
+
+    iou_loop_runner runner;
+
+    auto recv_conn =
+        capture_conn::adopt(*runner.loop(), std::move(sock1),
+            net_endpoint::invalid, shot_type::single, 10s, {}, &recv_state)
+            .lock();
+    CHECK(recv_conn);
+    auto send_conn =
+        capture_conn::adopt(*runner.loop(), std::move(sock0),
+            net_endpoint::invalid)
+            .lock();
+    CHECK(send_conn);
+
+    CHECK(send_conn->close());
+    CHECK(WaitFor([&] { return got_eof.load(std::memory_order::acquire); }));
+    CHECK(
+        recv_conn->read_idle().get_mode() == capture_conn::idle_mode::running);
+
+    CHECK_FALSE(recv_conn->shutdown_recv()); // already shut; still stops
+    CHECK(WaitFor([&] {
+      return recv_conn->read_idle().get_mode() ==
+             capture_conn::idle_mode::stopped;
+    }));
+    CHECK(recv_conn->is_open());
+  }
+}
+
+#pragma endregion
 #pragma region StopAndResumeReceivingOnConn
 
 TEST_CASE("StopAndResumeReceivingOnConn", "[IouStreamConn]") {
@@ -1272,6 +1368,45 @@ TEST_CASE("HangupIdempotent", "[IouStreamConn]") {
 }
 
 #pragma endregion
+#pragma region MultishotCloseMarksClosed
+
+TEST_CASE("MultishotCloseMarksClosed", "[IouStreamConn]") {
+  // After `close` on an idle multishot conn, `on_close` fires and `is_open`
+  // reports false. The single-shot flavor of this is covered by
+  // `AccessorsLifecycle`; multishot pins the flag ordering, since its recv
+  // callback bows out on cancelation without touching the close path.
+  if (true) {
+    auto [sock0, sock1] = net_socket::create_pair();
+
+    std::atomic_bool closed{false};
+
+    capture_protocol::state state0;
+    state0.on_close = [&] {
+      closed.store(true, std::memory_order::release);
+      return true;
+    };
+
+    iou_loop_runner runner;
+
+    auto conn0 = capture_conn::adopt(*runner.loop(), std::move(sock0),
+        net_endpoint::invalid, shot_type::multi, {}, {}, &state0)
+                     .lock();
+    auto conn1 = capture_conn::adopt(*runner.loop(), std::move(sock1),
+        net_endpoint::invalid)
+                     .lock();
+    CHECK(conn0);
+    CHECK(conn1);
+
+    CHECK(conn0->close());
+    CHECK(WaitFor([&] { return closed.load(std::memory_order::acquire); }));
+    CHECK_FALSE(conn0->is_open());
+
+    // Second `close` is a no-op.
+    CHECK_FALSE(conn0->close());
+  }
+}
+
+#pragma endregion
 #pragma region SelfSharedPtr
 
 TEST_CASE("SelfSharedPtr", "[IouStreamConn]") {
@@ -1366,6 +1501,201 @@ TEST_CASE("SendStringBatchOverflow", "[IouStreamConn]") {
     }));
     CHECK(recv_bytes.load() == expected);
     CHECK(payload == (chunk_a + chunk_b + chunk_c));
+  }
+}
+
+#pragma endregion
+#pragma region SendHealsAfterPoolExhaustion
+
+TEST_CASE("SendHealsAfterPoolExhaustion", "[IouStreamConn]") {
+  // A string send whose JIT buffer borrow fails (write pool exhausted) stays
+  // queued and goes out on its own once buffers return to the pool, even
+  // with no other sends or completions to re-drive the queue.
+  if (true) {
+    auto [sock0, sock1] = net_socket::create_pair();
+
+    std::atomic_bool received{false};
+    std::string payload;
+
+    constexpr std::string_view msg{"starved"};
+
+    capture_protocol::state recv_state;
+    recv_state.on_data = [&](iou_recv_view view) {
+      payload += view.active_view();
+      view.consume(view.active_view().size());
+      received.store(true, std::memory_order::release);
+      return true;
+    };
+
+    iou_loop_runner runner;
+
+    // Multishot conns so the recv side draws on the provided pool, leaving
+    // the fixed pool entirely to the hogs below.
+    auto recv_conn =
+        capture_conn::adopt(*runner.loop(), std::move(sock1),
+            net_endpoint::invalid, shot_type::multi, {}, {}, &recv_state)
+            .lock();
+    CHECK(recv_conn);
+
+    auto send_conn =
+        capture_conn::adopt(*runner.loop(), std::move(sock0),
+            net_endpoint::invalid)
+            .lock();
+    CHECK(send_conn);
+
+    // Hog the entire fixed pool so the send's JIT borrow fails.
+    std::vector<iou_loop::buffer> hogs;
+    for (;;) {
+      auto hog = runner->borrow_write_buffer(block_size::kb064);
+      if (!hog) break;
+      hogs.push_back(std::move(hog));
+    }
+    CHECK_FALSE(runner->borrow_write_buffer());
+
+    CHECK(send_conn->send(std::string{msg}));
+    std::this_thread::sleep_for(20ms);
+    CHECK_FALSE(received.load(std::memory_order::acquire));
+
+    // Return the pool; the queued send must now go out unprompted.
+    hogs.clear();
+    CHECK(WaitFor([&] { return received.load(std::memory_order::acquire); }));
+    CHECK(payload == msg);
+  }
+
+  // The same starved send driven from the loop thread. `execute_or_post`
+  // runs the lambda inline there, and the inline result must match the
+  // off-loop one: accepted (the payload is queued and heals), not a failure
+  // for bytes that will still transmit.
+  if (true) {
+    auto [sock0, sock1] = net_socket::create_pair();
+
+    std::atomic_bool received{false};
+    std::string payload;
+
+    constexpr std::string_view msg{"starved-inline"};
+
+    capture_protocol::state recv_state;
+    recv_state.on_data = [&](iou_recv_view view) {
+      payload += view.active_view();
+      view.consume(view.active_view().size());
+      received.store(true, std::memory_order::release);
+      return true;
+    };
+
+    iou_loop_runner runner;
+
+    auto recv_conn =
+        capture_conn::adopt(*runner.loop(), std::move(sock1),
+            net_endpoint::invalid, shot_type::multi, {}, {}, &recv_state)
+            .lock();
+    CHECK(recv_conn);
+
+    auto send_conn =
+        capture_conn::adopt(*runner.loop(), std::move(sock0),
+            net_endpoint::invalid)
+            .lock();
+    CHECK(send_conn);
+
+    std::vector<iou_loop::buffer> hogs;
+    for (;;) {
+      auto hog = runner->borrow_write_buffer(block_size::kb064);
+      if (!hog) break;
+      hogs.push_back(std::move(hog));
+    }
+    CHECK_FALSE(runner->borrow_write_buffer());
+
+    const auto ok = runner->post_and_wait([&] {
+      return send_conn->send(std::string{msg});
+    });
+    CHECK(ok);
+    std::this_thread::sleep_for(20ms);
+    CHECK_FALSE(received.load(std::memory_order::acquire));
+
+    hogs.clear();
+    CHECK(WaitFor([&] { return received.load(std::memory_order::acquire); }));
+    CHECK(payload == msg);
+  }
+}
+
+#pragma endregion
+#pragma region ConnectHealsAfterPoolExhaustion
+
+TEST_CASE("ConnectHealsAfterPoolExhaustion", "[IouStreamConn]") {
+  // A connect that completes while the fixed pool is exhausted must not kill
+  // the new conn: the recv borrow fails, the posted heal arms the recv once
+  // buffers return, and the connection works normally from then on. Before
+  // the fix, `on_connect_complete` treated the healing recv's false as fatal
+  // and closed the healthy conn (which also canceled the heal).
+  if (true) {
+    std::atomic_bool drained{false};
+    std::atomic_bool closed{false};
+    std::atomic_bool echoed{false};
+    std::string payload;
+
+    constexpr std::string_view msg{"ping"};
+
+    // The accepted server conn echoes whatever arrives. Multishot listener,
+    // so accepted conns draw on the provided ring, leaving the fixed pool to
+    // the hogs.
+    capture_protocol::state server_state;
+    server_state.on_data_conn = [&](capture_conn& conn, iou_recv_view view) {
+      const auto sv = view.active_view();
+      const auto ok = conn.send(std::string{sv});
+      view.consume(sv.size());
+      return ok;
+    };
+
+    capture_protocol::state client_state;
+    client_state.on_data = [&](iou_recv_view view) {
+      payload += view.active_view();
+      view.consume(view.active_view().size());
+      echoed.store(true, std::memory_order::release);
+      return true;
+    };
+    client_state.on_drain = [&] {
+      drained.store(true, std::memory_order::release);
+      return true;
+    };
+    client_state.on_close = [&] {
+      closed.store(true, std::memory_order::release);
+      return true;
+    };
+
+    iou_loop_runner runner;
+
+    auto server = capture_conn::listen(*runner.loop(),
+        net_endpoint::loopback_v4(0), shot_type::multi, {}, {}, &server_state)
+                      .lock();
+    CHECK(server);
+    const auto& listen_ep = server->local_endpoint();
+
+    // Hog the entire fixed pool before connecting, so the connect completes
+    // into a failed recv borrow.
+    std::vector<iou_loop::buffer> hogs;
+    for (;;) {
+      auto hog = runner->borrow_write_buffer(block_size::kb064);
+      if (!hog) break;
+      hogs.push_back(std::move(hog));
+    }
+    CHECK_FALSE(runner->borrow_write_buffer());
+
+    auto client = capture_conn::connect(*runner.loop(), listen_ep,
+        shot_type::single, {}, {}, &client_state)
+                      .lock();
+    CHECK(client);
+
+    // The connect itself succeeds (on_drain), and the conn survives the
+    // starved recv borrow.
+    CHECK(WaitFor([&] { return drained.load(std::memory_order::acquire); }));
+    CHECK_FALSE(closed.load(std::memory_order::acquire));
+
+    // Return the pool; the healed conn must round-trip an echo, proving the
+    // recv side armed itself.
+    hogs.clear();
+    CHECK(client->send(std::string{msg}));
+    CHECK(WaitFor([&] { return echoed.load(std::memory_order::acquire); }));
+    CHECK(payload == msg);
+    CHECK_FALSE(closed.load(std::memory_order::acquire));
   }
 }
 

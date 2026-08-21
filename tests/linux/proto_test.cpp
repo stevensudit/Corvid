@@ -34,6 +34,7 @@
 
 using namespace corvid;
 using namespace std::chrono_literals;
+using namespace std::string_literals;
 
 namespace corvid { inline namespace proto {
 struct iov_msghdr_test {
@@ -1133,6 +1134,23 @@ TEST_CASE("SelfDestroyOnLoopThread", "[IoLoop]") {
 }
 
 #pragma endregion
+#pragma region LoopRefOutlivesRunner
+
+// A `shared_ptr<epoll_loop>` held past the runner's shutdown is harmless:
+// the worker retires the loop on its way out, so the lingering ref neither
+// stalls the worker's exit nor forbids last-release on this thread.
+TEST_CASE("LoopRefOutlivesRunner", "[IoLoop]") {
+  std::shared_ptr<epoll_loop> loop;
+  if (epoll_loop_runner runner; true) loop = runner.loop()->self();
+  REQUIRE(loop);
+
+  // The retired loop is inert: no thread is its loop thread, and posts are
+  // refused.
+  CHECK_FALSE(loop->is_loop_thread());
+  CHECK_FALSE(loop->post([] { return true; }));
+} // `~epoll_loop` runs here, on the test thread, which retirement permits
+
+#pragma endregion
 
 // `register_socket` dispatches `on_readable` via virtual `epoll_io_conn`
 // override; `unregister_socket` stops further dispatch. Double-register and
@@ -2211,8 +2229,10 @@ TEST_CASE("MutualClose", "[StreamConn]") {
 #pragma region Listen_MutualClose
 
 TEST_CASE("Listen_MutualClose", "[StreamConn]") {
-  epoll_loop_runner loop;
-
+  // The notifiables precede the runner so they outlive its thread: handlers
+  // capture them by reference and can still run during posted teardown (the
+  // listener's own `on_close` fires after the test's last wait).
+  //
   // Set in `on_data` after the server calls `conn.close`, so the test thread
   // knows the server has initiated its half-close.
   notifiable<bool> close_initiated{false};
@@ -2222,6 +2242,8 @@ TEST_CASE("Listen_MutualClose", "[StreamConn]") {
   // `on_data` -- confirms the policy was copied from the listener.
   notifiable<coordination_policy> accepted_policy{
       coordination_policy::unilateral};
+
+  epoll_loop_runner loop;
 
   auto listener = epoll_stream_conn_ptr::listen(loop.loop()->self(),
       net_endpoint{ipv4_addr::loopback, 0},
@@ -2249,9 +2271,12 @@ TEST_CASE("Listen_MutualClose", "[StreamConn]") {
   REQUIRE(server_ep);
 
   // Connect and send a message to trigger `on_data` on the accepted
-  // connection.
-  auto client =
-      epoll_stream_conn_ptr::connect(loop.loop()->self(), server_ep, {});
+  // connection. The client installs an `on_close` handler so peer EOF (the
+  // server's half-close) does not auto-close it; the bilateral close must
+  // wait for the explicit `close` below, which is what makes the
+  // `server_closed` check deterministic.
+  auto client = epoll_stream_conn_ptr::connect(loop.loop()->self(), server_ep,
+      {.on_close = [](epoll_stream_conn&) { return true; }});
   REQUIRE(client);
   REQUIRE(client->send(std::string{"ping"}));
 
@@ -2310,9 +2335,50 @@ TEST_CASE("DestructorHangsUp", "[StreamConn]") {
 }
 
 #pragma endregion
+#pragma region ConnOutlivesLoop
+
+// Verify that a connection handle that outlives its loop degrades safely:
+// the cross-thread entry points return false through the `weak_loop_` guard
+// instead of touching the destroyed loop, and destructing a handle is a
+// plain drop.
+TEST_CASE("ConnOutlivesLoop", "[StreamConn]") {
+  auto [a, b] = net_socket::create_pair();
+
+  epoll_stream_conn_ptr conn;
+  epoll_stream_conn_ptr dropped;
+  if (true) {
+    auto loop = epoll_loop::make();
+    conn = epoll_stream_conn_ptr::adopt(loop, std::move(a), {});
+    dropped = epoll_stream_conn_ptr::adopt(loop, std::move(b), {});
+    REQUIRE(conn);
+    REQUIRE(dropped);
+    CHECK(loop->run_once(0) >= 0); // process posted register_with_loop
+  } // `~epoll_loop` runs here, on this thread, releasing its conn refs
+
+  // The connections survive the loop; every cross-thread entry point now
+  // reports failure rather than dispatching.
+  CHECK(conn->is_open());
+  CHECK_FALSE(conn->send("x"s));
+  CHECK_FALSE(conn->hangup());
+  CHECK_FALSE(conn->shutdown_write());
+  CHECK_FALSE(conn->shutdown_read());
+  CHECK_FALSE(conn->close());
+
+  // `dropped` destructs at scope exit without `close` having been called,
+  // exercising the handle destructor against the dead loop; its socket
+  // closes via RAII when the connection is released.
+}
+
+#pragma endregion
 #pragma region EchoServer
 
 TEST_CASE("EchoServer", "[StreamConn]") {
+  // Handler state precedes the runner so it outlives the loop thread: the
+  // client handlers capture it by reference and can still run during posted
+  // teardown.
+  std::string received;
+  notifiable<bool> done{false};
+
   epoll_loop_runner loop;
 
   // Bind a non-blocking listener to an OS-assigned loopback port.
@@ -2335,8 +2401,6 @@ TEST_CASE("EchoServer", "[StreamConn]") {
   // Connect to the server, send a message once the connection is established,
   // and accumulate the echo in `received`.
   constexpr std::string_view msg{"hello echo"};
-  std::string received;
-  notifiable<bool> done{false};
   epoll_stream_conn_ptr client_conn;
 
   client_conn = epoll_stream_conn_ptr::connect(loop.loop()->self(), server_ep,
@@ -2635,15 +2699,50 @@ TEST_CASE("EmptyLine", "[TerminatedTextParser]") {
 
 #pragma endregion
 
-// Exceeding max_length with no sentinel present returns false.
+// Exceeding max_length with no sentinel present returns false. The last
+// sentinel-size - 1 bytes could still be the start of a split sentinel, so
+// only the bytes before them count as frame content.
 #pragma region TooLong
 
 TEST_CASE("TooLong", "[TerminatedTextParser]") {
+  // 9 bytes could still be 8 content bytes plus '\r': incomplete, not too
+  // long.
+  {
+    terminated_text_parser::state s{"\r\n", 8};
+    terminated_text_parser p{s};
+    std::string_view sv{"123456789"};
+    std::string_view text;
+    CHECK(p.parse(sv, text) == std::nullopt);
+  }
+  // 10 bytes put at least 9 content bytes before any possible sentinel.
+  {
+    terminated_text_parser::state s{"\r\n", 8};
+    terminated_text_parser p{s};
+    std::string_view sv{"1234567890"};
+    std::string_view text;
+    CHECK(p.parse(sv, text) == false);
+  }
+}
+
+#pragma endregion
+
+// A frame of exactly max_length content whose stream pauses mid-sentinel is
+// not rejected prematurely; acceptance does not depend on how the input was
+// chunked across reads.
+#pragma region TooLong_SplitSentinel
+
+TEST_CASE("TooLong_SplitSentinel", "[TerminatedTextParser]") {
   terminated_text_parser::state s{"\r\n", 8};
   terminated_text_parser p{s};
-  std::string_view sv{"123456789"}; // 9 bytes, no sentinel
   std::string_view text;
-  CHECK(p.parse(sv, text) == false);
+
+  std::string_view sv{"12345678\r"};
+  CHECK(p.parse(sv, text) == std::nullopt);
+
+  // The rest of the sentinel arrives; the frame completes at the limit.
+  std::string_view sv2{"12345678\r\n"};
+  CHECK(p.parse(sv2, text) == true);
+  CHECK(text == "12345678");
 }
 
 #pragma endregion
@@ -2823,6 +2922,49 @@ TEST_CASE("RoundTrip_AllBytes", "[Base64]") {
   const auto decoded = base_64::decode(encoded);
 
   CHECK(decoded == all_bytes);
+}
+
+#pragma endregion
+
+// ---------------------------------------------------------------------------
+// sha_1 tests
+// ---------------------------------------------------------------------------
+
+// RFC 3174 (and FIPS 180) test vectors, covering the empty message, a
+// single-block message, a message whose padding forces a second block, and a
+// million-byte multi-block message.
+#pragma region Sha1_KnownVectors
+
+TEST_CASE("Sha1_KnownVectors", "[Sha1]") {
+  CHECK(sha_1::digest("") ==
+        sha_1::digest_t{0xDA39A3EEU, 0x5E6B4B0DU, 0x3255BFEFU, 0x95601890U,
+            0xAFD80709U});
+  CHECK(sha_1::digest("abc") ==
+        sha_1::digest_t{0xA9993E36U, 0x4706816AU, 0xBA3E2571U, 0x7850C26CU,
+            0x9CD0D89DU});
+  CHECK(sha_1::digest(
+            "abcdbcdecdefdefgefghfghighijhijkijkljklmklmnlmnomnopnopq") ==
+        sha_1::digest_t{0x84983E44U, 0x1C3BD26EU, 0xBAAE4AA1U, 0xF95129E5U,
+            0xE54670F1U});
+  CHECK(sha_1::digest("The quick brown fox jumps over the lazy dog") ==
+        sha_1::digest_t{0x2FD4E1C6U, 0x7A2D28FCU, 0xED849EE1U, 0xBB76E739U,
+            0x1B93EB12U});
+  CHECK(sha_1::digest(std::string(1'000'000, 'a')) ==
+        sha_1::digest_t{0x34AA973CU, 0xD4C4DAA4U, 0xF61EEB2BU, 0xDBAD2731U,
+            0x6534016FU});
+}
+
+#pragma endregion
+
+// bytes() serializes the digest words big-endian, most significant byte
+// first.
+#pragma region Sha1_Bytes
+
+TEST_CASE("Sha1_Bytes", "[Sha1]") {
+  const auto raw = sha_1::bytes(sha_1::digest("abc"));
+  const sha_1::bytes_t expected{0xA9, 0x99, 0x3E, 0x36, 0x47, 0x06, 0x81, 0x6A,
+      0xBA, 0x3E, 0x25, 0x71, 0x78, 0x50, 0xC2, 0x6C, 0x9C, 0xD0, 0xD8, 0x9D};
+  CHECK(raw == expected);
 }
 
 #pragma endregion

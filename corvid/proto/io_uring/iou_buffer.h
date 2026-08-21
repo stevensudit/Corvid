@@ -229,7 +229,6 @@ public:
 
   // Check for validity when a `buffer` has been allocated from the pool.
   [[nodiscard]] explicit operator bool() const noexcept { return pool_.get(); }
-  [[nodiscard]] bool operator!() const noexcept { return !pool_; }
 
   // Access the result of the I/O operation; initially an error condition.
   [[nodiscard]] const iou_res& result() const noexcept { return res_; }
@@ -247,7 +246,7 @@ public:
     return bitmask::has(cqe_flags_, iou_cqe_flags::buffer);
   }
 
-  // Byte size of this allocation: 4096, 16384, or 65536.
+  // Byte size of this allocation.
   [[nodiscard]] size_t size() const noexcept { return full_span_.size(); }
 
   // Index of buffer entry. Can be 0 if the entire page is registered
@@ -305,7 +304,10 @@ public:
     return msg_flags{msgh_.msg_flags};
   }
 
-  // Access the length in the `msghdr`.
+  // Full datagram length from a multishot recvmsg completion, even when the
+  // payload was truncated.
+  //
+  // Repurposes the otherwise-unused `msg_controllen` field as storage.
   [[nodiscard]] size_t msghdr_len() const noexcept {
     return msgh_.msg_controllen;
   }
@@ -387,9 +389,11 @@ public:
   }
 
   // Copy `more` to the tail of `payload_span_` and extend both
-  // `payload_span_` and `active_span_` by that amount. Returns false
-  // without modifying anything if `more` would not fit in the remaining
-  // tail. Implicitly resets if the buffer is in consumed state first.
+  // `payload_span_` and `active_span_` by that amount.
+  //
+  // Returns false without modifying anything if `more` would not fit in the
+  // remaining tail. Implicitly resets if the buffer is in consumed state
+  // first.
   [[nodiscard]] bool append(const_span_t more) noexcept {
     assert(blockrw_ == block_type::write);
     auto tail = tail_span();
@@ -420,10 +424,12 @@ public:
     return true;
   }
 
-  // Set up a file read from `new_offset` for `bytes_to_read`. Updates
-  // `file_offset` and shrinks `active_span_` to exactly `bytes_to_read`,
-  // starting at the current tail. Returns false without modifying anything if
-  // `bytes_to_read` exceeds the available tail space. See also: `file_offset`.
+  // Set up a file read from `new_offset` for `bytes_to_read`.
+  //
+  // Updates `file_offset` and shrinks `active_span_` to exactly
+  // `bytes_to_read`, starting at the current tail. Returns false without
+  // modifying anything if `bytes_to_read` exceeds the available tail space.
+  // See also: `file_offset`.
   [[nodiscard]] bool
   seek_read(uint64_t new_offset, size_t bytes_to_read) noexcept {
     assert(blockrw_ == block_type::read);
@@ -435,15 +441,16 @@ public:
 #pragma endregion
 #pragma region State
 
-  // Reset the I/O result manually. Not generally useful outside of
-  // `io_loop`.
+  // Reset the I/O result manually.
+  //
+  // Not generally useful outside of `io_loop`.
   void reset_result(iou_res res = iou_res{-1},
       iou_cqe_flags cqe_flags = {}) noexcept {
     res_ = res;
     cqe_flags_ = cqe_flags;
   }
 
-  // Mark buffer as deactivated. Used for flow control.
+  // Mark buffer as deactivated, for flow control.
   void deactivate() noexcept { res_ = iou_res{EC::notsock}; }
 
   // Result of `prepare` call. Essentially, a named tuple.
@@ -453,9 +460,10 @@ public:
     uint64_t file_offset;
   };
 
-  // Prepare the buffer for I/O submission. Resets the I/O result and returns
-  // the active span, buffer index, and file offset. This is primarily for
-  // internal use.
+  // Prepare the buffer for I/O submission.
+  //
+  // Resets the I/O result and returns the active span, buffer index, and file
+  // offset. This is primarily for internal use.
   prepare_result prepare() noexcept {
     reset_result();
     ++pending_releases_;
@@ -465,14 +473,17 @@ public:
   }
 
   // Update with the result of an I/O completion.
+  //
   //   Read mode: extends `payload_span` by bytes read; `active_span`
   //     becomes the new tail (space remaining for further reads).
   //   Write mode: advances `active_span` front by bytes sent; when fully
   //     sent, `active_span` becomes zero-length (consumed state).
+  //
   // On error, spans are left unchanged.
-  // When `cqe_flags::more` is absent from, we decrement `pending_releases`.
-  // This is most relevant for ZC writes, where it prevents prematurely freeing
-  // the buffer.
+  //
+  // When `cqe_flags::more` is absent from `cqe_flags`, we decrement
+  // `pending_releases`. This is most relevant for ZC writes, where it prevents
+  // prematurely freeing the buffer.
   iou_buffer& update(iou_res res, iou_cqe_flags cqe_flags) noexcept {
     res_ = res;
     cqe_flags_ = cqe_flags;
@@ -564,10 +575,16 @@ public:
 #pragma endregion
 #pragma region Read/Write
 
-  // Promote this read buffer to write mode. `payload_span` is kept as-is
-  // (the received bytes become the write payload); `active_span` is set to
-  // `payload_span` (so the next send transmits exactly what was read).
-  // Decrements the pool's in-flight read byte count for the full block.
+  // Promote this read buffer to write mode.
+  //
+  // `payload_span` is kept as-is (the received bytes become the write
+  // payload); `active_span` is set to `payload_span` (so the next send
+  // transmits exactly what was read). Decrements the pool's in-flight read
+  // byte count for the full block.
+  //
+  // A pool that declines read-byte tracking (the Provided Buffer and
+  // synthetic pools) refuses the promotion, leaving the buffer in read mode.
+  // Detect this by chaining a mode check: `promote_to_write().blockrw()`.
   iou_buffer& promote_to_write() {
     assert(blockrw_ == block_type::read);
     if (!pool_->decrement_read_bytes(full_span_.size())) return *this;
@@ -576,9 +593,15 @@ public:
     return *this;
   }
 
-  // Demote this write buffer to read mode. `payload_span` is kept as-is;
-  // `active_span` becomes the tail (space after `payload_span` for
-  // additional incoming data).
+  // Demote this write buffer to read mode.
+  //
+  // `payload_span` is kept as-is; `active_span` becomes the tail (space after
+  // `payload_span` for additional incoming data). Increments the pool's
+  // in-flight read byte count for the full block.
+  //
+  // A pool that declines read-byte tracking refuses the demotion, leaving
+  // the buffer in write mode. Detect this by chaining a mode check:
+  // `demote_to_read().blockrw()`.
   iou_buffer& demote_to_read() {
     assert(blockrw_ == block_type::write);
     if (!pool_->increment_read_bytes(full_span_.size())) return *this;
@@ -603,9 +626,12 @@ public:
     return addr_;
   }
 
-  // Configure `msg_` for a recvmsg operation. Points `iov_` at `active_span_`
-  // and `msg_name` at `addr_` to capture the sender address. Returns `&msg_`
-  // for use with `prep_recvmsg`. Call `prepare_msg` after this.
+  // Configure `msg_` for a recvmsg operation.
+  //
+  // Points `iov_` at `active_span_` and `msg_name` at `addr_` to capture the
+  // sender address.
+  //
+  // Returns `&msg_` for use with `prep_recvmsg`.
   [[nodiscard]] msghdr* prepare_recvmsg() noexcept {
     assert(blockrw_ == block_type::read);
     reset_result();
@@ -623,8 +649,11 @@ public:
     return &msgh_;
   }
 
-  // Configure `msg_` for a sendmsg operation to `peer_addr`. Returns
-  // `&msg_` for use with `prep_sendmsg`. Call `prepare_msg` after this.
+  // Configure `msg_` for a sendmsg operation to `peer_addr`.
+  //
+  // An empty `peer_addr` takes sendmsg(2)'s no-address form (null
+  // `msg_name`), deferring to the socket's connected peer. Returns `&msg_`
+  // for use with `prep_sendmsg`.
   [[nodiscard]] msghdr* prepare_sendmsg() noexcept {
     assert(blockrw_ == block_type::write);
     reset_result();
@@ -634,8 +663,13 @@ public:
     iov_.iov_len = active_span_.size();
     msgh_.msg_iov = &iov_;
     msgh_.msg_iovlen = 1;
-    msgh_.msg_name = addr_.as_sockaddr_ptr();
-    msgh_.msg_namelen = addr_.sockaddr_size();
+    if (addr_.empty()) {
+      msgh_.msg_name = nullptr;
+      msgh_.msg_namelen = 0;
+    } else {
+      msgh_.msg_name = addr_.as_sockaddr_ptr();
+      msgh_.msg_namelen = addr_.sockaddr_size();
+    }
     msgh_.msg_control = nullptr;
     msgh_.msg_controllen = 0;
     msgh_.msg_flags = 0;
@@ -656,6 +690,7 @@ private:
   }
 
   // True when the write buffer has been fully sent (or is initially empty).
+  //
   // Both states are treated identically: the next write operation resets.
   [[nodiscard]] bool do_is_fully_consumed() const noexcept {
     assert(blockrw_ == block_type::write);
@@ -676,7 +711,9 @@ private:
 
   void do_reconstitute_msg() noexcept {
     msgh_.msg_iov = &iov_;
-    msgh_.msg_name = addr_.as_sockaddr_ptr();
+    // Only re-point a `msg_name` armed at the old storage; a null one is
+    // the deliberate no-address form and stays null.
+    if (msgh_.msg_name) msgh_.msg_name = addr_.as_sockaddr_ptr();
   }
 
 #pragma endregion

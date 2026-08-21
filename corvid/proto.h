@@ -41,12 +41,12 @@
 //                views
 //  terminated_text_parser - sentinel-terminated text frame parser for
 //                line-oriented protocols (HTTP, SMTP, POP3, etc.)
-//  base-64     - Base64 encoding and decoding
-//  utf8-checker - incremental UTF-8 validator
+//  base_64     - Base64 encoding and decoding
+//  utf8_checker - incremental UTF-8 validator
 //  http_head_codec - HTTP/1.1 types: `http_version`/`http_method` enums,
 //                `http_headers` ordered multimap, `request_head` and
 //                `response_head` with extraction and serialization
-//  sha-1       - SHA-1 digest for non-security-critical protocol work, such
+//  sha_1       - SHA-1 digest for non-security-critical protocol work, such
 //                as the WebSocket handshake
 //  epoll_http_server - HTTP/1.1 server with keep-alive and pipelining
 //  iou_loop    - io_uring-based I/O event loop, the counterpart to
@@ -64,10 +64,10 @@
 #include "proto/epoll/epoll_stream_conn.h"
 #include "proto/misc/json_parser.h"
 #include "proto/misc/terminated_text_parser.h"
-#include "proto/misc/base-64.h"
-#include "proto/misc/utf8-checker.h"
+#include "proto/misc/base_64.h"
+#include "proto/misc/utf8_checker.h"
 #include "proto/misc/http_head_codec.h"
-#include "proto/misc/sha-1.h"
+#include "proto/misc/sha_1.h"
 #include "proto/epoll/epoll_http_transaction.h"
 #include "proto/epoll/epoll_http_websocket.h"
 #include "proto/epoll/epoll_http_websocket_transaction.h"

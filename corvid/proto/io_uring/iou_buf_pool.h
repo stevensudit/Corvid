@@ -131,7 +131,7 @@ class iou_buf_pool_of: public buffer_pool_base {
       return reinterpret_cast<ptr>(this);
     }
 
-    [[nodiscard]] bool is_valid() const noexcept {
+    [[nodiscard]] bool is_valid() const {
 #ifndef NDEBUG
       return canary_front == canary_value && canary_back == canary_value;
 #else
@@ -280,10 +280,11 @@ public:
   }
 
   // Register the backing block as a single fixed buffer (index 0) with
-  // `ring`. Must be called exactly once before any buffer is used in an I/O
-  // submission. Returns false (and sets `errno`) on failure. The `ring`
-  // unregisters on destruction.
-  [[nodiscard]] bool register_with(iou_ring& ring) noexcept {
+  // `ring`.
+  //
+  // Must be called exactly once before any buffer is used in an I/O
+  // submission. The `ring` unregisters on destruction.
+  [[nodiscard]] iou_res register_with(iou_ring& ring) noexcept {
     iovec iov{base_, slab_size};
     return ring.register_buffers(&iov, 1);
   }
@@ -308,9 +309,10 @@ public:
     return make_buffer(this->shared_from_this(), s, 0U, block_type::read);
   }
 
-  // Borrow a buffer for an outgoing write. Not subject to read backpressure;
-  // may draw from the write reserve. Returns an empty buffer if fully
-  // exhausted. Thread-safe.
+  // Borrow a buffer for an outgoing write.
+  //
+  // Not subject to read backpressure; may draw from the write reserve. Returns
+  // an empty buffer if fully exhausted. Thread-safe.
   [[nodiscard]] buffer borrow_writer(block_size sz = block_size::kb004) {
     std::scoped_lock lock(mutex_);
     span_t s{alloc_block(*sz), *sz};
@@ -343,8 +345,8 @@ private:
   [[nodiscard]] ptr base() const noexcept override { return base_; }
 
   [[nodiscard]] bool decrement_read_bytes(size_t n) noexcept override {
-    [[maybe_unused]] const auto old = in_flight_read_bytes_ -= n;
-    assert(old < read_throttle_size);
+    [[maybe_unused]] const auto remaining = in_flight_read_bytes_ -= n;
+    assert(remaining < read_throttle_size);
     return true;
   }
 

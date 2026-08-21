@@ -354,6 +354,54 @@ TEST_CASE("ShutdownFailureModes", "[OwnerThreadDispatcher]") {
 }
 
 #pragma endregion
+#pragma region Retire
+
+TEST_CASE("Retire", "[OwnerThreadDispatcher]") {
+  // Retiring on the loop thread shuts down, releases the thread claim, and
+  // waives the wrong-thread destruction guard.
+  auto dispatcher = std::make_unique<owner_thread_dispatcher<>>();
+  CHECK(dispatcher->is_loop_thread());
+
+  // A foreign thread cannot retire a live dispatcher: the attempt throws
+  // (the `shutdown` contract) and leaves the claim and queue intact.
+  relaxed_atomic_bool foreign_threw{false};
+  std::thread rejected{[&] {
+    try {
+      (void)dispatcher->retire();
+    }
+    catch (const std::logic_error&) {
+      foreign_threw = true;
+    }
+  }};
+  rejected.join();
+  CHECK(foreign_threw);
+  CHECK(dispatcher->is_loop_thread());
+  CHECK(dispatcher->post([] { return true; }));
+  CHECK(dispatcher->execute_post_queue() == 1U);
+
+  CHECK(dispatcher->retire());
+  CHECK_FALSE(dispatcher->retire()); // idempotent
+  CHECK_FALSE(dispatcher->is_loop_thread());
+  CHECK_FALSE(dispatcher->post([] { return true; }));
+
+  // The thread is unclaimed again, so a new dispatcher can bind here while
+  // the retired one is still alive.
+  owner_thread_dispatcher<> replacement;
+  CHECK(replacement.is_loop_thread());
+
+  // After retirement the idempotent early-out wins from any thread: a
+  // foreign `retire` returns false without throwing. The last owner may then
+  // destroy the retired dispatcher from any thread.
+  relaxed_atomic_bool foreign_after_retire{false};
+  std::thread t{[&, dispatcher = std::move(dispatcher)]() mutable {
+    foreign_after_retire = !dispatcher->retire();
+    dispatcher.reset();
+  }};
+  t.join();
+  CHECK(foreign_after_retire);
+}
+
+#pragma endregion
 #pragma region ShutdownFromCallback
 
 TEST_CASE("ShutdownFromCallback", "[OwnerThreadDispatcher]") {

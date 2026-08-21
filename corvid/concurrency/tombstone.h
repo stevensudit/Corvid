@@ -77,7 +77,6 @@ public:
     return value_.load(std::memory_order::acquire) == final_v;
   }
   [[nodiscard]] explicit operator bool() const noexcept { return dead(); }
-  [[nodiscard]] bool operator!() const noexcept { return !dead(); }
 
   // Returns the current value with `relaxed` semantics. Use `dead` when the
   // result gates access to memory published before `kill`.

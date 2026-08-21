@@ -57,6 +57,7 @@ public:
   using dispatcher_t = owner_thread_dispatcher<posted_fn>;
 
   // Public for `std::make_shared`; external callers must go through `create`.
+  //
   // Constructs a pool backed by a slab of `slab_size` bytes (must be a
   // multiple of `hugepage_size`), split into slots of `buf_size` bytes each.
   // `buf_count` is derived as `slab_size / buf_size` and must be a power of
@@ -67,20 +68,21 @@ public:
       : dispatcher_{&dispatcher}, bgid_{bgid} {
     if (slab_size == 0) return;
 
-    slab_size_ = slab_size;
-    buf_size_ = *buf_size;
-    buf_count_ = slab_size_ / buf_size_;
-
-    if (buf_count_ == 0) return;
-    if (!std::has_single_bit(buf_count_))
+    const auto buf_bytes = *buf_size;
+    const auto buf_count = slab_size / buf_bytes;
+    if (buf_count == 0) return;
+    if (!std::has_single_bit(buf_count))
       throw std::invalid_argument{"buf_count must be a power of two"};
     if (slab_size % hugepage_size != 0)
       throw std::invalid_argument{
           "slab_size must be a multiple of hugepage_size"};
-    if (buf_count_ >
+    if (buf_count >
         static_cast<size_t>(std::numeric_limits<unsigned short>::max()) + 1ULL)
       throw std::invalid_argument{
           "buf_count exceeds io_uring 16-bit bid range"};
+    slab_size_ = slab_size;
+    buf_size_ = buf_bytes;
+    buf_count_ = buf_count;
 
     // Try a hugepage-backed mapping first; fall back to anonymous with
     // hugepage advice. Over-allocate by one `hugepage_size` to guarantee
@@ -132,7 +134,6 @@ public:
 
   // Whether the pool is active (non-zero sizes, memory allocated).
   [[nodiscard]] explicit operator bool() const noexcept { return base_; }
-  [[nodiscard]] bool operator!() const noexcept { return !base_; }
 
   // Buffer group ID; use as the `bgid` for `IOSQE_BUFFER_SELECT` SQEs.
   [[nodiscard]] uint16_t bgid() const noexcept { return bgid_; }
@@ -162,16 +163,17 @@ public:
 #pragma region Registration
 
   // Register the buffer ring with `ring` and enqueue all buffer slots.
+  //
   // Must be called once before any SQE with `IOSQE_BUFFER_SELECT` is
   // submitted.
   //
   // Note that, when `slab_size` is 0, we silently pass.
-  [[nodiscard]] bool register_with(iou_ring& ring) noexcept {
-    if (!base_) return true;
+  [[nodiscard]] iou_res register_with(iou_ring& ring) noexcept {
+    if (!base_) return {};
 
     // Associate buffer ring with I/O ring.
     buf_ring_ = iou_buf_ring{ring, buf_count_, bgid_};
-    if (!buf_ring_) return false;
+    if (!buf_ring_) return buf_ring_.setup_result();
 
     // Enqueue all buffer slots into the kernel ring. The kernel will select
     // and fill them on `IOSQE_BUFFER_SELECT` SQEs, and replenish them when we
@@ -185,7 +187,7 @@ public:
     buf_ring_.advance(static_cast<int>(buf_count_));
     free_count_ = buf_count_;
 
-    return true;
+    return {};
   }
 
   // Tell the embedded `iou_buf_ring` that its associated `iou_ring` is about

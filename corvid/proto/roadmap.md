@@ -57,7 +57,7 @@ without changing higher layers.
   (size == capacity) with atomic `begin` / `end` indexes and loop-thread-only
   `reads_enabled` / `view_active` flags; `compact(target)` resizes and/or
   memmoves active bytes subject to hysteresis; `epoll_recv_buffer_view` is the
-  limited-interface token delivered to `on_data`: `active_view()` /
+  limited-interface view delivered to `on_data`: `active_view()` /
   implicit-`string_view` conversion reads the unconsumed region, `consume(n)`
   / `update_active_view(tail)` advance `begin`, `expand_to(n)` requests growth,
   `try_take_full(out, view)` bulk-transfers a full buffer; destructor posts
@@ -84,8 +84,7 @@ without changing higher layers.
   `can_read()` / `can_write()` query half-close state; `local_endpoint()` /
   `remote_endpoint()` return socket addresses; supports persistent callback
   mode via `epoll_stream_conn_handlers` (`on_data(conn, epoll_recv_buffer_view)`,
-  `on_drain`, `on_close`); holds `own_handlers_` and an atomic
-  `active_handlers_` pointer that an extension may temporarily redirect
+  `on_drain`, `on_close`), held in `handlers_`
 - **[done]** `tcp_listener` -- now integrated as `epoll_stream_conn_ptr::listen()`;
   creates a non-blocking listening socket, binds, and calls `listen(2)`; drains
   accepted connections via `accept4` on `EPOLLIN`, creating self-owning
@@ -163,6 +162,11 @@ followed by client and proxy support.
 - Deferred: request body reading (`Content-Length` / chunked transfer),
   `POST` / `PUT` methods, chunked response encoding, content negotiation,
   encoding decode (percent-hex `%20`, RFC 2047 MIME word, RFC 5987)
+- Deferred: server-wide `OPTIONS *` handling; the codec parses it
+  (RFC 9112 section 3.2.4) but the server has no route for `"*"`, so it
+  currently gets a 404 where a 204 with an `Allow` header would be truthful.
+  Also deferred: rejecting requests whose `Transfer-Encoding` extraction
+  yields `unknown` (501 per RFC 9112 section 6.1) once body reading lands.
 - `http_client` -- HTTP/1.1 client built on `epoll_stream_conn`
 - `http_proxy` -- HTTP proxy support
 - **Future:** HTTP/2
@@ -176,10 +180,10 @@ WebSocket protocol built on top of the HTTP/1.1 upgrade mechanism.
   and as identity on big-endian; used by `ws_frame_header_storage` for
   network-byte-order payload length fields. Since moved to `corvid/math/` so
   that lower bands (e.g. `filesys`) can use it.
-- **[done]** `base-64.h` -- RFC 4648 Base64 encode/decode; `encode(span<uint8_t>)`
+- **[done]** `base_64.h` -- RFC 4648 Base64 encode/decode; `encode(span<uint8_t>)`
   and `decode(string_view)` (returns `std::vector<uint8_t>`); used for `Sec-WebSocket-Key`
   generation and `Sec-WebSocket-Accept` computation
-- **[done]** `sha-1.h` -- SHA-1 digest for WebSocket accept-key computation;
+- **[done]** `sha_1.h` -- SHA-1 digest for WebSocket accept-key computation;
   `sha_1::digest(string_view)` returns `digest_t`
   (`array<uint32_t,5>`), and `sha_1::bytes(digest_t)` converts it to the raw
   20-byte `array<uint8_t,20>`; suitable only for non-security-critical

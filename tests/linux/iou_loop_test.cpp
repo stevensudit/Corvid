@@ -24,6 +24,7 @@
 #include <cstring>
 #include <string_view>
 #include <thread>
+#include <netinet/in.h>
 #include <sys/socket.h>
 #include <sys/uio.h>
 
@@ -142,8 +143,8 @@ TEST_CASE("StopFromThread", "[IouLoop]") {
 // the io_uring memory being unmapped before the next test re-mmaps it.
 TEST_CASE("SelfDestroyOnLoopThread", "[IouLoop]") {
   auto runner = std::make_unique<iou_loop_runner>();
-  // Use a reference (no `shared_ptr` copy) so the worker's `use_count`
-  // check sees `state->loop` as the sole owner during cleanup.
+  // Use a reference (no `shared_ptr` copy) so the worker's cleanup releases
+  // the last owner and `~loop_t` runs during it.
   iou_loop& loop = *runner;
   auto finished = runner->finished_signal();
 
@@ -166,7 +167,7 @@ TEST_CASE("PostFromThread", "[IouLoop]") {
 
     iou_loop_runner loop;
 
-    const bool ok = loop->post([&] {
+    const auto ok = loop->post([&] {
       fired.store(true, std::memory_order::release);
       return true;
     });
@@ -186,7 +187,7 @@ TEST_CASE("PostAndWait", "[IouLoop]") {
 
     iou_loop_runner loop;
 
-    const bool ok = loop->post_and_wait([&] {
+    const auto ok = loop->post_and_wait([&] {
       ran.store(true, std::memory_order::relaxed);
       return true;
     });
@@ -213,7 +214,7 @@ TEST_CASE("RecvSend", "[IouLoop]") {
 
     iou_loop_runner loop;
 
-    const bool ok = loop->post_and_wait([&] {
+    const auto ok = loop->post_and_wait([&] {
       const auto token = loop->submit_recv_bytes(recv_sock, buf,
           [&](completion_id, iou_res res, iou_cqe_flags) {
             recv_result.store(res.value(), std::memory_order::relaxed);
@@ -368,7 +369,7 @@ TEST_CASE("IsLoopThread", "[IouLoop]") {
     CHECK_FALSE(loop->is_loop_thread());
 
     std::atomic_bool confirmed{false};
-    const bool ok = loop->post_and_wait([&] {
+    const auto ok = loop->post_and_wait([&] {
       confirmed.store(loop->is_loop_thread(), std::memory_order::release);
       return true;
     });
@@ -387,7 +388,7 @@ TEST_CASE("ExecuteOrPost", "[IouLoop]") {
 
     iou_loop_runner loop;
 
-    const bool ok = loop->execute_or_post([&] {
+    const auto ok = loop->execute_or_post([&] {
       executed.store(true, std::memory_order::release);
       return true;
     });
@@ -416,7 +417,7 @@ TEST_CASE("NopTokenVariant", "[IouLoop]") {
         });
     CHECK(token.is_valid());
 
-    const bool submitted = loop->submit_nop(token, slot_retention::automatic);
+    const auto submitted = loop->submit_nop(token, slot_retention::automatic);
     CHECK(submitted);
     CHECK(WaitFor([&] { return fired.load(std::memory_order::acquire); }));
     CHECK(result.load() == 0);
@@ -438,12 +439,41 @@ TEST_CASE("TokenIsReleased", "[IouLoop]") {
     CHECK(token.is_valid());
     CHECK_FALSE(loop->is_released(token));
 
-    const bool released = loop->release(std::move(token));
+    const auto released = loop->release(std::move(token));
     CHECK(released);
     // The slot's generation was bumped; `is_released` detects the mismatch and
     // nullifies the token.
     CHECK(loop->is_released(token));
     CHECK_FALSE(token.is_valid());
+  }
+}
+
+#pragma endregion
+#pragma region FailedSubmitLeavesNoPin
+
+TEST_CASE("FailedSubmitLeavesNoPin", "[IouLoop]") {
+  // A submit rejected before reaching the ring (invalid file) must not leave
+  // `pending_releases` incremented on the buffer: only an SQE that will
+  // produce a CQE may pin it.
+  if (true) {
+    iou_loop_runner loop;
+
+    auto buf = loop->borrow_write_buffer();
+    REQUIRE(buf);
+    CHECK(buf.append("data"));
+
+    auto token = loop->tokenize(
+        [](completion_id, iou_res, iou_cqe_flags) -> slot_retention {
+          return {};
+        });
+    REQUIRE(token.is_valid());
+
+    const os_file no_file;
+    CHECK_FALSE(loop->submit_write_buffer(no_file, buf, token,
+        slot_retention::retain));
+    CHECK(buf.pending_releases() == 0ULL);
+    const auto released = loop->release(std::move(token));
+    CHECK(released);
   }
 }
 
@@ -656,6 +686,68 @@ TEST_CASE("AcceptConnect", "[IouLoop]") {
 }
 
 #pragma endregion
+#pragma region AcceptFillsEndpoint
+
+TEST_CASE("AcceptFillsEndpoint", "[IouLoop]") {
+  // The kernel fills the endpoint bound to `submit_accept` and writes the
+  // actual address length into `len` (accept4(2) value-result contract). The
+  // callback must see the finalized endpoint: `len` holds the true sockaddr
+  // length rather than the prep-time write capacity, and the `net_endpoint`
+  // has adopted it.
+  if (true) {
+    auto listen_ep = net_endpoint::loopback_v4(0);
+    auto listen_sock = net_socket::create_for(listen_ep);
+    CHECK(listen_sock);
+    CHECK(listen_sock.set_reuse_addr());
+    CHECK(listen_sock.bind(listen_ep));
+    CHECK(listen_sock.listen());
+    const auto bound = net_endpoint::local_of(listen_sock);
+
+    std::atomic_bool accepted{false};
+    std::atomic_int32_t accept_res{-1};
+    net_endpoint peer_ep;
+    socklen_t peer_len{};
+
+    iou_loop_runner loop;
+
+    const auto accept_tok = loop->submit_accept(listen_sock,
+        [&](completion_id, iou_res res, iou_cqe_flags,
+            const combined_endpoint& ep) -> slot_retention {
+          accept_res.store(res.value(), std::memory_order::relaxed);
+          peer_ep = ep.sockaddr;
+          peer_len = ep.len;
+          accepted.store(true, std::memory_order::release);
+          return slot_retention{};
+        });
+    CHECK(accept_tok.is_valid());
+
+    auto client_sock = net_socket::create_for(bound);
+    CHECK(client_sock);
+    std::atomic_bool connected{false};
+    bound_endpoint_with_timeout connect_ep{};
+    connect_ep.sockaddr.sockaddr = bound;
+    connect_ep.sockaddr.len = bound.sockaddr_size();
+    const auto connect_tok = loop->submit_connect(client_sock,
+        std::move(connect_ep),
+        [&](completion_id, iou_res, iou_cqe_flags) -> slot_retention {
+          connected.store(true, std::memory_order::release);
+          return slot_retention{};
+        });
+    CHECK(connect_tok.is_valid());
+
+    CHECK(WaitFor([&] { return accepted.load(std::memory_order::acquire); }));
+    CHECK(WaitFor([&] { return connected.load(std::memory_order::acquire); }));
+    if (accept_res.load() >= 0) ::close(accept_res.load());
+
+    // A real IPv4 peer address, not the write capacity.
+    CHECK(peer_len == sizeof(sockaddr_in));
+    CHECK_FALSE(peer_ep.empty());
+    CHECK(peer_ep.as_sockaddr_view().is_v4());
+    CHECK(peer_ep.port() == net_endpoint::local_of(client_sock).port());
+  }
+}
+
+#pragma endregion
 #pragma region RecvSendMsg
 
 TEST_CASE("RecvSendMsg", "[IouLoop]") {
@@ -682,7 +774,7 @@ TEST_CASE("RecvSendMsg", "[IouLoop]") {
 
     iou_loop_runner loop;
 
-    const bool ok = loop->post_and_wait([&] {
+    const auto ok = loop->post_and_wait([&] {
       auto recv_buf = loop->borrow_read_buffer();
       if (!recv_buf) return false;
       const auto rtok = loop->submit_recvmsg_buffer(recv_sock,
@@ -713,6 +805,68 @@ TEST_CASE("RecvSendMsg", "[IouLoop]") {
     CHECK(recv_n.load() == static_cast<int32_t>(payload.size()));
     CHECK(send_n.load() == static_cast<int32_t>(payload.size()));
     CHECK(recv_result == std::string{payload});
+  }
+}
+
+#pragma endregion
+#pragma region SendMsgConnectedNoPeer
+
+TEST_CASE("SendMsgConnectedNoPeer", "[IouLoop]") {
+  // `submit_sendmsg_buffer` with an empty `peer_addr` sends to the socket's
+  // connected peer: the msghdr takes sendmsg(2)'s no-address form.
+  if (true) {
+    auto recv_ep = net_endpoint::any_v4(0);
+    auto send_ep = net_endpoint::any_v4(0);
+    auto recv_sock = net_socket::create_for(recv_ep, execution::nonblocking,
+        message_style::datagram);
+    auto send_sock = net_socket::create_for(send_ep, execution::nonblocking,
+        message_style::datagram);
+    CHECK(recv_sock.bind(recv_ep));
+    CHECK(send_sock.bind(send_ep));
+    auto recv_addr = net_endpoint::local_of(recv_sock);
+    const auto connect_ok = send_sock.connect(recv_addr);
+    CHECK((connect_ok && *connect_ok));
+
+    std::atomic_bool received{false};
+    std::atomic_int32_t send_n{-1};
+    std::string recv_result;
+
+    constexpr std::string_view payload{"connected-nopeer"};
+
+    iou_loop_runner loop;
+
+    const auto ok = loop->post_and_wait([&] {
+      auto recv_buf = loop->borrow_read_buffer();
+      if (!recv_buf) return false;
+      const auto rtok = loop->submit_recvmsg_buffer(recv_sock,
+          std::move(recv_buf),
+          [&](completion_id, iou_loop::buffer& buf) -> slot_retention {
+            recv_result = std::string{buf.payload_view()};
+            received.store(true, std::memory_order::release);
+            return {};
+          });
+      if (!rtok.is_valid()) return false;
+
+      auto send_buf = loop->borrow_write_buffer();
+      if (!send_buf) return false;
+      (void)send_buf.append(payload);
+      // Deliberately no `peer_addr`: the connected peer must apply.
+      const auto stok = loop->submit_sendmsg_buffer(send_sock,
+          std::move(send_buf),
+          [&](completion_id, iou_loop::buffer& buf) -> slot_retention {
+            send_n.store(buf.result().value(), std::memory_order::relaxed);
+            return {};
+          });
+      if (!stok.is_valid()) return false;
+      return loop->immediate_submit();
+    });
+    CHECK(ok);
+    CHECK(WaitFor([&] { return received.load(std::memory_order::acquire); }));
+    // The send CQE has no ordering contract against the recv CQE (loopback
+    // delivery can post the recv completion first), so wait for it too.
+    CHECK(WaitFor([&] { return send_n.load() != -1; }));
+    CHECK(send_n.load() == static_cast<int32_t>(payload.size()));
+    CHECK(recv_result == payload);
   }
 }
 
@@ -768,7 +922,7 @@ TEST_CASE("SlotRetentionRetain", "[IouLoop]") {
           return slot_retention::automatic;
         });
     CHECK(token.is_valid());
-    const bool submitted = loop->submit_nop(token, slot_retention::automatic);
+    const auto submitted = loop->submit_nop(token, slot_retention::automatic);
     CHECK(submitted);
     CHECK(
         WaitFor([&] { return count.load(std::memory_order::acquire) == 2; }));
@@ -1270,7 +1424,7 @@ TEST_CASE("RecvMsgBufferMultiStress", "[IouLoop]") {
 
     const auto recv_token = loop->submit_recvmsg_buffer_multi(recv_sock,
         [&](completion_id, iou_loop::buffer& buf) -> slot_retention {
-          const bool valid =
+          const auto valid =
               bitmask::has(buf.cqe_flags(), iou_cqe_flags::buffer);
           if (!valid) {
             enobufs_fired = true;
@@ -1450,7 +1604,8 @@ TEST_CASE("SubmitPoll", "[IouLoop]") {
 #pragma region SubmitShutdown
 
 TEST_CASE("SubmitShutdown", "[IouLoop]") {
-  // `submit_shutdown(SHUT_WR)` causes the peer recv to see EOF (0 bytes).
+  // `submit_shutdown(shutdown_how::wr)` causes the peer recv to see EOF (0
+  // bytes).
   if (true) {
     auto [send_sock, recv_sock] = net_socket::create_pair();
     std::atomic_bool recv_done{false};
@@ -1518,6 +1673,12 @@ TEST_CASE("SubmitTimeoutRemove", "[IouLoop]") {
 
     const auto ok = loop->submit_timeout_remove(std::move(timeout_token));
     CHECK(ok);
+
+    // The canceled timeout completes with `-ECANCELED` instead of `-ETIME`.
+    CHECK(WaitFor([&] {
+      return timeout_result.load(std::memory_order::acquire) != 1;
+    }));
+    CHECK(timeout_result.load(std::memory_order::acquire) == -ECANCELED);
   }
 }
 
@@ -1552,7 +1713,7 @@ TEST_CASE("SubmitTimeoutRemoveExplicit", "[IouLoop]") {
         });
     CHECK(remove_cbtoken.is_valid());
 
-    const bool ok = loop->submit_timeout_remove(std::move(timeout_token),
+    const auto ok = loop->submit_timeout_remove(std::move(timeout_token),
         remove_cbtoken, slot_retention::automatic);
     CHECK(ok);
 
@@ -1585,7 +1746,7 @@ TEST_CASE("SubmitCancelTokenAutoRelease", "[IouLoop]") {
       return recv_token.is_valid();
     }));
 
-    const bool cancel_ok = loop->submit_cancel(std::move(recv_token));
+    const auto cancel_ok = loop->submit_cancel(std::move(recv_token));
     CHECK(cancel_ok);
 
     CHECK(WaitFor([&] { return recv_done.load(std::memory_order::acquire); }));
@@ -1625,7 +1786,7 @@ TEST_CASE("SubmitTimeoutUpdate", "[IouLoop]") {
 
     bound_timeout new_timeout{
         .when = {.ts = iou_timespec{50ms}, .flags = iou_timeout_flags::rel}};
-    const bool updated = loop->post_and_wait([&] {
+    const auto updated = loop->post_and_wait([&] {
       return loop->submit_timeout_update(timeout_token, new_timeout);
     });
     CHECK(updated);

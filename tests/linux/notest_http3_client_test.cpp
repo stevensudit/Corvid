@@ -121,7 +121,7 @@ std::unique_ptr<http3_client_stream> make_request(http3_method method,
 
 } // namespace
 
-bool curl(int argc, char** argv) {
+int curl(int argc, char** argv) {
   const std::string host = argc > 1 ? argv[1] : "cloudflare-quic.com";
   const std::string path = argc > 2 ? argv[2] : "/";
   // A third arg is a request body, which turns the GET into a POST.
@@ -137,14 +137,14 @@ bool curl(int argc, char** argv) {
   const auto peer = dns_resolver::find_one(host, 443, address_family::inet);
   if (peer.empty()) {
     std::cerr << "error: could not resolve " << host << "\n";
-    return false;
+    return 1;
   }
   std::cout << "resolved " << host << " -> " << peer << "\n";
 
   quic_ssl_ctx client_tls{h3_alpn};
   if (!client_tls) {
     std::cerr << "error: TLS context init failed\n";
-    return false;
+    return 1;
   }
 
   iou_loop_runner runner;
@@ -154,7 +154,7 @@ bool curl(int argc, char** argv) {
           net_endpoint::any_v4(), shot_type::multi, client_tls);
   if (!client_router) {
     std::cerr << "error: could not bind client router\n";
-    return false;
+    return 1;
   }
 
   std::shared_ptr<protocol_t::session_plugin::session_t> sess;
@@ -165,7 +165,7 @@ bool curl(int argc, char** argv) {
       }))
   {
     std::cerr << "error: could not create client session\n";
-    return false;
+    return 1;
   }
 
   auto& client = sess->plugin().protocol_plugin();
@@ -179,7 +179,7 @@ bool curl(int argc, char** argv) {
       }))
   {
     std::cerr << "error: handshake / SETTINGS exchange timed out\n";
-    return false;
+    return 1;
   }
   std::cout << "handshake complete, server SETTINGS received\n";
 
@@ -193,7 +193,7 @@ bool curl(int argc, char** argv) {
       }))
   {
     std::cerr << "error: could not submit request\n";
-    return false;
+    return 1;
   }
 
   if (!WaitFor([&] {
@@ -203,11 +203,11 @@ bool curl(int argc, char** argv) {
       }))
   {
     std::cerr << "error: response timed out\n";
-    return false;
+    return 1;
   }
 
   // Print the captured response from the loop thread.
-  bool rc = false;
+  int rc = 1;
   if (!runner.loop()->post_and_wait([&]() -> bool {
         std::cout << "\nHTTP/3 " << out->status << "\n";
         for (const auto& [name, value] : out->headers)
@@ -215,20 +215,20 @@ bool curl(int argc, char** argv) {
         for (const auto& [name, value] : out->trailers)
           std::cout << "(trailer) " << name << ": " << value << "\n";
         std::cout << "\n[" << out->body_bytes << " body bytes]\n";
-        rc = (!out->failed && !out->status.empty() &&
-                 out->status.starts_with("2"))
-                 ? true
-                 : false;
+        const auto ok =
+            !out->failed && !out->status.empty() &&
+            out->status.starts_with("2");
+        rc = ok ? 0 : 1;
         return true;
       }))
   {
     std::cerr << "error: could not read response\n";
-    return false;
+    return 1;
   }
 
   return rc;
 }
 
 int main(int argc, char** argv) {
-  return try_or_log([&] { return curl(argc, argv); });
+  return try_or_log([&] { return curl(argc, argv); }, 1);
 }

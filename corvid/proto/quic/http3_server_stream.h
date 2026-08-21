@@ -20,6 +20,7 @@
 #include <string_view>
 
 #include "../../strings/cases.h"
+#include "../misc/http_authority.h"
 #include "http3_plugins.h"
 
 namespace corvid { inline namespace proto { namespace quic {
@@ -74,10 +75,19 @@ public:
   }
 
   // Gate the completed request HEADERS on the authority before handing them to
-  // the per-stream `on_recv_headers`. On rejection, submit the error response
-  // (header-only) and stop; `submit_response` sets the responded flag, so the
-  // later `on_end_stream` does not respond again.
+  // the per-stream `on_recv_headers`.
+  //
+  // On rejection, submit the error response (header-only) and stop;
+  // `submit_response` sets the responded flag, so the later `on_end_stream`
+  // does not respond again.
+  //
+  // A stream that already responded or was rejected (the field cap trips
+  // before the section ends) drops the event like every other inbound hook:
+  // running the gate would re-enter `submit_response`, whose latch fails the
+  // nghttp3 callback and tears down the whole connection. The guard precedes
+  // the assert because a muted stream must not touch the router at all.
   [[nodiscard]] bool on_end_headers(stream_chunk chunk_fin) override {
+    if (inbound_muted()) return true;
     assert(router()->is_loop_thread());
     if (const auto status = authority_reject_status(); !status.empty()) {
       response_headers().set_value(":status", status);
@@ -121,26 +131,8 @@ public:
   // dropped) against the configured name.
   [[nodiscard]] static bool
   host_matches(std::string_view authority, std::string_view name) noexcept {
-    return strings::ci_equal(host_of(authority), name);
+    return strings::ci_equal(strip_host_port(authority), name);
   }
-
-  // The host portion of an authority, dropping a trailing ":port" (a bare host
-  // or an IPv6 literal without a port is returned unchanged).
-  // NOLINTBEGIN(bugprone-exception-escape)
-  [[nodiscard]] static std::string_view host_of(
-      std::string_view authority) noexcept {
-    const auto colon = authority.rfind(':');
-    if (colon == std::string_view::npos) return authority;
-    const auto port = authority.substr(colon + 1);
-    if (port.empty()) return authority;
-    // Only strip a suffix that is an actual numeric port. If any character
-    // after the last ':' is not a digit, that colon belongs to the host itself
-    // (e.g. an IPv6 literal), so leave the authority unchanged.
-    for (const char c : port)
-      if (!strings::is_digit(c)) return authority;
-    return authority.substr(0, colon);
-  }
-  // NOLINTEND(bugprone-exception-escape)
 };
 
 #pragma endregion

@@ -16,6 +16,8 @@
 // limitations under the License.
 
 #include <chrono>
+#include <concepts>
+#include <cstddef>
 #include <cstdint>
 #include <memory>
 #include <string>
@@ -74,14 +76,40 @@ public:
   }
 };
 
-// The server mints `hello_stream` per inbound request; the client uses the
-// plain bridge and drives an outbound `http3_client_stream`.
-using server_protocol_t =
-    quic_dgram_protocol<http3_server_router<hello_stream>>;
+// A server stream whose reply body overruns both the 256KB stream-level and
+// 1MB connection-level initial flow-control windows (`quic_conn::init`'s
+// transport-param defaults), so delivery depends on the receiving router
+// crediting consumed body bytes back and on the sending drain riding out the
+// stream-level blocks in between.
+class big_stream: public http3_server_stream {
+public:
+  static constexpr size_t reply_size = 3U << 19; // 1.5MB
 
-// Drive one `GET /` to a fresh server bound for `server_name`, from a client
-// whose SNI and `:authority` are `client_authority`, and return the captured
-// response status and body. A new loop, cert, and router pair per call.
+  [[nodiscard]] bool build_response() override {
+    response_headers().set_value(":status", "200");
+    std::vector<uint8_t> body(reply_size);
+    for (auto ndx = 0UZ; ndx < body.size(); ++ndx)
+      body[ndx] = static_cast<uint8_t>(ndx);
+    send_queue().append(std::move(body));
+    return true;
+  }
+};
+
+// A server stream that accepts only a small request body, so a modest POST
+// overflows it and must be rejected per stream with 413 rather than by
+// tearing the connection down.
+class tiny_body_stream: public http3_server_stream {
+public:
+  static constexpr size_t body_cap = 1024;
+
+  tiny_body_stream() { receive_queue().state().max_size = body_cap; }
+};
+
+// Drive one request to a fresh server bound for `server_name` (minting a
+// `Stream` per request), from a client whose SNI and `:authority` are
+// `client_authority`, and return the captured response status and body. A new
+// loop, cert, and router pair per call. A nonzero `body_size` turns the GET
+// into a request carrying that many bytes of body.
 struct response_capture {
   bool complete{false};
   std::string status;
@@ -89,8 +117,10 @@ struct response_capture {
 };
 
 // NOLINTBEGIN(readability-function-cognitive-complexity)
-response_capture
-run_get(std::string server_name, std::string client_authority) {
+template<std::derived_from<http3_server_stream> Stream>
+response_capture run_get(std::string server_name, std::string client_authority,
+    size_t body_size = 0) {
+  using server_protocol_t = quic_dgram_protocol<http3_server_router<Stream>>;
   self_signed_cert ck;
   REQUIRE(ck);
   quic_ssl_ctx server_tls{ck, h3_alpn};
@@ -101,7 +131,7 @@ run_get(std::string server_name, std::string client_authority) {
   iou_loop_runner runner;
 
   auto server_router =
-      iou_dgram_router_handle<server_protocol_t::router_plugin>::bind(
+      iou_dgram_router_handle<typename server_protocol_t::router_plugin>::bind(
           *runner.loop(), net_endpoint::loopback_v4(), shot_type::multi,
           server_tls, std::move(server_name));
   REQUIRE(server_router);
@@ -139,6 +169,8 @@ run_get(std::string server_name, std::string client_authority) {
         });
     http3_client_stream::configure_request(stream->request_headers(),
         http3_method::GET, "/");
+    if (body_size != 0)
+      stream->send_queue().append(std::vector<uint8_t>(body_size, 0x42));
     return client_plugin.add_stream(std::move(stream));
   }));
 
@@ -215,19 +247,44 @@ TEST_CASE(
     "the live iou_dgram_router",
     "[quic][router][http3]") {
   SECTION("a request for the configured authority is served") {
-    const auto r = run_get("localhost", "localhost");
+    const auto r = run_get<hello_stream>("localhost", "localhost");
     CHECK(r.status == "200");
     CHECK(r.body == hello_stream::reply_body);
   }
   SECTION("a request for a different authority is refused with 421") {
-    const auto r = run_get("localhost", "wrong.example.invalid");
+    const auto r = run_get<hello_stream>("localhost", "wrong.example.invalid");
     CHECK(r.status == "421");
     CHECK(r.body.empty());
   }
   SECTION("a server with no configured authority refuses with 500") {
-    const auto r = run_get("", "localhost");
+    const auto r = run_get<hello_stream>("", "localhost");
     CHECK(r.status == "500");
     CHECK(r.body.empty());
+  }
+  SECTION(
+      "a request body over the stream's receive cap is refused with 413, "
+      "not a dead connection") {
+    // The 413 arriving at all is the survival proof: before the per-stream
+    // rejection, the overflow failed the nghttp3 callback and the whole
+    // connection went down with no response.
+    const auto r = run_get<tiny_body_stream>("localhost", "localhost",
+        4 * tiny_body_stream::body_cap);
+    CHECK(r.status == "413");
+    CHECK(r.body.empty());
+  }
+  SECTION(
+      "a response body larger than both flow-control windows arrives "
+      "whole") {
+    const auto r = run_get<big_stream>("localhost", "localhost");
+    CHECK(r.status == "200");
+    REQUIRE(r.body.size() == big_stream::reply_size);
+    auto match = true;
+    for (auto ndx = 0UZ; ndx < r.body.size(); ++ndx)
+      if (static_cast<uint8_t>(r.body[ndx]) != static_cast<uint8_t>(ndx)) {
+        match = false;
+        break;
+      }
+    CHECK(match);
   }
 }
 

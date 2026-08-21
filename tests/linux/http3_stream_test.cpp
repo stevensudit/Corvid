@@ -18,6 +18,7 @@
 #include <optional>
 
 #include "corvid/proto/quic/http3_plugins.h"
+#include "corvid/proto/quic/http3_server_stream.h"
 
 #include "catch2_main.h"
 
@@ -101,12 +102,39 @@ TEST_CASE("Http3StreamHeaders", "[http3]") {
     CHECK(s.headers->chunk_fin() == stream_chunk::more);
   }
 
-  SECTION("over the field cap fails the callback") {
-    for (auto ndx = 0UZ; ndx < http3_conn::max_submit_fields; ++ndx)
+  SECTION("over the field cap rejects the stream") {
+    for (auto ndx = 0UZ; ndx < http3_stream::max_inbound_fields; ++ndx)
       CHECK(s.on_recv_header(qpack_token::unknown, "x", "y", nv_flags::none));
-    // The (cap + 1)-th field is rejected rather than accumulated.
+    // The (cap + 1)-th field trips the per-stream rejection. With no router
+    // to reject through, the callback fails as a last resort, but the
+    // rejection still latches, so later fields drop without failing.
     CHECK_FALSE(
         s.on_recv_header(qpack_token::unknown, "x", "y", nv_flags::none));
+    CHECK(s.rejected());
+    CHECK(s.on_recv_header(qpack_token::unknown, "x", "y", nv_flags::none));
+  }
+}
+
+#pragma endregion
+#pragma region Http3ServerStreamRejected
+
+TEST_CASE("Http3ServerStreamRejected", "[http3]") {
+  SECTION("a rejected stream survives on_end_headers") {
+    // A stream rejected at the field cap has already responded (or, with no
+    // router, latched the rejection), so the end-of-section callback must
+    // drop silently like every other inbound event on a muted stream. Before
+    // the guard, the authority gate ran anyway and its second
+    // `submit_response` failed the nghttp3 callback, tearing down the whole
+    // connection instead of just this stream.
+    http3_server_stream s;
+    CHECK(s.set_role(connection_role::server));
+    s.attach(nullptr, a_stream_id);
+    for (auto ndx = 0UZ; ndx < http3_stream::max_inbound_fields; ++ndx)
+      CHECK(s.on_recv_header(qpack_token::unknown, "x", "y", nv_flags::none));
+    CHECK_FALSE(
+        s.on_recv_header(qpack_token::unknown, "x", "y", nv_flags::none));
+    CHECK(s.rejected());
+    CHECK(s.on_end_headers(stream_chunk::fin));
   }
 }
 
