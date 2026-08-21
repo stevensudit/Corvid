@@ -110,40 +110,34 @@ struct echo_client_plugin: quic_conn_handlers {
     return true;
   }
 
-  // Mirror of the echo plugin's drain, including its stream-level status
-  // handling.
+  // Mirror of the echo plugin's drain, driven through the shared
+  // `pump_drain` skeleton so the client exercises the same loop production
+  // runs (same picks, per-stream status handling, and sticky-flag commit).
   //
   // A flow-control-blocked stream is skipped for the turn, a write-shut or
   // unknown one is dropped.
   [[nodiscard]] bool drain(time_point_t now) {
     std::vector<quic_stream_id> blocked;
-    for (;;) {
-      const auto pick = do_pick_stream(blocked);
-      auto out = io_.borrow_send_buffer();
-      if (!out) return true;
-      std::optional<uint64_t> accepted;
-      const auto status = io_.conn().writev_stream(pick.sid, pick.iov, out,
-          accepted, pick.flags, now);
-      if (status == quic_status::draining || status == quic_status::closing)
-        return true;
-      if (status == quic_status::stream_data_blocked) {
-        blocked.push_back(pick.sid);
-        continue;
-      }
-      if (status == quic_status::stream_shut_wr ||
-          status == quic_status::stream_not_found)
-      {
-        queues.erase(pick.sid);
-        continue;
-      }
-      if (status != quic_status::ok) return false;
-      if (out.payload_bytes().empty()) return true;
-      if (pick.qp && accepted) {
-        pick.qp->consume(*accepted);
-        if (pick.qp->size() == 0) pick.qp->state() = write_stream_flags::none;
-      }
-      (void)io_.send_packet(std::move(out));
-    }
+    return io_.pump_drain<stream_pick>(
+        now,
+        [&](stream_pick& pick) {
+          pick = do_pick_stream(blocked);
+          return true;
+        },
+        [&](quic_status status, const stream_pick& pick) {
+          if (status == quic_status::stream_data_blocked)
+            blocked.push_back(pick.sid);
+          else
+            queues.erase(pick.sid);
+        },
+        [](const stream_pick& pick, std::optional<uint64_t> accepted) {
+          if (pick.qp && accepted) {
+            pick.qp->consume(*accepted);
+            if (pick.qp->size() == 0)
+              pick.qp->state() = write_stream_flags::none;
+          }
+          return true;
+        });
   }
 
   struct stream_pick {
