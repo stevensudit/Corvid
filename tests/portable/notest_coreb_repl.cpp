@@ -35,11 +35,6 @@ namespace {
 // The syntax the REPL is speaking.
 enum class mode : std::uint8_t { monty, hall };
 
-// Whether the line is blank: empty or spaces only.
-[[nodiscard]] bool is_blank(std::string_view line) noexcept {
-  return line.find_first_not_of(' ') == std::string_view::npos;
-}
-
 // Report a failure with its position.
 void report(std::string_view what, const source_error& err) {
   std::cout << what << " error at line " << err.line << ", col " << err.col
@@ -86,7 +81,7 @@ struct repl {
         if (!command(cmd)) break;
         continue;
       }
-      const auto blank = is_blank(line);
+      const auto blank = cmd.empty();
       pending += line;
       pending += '\n';
       if (syntax == mode::monty)

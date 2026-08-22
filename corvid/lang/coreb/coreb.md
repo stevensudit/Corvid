@@ -1,4 +1,4 @@
-#CoreB
+# CoreB
 
 <img src="coreb-logo.jpg" width="400" alt="CoreB logo: a corbie perched on a ring holding a lambda entwined with a Pythonish snake">
 
@@ -146,7 +146,9 @@ The function definition keyword is `fun`, not Python's `def`: `fun inc(n):` desu
 
 ### Parsing
 
-Pratt parsing for infix, per the architecture. Chained comparisons parse as one chain: a same-operator chain desugars directly to the kernel's chaining comparison primitives (`a < b < c` becomes `(< a b c)`, which they already implement), `!=` stays binary, and mixed-operator chains such as `a < b <= c` are deferred until there is an `and` to desugar them through (each operand must still evaluate exactly once, so the naive nested-if spelling is not free). ### Precedence (ruled 2026-08-07)
+Pratt parsing for infix, per the architecture. Chained comparisons parse as one chain: a same-operator chain desugars directly to the kernel's chaining comparison primitives (`a < b < c` becomes `(< a b c)`, which they already implement), `!=` stays binary, and mixed-operator chains such as `a < b <= c` are deferred until there is an `and` to desugar them through (each operand must still evaluate exactly once, so the naive nested-if spelling is not free).
+
+### Precedence (ruled 2026-08-07)
 
 Precedence is a sparse partial order, not a total table: orderings exist only where misreading is implausible, and wherever the order is undefined, the grammar demands parentheses. This promotes to syntax the discipline linters already impose on C++ (clang-tidy's parenthesize-your-arithmetic warnings motivated the ruling). Prior art: Pony ships the strict everything-needs-parens version; Carbon's design records the same partial-order rationale; Smalltalk's flat left-to-right precedence (where `2 + 3 * 4` is 20) is the cautionary corner, silently choosing against algebra rather than refusing to choose. The rules:
 

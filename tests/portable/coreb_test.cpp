@@ -380,6 +380,15 @@ TEST_CASE("CoreB reader errors", "[coreb]") {
   for (auto ndx = 0; ndx < 1000; ++ndx) wide += "x ";
   wide += ")";
   CHECK(hall_reader::read_one(rt, wide).has_value());
+  // A caller already nested (the Monty parser reading a Hall escape) seeds
+  // the budget, so the same input that reads at the top level fails when
+  // little or none of the budget remains. An atom costs one level and a list
+  // one more for each element.
+  CHECK(hall_reader::read_one(rt, "x", max_depth - 1).has_value());
+  CHECK(hall_reader::read_one(rt, "(x)", max_depth - 1).as_error().message ==
+        "nesting too deep");
+  CHECK(hall_reader::read_one(rt, "x", max_depth).as_error().message ==
+        "nesting too deep");
 }
 
 #pragma endregion
