@@ -106,7 +106,7 @@ protected:
     if (status) return handle;
     if (policy == on_failure::ignore) return H{};
     [[maybe_unused]] const cuda_last_status consumed{read_mode::consume};
-    throw std::runtime_error{status.message()};
+    throw std::runtime_error{status.message().c_str()};
   }
 
 private:

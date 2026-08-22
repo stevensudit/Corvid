@@ -24,6 +24,7 @@
 
 #include "./cuda_handle.cuh"
 #include "./cuda_ptr.cuh"
+#include "../strings/cstring_view.h"
 #include "./cuda_status.cuh"
 
 // Wrappers for cuBLAS, the CUDA Basic Linear Algebra Subprograms library.
@@ -72,7 +73,7 @@ public:
 
   [[nodiscard]] cublas_status status() const { return value_; }
 
-  [[nodiscard]] const char* message() const {
+  [[nodiscard]] cstring_view message() const {
     return cublasGetStatusString(as_raw(value_));
   }
 
