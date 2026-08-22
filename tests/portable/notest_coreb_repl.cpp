@@ -23,6 +23,7 @@
 #include <string_view>
 #include <utility>
 
+#include "corvid/infra/exception_firewalls.h"
 #include "corvid/lang/coreb/coreb.h"
 #include "corvid/strings/trimming.h"
 
@@ -219,7 +220,11 @@ struct repl {
 // the end of input (a block header, say) collects lines until a blank line
 // ends the block, per Python's interactive precedent.
 int main() {
-  std::cout << "CoreB REPL, speaking Monty. /help lists the commands.\n";
-  repl{}.run();
-  return 0;
+  return try_or_log(
+      [] {
+        std::cout << "CoreB REPL, speaking Monty. /help lists the commands.\n";
+        repl{}.run();
+        return 0;
+      },
+      1);
 }
