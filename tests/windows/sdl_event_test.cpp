@@ -11,6 +11,7 @@
 
 #include "corvid/enums/enum_conversion.h"
 #include "corvid/sdl/sdl_event.h"
+#include "corvid/sdl/sdl_subsystem.h"
 #include "catch2_main.h"
 
 using namespace corvid;
@@ -19,6 +20,8 @@ using corvid::sdl::sdl_display_id;
 using corvid::sdl::sdl_event;
 using corvid::sdl::sdl_event_data_type;
 using corvid::sdl::sdl_event_type;
+using corvid::sdl::sdl_init_flags;
+using corvid::sdl::sdl_subsystem;
 using corvid::sdl::sdl_keycode;
 using corvid::sdl::sdl_window_id;
 
@@ -127,8 +130,9 @@ TEST_CASE("sdl_event display() copies the cleaned payload", "[sdl][event]") {
 
 TEST_CASE("sdl_event::poll drains the queue through the wrapper",
     "[sdl][event]") {
-  // SDL_INIT_EVENTS is headless (no display), so this runs without a window.
-  REQUIRE(SDL_Init(SDL_INIT_EVENTS));
+  // The events subsystem is headless (no display), so this runs without a
+  // window.
+  const sdl_subsystem sdl{sdl_init_flags::events};
 
   // Nothing pushed yet: the queue is empty.
   SDL_FlushEvents(SDL_EVENT_FIRST, SDL_EVENT_LAST);
@@ -142,8 +146,6 @@ TEST_CASE("sdl_event::poll drains the queue through the wrapper",
   REQUIRE(ev);
   CHECK(ev.type() == sdl_event_type::quit);
   CHECK_FALSE(sdl_event::poll()); // queue drained again
-
-  SDL_Quit();
 }
 
 #pragma endregion
