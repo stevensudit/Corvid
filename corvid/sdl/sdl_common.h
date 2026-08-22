@@ -16,6 +16,10 @@
 // limitations under the License.
 #pragma once
 
+// The one place SDL's headers are included.
+//
+// `SDL_MAIN_HANDLED` keeps SDL from renaming `main` since the program owns
+// `main` and `sdl_subsystem` calls `SDL_SetMainReady` instead.
 #define SDL_MAIN_HANDLED
 #include <SDL3/SDL.h>
 #include <SDL3/SDL_main.h>

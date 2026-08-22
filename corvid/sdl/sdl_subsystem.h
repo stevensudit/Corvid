@@ -15,28 +15,53 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 #pragma once
+#include <cstdint>
 #include <utility>
 
+#include "../enums/bitmask_enum.h"
 #include "./sdl_common.h"
 #include "./sdl_status.h"
 
 namespace corvid::sdl {
 
+#pragma region sdl_init_flags
+
+// Bitmask wrapper for `SDL_InitFlags`: which SDL subsystems to initialize.
+//
+// `audio`, `video`, `joystick`, `sensor`, and `camera` each imply `events`,
+// and `gamepad` implies `joystick`. `video` must be initialized on the main
+// thread. `events` alone is headless, for tests and tools without a display.
+enum class sdl_init_flags : uint32_t {
+  none = 0,
+  audio = SDL_INIT_AUDIO,
+  video = SDL_INIT_VIDEO,
+  joystick = SDL_INIT_JOYSTICK,
+  haptic = SDL_INIT_HAPTIC,
+  gamepad = SDL_INIT_GAMEPAD,
+  events = SDL_INIT_EVENTS,
+  sensor = SDL_INIT_SENSOR,
+  camera = SDL_INIT_CAMERA,
+};
+
+consteval auto corvid_enum_spec(sdl_init_flags*) {
+  return corvid::enums::bitmask::make_bitmask_enum_spec<sdl_init_flags,
+      "camera, sensor, events, gamepad, haptic, -, -, joystick, -, -, -, "
+      "video, audio, -, -, -, -">();
+}
+
+#pragma endregion
 #pragma region SDL subsystem
 
 // RAII for SDL's process-wide lifetime: `SDL_SetMainReady` (because we own
 // `main`) and `SDL_Init` in the constructor, `SDL_Quit` in the destructor.
-// Move-only.
-//
-// Initializes the video subsystem only for now; an `SDL_InitFlags` parameter,
-// wrapped as a Corvid enum, lands with the rest of the SDL enums.
 class sdl_subsystem {
 public:
 #pragma region Construction
 
-  sdl_subsystem() {
+  // Initialize the subsystems in `flags`, or throw.
+  explicit sdl_subsystem(sdl_init_flags flags = sdl_init_flags::video) {
     SDL_SetMainReady();
-    sdl_status{SDL_Init(SDL_INIT_VIDEO)}.or_throw();
+    sdl_status{SDL_Init(*flags)}.or_throw();
   }
 
   sdl_subsystem(const sdl_subsystem&) = delete;

@@ -19,6 +19,7 @@
 #include <utility>
 
 #include "../enums/bitmask_enum.h"
+#include "../strings/cstring_view.h"
 #include "./sdl_common.h"
 #include "./sdl_status.h"
 
@@ -30,7 +31,7 @@ namespace corvid::sdl {
 // SDL window. Mirrors the full `SDL_WINDOW_*` set, so it covers both the flags
 // passed at creation and the ones SDL reports as window state.
 // NOLINTNEXTLINE(performance-enum-size)
-enum class sdl_window_flags : std::uint64_t {
+enum class sdl_window_flags : uint64_t {
   none = 0,
   fullscreen = SDL_WINDOW_FULLSCREEN,
   opengl = SDL_WINDOW_OPENGL,
@@ -78,10 +79,10 @@ class sdl_window {
 public:
 #pragma region Construction
 
-  sdl_window(const char* title, int width, int height,
+  sdl_window(cstring_view title, int width, int height,
       sdl_window_flags flags = sdl_window_flags::none)
       : window_{sdl_status::or_throw(
-            SDL_CreateWindow(title, width, height, *flags))} {}
+            SDL_CreateWindow(title.c_str(), width, height, *flags))} {}
 
   sdl_window(const sdl_window&) = delete;
   sdl_window& operator=(const sdl_window&) = delete;

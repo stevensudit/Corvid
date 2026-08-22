@@ -17,6 +17,7 @@
 #pragma once
 #include <stdexcept>
 
+#include "../strings/cstring_view.h"
 #include "./sdl_common.h"
 
 namespace corvid::sdl {
@@ -47,7 +48,8 @@ public:
 #pragma endregion
 #pragma region Errors
 
-  [[nodiscard]] const char* get_error() const noexcept { return error_; }
+  // The captured SDL error message, empty on success.
+  [[nodiscard]] cstring_view message() const noexcept { return error_; }
 
   // NOLINTNEXTLINE(modernize-use-nodiscard)
   bool or_throw() const {

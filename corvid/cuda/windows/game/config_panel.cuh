@@ -144,14 +144,12 @@ inline void draw_body_section(avatar_tuning& t, const avatar_tuning& d,
       0.0F, 8.0F, "How hard the grid flares up with the ball's speed.");
   tuned_slider("grid fade", t.ball_grid_fade, d.ball_grid_fade, 0.1F, 100.0F,
       "How fast the grid fades back to dark when you release the keys; pair "
-      "it "
-      "with grid move gain's flare-in rate (motion approach) to match.");
+      "it with grid move gain's flare-in rate (motion approach) to match.");
   tuned_slider("grid scroll", t.ball_grid_roll_gain, d.ball_grid_roll_gain,
       0.0F, 1.0F,
       "Scrolls the grid as a fraction of the true roll rate; 1 paints it on "
       "the rolling ball, lower slows it for taste. The shader motion-blurs "
-      "the "
-      "scroll, so a fast spin streaks instead of strobing.");
+      "the scroll, so a fast spin streaks instead of strobing.");
   tuned_slider("grid extent", c.ball.grid_extent, dc.ball.grid_extent, 0.0F,
       2.0F,
       "How far toward the ball's sides the grid reaches before fading; raise "
@@ -214,8 +212,7 @@ inline void draw_saucer_section(avatar_tuning& t, const avatar_tuning& d,
         ImGuiSliderFlags_AlwaysClamp);
     tuned_slider("top height", t.top_height, d.top_height, 0.05F, 0.6F,
         "Top-cone apex height / radius: below 'disc height' the top is a "
-        "cone, "
-        "at or above it stays rounded.",
+        "cone, at or above it stays rounded.",
         ImGuiSliderFlags_AlwaysClamp);
     tuned_slider("rim round", t.rim_round, d.rim_round, 0.005F, 0.2F,
         "Rounds the sharp brim where the cone meets the bottom (reduces edge "
@@ -250,8 +247,7 @@ inline void draw_saucer_section(avatar_tuning& t, const avatar_tuning& d,
         3.15F, "Rotate the porthole ring about the hull axis, radians.");
     tuned_slider_int("panel count", c.head.panel_count, dc.head.panel_count, 0,
         32,
-        "Number of radial panel grooves on the upper cone (0 removes "
-        "them).");
+        "Number of radial panel grooves on the upper cone (0 removes them).");
     tuned_slider("panel line", c.head.panel_line, dc.head.panel_line, 0.0F,
         0.05F,
         "Half-width of the radial panel grooves (arc, fraction of radius).");
@@ -311,8 +307,7 @@ inline void draw_saucer_section(avatar_tuning& t, const avatar_tuning& d,
         "Number of running lights around the ring.");
     tuned_slider("rim floor", c.head.rim_floor, dc.head.rim_floor, 0.0F, 1.0F,
         "Dark end of the fade between segments (0 = fades to black, 1 = "
-        "solid); "
-        "scales the pattern up rather than clipping it.");
+        "solid); scales the pattern up rather than clipping it.");
     tuned_slider("rim spin scale", c.head.rim_spin_scale,
         dc.head.rim_spin_scale, 0.0F, 1.0F,
         "Rim spin rate as a fraction of the belly spin (lower is calmer and "
@@ -401,8 +396,7 @@ inline void draw_eye_section(avatar_tuning& t, const avatar_tuning& d,
   if (!ImGui::TreeNode("Eye")) return;
   tuned_slider("eye lift", t.eye_lift_deg, d.eye_lift_deg, 0.0F, 60.0F,
       "Degrees the eye aims above the look so it makes eye contact: the "
-      "camera "
-      "rides above the eye, so a level aim reads as looking low.");
+      "camera rides above the eye, so a level aim reads as looking low.");
   tuned_slider("stabilize", t.stabilize, d.stabilize, 0.0F, 1.0F,
       "How much the dome cancels the disc's motion bank: 1 holds the eye and "
       "grid level (a steadycam) while the disc banks; 0 lets them ride it.");
@@ -427,20 +421,18 @@ inline void draw_eye_section(avatar_tuning& t, const avatar_tuning& d,
   tuned_slider("eye glow", c.head.eye_glow_strength, dc.head.eye_glow_strength,
       0.0F, 12.0F,
       "Green brightness of the firing eye's dig-beam cone; 0 disables it. "
-      "HDR, "
-      "so it blooms.");
+      "HDR, so it blooms.");
   tuned_slider("eye glow length", c.head.eye_glow_length,
       dc.head.eye_glow_length, 0.0F, 1.2F,
       "How far the cone reaches from the eye toward the aim, as a fraction of "
       "the eye-to-target distance (1 reaches the target). Scales with range, "
-      "so "
-      "the cone stays natural at any distance.");
+      "so the cone stays natural at any distance.");
   tuned_slider("eye glow radius", c.head.eye_glow_radius,
       dc.head.eye_glow_radius, 0.0F, 1.5F,
       "Cone tip radius as a fraction of the outer reticle's size at the "
-      "target, "
-      "so the cone opens to match the aim footprint at any range; the base at "
-      "the eye is a fraction of this (the green ring around the pupil).");
+      "target, so the cone opens to match the aim footprint at any range; the "
+      "base at the eye is a fraction of this (the green ring around the "
+      "pupil).");
   tuned_slider("eye glow peak gain", c.head.eye_glow_peak_gain,
       dc.head.eye_glow_peak_gain, 0.0F, 40.0F,
       "Brightness of the pupil's locked center (intense green, not white): "
@@ -462,10 +454,9 @@ inline void draw_eye_section(avatar_tuning& t, const avatar_tuning& d,
   tuned_slider("eye glow boil", c.head.eye_glow_boil, dc.head.eye_glow_boil,
       0.0F, 4.0F,
       "Keeps the speckle alive when the camera holds still. The speckle is "
-      "the "
-      "jittered march (a per-ray sample offset), which freezes when you stop "
-      "moving; this advances its phase over time (cycles per second) so it "
-      "boils in place instead. 0 freezes it between camera moves.");
+      "the jittered march (a per-ray sample offset), which freezes when you "
+      "stop moving; this advances its phase over time (cycles per second) so "
+      "it boils in place instead. 0 freezes it between camera moves.");
   tuned_slider("eye glow extinction", c.head.eye_glow_extinction,
       dc.head.eye_glow_extinction, 0.0F, 0.5F,
       "Optional dust in the air: dims the glow with the TARGET's distance "
@@ -475,10 +466,10 @@ inline void draw_eye_section(avatar_tuning& t, const avatar_tuning& d,
   tuned_slider("eye glow backscatter", c.head.eye_glow_backscatter,
       dc.head.eye_glow_backscatter, 0.0F, 1.0F,
       "Floor of the down-beam dead zone: how bright the cone is where you "
-      "look "
-      "along your own beam (0 fully suppresses it, since there the cone reads "
-      "as a flat end-on disc). It ramps to full across the beam (profile) and "
-      "toward it (its reflection in the ball). 1 makes it uniform.");
+      "look along your own beam (0 fully suppresses it, since there the cone "
+      "reads as a flat end-on disc). It ramps to full across the beam "
+      "(profile) and toward it (its reflection in the ball). 1 makes it "
+      "uniform.");
   tuned_slider("eye glow merged", c.head.eye_glow_merged_gain,
       dc.head.eye_glow_merged_gain, 0.0F, 10.0F,
       "Merged view only: brightness of the pupil's near-field glow seen from "
@@ -507,12 +498,10 @@ inline void draw_eye_section(avatar_tuning& t, const avatar_tuning& d,
   tuned_slider("eye glare gain", c.head.eye_glare_gain, dc.head.eye_glare_gain,
       0.0F, 20.0F,
       "Green glow blooming outward from the pupil (never the iris) while "
-      "merely "
-      "projecting (ring only, not locked), seen directly and in every "
+      "merely projecting (ring only, not locked), seen directly and in every "
       "reflection. Green, so the HDR peak reads white: crank it for a "
-      "blinding "
-      "bloom, 0 disables. Dark at the pupil center, so the hole stays dark "
-      "until locked.");
+      "blinding bloom, 0 disables. Dark at the pupil center, so the hole "
+      "stays dark until locked.");
   tuned_slider("eye glare lock gain", c.head.eye_glare_lock_gain,
       dc.head.eye_glare_lock_gain, 0.0F, 20.0F,
       "Same pupil glow while locked on a target (show_inner). Set apart from "
@@ -525,20 +514,16 @@ inline void draw_eye_section(avatar_tuning& t, const avatar_tuning& d,
   tuned_slider("eye pupil hex", c.head.eye_pupil_hex, dc.head.eye_pupil_hex,
       0.0F, 5.0F,
       "Dark pupil center while merely projecting (not locked): a crisp dark "
-      "hex "
-      "punched out of the pupil (and a matching round core out of the glare) "
-      "so "
-      "the unlit inner reads as a distinct hole, not a soft dip the bloom "
-      "washes over. Apothem as a fraction of the eye hub; once locked the "
-      "white-hot center fills it. 0 disables the hole.");
+      "hex punched out of the pupil (and a matching round core out of the "
+      "glare) so the unlit inner reads as a distinct hole, not a soft dip the "
+      "bloom washes over. Apothem as a fraction of the eye hub; once locked "
+      "the white-hot center fills it. 0 disables the hole.");
   ImGui::SeparatorText("Convenience");
   ImGui::Checkbox("hold pitch", &t.hold_pitch);
   ImGui::SetItemTooltip("%s",
       "Tilt the camera to the hold-pitch angle below and hold it there, so "
-      "the "
-      "view holds steady while you tune; you can still yaw and move. Uncheck "
-      "to "
-      "release.");
+      "the view holds steady while you tune; you can still yaw and move. "
+      "Uncheck to release.");
   tuned_slider("hold pitch deg", t.hold_pitch_deg, d.hold_pitch_deg, -89.0F,
       0.0F,
       "The look-down angle Hold Pitch tilts to (degrees, down is negative): "
@@ -576,8 +561,7 @@ inline void draw_antenna_section(avatar_tuning& t, const avatar_tuning& d,
   tuned_color("beacon alt color", c.head.antenna_alt_color,
       dc.head.antenna_alt_color,
       "Second beacon color: shown when backing up, and alternated with the "
-      "tip "
-      "color (in tune with the idle belly spin) at rest.");
+      "tip color (in tune with the idle belly spin) at rest.");
   tuned_slider("blink depth", c.head.blink_depth, dc.head.blink_depth, 0.0F,
       1.0F,
       "On/off blink while moving: 0 holds the beacon lit, 1 blinks it fully "
@@ -585,8 +569,7 @@ inline void draw_antenna_section(avatar_tuning& t, const avatar_tuning& d,
   tuned_slider("blink move gain", t.blink_move_gain, d.blink_move_gain, 0.0F,
       6.0F,
       "Beacon blink rate per unit of Head speed (sprint included); no pulse "
-      "at "
-      "rest.");
+      "at rest.");
   tuned_slider("color phase", t.color_phase, d.color_phase, 0.0F, 1.0F,
       "Resting color phase against the belly spin: 0 in phase (pure color at "
       "each reversal), 1 opposite; ~0.5 is pure mid-spin, neutral at "
@@ -619,8 +602,8 @@ inline void draw_movement_section(avatar_tuning& t, const avatar_tuning& d) {
       "Eye height above the head center (of the head radius); raises the "
       "viewpoint so the dome-heavy saucer reflects lower in the frame.");
   tuned_slider("boom min", t.boom_min, d.boom_min, 0.0F, 5.0F,
-      "Closest boom: the jockey position, head above and slightly behind "
-      "the ball. Never in front.");
+      "Closest boom: the jockey position, head above and slightly behind the "
+      "ball. Never in front.");
   tuned_slider("boom max", t.boom_max, d.boom_max, 1.0F, 30.0F,
       "Farthest boom: head pulled back behind the ball (wide view).");
   tuned_slider("boom rise", t.boom_rise, d.boom_rise, 0.0F, 1.0F,
@@ -629,29 +612,25 @@ inline void draw_movement_section(avatar_tuning& t, const avatar_tuning& d) {
       0.9F,
       "Dolly in past the jockey to merge the camera into the ball (the glass "
       "lens view). When fully merged the eye sits this far along the look "
-      "from "
-      "the ball center, as a fraction of the ball radius: positive sits "
-      "behind "
-      "the center (saucer ahead of the eye), negative ahead of it (saucer "
-      "behind, dead center). 0 is dead center, a clear bubble; the magnitude "
-      "sets how much the periphery refracts.",
+      "from the ball center, as a fraction of the ball radius: positive sits "
+      "behind the center (saucer ahead of the eye), negative ahead of it "
+      "(saucer behind, dead center). 0 is dead center, a clear bubble; the "
+      "magnitude sets how much the periphery refracts.",
       ImGuiSliderFlags_AlwaysClamp);
   tuned_slider("merge pitch", t.merge_pitch_deg, d.merge_pitch_deg, -89.0F,
       0.0F,
       "Crossing the merge boundary either way pivots the look to this pitch "
       "(degrees, down is negative): going in, the head looks down into the "
-      "ball "
-      "to catch the merge ripple; backing out, you leave looking down at the "
-      "ball you just left.");
+      "ball to catch the merge ripple; backing out, you leave looking down at "
+      "the ball you just left.");
   tuned_slider("merge pitch rate", t.merge_pitch_rate, d.merge_pitch_rate,
       1.0F, 100.0F,
       "How fast the look pivots to the merge pitch across the crossing, per "
       "second. Higher is quicker; lower is a slower, more visible turn.");
   tuned_slider("merge slowmo", t.merge_slowmo, d.merge_slowmo, 0.05F, 1.0F,
       "Tuning aid: slows the merge transition (the dolly through the merge "
-      "zone "
-      "and the ripple, in step) so the crossing can be studied. 1 is full "
-      "speed, lower slower; normal dollying is unaffected.");
+      "zone and the ripple, in step) so the crossing can be studied. 1 is "
+      "full speed, lower slower; normal dollying is unaffected.");
   tuned_slider("zoom approach", t.zoom_approach, d.zoom_approach, 1.0F, 20.0F,
       "How fast the boom eases toward the zoom target, per second.");
   tuned_slider("zoom step", t.zoom_step, d.zoom_step, 0.1F, 5.0F,
@@ -685,21 +664,18 @@ inline void draw_body_physics_section(body_params& p, const body_params& d,
   tuned_slider("mass", p.mass, d.mass, 0.1F, 20.0F,
       "Ball mass: sets the rotational inertia and the contact normal load. It "
       "cancels out of the friction-angle threshold but scales how fast a "
-      "force "
-      "spins the ball up.");
+      "force spins the ball up.");
   tuned_slider("gravity", p.gravity, d.gravity, 0.0F, 60.0F,
       "Downward acceleration on the body, units per second squared.");
   tuned_slider("drive force", p.drive_force, d.drive_force, 0.0F, 200.0F,
       "Peak traction force the player commands at full walk. Friction caps "
-      "what "
-      "reaches the ground, so a command past the budget skids instead of "
+      "what reaches the ground, so a command past the budget skids instead of "
       "accelerating.");
   tuned_slider("run mult", run_multiplier, 5.0F, 1.0F, 6.0F,
       "How many times the walk drive Run (Shift) commands; the run cruise is "
       "this times the walk cruise, as long as friction leaves the bigger "
-      "drive "
-      "headroom below the traction ceiling. (An input mapping in drive_input, "
-      "not a body constant.)");
+      "drive headroom below the traction ceiling. (An input mapping in "
+      "camera_input, not a body constant.)");
   tuned_slider("friction", p.friction, d.friction, 0.0F, 10.0F,
       "Contact friction coefficient (mu): the ball holds a slope up to "
       "atan(mu) and slips above it, and mu bounds the drive before it skids. "
@@ -715,10 +691,8 @@ inline void draw_body_physics_section(body_params& p, const body_params& d,
       "gravity).");
   tuned_slider("jump up", p.jump_up, d.jump_up, 0.0F, 1.0F,
       "Jump direction: 1 launches straight up (propulsion, leaps regardless "
-      "of "
-      "the ground), 0 along the contact normal (pushes off the surface, up "
-      "and "
-      "out of a pit but backward off an uphill ramp). Blend to taste.");
+      "of the ground), 0 along the contact normal (pushes off the surface, up "
+      "and out of a pit but backward off an uphill ramp). Blend to taste.");
   tuned_slider("rolling resistance", p.rolling_resistance,
       d.rolling_resistance, 0.0F, 30.0F,
       "Constant coasting brake that brings a rolling ball fully to rest (drag "
@@ -827,8 +801,7 @@ inline void draw_render_section(avatar_tuning& t, const avatar_tuning& d,
       4.0F,
       "Extra corner darkening toward the grazing rim, on top of the Fresnel "
       "falloff: 0 off, 1 fades the rim to black at the very edge, higher "
-      "pulls "
-      "the dark band inward.");
+      "pulls the dark band inward.");
 
   ImGui::SeparatorText("Merge ripple");
   tuned_slider("ripple peak", c.ripple.peak, dc.ripple.peak, 0.0F, 0.2F,
@@ -836,15 +809,13 @@ inline void draw_render_section(avatar_tuning& t, const avatar_tuning& d,
       "backing out): the force-field shockwave's strength. 0 disables it.");
   tuned_slider("ripple rings", c.ripple.frequency, dc.ripple.frequency, 0.5F,
       8.0F,
-      "How many concentric rings the shockwave shows across the "
-      "half-screen.");
+      "How many concentric rings the shockwave shows across the half-screen.");
   tuned_slider("ripple time", c.ripple.duration, dc.ripple.duration, 0.1F,
       2.0F, "How long the ripple plays out after the crossing, seconds.");
   tuned_slider("ripple speed", c.ripple.ring_speed, dc.ripple.ring_speed, 0.0F,
       40.0F,
       "How fast the rings expand outward over the effect's life, phase "
-      "radians "
-      "per second.");
+      "radians per second.");
 
   ImGui::SeparatorText("Bloom");
   ImGui::Checkbox("bloom", &c.bloom.enabled);
@@ -918,12 +889,12 @@ inline void draw_render_section(avatar_tuning& t, const avatar_tuning& d,
   tuned_slider("night ambient", c.night_ambient, dc.night_ambient, 0.0F, 0.2F,
       "Ambient scale on terrain and head while night is on. It shipped high "
       "enough for night to be self-visible at fixed exposure; with auto "
-      "exposure adapting to the dark, crush it so a no-light night reads "
-      "near black even fully adapted.");
+      "exposure adapting to the dark, crush it so a no-light night reads near "
+      "black even fully adapted.");
   tuned_slider("night sky", c.night_sky, dc.night_sky, 0.0F, 0.06F,
-      "Sky gradient scale while night is on: the faint horizon glow that "
-      "dark adaptation slowly reveals. Crush toward 0 for a cave-black "
-      "overcast night.");
+      "Sky gradient scale while night is on: the faint horizon glow that dark "
+      "adaptation slowly reveals. Crush toward 0 for a cave-black overcast "
+      "night.");
   ImGui::Text("flashlight (F): %s", c.flashlight.enabled ? "on" : "off");
   tuned_color("flashlight color", c.flashlight.color, dc.flashlight.color,
       "Flashlight beam color.");
@@ -942,14 +913,13 @@ inline void draw_render_section(avatar_tuning& t, const avatar_tuning& d,
       dc.flashlight.shadow_softness, 0.0F, 3.0F,
       "Penumbra of the ball's shadow, as a fraction of the ball radius: wider "
       "fades the shadow edge so it shows around the ball that hides the "
-      "umbra. "
-      "0 is a hard shadow.");
+      "umbra. 0 is a hard shadow.");
   tuned_slider("flashlight glare", c.flashlight.glare_gain,
       dc.flashlight.glare_gain, 0.0F, 200.0F,
       "Brightness of the lamp's glare halo at the iris, per unit of "
       "flashlight power (the glint tracks the lamp's brightness): the ball "
-      "reflects it as the glint. Raise until the reflected lamp reads "
-      "bright; 0 turns the lamp's head glow off entirely.");
+      "reflects it as the glint. Raise until the reflected lamp reads bright; "
+      "0 turns the lamp's head glow off entirely.");
   tuned_slider("flashlight glare spread", c.flashlight.glare_spread,
       dc.flashlight.glare_spread, 0.0F, 0.5F,
       "Skirt width of the glare halo past the iris rim (eye hub units): the "
@@ -964,8 +934,7 @@ inline void draw_render_section(avatar_tuning& t, const avatar_tuning& d,
   tuned_slider("flashlight air reach", c.flashlight.air_reach,
       dc.flashlight.air_reach, 0.2F, 1.5F,
       "Drawn length of the air cone as a fraction of the beam's throw to "
-      "where "
-      "it lands: 1 reaches the lit pool.");
+      "where it lands: 1 reaches the lit pool.");
   tuned_slider("flashlight air base", c.flashlight.air_base,
       dc.flashlight.air_base, 0.02F, 0.6F,
       "Radius of the cone at the lens, a fraction of the head radius: the "
@@ -973,8 +942,7 @@ inline void draw_render_section(avatar_tuning& t, const avatar_tuning& d,
   tuned_slider("flashlight hotspot", c.flashlight.hotspot_power,
       dc.flashlight.hotspot_power, 1.0F, 24.0F,
       "Tightness of the bright central hotspot: higher focuses it to a "
-      "sharper "
-      "core, lower spreads it toward an even cone.");
+      "sharper core, lower spreads it toward an even cone.");
   tuned_slider("flashlight hotspot gain", c.flashlight.hotspot_gain,
       dc.flashlight.hotspot_gain, 0.0F, 8.0F,
       "How much brighter the hotspot core is than the surrounding spill.");
@@ -1008,8 +976,7 @@ inline void draw_render_section(avatar_tuning& t, const avatar_tuning& d,
   ImGui::Checkbox("show mirror", &c.show_mirror);
   ImGui::SetItemTooltip("%s",
       "Show the flat mirror wall along the world's -z edge. Off shows the "
-      "bare "
-      "terrain box.");
+      "bare terrain box.");
   ImGui::Checkbox("debug aa edges", &c.debug_aa_edges);
   ImGui::SetItemTooltip("%s",
       "Flat-tint the pixels the adaptive-AA resolve supersamples: red = "
@@ -1053,19 +1020,16 @@ inline void draw_reticle_section(render_config& c, const render_config& dc) {
   tuned_slider_int("inner spokes", c.reticle.inner_spokes,
       dc.reticle.inner_spokes, 0, 6,
       "Crosshair spokes from the center to the inner hexagon vertices (0 "
-      "none, "
-      "3 alternating, 6 all).");
+      "none, 3 alternating, 6 all).");
   tuned_slider("max dig distance", c.reticle.max_dig_distance,
       dc.reticle.max_dig_distance, 2.0F, 64.0F,
       "Max dig reach from the ball, world units: a target farther than this "
       "drops the inner crosshair and blocks the dig, the same as when the "
-      "ball "
-      "occludes the aim.");
+      "ball occludes the aim.");
   tuned_slider("pick rest smooth", c.reticle.pick_rest_rate,
       dc.reticle.pick_rest_rate, 0.5F, 30.0F,
       "Reticle aim smoothing at rest: the at-rest ease rate floor. Lower "
-      "eases "
-      "harder, so the marker is steadier when the aim is still but lags "
+      "eases harder, so the marker is steadier when the aim is still but lags "
       "more.");
   tuned_slider("pick beta", c.reticle.pick_beta, dc.reticle.pick_beta, 0.0F,
       40.0F,
@@ -1084,8 +1048,7 @@ draw_animation_rigging_section(avatar_tuning& t, const avatar_tuning& d) {
       180.0F,
       "Rotate the head's front (and the cockpit eye) off the camera heading. "
       "Mainly to animate the UFO shaking its head; also brings the back of "
-      "the "
-      "dome into the mirror when debugging.");
+      "the dome into the mirror when debugging.");
   ImGui::TreePop();
 }
 
@@ -1121,8 +1084,7 @@ inline void draw_config_panel(avatar_tuning& t, const avatar_tuning& d,
   ImGui::SetItemTooltip("%s",
       "Flatten the whole world to a level plane at the ball's feet: a test "
       "track for measuring speeds. Overwrites the terrain, so the dug shape "
-      "is "
-      "lost.");
+      "is lost.");
   ImGui::SameLine();
   if (ImGui::Button("Dig test tunnels")) tunnels_requested = true;
   ImGui::SetItemTooltip("%s",
@@ -1134,8 +1096,8 @@ inline void draw_config_panel(avatar_tuning& t, const avatar_tuning& d,
       "Observer mode: pin the camera in place and draw the saucer head, "
       "normally hidden because the camera rides inside it. The mouse and "
       "movement keys then turn and move the ship in front of the fixed "
-      "camera, "
-      "so you can inspect it from any side. Off rides the head again.");
+      "camera, so you can inspect it from any side. Off rides the head "
+      "again.");
   ImGui::SameLine();
   ImGui::Checkbox("lock position", &lock_position);
   ImGui::SetItemTooltip("%s",

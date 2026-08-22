@@ -102,7 +102,7 @@ struct fractal_view {
   case sdl_event_type::mouse_wheel: {
     // Zoom toward the cursor: scale `view_height` while keeping the complex
     // point under the cursor fixed.
-    const auto wheel = ev.get_wheel();
+    const auto wheel = ev.wheel();
     const double upp = view.view_height / fheight;
     constexpr double zoom_step = 0.9; // view height per wheel notch (10% in)
     const double factor = std::pow(zoom_step, wheel.y);
@@ -114,7 +114,7 @@ struct fractal_view {
 
   case sdl_event_type::mouse_motion: {
     // Left-button drag pans the view by the cursor movement.
-    const auto motion = ev.get_motion();
+    const auto motion = ev.motion();
     if (motion.left_held) {
       const double upp = view.view_height / fheight;
       view.center_x -= motion.xrel * upp;
@@ -127,7 +127,7 @@ struct fractal_view {
     // Arrow keys pan by a fixed fraction of the view (so the step scales with
     // zoom). Repeats fire while a key is held.
     const double step = 0.05 * view.view_height;
-    switch (ev.get_key().key) {
+    switch (ev.key().key) {
     case sdl_keycode::left: view.center_x -= step; return true;
     case sdl_keycode::right: view.center_x += step; return true;
     case sdl_keycode::up: view.center_y -= step; return true;
@@ -220,8 +220,8 @@ int main() {
             const dim3 grid{cuda_kernel::ceil_div(w, block.x),
                 cuda_kernel::ceil_div(h, block.y)};
             mandelbrot_kernel<<<grid, block>>>(cuda_surface{array},
-                static_cast<int>(w), static_cast<int>(h),
-                view.center_x, view.center_y, view.view_height, max_iter);
+                static_cast<int>(w), static_cast<int>(h), view.center_x,
+                view.center_y, view.view_height, max_iter);
           })
           .or_throw();
     }

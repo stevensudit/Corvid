@@ -16,6 +16,7 @@
 // limitations under the License.
 #pragma once
 #include <cassert>
+#include <chrono>
 #include <cstdint>
 
 #include "../enums/enum_conversion.h"
@@ -28,7 +29,7 @@ namespace corvid::sdl {
 #pragma region sdl_event_type
 
 // Enum to wrap `SDL_EventType`.
-enum class sdl_event_type : std::uint16_t {
+enum class sdl_event_type : uint16_t {
   // Application (0x100).
   quit = SDL_EVENT_QUIT,
   terminating = SDL_EVENT_TERMINATING,
@@ -212,7 +213,7 @@ consteval auto corvid_enum_spec(sdl_event_type*) {
 // which typed `sdl_event` accessor applies. Coarser than `sdl_event_type`:
 // `key_down` and `key_up` are both `key`. Header-only events, including
 // `quit`, are `common`.
-enum class sdl_event_data_type : std::uint8_t {
+enum class sdl_event_data_type : uint8_t {
   common,
   display,
   window,
@@ -262,30 +263,29 @@ consteval auto corvid_enum_spec(sdl_event_data_type*) {
 }
 
 #pragma endregion
-#pragma region sdl_display_id_type
+#pragma region sdl_display_id
 
 // Type-safe handle for an `SDL_DisplayID`.
-enum class sdl_display_id_type : Uint32 {};
-consteval auto corvid_enum_spec(sdl_display_id_type*) {
-  return corvid::enums::sequence::make_sequence_enum_spec<sdl_display_id_type,
+enum class sdl_display_id : uint32_t {};
+consteval auto corvid_enum_spec(sdl_display_id*) {
+  return corvid::enums::sequence::make_sequence_enum_spec<sdl_display_id,
       "">();
 }
 
 #pragma endregion
-#pragma region sdl_window_id_type
+#pragma region sdl_window_id
 
 // Type-safe handle for an `SDL_WindowID`.
-enum class sdl_window_id_type : Uint32 {};
-consteval auto corvid_enum_spec(sdl_window_id_type*) {
-  return corvid::enums::sequence::make_sequence_enum_spec<sdl_window_id_type,
-      "">();
+enum class sdl_window_id : uint32_t {};
+consteval auto corvid_enum_spec(sdl_window_id*) {
+  return corvid::enums::sequence::make_sequence_enum_spec<sdl_window_id, "">();
 }
 
 #pragma endregion
 #pragma region sdl_keycode
 
 // Wrapper for `SDL_Keycode`, mirroring the full `SDLK_*` set.
-enum class sdl_keycode : std::uint32_t {
+enum class sdl_keycode : uint32_t {
   unknown = SDLK_UNKNOWN,
   backspace = SDLK_BACKSPACE,
   tab = SDLK_TAB,
@@ -584,7 +584,7 @@ consteval auto corvid_enum_spec(sdl_keycode*) {
 
 // Which mouse button a button event refers to, wrapping SDL's `SDL_BUTTON_*`
 // constants.
-enum class sdl_mouse_button : std::uint8_t {
+enum class sdl_mouse_button : uint8_t {
   left = SDL_BUTTON_LEFT,
   middle = SDL_BUTTON_MIDDLE,
   right = SDL_BUTTON_RIGHT,
@@ -600,12 +600,14 @@ consteval auto corvid_enum_spec(sdl_mouse_button*) {
 #pragma endregion
 #pragma region sdl_event
 
-// Cleaned payload of a display event. `data1`/`data2` are event-specific; see
-// the `SDL_EVENT_DISPLAY_*` documentation.
+// Payload of a display event.
+//
+// `data1`/`data2` are event-specific; see the `SDL_EVENT_DISPLAY_*`
+// documentation.
 struct sdl_display_event {
-  sdl_display_id_type display_id{};
-  Sint32 data1{};
-  Sint32 data2{};
+  sdl_display_id display_id{};
+  int32_t data1{};
+  int32_t data2{};
 };
 
 // Payload of a window event.
@@ -613,15 +615,15 @@ struct sdl_display_event {
 // `data1`/`data2` are event-specific; for `window_pixel_size_changed` they are
 // the new width and height in pixels.
 struct sdl_window_event {
-  sdl_window_id_type window_id{};
-  Sint32 data1{};
-  Sint32 data2{};
+  sdl_window_id window_id{};
+  int32_t data1{};
+  int32_t data2{};
 };
 
 // Payload of a mouse-wheel event.
 //
-//  `x`/`y` are the scroll deltas; mouse_x`/`mouse_y` are the cursor position
-//  when it fired.
+// `x`/`y` are the scroll deltas; `mouse_x`/`mouse_y` are the cursor position
+// when it fired.
 struct sdl_wheel_event {
   float x{};
   float y{};
@@ -669,7 +671,7 @@ struct sdl_key_event {
 // registered event enum, `data_type()` names the active union member.
 //
 // To read an event's payload, switch on `type()` and call the typed accessor
-// for its shape (e.g. `get_display()`), which returns a cleaned-up struct and
+// for its shape (e.g. `display()`), which returns a cleaned-up struct and
 // asserts the shape matches.
 //
 // The wrapped `SDL_Event` union has more members than `sdl_event_data_type`
@@ -707,8 +709,9 @@ public:
   [[nodiscard]] sdl_event_data_type data_type() const noexcept {
     return data_type_;
   }
-  [[nodiscard]] Uint64 timestamp() const noexcept {
-    return event_.common.timestamp;
+  // When the event fired, on SDL's clock (`SDL_GetTicksNS`).
+  [[nodiscard]] std::chrono::nanoseconds timestamp() const noexcept {
+    return std::chrono::nanoseconds{event_.common.timestamp};
   }
 
   // Escape hatch into the raw union for shapes without a typed accessor yet.
@@ -721,37 +724,37 @@ public:
 #pragma endregion
 #pragma region Payload accessors
 
-  [[nodiscard]] sdl_display_event get_display() const {
+  [[nodiscard]] sdl_display_event display() const {
     assert(data_type_ == sdl_event_data_type::display);
-    return {sdl_display_id_type{event_.display.displayID},
-        event_.display.data1, event_.display.data2};
+    return {sdl_display_id{event_.display.displayID}, event_.display.data1,
+        event_.display.data2};
   }
 
-  [[nodiscard]] sdl_window_event get_window() const {
+  [[nodiscard]] sdl_window_event window() const {
     assert(data_type_ == sdl_event_data_type::window);
-    return {sdl_window_id_type{event_.window.windowID}, event_.window.data1,
+    return {sdl_window_id{event_.window.windowID}, event_.window.data1,
         event_.window.data2};
   }
 
-  [[nodiscard]] sdl_wheel_event get_wheel() const {
+  [[nodiscard]] sdl_wheel_event wheel() const {
     assert(data_type_ == sdl_event_data_type::wheel);
     return {event_.wheel.x, event_.wheel.y, event_.wheel.mouse_x,
         event_.wheel.mouse_y};
   }
 
-  [[nodiscard]] sdl_motion_event get_motion() const {
+  [[nodiscard]] sdl_motion_event motion() const {
     assert(data_type_ == sdl_event_data_type::motion);
     return {event_.motion.x, event_.motion.y, event_.motion.xrel,
         event_.motion.yrel, (event_.motion.state & SDL_BUTTON_LMASK) != 0};
   }
 
-  [[nodiscard]] sdl_button_event get_button() const {
+  [[nodiscard]] sdl_button_event button() const {
     assert(data_type_ == sdl_event_data_type::button);
     return {static_cast<sdl_mouse_button>(event_.button.button),
         event_.button.down, event_.button.x, event_.button.y};
   }
 
-  [[nodiscard]] sdl_key_event get_key() const {
+  [[nodiscard]] sdl_key_event key() const {
     assert(data_type_ == sdl_event_data_type::key);
     return {static_cast<sdl_keycode>(event_.key.key), event_.key.down,
         event_.key.repeat};

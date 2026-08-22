@@ -24,20 +24,28 @@
 #include "./sdl_window.h"
 #include "../math/one_euro_filter.h"
 
-// Free-fly camera input state and the SDL event handler that maintains it: the
-// held movement keys, the mouse-look toggle, and the frame's accumulated look
-// delta and wheel scroll. `handle` is a `pump_events` handler; the state is
-// applied to a camera by the caller each frame.
+// Camera input state and the SDL event handler that maintains it: the held
+// movement keys, the mouse-look toggle and its de-jittered delta, and the
+// wheel scroll. It serves a free-fly camera and a ground-driving avatar
+// alike; the consumer decides what the vertical keys mean (fly up and down,
+// or Space as a jump request). `handle` is a `pump_events` handler; the state
+// is applied by the caller each frame.
 
 namespace corvid::sdl {
 
-#pragma region fly_input
+#pragma region camera_input
 
-// The free-fly camera's input state for a frame: which movement keys are held,
-// whether mouse-look is active, and this frame's accumulated look delta and
-// wheel scroll. `handle` folds SDL events into it; `look` and `dolly` clear
-// their accumulators as they consume them.
-struct fly_input {
+// Camera input state for a frame.
+//
+// Holds which movement keys are held, whether mouse-look is active, and this
+// frame's accumulated look delta and wheel scroll. `handle` folds SDL events
+// into it; `look` and `dolly` clear their accumulators as they consume them.
+//
+// `up` and `down` are Space and Ctrl. A flying consumer moves vertically on
+// them; a ground-driving one reads `up` as the held jump request (fired at
+// the next ground contact, so a tap jumps once and a hold hops off each
+// landing) and ignores `down`.
+struct camera_input {
   bool forward{};
   bool back{};
   bool left{};
@@ -47,15 +55,18 @@ struct fly_input {
   bool fast{};
 
   // Look and scroll tuning, with defaults a viewer may override.
+  //
   // `look_sensitivity` scales raw mouse counts to radians; `scroll_step` is
-  // the forward dolly per wheel notch. `look_filter` de-jitters the
-  // mouse-look: a One Euro Filter that smooths heavily at the low, steady
-  // speeds where per-frame jitter shows and eases off as the mouse speeds up
-  // so a fast flick stays responsive (its arguments are the at-rest smoothing
-  // time constant in milliseconds and `beta`, how fast that smoothing relaxes
-  // with speed).
+  // the dolly per wheel notch; `run_multiplier` is the speed multiple Shift
+  // commands over the base speed. `look_filter` de-jitters the mouse-look: a
+  // One Euro Filter that smooths heavily at the low, steady speeds where
+  // per-frame jitter shows and eases off as the mouse speeds up so a fast
+  // flick stays responsive (its arguments are the at-rest smoothing time
+  // constant in milliseconds and `beta`, how fast that smoothing relaxes with
+  // speed).
   float look_sensitivity = 0.0025F;
   float scroll_step = 1.0F;
+  float run_multiplier = 5.0F;
   one_euro_filter<> look_filter{60.0F, 0.001F};
 
   // Whether mouse-look is active: held while the right button is down, which
@@ -73,16 +84,17 @@ struct fly_input {
   //
   // The right button toggles `looking` and captures the cursor through `win`,
   // mouse motion accumulates the look delta while looking, the wheel
-  // accumulates scroll, and the movement keys set their held flags.
+  // accumulates scroll, and the movement keys and Shift set their held flags.
   //
-  // Returns whether it consumed the event, for `||` composition: the movement
-  // keys and the right button are consumed; other keys (such as Escape) are
-  // left for the pump, and other mouse buttons for another handler.
+  // Returns whether it consumed the event, for `||` composition: those keys,
+  // the right button, the wheel, and mouse motion while looking are consumed.
+  // Other keys (such as Escape) are left for the pump, and other mouse buttons
+  // and motion while not looking for another handler.
   [[nodiscard]] bool handle(const sdl_event& ev, sdl_window& win) {
     switch (ev.type()) {
     case sdl_event_type::mouse_button_down:
     case sdl_event_type::mouse_button_up: {
-      const auto button = ev.get_button();
+      const auto button = ev.button();
       if (button.button == sdl_mouse_button::right) {
         looking = button.down;
         win.set_relative_mouse_mode(looking).or_throw();
@@ -92,22 +104,21 @@ struct fly_input {
     }
 
     case sdl_event_type::mouse_motion: {
-      if (looking) {
-        const auto motion = ev.get_motion();
-        look_dx += motion.xrel;
-        look_dy += motion.yrel;
-      }
+      if (!looking) return false;
+      const auto motion = ev.motion();
+      look_dx += motion.xrel;
+      look_dy += motion.yrel;
       return true;
     }
 
     case sdl_event_type::mouse_wheel: {
-      wheel += ev.get_wheel().y;
+      wheel += ev.wheel().y;
       return true;
     }
 
     case sdl_event_type::key_down:
     case sdl_event_type::key_up: {
-      const auto key = ev.get_key();
+      const auto key = ev.key();
       // Last press wins on an opposing pair (forward/back, left/right):
       // pressing one clears the other so a fresh press always takes over
       // rather than canceling against a still-held opposite. Re-pressing the
@@ -140,25 +151,30 @@ struct fly_input {
     }
   }
 
-  // Force-release the held movement keys. Call this when a UI overlay takes
-  // the keyboard mid-hold: the matching key-up is delivered to the overlay,
-  // not to `handle`, so without this a held key would stick and drive the
-  // camera until it is pressed and released again.
+  // Force-release the held movement keys.
+  //
+  // Call this when a UI overlay takes the keyboard mid-hold: the matching
+  // key-up is delivered to the overlay, not to `handle`, so without this a
+  // held key would stick and drive the camera until it is pressed and released
+  // again.
   void release_keys() {
     forward = back = left = right = up = down = fast = false;
   }
 
-  // The camera-relative movement for this frame as (forward, sideways, up),
-  // each scaled by frame time. The planar (forward, sideways) pair is capped
-  // to one speed, so a diagonal is no faster than a cardinal: holding both
-  // moves at standard speed in the direction between them. The vertical is
+  // The movement for this frame as (forward, sideways, up) in the heading
+  // frame, at `speed_multiplier` scaled by `run_multiplier` while Shift is
+  // held.
+  //
+  // Not scaled by frame time: a flying consumer multiplies by `dt` for a
+  // displacement, a driving one uses it as a velocity target. The planar pair
+  // is capped to one speed so a diagonal is no faster than a cardinal: holding
+  // both aims at that speed in the direction between them. The vertical is
   // separate.
-  [[nodiscard]] std::tuple<float, float, float>
-  movement(float dt, float speed_multiplier = 1.0F) const {
-    const auto speed = speed_multiplier * dt * (fast ? 3.0F : 1.0F);
+  [[nodiscard]] std::tuple<float, float, float> movement(
+      float speed_multiplier = 1.0F) const {
+    const auto speed = speed_multiplier * (fast ? run_multiplier : 1.0F);
     auto forward_move = (forward ? speed : 0.0F) - (back ? speed : 0.0F);
     auto sideways_move = (right ? speed : 0.0F) - (left ? speed : 0.0F);
-    const auto upward_move = (up ? speed : 0.0F) - (down ? speed : 0.0F);
     if (const auto planar = std::hypot(forward_move, sideways_move);
         planar > speed)
     {
@@ -166,14 +182,17 @@ struct fly_input {
       forward_move *= scale;
       sideways_move *= scale;
     }
+    const auto upward_move = (up ? speed : 0.0F) - (down ? speed : 0.0F);
     return {forward_move, sideways_move, upward_move};
   }
 
   // Smooth this frame's accumulated mouse-look delta and return it as a
   // (yaw, pitch) rotation in radians, scaled by `look_sensitivity` with the
-  // screen-y axis flipped. When not looking, forgets the filter's carried
-  // state and returns no rotation, so the look neither glides on after release
-  // nor fires on the next grab.
+  // screen-y axis flipped.
+  //
+  // When not looking, forgets the filter's carried state and returns no
+  // rotation, so the look neither glides on after release nor fires on the
+  // next grab.
   [[nodiscard]] std::pair<float, float> look(float dt) {
     if (!looking) {
       look_filter.reset();
@@ -189,8 +208,8 @@ struct fly_input {
     return {scaled_dx, -scaled_dy};
   }
 
-  // The forward camera dolly from this frame's wheel scroll: an impulse (not
-  // scaled by frame time) of `scroll_step` per notch.
+  // The dolly from this frame's wheel scroll: an impulse (not scaled by frame
+  // time) of `scroll_step` per notch.
   [[nodiscard]] float dolly() {
     const auto scaled_wheel = wheel * scroll_step;
     wheel = 0.0F;

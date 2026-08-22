@@ -15,6 +15,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 #pragma once
+#include <concepts>
 #include <cstdint>
 
 #include "./sdl_event.h"
@@ -29,7 +30,7 @@ namespace corvid::sdl {
 
 // What the event pump asks the frame loop to do next: keep rendering, rebuild
 // for a resize, open the menu, or quit.
-enum class frame_action : std::uint8_t { proceed, resize, menu, quit };
+enum class frame_action : uint8_t { proceed, resize, menu, quit };
 
 #pragma endregion
 #pragma region pump_events
@@ -45,8 +46,8 @@ enum class frame_action : std::uint8_t { proceed, resize, menu, quit };
 // Events `handle` does not consume fall through to that handling. Compose
 // handlers with `||`, which stops at the first consumer, e.g. `return
 // handle_look(ev) || handle_keys(ev);`.
-template<typename Handler>
-[[nodiscard]] frame_action pump_events(Handler handle) {
+[[nodiscard]] frame_action pump_events(
+    std::predicate<const sdl_event&> auto handle) {
   auto action = frame_action::proceed;
   while (auto ev = sdl_event::poll()) {
     if (handle(ev)) continue;
@@ -59,7 +60,7 @@ template<typename Handler>
       break;
 
     case sdl_event_type::key_down:
-      if (ev.get_key().key == sdl_keycode::escape) return frame_action::menu;
+      if (ev.key().key == sdl_keycode::escape) return frame_action::menu;
       break;
 
     default: break;

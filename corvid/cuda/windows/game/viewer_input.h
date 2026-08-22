@@ -19,7 +19,7 @@
 #include <cstdint>
 
 #include "../imgui_overlay.h"
-#include "../../../sdl/drive_input.h"
+#include "../../../sdl/camera_input.h"
 #include "../../../sdl/sdl_event.h"
 #include "../../../sdl/sdl_window.h"
 
@@ -61,7 +61,7 @@ enum class active_tool : std::uint8_t { none, dig };
 [[nodiscard]] inline bool
 handle_tool_select(const sdl::sdl_event& ev, active_tool& tool) {
   if (ev.type() != sdl::sdl_event_type::key_down) return false;
-  const auto key = ev.get_key();
+  const auto key = ev.key();
   if (key.repeat) return false;
   if (key.key == sdl::sdl_keycode::num1) {
     tool = (tool == active_tool::dig) ? active_tool::none : active_tool::dig;
@@ -76,7 +76,7 @@ handle_tool_select(const sdl::sdl_event& ev, active_tool& tool) {
 [[nodiscard]] inline bool
 handle_flashlight(const sdl::sdl_event& ev, bool& flashlight) {
   if (ev.type() != sdl::sdl_event_type::key_down) return false;
-  const auto key = ev.get_key();
+  const auto key = ev.key();
   if (key.repeat) return false;
   if (key.key == sdl::sdl_keycode::f) {
     flashlight = !flashlight;
@@ -86,12 +86,12 @@ handle_flashlight(const sdl::sdl_event& ev, bool& flashlight) {
 }
 
 // Fold the left mouse button into the `digging` flag, for composing after
-// `drive_input::handle`. Returns whether it consumed the event.
+// `camera_input::handle`. Returns whether it consumed the event.
 [[nodiscard]] inline bool handle_dig(const sdl::sdl_event& ev, bool& digging) {
   switch (ev.type()) {
   case sdl::sdl_event_type::mouse_button_down:
   case sdl::sdl_event_type::mouse_button_up: {
-    const auto button = ev.get_button();
+    const auto button = ev.button();
     if (button.button == sdl::sdl_mouse_button::left) {
       digging = button.down;
       return true;
@@ -112,7 +112,7 @@ handle_flashlight(const sdl::sdl_event& ev, bool& flashlight) {
 // leaving Escape for the pump to toggle the panel.
 [[nodiscard]] inline bool handle_viewer_event(const sdl::sdl_event& ev,
     win32::d3d::imgui_overlay& imgui, bool show_config,
-    sdl::drive_input& input, sdl::sdl_window& win, bool& digging,
+    sdl::camera_input& input, sdl::sdl_window& win, bool& digging,
     active_tool& tool, bool& flashlight) {
   imgui.process_event(ev);
   if (show_config) {
