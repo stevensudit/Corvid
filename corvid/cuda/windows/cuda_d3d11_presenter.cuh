@@ -166,7 +166,9 @@ public:
   // present.
   //
   // `draw(cudaArray_t array, UINT width, UINT height)` issues the CUDA work
-  // that fills the array; the unmap before present is handled here.
+  // that fills the array; the unmap before present is handled here. When the
+  // target cannot be mapped, the frame is dropped and `E_FAIL` returned, with
+  // the CUDA error left in the thread's last status.
   [[nodiscard]] hr_status
   render(std::invocable<cudaArray_t, int, int> auto&& draw,
       int sync_interval = 1) {
@@ -178,8 +180,10 @@ public:
   [[nodiscard]] hr_status
   render(std::invocable<cudaArray_t, int, int> auto&& draw,
       std::invocable auto&& overlay, int sync_interval = 1) {
-    if (cuda_d3d11_mapping map{cuda_target_})
+    if (const auto map = cuda_d3d11_mapping::try_create(cuda_target_))
       draw(map.array(), buffer_width(), buffer_height());
+    else
+      return hr_status{E_FAIL}; // the frame is dropped, not presented stale
     return present(std::forward<decltype(overlay)>(overlay), sync_interval);
   }
 

@@ -153,46 +153,66 @@ private:
 #pragma endregion
 #pragma region cuda_d3d11_mapping
 
+// Unmap one graphics resource, the single-handle form `cuda_handle` wants
+// for `cudaGraphicsUnmapResources`.
+inline cudaError_t unmap_graphics_resource(cudaGraphicsResource* resource) {
+  return cudaGraphicsUnmapResources(1, &resource);
+}
+
 // Scoped map of a `cuda_d3d11_resource` for CUDA access.
 //
 // The unmap on scope exit also synchronizes CUDA work against the resource's
 // subsequent D3D use. Create one per frame on the stack. The `cudaArray` it
 // yields is borrowed, valid only within this scope.
-class cuda_d3d11_mapping {
+//
+// The resource itself is borrowed: the handle held here is the mapping of it,
+// released by unmapping.
+class cuda_d3d11_mapping
+    : public cuda_handle<cudaGraphicsResource*, unmap_graphics_resource> {
 public:
 #pragma region Construction
 
+  // Map `resource`, or throw.
   explicit cuda_d3d11_mapping(const cuda_d3d11_resource& resource)
-      : resource_{resource} {
-    cuda_last_status{cudaGraphicsMapResources(1, &resource_)}.or_throw();
+      : cuda_d3d11_mapping{make(resource, on_failure::raise)} {}
+
+  // Map `resource`, or return a failed instance.
+  // Check with `operator bool`, and follow up with `cuda_last_status{}`.
+  [[nodiscard]] static cuda_d3d11_mapping try_create(
+      const cuda_d3d11_resource& resource) {
+    return cuda_d3d11_mapping{make(resource, on_failure::ignore)};
   }
-
-  cuda_d3d11_mapping(const cuda_d3d11_mapping&) = delete;
-  cuda_d3d11_mapping& operator=(const cuda_d3d11_mapping&) = delete;
-  cuda_d3d11_mapping(cuda_d3d11_mapping&&) = delete;
-  cuda_d3d11_mapping& operator=(cuda_d3d11_mapping&&) = delete;
-
-  ~cuda_d3d11_mapping() { cudaGraphicsUnmapResources(1, &resource_); }
 
 #pragma endregion
 #pragma region Accessors
-
-  [[nodiscard]] operator bool() const noexcept { return resource_; }
 
   // The mapped resource's array (sub-resource 0, mip 0), to build a surface or
   // texture object. Borrowed: valid only while this mapping is alive.
   [[nodiscard]] cudaArray_t array() const {
     cudaArray_t array{};
     cuda_last_status{
-        cudaGraphicsSubResourceGetMappedArray(&array, resource_, 0, 0)}
+        cudaGraphicsSubResourceGetMappedArray(&array, get(), 0, 0)}
         .or_throw();
     return array;
   }
 
 #pragma endregion
-#pragma region Data members
+#pragma region Helpers
 private:
-  cudaGraphicsResource* resource_{};
+  explicit cuda_d3d11_mapping(cudaGraphicsResource* mapped) noexcept
+      : cuda_handle{mapped} {}
+
+  static cudaGraphicsResource*
+  make(const cuda_d3d11_resource& resource, on_failure policy) {
+    // `cudaGraphicsMapResources` maps in place rather than returning a new
+    // handle, so the lambda seeds the out-handle with the resource first.
+    constexpr auto map_one =
+        [](cudaGraphicsResource** mapped, cudaGraphicsResource* resource) {
+          *mapped = resource;
+          return cudaGraphicsMapResources(1, mapped);
+        };
+    return create<map_one>(policy, resource.get());
+  }
 
 #pragma endregion
 };

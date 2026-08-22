@@ -82,12 +82,12 @@ public:
   // Allocate, but do not initialize, device memory for `count` objects of
   // type `T`, or throw.
   explicit cuda_ptr(size_t count = 1UZ)
-      : cuda_ptr{allocate(count, on_failure::raise), count} {}
+      : cuda_ptr{make(count, on_failure::raise), count} {}
 
   // Allocate, or return a failed instance.
   // Check with `operator bool`, and follow up with `cuda_last_status{}`.
   [[nodiscard]] static cuda_ptr try_create(size_t count = 1UZ) {
-    return cuda_ptr{allocate(count, on_failure::ignore), count};
+    return cuda_ptr{make(count, on_failure::ignore), count};
   }
 
 #pragma endregion
@@ -155,7 +155,7 @@ private:
 
   // Allocate device memory for `count` objects of type `T`, failing per
   // `policy` when the byte count would overflow or the allocation fails.
-  [[nodiscard]] static T* allocate(size_t count, on_failure policy) {
+  [[nodiscard]] static T* make(size_t count, on_failure policy) {
     if (count > std::numeric_limits<size_t>::max() / sizeof(T)) {
       if (policy == on_failure::raise)
         throw std::runtime_error{"cuda_ptr byte count overflows size_t"};
