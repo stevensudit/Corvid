@@ -78,6 +78,12 @@ public:
     return cublasGetStatusString(as_raw(value_));
   }
 
+  // Throw `status` as a `std::runtime_error`. cuBLAS has no thread-wide last
+  // error, so the status must be passed.
+  [[noreturn]] static void raise(const cublas_last_status status) {
+    throw std::runtime_error{status.message().c_str()};
+  }
+
   // NOLINTNEXTLINE(modernize-use-nodiscard)
   bool or_throw() const {
     if (value_ != cublas_status::success)

@@ -18,6 +18,7 @@
 
 #include <cstddef>
 #include <stdexcept>
+#include <type_traits>
 #include <utility>
 
 #include "../enums/bool_enums.h"
@@ -91,22 +92,23 @@ protected:
   // constructor to adopt. On failure, either throws `std::runtime_error` with
   // the error string or returns the empty handle, per `policy`.
   //
-  // A throw carries the error string, so it also consumes the thread-wide
-  // last error the failure recorded; an empty handle does not, leaving that
-  // error for the caller to read (`cuda_last_status{}`) to learn why.
+  // `Status` wraps the status `Create` returns. For the runtime API
+  // (`cuda_last_status`, the default) that return is read only as pass/fail:
+  // the error itself is the thread's last error, which the throw consumes and
+  // the empty handle leaves for the caller to read with `cuda_last_status{}`.
+  // cuBLAS (`cublas_last_status`) has no such channel, so its returned status
+  // is what the throw carries.
   //
-  // `Status` wraps the raw status `Create` returns: `cuda_last_status` for the
-  // runtime API, `cublas_last_status` for cuBLAS. Where the runtime overloads
-  // a creation function (`cudaMalloc`, `cudaEventCreate`), pass a lambda that
-  // names the intended one.
+  // Where the runtime overloads a creation function (`cudaMalloc`,
+  // `cudaEventCreate`), pass a lambda that names the intended one.
   template<auto Create, typename Status = cuda_last_status, typename... Args>
   [[nodiscard]] static H create(on_failure policy, Args&&... args) {
     H handle{};
     const Status status{Create(&handle, std::forward<Args>(args)...)};
     if (status) return handle;
     if (policy == on_failure::ignore) return H{};
-    [[maybe_unused]] const cuda_last_status consumed{read_mode::consume};
-    throw std::runtime_error{status.message().c_str()};
+    if constexpr (std::is_same_v<Status, cuda_last_status>) Status::raise();
+    Status::raise(status);
   }
 
 private:

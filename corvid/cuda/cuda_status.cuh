@@ -273,6 +273,16 @@ public:
     return cudaGetErrorString(as_raw(value_));
   }
 
+  // Throw `status` as a `std::runtime_error`.
+  //
+  // By default, that is the thread's last error, consumed: for a runtime call
+  // that just failed, the error it returned, so the caller need only test that
+  // return as a bool.
+  [[noreturn]] static void raise(
+      const cuda_last_status status = cuda_last_status{read_mode::consume}) {
+    throw std::runtime_error{status.message().c_str()};
+  }
+
   // NOLINTNEXTLINE(modernize-use-nodiscard)
   bool or_throw() const {
     if (value_ != cuda_status::success)

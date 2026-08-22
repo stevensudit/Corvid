@@ -260,35 +260,28 @@ public:
   // Query `attr` for this device, or throw.
   [[nodiscard]] int attribute(cuda_device_attr attr) const {
     int value{};
-    const cuda_last_status status{cudaDeviceGetAttribute(&value,
-        static_cast<cudaDeviceAttr>(attr), device_id_)};
-    if (!status) raise(status);
+    if (!cuda_last_status{cudaDeviceGetAttribute(&value,
+            static_cast<cudaDeviceAttr>(attr), device_id_)})
+      cuda_last_status::raise();
     return value;
   }
 
   // The number of CUDA devices in the system, or throw.
   [[nodiscard]] static size_t device_count() {
     int count{};
-    const cuda_last_status status{cudaGetDeviceCount(&count)};
-    if (!status) raise(status);
+    if (!cuda_last_status{cudaGetDeviceCount(&count)})
+      cuda_last_status::raise();
     return static_cast<size_t>(count);
   }
 
 #pragma endregion
 #pragma region Helpers
 private:
-  // Throw `status` as a `std::runtime_error`, consuming the thread-wide last
-  // error the failure recorded, since the exception carries the message.
-  [[noreturn]] static void raise(cuda_last_status status) {
-    [[maybe_unused]] const cuda_last_status consumed{read_mode::consume};
-    throw std::runtime_error{status.message().c_str()};
-  }
-
   // The calling thread's current device ordinal, or throw.
   static int current_device_id() {
     int device_id{};
-    const cuda_last_status status{cudaGetDevice(&device_id)};
-    if (!status) raise(status);
+    if (!cuda_last_status{cudaGetDevice(&device_id)})
+      cuda_last_status::raise();
     return device_id;
   }
 
