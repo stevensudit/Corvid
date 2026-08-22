@@ -17,8 +17,8 @@
 #pragma once
 // CorvidSim main entry point: static-file HTTP server for the sim web assets.
 //
-// Included exactly once from `tests/corvid_sim.cpp`. All implementation is
-// here so the translation unit stays trivial.
+// Included exactly once from "tests/linux/notest_corvid_sim.cpp". All
+// implementation is here so the translation unit stays trivial.
 #include <csignal>
 #include <filesystem>
 #include <iostream>
@@ -29,9 +29,11 @@
 #include "../proto.h"
 #include "sim_ws_handler.h"
 
-// Blocks SIGINT and SIGTERM on all threads (including those spawned after
-// construction) so that `sigwait` can intercept them cleanly. Must be
-// constructed before any threads are created.
+// Scoped signal mask that blocks SIGINT and SIGTERM on all threads
+// (including those spawned after construction) so that `sigwait` can
+// intercept them cleanly.
+//
+// Must be constructed before any threads are created.
 class signal_waiter {
 public:
   signal_waiter() {
@@ -55,6 +57,7 @@ private:
 
 using namespace corvid::proto;
 using namespace corvid::concurrency;
+using namespace corvid::sim;
 
 int do_main(int argc, char** argv) {
   // Default web root: walk up from the executable until a

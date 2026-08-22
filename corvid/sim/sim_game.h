@@ -15,24 +15,21 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 #pragma once
+#include <algorithm>
 #include <cassert>
 #include <charconv>
 #include <cstdint>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
+#include <iostream>
 #include <map>
 #include <optional>
 #include <sstream>
-#include <stdexcept>
-#include <vector>
-#include <sys/types.h>
-
-#include <algorithm>
-#include <iostream>
 #include <string>
 #include <string_view>
 #include <utility>
+#include <vector>
 
 #include "../proto/misc/json_parser.h"
 #include "sim_world.h"
@@ -103,7 +100,8 @@ consteval auto corvid_enum_spec(UiMouseButton*) {
 // Enemy spawn definition for a wave.
 struct EnemySpawn {
   WaveTick startTicks{};
-  std::string label; // matches a label in `SimWorld::registerEntity`
+  // Matches a label in `EntityTemplateStore::registerEntity`.
+  std::string label;
   PathId pathId{};
 };
 
@@ -228,8 +226,8 @@ struct UiActionField {
 #pragma endregion
 #pragma region UiActionInput
 
-// Represents an action input from the UI, such as pressing a button. Can
-// include related data, such as form fields.
+// An action input from the UI, such as pressing a button, together with any
+// related data, such as form fields.
 struct UiActionInput {
   uint64_t seq{};
   std::string action;
@@ -253,11 +251,6 @@ struct UiState {
 // Game simulation.
 class SimGame {
 public:
-#pragma region Construction
-
-  explicit SimGame() { (void)resetMap(); }
-
-#pragma endregion
 #pragma region Map management
 
   // Load all maps from the maps directory and activate the first one.
@@ -273,7 +266,7 @@ public:
     return buildMapEntityCsvReport(*mapDesign_);
   }
 
-  // Resets all map information.
+  // Reset all map information.
   [[nodiscard]] bool resetMap() {
     world_.clear();
     phase_ = GamePhase::build;
@@ -596,7 +589,7 @@ private:
         auto h = world_.spawnEntity(parameter);
         if (h) {
           *world_.try_get_component<Position>(h.id()) = pos;
-          if (def) resources_ -= def->resourceCost;
+          resources_ -= def->resourceCost;
         } else
           spawnAllowed = false;
       }
@@ -636,7 +629,7 @@ private:
     // Add selection visual effects.
     fx->selectionColor = 0xFFF2B63FU;
     fx->rangeRadius = defender->attackRadius;
-    fx->rangeColor = 0xFFFF007F;
+    fx->rangeColor = 0xFFFF007FU;
     fx->modified = world_.currentTick();
     (void)world_.markDirty(selectedId);
 
@@ -692,10 +685,11 @@ private:
   // Called once per map at load time, before the map enters the singleton.
   static void finalizeMapDesign(MapDesign& design) {
     for (const auto& [name, def] : design.entityDefs) {
-      if (!design.entityTemplateStore.registerEntity(def.entityName,
-              def.megatuple))
-        throw std::runtime_error{
-            "Failed to register entity: " + def.entityName};
+      // Registration cannot collide: `entityDefs` keys are already unique.
+      [[maybe_unused]] const auto registered =
+          design.entityTemplateStore.registerEntity(def.entityName,
+              def.megatuple);
+      assert(registered);
       if (def.resourceCost == std::numeric_limits<uint32_t>::max()) continue;
       const auto& app_opt = std::get<std::optional<Appearance>>(def.megatuple);
       assert(app_opt);
@@ -707,10 +701,7 @@ private:
           .resourceCost = def.resourceCost,
           .appearance = *app_opt});
     }
-    std::ranges::sort(design.defenderMenu,
-        [](const DefenderSummary& a, const DefenderSummary& b) {
-          return a.menuOrder < b.menuOrder;
-        });
+    std::ranges::sort(design.defenderMenu, {}, &DefenderSummary::menuOrder);
   }
 
   // Add each `PathJoints` from `mapDesign_->paths` to the world. Previous
@@ -759,7 +750,7 @@ private:
   size_t currentWave_{};
 
   // Index of the next spawn in the current `WaveDefinition`, which is
-  // checked against `wave_tick_`.
+  // checked against `waveTick_`.
   size_t nextSpawnIndex_{};
 
   int16_t lives_{20};
@@ -836,7 +827,8 @@ private:
     return maps;
   }
 
-  // Copy the named map into `mapDesign_` and register its entities and paths.
+  // Point `mapDesign_` at the named map, wire the world to its entity
+  // template store, and register its paths.
   [[nodiscard]] bool selectMap(std::string_view name) {
     auto found = find_opt(loadedMaps(), name);
     if (!found) return false;
@@ -1108,7 +1100,7 @@ SimGame::loadMapFromJson(const std::filesystem::path& file, MapDesign& out) {
       if (!elem.is_object()) continue;
       const auto wo = elem.as_object();
       WaveDefinition wave;
-      if (const auto v = wo.get_number<int>("resourceInflux"))
+      if (const auto v = wo.get_number<uint32_t>("resourceInflux"))
         wave.resourceInflux = *v;
       if (const auto enemies = wo.get_array("enemies")) {
         for (const auto eelem : enemies) {
@@ -1123,10 +1115,7 @@ SimGame::loadMapFromJson(const std::filesystem::path& file, MapDesign& out) {
           wave.enemies.push_back(std::move(spawn));
         }
       }
-      std::ranges::sort(wave.enemies,
-          [](const EnemySpawn& a, const EnemySpawn& b) {
-            return a.startTicks < b.startTicks;
-          });
+      std::ranges::sort(wave.enemies, {}, &EnemySpawn::startTicks);
       out.waves.push_back(std::move(wave));
     }
   }
@@ -1141,11 +1130,11 @@ SimGame::loadMapFromJson(const std::filesystem::path& file, MapDesign& out) {
 [[nodiscard]] inline std::string SimGame::buildMapEntityCsvReport(
     const MapDesign& design) {
   auto csv_escape = [](std::string_view value) {
-    std::string out;
-    out.reserve(value.size() + 2);
     const auto needs_quotes =
         value.contains(',') || value.contains('"') || value.contains('\n');
     if (!needs_quotes) return std::string{value};
+    std::string out;
+    out.reserve(value.size() + 2);
     out.push_back('"');
     for (const char ch : value) {
       if (ch == '"') out.push_back('"');
@@ -1163,14 +1152,11 @@ SimGame::loadMapFromJson(const std::filesystem::path& file, MapDesign& out) {
     else if (std::get<std::optional<Invader>>(def.megatuple))
       invaders.push_back(&def);
 
-  auto by_name = [](const EntityDefinition* lhs, const EntityDefinition* rhs) {
-    return lhs->entityName < rhs->entityName;
-  };
-  std::ranges::sort(invaders, by_name);
-  std::ranges::sort(defenders, by_name);
+  std::ranges::sort(invaders, {}, &EntityDefinition::entityName);
+  std::ranges::sort(defenders, {}, &EntityDefinition::entityName);
 
   std::ostringstream oss;
-  oss << "entityName,Radius,Speed,Radius,Health,Regen,Bounty\n";
+  oss << "entityName,hitRadius,speed,drawRadius,health,regen,bounty\n";
   for (const auto* def : invaders) {
     const auto& pathing = std::get<std::optional<Pathing>>(def->megatuple);
     const auto& invader = std::get<std::optional<Invader>>(def->megatuple);
@@ -1183,7 +1169,7 @@ SimGame::loadMapFromJson(const std::filesystem::path& file, MapDesign& out) {
         << invader->bounty << '\n';
   }
 
-  oss << "\nentityName,resourceCost,radius,attackRadius,attackDamage,"
+  oss << "\nentityName,resourceCost,drawRadius,attackRadius,attackDamage,"
          "cooldown\n";
   for (const auto* def : defenders) {
     const auto& defender = std::get<std::optional<Defender>>(def->megatuple);

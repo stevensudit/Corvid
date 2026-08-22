@@ -1214,7 +1214,7 @@ function visualEffectsToRender(
       : 0,
     cooldown: packedRgbaToRenderColor(fx.cooldown),
     cooldownExpiry: tickExpiryToWallMs(fx.cooldownExpiryTick, currentTick, now),
-    cooldownDuration: Math.max(0, fx.cooldownDurationTick - currentTick) * 50,
+    cooldownDuration: fx.cooldownDurationTicks * 50,
   }
 }
 
@@ -2165,7 +2165,8 @@ function isEntityVisualEffects(value: unknown): value is EntityVisualEffects {
     typeof (value as Record<string, unknown>).flash === 'number' &&
     typeof (value as Record<string, unknown>).flashExpiryTick === 'number' &&
     typeof (value as Record<string, unknown>).cooldown === 'number' &&
-    typeof (value as Record<string, unknown>).cooldownExpiryTick === 'number'
+    typeof (value as Record<string, unknown>).cooldownExpiryTick === 'number' &&
+    typeof (value as Record<string, unknown>).cooldownDurationTicks === 'number'
   )
 }
 

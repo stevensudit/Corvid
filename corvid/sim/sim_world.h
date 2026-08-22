@@ -23,7 +23,6 @@
 #include <limits>
 #include <numbers>
 #include <optional>
-#include <stdexcept>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -280,7 +279,7 @@ struct SegmentedPath: private SimWorldBounds {
 // `speed`; the entity's `Position` is re-derived from the segmented path
 // geometry.
 struct Pathing {
-  PathId pathId{};  // Index into `sim_world::paths_`.
+  PathId pathId{};  // Index into `SimWorld::paths_`.
   float progress{}; // Distance traveled along the path so far.
   float speed{};    // Distance per tick.
 };
@@ -320,6 +319,7 @@ struct VisualEffects {
   WorldTick flashExpiry = WorldTick::invalid;
   uint32_t cooldownColor{}; // RGBA. Active from fire time until `nextAttack`.
   WorldTick cooldownExpiry = WorldTick::invalid;
+  WorldTick cooldownDuration{}; // Full cooldown length in ticks.
 };
 
 // Fire-and-forget, display-only explosion streamed once to the client.
@@ -339,7 +339,7 @@ struct TransientBeam {
   Circle circle{};
   WorldTick expiry = WorldTick::invalid;
   uint32_t primaryColor{};
-  uint32_t secondaryColor{}; // Not used in wedge mode
+  uint32_t secondaryColor{}; // Not used in wedge mode.
   Position targetPos{};
   float lineWidth{};
   float halfAngleDeg{}; // When > 0, render as wedge
@@ -378,29 +378,31 @@ struct DefenderHitscan {
   TransientBeam transientTemplate;
 };
 
-// Projectile component for `DefenderShooter`. Used as part of its own
-// archetype, and also as the `bulletTemplate`. As a template, the `expiry`
-// field stores the TTL. Once instantiated, added to the current tick to gets
-// its final moment.
+// Projectile component for `DefenderShooter`.
+//
+// Used as part of its own archetype, and also as the `bulletTemplate`. As a
+// template, the `expiry` field stores the TTL. Once instantiated, it is added
+// to the current tick to get its final moment.
 struct DefenderBullet {
   WorldTick expiry{}; // Expiration tick of the projectile.
   SimWorldBounds::EntityId shooterId = SimWorldBounds::EntityId::invalid;
   float hitCircleRadius{}; // Hit detection, used for physics and game logic.
   float speed{};
-  float directDamage{};     // Damage upon impact.
-  float damageOverTime{};   // Damage applied over time.
-  float splashRadius{};     // Radius for area-of-effect damage.
-  float directDamageType{}; // Eventually an enum.
-  float dotDamageType{};    // Eventually an enum.
-  int projectileType{};     // Eventually an enum.
+  float directDamage{};   // Damage upon impact.
+  float damageOverTime{}; // Damage applied over time.
+  float splashRadius{};   // Radius for area-of-effect damage.
+  int directDamageType{}; // Eventually an enum.
+  int dotDamageType{};    // Eventually an enum.
+  int projectileType{};   // Eventually an enum.
 };
 
-// Shooter component for defenders that spawn projectiles. The
-// `bulletTemplate` is used to spawn bullets with the same properties as the
-// defender's attack, but with their own position and velocity. When
-// `muzzleFlashTemplate.primaryColor` is set, a transient beam is emitted
-// toward `aimPos` on each shot, guaranteeing a visible effect even if the
-// bullet hits within a single tick.
+// Shooter component for defenders that spawn projectiles.
+//
+// The `bulletTemplate` is used to spawn bullets with the same properties as
+// the defender's attack, but with their own position and velocity. When
+// `muzzleFlashTemplate.primaryColor` is a visible color, a transient beam is
+// emitted toward `aimPos` on each shot, guaranteeing a visible effect even if
+// the bullet hits within a single tick.
 struct DefenderShooter {
   DefenderBullet bulletTemplate{};
   TransientBeam muzzleFlashTemplate{}; // Template; `expiry` stores TTL.
@@ -417,7 +419,7 @@ struct Invader {
 
 // ECS types for the simulation world.
 //
-// Registry metadata (`uint64_t`) stores each entity's last-change tick
+// Registry metadata (`WorldTick`) stores each entity's last-change tick
 // count, enabling delta snapshots without a separate dirty set.
 //
 // Storage layout (store_id assignment is positional, 1-based):
@@ -436,7 +438,8 @@ struct Invader {
 //
 //   `sidBullet`          = 3 -> `ArchBullet`
 //                               spawned projectiles
-//                               (Position + Velocity + DefenderBullet)
+//                               (Position + Velocity + Appearance +
+//                               DefenderBullet)
 //
 //   `sidDefenderShooter`  = 4 -> `ArchDefenderShooter`
 //                                projectile-firing defenders
@@ -478,7 +481,7 @@ struct EntityTemplateStore {
   [[nodiscard]] bool
   registerEntity(std::string label, WorldScene::megatuple_t tpl) {
     auto [it, inserted] =
-        templates.insert_or_assign(std::move(label), std::move(tpl));
+        templates.try_emplace(std::move(label), std::move(tpl));
     if (!inserted) return false;
     auto& [key, value] = *it;
     labels.push_back(key);
@@ -638,14 +641,18 @@ public:
     return true;
   }
 
-  // Set a cooldown overlay on a defender. `absoluteExpiry` is an absolute tick
-  // (typically `defender.nextAttack`) at which the overlay clears.
-  [[nodiscard]] bool
-  setCooldown(EntityId id, uint32_t color, WorldTick absoluteExpiry) {
+  // Set a cooldown overlay on a defender.
+  //
+  // `absoluteExpiry` is an absolute tick (typically `defender.nextAttack`) at
+  // which the overlay clears, and `duration` is the full cooldown length in
+  // ticks.
+  [[nodiscard]] bool setCooldown(EntityId id, uint32_t color,
+      WorldTick absoluteExpiry, WorldTick duration) {
     auto* effects = changeVisualEffects(id);
     if (!effects) return false;
     effects->cooldownColor = color;
     effects->cooldownExpiry = absoluteExpiry;
+    effects->cooldownDuration = duration;
     return true;
   }
 
@@ -706,7 +713,7 @@ public:
   // defenders. Used for placement. Skips the entity with `excludeId` (pass
   // `EntityId::invalid` to skip no entity; used when moving a placed
   // defender so it can partially overlap its own footprint).
-  [[nodiscard]] bool doesOveralapDefenders(const Position& pos, float radius,
+  [[nodiscard]] bool doesOverlapDefenders(const Position& pos, float radius,
       EntityId excludeId = EntityId::invalid) const {
     bool overlaps{};
     scene_.for_each<Position, Appearance, Defender>([&](auto id, auto comps) {
@@ -740,7 +747,7 @@ public:
   [[nodiscard]] bool isDefenderPlacementBlocked(const Position& pos,
       float radius, EntityId excludeId = EntityId::invalid) const {
     return !isInBounds(pos, radius) ||
-           doesOveralapDefenders(pos, radius, excludeId) ||
+           doesOverlapDefenders(pos, radius, excludeId) ||
            doesTouchPath(pos, radius);
   }
 
@@ -782,11 +789,11 @@ public:
   // Destructively extract upserts and erasures.
   //
   // Call back `cbUpserts(EntityId, Position, Appearance, VisualEffects,
-  // Health)` for each changed entity that has a `Position` and `Appearance`
-  // and has changed since the last tick, and `cbErased(EntityId)` for each
-  // entity that has been erased since the last tick. The visual effects
-  // pointer is null for archetypes that do not carry that component. These
-  // callbacks will be interleaved.
+  // Health)` for each entity with a `Position` and `Appearance` that has
+  // changed since the last tick, and `cbErased(EntityId)` for each entity
+  // that has been erased since the last tick. For archetypes that do not
+  // carry `VisualEffects` or `Health`, an empty default is passed instead.
+  // These callbacks will be interleaved.
   [[nodiscard]] bool
   extractUpdatedEntities(auto&& cbUpserts, auto&& cbErased) {
     static constexpr VisualEffects nfx;
@@ -849,7 +856,6 @@ public:
   // different path.
   [[nodiscard]] bool resolveEscapees(auto&& cbEscapee) {
     for (auto id : pathEscapees_) {
-      if (!scene_.registry().is_valid(id)) continue;
       auto [pos, pf] = scene_.try_get_components<Position, Pathing>(id);
       if (pos && cbEscapee(id, *pos, *pf)) (void)tombstoneEntity(id);
     }
@@ -1025,12 +1031,15 @@ private:
     return true;
   }
 
-  // Apply projectile damage to one invader and credit the originating
-  // defender's live stats. Shared by both direct-hit and splash-hit
+  // Apply attack damage to one invader and credit the attacking defender's
+  // live stats.
+  //
+  // Shared by projectile direct hits, splash, area-of-effect, and hitscan
   // resolution.
+  //
   // TODO: This will need to be expanded to handle different damage types, as
   // well as applying a lingering damage-over-time effect.
-  [[nodiscard]] bool applyProjectileDamage(EntityId targetId, float damage,
+  [[nodiscard]] bool applyAttackDamage(EntityId targetId, float damage,
       DefenderStats& shooterStats, uint32_t flashColor) {
     auto* hp = scene_.try_get_component<Health>(targetId);
     if (!hp || hp->currentHealth <= 0.F || damage <= 0.F) return false;
@@ -1109,7 +1118,7 @@ private:
       if (!circlesOverlap(center, bullet.splashRadius, enemyPos,
               invader.hitCircleRadius))
         return true;
-      (void)applyProjectileDamage(enemyId, bullet.directDamage, shooterStats,
+      (void)applyAttackDamage(enemyId, bullet.directDamage, shooterStats,
           0xFFFFA040U);
       return true;
     });
@@ -1137,7 +1146,7 @@ private:
         scene_.try_get_component<DefenderStats>(bullet.shooterId);
     assert(shooterStats);
     if (bullet.directDamage > 0.F)
-      (void)applyProjectileDamage(targetId, bullet.directDamage, *shooterStats,
+      (void)applyAttackDamage(targetId, bullet.directDamage, *shooterStats,
           0xFFFFA040U);
     if (bullet.splashRadius > 0.F)
       (void)applySplashProjectileDamage(impactPos, bullet, *shooterStats);
@@ -1231,6 +1240,9 @@ private:
     scene_.for_each<Position, Invader, Pathing, Health>(
         [&](auto enemyId, auto comps) {
           const auto& [enemyPos, invader, pf, hp] = comps;
+          // Skip invaders already killed earlier this tick; they are
+          // tombstoned only when the kills are resolved.
+          if (hp.currentHealth <= 0.F) return true;
           const auto dSq = distanceSquared(defenderPos, enemyPos);
           const auto r = attackRadius + invader.hitCircleRadius;
           if (dSq > r * r) return true;
@@ -1274,35 +1286,21 @@ private:
   // `pendingKills_` for `SimGame` to resolve (bounty, death animation, etc.).
   // Then put the defender on cooldown.
   [[nodiscard]] bool attackWithAoe(EntityId defenderId, Defender& defender,
-      DefenderStats& stats, const std::vector<InvaderCandidate>& candidates,
-      const DefenderAoe&) {
-    const auto* defenderPos = scene_.try_get_component<Position>(defenderId);
-    assert(defenderPos);
+      const Position& defenderPos, DefenderStats& stats,
+      const std::vector<InvaderCandidate>& candidates, const DefenderAoe&) {
     pendingTransientExplosions_.emplace_back(TransientExplosion{
         .expiry = WorldTick{*tick_ + 1},
-        .circle = Circle{Position{defenderPos->x, defenderPos->y},
+        .circle = Circle{Position{defenderPos.x, defenderPos.y},
             defender.attackRadius},
         .primaryColor = withAlpha(defender.rangeColor, 0x30U),
         .secondaryColor = withAlpha(defender.rangeColor, 0x10U)});
-    for (const auto& cand : candidates) {
-      auto* hp = scene_.try_get_component<Health>(cand.id);
-      if (!hp) continue;
-      const auto actualDamage =
-          std::min(defender.attackDamage, cand.currentHealth);
-      hp->modified = tick_;
-      hp->currentHealth -= defender.attackDamage;
-      (void)markDirty(cand.id);
-      if (hp->currentHealth <= 0.F) {
-        pendingKills_.push_back(cand.id);
-        stats.totalKills += 1.F;
-      } else {
-        (void)flashEntity(cand.id, 0xFF7F7FFF, WorldTick{5});
-      }
-      stats.totalDamageDealt += actualDamage;
-    }
+    for (const auto& cand : candidates)
+      (void)applyAttackDamage(cand.id, defender.attackDamage, stats,
+          0xFF7F7FFFU);
     defender.nextAttack = WorldTick{*tick_ + *defender.cooldown};
-    (void)flashEntity(defenderId, 0xFFFFFFFF, WorldTick{5});
-    (void)setCooldown(defenderId, 0x0000007FU, defender.nextAttack);
+    (void)flashEntity(defenderId, 0xFFFFFFFFU, WorldTick{5});
+    (void)setCooldown(defenderId, 0x0000007FU, defender.nextAttack,
+        defender.cooldown);
     return true;
   }
 
@@ -1313,7 +1311,7 @@ private:
   //
   // Derivation: `|T + V_t*t - D|^2 = (bulletSpeed*t)^2`, expanded as a
   // quadratic in `t` with:
-  // a` = `|V_t|^2 - bulletSpeed^2`, `b` = `2*(T-D).V_t`, c = `|T-D|^2`.
+  // `a` = `|V_t|^2 - bulletSpeed^2`, `b` = `2*(T-D).V_t`, `c` = `|T-D|^2`.
   //
   // The smallest positive root is the intercept time.
   [[nodiscard]] static float computeInterceptTime(const Position& defenderPos,
@@ -1391,7 +1389,7 @@ private:
     bullet.expiry = WorldTick{*tick_ + *shooter.bulletTemplate.expiry};
 
     (void)spawnBullet(defenderPos, vel, bullet);
-    if (shooter.muzzleFlashTemplate.primaryColor != 0) {
+    if (isVisibleColor(shooter.muzzleFlashTemplate.primaryColor)) {
       pendingTransientBeams_.emplace_back(TransientBeam{
           .circle = Circle{Position{defenderPos.x, defenderPos.y},
               shooter.muzzleFlashTemplate.circle.radius},
@@ -1404,13 +1402,14 @@ private:
           .coneRadius = shooter.muzzleFlashTemplate.coneRadius});
     }
     defender.nextAttack = WorldTick{*tick_ + *defender.cooldown};
-    (void)flashEntity(defenderId, 0xFFFFFFFF, WorldTick{5});
-    (void)setCooldown(defenderId, 0x0000007FU, defender.nextAttack);
+    (void)flashEntity(defenderId, 0xFFFFFFFFU, WorldTick{5});
+    (void)setCooldown(defenderId, 0x0000007FU, defender.nextAttack,
+        defender.cooldown);
     return true;
   }
 
   // Spawn a bullet entity directly, bypassing the label-based template
-  // system by using the template in the defender itself
+  // system by using the template in the defender itself.
   [[nodiscard]] Handle spawnBullet(const Position& pos, const Velocity& vel,
       const DefenderBullet& bullet) {
     auto h = scene_.store_new_entity({WorldTick::invalid},
@@ -1432,19 +1431,9 @@ private:
     const auto targetId = selectTarget(candidates, defender.targetMode);
     if (targetId == EntityId::invalid) return false;
 
-    auto* hp = scene_.try_get_component<Health>(targetId);
-    if (!hp) return false;
-
-    const auto actualDamage =
-        std::min(defender.attackDamage, hp->currentHealth);
-    hp->modified = tick_;
-    hp->currentHealth -= defender.attackDamage;
-    (void)markDirty(targetId);
-    if (hp->currentHealth <= 0.F) {
-      pendingKills_.push_back(targetId);
-      stats.totalKills += 1.F;
-    }
-    stats.totalDamageDealt += actualDamage;
+    if (!applyAttackDamage(targetId, defender.attackDamage, stats,
+            0xFFFFA040U))
+      return false;
 
     const auto* defenderPos = scene_.try_get_component<Position>(defenderId);
     const auto* targetPos = scene_.try_get_component<Position>(targetId);
@@ -1460,8 +1449,9 @@ private:
         .lineWidth = hitscan.transientTemplate.lineWidth});
 
     defender.nextAttack = WorldTick{*tick_ + *defender.cooldown};
-    (void)flashEntity(defenderId, 0xFFFFFFFF, WorldTick{5});
-    (void)setCooldown(defenderId, 0x0000007FU, defender.nextAttack);
+    (void)flashEntity(defenderId, 0xFFFFFFFFU, WorldTick{5});
+    (void)setCooldown(defenderId, 0x0000007FU, defender.nextAttack,
+        defender.cooldown);
     return true;
   }
 
@@ -1483,7 +1473,8 @@ private:
               hitscan] = scene_.try_get_some_components<DefenderAoe,
               DefenderShooter, DefenderHitscan>(defenderId);
           if (aoe)
-            (void)attackWithAoe(defenderId, defender, stats, candidates, *aoe);
+            (void)attackWithAoe(defenderId, defender, defenderPos, stats,
+                candidates, *aoe);
           else if (shooter)
             (void)attackWithShooter(defenderId, defender, defenderPos,
                 candidates, *shooter);

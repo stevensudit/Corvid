@@ -126,6 +126,15 @@ filterSnapshot(const std::vector<EntitySnapshot>& all,
   return explosions;
 }
 
+[[nodiscard]] std::vector<TransientBeam> extractTransientBeams(
+    SimWorld& world) {
+  std::vector<TransientBeam> beams;
+  (void)world.extractTransientBeams([&beams](const TransientBeam& transient) {
+    beams.push_back(transient);
+  });
+  return beams;
+}
+
 [[nodiscard]] GameSnapshot snapshot(SimGame& game) {
   GameSnapshot snap;
   std::vector<PathJoints> pathsById;
@@ -308,6 +317,40 @@ spawnDefenderShooter(SimWorld& w, Position spawn_pos) {
   return h;
 }
 
+[[nodiscard]] SimWorld::Handle
+spawnDefenderHitscan(SimWorld& w, Position spawn_pos) {
+  ensureTestStore(w);
+  if (!testStore.templates.contains("HitscanBasic")) {
+    WorldScene::megatuple_t tpl{};
+    std::get<std::optional<Position>>(tpl) = Position{};
+    std::get<std::optional<Appearance>>(tpl) = Appearance{.glyph = U'H',
+        .radius = 25.F,
+        .fgColor = 0xFFFFFFFFU,
+        .bgColor = 0x3F7FFFFFU};
+    std::get<std::optional<VisualEffects>>(tpl) = VisualEffects{};
+    std::get<std::optional<Defender>>(tpl) = Defender{.hitCircleRadius = 25.F,
+        .attackRadius = 200.F,
+        .rangeColor = 0xFF0000FFU,
+        .attackDamage = 30.F,
+        .cooldown = WorldTick{25},
+        .nextAttack = WorldTick{0}};
+    std::get<std::optional<DefenderStats>>(tpl) = DefenderStats{};
+    std::get<std::optional<Health>>(tpl) =
+        Health{.currentHealth = 80.F, .maxHealth = 80.F, .regen = 0.F};
+    std::get<std::optional<DefenderHitscan>>(tpl) = DefenderHitscan{
+        .transientTemplate = TransientBeam{.circle = Circle{Position{}, 6.F},
+            .expiry = WorldTick{4},
+            .primaryColor = 0xFF4040FFU,
+            .secondaryColor = 0xFFFFFFFFU,
+            .lineWidth = 3.F}};
+    (void)testStore.registerEntity("HitscanBasic", tpl);
+  }
+  auto h = w.spawnEntity("HitscanBasic");
+  if (!h) return h;
+  if (auto* pos = w.try_get_component<Position>(h.id())) *pos = spawn_pos;
+  return h;
+}
+
 } // namespace
 
 // NOLINTBEGIN(readability-function-cognitive-complexity)
@@ -447,6 +490,48 @@ TEST_CASE("DefenderAoeAttackEmitsPulseExplosion", "[SimWorld]") {
   CHECK(drained.empty());
 
   CHECK(w.try_get_component<Position>(defender.id()) != nullptr);
+}
+
+#pragma endregion
+#pragma region World_AoeKillIsCountedOnceAcrossDefenders
+
+TEST_CASE("AoeKillIsCountedOnceAcrossDefenders", "[SimWorld]") {
+  SimWorld w;
+  PathJoints p;
+  p.joints = {{{0.F, 0.F}}, {{500.F, 0.F}}};
+  const auto pid = w.addPath(p);
+  const auto defenderA = spawnDefenderAoe(w, {0.F, 0.F});
+  const auto defenderB = spawnDefenderAoe(w, {100.F, 0.F});
+  const auto invader = spawnInvaderAlpha(w, pid);
+  {
+    auto* hp = w.try_get_component<Health>(invader.id());
+    REQUIRE(hp != nullptr);
+    hp->currentHealth = 3.F;
+  }
+
+  (void)w.next();
+
+  // The invader dies to the first defender; the second must not attack the
+  // corpse. Health is clamped at zero, never negative.
+  const auto* hp = w.try_get_component<Health>(invader.id());
+  REQUIRE(hp != nullptr);
+  CHECK(std::abs((hp->currentHealth) - (0.0)) <= 1e-6);
+
+  const auto* statsA = w.try_get_component<DefenderStats>(defenderA.id());
+  const auto* statsB = w.try_get_component<DefenderStats>(defenderB.id());
+  REQUIRE(statsA != nullptr);
+  REQUIRE(statsB != nullptr);
+  CHECK(std::abs((statsA->totalKills + statsB->totalKills) - (1.0)) <= 1e-6);
+  CHECK((statsA->totalDamageDealt) >= (0.F));
+  CHECK((statsB->totalDamageDealt) >= (0.F));
+
+  size_t killed{};
+  (void)w.resolveKills(
+      [&killed](SimWorld::EntityId, const Position&, const Invader&) {
+        ++killed;
+        return true;
+      });
+  CHECK(killed == 1U);
 }
 
 #pragma endregion
@@ -592,6 +677,192 @@ TEST_CASE("ExplosiveBulletDetonatesOnExpiry", "[SimWorld]") {
   CHECK(std::abs((explosions[0].circle.x) - (200.0)) <= 1e-6);
   CHECK(std::abs((explosions[0].circle.y) - (0.0)) <= 1e-6);
   CHECK(std::abs((explosions[0].circle.radius) - (250.0)) <= 1e-6);
+}
+
+#pragma endregion
+#pragma region World_HitscanAttackDamagesAndEmitsBeam
+
+TEST_CASE("HitscanAttackDamagesAndEmitsBeam", "[SimWorld]") {
+  SimWorld w;
+  PathJoints p;
+  p.joints = {{{0.F, 0.F}}, {{500.F, 0.F}}};
+  const auto pid = w.addPath(p);
+  const auto defender = spawnDefenderHitscan(w, {0.F, 0.F});
+  const auto invader = spawnInvaderAlpha(w, pid);
+
+  (void)w.next();
+
+  const auto* hp = w.try_get_component<Health>(invader.id());
+  REQUIRE(hp != nullptr);
+  CHECK(std::abs((hp->currentHealth) - (70.0)) <= 1e-6);
+
+  const auto* fx = w.try_get_component<VisualEffects>(invader.id());
+  REQUIRE(fx != nullptr);
+  CHECK(fx->flashColor == 0xFFFFA040U);
+  CHECK(fx->flashExpiry == WorldTick{5});
+
+  const auto* stats = w.try_get_component<DefenderStats>(defender.id());
+  REQUIRE(stats != nullptr);
+  CHECK(std::abs((stats->totalDamageDealt) - (30.0)) <= 1e-6);
+  CHECK(std::abs((stats->totalKills) - (0.0)) <= 1e-6);
+
+  const auto* def = w.try_get_component<Defender>(defender.id());
+  REQUIRE(def != nullptr);
+  CHECK(def->nextAttack == WorldTick{25});
+
+  const auto beams = extractTransientBeams(w);
+  REQUIRE(beams.size() == 1U);
+  CHECK(std::abs((beams[0].circle.x) - (0.0)) <= 1e-6);
+  CHECK(std::abs((beams[0].circle.y) - (0.0)) <= 1e-6);
+  CHECK(std::abs((beams[0].circle.radius) - (6.0)) <= 1e-6);
+  CHECK(std::abs((beams[0].targetPos.x) - (50.0)) <= 1e-6);
+  CHECK(std::abs((beams[0].targetPos.y) - (0.0)) <= 1e-6);
+  CHECK(beams[0].expiry == WorldTick{4});
+  CHECK(beams[0].primaryColor == 0xFF4040FFU);
+  CHECK(std::abs((beams[0].lineWidth) - (3.0)) <= 1e-6);
+
+  const auto drained = extractTransientBeams(w);
+  CHECK(drained.empty());
+}
+
+#pragma endregion
+#pragma region World_TargetModeSelectsExpectedInvader
+
+TEST_CASE("TargetModeSelectsExpectedInvader", "[SimWorld]") {
+  SimWorld w;
+  PathJoints p;
+  p.joints = {{{0.F, 0.F}}, {{500.F, 0.F}}};
+  const auto pid = w.addPath(p);
+  const auto defender = spawnDefenderHitscan(w, {120.F, 0.F});
+  const auto nearInvader = spawnInvaderAlpha(w, pid, 100.F);
+  const auto farInvader = spawnInvaderAlpha(w, pid, 200.F);
+
+  // Freeze both invaders so positions and progress stay distinct, and give
+  // them distinct healths: near is the weakest and closest, far is the
+  // strongest and furthest along the path.
+  w.try_get_component<Pathing>(nearInvader.id())->speed = 0.F;
+  w.try_get_component<Pathing>(farInvader.id())->speed = 0.F;
+  w.try_get_component<Health>(nearInvader.id())->currentHealth = 40.F;
+  w.try_get_component<Health>(farInvader.id())->currentHealth = 90.F;
+
+  const auto healthOf = [&w](SimWorld::EntityId id) {
+    return w.try_get_component<Health>(id)->currentHealth;
+  };
+  const auto runAttack = [&w, &defender](TargetMode mode) {
+    auto* def = w.try_get_component<Defender>(defender.id());
+    REQUIRE(def != nullptr);
+    def->targetMode = mode;
+    (void)w.next();
+  };
+
+  SECTION("first picks the invader furthest along the path") {
+    runAttack(TargetMode::first);
+    CHECK(std::abs((healthOf(farInvader.id())) - (60.0)) <= 1e-6);
+    CHECK(std::abs((healthOf(nearInvader.id())) - (40.0)) <= 1e-6);
+  }
+  SECTION("last picks the invader least far along the path") {
+    runAttack(TargetMode::last);
+    CHECK(std::abs((healthOf(nearInvader.id())) - (10.0)) <= 1e-6);
+    CHECK(std::abs((healthOf(farInvader.id())) - (90.0)) <= 1e-6);
+  }
+  SECTION("closest picks the invader nearest the defender") {
+    runAttack(TargetMode::closest);
+    CHECK(std::abs((healthOf(nearInvader.id())) - (10.0)) <= 1e-6);
+    CHECK(std::abs((healthOf(farInvader.id())) - (90.0)) <= 1e-6);
+  }
+  SECTION("strongest picks the invader with the most health") {
+    runAttack(TargetMode::strongest);
+    CHECK(std::abs((healthOf(farInvader.id())) - (60.0)) <= 1e-6);
+    CHECK(std::abs((healthOf(nearInvader.id())) - (40.0)) <= 1e-6);
+  }
+  SECTION("weakest picks the invader with the least health") {
+    runAttack(TargetMode::weakest);
+    CHECK(std::abs((healthOf(nearInvader.id())) - (10.0)) <= 1e-6);
+    CHECK(std::abs((healthOf(farInvader.id())) - (90.0)) <= 1e-6);
+  }
+}
+
+#pragma endregion
+#pragma region World_ResolveKillsEmitsDeathExplosion
+
+TEST_CASE("ResolveKillsEmitsDeathExplosion", "[SimWorld]") {
+  SimWorld w;
+  PathJoints p;
+  p.joints = {{{0.F, 0.F}}, {{500.F, 0.F}}};
+  const auto pid = w.addPath(p);
+  const auto defender = spawnDefenderHitscan(w, {0.F, 0.F});
+  const auto invader = spawnInvaderAlpha(w, pid);
+  w.try_get_component<Health>(invader.id())->currentHealth = 10.F;
+
+  (void)w.next();
+
+  const auto* stats = w.try_get_component<DefenderStats>(defender.id());
+  REQUIRE(stats != nullptr);
+  CHECK(std::abs((stats->totalKills) - (1.0)) <= 1e-6);
+
+  size_t killed{};
+  uint32_t bounty{};
+  (void)w.resolveKills(
+      [&](SimWorld::EntityId id, const Position& pos, const Invader& inv) {
+        ++killed;
+        bounty += inv.bounty;
+        CHECK(id == invader.id());
+        CHECK(std::abs((pos.x) - (50.0)) <= 1e-6);
+        return true;
+      });
+  CHECK(killed == 1U);
+  CHECK(bounty == 10U);
+  CHECK(w.size() == 1U);
+
+  const auto explosions = extractTransientExplosions(w);
+  REQUIRE(explosions.size() == 1U);
+  CHECK(explosions[0].expiry == WorldTick{6});
+  CHECK(std::abs((explosions[0].circle.x) - (50.0)) <= 1e-6);
+  CHECK(std::abs((explosions[0].circle.y) - (0.0)) <= 1e-6);
+  CHECK(std::abs((explosions[0].circle.radius) - (30.0)) <= 1e-6);
+  CHECK(explosions[0].primaryColor == 0xFFB040E6U);
+  CHECK(explosions[0].secondaryColor == 0xFFFFD080U);
+
+  const auto delta = extractWorldDelta(w);
+  CHECK(containsId(delta.erased, invader.id()));
+}
+
+#pragma endregion
+#pragma region World_ShooterHoldsFireWhenTargetOutrunsBullet
+
+TEST_CASE("ShooterHoldsFireWhenTargetOutrunsBullet", "[SimWorld]") {
+  SimWorld w;
+  PathJoints p;
+  p.joints = {{{0.F, 0.F}}, {{500.F, 0.F}}};
+  const auto pid = w.addPath(p);
+  const auto defender = spawnDefenderShooter(w, {0.F, 0.F});
+  const auto invader = spawnInvaderAlpha(w, pid, 100.F);
+
+  SECTION("a receding target faster than the bullet is not fired on") {
+    w.try_get_component<DefenderShooter>(defender.id())->bulletTemplate.speed =
+        20.F;
+
+    (void)w.next();
+
+    // No bullet spawned, and the cooldown was not started.
+    CHECK(w.size() == 2U);
+    const auto* def = w.try_get_component<Defender>(defender.id());
+    REQUIRE(def != nullptr);
+    CHECK(def->nextAttack == WorldTick{0});
+    const auto* fx = w.try_get_component<VisualEffects>(defender.id());
+    REQUIRE(fx != nullptr);
+    CHECK(fx->flashColor == 0U);
+    CHECK(std::abs((w.try_get_component<Health>(invader.id())->currentHealth) -
+                   (100.0)) <= 1e-6);
+  }
+  SECTION("a catchable target is fired on and the cooldown starts") {
+    (void)w.next();
+
+    CHECK(w.size() == 3U);
+    const auto* def = w.try_get_component<Defender>(defender.id());
+    REQUIRE(def != nullptr);
+    CHECK(def->nextAttack == WorldTick{30});
+  }
 }
 
 #pragma endregion
@@ -1135,6 +1406,43 @@ TEST_CASE("StartWaveSpawnsFirstEnemyOnFirstStep", "[SimGame]") {
 }
 
 #pragma endregion
+#pragma region Game_KillsDuringWaveCreditBounty
+
+TEST_CASE("KillsDuringWaveCreditBounty", "[SimGame]") {
+  SimGame game;
+  REQUIRE(game.loadMap());
+
+  // Buy a cannon near the path mouth; its 60 damage one-shots the wave's
+  // 50-health alpha invaders.
+  (void)game.handleUiCanvas(UiCanvasInput{.seq = 1,
+      .event = UiCanvasEvent::click,
+      .button = UiMouseButton::left,
+      .buttons = 1,
+      .x = 100.F,
+      .y = 60.F,
+      .canvasX = 0.F,
+      .canvasY = 0.F,
+      .command = "spawn",
+      .parameters = {"DefenderHitscanCannon"}});
+  (void)game.next();
+  auto delta = extractGameDelta(game);
+  REQUIRE(delta.spawnAllowed.has_value());
+  REQUIRE(delta.spawnAllowed.value());
+  CHECK(delta.resources == 900);
+  (void)game.tick();
+
+  (void)game.start_wave();
+  bool sawBounty = false;
+  for (auto ndx = 0; ndx < 50 && !sawBounty; ++ndx) {
+    (void)game.next();
+    delta = extractGameDelta(game);
+    sawBounty = delta.resources > 900;
+    (void)game.tick();
+  }
+  CHECK(sawBounty);
+}
+
+#pragma endregion
 #pragma region Game_ExtractDeltaConsumesWorldUpdatesButNotState
 
 TEST_CASE("ExtractDeltaConsumesWorldUpdatesButNotState", "[SimGame]") {
@@ -1553,11 +1861,12 @@ TEST_CASE("BuildCurrentMapEntityCsvReport", "[SimGame]") {
   REQUIRE(game.loadMap());
 
   const auto csv = game.buildCurrentMapEntityCsvReport();
-  CHECK(csv.contains("entityName,Radius,Speed,Radius,Health,Regen,Bounty\n"));
+  CHECK(csv.contains(
+      "entityName,hitRadius,speed,drawRadius,health,regen,bounty\n"));
   CHECK(csv.contains("InvaderAlphaBasic,30,50,30,50,10,10\n"));
   CHECK(csv.contains("InvaderBetaBasic,40,30,40,120,12,25\n"));
   CHECK(csv.contains(
-      "\nentityName,resourceCost,radius,attackRadius,"
+      "\nentityName,resourceCost,drawRadius,attackRadius,"
       "attackDamage,cooldown\n"));
   CHECK(csv.contains("DefenderAoeBasic,50,30,100,6,20\n"));
   CHECK(csv.contains("DefenderHitscanBasic,100,25,200,30,25\n"));

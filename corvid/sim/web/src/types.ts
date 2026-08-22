@@ -57,7 +57,7 @@ export interface EntityVisualEffects {
   flashExpiryTick: number
   cooldown: number
   cooldownExpiryTick: number
-  cooldownDurationTick: number
+  cooldownDurationTicks: number
 }
 
 export interface TransientExplosion {
