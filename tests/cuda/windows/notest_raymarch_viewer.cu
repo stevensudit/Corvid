@@ -204,7 +204,7 @@ int main() {
 
       const camera_rays rays = cam.rays();
       presenter
-          .render([&](cudaArray_t array, int w, int h) {
+          .render([&](cudaArray_t array, UINT w, UINT h) {
             const dim3 grid{cuda_kernel::ceil_div(w, block.x),
                 cuda_kernel::ceil_div(h, block.y)};
             raymarch_kernel<<<grid, block>>>(cuda_surface{array},

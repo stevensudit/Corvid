@@ -170,7 +170,7 @@ public:
   // target cannot be mapped, the frame is dropped and `E_FAIL` returned, with
   // the CUDA error left in the thread's last status.
   [[nodiscard]] hr_status
-  render(std::invocable<cudaArray_t, int, int> auto&& draw,
+  render(std::invocable<cudaArray_t, UINT, UINT> auto&& draw,
       int sync_interval = 1) {
     return render(std::forward<decltype(draw)>(draw), [] {}, sync_interval);
   }
@@ -178,7 +178,7 @@ public:
   // As `render(draw)`, plus the overlay step of the `present` overlay
   // overload: `overlay()` draws over the backbuffer before the present.
   [[nodiscard]] hr_status
-  render(std::invocable<cudaArray_t, int, int> auto&& draw,
+  render(std::invocable<cudaArray_t, UINT, UINT> auto&& draw,
       std::invocable auto&& overlay, int sync_interval = 1) {
     if (const auto map = cuda_d3d11_mapping::try_create(cuda_target_))
       draw(map.array(), buffer_width(), buffer_height());

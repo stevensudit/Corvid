@@ -78,7 +78,7 @@ int main() {
 
   // ---------- Naive kernel, scaled  ----------
   const auto mp_count =
-      cuda_device{}.get_attribute(cuda_device_attr::multi_processor_count);
+      cuda_device{}.attribute(cuda_device_attr::multi_processor_count);
   dim3 blockDimS(block_size);
   dim3 gridDimS(32 * mp_count);
 

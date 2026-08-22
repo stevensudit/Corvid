@@ -216,7 +216,7 @@ int main() {
           base_iter, max_iter_cap));
 
       presenter
-          .render([&](cudaArray_t array, int w, int h) {
+          .render([&](cudaArray_t array, UINT w, UINT h) {
             const dim3 grid{cuda_kernel::ceil_div(w, block.x),
                 cuda_kernel::ceil_div(h, block.y)};
             mandelbrot_kernel<<<grid, block>>>(cuda_surface{array}, w, h,
