@@ -94,7 +94,7 @@ struct drive_input {
     switch (ev.type()) {
     case sdl_event_type::mouse_button_down:
     case sdl_event_type::mouse_button_up: {
-      const auto button = ev.get_button();
+      const auto button = ev.button();
       if (button.button == sdl_mouse_button::right) {
         looking = button.down;
         win.set_relative_mouse_mode(looking).or_throw();
@@ -105,20 +105,20 @@ struct drive_input {
 
     case sdl_event_type::mouse_motion: {
       if (!looking) return false;
-      const auto motion = ev.get_motion();
+      const auto motion = ev.motion();
       look_dx += motion.xrel;
       look_dy += motion.yrel;
       return true;
     }
 
     case sdl_event_type::mouse_wheel: {
-      wheel += ev.get_wheel().y;
+      wheel += ev.wheel().y;
       return true;
     }
 
     case sdl_event_type::key_down:
     case sdl_event_type::key_up: {
-      const auto key = ev.get_key();
+      const auto key = ev.key();
       // Last press wins on an opposing pair (forward/back, left/right):
       // pressing one clears the other so a fresh press always takes over
       // rather than canceling against a still-held opposite. Re-pressing the

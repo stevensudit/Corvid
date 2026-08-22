@@ -263,22 +263,22 @@ consteval auto corvid_enum_spec(sdl_event_data_type*) {
 }
 
 #pragma endregion
-#pragma region sdl_display_id_type
+#pragma region sdl_display_id
 
 // Type-safe handle for an `SDL_DisplayID`.
-enum class sdl_display_id_type : uint32_t {};
-consteval auto corvid_enum_spec(sdl_display_id_type*) {
-  return corvid::enums::sequence::make_sequence_enum_spec<sdl_display_id_type,
+enum class sdl_display_id : uint32_t {};
+consteval auto corvid_enum_spec(sdl_display_id*) {
+  return corvid::enums::sequence::make_sequence_enum_spec<sdl_display_id,
       "">();
 }
 
 #pragma endregion
-#pragma region sdl_window_id_type
+#pragma region sdl_window_id
 
 // Type-safe handle for an `SDL_WindowID`.
-enum class sdl_window_id_type : uint32_t {};
-consteval auto corvid_enum_spec(sdl_window_id_type*) {
-  return corvid::enums::sequence::make_sequence_enum_spec<sdl_window_id_type,
+enum class sdl_window_id : uint32_t {};
+consteval auto corvid_enum_spec(sdl_window_id*) {
+  return corvid::enums::sequence::make_sequence_enum_spec<sdl_window_id,
       "">();
 }
 
@@ -606,7 +606,7 @@ consteval auto corvid_enum_spec(sdl_mouse_button*) {
 // `data1`/`data2` are event-specific; see the `SDL_EVENT_DISPLAY_*`
 // documentation.
 struct sdl_display_event {
-  sdl_display_id_type display_id{};
+  sdl_display_id display_id{};
   int32_t data1{};
   int32_t data2{};
 };
@@ -616,7 +616,7 @@ struct sdl_display_event {
 // `data1`/`data2` are event-specific; for `window_pixel_size_changed` they are
 // the new width and height in pixels.
 struct sdl_window_event {
-  sdl_window_id_type window_id{};
+  sdl_window_id window_id{};
   int32_t data1{};
   int32_t data2{};
 };
@@ -672,7 +672,7 @@ struct sdl_key_event {
 // registered event enum, `data_type()` names the active union member.
 //
 // To read an event's payload, switch on `type()` and call the typed accessor
-// for its shape (e.g. `get_display()`), which returns a cleaned-up struct and
+// for its shape (e.g. `display()`), which returns a cleaned-up struct and
 // asserts the shape matches.
 //
 // The wrapped `SDL_Event` union has more members than `sdl_event_data_type`
@@ -725,37 +725,37 @@ public:
 #pragma endregion
 #pragma region Payload accessors
 
-  [[nodiscard]] sdl_display_event get_display() const {
+  [[nodiscard]] sdl_display_event display() const {
     assert(data_type_ == sdl_event_data_type::display);
-    return {sdl_display_id_type{event_.display.displayID},
+    return {sdl_display_id{event_.display.displayID},
         event_.display.data1, event_.display.data2};
   }
 
-  [[nodiscard]] sdl_window_event get_window() const {
+  [[nodiscard]] sdl_window_event window() const {
     assert(data_type_ == sdl_event_data_type::window);
-    return {sdl_window_id_type{event_.window.windowID}, event_.window.data1,
+    return {sdl_window_id{event_.window.windowID}, event_.window.data1,
         event_.window.data2};
   }
 
-  [[nodiscard]] sdl_wheel_event get_wheel() const {
+  [[nodiscard]] sdl_wheel_event wheel() const {
     assert(data_type_ == sdl_event_data_type::wheel);
     return {event_.wheel.x, event_.wheel.y, event_.wheel.mouse_x,
         event_.wheel.mouse_y};
   }
 
-  [[nodiscard]] sdl_motion_event get_motion() const {
+  [[nodiscard]] sdl_motion_event motion() const {
     assert(data_type_ == sdl_event_data_type::motion);
     return {event_.motion.x, event_.motion.y, event_.motion.xrel,
         event_.motion.yrel, (event_.motion.state & SDL_BUTTON_LMASK) != 0};
   }
 
-  [[nodiscard]] sdl_button_event get_button() const {
+  [[nodiscard]] sdl_button_event button() const {
     assert(data_type_ == sdl_event_data_type::button);
     return {static_cast<sdl_mouse_button>(event_.button.button),
         event_.button.down, event_.button.x, event_.button.y};
   }
 
-  [[nodiscard]] sdl_key_event get_key() const {
+  [[nodiscard]] sdl_key_event key() const {
     assert(data_type_ == sdl_event_data_type::key);
     return {static_cast<sdl_keycode>(event_.key.key), event_.key.down,
         event_.key.repeat};

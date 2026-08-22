@@ -59,7 +59,7 @@ template<typename Handler>
       break;
 
     case sdl_event_type::key_down:
-      if (ev.get_key().key == sdl_keycode::escape) return frame_action::menu;
+      if (ev.key().key == sdl_keycode::escape) return frame_action::menu;
       break;
 
     default: break;

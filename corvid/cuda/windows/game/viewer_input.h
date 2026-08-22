@@ -61,7 +61,7 @@ enum class active_tool : std::uint8_t { none, dig };
 [[nodiscard]] inline bool
 handle_tool_select(const sdl::sdl_event& ev, active_tool& tool) {
   if (ev.type() != sdl::sdl_event_type::key_down) return false;
-  const auto key = ev.get_key();
+  const auto key = ev.key();
   if (key.repeat) return false;
   if (key.key == sdl::sdl_keycode::num1) {
     tool = (tool == active_tool::dig) ? active_tool::none : active_tool::dig;
@@ -76,7 +76,7 @@ handle_tool_select(const sdl::sdl_event& ev, active_tool& tool) {
 [[nodiscard]] inline bool
 handle_flashlight(const sdl::sdl_event& ev, bool& flashlight) {
   if (ev.type() != sdl::sdl_event_type::key_down) return false;
-  const auto key = ev.get_key();
+  const auto key = ev.key();
   if (key.repeat) return false;
   if (key.key == sdl::sdl_keycode::f) {
     flashlight = !flashlight;
@@ -91,7 +91,7 @@ handle_flashlight(const sdl::sdl_event& ev, bool& flashlight) {
   switch (ev.type()) {
   case sdl::sdl_event_type::mouse_button_down:
   case sdl::sdl_event_type::mouse_button_up: {
-    const auto button = ev.get_button();
+    const auto button = ev.button();
     if (button.button == sdl::sdl_mouse_button::left) {
       digging = button.down;
       return true;

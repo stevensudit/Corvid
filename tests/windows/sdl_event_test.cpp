@@ -15,12 +15,12 @@
 
 using namespace corvid;
 using namespace std::chrono_literals;
-using corvid::sdl::sdl_display_id_type;
+using corvid::sdl::sdl_display_id;
 using corvid::sdl::sdl_event;
 using corvid::sdl::sdl_event_data_type;
 using corvid::sdl::sdl_event_type;
 using corvid::sdl::sdl_keycode;
-using corvid::sdl::sdl_window_id_type;
+using corvid::sdl::sdl_window_id;
 
 namespace {
 
@@ -94,7 +94,7 @@ TEST_CASE("sdl_event registered enums round-trip", "[sdl][event][enums]") {
   CHECK(enum_as_string(sdl_event_data_type::display) == "display");
   CHECK(enum_as_string(sdl_event_data_type::clipboard) == "clipboard");
   // No named display IDs: it stringifies as its number.
-  CHECK(enum_as_string(sdl_display_id_type{5}) == "5");
+  CHECK(enum_as_string(sdl_display_id{5}) == "5");
 }
 
 TEST_CASE("sdl_event exposes the shared header", "[sdl][event]") {
@@ -111,7 +111,7 @@ TEST_CASE("sdl_event exposes the shared header", "[sdl][event]") {
 #pragma endregion
 #pragma region Display and polling
 
-TEST_CASE("sdl_event get_display copies the cleaned payload", "[sdl][event]") {
+TEST_CASE("sdl_event display() copies the cleaned payload", "[sdl][event]") {
   SDL_Event raw{};
   raw.type = SDL_EVENT_DISPLAY_MOVED;
   raw.display.displayID = 5;
@@ -119,8 +119,8 @@ TEST_CASE("sdl_event get_display copies the cleaned payload", "[sdl][event]") {
   raw.display.data2 = 200;
   const sdl_event ev{raw};
   REQUIRE(ev.data_type() == sdl_event_data_type::display);
-  const auto d = ev.get_display();
-  CHECK(d.display_id == sdl_display_id_type{5});
+  const auto d = ev.display();
+  CHECK(d.display_id == sdl_display_id{5});
   CHECK(d.data1 == 100);
   CHECK(d.data2 == 200);
 }
@@ -427,7 +427,7 @@ TEST_CASE("sdl_keycode string round-trip", "[sdl][event][enums]") {
 #pragma endregion
 #pragma region Payload accessors
 
-TEST_CASE("sdl_event get_wheel copies the cleaned payload", "[sdl][event]") {
+TEST_CASE("sdl_event wheel() copies the cleaned payload", "[sdl][event]") {
   SDL_Event raw{};
   raw.type = SDL_EVENT_MOUSE_WHEEL;
   raw.wheel.x = 1.5F;
@@ -436,14 +436,14 @@ TEST_CASE("sdl_event get_wheel copies the cleaned payload", "[sdl][event]") {
   raw.wheel.mouse_y = 200.0F;
   const sdl_event ev{raw};
   REQUIRE(ev.data_type() == sdl_event_data_type::wheel);
-  const auto wheel = ev.get_wheel();
+  const auto wheel = ev.wheel();
   CHECK(wheel.x == 1.5F);
   CHECK(wheel.y == -2.0F);
   CHECK(wheel.mouse_x == 100.0F);
   CHECK(wheel.mouse_y == 200.0F);
 }
 
-TEST_CASE("sdl_event get_motion copies the cleaned payload", "[sdl][event]") {
+TEST_CASE("sdl_event motion() copies the cleaned payload", "[sdl][event]") {
   SDL_Event raw{};
   raw.type = SDL_EVENT_MOUSE_MOTION;
   raw.motion.x = 10.0F;
@@ -452,7 +452,7 @@ TEST_CASE("sdl_event get_motion copies the cleaned payload", "[sdl][event]") {
   raw.motion.yrel = 4.0F;
   raw.motion.state = SDL_BUTTON_LMASK;
   REQUIRE(sdl_event{raw}.data_type() == sdl_event_data_type::motion);
-  const auto motion = sdl_event{raw}.get_motion();
+  const auto motion = sdl_event{raw}.motion();
   CHECK(motion.x == 10.0F);
   CHECK(motion.y == 20.0F);
   CHECK(motion.xrel == -3.0F);
@@ -461,10 +461,10 @@ TEST_CASE("sdl_event get_motion copies the cleaned payload", "[sdl][event]") {
 
   // Without the left button down, left_held is false.
   raw.motion.state = SDL_BUTTON_RMASK;
-  CHECK_FALSE(sdl_event{raw}.get_motion().left_held);
+  CHECK_FALSE(sdl_event{raw}.motion().left_held);
 }
 
-TEST_CASE("sdl_event get_key copies the cleaned payload", "[sdl][event]") {
+TEST_CASE("sdl_event key() copies the cleaned payload", "[sdl][event]") {
   SDL_Event raw{};
   raw.type = SDL_EVENT_KEY_DOWN;
   raw.key.key = SDLK_LEFT;
@@ -472,13 +472,13 @@ TEST_CASE("sdl_event get_key copies the cleaned payload", "[sdl][event]") {
   raw.key.repeat = true;
   const sdl_event ev{raw};
   REQUIRE(ev.data_type() == sdl_event_data_type::key);
-  const auto key = ev.get_key();
+  const auto key = ev.key();
   CHECK(key.key == sdl_keycode::left);
   CHECK(key.down);
   CHECK(key.repeat);
 }
 
-TEST_CASE("sdl_event get_window copies the cleaned payload", "[sdl][event]") {
+TEST_CASE("sdl_event window() copies the cleaned payload", "[sdl][event]") {
   SDL_Event raw{};
   raw.type = SDL_EVENT_WINDOW_PIXEL_SIZE_CHANGED;
   raw.window.windowID = 9;
@@ -486,8 +486,8 @@ TEST_CASE("sdl_event get_window copies the cleaned payload", "[sdl][event]") {
   raw.window.data2 = 720;
   const sdl_event ev{raw};
   REQUIRE(ev.data_type() == sdl_event_data_type::window);
-  const auto window = ev.get_window();
-  CHECK(window.window_id == sdl_window_id_type{9});
+  const auto window = ev.window();
+  CHECK(window.window_id == sdl_window_id{9});
   CHECK(window.data1 == 1280);
   CHECK(window.data2 == 720);
 }
