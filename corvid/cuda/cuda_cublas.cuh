@@ -127,9 +127,9 @@ public:
   // default) and every leading dimension is `n`.
 
   // Simple square multiply.
-  cublas_last_status multiply(int n, float alpha, const cuda_ptr<float>& A,
-      const cuda_ptr<float>& B, float beta, cuda_ptr<float>& C,
-      cublas_operation opA = cublas_operation::none,
+  [[nodiscard]] cublas_last_status multiply(int n, float alpha,
+      const cuda_ptr<float>& A, const cuda_ptr<float>& B, float beta,
+      cuda_ptr<float>& C, cublas_operation opA = cublas_operation::none,
       cublas_operation opB = cublas_operation::none) const {
     return cublasSgemm(handle_, as_raw(opA), as_raw(opB), n, n, n, &alpha, A,
         n, B, n, &beta, C, n);

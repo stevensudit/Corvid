@@ -206,8 +206,9 @@ private:
   // and re-registering with CUDA only when it must grow.
   //
   // Never shrinks, so an ordinary resize neither reallocates nor re-registers
-  // it.
-  hr_status ensure_target() {
+  // it. A failed CUDA registration returns `E_FAIL`, with the CUDA error left
+  // in the thread's last status.
+  [[nodiscard]] hr_status ensure_target() {
     const auto need_w = round_up_to_multiple(buffer_width(), capacity_quantum);
     const auto need_h =
         round_up_to_multiple(buffer_height(), capacity_quantum);
@@ -217,25 +218,29 @@ private:
     cap_w_ = std::max(cap_w_, need_w);
     cap_h_ = std::max(cap_h_, need_h);
 
-    // unregister before releasing texture
+    // Unregister before releasing the texture.
     cuda_target_ = {};
-    render_texture_ = swapchain_.create_texture(cap_w_, cap_h_,
-        d3d11_bind_flag::shader_resource);
-    if (!render_texture_) return hr_status{E_FAIL};
+    if (hr_status status{swapchain_.try_create_texture(cap_w_, cap_h_,
+            d3d11_bind_flag::shader_resource, render_texture_)};
+        !status)
+      return status;
 
-    cuda_target_ = cuda_d3d11_resource{render_texture_};
+    cuda_target_ = cuda_d3d11_resource::try_create(render_texture_);
+    if (!cuda_target_) return hr_status{E_FAIL};
     return hr_status{S_OK};
   }
 
   // Rebuild every GPU object after a lost device: a fresh device, the
   // swapchain rebound to it, and the render target recreated.
-  hr_status recover_device() {
+  [[nodiscard]] hr_status recover_device() {
     cuda_target_ = {};
     render_texture_ = {};
     cap_w_ = 0;
     cap_h_ = 0;
     device_ = make_device();
-    swapchain_.reset(device_, swapchain_.hwnd()).or_throw();
+    if (hr_status status{swapchain_.reset(device_, swapchain_.hwnd())};
+        !status)
+      return status;
     return ensure_target();
   }
 
