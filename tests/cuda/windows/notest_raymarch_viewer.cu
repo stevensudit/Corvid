@@ -120,13 +120,10 @@ raymarch_kernel(cudaSurfaceObject_t surface, resolution res, camera_rays cam) {
 
 // Translate the held-key set into a camera move scaled by frame time.
 void apply_movement(camera& cam, const camera_input& keys, float dt) {
-  const float speed = (keys.fast ? 12.0F : 4.0F) * dt;
-  const float forward =
-      (keys.forward ? 1.0F : 0.0F) - (keys.back ? 1.0F : 0.0F);
-  const float strafe = (keys.right ? 1.0F : 0.0F) - (keys.left ? 1.0F : 0.0F);
-  const float lift = (keys.up ? 1.0F : 0.0F) - (keys.down ? 1.0F : 0.0F);
+  constexpr auto walk_speed = 4.0F;
+  const auto [forward, strafe, lift] = keys.movement(walk_speed * dt);
   if (forward != 0.0F || strafe != 0.0F || lift != 0.0F)
-    cam.move(forward * speed, strafe * speed, lift * speed);
+    cam.move(forward, strafe, lift);
 }
 
 } // namespace
@@ -147,6 +144,7 @@ int main() {
     camera_input keys;
     // A gentler wheel dolly than the default; this scene is small.
     keys.scroll_step = 0.5F;
+    keys.run_multiplier = 3.0F;
 
     const dim3 block{16, 16};
 
