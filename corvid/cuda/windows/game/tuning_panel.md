@@ -143,7 +143,7 @@ In the viewer loop:
   off) so the OS cursor is free for the sliders; when it turns off, leave
   relative mode off (the game re-grabs it on the next right-button press, as it
   already does).
-- While `show_config` is true, skip the game handlers (`fly_input`, dig) for
+- While `show_config` is true, skip the game handlers (`camera_input`, dig) for
   events ImGui captured: if the event is mouse-type and `imgui.wants_mouse()`, or
   key-type and `imgui.wants_keyboard()`, consume it. Otherwise the game still
   sees it. The simplest form is to gate the existing handler composition on

@@ -278,8 +278,7 @@ consteval auto corvid_enum_spec(sdl_display_id*) {
 // Type-safe handle for an `SDL_WindowID`.
 enum class sdl_window_id : uint32_t {};
 consteval auto corvid_enum_spec(sdl_window_id*) {
-  return corvid::enums::sequence::make_sequence_enum_spec<sdl_window_id,
-      "">();
+  return corvid::enums::sequence::make_sequence_enum_spec<sdl_window_id, "">();
 }
 
 #pragma endregion
@@ -727,8 +726,8 @@ public:
 
   [[nodiscard]] sdl_display_event display() const {
     assert(data_type_ == sdl_event_data_type::display);
-    return {sdl_display_id{event_.display.displayID},
-        event_.display.data1, event_.display.data2};
+    return {sdl_display_id{event_.display.displayID}, event_.display.data1,
+        event_.display.data2};
   }
 
   [[nodiscard]] sdl_window_event window() const {

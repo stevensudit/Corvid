@@ -51,7 +51,7 @@
 #include "./render_kernel.cuh"
 #include "./viewer_input.h"
 #include "./world_gen.cuh"
-#include "../../../sdl/drive_input.h"
+#include "../../../sdl/camera_input.h"
 #include "../../../sdl/frame_loop.h"
 #include "../../../sdl/frame_stats.h"
 #include "../../../sdl/sdl_event.h"
@@ -274,7 +274,7 @@ private:
     // The drive command in world space: the input's heading-frame target as a
     // fraction of the body's drive force (1 walking, `run_multiplier` when
     // Shift runs).
-    const auto [fwd, strafe] = input_.movement();
+    const auto [fwd, strafe, lift] = input_.movement();
     const vec3 hfwd{cos(rig_.heading), 0.0F, sin(rig_.heading)};
     const vec3 hright{-sin(rig_.heading), 0.0F, cos(rig_.heading)};
     const auto drive = (hfwd * fwd) + (hright * strafe);
@@ -291,7 +291,7 @@ private:
       return;
     }
 
-    body_.advance(contact, drive, input_.jump, dt);
+    body_.advance(contact, drive, input_.up, dt);
 
     // Lift out of a wall or ceiling the center floor contact missed, damped
     // like the rig (the probe is stale and sparse), and stop the drive into a
@@ -971,7 +971,7 @@ private:
   sdl::sdl_window win_{"Corvid Voxel Viewer", 1280, 720,
       sdl::sdl_window_flags::resizable};
   std::string geom_path_;
-  sdl::drive_input input_;
+  sdl::camera_input input_;
   sdl::frame_stats stats_;
 
   // The left mouse button, while held, digs at the reticle.

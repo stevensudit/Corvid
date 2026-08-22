@@ -19,7 +19,7 @@
 #include <cstdint>
 
 #include "../imgui_overlay.h"
-#include "../../../sdl/drive_input.h"
+#include "../../../sdl/camera_input.h"
 #include "../../../sdl/sdl_event.h"
 #include "../../../sdl/sdl_window.h"
 
@@ -86,7 +86,7 @@ handle_flashlight(const sdl::sdl_event& ev, bool& flashlight) {
 }
 
 // Fold the left mouse button into the `digging` flag, for composing after
-// `drive_input::handle`. Returns whether it consumed the event.
+// `camera_input::handle`. Returns whether it consumed the event.
 [[nodiscard]] inline bool handle_dig(const sdl::sdl_event& ev, bool& digging) {
   switch (ev.type()) {
   case sdl::sdl_event_type::mouse_button_down:
@@ -112,7 +112,7 @@ handle_flashlight(const sdl::sdl_event& ev, bool& flashlight) {
 // leaving Escape for the pump to toggle the panel.
 [[nodiscard]] inline bool handle_viewer_event(const sdl::sdl_event& ev,
     win32::d3d::imgui_overlay& imgui, bool show_config,
-    sdl::drive_input& input, sdl::sdl_window& win, bool& digging,
+    sdl::camera_input& input, sdl::sdl_window& win, bool& digging,
     active_tool& tool, bool& flashlight) {
   imgui.process_event(ev);
   if (show_config) {

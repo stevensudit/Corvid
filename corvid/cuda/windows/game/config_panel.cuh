@@ -698,7 +698,7 @@ inline void draw_body_physics_section(body_params& p, const body_params& d,
       "How many times the walk drive Run (Shift) commands; the run cruise is "
       "this times the walk cruise, as long as friction leaves the bigger "
       "drive "
-      "headroom below the traction ceiling. (An input mapping in drive_input, "
+      "headroom below the traction ceiling. (An input mapping in camera_input, "
       "not a body constant.)");
   tuned_slider("friction", p.friction, d.friction, 0.0F, 10.0F,
       "Contact friction coefficient (mu): the ball holds a slope up to "

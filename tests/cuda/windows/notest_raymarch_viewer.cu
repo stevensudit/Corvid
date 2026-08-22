@@ -24,7 +24,7 @@
 #include "corvid/cuda/sdf.cuh"
 #include "corvid/cuda/vec.cuh"
 #include "corvid/cuda/windows/cuda_d3d11_presenter.cuh"
-#include "corvid/sdl/fly_input.h"
+#include "corvid/sdl/camera_input.h"
 #include "corvid/sdl/frame_loop.h"
 #include "corvid/sdl/frame_stats.h"
 #include "corvid/sdl/sdl_event.h"
@@ -119,7 +119,7 @@ raymarch_kernel(cudaSurfaceObject_t surface, resolution res, camera_rays cam) {
 }
 
 // Translate the held-key set into a camera move scaled by frame time.
-void apply_movement(camera& cam, const fly_input& keys, float dt) {
+void apply_movement(camera& cam, const camera_input& keys, float dt) {
   const float speed = (keys.fast ? 12.0F : 4.0F) * dt;
   const float forward =
       (keys.forward ? 1.0F : 0.0F) - (keys.back ? 1.0F : 0.0F);
@@ -144,7 +144,7 @@ int main() {
     // 60-degree vertical field of view.
     camera cam{pos3{vec3{0.0F, 0.5F, 5.0F}}, orientation{-90.0_deg, 0.0_deg},
         60.0_deg};
-    fly_input keys;
+    camera_input keys;
     // A gentler wheel dolly than the default; this scene is small.
     keys.scroll_step = 0.5F;
 
