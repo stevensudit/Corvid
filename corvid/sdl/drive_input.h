@@ -87,9 +87,9 @@ struct drive_input {
   // sets the held jump flag.
   //
   // Returns whether it consumed the event, for `||` composition: the movement
-  // keys, Space, and the right button are consumed; other keys (such as
-  // Escape) are left for the pump, and other mouse buttons for another
-  // handler.
+  // keys, Space, the right button, the wheel, and mouse motion while looking
+  // are consumed. Other keys (such as Escape) are left for the pump, and
+  // other mouse buttons and motion while not looking for another handler.
   [[nodiscard]] bool handle(const sdl_event& ev, sdl_window& win) {
     switch (ev.type()) {
     case sdl_event_type::mouse_button_down:
@@ -104,11 +104,10 @@ struct drive_input {
     }
 
     case sdl_event_type::mouse_motion: {
-      if (looking) {
-        const auto motion = ev.get_motion();
-        look_dx += motion.xrel;
-        look_dy += motion.yrel;
-      }
+      if (!looking) return false;
+      const auto motion = ev.get_motion();
+      look_dx += motion.xrel;
+      look_dy += motion.yrel;
       return true;
     }
 

@@ -601,8 +601,10 @@ consteval auto corvid_enum_spec(sdl_mouse_button*) {
 #pragma endregion
 #pragma region sdl_event
 
-// Cleaned payload of a display event. `data1`/`data2` are event-specific; see
-// the `SDL_EVENT_DISPLAY_*` documentation.
+// Payload of a display event.
+//
+// `data1`/`data2` are event-specific; see the `SDL_EVENT_DISPLAY_*`
+// documentation.
 struct sdl_display_event {
   sdl_display_id_type display_id{};
   int32_t data1{};
@@ -621,8 +623,8 @@ struct sdl_window_event {
 
 // Payload of a mouse-wheel event.
 //
-//  `x`/`y` are the scroll deltas; mouse_x`/`mouse_y` are the cursor position
-//  when it fired.
+// `x`/`y` are the scroll deltas; `mouse_x`/`mouse_y` are the cursor position
+// when it fired.
 struct sdl_wheel_event {
   float x{};
   float y{};
