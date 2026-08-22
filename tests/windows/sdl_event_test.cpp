@@ -14,6 +14,7 @@
 #include "catch2_main.h"
 
 using namespace corvid;
+using namespace std::chrono_literals;
 using corvid::sdl::sdl_display_id_type;
 using corvid::sdl::sdl_event;
 using corvid::sdl::sdl_event_data_type;
@@ -103,7 +104,7 @@ TEST_CASE("sdl_event exposes the shared header", "[sdl][event]") {
   const sdl_event ev{raw};
   CHECK(ev.type() == sdl_event_type::key_down);
   CHECK(ev.data_type() == sdl_event_data_type::key);
-  CHECK(ev.timestamp() == 123456);
+  CHECK(ev.timestamp() == 123456ns);
   CHECK(ev.raw().type == SDL_EVENT_KEY_DOWN); // escape hatch sees the union
 }
 

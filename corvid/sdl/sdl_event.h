@@ -16,6 +16,7 @@
 // limitations under the License.
 #pragma once
 #include <cassert>
+#include <chrono>
 #include <cstdint>
 
 #include "../enums/enum_conversion.h"
@@ -28,7 +29,7 @@ namespace corvid::sdl {
 #pragma region sdl_event_type
 
 // Enum to wrap `SDL_EventType`.
-enum class sdl_event_type : std::uint16_t {
+enum class sdl_event_type : uint16_t {
   // Application (0x100).
   quit = SDL_EVENT_QUIT,
   terminating = SDL_EVENT_TERMINATING,
@@ -212,7 +213,7 @@ consteval auto corvid_enum_spec(sdl_event_type*) {
 // which typed `sdl_event` accessor applies. Coarser than `sdl_event_type`:
 // `key_down` and `key_up` are both `key`. Header-only events, including
 // `quit`, are `common`.
-enum class sdl_event_data_type : std::uint8_t {
+enum class sdl_event_data_type : uint8_t {
   common,
   display,
   window,
@@ -265,7 +266,7 @@ consteval auto corvid_enum_spec(sdl_event_data_type*) {
 #pragma region sdl_display_id_type
 
 // Type-safe handle for an `SDL_DisplayID`.
-enum class sdl_display_id_type : Uint32 {};
+enum class sdl_display_id_type : uint32_t {};
 consteval auto corvid_enum_spec(sdl_display_id_type*) {
   return corvid::enums::sequence::make_sequence_enum_spec<sdl_display_id_type,
       "">();
@@ -275,7 +276,7 @@ consteval auto corvid_enum_spec(sdl_display_id_type*) {
 #pragma region sdl_window_id_type
 
 // Type-safe handle for an `SDL_WindowID`.
-enum class sdl_window_id_type : Uint32 {};
+enum class sdl_window_id_type : uint32_t {};
 consteval auto corvid_enum_spec(sdl_window_id_type*) {
   return corvid::enums::sequence::make_sequence_enum_spec<sdl_window_id_type,
       "">();
@@ -285,7 +286,7 @@ consteval auto corvid_enum_spec(sdl_window_id_type*) {
 #pragma region sdl_keycode
 
 // Wrapper for `SDL_Keycode`, mirroring the full `SDLK_*` set.
-enum class sdl_keycode : std::uint32_t {
+enum class sdl_keycode : uint32_t {
   unknown = SDLK_UNKNOWN,
   backspace = SDLK_BACKSPACE,
   tab = SDLK_TAB,
@@ -584,7 +585,7 @@ consteval auto corvid_enum_spec(sdl_keycode*) {
 
 // Which mouse button a button event refers to, wrapping SDL's `SDL_BUTTON_*`
 // constants.
-enum class sdl_mouse_button : std::uint8_t {
+enum class sdl_mouse_button : uint8_t {
   left = SDL_BUTTON_LEFT,
   middle = SDL_BUTTON_MIDDLE,
   right = SDL_BUTTON_RIGHT,
@@ -604,8 +605,8 @@ consteval auto corvid_enum_spec(sdl_mouse_button*) {
 // the `SDL_EVENT_DISPLAY_*` documentation.
 struct sdl_display_event {
   sdl_display_id_type display_id{};
-  Sint32 data1{};
-  Sint32 data2{};
+  int32_t data1{};
+  int32_t data2{};
 };
 
 // Payload of a window event.
@@ -614,8 +615,8 @@ struct sdl_display_event {
 // the new width and height in pixels.
 struct sdl_window_event {
   sdl_window_id_type window_id{};
-  Sint32 data1{};
-  Sint32 data2{};
+  int32_t data1{};
+  int32_t data2{};
 };
 
 // Payload of a mouse-wheel event.
@@ -707,8 +708,9 @@ public:
   [[nodiscard]] sdl_event_data_type data_type() const noexcept {
     return data_type_;
   }
-  [[nodiscard]] Uint64 timestamp() const noexcept {
-    return event_.common.timestamp;
+  // When the event fired, on SDL's clock (`SDL_GetTicksNS`).
+  [[nodiscard]] std::chrono::nanoseconds timestamp() const noexcept {
+    return std::chrono::nanoseconds{event_.common.timestamp};
   }
 
   // Escape hatch into the raw union for shapes without a typed accessor yet.
