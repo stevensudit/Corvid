@@ -33,7 +33,7 @@
 #include "../../sdl/sdl_event.h"
 #include "./com_ptr.h"
 
-namespace corvid::cuda {
+namespace corvid::win32::d3d {
 
 #pragma region imgui_overlay
 
@@ -116,7 +116,7 @@ public:
   // present), so pass the presenter's live `back_buffer` each frame.
   void render(ID3D11Texture2D* back_buffer) {
     ImGui::Render();
-    win32::com_ptr<ID3D11RenderTargetView> rtv;
+    com_ptr<ID3D11RenderTargetView> rtv;
     device_->CreateRenderTargetView(back_buffer, nullptr, rtv.put());
     if (!rtv) return;
     auto* rtv_raw = rtv.get();
@@ -166,4 +166,4 @@ private:
 
 #pragma endregion
 
-} // namespace corvid::cuda
+} // namespace corvid::win32::d3d
