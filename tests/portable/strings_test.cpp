@@ -1252,7 +1252,8 @@ TEST_CASE("LocateUtilities", "[StringUtilsTest]") {
   CHECK(strings::locate_subview(s, s.substr(3, 0)) == 3U);
   CHECK(strings::locate_subview(s, s.substr(s.size())) == s.size());
   // Equal content in a different buffer is not a subview.
-  CHECK(strings::locate_subview(s, "abx"sv) == npos);
+  const std::string elsewhere{s.substr(0, 3)};
+  CHECK(strings::locate_subview(s, elsewhere) == npos);
 }
 
 #pragma endregion
