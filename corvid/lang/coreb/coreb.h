@@ -20,6 +20,12 @@
 //
 // Umbrella header for the kernel; the language design and roadmap live in
 // "coreb.md".
+#include "token_classes.h"
 #include "value.h"
-#include "reader.h"
+#include "runtime.h"
+#include "hall_reader.h"
 #include "eval.h"
+#include "monty_lexer.h"
+#include "monty_expression_parser.h"
+#include "monty_statement_parser.h"
+#include "monty_unparser.h"

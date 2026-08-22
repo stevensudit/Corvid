@@ -1,0 +1,182 @@
+// Corvid: A general-purpose modern C++ library extending std.
+// https://github.com/stevensudit/Corvid
+//
+// Copyright 2022-2026 Steven Sudit
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+#pragma once
+#include <cassert>
+#include <cstddef>
+#include <cstdint>
+#include <string>
+#include <string_view>
+#include <utility>
+
+#include "../containers/core/value_or_error.h"
+#include "../strings/conversion.h"
+
+namespace corvid { inline namespace lang {
+
+// Shared source-text machinery for language front ends.
+//
+// A lexer or reader walks a source string and reports positioned failures,
+// so the walking and the reporting live here. A byte offset is the single
+// source of truth for location: it is what `string_view` slicing needs while
+// scanning, and the human-facing line and column are derived from it at the
+// error boundary, the one place they are worth computing.
+
+#pragma region source_error
+
+// Cause of a failure, distinguishing errors more input could repair.
+//
+// `incomplete_input` marks errors such as an unterminated list or bracket,
+// where reading more source could turn the failure into a success. A REPL uses
+// it to keep reading instead of reporting. Everything else is `invalid_input`.
+enum class error_cause : std::uint8_t { invalid_input, incomplete_input };
+
+// Description of a failure at a position in source text.
+//
+// `pos` is the byte offset where the offending construct starts; `line` and
+// `col` locate the same spot as a 1-based line number and byte column.
+struct source_error final {
+  std::string message;
+  size_t pos{};
+  size_t line{};
+  size_t col{};
+  error_cause cause{};
+
+  // Whether more input could repair this failure.
+  [[nodiscard]] bool incomplete() const noexcept {
+    return cause == error_cause::incomplete_input;
+  }
+
+  // Build a failure at `pos` in `src`, deriving the human-facing line and
+  // column from the byte offset.
+  [[nodiscard]] static source_error at(std::string_view src, size_t pos,
+      std::string message, error_cause cause = error_cause::invalid_input) {
+    assert(pos <= src.size());
+    size_t line = 1;
+    size_t bol = 0;
+    for (size_t ndx = 0; ndx < pos; ++ndx)
+      if (src[ndx] == '\n') {
+        ++line;
+        bol = ndx + 1;
+      }
+    return source_error{std::move(message), pos, line, pos - bol + 1, cause};
+  }
+};
+
+#pragma endregion
+#pragma region source_scanner
+
+// Base for single-pass scanners over source text.
+//
+// Holds the text and the cursor, the primitive character operations, and
+// the `source_error` builder. Everything language-shaped stays in the
+// derived scanner: what a token is, what nesting means, and when to fail.
+//
+// Derived code peeks and takes; it treats the cursor as an opaque bookmark
+// (to save for an error message or a token span), never as a number to do
+// arithmetic on. Any offset math belongs in a helper here.
+class source_scanner {
+public:
+  // Success-or-`source_error` result of a scan.
+  template<typename T>
+  using result = value_or_error<T, source_error>;
+
+  // Default value indicating that the cursor position should be used.
+  static constexpr size_t npos = std::string_view::npos;
+
+  explicit source_scanner(std::string_view src) noexcept : src_{src} {}
+
+  [[nodiscard]] size_t cursor() const noexcept { return pos_; }
+
+  // Whether the cursor, advanced `ahead` positions, is at or past the end.
+  [[nodiscard]] bool at_end(size_t ahead = 0) const noexcept {
+    return pos_ + ahead >= src_.size();
+  }
+
+  // Character `ahead` positions past the current one, or '\0' at or past
+  // the end.
+  [[nodiscard]] char peek(size_t ahead = 0) const noexcept {
+    return (pos_ + ahead < src_.size()) ? src_[pos_ + ahead] : '\0';
+  }
+
+  // Whether `s` is next at the cursor.
+  [[nodiscard]] bool at_text(std::string_view s) const noexcept {
+    return src_.substr(pos_).starts_with(s);
+  }
+
+  // Whether the cursor is at a newline, as "\n" or "\r\n".
+  [[nodiscard]] bool at_newline() const noexcept {
+    return peek() == '\n' || (peek() == '\r' && peek(1) == '\n');
+  }
+
+  // Take the current character, so long as we're not at the end.
+  void take() {
+    assert(!at_end());
+    ++pos_;
+  }
+
+  // Take the current character, asserting that it is `c`.
+  void take([[maybe_unused]] char c) {
+    assert(peek() == c);
+    take();
+  }
+
+  // Take `s`, asserting that it is next.
+  void take(std::string_view s) {
+    assert(at_text(s));
+    pos_ += s.size();
+  }
+
+  // Take a newline, either "\n" or "\r\n".
+  void take_newline() {
+    if (peek() == '\r') take();
+    take('\n');
+  }
+
+  // Take the escape sequence at the cursor into `ch`, which receives the
+  // character it denotes.
+  //
+  // On a malformed escape, returns false and the cursor does not move.
+  [[nodiscard]] bool take_escaped(char& ch) {
+    auto rest = src_.substr(pos_);
+    if (!strings::parse_escaped(rest, ch)) return false;
+    pos_ = src_.size() - rest.size();
+    return true;
+  }
+
+  // Text from `start` up to the cursor.
+  [[nodiscard]] std::string_view taken_from(size_t start) const noexcept {
+    return src_.substr(start, pos_ - start);
+  }
+
+  // Build a failure at the current position, or at `pos`.
+  //
+  // Pass `error_cause::incomplete_input` for an error more input could repair.
+  [[nodiscard]] source_error fail(std::string message, size_t pos = npos,
+      error_cause cause = error_cause::invalid_input) const {
+    assert(pos <= src_.size() || pos == npos);
+    if (pos >= src_.size()) pos = pos_;
+    return source_error::at(src_, pos, std::move(message), cause);
+  }
+
+private:
+  std::string_view src_;
+  size_t pos_{};
+};
+
+#pragma endregion
+
+}} // namespace corvid::lang

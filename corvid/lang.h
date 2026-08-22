@@ -16,3 +16,4 @@
 // limitations under the License.
 #pragma once
 #include "lang/ast_pred.h"
+#include "lang/source_scanner.h"

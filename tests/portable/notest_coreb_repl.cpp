@@ -15,56 +15,210 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#include <cstdint>
 #include <iostream>
+#include <memory>
+#include <span>
 #include <string>
+#include <string_view>
+#include <utility>
 
 #include "corvid/infra/exception_firewalls.h"
 #include "corvid/lang/coreb/coreb.h"
+#include "corvid/strings/trimming.h"
 
 using namespace corvid;
 using namespace corvid::coreb;
 
-// Minimal interactive REPL for the CoreB kernel (milestone 2).
+namespace {
+
+// The syntax the REPL is speaking.
+enum class mode : std::uint8_t { monty, hall };
+
+// Report a failure with its position.
+void report(std::string_view what, const source_error& err) {
+  std::cout << what << " error at line " << err.line << ", col " << err.col
+            << ": " << err.message << '\n';
+}
+
+void print_help() {
+  std::cout
+      << "/help   show this list\n"
+         "/monty  switch to Monty, the surface syntax\n"
+         "/hall   switch to Hall, the native s-expression syntax\n"
+         "/clear  reset the runtime, dropping all definitions\n"
+         "/quit   exit (end-of-input also exits)\n"
+         "In Monty, a blank line ends an indented block.\n";
+}
+
+// One interactive session: the shared runtime and the line loop's state.
 //
-// Reads forms line by line, evaluating each and printing its value. A line
-// whose read fails as incomplete (an unbalanced list or an open string)
-// continues onto the next line instead of reporting an error. Exit with
-// end-of-input: Ctrl+Z then Enter on Windows, Ctrl+D elsewhere.
+// Both modes evaluate against the same runtime, so definitions persist
+// across /monty and /hall switches. The runtime is held by pointer so
+// /clear can replace it wholesale, there being no way to empty one out;
+// evaluators are transient views, so each batch constructs its own.
+//
+// Slash commands are recognized on any line, even mid-collection, so
+// /clear and /quit can always rescue a stuck continuation; a mode switch
+// or /clear abandons the partially entered input, while /help keeps it.
+struct repl {
+  std::unique_ptr<runtime> rt = std::make_unique<runtime>();
+  mode syntax = mode::monty;
+  std::string pending;
+  bool in_block{};
+
+  // Read and process lines until /quit or end-of-input.
+  void run() {
+    for (;;) {
+      std::cout << prompt() << std::flush;
+      std::string line;
+      if (!std::getline(std::cin, line)) break;
+      // Piped CRLF input can reach here in binary mode; Monty rejects a raw
+      // '\r'.
+      if (line.ends_with('\r')) line.pop_back();
+      const auto cmd = strings::trim(std::string_view{line});
+      if (cmd.starts_with('/')) {
+        if (!command(cmd)) break;
+        continue;
+      }
+      const auto blank = cmd.empty();
+      pending += line;
+      pending += '\n';
+      if (syntax == mode::monty)
+        step_monty(blank);
+      else
+        step_hall();
+    }
+  }
+
+  [[nodiscard]] std::string_view prompt() const noexcept {
+    if (!pending.empty()) return syntax == mode::monty ? "  ...> " : " ...> ";
+    return syntax == mode::monty ? "monty> " : "hall> ";
+  }
+
+  // Execute a slash command; false exits the loop.
+  [[nodiscard]] bool command(std::string_view line) {
+    if (line == "/quit") return false;
+    if (line == "/help") {
+      print_help();
+    } else if (line == "/monty") {
+      syntax = mode::monty;
+      reset();
+      std::cout << "Monty mode.\n";
+    } else if (line == "/hall") {
+      syntax = mode::hall;
+      reset();
+      std::cout << "Hall mode.\n";
+    } else if (line == "/clear") {
+      rt = std::make_unique<runtime>();
+      reset();
+      std::cout << "Runtime cleared.\n";
+    } else {
+      std::cout << "unknown command; /help lists them\n";
+    }
+    return true;
+  }
+
+  void reset() {
+    pending.clear();
+    in_block = false;
+  }
+
+  // Parse and run `pending` as Monty statements; a block in progress or
+  // lexically open input keeps collecting instead.
+  void step_monty(bool blank) {
+    if (in_block && !blank) return;
+    auto lexed = monty::lexer::lex(pending);
+    if (!lexed) {
+      const auto& err = lexed.as_error();
+      if (err.incomplete()) return;
+      report("lex", err);
+      reset();
+      return;
+    }
+    auto toks = *std::move(lexed);
+    auto parsed = monty::statement_parser::parse_all(*rt, toks);
+    if (!parsed) {
+      const auto& err = parsed.as_error();
+      // A failure at the synthesized eof token is one more lines could
+      // repair (a block header awaiting its body), so a non-blank line
+      // opens a block; a failure anywhere earlier is already hard, and the
+      // ending blank line reports whatever a block left broken.
+      if (!blank && err.pos >= pending.size()) {
+        in_block = true;
+        return;
+      }
+      report("parse", err);
+      reset();
+      return;
+    }
+    reset();
+    auto forms = *std::move(parsed);
+    // Evaluation may collect at safe points; the not-yet-evaluated forms
+    // are roots only while pinned.
+    gc_pin pin(*rt, forms);
+    run_forms(forms, true);
+  }
+
+  // Read and run `pending` as Hall forms; incomplete input keeps
+  // collecting instead.
+  void step_hall() {
+    auto forms = hall_reader::read_all(*rt, pending);
+    if (!forms) {
+      const auto& err = forms.as_error();
+      if (err.incomplete()) return;
+      report("read", err);
+      reset();
+      return;
+    }
+    reset();
+    gc_pin pin(*rt, *forms);
+    run_forms(*forms, false);
+  }
+
+  // Evaluate the pinned forms in order, printing each value; when
+  // translating, each form is prefaced by its Hall form and the Monty the
+  // unparser round-trips it to.
+  void run_forms(std::span<const value> forms, bool translate) const {
+    evaluator ev(*rt);
+    for (const auto& form : forms) {
+      if (translate) {
+        std::cout << "hall:  " << form.print() << '\n';
+        std::cout << "monty: " << monty::unparser::unparse(*rt, form) << '\n';
+      }
+      const auto v = ev.eval(form);
+      if (!v) {
+        std::cout << "error: " << v.as_error().reason << '\n';
+        break;
+      }
+      std::cout << v->print() << '\n';
+    }
+  }
+};
+
+} // namespace
+
+// Minimal interactive REPL for CoreB, speaking both syntaxes over one shared
+// runtime.
+//
+// Starts in Monty mode; slash commands steer it, recognized on any line,
+// even mid-continuation: /monty and /hall pick the syntax, /clear resets
+// the runtime, /help lists the commands, and /quit exits, as does
+// end-of-input (Ctrl+Z then Enter on Windows, Ctrl+D elsewhere).
+// Definitions persist across switches, both modes evaluating against the
+// same runtime.
+//
+// Monty mode shows each statement's desugared Hall form and canonical Monty
+// round trip before its value; Hall mode prints values only. Either way,
+// input left lexically open (an unbalanced list, bracket, or Hall escape)
+// continues onto the next line, and a Monty statement whose parse fails at
+// the end of input (a block header, say) collects lines until a blank line
+// ends the block, per Python's interactive precedent.
 int main() {
   return try_or_log(
       [] {
-        runtime rt;
-        evaluator ev(rt);
-        std::cout << "CoreB kernel REPL. Exit with end-of-input.\n";
-        std::string pending;
-        for (;;) {
-          std::cout << (pending.empty() ? "coreb> " : "  ...> ") << std::flush;
-          std::string line;
-          if (!std::getline(std::cin, line)) break;
-          pending += line;
-          pending += '\n';
-          auto forms = reader::read_all(rt, pending);
-          if (!forms) {
-            const auto& err = forms.as_error();
-            if (err.incomplete) continue;
-            std::cout << "read error at line " << err.line << ", col "
-                      << err.col << ": " << err.message << '\n';
-            pending.clear();
-            continue;
-          }
-          pending.clear();
-          // Evaluation may collect at safe points; the not-yet-evaluated
-          // forms are roots only while pinned.
-          gc_pin pin(rt, *forms);
-          for (const auto& form : *forms) {
-            const auto v = ev.eval(form);
-            if (!v) {
-              std::cout << "error: " << v.as_error().reason << '\n';
-              break;
-            }
-            std::cout << v->print() << '\n';
-          }
-        }
+        std::cout << "CoreB REPL, speaking Monty. /help lists the commands.\n";
+        repl{}.run();
         return 0;
       },
       1);

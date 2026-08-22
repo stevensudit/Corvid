@@ -35,10 +35,10 @@ namespace {
 // it exactly, because a single round trip reaches the fixed point.
 std::string echo(runtime& rt, std::string_view src) {
   CAPTURE(src);
-  auto v = reader::read_one(rt, src);
+  auto v = hall_reader::read_one(rt, src);
   REQUIRE(v.has_value());
   auto text = v->print();
-  auto again = reader::read_one(rt, text);
+  auto again = hall_reader::read_one(rt, text);
   REQUIRE(again.has_value());
   CHECK(again->print() == text);
   return text;
@@ -48,7 +48,7 @@ std::string echo(runtime& rt, std::string_view src) {
 // value's printed form.
 std::string run(runtime& rt, evaluator& ev, std::string_view src) {
   CAPTURE(src);
-  auto forms = reader::read_all(rt, src);
+  auto forms = hall_reader::read_all(rt, src);
   REQUIRE(forms.has_value());
   REQUIRE_FALSE(forms->empty());
   // Evaluation may collect at safe points; the pending forms are roots.
@@ -66,7 +66,7 @@ std::string run(runtime& rt, evaluator& ev, std::string_view src) {
 // message. Evaluating them all successfully fails the test.
 std::string run_err(runtime& rt, evaluator& ev, std::string_view src) {
   CAPTURE(src);
-  auto forms = reader::read_all(rt, src);
+  auto forms = hall_reader::read_all(rt, src);
   REQUIRE(forms.has_value());
   // Evaluation may collect at safe points; the pending forms are roots.
   gc_pin pin(rt, *forms);
@@ -156,19 +156,19 @@ TEST_CASE("CoreB values", "[coreb]") {
     // Nesting through heads past the cap renders as a display form instead
     // of overflowing the C++ stack, and the return reports the truncation.
     value deep;
-    for (size_t ndx = 0; ndx < value::max_depth + 10; ++ndx)
+    for (size_t ndx = 0; ndx < max_depth + 10; ++ndx)
       deep = rt.cons(deep, value{});
     out.clear();
     CHECK_FALSE(deep.append(out));
-    CHECK(out == std::string(value::max_depth, '(') + "#<too deep>" +
-                     std::string(value::max_depth, ')'));
+    CHECK(out == std::string(max_depth, '(') + "#<too deep>" +
+                     std::string(max_depth, ')'));
     out.clear();
     CHECK_FALSE(deep.append_dump(out));
 
     // Closure bodies charge depth too: an embedder can nest closures
     // through `make_closure` bodies, a shape no read source can produce.
     value fn = 1;
-    for (size_t ndx = 0; ndx < value::max_depth + 10; ++ndx)
+    for (size_t ndx = 0; ndx < max_depth + 10; ++ndx)
       fn = rt.make_closure({}, {fn}, rt.root_env());
     out.clear();
     CHECK_FALSE(fn.append(out));
@@ -214,7 +214,7 @@ TEST_CASE("CoreB symbols", "[coreb]") {
 TEST_CASE("CoreB reader atoms", "[coreb]") {
   runtime rt;
   auto read = [&rt](std::string_view src) {
-    auto v = reader::read_one(rt, src);
+    auto v = hall_reader::read_one(rt, src);
     REQUIRE(v.has_value());
     return *v;
   };
@@ -234,11 +234,12 @@ TEST_CASE("CoreB reader atoms", "[coreb]") {
   // Kernel-reserved symbols read like any other; only `define` polices them.
   CHECK(read("%comment").is_symbol());
   CHECK(read("%comment").print() == "%comment");
-  // Signs alone are symbols, not numbers.
+  // Signs alone are symbols, not numbers; operator spellings come from the
+  // closed table.
   CHECK(read("+").is_symbol());
   CHECK(read("-").is_symbol());
-  // Only the lone '.' is punctuation; multi-dot tokens are ordinary symbols.
-  CHECK(read("...").is_symbol());
+  CHECK(read("<=").is_symbol());
+  CHECK(read(":=").is_symbol());
 
   constexpr auto int_max = std::numeric_limits<int64_t>::max();
   CHECK(read("9223372036854775807").as_int() == int_max);
@@ -271,7 +272,7 @@ TEST_CASE("CoreB reader lists", "[coreb]") {
 TEST_CASE("CoreB reader strings", "[coreb]") {
   runtime rt;
   auto read = [&rt](std::string_view src) {
-    auto v = reader::read_one(rt, src);
+    auto v = hall_reader::read_one(rt, src);
     REQUIRE(v.has_value());
     return *v;
   };
@@ -304,13 +305,13 @@ TEST_CASE("CoreB reader sugar and trivia", "[coreb]") {
   CHECK(echo(rt, "'(1 2)") == "(quote (1 2))");
   CHECK(echo(rt, "; leading comment\n 42 ; trailing comment") == "42");
 
-  auto all = reader::read_all(rt, "1 2 (3 4) ; done");
+  auto all = hall_reader::read_all(rt, "1 2 (3 4) ; done");
   REQUIRE(all.has_value());
   REQUIRE(all->size() == 3);
   CHECK((*all)[0].print() == "1");
   CHECK((*all)[2].print() == "(3 4)");
 
-  auto none = reader::read_all(rt, " ; nothing here\n");
+  auto none = hall_reader::read_all(rt, " ; nothing here\n");
   REQUIRE(none.has_value());
   CHECK(none->empty());
 }
@@ -321,7 +322,7 @@ TEST_CASE("CoreB reader sugar and trivia", "[coreb]") {
 TEST_CASE("CoreB reader errors", "[coreb]") {
   runtime rt;
   auto err = [&rt](std::string_view src) {
-    auto v = reader::read_one(rt, src);
+    auto v = hall_reader::read_one(rt, src);
     REQUIRE_FALSE(v.has_value());
     return v.as_error();
   };
@@ -344,6 +345,14 @@ TEST_CASE("CoreB reader errors", "[coreb]") {
   CHECK(err(R"("a\u{1f")").message == "invalid escape");
   CHECK(err(R"("a\u{100}")").message == "invalid escape");
   CHECK(err("1abc").message == "malformed number");
+  // Symbols must spell the shared token classes; blends and other
+  // out-of-class spellings do not read.
+  CHECK(err("comb-over").message == "malformed symbol");
+  CHECK(err("...").message == "malformed symbol");
+  CHECK(err("a-7").message == "malformed symbol");
+  CHECK(err("x?y").message == "malformed symbol");
+  CHECK(err("%").message == "malformed symbol");
+  CHECK(err("%%x").message == "malformed symbol");
   CHECK(err("1 2").message == "trailing content after expression");
   CHECK(err("(. 1)").message == "misplaced '.'");
   CHECK(err("(1 . )").message == "expected expression after '.'");
@@ -352,25 +361,34 @@ TEST_CASE("CoreB reader errors", "[coreb]") {
   CHECK(err(".").message == "misplaced '.'");
   CHECK(err("'.").message == "misplaced '.'");
 
-  // The incomplete flag marks the errors more input could repair, which is
-  // how a REPL decides to keep reading rather than report.
-  CHECK(err("(1 2").incomplete);
-  CHECK(err(R"("abc)").incomplete);
-  CHECK(err("").incomplete);
-  CHECK(err("'").incomplete);
-  CHECK_FALSE(err(")").incomplete);
-  CHECK_FALSE(err("1abc").incomplete);
+  // The incomplete_input cause marks the errors more input could repair,
+  // which is how a REPL decides to keep reading rather than report.
+  CHECK(err("(1 2").incomplete());
+  CHECK(err(R"("abc)").incomplete());
+  CHECK(err("").incomplete());
+  CHECK(err("'").incomplete());
+  CHECK_FALSE(err(")").incomplete());
+  CHECK_FALSE(err("1abc").incomplete());
 
-  const std::string deep(reader::max_depth + 1, '(');
+  const std::string deep(max_depth + 1, '(');
   CHECK(err(deep).message == "nesting too deep");
   // A chain of quotes nests one level per quote.
-  const std::string quotes(reader::max_depth + 1, '\'');
+  const std::string quotes(max_depth + 1, '\'');
   CHECK(err(quotes + "x").message == "nesting too deep");
   // Depth counts nesting, not length: a long flat list is fine.
   std::string wide = "(";
   for (auto ndx = 0; ndx < 1000; ++ndx) wide += "x ";
   wide += ")";
-  CHECK(reader::read_one(rt, wide).has_value());
+  CHECK(hall_reader::read_one(rt, wide).has_value());
+  // A caller already nested (the Monty parser reading a Hall escape) seeds
+  // the budget, so the same input that reads at the top level fails when
+  // little or none of the budget remains. An atom costs one level and a list
+  // one more for each element.
+  CHECK(hall_reader::read_one(rt, "x", max_depth - 1).has_value());
+  CHECK(hall_reader::read_one(rt, "(x)", max_depth - 1).as_error().message ==
+        "nesting too deep");
+  CHECK(hall_reader::read_one(rt, "x", max_depth).as_error().message ==
+        "nesting too deep");
 }
 
 #pragma endregion
@@ -444,6 +462,17 @@ TEST_CASE("CoreB eval define", "[coreb]") {
   CHECK(run_err(rt, ev, "(define %x 1)") ==
         "'%' names are reserved for the kernel: %x");
   CHECK(run_err(rt, ev, "(define if 1)") == "cannot rebind special form: if");
+  // Literal words cannot be bound either. The reader never produces these
+  // symbols (`nil` in source reads as the literal), so build the form
+  // directly.
+  {
+    std::vector<value> forms{rt.cons(value{rt.intern("define")},
+        rt.cons(value{rt.intern("nil")}, rt.cons(value{1}, value{})))};
+    gc_pin pin(rt, forms);
+    auto r = ev.eval(forms[0]);
+    REQUIRE_FALSE(r.has_value());
+    CHECK(r.as_error().reason == "cannot bind a literal: nil");
+  }
   CHECK(run_err(rt, ev, "(define 5 1)") == "define: expects a symbol, got: 5");
   CHECK(run_err(rt, ev, "(define y)") == "define: expects a name and a value");
 }
@@ -462,8 +491,8 @@ TEST_CASE("CoreB eval lambda and closures", "[coreb]") {
   // The classic closure test: the inner lambda captures its birthplace's
   // `n`, which outlives the call that created it.
   CHECK(run(rt, ev,
-            "(define make-adder (lambda (n) (lambda (x) (+ x n))))"
-            "(define add3 (make-adder 3))"
+            "(define make_adder (lambda (n) (lambda (x) (+ x n))))"
+            "(define add3 (make_adder 3))"
             "(add3 4)") == "7");
   // Scoping is lexical, not dynamic: a global `n` does not leak into the
   // closure, whose captured `n` still shadows it.
@@ -511,28 +540,28 @@ TEST_CASE("CoreB eval tail calls", "[coreb]") {
   // A tail-recursive loop runs in constant C++ stack: 100000 iterations
   // would overflow any real stack if each call recursed.
   CHECK(run(rt, ev,
-            "(define loop (lambda (n) (if (= n 0) 'done (loop (- n 1)))))"
+            "(define loop (lambda (n) (if (== n 0) 'done (loop (- n 1)))))"
             "(loop 100000)") == "done");
 
   // Mutual tail recursion too. Note that `even?` calls `odd?` before it is
   // defined; the symbol is looked up at call time, not definition time.
   CHECK(run(rt, ev,
-            "(define even? (lambda (n) (if (= n 0) true (odd? (- n 1)))))"
-            "(define odd? (lambda (n) (if (= n 0) false (even? (- n 1)))))"
+            "(define even? (lambda (n) (if (== n 0) true (odd? (- n 1)))))"
+            "(define odd? (lambda (n) (if (== n 0) false (even? (- n 1)))))"
             "(even? 100001)") == "false");
 
   // `begin`'s finale is a tail position too: routed through it, the loop
   // still runs in constant stack.
   CHECK(run(rt, ev,
             "(define loop2 (lambda (n)"
-            "  (begin 0 (if (= n 0) 'done (loop2 (- n 1))))))"
+            "  (begin 0 (if (== n 0) 'done (loop2 (- n 1))))))"
             "(loop2 100000)") == "done");
 
   // Non-tail recursion is the contrast: the multiply happens after the
   // recursive call returns, so each level consumes real depth and the guard
   // catches runaways.
   CHECK(run(rt, ev,
-            "(define fact (lambda (n) (if (= n 0) 1 (* n (fact (- n 1))))))"
+            "(define fact (lambda (n) (if (== n 0) 1 (* n (fact (- n 1))))))"
             "(fact 20)") == "2432902008176640000");
   CHECK(run_err(rt, ev, "(fact 2000)") == "evaluation too deep");
 }
@@ -587,9 +616,9 @@ TEST_CASE("CoreB eval comparisons", "[coreb]") {
   CHECK(run(rt, ev, "(<= 1 1 2)") == "true");
   CHECK(run(rt, ev, "(> 3 2 1)") == "true");
   CHECK(run(rt, ev, "(>= 2 2 1)") == "true");
-  CHECK(run(rt, ev, "(= 1 1 1)") == "true");
+  CHECK(run(rt, ev, "(== 1 1 1)") == "true");
   // A mixed pair compares numerically across the int/float divide.
-  CHECK(run(rt, ev, "(= 1 1.0)") == "true");
+  CHECK(run(rt, ev, "(== 1 1.0)") == "true");
   // `!=` takes exactly 2: chained adjacent inequality would be a trap.
   CHECK(run(rt, ev, "(!= 1 2)") == "true");
   CHECK(run(rt, ev, "(!= 1 1)") == "false");
@@ -598,7 +627,7 @@ TEST_CASE("CoreB eval comparisons", "[coreb]") {
   CHECK(run_err(rt, ev, "(< 1)") == "<: expects at least 2 arguments");
   // Comparisons are numeric only; symbol and string equality is a later,
   // separate primitive.
-  CHECK(run_err(rt, ev, "(= 'a 'a)") == "=: expects numbers, got: a");
+  CHECK(run_err(rt, ev, "(== 'a 'a)") == "==: expects numbers, got: a");
 }
 
 #pragma endregion
@@ -610,6 +639,9 @@ TEST_CASE("CoreB eval lists", "[coreb]") {
 
   CHECK(run(rt, ev, "(cons 1 2)") == "(1 . 2)");
   CHECK(run(rt, ev, "(cons 1 nil)") == "(1)");
+  CHECK(run(rt, ev, "(list 1 2 3)") == "(1 2 3)");
+  CHECK(run(rt, ev, "(list)") == "nil");
+  CHECK(run(rt, ev, "(list (+ 1 2))") == "(3)");
   CHECK(run(rt, ev, "(head '(1 2))") == "1");
   CHECK(run(rt, ev, "(tail '(1 2 3))") == "(2 3)");
   CHECK(run(rt, ev, "(nil? nil)") == "true");
@@ -724,7 +756,7 @@ TEST_CASE("CoreB gc", "[coreb]") {
     // safe point, all 100000 environments would still be here afterward.
     // Collections along the way keep the heap near the trigger threshold.
     CHECK(run(rt, ev,
-              "(define loop (lambda (n) (if (= n 0) 'done (loop (- n 1)))))"
+              "(define loop (lambda (n) (if (== n 0) 'done (loop (- n 1)))))"
               "(loop 100000)") == "done");
     CHECK(rt.live_objects() < before + (2 * runtime::gc_threshold));
   }
