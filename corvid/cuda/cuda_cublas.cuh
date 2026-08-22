@@ -15,6 +15,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 #pragma once
+#include <cstddef>
 #include <stdexcept>
 #include <type_traits>
 #include <utility>
@@ -100,13 +101,13 @@ private:
 #pragma region cublas_handle
 
 // RAII owner of the cuBLAS library handle that every cuBLAS call takes.
-//
-// The constructor throws on failure; `try_create` returns a null handle
-// instead.
 class cublas_handle: public cuda_handle<cublasHandle_t, cublasDestroy> {
 public:
 #pragma region Construction
 
+  explicit cublas_handle(std::nullptr_t) noexcept : cuda_handle{nullptr} {}
+
+  // Create a handle, or throw.
   cublas_handle() : cublas_handle{make(on_failure::raise)} {}
 
   // Create a handle, or return a failed instance.
