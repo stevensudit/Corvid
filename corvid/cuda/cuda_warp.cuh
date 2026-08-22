@@ -16,18 +16,9 @@
 // limitations under the License.
 #pragma once
 
-#include <cassert>
-#include <cstddef>
 #include <cstdint>
-#include <limits>
-#include <memory>
-#include <span>
-#include <type_traits>
-#include <utility>
 
 #include <cuda_runtime.h>
-
-#include "./cuda_status.cuh"
 
 // CUDA warp-centered utilities.
 //
@@ -35,6 +26,9 @@
 
 namespace corvid::cuda {
 
+// Device-side warp helpers: the calling thread's lane and warp, the active
+// mask, and typed wrappers over the `_sync` shuffle and sync intrinsics that
+// default the mask to the active lanes.
 class cuda_warp {
 public:
   // Lane ID within the warp (0..31).

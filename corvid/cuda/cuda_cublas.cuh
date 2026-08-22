@@ -18,7 +18,6 @@
 #include <cstddef>
 #include <stdexcept>
 #include <type_traits>
-#include <utility>
 
 #include <cuda_runtime.h>
 #include <cublas_v2.h>
