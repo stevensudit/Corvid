@@ -48,7 +48,7 @@ namespace corvid::cuda {
 }
 
 // Distance from `p` to an axis-aligned box of half-extents `b`.
-[[nodiscard]] __device__ inline float sd_box(vec3 p, vec3 b) {
+[[nodiscard]] __host__ __device__ inline float sd_box(vec3 p, vec3 b) {
   const vec3 d{fabsf(p.x) - b.x, fabsf(p.y) - b.y, fabsf(p.z) - b.z};
   const vec3 outside{fmaxf(d.x, 0.0F), fmaxf(d.y, 0.0F), fmaxf(d.z, 0.0F)};
   return length(outside) + fminf(fmaxf(d.x, fmaxf(d.y, d.z)), 0.0F);
@@ -56,18 +56,19 @@ namespace corvid::cuda {
 
 // Distance from `p` to a capsule: the segment from `a` to `b` swept by radius
 // `r` (a cylinder with hemispherical end caps). `a` and `b` must be distinct.
-[[nodiscard]] __device__ inline float
+[[nodiscard]] __host__ __device__ inline float
 sd_capsule(vec3 p, vec3 a, vec3 b, float r) {
   const vec3 pa = p - a;
   const vec3 ba = b - a;
-  const auto h = __saturatef(dot(pa, ba) / dot(ba, ba));
+  const auto h = fminf(fmaxf(dot(pa, ba) / dot(ba, ba), 0.0F), 1.0F);
   return length(pa - (ba * h)) - r;
 }
 
 // Distance from `p` to a plane with unit normal `n` whose surface lies at
 // offset `-h` along that normal, so `h` is the signed distance from the origin
 // into the solid side.
-[[nodiscard]] __device__ inline float sd_plane(vec3 p, vec3 n, float h) {
+[[nodiscard]] __host__ __device__ inline float
+sd_plane(vec3 p, vec3 n, float h) {
   return dot(p, n) + h;
 }
 
@@ -89,22 +90,22 @@ sd_capsule(vec3 p, vec3 a, vec3 b, float r) {
 #pragma region Combinators
 
 // Union: the nearer of two surfaces.
-[[nodiscard]] __device__ inline float op_union(float a, float b) {
+[[nodiscard]] __host__ __device__ inline float op_union(float a, float b) {
   return fminf(a, b);
 }
 
 // Intersection: the region common to both.
-[[nodiscard]] __device__ inline float op_intersect(float a, float b) {
+[[nodiscard]] __host__ __device__ inline float op_intersect(float a, float b) {
   return fmaxf(a, b);
 }
 
 // Subtraction: `a` with `b` carved out of it.
-[[nodiscard]] __device__ inline float op_subtract(float a, float b) {
+[[nodiscard]] __host__ __device__ inline float op_subtract(float a, float b) {
   return fmaxf(a, -b);
 }
 
 // Union with a smooth blend of width `k` where the two surfaces meet.
-[[nodiscard]] __device__ inline float
+[[nodiscard]] __host__ __device__ inline float
 op_smooth_union(float a, float b, float k) {
   const auto h = fmaxf(k - fabsf(a - b), 0.0F) / k;
   return fminf(a, b) - (h * h * k * 0.25F);

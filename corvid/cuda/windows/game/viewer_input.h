@@ -111,8 +111,9 @@ handle_flashlight(const sdl::sdl_event& ev, bool& flashlight) {
 // still reach the game handlers. Returns whether it consumed the event,
 // leaving Escape for the pump to toggle the panel.
 [[nodiscard]] inline bool handle_viewer_event(const sdl::sdl_event& ev,
-    win32::d3d::imgui_overlay& imgui, bool show_config, sdl::drive_input& input,
-    sdl::sdl_window& win, bool& digging, active_tool& tool, bool& flashlight) {
+    win32::d3d::imgui_overlay& imgui, bool show_config,
+    sdl::drive_input& input, sdl::sdl_window& win, bool& digging,
+    active_tool& tool, bool& flashlight) {
   imgui.process_event(ev);
   if (show_config) {
     if (is_mouse_event(ev) && imgui.wants_mouse()) return true;
