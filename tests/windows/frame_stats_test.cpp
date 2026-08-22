@@ -8,6 +8,8 @@
 
 using corvid::sdl::frame_stats;
 
+// NOLINTBEGIN(readability-function-cognitive-complexity)
+
 #pragma region frame_stats
 
 TEST_CASE("frame_stats summarizes once a second and resets", "[sdl]") {
@@ -47,3 +49,5 @@ TEST_CASE("frame_stats reports a single long frame", "[sdl]") {
 }
 
 #pragma endregion
+
+// NOLINTEND(readability-function-cognitive-complexity)
