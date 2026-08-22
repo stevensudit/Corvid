@@ -122,10 +122,9 @@ public:
 #pragma endregion
 #pragma region Accessors
 
-  // Return address of device handle; cannot be dereferenced on the host.
-  [[nodiscard]] cublasHandle_t device_handle() const noexcept {
-    return handle_;
-  }
+  // The raw handle: an opaque pointer to the host-side cuBLAS library
+  // context, null when creation failed.
+  [[nodiscard]] cublasHandle_t get() const noexcept { return handle_; }
   [[nodiscard]] operator cublasHandle_t() const noexcept { return handle_; }
   void operator*() const {
     if (!handle_) throw std::runtime_error{"dereferencing null cublas_handle"};
