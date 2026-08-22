@@ -16,36 +16,43 @@
 // limitations under the License.
 #pragma once
 
-#include <utility>
+#include <cstddef>
 #include <stdexcept>
+#include <type_traits>
+#include <utility>
+
+#include "../enums/bool_enums.h"
+#include "./cuda_status.cuh"
 
 // Generic ownership of a CUDA handle.
 
 namespace corvid::cuda {
+using corvid::enums::bool_enums::on_failure;
 
 #pragma region cuda_handle
 
 // Move-only RAII owner of a CUDA handle of type `H`, released by calling
-// `Destroy` on it (a function such as `cudaFreeArray` or
-// `cudaDestroySurfaceObject` that takes the handle).
+// `Destroy` on it. This is a function such as `cudaFreeArray` or
+// `cudaDestroySurfaceObject`, which takes the handle.
 //
 // The empty state is `H{}`, which is a null pointer for the pointer-shaped
 // handles and `0` for the opaque integer handles like `cudaSurfaceObject_t`,
 // so one definition serves both.
 //
 // It adopts an already-created handle and never allocates or creates, because
-// that step varies per resource and belongs to the wrapper. Use it either way:
-// embed it as a member and forward `get`, so a type owns a handle by rule of
-// zero; or derive from it, as `cuda_array_3d` does, where the derived
-// constructor makes the handle and passes it down, and the
-// derived type inherits `get` and the conversion to `H`, so it passes wherever
-// the raw handle is expected and only adds its own construction and methods.
+// that step varies per resource and belongs to the wrapper.
+//
+// You can embed it as a member and forward `get`, so a type owns a handle by
+// rule of zero; or derive from it. In the latter case, the constructor makes
+// the handle and passes it down, and the derived type inherits `get` and the
+// conversion to `H`, so it only adds its own construction and methods.
 template<typename H, auto Destroy>
 class cuda_handle {
 public:
 #pragma region Construction
 
   cuda_handle() noexcept = default;
+  cuda_handle(std::nullptr_t) noexcept {}
   explicit cuda_handle(H handle) noexcept : handle_{handle} {}
 
   cuda_handle(const cuda_handle&) = delete;
@@ -79,6 +86,31 @@ public:
 
 #pragma endregion
 #pragma region Helpers
+protected:
+  // Call `Create(&handle, args...)`, a CUDA creation function whose first
+  // parameter receives the new handle, and return that handle for the
+  // constructor to adopt. On failure, either throws `std::runtime_error` with
+  // the error string or returns the empty handle, per `policy`.
+  //
+  // `Status` wraps the status `Create` returns. For the runtime API
+  // (`cuda_last_status`, the default) that return is read only as pass/fail:
+  // the error itself is the thread's last error, which the throw consumes and
+  // the empty handle leaves for the caller to read with `cuda_last_status{}`.
+  // cuBLAS (`cublas_last_status`) has no such channel, so its returned status
+  // is what the throw carries.
+  //
+  // Where the runtime overloads a creation function (`cudaMalloc`,
+  // `cudaEventCreate`), pass a lambda that names the intended one.
+  template<auto Create, typename Status = cuda_last_status, typename... Args>
+  [[nodiscard]] static H create(on_failure policy, Args&&... args) {
+    H handle{};
+    const Status status{Create(&handle, std::forward<Args>(args)...)};
+    if (status) return handle;
+    if (policy == on_failure::ignore) return H{};
+    if constexpr (std::is_same_v<Status, cuda_last_status>) Status::raise();
+    Status::raise(status);
+  }
+
 private:
   void destroy() const noexcept {
     if (handle_) Destroy(handle_);

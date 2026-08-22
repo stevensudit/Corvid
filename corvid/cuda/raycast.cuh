@@ -96,12 +96,10 @@ template<float Sdf(pos3)>
 #pragma endregion
 #pragma region Rendering
 
-// What a scene policy must supply to `shade_ray`: static `__device__` members
-// for the distance field, the surface albedo, and the background sky.
-//
-// A `scene_policy` type supplies three static `__device__` members:
-// `sdf(pos3)` (the signed-distance field), `albedo(pos3)` (base color at a
-// surface point), and `sky(vec3)` (background for a ray that hits nothing).
+// What a scene policy must supply to `shade_ray`: three static `__device__`
+// members, `sdf(pos3)` (the signed-distance field), `albedo(pos3)` (base
+// color at a surface point), and `sky(vec3)` (background for a ray that hits
+// nothing).
 template<typename S>
 concept scene_policy = requires(pos3 p, vec3 dir) {
   { S::sdf(p) } -> std::same_as<float>;

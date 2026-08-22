@@ -17,7 +17,6 @@
 #pragma once
 #include <stdexcept>
 #include <type_traits>
-#include <utility>
 
 #include <cuda_runtime.h>
 
@@ -238,51 +237,58 @@ consteval auto corvid_enum_spec(cuda_device_attr*) {
 #pragma endregion
 #pragma region cuda_device
 
+// A CUDA device, identified by its runtime ordinal, for querying its
+// attributes.
+//
+// Construction adopts an ordinal and does not touch the runtime; the default
+// is the calling thread's current device.
 class cuda_device {
 public:
 #pragma region Construction
 
-  explicit cuda_device(int device_id = get_current_device_id())
-      : device_id{device_id} {}
+  explicit cuda_device(int device_id = current_device_id())
+      : device_id_{device_id} {}
 
 #pragma endregion
 #pragma region Accessors
 
-  [[nodiscard]] int id() const { return device_id; }
+  [[nodiscard]] int id() const noexcept { return device_id_; }
 
 #pragma endregion
 #pragma region Operations
 
-  [[nodiscard]] int get_attribute(cuda_device_attr attr) const {
+  // Query `attr` for this device, or throw.
+  [[nodiscard]] int attribute(cuda_device_attr attr) const {
     int value{};
-    cuda_last_status status{cudaDeviceGetAttribute(&value,
-        static_cast<cudaDeviceAttr>(attr), device_id)};
-    if (!status)
-      throw std::runtime_error{"Failed to get CUDA device attribute"};
+    if (!cuda_last_status{cudaDeviceGetAttribute(&value,
+            static_cast<cudaDeviceAttr>(attr), device_id_)})
+      cuda_last_status::raise();
     return value;
   }
 
-  static size_t get_device_count() {
+  // The number of CUDA devices in the system, or throw.
+  [[nodiscard]] static size_t device_count() {
     int count{};
-    cuda_last_status status{cudaGetDeviceCount(&count)};
-    if (!status) throw std::runtime_error{"Failed to get CUDA device count"};
+    if (!cuda_last_status{cudaGetDeviceCount(&count)})
+      cuda_last_status::raise();
     return static_cast<size_t>(count);
   }
 
 #pragma endregion
 #pragma region Helpers
 private:
-  static int get_current_device_id() {
+  // The calling thread's current device ordinal, or throw.
+  static int current_device_id() {
     int device_id{};
-    cuda_last_status status{cudaGetDevice(&device_id)};
-    if (!status) throw std::runtime_error{"Failed to get current CUDA device"};
+    if (!cuda_last_status{cudaGetDevice(&device_id)})
+      cuda_last_status::raise();
     return device_id;
   }
 
 #pragma endregion
 #pragma region Data members
 private:
-  int device_id{};
+  int device_id_{};
 
 #pragma endregion
 };

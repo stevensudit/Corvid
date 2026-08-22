@@ -25,6 +25,7 @@
 #include "../enums/bool_enums.h"
 #include "../enums/sequence_enum.h"
 #include "../enums/enum_conversion.h"
+#include "../strings/cstring_view.h"
 
 // CUDA status.
 //
@@ -268,8 +269,18 @@ public:
 #pragma endregion
 #pragma region Errors
 
-  [[nodiscard]] const char* message() const {
+  [[nodiscard]] cstring_view message() const {
     return cudaGetErrorString(as_raw(value_));
+  }
+
+  // Throw `status` as a `std::runtime_error`.
+  //
+  // By default, that is the thread's last error, consumed: for a runtime call
+  // that just failed, the error it returned, so the caller need only test that
+  // return as a bool.
+  [[noreturn]] static void raise(
+      const cuda_last_status status = cuda_last_status{read_mode::consume}) {
+    throw std::runtime_error{status.message().c_str()};
   }
 
   // NOLINTNEXTLINE(modernize-use-nodiscard)

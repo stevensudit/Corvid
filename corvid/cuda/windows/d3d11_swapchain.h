@@ -172,14 +172,20 @@ public:
   // avoids reallocating on every resize.
   [[nodiscard]] com_ptr<ID3D11Texture2D>
   create_texture(UINT width, UINT height, d3d11_bind_flag bind_flags) const {
+    com_ptr<ID3D11Texture2D> texture;
+    try_create_texture(width, height, bind_flags, texture).or_throw();
+    return texture;
+  }
+
+  // Like `create_texture`, but receive the texture into `texture` and return
+  // the status instead of throwing; `texture` is null on failure.
+  [[nodiscard]] hr_status try_create_texture(UINT width, UINT height,
+      d3d11_bind_flag bind_flags, com_ptr<ID3D11Texture2D>& texture) const {
     auto desc = back_buffer_desc();
     desc.Width = width;
     desc.Height = height;
     desc.BindFlags = *bind_flags;
-    com_ptr<ID3D11Texture2D> texture;
-    hr_status{device_->CreateTexture2D(&desc, nullptr, texture.put())}
-        .or_throw();
-    return texture;
+    return hr_status{device_->CreateTexture2D(&desc, nullptr, texture.put())};
   }
 
   // Create a texture matching the backbuffer that can be written to and then

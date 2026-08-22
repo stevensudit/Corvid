@@ -43,18 +43,28 @@ public:
 #pragma region Construction
 
   cuda_texture() = default;
+  explicit cuda_texture(std::nullptr_t) noexcept : cuda_handle{nullptr} {}
 
+  // Create a texture object over `array`, or throw.
   explicit cuda_texture(cudaArray_t array,
       cudaTextureReadMode read_mode = cudaReadModeElementType)
-      : cuda_handle{create(array, read_mode)} {}
+      : cuda_texture{make(array, read_mode, on_failure::raise)} {}
+
+  // Create a texture object over `array`, or return a failed instance.
+  // Check with `operator bool`, and follow up with `cuda_last_status{}`.
+  [[nodiscard]] static cuda_texture try_create(cudaArray_t array,
+      cudaTextureReadMode read_mode = cudaReadModeElementType) {
+    return cuda_texture{make(array, read_mode, on_failure::ignore)};
+  }
 
 #pragma endregion
 #pragma region Helpers
 private:
-  // Create a texture object over `array`, returning the handle for the base to
-  // adopt.
+  explicit cuda_texture(cudaTextureObject_t texture) noexcept
+      : cuda_handle{texture} {}
+
   static cudaTextureObject_t
-  create(cudaArray_t array, cudaTextureReadMode read_mode) {
+  make(cudaArray_t array, cudaTextureReadMode read_mode, on_failure policy) {
     const cudaResourceDesc resource_desc{.resType = cudaResourceTypeArray,
         .res = {.array = {.array = array}}};
     const cudaTextureDesc texture_desc{
@@ -64,12 +74,8 @@ private:
         .readMode = read_mode,
         .normalizedCoords = 0,
     };
-    cudaTextureObject_t texture{};
-    cuda_last_status{
-        cudaCreateTextureObject(&texture, &resource_desc, &texture_desc,
-            nullptr)}
-        .or_throw();
-    return texture;
+    return create<cudaCreateTextureObject>(policy, &resource_desc,
+        &texture_desc, nullptr);
   }
 
 #pragma endregion

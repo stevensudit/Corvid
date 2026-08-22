@@ -6,6 +6,7 @@
 // unassigned slots stringify to their number rather than a name.
 
 #include <string>
+#include <stdexcept>
 #include <string_view>
 
 #include <cuda_runtime.h>
@@ -16,7 +17,9 @@
 
 using namespace corvid;
 using namespace corvid::enums::sequence;
+using corvid::cuda::cuda_device;
 using corvid::cuda::cuda_device_attr;
+using corvid::cuda::cuda_last_status;
 
 namespace {
 
@@ -150,6 +153,22 @@ TEST_CASE("cuda_device_attr gap and unknown handling", "[cuda][enums]") {
   // An unknown name does not parse.
   cuda_device_attr unused{};
   CHECK_FALSE(convert_enum(unused, "not_a_real_attr"));
+}
+
+#pragma endregion
+#pragma region cuda_device
+
+TEST_CASE("cuda_device queries the current device", "[cuda]") {
+  REQUIRE(cuda_device::device_count() >= 1);
+  const cuda_device device;
+  int current{};
+  REQUIRE(cudaGetDevice(&current) == cudaSuccess);
+  CHECK(device.id() == current);
+  CHECK(device.attribute(cuda_device_attr::warp_size) == 32);
+  CHECK(device.attribute(cuda_device_attr::max_threads_per_block) >= 1);
+  CHECK_THROWS_AS(cuda_device{-1}.attribute(cuda_device_attr::warp_size),
+      std::runtime_error);
+  CHECK(cuda_last_status{}.ok()); // the throw consumed the error
 }
 
 #pragma endregion

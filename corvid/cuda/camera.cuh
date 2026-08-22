@@ -43,7 +43,7 @@ struct resolution {
 //
 // In simple terms, the frame's `forward` is the direction the camera is
 // looking, `right` is which way is rightwards on the screen, `up` is which way
-// is upwards
+// is upwards.
 struct basis {
   vec3 forward;
   vec3 right;

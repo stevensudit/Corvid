@@ -934,7 +934,8 @@ private:
     // Bind the presenter to the window, then build the ImGui overlay (which
     // borrows the presenter's device and context, so it is built after).
     presenter_.reset(static_cast<HWND>(win_.native_handle())).or_throw();
-    imgui_ = imgui_overlay{win_, presenter_.device(), presenter_.context()};
+    imgui_ = win32::d3d::imgui_overlay{win_, presenter_.device(),
+        presenter_.context()};
 
     last_ns_ = SDL_GetTicksNS();
   }
@@ -1183,7 +1184,7 @@ private:
   // presenter's device and context, so it is move-assigned into place in
   // `init` after the presenter is up. Both are plain members, no optional.
   cuda_d3d11_presenter presenter_;
-  imgui_overlay imgui_;
+  win32::d3d::imgui_overlay imgui_;
   bool show_config_{};
 
   // Observer freeze (debug): pin the camera and reveal the saucer head, which

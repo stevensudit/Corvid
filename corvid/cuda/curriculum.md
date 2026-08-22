@@ -40,7 +40,7 @@ Milestone: you can compile, run, and diagnose a trivial kernel from VSCode/WSL w
 
 ---
 
-## Track 1:  CUDA’s execution model
+## Track 1:  CUDA's execution model
 
 Goal: understand what code runs where.
 
@@ -57,7 +57,7 @@ grid: collection of blocks launched by one kernel
 SM: hardware execution unit
 ```
 
-NVIDIA’s Programming Guide summarizes the hierarchy as threads organized into blocks, and blocks organized into a grid. It also states that grids and blocks may be 1D, 2D, or 3D, and that `gridDim`, `blockDim`, and `blockIdx` expose this inside the kernel. ([NVIDIA Docs][1])
+NVIDIA's Programming Guide summarizes the hierarchy as threads organized into blocks, and blocks organized into a grid. It also states that grids and blocks may be 1D, 2D, or 3D, and that `gridDim`, `blockDim`, and `blockIdx` expose this inside the kernel. ([NVIDIA Docs][1])
 
 First mental model:
 
@@ -114,7 +114,7 @@ They must return void.
 The launch is asynchronous with respect to the host.
 ```
 
-NVIDIA’s CUDA C++ language extension docs state that `__global__` functions require an execution configuration, must return `void`, and that calls to a `__global__` function are asynchronous: they return to the host thread before device execution completes. ([NVIDIA Docs][2])
+NVIDIA's CUDA C++ language extension docs state that `__global__` functions require an execution configuration, must return `void`, and that calls to a `__global__` function are asynchronous: they return to the host thread before device execution completes. ([NVIDIA Docs][2])
 
 ### `__device__`
 
@@ -172,7 +172,7 @@ gridDim    // dim3: grid dimensions
 warpSize   // usually 32
 ```
 
-NVIDIA’s intro docs define `threadIdx`, `blockDim`, `blockIdx`, and `gridDim` as built-in variables available inside CUDA kernels. For example, `threadIdx` gives the thread’s index within its block, and `blockDim` gives the block dimensions specified by the launch configuration. ([NVIDIA Docs][4])
+NVIDIA's intro docs define `threadIdx`, `blockDim`, `blockIdx`, and `gridDim` as built-in variables available inside CUDA kernels. For example, `threadIdx` gives the thread's index within its block, and `blockDim` gives the block dimensions specified by the launch configuration. ([NVIDIA Docs][4])
 
 Canonical 1D global index:
 
@@ -296,7 +296,7 @@ between host and device:
   events
 ```
 
-NVIDIA’s async-barrier docs say that for full-block synchronization, `__syncthreads()` is the intended primitive, and for full-warp synchronization, `__syncwarp()` is the intended primitive. ([NVIDIA Docs][6])
+NVIDIA's async-barrier docs say that for full-block synchronization, `__syncthreads()` is the intended primitive, and for full-warp synchronization, `__syncwarp()` is the intended primitive. ([NVIDIA Docs][6])
 
 Exercises:
 
@@ -339,7 +339,7 @@ async copies
 streams
 ```
 
-NVIDIA’s Best Practices Guide organizes memory work around host/device transfers, pinned memory, asynchronous transfers, and overlapping transfers with computation. ([NVIDIA Docs][7])
+NVIDIA's Best Practices Guide organizes memory work around host/device transfers, pinned memory, asynchronous transfers, and overlapping transfers with computation. ([NVIDIA Docs][7])
 
 Exercises:
 
@@ -418,7 +418,7 @@ register pressure
 block size selection
 ```
 
-NVIDIA’s Best Practices Guide places coalesced global memory access, L2 behavior, and shared memory/bank conflicts in its device-memory performance section. ([NVIDIA Docs][7])
+NVIDIA's Best Practices Guide places coalesced global memory access, L2 behavior, and shared memory/bank conflicts in its device-memory performance section. ([NVIDIA Docs][7])
 
 First rules:
 
@@ -621,7 +621,7 @@ distributed shared memory
 Hopper-only or Blackwell-only mechanisms
 ```
 
-NVIDIA’s compute capability table is the source for mapping GPUs to architectural feature levels; compute capability defines hardware features and supported instructions. ([NVIDIA Developer][8])
+NVIDIA's compute capability table is the source for mapping GPUs to architectural feature levels; compute capability defines hardware features and supported instructions. ([NVIDIA Developer][8])
 
 Milestone: you can read NVIDIA documentation and know whether a feature applies to your 4090.
 
@@ -641,7 +641,7 @@ grid sync with cooperative kernels
 limitations of grid-wide sync
 ```
 
-NVIDIA’s cooperative-groups docs show `cooperative_groups::sync()` as equivalent to `__syncthreads()` for a thread block, and also document grid synchronization for cooperative groups under restrictions. ([NVIDIA Docs][9])
+NVIDIA's cooperative-groups docs show `cooperative_groups::sync()` as equivalent to `__syncthreads()` for a thread block, and also document grid synchronization for cooperative groups under restrictions. ([NVIDIA Docs][9])
 
 Exercises:
 
@@ -670,7 +670,7 @@ cache hints
 L2 persistence/access policy windows
 ```
 
-NVIDIA’s Programming Guide describes asynchronous copy mechanisms and pipeline synchronization for staging work between global and shared memory. ([NVIDIA Docs][10])
+NVIDIA's Programming Guide describes asynchronous copy mechanisms and pipeline synchronization for staging work between global and shared memory. ([NVIDIA Docs][10])
 
 Exercises:
 

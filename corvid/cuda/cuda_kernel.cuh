@@ -16,17 +16,7 @@
 // limitations under the License.
 #pragma once
 
-#include <cassert>
-#include <cstddef>
-#include <limits>
-#include <memory>
-#include <span>
-#include <type_traits>
-#include <utility>
-
 #include <cuda_runtime.h>
-
-#include "./cuda_status.cuh"
 
 // CUDA kernel-centered utilities.
 //
@@ -34,6 +24,9 @@
 
 namespace corvid::cuda {
 
+// Device-side index and launch-geometry helpers for a kernel body: each
+// thread's coordinates and the grid's strides, typed as the caller wants,
+// and the host-side block count for a launch.
 class cuda_kernel {
 public:
   // Thread in each dimension.
@@ -110,7 +103,7 @@ public:
     return ceil_div(n, threads_per_block);
   }
 
-  // Divide `a` by `b`, rounding up. This is a CUDA_safe fork of
+  // Divide `a` by `b`, rounding up. This is a CUDA-safe fork of
   // `corvid::ceil_div`.
   __host__ __device__ static unsigned ceil_div(unsigned a, unsigned b) {
     return (a / b) + static_cast<unsigned>(a % b != 0);
