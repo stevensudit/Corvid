@@ -16,24 +16,24 @@
 // limitations under the License.
 #pragma once
 
-#include <cassert>
+#include <algorithm>
 #include <cstddef>
 #include <limits>
-#include <memory>
 #include <span>
 #include <type_traits>
 
 #include <cuda_runtime.h>
 
 #include "../enums/sequence_enum.h"
+#include "../strings/string_literals.h"
 #include "./cuda_handle.cuh"
 #include "./cuda_status.cuh"
 
 // CUDA memory management.
 //
 // CUDA allows you to allocate and free device memory, giving you a pointer
-// that you can't dereference on the host; instead, you explicitly copy to or
-// from it.
+// that you can't dereference on the host. Instead, you explicitly copy between
+// host and device memory.
 //
 // This is wrapped as `cuda_ptr<T>`, which is the moral equivalent to
 // `std::unique_ptr`, providing RAII.
@@ -44,8 +44,8 @@ namespace corvid::cuda {
 
 #pragma region memcpy_kind
 
-// Enum to wrap `cudaMemcpyKind`, naming which side of a transfer is host and
-// which is device.
+// Enum to wrap `cudaMemcpyKind`.
+//
 // NOLINTNEXTLINE(performance-enum-size)
 enum class memcpy_kind : std::underlying_type_t<cudaMemcpyKind> {
   host_to_host = cudaMemcpyHostToHost,         // 0
@@ -55,8 +55,6 @@ enum class memcpy_kind : std::underlying_type_t<cudaMemcpyKind> {
   inferred = cudaMemcpyDefault,                // 4
 };
 
-// Register `memcpy_kind` as a sequence enum so it gets enum<->string
-// conversion.
 consteval auto corvid_enum_spec(memcpy_kind*) {
   return corvid::enums::sequence::make_sequence_enum_spec<memcpy_kind,
       "host_to_host,host_to_device,device_to_host,device_to_device,"
@@ -68,11 +66,6 @@ consteval auto corvid_enum_spec(memcpy_kind*) {
 
 // Owning, move-only RAII handle to an uninitialized block of `count` objects
 // of type `T` in CUDA device memory.
-//
-// The constructor allocates, leaving the value null on failure. The
-// `cuda_handle` base owns the pointer and supplies `get`, the `T*` conversion,
-// the null checks, and move-only lifetime; this type adds the count and the
-// host transfers.
 template<typename T>
 class cuda_ptr: public cuda_handle<T*, cudaFree> {
   using base = cuda_handle<T*, cudaFree>;
@@ -84,19 +77,21 @@ public:
 #pragma region Construction
 
   // Allocates but does not initialize device memory for `count` objects of
-  // type `T`.
+  // type `T`. The caller must check for failure.
   explicit cuda_ptr(size_t count = 1UZ)
       : base{allocate(count)}, count_{count} {}
 
 #pragma endregion
 #pragma region Transfer
 
-  // Store memory from the CUDA device into the host buffer. Copies `count`
-  // objects, or the whole allocation when `count` is defaulted.
-  [[nodiscard]] cuda_last_status store(T* host_ptr, size_t count = {}) const {
-    if (count == 0) count = count_;
-    assert(count <= count_ && "store array size exceeds allocated count");
-    return copy(host_ptr, this->get(), count, memcpy_kind::device_to_host);
+  // Store memory from the CUDA device into the host buffer.
+  //
+  // Copies the lesser of `count` and the allocation, so the default copies
+  // the whole allocation and a zero `count` copies nothing.
+  [[nodiscard]] cuda_last_status
+  store(T* host_ptr, size_t count = strings::npos) const {
+    return copy(host_ptr, this->get(), std::min(count, count_),
+        memcpy_kind::device_to_host);
   }
   [[nodiscard]] cuda_last_status store(std::span<T> host_span) const {
     return store(host_span.data(), host_span.size());
@@ -111,12 +106,14 @@ public:
     return store(host_array, N);
   }
 
-  // Load device memory from the host buffer at `host_ptr`. Copies `count`
-  // objects, or the whole allocation when `count` is defaulted.
-  [[nodiscard]] cuda_last_status load(const T* host_ptr, size_t count = {}) {
-    if (count == 0) count = count_;
-    assert(count <= count_ && "load array size exceeds allocated count");
-    return copy(this->get(), host_ptr, count, memcpy_kind::host_to_device);
+  // Load device memory from the host buffer at `host_ptr`.
+  //
+  // Copies the lesser of `count` and the allocation, so the default loads
+  // the whole allocation and a zero `count` loads nothing.
+  [[nodiscard]] cuda_last_status
+  load(const T* host_ptr, size_t count = strings::npos) {
+    return copy(this->get(), host_ptr, std::min(count, count_),
+        memcpy_kind::host_to_device);
   }
   [[nodiscard]] cuda_last_status load(std::span<const T> host_span) {
     return load(host_span.data(), host_span.size());

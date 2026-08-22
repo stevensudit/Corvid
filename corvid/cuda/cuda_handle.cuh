@@ -37,9 +37,9 @@ namespace corvid::cuda {
 // that step varies per resource and belongs to the wrapper. Use it either way:
 // embed it as a member and forward `get`, so a type owns a handle by rule of
 // zero; or derive from it, as `cuda_array_3d` does, where the derived
-// constructor makes the handle and passes it down, and the
-// derived type inherits `get` and the conversion to `H`, so it passes wherever
-// the raw handle is expected and only adds its own construction and methods.
+// constructor makes the handle and passes it down, and the derived type
+// inherits `get` and the conversion to `H`, so it passes wherever the raw
+// handle is expected and only adds its own construction and methods.
 template<typename H, auto Destroy>
 class cuda_handle {
 public:
