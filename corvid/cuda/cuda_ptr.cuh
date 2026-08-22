@@ -20,6 +20,7 @@
 #include <cstddef>
 #include <limits>
 #include <span>
+#include <stdexcept>
 #include <type_traits>
 
 #include <cuda_runtime.h>
@@ -76,10 +77,18 @@ class cuda_ptr: public cuda_handle<T*, cudaFree> {
 public:
 #pragma region Construction
 
-  // Allocates but does not initialize device memory for `count` objects of
-  // type `T`. The caller must check for failure.
+  explicit cuda_ptr(std::nullptr_t) noexcept : base{nullptr} {}
+
+  // Allocate, but do not initialize, device memory for `count` objects of
+  // type `T`, or throw.
   explicit cuda_ptr(size_t count = 1UZ)
-      : base{allocate(count)}, count_{count} {}
+      : cuda_ptr{allocate(count, on_failure::raise), count} {}
+
+  // Allocate, or return a failed instance.
+  // Check with `operator bool`, and follow up with `cuda_last_status{}`.
+  [[nodiscard]] static cuda_ptr try_create(size_t count = 1UZ) {
+    return cuda_ptr{allocate(count, on_failure::ignore), count};
+  }
 
 #pragma endregion
 #pragma region Transfer
@@ -142,20 +151,26 @@ public:
   }
 
 private:
-  // Allocate CUDA device memory for `count` objects of type `T`, and return a
-  // pointer to the allocated memory. Returns `nullptr` on failure.
-  [[nodiscard]] static T* allocate(size_t count) {
-    if (count > std::numeric_limits<size_t>::max() / sizeof(T)) return nullptr;
-    T* ptr{};
-    cuda_last_status status{cudaMalloc(&ptr, count * sizeof(T))};
-    if (!status) return nullptr;
-    return ptr;
+  cuda_ptr(T* ptr, size_t count) noexcept : base{ptr}, count_{count} {}
+
+  // Allocate device memory for `count` objects of type `T`, failing per
+  // `policy` when the byte count would overflow or the allocation fails.
+  [[nodiscard]] static T* allocate(size_t count, on_failure policy) {
+    if (count > std::numeric_limits<size_t>::max() / sizeof(T)) {
+      if (policy == on_failure::raise)
+        throw std::runtime_error{"cuda_ptr byte count overflows size_t"};
+      return nullptr;
+    }
+    constexpr auto malloc_overload = [](T** ptr, size_t bytes) {
+      return cudaMalloc(ptr, bytes);
+    };
+    return base::template create<malloc_overload>(policy, count * sizeof(T));
   }
 
 #pragma endregion
 #pragma region Data members
 private:
-  size_t count_{};
+  size_t count_ = 1UZ;
 
 #pragma endregion
 };

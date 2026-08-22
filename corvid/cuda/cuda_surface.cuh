@@ -37,21 +37,29 @@ public:
 #pragma region Construction
 
   cuda_surface() = default;
+  explicit cuda_surface(std::nullptr_t) noexcept : cuda_handle{nullptr} {}
 
-  explicit cuda_surface(cudaArray_t array) : cuda_handle{create(array)} {}
+  // Create a surface object over `array`, or throw.
+  explicit cuda_surface(cudaArray_t array)
+      : cuda_surface{make(array, on_failure::raise)} {}
+
+  // Create a surface object over `array`, or return a failed instance.
+  // Check with `operator bool`, and follow up with `cuda_last_status{}`.
+  [[nodiscard]] static cuda_surface try_create(cudaArray_t array) {
+    return cuda_surface{make(array, on_failure::ignore)};
+  }
 
 #pragma endregion
 #pragma region Helpers
 private:
-  // Create a surface object over `array`, returning the handle for the base to
-  // adopt.
-  static cudaSurfaceObject_t create(cudaArray_t array) {
+  explicit cuda_surface(cudaSurfaceObject_t surface) noexcept
+      : cuda_handle{surface} {}
+
+  static cudaSurfaceObject_t make(cudaArray_t array, on_failure policy) {
     const cudaResourceDesc desc{.resType = cudaResourceTypeArray,
         .res = {.array = {.array = array}},
         .flags = 0};
-    cudaSurfaceObject_t surface{};
-    cuda_last_status{cudaCreateSurfaceObject(&surface, &desc)}.or_throw();
-    return surface;
+    return create<cudaCreateSurfaceObject>(policy, &desc);
   }
 
 #pragma endregion

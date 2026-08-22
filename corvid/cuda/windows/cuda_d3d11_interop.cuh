@@ -29,6 +29,7 @@
 #include <cuda_runtime.h>
 
 #include "../../enums/bitmask_enum.h"
+#include "../cuda_handle.cuh"
 #include "../cuda_status.cuh"
 #include "./hr_status.h"
 #include "./com_ptr.h"
@@ -111,55 +112,40 @@ consteval auto corvid_enum_spec(cuda_graphics_register_flags*) {
 // surface load/store so a kernel can `surf2Dwrite` it.
 //
 // Reach its storage by mapping it per frame with a `cuda_d3d11_mapping`.
-class cuda_d3d11_resource {
+class cuda_d3d11_resource
+    : public cuda_handle<cudaGraphicsResource*,
+          cudaGraphicsUnregisterResource> {
 public:
 #pragma region Construction
 
   cuda_d3d11_resource() = default;
+  explicit cuda_d3d11_resource(std::nullptr_t) noexcept
+      : cuda_handle{nullptr} {}
 
+  // Register `resource`, or throw.
   explicit cuda_d3d11_resource(ID3D11Resource* resource,
       cuda_graphics_register_flags flags =
+          cuda_graphics_register_flags::surface_load_store)
+      : cuda_d3d11_resource{make(resource, flags, on_failure::raise)} {}
+
+  // Register `resource`, or return a failed instance.
+  // Check with `operator bool`, and follow up with `cuda_last_status{}`.
+  [[nodiscard]] static cuda_d3d11_resource try_create(ID3D11Resource* resource,
+      cuda_graphics_register_flags flags =
           cuda_graphics_register_flags::surface_load_store) {
-    cuda_last_status{
-        cudaGraphicsD3D11RegisterResource(&resource_, resource, *flags)}
-        .or_throw();
-  }
-
-  cuda_d3d11_resource(const cuda_d3d11_resource&) = delete;
-  cuda_d3d11_resource& operator=(const cuda_d3d11_resource&) = delete;
-
-  cuda_d3d11_resource(cuda_d3d11_resource&& other) noexcept
-      : resource_{std::exchange(other.resource_, nullptr)} {}
-  cuda_d3d11_resource& operator=(cuda_d3d11_resource&& other) noexcept {
-    if (this != &other) {
-      unregister();
-      resource_ = std::exchange(other.resource_, nullptr);
-    }
-    return *this;
-  }
-  ~cuda_d3d11_resource() { unregister(); }
-
-#pragma endregion
-#pragma region Accessors
-
-  [[nodiscard]] cudaGraphicsResource* get() const noexcept {
-    return resource_;
-  }
-  [[nodiscard]] operator cudaGraphicsResource*() const noexcept {
-    return resource_;
+    return cuda_d3d11_resource{make(resource, flags, on_failure::ignore)};
   }
 
 #pragma endregion
 #pragma region Helpers
 private:
-  void unregister() {
-    if (resource_) cudaGraphicsUnregisterResource(resource_);
-  }
+  explicit cuda_d3d11_resource(cudaGraphicsResource* resource) noexcept
+      : cuda_handle{resource} {}
 
-#pragma endregion
-#pragma region Data members
-private:
-  cudaGraphicsResource* resource_{};
+  static cudaGraphicsResource* make(ID3D11Resource* resource,
+      cuda_graphics_register_flags flags, on_failure policy) {
+    return create<cudaGraphicsD3D11RegisterResource>(policy, resource, *flags);
+  }
 
 #pragma endregion
 };

@@ -2,7 +2,9 @@
 // count clamp that keeps a short or empty host buffer from being overrun.
 
 #include <array>
+#include <limits>
 #include <span>
+#include <stdexcept>
 
 #include <cuda_runtime.h>
 
@@ -35,6 +37,31 @@ TEST_CASE("cuda_ptr allocates and moves", "[cuda]") {
   a = std::move(b);
   CHECK(a.get() == raw);
   CHECK_FALSE(b.ok()); // NOLINT(bugprone-use-after-move): moved-from is null
+}
+
+TEST_CASE("cuda_ptr construction failure policy", "[cuda]") {
+  // Far beyond any device's memory, so the allocation itself fails (the
+  // byte count does not overflow, so this exercises the CUDA path).
+  constexpr auto absurd = size_t{1} << 60;
+  // Beyond what the byte count can hold, so the overflow guard fires first.
+  constexpr auto overflow = std::numeric_limits<size_t>::max();
+
+  SECTION("the constructor throws and consumes the error") {
+    CHECK_THROWS_AS(cuda_ptr<int>{absurd}, std::runtime_error);
+    CHECK(cuda_last_status{}.ok());
+    CHECK_THROWS_AS(cuda_ptr<int>{overflow}, std::runtime_error);
+    CHECK(cuda_last_status{}.ok());
+  }
+
+  SECTION("try_create returns null and leaves the error to read") {
+    CHECK_FALSE(cuda_ptr<int>::try_create(absurd).ok());
+    CHECK(cuda_last_status{}.value() == cuda_status::memory_allocation);
+    CHECK(cuda_last_status{}.ok()); // consumed by the read above
+    // The overflow guard fails before any CUDA call, so nothing is recorded.
+    CHECK_FALSE(cuda_ptr<int>::try_create(overflow).ok());
+    CHECK(cuda_last_status{}.ok());
+    CHECK(cuda_ptr<int>::try_create(4).ok());
+  }
 }
 
 #pragma endregion

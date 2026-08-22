@@ -16,6 +16,7 @@
 // limitations under the License.
 #pragma once
 
+#include <cstddef>
 #include <cuda_runtime.h>
 
 #include "./cuda_handle.cuh"
@@ -36,9 +37,17 @@ public:
 #pragma region Construction
 
   cuda_array_3d() = default;
+  explicit cuda_array_3d(std::nullptr_t) noexcept : cuda_handle{nullptr} {}
 
+  // Allocate an array of `extent`, or throw.
   explicit cuda_array_3d(cudaExtent extent)
-      : cuda_handle{allocate(extent)}, extent_{extent} {}
+      : cuda_array_3d{allocate(extent, on_failure::raise), extent} {}
+
+  // Allocate an array of `extent`, or return a failed instance.
+  // Check with `operator bool`, and follow up with `cuda_last_status{}`.
+  [[nodiscard]] static cuda_array_3d try_create(cudaExtent extent) {
+    return cuda_array_3d{allocate(extent, on_failure::ignore), extent};
+  }
 
 #pragma endregion
 #pragma region Accessors
@@ -48,15 +57,13 @@ public:
 #pragma endregion
 #pragma region Helpers
 private:
-  // Allocate a 3D `T` array of `extent`, returning the handle for the base
-  // to adopt.
-  static cudaArray_t allocate(cudaExtent extent) {
+  cuda_array_3d(cudaArray_t array, cudaExtent extent) noexcept
+      : cuda_handle{array}, extent_{extent} {}
+
+  static cudaArray_t allocate(cudaExtent extent, on_failure policy) {
     const cudaChannelFormatDesc channel = cudaCreateChannelDesc<T>();
-    cudaArray_t array{};
-    cuda_last_status{
-        cudaMalloc3DArray(&array, &channel, extent, cudaArraySurfaceLoadStore)}
-        .or_throw();
-    return array;
+    return create<cudaMalloc3DArray>(policy, &channel, extent,
+        cudaArraySurfaceLoadStore);
   }
 
 #pragma endregion

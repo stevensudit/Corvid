@@ -32,7 +32,16 @@ class cuda_event: public cuda_handle<cudaEvent_t, cudaEventDestroy> {
 public:
 #pragma region Construction
 
-  cuda_event() : cuda_handle{create()} {}
+  explicit cuda_event(std::nullptr_t) noexcept : cuda_handle{nullptr} {}
+
+  // Create an event, or throw.
+  cuda_event() : cuda_event{make(on_failure::raise)} {}
+
+  // Create an event, or return a failed instance.
+  // Check with `operator bool`, and follow up with `cuda_last_status{}`.
+  [[nodiscard]] static cuda_event try_create() {
+    return cuda_event{make(on_failure::ignore)};
+  }
 
 #pragma endregion
 #pragma region Operations
@@ -58,10 +67,14 @@ public:
 #pragma endregion
 #pragma region Helpers
 private:
-  static cudaEvent_t create() noexcept {
-    cudaEvent_t event{};
-    if (!cuda_last_status{cudaEventCreate(&event)}) event = nullptr;
-    return event;
+  explicit cuda_event(cudaEvent_t event) noexcept : cuda_handle{event} {}
+
+  static cudaEvent_t make(on_failure policy) {
+    // Disambiguate overloads.
+    constexpr auto event_create = [](cudaEvent_t* event) {
+      return cudaEventCreate(event);
+    };
+    return create<event_create>(policy);
   }
 
 #pragma endregion

@@ -22,8 +22,9 @@
 #include <cuda_runtime.h>
 #include <cublas_v2.h>
 
-#include "./cuda_status.cuh"
+#include "./cuda_handle.cuh"
 #include "./cuda_ptr.cuh"
+#include "./cuda_status.cuh"
 
 // Wrappers for cuBLAS, the CUDA Basic Linear Algebra Subprograms library.
 
@@ -71,6 +72,10 @@ public:
 
   [[nodiscard]] cublas_status status() const { return value_; }
 
+  [[nodiscard]] const char* message() const {
+    return cublasGetStatusString(as_raw(value_));
+  }
+
   // NOLINTNEXTLINE(modernize-use-nodiscard)
   bool or_throw() const {
     if (value_ != cublas_status::success)
@@ -93,41 +98,20 @@ private:
 #pragma endregion
 #pragma region cublas_handle
 
-// Wrapper for cuBLAS handle, which is required for all cuBLAS calls. Provides
-// RAII.
-
-class cublas_handle {
+// RAII owner of the cuBLAS library handle that every cuBLAS call takes.
+//
+// The constructor throws on failure; `try_create` returns a null handle
+// instead.
+class cublas_handle: public cuda_handle<cublasHandle_t, cublasDestroy> {
 public:
 #pragma region Construction
 
-  cublas_handle() : handle_{create()} {}
+  cublas_handle() : cublas_handle{make(on_failure::raise)} {}
 
-  cublas_handle(const cublas_handle&) = delete;
-  cublas_handle& operator=(const cublas_handle&) = delete;
-
-  cublas_handle(cublas_handle&& other) noexcept : handle_{other.handle_} {
-    other.handle_ = nullptr;
-  }
-  cublas_handle& operator=(cublas_handle&& other) noexcept {
-    if (this != &other) {
-      destroy();
-      handle_ = other.handle_;
-      other.handle_ = nullptr;
-    }
-    return *this;
-  }
-
-  ~cublas_handle() { destroy(); }
-
-#pragma endregion
-#pragma region Accessors
-
-  // The raw handle: an opaque pointer to the host-side cuBLAS library
-  // context, null when creation failed.
-  [[nodiscard]] cublasHandle_t get() const noexcept { return handle_; }
-  [[nodiscard]] operator cublasHandle_t() const noexcept { return handle_; }
-  void operator*() const {
-    if (!handle_) throw std::runtime_error{"dereferencing null cublas_handle"};
+  // Create a handle, or return a failed instance.
+  // Check with `operator bool`, and follow up with `cublas_last_status{}`.
+  [[nodiscard]] static cublas_handle try_create() {
+    return cublas_handle{make(on_failure::ignore)};
   }
 
 #pragma endregion
@@ -152,27 +136,16 @@ public:
 #pragma endregion
 #pragma region Helpers
 private:
-  static cublasHandle_t create() {
-    cublasHandle_t handle{};
-    if (!cublas_last_status{cublasCreate(&handle)}.ok()) return nullptr;
-    return handle;
-  }
+  explicit cublas_handle(cublasHandle_t handle) noexcept
+      : cuda_handle{handle} {}
 
-  void destroy() {
-    if (handle_) {
-      cublasDestroy(handle_);
-      handle_ = nullptr;
-    }
+  static cublasHandle_t make(on_failure policy) {
+    return create<cublasCreate, cublas_last_status>(policy);
   }
 
   [[nodiscard]] static cublasOperation_t as_raw(cublas_operation op) {
     return static_cast<cublasOperation_t>(op);
   }
-
-#pragma endregion
-#pragma region Data members
-private:
-  cublasHandle_t handle_{};
 
 #pragma endregion
 };
