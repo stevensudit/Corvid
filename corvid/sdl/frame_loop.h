@@ -15,6 +15,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 #pragma once
+#include <concepts>
 #include <cstdint>
 
 #include "./sdl_event.h"
@@ -45,8 +46,8 @@ enum class frame_action : uint8_t { proceed, resize, menu, quit };
 // Events `handle` does not consume fall through to that handling. Compose
 // handlers with `||`, which stops at the first consumer, e.g. `return
 // handle_look(ev) || handle_keys(ev);`.
-template<typename Handler>
-[[nodiscard]] frame_action pump_events(Handler handle) {
+[[nodiscard]] frame_action pump_events(
+    std::predicate<const sdl_event&> auto handle) {
   auto action = frame_action::proceed;
   while (auto ev = sdl_event::poll()) {
     if (handle(ev)) continue;
