@@ -12,6 +12,8 @@
 
 using namespace corvid::cuda;
 
+// NOLINTBEGIN(readability-function-cognitive-complexity)
+
 namespace {
 
 constexpr auto lanes = 32U;
@@ -60,7 +62,7 @@ TEST_CASE("cuda_warp lane queries and shuffles", "[cuda]") {
   REQUIRE(cuda_last_status{}.ok());
 
   // 10 * (0 + 1 + ... + 31)
-  constexpr auto warp_sum = 10 * (lanes * (lanes - 1) / 2);
+  constexpr auto warp_sum = static_cast<int>(10 * (lanes * (lanes - 1) / 2));
   for (auto lane = 0U; lane < lanes; ++lane) {
     CAPTURE(lane);
     const auto& rec = out[lane];
@@ -72,8 +74,10 @@ TEST_CASE("cuda_warp lane queries and shuffles", "[cuda]") {
     CHECK(rec.shuffle_down ==
           static_cast<int>(lane == lanes - 1 ? lane : lane + 1) * 10);
     CHECK(rec.shuffle_xor == static_cast<int>(lane ^ 1U) * 10);
-    CHECK(rec.reduced == static_cast<int>(warp_sum));
+    CHECK(rec.reduced == warp_sum);
   }
 }
 
 #pragma endregion
+
+// NOLINTEND(readability-function-cognitive-complexity)

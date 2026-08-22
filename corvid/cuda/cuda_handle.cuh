@@ -32,7 +32,7 @@ using corvid::enums::bool_enums::on_failure;
 #pragma region cuda_handle
 
 // Move-only RAII owner of a CUDA handle of type `H`, released by calling
-// `Destroy` on it. This is function like as `cudaFreeArray` or
+// `Destroy` on it. This is a function such as `cudaFreeArray` or
 // `cudaDestroySurfaceObject`, which takes the handle.
 //
 // The empty state is `H{}`, which is a null pointer for the pointer-shaped

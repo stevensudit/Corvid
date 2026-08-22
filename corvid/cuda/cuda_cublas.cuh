@@ -22,9 +22,9 @@
 #include <cuda_runtime.h>
 #include <cublas_v2.h>
 
+#include "../strings/cstring_view.h"
 #include "./cuda_handle.cuh"
 #include "./cuda_ptr.cuh"
-#include "../strings/cstring_view.h"
 #include "./cuda_status.cuh"
 
 // Wrappers for cuBLAS, the CUDA Basic Linear Algebra Subprograms library.

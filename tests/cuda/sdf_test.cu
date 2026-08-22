@@ -8,6 +8,8 @@
 
 using namespace corvid::cuda;
 
+// NOLINTBEGIN(readability-function-cognitive-complexity)
+
 namespace {
 
 constexpr auto eps = 1.0e-5F;
@@ -70,3 +72,5 @@ TEST_CASE("sdf combinators", "[cuda][sdf]") {
 }
 
 #pragma endregion
+
+// NOLINTEND(readability-function-cognitive-complexity)

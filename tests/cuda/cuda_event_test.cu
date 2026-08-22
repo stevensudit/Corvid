@@ -9,6 +9,8 @@
 
 using namespace corvid::cuda;
 
+// NOLINTBEGIN(readability-function-cognitive-complexity)
+
 namespace {
 
 __global__ void noop_kernel() {}
@@ -51,3 +53,5 @@ TEST_CASE("cuda_timer sets its milliseconds on destruction", "[cuda]") {
 }
 
 #pragma endregion
+
+// NOLINTEND(readability-function-cognitive-complexity)

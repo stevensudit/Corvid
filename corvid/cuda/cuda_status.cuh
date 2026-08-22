@@ -23,9 +23,9 @@
 #include <cuda_runtime.h>
 
 #include "../enums/bool_enums.h"
-#include "../strings/cstring_view.h"
 #include "../enums/sequence_enum.h"
 #include "../enums/enum_conversion.h"
+#include "../strings/cstring_view.h"
 
 // CUDA status.
 //

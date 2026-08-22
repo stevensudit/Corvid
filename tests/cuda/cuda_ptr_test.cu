@@ -14,6 +14,8 @@
 
 using namespace corvid::cuda;
 
+// NOLINTBEGIN(readability-function-cognitive-complexity)
+
 namespace {
 
 // Fill every element of `host` with `value`.
@@ -32,11 +34,13 @@ TEST_CASE("cuda_ptr allocates and moves", "[cuda]") {
 
   cuda_ptr<int> b = std::move(a);
   CHECK(b.get() == raw);
-  CHECK_FALSE(a.ok()); // NOLINT(bugprone-use-after-move): moved-from is null
+  // NOLINTNEXTLINE(bugprone-use-after-move,clang-analyzer-cplusplus.Move)
+  CHECK_FALSE(a.ok()); // moved-from is null
 
   a = std::move(b);
   CHECK(a.get() == raw);
-  CHECK_FALSE(b.ok()); // NOLINT(bugprone-use-after-move): moved-from is null
+  // NOLINTNEXTLINE(bugprone-use-after-move,clang-analyzer-cplusplus.Move)
+  CHECK_FALSE(b.ok()); // moved-from is null
 }
 
 TEST_CASE("cuda_ptr construction failure policy", "[cuda]") {
@@ -156,3 +160,5 @@ TEST_CASE("cuda_ptr clamps the count to the host buffer", "[cuda]") {
 }
 
 #pragma endregion
+
+// NOLINTEND(readability-function-cognitive-complexity)

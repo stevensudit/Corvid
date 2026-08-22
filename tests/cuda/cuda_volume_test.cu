@@ -17,6 +17,8 @@
 
 using namespace corvid::cuda;
 
+// NOLINTBEGIN(readability-function-cognitive-complexity)
+
 namespace {
 
 constexpr auto side = 4U;
@@ -32,7 +34,8 @@ __host__ __device__ float field_at(unsigned x, unsigned y, unsigned z) {
 // One thread per voxel; the block is the whole 4x4x4 grid.
 __global__ void fill_float(cudaSurfaceObject_t surface) {
   surf3Dwrite(field_at(threadIdx.x, threadIdx.y, threadIdx.z), surface,
-      static_cast<int>(threadIdx.x * sizeof(float)), threadIdx.y, threadIdx.z);
+      static_cast<int>(threadIdx.x * sizeof(float)),
+      static_cast<int>(threadIdx.y), static_cast<int>(threadIdx.z));
 }
 
 // Read every voxel center through the texture, plus the midpoint between
@@ -53,13 +56,13 @@ __global__ void fill_u16(cudaSurfaceObject_t surface) {
   const auto value = static_cast<uint16_t>(
       threadIdx.x + (side * threadIdx.y) + (side * side * threadIdx.z));
   surf3Dwrite(value, surface, static_cast<int>(threadIdx.x * sizeof(uint16_t)),
-      threadIdx.y, threadIdx.z);
+      static_cast<int>(threadIdx.y), static_cast<int>(threadIdx.z));
 }
 
 __global__ void read_u16(cudaSurfaceObject_t surface, uint16_t* out) {
   uint16_t value{};
   surf3Dread(&value, surface, static_cast<int>(threadIdx.x * sizeof(uint16_t)),
-      threadIdx.y, threadIdx.z);
+      static_cast<int>(threadIdx.y), static_cast<int>(threadIdx.z));
   out[threadIdx.x + (side * threadIdx.y) + (side * side * threadIdx.z)] =
       value;
 }
@@ -138,3 +141,5 @@ TEST_CASE("material_volume round-trips exact values through its surface",
 }
 
 #pragma endregion
+
+// NOLINTEND(readability-function-cognitive-complexity)

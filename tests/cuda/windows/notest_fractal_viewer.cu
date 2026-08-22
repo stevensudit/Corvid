@@ -219,7 +219,8 @@ int main() {
           .render([&](cudaArray_t array, UINT w, UINT h) {
             const dim3 grid{cuda_kernel::ceil_div(w, block.x),
                 cuda_kernel::ceil_div(h, block.y)};
-            mandelbrot_kernel<<<grid, block>>>(cuda_surface{array}, w, h,
+            mandelbrot_kernel<<<grid, block>>>(cuda_surface{array},
+                static_cast<int>(w), static_cast<int>(h),
                 view.center_x, view.center_y, view.view_height, max_iter);
           })
           .or_throw();
