@@ -50,8 +50,8 @@ struct flat_mirror {
   //
   // Only the front face is hit: a ray approaching from the `normal` side.
   // That gate also rejects `denom == 0` (a ray parallel to the plane), so the
-  // `dir.z` division below cannot divide by zero for the ±z normals the type
-  // admits.
+  // `dir.z` division below cannot divide by zero for the +z or -z normals the
+  // type admits.
   [[nodiscard]] __device__ float intersect(pos3 eye, vec3 dir) const {
     const auto denom = dot(dir, normal);
     if (denom >= 0.0F) return -1.0F; // parallel, or hitting the back

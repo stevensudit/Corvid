@@ -42,7 +42,8 @@ using namespace corvid::cuda;
 
 TEST_CASE("cuda saxpy kernel runs on the device", "[cuda]") {
   float h_out = 0.0F;
-  if (cuda_ptr<float> d_out; true) {
+  {
+    cuda_ptr<float> d_out;
     REQUIRE(d_out.ok());
     // Runs a single grid of a single block of a single thread.
     saxpy_kernel<<<1, 1>>>(2.0F, 3.0F, 4.0F, d_out.get());
@@ -52,8 +53,7 @@ TEST_CASE("cuda saxpy kernel runs on the device", "[cuda]") {
   }
   // We have to check here, not when we invoke the kernel, because CUDA kernel
   // launches are asynchronous and return before the kernel has actually
-  // executed. The error is recorded and
-  // can be checked explicitly.
+  // executed. The error is recorded and can be checked explicitly.
   REQUIRE(cuda_last_status{}.ok());
 
   // 2*3 + 4 == 10, exactly representable in float.

@@ -64,8 +64,9 @@ sd_capsule(vec3 p, vec3 a, vec3 b, float r) {
   return length(pa - (ba * h)) - r;
 }
 
-// Distance from `p` to a plane with unit normal `n` whose surface passes at
-// offset `h` along that normal.
+// Distance from `p` to a plane with unit normal `n` whose surface lies at
+// offset `-h` along that normal, so `h` is the signed distance from the origin
+// into the solid side.
 [[nodiscard]] __device__ inline float sd_plane(vec3 p, vec3 n, float h) {
   return dot(p, n) + h;
 }

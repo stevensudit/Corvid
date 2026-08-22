@@ -28,7 +28,8 @@ namespace corvid::cuda {
 #pragma region cuda_surface
 
 // RAII handle to a `cudaSurfaceObject_t` over a `cudaArray`, the handle a
-// kernel writes through with `surf2Dwrite`.
+// kernel writes through with `surf3Dwrite` (or the lower-dimensional
+// writes).
 //
 // The array is borrowed, not owned, and must outlive the surface.
 class cuda_surface

@@ -32,7 +32,7 @@ namespace corvid::cuda {
 // samples through the texture) and for writes (a fill or edit overwrites
 // through the surface).
 //
-// T` is a texture-filterable type: `float` (read as its element type) for the
+// `T` is a texture-filterable type: `float` (read as its element type) for the
 // density field, or an integer type like `uchar4` read as
 // `cudaReadModeNormalizedFloat` (`Read`) for a smoothly interpolated color
 // field.
