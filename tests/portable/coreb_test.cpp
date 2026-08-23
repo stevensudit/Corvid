@@ -206,6 +206,17 @@ TEST_CASE("CoreB symbols", "[coreb]") {
   CHECK(v.is_symbol());
   CHECK(v.as_symbol() == foo);
   CHECK(v.print() == "foo");
+
+  // A gensym is a fresh kernel-prefixed symbol every time, and a spelling
+  // already in the table, however it got there, is skipped over.
+  CHECK(rt.gensym("tmp").name() == "%tmp_1");
+  CHECK(rt.gensym("tmp").name() == "%tmp_2");
+  const auto taken = rt.intern("%tmp_3");
+  const auto fresh = rt.gensym("tmp");
+  CHECK(fresh != taken);
+  CHECK(fresh.name() == "%tmp_4");
+  // The counter is shared across bases.
+  CHECK(rt.gensym("g").name() == "%g_5");
 }
 
 #pragma endregion
@@ -303,6 +314,15 @@ TEST_CASE("CoreB reader sugar and trivia", "[coreb]") {
 
   CHECK(echo(rt, "'x") == "(quote x)");
   CHECK(echo(rt, "'(1 2)") == "(quote (1 2))");
+  // The template marks read the same way, to their long forms.
+  CHECK(echo(rt, "$x") == "(unquote x)");
+  CHECK(echo(rt, "$@x") == "(unquote_splicing x)");
+  CHECK(echo(rt, "$$x") == "(%unquote x)");
+  CHECK(echo(rt, "'(a $b $@c $$d)") ==
+        "(quote (a (unquote b) (unquote_splicing c) (%unquote d)))");
+  CHECK(echo(rt, "' $ x") == "(quote (unquote x))");
+  // The marks delimit, so they need no space before them.
+  CHECK(echo(rt, "(a'b$c)") == "(a (quote b) (unquote c))");
   CHECK(echo(rt, "; leading comment\n 42 ; trailing comment") == "42");
 
   auto all = hall_reader::read_all(rt, "1 2 (3 4) ; done");
@@ -367,6 +387,9 @@ TEST_CASE("CoreB reader errors", "[coreb]") {
   CHECK(err(R"("abc)").incomplete());
   CHECK(err("").incomplete());
   CHECK(err("'").incomplete());
+  CHECK(err("$").incomplete());
+  CHECK(err("$@").incomplete());
+  CHECK(err("$$").incomplete());
   CHECK_FALSE(err(")").incomplete());
   CHECK_FALSE(err("1abc").incomplete());
 
@@ -651,6 +674,16 @@ TEST_CASE("CoreB eval lists", "[coreb]") {
 
   CHECK(run_err(rt, ev, "(head 5)") == "head: expects a cell, got: 5");
   CHECK(run_err(rt, ev, "(tail 5)") == "tail: expects a cell, got: 5");
+
+  // gensym mints a fresh kernel symbol, named by an optional word base.
+  CHECK(run(rt, ev, "(gensym)") == "%g_1");
+  CHECK(run(rt, ev, R"((gensym "tmp"))") == "%tmp_2");
+  CHECK(run(rt, ev, "(list (gensym) (gensym))") == "(%g_3 %g_4)");
+  CHECK(run_err(rt, ev, "(gensym 5)") == "gensym: expects a string, got: 5");
+  CHECK(run_err(rt, ev, R"((gensym "a-b"))") ==
+        R"(gensym: expects a word spelling, got: "a-b")");
+  CHECK(run_err(rt, ev, R"((gensym "a" "b"))") ==
+        "gensym: expects 0 or 1 arguments");
 }
 
 #pragma endregion

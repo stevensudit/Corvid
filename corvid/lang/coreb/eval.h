@@ -667,6 +667,21 @@ private:
     return value{args[0].is_nil()};
   }
 
+  // The `gensym` builtin: a fresh kernel symbol, `%g_N` by default or
+  // `%base_N` given a string `base`, which must spell a word symbol so the
+  // result re-reads from its printed form.
+  static prim_result
+  prim_gensym(runtime_core& rt, std::span<const value> args) {
+    if (args.size() > 1) return "expects 0 or 1 arguments"s;
+    if (args.empty()) return value{rt.gensym("g")};
+    if (!args[0].is_string())
+      return "expects a string, got: " + args[0].print();
+    const auto& base = args[0].as_string();
+    if (!is_word_symbol(base))
+      return "expects a word spelling, got: " + args[0].print();
+    return value{rt.gensym(base)};
+  }
+
   // Bind the kernel's primitive functions into the global environment,
   // skipping any name already bound.
   void register_builtins() {
@@ -687,6 +702,7 @@ private:
     register_builtin(rt_.sym_head, prim_head);
     register_builtin(rt_.sym_tail, prim_tail);
     register_builtin(rt_.sym_nil_p, prim_nil);
+    register_builtin(rt_.sym_gensym, prim_gensym);
   }
 
   void register_builtin(symbol s, primitive::fn_t fn) {

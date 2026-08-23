@@ -643,6 +643,24 @@ public:
     return symbol{*syms_.emplace(name).first};
   }
 
+  // Intern a fresh symbol spelled `%base_N`, distinct from every symbol so
+  // far.
+  //
+  // The `%` prefix marks it kernel-generated (see "coreb.md"), so no source
+  // definition can bind the name, and N is drawn from a counter, skipping any
+  // spelling the table already holds, so a `%` name read from source cannot
+  // collide either. `base` must be a word spelling; the callers enforce that.
+  [[nodiscard]] symbol gensym(std::string_view base) {
+    std::string name;
+    do {
+      name = "%";
+      name += base;
+      name += '_';
+      strings::append_num(name, ++gensyms_);
+    } while (syms_.contains(name));
+    return symbol{*syms_.emplace(std::move(name)).first};
+  }
+
   // Construct a cell.
   [[nodiscard]] value cons(value head, value tail) {
     ++allocs_;
@@ -783,6 +801,7 @@ private:
   std::vector<const gc_pin*> pins_;
   size_t gen_{};
   size_t allocs_{};
+  size_t gensyms_{};
 
 #pragma endregion
 };

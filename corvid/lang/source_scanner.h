@@ -123,9 +123,10 @@ public:
   }
 
   // Take the current character, so long as we're not at the end.
-  void take() {
+  bool take() {
     assert(!at_end());
     ++pos_;
+    return true;
   }
 
   // Take the current character, asserting that it is `c`.
