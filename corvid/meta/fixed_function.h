@@ -300,14 +300,15 @@ private:
 
     new (storage_) FD(std::forward<FD>(fn));
     invoke_ = &invoke_impl<FD>;
-    lifespan_ = &manage_impl<FD>;
+    lifespan_ = &lifespan_impl<FD>;
   }
 
-  // Invoke through a downcast pointer to the stored callable. Uses
-  // `std::invoke_r` so member function pointers and data member pointers work
-  // alongside lambdas, free functions, and functors, and so a value returned
-  // by the callable is discarded when `RP` is void rather than making the
-  // `return` ill-formed.
+  // Invoke through a downcast pointer to the stored callable.
+  //
+  // Uses `std::invoke_r` so member function pointers and data member pointers
+  // work alongside lambdas, free functions, and functors, and so a value
+  // returned by the callable is discarded when `RP` is void rather than making
+  // the `return` ill-formed.
   template<class F>
   static RP invoke_impl(void* p, ARGS... args) {
     assert(p);
@@ -335,7 +336,7 @@ private:
   // When `from == to` (canonically both null), this is a pure size query: no
   // move, no destruct. Returns the payload size in every non-refusal case.
   template<class F>
-  static size_t manage_impl(void* from, void* to, size_t to_size) noexcept {
+  static size_t lifespan_impl(void* from, void* to, size_t to_size) noexcept {
     if (to != from) {
       assert(from);
       auto* f = static_cast<F*>(from);

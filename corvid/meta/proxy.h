@@ -31,6 +31,7 @@
 
 #include "crossplatform.h"
 #include "fixed_string.h"
+#include "invocable_policy.h"
 #include "padding.h"
 
 // Registration-based runtime polymorphism ("proxy") system.
@@ -84,7 +85,8 @@
 //      passes; `CallArgs` where the two meet and need distinguishing.
 // - `Impl`: a registration-carried binding class.
 // - `Check`: an `api_check` value.
-// - `Policy`: an owning proxy's storage policy, a `proxy_policy` value; `P`
+// - `Policy`: an owning proxy's storage policy, an `invocable_policy` value;
+// `P`
 //      where a second handle's policy varies independently.
 namespace corvid { inline namespace meta {
 namespace prox {
@@ -120,6 +122,14 @@ consteval auto operator""_method() noexcept {
 } // namespace literals
 
 namespace details {
+
+// The policy helpers live with `invocable_policy`, shared with
+// `flexi_function`; pull them in so unqualified `details::` calls below find
+// them.
+using policy_details::adopt_may_throw;
+using policy_details::can_store_inline;
+using policy_details::inline_fit_guaranteed;
+using policy_details::sbo_fits;
 
 // `name_is_unqualified`: whether `s` avoids the `"::"` separator, which
 // qualified keys reserve for splitting the facade name from the method name.
@@ -360,106 +370,6 @@ struct api_base<F> {
 
 template<typename F>
 using api_base_t = api_base<F>::type;
-
-} // namespace details
-
-#pragma endregion
-#pragma region Proxy policy
-
-// `proxy_alloc`: allocation strategy for the owning `proxy`.
-//
-// `sbo_or_heap` stores a target inline when it is eligible and efficient (see
-// `proxy_policy`), and on the heap otherwise.
-//
-// `sbo_only` forbids the heap path: constructing a proxy over an ineligible
-// target is a compile error. An erased target arriving through a converting
-// move must end up in the buffer (a heap arrival is un-boxed into it), and the
-// adoption throws `std::length_error` when the target does not fit or cannot
-// move inline at all, the one runtime failure, since an erased arrival cannot
-// be checked statically.
-//
-// `heap_only` forbids the inline path, so every target has a stable heap
-// address, and the proxy carries no inline buffer at all; an inline target
-// arriving through a converting move is re-boxed onto the heap.
-enum class proxy_alloc : std::uint8_t {
-  sbo_only = 1 << 0,
-  heap_only = 1 << 1,
-  sbo_or_heap = sbo_only | heap_only
-};
-
-// `proxy_policy`: per-handle storage policy for the owning `proxy`, used as
-// its second template parameter.
-//
-// The default reproduces the baseline proxy: a two-pointer inline buffer at
-// `std::max_align_t` alignment, falling back to the heap. A facade whose
-// typical targets are a little too big for the default buffer can be handled
-// with a larger `sbo_size`.
-//
-// The `sbo_size` must be a multiple of `sbo_align` (except when `heap_only`)
-// because a smaller value would occupy the padded size anyway and waste the
-// difference. Instead of hardcoding a number that might only be valid on a
-// particular platform, you should pass the size through `padded_size` to get a
-// conforming value.
-//
-// A target is stored inline when it fits `sbo_size` and `sbo_align` and is
-// nothrow-move-constructible (a proxy move relocates an inline target, and
-// proxy moves are unconditionally `noexcept`). The exception is when the
-// source is on the heap and the policy allows heap storage, in which case only
-// the pointer is moved.
-//
-// Policies are checked at proxy construction, not at registration.
-// Registration is per (facade, type) and knows nothing about any particular
-// handle's storage. One facade can serve proxies of different policies, and
-// views, simultaneously.
-struct proxy_policy {
-  size_t sbo_size = 2 * sizeof(void*);
-  size_t sbo_align = alignof(std::max_align_t);
-  proxy_alloc alloc = proxy_alloc::sbo_or_heap;
-
-  friend constexpr bool
-  operator==(const proxy_policy&, const proxy_policy&) = default;
-};
-
-namespace details {
-
-// `sbo_fits`: whether `T` is eligible for policy `P`'s inline buffer.
-template<typename T>
-consteval bool sbo_fits(proxy_policy p) noexcept {
-  return sizeof(T) <= p.sbo_size && alignof(T) <= p.sbo_align &&
-         std::is_nothrow_move_constructible_v<T>;
-}
-
-// `can_store_inline`: whether policy `P` can store `T` inline.
-//
-// An `sbo_only` policy over an ineligible target is rejected separately, with
-// its own diagnostic.
-template<typename T>
-consteval bool can_store_inline(proxy_policy p) noexcept {
-  return p.alloc != proxy_alloc::heap_only && sbo_fits<T>(p);
-}
-
-// `inline_fit_guaranteed`: whether every inline target the source policy
-// admits is guaranteed to fit the destination's buffer, letting adoption skip
-// the runtime fit check (and, with it, every mode-changing path for inline
-// arrivals).
-consteval bool
-inline_fit_guaranteed(proxy_policy to, proxy_policy from) noexcept {
-  return to.alloc != proxy_alloc::heap_only && to.sbo_size >= from.sbo_size &&
-         to.sbo_align >= from.sbo_align;
-}
-
-// `adopt_may_throw`: whether adopting from policy `from` into policy `to` can
-// throw.
-//
-// Could be an inline arrival that might not stay inline (a re-boxing
-// allocation, or nowhere at all to put it under `sbo_only`), or a heap arrival
-// that must un-box into an `sbo_only` buffer it might not fit.
-consteval bool adopt_may_throw(proxy_policy to, proxy_policy from) noexcept {
-  const auto from_sbo = (from.alloc != proxy_alloc::heap_only);
-  const auto from_heap = (from.alloc != proxy_alloc::sbo_only);
-  return (from_sbo && !inline_fit_guaranteed(to, from)) ||
-         (from_heap && to.alloc == proxy_alloc::sbo_only);
-}
 
 } // namespace details
 
@@ -2010,7 +1920,7 @@ template<Facade F>
 class proxy_view;
 template<Facade F>
 class const_proxy_view;
-template<Facade F, proxy_policy Policy = proxy_policy{}>
+template<Facade F, invocable_policy Policy = invocable_policy{}>
 class proxy;
 template<Facade F>
 class shared_proxy;
@@ -2033,7 +1943,7 @@ template<Facade F>
 struct handle_facade<const_proxy_view<F>> {
   using type = F;
 };
-template<Facade F, proxy_policy P>
+template<Facade F, invocable_policy P>
 struct handle_facade<proxy<F, P>> {
   using type = F;
 };
@@ -2382,7 +2292,7 @@ public:
   // the view is good until the `proxy` dies or has its contents removed or
   // replaced (see the class comment). A const `proxy` takes a
   // `const_proxy_view` instead, preserving deep const.
-  template<Facade D, proxy_policy P>
+  template<Facade D, invocable_policy P>
   requires(std::same_as<D, F> || Extends<D, F>)
   explicit(false) proxy_view(proxy<D, P>& p) noexcept
       : base{p ? p.target() : nullptr,
@@ -2551,7 +2461,7 @@ public:
   // contents removed or replaced (see `proxy_view`'s class comment). Mutable
   // and const proxies alike yield the const view; there is no path back to
   // mutability.
-  template<Facade D, proxy_policy P>
+  template<Facade D, invocable_policy P>
   requires(std::same_as<D, F> || Extends<D, F>)
   explicit(false) const_proxy_view(const proxy<D, P>& p) noexcept
       : base{p ? p.target() : nullptr,
@@ -2559,7 +2469,7 @@ public:
 
   // A temporary owner must not lend a view: without this deletion, the const
   // reference above would bind an rvalue and dangle.
-  template<Facade D, proxy_policy P>
+  template<Facade D, invocable_policy P>
   requires(std::same_as<D, F> || Extends<D, F>)
   const_proxy_view(const proxy<D, P>&&) = delete;
 
@@ -2651,7 +2561,7 @@ requires Proxiable<T, F>
 // `proxy`: owning erased handle over any `Proxiable` target: Rust's `Box<dyn
 // Trait>`, ngcpp's `proxy`.
 //
-// Move-only. Storage follows `Policy` (see `proxy_policy`): by default,
+// Move-only. Storage follows `Policy` (see `invocable_policy`): by default,
 // eligible targets are stored inline and anything else lives in a
 // unique-owned heap allocation. The owning dispatch table carries destroy
 // and relocate slots alongside the facade methods, so destruction and moves
@@ -2687,7 +2597,7 @@ requires Proxiable<T, F>
 //
 // When the facade defines a nested `api`, the proxy inherits it, so the
 // member-call sugar forwarders dispatch alongside `call`.
-template<Facade F, proxy_policy Policy>
+template<Facade F, invocable_policy Policy>
 class proxy: public details::api_base_t<F> {
   using vtbuild_t = details::vtbuild_t<F>;
   using owning_vtable_t = vtbuild_t::owning_vtable_t;
@@ -2696,14 +2606,14 @@ class proxy: public details::api_base_t<F> {
   // the default buffer stays eligible for every buffer; a `heap_only` proxy
   // has no buffer for the knobs to apply to.
   static_assert(
-      Policy.alloc == proxy_alloc::heap_only ||
-          (Policy.sbo_size >= proxy_policy{}.sbo_size &&
-              Policy.sbo_align >= proxy_policy{}.sbo_align),
+      Policy.alloc == invocable_alloc::heap_only ||
+          (Policy.sbo_size >= invocable_policy{}.sbo_size &&
+              Policy.sbo_align >= invocable_policy{}.sbo_align),
       "sbo_size and sbo_align may not shrink below their defaults");
   static_assert(std::has_single_bit(Policy.sbo_align),
       "sbo_align must be a power of two");
   static_assert(
-      Policy.alloc == proxy_alloc::heap_only ||
+      Policy.alloc == invocable_alloc::heap_only ||
           Policy.sbo_size == padded_size(Policy.sbo_size, Policy.sbo_align),
       "sbo_size that is not a multiple of sbo_align would waste the "
       "difference as padding; pass it through padded_size");
@@ -2714,7 +2624,7 @@ public:
   // `sbo_size`: inline storage capacity in bytes (which a `heap_only` policy
   // never uses).
   //
-  // See `proxy_policy` for the inline-eligibility conditions.
+  // See `invocable_policy` for the inline-eligibility conditions.
   static constexpr size_t sbo_size = Policy.sbo_size;
 
   // `proxy`: an empty proxy holds no target.
@@ -2736,8 +2646,8 @@ public:
   explicit proxy(std::in_place_type_t<T>, Args&&... args)
       : vtable_{&details::owning_vtable_for<F, F, T,
             details::can_store_inline<T>(Policy)>} {
-    static_assert(
-        Policy.alloc != proxy_alloc::sbo_only || details::sbo_fits<T>(Policy),
+    static_assert(Policy.alloc != invocable_alloc::sbo_only ||
+                      details::sbo_fits<T>(Policy),
         "the target is not eligible for an sbo_only proxy's inline buffer");
     if constexpr (details::can_store_inline<T>(Policy))
       ::new (static_cast<void*>(storage_.buf)) T(std::forward<Args>(args)...);
@@ -2766,7 +2676,7 @@ public:
   requires Proxiable<T, F>
   explicit proxy(std::unique_ptr<T> target) noexcept {
     if (!target) return;
-    if constexpr (Policy.alloc == proxy_alloc::sbo_only) {
+    if constexpr (Policy.alloc == invocable_alloc::sbo_only) {
       static_assert(details::sbo_fits<T>(Policy),
           "the target is not eligible for an sbo_only proxy's inline buffer");
       ::new (static_cast<void*>(storage_.buf)) T(std::move(*target));
@@ -2797,7 +2707,7 @@ public:
   //
   // A throw leaves the source intact and this proxy empty; `can_adopt` checks
   // accommodation up front.
-  template<Facade D, proxy_policy P>
+  template<Facade D, invocable_policy P>
   requires(std::same_as<D, F> || Extends<D, F>)
   explicit(false) proxy(proxy<D, P>&& other) noexcept(
       !details::adopt_may_throw(Policy, P)) {
@@ -2868,10 +2778,10 @@ public:
   // destination can ever answer no (everything else has the heap to fall
   // back on), and an empty source is always adoptable, to empty. It does
   // not promise the allocation a mode-changing adoption may need.
-  template<Facade D, proxy_policy P>
+  template<Facade D, invocable_policy P>
   requires(std::same_as<D, F> || Extends<D, F>)
   [[nodiscard]] static bool can_adopt(const proxy<D, P>& source) noexcept {
-    if constexpr (Policy.alloc != proxy_alloc::sbo_only) {
+    if constexpr (Policy.alloc != invocable_alloc::sbo_only) {
       return true;
     } else {
       const auto* src = source.vtable_;
@@ -2976,11 +2886,11 @@ private:
   // `buf_size`, `buf_align`: a `heap_only` proxy shrinks the buffer to the
   // pointer it overlays, so the whole handle is two words, like a view.
   static constexpr size_t buf_size =
-      (Policy.alloc == proxy_alloc::heap_only)
+      (Policy.alloc == invocable_alloc::heap_only)
           ? sizeof(void*)
           : Policy.sbo_size;
   static constexpr size_t buf_align =
-      (Policy.alloc == proxy_alloc::heap_only)
+      (Policy.alloc == invocable_alloc::heap_only)
           ? alignof(void*)
           : Policy.sbo_align;
 
@@ -3037,7 +2947,7 @@ private:
   // cannot be stored inline and the policy forbids the heap), and a throw
   // happens before anything moves, leaving `other` intact and `*this`
   // empty.
-  template<Facade D, proxy_policy P>
+  template<Facade D, invocable_policy P>
   void
   do_adopt(proxy<D, P>& other) noexcept(!details::adopt_may_throw(Policy, P)) {
     const auto* src = other.vtable_;
@@ -3056,23 +2966,23 @@ private:
   //
   // Statically impossible paths are pruned rather than left dynamically
   // unreachable, so a `noexcept` adoption contains no throw at all.
-  template<Facade D, proxy_policy P>
+  template<Facade D, invocable_policy P>
   void do_take_inline(proxy<D, P>& other, const owning_vtable_t* vt) {
-    if constexpr (P.alloc == proxy_alloc::heap_only) {
+    if constexpr (P.alloc == invocable_alloc::heap_only) {
       // Unreachable: a heap_only source never carries an inline target.
     } else if constexpr (details::inline_fit_guaranteed(Policy, P)) {
       vt->relocate(other.storage_.buf, storage_.buf);
       vtable_ = vt;
     } else {
       const auto inline_ok =
-          (Policy.alloc != proxy_alloc::heap_only) && (vt->size <= buf_size) &&
-          (vt->align <= buf_align);
+          (Policy.alloc != invocable_alloc::heap_only) &&
+          (vt->size <= buf_size) && (vt->align <= buf_align);
       if (inline_ok) {
         vt->relocate(other.storage_.buf, storage_.buf);
         vtable_ = vt;
         return;
       }
-      if constexpr (Policy.alloc != proxy_alloc::sbo_only) {
+      if constexpr (Policy.alloc != invocable_alloc::sbo_only) {
         storage_.ptr = vt->to_heap(other.storage_.buf);
         vtable_ = vt->heap_table;
       } else {
@@ -3085,11 +2995,11 @@ private:
   // `do_take_heap`: the heap-arrival half of `do_adopt`, which steals the
   // pointer, or un-boxes into an `sbo_only` `proxy`'s buffer (or throws, when
   // the erased target does not fit it or cannot move).
-  template<Facade D, proxy_policy P>
+  template<Facade D, invocable_policy P>
   void do_take_heap(proxy<D, P>& other, const owning_vtable_t* vt) {
-    if constexpr (P.alloc == proxy_alloc::sbo_only) {
+    if constexpr (P.alloc == invocable_alloc::sbo_only) {
       // Unreachable: an sbo_only source never carries a heap target.
-    } else if constexpr (Policy.alloc != proxy_alloc::sbo_only) {
+    } else if constexpr (Policy.alloc != invocable_alloc::sbo_only) {
       // NOLINTNEXTLINE(clang-analyzer-core.uninitialized.Assign): see target
       storage_.ptr = other.storage_.ptr;
       vtable_ = vt;
@@ -3109,7 +3019,7 @@ private:
   storage_t storage_;
   const owning_vtable_t* vtable_{};
 
-  template<Facade G, proxy_policy P>
+  template<Facade G, invocable_policy P>
   friend class proxy;
   template<Facade G>
   friend class proxy_view;
@@ -3125,7 +3035,7 @@ private:
 // Calls forward through the proxy, with conditional `noexcept`, through a
 // single deduced-handle binding that serves const and mutable proxies alike;
 // deep const is enforced by the proxy's own `call` overloads.
-template<Facade F, Facade D, proxy_policy P>
+template<Facade F, Facade D, invocable_policy P>
 requires(std::same_as<D, F> || Extends<D, F>)
 struct proxy_impl<F, proxy<D, P>> {
   // Qualified forwarding, as with the view bindings; see `qualified_key`. The
@@ -3145,8 +3055,8 @@ struct proxy_impl<F, proxy<D, P>> {
 //
 // To move an existing object in, pass it as the constructor argument:
 // `make_proxy<F, T>(std::move(obj))`. A non-default storage policy is the
-// optional third argument: `make_proxy<F, T, proxy_policy{...}>(...)`.
-template<Facade F, typename T, proxy_policy Policy = proxy_policy{},
+// optional third argument: `make_proxy<F, T, invocable_policy{...}>(...)`.
+template<Facade F, typename T, invocable_policy Policy = invocable_policy{},
     typename... Args>
 requires Proxiable<T, F>
 [[nodiscard]] proxy<F, Policy> make_proxy(Args&&... args) {
@@ -3155,7 +3065,7 @@ requires Proxiable<T, F>
 
 // `make_proxy`: make an owning `proxy` of facade `F`, adopting a heap target
 // already owned by a `std::unique_ptr`; see the adopting constructor.
-template<Facade F, proxy_policy Policy = proxy_policy{}, typename T>
+template<Facade F, invocable_policy Policy = invocable_policy{}, typename T>
 requires Proxiable<T, F>
 [[nodiscard]] proxy<F, Policy> make_proxy(std::unique_ptr<T> target) noexcept {
   return proxy<F, Policy>{std::move(target)};
@@ -3245,7 +3155,7 @@ public:
   // cannot be recovered from a shared target, even at a use count of one,
   // without racing the other owners, which is also why `std::shared_ptr`
   // has no `release`.
-  template<Facade D, proxy_policy P>
+  template<Facade D, invocable_policy P>
   requires(std::same_as<D, F> || Extends<D, F>)
   explicit shared_proxy(proxy<D, P>&& source) {
     const auto* src = source.vtable_;
@@ -3495,9 +3405,7 @@ using prox::make_proxy;
 using prox::make_proxy_view;
 using prox::make_shared_proxy;
 using prox::proxy;
-using prox::proxy_alloc;
 using prox::Proxiable;
-using prox::proxy_policy;
 using prox::proxy_view;
 using prox::proxy_impl_base;
 using prox::shared_proxy;

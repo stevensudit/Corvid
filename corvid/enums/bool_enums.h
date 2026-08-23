@@ -15,6 +15,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 #pragma once
+#include "../meta/meta_enums.h"
 
 namespace corvid { inline namespace enums { namespace bool_enums {
 
@@ -44,8 +45,9 @@ enum class allocation_policy : bool { lazy = false, eager = true };
 // Whether to release backing memory (and reset generation counters) on clear.
 enum class deallocation_policy : bool { preserve = false, release = true };
 
-// Whether to throw on failure or fail silently.
-enum class on_failure : bool { ignore = false, raise = true };
+// Whether to throw on failure or fail silently. Defined in
+// `meta/meta_enums.h`, where the foundation band can reach it.
+using meta::on_failure;
 
 // Whether the resource is owned exclusively or is shared.
 enum class ownership_type : bool { unique = false, shared = true };

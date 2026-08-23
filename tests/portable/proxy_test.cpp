@@ -1014,10 +1014,10 @@ using big_coffer = coffer<64>;
 // buffer with heap fallback. Buffer sizes go through `padded_size`, as the
 // policy requires, so they conform on any platform alignment.
 namespace policies {
-constexpr proxy_policy big_sbo{.sbo_size = padded_size(96)};
-constexpr proxy_policy sbo_only{.alloc = proxy_alloc::sbo_only};
-constexpr proxy_policy heap_only{.alloc = proxy_alloc::heap_only};
-constexpr proxy_policy big_align{
+constexpr invocable_policy big_sbo{.sbo_size = padded_size(96)};
+constexpr invocable_policy sbo_only{.alloc = invocable_alloc::sbo_only};
+constexpr invocable_policy heap_only{.alloc = invocable_alloc::heap_only};
+constexpr invocable_policy big_align{
     .sbo_size = padded_size(96, 2 * alignof(std::max_align_t)),
     .sbo_align = 2 * alignof(std::max_align_t)};
 } // namespace policies
@@ -1051,7 +1051,7 @@ consteval auto corvid_proxy_spec(lockbox*, ingot*) {
 
 // Alignment, not size, is what keeps `ingot` out of the roomy default-aligned
 // buffer.
-static_assert(alignof(ingot) > proxy_policy{}.sbo_align);
+static_assert(alignof(ingot) > invocable_policy{}.sbo_align);
 static_assert(sizeof(ingot) <= policies::big_sbo.sbo_size);
 static_assert(alignof(ingot) <= policies::big_align.sbo_align);
 
@@ -2497,10 +2497,10 @@ TEST_CASE("Owning upcast lifetimes", "[proxy]") {
 // Diagnostics on record: constructing an sbo_only proxy over an ineligible
 // target, e.g. `make_proxy<lockbox, big_box, policies::sbo_only>(stats)`,
 // fires a single clean error from the in-place constructor: "static
-// assertion failed due to requirement 'corvid::prox::proxy_policy{16, 8,
-// 1}.alloc != corvid::prox::proxy_alloc::sbo_only ||
-// details::sbo_fits(corvid::prox::proxy_policy{16, 8, 1})': the target is
-// not eligible for an sbo_only proxy's inline buffer".
+// assertion failed due to requirement 'corvid::meta::invocable_policy{16, 8,
+// 1, true}.alloc != corvid::meta::invocable_alloc::sbo_only ||
+// details::sbo_fits(corvid::meta::invocable_policy{16, 8, 1, true})': the
+// target is not eligible for an sbo_only proxy's inline buffer".
 TEST_CASE("Storage policies", "[proxy]") {
   // A buffer sized for `big_box` stores it inline, so moves relocate instead
   // of stealing a heap pointer.

@@ -129,7 +129,7 @@ buffer plus dispatch pointer).
 | `make_proxy<F, T>(...)`       | `make_proxy`             | `Box::new`           |
 | `make_proxy_view<F>(t)`       | `make_proxy_view`        | `&x as &dyn T`       |
 | `extends<Base>`               | `add_facade`             | supertrait           |
-| `proxy_policy`                | facade-level constraints | (none)               |
+| `invocable_policy`            | facade-level constraints | (none)               |
 | `clone()` / `can_clone()`     | copyability constraint   | (dyn-clone idiom)    |
 | `try_downcast<D>()`           | (none)                   | (`dyn Any` adjacent) |
 | `shared_proxy<F>`             | `make_proxy_shared`      | `Rc<dyn T>`          |
@@ -1044,7 +1044,7 @@ without touching existing registrations.)
 
 ### Storage policies
 
-`proxy<F, Policy>` takes a `proxy_policy` NTTP whose default reproduces
+`proxy<F, Policy>` takes an `invocable_policy` NTTP whose default reproduces
 the baseline handle: a two-pointer inline buffer at `std::max_align_t`
 alignment, with heap fallback. A target stores inline when it fits the
 buffer, is no more strictly aligned, and is nothrow-move-constructible.
@@ -1052,7 +1052,7 @@ Anything else is a unique-owned heap allocation. A default-constructed or
 moved-from proxy is empty, testable via `operator bool`, and calling
 through one is undefined behavior.
 
-The policy has three knobs. The `fixed_function` lesson is that the
+The policy is shared with `flexi_function` and lives in `invocable_policy.h`. Its fourth knob, `empty`, selects the empty-call behavior and is not yet honored by `proxy` (calling through an empty proxy remains undefined). The other three are storage knobs. The `fixed_function` lesson is that the
 default SBO is sometimes a little too small, so `sbo_size` and `sbo_align`
 are settable, growing only (a target eligible for the default buffer stays
 eligible for every buffer). The `sbo_size` must be a multiple of
@@ -1736,7 +1736,7 @@ deliberately NOT inline: `facade`, `method`, and `key` are too generic to
 dump into `corvid`.
 
 The call-site vocabulary (`proxy`, `proxy_view`, `const_proxy_view`,
-`shared_proxy`, `weak_proxy`, `proxy_policy`, `proxy_alloc`, `make_proxy`,
+`shared_proxy`, `weak_proxy`, `invocable_policy`, `invocable_alloc`, `make_proxy`,
 `make_proxy_view`, `make_shared_proxy`, `Proxiable`, `proxy_impl_base`) is
 exported into `corvid::meta` by using-declarations, so consuming code
 spells `proxy_view<foo_like>` unqualified. Only authoring (facades, impls,
