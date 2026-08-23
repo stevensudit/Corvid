@@ -34,7 +34,7 @@
 #include "../../concurrency/sync_lock.h"
 #include "../../enums/sequence_enum.h"
 #include "../../meta/concepts.h"
-#include "../../meta/enums.h"
+#include "../../meta/enum_math.h"
 
 namespace corvid { inline namespace container { inline namespace intern {
 

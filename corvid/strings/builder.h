@@ -16,11 +16,13 @@
 // limitations under the License.
 #pragma once
 #include <string>
+#include <type_traits>
 
+#include "../meta/bool_enums.h"
 #include "../meta/concepts.h"
 #include "delimiting.h"
 
-namespace corvid::strings { inline namespace concatenating {
+namespace corvid::strings { inline namespace building {
 
 #pragma region String concatenation functions
 
@@ -65,5 +67,50 @@ constexpr auto& concat_with_to(std::string& target, delim d,
 }
 
 #pragma endregion
+#pragma region builder
 
-}} // namespace corvid::strings::concatenating
+// String builder with a chainable `operator<<`.
+//
+// Where `std::string::operator+=` cannot be chained without parentheses,
+// `builder{} << "a" << 'b' << sv` appends in order.
+//
+//  The ownership parameter selects the target: `unique` builds into a string
+//  the builder owns, while `shared` builds into a `std::string&` supplied at
+//  construction, so an existing buffer can be appended to in place. Either
+//  way, `str()` exposes the string being built.
+template<ownership_type Ownership>
+class basic_builder {
+  static constexpr bool owning = (Ownership == ownership_type::unique);
+
+public:
+  basic_builder() noexcept
+  requires owning
+  = default;
+
+  explicit basic_builder(std::string& target) noexcept
+  requires(!owning)
+      : target_{target} {}
+
+  // Append `part`.
+  basic_builder& operator<<(const Concatenable auto& part) {
+    target_ += part;
+    return *this;
+  }
+
+  // The string being built.
+  [[nodiscard]] std::string& str() noexcept { return target_; }
+  [[nodiscard]] const std::string& str() const noexcept { return target_; }
+
+private:
+  std::conditional_t<owning, std::string, std::string&> target_;
+};
+
+// Builder that owns the string it builds.
+using builder = basic_builder<ownership_type::unique>;
+
+// Builder that appends to a caller-owned string.
+using shared_builder = basic_builder<ownership_type::shared>;
+
+#pragma endregion
+
+}} // namespace corvid::strings::building

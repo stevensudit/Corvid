@@ -27,7 +27,7 @@
 
 #include "../../containers/core/scoped_value.h"
 #include "../../strings/cases.h"
-#include "../../strings/concatenating.h"
+#include "../../strings/builder.h"
 #include "runtime.h"
 #include "token_classes.h"
 #include "value.h"

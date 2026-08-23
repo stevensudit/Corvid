@@ -26,7 +26,7 @@
 #include <utility>
 #include <variant>
 
-#include "../enums/bool_enums.h"
+#include "../meta/bool_enums.h"
 #include "../infra/exception_firewalls.h"
 #include "ecs_meta.h"
 #include "entity_registry.h"

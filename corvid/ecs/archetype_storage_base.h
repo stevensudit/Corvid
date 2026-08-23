@@ -27,7 +27,7 @@
 #include <utility>
 #include <vector>
 
-#include "../enums/bool_enums.h"
+#include "../meta/bool_enums.h"
 #include "../meta/forward_like.h"
 #include "../infra/exception_firewalls.h"
 #include "entity_registry.h"

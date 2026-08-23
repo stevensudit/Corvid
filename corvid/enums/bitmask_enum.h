@@ -26,7 +26,7 @@
 #include <type_traits>
 
 #include "../meta/concepts.h"
-#include "../meta/enums.h"
+#include "../meta/enum_math.h"
 #include "../meta/fixed_string.h"
 #include "../strings/fixed_string_utils.h"
 #include "../strings/targeting.h"

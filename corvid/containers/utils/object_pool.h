@@ -32,10 +32,9 @@
 #include <utility>
 
 #include "../../infra/exception_firewalls.h"
-#include "../../enums/bool_enums.h"
+#include "../../meta/bool_enums.h"
 
 namespace corvid { inline namespace container {
-using namespace bool_enums;
 
 // Default no-op callback for `object_pool`. Satisfies `void cb(T&)`.
 struct no_op_cb {

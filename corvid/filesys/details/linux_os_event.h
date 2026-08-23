@@ -36,13 +36,12 @@
 #include <poll.h>
 #include <sys/eventfd.h>
 
-#include "../../enums/bool_enums.h"
+#include "../../meta/bool_enums.h"
 #include "../os_event_base.h"
 
 // Linux implementation of "os_event.h", wrapping an `eventfd`.
 
 namespace corvid { inline namespace filesys {
-using namespace bool_enums;
 
 #pragma region os_event
 

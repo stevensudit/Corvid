@@ -1700,6 +1700,25 @@ TEST_CASE("Concat", "[StringUtilsTest]") {
   CHECK(strings::concat_with("-", "x", "y", "z") == "x-y-z");
   CHECK(strings::concat_with("", "x", "y") == "xy");
   CHECK(strings::concat_with(strings::delim{}, 'x', 'y') == "x y");
+
+  strings::builder own;
+  own << "a" << 'b' << std::string_view{"c"} << std::string{"d"};
+  CHECK(own.str() == "abcd");
+  CHECK((strings::builder{} << "x" << 'y').str() == "xy");
+
+  s = "pre";
+  strings::shared_builder borrowed{s};
+  borrowed << '-' << "post";
+  CHECK(&borrowed.str() == &s);
+  CHECK(s == "pre-post");
+  constexpr auto shifts = []<typename T>() {
+    return requires(strings::builder& b, T v) { b << v; };
+  };
+  static_assert(shifts.template operator()<char>());
+  static_assert(!shifts.template operator()<int>());
+  static_assert(sizeof(strings::shared_builder) == sizeof(void*));
+  static_assert(!std::is_default_constructible_v<strings::shared_builder>);
+  static_assert(!std::is_constructible_v<strings::builder, std::string&>);
 }
 
 TEST_CASE("Trim", "[StringUtilsTest]") {

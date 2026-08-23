@@ -28,7 +28,7 @@
 #include <utility>
 
 #include "../../meta/concepts.h"
-#include "../../meta/enums.h"
+#include "../../meta/enum_math.h"
 #include "../../meta/traits.h"
 #include "../../enums/bitmask_enum.h"
 #include "../../enums/sequence_enum.h"

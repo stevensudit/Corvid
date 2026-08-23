@@ -23,7 +23,7 @@
 #include "strings/targeting.h"
 #include "strings/delimiting.h"
 #include "strings/streaming.h"
-#include "strings/concatenating.h"
+#include "strings/builder.h"
 #include "strings/trimming.h"
 #include "strings/splitting.h"
 #include "strings/expand_tabs.h"

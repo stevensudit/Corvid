@@ -21,7 +21,7 @@
 
 #include "../meta/concepts.h"
 #include "../meta/crossplatform.h"
-#include "../meta/enums.h"
+#include "../meta/enum_math.h"
 #include "../strings/conversion.h"
 #include "../strings/targeting.h"
 #include "enum_registry.h"

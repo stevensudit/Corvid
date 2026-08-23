@@ -39,7 +39,7 @@
 #include "../../enums/sequence_enum.h"
 #include "../../meta/concepts.h"
 #include "../../strings/cases.h"
-#include "../../strings/concatenating.h"
+#include "../../strings/builder.h"
 #include "../../strings/conversion.h"
 
 namespace corvid { inline namespace lang { namespace coreb {

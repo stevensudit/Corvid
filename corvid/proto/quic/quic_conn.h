@@ -33,7 +33,7 @@
 
 #include "../../meta/crossplatform.h"
 #include "../net_endpoint.h"
-#include "../../enums/bool_enums.h"
+#include "../../meta/bool_enums.h"
 #include "../../concurrency/timeouts.h"
 #include "../../infra/exception_firewalls.h"
 #include "../../infra/log.h"
