@@ -27,6 +27,7 @@
 
 #include "../../containers/core/scoped_value.h"
 #include "../../strings/cases.h"
+#include "../../strings/concatenating.h"
 #include "runtime.h"
 #include "token_classes.h"
 #include "value.h"
@@ -273,11 +274,9 @@ private:
       if (is_arithmetic(op->kind) && elems.size() == 3) {
         const auto family =
             op->kind == operator_kind::additive ? band::add : band::mul;
-        auto text = as_arith_operand(elems[1], family, true);
-        text += " ";
-        text += name;
-        text += " ";
-        text += as_arith_operand(elems[2], family, false);
+        auto text = strings::concat_with(" ",
+            as_arith_operand(elems[1], family, true), name,
+            as_arith_operand(elems[2], family, false));
         return emitted{std::move(text), family};
       }
       if (op->kind == operator_kind::comparison &&
@@ -285,11 +284,7 @@ private:
       {
         std::string text;
         for (const auto& elem : elems.subspan(1)) {
-          if (!text.empty()) {
-            text += " ";
-            text += name;
-            text += " ";
-          }
+          if (!text.empty()) { strings::concat_to(text, " ", name, " "); }
           text += as_cmp_operand(elem);
         }
         return emitted{std::move(text), band::chain};
@@ -303,8 +298,7 @@ private:
     // Append one line at `indent` levels of two-space indentation.
     void emit_line(size_t indent, std::string_view text) {
       out.append(indent * 2, ' ');
-      out += text;
-      out += '\n';
+      strings::concat_to(out, text, '\n');
     }
 
     // Emit one form as a statement: a definition, a `fun` block, an

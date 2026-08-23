@@ -39,6 +39,7 @@
 #include "../../enums/sequence_enum.h"
 #include "../../meta/concepts.h"
 #include "../../strings/cases.h"
+#include "../../strings/concatenating.h"
 #include "../../strings/conversion.h"
 
 namespace corvid { inline namespace lang { namespace coreb {
@@ -556,9 +557,7 @@ public:
   // Append the display form, "#<primitive name>". Primitives have no
   // readable form.
   bool append(std::string& out) const {
-    out += "#<primitive ";
-    out += name.name();
-    out += '>';
+    strings::concat_to(out, "#<primitive ", name.name(), '>');
     return true;
   }
 
@@ -653,9 +652,7 @@ public:
   [[nodiscard]] symbol gensym(std::string_view base) {
     std::string name;
     do {
-      name = "%";
-      name += base;
-      name += '_';
+      name = strings::concat("%", base, '_');
       strings::append_num(name, ++gensyms_);
     } while (syms_.contains(name));
     return symbol{*syms_.emplace(std::move(name)).first};

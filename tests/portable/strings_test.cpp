@@ -1671,6 +1671,37 @@ TEST_CASE("Print", "[StringUtilsTest]") {
 #pragma endregion
 #pragma region Trim
 
+TEST_CASE("Concat", "[StringUtilsTest]") {
+  std::string s = "a";
+  auto& r =
+      strings::concat_to(s, "b", std::string{"c"}, std::string_view{"d"}, 'e');
+  CHECK(&r == &s);
+  CHECK(s == "abcde");
+  CHECK(strings::concat_to(s) == "abcde");
+
+  CHECK(strings::concat() == "");
+  CHECK(strings::concat("x") == "x");
+  CHECK(strings::concat("x", 'y', std::string_view{"z"}) == "xyz");
+  const std::string one = "1";
+  CHECK(strings::concat(one, one, one) == "111");
+
+  constexpr auto accepts = []<typename T>() {
+    return requires(std::string& t, T v) { strings::concat_to(t, v); };
+  };
+  static_assert(accepts.template operator()<char>());
+  static_assert(!accepts.template operator()<int>());
+  static_assert(!accepts.template operator()<bool>());
+
+  s = "a";
+  strings::concat_with_to(s, ", ", "b", 'c', std::string_view{"d"});
+  CHECK(s == "ab, c, d");
+  CHECK(strings::concat_with_to(s, "|", "x") == "ab, c, dx");
+  CHECK(strings::concat_with("-", "x") == "x");
+  CHECK(strings::concat_with("-", "x", "y", "z") == "x-y-z");
+  CHECK(strings::concat_with("", "x", "y") == "xy");
+  CHECK(strings::concat_with(strings::delim{}, 'x', 'y') == "x y");
+}
+
 TEST_CASE("Trim", "[StringUtilsTest]") {
   if (true) {
     CHECK(strings::trim_left("") == "");
