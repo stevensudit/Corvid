@@ -274,20 +274,20 @@ private:
       if (is_arithmetic(op->kind) && elems.size() == 3) {
         const auto family =
             op->kind == operator_kind::additive ? band::add : band::mul;
-        auto text = strings::concat_with(" ",
-            as_arith_operand(elems[1], family, true), name,
-            as_arith_operand(elems[2], family, false));
-        return emitted{std::move(text), family};
+        strings::builder text;
+        text << as_arith_operand(elems[1], family, true) << ' ' << name << ' '
+             << as_arith_operand(elems[2], family, false);
+        return emitted{std::move(text.str()), family};
       }
       if (op->kind == operator_kind::comparison &&
           (op->chains ? elems.size() >= 3 : elems.size() == 3))
       {
-        std::string text;
+        strings::builder text;
         for (const auto& elem : elems.subspan(1)) {
-          if (!text.empty()) { strings::concat_to(text, " ", name, " "); }
-          text += as_cmp_operand(elem);
+          if (!text.str().empty()) text << ' ' << name << ' ';
+          text << as_cmp_operand(elem);
         }
-        return emitted{std::move(text), band::chain};
+        return emitted{std::move(text.str()), band::chain};
       }
       return std::nullopt;
     }
@@ -298,7 +298,7 @@ private:
     // Append one line at `indent` levels of two-space indentation.
     void emit_line(size_t indent, std::string_view text) {
       out.append(indent * 2, ' ');
-      strings::concat_to(out, text, '\n');
+      strings::shared_builder{out} << text << '\n';
     }
 
     // Emit one form as a statement: a definition, a `fun` block, an

@@ -557,7 +557,7 @@ public:
   // Append the display form, "#<primitive name>". Primitives have no
   // readable form.
   bool append(std::string& out) const {
-    strings::concat_to(out, "#<primitive ", name.name(), '>');
+    strings::shared_builder{out} << "#<primitive " << name.name() << '>';
     return true;
   }
 
@@ -652,7 +652,8 @@ public:
   [[nodiscard]] symbol gensym(std::string_view base) {
     std::string name;
     do {
-      name = strings::concat("%", base, '_');
+      name.clear();
+      strings::shared_builder{name} << '%' << base << '_';
       strings::append_num(name, ++gensyms_);
     } while (syms_.contains(name));
     return symbol{*syms_.emplace(std::move(name)).first};
