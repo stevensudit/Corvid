@@ -518,6 +518,31 @@ TEST_CASE("Signature qualifiers select which wrappers may call",
   CHECK(p() == 2);
 }
 
+TEST_CASE("Qualified signatures wrap and adopt like plain ones",
+    "[flexi_function]") {
+#ifdef __cpp_lib_move_only_function
+  // A wrapped std wrapper is invoked as the signature invokes any target, so
+  // an `&&` signature takes an `&&`-qualified `std::move_only_function` and
+  // refuses an `&`-qualified one, the reverse of the unqualified case.
+  using rref = flexi_function<dflt, int() &&>;
+  static_assert(
+      std::is_constructible_v<rref, std::move_only_function<int() &&>&&>);
+  static_assert(
+      !std::is_constructible_v<rref, std::move_only_function<int() &>&&>);
+  rref r{std::move_only_function<int() &&>{[] { return 5; }}};
+  CHECK(std::move(r)() == 5);
+#endif
+
+  // Thunks are keyed by the whole signature, so siblings that share one
+  // transplant the target across policies as before.
+  flexi_function<dflt, int() const> a{const_only{}};
+  CHECK(fixed_function<64, int() const>::can_adopt(a));
+  fixed_function<64, int() const> b{std::move(a)};
+  CHECK(!a);
+  const auto& cb = b;
+  CHECK(cb() == 9);
+}
+
 #pragma endregion
 
 // NOLINTEND(clang-analyzer-cplusplus.Move)

@@ -48,54 +48,55 @@ The pending `proxy` changes, in the order to land them:
   vocabulary contracts, and the proxy.md storage-policy section can point at
   `invocable_policy.h` as the single description.
 
-## In progress: qualified signatures for flexi_function
+## Landed: qualified signatures for flexi_function
 
-`flexi_function` accepts only a plain `R(Args...)` signature, and its
-`operator()` is mutable-only and never `noexcept`. `std::move_only_function`
-also accepts the twelve `cv ref noexcept` variants, and pays for it with
-twelve partial specializations; libstdc++ implements them by re-including
-one body header six times under `cv`/`ref` macros, each stamp templated on
-the `noexcept` flag.
+`flexi_function` accepts the twelve `cv ref noexcept` signature variants
+that `std::move_only_function` does, with the same meaning, and without its
+twelve partial specializations (libstdc++ stamps one body header six times
+under `cv`/`ref` macros, each templated on the `noexcept` flag). The shape,
+for reference when proxy catches up:
 
-The C++23 answer is smaller, and is the shape to build if a caller ever
-needs a qualified signature:
+- Pattern-match once. `signature_traits<Sig>` in meta/traits.h holds the
+  twelve trivial partial specializations over a shared base supplying
+  `result_t`, `args_t` (a tuple), `function_t` (every qualifier stripped,
+  `noexcept` included), and one enum-typed constant per axis:
+  `const_qualifier` (`const_qual`), `ref_qualifier` (`ref_qual`, three-way),
+  and `noexcept_specifier` (`noexcept_spec`). The undefined primary is the
+  gate for what counts as a signature. The class body sits behind one
+  specialization on `function_t`, reached through a defaulted third template
+  parameter, `FunctionT = signature_function_t<Sig>`, and `flexi_thunks`
+  does the same.
+- Invoke as the standard does. The thunks apply the signature's qualifiers
+  to the stored target (`qualified_target_t<F>`: `F cv&`, or `F cv&&` under
+  `&&`) and constrain construction on invocability through that type
+  (`invocable_v<F>`, the nothrow variant under `noexcept`). An unqualified
+  and an `&` signature invoke the target identically; they differ only in
+  which wrappers may call.
+- One call operator. A deducing-`this` member with a `requires` clause
+  (`callable_through_v<Self>`) admits exactly the wrapper constness and value
+  category the signature permits, and is `noexcept` exactly when the
+  signature is.
+- Constrain, do not deduce. A `noexcept` signature does not follow the
+  stored callable's own `noexcept` (type erasure cannot); it admits only
+  nothrow-invocable callables and gets a `noexcept` call operator in
+  exchange.
+- Reconciled with `on_empty`. A `noexcept` signature refuses `raise` at
+  compile time, admits `silent` only for a nothrow-value-initializable (or
+  `void`) result, and always admits `terminate`. `flexi_function` also
+  refuses `silent` on a result that cannot be value-initialized at all;
+  proxy keeps its per-method fallback to `raise`, since a facade mixes
+  methods. Termination on an empty call is never reached by accident, only
+  asked for by name.
 
-- Pattern-match once. Landed: `signature_traits<Sig>` in meta/traits.h
-  holds the twelve trivial partial specializations, each a one-liner over a
-  shared base supplying `result_t`, `args_t` (a tuple), `function_t` (the
-  signature with every qualifier stripped, `noexcept` included), and one
-  constant per axis: `const_qualifier`, `ref_qualifier`, and
-  `noexcept_specifier`, each typed by its own enum (`const_qual`,
-  `ref_qual`, `noexcept_spec`) rather than by a bool, with the ref axis
-  three-way. The undefined primary doubles as the gate for what counts as a
-  signature. Truth-table coverage in meta_test.cpp. What remains is the
-  class body sitting behind one specialization on the decomposed parts
-  rather than twelve copies, per the points below.
-- One call operator. Deducing `this` covers all six cv/ref combinations in a
-  single member, with a `requires` clause admitting exactly the
-  qualifications the signature permits, and `noexcept(noex)` as a computed
-  constant covers the last axis.
-- Constrain, do not deduce. As in the standard, a `noexcept` signature does
-  not follow the stored callable's own `noexcept` (type erasure cannot);
-  it constrains construction to nothrow-invocable callables and gets a
-  `noexcept` call operator in exchange.
-- Reconcile with `on_empty`. Decided, and the enum landed: a `noexcept`
-  call operator refuses `raise` at compile time, admits `silent` only when
-  `R` is nothrow-value-initializable (or `void`), and always admits
-  `terminate`, which calls `std::terminate` on an empty call. The standard
-  leaves an empty call undefined; ours never terminates by accident, only
-  when asked for by name. Separately, `flexi_function` refuses `silent` on a
-  result that cannot be value-initialized at all (proxy keeps the
-  per-method fallback to `raise`, since a facade mixes methods). What
-  remains is wiring the `noexcept` checks in once such signatures are
-  admitted.
+Coverage: truth tables in meta_test.cpp (decomposition) and
+flexi_function_test.cpp (which callables are admitted, which wrappers may
+call, and `noexcept`).
 
-Sequencing is settled: qualified signatures land before the proxy
-catch-up. Proxy's method descriptors already carry their own
-`Const`/`Noexcept` flags (`method_key`), and the empty-vtable work must
-reason about each method's qualifiers, so `method_key` adopts the
-`signature_traits` vocabulary when the proxy work lands rather than having
-it retrofitted.
+Qualified signatures landed before the proxy catch-up, as sequenced.
+Proxy's method descriptors already carry their own `Const`/`Noexcept` flags
+(`method_key`), and the empty-vtable work must reason about each method's
+qualifiers, so `method_key` adopts the `signature_traits` vocabulary when
+the proxy work lands rather than having it retrofitted.
 
 ## Deferred: direct-call thunks for compile-time-known targets
 
