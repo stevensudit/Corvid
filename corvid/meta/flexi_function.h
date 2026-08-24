@@ -15,7 +15,6 @@
 // implied. See the License for the specific language governing permissions and
 // limitations under the License.
 #pragma once
-#pragma once
 #include <bit>
 #include <cassert>
 #include <cstddef>
@@ -277,7 +276,8 @@ private:
   // fit.
   template<class F, allocation_mode SourceAlloc>
   static size_t move_inlined(F* f, destination_spec* dest) noexcept {
-    static_assert(std::is_nothrow_move_constructible_v<F>);
+    static_assert(std::is_nothrow_move_constructible_v<F>,
+        "move_inlined: only a nothrow-move source moves inline");
     // The analyzer cannot see that the caller's fit check ties `sizeof(F)`
     // to the true capacity of the buffer behind `dest->to`.
     // NOLINTNEXTLINE(clang-analyzer-cplusplus.PlacementNew)
@@ -359,10 +359,10 @@ private:
 // given sibling would be accepted, so a refusal can be averted rather than
 // caught.
 //
-// - For an `inline_only` instance, no dynamic dynamic allocation is performed.
+// - For an `inline_only` instance, no dynamic allocation is performed.
 // However, we can't stop a callable from allocating internally, and we do
 // support explicit conversion from `std::function` and
-// `std::move_only_function` and both of these are capable of dynamic
+// `std::move_only_function`, and both of these are capable of dynamic
 // allocation.
 //
 // (Note that wrapping either of these std polymorphic function wrappers
@@ -433,7 +433,7 @@ public:
   // `Consumable`) into internal storage, or onto the heap when the policy
   // sends it there.
   //
-  // The internal path can't throw, but the heap path can throw on allocation,
+  // The inline path can't throw, but the heap path can throw on allocation,
   // and so can the move itself (which is precisely why a callable whose move
   // constructor may throw is heap-bound). A throw leaves this instance empty.
   //
@@ -509,7 +509,8 @@ public:
   // the same transplant rules as the converting move constructor.
   //
   // A refusal is detected by a pre-flight `can_adopt`, throwing before
-  // either side is touched.
+  // either side is touched. A boxing allocation can still throw, leaving the
+  // instance empty.
   template<invocable_policy P>
   requires(P != Policy)
   flexi_function&
@@ -529,6 +530,8 @@ public:
   // This stores `fn` directly, avoiding a transplant through a temporary
   // sibling. The std wrappers are excluded here as they are for construction;
   // wrap one explicitly and move-assign the result.
+  //
+  // A throw leaves this instance empty.
   template<Consumable FN>
   requires(
       std::is_invocable_r_v<ResultT, std::decay_t<FN>, Args...> &&
@@ -570,7 +573,7 @@ public:
 #pragma region Invocation
 
   // Invoke through the type-erased invoke thunk. Intentionally disallows
-  // invocation through a `const this`.
+  // invocation through a `const this` and is not `noexcept` (for now).
   ResultT operator()(Args... args) {
     return dispatch_.invoke(storage_, std::forward<Args>(args)...);
   }
