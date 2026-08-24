@@ -36,7 +36,8 @@ using namespace corvid;
 namespace {
 
 constexpr invocable_policy dflt{};
-constexpr invocable_policy ignoring{.empty = on_failure::ignore};
+constexpr invocable_policy silent{.empty = on_empty::silent};
+constexpr invocable_policy terminating{.empty = on_empty::terminate};
 constexpr invocable_policy heap_only{.alloc = invocable_alloc::heap_only};
 constexpr invocable_policy big_inline{.inline_size = padded_size(96)};
 
@@ -293,31 +294,44 @@ TEST_CASE("Trivially copyable lvalues are copied in", "[flexi_function]") {
   CHECK(d() == 1);
 }
 
-TEST_CASE("Ignore returns a default", "[flexi_function]") {
-  flexi_function<ignoring, int()> i;
+TEST_CASE("Silent returns a default", "[flexi_function]") {
+  flexi_function<silent, int()> i;
   CHECK(!i);
   CHECK(i() == 0);
 
-  flexi_function<ignoring, std::string(int)> s;
+  flexi_function<silent, std::string(int)> s;
   CHECK(s(5).empty());
 
-  flexi_function<ignoring, void()> v;
+  flexi_function<silent, void()> v;
   CHECK_NOTHROW(v());
 
-  // A result that cannot be value-initialized falls back to raise.
-  flexi_function<ignoring, int&()> r;
-  CHECK_THROWS_AS(r(), std::bad_function_call);
-  flexi_function<ignoring, no_default()> nd;
-  CHECK_THROWS_AS(nd(), std::bad_function_call);
+  // A result that cannot be value-initialized (`int&()`, `no_default()`) is a
+  // static_assert under `silent`, so it cannot be exercised here; the
+  // alternatives are `raise` and `terminate`. Both accept any result.
+  flexi_function<terminating, int&()> tr;
+  CHECK(!tr);
+  flexi_function<terminating, no_default()> tnd;
+  CHECK(!tnd);
 
   // The compile-time default is raise.
   flexi_function<dflt, int()> d;
   CHECK_THROWS_AS(d(), std::bad_function_call);
 }
 
+TEST_CASE("Terminate policy invokes normally when not empty",
+    "[flexi_function]") {
+  // Invoking an empty `terminating` wrapper calls `std::terminate`, which a
+  // unit test cannot observe; only the non-empty path is exercised.
+  flexi_function<terminating, int(int)> t{[](int x) { return x * 2; }};
+  CHECK(t);
+  CHECK(t(21) == 42);
+  t.reset();
+  CHECK(!t);
+}
+
 TEST_CASE("Reset", "[flexi_function]") {
   using raiser = flexi_function<dflt, int()>;
-  using ignorer = flexi_function<ignoring, int()>;
+  using silencer = flexi_function<silent, int()>;
 
   // `reset()` empties; the empty-call behavior is the type's own.
   raiser f{[] { return 1; }};
@@ -331,8 +345,8 @@ TEST_CASE("Reset", "[flexi_function]") {
   f = nullptr;
   CHECK_THROWS_AS(f(), std::bad_function_call);
 
-  // An `ignore` type empties to its own behavior likewise.
-  ignorer i{[] { return 3; }};
+  // A `silent` type empties to its own behavior likewise.
+  silencer i{[] { return 3; }};
   CHECK(i() == 3);
   i.reset();
   CHECK(!i);
@@ -345,12 +359,12 @@ TEST_CASE("Reset", "[flexi_function]") {
 
 TEST_CASE("Empty behavior is fixed per type", "[flexi_function]") {
   using raiser = flexi_function<dflt, int()>;
-  using ignorer = flexi_function<ignoring, int()>;
+  using silencer = flexi_function<silent, int()>;
 
   // `a = std::move(b)`: each side keeps the behavior baked into its type,
   // regardless of what arrived or left.
   raiser a;
-  ignorer b{[] { return 1; }};
+  silencer b{[] { return 1; }};
   a = std::move(b);
   CHECK(a() == 1);
   CHECK(!b);
@@ -359,7 +373,7 @@ TEST_CASE("Empty behavior is fixed per type", "[flexi_function]") {
   CHECK_THROWS_AS(a(), std::bad_function_call);
 
   // The same in the other direction.
-  ignorer c;
+  silencer c;
   raiser d{[] { return 2; }};
   c = std::move(d);
   CHECK(c() == 2);
@@ -375,8 +389,8 @@ TEST_CASE("Empty behavior is fixed per type", "[flexi_function]") {
 
   // Across policies, through the converting constructor: the `fixed_function`
   // raises on empty because that is its type's behavior, while the drained
-  // `ignore` source keeps ignoring.
-  ignorer h{[] { return 4; }};
+  // `silent` source stays silent.
+  silencer h{[] { return 4; }};
   fixed_function<64, int()> k{std::move(h)};
   CHECK(k() == 4);
   k.reset();

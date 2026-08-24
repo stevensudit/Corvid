@@ -18,6 +18,7 @@
 #include <bit>
 #include <cassert>
 #include <cstddef>
+#include <exception>
 #include <functional>
 #include <new>
 #include <stdexcept>
@@ -124,28 +125,34 @@ struct flexi_thunks<ResultT(Args...)> {
         std::forward<Args>(args)...);
   }
 
-  // Whether `ResultT` supports `on_failure::ignore`, as opposed to being
-  // treated like `on_failure::raise`.
-  static constexpr bool ignorable =
+  // Whether `ResultT` supports `on_empty::silent`: it can be value-initialized
+  // or is `void`.
+  static constexpr bool silenceable =
       std::is_void_v<ResultT> || std::is_default_constructible_v<ResultT>;
 
-  // Whether calling an empty wrapper with `on_failure::ignore` is noexcept.
-  static constexpr bool nothrow_ignorable =
+  // Whether calling an empty wrapper with `on_empty::silent` is noexcept; a
+  // subset of `silenceable`.
+  static constexpr bool nothrow_silenceable =
       std::is_void_v<ResultT> ||
       std::is_nothrow_default_constructible_v<ResultT>;
 
   // The invoke stub for an empty wrapper.
   //
-  // Either throws `std::bad_function_call`, or returns `ResultT{}`.
-  template<on_failure FailureMode>
+  // Returns `ResultT{}`, throws `std::bad_function_call`, or terminates, per
+  // `Mode`. The wrapper's own `static_assert` has already ruled out `silent`
+  // on a result that is not `silenceable`.
+  template<on_empty Mode>
   static ResultT
   empty_invoke_impl([[maybe_unused]] void*, [[maybe_unused]] Args...) noexcept(
-      (FailureMode == on_failure::ignore) && nothrow_ignorable) {
-    if constexpr ((FailureMode == on_failure::ignore) && ignorable) {
+      (Mode == on_empty::terminate) ||
+      ((Mode == on_empty::silent) && nothrow_silenceable)) {
+    if constexpr (Mode == on_empty::silent) {
       if constexpr (std::is_void_v<ResultT>)
         return;
       else
         return ResultT{};
+    } else if constexpr (Mode == on_empty::terminate) {
+      std::terminate();
     } else {
       throw std::bad_function_call();
     }
@@ -344,7 +351,10 @@ private:
 //
 // - The default behavior of an empty wrapper when invoked is to throw
 // `std::bad_function_call`, just like `std::function` does. But it can also
-// be configured to just return the value-initialized (or void) result.
+// be configured to return the value-initialized (or void) result, or to
+// terminate; see `on_empty`. The silent option is refused at compile time for
+// a result that cannot be value-initialized, and the raise option is refused
+// for a `noexcept` signature.
 //
 // - Currently, only `operator()` is supported, but the roadmap calls for
 // extending this to const calls, as well as variations on lvalue, rvalue,
@@ -394,6 +404,10 @@ class flexi_function<Policy, ResultT(Args...)> {
       "accommodate a pointer");
   static_assert(std::has_single_bit(Policy.inline_align),
       "flexi_function: inline_align must be a power of two");
+  static_assert((Policy.empty != on_empty::silent) || thunks::silenceable,
+      "flexi_function: on_empty::silent needs a result that can be "
+      "value-initialized (or void); choose raise or terminate for this "
+      "signature");
   static_assert(
       !supports_inline ||
           Policy.inline_size ==

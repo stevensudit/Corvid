@@ -58,6 +58,22 @@ enum class invocable_alloc : std::uint8_t {
 };
 
 #pragma endregion
+#pragma region On empty
+
+// `on_empty` is what invoking an empty owner does.
+//
+// `silent` returns a value-initialized result (or nothing, for `void`).
+// Invalid when the result type does not fit these criteria.
+//
+// `raise` throws `std::bad_function_call`, as `std::function` does. Invalid
+// when the call operator is `noexcept`.
+//
+// `terminate` calls `std::terminate`. When neither of the other two options
+// are valid (because the result cannot be value-initialized and the call
+// operator is `noexcept)`, this is the remaining choice.
+enum class on_empty : std::uint8_t { silent, raise, terminate };
+
+#pragma endregion
 #pragma region invocable_policy
 
 // `invocable_policy` is the combined policy, which is used as a template
@@ -81,14 +97,15 @@ enum class invocable_alloc : std::uint8_t {
 // the pointer is moved.
 //
 // `empty` selects what invoking an empty owner (default-constructed,
-// moved-from, or reset) does. With `raise`, it throws
-// `std::bad_function_call`, as `std::function` does. With `ignore`, it returns
-// a value-initialized result.
+// moved-from, or reset) does; see `on_empty`. The behavior is baked into the
+// owner's type; it cannot be changed at runtime.
 //
 // A result type that cannot be value-initialized (a reference, or a type
-// without a default constructor) falls back to `raise` for that call, which
-// lets one policy serve a facade whose methods differ in this respect. The
-// behavior is baked into the owner's type; it cannot be changed at runtime.
+// without a default constructor) cannot be `silent`. For `flexi_function`,
+// whose one signature is chosen deliberately, that is a compile error naming
+// `raise` and `terminate` as the alternatives. For `proxy`, whose facade may
+// mix such methods with ordinary ones, the call falls back to `raise`, which
+// lets one policy serve the whole facade.
 //
 // For `proxy`, policies are checked at proxy construction, not at
 // registration. Registration is per (facade, type) and knows nothing about
@@ -98,7 +115,7 @@ struct invocable_policy {
   size_t inline_size = 2 * sizeof(void*);
   size_t inline_align = alignof(std::max_align_t);
   invocable_alloc alloc = invocable_alloc::inline_or_heap;
-  on_failure empty = on_failure::raise;
+  on_empty empty = on_empty::raise;
 
   friend constexpr bool
   operator==(const invocable_policy&, const invocable_policy&) = default;
