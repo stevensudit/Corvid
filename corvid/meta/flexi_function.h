@@ -75,8 +75,42 @@ struct flexi_thunks;
 
 template<class Sig, class ResultT, class... Args>
 struct flexi_thunks<Sig, ResultT(Args...)> {
+  using traits = signature_traits<Sig>;
+
+  // Whether the signature is `noexcept`, which makes the invoke thunks, and
+  // the wrapper's call operator, `noexcept`.
+  static constexpr bool noexcept_call =
+      (traits::noexcept_specifier == noexcept_spec::present);
+
+  // `F` with the signature's cv-qualifier applied.
+  template<class F>
+  using cv_target_t = std::conditional_t<
+      traits::const_qualifier == const_qual::present, const F, F>;
+
+  // How the stored callable is invoked: with the signature's cv-qualifier
+  // applied, and as an lvalue unless the signature is `&&`-qualified.
+  //
+  // As with `std::move_only_function`, an unqualified and an `&`-qualified
+  // signature both invoke the target as an lvalue; the difference between them
+  // is entirely in what call operators the wrapper exposes.
+  template<class F>
+  using invoked_t =
+      std::conditional_t<traits::ref_qualifier == ref_qual::rvalue,
+          cv_target_t<F>&&, cv_target_t<F>&>;
+
+  // Whether `F`, invoked as `invoked_t<F>`, yields `ResultT`, without
+  // throwing for a `noexcept` signature.
+  //
+  // Construction and assignment are constrained on this to force the user to
+  // explicitly select the correct `on_empty` policy.
+  template<class F>
+  static constexpr bool invocable_v =
+      noexcept_call
+          ? std::is_nothrow_invocable_r_v<ResultT, invoked_t<F>, Args...>
+          : std::is_invocable_r_v<ResultT, invoked_t<F>, Args...>;
+
   // Invocation function pointer, where the `void*` is the type-erased storage.
-  using invoke_fn_t = ResultT (*)(void*, Args...);
+  using invoke_fn_t = ResultT (*)(void*, Args...) noexcept(noexcept_call);
 
   struct destination_spec; // Fwd.
 
@@ -125,8 +159,10 @@ struct flexi_thunks<Sig, ResultT(Args...)> {
   // Invoke the stored callable, where `storage` is the wrapper's type-erased
   // buffer.
   template<class F, allocation_mode SourceAlloc>
-  static ResultT invoke_impl(void* storage, Args... args) {
-    return std::invoke_r<ResultT>(*stored_fn<F, SourceAlloc>(storage),
+  static ResultT
+  invoke_impl(void* storage, Args... args) noexcept(noexcept_call) {
+    return std::invoke_r<ResultT>(
+        static_cast<invoked_t<F>>(*stored_fn<F, SourceAlloc>(storage)),
         std::forward<Args>(args)...);
   }
 
@@ -392,7 +428,14 @@ class flexi_function<Policy, Sig, ResultT(Args...)> {
       "signature; do not pass it");
 
   using thunks = fn_details::flexi_thunks<Sig>;
+
+  // The stored callable as the signature invokes it.
+  template<class F>
+  using invoked_t = thunks::template invoked_t<F>;
+
+  // The stored callable with the signature's cv-qualifier applied.
   using invoke_fn_t = thunks::invoke_fn_t;
+
   using lifespan_fn_t = thunks::lifespan_fn_t;
   using destination_spec = thunks::destination_spec;
   using thunk_pair = thunks::thunk_pair;
@@ -417,6 +460,14 @@ class flexi_function<Policy, Sig, ResultT(Args...)> {
       "flexi_function: on_empty::silent needs a result that can be "
       "value-initialized (or void); choose raise or terminate for this "
       "signature");
+  static_assert(!thunks::noexcept_call || (Policy.empty != on_empty::raise),
+      "flexi_function: on_empty::raise cannot serve a noexcept signature; "
+      "choose terminate, or silent (for a nothrow-value-initializable "
+      "result)");
+  static_assert(!thunks::noexcept_call || (Policy.empty != on_empty::silent) ||
+                    thunks::nothrow_silenceable,
+      "flexi_function: on_empty::silent under a noexcept signature needs a "
+      "result whose value-initialization cannot throw; choose terminate");
   static_assert(
       !supports_inline ||
           Policy.inline_size ==
@@ -450,8 +501,9 @@ public:
   flexi_function(const flexi_function&) = delete;
   flexi_function& operator=(const flexi_function&) = delete;
 
-  // Implicitly construct from any callable whose signature matches
-  // `ResultT(Args...)`.
+  // Implicitly construct from any callable that the signature can invoke:
+  // one that, invoked as `invoked_t`, yields `ResultT` (and for a `noexcept`
+  // signature, without throwing).
   //
   // The callable is consumed (moved, or copied when that is trivial, see
   // `Consumable`) into internal storage, or onto the heap when the policy
@@ -464,7 +516,7 @@ public:
   // The std polymorphic function wrappers are deliberately excluded
   // here; wrapping one takes the explicit constructor below.
   template<Consumable FN>
-  requires(std::is_invocable_r_v<ResultT, std::decay_t<FN>, Args...> &&
+  requires(thunks::template invocable_v<std::decay_t<FN>> &&
            !is_std_function_wrapper_v<std::decay_t<FN>>)
   flexi_function(FN&& fn) noexcept(
       policy_details::can_store_inline<std::decay_t<FN>>(Policy)) {
@@ -483,12 +535,13 @@ public:
   // call double-indirects, and the shell may allocate dynamically, which is an
   // exception to the zero-allocation guarantee under `inline_only`.
   //
-  // Invocability is checked against an lvalue wrapper because that is how
-  // the stored one is invoked. For a ref-qualified `std::move_only_function`
-  // signature, this admits `int() &` and rejects `int() &&` (for now).
+  // Invocability is checked the same way as for any other callable: the
+  // wrapped wrapper is invoked as `invoked_t`. So an unqualified signature
+  // admits a `std::move_only_function<int() &>` and rejects an `int() &&`
+  // one, while an `&&`-qualified signature does the reverse.
   template<Consumable FN>
   requires(is_std_function_wrapper_v<std::decay_t<FN>> &&
-           std::is_invocable_r_v<ResultT, std::decay_t<FN>&, Args...>)
+           thunks::template invocable_v<std::decay_t<FN>>)
   explicit flexi_function(FN&& fn) noexcept(
       policy_details::can_store_inline<std::decay_t<FN>>(Policy)) {
     if (!fn) return;
@@ -557,7 +610,7 @@ public:
   // A throw leaves this instance empty.
   template<Consumable FN>
   requires(
-      std::is_invocable_r_v<ResultT, std::decay_t<FN>, Args...> &&
+      thunks::template invocable_v<std::decay_t<FN>> &&
       !is_std_function_wrapper_v<std::decay_t<FN>> &&
       !is_flexi_function_v<std::decay_t<FN>>)
   flexi_function& operator=(FN&& fn) noexcept(
@@ -678,8 +731,9 @@ private:
     static_assert(std::is_nothrow_destructible_v<FD>,
         "flexi_function: callable destructor may throw; the instance destroys "
         "the callable, so its destructor must be noexcept");
-    static_assert(!std::is_reference_v<ResultT> ||
-                      std::is_reference_v<std::invoke_result_t<FD, Args...>>,
+    static_assert(
+        !std::is_reference_v<ResultT> ||
+            std::is_reference_v<std::invoke_result_t<invoked_t<FD>, Args...>>,
         "flexi_function: callable returns a prvalue but ResultT is a "
         "reference type; every call would produce a dangling reference");
     assert(!dispatch_.lifespan);

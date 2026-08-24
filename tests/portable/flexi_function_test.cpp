@@ -399,6 +399,70 @@ TEST_CASE("Empty behavior is fixed per type", "[flexi_function]") {
 }
 
 #pragma endregion
+#pragma region Qualified signatures
+
+// A callable that can only be invoked as a non-const lvalue, and counts.
+struct lvalue_only {
+  int n = 0;
+  int operator()() & { return ++n; }
+};
+
+// A callable that can only be invoked as an rvalue, and reports it.
+struct rvalue_only {
+  int operator()() && { return 7; }
+};
+
+// A callable that can only be invoked as a const object.
+struct const_only {
+  int operator()() const { return 9; }
+};
+
+TEST_CASE("Signature qualifiers select how the target is invoked",
+    "[flexi_function]") {
+  // An unqualified and an `&`-qualified signature both invoke the target as
+  // a non-const lvalue, so an `&`-only callable is admitted and an `&&`-only
+  // one is not.
+  static_assert(
+      std::is_constructible_v<flexi_function<dflt, int()>, lvalue_only>);
+  static_assert(
+      std::is_constructible_v<flexi_function<dflt, int() &>, lvalue_only>);
+  static_assert(
+      !std::is_constructible_v<flexi_function<dflt, int()>, rvalue_only>);
+  static_assert(
+      !std::is_constructible_v<flexi_function<dflt, int() &>, rvalue_only>);
+
+  // An `&&`-qualified signature invokes the target as an rvalue.
+  static_assert(
+      std::is_constructible_v<flexi_function<dflt, int() &&>, rvalue_only>);
+  static_assert(
+      !std::is_constructible_v<flexi_function<dflt, int() &&>, lvalue_only>);
+
+  // A `const` signature invokes the target as const, so a callable whose
+  // `operator()` is not const is refused, and a const-only one is admitted
+  // under both.
+  static_assert(!std::is_constructible_v<flexi_function<dflt, int() const>,
+      lvalue_only>);
+  static_assert(
+      std::is_constructible_v<flexi_function<dflt, int() const>, const_only>);
+  static_assert(
+      std::is_constructible_v<flexi_function<dflt, int()>, const_only>);
+
+  // The lvalue invocation reaches the same stored object every call.
+  flexi_function<dflt, int() &> counting{lvalue_only{}};
+  CHECK(counting() == 1);
+  CHECK(counting() == 2);
+
+  // A `noexcept` signature admits only nothrow-invocable callables, and needs
+  // an empty-call policy that cannot throw.
+  static_assert(
+      std::is_constructible_v<flexi_function<terminating, int() noexcept>,
+          decltype([]() noexcept { return 1; })>);
+  static_assert(
+      !std::is_constructible_v<flexi_function<terminating, int() noexcept>,
+          decltype([] { return 1; })>);
+}
+
+#pragma endregion
 
 // NOLINTEND(clang-analyzer-cplusplus.Move)
 // NOLINTEND(bugprone-use-after-move)
