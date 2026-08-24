@@ -209,6 +209,30 @@ TEST_CASE("Cross-policy transplant", "[flexi_function]") {
 #pragma endregion
 #pragma region Empty-call policy
 
+TEST_CASE("Can adopt", "[flexi_function]") {
+  using small_ff = fixed_function<64, int()>;
+
+  // A callable too large for an inline_only buffer is refused up front.
+  flexi_function<big_inline, int()> fat{fat_fn{}};
+  CHECK(!small_ff::can_adopt(fat));
+  small_ff target{[] { return 0; }};
+  CHECK(!target.can_adopt(fat));
+  CHECK_THROWS_AS(target = std::move(fat), std::length_error);
+  CHECK(target() == 0);
+  CHECK(fat() == 7);
+
+  // A callable that fits, and an empty source, are adoptable.
+  flexi_function<big_inline, int()> thin{[] { return 1; }};
+  CHECK(small_ff::can_adopt(thin));
+  target = std::move(thin);
+  CHECK(target() == 1);
+  flexi_function<big_inline, int()> hollow;
+  CHECK(small_ff::can_adopt(hollow));
+
+  // A destination with heap fallback always accommodates.
+  CHECK((flexi_function<dflt, int()>::can_adopt(fat)));
+}
+
 TEST_CASE("Null callables are empty", "[flexi_function]") {
   using fn_t = flexi_function<dflt, int()>;
 

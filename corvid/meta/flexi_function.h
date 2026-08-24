@@ -354,8 +354,10 @@ private:
 //
 // A few odds and ends:
 //
-// - `size` reports the stored callable's byte size and can be checked against
-// `capacity` before assignment.
+// - `size` reports the stored callable's byte size, and `capacity` the
+// inline buffer's. `can_adopt` is the up-front check that assigning from a
+// given sibling would be accepted, so a refusal can be averted rather than
+// caught.
 //
 // - For an `inline_only` instance, no dynamic dynamic allocation is performed.
 // However, we can't stop a callable from allocating internally, and we do
@@ -506,24 +508,16 @@ public:
   // Move assignment from a same-signature sibling of another policy, under
   // the same transplant rules as the converting move constructor.
   //
-  // A refusal is detected by a pre-flight probe, throwing before either side
-  // is touched. Nothing can alter the callable between the probe and the
-  // transplant, so this is as sound as the constructor's in-thunk check. A
-  // boxing allocation that fails after the probe leaves this instance empty
-  // and the source intact.
+  // A refusal is detected by a pre-flight `can_adopt`, throwing before
+  // either side is touched.
   template<invocable_policy P>
   requires(P != Policy)
   flexi_function&
   operator=(flexi_function<P, ResultT(Args...)>&& other) noexcept(
       !policy_details::adopt_may_throw(Policy, P)) {
     if constexpr (policy_details::adopt_may_throw(Policy, P)) {
-      if (other.dispatch_.lifespan) {
-        destination_spec probe{.policy = Policy,
-            .dispatch = nullptr,
-            .to = nullptr};
-        if (other.dispatch_.lifespan(other.storage_, &probe) == 0)
-          throw std::length_error{"flexi_function: callable too large"};
-      }
+      if (!can_adopt(other))
+        throw std::length_error{"flexi_function: callable too large"};
     }
     reset();
     do_adopt(other);
@@ -595,6 +589,32 @@ public:
 
   // Capacity of the inline storage in bytes, 0 for a `heap_only` policy.
   [[nodiscard]] size_t capacity() const noexcept { return storage_size; }
+
+  // `can_adopt`: whether this `flexi_function` type can accommodate
+  // `source`'s current callable, so that converting (or assigning) from it
+  // will not throw `std::length_error`.
+  //
+  // Static, because the answer is a property of this wrapper type against
+  // the source's runtime callable. It works before any destination instance
+  // exists, and is equally callable through one. Only an `inline_only`
+  // destination can ever answer no (everything else has the heap to fall
+  // back on), and an empty source is always adoptable, to empty. It does
+  // not promise the allocation a boxing adoption may need.
+  template<invocable_policy P>
+  [[nodiscard]] static bool
+  can_adopt(const flexi_function<P, ResultT(Args...)>& source) noexcept {
+    if constexpr (Policy.alloc != invocable_alloc::inline_only) {
+      return true;
+    } else {
+      if (!source.dispatch_.lifespan) return true;
+      destination_spec probe{.policy = Policy,
+          .dispatch = nullptr,
+          .to = nullptr};
+      // The probe only reads, but the erased signature is mutable.
+      return source.dispatch_.lifespan(const_cast<std::byte*>(source.storage_),
+                 &probe) != 0;
+    }
+  }
 
 #pragma endregion
 #pragma region Implementation
