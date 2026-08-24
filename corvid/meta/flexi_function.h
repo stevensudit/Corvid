@@ -28,11 +28,11 @@
 #include "concepts.h"
 #include "invocable_policy.h"
 #include "padding.h"
+#include "traits.h"
 
 namespace corvid { inline namespace meta {
 
-//  `flexi_function<Policy, ResultT(Args...)>` is a wrapper for an invocable
-//  target.
+//  `flexi_function<Policy, Sig>` is a wrapper for an invocable target.
 //
 //  It is a move-only type-erased callable, like `std::move_only_function` or
 //  `stdext::inplace_function`, whose storage and empty-call behavior follow a
@@ -41,15 +41,17 @@ namespace corvid { inline namespace meta {
 #pragma region Traits
 
 // Fwd.
-template<invocable_policy Policy, class Sig>
+template<invocable_policy Policy, class Sig,
+    class FunctionT = signature_function_t<Sig>>
 class flexi_function;
 
 // Trait to determine whether `T` is a `flexi_function` (of any policy).
 template<typename T>
 constexpr inline bool is_flexi_function_v = false;
 
-template<invocable_policy Policy, class Sig>
-constexpr inline bool is_flexi_function_v<flexi_function<Policy, Sig>> = true;
+template<invocable_policy Policy, class Sig, class FunctionT>
+constexpr inline bool
+    is_flexi_function_v<flexi_function<Policy, Sig, FunctionT>> = true;
 
 #pragma endregion
 #pragma region fn_details
@@ -65,11 +67,14 @@ namespace fn_details {
 // A stored callable lives either inline in the wrapper's buffer or on the
 // heap, owned by the pointer kept in that buffer. The `SourceAlloc` parameter
 // in each thunk selects how the `storage` is interpreted.
-template<class Sig>
+//
+// The second parameter mirrors `flexi_function`'s third: it is the
+// pattern-matching hook, not a choice.
+template<class Sig, class FunctionT = signature_function_t<Sig>>
 struct flexi_thunks;
 
-template<class ResultT, class... Args>
-struct flexi_thunks<ResultT(Args...)> {
+template<class Sig, class ResultT, class... Args>
+struct flexi_thunks<Sig, ResultT(Args...)> {
   // Invocation function pointer, where the `void*` is the type-erased storage.
   using invoke_fn_t = ResultT (*)(void*, Args...);
 
@@ -380,9 +385,13 @@ private:
 // (Note that wrapping either of these std polymorphic function wrappers
 // requires nesting, so there's a performance penalty; that's why it's
 // `explicit`.)
-template<invocable_policy Policy, class ResultT, class... Args>
-class flexi_function<Policy, ResultT(Args...)> {
-  using thunks = fn_details::flexi_thunks<ResultT(Args...)>;
+template<invocable_policy Policy, class Sig, class ResultT, class... Args>
+class flexi_function<Policy, Sig, ResultT(Args...)> {
+  static_assert(std::is_same_v<ResultT(Args...), signature_function_t<Sig>>,
+      "flexi_function: the third template parameter is derived from the "
+      "signature; do not pass it");
+
+  using thunks = fn_details::flexi_thunks<Sig>;
   using invoke_fn_t = thunks::invoke_fn_t;
   using lifespan_fn_t = thunks::lifespan_fn_t;
   using destination_spec = thunks::destination_spec;
@@ -416,7 +425,7 @@ class flexi_function<Policy, ResultT(Args...)> {
       "would waste the difference as padding; pass it through padded_size");
 
   // Siblings are friends.
-  template<invocable_policy, class>
+  template<invocable_policy, class, class>
   friend class flexi_function;
 
   // Actual buffer geometry: a `heap_only` instance keeps just the pointer.
@@ -500,7 +509,7 @@ public:
   // and then the constructor is `noexcept`.
   template<invocable_policy P>
   requires(P != Policy)
-  flexi_function(flexi_function<P, ResultT(Args...)>&& other) noexcept(
+  flexi_function(flexi_function<P, Sig>&& other) noexcept(
       !policy_details::adopt_may_throw(Policy, P)) {
     do_adopt(other);
   }
@@ -528,8 +537,7 @@ public:
   // instance empty.
   template<invocable_policy P>
   requires(P != Policy)
-  flexi_function&
-  operator=(flexi_function<P, ResultT(Args...)>&& other) noexcept(
+  flexi_function& operator=(flexi_function<P, Sig>&& other) noexcept(
       !policy_details::adopt_may_throw(Policy, P)) {
     if constexpr (policy_details::adopt_may_throw(Policy, P)) {
       if (!can_adopt(other))
@@ -620,7 +628,7 @@ public:
   // not promise the allocation a boxing adoption may need.
   template<invocable_policy P>
   [[nodiscard]] static bool
-  can_adopt(const flexi_function<P, ResultT(Args...)>& source) noexcept {
+  can_adopt(const flexi_function<P, Sig>& source) noexcept {
     if constexpr (Policy.alloc != invocable_alloc::inline_only) {
       return true;
     } else {
@@ -691,8 +699,8 @@ private:
   //
   // This instance must be empty on entry, and `other` is left empty.
   template<invocable_policy P>
-  void do_adopt(flexi_function<P, ResultT(Args...)>& other) {
-    using other_t = flexi_function<P, ResultT(Args...)>;
+  void do_adopt(flexi_function<P, Sig>& other) {
+    using other_t = flexi_function<P, Sig>;
     assert(!dispatch_.lifespan);
     if (!other.dispatch_.lifespan) return;
     destination_spec dest{.policy = Policy,

@@ -316,6 +316,12 @@ struct signature_traits<R(Args...) const && noexcept>
     : details::signature_traits_base<R, const_qual::present, ref_qual::rvalue,
           noexcept_spec::present, Args...> {};
 
+// The `function_t` of `Sig`: the signature with every qualifier stripped.
+//
+// An alias template, so no dependent `typename` is needed at the use site.
+template<typename Sig>
+using signature_function_t = signature_traits<Sig>::function_t;
+
 #pragma endregion
 #pragma region pointers
 

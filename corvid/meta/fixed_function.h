@@ -75,9 +75,10 @@ using fixed_function =
 template<typename T>
 constexpr inline bool is_fixed_function_v = false;
 
-template<invocable_policy Policy, class Sig>
+template<invocable_policy Policy, class Sig, class FunctionT>
 requires(Policy.alloc == invocable_alloc::inline_only)
-constexpr inline bool is_fixed_function_v<flexi_function<Policy, Sig>> = true;
+constexpr inline bool
+    is_fixed_function_v<flexi_function<Policy, Sig, FunctionT>> = true;
 
 #pragma endregion
 #pragma region fixed_function_of

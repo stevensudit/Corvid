@@ -1570,15 +1570,10 @@ concept HasSignatureTraits = requires {
   typename signature_traits<T>::result_t;
 };
 
-// The stripped `function_t` of `Sig` (an alias, so no dependent `typename`
-// at the use site).
-template<typename Sig>
-using function_t_of = signature_traits<Sig>::function_t;
-
 // Whether `Sig` decomposes to `int(char)` plus exactly the given qualifiers.
 template<typename Sig, const_qual Const, ref_qual Ref, noexcept_spec Noex>
 constexpr bool decomposes_v =
-    std::is_same_v<function_t_of<Sig>, int(char)> &&
+    std::is_same_v<signature_function_t<Sig>, int(char)> &&
     (signature_traits<Sig>::const_qualifier == Const) &&
     (signature_traits<Sig>::ref_qualifier == Ref) &&
     (signature_traits<Sig>::noexcept_specifier == Noex);
