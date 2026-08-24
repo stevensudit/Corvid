@@ -452,6 +452,16 @@ TEST_CASE("Signature qualifiers select how the target is invoked",
   CHECK(counting() == 1);
   CHECK(counting() == 2);
 
+  // An rvalue call invokes the target as an rvalue but does not consume the
+  // wrapper.
+  flexi_function<dflt, int() &&> moving{rvalue_only{}};
+  CHECK(std::move(moving)() == 7);
+  CHECK(moving);
+
+  // A const call reaches the target as const.
+  const flexi_function<dflt, int() const> constant{const_only{}};
+  CHECK(constant() == 9);
+
   // A `noexcept` signature admits only nothrow-invocable callables, and needs
   // an empty-call policy that cannot throw.
   static_assert(
@@ -460,6 +470,52 @@ TEST_CASE("Signature qualifiers select how the target is invoked",
   static_assert(
       !std::is_constructible_v<flexi_function<terminating, int() noexcept>,
           decltype([] { return 1; })>);
+}
+
+// Whether a wrapper over `Sig` under policy `P` can be called through an
+// lvalue, a const lvalue, and an rvalue, respectively.
+template<invocable_policy P, class Sig>
+constexpr bool
+calls_through(bool lvalue, bool const_lvalue, bool rvalue) noexcept {
+  using wrapper = flexi_function<P, Sig>;
+  return (std::is_invocable_v<wrapper&> == lvalue) &&
+         (std::is_invocable_v<const wrapper&> == const_lvalue) &&
+         (std::is_invocable_v<wrapper&&> == rvalue);
+}
+
+TEST_CASE("Signature qualifiers select which wrappers may call",
+    "[flexi_function]") {
+  // The six cv/ref combinations, under the default policy.
+  static_assert(calls_through<dflt, int()>(true, false, true));
+  static_assert(calls_through<dflt, int() const>(true, true, true));
+  static_assert(calls_through<dflt, int() &>(true, false, false));
+  static_assert(calls_through<dflt, int() const&>(true, true, false));
+  static_assert(calls_through<dflt, int() &&>(false, false, true));
+  static_assert(calls_through<dflt, int() const&&>(false, false, true));
+
+  // The same six with `noexcept`, which needs a non-throwing empty policy.
+  using noex_sig = int() noexcept;
+  using const_noex_sig = int() const noexcept;
+  using lref_noex_sig = int() & noexcept;
+  using const_lref_noex_sig = int() const& noexcept;
+  using rref_noex_sig = int() && noexcept;
+  using const_rref_noex_sig = int() const&& noexcept;
+  static_assert(calls_through<terminating, noex_sig>(true, false, true));
+  static_assert(calls_through<terminating, const_noex_sig>(true, true, true));
+  static_assert(calls_through<terminating, lref_noex_sig>(true, false, false));
+  static_assert(
+      calls_through<terminating, const_lref_noex_sig>(true, true, false));
+  static_assert(calls_through<terminating, rref_noex_sig>(false, false, true));
+  static_assert(
+      calls_through<terminating, const_rref_noex_sig>(false, false, true));
+
+  // The call is `noexcept` exactly when the signature is.
+  flexi_function<terminating, noex_sig> n{[]() noexcept { return 1; }};
+  static_assert(noexcept(n()));
+  CHECK(n() == 1);
+  flexi_function<dflt, int()> p{[] { return 2; }};
+  static_assert(!noexcept(p()));
+  CHECK(p() == 2);
 }
 
 #pragma endregion

@@ -399,9 +399,11 @@ private:
 // a result that cannot be value-initialized, and the raise option is refused
 // for a `noexcept` signature.
 //
-// - Currently, only `operator()` is supported, but the roadmap calls for
-// extending this to const calls, as well as variations on lvalue, rvalue,
-// and noexcept; essentially, the same as `std::move_only_function`.
+// - The signature may carry `const`, `&` or `&&`, and `noexcept`, in any
+// combination, with the meaning `std::move_only_function` gives them: the
+// cv- and ref-qualifiers say which wrappers may call and how the target is
+// invoked, and `noexcept` constrains construction to nothrow-invocable
+// callables in exchange for a `noexcept` call operator.
 //
 // - It is inflexibly move-only, because copying wrappers have limited uses,
 // and at a high cost to design choices. Essentially, a copiable wrapper would
@@ -648,10 +650,37 @@ public:
 #pragma endregion
 #pragma region Invocation
 
-  // Invoke through the type-erased invoke thunk. Intentionally disallows
-  // invocation through a `const this` and is not `noexcept` (for now).
-  ResultT operator()(Args... args) {
-    return dispatch_.invoke(storage_, std::forward<Args>(args)...);
+  // Whether the signature permits a call through a wrapper of type `Self`, as
+  // `operator()` deduces it.
+  //
+  // A `const` wrapper needs a `const` signature, an rvalue wrapper is refused
+  // by an `&` signature, and an lvalue wrapper by an `&&` one.
+  template<class Self>
+  static constexpr bool callable_through_v =
+      ((thunks::traits::const_qualifier == const_qual::present) ||
+          !std::is_const_v<std::remove_reference_t<Self>>) &&
+      ((thunks::traits::ref_qualifier == ref_qual::none) ||
+          ((thunks::traits::ref_qualifier == ref_qual::lvalue) ==
+              std::is_lvalue_reference_v<Self>));
+
+  // Invoke through the type-erased invoke thunk.
+  //
+  // One member covers every cv/ref qualification because `Self` deduces the
+  // calling wrapper's constness and value category, and the constraint admits
+  // exactly what the signature permits.
+  //
+  // The thunk applies the signature's qualifiers to the target itself, which
+  // is why casting away the buffer's constness for a `const` call is sound:
+  // the target is only ever reached as `const`.
+  //
+  // The call is `noexcept` exactly when the signature is, which the
+  // construction constraint and the `on_empty` checks above make sound.
+  template<class Self>
+  requires(callable_through_v<Self>)
+  ResultT
+  operator()(this Self&& self, Args... args) noexcept(thunks::noexcept_call) {
+    return self.dispatch_.invoke(const_cast<std::byte*>(self.storage_),
+        std::forward<Args>(args)...);
   }
 
 #pragma endregion
