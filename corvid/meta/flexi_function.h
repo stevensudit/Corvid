@@ -84,21 +84,21 @@ struct flexi_thunks<Sig, ResultT(Args...)> {
 
   // `F` with the signature's cv-qualifier applied.
   template<class F>
-  using cv_target_t = std::conditional_t<
+  using cv_qualified_target_t = std::conditional_t<
       traits::const_qualifier == const_qual::present, const F, F>;
 
-  // How the stored callable is invoked: with the signature's cv-qualifier
-  // applied, and as an lvalue unless the signature is `&&`-qualified.
+  // `F` with the signature's qualifiers applied, which is how the stored
+  // target is invoked: `F cv&`, or `F cv&&` under an `&&` signature.
   //
   // As with `std::move_only_function`, an unqualified and an `&`-qualified
   // signature both invoke the target as an lvalue; the difference between them
   // is entirely in what call operators the wrapper exposes.
   template<class F>
-  using invoked_t =
+  using qualified_target_t =
       std::conditional_t<traits::ref_qualifier == ref_qual::rvalue,
-          cv_target_t<F>&&, cv_target_t<F>&>;
+          cv_qualified_target_t<F>&&, cv_qualified_target_t<F>&>;
 
-  // Whether `F`, invoked as `invoked_t<F>`, yields `ResultT`, without
+  // Whether `F`, invoked as `qualified_target_t<F>`, yields `ResultT`, without
   // throwing for a `noexcept` signature.
   //
   // Construction and assignment are constrained on this to force the user to
@@ -106,8 +106,9 @@ struct flexi_thunks<Sig, ResultT(Args...)> {
   template<class F>
   static constexpr bool invocable_v =
       noexcept_call
-          ? std::is_nothrow_invocable_r_v<ResultT, invoked_t<F>, Args...>
-          : std::is_invocable_r_v<ResultT, invoked_t<F>, Args...>;
+          ? std::is_nothrow_invocable_r_v<ResultT, qualified_target_t<F>,
+                Args...>
+          : std::is_invocable_r_v<ResultT, qualified_target_t<F>, Args...>;
 
   // Invocation function pointer, where the `void*` is the type-erased storage.
   using invoke_fn_t = ResultT (*)(void*, Args...) noexcept(noexcept_call);
@@ -162,7 +163,8 @@ struct flexi_thunks<Sig, ResultT(Args...)> {
   static ResultT
   invoke_impl(void* storage, Args... args) noexcept(noexcept_call) {
     return std::invoke_r<ResultT>(
-        static_cast<invoked_t<F>>(*stored_fn<F, SourceAlloc>(storage)),
+        static_cast<qualified_target_t<F>>(
+            *stored_fn<F, SourceAlloc>(storage)),
         std::forward<Args>(args)...);
   }
 
@@ -429,13 +431,11 @@ class flexi_function<Policy, Sig, ResultT(Args...)> {
 
   using thunks = fn_details::flexi_thunks<Sig>;
 
-  // The stored callable as the signature invokes it.
+  // The stored callable with the signature's qualifiers applied.
   template<class F>
-  using invoked_t = thunks::template invoked_t<F>;
+  using qualified_target_t = thunks::template qualified_target_t<F>;
 
-  // The stored callable with the signature's cv-qualifier applied.
   using invoke_fn_t = thunks::invoke_fn_t;
-
   using lifespan_fn_t = thunks::lifespan_fn_t;
   using destination_spec = thunks::destination_spec;
   using thunk_pair = thunks::thunk_pair;
@@ -502,8 +502,8 @@ public:
   flexi_function& operator=(const flexi_function&) = delete;
 
   // Implicitly construct from any callable that the signature can invoke:
-  // one that, invoked as `invoked_t`, yields `ResultT` (and for a `noexcept`
-  // signature, without throwing).
+  // one that, invoked as `qualified_target_t`, yields `ResultT` (and for a
+  // `noexcept` signature, without throwing).
   //
   // The callable is consumed (moved, or copied when that is trivial, see
   // `Consumable`) into internal storage, or onto the heap when the policy
@@ -536,9 +536,9 @@ public:
   // exception to the zero-allocation guarantee under `inline_only`.
   //
   // Invocability is checked the same way as for any other callable: the
-  // wrapped wrapper is invoked as `invoked_t`. So an unqualified signature
-  // admits a `std::move_only_function<int() &>` and rejects an `int() &&`
-  // one, while an `&&`-qualified signature does the reverse.
+  // wrapped wrapper is invoked as `qualified_target_t`. So an unqualified
+  // signature admits a `std::move_only_function<int() &>` and rejects an
+  // `int() &&` one, while an `&&`-qualified signature does the reverse.
   template<Consumable FN>
   requires(is_std_function_wrapper_v<std::decay_t<FN>> &&
            thunks::template invocable_v<std::decay_t<FN>>)
@@ -733,7 +733,8 @@ private:
         "the callable, so its destructor must be noexcept");
     static_assert(
         !std::is_reference_v<ResultT> ||
-            std::is_reference_v<std::invoke_result_t<invoked_t<FD>, Args...>>,
+            std::is_reference_v<
+                std::invoke_result_t<qualified_target_t<FD>, Args...>>,
         "flexi_function: callable returns a prvalue but ResultT is a "
         "reference type; every call would produce a dangling reference");
     assert(!dispatch_.lifespan);
