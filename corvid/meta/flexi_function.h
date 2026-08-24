@@ -62,16 +62,17 @@ namespace fn_details {
 // callable between them.
 //
 // A stored callable lives either inline in the wrapper's buffer or on the
-// heap, owned by the pointer kept in that buffer. `SourceAlloc` selects which,
-// while `p` is always the buffer itself.
+// heap, owned by the pointer kept in that buffer. The `SourceAlloc` parameter
+// in each thunk selects how the `storage` is interpreted.
 template<class Sig>
 struct flexi_thunks;
 
 template<class ResultT, class... Args>
 struct flexi_thunks<ResultT(Args...)> {
+  // Invocation function pointer, where the `void*` is the type-erased storage.
   using invoke_fn_t = ResultT (*)(void*, Args...);
 
-  struct destination_spec;
+  struct destination_spec; // Fwd.
 
   // Lifespan manager.
   //
@@ -115,10 +116,11 @@ struct flexi_thunks<ResultT(Args...)> {
     void* to;
   };
 
-  // Invoke the stored callable, where `p` is the wrapper's type-erased buffer.
+  // Invoke the stored callable, where `storage` is the wrapper's type-erased
+  // buffer.
   template<class F, allocation_mode SourceAlloc>
-  static ResultT invoke_impl(void* p, Args... args) {
-    return std::invoke_r<ResultT>(*stored_fn<F, SourceAlloc>(p),
+  static ResultT invoke_impl(void* storage, Args... args) {
+    return std::invoke_r<ResultT>(*stored_fn<F, SourceAlloc>(storage),
         std::forward<Args>(args)...);
   }
 
@@ -244,16 +246,16 @@ struct flexi_thunks<ResultT(Args...)> {
   }
 
 private:
-  // The stored callable inside buffer `p`.
+  // The stored callable inside `storage`.
   //
-  // An inline callable is constructed in the buffer itself, so `p` points at
-  // it directly. A heap callable is instead reached through the `F*` that the
-  // buffer holds, hence the extra dereference.
+  // An inline callable is constructed in the buffer itself, so `storage`
+  // points at it directly. A heap callable is instead reached through the
+  // `F*` that the buffer holds, hence the extra dereference.
   template<class F, allocation_mode SourceAlloc>
-  static F* stored_fn(void* p) noexcept {
+  static F* stored_fn(void* storage) noexcept {
     return (SourceAlloc == allocation_mode::dynamic)
-               ? *static_cast<F**>(p)
-               : static_cast<F*>(p);
+               ? *static_cast<F**>(storage)
+               : static_cast<F*>(storage);
   }
 
   // Hand the heap block at `f` over to `dest`, which admits heap storage, and
@@ -409,9 +411,8 @@ class flexi_function<Policy, ResultT(Args...)> {
   static constexpr size_t buf_align =
       supports_inline ? Policy.inline_align : alignof(void*);
 
-public:
 #pragma region Creation
-
+public:
   static constexpr invocable_policy policy = Policy;
 
   // Inline storage capacity in bytes, 0 for a `heap_only` policy.
