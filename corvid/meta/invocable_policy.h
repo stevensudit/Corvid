@@ -63,14 +63,18 @@ enum class invocable_alloc : std::uint8_t {
 // `on_empty` is what invoking an empty owner does.
 //
 // `silent` returns a value-initialized result (or nothing, for `void`).
-// Invalid when the result type does not fit these criteria.
+// Invalid when the result cannot be value-initialized, and, when the call
+// operator is `noexcept`, when that value-initialization can throw.
 //
 // `raise` throws `std::bad_function_call`, as `std::function` does. Invalid
 // when the call operator is `noexcept`.
 //
-// `terminate` calls `std::terminate`. When neither of the other two options
-// are valid (because the result cannot be value-initialized and the call
-// operator is `noexcept)`, this is the remaining choice.
+// `terminate` calls `std::terminate`. Always valid, and the only choice when
+// the call operator is `noexcept` and the result cannot be value-initialized
+// without throwing.
+//
+// By design, termination on an empty call is never reached by accident; it has
+// to be asked for by name.
 enum class on_empty : std::uint8_t { silent, raise, terminate };
 
 #pragma endregion

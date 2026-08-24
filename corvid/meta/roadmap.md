@@ -79,12 +79,16 @@ needs a qualified signature:
   not follow the stored callable's own `noexcept` (type erasure cannot);
   it constrains construction to nothrow-invocable callables and gets a
   `noexcept` call operator in exchange.
-- Reconcile with `on_failure`. A `noexcept` call operator composes with
-  `ignore` (an empty call returns `R{}`, nothrow when `R` is
-  nothrow-value-initializable) but contradicts `raise`, whose contract is to
-  throw on empty. The standard's answer is that an empty call is undefined;
-  ours would be to reject `raise` with a `noexcept` signature at compile
-  time, or document that it terminates. Decide when the feature is built.
+- Reconcile with `on_empty`. Decided, and the enum landed: a `noexcept`
+  call operator refuses `raise` at compile time, admits `silent` only when
+  `R` is nothrow-value-initializable (or `void`), and always admits
+  `terminate`, which calls `std::terminate` on an empty call. The standard
+  leaves an empty call undefined; ours never terminates by accident, only
+  when asked for by name. Separately, `flexi_function` refuses `silent` on a
+  result that cannot be value-initialized at all (proxy keeps the
+  per-method fallback to `raise`, since a facade mixes methods). What
+  remains is wiring the `noexcept` checks in once such signatures are
+  admitted.
 
 Sequencing is settled: qualified signatures land before the proxy
 catch-up. Proxy's method descriptors already carry their own
