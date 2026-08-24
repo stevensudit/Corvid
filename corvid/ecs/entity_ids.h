@@ -20,10 +20,9 @@
 #include <limits>
 
 #include "../enums.h"
-#include "../enums/bool_enums.h"
+#include "../meta/bool_enums.h"
 
 namespace corvid { inline namespace ecs {
-using namespace bool_enums;
 using corvid::enums::sequence::ops::operator*;
 
 namespace id_enums {

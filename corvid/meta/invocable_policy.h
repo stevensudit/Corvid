@@ -15,12 +15,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 #pragma once
-#pragma once
 #include <cstddef>
 #include <cstdint>
 #include <type_traits>
 
-#include "meta_enums.h"
+#include "bool_enums.h"
 
 namespace corvid { inline namespace meta {
 
@@ -86,10 +85,10 @@ enum class invocable_alloc : std::uint8_t {
 // `std::bad_function_call`, as `std::function` does. With `ignore`, it returns
 // a value-initialized result.
 //
-/// A result type that cannot be value-initialized (a reference, or a type
-/// without a default constructor) falls back to `raise` for that call, which
-/// lets one policy serve a facade whose methods differ in this respect. The
-/// behavior is baked into the owner's type; it cannot be changed at runtime.
+// A result type that cannot be value-initialized (a reference, or a type
+// without a default constructor) falls back to `raise` for that call, which
+// lets one policy serve a facade whose methods differ in this respect. The
+// behavior is baked into the owner's type; it cannot be changed at runtime.
 //
 // For `proxy`, policies are checked at proxy construction, not at
 // registration. Registration is per (facade, type) and knows nothing about

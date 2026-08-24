@@ -38,7 +38,7 @@
 #include "../iov_msghdr.h"
 #include "../net_endpoint.h"
 #include "../../infra/relaxed_atomic.h"
-#include "../../enums/bool_enums.h"
+#include "../../meta/bool_enums.h"
 #include "../../strings/any_strings.h"
 #include "../../strings/no_zero.h"
 #include "epoll_loop.h"

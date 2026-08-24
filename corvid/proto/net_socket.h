@@ -31,14 +31,13 @@
 
 #include <sys/socket.h>
 
-#include "../enums/bool_enums.h"
+#include "../meta/bool_enums.h"
 #include "../filesys/os_file.h"
 #include "sockaddr_view.h"
 #include "socket_enums.h"
 
 namespace corvid { inline namespace proto {
 using namespace std::chrono_literals;
-using namespace bool_enums;
 
 #pragma region net_socket
 

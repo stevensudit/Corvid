@@ -19,6 +19,7 @@
 #include "meta/traits.h"
 #include "meta/concepts.h"
 #include "meta/enums.h"
+#include "meta/bool_enums.h"
 #include "meta/naming.h"
 #include "meta/containers.h"
 #include "meta/forward_like.h"

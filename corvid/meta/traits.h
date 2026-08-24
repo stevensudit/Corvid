@@ -18,6 +18,7 @@
 #include <array>
 #include <concepts>
 #include <cstddef>
+#include <cstdint>
 #include <functional>
 #include <initializer_list>
 #include <optional>
@@ -206,6 +207,107 @@ constexpr bool is_initializer_list_v =
     is_specialization_of_v<T, std::initializer_list>;
 
 #pragma endregion
+#pragma endregion
+#pragma region Signatures
+
+// The reference qualifier of a function signature: `none`, `lvalue` (`&`), or
+// `rvalue` (`&&`).
+enum class ref_qual : uint8_t { none, lvalue, rvalue };
+
+namespace details {
+
+// Common base supplying the members for the `signature_traits`
+// specializations.
+template<typename R, bool Const, ref_qual Ref, bool Noex, typename... Args>
+struct signature_traits_base {
+  using result_t = R;
+  using args_t = std::tuple<Args...>;
+  using function_t = R(Args...);
+  static constexpr bool is_const = Const;
+  static constexpr ref_qual ref = Ref;
+  static constexpr bool is_noexcept = Noex;
+};
+
+} // namespace details
+
+// `signature_traits`: the decomposition of a function signature into its
+// result, parameters, and qualifiers.
+//
+// A signature here is what `std::move_only_function` accepts as `Sig`: a
+// function type `R(Args...)`, optionally qualified by `const`, by a reference
+// (`&` or `&&`), and by `noexcept`, for twelve variants in all.
+//
+// The trait provides `result_t`, `args_t` (the parameter types, as a
+// `std::tuple`), `function_t` (the signature with every qualifier stripped,
+// `noexcept` included), and one constant per qualifier axis: `is_const`,
+// `ref`, and `is_noexcept`.
+//
+// Only the twelve variants are specialized, so the trait doubles as the gate
+// for what counts as a signature: anything else, `volatile` qualification and
+// C-style variadics included, leaves the primary undefined.
+template<typename Sig>
+struct signature_traits;
+
+template<typename R, typename... Args>
+struct signature_traits<R(Args...)>
+    : details::signature_traits_base<R, false, ref_qual::none, false,
+          Args...> {};
+
+template<typename R, typename... Args>
+struct signature_traits<R(Args...) noexcept>
+    : details::signature_traits_base<R, false, ref_qual::none, true, Args...> {
+};
+
+template<typename R, typename... Args>
+struct signature_traits<R(Args...) const>
+    : details::signature_traits_base<R, true, ref_qual::none, false, Args...> {
+};
+
+template<typename R, typename... Args>
+struct signature_traits<R(Args...) const noexcept>
+    : details::signature_traits_base<R, true, ref_qual::none, true, Args...> {
+};
+
+template<typename R, typename... Args>
+struct signature_traits<R(Args...) &>
+    : details::signature_traits_base<R, false, ref_qual::lvalue, false,
+          Args...> {};
+
+template<typename R, typename... Args>
+struct signature_traits<R(Args...) & noexcept>
+    : details::signature_traits_base<R, false, ref_qual::lvalue, true,
+          Args...> {};
+
+template<typename R, typename... Args>
+struct signature_traits<R(Args...) const&>
+    : details::signature_traits_base<R, true, ref_qual::lvalue, false,
+          Args...> {};
+
+template<typename R, typename... Args>
+struct signature_traits<R(Args...) const & noexcept>
+    : details::signature_traits_base<R, true, ref_qual::lvalue, true,
+          Args...> {};
+
+template<typename R, typename... Args>
+struct signature_traits<R(Args...) &&>
+    : details::signature_traits_base<R, false, ref_qual::rvalue, false,
+          Args...> {};
+
+template<typename R, typename... Args>
+struct signature_traits<R(Args...) && noexcept>
+    : details::signature_traits_base<R, false, ref_qual::rvalue, true,
+          Args...> {};
+
+template<typename R, typename... Args>
+struct signature_traits<R(Args...) const&&>
+    : details::signature_traits_base<R, true, ref_qual::rvalue, false,
+          Args...> {};
+
+template<typename R, typename... Args>
+struct signature_traits<R(Args...) const && noexcept>
+    : details::signature_traits_base<R, true, ref_qual::rvalue, true,
+          Args...> {};
+
 #pragma endregion
 #pragma region pointers
 

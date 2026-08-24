@@ -305,8 +305,6 @@ TEST_CASE("BindListenAccept", "[NetSocket]") {
 #pragma region FactoryMethods
 
 TEST_CASE("FactoryMethods", "[NetSocket]") {
-  using namespace bool_enums;
-
   // create_ipv4 defaults to non-blocking TCP.
   if (true) {
     if (!is_codex()) {

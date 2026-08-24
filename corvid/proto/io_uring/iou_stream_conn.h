@@ -27,14 +27,13 @@
 
 #include "../../infra/exception_firewalls.h"
 #include "../../concurrency/idle_timeout.h"
-#include "../../enums/bool_enums.h"
+#include "../../meta/bool_enums.h"
 #include "../net_endpoint.h"
 #include "iou_buf_pool.h"
 #include "iou_loop.h"
 #include "iou_wrap.h"
 
 namespace corvid { inline namespace proto { namespace iouring {
-using namespace bool_enums;
 
 // Fwd.
 template<typename ConnPlugin>

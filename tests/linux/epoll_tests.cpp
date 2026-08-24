@@ -337,8 +337,6 @@ TEST_CASE("NotifyRead", "[EventFd]") {
 #pragma region EventFd_Create
 
 TEST_CASE("Create", "[EventFd]") {
-  using namespace bool_enums;
-
   // Default: non-blocking counter mode, initial value 0.
   if (true) {
     auto e = os_event::create();
@@ -371,8 +369,6 @@ TEST_CASE("Create", "[EventFd]") {
 #pragma region EventFd_SemaphoreMode
 
 TEST_CASE("SemaphoreMode", "[EventFd]") {
-  using namespace bool_enums;
-
   // With initial value 3, each read consumes exactly 1 token and returns 1.
   if (true) {
     auto e = os_event::create(3, event_mode::semaphore);

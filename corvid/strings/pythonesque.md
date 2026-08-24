@@ -65,8 +65,9 @@ input for further analysis, not a commitment to build any particular item.
   the generator because the Python rule that a trailing line break adds no
   trailing empty line cannot be expressed by a generator finder or filter
   (neither can tell final-empty from interior-empty). Python's `keepends` is
-  the `line_ends::keep` / `discard` two-value enum, defined locally because
-  the strings band cannot depend on `bool_enums.h`. ASCII scope: the exotic Python line
+  the `line_ends::keep` / `discard` two-value enum, defined locally
+  (at the time, `bool_enums.h` lived in the enums band, which strings cannot
+  depend on; it is now in meta). ASCII scope: the exotic Python line
   breaks (`\v`, `\f`, `\x1c` through `\x1e`, `\x85`, `\u2028`, `\u2029`) are
   deliberately out.
 - `rsplit` and `maxsplit`: split from the right, and split-at-most-N. The

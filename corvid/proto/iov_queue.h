@@ -29,11 +29,10 @@
 
 #include "../meta/crossplatform.h"
 
-#include "../enums/bool_enums.h"
+#include "../meta/bool_enums.h"
 #include "../meta/maybe.h"
 
 namespace corvid { inline namespace proto {
-using namespace bool_enums;
 
 #pragma region iov_queue
 

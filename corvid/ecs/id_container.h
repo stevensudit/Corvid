@@ -24,7 +24,7 @@
 #include <utility>
 
 #include "../containers/utils/enum_vector.h"
-#include "../enums/bool_enums.h"
+#include "../meta/bool_enums.h"
 #include "../math/arithmetic.h"
 #include "entity_ids.h"
 

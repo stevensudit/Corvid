@@ -48,7 +48,7 @@ The pending `proxy` changes, in the order to land them:
   vocabulary contracts, and the proxy.md storage-policy section can point at
   `invocable_policy.h` as the single description.
 
-## Deferred: qualified signatures for flexi_function
+## In progress: qualified signatures for flexi_function
 
 `flexi_function` accepts only a plain `R(Args...)` signature, and its
 `operator()` is mutable-only and never `noexcept`. `std::move_only_function`
@@ -60,10 +60,16 @@ the `noexcept` flag.
 The C++23 answer is smaller, and is the shape to build if a caller ever
 needs a qualified signature:
 
-- Pattern-match once. A `signature_traits<Sig>` with the twelve trivial
-  partial specializations (aliases for `R` and `Args...`, three `bool`s)
-  does the matching, so the class body sits behind one specialization on
-  the decomposed parts rather than twelve copies.
+- Pattern-match once. Landed: `signature_traits<Sig>` in meta/traits.h
+  holds the twelve trivial partial specializations, each a one-liner over a
+  shared base supplying `result_t`, `args_t` (a tuple), `function_t` (the
+  signature with every qualifier stripped, `noexcept` included), and one
+  constant per qualifier axis: `is_const`, `ref`, and `is_noexcept`. The
+  `ref` axis is a three-way `ref_qual` enum rather than a pair of exclusive
+  bools. The undefined primary doubles as the gate for what counts as a
+  signature. Truth-table coverage in meta_test.cpp. What remains is the
+  class body sitting behind one specialization on the decomposed parts
+  rather than twelve copies, per the points below.
 - One call operator. Deducing `this` covers all six cv/ref combinations in a
   single member, with a `requires` clause admitting exactly the
   qualifications the signature permits, and `noexcept(noex)` as a computed
@@ -79,12 +85,12 @@ needs a qualified signature:
   ours would be to reject `raise` with a `noexcept` signature at compile
   time, or document that it terminates. Decide when the feature is built.
 
-Sequencing is not settled. The wrapper work above lands first either way;
-the open question is whether qualified signatures come before or after the
-proxy catch-up. Leaning before: proxy's method descriptors already carry
-their own `Const`/`Noexcept` flags (`method_key`), and the empty-vtable work
-must reason about each method's qualifiers, so a shared `signature_traits`
-vocabulary would serve both rather than being retrofitted.
+Sequencing is settled: qualified signatures land before the proxy
+catch-up. Proxy's method descriptors already carry their own
+`Const`/`Noexcept` flags (`method_key`), and the empty-vtable work must
+reason about each method's qualifiers, so `method_key` adopts the
+`signature_traits` vocabulary when the proxy work lands rather than having
+it retrofitted.
 
 ## Deferred: direct-call thunks for compile-time-known targets
 

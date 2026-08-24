@@ -1561,5 +1561,71 @@ TEST_CASE("TupleMetafunctions", "[MetaTest]") {
 
 #pragma endregion
 
+#pragma region SignatureTraits
+
+// Whether `signature_traits<T>` is specialized, which is what admits `T` as
+// a signature.
+template<typename T>
+concept HasSignatureTraits = requires {
+  typename signature_traits<T>::result_t;
+};
+
+// The stripped `function_t` of `Sig` (an alias, so no dependent `typename`
+// at the use site).
+template<typename Sig>
+using function_t_of = signature_traits<Sig>::function_t;
+
+// Whether `Sig` decomposes to `int(char)` plus exactly the given qualifiers.
+template<typename Sig, bool Const, ref_qual Ref, bool Noex>
+constexpr bool decomposes_v =
+    std::is_same_v<function_t_of<Sig>, int(char)> &&
+    (signature_traits<Sig>::is_const == Const) &&
+    (signature_traits<Sig>::ref == Ref) &&
+    (signature_traits<Sig>::is_noexcept == Noex);
+
+TEST_CASE("SignatureTraits", "[MetaTest]") {
+  // The twelve qualified variants, decomposed.
+  static_assert(decomposes_v<int(char), false, ref_qual::none, false>);
+  static_assert(decomposes_v<int(char) noexcept, false, ref_qual::none, true>);
+  static_assert(decomposes_v<int(char) const, true, ref_qual::none, false>);
+  static_assert(
+      decomposes_v<int(char) const noexcept, true, ref_qual::none, true>);
+  static_assert(decomposes_v<int(char) &, false, ref_qual::lvalue, false>);
+  static_assert(
+      decomposes_v<int(char) & noexcept, false, ref_qual::lvalue, true>);
+  static_assert(decomposes_v<int(char) const&, true, ref_qual::lvalue, false>);
+  static_assert(
+      decomposes_v<int(char) const & noexcept, true, ref_qual::lvalue, true>);
+  static_assert(decomposes_v<int(char) &&, false, ref_qual::rvalue, false>);
+  // clang-format misreads `&& noexcept` in a template argument list as an
+  // operator, so the two rvalue noexcept variants go through aliases.
+  using rref_noex_sig = int(char) && noexcept;
+  using const_rref_noex_sig = int(char) const&& noexcept;
+  static_assert(decomposes_v<rref_noex_sig, false, ref_qual::rvalue, true>);
+  static_assert(
+      decomposes_v<int(char) const&&, true, ref_qual::rvalue, false>);
+  static_assert(
+      decomposes_v<const_rref_noex_sig, true, ref_qual::rvalue, true>);
+
+  // Result and parameters come through unchanged, references included.
+  using st = signature_traits<void(int&, double&&) const&&>;
+  static_assert(std::is_void_v<st::result_t>);
+  static_assert(std::is_same_v<st::args_t, std::tuple<int&, double&&>>);
+  static_assert(std::is_same_v<st::function_t, void(int&, double&&)>);
+
+  // Only the twelve variants qualify: not a non-function, a pointer to one,
+  // a `volatile`-qualified one, or a C-variadic one.
+  static_assert(HasSignatureTraits<int(char)>);
+  static_assert(!HasSignatureTraits<int>);
+  static_assert(!HasSignatureTraits<int (*)(char)>);
+  static_assert(!HasSignatureTraits<int(char) volatile>);
+  static_assert(!HasSignatureTraits<int(char, ...)>);
+
+  // Runtime anchor so the case is not assert-only.
+  CHECK_FALSE(signature_traits<int(char)>::is_noexcept);
+}
+
+#pragma endregion
+
 // NOLINTEND(readability-function-size)
 // NOLINTEND(readability-function-cognitive-complexity)

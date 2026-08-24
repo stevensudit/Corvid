@@ -33,7 +33,7 @@
 #include "../../strings/string_literals.h"
 #include "../../infra/exception_firewalls.h"
 #include "../../meta/crossplatform.h"
-#include "../../enums/bool_enums.h"
+#include "../../meta/bool_enums.h"
 #include "../../strings/delimiting.h"
 #include "../../strings/conversion.h"
 #include "../../strings/targeting.h"
@@ -44,7 +44,6 @@ namespace corvid { inline namespace proto { inline namespace json {
 using namespace strings::cases;
 using namespace strings::literals;
 using namespace strings::conversion;
-using namespace corvid::enums::bool_enums;
 
 #pragma region json_kind
 
