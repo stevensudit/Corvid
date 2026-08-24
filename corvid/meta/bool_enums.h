@@ -28,7 +28,7 @@ namespace corvid { inline namespace meta { inline namespace bool_enums {
 #pragma region Boolean enums
 
 // Whether to access values as const or as mutable.
-enum class access : bool { as_const = false, as_mutable = true };
+enum class access_mode : bool { as_const = false, as_mutable = true };
 
 // Whether to enable generation counters for stale-reference detection or save
 // memory by avoiding any versioning.

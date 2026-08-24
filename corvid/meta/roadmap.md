@@ -64,9 +64,10 @@ needs a qualified signature:
   holds the twelve trivial partial specializations, each a one-liner over a
   shared base supplying `result_t`, `args_t` (a tuple), `function_t` (the
   signature with every qualifier stripped, `noexcept` included), and one
-  constant per qualifier axis: `is_const`, `ref`, and `is_noexcept`. The
-  `ref` axis is a three-way `ref_qual` enum rather than a pair of exclusive
-  bools. The undefined primary doubles as the gate for what counts as a
+  constant per axis: `const_qualifier`, `ref_qualifier`, and
+  `noexcept_specifier`, each typed by its own enum (`const_qual`,
+  `ref_qual`, `noexcept_spec`) rather than by a bool, with the ref axis
+  three-way. The undefined primary doubles as the gate for what counts as a
   signature. Truth-table coverage in meta_test.cpp. What remains is the
   class body sitting behind one specialization on the decomposed parts
   rather than twelve copies, per the points below.

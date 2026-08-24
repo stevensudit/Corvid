@@ -1576,36 +1576,43 @@ template<typename Sig>
 using function_t_of = signature_traits<Sig>::function_t;
 
 // Whether `Sig` decomposes to `int(char)` plus exactly the given qualifiers.
-template<typename Sig, bool Const, ref_qual Ref, bool Noex>
+template<typename Sig, const_qual Const, ref_qual Ref, noexcept_spec Noex>
 constexpr bool decomposes_v =
     std::is_same_v<function_t_of<Sig>, int(char)> &&
-    (signature_traits<Sig>::is_const == Const) &&
-    (signature_traits<Sig>::ref == Ref) &&
-    (signature_traits<Sig>::is_noexcept == Noex);
+    (signature_traits<Sig>::const_qualifier == Const) &&
+    (signature_traits<Sig>::ref_qualifier == Ref) &&
+    (signature_traits<Sig>::noexcept_specifier == Noex);
 
 TEST_CASE("SignatureTraits", "[MetaTest]") {
   // The twelve qualified variants, decomposed.
-  static_assert(decomposes_v<int(char), false, ref_qual::none, false>);
-  static_assert(decomposes_v<int(char) noexcept, false, ref_qual::none, true>);
-  static_assert(decomposes_v<int(char) const, true, ref_qual::none, false>);
-  static_assert(
-      decomposes_v<int(char) const noexcept, true, ref_qual::none, true>);
-  static_assert(decomposes_v<int(char) &, false, ref_qual::lvalue, false>);
-  static_assert(
-      decomposes_v<int(char) & noexcept, false, ref_qual::lvalue, true>);
-  static_assert(decomposes_v<int(char) const&, true, ref_qual::lvalue, false>);
-  static_assert(
-      decomposes_v<int(char) const & noexcept, true, ref_qual::lvalue, true>);
-  static_assert(decomposes_v<int(char) &&, false, ref_qual::rvalue, false>);
+  static_assert(decomposes_v<int(char), const_qual::none, ref_qual::none,
+      noexcept_spec::none>);
+  static_assert(decomposes_v<int(char) noexcept, const_qual::none,
+      ref_qual::none, noexcept_spec::present>);
+  static_assert(decomposes_v<int(char) const, const_qual::present,
+      ref_qual::none, noexcept_spec::none>);
+  static_assert(decomposes_v<int(char) const noexcept, const_qual::present,
+      ref_qual::none, noexcept_spec::present>);
+  static_assert(decomposes_v<int(char) &, const_qual::none, ref_qual::lvalue,
+      noexcept_spec::none>);
+  static_assert(decomposes_v<int(char) & noexcept, const_qual::none,
+      ref_qual::lvalue, noexcept_spec::present>);
+  static_assert(decomposes_v<int(char) const&, const_qual::present,
+      ref_qual::lvalue, noexcept_spec::none>);
+  static_assert(decomposes_v<int(char) const & noexcept, const_qual::present,
+      ref_qual::lvalue, noexcept_spec::present>);
+  static_assert(decomposes_v<int(char) &&, const_qual::none, ref_qual::rvalue,
+      noexcept_spec::none>);
   // clang-format misreads `&& noexcept` in a template argument list as an
   // operator, so the two rvalue noexcept variants go through aliases.
   using rref_noex_sig = int(char) && noexcept;
   using const_rref_noex_sig = int(char) const&& noexcept;
-  static_assert(decomposes_v<rref_noex_sig, false, ref_qual::rvalue, true>);
-  static_assert(
-      decomposes_v<int(char) const&&, true, ref_qual::rvalue, false>);
-  static_assert(
-      decomposes_v<const_rref_noex_sig, true, ref_qual::rvalue, true>);
+  static_assert(decomposes_v<rref_noex_sig, const_qual::none, ref_qual::rvalue,
+      noexcept_spec::present>);
+  static_assert(decomposes_v<int(char) const&&, const_qual::present,
+      ref_qual::rvalue, noexcept_spec::none>);
+  static_assert(decomposes_v<const_rref_noex_sig, const_qual::present,
+      ref_qual::rvalue, noexcept_spec::present>);
 
   // Result and parameters come through unchanged, references included.
   using st = signature_traits<void(int&, double&&) const&&>;
@@ -1622,7 +1629,8 @@ TEST_CASE("SignatureTraits", "[MetaTest]") {
   static_assert(!HasSignatureTraits<int(char, ...)>);
 
   // Runtime anchor so the case is not assert-only.
-  CHECK_FALSE(signature_traits<int(char)>::is_noexcept);
+  CHECK(
+      signature_traits<int(char)>::noexcept_specifier == noexcept_spec::none);
 }
 
 #pragma endregion
