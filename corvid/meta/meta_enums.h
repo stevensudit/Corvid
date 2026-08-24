@@ -30,5 +30,9 @@ namespace corvid { inline namespace meta {
 // Whether to throw on failure or fail silently.
 enum class on_failure : bool { ignore = false, raise = true };
 
+// Whether a type-erased owner stores its target in its own inline buffer or
+// in a dynamic allocation it points to.
+enum class allocation_mode : bool { inlined = false, dynamic = true };
+
 #pragma endregion
 }} // namespace corvid::meta

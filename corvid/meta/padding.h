@@ -31,8 +31,8 @@ namespace corvid { inline namespace meta {
 // capacity what the compiler would otherwise waste as padding.
 //
 // A size-parameterized buffer, such as `fixed_function`'s `SZ` or a proxy
-// policy's `sbo_size`, occupies a multiple of its alignment regardless of the
-// size requested, so a request between multiples would pay for the padding
+// policy's `inline_size`, occupies a multiple of its alignment regardless of
+// the size requested, so a request between multiples would pay for the padding
 // without getting to use it. Those classes therefore reject such sizes, and
 // this helper turns a byte budget into a conforming one. The alignment
 // defaults to that of `std::max_align_t`, matching the default alignment of

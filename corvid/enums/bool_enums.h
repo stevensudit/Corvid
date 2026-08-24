@@ -49,6 +49,10 @@ enum class deallocation_policy : bool { preserve = false, release = true };
 // `meta/meta_enums.h`, where the foundation band can reach it.
 using meta::on_failure;
 
+// Whether a type-erased owner stores its target inline or dynamically. Also
+// defined in `meta/meta_enums.h`.
+using meta::allocation_mode;
+
 // Whether the resource is owned exclusively or is shared.
 enum class ownership_type : bool { unique = false, shared = true };
 

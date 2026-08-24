@@ -129,7 +129,7 @@ namespace details {
 using policy_details::adopt_may_throw;
 using policy_details::can_store_inline;
 using policy_details::inline_fit_guaranteed;
-using policy_details::sbo_fits;
+using policy_details::inline_eligible;
 
 // `name_is_unqualified`: whether `s` avoids the `"::"` separator, which
 // qualified keys reserve for splitting the facade name from the method name.
@@ -1732,7 +1732,7 @@ struct vtable_builder<facade<Es...>>
   // `heap_table`, which is how a `heap_only` proxy adopts an erased inline
   // arrival, and a heap-mode table carries `to_sbo` plus `sbo_table` (null
   // when the target is not nothrow-move-constructible and so can never live
-  // inline), the un-boxing inverse for an `sbo_only` proxy.
+  // inline), the un-boxing inverse for an `inline_only` proxy.
   //
   // `ancestry` names the born family's birth ancestry for this mode (see
   // `ancestry_for`): the facade the target was constructed as plus every
@@ -2571,7 +2571,7 @@ requires Proxiable<T, F>
 // that upcasts. The source's policy never matters: this proxy accommodates
 // whatever target actually arrives, changing its storage mode when the
 // policy demands it (re-boxing an inline arrival onto the heap under
-// `heap_only`, un-boxing a heap arrival into the buffer under `sbo_only`).
+// `heap_only`, un-boxing a heap arrival into the buffer under `inline_only`).
 // Only the conversions that might change the mode can throw; everything
 // else is `noexcept`, including every same-policy move.
 //
@@ -2607,25 +2607,26 @@ class proxy: public details::api_base_t<F> {
   // has no buffer for the knobs to apply to.
   static_assert(
       Policy.alloc == invocable_alloc::heap_only ||
-          (Policy.sbo_size >= invocable_policy{}.sbo_size &&
-              Policy.sbo_align >= invocable_policy{}.sbo_align),
-      "sbo_size and sbo_align may not shrink below their defaults");
-  static_assert(std::has_single_bit(Policy.sbo_align),
-      "sbo_align must be a power of two");
+          (Policy.inline_size >= invocable_policy{}.inline_size &&
+              Policy.inline_align >= invocable_policy{}.inline_align),
+      "inline_size and inline_align may not shrink below their defaults");
+  static_assert(std::has_single_bit(Policy.inline_align),
+      "inline_align must be a power of two");
   static_assert(
       Policy.alloc == invocable_alloc::heap_only ||
-          Policy.sbo_size == padded_size(Policy.sbo_size, Policy.sbo_align),
-      "sbo_size that is not a multiple of sbo_align would waste the "
+          Policy.inline_size ==
+              padded_size(Policy.inline_size, Policy.inline_align),
+      "inline_size that is not a multiple of inline_align would waste the "
       "difference as padding; pass it through padded_size");
 
 public:
   using facade_t = F;
 
-  // `sbo_size`: inline storage capacity in bytes (which a `heap_only` policy
-  // never uses).
+  // `inline_size`: inline storage capacity in bytes (which a `heap_only`
+  // policy never uses).
   //
   // See `invocable_policy` for the inline-eligibility conditions.
-  static constexpr size_t sbo_size = Policy.sbo_size;
+  static constexpr size_t inline_size = Policy.inline_size;
 
   // `proxy`: an empty proxy holds no target.
   proxy() = default;
@@ -2639,16 +2640,16 @@ public:
   // Usually spelled through `make_proxy`.
   //
   // This is the moment the policy meets the concrete type: the storage mode
-  // is chosen here and baked into the owning table, and an `sbo_only` policy
-  // rejects an ineligible target here.
+  // is chosen here and baked into the owning table, and an `inline_only`
+  // policy rejects an ineligible target here.
   template<typename T, typename... Args>
   requires(Proxiable<T, F> && std::constructible_from<T, Args...>)
   explicit proxy(std::in_place_type_t<T>, Args&&... args)
       : vtable_{&details::owning_vtable_for<F, F, T,
             details::can_store_inline<T>(Policy)>} {
-    static_assert(Policy.alloc != invocable_alloc::sbo_only ||
-                      details::sbo_fits<T>(Policy),
-        "the target is not eligible for an sbo_only proxy's inline buffer");
+    static_assert(Policy.alloc != invocable_alloc::inline_only ||
+                      details::inline_eligible<T>(Policy),
+        "the target is not eligible for an inline_only proxy's inline buffer");
     if constexpr (details::can_store_inline<T>(Policy))
       ::new (static_cast<void*>(storage_.buf)) T(std::forward<Args>(args)...);
     else
@@ -2665,9 +2666,9 @@ public:
   // a target the policy could store inline, so nothing is copied or moved
   // and the target's address stays stable.
   //
-  // The exception is `sbo_only`, which cannot hold a heap target: it un-boxes
-  // the target into its buffer (the type is concrete here, so the fit is
-  // checked at compile time) and frees the allocation.
+  // The exception is `inline_only`, which cannot hold a heap target: it
+  // un-boxes the target into its buffer (the type is concrete here, so the fit
+  // is checked at compile time) and frees the allocation.
   //
   // A null pointer yields an empty proxy. Ownership arrives from a raw pointer
   // only by way of a `unique_ptr`; there is deliberately no raw-pointer
@@ -2676,9 +2677,10 @@ public:
   requires Proxiable<T, F>
   explicit proxy(std::unique_ptr<T> target) noexcept {
     if (!target) return;
-    if constexpr (Policy.alloc == invocable_alloc::sbo_only) {
-      static_assert(details::sbo_fits<T>(Policy),
-          "the target is not eligible for an sbo_only proxy's inline buffer");
+    if constexpr (Policy.alloc == invocable_alloc::inline_only) {
+      static_assert(details::inline_eligible<T>(Policy),
+          "the target is not eligible for an inline_only proxy's inline "
+          "buffer");
       ::new (static_cast<void*>(storage_.buf)) T(std::move(*target));
       vtable_ = &details::owning_vtable_for<F, F, T, true>;
     } else {
@@ -2774,14 +2776,14 @@ public:
   //
   // Static, because the answer is a property of this proxy TYPE against the
   // source's runtime target; it works before any destination instance
-  // exists, and is equally callable through one. Only an `sbo_only`
+  // exists, and is equally callable through one. Only an `inline_only`
   // destination can ever answer no (everything else has the heap to fall
   // back on), and an empty source is always adoptable, to empty. It does
   // not promise the allocation a mode-changing adoption may need.
   template<Facade D, invocable_policy P>
   requires(std::same_as<D, F> || Extends<D, F>)
   [[nodiscard]] static bool can_adopt(const proxy<D, P>& source) noexcept {
-    if constexpr (Policy.alloc != invocable_alloc::sbo_only) {
+    if constexpr (Policy.alloc != invocable_alloc::inline_only) {
       return true;
     } else {
       const auto* src = source.vtable_;
@@ -2888,11 +2890,11 @@ private:
   static constexpr size_t buf_size =
       (Policy.alloc == invocable_alloc::heap_only)
           ? sizeof(void*)
-          : Policy.sbo_size;
+          : Policy.inline_size;
   static constexpr size_t buf_align =
       (Policy.alloc == invocable_alloc::heap_only)
           ? alignof(void*)
-          : Policy.sbo_align;
+          : Policy.inline_align;
 
   union storage_t {
     alignas(buf_align) std::byte buf[buf_size];
@@ -2939,7 +2941,7 @@ private:
   // An inline arrival relocates into the buffer when it fits (guaranteed, and
   // checked only at compile time, when this buffer dominates the source's) and
   // otherwise re-boxes onto the heap. A heap arrival moves by pointer
-  // steal, or un-boxes into an `sbo_only` proxy's buffer.
+  // steal, or un-boxes into an `inline_only` proxy's buffer.
   //
   // A mode change switches to the table's other-mode sibling, which carries
   // its own mode's birth ancestry. Only the mode-changing paths can throw (the
@@ -2962,7 +2964,7 @@ private:
 
   // `do_take_inline`: the inline-arrival half of `do_adopt`, which relocates
   // into the buffer when the target fits, else re-boxes onto the heap (or
-  // throws, under `sbo_only`).
+  // throws, under `inline_only`).
   //
   // Statically impossible paths are pruned rather than left dynamically
   // unreachable, so a `noexcept` adoption contains no throw at all.
@@ -2982,31 +2984,31 @@ private:
         vtable_ = vt;
         return;
       }
-      if constexpr (Policy.alloc != invocable_alloc::sbo_only) {
+      if constexpr (Policy.alloc != invocable_alloc::inline_only) {
         storage_.ptr = vt->to_heap(other.storage_.buf);
         vtable_ = vt->heap_table;
       } else {
         throw std::length_error{
-            "the target cannot be stored in an sbo_only proxy's buffer"};
+            "the target cannot be stored in an inline_only proxy's buffer"};
       }
     }
   }
 
   // `do_take_heap`: the heap-arrival half of `do_adopt`, which steals the
-  // pointer, or un-boxes into an `sbo_only` `proxy`'s buffer (or throws, when
-  // the erased target does not fit it or cannot move).
+  // pointer, or un-boxes into an `inline_only` `proxy`'s buffer (or throws,
+  // when the erased target does not fit it or cannot move).
   template<Facade D, invocable_policy P>
   void do_take_heap(proxy<D, P>& other, const owning_vtable_t* vt) {
-    if constexpr (P.alloc == invocable_alloc::sbo_only) {
-      // Unreachable: an sbo_only source never carries a heap target.
-    } else if constexpr (Policy.alloc != invocable_alloc::sbo_only) {
+    if constexpr (P.alloc == invocable_alloc::inline_only) {
+      // Unreachable: an inline_only source never carries a heap target.
+    } else if constexpr (Policy.alloc != invocable_alloc::inline_only) {
       // NOLINTNEXTLINE(clang-analyzer-core.uninitialized.Assign): see target
       storage_.ptr = other.storage_.ptr;
       vtable_ = vt;
     } else {
       if (!vt->to_sbo || vt->size > buf_size || vt->align > buf_align)
         throw std::length_error{
-            "the target cannot be stored in an sbo_only proxy's buffer"};
+            "the target cannot be stored in an inline_only proxy's buffer"};
       // NOLINTNEXTLINE(clang-analyzer-core.CallAndMessage): see target
       vt->to_sbo(other.storage_.ptr, storage_.buf);
       vtable_ = vt->sbo_table;

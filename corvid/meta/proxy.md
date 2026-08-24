@@ -109,7 +109,7 @@ no name to mint.
 The one-method ancestor within Corvid is
 [fixed_function.h](fixed_function.h). A `proxy` is a `fixed_function`
 generalized from a single anonymous `operator()` to a named suite of
-methods, and the owning flavor reuses the same storage ideas (inline SBO
+methods, and the owning flavor reuses the same storage ideas (inline storage
 buffer plus dispatch pointer).
 
 ## Naming map
@@ -958,7 +958,7 @@ classDiagram
         +try_downcast() to const views only
     }
     class proxy~F,Policy~ {
-        -storage_ : SBO buffer or heap pointer
+        -storage_ : inline buffer or heap pointer
         -vtable_ : owning table pointer
         +call()
         +clone()
@@ -1053,13 +1053,13 @@ moved-from proxy is empty, testable via `operator bool`, and calling
 through one is undefined behavior.
 
 The policy is shared with `flexi_function` and lives in `invocable_policy.h`. Its fourth knob, `empty`, selects the empty-call behavior and is not yet honored by `proxy` (calling through an empty proxy remains undefined). The other three are storage knobs. The `fixed_function` lesson is that the
-default SBO is sometimes a little too small, so `sbo_size` and `sbo_align`
+default inline buffer is sometimes a little too small, so `inline_size` and `inline_align`
 are settable, growing only (a target eligible for the default buffer stays
-eligible for every buffer). The `sbo_size` must be a multiple of
-`sbo_align`, since anything less would occupy the padded size anyway and
+eligible for every buffer). The `inline_size` must be a multiple of
+`inline_align`, since anything less would occupy the padded size anyway and
 waste the difference; `padded_size` computes a conforming value from a
-byte budget. `alloc` picks the strategy: `sbo_or_heap` (the
-default), `sbo_only` (an ineligible target is a clean `static_assert` at
+byte budget. `alloc` picks the strategy: `inline_or_heap` (the
+default), `inline_only` (an ineligible target is a clean `static_assert` at
 construction), or `heap_only` (every target's address is stable, and the
 handle drops its buffer to become two words, like a view).
 
@@ -1076,7 +1076,7 @@ inline arrival relocates into the buffer when it fits, and otherwise
 re-boxes onto the heap. (The fit check is purely compile-time when the
 destination's buffer dominates the source's, which covers every
 same-policy move.) A heap arrival moves by pointer steal, or un-boxes into
-an `sbo_only` proxy's buffer, with the erased target's size and alignment
+an `inline_only` proxy's buffer, with the erased target's size and alignment
 checked against the buffer through the owning table.
 
 Exactly the conversions that might change the storage mode can throw: the
@@ -1090,7 +1090,7 @@ The static probe `can_adopt(source)` answers up front whether a conversion
 would be accommodated, advertising that adoption is not always possible
 and letting a caller sidestep the throw. It is a property of the
 destination type against the source's runtime target, so it needs no
-destination instance. Only an `sbo_only` destination can ever answer no.
+destination instance. Only an `inline_only` destination can ever answer no.
 
 The mode-changing thunks and the other-mode table cross-links live in the
 owning tables (`sbo_to_heap`/`heap_to_sbo`), whose two modes reference
@@ -1141,7 +1141,7 @@ pointers are never adopted and never exposed.
 `proxy<F>` constructs from a `std::unique_ptr<T>` (also spelled
 `make_proxy<F>(std::move(up))`), adopting the allocation as-is onto the
 heap path. Nothing is copied or moved, and the address stays stable. An
-`sbo_only` proxy instead un-boxes the target into its buffer, the fit
+`inline_only` proxy instead un-boxes the target into its buffer, the fit
 being a compile-time fact here since the type is concrete.
 
 `extract<T>()` is the inverse. It verifies `T` against the owning table's
@@ -1561,7 +1561,7 @@ virtual call and a table thunk are the same shape.
 
 It was rejected on structural grounds. Composition (`extends`) is table
 concatenation instead of multiple inheritance. Facade upcasting is a table
-view instead of a cross-cast. SBO relocation is a table slot instead of
+view instead of a cross-cast. Inline relocation is a table slot instead of
 virtual clone/move on a polymorphic buffer. `proxy_view` stays two plain
 pointers with no embedded polymorphic object. And the `method<"...">` list
 keeps the facade enumerable, which `prox::codegen` already leans on and
@@ -1652,7 +1652,7 @@ already pinned.
    dispatch-table synthesis is exercised in isolation: the conformance
    concepts, const methods, reference returns, heterogeneous containers,
    and the `"name"_method` UDL.
-2. Ownership basics. The owning `proxy` with SBO and heap fallback,
+2. Ownership basics. The owning `proxy` with inline storage and heap fallback,
    `noexcept` method flavors, deep const on every handle,
    `const_proxy_view`, and the self-conformance invariant.
 3. Sugar and composition. The `api` mixin, `validate_api` at registration,
@@ -1863,7 +1863,7 @@ owning-table ABI. `destroy`, `copy`, `to_heap`, and `to_sbo` would all
 need to reach it, meaning per-instance storage or per-allocator table
 families, plus an allocator-compatibility axis on every adoption. The
 allocation story runs through policy instead: hot targets live inline
-under SBO, `sbo_only` outlaws the heap outright, `make_shared_proxy`
+when inline, `inline_only` outlaws the heap outright, `make_shared_proxy`
 already gets the one-allocation layout, and a target that must live in
 an arena can stay there and be viewed, since views do not own.
 

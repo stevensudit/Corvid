@@ -1005,8 +1005,8 @@ consteval auto corvid_proxy_spec(keepsake*, tin*) {
 // One size fits the inline buffer exactly, the other forces the heap path.
 using small_box = strongbox<4>;
 using big_box = strongbox<64>;
-static_assert(sizeof(small_box) <= proxy<lockbox>::sbo_size);
-static_assert(sizeof(big_box) > proxy<lockbox>::sbo_size);
+static_assert(sizeof(small_box) <= proxy<lockbox>::inline_size);
+static_assert(sizeof(big_box) > proxy<lockbox>::inline_size);
 using small_coffer = coffer<4>;
 using big_coffer = coffer<64>;
 
@@ -1014,16 +1014,16 @@ using big_coffer = coffer<64>;
 // buffer with heap fallback. Buffer sizes go through `padded_size`, as the
 // policy requires, so they conform on any platform alignment.
 namespace policies {
-constexpr invocable_policy big_sbo{.sbo_size = padded_size(96)};
-constexpr invocable_policy sbo_only{.alloc = invocable_alloc::sbo_only};
+constexpr invocable_policy big_inline{.inline_size = padded_size(96)};
+constexpr invocable_policy inline_only{.alloc = invocable_alloc::inline_only};
 constexpr invocable_policy heap_only{.alloc = invocable_alloc::heap_only};
 constexpr invocable_policy big_align{
-    .sbo_size = padded_size(96, 2 * alignof(std::max_align_t)),
-    .sbo_align = 2 * alignof(std::max_align_t)};
+    .inline_size = padded_size(96, 2 * alignof(std::max_align_t)),
+    .inline_align = 2 * alignof(std::max_align_t)};
 } // namespace policies
 
 // `ingot` is `strongbox`'s over-aligned sibling: its alignment exceeds the
-// default `sbo_align`, so only a policy that raises the alignment knob may
+// default `inline_align`, so only a policy that raises the alignment knob may
 // store it inline, no matter how roomy the buffer is.
 struct alignas(2 * alignof(std::max_align_t)) ingot {
   explicit ingot(life_stats& stats) noexcept : stats_{&stats} {
@@ -1051,9 +1051,9 @@ consteval auto corvid_proxy_spec(lockbox*, ingot*) {
 
 // Alignment, not size, is what keeps `ingot` out of the roomy default-aligned
 // buffer.
-static_assert(alignof(ingot) > invocable_policy{}.sbo_align);
-static_assert(sizeof(ingot) <= policies::big_sbo.sbo_size);
-static_assert(alignof(ingot) <= policies::big_align.sbo_align);
+static_assert(alignof(ingot) > invocable_policy{}.inline_align);
+static_assert(sizeof(ingot) <= policies::big_inline.inline_size);
+static_assert(alignof(ingot) <= policies::big_align.inline_align);
 
 // `cursed_coffer` copies like `coffer` until poisoned, after which its copy
 // constructor throws. It pins clone's exception-safety contract.
@@ -1565,45 +1565,47 @@ static_assert(prox::Extends<vault, lockbox>);
 static_assert(
     sizeof(proxy<lockbox, policies::heap_only>) == 2 * sizeof(void*));
 static_assert(
-    sizeof(proxy<lockbox, policies::big_sbo>) > sizeof(proxy<lockbox>));
+    sizeof(proxy<lockbox, policies::big_inline>) > sizeof(proxy<lockbox>));
 static_assert(
-    proxy<lockbox, policies::big_sbo>::sbo_size == policies::big_sbo.sbo_size);
+    proxy<lockbox, policies::big_inline>::inline_size ==
+    policies::big_inline.inline_size);
 
 // Policies never foreclose an rvalue conversion: the destination
 // accommodates whatever target arrives, changing its storage mode when its
 // own policy demands. Exactly the conversions that might change the mode
-// (or fail to, under sbo_only) are not noexcept; everything else, including
+// (or fail to, under inline_only) are not noexcept; everything else, including
 // every same-policy move, is.
-static_assert(std::constructible_from<proxy<lockbox, policies::big_sbo>,
+static_assert(std::constructible_from<proxy<lockbox, policies::big_inline>,
     proxy<lockbox>&&>);
 static_assert(std::constructible_from<proxy<lockbox>,
-    proxy<lockbox, policies::big_sbo>&&>);
+    proxy<lockbox, policies::big_inline>&&>);
 static_assert(std::constructible_from<proxy<lockbox>,
     proxy<lockbox, policies::heap_only>&&>);
 static_assert(std::constructible_from<proxy<lockbox, policies::heap_only>,
     proxy<lockbox>&&>);
 static_assert(std::constructible_from<proxy<lockbox>,
-    proxy<lockbox, policies::sbo_only>&&>);
-static_assert(std::constructible_from<proxy<lockbox, policies::sbo_only>,
+    proxy<lockbox, policies::inline_only>&&>);
+static_assert(std::constructible_from<proxy<lockbox, policies::inline_only>,
     proxy<lockbox>&&>);
-static_assert(std::constructible_from<proxy<lockbox, policies::sbo_only>,
+static_assert(std::constructible_from<proxy<lockbox, policies::inline_only>,
     proxy<lockbox, policies::heap_only>&&>);
-static_assert(std::constructible_from<proxy<lockbox, policies::big_sbo>,
+static_assert(std::constructible_from<proxy<lockbox, policies::big_inline>,
     proxy<vault>&&>);
 static_assert(std::is_nothrow_constructible_v<proxy<lockbox>, proxy<vault>&&>);
 static_assert(std::is_nothrow_constructible_v<
-    proxy<lockbox, policies::big_sbo>, proxy<lockbox>&&>);
+    proxy<lockbox, policies::big_inline>, proxy<lockbox>&&>);
 static_assert(!std::is_nothrow_constructible_v<proxy<lockbox>,
-    proxy<lockbox, policies::big_sbo>&&>);
+    proxy<lockbox, policies::big_inline>&&>);
 static_assert(!std::is_nothrow_constructible_v<
     proxy<lockbox, policies::heap_only>, proxy<lockbox>&&>);
 static_assert(
     std::is_nothrow_constructible_v<proxy<lockbox, policies::heap_only>,
         proxy<lockbox, policies::heap_only>&&>);
 static_assert(!std::is_nothrow_constructible_v<
-    proxy<lockbox, policies::sbo_only>, proxy<lockbox>&&>);
-static_assert(std::is_nothrow_constructible_v<
-    proxy<lockbox, policies::sbo_only>, proxy<lockbox, policies::sbo_only>&&>);
+    proxy<lockbox, policies::inline_only>, proxy<lockbox>&&>);
+static_assert(
+    std::is_nothrow_constructible_v<proxy<lockbox, policies::inline_only>,
+        proxy<lockbox, policies::inline_only>&&>);
 
 // Downcasting exists on every owning proxy, both views, and the shared
 // proxy, priced in the tables rather than the handle, and only toward a
@@ -2494,20 +2496,20 @@ TEST_CASE("Owning upcast lifetimes", "[proxy]") {
 #pragma endregion
 #pragma region Storage and downcasts
 
-// Diagnostics on record: constructing an sbo_only proxy over an ineligible
-// target, e.g. `make_proxy<lockbox, big_box, policies::sbo_only>(stats)`,
+// Diagnostics on record: constructing an inline_only proxy over an ineligible
+// target, e.g. `make_proxy<lockbox, big_box, policies::inline_only>(stats)`,
 // fires a single clean error from the in-place constructor: "static
 // assertion failed due to requirement 'corvid::meta::invocable_policy{16, 8,
-// 1, true}.alloc != corvid::meta::invocable_alloc::sbo_only ||
-// details::sbo_fits(corvid::meta::invocable_policy{16, 8, 1, true})': the
-// target is not eligible for an sbo_only proxy's inline buffer".
+// 1, true}.alloc != corvid::meta::invocable_alloc::inline_only ||
+// details::inline_eligible(corvid::meta::invocable_policy{16, 8, 1, true})':
+// the target is not eligible for an inline_only proxy's inline buffer".
 TEST_CASE("Storage policies", "[proxy]") {
   // A buffer sized for `big_box` stores it inline, so moves relocate instead
   // of stealing a heap pointer.
-  static_assert(sizeof(big_box) <= policies::big_sbo.sbo_size);
+  static_assert(sizeof(big_box) <= policies::big_inline.inline_size);
   life_stats stats;
   if (true) {
-    auto p = make_proxy<lockbox, big_box, policies::big_sbo>(stats);
+    auto p = make_proxy<lockbox, big_box, policies::big_inline>(stats);
     CHECK(p.call<"add">(3) == 3);
     auto q = std::move(p);
     CHECK(stats.moves == 1);
@@ -2515,7 +2517,7 @@ TEST_CASE("Storage policies", "[proxy]") {
   }
   CHECK(stats.destroyed == stats.constructed);
 
-  // A heap_only proxy keeps even an SBO-eligible target on the heap, so its
+  // A heap_only proxy keeps even an inline-eligible target on the heap, so its
   // address is stable and moves steal the pointer.
   life_stats heap_stats;
   if (true) {
@@ -2532,11 +2534,11 @@ TEST_CASE("Storage policies", "[proxy]") {
   }
   CHECK(heap_stats.destroyed == heap_stats.constructed);
 
-  // An sbo_only proxy accepts an eligible target; converting it into a
+  // An inline_only proxy accepts an eligible target; converting it into a
   // default-policy proxy of a base facade upcasts and relocates in one move.
   life_stats sbo_stats;
   if (true) {
-    auto p = make_proxy<vault, small_box, policies::sbo_only>(sbo_stats);
+    auto p = make_proxy<vault, small_box, policies::inline_only>(sbo_stats);
     CHECK(p.call<"add">(5) == 5);
     proxy<lockbox> r = std::move(p);
     CHECK(sbo_stats.moves == 1);
@@ -2569,7 +2571,7 @@ TEST_CASE("Storage policies", "[proxy]") {
   // stays inline.
   life_stats shrink_stats;
   if (true) {
-    auto p = make_proxy<lockbox, big_box, policies::big_sbo>(shrink_stats);
+    auto p = make_proxy<lockbox, big_box, policies::big_inline>(shrink_stats);
     p.call<"add">(2);
     proxy<lockbox> d = std::move(p);
     CHECK(shrink_stats.moves == 1);
@@ -2581,7 +2583,7 @@ TEST_CASE("Storage policies", "[proxy]") {
   CHECK(shrink_stats.destroyed == shrink_stats.constructed);
   life_stats fit_stats;
   if (true) {
-    auto p = make_proxy<lockbox, small_box, policies::big_sbo>(fit_stats);
+    auto p = make_proxy<lockbox, small_box, policies::big_inline>(fit_stats);
     p.call<"add">(3);
     proxy<lockbox> d = std::move(p);
     CHECK(fit_stats.moves == 1);
@@ -2591,13 +2593,13 @@ TEST_CASE("Storage policies", "[proxy]") {
   }
   CHECK(fit_stats.destroyed == fit_stats.constructed);
 
-  // A heap target un-boxes into an sbo_only proxy's buffer when it fits,
+  // A heap target un-boxes into an inline_only proxy's buffer when it fits,
   // and throws when it cannot, leaving the source intact. `can_adopt`
-  // answers up front, so the throw is avoidable; only an sbo_only
+  // answers up front, so the throw is avoidable; only an inline_only
   // destination can ever refuse, and an empty source is always adoptable.
   life_stats unbox_stats;
   if (true) {
-    using sbo_proxy = proxy<lockbox, policies::sbo_only>;
+    using sbo_proxy = proxy<lockbox, policies::inline_only>;
     auto p = make_proxy<lockbox, small_box, policies::heap_only>(unbox_stats);
     p.call<"add">(4);
     CHECK(sbo_proxy::can_adopt(p));
@@ -2710,7 +2712,7 @@ TEST_CASE("Downcast lifetimes", "[proxy]") {
   // Mode changes keep the birth memory usable: a mode-changing adoption
   // lands on the table's other-mode sibling, which carries its own mode's
   // ancestry. Re-boxing into heap_only, then downcasting (a steal);
-  // un-boxing into sbo_only, then downcasting (a relocation).
+  // un-boxing into inline_only, then downcasting (a relocation).
   life_stats rebox_stats;
   if (true) {
     auto pv = make_proxy<vault, small_box>(rebox_stats);
@@ -2727,7 +2729,7 @@ TEST_CASE("Downcast lifetimes", "[proxy]") {
   if (true) {
     auto pv = make_proxy<vault, small_box, policies::heap_only>(unbox_stats);
     pv.call<"add">(9);
-    proxy<lockbox, policies::sbo_only> pl = std::move(pv);
+    proxy<lockbox, policies::inline_only> pl = std::move(pv);
     CHECK(unbox_stats.moves == 1);
     auto back = std::move(pl).try_downcast<vault>();
     REQUIRE(back);
@@ -2907,11 +2909,11 @@ TEST_CASE("Cloning", "[proxy]") {
 
 TEST_CASE("Over-aligned targets", "[proxy]") {
   // Alignment is enforced independently of size. Under the default
-  // `sbo_align`, an over-aligned target goes to the heap even when the
-  // buffer is roomy enough; raising `sbo_align` brings it inline.
+  // `inline_align`, an over-aligned target goes to the heap even when the
+  // buffer is roomy enough; raising `inline_align` brings it inline.
   life_stats heap_stats;
   if (true) {
-    auto p = make_proxy<lockbox, ingot, policies::big_sbo>(heap_stats);
+    auto p = make_proxy<lockbox, ingot, policies::big_inline>(heap_stats);
     p.call<"add">(7);
     auto q = std::move(p);
     // A heap target moves by pointer, without relocating the ingot.
@@ -2929,15 +2931,15 @@ TEST_CASE("Over-aligned targets", "[proxy]") {
     CHECK(inline_stats.moves == 1);
     CHECK(q.call<"gold">() == 8);
 
-    // An sbo_only destination cannot align it and refuses up front; the
+    // An inline_only destination cannot align it and refuses up front; the
     // default policy re-boxes the inline arrival to the heap.
-    using sbo_proxy = proxy<lockbox, policies::sbo_only>;
+    using sbo_proxy = proxy<lockbox, policies::inline_only>;
     CHECK(!sbo_proxy::can_adopt(q));
     proxy<lockbox> d = std::move(q);
     CHECK(inline_stats.moves == 2);
     CHECK(d.call<"gold">() == 8);
 
-    // Un-boxing a heap ingot into the sbo_only buffer fails the same way,
+    // Un-boxing a heap ingot into the inline_only buffer fails the same way,
     // throwing and leaving the source whole.
     CHECK(!sbo_proxy::can_adopt(d));
     CHECK_THROWS_AS(sbo_proxy{std::move(d)}, std::length_error);
@@ -2954,8 +2956,8 @@ TEST_CASE("Clone exception safety", "[proxy]") {
   life_stats stats;
   bool poison = false;
   if (true) {
-    auto p =
-        make_proxy<lockbox, cursed_coffer, policies::big_sbo>(stats, poison);
+    auto p = make_proxy<lockbox, cursed_coffer, policies::big_inline>(stats,
+        poison);
     p.call<"add">(3);
     const auto q = p.clone();
     CHECK(stats.copies == 1);
@@ -3019,13 +3021,13 @@ TEST_CASE("unique_ptr interop", "[proxy]") {
   }
   CHECK(sbo_stats.destroyed == sbo_stats.constructed);
 
-  // An sbo_only proxy un-boxes an adopted unique_ptr at construction, where
+  // An inline_only proxy un-boxes an adopted unique_ptr at construction, where
   // the concrete type makes the fit a compile-time fact.
   life_stats unbox_stats;
   if (true) {
     auto up = std::make_unique<small_coffer>(unbox_stats);
     up->add(5);
-    auto p = make_proxy<lockbox, policies::sbo_only>(std::move(up));
+    auto p = make_proxy<lockbox, policies::inline_only>(std::move(up));
     CHECK(unbox_stats.moves == 1);
     CHECK(p.call<"gold">() == 5);
   }
