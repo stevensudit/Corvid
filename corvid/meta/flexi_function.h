@@ -86,7 +86,7 @@ struct flexi_thunks<Sig, ResultT(Args...)> {
   // `F` with the signature's cv-qualifier applied.
   template<class F>
   using cv_qualified_target_t = std::conditional_t<
-      traits::const_qualifier == const_qual::present, const F, F>;
+      (traits::const_qualifier == const_qual::present), const F, F>;
 
   // `F` with the signature's qualifiers applied, which is how the stored
   // target is invoked: `F cv&`, or `F cv&&` under an `&&` signature.
@@ -96,7 +96,7 @@ struct flexi_thunks<Sig, ResultT(Args...)> {
   // is entirely in what call operators the wrapper exposes.
   template<class F>
   using qualified_target_t =
-      std::conditional_t<traits::ref_qualifier == ref_qual::rvalue,
+      std::conditional_t<(traits::ref_qualifier == ref_qual::rvalue),
           cv_qualified_target_t<F>&&, cv_qualified_target_t<F>&>;
 
   // Whether `F`, invoked as `qualified_target_t<F>`, yields `ResultT`, without
@@ -167,25 +167,35 @@ struct flexi_thunks<Sig, ResultT(Args...)> {
 
   // Invoke the stored callable, where `storage` is the wrapper's type-erased
   // buffer.
+  //
+  // A stateless callable is not in the buffer at all; a static one is
+  // materialized for the call, and the signature's qualifiers apply to it
+  // exactly as they would to a stored one.
   template<class F, allocation_mode SourceAlloc>
   static ResultT
   invoke_impl(void* storage, Args... args) noexcept(noexcept_call) {
-    return std::invoke_r<ResultT>(
-        static_cast<qualified_target_t<F>>(
-            *stored_fn<F, SourceAlloc>(storage)),
-        std::forward<Args>(args)...);
+    if constexpr (SourceAlloc == allocation_mode::stateless) {
+      F target{};
+      return std::invoke_r<ResultT>(static_cast<qualified_target_t<F>>(target),
+          std::forward<Args>(args)...);
+    } else {
+      return std::invoke_r<ResultT>(
+          static_cast<qualified_target_t<F>>(
+              *stored_fn<F, SourceAlloc>(storage)),
+          std::forward<Args>(args)...);
+    }
   }
 
   // Whether `ResultT` supports `on_empty::silent`: it can be value-initialized
   // or is `void`.
   static constexpr bool silenceable =
-      std::is_void_v<ResultT> || std::is_default_constructible_v<ResultT>;
+      (std::is_void_v<ResultT> || std::is_default_constructible_v<ResultT>);
 
   // Whether calling an empty wrapper with `on_empty::silent` is noexcept; a
   // subset of `silenceable`.
   static constexpr bool nothrow_silenceable =
-      std::is_void_v<ResultT> ||
-      std::is_nothrow_default_constructible_v<ResultT>;
+      (std::is_void_v<ResultT> ||
+          std::is_nothrow_default_constructible_v<ResultT>);
 
   // The invoke stub for an empty wrapper.
   //
@@ -212,14 +222,15 @@ struct flexi_thunks<Sig, ResultT(Args...)> {
   // Manage the lifespan of a stored callable through a single function that
   // can size, destroy, probe, or relocate, depending on the arguments.
   //
-  // - When `from` is null, it is a pure size query that returns `sizeof(F)`.
+  // - When `from` is null, it is a pure size query that returns the stored
+  // size: `sizeof(F)`, or 0 for a stateless source.
   //
   // - When `from` is set and `dest` is null, it destroys the callable at
   // `from` (freeing its heap block, if applicable).
   //
   // - When `from` and `dest` are set, but `dest->to` is null, it is a probe
-  // that returns `sizeof(F)` when a relocation into `dest` would be accepted
-  // and `refused` otherwise.
+  // that returns the stored size when a relocation into `dest` would be
+  // accepted and `refused` otherwise.
   //
   // - When `from` (and `dest`) and `dest->to` are set, it relocates the
   // callable into `dest->to`, filling `dest->dispatch`.
@@ -250,46 +261,59 @@ struct flexi_thunks<Sig, ResultT(Args...)> {
   // callable landed in. The source's own pair is the caller's
   // responsibility: each wrapper's empty-call behavior is baked into its
   // type, so the caller reinstalls its own empty pair.
+  //
+  // An `allocation_mode::stateless` source has nothing to size, destroy, or
+  // move: its size is 0, destruction is a no-op, every destination accepts it,
+  // and a relocation only writes the thunk pair.
   template<class F, allocation_mode SourceAlloc>
   static size_t lifespan_impl(void* from, destination_spec* dest) {
-    if (!from) return sizeof(F);
-
-    F* f = stored_fn<F, SourceAlloc>(from);
-
-    if (!dest) return do_destroy<F, SourceAlloc>(f);
-
-    // First decide whether a relocation is allowed.
-    const bool fits_inline = policy_details::can_store_inline<F>(dest->policy);
-    const bool may_heap = (dest->policy.alloc != invocable_alloc::inline_only);
-    if (!fits_inline && !may_heap) return refused;
-    if (!dest->to) return sizeof(F);
-
-    if constexpr (SourceAlloc == allocation_mode::dynamic) {
-      // A dynamically-allocated source never moves to a new box. It either
-      // hands its box over or un-boxes into an `inline_only` buffer.
-      if (may_heap) return hand_over<F>(f, dest);
-      if constexpr (std::is_nothrow_move_constructible_v<F>) {
-        // An `inline_only` destination forces un-boxing, and the refusal
-        // check above guaranteed the fit.
-        assert(fits_inline);
-        return move_inlined<F, SourceAlloc>(f, dest);
-      } else {
-        // Unreachable: a throwing-move `F` is never `fits_inline`, while
-        // `may_heap` was consumed above, so the refusal check has already
-        // returned.
-        //
-        // The arm exists because it is the branch the `if constexpr`
-        // instantiates for a throwing-move `F` (whose `move_inlined` would not
-        // compile), and it returns the refusal value so that a future logic
-        // error fails safe instead of reporting a successful relocation.
-        assert(false);
-        return refused;
-      }
+    if constexpr (SourceAlloc == allocation_mode::stateless) {
+      if (from && dest && dest->to)
+        *dest->dispatch = dispatch_for<F, SourceAlloc>();
+      return 0;
     } else {
-      // An inline source stays inline when the destination is eligible, and
-      // otherwise moves to a new block.
-      if (fits_inline) return move_inlined<F, SourceAlloc>(f, dest);
-      return move_dynamic<F, SourceAlloc>(f, dest);
+      if (!from) return sizeof(F);
+
+      F* f = stored_fn<F, SourceAlloc>(from);
+
+      if (!dest) return do_destroy<F, SourceAlloc>(f);
+
+      // First decide whether a relocation is allowed.
+      const bool fits_inline =
+          policy_details::can_store_inline<F>(dest->policy);
+      const bool may_heap =
+          (dest->policy.alloc != invocable_alloc::inline_only);
+      if (!fits_inline && !may_heap) return refused;
+      if (!dest->to) return sizeof(F);
+
+      if constexpr (SourceAlloc == allocation_mode::dynamic) {
+        // A dynamically-allocated source never moves to a new box. It either
+        // hands its box over or un-boxes into an `inline_only` buffer.
+        if (may_heap) return hand_over<F>(f, dest);
+        if constexpr (std::is_nothrow_move_constructible_v<F>) {
+          // An `inline_only` destination forces un-boxing, and the refusal
+          // check above guaranteed the fit.
+          assert(fits_inline);
+          return move_inlined<F, SourceAlloc>(f, dest);
+        } else {
+          // Unreachable: a throwing-move `F` is never `fits_inline`, while
+          // `may_heap` was consumed above, so the refusal check has already
+          // returned.
+          //
+          // The arm exists because it is the branch the `if constexpr`
+          // instantiates for a throwing-move `F` (whose `move_inlined` would
+          // not compile), and it returns the refusal value so that a future
+          // logic error fails safe instead of reporting a successful
+          // relocation.
+          assert(false);
+          return refused;
+        }
+      } else {
+        // An inline source stays inline when the destination is eligible, and
+        // otherwise moves to a new block.
+        if (fits_inline) return move_inlined<F, SourceAlloc>(f, dest);
+        return move_dynamic<F, SourceAlloc>(f, dest);
+      }
     }
   }
 
@@ -522,6 +546,8 @@ public:
   // The inline path can't throw, but the heap path can throw on allocation,
   // and so can the move itself (which is precisely why a callable whose move
   // constructor may throw is heap-bound). A throw leaves this instance empty.
+  // An `allocation_mode::stateless` callable takes neither path: nothing
+  // is stored, under any policy.
   //
   // The std polymorphic function wrappers are deliberately excluded
   // here; wrapping one takes the explicit constructor below.
@@ -529,7 +555,7 @@ public:
   requires(thunks::template invocable_v<std::decay_t<FN>> &&
            !is_std_function_wrapper_v<std::decay_t<FN>>)
   flexi_function(FN&& fn) noexcept(
-      policy_details::can_store_inline<std::decay_t<FN>>(Policy)) {
+      policy_details::can_store_nothrow<std::decay_t<FN>>(Policy)) {
     if (is_null_callable(fn)) return;
     do_store<std::decay_t<FN>>(std::forward<FN>(fn));
   }
@@ -553,7 +579,7 @@ public:
   requires(is_std_function_wrapper_v<std::decay_t<FN>> &&
            thunks::template invocable_v<std::decay_t<FN>>)
   explicit flexi_function(FN&& fn) noexcept(
-      policy_details::can_store_inline<std::decay_t<FN>>(Policy)) {
+      policy_details::can_store_nothrow<std::decay_t<FN>>(Policy)) {
     if (!fn) return;
     do_store<std::decay_t<FN>>(std::forward<FN>(fn));
   }
@@ -624,7 +650,7 @@ public:
       !is_std_function_wrapper_v<std::decay_t<FN>> &&
       !is_flexi_function_v<std::decay_t<FN>>)
   flexi_function& operator=(FN&& fn) noexcept(
-      policy_details::can_store_inline<std::decay_t<FN>>(Policy)) {
+      policy_details::can_store_nothrow<std::decay_t<FN>>(Policy)) {
     reset();
     if (is_null_callable(fn)) return *this;
     do_store<std::decay_t<FN>>(std::forward<FN>(fn));
@@ -698,7 +724,8 @@ public:
     return dispatch_.lifespan;
   }
 
-  // Size of the stored callable in bytes, or 0 when empty.
+  // Size of the stored callable in bytes; 0 when empty, and also for an
+  // `allocation_mode::stateless` callable, which is not stored.
   [[nodiscard]] size_t size() const noexcept {
     return dispatch_.lifespan ? dispatch_.lifespan(nullptr, nullptr) : 0;
   }
@@ -751,13 +778,14 @@ private:
   //
   // `FD` is the stored type, already decayed and always passed explicitly;
   // `fn` is forwarded into it, so an rvalue is moved and a (trivially
-  // copyable) lvalue is copied.
+  // copyable) lvalue is copied. A stateless `fn` is not consumed at all: only
+  // its type survives, in the thunks.
   //
   // The caller handles any null-callable special case before calling, and
   // the instance is empty on entry.
   template<class FD, class FN>
   void
-  do_store(FN&& fn) noexcept(policy_details::can_store_inline<FD>(Policy)) {
+  do_store(FN&& fn) noexcept(policy_details::can_store_nothrow<FD>(Policy)) {
     static_assert(!std::is_reference_v<FD>,
         "flexi_function: do_store requires the decayed stored type");
     static_assert(
@@ -776,14 +804,11 @@ private:
         "reference type; every call would produce a dangling reference");
     assert(!dispatch_.lifespan);
 
-    constexpr bool inline_ = policy_details::can_store_inline<FD>(Policy);
-    if constexpr (inline_)
+    constexpr auto mode = policy_details::storage_mode<FD>(Policy);
+    if constexpr (mode == allocation_mode::inlined)
       new (storage_) FD(std::forward<FN>(fn));
-    else
+    else if constexpr (mode == allocation_mode::dynamic)
       *reinterpret_cast<FD**>(storage_) = new FD(std::forward<FN>(fn));
-
-    constexpr auto mode =
-        inline_ ? allocation_mode::inlined : allocation_mode::dynamic;
     dispatch_ = thunks::template dispatch_for<FD, mode>();
   }
 

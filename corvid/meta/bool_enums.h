@@ -47,10 +47,6 @@ enum class deallocation_policy : bool { preserve = false, release = true };
 // Whether to throw on failure or fail silently.
 enum class on_failure : bool { ignore = false, raise = true };
 
-// Whether a type-erased owner stores its target in its own inline buffer or
-// in a dynamic allocation it points to.
-enum class allocation_mode : bool { inlined = false, dynamic = true };
-
 // Whether the resource is owned exclusively or is shared.
 enum class ownership_type : bool { unique = false, shared = true };
 

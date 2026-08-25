@@ -78,6 +78,22 @@ enum class invocable_alloc : std::uint8_t {
 enum class on_empty : std::uint8_t { silent, raise, terminate };
 
 #pragma endregion
+#pragma region Allocation mode
+
+// `allocation_mode` is where an owner keeps one stored target: constructed in
+// its own inline buffer, in a heap block it points to, or nowhere at all.
+//
+// `stateless` is for a target whose type is empty, trivially default
+// constructible, and trivially destructible (see `is_stateless_v`). Every
+// instance of such a type is interchangeable, so the owner keeps none and its
+// invoke thunk materializes one for each call. The target occupies no storage
+// under any policy, `heap_only` included, and reports a size of 0.
+//
+// Unlike `invocable_alloc`, which is a policy choice, this is the outcome for
+// one target, and it is what the owner's thunks are keyed on.
+enum class allocation_mode : std::uint8_t { inlined, dynamic, stateless };
+
+#pragma endregion
 #pragma region invocable_policy
 
 // `invocable_policy` is the combined policy, which is used as a template
@@ -144,6 +160,37 @@ constexpr bool inline_eligible(invocable_policy p) noexcept {
 template<typename T>
 constexpr bool can_store_inline(invocable_policy p) noexcept {
   return (p.alloc != invocable_alloc::heap_only) && inline_eligible<T>(p);
+}
+
+// `is_stateless_v`: whether every `T` is interchangeable with every other, so
+// that an owner can keep none and materialize one at each call.
+//
+// Empty rules out state. Trivially default constructible rules out a
+// constructor with side effects (a counter, a registration), and trivially
+// destructible rules out a destructor with them. A captureless lambda, a
+// `std::plus<>`, or a hand-written empty functor all qualify.
+template<typename T>
+constexpr bool is_stateless_v =
+    (std::is_empty_v<T> && std::is_trivially_default_constructible_v<T> &&
+        std::is_trivially_destructible_v<T>);
+
+// `storage_mode`: where policy `p` keeps a `T`: nowhere when it is stateless,
+// inline when it can be, and on the heap otherwise.
+//
+// An `inline_only` policy over a target that can be neither is rejected
+// separately, with its own diagnostic.
+template<typename T>
+consteval allocation_mode storage_mode(invocable_policy p) noexcept {
+  if (is_stateless_v<T>) return allocation_mode::stateless;
+  if (can_store_inline<T>(p)) return allocation_mode::inlined;
+  return allocation_mode::dynamic;
+}
+
+// `can_store_nothrow`: whether storing a `T` under policy `p` cannot throw,
+// which is whenever it does not go to the heap.
+template<typename T>
+consteval bool can_store_nothrow(invocable_policy p) noexcept {
+  return (storage_mode<T>(p) != allocation_mode::dynamic);
 }
 
 // `inline_fit_guaranteed`: whether every inline target the source policy

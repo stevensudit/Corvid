@@ -207,6 +207,61 @@ TEST_CASE("Cross-policy transplant", "[flexi_function]") {
   CHECK(live == 0);
 }
 
+// A stateless functor: empty, trivially constructible and destructible.
+struct nine_fn {
+  int operator()() const noexcept { return 9; }
+};
+
+static_assert(policy_details::is_stateless_v<nine_fn>);
+static_assert(!policy_details::is_stateless_v<counted>);
+static_assert(!policy_details::is_stateless_v<int (*)()>);
+
+// Storing a stateless callable is noexcept under every policy, heap_only
+// included, because nothing is stored.
+static_assert(std::is_nothrow_constructible_v<flexi_function<heap_only, int()>,
+    nine_fn>);
+
+TEST_CASE("Stateless callables are not stored", "[flexi_function]") {
+  // A captureless lambda and an empty functor occupy no storage under any
+  // policy, so heap_only allocates nothing for them.
+  flexi_function<dflt, int()> lam{[] { return 5; }};
+  CHECK(lam);
+  CHECK(lam() == 5);
+  CHECK(lam.size() == 0);
+
+  flexi_function<heap_only, int()> h{nine_fn{}};
+  CHECK(h);
+  CHECK(h() == 9);
+  CHECK(h.size() == 0);
+
+  // A stateful callable is stored and reports its size as before.
+  int live{};
+  flexi_function<dflt, int()> stateful{counted{&live}};
+  CHECK(stateful.size() == sizeof(counted));
+
+  // Transplants go anywhere: into the leanest inline_only buffer, into
+  // heap_only, and back, without touching either side's storage.
+  CHECK(flexi_function<lean, int()>::can_adopt(lam));
+  flexi_function<lean, int()> tiny{std::move(lam)};
+  CHECK(!lam);
+  CHECK(tiny() == 5);
+  CHECK(tiny.size() == 0);
+  flexi_function<heap_only, int()> boxed{std::move(tiny)};
+  CHECK(!tiny);
+  CHECK(boxed() == 5);
+  CHECK(boxed.size() == 0);
+  fixed_function<64, int()> back{std::move(boxed)};
+  CHECK(!boxed);
+  CHECK(back() == 5);
+
+  // Reset and reassignment behave as for any callable.
+  back = nullptr;
+  CHECK(!back);
+  back = nine_fn{};
+  CHECK(back() == 9);
+  CHECK(back.size() == 0);
+}
+
 #pragma endregion
 #pragma region Empty-call policy
 
@@ -541,6 +596,13 @@ TEST_CASE("Qualified signatures wrap and adopt like plain ones",
   CHECK(!a);
   const auto& cb = b;
   CHECK(cb() == 9);
+
+  // `const_only` and `rvalue_only` are stateless, so they are not stored, and
+  // the signature's qualifiers apply to the instance materialized per call.
+  CHECK(b.size() == 0);
+  flexi_function<dflt, int() &&> rv{rvalue_only{}};
+  CHECK(rv.size() == 0);
+  CHECK(std::move(rv)() == 7);
 }
 
 #pragma endregion
